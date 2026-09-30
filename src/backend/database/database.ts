@@ -57,6 +57,12 @@ import identityNoDormancyRoutes from "./routes/identity-no-dormancy.js";
 // identity's host. Mounted BEFORE the generic /identities router so the
 // :key/archive sub-route isn't intercepted by the generic /:identityKey handler.
 import identityArchiveRoutes from "./routes/identity-archive.js";
+// Phase 143 Plan 143-04 (D-01/D-02/D-03/D-04): POST /identities/:key/unarchive
+// drops `.unarchive-requested` inside `~/fleet/identities-archive/<key>/` after
+// three fast-path preconditions (archive-exists, name-collision, all-roles-live).
+// Mounted alongside identity-archive; coexists under "/identities" because the
+// POST sub-paths are distinct (:key/archive vs :key/unarchive).
+import identityUnarchiveRoutes from "./routes/identity-unarchive.js";
 // Phase 143 Plan 143-03 (D-05/D-06/D-07): GET /identities-archive — fleet-wide
 // list of archived identity keys across the caller's own hosts. Exposes the
 // existing listArchivedIdentityKeysOnHost primitive as an HTTP surface.
@@ -2077,6 +2083,12 @@ app.use("/identities", identityNoDormancyRoutes);
 // :key/archive sub-route isn't intercepted by identitiesRoutes's /:identityKey
 // handlers. Same discipline as the exists-on-host + no-dormancy mounts above.
 app.use("/identities", identityArchiveRoutes);
+// Phase 143 Plan 143-04 (D-01): POST /identities/:key/unarchive drops
+// `.unarchive-requested` sentinel in the archive folder with three preconditions
+// (D-02: archive-exists, name-collision, all-roles-live). Coexists with
+// identity-archive under "/identities" — distinct sub-paths (:key/archive vs
+// :key/unarchive) prevent any handler shadowing.
+app.use("/identities", identityUnarchiveRoutes);
 // Phase 143 Plan 143-03 (D-05/D-06/D-07): GET /identities-archive — fleet-wide
 // list of archived identity keys. Standalone base path (no overlap with
 // /identities/:key sub-routes). Must mount BEFORE any generic catch-all.
