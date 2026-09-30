@@ -24,7 +24,7 @@
  * with each caller's existing handler.
  */
 
-import { Component, lazy, Suspense, type ReactNode } from "react";
+import { Component, lazy, Suspense, useCallback, useState, type ReactNode } from "react";
 
 // Lazy-loaded: @mdxeditor/editor bundles Lexical + CodeMirror + Radix
 // Dialog + react-hook-form + js-yaml — ~1.5MB uncompressed. Only paid for
@@ -196,12 +196,58 @@ export function MarkdownEditor({
   }
 
   return (
+    <MarkdownWithSilentFailureFallback
+      filename={filename}
+      content={content}
+      onChange={onChange}
+      disabled={disabled}
+      placeholder={placeholder}
+      loadingFallback={loadingFallback}
+    />
+  );
+}
+
+// Splits out the .md branch so we can hold local state for the "MDXEditor
+// silently rendered empty" fallback. Bare `<foo>` outside backticks (common
+// in SKILL.md docs that describe slash-commands like `/explain <thing>`)
+// causes MDXEditor's Lexical parser to produce an empty contenteditable
+// with no error. When that happens, MdxEditorImpl fires onSilentParseFailure
+// and we swap in the raw textarea so the file is still editable.
+function MarkdownWithSilentFailureFallback({
+  filename,
+  content,
+  onChange,
+  disabled,
+  placeholder,
+  loadingFallback,
+}: MarkdownEditorProps & { loadingFallback: ReactNode }): JSX.Element {
+  // Track which content strings have failed to render. Keyed by the exact
+  // content so a subsequent edit-and-fix would automatically re-attempt
+  // MDXEditor. Rare in practice — most files are stable.
+  const [failedContent, setFailedContent] = useState<string | null>(null);
+  const handleSilentFailure = useCallback(() => {
+    setFailedContent(content);
+  }, [content]);
+
+  if (failedContent === content && content !== "") {
+    return (
+      <RawTextarea
+        content={content}
+        onChange={onChange}
+        disabled={disabled}
+        placeholder={placeholder}
+      />
+    );
+  }
+
+  return (
     <Suspense fallback={loadingFallback}>
       <MdxEditorImpl
         key={filename}
         content={content}
         onChange={onChange}
         disabled={disabled}
+        onSilentParseFailure={handleSilentFailure}
       />
     </Suspense>
   );
