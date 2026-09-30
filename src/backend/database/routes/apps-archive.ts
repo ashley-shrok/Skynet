@@ -25,8 +25,13 @@
  *   - Archive location (`~/fleet/apps-archive/<slug>/`) is handled by
  *     archive-app.sh, NOT this endpoint. This endpoint only drops the
  *     sentinel at `~/fleet/apps/<slug>/.archive-requested`.
- *   - One-way from this shape — no user-facing un-archive gesture (agent
- *     path via `restore-app.sh` remains available for now).
+ *   - One-way from this shape. Un-archive lives in the un-archiving campaign
+ *     (shape 2 — frontend + backend): a companion POST /:hostId/:slug/unarchive
+ *     endpoint that drops `.unarchive-requested` inside the archive folder,
+ *     picked up by the supervisor's scan_app_unarchive_requested_sentinels
+ *     (shape 1 — host-side, already landed). Agents un-archive directly by
+ *     touching the sentinel; the standalone `restore-app.sh` script was
+ *     removed by the same campaign.
  *
  * Route mirrors identity-archive.ts / role-archive.ts in shape:
  *   authenticateJWT → APP_SLUG_RE gate → hostId gate → resolveHostById

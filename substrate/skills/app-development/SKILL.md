@@ -151,9 +151,13 @@ everything else.
   `~/fleet/apps-archive/<slug>/`. This is the default remove path. Users who
   ask to delete something sometimes change their minds.
 
-- **`restore-app.sh <slug>`** — inverse of archive. Moves the folder back
-  from `apps-archive/` to `apps/`, re-renders + installs the systemd unit,
-  starts the service. Use when the user changes her mind.
+- **Un-archive (agent gesture — no standalone script)** — inverse of
+  archive. Drop an empty `.unarchive-requested` sentinel inside
+  `~/fleet/apps-archive/<slug>/`. The box's `agent-supervisor` picks it
+  up on its next reconcile tick (~15s), moves the folder back from
+  `apps-archive/` to `apps/`, re-installs the systemd unit from the
+  stashed copy inside the folder, and starts the service. Same disk
+  gesture pattern as archive from an agent's perspective.
 
 - **`backup-app.sh <slug>`** — snapshots `~/fleet/apps/<slug>/` and the
   systemd unit file into `~/fleet/apps-backups/<slug>-<timestamp>/`. Restoring
@@ -488,7 +492,11 @@ their minds. The archive path costs nothing and preserves the option.
 
 If the user later says "wait, I want that back":
 
-    bash ~/.claude/skills/app-development/restore-app.sh <slug>
+    touch ~/fleet/apps-archive/<slug>/.unarchive-requested
+
+The `agent-supervisor` picks the sentinel up on its next reconcile
+tick (~15s) and reverses the archive (folder mv back, unit reinstall
+from stash, `daemon-reload`, enable+start).
 
 Only if the user explicitly says "delete it, I don't want it recoverable"
 do you actually remove the folder from `apps-archive/`. Even then, mention
@@ -571,7 +579,9 @@ what you're doing — surprises here are worse than a moment of confirmation.
   then `mv app.json.pending app.json` (§ Making a new app step 9).
 - **How do I see archived apps?** `ls ~/fleet/apps-archive/`.
 - **How do I recover an archived app?**
-  `bash ~/.claude/skills/app-development/restore-app.sh <slug>`.
+  `touch ~/fleet/apps-archive/<slug>/.unarchive-requested` — the box's
+  `agent-supervisor` picks it up on the next reconcile tick and reverses
+  the archive.
 - **What if create-app fails partway through?** The helper is not perfectly
   transactional; if it crashes mid-way, check `~/fleet/apps/<slug>/` and
   `~/.config/systemd/user/app-<slug>.service`. Remove any partial state

@@ -3,9 +3,10 @@
 #
 # Steps:
 #   1. Stash the systemd unit file INSIDE the app folder as
-#      app-<slug>.service.archived so restore-app.sh can reinstall it later
-#      with the same port. This is what makes restore stable across
-#      archive/restore cycles.
+#      app-<slug>.service.archived so the un-archive path (agent-supervisor's
+#      scan_app_unarchive_requested_sentinels — folded in from the retired
+#      restore-app.sh) can reinstall it later with the same port. This is
+#      what makes restore stable across archive/restore cycles.
 #   2. Stop + disable the systemd unit and remove the installed unit file
 #      from ~/.config/systemd/user/. daemon-reload.
 #   3. Move ~/fleet/apps/<slug>/ to ~/fleet/apps-archive/<slug>/.
@@ -78,4 +79,4 @@ if [ -f "$UNIT_FILE" ]; then
 fi
 systemctl --user daemon-reload
 
-log "done — $SLUG is archived. Recover with restore-app.sh if the user changes her mind."
+log "done — $SLUG is archived. Recover by dropping .unarchive-requested inside ~/fleet/apps-archive/$SLUG/ if the user changes her mind."

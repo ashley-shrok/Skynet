@@ -572,13 +572,11 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     installPath: "~/.claude/skills/app-development/archive-app.sh",
     restartHook: null,
   },
-  {
-    slug: "app-development-restore-app",
-    sourceKind: "bundled",
-    bundledPath: "/app/fleet-substrate/skills/app-development/restore-app.sh",
-    installPath: "~/.claude/skills/app-development/restore-app.sh",
-    restartHook: null,
-  },
+  // app-development-restore-app was removed by the un-archiving campaign
+  // (host-side shape) — restore-app.sh's logic now lives inside the
+  // agent-supervisor's scan_app_unarchive_requested_sentinels() scanner.
+  // Agents un-archive apps by dropping .unarchive-requested inside
+  // ~/fleet/apps-archive/<slug>/, same disk-gesture pattern as archive.
   {
     slug: "app-development-backup-app",
     sourceKind: "bundled",

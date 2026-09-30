@@ -19,9 +19,11 @@ import { authApi, handleApiError } from "@/main-axios";
 // keeps the AppTile catch-and-log path uniform with the identity + role
 // archive callers'.
 //
-// No un-archive companion by design (parity with role-archive-api.ts D-19).
-// The agent-side restore path (restore-app.sh in the app-development skill)
-// remains available.
+// Un-archive companion lives in the un-archiving campaign (shape 2 —
+// frontend + backend). Host-side (agent-supervisor scanner) already landed
+// in shape 1; agents un-archive by dropping .unarchive-requested inside
+// ~/fleet/apps-archive/<slug>/. The standalone restore-app.sh was retired
+// by that campaign — its logic now lives inside the supervisor.
 
 export async function archiveApp(
   hostId: number,
