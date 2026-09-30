@@ -134,8 +134,11 @@ function Modal({
               // rather than the app-wide amber default.
               "--pv-id-hue": String(hue),
               "--pv-hue": String(hue),
+              // Bumped from tasting alphas (0.60/0.68) so the gradient reads
+              // solid over live chat content — the tasting sat on a static
+              // dark page and could get away with more translucency.
               background:
-                "linear-gradient(160deg, hsla(var(--pv-id-hue), 50%, 38%, 0.60), hsla(var(--pv-id-hue), 45%, 22%, 0.68))",
+                "linear-gradient(160deg, hsla(var(--pv-id-hue), 50%, 38%, 0.88), hsla(var(--pv-id-hue), 45%, 22%, 0.94))",
               fontFamily: '"Inter Variable", system-ui, sans-serif',
             } as React.CSSProperties
           }
@@ -149,7 +152,9 @@ function Modal({
           className={cn(
             "fixed left-1/2 top-1/2 z-50 w-full -translate-x-1/2 -translate-y-1/2",
             SIZE_CLASSES[size],
-            "rounded-2xl overflow-hidden outline-none",
+            // Explicit 16px to match the tasting exactly; also independent of
+            // the --radius token (which is theme-scoped and can be undefined).
+            "rounded-[16px] overflow-hidden outline-none",
             "border border-[hsla(var(--pv-id-hue),65%,55%,0.35)]",
             "text-[#fbf5e8]",
             // Deep drop shadow + inset warm rim + hue outer glow (assistant-bubble aesthetic).

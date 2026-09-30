@@ -194,6 +194,11 @@ input[type="radio"] {
      own --pv-hue (per-identity rows use the identity's colorHue). Value
      190 matches the login page + create-role/new-session dialogs. */
   --pv-hue: 190;
+  /* Tailwind's rounded-* scale (rounded-sm/md/lg/xl/2xl/etc) derives from
+     var(--radius) — see @theme block above. Without a definition on .dark
+     the calc() chain resolves to invalid → 0px, and every rounded-* class
+     silently paints square corners. Value matches .dracula. */
+  --radius: 0.625rem;
   --background: #0a0b12;
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.21 0.004 128.68);
