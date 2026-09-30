@@ -2758,17 +2758,22 @@ ensure_agent_teams_env
 ensure_inotifywait
 resolve_memory_wrapper
 
-# Phase 126: scheduled-agents scheduler — session-independent, one per host, spawned once at supervisor startup (D-09). Reads specs from $HOME/fleet/scheduled-agents/<slug>/scheduled-agent.json (D-01, D-08); self-guards via _single_instance in the scheduler.
-SCHEDULED_AGENTS_DIR="$HOME/fleet/scheduled-agents"
-SCHEDULED_AGENTS_LOG="$SCHEDULED_AGENTS_DIR/scheduler.log"
-mkdir -p "$SCHEDULED_AGENTS_DIR/.state"
-if [ -x "$HOME/.local/bin/wakeup-scheduler" ]; then
-  setsid nohup python3 "$HOME/.local/bin/wakeup-scheduler" "$SCHEDULED_AGENTS_DIR" --mode scheduled-agents \
-    > "$SCHEDULED_AGENTS_LOG" 2>&1 < /dev/null & disown
-  log "scheduled-agents scheduler started (dir=$SCHEDULED_AGENTS_DIR, log=$SCHEDULED_AGENTS_LOG)"
-else
-  log "WARNING: scheduled-agents scheduler NOT started — $HOME/.local/bin/wakeup-scheduler missing"
-fi
+# scheduled-agents scheduler — now owned by scheduled-agents-scheduler.service
+# (systemd user unit, bootstrapped by run-bootstrap.ts Step 1c). No in-process
+# launch here anymore. Rationale: agent-supervisor's own restart-on-byte-change
+# is gated on agent-supervisor.sh changing, so an in-process child running
+# wakeup-scheduler would hold pre-update bytes indefinitely across
+# wakeup-scheduler.py source changes. Under systemd ownership, the
+# wakeup-scheduler catalog row's restart hook targets this unit directly,
+# so a byte change on the script bounces JUST the scheduled-agents scheduler
+# (per-identity wake-up schedulers under this supervisor stay harness-bound
+# and accept the staleness trade-off).
+#
+# Transitional note: on the first sweep after this ship lands on any given
+# box, the OLD in-process-spawned scheduler (orphaned by systemd's
+# KillMode=process when agent-supervisor restarts to pick up new bytes)
+# stays running until the systemd-launched scheduler's _single_instance
+# guard kills it. Newest-wins.
 
 case "${1:-}" in
   --once) VERBOSE=1 reconcile ;;
