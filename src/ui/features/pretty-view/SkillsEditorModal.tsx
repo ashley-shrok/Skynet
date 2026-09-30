@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FileText, Plus, Trash2 } from "lucide-react";
-import { Modal, ModalHead, ModalBody, ModalFoot, ModalTabs } from "@/components/modal";
+import { Modal, ModalHead, ModalBody, ModalFoot, ModalSidebar } from "@/components/modal";
 import { cn } from "@/lib/utils";
 import type { Host, HostFolder } from "@/types/ui-types";
 import {
@@ -602,39 +602,9 @@ export default function SkillsEditorModal({
         )}
       </div>
 
-      {/* File strip — canonical <ModalTabs> per UAT 2026-09-30. */}
-      {selectedSkillName != null && files.status === "ready" && (
-        <ModalTabs
-          tabs={files.data.map((f) => ({
-            value: f.path,
-            label: f.path,
-            Icon: FileText,
-          }))}
-          value={activeTab ?? ""}
-          onValueChange={(v) => setActiveTab(v)}
-          rowTestId="skills-editor-modal-file-strip"
-          testIdPrefix="skills-editor-modal-tab"
-          scrollable
-          trailing={
-            <button
-              type="button"
-              onClick={() => {
-                void handleAddFile();
-              }}
-              data-testid="skills-editor-modal-add-file"
-              className={cn(
-                "shrink-0 flex items-center gap-1 px-2.5 py-2 text-[12.5px] cursor-pointer",
-                "text-[hsla(var(--pv-id-hue),30%,90%,0.7)] hover:text-[#fbf5e8]",
-                "border-b-2 border-transparent -mb-px transition-colors duration-150",
-              )}
-            >
-              <Plus size={12} /> Add file
-            </button>
-          }
-        />
-      )}
-
-      {/* Body — layered branches. */}
+      {/* Layered branches for the skill/file state. Once ready + a
+          skill is picked + files loaded, we drop into <ModalSidebar>
+          (vertical file list + editor pane). */}
       {selectedHostId == null ? (
         <ModalBody className="flex items-center justify-center text-[hsla(var(--pv-id-hue),22%,88%,0.65)] text-sm">
           Pick a host to load its skills.
@@ -672,30 +642,58 @@ export default function SkillsEditorModal({
         <ModalBody className="flex flex-col items-center justify-center text-[hsla(var(--pv-id-hue),22%,88%,0.65)] gap-2 text-sm text-center px-6">
           <div>This skill has no files.</div>
           <div className="text-xs opacity-70">
-            Use the &quot;+ Add file&quot; tab above to create one.
+            Use &quot;+ Add file&quot; in the sidebar to create one.
           </div>
         </ModalBody>
       ) : (
-        <ModalBody
-          className="p-0 flex flex-col min-h-0 overflow-y-auto px-6 py-4"
-          data-testid="skills-editor-modal-body"
-        >
-          {activeTab != null && (
-            <SkillFileTab
-              state={tabData.get(activeTab) ?? { status: "loading" }}
-              onSave={(content, expectedMtime) =>
-                handleSave(activeTab, content, expectedMtime)
-              }
-              onRequestDelete={() => {
-                void handleDeleteFile(activeTab);
+        <ModalSidebar
+          tabs={files.data.map((f) => ({
+            value: f.path,
+            label: f.path,
+            Icon: FileText,
+          }))}
+          value={activeTab ?? ""}
+          onValueChange={(v) => setActiveTab(v)}
+          rowTestId="skills-editor-modal-file-strip"
+          testIdPrefix="skills-editor-modal-tab"
+          trailing={
+            <button
+              type="button"
+              onClick={() => {
+                void handleAddFile();
               }}
-              filename={activeTab}
-              hideSaveButton={true}
-              onDraftContentChange={handleDraftContentChange(activeTab)}
-              onDraftChange={handleDraftDirtyChange(activeTab)}
-            />
-          )}
-        </ModalBody>
+              data-testid="skills-editor-modal-add-file"
+              className={cn(
+                "w-full flex items-center gap-1 px-2 py-1.5 rounded text-[12px] cursor-pointer",
+                "text-[hsla(var(--pv-id-hue),30%,90%,0.75)] hover:text-[#fbf5e8]",
+                "hover:bg-white/[0.05] transition-colors duration-150",
+              )}
+            >
+              <Plus size={12} /> Add file
+            </button>
+          }
+        >
+          <div
+            className="flex-1 min-h-0 overflow-y-auto px-6 py-4"
+            data-testid="skills-editor-modal-body"
+          >
+            {activeTab != null && (
+              <SkillFileTab
+                state={tabData.get(activeTab) ?? { status: "loading" }}
+                onSave={(content, expectedMtime) =>
+                  handleSave(activeTab, content, expectedMtime)
+                }
+                onRequestDelete={() => {
+                  void handleDeleteFile(activeTab);
+                }}
+                filename={activeTab}
+                hideSaveButton={true}
+                onDraftContentChange={handleDraftContentChange(activeTab)}
+                onDraftChange={handleDraftDirtyChange(activeTab)}
+              />
+            )}
+          </div>
+        </ModalSidebar>
       )}
 
       <ModalFoot>

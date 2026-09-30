@@ -719,9 +719,10 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     await waitFor(() =>
       expect(screen.getByText(/no files/i)).toBeInTheDocument(),
     );
-    // Empty-state copy points at the Add-file pill (post-unification).
+    // Empty-state copy points at the Add-file button in the sidebar
+    // (2026-09-30 UAT: moved from tab-strip above to vertical sidebar).
     expect(
-      screen.getByText(/Use the .+ Add file. tab above/i),
+      screen.getByText(/Use .+ Add file. in the sidebar/i),
     ).toBeInTheDocument();
   });
 

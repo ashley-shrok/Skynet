@@ -428,5 +428,110 @@ function ModalTabs<V extends string>({
   );
 }
 
-export { Modal, ModalHead, ModalBody, ModalFoot, ModalTabs };
+// ─── ModalSidebar ────────────────────────────────────────────────────────
+//
+// Canonical vertical file-list + editor layout for modals with an
+// unbounded number of tabs. The horizontal ModalTabs strip works fine
+// for 2-4 fixed section tabs (IdentityModal, RoleModal); it breaks down
+// when the tab count is dynamic and can grow past the modal width
+// (RunbookEditorModal / SkillsEditorModal with many files) — files fall
+// off the right edge, need shift+scroll on desktop, and are inaccessible
+// on mobile (2026-09-30 UAT).
+//
+// Renders as a two-column flex row that fills the space between
+// <ModalHead> and <ModalFoot>. Left column: fixed-width sidebar with a
+// vertical list of buttons + optional trailing action. Right column:
+// the main editor pane passed as `children`.
+//
+// Rule of thumb: use <ModalTabs> for 2-4 known-ahead-of-time section
+// tabs; use <ModalSidebar> when the list is dynamic (files, records,
+// anything driven by user content).
+
+interface ModalSidebarProps<V extends string> {
+  tabs: ReadonlyArray<ModalTabDef<V>>;
+  value: V;
+  onValueChange: (next: V) => void;
+  /** Injected into each button's data-testid as
+   *  `<testIdPrefix>-<tab.value>`. */
+  testIdPrefix?: string;
+  /** Applied to the sidebar column for a custom data-testid — kept as
+   *  a prop rather than derived so consumers can preserve legacy testids
+   *  across the migration. */
+  rowTestId?: string;
+  /** Rendered inside the sidebar column, below the list — for
+   *  sidebar-scoped actions (RunbookEditor / SkillsEditor "+ Add
+   *  file"). */
+  trailing?: React.ReactNode;
+  /** The right-column main editor pane content. */
+  children: React.ReactNode;
+  className?: string;
+}
+
+function ModalSidebar<V extends string>({
+  tabs,
+  value,
+  onValueChange,
+  testIdPrefix,
+  rowTestId,
+  trailing,
+  children,
+  className,
+}: ModalSidebarProps<V>): JSX.Element {
+  return (
+    <div
+      className={cn(
+        "flex-1 min-h-0 flex flex-row",
+        className,
+      )}
+      data-slot="modal-split"
+    >
+      {/* Sidebar column — fixed width, scrolls vertically. */}
+      <aside
+        className={cn(
+          "w-[180px] shrink-0 flex flex-col min-h-0",
+          "border-r border-[hsla(var(--pv-id-hue),60%,55%,0.22)]",
+          "bg-black/22",
+        )}
+        data-slot="modal-sidebar"
+        data-testid={rowTestId}
+      >
+        <div className="flex-1 min-h-0 overflow-y-auto py-1.5 flex flex-col gap-0.5">
+          {tabs.map(({ value: v, label, Icon }) => {
+            const selected = value === v;
+            return (
+              <button
+                key={v}
+                type="button"
+                onClick={() => onValueChange(v)}
+                aria-pressed={selected}
+                data-testid={testIdPrefix ? `${testIdPrefix}-${v}` : undefined}
+                className={cn(
+                  "shrink-0 flex items-center gap-2 px-3 py-1.5 text-[12.5px] font-medium cursor-pointer",
+                  "border-l-2 transition-colors duration-150 text-left min-w-0",
+                  selected
+                    ? "text-[#fbf5e8] border-[hsla(var(--pv-id-hue),75%,65%,0.9)] bg-[hsla(var(--pv-id-hue),55%,40%,0.35)]"
+                    : "text-[hsla(var(--pv-id-hue),22%,92%,0.6)] hover:text-[#e8e4d8] hover:bg-white/[0.04] border-transparent",
+                )}
+              >
+                {Icon ? (
+                  <Icon size={13} className="opacity-85 shrink-0" />
+                ) : null}
+                <span className="truncate">{label}</span>
+              </button>
+            );
+          })}
+        </div>
+        {trailing ? (
+          <div className="shrink-0 border-t border-[hsla(var(--pv-id-hue),60%,55%,0.22)] p-1">
+            {trailing}
+          </div>
+        ) : null}
+      </aside>
+      {/* Main pane — fills remaining width. */}
+      <div className="flex-1 min-w-0 min-h-0 flex flex-col">{children}</div>
+    </div>
+  );
+}
+
+export { Modal, ModalHead, ModalBody, ModalFoot, ModalTabs, ModalSidebar };
 export type { ModalProps, ModalSize };
