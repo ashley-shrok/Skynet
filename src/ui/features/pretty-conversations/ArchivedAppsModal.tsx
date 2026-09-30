@@ -14,7 +14,7 @@ import { useEffect, useState } from "react";
 //       invariant: "the row must not be removed until the endpoint returns 200").
 // D-17: On failure: row STAYS (never removed on failure). Native alert with
 //       distinct wording for name_collision; generic fallback for everything
-//       else. NOT sonner — native alert() per Ashley's decision.
+//       else. NOT sonner — native alert() per product decision.
 // D-18: Empty state — muted line "No archived apps." — always visible when
 //       zero archived apps exist so the archived surface is discoverable.
 // D-19: Modal stays open after un-archive. handleUnarchive never auto-closes
