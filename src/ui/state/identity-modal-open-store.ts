@@ -3,15 +3,11 @@
  *
  * Any mounted IdentityModal that is `open` pushes onto this counter; the
  * mobile back-button in AppShell reads it via `useAnyIdentityModalOpen` and
- * hides itself while the count is > 0. Fixes: on mobile the IdentityModal
- * portals into `chatRegionEl` inside PrettyView, which sits inside a
- * per-tab wrapper that AppShell sets to `position: absolute; z-index: 2`
- * (a stacking context). That caps the modal's inner z-[120] at the tab
- * wrapper's z:2 — the fixed z:30 back button paints on top of the whole
- * PrettyView subtree regardless. Rather than restructure the tab-wrapper
- * z-index (broad blast radius) or portal the modal to document.body (loses
- * patch #108 desktop composer-uncovered behavior), the fix hides the button
- * for the duration the modal is visible.
+ * hides itself while the count is > 0. The modal now portals to
+ * document.body with a full-viewport backdrop (2026-09-30 UAT), so the
+ * button is naturally covered on mobile — this counter is defence in depth
+ * (keeps the button out even if the overlay ever regresses to
+ * pointer-events:none).
  *
  * Counter (not boolean) so multiple simultaneous modals (e.g. desktop
  * split-view with two panes each opening an identity modal) compose

@@ -341,18 +341,37 @@ describe("IdentityModal — title-line clickable treatment (D-04)", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it("I: fallback — identity.title === null → displayName gets the treatment", async () => {
+  it("I: role text — roleDefaults.title wins; slug is the fallback (2026-09-30 UAT)", async () => {
     const onOpenRoleModal = vi.fn();
     const onOpenChange = vi.fn();
-    renderModal({ title: null, role: "box-maintainer" }, onOpenRoleModal, onOpenChange);
+    // No roleDefaults → jump text falls back to the raw role slug.
+    renderModal({ role: "box-maintainer", roleDefaults: null }, onOpenRoleModal, onOpenChange);
     await waitFor(() => {
       expect(document.querySelector('[role="dialog"]')).toBeTruthy();
     });
-    // The ONLY jump element renders — it's the displayName in this branch
     const jumps = document.querySelectorAll('[data-testid="identity-modal-title-line-jump"]');
     expect(jumps.length).toBe(1);
-    expect(jumps[0].textContent).toContain("Tabitha");
-    fireEvent.click(jumps[0]);
+    expect(jumps[0].textContent).toContain("box-maintainer");
+    // displayName is a plain span, not the jump element (post-UAT: name is
+    // never clickable; only the role line is).
+    expect(jumps[0].textContent).not.toContain("Tabitha");
+    cleanup();
+
+    // With roleDefaults.title set (role frontmatter has `title: Skynet`),
+    // the friendly title replaces the slug in the jump element.
+    renderModal(
+      { role: "box-maintainer", roleDefaults: { title: "Skynet" } },
+      onOpenRoleModal,
+      onOpenChange,
+    );
+    await waitFor(() => {
+      expect(document.querySelector('[role="dialog"]')).toBeTruthy();
+    });
+    const jumps2 = document.querySelectorAll('[data-testid="identity-modal-title-line-jump"]');
+    expect(jumps2.length).toBe(1);
+    expect(jumps2[0].textContent).toContain("Skynet");
+    expect(jumps2[0].textContent).not.toContain("box-maintainer");
+    fireEvent.click(jumps2[0]);
     expect(onOpenRoleModal).toHaveBeenCalledTimes(1);
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });

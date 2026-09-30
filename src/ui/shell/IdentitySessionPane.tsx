@@ -770,7 +770,10 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
                 identity={resolvedIdentity}
                 hue={sessionHue ?? 35}
                 hostId={paneHostIdNum}
-                container={null}
+                // Terminal-mode has no RoleModal wired up; role-line click
+                // is a no-op here. (Was previously invalid — required prop
+                // missing — but silent because TS pre-check wasn't gating.)
+                onOpenRoleModal={() => {}}
               />
             )}
         </div>

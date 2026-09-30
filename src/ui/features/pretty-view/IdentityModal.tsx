@@ -1,22 +1,22 @@
 // IdentityModal — per-identity editor + record view.
 //
-// Modal-unification 2026-09-29 (revised):
-//   - Shell: canonical <Modal hue={identity.colorHue ?? 220} blocking={false}
-//     container={container}>. Portal target stays the chat-region container
-//     so the composer + IdentityBadge stay visible/interactive underneath
-//     while the modal is open.
-//   - Head: avatar + display name (no pencil — identities not renamable via
-//     UI) + role slug meta + task line (with inline pencil — task is a
-//     working note, not a rename) + voice chip pinned top-right + close X.
-//     The ⋯ menu is retired. Boost-response toggle retired (the
-//     .no-dormancy sentinel mechanism still exists on disk; only the UI
-//     toggle is gone). Identity avatar upload retired.
-//   - Section-tabs at top: 3 tabs unchanged (Identity file / Wake-ups /
-//     Files). Canonical <ModalFoot> with Close.
+// Modal-unification 2026-09-29 (revised 2026-09-30 UAT):
+//   - Shell: canonical <Modal hue={identity.colorHue ?? 220}>. Portals to
+//     document.body (blocking default = true) with a proper backdrop and
+//     focus trap. The earlier "per-pane, blocking=false" treatment made
+//     the modal show only inside the pane's stacking context — in split
+//     view it rendered under the neighboring pane. Backdrop dims the
+//     whole viewport now; badge sits UNDER the modal.
+//   - Head: avatar + display name (plain text, no jump treatment) + role
+//     line (clickable, jumps to RoleModal — prettified via
+//     roleDefaults.title with slug fallback) + task line (with inline
+//     pencil) + voice chip + close X. The ⋯ menu, Boost toggle, identity
+//     avatar upload, and displayName pencil are all retired.
+//   - Section-tabs at top: 3 tabs (Identity file / Wake-ups / Files),
+//     underline-style per tasting. Canonical <ModalFoot> with Close.
 //
 // Save flow:
-//   - Task pencil → text input → Enter/blur → updateIdentity with
-//     meta.task.
+//   - Task pencil → text input → Enter/blur → updateIdentity with meta.task.
 //   - Voice chip → click opens picker popover → VoicePicker onChange →
 //     updateIdentity with meta.voice. Chip shows "default" (italic) when
 //     identity.voice is null (inherits identity.roleDefaults?.voice).
@@ -133,7 +133,6 @@ export function IdentityModal({
   hue,
   hostId,
   onOpenRoleModal,
-  container,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -141,7 +140,6 @@ export function IdentityModal({
   hue: number;
   hostId: number;
   onOpenRoleModal: (identity: Identity) => void;
-  container?: HTMLElement | null;
 }): JSX.Element {
   const [activeTab, setActiveTab] = useState<string>("identity");
 
@@ -461,15 +459,16 @@ export function IdentityModal({
   // disk — agents touch/rm the file per user request.
 
   const canJumpToRole = identity.role !== null;
-  const jumpTargetLabel = identity.role ?? identity.displayName;
+  // Prefer the role's frontmatter title (e.g. "Skynet") over the raw slug
+  // (e.g. "box-maintainer"); fall back to the slug if the role file has
+  // no title. Used for both the visible text and the accessible label.
+  const roleDisplay = identity.roleDefaults?.title ?? identity.role ?? "";
 
   return (
     <Modal
       open={open}
       onOpenChange={onOpenChange}
       hue={hue}
-      blocking={false}
-      container={container ?? undefined}
       size="xl"
       className="max-h-[90vh] flex flex-col"
       data-testid="identity-modal"
@@ -501,31 +500,28 @@ export function IdentityModal({
           }}
         />
         <div className="flex flex-col flex-1 min-w-0 gap-1">
-          {/* Line 1: display name (no pencil — identities not renamable
-              via UI 2026-09-29). Still supports the jump-to-role click
-              treatment when identity.role is set. */}
+          {/* Line 1: display name — plain text, never clickable. The
+              jump-to-role treatment lives on line 2 (the role line). */}
           <div className="flex items-center gap-2 min-w-0">
-            {canJumpToRole ? (
+            <span className="font-semibold text-[16px] text-[#f0ebe0] truncate leading-tight">
+              {identity.displayName}
+            </span>
+          </div>
+          {/* Role line — clickable, prettified (uses role frontmatter
+              title if present, else the raw slug). This is what opens
+              RoleModal. */}
+          {canJumpToRole && (
+            <div className="min-w-0">
               <TitleLineJumpToRole
                 identity={identity}
-                text={identity.displayName}
-                className="font-semibold text-[16px] truncate leading-tight"
-                jumpTargetLabel={jumpTargetLabel}
+                text={roleDisplay}
+                className="text-[12px] font-medium tracking-[0.04em]"
+                jumpTargetLabel={roleDisplay}
                 onJump={() => {
                   onOpenChange(false);
                   onOpenRoleModal(identity);
                 }}
               />
-            ) : (
-              <span className="font-semibold text-[16px] text-[#f0ebe0] truncate leading-tight">
-                {identity.displayName}
-              </span>
-            )}
-          </div>
-          {/* Role slug meta line */}
-          {identity.role !== null && (
-            <div className="text-[11.5px] font-medium tracking-[0.06em] text-[hsla(var(--pv-id-hue),35%,90%,0.65)]">
-              {identity.role}
             </div>
           )}
           {/* Task line + inline pencil */}
@@ -668,9 +664,12 @@ export function IdentityModal({
       >
         <div
           className={cn(
-            "shrink-0 flex items-stretch gap-1 px-2 py-1.5",
-            "border-b border-[hsla(var(--pv-id-hue),60%,55%,0.18)]",
-            "bg-black/25",
+            // Underline-style tabs (tasting L475–495). Row sits flush against
+            // the section separator; each tab paints a coloured underline when
+            // selected via a 2px border that overlaps the -1px row border.
+            "shrink-0 flex items-stretch gap-1 px-4 pt-1.5",
+            "border-b border-[hsla(var(--pv-id-hue),60%,55%,0.22)]",
+            "bg-black/22",
           )}
           data-testid="identity-modal-nav"
         >
@@ -684,14 +683,14 @@ export function IdentityModal({
                 aria-pressed={selected}
                 data-testid={`identity-modal-nav-${value}`}
                 className={cn(
-                  "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] cursor-pointer",
-                  "transition-colors duration-150",
+                  "flex items-center gap-2 px-3.5 py-2 text-[13px] font-medium cursor-pointer",
+                  "border-b-2 -mb-px transition-colors duration-150",
                   selected
-                    ? "text-[#fbf5e8] bg-[hsla(var(--pv-id-hue),65%,55%,0.28)] border border-[hsla(var(--pv-id-hue),65%,60%,0.42)]"
-                    : "text-[hsla(var(--pv-id-hue),22%,88%,0.65)] hover:text-[#e8e4d8] hover:bg-white/[0.04] border border-transparent",
+                    ? "text-[#fbf5e8] border-[hsla(var(--pv-id-hue),75%,65%,0.9)]"
+                    : "text-[hsla(var(--pv-id-hue),22%,92%,0.6)] hover:text-[#e8e4d8] border-transparent",
                 )}
               >
-                <Icon size={13} /> {label}
+                <Icon size={15} className="opacity-85" /> {label}
               </button>
             );
           })}

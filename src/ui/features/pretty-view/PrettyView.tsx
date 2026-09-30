@@ -2161,14 +2161,13 @@ export function PrettyView({
   // directly to useAutoScroll's scrollRef (phase-70 rewrite's stable API surface).
   // Plan 43-07b will compose a local ref if it needs a second reader.
 
-  // Patch #108: IdentityModal anchors its Radix Portal to this DOM element
-  // (the chat-region wrapper below). Callback ref → state so the Portal
-  // container prop updates reactively on ref bind. When null (transient
-  // first render before the ref binds), Portal defaults to document.body —
-  // harmless because the modal doesn't open until user clicks IdentityBadge,
-  // by which point the ref is set. Wrapper needs `position: relative` for
-  // the modal's `absolute inset-4` to resolve against it.
-  const [chatRegionEl, setChatRegionEl] = useState<HTMLDivElement | null>(null);
+  // 2026-09-30 UAT: patch #108's chat-region portal target for IdentityModal
+  // is retired. Portaling the modal into the pane trapped it inside the
+  // pane's stacking context, so in split view the modal rendered under the
+  // neighbouring pane. IdentityModal now portals to document.body with a
+  // proper full-viewport backdrop (blocking=true default). The chat-region
+  // wrapper below stays — it's still the geometric parent for
+  // SessionHoldingOverlay's `absolute inset-0`. No ref needed.
 
   // Phase 4: derive per-pane identity + hue for the Glass reskin.
   //
@@ -4152,7 +4151,6 @@ export function PrettyView({
           // to RoleModal (Plan 90-04); nested runbook swap now goes through
           // RoleModal's onOpenRunbook mounted below.
           onOpenRoleModal={handleOpenRoleModal}
-          container={chatRegionEl}
         />
       )}
       {/* Phase 90 Plan 90-06 (D-04): RoleModal — swap-not-stack sibling of
@@ -4193,7 +4191,7 @@ export function PrettyView({
           alongside IdentityModal + EditableFileModal. Portal target defaults
           to document.body (no `container` prop passed) since this is a top-
           level surface per D-06 swap-not-stack — the modal is NOT portaled
-          into chatRegionEl the way IdentityModal is; it fills the viewport
+          into the chat-region wrapper; it fills the viewport
           like SkillsEditorModal / GlobalFilesModal do.
           runbookEditorOpenState.roleName + runbookName are already validated
           non-null by handleOpenRunbook (the defensive guard rejects null-role
@@ -4225,17 +4223,14 @@ export function PrettyView({
           onStageEditedFile={handleStageEditedFile}
         />
       )}
-      {/* Patch #108: chat-region wrapper. IdentityModal portals INTO this
-          element so it covers only the bubble/tasks/shells area — composer
-          below AND identity badge above stay uncovered/typable. Wrapper is
-          `relative` for absolute-positioning of the modal, and `flex-1
-          flex flex-col` so its children (status branches, chat-content,
-          harness/agents/shells panels) arrange vertically as before with
-          chat-content flex-1 filling remaining space. */}
-      <div
-        ref={setChatRegionEl}
-        className="relative flex-1 min-h-0 flex flex-col"
-      >
+      {/* Chat-region wrapper. `relative` provides the positioning parent
+          for SessionHoldingOverlay's `absolute inset-0`; `flex-1 flex
+          flex-col` lets its children (status branches, chat-content,
+          harness/agents/shells panels) arrange vertically with chat-content
+          flex-1 filling remaining space. (2026-09-30 UAT: IdentityModal
+          no longer portals into this wrapper — see the useState delete
+          near L2164 for why.) */}
+      <div className="relative flex-1 min-h-0 flex flex-col">
       {/* Patch #74 + quick 260729-j8l: session-recycle overlay.
           Absolute-positioned via SessionHoldingOverlay's own
           `absolute inset-0`. Quick 260729-j8l moved the mount from
