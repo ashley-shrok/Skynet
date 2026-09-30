@@ -308,12 +308,27 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     installPath: "~/.local/bin/agent-supervisor",
     restartHook: "agent-supervisor.service",
   },
+  // wakeup-scheduler serves TWO fleet concepts from the same Python file
+  // (see substrate/scripts/wakeup-scheduler.py docstring):
+  //   (1) per-identity wake-up dispatch — one process per live identity,
+  //       spawned as a child of agent-supervisor. Intentionally
+  //       harness-bound; a restart here would kill the child mid-drift.
+  //       These continue to run stale bytes until the identity's harness
+  //       naturally cycles. Accepted trade-off.
+  //   (2) --mode scheduled-agents — one box-level process, owned by
+  //       scheduled-agents-scheduler.service (systemd user unit). NOT
+  //       tied to any harness. Stale bytes here manifest as newly-spawned
+  //       identities that never received scheduler-side updates (e.g.
+  //       pre-authorized-prompt wrapping, task-field clock prefix).
+  //
+  // The restart hook targets the scheduled-agents systemd unit only —
+  // per-identity children under agent-supervisor stay untouched.
   {
     slug: "wakeup-scheduler",
     sourceKind: "bundled",
     bundledPath: "/app/fleet-substrate/scripts/wakeup-scheduler.py",
     installPath: "~/.local/bin/wakeup-scheduler",
-    restartHook: null,
+    restartHook: "scheduled-agents-scheduler.service",
   },
   {
     slug: "context-watch",
@@ -440,6 +455,22 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     bundledPath: "/app/fleet-substrate/user-onboarding/agent-supervisor.service",
     installPath: "~/.config/systemd/user/agent-supervisor.service",
     restartHook: "agent-supervisor.service",
+  },
+
+  // scheduled-agents-scheduler.service — systemd user unit that owns the
+  // box-level scheduled-agents scheduler (a Python process running
+  // wakeup-scheduler in --mode scheduled-agents against the fleet-level
+  // schedule folder). run-bootstrap.ts enables + starts this on every
+  // host (mirrors agent-supervisor.service bootstrap pattern). Restart
+  // hook targets self: daemon-reload picks up the fresh unit definition
+  // before the restart fires (daemon-reload runs unconditionally at the
+  // start of every sweep).
+  {
+    slug: "scheduled-agents-scheduler-service-unit",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/user-onboarding/scheduled-agents-scheduler.service",
+    installPath: "~/.config/systemd/user/scheduled-agents-scheduler.service",
+    restartHook: "scheduled-agents-scheduler.service",
   },
 
   // interactive-messages-gc.service — oneshot user service, fired by the

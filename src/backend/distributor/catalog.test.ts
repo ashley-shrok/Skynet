@@ -87,7 +87,10 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // teardown shell-out depends on it. The 13th template folder
     // (draft-terminal-on-submit) + iterate-widget.sh landed 2026-09-30
     // alongside the draft-template ship.
-    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(126);
+    // +1 for scheduled-agents-scheduler.service (systemd unit that owns
+    // the box-level scheduled-agents scheduler, so wakeup-scheduler.py
+    // byte-changes actually cause a scheduler restart) — 126 → 127.
+    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(127);
   });
 
   it("Test 2: every bundled row's bundledPath starts with /app/fleet-substrate/skills/, /app/fleet-substrate/scripts/, or /app/fleet-substrate/user-onboarding/", () => {
@@ -139,21 +142,36 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     }
   });
 
-  it("Test 4: exactly two entries have non-null restartHooks — agent-supervisor binary + .service unit", () => {
+  it("Test 4: catalog entries with non-null restartHooks — one row per long-lived process that needs bouncing on byte-change", () => {
     const withRestart = FLEET_SUBSTRATE_CATALOG.filter(
       (e: CatalogEntry) => e.restartHook !== null,
     );
-    expect(withRestart.length).toBe(2);
-    // Both fire the same unit name (agent-supervisor.service).
+    // Five slugs participate. Rationale for each pairing:
+    //   agent-supervisor + agent-supervisor-service-unit → both changes
+    //     bounce the SAME unit (agent-supervisor.service) because the
+    //     binary AND its unit-file both belong to that daemon.
+    //   wakeup-scheduler + scheduled-agents-scheduler-service-unit → both
+    //     bounce scheduled-agents-scheduler.service (box-level scheduler;
+    //     per-identity wakeup-scheduler instances stay harness-bound and
+    //     accept staleness).
+    //   interactive-messages-gc-timer-unit → self-bounce so an already-
+    //     started timer picks up new OnCalendar / Persistent semantics.
+    const expected: Record<string, string> = {
+      "agent-supervisor": "agent-supervisor.service",
+      "agent-supervisor-service-unit": "agent-supervisor.service",
+      "wakeup-scheduler": "scheduled-agents-scheduler.service",
+      "scheduled-agents-scheduler-service-unit":
+        "scheduled-agents-scheduler.service",
+      "interactive-messages-gc-timer-unit": "interactive-messages-gc.timer",
+    };
+    expect(withRestart.length).toBe(Object.keys(expected).length);
     for (const entry of withRestart) {
-      expect(entry.restartHook).toBe("agent-supervisor.service");
+      expect(
+        expected[entry.slug],
+        `unexpected slug in withRestart: ${entry.slug}`,
+      ).toBeDefined();
+      expect(entry.restartHook).toBe(expected[entry.slug]);
     }
-    // One is the binary, one is the unit file.
-    const slugs = withRestart.map((e) => e.slug).sort();
-    expect(slugs).toEqual([
-      "agent-supervisor",
-      "agent-supervisor-service-unit",
-    ]);
   });
 
   it("Test 5: every slug is unique", () => {
@@ -212,9 +230,12 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // suppression, 2026-09-27) +
     // interactive-messages-gc (Phase 140: seven-day widget backstop sweep script)
     expect(scriptRows.length).toBe(16);
-    // 3 user-onboarding files: agent-supervisor.service +
+    // 4 user-onboarding files: agent-supervisor.service +
     // interactive-messages-gc.service + interactive-messages-gc.timer (Phase 140)
-    expect(userOnboardingRows.length).toBe(3);
+    // + scheduled-agents-scheduler.service (this ship: move
+    // scheduled-agents scheduler from in-process agent-supervisor child
+    // to a systemd user unit so byte-changes actually take effect).
+    expect(userOnboardingRows.length).toBe(4);
 
     // id has 4 entries (SKILL.md + 3 companions)
     const idRows = skillRows.filter((e) =>
@@ -317,7 +338,10 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     const timer = FLEET_SUBSTRATE_CATALOG.find((e) => e.slug === "interactive-messages-gc-timer-unit");
     expect(timer?.bundledPath).toBe("/app/fleet-substrate/user-onboarding/interactive-messages-gc.timer");
     expect(timer?.installPath).toBe("~/.config/systemd/user/interactive-messages-gc.timer");
-    expect(timer?.restartHook).toBeNull();
+    // Restart hook targets self so schedule changes on an already-started
+    // timer actually take effect — daemon-reload alone doesn't apply new
+    // OnCalendar / Persistent to a running instance.
+    expect(timer?.restartHook).toBe("interactive-messages-gc.timer");
   });
 
   it("Test 10: draft-terminal-on-submit template (2026-09-30) + iterate-widget.sh are present in catalog", () => {
@@ -399,7 +423,10 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // scripts + 65 template files) — backfilled 2026-09-28, extended
     // 2026-09-30 (draft template + iterate-widget.sh) — 57 → 126.
     // -1 for the favicon.svg row retired 2026-09-28 — 126 → 125.
-    expect(bundled.length).toBe(125);
+    // +1 for scheduled-agents-scheduler.service (systemd unit that owns
+    // the box-level scheduled-agents scheduler, so wakeup-scheduler.py
+    // byte-changes actually cause a scheduler restart) — 125 → 126.
+    expect(bundled.length).toBe(126);
     expect(runtime.length).toBe(1);
 
     // Every bundled row retains bundledPath under /app/fleet-substrate/
