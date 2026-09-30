@@ -1,6 +1,14 @@
 /**
  * Single result row for the conversation search modal.
  *
+ * Phase 143 D-11 / D-12 / D-13 / D-14: Archived-identity rows now carry an
+ * always-visible RowKebabMenu (three-dots ⋮) in the right-side slot, replacing
+ * the chevron for archived rows. The menu contains a single "Un-archive" item.
+ * Kebab click stops propagation so the row's default onClick does NOT fire
+ * (D-14). Only render the kebab when `result.isArchived === true` AND
+ * `onUnarchive` is provided — non-archived rows are unaffected.
+ * See .planning/campaigns/un-archiving/shape-unarchive-frontend-backend.md
+ *
  * Tasting anatomy (modal-tasting.html § conversation search):
  *   Line 1 (.pv-search-row-header): sender-dot (hue = result.colorHue,
  *   fallback 190) + display name + right-aligned relative time.
@@ -23,19 +31,28 @@
  * nothing) but no <span> wraps.
  *
  * Archived pill retained — real behavior signal (parent routes archived
- * clicks to window.alert vs opening the tab, per D-14/D-15).
+ * clicks to kebab-menu Un-archive path per D-11/D-12/D-13/D-14).
  *
  * The row is a semantic <button> so keyboard focus + Enter/Space activate
  * it naturally. Parent (ConversationSearchModal) provides the onClick.
  */
 
 import type { ConversationSearchResult } from "@/api/conversation-search-api";
+import { RowKebabMenu } from "./RowKebabMenu";
 
 const FALLBACK_HUE = 190;
 
 export interface ConversationSearchRowProps {
   result: ConversationSearchResult;
   onClick: () => void;
+  /**
+   * Phase 143 D-11 / D-12 / D-13 / D-14 — when provided and
+   * result.isArchived === true, the row renders an always-visible RowKebabMenu
+   * with a single "Un-archive" item. Kebab click stops propagation (handled
+   * inside RowKebabMenu) so the row onClick does NOT fire (D-14). Non-archived
+   * rows are unaffected.
+   */
+  onUnarchive?: (result: ConversationSearchResult) => void;
   /** Injected in tests; falls back to Date.now() so relative-time rendering
    *  is deterministic under vitest. */
   now?: number;
@@ -64,6 +81,7 @@ function formatRelativeTime(mtimeMs: number, nowMs: number): string {
 export function ConversationSearchRow({
   result,
   onClick,
+  onUnarchive,
   now,
 }: ConversationSearchRowProps): JSX.Element {
   const title = result.aiTitle ?? result.displayName ?? result.identityKey;
@@ -90,6 +108,11 @@ export function ConversationSearchRow({
     snippetNode = <div className="pv-search-row-snippet">{result.snippet}</div>;
   }
 
+  // Phase 143 D-11 / D-12 / D-13 / D-14: render the kebab only on archived
+  // rows when the onUnarchive callback is provided. The kebab replaces the
+  // chevron slot for archived rows; non-archived rows are unaffected.
+  const showKebab = result.isArchived && onUnarchive != null;
+
   return (
     <button
       type="button"
@@ -106,6 +129,18 @@ export function ConversationSearchRow({
           <span className="pv-search-archived-pill">archived</span>
         )}
         <span className="pv-search-row-when">{when}</span>
+        {showKebab && (
+          <RowKebabMenu
+            testId={`conversation-search-archived-row-kebab-${result.identityKey}-${result.hostId}`}
+            ariaLabel={`Row menu for ${result.identityKey}`}
+            items={[
+              {
+                label: "Un-archive",
+                onClick: () => onUnarchive!(result),
+              },
+            ]}
+          />
+        )}
       </div>
       {snippetNode}
     </button>
