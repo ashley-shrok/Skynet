@@ -1519,8 +1519,21 @@ export async function bootstrapFleetSubstrateLocally(
     hostIdOk,
     statusLineWireOk,
     hadError,
+    // Local branch doesn't run the interactive-messages-gc.timer OR
+    // scheduled-agents-scheduler.service enable step yet (pre-existing gap
+    // for gc-timer; scheduled-agents-scheduler inherits the same limitation).
+    // The SSH branch (run-bootstrap.ts) enables both via `systemctl --user
+    // enable --now`. The local branch would need equivalent busctl-based
+    // Manager.EnableUnitFiles + StartUnit calls (systemctl itself fails at
+    // the private-socket handshake here — see fireRestartHookLocally comment
+    // for the version-skew rationale). Until that's added, t1000 requires
+    // a manual `systemctl --user enable --now scheduled-agents-scheduler.service`
+    // (and the analogous gc-timer command) at ship time. Both fields shape-
+    // satisfy the BootstrapResult interface without lying about state.
     gcTimerAlreadyEnabled: false,
     gcTimerBootstrapped: false,
+    scheduledAgentsSchedulerAlreadyEnabled: false,
+    scheduledAgentsSchedulerBootstrapped: false,
   };
 
   systemLogger[hadError ? "warn" : "info"](

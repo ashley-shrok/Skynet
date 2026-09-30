@@ -150,6 +150,14 @@ export interface BootstrapResult {
    *  exclusive with gcTimerAlreadyEnabled. False on both already-enabled AND
    *  error paths. */
   gcTimerBootstrapped: boolean;
+  /** Whether scheduled-agents-scheduler.service was already enabled before
+   *  Step 1c. True = cheap probe only; false = enable-and-start ran (or was
+   *  skipped due to an earlier channel failure). */
+  scheduledAgentsSchedulerAlreadyEnabled: boolean;
+  /** Whether Step 1c ran the enable-now command successfully. Mutually
+   *  exclusive with scheduledAgentsSchedulerAlreadyEnabled. False on both
+   *  already-enabled AND error paths. */
+  scheduledAgentsSchedulerBootstrapped: boolean;
   /** True if any sub-step encountered an error. */
   hadError: boolean;
 }
@@ -313,6 +321,8 @@ export async function runBootstrapForHost(
   let hostIdOk = false;
   let gcTimerAlreadyEnabled = false;
   let gcTimerBootstrapped = false;
+  let scheduledAgentsSchedulerAlreadyEnabled = false;
+  let scheduledAgentsSchedulerBootstrapped = false;
   let hadError = false;
 
   // -------------------------------------------------------------------------
@@ -506,6 +516,98 @@ export async function runBootstrapForHost(
     logBootstrapFailed(
       host,
       "gc-timer-is-enabled-check",
+      err instanceof Error ? err.message : "unknown throw",
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // Step 1c: Idempotently enable + start the scheduled-agents-scheduler.service
+  // on every managed host. This is the systemd user unit that owns the
+  // box-level scheduled-agents scheduler (wakeup-scheduler --mode
+  // scheduled-agents). Same is-enabled-first pattern as Step 1 / 1b:
+  // one cheap probe per sweep; only fresh hosts pay the one-time enable-and-
+  // start cost. daemon-reload has already fired above (Step 1), so systemd
+  // has the fresh unit bytes before we probe.
+  //
+  // Fresh-box ordering note: on the FIRST sweep of a brand-new box, the
+  // .service unit-file itself hasn't been pushed to disk yet (that happens
+  // later in the catalog loop). enable-and-start will fail this tick with
+  // "Unit ... does not exist", hadError=true will be set, and the sweep's
+  // fire-and-forget contract means the whole run continues. On the NEXT
+  // sweep tick, the file is on disk, daemon-reload picks it up, this step
+  // runs cleanly. Identical convergence shape as Step 1b (gc-timer).
+  //
+  // Runs inside its own try/catch (NEVER-THROW contract).
+  // -------------------------------------------------------------------------
+  try {
+    const isEnabledCmdSched =
+      `XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-enabled scheduled-agents-scheduler.service 2>/dev/null; echo "EXIT:$?"`;
+    const schedCheckRaw = await channel.exec(isEnabledCmdSched);
+
+    if (schedCheckRaw === null) {
+      logBootstrapFailed(
+        host,
+        "scheduled-agents-scheduler-is-enabled-check",
+        "channel returned null",
+      );
+      hadError = true;
+    } else {
+      const schedTrimmed = schedCheckRaw.trimEnd();
+      const schedMatch = /EXIT:(\d+)$/.exec(schedTrimmed);
+      const schedExitCode = schedMatch ? parseInt(schedMatch[1], 10) : -1;
+
+      if (schedExitCode === 0) {
+        scheduledAgentsSchedulerAlreadyEnabled = true;
+        systemLogger.info(
+          `Fleet-substrate bootstrap: scheduled-agents-scheduler.service already enabled on ${host.name}`,
+          {
+            operation: "fleet_substrate_bootstrap_result",
+            fleetHostId: host.id,
+            hostName: host.name,
+            step: "scheduled-agents-scheduler-is-enabled-check",
+            scheduledAgentsSchedulerAlreadyEnabled: true,
+          },
+        );
+      } else {
+        const enableSchedCmd =
+          `XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user enable --now scheduled-agents-scheduler.service && echo "__SCHED_OK__"`;
+        const enableSchedRaw = await channel.exec(enableSchedCmd);
+
+        if (enableSchedRaw === null) {
+          logBootstrapFailed(
+            host,
+            "scheduled-agents-scheduler-enable",
+            "channel returned null",
+          );
+          hadError = true;
+        } else if (!enableSchedRaw.trimEnd().endsWith("__SCHED_OK__")) {
+          logBootstrapFailed(
+            host,
+            "scheduled-agents-scheduler-enable",
+            enableSchedRaw.trimEnd().slice(0, 500) ||
+              "scheduled-agents-scheduler enable failed",
+          );
+          hadError = true;
+        } else {
+          scheduledAgentsSchedulerBootstrapped = true;
+          systemLogger.info(
+            `Fleet-substrate bootstrap: scheduled-agents-scheduler.service enabled+started on ${host.name}`,
+            {
+              operation: "fleet_substrate_bootstrap_result",
+              fleetHostId: host.id,
+              hostName: host.name,
+              step: "scheduled-agents-scheduler-enable",
+              scheduledAgentsSchedulerBootstrapped: true,
+            },
+          );
+        }
+      }
+    }
+  } catch (err) {
+    hadError = true;
+    logBootstrapFailed(
+      host,
+      "scheduled-agents-scheduler-is-enabled-check",
       err instanceof Error ? err.message : "unknown throw",
     );
   }
@@ -915,6 +1017,8 @@ export async function runBootstrapForHost(
     statusLineWireOk,
     gcTimerAlreadyEnabled,
     gcTimerBootstrapped,
+    scheduledAgentsSchedulerAlreadyEnabled,
+    scheduledAgentsSchedulerBootstrapped,
     hadError,
   };
 

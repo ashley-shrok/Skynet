@@ -107,6 +107,10 @@ function makeChannel(
     // EXIT:0 so existing tests see gcTimerAlreadyEnabled=true and no hadError.
     // Tests specifically exercising Step 1b override this key.
     "interactive-messages-gc.timer": "enabled\nEXIT:0",
+    // Default happy-path for Step 1c (scheduled-agents-scheduler is-enabled
+    // check). Same shape as gc-timer above — EXIT:0 keeps unrelated tests
+    // green; tests specifically exercising Step 1c override this key.
+    "scheduled-agents-scheduler.service": "enabled\nEXIT:0",
     ...handlers,
   };
   const exec = vi.fn(async (cmd: string) => {
@@ -1355,6 +1359,9 @@ describe("runBootstrapForHost", () => {
         if (cmd.includes("enable --now interactive-messages-gc.timer")) return "__GC_TIMER_OK__";
         // Step 1b: is-enabled probe for gc.timer.
         if (cmd.includes("is-enabled interactive-messages-gc.timer")) return "disabled\nEXIT:1";
+        // Step 1c: happy-path skip for scheduled-agents-scheduler (this
+        // test is scoped to Step 1b behavior; Step 1c shouldn't affect it).
+        if (cmd.includes("is-enabled scheduled-agents-scheduler.service")) return "enabled\nEXIT:0";
         // Step 6 statusLine wire: check sentinel first since cmd also has SETTINGS=.
         if (cmd.includes("__STATUSLINE_OK__")) return "__STATUSLINE_OK__";
         if (cmd.includes("SETTINGS=")) return "__SETTINGS_OK__";
@@ -1436,6 +1443,158 @@ describe("runBootstrapForHost", () => {
       const result = await runBootstrapForHost(ch, HOST);
 
       expect(result.gcTimerBootstrapped).toBe(false);
+      expect(result.hadError).toBe(true);
+    });
+  });
+
+  describe("step 1c: scheduled-agents-scheduler.service enable", () => {
+    it("(sched-1) BootstrapResult has scheduledAgentsSchedulerAlreadyEnabled and scheduledAgentsSchedulerBootstrapped fields", async () => {
+      const { channel } = makeChannel({
+        "is-enabled": "enabled\nEXIT:0",
+        "daemon-reload": "__RELOAD_OK__",
+        "SETTINGS": "__SETTINGS_OK__",
+        "gsd-context-monitor": "__CLEANUP_OK__",
+        "host/name": "__HOST_NAME_OK__",
+      });
+
+      const result = await runBootstrapForHost(channel, HOST);
+
+      expect(result).toHaveProperty("scheduledAgentsSchedulerAlreadyEnabled");
+      expect(result).toHaveProperty("scheduledAgentsSchedulerBootstrapped");
+      expect(typeof result.scheduledAgentsSchedulerAlreadyEnabled).toBe(
+        "boolean",
+      );
+      expect(typeof result.scheduledAgentsSchedulerBootstrapped).toBe("boolean");
+    });
+
+    it("(sched-2) scheduler already enabled → alreadyEnabled=true, bootstrapped=false, no enable --now fired", async () => {
+      const { channel, exec } = makeChannel({
+        "is-enabled": "enabled\nEXIT:0",
+        "daemon-reload": "__RELOAD_OK__",
+        "SETTINGS": "__SETTINGS_OK__",
+        "gsd-context-monitor": "__CLEANUP_OK__",
+        "host/name": "__HOST_NAME_OK__",
+      });
+
+      const result = await runBootstrapForHost(channel, HOST);
+
+      expect(result.scheduledAgentsSchedulerAlreadyEnabled).toBe(true);
+      expect(result.scheduledAgentsSchedulerBootstrapped).toBe(false);
+      expect(result.hadError).toBe(false);
+
+      const cmds = captureCommands(exec);
+      expect(
+        cmds.some((c) =>
+          c.includes("is-enabled scheduled-agents-scheduler.service"),
+        ),
+      ).toBe(true);
+      expect(
+        cmds.some((c) =>
+          c.includes("enable --now scheduled-agents-scheduler.service"),
+        ),
+      ).toBe(false);
+    });
+
+    it("(sched-3) scheduler not enabled → bootstrapped=true, enable --now scheduled-agents-scheduler.service fired", async () => {
+      const exec = vi.fn(async (cmd: string) => {
+        if (cmd.includes("is-enabled agent-supervisor")) return "enabled\nEXIT:0";
+        if (cmd.includes("daemon-reload")) return "__RELOAD_OK__";
+        if (cmd.includes("is-enabled interactive-messages-gc.timer"))
+          return "enabled\nEXIT:0";
+        // Step 1c: enable-now BEFORE is-enabled so the --now variant matches first.
+        if (cmd.includes("enable --now scheduled-agents-scheduler.service"))
+          return "__SCHED_OK__";
+        if (cmd.includes("is-enabled scheduled-agents-scheduler.service"))
+          return "disabled\nEXIT:1";
+        if (cmd.includes("__STATUSLINE_OK__")) return "__STATUSLINE_OK__";
+        if (cmd.includes("SETTINGS=")) return "__SETTINGS_OK__";
+        if (cmd.includes("gsd-context-monitor")) return "__CLEANUP_OK__";
+        if (cmd.includes("host/parent")) return "__HOST_PARENT_OK__";
+        if (cmd.includes("host/name")) return "__HOST_NAME_OK__";
+        if (cmd.includes("host/id")) return "__HOST_ID_OK__";
+        return null;
+      });
+      const ch: SshChannel = { exec };
+
+      const result = await runBootstrapForHost(ch, HOST);
+
+      expect(result.scheduledAgentsSchedulerAlreadyEnabled).toBe(false);
+      expect(result.scheduledAgentsSchedulerBootstrapped).toBe(true);
+      expect(result.hadError).toBe(false);
+
+      const cmds = captureCommands(exec);
+      expect(
+        cmds.some((c) =>
+          c.includes("enable --now scheduled-agents-scheduler.service"),
+        ),
+      ).toBe(true);
+    });
+
+    it("(sched-4) channel returns null on scheduler is-enabled check → hadError=true, both fields false", async () => {
+      const { channel } = makeChannel({
+        "is-enabled": "enabled\nEXIT:0",
+        "daemon-reload": "__RELOAD_OK__",
+        "SETTINGS": "__SETTINGS_OK__",
+        "gsd-context-monitor": "__CLEANUP_OK__",
+        "scheduled-agents-scheduler.service": null,
+      });
+
+      const result = await runBootstrapForHost(channel, HOST);
+
+      expect(result.scheduledAgentsSchedulerAlreadyEnabled).toBe(false);
+      expect(result.scheduledAgentsSchedulerBootstrapped).toBe(false);
+      expect(result.hadError).toBe(true);
+    });
+
+    it("(sched-5) channel returns null on scheduler enable-now → hadError=true, bootstrapped=false", async () => {
+      const exec = vi.fn(async (cmd: string) => {
+        if (cmd.includes("is-enabled agent-supervisor")) return "enabled\nEXIT:0";
+        if (cmd.includes("daemon-reload")) return "__RELOAD_OK__";
+        if (cmd.includes("is-enabled interactive-messages-gc.timer"))
+          return "enabled\nEXIT:0";
+        if (cmd.includes("enable --now scheduled-agents-scheduler.service"))
+          return null;
+        if (cmd.includes("is-enabled scheduled-agents-scheduler.service"))
+          return "disabled\nEXIT:1";
+        if (cmd.includes("__STATUSLINE_OK__")) return "__STATUSLINE_OK__";
+        if (cmd.includes("SETTINGS=")) return "__SETTINGS_OK__";
+        if (cmd.includes("gsd-context-monitor")) return "__CLEANUP_OK__";
+        if (cmd.includes("host/parent")) return "__HOST_PARENT_OK__";
+        if (cmd.includes("host/name")) return "__HOST_NAME_OK__";
+        if (cmd.includes("host/id")) return "__HOST_ID_OK__";
+        return null;
+      });
+      const ch: SshChannel = { exec };
+
+      const result = await runBootstrapForHost(ch, HOST);
+
+      expect(result.scheduledAgentsSchedulerBootstrapped).toBe(false);
+      expect(result.hadError).toBe(true);
+    });
+
+    it("(sched-6) enable-now returns without sentinel → hadError=true, bootstrapped=false", async () => {
+      const exec = vi.fn(async (cmd: string) => {
+        if (cmd.includes("is-enabled agent-supervisor")) return "enabled\nEXIT:0";
+        if (cmd.includes("daemon-reload")) return "__RELOAD_OK__";
+        if (cmd.includes("is-enabled interactive-messages-gc.timer"))
+          return "enabled\nEXIT:0";
+        if (cmd.includes("enable --now scheduled-agents-scheduler.service"))
+          return "Failed to start scheduled-agents-scheduler.service\n";
+        if (cmd.includes("is-enabled scheduled-agents-scheduler.service"))
+          return "disabled\nEXIT:1";
+        if (cmd.includes("__STATUSLINE_OK__")) return "__STATUSLINE_OK__";
+        if (cmd.includes("SETTINGS=")) return "__SETTINGS_OK__";
+        if (cmd.includes("gsd-context-monitor")) return "__CLEANUP_OK__";
+        if (cmd.includes("host/parent")) return "__HOST_PARENT_OK__";
+        if (cmd.includes("host/name")) return "__HOST_NAME_OK__";
+        if (cmd.includes("host/id")) return "__HOST_ID_OK__";
+        return null;
+      });
+      const ch: SshChannel = { exec };
+
+      const result = await runBootstrapForHost(ch, HOST);
+
+      expect(result.scheduledAgentsSchedulerBootstrapped).toBe(false);
       expect(result.hadError).toBe(true);
     });
   });
