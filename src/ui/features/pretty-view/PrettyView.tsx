@@ -994,12 +994,29 @@ export function PrettyView({
   >(null);
   // Phase 89 Plan 06: swap-not-stack coordination (D-06) — non-null when the
   // runbook editor is open, null when closed. Set by handleOpenRunbook (fired
-  // from IdentityModal's Runbooks tab row click); cleared to null by the
-  // RunbookEditorModal's onOpenChange(false) close handler. NO reopen-of-
-  // identity-modal-on-close per D-06 v1 posture.
+  // from IdentityModal's Runbooks tab row click OR from RoleModal's Runbooks
+  // tab); cleared to null by the RunbookEditorModal's onOpenChange(false)
+  // close handler.
+  //
+  // 2026-09-30 UAT: `parentRoleModalState` carries a snapshot of the
+  // RoleModal state that was open at the moment the runbook was opened,
+  // when the swap originated from RoleModal. On RunbookEditor close we
+  // restore that snapshot so the user lands back on the RoleModal they
+  // came from — mirrors the RoleModal→RunbookEditor forward swap.
+  // Null when the runbook was opened from a non-RoleModal path (e.g.
+  // IdentityModal's now-retired Runbooks tab), in which case close is
+  // a no-reopen terminal event as before.
   const [runbookEditorOpenState, setRunbookEditorOpenState] = useState<
     | null
-    | { roleName: string; runbookName: string }
+    | {
+        roleName: string;
+        runbookName: string;
+        parentRoleModalState: {
+          roleName: string;
+          roleCosmetics: RoleSummary;
+          hue: number;
+        } | null;
+      }
   >(null);
   // Phase 90 Plan 90-06 (D-04): swap-not-stack coordination for the identity-
   // modal title-line jump. Non-null when the role modal is open (opened via
@@ -2283,11 +2300,14 @@ export function PrettyView({
         return;
       }
       console.debug("[PrettyView] handleOpenRunbook: swap", { roleName, runbookName });
+      // Capture RoleModal snapshot BEFORE clearing it so we can restore
+      // on RunbookEditor close (2026-09-30 UAT swap-back).
+      const parentRoleModalState = roleModalOpenState;
       setIsIdentityModalOpen(false);
       setRoleModalOpenState(null);
-      setRunbookEditorOpenState({ roleName, runbookName });
+      setRunbookEditorOpenState({ roleName, runbookName, parentRoleModalState });
     },
-    [pvIdentity],
+    [pvIdentity, roleModalOpenState],
   );
 
   // Phase 90 Plan 90-06 (D-04): identity-modal title-line click handler.
@@ -4201,8 +4221,16 @@ export function PrettyView({
           open={true}
           onOpenChange={(open) => {
             if (!open) {
-              console.debug("[PrettyView] runbook-editor-close: no reopen (D-06 swap-not-stack)");
+              // 2026-09-30 UAT: reverse-swap. If this runbook was opened
+              // from RoleModal, restore that RoleModal on close so the
+              // user lands back where they came from. Otherwise close
+              // terminates as before.
+              const parent = runbookEditorOpenState.parentRoleModalState;
+              console.debug("[PrettyView] runbook-editor-close", {
+                reopenRoleModal: parent !== null,
+              });
               setRunbookEditorOpenState(null);
+              if (parent) setRoleModalOpenState(parent);
             }
           }}
           hostId={hostId}
