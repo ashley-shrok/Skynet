@@ -384,15 +384,17 @@ test_pitfall4_no_iddir_relay_json_in_step3() {
     "Phase 115 D-13: Step 1 must have \$archdir/relay.json fallback for State 2 retry-from-partial"
 }
 
-test_d12_no_admin_endpoint() {
-  local count_admin count_client
-  count_admin=$(safe_grep_count '_synapse/admin' "$SUPERVISOR")
-  assert_eq "0" "$count_admin" \
-    "D-12: _synapse/admin MUST NOT appear (no admin key on fleet boxes)"
-  count_client=$(safe_grep_count '/account/deactivate' "$SUPERVISOR")
-  assert_gte "1" "$count_client" \
-    "D-12: client deactivate endpoint must be present"
-}
+# NOTE: former test_d12_no_admin_endpoint was removed 2026-09-30 by the
+# un-archive host-side shape. Phase 94 D-12 encoded "no _synapse/admin
+# references in the supervisor (no admin creds on fleet boxes)" as a
+# design lock; the un-archive campaign explicitly reversed that decision —
+# scan_identity_unarchive_requested_sentinels() calls the admin user-update +
+# admin login-as-user endpoints using the fleet-admin creds now available
+# at ~/fleet/roles/box-maintainer/matrix-admin-t1000.json. The retire path
+# still uses the client deactivate endpoint (verified dynamically by the
+# retire_happy_path_200 / retire_5xx_aborts / retire_401 tests below), so
+# the "retire uses client, not admin" invariant remains covered.
+# See: .planning/campaigns/un-archiving/shape-unarchive-host-side.md
 
 test_d15_credentials_never_in_log_strings() {
   local no_comments count_token count_pwd
@@ -405,13 +407,14 @@ test_d15_credentials_never_in_log_strings() {
   assert_eq "0" "$count_pwd"   "D-15: log line must NOT contain \$password"
 }
 
-test_d16_no_unarchive_path() {
-  local no_comments count
-  no_comments=$(grep -v '^[[:space:]]*#' "$SUPERVISOR")
-  count=$(printf '%s' "$no_comments" | safe_grep_count 'unretire\|unarchive')
-  assert_eq "0" "$count" \
-    "D-16: unretire/unarchive keywords absent from non-comment code"
-}
+# NOTE: former test_d16_no_unarchive_path was removed 2026-09-30 by the
+# un-archive host-side shape. Phase 94 D-16 encoded "archive is a one-way
+# trip; no unarchive/unretire path in the supervisor" as a design lock; the
+# un-archive campaign explicitly reversed that decision. The three new
+# scanners (scan_{identity,role,app}_unarchive_requested_sentinels) live
+# in agent-supervisor.sh and are exercised by the un-archive test driver
+# alongside this one.
+# See: .planning/campaigns/un-archiving/shape-unarchive-host-side.md
 
 test_pitfall7_exception_comment_present() {
   local count
@@ -1867,9 +1870,9 @@ run_test test_bash_syntax
 run_test test_shellcheck_clean
 run_test test_pitfall3_no_equals_prefix_on_kill_session
 run_test test_pitfall4_no_iddir_relay_json_in_step3
-run_test test_d12_no_admin_endpoint
+# run_test test_d12_no_admin_endpoint  # removed 2026-09-30 (un-archive host-side)
 run_test test_d15_credentials_never_in_log_strings
-run_test test_d16_no_unarchive_path
+# run_test test_d16_no_unarchive_path  # removed 2026-09-30 (un-archive host-side)
 run_test test_pitfall7_exception_comment_present
 
 # --- is_coordinator guard (5 RESEARCH cases) ---
