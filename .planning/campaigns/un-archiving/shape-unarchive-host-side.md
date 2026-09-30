@@ -98,3 +98,18 @@ Tracking pieces of work via harness tasks as I go:
 **Handoff to shape 2:** the on-disk gesture is stable after this shape ships — an agent (or a hand-drop from bash) can un-archive by writing the intent sentinel into the archive folder, and the supervisor completes the reversal. Shape 2 opens as a separate `/build` session against `shape-unarchive-frontend-backend` when this shape lands and is deployed.
 
 **Close:** `/close unarchive-host-side` at end of session.
+
+## Matrix fidelity spike — results + accepted caveat
+
+Load-bearing spike executed against the live t1000 Synapse (2026-09-30). Registered a throwaway `@unarchive-fidelity-test-<epoch>` account, joined a fresh test room, sent a message; deactivated with `erase=true` (mirroring retire step 1); reactivated via admin PUT `deactivated=false` (mirroring the identity scanner's step 1); minted a fresh access token via admin login-as-user (mirroring step 2); attempted `/sync` and direct-message-read against the earlier room.
+
+**What survives:** the account itself. Fresh token /syncs successfully; `whoami` returns the correct mxid; the account is fully alive.
+
+**What doesn't:** room memberships. `/sync` returns empty `rooms.join`/`rooms.invite`/`rooms.leave`. Admin `/users/{mxid}/joined_rooms` returns `total: 0`. The room entity may still exist on the homeserver as a zombie (`/rooms/{room_id}` shows it with `joined_members: 0`, `forgotten: true`), but the reactivated account has no membership record. There is no admin API that lists rooms a deactivated account was PREVIOUSLY in.
+
+**Accepted caveat (option B):** shape 1 ships without a room-rejoin compensating step. Un-archive reactivates the account and moves the folder back; rooms are not restored. Practical implication: new DMs to the un-archived identity work naturally (Matrix auto-creates a new DM room when peers send to someone with no shared room, and matrix_peek wakes the identity on it), so recontact is seamless from the sender's side. Peers with cached zombie-room IDs would send into rooms the identity is no longer in — same stale-cache problem archive itself creates, not made worse here.
+
+**Rejected (option A):** folding a rejoin path into shape 1 by snapshotting `joined_rooms` at retire time. Rejected as scope creep — the shape's declared load-bearing invariant was "account reactivates cleanly and identity wakes on incoming DMs," both of which hold. Documented so a later maintainer sees the path considered and can revisit if peer stale-cache trouble becomes user-visible in practice.
+
+**Follow-up hook:** if a room-inventory rejoin becomes desirable, it would land as a small dedicated shape (retire captures joined_rooms → un-archive scanner reads the snapshot and force-joins each via admin `/join/{roomId}?user_id=<mxid>` — the primitive already exists in `matrix-admin-client.ts` as `joinRoom`). Small enough for `/gsd:quick` when the need surfaces.
+

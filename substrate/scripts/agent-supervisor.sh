@@ -1410,6 +1410,22 @@ _urlencode_mxid() {
 #     (matrix_peek on a DM, schedule_peek on a wakeup) — reconcile's
 #     alive-check sees .dormant and skips the auto-launch; matrix_peek's
 #     next parallel probe uses the freshly-minted access_token from step 3.
+#
+# ACCEPTED CAVEAT: room memberships do NOT survive reactivation. Retire's
+# deactivate call uses erase=true, which wipes the account's room membership
+# records; admin PUT deactivated=false brings the account back alive but does
+# NOT restore membership records — verified against the live t1000 Synapse
+# via a throwaway-account spike (2026-09-30). New DMs to the un-archived
+# identity work naturally (Matrix auto-creates a new DM room on send; matrix_peek
+# wakes on it), but peers with cached zombie-room IDs would send into rooms the
+# identity is no longer in. This is the same stale-cache problem archive itself
+# creates and not made worse here.
+# If a rejoin path becomes desirable, it lands as a small follow-up shape (retire
+# captures joined_rooms → un-archive scanner reads the snapshot and force-joins
+# via admin /join/{roomId}?user_id=<mxid> — matrix-admin-client.ts already
+# exposes the joinRoom primitive on the TS side). See
+# .planning/campaigns/un-archiving/shape-unarchive-host-side.md § Matrix
+# fidelity spike — results + accepted caveat.
 scan_identity_unarchive_requested_sentinels() {
   local d name
   for d in "$IDENTITIES_ARCHIVE_DIR"/*/; do
