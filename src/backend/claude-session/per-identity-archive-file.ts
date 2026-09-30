@@ -36,9 +36,10 @@
  *     REMOTE path shape: `fleet/identities-archive/${name}/${relPath}` — a
  *     RELATIVE path; SFTP resolves against the SSH user's $HOME automatically.
  *
- * No chmod:
- *   The sentinel is empty (presence IS the meaning); no secret material, no
- *   chmod parameter on opts.
+ * No credential parameter on opts:
+ *   The sentinel is empty (presence IS the meaning); no secret material.
+ *   Unlike per-identity-file.ts (which has a credential-mode option for relay.json's
+ *   0o600 lockdown), this primitive has no such field — sentinels carry no secrets.
  *
  * No parent-mkdir:
  *   The archive folder MUST already exist — the reconciler moved it there.
