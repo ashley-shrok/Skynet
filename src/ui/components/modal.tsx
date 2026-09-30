@@ -111,8 +111,11 @@ function Modal({
         <DialogPrimitive.Overlay
           data-slot="modal-overlay"
           className={cn(
+            // 2026-09-30: solid 55% black dim; NO backdrop-filter blur.
+            // The blur-sm on a full-viewport overlay was showing up as a
+            // GPU spike + "Page unresponsive" prompts on the user's
+            // machine and the dim alone reads fine.
             "fixed inset-0 z-50 bg-black/55",
-            "supports-backdrop-filter:backdrop-blur-sm",
             "data-open:animate-in data-open:fade-in-0",
             "data-closed:animate-out data-closed:fade-out-0",
             "duration-100",
@@ -159,7 +162,10 @@ function Modal({
             "text-[#fbf5e8]",
             // Deep drop shadow + inset warm rim + hue outer glow (assistant-bubble aesthetic).
             "shadow-[0_8px_24px_rgba(0,0,0,0.5),0_1px_0_rgba(255,220,190,0.22)_inset,0_0_40px_hsla(var(--pv-id-hue),70%,55%,0.25)]",
-            "supports-backdrop-filter:[backdrop-filter:blur(24px)_saturate(1.6)]",
+            // Backdrop-filter removed 2026-09-30 — the modal gradient is
+            // already 0.88/0.94 alpha so the shell reads solid without
+            // needing the (expensive) blur behind it. Kept the solid
+            // shadow + border chrome that carry the depth cue.
             "data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95",
             "data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
             "duration-100",
