@@ -32,14 +32,14 @@ function bundledPathToRepoPath(bundledPath: string): string {
 }
 
 describe("FLEET_SUBSTRATE_CATALOG", () => {
-  it("Test 1: contains exactly 126 entries (17 conceptual items + agent-supervisor.service unit + role-file-watch fourth ambient monitor + fleet-status-sweep Phase 92 + pv-context-pct-sweep Phase 95 + ambient-monitor mega-monitor phase + instance-policy-claude-md Phase 114 twinkie + image-gen-skill + image-gen-helper Phase 116 + 25 app-development shape-1 rows (26 originally; favicon.svg row retired 2026-09-28 when the scaffold switched to a static/icon.webp symlink) + task-field-check hook + 3 rows for interactive-messages-gc (Phase 140: .py script + .service unit + .timer unit) + 69 rows for interactive-messages skill payload (SKILL.md + create-widget.sh + teardown-widget.sh + iterate-widget.sh + 65 template files across 13 folders, backfilled 2026-09-28 + draft template + iterate-widget added 2026-09-30))", () => {
+  it("Test 1: contains exactly 126 entries (17 conceptual items + agent-supervisor.service unit + role-file-watch fourth ambient monitor + fleet-status-sweep Phase 92 + pv-context-pct-sweep Phase 95 + ambient-monitor mega-monitor phase + instance-policy-claude-md Phase 114 twinkie + image-gen-skill + image-gen-helper Phase 116 + 24 app-development shape-1 rows (26 originally; favicon.svg row retired 2026-09-28 when the scaffold switched to a static/icon.webp symlink; restore-app.sh row retired 2026-09-30 by the un-archiving campaign, host-side shape) + task-field-check hook + 3 rows for interactive-messages-gc (Phase 140: .py script + .service unit + .timer unit) + 69 rows for interactive-messages skill payload (SKILL.md + create-widget.sh + teardown-widget.sh + iterate-widget.sh + 65 template files across 13 folders, backfilled 2026-09-28 + draft template + iterate-widget added 2026-09-30))", () => {
     // 17 = 6 single-file skills + agent-relay (SKILL.md + recv.sh counted as
     // one item) + id (SKILL.md + 3 companions counted as one item) + 8 helper
     // scripts + 1 mega-monitor launcher (ambient-monitor) + 1 Phase 114 twinkie
     // (instance-policy-claude-md). Per-FILE row layout is required by the
     // byte-compare mechanism in Plan 03, so the array has 12 skill-side rows
     // + 10 scripts-side rows + 1 user-onboarding row (agent-supervisor.service)
-    // + 1 Phase 114 twinkie row + 25 app-development rows.
+    // + 1 Phase 114 twinkie row + 24 app-development rows.
     // role-file-watch is the 7th helper script (fourth ambient monitor alongside
     // wakeup-scheduler and context-watch). fleet-status-sweep is the 8th helper
     // script (Phase 92 batch sweep for the fleet-status poller).
@@ -54,14 +54,17 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // hosts.username === "root" per Plan 05 D-13).
     // Phase 116 (image-gen) adds 2 rows: SKILL.md + a helper script.
     // The first-class-apps campaign (shape 1, 2026-09-17) adds a new skill
-    // folder with SKILL.md + 5 helper scripts (bootstrap/create/archive/
-    // restore/backup) + a 19-file starter template (16 source files + 3
+    // folder with SKILL.md + 4 helper scripts (bootstrap/create/archive/
+    // backup) + a 19-file starter template (16 source files + 3
     // files for the pre-generated initial Drizzle migration: the SQL, a
     // journal, and a snapshot) for the Bun + SvelteKit + Tailwind + Drizzle
-    // + SQLite stack — 25 rows all landing under
+    // + SQLite stack — 24 rows all landing under
     // ~/.claude/skills/app-development/ on managed boxes. (Originally 26;
     // favicon.svg row retired 2026-09-28 when the scaffold switched to a
-    // static/icon.webp symlink to the app's own icon.webp.)
+    // static/icon.webp symlink to the app's own icon.webp; restore-app.sh
+    // row retired 2026-09-30 by the un-archiving campaign, host-side shape
+    // — its logic now lives in the agent-supervisor's app-unarchive
+    // scanner, gated on ~/fleet/apps-archive/<slug>/.unarchive-requested.)
     // task-field-check adds 1 helper script (UserPromptSubmit hook for
     // the id-skill task: field nag).
     // +5 rows 2026-09-25 for the pane-safe starter files (Ivory's scaffold
@@ -90,7 +93,10 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // +1 for scheduled-agents-scheduler.service (systemd unit that owns
     // the box-level scheduled-agents scheduler, so wakeup-scheduler.py
     // byte-changes actually cause a scheduler restart) — 126 → 127.
-    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(127);
+    // -1 for app-development-restore-app row retired 2026-09-30 by the
+    // un-archiving campaign (host-side shape); logic now lives in the
+    // agent-supervisor's scan_app_unarchive_requested_sentinels() — 127 → 126.
+    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(126);
   });
 
   it("Test 2: every bundled row's bundledPath starts with /app/fleet-substrate/skills/, /app/fleet-substrate/scripts/, or /app/fleet-substrate/user-onboarding/", () => {
@@ -201,18 +207,21 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // coord-as-mode retirement) + 2 under agent-relay/ + 2 single-file
     // skills (queue, role; backlog/bounty/next-bounty retired 2026-09-20,
     // promote-to-coordinator retired 2026-09-20) + 1 image-gen (Phase 116) +
-    // 25 under app-development/ (SKILL.md + 5 helpers + 19 template files
+    // 24 under app-development/ (SKILL.md + 4 helpers + 19 template files
     // including the 3-file pre-generated initial Drizzle migration,
     // first-class-apps shape 1; originally 26 with a favicon.svg template,
     // retired 2026-09-28 for a static/icon.webp symlink to the app's own
-    // icon.webp so the browser tab favicon matches the sidebar tile)
-    // +5 for pane-safe starter files (see Test 1 comment) — 31 → 36.
-    // +1 for agent-phone (SKILL.md) — 36 → 37.
+    // icon.webp so the browser tab favicon matches the sidebar tile;
+    // restore-app.sh helper row retired 2026-09-30 by the un-archiving
+    // campaign, host-side shape — logic folded into the agent-supervisor's
+    // app-unarchive scanner)
+    // +5 for pane-safe starter files (see Test 1 comment) — 30 → 35.
+    // +1 for agent-phone (SKILL.md) — 35 → 36.
     // +69 for the interactive-messages skill payload (SKILL.md +
     // create-widget.sh + teardown-widget.sh + iterate-widget.sh + 65
     // template files across 13 folders — backfilled 2026-09-28; draft
-    // template + iterate-widget added 2026-09-30) — 37 → 106.
-    expect(skillRows.length).toBe(106);
+    // template + iterate-widget added 2026-09-30) — 36 → 105.
+    expect(skillRows.length).toBe(105);
     // 16 helper scripts: agent-supervisor + wakeup-scheduler + context-watch +
     // role-file-watch (4th ambient monitor) + usage-reporter + usage-report
     // (distributor-shipped node POSTer — install-usage-reporter.sh was
@@ -395,16 +404,18 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     }
   });
 
-  it("Test T-07: sourceKind discriminant — bundled + runtime row split (Phase 114 D-22 + Phase 116 additions + task-field-check + allow-all-tools + agent-phone + pane-safe starter + 25 app-development rows + self-edit-baseline-sync + Phase 140 interactive-messages-gc trio)", () => {
+  it("Test T-07: sourceKind discriminant — bundled + runtime row split (Phase 114 D-22 + Phase 116 additions + task-field-check + allow-all-tools + agent-phone + pane-safe starter + 24 app-development rows + self-edit-baseline-sync + Phase 140 interactive-messages-gc trio)", () => {
     // Regression guard for Phase 114 D-12 + D-14: the catalog is a
     // discriminated union on sourceKind. Phase 116 added 2 bundled rows
     // (image-gen-skill + image-gen-helper); task-field-check adds one more
     // bundled row (UserPromptSubmit hook); allow-all-tools adds one more
     // bundled row (PreToolUse hook — fleet-wide auto-allow); first-class-apps
-    // shape 1 adds 25 bundled rows (app-development skill + helpers +
+    // shape 1 adds 24 bundled rows (app-development skill + helpers +
     // starter template — originally 26; favicon.svg row retired 2026-09-28
-    // for the static/icon.webp symlink); self-edit-baseline-sync adds one
-    // bundled row (PostToolUse hook — role-file-watch self-edit suppression).
+    // for the static/icon.webp symlink; restore-app.sh row retired
+    // 2026-09-30 by the un-archiving campaign, host-side shape);
+    // self-edit-baseline-sync adds one bundled row (PostToolUse hook —
+    // role-file-watch self-edit suppression).
     // Phase 140 adds 3 bundled rows: interactive-messages-gc script +
     // interactive-messages-gc.service + interactive-messages-gc.timer.
     // Runtime row (twinkie) unchanged at 1.
@@ -426,7 +437,9 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // +1 for scheduled-agents-scheduler.service (systemd unit that owns
     // the box-level scheduled-agents scheduler, so wakeup-scheduler.py
     // byte-changes actually cause a scheduler restart) — 125 → 126.
-    expect(bundled.length).toBe(126);
+    // -1 for app-development-restore-app row retired 2026-09-30 by the
+    // un-archiving campaign (host-side shape) — 126 → 125.
+    expect(bundled.length).toBe(125);
     expect(runtime.length).toBe(1);
 
     // Every bundled row retains bundledPath under /app/fleet-substrate/
