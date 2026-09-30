@@ -137,11 +137,12 @@ function Modal({
               // rather than the app-wide amber default.
               "--pv-id-hue": String(hue),
               "--pv-hue": String(hue),
-              // Bumped from tasting alphas (0.60/0.68) so the gradient reads
-              // solid over live chat content — the tasting sat on a static
-              // dark page and could get away with more translucency.
+              // 2026-09-30 UAT: pushed to full alpha 1.0 (was 0.88/0.94)
+              // so the shell is fully opaque. Hue-tinted gradient shape
+              // preserved so the assistant-bubble aesthetic stays — only
+              // the see-through goes away.
               background:
-                "linear-gradient(160deg, hsla(var(--pv-id-hue), 50%, 38%, 0.88), hsla(var(--pv-id-hue), 45%, 22%, 0.94))",
+                "linear-gradient(160deg, hsl(var(--pv-id-hue), 50%, 38%), hsl(var(--pv-id-hue), 45%, 22%))",
               fontFamily: '"Inter Variable", system-ui, sans-serif',
             } as React.CSSProperties
           }
