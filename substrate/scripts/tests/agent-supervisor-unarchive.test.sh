@@ -83,14 +83,16 @@ assert_nofile() {
 
 assert_grep() {
   local pattern="$1" haystack="$2" msg="${3:-assert_grep}"
-  if ! printf '%s' "$haystack" | grep -qE "$pattern"; then
+  # `-- $pattern` disables option parsing so patterns beginning with `--`
+  # (e.g. `--user daemon-reload`) aren't misread as grep flags.
+  if ! printf '%s' "$haystack" | grep -qE -- "$pattern"; then
     fail "$msg: pattern '$pattern' not found in output"
   fi
 }
 
 assert_nogrep() {
   local pattern="$1" haystack="$2" msg="${3:-assert_nogrep}"
-  if printf '%s' "$haystack" | grep -qE "$pattern"; then
+  if printf '%s' "$haystack" | grep -qE -- "$pattern"; then
     fail "$msg: unexpected match for '$pattern' in output"
   fi
 }
@@ -113,13 +115,19 @@ run_test() {
 # ---- hermetic supervisor sourcing ----
 _source_supervisor_unarchive() {
   local scratch="${1:-/tmp}"
+  local systemctl_stub="${2:-}"
   export AGENT_IDENTITIES_DIR="$scratch"
   export AGENT_IDENTITIES_ARCHIVE_DIR="${scratch}-archive"
   export AGENT_ROLES_DIR="${scratch}-roles"
   export AGENT_ROLES_ARCHIVE_DIR="${scratch}-roles-archive"
   export AGENT_APPS_DIR="${scratch}-apps"
   export AGENT_APPS_ARCHIVE_DIR="${scratch}-apps-archive"
+  export AGENT_SYSTEMD_UNIT_DIR="${scratch}-systemd-units"
+  export AGENT_APP_CREATE_LOCK="$scratch/.create-lock"
   export AGENT_MATRIX_ADMIN_CREDS_PATH="$scratch/admin-creds.json"
+  if [ -n "$systemctl_stub" ]; then
+    export AGENT_SYSTEMCTL_BIN="$systemctl_stub"
+  fi
   export DORMANCY_STATE_DIR="$scratch/.state"
   export AGENT_SUPERVISOR_LIB_ONLY=1
   # shellcheck disable=SC1090
@@ -684,6 +692,84 @@ test_role_no_sentinel_noop() {
   teardown_unarchive_scratch "$scratch"
 }
 
+# Create an archived app fixture at $APPS_ARCHIVE_DIR/<slug>/.
+# Usage: fixture_archived_app <scratch> <slug> <port> [--no-stash] [--no-port]
+#   --no-stash  : don't write the .archived unit file (simulates missing stash)
+#   --no-port   : write a stash but with no Environment=PORT= line
+fixture_archived_app() {
+  local scratch="$1" slug="$2" port="$3"
+  shift 3
+  local no_stash=false no_port=false
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --no-stash) no_stash=true ;;
+      --no-port) no_port=true ;;
+    esac
+    shift
+  done
+  local d="${scratch}-apps-archive/$slug"
+  mkdir -p "$d"
+  printf 'archived-app-marker\n' > "$d/README.md"
+  if ! $no_stash; then
+    local stash="$d/app-$slug.service.archived"
+    if $no_port; then
+      cat > "$stash" <<UNIT_EOF
+[Unit]
+Description=$slug app
+[Service]
+ExecStart=/bin/true
+[Install]
+WantedBy=default.target
+UNIT_EOF
+    else
+      cat > "$stash" <<UNIT_EOF
+[Unit]
+Description=$slug app
+[Service]
+Environment=PORT=$port
+ExecStart=/bin/true
+[Install]
+WantedBy=default.target
+UNIT_EOF
+    fi
+  fi
+  touch "$d/.unarchive-requested"
+}
+
+# Create a live app fixture with a systemd unit file at the specified port.
+# Used to seed a port-collision scenario.
+fixture_live_app_on_port() {
+  local scratch="$1" slug="$2" port="$3"
+  local ud="${scratch}-systemd-units"
+  mkdir -p "$ud" "${scratch}-apps/$slug"
+  cat > "$ud/app-$slug.service" <<UNIT_EOF
+[Unit]
+Description=$slug live app
+[Service]
+Environment=PORT=$port
+ExecStart=/bin/true
+[Install]
+WantedBy=default.target
+UNIT_EOF
+}
+
+# Write a stub systemctl at <path>. Records every call to a per-call log file
+# ($stub-calls-log — one line per invocation, args space-separated), and
+# always returns success. Tests can assert against the calls log.
+fixture_stub_systemctl() {
+  local path="$1"
+  local log="$path-calls-log"
+  cat > "$path" <<STUB
+#!/usr/bin/env bash
+# stub systemctl — records args to $log, always exits 0.
+printf '%s\n' "\$*" >> "$log"
+exit 0
+STUB
+  chmod +x "$path"
+  : > "$log"
+  printf '%s' "$log"
+}
+
 test_role_no_cascade_to_identities() {
   # Un-archiving a role must NOT resurrect identities that were retired
   # alongside during archive. This test proves that: archive identities
@@ -706,6 +792,162 @@ test_role_no_cascade_to_identities() {
   assert_file   "${scratch}-archive/orphan-b"            "no-cascade: orphan-b still archived"
   assert_nofile "$scratch/orphan-a"                      "no-cascade: orphan-a NOT resurrected to live"
   assert_nofile "$scratch/orphan-b"                      "no-cascade: orphan-b NOT resurrected to live"
+  teardown_unarchive_scratch "$scratch"
+}
+
+# ============================================================
+# scan_app_unarchive_requested_sentinels — behavior tests
+# ============================================================
+
+test_app_happy_path() {
+  local scratch; scratch=$(setup_unarchive_scratch)
+  local systemctl_stub="$scratch/stub-systemctl"
+  local calls_log; calls_log=$(fixture_stub_systemctl "$systemctl_stub")
+  fixture_archived_app "$scratch" "cool-app" 3040
+
+  local out
+  out=$( _source_supervisor_unarchive "$scratch" "$systemctl_stub"
+         scan_app_unarchive_requested_sentinels 2>&1 ) || true
+
+  assert_file   "${scratch}-apps/cool-app"                                   "app happy: live folder present after mv"
+  assert_file   "${scratch}-apps/cool-app/README.md"                         "app happy: folder contents travelled"
+  assert_nofile "${scratch}-apps-archive/cool-app"                           "app happy: archive folder gone"
+  assert_file   "${scratch}-systemd-units/app-cool-app.service"              "app happy: unit installed"
+  assert_nofile "${scratch}-apps/cool-app/app-cool-app.service.archived"     "app happy: stash removed after install"
+  assert_nofile "${scratch}-apps/cool-app/.unarchive-requested"              "app happy: sentinel gone"
+
+  local port; port=$(grep '^Environment=PORT=' "${scratch}-systemd-units/app-cool-app.service" | sed 's/^Environment=PORT=//')
+  assert_eq "3040" "$port" "app happy: installed unit carries the archived port"
+
+  # Systemctl was called for daemon-reload + enable + is-active.
+  local sysctl_calls; sysctl_calls=$(cat "$calls_log")
+  assert_grep "--user daemon-reload"                       "$sysctl_calls" "app happy: daemon-reload invoked"
+  assert_grep "--user enable --now app-cool-app.service"   "$sysctl_calls" "app happy: enable --now invoked"
+  assert_grep "--user is-active --quiet app-cool-app.service" "$sysctl_calls" "app happy: is-active check invoked"
+
+  assert_grep "app 'cool-app' un-archive COMPLETE" "$out"
+  assert_grep "systemd unit active .running. on port 3040" "$out" "app happy: active log line with port"
+  teardown_unarchive_scratch "$scratch"
+}
+
+test_app_live_folder_collision_refuses() {
+  local scratch; scratch=$(setup_unarchive_scratch)
+  local systemctl_stub="$scratch/stub-systemctl"
+  fixture_stub_systemctl "$systemctl_stub" > /dev/null
+  fixture_archived_app "$scratch" "collide-app" 3041
+  # Pre-existing live folder with same slug.
+  mkdir -p "${scratch}-apps/collide-app"
+  printf 'existing live app\n' > "${scratch}-apps/collide-app/README.md"
+
+  local out
+  out=$( _source_supervisor_unarchive "$scratch" "$systemctl_stub"
+         scan_app_unarchive_requested_sentinels 2>&1 ) || true
+
+  # Live folder untouched.
+  local content; content=$(cat "${scratch}-apps/collide-app/README.md")
+  assert_eq "existing live app" "$content" "app live-collision: live folder untouched"
+  assert_file   "${scratch}-apps-archive/collide-app"                            "app live-collision: archive retained"
+  assert_nofile "${scratch}-apps-archive/collide-app/.unarchive-requested"       "app live-collision: sentinel deleted"
+  assert_grep "REFUSED: live folder already exists" "$out"
+  teardown_unarchive_scratch "$scratch"
+}
+
+test_app_unit_file_collision_refuses() {
+  local scratch; scratch=$(setup_unarchive_scratch)
+  local systemctl_stub="$scratch/stub-systemctl"
+  fixture_stub_systemctl "$systemctl_stub" > /dev/null
+  fixture_archived_app "$scratch" "unit-collide" 3042
+  # Pre-existing unit file (but no live app folder — an orphan unit).
+  mkdir -p "${scratch}-systemd-units"
+  cat > "${scratch}-systemd-units/app-unit-collide.service" <<UEOF
+[Unit]
+Description=orphan unit
+[Service]
+Environment=PORT=9999
+ExecStart=/bin/true
+UEOF
+
+  local out
+  out=$( _source_supervisor_unarchive "$scratch" "$systemctl_stub"
+         scan_app_unarchive_requested_sentinels 2>&1 ) || true
+
+  assert_file   "${scratch}-apps-archive/unit-collide"                       "app unit-collide: archive retained"
+  assert_nofile "${scratch}-apps-archive/unit-collide/.unarchive-requested"  "app unit-collide: sentinel deleted"
+  assert_grep "REFUSED: systemd unit already installed" "$out"
+  teardown_unarchive_scratch "$scratch"
+}
+
+test_app_missing_stashed_unit_refuses() {
+  local scratch; scratch=$(setup_unarchive_scratch)
+  local systemctl_stub="$scratch/stub-systemctl"
+  fixture_stub_systemctl "$systemctl_stub" > /dev/null
+  fixture_archived_app "$scratch" "no-stash-app" 3043 --no-stash
+
+  local out
+  out=$( _source_supervisor_unarchive "$scratch" "$systemctl_stub"
+         scan_app_unarchive_requested_sentinels 2>&1 ) || true
+
+  assert_file   "${scratch}-apps-archive/no-stash-app"                       "app no-stash: archive retained"
+  assert_nofile "${scratch}-apps-archive/no-stash-app/.unarchive-requested"  "app no-stash: sentinel deleted"
+  assert_grep "REFUSED: no stashed unit" "$out"
+  teardown_unarchive_scratch "$scratch"
+}
+
+test_app_stash_without_port_refuses() {
+  local scratch; scratch=$(setup_unarchive_scratch)
+  local systemctl_stub="$scratch/stub-systemctl"
+  fixture_stub_systemctl "$systemctl_stub" > /dev/null
+  fixture_archived_app "$scratch" "no-port-app" 3044 --no-port
+
+  local out
+  out=$( _source_supervisor_unarchive "$scratch" "$systemctl_stub"
+         scan_app_unarchive_requested_sentinels 2>&1 ) || true
+
+  assert_file   "${scratch}-apps-archive/no-port-app"                       "app no-port: archive retained"
+  assert_nofile "${scratch}-apps-archive/no-port-app/.unarchive-requested"  "app no-port: sentinel deleted"
+  assert_grep "could not read PORT" "$out"
+  teardown_unarchive_scratch "$scratch"
+}
+
+test_app_port_collision_refuses() {
+  local scratch; scratch=$(setup_unarchive_scratch)
+  local systemctl_stub="$scratch/stub-systemctl"
+  fixture_stub_systemctl "$systemctl_stub" > /dev/null
+  # Live app 'incumbent' on port 3050.
+  fixture_live_app_on_port "$scratch" "incumbent" 3050
+  # Archived app 'newcomer' wants the same port 3050.
+  fixture_archived_app "$scratch" "newcomer" 3050
+
+  local out
+  out=$( _source_supervisor_unarchive "$scratch" "$systemctl_stub"
+         scan_app_unarchive_requested_sentinels 2>&1 ) || true
+
+  # Incumbent untouched.
+  assert_file "${scratch}-apps/incumbent"                              "port-collision: incumbent live folder untouched"
+  assert_file "${scratch}-systemd-units/app-incumbent.service"         "port-collision: incumbent unit untouched"
+  # Newcomer archive retained; sentinel deleted; newcomer NOT moved.
+  assert_file   "${scratch}-apps-archive/newcomer"                     "port-collision: newcomer archive retained"
+  assert_nofile "${scratch}-apps-archive/newcomer/.unarchive-requested" "port-collision: newcomer sentinel deleted"
+  assert_nofile "${scratch}-apps/newcomer"                             "port-collision: newcomer NOT moved to live"
+  assert_grep "port 3050 is now in use" "$out"
+  teardown_unarchive_scratch "$scratch"
+}
+
+test_app_no_sentinel_noop() {
+  local scratch; scratch=$(setup_unarchive_scratch)
+  local systemctl_stub="$scratch/stub-systemctl"
+  fixture_stub_systemctl "$systemctl_stub" > /dev/null
+  # Archived app WITHOUT the un-archive sentinel.
+  mkdir -p "${scratch}-apps-archive/quiet-app"
+  printf 'archived\n' > "${scratch}-apps-archive/quiet-app/README.md"
+
+  local out
+  out=$( _source_supervisor_unarchive "$scratch" "$systemctl_stub"
+         scan_app_unarchive_requested_sentinels 2>&1 ) || true
+
+  assert_file   "${scratch}-apps-archive/quiet-app"    "app no-sentinel: archive untouched"
+  assert_nofile "${scratch}-apps/quiet-app"            "app no-sentinel: not moved"
+  assert_nogrep "user-initiated un-archive" "$out"
   teardown_unarchive_scratch "$scratch"
 }
 
@@ -736,6 +978,14 @@ run_test test_role_happy_path
 run_test test_role_name_collision_refuses
 run_test test_role_no_sentinel_noop
 run_test test_role_no_cascade_to_identities
+
+run_test test_app_happy_path
+run_test test_app_live_folder_collision_refuses
+run_test test_app_unit_file_collision_refuses
+run_test test_app_missing_stashed_unit_refuses
+run_test test_app_stash_without_port_refuses
+run_test test_app_port_collision_refuses
+run_test test_app_no_sentinel_noop
 
 printf '===============================\n'
 printf 'PASS: %d  FAIL: %d\n' "$PASS" "$FAIL"

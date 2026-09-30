@@ -60,6 +60,14 @@ APP_ARCHIVE_SCRIPT="${AGENT_APP_ARCHIVE_SCRIPT:-$HOME/.claude/skills/app-develop
 # deactivated=false + POST users/{mxid}/login for a fresh access_token).
 # Env-overridable for test hermeticity (tests stub the file).
 MATRIX_ADMIN_CREDS_PATH="${AGENT_MATRIX_ADMIN_CREDS_PATH:-$HOME/fleet/roles/box-maintainer/matrix-admin-t1000.json}"
+# un-archive host-side shape: systemctl binary + user-systemd unit dir + the
+# lock file shared with create-app.sh so port-collision checks are safe
+# against concurrent creates. Used by scan_app_unarchive_requested_sentinels
+# only; env-overridable for test hermeticity (tests stub the binary + unit
+# dir; the lock file can point at a scratch path).
+SYSTEMCTL_BIN="${AGENT_SYSTEMCTL_BIN:-systemctl}"
+SYSTEMD_UNIT_DIR="${AGENT_SYSTEMD_UNIT_DIR:-$HOME/.config/systemd/user}"
+APP_CREATE_LOCK="${AGENT_APP_CREATE_LOCK:-$HOME/fleet/.create-lock}"
 SELF_PATH="$(readlink -f "$0" 2>/dev/null || echo "$0")"
 log() { printf '%s %s\n' "$(date '+%H:%M:%S')" "$*"; }
 
@@ -1654,6 +1662,166 @@ scan_role_unarchive_requested_sentinels() {
       continue
     fi
     log "role '$name' un-archive COMPLETE: folder moved to live tree"
+  done
+}
+
+# ---- user-initiated app un-archive scanner (un-archive host-side shape) ----
+# scan_app_unarchive_requested_sentinels()
+#
+# Sibling of scan_app_archive_requested_sentinels. Walks $APPS_ARCHIVE_DIR/*/
+# every reconcile tick and reverses the archive for any archived app whose
+# folder carries a `.unarchive-requested` sentinel.
+#
+# Folds the standalone restore-app.sh's logic into the supervisor (the script
+# is removed from the app-development skill in the same shape). Preserves the
+# flock discipline against concurrent create-app.sh port grabs.
+#
+# Per-app flow:
+#
+#   Pre-flight (permanent-refuse — LOUD log + sentinel deleted):
+#     - Live folder collision at $APPS_DIR/$slug
+#     - Unit-file collision at $SYSTEMD_UNIT_DIR/app-$slug.service
+#     - Stashed unit missing at $arch_dir/app-$slug.service.archived
+#       (can't reconstruct the port without it — the operator may need to
+#       re-create fresh instead of restoring)
+#     - Stashed unit doesn't declare PORT= (same reason)
+#
+#   Under $APP_CREATE_LOCK (flock -x, 30s wait):
+#     Port collision check → sentinel delete → mv archive→live → install
+#     unit file (cp stash → $SYSTEMD_UNIT_DIR, rm stash from moved-back
+#     folder). Same locked sequence create-app.sh + archive-app.sh use so
+#     concurrent create-and-restore cannot race on port assignment.
+#
+#   Outside lock (best-effort — folder is live either way):
+#     daemon-reload → enable+start → is-active check → WARN log on any
+#     failure. Sentinel is already gone by this point (deleted inside the
+#     lock, before the mv, mirroring the identity + role un-archive scanner
+#     discipline).
+scan_app_unarchive_requested_sentinels() {
+  local d slug
+  for d in "$APPS_ARCHIVE_DIR"/*/; do
+    [ -d "$d" ] || continue                          # nullglob-miss guard
+    slug="$(basename "$d")"
+    [ -f "$d/.unarchive-requested" ] || continue
+
+    log "app '$slug' user-initiated un-archive: .unarchive-requested detected"
+
+    local live_dir="$APPS_DIR/$slug"
+    local unit_file="$SYSTEMD_UNIT_DIR/app-$slug.service"
+    local stashed_unit="$d/app-$slug.service.archived"
+
+    # -----------------------------------------------------------------------
+    # Pre-flight — every failure is permanent-refuse (sentinel deleted).
+    # -----------------------------------------------------------------------
+    if [ -e "$live_dir" ]; then
+      log "ERROR: app '$slug' un-archive REFUSED: live folder already exists at $live_dir. Sentinel deleted."
+      rm -f "$d/.unarchive-requested"
+      continue
+    fi
+    if [ -e "$unit_file" ]; then
+      log "ERROR: app '$slug' un-archive REFUSED: systemd unit already installed at $unit_file. Sentinel deleted."
+      rm -f "$d/.unarchive-requested"
+      continue
+    fi
+    if [ ! -f "$stashed_unit" ]; then
+      log "ERROR: app '$slug' un-archive REFUSED: no stashed unit at $stashed_unit — cannot reconstruct port. Sentinel deleted. Operator may need to re-create the app fresh."
+      rm -f "$d/.unarchive-requested"
+      continue
+    fi
+    local archived_port
+    archived_port=$(grep -m1 '^Environment=PORT=' "$stashed_unit" | sed 's/^Environment=PORT=//' | tr -d '\r\n' || true)
+    if [ -z "$archived_port" ]; then
+      log "ERROR: app '$slug' un-archive REFUSED: could not read PORT from $stashed_unit. Sentinel deleted."
+      rm -f "$d/.unarchive-requested"
+      continue
+    fi
+
+    # -----------------------------------------------------------------------
+    # Locked sequence: port-collision → sentinel-delete → mv → install.
+    # Exits:
+    #   0  ok
+    #   42 lock timeout (transient — sentinel retained for next-tick retry)
+    #   43 port collision (permanent-refuse — sentinel deleted by handler)
+    #   44 mv failed after sentinel-delete (sentinel already gone, folder
+    #      still in archive; operator investigates)
+    #   45 install (cp) failed after mv (folder moved, unit not installed;
+    #      operator investigates)
+    # -----------------------------------------------------------------------
+    local lock_rc=0
+    (
+      exec 200>"$APP_CREATE_LOCK"
+      if ! flock -x -w 30 200; then
+        exit 42
+      fi
+      # Port collision check.
+      if compgen -G "$SYSTEMD_UNIT_DIR/app-*.service" > /dev/null; then
+        local used_ports
+        used_ports=$(grep -h '^Environment=PORT=' "$SYSTEMD_UNIT_DIR"/app-*.service 2>/dev/null \
+                     | sed 's/^Environment=PORT=//' | sort -u)
+        if printf '%s\n' "$used_ports" | grep -qx "$archived_port"; then
+          exit 43
+        fi
+      fi
+      # Sentinel delete BEFORE mv (archive-side discipline).
+      rm -f "$d/.unarchive-requested"
+      mkdir -p "$APPS_DIR" 2>/dev/null || true
+      if ! mv "$d" "$live_dir"; then
+        exit 44
+      fi
+      # Install unit file: cp from moved-back folder, rm the stash.
+      local moved_stash="$live_dir/app-$slug.service.archived"
+      mkdir -p "$SYSTEMD_UNIT_DIR" 2>/dev/null || true
+      if ! cp "$moved_stash" "$unit_file"; then
+        exit 45
+      fi
+      rm -f "$moved_stash"
+      exit 0
+    )
+    lock_rc=$?
+    case "$lock_rc" in
+      0)
+        log "app '$slug' un-archive: folder moved, unit installed at $unit_file (port $archived_port)"
+        ;;
+      42)
+        log "ERROR: app '$slug' un-archive: could not acquire $APP_CREATE_LOCK within 30s. Sentinel retained; next tick will retry."
+        continue
+        ;;
+      43)
+        log "ERROR: app '$slug' un-archive REFUSED: port $archived_port is now in use by another app on this box. Archive that one first or delete the archived app. Sentinel deleted."
+        rm -f "$d/.unarchive-requested"
+        continue
+        ;;
+      44)
+        log "ERROR: app '$slug' un-archive: mv archive→live FAILED — sentinel already deleted; folder retained in archive tree. Drop a fresh .unarchive-requested to retry once the collision is resolved."
+        continue
+        ;;
+      45)
+        log "ERROR: app '$slug' un-archive: install unit file FAILED — folder already moved to live tree, unit NOT installed. Investigate manually; the app cannot start until $unit_file is present."
+        continue
+        ;;
+      *)
+        log "ERROR: app '$slug' un-archive: locked-sequence subshell rc=$lock_rc (unexpected). Sentinel state may be inconsistent — investigate."
+        continue
+        ;;
+    esac
+
+    # -----------------------------------------------------------------------
+    # Best-effort systemd wiring — folder is live either way at this point.
+    # -----------------------------------------------------------------------
+    if ! "$SYSTEMCTL_BIN" --user daemon-reload 2>/dev/null; then
+      log "WARN: app '$slug' un-archive: systemctl daemon-reload failed. Operator may need to run it manually."
+    fi
+    if ! "$SYSTEMCTL_BIN" --user enable --now "app-$slug.service" 2>/dev/null; then
+      log "WARN: app '$slug' un-archive: systemctl enable --now failed. Operator may need to systemctl --user enable --now app-$slug.service manually."
+    fi
+    sleep 2
+    if "$SYSTEMCTL_BIN" --user is-active --quiet "app-$slug.service" 2>/dev/null; then
+      log "app '$slug' un-archive: systemd unit active (running) on port $archived_port"
+    else
+      log "WARN: app '$slug' un-archive: systemd unit did NOT reach active state on port $archived_port — check journalctl --user -u app-$slug -n 50 --no-pager"
+    fi
+
+    log "app '$slug' un-archive COMPLETE"
   done
 }
 
