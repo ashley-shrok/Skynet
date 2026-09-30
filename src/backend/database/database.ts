@@ -22,6 +22,10 @@ import appsRoutes from "./routes/apps.js";
 // on the app folder via the per-app-file primitive. Mirrors identity-archive
 // and role-archive mount discipline (mounted before the generic /apps router).
 import appsArchiveRoutes from "./routes/apps-archive.js";
+// Phase 143 Plan 143-03 (D-05/D-07): GET /apps-archive — fleet-wide list of
+// archived app slugs across the caller's own hosts. Mirrors the fan-out shape
+// of identities-archive-list.ts, substituting listArchivedAppsOnHost (plan 143-02).
+import appsArchiveListRoutes from "./routes/apps-archive-list.js";
 // Phase 120 Plan 05 (D-08): the /apps/:hostId/:slug/pane/* reverse-proxy
 // route. Named export (not default) to disambiguate from Phase 119's
 // default-exported apps router at the mount site below.
@@ -2174,6 +2178,10 @@ app.use("/identities", identitiesRoutes);
 // POST sub-route is not shadowed by any future generic /:hostId/:slug POST
 // handler (mirrors identity-archive + role-archive mount discipline).
 app.use("/apps", appsArchiveRoutes);
+// Phase 143 Plan 143-03 (D-05/D-07): GET /apps-archive — fleet-wide archived-app
+// list. Standalone base path; must mount BEFORE any generic catch-all (mirrors
+// archive-route mount discipline at database.ts:2067).
+app.use("/apps-archive", appsArchiveListRoutes);
 // Phase 119 Plan 05 (D-06): GET /apps/:hostId/:slug/icon — serves
 // ~/fleet/apps/<slug>/icon.webp from the target host via SSH. Mirrors
 // /identities/:identityKey/avatar (identities.ts:849). See
