@@ -583,6 +583,55 @@ test_identity_reactivate_4xx_permanent_retains_sentinel() {
   teardown_unarchive_scratch "$scratch"
 }
 
+test_identity_step2_token_mint_4xx_retains_sentinel() {
+  # Reactivate step 1 succeeds (200), but the admin login-as-user step 2 returns
+  # 400 permanent → scanner aborts before .dormant / mv, sentinel retained,
+  # relay.json's stale access_token stays put (no rewrite).
+  local scratch; scratch=$(setup_unarchive_scratch)
+  fixture_live_role "$scratch" box-maintainer
+  fixture_archived_identity "$scratch" mu "scalar:box-maintainer"
+  start_stub_admin "200" "400" || { teardown_unarchive_scratch "$scratch"; return; }
+  fixture_admin_creds "$scratch" "$STUB_PORT"
+  sed -i "s|STUB_PORT|$STUB_PORT|" "${scratch}-archive/mu/relay.json"
+
+  local out
+  out=$( _source_supervisor_unarchive "$scratch"
+         scan_identity_unarchive_requested_sentinels 2>&1 ) || true
+  stop_stub_admin
+
+  assert_nofile "$scratch/mu"                                "step2 4xx: no folder moved"
+  assert_file   "${scratch}-archive/mu"                      "step2 4xx: archive retained"
+  assert_file   "${scratch}-archive/mu/.unarchive-requested" "step2 4xx: sentinel RETAINED"
+  assert_nofile "${scratch}-archive/mu/.dormant"             "step2 4xx: .dormant NOT written (step 4 not reached)"
+  local tok; tok=$(jq -r '.access_token' "${scratch}-archive/mu/relay.json")
+  assert_eq "stale-tok-mu" "$tok" "step2 4xx: relay.json access_token untouched"
+  assert_grep "un-archive step 1 .matrix reactivate. success" "$out" "step2 4xx: step 1 succeeded first"
+  assert_grep "un-archive step 2 .mint token. FAILED http=400" "$out" "step2 4xx: LOUD error log names step 2"
+  teardown_unarchive_scratch "$scratch"
+}
+
+test_identity_step2_token_mint_5xx_transient_recovers() {
+  # Step 1 succeeds first-try (200). Step 2 hits 502, 502, then 200 — retry loop
+  # recovers, un-archive completes.
+  local scratch; scratch=$(setup_unarchive_scratch)
+  fixture_live_role "$scratch" box-maintainer
+  fixture_archived_identity "$scratch" nu "scalar:box-maintainer"
+  start_stub_admin "200" "502,502,200" || { teardown_unarchive_scratch "$scratch"; return; }
+  fixture_admin_creds "$scratch" "$STUB_PORT"
+  sed -i "s|STUB_PORT|$STUB_PORT|" "${scratch}-archive/nu/relay.json"
+
+  local out
+  out=$( _source_supervisor_unarchive "$scratch"
+         scan_identity_unarchive_requested_sentinels 2>&1 ) || true
+  stop_stub_admin
+
+  assert_file "$scratch/nu"          "step2 transient: recovered after retries"
+  assert_file "$scratch/nu/.dormant" "step2 transient: .dormant written on recovered success"
+  assert_grep "un-archive step 2 attempt 1/3 transient .http=502" "$out"
+  assert_grep "un-archive COMPLETE" "$out"
+  teardown_unarchive_scratch "$scratch"
+}
+
 test_identity_relay_json_missing_user_id_retains_sentinel() {
   local scratch; scratch=$(setup_unarchive_scratch)
   fixture_live_role "$scratch" box-maintainer
@@ -933,6 +982,29 @@ test_app_port_collision_refuses() {
   teardown_unarchive_scratch "$scratch"
 }
 
+test_app_mv_failure_after_sentinel_delete_retains_folder() {
+  # rc-44 path: pre-flight passes, sentinel gets deleted inside the lock,
+  # then mv fails. Force mv to fail by making $APPS_DIR a plain file (not a
+  # directory) — mv can't create $APPS_DIR/<slug> when $APPS_DIR is a file.
+  local scratch; scratch=$(setup_unarchive_scratch)
+  local systemctl_stub="$scratch/stub-systemctl"
+  fixture_stub_systemctl "$systemctl_stub" > /dev/null
+  fixture_archived_app "$scratch" "unmovable" 3070
+  # Replace $APPS_DIR with a file so the mv fails.
+  rm -rf "${scratch}-apps"
+  : > "${scratch}-apps"
+
+  local out
+  out=$( _source_supervisor_unarchive "$scratch" "$systemctl_stub"
+         scan_app_unarchive_requested_sentinels 2>&1 ) || true
+
+  # Archive folder retained (mv failed), sentinel deleted (pre-mv).
+  assert_file   "${scratch}-apps-archive/unmovable"                       "mv-fail: archive folder retained"
+  assert_nofile "${scratch}-apps-archive/unmovable/.unarchive-requested"  "mv-fail: sentinel deleted before mv"
+  assert_grep "mv archive.live FAILED" "$out" "mv-fail: LOUD error log"
+  teardown_unarchive_scratch "$scratch"
+}
+
 test_app_no_sentinel_noop() {
   local scratch; scratch=$(setup_unarchive_scratch)
   local systemctl_stub="$scratch/stub-systemctl"
@@ -971,6 +1043,8 @@ run_test test_identity_role_missing_multi_names_only_missing
 run_test test_identity_name_collision_refuses
 run_test test_identity_reactivate_5xx_transient_recovers
 run_test test_identity_reactivate_4xx_permanent_retains_sentinel
+run_test test_identity_step2_token_mint_4xx_retains_sentinel
+run_test test_identity_step2_token_mint_5xx_transient_recovers
 run_test test_identity_relay_json_missing_user_id_retains_sentinel
 run_test test_identity_no_sentinel_noop
 
@@ -985,6 +1059,7 @@ run_test test_app_unit_file_collision_refuses
 run_test test_app_missing_stashed_unit_refuses
 run_test test_app_stash_without_port_refuses
 run_test test_app_port_collision_refuses
+run_test test_app_mv_failure_after_sentinel_delete_retains_folder
 run_test test_app_no_sentinel_noop
 
 printf '===============================\n'

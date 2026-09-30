@@ -1308,6 +1308,11 @@ value = re.sub(r'^role\s*:\s*', '', fm[role_idx])
 
 def strip_quotes(v):
     v = v.strip()
+    # Require length >= 2 before stripping — otherwise a single-char value
+    # like `"` or `'` (malformed but parseable) would strip to '' and
+    # vacuously pass the roles-all-live gate downstream.
+    if len(v) < 2:
+        return v
     if (v.startswith('"') and v.endswith('"')) or (v.startswith("'") and v.endswith("'")):
         v = v[1:-1]
     return v
@@ -1610,11 +1615,22 @@ scan_identity_unarchive_requested_sentinels() {
 
     # -----------------------------------------------------------------------
     # Step 4: Conditional .dormant write (preserve pre-archive .no-dormancy).
+    # A .dormant that was left inside the archive folder from a pre-retire
+    # idle-sweep travels with the folder either way — reconcile's exempt-branch
+    # clears it on the .no-dormancy path — so we only need to WRITE .dormant
+    # in the non-preserved branch. Write is checked: a failing redirection
+    # (permission denied, disk full, .dormant is unexpectedly a directory)
+    # would defeat the shape's core "un-archive comes back dormant" invariant
+    # by moving the identity live without the sentinel — abort with sentinel
+    # retained instead of silently proceeding.
     # -----------------------------------------------------------------------
     if [ -f "$d/.no-dormancy" ]; then
       log "'$name' un-archive step 4: .no-dormancy present in archive — always-on intent preserved, skipping .dormant write"
     else
-      : > "$d/.dormant"
+      if ! : > "$d/.dormant"; then
+        log "ERROR: '$name' un-archive step 4 (.dormant write) FAILED at $d/.dormant — sentinel retained; next tick will retry"
+        continue
+      fi
       log "'$name' un-archive step 4: .dormant written in archive folder"
     fi
 
@@ -1625,8 +1641,11 @@ scan_identity_unarchive_requested_sentinels() {
 
     # -----------------------------------------------------------------------
     # Step 6: mv archive → live. Sentinel already deleted; .dormant (if any)
-    # travels with the folder atomically.
+    # travels with the folder atomically. mkdir -p guards against a fresh
+    # box / test scratch dir where $IDENTITIES_DIR doesn't exist yet;
+    # parity with retire_identity's mkdir -p for $IDENTITIES_ARCHIVE_DIR.
     # -----------------------------------------------------------------------
+    mkdir -p "$IDENTITIES_DIR" 2>/dev/null || true
     if ! mv "$d" "$IDENTITIES_DIR/$name"; then
       log "ERROR: '$name' un-archive step 6 (mv archive→live) FAILED — sentinel already deleted; identity retained in archive tree with matrix reactivated + .dormant already written. Investigate manually; drop a fresh .unarchive-requested to retry once the collision is resolved."
       continue
@@ -1673,6 +1692,9 @@ scan_role_unarchive_requested_sentinels() {
     # Delete sentinel BEFORE mv (mirrors archive-side ordering discipline).
     rm -f "$d/.unarchive-requested"
 
+    # mkdir -p guards against a fresh box / test scratch dir where $ROLES_DIR
+    # doesn't exist yet; parity with retire_identity + the app un-archive scanner.
+    mkdir -p "$ROLES_DIR" 2>/dev/null || true
     if ! mv "$d" "$ROLES_DIR/$name"; then
       log "ERROR: role '$name' un-archive: mv archive→live FAILED — sentinel already deleted; role retained in archive tree. Investigate manually; drop a fresh .unarchive-requested to retry once the collision is resolved."
       continue
@@ -1769,12 +1791,14 @@ scan_app_unarchive_requested_sentinels() {
       if ! flock -x -w 30 200; then
         exit 42
       fi
-      # Port collision check.
+      # Port collision check. -Fxq (literal + exact-line + quiet) so a
+      # port like "3040" isn't ever interpreted as a BRE pattern (safe
+      # against latent surprises if unit files ever grow non-numeric ports).
       if compgen -G "$SYSTEMD_UNIT_DIR/app-*.service" > /dev/null; then
         local used_ports
         used_ports=$(grep -h '^Environment=PORT=' "$SYSTEMD_UNIT_DIR"/app-*.service 2>/dev/null \
                      | sed 's/^Environment=PORT=//' | sort -u)
-        if printf '%s\n' "$used_ports" | grep -qx "$archived_port"; then
+        if printf '%s\n' "$used_ports" | grep -Fxq -- "$archived_port"; then
           exit 43
         fi
       fi
