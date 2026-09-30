@@ -25,6 +25,7 @@
 #          last-snapshot.role         → ~/fleet/roles/<role>/<role>.md
 #          last-snapshot.identity     → ~/fleet/identities/<name>/<name>.md
 #          last-snapshot.id-skill     → ~/.claude/skills/id/SKILL.md
+#          last-snapshot.user-claudemd → ~/.claude/CLAUDE.md
 #          last-snapshot.runbook.<X>  → ~/fleet/roles/<role>/runbooks/<X>/runbook.md
 #      where <role> is parsed from the identity file's YAML frontmatter.
 #   4. If real file != baseline, atomically overwrite the baseline (tmp +
@@ -126,6 +127,11 @@ timeout 2 bash -c '
     # target file (fresh box pre-distributor-sweep, or a hermetic test env)
     # short-circuits via sync_one'"'"'s `[ -f "$real" ] || return 0` guard.
     sync_one "$STATE_DIR/last-snapshot.id-skill" "$HOME/.claude/skills/id/SKILL.md"
+
+    # (a3) user-wide CLAUDE.md baseline — user'"'"'s always-on instruction file,
+    # no role needed. Same missing-file short-circuit as id-skill for boxes
+    # where the user has not authored one.
+    sync_one "$STATE_DIR/last-snapshot.user-claudemd" "$HOME/.claude/CLAUDE.md"
 
     # (b) role + runbook baselines — need <role>. Skip if unresolved.
     if [ -n "$ROLE" ]; then

@@ -210,6 +210,8 @@ def _change_phrase(kind, label):
         return "your identity file"
     if kind == "id-skill":
         return "your id skill"
+    if kind == "user-claudemd":
+        return "your user-wide CLAUDE.md"
     if kind == "runbook":
         slug = label.split("/", 1)[-1]
         return "your %s runbook" % slug
@@ -612,6 +614,22 @@ def main():
     if id_skill_watched:
         id_skill_baseline_path = os.path.join(baseline_dir, "last-snapshot.id-skill")
         targets.append(("id-skill", "id", id_skill_path, id_skill_baseline_path))
+
+    # --- user-wide CLAUDE.md target — the user's own always-on instruction file,
+    # authored by the user (typically via the app's Gear → About you panel).
+    # Loads at the start of every Claude session, so a mid-session edit means
+    # every running identity's in-context copy has diverged from disk. Same
+    # existence-gate as the id skill: on a fresh box where the user hasn't
+    # authored one yet, this target is quietly skipped; if the file appears
+    # later, the next watcher process picks it up on cold-start.
+    user_claudemd_path = os.path.expanduser("~/.claude/CLAUDE.md")
+    if os.path.isfile(user_claudemd_path):
+        user_claudemd_baseline_path = os.path.join(
+            baseline_dir, "last-snapshot.user-claudemd"
+        )
+        targets.append(
+            ("user-claudemd", "user", user_claudemd_path, user_claudemd_baseline_path)
+        )
 
     # --- Runbooks tree — role-scope; empty or nonexistent is fine ---
     runbooks_dir = os.path.expanduser("~/fleet/roles/%s/runbooks" % role)
