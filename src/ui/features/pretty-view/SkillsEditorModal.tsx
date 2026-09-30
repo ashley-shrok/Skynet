@@ -26,7 +26,7 @@ import { bumpModalOpen } from "@/lib/freeze-diag";
 // SkillsEditorModal — cross-host cross-skill multi-file editor.
 //
 // Modal-unification 2026-09-29 (revised 2026-09-30 UAT):
-//   - Shell: <Modal hue={324}>. Blocking (proper backdrop + focus trap)
+//   - Shell: canonical <Modal>. Blocking (proper backdrop + focus trap)
 //     with document.body as the portal target — the earlier "blocking=false"
 //     kept the composer typable but rendered the modal without any dim
 //     behind it, making the whole surface easy to lose against live chat
@@ -493,7 +493,6 @@ export default function SkillsEditorModal({
     <Modal
       open={open}
       onOpenChange={handleOpenChange}
-      hue={324}
       size="xl"
       // `container` prop still accepted for test injection (see .test.tsx —
       // 20 sites pass document.body explicitly). Default undefined portals

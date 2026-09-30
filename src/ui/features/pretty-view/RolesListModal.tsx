@@ -261,7 +261,6 @@ export function RolesListModal({
     <Modal
       open={open}
       onOpenChange={onOpenChange}
-      hue={190}
       size="list"
     >
       {/* Header — title + '+ New role' action + close X. Host picker (when

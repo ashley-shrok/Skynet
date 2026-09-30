@@ -4,10 +4,11 @@
 // dismisses the update-required notice via Continue.
 //
 // Modal-unification 2026-09-29:
-//   - Shell: canonical <Modal hue={40} size="md" dismissible={false}>.
-//     Same "required-shell" pattern as SkewLockModal — warm amber hue,
-//     non-dismissible (only path forward is the Continue button OR a
-//     completed up-to-date check auto-firing onContinue).
+//   - Shell: canonical <Modal size="md" dismissible={false}>. Slate
+//     canonical palette (2026-09-30 UAT). Non-dismissible — only path
+//     forward is the Continue button OR a completed up-to-date check
+//     auto-firing onContinue. Same "required-shell" pattern as
+//     SkewLockModal.
 //   - Head: canonical <ModalHead title="..." hideClose />.
 //   - Foot: canonical <ModalFoot> with Continue button (or checking-
 //     state: no foot, spinner in body).
@@ -126,7 +127,6 @@ export function ElectronVersionCheck({ onContinue }: VersionCheckModalProps) {
         onOpenChange={() => {
           /* non-dismissible */
         }}
-        hue={40}
         size="md"
         dismissible={false}
         data-testid="electron-version-check-modal"
@@ -167,7 +167,6 @@ export function ElectronVersionCheck({ onContinue }: VersionCheckModalProps) {
       onOpenChange={() => {
         /* non-dismissible */
       }}
-      hue={40}
       size="md"
       dismissible={false}
       data-testid="electron-version-check-modal"

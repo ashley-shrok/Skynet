@@ -352,7 +352,6 @@ export default function EditableFileModal({
     <Modal
       open={open}
       onOpenChange={handleOpenChange}
-      hue={190}
       size="lg"
       className="max-h-[500px] flex flex-col"
       data-testid="editable-file-modal"

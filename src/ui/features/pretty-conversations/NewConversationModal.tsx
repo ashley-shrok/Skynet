@@ -267,7 +267,6 @@ export function NewConversationModal({
     <Modal
       open={open}
       onOpenChange={onOpenChange}
-      hue={220}
       size="xl"
       className="max-h-[720px] flex flex-col"
     >

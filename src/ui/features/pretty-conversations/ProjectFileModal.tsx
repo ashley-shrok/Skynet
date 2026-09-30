@@ -132,7 +132,6 @@ export function ProjectFileModal({
     <Modal
       open={open}
       onOpenChange={handleOpenChange}
-      hue={160}
       size="lg"
       className="max-h-[80vh] flex flex-col"
       data-testid="project-file-modal"

@@ -5,10 +5,10 @@
 // interceptor, WS handshake refusal, WS message tag mismatch).
 //
 // Modal-unification 2026-09-29:
-//   - Shell: canonical <Modal hue={40} size="md" dismissible={false}>.
-//     Warm amber hue (40°) per tasting — signals "attention needed"
-//     without alarming red, and visually distinguishes this as a
-//     system-level thing rather than chat-scoped.
+//   - Shell: canonical <Modal size="md" dismissible={false}>. Slate
+//     shell — matches every other non-identity/non-role modal (2026-09-30
+//     UAT: one canonical color for the class). Copy + Reload CTA carry
+//     the "attention needed" signal.
 //   - Head: canonical <ModalHead title="..." hideClose /> — non-dismissible
 //     shells drop the close X.
 //   - Foot: canonical <ModalFoot> with centered Reload button (or fatal-
@@ -89,7 +89,6 @@ export function SkewLockModal() {
       onOpenChange={() => {
         /* non-dismissible — canonical Modal blocks the paths here anyway */
       }}
-      hue={40}
       size="md"
       dismissible={false}
       data-testid="skew-lock-modal"

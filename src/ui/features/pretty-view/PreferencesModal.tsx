@@ -2,8 +2,8 @@
  * PreferencesModal — user preferences modal with left-nav navigation.
  *
  * Modal-unification 2026-09-29:
- *   - Shell: canonical <Modal size="settings" hue={220}>. 640×480 fixed
- *     per tasting (was 1000×760 pre-unification).
+ *   - Shell: canonical <Modal size="settings">. 640×480 fixed per tasting
+ *     (was 1000×760 pre-unification).
  *   - Head: canonical <ModalHead title="Preferences" /> — replaces the
  *     bare glass-close-button-only header of the pre-unification impl.
  *   - Body: two-column flex (~180px left nav + right pane). ModalBody
@@ -95,7 +95,6 @@ export default function PreferencesModal({
     <Modal
       open={open}
       onOpenChange={onOpenChange}
-      hue={220}
       size="settings"
       className="flex flex-col"
       data-testid="preferences-modal"

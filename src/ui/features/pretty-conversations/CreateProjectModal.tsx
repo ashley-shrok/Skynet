@@ -175,7 +175,6 @@ export function CreateProjectModal({
     <Modal
       open={open}
       onOpenChange={onOpenChange}
-      hue={220}
       size="md"
       data-testid="create-project-modal"
       className={cn(

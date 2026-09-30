@@ -69,9 +69,19 @@ interface ModalProps
     "modal" | "children"
   > {
   /** CSS custom-property --pv-id-hue value applied to this modal.
-   *  Defaults to 190 (app-wide accent). Per-identity modals should pass
-   *  the identity's colorHue; role-scoped modals should pass the role's
-   *  colorHue. */
+   *
+   *  When PASSED: the modal is "hued" — background gradient, border, and
+   *  outer glow are all tinted from this hue (assistant-bubble aesthetic).
+   *  Reserved for identity- and role-scoped modals (IdentityModal passes
+   *  the identity's colorHue; RoleModal passes the role's colorHue) —
+   *  color IS the semantic there.
+   *
+   *  When OMITTED: the modal renders in the canonical slate palette
+   *  (hue 220, low saturation) — every non-identity/non-role modal in the
+   *  app shares this one look (2026-09-30 UAT: "we just pick a color and
+   *  stick with it"). --pv-id-hue is still set to 220 internally so
+   *  descendant tinting (borders, tabs, sidebar accents) remains coherent
+   *  through the same var-based formulas. */
   hue?: number;
   /** Modal size. See SIZE_CLASSES. */
   size?: ModalSize;
@@ -89,8 +99,17 @@ interface ModalProps
   children?: React.ReactNode;
 }
 
+// Canonical slate palette — used when no `hue` is passed. Matches the
+// tasting-picked "Slate" option (mt(2) in the tasting snippet).
+const CANONICAL_HUE = 220;
+const CANONICAL_BACKGROUND =
+  "linear-gradient(160deg, hsl(220, 14%, 22%), hsl(220, 18%, 12%))";
+const CANONICAL_BORDER_CLASS = "border border-[hsla(220,25%,55%,0.30)]";
+const CANONICAL_SHADOW_CLASS =
+  "shadow-[0_8px_24px_rgba(0,0,0,0.5),0_1px_0_rgba(255,220,190,0.22)_inset,0_0_40px_hsla(220,40%,55%,0.12)]";
+
 function Modal({
-  hue = 190,
+  hue,
   size = "sm",
   dismissible = true,
   container,
@@ -100,6 +119,8 @@ function Modal({
   ...props
 }: ModalProps) {
   const blockEsc = !dismissible;
+  const canonical = hue === undefined;
+  const effectiveHue = canonical ? CANONICAL_HUE : hue;
   return (
     <DialogPrimitive.Root {...props} modal={true}>
       <DialogPrimitive.Portal container={container}>
@@ -126,15 +147,17 @@ function Modal({
               // header separator). --pv-hue is what the shared Button component
               // uses for its default+destructive variants — setting it here
               // means action buttons inside the modal inherit the modal's hue
-              // rather than the app-wide amber default.
-              "--pv-id-hue": String(hue),
-              "--pv-hue": String(hue),
-              // 2026-09-30 UAT: pushed to full alpha 1.0 (was 0.88/0.94)
-              // so the shell is fully opaque. Hue-tinted gradient shape
-              // preserved so the assistant-bubble aesthetic stays — only
-              // the see-through goes away.
-              background:
-                "linear-gradient(160deg, hsl(var(--pv-id-hue), 50%, 38%), hsl(var(--pv-id-hue), 45%, 22%))",
+              // rather than the app-wide amber default. Canonical modals get
+              // the slate hue (220) so descendant tint formulas cohere.
+              "--pv-id-hue": String(effectiveHue),
+              "--pv-hue": String(effectiveHue),
+              // Canonical: fixed slate gradient (low saturation, hardcoded)
+              // so every non-identity/non-role modal shares the exact same
+              // shell. Hued: the identity/role-driven gradient with the
+              // assistant-bubble aesthetic.
+              background: canonical
+                ? CANONICAL_BACKGROUND
+                : "linear-gradient(160deg, hsl(var(--pv-id-hue), 50%, 38%), hsl(var(--pv-id-hue), 45%, 22%))",
               fontFamily: '"Inter Variable", system-ui, sans-serif',
             } as React.CSSProperties
           }
@@ -151,14 +174,14 @@ function Modal({
             // Explicit 16px to match the tasting exactly; also independent of
             // the --radius token (which is theme-scoped and can be undefined).
             "rounded-[16px] overflow-hidden outline-none",
-            "border border-[hsla(var(--pv-id-hue),65%,55%,0.35)]",
+            canonical
+              ? CANONICAL_BORDER_CLASS
+              : "border border-[hsla(var(--pv-id-hue),65%,55%,0.35)]",
             "text-[#fbf5e8]",
-            // Deep drop shadow + inset warm rim + hue outer glow (assistant-bubble aesthetic).
-            "shadow-[0_8px_24px_rgba(0,0,0,0.5),0_1px_0_rgba(255,220,190,0.22)_inset,0_0_40px_hsla(var(--pv-id-hue),70%,55%,0.25)]",
-            // Backdrop-filter removed 2026-09-30 — the modal gradient is
-            // already 0.88/0.94 alpha so the shell reads solid without
-            // needing the (expensive) blur behind it. Kept the solid
-            // shadow + border chrome that carry the depth cue.
+            // Deep drop shadow + inset warm rim + outer glow.
+            canonical
+              ? CANONICAL_SHADOW_CLASS
+              : "shadow-[0_8px_24px_rgba(0,0,0,0.5),0_1px_0_rgba(255,220,190,0.22)_inset,0_0_40px_hsla(var(--pv-id-hue),70%,55%,0.25)]",
             "data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95",
             "data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
             "duration-100",

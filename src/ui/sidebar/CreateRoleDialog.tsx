@@ -533,7 +533,6 @@ export function CreateRoleDialog({
       onOpenChange={(next) => {
         if (!next) onClose();
       }}
-      hue={190}
       size="md"
       className="max-h-[90vh] flex flex-col"
     >

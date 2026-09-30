@@ -50,10 +50,6 @@ export type FeedbackModalProps = {
   onOpenChange: (next: boolean) => void;
   /** Which entry variant to render. D-09 lock: one component, two variants. */
   variant: "general" | "thumbs_down";
-  /** Optional hue override for the modal chrome. Defaults to 220 (neutral
-   * cool — feedback is app-level, not agent-scoped). Callers can pass a
-   * scoped hue when the modal is opened from a hue-colored surface. */
-  hue?: number;
   /** Fires when the user clicks Send with the current draft text. Empty
    * string is valid — thumbs-down Send without text still fires ONE email
    * per D-11. Parent decides whether to await or fire-and-forget. */
@@ -71,7 +67,6 @@ export function FeedbackModal({
   open,
   onOpenChange,
   variant,
-  hue = 220,
   onSubmit,
   onDismissWithoutSubmit,
 }: FeedbackModalProps): JSX.Element | null {
@@ -138,7 +133,6 @@ export function FeedbackModal({
         }
         onOpenChange(next);
       }}
-      hue={hue}
       size="lg"
       data-testid="feedback-dialog"
     >

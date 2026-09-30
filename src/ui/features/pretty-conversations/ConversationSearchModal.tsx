@@ -201,7 +201,6 @@ export function ConversationSearchModal({
     <Modal
       open={open}
       onOpenChange={onOpenChange}
-      hue={190}
       size="list"
       data-testid="conversation-search-modal"
     >

@@ -313,7 +313,6 @@ export function ScheduledAgentsModal({
     <Modal
       open={open}
       onOpenChange={onOpenChange}
-      hue={190}
       size="list"
       data-testid="scheduled-agents-modal"
     >
