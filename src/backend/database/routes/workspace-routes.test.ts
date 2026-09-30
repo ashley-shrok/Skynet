@@ -551,6 +551,95 @@ describe("POST /workspace/list", () => {
     });
     expect(capturedAction).toBe("read");
   });
+
+  /* ── Role-target coverage ─────────────────────────────────────────────
+   * The 9 endpoints share extractTarget + buildTargetRoot; testing role
+   * resolution against /list is representative — the other 8 use the same
+   * two helpers and are structurally identical. */
+
+  it("Test R1: kind='role' + valid roleSlug → 200; sftp.readdir called against ~/fleet/roles/<slug> path", async () => {
+    // Realpath returns "/home/ubuntu" for the initial "." call (home-dir
+    // discovery), then echoes back for subsequent calls (default stub).
+    let realpathCallCount = 0;
+    stubSftp.realpath.mockImplementation(
+      (p: string, cb: (err: Error | null, resolved: string) => void) => {
+        realpathCallCount++;
+        if (realpathCallCount === 1) {
+          queueMicrotask(() => cb(null, "/home/ubuntu"));
+        } else {
+          queueMicrotask(() => cb(null, p));
+        }
+      },
+    );
+
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/workspace/list",
+      body: JSON.stringify({
+        kind: "role",
+        roleSlug: "box-maintainer",
+        hostId: 42,
+        relativePath: "",
+      }),
+    });
+    expect(res.status).toBe(200);
+    // Verify the SFTP call landed on the role path, not an identity path.
+    const readdirCalls = stubSftp.readdir.mock.calls;
+    expect(readdirCalls.length).toBeGreaterThan(0);
+    expect(readdirCalls[0][0]).toBe("/home/ubuntu/fleet/roles/box-maintainer");
+  });
+
+  it("Test R2: kind='role' + roleSlug '../../etc' → 400 invalid_role_slug; resolveHostById NOT called", async () => {
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/workspace/list",
+      body: JSON.stringify({
+        kind: "role",
+        roleSlug: "../../etc",
+        hostId: 42,
+      }),
+    });
+    expect(res.status).toBe(400);
+    expect((res.body as { error: string }).error).toBe("invalid_role_slug");
+    expect(resolveHostById).not.toHaveBeenCalled();
+  });
+
+  it("Test R3: kind='role' with missing roleSlug → 400 invalid_body", async () => {
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/workspace/list",
+      body: JSON.stringify({
+        kind: "role",
+        hostId: 42,
+      }),
+    });
+    expect(res.status).toBe(400);
+    expect((res.body as { error: string }).error).toBe("invalid_body");
+  });
+
+  it("Test R4: absent kind (default) resolves to identity workspace path — legacy wire preserved", async () => {
+    let realpathCallCount = 0;
+    stubSftp.realpath.mockImplementation(
+      (p: string, cb: (err: Error | null, resolved: string) => void) => {
+        realpathCallCount++;
+        if (realpathCallCount === 1) {
+          queueMicrotask(() => cb(null, "/home/ubuntu"));
+        } else {
+          queueMicrotask(() => cb(null, p));
+        }
+      },
+    );
+
+    await httpRequest(server, {
+      method: "POST",
+      path: "/workspace/list",
+      body: JSON.stringify({ identityKey: "echo", hostId: 42, relativePath: "" }),
+    });
+    const readdirCalls = stubSftp.readdir.mock.calls;
+    expect(readdirCalls[0][0]).toBe(
+      "/home/ubuntu/fleet/identities/echo/workspace",
+    );
+  });
 });
 
 /* --------------------------------------------------------------------- */

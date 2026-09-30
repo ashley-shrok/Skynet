@@ -4,6 +4,12 @@
  * This is the SOLE client-side surface for the /workspace backend router (Plan
  * 118-01). Every helper listed here is a 1:1 wrapper around one backend route.
  *
+ * Target model: every helper takes a WorkspaceTarget as its first param — either
+ *   { kind: "identity", identityKey } → resolves to ~/fleet/identities/<key>/workspace
+ *   { kind: "role", roleSlug }        → resolves to ~/fleet/roles/<slug>
+ * Wire shape stays byte-identical for identity requests (no `kind` field sent);
+ * role requests carry { kind: "role", roleSlug } instead of { identityKey }.
+ *
  * Error-class preservation (mirrors fetchHostFileUrl at editable-file-api.ts:131):
  * Each async helper catches axios errors and, when the response body carries a
  * backend error-class string (e.g. "permission_denied", "not_found",
@@ -43,6 +49,33 @@ export type ReadFileResponse = {
   extension: string | null;
 };
 
+/**
+ * Discriminated target passed to every workspace helper. `identity` maps to
+ * ~/fleet/identities/<identityKey>/workspace; `role` maps to
+ * ~/fleet/roles/<roleSlug>. Backend `extractTarget` mirrors this shape.
+ */
+export type WorkspaceTarget =
+  | { kind: "identity"; identityKey: string }
+  | { kind: "role"; roleSlug: string };
+
+/**
+ * Serialize a target into the wire fields the backend expects. Identity
+ * requests omit `kind` so the wire is byte-identical to pre-role-support
+ * callers; role requests send `{ kind: "role", roleSlug }`.
+ */
+function targetToWireFields(t: WorkspaceTarget): Record<string, string> {
+  if (t.kind === "role") return { kind: "role", roleSlug: t.roleSlug };
+  return { identityKey: t.identityKey };
+}
+
+/** URL-encoded target query fragment for GET endpoints (currently /download). */
+function targetToQueryString(t: WorkspaceTarget): string {
+  if (t.kind === "role") {
+    return `kind=role&roleSlug=${encodeURIComponent(t.roleSlug)}`;
+  }
+  return `identityKey=${encodeURIComponent(t.identityKey)}`;
+}
+
 // ---------------------------------------------------------------------------
 // List directory — POST /workspace/list
 // ---------------------------------------------------------------------------
@@ -50,18 +83,18 @@ export type ReadFileResponse = {
 /**
  * List the contents of a workspace directory.
  *
- * @param identityKey  - Identity slug (e.g. "echo-box-maintainer")
+ * @param target       - Identity workspace or role folder
  * @param hostId       - Numeric host ID (from IdentityModal.hostId)
  * @param relativePath - Path relative to workspace root; "" for root
  */
 export async function listWorkspace(
-  identityKey: string,
+  target: WorkspaceTarget,
   hostId: number,
   relativePath: string,
 ): Promise<ListResponse> {
   try {
     const response = await authApi.post("/workspace/list", {
-      identityKey,
+      ...targetToWireFields(target),
       hostId,
       relativePath,
     });
@@ -87,19 +120,15 @@ export async function listWorkspace(
 /**
  * Read a file from the workspace. Returns base64-encoded content.
  * The backend enforces a 2 MB size cap (returns "too_large" if exceeded).
- *
- * @param identityKey  - Identity slug
- * @param hostId       - Numeric host ID
- * @param relativePath - File path relative to workspace root
  */
 export async function readWorkspaceFile(
-  identityKey: string,
+  target: WorkspaceTarget,
   hostId: number,
   relativePath: string,
 ): Promise<ReadFileResponse> {
   try {
     const response = await authApi.post("/workspace/read-file", {
-      identityKey,
+      ...targetToWireFields(target),
       hostId,
       relativePath,
     });
@@ -124,21 +153,16 @@ export async function readWorkspaceFile(
 
 /**
  * Write UTF-8 text content to a file in the workspace (atomic tmp+rename).
- *
- * @param identityKey  - Identity slug
- * @param hostId       - Numeric host ID
- * @param relativePath - File path relative to workspace root
- * @param content      - UTF-8 string content to write
  */
 export async function writeWorkspaceFile(
-  identityKey: string,
+  target: WorkspaceTarget,
   hostId: number,
   relativePath: string,
   content: string,
 ): Promise<void> {
   try {
     await authApi.put("/workspace/write-file", {
-      identityKey,
+      ...targetToWireFields(target),
       hostId,
       relativePath,
       content,
@@ -164,20 +188,16 @@ export async function writeWorkspaceFile(
 /**
  * Delete a file or empty directory in the workspace.
  * Directory must be empty ("not_empty" error is returned otherwise).
- *
- * @param identityKey  - Identity slug
- * @param hostId       - Numeric host ID
- * @param relativePath - Path relative to workspace root
  */
 export async function deleteWorkspaceEntry(
-  identityKey: string,
+  target: WorkspaceTarget,
   hostId: number,
   relativePath: string,
 ): Promise<void> {
   try {
     // axios.delete sends body via config.data option
     await authApi.delete("/workspace/entry", {
-      data: { identityKey, hostId, relativePath },
+      data: { ...targetToWireFields(target), hostId, relativePath },
     });
   } catch (error) {
     if (axios.isAxiosError(error)) {
@@ -199,21 +219,16 @@ export async function deleteWorkspaceEntry(
 
 /**
  * Rename or move a workspace entry.
- *
- * @param identityKey - Identity slug
- * @param hostId      - Numeric host ID
- * @param from        - Source path relative to workspace root
- * @param to          - Destination path relative to workspace root
  */
 export async function renameWorkspaceEntry(
-  identityKey: string,
+  target: WorkspaceTarget,
   hostId: number,
   from: string,
   to: string,
 ): Promise<void> {
   try {
     await authApi.post("/workspace/rename", {
-      identityKey,
+      ...targetToWireFields(target),
       hostId,
       from,
       to,
@@ -238,19 +253,15 @@ export async function renameWorkspaceEntry(
 
 /**
  * Create a directory in the workspace.
- *
- * @param identityKey  - Identity slug
- * @param hostId       - Numeric host ID
- * @param relativePath - Path for the new directory, relative to workspace root
  */
 export async function mkdirWorkspace(
-  identityKey: string,
+  target: WorkspaceTarget,
   hostId: number,
   relativePath: string,
 ): Promise<void> {
   try {
     await authApi.post("/workspace/mkdir", {
-      identityKey,
+      ...targetToWireFields(target),
       hostId,
       relativePath,
     });
@@ -274,19 +285,15 @@ export async function mkdirWorkspace(
 
 /**
  * Create an empty file in the workspace.
- *
- * @param identityKey  - Identity slug
- * @param hostId       - Numeric host ID
- * @param relativePath - Path for the new file, relative to workspace root
  */
 export async function createWorkspaceFile(
-  identityKey: string,
+  target: WorkspaceTarget,
   hostId: number,
   relativePath: string,
 ): Promise<void> {
   try {
     await authApi.post("/workspace/create-file", {
-      identityKey,
+      ...targetToWireFields(target),
       hostId,
       relativePath,
     });
@@ -310,24 +317,20 @@ export async function createWorkspaceFile(
 
 /**
  * Upload a browser File object to the workspace.
- * Sends a multipart form-data body with identityKey/hostId/relativePath fields
+ * Sends a multipart form-data body with target + hostId + relativePath fields
  * plus the file payload. Calls onProgress during upload if supplied.
- *
- * @param identityKey  - Identity slug
- * @param hostId       - Numeric host ID
- * @param relativePath - Destination path relative to workspace root
- * @param file         - Browser File object from input or drag-drop
- * @param onProgress   - Optional progress callback: (loaded, total) => void
  */
 export async function uploadWorkspaceFile(
-  identityKey: string,
+  target: WorkspaceTarget,
   hostId: number,
   relativePath: string,
   file: File,
   onProgress?: (loaded: number, total: number) => void,
 ): Promise<void> {
   const form = new FormData();
-  form.append("identityKey", identityKey);
+  for (const [k, v] of Object.entries(targetToWireFields(target))) {
+    form.append(k, v);
+  }
   form.append("hostId", String(hostId));
   form.append("relativePath", relativePath);
   form.append("file", file);
@@ -369,20 +372,15 @@ export async function uploadWorkspaceFile(
  *
  * Uses a relative URL (no origin prefix) because the frontend and backend
  * share the same origin under the nginx reverse proxy.
- *
- * @param identityKey  - Identity slug
- * @param hostId       - Numeric host ID
- * @param relativePath - File path relative to workspace root
- * @returns Relative URL string pointing at GET /workspace/download
  */
 export function downloadWorkspaceFileUrl(
-  identityKey: string,
+  target: WorkspaceTarget,
   hostId: number,
   relativePath: string,
 ): string {
   return (
     `/workspace/download` +
-    `?identityKey=${encodeURIComponent(identityKey)}` +
+    `?${targetToQueryString(target)}` +
     `&hostId=${encodeURIComponent(String(hostId))}` +
     `&relativePath=${encodeURIComponent(relativePath)}`
   );

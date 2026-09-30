@@ -723,7 +723,11 @@ export function IdentityModal({
           value="workspace"
           className="flex-1 min-h-0 overflow-hidden flex flex-col"
         >
-          <WorkspaceTab identity={identity} hostId={hostId} hue={hue} />
+          <WorkspaceTab
+            target={{ kind: "identity", identityKey: identity.identityKey }}
+            hostId={hostId}
+            hue={hue}
+          />
         </TabsContent>
       </Tabs>
 

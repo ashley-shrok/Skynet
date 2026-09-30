@@ -15,12 +15,13 @@
  *
  * Every endpoint enforces the 9-step chain:
  *   1. Body/query validation → 400 invalid_body
- *   2. IDENTITY_KEY_RE.test(identityKey) → 400 invalid_identity_key  (one call per endpoint)
+ *   2. extractTarget(body) → identity default OR role when kind="role"
+ *        → 400 invalid_identity_key / invalid_role_slug on validator fail
  *   3. Static traversal check → 400 path_traversal
  *   4. resolveHostById(hostId, userId) → 404 unknown_host
  *   5. permissionManager.canAccessHost(userId, hostId, "read"|"write") → 403 permission_denied
  *   6. withConnection → openSftp → sftpRealpath(".")  (tilde expansion — SFTP is tilde-blind)
- *   7. Build workspaceRoot + absolutePath
+ *   7. Build workspaceRoot via buildTargetRoot(homeDir, target) + absolutePath
  *   8. Post-realpath re-check (symlink escape + FORBIDDEN_PATH_RE)
  *   9. SFTP operation
  *  10. Catch → { error: classifyErrorToClass(err) } — NEVER err.message (T-40-05)
@@ -40,6 +41,51 @@ import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { IDENTITY_KEY_RE } from "../../claude-session/identity-artifact-reader.js";
 import type { Client as SSHClientType } from "ssh2";
+
+/* ------------------------------------------------------------------------ */
+/*  Target: identity workspace OR role folder                               */
+/*                                                                          */
+/*  Every /workspace endpoint accepts either an identityKey (default) or a  */
+/*  roleSlug (kind: "role"). The former resolves to                         */
+/*  ~/fleet/identities/<key>/workspace; the latter resolves to              */
+/*  ~/fleet/roles/<slug>. Everything else — SFTP realpath, symlink-escape   */
+/*  defense, RBAC, error classification — is identical.                     */
+/* ------------------------------------------------------------------------ */
+
+/** Role-slug validator — mirrors PROJECT_SLUG_RE/APP_SLUG_RE shape. Kebab-case only. */
+export const ROLE_SLUG_RE = /^[a-z0-9-]{1,64}$/;
+
+type TargetSpec =
+  | { kind: "identity"; identityKey: string }
+  | { kind: "role"; roleSlug: string };
+
+type ExtractTargetResult =
+  | { ok: true; target: TargetSpec }
+  | { ok: false; error: "invalid_body" | "invalid_identity_key" | "invalid_role_slug" };
+
+/**
+ * Read either identityKey (kind="identity" or absent) or roleSlug (kind="role")
+ * from a request body / query. Called once per endpoint after the base-field
+ * shape check. Absent-kind path is byte-identical to the legacy identityKey-only
+ * behavior — no existing caller sees a wire change.
+ */
+function extractTarget(body: Record<string, unknown>): ExtractTargetResult {
+  const kind = body.kind;
+  if (kind === "role") {
+    if (typeof body.roleSlug !== "string") return { ok: false, error: "invalid_body" };
+    if (!ROLE_SLUG_RE.test(body.roleSlug)) return { ok: false, error: "invalid_role_slug" };
+    return { ok: true, target: { kind: "role", roleSlug: body.roleSlug } };
+  }
+  if (kind !== undefined && kind !== "identity") return { ok: false, error: "invalid_body" };
+  if (typeof body.identityKey !== "string") return { ok: false, error: "invalid_body" };
+  if (!IDENTITY_KEY_RE.test(body.identityKey)) return { ok: false, error: "invalid_identity_key" };
+  return { ok: true, target: { kind: "identity", identityKey: body.identityKey } };
+}
+
+function buildTargetRoot(homeDir: string, target: TargetSpec): string {
+  if (target.kind === "role") return `${homeDir}/fleet/roles/${target.roleSlug}`;
+  return `${homeDir}/fleet/identities/${target.identityKey}/workspace`;
+}
 
 /* ------------------------------------------------------------------------ */
 /*  Constants                                                               */
@@ -437,24 +483,24 @@ workspaceRoutes.post(
       body === null ||
       typeof body !== "object" ||
       Array.isArray(body) ||
-      typeof body.identityKey !== "string" ||
       (typeof body.hostId !== "number" && typeof body.hostId !== "string")
     ) {
       res.status(400).json({ error: "invalid_body" });
       return;
     }
-    const { identityKey, hostId, relativePath = "" } = body as {
-      identityKey: string;
+    const { hostId, relativePath = "" } = body as {
       hostId: number | string;
       relativePath?: string;
     };
     const userId = (req as Request & { userId: string }).userId;
 
-    // Step 2: IDENTITY_KEY_RE.test(identityKey) — Pitfall 5
-    if (!IDENTITY_KEY_RE.test(identityKey)) {
-      res.status(400).json({ error: "invalid_identity_key" });
+    // Step 2: extract + validate target (identity default, or role when kind="role")
+    const targetResult = extractTarget(body);
+    if (targetResult.ok === false) {
+      res.status(400).json({ error: targetResult.error });
       return;
     }
+    const target = targetResult.target;
 
     // Step 3: Static traversal check
     try {
@@ -490,7 +536,7 @@ workspaceRoutes.post(
             // Step 6: tilde expansion — sftpRealpath(sftp, ".")
             const sftp = await openSftp(client);
             const homeDir = await sftpRealpath(sftp, ".");
-            const workspaceRoot = `${homeDir}/fleet/identities/${identityKey}/workspace`;
+            const workspaceRoot = buildTargetRoot(homeDir, target);
             const absolutePath = buildAbsolutePath(workspaceRoot, String(relativePath));
 
             // Step 8: Post-realpath re-check (symlink escape defense)
@@ -543,24 +589,24 @@ workspaceRoutes.post(
       body === null ||
       typeof body !== "object" ||
       Array.isArray(body) ||
-      typeof body.identityKey !== "string" ||
       typeof body.relativePath !== "string" ||
       (typeof body.hostId !== "number" && typeof body.hostId !== "string")
     ) {
       res.status(400).json({ error: "invalid_body" });
       return;
     }
-    const { identityKey, hostId, relativePath } = body as {
-      identityKey: string;
+    const { hostId, relativePath } = body as {
       hostId: number | string;
       relativePath: string;
     };
     const userId = (req as Request & { userId: string }).userId;
 
-    if (!IDENTITY_KEY_RE.test(identityKey)) {
-      res.status(400).json({ error: "invalid_identity_key" });
+    const targetResult = extractTarget(body);
+    if (targetResult.ok === false) {
+      res.status(400).json({ error: targetResult.error });
       return;
     }
+    const target = targetResult.target;
 
     try {
       validateRelativePath(relativePath);
@@ -592,7 +638,7 @@ workspaceRoutes.post(
           return await runWithAbort(ctrl.signal, async () => {
             const sftp = await openSftp(client);
             const homeDir = await sftpRealpath(sftp, ".");
-            const workspaceRoot = `${homeDir}/fleet/identities/${identityKey}/workspace`;
+            const workspaceRoot = buildTargetRoot(homeDir, target);
             const absolutePath = buildAbsolutePath(workspaceRoot, relativePath);
 
             const resolved = await sftpRealpath(sftp, absolutePath);
@@ -644,7 +690,6 @@ workspaceRoutes.put(
       body === null ||
       typeof body !== "object" ||
       Array.isArray(body) ||
-      typeof body.identityKey !== "string" ||
       typeof body.relativePath !== "string" ||
       typeof body.content !== "string" ||
       (typeof body.hostId !== "number" && typeof body.hostId !== "string")
@@ -652,18 +697,19 @@ workspaceRoutes.put(
       res.status(400).json({ error: "invalid_body" });
       return;
     }
-    const { identityKey, hostId, relativePath, content } = body as {
-      identityKey: string;
+    const { hostId, relativePath, content } = body as {
       hostId: number | string;
       relativePath: string;
       content: string;
     };
     const userId = (req as Request & { userId: string }).userId;
 
-    if (!IDENTITY_KEY_RE.test(identityKey)) {
-      res.status(400).json({ error: "invalid_identity_key" });
+    const targetResult = extractTarget(body);
+    if (targetResult.ok === false) {
+      res.status(400).json({ error: targetResult.error });
       return;
     }
+    const target = targetResult.target;
 
     try {
       validateRelativePath(relativePath);
@@ -695,7 +741,7 @@ workspaceRoutes.put(
           return await runWithAbort(ctrl.signal, async () => {
             const sftp = await openSftp(client);
             const homeDir = await sftpRealpath(sftp, ".");
-            const workspaceRoot = `${homeDir}/fleet/identities/${identityKey}/workspace`;
+            const workspaceRoot = buildTargetRoot(homeDir, target);
             const absolutePath = buildAbsolutePath(workspaceRoot, relativePath);
 
             // Realpath check on the parent directory (file may not exist yet)
@@ -735,24 +781,24 @@ workspaceRoutes.delete(
       body === null ||
       typeof body !== "object" ||
       Array.isArray(body) ||
-      typeof body.identityKey !== "string" ||
       typeof body.relativePath !== "string" ||
       (typeof body.hostId !== "number" && typeof body.hostId !== "string")
     ) {
       res.status(400).json({ error: "invalid_body" });
       return;
     }
-    const { identityKey, hostId, relativePath } = body as {
-      identityKey: string;
+    const { hostId, relativePath } = body as {
       hostId: number | string;
       relativePath: string;
     };
     const userId = (req as Request & { userId: string }).userId;
 
-    if (!IDENTITY_KEY_RE.test(identityKey)) {
-      res.status(400).json({ error: "invalid_identity_key" });
+    const targetResult = extractTarget(body);
+    if (targetResult.ok === false) {
+      res.status(400).json({ error: targetResult.error });
       return;
     }
+    const target = targetResult.target;
 
     try {
       validateRelativePath(relativePath);
@@ -784,7 +830,7 @@ workspaceRoutes.delete(
           return await runWithAbort(ctrl.signal, async () => {
             const sftp = await openSftp(client);
             const homeDir = await sftpRealpath(sftp, ".");
-            const workspaceRoot = `${homeDir}/fleet/identities/${identityKey}/workspace`;
+            const workspaceRoot = buildTargetRoot(homeDir, target);
             const absolutePath = buildAbsolutePath(workspaceRoot, relativePath);
 
             const resolved = await sftpRealpath(sftp, absolutePath);
@@ -827,7 +873,6 @@ workspaceRoutes.post(
       body === null ||
       typeof body !== "object" ||
       Array.isArray(body) ||
-      typeof body.identityKey !== "string" ||
       typeof body.from !== "string" ||
       typeof body.to !== "string" ||
       (typeof body.hostId !== "number" && typeof body.hostId !== "string")
@@ -835,18 +880,19 @@ workspaceRoutes.post(
       res.status(400).json({ error: "invalid_body" });
       return;
     }
-    const { identityKey, hostId, from, to } = body as {
-      identityKey: string;
+    const { hostId, from, to } = body as {
       hostId: number | string;
       from: string;
       to: string;
     };
     const userId = (req as Request & { userId: string }).userId;
 
-    if (!IDENTITY_KEY_RE.test(identityKey)) {
-      res.status(400).json({ error: "invalid_identity_key" });
+    const targetResult = extractTarget(body);
+    if (targetResult.ok === false) {
+      res.status(400).json({ error: targetResult.error });
       return;
     }
+    const target = targetResult.target;
 
     // Validate both from and to
     try {
@@ -880,7 +926,7 @@ workspaceRoutes.post(
           return await runWithAbort(ctrl.signal, async () => {
             const sftp = await openSftp(client);
             const homeDir = await sftpRealpath(sftp, ".");
-            const workspaceRoot = `${homeDir}/fleet/identities/${identityKey}/workspace`;
+            const workspaceRoot = buildTargetRoot(homeDir, target);
             const fromPath = buildAbsolutePath(workspaceRoot, from);
             const toPath = buildAbsolutePath(workspaceRoot, to);
 
@@ -924,24 +970,24 @@ workspaceRoutes.post(
       body === null ||
       typeof body !== "object" ||
       Array.isArray(body) ||
-      typeof body.identityKey !== "string" ||
       typeof body.relativePath !== "string" ||
       (typeof body.hostId !== "number" && typeof body.hostId !== "string")
     ) {
       res.status(400).json({ error: "invalid_body" });
       return;
     }
-    const { identityKey, hostId, relativePath } = body as {
-      identityKey: string;
+    const { hostId, relativePath } = body as {
       hostId: number | string;
       relativePath: string;
     };
     const userId = (req as Request & { userId: string }).userId;
 
-    if (!IDENTITY_KEY_RE.test(identityKey)) {
-      res.status(400).json({ error: "invalid_identity_key" });
+    const targetResult = extractTarget(body);
+    if (targetResult.ok === false) {
+      res.status(400).json({ error: targetResult.error });
       return;
     }
+    const target = targetResult.target;
 
     try {
       validateRelativePath(relativePath);
@@ -973,7 +1019,7 @@ workspaceRoutes.post(
           return await runWithAbort(ctrl.signal, async () => {
             const sftp = await openSftp(client);
             const homeDir = await sftpRealpath(sftp, ".");
-            const workspaceRoot = `${homeDir}/fleet/identities/${identityKey}/workspace`;
+            const workspaceRoot = buildTargetRoot(homeDir, target);
             const absolutePath = buildAbsolutePath(workspaceRoot, relativePath);
 
             // Realpath check on parent
@@ -1011,24 +1057,24 @@ workspaceRoutes.post(
       body === null ||
       typeof body !== "object" ||
       Array.isArray(body) ||
-      typeof body.identityKey !== "string" ||
       typeof body.relativePath !== "string" ||
       (typeof body.hostId !== "number" && typeof body.hostId !== "string")
     ) {
       res.status(400).json({ error: "invalid_body" });
       return;
     }
-    const { identityKey, hostId, relativePath } = body as {
-      identityKey: string;
+    const { hostId, relativePath } = body as {
       hostId: number | string;
       relativePath: string;
     };
     const userId = (req as Request & { userId: string }).userId;
 
-    if (!IDENTITY_KEY_RE.test(identityKey)) {
-      res.status(400).json({ error: "invalid_identity_key" });
+    const targetResult = extractTarget(body);
+    if (targetResult.ok === false) {
+      res.status(400).json({ error: targetResult.error });
       return;
     }
+    const target = targetResult.target;
 
     try {
       validateRelativePath(relativePath);
@@ -1060,7 +1106,7 @@ workspaceRoutes.post(
           return await runWithAbort(ctrl.signal, async () => {
             const sftp = await openSftp(client);
             const homeDir = await sftpRealpath(sftp, ".");
-            const workspaceRoot = `${homeDir}/fleet/identities/${identityKey}/workspace`;
+            const workspaceRoot = buildTargetRoot(homeDir, target);
             const absolutePath = buildAbsolutePath(workspaceRoot, relativePath);
 
             // Realpath check on parent dir
@@ -1093,13 +1139,10 @@ workspaceRoutes.post(
   workspaceUpload.single("file"),
   authenticateJWT,
   async (req: Request, res: Response) => {
-    const { identityKey, hostId, relativePath } = req.body as Record<
-      string,
-      unknown
-    >;
+    const body = req.body as Record<string, unknown>;
+    const { hostId, relativePath } = body;
 
     if (
-      typeof identityKey !== "string" ||
       typeof relativePath !== "string" ||
       (typeof hostId !== "number" && typeof hostId !== "string") ||
       !req.file
@@ -1110,7 +1153,9 @@ workspaceRoutes.post(
       sshLogger.warn("workspace /upload invalid_body", {
         operation: "workspace_upload",
         hasFile: !!req.file,
-        identityKeyType: typeof identityKey,
+        identityKeyType: typeof body.identityKey,
+        roleSlugType: typeof body.roleSlug,
+        kind: typeof body.kind === "string" ? body.kind : "(absent)",
         relativePathType: typeof relativePath,
         hostIdType: typeof hostId,
         contentType: req.headers["content-type"],
@@ -1120,10 +1165,12 @@ workspaceRoutes.post(
     }
     const userId = (req as Request & { userId: string }).userId;
 
-    if (!IDENTITY_KEY_RE.test(identityKey)) {
-      res.status(400).json({ error: "invalid_identity_key" });
+    const targetResult = extractTarget(body);
+    if (targetResult.ok === false) {
+      res.status(400).json({ error: targetResult.error });
       return;
     }
+    const target = targetResult.target;
 
     try {
       validateRelativePath(relativePath);
@@ -1156,7 +1203,7 @@ workspaceRoutes.post(
           return await runWithAbort(ctrl.signal, async () => {
             const sftp = await openSftp(client);
             const homeDir = await sftpRealpath(sftp, ".");
-            const workspaceRoot = `${homeDir}/fleet/identities/${identityKey}/workspace`;
+            const workspaceRoot = buildTargetRoot(homeDir, target);
             const absolutePath = buildAbsolutePath(workspaceRoot, relativePath);
 
             // Realpath check on parent dir
@@ -1190,13 +1237,10 @@ workspaceRoutes.get(
   "/download",
   authenticateJWT,
   async (req: Request, res: Response) => {
-    const { identityKey, hostId, relativePath } = req.query as Record<
-      string,
-      unknown
-    >;
+    const query = req.query as Record<string, unknown>;
+    const { hostId, relativePath } = query;
 
     if (
-      typeof identityKey !== "string" ||
       typeof relativePath !== "string" ||
       (typeof hostId !== "number" && typeof hostId !== "string")
     ) {
@@ -1205,10 +1249,12 @@ workspaceRoutes.get(
     }
     const userId = (req as Request & { userId: string }).userId;
 
-    if (!IDENTITY_KEY_RE.test(identityKey)) {
-      res.status(400).json({ error: "invalid_identity_key" });
+    const targetResult = extractTarget(query);
+    if (targetResult.ok === false) {
+      res.status(400).json({ error: targetResult.error });
       return;
     }
+    const target = targetResult.target;
 
     try {
       validateRelativePath(relativePath);
@@ -1240,7 +1286,7 @@ workspaceRoutes.get(
           return await runWithAbort(ctrl.signal, async () => {
             const sftp = await openSftp(client);
             const homeDir = await sftpRealpath(sftp, ".");
-            const workspaceRoot = `${homeDir}/fleet/identities/${identityKey}/workspace`;
+            const workspaceRoot = buildTargetRoot(homeDir, target);
             const absolutePath = buildAbsolutePath(workspaceRoot, relativePath);
 
             const resolved = await sftpRealpath(sftp, absolutePath);

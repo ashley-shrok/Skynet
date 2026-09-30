@@ -42,7 +42,6 @@ import {
   Trash,
   Upload,
 } from "lucide-react";
-import type { Identity } from "@/api/identities-api";
 import {
   createWorkspaceFile,
   deleteWorkspaceEntry,
@@ -54,7 +53,22 @@ import {
   uploadWorkspaceFile,
   writeWorkspaceFile,
 } from "@/api/workspace-api";
-import type { ListResponse, WorkspaceEntry } from "@/api/workspace-api";
+import type {
+  ListResponse,
+  WorkspaceEntry,
+  WorkspaceTarget,
+} from "@/api/workspace-api";
+
+/**
+ * Stable per-target string for React dep arrays. Two targets that resolve to
+ * the same folder produce the same string; anything else (including a fresh
+ * object reference to the same target) produces the same string too, so the
+ * effect/callback deps are keyed on the underlying key rather than the object
+ * identity.
+ */
+function targetDepKey(t: WorkspaceTarget): string {
+  return t.kind === "identity" ? `identity:${t.identityKey}` : `role:${t.roleSlug}`;
+}
 import {
   resolveWorkspaceErrorCopy,
   WORKSPACE_ERROR_COPY,
@@ -214,12 +228,12 @@ type FileFetchState =
 function WorkspaceFileViewer({
   file,
   onBack,
-  identity,
+  target,
   hostId,
 }: {
   file: OpenFileState;
   onBack: () => void;
-  identity: Identity;
+  target: WorkspaceTarget;
   hostId: number;
   hue: number;
 }): JSX.Element {
@@ -269,7 +283,7 @@ function WorkspaceFileViewer({
     setFetchState({ status: "loading" });
     setTabState({ status: "loading" });
     setSaveError(null);
-    readWorkspaceFile(identity.identityKey, hostId, file.relativePath)
+    readWorkspaceFile(target, hostId, file.relativePath)
       .then((data) => {
         if (!cancelled) {
           setFetchState({ status: "ready", data });
@@ -292,7 +306,7 @@ function WorkspaceFileViewer({
       cancelled = true;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [identity.identityKey, hostId, file.relativePath, file.type]);
+  }, [targetDepKey(target), hostId, file.relativePath, file.type]);
 
   // Save handler for md + text (all hooks unconditional — Rules of Hooks)
   const handleSave = useCallback(
@@ -301,7 +315,7 @@ function WorkspaceFileViewer({
       setSaving(true);
       try {
         await writeWorkspaceFile(
-          identity.identityKey,
+          target,
           hostId,
           file.relativePath,
           newContent
@@ -319,7 +333,7 @@ function WorkspaceFileViewer({
         setSaving(false);
       }
     },
-    [identity.identityKey, hostId, file.relativePath]
+    [targetDepKey(target), hostId, file.relativePath]
   );
 
   // Back-nav guard: confirm before discarding unsaved edits.
@@ -355,7 +369,7 @@ function WorkspaceFileViewer({
   const mime = mimeByExt[ext] ?? "application/octet-stream";
 
   const downloadUrl = downloadWorkspaceFileUrl(
-    identity.identityKey,
+    target,
     hostId,
     file.relativePath
   );
@@ -728,22 +742,28 @@ interface WorkspaceListViewProps {
   currentPath: string[];
   onNavigate: (newPath: string[]) => void;
   onOpenFile: (file: OpenFileState) => void;
-  identity: Identity;
+  target: WorkspaceTarget;
   hostId: number;
   hue: number;
   refreshKey: number;
   onRefresh: () => void;
+  /** Names to hide from the listing (e.g. the role's own <slug>.md file). */
+  hiddenNames?: readonly string[];
+  /** Custom intro copy above the file list. Falls back to the identity default. */
+  introCopy?: string;
 }
 
 function WorkspaceListView({
   currentPath,
   onNavigate,
   onOpenFile,
-  identity,
+  target,
   hostId,
   hue,
   refreshKey,
   onRefresh,
+  hiddenNames,
+  introCopy,
 }: WorkspaceListViewProps): JSX.Element {
   const [listState, setListState] = useState<ListState>({
     status: "loading",
@@ -762,12 +782,11 @@ function WorkspaceListView({
   const [renameError, setRenameError] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
-  // D-05: fetch on mount + whenever path, identity, hostId, or refreshKey changes
+  // D-05: fetch on mount + whenever path, target, hostId, or refreshKey changes
   useEffect(() => {
-    if (!identity.identityKey) return;
     let cancelled = false;
     setListState({ status: "loading" });
-    listWorkspace(identity.identityKey, hostId, currentPath.join("/"))
+    listWorkspace(target, hostId, currentPath.join("/"))
       .then((data) => {
         if (!cancelled) setListState({ status: "ready", data });
       })
@@ -782,7 +801,7 @@ function WorkspaceListView({
       cancelled = true;
     };
     // refreshKey in deps means the refresh button re-runs the effect (D-05)
-  }, [identity.identityKey, hostId, currentPath, refreshKey]);
+  }, [targetDepKey(target), hostId, currentPath, refreshKey]);
 
   // Sort column toggling (D-14)
   function handleSortClick(col: "name" | "size" | "mtime") {
@@ -845,7 +864,7 @@ function WorkspaceListView({
       await Promise.all(
         files.map((f) =>
           uploadWorkspaceFile(
-            identity.identityKey,
+            target,
             hostId,
             prefix + f.name,
             f
@@ -872,7 +891,7 @@ function WorkspaceListView({
       await Promise.all(
         files.map((f) =>
           uploadWorkspaceFile(
-            identity.identityKey,
+            target,
             hostId,
             prefix + f.name,
             f
@@ -900,9 +919,9 @@ function WorkspaceListView({
     setNewError(null);
     try {
       if (pendingNew === "folder") {
-        await mkdirWorkspace(identity.identityKey, hostId, targetPath);
+        await mkdirWorkspace(target, hostId, targetPath);
       } else {
-        await createWorkspaceFile(identity.identityKey, hostId, targetPath);
+        await createWorkspaceFile(target, hostId, targetPath);
       }
       setPendingNew(null);
       setNewName("");
@@ -922,7 +941,7 @@ function WorkspaceListView({
         ? currentPath.join("/") + "/" + entry.name
         : entry.name;
     try {
-      await deleteWorkspaceEntry(identity.identityKey, hostId, targetPath);
+      await deleteWorkspaceEntry(target, hostId, targetPath);
       onRefresh();
     } catch (err) {
       const errorClass = err instanceof Error ? err.message : "generic";
@@ -948,7 +967,7 @@ function WorkspaceListView({
         : renameValue.trim();
     setRenameError(null);
     try {
-      await renameWorkspaceEntry(identity.identityKey, hostId, fromPath, toPath);
+      await renameWorkspaceEntry(target, hostId, fromPath, toPath);
       setRenamingFor(null);
       setRenameValue("");
       onRefresh();
@@ -1036,10 +1055,20 @@ function WorkspaceListView({
     return sortDir === "asc" ? " ▲" : " ▼";
   };
 
-  // Sorted entries for rendering
+  // Sorted entries for rendering. `hiddenNames` filter applies ONLY at the
+  // repo root (currentPath.length === 0) — nested folders never see it. This
+  // matches the intent: a role-file entry lives at `<slug>.md` in the root of
+  // the role folder, and we hide only that name; user files nested under the
+  // same name in a subfolder are unaffected.
   const sortedEntries =
     listState.status === "ready"
-      ? sortEntries(listState.data.entries, sortKey, sortDir)
+      ? sortEntries(
+          currentPath.length === 0 && hiddenNames && hiddenNames.length > 0
+            ? listState.data.entries.filter((e) => !hiddenNames.includes(e.name))
+            : listState.data.entries,
+          sortKey,
+          sortDir,
+        )
       : [];
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -1216,8 +1245,8 @@ function WorkspaceListView({
           flexShrink: 0,
         }}
       >
-        This agent&apos;s file workspace. Anything you drop in, they can
-        read; anything they save, you can grab from here.
+        {introCopy ??
+          "This agent's file workspace. Anything you drop in, they can read; anything they save, you can grab from here."}
       </div>
 
       {/* Upload error banner */}
@@ -1681,7 +1710,7 @@ function WorkspaceListView({
                       {entry.type !== "directory" && (
                         <a
                           href={downloadWorkspaceFileUrl(
-                            identity.identityKey,
+                            target,
                             hostId,
                             entryPath
                           )}
@@ -1816,9 +1845,18 @@ function WorkspaceListView({
 // ---------------------------------------------------------------------------
 
 export interface WorkspaceTabProps {
-  identity: Identity;
+  target: WorkspaceTarget;
   hostId: number;
   hue: number;
+  /**
+   * Names hidden from the listing at the frontend layer (backend still returns
+   * them; this is a UX affordance, not an access control). Used by RoleModal to
+   * hide the role's own `<slug>.md` file, since editing it lives on the
+   * dedicated Role File tab.
+   */
+  hiddenNames?: readonly string[];
+  /** Optional intro copy shown above the file list. Identity default when absent. */
+  introCopy?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -1828,9 +1866,11 @@ export interface WorkspaceTabProps {
 // ---------------------------------------------------------------------------
 
 export default function WorkspaceTab({
-  identity,
+  target,
   hostId,
   hue,
+  hiddenNames,
+  introCopy,
 }: WorkspaceTabProps): JSX.Element {
   const [viewMode, setViewMode] = useState<"list" | "viewer">("list");
   const [currentPath, setCurrentPath] = useState<string[]>([]);
@@ -1845,7 +1885,7 @@ export default function WorkspaceTab({
         onBack={() => {
           setViewMode("list");
         }}
-        identity={identity}
+        target={target}
         hostId={hostId}
         hue={hue}
       />
@@ -1861,11 +1901,13 @@ export default function WorkspaceTab({
         setOpenFile(file);
         setViewMode("viewer");
       }}
-      identity={identity}
+      target={target}
       hostId={hostId}
       hue={hue}
       refreshKey={refreshKey}
       onRefresh={() => setRefreshKey((k) => k + 1)}
+      hiddenNames={hiddenNames}
+      introCopy={introCopy}
     />
   );
 }
