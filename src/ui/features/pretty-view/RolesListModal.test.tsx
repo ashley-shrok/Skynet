@@ -26,8 +26,10 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, fireEvent, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { HostFolder } from "@/types/ui-types";
 import type { RoleSummary } from "@/api/identities-api";
+import type { ArchivedRoleListEntry } from "@/api/roles-archive-list-api";
 
 // ── Module mocks (hoisted — must appear before imports of the mocked modules) ──
 
@@ -64,6 +66,26 @@ vi.mock("@/api/role-archive-api", () => ({
     archiveRoleMock(hostId, roleName),
 }));
 
+// Phase 143 Plan 143-10 — mock listArchivedRoles and unarchiveRole for
+// the new archived-roles section tests.
+const listArchivedRolesMock =
+  vi.fn<(hostId: number) => Promise<ArchivedRoleListEntry[]>>();
+const unarchiveRoleMock =
+  vi.fn<(hostId: number, roleName: string) => Promise<{ ok: true }>>();
+
+vi.mock("@/api/roles-archive-list-api", () => ({
+  listArchivedRoles: (hostId: number) => listArchivedRolesMock(hostId),
+}));
+
+vi.mock("@/api/role-unarchive-api", async (importOriginal) => {
+  const orig = (await importOriginal()) as Record<string, unknown>;
+  return {
+    ...orig,
+    unarchiveRole: (hostId: number, roleName: string) =>
+      unarchiveRoleMock(hostId, roleName),
+  };
+});
+
 // Phase 133 Plan 133-05 (D-04) — mock useIdentities so tests can seed the
 // cascade-preview enumeration per-scenario. `identities` is a mutable module-
 // scoped array; tests mutate `useIdentitiesReturn.identities` in place before
@@ -97,6 +119,7 @@ vi.mock("@/state/identities-store", async (importOriginal) => {
 
 // ── Late imports (after mocks are registered) ────────────────────────────────
 import { RolesListModal } from "./RolesListModal";
+import { UnarchiveError } from "@/api/identity-unarchive-api";
 
 // ── Shared fixtures ──────────────────────────────────────────────────────────
 
@@ -181,6 +204,10 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
         return CANNED_ROLES;
       },
     );
+    // Default: listArchivedRoles resolves empty (tests override as needed).
+    listArchivedRolesMock.mockResolvedValue([]);
+    // Default: unarchiveRole resolves ok.
+    unarchiveRoleMock.mockResolvedValue({ ok: true });
   });
 
   afterEach(() => {
@@ -384,6 +411,9 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
       />,
     );
     // 3 roles alphabetical by displayName → Ally, Box Maintainer, Unadorned
+    // Phase 143 Plan 143-07: rows are now <div role="button"> (not <button>)
+    // so the kebab <button> can live as a sibling without violating HTML
+    // rules against nested <button> elements.
     const row = await screen.findByRole("button", { name: /Box Maintainer/ });
     // Inline .pv-row treatment keyed on the box-maintainer hue (320).
     // Note: jsdom normalizes `hsla()` in background/border to `rgba()` but
@@ -405,7 +435,7 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
     );
   });
 
-  it("J: no-cosmetics fallback — row uses hue 190 fallback + row still clickable", async () => {
+  it("J: no-cosmetics fallback — row uses hue 190 fallback + row still interactive", async () => {
     render(
       <RolesListModal
         open={true}
@@ -417,14 +447,16 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
       />,
     );
     // The `unadorned` role has no colorHue → hue 190 fallback per D-05.
+    // Phase 143 Plan 143-07: row is now <div role="button"> (not <button>),
+    // so .disabled does not apply. Assert via aria-disabled absence instead.
     const row = await screen.findByRole("button", { name: /Unadorned/ });
     const style = row.getAttribute("style") ?? "";
     // Fallback hue 190 leaks through the box-shadow hsla slot (jsdom
     // preserves box-shadow hsla verbatim while normalizing background hsla
     // to rgba — see Test I for the same substring assertion strategy).
     expect(style).toMatch(/hsla\(190,\s*70%,\s*55%,\s*0\.20?\)/i);
-    // Row must be a live button — no aria-disabled / disabled attribute
-    expect((row as HTMLButtonElement).disabled).toBe(false);
+    // Row must be interactive — no aria-disabled attribute set.
+    expect(row.getAttribute("aria-disabled")).toBeNull();
   });
 
   it("K: displayName fallback — kebab-case slug becomes title-cased text when displayName absent", async () => {
@@ -543,11 +575,17 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
     expect(newRoleButtons.length).toBeGreaterThanOrEqual(1);
   });
 
-  // ─── Phase 133 D-01/D-02/D-03/D-04 — archive role context menu ───────────
-  describe("Phase 133 D-01/D-02/D-03/D-04 — archive role context menu", () => {
-    // Solo-role fixture keyed to `role-a` at hue 100 — used across most of the
-    // Phase 133 tests. Alphabetical sort promotes "Role A" straight to the
-    // first row; makes findByRole(/Role A/) deterministic.
+  // Phase 143 (un-archiving shape 2, D-27): the "Phase 133 D-01/D-02/D-03/D-04 — archive role context menu"
+  // describe block that pinned the right-click Archive invocation on this surface has been REMOVED.
+  // The right-click gesture is retired here in favor of the always-visible three-dots kebab menu
+  // (D-12/D-13/D-14/D-15). New coverage of the kebab-menu Archive path lives in the "Phase 143 —
+  // kebab-menu Archive on live-role rows" describe block below.
+  // Mirrors shape 1's precedent: agent-supervisor-archive-scan.sh removed its D-12 "no _synapse/admin
+  // refs" and D-16 "no unarchive keywords" tests with breadcrumb comments naming the shape file.
+  // Ref: .planning/campaigns/un-archiving/shape-unarchive-frontend-backend.md
+
+  // ─── Phase 143 — kebab-menu Archive on live-role rows ──────────────────────
+  describe("Phase 143 — kebab-menu Archive on live-role rows", () => {
     const SOLO_ROLE_FIXTURE: RoleSummary[] = [
       {
         name: "role-a",
@@ -557,18 +595,27 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
       },
     ];
 
+    const TWO_ROLE_FIXTURE: RoleSummary[] = [
+      {
+        name: "role-a",
+        description: "the test role",
+        displayName: "Role A",
+        colorHue: 100,
+      },
+      {
+        name: "role-b",
+        description: "the sibling role",
+        displayName: "Role B",
+        colorHue: 200,
+      },
+    ];
+
     beforeEach(() => {
-      // Reset the API mock + identity fixture between tests.
       archiveRoleMock.mockReset();
       archiveRoleMock.mockResolvedValue({ ok: true });
       useIdentitiesReturn.identities = [];
-      // Default: both confirms accept. Individual tests override with
-      // mockReturnValueOnce(false) as needed.
       vi.spyOn(window, "confirm").mockReturnValue(true);
-      // Silence + spy on console.warn so Test 10 can assert on the shape.
-      vi.spyOn(console, "warn").mockImplementation(() => {});
-      // Every test in this block uses the SOLO_ROLE_FIXTURE by default; tests
-      // that need a different fixture override with mockResolvedValueOnce.
+      vi.spyOn(window, "alert").mockImplementation(() => {});
       listRolesForHost.mockImplementation(async () => SOLO_ROLE_FIXTURE);
     });
 
@@ -576,272 +623,443 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
       vi.restoreAllMocks();
     });
 
-    async function renderModalAndGetRow(props?: {
-      onOpenChange?: (open: boolean) => void;
-      onSelectRole?: () => void;
-    }): Promise<HTMLElement> {
+    it("1: renders always-visible kebab trigger on each live-role row", async () => {
+      listRolesForHost.mockImplementation(async () => TWO_ROLE_FIXTURE);
       render(
         <RolesListModal
           open={true}
-          onOpenChange={props?.onOpenChange ?? vi.fn()}
+          onOpenChange={vi.fn()}
           hostTree={SINGLE_HOST_TREE}
           defaultHostId={2}
-          onSelectRole={props?.onSelectRole ?? vi.fn()}
+          onSelectRole={vi.fn()}
           onNewRole={vi.fn()}
         />,
       );
-      return screen.findByRole("button", { name: /Role A/ });
-    }
+      // Wait for rows to load
+      await screen.findByRole("button", { name: /Role A/ });
+      // Both rows should have a kebab trigger (testId pattern roles-list-row-kebab-<name>)
+      const kebabs = screen.getAllByTestId(/^roles-list-row-kebab-/);
+      expect(kebabs.length).toBe(2);
+    });
 
-    it("1: renders Archive item on right-click (danger-styled)", async () => {
-      const row = await renderModalAndGetRow();
-      fireEvent.contextMenu(row, { clientX: 100, clientY: 100 });
-      const archiveItem = await screen.findByRole("menuitem", {
-        name: /^Archive$/,
-      });
+    it("2: clicking kebab opens menu with a single Archive item", async () => {
+      const user = userEvent.setup();
+      render(
+        <RolesListModal
+          open={true}
+          onOpenChange={vi.fn()}
+          hostTree={SINGLE_HOST_TREE}
+          defaultHostId={2}
+          onSelectRole={vi.fn()}
+          onNewRole={vi.fn()}
+        />,
+      );
+      await screen.findByRole("button", { name: /Role A/ });
+      const kebab = screen.getByTestId("roles-list-row-kebab-role-a");
+      await user.click(kebab);
+      const archiveItem = await screen.findByRole("menuitem", { name: /^Archive$/ });
       expect(archiveItem).toBeTruthy();
-      // D-02 danger-styled: color is `#ff9a8a` per PrettyConversationContextMenu
-      // itemButtonStyle when danger:true.
-      const style = archiveItem.getAttribute("style") ?? "";
-      expect(style).toMatch(/color:\s*(?:#ff9a8a|rgb\(\s*255,\s*154,\s*138\s*\))/i);
     });
 
-    it("2: right-click does NOT open the role modal (onSelectRole is not called)", async () => {
-      const onSelectRole = vi.fn();
-      const row = await renderModalAndGetRow({ onSelectRole });
-      fireEvent.contextMenu(row, { clientX: 100, clientY: 100 });
-      // Menu appeared…
-      await screen.findByRole("menuitem", { name: /^Archive$/ });
-      // …but the row's onClick handler was NOT invoked.
-      expect(onSelectRole).not.toHaveBeenCalled();
-    });
-
-    it("3: cascade preview N=0 — first confirm is 'no identities hold it.'", async () => {
-      useIdentitiesReturn.identities = [];
-      const row = await renderModalAndGetRow();
-      fireEvent.contextMenu(row, { clientX: 100, clientY: 100 });
-      const archiveItem = await screen.findByRole("menuitem", {
-        name: /^Archive$/,
-      });
-      fireEvent.click(archiveItem);
-      expect(window.confirm).toHaveBeenNthCalledWith(
-        1,
-        "archive role Role A? no identities hold it.",
+    it("3: clicking Archive item opens the double-confirm dialog (window.confirm called twice)", async () => {
+      const user = userEvent.setup();
+      render(
+        <RolesListModal
+          open={true}
+          onOpenChange={vi.fn()}
+          hostTree={SINGLE_HOST_TREE}
+          defaultHostId={2}
+          onSelectRole={vi.fn()}
+          onNewRole={vi.fn()}
+        />,
       );
+      await screen.findByRole("button", { name: /Role A/ });
+      const kebab = screen.getByTestId("roles-list-row-kebab-role-a");
+      await user.click(kebab);
+      const archiveItem = await screen.findByRole("menuitem", { name: /^Archive$/ });
+      await user.click(archiveItem);
+      expect(window.confirm).toHaveBeenCalledTimes(2);
     });
 
-    it("4: cascade preview N=1 — first confirm lists the identity's task", async () => {
-      useIdentitiesReturn.identities = [
-        {
-          identityKey: "alpha",
-          displayName: "Alpha",
-          role: "role-a",
-          hostId: 2,
-          task: "Fixing the auth bug",
-        },
-      ];
-      const row = await renderModalAndGetRow();
-      fireEvent.contextMenu(row, { clientX: 100, clientY: 100 });
-      const archiveItem = await screen.findByRole("menuitem", {
-        name: /^Archive$/,
-      });
-      fireEvent.click(archiveItem);
-      expect(window.confirm).toHaveBeenNthCalledWith(
-        1,
-        "archive role Role A? this will also archive 1 identity holding it:\n" +
-          "• Fixing the auth bug",
-      );
-    });
-
-    it("5: cascade preview N=3 uses displayName fallback when task is null/empty", async () => {
-      useIdentitiesReturn.identities = [
-        {
-          identityKey: "one",
-          displayName: "One",
-          role: "role-a",
-          hostId: 2,
-          task: "Task A",
-        },
-        {
-          identityKey: "two",
-          displayName: "Wren",
-          role: "role-a",
-          hostId: 2,
-          task: null,
-        },
-        {
-          identityKey: "three",
-          displayName: "Aqua",
-          role: "role-a",
-          hostId: 2,
-          task: "",
-        },
-        // Also seed an unrelated identity (different role) — MUST be filtered
-        // out of the preview.
-        {
-          identityKey: "other",
-          displayName: "Other",
-          role: "some-other-role",
-          hostId: 2,
-          task: "should not appear",
-        },
-        // And another that matches role but is on a different host — filtered.
-        {
-          identityKey: "wrong-host",
-          displayName: "Wrong Host",
-          role: "role-a",
-          hostId: 99,
-          task: "should not appear either",
-        },
-      ];
-      const row = await renderModalAndGetRow();
-      fireEvent.contextMenu(row, { clientX: 100, clientY: 100 });
-      const archiveItem = await screen.findByRole("menuitem", {
-        name: /^Archive$/,
-      });
-      fireEvent.click(archiveItem);
-      expect(window.confirm).toHaveBeenNthCalledWith(
-        1,
-        "archive role Role A? this will also archive 3 identities holding it:\n" +
-          "• Task A\n" +
-          "• Wren\n" +
-          "• Aqua",
-      );
-    });
-
-    it("6: cancel first confirm stops without API call", async () => {
+    it("4: cancel on first confirm short-circuits — no API call", async () => {
       vi.spyOn(window, "confirm").mockReturnValueOnce(false);
-      const row = await renderModalAndGetRow();
-      fireEvent.contextMenu(row, { clientX: 100, clientY: 100 });
-      const archiveItem = await screen.findByRole("menuitem", {
-        name: /^Archive$/,
-      });
-      fireEvent.click(archiveItem);
+      const user = userEvent.setup();
+      render(
+        <RolesListModal
+          open={true}
+          onOpenChange={vi.fn()}
+          hostTree={SINGLE_HOST_TREE}
+          defaultHostId={2}
+          onSelectRole={vi.fn()}
+          onNewRole={vi.fn()}
+        />,
+      );
+      await screen.findByRole("button", { name: /Role A/ });
+      const kebab = screen.getByTestId("roles-list-row-kebab-role-a");
+      await user.click(kebab);
+      const archiveItem = await screen.findByRole("menuitem", { name: /^Archive$/ });
+      await user.click(archiveItem);
       expect(window.confirm).toHaveBeenCalledTimes(1);
       expect(archiveRoleMock).not.toHaveBeenCalled();
     });
 
-    it("7: cancel second confirm stops without API call", async () => {
-      const confirmSpy = vi.spyOn(window, "confirm");
-      confirmSpy.mockReturnValueOnce(true).mockReturnValueOnce(false);
-      const row = await renderModalAndGetRow();
-      fireEvent.contextMenu(row, { clientX: 100, clientY: 100 });
-      const archiveItem = await screen.findByRole("menuitem", {
-        name: /^Archive$/,
-      });
-      fireEvent.click(archiveItem);
-      expect(window.confirm).toHaveBeenCalledTimes(2);
-      expect(archiveRoleMock).not.toHaveBeenCalled();
-    });
-
-    it("8: both confirms → archiveRole called with (hostId, roleName)", async () => {
-      const row = await renderModalAndGetRow();
-      fireEvent.contextMenu(row, { clientX: 100, clientY: 100 });
-      const archiveItem = await screen.findByRole("menuitem", {
-        name: /^Archive$/,
-      });
-      fireEvent.click(archiveItem);
+    it("5: happy path — archiveRole is called with (hostId, roleName)", async () => {
+      const user = userEvent.setup();
+      render(
+        <RolesListModal
+          open={true}
+          onOpenChange={vi.fn()}
+          hostTree={SINGLE_HOST_TREE}
+          defaultHostId={2}
+          onSelectRole={vi.fn()}
+          onNewRole={vi.fn()}
+        />,
+      );
+      await screen.findByRole("button", { name: /Role A/ });
+      const kebab = screen.getByTestId("roles-list-row-kebab-role-a");
+      await user.click(kebab);
+      const archiveItem = await screen.findByRole("menuitem", { name: /^Archive$/ });
+      await user.click(archiveItem);
       expect(archiveRoleMock).toHaveBeenCalledTimes(1);
       expect(archiveRoleMock).toHaveBeenCalledWith(2, "role-a");
     });
 
-    it("9: second confirm copy is byte-identical to identity-archive sanity tap", async () => {
-      const row = await renderModalAndGetRow();
-      fireEvent.contextMenu(row, { clientX: 100, clientY: 100 });
-      const archiveItem = await screen.findByRole("menuitem", {
-        name: /^Archive$/,
-      });
-      fireEvent.click(archiveItem);
-      // Second call = the sanity tap. Byte-identical copy pinned against
-      // silent drift.
-      expect(window.confirm).toHaveBeenNthCalledWith(
-        2,
-        "are you sure? this can't be undone.",
-      );
-    });
-
-    it("10: fire-and-forget catch logs structured console.warn on API failure", async () => {
-      archiveRoleMock.mockRejectedValueOnce(new Error("network gone"));
-      const row = await renderModalAndGetRow();
-      fireEvent.contextMenu(row, { clientX: 100, clientY: 100 });
-      const archiveItem = await screen.findByRole("menuitem", {
-        name: /^Archive$/,
-      });
-      fireEvent.click(archiveItem);
-      // Wait for the fire-and-forget rejection to propagate through .catch.
-      await waitFor(() => expect(console.warn).toHaveBeenCalled(), {
-        timeout: 2000,
-      });
-      expect(console.warn).toHaveBeenCalledWith({
-        operation: "role_archive_failed",
-        hostId: 2,
-        roleName: "role-a",
-        errMessage: "network gone",
-      });
-    });
-
-    it("11: RolesListModal stays open after Archive click (no onOpenChange(false))", async () => {
-      const onOpenChange = vi.fn();
-      const row = await renderModalAndGetRow({ onOpenChange });
-      fireEvent.contextMenu(row, { clientX: 100, clientY: 100 });
-      const archiveItem = await screen.findByRole("menuitem", {
-        name: /^Archive$/,
-      });
-      fireEvent.click(archiveItem);
-      // Modal must NOT be told to close (browse-and-act semantics per plan).
-      expect(onOpenChange).not.toHaveBeenCalledWith(false);
-    });
-
-    it("12: optimistic removal — archived row disappears from list immediately after second confirm", async () => {
-      // Fixture has two roles so we can assert the archived one is gone and the other stays.
-      const TWO_ROLE_FIXTURE: RoleSummary[] = [
-        {
-          name: "role-a",
-          description: "the test role",
-          displayName: "Role A",
-          colorHue: 100,
-        },
-        {
-          name: "role-b",
-          description: "the sibling role",
-          displayName: "Role B",
-          colorHue: 200,
-        },
-      ];
+    it("6: optimistic-remove — row disappears immediately on Archive click (archive path preserves pre-existing optimistic behavior)", async () => {
       listRolesForHost.mockImplementation(async () => TWO_ROLE_FIXTURE);
-      // Never-resolving promise so we assert the optimistic removal, not the settled state.
+      // Never-resolving promise to confirm the removal is optimistic (not post-resolve).
       archiveRoleMock.mockReturnValueOnce(new Promise(() => {}));
-      const row = await renderModalAndGetRow();
-      // Sanity: both rows present before archive.
-      expect(await screen.findByRole("button", { name: /Role A/ })).toBeDefined();
-      expect(await screen.findByRole("button", { name: /Role B/ })).toBeDefined();
-      fireEvent.contextMenu(row, { clientX: 100, clientY: 100 });
-      const archiveItem = await screen.findByRole("menuitem", {
-        name: /^Archive$/,
-      });
-      fireEvent.click(archiveItem);
-      // Role A optimistically gone; Role B still present. No round-trip needed.
+      const user = userEvent.setup();
+      render(
+        <RolesListModal
+          open={true}
+          onOpenChange={vi.fn()}
+          hostTree={SINGLE_HOST_TREE}
+          defaultHostId={2}
+          onSelectRole={vi.fn()}
+          onNewRole={vi.fn()}
+        />,
+      );
+      await screen.findByRole("button", { name: /Role A/ });
+      await screen.findByRole("button", { name: /Role B/ });
+      const kebab = screen.getByTestId("roles-list-row-kebab-role-a");
+      await user.click(kebab);
+      const archiveItem = await screen.findByRole("menuitem", { name: /^Archive$/ });
+      await user.click(archiveItem);
+      // Role A optimistically gone; Role B still present.
       await waitFor(() =>
         expect(screen.queryByRole("button", { name: /Role A/ })).toBeNull(),
       );
       expect(screen.getByRole("button", { name: /Role B/ })).toBeDefined();
     });
 
-    it("13: failure alert — window.alert fires when archiveRole rejects", async () => {
-      archiveRoleMock.mockRejectedValueOnce(new Error("network gone"));
+    it("7: RolesListModal stays open after Archive click (no onOpenChange(false))", async () => {
+      const onOpenChange = vi.fn();
+      const user = userEvent.setup();
+      render(
+        <RolesListModal
+          open={true}
+          onOpenChange={onOpenChange}
+          hostTree={SINGLE_HOST_TREE}
+          defaultHostId={2}
+          onSelectRole={vi.fn()}
+          onNewRole={vi.fn()}
+        />,
+      );
+      await screen.findByRole("button", { name: /Role A/ });
+      const kebab = screen.getByTestId("roles-list-row-kebab-role-a");
+      await user.click(kebab);
+      const archiveItem = await screen.findByRole("menuitem", { name: /^Archive$/ });
+      await user.click(archiveItem);
+      expect(onOpenChange).not.toHaveBeenCalledWith(false);
+    });
+
+    it("8: kebab click stops propagation — clicking the kebab does NOT open RoleModal (onSelectRole not called)", async () => {
+      const onSelectRole = vi.fn();
+      const user = userEvent.setup();
+      render(
+        <RolesListModal
+          open={true}
+          onOpenChange={vi.fn()}
+          hostTree={SINGLE_HOST_TREE}
+          defaultHostId={2}
+          onSelectRole={onSelectRole}
+          onNewRole={vi.fn()}
+        />,
+      );
+      await screen.findByRole("button", { name: /Role A/ });
+      const kebab = screen.getByTestId("roles-list-row-kebab-role-a");
+      // Open the kebab menu — click should stop propagation to the row's onClick
+      await user.click(kebab);
+      // Menu appeared — the Archive item is visible
+      await screen.findByRole("menuitem", { name: /^Archive$/ });
+      // But the row's onSelectRole was NOT invoked (D-14)
+      expect(onSelectRole).not.toHaveBeenCalled();
+    });
+  });
+
+  // ─── Phase 143 — archived-roles collapsed section (D-10, D-18, D-19) ───────
+  describe("Phase 143 — archived-roles collapsed section (D-10, D-18, D-19)", () => {
+    const ARCHIVED_ROLE_FIXTURE: ArchivedRoleListEntry[] = [
+      { name: "old-maintainer" },
+      { name: "retired-researcher" },
+    ];
+
+    beforeEach(() => {
+      listArchivedRolesMock.mockReset();
+      unarchiveRoleMock.mockReset();
+      listArchivedRolesMock.mockResolvedValue(ARCHIVED_ROLE_FIXTURE);
+      unarchiveRoleMock.mockResolvedValue({ ok: true });
+      vi.spyOn(window, "alert").mockImplementation(() => {});
+      listRolesForHost.mockImplementation(async () => [
+        {
+          name: "box-maintainer",
+          description: "keeps the box healthy",
+          displayName: "Box Maintainer",
+          colorHue: 320,
+          avatar: "box-maintainer.webp",
+        },
+      ]);
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    function renderModal(props?: { onOpenChange?: (open: boolean) => void; defaultHostId?: number }): void {
+      render(
+        <RolesListModal
+          open={true}
+          onOpenChange={props?.onOpenChange ?? vi.fn()}
+          hostTree={SINGLE_HOST_TREE}
+          defaultHostId={props?.defaultHostId ?? 2}
+          onSelectRole={vi.fn()}
+          onNewRole={vi.fn()}
+        />,
+      );
+    }
+
+    it("1: archived-roles section header renders even when zero archived roles exist (D-18)", async () => {
+      // Section header should be present before expand (always-visible per D-18).
+      renderModal();
+      // Wait for the modal to finish rendering roles
+      await screen.findByRole("button", { name: /Box Maintainer/ });
+      const header = screen.getByTestId("roles-list-archived-section-header");
+      expect(header).toBeTruthy();
+    });
+
+    it("2: header is not clicked → no fetch fires (lazy-load lock)", async () => {
+      renderModal();
+      await screen.findByRole("button", { name: /Box Maintainer/ });
+      // Section header present but listArchivedRoles should NOT have been called
+      // (lazy — only fires on expand).
+      expect(listArchivedRolesMock).not.toHaveBeenCalled();
+    });
+
+    it("3: clicking header expands section AND fires listArchivedRoles(selectedHostId), empty state shows 'No archived roles.'", async () => {
+      listArchivedRolesMock.mockResolvedValue([]);
+      renderModal();
+      await screen.findByRole("button", { name: /Box Maintainer/ });
+      const header = screen.getByTestId("roles-list-archived-section-header");
+      fireEvent.click(header);
+      await waitFor(() =>
+        expect(listArchivedRolesMock).toHaveBeenCalledWith(2),
+        { timeout: 2000 },
+      );
+      await waitFor(() =>
+        expect(screen.queryByText("No archived roles.")).toBeTruthy(),
+        { timeout: 2000 },
+      );
+    });
+
+    it("4: with archived entries, renders one row per entry with kebab", async () => {
+      renderModal();
+      await screen.findByRole("button", { name: /Box Maintainer/ });
+      const header = screen.getByTestId("roles-list-archived-section-header");
+      fireEvent.click(header);
+      await waitFor(() =>
+        expect(screen.getAllByTestId(/^roles-list-archived-row-kebab-/).length).toBe(2),
+        { timeout: 2000 },
+      );
+    });
+
+    it("5: row disappears ONLY after endpoint returns 200 (endpoint-first sequence — locks CONTEXT.md Risk Summary invariant)", async () => {
+      // Set up a manually-controlled never-resolving promise for unarchiveRole.
+      // This lets us assert the row is STILL PRESENT mid-flight (before the
+      // endpoint returns), and only GONE after we manually resolve it with 200.
+      let resolveUnarchive!: () => void;
+      unarchiveRoleMock.mockImplementation(
+        () => new Promise<{ ok: true }>((res) => {
+          resolveUnarchive = () => res({ ok: true });
+        }),
+      );
       const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
-      const row = await renderModalAndGetRow();
-      fireEvent.contextMenu(row, { clientX: 100, clientY: 100 });
-      const archiveItem = await screen.findByRole("menuitem", {
-        name: /^Archive$/,
-      });
-      fireEvent.click(archiveItem);
-      await waitFor(() => expect(alertSpy).toHaveBeenCalled(), {
-        timeout: 2000,
-      });
-      const alertMsg = alertSpy.mock.calls[0][0];
-      expect(alertMsg).toContain("Role A");
-      expect(alertMsg).toContain("network gone");
+      const user = userEvent.setup();
+
+      renderModal();
+      await screen.findByRole("button", { name: /Box Maintainer/ });
+      // Expand the archived section
+      const header = screen.getByTestId("roles-list-archived-section-header");
+      fireEvent.click(header);
+      // Wait for archived rows to appear
+      await waitFor(() =>
+        expect(screen.getAllByTestId(/^roles-list-archived-row-kebab-/).length).toBe(2),
+        { timeout: 2000 },
+      );
+
+      // Open the kebab on the first archived row and click Un-archive
+      const kebab = screen.getByTestId("roles-list-archived-row-kebab-old-maintainer");
+      await user.click(kebab);
+      const unarchiveItem = await screen.findByRole("menuitem", { name: /^Un-archive$/ });
+      await user.click(unarchiveItem);
+
+      // MID-FLIGHT ASSERTION: the endpoint has not resolved yet.
+      // The row must still be present in the DOM and window.alert must NOT have been called.
+      expect(screen.queryByText("Old Maintainer")).toBeTruthy();
+      expect(alertSpy).not.toHaveBeenCalled();
+
+      // Now resolve the never-resolving mock (endpoint returns 200).
+      resolveUnarchive();
+
+      // After endpoint returns 200, the row should be GONE and the success alert fired.
+      await waitFor(() =>
+        expect(screen.queryByText("Old Maintainer")).toBeNull(),
+        { timeout: 2000 },
+      );
+      expect(alertSpy).toHaveBeenCalledWith(
+        expect.stringMatching(/Un-archiving role/),
+      );
+    });
+
+    it("6: Un-archive failure with name_collision → row stays + distinct alert copy", async () => {
+      unarchiveRoleMock.mockRejectedValueOnce(
+        new UnarchiveError("collision", "name_collision"),
+      );
+      const user = userEvent.setup();
+
+      renderModal();
+      await screen.findByRole("button", { name: /Box Maintainer/ });
+      const header = screen.getByTestId("roles-list-archived-section-header");
+      fireEvent.click(header);
+      await waitFor(() =>
+        expect(screen.getAllByTestId(/^roles-list-archived-row-kebab-/).length).toBe(2),
+        { timeout: 2000 },
+      );
+
+      const kebab = screen.getByTestId("roles-list-archived-row-kebab-old-maintainer");
+      await user.click(kebab);
+      const unarchiveItem = await screen.findByRole("menuitem", { name: /^Un-archive$/ });
+      await user.click(unarchiveItem);
+
+      // Row must STAY after the promise settles (failure path — no removal)
+      await waitFor(() =>
+        expect(window.alert).toHaveBeenCalled(),
+        { timeout: 2000 },
+      );
+      expect(screen.queryByText("Old Maintainer")).toBeTruthy();
+      const alertMsg = (window.alert as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+      expect(alertMsg).toMatch(/live role.*already exists/i);
+    });
+
+    it("7: Un-archive generic failure → row stays + generic alert copy", async () => {
+      unarchiveRoleMock.mockRejectedValueOnce(new Error("network"));
+      const user = userEvent.setup();
+
+      renderModal();
+      await screen.findByRole("button", { name: /Box Maintainer/ });
+      const header = screen.getByTestId("roles-list-archived-section-header");
+      fireEvent.click(header);
+      await waitFor(() =>
+        expect(screen.getAllByTestId(/^roles-list-archived-row-kebab-/).length).toBe(2),
+        { timeout: 2000 },
+      );
+
+      const kebab = screen.getByTestId("roles-list-archived-row-kebab-old-maintainer");
+      await user.click(kebab);
+      const unarchiveItem = await screen.findByRole("menuitem", { name: /^Un-archive$/ });
+      await user.click(unarchiveItem);
+
+      await waitFor(() =>
+        expect(window.alert).toHaveBeenCalled(),
+        { timeout: 2000 },
+      );
+      expect(screen.queryByText("Old Maintainer")).toBeTruthy();
+      const alertMsg = (window.alert as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+      expect(alertMsg).toMatch(/try again in a moment/i);
+    });
+
+    it("8: section stays expanded after un-archive (D-19)", async () => {
+      const user = userEvent.setup();
+      // Use a resolved mock for this test (not the never-resolving one)
+      unarchiveRoleMock.mockResolvedValue({ ok: true });
+
+      renderModal();
+      await screen.findByRole("button", { name: /Box Maintainer/ });
+      const header = screen.getByTestId("roles-list-archived-section-header");
+      fireEvent.click(header);
+      await waitFor(() =>
+        expect(screen.getAllByTestId(/^roles-list-archived-row-kebab-/).length).toBe(2),
+        { timeout: 2000 },
+      );
+
+      // Un-archive the first entry
+      const kebab = screen.getByTestId("roles-list-archived-row-kebab-old-maintainer");
+      await user.click(kebab);
+      const unarchiveItem = await screen.findByRole("menuitem", { name: /^Un-archive$/ });
+      await user.click(unarchiveItem);
+
+      // After successful un-archive, section body should STAY expanded (D-19).
+      // Assert by checking the second archived row is still visible.
+      await waitFor(() =>
+        expect(screen.queryByText("Old Maintainer")).toBeNull(),
+        { timeout: 2000 },
+      );
+      // The section is still expanded — second row (retired-researcher) still present
+      expect(screen.queryByText("Retired Researcher")).toBeTruthy();
+    });
+
+    it("9: switching selectedHostId collapses the section AND resets fetch state (D-07 host-scope)", async () => {
+      const { rerender } = render(
+        <RolesListModal
+          open={true}
+          onOpenChange={vi.fn()}
+          hostTree={MULTI_HOST_TREE}
+          defaultHostId={2}
+          onSelectRole={vi.fn()}
+          onNewRole={vi.fn()}
+        />,
+      );
+      // Wait for initial host 2 roles to load
+      await waitFor(() => expect(listRolesForHost).toHaveBeenCalledWith(2), { timeout: 2000 });
+      // Expand the archived section (triggers first fetch for host 2)
+      const header = screen.getByTestId("roles-list-archived-section-header");
+      fireEvent.click(header);
+      await waitFor(() =>
+        expect(listArchivedRolesMock).toHaveBeenCalledWith(2),
+        { timeout: 2000 },
+      );
+      const firstCallCount = listArchivedRolesMock.mock.calls.length;
+
+      // Switch to host 3 by changing the picker
+      const select = screen.getByLabelText(/host/i) as HTMLSelectElement;
+      fireEvent.change(select, { target: { value: "3" } });
+
+      // Wait for the live-roles fetch for host 3
+      await waitFor(() => expect(listRolesForHost).toHaveBeenCalledWith(3), { timeout: 2000 });
+
+      // After host switch: section header still present (always visible per D-18)
+      const headerAfterSwitch = screen.getByTestId("roles-list-archived-section-header");
+      expect(headerAfterSwitch).toBeTruthy();
+      // aria-expanded should be false (collapsed after host switch)
+      expect(headerAfterSwitch.getAttribute("aria-expanded")).toBe("false");
+
+      // Now expand again — should fire listArchivedRoles with new hostId (3)
+      fireEvent.click(headerAfterSwitch);
+      await waitFor(() =>
+        expect(listArchivedRolesMock.mock.calls.length).toBeGreaterThan(firstCallCount),
+        { timeout: 2000 },
+      );
+      const lastCall = listArchivedRolesMock.mock.calls[listArchivedRolesMock.mock.calls.length - 1];
+      expect(lastCall[0]).toBe(3);
     });
   });
 });
