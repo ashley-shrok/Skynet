@@ -3043,7 +3043,7 @@ Plans:
 **Requirements**: none tracked at REQ-ID level for this phase (campaign-driven, not requirements-driven). Covers D-01 through D-27 in `143-CONTEXT.md`.
 **Depends on:** Phase 142; shape 1 already on origin (`feat/tab-title-from-tmux` `3c973525..87dea3a8`)
 **Canonical refs:** `.planning/campaigns/un-archiving/shape-unarchive-frontend-backend.md` (shape agreement), `.planning/campaigns/un-archiving/shape-unarchive-host-side.closed.md` (shape-1 close-out), `.planning/campaigns/un-archiving/campaign-un-archiving.md` (campaign artifact), `.planning/phases/143-un-archive-frontend-backend-three-post-endpoints-with-precon/143-CONTEXT.md` (locked decisions D-01 through D-27)
-**Plans:** 7/10 plans executed
+**Plans:** 8/10 plans executed
 
 Plans:
 - [x] 143-01-PLAN.md — Backend archive-tree writer primitives: writeIdentityArchiveFile / writeRoleArchiveFile / writeAppArchiveFile (D-08) (Wave 1)
@@ -3053,7 +3053,7 @@ Plans:
 - [x] 143-05-PLAN.md — Frontend API clients (three un-archive + three archived-list) + shared RowKebabMenu component with D-12 visual tokens + D-14 stop-propagation discipline (D-03/D-12/D-13/D-14) (Wave 1)
 - [x] 143-06-PLAN.md — Frontend: new ArchivedAppsModal + sidebar Apps-header archived-box-icon trigger (D-09/D-16/D-17/D-18/D-19) (Wave 4)
 - [x] 143-07-PLAN.md — Frontend: RolesListModal — kebab-on-live-rows for Archive + retire right-click Archive + add archived-roles collapsed section (D-10/D-12/D-13/D-14/D-15/D-16/D-17/D-18/D-19) (Wave 4)
-- [ ] 143-08-PLAN.md — Frontend: ConversationSearchModal — retire "coming soon" alert + kebab on archived-identity rows with distinct missing_roles copy (D-11/D-12/D-13/D-14/D-16/D-17/D-19) (Wave 4)
+- [x] 143-08-PLAN.md — Frontend: ConversationSearchModal — retire "coming soon" alert + kebab on archived-identity rows with distinct missing_roles copy (D-11/D-12/D-13/D-14/D-16/D-17/D-19) (Wave 4)
 - [ ] 143-09-PLAN.md — id-skill substrate edits: per-surface descriptions + un-archive sentinel-drop pattern (D-20/D-21/D-22) (Wave 5)
 - [ ] 143-10-PLAN.md — Test migration: retire right-click-Archive lock in RolesListModal.test.tsx + T-08 "coming soon" lock in ConversationSearchModal.test.tsx with shape-file breadcrumbs; add kebab-menu Archive/Un-archive test coverage (D-23/D-26/D-27) (Wave 5)
 
