@@ -1637,15 +1637,19 @@ if (process.env.VITEST !== "true") {
             },
           };
         } catch (err) {
-          systemLogger.warn(
-            "Spawn-scan: SSH channel acquire failed",
-            {
-              operation: "spawn_scan_channel_acquire_failed",
-              fleetHostId: host.id,
-              hostName: host.name,
-              error: err instanceof Error ? err.message : "unknown",
-            },
-          );
+          const isBreakerRefusal =
+            err instanceof Error && err.name === "CircuitBreakerOpenError";
+          const payload = {
+            operation: "spawn_scan_channel_acquire_failed",
+            fleetHostId: host.id,
+            hostName: host.name,
+            error: err instanceof Error ? err.message : "unknown",
+          };
+          if (isBreakerRefusal) {
+            systemLogger.info("Spawn-scan: SSH acquire refused by breaker", payload);
+          } else {
+            systemLogger.warn("Spawn-scan: SSH channel acquire failed", payload);
+          }
           return null;
         }
       }
@@ -1818,12 +1822,19 @@ if (process.env.VITEST !== "true") {
             },
           };
         } catch (err) {
-          systemLogger.warn("Image-gen-scan: SSH channel acquire failed", {
+          const isBreakerRefusal =
+            err instanceof Error && err.name === "CircuitBreakerOpenError";
+          const payload = {
             operation: "image_gen_scan_channel_acquire_failed",
             fleetHostId: host.id,
             hostName: host.name,
             error: err instanceof Error ? err.message : "unknown",
-          });
+          };
+          if (isBreakerRefusal) {
+            systemLogger.info("Image-gen-scan: SSH acquire refused by breaker", payload);
+          } else {
+            systemLogger.warn("Image-gen-scan: SSH channel acquire failed", payload);
+          }
           return null;
         }
       }
@@ -1967,12 +1978,19 @@ if (process.env.VITEST !== "true") {
             },
           };
         } catch (err) {
-          systemLogger.warn("Phone-call scan: SSH channel acquire failed", {
+          const isBreakerRefusal =
+            err instanceof Error && err.name === "CircuitBreakerOpenError";
+          const payload = {
             operation: "phone_scan_channel_acquire_failed",
             fleetHostId: host.id,
             hostName: host.name,
             error: err instanceof Error ? err.message : "unknown",
-          });
+          };
+          if (isBreakerRefusal) {
+            systemLogger.info("Phone-call scan: SSH acquire refused by breaker", payload);
+          } else {
+            systemLogger.warn("Phone-call scan: SSH channel acquire failed", payload);
+          }
           return null;
         }
       }
