@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-last_updated: "2026-09-30T21:38:19.254Z"
+last_updated: "2026-09-30T21:45:42.501Z"
 last_activity: 2026-09-30
 progress:
   total_phases: 142
   completed_phases: 120
   total_plans: 642
-  completed_plans: 628
+  completed_plans: 629
   percent: 85
 ---
 
@@ -438,6 +438,7 @@ Progress: [██████████] 100%
 | Phase 141 P03 | 534 | 3 tasks | 8 files |
 | Phase 142 P01 | 128 | 2 tasks | 8 files |
 | Phase 143-un-archive-frontend-backend-three-post-endpoints-with-precon P01 | 12m | 3 tasks | 6 files |
+| Phase 143-un-archive-frontend-backend-three-post-endpoints-with-precon P06 | 15m | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -722,6 +723,8 @@ Recent decisions affecting current work:
 - [Phase ?]: Unmount+remount pattern chosen over rerender for cleanup test to avoid React reconciliation reusing DOM elements
 - [Phase ?]: dry-run tore_down=0 in summary (only actual teardowns count)
 - [Phase ?]: 141-01: touch target strategy
+- [Phase ?]: ArchivedAppsModal uses endpoint-first un-archive sequence; row never removed until 200
+- [Phase ?]: Apps section header replaced outer button with div role=button to enable sibling archived-box trigger (D-09)
 
 ### Pending Todos
 
@@ -1129,10 +1132,10 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-30T21:38:19.195Z
+Last session: 2026-09-30T21:45:42.361Z
 Last session: 2026-09-18T02:31:01.008Z
 Last session: 2026-09-10T07:47:17.370Z
-Stopped at: Phase 137 context gathered
+Stopped at: Completed 143-06-PLAN.md
 Last session: 2026-09-27T23:45:44.053Z
 Last session: 2026-09-18T02:31:01.008Z
 Last session: 2026-09-10T07:47:17.370Z
