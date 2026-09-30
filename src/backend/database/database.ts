@@ -98,6 +98,10 @@ import rolesRoutes from "./routes/roles.js";
 // /roles routers so /:name/archive isn't shadowed by any future generic
 // /:roleName handler (mirrors the identity-archive mount discipline).
 import roleArchiveRoutes from "./routes/role-archive.js";
+// Phase 143 Plan 143-03 (D-05/D-07): GET /roles-archive?hostId=<n> — host-scoped
+// list of archived role names. Mirrors roles-list-for-host.ts shape, substituting
+// listArchivedRolesOnHost (plan 143-02). Standalone base path /roles-archive.
+import rolesArchiveListRoutes from "./routes/roles-archive-list.js";
 // Phase 134 Plan 134-01 (wake-ups-redesign campaign shape 2 CRUD API): the
 // two /scheduled-agents routers land as a chained pair — the list router
 // handles GET / fleet-wide fan-out, the write router handles
@@ -2095,6 +2099,10 @@ app.use("/identities", sessionProjectWriteRoutes);
 // database.ts:2033). Same match-precedence pattern: specific /:name/action
 // sub-routes MUST mount ahead of generic /:name handlers.
 app.use("/roles", roleArchiveRoutes);
+// Phase 143 Plan 143-03 (D-05/D-07): GET /roles-archive?hostId=<n> — host-scoped
+// archived-role list. Standalone base path; must mount BEFORE any generic
+// catch-all (mirrors archive-route mount discipline at database.ts:2067).
+app.use("/roles-archive", rolesArchiveListRoutes);
 // Phase 22 (SRIC-02): /roles?hostId=<n> — target-host-side role directory
 // enumeration. Standalone mount; kept ABOVE /identities to preserve match
 // precedence should a future /roles subpath ever collide.
