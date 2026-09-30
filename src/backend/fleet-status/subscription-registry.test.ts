@@ -1443,6 +1443,39 @@ describe("subscription-registry", () => {
       expect(goneFramesU1[0]).toMatchObject({ reason: "identity_gone" });
       expect(framesU2.filter((f) => f.type === "gone")).toHaveLength(0);
     });
+
+    it("publishIdentityGoneByName still fans out when state entry is absent — race with publishSessionGone", async () => {
+      // Regression: the ssh-poll-orchestrator's 30-second stale-sweep can win
+      // the race against the reconcile tick that calls
+      // publishIdentityGoneByName. When it does, its publishSessionGone has
+      // already deleted the state map entry. Early-returning here would drop
+      // the ONLY signal that closes the frontend's open pane (pid_stale keeps
+      // the tab open by design). The frame must fan out anyway, using
+      // identityName as tmuxSession (source-A + source-B both key identity
+      // sessions that way) so the frontend's tab-close matcher hits.
+      const registry = createSubscriptionRegistry();
+
+      const frames: FrontendOutboundFrameType[] = [];
+      registry.subscribe((f) => frames.push(f), { userId: "U1" });
+      await tick();
+      frames.length = 0;
+
+      // No prior publishSessionState → state map has no entry for
+      // (host-42, ferret). This simulates the stale-sweep-won-the-race
+      // condition where publishSessionGone already deleted the entry.
+      registry.publishIdentityGoneByName("host-42", "ferret");
+      await tick();
+
+      const goneFrames = frames.filter((f) => f.type === "gone");
+      expect(goneFrames).toHaveLength(1);
+      expect(goneFrames[0]).toMatchObject({
+        type: "gone",
+        hostId: "host-42",
+        tmuxSession: "ferret",
+        sessionId: "",
+        reason: "identity_gone",
+      });
+    });
   });
 
   // ─── Phase 118 code-review HIGH-4 (fix pass 2026-09-18) — snapshot-first ordering ─

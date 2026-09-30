@@ -1000,19 +1000,25 @@ export function createSubscriptionRegistry(
       // Source-B publishes with tmuxSession = identityName, so the cache key
       // for a dormant identity composes as makeKey(hostId, identityName).
       // Look up the entry to extract its sessionId for the gone-frame fanout.
+      //
+      // `identity_gone` MUST fan out even when the state entry is already
+      // absent: the ssh-poll-orchestrator's 30-second stale-sweep can win the
+      // race against the reconcile tick that fires this method — when it does,
+      // its publishSessionGone(pid_stale) has already deleted the state entry.
+      // Early-returning here would silently swallow the only signal that
+      // closes the frontend's open pane (pid_stale keeps the tab open by
+      // design, for the /id reset case). Fall back to identityName as
+      // tmuxSession (source-A + source-B both key identity sessions that way)
+      // and "" as sessionId (frontend's tab-close matcher reads hostId +
+      // tmuxSession + reason only — sessionId is a display field on this
+      // path).
       const key = makeKey(hostId, identityName);
       const existing = state.get(key);
-      if (existing === undefined) {
-        return;
-      }
       state.delete(key);
-      // `identity_gone`: identity folder disappeared between sweep ticks
-      // (self-archive, folder deletion). Truly gone — frontend closes any
-      // open tabs pointing at this identity.
       const frame = makeGoneFrame(
         hostId,
-        existing.tmuxSession,
-        existing.sessionId,
+        existing?.tmuxSession ?? identityName,
+        existing?.sessionId ?? "",
         "identity_gone",
       );
       if (appFrameFilter !== undefined) {
