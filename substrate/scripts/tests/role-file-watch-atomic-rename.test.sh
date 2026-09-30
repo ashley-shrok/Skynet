@@ -274,7 +274,9 @@ test_T_A2_role_atomic_rename() {
   local role="rolealpha" name="alphaname"
   seed_fixture "$role" "$name"
 
-  local baseline_role="$IDENT_DIR/role-file-watch/last-snapshot.role"
+  # Baseline naming is per-role (`last-snapshot.role.<role>`) since multi-role
+  # support landed — a single-role identity gets exactly one such file.
+  local baseline_role="$IDENT_DIR/role-file-watch/last-snapshot.role.$role"
 
   launch_watcher "$HOME_DIR" "$IDENT_DIR"
 

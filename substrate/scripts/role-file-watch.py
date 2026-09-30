@@ -86,11 +86,33 @@ SELF_EDIT_SETTLE_MS = int(os.environ.get("ROLE_WATCH_SELF_EDIT_SETTLE_MS", "200"
 _inotify_proc = None
 
 
-def _parse_role_from_frontmatter(identity_file_path):
-    """Parse the `role:` key from YAML frontmatter in the identity pointer file.
+# Role slug validation — mirrors ~fleet convention: lowercase kebab, must start
+# with a letter, ≤64 chars. Applied per-item after parsing so a malformed entry
+# in an otherwise valid list gets dropped rather than tainting the whole watch.
+_ROLE_SLUG_RE = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 
-    Frontmatter is the block between the FIRST two `---` lines. Returns (role, None)
-    on success; (None, err_msg) if file missing, no frontmatter, or no role key.
+
+def _parse_roles_from_frontmatter(identity_file_path):
+    """Parse the `role:` (or `roles:`) key from YAML frontmatter into a list.
+
+    Agents edit these files freely and don't always stick to one YAML shape,
+    so this parser is deliberately tolerant. Accepts (all yield the same list):
+
+      role: box-maintainer                     → ["box-maintainer"]
+      role: "box-maintainer"                   → ["box-maintainer"]
+      role: [foo, bar]                         → ["foo", "bar"]
+      role: ["foo", "bar"]                     → ["foo", "bar"]
+      role:                                    → ["foo", "bar"]
+        - foo
+        - bar
+      role: foo, bar                           → ["foo", "bar"]   (bare comma-separated)
+      roles: <any of the above>                → same              (plural alias)
+
+    Each parsed name is slug-validated (`_ROLE_SLUG_RE`); invalid entries are
+    dropped silently. Returns (list_of_slugs, None) on success, (None, err_msg)
+    when no valid slug survives. The list preserves source order and de-duplicates.
+
+    Frontmatter is the block between the FIRST two `---` lines.
     """
     try:
         with open(identity_file_path) as f:
@@ -104,14 +126,57 @@ def _parse_role_from_frontmatter(identity_file_path):
     fence_indices = [i for i, ln in enumerate(lines) if ln.strip() == "---"]
     if len(fence_indices) < 2:
         return None, "no YAML frontmatter block found in %s" % identity_file_path
-
     start, end = fence_indices[0] + 1, fence_indices[1]
-    for line in lines[start:end]:
-        m = re.match(r"^role:\s*(\S+)", line)
-        if m:
-            return m.group(1), None
 
-    return None, "no `role:` key found in frontmatter of %s" % identity_file_path
+    # Locate the role: (or roles:) line and capture its inline value.
+    key_line_idx = None
+    inline_value = ""
+    for i in range(start, end):
+        m = re.match(r"^(role|roles):\s*(.*?)\s*(#.*)?$", lines[i].rstrip("\n"))
+        if m:
+            key_line_idx = i
+            inline_value = m.group(2) or ""
+            break
+    if key_line_idx is None:
+        return None, "no `role:` or `roles:` key found in frontmatter of %s" % identity_file_path
+
+    raw_names = []
+    if inline_value:
+        v = inline_value.strip()
+        # Strip surrounding brackets if flow-sequence shape.
+        if v.startswith("[") and v.endswith("]"):
+            v = v[1:-1].strip()
+        # Split on commas; each part may be quoted.
+        parts = v.split(",") if "," in v else [v]
+        for part in parts:
+            item = part.strip().strip('"').strip("'").strip()
+            if item:
+                raw_names.append(item)
+    else:
+        # Block sequence: subsequent lines starting with `- <value>` inside frontmatter.
+        for j in range(key_line_idx + 1, end):
+            stripped = lines[j].rstrip("\n").lstrip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            m2 = re.match(r"^-\s+(.+?)\s*(#.*)?$", stripped)
+            if not m2:
+                break  # end of block sequence
+            item = m2.group(1).strip().strip('"').strip("'").strip()
+            if item:
+                raw_names.append(item)
+
+    valid = []
+    seen = set()
+    for name in raw_names:
+        if _ROLE_SLUG_RE.match(name) and name not in seen:
+            valid.append(name)
+            seen.add(name)
+
+    if not valid:
+        return None, "no valid role slug found in frontmatter of %s (raw: %r)" % (
+            identity_file_path, raw_names,
+        )
+    return valid, None
 
 
 def _single_instance(state_dir, ident_dir):
@@ -407,20 +472,26 @@ def _enumerate_runbook_slugs(runbooks_dir):
     return slugs
 
 
-def _runbook_paths(runbooks_dir, baseline_dir, slug):
-    """Return the (runbook.md path, per-slug baseline path) tuple for a slug."""
+def _runbook_paths(runbooks_dir, baseline_dir, role, slug):
+    """Return the (runbook.md path, per-role/per-slug baseline path) tuple.
+
+    Baselines are namespaced by role — `last-snapshot.runbook.<role>.<slug>` —
+    so an identity holding roles A and B whose runbook slugs happen to collide
+    (both have a `deploy` runbook, say) don't stomp each other's baselines.
+    """
     rb_path = os.path.join(runbooks_dir, slug, "runbook.md")
-    base_path = os.path.join(baseline_dir, "last-snapshot.runbook.%s" % slug)
+    base_path = os.path.join(baseline_dir, "last-snapshot.runbook.%s.%s" % (role, slug))
     return rb_path, base_path
 
 
-def _existing_baseline_slugs(baseline_dir):
-    """Return the set of slugs for which a runbook baseline currently exists.
+def _existing_baseline_slugs(baseline_dir, role):
+    """Return the set of runbook slugs currently baselined for `role`.
 
-    Used at startup to detect runbooks that were deleted while we were down —
-    baseline files with no matching on-disk runbook.
+    Reads `last-snapshot.runbook.<role>.<slug>` files. Used at startup to detect
+    runbooks that were deleted while we were down (baselines with no matching
+    on-disk runbook.md).
     """
-    prefix = "last-snapshot.runbook."
+    prefix = "last-snapshot.runbook.%s." % role
     slugs = set()
     try:
         for name in os.listdir(baseline_dir):
@@ -450,36 +521,43 @@ def _emit_runbook_deleted(role, slug):
     print("📝 [runbook: %s/%s] deleted" % (role, slug), flush=True)
 
 
-def _slug_from_event(w_path, f_name, runbooks_dir):
+def _slug_from_event(w_path, f_name, runbook_roles):
     """Given an inotify event's `%w` (watched dir) and `%f` (filename), return
-    the runbook slug involved, or None if the event is not on a runbook.md /
-    slug-subfolder we care about.
+    (role, slug) for the runbook involved, or (None, None) if the event is not
+    on a runbook.md / slug-subfolder we care about.
 
-    Two shapes we want to match:
-      1. `%w = runbooks_dir/<slug>`, `%f = runbook.md`  → returns <slug>
+    `runbook_roles` is a list of `(role, runbooks_dir)` — one per role the
+    identity holds. Event routing walks the list and returns as soon as a
+    match is found, so an event fired inside role A's runbooks tree is
+    attributed to role A (never confused with role B).
+
+    Two shapes we want to match, per role:
+      1. `%w = runbooks_dir/<slug>`, `%f = runbook.md`  → returns (role, <slug>)
          (the sentinel file itself changed / was created / deleted)
       2. `%w = runbooks_dir`, `%f = <slug>` with ISDIR event
-         → returns <slug> (the whole slug subfolder was created or removed)
+         → returns (role, <slug>) (the whole slug subfolder was created or removed)
     Everything else — companion files inside a slug folder, nested subdirs,
-    events on unrelated paths — returns None.
+    events on unrelated paths — returns (None, None).
     """
-    # Normalize trailing slash on runbooks_dir for comparison (inotifywait
-    # sometimes emits with trailing slash on the %w for -r-watched dirs).
-    rb_root = runbooks_dir.rstrip("/")
+    # Normalize trailing slash (inotifywait sometimes emits with trailing slash
+    # on %w for -r-watched dirs).
     w_norm = w_path.rstrip("/")
 
-    # Shape 1: event on <runbooks>/<slug>/runbook.md
-    if f_name == "runbook.md":
-        parent = os.path.dirname(w_norm)
-        if parent == rb_root:
-            slug = os.path.basename(w_norm)
-            if _RUNBOOK_SLUG_RE.match(slug) and len(slug) <= _RUNBOOK_SLUG_MAX_LEN:
-                return slug
-    # Shape 2: event on <runbooks>/<slug> directly (create/delete of the folder)
-    if w_norm == rb_root and f_name:
-        if _RUNBOOK_SLUG_RE.match(f_name) and len(f_name) <= _RUNBOOK_SLUG_MAX_LEN:
-            return f_name
-    return None
+    for role, runbooks_dir in runbook_roles:
+        rb_root = runbooks_dir.rstrip("/")
+
+        # Shape 1: event on <runbooks>/<slug>/runbook.md
+        if f_name == "runbook.md":
+            parent = os.path.dirname(w_norm)
+            if parent == rb_root:
+                slug = os.path.basename(w_norm)
+                if _RUNBOOK_SLUG_RE.match(slug) and len(slug) <= _RUNBOOK_SLUG_MAX_LEN:
+                    return role, slug
+        # Shape 2: event on <runbooks>/<slug> directly (create/delete of folder)
+        if w_norm == rb_root and f_name:
+            if _RUNBOOK_SLUG_RE.match(f_name) and len(f_name) <= _RUNBOOK_SLUG_MAX_LEN:
+                return role, f_name
+    return None, None
 
 
 def _handle_runbook_event(
@@ -500,7 +578,7 @@ def _handle_runbook_event(
         → same handling; the CLOSE_WRITE case covers the write-then-close path.
       - DELETE / MOVED_FROM on a runbook.md or on the slug subfolder → delete.
     """
-    rb_path, base_path = _runbook_paths(runbooks_dir, baseline_dir, slug)
+    rb_path, base_path = _runbook_paths(runbooks_dir, baseline_dir, role, slug)
 
     is_delete = bool(events & {"DELETE", "MOVED_FROM"})
     is_write = bool(events & {"CLOSE_WRITE", "CREATE", "MOVED_TO", "MODIFY"})
@@ -554,7 +632,7 @@ def _handle_runbook_event(
             _atomic_write_baseline(baseline_dir, base_path, current)
 
 
-def _make_signal_handler(role_file_path):
+def _make_signal_handler():
     """Return a SIGTERM/SIGINT handler that cleans up the inotifywait subprocess."""
     def _handler(signum, frame):
         global _inotify_proc
@@ -575,9 +653,9 @@ def main():
     ident_dir = os.path.abspath(os.path.expanduser(sys.argv[1]))
     name = os.path.basename(ident_dir)
 
-    # --- Resolve role name from identity frontmatter ---
+    # --- Resolve role name(s) from identity frontmatter ---
     identity_file_path = os.path.join(ident_dir, "%s.md" % name)
-    role, err = _parse_role_from_frontmatter(identity_file_path)
+    roles, err = _parse_roles_from_frontmatter(identity_file_path)
     if err:
         # Watcher-health failures log to stderr only — box-maintainer notices via
         # the ambient-monitor log. The agent can't fix its own dead watcher
@@ -585,22 +663,46 @@ def main():
         print("⚠️ [role-file-watch] %s" % err, file=sys.stderr, flush=True)
         sys.exit(1)
 
-    # --- Resolve role file path ---
-    role_file_path = os.path.expanduser("~/fleet/roles/%s/%s.md" % (role, role))
-    if not os.path.exists(role_file_path):
-        msg = "role file not found: %s" % role_file_path
-        print("⚠️ [role-file-watch] %s" % msg, file=sys.stderr, flush=True)
+    # --- Resolve role file paths — one per role. Missing role files are logged
+    # to stderr and skipped rather than fatal, so a typo in a multi-role list
+    # doesn't kill the whole watcher (the other role's file still gets watched).
+    role_files = []  # list of (role, role_file_path)
+    for role in roles:
+        role_file_path = os.path.expanduser("~/fleet/roles/%s/%s.md" % (role, role))
+        if os.path.exists(role_file_path):
+            role_files.append((role, role_file_path))
+        else:
+            print(
+                "⚠️ [role-file-watch] role file not found for role '%s' (%s) — skipping"
+                % (role, role_file_path),
+                file=sys.stderr,
+                flush=True,
+            )
+    if not role_files:
+        print(
+            "⚠️ [role-file-watch] no watchable role files for identity %s (roles=%r)"
+            % (name, roles),
+            file=sys.stderr,
+            flush=True,
+        )
         sys.exit(1)
+    # Primary role: first in the list. Used for legacy baseline migration
+    # (single-role installs get their old `last-snapshot.role` promoted onto
+    # the first role in the new multi-role list).
+    primary_role = role_files[0][0]
 
     # Identity file path already resolved above (identity_file_path).
     # Each target: (kind, label-for-emit, source-file, per-file-baseline).
+    # Role baselines are per-role: `last-snapshot.role.<role>`.
     baseline_dir = os.path.join(ident_dir, "role-file-watch")
-    role_baseline_path = os.path.join(baseline_dir, "last-snapshot.role")
     identity_baseline_path = os.path.join(baseline_dir, "last-snapshot.identity")
-    targets = [
-        ("role-file", role, role_file_path, role_baseline_path),
-        ("identity-file", name, identity_file_path, identity_baseline_path),
-    ]
+    targets = []
+    for role, role_file_path in role_files:
+        role_baseline_path = os.path.join(baseline_dir, "last-snapshot.role.%s" % role)
+        targets.append(("role-file", role, role_file_path, role_baseline_path))
+    targets.append(
+        ("identity-file", name, identity_file_path, identity_baseline_path)
+    )
 
     # --- id skill target — user-wide, fleet-substrate-distributed. Watching
     # `~/.claude/skills/id/SKILL.md` catches the mid-session "in-context copy
@@ -631,9 +733,15 @@ def main():
             ("user-claudemd", "user", user_claudemd_path, user_claudemd_baseline_path)
         )
 
-    # --- Runbooks tree — role-scope; empty or nonexistent is fine ---
-    runbooks_dir = os.path.expanduser("~/fleet/roles/%s/runbooks" % role)
-    runbooks_watched = os.path.isdir(runbooks_dir)
+    # --- Runbooks trees — role-scope; one dir per role. Empty or nonexistent
+    # is fine (skipped). `runbook_roles` is the ordered list of (role, dir) that
+    # actually exist on disk; `runbooks_watched` is true iff at least one does.
+    runbook_roles = []
+    for role, _ in role_files:
+        rd = os.path.expanduser("~/fleet/roles/%s/runbooks" % role)
+        if os.path.isdir(rd):
+            runbook_roles.append((role, rd))
+    runbooks_watched = len(runbook_roles) > 0
 
     # --- State dirs ---
     spill_dir = os.path.join(baseline_dir, "spilled")
@@ -644,28 +752,73 @@ def main():
     # can be written even if the role/identity ones haven't landed yet.
     os.makedirs(baseline_dir, exist_ok=True)
 
-    # --- One-time migration: legacy single-baseline `last-snapshot` → `last-snapshot.role`.
-    # Older versions of this script wrote a single `last-snapshot` file at
-    # `<ident>/role-file-watch/last-snapshot`. On first run of the two-target version we
-    # promote it to the role baseline (identity baseline cold-starts silently below).
-    legacy_baseline_path = os.path.join(baseline_dir, "last-snapshot")
-    if os.path.exists(legacy_baseline_path) and not os.path.exists(role_baseline_path):
+    # --- Legacy baseline migrations — chained.
+    # (1) Oldest: `last-snapshot` → `last-snapshot.role` (single-target → two-target scheme).
+    # (2) Pre-multi-role: `last-snapshot.role` → `last-snapshot.role.<primary>`
+    #     (single-role → per-role scheme). Promotes onto the primary role so
+    #     existing single-role identities keep continuity.
+    # (3) Runbook baselines: `last-snapshot.runbook.<slug>` (unprefixed, old
+    #     single-role scheme) → `last-snapshot.runbook.<primary>.<slug>`. Old
+    #     scheme has zero dots in the suffix; new scheme has one (role.slug),
+    #     so we discriminate by checking for `.` in the suffix.
+    # All migrations are best-effort — a failure logs to stderr and falls
+    # through to cold-start (one silent snapshot instead of continuity).
+    legacy_bare_baseline = os.path.join(baseline_dir, "last-snapshot")
+    legacy_role_baseline = os.path.join(baseline_dir, "last-snapshot.role")
+    primary_role_baseline = os.path.join(
+        baseline_dir, "last-snapshot.role.%s" % primary_role
+    )
+    if os.path.exists(legacy_bare_baseline) and not os.path.exists(legacy_role_baseline):
         try:
-            os.replace(legacy_baseline_path, role_baseline_path)
+            os.replace(legacy_bare_baseline, legacy_role_baseline)
         except OSError as e:
-            # Non-fatal — if the migration fails we just cold-start the role baseline
-            # below, which means one silent snapshot instead of continuity. Log it.
             print(
-                "⚠️ [role-file-watch] legacy baseline migration failed: %s" % e,
+                "⚠️ [role-file-watch] legacy baseline migration (bare→role) failed: %s" % e,
                 file=sys.stderr,
                 flush=True,
             )
+    if os.path.exists(legacy_role_baseline) and not os.path.exists(primary_role_baseline):
+        try:
+            os.replace(legacy_role_baseline, primary_role_baseline)
+        except OSError as e:
+            print(
+                "⚠️ [role-file-watch] legacy baseline migration (role→role.<primary>) failed: %s"
+                % e,
+                file=sys.stderr,
+                flush=True,
+            )
+    # Runbook baseline migration (old unprefixed slug → new role-namespaced).
+    old_runbook_prefix = "last-snapshot.runbook."
+    new_runbook_prefix = "last-snapshot.runbook.%s." % primary_role
+    try:
+        for entry in os.listdir(baseline_dir):
+            if not entry.startswith(old_runbook_prefix):
+                continue
+            suffix = entry[len(old_runbook_prefix):]
+            if "." in suffix:
+                continue  # already role-namespaced (new scheme)
+            new_entry = new_runbook_prefix + suffix
+            src = os.path.join(baseline_dir, entry)
+            dst = os.path.join(baseline_dir, new_entry)
+            if os.path.exists(dst):
+                continue  # don't clobber a new-scheme baseline
+            try:
+                os.replace(src, dst)
+            except OSError as e:
+                print(
+                    "⚠️ [role-file-watch] runbook baseline migration failed for %s: %s"
+                    % (entry, e),
+                    file=sys.stderr,
+                    flush=True,
+                )
+    except OSError:
+        pass
 
     # --- Single-instance guard ---
     _single_instance(state_dir, ident_dir)
 
     # --- Signal handlers (register early) ---
-    handler = _make_signal_handler(role_file_path)
+    handler = _make_signal_handler()
     signal.signal(signal.SIGTERM, handler)
     signal.signal(signal.SIGINT, handler)
 
@@ -721,61 +874,65 @@ def main():
             if gone:
                 sys.exit(1)
 
-    # --- Runbook cold-start / resume pass ---
-    # Enumerate on-disk runbooks. For each: if no baseline → snapshot silently
-    # (cold start); if baseline + file changed → emit edit diff (resume); if
-    # baseline exists but file gone → emit "deleted" (resume-delete). Runs BEFORE
-    # the inotifywait watch loop starts so events landing during the watch's
-    # arming don't compete with cold-start baseline writes.
-    tracked_runbook_slugs = _existing_baseline_slugs(baseline_dir)
-    on_disk_slugs = set(_enumerate_runbook_slugs(runbooks_dir))
+    # --- Runbook cold-start / resume pass — per-role.
+    # For each role, enumerate on-disk runbooks. For each: if no baseline →
+    # snapshot silently (cold start); if baseline + file changed → emit edit
+    # diff (resume); if baseline exists but file gone → emit "deleted"
+    # (resume-delete). Runs BEFORE the inotifywait watch loop starts so events
+    # landing during the watch's arming don't compete with cold-start baseline
+    # writes. `tracked_runbook_slugs` is keyed by role so runbook slugs
+    # colliding across roles don't share a set.
+    tracked_runbook_slugs = {}
+    for role, rb_dir in runbook_roles:
+        tracked_runbook_slugs[role] = _existing_baseline_slugs(baseline_dir, role)
+        on_disk_slugs = set(_enumerate_runbook_slugs(rb_dir))
 
-    # (a) On-disk runbooks — diff or cold-snapshot.
-    for slug in sorted(on_disk_slugs):
-        rb_path, base_path = _runbook_paths(runbooks_dir, baseline_dir, slug)
-        if slug not in tracked_runbook_slugs:
-            current = _read_bytes(rb_path)
-            if current is None:
-                # Runbook file vanished between listdir and read — race with a
-                # peer identity's delete. Skip silently; the delete-side pass
-                # below cleans up any dangling baseline.
-                continue
-            _atomic_write_baseline(baseline_dir, base_path, current)
-            tracked_runbook_slugs.add(slug)
-            # Silent cold-start — no emit (shape invariant).
-        else:
-            # Baseline exists → treat as resume. Diff if changed.
-            current = _read_bytes(rb_path)
-            if current is None:
-                continue  # will be handled by (b) below
-            baseline = _read_bytes(base_path)
-            # Consume any self-edit marker eagerly — even at cold-start, a
-            # marker left over from a pre-restart sync-hook run tells us the
-            # last change was ours.
-            is_self_edit = _is_self_edit(base_path, current)
-            if baseline is None:
+        # (a) On-disk runbooks — diff or cold-snapshot.
+        for slug in sorted(on_disk_slugs):
+            rb_path, base_path = _runbook_paths(rb_dir, baseline_dir, role, slug)
+            if slug not in tracked_runbook_slugs[role]:
+                current = _read_bytes(rb_path)
+                if current is None:
+                    # Runbook file vanished between listdir and read — race
+                    # with a peer identity's delete. Skip silently; the
+                    # delete-side pass below cleans up any dangling baseline.
+                    continue
                 _atomic_write_baseline(baseline_dir, base_path, current)
-                continue
-            if current != baseline:
-                if is_self_edit:
+                tracked_runbook_slugs[role].add(slug)
+                # Silent cold-start — no emit (shape invariant).
+            else:
+                # Baseline exists → treat as resume. Diff if changed.
+                current = _read_bytes(rb_path)
+                if current is None:
+                    continue  # will be handled by (b) below
+                baseline = _read_bytes(base_path)
+                # Consume any self-edit marker eagerly — even at cold-start, a
+                # marker left over from a pre-restart sync-hook run tells us the
+                # last change was ours.
+                is_self_edit = _is_self_edit(base_path, current)
+                if baseline is None:
                     _atomic_write_baseline(baseline_dir, base_path, current)
                     continue
-                diff_stdout = _run_diff(base_path, rb_path)
-                _emit_event(
-                    "runbook", "%s/%s" % (role, slug), diff_stdout, spill_dir,
-                )
-                _atomic_write_baseline(baseline_dir, base_path, current)
+                if current != baseline:
+                    if is_self_edit:
+                        _atomic_write_baseline(baseline_dir, base_path, current)
+                        continue
+                    diff_stdout = _run_diff(base_path, rb_path)
+                    _emit_event(
+                        "runbook", "%s/%s" % (role, slug), diff_stdout, spill_dir,
+                    )
+                    _atomic_write_baseline(baseline_dir, base_path, current)
 
-    # (b) Baselines for slugs no longer on disk — the runbook was deleted while
-    # we were down. Emit deletion + remove the baseline.
-    for slug in sorted(tracked_runbook_slugs - on_disk_slugs):
-        _, base_path = _runbook_paths(runbooks_dir, baseline_dir, slug)
-        try:
-            os.remove(base_path)
-        except OSError:
-            pass
-        tracked_runbook_slugs.discard(slug)
-        _emit_runbook_deleted(role, slug)
+        # (b) Baselines for slugs no longer on disk — the runbook was deleted
+        # while we were down. Emit deletion + remove the baseline.
+        for slug in sorted(tracked_runbook_slugs[role] - on_disk_slugs):
+            _, base_path = _runbook_paths(rb_dir, baseline_dir, role, slug)
+            try:
+                os.remove(base_path)
+            except OSError:
+                pass
+            tracked_runbook_slugs[role].discard(slug)
+            _emit_runbook_deleted(role, slug)
 
     # --- Watch loop ---
     use_inotify = shutil.which("inotifywait") is not None
@@ -820,7 +977,8 @@ def main():
         fixed_target_paths = [t[2] for t in targets]
         watched_args = list(fixed_target_paths)
         if runbooks_watched:
-            watched_args.append(runbooks_dir)
+            for _role, rb_dir in runbook_roles:
+                watched_args.append(rb_dir)
         inotify_events = "close_write,move_self,delete_self,moved_to,delete,create,moved_from"
         # Exponential backoff between failed inotifywait starts (reset on any
         # successful event). Guards against a hot fork/exec loop when e.g.
@@ -927,13 +1085,17 @@ def main():
                         continue
 
                     # (B) Route runbook-tree events. Only fires when we're
-                    # actually watching runbooks_dir (guarded by runbooks_watched).
+                    # actually watching at least one runbooks dir. `_slug_from_event`
+                    # walks every role's runbooks tree and returns the (role, slug)
+                    # match — event routing stays role-scoped even with multiple
+                    # roles active.
                     if runbooks_watched:
-                        slug = _slug_from_event(w_path, f_name, runbooks_dir)
+                        rb_role, slug = _slug_from_event(w_path, f_name, runbook_roles)
                         if slug is not None:
+                            rb_dir = next(d for r, d in runbook_roles if r == rb_role)
                             _handle_runbook_event(
-                                role, slug, events, tracked_runbook_slugs,
-                                runbooks_dir, baseline_dir, spill_dir,
+                                rb_role, slug, events, tracked_runbook_slugs[rb_role],
+                                rb_dir, baseline_dir, spill_dir,
                             )
                             continue
 
