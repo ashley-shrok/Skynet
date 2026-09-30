@@ -28,7 +28,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type React from "react";
 import { AlarmClock, ChevronDown, Folder, Mic, Pencil, User, X } from "lucide-react";
-import { Modal, ModalHead, ModalBody, ModalFoot } from "@/components/modal";
+import { Modal, ModalFoot, ModalTabs } from "@/components/modal";
 import { Tabs, TabsContent } from "@/components/tabs";
 import { updateIdentity } from "@/api/identities-api";
 import { applyIdentityChange } from "@/state/identities-store";
@@ -674,39 +674,13 @@ export function IdentityModal({
         onValueChange={setActiveTab}
         className="flex-1 min-h-0 flex flex-col"
       >
-        <div
-          className={cn(
-            // Underline-style tabs (tasting L475–495). Row sits flush against
-            // the section separator; each tab paints a coloured underline when
-            // selected via a 2px border that overlaps the -1px row border.
-            "shrink-0 flex items-stretch gap-1 px-4 pt-1.5",
-            "border-b border-[hsla(var(--pv-id-hue),60%,55%,0.22)]",
-            "bg-black/22",
-          )}
-          data-testid="identity-modal-nav"
-        >
-          {NAV_SECTIONS.map(({ value, label, Icon }) => {
-            const selected = activeTab === value;
-            return (
-              <button
-                key={value}
-                type="button"
-                onClick={() => setActiveTab(value)}
-                aria-pressed={selected}
-                data-testid={`identity-modal-nav-${value}`}
-                className={cn(
-                  "flex items-center gap-2 px-3.5 py-2 text-[13px] font-medium cursor-pointer",
-                  "border-b-2 -mb-px transition-colors duration-150",
-                  selected
-                    ? "text-[#fbf5e8] border-[hsla(var(--pv-id-hue),75%,65%,0.9)]"
-                    : "text-[hsla(var(--pv-id-hue),22%,92%,0.6)] hover:text-[#e8e4d8] border-transparent",
-                )}
-              >
-                <Icon size={15} className="opacity-85" /> {label}
-              </button>
-            );
-          })}
-        </div>
+        <ModalTabs
+          tabs={NAV_SECTIONS}
+          value={activeTab}
+          onValueChange={setActiveTab}
+          rowTestId="identity-modal-nav"
+          testIdPrefix="identity-modal-nav"
+        />
 
         <TabsContent
           value="identity"

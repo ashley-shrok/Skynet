@@ -43,7 +43,7 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { Modal, ModalFoot } from "@/components/modal";
+import { Modal, ModalFoot, ModalTabs } from "@/components/modal";
 import { Tabs, TabsContent } from "@/components/tabs";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -569,42 +569,19 @@ export function RoleModal({
         </div>
       </div>
 
-      {/* Section tabs — top. Two tabs. */}
+      {/* Section tabs — top. Canonical <ModalTabs> per UAT 2026-09-30. */}
       <Tabs
         value={activeTab}
         onValueChange={setActiveTab}
         className="flex-1 min-h-0 flex flex-col"
       >
-        <div
-          className={cn(
-            "shrink-0 flex items-stretch gap-1 px-2 py-1.5",
-            "border-b border-[hsla(var(--pv-id-hue),60%,55%,0.18)]",
-            "bg-black/25",
-          )}
-          data-testid="role-modal-nav"
-        >
-          {NAV_SECTIONS.map(({ value, label, Icon }) => {
-            const selected = activeTab === value;
-            return (
-              <button
-                key={value}
-                type="button"
-                onClick={() => setActiveTab(value)}
-                aria-pressed={selected}
-                data-testid={`role-modal-nav-${value}`}
-                className={cn(
-                  "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] cursor-pointer",
-                  "transition-colors duration-150",
-                  selected
-                    ? "text-[#fbf5e8] bg-[hsla(var(--pv-id-hue),65%,55%,0.28)] border border-[hsla(var(--pv-id-hue),65%,60%,0.42)]"
-                    : "text-[hsla(var(--pv-id-hue),22%,88%,0.65)] hover:text-[#e8e4d8] hover:bg-white/[0.04] border border-transparent",
-                )}
-              >
-                <Icon size={13} /> {label}
-              </button>
-            );
-          })}
-        </div>
+        <ModalTabs
+          tabs={NAV_SECTIONS}
+          value={activeTab}
+          onValueChange={setActiveTab}
+          rowTestId="role-modal-nav"
+          testIdPrefix="role-modal-nav"
+        />
 
         <TabsContent
           value="role"

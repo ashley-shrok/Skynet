@@ -341,5 +341,99 @@ function ModalFoot({
   );
 }
 
-export { Modal, ModalHead, ModalBody, ModalFoot };
+// ─── ModalTabs ───────────────────────────────────────────────────────────
+//
+// Canonical section-tabs row for modals that host multiple panels
+// (IdentityModal, RoleModal, RunbookEditorModal). Underline-style per the
+// tasting spec (border-bottom accent when selected, transparent otherwise).
+// Consumers own their tab STATE + PANEL rendering — this component only
+// renders the row and fires onValueChange. It intentionally does NOT pull
+// in Radix Tabs — for the current 2-3 tab cases a naked <div><button>
+// group is simpler and matches what every consumer was already writing
+// inline before this extraction (2026-09-30 UAT).
+//
+// no-adhoc-modal-tabs.test.ts enforces "modals must use this component
+// for their tab row" via a source grep — anyone reinventing tabs inside
+// a `*Modal*.tsx` file with the old bordered-pill signature trips the
+// ship-gate. Meta-goal: agents building new modals-with-tabs pick this
+// up without prompting.
+
+export interface ModalTabDef<V extends string = string> {
+  value: V;
+  label: React.ReactNode;
+  Icon?: React.ComponentType<{ size?: number; className?: string }>;
+}
+
+interface ModalTabsProps<V extends string> {
+  tabs: ReadonlyArray<ModalTabDef<V>>;
+  value: V;
+  onValueChange: (next: V) => void;
+  /** Injected into each tab button's data-testid as
+   *  `<testIdPrefix>-<tab.value>`. */
+  testIdPrefix?: string;
+  /** Applied to the row wrapper for a custom data-testid — kept as prop
+   *  rather than derived so consumers can preserve legacy testids across
+   *  the migration. */
+  rowTestId?: string;
+  /** Rendered inline after the tabs, styled as a peer of the tab buttons.
+   *  Used for row-scoped actions (RunbookEditorModal's `+ Add file`). */
+  trailing?: React.ReactNode;
+  /** When true, the row scrolls horizontally under overflow (file-strip
+   *  case where the tab list is dynamic and can grow past the row width). */
+  scrollable?: boolean;
+  className?: string;
+}
+
+function ModalTabs<V extends string>({
+  tabs,
+  value,
+  onValueChange,
+  testIdPrefix,
+  rowTestId,
+  trailing,
+  scrollable,
+  className,
+}: ModalTabsProps<V>): JSX.Element {
+  return (
+    <div
+      className={cn(
+        // Underline-style row (tasting L475-495). Flush against section
+        // separator via `-mb-px` overlap on each tab's bottom border.
+        "shrink-0 flex items-stretch gap-1 px-4 pt-1.5",
+        "border-b border-[hsla(var(--pv-id-hue),60%,55%,0.22)]",
+        "bg-black/22",
+        scrollable && "overflow-x-auto",
+        className,
+      )}
+      style={scrollable ? { WebkitOverflowScrolling: "touch" } : undefined}
+      data-slot="modal-tabs"
+      data-testid={rowTestId}
+    >
+      {tabs.map(({ value: v, label, Icon }) => {
+        const selected = value === v;
+        return (
+          <button
+            key={v}
+            type="button"
+            onClick={() => onValueChange(v)}
+            aria-pressed={selected}
+            data-testid={testIdPrefix ? `${testIdPrefix}-${v}` : undefined}
+            className={cn(
+              "shrink-0 flex items-center gap-2 px-3.5 py-2 text-[13px] font-medium cursor-pointer",
+              "border-b-2 -mb-px transition-colors duration-150",
+              selected
+                ? "text-[#fbf5e8] border-[hsla(var(--pv-id-hue),75%,65%,0.9)]"
+                : "text-[hsla(var(--pv-id-hue),22%,92%,0.6)] hover:text-[#e8e4d8] border-transparent",
+            )}
+          >
+            {Icon ? <Icon size={15} className="opacity-85" /> : null} {label}
+          </button>
+        );
+      })}
+      {trailing}
+    </div>
+  );
+}
+
+export { Modal, ModalHead, ModalBody, ModalFoot, ModalTabs };
 export type { ModalProps, ModalSize };

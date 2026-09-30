@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FileText, Plus, Trash2 } from "lucide-react";
-import { Modal, ModalHead, ModalBody, ModalFoot } from "@/components/modal";
+import { Modal, ModalHead, ModalBody, ModalFoot, ModalTabs } from "@/components/modal";
 import { cn } from "@/lib/utils";
 import {
   enumerateRunbookFiles,
@@ -409,54 +409,34 @@ export default function RunbookEditorModal({
           selected pill. "+ Add file" pill at the END of the strip
           (moved out of the head per tasting). */}
       {files.status === "ready" && (
-        <div
-          className={cn(
-            "shrink-0 flex items-stretch gap-1 px-2 py-1.5 border-b overflow-x-auto",
-            "border-b-[hsla(var(--pv-id-hue),60%,55%,0.18)]",
-            "bg-black/25",
-          )}
-          style={{
-            WebkitOverflowScrolling: "touch",
-          }}
-          data-testid="runbook-editor-modal-file-strip"
-        >
-          {files.data.map((file) => {
-            const selected = activeTab === file.path;
-            return (
-              <button
-                key={file.path}
-                type="button"
-                onClick={() => setActiveTab(file.path)}
-                data-testid={`runbook-editor-modal-tab-${file.path}`}
-                aria-pressed={selected}
-                className={cn(
-                  "shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11.5px] cursor-pointer",
-                  "transition-colors duration-150",
-                  selected
-                    ? "text-[#fbf5e8] bg-[hsla(var(--pv-id-hue),65%,55%,0.28)] border border-[hsla(var(--pv-id-hue),65%,60%,0.42)]"
-                    : "text-[hsla(var(--pv-id-hue),22%,88%,0.65)] hover:text-[#e8e4d8] hover:bg-white/[0.04] border border-transparent",
-                )}
-              >
-                <FileText size={12} />
-                <span className="whitespace-nowrap">{file.path}</span>
-              </button>
-            );
-          })}
-          <button
-            type="button"
-            onClick={() => {
-              void handleAddFile();
-            }}
-            data-testid="runbook-editor-modal-add-file"
-            className={cn(
-              "shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[11.5px] cursor-pointer",
-              "text-[hsla(var(--pv-id-hue),30%,90%,0.7)] hover:text-[#fbf5e8] hover:bg-white/[0.04]",
-              "transition-colors duration-150",
-            )}
-          >
-            <Plus size={12} /> Add file
-          </button>
-        </div>
+        <ModalTabs
+          tabs={files.data.map((f) => ({
+            value: f.path,
+            label: f.path,
+            Icon: FileText,
+          }))}
+          value={activeTab ?? ""}
+          onValueChange={(v) => setActiveTab(v)}
+          rowTestId="runbook-editor-modal-file-strip"
+          testIdPrefix="runbook-editor-modal-tab"
+          scrollable
+          trailing={
+            <button
+              type="button"
+              onClick={() => {
+                void handleAddFile();
+              }}
+              data-testid="runbook-editor-modal-add-file"
+              className={cn(
+                "shrink-0 flex items-center gap-1 px-2.5 py-2 text-[12.5px] cursor-pointer",
+                "text-[hsla(var(--pv-id-hue),30%,90%,0.7)] hover:text-[#fbf5e8]",
+                "border-b-2 border-transparent -mb-px transition-colors duration-150",
+              )}
+            >
+              <Plus size={12} /> Add file
+            </button>
+          }
+        />
       )}
 
       {/* Body — layered branches. */}
