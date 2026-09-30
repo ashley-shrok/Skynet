@@ -1611,6 +1611,52 @@ scan_identity_unarchive_requested_sentinels() {
   done
 }
 
+# ---- user-initiated role un-archive scanner (un-archive host-side shape) ----
+# scan_role_unarchive_requested_sentinels()
+#
+# Sibling of scan_role_archive_requested_sentinels. Walks $ROLES_ARCHIVE_DIR/*/
+# every reconcile tick and reverses the archive for any archived role whose
+# folder carries a `.unarchive-requested` sentinel.
+#
+# Body is simple by design: no cascade to identities (identities retired
+# alongside the role during archive stay retired until independently
+# un-archived per shape scope).
+#
+#   Pre-flight (name collision, permanent-refuse):
+#     If $ROLES_DIR/$name already exists → LOUD ERROR log, delete the
+#     `.unarchive-requested` sentinel, skip. Operator resolves manually.
+#
+#   Body:
+#     rm .unarchive-requested (archive-side discipline: sentinel deleted
+#     BEFORE the mv, mirroring role-archive scanner's D-06 posture) →
+#     mv $ROLES_ARCHIVE_DIR/$name $ROLES_DIR/$name.
+scan_role_unarchive_requested_sentinels() {
+  local d name
+  for d in "$ROLES_ARCHIVE_DIR"/*/; do
+    [ -d "$d" ] || continue                          # nullglob-miss guard
+    name="$(basename "$d")"
+    [ -f "$d/.unarchive-requested" ] || continue
+
+    log "role '$name' user-initiated un-archive: .unarchive-requested detected"
+
+    # Pre-flight: name collision refuse.
+    if [ -e "$ROLES_DIR/$name" ]; then
+      log "ERROR: role '$name' un-archive REFUSED: live role already exists at $ROLES_DIR/$name — resolve the collision manually. Sentinel deleted."
+      rm -f "$d/.unarchive-requested"
+      continue
+    fi
+
+    # Delete sentinel BEFORE mv (mirrors archive-side ordering discipline).
+    rm -f "$d/.unarchive-requested"
+
+    if ! mv "$d" "$ROLES_DIR/$name"; then
+      log "ERROR: role '$name' un-archive: mv archive→live FAILED — sentinel already deleted; role retained in archive tree. Investigate manually; drop a fresh .unarchive-requested to retry once the collision is resolved."
+      continue
+    fi
+    log "role '$name' un-archive COMPLETE: folder moved to live tree"
+  done
+}
+
 # Find the ACTUAL existing tmux session name matching $1 CASE-INSENSITIVELY (tmux names are
 # case-sensitive, but a human may name a session 'hilda' for identity 'Hilda' — a case difference
 # must NOT cause a duplicate). Prints the real session name if found, else nothing.

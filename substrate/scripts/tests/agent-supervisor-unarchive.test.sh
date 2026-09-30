@@ -610,6 +610,106 @@ test_identity_no_sentinel_noop() {
 }
 
 # ============================================================
+# scan_role_unarchive_requested_sentinels — behavior tests
+# ============================================================
+
+# Create an archived role fixture at $ROLES_ARCHIVE_DIR/<name>/.
+# Usage: fixture_archived_role <scratch> <role_name> [--no-sentinel]
+fixture_archived_role() {
+  local scratch="$1" role_name="$2"
+  shift 2
+  local no_sentinel=false
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --no-sentinel) no_sentinel=true ;;
+    esac
+    shift
+  done
+  local d="${scratch}-roles-archive/$role_name"
+  mkdir -p "$d"
+  printf 'archived-role-marker\n' > "$d/role.md"
+  if ! $no_sentinel; then
+    touch "$d/.unarchive-requested"
+  fi
+}
+
+test_role_happy_path() {
+  local scratch; scratch=$(setup_unarchive_scratch)
+  fixture_archived_role "$scratch" "cool-role"
+
+  local out
+  out=$( _source_supervisor_unarchive "$scratch"
+         scan_role_unarchive_requested_sentinels 2>&1 ) || true
+
+  assert_file   "${scratch}-roles/cool-role"                     "role happy: live folder present"
+  assert_file   "${scratch}-roles/cool-role/role.md"             "role happy: role.md moved with folder"
+  assert_nofile "${scratch}-roles-archive/cool-role"             "role happy: archive folder gone"
+  assert_nofile "${scratch}-roles/cool-role/.unarchive-requested" "role happy: sentinel gone from live tree"
+  assert_grep "role 'cool-role' un-archive COMPLETE" "$out"
+  teardown_unarchive_scratch "$scratch"
+}
+
+test_role_name_collision_refuses() {
+  local scratch; scratch=$(setup_unarchive_scratch)
+  fixture_archived_role "$scratch" "collide-role"
+  # Pre-existing live role with same name.
+  mkdir -p "${scratch}-roles/collide-role"
+  printf 'existing live role\n' > "${scratch}-roles/collide-role/role.md"
+
+  local out
+  out=$( _source_supervisor_unarchive "$scratch"
+         scan_role_unarchive_requested_sentinels 2>&1 ) || true
+
+  # Live role's contents preserved (marker text stays "existing live role").
+  local live_content; live_content=$(cat "${scratch}-roles/collide-role/role.md")
+  assert_eq "existing live role" "$live_content" "role collision: live role untouched"
+  # Archive folder retained (mv did NOT happen), sentinel deleted.
+  assert_file   "${scratch}-roles-archive/collide-role"                        "role collision: archive retained"
+  assert_nofile "${scratch}-roles-archive/collide-role/.unarchive-requested"  "role collision: sentinel deleted"
+  assert_grep "REFUSED: live role already exists" "$out"
+  teardown_unarchive_scratch "$scratch"
+}
+
+test_role_no_sentinel_noop() {
+  local scratch; scratch=$(setup_unarchive_scratch)
+  fixture_archived_role "$scratch" "silent-role" --no-sentinel
+
+  local out
+  out=$( _source_supervisor_unarchive "$scratch"
+         scan_role_unarchive_requested_sentinels 2>&1 ) || true
+
+  assert_file   "${scratch}-roles-archive/silent-role"   "role no-sentinel: archive untouched"
+  assert_nofile "${scratch}-roles/silent-role"           "role no-sentinel: no folder moved"
+  assert_nogrep "user-initiated un-archive" "$out"       "role no-sentinel: no log line fires"
+  teardown_unarchive_scratch "$scratch"
+}
+
+test_role_no_cascade_to_identities() {
+  # Un-archiving a role must NOT resurrect identities that were retired
+  # alongside during archive. This test proves that: archive identities
+  # holding the un-archived role remain archived after the role scanner runs.
+  local scratch; scratch=$(setup_unarchive_scratch)
+  fixture_archived_role "$scratch" "restored-role"
+  # Pretend two identities were retired during that role's earlier archive.
+  # They're in the identity-archive tree, holding "role: restored-role".
+  mkdir -p "${scratch}-archive/orphan-a" "${scratch}-archive/orphan-b"
+  printf -- '---\nrole: restored-role\n---\nbody\n' > "${scratch}-archive/orphan-a/orphan-a.md"
+  printf -- '---\nrole: restored-role\n---\nbody\n' > "${scratch}-archive/orphan-b/orphan-b.md"
+
+  ( _source_supervisor_unarchive "$scratch"
+    scan_role_unarchive_requested_sentinels >/dev/null 2>&1 ) || true
+
+  # Role moved to live.
+  assert_file "${scratch}-roles/restored-role"           "no-cascade: role folder in live tree"
+  # Identities remain archived.
+  assert_file   "${scratch}-archive/orphan-a"            "no-cascade: orphan-a still archived"
+  assert_file   "${scratch}-archive/orphan-b"            "no-cascade: orphan-b still archived"
+  assert_nofile "$scratch/orphan-a"                      "no-cascade: orphan-a NOT resurrected to live"
+  assert_nofile "$scratch/orphan-b"                      "no-cascade: orphan-b NOT resurrected to live"
+  teardown_unarchive_scratch "$scratch"
+}
+
+# ============================================================
 # Test runner
 # ============================================================
 printf 'Un-archive host-side test driver: identity scanner + frontmatter helper.\n'
@@ -631,6 +731,11 @@ run_test test_identity_reactivate_5xx_transient_recovers
 run_test test_identity_reactivate_4xx_permanent_retains_sentinel
 run_test test_identity_relay_json_missing_user_id_retains_sentinel
 run_test test_identity_no_sentinel_noop
+
+run_test test_role_happy_path
+run_test test_role_name_collision_refuses
+run_test test_role_no_sentinel_noop
+run_test test_role_no_cascade_to_identities
 
 printf '===============================\n'
 printf 'PASS: %d  FAIL: %d\n' "$PASS" "$FAIL"
