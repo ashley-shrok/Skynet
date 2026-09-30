@@ -53,6 +53,10 @@ import identityNoDormancyRoutes from "./routes/identity-no-dormancy.js";
 // identity's host. Mounted BEFORE the generic /identities router so the
 // :key/archive sub-route isn't intercepted by the generic /:identityKey handler.
 import identityArchiveRoutes from "./routes/identity-archive.js";
+// Phase 143 Plan 143-03 (D-05/D-06/D-07): GET /identities-archive — fleet-wide
+// list of archived identity keys across the caller's own hosts. Exposes the
+// existing listArchivedIdentityKeysOnHost primitive as an HTTP surface.
+import identitiesArchiveListRoutes from "./routes/identities-archive-list.js";
 // Phase 122 Plan 122-02: POST /conversation-search — content-grep across the
 // caller's SSH+autoTmux hosts (live + archive identity trees), snippet-windowed
 // results sorted mtime-desc, offset/limit paginated. Backing route file:
@@ -2065,6 +2069,10 @@ app.use("/identities", identityNoDormancyRoutes);
 // :key/archive sub-route isn't intercepted by identitiesRoutes's /:identityKey
 // handlers. Same discipline as the exists-on-host + no-dormancy mounts above.
 app.use("/identities", identityArchiveRoutes);
+// Phase 143 Plan 143-03 (D-05/D-06/D-07): GET /identities-archive — fleet-wide
+// list of archived identity keys. Standalone base path (no overlap with
+// /identities/:key sub-routes). Must mount BEFORE any generic catch-all.
+app.use("/identities-archive", identitiesArchiveListRoutes);
 // Phase 122 Plan 122-02: POST /conversation-search — cross-host content-grep
 // endpoint. Mounted as a standalone base path so it does not overlap with
 // /identities/* or /sessions/*. Frontend (Wave 2) calls
