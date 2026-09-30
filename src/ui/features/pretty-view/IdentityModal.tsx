@@ -532,8 +532,12 @@ export function IdentityModal({
               />
             </div>
           )}
-          {/* Task line + inline pencil */}
-          <div className="flex items-center gap-2 min-w-0 mt-0.5">
+          {/* Task line + inline pencil. Edit mode uses a full-width input
+              (still flex-1 for a comfortable typing target). Read mode
+              wraps text + pencil in an inline-flex block so the pencil
+              sits adjacent to the actual task text instead of floating
+              at the far right of the row when the task is short. */}
+          <div className="flex items-center min-w-0 mt-0.5">
             {editingTask ? (
               <input
                 type="text"
@@ -565,29 +569,29 @@ export function IdentityModal({
                 )}
               />
             ) : (
-              <span
-                className="text-[12.5px] leading-snug text-[hsla(var(--pv-id-hue),22%,92%,0.72)] truncate flex-1 min-w-0"
-                data-testid="identity-modal-task-value"
-              >
-                {identity.task || (
-                  <span className="italic opacity-60">No task set</span>
-                )}
-              </span>
-            )}
-            {!editingTask && (
-              <button
-                type="button"
-                aria-label="Edit task"
-                title="Edit task"
-                onClick={() => {
-                  setTaskDraft(identity.task ?? "");
-                  setEditingTask(true);
-                }}
-                data-testid="identity-modal-task-pencil"
-                className="shrink-0 cursor-pointer text-[hsla(var(--pv-id-hue),22%,88%,0.55)] hover:text-[#f0ebe0] transition-colors"
-              >
-                <Pencil size={12} />
-              </button>
+              <div className="inline-flex items-center gap-1.5 min-w-0 max-w-full">
+                <span
+                  className="text-[12.5px] leading-snug text-[hsla(var(--pv-id-hue),22%,92%,0.72)] truncate min-w-0"
+                  data-testid="identity-modal-task-value"
+                >
+                  {identity.task || (
+                    <span className="italic opacity-60">No task set</span>
+                  )}
+                </span>
+                <button
+                  type="button"
+                  aria-label="Edit task"
+                  title="Edit task"
+                  onClick={() => {
+                    setTaskDraft(identity.task ?? "");
+                    setEditingTask(true);
+                  }}
+                  data-testid="identity-modal-task-pencil"
+                  className="shrink-0 cursor-pointer text-[hsla(var(--pv-id-hue),22%,88%,0.55)] hover:text-[#f0ebe0] transition-colors"
+                >
+                  <Pencil size={12} />
+                </button>
+              </div>
             )}
           </div>
         </div>
