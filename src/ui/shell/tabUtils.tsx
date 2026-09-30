@@ -6,9 +6,7 @@ import {
   LayoutDashboard,
   Monitor,
   Terminal,
-  TerminalSquare,
 } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { CommandHistoryProvider } from "@/features/terminal/command-history/CommandHistoryContext";
 // Lazy-loaded heavy pane wrappers (POC 2026-09-08). Cold-shell for users
 // who don't immediately open a terminal / RDP tab no longer pays the
@@ -80,26 +78,6 @@ function hostToSSHHost(h: Host): SSHHost {
   } as SSHHost;
 }
 
-function EmptyState({
-  icon: Icon,
-  messageKey,
-}: {
-  icon: React.ElementType;
-  messageKey: string;
-}) {
-  const { t } = useTranslation();
-  return (
-    <div className="flex flex-col items-center justify-center flex-1 gap-3 p-6 text-center">
-      <div className="size-10 rounded-full bg-[color:var(--color-pv-surface-quiet)] flex items-center justify-center">
-        <Icon className="size-5 text-[color:var(--color-pv-fg-dim)]" />
-      </div>
-      <span className="text-sm font-semibold text-[color:var(--color-pv-fg-dim)]">
-        {t(messageKey)}
-      </span>
-    </div>
-  );
-}
-
 // ─── Phase 120 D-03 — tab icon dispatch (Record<TabType, ...>) ───────────────
 //
 // Refactored from a five-arm switch to a compile-time-exhaustive lookup so
@@ -148,7 +126,7 @@ function TerminalTabContent({
   const { previewTerminalTheme } = useTabsSafe();
   return (
     <CommandHistoryProvider>
-      <Suspense fallback={<EmptyState icon={TerminalSquare} messageKey="terminal.noHostSelected" />}>
+      <Suspense fallback={null}>
         <TerminalFeature
         ref={tab.terminalRef as React.Ref<TerminalHandle>}
         hostConfig={
@@ -265,7 +243,7 @@ function TerminalOrIdentitySessionPane({
       // pre-Slice-4 mount UX (PrettyView isn't lazy at this call site,
       // so the boundary is harmless; matches surrounding pattern).
       return (
-        <Suspense fallback={<EmptyState icon={TerminalSquare} messageKey="terminal.noHostSelected" />}>
+        <Suspense fallback={null}>
           <PrettyView
             source={{
               kind: "relay",
@@ -282,15 +260,11 @@ function TerminalOrIdentitySessionPane({
     }
   }
 
-  // Phase 93 Slice 4 (D-06): past the relay branch above, all remaining
-  // branches (identity-pane, plain-terminal) require a fleet host. If the
-  // caller passed host=null and sessionKind isn't "relay-room" (or fell
-  // through the defensive-warn path with missing relayRoomId), render the
-  // "no host selected" empty state. This restores the pre-Slice-4
-  // host-required invariant for non-relay branches without needing the
-  // renderTabContent early-return to double-gate.
+  // Past the relay branch above, all remaining branches (identity-pane,
+  // plain-terminal) require a fleet host. Host-null renders nothing —
+  // matches renderDashboard's null pattern; the sidebar is the way back in.
   if (!host) {
-    return <EmptyState icon={TerminalSquare} messageKey="terminal.noHostSelected" />;
+    return null;
   }
 
   const identityKey = tab.targetTmuxSession
@@ -313,7 +287,7 @@ function TerminalOrIdentitySessionPane({
 
   if (isIdentityPane) {
     return (
-      <Suspense fallback={<EmptyState icon={TerminalSquare} messageKey="terminal.noHostSelected" />}>
+      <Suspense fallback={null}>
         <IdentitySessionPane
           tab={tab}
           host={host}
@@ -410,12 +384,7 @@ const renderDashboard: Renderer = () => null;
 const renderTerminalTab: Renderer = (tab, deps) => {
   const { host, label } = tab;
   if (!host && tab.sessionKind !== "relay-room") {
-    return (
-      <EmptyState
-        icon={TerminalSquare}
-        messageKey="terminal.noHostSelected"
-      />
-    );
+    return null;
   }
   return (
     <TerminalOrIdentitySessionPane
@@ -442,12 +411,9 @@ const renderTerminalTab: Renderer = (tab, deps) => {
 // equivalent to the pre-refactor rdp|vnc|telnet switch case.
 const renderGuacamoleTab: Renderer = (tab, deps) => {
   const { host } = tab;
-  if (!host)
-    return (
-      <EmptyState icon={Monitor} messageKey="guacamole.noHostSelected" />
-    );
+  if (!host) return null;
   return (
-    <Suspense fallback={<EmptyState icon={Monitor} messageKey="guacamole.noHostSelected" />}>
+    <Suspense fallback={null}>
       <GuacamoleApp
         hostId={host.id}
         tabId={tab.id}
