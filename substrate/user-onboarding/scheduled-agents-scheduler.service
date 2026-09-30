@@ -1,0 +1,14 @@
+[Unit]
+Description=Scheduled-agents scheduler — clock-scheduled agent birthing for this box's fleet-level scheduled-agent specs
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 %h/.local/bin/wakeup-scheduler %h/fleet/scheduled-agents --mode scheduled-agents
+Restart=always
+RestartSec=10
+KillMode=process
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+
+[Install]
+WantedBy=default.target
