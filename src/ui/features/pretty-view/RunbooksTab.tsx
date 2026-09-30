@@ -13,6 +13,7 @@ import { useEffect, useState } from "react";
 import { Skeleton } from "@/components/skeleton";
 import { listRunbooks, type RunbookEntry } from "@/api/runbooks-api";
 import type { TabState } from "./IdentityFileTab";
+import { roleDisplayName } from "@/lib/role-display-name";
 
 export interface RunbooksTabProps {
   /** SSH host id — inherited from the identity modal upstream. */
@@ -113,7 +114,11 @@ export function RunbooksTab({ hostId, roleName, onOpenRunbook }: RunbooksTabProp
           }}
           className="text-left px-3 py-2 rounded-md bg-white/5 hover:bg-white/10 border border-white/10 text-[#e8e4d8] text-sm cursor-pointer transition-colors"
         >
-          {entry.name}
+          {/* Slug title-cased for display; row click still fires the raw
+              slug up to the parent. (2026-09-30 UAT: bare slug read too
+              raw; reusing roleDisplayName's title-case fallback since no
+              runbook.md carries a `title:` frontmatter today.) */}
+          {roleDisplayName(entry.name)}
         </button>
       ))}
     </div>
