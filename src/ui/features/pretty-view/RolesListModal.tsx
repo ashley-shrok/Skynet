@@ -1,6 +1,8 @@
 /**
  * RolesListModal — Phase 90 Plan 90-05.
  *
+ * Phase 143 Plan 143-07: adds archived-roles section (D-10) + retires right-click Archive (D-15) + kebab-on-live-rows (D-12/D-13/D-14). See .planning/campaigns/un-archiving/shape-unarchive-frontend-backend.md
+ *
  * D-02 (LOCKED): the roles-list modal mirrors the Edit-global-files host-picker
  * pattern (`GlobalFilesModal.tsx`) — takes `hostTree: HostFolder | null` +
  * `defaultHostId: number | null`, auto-selects a single host, otherwise
@@ -35,7 +37,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, ChevronDown, Archive as ArchivedBoxIcon } from "lucide-react";
 import { Modal, ModalHead, ModalBody } from "@/components/modal";
 import { cn } from "@/lib/utils";
 import type { Host, HostFolder } from "@/types/ui-types";
@@ -46,12 +48,12 @@ import {
 } from "@/api/identities-api";
 import type { TabState } from "./IdentityFileTab";
 import { roleDisplayName } from "@/lib/role-display-name";
-import {
-  PrettyConversationContextMenu,
-  type PrettyContextMenuItem,
-} from "@/features/pretty-conversations/PrettyConversationContextMenu";
 import { useIdentities } from "@/state/identities-store";
 import { archiveRole } from "@/api/role-archive-api";
+import { RowKebabMenu } from "@/features/pretty-conversations/RowKebabMenu";
+import { listArchivedRoles, type ArchivedRoleListEntry } from "@/api/roles-archive-list-api";
+import { unarchiveRole } from "@/api/role-unarchive-api";
+import { UnarchiveError } from "@/api/identity-unarchive-api";
 
 // Chrome/Linux desktop <option> popup — same OPTION_STYLE that
 // GlobalFilesModal.tsx L33 pins for popup contrast.
@@ -86,6 +88,100 @@ function displayNameFor(role: RoleSummary): string {
 // D-05: hue selector — role's `colorHue` when present, else fallback 190.
 function hueFor(role: RoleSummary): number {
   return typeof role.colorHue === "number" ? role.colorHue : FALLBACK_HUE;
+}
+
+// ─── ArchivedRoleRow ──────────────────────────────────────────────────────────
+// Phase 143 Plan 143-07 (D-10 / D-12 / D-13) — sub-component for each
+// archived-role row in the collapsed section. Uses FALLBACK_HUE=190 since the
+// archived-list minimal schema (ArchivedRoleListEntry) carries name only.
+// The row is NOT clickable per D-11 sibling pattern; the kebab is the ONLY
+// interaction path.
+
+interface ArchivedRoleRowProps {
+  entry: ArchivedRoleListEntry;
+  onUnarchive: (entry: ArchivedRoleListEntry) => void;
+}
+
+function ArchivedRoleRow({ entry, onUnarchive }: ArchivedRoleRowProps): JSX.Element {
+  const hue = FALLBACK_HUE;
+  // Title-case the slug as a display label (no displayName in the minimal schema).
+  const label = roleDisplayName(entry.name, undefined);
+  return (
+    <div
+      style={{
+        borderRadius: 14,
+        background: `linear-gradient(160deg, hsla(${hue}, 30%, 28%, 0.45), hsla(${hue}, 25%, 16%, 0.50))`,
+        border: `1px solid hsla(${hue}, 40%, 40%, 0.25)`,
+        boxShadow: [
+          "0 8px 24px rgba(0, 0, 0, 0.5)",
+          "inset 0 1px 0 rgba(255, 220, 170, 0.10)",
+          `0 0 0 0.5px hsla(${hue}, 50%, 45%, 0.15)`,
+          `0 0 32px hsla(${hue}, 50%, 42%, 0.12)`,
+        ].join(", "),
+        backdropFilter: "blur(20px) saturate(1.5)",
+        WebkitBackdropFilter: "blur(20px) saturate(1.5)",
+        padding: "10px 12px",
+        display: "flex",
+        alignItems: "center",
+        gap: 12,
+        color: "hsla(0, 0%, 90%, 0.65)",
+        opacity: 0.85,
+      }}
+    >
+      {/* 40px round avatar disc — fallback placeholder letter */}
+      <div
+        style={{
+          width: 40,
+          height: 40,
+          borderRadius: 999,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: `linear-gradient(160deg, hsla(${hue}, 25%, 18%, 0.72), hsla(${hue}, 20%, 10%, 0.82))`,
+          border: `1px solid hsla(${hue}, 40%, 40%, 0.30)`,
+          boxShadow: [
+            "0 4px 12px rgba(0, 0, 0, 0.6)",
+            "inset 0 2px 0 rgba(255, 235, 190, 0.15)",
+            `0 0 24px hsla(${hue}, 45%, 40%, 0.25)`,
+          ].join(", "),
+          overflow: "hidden",
+          flexShrink: 0,
+        }}
+      >
+        <span
+          style={{
+            fontSize: 15,
+            fontWeight: 700,
+            color: "hsla(0, 0%, 88%, 0.60)",
+          }}
+        >
+          {label.charAt(0).toUpperCase()}
+        </span>
+      </div>
+
+      {/* Display name */}
+      <span
+        style={{
+          flex: 1,
+          minWidth: 0,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+          fontWeight: 600,
+          fontSize: 14,
+        }}
+      >
+        {label}
+      </span>
+
+      {/* Kebab — single "Un-archive" item; no ChevronRight (not drill-in) */}
+      <RowKebabMenu
+        items={[{ label: "Un-archive", onClick: () => onUnarchive(entry) }]}
+        ariaLabel={`Row menu for ${entry.name}`}
+        testId={`roles-list-archived-row-kebab-${entry.name}`}
+      />
+    </div>
+  );
 }
 
 export interface RolesListModalProps {
@@ -132,16 +228,12 @@ export function RolesListModal({
   // Archive click filters this down to `role === roleName && hostId === selectedHostId`.
   const { identities } = useIdentities();
 
-  // Phase 133 Plan 133-05 (D-02): right-click context-menu open state.
-  // Captures cursor coords + the row's identity (role name + display label +
-  // hue) so the menu-item onClick has everything it needs without re-lookup.
-  const [menuOpen, setMenuOpen] = useState<{
-    x: number;
-    y: number;
-    roleName: string;
-    roleDisplayLabel: string;
-    hue: number;
-  } | null>(null);
+  // Phase 143 Plan 143-07 (D-10) — archived-roles collapsed section state.
+  const [archivedExpanded, setArchivedExpanded] = useState(false);
+  const [archivedRolesState, setArchivedRolesState] = useState<TabState<ArchivedRoleListEntry[]>>({
+    status: "loading",
+  });
+  const [archivedHasFetched, setArchivedHasFetched] = useState(false);
 
   // Phase 133 Plan 133-05 (D-01, D-03, D-04): the archive click handler.
   // - D-04 cascade preview computed frontend-side from useIdentities().
@@ -257,6 +349,68 @@ export function RolesListModal({
     };
   }, [selectedHostId]);
 
+  // Phase 143 Plan 143-07 (D-07) — host-scope reset for archived section.
+  // When selectedHostId changes, reset archived section state so the next
+  // expand lazy-fetches fresh data for the new host. Do NOT auto-fetch on
+  // host change — only on user expand.
+  useEffect(() => {
+    setArchivedHasFetched(false);
+    setArchivedRolesState({ status: "loading" });
+    setArchivedExpanded(false);
+  }, [selectedHostId]);
+
+  // Phase 143 Plan 143-07 (D-10) — expand handler for archived section.
+  // Lazy-fetches on first expand only (archivedHasFetched gate prevents
+  // re-fetch on subsequent expand/collapse cycles per D-03 DoS mitigation).
+  const handleExpandArchived = (): void => {
+    if (!archivedHasFetched && selectedHostId != null) {
+      setArchivedHasFetched(true);
+      void listArchivedRoles(selectedHostId)
+        .then((entries) => setArchivedRolesState({ status: "ready", data: entries }))
+        .catch((err: unknown) =>
+          setArchivedRolesState({
+            status: "error",
+            error: err instanceof Error ? err.message : "unknown",
+          }),
+        );
+    }
+    setArchivedExpanded((v) => !v);
+  };
+
+  // Phase 143 Plan 143-07 (D-16 / D-17) — un-archive handler.
+  // CRITICAL SEQUENCE per CONTEXT.md Risk Summary: row must NOT be removed
+  // until the endpoint returns 200. Call unarchiveRole FIRST; only on resolve
+  // do we remove the row and fire the success alert. On reject, the row stays
+  // (never removed) and we fire a failure alert. No restore branch needed.
+  const handleUnarchiveRole = (entry: ArchivedRoleListEntry): void => {
+    if (selectedHostId == null) return;
+    void unarchiveRole(selectedHostId, entry.name)
+      .then(() => {
+        // On 200: remove row THEN fire success alert (D-16).
+        setArchivedRolesState((prev) =>
+          prev.status === "ready"
+            ? { status: "ready", data: prev.data.filter((e) => e.name !== entry.name) }
+            : prev,
+        );
+        window.alert(
+          `Un-archiving role ${entry.name} — it may take a moment to reflect elsewhere in the app.`,
+        );
+        // D-19: section stays expanded after un-archive — do NOT setArchivedExpanded(false).
+      })
+      .catch((err: unknown) => {
+        // On failure: row stays (never touched state). Fire D-17 alert.
+        if (err instanceof UnarchiveError && err.reason === "name_collision") {
+          window.alert(
+            `Couldn't un-archive role ${entry.name} — a live role with that name already exists.`,
+          );
+        } else {
+          window.alert(
+            `Couldn't un-archive role ${entry.name} — try again in a moment.`,
+          );
+        }
+      });
+  };
+
   return (
     <Modal
       open={open}
@@ -350,6 +504,8 @@ export function RolesListModal({
             </div>
           ) : (
             // D-05: alphabetical list of `.pv-row`-treatment rows.
+            // D-12/D-13/D-14: each row carries an always-visible kebab menu with Archive.
+            // D-15: right-click Archive retired on this surface (phase-143).
             <div
               className="flex-1 min-h-0 overflow-y-auto px-6 py-4"
               style={{ display: "flex", flexDirection: "column", gap: 8 }}
@@ -357,34 +513,33 @@ export function RolesListModal({
               {rolesState.data.map((role) => {
                 const hue = hueFor(role);
                 const label = displayNameFor(role);
+                // D-14: row handlers — row click opens RoleModal; kebab click
+                // stops propagation (handled inside RowKebabMenu per D-14).
+                const handleRowSelect = (): void => {
+                  onSelectRole({
+                    roleName: role.name,
+                    roleCosmetics: role,
+                    hostId: selectedHostId,
+                  });
+                };
+                const handleRowKeyDown = (e: React.KeyboardEvent): void => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    handleRowSelect();
+                  }
+                };
                 return (
-                  <button
+                  // D-12/D-13/D-14: row is a <div role="button"> so the kebab
+                  // <button> can live as a sibling inside it without violating
+                  // the HTML rule against nested <button> elements.
+                  // D-15: right-click Archive handler removed — retired on this surface.
+                  <div
                     key={role.name}
-                    type="button"
+                    role="button"
+                    tabIndex={0}
                     aria-label={label}
-                    onClick={() =>
-                      onSelectRole({
-                        roleName: role.name,
-                        roleCosmetics: role,
-                        hostId: selectedHostId,
-                      })
-                    }
-                    // Phase 133 Plan 133-05 (D-02): right-click opens the
-                    // PrettyConversationContextMenu at cursor coords with a
-                    // single danger-styled Archive item. preventDefault
-                    // suppresses the browser's native menu; the row's own
-                    // onClick does NOT fire on contextmenu so the role modal
-                    // does not accidentally open.
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      setMenuOpen({
-                        x: e.clientX,
-                        y: e.clientY,
-                        roleName: role.name,
-                        roleDisplayLabel: label,
-                        hue,
-                      });
-                    }}
+                    onClick={handleRowSelect}
+                    onKeyDown={handleRowKeyDown}
                     // D-05 verbatim: `.pv-row` treatment inline (class-based
                     // hue is not viable, so we inline the hsla stops keyed
                     // on the role's hue). Values mirror
@@ -472,42 +627,94 @@ export function RolesListModal({
                       {label}
                     </span>
 
+                    {/* D-12/D-13: always-visible kebab with single Archive item.
+                        Placed BEFORE ChevronRight so the kebab is the rightmost
+                        interactive element (ChevronRight removed — the whole row
+                        is the click target). ariaLabel uses slug (role.name) not
+                        display label to avoid aria-label collisions with the row
+                        itself (both carry the display name). */}
+                    <RowKebabMenu
+                      items={[{ label: "Archive", danger: true, onClick: () => handleArchiveClick(role.name, label) }]}
+                      ariaLabel={`Row menu for ${role.name}`}
+                      testId={`roles-list-row-kebab-${role.name}`}
+                    />
+
                     {/* Right-side chevron (low opacity — decorative, not
                         actionable — the whole row is the click target). */}
                     <ChevronRight
                       size={18}
                       style={{ opacity: 0.55, flexShrink: 0 }}
                     />
-                  </button>
+                  </div>
                 );
               })}
             </div>
           )}
       </ModalBody>
 
-      {/* Phase 133 Plan 133-05 (D-02): the right-click context menu.
-          PrettyConversationContextMenu portals to document.body internally
-          (via createPortal), so mounting it inside/outside the Modal here
-          is stylistic — the menu decides its own DOM home. */}
-      {menuOpen && (
-        <PrettyConversationContextMenu
-          x={menuOpen.x}
-          y={menuOpen.y}
-          hue={menuOpen.hue}
-          items={[
-            {
-              label: "Archive",
-              danger: true,
-              onClick: () =>
-                handleArchiveClick(
-                  menuOpen.roleName,
-                  menuOpen.roleDisplayLabel,
-                ),
-            } satisfies PrettyContextMenuItem,
-          ]}
-          onClose={() => setMenuOpen(null)}
-        />
-      )}
+      {/* phase-143 D-10 / D-18 / D-19 — archived-roles collapsed section */}
+      <div className="border-t border-[hsla(var(--pv-id-hue),40%,45%,0.15)] flex-shrink-0">
+        {/* Section header — always visible regardless of archived count (D-18). */}
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={handleExpandArchived}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              handleExpandArchived();
+            }
+          }}
+          className="flex items-center gap-2.5 px-6 py-2.5 w-full text-left cursor-pointer"
+          data-testid="roles-list-archived-section-header"
+          aria-expanded={archivedExpanded}
+          aria-controls="roles-list-archived-content"
+        >
+          <ArchivedBoxIcon className="size-3.5 text-[hsla(var(--pv-id-hue),22%,88%,0.6)] shrink-0" aria-hidden="true" />
+          <span className="text-[13px] font-semibold text-[hsla(var(--pv-id-hue),22%,88%,0.6)] shrink-0">Archived roles</span>
+          <span aria-hidden="true" className="flex-1 h-px bg-[linear-gradient(90deg,transparent_0%,rgba(168,154,128,0.20)_30%,rgba(168,154,128,0.20)_70%,transparent_100%)]" />
+          <ChevronDown
+            className={`size-3.5 text-[hsla(var(--pv-id-hue),22%,88%,0.6)] shrink-0 transition-transform ${archivedExpanded ? "rotate-180" : ""}`}
+            aria-hidden="true"
+          />
+        </div>
+
+        {/* Section body — only rendered when expanded */}
+        {archivedExpanded && (
+          <div
+            id="roles-list-archived-content"
+            className="max-h-[40vh] overflow-y-auto px-6 pb-4"
+            style={{ display: "flex", flexDirection: "column", gap: 8 }}
+          >
+            {archivedRolesState.status === "loading" && (
+              <div className="flex items-center justify-center text-[hsla(var(--pv-id-hue),22%,88%,0.55)] text-sm py-4">
+                Loading…
+              </div>
+            )}
+            {archivedRolesState.status === "error" && (
+              <div className="flex items-center justify-center text-red-400 text-sm py-4 text-center">
+                {archivedRolesState.error}
+              </div>
+            )}
+            {archivedRolesState.status === "ready" && archivedRolesState.data.length === 0 && (
+              <div className="flex items-center justify-center text-[hsla(var(--pv-id-hue),22%,88%,0.50)] text-sm py-4">
+                {"No archived roles."}
+              </div>
+            )}
+            {archivedRolesState.status === "ready" && archivedRolesState.data.length > 0 &&
+              archivedRolesState.data.map((entry) => (
+                <ArchivedRoleRow
+                  key={entry.name}
+                  entry={entry}
+                  onUnarchive={handleUnarchiveRole}
+                />
+              ))
+            }
+          </div>
+        )}
+      </div>
+
+      {/* phase-143 D-15 — right-click Archive retired in favor of kebab-on-row; see .planning/campaigns/un-archiving/shape-unarchive-frontend-backend.md */}
     </Modal>
   );
 }
