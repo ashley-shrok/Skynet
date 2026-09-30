@@ -198,6 +198,27 @@ export function setError(msg: string, requestId: number): void {
 // ---------------------------------------------------------------------------
 
 /**
+ * Phase 143 Plan 143-08 — Remove a single result row from the accumulated
+ * results list after a successful un-archive (endpoint returns 200). The row
+ * is identified by {hostId, identityKey}; both fields are part of
+ * ConversationSearchResult. Any row that matches BOTH fields is dropped.
+ *
+ * Called ONLY after the endpoint confirms 200 (endpoint-first sequence per
+ * CONTEXT.md Risk Summary D-16 / D-17). This is an in-memory optimistic
+ * remove with ~15s reconciler-tick uncertainty — "optimistic" refers to the
+ * time lag, NOT to skipping endpoint confirmation.
+ */
+export function removeResultByIdentity(hostId: number, identityKey: string): void {
+  state = {
+    ...state,
+    results: state.results.filter(
+      (r) => !(r.hostId === hostId && r.identityKey === identityKey),
+    ),
+  };
+  notify();
+}
+
+/**
  * Reset the module-scoped state to initial. Vitest re-uses the module
  * across tests in the same file, so the store must be reset in
  * `beforeEach` or state bleeds between tests. Named `_resetForTests` (with

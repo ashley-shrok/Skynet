@@ -1,6 +1,12 @@
 /**
  * Conversation search modal.
  *
+ * Phase 143 Plan 143-08: retires the archived-row blunt-alert (D-11),
+ * wires Un-archive kebab (D-12/D-13/D-14) with endpoint-first sequence,
+ * native-alert success/failure with distinct missing_roles copy (D-16/D-17),
+ * modal stays open after un-archive (D-19).
+ * See .planning/campaigns/un-archiving/shape-unarchive-frontend-backend.md
+ *
  * Locked behaviors (see .planning/phases/122-conversation-search-modal/
  * 122-CONTEXT.md decisions):
  *   D-01: Enter is the SOLE trigger for the network call. Typing only
@@ -23,8 +29,6 @@
  *   D-12: Load more increments offset by results.length and appends the
  *         next page.
  *   D-14: Active-result click routes to onOpenActiveConversation + closes.
- *   D-15: Archived-result click fires window.alert with a blunt "coming
- *         soon" message; modal stays open (D-16 unarchiving out of scope).
  *
  * T-122-FE-03 mitigation: load-more button binds `disabled` to isFetching;
  * handler calls beginLoadMore() before the network hop (flips isFetching
@@ -62,7 +66,9 @@ import {
   clearSearch,
   appendResults,
   setError,
+  removeResultByIdentity,
 } from "@/state/search-store";
+import { unarchiveIdentity, UnarchiveError } from "@/api/identity-unarchive-api";
 import { ConversationSearchRow } from "./ConversationSearchRow";
 
 const PAGE_SIZE = 20; // D-12: 20 results per fetch
@@ -157,13 +163,10 @@ export function ConversationSearchModal({
 
   function handleRowClick(result: ConversationSearchResult): void {
     if (result.isArchived) {
-      // D-15: blunt browser alert; modal stays open (D-16 unarchiving OOS).
-      // NOTE: window.alert blocks the JS thread — that's fine for a modal
-      // dead-end, matches the "no soft misdirection" intent in CONTEXT.md.
-      // eslint-disable-next-line no-alert
-      window.alert(
-        "Opening archived conversations isn't wired up yet — coming soon.",
-      );
+      // phase-143 D-11: retired the blunt left-click alert. The kebab-menu Un-archive
+      // path is the sole visible action on archived rows. Left-click on the
+      // row is a no-op — the identity's conversation surface doesn't exist
+      // while archived. See .planning/campaigns/un-archiving/shape-unarchive-frontend-backend.md
       console.info({
         operation: "conversation_search_archived_click",
         identityKey: result.identityKey,
@@ -179,6 +182,60 @@ export function ConversationSearchModal({
     });
     onOpenActiveConversation(result);
     onOpenChange(false);
+  }
+
+  // Phase 143 D-11 / D-16 / D-17 / D-19 — endpoint-first un-archive handler.
+  //
+  // CRITICAL SEQUENCE (CONTEXT.md Risk Summary): the row MUST NOT be removed
+  // until the endpoint returns 200. Do NOT touch store state until resolve.
+  //
+  // On resolve (200): remove the row from results THEN fire the success alert.
+  // On reject: DO NOT touch the results store (row stays — never removed).
+  //   Fire failure alert with distinct copy for missing_roles (D-17 verbatim).
+  //
+  // Modal stays open in all branches (D-19): no onOpenChange(false) call here.
+  async function handleUnarchive(result: ConversationSearchResult): Promise<void> {
+    if (!result.isArchived) return; // defensive guard
+
+    try {
+      // Step 1: call endpoint FIRST — row untouched while request is in flight.
+      await unarchiveIdentity(result.hostId, result.identityKey);
+
+      // Step 2: endpoint returned 200 — now remove the row from the store.
+      removeResultByIdentity(result.hostId, result.identityKey);
+
+      // Step 3: fire success alert (D-16).
+      // eslint-disable-next-line no-alert
+      window.alert(
+        `Un-archiving ${result.identityKey} — it may take a moment to reflect elsewhere in the app.`,
+      );
+    } catch (err) {
+      // Failure path: row was NEVER removed (no restore branch needed —
+      // by construction the row is still present). Fire failure alert (D-17).
+      if (err instanceof UnarchiveError && err.reason === "missing_roles") {
+        // D-17 verbatim: names the still-archived role(s) inline.
+        // eslint-disable-next-line no-alert
+        window.alert(
+          `Un-archive role ${err.missingRoles?.join(", ") ?? "(unknown)"} first — this conversation depends on it.`,
+        );
+      } else if (err instanceof UnarchiveError && err.reason === "name_collision") {
+        // eslint-disable-next-line no-alert
+        window.alert(
+          `Couldn't un-archive ${result.identityKey} — a live conversation with the same key already exists.`,
+        );
+      } else if (err instanceof UnarchiveError && err.reason === "archive_not_found") {
+        // eslint-disable-next-line no-alert
+        window.alert(
+          `Couldn't un-archive ${result.identityKey} — the archive may have already been reactivated. Try again in a moment.`,
+        );
+      } else {
+        // Generic fallback for non-UnarchiveError or unknown reason (D-17).
+        // eslint-disable-next-line no-alert
+        window.alert(
+          `Couldn't un-archive ${result.identityKey} — try again in a moment.`,
+        );
+      }
+    }
   }
 
   // Empty-state gate (D-06): shown only if hasEverOpened is false OR if
@@ -296,6 +353,7 @@ export function ConversationSearchModal({
             key={r.transcriptPath}
             result={r}
             onClick={() => handleRowClick(r)}
+            onUnarchive={r.isArchived ? handleUnarchive : undefined}
           />
         ))}
         {state.hasMore && (
