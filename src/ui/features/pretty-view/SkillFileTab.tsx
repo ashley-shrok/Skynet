@@ -90,32 +90,37 @@ export default function SkillFileTab({
    */
   onDraftChange?: (dirty: boolean) => void;
 }): JSX.Element {
-  // Seed draft from state.data.content at mount time so the underlying
-  // MarkdownEditor (uncontrolled MDXEditor after mount, per Phase 112 D-05)
-  // gets the right content on its FIRST render. Radix TabsContent unmounts
-  // inactive tabs, so switching tabs and switching back remounts this
-  // component; without the mount-time seed, the previous logic (init "" +
-  // useEffect) rendered MDXEditor with empty content on remount and the
-  // subsequent setDraft was ignored because MDXEditor is uncontrolled.
+  // Seed draft from state.data.content and reset it whenever the fetched
+  // mtime changes. Uses the React 18 "derive state during render" pattern
+  // (setState during render → React re-renders synchronously with the new
+  // value) rather than a post-commit useEffect, because MDXEditor is
+  // uncontrolled after mount (Phase 112 D-05) — a useEffect reseed fires
+  // AFTER MDXEditor has already mounted with the stale draft and the
+  // update is ignored. Doing it during render guarantees `draft` holds
+  // the fresh content BEFORE MarkdownEditor's children mount.
+  //
+  // Covers three cases:
+  //   1. First-ever mount with state=loading (draft init ""), then
+  //      state → ready — mtime goes null → number → reset fires, draft
+  //      becomes the fetched content before MarkdownEditor renders.
+  //   2. Tab/file switch that changes activeTab in place (SkillFileTab
+  //      is NOT remounted by SkillsEditorModal — same instance, new
+  //      props) — mtime goes A → B → reset fires.
+  //   3. 409 conflict reload where the parent re-fetches — mtime bumps.
   const [draft, setDraft] = useState<string>(() =>
     state.status === "ready" ? state.data.content : "",
+  );
+  const [lastSeenMtime, setLastSeenMtime] = useState<number | null>(() =>
+    state.status === "ready" ? state.data.mtime : null,
   );
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  // Re-seed draft when mtime changes on the ALREADY-MOUNTED component —
-  // covers the loading→ready transition on first open (before Suspense
-  // resolves the ~1.5MB MDXEditor bundle) and the 409-conflict-reload case
-  // where the parent hands us fresh content on the same mount. Note: this
-  // reseed is a no-op on tab-switch remount because the useState initializer
-  // above already picked up the current content.
-  useEffect(() => {
-    if (state.status === "ready") {
-      setDraft(state.data.content);
-      setSaveError(null);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.status === "ready" ? state.data.mtime : null]);
+  if (state.status === "ready" && state.data.mtime !== lastSeenMtime) {
+    setLastSeenMtime(state.data.mtime);
+    setDraft(state.data.content);
+    setSaveError(null);
+  }
 
   // Fire onDraftContentChange to consumers that own their outer Save button.
   // Guarded on `ready` state — no-op before content loads. Runs after every

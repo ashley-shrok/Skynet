@@ -24,10 +24,12 @@ import type { TabState } from "./IdentityFileTab";
 
 // SkillsEditorModal — cross-host cross-skill multi-file editor.
 //
-// Modal-unification 2026-09-29:
-//   - Shell: <Modal hue={324} blocking={false}> — matches sibling
-//     RunbookEditor (same "content editor multi-file" category, same
-//     read-and-type rationale for keeping composer interactive).
+// Modal-unification 2026-09-29 (revised 2026-09-30 UAT):
+//   - Shell: <Modal hue={324}>. Blocking (proper backdrop + focus trap)
+//     with document.body as the portal target — the earlier "blocking=false"
+//     kept the composer typable but rendered the modal without any dim
+//     behind it, making the whole surface easy to lose against live chat
+//     content. Same retirement as IdentityModal 2026-09-30.
 //   - Head: two rows.
 //     Row 1: title="Skills" (static — this modal browses across skills,
 //     not scoped to one) + close X via <ModalHead>.
@@ -485,8 +487,10 @@ export default function SkillsEditorModal({
       open={open}
       onOpenChange={handleOpenChange}
       hue={324}
-      blocking={false}
       size="xl"
+      // `container` prop still accepted for test injection (see .test.tsx —
+      // 20 sites pass document.body explicitly). Default undefined portals
+      // to document.body naturally.
       container={container ?? undefined}
       className="max-h-[80vh] flex flex-col"
       data-testid="skills-editor-modal"
