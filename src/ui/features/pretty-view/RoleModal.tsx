@@ -37,6 +37,7 @@ import type React from "react";
 import {
   BookOpen,
   ChevronDown,
+  Folder,
   Mic,
   Pencil,
   Users,
@@ -56,6 +57,7 @@ import { RoleFileTab } from "./RoleFileTab";
 import { RunbooksTab } from "./RunbooksTab";
 import { VoicePicker } from "./pickers/VoicePicker";
 import { ColorPicker } from "./pickers/ColorPicker";
+import WorkspaceTab from "./WorkspaceTab";
 import { roleDisplayName } from "@/lib/role-display-name";
 
 // D-05 fallback hue (app accent) — used when the role has no colorHue key.
@@ -64,7 +66,19 @@ const FALLBACK_HUE = 190;
 const NAV_SECTIONS = [
   { value: "role", label: "Role file", Icon: Users },
   { value: "runbooks", label: "Runbooks", Icon: BookOpen },
+  { value: "files", label: "Files", Icon: Folder },
 ] as const;
+
+/**
+ * Names hidden from the Files tab's root listing. The role's own `<slug>.md`
+ * has a dedicated editor on the Role File tab, so surfacing it in Files too
+ * would be a redundant second edit path — hide it here. Frontend-only filter
+ * (backend still returns it if hit directly); this is a UX affordance, not an
+ * access control.
+ */
+function filesTabHiddenNames(roleName: string): readonly string[] {
+  return [`${roleName}.md`];
+}
 
 /**
  * Merge cosmetic drafts into the frontmatter block of the current role
@@ -610,6 +624,24 @@ export function RoleModal({
             hostId={hostId}
             roleName={roleName}
             onOpenRunbook={onOpenRunbook}
+          />
+        </TabsContent>
+
+        {/* Files tab — parallels IdentityModal's Files tab. WorkspaceTab
+            owns its own padding + scroll, so we drop the parent's
+            overflow-y-auto/px/py in favor of overflow-hidden flex flex-col.
+            Role scope: target points at ~/fleet/roles/<slug>/, hiddenNames
+            hides the role file itself (edited on the Role file tab). */}
+        <TabsContent
+          value="files"
+          className="flex-1 min-h-0 overflow-hidden flex flex-col"
+        >
+          <WorkspaceTab
+            target={{ kind: "role", roleSlug: roleName }}
+            hostId={hostId}
+            hue={hue}
+            hiddenNames={filesTabHiddenNames(roleName)}
+            introCopy="Files inside this role's folder — reference material, runbooks, per-role standing knowledge. Every identity holding this role sees the same set."
           />
         </TabsContent>
       </Tabs>

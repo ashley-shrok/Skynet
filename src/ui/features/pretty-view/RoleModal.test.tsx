@@ -157,18 +157,21 @@ afterEach(() => {
 });
 
 describe("RoleModal — Phase 90 Plan 90-04 Task 3", () => {
-  it("Test A: renders 2 tabs — Role file / Runbooks; default active tab = 'role'", () => {
+  it("Test A: renders 3 tabs — Role file / Runbooks / Files; default active tab = 'role'", () => {
     renderModal();
 
-    // Bottom nav bar renders 2 buttons. Phase 134 Plan 134-02 retired the
-    // role-wakeups tab; Phase 136 retired the bounties tab.
+    // Bottom nav bar renders 3 buttons. Phase 134 Plan 134-02 retired the
+    // role-wakeups tab; Phase 136 retired the bounties tab; the Files tab
+    // was added to mirror IdentityModal — role folder scope, role file
+    // hidden from listing (edited via the dedicated Role file tab).
     const navButtons = document
       .querySelector(".shrink-0.flex.items-stretch")
       ?.querySelectorAll("button");
     expect(navButtons).toBeDefined();
-    expect(navButtons!.length).toBe(2);
+    expect(navButtons!.length).toBe(3);
     expect(navButtons![0].textContent).toContain("Role file");
     expect(navButtons![1].textContent).toContain("Runbooks");
+    expect(navButtons![2].textContent).toContain("Files");
 
     // Default active TabsContent id ends in "content-role" (Radix pattern).
     const tabPanels = document.querySelectorAll('[role="tabpanel"]');

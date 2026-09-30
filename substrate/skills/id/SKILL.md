@@ -745,10 +745,20 @@ not something agents drive.
     etc.).
 
 - **Role modal (jump to via the identity modal header, or from the
-  drama-masks header icon → roles → click a role).** Two tabs:
+  drama-masks header icon → roles → click a role).** Three tabs:
   - **Role file** — view and edit the role's own `<role>.md`.
   - **Runbooks** — list the role's runbooks; click one to open the
     runbook editor.
+  - **Files** — full explorer over the role folder
+    (`~/fleet/roles/<slug>/`): reference material, runbooks, per-role
+    standing knowledge, whatever else lives there. Same browse /
+    download / upload / create / rename / delete affordances as the
+    identity Files tab. The role file itself (`<slug>.md`) is hidden
+    from the root listing — its dedicated editor lives on the Role
+    file tab and having a second edit path would be a redundant lie.
+    Everything else in the folder shows up as-is, including
+    credential JSONs and plumbing subfolders; the modal is admin-only
+    and the exposure surface is the same as SSH access to the box.
 
 - **Context meter (above the compose box).** Shows how full the agent's
   context window is — the same "runway left" the agent's own
