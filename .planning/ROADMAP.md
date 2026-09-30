@@ -3035,3 +3035,13 @@ Plans:
 - [x] 142-03-PLAN.md — `mobile-audit.test.sh` automated grep-audit of all 12 templates for viewport meta, ≥44px targets, no overflow-x hacks, postMessage-origin discipline, no streaming; wired into `run-all.sh` (Wave 2)
 - [x] 142-04-PLAN.md — SKILL.md per-template `**Mobile:**` caveats + rewrite `## Phase 141 limits` → `## Live constraints` with arc-complete note (Wave 2)
 
+
+### Phase 143: Un-archive frontend + backend: three POST endpoints with preconditions, three GET list endpoints, new archived-apps modal + archived-roles collapsed section in roles modal + kebab menu on rows for un-archive in conversation search, always-visible kebab-menu affordance replacing right-click on affected modals, id-skill edits
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 142
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 143 to break down)
