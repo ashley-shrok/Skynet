@@ -113,3 +113,66 @@ Load-bearing spike executed against the live t1000 Synapse (2026-09-30). Registe
 
 **Follow-up hook:** if a room-inventory rejoin becomes desirable, it would land as a small dedicated shape (retire captures joined_rooms → un-archive scanner reads the snapshot and force-joins each via admin `/join/{roomId}?user_id=<mxid>` — the primitive already exists in `matrix-admin-client.ts` as `joinRoom`). Small enough for `/gsd:quick` when the need surfaces.
 
+---
+
+## Close-Out
+
+**Closed:** 2026-09-30
+**Vehicle used:** inline (single session, 6-commit stack on feat/tab-title-from-tmux)
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **What this is — three per-type scanners in supervisor reconcile tick + fold-in of restore-app.sh** — present · Three scan_{identity,role,app}_unarchive_requested_sentinels functions in agent-supervisor.sh, all wired into reconcile() right after the archive-side scanners; restore-app.sh deleted from the skill and stripped from catalog.ts.
+- **Shape — Identity scanner pre-flight 1 (name collision refuse + sentinel delete)** — present · Explicit if [ -e "$IDENTITIES_DIR/$name" ] branch with LOUD ERROR log and sentinel delete; test_identity_name_collision_refuses covers it.
+- **Shape — Identity scanner pre-flight 2 (roles-all-live, multi-role YAML shapes)** — present · _extract_frontmatter_roles handles scalar / flow / block YAML via inline python3 (no PyYAML dep). LOUD log names all missing roles. Five parser unit tests + happy-path tests across all three shapes.
+- **Shape — Identity scanner step 1 (Matrix reactivate with 3-attempt exp backoff, idempotent 200)** — present · PUT /_synapse/admin/v2/users/{mxid} with deactivated=false, retries on 5xx/network, aborts on 4xx with sentinel retained; test_identity_reactivate_5xx_transient_recovers + test_identity_reactivate_4xx_permanent_retains_sentinel cover it.
+- **Shape — Identity scanner step 2 (fresh access-token mint via admin login-as-user)** — present · POST /_synapse/admin/v1/users/{mxid}/login, same retry shape as step 1, extracts .access_token from response body.
+- **Shape — Identity scanner step 3 (atomic relay.json rewrite tmp+rename)** — present · jq to tmp file, then mv; password/base/user_id preserved; test_identity_happy_path_scalar_role asserts fresh-tok-1 replaces stale-tok-alpha in both access_token and token alias fields.
+- **Shape — Identity scanner step 4 (conditional .dormant preserving pre-archive .no-dormancy)** — present · Explicit branch on [ -f "$d/.no-dormancy" ]; test_identity_no_dormancy_preserved verifies .dormant is NOT written when .no-dormancy is set.
+- **Shape — Identity scanner steps 5+6 (sentinel delete BEFORE mv archive→live)** — present · rm -f "$d/.unarchive-requested" precedes mv, mirroring archive-side ordering discipline; docblock explicitly names the mid-flight edge case.
+- **Shape — Role scanner (folder-mv only, no cascade)** — present · Pre-flight name collision refuse; body = rm sentinel + mv archive→live; explicit test_role_no_cascade_to_identities proves retired identities stay retired.
+- **Shape — App scanner (fold-in of restore-app.sh)** — present · Pre-flights (live-folder / unit-file collision, missing stash, stash-without-PORT), under APP_CREATE_LOCK flock -x 30s: port collision check → sentinel delete → mv → cp unit + rm stash; outside lock: best-effort daemon-reload / enable+start / is-active WARN.
+- **Shape — Retry semantics (transient retains sentinel, permanent deletes with LOUD)** — present · 3-attempt exponential backoff on 5xx/network for the two Matrix curls; 4xx aborts with sentinel retained (operator resolves); permanent-refuse pre-flights delete sentinel with LOUD ERROR log.
+- **Shape — Ordering discipline (sentinel-delete between committed and done)** — present · All three scanners delete the sentinel before the mv, mirroring the archive scanner's step-4a-before-4b discipline; docblocks name the crash-between-delete-and-mv edge case as accepted.
+- **Philosophy — symmetric with archive, reuses .dormant, no new sentinels** — present · Only .dormant is written; no .dormant-hold or .no-auto-start invented. Un-archived identity comes back dormant, wakes on DM or schedule via existing machinery.
+- **Philosophy — fold-in consolidates authority for un-archiving apps into the supervisor** — present · restore-app.sh deleted from skill folder, entry stripped from distributor catalog.ts, SKILL.md's three mentions repointed at the sentinel-drop gesture, archive-app.sh header + tail log messages repointed.
+- **Prior context — matrix curls mirror retire path's admin-API shape** — present · Same 3-attempt backoff structure and http-code case handling as the existing retire step-1 code path.
+- **Scope IN — three scanners in reconcile loop** — present · All three invocations added to reconcile() at agent-supervisor.sh:3191-3193.
+- **Scope IN — matrix reactivate + token mint bash curls** — present · Present in scan_identity_unarchive_requested_sentinels.
+- **Scope IN — multi-role frontmatter parsing in bash via Python inline** — present · _extract_frontmatter_roles uses embedded python3 (stdlib only, no PyYAML).
+- **Scope IN — fold-in of app-restore + deletion + catalog strip + SKILL.md grep-and-strip** — present · All four cleanup targets edited in commit 44f715f2; remaining mentions are breadcrumbs pointing at the successor.
+- **Scope IN — supervisor tests using scratch-dir env-override pattern** — present · 27 tests in agent-supervisor-unarchive.test.sh use AGENT_IDENTITIES_ARCHIVE_DIR + AGENT_ROLES_ARCHIVE_DIR + AGENT_APPS_ARCHIVE_DIR + AGENT_SYSTEMCTL_BIN + AGENT_APP_CREATE_LOCK + AGENT_MATRIX_ADMIN_CREDS_PATH. All 27 pass; 71 archive-scan tests still pass.
+- **Scope IN — Matrix reactivation fidelity spike** — present · Live-fleet spike executed against t1000 Synapse (2026-09-30); results + accepted caveat documented in shape doc § Matrix fidelity spike; option A (rejoin path) explicitly rejected, option B (accept the caveat) taken.
+- **Scope OUT — no POST endpoints / route tests** — present · src/backend/database/routes/*.ts and src/ui/api/*.ts only contain comment updates pointing at shape 2 as the follow-up; no new endpoint code.
+- **Scope OUT — no per-type primitive extensions to write sentinels from backend** — present · No new backend primitives added.
+- **Scope OUT — no frontend affordances for un-archive** — present · No UI code changed.
+- **Scope OUT — no id-skill edits documenting user-facing affordance** — present · The app-development SKILL.md was edited (in scope, for the app-restore fold-in), but the id skill was not.
+- **Scope OUT — no cascading un-archive (role does NOT touch identities)** — present · test_role_no_cascade_to_identities proves it explicitly.
+- **Scope OUT — no workspace re-clone** — present · Identity scanner does not touch workspace/ contents; the folder moves back as-is from archive.
+- **Scope OUT — no fix of archive-side scalar-only cascade bug** — present · No touch on scan_role_archive_requested_sentinels; the adjacent bug remains as noted.
+- **Tempting but no — no /id unarchive slash-command** — present · No slash-command added; agents drop the sentinel directly per shape decision.
+- **Tempting but no — no new dormancy sentinel invented** — present · Only .dormant is used; no .dormant-hold / .no-auto-start.
+- **What would make it wrong: un-archived identity auto-launches before user pings** — present · The scanner writes .dormant (unless .no-dormancy was pre-existing) then mv's; no drive/launch call is made. Identity waits for matrix_peek or schedule_peek to fire.
+- **What would make it wrong: role un-archive auto-un-archives cascaded identities** — present · Role scanner body is exactly rm sentinel + mv; no identity work; test_role_no_cascade_to_identities is a direct guard.
+- **What would make it wrong: pre-flight and scanner disagree on stale snapshot** — present · Both pre-flights and body read directly from disk; no snapshot passing between layers.
+- **What would make it wrong: matrix reactivate succeeds but token refresh doesn't, and mv proceeds** — present · Step 2 failure exits with `continue` (sentinel retained); mv is only reached after both step 1 and step 2 succeed.
+- **What would make it wrong: reactivation loses room memberships and shape doesn't compensate** — drifted · The fidelity spike (2026-09-30, live t1000 Synapse) confirmed rooms do NOT survive. Shape doc explicitly documents this as accepted caveat (option B); option A (rejoin snapshot at retire) rejected as scope creep; follow-up hook documented for a small future shape. Drift is documented and endorsed by the shape doc itself.
+- **What would make it wrong: app scanner mv's folder but unit uninstalled or inactive** — present · Locked-sequence exit codes 44/45 log ERROR when mv or cp fail; post-lock daemon-reload / enable+start / is-active check log WARN on failure; unit install is inside the flock, not best-effort.
+- **What would make it wrong: mid-flight sentinel delete without mv completing** — present · All three scanners handle this via LOUD error log when the mv fails after sentinel delete; the docblock names the operator-retry gesture (drop a fresh .unarchive-requested).
+- **What would make it wrong: .no-dormancy silently downgraded on un-archive** — present · Step 4 explicitly branches on [ -f "$d/.no-dormancy" ] and logs "always-on intent preserved"; test_identity_no_dormancy_preserved verifies the preservation.
+
+### Additions (in the result, not in the shape)
+
+None.
+
+### Follow-ups
+
+- Room-inventory rejoin path (retire captures joined_rooms → un-archive scanner reads snapshot and force-joins via admin /join/{roomId}?user_id=<mxid> — matrix-admin-client.ts joinRoom primitive already exists) — small dedicated shape when peer stale-cache trouble becomes user-visible — new-shape
+- Shape 2 (backend + frontend): three POST endpoints + per-type sentinel-write primitives + UI affordances for un-archive + id-skill edits — opens as separate /build session against shape-unarchive-frontend-backend when this shape is deployed — new-shape
+- Archive-side scalar-only role cascade (multi-role identities can escape the cascade today) — noted in the shape as "not remediated here"; separate bug to address — deferred
+
+### Notes
+
+All 27 un-archive tests pass; all 71 archive-scan tests still pass (verified by running both suites at review time). Two design-lock tests were removed from the archive-scan driver (D-12 no _synapse/admin, D-16 no unarchive keywords) — both were explicit inverses of this shape's declared purpose; removals are documented in-place with pointers to the shape doc, and the retire-uses-client-not-admin invariant remains covered by the dynamic retire tests. Restore-app.sh is fully deleted from the skill; catalog.ts entry stripped with a breadcrumb; SKILL.md's three restore references now point at the sentinel-drop gesture; archive-app.sh log line points at the same gesture; apps-archive.ts + apps-archive-api.ts comments repointed at shape 2. The identity scanner's inline docblock carries the accepted room-membership caveat where the code lives — a considered choice for future maintainers. Env-overridable SYSTEMCTL_BIN / SYSTEMD_UNIT_DIR / APP_CREATE_LOCK were added purely to make the app scanner testable via the scratch-dir pattern the shape mandated; production defaults are unchanged.
+
