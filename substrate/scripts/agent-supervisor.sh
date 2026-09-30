@@ -3172,6 +3172,9 @@ reconcile() {
   scan_archive_requested_sentinels                 # Phase 115 D-10: user-initiated archive-scan (every tick, no gate, bypasses .pinned/.no-dormancy/coordinator/freshness)
   scan_role_archive_requested_sentinels            # Phase 133 D-01/D-05: user-initiated ROLE archive (every tick, no gate, cascades retire_identity per D-08, moves role folder per D-09 if all-clean)
   scan_app_archive_requested_sentinels             # app-archive shape: user-initiated APP archive (every tick, invokes archive-app.sh from the app-development skill on any folder carrying .archive-requested)
+  scan_identity_unarchive_requested_sentinels      # un-archive host-side shape: user-initiated identity UN-archive (matrix reactivate + fresh token + .dormant + mv archive→live)
+  scan_role_unarchive_requested_sentinels          # un-archive host-side shape: user-initiated role UN-archive (folder mv only, no identity cascade)
+  scan_app_unarchive_requested_sentinels           # un-archive host-side shape: user-initiated app UN-archive (folded-in restore-app.sh: port-collision check under create-lock, mv archive→live, systemd reinstall + enable+start)
   resolve_identities
   snapshot_schedule_peek                           # one python subprocess per tick over the fleet; schedule_peek reads from SCHEDULE_PEEK_SNAPSHOT. MUST run AFTER resolve_identities (needs IDENTITIES populated).
   snapshot_matrix_peek                             # parallel curls (default -P 20) to Matrix homeservers for all dormant identities; matrix_peek_cached reads from MATRIX_PEEK_SNAPSHOT.
