@@ -727,17 +727,20 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     restartHook: null,
   },
 
-  // --- interactive-messages skill (63 rows: SKILL.md + create-widget.sh +
-  // teardown-widget.sh + 12 template folders × 5 files each = 60 template
-  // files). The interactive-messages arc (Phase 138-142, shipped 2026-09-27)
-  // introduced the folder root `~/fleet/interactive-messages/` and a Claude-
-  // Code skill agents invoke to scaffold poll/checklist/form/ranking/
-  // list-actions/color-picker widgets in terminal or non-terminal modes. The
-  // GC trio (script + service + timer) was already in the catalog above; the
-  // skill payload itself was omitted at ship time and is being backfilled
-  // here. GC's teardown shell-out to `~/.claude/skills/interactive-messages/
-  // teardown-widget.sh` depends on this block. No restart hook — skills are
-  // read at /id load time; new bytes land on the identity's next recycle.
+  // --- interactive-messages skill (69 rows: SKILL.md + create-widget.sh +
+  // teardown-widget.sh + iterate-widget.sh + 13 template folders × 5 files
+  // each = 65 template files). The interactive-messages arc (Phase 138-142,
+  // shipped 2026-09-27) introduced the folder root
+  // `~/fleet/interactive-messages/` and a Claude-Code skill agents invoke
+  // to scaffold poll/checklist/form/ranking/list-actions/color-picker
+  // widgets in terminal or non-terminal modes. A subsequent ship
+  // (2026-09-29) added the draft-terminal-on-submit template (7th family)
+  // and iterate-widget.sh helper. The GC trio (script + service + timer)
+  // was already in the catalog above; the skill payload itself was
+  // backfilled 2026-09-28 and extended 2026-09-30. GC's teardown shell-out
+  // to `~/.claude/skills/interactive-messages/teardown-widget.sh` depends
+  // on this block. No restart hook — skills are read at /id load time;
+  // new bytes land on the identity's next recycle.
   {
     slug: "interactive-messages-skill",
     sourceKind: "bundled",
@@ -759,11 +762,21 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     installPath: "~/.claude/skills/interactive-messages/teardown-widget.sh",
     restartHook: null,
   },
-  // Templates: 12 folders × 5 files each. Each folder ships args.sh (arg
+  {
+    slug: "interactive-messages-iterate-widget",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/iterate-widget.sh",
+    installPath: "~/.claude/skills/interactive-messages/iterate-widget.sh",
+    restartHook: null,
+  },
+  // Templates: 13 folders × 5 files each. Each folder ships args.sh (arg
   // parser), im-SLUG.service.template (systemd unit template with SLUG
   // marker substituted at create-widget-time), metadata.json.template,
-  // server.py (widget HTTP server), and widget.html (frontend). Six
-  // template families × two submit modes = 12 combos.
+  // server.py (widget HTTP server), and widget.html (frontend). Seven
+  // template families across three modes = 13 combos (poll and
+  // color-picker are terminal-on-click + non-terminal; checklist, form,
+  // ranking, list-actions are terminal-on-submit + non-terminal; draft is
+  // terminal-on-submit only).
   {
     slug: "im-tpl-checklist-non-terminal-args",
     sourceKind: "bundled",
@@ -902,6 +915,41 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     sourceKind: "bundled",
     bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/color-picker-terminal-on-click/widget.html",
     installPath: "~/.claude/skills/interactive-messages/templates/color-picker-terminal-on-click/widget.html",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-draft-terminal-on-submit-args",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/draft-terminal-on-submit/args.sh",
+    installPath: "~/.claude/skills/interactive-messages/templates/draft-terminal-on-submit/args.sh",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-draft-terminal-on-submit-service",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/draft-terminal-on-submit/im-SLUG.service.template",
+    installPath: "~/.claude/skills/interactive-messages/templates/draft-terminal-on-submit/im-SLUG.service.template",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-draft-terminal-on-submit-metadata",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/draft-terminal-on-submit/metadata.json.template",
+    installPath: "~/.claude/skills/interactive-messages/templates/draft-terminal-on-submit/metadata.json.template",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-draft-terminal-on-submit-server",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/draft-terminal-on-submit/server.py",
+    installPath: "~/.claude/skills/interactive-messages/templates/draft-terminal-on-submit/server.py",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-draft-terminal-on-submit-widget",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/draft-terminal-on-submit/widget.html",
+    installPath: "~/.claude/skills/interactive-messages/templates/draft-terminal-on-submit/widget.html",
     restartHook: null,
   },
   {

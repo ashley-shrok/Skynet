@@ -32,7 +32,7 @@ function bundledPathToRepoPath(bundledPath: string): string {
 }
 
 describe("FLEET_SUBSTRATE_CATALOG", () => {
-  it("Test 1: contains exactly 120 entries (17 conceptual items + agent-supervisor.service unit + role-file-watch fourth ambient monitor + fleet-status-sweep Phase 92 + pv-context-pct-sweep Phase 95 + ambient-monitor mega-monitor phase + instance-policy-claude-md Phase 114 twinkie + image-gen-skill + image-gen-helper Phase 116 + 25 app-development shape-1 rows (26 originally; favicon.svg row retired 2026-09-28 when the scaffold switched to a static/icon.webp symlink) + task-field-check hook + 3 rows for interactive-messages-gc (Phase 140: .py script + .service unit + .timer unit) + 63 rows for interactive-messages skill payload (SKILL.md + create-widget.sh + teardown-widget.sh + 60 template files across 12 folders, backfilled 2026-09-28))", () => {
+  it("Test 1: contains exactly 126 entries (17 conceptual items + agent-supervisor.service unit + role-file-watch fourth ambient monitor + fleet-status-sweep Phase 92 + pv-context-pct-sweep Phase 95 + ambient-monitor mega-monitor phase + instance-policy-claude-md Phase 114 twinkie + image-gen-skill + image-gen-helper Phase 116 + 25 app-development shape-1 rows (26 originally; favicon.svg row retired 2026-09-28 when the scaffold switched to a static/icon.webp symlink) + task-field-check hook + 3 rows for interactive-messages-gc (Phase 140: .py script + .service unit + .timer unit) + 69 rows for interactive-messages skill payload (SKILL.md + create-widget.sh + teardown-widget.sh + iterate-widget.sh + 65 template files across 13 folders, backfilled 2026-09-28 + draft template + iterate-widget added 2026-09-30))", () => {
     // 17 = 6 single-file skills + agent-relay (SKILL.md + recv.sh counted as
     // one item) + id (SKILL.md + 3 companions counted as one item) + 8 helper
     // scripts + 1 mega-monitor launcher (ambient-monitor) + 1 Phase 114 twinkie
@@ -78,13 +78,16 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // .planning/shapes/shape-stop-self-edit-events.md).
     // +3 rows for interactive-messages-gc (Phase 140: seven-day backstop):
     // interactive-messages-gc .py script + .service unit + .timer unit.
-    // +63 rows for the interactive-messages skill payload (backfilled
-    // 2026-09-28): SKILL.md + create-widget.sh + teardown-widget.sh + 60
-    // template files (12 template folders × 5 files each: args.sh,
-    // im-SLUG.service.template, metadata.json.template, server.py,
-    // widget.html). Skill lands at ~/.claude/skills/interactive-messages/
-    // on every managed host; GC's teardown shell-out depends on it.
-    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(120);
+    // +69 rows for the interactive-messages skill payload (backfilled
+    // 2026-09-28, extended 2026-09-30): SKILL.md + create-widget.sh +
+    // teardown-widget.sh + iterate-widget.sh + 65 template files (13
+    // template folders × 5 files each: args.sh, im-SLUG.service.template,
+    // metadata.json.template, server.py, widget.html). Skill lands at
+    // ~/.claude/skills/interactive-messages/ on every managed host; GC's
+    // teardown shell-out depends on it. The 13th template folder
+    // (draft-terminal-on-submit) + iterate-widget.sh landed 2026-09-30
+    // alongside the draft-template ship.
+    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(126);
   });
 
   it("Test 2: every bundled row's bundledPath starts with /app/fleet-substrate/skills/, /app/fleet-substrate/scripts/, or /app/fleet-substrate/user-onboarding/", () => {
@@ -187,10 +190,11 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // icon.webp so the browser tab favicon matches the sidebar tile)
     // +5 for pane-safe starter files (see Test 1 comment) — 31 → 36.
     // +1 for agent-phone (SKILL.md) — 36 → 37.
-    // +63 for the interactive-messages skill payload backfilled 2026-09-28
-    // (SKILL.md + create-widget.sh + teardown-widget.sh + 60 template files
-    // across 12 folders) — 37 → 100.
-    expect(skillRows.length).toBe(100);
+    // +69 for the interactive-messages skill payload (SKILL.md +
+    // create-widget.sh + teardown-widget.sh + iterate-widget.sh + 65
+    // template files across 13 folders — backfilled 2026-09-28; draft
+    // template + iterate-widget added 2026-09-30) — 37 → 106.
+    expect(skillRows.length).toBe(106);
     // 16 helper scripts: agent-supervisor + wakeup-scheduler + context-watch +
     // role-file-watch (4th ambient monitor) + usage-reporter + usage-report
     // (distributor-shipped node POSTer — install-usage-reporter.sh was
@@ -316,6 +320,57 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     expect(timer?.restartHook).toBeNull();
   });
 
+  it("Test 10: draft-terminal-on-submit template (2026-09-30) + iterate-widget.sh are present in catalog", () => {
+    // Regression guard for the 2026-09-30 draft-template ship. The commit
+    // that added `substrate/skills/interactive-messages/templates/draft-
+    // terminal-on-submit/` (5 files) + `iterate-widget.sh` initially forgot
+    // to register these in the distributor catalog, so the sweep pushed the
+    // updated SKILL.md (which documents draft as the 7th template) but
+    // never pushed the template folder or the helper — every fleet box
+    // had a broken create-widget.sh --template draft.
+    const slugs = FLEET_SUBSTRATE_CATALOG.map((e) => e.slug);
+
+    // iterate-widget.sh alongside create-widget / teardown-widget.
+    expect(slugs).toContain("interactive-messages-iterate-widget");
+    const iterate = FLEET_SUBSTRATE_CATALOG.find(
+      (e) => e.slug === "interactive-messages-iterate-widget",
+    );
+    expect(iterate?.bundledPath).toBe(
+      "/app/fleet-substrate/skills/interactive-messages/iterate-widget.sh",
+    );
+    expect(iterate?.installPath).toBe(
+      "~/.claude/skills/interactive-messages/iterate-widget.sh",
+    );
+    expect(iterate?.restartHook).toBeNull();
+
+    // All 5 files of the draft-terminal-on-submit template.
+    const draftFiles = [
+      "args",
+      "service",
+      "metadata",
+      "server",
+      "widget",
+    ];
+    for (const f of draftFiles) {
+      const slug = `im-tpl-draft-terminal-on-submit-${f}`;
+      expect(slugs, `missing catalog entry: ${slug}`).toContain(slug);
+      const entry = FLEET_SUBSTRATE_CATALOG.find((e) => e.slug === slug);
+      expect(
+        entry?.bundledPath.startsWith(
+          "/app/fleet-substrate/skills/interactive-messages/templates/draft-terminal-on-submit/",
+        ),
+        `bad bundledPath for ${slug}`,
+      ).toBe(true);
+      expect(
+        entry?.installPath.startsWith(
+          "~/.claude/skills/interactive-messages/templates/draft-terminal-on-submit/",
+        ),
+        `bad installPath for ${slug}`,
+      ).toBe(true);
+      expect(entry?.restartHook).toBeNull();
+    }
+  });
+
   it("Test T-07: sourceKind discriminant — bundled + runtime row split (Phase 114 D-22 + Phase 116 additions + task-field-check + allow-all-tools + agent-phone + pane-safe starter + 25 app-development rows + self-edit-baseline-sync + Phase 140 interactive-messages-gc trio)", () => {
     // Regression guard for Phase 114 D-12 + D-14: the catalog is a
     // discriminated union on sourceKind. Phase 116 added 2 bundled rows
@@ -340,10 +395,11 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // +1 for allow-all-tools helper — 52 → 53.
     // +1 for self-edit-baseline-sync helper — 53 → 54.
     // +3 for interactive-messages-gc (Phase 140: script + .service + .timer) — 54 → 57.
-    // +63 for the interactive-messages skill payload (SKILL.md + 2 top-level
-    // scripts + 60 template files) backfilled 2026-09-28 — 57 → 120.
-    // -1 for the favicon.svg row retired 2026-09-28 — 120 → 119.
-    expect(bundled.length).toBe(119);
+    // +69 for the interactive-messages skill payload (SKILL.md + 3 top-level
+    // scripts + 65 template files) — backfilled 2026-09-28, extended
+    // 2026-09-30 (draft template + iterate-widget.sh) — 57 → 126.
+    // -1 for the favicon.svg row retired 2026-09-28 — 126 → 125.
+    expect(bundled.length).toBe(125);
     expect(runtime.length).toBe(1);
 
     // Every bundled row retains bundledPath under /app/fleet-substrate/
