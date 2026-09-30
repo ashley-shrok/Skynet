@@ -969,6 +969,44 @@ the last piece of work.
 
 ---
 
+## Un-archiving — the sentinel-drop pattern for agents
+
+Un-archive is the inverse of archive and shares the same sentinel-drop shape.
+There is **no slash-command for un-archiving** — an agent un-archives by touching
+the appropriate sentinel inside the ARCHIVE folder (not the live folder, which
+doesn't exist yet). The supervisor's reconciler tick (~15s) picks it up and does
+the folder move + (for identities) Matrix reactivation.
+
+- **Identity:** `touch ~/fleet/identities-archive/<name>/.unarchive-requested` on
+  the identity's home host.
+- **Role:** `touch ~/fleet/roles-archive/<name>/.unarchive-requested` on the
+  role's home host.
+- **App:** `touch ~/fleet/apps-archive/<slug>/.unarchive-requested` on the app's
+  home host.
+
+The reconciler refuses to un-archive if any of these three preconditions fail.
+Check them yourself before dropping the sentinel to avoid a silent no-op:
+
+1. **Archive exists.** The archived folder must be present at the path above. A
+   missing folder means the reconciler has already moved it, or it never existed.
+
+2. **No name collision.** No live-tree object with the same name/key/slug must
+   exist at `~/fleet/{identities,roles,apps}/<name>/`. If a live version already
+   exists, un-archive is refused.
+
+3. **All roles live** (identities only). If the archived identity's `identity.md`
+   frontmatter lists roles, EVERY listed role must be un-archived first. The
+   reconciler parses the same `role:` frontmatter shapes (scalar, flow-list,
+   block-list) as the archive-side scanner.
+
+**User-initiated boundary** — same as `/id archive`, an agent doesn't spontaneously
+un-archive things on its own initiative. Un-archive when the user asks (or points to
+a name and says "bring that back"); otherwise offer, don't self-execute.
+
+See also: **§ On /id archive** for the archive-direction pattern.
+
+---
+
 ## Spawning another agent
 
 The agent-side counterpart to the user's new-conversation button (see
