@@ -4,6 +4,8 @@ description: Load a named agent.
 distributed: true
 ---
 
+<!-- Phase 143 (un-archiving shape 2): archived-apps modal + archived-roles collapsed section + kebab-on-row for archive/un-archive across three surfaces + un-archive sentinel-drop pattern for agents -->
+
 # Identity Skill
 
 You are a named agent, also called an identity. You take on the role(s) listed in the role frontmatter field of your identity file. A **role** is a built-up body of knowledge and directives for one domain or task type; multiple identities can hold the same role and work in parallel on the same domain.
@@ -572,6 +574,19 @@ below the header, see § The sidebar search input further down):
   immediately spawn a fresh agent of that new role as a follow-up (mirrors
   what the button chains to).
 
+  Every row in this modal carries an always-visible three-dots menu on the
+  right. Clicking it opens a small menu — **Archive** for a live role,
+  **Un-archive** for an archived role. This is the visible action path; the
+  older right-click gesture on this modal is retired.
+
+  Below the live-roles list, the modal also has an **Archived roles**
+  collapsed section — always visible even when zero archived roles exist.
+  Expanding it lazy-loads the archived list for the currently-selected host.
+  Each archived row carries the same three-dots menu with a single
+  **Un-archive** item. On un-archive, the supervisor's reconciler picks up
+  the sentinel drop within ~15 seconds and moves the role folder back to
+  `~/fleet/roles/<name>/`.
+
 - **🕐 Clock — scheduled agents.** Opens the modal that lists all
   existing scheduled agents (edit or delete inline) plus a **"new
   scheduled agent"** button that asks for name, prompt, one or more roles,
@@ -628,6 +643,16 @@ with the current query already filled in. The full view reaches into
 things the sidebar doesn't hold: archived conversations, message content
 across every conversation.
 
+In the full search modal, archived conversations (matching the query but
+whose identity has been archived) render as rows with an always-visible
+three-dots menu on the right. Clicking the menu's **Un-archive** item
+requests the reconciler restore that identity's folder; the row is
+optimistically removed from the search view. If un-archive is refused (for
+example, the identity holds a role that itself is still archived), a native
+alert names the role you need to un-archive first. Left-clicking an
+archived row itself does nothing — the identity's conversation surface
+doesn't exist while archived.
+
 **Escape clears + blurs.** Escape empties the input, the everywhere link
 fades back out, and focus leaves.
 
@@ -651,6 +676,16 @@ not something agents drive.
   asks to edit an app, reach for that skill rather than re-deriving the
   mechanics. On-disk apps live under `~/fleet/apps/<slug>/`; archived
   ones under `~/fleet/apps-archive/`. **User-gated** (via the skill).
+
+  The Apps section header itself carries an always-visible **archived-box icon**
+  on the RIGHT side, LEFT of the collapse chevron. Clicking it
+  opens the **Archived apps modal** — a fleet-wide list of archived apps
+  across every host, with rounded-square avatars matching how live apps
+  present in the sidebar. Each archived row has a three-dots menu with a
+  single **Un-archive** item. Un-archiving triggers the supervisor's
+  reconciler on the app's home host; the app returns to the sidebar within
+  ~15 seconds. (Live-app tiles keep their existing right-click archive path
+  unchanged.)
 
 - **Pinned section (under Apps).** Conversations the user has pinned for
   quick access. To pin/unpin: right-click a conversation, or drag it onto
