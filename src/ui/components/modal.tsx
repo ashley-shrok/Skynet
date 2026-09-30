@@ -51,14 +51,19 @@ import { cn } from "@/lib/utils";
 
 type ModalSize = "sm" | "md" | "lg" | "xl" | "list" | "settings";
 
+// Sizes apply on `sm:` (≥640px viewport) and up. Below the breakpoint every
+// modal fills the viewport regardless of size (mobile takeover — see the
+// container className in the Modal component). `flex flex-col` is applied
+// at the container level so head/foot pin and body scrolls in every modal,
+// not just list/settings.
 const SIZE_CLASSES: Record<ModalSize, string> = {
-  sm: "max-w-[340px]",
-  md: "max-w-[400px]",
-  lg: "max-w-[520px]",
-  xl: "max-w-[640px]",
-  // Structural variants — same anatomy, different container proportions.
-  list: "max-w-[440px] h-[520px] flex flex-col",
-  settings: "max-w-[640px] h-[480px] flex flex-col",
+  sm: "sm:max-w-[340px]",
+  md: "sm:max-w-[400px]",
+  lg: "sm:max-w-[520px]",
+  xl: "sm:max-w-[640px]",
+  // Structural variants — pin a fixed desktop height as well.
+  list: "sm:max-w-[600px] sm:h-[520px]",
+  settings: "sm:max-w-[640px] sm:h-[480px]",
 };
 
 // ─── Modal (root) ────────────────────────────────────────────────────────
@@ -169,11 +174,20 @@ function Modal({
             blockEsc ? (e) => e.preventDefault() : undefined
           }
           className={cn(
-            "fixed left-1/2 top-1/2 z-50 w-full -translate-x-1/2 -translate-y-1/2",
+            // Positioning + shape. Mobile (<640px): fills viewport — every
+            // modal is a full-screen takeover, head/foot pinned, body scrolls.
+            // Desktop (sm:+): centered floating card with a max-width band
+            // (SIZE_CLASSES) and a universal max-h-[85vh] cap so content
+            // never overflows the browser window (body scrolls when tall).
+            // Flex-col at the container level so head/foot pin and body
+            // takes the middle in EVERY modal, not just list/settings.
+            "fixed inset-0 z-50 flex flex-col",
+            "sm:inset-auto sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2",
+            "sm:w-full sm:h-auto sm:max-h-[85vh]",
             SIZE_CLASSES[size],
-            // Explicit 16px to match the tasting exactly; also independent of
-            // the --radius token (which is theme-scoped and can be undefined).
-            "rounded-[16px] overflow-hidden outline-none",
+            // Rounded corners only on desktop — on mobile the modal hits
+            // viewport edges so corners would be invisible anyway.
+            "sm:rounded-[16px] overflow-hidden outline-none",
             canonical
               ? CANONICAL_BORDER_CLASS
               : "border border-[hsla(var(--pv-id-hue),65%,55%,0.35)]",
@@ -322,8 +336,14 @@ function ModalBody({
       className={cn(
         "px-5 py-3.5 text-[13.5px] leading-[1.6]",
         "text-[hsla(var(--pv-id-hue),22%,92%,0.82)]",
-        // Grow to fill available space in list/settings variants.
-        "flex-1 min-h-0",
+        // Grow to fill available space between head + foot; scroll when the
+        // content is taller than the container. The universal max-h-[85vh]
+        // on Modal (desktop) + full-viewport on mobile means the body IS
+        // the scrolling region in every tall-content case — making
+        // overflow-y-auto the default here rather than a per-modal opt-in.
+        // Consumers that need a different overflow (e.g. overflow-hidden
+        // for a nested scroll region) can override via className.
+        "flex-1 min-h-0 overflow-y-auto",
         className,
       )}
       {...props}
