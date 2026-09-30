@@ -3038,10 +3038,22 @@ Plans:
 
 ### Phase 143: Un-archive frontend + backend: three POST endpoints with preconditions, three GET list endpoints, new archived-apps modal + archived-roles collapsed section in roles modal + kebab menu on rows for un-archive in conversation search, always-visible kebab-menu affordance replacing right-click on affected modals, id-skill edits
 
-**Goal:** [To be planned]
-**Requirements**: TBD
-**Depends on:** Phase 142
-**Plans:** 0 plans
+**Goal:** Land the user-facing half of un-archiving (shape 2 of the un-archiving campaign — shape 1's on-box reconciler already shipped on `feat/tab-title-from-tmux` at `3c973525..87dea3a8`). Adds three POST un-archive endpoints (identity/role/app) with server-side preconditions returning structured 409 reasons, three GET archived-list endpoints, three UI surfaces where archived things become discoverable + un-archivable (new archived-apps modal, new archived-roles collapsed section in the roles modal, new kebab-menu affordance on archived-identity rows in the conversation search modal), an always-visible three-dots kebab-menu affordance on every affected row replacing right-click for archive/un-archive on those modal surfaces (sidebar rows preserve their existing right-click menu — that's a sibling shape), native-alert success/failure UX with distinct wording for the missing-roles precondition, and id-skill substrate edits per-surface + the un-archive sentinel-drop pattern for agents.
+
+**Requirements**: none tracked at REQ-ID level for this phase (campaign-driven, not requirements-driven). Covers D-01 through D-27 in `143-CONTEXT.md`.
+**Depends on:** Phase 142; shape 1 already on origin (`feat/tab-title-from-tmux` `3c973525..87dea3a8`)
+**Canonical refs:** `.planning/campaigns/un-archiving/shape-unarchive-frontend-backend.md` (shape agreement), `.planning/campaigns/un-archiving/shape-unarchive-host-side.closed.md` (shape-1 close-out), `.planning/campaigns/un-archiving/campaign-un-archiving.md` (campaign artifact), `.planning/phases/143-un-archive-frontend-backend-three-post-endpoints-with-precon/143-CONTEXT.md` (locked decisions D-01 through D-27)
+**Plans:** 10 plans across 5 waves
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 143 to break down)
+- [ ] 143-01-PLAN.md — Backend archive-tree writer primitives: writeIdentityArchiveFile / writeRoleArchiveFile / writeAppArchiveFile (D-08) (Wave 1)
+- [ ] 143-02-PLAN.md — Backend list primitives: listArchivedRolesOnHost + listArchivedAppsOnHost (D-06) (Wave 1)
+- [ ] 143-03-PLAN.md — Backend three GET list routes: /identities-archive (fleet-wide) + /roles-archive?hostId=<n> (host-scoped) + /apps-archive (fleet-wide) (D-05/D-06/D-07) (Wave 2)
+- [ ] 143-04-PLAN.md — Backend three POST un-archive routes with preconditions: /identities/:key/unarchive + /roles/:name/unarchive + /apps/:hostId/:slug/unarchive; 409 with structured reason (D-01/D-02/D-03/D-04) (Wave 3)
+- [ ] 143-05-PLAN.md — Frontend API clients (three un-archive + three archived-list) + shared RowKebabMenu component with D-12 visual tokens + D-14 stop-propagation discipline (D-03/D-12/D-13/D-14) (Wave 1)
+- [ ] 143-06-PLAN.md — Frontend: new ArchivedAppsModal + sidebar Apps-header archived-box-icon trigger (D-09/D-16/D-17/D-18/D-19) (Wave 4)
+- [ ] 143-07-PLAN.md — Frontend: RolesListModal — kebab-on-live-rows for Archive + retire right-click Archive + add archived-roles collapsed section (D-10/D-12/D-13/D-14/D-15/D-16/D-17/D-18/D-19) (Wave 4)
+- [ ] 143-08-PLAN.md — Frontend: ConversationSearchModal — retire "coming soon" alert + kebab on archived-identity rows with distinct missing_roles copy (D-11/D-12/D-13/D-14/D-16/D-17/D-19) (Wave 4)
+- [ ] 143-09-PLAN.md — id-skill substrate edits: per-surface descriptions + un-archive sentinel-drop pattern (D-20/D-21/D-22) (Wave 5)
+- [ ] 143-10-PLAN.md — Test migration: retire right-click-Archive lock in RolesListModal.test.tsx + T-08 "coming soon" lock in ConversationSearchModal.test.tsx with shape-file breadcrumbs; add kebab-menu Archive/Un-archive test coverage (D-23/D-26/D-27) (Wave 5)
+
