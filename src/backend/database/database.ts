@@ -26,6 +26,11 @@ import appsArchiveRoutes from "./routes/apps-archive.js";
 // archived app slugs across the caller's own hosts. Mirrors the fan-out shape
 // of identities-archive-list.ts, substituting listArchivedAppsOnHost (plan 143-02).
 import appsArchiveListRoutes from "./routes/apps-archive-list.js";
+// Phase 143 Plan 143-04 (D-01): POST /apps/:hostId/:slug/unarchive — drops
+// .unarchive-requested sentinel inside the archive folder after two fast-path
+// preconditions (archive-exists, name-collision). Mounted AFTER appsArchiveRoutes
+// under "/apps" — POST sub-paths are distinct so no handler shadowing occurs.
+import appsUnarchiveRoutes from "./routes/apps-unarchive.js";
 // Phase 120 Plan 05 (D-08): the /apps/:hostId/:slug/pane/* reverse-proxy
 // route. Named export (not default) to disambiguate from Phase 119's
 // default-exported apps router at the mount site below.
@@ -2201,6 +2206,7 @@ app.use("/identities", identitiesRoutes);
 // POST sub-route is not shadowed by any future generic /:hostId/:slug POST
 // handler (mirrors identity-archive + role-archive mount discipline).
 app.use("/apps", appsArchiveRoutes);
+app.use("/apps", appsUnarchiveRoutes); // Phase 143 D-01
 // Phase 143 Plan 143-03 (D-05/D-07): GET /apps-archive — fleet-wide archived-app
 // list. Standalone base path; must mount BEFORE any generic catch-all (mirrors
 // archive-route mount discipline at database.ts:2067).
