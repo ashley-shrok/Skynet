@@ -3043,10 +3043,10 @@ Plans:
 **Requirements**: none tracked at REQ-ID level for this phase (campaign-driven, not requirements-driven). Covers D-01 through D-27 in `143-CONTEXT.md`.
 **Depends on:** Phase 142; shape 1 already on origin (`feat/tab-title-from-tmux` `3c973525..87dea3a8`)
 **Canonical refs:** `.planning/campaigns/un-archiving/shape-unarchive-frontend-backend.md` (shape agreement), `.planning/campaigns/un-archiving/shape-unarchive-host-side.closed.md` (shape-1 close-out), `.planning/campaigns/un-archiving/campaign-un-archiving.md` (campaign artifact), `.planning/phases/143-un-archive-frontend-backend-three-post-endpoints-with-precon/143-CONTEXT.md` (locked decisions D-01 through D-27)
-**Plans:** 10 plans across 5 waves
+**Plans:** 1/10 plans executed
 
 Plans:
-- [ ] 143-01-PLAN.md — Backend archive-tree writer primitives: writeIdentityArchiveFile / writeRoleArchiveFile / writeAppArchiveFile (D-08) (Wave 1)
+- [x] 143-01-PLAN.md — Backend archive-tree writer primitives: writeIdentityArchiveFile / writeRoleArchiveFile / writeAppArchiveFile (D-08) (Wave 1)
 - [ ] 143-02-PLAN.md — Backend list primitives: listArchivedRolesOnHost + listArchivedAppsOnHost (D-06) (Wave 1)
 - [ ] 143-03-PLAN.md — Backend three GET list routes: /identities-archive (fleet-wide) + /roles-archive?hostId=<n> (host-scoped) + /apps-archive (fleet-wide) (D-05/D-06/D-07) (Wave 2)
 - [ ] 143-04-PLAN.md — Backend three POST un-archive routes with preconditions: /identities/:key/unarchive + /roles/:name/unarchive + /apps/:hostId/:slug/unarchive; 409 with structured reason (D-01/D-02/D-03/D-04) (Wave 3)
