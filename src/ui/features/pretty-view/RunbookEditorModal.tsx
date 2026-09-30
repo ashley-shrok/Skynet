@@ -18,9 +18,9 @@ import type { TabState } from "./IdentityFileTab";
 
 // RunbookEditorModal — role-scoped multi-file editor for a single runbook.
 //
-// Modal-unification 2026-09-29:
-//   - Shell: canonical <Modal hue={324} blocking={false}> (composer stays
-//     interactive underneath, same as EditableFileModal).
+// Modal-unification 2026-09-29 (revised 2026-09-30 UAT):
+//   - Shell: canonical <Modal hue={324}>. Standard blocking backdrop —
+//     the earlier `blocking={false}` mode was retired fleet-wide.
 //   - Head: meta = "Runbook · <roleName>", title = runbookName, actions =
 //     Trash2 delete-runbook grouped tight with close X. "+ Add file"
 //     moved OUT of the head DOWN into the file strip (tasting anatomy).
@@ -377,7 +377,6 @@ export default function RunbookEditorModal({
       open={open}
       onOpenChange={handleOpenChange}
       hue={324}
-      blocking={false}
       size="xl"
       container={container ?? undefined}
       className="max-h-[80vh] flex flex-col"

@@ -124,10 +124,14 @@ function classifyModalError(
 /**
  * EditableFileModal — file preview + edit modal for chat-shared files.
  *
- * Modal-unification 2026-09-29: composes from the canonical <Modal> shell
- * with `blocking={false}` so the composer / underlying UI stays interactive
- * while the modal is open (design intent: user may be reading a shared
- * file AND drafting a reply at the same time).
+ * Modal-unification 2026-09-29 (revised 2026-09-30 UAT): composes from
+ * the canonical <Modal> shell with the standard blocking backdrop. The
+ * original design intent was to keep the composer typable underneath so
+ * the user could draft a reply while reading a shared file — but the
+ * `blocking={false}` escape hatch has since been retired fleet-wide
+ * (every modal blocks, no exceptions). If the read-and-type case
+ * matters here, the user opens the file, remembers what they wanted to
+ * write, closes the modal, then types.
  *
  * Head: title = filename. No meta, no subtitle, no "from <agentIdentityName>"
  * attribution (user 2026-09-29 — those were removed). For SVG kind, the
@@ -349,7 +353,6 @@ export default function EditableFileModal({
       open={open}
       onOpenChange={handleOpenChange}
       hue={190}
-      blocking={false}
       size="lg"
       className="max-h-[500px] flex flex-col"
       data-testid="editable-file-modal"

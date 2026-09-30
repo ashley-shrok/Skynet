@@ -1,10 +1,9 @@
 // RoleModal — per-role editor + record view.
 //
-// Modal-unification 2026-09-29:
-//   - Shell: canonical <Modal hue={roleCosmetics.colorHue ?? 190}
-//     blocking={false}>. Global portal target (document.body via canonical
-//     Modal's default) — D-03 (LOCKED user 2026-09-09) preserved via
-//     canonical shell.
+// Modal-unification 2026-09-29 (revised 2026-09-30 UAT):
+//   - Shell: canonical <Modal hue={roleCosmetics.colorHue ?? 190}>.
+//     Standard blocking backdrop (blocking={false} escape hatch retired
+//     fleet-wide). Portal target defaults to document.body.
 //   - Head: role avatar with a pencil overlay (bottom-right; opens file
 //     picker for avatar upload) + display name (no pencil — roles are not
 //     renamable via UI 2026-09-29) + role slug meta + color chip pinned
@@ -369,7 +368,6 @@ export function RoleModal({
       open={open}
       onOpenChange={onOpenChange}
       hue={hue}
-      blocking={false}
       container={container ?? undefined}
       size="xl"
       className="max-h-[90vh] flex flex-col"
@@ -430,12 +428,12 @@ export function RoleModal({
           />
         </div>
         <div className="flex flex-col flex-1 min-w-0 gap-1">
+          {/* Just the display name. Prior version showed both displayName
+              (title-cased) AND roleName (raw slug) under it — pointless
+              duplication of the same thing (2026-09-30 UAT). */}
           <span className="font-semibold text-[16px] text-[#f0ebe0] truncate leading-tight">
             {displayName}
           </span>
-          <div className="text-[11.5px] font-medium tracking-[0.06em] text-[hsla(var(--pv-id-hue),35%,90%,0.65)]">
-            {roleName}
-          </div>
         </div>
         {/* Chips + close X — pinned to top-right. */}
         <div className="flex items-start gap-1 shrink-0">

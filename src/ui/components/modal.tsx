@@ -37,14 +37,15 @@ import { cn } from "@/lib/utils";
 // required-shell modals (SkewLockModal, ElectronVersionCheck) where the
 // user must resolve the modal before continuing.
 //
-// `blocking={false}` keeps the composer / UI underneath INTERACTIVE while
-// the modal is open. The overlay renders visually but is `pointer-events:
-// none` so clicks pass through. Radix's focus-trap is disabled via
-// `modal={false}` on Root. Reserved for read-and-type modals where
-// blocking the composer is a UX regression — EditableFileModal is the
-// canonical case (user may be reading a shared file AND typing a reply
-// at the same time). The backdrop-never-dismisses rule still holds; this
-// prop only controls whether the surrounding UI stays live.
+// Every modal is blocking. There is NO `blocking={false}` escape hatch
+// anymore (retired 2026-09-30 UAT). The Modal component always renders
+// a full-viewport backdrop that blocks pointer events and activates
+// Radix's focus-trap. The old `blocking={false}` mode was designed for
+// "keep typing while reading a shared file" but each consumer that
+// adopted it turned into a whack-a-mole missing-backdrop bug during
+// UAT. Backdrop is a load-bearing modal affordance, not a per-modal
+// choice. The no-adhoc-modal-blocking-false.test.ts guard fails the
+// ship-gate if any file re-introduces the pattern.
 
 // ─── Size scale ──────────────────────────────────────────────────────────
 
@@ -78,11 +79,6 @@ interface ModalProps
    *  is ALWAYS blocked regardless of this flag (see file header). Reserved
    *  for required-shell modals (SkewLockModal, ElectronVersionCheck). */
   dismissible?: boolean;
-  /** When false, the composer / UI underneath stays interactive while the
-   *  modal is open. Overlay is `pointer-events: none`, Radix's focus-trap
-   *  is disabled. Backdrop-dismiss still blocked. Reserved for read-and-
-   *  type modals (EditableFileModal). Default: true. */
-  blocking?: boolean;
   /** Portal container. Defaults to document.body. */
   container?: HTMLElement | null;
   /** Extra class for the modal content shell. */
@@ -97,7 +93,6 @@ function Modal({
   hue = 190,
   size = "sm",
   dismissible = true,
-  blocking = true,
   container,
   className,
   "data-testid": dataTestId,
@@ -106,7 +101,7 @@ function Modal({
 }: ModalProps) {
   const blockEsc = !dismissible;
   return (
-    <DialogPrimitive.Root {...props} modal={blocking}>
+    <DialogPrimitive.Root {...props} modal={true}>
       <DialogPrimitive.Portal container={container}>
         <DialogPrimitive.Overlay
           data-slot="modal-overlay"
@@ -119,9 +114,6 @@ function Modal({
             "data-open:animate-in data-open:fade-in-0",
             "data-closed:animate-out data-closed:fade-out-0",
             "duration-100",
-            // When non-blocking, the overlay is visual dim only —
-            // clicks pass through to the composer / UI underneath.
-            !blocking && "pointer-events-none",
           )}
         />
         <DialogPrimitive.Content
