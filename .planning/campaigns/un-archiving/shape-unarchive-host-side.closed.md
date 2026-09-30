@@ -93,7 +93,7 @@ Tracking pieces of work via harness tasks as I go:
 6. Supervisor tests for each scanner using the scratch-dir env-override pattern.
 7. Matrix reactivation fidelity spike on a throwaway identity — gates deploy.
 
-**Deploy gate:** full test suite green + Matrix fidelity spike passing on a throwaway identity before push. Standard multi-identity role discipline: `git pull --rebase` before push, again before `docker build`, container mutations serialized with Ashley's greenlight.
+**Deploy gate:** full test suite green + Matrix fidelity spike passing on a throwaway identity before push. Standard multi-identity role discipline: `git pull --rebase` before push, again before `docker build`, container mutations serialized with the user's greenlight.
 
 **Handoff to shape 2:** the on-disk gesture is stable after this shape ships — an agent (or a hand-drop from bash) can un-archive by writing the intent sentinel into the archive folder, and the supervisor completes the reversal. Shape 2 opens as a separate `/build` session against `shape-unarchive-frontend-backend` when this shape lands and is deployed.
 
