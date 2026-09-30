@@ -56,6 +56,7 @@ import { cn } from "@/lib/utils";
 import { IdentityFileTab, type TabState } from "./IdentityFileTab";
 import { WakeupsTab } from "./WakeupsTab";
 import WorkspaceTab from "./WorkspaceTab";
+import { bumpModalOpen } from "@/lib/freeze-diag";
 
 // Title-line clickable treatment for jumping to the role modal. Preserved
 // verbatim from the pre-unification IdentityModal (Phase 90 Plan 90-06 D-04).
@@ -275,6 +276,13 @@ export function IdentityModal({
     setVoicePickerOpen(false);
     setVoiceDraft(identity.voice ?? "");
   }, [open, identity.identityKey, identity.task, identity.voice]);
+
+  // freeze-diag: bump the identity-modal open counter on each closed→open
+  // transition so the periodic heartbeat can correlate modal usage with
+  // resource growth. See src/ui/lib/freeze-diag.ts.
+  useEffect(() => {
+    if (open) bumpModalOpen("identity");
+  }, [open]);
 
   // Click-outside close on the voice picker popover.
   useEffect(() => {

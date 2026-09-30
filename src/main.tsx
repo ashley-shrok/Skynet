@@ -19,6 +19,7 @@ import { useTranslation } from "react-i18next";
 import { snapshotPendingTab } from "@/lib/tab-url";
 import { initConsoleForwarder } from "@/lib/console-forwarder";
 import { startDiagEmitter } from "@/lib/diag-emitter";
+import { startFreezeDiag } from "@/lib/freeze-diag";
 import { fetchBrandingConfig } from "@/branding/branding-fetch";
 import { useBrandingFavicon } from "@/branding/apply-favicon";
 
@@ -54,6 +55,13 @@ console.info(`[pwa] boot ts=${Date.now()} ua="${navigator.userAgent.slice(0, 80)
 // the diag registry and console.logs one [DIAG-REPORT] envelope.
 // Removable in ~5 min when the mitigation shape is chosen.
 startDiagEmitter();
+
+// 2026-09-30 UAT: freeze-diag heartbeat. Ships a `[freeze-diag]` line every
+// 5s with WS count + heap MB + DOM node count + modal open counts so we can
+// grep the console-forward log for leading indicators before the user hits
+// the intermittent "page unresponsive" freezes. Remove once the cause is
+// identified. See src/ui/lib/freeze-diag.ts.
+startFreezeDiag();
 
 // Preserve ?tab=<spec> across the auth flow. Auth.tsx calls replaceState in
 // several branches that would otherwise strip the query string before

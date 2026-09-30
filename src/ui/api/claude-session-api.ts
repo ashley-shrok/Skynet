@@ -22,6 +22,18 @@
 import { CLIENT_BUILD_ID } from "@/lib/client-build-id";
 import { lockSkewedSession } from "@/state/skew-lock-store";
 
+// 2026-09-30 freeze-diag: registry of live sockets opened via this helper.
+// Increment on construction, decrement on close/error so the count reflects
+// "still alive from the browser's perspective". The freeze-diag heartbeat
+// (src/ui/lib/freeze-diag.ts) reads this count each tick — if it climbs
+// without bound while modals open/close, there's a cleanup leak.
+const OPEN_SOCKETS = new Set<WebSocket>();
+
+/** Live count of Claude-session WebSockets currently held open by the app. */
+export function getOpenClaudeSessionSocketCount(): number {
+  return OPEN_SOCKETS.size;
+}
+
 export function openClaudeSessionSocket(): WebSocket {
   const scheme =
     typeof window !== "undefined" && window.location.protocol === "https:"
@@ -33,6 +45,16 @@ export function openClaudeSessionSocket(): WebSocket {
   const url = `${scheme}//${host}/claude-session/websocket/?build=${encodeURIComponent(CLIENT_BUILD_ID)}`;
   const ws = new WebSocket(url);
   attachSkewLockListeners(ws, "claude-session");
+  OPEN_SOCKETS.add(ws);
+  const drop = () => OPEN_SOCKETS.delete(ws);
+  // Test stubs lack the DOM addEventListener API — mirror the guard in
+  // attachSkewLockListeners (L86). Registry semantics degrade in tests
+  // (the stub socket stays in OPEN_SOCKETS) but the freeze-diag heartbeat
+  // only runs at boot in a real browser.
+  if (typeof ws.addEventListener === "function") {
+    ws.addEventListener("close", drop);
+    ws.addEventListener("error", drop);
+  }
   return ws;
 }
 

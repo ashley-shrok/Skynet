@@ -21,6 +21,7 @@ import {
 import { slugifyRoleName } from "@/sidebar/CreateRoleDialog";
 import SkillFileTab, { type SkillFileTabData } from "./SkillFileTab";
 import type { TabState } from "./IdentityFileTab";
+import { bumpModalOpen } from "@/lib/freeze-diag";
 
 // SkillsEditorModal — cross-host cross-skill multi-file editor.
 //
@@ -107,6 +108,12 @@ export default function SkillsEditorModal({
     () => collectAllHosts(hostTree?.children ?? []).filter((h) => h.enableRdp !== true),
     [hostTree],
   );
+
+  // freeze-diag: bump the skills-modal open counter on each closed→open
+  // transition. See src/ui/lib/freeze-diag.ts.
+  useEffect(() => {
+    if (open) bumpModalOpen("skills");
+  }, [open]);
 
   // Auto-select host on open; reset state on close.
   useEffect(() => {
