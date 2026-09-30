@@ -62,7 +62,9 @@ import { createPortal } from "react-dom";
 // (reverses the 2026-08-17 "pinned header should go away entirely" lock — the
 // Apps section landing above the flat middle re-introduced ambiguity between
 // Apps and pinned rows that the earlier design didn't have).
-import { AppWindow, ChevronDown, Clock, Drama, FolderPlus, Loader2, MessageSquare, MessagesSquare, Monitor, MoreVertical, Pin, Search, Settings, SquarePen, X } from "lucide-react";
+// Phase 143 D-09: Archive (aliased to ArchivedBoxIcon) added for the archived-
+// apps trigger on the Apps section header.
+import { AppWindow, Archive as ArchivedBoxIcon, ChevronDown, Clock, Drama, FolderPlus, Loader2, MessageSquare, MessagesSquare, Monitor, MoreVertical, Pin, Search, Settings, SquarePen, X } from "lucide-react";
 import { Button } from "@/components/button";
 import SkillsEditorModal from "@/features/pretty-view/SkillsEditorModal";
 // Phase 137 D-08: PreferencesModal — opened from the sidebar footer gear button.
@@ -164,6 +166,9 @@ import { ConversationSearchModal } from "./ConversationSearchModal";
 // modals). Consumes the fleet-wide LIST + CRUD helpers from
 // src/ui/api/scheduled-agents-api.ts, which layer over shape 2's REST endpoints.
 import { ScheduledAgentsModal } from "./ScheduledAgentsModal";
+// Phase 143 D-09: ArchivedAppsModal — opened from the archived-box icon-button
+// on the Apps section header (see mount below at <RolesListModal> sibling block).
+import { ArchivedAppsModal } from "./ArchivedAppsModal";
 import type { ConversationSearchResult } from "@/api/conversation-search-api";
 import {
   useSessionIsWorking,
@@ -1067,6 +1072,9 @@ export function PrettyConversationsPanel({
   // Phase 90 Plan 90-06 (D-07): RolesListModal open/closed toggle. Opened by
   // the header's Edit roles icon button (Drama). See <RolesListModal> mount below.
   const [rolesListModalOpen, setRolesListModalOpen] = useState(false);
+  // Phase 143 D-09: ArchivedAppsModal open/closed toggle. Opened by the
+  // archived-box icon-button on the Apps section header (see header edit below).
+  const [archivedAppsModalOpen, setArchivedAppsModalOpen] = useState(false);
   // Phase 129 (shape 3, wake-ups-redesign) Plan 129-01 Task 4 — controlled
   // open state for the new ScheduledAgentsModal. Opened via the Clock button
   // in .pv-header-actions below (inserted after the Edit-global-files
@@ -2989,10 +2997,24 @@ export function PrettyConversationsPanel({
             collapse toggle. */}
         {!(sidebarSearchActive && searchedAppTiles.length === 0) && (
         <div className="pv-panel-group pv-apps-section">
-          <button
-            type="button"
+          {/* Phase 143 D-09: outer <button> replaced with <div role="button"> so
+              the archived-box trigger can be a SIBLING button (not nested inside
+              a button). Nesting <button> inside <button> is invalid HTML and many
+              browsers silently break the inner button's click. Same pattern as
+              PrettyProjectSectionHeader.tsx:353-357 — div wrapper + sibling
+              button discipline (stopPropagation prevents collapse-toggle from
+              firing when the icon-button is clicked). */}
+          <div
+            role="button"
+            tabIndex={0}
             onClick={() => setAppsExpanded((v) => !v)}
-            className="flex items-center gap-2.5 pl-1 pr-4 pt-3.5 pb-1.5 w-full text-left"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                setAppsExpanded((v) => !v);
+              }
+            }}
+            className="flex items-center gap-2.5 pl-1 pr-4 pt-3.5 pb-1.5 w-full text-left cursor-pointer"
             data-testid="pretty-conversations-apps-header"
             aria-expanded={appsExpanded || sidebarSearchActive}
             aria-controls="pv-apps-section-content"
@@ -3008,11 +3030,33 @@ export function PrettyConversationsPanel({
               aria-hidden="true"
               className="flex-1 h-px bg-[linear-gradient(90deg,transparent_0%,rgba(168,154,128,0.20)_30%,rgba(168,154,128,0.20)_70%,transparent_100%)]"
             />
+            {/* Phase 143 D-09: Archived-box icon-button — sibling, NOT nested.
+                stopPropagation on click/keyDown so the outer div's collapse toggle
+                does NOT fire. Mirrors PrettyProjectSectionHeader.tsx:357-377
+                sibling-button discipline verbatim. */}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setArchivedAppsModalOpen(true);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.stopPropagation();
+                }
+              }}
+              className="inline-flex items-center justify-center size-5 rounded hover:bg-white/5 text-[#5c6070]/85 shrink-0"
+              aria-label="Open archived apps"
+              title="Archived apps"
+              data-testid="pretty-conversations-archived-apps-trigger"
+            >
+              <ArchivedBoxIcon className="size-3" aria-hidden="true" />
+            </button>
             <ChevronDown
               className={`size-3.5 text-[#a89a80] opacity-90 shrink-0 transition-transform ${appsExpanded || sidebarSearchActive ? "rotate-180" : ""}`}
               aria-hidden="true"
             />
-          </button>
+          </div>
           {(appsExpanded || sidebarSearchActive) && (
             <div id="pv-apps-section-content">
               {searchedAppTiles.length === 0 ? (
@@ -3671,6 +3715,15 @@ export function PrettyConversationsPanel({
         open={scheduledAgentsModalOpen}
         onOpenChange={setScheduledAgentsModalOpen}
         hostTree={hostTree ?? null}
+      />
+      {/* Phase 143 D-09: ArchivedAppsModal — portal-mounted sibling of
+          RolesListModal. Opened via the archived-box icon-button on the Apps
+          section header. Re-fetches the archived-apps list on every open
+          (Risk-Summary authoritative recovery path). Modal stays open after
+          un-archive (D-19). */}
+      <ArchivedAppsModal
+        open={archivedAppsModalOpen}
+        onOpenChange={setArchivedAppsModalOpen}
       />
       {/* Phase 90 Plan 90-06 (D-07): RolesListModal — portal-mounted sibling of
           GlobalFilesModal + SkillsEditorModal. Opened via the header's Edit
