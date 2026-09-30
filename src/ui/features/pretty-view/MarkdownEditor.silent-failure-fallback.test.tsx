@@ -5,7 +5,7 @@
  * angle-bracket placeholders like `/explain <thing>`). MdxEditorImpl fires
  * onSilentParseFailure in that case and MarkdownEditor swaps in the raw
  * textarea so the file remains editable — this test proves the swap
- * happens for the exact content Ashley hit during modal-look UAT.
+ * happens for the exact content the user hit during modal-look UAT.
  */
 
 import { describe, it, expect } from "vitest";
@@ -44,7 +44,7 @@ describe("MarkdownEditor — silent-parse-failure textarea fallback", () => {
       expect(textarea || editableFilled).toBeTruthy();
     }, { timeout: 3000 });
 
-    // The exact content Ashley reported blank on. The fallback textarea
+    // The exact content the user reported blank on. The fallback textarea
     // should now show the raw markdown — user can still edit the file.
     const textarea = container.querySelector<HTMLTextAreaElement>("textarea");
     if (textarea) {
