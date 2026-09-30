@@ -20,7 +20,7 @@
 // the user in the modal. No quote element, no "Reply:" mini-preview.
 //
 // D-12 revision: the "NO subtitle" lock is REPLACED for the general variant
-// per Ashley 2026-09-29 — beta feedback benefits from one line of user-facing
+// per user 2026-09-29 — beta feedback benefits from one line of user-facing
 // direction, so the subtitle carries "What's working, what's not, or what
 // you'd change — every note shapes the beta." Thumbs_down keeps no subtitle
 // (title + placeholder are self-carrying).

@@ -3,7 +3,7 @@
 // (wired in PrettyConversationsPanel handleEditProjectFile).
 //
 // Modal-unification 2026-09-29: composes from the canonical <Modal> shell.
-// Head shows only the project displayName (Ashley: every project file is
+// Head shows only the project displayName (user: every project file is
 // called project.md, so the filename in the header is noise). The
 // pre-unification view/edit toggle is gone — opening the modal drops the
 // user straight into edit mode. Save + Close live in the canonical foot;

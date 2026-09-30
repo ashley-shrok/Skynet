@@ -35,7 +35,7 @@ Load-bearing invariants:
 - **Natives (window.confirm/alert/prompt) are OUT of scope.** They're a legitimate primitive; we don't try to unify what we can't style. If a specific native starts feeling wrong, that's a separate small fix.
 - **The editor surface inside content editors isn't ours to design.** The real editor uses Monaco/CodeMirror. We design the container around it — file tabs, head, foot — nothing else.
 - **Don't add functionality that wasn't there already.** If we want to add a new affordance, that's an explicit conversation, not a silent extension during translation.
-- **Never leak the maintainer's name into user-facing app copy.** No "Ashley reads this" in feedback subtitles, no "Ashley's greenlight" in modal chrome. Windows doesn't say Bill Gates.
+- **Never leak the maintainer's name into user-facing app copy.** No "user reads this" in feedback subtitles, no "user's greenlight" in modal chrome. Windows doesn't say Bill Gates.
 - **Adapt to single-host reality.** Most users have one host. Host pickers disappear in single-host mode. "On t1000" subtitle removed — single-host users don't deal in hosts.
 - **The canonical is the path of least resistance.** New modals compose from it. Agents picking up feature work should find writing a new modal EASIER via the canonical than by reaching for the raw radix primitive.
 
@@ -66,9 +66,9 @@ Load-bearing invariants:
 **Out:**
 - All native browser primitives (`window.confirm`/`alert`/`prompt`) — stay as-is
 - The internal surface of content editors (Monaco/CodeMirror handles that)
-- The multi-file About-you concept in PreferencesModal — the tasting drops it deliberately per Ashley
-- Nested modals used for simple destructive confirms (Ashley 2026-09-29: switch these to natives instead of stacking)
-- The SSH auth family + tmux session picker (Ashley 2026-09-29: not accessible in the current app — vestigial fork code from `src/ui/features/terminal/Terminal.tsx`, which is no longer part of the live user experience)
+- The multi-file About-you concept in PreferencesModal — the tasting drops it deliberately per user
+- Nested modals used for simple destructive confirms (user 2026-09-29: switch these to natives instead of stacking)
+- The SSH auth family + tmux session picker (user 2026-09-29: not accessible in the current app — vestigial fork code from `src/ui/features/terminal/Terminal.tsx`, which is no longer part of the live user experience)
 
 **Retired 2026-09-29:**
 - **DeleteConfirmDialog** — the only nested app-modal in Skynet, used inside RunbookEditorModal + SkillsEditorModal for delete-file / delete-runbook / delete-skill. Replaced with `window.confirm()` + `window.alert()` for errors, matching the fleet convention already used across ~30 destructive confirms in the app. The component file was deleted; the tasting no longer carries a mockup for it.
@@ -76,8 +76,8 @@ Load-bearing invariants:
 
 ## Vehicle notes
 
-- **Per-modal cadence.** One modal at a time, in-line conversation. For each: read the current implementation, compare to the tasting, surface any deltas to Ashley before writing code, then land the change.
+- **Per-modal cadence.** One modal at a time, in-line conversation. For each: read the current implementation, compare to the tasting, surface any deltas to user before writing code, then land the change.
 - **Order:** canonical container first (task #9), then modals starting with the smallest confirms (DeleteConfirmDialog → FeedbackModal → TOTP/Passphrase/TmuxSessionPicker) to prove the container. Then mid-size single-forms, then list/managers, then multi-pane settings, then content editors, then record editors (Identity/Role), then auth family, then shell-required last.
-- **Deploy discipline (box-maintainer role file, applied verbatim):** Code motion is authorized inline; every git push and every docker deploy needs a separate explicit greenlight ("push it" / "ship it") from Ashley. Multi-step pre-authorization does NOT include the push.
+- **Deploy discipline (box-maintainer role file, applied verbatim):** Code motion is authorized inline; every git push and every docker deploy needs a separate explicit greenlight ("push it" / "ship it") from user. Multi-step pre-authorization does NOT include the push.
 - **Testing discipline:** scoped tests during dev per touched paths (`npx vitest related --run <files>`). Full suite runs as the ship gate before docker build + docker compose up.
 - **id skill update lands in the same phase as user-facing app changes**, per role file directive added 2026-09-28.

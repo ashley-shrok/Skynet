@@ -544,7 +544,7 @@ bash ~/.claude/skills/interactive-messages/create-widget.sh \
 Quick heads up that Thursday's sync will run long — vendor review + roadmap check-in stacked back to back. If you can only make one, come to the roadmap piece (2:30-3:00).
 
 Thanks,
-Ashley"
+user"
 ```
 
 | Flag | Required | Description |

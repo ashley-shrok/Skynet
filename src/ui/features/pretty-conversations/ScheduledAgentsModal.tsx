@@ -32,7 +32,7 @@
 //   D-27: internal state machine — list ↔ form.
 //   D-28: no streaming affordances.
 //
-// Dropped from the pre-unification implementation (Ashley 2026-09-29):
+// Dropped from the pre-unification implementation (user 2026-09-29):
 //   - Footer count row (tasting anatomy has no foot in list view).
 //   - `agent-when` next-fire timestamp on rows (unclear meaning; toggle +
 //     kebab move up to the corner in its place).

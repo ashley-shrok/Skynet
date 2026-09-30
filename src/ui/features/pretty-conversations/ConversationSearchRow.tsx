@@ -14,7 +14,7 @@
  * choice ("Gambit" over "gambit-box-maintainer-2"). Falls back to raw
  * identityKey only when both are absent (fail-visible rather than blank).
  *
- * hostName is intentionally NOT rendered. Tasting dropped it; per Ashley
+ * hostName is intentionally NOT rendered. Tasting dropped it; per user
  * 2026-09-29: "if tasting dropped something then we are not re-adding it".
  *
  * Fallback: if hitStart is -1 (backend couldn't locate the match inside

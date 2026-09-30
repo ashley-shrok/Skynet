@@ -132,7 +132,7 @@ describe("sweep-result cache — peer independence", () => {
 describe("sweep-result cache — two-orchestrator dedup shape", () => {
   it("second-orchestrator read within TTL returns the first-orchestrator's bytes verbatim", () => {
     // This is the failure-mode the cache was added to solve: two orchestrators
-    // (Ashley's and joe's) each polling workstation independently. Under the
+    // (user's and joe's) each polling workstation independently. Under the
     // old shape, both fire fleet-status-sweep. Under the cache shape, the
     // second orchestrator's read must return the first's cached bytes byte-
     // for-byte, so the two orchestrators publish IDENTICAL downstream frames.

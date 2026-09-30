@@ -545,7 +545,7 @@ describe("ScheduledAgentsModal: filter reset on close (D-17)", () => {
     ]);
 
     // Multi-host tree — the host filter is hidden on single-host boxes
-    // (Ashley 2026-09-29), so use a two-host tree to keep the host select
+    // (user 2026-09-29), so use a two-host tree to keep the host select
     // rendered for the assertion below.
     const TWO_HOST_TREE_T15: HostFolder = {
       name: "root",

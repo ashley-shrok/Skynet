@@ -98,7 +98,7 @@ type IdentityMetadata = {
   colorHue?: number | null;
   voice?: string | null;
   /** Phase modal-unification 2026-09-29: task is now editable via the
-   *  IdentityModal head inline-pencil (Ashley call). Same absent/null/set
+   *  IdentityModal head inline-pencil (user call). Same absent/null/set
    *  semantics as title above. Relaxes the pre-existing "write-once at
    *  birth" property — both agents and the user can now update task. */
   task?: string | null;
@@ -759,7 +759,7 @@ router.put(
         else overlaid.title = String(meta.title);
       }
       // Phase modal-unification 2026-09-29: task is editable via the
-      // IdentityModal head inline-pencil (Ashley call). Mirrors the title
+      // IdentityModal head inline-pencil (user call). Mirrors the title
       // overlay above: absent → leave alone, null → REMOVE, present → set.
       // This relaxes the pre-existing "write-once at birth" property of
       // task (D-05 origin), which is fine — the identity's frontmatter is

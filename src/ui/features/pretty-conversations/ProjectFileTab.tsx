@@ -2,7 +2,7 @@
 //
 // Modal-unification 2026-09-29 refactor: the pre-unification tab had a
 // view/edit toggle (read-mode ReactMarkdown preview → click Edit →
-// edit-mode MarkdownEditor → Save/Cancel). Per Ashley: opening the modal
+// edit-mode MarkdownEditor → Save/Cancel). Per user: opening the modal
 // means you're editing, so the view/read toggle is gone. The tab now
 // always renders <MarkdownEditor> in the ready branch and hands draft
 // state to the parent via `onDraftContentChange` / `onDraftChange`. The

@@ -926,7 +926,7 @@ export function NewSessionDialog({
   // the 5-step checklist (the Create button IS the spinner surface per D-14).
   const formDisabled = birthing;
 
-  // Title copy updated 2026-09-29 per Ashley's tasting: this modal is now
+  // Title copy updated 2026-09-29 per user's tasting: this modal is now
   // "New conversation" (paired with NewConversationModal's rename to
   // "New group conversation"). The i18n key stays the same for translation
   // continuity; only the defaultValue changes.

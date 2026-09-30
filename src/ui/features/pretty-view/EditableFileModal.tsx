@@ -130,7 +130,7 @@ function classifyModalError(
  * file AND drafting a reply at the same time).
  *
  * Head: title = filename. No meta, no subtitle, no "from <agentIdentityName>"
- * attribution (Ashley 2026-09-29 — those were removed). For SVG kind, the
+ * attribution (user 2026-09-29 — those were removed). For SVG kind, the
  * head renders a Rendered ↔ Source segmented toggle (pv-variant-tabs) in
  * the actions slot next to the close X.
  *
@@ -143,7 +143,7 @@ function classifyModalError(
  *   - Error: rich per-class copy (FILE_URL_ERROR_COPY) with a close button.
  *
  * Foot: rendered ONLY when `usesEditorFetch === true` (editable kinds).
- * Media viewers get no foot — the head X is the only close path (Ashley
+ * Media viewers get no foot — the head X is the only close path (user
  * 2026-09-29: "it should not show at all on file types that can't be
  * edited"). Foot has Close (secondary) + Save (primary). Save calls the
  * existing stage-and-close flow; Save is gated on `isDirty` (nothing to

@@ -121,7 +121,7 @@ describe("ProjectFileModal — smoke", () => {
     // Header: displayName visible.
     expect(screen.getByText("Banana Project")).toBeInTheDocument();
     // Modal-unification 2026-09-29: "project.md" sub-line dropped from the
-    // head (Ashley: every project file has that name — surfacing it in the
+    // head (user: every project file has that name — surfacing it in the
     // head is noise).
     expect(screen.queryByText("project.md")).toBeNull();
     // Close X.
