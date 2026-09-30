@@ -453,14 +453,18 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
   },
   // interactive-messages-gc.timer — daily user timer that fires the GC
   // service. run-bootstrap.ts enables + starts this on every host (mirrors
-  // agent-supervisor.service bootstrap pattern). No restart hook — timer
-  // bytes changes are picked up on daemon-reload (which every sweep runs).
+  // agent-supervisor.service bootstrap pattern). Restart hook targets self:
+  // daemon-reload (which every sweep runs) picks up the new definition into
+  // systemd's in-memory unit table, but an ALREADY-STARTED timer instance
+  // continues to fire on its old schedule until the unit is restarted. So
+  // any change to OnCalendar / OnBootSec / Persistent silently doesn't take
+  // effect without this hook.
   {
     slug: "interactive-messages-gc-timer-unit",
     sourceKind: "bundled",
     bundledPath: "/app/fleet-substrate/user-onboarding/interactive-messages-gc.timer",
     installPath: "~/.config/systemd/user/interactive-messages-gc.timer",
-    restartHook: null,
+    restartHook: "interactive-messages-gc.timer",
   },
 
   // --- fleet-status-sweep (1 row: python batch sweep for fleet-status poller — Phase 92) ---
