@@ -180,11 +180,23 @@ describe("languageForFilename", () => {
       expect(languageForFilename(".")).toBeNull();
     });
 
-    it("returns null for markdown (routed elsewhere)", () => {
-      // Markdown files hit MDXEditor before this resolver is called; if one
-      // ever slips through, plain-text (null) surfaces the routing bug.
-      expect(languageForFilename("README.md")).toBeNull();
-      expect(languageForFilename("notes.markdown")).toBeNull();
+  });
+
+  describe("markdown routes to the markdown language pack", () => {
+    // Markdown normally hits MDXEditor first, but the silent-parse-failure
+    // fallback inside MarkdownEditor routes failed .md content through
+    // CodeEditorImpl → languageForFilename. Must resolve to a real
+    // extension (not null) so the user gets syntax highlighting instead of
+    // plain text in the fallback path.
+    it("returns an extension for .md", () => {
+      expect(languageForFilename("README.md")).not.toBeNull();
+    });
+
+    it("returns an extension for .markdown and other variants", () => {
+      expect(languageForFilename("notes.markdown")).not.toBeNull();
+      expect(languageForFilename("notes.mdown")).not.toBeNull();
+      expect(languageForFilename("notes.mkd")).not.toBeNull();
+      expect(languageForFilename("notes.mkdn")).not.toBeNull();
     });
   });
 });

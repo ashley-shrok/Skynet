@@ -208,11 +208,26 @@ export function MarkdownEditor({
 }
 
 // Splits out the .md branch so we can hold local state for the "MDXEditor
-// silently rendered empty" fallback. Bare `<foo>` outside backticks (common
-// in SKILL.md docs that describe slash-commands like `/explain <thing>`)
-// causes MDXEditor's Lexical parser to produce an empty contenteditable
-// with no error. When that happens, MdxEditorImpl fires onSilentParseFailure
-// and we swap in the raw textarea so the file is still editable.
+// silently rendered empty" fallback. MDXEditor's Lexical parser doesn't
+// have a clean path for several agent-authored constructs in markdown
+// prose — HTML comments (`<!-- ... -->`), bare `<role>` / `<name>`
+// placeholders, YAML frontmatter edge cases — and when any of them hits,
+// the editor renders an empty contenteditable with no error. The
+// mdx-editor maintainer has acknowledged this architectural limit (issue
+// #903); flipping `suppressHtmlProcessing` only trades one failure path
+// for another. See 2026-10-01 research under
+// `.planning/<phase>/RESEARCH.md`.
+//
+// When MdxEditorImpl fires onSilentParseFailure, we swap to CodeEditorImpl
+// with the markdown language pack loaded — a real syntax-highlighted
+// source editor with line numbers in the Dracula theme. Byte-exact
+// roundtrip on save (the source IS the display), so HTML comments,
+// placeholders, frontmatter all survive. This matches the industry's
+// dominant pattern for agent-touched markdown: Zed, VS Code, iA Writer,
+// Zettlr, Logseq, StackEdit, HedgeDoc all take the same "source-first
+// with syntax highlighting" shape. Cursor conditionally disables its
+// WYSIWYG for files under `.claude/` paths for the same reason; we do it
+// automatically when the pretty editor can't actually render the content.
 function MarkdownWithSilentFailureFallback({
   filename,
   content,
@@ -230,13 +245,32 @@ function MarkdownWithSilentFailureFallback({
   }, [content]);
 
   if (failedContent === content && content !== "") {
+    // Route failed .md content through CodeEditorImpl with the markdown
+    // language pack. Error boundary falls back to RawTextarea if the
+    // CodeMirror bundle itself fails to load (offline / network hiccup) —
+    // mirrors the non-md branch's defense-in-depth.
     return (
-      <RawTextarea
-        content={content}
-        onChange={onChange}
-        disabled={disabled}
-        placeholder={placeholder}
-      />
+      <CodeEditorErrorBoundary
+        filename={filename}
+        fallback={
+          <RawTextarea
+            content={content}
+            onChange={onChange}
+            disabled={disabled}
+            placeholder={placeholder}
+          />
+        }
+      >
+        <Suspense fallback={loadingFallback}>
+          <CodeEditorImpl
+            filename={filename}
+            content={content}
+            onChange={onChange}
+            disabled={disabled}
+            placeholder={placeholder}
+          />
+        </Suspense>
+      </CodeEditorErrorBoundary>
     );
   }
 

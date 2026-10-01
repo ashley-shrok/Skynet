@@ -1,11 +1,18 @@
 /**
  * Regression: MDXEditor's Lexical parser silently renders an empty
- * contenteditable when the input contains a bare `<foo>` outside of
- * backticks (common in SKILL.md docs that describe slash-commands with
- * angle-bracket placeholders like `/explain <thing>`). MdxEditorImpl fires
- * onSilentParseFailure in that case and MarkdownEditor swaps in the raw
- * textarea so the file remains editable — this test proves the swap
- * happens for the exact content the user hit during modal-look UAT.
+ * contenteditable when the input contains constructs it can't map
+ * (bare `<role>` placeholders, HTML comments, etc. — see MarkdownEditor
+ * docblock for the full list). MdxEditorImpl fires onSilentParseFailure
+ * and MarkdownEditor swaps to CodeEditorImpl with the markdown language
+ * pack — a real syntax-highlighted source editor, not a plain textarea.
+ * This test proves the swap happens for the exact content the user hit
+ * during modal-look UAT.
+ *
+ * CodeMirror renders its contenteditable with role="textbox" and
+ * class="cm-content". We assert on the cm-content element to verify the
+ * code-editor branch is taking over, not the (defense-in-depth)
+ * RawTextarea deeper fallback that only triggers if CodeMirror itself
+ * fails to bundle.
  */
 
 import { describe, it, expect } from "vitest";
@@ -23,8 +30,8 @@ description: >-
 Argument: \`/explain <thing>\` sets X to <thing>; bare \`/explain\` sets X.
 `;
 
-describe("MarkdownEditor — silent-parse-failure textarea fallback", () => {
-  it("swaps to raw textarea when MDXEditor renders empty despite non-empty content", async () => {
+describe("MarkdownEditor — silent-parse-failure code-editor fallback", () => {
+  it("swaps to CodeEditorImpl when MDXEditor renders empty despite non-empty content", async () => {
     const { container } = render(
       <MarkdownEditor
         filename="SKILL.md"
@@ -33,25 +40,37 @@ describe("MarkdownEditor — silent-parse-failure textarea fallback", () => {
       />,
     );
 
-    // Wait for either the MDXEditor to actually render OR the fallback
-    // textarea to appear (the silent-failure detector runs on the next
-    // animation frame after mount).
+    // Wait for one of three outcomes:
+    //   (a) MDXEditor successfully rendered the content (future upgrade fixes
+    //       the underlying parse bug) — editable has content.
+    //   (b) MDXEditor silent-failed → CodeEditorImpl mounted — cm-content
+    //       element appears with the content.
+    //   (c) CodeEditorImpl itself failed to bundle (offline) → defense-in-
+    //       depth RawTextarea appears.
+    // Any of these means the user can see and edit their file.
     await waitFor(() => {
+      const cmContent = container.querySelector(".cm-content");
       const textarea = container.querySelector("textarea");
       const editable = container.querySelector('[contenteditable="true"]');
       const editableFilled =
         editable && (editable.textContent ?? "").length > 0;
-      expect(textarea || editableFilled).toBeTruthy();
+      expect(cmContent || textarea || editableFilled).toBeTruthy();
     }, { timeout: 3000 });
 
-    // The exact content the user reported blank on. The fallback textarea
-    // should now show the raw markdown — user can still edit the file.
+    const cmContent = container.querySelector(".cm-content");
     const textarea = container.querySelector<HTMLTextAreaElement>("textarea");
-    if (textarea) {
+
+    if (cmContent) {
+      // The expected path — CodeEditorImpl rendering the markdown source.
+      // CodeMirror's internal structure may chunk the content across lines,
+      // so verify the known tokens are present rather than full-content eq.
+      expect(cmContent.textContent).toContain("Explain");
+      expect(cmContent.textContent).toContain("<thing>");
+    } else if (textarea) {
+      // Defense-in-depth path — RawTextarea when CodeMirror bundle fails.
       expect(textarea.value).toBe(EXPLAIN_SKILL_CONTENT);
     } else {
-      // If MDXEditor DID manage to render (future MDXEditor upgrade fixes
-      // the underlying parse bug), verify the content is at least visible.
+      // MDXEditor itself rendered — future-upgrade path.
       const editable = container.querySelector('[contenteditable="true"]');
       expect(editable?.textContent).toContain("Explain");
     }

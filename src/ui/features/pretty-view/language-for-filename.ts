@@ -18,8 +18,11 @@
  * TOML, INI, Lua, Perl, Haskell, Clojure, Groovy, Erlang, Julia, R, OCaml,
  * F#, Scheme, VB, CoffeeScript, Objective-C, Dart, ...).
  *
- * Markdown files (.md) deliberately return null here — they route to
- * MDXEditor upstream and should never reach this resolver.
+ * Markdown files (.md) resolve to the markdown language pack here. They
+ * normally route to MDXEditor upstream, but MarkdownEditor's silent-parse-
+ * failure fallback now routes failed .md content back through CodeEditorImpl
+ * so the user gets a real syntax-highlighted source editor instead of a
+ * plain textarea when MDXEditor can't handle the content.
  */
 
 import type { Extension } from "@codemirror/state";
@@ -29,6 +32,7 @@ import { StreamLanguage } from "@codemirror/language";
 import { javascript } from "@codemirror/lang-javascript";
 import { json } from "@codemirror/lang-json";
 import { yaml } from "@codemirror/lang-yaml";
+import { markdown } from "@codemirror/lang-markdown";
 import { python } from "@codemirror/lang-python";
 import { html } from "@codemirror/lang-html";
 import { css } from "@codemirror/lang-css";
@@ -97,6 +101,15 @@ const BY_EXTENSION: Record<string, LangFactory> = {
   // YAML
   yaml: () => yaml(),
   yml:  () => yaml(),
+
+  // Markdown — hit by MarkdownEditor's silent-parse-failure fallback for
+  // .md content MDXEditor can't render (HTML comments, bare <tag>
+  // placeholders in prose, other agent-authored structural content).
+  md:       () => markdown(),
+  markdown: () => markdown(),
+  mdown:    () => markdown(),
+  mkd:      () => markdown(),
+  mkdn:     () => markdown(),
 
   // Python
   py:  () => python(),
