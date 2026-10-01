@@ -135,7 +135,7 @@ export function ScheduledAgentsModal({
         if (controller.signal.aborted) return;
         setItems([]);
         setLoadError(
-          err instanceof Error ? err.message : "Couldn't load scheduled agents",
+          err instanceof Error ? err.message : "Couldn't load scheduled tasks",
         );
       });
     return () => controller.abort();
@@ -149,7 +149,7 @@ export function ScheduledAgentsModal({
       setLoadError(null);
     } catch (err) {
       setLoadError(
-        err instanceof Error ? err.message : "Couldn't refresh scheduled agents",
+        err instanceof Error ? err.message : "Couldn't refresh scheduled tasks",
       );
     }
   }, []);
@@ -245,7 +245,7 @@ export function ScheduledAgentsModal({
     row: ScheduledAgentListItem,
   ): Promise<void> {
     // eslint-disable-next-line no-alert
-    const ok = window.confirm(`Delete scheduled agent "${row.name}"?`);
+    const ok = window.confirm(`Delete scheduled task "${row.name}"?`);
     if (!ok) return;
     setWriteError(null);
     try {
@@ -287,10 +287,10 @@ export function ScheduledAgentsModal({
 
   const headerTitle =
     view === "list"
-      ? "Scheduled Agents"
+      ? "Scheduled Tasks"
       : editingSlug !== null
-        ? "Edit scheduled agent"
-        : "New scheduled agent";
+        ? "Edit scheduled task"
+        : "New scheduled task";
 
   // Unified error banner content — load error wins if both present.
   const bannerError = loadError ?? writeError;
@@ -326,12 +326,17 @@ export function ScheduledAgentsModal({
     >
       <ModalHead
         title={headerTitle}
+        subtitle={
+          view === "list"
+            ? "Scheduled tasks are conversations that start themselves at a future date or time to carry out instructions you set in advance. They can be recurring or one-time."
+            : undefined
+        }
         actions={
           view === "list" ? (
             <button
               type="button"
-              aria-label="New scheduled agent"
-              title="New scheduled agent"
+              aria-label="New scheduled task"
+              title="New scheduled task"
               data-testid="scheduled-agents-modal-add-button"
               onClick={enterCreateMode}
               className={cn(
@@ -479,8 +484,8 @@ export function ScheduledAgentsModal({
               data-testid="scheduled-agents-modal-empty-state"
             >
               {totalItems.length === 0
-                ? "No scheduled agents on any host. Click + to create one."
-                : "No scheduled agents match this filter."}
+                ? "No scheduled tasks. Click + to create one."
+                : "No scheduled tasks match this filter."}
             </div>
           ) : (
             visibleItems.map((row) => (

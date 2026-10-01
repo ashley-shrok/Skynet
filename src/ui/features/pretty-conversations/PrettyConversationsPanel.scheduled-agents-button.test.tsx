@@ -213,8 +213,8 @@ describe("PrettyConversationsPanel: Scheduled Agents header button", () => {
     );
     const btn = screen.getByTestId("pv-header-scheduled-agents-button");
     expect(btn).toBeTruthy();
-    expect(btn.getAttribute("aria-label")).toBe("Scheduled Agents");
-    expect(btn.getAttribute("title")).toBe("Scheduled Agents");
+    expect(btn.getAttribute("aria-label")).toBe("Scheduled Tasks");
+    expect(btn.getAttribute("title")).toBe("Scheduled Tasks");
     // Shares the .pv-pencil chrome with siblings.
     expect(btn.classList.contains("pv-pencil")).toBe(true);
   });

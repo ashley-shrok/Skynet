@@ -2814,8 +2814,8 @@ export function PrettyConversationsPanel({
                 <button
                   type="button"
                   className="pv-pencil"
-                  aria-label="Scheduled Agents"
-                  title="Scheduled Agents"
+                  aria-label="Scheduled Tasks"
+                  title="Scheduled Tasks"
                   data-testid="pv-header-scheduled-agents-button"
                   onClick={() => setScheduledAgentsModalOpen(true)}
                 >

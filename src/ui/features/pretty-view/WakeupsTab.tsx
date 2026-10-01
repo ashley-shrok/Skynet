@@ -181,8 +181,9 @@ export function WakeupsTab({
         <div className="flex flex-col gap-2 text-sm text-[var(--color-pv-fg-muted)]">
           <div>No scheduled wake-ups.</div>
           <div className="text-xs opacity-70">
-            Wake-ups are scheduled prompts fired at this agent on a clock. Ask
-            the agent to create one or use the button above.
+            Wake-ups are instructions that are automatically sent to this agent
+            at a future date/time. Ask the agent to create one or use the button
+            above.
           </div>
         </div>
         <AddWakeupDialog

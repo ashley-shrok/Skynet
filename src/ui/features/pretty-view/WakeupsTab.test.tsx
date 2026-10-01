@@ -23,7 +23,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, cleanup, within } from "@testing-library/react";
 import type { Wakeup } from "@/api/claude-session-api";
 
 // Phase 112 Plan 03 — AddWakeupDialog's instruction field now routes through
@@ -484,8 +484,10 @@ describe("WakeupsTab — form-based wakeup editor (quick 260731-2pa)", () => {
     // Click opens dialog.
     fireEvent.click(addBtn);
     expect(screen.getByTestId("add-wakeup-dialog")).toBeTruthy();
-    // Title reflects identity-scope.
-    expect(screen.getByText(/Add identity-scope wakeup/i)).toBeTruthy();
+    // Title: "Add wakeup" (identity-scope path collapsed to generic title 2026-10-01).
+    // Scope within the dialog since the "Add wakeup" pill button also matches.
+    const dialog = screen.getByTestId("add-wakeup-dialog");
+    expect(within(dialog).getByRole("heading", { name: /^Add wakeup$/i })).toBeTruthy();
   });
 
   it("14: scope='role' — Add-wakeup button click opens AddWakeupDialog with role-scope title", () => {

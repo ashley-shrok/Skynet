@@ -549,7 +549,7 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
     expect(screen.queryByTestId("create-role-dialog-stub")).toBeNull();
   });
 
-  it("P: empty state — 'This host has no roles yet.' when list is empty, header + New role still available", async () => {
+  it("P: empty state — 'No roles yet.' when list is empty, header + New role still available", async () => {
     listRolesForHost.mockResolvedValueOnce([]);
     render(
       <RolesListModal
@@ -563,7 +563,7 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
     );
     await waitFor(
       () =>
-        expect(screen.queryByText(/this host has no roles yet/i)).toBeTruthy(),
+        expect(screen.queryByText(/^no roles yet\.?$/i)).toBeTruthy(),
       { timeout: 2000 },
     );
     // + New role button remains available — the header button always renders

@@ -293,17 +293,14 @@ describe("CreateRoleDialog", () => {
       }),
     ).toBeNull();
 
-    // Phase 84 (Plan 84-01 CHANGE F.1): the header blurb renders below
-    // the title, above the fields. Phase 88 (Plan 88-02 Task 1): revised
-    // to a two-sentence paired-vocabulary form — shared verb "adopt" pairs
-    // with the sibling create-agent blurb at NewSessionDialog.tsx
-    // startDescription. Exact string from 88-CONTEXT.md §Verbatim copy
-    // Role blurb (LOCKED by user greenlight 2026-09-07).
+    // Role explainer blurb moved to RolesListModal 2026-10-01 (modal copy
+    // audit); CreateRoleDialog no longer carries it. Asserting it is NOT
+    // present here keeps a future regression that re-adds it visible.
     expect(
-      screen.getByText(
+      screen.queryByText(
         /Roles are the expertise your agents adopt\. Every agent using this role inherits its goals, rules, and knowledge\./,
       ),
-    ).toBeTruthy();
+    ).toBeNull();
 
     // Phase 84 (Plan 84-01 CHANGE E.1 + F.1): the pre-Phase-84
     // required-caption sentence ("... Name and description are

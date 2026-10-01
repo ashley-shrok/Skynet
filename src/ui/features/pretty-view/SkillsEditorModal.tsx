@@ -500,7 +500,11 @@ export default function SkillsEditorModal({
       container={container ?? undefined}
       data-testid="skills-editor-modal"
     >
-      <ModalHead title="Skills" closeTestId="skills-editor-modal-close" />
+      <ModalHead
+        title="Skills"
+        subtitle="Skills are instructions available to all of your agents that you can invoke on-demand. After you create one, you can ask an agent to invoke it, or invoke it yourself using a slash command like /<name-of-skill>"
+        closeTestId="skills-editor-modal-close"
+      />
 
       {/* Picker row — sits directly under the head. Host select (multi-host
           only), skill select, + New skill, delete-skill Trash (when a skill
@@ -618,11 +622,7 @@ export default function SkillsEditorModal({
       ) : skills.data.length === 0 ? (
         <ModalBody className="flex flex-col items-center justify-center text-[hsla(var(--pv-id-hue),22%,88%,0.65)] gap-2 text-sm text-center px-6">
           <div>No skills on this host.</div>
-          <div className="text-xs opacity-70">
-            Skills live in{" "}
-            <code className="px-1 rounded bg-black/30">~/.claude/skills/</code>{" "}
-            on the host. Nothing to edit here yet.
-          </div>
+          <div className="text-xs opacity-70">Nothing to edit here yet.</div>
         </ModalBody>
       ) : selectedSkillName == null ? (
         <ModalBody className="flex items-center justify-center text-[hsla(var(--pv-id-hue),22%,88%,0.65)] text-sm">

@@ -86,7 +86,7 @@ export function RoleFileTab({
   if (!state.data) {
     return (
       <div className="text-sm text-[var(--color-pv-fg-muted)]">
-        No role file found for this identity.
+        No role file found for this agent.
       </div>
     );
   }

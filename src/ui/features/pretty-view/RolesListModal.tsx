@@ -259,8 +259,8 @@ export function RolesListModal({
     // D-03 first confirm: blast-radius disclosure. Complete list, no truncation.
     const dialog1 =
       affected.length === 0
-        ? `archive role ${roleDisplayLabel}? no identities hold it.`
-        : `archive role ${roleDisplayLabel}? this will also archive ${affected.length} ${affected.length === 1 ? "identity" : "identities"} holding it:\n` +
+        ? `archive role ${roleDisplayLabel}? no agents hold it.`
+        : `archive role ${roleDisplayLabel}? this will also archive ${affected.length} ${affected.length === 1 ? "agent" : "agents"} holding it:\n` +
           affected.map((i) => `• ${i.task || i.displayName}`).join("\n");
     if (!window.confirm(dialog1)) return;
     // D-03 second confirm: sanity tap. Byte-identical to identity-archive's
@@ -422,6 +422,7 @@ export function RolesListModal({
           modal-look-unification pattern. */}
       <ModalHead
         title="Roles"
+        subtitle="Roles are the expertise your agents adopt. Every agent using this role inherits its goals, rules, and knowledge."
         actions={
           <button
             type="button"
@@ -493,7 +494,7 @@ export function RolesListModal({
             // secondary in-body button gives the empty-state its own
             // affordance so the user isn't hunting.
             <div className="flex-1 flex flex-col items-center justify-center text-[hsla(var(--pv-id-hue),22%,88%,0.65)] gap-3 text-sm text-center px-6">
-              <div>This host has no roles yet.</div>
+              <div>No roles yet.</div>
               <button
                 type="button"
                 onClick={onNewRole}

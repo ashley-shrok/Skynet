@@ -149,7 +149,7 @@ export function AddWakeupDialog({
     >
       <ModalHead
         title={
-          scope === "role" ? "Add role-scope wakeup" : "Add identity-scope wakeup"
+          scope === "role" ? "Add role-scope wakeup" : "Add wakeup"
         }
       />
       <ModalBody className="overflow-y-auto flex flex-col gap-3">
@@ -157,16 +157,16 @@ export function AddWakeupDialog({
           <div className="flex flex-col gap-1">
             <label
               htmlFor="add-wakeup-name"
-              className="text-[10px] uppercase tracking-wide text-[var(--color-pv-fg-dim)] font-semibold"
+              className="text-[10px] uppercase tracking-wide text-white/90 font-semibold"
             >
-              Name (becomes filename slug)
+              Name
             </label>
             <input
               id="add-wakeup-name"
               type="text"
               value={nameDraft}
               onChange={(e) => setNameDraft(e.target.value)}
-              placeholder="e.g. morning-standup"
+              placeholder="e.g. Check for email reply"
               className={cn(
                 "bg-black/30 text-[#e8e4d8] border border-white/10",
                 "focus:outline-none focus:border-white/25 rounded px-2 py-1.5 text-xs",
@@ -178,7 +178,7 @@ export function AddWakeupDialog({
           <div className="flex flex-col gap-1">
             <label
               htmlFor="add-wakeup-type"
-              className="text-[10px] uppercase tracking-wide text-[var(--color-pv-fg-dim)] font-semibold"
+              className="text-[10px] uppercase tracking-wide text-white/90 font-semibold"
             >
               Schedule type
             </label>
@@ -210,7 +210,7 @@ export function AddWakeupDialog({
               <div className="flex flex-col gap-1 flex-1 min-w-[110px]">
                 <label
                   htmlFor="add-wakeup-every-n"
-                  className="text-[10px] uppercase tracking-wide text-[var(--color-pv-fg-dim)] font-semibold"
+                  className="text-[10px] uppercase tracking-wide text-white/90 font-semibold"
                 >
                   Every
                 </label>
@@ -232,7 +232,7 @@ export function AddWakeupDialog({
               <div className="flex flex-col gap-1 flex-1 min-w-[110px]">
                 <label
                   htmlFor="add-wakeup-every-u"
-                  className="text-[10px] uppercase tracking-wide text-[var(--color-pv-fg-dim)] font-semibold"
+                  className="text-[10px] uppercase tracking-wide text-white/90 font-semibold"
                 >
                   Unit
                 </label>
@@ -267,7 +267,7 @@ export function AddWakeupDialog({
               <div className="flex flex-col gap-1">
                 <label
                   htmlFor="add-wakeup-daily-at"
-                  className="text-[10px] uppercase tracking-wide text-[var(--color-pv-fg-dim)] font-semibold"
+                  className="text-[10px] uppercase tracking-wide text-white/90 font-semibold"
                 >
                   Time (local)
                 </label>
@@ -297,7 +297,7 @@ export function AddWakeupDialog({
                 <div className="flex flex-col gap-1 flex-1 min-w-[110px]">
                   <label
                     htmlFor="add-wakeup-weekly-day"
-                    className="text-[10px] uppercase tracking-wide text-[var(--color-pv-fg-dim)] font-semibold"
+                    className="text-[10px] uppercase tracking-wide text-white/90 font-semibold"
                   >
                     Day
                   </label>
@@ -322,7 +322,7 @@ export function AddWakeupDialog({
                 <div className="flex flex-col gap-1 flex-1 min-w-[110px]">
                   <label
                     htmlFor="add-wakeup-weekly-at"
-                    className="text-[10px] uppercase tracking-wide text-[var(--color-pv-fg-dim)] font-semibold"
+                    className="text-[10px] uppercase tracking-wide text-white/90 font-semibold"
                   >
                     Time (local)
                   </label>
@@ -351,7 +351,7 @@ export function AddWakeupDialog({
             <div className="flex flex-col gap-1">
               <label
                 htmlFor="add-wakeup-oneshot-at"
-                className="text-[10px] uppercase tracking-wide text-[var(--color-pv-fg-dim)] font-semibold"
+                className="text-[10px] uppercase tracking-wide text-white/90 font-semibold"
               >
                 Fires at (local)
               </label>
@@ -373,7 +373,7 @@ export function AddWakeupDialog({
             <div className="flex flex-col gap-1">
               <label
                 htmlFor="add-wakeup-tz"
-                className="text-[10px] uppercase tracking-wide text-[var(--color-pv-fg-dim)] font-semibold"
+                className="text-[10px] uppercase tracking-wide text-white/90 font-semibold"
               >
                 Timezone (optional)
               </label>
@@ -389,9 +389,6 @@ export function AddWakeupDialog({
                   "focus:outline-none focus:border-white/25 rounded px-2 py-1.5 text-xs",
                 )}
               />
-              <span className="text-[10px] text-[var(--color-pv-fg-dim)]">
-                Leave blank to use box-local. Applies to Daily/Weekly/One-shot.
-              </span>
             </div>
           )}
 
@@ -404,7 +401,7 @@ export function AddWakeupDialog({
           <div className="flex flex-col gap-1">
             <label
               htmlFor="add-wakeup-instruction"
-              className="text-[10px] uppercase tracking-wide text-[var(--color-pv-fg-dim)] font-semibold"
+              className="text-[10px] uppercase tracking-wide text-white/90 font-semibold"
             >
               Instruction
             </label>

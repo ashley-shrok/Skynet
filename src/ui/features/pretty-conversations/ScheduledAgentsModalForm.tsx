@@ -84,15 +84,15 @@ function statusOf(err: unknown): number | undefined {
 function interpretError(err: unknown, rawName: string): string {
   const status = statusOf(err);
   if (status === 409) {
-    return `A scheduled agent named "${rawName}" already exists on this host — pick a different name.`;
+    return `A scheduled task named "${rawName}" already exists on this host — pick a different name.`;
   }
   if (status === 400) {
     const msg = err instanceof Error ? err.message : "";
-    return msg || "Scheduled-agent schedule is malformed — check the fields.";
+    return msg || "Scheduled task schedule is malformed — check the fields.";
   }
   return err instanceof Error && err.message.length > 0
     ? err.message
-    : "Couldn't save scheduled agent — try again.";
+    : "Couldn't save scheduled task — try again.";
 }
 
 // ---------------------------------------------------------------------------
@@ -266,7 +266,7 @@ export function ScheduledAgentsModalForm({
       return;
     }
     if (trimmedPrompt.length === 0) {
-      setError("Prompt is required.");
+      setError("Instructions are required.");
       return;
     }
     if (selectedHost === null) {
@@ -501,7 +501,7 @@ export function ScheduledAgentsModalForm({
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Daily box check"
+            placeholder="Daily briefing"
             disabled={nameDisabled}
             maxLength={120}
             data-testid="scheduled-agents-modal-form-name"
@@ -516,24 +516,24 @@ export function ScheduledAgentsModalForm({
           />
           {nameDisabled && (
             <p className="text-[11px] text-[color:var(--color-pv-fg-dim)]">
-              To rename, delete this scheduled agent and create a new one.
+              To rename, delete this scheduled task and create a new one.
             </p>
           )}
         </div>
 
-        {/* Field 2: Prompt (D-20 order 2) */}
+        {/* Field 2: Instructions (D-20 order 2) */}
         <div className="flex flex-col gap-1">
           <label
             htmlFor="scheduled-agents-modal-form-prompt-input"
             className="text-xs font-medium text-[color:var(--color-pv-fg-muted)]"
           >
-            Prompt
+            Instructions
           </label>
           <textarea
             id="scheduled-agents-modal-form-prompt-input"
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
-            placeholder="What should this scheduled agent do?"
+            placeholder="What should the agent handling this task do?"
             rows={4}
             data-testid="scheduled-agents-modal-form-prompt"
             className={cn(
@@ -544,11 +544,6 @@ export function ScheduledAgentsModalForm({
               "transition-colors duration-150",
             )}
           />
-          <p className="text-[11px] text-[color:var(--color-pv-fg-dim)]">
-            This becomes the first user message to a freshly-born agent.
-            Assume it starts with no memory — reference logs, role files,
-            or prior handoffs if continuity matters.
-          </p>
         </div>
 
         {/* Field 3: Roles (D-20 order 3) */}
@@ -643,7 +638,7 @@ export function ScheduledAgentsModalForm({
                 </span>
               </div>
               <p className="text-[11px] text-[color:var(--color-pv-fg-dim)]">
-                Host cannot be changed on an existing scheduled agent. Delete and
+                Host cannot be changed on an existing scheduled task. Delete and
                 recreate on the target host if needed.
               </p>
             </>

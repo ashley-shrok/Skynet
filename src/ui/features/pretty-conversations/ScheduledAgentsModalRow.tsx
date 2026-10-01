@@ -122,8 +122,8 @@ export function ScheduledAgentsModalRow({
           type="button"
           aria-label={
             row.enabled
-              ? "Disable scheduled agent"
-              : "Enable scheduled agent"
+              ? "Disable scheduled task"
+              : "Enable scheduled task"
           }
           title={
             row.enabled ? "Enabled — click to disable" : "Disabled — click to enable"

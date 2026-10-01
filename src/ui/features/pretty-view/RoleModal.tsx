@@ -616,7 +616,7 @@ export function RoleModal({
             hostId={hostId}
             hue={hue}
             hiddenNames={filesTabHiddenNames(roleName)}
-            introCopy="Files inside this role's folder — reference material, runbooks, per-role standing knowledge. Every identity holding this role sees the same set."
+            introCopy="Files inside this role's folder — reference material, runbooks, etc. Every agent holding this role sees the same stuff."
           />
         </TabsContent>
       </Tabs>

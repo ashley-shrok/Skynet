@@ -182,7 +182,11 @@ export function CreateProjectModal({
         "flex flex-col",
       )}
     >
-      <ModalHead title="New project" closeTestId="create-project-close" />
+      <ModalHead
+        title="New project"
+        subtitle="Projects group agents together in the sidebar, and let them share resources related to that project."
+        closeTestId="create-project-close"
+      />
       <ModalBody className="overflow-y-auto flex flex-col gap-3">
         <div className="flex flex-col gap-1">
           <label

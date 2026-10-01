@@ -180,7 +180,7 @@ describe("ScheduledAgentsModal: closed vs open + read path", () => {
       />,
     );
     const empty = await screen.findByTestId("scheduled-agents-modal-empty-state");
-    expect(empty.textContent).toMatch(/No scheduled agents on any host/i);
+    expect(empty.textContent).toMatch(/No scheduled tasks/i);
   });
 });
 
@@ -461,7 +461,7 @@ describe("ScheduledAgentsModal: kebab menu (D-13, D-14)", () => {
 
     expect(confirmSpy).toHaveBeenCalledTimes(1);
     expect(confirmSpy).toHaveBeenCalledWith(
-      'Delete scheduled agent "Morning triage"?',
+      'Delete scheduled task "Morning triage"?',
     );
     await waitFor(() => {
       expect(deleteScheduledAgentMock).toHaveBeenCalledWith("morning-triage", 1);

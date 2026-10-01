@@ -508,8 +508,8 @@ export function IdentityBadge({
         draggable={isDragSource}
         onDragStart={onDragStart}
         onContextMenu={onContextMenu}
-        aria-label="Open identity info"
-        title="Identity info"
+        aria-label="Open agent info"
+        title="Agent info"
         className={`${rootClassName} cursor-pointer`}
         style={rootStyle}
       >

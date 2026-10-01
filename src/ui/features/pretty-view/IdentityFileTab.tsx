@@ -85,7 +85,7 @@ export function IdentityFileTab({
   if (state.status === "error") {
     return (
       <div className="text-sm text-[color:var(--color-pv-code-fg)]">
-        Couldn&apos;t load identity file: {state.error}
+        Couldn&apos;t load agent file: {state.error}
       </div>
     );
   }
@@ -93,7 +93,7 @@ export function IdentityFileTab({
   if (!state.data) {
     return (
       <div className="text-sm text-[var(--color-pv-fg-muted)]">
-        No identity file found for this identity.
+        No agent file found for this agent.
       </div>
     );
   }

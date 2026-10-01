@@ -549,10 +549,7 @@ export function CreateRoleDialog({
          * origin invariant, just via the new canonical instead of shadcn's
          * DialogDescription wrapper). Do NOT drop the text.
          */}
-        <ModalHead
-          title={startTitle}
-          subtitle="Roles are the expertise your agents adopt. Every agent using this role inherits its goals, rules, and knowledge."
-        />
+        <ModalHead title={startTitle} />
 
         <ModalBody className="overflow-y-auto flex flex-col gap-3">
           {/* Name field */}

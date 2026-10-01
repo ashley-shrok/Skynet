@@ -162,7 +162,7 @@ export function IdentityModal({
   const [identityWakeupsState, setIdentityWakeupsState] = useState<TabState<Wakeup[]>>({ status: "loading" });
 
   const NAV_SECTIONS = [
-    { value: "identity", label: "Identity file", Icon: User },
+    { value: "identity", label: "Agent file", Icon: User },
     { value: "identity-wakeups", label: "Wake-ups", Icon: AlarmClock },
     { value: "workspace", label: "Files", Icon: Folder },
   ] as const;
@@ -563,7 +563,7 @@ export function IdentityModal({
                 }}
                 autoFocus
                 disabled={savingField === "task"}
-                placeholder="What is this identity working on?"
+                placeholder="What is this agent working on?"
                 data-testid="identity-modal-task-input"
                 className={cn(
                   "flex-1 min-w-0 px-2 py-1 rounded-md text-[12.5px]",

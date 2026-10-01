@@ -81,7 +81,7 @@ export function AsideBubble({
     <div className={cn("flex", "justify-start")}>
       <div
         role="note"
-        aria-label="Plain-language aside from the identity"
+        aria-label="Plain-language aside from the agent"
         className={cn(
           // Base identity-hue Glass treatment — copied VERBATIM from
           // ChatMessage.tsx L124-127 (assistant branch). Do NOT import
