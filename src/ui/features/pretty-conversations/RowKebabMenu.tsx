@@ -1,5 +1,5 @@
 import * as React from "react";
-import { MoreVertical } from "lucide-react";
+import { MoreVertical, Check } from "lucide-react";
 
 // ─── Phase 143 Plan 143-05 (D-12 / D-13 / D-14) — RowKebabMenu ──────────────
 //
@@ -38,6 +38,17 @@ import { MoreVertical } from "lucide-react";
 //   tint. Cipher (sidebar kebab consumer) consumes this same component — one
 //   paint, every kebab in the app.
 //
+// D-21 (added 2026-10-01, shape-sidebar-header-affordances task 6): one-level
+//   submenu support for the conversation-row kebab's Move-to-project
+//   drill-in. An item with a `submenu` field renders as DropdownMenuSub +
+//   SubTrigger + SubContent instead of DropdownMenuItem; the submenu
+//   inherits the same visual tokens as the primary content so a drilled-in
+//   level looks identical to the top. Submenu items may carry `checked: true`
+//   to render a Check icon on the left (used for the row's currently-
+//   assigned project in the Move-to-project picker). Submenu nesting is
+//   intentionally limited to ONE level — multi-level drill-ins add UX
+//   complexity and no existing consumer needs them.
+//
 // Purely presentational — this component is NOT responsible for state management
 // (row removal, alert copy, etc.). It emits item.onClick() and stops. Callers
 // own the side effects.
@@ -50,16 +61,42 @@ import {
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
+  DropdownMenuPortal,
 } from "@/components/dropdown-menu";
 import { cn } from "@/lib/utils";
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
-export interface RowKebabMenuItem {
+/**
+ * Child item of a submenu. Submenus do not nest — a submenu item cannot carry
+ * its own submenu. `checked: true` renders a Check icon prefix (used for the
+ * row's currently-assigned project in the Move-to-project picker).
+ */
+export interface RowKebabSubmenuItem {
   label: string;
   onClick: () => void;
   danger?: boolean;
   disabled?: boolean;
+  checked?: boolean;
+  /** Optional per-item test id (forwarded to DropdownMenuItem). */
+  testId?: string;
+}
+
+/**
+ * Top-level kebab item. Mutually exclusive shapes:
+ *   - leaf item: has `onClick`, no `submenu`
+ *   - submenu parent: has `submenu` with ≥1 child, no `onClick`
+ * TypeScript doesn't enforce this; callers should pass one or the other.
+ */
+export interface RowKebabMenuItem {
+  label: string;
+  onClick?: () => void;
+  danger?: boolean;
+  disabled?: boolean;
+  submenu?: RowKebabSubmenuItem[];
   /** Optional per-item test id (forwarded to DropdownMenuItem). */
   testId?: string;
 }
@@ -71,6 +108,11 @@ export interface RowKebabMenuProps {
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
+
+// Shared classNames so the submenu's content/items match the primary surface.
+const CONTENT_CLASS = "rounded-lg bg-[#1f1f24] border border-white/10 shadow-xl p-1 min-w-[140px]";
+const ITEM_CLASS_BASE = "cursor-pointer rounded-md px-3 py-1.5 text-[12.5px] text-[#e8e4d8] focus:bg-white/10 focus:text-white";
+const ITEM_CLASS_DANGER = "text-[hsla(0,60%,76%,1)] focus:bg-[hsla(0,60%,40%,0.18)] focus:text-[hsla(0,60%,86%,1)]";
 
 export function RowKebabMenu({
   items,
@@ -96,7 +138,7 @@ export function RowKebabMenu({
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
-        className="rounded-lg bg-[#1f1f24] border border-white/10 shadow-xl p-1 min-w-[140px]"
+        className={CONTENT_CLASS}
         onClick={(e) => {
           e.stopPropagation();
         }}
@@ -104,26 +146,90 @@ export function RowKebabMenu({
           e.stopPropagation();
         }}
       >
-        {items.map((item) => (
-          <DropdownMenuItem
-            key={item.label}
-            onSelect={() => {
-              item.onClick();
-            }}
-            onClick={(e) => {
-              e.stopPropagation();
-            }}
-            disabled={item.disabled}
-            data-testid={item.testId}
-            className={cn(
-              "cursor-pointer rounded-md px-3 py-1.5 text-[12.5px] text-[#e8e4d8] focus:bg-white/10 focus:text-white",
-              item.danger &&
-                "text-[hsla(0,60%,76%,1)] focus:bg-[hsla(0,60%,40%,0.18)] focus:text-[hsla(0,60%,86%,1)]",
-            )}
-          >
-            {item.label}
-          </DropdownMenuItem>
-        ))}
+        {items.map((item) => {
+          if (item.submenu && item.submenu.length > 0) {
+            // Submenu parent — DropdownMenuSub with SubTrigger + SubContent.
+            // The SubContent inherits the same CONTENT_CLASS so the drilled
+            // level looks identical to the primary.
+            return (
+              <DropdownMenuSub key={item.label}>
+                <DropdownMenuSubTrigger
+                  disabled={item.disabled}
+                  data-testid={item.testId}
+                  className={cn(
+                    ITEM_CLASS_BASE,
+                    item.danger && ITEM_CLASS_DANGER,
+                  )}
+                >
+                  {item.label}
+                </DropdownMenuSubTrigger>
+                <DropdownMenuPortal>
+                  <DropdownMenuSubContent
+                    className={CONTENT_CLASS}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                    }}
+                    onPointerDown={(e) => {
+                      e.stopPropagation();
+                    }}
+                  >
+                    {item.submenu.map((sub) => (
+                      <DropdownMenuItem
+                        key={sub.label}
+                        onSelect={() => {
+                          sub.onClick();
+                        }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                        }}
+                        disabled={sub.disabled}
+                        data-testid={sub.testId}
+                        className={cn(
+                          ITEM_CLASS_BASE,
+                          "flex items-center gap-2",
+                          sub.danger && ITEM_CLASS_DANGER,
+                        )}
+                      >
+                        {sub.checked === true ? (
+                          <Check
+                            className="size-[14px] shrink-0"
+                            aria-hidden="true"
+                          />
+                        ) : (
+                          <span
+                            className="inline-block size-[14px] shrink-0"
+                            aria-hidden="true"
+                          />
+                        )}
+                        <span>{sub.label}</span>
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuSubContent>
+                </DropdownMenuPortal>
+              </DropdownMenuSub>
+            );
+          }
+          // Leaf item.
+          return (
+            <DropdownMenuItem
+              key={item.label}
+              onSelect={() => {
+                item.onClick?.();
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+              }}
+              disabled={item.disabled}
+              data-testid={item.testId}
+              className={cn(
+                ITEM_CLASS_BASE,
+                item.danger && ITEM_CLASS_DANGER,
+              )}
+            >
+              {item.label}
+            </DropdownMenuItem>
+          );
+        })}
       </DropdownMenuContent>
     </DropdownMenu>
   );
