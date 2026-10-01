@@ -23,6 +23,7 @@
 //     not raw event or error serialization.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Loader2 } from "lucide-react";
 import { Button } from "@/components/button";
 import { cn } from "@/lib/utils";
 import { Modal, ModalHead, ModalBody, ModalFoot } from "@/components/modal";
@@ -61,7 +62,8 @@ function gateHint(
     case "single-agent-only":
       return "A single-agent conversation already exists in your list";
     case "submitting":
-      return "Creating…";
+      // Submit state is carried by the in-button Loader2 spinner.
+      return null;
   }
 }
 
@@ -330,7 +332,11 @@ export function NewConversationModal({
             }}
             className="w-full"
           >
-            Create
+            {form.submitting ? (
+              <Loader2 className="size-4 animate-spin" aria-label="Creating conversation" />
+            ) : (
+              "Create"
+            )}
           </Button>
           {hint && (
             <p className="text-xs text-center text-[hsla(var(--pv-id-hue),22%,88%,0.65)]">

@@ -19,7 +19,7 @@
 // doesn't trash the user's typed name; ESC and the header close-X still work.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Search } from "lucide-react";
+import { Search, Loader2 } from "lucide-react";
 import { Button } from "@/components/button";
 import { cn } from "@/lib/utils";
 import { Modal, ModalHead, ModalBody, ModalFoot } from "@/components/modal";
@@ -315,7 +315,11 @@ export function CreateProjectModal({
           disabled={!canSubmit}
           data-testid="create-project-submit"
         >
-          Create
+          {inFlight ? (
+            <Loader2 className="size-4 animate-spin" aria-label="Creating project" />
+          ) : (
+            "Create"
+          )}
         </Button>
       </ModalFoot>
     </Modal>

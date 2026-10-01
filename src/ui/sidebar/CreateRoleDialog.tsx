@@ -816,7 +816,11 @@ export function CreateRoleDialog({
             disabled={!canOpen}
             className="text-xs"
           >
-            {openLabel}
+            {submitting ? (
+              <Loader2 className="size-4 animate-spin" aria-label="Creating role" />
+            ) : (
+              openLabel
+            )}
           </Button>
         </ModalFoot>
       </div>
