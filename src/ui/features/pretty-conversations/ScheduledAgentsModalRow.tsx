@@ -36,6 +36,14 @@ import type { ScheduledAgentListItem } from "@/api/scheduled-agents-api";
 
 const FALLBACK_HUE = 190;
 
+/** Render-only de-slug. Hyphens/underscores → spaces, capitalize first char.
+ *  Kept in sync with `_prettify_name` in substrate/scripts/wakeup-scheduler.py
+ *  (the ⏰ task-prefix on scheduled-agent-spawned identities). */
+export function prettifyScheduledAgentName(name: string): string {
+  const spaced = name.replace(/[-_]+/g, " ");
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
 function avatarLetterFor(row: ScheduledAgentListItem): string {
   const firstRole = row.roles[0];
   if (typeof firstRole === "string" && firstRole.length > 0) {
@@ -88,7 +96,7 @@ export function ScheduledAgentsModalRow({
       </div>
 
       <div className="pv-agent-row-body">
-        <div className="pv-agent-row-name">{row.name}</div>
+        <div className="pv-agent-row-name">{prettifyScheduledAgentName(row.name)}</div>
         <div className="pv-agent-row-sub">{row.scheduleHuman}</div>
         <div className="pv-agent-row-prompt">{row.prompt}</div>
         {(row.roles.length > 0 || row.skills.length > 0) && (

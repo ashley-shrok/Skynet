@@ -444,7 +444,7 @@ export function ScheduledAgentsModalForm({
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="morning-triage"
+            placeholder="Daily box check"
             disabled={nameDisabled}
             maxLength={120}
             data-testid="scheduled-agents-modal-form-name"

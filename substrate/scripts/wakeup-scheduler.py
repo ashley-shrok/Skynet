@@ -111,6 +111,7 @@ import argparse
 import glob
 import json
 import os
+import re
 import sys
 import time
 import uuid as _uuid
@@ -145,6 +146,19 @@ def _emit_wake(key, utc, instruction, state_dir):
         return
     print("⏰ [scheduled: %s @ %s] [long instruction, %d chars — full text at %s "
           "— Read it]" % (key, utc, len(instruction), wake_path), flush=True)
+
+
+def _prettify_name(name):
+    """Render-only de-slug. Hyphens/underscores → spaces, capitalize first char.
+    Kept in sync with `prettifyScheduledAgentName` in
+    src/ui/features/pretty-conversations/ScheduledAgentsModalRow.tsx — the modal
+    row that renders the same spec from the LIST endpoint. Dozens of existing
+    specs across the fleet have slug-shape names (because the agent-facing docs
+    historically modelled slug-shape examples); this renders them cleanly in the
+    ⏰ task-prefix on scheduled-agent-spawned identities without needing to
+    rename on disk."""
+    spaced = re.sub(r"[-_]+", " ", name)
+    return (spaced[:1].upper() + spaced[1:]) if spaced else spaced
 
 
 def _zone(spec):
@@ -331,7 +345,7 @@ def _drop_spawn_request(spec, state_dir):
         # Clock prefix (⏰ ) marks the identity as scheduled-agent-spawned in the
         # sidebar row + open-conversation task line, so users can tell at a
         # glance which conversations are clock-fired vs manually spawned.
-        "task": ("⏰ " + spec["name"]) if spec.get("name") else None,
+        "task": ("⏰ " + _prettify_name(spec["name"])) if spec.get("name") else None,
         "requested_at": fired_at,
     }
     req_path = os.path.join(req_dir, req_id + ".json")

@@ -52,7 +52,7 @@ import {
   toggleScheduledAgentEnabled,
   type ScheduledAgentListItem,
 } from "@/api/scheduled-agents-api";
-import { ScheduledAgentsModalRow } from "./ScheduledAgentsModalRow";
+import { ScheduledAgentsModalRow, prettifyScheduledAgentName } from "./ScheduledAgentsModalRow";
 import { ScheduledAgentsModalForm } from "./ScheduledAgentsModalForm";
 
 // Host-tree flatten helpers — inlined from CreateProjectModal (small
@@ -204,7 +204,8 @@ export function ScheduledAgentsModal({
     const q = search.trim().toLowerCase();
     return items.filter((row) => {
       if (q.length > 0) {
-        const nameHit = row.name.toLowerCase().includes(q);
+        const nameHit = row.name.toLowerCase().includes(q) ||
+          prettifyScheduledAgentName(row.name).toLowerCase().includes(q);
         const promptHit = row.prompt.toLowerCase().includes(q);
         if (!nameHit && !promptHit) return false;
       }

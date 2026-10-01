@@ -227,6 +227,33 @@ describe("ScheduledAgentsModal: filter bar", () => {
     expect(screen.queryByText("Beta")).toBeNull();
   });
 
+  it("T-04b: slug-shape names render prettified in the row + match on either form in search", async () => {
+    listScheduledAgentsMock.mockResolvedValueOnce([
+      makeRow({ slug: "daily-box-check", name: "daily-box-check" }),
+    ]);
+    render(
+      <ScheduledAgentsModal
+        open={true}
+        onOpenChange={vi.fn()}
+        hostTree={ONE_HOST_TREE}
+      />,
+    );
+    // Prettified render: hyphens → spaces, first char capitalized.
+    await screen.findByText("Daily box check");
+    expect(screen.queryByText("daily-box-check")).toBeNull();
+    // Search still matches the raw-slug form (typed hyphens).
+    const search = screen.getByTestId(
+      "scheduled-agents-modal-filter-search",
+    ) as HTMLInputElement;
+    const user = userEvent.setup();
+    await user.type(search, "daily-box");
+    expect(screen.getByText("Daily box check")).toBeInTheDocument();
+    // And matches the prettified form (typed spaces).
+    await user.clear(search);
+    await user.type(search, "box check");
+    expect(screen.getByText("Daily box check")).toBeInTheDocument();
+  });
+
   it("T-06: host filter narrows to matching host", async () => {
     listScheduledAgentsMock.mockResolvedValueOnce([
       makeRow({ slug: "a", name: "Alpha", host: "host-a", hostId: 1 }),

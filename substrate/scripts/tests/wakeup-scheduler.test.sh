@@ -218,8 +218,8 @@ elif '> hello' not in p:
     errors.append('prompt: original prompt not blockquoted verbatim; got=' + repr(p[:400]))
 if d.get('skills') != []:
     errors.append('skills: expected=[] got=' + repr(d.get('skills')))
-if d.get('task') != '⏰ t1':
-    errors.append('task: expected=\"⏰ t1\" (clock-prefixed spec name) got=' + repr(d.get('task')))
+if d.get('task') != '⏰ T1':
+    errors.append('task: expected=\"⏰ T1\" (clock-prefixed, de-slugged spec name) got=' + repr(d.get('task')))
 if not isinstance(d.get('requested_at'), str) or not d['requested_at'].endswith('Z'):
     errors.append('requested_at: expected ISO-Z string got=' + repr(d.get('requested_at')))
 if errors:
@@ -414,8 +414,8 @@ elif 'one-shot' not in p:
     errors.append('prompt: missing slug reference; got=' + repr(p[:200]))
 elif '> one-shot fire' not in p:
     errors.append('prompt: original prompt not blockquoted verbatim; got=' + repr(p[:400]))
-if d.get('task') != '⏰ one-shot':
-    errors.append('task: expected=\"⏰ one-shot\" (clock-prefixed spec name) got=' + repr(d.get('task')))
+if d.get('task') != '⏰ One shot':
+    errors.append('task: expected=\"⏰ One shot\" (clock-prefixed, de-slugged spec name) got=' + repr(d.get('task')))
 if errors:
     print('FAIL: ' + '; '.join(errors))
 else:
@@ -423,6 +423,84 @@ else:
 " 2>&1)
   if [ "$check_result" != "OK" ]; then
     fail "SA-G5: spawn-request JSON invalid: $check_result"
+  fi
+}
+
+# ============================================================
+# SA-G6: _prettify_name de-slugs the ⏰ task-prefix on spawn-requests
+# ============================================================
+# Direct unit test on the helper via `python3 -c` import, plus an end-to-end
+# check that a slug-shape `name` on disk renders prettified in the
+# spawn-request `task` field. Byte-parallels prettifyScheduledAgentName in
+# src/ui/features/pretty-conversations/ScheduledAgentsModalRow.tsx — if either
+# helper drifts, modal row and ⏰ prefix stop matching.
+test_SA_G6_prettify_name_de_slugs_task_prefix() {
+  # Direct unit test — import _prettify_name and assert transformation cases.
+  local unit_result
+  unit_result=$(python3 -c "
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location('ws', '$PY_SCRIPT')
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+cases = [
+    ('daily-box-check', 'Daily box check'),
+    ('workstation_logind_flush', 'Workstation logind flush'),
+    ('Already Pretty', 'Already Pretty'),
+    ('mixed-hyphen_underscore', 'Mixed hyphen underscore'),
+    ('', ''),
+    ('a', 'A'),
+]
+errors = []
+for inp, want in cases:
+    got = m._prettify_name(inp)
+    if got != want:
+        errors.append('%r → %r (wanted %r)' % (inp, got, want))
+print('FAIL: ' + '; '.join(errors) if errors else 'OK')
+" 2>&1)
+  if [ "$unit_result" != "OK" ]; then
+    fail "SA-G6 unit: _prettify_name mismatches: $unit_result"
+    return
+  fi
+
+  # End-to-end — slug-shape spec on disk → prettified task on spawn-request.
+  local scheduled_agents_dir home_dir out_log err_log
+  scheduled_agents_dir=$(make_tmpdir)
+  home_dir=$(make_tmpdir)
+  out_log=$(make_tmpdir)/out.log
+  err_log=$(make_tmpdir)/err.log
+
+  mkdir -p "$scheduled_agents_dir/daily-box-check"
+  cat > "$scheduled_agents_dir/daily-box-check/scheduled-agent.json" <<'JSON'
+{
+  "name": "daily-box-check",
+  "enabled": true,
+  "schedule": {"type": "one_shot", "at": "2020-01-01T00:00:00Z"},
+  "prompt": "fire",
+  "roles": ["coordinator"],
+  "skills": []
+}
+JSON
+
+  HOME="$home_dir" timeout 3 python3 "$PY_SCRIPT" "$scheduled_agents_dir" --mode scheduled-agents \
+    >"$out_log" 2>"$err_log" || true
+
+  local req_dir="$home_dir/fleet/spawn-requests"
+  local req_file
+  req_file=$(find "$req_dir" -maxdepth 1 -name "*.json" | head -1)
+  if [ -z "$req_file" ]; then
+    fail "SA-G6: expected spawn-request file in $req_dir"
+    return
+  fi
+
+  local check_result
+  check_result=$(python3 -c "
+import json
+d = json.load(open('$req_file'))
+want = '⏰ Daily box check'
+got = d.get('task')
+print('OK' if got == want else 'FAIL: task got=%r want=%r' % (got, want))
+" 2>&1)
+  if [ "$check_result" != "OK" ]; then
+    fail "SA-G6 e2e: $check_result"
   fi
 }
 
@@ -438,6 +516,7 @@ run_test test_SA_G2_scheduled_agents_ignores_flat_specs
 run_test test_SA_G3_per_identity_mode_unchanged
 run_test test_SA_G4_orphan_check_mode_isolation
 run_test test_SA_G5_one_shot_scheduled_agents_mode
+run_test test_SA_G6_prettify_name_de_slugs_task_prefix
 
 printf '\n===============================\n'
 printf 'PASS: %s  FAIL: %s\n' "$PASS" "$FAIL"
