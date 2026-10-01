@@ -167,6 +167,7 @@ function startFreezeDiagWorker(): void {
             nodes: readNodeCount(),
             heapMB: readHeapMB(),
             modals: { ...modalOpenCounts },
+            bodyPE: readBodyPointerEvents(),
           },
         });
       }
@@ -181,13 +182,27 @@ function emit(): void {
   const heapMB = readHeapMB();
   const nodes = readNodeCount();
   const modals = { ...modalOpenCounts };
+  // bodyPE: document.body.style.pointerEvents snapshot — the direct Radix
+  // body-lock-leak detector. Normal value is "" (empty = inherit = auto);
+  // a stuck "none" during a user-reported click-dead state is the smoking
+  // gun for the Radix DropdownMenu modal-close-cleanup race (candidate
+  // from the 2026-10-01 code dive on Phase 143's RowKebabMenu rollout).
+  const bodyPE = readBodyPointerEvents();
   // Single-line, structured — easy to grep with `grep '\[freeze-diag\]'`
   // and easy to eyeball as JSON if we ever want to chart it.
   // eslint-disable-next-line no-console
   console.info(
     "[freeze-diag]",
-    JSON.stringify({ ws, heapMB, nodes, modals }),
+    JSON.stringify({ ws, heapMB, nodes, modals, bodyPE }),
   );
+}
+
+function readBodyPointerEvents(): string {
+  try {
+    return document.body.style.pointerEvents;
+  } catch {
+    return "?";
+  }
 }
 
 function readHeapMB(): number {
