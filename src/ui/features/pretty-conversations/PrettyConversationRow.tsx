@@ -853,22 +853,22 @@ export function PrettyConversationRow({
               fallback) followed by a parenthetical suffix. Subtitle line —
               aiTitle (or `…` placeholder). Server icon dropped.
 
-            inline-260823-conv-title-suffix (user 2026-08-23):
-              The parenthetical PREFERS `identity.title` over `row.host.name`.
-              user verbatim: "all the identities are showing the host that
-              they live on next to their name instead of their title ... I
-              understand like maybe the host name is a fallback or something
-              but like right now it's like a hundred percent of the identities
-              are showing the name of the host instead of their title and I
-              don't really care what host they're on that doesn't help me".
+            inline-261001-conv-title-role-suffix (user 2026-10-01):
+              The parenthetical PREFERS the identity's role display name over
+              `row.host.name`. User verbatim: "right now it would show
+              'Aqua (workstation)' but it should say the role instead of host
+              like 'Aqua (Secretary)'". Role carries the "who is this" signal
+              a glance needs; the host basically never matters.
               Resolution order:
-                1. identity?.title (non-empty string) — the meaningful label
-                2. row.host?.name — fallback for identities without a title,
-                   or non-identity rows (unresolved sessions)
-                3. absent — no parens at all (extreme edge case)
-              `||` (not `??`) so empty-string title falls through to hostname.
+                1. identity's role → roleDisplayName(role, roleDefaults.displayName)
+                2. row.host?.name — fallback when identity has no role, or for
+                   non-identity rows (unresolved sessions)
+                3. absent — no parens at all
+              Supersedes inline-260823's `identity.title || host.name` ladder;
+              `identity.title` is no longer consulted for the no-task branch
+              (parity with the task-primary branch, which already uses role).
               The CSS class name `pv-hostname-suffix` is kept for backward
-              compat — it now styles a title OR hostname parenthetical. */}
+              compat — it now styles a role OR hostname parenthetical. */}
         {/* Phase 80 Plan 08: gated task-primary body swap (D-03, D-06).
             When `identity?.task` is truthy → task-primary display:
               - Top line: the task string alone (reuses .pv-label typography).
@@ -896,12 +896,21 @@ export function PrettyConversationRow({
             <>
               <span className="pv-label" onMouseEnter={setTitleIfOverflowing}>
                 {identity ? identity.displayName : row.label}
-                {(identity?.title || row.host?.name) && (
-                  <span className="pv-hostname-suffix">
-                    {" "}
-                    ({identity?.title || row.host?.name})
-                  </span>
-                )}
+                {(() => {
+                  // inline-261001-conv-title-role-suffix: prefer role display
+                  // name over host.name in the parens; host.name is the
+                  // fallback for identities without a role, or for rows with
+                  // no identity resolved at all.
+                  const suffix = identity?.role
+                    ? roleDisplayName(
+                        identity.role,
+                        identity.roleDefaults?.displayName,
+                      )
+                    : row.host?.name;
+                  return suffix ? (
+                    <span className="pv-hostname-suffix"> ({suffix})</span>
+                  ) : null;
+                })()}
               </span>
               {aiTitle !== null ? (
                 <span className="pv-ai-title" onMouseEnter={setTitleIfOverflowing}>{aiTitle}</span>

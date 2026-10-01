@@ -1107,13 +1107,19 @@ describe("PrettyConversationRow: Phase 48 Plan 05 aiTitle subtitle (was quick-26
 // When either condition is false, the row falls back verbatim to row.label
 // (raw terminal rows, unresolved identities, hostname-mode rows unchanged).
 
-describe("PrettyConversationRow: Phase 48 Plan 05 main label source + parenthetical suffix (was user 2026-08-01 main label source; inline-260823-conv-title-suffix flipped parens to identity.title with hostname fallback)", () => {
-  it("Test 20A (inline-260823-conv-title-suffix rewrite): identity resolved WITH title → parenthetical is identity.title, NOT hostname; user 2026-08-23 lock", () => {
-    // Pre-inline-260823 this asserted "Nelly (thenasty)" — hostname always.
-    // user 2026-08-23 flipped: parens prefer identity.title over
-    // host.name. Hostname was almost never useful in the row; title carries
-    // the meaningful "who is this" signal (Secretary / Athena / etc).
-    currentIdentity = { ...makeIdentity(200, "Nelly"), title: "Fleet Coordinator" };
+describe("PrettyConversationRow: Phase 48 Plan 05 main label source + parenthetical suffix (inline-261001-conv-title-role-suffix flipped parens to the identity's role display name with hostname fallback — supersedes inline-260823's identity.title ladder)", () => {
+  it("Test 20A (inline-261001-conv-title-role-suffix rewrite): identity resolved WITH role → parenthetical is the role display name, NOT hostname and NOT identity.title; user 2026-10-01 lock", () => {
+    // Pre-inline-261001 this asserted "Nelly (Fleet Coordinator)" — title
+    // always, with hostname fallback. user 2026-10-01 flipped: parens prefer
+    // the role display name. User verbatim: "right now it would show
+    // 'Aqua (workstation)' but it should say the role instead of host like
+    // 'Aqua (Secretary)'". `identity.title` is no longer consulted here; a
+    // leftover title must NOT win over the role (regression guard).
+    currentIdentity = {
+      ...makeIdentity(200, "Nelly"),
+      role: "secretary",
+      title: "Fleet Coordinator",
+    };
     const { container } = render(
       <PrettyConversationRow
         row={makeRow({ label: "nelly-session", targetTmuxSession: "nelly" })}
@@ -1127,26 +1133,55 @@ describe("PrettyConversationRow: Phase 48 Plan 05 main label source + parentheti
     );
     const pvLabel = container.querySelector(".pv-label") as HTMLElement | null;
     expect(pvLabel).toBeTruthy();
-    // Full textContent (identity prefix + parens suffix): "Nelly (Fleet Coordinator)"
-    expect(pvLabel!.textContent?.trim()).toBe("Nelly (Fleet Coordinator)");
+    // Full textContent (identity prefix + parens suffix): "Nelly (Secretary)"
+    expect(pvLabel!.textContent?.trim()).toBe("Nelly (Secretary)");
     // The lowercase tmux sessionName MUST NOT appear as the prefix.
     expect(pvLabel!.textContent?.trim()).not.toBe("nelly-session");
-    // Hostname MUST NOT appear anywhere in the label when title is set.
+    // Hostname MUST NOT appear anywhere in the label when a role is set.
     expect(pvLabel!.textContent).not.toContain("thenasty");
-    // Suffix span is present with title content.
+    // identity.title MUST NOT win over the role (regression guard against
+    // reverting to inline-260823's title ladder).
+    expect(pvLabel!.textContent).not.toContain("Fleet Coordinator");
+    // Suffix span is present with role display-name content.
     const suffix = pvLabel!.querySelector(
       ".pv-hostname-suffix",
     ) as HTMLElement | null;
     expect(suffix).toBeTruthy();
-    expect(suffix!.textContent).toBe(" (Fleet Coordinator)");
+    expect(suffix!.textContent).toBe(" (Secretary)");
+  });
+
+  it("Test 20A2 (inline-261001-conv-title-role-suffix): role's own displayName frontmatter wins over the title-cased slug", () => {
+    // Mirrors TP4b in the task-primary test file: when identity.roleDefaults
+    // carries an authored displayName, roleDisplayName returns it verbatim
+    // rather than title-casing the slug.
+    currentIdentity = {
+      ...makeIdentity(200, "Nelly"),
+      role: "skynet-maintainer",
+      roleDefaults: { displayName: "Skynet Ops" },
+    };
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ label: "nelly-session", targetTmuxSession: "nelly" })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+      />,
+    );
+    const suffix = container.querySelector(
+      ".pv-hostname-suffix",
+    ) as HTMLElement | null;
+    expect(suffix).toBeTruthy();
+    expect(suffix!.textContent).toBe(" (Skynet Ops)");
   });
 
   it("Test 20B (Phase 48 Plan 05 rewrite): NO identity resolved → main label prefix is row.label (verbatim fallback), still followed by the (hostname) parens suffix when host is present", () => {
     // Fallback safety-net preserved from patch #149 in new shape: when
     // useIdentities does not resolve, the label prefix is row.label so
     // the row never ships with an empty main label. Hostname parens
-    // suffix still appears from row.host — inline-260823 hostname-fallback
-    // path also exercises this shape (no identity → no title → hostname).
+    // suffix still appears from row.host — the no-identity branch of the
+    // inline-261001 role→host ladder (no identity → no role → hostname).
     const { container } = render(
       <PrettyConversationRow
         row={makeRow({ label: "unresolved-session", targetTmuxSession: "nobody" })}
@@ -1168,12 +1203,13 @@ describe("PrettyConversationRow: Phase 48 Plan 05 main label source + parentheti
     expect(suffix!.textContent).toBe(" (thenasty)");
   });
 
-  it("Test 20C (inline-260823-conv-title-suffix): identity resolved but title=null → parens fall back to hostname (user 2026-08-23 hostname-as-fallback semantic)", () => {
+  it("Test 20C (inline-261001-conv-title-role-suffix): identity resolved but role=null → parens fall back to hostname", () => {
     // Locks the fallback contract: when an identity exists but has no
-    // title (title=null OR empty string), the parenthetical falls back to
-    // the row.host.name rather than showing empty parens. Matches user's
-    // "maybe the host name is a fallback" framing.
-    currentIdentity = { ...makeIdentity(200, "Nelly"), title: null };
+    // role (role=null — an anomalous case; every live identity carries
+    // one in practice), the parenthetical falls back to the row.host.name
+    // rather than showing empty parens. Matches the "host as fallback"
+    // intent from inline-260823, preserved under the new role-first ladder.
+    currentIdentity = { ...makeIdentity(200, "Nelly"), role: null };
     const { container } = render(
       <PrettyConversationRow
         row={makeRow({ label: "nelly-session", targetTmuxSession: "nelly" })}
@@ -1187,7 +1223,7 @@ describe("PrettyConversationRow: Phase 48 Plan 05 main label source + parentheti
     );
     const pvLabel = container.querySelector(".pv-label") as HTMLElement | null;
     expect(pvLabel).toBeTruthy();
-    // displayName + hostname fallback (no title present)
+    // displayName + hostname fallback (no role present)
     expect(pvLabel!.textContent?.trim()).toBe("Nelly (thenasty)");
     const suffix = pvLabel!.querySelector(
       ".pv-hostname-suffix",
