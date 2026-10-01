@@ -65,6 +65,7 @@ import {
   type ScheduledAgentListItem,
 } from "@/api/scheduled-agents-api";
 import { listRolesForHost, type RoleSummary } from "@/api/identities-api";
+import { roleDisplayName } from "@/lib/role-display-name";
 import type { Host } from "@/types/ui-types";
 
 // ---------------------------------------------------------------------------
@@ -384,6 +385,18 @@ export function ScheduledAgentsModalForm({
       .sort((a, b) => a.localeCompare(b));
   }, [availableRoles, selectedRoles]);
 
+  // Pretty-names shape (2026-09-30): display names for role chips. Chips
+  // use the slug as their key / data-testid / state value (that's what
+  // gets persisted to disk), but render the role's pretty name for the
+  // user. Lookup against availableRoles.
+  const roleDisplayByName = useMemo<Map<string, string>>(() => {
+    const map = new Map<string, string>();
+    for (const r of availableRoles) {
+      map.set(r.name, roleDisplayName(r.name, r.displayName));
+    }
+    return map;
+  }, [availableRoles]);
+
   // ─── Render ───────────────────────────────────────────────────────────
   const nameDisabled = mode === "edit";
   const hostDisabled = mode === "edit";
@@ -520,7 +533,7 @@ export function ScheduledAgentsModalForm({
                       style={ROLE_CHIP_SELECTED}
                       data-testid={`scheduled-agents-modal-form-role-selected-${r}`}
                     >
-                      <span>{r}</span>
+                      <span>{roleDisplayByName.get(r) ?? roleDisplayName(r)}</span>
                       <X size={10} />
                     </button>
                   ))}
@@ -538,7 +551,7 @@ export function ScheduledAgentsModalForm({
                       style={ROLE_CHIP_ADDABLE}
                       data-testid={`scheduled-agents-modal-form-role-addable-${r}`}
                     >
-                      {r}
+                      {roleDisplayByName.get(r) ?? roleDisplayName(r)}
                     </button>
                   ))}
                 </div>
