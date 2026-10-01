@@ -682,7 +682,7 @@ describe("ScheduledAgentsModal: filter reset on close (D-17)", () => {
   });
 });
 
-// UAT 2026-10-01 — Ashley's two follow-ups on scheduled-agents create flow.
+// UAT 2026-10-01 — the user's two follow-ups on scheduled-agents create flow.
 describe("ScheduledAgentsModal: UAT 2026-10-01", () => {
   it("T-16: Save success → new row appears optimistically before refetch resolves", async () => {
     listScheduledAgentsMock.mockResolvedValueOnce([]);

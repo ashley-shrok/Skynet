@@ -7,8 +7,8 @@ import { MoreVertical } from "lucide-react";
 // all three un-archive surface plans (143-06 / 143-07 / 143-08).
 //
 // D-12 (revised 2026-10-01, UAT item 1): tokens bumped for prominence after
-//   Ashley reported the previous `size-5 text-[#5c6070]/85` treatment was hard
-//   to see against hue-tinted rows. Now:
+//   the user reported the previous `size-5 text-[#5c6070]/85` treatment was
+//   hard to see against hue-tinted rows. Now:
 //     `inline-flex items-center justify-center size-6 rounded-md bg-white/10
 //      hover:bg-white/20 text-white/80 hover:text-white shrink-0
 //      transition-colors`
@@ -31,7 +31,7 @@ import { MoreVertical } from "lucide-react";
 // D-20 (added 2026-10-01, UAT item 3 — kebab unification): the shared menu
 //   surface itself gets a nicer look (not just the trigger). The base
 //   DropdownMenu/Item primitives render flat and square with `cursor-default`;
-//   that's what Ashley called "lame looking no rounded borders no pointy
+//   that's what the user called "lame looking no rounded borders no pointy
 //   cursor" relative to the hand-rolled scheduled-agents popover. We override
 //   via className: rounded-lg content with a neutral dark surface + subtle
 //   border + deep shadow; items get cursor-pointer + an explicit hover/focus
