@@ -114,12 +114,13 @@ export function ArchivedAppsModal({
   }
 
   return (
-    // hue=40: muted archive tone — visually distinct from roles modal (hue 190)
-    // and identity-hue modals.
+    // No hue prop — ArchivedApps is non-identity/non-role, so it renders in
+    // the canonical slate palette (hue 220, low saturation) per the
+    // modal.tsx convention. Row + avatar styles below reference
+    // `var(--pv-id-hue)` so they inherit the slate hue the modal sets.
     <Modal
       open={open}
       onOpenChange={onOpenChange}
-      hue={40}
       size="list"
       data-testid="archived-apps-modal"
     >
@@ -148,27 +149,27 @@ export function ArchivedAppsModal({
           >
             {state.data.map((entry) => {
               const label = entry.title ?? entry.slug;
-              const hue = 40; // archived-tone hue
 
               return (
                 <div
                   key={`${entry.hostId}:${entry.slug}`}
-                  // D-09: archived-tone gradient row (hue=40 archive tone).
+                  // Slate-tinted row — low saturation + hue from the Modal's
+                  // canonical --pv-id-hue (220). Matches the ScheduledAgents /
+                  // Preferences / other non-identity-non-role modal rows.
                   style={{
                     borderRadius: 14,
-                    background: `linear-gradient(160deg, hsla(${hue}, 50%, 38%, 0.55), hsla(${hue}, 45%, 24%, 0.60))`,
-                    border: `1px solid hsla(${hue}, 65%, 55%, 0.32)`,
+                    background: `linear-gradient(160deg, hsla(var(--pv-id-hue), 22%, 32%, 0.55), hsla(var(--pv-id-hue), 24%, 20%, 0.60))`,
+                    border: `1px solid hsla(var(--pv-id-hue), 25%, 55%, 0.32)`,
                     boxShadow: [
                       "0 8px 24px rgba(0, 0, 0, 0.5)",
-                      "inset 0 1px 0 rgba(255, 220, 170, 0.18)",
-                      `0 0 0 0.5px hsla(${hue}, 70%, 55%, 0.20)`,
-                      `0 0 32px hsla(${hue}, 70%, 52%, 0.18)`,
+                      "inset 0 1px 0 rgba(220, 225, 245, 0.14)",
+                      `0 0 32px hsla(var(--pv-id-hue), 30%, 55%, 0.14)`,
                     ].join(", "),
                     padding: "10px 12px",
                     display: "flex",
                     alignItems: "center",
                     gap: 12,
-                    color: "#fbf5e8",
+                    color: "#e8ecf0",
                   }}
                 >
                   {/* D-09: Rounded-SQUARE 40px avatar (NOT circle — D-09 verbatim).
@@ -183,12 +184,12 @@ export function ArchivedAppsModal({
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
-                      background: `linear-gradient(160deg, hsla(${hue}, 45%, 25%, 0.72), hsla(${hue}, 40%, 15%, 0.82))`,
-                      border: `1px solid hsla(${hue}, 65%, 55%, 0.40)`,
+                      background: `linear-gradient(160deg, hsla(var(--pv-id-hue), 22%, 22%, 0.72), hsla(var(--pv-id-hue), 24%, 14%, 0.82))`,
+                      border: `1px solid hsla(var(--pv-id-hue), 25%, 55%, 0.40)`,
                       boxShadow: [
                         "0 4px 12px rgba(0, 0, 0, 0.6)",
-                        "inset 0 2px 0 rgba(255, 235, 190, 0.35)",
-                        `0 0 24px hsla(${hue}, 65%, 55%, 0.40)`,
+                        "inset 0 2px 0 rgba(220, 225, 245, 0.22)",
+                        `0 0 24px hsla(var(--pv-id-hue), 30%, 55%, 0.26)`,
                       ].join(", "),
                       overflow: "hidden",
                       flexShrink: 0,
@@ -206,15 +207,16 @@ export function ArchivedAppsModal({
                         }}
                       />
                     ) : (
-                      // Fallback: first char of slug in bold uppercase (D-09 / RolesListModal:449-458).
+                      // Fallback: first char of the display label (title when
+                      // available, slug otherwise) in bold uppercase.
                       <span
                         style={{
                           fontSize: 15,
                           fontWeight: 700,
-                          color: "#fbf5e8",
+                          color: "#e8ecf0",
                         }}
                       >
-                        {entry.slug.charAt(0).toUpperCase()}
+                        {label.charAt(0).toUpperCase()}
                       </span>
                     )}
                   </div>
