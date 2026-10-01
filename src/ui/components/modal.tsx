@@ -182,8 +182,18 @@ function Modal({
             // Flex-col at the container level so head/foot pin and body
             // takes the middle in EVERY modal, not just list/settings.
             "fixed inset-0 z-50 flex flex-col",
+            // iOS safe-area insets — pad the modal's internal content away
+            // from the status bar / dynamic island at the top and the home
+            // indicator at the bottom. Non-zero values are supplied by the
+            // browser only when `viewport-fit=cover` is set in the viewport
+            // meta (it is, in index.html). On desktop these resolve to zero.
+            "pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]",
+            "pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]",
             "sm:inset-auto sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2",
             "sm:w-full sm:h-auto sm:max-h-[85vh]",
+            // Reset the safe-area padding on desktop so the modal content
+            // sits flush against its border again.
+            "sm:p-0",
             SIZE_CLASSES[size],
             // Rounded corners only on desktop — on mobile the modal hits
             // viewport edges so corners would be invisible anyway.
@@ -200,6 +210,14 @@ function Modal({
             "data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
             "duration-100",
             className,
+            // Mobile override — placed AFTER consumer's className so it
+            // beats any per-modal max-h / max-w / fixed height that was
+            // declared without a responsive prefix (e.g. a modal passes
+            // `max-h-[720px]` meaning "cap me on desktop" but without
+            // `sm:` it would also clamp mobile and leave viewport space
+            // showing the app behind). On mobile every modal takes the
+            // whole viewport regardless of what the consumer declared.
+            "max-sm:w-full max-sm:h-full max-sm:max-w-full max-sm:max-h-full max-sm:rounded-none",
           )}
         >
           {children}
