@@ -760,16 +760,19 @@ describe("NewSessionDialog: Test G — name + role + host enables Create", () =>
 // ─────────────────────────────────────────────────────────────────────────────
 // Test H: invalid name chars show error and disable Create
 // ─────────────────────────────────────────────────────────────────────────────
-describe("NewSessionDialog: Test H — invalid name disables Create + shows error", () => {
-  it("Test H: name='user Smith' → inline error about valid chars; Create disabled", () => {
+describe("NewSessionDialog: Test H — unslugifiable name disables Create + shows error (pretty-names shape 2026-09-30)", () => {
+  it("Test H: name='🎉🎉🎉' → inline error 'at least one letter'; Create disabled", () => {
+    // Pretty-names shape: free-form text input is valid. "user Smith" now
+    // slugs to "user-smith" and would be accepted — the former error about
+    // kebab-case/charset no longer fires. Only input that reduces to zero
+    // letters (all-emoji / all-punctuation / empty) is rejected.
     const { getByLabelText, getByRole, queryByText } = renderDialog();
     fireEvent.click(screen.getByText("alpha"));
     fireEvent.click(getByLabelText(/choose a custom agent name/i));
-    fireEvent.change(getByLabelText(/^name$/i), { target: { value: "user Smith" } });
+    fireEvent.change(getByLabelText(/^name$/i), { target: { value: "🎉🎉🎉" } });
     const createBtn = getByRole("button", { name: /^(open|create)$/i }) as HTMLButtonElement;
     expect(createBtn.disabled).toBe(true);
-    // Inline error about name pattern
-    expect(queryByText(/\[a-z0-9/i) ?? queryByText(/name must match/i) ?? queryByText(/invalid/i)).toBeTruthy();
+    expect(queryByText(/at least one letter/i)).toBeTruthy();
   });
 });
 
@@ -1044,11 +1047,15 @@ describe("NewSessionDialog: Test V — Create with identity-mode ON calls openBi
       expect(mockOpenBirthStream).toHaveBeenCalledTimes(1);
     });
     const [payload] = mockOpenBirthStream.mock.calls[0] as [Record<string, unknown>];
+    // Pretty-names shape (2026-09-30): user-typed name goes on the wire as
+    // `displayName`; backend derives the identity slug. `name` is reserved
+    // for the pool-picked path (which this test doesn't exercise).
     expect(payload).toMatchObject({
       hostId: expect.anything(),
-      name: "alicia",
+      displayName: "alicia",
       role: "box-maintainer",
     });
+    expect(payload.name).toBeUndefined();
     // Phase 86 Plan 86-04: cosmetic fields either omitted or sent as null.
     // The birth request omits `title` and `avatarCandidateId` entirely; it
     // sends `colorHue: null` and `voice: null` (backend absent-⇒-omit rule
@@ -1361,9 +1368,9 @@ describe("NewSessionDialog: Phase 88 admin-gate + backend substitution", () => {
     // `~/<name>/` server-side; this test asserts only the client half of
     // the round-trip (that empty-string arrives at the API surface).
     expect(payload.path).toBe("");
-    // Sanity: name still passes through so backend substitution can
-    // compute `~/<name>/` from it.
-    expect(payload.name).toBe("alicia");
+    // Pretty-names shape: user-typed custom name goes on the wire as
+    // displayName (backend derives the slug which drives the substitution).
+    expect(payload.displayName).toBe("alicia");
   });
 
   it("Phase 88 T4: admin agent-mode submit sends path:'' on the wire (backend substitutes workspace default)", async () => {

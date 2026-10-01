@@ -554,7 +554,7 @@ describe("NewSessionDialog task input: poolPicked wire signal end-to-end", () =>
     expect(payload.name).toBe("willow");
   });
 
-  it("Task 3b: user edits name after pool-prefill → submit body omits poolPicked", async () => {
+  it("Task 3b: user edits name after pool-prefill → submit body omits poolPicked and sends displayName (pretty-names shape 2026-09-30)", async () => {
     mockPickPoolName.mockResolvedValueOnce({ name: "willow" });
     renderDialog();
     await fillFormForSubmit({
@@ -570,8 +570,10 @@ describe("NewSessionDialog task input: poolPicked wire signal end-to-end", () =>
       Record<string, unknown>,
     ];
     expect(payload.poolPicked).toBeUndefined();
-    // Sanity: name is the user-edited value (lowercase)
-    expect(payload.name).toBe("willow-my-custom");
+    // Pretty-names shape: edited (= name-it-myself) submits displayName; the
+    // backend derives the slug. `name` is absent on the wire.
+    expect(payload.name).toBeUndefined();
+    expect(payload.displayName).toBe("willow-my-custom");
   });
 });
 

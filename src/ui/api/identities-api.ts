@@ -583,7 +583,12 @@ export async function createRole(
 
 export interface BirthRequest {
   hostId: number;
-  name: string;
+  /** Pre-slugged identity key — pool-picked path sends this directly. */
+  name?: string;
+  /** Pretty-names shape (2026-09-30): name-it-myself path sends the free-form
+   *  typed pretty name here; backend derives the slug via the shared helper.
+   *  Exactly one of `name` or `displayName` must be present. */
+  displayName?: string;
   /** Phase 86 Plan 86-04: cosmetics moved to role level per D-CTX-86-inherit.
    *  Identity-born requests OMIT title so the identity inherits its role's
    *  title on landing; per-identity override is later possible via

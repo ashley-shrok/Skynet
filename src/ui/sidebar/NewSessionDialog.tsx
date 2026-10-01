@@ -683,8 +683,17 @@ export function NewSessionDialog({
       clearTimeout(collisionTimerRef.current);
     }
     if (birthStartedRef.current) return;
-    // Clear state immediately if name is invalid or no host selected
-    if (!currentName || !IDENTITY_NAME_PATTERN.test(currentName) || !selectedHost) {
+    // Clear state immediately if name is invalid or no host selected.
+    // Pretty-names shape (2026-09-30): derive the slug the backend WOULD
+    // produce (same recipe) and probe by that; this makes the pre-check
+    // meaningful for free-form pretty names like "Alicia Smith".
+    const previewSlug = (currentName ?? "")
+      .trim()
+      .toLowerCase()
+      .replace(/[0-9]/g, (d) => ` ${["zero","one","two","three","four","five","six","seven","eight","nine"][Number(d)]} `)
+      .replace(/[^a-z]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    if (!previewSlug || !selectedHost) {
       setSkynetCollision(false);
       setHostCollision(false);
       return;
@@ -693,13 +702,12 @@ export function NewSessionDialog({
       if (birthStartedRef.current) return;
       setCollisionChecking(true);
       try {
-        const lowerName = currentName.toLowerCase();
         const [identities, existsOnHost] = await Promise.all([
           listIdentities(),
-          getIdentityExistsOnHost(selectedHost.id as unknown as number, lowerName),
+          getIdentityExistsOnHost(selectedHost.id as unknown as number, previewSlug),
         ]);
         if (birthStartedRef.current) return;
-        const skynetHit = identities.some((id) => id.identityKey === lowerName);
+        const skynetHit = identities.some((id) => id.identityKey === previewSlug);
         setSkynetCollision(skynetHit);
         setHostCollision(existsOnHost);
       } catch {
@@ -748,10 +756,18 @@ export function NewSessionDialog({
       // integer" on first identity birth. Coerce like the sibling /roles call
       // above at line ~468 does.
       const hostIdNum = parseInt(String(selectedHost.id), 10);
+      // Pretty-names shape (2026-09-30): send the raw typed pretty name as
+      // `displayName` when the user came through the name-it-myself path;
+      // the backend derives the identity slug. The pool-picked path sends
+      // the pool-chosen slug directly as `name`.
+      const isPoolPicked =
+        poolPickedName !== null && name.trim() === poolPickedName;
       const stream = openBirthStream(
         {
           hostId: hostIdNum,
-          name: name.toLowerCase(),
+          ...(isPoolPicked
+            ? { name: name.toLowerCase() }
+            : { displayName: name.trim() }),
           // Phase 88 (path-clear, both branches): the Path field only
           // renders in the raw-shell branch (see JSX gate on
           // `effectiveShellOnly`), so an agent-birth submit — admin or
@@ -885,8 +901,20 @@ export function NewSessionDialog({
   // - Shell-only mode (shellOnly, admin opt-in via Phase-88 checkbox):
   //   require host + valid session name (mirrors pre-Phase-88 logic).
   // During birthing: Create is disabled regardless.
+  //
+  // Pretty-names shape (2026-09-30): the agent-mode name field is now a
+  // free-form pretty name — backend derives the identity slug. Client-side
+  // we only check that it would slug to at least one letter (same recipe
+  // as the CreateRoleDialog preview) so the user gets instant feedback on
+  // all-emoji / all-punctuation input.
+  const nameSlugPreview = name
+    .trim()
+    .toLowerCase()
+    .replace(/[0-9]/g, (d) => ` ${["zero","one","two","three","four","five","six","seven","eight","nine"][Number(d)]} `)
+    .replace(/[^a-z]+/g, "-")
+    .replace(/^-+|-+$/g, "");
   const nameValid = !shellOnly
-    ? name.length > 0 && IDENTITY_NAME_PATTERN.test(name)
+    ? name.trim().length > 0 && name.trim().length <= 80 && nameSlugPreview.length > 0
     : SESSION_NAME_PATTERN.test(sessionName);
 
   // Path is never blocking. In agent mode the field doesn't render and the
@@ -1279,12 +1307,14 @@ export function NewSessionDialog({
                       onBlur={() => runCollisionPrecheck(name)}
                       placeholder="e.g. alicia"
                       disabled={formDisabled}
-                      aria-invalid={name.length > 0 && !IDENTITY_NAME_PATTERN.test(name)}
+                      aria-invalid={name.trim().length > 0 && !nameValid}
                     />
-                    {/* Name validation errors */}
-                    {name.length > 0 && !IDENTITY_NAME_PATTERN.test(name) && (
+                    {/* Name validation errors — pretty-names shape (2026-09-30) */}
+                    {name.trim().length > 0 && !nameValid && (
                       <span className="text-xs text-[color:var(--color-pv-code-fg)]">
-                        Name must match [a-z0-9._=/+-]+
+                        {name.trim().length > 80
+                          ? "Name must be 80 characters or fewer"
+                          : "Name must contain at least one letter"}
                       </span>
                     )}
                     {skynetCollision && (
