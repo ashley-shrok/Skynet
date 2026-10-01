@@ -276,16 +276,21 @@ export async function getIdentityExistsOnHost(
 // Consumed by NewSessionDialog's Role dropdown (see plan 22-02 Task 4).
 //
 // Phase 90 Plan 90-01 (D-08.1 — planner-pick: extend existing endpoint, no
-// companion): backend now includes optional cosmetic frontmatter fields on
-// each entry (title, displayName, colorHue, voice, avatar). Missing/malformed
-// fields are OMITTED from the response — the widened type keeps every field
-// optional so two-field callers keep compiling untouched. Phase 90-05 uses
-// these fields to render `.pv-row` conversation-row-treatment rows in the
-// role's own hue with the role's own avatar (no follow-up round-trip).
+// companion): backend includes optional cosmetic frontmatter fields on
+// each entry (displayName, colorHue, voice, avatar). Missing/malformed
+// fields are OMITTED from the response — the widened type keeps every
+// field optional so two-field callers keep compiling untouched. Phase 90-05
+// uses these fields to render `.pv-row` conversation-row-treatment rows in
+// the role's own hue with the role's own avatar (no follow-up round-trip).
+//
+// Pretty-names shape (2026-09-30): the legacy `title?` field is gone —
+// roles now carry `displayName:` in their frontmatter (hard cutover, no
+// back-compat read path). displayName stays optional on the type for the
+// edge case of a role file with no frontmatter at all; roleDisplayName()
+// falls back to a title-cased slug in that case.
 export type RoleSummary = {
   name: string;
   description: string;
-  title?: string;
   displayName?: string;
   colorHue?: number;
   voice?: string;

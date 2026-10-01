@@ -408,12 +408,13 @@ describe("GET /roles?hostId=<n>", () => {
   // null-emitted) — matches extractCosmeticsFromFrontmatter's contract.
 
   it("Test A (P90-01): full cosmetic frontmatter → all fields on response entry", async () => {
+    // Pretty-names shape (2026-09-30): `title` is retired; only `displayName`
+    // is surfaced. Role file frontmatter has no `title:` key.
     (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
       if (cmd.includes("ls ")) return "box-maintainer";
       return [
         "===ROLE:box-maintainer===",
         "---",
-        "title: Skynet",
         "displayName: Box Maintainer",
         "colorHue: 320",
         "voice: alloy",
@@ -434,7 +435,6 @@ describe("GET /roles?hostId=<n>", () => {
     const body = res.body as Array<{
       name: string;
       description: string;
-      title?: string;
       displayName?: string;
       colorHue?: number;
       voice?: string;
@@ -444,7 +444,6 @@ describe("GET /roles?hostId=<n>", () => {
     expect(body[0]).toEqual({
       name: "box-maintainer",
       description: "Maintains the box.",
-      title: "Skynet",
       displayName: "Box Maintainer",
       colorHue: 320,
       voice: "alloy",
@@ -555,7 +554,7 @@ describe("GET /roles?hostId=<n>", () => {
       return [
         "===ROLE:out-of-range===",
         "---",
-        "title: OK Title",
+        "displayName: OK Name",
         "colorHue: 400",
         "---",
         "# out-of-range",
@@ -572,11 +571,13 @@ describe("GET /roles?hostId=<n>", () => {
     expect(res.status).toBe(200);
     const body = res.body as Array<Record<string, unknown>>;
     expect(body).toHaveLength(1);
-    // title kept (valid), colorHue dropped (range gate rejects 400)
+    // displayName kept (valid), colorHue dropped (range gate rejects 400).
+    // Pretty-names shape (2026-09-30): `title` is retired; `displayName` is
+    // the role's first-class pretty name.
     expect(body[0]).toEqual({
       name: "out-of-range",
       description: "Range gate.",
-      title: "OK Title",
+      displayName: "OK Name",
     });
     expect("colorHue" in body[0]).toBe(false);
   });
@@ -775,7 +776,7 @@ describe("Phase 129: role-picker gate on GET /roles?hostId=<n>", () => {
     roleName: string,
     opts: { users?: string[]; description?: string } = {},
   ): string[] {
-    const fmLines: string[] = [`title: ${roleName}-title`];
+    const fmLines: string[] = [`displayName: ${roleName}-title`];
     if (opts.users !== undefined) {
       fmLines.push(`users: [${opts.users.join(", ")}]`);
     }

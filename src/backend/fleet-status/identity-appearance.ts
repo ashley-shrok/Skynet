@@ -169,11 +169,14 @@ export function resolveIdentityAppearance(args: {
   const cosmetics = args.cosmetics ?? {};
 
   // --- title: identity ?? role ?? null ---
+  // Pretty-names shape (2026-09-30): roles carry `displayName` instead of
+  // `title`. The cascade semantic is preserved — if an identity doesn't
+  // set its own title cosmetic, fall back to the role's pretty name.
   const title =
     typeof cosmetics.title === "string"
       ? cosmetics.title
-      : typeof roleCosmetics?.title === "string"
-        ? roleCosmetics.title
+      : typeof roleCosmetics?.displayName === "string"
+        ? roleCosmetics.displayName
         : null;
 
   // --- colorHue: identity ?? role ?? null (typeof guard preserves 0 as present) ---

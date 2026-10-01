@@ -350,7 +350,7 @@ router.post(
       return;
     }
     const derivation = derivePrettyNameSlug(rawDisplayName);
-    if (!derivation.ok) {
+    if (derivation.ok !== true) {
       const errorMsg =
         derivation.reason === "empty"
           ? "displayName is required"

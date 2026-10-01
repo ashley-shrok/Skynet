@@ -2333,11 +2333,13 @@ export function PrettyView({
       }
       const roleName = identity.role;
       // Preferred path: use identity.roleDefaults directly.
+      // Pretty-names shape (2026-09-30): roles now carry `displayName` in
+      // their frontmatter instead of `title`. Read displayName.
       if (identity.roleDefaults) {
         const cosmetics: RoleSummary = {
           name: roleName,
           description: "",
-          title: identity.roleDefaults.title,
+          displayName: identity.roleDefaults.displayName,
           colorHue: identity.roleDefaults.colorHue,
           voice: identity.roleDefaults.voice,
           avatar: identity.roleDefaults.avatar,

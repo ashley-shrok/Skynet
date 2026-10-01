@@ -859,12 +859,14 @@ describe("GET /identities/:identityKey/avatar — Phase 68 rekeyed", () => {
 
 describe("Phase 85 publicIdentity — identity ?? role ?? null merge + roleDefaults", () => {
   it("PUB-M-1: identity overrides role per field; role fills where identity absent; roleDefaults echoes role verbatim", () => {
+    // Pretty-names shape (2026-09-30): roles carry `displayName`, not
+    // `title`. The identity's own `title` cosmetic still wins the cascade.
     const out = publicIdentity(
       "tina",
       1,
       { title: "id-title", colorHue: 200 },
       "box-maintainer",
-      { title: "role-title", voice: "Kate.wav", colorHue: 190, avatar: "role.webp" },
+      { displayName: "role-title", voice: "Kate.wav", colorHue: 190, avatar: "role.webp" },
     );
     // identity wins per field
     expect(out.title).toBe("id-title");
@@ -875,26 +877,28 @@ describe("Phase 85 publicIdentity — identity ?? role ?? null merge + roleDefau
     expect(out.role).toBe("box-maintainer");
     // roleDefaults echoes role's raw values verbatim
     expect(out.roleDefaults).toEqual({
-      title: "role-title",
+      displayName: "role-title",
       voice: "Kate.wav",
       colorHue: 190,
       avatar: "role.webp",
     });
   });
 
-  it("PUB-M-2: empty identity cosmetics + role has subset → resolved falls through to role; roleDefaults contains only present keys", () => {
+  it("PUB-M-2: empty identity cosmetics + role has subset → resolved title cascades from role's displayName; roleDefaults contains only present keys", () => {
+    // Pretty-names shape (2026-09-30): roles carry `displayName`; cascading
+    // the identity's title from the role's pretty name.
     const out = publicIdentity(
       "tina",
       1,
       {},
       "role-x",
-      { title: "role-title", colorHue: 190 },
+      { displayName: "role-title", colorHue: 190 },
     );
     expect(out.title).toBe("role-title");
     expect(out.colorHue).toBe(190);
     expect(out.voice).toBeNull(); // absent on both → null
     // roleDefaults carries only the present keys (voice/avatar NOT in the object)
-    expect(out.roleDefaults).toEqual({ title: "role-title", colorHue: 190 });
+    expect(out.roleDefaults).toEqual({ displayName: "role-title", colorHue: 190 });
     expect("voice" in (out.roleDefaults as object)).toBe(false);
     expect("avatar" in (out.roleDefaults as object)).toBe(false);
   });
@@ -946,7 +950,7 @@ describe("GET /identities — Phase 85 role-cosmetic merge + per-host role-read 
     });
     readRoleFileByNameMock.mockResolvedValue({
       markdown:
-        "---\ntitle: role-title\nvoice: Kate.wav\n---\n\n# Box maintainer\n",
+        "---\ndisplayName: role-title\nvoice: Kate.wav\n---\n\n# Box maintainer\n",
     });
 
     const hostsJson = encodeURIComponent(JSON.stringify({ tina: 1 }));
@@ -960,8 +964,9 @@ describe("GET /identities — Phase 85 role-cosmetic merge + per-host role-read 
     expect(tina.title).toBe("id-title");
     // voice inherits from role
     expect(tina.voice).toBe("Kate.wav");
-    // roleDefaults echoes role frontmatter verbatim
-    expect(tina.roleDefaults).toEqual({ title: "role-title", voice: "Kate.wav" });
+    // roleDefaults echoes role frontmatter verbatim (pretty-names shape:
+    // displayName instead of title).
+    expect(tina.roleDefaults).toEqual({ displayName: "role-title", voice: "Kate.wav" });
   });
 
   it("GET-M-2: two identities on same host sharing the same role → readRoleFileByName called exactly ONCE (per-host memo)", async () => {
@@ -974,7 +979,7 @@ describe("GET /identities — Phase 85 role-cosmetic merge + per-host role-read 
       });
     });
     readRoleFileByNameMock.mockResolvedValue({
-      markdown: "---\ntitle: role-title\n---\n",
+      markdown: "---\ndisplayName: role-title\n---\n",
     });
 
     const hostsJson = encodeURIComponent(
@@ -985,9 +990,9 @@ describe("GET /identities — Phase 85 role-cosmetic merge + per-host role-read 
     expect(res.status).toBe(200);
     const rows = res.body as Array<Record<string, unknown>>;
     expect(rows).toHaveLength(2);
-    // Both got the role's title inherited
+    // Both got the role's displayName inherited (pretty-names shape).
     for (const row of rows) {
-      expect(row.roleDefaults).toEqual({ title: "role-title" });
+      expect(row.roleDefaults).toEqual({ displayName: "role-title" });
     }
     // Per-host memo: role file read AT MOST ONCE for this host despite two
     // identities sharing the role (T-85-01-03 DoS mitigation).

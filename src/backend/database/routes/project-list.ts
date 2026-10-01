@@ -287,7 +287,7 @@ router.post(
     }
     const trimmed = rawDN.trim();
     const derivation = derivePrettyNameSlug(rawDN);
-    if (!derivation.ok) {
+    if (derivation.ok !== true) {
       const errorMsg =
         derivation.reason === "empty"
           ? "displayName is required"

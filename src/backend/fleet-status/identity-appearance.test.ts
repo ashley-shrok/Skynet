@@ -53,10 +53,13 @@ describe("title cascade", () => {
     expect(result.title).toBe("Identity Title");
   });
 
-  it("title absent on identity, present on role → role value inherited", () => {
+  it("title absent on identity, displayName present on role → role displayName inherited (pretty-names shape)", () => {
+    // Pretty-names shape (2026-09-30): roles carry `displayName` instead of
+    // `title`. The cascade semantic is preserved — identity's own title (if
+    // any) wins, else the role's pretty name.
     const result = resolveIdentityAppearance(makeArgs({
       cosmetics: {},
-      roleCosmetics: { title: "Role Title" },
+      roleCosmetics: { displayName: "Role Title" },
     }));
     expect(result.title).toBe("Role Title");
   });
@@ -345,10 +348,11 @@ describe("cosmetics: null (unreadable identity file) — fail-closed contract", 
     const result = resolveIdentityAppearance(makeArgs({
       identityKey: "pixel",
       cosmetics: null,
-      roleCosmetics: { title: "Role Title", colorHue: 120, voice: "Matthew" },
+      roleCosmetics: { displayName: "Role Title", colorHue: 120, voice: "Matthew" },
       role: "box-maintainer",
     }));
-    // With null cosmetics, role values are inherited for cascaded fields
+    // Pretty-names shape (2026-09-30): title cascades from role's
+    // displayName (not role's title, which is retired).
     expect(result.title).toBe("Role Title");
     expect(result.colorHue).toBe(120);
     expect(result.voice).toBe("Matthew");
@@ -439,12 +443,13 @@ describe("pinned", () => {
 describe("parity: resolveIdentityAppearance shapes match publicIdentity documented semantics", () => {
   it("no cosmetics, role cosmetics present → title/colorHue/voice from role, task null, displayName capitalized", () => {
     // Mirrors the pixel/box-maintainer fixture: pixel.md has displayName+task
-    // but no title/colorHue. box-maintainer.md has title/colorHue but no task.
+    // but no title/colorHue. box-maintainer.md has displayName/colorHue but
+    // no task (pretty-names shape: role carries displayName, not title).
     const result = resolveIdentityAppearance({
       identityKey: "pixel",
       hostId: 6,
       cosmetics: { displayName: "Pixel", task: "Building things" },
-      roleCosmetics: { title: "Skynet", colorHue: 324 },
+      roleCosmetics: { displayName: "Skynet", colorHue: 324 },
       role: "box-maintainer",
       pinned: false,
     });
@@ -454,7 +459,7 @@ describe("parity: resolveIdentityAppearance shapes match publicIdentity document
     expect(result.colorHue).toBe(324);
     expect(result.task).toBe("Building things");
     expect(result.role).toBe("box-maintainer");
-    expect(result.roleDefaults).toEqual({ title: "Skynet", colorHue: 324 });
+    expect(result.roleDefaults).toEqual({ displayName: "Skynet", colorHue: 324 });
     expect(result.avatarUrl).toBe("/identities/pixel/avatar?hostId=6");
     expect(result.coordinator).toBe(false);
     expect(result.pinned).toBe(false);

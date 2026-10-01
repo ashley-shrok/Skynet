@@ -8805,7 +8805,7 @@ describe("Phase 111 Plan 03 — appearance axis at both publish sources", () => 
     it("Case 1: appearance reaches the wire — displayName, title, colorHue, task, pinned all present on published frame", async () => {
       const states = await runOneTick(buildSweep({
         identity_cosmetics: { displayName: "Pixel", task: "ship it" },
-        role_cosmetics: { title: "Box Maintainer", colorHue: 200 },
+        role_cosmetics: { displayName: "Box Maintainer", colorHue: 200 },
         role: "box-maintainer",
         pinned: true,
       }));
@@ -8829,8 +8829,8 @@ describe("Phase 111 Plan 03 — appearance axis at both publish sources", () => 
     // -------------------------------------------------------------------------
     it("Case 2 (load-bearing: fingerprint must include appearance): appearance-only change (colorHue 200→40) publishes a new frame on tick 2", async () => {
       const { afterTick1, afterTick2 } = await runTwoTicks(
-        buildSweep({ role_cosmetics: { title: "Box Maintainer", colorHue: 200 } }),
-        buildSweep({ role_cosmetics: { title: "Box Maintainer", colorHue: 40 } }),
+        buildSweep({ role_cosmetics: { displayName: "Box Maintainer", colorHue: 200 } }),
+        buildSweep({ role_cosmetics: { displayName: "Box Maintainer", colorHue: 40 } }),
       );
 
       expect(afterTick1.length).toBeGreaterThan(0);

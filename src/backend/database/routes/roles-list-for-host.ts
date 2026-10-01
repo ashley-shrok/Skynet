@@ -263,11 +263,12 @@ router.get(
       // blocks[0] is the pre-first-delimiter text (empty or whitespace).
       // Then pairs of [name, body] follow.
       const descByName = new Map<string, string>();
-      // Only forward the 5 role-facing cosmetic fields. `coordinator` and
+      // Only forward the 4 role-facing cosmetic fields. `coordinator` and
       // `task` from the identity-side extractor are NOT surfaced here (roles
       // don't consume them) per Plan 90-01 Task 1 acceptance criteria.
+      // Pretty-names shape (2026-09-30): `title?` is gone — roles write
+      // `displayName:` instead. Hard cutover, no back-compat read.
       type RoleCosmetics = {
-        title?: string;
         displayName?: string;
         colorHue?: number;
         voice?: string;
@@ -302,10 +303,12 @@ router.get(
           // filter below sees the `users?: string[]` field. cosByName gets
           // the narrowed 5-field version that lands in the response.
           rawCosByName.set(name, raw);
-          // Narrow to the 5 role-facing fields; omit coordinator/task AND
+          // Narrow to the 4 role-facing fields; omit coordinator/task AND
           // users (D-6 wire-shape lock: NO new UI affordance).
+          // Pretty-names shape (2026-09-30): `title` is retired — only
+          // `displayName` is surfaced. Roles' frontmatter now carries
+          // `displayName:` written by the create endpoint.
           const narrowed: RoleCosmetics = {};
-          if (raw.title !== undefined) narrowed.title = raw.title;
           if (raw.displayName !== undefined) narrowed.displayName = raw.displayName;
           if (raw.colorHue !== undefined) narrowed.colorHue = raw.colorHue;
           if (raw.voice !== undefined) narrowed.voice = raw.voice;
