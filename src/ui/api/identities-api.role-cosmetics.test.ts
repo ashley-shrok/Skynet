@@ -61,7 +61,7 @@ describe("createRole — Phase 85 widened multipart shape", () => {
     }));
 
     await createRole({
-      name: "box-maintainer",
+      displayName: "box-maintainer",
       description: "keeps the boxes",
       hostId: 1,
     });
@@ -80,7 +80,7 @@ describe("createRole — Phase 85 widened multipart shape", () => {
     const dataField = body.get("data");
     expect(typeof dataField).toBe("string");
     const parsed = JSON.parse(dataField as string) as Record<string, unknown>;
-    expect(parsed.name).toBe("box-maintainer");
+    expect(parsed.displayName).toBe("box-maintainer");
     expect(parsed.description).toBe("keeps the boxes");
     expect(parsed.hostId).toBe(1);
 
@@ -94,18 +94,18 @@ describe("createRole — Phase 85 widened multipart shape", () => {
   it("C-2: cosmetics-only send: `data` JSON carries cosmetics, NO avatar file part", async () => {
     const { createRole, mockPost } = await loadCreateRoleWithMock(async () => ({
       data: {
-        name: "box-maintainer",
+        displayName: "box-maintainer",
         description: "keeps the boxes",
-        cosmetics: { title: "Box maintainer", colorHue: 190, voice: "Kate.wav" },
+        cosmetics: { colorHue: 190, voice: "Kate.wav" },
       },
     }));
 
     await createRole(
       {
-        name: "box-maintainer",
+        displayName: "box-maintainer",
         description: "keeps the boxes",
         hostId: 1,
-        cosmetics: { title: "Box maintainer", colorHue: 190, voice: "Kate.wav" },
+        cosmetics: { colorHue: 190, voice: "Kate.wav" },
       },
       undefined,
     );
@@ -117,7 +117,6 @@ describe("createRole — Phase 85 widened multipart shape", () => {
       unknown
     >;
     expect(parsed.cosmetics).toEqual({
-      title: "Box maintainer",
       colorHue: 190,
       voice: "Kate.wav",
     });
@@ -130,9 +129,9 @@ describe("createRole — Phase 85 widened multipart shape", () => {
   it("C-3: cosmetics + avatar File → multipart with `data` JSON AND `avatar` file part", async () => {
     const { createRole, mockPost } = await loadCreateRoleWithMock(async () => ({
       data: {
-        name: "box-maintainer",
+        displayName: "box-maintainer",
         description: "keeps the boxes",
-        cosmetics: { title: "Box maintainer", colorHue: 190 },
+        cosmetics: { colorHue: 190 },
       },
     }));
 
@@ -143,10 +142,10 @@ describe("createRole — Phase 85 widened multipart shape", () => {
 
     await createRole(
       {
-        name: "box-maintainer",
+        displayName: "box-maintainer",
         description: "keeps the boxes",
         hostId: 1,
-        cosmetics: { title: "Box maintainer", colorHue: 190 },
+        cosmetics: { colorHue: 190 },
       },
       avatar,
     );
@@ -156,7 +155,7 @@ describe("createRole — Phase 85 widened multipart shape", () => {
       string,
       unknown
     >;
-    expect(parsed.cosmetics).toEqual({ title: "Box maintainer", colorHue: 190 });
+    expect(parsed.cosmetics).toEqual({ colorHue: 190 });
     const avatarField = body.get("avatar");
     expect(avatarField).toBeInstanceOf(File);
     expect((avatarField as File).name).toBe("box-maintainer.webp");
@@ -176,7 +175,7 @@ describe("createRole — Phase 85 widened multipart shape", () => {
 
     await expect(
       createRole({
-        name: "box-maintainer",
+        displayName: "box-maintainer",
         description: "keeps the boxes",
         hostId: 1,
       }),
@@ -193,7 +192,7 @@ describe("createRole — Phase 85 widened multipart shape", () => {
 
     // No second argument at all — existing call site pattern from
     // CreateRoleDialog.tsx L178-182 must remain valid.
-    await createRole({ name: "role-x", description: "desc", hostId: 42 });
+    await createRole({ displayName: "role-x", description: "desc", hostId: 42 });
 
     expect(mockPost).toHaveBeenCalledTimes(1);
     const [url, body, cfg] = mockPost.mock.calls[0] as [
@@ -208,7 +207,7 @@ describe("createRole — Phase 85 widened multipart shape", () => {
       string,
       unknown
     >;
-    expect(parsed.name).toBe("role-x");
+    expect(parsed.displayName).toBe("role-x");
     expect(parsed.hostId).toBe(42);
   });
 });
