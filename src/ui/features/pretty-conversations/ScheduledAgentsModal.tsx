@@ -272,9 +272,27 @@ export function ScheduledAgentsModal({
     setView("form");
   }
 
-  function backToList(): void {
+  function backToList(optimistic: ScheduledAgentListItem | null = null): void {
     setView("list");
     setEditingSlug(null);
+    // On create, splice the fresh row in immediately so it's visible before
+    // the authoritative refetch resolves (UAT 2026-10-01). Dedupe on
+    // (hostId, slug) so a re-save of the same scheduled agent doesn't
+    // duplicate. The refetch below overlays with the server's canonical row.
+    if (optimistic !== null) {
+      setItems((current) => {
+        const base = current ?? [];
+        const existingIdx = base.findIndex(
+          (r) => r.hostId === optimistic.hostId && r.slug === optimistic.slug,
+        );
+        if (existingIdx >= 0) {
+          const next = base.slice();
+          next[existingIdx] = optimistic;
+          return next;
+        }
+        return [optimistic, ...base];
+      });
+    }
     void refetch();
   }
 
@@ -504,8 +522,8 @@ export function ScheduledAgentsModal({
                 : null
             }
             flatHosts={flatHosts}
-            onCancel={backToList}
-            onSaved={backToList}
+            onCancel={() => backToList()}
+            onSaved={(optimistic) => backToList(optimistic)}
           />
         </ModalBody>
       )}

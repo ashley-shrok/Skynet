@@ -159,7 +159,14 @@ export interface ScheduledAgentsModalFormProps {
   initialSpec: ScheduledAgentListItem | null;
   flatHosts: Host[];
   onCancel: () => void;
-  onSaved: () => void;
+  /** Fires on successful save. `optimistic` carries a fresh row the parent
+   *  splices into its list immediately (prepend on CREATE, replace-by-key
+   *  on EDIT) so changes are visible before the authoritative refetch's
+   *  SSH fan-out resolves. Refetch overlays with server-canonical fields
+   *  (scheduleHuman, colorHue) a moment later. Null-safe for defensive
+   *  callers but every save path currently supplies a row.
+   *  (UAT 2026-10-01.) */
+  onSaved: (optimistic: ScheduledAgentListItem | null) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -266,6 +273,10 @@ export function ScheduledAgentsModalForm({
       setError("Pick a host to save.");
       return;
     }
+    if (selectedRoles.length === 0) {
+      setError("Pick at least one role.");
+      return;
+    }
     const scheduleError = validateForm(formSchedule);
     if (scheduleError !== null) {
       setError(scheduleError);
@@ -342,12 +353,44 @@ export function ScheduledAgentsModalForm({
       };
 
       if (mode === "create") {
-        await createScheduledAgent(hostIdNum, spec);
+        const created = await createScheduledAgent(hostIdNum, spec);
+        // Optimistic row — the authoritative refetch will replace it with
+        // the server's canonical shape (scheduleHuman, colorHue, etc).
+        const optimistic: ScheduledAgentListItem = {
+          slug: created.slug,
+          host: selectedHost.name,
+          hostId: hostIdNum,
+          name: trimmedName,
+          enabled: true,
+          schedule: scheduleObj,
+          scheduleHuman: "",
+          prompt: trimmedPrompt,
+          roles: selectedRoles,
+          skills: preservedSkills,
+          colorHue: null,
+        };
+        onSaved(optimistic);
       } else {
         await updateScheduledAgent(initialSpecRef.current!.slug, hostIdNum, spec);
+        // Edit-side optimistic update — splice-replace the existing row
+        // with the new form values immediately (same (hostId, slug) key).
+        // Refetch overlays with the server-canonical shape.
+        const prev = initialSpecRef.current!;
+        const optimistic: ScheduledAgentListItem = {
+          slug: prev.slug,
+          host: selectedHost.name,
+          hostId: hostIdNum,
+          name: prev.name, // name is immutable on edit (D-20)
+          enabled: enabledPassthrough,
+          schedule: scheduleObj,
+          scheduleHuman: prev.scheduleHuman,
+          prompt: trimmedPrompt,
+          roles: selectedRoles,
+          skills: preservedSkills,
+          colorHue: prev.colorHue,
+        };
+        onSaved(optimistic);
       }
-
-      onSaved();
     } catch (err) {
       setError(interpretError(err, trimmedName));
     } finally {
@@ -411,7 +454,8 @@ export function ScheduledAgentsModalForm({
     scheduleValidationMsg !== null ||
     name.trim().length === 0 ||
     prompt.trim().length === 0 ||
-    selectedHost === null;
+    selectedHost === null ||
+    selectedRoles.length === 0;
 
   return (
     <div
@@ -559,6 +603,14 @@ export function ScheduledAgentsModalForm({
               {selectedRoles.length === 0 && addableRoles.length === 0 && (
                 <p className="text-[11px] text-[color:var(--color-pv-fg-dim)]">
                   No roles on this host.
+                </p>
+              )}
+              {selectedRoles.length === 0 && addableRoles.length > 0 && (
+                <p
+                  className="text-[11px] text-[color:var(--color-pv-fg-dim)]"
+                  data-testid="scheduled-agents-modal-form-roles-required-hint"
+                >
+                  Pick at least one role.
                 </p>
               )}
             </>

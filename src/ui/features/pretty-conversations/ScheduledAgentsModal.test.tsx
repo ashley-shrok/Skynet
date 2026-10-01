@@ -40,6 +40,7 @@ const createScheduledAgentMock = vi.fn();
 const updateScheduledAgentMock = vi.fn();
 const toggleScheduledAgentEnabledMock = vi.fn();
 const deleteScheduledAgentMock = vi.fn();
+const listRolesForHostMock = vi.fn();
 
 vi.mock("@/api/scheduled-agents-api", () => ({
   listScheduledAgents: (...args: unknown[]) => listScheduledAgentsMock(...args),
@@ -50,7 +51,7 @@ vi.mock("@/api/scheduled-agents-api", () => ({
 }));
 
 vi.mock("@/api/identities-api", () => ({
-  listRolesForHost: vi.fn().mockResolvedValue([]),
+  listRolesForHost: (...args: unknown[]) => listRolesForHostMock(...args),
 }));
 
 // Component AFTER the mocks
@@ -128,6 +129,10 @@ beforeEach(() => {
   updateScheduledAgentMock.mockReset();
   toggleScheduledAgentEnabledMock.mockReset();
   deleteScheduledAgentMock.mockReset();
+  listRolesForHostMock.mockReset();
+  // Default: no roles. Tests that exercise the form opt in by overriding
+  // with mockResolvedValueOnce / mockResolvedValue.
+  listRolesForHostMock.mockResolvedValue([]);
 });
 
 afterEach(() => {
@@ -476,6 +481,9 @@ describe("ScheduledAgentsModal: Save + Cancel flow (D-19, D-25, D-27)", () => {
     listScheduledAgentsMock.mockResolvedValueOnce([
       makeRow({ slug: "new-agent", name: "New agent" }),
     ]);
+    listRolesForHostMock.mockResolvedValue([
+      { name: "assistant", description: "" },
+    ]);
 
     render(
       <ScheduledAgentsModal
@@ -496,6 +504,12 @@ describe("ScheduledAgentsModal: Save + Cancel flow (D-19, D-25, D-27)", () => {
     fireEvent.change(nameInput, { target: { value: "new-agent" } });
     fireEvent.change(promptInput, { target: { value: "hello" } });
 
+    // Required-role gate (UAT 2026-10-01): pick a role before Save.
+    const roleChip = await screen.findByTestId(
+      "scheduled-agents-modal-form-role-addable-assistant",
+    );
+    fireEvent.click(roleChip);
+
     fireEvent.click(screen.getByTestId("scheduled-agents-modal-form-save"));
 
     await waitFor(() => {
@@ -512,6 +526,9 @@ describe("ScheduledAgentsModal: Save + Cancel flow (D-19, D-25, D-27)", () => {
     createScheduledAgentMock.mockRejectedValueOnce(
       new FakeApiError("Conflict", 409, "CONFLICT"),
     );
+    listRolesForHostMock.mockResolvedValue([
+      { name: "assistant", description: "" },
+    ]);
     render(
       <ScheduledAgentsModal
         open={true}
@@ -530,6 +547,11 @@ describe("ScheduledAgentsModal: Save + Cancel flow (D-19, D-25, D-27)", () => {
     ) as HTMLTextAreaElement;
     fireEvent.change(nameInput, { target: { value: "dup-agent" } });
     fireEvent.change(promptInput, { target: { value: "hi" } });
+
+    const roleChip = await screen.findByTestId(
+      "scheduled-agents-modal-form-role-addable-assistant",
+    );
+    fireEvent.click(roleChip);
 
     fireEvent.click(screen.getByTestId("scheduled-agents-modal-form-save"));
 
@@ -650,5 +672,168 @@ describe("ScheduledAgentsModal: filter reset on close (D-17)", () => {
     expect(searchAgain.value).toBe("");
     expect(roleSelAgain.value).toBe("__ALL__");
     expect(hostSelAgain.value).toBe("__ALL__");
+  });
+});
+
+// UAT 2026-10-01 — Ashley's two follow-ups on scheduled-agents create flow.
+describe("ScheduledAgentsModal: UAT 2026-10-01", () => {
+  it("T-16: Save success → new row appears optimistically before refetch resolves", async () => {
+    listScheduledAgentsMock.mockResolvedValueOnce([]);
+    createScheduledAgentMock.mockResolvedValueOnce({
+      slug: "fresh-agent",
+      host: 1,
+      spec: {},
+    });
+    // Refetch after save — never resolves within this test so we're
+    // asserting the OPTIMISTIC row (not the refetched one).
+    let resolveRefetch: ((rows: ScheduledAgentListItem[]) => void) | null = null;
+    listScheduledAgentsMock.mockImplementationOnce(
+      () => new Promise<ScheduledAgentListItem[]>((r) => {
+        resolveRefetch = r;
+      }),
+    );
+    listRolesForHostMock.mockResolvedValue([
+      { name: "assistant", description: "" },
+    ]);
+
+    render(
+      <ScheduledAgentsModal
+        open={true}
+        onOpenChange={vi.fn()}
+        hostTree={ONE_HOST_TREE}
+      />,
+    );
+    await screen.findByTestId("scheduled-agents-modal-empty-state");
+    fireEvent.click(screen.getByTestId("scheduled-agents-modal-add-button"));
+
+    const nameInput = await screen.findByTestId(
+      "scheduled-agents-modal-form-name",
+    ) as HTMLInputElement;
+    const promptInput = screen.getByTestId(
+      "scheduled-agents-modal-form-prompt",
+    ) as HTMLTextAreaElement;
+    fireEvent.change(nameInput, { target: { value: "fresh-agent" } });
+    fireEvent.change(promptInput, { target: { value: "do stuff" } });
+
+    const roleChip = await screen.findByTestId(
+      "scheduled-agents-modal-form-role-addable-assistant",
+    );
+    fireEvent.click(roleChip);
+
+    fireEvent.click(screen.getByTestId("scheduled-agents-modal-form-save"));
+
+    // Row visible from the OPTIMISTIC splice — refetch is still pending.
+    const row = await screen.findByTestId(
+      "scheduled-agents-modal-row-fresh-agent",
+    );
+    expect(row).toBeInTheDocument();
+    // Refetch hasn't resolved yet.
+    expect(resolveRefetch).not.toBeNull();
+    // Clean up the pending promise so React doesn't warn on unmount.
+    resolveRefetch!([]);
+  });
+
+  it("T-16b: Edit success → row updates optimistically before refetch resolves", async () => {
+    listScheduledAgentsMock.mockResolvedValueOnce([
+      makeRow({ slug: "morning-triage", name: "Morning triage", prompt: "old prompt" }),
+    ]);
+    updateScheduledAgentMock.mockResolvedValueOnce({
+      slug: "morning-triage",
+      host: 1,
+      spec: {},
+    });
+    // Pending refetch — we want to assert the edit's optimistic overlay,
+    // not the post-refetch state.
+    let resolveRefetch: ((rows: ScheduledAgentListItem[]) => void) | null = null;
+    listScheduledAgentsMock.mockImplementationOnce(
+      () => new Promise<ScheduledAgentListItem[]>((r) => {
+        resolveRefetch = r;
+      }),
+    );
+    listRolesForHostMock.mockResolvedValue([
+      { name: "assistant", description: "" },
+    ]);
+
+    render(
+      <ScheduledAgentsModal
+        open={true}
+        onOpenChange={vi.fn()}
+        hostTree={ONE_HOST_TREE}
+      />,
+    );
+    const row = await screen.findByTestId(
+      "scheduled-agents-modal-row-morning-triage",
+    );
+    expect(row.textContent).toMatch(/old prompt/);
+    fireEvent.click(row);
+
+    const promptInput = (await screen.findByTestId(
+      "scheduled-agents-modal-form-prompt",
+    )) as HTMLTextAreaElement;
+    fireEvent.change(promptInput, { target: { value: "new prompt" } });
+
+    fireEvent.click(screen.getByTestId("scheduled-agents-modal-form-save"));
+
+    await waitFor(() => {
+      expect(updateScheduledAgentMock).toHaveBeenCalledTimes(1);
+    });
+    // Back on the list; row carries the NEW prompt from the optimistic
+    // overlay — refetch hasn't resolved yet.
+    const updatedRow = await screen.findByTestId(
+      "scheduled-agents-modal-row-morning-triage",
+    );
+    expect(updatedRow.textContent).toMatch(/new prompt/);
+    expect(updatedRow.textContent).not.toMatch(/old prompt/);
+    expect(resolveRefetch).not.toBeNull();
+    resolveRefetch!([]);
+  });
+
+  it("T-17: required-role gate — Save disabled on empty roles, enabled after a role is picked", async () => {
+    listScheduledAgentsMock.mockResolvedValueOnce([]);
+    listRolesForHostMock.mockResolvedValue([
+      { name: "assistant", description: "" },
+    ]);
+
+    render(
+      <ScheduledAgentsModal
+        open={true}
+        onOpenChange={vi.fn()}
+        hostTree={ONE_HOST_TREE}
+      />,
+    );
+    await screen.findByTestId("scheduled-agents-modal-empty-state");
+    fireEvent.click(screen.getByTestId("scheduled-agents-modal-add-button"));
+
+    const nameInput = await screen.findByTestId(
+      "scheduled-agents-modal-form-name",
+    ) as HTMLInputElement;
+    const promptInput = screen.getByTestId(
+      "scheduled-agents-modal-form-prompt",
+    ) as HTMLTextAreaElement;
+    fireEvent.change(nameInput, { target: { value: "needs-a-role" } });
+    fireEvent.change(promptInput, { target: { value: "x" } });
+
+    // Required-role hint visible, Save disabled.
+    const hint = await screen.findByTestId(
+      "scheduled-agents-modal-form-roles-required-hint",
+    );
+    expect(hint).toBeInTheDocument();
+    const saveBtn = screen.getByTestId(
+      "scheduled-agents-modal-form-save",
+    ) as HTMLButtonElement;
+    expect(saveBtn.disabled).toBe(true);
+
+    // Pick the role — hint disappears, Save becomes enabled.
+    const roleChip = await screen.findByTestId(
+      "scheduled-agents-modal-form-role-addable-assistant",
+    );
+    fireEvent.click(roleChip);
+
+    await waitFor(() => {
+      expect(
+        screen.queryByTestId("scheduled-agents-modal-form-roles-required-hint"),
+      ).toBeNull();
+    });
+    expect(saveBtn.disabled).toBe(false);
   });
 });
