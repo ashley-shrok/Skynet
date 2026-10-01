@@ -18,6 +18,15 @@
  * signature; a heap climbing unboundedly is a JS-leak signature; a
  * DOM-node count climbing unboundedly is a mount-leak signature.
  *
+ * 2026-10-01: added Web Worker heartbeat. The main-thread heartbeat above
+ * is useless when the renderer wedges in JS — console calls queue but the
+ * forwarder's flush timer never fires. A Worker runs in a separate thread,
+ * pings the main thread every 500ms, and when pongs stop for 2s+ posts
+ * freeze-onset + last-known interaction state DIRECTLY to the forwarder
+ * endpoint, bypassing the wedged main thread. The backend skew-lock
+ * middleware's D-06 fail-open rule accepts header-less Worker requests.
+ * Grep `[freeze-diag-worker]` to find onset / recovery lines.
+ *
  * Zero user-visible effect. Small, self-contained; remove once the
  * freeze cause is identified.
  */
@@ -40,6 +49,131 @@ let intervalHandle: ReturnType<typeof setInterval> | null = null;
 export function startFreezeDiag(): void {
   if (intervalHandle !== null) return;
   intervalHandle = setInterval(emit, FREEZE_DIAG_INTERVAL_MS);
+  startFreezeDiagWorker();
+}
+
+// --- Web Worker heartbeat ----------------------------------------------------
+
+const WORKER_PING_INTERVAL_MS = 500;
+const FREEZE_THRESHOLD_MS = 2000;
+
+// Worker source as a template string. Built with placeholders so the
+// Worker code stays plain JS (no TS types inside the string, no imports).
+// All `fetch` calls run on the Worker's own thread — main-thread wedge
+// has zero effect on this path.
+const workerSource = `
+let lastPongAt = Date.now();
+let lastState = null;
+let frozen = false;
+let freezeOnsetAt = null;
+let seq = 0;
+
+function post(msg) {
+  const entry = {
+    ts: new Date().toISOString(),
+    level: "warn",
+    tabId: "no-tab",
+    msg: msg,
+  };
+  fetch("/debug/console-log", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ entries: [entry] }),
+  }).catch(function () {});
+}
+
+setInterval(function () {
+  self.postMessage({ type: "ping", seq: seq++ });
+  const sinceLast = Date.now() - lastPongAt;
+  if (!frozen && sinceLast >= __THRESHOLD__) {
+    frozen = true;
+    freezeOnsetAt = lastPongAt;
+    post("[freeze-diag-worker] FROZEN onset=" + new Date(freezeOnsetAt).toISOString() +
+      " lastState=" + JSON.stringify(lastState));
+  } else if (frozen) {
+    post("[freeze-diag-worker] still-frozen durationMs=" + sinceLast);
+  }
+}, __PING_INTERVAL__);
+
+self.addEventListener("message", function (e) {
+  if (e.data && e.data.type === "pong") {
+    const now = Date.now();
+    if (frozen) {
+      post("[freeze-diag-worker] RECOVERED durationMs=" + (now - freezeOnsetAt) +
+        " lastState=" + JSON.stringify(lastState));
+      frozen = false;
+      freezeOnsetAt = null;
+    }
+    lastPongAt = now;
+    lastState = e.data.state;
+  }
+});
+`
+  .replace("__PING_INTERVAL__", String(WORKER_PING_INTERVAL_MS))
+  .replace("__THRESHOLD__", String(FREEZE_THRESHOLD_MS));
+
+let worker: Worker | null = null;
+let lastClickTarget = "none";
+let pointerListenerAttached = false;
+
+function attachPointerListener(): void {
+  if (pointerListenerAttached) return;
+  pointerListenerAttached = true;
+  // Captures last pointerdown target so the Worker's freeze-onset report
+  // names what the user clicked immediately before the wedge. Capture
+  // phase + passive so it never interferes with normal event dispatch.
+  document.addEventListener(
+    "pointerdown",
+    (e) => {
+      const t = e.target as Element | null;
+      if (!t) {
+        lastClickTarget = "null";
+        return;
+      }
+      const tag = t.tagName?.toLowerCase() ?? "?";
+      const id = t.id ? "#" + t.id : "";
+      // SVG elements expose className as SVGAnimatedString, not string —
+      // guard before touching .split().
+      const rawClass = typeof t.className === "string" ? t.className : "";
+      const cls = rawClass ? "." + rawClass.split(/\s+/)[0] : "";
+      lastClickTarget = `${tag}${id}${cls}@${Date.now()}`;
+    },
+    { capture: true, passive: true },
+  );
+}
+
+function startFreezeDiagWorker(): void {
+  if (worker !== null) return;
+  if (typeof Worker === "undefined") return;
+  attachPointerListener();
+  try {
+    const blob = new Blob([workerSource], {
+      type: "application/javascript",
+    });
+    const url = URL.createObjectURL(blob);
+    worker = new Worker(url);
+    worker.addEventListener("message", (e: MessageEvent) => {
+      const data = e.data as { type?: string } | null;
+      if (data?.type === "ping") {
+        worker?.postMessage({
+          type: "pong",
+          state: {
+            lastClick: lastClickTarget,
+            url:
+              typeof location !== "undefined"
+                ? location.pathname + location.search
+                : "?",
+            nodes: readNodeCount(),
+            heapMB: readHeapMB(),
+            modals: { ...modalOpenCounts },
+          },
+        });
+      }
+    });
+  } catch {
+    worker = null;
+  }
 }
 
 function emit(): void {
