@@ -437,6 +437,76 @@ it("Test 2: missing required field 'name' → 400 JSON, no SSE frames", async ()
 });
 
 // ---------------------------------------------------------------------------
+// Pretty-names shape (2026-09-30): displayName in body is backend-derived
+// into the identity slug via the shared helper. Covers the name-it-myself
+// path from the UI; pool-picked path (which supplies `name` directly) is
+// unaffected and tested elsewhere.
+// ---------------------------------------------------------------------------
+
+it("Test 2a (pretty-names): body with displayName derives slug and passes to orchestrator", async () => {
+  mockBirthIdentity.mockImplementation(
+    async (_opts, _deps, _userId, emit) => {
+      emit({ type: "ended", ok: true });
+    },
+  );
+  const bodyWithDisplayName = {
+    ...VALID_BODY,
+    displayName: "Pixel Pusher",
+  };
+  // Remove `name` to prove displayName can stand alone.
+  delete (bodyWithDisplayName as Partial<typeof bodyWithDisplayName>).name;
+
+  const result = await httpPost(port, "/identities/birth", bodyWithDisplayName);
+
+  expect(result.status).toBe(200);
+  expect(mockBirthIdentity).toHaveBeenCalledTimes(1);
+  const callOpts = mockBirthIdentity.mock.calls[0]?.[0] as { name: string };
+  expect(callOpts.name).toBe("pixel-pusher");
+});
+
+it("Test 2b (pretty-names): body with displayName containing digits spells them out", async () => {
+  mockBirthIdentity.mockImplementation(
+    async (_opts, _deps, _userId, emit) => {
+      emit({ type: "ended", ok: true });
+    },
+  );
+  const body = { ...VALID_BODY, displayName: "Agent 007", name: undefined };
+
+  const result = await httpPost(port, "/identities/birth", body);
+
+  expect(result.status).toBe(200);
+  const callOpts = mockBirthIdentity.mock.calls[0]?.[0] as { name: string };
+  expect(callOpts.name).toBe("agent-zero-zero-seven");
+});
+
+it("Test 2c (pretty-names): displayName of only punctuation → 400 (unslugifiable)", async () => {
+  const body = { ...VALID_BODY, displayName: "!!!", name: undefined };
+
+  const result = await httpPost(port, "/identities/birth", body);
+
+  expect(result.status).toBe(400);
+  const parsed = JSON.parse(result.body);
+  expect(parsed.error).toMatch(/at least one letter/i);
+  expect(mockBirthIdentity).not.toHaveBeenCalled();
+});
+
+it("Test 2d (pretty-names): displayName present wins over name (backend-derive)", async () => {
+  mockBirthIdentity.mockImplementation(
+    async (_opts, _deps, _userId, emit) => {
+      emit({ type: "ended", ok: true });
+    },
+  );
+  // Both fields present — displayName takes precedence; `name` is discarded.
+  const body = { ...VALID_BODY, displayName: "Totally New Name" };
+
+  const result = await httpPost(port, "/identities/birth", body);
+
+  expect(result.status).toBe(200);
+  const callOpts = mockBirthIdentity.mock.calls[0]?.[0] as { name: string };
+  expect(callOpts.name).toBe("totally-new-name");
+});
+
+// ---------------------------------------------------------------------------
 // Test 3: 401 without JWT — no orchestrator call
 // ---------------------------------------------------------------------------
 

@@ -98,6 +98,22 @@ const execAsync = promisify(exec);
 // entry before touching any DB / SSH / Synapse dep (T-75-16 defense-in-depth).
 const IDENTITY_KEY_RE = /^[a-z0-9._=/+-]+$/;
 
+// Pretty-names shape (2026-09-30): when the request body carries a free-form
+// `displayName`, the backend derives the slug from it via the shared helper
+// — the user never has to think about kebab-case or Matrix-safe characters.
+// When `displayName` is absent (the pool-picked path, which supplies a
+// pre-slugged `name`), this branch is skipped.
+//
+// Scope cut (known gap): slug-collision auto-suffix is NOT implemented for
+// identity birth in this phase. Identity birth is a long multi-step
+// orchestration (local filesystem + Matrix account + tmux session) and
+// retrying it on collision would mean leaking Matrix accounts across
+// attempts. The frontend's runCollisionPrecheck already surfaces collisions
+// at type-time (NewSessionDialog), so a user who types a colliding name
+// sees it before clicking Create. True race-collisions still fail with the
+// orchestrator's "identity already exists on this host" error.
+import { derivePrettyNameSlug } from "../../utils/pretty-name-slug.js";
+
 // ---------------------------------------------------------------------------
 // Local exec helper (child_process.exec promisified)
 // ---------------------------------------------------------------------------
@@ -121,9 +137,9 @@ router.post(
     // -----------------------------------------------------------------------
     // Body validation — 400 before opening SSE if any required field is missing
     // -----------------------------------------------------------------------
+    const bodyAny = req.body as Record<string, unknown>;
     const {
       hostId,
-      name,
       title,
       path,
       colorHue,
@@ -132,7 +148,7 @@ router.post(
       role,
       task,
       poolPicked,
-    } = req.body as Record<string, unknown>;
+    } = bodyAny;
 
     if (
       typeof hostId !== "number" ||
@@ -141,6 +157,27 @@ router.post(
     ) {
       res.status(400).json({ error: "hostId must be a positive integer" });
       return;
+    }
+
+    // Pretty-names shape (2026-09-30): if the caller provides a free-form
+    // `displayName`, derive the identity's slug from it via the shared
+    // helper. The pool-picked path still sends a pre-slugged `name` and
+    // is unchanged. One of the two must be present.
+    const rawDisplayName = bodyAny.displayName;
+    let name: unknown = bodyAny.name;
+    if (typeof rawDisplayName === "string" && rawDisplayName.trim().length > 0) {
+      const derivation = derivePrettyNameSlug(rawDisplayName);
+      if (derivation.ok !== true) {
+        const errorMsg =
+          derivation.reason === "empty"
+            ? "displayName is required"
+            : derivation.reason === "too_long"
+              ? "displayName must be 80 characters or fewer"
+              : "displayName must contain at least one letter";
+        res.status(400).json({ error: errorMsg });
+        return;
+      }
+      name = derivation.slug;
     }
 
     if (typeof name !== "string" || !name.trim()) {
@@ -158,6 +195,10 @@ router.post(
     // would turn a bad name into path traversal via `parsedPath` before the
     // orchestrator's gate fires. Closing the asymmetry here removes the
     // footgun for zero behavior change today.
+    //
+    // Pretty-names derived slugs (pure [a-z-]+) pass this regex by
+    // construction, so backend-derivation above does not change gate
+    // semantics.
     if (!IDENTITY_KEY_RE.test(name.trim())) {
       res
         .status(400)
