@@ -3365,27 +3365,24 @@ export function PrettyConversationsPanel({
                 className="pv-panel-group"
                 data-rdp-group="true"
               >
-                {/* Subtle RDP divider chip — mirrors prototype.html
-                    .rdp-divider block: small Monitor glyph + uppercase
-                    muted label + gradient rule. Rendered ONCE above the
-                    RDP row cluster regardless of how many RDP rows exist. */}
+                {/* RDP section header — matches the Apps/Pinned/Projects/
+                    Conversations typographic treatment: title-case label,
+                    warm #a89a80 color, matching icon weight + symmetric
+                    gradient rule. */}
                 <div
-                  className="flex items-center gap-2 pl-1 pr-4 pt-3 pb-1.5"
+                  className="flex items-center gap-2.5 pl-1 pr-4 pt-3.5 pb-1.5"
                   data-testid="rdp-divider"
                 >
-                  {/* quick-260727-f9v: brightness bumped from /50 → /85
-                      on BOTH icon and label so this chip reads at the
-                      same weight as the retired per-host chips did. */}
                   <Monitor
-                    className="size-3 text-[#5c6070]/85 shrink-0"
+                    className="size-3.5 text-[#a89a80] opacity-90 shrink-0"
                     aria-hidden="true"
                   />
-                  <span className="text-[13px] font-semibold uppercase tracking-[0.08em] text-[#5c6070]/85 shrink-0">
+                  <span className="text-[13px] font-semibold text-[#a89a80] shrink-0">
                     {rdpSectionLabel}
                   </span>
                   <span
                     aria-hidden="true"
-                    className="flex-1 h-px bg-[linear-gradient(90deg,rgba(255,255,255,0.06),transparent)]"
+                    className="flex-1 h-px bg-[linear-gradient(90deg,transparent_0%,rgba(168,154,128,0.20)_30%,rgba(168,154,128,0.20)_70%,transparent_100%)]"
                   />
                 </div>
                 {searchedRdpGroup.rows.map((row) => (
