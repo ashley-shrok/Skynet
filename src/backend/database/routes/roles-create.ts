@@ -102,7 +102,12 @@ import {
   MIME_TO_AVATAR_EXT,
   stringifyColorHueForYaml,
 } from "../../claude-session/identity-artifact-reader.js";
-import { ROLE_NAME_PATTERN, ROLE_NAME_RE } from "./identity-birth-orchestrator.js";
+import { ROLE_NAME_PATTERN } from "./identity-birth-orchestrator.js";
+// Pretty-names shape (2026-09-30): backend derives the role slug from the
+// typed displayName via the shared helper. Spells out digits so slugs are
+// pure [a-z-]+ and letter-first, which makes the formerly separate
+// ROLE_NAME_RE strict-segment gate here redundant (dropped below).
+import { derivePrettyNameSlug } from "../../utils/pretty-name-slug.js";
 import { sshLogger } from "../../utils/logger.js";
 // Phase 103 D-10: multipart-origin-guard — CORS-simple content types don't preflight
 import { multipartOriginGuard } from "../../utils/multipart-origin-guard.js";
@@ -208,17 +213,22 @@ function execWithTimeout(
 }
 
 /**
- * Shape of the parsed `data` JSON multipart field. Cosmetics are optional;
- * avatar filename is derived server-side from mimetype (never accepted from
- * the client per T-86-02-01) so it's absent here — the caller sets it in
- * cosmetics before yaml.dump.
+ * Shape of the parsed `data` JSON multipart field.
+ *
+ * Pretty-names shape (2026-09-30): the client sends the free-form typed
+ * `displayName` as a top-level field; the backend derives the role slug.
+ * `title` is removed from `cosmetics` — the pretty name is a first-class
+ * field written to the role file's frontmatter as `displayName:`.
+ *
+ * Avatar filename is derived server-side from mimetype (never accepted
+ * from the client per T-86-02-01) so it's absent here — the caller sets
+ * it in cosmetics before yaml.dump.
  */
 type MultipartRolePayload = {
-  name?: unknown;
+  displayName?: unknown;
   description?: unknown;
   hostId?: unknown;
   cosmetics?: {
-    title?: unknown;
     colorHue?: unknown;
     voice?: unknown;
   };
@@ -324,44 +334,43 @@ router.post(
       return;
     }
 
-    const rawName = payload.name;
+    const rawDisplayName = payload.displayName;
     const rawDescription = payload.description;
     const rawHostId = payload.hostId;
     const rawCosmetics = payload.cosmetics ?? {};
 
     // -----------------------------------------------------------------------
-    // 2. Body validation — 400 on any failure with distinct error messages
-    //    (Phase 22 gates, unchanged).
+    // 2. Body validation — 400 on any failure with distinct error messages.
+    //    Pretty-names shape: displayName is the typed pretty name; backend
+    //    derives the slug via the shared helper. derivePrettyNameSlug
+    //    rejects empty / too-long / unslugifiable input in one place.
     // -----------------------------------------------------------------------
-    if (typeof rawName !== "string" || rawName.length === 0) {
-      res.status(400).json({ error: "name is required" });
+    if (typeof rawDisplayName !== "string") {
+      res.status(400).json({ error: "displayName is required" });
       return;
     }
-    if (rawName.length > MAX_NAME_LENGTH) {
-      res.status(400).json({ error: `name must be ≤${MAX_NAME_LENGTH} chars` });
+    const derivation = derivePrettyNameSlug(rawDisplayName);
+    if (!derivation.ok) {
+      const errorMsg =
+        derivation.reason === "empty"
+          ? "displayName is required"
+          : derivation.reason === "too_long"
+            ? "displayName must be 80 characters or fewer"
+            : "displayName must contain at least one letter";
+      res.status(400).json({ error: errorMsg });
       return;
     }
-    if (!ROLE_NAME_PATTERN.test(rawName)) {
+    const baseSlug = derivation.slug;
+    // Legacy length cap on the derived slug (kept at 64 for folder sanity).
+    // The 80-char input cap means the output rarely exceeds 64, but digit
+    // spell-out can occasionally grow strings — defense in depth.
+    if (baseSlug.length > MAX_NAME_LENGTH) {
       res.status(400).json({
-        error: "name must be kebab-case-lowercase (a-z, 0-9, hyphen only)",
+        error: `displayName derived slug exceeds ${MAX_NAME_LENGTH} chars; shorten the name`,
       });
       return;
     }
-    // Strict segment gate: every dash-separated segment must start with a
-    // letter. Enforced at CREATE (not at list/archive) because identity-birth
-    // with poolPicked=true runs the SAME regex on the role (identity-birth.ts
-    // strict-role gate); a leading-digit segment gets past the permissive
-    // gate at create-time but reliably fails birth later with an opaque
-    // generic "agent creation failed" alert. Closing the gap here means the
-    // failure surfaces at the creation site instead of the birth site.
-    // Pre-existing roles that fail this gate (created before tightening)
-    // stay readable/archivable via the permissive gates in roles.ts et al.
-    if (!ROLE_NAME_RE.test(rawName)) {
-      res.status(400).json({
-        error: "each dash-separated segment must start with a letter (e.g., 'meal-planner-two', not 'meal-planner-2')",
-      });
-      return;
-    }
+    const displayName = rawDisplayName.trim();
     if (typeof rawDescription !== "string" || rawDescription.length === 0) {
       res.status(400).json({ error: "description is required" });
       return;
@@ -381,7 +390,6 @@ router.post(
       return;
     }
 
-    const name = rawName;
     const description = rawDescription;
     const hostId = rawHostId;
 
@@ -389,30 +397,18 @@ router.post(
     // 3. Cosmetic validation — per-field gates BEFORE any provisioning.
     //    Distinct 400 messages so the frontend can highlight the field.
     //    Mirrors the identity PUT gates at identities.ts L444-461.
+    //
+    //    Pretty-names shape (2026-09-30): `displayName` is a first-class
+    //    frontmatter field (not a cosmetic) and lives at top level of the
+    //    cosmetics-dict that yaml.dump sees, written alongside colorHue /
+    //    voice / avatar. The old `title` cosmetic is gone.
     // -----------------------------------------------------------------------
     const cosmetics: {
-      title?: string;
+      displayName?: string;
       colorHue?: number;
       voice?: string;
       avatar?: string;
-    } = {};
-
-    if (rawCosmetics.title !== undefined) {
-      if (
-        typeof rawCosmetics.title !== "string" ||
-        rawCosmetics.title.length === 0
-      ) {
-        res.status(400).json({ error: "title must be a non-empty string" });
-        return;
-      }
-      if (rawCosmetics.title.length > MAX_TITLE_LENGTH) {
-        res.status(400).json({
-          error: `title must be ≤${MAX_TITLE_LENGTH} chars`,
-        });
-        return;
-      }
-      cosmetics.title = rawCosmetics.title;
-    }
+    } = { displayName };
 
     if (rawCosmetics.colorHue !== undefined) {
       if (
@@ -444,10 +440,12 @@ router.post(
     }
 
     // -----------------------------------------------------------------------
-    // 4. Avatar handling — derive server-side filename from mimetype so the
-    //    client can NEVER pick a mismatched extension (T-86-02-01 mitigation).
+    // 4. Avatar mimetype gate — early rejection on unsupported type. The
+    //    actual avatar filename is computed AFTER the mkdir auto-suffix loop
+    //    below, since the filename depends on the final slug (which may be
+    //    base, base-2, base-3, ... depending on collisions).
     // -----------------------------------------------------------------------
-    let avatarFilename: string | null = null;
+    let avatarExt: string | null = null;
     if (req.file) {
       const ext = MIME_TO_AVATAR_EXT[req.file.mimetype];
       if (!ext) {
@@ -457,8 +455,7 @@ router.post(
         res.status(415).json({ error: "Avatar must be PNG, JPEG, or WebP" });
         return;
       }
-      avatarFilename = `${name}.${ext}`;
-      cosmetics.avatar = avatarFilename;
+      avatarExt = ext;
     }
 
     // -----------------------------------------------------------------------
@@ -492,56 +489,89 @@ router.post(
       }
 
       // ---------------------------------------------------------------------
-      // 7. Atomic collision-safe provision (Phase 129 MEDIUM-1 fix — port of
-      //    Phase 117 createProject pattern at
-      //    identity-artifact-reader.ts:830-870).
+      // 7. Atomic collision-safe provision with pretty-names auto-suffix.
       //
-      //    Pre-fix: probe → `mkdir -p` → write was TOCTOU-vulnerable — two
-      //    concurrent shared-slug creates from different users both saw
-      //    "missing", both `mkdir -p` succeeded (idempotent), and both wrote.
-      //    Whichever wrote second silently clobbered the first user's auto-tag.
-      //    Now that the `users:` tag is visibility-load-bearing (not just a
-      //    display color), a race-loser's file getting the race-winner's tag
-      //    matches shape §"what would make it wrong" bullet 3 ("A brand-new
-      //    identity or role created on a shared host is auto-tagged with the
-      //    wrong user's name").
+      //    Pre-fix (Phase 129 MEDIUM-1 fix — port of Phase 117 createProject
+      //    pattern at identity-artifact-reader.ts:830-870): plain (non-`-p`)
+      //    mkdir on the target dir is atomic at the syscall level and fails
+      //    with "File exists" if the directory already exists. Race-loser
+      //    hits the EEXIST branch without touching the winner's file.
       //
-      //    Fix: ensure the parent `~/fleet/roles/` dir exists via `mkdir -p`,
-      //    then use plain (non-`-p`) `mkdir` on the target dir which is atomic
-      //    at the syscall level and fails with "File exists" if the directory
-      //    already exists. Race-loser hits the EEXIST branch → 409 without
-      //    touching the winner's file. Only the CHILD dir is created atomically —
-      //    Phase 133 dropped the nested `bounties/` subdir; the bounties concept
-      //    was retired from Skynet in that phase.
+      //    Pretty-names shape (2026-09-30): on EEXIST we no longer 409 — we
+      //    retry with the next collision suffix (baseSlug-2, baseSlug-3, ...).
+      //    Users don't think about slug collisions; the system picks the next
+      //    free slug and proceeds. Loop is race-safe because each iteration
+      //    is a fresh atomic mkdir on a distinct path; sanity cap at 100.
       //
-      //    `name` is pre-validated by ROLE_NAME_PATTERN so interpolation into
-      //    the double-quoted path is shell-safe.
+      //    `baseSlug` + the suffix are both produced by the pretty-names
+      //    derivation (letters + dashes + a digit suffix), so interpolation
+      //    into the double-quoted path is shell-safe.
       // ---------------------------------------------------------------------
+      const MAX_COLLISION_ATTEMPTS = 100;
+      let name = baseSlug;
+      let attempt = 0;
+      let mkdirDone = false;
       try {
-        await execWithTimeout(
-          conn,
-          `mkdir -p "$HOME/fleet/roles" && mkdir "$HOME/fleet/roles/${name}"`,
-        );
+        await execWithTimeout(conn, `mkdir -p "$HOME/fleet/roles"`);
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (
-          msg.includes("File exists") ||
-          msg.toLowerCase().includes("already exists")
-        ) {
-          // Race-loser (or plain pre-existing role) — 409 without touching the
-          // winner's file. Matches the pre-fix response body for the R-5
-          // regression test in roles-create.test.ts.
-          res.status(409).json({ error: "role exists on host" });
-          return;
-        }
-        sshLogger.warn("roles-create: atomic mkdir exec failed", {
+        sshLogger.warn("roles-create: parent roles-dir mkdir failed", {
           operation: "roles_create_atomic_mkdir",
           hostId,
-          name,
-          error: msg,
+          baseSlug,
+          error: err instanceof Error ? err.message : String(err),
         });
         res.status(502).json({ error: "SSH exec failed" });
         return;
+      }
+      while (!mkdirDone) {
+        try {
+          await execWithTimeout(
+            conn,
+            `mkdir "$HOME/fleet/roles/${name}"`,
+          );
+          mkdirDone = true;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (
+            msg.includes("File exists") ||
+            msg.toLowerCase().includes("already exists")
+          ) {
+            attempt += 1;
+            if (attempt >= MAX_COLLISION_ATTEMPTS) {
+              sshLogger.error(
+                "roles-create: collision auto-suffix cap exhausted",
+                new Error("cap exhausted"),
+                {
+                  operation: "roles_create_atomic_mkdir",
+                  hostId,
+                  baseSlug,
+                  attempts: attempt,
+                },
+              );
+              res
+                .status(500)
+                .json({ error: "failed to create role" });
+              return;
+            }
+            name = `${baseSlug}-${attempt + 1}`;
+            continue;
+          }
+          sshLogger.warn("roles-create: atomic mkdir exec failed", {
+            operation: "roles_create_atomic_mkdir",
+            hostId,
+            name,
+            error: msg,
+          });
+          res.status(502).json({ error: "SSH exec failed" });
+          return;
+        }
+      }
+
+      // Avatar filename now that the final slug is known (depends on name).
+      let avatarFilename: string | null = null;
+      if (avatarExt) {
+        avatarFilename = `${name}.${avatarExt}`;
+        cosmetics.avatar = avatarFilename;
       }
 
       // ---------------------------------------------------------------------

@@ -367,49 +367,58 @@ describe("POST /roles — regression guards (multipart form)", () => {
     expect(connectOneShot).not.toHaveBeenCalled();
   });
 
-  it("R-2: uppercase/underscore name → 400 (ROLE_NAME_PATTERN violation)", async () => {
+  // R-2 variants retired: pretty-names shape (2026-09-30) replaces the
+  // kebab / letter-first regex gates with backend-authoritative slug
+  // derivation. Any typed string reduces to a safe slug (or is rejected
+  // for having zero letters). The former uppercase/underscore/path-traversal/
+  // leading-digit rejection tests are superseded by R-2e below.
+
+  it("R-2e: displayName with zero letters (all-punctuation) → 400", async () => {
     const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
-      data: { name: "Box_Maintainer", description: "irrelevant", hostId: 5 },
+      data: { displayName: "!!!", description: "irrelevant", hostId: 5 },
     }));
     expect(res.status).toBe(400);
-    expect((res.body as { error: string }).error).toMatch(/name/i);
+    expect((res.body as { error: string }).error).toMatch(/at least one letter/i);
     expect(connectOneShot).not.toHaveBeenCalled();
   });
 
-  it("R-2b: path-traversal role name (`../etc`) → 400", async () => {
+  it("R-2f: empty displayName → 400", async () => {
     const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
-      data: { name: "../etc", description: "irrelevant", hostId: 5 },
+      data: { displayName: "", description: "irrelevant", hostId: 5 },
     }));
     expect(res.status).toBe(400);
+    expect((res.body as { error: string }).error).toMatch(/displayName/i);
     expect(connectOneShot).not.toHaveBeenCalled();
   });
 
-  it("R-2c: leading-digit segment (`meal-planner-2`) → 400 (ROLE_NAME_RE segment gate)", async () => {
-    // The permissive ROLE_NAME_PATTERN accepts this; the strict ROLE_NAME_RE
-    // gate rejects it because the trailing `2` segment has no leading letter.
-    // Without this gate, the role would be created successfully but every
-    // subsequent identity birth with poolPicked=true would 400 opaquely
-    // (identity-birth.ts strict-role check).
+  it("R-2g: too-long displayName (>80 chars) → 400", async () => {
     const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
-      data: { name: "meal-planner-2", description: "irrelevant", hostId: 5 },
+      data: {
+        displayName: "a".repeat(81),
+        description: "irrelevant",
+        hostId: 5,
+      },
     }));
     expect(res.status).toBe(400);
-    expect((res.body as { error: string }).error).toMatch(/segment must start with a letter/i);
+    expect((res.body as { error: string }).error).toMatch(/80/);
     expect(connectOneShot).not.toHaveBeenCalled();
   });
 
-  it("R-2d: leading-digit at start (`3d-artist`) → 400 (ROLE_NAME_RE segment gate)", async () => {
+  it("R-2h: displayName with digits spells them in derived slug (letter-first slug invariant)", async () => {
     const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
-      data: { name: "3d-artist", description: "irrelevant", hostId: 5 },
+      data: {
+        displayName: "2FA Admin",
+        description: "two-factor auth admin",
+        hostId: 5,
+      },
     }));
-    expect(res.status).toBe(400);
-    expect((res.body as { error: string }).error).toMatch(/segment must start with a letter/i);
-    expect(connectOneShot).not.toHaveBeenCalled();
+    expect(res.status).toBe(201);
+    expect((res.body as { name: string }).name).toBe("two-fa-admin");
   });
 
   it("R-3: empty description → 400", async () => {
     const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
-      data: { name: "box-maintainer", description: "", hostId: 5 },
+      data: { displayName: "Box maintainer", description: "", hostId: 5 },
     }));
     expect(res.status).toBe(400);
     expect((res.body as { error: string }).error).toMatch(/description/i);
@@ -418,36 +427,70 @@ describe("POST /roles — regression guards (multipart form)", () => {
 
   it("R-4: cross-user hostId → 404 (resolveHostById returns null)", async () => {
     const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
-      data: { name: "box-maintainer", description: "x", hostId: 99999 },
+      data: { displayName: "Box maintainer", description: "x", hostId: 99999 },
     }));
     expect(res.status).toBe(404);
     expect(connectOneShot).not.toHaveBeenCalled();
   });
 
-  it("R-5: role folder already exists on host → 409 (atomic-mkdir EEXIST branch — Phase 129 MEDIUM-1)", async () => {
-    // Phase 129 MEDIUM-1 fix: the probe → mkdir -p → write shape is gone.
-    // The race-safe atomic mkdir chain (`mkdir -p PARENT && mkdir CHILD`)
-    // throws "File exists" when CHILD already exists — that's the
-    // syscall-level guarantee that both concurrent creates cannot both
-    // succeed. Mock the exec to throw that error and assert the 409
-    // branch fires without touching writeMarkdownFileAtomic.
-    // Phase 133: the trailing `mkdir CHILD/bounties` step was removed
-    // when the bounties concept was retired; test behavior unchanged
-    // because EEXIST still trips at the CHILD mkdir step.
+  it("R-5: role slug collision → auto-suffixes to -2 and succeeds (pretty-names shape)", async () => {
+    // Pretty-names shape (2026-09-30): slug collisions auto-suffix silently
+    // (base, base-2, base-3, ...) instead of 409. The race-safe atomic mkdir
+    // throws "File exists" on EEXIST; the loop retries with the next slug.
+    // The parent `mkdir -p "$HOME/fleet/roles"` runs ONCE and succeeds; the
+    // child `mkdir "$HOME/fleet/roles/<slug>"` is what collides.
+    let childMkdirCount = 0;
     (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
-      if (cmd.includes("mkdir") && cmd.includes("fleet/roles")) {
-        throw new Error("mkdir: cannot create directory '/home/ubuntu/fleet/roles/box-maintainer': File exists");
+      if (cmd.includes("mkdir -p") && cmd.includes("fleet/roles")) {
+        return "";
+      }
+      if (cmd.includes("mkdir") && cmd.includes("fleet/roles/box-maintainer")) {
+        childMkdirCount += 1;
+        if (childMkdirCount === 1) {
+          throw new Error(
+            "mkdir: cannot create directory '/home/ubuntu/fleet/roles/box-maintainer': File exists",
+          );
+        }
+        return ""; // Second attempt (box-maintainer-2) succeeds.
       }
       if (cmd.includes("echo $HOME")) return "/home/ubuntu";
       return "";
     });
     const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
-      data: { name: "box-maintainer", description: "x", hostId: 5 },
+      data: { displayName: "Box maintainer", description: "x", hostId: 5 },
     }));
-    expect(res.status).toBe(409);
-    expect((res.body as { error: string }).error).toMatch(/role exists on host/i);
-    expect(writeMarkdownFileAtomic).not.toHaveBeenCalled();
+    expect(res.status).toBe(201);
+    expect((res.body as { name: string }).name).toBe("box-maintainer-2");
+    expect(writeMarkdownFileAtomic).toHaveBeenCalledTimes(1);
+    // Markdown target path uses the suffixed slug.
+    const targetPath = (writeMarkdownFileAtomic as Mock).mock.calls[0][1] as string;
+    expect(targetPath).toBe(
+      "/home/ubuntu/fleet/roles/box-maintainer-2/box-maintainer-2.md",
+    );
     expect(stubConn.end).toHaveBeenCalledTimes(1);
+  });
+
+  it("R-5c: triple collision auto-suffixes to -4 (chain of EEXISTs)", async () => {
+    let childMkdirCount = 0;
+    (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
+      if (cmd.includes("mkdir -p") && cmd.includes("fleet/roles")) {
+        return "";
+      }
+      if (cmd.includes("mkdir") && cmd.includes("fleet/roles/box-maintainer")) {
+        childMkdirCount += 1;
+        if (childMkdirCount <= 3) {
+          throw new Error("mkdir: File exists");
+        }
+        return ""; // Fourth attempt succeeds.
+      }
+      if (cmd.includes("echo $HOME")) return "/home/ubuntu";
+      return "";
+    });
+    const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
+      data: { displayName: "Box maintainer", description: "x", hostId: 5 },
+    }));
+    expect(res.status).toBe(201);
+    expect((res.body as { name: string }).name).toBe("box-maintainer-4");
   });
 
   it("R-5b: atomic mkdir throws non-EEXIST error → 502 (Phase 129 MEDIUM-1 defensive path)", async () => {
@@ -463,7 +506,7 @@ describe("POST /roles — regression guards (multipart form)", () => {
       return "";
     });
     const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
-      data: { name: "box-maintainer", description: "x", hostId: 5 },
+      data: { displayName: "Box maintainer", description: "x", hostId: 5 },
     }));
     expect(res.status).toBe(502);
     expect((res.body as { error: string }).error).toMatch(/SSH exec failed/i);
@@ -476,7 +519,7 @@ describe("POST /roles — regression guards (multipart form)", () => {
       new Error("Connect timeout after 5000ms"),
     );
     const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
-      data: { name: "box-maintainer", description: "x", hostId: 5 },
+      data: { displayName: "Box maintainer", description: "x", hostId: 5 },
     }));
     expect(res.status).toBe(502);
     expect((res.body as { error: string }).error).toMatch(/SSH connect failed/i);
@@ -487,7 +530,7 @@ describe("POST /roles — regression guards (multipart form)", () => {
   it("R-9: missing JWT → 401", async () => {
     mockUserId = null;
     const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
-      data: { name: "box-maintainer", description: "x", hostId: 5 },
+      data: { displayName: "Box maintainer", description: "x", hostId: 5 },
     }));
     expect(res.status).toBe(401);
     expect(resolveHostById).not.toHaveBeenCalled();
@@ -500,24 +543,27 @@ describe("POST /roles — regression guards (multipart form)", () => {
 // ---------------------------------------------------------------------------
 
 describe("POST /roles — Phase 86 cosmetic frontmatter + avatar sibling write", () => {
-  it("Test 1: multipart POST WITHOUT cosmetics + WITHOUT avatar → 201 with frontmatter-less body verbatim (regression guard)", async () => {
+  it("Test 1: multipart POST WITHOUT optional cosmetics + WITHOUT avatar → 201 with displayName-only frontmatter", async () => {
+    // Pretty-names shape (2026-09-30): displayName is first-class, so even
+    // with no other cosmetics the role file carries a `displayName:`
+    // frontmatter key. The previously-asserted "frontmatter-less" shape is
+    // gone — a role file ALWAYS has frontmatter now.
     const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
-      data: { name: "box-maintainer", description: "x", hostId: 5 },
+      data: { displayName: "Box maintainer", description: "x", hostId: 5 },
     }));
 
     expect(res.status).toBe(201);
     expect(res.body).toEqual({
       name: "box-maintainer",
       description: "x",
-      cosmetics: {},
+      cosmetics: { displayName: "Box maintainer" },
     });
 
-    // Assert the .md body has NO YAML frontmatter block when cosmetics absent
-    // (matches the existing Phase 22 shape verbatim).
     expect(writeMarkdownFileAtomic).toHaveBeenCalledTimes(1);
     const stubBody = (writeMarkdownFileAtomic as Mock).mock.calls[0][2] as string;
-    expect(stubBody).not.toMatch(/^---\n/);
-    expect(stubBody).toMatch(/^# box-maintainer\n\n## Role\n\nx\n/);
+    expect(stubBody.startsWith("---\n")).toBe(true);
+    expect(stubBody).toMatch(/displayName:\s*Box maintainer/);
+    expect(stubBody).toMatch(/---\n\n# box-maintainer\n\n## Role\n\nx\n/);
     // Seed comment still embedded
     expect(stubBody).toContain("This role file was auto-generated");
     expect(stubBody).toContain("remove this comment");
@@ -529,10 +575,10 @@ describe("POST /roles — Phase 86 cosmetic frontmatter + avatar sibling write",
   it("Test 2: multipart POST with cosmetics (no avatar) → body BEGINS with YAML frontmatter carrying exactly the three keys", async () => {
     const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
       data: {
-        name: "box-maintainer",
+        displayName: "Box maintainer",
         description: "x",
         hostId: 5,
-        cosmetics: { title: "Box maintainer", colorHue: 190, voice: "Joanna" },
+        cosmetics: { colorHue: 190, voice: "Joanna" },
       },
     }));
 
@@ -540,15 +586,20 @@ describe("POST /roles — Phase 86 cosmetic frontmatter + avatar sibling write",
     expect(res.body).toEqual({
       name: "box-maintainer",
       description: "x",
-      cosmetics: { title: "Box maintainer", colorHue: 190, voice: "Joanna" },
+      cosmetics: {
+        displayName: "Box maintainer",
+        colorHue: 190,
+        voice: "Joanna",
+      },
     });
 
     expect(writeMarkdownFileAtomic).toHaveBeenCalledTimes(1);
     const stubBody = (writeMarkdownFileAtomic as Mock).mock.calls[0][2] as string;
     // Begins with frontmatter block
     expect(stubBody.startsWith("---\n")).toBe(true);
-    // Contains all three keys and no avatar (since none supplied)
-    expect(stubBody).toMatch(/title:\s*Box maintainer/);
+    // Contains displayName (first-class per pretty-names shape) + the two
+    // cosmetic keys and no avatar (since none supplied).
+    expect(stubBody).toMatch(/displayName:\s*Box maintainer/);
     expect(stubBody).toMatch(/colorHue:\s*'190'/);
     expect(stubBody).toMatch(/voice:\s*Joanna/);
     expect(stubBody).not.toMatch(/^avatar:/m);
@@ -563,10 +614,10 @@ describe("POST /roles — Phase 86 cosmetic frontmatter + avatar sibling write",
     const avatarBytes = Buffer.from([0x52, 0x49, 0x46, 0x46, 0xff, 0xff]); // fake WEBP header bytes
     const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
       data: {
-        name: "box-maintainer",
+        displayName: "Box maintainer",
         description: "x",
         hostId: 5,
-        cosmetics: { title: "Box maintainer", colorHue: 190, voice: "Joanna" },
+        cosmetics: { colorHue: 190, voice: "Joanna" },
       },
       file: {
         filename: "role-avatar.webp",
@@ -577,12 +628,12 @@ describe("POST /roles — Phase 86 cosmetic frontmatter + avatar sibling write",
 
     expect(res.status).toBe(201);
     // Echoed cosmetics include avatar filename derived server-side from
-    // mimetype (client filename ignored — server picks kebab-name.<ext>).
+    // mimetype (client filename ignored — server picks slug.<ext>).
     expect(res.body).toEqual({
       name: "box-maintainer",
       description: "x",
       cosmetics: {
-        title: "Box maintainer",
+        displayName: "Box maintainer",
         colorHue: 190,
         voice: "Joanna",
         avatar: "box-maintainer.webp",
@@ -606,7 +657,7 @@ describe("POST /roles — Phase 86 cosmetic frontmatter + avatar sibling write",
   it("Test 4a: malformed colorHue (400) → 400 with field-specific error, NO writeMarkdownFileAtomic", async () => {
     const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
       data: {
-        name: "box-maintainer",
+        displayName: "Box maintainer",
         description: "x",
         hostId: 5,
         cosmetics: { colorHue: 400 },
@@ -620,7 +671,7 @@ describe("POST /roles — Phase 86 cosmetic frontmatter + avatar sibling write",
   it("Test 4b: malformed voice (`wrong-format`) → 400 with field-specific error, NO writeMarkdownFileAtomic", async () => {
     const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
       data: {
-        name: "box-maintainer",
+        displayName: "Box maintainer",
         description: "x",
         hostId: 5,
         cosmetics: { voice: "wrong-format" },
@@ -631,26 +682,16 @@ describe("POST /roles — Phase 86 cosmetic frontmatter + avatar sibling write",
     expect(writeMarkdownFileAtomic).not.toHaveBeenCalled();
   });
 
-  it("Test 4c: malformed title (empty string) → 400 with field-specific error", async () => {
-    const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
-      data: {
-        name: "box-maintainer",
-        description: "x",
-        hostId: 5,
-        cosmetics: { title: "" },
-      },
-    }));
-    expect(res.status).toBe(400);
-    expect((res.body as { error: string }).error).toMatch(/title/i);
-    expect(writeMarkdownFileAtomic).not.toHaveBeenCalled();
-  });
+  // Test 4c retired: `cosmetics.title` is gone — the pretty name is the
+  // top-level `displayName` field and its empty-string case is covered by
+  // R-2f above.
 
   it("Test 5: raw JSON body (application/json) → 415 with LOUD error (no silent no-op)", async () => {
     const res = await httpPostJson(server, "/roles", JSON.stringify({
       name: "box-maintainer",
       description: "x",
       hostId: 5,
-      cosmetics: { title: "Box maintainer", colorHue: 190, voice: "Joanna" },
+      cosmetics: { colorHue: 190, voice: "Joanna" },
     }));
 
     expect(res.status).toBe(415);
@@ -670,10 +711,10 @@ describe("POST /roles — Phase 86 cosmetic frontmatter + avatar sibling write",
     const oversized = Buffer.alloc(11 * 1024 * 1024, 0xaa);
     const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
       data: {
-        name: "box-maintainer",
+        displayName: "Box maintainer",
         description: "x",
         hostId: 5,
-        cosmetics: { title: "Box maintainer", colorHue: 190, voice: "Joanna" },
+        cosmetics: { colorHue: 190, voice: "Joanna" },
       },
       file: {
         filename: "big.webp",
@@ -690,10 +731,10 @@ describe("POST /roles — Phase 86 cosmetic frontmatter + avatar sibling write",
     const bytes = Buffer.from([0x47, 0x49, 0x46, 0x38]); // "GIF8"
     const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
       data: {
-        name: "box-maintainer",
+        displayName: "Box maintainer",
         description: "x",
         hostId: 5,
-        cosmetics: { title: "Box maintainer", colorHue: 190, voice: "Joanna" },
+        cosmetics: { colorHue: 190, voice: "Joanna" },
       },
       file: {
         filename: "img.gif",
@@ -713,10 +754,10 @@ describe("POST /roles — Phase 86 cosmetic frontmatter + avatar sibling write",
     const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47]); // PNG magic
     const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
       data: {
-        name: "box-maintainer",
+        displayName: "Box maintainer",
         description: "A role that owns t1000",
         hostId: 5,
-        cosmetics: { title: "Box maintainer", colorHue: 190, voice: "Joanna" },
+        cosmetics: { colorHue: 190, voice: "Joanna" },
       },
       file: {
         filename: "picked.png",
@@ -730,7 +771,7 @@ describe("POST /roles — Phase 86 cosmetic frontmatter + avatar sibling write",
       name: "box-maintainer",
       description: "A role that owns t1000",
       cosmetics: {
-        title: "Box maintainer",
+        displayName: "Box maintainer",
         colorHue: 190,
         voice: "Joanna",
         avatar: "box-maintainer.png",
@@ -739,7 +780,7 @@ describe("POST /roles — Phase 86 cosmetic frontmatter + avatar sibling write",
 
     // Persisted body's frontmatter carries the same four keys the response echoed.
     const stubBody = (writeMarkdownFileAtomic as Mock).mock.calls[0][2] as string;
-    expect(stubBody).toMatch(/title:\s*Box maintainer/);
+    expect(stubBody).toMatch(/displayName:\s*Box maintainer/);
     expect(stubBody).toMatch(/colorHue:\s*'190'/);
     expect(stubBody).toMatch(/voice:\s*Joanna/);
     expect(stubBody).toMatch(/avatar:\s*box-maintainer\.png/);
@@ -755,10 +796,10 @@ describe("POST /roles — Phase 86 cosmetic frontmatter + avatar sibling write",
     const desc = "line1\nline2\nline3";
     const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
       data: {
-        name: "box-maintainer",
+        displayName: "Box maintainer",
         description: desc,
         hostId: 5,
-        cosmetics: { title: "Box maintainer", colorHue: 190, voice: "Joanna" },
+        cosmetics: { colorHue: 190, voice: "Joanna" },
       },
     }));
     expect(res.status).toBe(201);
@@ -770,7 +811,7 @@ describe("POST /roles — Phase 86 cosmetic frontmatter + avatar sibling write",
     const desc = "`whoami` $USER ; rm -rf / && echo 'pwned' \"quotes\"";
     const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
       data: {
-        name: "box-maintainer",
+        displayName: "Box maintainer",
         description: desc,
         hostId: 5,
       },
@@ -815,7 +856,7 @@ describe("Phase 129: auto-tag on multi-user hosts", () => {
     (isHostMultiUser as Mock).mockResolvedValue(false);
 
     const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
-      data: { name: "muffin-friend", description: "solo host role", hostId: 5 },
+      data: { displayName: "muffin friend", description: "solo host role", hostId: 5 },
     }));
 
     expect(res.status).toBe(201);
@@ -824,11 +865,13 @@ describe("Phase 129: auto-tag on multi-user hosts", () => {
     // Efficiency invariant: no need to resolve username if we're not tagging.
     expect(getUsernameForUserId).not.toHaveBeenCalled();
 
-    // Written stubMarkdown has NO users: line and NO frontmatter block at all
-    // (no cosmetics + no auto-tag = pre-129 file shape verbatim).
+    // Pretty-names shape: frontmatter block IS always present (displayName
+    // first-class). What stays suppressed on single-user hosts is the users:
+    // key — that's the auto-tag invariant this test still enforces.
     expect(writeMarkdownFileAtomic).toHaveBeenCalledTimes(1);
     const stubBody = (writeMarkdownFileAtomic as Mock).mock.calls[0][2] as string;
-    expect(stubBody).not.toMatch(/^---\n/);
+    expect(stubBody.startsWith("---\n")).toBe(true);
+    expect(stubBody).toMatch(/displayName:\s*muffin friend/);
     expect(stubBody).not.toMatch(/users:/);
   });
 
@@ -837,7 +880,7 @@ describe("Phase 129: auto-tag on multi-user hosts", () => {
     (getUsernameForUserId as Mock).mockResolvedValue("user");
 
     const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
-      data: { name: "shared-role", description: "shared t1000 role", hostId: 5 },
+      data: { displayName: "shared role", description: "shared t1000 role", hostId: 5 },
     }));
 
     expect(res.status).toBe(201);
@@ -878,7 +921,7 @@ describe("Phase 129: auto-tag on multi-user hosts", () => {
     (getUsernameForUserId as Mock).mockResolvedValue("user");
 
     const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
-      data: { name: "rbac-role-shared", description: "shared via RBAC role", hostId: 5 },
+      data: { displayName: "rbac role shared", description: "shared via RBAC role", hostId: 5 },
     }));
 
     expect(res.status).toBe(201);
@@ -894,17 +937,19 @@ describe("Phase 129: auto-tag on multi-user hosts", () => {
     (getUsernameForUserId as Mock).mockResolvedValue(null);
 
     const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
-      data: { name: "orphaned-user-role", description: "user has no username row", hostId: 5 },
+      data: { displayName: "orphaned user role", description: "user has no username row", hostId: 5 },
     }));
 
     // Fail-open: file still gets written (201), just without the users: key.
+    // Frontmatter block IS present per pretty-names shape (displayName
+    // first-class) — the fail-open invariant is strictly that users: is
+    // absent, not that the whole frontmatter is suppressed.
     expect(res.status).toBe(201);
     expect(writeMarkdownFileAtomic).toHaveBeenCalledTimes(1);
     const stubBody = (writeMarkdownFileAtomic as Mock).mock.calls[0][2] as string;
-    // No users: key emitted anywhere in the file (frontmatter or body).
     expect(stubBody).not.toMatch(/users:/);
-    // Since no other cosmetics either, no frontmatter block at all.
-    expect(stubBody).not.toMatch(/^---\n/);
+    expect(stubBody.startsWith("---\n")).toBe(true);
+    expect(stubBody).toMatch(/displayName:\s*orphaned user role/);
 
     // Loud warn log at skipped-lookup seam.
     expect(sshLogger.warn).toHaveBeenCalledWith(
@@ -917,45 +962,68 @@ describe("Phase 129: auto-tag on multi-user hosts", () => {
     );
   });
 
-  it("Test E: existing file → 409 short-circuits BEFORE auto-tag; isHostMultiUser NOT called (Pitfall 5 lock via absence-of-call)", async () => {
-    // Phase 129 MEDIUM-1 fix: the probe → mkdir -p shape is gone; the
-    // atomic mkdir chain throws "File exists" when the target dir already
-    // exists. Simulate that here — the auto-tag branch must never be
-    // reached for pre-existing roles.
+  it("Test E: existing-file collision → auto-suffixes to a new slug; auto-tag runs for the NEW suffixed file (Pitfall 5 lock preserved via distinct target)", async () => {
+    // Pretty-names shape (2026-09-30): slug collisions no longer 409 —
+    // the loop retries with a suffixed slug. The Pitfall 5 invariant
+    // ("auto-tag never writes to a cohabitant's existing file") is still
+    // enforced, but the mechanism is different: the suffixed slug is a
+    // DISTINCT, fresh file. We never touch the pre-existing cohabitant's
+    // file at all.
+    //
+    // Simulate: first mkdir-child throws EEXIST (role already exists);
+    // second attempt (with -2 suffix) succeeds. Auto-tag runs for the
+    // SUFFIXED role file.
+    let childMkdirCount = 0;
     (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
-      if (cmd.includes("mkdir") && cmd.includes("fleet/roles")) {
-        throw new Error("mkdir: cannot create directory '/home/ubuntu/fleet/roles/pre-existing-role': File exists");
+      if (cmd.includes("mkdir -p") && cmd.includes("fleet/roles")) {
+        return "";
+      }
+      if (cmd.includes("mkdir") && cmd.includes("fleet/roles/pre-existing-role")) {
+        childMkdirCount += 1;
+        if (childMkdirCount === 1) {
+          throw new Error(
+            "mkdir: cannot create directory '/home/ubuntu/fleet/roles/pre-existing-role': File exists",
+          );
+        }
+        return "";
       }
       if (cmd.includes("echo $HOME")) return "/home/ubuntu";
       return "";
     });
-    // Even if we WOULD have been on a multi-user host, the branch must skip.
     (isHostMultiUser as Mock).mockResolvedValue(true);
     (getUsernameForUserId as Mock).mockResolvedValue("user");
 
     const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
-      data: { name: "pre-existing-role", description: "already there", hostId: 5 },
+      data: { displayName: "pre existing role", description: "going to a fresh slug", hostId: 5 },
     }));
 
-    expect(res.status).toBe(409);
-    // Pitfall 5 lock: auto-tag branch never runs for pre-existing files.
-    expect(isHostMultiUser).not.toHaveBeenCalled();
-    expect(getUsernameForUserId).not.toHaveBeenCalled();
-    expect(writeMarkdownFileAtomic).not.toHaveBeenCalled();
+    expect(res.status).toBe(201);
+    // Suffixed slug is a NEW file; auto-tag runs for it.
+    expect((res.body as { name: string }).name).toBe("pre-existing-role-2");
+    expect(isHostMultiUser).toHaveBeenCalledWith(5);
+    expect(getUsernameForUserId).toHaveBeenCalledWith("1");
+    expect(writeMarkdownFileAtomic).toHaveBeenCalledTimes(1);
+    // The write target is the SUFFIXED slug — the cohabitant's file is
+    // untouched (Pitfall 5 invariant preserved by distinct target).
+    const targetPath = (writeMarkdownFileAtomic as Mock).mock.calls[0][1] as string;
+    expect(targetPath).toBe(
+      "/home/ubuntu/fleet/roles/pre-existing-role-2/pre-existing-role-2.md",
+    );
   });
 
   it("Test F: yaml.dump byte-shape preserved — canonical options honored (sortKeys:false key order, lineWidth:-1 no wrap)", async () => {
     (isHostMultiUser as Mock).mockResolvedValue(true);
     (getUsernameForUserId as Mock).mockResolvedValue("user");
 
-    // Pass cosmetics in a specific insertion order to lock sortKeys:false —
-    // yaml.dump must preserve title before colorHue before voice before users.
+    // Pretty-names shape: displayName is written first (seeded into the
+    // cosmetics object), then colorHue / voice / avatar / users in insertion
+    // order per sortKeys:false. Lock that ordering here.
     const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
       data: {
-        name: "byte-shape-role",
+        displayName: "byte shape role with a long enough name to force wrap check",
         description: "x",
         hostId: 5,
-        cosmetics: { title: "Long title kept unwrapped for the line-width assertion below", colorHue: 190, voice: "Joanna" },
+        cosmetics: { colorHue: 190, voice: "Joanna" },
       },
     }));
 
@@ -965,13 +1033,13 @@ describe("Phase 129: auto-tag on multi-user hosts", () => {
     expect(fmMatch).not.toBeNull();
     const fmBlock = fmMatch![1];
 
-    // Key ORDER preservation (sortKeys:false): title, colorHue, voice, (avatar not present), users.
-    const titleIdx = fmBlock.indexOf("title:");
+    // Key ORDER preservation (sortKeys:false): displayName, colorHue, voice, (avatar not present), users.
+    const displayNameIdx = fmBlock.indexOf("displayName:");
     const colorHueIdx = fmBlock.indexOf("colorHue:");
     const voiceIdx = fmBlock.indexOf("voice:");
     const usersIdx = fmBlock.indexOf("users:");
-    expect(titleIdx).toBeGreaterThanOrEqual(0);
-    expect(colorHueIdx).toBeGreaterThan(titleIdx);
+    expect(displayNameIdx).toBeGreaterThanOrEqual(0);
+    expect(colorHueIdx).toBeGreaterThan(displayNameIdx);
     expect(voiceIdx).toBeGreaterThan(colorHueIdx);
     expect(usersIdx).toBeGreaterThan(voiceIdx);
 
@@ -987,7 +1055,7 @@ describe("Phase 129: auto-tag on multi-user hosts", () => {
     (getUsernameForUserId as Mock).mockResolvedValue("User");
 
     const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
-      data: { name: "case-pres", description: "case check", hostId: 5 },
+      data: { displayName: "case pres", description: "case check", hostId: 5 },
     }));
 
     expect(res.status).toBe(201);
