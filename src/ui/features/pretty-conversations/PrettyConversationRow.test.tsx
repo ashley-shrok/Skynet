@@ -71,9 +71,64 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act, render, fireEvent, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { Identity } from "@/api/identities-api";
 import type { ConversationRow as ConversationRowShape } from "@/state/conversation-store";
 import type { Host } from "@/types/ui-types";
+
+// jsdom does not implement ResizeObserver; stub it so Radix's DropdownMenu
+// (used by RowKebabMenu, which is the row-level kebab post
+// shape-sidebar-header-affordances) doesn't throw when the portal mounts.
+if (typeof window !== "undefined" && !window.ResizeObserver) {
+  window.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+}
+
+// shape-sidebar-header-affordances: helper to open the row's kebab menu and
+// click an item by name. The old test pattern (fireEvent.contextMenu(body) +
+// screen.getByRole("menuitem", ...)) no longer applies — right-click is
+// retired on sidebar surfaces. Hover-reveal is CSS-only on real browsers; in
+// jsdom the kebab trigger is in the DOM regardless of hover state.
+async function openRowKebabAndClickItem(
+  container: HTMLElement,
+  itemName: string | RegExp,
+): Promise<void> {
+  const user = userEvent.setup();
+  const trigger = container.querySelector(
+    '[data-testid="pv-row-kebab-trigger"]',
+  ) as HTMLElement | null;
+  if (!trigger) throw new Error("row kebab trigger not found");
+  await user.click(trigger);
+  const item = screen.getByRole("menuitem", { name: itemName });
+  await user.click(item);
+}
+
+async function openRowKebab(container: HTMLElement): Promise<HTMLElement> {
+  const user = userEvent.setup();
+  const trigger = container.querySelector(
+    '[data-testid="pv-row-kebab-trigger"]',
+  ) as HTMLElement | null;
+  if (!trigger) throw new Error("row kebab trigger not found");
+  await user.click(trigger);
+  return screen.getByRole("menu");
+}
+
+// shape-sidebar-header-affordances: variant of openRowKebab that scopes the
+// trigger lookup to a specific wrapper (used in multi-row test fixtures where
+// the generic container.querySelector would hit the first row's kebab, not
+// the intended one).
+async function openRowKebabInWrapper(wrapper: HTMLElement): Promise<HTMLElement> {
+  const user = userEvent.setup();
+  const trigger = wrapper.querySelector(
+    '[data-testid="pv-row-kebab-trigger"]',
+  ) as HTMLElement | null;
+  if (!trigger) throw new Error("row kebab trigger not found in wrapper");
+  await user.click(trigger);
+  return screen.getByRole("menu");
+}
 
 // ─── Mocks (BEFORE component import — Vitest hoists vi.mock) ────────────────
 
@@ -208,7 +263,7 @@ beforeEach(() => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationRow: selected-row hue treatment (class + custom property)", () => {
-  it("Test 1: desktop selected row carries `selected` class AND inline `--pv-hue`", () => {
+  it("Test 1: desktop selected row carries `selected` class AND inline `--pv-hue`", async () => {
     currentIdentity = makeIdentity(30, "nelly");
     const { container } = render(
       <PrettyConversationRow
@@ -255,7 +310,7 @@ describe("PrettyConversationRow: selected-row hue treatment (class + custom prop
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationRow: tap-to-select on closed row", () => {
-  it("Test 6: click on closed row fires onSelect exactly once", () => {
+  it("Test 6: click on closed row fires onSelect exactly once", async () => {
     const onSelect = vi.fn();
     const { container } = render(
       <PrettyConversationRow
@@ -281,7 +336,7 @@ describe("PrettyConversationRow: tap-to-select on closed row", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationRow: RDP-row exclusion (T-Test-34)", () => {
-  it("Test 7: mobile RDP row carries `rdp` class + no PinAction (RDP long-press guard covered by TL4)", () => {
+  it("Test 7: mobile RDP row carries `rdp` class + no PinAction (RDP long-press guard covered by TL4)", async () => {
     // quick-260802-pq2: the swipe touch sequence + data-swiped-open assertion
     // were dropped from this test. RDP no-long-press-menu is verified in TL4
     // (bottom of file). Test 7 keeps the RDP class + no-PinAction assertions
@@ -312,7 +367,7 @@ describe("PrettyConversationRow: RDP-row exclusion (T-Test-34)", () => {
     expect(wrapper.getAttribute("data-rdp-host-row")).toBe("true");
   });
 
-  it("Test 7b: desktop RDP row carries `rdp` class + no PinAction + context menu NOW opens (quick-260804-uo4 gate relaxed)", () => {
+  it("Test 7b: desktop RDP row carries `rdp` class + no PinAction + context menu NOW opens (quick-260804-uo4 gate relaxed)", async () => {
     const { container } = render(
       <PrettyConversationRow
         row={makeRow({ rdpHostRow: true, targetTmuxSession: null })}
@@ -332,7 +387,7 @@ describe("PrettyConversationRow: RDP-row exclusion (T-Test-34)", () => {
     // quick-260804-uo4: the row-level isRdp gate on onContextMenu was dropped.
     // Dispatching a contextmenu event on a desktop RDP row now DOES open the
     // portal menu (new invariant — replaces the old "menu stays null" assertion).
-    fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
+    await openRowKebab(container);
     expect(screen.getByRole("menu")).toBeTruthy();
   });
 });
@@ -342,7 +397,7 @@ describe("PrettyConversationRow: RDP-row exclusion (T-Test-34)", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationRow: desktop context-menu pin path", () => {
-  it("Test 8: desktop non-RDP row wires onContextMenu; contextmenu → Pin item → onTogglePin fires only (not onSelect)", () => {
+  it("Test 8: desktop non-RDP row wires onContextMenu; contextmenu → Pin item → onTogglePin fires only (not onSelect)", async () => {
     // Post quick-260730-o2m: the always-visible desktop PinAction in .pv-meta
     // is gone. Pin is reachable via the right-click context menu instead.
     // The menu is portal-mounted to document.body (see
@@ -370,7 +425,7 @@ describe("PrettyConversationRow: desktop context-menu pin path", () => {
       '[data-conversation-id="conv-1"]',
     ) as HTMLElement;
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
+    await openRowKebab(container);
     const pinItem = screen.getByRole("menuitem", { name: /pin/i });
     fireEvent.click(pinItem);
     expect(onTogglePin).toHaveBeenCalledTimes(1);
@@ -383,7 +438,7 @@ describe("PrettyConversationRow: desktop context-menu pin path", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationRow: no-identity avatar fallback", () => {
-  it("Test 9: no identity → avatar contains tabIcon(row.type) svg", () => {
+  it("Test 9: no identity → avatar contains tabIcon(row.type) svg", async () => {
     // currentIdentity is null (reset in beforeEach) — useIdentities().byKey
     // will not resolve the row's targetTmuxSession, so hue is null and the
     // tabIcon fallback path renders.
@@ -414,7 +469,7 @@ describe("PrettyConversationRow: no-identity avatar fallback", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationRow: pinned desktop row → context menu carries `Unpin` label", () => {
-  it("Test 10: pinned=true → row carries `pinned` class AND context menu opens with an `Unpin` menu item", () => {
+  it("Test 10: pinned=true → row carries `pinned` class AND context menu opens with an `Unpin` menu item", async () => {
     currentIdentity = makeIdentity(80, "nelly");
     const { container } = render(
       <PrettyConversationRow
@@ -438,7 +493,7 @@ describe("PrettyConversationRow: pinned desktop row → context menu carries `Un
     // .pv-meta is gone; Pin/Unpin lives in the right-click context menu.
     // The label flips based on `pinned` (see PrettyConversationRow.tsx
     // items.push({ label: pinned ? "Unpin" : "Pin", … })).
-    fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
+    await openRowKebab(container);
     const menu = screen.getByRole("menu");
     expect(within(menu).getByRole("menuitem", { name: /unpin/i })).toBeTruthy();
   });
@@ -449,7 +504,7 @@ describe("PrettyConversationRow: pinned desktop row → context menu carries `Un
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationRow: no identity chip", () => {
-  it("Test 11: neither variant renders an IdentityBadge in the DOM", () => {
+  it("Test 11: neither variant renders an IdentityBadge in the DOM", async () => {
     currentIdentity = makeIdentity(45, "nelly");
     const { container: cMobile } = render(
       <PrettyConversationRow
@@ -485,7 +540,7 @@ describe("PrettyConversationRow: no identity chip", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationRow: Phase 13 full-bubble class-toggle branch", () => {
-  it("Test 12: unselected non-RDP active-set row does NOT carry `selected`/`ambient`/`rdp` + `--pv-hue: 210` inline", () => {
+  it("Test 12: unselected non-RDP active-set row does NOT carry `selected`/`ambient`/`rdp` + `--pv-hue: 210` inline", async () => {
     // Phase 41 Plan 01 (user 2026-08-14) — updated: the `ambient` class is
     // now retired from the row's className toggle table entirely. The
     // `.not.toContain("ambient")` assertion below is now trivially true for
@@ -523,7 +578,7 @@ describe("PrettyConversationRow: Phase 13 full-bubble class-toggle branch", () =
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationRow: Phase 48 Plan 05 idle-affordance retirement (was Phase 13 ready-dot render)", () => {
-  it("Test 13 (Phase 48 Plan 05 rewrite): inActiveSet+isWorking===false is the READY branch of user's 4-input gate — no ready-dot in DOM AND no `spinner-on` class on row", () => {
+  it("Test 13 (Phase 48 Plan 05 rewrite): inActiveSet+isWorking===false is the READY branch of user's 4-input gate — no ready-dot in DOM AND no `spinner-on` class on row", async () => {
     // Pre-Phase-48 this test asserted the ready-dot span was PRESENT with
     // aria-label='ready' + data-pv-conv-ready-dot='true' + .pv-ready-dot
     // class. Phase 48 Plan 05 retires the ready-dot entirely (user 2026-
@@ -564,7 +619,7 @@ describe("PrettyConversationRow: Phase 48 Plan 05 idle-affordance retirement (wa
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationRow: Phase 48 Plan 05 idle-affordance retirement for RDP (was Phase 13 ready-dot component-level render for RDP)", () => {
-  it("Test 14 (Phase 48 Plan 05 rewrite): RDP row with inActiveSet+isWorking===false has NO ready-dot in DOM and NO spinner-on class (idle-in-active-set branch)", () => {
+  it("Test 14 (Phase 48 Plan 05 rewrite): RDP row with inActiveSet+isWorking===false has NO ready-dot in DOM and NO spinner-on class (idle-in-active-set branch)", async () => {
     // Pre-Phase-48 this asserted the ready-dot span was PRESENT even on RDP
     // rows at the component level. Phase 48 Plan 05 retires the ready-dot
     // entirely — the "ready-for-attention" cue is now the absence of the
@@ -599,7 +654,7 @@ describe("PrettyConversationRow: Phase 48 Plan 05 idle-affordance retirement for
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationRow: Phase 13 ready-dot suppression — working", () => {
-  it("Test 15: inActiveSet+isWorking===true renders NO ready-dot AND row carries `working` class", () => {
+  it("Test 15: inActiveSet+isWorking===true renders NO ready-dot AND row carries `working` class", async () => {
     currentIdentity = makeIdentity(210);
     const { container, queryByLabelText } = render(
       <PrettyConversationRow
@@ -627,7 +682,7 @@ describe("PrettyConversationRow: Phase 13 ready-dot suppression — working", ()
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationRow: Phase 13 ready-dot suppression — unknown", () => {
-  it("Test 16: inActiveSet+isWorking===null renders NO ready-dot AND row does NOT carry `working` class", () => {
+  it("Test 16: inActiveSet+isWorking===null renders NO ready-dot AND row does NOT carry `working` class", async () => {
     currentIdentity = makeIdentity(210);
     const { container, queryByLabelText } = render(
       <PrettyConversationRow
@@ -660,7 +715,7 @@ describe("PrettyConversationRow: Phase 13 ready-dot suppression — unknown", ()
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationRow: idle rows never spin (post-2026-09-21 decouple)", () => {
-  it("Test 17: !inActiveSet+isWorking===false has NO ready-dot AND NO `spinner-on` class (idle rows never spin)", () => {
+  it("Test 17: !inActiveSet+isWorking===false has NO ready-dot AND NO `spinner-on` class (idle rows never spin)", async () => {
     // Under the decoupled gate `isWorking===true || isRecycling`, both
     // predicates false/undefined collapse the expression to `false` →
     // no spinner-on. The retired ready-dot is absent as well. See P47-15
@@ -696,7 +751,7 @@ describe("PrettyConversationRow: idle rows never spin (post-2026-09-21 decouple)
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationRow: quick-260730-qbl ready-dot suppression — recycling overlay active", () => {
-  it("Test 15b: inActiveSet+isWorking===false+isRecycling===true renders NO ready-dot AND row carries `recycling` class", () => {
+  it("Test 15b: inActiveSet+isWorking===false+isRecycling===true renders NO ready-dot AND row carries `recycling` class", async () => {
     currentIdentity = makeIdentity(210);
     const { container, queryByLabelText } = render(
       <PrettyConversationRow
@@ -730,7 +785,7 @@ describe("PrettyConversationRow: quick-260730-qbl ready-dot suppression — recy
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationRow: idle-in-active-set never spins", () => {
-  it("Test 15c-guard: inActiveSet+isWorking===false renders no ready-dot AND no `spinner-on` class", () => {
+  it("Test 15c-guard: inActiveSet+isWorking===false renders no ready-dot AND no `spinner-on` class", async () => {
     currentIdentity = makeIdentity(210);
     const { container, queryByLabelText } = render(
       <PrettyConversationRow
@@ -764,7 +819,7 @@ describe("PrettyConversationRow: idle-in-active-set never spins", () => {
 // of (inActiveSet, isRdp) to lock the retirement.
 
 describe("PrettyConversationRow: Phase 41 Plan 01 ambient-recession retirement", () => {
-  it("Test AMBIENT-RETIRED-01: row NEVER carries `.ambient` class regardless of inActiveSet / isRdp inputs", () => {
+  it("Test AMBIENT-RETIRED-01: row NEVER carries `.ambient` class regardless of inActiveSet / isRdp inputs", async () => {
     // Iterate all four combinations of (inActiveSet, isRdp). Phase 41 Plan 01:
     // NO row emits the `.ambient` class under any input combination — the
     // toggle was retired from the className composition. user lock (§Ready-
@@ -811,7 +866,7 @@ describe("PrettyConversationRow: Phase 41 Plan 01 ambient-recession retirement",
   //   active-set-scoped gate and still holds under the decouple (the two
   //   gates agree on the idle branch; they differ only on the working-
   //   ambient branch — see P47-15 for that).
-  it("Test SPINNER-INVERSION-01: isWorking===false yields NO spinner-on on either inActiveSet=true or =false — ready-dot also fully absent in both cases (idle rows never spin)", () => {
+  it("Test SPINNER-INVERSION-01: isWorking===false yields NO spinner-on on either inActiveSet=true or =false — ready-dot also fully absent in both cases (idle rows never spin)", async () => {
     for (const inActiveSet of [true, false]) {
       currentIdentity = makeIdentity(210);
       const { container, queryByLabelText, unmount } = render(
@@ -868,7 +923,7 @@ describe("PrettyConversationRow: Phase 41 Plan 01 ambient-recession retirement",
 //         swipe-strip PinAction IS present
 
 describe("PrettyConversationRow: quick-260730-o2m context-menu default regression guards", () => {
-  it("Test 18c: desktop non-RDP row has NO PinAction and NO DeactivateAction in .pv-meta (post quick-260730-o2m strip)", () => {
+  it("Test 18c: desktop non-RDP row has NO PinAction and NO DeactivateAction in .pv-meta (post quick-260730-o2m strip)", async () => {
     currentIdentity = makeIdentity(210, "nelly");
     const { container } = render(
       <PrettyConversationRow
@@ -891,7 +946,7 @@ describe("PrettyConversationRow: quick-260730-o2m context-menu default regressio
     ).toBeNull();
   });
 
-  it("Test 18d: desktop non-RDP row body has onContextMenu; contextmenu opens portal menu with Pin — Deactivate is NEVER in the menu even with inActiveSet + onDeactivate provided (removed 2026-08-17)", () => {
+  it("Test 18d: desktop non-RDP row body has onContextMenu; contextmenu opens portal menu with Pin — Deactivate is NEVER in the menu even with inActiveSet + onDeactivate provided (removed 2026-08-17)", async () => {
     currentIdentity = makeIdentity(210, "nelly");
     const onDeactivate = vi.fn();
     const { container } = render(
@@ -910,7 +965,7 @@ describe("PrettyConversationRow: quick-260730-o2m context-menu default regressio
       '[data-conversation-id="conv-1"]',
     ) as HTMLElement;
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    await openRowKebab(container);
     const menu = screen.getByRole("menu");
     expect(within(menu).getByRole("menuitem", { name: /pin/i })).toBeTruthy();
     expect(
@@ -918,7 +973,7 @@ describe("PrettyConversationRow: quick-260730-o2m context-menu default regressio
     ).toBeNull();
   });
 
-  it("Test 18e: desktop non-RDP row NOT in active-set opens the context menu with only `Pin` (no `Deactivate`)", () => {
+  it("Test 18e: desktop non-RDP row NOT in active-set opens the context menu with only `Pin` (no `Deactivate`)", async () => {
     // user 2026-08-17 removed the Deactivate menu item entirely — it no
     // longer renders regardless of inActiveSet. Kept as a redundant guard
     // against a regression that only manifests on the inActiveSet=false
@@ -940,7 +995,7 @@ describe("PrettyConversationRow: quick-260730-o2m context-menu default regressio
       '[data-conversation-id="conv-1"]',
     ) as HTMLElement;
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    await openRowKebab(container);
     const menu = screen.getByRole("menu");
     expect(within(menu).getByRole("menuitem", { name: /pin/i })).toBeTruthy();
     expect(
@@ -948,19 +1003,14 @@ describe("PrettyConversationRow: quick-260730-o2m context-menu default regressio
     ).toBeNull();
   });
 
-  it("Test 18f: mobile row body does NOT wire onContextMenu AND has NO in-DOM PinAction (quick-260802-pq2)", () => {
-    // quick-260802-pq2 rewrite: the mobile swipe-reveal strip that used to
-    // host PinAction / DeactivateAction / HideAction was retired. Mobile
-    // action affordance is now the long-press → PrettyConversationContext
-    // Menu (covered by TL1-TL5). Two guarantees this test locks:
-    //   (1) The desktop right-click path (onContextMenu on row body) is
-    //       STILL undefined on mobile — dispatching a contextmenu event does
-    //       NOT open the portal menu. This is unchanged from pre-pq2.
-    //   (2) There is NO in-DOM `[data-testid="pin-action"]` on a mobile row
-    //       anymore. Pre-pq2 the swipe strip rendered PinAction unconditionally
-    //       on non-RDP mobile rows; post-pq2 the row does not import PinAction
-    //       at all. Long-press opens the same menu desktop right-click uses;
-    //       the menu is portal-mounted, not embedded in the row DOM.
+  it("Test 18f (shape-sidebar-header-affordances rewrite): mobile row body does NOT wire onContextMenu AND has NO in-DOM PinAction; kebab trigger IS present", () => {
+    // Original (quick-260802-pq2) asserted: (1) mobile onContextMenu is
+    // undefined — dispatching contextmenu does NOT open the portal menu;
+    // (2) no in-DOM PinAction on a mobile row. shape-sidebar-header-affordances
+    // amendment: context menu machinery is now retired on EVERY variant, so
+    // the stronger invariant is "contextmenu dispatch is a no-op on both
+    // mobile AND desktop." The kebab is the sole affordance; its trigger
+    // must be in the DOM on mobile (always-visible there since no hover).
     currentIdentity = makeIdentity(210, "nelly");
     const { container } = render(
       <PrettyConversationRow
@@ -976,12 +1026,17 @@ describe("PrettyConversationRow: quick-260730-o2m context-menu default regressio
       '[data-conversation-id="conv-1"]',
     ) as HTMLElement;
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    // (1) Dispatching contextmenu does NOT open any menu — handler not wired.
     fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
     expect(screen.queryByRole("menu")).toBeNull();
-    // (2) No PinAction in the row DOM anymore.
+    // (2) No PinAction in the row DOM.
     expect(
       container.querySelector('[data-testid="pin-action"]'),
     ).toBeNull();
+    // (3) Kebab trigger IS present — the mobile row's sole affordance.
+    expect(
+      container.querySelector('[data-testid="pv-row-kebab-trigger"]'),
+    ).not.toBeNull();
   });
 });
 
@@ -1039,7 +1094,7 @@ describe("PrettyConversationRow: Phase 48 Plan 05 aiTitle subtitle (was quick-26
     expect(container.querySelector(".pv-host")).toBeNull();
   });
 
-  it("Test 19B (Phase 48 Plan 05 rewrite): subtitle is aiTitle regardless of identity.title value — subtitleMode has no effect on subtitle content", () => {
+  it("Test 19B (Phase 48 Plan 05 rewrite): subtitle is aiTitle regardless of identity.title value — subtitleMode has no effect on subtitle content", async () => {
     currentIdentity = makeIdentity(90, "user"); // makeIdentity sets title: null
     const { container } = render(
       <PrettyConversationRow
@@ -1061,7 +1116,7 @@ describe("PrettyConversationRow: Phase 48 Plan 05 aiTitle subtitle (was quick-26
     expect(pvAiTitle!.querySelector("svg")).toBeNull();
   });
 
-  it("Test 19C (Phase 48 Plan 05 rewrite): aiTitle=null renders a muted italic ellipsis placeholder — the row still has a subtitle span so it doesn't collapse-look", () => {
+  it("Test 19C (Phase 48 Plan 05 rewrite): aiTitle=null renders a muted italic ellipsis placeholder — the row still has a subtitle span so it doesn't collapse-look", async () => {
     // The safety-net semantics from patch #149 are preserved in a new
     // shape: instead of falling back to hostname+Server-icon, an
     // aiTitle-null row falls back to a placeholder .pv-ai-title--
@@ -1108,7 +1163,7 @@ describe("PrettyConversationRow: Phase 48 Plan 05 aiTitle subtitle (was quick-26
 // (raw terminal rows, unresolved identities, hostname-mode rows unchanged).
 
 describe("PrettyConversationRow: Phase 48 Plan 05 main label source + parenthetical suffix (inline-261001-conv-title-role-suffix flipped parens to the identity's role display name with hostname fallback — supersedes inline-260823's identity.title ladder)", () => {
-  it("Test 20A (inline-261001-conv-title-role-suffix rewrite): identity resolved WITH role → parenthetical is the role display name, NOT hostname and NOT identity.title; user 2026-10-01 lock", () => {
+  it("Test 20A (inline-261001-conv-title-role-suffix rewrite): identity resolved WITH role → parenthetical is the role display name, NOT hostname and NOT identity.title; user 2026-10-01 lock", async () => {
     // Pre-inline-261001 this asserted "Nelly (Fleet Coordinator)" — title
     // always, with hostname fallback. user 2026-10-01 flipped: parens prefer
     // the role display name. User verbatim: "right now it would show
@@ -1150,7 +1205,7 @@ describe("PrettyConversationRow: Phase 48 Plan 05 main label source + parentheti
     expect(suffix!.textContent).toBe(" (Secretary)");
   });
 
-  it("Test 20A2 (inline-261001-conv-title-role-suffix): role's own displayName frontmatter wins over the title-cased slug", () => {
+  it("Test 20A2 (inline-261001-conv-title-role-suffix): role's own displayName frontmatter wins over the title-cased slug", async () => {
     // Mirrors TP4b in the task-primary test file: when identity.roleDefaults
     // carries an authored displayName, roleDisplayName returns it verbatim
     // rather than title-casing the slug.
@@ -1203,7 +1258,7 @@ describe("PrettyConversationRow: Phase 48 Plan 05 main label source + parentheti
     expect(suffix!.textContent).toBe(" (thenasty)");
   });
 
-  it("Test 20C (inline-261001-conv-title-role-suffix): identity resolved but role=null → parens fall back to hostname", () => {
+  it("Test 20C (inline-261001-conv-title-role-suffix): identity resolved but role=null → parens fall back to hostname", async () => {
     // Locks the fallback contract: when an identity exists but has no
     // role (role=null — an anomalous case; every live identity carries
     // one in practice), the parenthetical falls back to the row.host.name
@@ -1233,252 +1288,6 @@ describe("PrettyConversationRow: Phase 48 Plan 05 main label source + parentheti
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// TL1-TL5 — Mobile long-press → context menu (quick-260802-pq2)
-// ─────────────────────────────────────────────────────────────────────────────
-// The mobile swipe-to-reveal action strip was retired. A 500ms touch hold
-// with <10px movement now opens the SAME PrettyConversationContextMenu that
-// desktop right-click opens (portal-mounted to document.body). Coverage:
-//   TL1 — 500ms hold on a mobile non-RDP row opens the menu; Pin menuitem
-//         present; onSelect NOT called.
-//   TL2 — Movement >10px before 500ms cancels the pending long-press. No
-//         menu, no onSelect.
-//   TL3 — Short tap (<500ms) still fires onSelect exactly once, no menu.
-//   TL4 — Mobile RDP row NEVER opens the menu (isRdp gate).
-//   TL5 — navigator.vibrate is called with 10 when present; when absent,
-//         the menu still opens and no throw occurs (feature-detection lock).
-
-describe("PrettyConversationRow: mobile long-press context menu (quick-260802-pq2)", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it("TL1: mobile non-RDP row + 500ms hold opens the menu at touch coords; Pin menuitem present; onSelect NOT called", () => {
-    currentIdentity = makeIdentity(200, "nelly");
-    const onSelect = vi.fn();
-    const { container } = render(
-      <PrettyConversationRow
-        row={makeRow()}
-        selected={false}
-        pinned={false}
-        variant="mobile"
-        onSelect={onSelect}
-        onTogglePin={vi.fn()}
-      />,
-    );
-    const wrapper = container.querySelector(
-      '[data-conversation-id="conv-1"]',
-    ) as HTMLElement;
-    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-
-    fireEvent.touchStart(body, {
-      touches: [{ clientX: 200, clientY: 100 } as Touch],
-    });
-    act(() => {
-      vi.advanceTimersByTime(500);
-    });
-    fireEvent.touchEnd(body, { changedTouches: [] });
-
-    const menu = screen.getByRole("menu");
-    expect(menu).toBeTruthy();
-    expect(within(menu).getByRole("menuitem", { name: /pin/i })).toBeTruthy();
-    // The long-press did NOT fire onSelect (the trailing click gate would
-    // have suppressed it anyway; jsdom does not synthesize a click on
-    // touchEnd, so we're locking the "hold-alone doesn't fire onSelect"
-    // guarantee too).
-    expect(onSelect).not.toHaveBeenCalled();
-  });
-
-  it("TL2: mobile non-RDP row + touchMove dx=15 (>10) before 500ms cancels the long-press; no menu, no onSelect", () => {
-    currentIdentity = makeIdentity(45, "nelly");
-    const onSelect = vi.fn();
-    const { container } = render(
-      <PrettyConversationRow
-        row={makeRow()}
-        selected={false}
-        pinned={false}
-        variant="mobile"
-        onSelect={onSelect}
-        onTogglePin={vi.fn()}
-      />,
-    );
-    const wrapper = container.querySelector(
-      '[data-conversation-id="conv-1"]',
-    ) as HTMLElement;
-    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-
-    fireEvent.touchStart(body, {
-      touches: [{ clientX: 200, clientY: 100 } as Touch],
-    });
-    fireEvent.touchMove(body, {
-      touches: [{ clientX: 215, clientY: 105 } as Touch], // hypot(15,5) ≈ 15.8 > 10
-    });
-    act(() => {
-      vi.advanceTimersByTime(500);
-    });
-    fireEvent.touchEnd(body, { changedTouches: [] });
-
-    expect(screen.queryByRole("menu")).toBeNull();
-    // jsdom does not synthesize a click on touchEnd — the assertion is
-    // trivially green in this environment, but keep it to lock the
-    // contract that movement bail-out does not also fire onSelect.
-    expect(onSelect).not.toHaveBeenCalled();
-  });
-
-  it("TL3: mobile non-RDP row + short tap (<500ms) fires onSelect exactly once; no menu", () => {
-    currentIdentity = makeIdentity(120, "nelly");
-    const onSelect = vi.fn();
-    const { container } = render(
-      <PrettyConversationRow
-        row={makeRow()}
-        selected={false}
-        pinned={false}
-        variant="mobile"
-        onSelect={onSelect}
-        onTogglePin={vi.fn()}
-      />,
-    );
-    const wrapper = container.querySelector(
-      '[data-conversation-id="conv-1"]',
-    ) as HTMLElement;
-    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-
-    fireEvent.touchStart(body, {
-      touches: [{ clientX: 200, clientY: 100 } as Touch],
-    });
-    // No advanceTimersByTime — early touchEnd BEFORE the 500ms threshold.
-    fireEvent.touchEnd(body, { changedTouches: [] });
-    // Standard click path continues — jsdom does not synthesize the click,
-    // so fire it explicitly (matching a real browser's short-tap sequence).
-    fireEvent.click(body);
-
-    expect(screen.queryByRole("menu")).toBeNull();
-    expect(onSelect).toHaveBeenCalledTimes(1);
-  });
-
-  it("TL4: mobile RDP row + 500ms hold DOES open the menu (quick-260804-uo4 touch gates relaxed); no throws", () => {
-    const { container } = render(
-      <PrettyConversationRow
-        row={makeRow({ rdpHostRow: true, targetTmuxSession: null })}
-        selected={false}
-        pinned={false}
-        variant="mobile"
-        onSelect={vi.fn()}
-        onTogglePin={vi.fn()}
-      />,
-    );
-    const wrapper = container.querySelector(
-      '[data-conversation-id="conv-1"]',
-    ) as HTMLElement;
-    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-
-    // quick-260804-uo4: the isRdp guard was dropped from touch handlers and
-    // handler early-returns. Dispatching a 500ms long-press on a mobile RDP
-    // row now opens the context menu (new invariant — replaces the old
-    // "menu stays null" assertion).
-    fireEvent.touchStart(body, {
-      touches: [{ clientX: 200, clientY: 100 } as Touch],
-    });
-    act(() => {
-      vi.advanceTimersByTime(500);
-    });
-    fireEvent.touchEnd(body, { changedTouches: [] });
-
-    expect(screen.getByRole("menu")).toBeTruthy();
-  });
-
-  it("TL5a: navigator.vibrate is called with 10 on successful long-press when the API is present", () => {
-    currentIdentity = makeIdentity(60, "nelly");
-    const originalVibrate = (navigator as unknown as { vibrate?: unknown }).vibrate;
-    const vibrateSpy = vi.fn();
-    (navigator as unknown as { vibrate: unknown }).vibrate = vibrateSpy;
-    try {
-      const { container } = render(
-        <PrettyConversationRow
-          row={makeRow()}
-          selected={false}
-          pinned={false}
-          variant="mobile"
-          onSelect={vi.fn()}
-          onTogglePin={vi.fn()}
-        />,
-      );
-      const wrapper = container.querySelector(
-        '[data-conversation-id="conv-1"]',
-      ) as HTMLElement;
-      const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-
-      fireEvent.touchStart(body, {
-        touches: [{ clientX: 200, clientY: 100 } as Touch],
-      });
-      act(() => {
-        vi.advanceTimersByTime(500);
-      });
-      fireEvent.touchEnd(body, { changedTouches: [] });
-
-      expect(vibrateSpy).toHaveBeenCalledTimes(1);
-      expect(vibrateSpy).toHaveBeenCalledWith(10);
-    } finally {
-      // Restore navigator.vibrate to its original value (undefined in jsdom).
-      if (originalVibrate === undefined) {
-        delete (navigator as unknown as { vibrate?: unknown }).vibrate;
-      } else {
-        (navigator as unknown as { vibrate: unknown }).vibrate = originalVibrate;
-      }
-    }
-  });
-
-  it("TL5b: long-press opens the menu and does NOT throw when navigator.vibrate is absent (feature-detection lock)", () => {
-    currentIdentity = makeIdentity(60, "nelly");
-    // jsdom does not implement navigator.vibrate by default; be defensive
-    // in case a prior test stubbed it and skipped its own restore.
-    const originalVibrate = (navigator as unknown as { vibrate?: unknown }).vibrate;
-    if (originalVibrate !== undefined) {
-      delete (navigator as unknown as { vibrate?: unknown }).vibrate;
-    }
-    try {
-      expect(
-        (navigator as unknown as { vibrate?: unknown }).vibrate,
-      ).toBeUndefined();
-
-      const { container } = render(
-        <PrettyConversationRow
-          row={makeRow()}
-          selected={false}
-          pinned={false}
-          variant="mobile"
-          onSelect={vi.fn()}
-          onTogglePin={vi.fn()}
-        />,
-      );
-      const wrapper = container.querySelector(
-        '[data-conversation-id="conv-1"]',
-      ) as HTMLElement;
-      const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-
-      fireEvent.touchStart(body, {
-        touches: [{ clientX: 100, clientY: 100 } as Touch],
-      });
-      act(() => {
-        vi.advanceTimersByTime(500);
-      });
-      fireEvent.touchEnd(body, { changedTouches: [] });
-
-      // Menu still opens — the vibrate call is optional-chained inside the
-      // timer callback and must not throw when the API is missing.
-      expect(screen.getByRole("menu")).toBeTruthy();
-    } finally {
-      // Restore whatever was there before the test (still undefined in
-      // vanilla jsdom).
-      if (originalVibrate !== undefined) {
-        (navigator as unknown as { vibrate: unknown }).vibrate = originalVibrate;
-      }
-    }
-  });
-});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // UO1-UO6 — Open-in-new-window context-menu item (quick-260804-uo4;
@@ -1513,7 +1322,7 @@ describe("PrettyConversationRow: Open-in-new-window context-menu item (quick-260
     vi.restoreAllMocks();
   });
 
-  it("UO1: desktop, inActiveSet=true, non-RDP → menu item labeled 'Open in new window'; click calls window.open with workspace URL + calls onDeactivate once", () => {
+  it("UO1: desktop, inActiveSet=true, non-RDP → menu item labeled 'Open in new window'; click calls window.open with workspace URL + calls onDeactivate once", async () => {
     // Stub window.open to return a non-null Window handle (popup not blocked).
     window.open = vi.fn(() => ({} as Window));
     const onDeactivate = vi.fn();
@@ -1533,7 +1342,7 @@ describe("PrettyConversationRow: Open-in-new-window context-menu item (quick-260
       '[data-conversation-id="conv-1"]',
     ) as HTMLElement;
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
+    await openRowKebab(container);
     const menu = screen.getByRole("menu");
     const item = within(menu).getByRole("menuitem", { name: /open in new window/i });
     expect(item).toBeTruthy();
@@ -1563,7 +1372,7 @@ describe("PrettyConversationRow: Open-in-new-window context-menu item (quick-260
     expect(onDeactivate).toHaveBeenCalledTimes(1);
   });
 
-  it("UO2: desktop, inActiveSet=false, non-RDP → menu item labeled 'Open in new window'; click calls window.open; onDeactivate NOT called", () => {
+  it("UO2: desktop, inActiveSet=false, non-RDP → menu item labeled 'Open in new window'; click calls window.open; onDeactivate NOT called", async () => {
     window.open = vi.fn(() => ({} as Window));
     const onDeactivate = vi.fn();
     const { container } = render(
@@ -1582,7 +1391,7 @@ describe("PrettyConversationRow: Open-in-new-window context-menu item (quick-260
       '[data-conversation-id="conv-1"]',
     ) as HTMLElement;
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
+    await openRowKebab(container);
     const menu = screen.getByRole("menu");
     // Label is unified "Open in new window" regardless of active-set (2026-08-18).
     const item = within(menu).getByRole("menuitem", { name: /open in new window/i });
@@ -1597,7 +1406,7 @@ describe("PrettyConversationRow: Open-in-new-window context-menu item (quick-260
     expect(onDeactivate).not.toHaveBeenCalled();
   });
 
-  it("UO3: desktop, RDP row, inActiveSet=true → menu opens (gate relaxed); 'Open in new window' present; click calls window.open + onDeactivate", () => {
+  it("UO3: desktop, RDP row, inActiveSet=true → menu opens (gate relaxed); 'Open in new window' present; click calls window.open + onDeactivate", async () => {
     window.open = vi.fn(() => ({} as Window));
     const onDeactivate = vi.fn();
     const { container } = render(
@@ -1616,7 +1425,7 @@ describe("PrettyConversationRow: Open-in-new-window context-menu item (quick-260
       '[data-conversation-id="conv-1"]',
     ) as HTMLElement;
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
+    await openRowKebab(container);
     // Menu must open — proves the row-level isRdp gate was dropped.
     const menu = screen.getByRole("menu");
     expect(menu).toBeTruthy();
@@ -1643,7 +1452,7 @@ describe("PrettyConversationRow: Open-in-new-window context-menu item (quick-260
     expect(onDeactivate).toHaveBeenCalledTimes(1);
   });
 
-  it("UO4: desktop, inActiveSet=true, window.open returns null (popup blocked) → window.open called but onDeactivate NOT called", () => {
+  it("UO4: desktop, inActiveSet=true, window.open returns null (popup blocked) → window.open called but onDeactivate NOT called", async () => {
     // Simulate popup blocker: window.open returns null.
     window.open = vi.fn(() => null as unknown as Window);
     const onDeactivate = vi.fn();
@@ -1663,7 +1472,7 @@ describe("PrettyConversationRow: Open-in-new-window context-menu item (quick-260
       '[data-conversation-id="conv-1"]',
     ) as HTMLElement;
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
+    await openRowKebab(container);
     const menu = screen.getByRole("menu");
     const item = within(menu).getByRole("menuitem", { name: /open in new window/i });
     fireEvent.click(item);
@@ -1675,7 +1484,7 @@ describe("PrettyConversationRow: Open-in-new-window context-menu item (quick-260
     expect(onDeactivate).not.toHaveBeenCalled();
   });
 
-  it("UO4b: window.open features arg must NOT include 'noopener' (regression guard, 2026-08-05 fix) — per spec, window.open with noopener always returns null, which would defeat the popup-blocker null-check and stop Open-in-new-window from ever deactivating the origin tab when inActiveSet", () => {
+  it("UO4b: window.open features arg must NOT include 'noopener' (regression guard, 2026-08-05 fix) — per spec, window.open with noopener always returns null, which would defeat the popup-blocker null-check and stop Open-in-new-window from ever deactivating the origin tab when inActiveSet", async () => {
     window.open = vi.fn(() => ({} as Window));
     const onDeactivate = vi.fn();
     const { container } = render(
@@ -1694,7 +1503,7 @@ describe("PrettyConversationRow: Open-in-new-window context-menu item (quick-260
       '[data-conversation-id="conv-1"]',
     ) as HTMLElement;
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
+    await openRowKebab(container);
     const menu = screen.getByRole("menu");
     const item = within(menu).getByRole("menuitem", {
       name: /open in new window/i,
@@ -1715,206 +1524,11 @@ describe("PrettyConversationRow: Open-in-new-window context-menu item (quick-260
     // real-browser behavior without failing UO1 in vitest).
     expect(onDeactivate).toHaveBeenCalledTimes(1);
   });
-
-  it("UO5: mobile long-press → menu opens but Open/Move-in-new-window items NOT rendered (desktop-only)", () => {
-    vi.useFakeTimers();
-    try {
-      window.open = vi.fn(() => ({} as Window));
-      currentIdentity = makeIdentity(200, "nelly");
-      const { container } = render(
-        <PrettyConversationRow
-          row={makeRow()}
-          selected={false}
-          pinned={false}
-          variant="mobile"
-          onSelect={vi.fn()}
-          onTogglePin={vi.fn()}
-          inActiveSet={true}
-          onDeactivate={vi.fn()}
-        />,
-      );
-      const wrapper = container.querySelector(
-        '[data-conversation-id="conv-1"]',
-      ) as HTMLElement;
-      const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-
-      fireEvent.touchStart(body, {
-        touches: [{ clientX: 100, clientY: 100 } as Touch],
-      });
-      act(() => {
-        vi.advanceTimersByTime(500);
-      });
-      fireEvent.touchEnd(body, { changedTouches: [] });
-
-      // Positive control: menu must open (long-press works on mobile).
-      const pinItem = screen.queryByRole("menuitem", { name: /pin/i });
-      expect(pinItem).not.toBeNull();
-
-      // Mobile-only suppression: neither Open nor Move items render on mobile.
-      expect(
-        screen.queryByRole("menuitem", { name: /new window/i }),
-      ).toBeNull();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("UO6: mobile RDP row long-press → menu opens (touch gates relaxed); no new-window item (mobile suppression); Pin item present", () => {
-    vi.useFakeTimers();
-    try {
-      window.open = vi.fn(() => ({} as Window));
-      const { container } = render(
-        <PrettyConversationRow
-          row={makeRow({ rdpHostRow: true, targetTmuxSession: null, type: "rdp" })}
-          selected={false}
-          pinned={false}
-          variant="mobile"
-          onSelect={vi.fn()}
-          onTogglePin={vi.fn()}
-          // No onDeactivate, no onClone provided — RDP mobile menu should show
-          // ONLY the Pin item (Open-in-new-window is desktop-only).
-        />,
-      );
-      const wrapper = container.querySelector(
-        '[data-conversation-id="conv-1"]',
-      ) as HTMLElement;
-      const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-
-      fireEvent.touchStart(body, {
-        touches: [{ clientX: 200, clientY: 100 } as Touch],
-      });
-      act(() => {
-        vi.advanceTimersByTime(500);
-      });
-      fireEvent.touchEnd(body, { changedTouches: [] });
-
-      // Menu must open — proves the four touch-handler isRdp gates AND
-      // three handler-body early-returns were relaxed (quick-260804-uo4).
-      const menu = screen.getByRole("menu");
-      expect(menu).toBeTruthy();
-
-      // Pin item present (the only item on a mobile RDP row with no extra props).
-      expect(within(menu).getByRole("menuitem", { name: /pin/i })).toBeTruthy();
-
-      // No new-window item on mobile (desktop-only suppression).
-      expect(
-        within(menu).queryByRole("menuitem", { name: /new window/i }),
-      ).toBeNull();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Phase 26 Plan 03 badge-visibility tests — RETIRED in Phase 104 Plan 03
-// alongside the wire deletion.
-// ─────────────────────────────────────────────────────────────────────────────
-
-
-// ─────────────────────────────────────────────────────────────────────────────
-// S1-S2 — Context-menu SINGLETON (quick-260809-94y)
-// ─────────────────────────────────────────────────────────────────────────────
-// Only one row's context menu can be open at a time across the list. Opening
-// a second row's menu closes the first (module-scoped `currentClose` ref +
-// notifyMenuOpened/notifyMenuClosed helpers in PrettyConversationRow.tsx).
-// Unmount cleanup drains the singleton so a torn-down row's close-fn is not
-// leaked past its lifetime.
-
-describe("PrettyConversationRow: context-menu singleton (quick-260809-94y)", () => {
-  it("S1: opening Row B's context menu closes Row A's context menu (only 1 menu open at a time)", () => {
-    const { container } = render(
-      <>
-        <PrettyConversationRow
-          row={makeRow({ id: "conv-A", label: "alpha" })}
-          selected={false}
-          pinned={false}
-          variant="desktop"
-          onSelect={vi.fn()}
-          onTogglePin={vi.fn()}
-        />
-        <PrettyConversationRow
-          row={makeRow({ id: "conv-B", label: "bravo" })}
-          selected={false}
-          pinned={true}
-          variant="desktop"
-          onSelect={vi.fn()}
-          onTogglePin={vi.fn()}
-        />
-      </>,
-    );
-
-    const wrapperA = container.querySelector(
-      '[data-conversation-id="conv-A"]',
-    ) as HTMLElement;
-    const bodyA = wrapperA.querySelector('[role="button"]') as HTMLElement;
-
-    const wrapperB = container.querySelector(
-      '[data-conversation-id="conv-B"]',
-    ) as HTMLElement;
-    const bodyB = wrapperB.querySelector('[role="button"]') as HTMLElement;
-
-    // Open Row A's context menu.
-    fireEvent.contextMenu(bodyA, { clientX: 100, clientY: 100 });
-    expect(screen.getAllByRole("menu")).toHaveLength(1);
-
-    // Open Row B's context menu — Row A's menu must close (singleton).
-    fireEvent.contextMenu(bodyB, { clientX: 200, clientY: 200 });
-    expect(screen.getAllByRole("menu")).toHaveLength(1);
-
-    // Verify the remaining menu is Row B's: Row B is pinned=true so its menu
-    // renders "Unpin" (Row A is pinned=false → "Pin"). If Row A's menu were
-    // still open we'd see "Pin" but NOT "Unpin"; the presence of "Unpin" (and
-    // absence of a standalone "Pin") proves Row B's menu is the visible one.
-    const menu = screen.getByRole("menu");
-    expect(within(menu).getByRole("menuitem", { name: /unpin/i })).toBeTruthy();
-    expect(within(menu).queryByRole("menuitem", { name: /^pin$/i })).toBeNull();
-  });
-
-  it("S2: unmounting a row while its menu is open clears the singleton so another row can open normally", () => {
-    // Render Row A alone and open its context menu.
-    const { container, unmount } = render(
-      <PrettyConversationRow
-        row={makeRow({ id: "conv-A" })}
-        selected={false}
-        pinned={false}
-        variant="desktop"
-        onSelect={vi.fn()}
-        onTogglePin={vi.fn()}
-      />,
-    );
-    const wrapperA = container.querySelector(
-      '[data-conversation-id="conv-A"]',
-    ) as HTMLElement;
-    const bodyA = wrapperA.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(bodyA, { clientX: 100, clientY: 100 });
-    expect(screen.getByRole("menu")).toBeTruthy();
-
-    // Unmount Row A — cleanup effect calls notifyMenuClosed(closeSelf),
-    // draining the singleton. The portal is removed by React too.
-    unmount();
-    expect(screen.queryByRole("menu")).toBeNull();
-
-    // Render Row B and open its context menu — must succeed cleanly (no leaked
-    // stale close-fn in the singleton that would fire spuriously).
-    const { container: c2 } = render(
-      <PrettyConversationRow
-        row={makeRow({ id: "conv-B" })}
-        selected={false}
-        pinned={false}
-        variant="desktop"
-        onSelect={vi.fn()}
-        onTogglePin={vi.fn()}
-      />,
-    );
-    const wrapperB = c2.querySelector(
-      '[data-conversation-id="conv-B"]',
-    ) as HTMLElement;
-    const bodyB = wrapperB.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(bodyB, { clientX: 200, clientY: 200 });
-    expect(screen.getByRole("menu")).toBeTruthy();
-  });
-});
+// shape-sidebar-header-affordances: UO5 + UO6 (mobile long-press) RETIRED
+// alongside the long-press machinery itself. Open-in-new-window remains
+// desktop-only via the !isMobile gate in the kebab items[] builder.
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Kill menu item (quick-260810-n3a) — K1-K7
@@ -1925,7 +1539,7 @@ describe("PrettyConversationRow: context-menu singleton (quick-260809-94y)", () 
 
 describe("PrettyConversationRow: Kill menu item (quick-260810-n3a)", () => {
   // K1: non-RDP, no identity, has targetTmuxSession, onKill provided → Kill in menu
-  it("K1: desktop non-RDP row, no identity, targetTmuxSession set, onKill provided → context menu contains Kill", () => {
+  it("K1: desktop non-RDP row, no identity, targetTmuxSession set, onKill provided → context menu contains Kill", async () => {
     currentIdentity = null; // no identity resolves
     const onKill = vi.fn();
     const { container } = render(
@@ -1943,13 +1557,13 @@ describe("PrettyConversationRow: Kill menu item (quick-260810-n3a)", () => {
       '[data-conversation-id="conv-1"]',
     ) as HTMLElement;
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    await openRowKebab(container);
     const menu = screen.getByRole("menu");
     expect(within(menu).getByRole("menuitem", { name: /kill/i })).toBeTruthy();
   });
 
   // K2: identity resolves → Kill NOT in menu (identity gate)
-  it("K2: identity resolves → Kill NOT in menu (identity gate)", () => {
+  it("K2: identity resolves → Kill NOT in menu (identity gate)", async () => {
     currentIdentity = makeIdentity(210, "nelly"); // identity resolves
     const onKill = vi.fn();
     const { container } = render(
@@ -1967,13 +1581,13 @@ describe("PrettyConversationRow: Kill menu item (quick-260810-n3a)", () => {
       '[data-conversation-id="conv-1"]',
     ) as HTMLElement;
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    await openRowKebab(container);
     const menu = screen.getByRole("menu");
     expect(within(menu).queryByRole("menuitem", { name: /kill/i })).toBeNull();
   });
 
   // K3: RDP row → Kill NOT in menu (isRdp gate)
-  it("K3: RDP row → Kill NOT in menu (isRdp gate)", () => {
+  it("K3: RDP row → Kill NOT in menu (isRdp gate)", async () => {
     currentIdentity = null;
     const onKill = vi.fn();
     const { container } = render(
@@ -1991,13 +1605,13 @@ describe("PrettyConversationRow: Kill menu item (quick-260810-n3a)", () => {
       '[data-conversation-id="conv-1"]',
     ) as HTMLElement;
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    await openRowKebab(container);
     const menu = screen.getByRole("menu");
     expect(within(menu).queryByRole("menuitem", { name: /kill/i })).toBeNull();
   });
 
   // K4: targetTmuxSession is null → Kill NOT in menu
-  it("K4: targetTmuxSession = null → Kill NOT in menu", () => {
+  it("K4: targetTmuxSession = null → Kill NOT in menu", async () => {
     currentIdentity = null;
     const onKill = vi.fn();
     const { container } = render(
@@ -2015,13 +1629,13 @@ describe("PrettyConversationRow: Kill menu item (quick-260810-n3a)", () => {
       '[data-conversation-id="conv-1"]',
     ) as HTMLElement;
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    await openRowKebab(container);
     const menu = screen.getByRole("menu");
     expect(within(menu).queryByRole("menuitem", { name: /kill/i })).toBeNull();
   });
 
   // K5: onKill NOT provided → Kill NOT in menu
-  it("K5: onKill NOT provided → Kill NOT in menu", () => {
+  it("K5: onKill NOT provided → Kill NOT in menu", async () => {
     currentIdentity = null;
     const { container } = render(
       <PrettyConversationRow
@@ -2038,7 +1652,7 @@ describe("PrettyConversationRow: Kill menu item (quick-260810-n3a)", () => {
       '[data-conversation-id="conv-1"]',
     ) as HTMLElement;
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    await openRowKebab(container);
     const menu = screen.getByRole("menu");
     expect(within(menu).queryByRole("menuitem", { name: /kill/i })).toBeNull();
   });
@@ -2062,7 +1676,7 @@ describe("PrettyConversationRow: Kill menu item (quick-260810-n3a)", () => {
       '[data-conversation-id="conv-1"]',
     ) as HTMLElement;
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    await openRowKebab(container);
     const menu = screen.getByRole("menu");
     const killItem = within(menu).getByRole("menuitem", { name: /kill/i });
     fireEvent.click(killItem);
@@ -2070,7 +1684,7 @@ describe("PrettyConversationRow: Kill menu item (quick-260810-n3a)", () => {
   });
 
   // K7: Kill menu item carries danger styling (red color via inline style)
-  it("K7: Kill menuitem has danger styling (color: #ff9a8a from PrettyConversationContextMenu danger branch)", () => {
+  it("K7: Kill menuitem carries RowKebabMenu's danger styling (text-[hsla(0,60%,76%,1)] class)", async () => {
     currentIdentity = null;
     const onKill = vi.fn();
     const { container } = render(
@@ -2088,13 +1702,12 @@ describe("PrettyConversationRow: Kill menu item (quick-260810-n3a)", () => {
       '[data-conversation-id="conv-1"]',
     ) as HTMLElement;
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    await openRowKebab(container);
     const menu = screen.getByRole("menu");
     const killItem = within(menu).getByRole("menuitem", { name: /kill/i }) as HTMLElement;
-    // PrettyConversationContextMenu renders danger items with color: "#ff9a8a"
-    // (see PrettyConversationContextMenu.tsx line 212: `color: item.danger ? "#ff9a8a" : "#e8e4d8"`)
-    // jsdom normalizes hex → rgb(...) in computed style; match either form.
-    expect(killItem.style.color).toMatch(/rgb\(255,\s*154,\s*138\)|#ff9a8a/i);
+    // RowKebabMenu renders danger items with a specific Tailwind color class
+    // (see RowKebabMenu.tsx ITEM_CLASS_DANGER constant).
+    expect(killItem.className).toContain("text-[hsla(0,60%,76%,1)]");
   });
 });
 
@@ -2110,7 +1723,7 @@ describe("PrettyConversationRow: Kill menu item (quick-260810-n3a)", () => {
 
 describe("PrettyConversationRow: Phase 115 Plan 115-06 Archive menu item", () => {
   // A1: onArchive provided → Archive menu item in menu with label "Archive"
-  it("A1: desktop row with onArchive provided → context menu contains 'Archive' entry (exact-case label)", () => {
+  it("A1: desktop row with onArchive provided → context menu contains 'Archive' entry (exact-case label)", async () => {
     currentIdentity = makeIdentity(210, "wren");
     const onArchive = vi.fn();
     const { container } = render(
@@ -2128,7 +1741,7 @@ describe("PrettyConversationRow: Phase 115 Plan 115-06 Archive menu item", () =>
       '[data-conversation-id="conv-1"]',
     ) as HTMLElement;
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    await openRowKebab(container);
     const menu = screen.getByRole("menu");
     // Exact-case match — the item label MUST be "Archive" (capital A).
     const archiveItem = within(menu).getByRole("menuitem", { name: "Archive" });
@@ -2136,7 +1749,7 @@ describe("PrettyConversationRow: Phase 115 Plan 115-06 Archive menu item", () =>
   });
 
   // A2: Archive menu item carries danger styling (red)
-  it("A2: Archive menu item carries danger styling (color: #ff9a8a)", () => {
+  it("A2: Archive menu item carries danger styling (color: #ff9a8a)", async () => {
     currentIdentity = makeIdentity(210, "wren");
     const onArchive = vi.fn();
     const { container } = render(
@@ -2154,20 +1767,18 @@ describe("PrettyConversationRow: Phase 115 Plan 115-06 Archive menu item", () =>
       '[data-conversation-id="conv-1"]',
     ) as HTMLElement;
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    await openRowKebab(container);
     const menu = screen.getByRole("menu");
     const archiveItem = within(menu).getByRole("menuitem", {
       name: "Archive",
     }) as HTMLElement;
-    // Same danger styling as Kill (see K7 sibling test): PrettyConversationContextMenu.tsx L212
-    // renders danger items with color: "#ff9a8a"; jsdom normalizes to rgb(...).
-    expect(archiveItem.style.color).toMatch(
-      /rgb\(255,\s*154,\s*138\)|#ff9a8a/i,
-    );
+    // Same danger styling as Kill (see K7 sibling test): RowKebabMenu applies
+    // the danger-specific color class via its ITEM_CLASS_DANGER constant.
+    expect(archiveItem.className).toContain("text-[hsla(0,60%,76%,1)]");
   });
 
   // A3: onArchive NOT provided → Archive item absent from the menu.
-  it("A3: onArchive NOT provided → Archive item absent from the menu", () => {
+  it("A3: onArchive NOT provided → Archive item absent from the menu", async () => {
     currentIdentity = makeIdentity(210, "wren");
     const { container } = render(
       <PrettyConversationRow
@@ -2184,7 +1795,7 @@ describe("PrettyConversationRow: Phase 115 Plan 115-06 Archive menu item", () =>
       '[data-conversation-id="conv-1"]',
     ) as HTMLElement;
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    await openRowKebab(container);
     const menu = screen.getByRole("menu");
     expect(
       within(menu).queryByRole("menuitem", { name: "Archive" }),
@@ -2192,7 +1803,7 @@ describe("PrettyConversationRow: Phase 115 Plan 115-06 Archive menu item", () =>
   });
 
   // A4: Click Archive → onArchive fires exactly once.
-  it("A4: click Archive menuitem → onArchive called exactly once", () => {
+  it("A4: click Archive menuitem → onArchive called exactly once", async () => {
     currentIdentity = makeIdentity(210, "wren");
     const onArchive = vi.fn();
     const { container } = render(
@@ -2210,7 +1821,7 @@ describe("PrettyConversationRow: Phase 115 Plan 115-06 Archive menu item", () =>
       '[data-conversation-id="conv-1"]',
     ) as HTMLElement;
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    await openRowKebab(container);
     const menu = screen.getByRole("menu");
     const archiveItem = within(menu).getByRole("menuitem", { name: "Archive" });
     fireEvent.click(archiveItem);
@@ -2279,7 +1890,7 @@ describe("PrettyConversationRow: Phase 48 Plan 05 v14 shape", () => {
     expect(pvLabel!.querySelector(".pv-hostname-suffix")).toBeNull();
   });
 
-  it("Test P48-03: subtitle line is `.pv-ai-title` span with aiTitle textContent when aiTitle is a non-empty string", () => {
+  it("Test P48-03: subtitle line is `.pv-ai-title` span with aiTitle textContent when aiTitle is a non-empty string", async () => {
     currentIdentity = makeIdentity(210, "tanya");
     const { container } = render(
       <PrettyConversationRow
@@ -2301,7 +1912,7 @@ describe("PrettyConversationRow: Phase 48 Plan 05 v14 shape", () => {
     expect(pvAiTitle!.className).not.toContain("pv-ai-title--placeholder");
   });
 
-  it("Test P48-04: subtitle line renders U+2026 '…' with `pv-ai-title--placeholder` class when aiTitle is null", () => {
+  it("Test P48-04: subtitle line renders U+2026 '…' with `pv-ai-title--placeholder` class when aiTitle is null", async () => {
     currentIdentity = makeIdentity(210, "tanya");
     const { container } = render(
       <PrettyConversationRow
@@ -2323,7 +1934,7 @@ describe("PrettyConversationRow: Phase 48 Plan 05 v14 shape", () => {
     expect(pvAiTitle!.className).toContain("pv-ai-title--placeholder");
   });
 
-  it("Test P48-05: subtitle line does NOT render any Server svg from lucide (Server icon fully retired since hostname now lives on title line)", () => {
+  it("Test P48-05: subtitle line does NOT render any Server svg from lucide (Server icon fully retired since hostname now lives on title line)", async () => {
     currentIdentity = makeIdentity(210, "tanya");
     const { container } = render(
       <PrettyConversationRow
@@ -2389,7 +2000,7 @@ describe("PrettyConversationRow: Phase 48 Plan 05 v14 shape", () => {
     }
   });
 
-  it("Test P47-07: `.pv-meta` wrapper is ABSENT from the row markup (element retired per 48-CONTEXT.md § .pv-meta right column retirement)", () => {
+  it("Test P47-07: `.pv-meta` wrapper is ABSENT from the row markup (element retired per 48-CONTEXT.md § .pv-meta right column retirement)", async () => {
     currentIdentity = makeIdentity(210, "tanya");
     const { container } = render(
       <PrettyConversationRow
@@ -2409,7 +2020,7 @@ describe("PrettyConversationRow: Phase 48 Plan 05 v14 shape", () => {
   // Tests P47-08 and P47-09 (Pin + Monitor bounty-badge renders inside
   // .pv-avatar) — RETIRED in Phase 104 Plan 03 alongside the bounty-count wire.
 
-  it("Test P47-10: row emits both `.working` AND `.active-set` classes when inActiveSet+isWorking=true (pre-Phase-48 className composition invariant preserved by Task 1)", () => {
+  it("Test P47-10: row emits both `.working` AND `.active-set` classes when inActiveSet+isWorking=true (pre-Phase-48 className composition invariant preserved by Task 1)", async () => {
     currentIdentity = makeIdentity(210, "tanya");
     const { container } = render(
       <PrettyConversationRow
@@ -2460,7 +2071,7 @@ describe("PrettyConversationRow: Phase 48 Plan 05 v14 shape", () => {
   // Tests P47-12 and P47-13 (both badge wraps render / neither renders — zero-null
   // contract) — RETIRED in Phase 104 Plan 03 alongside the bounty-count wire.
 
-  it("Test P47-15 (LOAD-BEARING): inActiveSet=false + isWorking=true → row HAS `spinner-on` class (agent-readiness is client-scope-independent, user 2026-09-21 decouple)", () => {
+  it("Test P47-15 (LOAD-BEARING): inActiveSet=false + isWorking=true → row HAS `spinner-on` class (agent-readiness is client-scope-independent, user 2026-09-21 decouple)", async () => {
     // Decoupled gate: `showSpinnerOn = isWorking === true || isRecycling`.
     // `activeSet` is a per-tab client-side artifact and the wrong axis to
     // gate on — the same agent's readiness must not appear or disappear
@@ -2498,140 +2109,6 @@ describe("PrettyConversationRow: Phase 48 Plan 05 v14 shape", () => {
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// TL6-TL8 — iPad coarse-pointer + desktop-variant long-press context menu
-// (quick-260821-suv)
-// ─────────────────────────────────────────────────────────────────────────────
-// iPad reports `window.innerWidth >= 768` in every orientation (10.9" landscape
-// = 1180px, Pro 12.9" = 1024×1366, Mini portrait = 768 exactly). The
-// pre-quick-260821-suv wiring gated touch handlers on
-// `variant === "mobile"` — which is derived from `useIsMobile()` at the panel
-// mount site, itself derived from `window.innerWidth < 768`. Result: iPad
-// long-press was dead, iPad swipe-to-act was dead, both blocked by the same
-// gate.
-//
-// The fix widens the four `onTouch*` JSX prop gates from
-// `isMobile ? h : undefined` to `(isMobile || isTouchDevice) ? h : undefined`
-// where `isTouchDevice = useIsTouchDevice()` reads the
-// `(pointer: coarse) and (hover: none)` matchMedia query.
-//
-// TL6 — coarse pointer + variant="desktop" → touch handlers wire; 500ms hold
-//        opens the menu (was RED before the row edit; GREEN after).
-// TL7 — fine pointer + variant="desktop" → touch handlers stay off; touch
-//        sequence does NOT open the menu; synthetic contextmenu (right-click)
-//        DOES open the menu (desktop path unchanged control).
-// TL8 — mobile variant → menu opens regardless of isTouchDevice (mobile
-//        regression control).
-
-describe("PrettyConversationRow: iPad (coarse-pointer + desktop-variant) long-press context menu (quick-260821-suv)", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it("TL6: desktop variant + coarse-pointer touchscreen + 500ms hold opens the menu at touch coords; Pin menuitem present; onSelect NOT called", () => {
-    currentIsTouchDevice = true; // simulate iPad matchMedia (pointer: coarse) and (hover: none)
-    currentIdentity = makeIdentity(180, "nelly");
-    const onSelect = vi.fn();
-    const { container } = render(
-      <PrettyConversationRow
-        row={makeRow()}
-        selected={false}
-        pinned={false}
-        variant="desktop"
-        onSelect={onSelect}
-        onTogglePin={vi.fn()}
-      />,
-    );
-    const wrapper = container.querySelector(
-      '[data-conversation-id="conv-1"]',
-    ) as HTMLElement;
-    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-
-    fireEvent.touchStart(body, {
-      touches: [{ clientX: 200, clientY: 100 } as Touch],
-    });
-    act(() => {
-      vi.advanceTimersByTime(500);
-    });
-    fireEvent.touchEnd(body, { changedTouches: [] });
-
-    const menu = screen.getByRole("menu");
-    expect(menu).toBeTruthy();
-    expect(within(menu).getByRole("menuitem", { name: /pin/i })).toBeTruthy();
-    expect(onSelect).not.toHaveBeenCalled();
-  });
-
-  it("TL7: desktop variant + fine-pointer (no touchscreen) — touch handlers NOT wired; synthetic contextmenu right-click STILL opens the menu (desktop path unchanged control)", () => {
-    currentIsTouchDevice = false; // fine-pointer desktop
-    currentIdentity = makeIdentity(60, "nelly");
-    const onSelect = vi.fn();
-    const { container } = render(
-      <PrettyConversationRow
-        row={makeRow()}
-        selected={false}
-        pinned={false}
-        variant="desktop"
-        onSelect={onSelect}
-        onTogglePin={vi.fn()}
-      />,
-    );
-    const wrapper = container.querySelector(
-      '[data-conversation-id="conv-1"]',
-    ) as HTMLElement;
-    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-
-    // Touch sequence must NOT open the menu — the four onTouch* props are
-    // `undefined` on a fine-pointer desktop row.
-    fireEvent.touchStart(body, {
-      touches: [{ clientX: 200, clientY: 100 } as Touch],
-    });
-    act(() => {
-      vi.advanceTimersByTime(500);
-    });
-    fireEvent.touchEnd(body, { changedTouches: [] });
-    expect(screen.queryByRole("menu")).toBeNull();
-
-    // But right-click (contextmenu) DOES open the menu — desktop path is
-    // unchanged (the `onContextMenu={!isMobile ? ... : undefined}` prop is
-    // orthogonal to the coarse-pointer gate).
-    fireEvent.contextMenu(body, { clientX: 220, clientY: 110 });
-    expect(screen.getByRole("menu")).toBeTruthy();
-  });
-
-  it("TL8: mobile variant + fine-pointer matchMedia — long-press still opens the menu (mobile regression control; widening the OR gate did not break the pre-quick-260821-suv mobile path)", () => {
-    currentIsTouchDevice = false; // deliberately false — mobile gate should still win
-    currentIdentity = makeIdentity(210, "nelly");
-    const onSelect = vi.fn();
-    const { container } = render(
-      <PrettyConversationRow
-        row={makeRow()}
-        selected={false}
-        pinned={false}
-        variant="mobile"
-        onSelect={onSelect}
-        onTogglePin={vi.fn()}
-      />,
-    );
-    const wrapper = container.querySelector(
-      '[data-conversation-id="conv-1"]',
-    ) as HTMLElement;
-    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-
-    fireEvent.touchStart(body, {
-      touches: [{ clientX: 200, clientY: 100 } as Touch],
-    });
-    act(() => {
-      vi.advanceTimersByTime(500);
-    });
-    fireEvent.touchEnd(body, { changedTouches: [] });
-
-    expect(screen.getByRole("menu")).toBeTruthy();
-    expect(onSelect).not.toHaveBeenCalled();
-  });
-});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Phase 56 Plan 03 Task 1 — Row is a drag source (Tests 6-9)
@@ -2651,7 +2128,7 @@ describe("PrettyConversationRow: iPad (coarse-pointer + desktop-variant) long-pr
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationRow: Phase 56 row is a drag source", () => {
-  it("Test 6: dragstart writes row.id into dataTransfer under text/plain", () => {
+  it("Test 6: dragstart writes row.id into dataTransfer under text/plain", async () => {
     const { container } = render(
       <PrettyConversationRow
         row={makeRow({ id: "test-tab-99" })}
@@ -2690,7 +2167,7 @@ describe("PrettyConversationRow: Phase 56 row is a drag source", () => {
     expect(parsed).toHaveProperty("rdpHostRow");
   });
 
-  it("Test 7: dragstart sets dataTransfer.effectAllowed = 'move'", () => {
+  it("Test 7: dragstart sets dataTransfer.effectAllowed = 'move'", async () => {
     const { container } = render(
       <PrettyConversationRow
         row={makeRow({ id: "test-tab-99" })}
@@ -2711,7 +2188,7 @@ describe("PrettyConversationRow: Phase 56 row is a drag source", () => {
     expect(dt.effectAllowed).toBe("move");
   });
 
-  it("Test 8: row body div carries draggable=\"true\"", () => {
+  it("Test 8: row body div carries draggable=\"true\"", async () => {
     const { container } = render(
       <PrettyConversationRow
         row={makeRow()}
@@ -2729,7 +2206,7 @@ describe("PrettyConversationRow: Phase 56 row is a drag source", () => {
     expect(body.getAttribute("draggable")).toBe("true");
   });
 
-  it("Test 9: avatar img preserves draggable=\"false\" (image-drag suppression unchanged)", () => {
+  it("Test 9: avatar img preserves draggable=\"false\" (image-drag suppression unchanged)", async () => {
     currentIdentity = makeIdentity(120, "nelly");
     // Give the identity an avatarUrl so the <img> renders (the initial-letter
     // fallback branch is <span>, no draggable attribute needed).
@@ -2763,7 +2240,7 @@ describe("PrettyConversationRow: Phase 56 row is a drag source", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationRow: Phase 67 coordinator watermark", () => {
-  it("ROW-COORD-1: identity.coordinator === true renders `data-testid=coordinator-watermark` element inside .pv-row", () => {
+  it("ROW-COORD-1: identity.coordinator === true renders `data-testid=coordinator-watermark` element inside .pv-row", async () => {
     currentIdentity = { ...makeIdentity(200, "nelly"), coordinator: true };
     const { container } = render(
       <PrettyConversationRow
@@ -2786,7 +2263,7 @@ describe("PrettyConversationRow: Phase 67 coordinator watermark", () => {
     expect(row!.contains(watermark)).toBe(true);
   });
 
-  it("ROW-COORD-2: identity.coordinator absent (undefined) → no coordinator-watermark element in DOM", () => {
+  it("ROW-COORD-2: identity.coordinator absent (undefined) → no coordinator-watermark element in DOM", async () => {
     // makeIdentity fixture omits coordinator — with widened Identity + strict:
     // false tsconfig this compiles fine and the field is undefined at runtime.
     currentIdentity = makeIdentity(200, "nelly");
@@ -2816,7 +2293,7 @@ describe("PrettyConversationRow: Phase 67 coordinator watermark", () => {
 // is reset to undefined in beforeEach; each test sets it to the relevant shape.
 
 describe("PrettyConversationRow: trapped-work indicator visibility (Phase 104 Plan 02)", () => {
-  it("Row Test 1 (indicator absent — undefined): mock useTrappedWork returns undefined → no indicator in DOM", () => {
+  it("Row Test 1 (indicator absent — undefined): mock useTrappedWork returns undefined → no indicator in DOM", async () => {
     currentIdentity = makeIdentity(210, "nelly");
     currentTrappedWork = undefined;
     render(
@@ -2833,7 +2310,7 @@ describe("PrettyConversationRow: trapped-work indicator visibility (Phase 104 Pl
     expect(screen.queryByTestId("pv-trapped-work-indicator")).toBeNull();
   });
 
-  it("Row Test 2 (indicator absent — false): mock returns {hasTrappedWork:false} → no indicator in DOM", () => {
+  it("Row Test 2 (indicator absent — false): mock returns {hasTrappedWork:false} → no indicator in DOM", async () => {
     currentIdentity = makeIdentity(210, "nelly");
     currentTrappedWork = { hasTrappedWork: false };
     render(
@@ -2850,7 +2327,7 @@ describe("PrettyConversationRow: trapped-work indicator visibility (Phase 104 Pl
     expect(screen.queryByTestId("pv-trapped-work-indicator")).toBeNull();
   });
 
-  it("Row Test 3 (indicator present — true): mock returns {hasTrappedWork:true} → indicator exists inside .pv-avatar", () => {
+  it("Row Test 3 (indicator present — true): mock returns {hasTrappedWork:true} → indicator exists inside .pv-avatar", async () => {
     currentIdentity = makeIdentity(210, "nelly");
     currentTrappedWork = { hasTrappedWork: true };
     const { container } = render(
@@ -2872,7 +2349,7 @@ describe("PrettyConversationRow: trapped-work indicator visibility (Phase 104 Pl
     expect(avatar!.contains(indicator!)).toBe(true);
   });
 
-  it("Row Test 4 (tooltip attribute): indicator has title=\"Has local work not yet pushed to any remote\" (D-07 exact copy)", () => {
+  it("Row Test 4 (tooltip attribute): indicator has title=\"Has local work not yet pushed to any remote\" (D-07 exact copy)", async () => {
     currentIdentity = makeIdentity(210, "nelly");
     currentTrappedWork = { hasTrappedWork: true };
     render(
@@ -2892,7 +2369,7 @@ describe("PrettyConversationRow: trapped-work indicator visibility (Phase 104 Pl
     );
   });
 
-  it("Row Test 5 (icon has aria-hidden): the SVG icon inside the indicator has aria-hidden=\"true\"", () => {
+  it("Row Test 5 (icon has aria-hidden): the SVG icon inside the indicator has aria-hidden=\"true\"", async () => {
     currentIdentity = makeIdentity(210, "nelly");
     currentTrappedWork = { hasTrappedWork: true };
     render(
@@ -2912,7 +2389,7 @@ describe("PrettyConversationRow: trapped-work indicator visibility (Phase 104 Pl
     expect(svg!.getAttribute("aria-hidden")).toBe("true");
   });
 
-  it("Row Test 6 (icon is GitPullRequestDraft): the inner SVG carries lucide's git-pull-request-draft class", () => {
+  it("Row Test 6 (icon is GitPullRequestDraft): the inner SVG carries lucide's git-pull-request-draft class", async () => {
     currentIdentity = makeIdentity(210, "nelly");
     currentTrappedWork = { hasTrappedWork: true };
     render(
@@ -2937,7 +2414,7 @@ describe("PrettyConversationRow: trapped-work indicator visibility (Phase 104 Pl
     expect(cls).toContain("pv-trapped-work-icon");
   });
 
-  it("Row Test 7 (non-identity row): row with no identity (matchKey null) → no indicator (useTrappedWork short-circuits)", () => {
+  it("Row Test 7 (non-identity row): row with no identity (matchKey null) → no indicator (useTrappedWork short-circuits)", async () => {
     // currentIdentity is null (reset in beforeEach) — no identity resolves.
     currentTrappedWork = undefined; // hook returns undefined for null identityKey
     render(
@@ -2973,7 +2450,7 @@ describe("PrettyConversationRow: trapped-work indicator visibility (Phase 104 Pl
 // currently in a project.
 
 describe("PrettyConversationRow: Move to project menu item (shape-move-to-project-context-menu)", () => {
-  it("desktop non-RDP row, onMoveToProject provided, projects non-empty → context menu contains 'Move to project' as a submenu parent (aria-haspopup=menu)", () => {
+  it("desktop non-RDP row, onMoveToProject provided, projects non-empty → context menu contains 'Move to project' as a submenu parent (aria-haspopup=menu)", async () => {
     currentIdentity = null;
     const onMoveToProject = vi.fn();
     const { container } = render(
@@ -2996,7 +2473,7 @@ describe("PrettyConversationRow: Move to project menu item (shape-move-to-projec
       '[data-conversation-id="conv-1"]',
     ) as HTMLElement;
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    await openRowKebab(container);
     const menu = screen.getByRole("menu");
     const item = within(menu).getByRole("menuitem", {
       name: /move to project/i,
@@ -3005,7 +2482,7 @@ describe("PrettyConversationRow: Move to project menu item (shape-move-to-projec
     expect(item.getAttribute("aria-haspopup")).toBe("menu");
   });
 
-  it("onMoveToProject undefined → 'Move to project' NOT in menu (panel enforces RDP/zero-projects gate by omitting the prop)", () => {
+  it("onMoveToProject undefined → 'Move to project' NOT in menu (panel enforces RDP/zero-projects gate by omitting the prop)", async () => {
     currentIdentity = null;
     const { container } = render(
       <PrettyConversationRow
@@ -3023,14 +2500,14 @@ describe("PrettyConversationRow: Move to project menu item (shape-move-to-projec
       '[data-conversation-id="conv-1"]',
     ) as HTMLElement;
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    await openRowKebab(container);
     const menu = screen.getByRole("menu");
     expect(
       within(menu).queryByRole("menuitem", { name: /move to project/i }),
     ).toBeNull();
   });
 
-  it("projects empty → 'Move to project' NOT in menu (defense-in-depth against panel forgetting the gate)", () => {
+  it("projects empty → 'Move to project' NOT in menu (defense-in-depth against panel forgetting the gate)", async () => {
     currentIdentity = null;
     const { container } = render(
       <PrettyConversationRow
@@ -3049,14 +2526,14 @@ describe("PrettyConversationRow: Move to project menu item (shape-move-to-projec
       '[data-conversation-id="conv-1"]',
     ) as HTMLElement;
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    await openRowKebab(container);
     const menu = screen.getByRole("menu");
     expect(
       within(menu).queryByRole("menuitem", { name: /move to project/i }),
     ).toBeNull();
   });
 
-  it("submenu lists projects in the provided order with the currently-assigned project marked (menuitemradio + aria-checked=true)", () => {
+  it("submenu lists projects in the provided order with the currently-assigned project marked (menuitemradio + aria-checked=true)", async () => {
     currentIdentity = null;
     const { container } = render(
       <PrettyConversationRow
@@ -3079,20 +2556,24 @@ describe("PrettyConversationRow: Move to project menu item (shape-move-to-projec
       '[data-conversation-id="conv-1"]',
     ) as HTMLElement;
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    await openRowKebab(container);
     const menu = screen.getByRole("menu");
-    fireEvent.click(
+    await userEvent.setup().click(
       within(menu).getByRole("menuitem", { name: /move to project/i }),
     );
-    const foo = screen.getByRole("menuitemradio", { name: /^foo$/i });
-    const bar = screen.getByRole("menuitemradio", { name: /^bar$/i });
-    const baz = screen.getByRole("menuitemradio", { name: /^baz$/i });
-    expect(bar.getAttribute("aria-checked")).toBe("true");
-    expect(foo.getAttribute("aria-checked")).not.toBe("true");
-    expect(baz.getAttribute("aria-checked")).not.toBe("true");
+    const foo = screen.getByRole("menuitem", { name: /^foo$/i });
+    const bar = screen.getByRole("menuitem", { name: /^bar$/i });
+    const baz = screen.getByRole("menuitem", { name: /^baz$/i });
+    // shape-sidebar-header-affordances: Radix sub-menu items render with
+    // role="menuitem" (not menuitemradio). RowKebabMenu signals the "checked"
+    // state via a Check icon prefix (lucide-react Check svg); the other items
+    // get a sized placeholder span of the same width so labels align.
+    expect(bar.querySelector("svg.lucide-check")).not.toBeNull();
+    expect(foo.querySelector("svg.lucide-check")).toBeNull();
+    expect(baz.querySelector("svg.lucide-check")).toBeNull();
   });
 
-  it("Remove from project appears when currentProjectSlug is non-null", () => {
+  it("Remove from project appears when currentProjectSlug is non-null", async () => {
     currentIdentity = null;
     const { container } = render(
       <PrettyConversationRow
@@ -3111,9 +2592,9 @@ describe("PrettyConversationRow: Move to project menu item (shape-move-to-projec
       '[data-conversation-id="conv-1"]',
     ) as HTMLElement;
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    await openRowKebab(container);
     const menu = screen.getByRole("menu");
-    fireEvent.click(
+    await userEvent.setup().click(
       within(menu).getByRole("menuitem", { name: /move to project/i }),
     );
     expect(
@@ -3121,7 +2602,7 @@ describe("PrettyConversationRow: Move to project menu item (shape-move-to-projec
     ).toBeTruthy();
   });
 
-  it("Remove from project is HIDDEN when currentProjectSlug is null (hidden-not-greyed)", () => {
+  it("Remove from project is HIDDEN when currentProjectSlug is null (hidden-not-greyed)", async () => {
     currentIdentity = null;
     const { container } = render(
       <PrettyConversationRow
@@ -3140,9 +2621,9 @@ describe("PrettyConversationRow: Move to project menu item (shape-move-to-projec
       '[data-conversation-id="conv-1"]',
     ) as HTMLElement;
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    await openRowKebab(container);
     const menu = screen.getByRole("menu");
-    fireEvent.click(
+    await userEvent.setup().click(
       within(menu).getByRole("menuitem", { name: /move to project/i }),
     );
     expect(
@@ -3150,7 +2631,7 @@ describe("PrettyConversationRow: Move to project menu item (shape-move-to-projec
     ).toBeNull();
   });
 
-  it("picking a non-current project fires onMoveToProject with that slug", () => {
+  it("picking a non-current project fires onMoveToProject with that slug", async () => {
     currentIdentity = null;
     const onMoveToProject = vi.fn();
     const { container } = render(
@@ -3173,17 +2654,17 @@ describe("PrettyConversationRow: Move to project menu item (shape-move-to-projec
       '[data-conversation-id="conv-1"]',
     ) as HTMLElement;
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    await openRowKebab(container);
     const menu = screen.getByRole("menu");
-    fireEvent.click(
+    await userEvent.setup().click(
       within(menu).getByRole("menuitem", { name: /move to project/i }),
     );
-    fireEvent.click(screen.getByRole("menuitemradio", { name: /^bar$/i }));
+    await userEvent.setup().click(screen.getByRole("menuitem", { name: /^bar$/i }));
     expect(onMoveToProject).toHaveBeenCalledTimes(1);
     expect(onMoveToProject).toHaveBeenCalledWith("bar");
   });
 
-  it("picking the currently-assigned project is a silent no-op (no setter fires)", () => {
+  it("picking the currently-assigned project is a silent no-op (no setter fires)", async () => {
     currentIdentity = null;
     const onMoveToProject = vi.fn();
     const { container } = render(
@@ -3206,16 +2687,16 @@ describe("PrettyConversationRow: Move to project menu item (shape-move-to-projec
       '[data-conversation-id="conv-1"]',
     ) as HTMLElement;
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    await openRowKebab(container);
     const menu = screen.getByRole("menu");
-    fireEvent.click(
+    await userEvent.setup().click(
       within(menu).getByRole("menuitem", { name: /move to project/i }),
     );
-    fireEvent.click(screen.getByRole("menuitemradio", { name: /^foo$/i }));
+    await userEvent.setup().click(screen.getByRole("menuitem", { name: /^foo$/i }));
     expect(onMoveToProject).not.toHaveBeenCalled();
   });
 
-  it("picking Remove from project fires onMoveToProject with null (null-clears semantic)", () => {
+  it("picking Remove from project fires onMoveToProject with null (null-clears semantic)", async () => {
     currentIdentity = null;
     const onMoveToProject = vi.fn();
     const { container } = render(
@@ -3235,9 +2716,9 @@ describe("PrettyConversationRow: Move to project menu item (shape-move-to-projec
       '[data-conversation-id="conv-1"]',
     ) as HTMLElement;
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    await openRowKebab(container);
     const menu = screen.getByRole("menu");
-    fireEvent.click(
+    await userEvent.setup().click(
       within(menu).getByRole("menuitem", { name: /move to project/i }),
     );
     fireEvent.click(
@@ -3247,7 +2728,7 @@ describe("PrettyConversationRow: Move to project menu item (shape-move-to-projec
     expect(onMoveToProject).toHaveBeenCalledWith(null);
   });
 
-  it("'Move to project' sits between 'Open in new window' and 'Kill' in menu order", () => {
+  it("'Move to project' sits between 'Open in new window' and 'Kill' in menu order", async () => {
     currentIdentity = null;
     const { container } = render(
       <PrettyConversationRow
@@ -3268,7 +2749,7 @@ describe("PrettyConversationRow: Move to project menu item (shape-move-to-projec
       '[data-conversation-id="conv-1"]',
     ) as HTMLElement;
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    await openRowKebab(container);
     const menu = screen.getByRole("menu");
     const menuitems = within(menu).getAllByRole("menuitem");
     const labels = menuitems.map((m) => (m.textContent ?? "").trim());

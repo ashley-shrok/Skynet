@@ -57,6 +57,34 @@ async function openProjectKebabAndClickItem(
   const item = screen.getByRole("menuitem", { name: itemName });
   await user.click(item);
 }
+
+// shape-sidebar-header-affordances task 6: helper to open a ROW's kebab menu
+// (scoped to a specific row body) and click an item by name/regex. Parallel
+// to openProjectKebabAndClickItem (which operates on section headers).
+async function openRowKebabInBodyAndClickItem(
+  body: HTMLElement,
+  itemName: string | RegExp,
+): Promise<void> {
+  const user = userEvent.setup();
+  const trigger = body.querySelector(
+    '[data-testid="pv-row-kebab-trigger"]',
+  ) as HTMLElement | null;
+  if (!trigger) throw new Error("row kebab trigger not found in body");
+  await user.click(trigger);
+  const item = screen.getByRole("menuitem", { name: itemName });
+  await user.click(item);
+}
+
+async function openRowKebabInBody(body: HTMLElement): Promise<HTMLElement> {
+  const user = userEvent.setup();
+  const trigger = body.querySelector(
+    '[data-testid="pv-row-kebab-trigger"]',
+  ) as HTMLElement | null;
+  if (!trigger) throw new Error("row kebab trigger not found in body");
+  await user.click(trigger);
+  return screen.getByRole("menu");
+}
+
 import type { Host, HostFolder } from "@/types/ui-types";
 
 // ─── Global mocks ─────────────────────────────────────────────────────────────
@@ -733,7 +761,7 @@ describe("PrettyConversationsPanel: collapse state (D-13)", () => {
     expect(toggleSpy).toHaveBeenCalledWith("alpha");
   });
 
-  it("Test 4b: user-collapsed project force-expands when sidebar search is active and has matches", () => {
+  it("Test 4b: user-collapsed project force-expands when sidebar search is active and has matches", async () => {
     const hostA = makeHost("1", "hostA");
     const rowA = makeRow({ id: "alpha-row", label: "needle-session", host: hostA, targetTmuxSession: "a-sess" });
     setSnapshot({
@@ -900,7 +928,7 @@ describe("PrettyConversationsPanel: project drop (relay-room row)", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationsPanel: flat-middle clear-project (D-22 gesture #2)", () => {
-  it("Test 8: drop on flat middle for row currently in a project fires setSessionProject(host, key, null)", () => {
+  it("Test 8: drop on flat middle for row currently in a project fires setSessionProject(host, key, null)", async () => {
     const hostA = makeHost("1", "hostA");
     const alphaRow = makeRow({
       id: "in-alpha",
@@ -2142,7 +2170,7 @@ describe("PrettyConversationsPanel: flat-middle section header (M-J)", () => {
 // has no hostId), so their submenu keeps the full projects list.
 
 describe("PrettyConversationsPanel: Move-to-project host filtering", () => {
-  it("identity row on host 1 sees only host-1 projects in the drill-in submenu", () => {
+  it("identity row on host 1 sees only host-1 projects in the drill-in submenu", async () => {
     const hostA = makeHost("1", "hostA");
     const identityRow = makeRow({
       id: "id-row-a",
@@ -2180,23 +2208,25 @@ describe("PrettyConversationsPanel: Move-to-project host filtering", () => {
     ) as HTMLElement;
     expect(rowWrapper).not.toBeNull();
     const body = rowWrapper.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
+    await openRowKebabInBody(body);
 
     const menu = screen.getByRole("menu");
-    fireEvent.click(
+    await userEvent.setup().click(
       within(menu).getByRole("menuitem", { name: /move to project/i }),
     );
 
     // Alpha (host 1) present; Beta (host 2) filtered out.
+    // Radix renders the submenu in a SEPARATE portal, so use screen (global)
+    // not within(menu) to query.
     expect(
-      within(menu).queryByRole("menuitemradio", { name: /^Alpha$/ }),
+      screen.queryByRole("menuitem", { name: /^Alpha$/ }),
     ).not.toBeNull();
     expect(
-      within(menu).queryByRole("menuitemradio", { name: /^Beta$/ }),
+      screen.queryByRole("menuitem", { name: /^Beta$/ }),
     ).toBeNull();
   });
 
-  it("identity row on host 2 sees only host-2 projects in the drill-in submenu (symmetric case)", () => {
+  it("identity row on host 2 sees only host-2 projects in the drill-in submenu (symmetric case)", async () => {
     const hostB = makeHost("2", "hostB");
     const identityRow = makeRow({
       id: "id-row-b",
@@ -2233,21 +2263,22 @@ describe("PrettyConversationsPanel: Move-to-project host filtering", () => {
       '[data-conversation-id="id-row-b"]',
     ) as HTMLElement;
     const body = rowWrapper.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
+    await openRowKebabInBody(body);
     const menu = screen.getByRole("menu");
-    fireEvent.click(
+    await userEvent.setup().click(
       within(menu).getByRole("menuitem", { name: /move to project/i }),
     );
 
+    // Submenu lives in a separate Radix portal — query via screen (global).
     expect(
-      within(menu).queryByRole("menuitemradio", { name: /^Beta$/ }),
+      screen.queryByRole("menuitem", { name: /^Beta$/ }),
     ).not.toBeNull();
     expect(
-      within(menu).queryByRole("menuitemradio", { name: /^Alpha$/ }),
+      screen.queryByRole("menuitem", { name: /^Alpha$/ }),
     ).toBeNull();
   });
 
-  it("identity row on a host with zero projects hides the 'Move to project' item entirely (hide-not-grey)", () => {
+  it("identity row on a host with zero projects hides the 'Move to project' item entirely (hide-not-grey)", async () => {
     const hostZ = makeHost("9", "hostZ");
     const identityRow = makeRow({
       id: "id-row-z",
@@ -2282,14 +2313,14 @@ describe("PrettyConversationsPanel: Move-to-project host filtering", () => {
       '[data-conversation-id="id-row-z"]',
     ) as HTMLElement;
     const body = rowWrapper.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
+    await openRowKebabInBody(body);
     const menu = screen.getByRole("menu");
     expect(
       within(menu).queryByRole("menuitem", { name: /move to project/i }),
     ).toBeNull();
   });
 
-  it("relay-room row sees ALL projects (cross-host) in the drill-in submenu — no host filtering", () => {
+  it("relay-room row sees ALL projects (cross-host) in the drill-in submenu — no host filtering", async () => {
     const relayRow: MockRow = {
       id: "relay-row",
       type: "terminal",
@@ -2330,17 +2361,19 @@ describe("PrettyConversationsPanel: Move-to-project host filtering", () => {
       '[data-conversation-id="relay-row"]',
     ) as HTMLElement;
     const body = rowWrapper.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
+    await openRowKebabInBody(body);
     const menu = screen.getByRole("menu");
-    fireEvent.click(
+    await userEvent.setup().click(
       within(menu).getByRole("menuitem", { name: /move to project/i }),
     );
 
+    // Submenu lives in a separate Radix portal — query via screen (global).
+    // Relay-room rows see cross-host projects (no host filtering).
     expect(
-      within(menu).queryByRole("menuitemradio", { name: /^Alpha$/ }),
+      screen.queryByRole("menuitem", { name: /^Alpha$/ }),
     ).not.toBeNull();
     expect(
-      within(menu).queryByRole("menuitemradio", { name: /^Beta$/ }),
+      screen.queryByRole("menuitem", { name: /^Beta$/ }),
     ).not.toBeNull();
   });
 });

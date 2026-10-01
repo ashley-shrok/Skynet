@@ -35,7 +35,34 @@ import {
   screen,
   within,
 } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { Host, HostFolder } from "@/types/ui-types";
+
+// jsdom does not implement ResizeObserver; stub it so Radix's DropdownMenu
+// (used by RowKebabMenu, which is the row-level kebab post
+// shape-sidebar-header-affordances) doesn't throw when the portal mounts.
+if (typeof window !== "undefined" && !window.ResizeObserver) {
+  window.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+}
+
+// shape-sidebar-header-affordances: helper to open a row's kebab menu
+// (scoped to a specific body/wrapper so multi-row test fixtures hit the
+// intended row). The old pattern (fireEvent.contextMenu(body, {...})) no
+// longer applies — right-click is retired; the kebab tap/click is the sole
+// gesture.
+async function openRowKebabInBody(body: HTMLElement): Promise<HTMLElement> {
+  const user = userEvent.setup();
+  const trigger = body.querySelector(
+    '[data-testid="pv-row-kebab-trigger"]',
+  ) as HTMLElement | null;
+  if (!trigger) throw new Error("row kebab trigger not found in body");
+  await user.click(trigger);
+  return screen.getByRole("menu");
+}
 // Phase 119 Plan 119-06 (D-18 three-layer testing): AppState type shape used
 // by the new mockAppTiles fixture + vi.mock("@/state/app-tiles-store", ...)
 // below.
@@ -649,7 +676,7 @@ beforeEach(async () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationsPanel: load-in-flight affordance", () => {
-  it("Test 1: renders 'Loading conversations…' strip while fleetSessionsLoaded=false and no rows", () => {
+  it("Test 1: renders 'Loading conversations…' strip while fleetSessionsLoaded=false and no rows", async () => {
     // beforeEach leaves mockFleetSessionsLoaded=false and all tiers empty.
     setSnapshot({ pinned: [], grouped: [] });
     const { container, queryByTestId, queryByText, queryAllByTestId } = render(
@@ -1026,7 +1053,7 @@ describe("PrettyConversationsPanel: middle zone is FLAT (Phase 41 Plan 01)", () 
   // This test locks that panel-level integration for the idle-ambient case
   // — the row-level P47-15 lock covers the WORKING-ambient case (ambient
   // working rows now DO spin, decoupled from client-side active-set state).
-  it("Test 19E: non-active-set idle rows have NO ready-dot AND NO `spinner-on` (idle rows never spin, user 2026-09-21 decouple)", () => {
+  it("Test 19E: non-active-set idle rows have NO ready-dot AND NO `spinner-on` (idle rows never spin, user 2026-09-21 decouple)", async () => {
     const hostA = makeHost("h1", "hostA");
     setSnapshot({
       // Two rows, neither in the active-set, both non-working (default in
@@ -1078,7 +1105,7 @@ describe("PrettyConversationsPanel: middle zone is FLAT (Phase 41 Plan 01)", () 
 //   - Mobile RDP → no swipe strip at all (pre-existing contract).
 
 describe("PrettyConversationsPanel: deactivate action (quick-260727-gm3)", () => {
-  it("Test 20A: desktop active-set non-RDP row → contextmenu opens portal menu carrying Pin (Deactivate removed from menu 2026-08-17)", () => {
+  it("Test 20A: desktop active-set non-RDP row → contextmenu opens portal menu carrying Pin (Deactivate removed from menu 2026-08-17)", async () => {
     // Phase 42 UAT amendment 2026-08-17: the Tier 1 active-set render tier
     // was retired — active-set rows now flow through to pinned (if pinned)
     // or middle (by recency). user 2026-08-17 follow-up: the Deactivate
@@ -1120,7 +1147,7 @@ describe("PrettyConversationsPanel: deactivate action (quick-260727-gm3)", () =>
 
     // Dispatch contextmenu on the row body to open the portal menu.
     const body = rowEl!.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
+    await openRowKebabInBody(body);
     const menu = screen.getByRole("menu");
     expect(within(menu).getByRole("menuitem", { name: /pin/i })).toBeTruthy();
     // Deactivate menu item removed 2026-08-17 (user).
@@ -1221,7 +1248,7 @@ describe("PrettyConversationsPanel: deactivate action (quick-260727-gm3)", () =>
 // pinned computation (conversation-store.ts:493-499) at the two
 // active-set-tier render sites (active-set map + grouped host map).
 describe("PrettyConversationsPanel: active-set fleet-shadow-id pinned recognition (quick-260807-e4s)", () => {
-  it("Test E4S-01: active-set row whose pin lives under fleet::HOSTID::SESSIONNAME shows Unpin (not Pin) in the right-click context menu", () => {
+  it("Test E4S-01: active-set row whose pin lives under fleet::HOSTID::SESSIONNAME shows Unpin (not Pin) in the right-click context menu", async () => {
     // Phase 42 UAT amendment 2026-08-17: active-set render tier retired; seed
     // row into `middle` and mark active-in-set via `mockActiveSet`.
     const hostA = makeHost("1", "hostA");
@@ -1249,7 +1276,7 @@ describe("PrettyConversationsPanel: active-set fleet-shadow-id pinned recognitio
     expect(rowEl).toBeTruthy();
 
     const body = rowEl!.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
+    await openRowKebabInBody(body);
     const menu = screen.getByRole("menu");
     expect(
       within(menu).getByRole("menuitem", { name: /^unpin$/i }),
@@ -1293,7 +1320,7 @@ describe("PrettyConversationsPanel: active-set fleet-shadow-id pinned recognitio
     expect(rowEl).toBeTruthy();
 
     const body = rowEl!.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
+    await openRowKebabInBody(body);
     const menu = screen.getByRole("menu");
     const unpinItem = within(menu).getByRole("menuitem", { name: /^unpin$/i });
     fireEvent.click(unpinItem);
@@ -1338,7 +1365,7 @@ describe("PrettyConversationsPanel: active-set fleet-shadow-id pinned recognitio
       '[data-conversation-id="active-alpha"]',
     ) as HTMLElement | null;
     const body = rowEl!.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
+    await openRowKebabInBody(body);
     const menu = screen.getByRole("menu");
     const pinItem = within(menu).getByRole("menuitem", { name: /^pin$/i });
     fireEvent.click(pinItem);
@@ -2199,7 +2226,7 @@ describe("PrettyConversationsPanel: Phase 48 Plan 05 pinned row v14 shape (was p
 describe("PrettyConversationsPanel: handleRowKill (quick-260810-n3a)", () => {
   // K8: handleRowKill invokes window.confirm with a message naming the tmux
   //     session AND the host name
-  it("K8: clicking Kill opens window.confirm with session name + host name in message", () => {
+  it("K8: clicking Kill opens window.confirm with session name + host name in message", async () => {
     const hostA = makeHost("h1", "hostA");
     setSnapshot({
       activeSet: [],
@@ -2236,7 +2263,7 @@ describe("PrettyConversationsPanel: handleRowKill (quick-260810-n3a)", () => {
     ) as HTMLElement | null;
     expect(rowEl).toBeTruthy();
     const body = rowEl!.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    await openRowKebabInBody(body);
     const menu = screen.getByRole("menu");
     const killItem = within(menu).getByRole("menuitem", { name: /kill/i });
     fireEvent.click(killItem);
@@ -2250,7 +2277,7 @@ describe("PrettyConversationsPanel: handleRowKill (quick-260810-n3a)", () => {
   });
 
   // K9: when window.confirm returns false → onKillRow NOT called
-  it("K9: window.confirm returns false → onKillRow NOT called", () => {
+  it("K9: window.confirm returns false → onKillRow NOT called", async () => {
     const hostA = makeHost("h1", "hostA");
     setSnapshot({
       activeSet: [],
@@ -2287,7 +2314,7 @@ describe("PrettyConversationsPanel: handleRowKill (quick-260810-n3a)", () => {
     ) as HTMLElement | null;
     expect(rowEl).toBeTruthy();
     const body = rowEl!.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    await openRowKebabInBody(body);
     const menu = screen.getByRole("menu");
     const killItem = within(menu).getByRole("menuitem", { name: /kill/i });
     fireEvent.click(killItem);
@@ -2299,7 +2326,7 @@ describe("PrettyConversationsPanel: handleRowKill (quick-260810-n3a)", () => {
   });
 
   // K10: when window.confirm returns true → onKillRow called exactly once with the row
-  it("K10: window.confirm returns true → onKillRow called exactly once with the correct row", () => {
+  it("K10: window.confirm returns true → onKillRow called exactly once with the correct row", async () => {
     const hostA = makeHost("h1", "hostA");
     setSnapshot({
       activeSet: [],
@@ -2336,7 +2363,7 @@ describe("PrettyConversationsPanel: handleRowKill (quick-260810-n3a)", () => {
     ) as HTMLElement | null;
     expect(rowEl).toBeTruthy();
     const body = rowEl!.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    await openRowKebabInBody(body);
     const menu = screen.getByRole("menu");
     const killItem = within(menu).getByRole("menuitem", { name: /kill/i });
     fireEvent.click(killItem);
@@ -2360,7 +2387,7 @@ describe("PrettyConversationsPanel: handleRowKill (quick-260810-n3a)", () => {
 describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => {
   // A5: identity-backed row → clicking Archive opens window.confirm with the
   //     EXACT D-03 copy — asserted via toHaveBeenCalledWith equality (not toContain).
-  it("A5: Archive click opens window.confirm with EXACT copy 'archive <identity>? this can\\'t be undone.'", () => {
+  it("A5: Archive click opens window.confirm with EXACT copy 'archive <identity>? this can\\'t be undone.'", async () => {
     // Use a numeric-string hostId — canonicalArchiveIdForRow parses via parseInt.
     // Non-numeric hostIds (e.g. "h1") coerce to NaN, fail Number.isFinite,
     // and the gate returns null → row menu does NOT get Archive item.
@@ -2401,7 +2428,7 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
     ) as HTMLElement | null;
     expect(rowEl).toBeTruthy();
     const body = rowEl!.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    await openRowKebabInBody(body);
     const menu = screen.getByRole("menu");
     const archiveItem = within(menu).getByRole("menuitem", { name: "Archive" });
     fireEvent.click(archiveItem);
@@ -2419,7 +2446,7 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
 
   // A5b: identity has task → confirmation copy uses task instead of displayName,
   //      mirroring the sidebar row's task-primary label preference.
-  it("A5b: identity with task → confirm uses task string, not displayName", () => {
+  it("A5b: identity with task → confirm uses task string, not displayName", async () => {
     const hostA = makeHost("1", "hostA");
     mockIdentitiesByKey = new Map([
       [
@@ -2459,7 +2486,7 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
       '[data-conversation-id="arch-row-1b"]',
     ) as HTMLElement | null;
     const body = rowEl!.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    await openRowKebabInBody(body);
     const menu = screen.getByRole("menu");
     const archiveItem = within(menu).getByRole("menuitem", { name: "Archive" });
     fireEvent.click(archiveItem);
@@ -2472,7 +2499,7 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
   });
 
   // A6: window.confirm returns false → archiveIdentity NOT called; no pane close.
-  it("A6: window.confirm returns false → archiveIdentity NOT called, no side effect", () => {
+  it("A6: window.confirm returns false → archiveIdentity NOT called, no side effect", async () => {
     const hostA = makeHost("1", "hostA");
     mockIdentitiesByKey = new Map([
       ["wren", { identityKey: "wren", displayName: "wren", title: null }],
@@ -2505,7 +2532,7 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
       '[data-conversation-id="arch-row-2"]',
     ) as HTMLElement | null;
     const body = rowEl!.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    await openRowKebabInBody(body);
     const menu = screen.getByRole("menu");
     const archiveItem = within(menu).getByRole("menuitem", { name: "Archive" });
     fireEvent.click(archiveItem);
@@ -2518,7 +2545,7 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
   });
 
   // A7: window.confirm returns true → archiveIdentity(hostId, key) fires with the correct args.
-  it("A7: confirm=true → archiveIdentity called with (parsed hostId, identityKey) exactly once", () => {
+  it("A7: confirm=true → archiveIdentity called with (parsed hostId, identityKey) exactly once", async () => {
     const hostA = makeHost("42", "hostA");
     mockIdentitiesByKey = new Map([
       ["wren", { identityKey: "wren", displayName: "wren", title: null }],
@@ -2550,7 +2577,7 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
       '[data-conversation-id="arch-row-3"]',
     ) as HTMLElement | null;
     const body = rowEl!.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    await openRowKebabInBody(body);
     const menu = screen.getByRole("menu");
     const archiveItem = within(menu).getByRole("menuitem", { name: "Archive" });
     fireEvent.click(archiveItem);
@@ -2563,7 +2590,7 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
 
   // A8: identity-key fallback — if the identity hasn't yet resolved, the
   //     confirmation copy uses the identity key as displayName.
-  it("A8: identity not yet resolved → confirmation uses identityKey as displayName", () => {
+  it("A8: identity not yet resolved → confirmation uses identityKey as displayName", async () => {
     const hostA = makeHost("1", "hostA");
     // No identity seeded — mockIdentitiesByKey stays empty from beforeEach.
     setSnapshot({
@@ -2593,7 +2620,7 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
       '[data-conversation-id="arch-row-4"]',
     ) as HTMLElement | null;
     const body = rowEl!.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    await openRowKebabInBody(body);
     const menu = screen.getByRole("menu");
     const archiveItem = within(menu).getByRole("menuitem", { name: "Archive" });
     fireEvent.click(archiveItem);
@@ -2607,7 +2634,7 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
   });
 
   // A9: RDP host row → Archive item NOT in menu (affordance-narrowing preserved).
-  it("A9: RDP host row → Archive item NOT in row menu (canonicalArchiveIdForRow gate)", () => {
+  it("A9: RDP host row → Archive item NOT in row menu (canonicalArchiveIdForRow gate)", async () => {
     const rdpHost = makeHost("h9", "beelink", { enableRdp: true });
     setSnapshot({
       activeSet: [],
@@ -2640,7 +2667,7 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
     ) as HTMLElement | null;
     expect(rowEl).toBeTruthy();
     const body = rowEl!.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    await openRowKebabInBody(body);
     const menu = screen.getByRole("menu");
     expect(
       within(menu).queryByRole("menuitem", { name: "Archive" }),
@@ -2652,7 +2679,7 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
   // BEFORE the awaited archiveIdentity resolves. This is what makes the row
   // disappear immediately instead of ~15s later after the supervisor's retire
   // tick.
-  it("A11: confirm=true → markPendingArchive + removeFleetSession fire synchronously with (hostId, key) before archiveIdentity resolves", () => {
+  it("A11: confirm=true → markPendingArchive + removeFleetSession fire synchronously with (hostId, key) before archiveIdentity resolves", async () => {
     const hostA = makeHost("42", "hostA");
     mockIdentitiesByKey = new Map([
       ["wren", { identityKey: "wren", displayName: "wren", title: null }],
@@ -2684,7 +2711,7 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
       '[data-conversation-id="arch-row-11"]',
     ) as HTMLElement | null;
     const body = rowEl!.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    await openRowKebabInBody(body);
     const menu = screen.getByRole("menu");
     const archiveItem = within(menu).getByRole("menuitem", { name: "Archive" });
     fireEvent.click(archiveItem);
@@ -2745,7 +2772,7 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
       '[data-conversation-id="arch-row-12"]',
     ) as HTMLElement | null;
     const body = rowEl!.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    await openRowKebabInBody(body);
     const menu = screen.getByRole("menu");
     const archiveItem = within(menu).getByRole("menuitem", { name: "Archive" });
     fireEvent.click(archiveItem);
@@ -2765,7 +2792,7 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
 
   // A13: confirm=false → NEITHER the optimistic-remove nor the archive fire.
   //      Complements A6 (which only asserted archiveIdentity + onDeactivateRow).
-  it("A13: confirm=false → markPendingArchive + removeFleetSession NOT called", () => {
+  it("A13: confirm=false → markPendingArchive + removeFleetSession NOT called", async () => {
     const hostA = makeHost("1", "hostA");
     mockIdentitiesByKey = new Map([
       ["wren", { identityKey: "wren", displayName: "wren", title: null }],
@@ -2797,7 +2824,7 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
       '[data-conversation-id="arch-row-13"]',
     ) as HTMLElement | null;
     const body = rowEl!.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    await openRowKebabInBody(body);
     const menu = screen.getByRole("menu");
     const archiveItem = within(menu).getByRole("menuitem", { name: "Archive" });
     fireEvent.click(archiveItem);
@@ -3020,7 +3047,7 @@ describe("PrettyConversationsPanel (quick-260818-q73): idle sweep", () => {
     expect(t2Deactivates).toEqual([]);
   });
 
-  it("Test SWEEP-3: fresh (< threshold) unfocused conv is NOT deactivated on the next sweep tick", () => {
+  it("Test SWEEP-3: fresh (< threshold) unfocused conv is NOT deactivated on the next sweep tick", async () => {
     const hostA = makeHost("h1", "hostA");
     const t1 = makeConversationRow({ id: "t1", label: "sess-t1", host: hostA, targetTmuxSession: null });
     const t2 = makeConversationRow({ id: "t2", label: "sess-t2", host: hostA, targetTmuxSession: null });
@@ -3329,7 +3356,7 @@ describe("PrettyConversationsPanel: Phase 58 — conv-list drop target for badge
     expect(onCloseSession).not.toHaveBeenCalled();
   });
 
-  it("Test D: dragover type-gate — preventDefault ONLY when types include application/x-skynet-badge (row-drag types do NOT capture)", () => {
+  it("Test D: dragover type-gate — preventDefault ONLY when types include application/x-skynet-badge (row-drag types do NOT capture)", async () => {
     const onCloseSession = vi.fn();
     const { getByTestId } = render(
       <PrettyConversationsPanel
@@ -4246,7 +4273,7 @@ describe("PrettyConversationsPanel (shape-sidebar-search-inline): sidebar-search
     expect(container.querySelector('[data-conversation-id="row-bravo"]')).toBeNull();
   });
 
-  it("S3: typing matches HIDDEN candidates (identity displayName even when task frontmatter would be the primary line)", () => {
+  it("S3: typing matches HIDDEN candidates (identity displayName even when task frontmatter would be the primary line)", async () => {
     const hostA = makeHost("h1", "hostA");
     // Identity's task is the primary-line render, BUT typing the displayName
     // should still find the row — that's the shape's union-of-candidates rule.

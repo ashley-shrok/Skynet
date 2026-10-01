@@ -117,14 +117,9 @@
 
 import {
   useCallback,
-  useEffect,
-  useRef,
-  useState,
   type CSSProperties,
   type DragEvent,
   type KeyboardEvent,
-  type MouseEvent,
-  type TouchEvent,
 } from "react";
 import { Pin, GitPullRequestDraft } from "lucide-react";
 
@@ -137,46 +132,20 @@ import type { Identity } from "@/api/identities-api";
 // Phase 68 Plan 04: avatarUrlWithHost DELETED — backend bakes hostId into identity.avatarUrl.
 // Phase 104 Plan 02: per-identity trapped-work indicator (D-05, D-06, D-07).
 import { useTrappedWork } from "@/state/trapped-work-store";
-import { useIsTouchDevice } from "@/hooks/use-is-touch-device";
 import { cn } from "@/lib/utils";
 import { armOutboundDrag, mintDragId } from "@/shell/cross-window-drag";
 import type { ConversationRow as ConversationRowShape } from "@/state/conversation-store";
 import { specForTab, encodeWorkspaceSpec } from "@/lib/tab-url";
 import { roleDisplayName } from "@/lib/role-display-name";
 
-import {
-  PrettyConversationContextMenu,
-  type PrettyContextMenuItem,
-  type PrettyContextMenuSubmenuItem,
-} from "./PrettyConversationContextMenu";
-
-// ─── Context-menu singleton (quick-260809-94y) ───────────────────────────────
-// Only one row's context menu may be open at a time across the list. The
-// module-scoped `currentClose` ref tracks the most recently opened row's
-// close-fn. Both open sites (desktop right-click + mobile long-press timer)
-// call `notifyMenuOpened(closeSelf)` BEFORE `setCtxMenu({...})`. The wrapped
-// `onClose` prop on `<PrettyConversationContextMenu>` calls `notifyMenuClosed`
-// so the singleton is cleared when the menu closes normally. Unmount cleanup
-// also calls `notifyMenuClosed` (idempotent — safe if menu is already closed).
-//
-// Re-entry guard: `currentClose` is nulled BEFORE calling `prev()` so that
-// `prev`'s own `onClose` wrapper (which calls `notifyMenuClosed(prev)`) finds
-// `currentClose === null` and no-ops, preventing a clobber of the newly
-// registered `closeFn`.
-let currentClose: (() => void) | null = null;
-
-export function notifyMenuOpened(closeFn: () => void): void {
-  if (currentClose && currentClose !== closeFn) {
-    const prev = currentClose;
-    currentClose = null; // prevent re-entry: prev's onClose should not re-register
-    prev();
-  }
-  currentClose = closeFn;
-}
-
-export function notifyMenuClosed(closeFn: () => void): void {
-  if (currentClose === closeFn) currentClose = null;
-}
+// shape-sidebar-header-affordances: row context menu + long-press machinery
+// retired; the row's five actions now live in a RowKebabMenu rendered inside
+// the row body. Hover-reveal on desktop + always-visible on mobile is applied
+// at the kebab's wrapper div (opacity-100 at <md, md:opacity-0 →
+// md:group-hover:opacity-100 at md+). RowKebabMenu's portal-click-containment
+// prevents item-click leaks to the row's onClick (row body is a clickable
+// surface for session selection).
+import { RowKebabMenu, type RowKebabMenuItem, type RowKebabSubmenuItem } from "./RowKebabMenu";
 
 // ─── Prop shape ──────────────────────────────────────────────────────────────
 // `variant` drives the density class (`pv-row--mobile` vs `pv-row--desktop`)
@@ -415,148 +384,12 @@ export function PrettyConversationRow({
   const isMobile = variant === "mobile";
   const variantClass = isMobile ? "pv-row--mobile" : "pv-row--desktop";
 
-  // quick-260821-suv: iPad reports `window.innerWidth >= 768` in every
-  // orientation (10.9" landscape = 1180px, Pro 12.9" = 1024×1366, Mini
-  // portrait = 768 exactly — the `<` comparison in useIsMobile fails), so
-  // `variant` resolves to `"desktop"` and the width-only `isMobile` gate
-  // below misses touchscreen tablets entirely. `useIsTouchDevice()` reads
-  // `(pointer: coarse) and (hover: none)` via matchMedia — the reliable
-  // touchscreen signal (narrow desktop windows and hybrid laptops in
-  // trackpad mode both report `pointer: fine`). `acceptsTouch` is the OR
-  // of the two gates: mobile-width devices AND coarse-pointer devices both
-  // wire the four `onTouch*` handlers. Variant-driven STYLING branches
-  // (`pv-row--mobile` vs `pv-row--desktop`) intentionally stay width-based
-  // — iPad still renders the desktop layout; only INPUT wiring extends.
-  const isTouchDevice = useIsTouchDevice();
-  const acceptsTouch = isMobile || isTouchDevice;
-
-  // quick-260821-suv: DEV-only mount-time breadcrumb so user can confirm on
-  // iPad that the coarse-pointer path opened up (the "wide-viewport
-  // touchscreen just wired its touch handlers via the OR gate" signal).
-  // Empty deps array → fires exactly once per row mount; never re-fires on
-  // state changes. Skipped in prod bundles via import.meta.env.DEV.
-  useEffect(() => {
-    if (import.meta.env.DEV && isTouchDevice && !isMobile) {
-      console.info("[pv-row] touch handlers wired via coarse-pointer gate", {
-        conversationId: row.id,
-      });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps — mount-only breadcrumb, snapshot at first render is the diagnostic
-  }, []);
-
-  // ─── Context menu state (desktop right-click AND mobile long-press) ───────
-  // Coords are the pointer position at open time; null = menu closed. Shared
-  // state between the two entry points so both flow through the SAME
-  // PrettyConversationContextMenu portal render (single items[] builder
-  // below).
-  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(
-    null,
-  );
-  const closeSelf = useCallback(() => setCtxMenu(null), []);
-  const onRowContextMenu = useCallback(
-    (e: MouseEvent<HTMLDivElement>) => {
-      // quick-260804-uo4: RDP rows now open the context menu — the row-level
-      // isRdp guard on this handler was dropped. Non-active-set rows only have
-      // Pin + Open-in-new-window (Deactivate is filtered out below by the
-      // items[] predicate).
-      e.preventDefault();
-      e.stopPropagation();
-      notifyMenuOpened(closeSelf);
-      setCtxMenu({ x: e.clientX, y: e.clientY });
-    },
-    [closeSelf],
-  );
-
-  // ─── Mobile long-press → context menu (quick-260802-pq2) ──────────────────
-  // Wire only on mobile variant (mobile-only). Desktop variant rows get zero
-  // touch listeners at the render tree level (see JSX prop wiring below —
-  // the four onTouch* props are `undefined` for desktop). As of
-  // quick-260804-uo4, RDP rows also receive mobile touch handlers so
-  // long-press opens the same context menu on RDP rows.
-  //
-  // Contract:
-  //   - touchStart arms a 500ms timer capturing (clientX, clientY).
-  //   - If touchEnd fires before 500ms → no menu, no side effects, standard
-  //     click path continues (short-tap → onSelect via onBodyClick).
-  //   - touchMove checks Math.hypot(dx, dy) against 10px. Exceed → cancel the
-  //     pending timer (movement wins → vertical scroll takes over).
-  //   - If the 500ms timer fires without cancellation:
-  //       * setCtxMenu({ x: startClientX, y: startClientY })
-  //       * navigator.vibrate?.(10) (feature-checked — must NOT throw when
-  //         the API is missing, e.g. iOS Safari; delete-then-restore pattern
-  //         in TL5 tests locks this contract).
-  //       * suppressNextClickRef ← true so the synthesized click that follows
-  //         the long-press does NOT also fire onSelect on the row body.
-  //   - useEffect cleanup on unmount clears any pending timer to avoid a
-  //     late setState / setCtxMenu on an unmounted component.
-  const longPressTimerRef = useRef<number | null>(null);
-  const longPressStartRef = useRef<{ x: number; y: number } | null>(null);
-  const suppressNextClickRef = useRef<boolean>(false);
-
-  const clearLongPressTimer = useCallback(() => {
-    if (longPressTimerRef.current !== null) {
-      window.clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
-    }
-  }, []);
-
-  const onTouchStart = useCallback(
-    (e: TouchEvent<HTMLDivElement>) => {
-      // quick-260821-suv: widened from `!isMobile` to `!acceptsTouch` so
-      // coarse-pointer touchscreens (iPad) exercise the same handler body.
-      if (!acceptsTouch) return;
-      const t = e.touches[0];
-      if (!t) return;
-      const x = t.clientX;
-      const y = t.clientY;
-
-      // ── long-press arm ────────────────────────────────────────────────
-      longPressStartRef.current = { x, y };
-      // Clear any stale timer (defensive — should be null already after prior
-      // touchEnd/Cancel; belt-and-suspenders).
-      clearLongPressTimer();
-      longPressTimerRef.current = window.setTimeout(() => {
-        notifyMenuOpened(closeSelf);
-        setCtxMenu({ x, y });
-        // Feature-checked haptic — many browsers (esp. iOS Safari) do NOT
-        // implement navigator.vibrate. `?.` guards the call.
-        navigator.vibrate?.(10);
-        suppressNextClickRef.current = true;
-        longPressTimerRef.current = null;
-      }, 500);
-    },
-    [acceptsTouch, clearLongPressTimer, closeSelf],
-  );
-
-  const onTouchMove = useCallback(
-    (e: TouchEvent<HTMLDivElement>) => {
-      if (!acceptsTouch) return;
-      const t = e.touches[0];
-      if (!t) return;
-
-      // Long-press movement cancellation: >10px pointer travel cancels the
-      // pending timer so vertical scroll can proceed uninterrupted.
-      if (longPressTimerRef.current !== null && longPressStartRef.current !== null) {
-        const lpDx = t.clientX - longPressStartRef.current.x;
-        const lpDy = t.clientY - longPressStartRef.current.y;
-        if (Math.hypot(lpDx, lpDy) > 10) {
-          clearLongPressTimer();
-          longPressStartRef.current = null;
-        }
-      }
-    },
-    [acceptsTouch, clearLongPressTimer],
-  );
-
-  const onTouchEnd = useCallback(() => {
-    if (!acceptsTouch) return;
-    // Clear any pending long-press timer (early touchEnd → no menu).
-    // Deliberately DO NOT touch suppressNextClickRef here — the following
-    // click event needs to read it to suppress the trailing tap after a
-    // successful long-press.
-    clearLongPressTimer();
-    longPressStartRef.current = null;
-  }, [acceptsTouch, clearLongPressTimer]);
+  // shape-sidebar-header-affordances: useIsTouchDevice / acceptsTouch gating
+  // + DEV-only touch-handler-wired breadcrumb RETIRED alongside the context
+  // menu + long-press machinery. Row context menu is now a RowKebabMenu
+  // rendered inside the row body (hover-reveal on desktop, always-visible on
+  // mobile via a CSS-only group-hover + viewport-width gate at the kebab's
+  // wrapper div — no runtime touch-device detection needed).
 
   // Phase 56 Plan 03 (user 2026-08-28 shape file):
   // HTML5 native drag. Coexists with the existing tap-select (onClick),
@@ -633,32 +466,16 @@ export function PrettyConversationRow({
     ],
   );
 
-  // Cleanup on unmount so a pending long-press timer doesn't fire against an
-  // unmounted component (setState on unmounted → React warning + potential
-  // dangling navigator.vibrate call). quick-260809-94y extends the cleanup to
-  // also drain the context-menu singleton so a torn-down row's close-fn is
-  // not retained past its lifetime (idempotent — notifyMenuClosed no-ops if
-  // currentClose !== closeSelf, i.e. another row already claimed the slot).
-  useEffect(() => {
-    return () => {
-      if (longPressTimerRef.current !== null) {
-        window.clearTimeout(longPressTimerRef.current);
-        longPressTimerRef.current = null;
-      }
-      notifyMenuClosed(closeSelf);
-    };
-  }, [closeSelf]);
+  // shape-sidebar-header-affordances: long-press timer unmount cleanup +
+  // notifyMenuClosed singleton drain RETIRED (both targeted machinery that no
+  // longer exists). RowKebabMenu's Radix implementation manages its own
+  // open/close lifecycle via portal.
 
   // ─── Row-body click ────────────────────────────────────────────────────────
-  // Mobile short-tap AND desktop click both fire onSelect. The
-  // suppressNextClickRef gate catches the synthesized click that follows a
-  // long-press (jsdom does not synthesize it, but real browsers do) so a
-  // successful long-press does NOT also fire onSelect.
+  // Mobile short-tap AND desktop click both fire onSelect. The pre-shape-3
+  // suppressNextClickRef gate (which caught the synthesized click following a
+  // long-press on real browsers) is retired alongside the long-press timer.
   const onBodyClick = useCallback(() => {
-    if (suppressNextClickRef.current) {
-      suppressNextClickRef.current = false;
-      return;
-    }
     onSelect();
   }, [onSelect]);
 
@@ -738,11 +555,11 @@ export function PrettyConversationRow({
       {/* Row body — the CSS file (pretty-conversations.css) handles all
           layout, background, border, shadow, hover, and state variants via
           the composed className. The only inline style is `--pv-hue` (for
-          hue-bearing rows). quick-260802-pq2: onTouchStart/Move/End/Cancel
-          now wire the long-press → context-menu handlers (mobile-only).
-          Desktop rows get `undefined` for all four so no timer is ever armed.
-          quick-260804-uo4: RDP rows now get the full context menu on both
-          desktop (onContextMenu) and mobile (touch handlers). */}
+          hue-bearing rows). shape-sidebar-header-affordances: `group` class
+          added for the kebab's hover-reveal below; onContextMenu +
+          onTouchStart/Move/End/Cancel handlers retired alongside the right-
+          click / long-press context-menu machinery (the kebab is the sole
+          affordance now). */}
       <div
         role="button"
         tabIndex={0}
@@ -751,27 +568,9 @@ export function PrettyConversationRow({
         onClick={onBodyClick}
         onKeyDown={onBodyKeyDown}
         onMouseEnter={setRowTooltip(identity?.displayName, identity?.task)}
-        onContextMenu={!isMobile ? onRowContextMenu : undefined}
-        // quick-260821-suv: the four `onTouch*` gates were widened from
-        // `isMobile ? h : undefined` to `acceptsTouch ? h : undefined`
-        // where `acceptsTouch = isMobile || isTouchDevice`. iPad reports
-        // `window.innerWidth >= 768` in every orientation, so the
-        // width-only `isMobile` gate missed touchscreen tablets and
-        // long-press → context menu was dead on iPad.
-        // `useIsTouchDevice()` reads
-        // `(pointer: coarse) and (hover: none)` via matchMedia to close
-        // the gap. Variant-driven STYLING branches
-        // (`pv-row--mobile` vs `pv-row--desktop`) intentionally stay
-        // width-based — iPad still renders the desktop layout; only
-        // input wiring extends. `onTouchCancel` reuses `onTouchEnd`
-        // (pre-existing intentional wiring, unchanged).
-        onTouchStart={acceptsTouch ? onTouchStart : undefined}
-        onTouchMove={acceptsTouch ? onTouchMove : undefined}
-        onTouchEnd={acceptsTouch ? onTouchEnd : undefined}
-        onTouchCancel={acceptsTouch ? onTouchEnd : undefined}
         onDragStart={onRowDragStart}
         style={bodyStyle}
-        className={rowClassName}
+        className={cn("group", rowClassName)}
       >
         {/* Phase 67 Plan 67-02 Track A: coordinator watermark. Renders iff the
             row's resolved identity carries `coordinator: true` on the wire
@@ -942,146 +741,111 @@ export function PrettyConversationRow({
                 hack) plus the 4-input `isWorkingFalse + notRecycling +
                 noQueuePending` JSX render gate → replaced by the CSS-painted
                 spinner ring on `.pv-avatar::before` (see pretty-conversations
-                .css). The three positive-polarity work predicates now drive
-                the `showSpinnerOn` className computed at the rowClassName
-                composition above (user 2026-09-21 decouple: the active-set
-                scope was retired — the spinner reflects agent readiness on
-                the fleet-authoritative signal, not client-side tab state). */}
-      </div>
-      {/* Right-click menu portal. Items filter by row eligibility: Pin
-          renders for any row; Open/Move in new window renders on desktop for
-          any row where specForTab produces a spec; Kill only when onKill AND
-          !isRdp AND no identity AND row.targetTmuxSession. RDP rows now open
-          the menu (quick-260804-uo4 dropped the row-level isRdp gate). */}
-      {ctxMenu !== null && (
-        <PrettyConversationContextMenu
-          x={ctxMenu.x}
-          y={ctxMenu.y}
-          hue={hue}
-          items={((): PrettyContextMenuItem[] => {
-            const items: PrettyContextMenuItem[] = [];
-            items.push({
-              label: pinned ? "Unpin" : "Pin",
-              onClick: onTogglePin,
-            });
-            // quick-260804-uo4: Open/Move in new window — desktop-only (not rendered
-            // on mobile variant). Bifurcates label on inActiveSet. Builds a TabSpec
-            // via specForTab; skipped for tabs that aren't URL-addressable (specForTab
-            // returns null). The click handler opens the encoded workspace URL in a
-            // new window and, IF window.open returned a non-null Window handle AND
-            // the row was in the active-set, fires onDeactivate to tear down the
-            // current tab. The null-check is the popup-blocker safety: a blocked
-            // popup returns null, so the original tab survives.
-            //
-            // ⚠️ Do NOT add "noopener" to the features string (fixed 2026-08-05
-            // after user UAT — original quick-260804-uo4 impl had it). Per spec,
-            // window.open() with the noopener feature ALWAYS returns null even
-            // when the popup opens successfully, so the null-check would never
-            // fire onDeactivate and Move-to-new-window would leave the original
-            // tab active. The new window is same-origin Skynet, so the
-            // noopener guard (preventing untrusted popup from mutating
-            // window.opener) doesn't apply — both windows are our own trusted code.
-            if (!isMobile) {
-              const spec = specForTab({ type: row.type, host: row.host, targetTmuxSession: row.targetTmuxSession });
-              if (spec !== null) {
+                .css). */}
+        {/* shape-sidebar-header-affordances: row-level kebab menu. Positioned
+            absolute, top-right of the row card. Hover-reveal on desktop
+            (opacity-0 at md+, group-hover + group-focus-within bump to 100);
+            always-visible on mobile (opacity-100 at <md where no hover
+            exists). RowKebabMenu's portal-click-containment prevents item
+            onClicks from leaking through to the row body's onClick. The
+            items[] builder mirrors the retired PrettyConversationContextMenu
+            items[] verbatim (Pin / Open in new window / Move to project / Kill /
+            Archive) with the same per-item eligibility gates. */}
+        <div
+          className="absolute top-1.5 right-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity shrink-0 z-[5]"
+          data-testid="pv-row-kebab-slot"
+        >
+          <RowKebabMenu
+            ariaLabel="Conversation menu"
+            testId="pv-row-kebab-trigger"
+            items={((): RowKebabMenuItem[] => {
+              const items: RowKebabMenuItem[] = [];
+              items.push({
+                label: pinned ? "Unpin" : "Pin",
+                onClick: onTogglePin,
+                testId: "pv-row-kebab-item-pin",
+              });
+              // Open in new window — desktop-only, only when the row is URL-
+              // addressable (specForTab produces a spec). Window.open without
+              // "noopener" so we can detect popup-blocker returns null.
+              if (!isMobile) {
+                const spec = specForTab({ type: row.type, host: row.host, targetTmuxSession: row.targetTmuxSession });
+                if (spec !== null) {
+                  items.push({
+                    label: "Open in new window",
+                    onClick: () => {
+                      const payload = encodeWorkspaceSpec({ tabs: [spec], activeIndex: 0, only: true });
+                      const w = window.open("#" + payload, "_blank");
+                      if (w !== null && inActiveSet) {
+                        onDeactivate?.();
+                      }
+                    },
+                    testId: "pv-row-kebab-item-open-new-window",
+                  });
+                }
+              }
+              // Move to project — drill-in submenu (project list with a
+              // checkmark on the currently-assigned project; followed by
+              // "Remove from project" if the row is currently in one).
+              // Panel gates onMoveToProject on !isRdp && projects.length > 0.
+              if (onMoveToProject && projects.length > 0) {
+                const submenu: RowKebabSubmenuItem[] = [];
+                for (const p of projects) {
+                  const isCurrent = p.slug === currentProjectSlug;
+                  submenu.push({
+                    label: p.displayName,
+                    checked: isCurrent,
+                    onClick: () => {
+                      if (!isCurrent) onMoveToProject(p.slug);
+                    },
+                    testId: `pv-row-kebab-item-move-to-${p.slug}`,
+                  });
+                }
+                if (currentProjectSlug !== null) {
+                  submenu.push({
+                    label: "Remove from project",
+                    onClick: () => onMoveToProject(null),
+                    testId: "pv-row-kebab-item-remove-from-project",
+                  });
+                }
                 items.push({
-                  // Label unified 2026-08-18 (user): always "Open in new
-                  // window" regardless of active-set membership. The
-                  // deactivate side-effect on success still fires when
-                  // inActiveSet — behavior unchanged, only the label.
-                  label: "Open in new window",
-                  onClick: () => {
-                    const payload = encodeWorkspaceSpec({ tabs: [spec], activeIndex: 0, only: true });
-                    const w = window.open("#" + payload, "_blank");
-                    if (w !== null && inActiveSet) {
-                      onDeactivate?.();
-                    }
-                  },
+                  label: "Move to project",
+                  submenu,
+                  testId: "pv-row-kebab-item-move-to-project",
                 });
               }
-            }
-            // Deactivate menu item removed 2026-08-17 (user). The row-level
-            // `onDeactivate` prop is now called only as a side effect of
-            // "Open in new window" when the source row was inActiveSet;
-            // panel-level handleRowDeactivate composition
-            // (removeFromActiveSet + onDeactivateRow) is untouched, and the
-            // 5-min idle-deactivate sweep still fires it automatically.
-            // shape-move-to-project-context-menu (2026-09-23): "Move to project"
-            // parent item with drill-in submenu. Positioned between "Open in
-            // new window" and the destructive group (Kill / Archive). The
-            // parent item is hidden entirely (not greyed) on RDP rows and on
-            // zero-project fleets — the panel enforces both by only providing
-            // `onMoveToProject` when !isRdp AND projects.length > 0, so the
-            // gate below is single-condition. Submenu contents: project list
-            // in sidebar order with a checkmark on the currently-assigned
-            // project, followed by "Remove from project" iff the row is
-            // currently in a project (hidden otherwise). Silent no-op when
-            // tapping the row's currently-assigned project — the onClick
-            // returns without invoking the setter; the deferred onClose in
-            // PrettyConversationContextMenu still fires so the menu closes.
-            if (onMoveToProject && projects.length > 0) {
-              const submenu: PrettyContextMenuSubmenuItem[] = [];
-              for (const p of projects) {
-                const isCurrent = p.slug === currentProjectSlug;
-                submenu.push({
-                  label: p.displayName,
-                  checked: isCurrent,
-                  onClick: () => {
-                    if (!isCurrent) onMoveToProject(p.slug);
-                  },
+              // Kill — hard-terminates the underlying tmux session. Gated to
+              // rows without an identity backing (identity rows have /id save
+              // state and must not be nuked from a context menu).
+              if (
+                onKill &&
+                !isRdp &&
+                !identity &&
+                row.targetTmuxSession !== null &&
+                row.targetTmuxSession !== undefined
+              ) {
+                items.push({
+                  label: "Kill",
+                  onClick: onKill,
+                  danger: true,
+                  testId: "pv-row-kebab-item-kill",
                 });
               }
-              if (currentProjectSlug !== null) {
-                submenu.push({
-                  label: "Remove from project",
-                  onClick: () => onMoveToProject(null),
+              // Archive — gated on `onArchive` being provided. The panel
+              // provides it only for fleet-synthetic identity-backed rows.
+              if (onArchive) {
+                items.push({
+                  label: "Archive",
+                  onClick: onArchive,
+                  danger: true,
+                  testId: "pv-row-kebab-item-archive",
                 });
               }
-              items.push({
-                label: "Move to project",
-                submenu,
-              });
-            }
-            // quick-260810-n3a: Kill — hard-terminates the underlying tmux
-            // session on the host via POST /host/:hostId/session/kill.
-            // Gated: onKill provided AND !isRdp AND no identity resolved
-            // AND row.targetTmuxSession is non-null. Identity rows have
-            // real /id save state and must not be nuked from a context
-            // menu (intentional scope fence). Rendered last in the menu —
-            // destructive-most at the bottom per bounty spec.
-            if (
-              onKill &&
-              !isRdp &&
-              !identity &&
-              row.targetTmuxSession !== null &&
-              row.targetTmuxSession !== undefined
-            ) {
-              items.push({
-                label: "Kill",
-                onClick: onKill,
-                danger: true,
-              });
-            }
-            // Phase 115 Plan 115-06 (D-01 / D-02 / D-03): Archive item —
-            // red-styled, gated on `onArchive` being provided. The panel
-            // provides onArchive ONLY for fleet-synthetic identity-backed
-            // rows (via canonicalArchiveIdForRow). Confirmation dialog +
-            // POST + pane-close side effect live in the panel's
-            // handleArchive; this callback fires unconditionally.
-            // Placed LAST in the menu — most destructive item at the
-            // bottom, matching Kill's position rationale.
-            if (onArchive) {
-              items.push({
-                label: "Archive",
-                onClick: onArchive,
-                danger: true,
-              });
-            }
-            return items;
-          })()}
-          onClose={() => { notifyMenuClosed(closeSelf); closeSelf(); }}
-        />
-      )}
+              return items;
+            })()}
+          />
+        </div>
+      </div>
     </div>
   );
 }
