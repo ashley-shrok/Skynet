@@ -151,11 +151,11 @@ function Modal({
         <DialogPrimitive.Overlay
           data-slot="modal-overlay"
           className={cn(
-            // 2026-09-30: solid 55% black dim; NO backdrop-filter blur.
-            // The blur-sm on a full-viewport overlay was showing up as a
-            // GPU spike + "Page unresponsive" prompts on the user's
-            // machine and the dim alone reads fine.
-            "fixed inset-0 z-50 bg-black/55",
+            // 2026-10-01: solid 60% black dim (bumped from 55% per UAT).
+            // NO backdrop-filter blur — the blur-sm on a full-viewport
+            // overlay was showing up as a GPU spike + "Page unresponsive"
+            // prompts on the user's machine and the dim alone reads fine.
+            "fixed inset-0 z-50 bg-black/60",
             "data-open:animate-in data-open:fade-in-0",
             "data-closed:animate-out data-closed:fade-out-0",
             "duration-100",
