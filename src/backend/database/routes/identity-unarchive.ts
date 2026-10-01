@@ -1,21 +1,45 @@
 /**
  * Phase 143 Plan 143-04 (D-01/D-02/D-03/D-04): POST /identities/:key/unarchive
  *
- * User-initiated un-archive gesture. Drops the `.unarchive-requested` sentinel
- * inside the archived identity's folder (`~/fleet/identities-archive/<key>/`)
- * so the agent-supervisor's reconcile tick picks it up on its next scan and
- * runs the un-archive procedure (matrix reactivate + folder move back to live tree).
+ * User-initiated un-archive gesture. The route owns the full on-the-wire
+ * sequence from precondition checks through the Matrix reactivate + token
+ * mint + relay.json rewrite and finally the `.unarchive-requested` sentinel
+ * drop inside the archived identity's folder (`~/fleet/identities-archive/<key>/`).
+ * The agent-supervisor's reconcile tick picks up the sentinel and does the
+ * folder move back to the live tree.
+ *
+ * 2026-10-01 matrix-cred-location correction: the Matrix reactivate + token
+ * mint + relay.json rewrite steps live HERE (always run on T1000 where the
+ * encrypted admin creds live) rather than in the per-host supervisor (which
+ * doesn't have access to the admin creds on hosts other than T1000). The
+ * supervisor retains folder-mv + sentinel-delete + dormancy logic + a whoami
+ * safety-check that refuses a sentinel the backend didn't precede (half-un-archive
+ * guard). See `.planning/campaigns/un-archiving/shape-agent-side-identity-unarchive-correction.md`
+ * for the agent-side-restoration shape and the architecture rationale.
  *
  * POST /identities/:key/unarchive  body: { hostId: number }
  *   → 200 { ok: true }
- *   → 409 { reason: "archive_not_found" }                       — D-02 precondition 1
- *   → 409 { reason: "name_collision" }                          — D-02 precondition 2
- *   → 409 { reason: "missing_roles", missingRoles: string[] }   — D-02 precondition 3
+ *   → 409 { reason: "archive_not_found" }                       — precondition 1
+ *   → 409 { reason: "name_collision" }                          — precondition 2
+ *   → 409 { reason: "missing_roles", missingRoles: string[] }   — precondition 3
+ *   → 502 { error: "matrix reactivate failed" }                 — admin API failure
+ *   → 502 { error: "matrix mint failed" }                       — admin login-as-user failure
+ *   → 500 { error: "relay.json read/parse failed" }             — archive relay corrupt
+ *   → 500 { error: "relay.json rewrite failed" }                — write-side failure (incl. SSH)
+ *   → 500 { error: "failed to drop unarchive sentinel" }        — sentinel write failure
  *
- * Semantic contract (per Phase 143 CONTEXT D-01/D-02/D-03/D-04):
+ * On a Matrix-reactivate/mint partial success followed by relay.json rewrite
+ * or sentinel-drop failure: the Synapse account is reactivated but the on-disk
+ * state is NOT updated. The orphan state (reactivated account, dead token in
+ * relay.json, no sentinel) is harmless and self-healing: user retries → the
+ * admin PUT is idempotent (deactivated=false either way), login_as_user mints
+ * a fresh token, relay.json rewrites again, sentinel drops. No compensating
+ * re-deactivate (shape 4 discussion will revisit if the pattern changes).
+ *
+ * Semantic contract:
  *   - D-01: Drops `.unarchive-requested` inside the ARCHIVE folder. Reconciler
  *     (shape 1, already landed) moves the folder back to the live tree on the
- *     next scan tick.
+ *     next scan tick after a whoami probe confirms the Matrix account is live.
  *   - D-02: Three fast-path preconditions (defense-in-depth; reconciler enforces
  *     the same logic independently per D-04):
  *       1. archive-exists: `~/fleet/identities-archive/<key>/` must be present.
@@ -24,19 +48,18 @@
  *       3. all-roles-live: every role listed in the archived identity's
  *          `role:` frontmatter must have a live folder (`~/fleet/roles/<name>/`).
  *          If any are still archived, refuse with missingRoles listing them.
- *          Role frontmatter is parsed with the SAME Python inline used by shape 1's
- *          supervisor scanner (_extract_frontmatter_roles in agent-supervisor.sh) —
- *          handles scalar, flow-list, and block-list YAML shapes (D-02 explicit).
- *   - D-03: Failure response shape — structured 409 `{ reason, missingRoles? }`.
- *     reason is exactly one of: "archive_not_found", "name_collision", "missing_roles".
- *   - D-04: Reconciler is authoritative on-tick; this precondition check is
- *     fast-path defense so the frontend can surface a reason immediately.
- *   - Idempotent (D-01 / CONTEXT Specifics): sentinel already present → write
- *     succeeds via tmp+rename overwrite → endpoint returns 200.
+ *   - D-03: Failure response shape — structured 409 `{ reason, missingRoles? }`
+ *     for preconditions; 5xx with generic `error` text for Matrix / disk failures.
+ *   - D-04: Reconciler is authoritative on-tick; the precondition check is
+ *     fast-path defense so the frontend surfaces a reason immediately.
+ *   - Idempotent: sentinel already present → write succeeds via tmp+rename
+ *     overwrite → endpoint returns 200. Matrix reactivate + mint are idempotent
+ *     per the Synapse admin API contract.
  *
  * Route mirrors identity-archive.ts byte-for-byte through step 4 (auth →
  * hostId parse → key gate → resolveHostById → LOCAL/REMOTE branch), then
- * inserts three preconditions (5a/5b/5c) BEFORE the sentinel write (5d).
+ * runs preconditions (5a/5b/5c), the Matrix step (5d/5e/5f — 2026-10-01),
+ * and finally the sentinel drop (5g).
  *
  * Security (Phase 143 Plan 143-04 threat register):
  *   - T-143-04-01 (EoP, unauth caller): authenticateJWT middleware runs first;
@@ -76,10 +99,17 @@ import {
   IDENTITY_KEY_RE,
   getLocalIdentitiesRoot,
 } from "../../claude-session/identity-artifact-reader.js";
-import { writeIdentityArchiveFile } from "../../claude-session/per-identity-archive-file.js";
+import {
+  writeIdentityArchiveFile,
+  readIdentityArchiveFile,
+} from "../../claude-session/per-identity-archive-file.js";
 import { getLocalArchivedIdentitiesRoot } from "../../claude-session/list-archived-identity-keys.js";
 import { getLocalArchivedRolesRoot } from "../../claude-session/per-role-archive-file.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
+import {
+  createOrUpdateUser,
+  loginAsUser,
+} from "../../matrix/matrix-admin-client.js";
 
 /**
  * Promisified wrapper for execFile that resolves with { stdout, stderr }.
@@ -441,9 +471,106 @@ router.post(
         }
       }
 
-      // 5d. Drop the sentinel via the archive-tree writer (plan 143-01).
+      // -----------------------------------------------------------------
+      // 5d/5e/5f (2026-10-01 matrix-cred-location correction):
+      // Matrix reactivate + token mint + relay.json rewrite BEFORE the
+      // sentinel drop. Admin creds live in the DB on T1000 (where this
+      // route always runs); the supervisor on the identity's home host
+      // no longer touches Matrix admin at all. For LOCAL identities the
+      // relay.json rewrite goes via fs; for REMOTE it goes via SSH using
+      // the archive-tree writer's whitelist expansion for relay.json.
+      //
+      // Partial-success / orphan handling: Matrix reactivate is idempotent
+      // (PUT deactivated=false either way), login_as_user is cheap, so a
+      // write-side failure leaves a self-healing orphan: next user retry
+      // flows through all three steps cleanly. No compensating re-deactivate.
+      // -----------------------------------------------------------------
+
+      // 5d. Read the archived relay.json for mxid + password. Preserve the
+      // full JSON object so other fields (base, legacy keys) survive the
+      // rewrite — only access_token + token alias change.
+      let relayParsed: Record<string, unknown>;
+      let mxid: string;
+      let password: string;
+      try {
+        const raw = await readIdentityArchiveFile(key, "relay.json", {
+          hostId,
+          conn,
+        });
+        relayParsed = JSON.parse(raw) as Record<string, unknown>;
+        const uid = relayParsed.user_id;
+        const pw = relayParsed.password;
+        if (typeof uid !== "string" || !uid.startsWith("@")) {
+          throw new Error("relay.json user_id missing or malformed");
+        }
+        if (typeof pw !== "string" || pw.length === 0) {
+          throw new Error("relay.json password missing");
+        }
+        mxid = uid;
+        password = pw;
+      } catch (readErr) {
+        databaseLogger.error(
+          `identity unarchive: relay.json read/parse failed for key=${key} hostId=${hostId}: ${readErr instanceof Error ? readErr.message : String(readErr)}`,
+        );
+        return res
+          .status(500)
+          .json({ error: "relay.json read/parse failed" });
+      }
+
+      // 5e. Matrix reactivate (admin PUT /_synapse/admin/v2/users/{mxid}
+      // with deactivated=false). createOrUpdateUser is the shared primitive;
+      // same call shape identity-birth Step 6 uses.
+      const reactivateResult = await createOrUpdateUser(mxid, password);
+      if (reactivateResult.ok === false) {
+        databaseLogger.error(
+          `identity unarchive: matrix reactivate failed for mxid=${mxid} key=${key} status=${reactivateResult.status} error=${reactivateResult.error}`,
+        );
+        return res
+          .status(502)
+          .json({ error: "matrix reactivate failed" });
+      }
+
+      // 5f. Mint fresh access_token (admin POST /_synapse/admin/v1/users/{mxid}/login).
+      const mintResult = await loginAsUser(mxid);
+      if (mintResult.ok === false) {
+        databaseLogger.error(
+          `identity unarchive: matrix mint failed for mxid=${mxid} key=${key} status=${mintResult.status} error=${mintResult.error}`,
+        );
+        return res
+          .status(502)
+          .json({ error: "matrix mint failed" });
+      }
+
+      // 5f.5. Rewrite relay.json with the fresh token. Preserve all other
+      // keys verbatim (base, legacy fields). Both access_token AND token
+      // alias get the fresh value — recv.sh reads either (belt-and-braces
+      // across historical schema variants per matrix-admin-client.ts:431).
+      const newRelay = {
+        ...relayParsed,
+        access_token: mintResult.accessToken,
+        token: mintResult.accessToken,
+      };
+      try {
+        await writeIdentityArchiveFile(
+          key,
+          "relay.json",
+          JSON.stringify(newRelay, null, 2),
+          { hostId, conn, chmod: 0o600 },
+        );
+      } catch (writeErr) {
+        databaseLogger.error(
+          `identity unarchive: relay.json rewrite failed for key=${key} hostId=${hostId}: ${writeErr instanceof Error ? writeErr.message : String(writeErr)}`,
+        );
+        return res
+          .status(500)
+          .json({ error: "relay.json rewrite failed" });
+      }
+
+      // 5g. Drop the sentinel via the archive-tree writer (plan 143-01).
       // The writer re-validates key + relPath before touching disk (belt-and-suspenders).
       // Idempotent by construction: existing sentinel is overwritten via tmp+rename.
+      // The supervisor's whoami probe (2026-10-01 safety) will see the fresh
+      // token minted in step 5f and proceed with folder-mv.
       await writeIdentityArchiveFile(key, ".unarchive-requested", "", {
         hostId,
         conn,
@@ -451,7 +578,7 @@ router.post(
 
       // Audit log per T-143-04-07 (repudiation): who requested un-archive on what.
       databaseLogger.info(
-        `identity unarchive requested: userId=${userId}, hostId=${hostId}, key=${key}`,
+        `identity unarchive requested: userId=${userId}, hostId=${hostId}, key=${key}, mxid=${mxid}`,
       );
 
       return res.json({ ok: true });
