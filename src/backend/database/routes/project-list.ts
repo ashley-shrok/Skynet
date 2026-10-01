@@ -69,6 +69,11 @@ import {
   isHostMultiUser,
   getUsernameForUserId,
 } from "../../utils/host-user-counter.js";
+// Pretty-names shape: shared backend-authoritative slug derivation
+// (replaces the per-endpoint normalizeToSlug). Spells out digits so a
+// user-derived slug is pure [a-z-]+ and any digit in a slug on disk is
+// unambiguously a system-appended collision marker.
+import { derivePrettyNameSlug } from "../../utils/pretty-name-slug.js";
 // Phase 130: per-user READ-side gate. Pure function; consumes the users list
 // parsed from project.md frontmatter and returns visible/hidden per caller.
 import { isProjectVisibleToUser } from "../../fleet-status/project-visibility-gate.js";
@@ -82,30 +87,6 @@ const SSH_CONNECT_TIMEOUT_MS = 3000;
 
 /** displayName length cap — per plan behavior spec (1..80 chars). */
 const DISPLAY_NAME_MAX_LEN = 80;
-
-/**
- * Backend-authoritative slug derivation (Pitfall 1 in RESEARCH).
- *
- * Algorithm:
- *   1. Lowercase.
- *   2. Replace every run of non-[a-z0-9] characters with a single dash.
- *   3. Strip leading + trailing dashes.
- *
- * Empty output (e.g. from input `"___"` — pure separators) signals invalid
- * input; the POST /projects route responds 400 rather than attempting to
- * mint a project with an empty slug.
- *
- * Exported so the frontend test suite (117-09) can import and cross-check
- * that the modal's echo-slug-back UX matches the derivation. The frontend
- * does NOT call this at runtime — the raw displayName is submitted and the
- * derived slug is echoed back in the 200 response body.
- */
-export function normalizeToSlug(input: string): string {
-  return input
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
 
 /**
  * Parse + validate a hostId value from either query params or body.
@@ -296,33 +277,27 @@ router.post(
     }
     const { hostId } = parsedHost;
 
-    // 2. displayName gate — string, trimmed length 1..80.
+    // 2. displayName gate + slug derivation via shared helper. Pure letters
+    // and dashes on success; input validation (empty, too long, unslugifiable)
+    // uniform across roles/identities/projects per the pretty-names shape.
     const rawDN = body.displayName;
     if (typeof rawDN !== "string") {
       res.status(400).json({ error: "displayName is required" });
       return;
     }
     const trimmed = rawDN.trim();
-    if (trimmed.length < 1) {
-      res.status(400).json({ error: "displayName is required" });
+    const derivation = derivePrettyNameSlug(rawDN);
+    if (!derivation.ok) {
+      const errorMsg =
+        derivation.reason === "empty"
+          ? "displayName is required"
+          : derivation.reason === "too_long"
+            ? `displayName must be ${DISPLAY_NAME_MAX_LEN} characters or fewer`
+            : "displayName must contain at least one letter";
+      res.status(400).json({ error: errorMsg });
       return;
     }
-    if (trimmed.length > DISPLAY_NAME_MAX_LEN) {
-      res.status(400).json({
-        error: `displayName must be ${DISPLAY_NAME_MAX_LEN} characters or fewer`,
-      });
-      return;
-    }
-
-    // 3. Derive slug backend-side (Pitfall 1). Empty slug → 400.
-    const slug = normalizeToSlug(trimmed);
-    if (slug === "") {
-      res.status(400).json({
-        error:
-          "displayName must contain at least one alphanumeric character",
-      });
-      return;
-    }
+    const baseSlug = derivation.slug;
 
     // 4. Host ownership gate.
     const host = await resolveHostById(hostId, userId);
@@ -384,11 +359,11 @@ router.post(
         if (creatorUsername) {
           autoTagUsers = [creatorUsername];
           databaseLogger.info(
-            `projects-create: auto-tagged creator on multi-user host userId=${userId} hostId=${hostId} slug=${slug} creatorUsername=${creatorUsername}`,
+            `projects-create: auto-tagged creator on multi-user host userId=${userId} hostId=${hostId} baseSlug=${baseSlug} creatorUsername=${creatorUsername}`,
           );
         } else {
           databaseLogger.warn(
-            `projects-create: username lookup failed — auto-tag skipped userId=${userId} hostId=${hostId} slug=${slug}`,
+            `projects-create: username lookup failed — auto-tag skipped userId=${userId} hostId=${hostId} baseSlug=${baseSlug}`,
           );
         }
       }
@@ -398,27 +373,48 @@ router.post(
       // write-side gate failures (a wrongly-open project is recoverable via
       // a manual edit; a wrongly-BLOCKED create is not).
       databaseLogger.warn(
-        `projects-create: isHostMultiUser probe failed — auto-tag skipped userId=${userId} hostId=${hostId} slug=${slug}: ${autoTagErr instanceof Error ? autoTagErr.message : String(autoTagErr)}`,
+        `projects-create: isHostMultiUser probe failed — auto-tag skipped userId=${userId} hostId=${hostId} baseSlug=${baseSlug}: ${autoTagErr instanceof Error ? autoTagErr.message : String(autoTagErr)}`,
       );
     }
 
     try {
-      try {
-        await createProject(conn, slug, trimmed, autoTagUsers);
-      } catch (err) {
-        // Duplicate slug distinguisher — EEXIST or message contains "exists".
-        const code = (err as NodeJS.ErrnoException).code;
-        const msg = err instanceof Error ? err.message : String(err);
-        if (code === "EEXIST" || /exists/i.test(msg)) {
-          res.status(409).json({ error: "slug exists", slug });
+      // Pretty-names shape: collision auto-suffix. Try the base slug;
+      // on EEXIST retry with base-2, base-3, ... up to a sanity cap.
+      // Loop is race-safe because createProject's mkdir is atomic — a
+      // race-loser throws EEXIST without touching the winner's file, so
+      // every iteration is a fresh attempt at a distinct slug.
+      const MAX_COLLISION_ATTEMPTS = 100;
+      let slug = baseSlug;
+      let attempt = 0;
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        try {
+          await createProject(conn, slug, trimmed, autoTagUsers);
+          break;
+        } catch (err) {
+          const code = (err as NodeJS.ErrnoException).code;
+          const msg = err instanceof Error ? err.message : String(err);
+          if (code === "EEXIST" || /exists/i.test(msg)) {
+            attempt += 1;
+            if (attempt >= MAX_COLLISION_ATTEMPTS) {
+              databaseLogger.error(
+                `project create collision cap exhausted hostId=${hostId} baseSlug=${baseSlug} attempts=${attempt}`,
+              );
+              res
+                .status(500)
+                .json({ error: "failed to create project" });
+              return;
+            }
+            slug = `${baseSlug}-${attempt + 1}`;
+            continue;
+          }
+          // Non-collision error is a real 500.
+          databaseLogger.error(
+            `failed to create project hostId=${hostId} slug=${slug}: ${msg}`,
+          );
+          res.status(500).json({ error: "failed to create project" });
           return;
         }
-        // Everything else is a real 500.
-        databaseLogger.error(
-          `failed to create project hostId=${hostId} slug=${slug}: ${msg}`,
-        );
-        res.status(500).json({ error: "failed to create project" });
-        return;
       }
 
       // 6. Post-write wire event (D-37) — rebuild the full projects list
@@ -453,7 +449,7 @@ router.post(
       }
 
       databaseLogger.info(
-        `project created: userId=${userId} hostId=${hostId} slug=${slug}`,
+        `project created: userId=${userId} hostId=${hostId} slug=${slug} baseSlug=${baseSlug}`,
       );
       res.json({ ok: true, slug });
       return;

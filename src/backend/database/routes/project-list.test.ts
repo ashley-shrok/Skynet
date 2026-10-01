@@ -219,7 +219,7 @@ const stubHost = {
 // Import the router under test AFTER all vi.mock() calls
 // ---------------------------------------------------------------------------
 
-import router, { normalizeToSlug } from "./project-list.js";
+import router from "./project-list.js";
 
 let server: http.Server;
 
@@ -535,22 +535,17 @@ describe("POST /projects", () => {
     );
   });
 
-  it("Test 9: auto-slugify variants — normalizeToSlug is authoritative", async () => {
-    // Whitespace + punctuation → single dashes, trimmed, lowercased.
-    expect(normalizeToSlug("  Foo  Bar!! ")).toBe("foo-bar");
-    expect(normalizeToSlug("Alpha 123")).toBe("alpha-123");
-    expect(normalizeToSlug("already-dashed")).toBe("already-dashed");
-    // Pure separators → empty slug → 400.
-    expect(normalizeToSlug("___")).toBe("");
-
-    // Empty-slug path returns 400 at the route.
+  it("Test 9: unslugifiable displayName (all punctuation) returns 400", async () => {
+    // Pretty-names shape: derivePrettyNameSlug rejects input that reduces to
+    // zero letters after dropping digits and non-alpha. Pure separators are
+    // the canonical case.
     const res = await httpRequest(server, {
       method: "POST",
       path: "/projects",
       body: { hostId: 5, displayName: "___" },
     });
     expect(res.status).toBe(400);
-    expect((res.body as { error: string }).error).toMatch(/alphanumeric/);
+    expect((res.body as { error: string }).error).toMatch(/letter/);
     expect(createProject).not.toHaveBeenCalled();
   });
 
@@ -585,10 +580,14 @@ describe("POST /projects", () => {
     expect(createProject).not.toHaveBeenCalled();
   });
 
-  it("Test 11: duplicate slug (EEXIST from createProject) → 409 { error:'slug exists', slug }", async () => {
+  it("Test 11: duplicate slug (EEXIST) → auto-suffix to -2 and succeeds", async () => {
+    // Pretty-names shape: slug collisions auto-suffix silently. First attempt
+    // on "my-project" throws EEXIST; the loop retries with "my-project-2".
     const err = new Error("project slug already exists: my-project");
     (err as NodeJS.ErrnoException).code = "EEXIST";
-    (createProject as Mock).mockRejectedValue(err);
+    (createProject as Mock)
+      .mockRejectedValueOnce(err)
+      .mockResolvedValueOnce(undefined);
 
     const res = await httpRequest(server, {
       method: "POST",
@@ -596,10 +595,45 @@ describe("POST /projects", () => {
       body: { hostId: 5, displayName: "My Project" },
     });
 
-    expect(res.status).toBe(409);
-    expect(res.body).toEqual({ error: "slug exists", slug: "my-project" });
-    // No wire event on failure.
-    expect(mockPublishProjectListChanged).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, slug: "my-project-2" });
+    expect(createProject).toHaveBeenCalledTimes(2);
+    expect((createProject as Mock).mock.calls[0]?.[1]).toBe("my-project");
+    expect((createProject as Mock).mock.calls[1]?.[1]).toBe("my-project-2");
+  });
+
+  it("Test 11b: triple collision auto-suffixes to -4", async () => {
+    const err = new Error("project slug already exists");
+    (err as NodeJS.ErrnoException).code = "EEXIST";
+    (createProject as Mock)
+      .mockRejectedValueOnce(err)
+      .mockRejectedValueOnce(err)
+      .mockRejectedValueOnce(err)
+      .mockResolvedValueOnce(undefined);
+
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/projects",
+      body: { hostId: 5, displayName: "My Project" },
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, slug: "my-project-4" });
+    expect(createProject).toHaveBeenCalledTimes(4);
+  });
+
+  it("Test 11c: digit-bearing displayName spells out digits in base slug", async () => {
+    // Pretty-names shape invariant: no digits in user-derived slugs.
+    (createProject as Mock).mockResolvedValueOnce(undefined);
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/projects",
+      body: { hostId: 5, displayName: "Project 2026" },
+    });
+    expect(res.status).toBe(200);
+    expect((res.body as { slug: string }).slug).toBe(
+      "project-two-zero-two-six",
+    );
   });
 
   it("Test 12: unknown / cross-user host → 404 (probe defense)", async () => {
@@ -645,7 +679,7 @@ describe("POST /projects", () => {
     // Auto-tag success log should have fired.
     expect(databaseLogger.info).toHaveBeenCalledWith(
       expect.stringMatching(
-        /auto-tagged creator on multi-user host.*hostId=5.*slug=my-project.*creatorUsername=alice/,
+        /auto-tagged creator on multi-user host.*hostId=5.*baseSlug=my-project.*creatorUsername=alice/,
       ),
     );
   });
@@ -697,7 +731,7 @@ describe("POST /projects", () => {
     );
     expect(databaseLogger.warn).toHaveBeenCalledWith(
       expect.stringMatching(
-        /username lookup failed.*auto-tag skipped.*hostId=5.*slug=my-project/,
+        /username lookup failed.*auto-tag skipped.*hostId=5.*baseSlug=my-project/,
       ),
     );
   });
@@ -725,7 +759,7 @@ describe("POST /projects", () => {
     );
     expect(databaseLogger.warn).toHaveBeenCalledWith(
       expect.stringMatching(
-        /isHostMultiUser probe failed.*auto-tag skipped.*hostId=5.*slug=my-project.*db probe failed/,
+        /isHostMultiUser probe failed.*auto-tag skipped.*hostId=5.*baseSlug=my-project.*db probe failed/,
       ),
     );
   });
@@ -1102,14 +1136,7 @@ describe("cross-cutting", () => {
     expect(archiveProject).not.toHaveBeenCalled();
   });
 
-  it("Test 18: normalizeToSlug is the SHARED contract (5 samples)", async () => {
-    // Backend is authoritative for slugify per Pitfall 1. The frontend modal
-    // (117-09) submits the raw displayName and echoes the slug back; this test
-    // pins the exact algorithm output on 5 sample inputs so any drift is caught.
-    expect(normalizeToSlug("Foo Bar")).toBe("foo-bar");
-    expect(normalizeToSlug("HELLO_WORLD")).toBe("hello-world");
-    expect(normalizeToSlug("--trim--dashes--")).toBe("trim-dashes");
-    expect(normalizeToSlug("naïve")).toBe("na-ve"); // non-ASCII → dash
-    expect(normalizeToSlug("v2.0.1")).toBe("v2-0-1");
-  });
+  // Test 18 retired: slug derivation now lives in src/backend/utils/
+  // pretty-name-slug.ts with its own unit tests. The project create route
+  // is tested end-to-end via Tests 9, 11, 11b, 11c.
 });

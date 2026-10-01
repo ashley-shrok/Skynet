@@ -216,27 +216,9 @@ describe("CreateProjectModal", () => {
     expect(createProjectSpy).not.toHaveBeenCalled();
   });
 
-  it("Test 7 (409 duplicate slug): modal stays open + inline error surfaces 'already exists'", async () => {
-    createProjectSpy.mockRejectedValueOnce(
-      new FakeApiError("Conflict", 409, "CONFLICT"),
-    );
-    const { onOpenChange, onCreated } = renderModal({ open: true });
-    typeName("My Project");
-    fireEvent.click(screen.getByRole("button", { name: /^create$/i }));
-
-    // Modal stays open.
-    await waitFor(() => {
-      expect(screen.getByRole("alert")).toBeInTheDocument();
-    });
-    expect(screen.getByRole("alert").textContent).toMatch(/already exists/i);
-    expect(onCreated).not.toHaveBeenCalled();
-    // onOpenChange never called with false since submit failed.
-    expect(onOpenChange).not.toHaveBeenCalledWith(false);
-    // Modal still open — dialog still in DOM.
-    expect(
-      screen.getByRole("dialog", { name: /new project/i }),
-    ).toBeInTheDocument();
-  });
+  // Test 7 retired: pretty-names shape (2026-09-30) auto-suffixes slug
+  // collisions on the backend, so 409 no longer fires on duplicate names
+  // and the "already exists" inline error path is dead code.
 
   it("Test 8 (500 error): modal stays open + generic error message", async () => {
     createProjectSpy.mockRejectedValueOnce(

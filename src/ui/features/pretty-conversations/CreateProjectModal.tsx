@@ -7,9 +7,10 @@
 // normalizeToSlug on the backend. No client-side slug preview per D-26.
 //
 // Error surfacing:
-//   - 409 → inline "already exists" error message; modal stays open
-//   - 400 → inline "needs at least one letter or number" error
+//   - 400 → inline "needs at least one letter" error (unslugifiable input)
 //   - other → generic inline error
+// Pretty-names shape (2026-09-30): slug collisions auto-suffix on the
+// backend, so 409 no longer fires for duplicate names.
 // All errors keep the modal open so the user can retry. No toast infra
 // in v1 (D-07 graceful degradation).
 //
@@ -73,15 +74,14 @@ function statusOf(err: unknown): number | undefined {
 }
 
 /**
- * Map an error to the user-facing inline message.
+ * Map an error to the user-facing inline message. Pretty-names shape: 409
+ * no longer fires for duplicate names (backend auto-suffixes); only 400
+ * (unslugifiable input) and generic errors reach here.
  */
-function interpretError(err: unknown, rawDisplayName: string): string {
+function interpretError(err: unknown): string {
   const status = statusOf(err);
-  if (status === 409) {
-    return `A project with the slug for "${rawDisplayName}" already exists on this host — pick a different name.`;
-  }
   if (status === 400) {
-    return "Project name needs at least one letter or number.";
+    return "Project name needs at least one letter.";
   }
   return "Couldn't create the project — try again.";
 }
@@ -163,7 +163,7 @@ export function CreateProjectModal({
         errMessage: err instanceof Error ? err.message : "unknown",
         status: statusOf(err),
       });
-      setError(interpretError(err, raw));
+      setError(interpretError(err));
     } finally {
       setInFlight(false);
     }
