@@ -611,7 +611,7 @@ export function ChatMessage({
                 // is always user, no per-pane variation. Reads as the
                 // stable "not-the-agent" side; assistant bubbles pop against
                 // it with their identity hue.
-                "bg-[linear-gradient(160deg,rgba(45,55,80,0.55),rgba(28,35,55,0.6))]",
+                "bg-[linear-gradient(160deg,rgba(35,51,90,0.55),rgba(21,32,62,0.6))]",
                 "text-[#dfe3ee]",
                 "border-[rgba(120,140,180,0.2)]",
                 "shadow-[0_8px_24px_rgba(0,0,0,0.5),_0_1px_0_rgba(255,255,255,0.1)_inset,_0_0_0_0.5px_rgba(120,140,180,0.15)]",
@@ -623,7 +623,7 @@ export function ChatMessage({
                 // than the first pass (28% → 50% sat) per user's "colors
                 // should be more vibrant" round. Rich hue border + hue outer
                 // glow at ~15-20% alpha.
-                "bg-[linear-gradient(160deg,hsla(var(--pv-id-hue),50%,38%,0.55),hsla(var(--pv-id-hue),45%,24%,0.6))]",
+                "bg-[linear-gradient(160deg,hsla(var(--pv-id-hue),75%,38%,0.55),hsla(var(--pv-id-hue),67.5%,24%,0.6))]",
                 "text-[#fbf5e8]",
                 "border-[hsla(var(--pv-id-hue),65%,55%,0.32)]",
                 "shadow-[0_8px_24px_rgba(0,0,0,0.5),_0_1px_0_rgba(255,220,170,0.18)_inset,_0_0_0_0.5px_hsla(var(--pv-id-hue),70%,55%,0.2),_0_0_32px_hsla(var(--pv-id-hue),70%,52%,0.18)]",

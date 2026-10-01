@@ -24,7 +24,7 @@ import { AttachmentChipStrip } from "@/features/pretty-view/AttachmentChipStrip"
 //
 // What is INCLUDED (copied verbatim from ChatMessage.tsx L420-594):
 //   - Right-aligned outer wrapper (`justify-end`).
-//   - User-branch gradient (`bg-[linear-gradient(160deg,rgba(45,55,80,0.55),rgba(28,35,55,0.6))]`),
+//   - User-branch gradient (`bg-[linear-gradient(160deg,rgba(35,51,90,0.55),rgba(21,32,62,0.6))]`),
 //     text color `#dfe3ee`, border `rgba(120,140,180,0.2)`, multi-layer shadow.
 //   - `rounded-[var(--radius-pv-bubble)]`, `px-[12px] py-[7px]`, backdrop-blur.
 //   - Phase 50 D-06 failed-bubble treatment: whole-bubble red via inline
@@ -137,7 +137,7 @@ export function OutboundBubble({
           "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
           // User-branch gradient (VERBATIM copy from ChatMessage.tsx L466-476
           // per D-13 — user is always user, no per-pane variation).
-          "bg-[linear-gradient(160deg,rgba(45,55,80,0.55),rgba(28,35,55,0.6))]",
+          "bg-[linear-gradient(160deg,rgba(35,51,90,0.55),rgba(21,32,62,0.6))]",
           "text-[#dfe3ee]",
           "border-[rgba(120,140,180,0.2)]",
           "shadow-[0_8px_24px_rgba(0,0,0,0.5),_0_1px_0_rgba(255,255,255,0.1)_inset,_0_0_0_0.5px_rgba(120,140,180,0.15)]",
