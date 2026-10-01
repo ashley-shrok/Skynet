@@ -132,8 +132,7 @@ export function ProjectFileModal({
     <Modal
       open={open}
       onOpenChange={handleOpenChange}
-      size="lg"
-      className="max-h-[80vh] flex flex-col"
+      size="editor"
       data-testid="project-file-modal"
     >
       <ModalHead title={displayName} closeTestId="project-file-modal-close" />

@@ -49,21 +49,40 @@ import { cn } from "@/lib/utils";
 
 // ─── Size scale ──────────────────────────────────────────────────────────
 
-type ModalSize = "sm" | "md" | "lg" | "xl" | "list" | "settings";
+type ModalSize =
+  | "sm"
+  | "md"
+  | "lg"
+  | "xl"
+  | "list"
+  | "settings"
+  | "editor";
 
 // Sizes apply on `sm:` (≥640px viewport) and up. Below the breakpoint every
 // modal fills the viewport regardless of size (mobile takeover — see the
 // container className in the Modal component). `flex flex-col` is applied
 // at the container level so head/foot pin and body scrolls in every modal,
-// not just list/settings.
+// not just list/settings/editor.
+//
+// Pixel caps are paired with viewport-proportional minimums via `min()`
+// so modals scale up on 4K / ultrawide screens instead of staying stuck
+// at a conservative fixed size, but can't become absurdly large.
 const SIZE_CLASSES: Record<ModalSize, string> = {
+  // Content-sized archetypes — confirms + forms don't want to grow.
   sm: "sm:max-w-[340px]",
   md: "sm:max-w-[400px]",
   lg: "sm:max-w-[520px]",
   xl: "sm:max-w-[640px]",
-  // Structural variants — pin a fixed desktop height as well.
-  list: "sm:max-w-[600px] sm:h-[520px]",
-  settings: "sm:max-w-[640px] sm:h-[480px]",
+  // Picker / list — fixed-ish width, grows TALLER on bigger screens so more
+  // rows are visible at once (common UAT ask on 4K: "I want to see more of
+  // the scheduled-agents list without scrolling").
+  list: "sm:max-w-[600px] sm:h-[min(85vh,780px)]",
+  // Settings — modest horizontal + vertical scaling for 4K.
+  settings: "sm:max-w-[min(720px,70vw)] sm:h-[min(85vh,640px)]",
+  // File editor — generous both horizontally and vertically; the editor
+  // wants ALL the room. No fixed height — the universal 85vh cap on Modal
+  // handles the top, and the body grows to fill.
+  editor: "sm:max-w-[min(1200px,80vw)]",
 };
 
 // ─── Modal (root) ────────────────────────────────────────────────────────

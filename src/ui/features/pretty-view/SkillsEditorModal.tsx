@@ -493,12 +493,11 @@ export default function SkillsEditorModal({
     <Modal
       open={open}
       onOpenChange={handleOpenChange}
-      size="xl"
+      size="editor"
       // `container` prop still accepted for test injection (see .test.tsx —
       // 20 sites pass document.body explicitly). Default undefined portals
       // to document.body naturally.
       container={container ?? undefined}
-      className="max-h-[80vh] flex flex-col"
       data-testid="skills-editor-modal"
     >
       <ModalHead title="Skills" closeTestId="skills-editor-modal-close" />

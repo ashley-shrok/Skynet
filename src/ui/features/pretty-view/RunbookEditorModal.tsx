@@ -376,9 +376,8 @@ export default function RunbookEditorModal({
     <Modal
       open={open}
       onOpenChange={handleOpenChange}
-      size="xl"
+      size="editor"
       container={container ?? undefined}
-      className="max-h-[80vh] flex flex-col"
       data-testid="runbook-editor-modal"
     >
       <ModalHead

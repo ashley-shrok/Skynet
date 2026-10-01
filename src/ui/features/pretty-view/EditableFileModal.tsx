@@ -352,8 +352,7 @@ export default function EditableFileModal({
     <Modal
       open={open}
       onOpenChange={handleOpenChange}
-      size="lg"
-      className="max-h-[500px] flex flex-col"
+      size="editor"
       data-testid="editable-file-modal"
     >
       <ModalHead
