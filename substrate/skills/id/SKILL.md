@@ -5,6 +5,7 @@ distributed: true
 ---
 
 <!-- Phase 143 (un-archiving shape 2): archived-apps modal + archived-roles collapsed section + kebab-on-row for archive/un-archive across three surfaces + un-archive sentinel-drop pattern for agents -->
+<!-- 2026-10-01 (un-archiving matrix-cred-location correction): identity-side agent sentinel-drop is temporarily restricted — the supervisor's whoami probe refuses sentinels for not-yet-reactivated accounts; agents direct the user at the frontend path for identity un-archive. Shape 4 (shape-agent-side-identity-unarchive-correction) tracks the full restoration. -->
 
 # Identity Skill
 
@@ -973,21 +974,48 @@ the last piece of work.
 
 ## Un-archiving — the sentinel-drop pattern for agents
 
-Un-archive is the inverse of archive and shares the same sentinel-drop shape.
-There is **no slash-command for un-archiving** — an agent un-archives by touching
-the appropriate sentinel inside the ARCHIVE folder (not the live folder, which
-doesn't exist yet). The supervisor's reconciler tick (~15s) picks it up and does
-the folder move + (for identities) Matrix reactivation.
+Un-archive is the inverse of archive. There is **no slash-command for
+un-archiving** — the gesture is a sentinel-drop into the ARCHIVE folder (the
+live folder doesn't exist yet). Per-type specifics below.
 
-- **Identity:** `touch ~/fleet/identities-archive/<name>/.unarchive-requested` on
-  the identity's home host.
-- **Role:** `touch ~/fleet/roles-archive/<name>/.unarchive-requested` on the
-  role's home host.
-- **App:** `touch ~/fleet/apps-archive/<slug>/.unarchive-requested` on the app's
-  home host.
+### Role
 
-The reconciler refuses to un-archive if any of these three preconditions fail.
-Check them yourself before dropping the sentinel to avoid a silent no-op:
+`touch ~/fleet/roles-archive/<name>/.unarchive-requested` on the role's home
+host. The supervisor's reconciler tick (~15s) picks it up and mv's the folder
+back to `~/fleet/roles/<name>/`.
+
+### App
+
+`touch ~/fleet/apps-archive/<slug>/.unarchive-requested` on the app's home host.
+Same reconciler tick picks it up; also re-registers the systemd unit so the app
+reappears in the sidebar and is servable.
+
+### Identity
+
+⚠️ **Agent-side identity un-archive is temporarily restricted** (2026-10-01
+matrix-cred-location correction). The supervisor's identity scanner now does a
+whoami probe against the archived relay.json's token before moving the folder;
+if the token is still the deactivated-era one it 401s and the scanner refuses.
+Only the backend un-archive route (hit via the frontend) reactivates the Matrix
+account + mints a fresh token + rewrites relay.json BEFORE dropping the sentinel.
+A direct `touch .unarchive-requested` from an agent therefore results in a
+refuse-with-LOUD-log rather than a working un-archive.
+
+**For identities, direct the user at the frontend path:** open the conversation
+search modal (sidebar search → `everywhere ↗`), find the archived identity's row,
+click the three-dots kebab menu, pick **Un-archive**. That path works from any
+host; the backend route always runs on T1000 where the Matrix admin creds live.
+
+The underlying fix that re-enables agent-side identity sentinel-drop (via a
+scoped T1000 internal endpoint the supervisor calls for the Matrix step) is
+tracked as **shape 4** in the un-archiving campaign
+(`shape-agent-side-identity-unarchive-correction`). Until that ships, use the
+frontend path for identity un-archive.
+
+### Reconciler preconditions (apply to all three types)
+
+The reconciler refuses to un-archive if any of these fail. Check them yourself
+before dropping the sentinel to avoid a silent no-op:
 
 1. **Archive exists.** The archived folder must be present at the path above. A
    missing folder means the reconciler has already moved it, or it never existed.
