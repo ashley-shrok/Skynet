@@ -765,10 +765,12 @@ not something agents drive.
 - **Badge (upper-right of the conversation).** Shows the role avatar,
   the agent's name, and the role name — plus a small folder-icon
   breadcrumb with the project's display name when the identity is
-  assigned to a project (`project:` frontmatter set). Click = opens the
-  **identity modal** (next item). Right-click = the same right-click
-  menu as the sidebar row (pin, open in new window, move to project,
-  archive).
+  assigned to a project (`project:` frontmatter set). When the
+  conversation is pinned, a dark-bubble pin indicator overlays the
+  avatar's top-left corner — same visual as the sidebar row's pin
+  flag, flips in lockstep with it. Click = opens the **identity
+  modal** (next item). Right-click = the same right-click menu as the
+  sidebar row (pin, open in new window, move to project, archive).
 
 - **Identity modal (click the badge).** Three tabs:
   - **Identity file** — view and edit the identity's own `<name>.md`.

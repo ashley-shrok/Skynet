@@ -4,9 +4,9 @@ import type {
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
 } from "react";
-import { Folder, GitPullRequestDraft } from "lucide-react";
+import { Folder, GitPullRequestDraft, Pin } from "lucide-react";
 import { useIdentities } from "@/state/identities-store";
-import { useProjects } from "@/state/conversation-store";
+import { useProjects, usePinnedIds, fleetRowId } from "@/state/conversation-store";
 import { useIsMobile } from "@/hooks/use-mobile";
 import type { TabType } from "@/types/ui-types";
 import { armOutboundDrag, mintDragId } from "@/shell/cross-window-drag";
@@ -195,6 +195,24 @@ export function IdentityBadge({
   // is a stringified id; identity.hostId is a number — coerce for the compare.
   // Called before the `if (!identity) return null` early return to satisfy
   // Rules of Hooks (same discipline as useTrappedWork above).
+  // Pinned-state subscription — mirrors the sidebar's row-level pin check so
+  // the badge's indicator flips in lockstep with the row's. Checked against
+  // BOTH the open-tab id and the shadow fleet-row id (same both-sources check
+  // PrettyConversationsPanel's handleTogglePin uses), so pinning via either
+  // route surfaces here. Called BEFORE the `if (!identity) return null` early
+  // return to satisfy Rules of Hooks (same discipline as the other hooks
+  // above).
+  const pinnedIds = usePinnedIds();
+  const shadowFleetId =
+    typeof hostId === "number" &&
+    Number.isFinite(hostId) &&
+    dragDescriptor?.targetTmuxSession
+      ? fleetRowId(hostId, dragDescriptor.targetTmuxSession)
+      : null;
+  const isPinned =
+    (tabId != null && pinnedIds.has(tabId)) ||
+    (shadowFleetId != null && pinnedIds.has(shadowFleetId));
+
   const projects = useProjects();
   const projectSlug = identity?.project ?? null;
   const projectDisplayName = projectSlug
@@ -240,6 +258,45 @@ export function IdentityBadge({
   const avatarSrc = identity.avatarUrl;
   const inner = (
     <>
+      {/* Pin indicator — mirrors the sidebar row's `.pv-pin-indicator` (dark
+          circular bubble + warm-off-white Pin glyph + hue drop-shadow halo on
+          the svg). Positioned at top:7 left:7 so it sits concentric with the
+          avatar's top-left curve (the avatar origin IS 7,7 inside the pill
+          per the `padding: 7px 16px 7px 7px` above). z-index: 3 keeps it above
+          the coordinator watermark (z:0) and the trapped-work indicator (z:2).
+          Renders iff `isPinned` — gated by usePinnedIds above. */}
+      {isPinned && (
+        <span
+          aria-hidden="true"
+          data-testid="pv-identity-badge-pin-indicator"
+          style={{
+            position: "absolute",
+            top: 7,
+            left: 7,
+            width: 20,
+            height: 20,
+            borderRadius: "50%",
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "rgba(10, 12, 20, 0.75)",
+            boxShadow: "inset 0 0 0 1px rgba(220, 225, 245, 0.12)",
+            color: "rgba(232, 228, 216, 0.95)",
+            pointerEvents: "none",
+            zIndex: 3,
+          }}
+        >
+          <Pin
+            width={12}
+            height={12}
+            strokeWidth={2}
+            aria-hidden="true"
+            style={{
+              filter: `drop-shadow(0 0 3px hsla(${hue}, 80%, 60%, 0.55))`,
+            }}
+          />
+        </span>
+      )}
       {/* Phase 67 Plan 67-02 Track B: coordinator watermark. Renders iff the
           badge's resolved identity carries `coordinator: true` on the wire
           (Phase 67 Plan 67-01 backend contract). Placed at the TOP of the

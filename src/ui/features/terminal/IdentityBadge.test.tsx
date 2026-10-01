@@ -67,8 +67,16 @@ type BadgeTestProjectRow = {
 };
 let currentBadgeProjects: readonly BadgeTestProjectRow[] = [];
 
+// Per-test override handle for usePinnedIds. Default is empty set — the pin
+// indicator renders only when the badge's tabId OR shadow fleet-row id is in
+// this set. Empty = no indicator, matching the pre-pin baseline.
+let currentBadgePinnedIds: ReadonlySet<string> = new Set<string>();
+
 vi.mock("@/state/conversation-store", () => ({
   useProjects: vi.fn(() => currentBadgeProjects),
+  usePinnedIds: vi.fn(() => currentBadgePinnedIds),
+  fleetRowId: (hostId: number, sessionName: string) =>
+    `fleet::${hostId}::${sessionName}`,
 }));
 
 // Late import — after the mock is registered.
