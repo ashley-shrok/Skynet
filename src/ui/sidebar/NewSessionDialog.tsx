@@ -126,6 +126,7 @@ import {
 } from "@/api/identities-api";
 import { refreshIdentities } from "@/state/identities-store";
 import { roleDisplayName } from "@/lib/role-display-name";
+import { previewSlugFromPrettyName } from "@/lib/pretty-name-slug-preview";
 import { useBrandingConfig } from "@/branding/branding-store";
 
 // Chrome/Linux renders the <option> popup with browser defaults, not the parent
@@ -685,14 +686,9 @@ export function NewSessionDialog({
     if (birthStartedRef.current) return;
     // Clear state immediately if name is invalid or no host selected.
     // Pretty-names shape (2026-09-30): derive the slug the backend WOULD
-    // produce (same recipe) and probe by that; this makes the pre-check
-    // meaningful for free-form pretty names like "Alicia Smith".
-    const previewSlug = (currentName ?? "")
-      .trim()
-      .toLowerCase()
-      .replace(/[0-9]/g, (d) => ` ${["zero","one","two","three","four","five","six","seven","eight","nine"][Number(d)]} `)
-      .replace(/[^a-z]+/g, "-")
-      .replace(/^-+|-+$/g, "");
+    // produce via the shared preview helper and probe by that; this makes
+    // the pre-check meaningful for free-form pretty names like "Alicia Smith".
+    const previewSlug = previewSlugFromPrettyName(currentName ?? "");
     if (!previewSlug || !selectedHost) {
       setSkynetCollision(false);
       setHostCollision(false);
@@ -904,15 +900,10 @@ export function NewSessionDialog({
   //
   // Pretty-names shape (2026-09-30): the agent-mode name field is now a
   // free-form pretty name — backend derives the identity slug. Client-side
-  // we only check that it would slug to at least one letter (same recipe
-  // as the CreateRoleDialog preview) so the user gets instant feedback on
-  // all-emoji / all-punctuation input.
-  const nameSlugPreview = name
-    .trim()
-    .toLowerCase()
-    .replace(/[0-9]/g, (d) => ` ${["zero","one","two","three","four","five","six","seven","eight","nine"][Number(d)]} `)
-    .replace(/[^a-z]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+  // we only check that it would slug to at least one letter — same shared
+  // recipe as the CreateRoleDialog preview — so the user gets instant
+  // feedback on all-emoji / all-punctuation input.
+  const nameSlugPreview = previewSlugFromPrettyName(name);
   const nameValid = !shellOnly
     ? name.trim().length > 0 && name.trim().length <= 80 && nameSlugPreview.length > 0
     : SESSION_NAME_PATTERN.test(sessionName);

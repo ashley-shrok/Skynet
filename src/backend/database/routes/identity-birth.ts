@@ -142,11 +142,22 @@ async function execLocal(command: string): Promise<string> {
 
 const PROBE_SSH_EXEC_TIMEOUT_MS = 3000;
 
+// Defensive regex gate (code-review Finding #2): a future caller that
+// forwards an unvetted `name` into the SSH probe below would be a shell-
+// injection footgun. Keep interpolation safety independent of caller
+// discipline — matches IDENTITY_KEY_RE above.
+const PROBE_NAME_SAFE_RE = /^[a-z0-9._=/+-]+$/;
+
 async function identityFolderExistsOnHost(
   host: unknown,
   hostId: number,
   name: string,
 ): Promise<boolean> {
+  if (!PROBE_NAME_SAFE_RE.test(name)) {
+    throw new Error(
+      `probe name unsafe for shell interpolation: ${JSON.stringify(name)}`,
+    );
+  }
   if (isLocalHostId(hostId)) {
     const candidate = pathModule.join(getLocalIdentitiesRoot(), name);
     try {
@@ -187,11 +198,28 @@ async function identityFolderExistsOnHost(
   }
 }
 
+/** Typed error for suffix cap exhaustion. Code-review Finding #3: on cap
+ *  hit, surface a 400 with a user-facing message instead of silently teeing
+ *  up a doomed birth against the colliding base slug. */
+export class SlugCapExhaustedError extends Error {
+  constructor(public readonly baseSlug: string, public readonly attempts: number) {
+    super(
+      `slug cap exhausted for baseSlug=${baseSlug} after ${attempts} attempts`,
+    );
+    this.name = "SlugCapExhaustedError";
+  }
+}
+
 /**
  * Resolve a free (collision-free) identity slug by probing the target host
  * and bumping the suffix until a free slot is found. Returns the resolved
- * slug, or the base slug unchanged if the probe fails (fall-open — the
- * orchestrator will surface the real error if there is one).
+ * slug.
+ *
+ * Throws SlugCapExhaustedError when the suffix sanity cap is hit — the
+ * caller must map that to a user-visible 400 ("pick a more distinctive
+ * name"). Probe-level failures (SSH timeout, fs error) are caught and
+ * fall open to the base slug, since the orchestrator's step-8 EEXIST +
+ * rollback path still protects correctness.
  */
 async function resolveFreeIdentitySlug(
   host: unknown,
@@ -214,11 +242,12 @@ async function resolveFreeIdentitySlug(
             attempts: attempt,
           },
         );
-        break;
+        throw new SlugCapExhaustedError(baseSlug, attempt);
       }
       candidate = `${baseSlug}-${attempt + 1}`;
     }
   } catch (err) {
+    if (err instanceof SlugCapExhaustedError) throw err;
     // Fall-open: probe failure doesn't block birth. The orchestrator's
     // step-8 EEXIST + rollback path will handle a true collision; a probe
     // failure here just means we try the un-suffixed slug.
@@ -483,7 +512,23 @@ router.post(
     if (isNameItMyself) {
       const probeHost = await resolveHostById(hostId, userId);
       if (probeHost) {
-        name = await resolveFreeIdentitySlug(probeHost, hostId, name as string);
+        try {
+          name = await resolveFreeIdentitySlug(probeHost, hostId, name);
+        } catch (err) {
+          // Code-review Finding #3: cap-exhausted surfaces as a user-visible
+          // 400 ("too many existing identities with similar names") rather
+          // than falling through to a doomed birth. The sanity cap is 100,
+          // so the user realistically only hits this if the name is extremely
+          // common on this host.
+          if (err instanceof SlugCapExhaustedError) {
+            res.status(400).json({
+              error:
+                "Too many existing identities with similar names on this host — try a more distinctive name.",
+            });
+            return;
+          }
+          throw err;
+        }
       }
     }
 

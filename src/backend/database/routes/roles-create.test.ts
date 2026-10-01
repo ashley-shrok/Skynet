@@ -323,15 +323,23 @@ beforeEach(() => {
 
   (connectOneShot as Mock).mockResolvedValue(stubConn);
 
-  // Default execCommand: (Phase 129 MEDIUM-1) the atomic-mkdir chain
-  // succeeds silently; echo $HOME → "/home/ubuntu"; touch → empty string.
-  // Legacy `if [ -d` probe branch is retained for backward-compat with any
-  // per-test overrides that pre-dated the atomic mkdir port — new tests
-  // simulate collisions by throwing "File exists" from the mkdir chain.
+  // Default execCommand: the atomic-mkdir chain succeeds via the shell-side
+  // classifier (code-review Finding #4): the child mkdir's compound command
+  // emits __MKDIR_OK__ on success / __MKDIR_COLLIDE__ on EEXIST /
+  // __MKDIR_FAIL__ otherwise. Tests that exercise collision or failure paths
+  // override with their own classifier output. Parent `mkdir -p` just needs
+  // to resolve to the empty string.
   (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
+    // Shell-side mkdir classifier (code-review Finding #4): the compound
+    // command carries all three sentinels inline. Match it BEFORE the
+    // legacy `if [ -d` probe so the compound doesn't fall through to it.
+    if (cmd.includes("mkdir") && cmd.includes("__MKDIR_OK__")) {
+      return "__MKDIR_OK__";
+    }
+    if (cmd.includes("mkdir -p")) return "";
     if (cmd.includes("if [ -d")) return "missing";
     if (cmd.includes("echo $HOME")) return "/home/ubuntu";
-    if (cmd.includes("mkdir") || cmd.includes("touch ")) return "";
+    if (cmd.includes("touch ")) return "";
     return "";
   });
 
@@ -435,10 +443,10 @@ describe("POST /roles — regression guards (multipart form)", () => {
 
   it("R-5: role slug collision → auto-suffixes to -2 and succeeds (pretty-names shape)", async () => {
     // Pretty-names shape (2026-09-30): slug collisions auto-suffix silently
-    // (base, base-2, base-3, ...) instead of 409. The race-safe atomic mkdir
-    // throws "File exists" on EEXIST; the loop retries with the next slug.
-    // The parent `mkdir -p "$HOME/fleet/roles"` runs ONCE and succeeds; the
-    // child `mkdir "$HOME/fleet/roles/<slug>"` is what collides.
+    // (base, base-2, base-3, ...) instead of 409. The shell-side classifier
+    // emits __MKDIR_COLLIDE__ on the EEXIST path and __MKDIR_OK__ on
+    // success; the loop reads stdout rather than catching stderr (locale-
+    // independent per code-review Finding #4).
     let childMkdirCount = 0;
     (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
       if (cmd.includes("mkdir -p") && cmd.includes("fleet/roles")) {
@@ -446,12 +454,8 @@ describe("POST /roles — regression guards (multipart form)", () => {
       }
       if (cmd.includes("mkdir") && cmd.includes("fleet/roles/box-maintainer")) {
         childMkdirCount += 1;
-        if (childMkdirCount === 1) {
-          throw new Error(
-            "mkdir: cannot create directory '/home/ubuntu/fleet/roles/box-maintainer': File exists",
-          );
-        }
-        return ""; // Second attempt (box-maintainer-2) succeeds.
+        if (childMkdirCount === 1) return "__MKDIR_COLLIDE__";
+        return "__MKDIR_OK__";
       }
       if (cmd.includes("echo $HOME")) return "/home/ubuntu";
       return "";
@@ -462,7 +466,6 @@ describe("POST /roles — regression guards (multipart form)", () => {
     expect(res.status).toBe(201);
     expect((res.body as { name: string }).name).toBe("box-maintainer-2");
     expect(writeMarkdownFileAtomic).toHaveBeenCalledTimes(1);
-    // Markdown target path uses the suffixed slug.
     const targetPath = (writeMarkdownFileAtomic as Mock).mock.calls[0][1] as string;
     expect(targetPath).toBe(
       "/home/ubuntu/fleet/roles/box-maintainer-2/box-maintainer-2.md",
@@ -470,7 +473,7 @@ describe("POST /roles — regression guards (multipart form)", () => {
     expect(stubConn.end).toHaveBeenCalledTimes(1);
   });
 
-  it("R-5c: triple collision auto-suffixes to -4 (chain of EEXISTs)", async () => {
+  it("R-5c: triple collision auto-suffixes to -4 (chain of __MKDIR_COLLIDE__ sentinels)", async () => {
     let childMkdirCount = 0;
     (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
       if (cmd.includes("mkdir -p") && cmd.includes("fleet/roles")) {
@@ -478,10 +481,8 @@ describe("POST /roles — regression guards (multipart form)", () => {
       }
       if (cmd.includes("mkdir") && cmd.includes("fleet/roles/box-maintainer")) {
         childMkdirCount += 1;
-        if (childMkdirCount <= 3) {
-          throw new Error("mkdir: File exists");
-        }
-        return ""; // Fourth attempt succeeds.
+        if (childMkdirCount <= 3) return "__MKDIR_COLLIDE__";
+        return "__MKDIR_OK__";
       }
       if (cmd.includes("echo $HOME")) return "/home/ubuntu";
       return "";
@@ -493,14 +494,36 @@ describe("POST /roles — regression guards (multipart form)", () => {
     expect((res.body as { name: string }).name).toBe("box-maintainer-4");
   });
 
-  it("R-5b: atomic mkdir throws non-EEXIST error → 502 (Phase 129 MEDIUM-1 defensive path)", async () => {
-    // Any mkdir failure that ISN'T a race-loser EEXIST should surface as
-    // 502 SSH exec failed — not silently swallowed as a 409. This locks
-    // the two-branch split (EEXIST → 409, everything else → 502) so a
-    // future edit can't collapse them.
+  it("R-5d (code-review #4): real mkdir failure → __MKDIR_FAIL__ sentinel → 502 (locale-independent)", async () => {
+    // Guards the shell-side classifier against regressing to stderr-text
+    // matching. On a real failure (permission, disk full, etc.) the shell
+    // emits __MKDIR_FAIL__ and the route 502s without entering the retry
+    // loop — regardless of what any locale-translated mkdir stderr would say.
     (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
+      if (cmd.includes("mkdir -p") && cmd.includes("fleet/roles")) return "";
+      if (cmd.includes("mkdir") && cmd.includes("fleet/roles/box-maintainer")) {
+        return "__MKDIR_FAIL__";
+      }
+      if (cmd.includes("echo $HOME")) return "/home/ubuntu";
+      return "";
+    });
+    const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
+      data: { displayName: "Box maintainer", description: "x", hostId: 5 },
+    }));
+    expect(res.status).toBe(502);
+    expect((res.body as { error: string }).error).toMatch(/SSH exec failed/i);
+    expect(writeMarkdownFileAtomic).not.toHaveBeenCalled();
+  });
+
+  it("R-5b: SSH exec itself throws (connection failure mid-command) → 502", async () => {
+    // Guards the exec-level try/catch wrapping the mkdir command. Distinct
+    // from R-5d (which guards the __MKDIR_FAIL__ sentinel path) — this
+    // covers the case where execCommand ITSELF rejects (SSH link dies
+    // mid-command, not a mkdir-level failure).
+    (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
+      if (cmd.includes("mkdir -p") && cmd.includes("fleet/roles")) return "";
       if (cmd.includes("mkdir") && cmd.includes("fleet/roles")) {
-        throw new Error("mkdir: cannot create directory: Permission denied");
+        throw new Error("SSH exec channel closed");
       }
       if (cmd.includes("echo $HOME")) return "/home/ubuntu";
       return "";
@@ -970,22 +993,17 @@ describe("Phase 129: auto-tag on multi-user hosts", () => {
     // DISTINCT, fresh file. We never touch the pre-existing cohabitant's
     // file at all.
     //
-    // Simulate: first mkdir-child throws EEXIST (role already exists);
-    // second attempt (with -2 suffix) succeeds. Auto-tag runs for the
-    // SUFFIXED role file.
+    // Simulate: first mkdir-child reports collision via __MKDIR_COLLIDE__
+    // sentinel (shell-side classifier, locale-independent per code-review
+    // Finding #4); second attempt (with -2 suffix) succeeds via __MKDIR_OK__.
+    // Auto-tag runs for the SUFFIXED role file.
     let childMkdirCount = 0;
     (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
-      if (cmd.includes("mkdir -p") && cmd.includes("fleet/roles")) {
-        return "";
-      }
+      if (cmd.includes("mkdir -p") && cmd.includes("fleet/roles")) return "";
       if (cmd.includes("mkdir") && cmd.includes("fleet/roles/pre-existing-role")) {
         childMkdirCount += 1;
-        if (childMkdirCount === 1) {
-          throw new Error(
-            "mkdir: cannot create directory '/home/ubuntu/fleet/roles/pre-existing-role': File exists",
-          );
-        }
-        return "";
+        if (childMkdirCount === 1) return "__MKDIR_COLLIDE__";
+        return "__MKDIR_OK__";
       }
       if (cmd.includes("echo $HOME")) return "/home/ubuntu";
       return "";

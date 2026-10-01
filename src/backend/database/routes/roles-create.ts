@@ -523,48 +523,67 @@ router.post(
         res.status(502).json({ error: "SSH exec failed" });
         return;
       }
+      // Shell-side classifier emits one of three sentinels on stdout so we
+      // don't have to parse locale-dependent stderr text ("File exists" is
+      // English-only; a BusyBox or non-English mkdir would misclassify).
+      // The classifier is: try the mkdir; on failure, check whether the
+      // target dir exists post-hoc — if yes, treat as collision; if no,
+      // treat as real failure. Tiny TOCTOU window is benign for shape
+      // purposes (we just need to distinguish "retry with suffix" from
+      // "502 real failure").
       while (!mkdirDone) {
+        let classification: string;
         try {
-          await execWithTimeout(
-            conn,
-            `mkdir "$HOME/fleet/roles/${name}"`,
-          );
-          mkdirDone = true;
+          classification = (
+            await execWithTimeout(
+              conn,
+              `mkdir "$HOME/fleet/roles/${name}" 2>/dev/null && echo __MKDIR_OK__ || { if [ -d "$HOME/fleet/roles/${name}" ]; then echo __MKDIR_COLLIDE__; else echo __MKDIR_FAIL__; fi; }`,
+            )
+          ).trim();
         } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          if (
-            msg.includes("File exists") ||
-            msg.toLowerCase().includes("already exists")
-          ) {
-            attempt += 1;
-            if (attempt >= MAX_COLLISION_ATTEMPTS) {
-              sshLogger.error(
-                "roles-create: collision auto-suffix cap exhausted",
-                new Error("cap exhausted"),
-                {
-                  operation: "roles_create_atomic_mkdir",
-                  hostId,
-                  baseSlug,
-                  attempts: attempt,
-                },
-              );
-              res
-                .status(500)
-                .json({ error: "failed to create role" });
-              return;
-            }
-            name = `${baseSlug}-${attempt + 1}`;
-            continue;
-          }
           sshLogger.warn("roles-create: atomic mkdir exec failed", {
             operation: "roles_create_atomic_mkdir",
             hostId,
             name,
-            error: msg,
+            error: err instanceof Error ? err.message : String(err),
           });
           res.status(502).json({ error: "SSH exec failed" });
           return;
         }
+        if (classification === "__MKDIR_OK__") {
+          mkdirDone = true;
+          continue;
+        }
+        if (classification === "__MKDIR_COLLIDE__") {
+          attempt += 1;
+          if (attempt >= MAX_COLLISION_ATTEMPTS) {
+            sshLogger.error(
+              "roles-create: collision auto-suffix cap exhausted",
+              new Error("cap exhausted"),
+              {
+                operation: "roles_create_atomic_mkdir",
+                hostId,
+                baseSlug,
+                attempts: attempt,
+              },
+            );
+            res
+              .status(500)
+              .json({ error: "failed to create role" });
+            return;
+          }
+          name = `${baseSlug}-${attempt + 1}`;
+          continue;
+        }
+        // __MKDIR_FAIL__ or any other unexpected output → real failure.
+        sshLogger.warn("roles-create: atomic mkdir reported failure", {
+          operation: "roles_create_atomic_mkdir",
+          hostId,
+          name,
+          classification,
+        });
+        res.status(502).json({ error: "SSH exec failed" });
+        return;
       }
 
       // Avatar filename now that the final slug is known (depends on name).

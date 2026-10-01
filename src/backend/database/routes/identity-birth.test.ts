@@ -627,6 +627,31 @@ it("Test 2g (pretty-names auto-suffix): probe failure falls open — orchestrato
   expect(callOpts.name).toBe("willow");
 });
 
+it("Test 2h (code-review Finding #3): cap-exhausted suffix loop → 400 user-facing error, orchestrator NOT called", async () => {
+  const resolveHostByIdModule = await import("../../ssh/host-resolver.js");
+  (resolveHostByIdModule.resolveHostById as Mock).mockResolvedValue({
+    id: 7,
+    name: "localhost",
+  });
+  const artifactReader = await import(
+    "../../claude-session/identity-artifact-reader.js"
+  );
+  (artifactReader.isLocalHostId as Mock).mockReturnValue(true);
+  const fsp = await import("node:fs/promises");
+  // Every candidate slug reports as existing — exhaust the 100-attempt cap.
+  (fsp.stat as Mock).mockImplementation(async () => ({}) as unknown);
+
+  const body = { ...VALID_BODY, displayName: "Collision" };
+  delete (body as Partial<typeof body>).name;
+
+  const result = await httpPost(port, "/identities/birth", body);
+
+  expect(result.status).toBe(400);
+  const parsed = JSON.parse(result.body);
+  expect(parsed.error).toMatch(/distinctive name/i);
+  expect(mockBirthIdentity).not.toHaveBeenCalled();
+});
+
 // ---------------------------------------------------------------------------
 // Test 3: 401 without JWT — no orchestrator call
 // ---------------------------------------------------------------------------

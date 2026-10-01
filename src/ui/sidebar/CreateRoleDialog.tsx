@@ -74,6 +74,7 @@ import {
 // Phase 86 (D-CTX-86-surface-3): reused cosmetic pickers from pretty-view.
 // Same call shape as NewSessionDialog L1232-1254 and IdentityModal L1763-1772.
 import { ColorPicker } from "@/features/pretty-view/pickers/ColorPicker";
+import { previewSlugFromPrettyName } from "@/lib/pretty-name-slug-preview";
 
 // ─── Type-guard + host DFS (duplicated from NewSessionDialog L82-99) ─────────
 // Kept inline pending RESEARCH F1 recommendation ("extract into reusable
@@ -103,19 +104,17 @@ function collectAllHosts(children: (Host | HostFolder)[]): Host[] {
 // re-validates before any SSH/SFTP work.
 export const ROLE_NAME_PATTERN = /^[a-z0-9-]+$/;
 
-// Strict segment shape — every dash-separated segment must start with a
-// letter. Matches backend ROLE_NAME_RE (identity-birth-orchestrator.ts:838),
-// the regex identity-birth uses when poolPicked=true. Enforced here at
-// CREATE so we don't ship roles that pass the permissive create-gate but
-// reliably 400 on every subsequent birth with a generic "agent creation
-// failed" alert.
-export const ROLE_NAME_STRICT = /^[a-z][a-z0-9]*(-[a-z][a-z0-9]*)*$/;
-
-// The Name field accepts free text (any capitalization/spacing) and drives BOTH
-// the on-disk role slug and the `title:` cosmetic. Slugification happens here so
-// the backend keeps receiving a kebab-case `name` and its ROLE_NAME_PATTERN gate
-// stays untouched as defense-in-depth. Diacritics are folded rather than dropped
-// so "Café Ops" yields `cafe-ops`, not `caf-ops`.
+// The Name field accepts free text (any capitalization/spacing).
+//
+// Pretty-names shape (2026-09-30): the frontend no longer slugifies before
+// submit — the backend derives the slug via the shared derivePrettyNameSlug
+// helper. slugifyRoleName is kept here only because SkillsEditorModal still
+// imports it (out of this shape's scope per § Scope edges: skills — OUT).
+// For role creation itself, the dialog uses previewSlug (see Validation
+// section below) which mirrors the backend recipe.
+//
+// Diacritics are folded rather than dropped so "Café Ops" yields `cafe-ops`,
+// not `caf-ops`.
 export function slugifyRoleName(raw: string): string {
   return raw
     .normalize("NFKD")
@@ -294,17 +293,11 @@ export function CreateRoleDialog({
 
   // ─── Validation ──────────────────────────────────────────────────────────
   // Pretty-names shape (2026-09-30): `name` is the free-form typed pretty
-  // name. The backend derives the slug — the client no longer slugifies
-  // before submit. The only client-side gate is "would the name reduce to
-  // at least one letter after slugification" — same recipe as the backend
-  // (lowercase + spell digits + non-letter→dash). Done inline so the dialog
-  // doesn't import the backend helper.
+  // name. Backend derives the slug — shared preview helper at
+  // @/lib/pretty-name-slug-preview mirrors the recipe so this dialog +
+  // NewSessionDialog + CreateProjectModal all gate on the same rule.
   const title = name.trim();
-  const slugPreview = title
-    .toLowerCase()
-    .replace(/[0-9]/g, (d) => ` ${["zero","one","two","three","four","five","six","seven","eight","nine"][Number(d)]} `)
-    .replace(/[^a-z]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+  const slugPreview = previewSlugFromPrettyName(name);
   const nameValid = title.length > 0 && title.length <= 80 && slugPreview.length > 0;
   const nameShowError = name.trim().length > 0 && !nameValid;
   const nameErrorReason: "empty-slug" | "too-long" =
