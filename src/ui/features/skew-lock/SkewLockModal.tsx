@@ -94,11 +94,11 @@ export function SkewLockModal() {
       data-testid="skew-lock-modal"
     >
       <ModalHead
-        title={fatal ? "Something is wrong" : "A newer version is available"}
+        title={fatal ? "Something is wrong" : "Updates have been made"}
         hideClose
       />
       <ModalBody>
-        {fatal ? "Please contact support." : "Reload to pick up the new build."}
+        {fatal ? "Please contact support." : "Reload to continue."}
       </ModalBody>
       {!fatal && (
         <ModalFoot className="justify-center">

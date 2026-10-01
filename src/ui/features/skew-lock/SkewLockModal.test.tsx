@@ -89,7 +89,7 @@ describe("SkewLockModal: locked renders dialog with title", () => {
     const heading = document.getElementById(labelId as string);
     expect(heading).not.toBeNull();
     // Case-insensitive match on the documented title.
-    expect(heading?.textContent).toMatch(/newer version is available/i);
+    expect(heading?.textContent).toMatch(/updates have been made/i);
   });
 });
 
