@@ -612,6 +612,52 @@ test_identity_no_sentinel_noop() {
   teardown_unarchive_scratch "$scratch"
 }
 
+# Shape 5 — un-archive wake-up smoothing. On happy-path un-archive, the scanner
+# prepends a dated banner to the identity file body (right after frontmatter)
+# so the agent that wakes from this un-archive has an in-session signal that
+# anything happened. Delivered to the agent via the existing identity-file-watch
+# wake channel.
+test_identity_banner_prepended_on_happy_path() {
+  local scratch; scratch=$(setup_unarchive_scratch)
+  fixture_live_role "$scratch" box-maintainer
+  fixture_archived_identity "$scratch" mu "scalar:box-maintainer"
+  start_stub_admin "200" || { teardown_unarchive_scratch "$scratch"; return; }
+  sed -i "s|STUB_PORT|$STUB_PORT|" "${scratch}-archive/mu/relay.json"
+
+  local out
+  out=$( _source_supervisor_unarchive "$scratch"
+         scan_identity_unarchive_requested_sentinels 2>&1 ) || true
+  stop_stub_admin
+
+  assert_file "$scratch/mu/mu.md" "banner-prepend: identity file lives at live path"
+
+  # Banner wording invariant — the exact text the agent reads on wake. Pin
+  # the distinguishing phrases so wording drift during a refactor shows up
+  # here before it ships.
+  local body; body=$(cat "$scratch/mu/mu.md" 2>/dev/null)
+  assert_grep "You were unarchived at" "$body"             "banner-prepend: banner opening phrase present"
+  assert_grep "state of the world may have moved"  "$body" "banner-prepend: banner middle phrase present"
+  assert_grep "Delete this banner once you've caught up" "$body" "banner-prepend: delete-when-done instruction present"
+
+  # Timestamp shape: ISO8601 Z-suffixed UTC. Loose regex — presence is the
+  # assertion, not the exact second-value.
+  if ! printf '%s' "$body" | grep -qE 'You were unarchived at 2[0-9]{3}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z'; then
+    FAIL=$((FAIL+1))
+    printf '  FAIL banner-prepend: timestamp missing or wrong shape in banner\n' >&2
+  fi
+
+  # Placement invariant: banner MUST sit AFTER the frontmatter close, not
+  # inside the frontmatter block or before it. Count --- lines before the
+  # banner — must be exactly 2 (opener + closer).
+  local dashes_before
+  dashes_before=$(printf '%s\n' "$body" | awk '/^You were unarchived at|^> .*You were unarchived at/ { exit } /^---[[:space:]]*$/ { c++ } END { print c+0 }')
+  assert_eq "2" "$dashes_before" "banner-prepend: banner sits after frontmatter close (not inside / before)"
+
+  # Supervisor logged the step-7 success line.
+  assert_grep "un-archive step 7:" "$out" "banner-prepend: step 7 success log present"
+  teardown_unarchive_scratch "$scratch"
+}
+
 # ============================================================
 # scan_role_unarchive_requested_sentinels — behavior tests
 # ============================================================
@@ -991,6 +1037,7 @@ run_test test_identity_whoami_401_refuses_sentinel_retained
 run_test test_identity_whoami_transient_5xx_retains_sentinel
 run_test test_identity_relay_json_missing_access_token_retains_sentinel
 run_test test_identity_no_sentinel_noop
+run_test test_identity_banner_prepended_on_happy_path
 
 run_test test_role_happy_path
 run_test test_role_name_collision_refuses

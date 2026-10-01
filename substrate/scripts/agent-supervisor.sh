@@ -1340,6 +1340,81 @@ print(json.dumps(roles), end='')
 PYEOF
 }
 
+# _prepend_unarchive_banner(path, ts)
+#
+# Prepend a one-line un-archive banner to an identity file's body (right after
+# the YAML frontmatter block). Called by scan_identity_unarchive_requested_sentinels
+# as Step 7, after the folder has been moved back to the live tree.
+#
+# Shape rationale (shape-unarchive-wake-up-smoothing.md): the agent coming back
+# from un-archive otherwise has no in-session signal that anything happened;
+# the banner is delivered through the existing identity-file-watch wake channel.
+# Wording stays general — no mention of specific body sections — so the banner
+# makes sense regardless of what shape the agent's notes happen to be in. The
+# banner carries the un-archive timestamp so an agent can judge how long they
+# were away. No idempotence machinery: if the agent follows the banner's
+# "delete once caught up" instruction, banners never stack.
+#
+# Returns 0 on successful prepend, 1 on error (no frontmatter found, read or
+# write failure). Caller should log but NOT abort — the un-archive is otherwise
+# complete at this point and the folder-move already succeeded.
+_prepend_unarchive_banner() {
+  local path="$1" ts="$2"
+  [ -f "$path" ] || return 1
+  python3 - "$path" "$ts" <<'PYEOF'
+import sys, os, tempfile
+
+path, ts = sys.argv[1], sys.argv[2]
+
+with open(path, 'r', encoding='utf-8') as f:
+    text = f.read()
+
+# Preserve the file's line-ending convention. Split on '\n' and remember if the
+# original file ends with a newline so we can round-trip without silent drift.
+lines = text.split('\n')
+trailing_newline = text.endswith('\n')
+
+# Find the frontmatter close line (second '---' at column 0). Line 0 must be
+# the opener; if it isn't, bail — identity files should always have frontmatter
+# per the id-skill convention, so a missing frontmatter is a signal that
+# something upstream is wrong, not a case to tolerate silently.
+if not lines or lines[0].strip() != '---':
+    sys.exit(1)
+fm_close = None
+for i in range(1, len(lines)):
+    if lines[i].strip() == '---':
+        fm_close = i
+        break
+if fm_close is None:
+    sys.exit(1)
+
+banner = (
+    f"> ⚠️ **You were unarchived at {ts}.** The state of the world "
+    "may have moved since you were archived — what you have in context "
+    "and in this file could be out of date. Delete this banner once you've "
+    "caught up."
+)
+
+# Inject: [frontmatter...] [blank] [banner] [blank] [rest-of-body...]
+new_lines = lines[:fm_close + 1] + ['', banner, ''] + lines[fm_close + 1:]
+new_text = '\n'.join(new_lines)
+if trailing_newline and not new_text.endswith('\n'):
+    new_text += '\n'
+
+# Atomic write via same-dir temp + rename.
+d = os.path.dirname(path) or '.'
+fd, tmp = tempfile.mkstemp(prefix='.unarchive-banner.', dir=d)
+try:
+    with os.fdopen(fd, 'w', encoding='utf-8') as f:
+        f.write(new_text)
+    os.replace(tmp, path)
+except Exception:
+    try: os.unlink(tmp)
+    except OSError: pass
+    raise
+PYEOF
+}
+
 # ---- user-initiated identity un-archive scanner (un-archive host-side shape) ----
 # scan_identity_unarchive_requested_sentinels()
 #
@@ -1558,6 +1633,22 @@ scan_identity_unarchive_requested_sentinels() {
       continue
     fi
     log "'$name' un-archive COMPLETE: folder moved to live tree (matrix reactivate + token mint + relay.json rewrite done by backend route before sentinel)"
+
+    # -----------------------------------------------------------------------
+    # Step 7: Prepend un-archive banner to the identity file body.
+    # Non-fatal — the un-archive is otherwise complete at this point; a
+    # failure here means the agent won't see the in-session banner but
+    # everything else (folder move, matrix reactivate, .dormant) is intact.
+    # See _prepend_unarchive_banner() docblock for shape rationale.
+    # -----------------------------------------------------------------------
+    local live_ident_file="$IDENTITIES_DIR/$name/$name.md"
+    local unarchive_ts
+    unarchive_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    if _prepend_unarchive_banner "$live_ident_file" "$unarchive_ts"; then
+      log "'$name' un-archive step 7: in-session banner prepended to identity file (ts=$unarchive_ts)"
+    else
+      log "WARN: '$name' un-archive step 7 (banner prepend) FAILED — un-archive is otherwise complete; agent won't see the in-session un-archive banner. Investigate: $live_ident_file"
+    fi
   done
 }
 
