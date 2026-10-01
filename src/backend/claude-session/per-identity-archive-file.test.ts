@@ -1,20 +1,21 @@
 // ─── per-identity-archive-file — contract tests (Phase 143 Plan 143-01, D-08) ─
 //
 // Tests the archive-tree per-identity file-touch primitive introduced in
-// Phase 143 Plan 143-01. Sibling to per-identity-file.test.ts — separate
-// module targeting ~/fleet/identities-archive/ with a narrower whitelist
-// (exactly one entry: ".unarchive-requested") per D-08.
+// Phase 143 Plan 143-01, extended 2026-10-01 for the identity-unarchive
+// matrix-cred-location correction. Sibling to per-identity-file.test.ts —
+// separate module targeting ~/fleet/identities-archive/ with a tightly bounded
+// whitelist:
+//   - ".unarchive-requested" (D-08 original)
+//   - "relay.json" (2026-10-01 — un-archive route rewrites token in-place)
 //
-// Three vitest cases per plan behavior block:
-//   Test 1 (LOCAL happy path): with IDENTITIES_ARCHIVE_HOST_DIR env pointed at
-//     a tmpdir + a pre-created <tmp>/wren/ folder, call
-//     writeIdentityArchiveFile("wren", ".unarchive-requested", "", { hostId, conn: null }).
-//     Assert the file exists at <tmp>/wren/.unarchive-requested with empty contents.
-//   Test 2 (relPath whitelist rejects): assert
-//     writeIdentityArchiveFile("wren", ".pinned", ...) throws /invalid relPath/.
-//   Test 3 (identity-key regex rejects): assert
-//     writeIdentityArchiveFile("../etc/passwd", ".unarchive-requested", ...) throws
-//     /invalid identity key/.
+// Tests:
+//   Test 1 (LOCAL happy path): writes empty .unarchive-requested; file exists.
+//   Test 2 (relPath whitelist rejects): .pinned is a live-tree-only basename.
+//   Test 3 (identity-key regex rejects): path-traversal shapes.
+//   Test 4 (LOCAL relay.json write with chmod 0o600): file content + mode.
+//   Test 5 (readIdentityArchiveFile LOCAL): round-trip relay.json contents.
+//   Test 6 (readIdentityArchiveFile whitelist gate): rejects disallowed relPath.
+//   Test 7 (writeIdentityArchiveFile chmod failure tagged): tagged error shape.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import path from "path";
@@ -30,7 +31,8 @@ vi.hoisted(() => {
 });
 
 // Mock tmux-helper.execCommand (reachable via writeMarkdownFileAtomic in the
-// REMOTE branch — same reason as per-identity-file.test.ts).
+// REMOTE branch, and used directly by readIdentityArchiveFile REMOTE + the
+// chmod step on REMOTE writes).
 vi.mock("../ssh/tmux-helper.js", () => ({
   execCommand: vi.fn().mockResolvedValue("/home/tester\n"),
 }));
@@ -38,6 +40,7 @@ vi.mock("../ssh/tmux-helper.js", () => ({
 // Import AFTER the vi.mocks so the mocks bind to the module graph.
 import {
   writeIdentityArchiveFile,
+  readIdentityArchiveFile,
   ALLOWED_IDENTITY_ARCHIVE_REL_PATHS,
 } from "./per-identity-archive-file.js";
 
@@ -110,7 +113,8 @@ describe("writeIdentityArchiveFile — LOCAL happy path (D-08 sentinel drop)", (
 
 describe("writeIdentityArchiveFile — relPath whitelist gate (T-143-01-01)", () => {
   it("Test 2: rejects '.pinned' (a live-tree path) with /invalid relPath/ before any I/O", async () => {
-    // Whitelist is locked to exactly { ".unarchive-requested" } per D-08.
+    // Whitelist is bounded to { ".unarchive-requested", "relay.json" } —
+    // .pinned is live-tree-only and must not be accepted here.
     await expect(
       writeIdentityArchiveFile("wren", ".pinned", "", {
         hostId: LOCAL_HOST_ID,
@@ -118,9 +122,10 @@ describe("writeIdentityArchiveFile — relPath whitelist gate (T-143-01-01)", ()
       }),
     ).rejects.toThrow(/invalid relPath/);
 
-    // Also verify the allowed set itself
-    expect(ALLOWED_IDENTITY_ARCHIVE_REL_PATHS.size).toBe(1);
+    // Verify the allowed set shape (2026-10-01 — relay.json added)
+    expect(ALLOWED_IDENTITY_ARCHIVE_REL_PATHS.size).toBe(2);
     expect(ALLOWED_IDENTITY_ARCHIVE_REL_PATHS.has(".unarchive-requested")).toBe(true);
+    expect(ALLOWED_IDENTITY_ARCHIVE_REL_PATHS.has("relay.json")).toBe(true);
     expect(ALLOWED_IDENTITY_ARCHIVE_REL_PATHS.has(".pinned")).toBe(false);
     expect(ALLOWED_IDENTITY_ARCHIVE_REL_PATHS.has(".archive-requested")).toBe(false);
   });
@@ -154,5 +159,138 @@ describe("writeIdentityArchiveFile — identity key gate (T-143-01-02)", () => {
         conn: null,
       }),
     ).rejects.toThrow(/invalid identity key/);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// Test 4 — LOCAL relay.json write with chmod 0o600 (2026-10-01 correction)
+// ──────────────────────────────────────────────────────────────────────
+
+describe("writeIdentityArchiveFile — LOCAL relay.json write with chmod (un-archive route)", () => {
+  it("Test 4: writes relay.json content and applies 0o600 chmod", async () => {
+    const identityArchiveDir = path.join(scratchRoot, "wren");
+    await fs.mkdir(identityArchiveDir, { recursive: true });
+
+    const relayJsonBody = JSON.stringify({
+      base: "https://t1000.taild9b663.ts.net/_matrix/client/v3",
+      user_id: "@wren:t1000.taild9b663.ts.net",
+      password: "pw-preserved",
+      token: "fresh-tok",
+      access_token: "fresh-tok",
+    }, null, 2);
+
+    await writeIdentityArchiveFile("wren", "relay.json", relayJsonBody, {
+      hostId: LOCAL_HOST_ID,
+      conn: null,
+      chmod: 0o600,
+    });
+
+    const finalPath = path.join(identityArchiveDir, "relay.json");
+    const stat = await fs.stat(finalPath);
+    expect(stat.isFile()).toBe(true);
+
+    // 0o600 = owner rw only (no group, no other). Mask the file-type bits.
+    expect(stat.mode & 0o777).toBe(0o600);
+
+    const contents = await fs.readFile(finalPath, "utf-8");
+    expect(JSON.parse(contents)).toEqual({
+      base: "https://t1000.taild9b663.ts.net/_matrix/client/v3",
+      user_id: "@wren:t1000.taild9b663.ts.net",
+      password: "pw-preserved",
+      token: "fresh-tok",
+      access_token: "fresh-tok",
+    });
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// Test 5 — readIdentityArchiveFile LOCAL round-trip
+// ──────────────────────────────────────────────────────────────────────
+
+describe("readIdentityArchiveFile — LOCAL round-trip (un-archive route)", () => {
+  it("Test 5: reads relay.json contents written by writeIdentityArchiveFile", async () => {
+    const identityArchiveDir = path.join(scratchRoot, "wren");
+    await fs.mkdir(identityArchiveDir, { recursive: true });
+
+    const relayJsonBody = JSON.stringify({
+      base: "https://t1000.taild9b663.ts.net/_matrix/client/v3",
+      user_id: "@wren:t1000.taild9b663.ts.net",
+      password: "pw-abc",
+      token: "stale-tok",
+      access_token: "stale-tok",
+    });
+
+    await writeIdentityArchiveFile("wren", "relay.json", relayJsonBody, {
+      hostId: LOCAL_HOST_ID,
+      conn: null,
+    });
+
+    const roundTrip = await readIdentityArchiveFile("wren", "relay.json", {
+      hostId: LOCAL_HOST_ID,
+      conn: null,
+    });
+    expect(JSON.parse(roundTrip)).toEqual({
+      base: "https://t1000.taild9b663.ts.net/_matrix/client/v3",
+      user_id: "@wren:t1000.taild9b663.ts.net",
+      password: "pw-abc",
+      token: "stale-tok",
+      access_token: "stale-tok",
+    });
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// Test 6 — readIdentityArchiveFile whitelist gate
+// ──────────────────────────────────────────────────────────────────────
+
+describe("readIdentityArchiveFile — relPath whitelist gate", () => {
+  it("Test 6: rejects disallowed relPath BEFORE any I/O", async () => {
+    await expect(
+      readIdentityArchiveFile("wren", ".pinned", {
+        hostId: LOCAL_HOST_ID,
+        conn: null,
+      }),
+    ).rejects.toThrow(/invalid relPath/);
+  });
+
+  it("Test 6b: rejects path-traversal identity key BEFORE any I/O", async () => {
+    await expect(
+      readIdentityArchiveFile("../etc/passwd", "relay.json", {
+        hostId: LOCAL_HOST_ID,
+        conn: null,
+      }),
+    ).rejects.toThrow(/invalid identity key/);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// Test 7 — chmod failure tagged (parity with per-identity-file.ts)
+// ──────────────────────────────────────────────────────────────────────
+
+describe("writeIdentityArchiveFile — chmod failure tagged error shape", () => {
+  it("Test 7: chmod failure re-thrown as /chmod_<mode>_failed/", async () => {
+    // Create the file so the write succeeds but chmod can be forced to fail.
+    const identityArchiveDir = path.join(scratchRoot, "wren");
+    await fs.mkdir(identityArchiveDir, { recursive: true });
+
+    // Monkey-patch fs.chmod to throw once.
+    const origChmod = fs.chmod.bind(fs);
+    const chmodSpy = vi
+      .spyOn(fs, "chmod")
+      .mockRejectedValueOnce(new Error("boom"));
+
+    try {
+      await expect(
+        writeIdentityArchiveFile("wren", "relay.json", "{}", {
+          hostId: LOCAL_HOST_ID,
+          conn: null,
+          chmod: 0o600,
+        }),
+      ).rejects.toThrow(/chmod_600_failed: boom/);
+    } finally {
+      chmodSpy.mockRestore();
+      // Make sure fs.chmod is actually restored for subsequent tests.
+      void origChmod;
+    }
   });
 });
