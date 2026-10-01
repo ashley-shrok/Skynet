@@ -117,6 +117,17 @@ export function MdxEditorImpl({
         onChange(md);
       }}
       readOnly={disabled}
+      // Disable the mdast-util-mdx-jsx extension so bare `<thing>` /
+      // `<slug>` / `<name>` placeholders in prose (common in SKILL.md,
+      // role files, runbooks) stop being interpreted as attempted JSX
+      // tags and silently rendering an empty editor. Tradeoff: inline
+      // HTML tags inside markdown (e.g. `<u>...</u>`, `<kbd>...</kbd>`)
+      // no longer render — but Skynet's markdown files are plain
+      // prose + code fences, no inline HTML. See
+      // https://mdxeditor.dev/editor/docs/error-handling and the UAT
+      // round 2026-10-01 where explain + app-development SKILL.md
+      // both fell through to the raw-textarea fallback.
+      suppressHtmlProcessing={true}
       className="dark-theme skynet-mdxeditor"
       contentEditableClassName="mdx-prose prose prose-sm prose-invert max-w-none prose-code:before:content-none prose-code:after:content-none"
       plugins={[
