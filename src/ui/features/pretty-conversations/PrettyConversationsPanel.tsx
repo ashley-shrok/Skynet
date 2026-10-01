@@ -62,9 +62,11 @@ import { createPortal } from "react-dom";
 // (reverses the 2026-08-17 "pinned header should go away entirely" lock — the
 // Apps section landing above the flat middle re-introduced ambiguity between
 // Apps and pinned rows that the earlier design didn't have).
-// Phase 143 D-09: Archive (aliased to ArchivedBoxIcon) added for the archived-
-// apps trigger on the Apps section header.
-import { AppWindow, Archive as ArchivedBoxIcon, ChevronDown, Clock, Drama, FolderPlus, Loader2, MessageSquare, MessagesSquare, Monitor, MoreVertical, Pin, Search, Settings, SquarePen, X } from "lucide-react";
+// Phase 143 D-09 (retired by shape-sidebar-header-affordances): the Archive
+// (aliased ArchivedBoxIcon) glyph was the always-visible archived-apps trigger
+// on the Apps section header. Migrated into the Apps header RowKebabMenu
+// (single "Archived apps" item); icon import removed.
+import { AppWindow, ChevronDown, Clock, Drama, FolderPlus, Loader2, MessageSquare, MessagesSquare, Monitor, MoreVertical, Pin, Search, Settings, SquarePen, X } from "lucide-react";
 import { Button } from "@/components/button";
 import SkillsEditorModal from "@/features/pretty-view/SkillsEditorModal";
 // Phase 137 D-08: PreferencesModal — opened from the sidebar footer gear button.
@@ -166,9 +168,18 @@ import { ConversationSearchModal } from "./ConversationSearchModal";
 // modals). Consumes the fleet-wide LIST + CRUD helpers from
 // src/ui/api/scheduled-agents-api.ts, which layer over shape 2's REST endpoints.
 import { ScheduledAgentsModal } from "./ScheduledAgentsModal";
-// Phase 143 D-09: ArchivedAppsModal — opened from the archived-box icon-button
-// on the Apps section header (see mount below at <RolesListModal> sibling block).
+// Phase 143 D-09: ArchivedAppsModal — opened from the Apps section header's
+// RowKebabMenu "Archived apps" item (see mount below at <RolesListModal>
+// sibling block). shape-sidebar-header-affordances migrated the trigger from
+// an inline icon-button to the shared kebab primitive.
 import { ArchivedAppsModal } from "./ArchivedAppsModal";
+// shape-sidebar-header-affordances: shared kebab primitive used for every
+// sidebar section-header affordance that has at least one action to offer.
+// Hover-reveal on desktop + always-visible on mobile is applied at each
+// consumer site via a group/group-hover wrapper (RowKebabMenu itself is
+// always-visible — the reveal discipline lives at the consumer, not in
+// the primitive).
+import { RowKebabMenu } from "./RowKebabMenu";
 import type { ConversationSearchResult } from "@/api/conversation-search-api";
 import {
   useSessionIsWorking,
@@ -2997,13 +3008,9 @@ export function PrettyConversationsPanel({
             collapse toggle. */}
         {!(sidebarSearchActive && searchedAppTiles.length === 0) && (
         <div className="pv-panel-group pv-apps-section">
-          {/* Phase 143 D-09: outer <button> replaced with <div role="button"> so
-              the archived-box trigger can be a SIBLING button (not nested inside
-              a button). Nesting <button> inside <button> is invalid HTML and many
-              browsers silently break the inner button's click. Same pattern as
-              PrettyProjectSectionHeader.tsx:353-357 — div wrapper + sibling
-              button discipline (stopPropagation prevents collapse-toggle from
-              firing when the icon-button is clicked). */}
+          {/* Outer <div role="button"> so the kebab can be a SIBLING button
+              (not nested — nested <button>s are invalid HTML). `group` enables
+              the kebab's hover-reveal via group-hover below. */}
           <div
             role="button"
             tabIndex={0}
@@ -3014,7 +3021,7 @@ export function PrettyConversationsPanel({
                 setAppsExpanded((v) => !v);
               }
             }}
-            className="flex items-center gap-2.5 pl-1 pr-4 pt-3.5 pb-1.5 w-full text-left cursor-pointer"
+            className="group flex items-center gap-2.5 pl-1 pr-4 pt-3.5 pb-1.5 w-full text-left cursor-pointer"
             data-testid="pretty-conversations-apps-header"
             aria-expanded={appsExpanded || sidebarSearchActive}
             aria-controls="pv-apps-section-content"
@@ -3030,28 +3037,29 @@ export function PrettyConversationsPanel({
               aria-hidden="true"
               className="flex-1 h-px bg-[linear-gradient(90deg,transparent_0%,rgba(168,154,128,0.20)_30%,rgba(168,154,128,0.20)_70%,transparent_100%)]"
             />
-            {/* Phase 143 D-09: Archived-box icon-button — sibling, NOT nested.
-                stopPropagation on click/keyDown so the outer div's collapse toggle
-                does NOT fire. Mirrors PrettyProjectSectionHeader.tsx:357-377
-                sibling-button discipline verbatim. */}
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setArchivedAppsModalOpen(true);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.stopPropagation();
-                }
-              }}
-              className="inline-flex items-center justify-center size-5 rounded hover:bg-white/5 text-[#5c6070]/85 shrink-0"
-              aria-label="Open archived apps"
-              title="Archived apps"
-              data-testid="pretty-conversations-archived-apps-trigger"
+            {/* shape-sidebar-header-affordances: Apps header kebab.
+                Items today: Archived apps (opens ArchivedAppsModal).
+                Hover-reveal on desktop (opacity-0 → group-hover:opacity-100
+                at md+); always-visible on mobile (opacity-100 at <md).
+                Also revealed on group-focus-within so keyboard Tab-into-kebab
+                lights the trigger. RowKebabMenu's own portal-click-containment
+                prevents item-click leaks to the outer div's collapse toggle. */}
+            <div
+              className="opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity shrink-0"
+              data-testid="pretty-conversations-apps-header-kebab-slot"
             >
-              <ArchivedBoxIcon className="size-3" aria-hidden="true" />
-            </button>
+              <RowKebabMenu
+                ariaLabel="Apps section menu"
+                testId="pretty-conversations-apps-header-kebab-trigger"
+                items={[
+                  {
+                    label: "Archived apps",
+                    onClick: () => setArchivedAppsModalOpen(true),
+                    testId: "pretty-conversations-archived-apps-item",
+                  },
+                ]}
+              />
+            </div>
             <ChevronDown
               className={`size-3.5 text-[#a89a80] opacity-90 shrink-0 transition-transform ${appsExpanded || sidebarSearchActive ? "rotate-180" : ""}`}
               aria-hidden="true"
