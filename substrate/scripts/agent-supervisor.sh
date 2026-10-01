@@ -55,11 +55,6 @@ APPS_ARCHIVE_DIR="${AGENT_APPS_ARCHIVE_DIR:-$HOME/fleet/apps-archive}"
 # to every managed host by the fleet substrate distributor. Env-overridable
 # for test hermeticity (tests stub the script).
 APP_ARCHIVE_SCRIPT="${AGENT_APP_ARCHIVE_SCRIPT:-$HOME/.claude/skills/app-development/archive-app.sh}"
-# un-archive host-side shape: fleet admin creds for Matrix admin API calls
-# used by scan_identity_unarchive_requested_sentinels (PUT users/{mxid} with
-# deactivated=false + POST users/{mxid}/login for a fresh access_token).
-# Env-overridable for test hermeticity (tests stub the file).
-MATRIX_ADMIN_CREDS_PATH="${AGENT_MATRIX_ADMIN_CREDS_PATH:-$HOME/fleet/roles/box-maintainer/matrix-admin-t1000.json}"
 # un-archive host-side shape: systemctl binary + user-systemd unit dir + the
 # lock file shared with create-app.sh so port-collision checks are safe
 # against concurrent creates. Used by scan_app_unarchive_requested_sentinels
@@ -1345,22 +1340,23 @@ print(json.dumps(roles), end='')
 PYEOF
 }
 
-# ---- URL-encode an MXID for use in an admin-API URL path segment ----
-# Synapse's admin endpoints take the full MXID (`@name:homeserver`) in the URL;
-# both `@` and `:` need percent-encoding to be safe across proxies. jq's @uri
-# filter is stdlib-safe and matches the TS-side `encodeURIComponent(mxid)` used
-# by the Matrix admin client (src/backend/matrix/matrix-admin-client.ts).
-_urlencode_mxid() {
-  local mxid="$1"
-  jq -nr --arg s "$mxid" '$s | @uri'
-}
-
 # ---- user-initiated identity un-archive scanner (un-archive host-side shape) ----
 # scan_identity_unarchive_requested_sentinels()
 #
 # Sibling of scan_archive_requested_sentinels. Walks $IDENTITIES_ARCHIVE_DIR/*/
 # every reconcile tick and reverses the archive for any archived identity whose
 # folder carries a `.unarchive-requested` sentinel.
+#
+# 2026-10-01 matrix-cred-location correction: the Matrix reactivate + token mint
+# + relay.json rewrite steps moved OUT of this scanner and INTO the backend
+# `identity-unarchive.ts` route. The route always runs on T1000 (where the
+# encrypted admin creds live in the DB); the per-host supervisor doesn't have
+# admin creds on hosts other than T1000, and spreading them via substrate was
+# a crown-jewel blast-radius reject. The scanner retains preconditions +
+# folder-mv + sentinel-delete + dormancy logic, with a new whoami safety-check
+# that refuses a sentinel the backend didn't precede (half-un-archive guard).
+# See .planning/campaigns/un-archiving/shape-agent-side-identity-unarchive-correction.md
+# for the agent-side-restoration shape and the full architecture rationale.
 #
 # Per-identity flow (all steps LOG per-step; secrets never logged):
 #
@@ -1375,26 +1371,25 @@ _urlencode_mxid() {
 #     missing → LOUD ERROR log naming ALL missing roles, delete the sentinel,
 #     skip. User un-archives roles first, then re-issues.
 #
-#   Step 1 (Matrix reactivate, transient-retry / permanent-abort):
-#     Read mxid + password from the archive folder's relay.json + read fleet
-#     admin base + token from $MATRIX_ADMIN_CREDS_PATH. PUT
-#     $ADMIN_BASE/_synapse/admin/v2/users/{mxid} with body
-#     {"password":<pw>,"admin":false,"deactivated":false}. 3-attempt exp
-#     backoff on 5xx / network / empty http_code (mirrors retire step-1
-#     shape). 200/201 = success. 4xx = permanent, sentinel retained for
-#     operator inspection (do NOT delete on transient/permanent failure —
-#     next tick retries the transient; operator resolves the permanent).
+#   Safety check (whoami probe, half-un-archive guard — 2026-10-01):
+#     Read base + access_token from the archive folder's relay.json. GET
+#     $base/account/whoami with Bearer <access_token>. 200 confirms the
+#     Matrix account is live (reactivate+mint already happened — either via
+#     the backend un-archive route, or by a previous tick that got as far as
+#     relay.json rewrite before crashing). 401 means the token is still the
+#     stale deactivated-era one and nothing reactivated the account — refuse
+#     with a LOUD log instructing the operator to use the frontend path, and
+#     RETAIN the sentinel (operator may be mid-flow). Any other code (5xx,
+#     network, timeout) is treated as transient — sentinel retained, next
+#     tick retries.
 #
-#   Step 2 (Fresh access-token mint, transient-retry / permanent-abort):
-#     POST $ADMIN_BASE/_synapse/admin/v1/users/{mxid}/login with fleet admin
-#     token, empty body. 200 with access_token in response body = success.
-#     Same retry shape as step 1. On failure (transient exhausted or
-#     permanent 4xx), sentinel retained.
-#
-#   Step 3 (Rewrite relay.json access_token, atomic):
-#     Overwrite relay.json's `access_token` (and `token` alias) fields via
-#     jq → tmp file → mv. Password, base, and user_id fields stay untouched.
-#     Failure retains the sentinel.
+#     This guard exists because the Matrix admin creds live only on T1000
+#     (see 2026-10-01 correction above). An agent dropping a sentinel
+#     directly inside the archive folder would otherwise cause a
+#     half-un-archive (folder moves to live, Matrix account still deactivated,
+#     identity useless). Until shape 4 restores agent-side identity un-archive
+#     via a scoped T1000 internal endpoint, direct sentinel-drops for
+#     identities on non-T1000 hosts refuse here.
 #
 #   Step 4 (Conditional .dormant write):
 #     If the archive folder carries `.no-dormancy`, the always-on intent is
@@ -1414,17 +1409,18 @@ _urlencode_mxid() {
 #     appears in the sidebar again and waits for the usual wake triggers
 #     (matrix_peek on a DM, schedule_peek on a wakeup) — reconcile's
 #     alive-check sees .dormant and skips the auto-launch; matrix_peek's
-#     next parallel probe uses the freshly-minted access_token from step 3.
+#     next parallel probe uses the fresh access_token the backend route
+#     minted and wrote into relay.json before dropping the sentinel.
 #
 # ACCEPTED CAVEAT: room memberships do NOT survive reactivation. Retire's
 # deactivate call uses erase=true, which wipes the account's room membership
-# records; admin PUT deactivated=false brings the account back alive but does
-# NOT restore membership records — verified against the live t1000 Synapse
-# via a throwaway-account spike (2026-09-30). New DMs to the un-archived
-# identity work naturally (Matrix auto-creates a new DM room on send; matrix_peek
-# wakes on it), but peers with cached zombie-room IDs would send into rooms the
-# identity is no longer in. This is the same stale-cache problem archive itself
-# creates and not made worse here.
+# records; the backend's admin PUT deactivated=false brings the account back
+# alive but does NOT restore membership records — verified against the live
+# t1000 Synapse via a throwaway-account spike (2026-09-30). New DMs to the
+# un-archived identity work naturally (Matrix auto-creates a new DM room on
+# send; matrix_peek wakes on it), but peers with cached zombie-room IDs would
+# send into rooms the identity is no longer in. This is the same stale-cache
+# problem archive itself creates and not made worse here.
 # If a rejoin path becomes desirable, it lands as a small follow-up shape (retire
 # captures joined_rooms → un-archive scanner reads the snapshot and force-joins
 # via admin /join/{roomId}?user_id=<mxid> — matrix-admin-client.ts already
@@ -1480,138 +1476,49 @@ scan_identity_unarchive_requested_sentinels() {
     fi
 
     # -----------------------------------------------------------------------
-    # Read the archive folder's relay.json (mxid + password) + fleet admin
-    # creds (base + token). All 4 fields must be non-empty to proceed.
+    # Safety check (whoami probe, half-un-archive guard — 2026-10-01):
+    # Confirm the Matrix account is reactivated before touching the folder.
+    # The backend un-archive route (identity-unarchive.ts) does Matrix
+    # reactivate + mint + relay.json rewrite BEFORE dropping the sentinel.
+    # If someone drops the sentinel directly without going through the
+    # backend (e.g., an agent on a non-T1000 host — admin creds live only
+    # on T1000), the relay.json still carries the stale deactivated-era
+    # token and whoami will 401. Refuse + retain sentinel so the operator
+    # notices and uses the frontend path; shape 4 will restore agent-side
+    # identity un-archive via a scoped T1000 internal endpoint.
     # -----------------------------------------------------------------------
     local relay_json="$d/relay.json"
     if [ ! -f "$relay_json" ]; then
       log "ERROR: '$name' un-archive: relay.json not found at $relay_json. Sentinel retained; next tick will retry."
       continue
     fi
-    local mxid password
-    mxid=$(jq -r '.user_id // empty' "$relay_json" 2>/dev/null)
-    password=$(jq -r '.password // empty' "$relay_json" 2>/dev/null)
-    if [ -z "$mxid" ] || [ -z "$password" ]; then
-      log "ERROR: '$name' un-archive: relay.json missing user_id or password. Sentinel retained."
-      continue
-    fi
-    if [ ! -f "$MATRIX_ADMIN_CREDS_PATH" ]; then
-      log "ERROR: '$name' un-archive: fleet admin creds not found at $MATRIX_ADMIN_CREDS_PATH. Sentinel retained."
-      continue
-    fi
-    local admin_base admin_token
-    admin_base=$(jq -r '.homeserver // empty' "$MATRIX_ADMIN_CREDS_PATH" 2>/dev/null)
-    admin_token=$(jq -r '.access_token // empty' "$MATRIX_ADMIN_CREDS_PATH" 2>/dev/null)
-    if [ -z "$admin_base" ] || [ -z "$admin_token" ]; then
-      log "ERROR: '$name' un-archive: fleet admin creds missing homeserver or access_token. Sentinel retained."
-      continue
-    fi
-    local mxid_encoded; mxid_encoded=$(_urlencode_mxid "$mxid")
-
-    # -----------------------------------------------------------------------
-    # Step 1: Matrix reactivate (PUT users/{mxid} with deactivated=false).
-    # 3-attempt exponential backoff on transient failures; 4xx is permanent.
-    # -----------------------------------------------------------------------
-    log "'$name' un-archive step 1 (matrix reactivate) starting for $mxid at $admin_base"
-    local reactivate_body reactivate_resp reactivate_code
-    reactivate_body=$(jq -nc --arg p "$password" \
-      '{"password":$p,"admin":false,"deactivated":false}')
-    local _step1_ok=0 _attempt _delay
-    for _attempt in 1 2 3; do
-      reactivate_resp=$(curl -sS -w '\n%{http_code}' --max-time 30 \
-        -X PUT "$admin_base/_synapse/admin/v2/users/$mxid_encoded" \
-        -H "Authorization: Bearer $admin_token" \
-        -H "Content-Type: application/json" \
-        -d "$reactivate_body" 2>/dev/null)
-      reactivate_code=$(printf '%s\n' "$reactivate_resp" | tail -1)
-      case "$reactivate_code" in
-        200|201)
-          log "'$name' un-archive step 1 (matrix reactivate) success (http=$reactivate_code)"
-          _step1_ok=1
-          break ;;
-        4*)
-          log "ERROR: '$name' un-archive step 1 (matrix reactivate) FAILED http=$reactivate_code for $mxid at $admin_base — permanent, sentinel retained"
-          break ;;
-        5*|"")
-          log "'$name' un-archive step 1 (matrix reactivate) attempt $_attempt/3 transient (http=$reactivate_code) — will retry"
-          ;;
-        *)
-          log "ERROR: '$name' un-archive step 1 (matrix reactivate) FAILED http=$reactivate_code for $mxid — unexpected code, sentinel retained"
-          break ;;
-      esac
-      if [ "$_attempt" -lt 3 ]; then
-        _delay=$((2 ** _attempt))
-        log "'$name' un-archive step 1 sleeping ${_delay}s before attempt $((_attempt + 1))/3"
-        sleep "$_delay"
-      fi
-    done
-    if [ "$_step1_ok" != 1 ]; then
-      log "ERROR: '$name' un-archive step 1 (matrix reactivate) did not succeed — sentinel retained; next tick will retry transient / operator resolves permanent"
+    local base access_token
+    base=$(jq -r '.base // empty' "$relay_json" 2>/dev/null)
+    access_token=$(jq -r '.access_token // empty' "$relay_json" 2>/dev/null)
+    if [ -z "$base" ] || [ -z "$access_token" ]; then
+      log "ERROR: '$name' un-archive: relay.json missing base or access_token — sentinel retained; backend route should populate before sentinel drop"
       continue
     fi
 
-    # -----------------------------------------------------------------------
-    # Step 2: Mint fresh access_token via admin login-as-user.
-    # -----------------------------------------------------------------------
-    log "'$name' un-archive step 2 (mint fresh access_token) starting for $mxid"
-    local login_resp login_code login_body new_token
-    local _step2_ok=0
-    new_token=""
-    for _attempt in 1 2 3; do
-      login_resp=$(curl -sS -w '\n%{http_code}' --max-time 30 \
-        -X POST "$admin_base/_synapse/admin/v1/users/$mxid_encoded/login" \
-        -H "Authorization: Bearer $admin_token" \
-        -H "Content-Type: application/json" \
-        -d '{}' 2>/dev/null)
-      login_code=$(printf '%s\n' "$login_resp" | tail -1)
-      # Everything BEFORE the last line is the body (curl's -w appends \n<code>).
-      login_body=$(printf '%s\n' "$login_resp" | sed '$d')
-      case "$login_code" in
-        200)
-          new_token=$(printf '%s' "$login_body" | jq -r '.access_token // empty' 2>/dev/null)
-          if [ -n "$new_token" ]; then
-            log "'$name' un-archive step 2 (mint fresh access_token) success"
-            _step2_ok=1
-            break
-          fi
-          log "'$name' un-archive step 2 attempt $_attempt/3: http=200 but access_token absent from body — will retry"
-          ;;
-        4*)
-          log "ERROR: '$name' un-archive step 2 (mint token) FAILED http=$login_code for $mxid at $admin_base — permanent, sentinel retained"
-          break ;;
-        5*|"")
-          log "'$name' un-archive step 2 attempt $_attempt/3 transient (http=$login_code) — will retry"
-          ;;
-        *)
-          log "ERROR: '$name' un-archive step 2 (mint token) FAILED http=$login_code for $mxid — unexpected code, sentinel retained"
-          break ;;
-      esac
-      if [ "$_attempt" -lt 3 ]; then
-        _delay=$((2 ** _attempt))
-        log "'$name' un-archive step 2 sleeping ${_delay}s before attempt $((_attempt + 1))/3"
-        sleep "$_delay"
-      fi
-    done
-    if [ "$_step2_ok" != 1 ]; then
-      log "ERROR: '$name' un-archive step 2 (mint fresh access_token) did not succeed — sentinel retained"
-      continue
-    fi
-
-    # -----------------------------------------------------------------------
-    # Step 3: Atomically rewrite relay.json's access_token (+ token alias).
-    # -----------------------------------------------------------------------
-    local relay_tmp="$d/relay.json.tmp.$$"
-    if ! jq --arg t "$new_token" '.access_token = $t | .token = $t' "$relay_json" > "$relay_tmp" 2>/dev/null; then
-      log "ERROR: '$name' un-archive step 3 (relay.json rewrite): jq failed — sentinel retained"
-      rm -f "$relay_tmp"
-      continue
-    fi
-    if ! mv "$relay_tmp" "$relay_json"; then
-      log "ERROR: '$name' un-archive step 3 (relay.json rewrite): mv tmp->final failed — sentinel retained"
-      rm -f "$relay_tmp"
-      continue
-    fi
-    log "'$name' un-archive step 3 (relay.json access_token refreshed)"
+    # whoami probe — no retries; a fresh backend-prepared token should work first time.
+    local whoami_resp whoami_code
+    whoami_resp=$(curl -sS -w '\n%{http_code}' --max-time 15 \
+      -H "Authorization: Bearer $access_token" \
+      "$base/account/whoami" 2>/dev/null)
+    whoami_code=$(printf '%s\n' "$whoami_resp" | tail -1)
+    case "$whoami_code" in
+      200)
+        log "'$name' un-archive: whoami probe success (account is live) — proceeding to folder move"
+        ;;
+      401)
+        log "ERROR: '$name' un-archive REFUSED: whoami probe returned 401 — Matrix account is still deactivated (sentinel was dropped without the backend's reactivate+mint+relay-rewrite). Use the frontend un-archive path, which runs on T1000 where the admin creds live. Sentinel retained."
+        continue
+        ;;
+      *)
+        log "ERROR: '$name' un-archive: whoami probe failed http=$whoami_code (transient / unexpected) — sentinel retained; next tick will retry"
+        continue
+        ;;
+    esac
 
     # -----------------------------------------------------------------------
     # Step 4: Conditional .dormant write (preserve pre-archive .no-dormancy).
@@ -1647,10 +1554,10 @@ scan_identity_unarchive_requested_sentinels() {
     # -----------------------------------------------------------------------
     mkdir -p "$IDENTITIES_DIR" 2>/dev/null || true
     if ! mv "$d" "$IDENTITIES_DIR/$name"; then
-      log "ERROR: '$name' un-archive step 6 (mv archive→live) FAILED — sentinel already deleted; identity retained in archive tree with matrix reactivated + .dormant already written. Investigate manually; drop a fresh .unarchive-requested to retry once the collision is resolved."
+      log "ERROR: '$name' un-archive step 6 (mv archive→live) FAILED — sentinel already deleted; identity retained in archive tree with matrix already reactivated by the backend route + .dormant already written. Investigate manually; drop a fresh .unarchive-requested to retry once the collision is resolved."
       continue
     fi
-    log "'$name' un-archive COMPLETE: folder moved to live tree, matrix reactivated, access_token refreshed"
+    log "'$name' un-archive COMPLETE: folder moved to live tree (matrix reactivate + token mint + relay.json rewrite done by backend route before sentinel)"
   done
 }
 

@@ -29,8 +29,15 @@
 #   AGENT_IDENTITIES_ARCHIVE_DIR=<scratch>-archive
 #   AGENT_ROLES_DIR=<scratch>-roles
 #   AGENT_ROLES_ARCHIVE_DIR=<scratch>-roles-archive
-#   AGENT_MATRIX_ADMIN_CREDS_PATH=<scratch>/admin-creds.json
 #   AGENT_SUPERVISOR_LIB_ONLY=1
+#
+# 2026-10-01 matrix-cred-location correction: the identity un-archive scanner
+# no longer touches the Matrix admin API — the backend un-archive route owns
+# reactivate + mint + relay.json rewrite BEFORE dropping the sentinel. The
+# scanner's new safety check is a whoami probe against the relay.json's token;
+# if it 401s (token still stale → backend was bypassed) the scanner refuses.
+# These tests exercise the whoami-pass happy path and the whoami-401 refuse
+# path; the deleted retry-loop tests for admin PUT/POST no longer apply here.
 
 export AGENT_SUPERVISOR_LIB_ONLY=1
 set -u
@@ -124,7 +131,6 @@ _source_supervisor_unarchive() {
   export AGENT_APPS_ARCHIVE_DIR="${scratch}-apps-archive"
   export AGENT_SYSTEMD_UNIT_DIR="${scratch}-systemd-units"
   export AGENT_APP_CREATE_LOCK="$scratch/.create-lock"
-  export AGENT_MATRIX_ADMIN_CREDS_PATH="$scratch/admin-creds.json"
   if [ -n "$systemctl_stub" ]; then
     export AGENT_SYSTEMCTL_BIN="$systemctl_stub"
   fi
@@ -234,33 +240,21 @@ fixture_live_role() {
   printf 'role-marker\n' > "${scratch}-roles/$role/role.md"
 }
 
-# Write fleet admin creds fixture pointing at the stub.
-fixture_admin_creds() {
-  local scratch="$1" port="$2"
-  jq -n \
-    --arg hs   "http://127.0.0.1:$port" \
-    --arg tok  "admin-tok" \
-    --arg uid  "@skynet-admin:test" \
-    '{homeserver:$hs, access_token:$tok, user_id:$uid, password:"admin-pw", server_name:"test"}' \
-    > "$scratch/admin-creds.json"
-}
-
-# ---- stub admin homeserver ----
-# Two endpoints exercised:
-#   PUT  /_synapse/admin/v2/users/{mxid}            → reactivate (canned status codes)
-#   POST /_synapse/admin/v1/users/{mxid}/login      → returns access_token
+# ---- stub homeserver (whoami probe target — 2026-10-01 matrix-cred-location correction) ----
+# One endpoint exercised:
+#   GET /_matrix/client/v3/account/whoami  → canned status code (sequence)
 #
-# Each takes a comma-separated status-code sequence; once exhausted, the LAST
-# code repeats. On PUT 200/201 the body is a small JSON success blob. On
-# POST 200 the body is `{"access_token":"fresh-tok-<counter>"}` so tests can
-# assert the token was refreshed.
+# Takes a comma-separated status-code sequence; once exhausted, the LAST
+# code repeats. On GET 200 the body is a small whoami response. Earlier
+# PUT (reactivate) + POST (mint) endpoints retired — the backend route
+# owns those now.
 STUB_PID=""
 STUB_PORT=""
 STUB_LOG=""
 STUB_REQ_LOG=""
 
 start_stub_admin() {
-  local put_codes="${1:-200}" post_codes="${2:-200}"
+  local get_codes="${1:-200}"
   STUB_PID=""
   STUB_PORT=""
   STUB_LOG=$(mktemp)
@@ -269,12 +263,10 @@ start_stub_admin() {
   python3 -c "
 import http.server, sys, socketserver, json
 
-put_codes  = [int(c) for c in sys.argv[1].split(',')]
-post_codes = [int(c) for c in sys.argv[2].split(',')]
-port_file  = sys.argv[3]
-req_log    = sys.argv[4]
-counters   = {'PUT': 0, 'POST': 0}
-mint_counter = {'i': 0}
+get_codes = [int(c) for c in sys.argv[1].split(',')]
+port_file = sys.argv[2]
+req_log   = sys.argv[3]
+counters  = {'GET': 0}
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def _log_and_respond(self, method, codes):
@@ -290,15 +282,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header('Content-Type', 'application/json')
         self.end_headers()
-        if method == 'POST' and code == 200:
-            mint_counter['i'] += 1
-            token = 'fresh-tok-%d' % mint_counter['i']
-            self.wfile.write(json.dumps({'access_token': token, 'device_id': 'DEVICE-' + str(mint_counter['i'])}).encode('utf-8'))
+        if method == 'GET' and code == 200:
+            # Shape a minimal whoami response; scanner doesn't parse the body,
+            # only cares about the status code.
+            self.wfile.write(b'{\"user_id\":\"@test:test\",\"device_id\":\"TESTDEV\"}')
         else:
-            self.wfile.write(b'{\"status\":\"ok\"}\n')
+            self.wfile.write(b'{\"errcode\":\"M_UNKNOWN_TOKEN\"}')
 
-    def do_PUT(self):  self._log_and_respond('PUT',  put_codes)
-    def do_POST(self): self._log_and_respond('POST', post_codes)
+    def do_GET(self): self._log_and_respond('GET', get_codes)
     def log_message(self, fmt, *args): pass
 
 with socketserver.TCPServer(('127.0.0.1', 0), Handler) as server:
@@ -306,7 +297,7 @@ with socketserver.TCPServer(('127.0.0.1', 0), Handler) as server:
     with open(port_file, 'w') as f:
         f.write(str(port))
     server.serve_forever()
-" "$put_codes" "$post_codes" "$STUB_LOG" "$STUB_REQ_LOG" &
+" "$get_codes" "$STUB_LOG" "$STUB_REQ_LOG" &
   STUB_PID=$!
 
   local waited=0
@@ -398,8 +389,7 @@ test_identity_happy_path_scalar_role() {
   local scratch; scratch=$(setup_unarchive_scratch)
   fixture_live_role "$scratch" box-maintainer
   fixture_archived_identity "$scratch" alpha "scalar:box-maintainer"
-  start_stub_admin 200 200 || { teardown_unarchive_scratch "$scratch"; return; }
-  fixture_admin_creds "$scratch" "$STUB_PORT"
+  start_stub_admin "200" || { teardown_unarchive_scratch "$scratch"; return; }
   sed -i "s|STUB_PORT|$STUB_PORT|" "${scratch}-archive/alpha/relay.json"
 
   local out
@@ -412,15 +402,13 @@ test_identity_happy_path_scalar_role() {
   assert_file   "$scratch/alpha/.dormant"              "happy path: .dormant travelled with folder"
   assert_nofile "$scratch/alpha/.unarchive-requested"  "happy path: un-archive sentinel deleted"
 
-  # relay.json access_token replaced (was stale-tok-alpha; now fresh-tok-1).
+  # relay.json access_token UNCHANGED by scanner (backend route owns rewrite;
+  # here we only placed the fixture with its original "stale-tok-alpha" value,
+  # which the stub accepts via the whoami probe without caring what the token is).
   local tok; tok=$(jq -r '.access_token' "$scratch/alpha/relay.json")
-  assert_eq "fresh-tok-1" "$tok" "happy path: access_token refreshed by step 3"
-  local aliased; aliased=$(jq -r '.token' "$scratch/alpha/relay.json")
-  assert_eq "fresh-tok-1" "$aliased" "happy path: token alias also refreshed"
+  assert_eq "stale-tok-alpha" "$tok" "happy path: scanner does NOT rewrite token (backend route owns that)"
 
-  assert_grep "un-archive step 1 .matrix reactivate. success" "$out" "step 1 success log"
-  assert_grep "un-archive step 2 .mint fresh access_token. success" "$out" "step 2 success log"
-  assert_grep "un-archive step 3 .relay.json access_token refreshed" "$out" "step 3 success log"
+  assert_grep "un-archive: whoami probe success" "$out" "whoami probe success log"
   assert_grep "un-archive step 4: .dormant written" "$out" "step 4 wrote .dormant"
   assert_grep "un-archive COMPLETE" "$out" "completion log present"
   teardown_unarchive_scratch "$scratch"
@@ -431,8 +419,7 @@ test_identity_happy_path_flow_list_all_live() {
   fixture_live_role "$scratch" box-maintainer
   fixture_live_role "$scratch" sky-uat
   fixture_archived_identity "$scratch" beta "flow:box-maintainer,sky-uat"
-  start_stub_admin 200 200 || { teardown_unarchive_scratch "$scratch"; return; }
-  fixture_admin_creds "$scratch" "$STUB_PORT"
+  start_stub_admin "200" || { teardown_unarchive_scratch "$scratch"; return; }
   sed -i "s|STUB_PORT|$STUB_PORT|" "${scratch}-archive/beta/relay.json"
 
   local out
@@ -451,8 +438,7 @@ test_identity_happy_path_block_list_all_live() {
   fixture_live_role "$scratch" box-maintainer
   fixture_live_role "$scratch" sky-uat
   fixture_archived_identity "$scratch" gamma "block:box-maintainer,sky-uat"
-  start_stub_admin 200 200 || { teardown_unarchive_scratch "$scratch"; return; }
-  fixture_admin_creds "$scratch" "$STUB_PORT"
+  start_stub_admin "200" || { teardown_unarchive_scratch "$scratch"; return; }
   sed -i "s|STUB_PORT|$STUB_PORT|" "${scratch}-archive/gamma/relay.json"
 
   local out
@@ -470,8 +456,7 @@ test_identity_no_dormancy_preserved() {
   local scratch; scratch=$(setup_unarchive_scratch)
   fixture_live_role "$scratch" box-maintainer
   fixture_archived_identity "$scratch" delta "scalar:box-maintainer" --no-dormancy
-  start_stub_admin 200 200 || { teardown_unarchive_scratch "$scratch"; return; }
-  fixture_admin_creds "$scratch" "$STUB_PORT"
+  start_stub_admin "200" || { teardown_unarchive_scratch "$scratch"; return; }
   sed -i "s|STUB_PORT|$STUB_PORT|" "${scratch}-archive/delta/relay.json"
 
   local out
@@ -541,34 +526,20 @@ test_identity_name_collision_refuses() {
   teardown_unarchive_scratch "$scratch"
 }
 
-test_identity_reactivate_5xx_transient_recovers() {
-  # Two 500s then a 200 → retry loop recovers, un-archive completes.
-  local scratch; scratch=$(setup_unarchive_scratch)
-  fixture_live_role "$scratch" box-maintainer
-  fixture_archived_identity "$scratch" theta "scalar:box-maintainer"
-  start_stub_admin "500,500,200" "200" || { teardown_unarchive_scratch "$scratch"; return; }
-  fixture_admin_creds "$scratch" "$STUB_PORT"
-  sed -i "s|STUB_PORT|$STUB_PORT|" "${scratch}-archive/theta/relay.json"
+# ---------------------------------------------------------------
+# 2026-10-01 matrix-cred-location correction: whoami safety tests.
+# These replace the retired step-1/step-2 reactivate+mint retry tests
+# (scanner no longer touches admin API — backend route owns that now).
+# ---------------------------------------------------------------
 
-  local out
-  out=$( _source_supervisor_unarchive "$scratch"
-         scan_identity_unarchive_requested_sentinels 2>&1 ) || true
-  stop_stub_admin
-
-  assert_file "$scratch/theta"          "5xx transient: recovered after retries"
-  assert_file "$scratch/theta/.dormant" "5xx transient: .dormant written on recovered success"
-  assert_grep "transient .http=500. — will retry" "$out" "5xx transient: retry log line fires"
-  assert_grep "un-archive COMPLETE" "$out" "5xx transient: completion log after recovery"
-  teardown_unarchive_scratch "$scratch"
-}
-
-test_identity_reactivate_4xx_permanent_retains_sentinel() {
-  # 400 = permanent client error; scanner aborts, sentinel retained for operator inspection.
+test_identity_whoami_401_refuses_sentinel_retained() {
+  # Simulate an agent dropping the sentinel directly without going through
+  # the backend route. relay.json still has the stale deactivated-era token;
+  # whoami 401s → scanner refuses + retains sentinel.
   local scratch; scratch=$(setup_unarchive_scratch)
   fixture_live_role "$scratch" box-maintainer
   fixture_archived_identity "$scratch" iota "scalar:box-maintainer"
-  start_stub_admin "400" "200" || { teardown_unarchive_scratch "$scratch"; return; }
-  fixture_admin_creds "$scratch" "$STUB_PORT"
+  start_stub_admin "401" || { teardown_unarchive_scratch "$scratch"; return; }
   sed -i "s|STUB_PORT|$STUB_PORT|" "${scratch}-archive/iota/relay.json"
 
   local out
@@ -576,68 +547,43 @@ test_identity_reactivate_4xx_permanent_retains_sentinel() {
          scan_identity_unarchive_requested_sentinels 2>&1 ) || true
   stop_stub_admin
 
-  assert_nofile "$scratch/iota"                              "4xx permanent: no folder moved"
-  assert_file   "${scratch}-archive/iota"                    "4xx permanent: archive folder retained"
-  assert_file   "${scratch}-archive/iota/.unarchive-requested" "4xx permanent: sentinel RETAINED (not deleted)"
-  assert_grep "FAILED http=400" "$out" "4xx permanent: LOUD error log"
+  assert_nofile "$scratch/iota"                              "whoami 401: no folder moved"
+  assert_file   "${scratch}-archive/iota"                    "whoami 401: archive folder retained"
+  assert_file   "${scratch}-archive/iota/.unarchive-requested" "whoami 401: sentinel RETAINED for operator"
+  assert_grep "REFUSED: whoami probe returned 401" "$out" "whoami 401: LOUD refuse log fires"
+  assert_grep "Use the frontend un-archive path" "$out" "whoami 401: operator pointed at frontend path"
   teardown_unarchive_scratch "$scratch"
 }
 
-test_identity_step2_token_mint_4xx_retains_sentinel() {
-  # Reactivate step 1 succeeds (200), but the admin login-as-user step 2 returns
-  # 400 permanent → scanner aborts before .dormant / mv, sentinel retained,
-  # relay.json's stale access_token stays put (no rewrite).
+test_identity_whoami_transient_5xx_retains_sentinel() {
+  # Whoami probe returns 503 (transient): scanner retains sentinel, next tick
+  # will retry. No folder move; no .dormant write.
   local scratch; scratch=$(setup_unarchive_scratch)
   fixture_live_role "$scratch" box-maintainer
-  fixture_archived_identity "$scratch" mu "scalar:box-maintainer"
-  start_stub_admin "200" "400" || { teardown_unarchive_scratch "$scratch"; return; }
-  fixture_admin_creds "$scratch" "$STUB_PORT"
-  sed -i "s|STUB_PORT|$STUB_PORT|" "${scratch}-archive/mu/relay.json"
+  fixture_archived_identity "$scratch" theta "scalar:box-maintainer"
+  start_stub_admin "503" || { teardown_unarchive_scratch "$scratch"; return; }
+  sed -i "s|STUB_PORT|$STUB_PORT|" "${scratch}-archive/theta/relay.json"
 
   local out
   out=$( _source_supervisor_unarchive "$scratch"
          scan_identity_unarchive_requested_sentinels 2>&1 ) || true
   stop_stub_admin
 
-  assert_nofile "$scratch/mu"                                "step2 4xx: no folder moved"
-  assert_file   "${scratch}-archive/mu"                      "step2 4xx: archive retained"
-  assert_file   "${scratch}-archive/mu/.unarchive-requested" "step2 4xx: sentinel RETAINED"
-  assert_nofile "${scratch}-archive/mu/.dormant"             "step2 4xx: .dormant NOT written (step 4 not reached)"
-  local tok; tok=$(jq -r '.access_token' "${scratch}-archive/mu/relay.json")
-  assert_eq "stale-tok-mu" "$tok" "step2 4xx: relay.json access_token untouched"
-  assert_grep "un-archive step 1 .matrix reactivate. success" "$out" "step2 4xx: step 1 succeeded first"
-  assert_grep "un-archive step 2 .mint token. FAILED http=400" "$out" "step2 4xx: LOUD error log names step 2"
+  assert_nofile "$scratch/theta"                              "whoami 503: no folder moved"
+  assert_file   "${scratch}-archive/theta/.unarchive-requested" "whoami 503: sentinel retained for next tick"
+  assert_nofile "${scratch}-archive/theta/.dormant"           "whoami 503: .dormant NOT written"
+  assert_grep "whoami probe failed http=503" "$out" "whoami 503: transient log fires"
   teardown_unarchive_scratch "$scratch"
 }
 
-test_identity_step2_token_mint_5xx_transient_recovers() {
-  # Step 1 succeeds first-try (200). Step 2 hits 502, 502, then 200 — retry loop
-  # recovers, un-archive completes.
-  local scratch; scratch=$(setup_unarchive_scratch)
-  fixture_live_role "$scratch" box-maintainer
-  fixture_archived_identity "$scratch" nu "scalar:box-maintainer"
-  start_stub_admin "200" "502,502,200" || { teardown_unarchive_scratch "$scratch"; return; }
-  fixture_admin_creds "$scratch" "$STUB_PORT"
-  sed -i "s|STUB_PORT|$STUB_PORT|" "${scratch}-archive/nu/relay.json"
-
-  local out
-  out=$( _source_supervisor_unarchive "$scratch"
-         scan_identity_unarchive_requested_sentinels 2>&1 ) || true
-  stop_stub_admin
-
-  assert_file "$scratch/nu"          "step2 transient: recovered after retries"
-  assert_file "$scratch/nu/.dormant" "step2 transient: .dormant written on recovered success"
-  assert_grep "un-archive step 2 attempt 1/3 transient .http=502" "$out"
-  assert_grep "un-archive COMPLETE" "$out"
-  teardown_unarchive_scratch "$scratch"
-}
-
-test_identity_relay_json_missing_user_id_retains_sentinel() {
+test_identity_relay_json_missing_access_token_retains_sentinel() {
+  # If relay.json is missing base or access_token (e.g., corrupted archive),
+  # scanner can't construct the whoami URL — retain sentinel + LOUD log.
   local scratch; scratch=$(setup_unarchive_scratch)
   fixture_live_role "$scratch" box-maintainer
   fixture_archived_identity "$scratch" kappa "scalar:box-maintainer"
-  # Overwrite relay.json with a broken shape.
-  printf '{"base":"http://127.0.0.1:1","password":"pw"}' > "${scratch}-archive/kappa/relay.json"
+  # Overwrite relay.json with a broken shape (user_id present but access_token absent).
+  printf '{"base":"http://127.0.0.1:1","password":"pw","user_id":"@kappa:test"}' > "${scratch}-archive/kappa/relay.json"
 
   local out
   out=$( _source_supervisor_unarchive "$scratch"
@@ -645,7 +591,7 @@ test_identity_relay_json_missing_user_id_retains_sentinel() {
 
   assert_nofile "$scratch/kappa"                              "relay.json broken: no folder moved"
   assert_file   "${scratch}-archive/kappa/.unarchive-requested" "relay.json broken: sentinel retained"
-  assert_grep "relay.json missing user_id or password" "$out"
+  assert_grep "relay.json missing base or access_token" "$out"
   teardown_unarchive_scratch "$scratch"
 }
 
@@ -1041,11 +987,9 @@ run_test test_identity_no_dormancy_preserved
 run_test test_identity_role_missing_scalar_refuses
 run_test test_identity_role_missing_multi_names_only_missing
 run_test test_identity_name_collision_refuses
-run_test test_identity_reactivate_5xx_transient_recovers
-run_test test_identity_reactivate_4xx_permanent_retains_sentinel
-run_test test_identity_step2_token_mint_4xx_retains_sentinel
-run_test test_identity_step2_token_mint_5xx_transient_recovers
-run_test test_identity_relay_json_missing_user_id_retains_sentinel
+run_test test_identity_whoami_401_refuses_sentinel_retained
+run_test test_identity_whoami_transient_5xx_retains_sentinel
+run_test test_identity_relay_json_missing_access_token_retains_sentinel
 run_test test_identity_no_sentinel_noop
 
 run_test test_role_happy_path
