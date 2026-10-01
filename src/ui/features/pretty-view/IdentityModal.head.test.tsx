@@ -11,7 +11,7 @@
  *   Test 4: voice chip renders "default" (italic) when identity.voice is null
  *   Test 5: voice chip renders the voice name when identity.voice is set
  *   Test 6: click voice chip → popover opens with VoicePicker
- *   Test 7: VoicePicker onChange → updateIdentity called with { voice }
+ *   Test 7: VoicePicker apply → updateIdentity called with { voice }
  *
  * Stays-awake NOT re-authored — Boost switch retired top-to-bottom.
  * Main structural coverage (tab count, no-scope-switch, jump-to-role) lives
@@ -266,7 +266,7 @@ describe("IdentityModal head — voice chip", () => {
     expect(within(popover).getByRole("combobox")).toBeTruthy();
   });
 
-  it("Test 7: VoicePicker onChange → updateIdentity called with { voice }", async () => {
+  it("Test 7: VoicePicker apply → updateIdentity called with { voice }", async () => {
     renderModal({ voice: null });
     await waitFor(() => {
       expect(document.querySelector('[role="dialog"]')).toBeTruthy();
@@ -275,6 +275,11 @@ describe("IdentityModal head — voice chip", () => {
     const popover = await screen.findByTestId("identity-modal-voice-popover");
     const select = within(popover).getByRole("combobox") as HTMLSelectElement;
     fireEvent.change(select, { target: { value: "Matthew" } });
+
+    // Staging only — nothing persists until apply.
+    expect(mockUpdateIdentity).not.toHaveBeenCalled();
+
+    fireEvent.click(within(popover).getByTestId("voice-picker-apply"));
 
     await waitFor(() => {
       expect(mockUpdateIdentity).toHaveBeenCalledWith(

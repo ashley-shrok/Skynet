@@ -1,5 +1,5 @@
-import { useEffect, useRef } from "react";
-import { Volume2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Volume2, Check } from "lucide-react";
 import { postSpeak, SAMPLE_PHRASE } from "@/api/voice-api";
 
 export { SAMPLE_PHRASE };
@@ -34,6 +34,15 @@ export function VoicePicker({
   const sampleAudioRef = useRef<HTMLAudioElement | null>(null);
   const sampleUrlRef = useRef<string | null>(null);
 
+  // Draft decouples dropdown selection from commit — user can audition
+  // via the sample button before clicking apply. Resyncs when the parent
+  // pushes a new value (modal reopened on a different subject, or save
+  // round-trip landing).
+  const [draft, setDraft] = useState<string>(value);
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
   // Unmount cleanup for sample audio
   useEffect(() => {
     return () => {
@@ -55,7 +64,7 @@ export function VoicePicker({
         sampleAudioRef.current = null;
         sampleUrlRef.current = null;
       }
-      const blob = await postSpeak(SAMPLE_PHRASE, value || undefined);
+      const blob = await postSpeak(SAMPLE_PHRASE, draft || undefined);
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
       sampleAudioRef.current = audio;
@@ -74,13 +83,15 @@ export function VoicePicker({
     }
   }
 
+  const dirty = draft !== value;
+
   return (
     <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
       <select
         id={id ?? "voice-picker"}
         aria-label={ariaLabel}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
         disabled={disabled}
         style={{
           flex: 1,
@@ -122,6 +133,30 @@ export function VoicePicker({
       >
         <Volume2 size={16} />
       </button>
+      {dirty && (
+        <button
+          type="button"
+          aria-label="Apply voice"
+          data-testid="voice-picker-apply"
+          onClick={() => onChange(draft)}
+          disabled={disabled}
+          style={{
+            width: 32,
+            height: 32,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            borderRadius: 6,
+            background: "rgba(90,160,110,0.32)",
+            border: "1px solid rgba(140,210,160,0.42)",
+            color: "rgba(220,255,220,0.92)",
+            cursor: "pointer",
+          }}
+          className="hover:!bg-[rgba(90,160,110,0.52)] focus-visible:!bg-[rgba(90,160,110,0.52)] active:scale-[0.92]"
+        >
+          <Check size={16} />
+        </button>
+      )}
     </div>
   );
 }

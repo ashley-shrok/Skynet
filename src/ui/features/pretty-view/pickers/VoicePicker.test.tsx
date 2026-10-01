@@ -8,12 +8,14 @@
  *
  * Covers:
  * 1. Renders 7 POLLY_VOICES options + default synchronously on mount
- * 2. onChange fires with new voiceId on select change
+ * 2. Select change stages a draft; onChange only fires when apply is clicked
  * 3. Sample button calls postSpeak with SAMPLE_PHRASE and voice
  * 4. Sample button uses undefined voice when value is empty
  * 5. Disabled prop disables select AND sample button
  * 6. Unmount revokes any playing sample URL and pauses audio
  * 7. SAMPLE_PHRASE is exported and non-empty
+ * 8. Sample button plays the DRAFT voice, not the committed value
+ * 9. External value change resyncs draft and hides apply button
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -87,14 +89,23 @@ describe("VoicePicker", () => {
     ]);
   });
 
-  it("Test 2 - onChange fires with new voiceId on select change", () => {
+  it("Test 2 - select change stages a draft; onChange only fires when apply is clicked", () => {
     const onChange = vi.fn();
     render(<VoicePicker value="" onChange={onChange} disabled={false} />);
 
     const select = screen.getByRole("combobox") as HTMLSelectElement;
     fireEvent.change(select, { target: { value: "Joanna" } });
 
+    // Dropdown reflects the staged pick, but nothing committed yet.
+    expect(select.value).toBe("Joanna");
+    expect(onChange).not.toHaveBeenCalled();
+
+    // Apply button appears once draft diverges from value.
+    const applyBtn = screen.getByTestId("voice-picker-apply");
+    fireEvent.click(applyBtn);
+
     expect(onChange).toHaveBeenCalledWith("Joanna");
+    expect(onChange).toHaveBeenCalledTimes(1);
   });
 
   it("Test 3 - sample button calls postSpeak with SAMPLE_PHRASE and voice", async () => {
@@ -161,5 +172,40 @@ describe("VoicePicker", () => {
 
   it("Test 7 - SAMPLE_PHRASE is exported and non-empty", () => {
     expect(SAMPLE_PHRASE.length).toBeGreaterThan(0);
+  });
+
+  it("Test 8 - sample button plays the DRAFT voice, not the committed value", async () => {
+    render(<VoicePicker value="Joanna" onChange={vi.fn()} disabled={false} />);
+
+    // Stage a different voice without applying.
+    const select = screen.getByRole("combobox") as HTMLSelectElement;
+    fireEvent.change(select, { target: { value: "Ruth" } });
+
+    // Sample should play the DRAFT (Ruth), not the committed value (Joanna).
+    const sampleBtn = screen.getByLabelText("Sample voice");
+    fireEvent.click(sampleBtn);
+
+    await waitFor(() => {
+      expect(mockedPostSpeak).toHaveBeenCalled();
+      const [, voice] = mockedPostSpeak.mock.calls[0];
+      expect(voice).toBe("Ruth");
+    });
+  });
+
+  it("Test 9 - external value change resyncs draft and hides apply button", () => {
+    const { rerender } = render(
+      <VoicePicker value="" onChange={vi.fn()} disabled={false} />,
+    );
+
+    // Stage a draft; apply button appears.
+    const select = screen.getByRole("combobox") as HTMLSelectElement;
+    fireEvent.change(select, { target: { value: "Joanna" } });
+    expect(screen.queryByTestId("voice-picker-apply")).not.toBeNull();
+
+    // Parent pushes a new value (e.g., modal reopened on a different subject,
+    // or save round-trip landed). Draft resyncs; apply button hides.
+    rerender(<VoicePicker value="Matthew" onChange={vi.fn()} disabled={false} />);
+    expect(select.value).toBe("Matthew");
+    expect(screen.queryByTestId("voice-picker-apply")).toBeNull();
   });
 });

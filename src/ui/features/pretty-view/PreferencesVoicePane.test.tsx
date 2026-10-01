@@ -59,7 +59,7 @@ describe("PreferencesVoicePane", () => {
     expect(select.value).toBe("");
   });
 
-  it("case 3: onChange fires saveUserPreferences with the new voice", async () => {
+  it("case 3: apply fires saveUserPreferences with the new voice", async () => {
     const user = userEvent.setup();
 
     render(
@@ -71,6 +71,10 @@ describe("PreferencesVoicePane", () => {
 
     const select = screen.getByRole("combobox");
     await user.selectOptions(select, "Joanna");
+    // Nothing saves until apply.
+    expect(mockSave).not.toHaveBeenCalled();
+
+    await user.click(screen.getByTestId("voice-picker-apply"));
 
     await waitFor(() => {
       expect(mockSave).toHaveBeenCalledTimes(1);
@@ -89,8 +93,9 @@ describe("PreferencesVoicePane", () => {
     );
 
     const select = screen.getByRole("combobox");
-    // Select the (default) empty-value option
+    // Select the (default) empty-value option, then apply.
     await user.selectOptions(select, "");
+    await user.click(screen.getByTestId("voice-picker-apply"));
 
     await waitFor(() => {
       expect(mockSave).toHaveBeenCalledTimes(1);
@@ -111,6 +116,7 @@ describe("PreferencesVoicePane", () => {
 
     const select = screen.getByRole("combobox") as HTMLSelectElement;
     await user.selectOptions(select, "Joanna");
+    await user.click(screen.getByTestId("voice-picker-apply"));
 
     await waitFor(() => {
       // Should revert to previous value
@@ -121,7 +127,7 @@ describe("PreferencesVoicePane", () => {
     });
   });
 
-  it("case 6: no debounce — PUT fires within the same click task-tick", async () => {
+  it("case 6: no debounce — PUT fires within the same apply-click task-tick", async () => {
     const user = userEvent.setup();
 
     render(
@@ -133,8 +139,9 @@ describe("PreferencesVoicePane", () => {
 
     const select = screen.getByRole("combobox");
     await user.selectOptions(select, "Matthew");
+    await user.click(screen.getByTestId("voice-picker-apply"));
 
-    // Mock was called immediately (synchronously dispatched after selectOptions)
+    // Mock was called immediately (no debounce after apply).
     expect(mockSave).toHaveBeenCalledTimes(1);
     expect(mockSave).toHaveBeenCalledWith({ fallbackVoice: "Matthew" });
   });
