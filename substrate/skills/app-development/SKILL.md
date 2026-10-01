@@ -4,6 +4,7 @@ description: |
   Builds a new app, or edits an existing one. Use when the user asks for an
   app, tool, tracker, dashboard, log, or webpage for a specific purpose, or
   asks to edit, tweak, or add features to an existing app.
+distributed: true
 ---
 
 # app-development

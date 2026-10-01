@@ -1,4 +1,5 @@
 ---
+name: queue
 description: Add a task to your harness task list without interrupting what you are doing. Invoke on `/queue <thing>`.
 distributed: true
 ---

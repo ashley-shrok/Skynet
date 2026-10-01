@@ -8,6 +8,7 @@ description: |
   reply that hasn't happened yet — state persists on every interaction and
   the user's own text reply is what wakes you. Multi-widget per message is
   supported.
+distributed: true
 ---
 
 # interactive-messages
