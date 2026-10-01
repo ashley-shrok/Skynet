@@ -128,6 +128,19 @@ export function MdxEditorImpl({
       // round 2026-10-01 where explain + app-development SKILL.md
       // both fell through to the raw-textarea fallback.
       suppressHtmlProcessing={true}
+      // Diagnostic: MDXEditor's tryImportingMarkdown catches
+      // MarkdownParseError / UnrecognizedMarkdownConstructError /
+      // JsxKindMismatchError, stashes them on markdownProcessingError$,
+      // and fires this signal — then does NOT populate the Lexical
+      // editor (contenteditable stays empty). Without a handler the
+      // default is noop, so the silent-parse-failure detector 200ms
+      // later swaps in the textarea with zero visibility into which
+      // construct tripped the parser. Log it so the next regression
+      // doesn't require guesswork.
+      onError={(payload) => {
+        // eslint-disable-next-line no-console
+        console.error("[MdxEditorImpl] MDXEditor parse error:", payload);
+      }}
       className="dark-theme skynet-mdxeditor"
       contentEditableClassName="mdx-prose prose prose-sm prose-invert max-w-none prose-code:before:content-none prose-code:after:content-none"
       plugins={[
