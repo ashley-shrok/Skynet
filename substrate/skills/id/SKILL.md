@@ -1012,6 +1012,25 @@ tracked as **shape 4** in the un-archiving campaign
 (`shape-agent-side-identity-unarchive-correction`). Until that ships, use the
 frontend path for identity un-archive.
 
+**What you'll see on wake from an un-archive** (shape 5 — un-archive wake-up
+smoothing). The supervisor prepends a dated banner to your identity file body
+as the last step of un-archive, right after the folder is moved back:
+
+```
+> ⚠️ **You were unarchived at <ISO timestamp>.** The state of the world may
+> have moved since you were archived — what you have in context and in this
+> file could be out of date. Delete this banner once you've caught up.
+```
+
+The identity-file-watcher turns that write into your first wake event, so the
+banner is the first thing you see. Treat it as the official signal that the
+world you're resuming into is NOT the one you archived from. Catch up on
+anything that matters — the role file, the id skill, your prior session's
+notes, open DM rooms (which may have reset) — then **delete the banner from
+your identity file as part of catching up.** The supervisor writes a fresh
+banner on every un-archive and does not detect existing ones, so banners
+stack if you don't delete them.
+
 ### Reconciler preconditions (apply to all three types)
 
 The reconciler refuses to un-archive if any of these fail. Check them yourself
