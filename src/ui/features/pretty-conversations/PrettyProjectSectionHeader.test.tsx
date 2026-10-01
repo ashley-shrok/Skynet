@@ -31,17 +31,22 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   render,
   fireEvent,
+  screen,
   createEvent,
   cleanup,
   act,
 } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
-// Per-test override handle for useIsTouchDevice — flip to `true` to arm
-// touch handlers, `false` to leave them unwired (desktop path).
-let currentIsTouchDevice = false;
-vi.mock("@/hooks/use-is-touch-device", () => ({
-  useIsTouchDevice: () => currentIsTouchDevice,
-}));
+// jsdom does not implement ResizeObserver; stub it so Radix's DropdownMenu
+// (used by RowKebabMenu) doesn't throw when the portal mounts.
+if (typeof window !== "undefined" && !window.ResizeObserver) {
+  window.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+}
 
 import { PrettyProjectSectionHeader } from "./PrettyProjectSectionHeader";
 
@@ -117,7 +122,6 @@ let originalGetBoundingClientRect: () => DOMRect;
 
 beforeEach(() => {
   cleanup();
-  currentIsTouchDevice = false;
   originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect;
   HTMLElement.prototype.getBoundingClientRect = function () {
     return KNOWN_RECT;
@@ -193,10 +197,11 @@ describe("PrettyProjectSectionHeader — callbacks", () => {
     expect(onToggleCollapse).toHaveBeenCalledWith("beta");
   });
 
-  it("Test 4: new-conversation SquarePen button fires onNewConversationClick(slug); does NOT toggle collapse", () => {
+  it("Test 4: kebab 'New conversation in this project' item fires onNewConversationClick(slug); does NOT toggle collapse", async () => {
+    const user = userEvent.setup();
     const onToggleCollapse = vi.fn();
     const onNewConversationClick = vi.fn();
-    const { getByTestId } = render(
+    render(
       <PrettyProjectSectionHeader
         slug="gamma"
         displayName="Gamma"
@@ -207,21 +212,25 @@ describe("PrettyProjectSectionHeader — callbacks", () => {
         rows={null}
       />,
     );
-    const newConvBtn = getByTestId("pv-project-section-new-conv-gamma");
-    fireEvent.click(newConvBtn);
+    const kebabTrigger = screen.getByTestId("pv-project-section-kebab-trigger-gamma");
+    await user.click(kebabTrigger);
+    const item = screen.getByRole("menuitem", {
+      name: "New conversation in this project",
+    });
+    await user.click(item);
     expect(onNewConversationClick).toHaveBeenCalledTimes(1);
     expect(onNewConversationClick).toHaveBeenCalledWith("gamma");
-    // Header toggle NOT fired (stopPropagation on the inner button).
+    // Header toggle NOT fired (RowKebabMenu's portal-click-containment
+    // discipline — DropdownMenuContent + DropdownMenuItem both stopProp —
+    // prevents the item click from bubbling to the outer div's onClick).
     expect(onToggleCollapse).not.toHaveBeenCalled();
   });
 
-  // Phase 117 M3 fix (2026-09-18): pre-fix, the outer header element was
-  // <button> and inside it was a <span role="button" tabIndex={0}> for
-  // the new-conversation action — nesting an interactive element inside
-  // a <button> is invalid HTML. Fix: outer is <div role="button"
-  // tabIndex={0}> with keyboard handler, new-conversation is a <button>
-  // sibling (not nested). Tests below lock the fix.
-  it("Test M3 A: outer container is <div role='button'> NOT <button>; new-conversation control is a <button> that is NOT nested inside another <button>", () => {
+  // Phase 117 M3 fix (2026-09-18) + shape-sidebar-header-affordances
+  // (2026-10-01): outer element remains <div role="button"> so the kebab
+  // trigger <button> is a SIBLING, not nested. Nesting <button>s is invalid
+  // HTML. Test locks the shape across both reworks.
+  it("Test M3 A: outer container is <div role='button'> NOT <button>; kebab trigger is a <button> that is NOT nested inside another <button>", () => {
     const { getByTestId } = render(
       <PrettyProjectSectionHeader
         slug="delta"
@@ -234,22 +243,103 @@ describe("PrettyProjectSectionHeader — callbacks", () => {
       />,
     );
     const outer = getByTestId("pv-project-section-header-delta");
-    // Regression defense (M3): outer element MUST be <div>, not <button>.
-    // Nesting a <button> inside a <button> is invalid HTML.
     expect(outer.tagName.toLowerCase()).toBe("div");
-    // ARIA button semantics preserved.
     expect(outer.getAttribute("role")).toBe("button");
     expect(outer.getAttribute("tabindex")).toBe("0");
-    // Inner new-conversation button is a <button>.
-    const newConv = getByTestId("pv-project-section-new-conv-delta");
-    expect(newConv.tagName.toLowerCase()).toBe("button");
-    // Regression defense: no ancestor of the new-conversation button
-    // should be a <button> element (invalid HTML nesting).
-    let ancestor: HTMLElement | null = newConv.parentElement;
+    const kebabTrigger = getByTestId("pv-project-section-kebab-trigger-delta");
+    expect(kebabTrigger.tagName.toLowerCase()).toBe("button");
+    // Regression defense: no ancestor of the kebab trigger should be a
+    // <button> element (invalid HTML nesting).
+    let ancestor: HTMLElement | null = kebabTrigger.parentElement;
     while (ancestor) {
       expect(ancestor.tagName.toLowerCase()).not.toBe("button");
       ancestor = ancestor.parentElement;
     }
+  });
+
+  it("Test 4b: kebab 'Rename project' item fires onRenameProject(slug, displayName)", async () => {
+    const user = userEvent.setup();
+    const onRenameProject = vi.fn();
+    render(
+      <PrettyProjectSectionHeader
+        slug="theta"
+        displayName="Theta Pulse"
+        collapsed={false}
+        onToggleCollapse={vi.fn()}
+        onNewConversationClick={vi.fn()}
+        onDropRow={vi.fn()}
+        onRenameProject={onRenameProject}
+        rows={null}
+      />,
+    );
+    await user.click(screen.getByTestId("pv-project-section-kebab-trigger-theta"));
+    await user.click(screen.getByRole("menuitem", { name: "Rename project" }));
+    expect(onRenameProject).toHaveBeenCalledTimes(1);
+    expect(onRenameProject).toHaveBeenCalledWith("theta", "Theta Pulse");
+  });
+
+  it("Test 4c: kebab 'Edit project file' item fires onEditProjectFile(slug)", async () => {
+    const user = userEvent.setup();
+    const onEditProjectFile = vi.fn();
+    render(
+      <PrettyProjectSectionHeader
+        slug="iota"
+        displayName="Iota"
+        collapsed={false}
+        onToggleCollapse={vi.fn()}
+        onNewConversationClick={vi.fn()}
+        onDropRow={vi.fn()}
+        onEditProjectFile={onEditProjectFile}
+        rows={null}
+      />,
+    );
+    await user.click(screen.getByTestId("pv-project-section-kebab-trigger-iota"));
+    await user.click(screen.getByRole("menuitem", { name: "Edit project file" }));
+    expect(onEditProjectFile).toHaveBeenCalledTimes(1);
+    expect(onEditProjectFile).toHaveBeenCalledWith("iota");
+  });
+
+  it("Test 4d: kebab 'Archive project' item fires onArchiveProject(slug)", async () => {
+    const user = userEvent.setup();
+    const onArchiveProject = vi.fn();
+    render(
+      <PrettyProjectSectionHeader
+        slug="kappa"
+        displayName="Kappa"
+        collapsed={false}
+        onToggleCollapse={vi.fn()}
+        onNewConversationClick={vi.fn()}
+        onDropRow={vi.fn()}
+        onArchiveProject={onArchiveProject}
+        rows={null}
+      />,
+    );
+    await user.click(screen.getByTestId("pv-project-section-kebab-trigger-kappa"));
+    await user.click(screen.getByRole("menuitem", { name: "Archive project" }));
+    expect(onArchiveProject).toHaveBeenCalledTimes(1);
+    expect(onArchiveProject).toHaveBeenCalledWith("kappa");
+  });
+
+  it("Test 4e: kebab items absent when their per-action callback is not provided", async () => {
+    const user = userEvent.setup();
+    render(
+      <PrettyProjectSectionHeader
+        slug="lambda"
+        displayName="Lambda"
+        collapsed={false}
+        onToggleCollapse={vi.fn()}
+        onNewConversationClick={vi.fn()}
+        onDropRow={vi.fn()}
+        rows={null}
+      />,
+    );
+    await user.click(screen.getByTestId("pv-project-section-kebab-trigger-lambda"));
+    // Only "New conversation in this project" is unconditional; the other
+    // three are gated on their callback being provided.
+    expect(screen.queryByRole("menuitem", { name: "New conversation in this project" })).not.toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Rename project" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Edit project file" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Archive project" })).toBeNull();
   });
 
   it("Test M3 B: keyboard Enter on outer div fires onToggleCollapse (WAI-ARIA button pattern)", () => {
@@ -570,113 +660,8 @@ describe("PrettyProjectSectionHeader — isolation invariant", () => {
   });
 });
 
-describe("PrettyProjectSectionHeader — mobile long-press context menu", () => {
-  it("500ms touch hold on the header fires onContextMenu with captured coords", () => {
-    vi.useFakeTimers();
-    currentIsTouchDevice = true;
-    const onContextMenu = vi.fn();
-    const onToggleCollapse = vi.fn();
-    const { getByTestId } = render(
-      <PrettyProjectSectionHeader
-        slug="alpha"
-        displayName="Alpha"
-        collapsed={false}
-        onToggleCollapse={onToggleCollapse}
-        onNewConversationClick={vi.fn()}
-        onDropRow={vi.fn()}
-        onContextMenu={onContextMenu}
-        rows={null}
-      />,
-    );
-    const header = getByTestId("pv-project-section-header-alpha");
-    fireEvent.touchStart(header, { touches: [{ clientX: 42, clientY: 84 }] });
-    expect(onContextMenu).not.toHaveBeenCalled();
-    act(() => {
-      vi.advanceTimersByTime(500);
-    });
-    expect(onContextMenu).toHaveBeenCalledTimes(1);
-    expect(onContextMenu).toHaveBeenCalledWith("alpha", "Alpha", 42, 84);
-    // The synthesized click that follows a long-press must NOT toggle collapse.
-    fireEvent.click(header);
-    expect(onToggleCollapse).not.toHaveBeenCalled();
-    vi.useRealTimers();
-  });
-
-  it("touchend before 500ms cancels the timer — no menu, tap falls through to collapse toggle", () => {
-    vi.useFakeTimers();
-    currentIsTouchDevice = true;
-    const onContextMenu = vi.fn();
-    const onToggleCollapse = vi.fn();
-    const { getByTestId } = render(
-      <PrettyProjectSectionHeader
-        slug="alpha"
-        displayName="Alpha"
-        collapsed={false}
-        onToggleCollapse={onToggleCollapse}
-        onNewConversationClick={vi.fn()}
-        onDropRow={vi.fn()}
-        onContextMenu={onContextMenu}
-        rows={null}
-      />,
-    );
-    const header = getByTestId("pv-project-section-header-alpha");
-    fireEvent.touchStart(header, { touches: [{ clientX: 10, clientY: 20 }] });
-    act(() => {
-      vi.advanceTimersByTime(200);
-    });
-    fireEvent.touchEnd(header, { touches: [] });
-    act(() => {
-      vi.advanceTimersByTime(500);
-    });
-    expect(onContextMenu).not.toHaveBeenCalled();
-    fireEvent.click(header);
-    expect(onToggleCollapse).toHaveBeenCalledWith("alpha");
-    vi.useRealTimers();
-  });
-
-  it("touch movement >10px cancels the pending long-press timer", () => {
-    vi.useFakeTimers();
-    currentIsTouchDevice = true;
-    const onContextMenu = vi.fn();
-    const { getByTestId } = render(
-      <PrettyProjectSectionHeader
-        slug="alpha"
-        displayName="Alpha"
-        collapsed={false}
-        onToggleCollapse={vi.fn()}
-        onNewConversationClick={vi.fn()}
-        onDropRow={vi.fn()}
-        onContextMenu={onContextMenu}
-        rows={null}
-      />,
-    );
-    const header = getByTestId("pv-project-section-header-alpha");
-    fireEvent.touchStart(header, { touches: [{ clientX: 100, clientY: 100 }] });
-    fireEvent.touchMove(header, { touches: [{ clientX: 100, clientY: 140 }] });
-    act(() => {
-      vi.advanceTimersByTime(500);
-    });
-    expect(onContextMenu).not.toHaveBeenCalled();
-    vi.useRealTimers();
-  });
-
-  it("desktop right-click still opens the menu (regression control) with coord args", () => {
-    currentIsTouchDevice = false;
-    const onContextMenu = vi.fn();
-    const { getByTestId } = render(
-      <PrettyProjectSectionHeader
-        slug="alpha"
-        displayName="Alpha"
-        collapsed={false}
-        onToggleCollapse={vi.fn()}
-        onNewConversationClick={vi.fn()}
-        onDropRow={vi.fn()}
-        onContextMenu={onContextMenu}
-        rows={null}
-      />,
-    );
-    const header = getByTestId("pv-project-section-header-alpha");
-    fireEvent.contextMenu(header, { clientX: 200, clientY: 300 });
-    expect(onContextMenu).toHaveBeenCalledWith("alpha", "Alpha", 200, 300);
-  });
-});
+// Mobile long-press context menu describe block RETIRED by
+// shape-sidebar-header-affordances. Right-click + long-press are retired on
+// sidebar surfaces; the kebab tap is the sole gesture. The kebab-item tests
+// above (Test 4, 4b, 4c, 4d, 4e) are the new coverage for the four actions
+// that used to live behind right-click / long-press.

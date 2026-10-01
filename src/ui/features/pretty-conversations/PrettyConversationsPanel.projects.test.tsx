@@ -24,6 +24,39 @@ import {
   screen,
   within,
 } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+
+// jsdom does not implement ResizeObserver; stub it so Radix's DropdownMenu
+// (used by RowKebabMenu, which backs the project section header's kebab)
+// doesn't throw when the portal mounts.
+if (typeof window !== "undefined" && !window.ResizeObserver) {
+  window.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+}
+
+// shape-sidebar-header-affordances: helper to open a project section header's
+// kebab menu and click an item by name. Factored out because the old test
+// pattern (fireEvent.contextMenu(header) + fireEvent.click(getByText(...)))
+// no longer applies — right-click is retired on sidebar surfaces.
+async function openProjectKebabAndClickItem(
+  container: HTMLElement,
+  slug: string,
+  itemName: string,
+): Promise<void> {
+  const user = userEvent.setup();
+  const trigger = container.querySelector(
+    `[data-testid="pv-project-section-kebab-trigger-${slug}"]`,
+  ) as HTMLElement | null;
+  if (!trigger) {
+    throw new Error(`kebab trigger not found for slug: ${slug}`);
+  }
+  await user.click(trigger);
+  const item = screen.getByRole("menuitem", { name: itemName });
+  await user.click(item);
+}
 import type { Host, HostFolder } from "@/types/ui-types";
 
 // ─── Global mocks ─────────────────────────────────────────────────────────────
@@ -1355,7 +1388,7 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
     confirmSpy = vi.spyOn(window, "confirm");
   });
 
-  it("A9 Test 1 (D-29 verbatim warning): right-click header + click 'Archive project' shows the exact confirmation copy", () => {
+  it("A9 Test 1 (D-29 verbatim warning): kebab 'Archive project' shows the exact confirmation copy", async () => {
     const hostA = makeHost("1", "hostA");
     const rowA = makeRow({ id: "in-alpha", host: hostA, targetTmuxSession: "wren" });
     setSnapshot({
@@ -1374,10 +1407,7 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
         onDeactivateRow={() => {}}
       />,
     );
-    const header = container.querySelector('[data-testid="pv-project-section-header-alpha"]') as HTMLElement;
-    fireEvent.contextMenu(header);
-    // Context menu appears with "Archive project" item.
-    fireEvent.click(getByText("Archive project"));
+    await openProjectKebabAndClickItem(container, "alpha", "Archive project");
 
     expect(confirmSpy).toHaveBeenCalledTimes(1);
     expect(confirmSpy).toHaveBeenCalledWith(
@@ -1408,9 +1438,7 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
         onDeactivateRow={() => {}}
       />,
     );
-    const header = container.querySelector('[data-testid="pv-project-section-header-alpha"]') as HTMLElement;
-    fireEvent.contextMenu(header);
-    fireEvent.click(getByText("Archive project"));
+    await openProjectKebabAndClickItem(container, "alpha", "Archive project");
 
     // Wait for the async cascade to settle.
     await new Promise((r) => setTimeout(r, 0));
@@ -1454,9 +1482,7 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
         onDeactivateRow={() => {}}
       />,
     );
-    const header = container.querySelector('[data-testid="pv-project-section-header-alpha"]') as HTMLElement;
-    fireEvent.contextMenu(header);
-    fireEvent.click(getByText("Archive project"));
+    await openProjectKebabAndClickItem(container, "alpha", "Archive project");
 
     await new Promise((r) => setTimeout(r, 0));
     await new Promise((r) => setTimeout(r, 0));
@@ -1502,9 +1528,7 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
         onDeactivateRow={() => {}}
       />,
     );
-    const header = container.querySelector('[data-testid="pv-project-section-header-alpha"]') as HTMLElement;
-    fireEvent.contextMenu(header);
-    fireEvent.click(getByText("Archive project"));
+    await openProjectKebabAndClickItem(container, "alpha", "Archive project");
 
     await new Promise((r) => setTimeout(r, 0));
     await new Promise((r) => setTimeout(r, 0));
@@ -1542,9 +1566,7 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
         onDeactivateRow={() => {}}
       />,
     );
-    const header = container.querySelector('[data-testid="pv-project-section-header-alpha"]') as HTMLElement;
-    fireEvent.contextMenu(header);
-    fireEvent.click(getByText("Archive project"));
+    await openProjectKebabAndClickItem(container, "alpha", "Archive project");
 
     const { archiveIdentity } = await import("@/api/identity-archive-api");
     expect(archiveIdentity).not.toHaveBeenCalled();
@@ -1569,9 +1591,7 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
         onDeactivateRow={() => {}}
       />,
     );
-    const header = container.querySelector('[data-testid="pv-project-section-header-empty"]') as HTMLElement;
-    fireEvent.contextMenu(header);
-    fireEvent.click(getByText("Archive project"));
+    await openProjectKebabAndClickItem(container, "empty", "Archive project");
 
     await new Promise((r) => setTimeout(r, 0));
 
@@ -1612,11 +1632,7 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
         onDeactivateRow={() => {}}
       />,
     );
-    const header = container.querySelector(
-      '[data-testid="pv-project-section-header-alpha"]',
-    ) as HTMLElement;
-    fireEvent.contextMenu(header);
-    fireEvent.click(getByText("Archive project"));
+    await openProjectKebabAndClickItem(container, "alpha", "Archive project");
 
     await new Promise((r) => setTimeout(r, 0));
 
@@ -1635,7 +1651,7 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
     consoleWarnSpy.mockRestore();
   });
 
-  it("A9 Test 6 (context menu items): right-click header shows Rename + Edit project file + Archive project", () => {
+  it("A9 Test 6 (kebab menu items): project header kebab shows New-conversation + Rename + Edit project file + Archive project", async () => {
     setSnapshot({
       projectSections: [{ slug: "alpha", displayName: "Alpha", rows: [] }],
     });
@@ -1643,7 +1659,8 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
       { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false },
     ];
 
-    const { container, queryByText } = render(
+    const user = userEvent.setup();
+    const { container } = render(
       <PrettyConversationsPanel
         variant="desktop"
         hostTree={HOST_TREE}
@@ -1651,12 +1668,15 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
         onDeactivateRow={() => {}}
       />,
     );
-    const header = container.querySelector('[data-testid="pv-project-section-header-alpha"]') as HTMLElement;
-    fireEvent.contextMenu(header);
+    const kebabTrigger = container.querySelector(
+      '[data-testid="pv-project-section-kebab-trigger-alpha"]',
+    ) as HTMLElement;
+    await user.click(kebabTrigger);
 
-    expect(queryByText("Rename project")).not.toBeNull();
-    expect(queryByText("Edit project file")).not.toBeNull();
-    expect(queryByText("Archive project")).not.toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "New conversation in this project" })).not.toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Rename project" })).not.toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Edit project file" })).not.toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Archive project" })).not.toBeNull();
   });
 
   it("A9 Test 7 (Rename flow): prompt with current name → getProjectFile → PUT rewritten markdown", async () => {
@@ -1679,9 +1699,7 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
         onDeactivateRow={() => {}}
       />,
     );
-    const header = container.querySelector('[data-testid="pv-project-section-header-alpha"]') as HTMLElement;
-    fireEvent.contextMenu(header);
-    fireEvent.click(getByText("Rename project"));
+    await openProjectKebabAndClickItem(container, "alpha", "Rename project");
 
     // prompt is seeded with the current displayName so the user can edit it.
     expect(promptSpy).toHaveBeenCalledWith("Rename project", "Alpha");
@@ -1717,9 +1735,7 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
         onDeactivateRow={() => {}}
       />,
     );
-    const header = container.querySelector('[data-testid="pv-project-section-header-alpha"]') as HTMLElement;
-    fireEvent.contextMenu(header);
-    fireEvent.click(getByText("Rename project"));
+    await openProjectKebabAndClickItem(container, "alpha", "Rename project");
 
     await new Promise((r) => setTimeout(r, 0));
 
@@ -1746,9 +1762,7 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
         onDeactivateRow={() => {}}
       />,
     );
-    const header = container.querySelector('[data-testid="pv-project-section-header-alpha"]') as HTMLElement;
-    fireEvent.contextMenu(header);
-    fireEvent.click(getByText("Rename project"));
+    await openProjectKebabAndClickItem(container, "alpha", "Rename project");
 
     await new Promise((r) => setTimeout(r, 0));
 
@@ -1810,7 +1824,7 @@ describe("rewriteDisplayNameInFrontmatter", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationsPanel: new-conversation-in-project wire (M-F rewire)", () => {
-  it("Test 9: SquarePen sets pending project slug on the new-session wrapper (NOT the relay-room wrapper)", () => {
+  it("Test 9: kebab 'New conversation in this project' sets pending project slug on the new-session wrapper (NOT the relay-room wrapper)", async () => {
     setSnapshot({
       projectSections: [{ slug: "alpha", displayName: "Alpha", rows: [] }],
     });
@@ -1826,9 +1840,9 @@ describe("PrettyConversationsPanel: new-conversation-in-project wire (M-F rewire
         onDeactivateRow={() => {}}
       />,
     );
-    const squarePen = container.querySelector('[data-testid="pv-project-section-new-conv-alpha"]') as HTMLElement;
-    expect(squarePen).not.toBeNull();
-    fireEvent.click(squarePen);
+    const kebabTrigger = container.querySelector('[data-testid="pv-project-section-kebab-trigger-alpha"]') as HTMLElement;
+    expect(kebabTrigger).not.toBeNull();
+    await openProjectKebabAndClickItem(container, "alpha", "New conversation in this project");
 
     // NEW wire: the pending slug lands on the new-session dialog wrapper.
     const nsdWrapper = container.querySelector('[data-testid="pv-new-session-dialog-wrapper"]');
@@ -1841,7 +1855,7 @@ describe("PrettyConversationsPanel: new-conversation-in-project wire (M-F rewire
     expect(oldWrapper!.getAttribute("data-pre-selected-project")).toBe("");
   });
 
-  it("Test 9b: identity-birth onCreate fires setSessionProject(hostId, newborn identityKey, slug)", () => {
+  it("Test 9b: identity-birth onCreate fires setSessionProject(hostId, newborn identityKey, slug)", async () => {
     setSnapshot({
       projectSections: [{ slug: "alpha", displayName: "Alpha", rows: [] }],
     });
@@ -1857,8 +1871,7 @@ describe("PrettyConversationsPanel: new-conversation-in-project wire (M-F rewire
         onDeactivateRow={() => {}}
       />,
     );
-    const squarePen = container.querySelector('[data-testid="pv-project-section-new-conv-alpha"]') as HTMLElement;
-    fireEvent.click(squarePen);
+    await openProjectKebabAndClickItem(container, "alpha", "New conversation in this project");
 
     // The mocked NewSessionDialog exposes a "fire birth" button that
     // synthesizes onCreate({identityMode:true, name:"wren", host:{id:"1"}, ...}).
@@ -1876,7 +1889,7 @@ describe("PrettyConversationsPanel: new-conversation-in-project wire (M-F rewire
     expect(nsdWrapper!.getAttribute("data-pending-project-slug")).toBe("");
   });
 
-  it("Test 9c: identityMode=\"existing\" (clone) fires setSessionProject with opts.identityName", () => {
+  it("Test 9c: identityMode=\"existing\" (clone) fires setSessionProject with opts.identityName", async () => {
     setSnapshot({
       projectSections: [{ slug: "alpha", displayName: "Alpha", rows: [] }],
     });
@@ -1892,14 +1905,14 @@ describe("PrettyConversationsPanel: new-conversation-in-project wire (M-F rewire
         onDeactivateRow={() => {}}
       />,
     );
-    fireEvent.click(container.querySelector('[data-testid="pv-project-section-new-conv-alpha"]') as HTMLElement);
+    await openProjectKebabAndClickItem(container, "alpha", "New conversation in this project");
     fireEvent.click(container.querySelector('[data-testid="pv-mock-nsd-fire-existing"]') as HTMLElement);
 
     expect(setSessionProjectSpy).toHaveBeenCalledTimes(1);
     expect(setSessionProjectSpy).toHaveBeenCalledWith(1, "vecto", "alpha");
   });
 
-  it("Test 9d: identityMode=false (plain tmux session, no identity) does NOT fire setSessionProject", () => {
+  it("Test 9d: identityMode=false (plain tmux session, no identity) does NOT fire setSessionProject", async () => {
     setSnapshot({
       projectSections: [{ slug: "alpha", displayName: "Alpha", rows: [] }],
     });
@@ -1915,7 +1928,7 @@ describe("PrettyConversationsPanel: new-conversation-in-project wire (M-F rewire
         onDeactivateRow={() => {}}
       />,
     );
-    fireEvent.click(container.querySelector('[data-testid="pv-project-section-new-conv-alpha"]') as HTMLElement);
+    await openProjectKebabAndClickItem(container, "alpha", "New conversation in this project");
     fireEvent.click(container.querySelector('[data-testid="pv-mock-nsd-fire-plain"]') as HTMLElement);
 
     // Plain tmux session has no identity to tag; the write must be skipped.
@@ -1939,7 +1952,7 @@ describe("PrettyConversationsPanel: new-conversation-in-project wire (M-F rewire
         onDeactivateRow={() => {}}
       />,
     );
-    fireEvent.click(container.querySelector('[data-testid="pv-project-section-new-conv-alpha"]') as HTMLElement);
+    await openProjectKebabAndClickItem(container, "alpha", "New conversation in this project");
     fireEvent.click(container.querySelector('[data-testid="pv-mock-nsd-fire-birth"]') as HTMLElement);
 
     // Flush the setSessionProject().then(refreshIdentities) microtask chain.
@@ -1969,7 +1982,7 @@ describe("PrettyConversationsPanel: new-conversation-in-project wire (M-F rewire
         onDeactivateRow={() => {}}
       />,
     );
-    fireEvent.click(container.querySelector('[data-testid="pv-project-section-new-conv-alpha"]') as HTMLElement);
+    await openProjectKebabAndClickItem(container, "alpha", "New conversation in this project");
     fireEvent.click(container.querySelector('[data-testid="pv-mock-nsd-fire-plain"]') as HTMLElement);
 
     await Promise.resolve();
@@ -1980,7 +1993,7 @@ describe("PrettyConversationsPanel: new-conversation-in-project wire (M-F rewire
   });
 
   // ─── M-I: host tree filtered to project's host in project context ─────────
-  it("Test 9g (M-I): opening dialog via SquarePen passes a SINGLE-host tree (picker auto-hides)", () => {
+  it("Test 9g (M-I): opening dialog via kebab 'New conversation in this project' passes a SINGLE-host tree (picker auto-hides)", async () => {
     // Simulate a multi-host fleet (2 hosts) so the picker would normally show.
     setSnapshot({
       projectSections: [{ slug: "alpha", displayName: "Alpha", rows: [] }],
@@ -2001,7 +2014,7 @@ describe("PrettyConversationsPanel: new-conversation-in-project wire (M-F rewire
         onDeactivateRow={() => {}}
       />,
     );
-    fireEvent.click(container.querySelector('[data-testid="pv-project-section-new-conv-alpha"]') as HTMLElement);
+    await openProjectKebabAndClickItem(container, "alpha", "New conversation in this project");
 
     // Panel-side filter: tree passed to NewSessionDialog carries only 1 child
     // (the project's home host), regardless of the full fleet size.

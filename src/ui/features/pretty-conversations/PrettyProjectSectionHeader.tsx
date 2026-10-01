@@ -1,16 +1,22 @@
 // ─── PrettyProjectSectionHeader ─────────────────────────────────────────────
-// Phase 117 Plan 117-08 Task 1 — reusable per-project section wrapper that
-// implements the D-12 header shape (FolderOpen icon + display name +
-// SquarePen new-conversation button + ChevronDown collapse toggle) AND
-// the D-22 gesture #1 per-section drop lane (type-gated
-// on application/x-skynet-row, hover-only coral overlay per D-23, bounding-
-// rect dragleave guard, window-level dragend for Escape-cancel, RDP row
-// refusal per D-08).
+// Phase 117 Plan 117-08 Task 1 — reusable per-project section wrapper.
+// Reshaped by shape-sidebar-header-affordances (un-archiving campaign, shape 3):
+// the inline SquarePen new-conversation button + the right-click/long-press
+// context menu are both retired and all four section-scoped actions move into
+// a single kebab menu:
+//   - New conversation in this project
+//   - Rename project
+//   - Edit project file
+//   - Archive project (danger)
+// Kebab reveal discipline (consumer-side, not in the shared RowKebabMenu
+// primitive): hover-reveal on desktop via group/group-hover + group-focus-within
+// at md+; always-visible on mobile (opacity-100 at <md where no hover exists).
+// Right-click and long-press are retired entirely on sidebar surfaces —
+// kebab tap/click is the sole gesture.
 //
-// Byte-shape references:
-//   - Header row shape: PrettyConversationsPanel.tsx:1995-2033 (Archived
-//     section header) — same button + icon + label + gradient-rule +
-//     chevron-rotate layout.
+// Drop-lane mechanics (D-22 gesture #1) and collapse mechanics are unchanged.
+//
+// Byte-shape references (surviving):
 //   - Coral overlay palette (verbatim): PrettyConversationsPanel.tsx:1636-1647
 //     — bg rgba(255,184,150,0.22), border 2px rgba(255,184,150,0.60), zIndex 30.
 //   - Drop-lane grammar (hover-only coral, NO baseline coral): CollapsedPanel
@@ -27,8 +33,11 @@
 //   - Drop routing is HANDED UP via onDropRow(slug, payload). Actual API dispatch
 //     (setSessionProject / setRelayRoomProject) lives in the panel-level handler
 //     which has access to userMxid + row-source resolution.
+//   - Kebab actions are HANDED UP via four per-action callbacks. The panel-level
+//     handlers own the modal state + API dispatch; the header just wires the
+//     item onClicks.
 //
-// Security invariants (T-117-08-01, T-117-08-02, T-117-08-03):
+// Security invariants (T-117-08-01, T-117-08-02, T-117-08-03) — unchanged:
 //   - Type-gate on application/x-skynet-row ONLY. Badge drags + OS file drops
 //     never activate the overlay AND never reach onDropRow (Pitfall 7).
 //   - JSON.parse wrapped in try/catch. Malformed payloads silent-drop.
@@ -40,16 +49,13 @@
 //     CollapsedPanelCloseLane.tsx:40 discipline).
 
 import {
-  useCallback,
   useEffect,
-  useRef,
   useState,
   type ReactNode,
-  type TouchEvent,
 } from "react";
-import { FolderOpen, SquarePen, ChevronDown } from "lucide-react";
+import { FolderOpen, ChevronDown } from "lucide-react";
 
-import { useIsTouchDevice } from "@/hooks/use-is-touch-device";
+import { RowKebabMenu } from "./RowKebabMenu";
 
 /**
  * Row payload extracted from the DnD dataTransfer's `application/x-skynet-row`
@@ -82,27 +88,18 @@ export interface PrettyProjectSectionHeaderProps {
   collapsed: boolean;
   /** Fired on header-body click with the section's slug. */
   onToggleCollapse: (slug: string) => void;
-  /** Fired on the SquarePen new-conversation button click with the section's slug. */
+  /** Fired on the "New conversation in this project" kebab item click. */
   onNewConversationClick: (slug: string) => void;
   /** Fired on a successful drop with the section's slug + parsed row payload. */
   onDropRow: (slug: string, payload: PrettyProjectDropPayload) => void;
   /**
-   * Phase 117 Plan 117-09 Task 2 (D-14) — right-click / long-press handler
-   * on the header. The panel opens a shared context menu at the pointer
-   * coords with "Edit project file" + "Archive project" items. When
-   * omitted, right-clicking / long-press falls through to browser default.
-   *
-   * Coord-based signature (not MouseEvent) so BOTH the desktop right-click
-   * path AND the mobile long-press touch-timer path can call it uniformly.
-   * The header calls `e.preventDefault()` itself before invoking; the panel
-   * consumer only needs `(x, y, slug, displayName)`.
+   * shape-sidebar-header-affordances: per-action callbacks for the section's
+   * kebab items. All optional so the header can be mounted in test contexts
+   * that don't exercise every action.
    */
-  onContextMenu?: (
-    slug: string,
-    displayName: string,
-    x: number,
-    y: number,
-  ) => void;
+  onRenameProject?: (slug: string, currentDisplayName: string) => void;
+  onEditProjectFile?: (slug: string) => void;
+  onArchiveProject?: (slug: string) => void;
 }
 
 const ROW_MIME = "application/x-skynet-row";
@@ -121,41 +118,11 @@ export function PrettyProjectSectionHeader({
   onToggleCollapse,
   onNewConversationClick,
   onDropRow,
-  onContextMenu,
+  onRenameProject,
+  onEditProjectFile,
+  onArchiveProject,
 }: PrettyProjectSectionHeaderProps) {
   const [isDragOver, setIsDragOver] = useState(false);
-
-  // Mobile long-press → context menu. Mirrors the pattern established in
-  // PrettyConversationRow.tsx:466-497,623-664 (quick-260802-pq2): iOS Safari
-  // never fires `contextmenu` on long-press (it triggers the OS callout
-  // instead), and Chrome/Firefox Android are inconsistent, so a manual
-  // 500ms touch timer is required. `useIsTouchDevice()` reads
-  // `(pointer: coarse) and (hover: none)` via matchMedia — same discipline
-  // as the row so touchscreen tablets (iPad) also get the wire.
-  const isTouchDevice = useIsTouchDevice();
-  const longPressTimerRef = useRef<number | null>(null);
-  const longPressStartRef = useRef<{ x: number; y: number } | null>(null);
-  // Set true by the long-press timer body so the synthesized click that
-  // follows a long-press touch does NOT also fire the collapse toggle.
-  const suppressNextClickRef = useRef<boolean>(false);
-
-  const clearLongPressTimer = useCallback(() => {
-    if (longPressTimerRef.current !== null) {
-      window.clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
-    }
-  }, []);
-
-  // Cleanup any pending timer on unmount — a late fire on an unmounted
-  // component would call the callback with stale closure state.
-  useEffect(() => {
-    return () => {
-      if (longPressTimerRef.current !== null) {
-        window.clearTimeout(longPressTimerRef.current);
-        longPressTimerRef.current = null;
-      }
-    };
-  }, []);
 
   // Window-level dragend for Escape-cancel path — a drag cancelled via
   // Escape does NOT fire dragleave on the section (cursor did not move),
@@ -166,46 +133,6 @@ export function PrettyProjectSectionHeader({
     window.addEventListener("dragend", onDragEnd);
     return () => window.removeEventListener("dragend", onDragEnd);
   }, []);
-
-  const onTouchStart = useCallback(
-    (e: TouchEvent<HTMLDivElement>) => {
-      if (!onContextMenu) return;
-      const t = e.touches[0];
-      if (!t) return;
-      const x = t.clientX;
-      const y = t.clientY;
-      longPressStartRef.current = { x, y };
-      clearLongPressTimer();
-      longPressTimerRef.current = window.setTimeout(() => {
-        onContextMenu(slug, displayName, x, y);
-        navigator.vibrate?.(10);
-        suppressNextClickRef.current = true;
-        longPressTimerRef.current = null;
-      }, 500);
-    },
-    [onContextMenu, slug, displayName, clearLongPressTimer],
-  );
-
-  const onTouchMove = useCallback(
-    (e: TouchEvent<HTMLDivElement>) => {
-      if (longPressTimerRef.current === null) return;
-      if (longPressStartRef.current === null) return;
-      const t = e.touches[0];
-      if (!t) return;
-      const dx = t.clientX - longPressStartRef.current.x;
-      const dy = t.clientY - longPressStartRef.current.y;
-      if (Math.hypot(dx, dy) > 10) {
-        clearLongPressTimer();
-        longPressStartRef.current = null;
-      }
-    },
-    [clearLongPressTimer],
-  );
-
-  const onTouchEnd = useCallback(() => {
-    clearLongPressTimer();
-    longPressStartRef.current = null;
-  }, [clearLongPressTimer]);
 
   const onDragOver = (e: React.DragEvent<HTMLDivElement>) => {
     // Type-gate FIRST — ONLY row drags activate the coral overlay. Badge
@@ -265,6 +192,39 @@ export function PrettyProjectSectionHeader({
     onDropRow(slug, p as PrettyProjectDropPayload);
   };
 
+  // Assemble the kebab items — four actions, each wiring an item onClick to
+  // the per-action callback prop. Order follows the standard pattern (primary
+  // positive action first, destructive last).
+  const kebabItems = [
+    {
+      label: "New conversation in this project",
+      onClick: () => onNewConversationClick(slug),
+      testId: `pv-project-section-kebab-new-conv-${slug}`,
+    },
+    ...(onRenameProject
+      ? [{
+          label: "Rename project",
+          onClick: () => onRenameProject(slug, displayName),
+          testId: `pv-project-section-kebab-rename-${slug}`,
+        }]
+      : []),
+    ...(onEditProjectFile
+      ? [{
+          label: "Edit project file",
+          onClick: () => onEditProjectFile(slug),
+          testId: `pv-project-section-kebab-edit-${slug}`,
+        }]
+      : []),
+    ...(onArchiveProject
+      ? [{
+          label: "Archive project",
+          onClick: () => onArchiveProject(slug),
+          danger: true,
+          testId: `pv-project-section-kebab-archive-${slug}`,
+        }]
+      : []),
+  ];
+
   return (
     <div
       data-testid={`pv-project-section-${slug}`}
@@ -286,28 +246,13 @@ export function PrettyProjectSectionHeader({
           }}
         />
       )}
-      {/* Phase 117 M3 fix (2026-09-18): outer container was <button> which
-          then nested a <span role="button" tabIndex={0}> for the new-
-          conversation action. Nesting an interactive element inside a
-          <button> is invalid HTML; screen readers, keyboard nav, and
-          mobile a11y engines behave inconsistently. Fix: outer is now
-          <div role="button" tabIndex={0}> with an explicit keyboard
-          handler for Enter/Space per WAI-ARIA authoring practices, and
-          the new-conversation control is a proper <button> sibling
-          inside — no nested-clickable structure. */}
+      {/* Outer <div role="button"> so the kebab can be a SIBLING button —
+          nesting <button>s is invalid HTML. `group` enables the kebab's
+          hover-reveal via group-hover below. */}
       <div
         role="button"
         tabIndex={0}
-        onClick={() => {
-          // Suppress the synthesized click that fires after a mobile
-          // long-press so the collapse toggle does NOT double-fire alongside
-          // the context menu open.
-          if (suppressNextClickRef.current) {
-            suppressNextClickRef.current = false;
-            return;
-          }
-          onToggleCollapse(slug);
-        }}
+        onClick={() => onToggleCollapse(slug)}
         onKeyDown={(e) => {
           // WAI-ARIA button pattern: Enter and Space both fire the
           // collapse toggle. preventDefault on Space avoids page scroll.
@@ -316,29 +261,7 @@ export function PrettyProjectSectionHeader({
             onToggleCollapse(slug);
           }
         }}
-        onContextMenu={(e) => {
-          // Phase 117 Plan 117-09 Task 2 (D-14) — desktop right-click opens
-          // the shared context menu (Edit project file + Archive project).
-          // Mobile long-press flows through the touch-timer path below.
-          if (!onContextMenu) return;
-          e.preventDefault();
-          onContextMenu(slug, displayName, e.clientX, e.clientY);
-        }}
-        onTouchStart={isTouchDevice ? onTouchStart : undefined}
-        onTouchMove={isTouchDevice ? onTouchMove : undefined}
-        onTouchEnd={isTouchDevice ? onTouchEnd : undefined}
-        onTouchCancel={isTouchDevice ? onTouchEnd : undefined}
-        style={{
-          // Mirror .pv-row (pretty-conversations.css § .pv-row): the 500ms
-          // long-press → context-menu timer must not fight iOS Safari's
-          // native tap-and-hold text-selection UI, which would otherwise
-          // highlight the project name underneath the opening menu.
-          userSelect: "none",
-          WebkitUserSelect: "none",
-          WebkitTouchCallout: "none",
-          WebkitTapHighlightColor: "transparent",
-        }}
-        className="flex items-center gap-2.5 pl-1 pr-4 pt-3.5 pb-1.5 w-full text-left cursor-pointer"
+        className="group flex items-center gap-2.5 pl-1 pr-4 pt-3.5 pb-1.5 w-full text-left cursor-pointer"
         data-testid={`pv-project-section-header-${slug}`}
         aria-expanded={!collapsed}
         aria-controls={`pv-project-section-content-${slug}`}
@@ -354,27 +277,22 @@ export function PrettyProjectSectionHeader({
           aria-hidden="true"
           className="flex-1 h-px bg-[linear-gradient(90deg,transparent_0%,rgba(168,154,128,0.20)_30%,rgba(168,154,128,0.20)_70%,transparent_100%)]"
         />
-        {/* Sibling <button>, not nested. stopPropagation on click/key so
-            the outer div's collapse toggle does NOT fire when the new-
-            conversation control is used. */}
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onNewConversationClick(slug);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.stopPropagation();
-            }
-          }}
-          data-testid={`pv-project-section-new-conv-${slug}`}
-          className="inline-flex items-center justify-center size-5 rounded hover:bg-white/5 text-[#5c6070]/85 shrink-0"
-          aria-label={`New conversation in ${displayName}`}
-          title={`New conversation in ${displayName}`}
+        {/* shape-sidebar-header-affordances: project header kebab. The
+            hover-reveal wrapper mirrors the Apps header pattern verbatim
+            (opacity-0 → group-hover:opacity-100 at md+; opacity-100 at <md;
+            also group-focus-within for keyboard Tab-into-kebab a11y).
+            RowKebabMenu's portal-click-containment prevents item-click
+            leaks to the outer div's collapse toggle. */}
+        <div
+          className="opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity shrink-0"
+          data-testid={`pv-project-section-kebab-slot-${slug}`}
         >
-          <SquarePen className="size-3" aria-hidden="true" />
-        </button>
+          <RowKebabMenu
+            ariaLabel={`${displayName} section menu`}
+            testId={`pv-project-section-kebab-trigger-${slug}`}
+            items={kebabItems}
+          />
+        </div>
         <ChevronDown
           className={`size-3.5 text-[#a89a80] opacity-90 shrink-0 transition-transform ${collapsed ? "" : "rotate-180"}`}
           aria-hidden="true"

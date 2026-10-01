@@ -1954,14 +1954,12 @@ export function PrettyConversationsPanel({
   const [createProjectModalOpen, setCreateProjectModalOpen] = useState(false);
   const [pendingProjectSlug, setPendingProjectSlug] = useState<string | null>(null);
 
-  // Phase 117 Plan 117-09 Task 2 (D-14) — per-section context menu state.
-  // Populated on right-click of a section header (or long-press on mobile);
-  // menu shows "Edit project file" + "Archive project" items per D-14. Reset
-  // on menu item click / outside click / Escape.
-  const [projectContextMenu, setProjectContextMenu] = useState<
-    | { x: number; y: number; slug: string; displayName: string }
-    | null
-  >(null);
+  // Phase 117 Plan 117-09 Task 2 (D-14) — per-section context menu state
+  // RETIRED by shape-sidebar-header-affordances. Right-click + long-press on
+  // the project section header are retired; the four section-scoped actions
+  // (new conversation, rename, edit project file, archive project) now live
+  // in the section header's RowKebabMenu, which calls the per-action handlers
+  // directly without an intermediate coord-based menu-open state.
 
   // Phase 117 followup — ProjectFileModal open state. Populated when the user
   // clicks "Edit project file" in the section context menu (handleEditProject
@@ -2573,17 +2571,10 @@ export function PrettyConversationsPanel({
     [projectSections, projectsList, viewingUserMxid],
   );
 
-  // Phase 117 Plan 117-09 Task 2 (D-14) — right-click / long-press handler
-  // on the project section header. Opens the shared context menu with
-  // "Edit project file" + "Archive project" items at the pointer coords.
-  // Header calls `e.preventDefault()` itself and passes coords, so the same
-  // handler serves both desktop right-click and mobile long-press paths.
-  const handleSectionContextMenu = useCallback(
-    (slug: string, displayName: string, x: number, y: number) => {
-      setProjectContextMenu({ x, y, slug, displayName });
-    },
-    [],
-  );
+  // Phase 117 Plan 117-09 Task 2 (D-14) — handleSectionContextMenu RETIRED
+  // by shape-sidebar-header-affordances. The project header's RowKebabMenu
+  // calls handleRenameProject / handleEditProjectFile / handleArchiveProject
+  // directly; the coord-based projectContextMenu middleman is gone.
 
   // Phase 117 Plan 117-09 Task 2 (D-14) — "Edit project file" menu item.
   // Followup wire (Phase 117 tail): resolve the project's host from
@@ -3220,7 +3211,9 @@ export function PrettyConversationsPanel({
                 onToggleCollapse={toggleProjectCollapse}
                 onNewConversationClick={handleNewConversationInProject}
                 onDropRow={handleProjectDrop}
-                onContextMenu={handleSectionContextMenu}
+                onRenameProject={handleRenameProject}
+                onEditProjectFile={handleEditProjectFile}
+                onArchiveProject={(s) => { void handleArchiveProject(s); }}
                 rows={
                   section.rows.length === 0 ? (
                     // UAT 2026-09-19: empty-state message when a project has
@@ -3909,40 +3902,12 @@ export function PrettyConversationsPanel({
           hostId={projectFileModal.hostId}
         />
       )}
-      {/* Phase 117 Plan 117-09 Task 2 (D-14) — per-section context menu.
-          Opened by right-click / long-press on any PrettyProjectSectionHeader
-          via handleSectionContextMenu; renders "Edit project file" +
-          "Archive project" items at the pointer coords. Reused
-          PrettyConversationContextMenu chrome (portal-mounted, Escape +
-          outside-click dismiss). */}
-      {projectContextMenu !== null && (
-        <PrettyConversationContextMenu
-          x={projectContextMenu.x}
-          y={projectContextMenu.y}
-          onClose={() => setProjectContextMenu(null)}
-          items={[
-            {
-              label: "Rename project",
-              onClick: () =>
-                handleRenameProject(
-                  projectContextMenu.slug,
-                  projectContextMenu.displayName,
-                ),
-            },
-            {
-              label: "Edit project file",
-              onClick: () => handleEditProjectFile(projectContextMenu.slug),
-            },
-            {
-              label: "Archive project",
-              onClick: () => {
-                void handleArchiveProject(projectContextMenu.slug);
-              },
-              danger: true,
-            },
-          ]}
-        />
-      )}
+      {/* Phase 117 Plan 117-09 Task 2 (D-14) per-section context menu portal
+          RETIRED by shape-sidebar-header-affordances. The four section-scoped
+          actions now live in the project header's RowKebabMenu, which calls
+          the per-action handlers (handleRenameProject / handleEditProjectFile /
+          handleArchiveProject) directly without a portal-mounted context menu
+          middleman. */}
     </div>
   );
 }
