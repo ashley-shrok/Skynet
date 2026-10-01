@@ -12,7 +12,7 @@
  *     - Line 4: role chip (magenta) + skill chips (blue, only when non-empty)
  *   top-right actions bar (aligned with the name baseline):
  *     - toggle pill (row.enabled, pessimistic — parent flips on server ack)
- *     - kebab button → Edit + Delete popover
+ *     - RowKebabMenu → Edit + Delete popover
  *
  * Row hue: `row.colorHue ?? 190` — from the backend's role-file cascade.
  *
@@ -22,17 +22,23 @@
  *   D-09: host-chip removal — dropped per tasting; host context lives in
  *         the filter bar when in multi-host mode.
  *   D-11: toggle + kebab stopPropagation so row.onClick (edit entry) does
- *         NOT fire on their clicks.
+ *         NOT fire on their clicks. (Kebab stop-prop now lives inside the
+ *         shared RowKebabMenu — see D-14 there.)
  *   D-12: two-state visual only. No spinner glyph; parent uses pessimistic
  *         write + inline error banner on failure.
  *   D-13: kebab popover has Edit + Delete only.
  *   D-28: no streaming affordances.
+ *   D-29 (2026-10-01, UAT item 3): kebab replaced with the shared
+ *         `RowKebabMenu` so every kebab in the app looks the same — same
+ *         trigger, same menu surface, same cursor affordance. Props
+ *         `kebabOpen` and `onKebabClick` dropped; the shared component
+ *         owns its own open-state via Radix.
  *
  * Pure presentation — all interactive callbacks are prop callbacks.
  */
 
-import { MoreHorizontal } from "lucide-react";
 import type { ScheduledAgentListItem } from "@/api/scheduled-agents-api";
+import { RowKebabMenu } from "./RowKebabMenu";
 
 const FALLBACK_HUE = 190;
 
@@ -57,8 +63,6 @@ export interface ScheduledAgentsModalRowProps {
   row: ScheduledAgentListItem;
   onRowClick: (row: ScheduledAgentListItem) => void;
   onToggleClick: (row: ScheduledAgentListItem) => void;
-  onKebabClick: (row: ScheduledAgentListItem) => void;
-  kebabOpen: boolean;
   onEditFromKebab: (row: ScheduledAgentListItem) => void;
   onDeleteFromKebab: (row: ScheduledAgentListItem) => void;
 }
@@ -67,8 +71,6 @@ export function ScheduledAgentsModalRow({
   row,
   onRowClick,
   onToggleClick,
-  onKebabClick,
-  kebabOpen,
   onEditFromKebab,
   onDeleteFromKebab,
 }: ScheduledAgentsModalRowProps): JSX.Element {
@@ -137,49 +139,28 @@ export function ScheduledAgentsModalRow({
               : "pv-agent-row-toggle"
           }
         />
-        <button
-          type="button"
-          aria-label="More actions"
-          aria-haspopup="menu"
-          aria-expanded={kebabOpen}
-          data-testid={`scheduled-agents-modal-row-${row.slug}-kebab`}
-          onClick={(e) => {
-            e.stopPropagation();
-            onKebabClick(row);
-          }}
-          className="pv-agent-row-kebab"
-        >
-          <MoreHorizontal size={14} />
-        </button>
-
-        {kebabOpen && (
-          <div role="menu" className="pv-agent-row-kebab-menu">
-            <button
-              type="button"
-              role="menuitem"
-              data-testid={`scheduled-agents-modal-row-${row.slug}-edit`}
-              onClick={(e) => {
-                e.stopPropagation();
-                onEditFromKebab(row);
-              }}
-              className="pv-agent-row-kebab-item"
-            >
-              Edit
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              data-testid={`scheduled-agents-modal-row-${row.slug}-delete`}
-              onClick={(e) => {
-                e.stopPropagation();
-                onDeleteFromKebab(row);
-              }}
-              className="pv-agent-row-kebab-item destructive"
-            >
-              Delete
-            </button>
-          </div>
-        )}
+        {/* D-29: shared RowKebabMenu — Edit + Delete items. The component
+            owns its own open state (Radix) and stop-propagation discipline
+            (D-14 revised 2026-10-01), so no `kebabOpen`/`onKebabClick`
+            threading is needed from the parent anymore. testId overridden
+            to preserve the existing scheduled-agents namespacing. */}
+        <RowKebabMenu
+          items={[
+            {
+              label: "Edit",
+              onClick: () => onEditFromKebab(row),
+              testId: `scheduled-agents-modal-row-${row.slug}-edit`,
+            },
+            {
+              label: "Delete",
+              danger: true,
+              onClick: () => onDeleteFromKebab(row),
+              testId: `scheduled-agents-modal-row-${row.slug}-delete`,
+            },
+          ]}
+          ariaLabel="More actions"
+          testId={`scheduled-agents-modal-row-${row.slug}-kebab`}
+        />
       </div>
     </div>
   );

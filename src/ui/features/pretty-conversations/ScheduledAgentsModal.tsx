@@ -103,9 +103,6 @@ export function ScheduledAgentsModal({
   const [view, setView] = useState<"list" | "form">("list");
   const [editingSlug, setEditingSlug] = useState<string | null>(null);
 
-  // Which row's kebab popover is currently open (null = closed).
-  const [kebabOpen, setKebabOpen] = useState<string | null>(null);
-
   // Unified error slot — one dismissible banner shows whichever write
   // most recently failed (toggle / delete / load). Priority: load-error
   // wins if both a load AND a write failed in the same window.
@@ -124,7 +121,6 @@ export function ScheduledAgentsModal({
       setHostFilter(ALL_SENTINEL);
       setView("list");
       setEditingSlug(null);
-      setKebabOpen(null);
       setWriteError(null);
       return;
     }
@@ -222,7 +218,6 @@ export function ScheduledAgentsModal({
   const totalItems = items ?? [];
 
   function handleRowClick(row: ScheduledAgentListItem): void {
-    setKebabOpen(null);
     setEditingSlug(row.slug);
     setView("form");
   }
@@ -241,12 +236,7 @@ export function ScheduledAgentsModal({
     }
   }
 
-  function handleKebabClick(row: ScheduledAgentListItem): void {
-    setKebabOpen((current) => (current === row.slug ? null : row.slug));
-  }
-
   function handleEditFromKebab(row: ScheduledAgentListItem): void {
-    setKebabOpen(null);
     setEditingSlug(row.slug);
     setView("form");
   }
@@ -254,7 +244,6 @@ export function ScheduledAgentsModal({
   async function handleDeleteFromKebab(
     row: ScheduledAgentListItem,
   ): Promise<void> {
-    setKebabOpen(null);
     // eslint-disable-next-line no-alert
     const ok = window.confirm(`Delete scheduled agent "${row.name}"?`);
     if (!ok) return;
@@ -502,8 +491,6 @@ export function ScheduledAgentsModal({
                 onToggleClick={(r) => {
                   void handleToggleClick(r);
                 }}
-                onKebabClick={handleKebabClick}
-                kebabOpen={kebabOpen === row.slug}
                 onEditFromKebab={handleEditFromKebab}
                 onDeleteFromKebab={(r) => {
                   void handleDeleteFromKebab(r);

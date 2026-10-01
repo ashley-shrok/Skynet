@@ -404,7 +404,13 @@ describe("ScheduledAgentsModal: pessimistic toggle (D-12)", () => {
 });
 
 describe("ScheduledAgentsModal: kebab menu (D-13, D-14)", () => {
+  // Kebab is now the shared Radix-based `RowKebabMenu` (D-29, 2026-10-01) —
+  // Radix needs a full pointer-event sequence to open the dropdown, so
+  // `userEvent.click` is required here (bare `fireEvent.click` leaves the
+  // trigger in `data-state="closed"`).
+
   it("T-10: Kebab → Edit → same as row click (form view, edit mode)", async () => {
+    const user = userEvent.setup();
     listScheduledAgentsMock.mockResolvedValueOnce([makeRow()]);
     render(
       <ScheduledAgentsModal
@@ -414,13 +420,13 @@ describe("ScheduledAgentsModal: kebab menu (D-13, D-14)", () => {
       />,
     );
     await screen.findByTestId("scheduled-agents-modal-row-morning-triage");
-    fireEvent.click(
+    await user.click(
       screen.getByTestId("scheduled-agents-modal-row-morning-triage-kebab"),
     );
     const editItem = await screen.findByTestId(
       "scheduled-agents-modal-row-morning-triage-edit",
     );
-    fireEvent.click(editItem);
+    await user.click(editItem);
     const nameInput = await screen.findByTestId(
       "scheduled-agents-modal-form-name",
     ) as HTMLInputElement;
@@ -429,6 +435,7 @@ describe("ScheduledAgentsModal: kebab menu (D-13, D-14)", () => {
   });
 
   it("T-11: Kebab → Delete → window.confirm + DELETE + refetch", async () => {
+    const user = userEvent.setup();
     const confirmSpy = vi
       .spyOn(window, "confirm")
       .mockReturnValue(true);
@@ -444,13 +451,13 @@ describe("ScheduledAgentsModal: kebab menu (D-13, D-14)", () => {
       />,
     );
     await screen.findByTestId("scheduled-agents-modal-row-morning-triage");
-    fireEvent.click(
+    await user.click(
       screen.getByTestId("scheduled-agents-modal-row-morning-triage-kebab"),
     );
     const deleteItem = await screen.findByTestId(
       "scheduled-agents-modal-row-morning-triage-delete",
     );
-    fireEvent.click(deleteItem);
+    await user.click(deleteItem);
 
     expect(confirmSpy).toHaveBeenCalledTimes(1);
     expect(confirmSpy).toHaveBeenCalledWith(

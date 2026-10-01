@@ -2188,63 +2188,6 @@
   background: #fbf5e8;
 }
 
-.pv-agent-row-kebab {
-  width: 22px;
-  height: 22px;
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(220, 225, 245, 0.10);
-  color: hsla(var(--pv-agent-row-hue), 22%, 88%, 0.75);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  padding: 0;
-}
-
-.pv-agent-row-kebab:hover {
-  color: #fbf5e8;
-}
-
-/* Kebab popover — anchored to the actions bar, position via inline style
-   on the container (parent uses position: relative). */
-.pv-agent-row-kebab-menu {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 4px);
-  z-index: 10;
-  min-width: 128px;
-  padding: 4px 0;
-  border-radius: 8px;
-  display: flex;
-  flex-direction: column;
-  background: linear-gradient(
-    160deg,
-    hsla(var(--pv-agent-row-hue), 40%, 22%, 0.94),
-    hsla(var(--pv-agent-row-hue), 40%, 15%, 0.94)
-  );
-  border: 1px solid rgba(220, 225, 245, 0.12);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
-}
-
-.pv-agent-row-kebab-item {
-  text-align: left;
-  padding: 6px 12px;
-  font-size: 12.5px;
-  cursor: pointer;
-  color: #e8e4d8;
-  background: transparent;
-  border: none;
-}
-
-.pv-agent-row-kebab-item:hover {
-  background: rgba(255, 255, 255, 0.05);
-}
-
-.pv-agent-row-kebab-item.destructive {
-  color: hsla(0, 60%, 76%, 1);
-}
-
 /* Compact single error banner at the top of the ScheduledAgents list-body.
    Replaces the pre-unification triple-banner stack. */
 .pv-agent-list-error {

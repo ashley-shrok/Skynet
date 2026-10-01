@@ -40,6 +40,7 @@ describe("Phase 143 Plan 143-05 Task 3 — RowKebabMenu", () => {
   // Test 1 (renders the trigger with D-12 tokens):
   //   Render <RowKebabMenu items={[…]} />, assert the trigger button exists
   //   and its className contains the exact D-12 token substring.
+  //   D-12 revised 2026-10-01 (UAT item 1): bumped for prominence.
   it("Test 1 (D-12 tokens): trigger button exists and carries D-12 visual token classes", () => {
     render(
       <RowKebabMenu
@@ -49,13 +50,17 @@ describe("Phase 143 Plan 143-05 Task 3 — RowKebabMenu", () => {
 
     const trigger = screen.getByTestId("row-kebab-trigger");
     expect(trigger).toBeTruthy();
-    expect(trigger.className).toContain("size-5");
-    expect(trigger.className).toContain("hover:bg-white/5");
+    expect(trigger.className).toContain("size-6");
+    expect(trigger.className).toContain("bg-white/10");
+    expect(trigger.className).toContain("hover:bg-white/20");
+    expect(trigger.className).toContain("text-white/80");
+    expect(trigger.className).toContain("hover:text-white");
     expect(trigger.className).toContain("inline-flex");
     expect(trigger.className).toContain("items-center");
     expect(trigger.className).toContain("justify-center");
-    expect(trigger.className).toContain("rounded");
+    expect(trigger.className).toContain("rounded-md");
     expect(trigger.className).toContain("shrink-0");
+    expect(trigger.className).toContain("transition-colors");
   });
 
   // Test 2 (opens popover on trigger click, renders items):
@@ -116,6 +121,40 @@ describe("Phase 143 Plan 143-05 Task 3 — RowKebabMenu", () => {
     const trigger = screen.getByTestId("row-kebab-trigger");
     fireEvent.click(trigger);
 
+    expect(parentSpy).not.toHaveBeenCalled();
+  });
+
+  // Test 5 (D-14 revised 2026-10-01, UAT item 2 regression):
+  //   Clicking an ITEM inside the dropdown menu must NOT propagate up through
+  //   the React tree to the parent's onClick handler. React synthetic events
+  //   from portal-mounted content bubble through the React tree (not the DOM
+  //   tree), so the parent row's onClick is reachable from a menu-item click
+  //   unless the dropdown stops propagation explicitly.
+  //
+  //   Repro before fix: user clicked "Archive" in the kebab menu, confirmed
+  //   the native confirm, and the row-behind's onClick fired (opening the
+  //   RoleModal on the role being archived).
+  it("Test 5 (D-14 item-click stop-propagation): clicking a menu item does NOT propagate to React-tree parent", async () => {
+    const user = userEvent.setup();
+    const parentSpy = vi.fn();
+    const itemSpy = vi.fn();
+
+    render(
+      <div onClick={parentSpy}>
+        <RowKebabMenu items={[{ label: "Archive", onClick: itemSpy }]} />
+      </div>,
+    );
+
+    const trigger = screen.getByTestId("row-kebab-trigger");
+    await user.click(trigger);
+    // Open-trigger click is already covered by Test 4; reset so this test
+    // only asserts about the item-click bubble.
+    parentSpy.mockClear();
+
+    const item = await screen.findByText("Archive");
+    await user.click(item);
+
+    expect(itemSpy).toHaveBeenCalledTimes(1);
     expect(parentSpy).not.toHaveBeenCalled();
   });
 });
