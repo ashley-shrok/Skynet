@@ -3295,10 +3295,13 @@ export async function writeRoleFileByName(
 // Per-identity binary "hasTrappedWork" answer for the trapped-work indicator
 // (Phase 104). Structural notes:
 //
-//   1. D-02 workspace path: hard-coded ~/fleet/identities/<identityKey>/workspace/
-//      (Shape 3 substrate migration path). NO env-var override; NO "skynet/"
-//      subdir; NO configurability. Pre-migration identities that don't have
-//      workspace/ silently return {hasTrappedWork:false}.
+//   1. D-02 workspace path: `<local-identities-root>/<identityKey>/workspace/`
+//      (Shape 3 substrate migration path). Resolved via getLocalIdentitiesRoot()
+//      so the Phase 117 M-K HOME_HOST_DIR override lands correctly in the
+//      container (/host-home/fleet/identities), with IDENTITIES_HOST_DIR
+//      remaining the test escape hatch. NO "skynet/" subdir. Pre-migration
+//      identities that don't have workspace/ silently return
+//      {hasTrappedWork:false}.
 //
 //   2. D-06 silent-fail: workspace/ absent OR empty → {hasTrappedWork:false}.
 //      No error, no fallback path, no probe of alternative locations.
@@ -3456,11 +3459,14 @@ export async function readIdentityTrappedWork(
   }
 
   if (conn === null) {
-    // LOCAL branch — walk os.homedir()/fleet/identities/<key>/workspace/.
+    // LOCAL branch — walk <local-identities-root>/<key>/workspace/.
+    // Must use getLocalIdentitiesRoot() (HOME_HOST_DIR-aware) — inside the
+    // Skynet container os.homedir() is /root while the fleet is bind-mounted
+    // at /host-home, so a direct os.homedir() lookup silently resolves to a
+    // non-existent dir and D-06's silent-fail swallows every local probe.
     // D-06: silent-fail on absent workspace (returns false without throwing).
     const wsRoot = path.join(
-      os.homedir(),
-      WORKSPACE_PATH_PREFIX,
+      getLocalIdentitiesRoot(),
       identityKey,
       "workspace",
     );

@@ -13,7 +13,9 @@
 //   Ignored: untracked files, nested repos (outermost-only), remote-less repos.
 //   Silent-fail (D-06): workspace/ absent OR empty → {hasTrappedWork:false}.
 //   No role lookup (D-09): trapped-work is workspace-scoped, not role-scoped.
-//   Path (D-02): ~/fleet/identities/<key>/workspace/ hard-coded, no override.
+//   Path (D-02): <local-identities-root>/<key>/workspace/, resolved via
+//   getLocalIdentitiesRoot() so HOME_HOST_DIR (container bind-mount) and
+//   IDENTITIES_HOST_DIR (test escape hatch) both land.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import os from "os";
@@ -34,9 +36,12 @@ import { execCommand } from "../ssh/tmux-helper.js";
 import { readIdentityTrappedWork } from "./identity-artifact-reader.js";
 
 // A fake $HOME so the LOCAL branch's expanded ~/fleet/identities/<key>/workspace
-// resolves under a tmp dir we control (mirrors count-bounties.test.ts's
-// IDENTITIES_HOST_DIR / ROLES_HOST_DIR override, but the trapped-work reader
-// keys off os.homedir() directly — we spy on it below).
+// resolves under a tmp dir we control. The reader resolves the root via
+// getLocalIdentitiesRoot(), which falls back to os.homedir() when neither
+// HOME_HOST_DIR nor IDENTITIES_HOST_DIR is set — so the os.homedir() spy
+// below drives the default-path tests. The HOME_HOST_DIR-aware regression
+// test (bottom of the LOCAL block) sets the env var instead to simulate
+// the container bind-mount.
 let fakeHome: string;
 let bareRemoteRoot: string;
 const KEY = "tina";
@@ -324,6 +329,44 @@ describe("readIdentityTrappedWork — LOCAL branch", () => {
       String(args[0]).includes(`${KEY}.md`),
     );
     expect(identityMdReads).toHaveLength(0);
+  });
+
+  // Test 14 — HOME_HOST_DIR (container bind-mount) is honored for the LOCAL
+  // branch. Regression for the Phase 117 M-K migration gap where the reader
+  // keyed off os.homedir() directly and silently resolved to /root inside the
+  // Skynet container (fleet lives at /host-home) — producing hasTrappedWork:
+  // false for every local identity.
+  it("honors HOME_HOST_DIR for the LOCAL path (container bind-mount case)", async () => {
+    // Point os.homedir() at a dir with NO fleet subtree, mimicking /root
+    // inside the container.
+    const emptyHome = await fs.mkdtemp(path.join(os.tmpdir(), "tw-empty-home-"));
+    vi.spyOn(os, "homedir").mockReturnValue(emptyHome);
+
+    // Put the real fleet workspace under a separate dir, pointed to by
+    // HOME_HOST_DIR — mimicking /host-home inside the container.
+    const hostHome = await fs.mkdtemp(path.join(os.tmpdir(), "tw-host-home-"));
+    process.env.HOME_HOST_DIR = hostHome;
+    try {
+      const ws = path.join(hostHome, "fleet", "identities", KEY, "workspace");
+      await fs.mkdir(ws, { recursive: true });
+      const repo = path.join(ws, "foo");
+      await fs.mkdir(repo, { recursive: true });
+      const bare = path.join(bareRemoteRoot, "foo.git");
+      gitInitBare(bare);
+      gitInit(repo);
+      gitCommitFile(repo, "README.md", "hello\n", "initial");
+      execFileSync("git", ["-C", repo, "remote", "add", "origin", `file://${bare}`]);
+      execFileSync("git", ["-C", repo, "push", "-q", "origin", "main"]);
+      // Make the repo dirty so we expect a `true` answer.
+      await fs.writeFile(path.join(repo, "README.md"), "dirty\n", "utf-8");
+
+      const result = await readIdentityTrappedWork(null, KEY);
+      expect(result).toEqual({ hasTrappedWork: true });
+    } finally {
+      delete process.env.HOME_HOST_DIR;
+      await fs.rm(hostHome, { recursive: true, force: true });
+      await fs.rm(emptyHome, { recursive: true, force: true });
+    }
   });
 });
 
