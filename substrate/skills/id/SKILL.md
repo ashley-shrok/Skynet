@@ -668,9 +668,10 @@ not something agents drive.
 ### Sidebar content (top to bottom)
 
 - **Apps section (top).** Apps the user has built with you or a peer
-  agent live here. Click opens the app inside the client. Right-click →
-  **open in new tab** (standalone webpage) or **archive** (removes from
-  sidebar).
+  agent live here. Click opens the app inside the client. Each app tile
+  carries a **kebab menu** with:
+  - **Open in new tab** — standalone webpage.
+  - **Archive** — removes the app from the sidebar.
   *Agent-side:* apps are handled by the **`app-development` skill** —
   that's the source of truth for how to create, edit, or maintain them.
   If the user talks about "one of my apps," "make me an app for X," or
@@ -678,19 +679,16 @@ not something agents drive.
   mechanics. On-disk apps live under `~/fleet/apps/<slug>/`; archived
   ones under `~/fleet/apps-archive/`. **User-gated** (via the skill).
 
-  The Apps section header itself carries an always-visible **archived-box icon**
-  on the RIGHT side, LEFT of the collapse chevron. Clicking it
-  opens the **Archived apps modal** — a fleet-wide list of archived apps
-  across every host, with rounded-square avatars matching how live apps
-  present in the sidebar. Each archived row has a three-dots menu with a
-  single **Un-archive** item. Un-archiving triggers the supervisor's
-  reconciler on the app's home host; the app returns to the sidebar within
-  ~15 seconds. (Live-app tiles keep their existing right-click archive path
-  unchanged.)
+  The Apps section header itself carries a **kebab menu** with:
+  - **Archived apps** — opens the **Archived apps modal**, a list of
+    archived apps. Each archived row has its own three-dots menu with a
+    single **Un-archive** item; un-archiving triggers the supervisor's
+    reconciler on the app's home host and the app returns to the sidebar
+    within ~15 seconds.
 
 - **Pinned section (under Apps).** Conversations the user has pinned for
-  quick access. To pin/unpin: right-click a conversation, or drag it onto
-  the Pinned section.
+  quick access. To pin/unpin: use the row's **kebab menu** (Pin / Unpin
+  item), or drag it onto the Pinned section.
   *Agent-side:* pinning is controlled by an empty **sentinel file** at
   `~/fleet/identities/<name>/.pinned` — presence = pinned, absence = not.
   Toggle with `touch` / `rm`. Since the sentinel lives inside the
@@ -699,29 +697,37 @@ not something agents drive.
   reason as `.no-dormancy`, this is a UI-organization signal the user
   owns.
 
-- **Right-click menu on any conversation (sidebar row OR the badge in
-  the conversation view — same menu):**
+- **Kebab menu on any sidebar row (conversation).** The three-dots menu
+  on the row. Contents:
   - **Pin / Unpin** — see Pinned section above.
   - **Open in new window** — opens that conversation in a separate
     client instance (distinct from apps' "open in new tab").
     *Agent-side: none.*
-  - **Move to project** — into, between, or removing from a project.
+  - **Move to project** — drill-in submenu listing every project (with a
+    checkmark on the row's current project if any), plus a "Remove from
+    project" item when the row is currently in a project.
     *Agent-side:* the identity's project affiliation lives in its own
     frontmatter (`project: <slug>` in `~/fleet/identities/<name>/<name>.md`).
     Add / change / remove that key to move in / between / out. UI reflects
-    it within a second or so. **User-gated.**
+    it within a few seconds. **User-gated.**
   - **Archive** — retires the identity. See § On `/id archive`.
 
+  The same menu CONTENT appears via right-click on the identity badge in
+  the open conversation view (upper-right).
+
 - **Projects section (below Pinned).** One row per project, expandable
-  and collapsible. Drag conversations in and out to move them. Drag one
-  onto Pinned to pin. Each project header has its own **new conversation**
-  button — same as the header's new-conversation, but auto-assigns the
-  spawned agent to that project.
+  and collapsible. Drag conversations in and out to move them. Each
+  project header carries a **kebab menu** with:
+  - **New conversation in this project** — auto-assigns the spawned
+    agent to this project.
+  - **Edit project file** — opens the project.md editor modal.
+  - **Archive project** — retires the project folder (with its
+    cascade-member handling per the archive route).
   *Agent-side:* project membership = the `project:` frontmatter (see
   above). For spawning a fresh agent already scoped to a project, the
-  cleanest path is to point the user at the project-header's
-  new-conversation button — the spawn-request schema does not carry a
-  `project` field.
+  cleanest path is to include a directive in the prompt of the spawn
+  request for the spawned identity to add itself to the project
+  immediately upon wake.
 
 - **Conversations header (bottom).** Every conversation not pinned and
   not in a project shows up here — the default landing zone.
