@@ -1,11 +1,8 @@
 import {
   useCallback,
-  useEffect,
-  useRef,
   useState,
   type DragEvent as ReactDragEvent,
   type MouseEvent as ReactMouseEvent,
-  type TouchEvent as ReactTouchEvent,
 } from "react";
 
 import type { AppState } from "../../api/fleet-status-types";
@@ -15,10 +12,12 @@ import {
   markPendingAppArchive,
   clearPendingAppArchive,
 } from "../../state/app-tiles-store";
-import {
-  PrettyConversationContextMenu,
-  type PrettyContextMenuItem,
-} from "./PrettyConversationContextMenu";
+// shape-sidebar-header-affordances: app tile context menu + long-press
+// machinery retired; the two actions (Open in new tab + Archive) now live in
+// a RowKebabMenu rendered inside the tile. Hover-reveal on desktop +
+// always-visible on mobile via a CSS-only group-hover + viewport-width gate
+// at the kebab's wrapper div.
+import { RowKebabMenu, type RowKebabMenuItem } from "./RowKebabMenu";
 
 // ─── AppTile — Phase 119 Plan 03 (D-07..D-13) ───────────────────────────────
 // One tile in the sidebar's Apps section (119-04 integrates it into
@@ -133,56 +132,24 @@ export interface AppTileProps {
   variant?: "mobile" | "desktop";
 }
 
-const LONG_PRESS_MS = 500;
-const LONG_PRESS_MOVE_TOLERANCE_PX = 10;
-
 export function AppTile({ app, onOpenApp, onArchive, variant = "desktop" }: AppTileProps): React.ReactElement {
   const variantClass = variant === "mobile" ? "pv-app-tile--mobile" : "pv-app-tile--desktop";
   // State: image-load failure (Pitfall 3 avoidance — state flip beats CSS
-  // :where(img[error]) which has patchy browser support), and context-menu
-  // open coords.
+  // :where(img[error]) which has patchy browser support).
   const [imgFailed, setImgFailed] = useState(false);
-  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
 
-  // ─── Long-press refs (mirrors PrettyConversationRow.tsx:442-451) ────────
-  const longPressTimerRef = useRef<number | null>(null);
-  const longPressStartRef = useRef<{ x: number; y: number } | null>(null);
-  // Pitfall 4 (Phase 119 RESEARCH.md) — set to true by the long-press timer
-  // body so the synthesized click that follows a long-press touch does NOT
-  // re-fire onOpenApp (Phase 120 D-06 wired this ref up; Phase 119 kept it
-  // as forward-compat scaffold). Consumed by `onTileClick` below.
-  const suppressNextClickRef = useRef<boolean>(false);
-
-  const clearLongPressTimer = useCallback(() => {
-    if (longPressTimerRef.current !== null) {
-      window.clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
-    }
-  }, []);
-
-  // Cleanup pending timer on unmount so a late timer fire never calls
-  // setCtxMenu on an unmounted component.
-  useEffect(() => {
-    return () => {
-      clearLongPressTimer();
-    };
-  }, [clearLongPressTimer]);
-
-  const closeSelf = useCallback(() => setCtxMenu(null), []);
+  // shape-sidebar-header-affordances: ctxMenu useState + long-press refs +
+  // suppressNextClickRef + clearLongPressTimer + onRowContextMenu +
+  // onTouchStart/Move/End handlers all RETIRED alongside the context menu
+  // machinery. RowKebabMenu's portal-click-containment prevents the kebab
+  // trigger click from bubbling to onTileClick, so no suppression ref is
+  // needed on the click path.
 
   // Phase 120 D-06 — plain left-click opens the app in a pane leaf via the
-  // onOpenApp prop. Long-press suppression preserved via suppressNextClickRef
-  // (Pitfall 4): the long-press timer body sets the ref to true; a
-  // subsequent synthesized click reads-and-resets the ref and returns
-  // without firing onOpenApp. D-15 multi-instance: no dedupe here — the
-  // click callback fires every time, and AppShell's openTab creates a fresh
-  // leaf each call.
+  // onOpenApp prop. D-15 multi-instance: no dedupe here — the click callback
+  // fires every time, and AppShell's openTab creates a fresh leaf each call.
   const onTileClick = useCallback(
     (_e: ReactMouseEvent<HTMLDivElement>) => {
-      if (suppressNextClickRef.current) {
-        suppressNextClickRef.current = false;
-        return;
-      }
       // hostId is a string on the wire (fleet-status-types.ts:136); cast to
       // number to match Tab.app.hostId's numeric shape (ui-types.ts).
       onOpenApp?.(Number(app.hostId), app.slug, app.title);
@@ -217,59 +184,8 @@ export function AppTile({ app, onOpenApp, onArchive, variant = "desktop" }: AppT
     [app.hostId, app.slug, app.title],
   );
 
-  const onRowContextMenu = useCallback(
-    (e: ReactMouseEvent<HTMLDivElement>) => {
-      e.preventDefault();
-      e.stopPropagation();
-      setCtxMenu({ x: e.clientX, y: e.clientY });
-    },
-    [],
-  );
-
-  const onTouchStart = useCallback(
-    (e: ReactTouchEvent<HTMLDivElement>) => {
-      const t = e.touches[0];
-      if (!t) return;
-      const x = t.clientX;
-      const y = t.clientY;
-      longPressStartRef.current = { x, y };
-      clearLongPressTimer();
-      longPressTimerRef.current = window.setTimeout(() => {
-        setCtxMenu({ x, y });
-        // Feature-checked — iOS Safari has no navigator.vibrate. The
-        // optional-chain guard MUST stay so the timer body doesn't throw
-        // (Pitfall 4).
-        navigator.vibrate?.(10);
-        suppressNextClickRef.current = true;
-        longPressTimerRef.current = null;
-      }, LONG_PRESS_MS);
-    },
-    [clearLongPressTimer],
-  );
-
-  const onTouchMove = useCallback((e: ReactTouchEvent<HTMLDivElement>) => {
-    const start = longPressStartRef.current;
-    if (!start) return;
-    const t = e.touches[0];
-    if (!t) return;
-    const dx = t.clientX - start.x;
-    const dy = t.clientY - start.y;
-    if (Math.hypot(dx, dy) > LONG_PRESS_MOVE_TOLERANCE_PX) {
-      // Movement gate — cancel long-press so vertical scroll / swipe wins.
-      if (longPressTimerRef.current !== null) {
-        window.clearTimeout(longPressTimerRef.current);
-        longPressTimerRef.current = null;
-      }
-    }
-  }, []);
-
-  const onTouchEnd = useCallback(() => {
-    if (longPressTimerRef.current !== null) {
-      window.clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
-    }
-    longPressStartRef.current = null;
-  }, []);
+  // shape-sidebar-header-affordances: onRowContextMenu + onTouchStart/Move/End
+  // handlers RETIRED. The kebab is the sole affordance for the two actions.
 
   // URL construction — mirrors the backend GET /apps/:hostId/:slug/icon
   // path shape (D-06 / RESEARCH.md discretion). The "Open in new tab"
@@ -288,7 +204,7 @@ export function AppTile({ app, onOpenApp, onArchive, variant = "desktop" }: AppT
   const initialLetter =
     app.title.trim().charAt(0).toUpperCase() || "?";
 
-  const menuItems: PrettyContextMenuItem[] = [
+  const kebabItems: RowKebabMenuItem[] = [
     {
       label: "Open in new tab",
       onClick: () => {
@@ -298,30 +214,17 @@ export function AppTile({ app, onOpenApp, onArchive, variant = "desktop" }: AppT
         // accessing window.opener AND suppresses the HTTP Referer header.
         window.open(openUrl, "_blank", "noopener,noreferrer");
       },
+      testId: "pv-app-tile-kebab-item-open-new-tab",
     },
     // app-archive shape — Archive item, danger-styled, placed LAST (mirrors
     // the identity/role archive menu placement discipline; most destructive
     // at bottom). Uses two consecutive window.confirm dialogs (double-confirm
-    // ceremony matching role-archive: first dialog with identity's copy,
-    // second dialog with the role-archive sanity-tap copy verbatim). Sidebar
-    // update: OPTIMISTIC via markPendingAppArchive + publishAppGone —
-    // mirrors identity-archive's optimistic-remove composition so the tile
-    // vanishes immediately instead of waiting for the supervisor's sweep
-    // tick (~15s later) to move the folder. Open app tabs/panes: closed via
-    // the `onArchive` callback, so the pane and the tile disappear together
-    // rather than the pane lingering with a dead-app iframe until the tab
-    // bar catches up.
+    // ceremony). Sidebar update: OPTIMISTIC via markPendingAppArchive +
+    // publishAppGone — mirrors identity-archive's optimistic-remove.
     {
       label: "Archive",
       danger: true,
-      // The double-click race guard lives in PrettyConversationContextMenu:
-      // picking an item closes the menu (FLASH_DISMISS_MS timer), so a
-      // second click has nowhere to land. If that menu's dismiss discipline
-      // ever changes, this onClick becomes vulnerable to concurrent
-      // invocation — the backend + primitive are idempotent (same empty
-      // file at same path), but a future maintainer refactoring the menu
-      // should either preserve the auto-dismiss or add a local re-entry
-      // guard here.
+      testId: "pv-app-tile-kebab-item-archive",
       onClick: async () => {
         if (!window.confirm(`archive ${app.title}? this can't be undone.`)) return;
         if (!window.confirm("are you sure? this can't be undone.")) return;
@@ -376,17 +279,12 @@ export function AppTile({ app, onOpenApp, onArchive, variant = "desktop" }: AppT
 
   return (
     <div
-      className={`pv-app-tile ${variantClass}`}
+      className={`group pv-app-tile ${variantClass} relative`}
       role="button"
       aria-label={`App tile: ${app.title}`}
       draggable={true}
       onDragStart={onTileDragStart}
       onClick={onTileClick}
-      onContextMenu={onRowContextMenu}
-      onTouchStart={onTouchStart}
-      onTouchMove={onTouchMove}
-      onTouchEnd={onTouchEnd}
-      onTouchCancel={onTouchEnd}
       data-testid="pv-app-tile"
       data-app-key={`${app.hostId}:${app.slug}`}
     >
@@ -409,14 +307,21 @@ export function AppTile({ app, onOpenApp, onArchive, variant = "desktop" }: AppT
           <span className="pv-app-unhealthy-message">{app.healthMessage}</span>
         )}
       </div>
-      {ctxMenu !== null && (
-        <PrettyConversationContextMenu
-          x={ctxMenu.x}
-          y={ctxMenu.y}
-          items={menuItems}
-          onClose={closeSelf}
+      {/* shape-sidebar-header-affordances: tile kebab. Absolute-positioned top-
+          right. Hover-reveal on desktop (opacity-0 → md:group-hover:opacity-100
+          + md:group-focus-within for keyboard a11y); always-visible on mobile
+          (opacity-100 at <md). RowKebabMenu's portal-click-containment stops
+          item onClicks from leaking to the tile's onClick (which opens the app). */}
+      <div
+        className="absolute top-1.5 right-1.5 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity shrink-0 z-[5]"
+        data-testid="pv-app-tile-kebab-slot"
+      >
+        <RowKebabMenu
+          ariaLabel={`${app.title} menu`}
+          testId="pv-app-tile-kebab-trigger"
+          items={kebabItems}
         />
-      )}
+      </div>
     </div>
   );
 }

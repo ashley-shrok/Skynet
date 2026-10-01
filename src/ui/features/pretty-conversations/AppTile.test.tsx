@@ -40,6 +40,31 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
 import { render, fireEvent, screen, cleanup } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+
+// jsdom does not implement ResizeObserver; stub it so Radix's DropdownMenu
+// (used by RowKebabMenu, which backs the AppTile kebab post
+// shape-sidebar-header-affordances) doesn't throw when the portal mounts.
+if (typeof window !== "undefined" && !window.ResizeObserver) {
+  window.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+}
+
+// shape-sidebar-header-affordances: helper to open the tile's kebab menu.
+// Replaces the old fireEvent.contextMenu(tile) pattern — right-click is
+// retired; the kebab tap/click is the sole gesture.
+async function openTileKebab(tile: HTMLElement): Promise<HTMLElement> {
+  const user = userEvent.setup();
+  const trigger = tile.querySelector(
+    '[data-testid="pv-app-tile-kebab-trigger"]',
+  ) as HTMLElement | null;
+  if (!trigger) throw new Error("app tile kebab trigger not found");
+  await user.click(trigger);
+  return screen.getByRole("menu");
+}
 
 // Mock the archive-app API client before importing AppTile so the module
 // graph binds to the mock. Tests can override the mock per-case.
@@ -182,14 +207,14 @@ describe("AppTile — D-10 title-only + D-11 unhealthy two-line", () => {
 });
 
 describe("AppTile — D-12 context menu + Open in new tab", () => {
-  it("H: right-click opens PrettyConversationContextMenu with 'Open in new tab' + 'Archive' items in that order (destructive last)", () => {
+  it("H: right-click opens PrettyConversationContextMenu with 'Open in new tab' + 'Archive' items in that order (destructive last)", async () => {
     render(<AppTile app={makeApp()} />);
     const tile = screen.getByRole("button", { name: /App tile: Scratch/ });
 
     // No menu yet.
     expect(screen.queryByRole("menu")).toBeNull();
 
-    fireEvent.contextMenu(tile);
+    await openTileKebab(tile);
 
     const menu = screen.getByRole("menu");
     expect(menu).not.toBeNull();
@@ -201,11 +226,11 @@ describe("AppTile — D-12 context menu + Open in new tab", () => {
     expect(items[1].textContent).toBe("Archive");
   });
 
-  it("I: clicking 'Open in new tab' calls window.open with (url, '_blank', 'noopener,noreferrer')", () => {
+  it("I: clicking 'Open in new tab' calls window.open with (url, '_blank', 'noopener,noreferrer')", async () => {
     render(<AppTile app={makeApp({ hostId: "1", slug: "scratch" })} />);
     const tile = screen.getByRole("button", { name: /App tile: Scratch/ });
 
-    fireEvent.contextMenu(tile);
+    await openTileKebab(tile);
     const item = screen.getByRole("menuitem", { name: "Open in new tab" });
     fireEvent.click(item);
 
@@ -280,28 +305,12 @@ describe("AppTile — Phase 120 D-06 left-click onOpenApp wiring", () => {
     expect(onOpenApp).toHaveBeenCalledWith(1, "scratch", "Scratch");
   });
 
-  it("3: long-press followed by click suppresses onOpenApp (suppressNextClickRef gate)", () => {
-    vi.useFakeTimers();
-    try {
-      const onOpenApp = vi.fn();
-      render(<AppTile app={makeApp()} onOpenApp={onOpenApp} />);
-      const tile = screen.getByRole("button", { name: /App tile: Scratch/ });
-
-      // Simulate long-press: touchStart → advance past LONG_PRESS_MS → the
-      // timer fires and sets suppressNextClickRef=true. Then a click fires
-      // (browsers synthesize a click after a long-press touch on many devices)
-      // and the click handler should return early without calling onOpenApp.
-      fireEvent.touchStart(tile, {
-        touches: [{ clientX: 10, clientY: 10 }],
-      });
-      vi.advanceTimersByTime(600); // LONG_PRESS_MS = 500
-      fireEvent.click(tile);
-
-      expect(onOpenApp).not.toHaveBeenCalled();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
+  // shape-sidebar-header-affordances: "3: long-press suppresses onOpenApp"
+  // test RETIRED alongside the long-press timer + suppressNextClickRef
+  // machinery. The kebab trigger has its own stopPropagation discipline
+  // (RowKebabMenu's D-14 belt + suspenders), so clicking the kebab does not
+  // reach onTileClick. There's no synthesized-click-after-long-press to
+  // suppress now.
 });
 
 describe("AppTile — Phase 120 D-07 drag emit", () => {
@@ -365,7 +374,7 @@ describe("AppTile — Phase 120 D-07 drag emit", () => {
 });
 
 describe("AppTile — Phase 120 D-06 cursor style", () => {
-  it("7: .pv-app-tile rule declares cursor: pointer (CSS invariant)", () => {
+  it("7: .pv-app-tile rule declares cursor: pointer (CSS invariant)", async () => {
     // The tile's cursor is owned by the .pv-app-tile class rule in
     // pretty-conversations.css (verified in AppTile.tsx JSDoc line 26). This
     // test asserts the CSS declaration matches D-06 by injecting the rule
@@ -485,7 +494,7 @@ describe("AppTile — app-archive shape: Archive menu item", () => {
     confirmSpy.mockReturnValue(true);
     render(<AppTile app={makeApp({ hostId: "7", slug: "scratch", title: "Scratch" })} />);
     const tile = screen.getByRole("button", { name: /App tile: Scratch/ });
-    fireEvent.contextMenu(tile);
+    await openTileKebab(tile);
     fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
 
     // Two confirms fired, with the expected copy in each.
@@ -505,11 +514,11 @@ describe("AppTile — app-archive shape: Archive menu item", () => {
     expect(alertSpy).not.toHaveBeenCalled();
   });
 
-  it("N: first confirm cancelled → no archiveApp call, no second confirm", () => {
+  it("N: first confirm cancelled → no archiveApp call, no second confirm", async () => {
     confirmSpy.mockReturnValueOnce(false);
     render(<AppTile app={makeApp()} />);
     const tile = screen.getByRole("button", { name: /App tile: Scratch/ });
-    fireEvent.contextMenu(tile);
+    await openTileKebab(tile);
     fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
 
     expect(confirmSpy).toHaveBeenCalledTimes(1);
@@ -517,11 +526,11 @@ describe("AppTile — app-archive shape: Archive menu item", () => {
     expect(alertSpy).not.toHaveBeenCalled();
   });
 
-  it("O: first confirm accepted, second cancelled → no archiveApp call", () => {
+  it("O: first confirm accepted, second cancelled → no archiveApp call", async () => {
     confirmSpy.mockReturnValueOnce(true).mockReturnValueOnce(false);
     render(<AppTile app={makeApp()} />);
     const tile = screen.getByRole("button", { name: /App tile: Scratch/ });
-    fireEvent.contextMenu(tile);
+    await openTileKebab(tile);
     fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
 
     expect(confirmSpy).toHaveBeenCalledTimes(2);
@@ -537,7 +546,7 @@ describe("AppTile — app-archive shape: Archive menu item", () => {
     confirmSpy.mockReturnValue(true);
     render(<AppTile app={makeApp({ hostId: "7", slug: "scratch", title: "Scratch" })} />);
     const tile = screen.getByRole("button", { name: /App tile: Scratch/ });
-    fireEvent.contextMenu(tile);
+    await openTileKebab(tile);
     fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
 
     // Wait a microtask for the .catch to run.
@@ -562,11 +571,11 @@ describe("AppTile — app-archive shape: Archive menu item", () => {
     expect(warnPayload.errMessage).toBe(errorMessage);
   });
 
-  it("Q: optimistic sidebar removal — markPendingAppArchive + publishAppGone fire on confirm=true, in that order, BEFORE archiveApp resolves", () => {
+  it("Q: optimistic sidebar removal — markPendingAppArchive + publishAppGone fire on confirm=true, in that order, BEFORE archiveApp resolves", async () => {
     confirmSpy.mockReturnValue(true);
     render(<AppTile app={makeApp({ hostId: "7", slug: "scratch", title: "Scratch" })} />);
     const tile = screen.getByRole("button", { name: /App tile: Scratch/ });
-    fireEvent.contextMenu(tile);
+    await openTileKebab(tile);
     fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
 
     // Both mutators fired with the wire-shaped hostId (string) and slug.
@@ -586,7 +595,7 @@ describe("AppTile — app-archive shape: Archive menu item", () => {
     expect(markOrder).toBeLessThan(goneOrder);
   });
 
-  it("R: onArchive callback fires with (Number(hostId), slug, title) after optimistic remove", () => {
+  it("R: onArchive callback fires with (Number(hostId), slug, title) after optimistic remove", async () => {
     confirmSpy.mockReturnValue(true);
     const onArchive = vi.fn();
     render(
@@ -596,7 +605,7 @@ describe("AppTile — app-archive shape: Archive menu item", () => {
       />,
     );
     const tile = screen.getByRole("button", { name: /App tile: Scratch/ });
-    fireEvent.contextMenu(tile);
+    await openTileKebab(tile);
     fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
 
     expect(onArchive).toHaveBeenCalledTimes(1);
@@ -615,7 +624,7 @@ describe("AppTile — app-archive shape: Archive menu item", () => {
     confirmSpy.mockReturnValue(true);
     render(<AppTile app={makeApp({ hostId: "7", slug: "scratch", title: "Scratch" })} />);
     const tile = screen.getByRole("button", { name: /App tile: Scratch/ });
-    fireEvent.contextMenu(tile);
+    await openTileKebab(tile);
     fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
 
     // Optimistic-remove fired synchronously.
@@ -632,11 +641,11 @@ describe("AppTile — app-archive shape: Archive menu item", () => {
     expect(alertSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("T: onArchive is optional — missing prop does not throw the click handler", () => {
+  it("T: onArchive is optional — missing prop does not throw the click handler", async () => {
     confirmSpy.mockReturnValue(true);
     render(<AppTile app={makeApp()} />);
     const tile = screen.getByRole("button", { name: /App tile: Scratch/ });
-    fireEvent.contextMenu(tile);
+    await openTileKebab(tile);
     expect(() => {
       fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
     }).not.toThrow();
