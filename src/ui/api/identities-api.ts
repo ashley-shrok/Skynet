@@ -477,8 +477,10 @@ export class RoleAlreadyExistsError extends Error {
  * mimetype per Plan 85-02 (`<role>.<mimeext>`), so the client never sends
  * an `avatar` string in the JSON — only the File itself.
  */
+// Pretty-names shape (2026-09-30): `title?` is retired. The pretty name is
+// a first-class top-level `displayName` field on the role create input; this
+// cosmetics-input type only carries the per-field visual cosmetics now.
 export type RoleCosmeticInput = {
-  title?: string;
   colorHue?: number;
   voice?: string;
 };
@@ -513,19 +515,26 @@ export type RoleCosmeticInput = {
  */
 export async function createRole(
   input: {
-    name: string;
+    // Pretty-names shape (2026-09-30): client sends the free-form typed
+    // pretty name as `displayName`; backend derives the slug and echoes
+    // the derived slug back in `response.data.name`.
+    displayName: string;
     description: string;
     hostId: number;
     cosmetics?: RoleCosmeticInput;
   },
   avatar?: File | null,
-): Promise<{ name: string; description: string; cosmetics: RoleCosmeticInput }> {
+): Promise<{
+  name: string;
+  description: string;
+  cosmetics: RoleCosmeticInput & { displayName?: string; avatar?: string };
+}> {
   try {
     const fd = new FormData();
     fd.append(
       "data",
       JSON.stringify({
-        name: input.name,
+        displayName: input.displayName,
         description: input.description,
         hostId: input.hostId,
         cosmetics: input.cosmetics ?? {},
@@ -540,15 +549,16 @@ export async function createRole(
     return response.data as {
       name: string;
       description: string;
-      cosmetics: RoleCosmeticInput;
+      cosmetics: RoleCosmeticInput & { displayName?: string; avatar?: string };
     };
   } catch (error) {
-    // Detect 409 conflict — surface as a typed error so the dialog can
-    // render an inline "role already exists" message rather than throwing
-    // through handleApiError's generic surface.
+    // Pretty-names shape (2026-09-30): backend auto-suffixes slug
+    // collisions, so 409 "already exists" no longer fires on duplicate
+    // typed names. Keep the typed error for defense-in-depth / older
+    // peer backends, but the dialog's inline-409 branch is retired.
     const err = error as { response?: { status?: number } };
     if (err?.response?.status === 409) {
-      throw new RoleAlreadyExistsError(input.name);
+      throw new RoleAlreadyExistsError(input.displayName);
     }
     handleApiError(error, "create role");
   }

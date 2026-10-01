@@ -293,18 +293,22 @@ export function CreateRoleDialog({
   }, []);
 
   // ─── Validation ──────────────────────────────────────────────────────────
-  // `name` is free text; `slug` is what the backend and disk see. The field is
-  // invalid only when it slugifies to nothing (e.g. "!!!") — capitalization and
-  // spaces are expected input, not errors.
+  // Pretty-names shape (2026-09-30): `name` is the free-form typed pretty
+  // name. The backend derives the slug — the client no longer slugifies
+  // before submit. The only client-side gate is "would the name reduce to
+  // at least one letter after slugification" — same recipe as the backend
+  // (lowercase + spell digits + non-letter→dash). Done inline so the dialog
+  // doesn't import the backend helper.
   const title = name.trim();
-  const slug = slugifyRoleName(name);
-  const slugKebabValid = slug.length > 0 && ROLE_NAME_PATTERN.test(slug);
-  const nameValid = slugKebabValid && ROLE_NAME_STRICT.test(slug);
+  const slugPreview = title
+    .toLowerCase()
+    .replace(/[0-9]/g, (d) => ` ${["zero","one","two","three","four","five","six","seven","eight","nine"][Number(d)]} `)
+    .replace(/[^a-z]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  const nameValid = title.length > 0 && title.length <= 80 && slugPreview.length > 0;
   const nameShowError = name.trim().length > 0 && !nameValid;
-  // Distinguish "no usable characters" from "leading-digit segment" so the
-  // inline error tells the user what to actually change.
-  const nameErrorReason: "empty-slug" | "segment-shape" =
-    !slugKebabValid ? "empty-slug" : "segment-shape";
+  const nameErrorReason: "empty-slug" | "too-long" =
+    title.length > 80 ? "too-long" : "empty-slug";
   const descriptionValid = description.trim().length > 0;
   const hostValid = selectedHost !== null;
   // Phase 86 (D-CTX-86-empty-not-scenario): cosmetic fields are REQUIRED.
@@ -430,55 +434,51 @@ export function CreateRoleDialog({
     const blob = await res.blob();
     const mime = blob.type || "image/webp";
     const ext = MIME_TO_EXT[mime] ?? "webp";
-    return new File([blob], `${slug}.${ext}`, { type: mime });
+    // Pretty-names shape: backend derives the real on-disk avatar filename
+    // from the server-side slug + ext. Client filename is informational.
+    return new File([blob], `${slugPreview || "role"}.${ext}`, { type: mime });
   }
 
   // ─── Submit handler ──────────────────────────────────────────────────────
+  // Pretty-names shape (2026-09-30): submit the typed pretty name as
+  // `displayName`; the backend derives the slug (and may auto-suffix on
+  // collision). Use the derived slug returned by the server (`result.name`)
+  // for any downstream chain, so the whole system agrees on the real slug.
   async function handleSubmit() {
     if (!canOpen || !selectedHost) return;
     setSubmitting(true);
     setSubmitError(null);
     try {
       const hostIdNum = parseInt(String(selectedHost.id), 10);
-      // Phase 86: resolve the avatar File BEFORE the createRole call so any
-      // fetch-error surfaces inline without leaving the role folder half-
-      // created on the server. The widened createRole() from Plan 86-01 Task 3
-      // accepts an optional File; we always pass one because canOpen gates on
-      // pickedCandidateId being set.
       const avatarFile = await resolveAvatarFile();
-      await createRole(
+      const result = await createRole(
         {
-          name: slug,
+          displayName: title,
           description,
           hostId: hostIdNum,
           cosmetics: {
-            title,
             colorHue,
             voice: DEFAULT_ROLE_VOICE,
           },
         },
         avatarFile,
       );
+      const derivedSlug = result.name;
 
-      // Phase 84 (D-CONTEXT items 4 + 5): the primary button always advances to
-      // the create-agent modal on success. No branching, no gating. Role name
-      // + description pre-fill carry via this callback unconditionally. The
-      // checkbox that used to gate this call is gone (D-CONTEXT item 3). The
-      // callback prop remains optional and undefined-safe for callers that
-      // don't opt in to the chain (test-only pattern; production panel wires
-      // it — see PrettyConversationsPanel.tsx chainPrefill).
       if (onChainToCreateIdentity) {
-        onChainToCreateIdentity({ role: slug, host: selectedHost, description });
+        onChainToCreateIdentity({ role: derivedSlug, host: selectedHost, description });
       }
       if (onCreated) {
-        onCreated({ name: slug, description, host: selectedHost });
+        onCreated({ name: derivedSlug, description, host: selectedHost });
       }
       onClose();
     } catch (err) {
-      // 409 → inline "already exists" message (Test 19).
+      // Pretty-names shape: backend auto-suffixes on collision, so 409
+      // "already exists" is no longer expected. Keep the branch for safety
+      // against older peer backends but with a generic message.
       if (err instanceof RoleAlreadyExistsError) {
         setSubmitError(
-          `A role named \`${slug}\` already exists on ${selectedHost.name}`,
+          `A role named \`${title}\` could not be created on ${selectedHost.name}`,
         );
       } else {
         setSubmitError(err instanceof Error ? err.message : "create role failed");
@@ -510,11 +510,10 @@ export function CreateRoleDialog({
   const nameErrorText =
     nameErrorReason === "empty-slug"
       ? t("nav.createRoleNameError", {
-          defaultValue: "Name must contain at least one letter or number",
+          defaultValue: "Name must contain at least one letter",
         })
-      : t("nav.createRoleNameErrorSegmentShape", {
-          defaultValue:
-            "Each dash-separated part must start with a letter (e.g., 'meal-planner-two', not 'meal-planner-2')",
+      : t("nav.createRoleNameErrorTooLong", {
+          defaultValue: "Name must be 80 characters or fewer",
         });
   const descriptionLabel = t("nav.createRoleDescriptionLabel", {
     defaultValue: "Description",

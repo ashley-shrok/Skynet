@@ -329,24 +329,28 @@ describe("CreateRoleDialog", () => {
     // cleanly, so none of them may raise an error. This is the inversion of the
     // old kebab-case-only rule.
     fireEvent.change(nameInput, { target: { value: "Box_Maintainer" } });
-    expect(screen.queryByText(/at least one letter or number/i)).toBeNull();
+    expect(screen.queryByText(/at least one letter/i)).toBeNull();
     fireEvent.change(nameInput, { target: { value: "Box Maintainer" } });
-    expect(screen.queryByText(/at least one letter or number/i)).toBeNull();
+    expect(screen.queryByText(/at least one letter/i)).toBeNull();
 
     // Only a name that slugifies to NOTHING is an error — there'd be no folder
     // name to create.
     fireEvent.change(nameInput, { target: { value: "!!!" } });
-    expect(screen.getByText(/at least one letter or number/i)).toBeTruthy();
+    expect(screen.getByText(/at least one letter/i)).toBeTruthy();
     const createBtn = screen.getByRole("button", { name: /create/i }) as HTMLButtonElement;
     expect(createBtn.disabled).toBe(true);
 
     // Recovering clears the error (Create enablement is separately gated on the
     // avatar — Test 22-cosmetic-gate-avatar covers that).
     fireEvent.change(nameInput, { target: { value: "box-maintainer" } });
-    expect(screen.queryByText(/at least one letter or number/i)).toBeNull();
+    expect(screen.queryByText(/at least one letter/i)).toBeNull();
   });
 
-  it("Test 12b: Name validation — leading-digit segment ('Meal Planner 2' → 'meal-planner-2') triggers the segment-shape error and disables Create", () => {
+  it("Test 12b: Name validation — pretty-names shape (2026-09-30) accepts digit-bearing names, spells digits in slug", () => {
+    // Pretty-names shape: 'Meal Planner 2' → 'meal-planner-two', a valid
+    // letter-first kebab slug. The old leading-digit segment-shape error
+    // no longer fires. Confirms the frontend has been loosened in step
+    // with the backend slug derivation.
     render(
       <CreateRoleDialog
         open={true}
@@ -357,28 +361,13 @@ describe("CreateRoleDialog", () => {
 
     const nameInput = screen.getByLabelText(/name/i) as HTMLInputElement;
 
-    // Trailing digit slugifies to a segment starting with a digit — fails the
-    // strict segment-shape gate that mirrors backend ROLE_NAME_RE. Without
-    // this frontend gate, the role would be created but every subsequent
-    // agent birth with this role would 400 with an opaque generic alert.
     fireEvent.change(nameInput, { target: { value: "Meal Planner 2" } });
-    expect(
-      screen.getByText(/each dash-separated part must start with a letter/i),
-    ).toBeTruthy();
-    const createBtn = screen.getByRole("button", { name: /create/i }) as HTMLButtonElement;
-    expect(createBtn.disabled).toBe(true);
-
-    // Same failure for a leading-digit at the start ("3D Artist" → "3d-artist").
+    expect(screen.queryByText(/at least one letter/i)).toBeNull();
     fireEvent.change(nameInput, { target: { value: "3D Artist" } });
-    expect(
-      screen.getByText(/each dash-separated part must start with a letter/i),
-    ).toBeTruthy();
-
-    // Spelling out the number recovers.
-    fireEvent.change(nameInput, { target: { value: "Meal Planner Two" } });
-    expect(
-      screen.queryByText(/each dash-separated part must start with a letter/i),
-    ).toBeNull();
+    expect(screen.queryByText(/at least one letter/i)).toBeNull();
+    // Still rejects truly-unslugifiable input.
+    fireEvent.change(nameInput, { target: { value: "🎉🎉🎉" } });
+    expect(screen.getByText(/at least one letter/i)).toBeTruthy();
   });
 
   it("Test 13 (Phase 86 Plan 06): Description validation — empty description disables Create even when name+host+cosmetics are all valid", async () => {
@@ -526,14 +515,14 @@ describe("CreateRoleDialog", () => {
       Record<string, unknown>,
       File | null,
     ];
-    // "Box Maintainer" splits: slugified into `name` (the on-disk folder) and
-    // kept raw as the `title` cosmetic. Voice is the fixed default.
+    // Pretty-names shape (2026-09-30): client submits the free-form typed
+    // name as `displayName` at top level; backend derives slug. Cosmetics
+    // carries colorHue + voice (title retired).
     expect(input).toMatchObject({
-      name: "box-maintainer",
+      displayName: "Box Maintainer",
       description: "d1",
       hostId: 42,
       cosmetics: {
-        title: "Box Maintainer",
         voice: "Danielle",
       },
     });
@@ -629,10 +618,12 @@ describe("CreateRoleDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: /create/i }));
 
     await waitFor(() => {
-      // Inline error rendered
+      // Pretty-names shape (2026-09-30): backend auto-suffixes slug
+      // collisions, so 409 is defensive-only. Error message is now a
+      // generic "could not be created on <host>" when the branch does fire.
       expect(
         screen.getByText(
-          /A role named .*box-maintainer.* already exists on .*hostA/i,
+          /A role named .*box-maintainer.* could not be created on .*hostA/i,
         ),
       ).toBeTruthy();
     });
