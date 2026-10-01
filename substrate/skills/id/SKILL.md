@@ -750,7 +750,7 @@ not something agents drive.
     the user makes in **About you** land as edits to that file, and the
     § User-wide file (`~/.claude/CLAUDE.md`) rules apply to agent-side
     changes (propose + wait for greenlight).
-  - **Log out** — signs the user out of Skynet. Pinned to the bottom of
+  - **Log out** — signs the user out of the app. Pinned to the bottom of
     the modal's left nav (below a divider) so it's reachable from any
     section. Confirms before signing out.
 
@@ -992,61 +992,11 @@ reappears in the sidebar and is servable.
 
 ### Identity
 
-⚠️ **Agent-side identity un-archive is temporarily restricted** (2026-10-01
-matrix-cred-location correction). The supervisor's identity scanner now does a
-whoami probe against the archived relay.json's token before moving the folder;
-if the token is still the deactivated-era one it 401s and the scanner refuses.
-Only the backend un-archive route (hit via the frontend) reactivates the Matrix
-account + mints a fresh token + rewrites relay.json BEFORE dropping the sentinel.
-A direct `touch .unarchive-requested` from an agent therefore results in a
-refuse-with-LOUD-log rather than a working un-archive.
+**Agent-side identity un-archive is temporarily restricted**.
 
 **For identities, direct the user at the frontend path:** open the conversation
 search modal (sidebar search → `everywhere ↗`), find the archived identity's row,
-click the three-dots kebab menu, pick **Un-archive**. That path works from any
-host; the backend route always runs on T1000 where the Matrix admin creds live.
-
-The underlying fix that re-enables agent-side identity sentinel-drop (via a
-scoped T1000 internal endpoint the supervisor calls for the Matrix step) is
-tracked as **shape 4** in the un-archiving campaign
-(`shape-agent-side-identity-unarchive-correction`). Until that ships, use the
-frontend path for identity un-archive.
-
-**What you'll see on wake from an un-archive** (shape 5 — un-archive wake-up
-smoothing). The supervisor prepends a dated banner to your identity file body
-as the last step of un-archive, right after the folder is moved back:
-
-```
-> ⚠️ **You were unarchived at <ISO timestamp>.** The state of the world may
-> have moved since you were archived — what you have in context and in this
-> file could be out of date. Delete this banner once you've caught up.
-```
-
-The identity-file-watcher turns that write into your first wake event, so the
-banner is the first thing you see. Treat it as the official signal that the
-world you're resuming into is NOT the one you archived from. Catch up on
-anything that matters — the role file, the id skill, your prior session's
-notes, open DM rooms (which may have reset) — then **delete the banner from
-your identity file as part of catching up.** The supervisor writes a fresh
-banner on every un-archive and does not detect existing ones, so banners
-stack if you don't delete them.
-
-### Reconciler preconditions (apply to all three types)
-
-The reconciler refuses to un-archive if any of these fail. Check them yourself
-before dropping the sentinel to avoid a silent no-op:
-
-1. **Archive exists.** The archived folder must be present at the path above. A
-   missing folder means the reconciler has already moved it, or it never existed.
-
-2. **No name collision.** No live-tree object with the same name/key/slug must
-   exist at `~/fleet/{identities,roles,apps}/<name>/`. If a live version already
-   exists, un-archive is refused.
-
-3. **All roles live** (identities only). If the archived identity's `identity.md`
-   frontmatter lists roles, EVERY listed role must be un-archived first. The
-   reconciler parses the same `role:` frontmatter shapes (scalar, flow-list,
-   block-list) as the archive-side scanner.
+click the three-dots kebab menu, pick **Un-archive**.
 
 **User-initiated boundary** — same as `/id archive`, an agent doesn't spontaneously
 un-archive things on its own initiative. Un-archive when the user asks (or points to
