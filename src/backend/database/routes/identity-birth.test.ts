@@ -69,6 +69,9 @@ vi.mock("../../ssh/host-resolver.js", () => ({
 vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
   stringifyColorHueForYaml: (obj: Record<string, unknown>) => (typeof obj.colorHue === "number" ? { ...obj, colorHue: String(obj.colorHue) } : obj),
   isLocalHostId: vi.fn(),
+  // Pretty-names shape (2026-10-01) auto-suffix pre-check: identity-birth.ts
+  // calls getLocalIdentitiesRoot() in the local-branch probe path.
+  getLocalIdentitiesRoot: vi.fn().mockReturnValue("/tmp/test-identities-root"),
   writeMarkdownFileAtomic: vi.fn().mockResolvedValue(undefined),
   // Phase 66 Plan 66-01: additive avatar-sibling dep — the birth route now
   // wires this into BirthDeps. Test 5 asserts d.writeAvatarSiblingFile is a
@@ -79,6 +82,23 @@ vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
   // this module. H1 write⇔read parity lock — export the real regex value.
   IDENTITY_KEY_RE: /^[a-z0-9_-]{1,64}$/,
 }));
+
+// Pretty-names shape (2026-10-01) auto-suffix pre-check uses node:fs/promises
+// stat against getLocalIdentitiesRoot()/<name>. Mock stat so individual tests
+// can stub the collision landscape.
+vi.mock("node:fs/promises", async () => {
+  const actual = await vi.importActual<typeof import("node:fs/promises")>(
+    "node:fs/promises",
+  );
+  return {
+    ...actual,
+    stat: vi.fn().mockImplementation(() => {
+      const err = new Error("ENOENT") as NodeJS.ErrnoException;
+      err.code = "ENOENT";
+      throw err;
+    }),
+  };
+});
 
 vi.mock("./identity-avatar-batch.js", () => ({
   getCandidateForBirth: vi.fn(),
@@ -504,6 +524,107 @@ it("Test 2d (pretty-names): displayName present wins over name (backend-derive)"
   expect(result.status).toBe(200);
   const callOpts = mockBirthIdentity.mock.calls[0]?.[0] as { name: string };
   expect(callOpts.name).toBe("totally-new-name");
+});
+
+// ---------------------------------------------------------------------------
+// Pretty-names shape (2026-10-01): auto-suffix pre-check in the route.
+// Covers the local branch (fs.stat on getLocalIdentitiesRoot) + the pool-
+// picked skip + fall-open on probe failure.
+// ---------------------------------------------------------------------------
+
+it("Test 2e (pretty-names auto-suffix): local probe sees base + base-2 taken → orchestrator receives base-3", async () => {
+  const resolveHostByIdModule = await import("../../ssh/host-resolver.js");
+  (resolveHostByIdModule.resolveHostById as Mock).mockResolvedValue({
+    id: 7,
+    name: "localhost",
+  });
+  const artifactReader = await import(
+    "../../claude-session/identity-artifact-reader.js"
+  );
+  (artifactReader.isLocalHostId as Mock).mockReturnValue(true);
+  const fsp = await import("node:fs/promises");
+  // base ("willow"): exists. base-2: exists. base-3: ENOENT.
+  (fsp.stat as Mock).mockImplementation(async (p: string) => {
+    const slug = p.split("/").pop();
+    if (slug === "willow" || slug === "willow-2") return {} as unknown;
+    const err = new Error("ENOENT") as NodeJS.ErrnoException;
+    err.code = "ENOENT";
+    throw err;
+  });
+  mockBirthIdentity.mockImplementation(
+    async (_opts, _deps, _userId, emit) => {
+      emit({ type: "ended", ok: true });
+    },
+  );
+
+  const body = { ...VALID_BODY, displayName: "Willow" };
+  delete (body as Partial<typeof body>).name;
+
+  const result = await httpPost(port, "/identities/birth", body);
+
+  expect(result.status).toBe(200);
+  const callOpts = mockBirthIdentity.mock.calls[0]?.[0] as { name: string };
+  expect(callOpts.name).toBe("willow-3");
+});
+
+it("Test 2f (pretty-names auto-suffix): pool-picked path skips the probe entirely", async () => {
+  const resolveHostByIdModule = await import("../../ssh/host-resolver.js");
+  const resolveSpy = resolveHostByIdModule.resolveHostById as Mock;
+  resolveSpy.mockClear();
+  resolveSpy.mockResolvedValue({ id: 7, name: "localhost" });
+
+  const fsp = await import("node:fs/promises");
+  const statSpy = fsp.stat as Mock;
+  statSpy.mockClear();
+
+  mockBirthIdentity.mockImplementation(
+    async (_opts, _deps, _userId, emit) => {
+      emit({ type: "ended", ok: true });
+    },
+  );
+  // Pool-picked path: `name` present, `displayName` absent → probe should NOT run.
+  const body = { ...VALID_BODY, name: "willow", poolPicked: true };
+
+  const result = await httpPost(port, "/identities/birth", body);
+
+  expect(result.status).toBe(200);
+  // Probe runs only when displayName is the name-source; pool-picked skips.
+  expect(resolveSpy).not.toHaveBeenCalled();
+  expect(statSpy).not.toHaveBeenCalled();
+  const callOpts = mockBirthIdentity.mock.calls[0]?.[0] as { name: string };
+  expect(callOpts.name).toBe("willow");
+});
+
+it("Test 2g (pretty-names auto-suffix): probe failure falls open — orchestrator receives un-suffixed slug", async () => {
+  const resolveHostByIdModule = await import("../../ssh/host-resolver.js");
+  (resolveHostByIdModule.resolveHostById as Mock).mockResolvedValue({
+    id: 7,
+    name: "localhost",
+  });
+  const artifactReader = await import(
+    "../../claude-session/identity-artifact-reader.js"
+  );
+  (artifactReader.isLocalHostId as Mock).mockReturnValue(true);
+  const fsp = await import("node:fs/promises");
+  (fsp.stat as Mock).mockImplementation(async () => {
+    throw new Error("EACCES — some weird permission problem");
+  });
+  mockBirthIdentity.mockImplementation(
+    async (_opts, _deps, _userId, emit) => {
+      emit({ type: "ended", ok: true });
+    },
+  );
+
+  const body = { ...VALID_BODY, displayName: "Willow" };
+  delete (body as Partial<typeof body>).name;
+
+  const result = await httpPost(port, "/identities/birth", body);
+
+  expect(result.status).toBe(200);
+  // Fall-open: probe threw, so we don't try to suffix; let the orchestrator
+  // surface the real issue if there is one.
+  const callOpts = mockBirthIdentity.mock.calls[0]?.[0] as { name: string };
+  expect(callOpts.name).toBe("willow");
 });
 
 // ---------------------------------------------------------------------------

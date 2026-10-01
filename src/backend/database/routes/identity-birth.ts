@@ -47,9 +47,11 @@ import { execCommand } from "../../ssh/tmux-helper.js";
 import { discoverIdentitySessionFile } from "../../claude-session/discover-identity-session-file.js";
 import {
   isLocalHostId,
+  getLocalIdentitiesRoot,
   writeMarkdownFileAtomic,
   writeAvatarSiblingFile,
 } from "../../claude-session/identity-artifact-reader.js";
+import pathModule from "node:path";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 // Phase 98 Plan 07: whitelist voice-value validation on identity birth. Same
 // contract as identities.ts's PUT handler — any voice value that isn't one of
@@ -124,6 +126,114 @@ async function execLocal(command: string): Promise<string> {
 }
 
 // ---------------------------------------------------------------------------
+// Pretty-names shape (2026-10-01): identity-folder collision probe used by
+// the name-it-myself path to pick a non-colliding slug BEFORE the orchestrator
+// runs. Mirrors identity-exists-on-host.ts's probe shape — local branch via
+// fs.stat against getLocalIdentitiesRoot(), remote branch via a one-shot SSH
+// exec `[ -d ... ]`.
+//
+// Scope: this closes the common-case auto-suffix gap. The vanishingly rare
+// race case (two concurrent births picking the same base slug and both
+// passing the probe before either reaches the orchestrator) still falls
+// through to the orchestrator's existing step-8 EEXIST path, which fires
+// the rollback-and-deactivate flow in the finally block — no leaked Matrix
+// accounts, user sees "identity already exists" and retries.
+// ---------------------------------------------------------------------------
+
+const PROBE_SSH_EXEC_TIMEOUT_MS = 3000;
+
+async function identityFolderExistsOnHost(
+  host: unknown,
+  hostId: number,
+  name: string,
+): Promise<boolean> {
+  if (isLocalHostId(hostId)) {
+    const candidate = pathModule.join(getLocalIdentitiesRoot(), name);
+    try {
+      await fsp.stat(candidate);
+      return true;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return false;
+      throw err;
+    }
+  }
+  let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
+  try {
+    conn = await connectOneShot(
+      host as Parameters<typeof connectOneShot>[0],
+      PROBE_SSH_EXEC_TIMEOUT_MS,
+    );
+    const output = await Promise.race([
+      execCommand(
+        conn,
+        `if [ -d "$HOME/fleet/identities/${name}" ]; then echo exists; else echo missing; fi`,
+      ),
+      new Promise<string>((_, reject) =>
+        setTimeout(
+          () => reject(new Error("probe_ssh_exec_timeout")),
+          PROBE_SSH_EXEC_TIMEOUT_MS,
+        ),
+      ),
+    ]);
+    return output.trim() === "exists";
+  } finally {
+    if (conn) {
+      try {
+        conn.end();
+      } catch {
+        /* best-effort */
+      }
+    }
+  }
+}
+
+/**
+ * Resolve a free (collision-free) identity slug by probing the target host
+ * and bumping the suffix until a free slot is found. Returns the resolved
+ * slug, or the base slug unchanged if the probe fails (fall-open — the
+ * orchestrator will surface the real error if there is one).
+ */
+async function resolveFreeIdentitySlug(
+  host: unknown,
+  hostId: number,
+  baseSlug: string,
+): Promise<string> {
+  const MAX_SUFFIX_ATTEMPTS = 100;
+  let candidate = baseSlug;
+  let attempt = 0;
+  try {
+    while (await identityFolderExistsOnHost(host, hostId, candidate)) {
+      attempt += 1;
+      if (attempt >= MAX_SUFFIX_ATTEMPTS) {
+        databaseLogger.warn(
+          "identity-birth: suffix cap exhausted during pre-check",
+          {
+            operation: "identity_birth_suffix_cap",
+            hostId,
+            baseSlug,
+            attempts: attempt,
+          },
+        );
+        break;
+      }
+      candidate = `${baseSlug}-${attempt + 1}`;
+    }
+  } catch (err) {
+    // Fall-open: probe failure doesn't block birth. The orchestrator's
+    // step-8 EEXIST + rollback path will handle a true collision; a probe
+    // failure here just means we try the un-suffixed slug.
+    databaseLogger.warn("identity-birth: pre-check probe failed", {
+      operation: "identity_birth_precheck_probe_failed",
+      hostId,
+      baseSlug,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return baseSlug;
+  }
+  return candidate;
+}
+
+// ---------------------------------------------------------------------------
 // POST /
 // ---------------------------------------------------------------------------
 
@@ -164,7 +274,7 @@ router.post(
     // helper. The pool-picked path still sends a pre-slugged `name` and
     // is unchanged. One of the two must be present.
     const rawDisplayName = bodyAny.displayName;
-    let name: unknown = bodyAny.name;
+    let name: string;
     if (typeof rawDisplayName === "string" && rawDisplayName.trim().length > 0) {
       const derivation = derivePrettyNameSlug(rawDisplayName);
       if (derivation.ok !== true) {
@@ -178,11 +288,13 @@ router.post(
         return;
       }
       name = derivation.slug;
-    }
-
-    if (typeof name !== "string" || !name.trim()) {
-      res.status(400).json({ error: "name is required" });
-      return;
+    } else {
+      const rawName = bodyAny.name;
+      if (typeof rawName !== "string" || !rawName.trim()) {
+        res.status(400).json({ error: "name is required" });
+        return;
+      }
+      name = rawName;
     }
 
     // Phase 88 code-review M1 (defense-in-depth): gate `name` against
@@ -348,6 +460,32 @@ router.post(
     // legacy shape).
     const parsedPoolPicked =
       typeof poolPicked === "boolean" ? poolPicked : undefined;
+
+    // -----------------------------------------------------------------------
+    // Pretty-names shape (2026-10-01): auto-suffix the identity slug for the
+    // name-it-myself path. Probe the target host for `~/fleet/identities/
+    // <name>/`; if it exists, bump the suffix (-2, -3, ...) until free. This
+    // closes the common-case collision gap — users never see "identity
+    // already exists" for a typed name whose slug happens to match an
+    // existing identity. The pool-picked path handles collisions via Synapse
+    // MXID ordinal inside the orchestrator, so we only run the probe when
+    // the caller came through displayName.
+    //
+    // The probe is best-effort: if resolveHostById or the probe itself fails,
+    // we leave the name unchanged and let the orchestrator surface whatever
+    // the real failure is. The step-8 EEXIST + rollback path still protects
+    // against the vanishingly rare true-race case (two concurrent births
+    // picking the same base slug past the probe) — no Matrix accounts leak.
+    // -----------------------------------------------------------------------
+    const isNameItMyself =
+      typeof bodyAny.displayName === "string" &&
+      bodyAny.displayName.trim().length > 0;
+    if (isNameItMyself) {
+      const probeHost = await resolveHostById(hostId, userId);
+      if (probeHost) {
+        name = await resolveFreeIdentitySlug(probeHost, hostId, name as string);
+      }
+    }
 
     // -----------------------------------------------------------------------
     // Phase 75 Plan 04 — fail-early 503 when matrix admin creds absent.
