@@ -8,10 +8,11 @@
 //     view it rendered under the neighboring pane. Backdrop dims the
 //     whole viewport now; badge sits UNDER the modal.
 //   - Head: avatar + display name (plain text, no jump treatment) + role
-//     line (clickable, jumps to RoleModal — prettified via
-//     roleDefaults.title with slug fallback) + task line (with inline
-//     pencil) + voice chip + close X. The ⋯ menu, Boost toggle, identity
-//     avatar upload, and displayName pencil are all retired.
+//     line (clickable, jumps to RoleModal — prettified via the shared
+//     roleDisplayName helper on roleDefaults.displayName with title-cased
+//     slug fallback) + task line (with inline pencil) + voice chip + close
+//     X. The ⋯ menu, Boost toggle, identity avatar upload, and displayName
+//     pencil are all retired.
 //   - Section-tabs at top: 3 tabs (Identity file / Wake-ups / Files),
 //     underline-style per tasting. Canonical <ModalFoot> with Close.
 //
@@ -32,6 +33,7 @@ import { Modal, ModalFoot, ModalTabs } from "@/components/modal";
 import { Tabs, TabsContent } from "@/components/tabs";
 import { updateIdentity } from "@/api/identities-api";
 import { applyIdentityChange } from "@/state/identities-store";
+import { roleDisplayName } from "@/lib/role-display-name";
 import { toast } from "sonner";
 import { VoicePicker } from "./pickers/VoicePicker";
 import {
@@ -467,10 +469,13 @@ export function IdentityModal({
   // disk — agents touch/rm the file per user request.
 
   const canJumpToRole = identity.role !== null;
-  // Prefer the role's frontmatter title (e.g. "Skynet") over the raw slug
-  // (e.g. "box-maintainer"); fall back to the slug if the role file has
-  // no title. Used for both the visible text and the accessible label.
-  const roleDisplay = identity.roleDefaults?.title ?? identity.role ?? "";
+  // Pretty-names shape (2026-09-30): roles carry `displayName` in their
+  // frontmatter instead of `title`. Route through the shared helper so
+  // the fallback title-cases the slug ("box-maintainer" → "Box Maintainer")
+  // consistently with every other surface that renders a role name.
+  const roleDisplay = identity.role
+    ? roleDisplayName(identity.role, identity.roleDefaults?.displayName)
+    : "";
 
   return (
     <Modal

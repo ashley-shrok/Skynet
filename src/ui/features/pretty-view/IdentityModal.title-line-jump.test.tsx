@@ -341,26 +341,30 @@ describe("IdentityModal — title-line clickable treatment (D-04)", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it("I: role text — roleDefaults.title wins; slug is the fallback (2026-09-30 UAT)", async () => {
+  it("I: role text — roleDefaults.displayName wins; title-cased slug is the fallback (pretty-names shape 2026-09-30)", async () => {
     const onOpenRoleModal = vi.fn();
     const onOpenChange = vi.fn();
-    // No roleDefaults → jump text falls back to the raw role slug.
+    // No roleDefaults → jump text falls back to the TITLE-CASED slug via
+    // the shared roleDisplayName helper. Pretty-names shape: no surface
+    // should ever render a raw kebab slug where a pretty name belongs.
     renderModal({ role: "box-maintainer", roleDefaults: null }, onOpenRoleModal, onOpenChange);
     await waitFor(() => {
       expect(document.querySelector('[role="dialog"]')).toBeTruthy();
     });
     const jumps = document.querySelectorAll('[data-testid="identity-modal-title-line-jump"]');
     expect(jumps.length).toBe(1);
-    expect(jumps[0].textContent).toContain("box-maintainer");
+    expect(jumps[0].textContent).toContain("Box Maintainer");
+    expect(jumps[0].textContent).not.toContain("box-maintainer");
     // displayName is a plain span, not the jump element (post-UAT: name is
     // never clickable; only the role line is).
     expect(jumps[0].textContent).not.toContain("Tabitha");
     cleanup();
 
-    // With roleDefaults.title set (role frontmatter has `title: Skynet`),
-    // the friendly title replaces the slug in the jump element.
+    // With roleDefaults.displayName set (role frontmatter has
+    // `displayName: Skynet`), the friendly display name replaces the
+    // title-cased slug fallback in the jump element.
     renderModal(
-      { role: "box-maintainer", roleDefaults: { title: "Skynet" } },
+      { role: "box-maintainer", roleDefaults: { displayName: "Skynet" } },
       onOpenRoleModal,
       onOpenChange,
     );
@@ -371,6 +375,7 @@ describe("IdentityModal — title-line clickable treatment (D-04)", () => {
     expect(jumps2.length).toBe(1);
     expect(jumps2[0].textContent).toContain("Skynet");
     expect(jumps2[0].textContent).not.toContain("box-maintainer");
+    expect(jumps2[0].textContent).not.toContain("Box Maintainer");
     fireEvent.click(jumps2[0]);
     expect(onOpenRoleModal).toHaveBeenCalledTimes(1);
     expect(onOpenChange).toHaveBeenCalledWith(false);
