@@ -163,32 +163,26 @@ except OSError as e:
 
 diag("started on %s (harness_pid=%s)" % (INBOX_DIR, HARNESS_PID))
 
-# ---------- catch-up sweep (startup)
-# Any valid-shape file already in the inbox when we start is surfaced in
-# lexical order BEFORE the inotify watch arms. Covers:
-#   - dormancy wake: supervisor woke the harness because files were waiting;
-#     we drain them on first start.
-#   - crash recovery: a prior ambient-monitor crashed with unprocessed files;
-#     next spawn picks them up.
-#   - startup-delay catch-up: a dropper landed a file during the parent's
-#     5-second startup delay; it's already in the inbox when we start.
-try:
-    _existing = sorted(
-        p for p in INBOX_DIR.iterdir()
-        if p.is_file() and FINAL_NAME_RE.match(p.name)
-    )
-except OSError as e:
-    diag("catch-up sweep failed to list %s: %r" % (INBOX_DIR, e))
-    _existing = []
-
-if _existing:
-    diag("catch-up: %d pending file(s) found at startup" % len(_existing))
-    for _f in _existing:
+# ---------- sweep helper (used by startup catch-up AND the post-Popen arm-race guard)
+# Enumerate matching files currently in the inbox and surface each by path, in
+# lexical order (= arrival order per the dropper contract). Idempotent — a file
+# that is both in the sweep AND fires an inotify event may be surfaced twice;
+# the parent handles duplicates benignly (the second open fails with ENOENT
+# after the first paste deletes the file, logs noisily, and discards).
+def _sweep_inbox():
+    try:
+        entries = sorted(
+            p for p in INBOX_DIR.iterdir()
+            if p.is_file() and FINAL_NAME_RE.match(p.name)
+        )
+    except OSError as e:
+        diag("sweep: list failed on %s: %r" % (INBOX_DIR, e))
+        return 0
+    for p in entries:
         if _shutting_down.is_set():
             break
-        surface(str(_f))
-else:
-    diag("catch-up: no pending files")
+        surface(str(p))
+    return len(entries)
 
 
 # ---------- inotify watch loop
@@ -223,9 +217,25 @@ if shutil.which("inotifywait") is None:
     sys.exit(1)
 
 
+def _drain_inotify_stderr(stream):
+    """Background pump for inotifywait's stderr. Each line gets forwarded to
+    diag() with an [inotifywait] prefix. Keeps the pipe from filling up on
+    respawn storms AND surfaces real inotifywait errors (watch-add failures,
+    EMFILE on fd exhaustion) instead of silently buffering them.
+    """
+    try:
+        for line in stream:
+            line = line.rstrip("\n")
+            if line:
+                diag("[inotifywait] %s" % line)
+    except Exception:
+        pass
+
+
 def _inotify_loop():
     global _inotify_proc
     backoff = 0
+    first_arm = True
     while not _shutting_down.is_set():
         if not _harness_alive():
             diag("harness gone — exiting inotify loop")
@@ -260,6 +270,35 @@ def _inotify_loop():
                  % (e, max(backoff, INOTIFY_BACKOFF_MIN)))
             backoff = min(max(backoff * 2, INOTIFY_BACKOFF_MIN), INOTIFY_BACKOFF_MAX)
             continue
+        # Drain inotifywait's own stderr in a background thread, so the pipe
+        # cannot fill up on respawn storms AND real inotifywait errors
+        # (watch-add failures, "Setting up watches" banners under FATAL
+        # conditions) surface via our normal diag stream.
+        stderr_pump = threading.Thread(
+            target=_drain_inotify_stderr,
+            args=(_inotify_proc.stderr,),
+            daemon=True,
+        )
+        stderr_pump.start()
+        # Post-Popen sweep: closes the arm-race window between Popen's return
+        # and the kernel actually arming the inotify watch. Any file that
+        # landed before Popen (initial startup, dormancy wake, prior-ambient-
+        # monitor crash) is caught here; any file that lands during the brief
+        # arm window would otherwise be missed on this process generation.
+        # Running the sweep on EVERY iteration (not just first_arm) also
+        # covers the respawn case — if inotifywait died and new files landed
+        # before the respawn's watch is armed, this sweep catches them.
+        # Duplicates (a file that is both in the sweep AND fires an inotify
+        # event) are handled benignly by the parent: second open fails with
+        # ENOENT after the first paste deletes the file, logs noisily, and
+        # discards. The sweep is strictly a reliability guarantee, not a
+        # correctness primitive.
+        n_pending = _sweep_inbox()
+        if first_arm:
+            diag("catch-up: %d pending file(s) at startup" % n_pending)
+            first_arm = False
+        elif n_pending > 0:
+            diag("post-respawn sweep: %d pending file(s) caught up" % n_pending)
         try:
             for event_line in _inotify_proc.stdout:
                 # Any event = healthy inotifywait. Reset backoff.

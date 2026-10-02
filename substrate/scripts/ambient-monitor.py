@@ -336,15 +336,18 @@ CHILDREN.append({
 # discipline the other four use, closing the "two writers, one pane, no shared lock"
 # hole for the inbox pathway. Gated on INJECT_MODE: in stdout mode (legacy, no longer
 # how the fleet runs) the parent has no paste path, so RAW-PASTE-FILE dispatch would
-# be a no-op — simpler to not spawn the child at all there. critical=False for Shape 1
-# (manual-drive only, no user traffic yet); Shape 2 may upgrade when the composebox
-# cuts over.
+# be a no-op — simpler to not spawn the child at all there. critical=True because a
+# dead inbox-watcher means every subsequent inbox drop sits unprocessed until the
+# next harness recycle — same "identity is deaf to a class of inbound" severity as a
+# dead relay receiver. The loud triple-warn death wake is appropriate; the
+# single-warn non-critical wake buried amid other output risks the operator missing
+# that inbox delivery is broken fleet-wide.
 if INJECT_MODE:
     CHILDREN.append({
         "name": "inbox-watcher",
         "cmd": ["python3", str(HOME / ".local/bin/inbox-watcher"), str(IDENTITY_DIR)],
         "env_extra": {},
-        "critical": False,
+        "critical": True,
     })
 
 # ---------------------------------------------------------------------- I/O
@@ -543,6 +546,43 @@ def emit_wake(msg):
 # outcome, and because a parent crash between surface and paste leaves the file in
 # the inbox for the next startup's catch-up sweep to pick up.
 RAW_PASTE_PREFIX = "RAW-PASTE-FILE:"
+# Hard cap on inbox-message body size (public contract: see shape doc, dropper
+# contract step 1). Chat-style messages are typically under a few KB; one MiB is
+# well above any realistic message and well below the OOM territory that would
+# wedge the ambient-monitor and kill the harness it depends on. Oversized files
+# are refused + discarded with a loud log, same code path as other refusals.
+RAW_PASTE_MAX_BYTES = 1 * 1024 * 1024
+
+
+def _discard_inbox_file(source_name, path, reason):
+    """Remove a refused inbox file. If unlink fails (ro mount, permission,
+    weird fs state), try to rename to break the name-shape match so the file
+    isn't re-processed on the next catch-up sweep. Loud log either way.
+
+    Factored because the refusal paths in _handle_raw_paste_file all need the
+    same discard-with-rename-fallback semantics, and we want a single place
+    that gets this right.
+    """
+    try:
+        os.unlink(path)
+        return
+    except OSError as unlink_err:
+        pass
+    # Unlink failed — try to break the name-shape match so the file won't be
+    # re-surfaced by the inbox-watcher's inotify or catch-up sweep.
+    dead_path = path + ".unlink-failed"
+    try:
+        os.rename(path, dead_path)
+        emit_diag("RAW-PASTE-FILE from %s: discard-%s but unlink failed (%r); "
+                  "renamed to %s to prevent re-processing"
+                  % (source_name, reason, unlink_err, dead_path))
+        return
+    except OSError as rename_err:
+        emit_diag("⚠️⚠️⚠️ CRITICAL: RAW-PASTE-FILE from %s: discard-%s but BOTH "
+                  "unlink (%r) AND rename-to-dead-path (%r) failed on %s — the "
+                  "message WILL BE REPROCESSED on the next catch-up sweep; "
+                  "operator intervention required"
+                  % (source_name, reason, unlink_err, rename_err, path))
 
 
 def _handle_raw_paste_file(source_name, path):
@@ -556,45 +596,52 @@ def _handle_raw_paste_file(source_name, path):
         emit_diag("RAW-PASTE-FILE from %s ignored (stdout mode has no paste path): %s"
                   % (source_name, path))
         return
+    # Open with O_NOFOLLOW so a symlink in the inbox (name-shape-matching but
+    # pointing at /etc/passwd, ~/.ssh/id_rsa, or any other sensitive file) is
+    # refused rather than read-and-pasted. Fleet trust model says only trusted
+    # processes have inbox write access, but defense-in-depth is cheap here.
     try:
-        with open(path, "rb") as f:
-            data = f.read()
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
     except OSError as e:
-        emit_diag("RAW-PASTE-FILE from %s: cannot read %s: %r — discarding"
+        emit_diag("RAW-PASTE-FILE from %s: cannot open %s (%r) — refused + discarded "
+                  "(ELOOP = refused symlink; ENOENT = file vanished before open)"
                   % (source_name, path, e))
-        try:
-            os.unlink(path)
-        except OSError:
-            pass
+        _discard_inbox_file(source_name, path, "open-failed")
+        return
+    try:
+        with os.fdopen(fd, "rb") as f:
+            # Read one byte past the cap so we can distinguish "exactly cap bytes"
+            # from "cap+1 or more bytes" without a separate stat call.
+            data = f.read(RAW_PASTE_MAX_BYTES + 1)
+    except OSError as e:
+        emit_diag("RAW-PASTE-FILE from %s: read failed on %s (%r) — refused + discarded"
+                  % (source_name, path, e))
+        _discard_inbox_file(source_name, path, "read-failed")
+        return
+    if len(data) > RAW_PASTE_MAX_BYTES:
+        emit_diag("RAW-PASTE-FILE from %s: file %s exceeds %d-byte cap — refused "
+                  "+ discarded (hard cap on message size; see shape dropper contract)"
+                  % (source_name, path, RAW_PASTE_MAX_BYTES))
+        _discard_inbox_file(source_name, path, "oversized")
         return
     if not data:
         emit_diag("RAW-PASTE-FILE from %s: zero-byte file %s — refused + discarded"
                   % (source_name, path))
-        try:
-            os.unlink(path)
-        except OSError:
-            pass
+        _discard_inbox_file(source_name, path, "zero-byte")
         return
     try:
         text = data.decode("utf-8")
     except UnicodeDecodeError as e:
         emit_diag("RAW-PASTE-FILE from %s: non-UTF-8 bytes in %s (%r) — refused + discarded"
                   % (source_name, path, e))
-        try:
-            os.unlink(path)
-        except OSError:
-            pass
+        _discard_inbox_file(source_name, path, "non-utf8")
         return
     try:
         _inject(text, envelope=False)
     finally:
         # Delete regardless of paste outcome. Refused deliveries are already loud
         # on stderr via _inject; discarding the file is the shape's stance.
-        try:
-            os.unlink(path)
-        except OSError as e:
-            emit_diag("RAW-PASTE-FILE from %s: unlink failed on %s: %r (file remains in inbox)"
-                      % (source_name, path, e))
+        _discard_inbox_file(source_name, path, "post-paste")
 
 
 # ---------------------------------------------------------------- pumps

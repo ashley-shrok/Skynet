@@ -129,6 +129,35 @@ ambient-monitor: RAW-PASTE-FILE from inbox-watcher: zero-byte file <path>
 
 File is removed. No paste happens.
 
+### Oversized file (over 1 MiB)
+
+The parent caps message bodies at 1 MiB. Anything larger is refused and
+discarded without pasting:
+
+```
+ambient-monitor: RAW-PASTE-FILE from inbox-watcher: file <path> exceeds
+  1048576-byte cap — refused + discarded
+```
+
+Chat-style messages are typically a few KB; the cap exists to prevent a
+malformed or malicious dropper from OOMing the ambient-monitor process
+and killing the harness.
+
+### Symlink
+
+A symlink in the inbox with a valid-shape name is refused outright
+(ELOOP from the parent's `O_NOFOLLOW` open):
+
+```
+ambient-monitor: RAW-PASTE-FILE from inbox-watcher: cannot open <path>
+  (OSError(40, 'Too many levels of symbolic links')) — refused + discarded
+```
+
+This guard means a dropper cannot trick the ambient-monitor into
+pasting the contents of arbitrary filesystem paths (`/etc/passwd`,
+`~/.ssh/id_rsa`, etc.) by dropping a crafted symlink. The dropper
+contract requires regular files, not symlinks.
+
 ### Wrong-shape filename
 
 ```sh
