@@ -280,7 +280,7 @@ The verification context asked a broader grep (adding `VAPID`, `vapid`, `p256dh`
 
 ### No hostname hardcoding in active source
 
-- `term.gigaashley.click` appears 14 times in src/ — all in test files (ntfy-config.test.ts, ntfy-setup-api.test.ts, PreferencesNotificationsPane.test.tsx) and in a docstring example comment in ntfy-config.ts (lines 58 and 113)
+- `<instance-hostname>` appears 14 times in src/ — all in test files (ntfy-config.test.ts, ntfy-setup-api.test.ts, PreferencesNotificationsPane.test.tsx) and in a docstring example comment in ntfy-config.ts (lines 58 and 113)
 - No hardcoding in production runtime code — PASS
 
 **Check 7 Result: PASS**

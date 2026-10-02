@@ -91,7 +91,7 @@ Phase 144 is a pure transport swap: replace the Phase 128 browser-push system (w
 
 The ntfy server runs as a Docker container joining the existing `skynet-net` network. Caddy proxies a path prefix (`/ntfy`) on the existing public hostname to the ntfy container, stripping the prefix before forwarding. The ntfy iOS app, pointed at `https://<instance-hostname>/ntfy` with the user's reading credential and topic, receives push notifications that arrive natively via Apple's infrastructure (routed through ntfy.sh as an upstream relay). Content never transits ntfy.sh — only a wake-up signal (message ID + topic hash) goes upstream.
 
-**Critical finding:** ntfy does NOT natively support running at a subpath. The ntfy web interface and some internal URL parsing break when `base-url` contains a path component. However, the ntfy iOS native app is unaffected — it constructs topic URLs as `normalizeBaseUrl(serverUrl) + "/" + topic`, so a user-entered server URL of `https://term.gigaashley.click/ntfy` yields `https://term.gigaashley.click/ntfy/<topic>`. The Caddy proxy strips the `/ntfy` prefix before forwarding to the container, and the ntfy container sees root-relative paths. The ntfy server's own `base-url` config must be set to the full path-prefixed URL (`https://term.gigaashley.click/ntfy`) so that upstream relay poll requests include the correct externally-reachable URL.
+**Critical finding:** ntfy does NOT natively support running at a subpath. The ntfy web interface and some internal URL parsing break when `base-url` contains a path component. However, the ntfy iOS native app is unaffected — it constructs topic URLs as `normalizeBaseUrl(serverUrl) + "/" + topic`, so a user-entered server URL of `${SKYNET_PUBLIC_URL}/ntfy` yields `${SKYNET_PUBLIC_URL}/ntfy/<topic>`. The Caddy proxy strips the `/ntfy` prefix before forwarding to the container, and the ntfy container sees root-relative paths. The ntfy server's own `base-url` config must be set to the full path-prefixed URL (`${SKYNET_PUBLIC_URL}/ntfy`) so that upstream relay poll requests include the correct externally-reachable URL.
 
 **Primary recommendation:** One phase, structured as ~4 sequenced plans: (1) Docker/Caddy infra, (2) backend swap + schema migration, (3) frontend pane rebuild + service worker cleanup, (4) browser-push deletion sweep. Plans 1-2 and 3-4 can form two wave pairs with plan 2 depending on plan 1 (ntfy must exist before the backend tries to reach it at boot-time assertion).
 
@@ -158,7 +158,7 @@ ntfy server uses a YAML config file at `/etc/ntfy/server.yml` inside the contain
 # /etc/ntfy/server.yml (mounted or baked into container)
 # OR equivalently via env vars in docker-compose.yml
 
-base-url: "https://term.gigaashley.click/ntfy"   # derived from SKYNET_PUBLIC_URL + "/ntfy"
+base-url: "${SKYNET_PUBLIC_URL}/ntfy"   # derived from SKYNET_PUBLIC_URL + "/ntfy"
 listen-http: ":2586"                               # internal port; Caddy proxies from outside
 behind-proxy: true                                 # ntfy uses X-Forwarded-For for rate-limiting
 upstream-base-url: "https://ntfy.sh"              # iOS wake-up relay
@@ -349,7 +349,7 @@ boot provisioning of a single admin user; everything after that goes via HTTP.
 
 1. **Topic name** — free text field. Placeholder: "Topic name, e.g. phil_alerts". User enters the opaque topic string.
 2. **"Use another server" toggle** — off by default (uses ntfy.sh). Must be toggled ON for self-hosted.
-3. **Service URL** — appears when toggle is on. Placeholder: "Service URL, e.g. https://ntfy.home.io". User enters `https://term.gigaashley.click/ntfy` (the path-prefixed URL).
+3. **Service URL** — appears when toggle is on. Placeholder: "Service URL, e.g. https://ntfy.home.io". User enters `${SKYNET_PUBLIC_URL}/ntfy` (the path-prefixed URL).
 4. **Username + password** — a separate "Login" screen appears if the topic requires authentication. User enters the reading credential's username and password.
 
 **How the iOS app constructs the subscription URL:**
@@ -365,11 +365,11 @@ func normalizeBaseUrl(_ baseUrl: String) -> String {
 }
 ```
 
-So: user enters `https://term.gigaashley.click/ntfy` → app polls `https://term.gigaashley.click/ntfy/<topic>/json`.
+So: user enters `${SKYNET_PUBLIC_URL}/ntfy` → app polls `${SKYNET_PUBLIC_URL}/ntfy/<topic>/json`.
 
 **This is why path prefix routing works for the iOS native app:** The app treats the entire path-prefixed URL as the "base URL" and appends topic name after it. The Caddy proxy strips `/ntfy` before forwarding to the container, so the ntfy container sees `/<topic>/json` — which is what it expects.
 
-**HTTPS requirement:** Yes — the iOS app requires HTTPS for self-hosted servers (the existing Caddy cert for `term.gigaashley.click` covers this; no new cert needed).
+**HTTPS requirement:** Yes — the iOS app requires HTTPS for self-hosted servers (the existing Caddy cert for `<instance-hostname>` covers this; no new cert needed).
 
 **Authentication in the app:** After adding the subscription, if the server returns 401, the app shows the login view. The user enters username (`skynet-reader-<user_id>`) and password (the reading credential plaintext). The app stores this credential and reuses it for future polls. Alternatively, if Skynet surfaces a token directly, the user can configure the app's default server with a token in Settings (more complex; username/password flow is simpler for UX).
 
@@ -385,7 +385,7 @@ So: user enters `https://term.gigaashley.click/ntfy` → app polls `https://term
     email ahbarnum@gmail.com
 }
 
-term.gigaashley.click {
+<instance-hostname> {
     log { format json; output stdout }
     reverse_proxy skynet:8080 {
         transport http { response_header_timeout 5m; read_timeout 5m }
@@ -398,7 +398,7 @@ term.gigaashley.click {
 Caddy's `handle_path` directive matches a path prefix AND strips it before proxying. This is the correct primitive for ntfy's path-prefix routing.
 
 ```caddyfile
-term.gigaashley.click {
+<instance-hostname> {
     log { format json; output stdout }
 
     # Phase 144 — ntfy path-prefix routing.
@@ -437,7 +437,7 @@ term.gigaashley.click {
 **The env var:** `SKYNET_PUBLIC_URL`
 
 - Used today in `run-bootstrap.ts:312` and `local-fleet-install.ts:1370` for writing `~/fleet/host/parent` on managed hosts.
-- Format: HTTPS URL without trailing slash (e.g. `https://term.gigaashley.click`).
+- Format: HTTPS URL without trailing slash (e.g. `${SKYNET_PUBLIC_URL}`).
 - Lives in `/opt/skynet/skynet.env` on the deployment host.
 - Not validated/required at boot today (processes warn and skip if missing/malformed — no `assertAtBoot` gate).
 
@@ -707,7 +707,7 @@ export function assertNtfyConfigAtBoot(): void {
   if (!publicUrl || !publicUrl.startsWith("https://")) {
     throw new Error(
       "SKYNET_PUBLIC_URL env var is missing or not an HTTPS URL. " +
-      "Set it in skynet.env before boot (e.g. https://term.gigaashley.click). " +
+      "Set it in skynet.env before boot (e.g. ${SKYNET_PUBLIC_URL}). " +
       "ntfy base-url cannot be derived without it."
     );
   }
@@ -850,7 +850,7 @@ export function generateNtfyToken(): string {
 
 ### Anti-Patterns to Avoid
 
-- **Don't hard-code `term.gigaashley.click`** — all URLs derive from `SKYNET_PUBLIC_URL`. The no-hardcoding posture is enforced by the `no-personal-strings.test.ts` grep gate already in the codebase.
+- **Don't hard-code `<instance-hostname>`** — all URLs derive from `SKYNET_PUBLIC_URL`. The no-hardcoding posture is enforced by the `no-personal-strings.test.ts` grep gate already in the codebase.
 - **Don't use a subdomain for ntfy** — the locked decision explicitly rejects this (no new DNS, no new TLS cert).
 - **Don't pass message content through ntfy.sh** — the upstream relay receives only message ID + topic hash. Title and body go in the POST to the local ntfy container only. The `upstream-base-url` configuration handles this correctly by design — ntfy.sh only gets the poll_request, not the content.
 - **Don't use bcrypt one-way hash for the reading credential** — the backend must be able to surface the plaintext credential to the user in the preferences pane. Use FieldCrypto (reversible AES-256-GCM) for the reading_credential column.
@@ -877,7 +877,7 @@ export function generateNtfyToken(): string {
 **What goes wrong:** ntfy's web UI (the browser SPA bundled with the server) breaks when `base-url` contains a path component like `/ntfy`. The web app interprets its URL path as a topic name.
 **Why it happens:** ntfy's web app is built for root-level deployment. GitHub issue #1009 confirms this is a known limitation, not a bug fix scheduled for release.
 **How to avoid:** Do not expose ntfy's web UI. The `web-root` config can be set to an empty directory, or the web UI can be ignored entirely — Skynet's preferences pane is the only management surface needed. iOS app users subscribe via the ntfy iOS app, not the web UI. The publishing API and iOS app API (JSON/SSE/poll endpoints) work correctly with path-prefix stripping.
-**Warning signs:** User navigates to `https://term.gigaashley.click/ntfy` in a browser and sees garbage. This is expected and not a bug in the Skynet implementation.
+**Warning signs:** User navigates to `${SKYNET_PUBLIC_URL}/ntfy` in a browser and sees garbage. This is expected and not a bug in the Skynet implementation.
 
 ### Pitfall 2: Caddy handle vs bare reverse_proxy Conflict
 **What goes wrong:** Adding `handle_path /ntfy/* { reverse_proxy ntfy:2586 }` to a site block that also has a bare `reverse_proxy skynet:8080` causes a Caddy config parse error. Caddy doesn't allow mixing bare directives with `handle`/`handle_path` blocks.
@@ -905,7 +905,7 @@ export function generateNtfyToken(): string {
 **How to avoid:** Wrap the DROP + CREATE in `runPushSubscriptionsRebuild` and call `DatabaseSaveTrigger.forceSave("phase-144-ntfy-schema")` immediately after in `migrateSchema`. Same pattern as every prior schema migration in db/index.ts.
 
 ### Pitfall 7: Trailing Slash in ntfy base-url
-**What goes wrong:** ntfy's upstream relay constructs poll_request URLs with a trailing slash doubling: `https://term.gigaashley.click/ntfy//topic`. iOS app polling breaks.
+**What goes wrong:** ntfy's upstream relay constructs poll_request URLs with a trailing slash doubling: `${SKYNET_PUBLIC_URL}/ntfy//topic`. iOS app polling breaks.
 **Why it happens:** GitHub issue #370 documents this: trailing slash in `base-url` causes doubled slashes in downstream URL construction.
 **How to avoid:** Ensure `SKYNET_PUBLIC_URL` has no trailing slash (it doesn't today per existing convention) and the derivation is `${SKYNET_PUBLIC_URL}/ntfy` (not `${SKYNET_PUBLIC_URL}/ntfy/`).
 
@@ -930,8 +930,8 @@ export function generateNtfyToken(): string {
 
 | # | Claim | Section | Risk if Wrong |
 |---|-------|---------|---------------|
-| A1 | ntfy iOS app supports path-prefix server URLs (e.g., `https://term.gigaashley.click/ntfy`) at the networking level — the app constructs `baseUrl + "/" + topic` | Q4, Q5, Pitfall 1 | LOW — verified directly from ntfy-ios Helpers.swift source code. The app uses `normalizeBaseUrl` (strip trailing slashes) + append topic. Caddy stripping the prefix is the correct pairing. |
-| A2 | ntfy.sh upstream relay reliability is sufficient for Ashley's use case | Q12 | MEDIUM — ntfy.sh is a free public service. If it goes down, iOS wake-up pushes fail but direct subscribers still work. Accepted risk per shape. |
+| A1 | ntfy iOS app supports path-prefix server URLs (e.g., `${SKYNET_PUBLIC_URL}/ntfy`) at the networking level — the app constructs `baseUrl + "/" + topic` | Q4, Q5, Pitfall 1 | LOW — verified directly from ntfy-ios Helpers.swift source code. The app uses `normalizeBaseUrl` (strip trailing slashes) + append topic. Caddy stripping the prefix is the correct pairing. |
+| A2 | ntfy.sh upstream relay reliability is sufficient for the user's use case | Q12 | MEDIUM — ntfy.sh is a free public service. If it goes down, iOS wake-up pushes fail but direct subscribers still work. Accepted risk per shape. |
 | A3 | ntfy logs upstream relay failures to stdout/stderr | Q12 | LOW — standard Go HTTP client behavior; confirmed as LOW by general knowledge. Not verified against ntfy source. |
 | A4 | `SKYNET_PUBLIC_URL` is already set in `/opt/skynet/skynet.env` on the live deployment | Q6 | LOW — confirmed used in run-bootstrap.ts; would fail distributor bootstrap if absent. But worth verifying at deploy time. |
 | A5 | ntfy v2.28.0 Docker image passes a slopsquat check | Q10 | LOW — confirmed at hub.docker.com/r/binwiederhier/ntfy; official project with 4+ years history and active GitHub repo (github.com/binwiederhier/ntfy). |
@@ -1005,7 +1005,7 @@ export function generateNtfyToken(): string {
 
 ### Tertiary (LOW confidence — general knowledge / not verified against official ntfy docs)
 - ntfy logs upstream relay failures to stdout [ASSUMED — A3]
-- ntfy.sh service is sufficiently reliable for Ashley's use case [ASSUMED — A2, accepted risk per shape]
+- ntfy.sh service is sufficiently reliable for the user's use case [ASSUMED — A2, accepted risk per shape]
 
 ---
 

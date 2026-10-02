@@ -22,7 +22,7 @@ provides:
 
 affects:
   - future phases that read id-skill or the notifications subsystem
-  - any agent that reads SKILL.md to describe the notifications UX to Ashley
+  - any agent that reads SKILL.md to describe the notifications UX to the user
 
 # Tech tracking
 tech-stack:

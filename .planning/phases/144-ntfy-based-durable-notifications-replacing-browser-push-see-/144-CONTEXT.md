@@ -151,7 +151,7 @@ skynet-tina HEAD `013e1d6b`) confirmed:
 - All URLs — ntfy's `base-url` config, the server address shown in the
   preferences pane, the URL the ntfy iOS app points at — derive from
   the instance's own existing public-hostname configuration.
-- Code that works on `term.gigaashley.click` must work identically on
+- Code that works on `<instance-hostname>` must work identically on
   `skynet.aithercloud.com` and any future instance.
 
 ### What's deliberately NOT in this phase
