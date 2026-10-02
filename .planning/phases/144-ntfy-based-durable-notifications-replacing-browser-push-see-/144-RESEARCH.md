@@ -284,6 +284,61 @@ Skynet owns credential generation. On first boot (or on regenerate):
 
 **Token revocation:** Remove the token from `auth-tokens` config + restart container. Old token immediately invalid (ntfy syncs auth.db from config on startup). The "hard rotation, no overlap window" decision is naturally implemented by this mechanism.
 
+### Q3-ADDENDUM: HTTP Admin API (preferred for runtime provisioning)
+
+**[VERIFIED: ntfy source — server.go#L578-585, server.go#L600-605, server_admin.go]**
+
+Follow-up research against ntfy's source revealed a full HTTP admin API that
+supersedes both "declarative config + restart" AND "docker exec" for RUNTIME
+operations. The declarative config approach above is still correct for ONE-TIME
+boot provisioning of a single admin user; everything after that goes via HTTP.
+
+**Admin endpoints** (`/v1/users`, gated by `ensureAdmin` — caller must auth as a `role=admin` user):
+- `POST /v1/users` — create user. Body: `{"username":"...", "password":"..."}`.
+- `PUT  /v1/users` — update password/tier.
+- `DELETE /v1/users` — body: `{"username":"..."}`. Refuses to delete admin users.
+- `POST/PUT /v1/users/access`, `DELETE /v1/users/access` — grant/revoke per-topic ACL.
+- `GET  /v1/users` — list users + grants.
+
+**Per-user token endpoints** (`/v1/account/token`, gated by `ensureUser` — caller must auth as that user):
+- `POST   /v1/account/token` — body `{"label"?, "expires"?}`, returns `{"token":"tk_...", ...}`.
+- `PATCH  /v1/account/token` — rotate/relabel.
+- `DELETE /v1/account/token` — body `{"token":"..."}`. Revokes immediately.
+
+**Auth modes:** HTTP Basic OR `Authorization: Bearer tk_...` as an admin user.
+
+**Recommended Skynet pattern (supersedes the restart approach above for runtime ops):**
+
+1. **One-time, at compose up:** Provision a dedicated Skynet admin user via `auth-users` in server.yml (or by `docker exec ntfy ntfy user add` on first boot). Admin creds stored in `skynet.env` as `NTFY_ADMIN_USER` / `NTFY_ADMIN_PASS`. This is the ONLY credential that comes from compose config.
+
+2. **At user signup / regenerate:**
+   - Skynet backend calls `POST /v1/users` (Basic auth as admin) to create a new user `skynet-reader-<user_id>` with a generated password.
+   - Then `POST /v1/users/access` to grant that user `ro` on the user's topic.
+   - Then Basic-auth as the new user and call `POST /v1/account/token` to mint `tk_...`.
+   - Store the token encrypted in Skynet's push_subscriptions table.
+   - Hand the token (plaintext, once) back to the frontend to display in the preferences pane.
+
+3. **At credential regenerate:**
+   - `DELETE /v1/account/token` (as that user) to revoke the old token.
+   - `POST /v1/account/token` to mint a new one.
+   - No container restart. Zero downtime. Hard rotation is immediate.
+
+4. **At user deletion / archive:**
+   - `DELETE /v1/users/access` to revoke ACL.
+   - `DELETE /v1/users` to delete the user record entirely.
+   - All tokens for that user cease working immediately.
+
+**Why this is strictly better than the restart approach:**
+
+- No ntfy downtime on regenerate (hard rotation is instant via DELETE, not deferred to a restart).
+- No Docker socket mount into the Skynet container (which the current compose does NOT grant, per the "credentials never leave the backend" posture — Docker socket access is a privilege escalation vector we deliberately avoid).
+- No file-based config synchronization machinery to build (editing server.yml + triggering restart from Skynet).
+- Simpler mental model: "ntfy is a service Skynet talks to via HTTP" matches the existing architectural pattern for Caddy, Synapse, etc.
+
+**Publishing credential:** Still a `tk_...` token for a dedicated `skynet-publisher` admin user. This is the ONE token Skynet reads from its own config (encrypted) rather than minting via API — because Skynet can't bootstrap its own admin creds via HTTP (circular). Preferred provisioning: generate once at setup, store in skynet.env as `NTFY_PUBLISH_TOKEN`, pass to Skynet backend only (NOT to ntfy container directly — ntfy learns about this token via `auth-tokens` in server.yml at startup, keyed to the `skynet-publisher` admin user).
+
+**Supersedes earlier guidance in Q3 above regarding restart-on-revoke.** The planner should implement HTTP-admin-API-based provisioning for all runtime user/token lifecycle operations.
+
 ---
 
 ## Q4: ntfy iOS App Subscription Flow
