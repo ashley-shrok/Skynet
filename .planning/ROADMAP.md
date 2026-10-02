@@ -3063,10 +3063,10 @@ Plans:
 **Goal:** Replace the Phase 128 browser-push system with a self-hosted ntfy server per Skynet instance, delivering notifications to the ntfy iOS app over Apple's push infrastructure. Pure cutover — browser-push code deletes in the same ship as ntfy goes live. Trigger loop, display-name resolution, preview composition, and deep-link routing all stay untouched; only the transport, subscription data model, and preferences pane change.
 **Requirements**: n/a (phase derived from shape-ntfy-notifications.md + 144-CONTEXT.md Phase Boundary rather than REQUIREMENTS.md REQ-IDs)
 **Depends on:** Phase 143
-**Plans:** 4 plans
+**Plans:** 1/4 plans executed
 
 Plans:
-- [ ] 144-01-PLAN.md — Infra: ntfy container in compose, docker/ntfy/server.yml declarative admin+publisher provisioning (closes bootstrap-circularity gap), Caddyfile snippet artifact, ntfy-config.ts boot assertion module + env scaffolding
+- [x] 144-01-PLAN.md — Infra: ntfy container in compose, docker/ntfy/server.yml declarative admin+publisher provisioning (closes bootstrap-circularity gap), Caddyfile snippet artifact, ntfy-config.ts boot assertion module + env scaffolding
 - [ ] 144-02-PLAN.md — Backend: push_subscriptions schema migration, FieldCrypto encryption of reading_credential, ntfy HTTP admin API client, ntfy-sender publisher, rebuilt setup/test/regenerate routes, boot-time publisher-user bootstrap
 - [ ] 144-03-PLAN.md — Frontend: rebuild PreferencesNotificationsPane with setup display + test + regenerate buttons, new ntfy-setup-api client, strip push/rotation/notificationclick handlers from public/sw.js
 - [ ] 144-04-PLAN.md — Deletion sweep: remove web-push dep, delete VAPID source + VAPID env docs, delete push-sender shim with direct ntfy-sender imports from trigger loop, delete frontend push-subscription-api, update id-skill text (both sidebar-footer bullet and relay-DM section)

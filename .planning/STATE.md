@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
-last_updated: "2026-09-30T22:14:45.799Z"
-last_activity: 2026-09-30
+status: executing
+last_updated: "2026-10-02T22:25:01.417Z"
+last_activity: 2026-10-02
 progress:
-  total_phases: 142
+  total_phases: 143
   completed_phases: 121
-  total_plans: 642
-  completed_plans: 633
+  total_plans: 647
+  completed_plans: 634
   percent: 85
 ---
 
@@ -20,14 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-17)
 
 **Core value:** user never loses access to her fleet — every change preserves reliable browser SSH+RDP, features are added around that hard constraint
-**Current focus:** Phase 137 — preferences-modal-from-sidebar-gear-voice-fallback-notificat
+**Current focus:** Phase 144 — ntfy-based-durable-notifications-replacing-browser-push-see-
 
 ## Current Position
 
-Phase: 137 — COMPLETE
-Plan: 6 of 6
+Phase: 144 (ntfy-based-durable-notifications-replacing-browser-push-see-) — EXECUTING
+Plan: 2 of 4
 
-Last activity: 2026-09-30
+Last activity: 2026-10-02
 
 Last activity (prior): 2026-09-23 -- Phase 129 execution started
 
@@ -101,7 +101,7 @@ Last activity: 2026-08-18 — Shipped inline patch #462 (needs_desk toggle in bo
 
 Phase: 44 (frontend-skill-editing-editor-surface-for-skill-folders-on-a) — EXECUTING
 Plan: 3 of 3
-Status: Phase complete — ready for verification
+Status: Ready to execute
 
 Last activity: 2026-08-19
 
@@ -1136,7 +1136,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-30T22:14:45.730Z
+Last session: 2026-10-02T22:25:01.317Z
 Last session: 2026-09-18T02:31:01.008Z
 Last session: 2026-09-10T07:47:17.370Z
 Stopped at: Completed 143-06-PLAN.md
