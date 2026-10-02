@@ -293,13 +293,13 @@ it("opts.users multi-element → every element preserved in order with case pres
     makeOpts({
       name: "testkey",
       role: "news-watcher",
-      users: ["Zoey", "ashley"],
+      users: ["Zoey", "user1"],
     }),
     "Testkey",
     "",
   );
   const parsed = extractFrontmatter(body);
-  expect(parsed.users).toEqual(["Zoey", "ashley"]);
+  expect(parsed.users).toEqual(["Zoey", "user1"]);
 });
 
 it("opts.users wins over creatorUsername when both set", () => {
