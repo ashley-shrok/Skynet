@@ -48,7 +48,6 @@ import signal
 import subprocess
 import sys
 import threading
-import time
 
 # ---------- argv
 if len(sys.argv) != 2:
@@ -203,42 +202,25 @@ else:
 # Format: `%w|%f|%e` where %w = watched dir, %f = filename, %e = comma-
 # separated event flags.
 #
-# Falls back to polling if inotifywait is unavailable (not expected on the
-# fleet — agent-supervisor.sh ensures it — but defensive).
+# inotifywait is a hard requirement — the fleet guarantees its presence via
+# agent-supervisor.sh's ensure_inotifywait at supervisor startup, and the
+# shape names "watches the inbox via inotify" as the mechanism. If
+# inotifywait is unexpectedly absent (startup) or vanishes mid-flight
+# (would be a very strange event), the child hard-exits with a loud stderr
+# line so ambient-monitor's launcher surfaces the death wake. No polling
+# fallback — defending against a condition the fleet guarantees doesn't
+# happen is scope creep that complicates the semantics for no real benefit.
 INOTIFY_EVENTS = "moved_to,close_write"
-POLL_INTERVAL_SECONDS = 2.0  # fallback-mode polling interval
 INOTIFY_BACKOFF_MIN = 1
 INOTIFY_BACKOFF_MAX = 60
 
-
-def _poll_loop():
-    """Fallback: scan the inbox folder every POLL_INTERVAL_SECONDS. Tracks
-    which filenames have already been surfaced to avoid re-surfacing a file
-    that the parent hasn't yet deleted. Memory grows unbounded only if the
-    parent is wedged (not deleting); accept the memory cost for simplicity.
-    """
-    seen = set()
-    while not _shutting_down.is_set():
-        if not _harness_alive():
-            diag("harness gone — exiting poll loop")
-            return
-        try:
-            entries = sorted(
-                p for p in INBOX_DIR.iterdir()
-                if p.is_file() and FINAL_NAME_RE.match(p.name)
-            )
-        except OSError as e:
-            diag("poll: list failed: %r" % e)
-            entries = []
-        on_disk = {p.name for p in entries}
-        # Drop seen entries that are no longer on disk (parent deleted them).
-        seen &= on_disk
-        for p in entries:
-            if p.name in seen:
-                continue
-            surface(str(p))
-            seen.add(p.name)
-        _shutting_down.wait(POLL_INTERVAL_SECONDS)
+# Startup check: fail loud if inotifywait is missing.
+if shutil.which("inotifywait") is None:
+    diag("FATAL: inotifywait not found on PATH — this box is misconfigured "
+         "(agent-supervisor.sh's ensure_inotifywait should have installed it); "
+         "the inbox-watcher cannot operate without inotify and will exit now. "
+         "Install inotify-tools and restart the harness to recover.")
+    sys.exit(1)
 
 
 def _inotify_loop():
@@ -263,8 +245,19 @@ def _inotify_loop():
                 stderr=subprocess.PIPE,
                 text=True,
             )
-        except (OSError, FileNotFoundError) as e:
-            diag("inotifywait failed to start: %r — backing off %ds" % (e, max(backoff, INOTIFY_BACKOFF_MIN)))
+        except FileNotFoundError as e:
+            # inotifywait disappeared mid-flight (passed the startup check,
+            # now gone). This is pathological — package removed under us,
+            # someone yanked PATH, etc. Not retriable; die loud so the
+            # launcher's death-wake surfaces it.
+            diag("FATAL: inotifywait vanished after startup check (%r) — "
+                 "exiting; restart the harness after fixing the install" % e)
+            sys.exit(1)
+        except OSError as e:
+            # Transient: EMFILE (fd table exhausted), ENOMEM, etc. Back off
+            # and retry — the condition may clear.
+            diag("inotifywait failed to start: %r — backing off %ds"
+                 % (e, max(backoff, INOTIFY_BACKOFF_MIN)))
             backoff = min(max(backoff * 2, INOTIFY_BACKOFF_MIN), INOTIFY_BACKOFF_MAX)
             continue
         try:
@@ -312,12 +305,7 @@ def _inotify_loop():
             backoff = min(max(backoff * 2, INOTIFY_BACKOFF_MIN), INOTIFY_BACKOFF_MAX)
 
 
-if shutil.which("inotifywait") is None:
-    diag("inotifywait not found on PATH — falling back to %ds polling"
-         % POLL_INTERVAL_SECONDS)
-    _poll_loop()
-else:
-    _inotify_loop()
+_inotify_loop()
 
 diag("exiting cleanly")
 sys.exit(0)

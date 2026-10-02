@@ -198,8 +198,13 @@ visibility lives entirely in this stderr stream.
 - Confirm the identity's ambient-monitor is actually running:
   `pgrep -af ambient-monitor | grep <name>`.
 - Confirm inotifywait is installed on the box:
-  `command -v inotifywait`. If absent, the watcher falls back to a 2s
-  poll (slower but functional).
+  `command -v inotifywait`. inotifywait is a hard requirement — if
+  absent, the fifth child dies at startup with a FATAL stderr line and
+  the launcher surfaces its death wake. Install `inotify-tools` and
+  recycle the harness to recover (`agent-supervisor.sh`'s
+  `ensure_inotifywait` on supervisor startup should normally handle
+  this automatically; manual install needed only if the supervisor
+  itself hasn't run on this box yet).
 
 ### File sits forever
 

@@ -40,8 +40,11 @@ Four moving parts, in the order a dropped request crosses them:
    are a compact UTC timestamp with millisecond precision, a dash, a
    short random hex suffix, and a `.msg` extension — so lexical sort of
    the filenames equals arrival order, modulo arbitrary-but-stable
-   tiebreak among same-millisecond drops. File body is the raw message
-   bytes, verbatim — no wrapping, no encoding, no escaping.
+   tiebreak among same-millisecond drops. File body is the raw UTF-8
+   message bytes, verbatim — no wrapping, no escaping. The body MUST be
+   valid UTF-8 (text is what the terminal pane consumes, and the paste
+   pipeline writes through a UTF-8 text file handle under the hood);
+   non-UTF-8 bytes are refused — see refused-deliveries list below.
 
 2. **Fifth ambient-watcher child subprocess** — follows the same
    subprocess pattern as the existing four children (relay receiver,
@@ -88,11 +91,12 @@ children.
 
 Refused deliveries (harness gone mid-flight, pane at a shell prompt
 rather than a Claude harness, tmux write failed, file body is zero
-bytes) are logged loudly on the ambient watcher's existing stderr
-diagnostic surface with enough context (identity, filename, refuse
-reason) to be useful during the manual-drive exercise window, and the
-request file is discarded. No retry, no dead-letter folder. This posture
-is specifically a Shape-1 stance; see Scope edges.
+bytes, file body is not valid UTF-8) are logged loudly on the ambient
+watcher's existing stderr diagnostic surface with enough context
+(identity, filename, refuse reason) to be useful during the manual-drive
+exercise window, and the request file is discarded. No retry, no
+dead-letter folder. This posture is specifically a Shape-1 stance; see
+Scope edges.
 
 ## Dropper contract
 
@@ -103,9 +107,10 @@ composebox send-path, and any future dropper all follow it the same way.
 The contract is six conceptual steps, really three if the pedantry
 collapses:
 
-1. **Build the payload** — the raw message bytes. For Shape 1 that is
-   literally the message text with no wrapping. Zero-byte payloads are
-   refused + discarded by the watcher; do not drop them.
+1. **Build the payload** — the raw UTF-8 message bytes. For Shape 1
+   that is literally the message text with no wrapping. The bytes MUST
+   be valid UTF-8; non-UTF-8 payloads and zero-byte payloads are both
+   refused + discarded by the watcher.
 
 2. **Compute the final filename** — current UTC time formatted as a
    compact ISO-style timestamp with millisecond precision
@@ -314,6 +319,10 @@ deciding here.
 - File body is raw bytes, verbatim — no JSON wrapping, no encoding.
 - Zero-byte files are refused and discarded (same code path as other
   refused deliveries).
+- Non-UTF-8 file bodies are refused and discarded (same code path).
+  The paste pipeline writes through a UTF-8 text file handle, so
+  arbitrary bytes cannot pass through unchanged; refusing-with-loud-log
+  at the parent beats crashing the paste.
 - Agent-supervisor reconciler gains a fourth dormant-wake kind:
   identity's harness is not running AND identity's inbox folder is
   non-empty. Triggers wake through the existing wake machinery, reusing
