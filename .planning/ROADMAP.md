@@ -3057,3 +3057,13 @@ Plans:
 - [x] 143-09-PLAN.md — id-skill substrate edits: per-surface descriptions + un-archive sentinel-drop pattern (D-20/D-21/D-22) (Wave 5)
 - [x] 143-10-PLAN.md — Test migration: retire right-click-Archive lock in RolesListModal.test.tsx + T-08 "coming soon" lock in ConversationSearchModal.test.tsx with shape-file breadcrumbs; add kebab-menu Archive/Un-archive test coverage (D-23/D-26/D-27) (Wave 5)
 
+
+### Phase 144: ntfy-based durable notifications replacing browser push (see shape-ntfy-notifications.md)
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 143
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 144 to break down)
