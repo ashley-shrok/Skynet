@@ -331,6 +331,22 @@ CHILDREN.append({
     "critical": False,
 })
 
+# Shape agent-supervisor-inbox: fifth child = inbox-watcher. Delivers inbox-dropped
+# messages (from any process on the box) into the pane through the SAME paste
+# discipline the other four use, closing the "two writers, one pane, no shared lock"
+# hole for the inbox pathway. Gated on INJECT_MODE: in stdout mode (legacy, no longer
+# how the fleet runs) the parent has no paste path, so RAW-PASTE-FILE dispatch would
+# be a no-op — simpler to not spawn the child at all there. critical=False for Shape 1
+# (manual-drive only, no user traffic yet); Shape 2 may upgrade when the composebox
+# cuts over.
+if INJECT_MODE:
+    CHILDREN.append({
+        "name": "inbox-watcher",
+        "cmd": ["python3", str(HOME / ".local/bin/inbox-watcher"), str(IDENTITY_DIR)],
+        "env_extra": {},
+        "critical": False,
+    })
+
 # ---------------------------------------------------------------------- I/O
 # stdout is the wake stream: every line becomes an async wake to the agent.
 # stderr is the harness's output file for this Monitor: readable via the Read
@@ -415,12 +431,20 @@ def _harness_alive():
         return False
 
 
-def _inject(event_text):
+def _inject(event_text, envelope=True):
     """Paste one wake line into the harness pane. Serialized: two concurrent pastes
     would interleave in the tmux paste buffer and produce one corrupt turn instead of
     two clean ones.
+
+    envelope=True (default) wraps event_text in the <task-notification> envelope — the
+    long-standing path for watcher events (relay DMs, scheduled wake-ups, context
+    warnings, role/identity-file edits). envelope=False pastes event_text verbatim with
+    no wrapping — the path for inbox-watcher messages, which ARE user speech and must
+    not carry the "not from the user" envelope semantics (see shape-agent-supervisor-
+    inbox.md). Bracketed paste, pane-at-shell guard, Enter-with-retries all apply
+    uniformly regardless of envelope choice.
     """
-    payload = _envelope(event_text)
+    payload = _envelope(event_text) if envelope else event_text
     with _inject_lock:
         # Checked inside the lock and as late as possible: shutdown races mean a
         # queued event can reach here after the harness has already gone (children
@@ -505,10 +529,82 @@ def emit_wake(msg):
         sys.stdout.flush()
 
 
+# ---------- RAW-PASTE-FILE: dispatch (inbox-watcher child protocol).
+# The inbox-watcher's stdout protocol is `RAW-PASTE-FILE:<absolute path>\n` — one line
+# per inbox file ready to deliver. We read the file bytes here (not the child), paste
+# them bare through _inject(envelope=False), and remove the file from the inbox after,
+# regardless of paste outcome. See shape-agent-supervisor-inbox.md for the full
+# dropper contract + parent-owns-delete rationale.
+#
+# Doing the read-paste-delete in the parent (instead of the child surfacing bytes over
+# the line-oriented stdout channel) means raw message bytes never need encoding to
+# travel through IPC — the only thing the child sends over the pipe is the filesystem
+# path. The parent also OWNS the delete because it is the one that knows the paste
+# outcome, and because a parent crash between surface and paste leaves the file in
+# the inbox for the next startup's catch-up sweep to pick up.
+RAW_PASTE_PREFIX = "RAW-PASTE-FILE:"
+
+
+def _handle_raw_paste_file(source_name, path):
+    """Read the inbox file, paste bare, delete. Called from pump threads;
+    serialized through _inject_lock inside _inject(envelope=False).
+    """
+    # Only meaningful in inject mode — the inbox-watcher child is gated on INJECT_MODE
+    # at CHILDREN assembly time, so this guard only trips if some other child
+    # accidentally emits the prefix. Defensive.
+    if not INJECT_MODE:
+        emit_diag("RAW-PASTE-FILE from %s ignored (stdout mode has no paste path): %s"
+                  % (source_name, path))
+        return
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+    except OSError as e:
+        emit_diag("RAW-PASTE-FILE from %s: cannot read %s: %r — discarding"
+                  % (source_name, path, e))
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+        return
+    if not data:
+        emit_diag("RAW-PASTE-FILE from %s: zero-byte file %s — refused + discarded"
+                  % (source_name, path))
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+        return
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError as e:
+        emit_diag("RAW-PASTE-FILE from %s: non-UTF-8 bytes in %s (%r) — refused + discarded"
+                  % (source_name, path, e))
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+        return
+    try:
+        _inject(text, envelope=False)
+    finally:
+        # Delete regardless of paste outcome. Refused deliveries are already loud
+        # on stderr via _inject; discarding the file is the shape's stance.
+        try:
+            os.unlink(path)
+        except OSError as e:
+            emit_diag("RAW-PASTE-FILE from %s: unlink failed on %s: %r (file remains in inbox)"
+                      % (source_name, path, e))
+
+
 # ---------------------------------------------------------------- pumps
 def _pump_stdout(name, stream):
     try:
         for line in stream:
+            stripped = line.rstrip("\n")
+            if stripped.startswith(RAW_PASTE_PREFIX):
+                _handle_raw_paste_file(name, stripped[len(RAW_PASTE_PREFIX):].strip())
+                continue
             emit_wake(line)
     except Exception as e:
         emit_diag("stdout pump for %s ended: %r" % (name, e))
