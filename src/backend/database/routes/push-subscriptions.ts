@@ -1,265 +1,557 @@
 /**
- * Phase 128 Plan 05 Task 1 — /push-subscriptions Express router.
+ * Phase 144 Plan 02 Task 3 — ntfy push-subscriptions router (rebuilt).
  *
- * Two endpoints:
+ * Replaces the Phase 128 web-push subscription CRUD (POST /push-subscriptions,
+ * DELETE /push-subscriptions/:endpoint, GET /vapid-public-key) with the new
+ * ntfy setup/test/regenerate/delete API.
  *
- *   POST /              — Register a browser PushSubscription for the
- *                         authenticated user. Body: {endpoint, keys:{p256dh,auth}}.
- *                         Response: 201 {ok:true} on new, 200 {ok:true,
- *                         alreadyRegistered:true} on duplicate.
+ * ## Endpoints
  *
- *   GET /vapid-public-key — Return the VAPID public key so the client can
- *                           pass it to pushManager.subscribe(). NO AUTH — the
- *                           public key is public by design (T-128-26 handles
- *                           the private-key confidentiality invariant by
- *                           returning ONLY the public field).
+ *   GET  /ntfy-setup       — Return setup state for the authenticated user.
+ *                            {isSetUp:false} if no row; {isSetUp:true, serverAddress,
+ *                            topicName, readingCredential, ntfyUsername} if setup.
  *
- * NOT mounted in this plan — Plan 08 wires the router into database.ts
- * alongside the starter.ts changes.
+ *   POST /ntfy-setup       — Idempotent provision. Creates ntfy user + ACL + token
+ *                            on first call. Returns existing setup shape on re-call.
  *
- * Route discipline (mirrors user-preferences.ts:1-24, 469-509):
- *   - authenticateJWT gates POST; GET is public.
- *   - userId is sourced from `(req as AuthenticatedRequest).userId` — the
- *     JWT-verified value. NEVER from the request body (T-128-21 mitigation).
- *   - express.json({ limit: "8kb" }) caps body size (T-128-22 mitigation).
- *   - Zod SubscriptionSchema validates body shape + endpoint URL length +
- *     base64url key regex (T-128-23 mitigation).
- *   - Malformed body → 400 with a generic error string (do NOT echo the
- *     invalid body back — T-128-24 log/echo minimization).
- *   - INSERT uses ON CONFLICT(user_id, endpoint) DO NOTHING; the UNIQUE INDEX
- *     lives at the DDL layer (db/index.ts).
- *   - When result.changes === 0 the handler returns 200 alreadyRegistered
- *     WITHOUT calling forceSave — this is the S2 disk-sat guard byte-mirrored
- *     from relay-room-sessions-store.ts:86-90.
- *   - When result.changes > 0 the handler calls
- *     DatabaseSaveTrigger.forceSave("push-subscription-register") inside a
- *     try/catch; on catch, .warn is logged with the operation code, userId,
- *     and truncated endpoint (endpoint.slice(0, 40) — T-128-24). The response
- *     is 201 either way (write already reached RAM — degrade gracefully).
+ *   POST /ntfy-test        — Publish a test notification to the user's topic via
+ *                            sendPushToUser. Returns {ok:true} or 500 {error:...}.
  *
- * Handler-level exports (`handleRegisterSubscription`, `handleGetVapidPublicKey`)
- * mirror user-preferences.ts's `handleGetPreferences` / `handlePutPreferences`
- * so tests can exercise the logic without an Express harness (see
- * push-subscriptions.test.ts).
+ *   POST /ntfy-regenerate  — Revoke old token via ntfy admin API, mint new token,
+ *                            update DB, return new setup shape. MC-4: reads
+ *                            ntfy_username from the stored DB row.
+ *
+ *   DELETE /ntfy-setup     — Delete ntfy user + revoke ACL + drop DB row. MC-4:
+ *                            reads ntfy_username from the stored DB row, NOT
+ *                            reconstructed from userId.
+ *
+ * ## Security discipline
+ *   - All endpoints require JWT auth (authenticateJWT middleware — T-144-08).
+ *   - userId is sourced from the JWT-verified AuthenticatedRequest, NEVER from
+ *     req.body (same invariant as Phase 128 Phase-128-21 mitigation).
+ *   - NtfyAdminError caught and returned as generic 500 {error:...} — no
+ *     credential leakage in error responses (T-144-07 mitigation).
+ *   - reading_credential encrypted via FieldCrypto (T-144-06 mitigation).
+ *
+ * ## MC-4 fix (plan-checker flag)
+ *   DELETE and REGENERATE handlers SELECT ntfy_username from the stored DB row
+ *   before calling ntfy admin API. The stored value is the single source of
+ *   truth — it may differ from the pattern "skynet-reader-" + userId if the
+ *   row was inserted by an older code path or manually adjusted. Using the
+ *   stored value prevents orphaned ntfy users on delete.
+ *
+ * ## HC-1 note
+ *   ensureSkynetPublisherUserExists in ntfy-bootstrap.ts is belt-and-suspenders;
+ *   the primary publisher provisioning is docker/ntfy/server.yml at compose up.
+ *
+ * ## /vapid-public-key
+ *   Deliberately NOT mounted. The GET /vapid-public-key endpoint from Phase 128
+ *   is removed here; plan 04 handles any residual VAPID file cleanup.
  */
 
 import type { AuthenticatedRequest } from "../../../types/index.js";
 import express from "express";
 import type { Request, Response } from "express";
-import { randomUUID } from "node:crypto";
-import { z } from "zod";
+import { randomBytes, randomUUID } from "node:crypto";
 import { db, DatabaseSaveTrigger } from "../db/index.js";
 import { databaseLogger } from "../../utils/logger.js";
 import { AuthManager } from "../../utils/auth-manager.js";
-import { getVapidDetails } from "../../notifications/vapid-config.js";
+import { DataCrypto } from "../../utils/data-crypto.js";
+import { FieldCrypto } from "../../utils/field-crypto.js";
+import { getNtfyBaseUrl } from "../../notifications/ntfy-config.js";
+import {
+  createNtfyUser,
+  deleteNtfyUser,
+  grantTopicReadAccess,
+  revokeTopicAccess,
+  mintUserToken,
+  NtfyAdminError,
+} from "../../notifications/ntfy-admin-client.js";
+import { sendPushToUser } from "../../notifications/ntfy-sender.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
 const authenticateJWT = authManager.createAuthMiddleware();
 
 // ---------------------------------------------------------------------------
-// Zod validation — subscription body shape (T-128-23)
+// Types
 // ---------------------------------------------------------------------------
-//
-// endpoint: HTTPS URL from the browser's push service; capped at 2048 chars
-//   (well above real-world lengths ~200-400; caps a DoS surface).
-// keys.p256dh: base64url ECDH public key. Length 87-88 in practice; regex
-//   ^[A-Za-z0-9_-]{80,180}$ accepts a defensive range.
-// keys.auth: base64url auth secret. Length 24 in practice; regex 20-40 range.
-//
-// The full body is capped at 8kb via express.json({limit:"8kb"}) below — that
-// runs BEFORE zod parses, so a mega-body is rejected at the parser layer.
-const SubscriptionSchema = z.object({
-  endpoint: z.string().url().max(2048),
-  keys: z.object({
-    p256dh: z.string().regex(/^[A-Za-z0-9_-]{80,180}$/),
-    auth: z.string().regex(/^[A-Za-z0-9_-]{20,40}$/),
-  }),
-});
+
+interface PushSubscriptionRow {
+  id: string;
+  user_id: string;
+  topic_name: string;
+  reading_credential: string; // encrypted via FieldCrypto
+  ntfy_username: string;
+  created_at: string;
+}
+
+interface NtfySetupResponse {
+  isSetUp: boolean;
+  serverAddress?: string;
+  topicName?: string;
+  readingCredential?: string; // decrypted
+  ntfyUsername?: string;
+}
 
 // ---------------------------------------------------------------------------
-// Core handlers (exported for direct unit-test invocation — same shape as
-// user-preferences.ts's handleGetPreferences / handlePutPreferences).
+// Internal helpers
 // ---------------------------------------------------------------------------
 
 /**
- * POST /push-subscriptions handler.
+ * Build the ntfy setup response shape for the given user.
+ * Returns {isSetUp:false} if no row; decrypts reading_credential via FieldCrypto
+ * and returns {isSetUp:true, ...} if row exists.
  *
- * `userId` is threaded in by the router-level Express wrapper below, which
- * extracts it from `(req as AuthenticatedRequest).userId`. Tests call this
- * function directly with the userId argument — bypassing the auth middleware
- * intentionally, since the middleware is `authenticateJWT` from AuthManager
- * (auth-by-construction; validated in push-subscriptions.test.ts).
+ * MC-4: ntfyUsername is READ from the stored ntfy_username column — never
+ * reconstructed from userId.
  */
-export async function handleRegisterSubscription(
+function buildSetupResponse(
+  row: PushSubscriptionRow | undefined,
   userId: string,
-  body: unknown,
+): NtfySetupResponse {
+  if (!row) {
+    return { isSetUp: false };
+  }
+
+  // Decrypt the reading_credential via FieldCrypto.
+  // Uses the user's data key — DataCrypto.validateUserAccess throws if user
+  // data is not unlocked, but in practice all authenticated requests have
+  // unlocked user data by the time routes are reached.
+  const userDataKey = DataCrypto.validateUserAccess(userId);
+  const decryptedCredential = FieldCrypto.decryptField(
+    row.reading_credential,
+    userDataKey,
+    row.id,
+    "reading_credential",
+  );
+
+  return {
+    isSetUp: true,
+    serverAddress: getNtfyBaseUrl(),
+    topicName: row.topic_name,
+    readingCredential: decryptedCredential,
+    // MC-4 fix: ntfyUsername is READ from the DB row, not reconstructed from userId.
+    ntfyUsername: row.ntfy_username,
+  };
+}
+
+/**
+ * Read the push_subscriptions row for the given userId.
+ * Returns undefined if no row exists.
+ */
+function getSubscriptionRow(userId: string): PushSubscriptionRow | undefined {
+  return db.$client
+    .prepare("SELECT id, user_id, topic_name, reading_credential, ntfy_username, created_at FROM push_subscriptions WHERE user_id = ?")
+    .get(userId) as PushSubscriptionRow | undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Core handlers (exported for direct unit-test invocation)
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /ntfy-setup handler.
+ *
+ * Returns the current ntfy setup state for the authenticated user.
+ * No ntfy API calls — reads from DB only.
+ */
+export async function handleGetNtfySetup(
+  userId: string,
   res: Response,
 ): Promise<Response> {
-  const parsed = SubscriptionSchema.safeParse(body);
-  if (!parsed.success) {
-    // Generic error — do NOT echo the invalid body back (V8 / T-128-24).
-    return res.status(400).json({ error: "invalid subscription shape" });
-  }
-  const sub = parsed.data;
-  const id = randomUUID();
+  const row = getSubscriptionRow(userId);
+  return res.status(200).json(buildSetupResponse(row, userId));
+}
 
-  let result: { changes: number };
+/**
+ * POST /ntfy-setup handler.
+ *
+ * Idempotent provision. If a row already exists, returns the existing setup
+ * shape without making any ntfy API calls. On first call, creates:
+ *   1. A ntfy user: "skynet-reader-<userId>" with a random password
+ *   2. ACL: grants that user ro access to the user's topic
+ *   3. A token: minted for that user (stored as reading_credential)
+ *
+ * The ntfy_username stored at creation time is the computed value
+ * "skynet-reader-<userId>" — subsequent DELETE/REGENERATE reads it back
+ * from the DB (MC-4: never reconstructs from userId at use-time).
+ *
+ * Credential generation follows RESEARCH.md Pattern 4:
+ *   - topicName: randomBytes(16).toString("hex") — 32-char hex, 128-bit entropy
+ *   - readerPassword: randomBytes(16).toString("hex") — 32-char hex
+ *   (The token returned by mintUserToken has the "tk_..." prefix from ntfy)
+ */
+export async function handlePostNtfySetup(
+  userId: string,
+  res: Response,
+): Promise<Response> {
+  const existing = getSubscriptionRow(userId);
+  if (existing) {
+    // Idempotent: return existing setup shape.
+    return res.status(200).json(buildSetupResponse(existing, userId));
+  }
+
+  // Generate credentials.
+  const topicName = randomBytes(16).toString("hex"); // 32-char hex
+  const readerPassword = randomBytes(16).toString("hex"); // 32-char hex
+  const ntfyUsername = `skynet-reader-${userId}`;
+
   try {
-    // Raw better-sqlite3 prepared statement — Drizzle doesn't have first-class
-    // ON CONFLICT DO NOTHING support in every version, so we drop to the raw
-    // client here (same escape hatch used elsewhere in the codebase for
-    // ON CONFLICT patterns — see the RESEARCH.md § Pattern 1 excerpt).
-    result = db.$client
-      .prepare(
-        "INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth) VALUES (?, ?, ?, ?, ?) ON CONFLICT(user_id, endpoint) DO NOTHING",
-      )
-      .run(id, userId, sub.endpoint, sub.keys.p256dh, sub.keys.auth) as {
-      changes: number;
-    };
-  } catch (e) {
-    // Defensive — INSERT should not throw at the DB layer with valid inputs,
-    // but if it does (e.g. FK violation on a stale userId) we surface a
-    // generic 500 without a stack trace (V7 discipline).
-    databaseLogger.error("push_subscriptions INSERT failed", e, {
-      operation: "push_subscription_register_insert_failed",
-      userId,
-      endpoint: sub.endpoint.slice(0, 40),
-    });
-    return res.status(500).json({ error: "failed to register subscription" });
-  }
-
-  if (result.changes === 0) {
-    // Row already exists — no state change, no disk churn (S2 no-op guard,
-    // byte-mirror of relay-room-sessions-store.ts:86-90).
-    return res.status(200).json({ ok: true, alreadyRegistered: true });
-  }
-
-  // Row inserted → force the save so it survives a container restart. Failure
-  // to save is a warn-log, NOT a 5xx — the write already reached RAM, and a
-  // 5xx here would lose the (retriable) client subscription registration
-  // gesture. Same discipline as user-preferences.ts:406-418.
-  try {
-    await DatabaseSaveTrigger.forceSave("push-subscription-register");
-  } catch (saveErr) {
-    databaseLogger.warn(
-      "Force-save after push subscription register failed",
-      {
-        operation: "push_subscription_register_save_failed",
+    // Step 1: Create the ntfy user.
+    await createNtfyUser(ntfyUsername, readerPassword);
+  } catch (err) {
+    if (err instanceof NtfyAdminError) {
+      databaseLogger.warn("[ntfy] setup: create user failed", {
+        operation: "ntfy_setup_create_user_failed",
         userId,
-        // V8 / T-128-24 — endpoint URL is a capability token; only a short
-        // prefix ever appears in logs.
-        endpoint: sub.endpoint.slice(0, 40),
-        error:
-          saveErr instanceof Error ? saveErr.message : "Unknown error",
-      },
-    );
+        status: err.status,
+      });
+      return res.status(500).json({ error: "ntfy admin error" });
+    }
+    throw err;
   }
 
-  return res.status(201).json({ ok: true });
-}
-
-/**
- * GET /push-subscriptions/vapid-public-key handler.
- *
- * Returns 200 {publicKey} for the client to feed into pushManager.subscribe.
- * The VAPID *private* key is loaded by getVapidDetails() too but is
- * deliberately dropped from the response body (T-128-26 mitigation — the
- * response object is constructed by name, not by spread, so an accidental
- * `...vapid` refactor would still not leak the private field unless someone
- * explicitly writes `privateKey` into it).
- *
- * On config-load failure (should never happen at runtime — assertVapidConfigAtBoot
- * fails fast in Plan 08's starter.ts wiring — but defensive against bad
- * env-var hot-swap between boot and request), return a generic 500.
- */
-export function handleGetVapidPublicKey(res: Response): Response {
   try {
-    const { publicKey } = getVapidDetails();
-    return res.status(200).json({ publicKey });
-  } catch (e) {
-    databaseLogger.warn("VAPID public key GET failed to load config", {
-      operation: "push_vapid_public_key_load_failed",
-      error: e instanceof Error ? e.message : "Unknown error",
+    // Step 2: Grant the user ro access to their topic.
+    await grantTopicReadAccess(ntfyUsername, topicName);
+  } catch (err) {
+    if (err instanceof NtfyAdminError) {
+      databaseLogger.warn("[ntfy] setup: grant access failed", {
+        operation: "ntfy_setup_grant_access_failed",
+        userId,
+        status: err.status,
+      });
+      return res.status(500).json({ error: "ntfy admin error" });
+    }
+    throw err;
+  }
+
+  let readingToken: string;
+  try {
+    // Step 3: Mint a token for the user (per-user Basic auth via ntfy-admin-client).
+    readingToken = await mintUserToken(ntfyUsername, readerPassword);
+  } catch (err) {
+    if (err instanceof NtfyAdminError) {
+      databaseLogger.warn("[ntfy] setup: mint token failed", {
+        operation: "ntfy_setup_mint_token_failed",
+        userId,
+        status: err.status,
+      });
+      return res.status(500).json({ error: "ntfy admin error" });
+    }
+    throw err;
+  }
+
+  // Encrypt the reading credential via FieldCrypto.
+  const rowId = randomUUID();
+  const userDataKey = DataCrypto.validateUserAccess(userId);
+  const encryptedCredential = FieldCrypto.encryptField(
+    readingToken,
+    userDataKey,
+    rowId,
+    "reading_credential",
+  );
+
+  // Insert the DB row.
+  db.$client
+    .prepare(
+      "INSERT INTO push_subscriptions (id, user_id, topic_name, reading_credential, ntfy_username) VALUES (?, ?, ?, ?, ?)",
+    )
+    .run(rowId, userId, topicName, encryptedCredential, ntfyUsername);
+
+  try {
+    await DatabaseSaveTrigger.forceSave("ntfy-setup-provision");
+  } catch (saveErr) {
+    databaseLogger.warn("[ntfy] setup: forceSave failed (non-fatal — write in RAM)", {
+      operation: "ntfy_setup_force_save_failed",
+      userId,
+      error: saveErr instanceof Error ? saveErr.message : "unknown",
     });
-    return res.status(500).json({ error: "vapid unavailable" });
+  }
+
+  // Build the response from the freshly inserted row (re-read from DB).
+  const newRow = getSubscriptionRow(userId);
+  return res.status(200).json(buildSetupResponse(newRow, userId));
+}
+
+/**
+ * POST /ntfy-test handler.
+ *
+ * Publishes a canned test notification to the user's ntfy topic via
+ * sendPushToUser. The test notification uses agentHostId: null (no specific
+ * agent host to navigate to — it's a system ping). buildClickUrl handles
+ * null by omitting the host= query param (HC-4).
+ */
+export async function handlePostNtfyTest(
+  userId: string,
+  res: Response,
+): Promise<Response> {
+  try {
+    await sendPushToUser(userId, {
+      title: "Skynet test notification",
+      body: "Setup is working — tap to dismiss",
+      agentMxid: "@system:skynet",
+      agentHostId: null,
+    });
+    return res.status(200).json({ ok: true });
+  } catch (err) {
+    databaseLogger.warn("[ntfy] test notification failed", {
+      operation: "ntfy_test_notification_failed",
+      userId,
+      error: err instanceof Error ? err.message : "unknown",
+    });
+    return res.status(500).json({
+      error: err instanceof Error ? err.message : "test notification failed",
+    });
   }
 }
 
-// ---------------------------------------------------------------------------
-// Route wiring — auth-gated POST + public GET.
-// ---------------------------------------------------------------------------
-//
-// POST body cap: 8kb via express.json({limit:"8kb"}). A well-formed
-// PushSubscriptionJSON is < 1kb in practice; 8kb is a generous ceiling that
-// still bounds the T-128-22 DoS surface.
+/**
+ * POST /ntfy-regenerate handler.
+ *
+ * Hard credential rotation — revokes the old token and mints a new one.
+ * MC-4 fix: reads ntfy_username from the stored DB row — does NOT reconstruct
+ * as "skynet-reader-" + userId, which could differ for older rows.
+ *
+ * Inline comment: "MC-4 fix: ntfy_username is READ from the DB row, not
+ * reconstructed from userId."
+ */
+export async function handlePostNtfyRegenerate(
+  userId: string,
+  res: Response,
+): Promise<Response> {
+  // MC-4 fix: ntfy_username is READ from the DB row, not reconstructed from userId.
+  const row = getSubscriptionRow(userId);
+  if (!row) {
+    return res.status(200).json({ isSetUp: false });
+  }
+
+  const ntfyUsername = row.ntfy_username; // MC-4: stored value, not reconstructed
+
+  // Mint a new token (we need the user's password to auth, but we no longer
+  // have it — use the admin API delete + recreate pattern instead).
+  // Since we can't re-auth as the user without their password, we use the
+  // admin API to delete the user and re-create them, then mint a token.
+  // This is the correct rotation approach when the password is not stored.
+  //
+  // Simplified approach: delete the user (which invalidates all tokens),
+  // recreate them with a new password, grant ACL again, mint a new token.
+  const newPassword = randomBytes(16).toString("hex");
+
+  try {
+    // Revoke by deleting + recreating the user (all tokens invalidated).
+    await deleteNtfyUser(ntfyUsername);
+  } catch (err) {
+    if (err instanceof NtfyAdminError) {
+      databaseLogger.warn("[ntfy] regenerate: delete user failed", {
+        operation: "ntfy_regenerate_delete_token_failed",
+        userId,
+        status: err.status,
+      });
+      return res.status(500).json({ error: "ntfy admin error" });
+    }
+    throw err;
+  }
+
+  try {
+    await createNtfyUser(ntfyUsername, newPassword);
+  } catch (err) {
+    if (err instanceof NtfyAdminError) {
+      databaseLogger.warn("[ntfy] regenerate: re-create user failed", {
+        operation: "ntfy_regenerate_delete_token_failed",
+        userId,
+        status: err.status,
+      });
+      return res.status(500).json({ error: "ntfy admin error" });
+    }
+    throw err;
+  }
+
+  try {
+    await grantTopicReadAccess(ntfyUsername, row.topic_name);
+  } catch (err) {
+    if (err instanceof NtfyAdminError) {
+      databaseLogger.warn("[ntfy] regenerate: grant access failed", {
+        operation: "ntfy_regenerate_delete_token_failed",
+        userId,
+        status: err.status,
+      });
+      return res.status(500).json({ error: "ntfy admin error" });
+    }
+    throw err;
+  }
+
+  let newToken: string;
+  try {
+    newToken = await mintUserToken(ntfyUsername, newPassword);
+  } catch (err) {
+    if (err instanceof NtfyAdminError) {
+      databaseLogger.warn("[ntfy] regenerate: mint token failed", {
+        operation: "ntfy_regenerate_delete_token_failed",
+        userId,
+        status: err.status,
+      });
+      return res.status(500).json({ error: "ntfy admin error" });
+    }
+    throw err;
+  }
+
+  // Encrypt the new token.
+  const userDataKey = DataCrypto.validateUserAccess(userId);
+  const encryptedNewToken = FieldCrypto.encryptField(
+    newToken,
+    userDataKey,
+    row.id,
+    "reading_credential",
+  );
+
+  // Update the DB row with the new encrypted credential.
+  db.$client
+    .prepare("UPDATE push_subscriptions SET reading_credential = ? WHERE user_id = ?")
+    .run(encryptedNewToken, userId);
+
+  try {
+    await DatabaseSaveTrigger.forceSave("ntfy-regenerate");
+  } catch (saveErr) {
+    databaseLogger.warn("[ntfy] regenerate: forceSave failed (non-fatal)", {
+      operation: "ntfy_regenerate_delete_token_failed",
+      userId,
+      error: saveErr instanceof Error ? saveErr.message : "unknown",
+    });
+  }
+
+  // Build response from the updated row.
+  const updatedRow = getSubscriptionRow(userId);
+  return res.status(200).json(buildSetupResponse(updatedRow, userId));
+}
 
 /**
- * @openapi
- * /push-subscriptions:
- *   post:
- *     summary: Register a Web Push subscription for the authenticated user.
- *     tags:
- *       - Push Notifications
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [endpoint, keys]
- *             properties:
- *               endpoint:
- *                 type: string
- *                 format: uri
- *               keys:
- *                 type: object
- *                 required: [p256dh, auth]
- *                 properties:
- *                   p256dh: { type: string }
- *                   auth:   { type: string }
- *     responses:
- *       201: { description: New subscription registered }
- *       200: { description: Subscription already registered (idempotent) }
- *       400: { description: Invalid subscription shape }
+ * DELETE /ntfy-setup handler.
+ *
+ * Tears down the ntfy setup: revokes ACL, deletes the ntfy user, drops the DB row.
+ * Idempotent — returns {isSetUp:false} if no row exists.
+ *
+ * MC-4 fix: reads ntfy_username from the stored DB row before deletion.
+ * Does NOT reconstruct as "skynet-reader-" + userId — the stored value is the
+ * single source of truth (T-144-24 mitigation).
+ *
+ * Inline comment: "MC-4 fix: ntfy_username is READ from the DB row, not
+ * reconstructed from userId."
  */
-router.post(
-  "/",
+export async function handleDeleteNtfySetup(
+  userId: string,
+  res: Response,
+): Promise<Response> {
+  // SELECT ntfy_username — MC-4 fix: read from DB row before deletion.
+  const row = getSubscriptionRow(userId);
+  if (!row) {
+    // Idempotent — already deleted.
+    return res.status(200).json({ isSetUp: false });
+  }
+
+  const ntfyUsername = row.ntfy_username; // MC-4 fix: ntfy_username is READ from the DB row, not reconstructed from userId.
+  const topicName = row.topic_name;
+
+  try {
+    // Revoke ACL first, then delete the user.
+    await revokeTopicAccess(ntfyUsername, topicName);
+  } catch (err) {
+    if (err instanceof NtfyAdminError) {
+      databaseLogger.warn("[ntfy] delete setup: revoke access failed", {
+        operation: "ntfy_delete_setup_failed",
+        userId,
+        status: err.status,
+      });
+      // Continue to deleteNtfyUser + DB delete even if ACL revoke fails.
+    }
+  }
+
+  try {
+    await deleteNtfyUser(ntfyUsername);
+  } catch (err) {
+    if (err instanceof NtfyAdminError) {
+      databaseLogger.warn("[ntfy] delete setup: delete user failed", {
+        operation: "ntfy_delete_setup_failed",
+        userId,
+        status: err.status,
+      });
+      return res.status(500).json({ error: "ntfy admin error" });
+    }
+    throw err;
+  }
+
+  // Drop the DB row.
+  db.$client
+    .prepare("DELETE FROM push_subscriptions WHERE user_id = ?")
+    .run(userId);
+
+  try {
+    await DatabaseSaveTrigger.forceSave("ntfy-delete-setup");
+  } catch (saveErr) {
+    databaseLogger.warn("[ntfy] delete setup: forceSave failed (non-fatal)", {
+      operation: "ntfy_delete_setup_failed",
+      userId,
+      error: saveErr instanceof Error ? saveErr.message : "unknown",
+    });
+  }
+
+  return res.status(200).json({ isSetUp: false });
+}
+
+// ---------------------------------------------------------------------------
+// Route wiring
+// ---------------------------------------------------------------------------
+
+router.get(
+  "/ntfy-setup",
   authenticateJWT,
-  express.json({ limit: "8kb" }),
   async (req: Request, res: Response) => {
-    // T-128-21 mitigation: userId comes from the JWT-verified auth request,
-    // NEVER from req.body. An attacker's body can carry any userId value —
-    // we ignore it entirely.
     const userId = (req as AuthenticatedRequest).userId;
-    return handleRegisterSubscription(userId, req.body, res);
+    return handleGetNtfySetup(userId, res);
   },
 );
 
-/**
- * @openapi
- * /push-subscriptions/vapid-public-key:
- *   get:
- *     summary: Fetch the VAPID public key for pushManager.subscribe.
- *     description: |
- *       No authentication — the VAPID public key is public by design.
- *       The response body carries ONLY the publicKey field; the private
- *       key never leaves the backend (T-128-26).
- *     tags:
- *       - Push Notifications
- *     responses:
- *       200:
- *         description: The VAPID public key.
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 publicKey:
- *                   type: string
- */
-router.get("/vapid-public-key", (_req: Request, res: Response) => {
-  return handleGetVapidPublicKey(res);
-});
+router.post(
+  "/ntfy-setup",
+  authenticateJWT,
+  express.json({ limit: "8kb" }),
+  async (req: Request, res: Response) => {
+    const userId = (req as AuthenticatedRequest).userId;
+    return handlePostNtfySetup(userId, res);
+  },
+);
+
+router.post(
+  "/ntfy-test",
+  authenticateJWT,
+  async (req: Request, res: Response) => {
+    const userId = (req as AuthenticatedRequest).userId;
+    return handlePostNtfyTest(userId, res);
+  },
+);
+
+router.post(
+  "/ntfy-regenerate",
+  authenticateJWT,
+  async (req: Request, res: Response) => {
+    const userId = (req as AuthenticatedRequest).userId;
+    return handlePostNtfyRegenerate(userId, res);
+  },
+);
+
+router.delete(
+  "/ntfy-setup",
+  authenticateJWT,
+  async (req: Request, res: Response) => {
+    const userId = (req as AuthenticatedRequest).userId;
+    return handleDeleteNtfySetup(userId, res);
+  },
+);
+
+// NOTE: GET /vapid-public-key is deliberately NOT mounted here.
+// The Phase 128 endpoint is removed as part of the ntfy backend swap.
+// Plan 04 handles any residual VAPID file/env cleanup; the route itself
+// is unmounted here so the backend swap ships atomically.
 
 export default router;

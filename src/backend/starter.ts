@@ -479,6 +479,28 @@ if (process.env.VITEST !== "true") {
     // throw contract: synchronous, propagates to starter's uncaught-exception handler.
     assertNtfyConfigAtBoot();
 
+    // Phase 144 Plan 02 — belt-and-suspenders ntfy admin user bootstrap.
+    // Fire-and-forget (void — not awaited) so a slow ntfy container does NOT
+    // delay backend startup. In the normal case (server.yml provisioned the
+    // admin user at compose up), ensureSkynetPublisherUserExists gets 409 and
+    // swallows it silently. Failure logs warn but does NOT crash the backend.
+    // See ntfy-bootstrap.ts for HC-1 and HC-2 context.
+    void import("./notifications/ntfy-bootstrap.js")
+      .then((m) => {
+        m.ensureSkynetPublisherUserExists().catch((err) => {
+          systemLogger.warn("[ntfy] ensureSkynetPublisherUserExists unhandled rejection", {
+            operation: "ntfy_bootstrap_unhandled_rejection",
+            error: err instanceof Error ? err.message : "unknown",
+          });
+        });
+      })
+      .catch((err) => {
+        systemLogger.warn("[ntfy] ntfy-bootstrap module load failed", {
+          operation: "ntfy_bootstrap_module_load_failed",
+          error: err instanceof Error ? err.message : "unknown",
+        });
+      });
+
     // Phase 121 (feedback-config): boot-time env parse + module-scope cache.
     // DELIBERATELY DIVERGES from the branding assert-boot pattern above:
     //   - No throw / process.exit on missing env (feedback is optional per
