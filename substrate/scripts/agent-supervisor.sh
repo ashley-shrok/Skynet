@@ -2550,7 +2550,7 @@ launch() {
 }
 
 # =============================================================================================
-# DORMANCY (2026-08-07) — kill idle claude, wake on Matrix DM / scheduled fire / sentinel-delete
+# DORMANCY (2026-08-07) — kill idle claude, wake on Matrix DM / scheduled fire / sentinel-delete / inbox drop
 # =============================================================================================
 # Gated by $DORMANCY (default "on" since 2026-09-14). DORMANCY="off" = no behavior change vs. the
 # pre-2026-08-07 supervisor.
@@ -2565,6 +2565,13 @@ launch() {
 #   3. sentinel-delete — external actor (Skynet, hand) rm's .dormant → sentinel-check below fails
 #      → falls through to existing alive-check → claude is dead → recover path relaunches.
 #      FREE — no code, natural fallout of the sentinel check.
+#   4. inbox_has_files — shape-agent-supervisor-inbox: any process on this box can drop a
+#      message file into $IDENTITIES_DIR/<name>/inbox/ following the dropper contract
+#      (timestamp-hex-prefixed .msg filename, write-and-rename atomic). When the identity is
+#      dormant, this check fires and the normal do_wake path brings the harness back up — the
+#      fresh ambient-monitor's inbox-watcher child then drains the pending files via its
+#      catch-up-on-startup sweep. The dropper's responsibility ends at the file; the
+#      supervisor handles liveness transparently.
 
 # sample_memory (2026-08-08) — append one JSON line to $MEM_SAMPLES_LOG per reconcile cycle
 # so the dormancy dashboard can plot memory over time alongside kill/wake events. Same schema
@@ -2886,6 +2893,40 @@ snapshot_matrix_peek() {
 # instead of once per identity — was ~5s/tick on this box, now ~100ms total.
 schedule_peek() {
   [ -n "${SCHEDULE_PEEK_SNAPSHOT[$1]:-}" ]
+}
+
+# inbox_has_files — fourth dormant-wake kind (shape-agent-supervisor-inbox).
+# Returns 0 iff the identity has at least one valid-shape message file waiting in
+# its inbox folder. Called from the reconcile dormant branch alongside
+# matrix_peek_cached / schedule_peek. No snapshot needed: for most identities the
+# inbox folder won't exist at all (trivial no-op), and for identities with an inbox
+# a directory iteration is sub-millisecond.
+#
+# "Valid shape" matches the dropper contract: compact UTC timestamp (18 chars,
+# YYYYMMDDTHHMMSSmmm with year starting "20"), dash, 8 lowercase hex chars,
+# ".msg" extension. Operator stray notes (<name>.txt, README.md), mid-write temp
+# files (<name>.msg.tmp), and other non-matching filenames do NOT wake the
+# identity — same load-bearing name-shape filter the ambient-monitor's fifth
+# child uses for its own event processing.
+#
+# Returns on first match (short-circuits — don't iterate the whole folder when
+# we only need "any?").
+inbox_has_files() {
+  local name="$1"
+  local inbox="$IDENTITIES_DIR/$name/inbox"
+  [ -d "$inbox" ] || return 1
+  local f bn restore_nullglob
+  restore_nullglob=$(shopt -p nullglob)
+  shopt -s nullglob
+  for f in "$inbox"/*.msg; do
+    bn="${f##*/}"
+    if [[ "$bn" =~ ^20[0-9]{6}T[0-9]{9}-[0-9a-f]{8}\.msg$ ]]; then
+      eval "$restore_nullglob"
+      return 0
+    fi
+  done
+  eval "$restore_nullglob"
+  return 1
 }
 
 # snapshot_schedule_peek: one python subprocess per tick that receives the whole fleet's wakedirs
@@ -3282,6 +3323,7 @@ reconcile() {
         local _trig=""
         if matrix_peek_cached "$name";   then _trig="matrix"
         elif schedule_peek "$name"; then _trig="schedule"
+        elif inbox_has_files "$name"; then _trig="inbox"
         fi
         if [ -n "$_trig" ]; then
           if [ -n "$actual" ]; then
