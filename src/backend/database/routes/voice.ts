@@ -423,14 +423,54 @@ function writeTtsBankChunk(
     });
 }
 
+// Eagerly consume a Polly audio stream into a single contiguous Buffer.
+// Used for prefetched chunks (N≥1) so that holding a Polly response open
+// WITHOUT reading it — while chunk N-1 is still being piped to the client
+// at playback rate (~32 KB/s) — doesn't let the backpressured socket cause
+// Polly to idle-close or stop generating past its send buffer.
+//
+// Observed symptom (2026-10-02 reqId=ywzjfdk1): chunk 0 was streamed
+// directly to res over 31s; chunk 1 was prefetched as a Readable but never
+// read during that window. When iteration advanced to chunk 1, its
+// AudioStream fired `end` cleanly with only 147,456 bytes (= 144 KiB,
+// exactly one socket-buffer-worth) of PCM — 4.6s of audio for a 2559-char
+// chunk that should have produced ~5 MB / 2.5 min.
+//
+// Memory cost: at most one fully-drained chunk is in memory at a time
+// (plus the one being written to res, in-memory as `buf`). Each chunk
+// caps at CHUNK_MAX_CHARS=2900 characters, which Polly generative renders
+// at roughly 2000 PCM bytes per char → ~5-6 MB per chunk. Trivial on a
+// multi-GB container.
+async function drainStreamToBuffer(
+  streamPromise: Promise<import("node:stream").Readable>,
+): Promise<Buffer> {
+  const stream = await streamPromise;
+  const bufs: Buffer[] = [];
+  await new Promise<void>((resolve, reject) => {
+    stream.on("data", (b: Buffer) => bufs.push(b));
+    stream.on("end", () => resolve());
+    stream.on("error", reject);
+  });
+  return Buffer.concat(bufs);
+}
+
 // --- handleSpeakStream — POST /voice/speak-stream (streaming, chunk-and-stitch) ---
 // Splits long text into ≤2900-char chunks (packChunks), fires one Polly synth
-// per chunk with prefetch of chunk N+1 while chunk N streams (concurrency cap 2
-// per Pitfall 5 mitigation), pipes each chunk's PCM Readable to `res` in order.
-// The RIFF header is written ONCE at start with the 0xFFFFFFFF streaming
-// sentinel (total size unknown at header-write time — this IS the case the
-// sentinel exists for; the client-side riffPcmDecode ignores dataSize on
-// streaming input).
+// per chunk, and pipes PCM to `res` in chunk order. Chunk 0 streams DIRECTLY
+// from its Polly Readable to res for lowest time-to-first-audio. Chunks N≥1
+// are PREFETCHED and EAGERLY DRAINED into Buffers via drainStreamToBuffer so
+// the next-chunk Polly response is read fully from the socket as it arrives,
+// not held open at backpressure for the ~N×30s it takes the preceding chunk
+// to stream to the client. This is the 2026-10-02 cutoff fix: previously
+// `nextPromise` kept a Readable in paused mode while chunk N-1 drained at
+// playback rate, causing chunks N≥1 to truncate at ~144 KiB. See
+// drainStreamToBuffer docstring above for the full symptom.
+//
+// Concurrency cap: at most 2 open Polly SynthesizeSpeech operations at once
+// (per Pitfall 5). The RIFF header is written ONCE at start with the
+// 0xFFFFFFFF streaming sentinel (total size unknown at header-write time —
+// this IS the case the sentinel exists for; the client-side riffPcmDecode
+// ignores dataSize on streaming input).
 //
 // Diagnostic instrumentation (2026-09-28): every speak-stream request carries
 // a short reqId that ties `speak-stream-plan` → `speak-stream-chunk-out` →
@@ -496,54 +536,82 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
     // Per-request PCM accounting — populated inside the loop, summarised at end.
     let totalPcmBytes = 0;
 
-    // (d) Fire first Polly call; then loop with prefetch of N+1 while N streams.
-    let currentPromise: Promise<import("node:stream").Readable> = synthesizeToPcm(chunks[0], voiceId);
+    // (d) Fire chunk 0 (direct-stream Readable, for lowest TTFA) AND the
+    // chunk 1 prefetch (eagerly-drained Buffer) simultaneously, so chunk 1
+    // starts synthesizing in parallel with chunk 0's HTTP round-trip.
+    // Attach a no-op catch to nextPrefetch immediately so a rejection
+    // before we await it doesn't surface as an unhandled rejection —
+    // starter.ts's unhandledRejection handler calls process.exit(1), which
+    // would kill the container mid-stream and drop every other connected
+    // client. The rejection is still re-thrown when the loop awaits.
+    const chunk0Promise: Promise<import("node:stream").Readable> =
+      synthesizeToPcm(chunks[0], voiceId);
+    let nextPrefetch: Promise<Buffer> | null = null;
+    if (chunks.length > 1) {
+      nextPrefetch = drainStreamToBuffer(synthesizeToPcm(chunks[1], voiceId));
+      nextPrefetch.catch(() => {});
+    }
 
     for (let i = 0; i < chunks.length; i++) {
-      const currentStream = await currentPromise;
-
-      // Kick off prefetch of chunk i+1 (if any) BEFORE we start piping chunk i.
-      // Concurrency cap 2 (chunk N + prefetch N+1) per Pitfall 5.
-      const nextPromise: Promise<import("node:stream").Readable> | null =
-        i + 1 < chunks.length ? synthesizeToPcm(chunks[i + 1], voiceId) : null;
-      // Attach a no-op catch immediately so a rejection here (before the
-      // await on the next iteration) doesn't surface as an unhandled
-      // rejection — starter.ts's unhandledRejection handler calls
-      // process.exit(1), which would kill the container mid-stream and
-      // drop every other connected client. The rejection is still
-      // re-thrown when the next iteration's `await currentPromise` runs.
-      if (nextPromise) nextPromise.catch(() => {});
-
-      // On the first chunk, flush headers + RIFF header BEFORE any PCM bytes.
-      if (i === 0) {
-        res.status(200);
-        res.setHeader("Content-Type", "audio/wav");
-        res.setHeader("X-Accel-Buffering", "no");
-        // Streaming sentinel: total PCM byte count is unknown at header-write time.
-        // riffPcmDecode.ts ignores dataSize on streaming input.
-        res.write(buildRiffHeader({ channels: 1, sampleRate: 16000, bitDepth: 16 }));
-        headersFlushed = true;
-      }
-
-      // Manual data/end/error handling instead of .pipe() so we can (a)
-      // count Polly's exact per-chunk PCM byte output and (b) accumulate
-      // the bytes for the disk bank. Backpressure preserved by pausing
-      // the source when res.write returns false.
       const chunkTextLen = chunks[i].length;
       const chunkPcmBuffers: Buffer[] = [];
       let chunkPcmBytes = 0;
-      await new Promise<void>((resolve, reject) => {
-        currentStream.on("data", (buf: Buffer) => {
-          chunkPcmBytes += buf.length;
-          if (TTS_BANK_ENABLED) chunkPcmBuffers.push(buf);
-          if (!res.write(buf)) {
-            currentStream.pause();
-            res.once("drain", () => currentStream.resume());
-          }
+
+      if (i === 0) {
+        // Chunk 0: direct-stream from Polly to res. Manual data/end/error
+        // handling instead of .pipe() so we can (a) count Polly's exact
+        // per-chunk PCM byte output and (b) accumulate the bytes for the
+        // disk bank. Backpressure preserved by pausing the source when
+        // res.write returns false.
+        //
+        // Await the Polly Readable BEFORE flushing the response headers —
+        // if Polly throws (e.g. AccessDeniedException because the TTS
+        // policy is detached), we need to be able to send a 503 status,
+        // which requires headers NOT be flushed yet.
+        const currentStream = await chunk0Promise;
+
+        // Flush response headers + RIFF header now that chunk 0's response
+        // is confirmed. Streaming sentinel: total PCM byte count is unknown
+        // at header-write time. riffPcmDecode.ts ignores dataSize on
+        // streaming input.
+        res.status(200);
+        res.setHeader("Content-Type", "audio/wav");
+        res.setHeader("X-Accel-Buffering", "no");
+        res.write(buildRiffHeader({ channels: 1, sampleRate: 16000, bitDepth: 16 }));
+        headersFlushed = true;
+
+        await new Promise<void>((resolve, reject) => {
+          currentStream.on("data", (buf: Buffer) => {
+            chunkPcmBytes += buf.length;
+            if (TTS_BANK_ENABLED) chunkPcmBuffers.push(buf);
+            if (!res.write(buf)) {
+              currentStream.pause();
+              res.once("drain", () => currentStream.resume());
+            }
+          });
+          currentStream.on("end", () => resolve());
+          currentStream.on("error", reject);
         });
-        currentStream.on("end", () => resolve());
-        currentStream.on("error", reject);
-      });
+      } else {
+        // Chunks i≥1: fire chunk i+1's prefetch FIRST (so it starts synthesizing
+        // in parallel with chunk i's await/write), then await and write the
+        // already-drained chunk i Buffer. Concurrency cap 2: only chunk i's
+        // prefetch (just-awaited) and chunk i+1's prefetch (just-fired) are
+        // open with Polly at the swap point.
+        const prevPrefetch = nextPrefetch!;
+        nextPrefetch =
+          i + 1 < chunks.length
+            ? drainStreamToBuffer(synthesizeToPcm(chunks[i + 1], voiceId))
+            : null;
+        if (nextPrefetch) nextPrefetch.catch(() => {});
+
+        const buf = await prevPrefetch;
+        chunkPcmBytes = buf.length;
+        if (TTS_BANK_ENABLED) chunkPcmBuffers.push(buf);
+        if (!res.write(buf)) {
+          await new Promise<void>((drain) => res.once("drain", drain));
+        }
+      }
 
       totalPcmBytes += chunkPcmBytes;
       const chunkAudioSec = chunkPcmBytes / 32000; // 16kHz mono 16bit = 32000 bytes/sec
@@ -558,11 +626,6 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
         voiceId,
         textLen: chunkTextLen,
       });
-
-      // Advance to the prefetched next chunk (or null on the last iteration).
-      if (nextPromise !== null) {
-        currentPromise = nextPromise;
-      }
     }
 
     const totalAudioSec = totalPcmBytes / 32000;
