@@ -50,7 +50,7 @@ vi.mock("../utils/logger.js", () => ({
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
-const VALID_PUBLIC_URL = "https://term.gigaashley.click";
+const VALID_PUBLIC_URL = "https://example.com";
 const VALID_PUBLISH_TOKEN = "tk_abc1234567890abcdef12345678901";
 const VALID_ADMIN_USER = "skynet-admin";
 const VALID_ADMIN_PASS = "supersecret-plaintext-password";
@@ -101,13 +101,13 @@ describe("ntfy-config", () => {
 
     // NC-03: throws containing "SKYNET_PUBLIC_URL" when value is not https://
     it("NC-03: throws containing 'SKYNET_PUBLIC_URL' when URL is http:// (not https://)", async () => {
-      setAllValid({ SKYNET_PUBLIC_URL: "http://term.gigaashley.click" });
+      setAllValid({ SKYNET_PUBLIC_URL: "http://example.com" });
       const { assertNtfyConfigAtBoot } = await import("./ntfy-config.js");
       expect(() => assertNtfyConfigAtBoot()).toThrow(/SKYNET_PUBLIC_URL/);
     });
 
     it("NC-03b: throws containing 'SKYNET_PUBLIC_URL' when URL is a bare hostname (no scheme)", async () => {
-      setAllValid({ SKYNET_PUBLIC_URL: "term.gigaashley.click" });
+      setAllValid({ SKYNET_PUBLIC_URL: "example.com" });
       const { assertNtfyConfigAtBoot } = await import("./ntfy-config.js");
       expect(() => assertNtfyConfigAtBoot()).toThrow(/SKYNET_PUBLIC_URL/);
     });
@@ -155,22 +155,22 @@ describe("ntfy-config", () => {
   describe("getNtfyBaseUrl", () => {
     // NC-07: no doubled slash when SKYNET_PUBLIC_URL has trailing slash
     it("NC-07: strips trailing slash from SKYNET_PUBLIC_URL before appending /ntfy", async () => {
-      setAllValid({ SKYNET_PUBLIC_URL: "https://term.gigaashley.click/" });
+      setAllValid({ SKYNET_PUBLIC_URL: "https://example.com/" });
       const { getNtfyBaseUrl } = await import("./ntfy-config.js");
 
       const result = getNtfyBaseUrl();
 
-      expect(result).toBe("https://term.gigaashley.click/ntfy");
+      expect(result).toBe("https://example.com/ntfy");
       // Defensive: exactly one slash between host and ntfy
       expect(result).not.toContain("//ntfy");
     });
 
     it("works without a trailing slash (normal case)", async () => {
-      setAllValid({ SKYNET_PUBLIC_URL: "https://term.gigaashley.click" });
+      setAllValid({ SKYNET_PUBLIC_URL: "https://example.com" });
       const { getNtfyBaseUrl } = await import("./ntfy-config.js");
 
       const result = getNtfyBaseUrl();
-      expect(result).toBe("https://term.gigaashley.click/ntfy");
+      expect(result).toBe("https://example.com/ntfy");
     });
   });
 

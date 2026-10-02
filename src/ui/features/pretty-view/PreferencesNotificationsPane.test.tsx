@@ -45,7 +45,7 @@ import { PreferencesNotificationsPane } from "./PreferencesNotificationsPane";
 
 const SET_UP_SHAPE = {
   isSetUp: true,
-  serverAddress: "https://term.gigaashley.click/ntfy",
+  serverAddress: "https://example.com/ntfy",
   topicName: "abc123def456",
   readingCredential: "tk_testreadingcredential",
   ntfyUsername: "skynet-reader-u1",
@@ -122,7 +122,7 @@ describe("PreferencesNotificationsPane (ntfy rebuild)", () => {
     expect(screen.getByTestId("preferences-notifications-reading-credential")).toBeTruthy();
 
     // Values displayed
-    expect(screen.getByTestId("preferences-notifications-server-address").textContent).toContain("term.gigaashley.click");
+    expect(screen.getByTestId("preferences-notifications-server-address").textContent).toContain("example.com");
     expect(screen.getByTestId("preferences-notifications-topic-name").textContent).toContain("abc123def456");
     expect(screen.getByTestId("preferences-notifications-reading-credential").textContent).toContain("tk_testreadingcredential");
 

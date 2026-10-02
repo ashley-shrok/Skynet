@@ -21,7 +21,7 @@
 # `reverse_proxy` with `handle`/`handle_path` blocks in the same site block.
 # (RESEARCH.md Pitfall 2 — a Caddy config parse error occurs otherwise.)
 
-# term.gigaashley.click {
+# example.com {
 #     log { format json; output stdout }
 #     reverse_proxy skynet:8080 {
 #         transport http { response_header_timeout 5m; read_timeout 5m }
@@ -32,7 +32,7 @@
 # AFTER: add handle_path /ntfy/* block + convert bare reverse_proxy
 # -----------------------------------------------------------------------
 
-term.gigaashley.click {
+example.com {
     log { format json; output stdout }
 
     # Phase 144 — ntfy path-prefix routing.

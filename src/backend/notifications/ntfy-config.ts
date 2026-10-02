@@ -55,7 +55,7 @@ function readNtfyEnv(): {
   if (publicUrl.length === 0 || !publicUrl.startsWith("https://")) {
     throw new Error(
       "SKYNET_PUBLIC_URL env var is missing or not an HTTPS URL. " +
-        "Set it to an https:// URL (e.g. https://term.gigaashley.click) before boot. " +
+        "Set it to an https:// URL (e.g. https://your-instance.example.com) before boot. " +
         "ntfy base-url cannot be derived without it, and the ntfy iOS app requires HTTPS " +
         "for self-hosted servers (Pitfall 4, RESEARCH.md §Phase 144).",
     );
@@ -110,7 +110,7 @@ export function assertNtfyConfigAtBoot(): void {
 
 /**
  * Returns the ntfy server's public base URL, e.g.
- * `"https://term.gigaashley.click/ntfy"`.
+ * `"https://your-instance.example.com/ntfy"`.
  *
  * Trailing slashes on SKYNET_PUBLIC_URL are stripped before appending `/ntfy`
  * to prevent doubled-slash URLs that break ntfy's upstream relay poll_request
