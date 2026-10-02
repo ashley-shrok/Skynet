@@ -1,18 +1,13 @@
 ---
 phase: 144-ntfy-based-durable-notifications-replacing-browser-push-see-
 verified: 2026-10-02T23:03:18Z
-status: failed
-score: 7/8 must-haves verified
+status: passed
+score: 8/8 must-haves verified
 overrides_applied: 0
-gaps:
-  - truth: "Full test suite scoped to touched paths is green"
-    status: failed
-    reason: "SND-05 in src/backend/notifications/ntfy-sender.test.ts imports the deleted push-sender.js shim and fails with 'Cannot find module'. Plan 04 deleted push-sender.ts and push-sender.test.ts but did NOT update ntfy-sender.test.ts to remove or rewrite SND-05, which was written in Plan 02 to verify the re-export shim relationship. The test now crashes on import."
-    artifacts:
-      - path: "src/backend/notifications/ntfy-sender.test.ts"
-        issue: "Line 197 imports './push-sender.js' which was deleted by Plan 04 Task 2. SND-05 must be deleted or rewritten (the shim no longer exists; the test intent is moot)."
-    missing:
-      - "Remove or rewrite SND-05 in ntfy-sender.test.ts. The simplest fix: delete the `it('SND-05: ...')` block entirely (the re-export shim is gone so the test has no subject). Alternatively, rewrite SND-05 as a structural export check: verify ntfy-sender.ts directly exports sendPushToUser and buildClickUrl."
+remediation:
+  - gap: "SND-05 in ntfy-sender.test.ts referenced the deleted push-sender.js shim"
+    resolved_at: "2026-10-02T23:06Z"
+    action: "Deleted the SND-05 it(...) block and its header-comment entry. The 7 remaining SND tests (SND-01..04, SND-06..08) fully cover ntfy-sender.ts behavior. Confirmed via `npx vitest run src/backend/notifications/` → 96/96 pass across 9 test files."
 ---
 
 # Phase 144: ntfy-based Durable Notifications — Verification Report
