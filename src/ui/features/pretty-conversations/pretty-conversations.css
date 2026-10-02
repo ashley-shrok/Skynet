@@ -494,6 +494,26 @@
   margin-top: 5px;
 }
 
+/* Collapsed-section spacing (user tasted via live-tune 2026-10-02).
+   Any section with a collapsible header (Apps + per-project) carries
+   `[role="button"][aria-expanded]` on that header. When collapsed, the
+   header is a header-only row — the pb-1.5 Tailwind padding below it
+   plus the 8px pv-panel-scroll gap plus the next header's pt-3.5
+   produces ~28px of dead air to the next section's label, which reads
+   as excessive. Two rules fix this:
+     (a) zero the collapsed header's padding-bottom.
+     (b) pull the following .pv-panel-group up with margin-top: -9px.
+   The second rule fires regardless of whether the next section is also
+   collapsed — the goal is a consistent compact rhythm after any
+   collapsed header. Non-collapsible section headers (Pinned, flat-
+   middle, RDP) have no aria-expanded, so their siblings aren't trimmed. */
+.pv-panel-group > [role="button"][aria-expanded="false"] {
+  padding-bottom: 0;
+}
+.pv-panel-group:has(> [role="button"][aria-expanded="false"]) + .pv-panel-group {
+  margin-top: -9px;
+}
+
 /* Phase 41 Plan 02 (user 2026-08-14): messaging-app default search-input
    shape — flex row with a leading search icon, transparent input, and a
    trailing × clear affordance that appears only when there is text. Uses
