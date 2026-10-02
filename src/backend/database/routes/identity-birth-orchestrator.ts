@@ -249,6 +249,22 @@ export interface BirthOptions {
    */
   creatorUsername?: string;
   /**
+   * Spec-provided user tag for the newborn's `users:` frontmatter. Set by
+   * callers that know the user list up front — notably the spawn-request
+   * worker, which carries it from a scheduled-agent spec's `users` field
+   * (e.g. news-watcher-zoey-email → users:["zoey"]).
+   *
+   * When present + non-empty, buildIdentityFileBody emits
+   * `users: [...]` directly from this field AND skips the creatorUsername
+   * auto-tag branch. When absent / empty, the creatorUsername auto-tag path
+   * runs unchanged (Phase 129 D-4 behavior preserved for interactive-birth
+   * callers that don't pass this field).
+   *
+   * Values are echoed case-sensitively (Pitfall 7 lock — do not case-fold
+   * at this seam or downstream).
+   */
+  users?: string[];
+  /**
    * Phase 80 Plan 80-03b A1 lock: when true, MXID composition follows the
    * DIVERGE shape (`<pool-name>-<role>[-N]` lowercase-hyphenated) — identity
    * folder key stays lowercase (`willow`) and the Matrix account MXID becomes
@@ -610,7 +626,13 @@ export function buildIdentityFileBody(
   // sequence with no anchor/alias emission. yaml.dump serializes arrays of
   // strings correctly under the canonical options block (T-66-01-04 precedent
   // — no forceQuotes required).
-  if (
+  //
+  // Precedence: spec-provided opts.users (from spawn-request worker →
+  // scheduled-agent spec) wins over the single-string creatorUsername
+  // auto-tag. Both absent ⇒ no `users:` key emitted.
+  if (Array.isArray(opts.users) && opts.users.length > 0) {
+    pairs.push(["users", opts.users]);
+  } else if (
     typeof opts.creatorUsername === "string" &&
     opts.creatorUsername.length > 0
   ) {

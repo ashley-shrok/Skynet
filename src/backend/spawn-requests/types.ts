@@ -19,6 +19,12 @@ export interface SpawnRequestBody {
   prompt: string;        // first user message to the newborn agent (D-05)
   task: string | null;   // kept for coord-drop backwards compat; wake fires set null (D-12)
   requested_at: string;  // ISO-Z timestamp for debug tracing
+  // Spec-provided user tag for the newborn's frontmatter `users:` field.
+  // When present + non-empty, overrides the host-owner creatorUsername auto-tag
+  // at birth. Used by scheduled-agent specs that name whose box this spawn
+  // belongs to (e.g. news-watcher-zoey-email → users:["zoey"] so the newborn
+  // lands under Zoey, not the host owner).
+  users?: string[];
 }
 
 /**
@@ -35,6 +41,7 @@ export interface PendingBirth {
   prompt: string;      // first user message to the newborn agent (D-05)
   task: string | null;
   requested_at: string;
+  users?: string[];    // spec-provided user tag (see SpawnRequestBody.users)
 
   /**
    * Sweep-side decrypted SSH connection bag threaded down from `scanSpawnRequests`

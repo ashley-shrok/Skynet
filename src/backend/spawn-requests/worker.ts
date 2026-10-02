@@ -637,6 +637,13 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
       // reads it on load and acts on it in the same turn (pre-authorized
       // next action). Empty prompt → undefined → absent-⇒-omit.
       bodyContent: item.prompt || undefined,
+      // Spec-provided `users:` for the newborn's frontmatter. Scheduled-agent
+      // specs name whose box the spawn belongs to; this is the carrier field
+      // (news-watcher-zoey-email → users:["zoey"] → newborn's frontmatter).
+      // When absent, buildIdentityFileBody falls through to the single-string
+      // creatorUsername auto-tag path (which the worker never sets, so on a
+      // bare scan-spawn no `users:` key is emitted).
+      users: item.users,
       poolPicked: true, // worker births are always pool-picked (Pattern 6)
     };
 

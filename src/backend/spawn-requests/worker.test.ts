@@ -368,6 +368,52 @@ describe("spawn-request worker", () => {
         expect(result.body.skills).toBeUndefined();
       }
     });
+
+    it("Test 14: users present as string[] accepted — field is passed through", () => {
+      const result = parseRequestBody(
+        "test-uuid",
+        JSON.stringify({ roles: ["news-watcher"], prompt: "x", task: null, requested_at: "2026-09-30T00:00:00Z", users: ["zoey"] }),
+      );
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.body.users).toEqual(["zoey"]);
+      }
+    });
+
+    it("Test 15: users absent (undefined) accepted — field is optional", () => {
+      const result = parseRequestBody(
+        "test-uuid",
+        JSON.stringify({ roles: ["coordinator"], prompt: "x", task: null, requested_at: "2026-09-10T00:00:00Z" }),
+      );
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.body.users).toBeUndefined();
+      }
+    });
+
+    it("Test 16: users present as non-array rejected as malformed + message:/users/i", () => {
+      const result = parseRequestBody(
+        "test-uuid",
+        JSON.stringify({ roles: ["coordinator"], prompt: "x", task: null, requested_at: "2026-09-10T00:00:00Z", users: "zoey" }),
+      );
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.reason).toBe("malformed");
+        expect(result.message).toMatch(/users/i);
+      }
+    });
+
+    it("Test 17: users with empty-string element rejected as malformed", () => {
+      const result = parseRequestBody(
+        "test-uuid",
+        JSON.stringify({ roles: ["coordinator"], prompt: "x", task: null, requested_at: "2026-09-10T00:00:00Z", users: [""] }),
+      );
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.reason).toBe("malformed");
+        expect(result.message).toMatch(/users/i);
+      }
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -471,6 +517,48 @@ describe("spawn-request worker", () => {
       // Post-code-review H2: mxid field intentionally dropped from SuccessResponse
       // (see types.ts SuccessResponse doc). name is what coord dispatches on.
       expect(parsed).not.toHaveProperty("mxid");
+    });
+
+    it("Test 17b: spec-provided users on PendingBirth threads through to BirthOptions.users verbatim", async () => {
+      // Guards the plumbing added to carry a scheduled-agent spec's `users`
+      // field from the spawn-request body (news-watcher-zoey-email →
+      // users:["zoey"]) through the worker and into BirthOptions.users for
+      // identity-birth-orchestrator to emit as the newborn's frontmatter
+      // users: field. Precedence vs creatorUsername is tested in the
+      // orchestrator's buildIdentityFileBody tests.
+      let capturedOpts: BirthOptions | null = null;
+      const deps = buildTestDeps({
+        birthIdentity: vi.fn().mockImplementation(async (opts: BirthOptions, emit: (e: BirthEvent) => void) => {
+          capturedOpts = opts;
+          emit({ type: "ended", ok: true, identityId: "willow", sessionName: "Willow-Coordinator" });
+        }),
+      });
+      const item = makePendingBirth({ users: ["zoey"] });
+
+      await processBirth(item, deps);
+
+      expect(capturedOpts).not.toBeNull();
+      expect((capturedOpts as unknown as BirthOptions).users).toEqual(["zoey"]);
+    });
+
+    it("Test 17c: PendingBirth without users leaves BirthOptions.users undefined", async () => {
+      // Absent-⇒-omit on the worker seam: when the sweep-side spawn-request
+      // body carried no `users` field, the worker must NOT fabricate one on
+      // the BirthOptions. (The orchestrator's creatorUsername auto-tag path
+      // owns the alternative; the worker doesn't participate in it.)
+      let capturedOpts: BirthOptions | null = null;
+      const deps = buildTestDeps({
+        birthIdentity: vi.fn().mockImplementation(async (opts: BirthOptions, emit: (e: BirthEvent) => void) => {
+          capturedOpts = opts;
+          emit({ type: "ended", ok: true, identityId: "willow", sessionName: "Willow-Coordinator" });
+        }),
+      });
+      const item = makePendingBirth(); // no users override
+
+      await processBirth(item, deps);
+
+      expect(capturedOpts).not.toBeNull();
+      expect((capturedOpts as unknown as BirthOptions).users).toBeUndefined();
     });
 
     it("Test 17a: birthDeps assembly passes discoverIdentitySessionFile function to birthIdentity (Phase 106 review M4 fix)", async () => {

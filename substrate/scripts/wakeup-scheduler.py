@@ -89,6 +89,8 @@ On a due entry the scheduled-agents scheduler drops a create-identity request
 file at `~/fleet/spawn-requests/<uuid>.json` (D-11) for Skynet's existing
 coordinator-birthing pipeline to consume:
     {"roles": [...], "skills": [...], "prompt": "...", "task": null,
+     "users": [...],   # optional — spec-provided user tag for the newborn's
+                       # frontmatter users: field (absent in spec ⇒ omitted)
      "requested_at": "<ISO-8601 Z-suffixed>"}
 
 No ⏰ lines are printed; there is no running harness to receive them. The spawn-
@@ -348,6 +350,15 @@ def _drop_spawn_request(spec, state_dir):
         "task": ("⏰ " + _prettify_name(spec["name"])) if spec.get("name") else None,
         "requested_at": fired_at,
     }
+    # Spec-provided user tag — carries the spec's `users` field into the
+    # spawn-request body so the backend birth path emits it as the newborn's
+    # frontmatter `users:` key (news-watcher-zoey-email → users:["zoey"] →
+    # newborn lands under Zoey, not the host owner). Absent-⇒-omit: when the
+    # spec has no `users`, the key is left out and the strict parse-request-
+    # body validator still accepts the body.
+    spec_users = spec.get("users")
+    if isinstance(spec_users, list) and len(spec_users) > 0:
+        body["users"] = spec_users
     req_path = os.path.join(req_dir, req_id + ".json")
     with open(req_path, "w") as f:
         json.dump(body, f)

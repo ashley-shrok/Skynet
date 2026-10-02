@@ -29,7 +29,7 @@ export const TASK_MAX_LENGTH = 500;
  * Returns ok:true + SpawnRequestBody on success, or ok:false + reason + message
  * on any validation failure (D-04, D-05, D-12, T-99-01).
  *
- * Accepted fields: roles[], skills?[], prompt, task, requested_at.
+ * Accepted fields: roles[], skills?[], prompt, task, requested_at, users?[].
  * Extra fields (coord_mxid, target-host, priority, retry_count, ordinal) are
  * rejected as malformed (D-05).
  */
@@ -109,8 +109,29 @@ export function parseRequestBody(
     return { ok: false, reason: "malformed", message: "missing required field: requested_at" };
   }
 
+  // users[] validation — optional spec-provided user tag for the newborn's
+  // frontmatter `users:` field. Same validation shape as skills[].
+  const users = obj["users"];
+  if (users !== undefined) {
+    if (!Array.isArray(users)) {
+      return { ok: false, reason: "malformed", message: "users must be an array if present" };
+    }
+    for (const u of users) {
+      if (typeof u !== "string" || u.length === 0) {
+        return { ok: false, reason: "malformed", message: "users: each element must be a non-empty string" };
+      }
+    }
+  }
+
   return {
     ok: true,
-    body: { roles, skills: skills as string[] | undefined, prompt, task: task as string | null, requested_at },
+    body: {
+      roles,
+      skills: skills as string[] | undefined,
+      prompt,
+      task: task as string | null,
+      requested_at,
+      users: users as string[] | undefined,
+    },
   };
 }

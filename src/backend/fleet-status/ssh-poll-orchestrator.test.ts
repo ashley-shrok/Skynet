@@ -8481,6 +8481,28 @@ describe("spawn-request scan helpers", () => {
     expect(item.hostConnDetails).toBeUndefined();
   });
 
+  // scanSpawnRequests — spec-provided users propagates onto PendingBirth so
+  // the worker's BirthOptions assembly can forward it to the orchestrator
+  // (news-watcher-zoey-email → users:["zoey"] → newborn's frontmatter).
+  it("scanSpawnRequests valid request file with users:[…] → PendingBirth.users carries the array verbatim", async () => {
+    const channel = new MockSshChannel();
+    const uuid = "deadbeef-dead-beef-dead-beefdeadbeef";
+    const body = JSON.stringify({
+      roles: ["news-watcher"],
+      prompt: "triage inbox",
+      task: null,
+      requested_at: "2026-09-30T00:00:00Z",
+      users: ["zoey"],
+    });
+    channel.setResponse("fleet/spawn-requests", `${uuid}.json\t${body}\n`);
+    const host: HostRecord = { id: "host-1", name: "testhost" };
+
+    const result = await scanSpawnRequests(host, channel);
+    expect(result).toHaveLength(1);
+    const item = result[0] as PendingBirth;
+    expect(item.users).toEqual(["zoey"]);
+  });
+
   // Regression 260923-9x1 — scanSpawnRequests reads `_connDetails` off the
   // host record (populated by list-substrate-hosts.ts on the CSKEK path) and
   // forwards it onto every emitted PendingBirth as hostConnDetails. Both the

@@ -505,6 +505,96 @@ print('OK' if got == want else 'FAIL: task got=%r want=%r' % (got, want))
 }
 
 # ============================================================
+# SA-G7: scheduled-agents-mode propagates spec's users:[…] onto the spawn-request body
+# ============================================================
+test_SA_G7_users_propagation() {
+  local scheduled_agents_dir home_dir out_log err_log
+  scheduled_agents_dir=$(make_tmpdir)
+  home_dir=$(make_tmpdir)
+  out_log=$(make_tmpdir)/out.log
+  err_log=$(make_tmpdir)/err.log
+
+  mkdir -p "$scheduled_agents_dir/users-slug"
+  cat > "$scheduled_agents_dir/users-slug/scheduled-agent.json" <<'JSON'
+{
+  "name": "zoey mail",
+  "enabled": true,
+  "schedule": {"type": "interval", "every": "1s"},
+  "prompt": "triage inbox",
+  "roles": ["news-watcher"],
+  "skills": [],
+  "users": ["zoey"]
+}
+JSON
+
+  HOME="$home_dir" WAKEUP_POLL_SEC=1 timeout 5 python3 "$PY_SCRIPT" "$scheduled_agents_dir" --mode scheduled-agents \
+    >"$out_log" 2>"$err_log" || true
+
+  local req_dir="$home_dir/fleet/spawn-requests"
+  local req_file
+  req_file=$(find "$req_dir" -maxdepth 1 -name "*.json" | head -1)
+  if [ -z "$req_file" ]; then
+    fail "SA-G7: expected spawn-request file in $req_dir"
+    return
+  fi
+
+  local check_result
+  check_result=$(python3 -c "
+import json
+d = json.load(open('$req_file'))
+got = d.get('users')
+print('OK' if got == ['zoey'] else 'FAIL: users got=%r want=[\"zoey\"]' % got)
+" 2>&1)
+  if [ "$check_result" != "OK" ]; then
+    fail "SA-G7: $check_result"
+  fi
+}
+
+# ============================================================
+# SA-G8: scheduled-agents-mode omits users key when spec has no users
+# ============================================================
+test_SA_G8_users_absent_absent_in_body() {
+  local scheduled_agents_dir home_dir out_log err_log
+  scheduled_agents_dir=$(make_tmpdir)
+  home_dir=$(make_tmpdir)
+  out_log=$(make_tmpdir)/out.log
+  err_log=$(make_tmpdir)/err.log
+
+  mkdir -p "$scheduled_agents_dir/nousers-slug"
+  cat > "$scheduled_agents_dir/nousers-slug/scheduled-agent.json" <<'JSON'
+{
+  "name": "generic",
+  "enabled": true,
+  "schedule": {"type": "interval", "every": "1s"},
+  "prompt": "do a thing",
+  "roles": ["coordinator"],
+  "skills": []
+}
+JSON
+
+  HOME="$home_dir" WAKEUP_POLL_SEC=1 timeout 5 python3 "$PY_SCRIPT" "$scheduled_agents_dir" --mode scheduled-agents \
+    >"$out_log" 2>"$err_log" || true
+
+  local req_dir="$home_dir/fleet/spawn-requests"
+  local req_file
+  req_file=$(find "$req_dir" -maxdepth 1 -name "*.json" | head -1)
+  if [ -z "$req_file" ]; then
+    fail "SA-G8: expected spawn-request file in $req_dir"
+    return
+  fi
+
+  local check_result
+  check_result=$(python3 -c "
+import json
+d = json.load(open('$req_file'))
+print('OK' if 'users' not in d else 'FAIL: users key present when spec has no users; got=%r' % d.get('users'))
+" 2>&1)
+  if [ "$check_result" != "OK" ]; then
+    fail "SA-G8: $check_result"
+  fi
+}
+
+# ============================================================
 # MAIN
 # ============================================================
 printf '=== wakeup-scheduler.py scheduled-agents-mode test driver ===\n'
@@ -517,6 +607,8 @@ run_test test_SA_G3_per_identity_mode_unchanged
 run_test test_SA_G4_orphan_check_mode_isolation
 run_test test_SA_G5_one_shot_scheduled_agents_mode
 run_test test_SA_G6_prettify_name_de_slugs_task_prefix
+run_test test_SA_G7_users_propagation
+run_test test_SA_G8_users_absent_absent_in_body
 
 printf '\n===============================\n'
 printf 'PASS: %s  FAIL: %s\n' "$PASS" "$FAIL"

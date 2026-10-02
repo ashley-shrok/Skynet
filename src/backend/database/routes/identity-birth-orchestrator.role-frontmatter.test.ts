@@ -271,6 +271,82 @@ it("creatorUsername non-empty → users: [creatorUsername] emitted with case pre
 });
 
 // ---------------------------------------------------------------------------
+// Spec-provided opts.users (spawn-request worker → scheduled-agent spec)
+// ---------------------------------------------------------------------------
+
+it("opts.users non-empty → users: emitted verbatim from the array", () => {
+  const body = buildIdentityFileBody(
+    makeOpts({
+      name: "testkey",
+      role: "news-watcher",
+      users: ["zoey"],
+    }),
+    "Testkey",
+    "",
+  );
+  const parsed = extractFrontmatter(body);
+  expect(parsed.users).toEqual(["zoey"]);
+});
+
+it("opts.users multi-element → every element preserved in order with case preserved", () => {
+  const body = buildIdentityFileBody(
+    makeOpts({
+      name: "testkey",
+      role: "news-watcher",
+      users: ["Zoey", "ashley"],
+    }),
+    "Testkey",
+    "",
+  );
+  const parsed = extractFrontmatter(body);
+  expect(parsed.users).toEqual(["Zoey", "ashley"]);
+});
+
+it("opts.users wins over creatorUsername when both set", () => {
+  const body = buildIdentityFileBody(
+    makeOpts({
+      name: "testkey",
+      role: "news-watcher",
+      creatorUsername: "Alice",
+      users: ["zoey"],
+    }),
+    "Testkey",
+    "",
+  );
+  const parsed = extractFrontmatter(body);
+  expect(parsed.users).toEqual(["zoey"]);
+});
+
+it("opts.users empty array → falls through to creatorUsername branch", () => {
+  const body = buildIdentityFileBody(
+    makeOpts({
+      name: "testkey",
+      role: "news-watcher",
+      creatorUsername: "Alice",
+      users: [],
+    }),
+    "Testkey",
+    "",
+  );
+  const parsed = extractFrontmatter(body);
+  expect(parsed.users).toEqual(["Alice"]);
+});
+
+it("opts.users empty array + no creatorUsername → NO users: key emitted", () => {
+  const body = buildIdentityFileBody(
+    makeOpts({
+      name: "testkey",
+      role: "news-watcher",
+      users: [],
+    }),
+    "Testkey",
+    "",
+  );
+  const parsed = extractFrontmatter(body);
+  expect("users" in parsed).toBe(false);
+});
+
+// ---------------------------------------------------------------------------
 // ROLE_NAME_PATTERN — pure regex
 // ---------------------------------------------------------------------------
 
