@@ -110,7 +110,12 @@ export interface RowKebabMenuProps {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 // Shared classNames so the submenu's content/items match the primary surface.
-const CONTENT_CLASS = "rounded-lg bg-[#1f1f24] border border-white/10 shadow-xl p-1 min-w-[140px]";
+// `w-auto` overrides the shared DropdownMenuContent default of
+// `w-(--radix-dropdown-menu-trigger-width)`, which pins content width to the
+// trigger. Kebab triggers are 24px squares, so without this the content falls
+// back to `min-w-[140px]` and labels like "Archive project" wrap mid-text on
+// large screens. Letting it be `auto` sizes to the widest item.
+const CONTENT_CLASS = "w-auto rounded-lg bg-[#1f1f24] border border-white/10 shadow-xl p-1 min-w-[140px]";
 const ITEM_CLASS_BASE = "cursor-pointer rounded-md px-3 py-1.5 text-[12.5px] text-[#e8e4d8] focus:bg-white/10 focus:text-white";
 const ITEM_CLASS_DANGER = "text-[hsla(0,60%,76%,1)] focus:bg-[hsla(0,60%,40%,0.18)] focus:text-[hsla(0,60%,86%,1)]";
 
