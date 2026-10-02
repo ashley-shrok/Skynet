@@ -1,37 +1,57 @@
 /**
- * Phase 128 Plan 01 Task 1 — Schema tests for push_subscriptions table.
+ * Phase 144 Plan 02 Task 1 — Schema tests for the rebuilt push_subscriptions table.
  *
- * Boots an in-memory better-sqlite3 with the exact CREATE TABLE / CREATE
- * UNIQUE INDEX DDL added in Task 1, then asserts sqlite_master shape +
- * FK cascade + UNIQUE-index enforcement + idempotency across a simulated
- * "restart" (second exec against the same DB).
+ * Boots an in-memory better-sqlite3 with the exact CREATE TABLE DDL for the
+ * NEW ntfy-based schema, then asserts sqlite_master shape + FK cascade +
+ * UNIQUE constraint enforcement + idempotency + FieldCrypto registration.
  *
- * Byte-parallel-copy discipline (Phase 89-01 Task 1 precedent) — the DDL
- * below is a verbatim copy of what lands in db/index.ts. If the two ever
- * drift, this test catches it: Test 4 would still pass on the local DDL,
- * but Tests 1-3 would decouple from prod schema. Store tests in downstream
- * plans (register / prune / send) also re-declare the DDL, keeping the
- * three sites locked together by convention.
+ * Replaces the Phase 128-01 tests (old web-push schema with endpoint/p256dh/auth
+ * columns). The new shape carries: id, user_id UNIQUE, topic_name UNIQUE,
+ * reading_credential, ntfy_username, created_at — all per-user, one row max.
  *
- * Test coverage (from Plan 126-01 Task 1 behavior block):
- *   Test 1: push_subscriptions table has all 7 columns with correct types
- *           and FK to users (id) ON DELETE CASCADE.
- *   Test 2: CREATE UNIQUE INDEX on (user_id, endpoint) exists — enforces
- *           D-14 multi-device semantics (one row per (user, endpoint),
- *           NOT per user).
- *   Test 3: Deleting a users row cascades — the referenced push_subscriptions
- *           rows disappear (T-128-01 mitigation).
- *   Test 4: DDL is idempotent — re-execing CREATE TABLE IF NOT EXISTS +
- *           CREATE UNIQUE INDEX IF NOT EXISTS is a no-op.
- *   Test 5: Drizzle mirror exports pushSubscriptions with snake_case column
- *           names matching the raw SQL.
+ * Test coverage (from Plan 144-02 Task 1 <behavior> block):
+ *   SCH-01: push_subscriptions has exactly 6 columns: id, user_id, topic_name,
+ *           reading_credential, ntfy_username, created_at — no endpoint, p256dh,
+ *           auth, last_delivered_at.
+ *   SCH-02: UNIQUE(user_id) constraint rejects a second insert for the same user_id.
+ *   SCH-03: UNIQUE(topic_name) constraint rejects a second insert with duplicate topic_name.
+ *   SCH-04: Deleting a users row cascades the referenced push_subscriptions row.
+ *   SCH-05: FieldCrypto.ENCRYPTED_FIELDS.push_subscriptions is a Set containing "reading_credential".
+ *   SCH-06: runPushSubscriptionsRebuild is idempotent — calling it twice on an
+ *           already-new-shape DB does not error.
+ *   SCH-07: Running runPushSubscriptionsRebuild on a DB with the OLD shape drops the
+ *           old table and creates the new shape.
+ *   SCH-08: There is NO ntfy_publish_config table created at boot (HC-3 scope guard).
  */
 import { describe, it, expect } from "vitest";
 import Database from "better-sqlite3";
 import * as schema from "./schema.js";
 
-// Byte-parallel copy of the Task 1 DDL added to db/index.ts.
-const PUSH_SUBSCRIPTIONS_CREATE_SQL = `
+// Byte-parallel copy of the new push_subscriptions DDL in db/index.ts (Phase 144).
+const NEW_PUSH_SUBSCRIPTIONS_DDL = `
+  CREATE TABLE IF NOT EXISTS push_subscriptions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL UNIQUE,
+    topic_name TEXT NOT NULL UNIQUE,
+    reading_credential TEXT NOT NULL,
+    ntfy_username TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+  );
+`;
+
+// Minimal users table so FK cascade works under PRAGMA foreign_keys=ON.
+const USERS_STUB_SQL = `
+  CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    username TEXT NOT NULL
+  );
+`;
+
+// Old Phase 128 push_subscriptions DDL — used by SCH-07 to set up the
+// "before migration" state, then verified that runPushSubscriptionsRebuild
+// drops it and creates the new shape.
+const OLD_PUSH_SUBSCRIPTIONS_DDL = `
   CREATE TABLE IF NOT EXISTS push_subscriptions (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
@@ -43,211 +63,209 @@ const PUSH_SUBSCRIPTIONS_CREATE_SQL = `
     FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
   );
 `;
-
-const PUSH_SUBSCRIPTIONS_INDEX_SQL = `
+const OLD_PUSH_SUBSCRIPTIONS_INDEX_DDL = `
   CREATE UNIQUE INDEX IF NOT EXISTS push_subscriptions_user_endpoint_unique
     ON push_subscriptions(user_id, endpoint);
 `;
 
-// A minimal users table so the FK cascade works under strict-mode boot
-// scenarios (matches production db init at index.ts L145 PRAGMA foreign_keys=ON).
-const USERS_STUB_SQL = `
-  CREATE TABLE IF NOT EXISTS users (
-    id TEXT PRIMARY KEY,
-    username TEXT NOT NULL
-  );
-`;
-
-function bootstrapSchemaDb(): Database.Database {
+function bootstrapNewSchemaDb(): Database.Database {
   const db = new Database(":memory:");
   db.exec("PRAGMA foreign_keys = ON");
   db.exec(USERS_STUB_SQL);
-  db.exec(PUSH_SUBSCRIPTIONS_CREATE_SQL);
-  db.exec(PUSH_SUBSCRIPTIONS_INDEX_SQL);
-  // Seed a user so subscription INSERTs don't trip the FK.
+  db.exec(NEW_PUSH_SUBSCRIPTIONS_DDL);
   db.prepare("INSERT INTO users (id, username) VALUES (?, ?)").run(
     "user-A",
-    "user",
+    "alice",
+  );
+  db.prepare("INSERT INTO users (id, username) VALUES (?, ?)").run(
+    "user-B",
+    "bob",
   );
   return db;
 }
 
-type MasterRow = { sql: string | null };
+describe("Phase 144-02 Task 1 — push_subscriptions new schema (SCH-01..SCH-08)", () => {
+  it("SCH-01: push_subscriptions has exactly 6 columns (id, user_id, topic_name, reading_credential, ntfy_username, created_at) — no endpoint, p256dh, auth, last_delivered_at", () => {
+    const db = bootstrapNewSchemaDb();
 
-function getTableSql(db: Database.Database, name: string): string {
-  const row = db
-    .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?")
-    .get(name) as MasterRow | undefined;
-  if (!row || !row.sql) {
-    throw new Error(`No sqlite_master row for table '${name}'`);
-  }
-  return row.sql;
-}
-
-function getIndexSql(db: Database.Database, name: string): string {
-  const row = db
-    .prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?")
-    .get(name) as MasterRow | undefined;
-  if (!row || !row.sql) {
-    throw new Error(`No sqlite_master row for index '${name}'`);
-  }
-  return row.sql;
-}
-
-describe("Phase 128-01 Task 1 — push_subscriptions schema", () => {
-  it("Test 1: push_subscriptions table has all 7 columns with correct types + FK to users ON DELETE CASCADE", () => {
-    const db = bootstrapSchemaDb();
-    const sql = getTableSql(db, "push_subscriptions");
-
-    // Columns from Task 1 behavior block (verbatim).
-    expect(sql).toMatch(/id\s+TEXT\s+PRIMARY\s+KEY/i);
-    expect(sql).toMatch(/user_id\s+TEXT\s+NOT\s+NULL/i);
-    expect(sql).toMatch(/endpoint\s+TEXT\s+NOT\s+NULL/i);
-    expect(sql).toMatch(/p256dh\s+TEXT\s+NOT\s+NULL/i);
-    expect(sql).toMatch(/auth\s+TEXT\s+NOT\s+NULL/i);
-    expect(sql).toMatch(
-      /created_at\s+TEXT\s+NOT\s+NULL\s+DEFAULT\s+CURRENT_TIMESTAMP/i,
-    );
-    // last_delivered_at is nullable — no NOT NULL.
-    expect(sql).toMatch(/last_delivered_at\s+TEXT/i);
-
-    // FK matches the relay_room_sessions pattern.
-    expect(sql).toMatch(
-      /FOREIGN\s+KEY\s*\(user_id\)\s+REFERENCES\s+users\s*\(id\)\s+ON\s+DELETE\s+CASCADE/i,
-    );
-
-    // PRAGMA table_info exposes the 7 columns.
     const cols = db
       .prepare("PRAGMA table_info(push_subscriptions)")
       .all() as { name: string }[];
     const colNames = cols.map((c) => c.name).sort();
+
+    // Exactly these 6 columns — no more, no less.
     expect(colNames).toEqual(
       [
-        "auth",
         "created_at",
-        "endpoint",
         "id",
-        "last_delivered_at",
-        "p256dh",
+        "ntfy_username",
+        "reading_credential",
+        "topic_name",
         "user_id",
       ].sort(),
     );
+
+    // Old browser-push columns must NOT exist.
+    expect(colNames).not.toContain("endpoint");
+    expect(colNames).not.toContain("p256dh");
+    expect(colNames).not.toContain("auth");
+    expect(colNames).not.toContain("last_delivered_at");
   });
 
-  it("Test 2: CREATE UNIQUE INDEX on (user_id, endpoint) enforces D-14 multi-device uniqueness", () => {
-    const db = bootstrapSchemaDb();
-    const idxSql = getIndexSql(
-      db,
-      "push_subscriptions_user_endpoint_unique",
-    );
+  it("SCH-02: UNIQUE(user_id) rejects a second insert for the same user_id", () => {
+    const db = bootstrapNewSchemaDb();
 
-    // Uniqueness on the composite — one row per (user, endpoint) NOT per user.
-    expect(idxSql).toMatch(/CREATE\s+UNIQUE\s+INDEX/i);
-    expect(idxSql).toMatch(
-      /push_subscriptions\s*\(\s*user_id\s*,\s*endpoint\s*\)/i,
-    );
-
-    // Live enforcement: same (user_id, endpoint) → conflict.
     db.prepare(
-      "INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth) VALUES (?, ?, ?, ?, ?)",
-    ).run("sub-1", "user-A", "https://push.example/e1", "p1", "a1");
+      "INSERT INTO push_subscriptions (id, user_id, topic_name, reading_credential, ntfy_username) VALUES (?, ?, ?, ?, ?)",
+    ).run("sub-1", "user-A", "topic-aaa", "tk_readcred1", "skynet-reader-user-A");
 
+    // Second insert with same user_id, different topic — must throw UNIQUE constraint.
     expect(() =>
       db
         .prepare(
-          "INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth) VALUES (?, ?, ?, ?, ?)",
+          "INSERT INTO push_subscriptions (id, user_id, topic_name, reading_credential, ntfy_username) VALUES (?, ?, ?, ?, ?)",
         )
-        .run("sub-2", "user-A", "https://push.example/e1", "p2", "a2"),
+        .run("sub-2", "user-A", "topic-bbb", "tk_readcred2", "skynet-reader-user-A"),
     ).toThrow(/UNIQUE/i);
+  });
 
-    // D-14 — same user, DIFFERENT endpoint (a second device) must SUCCEED.
+  it("SCH-03: UNIQUE(topic_name) rejects a second insert with duplicate topic_name", () => {
+    const db = bootstrapNewSchemaDb();
+
+    db.prepare(
+      "INSERT INTO push_subscriptions (id, user_id, topic_name, reading_credential, ntfy_username) VALUES (?, ?, ?, ?, ?)",
+    ).run("sub-1", "user-A", "shared-topic", "tk_readcred1", "skynet-reader-user-A");
+
+    // Different user, SAME topic_name — must throw UNIQUE constraint.
     expect(() =>
       db
         .prepare(
-          "INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth) VALUES (?, ?, ?, ?, ?)",
+          "INSERT INTO push_subscriptions (id, user_id, topic_name, reading_credential, ntfy_username) VALUES (?, ?, ?, ?, ?)",
         )
-        .run("sub-3", "user-A", "https://push.example/e2", "p3", "a3"),
-    ).not.toThrow();
-
-    // Total rows for user-A should be 2 (one per endpoint).
-    const count = db
-      .prepare(
-        "SELECT COUNT(*) AS c FROM push_subscriptions WHERE user_id = ?",
-      )
-      .get("user-A") as { c: number };
-    expect(count.c).toBe(2);
+        .run("sub-2", "user-B", "shared-topic", "tk_readcred2", "skynet-reader-user-B"),
+    ).toThrow(/UNIQUE/i);
   });
 
-  it("Test 3: deleting a users row cascades — referenced push_subscriptions rows disappear (T-128-01 mitigation)", () => {
-    const db = bootstrapSchemaDb();
+  it("SCH-04: Deleting a users row cascades — referenced push_subscriptions row disappears (ON DELETE CASCADE)", () => {
+    const db = bootstrapNewSchemaDb();
 
     db.prepare(
-      "INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth) VALUES (?, ?, ?, ?, ?)",
-    ).run("sub-1", "user-A", "https://push.example/e1", "p1", "a1");
-    db.prepare(
-      "INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth) VALUES (?, ?, ?, ?, ?)",
-    ).run("sub-2", "user-A", "https://push.example/e2", "p2", "a2");
+      "INSERT INTO push_subscriptions (id, user_id, topic_name, reading_credential, ntfy_username) VALUES (?, ?, ?, ?, ?)",
+    ).run("sub-1", "user-A", "topic-aaa", "tk_readcred1", "skynet-reader-user-A");
 
-    // Sanity: rows exist pre-delete.
-    const preCount = db
-      .prepare(
-        "SELECT COUNT(*) AS c FROM push_subscriptions WHERE user_id = ?",
-      )
+    // Sanity: row exists before delete.
+    const before = db
+      .prepare("SELECT COUNT(*) AS c FROM push_subscriptions WHERE user_id = ?")
       .get("user-A") as { c: number };
-    expect(preCount.c).toBe(2);
+    expect(before.c).toBe(1);
 
-    // Delete the user — CASCADE should sweep the subscription rows.
+    // Delete the user — FK ON DELETE CASCADE should sweep the subscription row.
     db.prepare("DELETE FROM users WHERE id = ?").run("user-A");
 
-    const postCount = db
-      .prepare(
-        "SELECT COUNT(*) AS c FROM push_subscriptions WHERE user_id = ?",
-      )
+    const after = db
+      .prepare("SELECT COUNT(*) AS c FROM push_subscriptions WHERE user_id = ?")
       .get("user-A") as { c: number };
-    expect(postCount.c).toBe(0);
+    expect(after.c).toBe(0);
   });
 
-  it("Test 4: DDL is idempotent — re-execing CREATE TABLE IF NOT EXISTS + CREATE UNIQUE INDEX IF NOT EXISTS is a no-op", () => {
-    const db = bootstrapSchemaDb();
+  it("SCH-05: FieldCrypto.ENCRYPTED_FIELDS.push_subscriptions is a Set containing exactly 'reading_credential'", async () => {
+    // Dynamic import to get the FieldCrypto class internals via the module.
+    // FieldCrypto.ENCRYPTED_FIELDS is private, so we access via the exported
+    // isFieldEncrypted method which uses it internally, OR we can check by
+    // inspecting what the module exports. The plan says the Set contains
+    // exactly 'reading_credential'. We validate by importing field-crypto
+    // and checking the ENCRYPTED_FIELDS map via the module's exposed exports.
+    const fieldCryptoModule = await import("../../utils/field-crypto.js");
+    const FieldCrypto = fieldCryptoModule.FieldCrypto;
 
-    // Simulate a "restart" second-pass exec — MUST be a no-op via IF NOT EXISTS.
-    expect(() => db.exec(PUSH_SUBSCRIPTIONS_CREATE_SQL)).not.toThrow();
-    expect(() => db.exec(PUSH_SUBSCRIPTIONS_INDEX_SQL)).not.toThrow();
-
-    // SELECT on the table must succeed post-re-init.
-    expect(() =>
-      db.prepare("SELECT id FROM push_subscriptions LIMIT 1").get(),
-    ).not.toThrow();
-
-    // Exactly one table + one index still (no duplicate).
-    const tableRows = db
-      .prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='push_subscriptions'",
-      )
-      .all();
-    expect(tableRows.length).toBe(1);
-
-    const indexRows = db
-      .prepare(
-        "SELECT name FROM sqlite_master WHERE type='index' AND name='push_subscriptions_user_endpoint_unique'",
-      )
-      .all();
-    expect(indexRows.length).toBe(1);
+    // shouldEncryptField checks ENCRYPTED_FIELDS internally.
+    expect(FieldCrypto.shouldEncryptField("push_subscriptions", "reading_credential")).toBe(true);
+    // Other push_subscriptions columns should NOT be encrypted.
+    expect(FieldCrypto.shouldEncryptField("push_subscriptions", "topic_name")).toBe(false);
+    expect(FieldCrypto.shouldEncryptField("push_subscriptions", "ntfy_username")).toBe(false);
+    expect(FieldCrypto.shouldEncryptField("push_subscriptions", "user_id")).toBe(false);
   });
 
-  it("Test 5: Drizzle mirror exports pushSubscriptions with snake_case column names matching raw SQL", () => {
-    expect(schema).toHaveProperty("pushSubscriptions");
+  it("SCH-06: runPushSubscriptionsRebuild is idempotent — calling it twice on an already-new-shape DB does not error", async () => {
+    const { runPushSubscriptionsRebuild } = await import("./index.js");
+    const db = new Database(":memory:");
+    db.exec("PRAGMA foreign_keys = ON");
+    db.exec(USERS_STUB_SQL);
+    // First call: creates new schema.
+    expect(() => runPushSubscriptionsRebuild(db)).not.toThrow();
+    // Second call: idempotent — IF EXISTS / IF NOT EXISTS guards make it a no-op.
+    expect(() => runPushSubscriptionsRebuild(db)).not.toThrow();
+    // Verify the new schema exists after both calls.
+    const cols = db
+      .prepare("PRAGMA table_info(push_subscriptions)")
+      .all() as { name: string }[];
+    const colNames = cols.map((c) => c.name).sort();
+    expect(colNames).toContain("topic_name");
+    expect(colNames).toContain("ntfy_username");
+    expect(colNames).not.toContain("endpoint");
+  });
 
-    const ps = schema.pushSubscriptions as unknown as Record<
-      string,
-      { name?: string }
-    >;
-    expect(ps.id?.name).toBe("id");
-    expect(ps.userId?.name).toBe("user_id");
-    expect(ps.endpoint?.name).toBe("endpoint");
-    expect(ps.p256dh?.name).toBe("p256dh");
-    expect(ps.auth?.name).toBe("auth");
-    expect(ps.createdAt?.name).toBe("created_at");
-    expect(ps.lastDeliveredAt?.name).toBe("last_delivered_at");
+  it("SCH-07: runPushSubscriptionsRebuild on a DB with the OLD shape drops old table + creates new shape", async () => {
+    const { runPushSubscriptionsRebuild } = await import("./index.js");
+    const db = new Database(":memory:");
+    db.exec("PRAGMA foreign_keys = ON");
+    db.exec(USERS_STUB_SQL);
+    // Set up OLD schema.
+    db.exec(OLD_PUSH_SUBSCRIPTIONS_DDL);
+    db.exec(OLD_PUSH_SUBSCRIPTIONS_INDEX_DDL);
+
+    // Verify old schema exists before migration.
+    const beforeCols = db
+      .prepare("PRAGMA table_info(push_subscriptions)")
+      .all() as { name: string }[];
+    const beforeNames = beforeCols.map((c) => c.name);
+    expect(beforeNames).toContain("endpoint");
+    expect(beforeNames).toContain("p256dh");
+
+    // Run the migration.
+    runPushSubscriptionsRebuild(db);
+
+    // Verify new schema after migration.
+    const afterCols = db
+      .prepare("PRAGMA table_info(push_subscriptions)")
+      .all() as { name: string }[];
+    const afterNames = afterCols.map((c) => c.name).sort();
+    expect(afterNames).toEqual(
+      ["created_at", "id", "ntfy_username", "reading_credential", "topic_name", "user_id"].sort(),
+    );
+    // Old columns gone.
+    expect(afterNames).not.toContain("endpoint");
+    expect(afterNames).not.toContain("p256dh");
+    expect(afterNames).not.toContain("auth");
+    expect(afterNames).not.toContain("last_delivered_at");
+    // Old index must be gone.
+    const oldIndex = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='push_subscriptions_user_endpoint_unique'")
+      .get();
+    expect(oldIndex).toBeUndefined();
+  });
+
+  it("SCH-08: No ntfy_publish_config table exists after boot (HC-3 scope guard — publish token is env-only)", async () => {
+    // Import the db module to trigger any top-of-init CREATE TABLE calls.
+    // We can't re-run the real init against a test DB, so we verify at the
+    // schema/index module level: inspect the exported Drizzle schema objects
+    // and the runPushSubscriptionsRebuild function to confirm ntfy_publish_config
+    // is nowhere in the module.
+    const schemaModule = await import("./schema.js");
+    // The Drizzle schema should NOT export an ntfyPublishConfig table.
+    expect(schemaModule).not.toHaveProperty("ntfyPublishConfig");
+    expect(schemaModule).not.toHaveProperty("ntfy_publish_config");
+
+    // Also verify the DDL we use in SCH-06/07 does not create ntfy_publish_config.
+    const db = new Database(":memory:");
+    db.exec("PRAGMA foreign_keys = ON");
+    db.exec(USERS_STUB_SQL);
+    const { runPushSubscriptionsRebuild } = await import("./index.js");
+    runPushSubscriptionsRebuild(db);
+
+    const configTable = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='ntfy_publish_config'")
+      .get();
+    expect(configTable).toBeUndefined();
   });
 });
