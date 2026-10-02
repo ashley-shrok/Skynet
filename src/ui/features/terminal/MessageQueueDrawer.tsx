@@ -30,8 +30,16 @@ const DEBOUNCE_MS = 400;
 // UUID) so keys are stable across container restarts and never collide
 // across hosts / tmux sessions. Survives any server-side failure mode
 // (bad load key, DB not ready, container recreate mid-typing).
+//
+// Key is also namespaced by the currently-logged-in user. Even though
+// itemIds are globally unique, user A's unsent queued body must not surface
+// when user B logs into the same browser. See the parallel comment in
+// ComposeBox.tsx for the rationale and the "__anon" fallback.
+import { getCurrentUser } from "@/state/user-scoped-cache";
+
 function messageQueueDraftLsKey(itemId: string): string {
-  return `skynet:message-queue-draft:${itemId}`;
+  const user = getCurrentUser() ?? "__anon";
+  return `skynet:message-queue-draft:${user}:${itemId}`;
 }
 
 export function MessageQueueDrawer({

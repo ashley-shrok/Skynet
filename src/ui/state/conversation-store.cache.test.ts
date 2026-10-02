@@ -38,7 +38,29 @@ import {
 // optional `kind` discriminator + `roomId` + `roomTitle` — the
 // Phase-89-authored /sessions/list relay-room fields; see
 // conversation-store.ts FLEET_CACHE_KEY comment for the full rationale).
-const CACHE_KEY = "skynet:convo-fleet-cache:v4";
+// Cross-user leak fix: cache key bumped v4 → v5 (payload wrapped in
+// `{owner: username, payload: FleetSession[]}` so user A's sessions can't
+// paint in user B's sidebar after a logout → login-as-different-user
+// flow on the same browser).
+const CACHE_KEY = "skynet:convo-fleet-cache:v5";
+
+// Owner-tag wrapper matching src/ui/state/user-scoped-cache.ts. Seeded
+// into every test via seedAuth() + raw localStorage writes that need to
+// bypass the writer to simulate pre-existing cache state (corrupt-JSON
+// cases, legacy-row filter cases). The username is arbitrary — tests
+// just need the cache's owner to match the logged-in user.
+const TEST_USERNAME = "test-user";
+
+function seedAuth(username: string = TEST_USERNAME): void {
+  localStorage.setItem(
+    "skynet_auth",
+    JSON.stringify({ loggedIn: true, username }),
+  );
+}
+
+function wrap<T>(payload: T, owner: string = TEST_USERNAME): string {
+  return JSON.stringify({ owner, payload });
+}
 
 const SAMPLE_A: FleetSession = {
   hostId: 1,
@@ -85,6 +107,7 @@ const SAMPLE_B: FleetSession = {
 describe("FleetSession localStorage cache (quick-260805-tub)", () => {
   beforeEach(() => {
     localStorage.clear();
+    seedAuth();
   });
 
   it("roundtrip: write then read returns the same array (deep equal)", () => {
@@ -102,15 +125,15 @@ describe("FleetSession localStorage cache (quick-260805-tub)", () => {
     expect(readFleetSessionsCache()).toEqual([]);
   });
 
-  it("non-array fallback: object payload returns []", () => {
-    localStorage.setItem(CACHE_KEY, JSON.stringify({ foo: 1 }));
+  it("non-array fallback: object payload (wrapped) returns []", () => {
+    localStorage.setItem(CACHE_KEY, wrap({ foo: 1 }));
     expect(readFleetSessionsCache()).toEqual([]);
   });
 
   it("element-shape fallback: array with malformed items filters them out", () => {
     localStorage.setItem(
       CACHE_KEY,
-      JSON.stringify([
+      wrap([
         SAMPLE_A,
         { foo: 1 }, // missing all 4 canonical fields
         { hostId: "not-a-number", hostName: "x", sessionName: "y", created: 0 }, // wrong type
@@ -118,6 +141,26 @@ describe("FleetSession localStorage cache (quick-260805-tub)", () => {
       ]),
     );
     expect(readFleetSessionsCache()).toEqual([SAMPLE_A, SAMPLE_B]);
+  });
+
+  it("owner-mismatch: cache written by another user returns [] + clears the key", () => {
+    // Simulate user A wrote the cache, then user B logs in on same browser.
+    localStorage.setItem(CACHE_KEY, wrap([SAMPLE_A, SAMPLE_B], "someone-else"));
+    expect(readFleetSessionsCache()).toEqual([]);
+    expect(localStorage.getItem(CACHE_KEY)).toBeNull();
+  });
+
+  it("legacy un-tagged payload (bare array, pre-v5) returns [] + clears the key", () => {
+    localStorage.setItem(CACHE_KEY, JSON.stringify([SAMPLE_A, SAMPLE_B]));
+    expect(readFleetSessionsCache()).toEqual([]);
+    expect(localStorage.getItem(CACHE_KEY)).toBeNull();
+  });
+
+  it("no logged-in user: read returns [] + clears the key", () => {
+    writeFleetSessionsCache([SAMPLE_A]);
+    localStorage.removeItem("skynet_auth");
+    expect(readFleetSessionsCache()).toEqual([]);
+    expect(localStorage.getItem(CACHE_KEY)).toBeNull();
   });
 
   it("write-only-canonical-fields: extra fields are stripped on write (defensive filter)", () => {
@@ -130,7 +173,13 @@ describe("FleetSession localStorage cache (quick-260805-tub)", () => {
     writeFleetSessionsCache([withExtra]);
     const raw = localStorage.getItem(CACHE_KEY);
     expect(raw).not.toBeNull();
-    const parsed = JSON.parse(raw as string) as Record<string, unknown>[];
+    // v5+: payload is wrapped as {owner, payload}; unwrap to inspect canonical fields.
+    const wrapper = JSON.parse(raw as string) as {
+      owner: string;
+      payload: Record<string, unknown>[];
+    };
+    expect(wrapper.owner).toBe(TEST_USERNAME);
+    const parsed = wrapper.payload;
     expect(parsed).toHaveLength(1);
     // Phase 90 Plan 01: canonical field set grows by three — kind, roomId,
     // roomTitle (the Phase-89 relay identity axis + kind discriminator).
@@ -164,8 +213,8 @@ describe("FleetSession localStorage cache (quick-260805-tub)", () => {
     writeFleetSessionsCache([]);
     // Read still returns [] — but the key IS set (empty-array vs cache-miss
     // are behaviorally identical to consumers, but the underlying storage
-    // state differs).
-    expect(localStorage.getItem(CACHE_KEY)).toBe("[]");
+    // state differs). v5+: wrapped payload shape.
+    expect(localStorage.getItem(CACHE_KEY)).toBe(wrap([]));
     expect(readFleetSessionsCache()).toEqual([]);
   });
 
@@ -181,8 +230,9 @@ describe("FleetSession localStorage cache (quick-260805-tub)", () => {
     expect(() => writeFleetSessionsCache([SAMPLE_A])).not.toThrow();
 
     spy.mockRestore();
-    // Restore side effect: subsequent writes still work.
-    original(CACHE_KEY, JSON.stringify([SAMPLE_B]));
+    // Restore side effect: subsequent writes still work. Seed via the
+    // owner-tagged wrapper so the read-side owner-check accepts it.
+    original(CACHE_KEY, wrap([SAMPLE_B]));
     expect(readFleetSessionsCache()).toEqual([SAMPLE_B]);
   });
 
@@ -257,7 +307,7 @@ describe("FleetSession localStorage cache (quick-260805-tub)", () => {
       role: "box-maintainer",
       // NO `kind` field — this is the whole point of the test.
     };
-    localStorage.setItem(CACHE_KEY, JSON.stringify([legacyHarnessRow]));
+    localStorage.setItem(CACHE_KEY, wrap([legacyHarnessRow]));
 
     const got = readFleetSessionsCache();
 
@@ -280,7 +330,7 @@ describe("FleetSession localStorage cache (quick-260805-tub)", () => {
     };
     localStorage.setItem(
       CACHE_KEY,
-      JSON.stringify([malformedRelayRow, SAMPLE_A]),
+      wrap([malformedRelayRow, SAMPLE_A]),
     );
 
     const got = readFleetSessionsCache();
@@ -295,11 +345,13 @@ describe("FleetSession localStorage cache (quick-260805-tub)", () => {
 // Pinned IDs cache — cold-boot paint hint for the sidebar's pinned rows.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const PINNED_IDS_CACHE_KEY = "skynet:pinned-ids-cache:v1";
+// Cross-user leak fix: bumped v1 → v2 for owner-tag wrapper.
+const PINNED_IDS_CACHE_KEY = "skynet:pinned-ids-cache:v2";
 
 describe("pinned-ids cache: read/write round-trip + write-on-mutation", () => {
   beforeEach(() => {
-    localStorage.removeItem(PINNED_IDS_CACHE_KEY);
+    localStorage.clear();
+    seedAuth();
     __resetPinnedIdsForTest();
     __resetFleetSessionsForTest();
   });
@@ -314,16 +366,25 @@ describe("pinned-ids cache: read/write round-trip + write-on-mutation", () => {
   });
 
   it("readPinnedIdsCache returns [] on non-array payload", () => {
-    localStorage.setItem(PINNED_IDS_CACHE_KEY, JSON.stringify({ ids: [] }));
+    localStorage.setItem(PINNED_IDS_CACHE_KEY, wrap({ ids: [] }));
     expect(readPinnedIdsCache()).toEqual([]);
   });
 
   it("readPinnedIdsCache filters non-string + empty entries", () => {
     localStorage.setItem(
       PINNED_IDS_CACHE_KEY,
-      JSON.stringify(["ok", 42, null, "", "also-ok"]),
+      wrap(["ok", 42, null, "", "also-ok"]),
     );
     expect(readPinnedIdsCache()).toEqual(["ok", "also-ok"]);
+  });
+
+  it("readPinnedIdsCache: owner-mismatch returns [] + clears the key", () => {
+    localStorage.setItem(
+      PINNED_IDS_CACHE_KEY,
+      wrap(["a", "b"], "someone-else"),
+    );
+    expect(readPinnedIdsCache()).toEqual([]);
+    expect(localStorage.getItem(PINNED_IDS_CACHE_KEY)).toBeNull();
   });
 
   it("writePinnedIdsCache round-trips through readPinnedIdsCache", () => {

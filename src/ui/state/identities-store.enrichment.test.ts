@@ -72,7 +72,18 @@ beforeEach(() => {
   __resetFleetSessionsForTest();
   __resetIdentitiesStoreForTest();
   __resetPinnedIdsForTest();
+  // Cross-user leak fix: seed skynet_auth so user-scoped caches read/write
+  // through the owner-tagged wrapper. Writes become no-ops without this.
+  localStorage.setItem(
+    "skynet_auth",
+    JSON.stringify({ loggedIn: true, username: "test-user" }),
+  );
 });
+
+// Owner-tag wrapper matching src/ui/state/user-scoped-cache.ts.
+function wrap<T>(payload: T, owner: string = "test-user"): string {
+  return JSON.stringify({ owner, payload });
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tests 1-4: buildIdentityHostsFromFleet pure-function contract
@@ -897,7 +908,8 @@ describe("mergeIdentityAppearance — pin/hide re-projection (Task 3)", () => {
 // Phase 115 Plan 115-02: cache key bumped v1 → v2 to invalidate cached
 // v1 records that carried the retired `hidden` field. Kept in sync with
 // identities-store.ts APPEARANCE_CACHE_KEY.
-const APPEARANCE_CACHE_KEY = "skynet:identities-appearance-cache:v2";
+// Cross-user leak fix: bumped v2 → v3 for owner-tag wrapper.
+const APPEARANCE_CACHE_KEY = "skynet:identities-appearance-cache:v3";
 
 describe("appearance cache (post-Phase-111 cold-paint fix)", () => {
   it("Cache 1: cold load with warm cache seeds byHostKey and keeps loaded=false", () => {
@@ -911,7 +923,7 @@ describe("appearance cache (post-Phase-111 cold-paint fix)", () => {
         role: "box-maintainer",
       }),
     ];
-    localStorage.setItem(APPEARANCE_CACHE_KEY, JSON.stringify(cached));
+    localStorage.setItem(APPEARANCE_CACHE_KEY, wrap(cached));
 
     // Re-run the module-load seed logic (production runs it once via IIFE at
     // module init; the test helper exposes it on demand for test-controlled
@@ -960,14 +972,14 @@ describe("appearance cache (post-Phase-111 cold-paint fix)", () => {
     localStorage.setItem(APPEARANCE_CACHE_KEY, "not json");
     expect(readAppearanceCache()).toEqual([]);
 
-    // Non-array top level
-    localStorage.setItem(APPEARANCE_CACHE_KEY, JSON.stringify({ foo: "bar" }));
+    // Non-array top level (wrapped)
+    localStorage.setItem(APPEARANCE_CACHE_KEY, wrap({ foo: "bar" }));
     expect(readAppearanceCache()).toEqual([]);
 
     // Array with malformed items — those get filtered, valid ones survive
     localStorage.setItem(
       APPEARANCE_CACHE_KEY,
-      JSON.stringify([
+      wrap([
         { identityKey: "valid", displayName: "Valid", hostId: 5, title: null, colorHue: null, voice: null, role: null, avatarMime: "", avatarUrl: "/x", avatarEtag: "", coordinator: false, task: null },
         { badShape: true },
         null,
@@ -976,6 +988,27 @@ describe("appearance cache (post-Phase-111 cold-paint fix)", () => {
     const filtered = readAppearanceCache();
     expect(filtered.length).toBe(1);
     expect(filtered[0].identityKey).toBe("valid");
+  });
+
+  it("Cache 6: owner-mismatch returns [] + clears the key (cross-user leak fix)", () => {
+    const cached = [
+      makeIdentityFull("pixel", 5, { colorHue: 120, title: "Skynet" }),
+    ];
+    localStorage.setItem(
+      APPEARANCE_CACHE_KEY,
+      wrap(cached, "someone-else"),
+    );
+    expect(readAppearanceCache()).toEqual([]);
+    expect(localStorage.getItem(APPEARANCE_CACHE_KEY)).toBeNull();
+  });
+
+  it("Cache 7: legacy un-tagged payload (pre-v3) returns [] + clears the key", () => {
+    const cached = [
+      makeIdentityFull("pixel", 5, { colorHue: 120, title: "Skynet" }),
+    ];
+    localStorage.setItem(APPEARANCE_CACHE_KEY, JSON.stringify(cached));
+    expect(readAppearanceCache()).toEqual([]);
+    expect(localStorage.getItem(APPEARANCE_CACHE_KEY)).toBeNull();
   });
 
   it("Cache 4: __seedFromCacheForTest is a no-op when cache is empty", () => {

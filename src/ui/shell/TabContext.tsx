@@ -73,9 +73,68 @@ interface TabProviderProps {
   children: ReactNode;
 }
 
+// Called from logoutUser() in main-axios.ts on every logout — both success
+// and failure branches. Clears AppRail-era tab keys (legacy) plus every
+// user-scoped localStorage cache this app writes. The caches each also do
+// an owner-check on read, so this clear is defense-in-depth; the primary
+// guarantee is the read-time check. Both layers matter: the read-time
+// check closes the "user A closed browser without logging out, user B logs
+// in later" path (which the clear can't cover), and the clear ensures that
+// after an explicit logout the data-at-rest footprint is minimised.
+//
+// Drafts (skynet:compose-draft:<user>:... / skynet:message-queue-draft:<user>:...)
+// are keyed by username so they survive logout and reappear only when the
+// same user logs back in. Different user = different key namespace = no
+// visible leak. We also walk localStorage here to clear the CURRENT user's
+// draft keys on logout so an explicit logout tidies up draft bodies too.
 export function clearSkynetSessionStorage() {
+  // Legacy AppRail-era tab keys (pre-Phase 14A). Still cleared for safety.
   localStorage.removeItem("skynet_tabs");
   localStorage.removeItem("skynet_currentTab");
+
+  // User-scoped owner-tagged caches. Each read-side also owner-checks and
+  // self-clears on mismatch; this is the belt to the read-side's suspenders.
+  localStorage.removeItem("skynet:convo-fleet-cache:v5");
+  localStorage.removeItem("skynet:projects-cache:v2");
+  localStorage.removeItem("skynet:pinned-ids-cache:v2");
+  localStorage.removeItem("skynet:host-tree-cache:v2");
+  localStorage.removeItem("skynet:app-tiles-cache:v2");
+  localStorage.removeItem("skynet:identities-appearance-cache:v3");
+
+  // Drafts are keyed by `skynet:compose-draft:<user>:...` and
+  // `skynet:message-queue-draft:<user>:...`. On an explicit logout we clear
+  // only keys whose username segment matches the currently-logged-in user.
+  // Other users' drafts (if the browser is shared) are left untouched —
+  // their namespace keeps them invisible to this user anyway, and clobbering
+  // them would be a surprise if the other user comes back.
+  try {
+    const authRaw = localStorage.getItem("skynet_auth");
+    if (authRaw) {
+      const auth = JSON.parse(authRaw) as { username?: unknown } | null;
+      const user =
+        auth && typeof auth === "object" && typeof auth.username === "string"
+          ? auth.username
+          : null;
+      if (user) {
+        const composePrefix = `skynet:compose-draft:${user}:`;
+        const queuePrefix = `skynet:message-queue-draft:${user}:`;
+        const toRemove: string[] = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (!k) continue;
+          if (k.startsWith(composePrefix) || k.startsWith(queuePrefix)) {
+            toRemove.push(k);
+          }
+        }
+        for (const k of toRemove) {
+          localStorage.removeItem(k);
+        }
+      }
+    }
+  } catch {
+    // Silent — draft-cleanup failure is non-fatal; drafts stay namespaced
+    // by user so they remain invisible to anyone else.
+  }
 }
 
 export function TabProvider({ children }: TabProviderProps) {

@@ -38,9 +38,24 @@ import {
 
 import type { AppState } from "../api/fleet-status-types.js";
 
-const APP_TILES_CACHE_KEY = "skynet:app-tiles-cache:v1";
+// Cross-user leak fix: bumped v1 → v2 for owner-tag wrapper.
+const APP_TILES_CACHE_KEY = "skynet:app-tiles-cache:v2";
+const TEST_USERNAME = "test-user";
+
+function seedAuth(username: string = TEST_USERNAME): void {
+  localStorage.setItem(
+    "skynet_auth",
+    JSON.stringify({ loggedIn: true, username }),
+  );
+}
+
+function wrap<T>(payload: T, owner: string = TEST_USERNAME): string {
+  return JSON.stringify({ owner, payload });
+}
 
 beforeEach(() => {
+  localStorage.clear();
+  seedAuth();
   __resetForTest();
 });
 
@@ -392,7 +407,7 @@ describe("app-tiles-store: Test L — cold-boot cache seed (D-17 reversed)", () 
         healthMessage: "unit stopped",
       },
     ];
-    localStorage.setItem(APP_TILES_CACHE_KEY, JSON.stringify(seedApps));
+    localStorage.setItem(APP_TILES_CACHE_KEY, wrap(seedApps));
 
     const { result, rerender } = renderHook(() => useAppTiles());
     act(() => {
@@ -418,7 +433,7 @@ describe("app-tiles-store: Test L — cold-boot cache seed (D-17 reversed)", () 
   it("cache with wrong-shape entries drops them and keeps valid ones", () => {
     localStorage.setItem(
       APP_TILES_CACHE_KEY,
-      JSON.stringify([
+      wrap([
         { hostId: 1, slug: "alpha", title: "Alpha" }, // hostId is number, not string — invalid
         {
           hostId: "2",
@@ -440,6 +455,71 @@ describe("app-tiles-store: Test L — cold-boot cache seed (D-17 reversed)", () 
     rerender();
     expect(result.current).toHaveLength(1);
     expect(result.current[0].title).toBe("Bravo");
+  });
+
+  it("owner-mismatch cache yields empty tiles (cross-user leak fix)", () => {
+    const seedApps: AppState[] = [
+      {
+        hostId: "1",
+        slug: "alpha",
+        title: "Alpha",
+        description: "A",
+        port: null,
+        hasIcon: false,
+        createdAtMs: 1_726_000_000_000,
+        isHealthy: true,
+        healthMessage: null,
+      },
+    ];
+    localStorage.setItem(
+      APP_TILES_CACHE_KEY,
+      wrap(seedApps, "someone-else"),
+    );
+    const { result, rerender } = renderHook(() => useAppTiles());
+    act(() => {
+      __seedFromCacheForTest();
+    });
+    rerender();
+    // No stale tiles painted. The seed path reads the stale owner-mismatched
+    // cache, discards it, then notify() writes the current (empty) state
+    // back under the current user's owner tag — so the key exists but holds
+    // an empty payload keyed to the test user, not "someone-else"'s tiles.
+    expect(result.current).toEqual([]);
+    const raw = localStorage.getItem(APP_TILES_CACHE_KEY);
+    expect(raw).not.toBeNull();
+    const w = JSON.parse(raw as string) as { owner: string; payload: unknown[] };
+    expect(w.owner).toBe(TEST_USERNAME);
+    expect(w.payload).toEqual([]);
+  });
+
+  it("legacy un-tagged cache (pre-v2) yields empty tiles (no cross-version leak)", () => {
+    const seedApps: AppState[] = [
+      {
+        hostId: "1",
+        slug: "alpha",
+        title: "Alpha",
+        description: "A",
+        port: null,
+        hasIcon: false,
+        createdAtMs: 1_726_000_000_000,
+        isHealthy: true,
+        healthMessage: null,
+      },
+    ];
+    localStorage.setItem(APP_TILES_CACHE_KEY, JSON.stringify(seedApps));
+    const { result, rerender } = renderHook(() => useAppTiles());
+    act(() => {
+      __seedFromCacheForTest();
+    });
+    rerender();
+    expect(result.current).toEqual([]);
+    // Same post-condition shape as the owner-mismatch case: current user's
+    // empty payload replaces the legacy un-tagged array.
+    const raw = localStorage.getItem(APP_TILES_CACHE_KEY);
+    expect(raw).not.toBeNull();
+    const w = JSON.parse(raw as string) as { owner: string; payload: unknown[] };
+    expect(w.owner).toBe(TEST_USERNAME);
+    expect(w.payload).toEqual([]);
   });
 });
 

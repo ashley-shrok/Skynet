@@ -100,17 +100,30 @@ const DEBOUNCE_MS = 400;
 const tapDedup = createLogDedup({ N: 5, W: 3000 });
 
 // Patch #119 — draft-loss belt-and-suspenders: localStorage mirror for the
-// compose draft body. Single-user-per-browser tool, so no userId in the key.
-// Survives any server-side failure mode (bad load key, DB not ready, auth,
-// container recreate mid-typing). Hydrate path: if server returns empty AND
-// localStorage has content, restore from ls and schedule an autosave so the
-// server catches up. Diagnostic console.warns on save/load help narrow the
-// still-unknown root cause of post-restart draft loss.
+// compose draft body. Survives any server-side failure mode (bad load key,
+// DB not ready, auth, container recreate mid-typing). Hydrate path: if
+// server returns empty AND localStorage has content, restore from ls and
+// schedule an autosave so the server catches up. Diagnostic console.warns
+// on save/load help narrow the still-unknown root cause of post-restart
+// draft loss.
+//
+// Key is namespaced by the currently-logged-in user. A draft typed by
+// user A must not be visible when user B logs into the same browser
+// (session content is already shared across users with host access, but a
+// draft is unsent-private "what I was going to say" content). getCurrentUser()
+// reads localStorage.skynet_auth which is set by storeAuth() on login and
+// cleared by clearStoredAuth() on logout. Fallback to "__anon" is defensive:
+// compose box is only mounted when logged in, so in practice this branch is
+// unreachable; the fallback exists so a race between logout and the save
+// debounce cannot write an un-ownerable key.
+import { getCurrentUser } from "@/state/user-scoped-cache";
+
 function composeDraftLsKey(
   hostId: number,
   tmuxSessionKey: string | null | undefined,
 ): string {
-  return `skynet:compose-draft:${hostId}:${tmuxSessionKey ?? ""}`;
+  const user = getCurrentUser() ?? "__anon";
+  return `skynet:compose-draft:${user}:${hostId}:${tmuxSessionKey ?? ""}`;
 }
 
 // Patch #83: segmented meter well with integrated reset cell (one instrument).

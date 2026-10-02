@@ -115,6 +115,13 @@ class MockMediaRecorder {
 beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
+  // Cross-user leak fix: compose-draft keys are namespaced by the
+  // currently-logged-in user. Seed skynet_auth so the key factory emits the
+  // canonical production shape (not the "__anon" fallback).
+  localStorage.setItem(
+    "skynet_auth",
+    JSON.stringify({ loggedIn: true, username: "test-user" }),
+  );
 
   MockMediaRecorder.instances = [];
   // Assign stub MediaRecorder to globalThis.

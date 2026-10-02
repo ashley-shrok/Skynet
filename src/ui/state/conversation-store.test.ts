@@ -169,7 +169,24 @@ beforeEach(() => {
   // Phase 41 Plan 01: reset the test-only lastMessageAt injection map so a
   // prior test's stamps don't leak into the next test's middle-zone sort.
   __resetLastMessageAtForTest();
+  // Cross-user leak fix: seed skynet_auth so user-scoped caches read/write
+  // through the owner-tagged wrapper. Writes become no-ops without this.
+  localStorage.setItem(
+    "skynet_auth",
+    JSON.stringify({ loggedIn: true, username: "test-user" }),
+  );
 });
+
+// Owner-tag wrapper matching src/ui/state/user-scoped-cache.ts, hoisted at
+// module scope so suites downstream can reuse (there are three parallel
+// describe blocks for the v3 → v4 bump pattern, now v4 → v5 for the
+// owner-tagged wrapper).
+function wrap<T>(payload: T, owner: string = "test-user"): string {
+  return JSON.stringify({ owner, payload });
+}
+function unwrapPayload<T>(raw: string): T {
+  return (JSON.parse(raw) as { owner: string; payload: T }).payload;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Test 1: empty state
@@ -1033,7 +1050,7 @@ describe("conversation-store (quick-260810-oig): removeFleetSession", () => {
   // addition on FleetSession forces a fresh cold-start so v3 entries
   // lacking the relay identity axis do not rehydrate and misroute a
   // relay-room row through the harness pane orchestrator).
-  const FLEET_CACHE_KEY = "skynet:convo-fleet-cache:v4";
+  const FLEET_CACHE_KEY = "skynet:convo-fleet-cache:v5";
 
   it("R1: removes present (hostId, sessionName) tuple, fires notify, trims cache", () => {
     const sessions: FleetSession[] = [
@@ -1061,7 +1078,8 @@ describe("conversation-store (quick-260810-oig): removeFleetSession", () => {
     const cacheWrites = spy.mock.calls.filter(([k]) => k === FLEET_CACHE_KEY);
     expect(cacheWrites.length).toBeGreaterThanOrEqual(1);
     const lastWrite = cacheWrites[cacheWrites.length - 1];
-    const parsed = JSON.parse(lastWrite[1] as string) as unknown[];
+    // v5+: unwrap the owner-tagged wrapper to inspect the canonical array.
+    const parsed = unwrapPayload<unknown[]>(lastWrite[1] as string);
     expect(parsed.length).toBe(1);
     expect((parsed[0] as { sessionName: string }).sessionName).toBe("idle");
 
@@ -3254,17 +3272,18 @@ describe("conversation-store (Phase 44 Plan 04): FleetSession lastMessageAt cach
   // Phase 90 Plan 01: cache key bumped v3 → v4 (kind + roomId + roomTitle
   // addition). Local const tracks the current key so these round-trip
   // tests exercise the actual reader/writer target, not a historical one.
-  const FLEET_CACHE_KEY_V4 = "skynet:convo-fleet-cache:v4";
+  const FLEET_CACHE_KEY_V5 = "skynet:convo-fleet-cache:v5";
 
   beforeEach(() => {
     try {
-      localStorage.removeItem(FLEET_CACHE_KEY_V4);
+      localStorage.removeItem(FLEET_CACHE_KEY_V5);
       // Also clear any lingering v1/v2/v3 entry so a pre-bump cache from a
       // previous test run does NOT leak into the v4 read (which would
       // correctly return [] — this beforeEach is defense in depth).
       localStorage.removeItem("skynet:convo-fleet-cache:v1");
       localStorage.removeItem("skynet:convo-fleet-cache:v2");
       localStorage.removeItem("skynet:convo-fleet-cache:v3");
+      localStorage.removeItem("skynet:convo-fleet-cache:v4");
     } catch {
       /* jsdom localStorage always available */
     }
@@ -3307,7 +3326,7 @@ describe("conversation-store (Phase 44 Plan 04): FleetSession lastMessageAt cach
     const legacy = [
       { hostId: 4, hostName: "hD", sessionName: "s-legacy", created: 400, role: null },
     ];
-    localStorage.setItem(FLEET_CACHE_KEY_V4, JSON.stringify(legacy));
+    localStorage.setItem(FLEET_CACHE_KEY_V5, wrap(legacy));
     const read = readFleetSessionsCache();
     expect(read.length).toBe(1);
     expect(read[0].sessionName).toBe("s-legacy");
@@ -3323,7 +3342,7 @@ describe("conversation-store (Phase 44 Plan 04): FleetSession lastMessageAt cach
       { hostId: 5, hostName: "hE", sessionName: "s-bad", created: 500, role: null, lastMessageAt: "not-a-number" },
       { hostId: 6, hostName: "hF", sessionName: "s-good", created: 600, role: null, lastMessageAt: 6000 },
     ];
-    localStorage.setItem(FLEET_CACHE_KEY_V4, JSON.stringify(mixed));
+    localStorage.setItem(FLEET_CACHE_KEY_V5, wrap(mixed));
     const read = readFleetSessionsCache();
     expect(read.length).toBe(1);
     expect(read[0].sessionName).toBe("s-good");
@@ -3338,7 +3357,7 @@ describe("conversation-store (Phase 44 Plan 04): FleetSession lastMessageAt cach
       { hostId: 7, hostName: "hG", sessionName: "s-key-test", created: 700, role: null, lastMessageAt: 700 },
     ];
     writeFleetSessionsCache(sessions);
-    expect(localStorage.getItem("skynet:convo-fleet-cache:v4")).not.toBeNull();
+    expect(localStorage.getItem("skynet:convo-fleet-cache:v5")).not.toBeNull();
     expect(localStorage.getItem("skynet:convo-fleet-cache:v3")).toBeNull();
   });
 
@@ -3371,14 +3390,15 @@ describe("conversation-store (Phase 44 Plan 04): FleetSession lastMessageAt cach
 describe("conversation-store (Phase 47 Plan 01): FleetSession aiTitle cache round-trip", () => {
   // Phase 90 Plan 01: cache key bumped v3 → v4 (kind + relay fields
   // addition). Local const tracks the current key.
-  const FLEET_CACHE_KEY_V4 = "skynet:convo-fleet-cache:v4";
+  const FLEET_CACHE_KEY_V5 = "skynet:convo-fleet-cache:v5";
 
   beforeEach(() => {
     try {
-      localStorage.removeItem(FLEET_CACHE_KEY_V4);
+      localStorage.removeItem(FLEET_CACHE_KEY_V5);
       localStorage.removeItem("skynet:convo-fleet-cache:v1");
       localStorage.removeItem("skynet:convo-fleet-cache:v2");
       localStorage.removeItem("skynet:convo-fleet-cache:v3");
+      localStorage.removeItem("skynet:convo-fleet-cache:v4");
     } catch {
       /* jsdom localStorage always available */
     }
@@ -3408,7 +3428,7 @@ describe("conversation-store (Phase 47 Plan 01): FleetSession aiTitle cache roun
       { hostId: 12, hostName: "hL", sessionName: "s-bad-title", created: 1200, role: null, lastMessageAt: null, aiTitle: 42 },
       { hostId: 13, hostName: "hM", sessionName: "s-good-title", created: 1300, role: null, lastMessageAt: null, aiTitle: "OK" },
     ];
-    localStorage.setItem(FLEET_CACHE_KEY_V4, JSON.stringify(bad));
+    localStorage.setItem(FLEET_CACHE_KEY_V5, wrap(bad));
     const read = readFleetSessionsCache();
     expect(read.length).toBe(1);
     expect(read[0].sessionName).toBe("s-good-title");
@@ -3497,11 +3517,11 @@ describe("conversation-store (Phase 44 Plan 04): compareByRecencyDesc — null-t
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("conversation-store (Phase 90 Plan 01): FleetSession kind + relay-room fields cache round-trip", () => {
-  const FLEET_CACHE_KEY_V4 = "skynet:convo-fleet-cache:v4";
+  const FLEET_CACHE_KEY_V5 = "skynet:convo-fleet-cache:v5";
 
   beforeEach(() => {
     try {
-      localStorage.removeItem(FLEET_CACHE_KEY_V4);
+      localStorage.removeItem(FLEET_CACHE_KEY_V5);
       // Defense in depth: clear all prior-version keys so a leaked entry
       // from an earlier test run doesn't seep into a v4 read (which would
       // correctly ignore it — the reader reads FROM v4 — but the beforeEach
@@ -3509,6 +3529,7 @@ describe("conversation-store (Phase 90 Plan 01): FleetSession kind + relay-room 
       localStorage.removeItem("skynet:convo-fleet-cache:v1");
       localStorage.removeItem("skynet:convo-fleet-cache:v2");
       localStorage.removeItem("skynet:convo-fleet-cache:v3");
+      localStorage.removeItem("skynet:convo-fleet-cache:v4");
     } catch {
       /* jsdom localStorage always available */
     }
@@ -3590,7 +3611,7 @@ describe("conversation-store (Phase 90 Plan 01): FleetSession kind + relay-room 
     const legacy = [
       { hostId: 3, hostName: "hC", sessionName: "s3", created: 300, role: null },
     ];
-    localStorage.setItem(FLEET_CACHE_KEY_V4, JSON.stringify(legacy));
+    localStorage.setItem(FLEET_CACHE_KEY_V5, wrap(legacy));
     const read = readFleetSessionsCache();
     expect(read.length).toBe(1);
     expect(read[0].kind).toBeUndefined();
@@ -3607,7 +3628,7 @@ describe("conversation-store (Phase 90 Plan 01): FleetSession kind + relay-room 
       { hostId: 4, hostName: "hD", sessionName: "s-bad", created: 400, role: null, kind: "banana" },
       { hostId: 5, hostName: "hE", sessionName: "s-good", created: 500, role: null, kind: "harness" },
     ];
-    localStorage.setItem(FLEET_CACHE_KEY_V4, JSON.stringify(mixed));
+    localStorage.setItem(FLEET_CACHE_KEY_V5, wrap(mixed));
     const read = readFleetSessionsCache();
     expect(read.length).toBe(1);
     expect(read[0].sessionName).toBe("s-good");
@@ -3622,7 +3643,7 @@ describe("conversation-store (Phase 90 Plan 01): FleetSession kind + relay-room 
       { hostId: 6, hostName: "hF", sessionName: "s-bad", created: 600, role: null, kind: "relay-room", roomId: 42 },
       { hostId: 7, hostName: "hG", sessionName: "s-good", created: 700, role: null, kind: "relay-room", roomId: "!room:example" },
     ];
-    localStorage.setItem(FLEET_CACHE_KEY_V4, JSON.stringify(bad));
+    localStorage.setItem(FLEET_CACHE_KEY_V5, wrap(bad));
     const read = readFleetSessionsCache();
     expect(read.length).toBe(1);
     expect(read[0].sessionName).toBe("s-good");
@@ -3636,7 +3657,7 @@ describe("conversation-store (Phase 90 Plan 01): FleetSession kind + relay-room 
       { hostId: 8, hostName: "hH", sessionName: "s-key", created: 800, role: null, kind: "harness" },
     ];
     writeFleetSessionsCache(sessions);
-    expect(localStorage.getItem("skynet:convo-fleet-cache:v4")).not.toBeNull();
+    expect(localStorage.getItem("skynet:convo-fleet-cache:v5")).not.toBeNull();
     expect(localStorage.getItem("skynet:convo-fleet-cache:v3")).toBeNull();
   });
 
@@ -3849,7 +3870,7 @@ describe("conversation-store (Phase 97 UAT batch #8): rowFromTab pulls lastActiv
 // proven load-bearing by deliberate temporary breakage (cases 2, 5, 8).
 // ─────────────────────────────────────────────────────────────────────────────
 describe("upsertFleetSession — pulse row-appear contract", () => {
-  const FLEET_CACHE_KEY_V4 = "skynet:convo-fleet-cache:v4";
+  const FLEET_CACHE_KEY_V5 = "skynet:convo-fleet-cache:v5";
 
   // Case 1: Appear — empty fleetSessions, upsert one harness session → row exists
   it("case 1 — appear: upsert into empty fleetSessions creates a row with correct composite id", () => {
@@ -4198,21 +4219,21 @@ describe("upsertFleetSession — pulse row-appear contract", () => {
     expect(afterSnap.fleetSessionsLoaded).toBe(true);
   });
 
-  // Case 12: Cache is synced but its key is not bumped.
-  it("case 12 — cache: upsert persists to localStorage under the v4 key, key is unbumped", () => {
+  // Case 12: Cache is synced but its key is at the current version.
+  it("case 12 — cache: upsert persists to localStorage under the current (v5) key", () => {
     const spy = vi.spyOn(Storage.prototype, "setItem");
 
     act(() => {
       upsertFleetSession({ hostId: 6, hostName: "t1000", sessionName: "willow", created: 1000, role: null });
     });
 
-    // Cache was written under the v4 key (not v5 or anything else).
-    const writes = spy.mock.calls.filter(([k]) => k === FLEET_CACHE_KEY_V4);
+    // Cache was written under the v5 key (current).
+    const writes = spy.mock.calls.filter(([k]) => k === FLEET_CACHE_KEY_V5);
     expect(writes.length).toBeGreaterThanOrEqual(1);
 
-    // The written value contains the new session.
+    // The written value contains the new session (unwrap owner-tag first).
     const lastWrite = writes[writes.length - 1];
-    const parsed = JSON.parse(lastWrite[1] as string) as unknown[];
+    const parsed = unwrapPayload<unknown[]>(lastWrite[1] as string);
     expect(parsed.some((s: unknown) => (s as { sessionName: string }).sessionName === "willow")).toBe(true);
 
     spy.mockRestore();

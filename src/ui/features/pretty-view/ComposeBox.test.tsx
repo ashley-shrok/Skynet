@@ -91,6 +91,14 @@ describe("ComposeBox — Phase 05 upload wiring", () => {
     // effect — which flips `sendDisabled` unexpectedly and silently makes
     // subsequent Send-button clicks no-op.
     localStorage.clear();
+    // Cross-user leak fix: compose draft keys are namespaced by the
+    // currently-logged-in user (`skynet:compose-draft:<user>:<hostId>:<key>`).
+    // Seed skynet_auth so the key factory emits the canonical production
+    // shape; without this the factory falls back to the "__anon" guard.
+    localStorage.setItem(
+      "skynet_auth",
+      JSON.stringify({ loggedIn: true, username: "test-user" }),
+    );
   });
 
   it("Test 1: no chip strip when stagedAttachments is empty", () => {
@@ -718,6 +726,12 @@ describe("queue slots (bounty: message-queue-in-pretty-view)", () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     localStorage.clear();
+    // Cross-user leak fix: compose-draft keys include the username; seed
+    // skynet_auth so the key factory emits the canonical production shape.
+    localStorage.setItem(
+      "skynet_auth",
+      JSON.stringify({ loggedIn: true, username: "test-user" }),
+    );
     vi.useFakeTimers();
 
     // Re-import to get fresh mock references after clearAllMocks.
@@ -1048,7 +1062,9 @@ describe("queue slots (bounty: message-queue-in-pretty-view)", () => {
       await Promise.resolve();
     });
 
-    const lsKey = `skynet:compose-draft:99:ls-test`;
+    // Cross-user leak fix: key is namespaced by the current username (seeded
+    // in beforeEach as "test-user").
+    const lsKey = `skynet:compose-draft:test-user:99:ls-test`;
     const lsValue = localStorage.getItem(lsKey);
     expect(lsValue).not.toBeNull();
 
@@ -1103,6 +1119,12 @@ describe("ComposeBox — Quick B: queued-row per-slot paperclip + top-left delet
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    // Cross-user leak fix: compose-draft keys include the username; seed
+    // skynet_auth so the key factory emits the canonical production shape.
+    localStorage.setItem(
+      "skynet_auth",
+      JSON.stringify({ loggedIn: true, username: "test-user" }),
+    );
     vi.useFakeTimers();
   });
 
@@ -1323,6 +1345,12 @@ describe("ComposeBox — Phase 9 layout", () => {
     vi.clearAllMocks();
     // Patch #129 test-hygiene fix (see Phase 05 describe for rationale).
     localStorage.clear();
+    // Cross-user leak fix: compose-draft keys include the username; seed
+    // skynet_auth so the key factory emits the canonical production shape.
+    localStorage.setItem(
+      "skynet_auth",
+      JSON.stringify({ loggedIn: true, username: "test-user" }),
+    );
   });
 
   // Helper: walk el.parentElement upward until a parent's className matches
@@ -1425,6 +1453,12 @@ describe("ComposeBox — patch #135 auto-grow", () => {
     vi.clearAllMocks();
     // Patch #129 test-hygiene fix (see Phase 05 describe for rationale).
     localStorage.clear();
+    // Cross-user leak fix: compose-draft keys include the username; seed
+    // skynet_auth so the key factory emits the canonical production shape.
+    localStorage.setItem(
+      "skynet_auth",
+      JSON.stringify({ loggedIn: true, username: "test-user" }),
+    );
   });
 
   it("auto-grow: on mount with empty text, textarea height is at or below the min-h-8 floor", () => {
@@ -1471,6 +1505,12 @@ describe("ComposeBox — Vehicle B strip: /queue and /bounty prefix buttons remo
     // Patch #129 test-hygiene fix: localStorage carries compose-draft
     // between tests otherwise, corrupting the initial-text-empty predicate.
     localStorage.clear();
+    // Cross-user leak fix: compose-draft keys include the username; seed
+    // skynet_auth so the key factory emits the canonical production shape.
+    localStorage.setItem(
+      "skynet_auth",
+      JSON.stringify({ loggedIn: true, username: "test-user" }),
+    );
   });
 
   it("no longer renders the /bounty (Target) prefix-send button", () => {
@@ -1499,6 +1539,12 @@ describe("ComposeBox — optimistic bubble seeding (Phase 50 Plan 03 Task 2)", (
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    // Cross-user leak fix: compose-draft keys include the username; seed
+    // skynet_auth so the key factory emits the canonical production shape.
+    localStorage.setItem(
+      "skynet_auth",
+      JSON.stringify({ loggedIn: true, username: "test-user" }),
+    );
   });
 
   it("Test 2: onOptimisticSend fires synchronously with successful onSend, mqid forwarded", async () => {
@@ -1636,6 +1682,12 @@ describe("ComposeBox — newline normalization on send (LF kept, CR dropped)", (
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    // Cross-user leak fix: compose-draft keys include the username; seed
+    // skynet_auth so the key factory emits the canonical production shape.
+    localStorage.setItem(
+      "skynet_auth",
+      JSON.stringify({ loggedIn: true, username: "test-user" }),
+    );
   });
 
   async function sendAndCapture(value: string): Promise<string> {

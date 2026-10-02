@@ -47,12 +47,22 @@
 
 import { useMemo, useSyncExternalStore } from "react";
 import type { AppState } from "../api/fleet-status-types.js";
+import {
+  readUserScopedCache,
+  writeUserScopedCache,
+} from "@/state/user-scoped-cache";
 
 // Storage key for the app-tiles cold-boot cache read at module load and
 // written on every state-change notify(). Bump the version suffix on any
 // schema change to AppState (avoids reading a stale-shape cache into an
 // incompatible reader).
-const APP_TILES_CACHE_KEY = "skynet:app-tiles-cache:v1";
+//
+// Bumped v1 → v2 to add the owner-tag wrapper. Pre-v2 payloads were a bare
+// AppState[] with no owner tag, which allowed user A's app tiles (visible
+// via backend access checks) to flash in user B's sidebar during a
+// logout → login-as-different-user flow on the same browser.
+const APP_TILES_CACHE_KEY = "skynet:app-tiles-cache:v2";
+const APP_TILES_CACHE_LEGACY_KEYS = ["skynet:app-tiles-cache:v1"];
 
 // ─── Internal state ─────────────────────────────────────────────────────────
 
@@ -283,12 +293,11 @@ function isCachedAppState(x: unknown): x is AppState {
 
 export function readAppTilesCache(): AppState[] {
   try {
-    const raw =
-      typeof localStorage !== "undefined"
-        ? localStorage.getItem(APP_TILES_CACHE_KEY)
-        : null;
-    if (!raw) return [];
-    const parsed: unknown = JSON.parse(raw);
+    // v2: owner-tagged — mismatch returns null + clears the key.
+    const parsed = readUserScopedCache<unknown>(
+      APP_TILES_CACHE_KEY,
+      APP_TILES_CACHE_LEGACY_KEYS,
+    );
     if (!Array.isArray(parsed)) return [];
     const valid: AppState[] = [];
     for (const item of parsed) {
@@ -328,7 +337,7 @@ export function writeAppTilesCache(list: AppState[]): void {
       isHealthy: a.isHealthy,
       healthMessage: a.healthMessage,
     }));
-    localStorage.setItem(APP_TILES_CACHE_KEY, JSON.stringify(canonical));
+    writeUserScopedCache(APP_TILES_CACHE_KEY, canonical);
   } catch {
     // Silent — cache write failure is non-fatal.
   }

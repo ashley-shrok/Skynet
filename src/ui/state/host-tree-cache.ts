@@ -28,8 +28,18 @@
 // every client's cache in one deploy by bumping the suffix.
 
 import type { SSHHostWithStatus } from "@/main-axios";
+import {
+  readUserScopedCache,
+  writeUserScopedCache,
+} from "@/state/user-scoped-cache";
 
-const HOST_TREE_CACHE_KEY = "skynet:host-tree-cache:v1";
+// Bumped v1 → v2 to add the owner-tag wrapper. Pre-v2 payloads were a bare
+// SSHHostWithStatus[] with no owner tag, which allowed user A's host list
+// (backend-filtered by access grants) to flash in user B's sidebar during a
+// logout → login-as-different-user flow on the same browser. The owner
+// check runs on every read, so it covers explicit logout AND auth-expiry.
+const HOST_TREE_CACHE_KEY = "skynet:host-tree-cache:v2";
+const HOST_TREE_CACHE_LEGACY_KEYS = ["skynet:host-tree-cache:v1"];
 
 /**
  * Minimal shape validation: an object with a numeric or numeric-string `id`
@@ -58,12 +68,11 @@ function isCacheableHost(x: unknown): x is SSHHostWithStatus {
  */
 export function readHostTreeCache(): SSHHostWithStatus[] {
   try {
-    const raw =
-      typeof localStorage !== "undefined"
-        ? localStorage.getItem(HOST_TREE_CACHE_KEY)
-        : null;
-    if (!raw) return [];
-    const parsed: unknown = JSON.parse(raw);
+    // v2: owner-tagged — mismatch returns null + clears the key.
+    const parsed = readUserScopedCache<unknown>(
+      HOST_TREE_CACHE_KEY,
+      HOST_TREE_CACHE_LEGACY_KEYS,
+    );
     if (!Array.isArray(parsed)) return [];
     const valid: SSHHostWithStatus[] = [];
     for (const item of parsed) {
@@ -83,7 +92,7 @@ export function readHostTreeCache(): SSHHostWithStatus[] {
 export function writeHostTreeCache(hosts: readonly SSHHostWithStatus[]): void {
   try {
     if (typeof localStorage === "undefined") return;
-    localStorage.setItem(HOST_TREE_CACHE_KEY, JSON.stringify(hosts));
+    writeUserScopedCache(HOST_TREE_CACHE_KEY, Array.from(hosts));
   } catch {
     // Silent — cache-write failure is non-fatal.
   }

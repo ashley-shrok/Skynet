@@ -119,6 +119,13 @@ function identitiesMap(...identities: Identity[]): Map<string, Identity> {
 
 beforeEach(() => {
   sessionStorage.clear();
+  // Cross-user leak fix: seed skynet_auth so user-scoped caches read/write
+  // through the owner-tagged wrapper. Without this, writes become no-ops
+  // (no logged-in user → no owner tag) and the whole suite reads empty.
+  localStorage.setItem(
+    "skynet_auth",
+    JSON.stringify({ loggedIn: true, username: "test-user" }),
+  );
   __resetActiveSetForTest();
   __resetPinnedIdsForTest();
   updateOpenTabs([]);
@@ -130,6 +137,11 @@ beforeEach(() => {
   __resetLastMessageAtForTest();
   __resetProjectsForTest();
 });
+
+// Owner-tag wrapper matching src/ui/state/user-scoped-cache.ts.
+function wrap<T>(payload: T, owner: string = "test-user"): string {
+  return JSON.stringify({ owner, payload });
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Test 1: ProjectRow shape + useProjects returns the setter's rows
@@ -500,7 +512,8 @@ describe("conversation-store (117-07): empty state", () => {
 // Cache tests: cold-boot localStorage seed + write-on-setter contracts
 // ─────────────────────────────────────────────────────────────────────────────
 
-const PROJECTS_CACHE_KEY = "skynet:projects-cache:v1";
+// Cross-user leak fix: bumped v1 → v2 for owner-tag wrapper.
+const PROJECTS_CACHE_KEY = "skynet:projects-cache:v2";
 
 describe("conversation-store (projects cache): cold-boot seed + write-on-setter", () => {
   it("setProjects writes canonical projects payload to localStorage", () => {
@@ -580,10 +593,59 @@ describe("conversation-store (projects cache): cold-boot seed + write-on-setter"
     expect(cached.projects).toEqual([]);
   });
 
-  it("readProjectsCache drops wrong-shape entries per axis", () => {
+  it("readProjectsCache: owner-mismatch returns empty triple + clears the key", () => {
+    localStorage.setItem(
+      PROJECTS_CACHE_KEY,
+      wrap(
+        {
+          projects: [
+            {
+              slug: "a",
+              displayName: "Alpha",
+              hostId: "1",
+              hostname: "t1000",
+              archived: false,
+            },
+          ],
+          identityProjectAssignments: [["1::morpheus", "a"]],
+          roomProjectAssignments: [["!r:s", "a"]],
+        },
+        "someone-else",
+      ),
+    );
+    const cached = readProjectsCache();
+    expect(cached.projects).toEqual([]);
+    expect(cached.identityProjectAssignments.size).toBe(0);
+    expect(cached.roomProjectAssignments.size).toBe(0);
+    expect(localStorage.getItem(PROJECTS_CACHE_KEY)).toBeNull();
+  });
+
+  it("readProjectsCache: legacy un-tagged payload (pre-v2) returns empty + clears the key", () => {
     localStorage.setItem(
       PROJECTS_CACHE_KEY,
       JSON.stringify({
+        projects: [
+          {
+            slug: "a",
+            displayName: "Alpha",
+            hostId: "1",
+            hostname: "t1000",
+            archived: false,
+          },
+        ],
+        identityProjectAssignments: [],
+        roomProjectAssignments: [],
+      }),
+    );
+    const cached = readProjectsCache();
+    expect(cached.projects).toEqual([]);
+    expect(localStorage.getItem(PROJECTS_CACHE_KEY)).toBeNull();
+  });
+
+  it("readProjectsCache drops wrong-shape entries per axis", () => {
+    localStorage.setItem(
+      PROJECTS_CACHE_KEY,
+      wrap({
         projects: [
           { slug: "a" }, // missing required fields — dropped
           {

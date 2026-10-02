@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
 import { listIdentities, type Identity } from "@/api/identities-api";
+import {
+  readUserScopedCache,
+  writeUserScopedCache,
+} from "@/state/user-scoped-cache";
 // Phase 66 Plan 05 (W4): import sessionMatchKey DIRECTLY from its authoritative
 // source (session-hue), NOT re-exported through conversation-store. This mirrors
 // conversation-store.ts:54's own direct import — session-hue is the canonical
@@ -37,7 +41,18 @@ type State = {
 // records that carry the retired `hidden` field. Cached v1 records without
 // `hidden` still parse fine, but bumping the key wipes the surface entirely
 // on cold refresh — cheaper than a per-field migration for one deprecated axis.
-const APPEARANCE_CACHE_KEY = "skynet:identities-appearance-cache:v2";
+//
+// Bumped v2 → v3 to add the owner-tag wrapper. Pre-v3 payloads were a bare
+// Identity[] with no owner tag, which allowed user A's identity list
+// (backend-filtered by host-access grants) to flash in user B's sidebar
+// during a logout → login-as-different-user flow on the same browser.
+// The owner check runs on every read via readUserScopedCache, so it covers
+// explicit logout AND auth-expiry / browser-close paths equally.
+const APPEARANCE_CACHE_KEY = "skynet:identities-appearance-cache:v3";
+const APPEARANCE_CACHE_LEGACY_KEYS = [
+  "skynet:identities-appearance-cache:v1",
+  "skynet:identities-appearance-cache:v2",
+];
 
 // Module-load seed from localStorage: paint dressed rows on cold refresh
 // BEFORE the fleet-status WS first-frame arrives. Carries loaded:false — the
@@ -905,12 +920,11 @@ function isCachedIdentity(x: unknown): x is Identity {
 
 export function readAppearanceCache(): Identity[] {
   try {
-    const raw =
-      typeof localStorage !== "undefined"
-        ? localStorage.getItem(APPEARANCE_CACHE_KEY)
-        : null;
-    if (!raw) return [];
-    const parsed: unknown = JSON.parse(raw);
+    // v3: owner-tagged — mismatch returns null + clears the key.
+    const parsed = readUserScopedCache<unknown>(
+      APPEARANCE_CACHE_KEY,
+      APPEARANCE_CACHE_LEGACY_KEYS,
+    );
     if (!Array.isArray(parsed)) return [];
     const valid: Identity[] = [];
     for (const item of parsed) {
@@ -974,7 +988,7 @@ export function writeAppearanceCache(list: Identity[]): void {
       pinned: i.pinned === true,
       roleDefaults: i.roleDefaults ?? null,
     }));
-    localStorage.setItem(APPEARANCE_CACHE_KEY, JSON.stringify(canonical));
+    writeUserScopedCache(APPEARANCE_CACHE_KEY, canonical);
   } catch {
     // Silent — cache write failure is non-fatal.
   }

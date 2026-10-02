@@ -14,7 +14,20 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { readHostTreeCache, writeHostTreeCache } from "./host-tree-cache";
 import type { SSHHostWithStatus } from "@/main-axios";
 
-const CACHE_KEY = "skynet:host-tree-cache:v1";
+// Cross-user leak fix: bumped v1 → v2 for owner-tag wrapper.
+const CACHE_KEY = "skynet:host-tree-cache:v2";
+const TEST_USERNAME = "test-user";
+
+function seedAuth(username: string = TEST_USERNAME): void {
+  localStorage.setItem(
+    "skynet_auth",
+    JSON.stringify({ loggedIn: true, username }),
+  );
+}
+
+function wrap<T>(payload: T, owner: string = TEST_USERNAME): string {
+  return JSON.stringify({ owner, payload });
+}
 
 // Minimal SSHHostWithStatus sample. sshHostToHost tolerates missing
 // optional fields via its per-field defaults; the cache only demands id
@@ -40,6 +53,7 @@ const SAMPLE_B: SSHHostWithStatus = {
 describe("host-tree-cache", () => {
   beforeEach(() => {
     localStorage.clear();
+    seedAuth();
   });
 
   it("read: empty cache → []", () => {
@@ -70,7 +84,7 @@ describe("host-tree-cache", () => {
   });
 
   it("read: non-array top level → []", () => {
-    localStorage.setItem(CACHE_KEY, JSON.stringify({ hosts: [SAMPLE_A] }));
+    localStorage.setItem(CACHE_KEY, wrap({ hosts: [SAMPLE_A] }));
     expect(readHostTreeCache()).toEqual([]);
   });
 
@@ -85,7 +99,7 @@ describe("host-tree-cache", () => {
       "string",
       SAMPLE_B,
     ];
-    localStorage.setItem(CACHE_KEY, JSON.stringify(mixed));
+    localStorage.setItem(CACHE_KEY, wrap(mixed));
     const out = readHostTreeCache();
     expect(out).toHaveLength(2);
     expect(out.map((h) => h.name)).toEqual(["thenasty", "workstation"]);
@@ -95,10 +109,29 @@ describe("host-tree-cache", () => {
     // Some wire paths stringify ids. buildHostTree/sshHostToHost handle
     // both shapes; the cache should not reject either.
     const stringId = { ...SAMPLE_A, id: "1" as unknown as number };
-    localStorage.setItem(CACHE_KEY, JSON.stringify([stringId]));
+    localStorage.setItem(CACHE_KEY, wrap([stringId]));
     const out = readHostTreeCache();
     expect(out).toHaveLength(1);
     expect(out[0].name).toBe("thenasty");
+  });
+
+  it("read: owner-mismatch → [] + clears the key", () => {
+    localStorage.setItem(CACHE_KEY, wrap([SAMPLE_A, SAMPLE_B], "someone-else"));
+    expect(readHostTreeCache()).toEqual([]);
+    expect(localStorage.getItem(CACHE_KEY)).toBeNull();
+  });
+
+  it("read: legacy un-tagged payload (pre-v2) → [] + clears the key", () => {
+    localStorage.setItem(CACHE_KEY, JSON.stringify([SAMPLE_A, SAMPLE_B]));
+    expect(readHostTreeCache()).toEqual([]);
+    expect(localStorage.getItem(CACHE_KEY)).toBeNull();
+  });
+
+  it("read: no logged-in user → [] + clears the key", () => {
+    writeHostTreeCache([SAMPLE_A]);
+    localStorage.removeItem("skynet_auth");
+    expect(readHostTreeCache()).toEqual([]);
+    expect(localStorage.getItem(CACHE_KEY)).toBeNull();
   });
 
   it("write: overwrite semantics — second write replaces first", () => {

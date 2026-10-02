@@ -52,6 +52,10 @@ import type { Host, HostFolder, Tab, TabType } from "@/types/ui-types";
 import { putPinnedIds } from "@/api/user-preferences-api";
 import type { Identity } from "@/api/identities-api";
 import { sessionMatchKey } from "@/features/terminal/session-hue";
+import {
+  readUserScopedCache,
+  writeUserScopedCache,
+} from "@/state/user-scoped-cache";
 // Phase 92 Plan 04 (H2 lock): pin toggle callsites REUSE the existing
 // fleetSessions → identityHosts derivation from identities-store. Do NOT
 // re-implement this locally with `sessionName.toLowerCase()` — that
@@ -455,11 +459,15 @@ export type ProjectRow = {
 // during the state seed below) sees an initialized const, not TDZ. Read/
 // write function bodies and canonical block-comment live further down the
 // file near the fleet-cache functions — see "Projects cache" block.
-const PROJECTS_CACHE_KEY = "skynet:projects-cache:v1";
+// Bumped v1 → v2 to add the owner-tag wrapper. See FLEET_CACHE_KEY note.
+const PROJECTS_CACHE_KEY = "skynet:projects-cache:v2";
+const PROJECTS_CACHE_LEGACY_KEYS = ["skynet:projects-cache:v1"];
 
 // Same hoisting rationale as PROJECTS_CACHE_KEY above — read/write function
 // bodies live near the fleet-cache functions ("Pinned IDs cache" block).
-const PINNED_IDS_CACHE_KEY = "skynet:pinned-ids-cache:v1";
+// Bumped v1 → v2 to add the owner-tag wrapper. See FLEET_CACHE_KEY note.
+const PINNED_IDS_CACHE_KEY = "skynet:pinned-ids-cache:v2";
+const PINNED_IDS_CACHE_LEGACY_KEYS = ["skynet:pinned-ids-cache:v1"];
 
 // Module-load seed for the projects slice from localStorage: paint project
 // sections + membership on cold refresh BEFORE the aggregated per-host
@@ -1677,7 +1685,19 @@ export function upsertFleetSession(session: FleetSession): void {
 // pane routing on first click. Same rationale as v1→v2 (Phase 44) and
 // v2→v3 (Phase 47): small acceptable UX cost, avoids a semantic
 // misinterpretation on rehydrate.
-const FLEET_CACHE_KEY = "skynet:convo-fleet-cache:v4";
+// Bumped v4 → v5 to add the owner-tag wrapper: `{owner: username, payload: FleetSession[]}`.
+// Pre-v5 payloads were bare `FleetSession[]` with no owner tag, which allowed
+// user A's sidebar sessions to flash in user B's UI during the cold-start
+// paint after a logout → login-as-different-user flow on the same browser.
+// The owner check runs on every read via readUserScopedCache, so it covers
+// explicit logout AND auth expiry / browser-close paths equally.
+const FLEET_CACHE_KEY = "skynet:convo-fleet-cache:v5";
+const FLEET_CACHE_LEGACY_KEYS = [
+  "skynet:convo-fleet-cache:v1",
+  "skynet:convo-fleet-cache:v2",
+  "skynet:convo-fleet-cache:v3",
+  "skynet:convo-fleet-cache:v4",
+];
 
 function isFleetSession(x: unknown): x is FleetSession {
   if (!x || typeof x !== "object") return false;
@@ -1776,11 +1796,15 @@ function isFleetSession(x: unknown): x is FleetSession {
  */
 export function readFleetSessionsCache(): FleetSession[] {
   try {
-    const raw = typeof localStorage !== "undefined"
-      ? localStorage.getItem(FLEET_CACHE_KEY)
-      : null;
-    if (!raw) return [];
-    const parsed: unknown = JSON.parse(raw);
+    // v5: owner-tagged payload — readUserScopedCache verifies the owner matches
+    // the currently-logged-in user, clears the key + returns null on mismatch
+    // (covers logout, auth-expiry, cross-user browser share). Legacy v1-v4
+    // keys are swept here too so they don't accumulate forever after a long
+    // user never explicitly logs out.
+    const parsed = readUserScopedCache<unknown>(
+      FLEET_CACHE_KEY,
+      FLEET_CACHE_LEGACY_KEYS,
+    );
     if (!Array.isArray(parsed)) return [];
     const valid: FleetSession[] = [];
     for (const item of parsed) {
@@ -1828,8 +1852,12 @@ export function readFleetSessionsCache(): FleetSession[] {
  * Silent on any storage error (QuotaExceededError, disabled storage,
  * private-mode failures) — losing the cache is not a user-visible failure.
  *
- * Serializes only the 4 canonical `FleetSession` fields so future field
+ * Serializes only the canonical `FleetSession` fields so future field
  * additions on FleetSession don't silently leak to storage.
+ *
+ * v5: wrapped in `{owner, payload}` by writeUserScopedCache. Write is a
+ * no-op when no user is logged in — writing without an owner tag would
+ * create a payload that no future reader could accept.
  */
 export function writeFleetSessionsCache(sessions: FleetSession[]): void {
   try {
@@ -1859,7 +1887,7 @@ export function writeFleetSessionsCache(sessions: FleetSession[]): void {
       roomId: s.roomId,
       roomTitle: s.roomTitle ?? null,
     }));
-    localStorage.setItem(FLEET_CACHE_KEY, JSON.stringify(canonical));
+    writeUserScopedCache(FLEET_CACHE_KEY, canonical);
   } catch {
     // Silent — cache-write failure is non-fatal.
   }
@@ -1914,12 +1942,11 @@ export function readProjectsCache(): CachedProjectsSlice {
     roomProjectAssignments: new Map(),
   };
   try {
-    const raw =
-      typeof localStorage !== "undefined"
-        ? localStorage.getItem(PROJECTS_CACHE_KEY)
-        : null;
-    if (!raw) return empty;
-    const parsed: unknown = JSON.parse(raw);
+    // v2: owner-tagged — mismatch returns null + clears the key.
+    const parsed = readUserScopedCache<unknown>(
+      PROJECTS_CACHE_KEY,
+      PROJECTS_CACHE_LEGACY_KEYS,
+    );
     if (!parsed || typeof parsed !== "object") return empty;
     const p = parsed as Record<string, unknown>;
     const projects: ProjectRow[] = [];
@@ -1972,7 +1999,7 @@ export function writeProjectsCache(slice: CachedProjectsSlice): void {
         slice.roomProjectAssignments.entries(),
       ),
     };
-    localStorage.setItem(PROJECTS_CACHE_KEY, JSON.stringify(payload));
+    writeUserScopedCache(PROJECTS_CACHE_KEY, payload);
   } catch {
     // Silent — cache-write failure is non-fatal.
   }
@@ -2006,12 +2033,11 @@ function persistProjectsSlice(): void {
 
 export function readPinnedIdsCache(): string[] {
   try {
-    const raw =
-      typeof localStorage !== "undefined"
-        ? localStorage.getItem(PINNED_IDS_CACHE_KEY)
-        : null;
-    if (!raw) return [];
-    const parsed: unknown = JSON.parse(raw);
+    // v2: owner-tagged — mismatch returns null + clears the key.
+    const parsed = readUserScopedCache<unknown>(
+      PINNED_IDS_CACHE_KEY,
+      PINNED_IDS_CACHE_LEGACY_KEYS,
+    );
     if (!Array.isArray(parsed)) return [];
     const valid: string[] = [];
     for (const item of parsed) {
@@ -2028,7 +2054,7 @@ export function readPinnedIdsCache(): string[] {
 export function writePinnedIdsCache(ids: Iterable<string>): void {
   try {
     if (typeof localStorage === "undefined") return;
-    localStorage.setItem(PINNED_IDS_CACHE_KEY, JSON.stringify(Array.from(ids)));
+    writeUserScopedCache(PINNED_IDS_CACHE_KEY, Array.from(ids));
   } catch {
     // Silent — cache-write failure is non-fatal.
   }
