@@ -6,19 +6,12 @@
  * reference, discriminated-union return type) with three deliberate
  * adaptations:
  *
- *   1. VAPID-config gate replaces the ensureRegistryRoomsExist gate. VAPID
- *      missing → warn + return {ok:false, reason:"vapid_missing"} CLEANLY,
- *      not fail-fast. The fail-fast surface for VAPID is
- *      `assertVapidConfigAtBoot` (called EARLIER in starter.ts per Plan 08);
- *      this starter degrades to a no-op if that assertion was somehow
- *      bypassed. Fail-safe mirroring observation-loop-starter's degraded-
- *      mode-avoidance for missing admin creds.
+ *   1. No idempotent room-creation prerequisite step — push-trigger has no
+ *      Skynet-owned rooms to bootstrap. (Phase 128's VAPID-config gate was
+ *      removed in Plan 04 when browser-push was fully replaced by ntfy.)
  *
- *   2. No idempotent room-creation prerequisite step — push-trigger has no
- *      Skynet-owned rooms to bootstrap.
- *
- *   3. Loop dep wiring includes push-specific concrete deps: fetchLive
- *      (wraps fetchRoomHistory with dir=f), sendPushToUser (from push-sender),
+ *   2. Loop dep wiring includes push-specific concrete deps: fetchLive
+ *      (wraps fetchRoomHistory with dir=f), sendPushToUser (from ntfy-sender),
  *      derivePreviewText + resolveAgentDisplayName (from Wave 1). Each dep
  *      slot on PushTriggerLoopDeps gets wired to its production
  *      implementation here — this is the ONE PLACE the loop touches the rest
@@ -30,12 +23,7 @@
  *      users → info log + {ok:false, reason:"no_users"} (no scheduler
  *      spun up).
  *
- *   2. VAPID sanity check via getVapidDetails() — if it throws (missing
- *      env vars, malformed subject), warn + return {ok:false, reason:
- *      "vapid_missing"}. Do NOT start the loop — push-sender.ts would
- *      have failed at module-load too, but belt-and-suspenders.
- *
- *   3. Wire PushTriggerLoopDeps with concrete implementations from Wave 1
+ *   2. Wire PushTriggerLoopDeps with concrete implementations from Wave 1
  *      + existing classifier + matrix-admin-client primitives. Invoke
  *      createPushTriggerLoop(...).start(users). Store the returned
  *      scheduler in a module-level ref for future hot-reload / stop.
@@ -66,7 +54,6 @@ import {
   type MatrixMessageEvent,
   type FetchLiveResult,
 } from "./push-trigger-loop.js";
-import { getVapidDetails } from "./vapid-config.js";
 import { classifyRoom } from "../relay-sessions/observation-loop-classifier.js";
 import { listAdminRooms } from "../relay-sessions/admin-rooms-ignore-list.js";
 import { getAgentsRegistryRoomId } from "../relay-sessions/registry-rooms.js";
@@ -75,7 +62,7 @@ import {
   getRoomJoinedMembers,
 } from "../matrix/matrix-admin-client.js";
 import { fetchRoomHistory } from "../relay-room-stream/matrix-message-fetch.js";
-import { sendPushToUser } from "./push-sender.js";
+import { sendPushToUser } from "./ntfy-sender.js";
 import { derivePreviewText } from "./preview-text.js";
 import { resolveAgentDisplayName } from "./resolve-agent-display-name.js";
 import { resolveAgentHostId } from "./resolve-agent-host-id.js";
@@ -141,26 +128,7 @@ export async function startPushTriggerLoopOnBoot(): Promise<StartPushTriggerLoop
     return { ok: false, reason: "no_users" };
   }
 
-  // ── Step 2: VAPID sanity gate ─────────────────────────────────────────
-  // Fail-SAFE (warn + return {ok:false}) not fail-FAST. The fail-fast
-  // gate is assertVapidConfigAtBoot in starter.ts (Plan 08); this is a
-  // belt-and-suspenders check. If VAPID isn't loaded, push-sender would
-  // fail at module-load anyway — refusing to start the loop is the
-  // graceful degradation.
-  try {
-    getVapidDetails();
-  } catch (err) {
-    databaseLogger.warn(
-      "[phase-128] push-trigger bootstrap — VAPID config missing/malformed; push-trigger loop not started",
-      {
-        operation: "push_trigger_bootstrap_vapid_missing",
-        error: err instanceof Error ? err.message : "unknown",
-      },
-    );
-    return { ok: false, reason: "vapid_missing" };
-  }
-
-  // ── Step 3: wire deps + start the loop ────────────────────────────────
+  // ── Step 2: wire deps + start the loop ───────────────────────────────
   // Fix pass M-7: the earlier `mxidToUserId` reverse map + `resolveUserId`
   // dep is deleted. The loop's dispatch site already has `userId` in scope
   // (bound to state.userMxid at start()); it never called resolveUserId.

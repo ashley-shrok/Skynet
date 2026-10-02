@@ -2,17 +2,15 @@
  * Phase 128 Plan 06 Task 2 — push-trigger-starter unit tests.
  *
  * Boot-time bootstrap tests mirroring observation-loop-starter.test.ts.
- * Covers the four behavior cases from 128-06-PLAN.md § Task 2:
+ * Covers the behavior cases from 128-06-PLAN.md § Task 2 (updated in
+ * Phase 144 Plan 04 to remove the VAPID gate test — ntfy has no VAPID):
  *   1. Zero users with mxid → {ok:false, reason:"no_users"}, loop NOT started.
- *   2. VAPID missing (getVapidDetails throws) → {ok:false, reason:"vapid_missing"},
- *      warn logged, loop NOT started.
- *   3. Happy path (users present + VAPID present) → {ok:true, users:N},
- *      loop.start called with users.
- *   4. Exception in DB query → {ok:false, reason:"exception"}, warn logged,
+ *   2. Happy path (users present) → {ok:true, users:N}, loop.start called.
+ *   3. Exception in DB query → {ok:false, reason:"exception"}, warn logged,
  *      no rethrow.
  *
- * Mocking discipline mirrors push-sender.test.ts:
- *   - vi.mock the db + push-trigger-loop + vapid-config + logger.
+ * Mocking discipline:
+ *   - vi.mock the db + push-trigger-loop + ntfy-sender + logger.
  *   - Spy on createPushTriggerLoop to intercept the .start call.
  *   - Use vi.hoisted for the mock instances so mocks can share references
  *     with per-test assertions.
@@ -30,7 +28,6 @@ const {
   createPushTriggerLoopMock,
   loopStartMock,
   loopStopMock,
-  getVapidDetailsMock,
   fetchRoomHistoryMock,
   warnSpy,
   infoSpy,
@@ -44,11 +41,6 @@ const {
     stop: loopStopMock,
     __getPerUserStateForTests: () => new Map(),
   }));
-  const getVapidDetailsMock = vi.fn(() => ({
-    subject: "mailto:test@example.com",
-    publicKey: "test-public-key",
-    privateKey: "test-private-key",
-  }));
   const fetchRoomHistoryMock = vi.fn(async () => ({ ok: true, events: [] }));
   const warnSpy = vi.fn();
   const infoSpy = vi.fn();
@@ -58,7 +50,6 @@ const {
     createPushTriggerLoopMock,
     loopStartMock,
     loopStopMock,
-    getVapidDetailsMock,
     fetchRoomHistoryMock,
     warnSpy,
     infoSpy,
@@ -79,11 +70,6 @@ vi.mock("./push-trigger-loop.js", () => ({
   PUSH_TRIGGER_INITIAL_JITTER_MS: 500,
   PUSH_TRIGGER_BACKOFF_LADDER_MS: [2_000, 8_000, 15_000, 30_000, 60_000],
   PUSH_TRIGGER_BATCH_SIZE: 20,
-}));
-
-vi.mock("./vapid-config.js", () => ({
-  getVapidDetails: getVapidDetailsMock,
-  assertVapidConfigAtBoot: vi.fn(),
 }));
 
 // Real-ish stubs for the wiring deps; starter only touches the shape.
@@ -112,7 +98,7 @@ vi.mock("../relay-room-stream/matrix-message-fetch.js", () => ({
   fetchRoomHistory: fetchRoomHistoryMock,
 }));
 
-vi.mock("./push-sender.js", () => ({
+vi.mock("./ntfy-sender.js", () => ({
   sendPushToUser: vi.fn(async () => {}),
 }));
 
@@ -155,20 +141,14 @@ beforeEach(() => {
   createPushTriggerLoopMock.mockClear();
   loopStartMock.mockClear();
   loopStopMock.mockClear();
-  getVapidDetailsMock.mockReset();
   fetchRoomHistoryMock.mockReset();
   fetchRoomHistoryMock.mockImplementation(async () => ({
     ok: true,
     events: [],
   }));
-  getVapidDetailsMock.mockImplementation(() => ({
-    subject: "mailto:test@example.com",
-    publicKey: "test-public-key",
-    privateKey: "test-private-key",
-  }));
   warnSpy.mockClear();
   infoSpy.mockClear();
-  // Reset the default all() to a single-user happy set — individual tests
+  // Reset the default all() to a two-user happy set — individual tests
   // override.
   allMock.mockReturnValue([
     { userId: "u1", userMxid: "@ashley:server" },
@@ -191,23 +171,7 @@ describe("startPushTriggerLoopOnBoot", () => {
     expect(loopStartMock).not.toHaveBeenCalled();
   });
 
-  it("Test 2: VAPID missing (getVapidDetails throws) → {ok:false, reason:'vapid_missing'}, warn logged, loop NOT started", async () => {
-    getVapidDetailsMock.mockImplementation(() => {
-      throw new Error("VAPID_PUBLIC_KEY env var is missing or empty");
-    });
-
-    const result = await startPushTriggerLoopOnBoot();
-
-    expect(result).toEqual({ ok: false, reason: "vapid_missing" });
-    expect(createPushTriggerLoopMock).not.toHaveBeenCalled();
-    expect(loopStartMock).not.toHaveBeenCalled();
-    // Warn was emitted so ops sees the degradation.
-    expect(warnSpy).toHaveBeenCalled();
-    const warnCallArgs = warnSpy.mock.calls[0];
-    expect(warnCallArgs[0]).toMatch(/vapid|push-trigger/i);
-  });
-
-  it("Test 3: happy path — users present + VAPID present → {ok:true, users:N}, loop.start called with users", async () => {
+  it("Test 2: happy path — users present → {ok:true, users:N}, loop.start called with users", async () => {
     const result = await startPushTriggerLoopOnBoot();
 
     expect(result).toEqual({ ok: true, users: 2 });
@@ -221,7 +185,7 @@ describe("startPushTriggerLoopOnBoot", () => {
     ]);
   });
 
-  it("Test 4: exception in DB query → {ok:false, reason:'exception'}, warn logged, no rethrow", async () => {
+  it("Test 3: exception in DB query → {ok:false, reason:'exception'}, warn logged, no rethrow", async () => {
     allMock.mockImplementation(() => {
       throw new Error("db unavailable");
     });
