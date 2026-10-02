@@ -746,6 +746,18 @@ export function ComposeBox({
     return Date.now().toString(36) + Math.random().toString(36).slice(2);
   };
 
+  // Marks the id of a slot that was JUST created via the QueuePlusTab click
+  // so QueuedRow can focus its textarea on mount. Not used for hydrated /
+  // draft-restored slots — those keep whatever focus the user had on load.
+  // QueuedRow clears the ref the moment it consumes it.
+  const justAddedSlotIdRef = useRef<string | null>(null);
+
+  const handleAddSlotAtTop = (): void => {
+    const id = makeSlotId();
+    justAddedSlotIdRef.current = id;
+    setQueueSlots((prev) => [{ id, text: "" }, ...prev]);
+  };
+
   // Patch #83: drain-sweep animation state for the reset cell click.
   // isDraining triggers "all segments render as dim" so the well
   // visually empties (each segment's transition-delay is
@@ -2443,9 +2455,8 @@ export function ComposeBox({
               key={slot.id}
               slot={slot}
               isTopmostInStack={index === 0}
-              onAddSlotAtTop={() =>
-                setQueueSlots((prev) => [{ id: makeSlotId(), text: "" }, ...prev])
-              }
+              onAddSlotAtTop={handleAddSlotAtTop}
+              justAddedSlotIdRef={justAddedSlotIdRef}
               voice={voice}
               micTarget={micTarget}
               setMicTarget={setMicTarget}
@@ -2526,11 +2537,7 @@ export function ComposeBox({
             index 0. Placed BEFORE the chipStripRef div so it visually
             sits on the topmost edge of the wrapper. */}
         {queueSlots.length === 0 && (
-          <QueuePlusTab
-            onAdd={() =>
-              setQueueSlots((prev) => [{ id: makeSlotId(), text: "" }, ...prev])
-            }
-          />
+          <QueuePlusTab onAdd={handleAddSlotAtTop} />
         )}
         {/* Quick 260802-wxy: overlaid chip strip. Renders as an
             absolutely-positioned child at the TOP of the wrapper (before
@@ -2988,6 +2995,11 @@ interface QueuedRowProps {
   // primary wrapper's onAdd; threaded through so QueuedRow can wire its
   // (conditional) QueuePlusTab child without knowing about setQueueSlots.
   onAddSlotAtTop: () => void;
+  // Parent-owned ref carrying the id of the slot that was JUST created via
+  // handleAddSlotAtTop. QueuedRow focuses its textarea on mount when its
+  // slot.id matches, then nulls the ref so the focus fires exactly once per
+  // add (never on hydrated / draft-restored slots).
+  justAddedSlotIdRef: React.MutableRefObject<string | null>;
   voice: ReturnType<typeof useVoiceRecording>;
   micTarget: "primary" | string;
   // quick-260814-o22: threaded from parent so the slot MicButton's onPointerDown
@@ -3029,6 +3041,7 @@ function QueuedRow(props: QueuedRowProps) {
     slot,
     isTopmostInStack,
     onAddSlotAtTop,
+    justAddedSlotIdRef,
     voice,
     micTarget,
     setMicTarget,
@@ -3069,6 +3082,18 @@ function QueuedRow(props: QueuedRowProps) {
   // required so scrollHeight can shrink as text is deleted.
   const slotTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const slotMaxHeightPxRef = useRef<number | null>(null);
+
+  // Focus-on-create: when this slot was JUST added via the QueuePlusTab
+  // click, move focus into its textarea so the user can start typing without
+  // a second click. Gated on the parent-owned justAddedSlotIdRef so hydrated
+  // / draft-restored slots don't steal focus on mount. Clearing the ref
+  // after we consume it makes the focus fire exactly once per add.
+  useEffect(() => {
+    if (justAddedSlotIdRef.current !== slot.id) return;
+    justAddedSlotIdRef.current = null;
+    slotTextareaRef.current?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // quick-260829-oxo: slot-scoped paste handler, byte-parallel to primary
   // handlePaste at ComposeBox.tsx:497-506. File pastes are routed to
