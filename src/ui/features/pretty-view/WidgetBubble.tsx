@@ -278,8 +278,20 @@ export function WidgetBubble({ src, onSubmit }: WidgetBubbleProps) {
           onLoad={() => setHasLoaded(true)}
           className="w-full border-0"
           style={{
+            // No height transition — the previous `transition: "height 120ms
+            // ease-out"` was the ignition for a renderer-pinning feedback
+            // loop. During each 120ms animation the iframe's rendered box
+            // changed every paint-frame; the widget-side ResizeObserver on
+            // document.documentElement (all 13 templates) fired on each
+            // frame, postMessage'd a slightly-different height (subpixel
+            // rounding, scrollbar flicker, font swap), parent setState'd,
+            // iframe re-entered a fresh transition — the loop saturated the
+            // event loop while the iframe never visibly finished loading.
+            // User symptom: "freeze happens in the split second between
+            // when the message with the widget arrives and when the iframe
+            // fully loads." Snapping to new size on each resize message
+            // kills the active-size-change window; UX cost is minor.
             height: `${contentHeight ?? INITIAL_HEIGHT_PX}px`,
-            transition: "height 120ms ease-out",
             display: "block",
           }}
         />

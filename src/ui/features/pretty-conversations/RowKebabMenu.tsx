@@ -120,7 +120,17 @@ export function RowKebabMenu({
   testId,
 }: RowKebabMenuProps): React.JSX.Element {
   return (
-    <DropdownMenu>
+    // modal={false} — Phase 143's sidebar-row kebab roll-out hit a Radix
+    // body-lock leak (document.body.style.pointerEvents="none" stuck on after
+    // a dropdown close race) that landed as a "whole page uninteractable until
+    // refresh" symptom. ~40 of these dropdowns in the sidebar meant ~40× the
+    // chance of hitting the race per session. Smoking-gun evidence in
+    // /opt/skynet/console-forward-logs/console-forward.log 2026-10-01: 45
+    // bodyPE="none" heartbeats across one session, including a 70+ second
+    // sustained run matching the user's "10-min freeze" complaint. A sidebar
+    // kebab doesn't need the modal-mode focus-trap + scroll-lock, so
+    // modal={false} disables the body-lock cleanly.
+    <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
         <button
           type="button"

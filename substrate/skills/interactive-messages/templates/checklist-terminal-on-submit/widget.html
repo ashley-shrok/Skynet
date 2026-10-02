@@ -274,8 +274,18 @@
     // Phase 143: report content height to parent so WidgetBubble can
     // auto-size the iframe up to its cap and paint the scroll thumb
     // when overflowing. Widget-side does zero overflow UI.
+    var __lastReportedHeight = 0;
     function reportHeight() {
       var h = Math.ceil(document.documentElement.scrollHeight);
+      // Dedup: skip if measured height matches last post. The parent-side
+      // iframe `transition: height 120ms ease-out` was the primary
+      // ignition for a renderer-pinning resize-storm (removed from
+      // WidgetBubble.tsx 2026-10-02 after a confirmed main-thread freeze).
+      // Widget-side dedup is defense in depth so no-op postMessages
+      // don't flood even if a future consumer re-adds any transition
+      // on the iframe.
+      if (h === __lastReportedHeight) return;
+      __lastReportedHeight = h;
       try {
         window.parent.postMessage(
           { type: "widget-resize", widgetId: WIDGET_ID, height: h },
