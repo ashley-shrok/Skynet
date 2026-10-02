@@ -15,6 +15,10 @@ import { SystemCrypto } from "./utils/system-crypto.js";
 // is a synchronous throw-at-boot gate, not a fire-and-forget module load
 // (contrast with the void-import blocks below).
 import { assertVapidConfigAtBoot } from "./notifications/vapid-config.js";
+// Phase 144 Plan 01 — ntfy env fail-fast boot gate. Co-exists with the VAPID
+// gate during cutover; Plan 04 removes the VAPID gate when the browser-push
+// system is fully deleted. Same synchronous throw-at-boot contract.
+import { assertNtfyConfigAtBoot } from "./notifications/ntfy-config.js";
 import {
   systemLogger,
   versionLogger,
@@ -468,6 +472,12 @@ if (process.env.VITEST !== "true") {
     // (missing/malformed VAPID subject = every push returns 403 silently
     // from Apple's push service — better to refuse to boot).
     assertVapidConfigAtBoot();
+
+    // Phase 144 Plan 01 — fail-fast if ntfy env vars are missing or SKYNET_PUBLIC_URL
+    // is not an https:// URL. Co-exists with the VAPID gate during cutover (plan 04
+    // removes the VAPID call + import when browser-push code is fully deleted). Same
+    // throw contract: synchronous, propagates to starter's uncaught-exception handler.
+    assertNtfyConfigAtBoot();
 
     // Phase 121 (feedback-config): boot-time env parse + module-scope cache.
     // DELIBERATELY DIVERGES from the branding assert-boot pattern above:
