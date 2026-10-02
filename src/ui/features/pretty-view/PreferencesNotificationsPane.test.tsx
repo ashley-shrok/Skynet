@@ -1,287 +1,294 @@
 /**
- * PreferencesNotificationsPane tests — ported from the retired
- * notifications-enable modal test suite.
+ * Phase 144 Plan 03 Task 1 — PreferencesNotificationsPane tests (ntfy rebuild).
  *
- * Seven behavior cases:
- *   1. Renders unsupported message when pushNotificationsSupported returns false.
- *   2. Renders Enable button when supported.
- *   3. Renders "Enabled" status when Notification.permission is "granted" at mount.
- *   4. LOAD-BEARING (Pitfall 4 / D-19): requestPermission is called SYNCHRONOUSLY
- *      inside the enable-button onClick — no `await` boundary before the call.
- *      Regression gate for the iOS PWA gesture-gate invariant.
- *   5. Grant path: Notification.requestPermission → "granted" → full flow runs
- *      (getVapidPublicKey → pushManager.subscribe → POST /push-subscriptions),
- *      button state flips to "enabled".
- *   6. Deny path: requestPermission → "denied" → flow short-circuits; no subscribe,
- *      no POST, denied hint rendered.
- *   7. Failed subscribe (postSubscription rejects) → status "failed".
+ * Eight behavior cases:
+ *   PANE-01: On mount, pane calls getNtfySetup; while loading shows spinner/placeholder; on error shows inline error.
+ *   PANE-02: isSetUp=false renders "Set up notifications" primary button with explainer copy.
+ *   PANE-03: isSetUp=true renders three value rows (Server address, Topic name, Reading credential)
+ *            each with copy affordance; below renders "Send test notification" and "Regenerate credential" buttons.
+ *   PANE-04: Clicking "Set up notifications" POSTs /ntfy-setup, updates state to isSetUp=true,
+ *            displays newly-returned values.
+ *   PANE-05: Clicking "Send test notification" POSTs /ntfy-test, shows success/failure inline.
+ *   PANE-06a (MC-2 happy): Clicking "Regenerate credential" with window.confirm=true fires POST /ntfy-regenerate,
+ *            updates displayed values.
+ *   PANE-06b (MC-2 cancel): With window.confirm=false, clicking "Regenerate credential" does NOT POST
+ *            /ntfy-regenerate.
+ *   PANE-07: Pane source contains NO Notification.permission, NO pushManager.subscribe, NO VAPID, NO requestPermission.
+ *   PANE-08: Pane includes honest-copy ntfy iOS app section above setup values.
+ *
+ * MC-2 fix: window.confirm is mocked via vi.spyOn for PANE-06a/06b.
+ * vi.restoreAllMocks() in afterEach ensures no spy leaks.
  */
 
+vi.mock("@/features/notifications/ntfy-setup-api", () => ({
+  getNtfySetup: vi.fn(),
+  postNtfySetup: vi.fn(),
+  postNtfyTest: vi.fn(),
+  postNtfyRegenerate: vi.fn(),
+  deleteNtfySetup: vi.fn(),
+}));
+
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import {
+  getNtfySetup,
+  postNtfySetup,
+  postNtfyTest,
+  postNtfyRegenerate,
+} from "@/features/notifications/ntfy-setup-api";
+import { PreferencesNotificationsPane } from "./PreferencesNotificationsPane";
 
-// ─── Global stubs ────────────────────────────────────────────────────────────
+// ─── Fixtures ────────────────────────────────────────────────────────────────
 
-type PermissionResult = "granted" | "denied" | "default";
+const SET_UP_SHAPE = {
+  isSetUp: true,
+  serverAddress: "https://term.gigaashley.click/ntfy",
+  topicName: "abc123def456",
+  readingCredential: "tk_testreadingcredential",
+  ntfyUsername: "skynet-reader-u1",
+};
 
-interface NotificationMock {
-  permission: PermissionResult;
-  requestPermission: ReturnType<typeof vi.fn>;
-}
+const NOT_SET_UP_SHAPE = { isSetUp: false };
 
-function installNotificationMock(perm: PermissionResult): NotificationMock {
-  const requestPermission = vi.fn().mockResolvedValue(perm);
-  const NotificationCtor = function () {} as unknown as NotificationMock & (new () => Notification);
-  (NotificationCtor as unknown as NotificationMock).permission = "default";
-  (NotificationCtor as unknown as NotificationMock).requestPermission = requestPermission;
-  Object.defineProperty(global, "Notification", {
-    configurable: true,
-    writable: true,
-    value: NotificationCtor,
-  });
-  return NotificationCtor as unknown as NotificationMock;
-}
+// ─── Tests ───────────────────────────────────────────────────────────────────
 
-function installServiceWorkerReadyMock(subscribe: ReturnType<typeof vi.fn>) {
-  const registration = {
-    pushManager: { subscribe },
-  } as unknown as ServiceWorkerRegistration;
-  Object.defineProperty(navigator, "serviceWorker", {
-    configurable: true,
-    writable: true,
-    value: {
-      ready: Promise.resolve(registration),
-      register: vi.fn(),
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      controller: null,
-    },
-  });
-  return registration;
-}
-
-function makeFakeSubscription(): PushSubscription {
-  return {
-    endpoint: "https://fcm.googleapis.com/fcm/send/xyz",
-    expirationTime: null,
-    options: {} as PushSubscriptionOptions,
-    getKey(name: PushEncryptionKeyName): ArrayBuffer | null {
-      if (name === "p256dh") return new Uint8Array([1, 2, 3]).buffer;
-      if (name === "auth") return new Uint8Array([4, 5, 6]).buffer;
-      return null;
-    },
-    toJSON() {
-      return {} as PushSubscriptionJSON;
-    },
-    unsubscribe: async () => true,
-  };
-}
-
-// ─── Unsupported-browser describe block (uses module-level mock) ──────────────
-
-// Module mock is hoisted to the top — this entire describe block runs with the
-// push-support module mocked to return false.
-vi.mock("@/features/notifications/push-support", () => ({
-  pushNotificationsSupported: vi.fn(() => false),
-}));
-
-describe("PreferencesNotificationsPane (unsupported browser)", () => {
-  it("Case 1 (unsupported): renders unsupported message when pushNotificationsSupported returns false", async () => {
-    const { pushNotificationsSupported } = await import("@/features/notifications/push-support");
-    vi.mocked(pushNotificationsSupported).mockReturnValue(false);
-
-    // Dynamic import to pick up the mocked module
-    const { PreferencesNotificationsPane } = await import("./PreferencesNotificationsPane");
-    render(<PreferencesNotificationsPane />);
-
-    const unsupported = screen.getByTestId("preferences-notifications-unsupported");
-    expect(unsupported).toBeTruthy();
-    expect(unsupported.textContent).toContain("Push notifications aren");
-  });
-});
-
-// ─── Supported-browser describe block ────────────────────────────────────────
-
-// Reset the mock for the remaining tests so they see pushNotificationsSupported() === true
-vi.mock("@/features/notifications/push-support", () => ({
-  pushNotificationsSupported: vi.fn(() => true),
-}));
-
-describe("PreferencesNotificationsPane", () => {
-  let originalFetch: typeof global.fetch;
-  let originalNotification: typeof global.Notification | undefined;
-  let originalServiceWorker: PropertyDescriptor | undefined;
-  let originalPushManager: PropertyDescriptor | undefined;
-  let PreferencesNotificationsPane: typeof import("./PreferencesNotificationsPane").PreferencesNotificationsPane;
-
-  beforeEach(async () => {
-    originalFetch = global.fetch;
-    originalNotification = (global as { Notification?: typeof Notification }).Notification;
-    originalServiceWorker = Object.getOwnPropertyDescriptor(navigator, "serviceWorker");
-    originalPushManager = Object.getOwnPropertyDescriptor(window, "PushManager");
-
-    // Ensure mock returns true for supported-browser tests
-    const pushSupport = await import("@/features/notifications/push-support");
-    vi.mocked(pushSupport.pushNotificationsSupported).mockReturnValue(true);
-
-    // Install PushManager so the component sees supported=true
-    Object.defineProperty(window, "PushManager", {
-      configurable: true,
-      writable: true,
-      value: function () {},
-    });
-
-    const mod = await import("./PreferencesNotificationsPane");
-    PreferencesNotificationsPane = mod.PreferencesNotificationsPane;
+describe("PreferencesNotificationsPane (ntfy rebuild)", () => {
+  beforeEach(() => {
+    vi.mocked(getNtfySetup).mockReset();
+    vi.mocked(postNtfySetup).mockReset();
+    vi.mocked(postNtfyTest).mockReset();
+    vi.mocked(postNtfyRegenerate).mockReset();
   });
 
   afterEach(() => {
-    global.fetch = originalFetch;
-    if (originalNotification) {
-      Object.defineProperty(global, "Notification", {
-        configurable: true,
-        writable: true,
-        value: originalNotification,
-      });
-    } else {
-      delete (global as { Notification?: typeof Notification }).Notification;
-    }
-    if (originalServiceWorker) {
-      Object.defineProperty(navigator, "serviceWorker", originalServiceWorker);
-    }
-    if (originalPushManager) {
-      Object.defineProperty(window, "PushManager", originalPushManager);
-    } else {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      delete (window as any).PushManager;
-    }
     vi.restoreAllMocks();
   });
 
-  it("Case 2 (supported): renders Enable button when push notifications are supported", () => {
-    installNotificationMock("default");
-    installServiceWorkerReadyMock(vi.fn());
+  it("PANE-01 (loading + error): shows loading state initially, then error on getNtfySetup failure", async () => {
+    // Never resolves (stays loading)
+    let resolveFn: (v: unknown) => void;
+    vi.mocked(getNtfySetup).mockReturnValue(
+      new Promise((resolve) => { resolveFn = resolve; }) as ReturnType<typeof getNtfySetup>,
+    );
 
     render(<PreferencesNotificationsPane />);
-    expect(screen.getByTestId("enable-notifications-button")).toBeTruthy();
+
+    // Loading state visible
+    const loadingEl = screen.queryByTestId("preferences-notifications-loading");
+    expect(loadingEl).toBeTruthy();
+
+    // Resolve with error
+    vi.mocked(getNtfySetup).mockReset();
+    vi.mocked(getNtfySetup).mockRejectedValue(new Error("network error"));
+
+    // Re-render with error
+    render(<PreferencesNotificationsPane />);
+
+    await waitFor(() => {
+      const errorEl = screen.queryByTestId("preferences-notifications-error");
+      expect(errorEl).toBeTruthy();
+    });
   });
 
-  it("Case 3 (already granted): renders enabled status when Notification.permission is granted at mount", async () => {
-    const notif = installNotificationMock("granted");
-    // Set permission to "granted" so the useEffect fires
-    (notif as unknown as { permission: string }).permission = "granted";
-    installServiceWorkerReadyMock(vi.fn());
+  it("PANE-02 (not set up): renders 'Set up notifications' button with ntfy explainer copy", async () => {
+    vi.mocked(getNtfySetup).mockResolvedValue(NOT_SET_UP_SHAPE as ReturnType<typeof getNtfySetup> extends Promise<infer T> ? T : never);
 
     render(<PreferencesNotificationsPane />);
 
     await waitFor(() => {
-      expect(screen.getByText(/notifications enabled/i)).toBeTruthy();
+      expect(screen.getByTestId("preferences-notifications-setup-button")).toBeTruthy();
     });
+
+    expect(screen.getByTestId("preferences-notifications-setup-button").textContent).toContain("Set up notifications");
+    // Explainer copy
+    expect(screen.getByText(/generate your ntfy credential/i)).toBeTruthy();
   });
 
-  // Phase 137 D-19 — this regression gate must never be relaxed.
-  // iOS PWA silently blocks async-boundary permission requests.
-  it("Case 4 (LOAD-BEARING D-19 — Pitfall 4): Notification.requestPermission is called synchronously inside onClick — no await boundary before the call", async () => {
-    const notif = installNotificationMock("granted");
-    const subscribe = vi.fn().mockResolvedValue(makeFakeSubscription());
-    installServiceWorkerReadyMock(subscribe);
-    global.fetch = vi
-      .fn()
-      .mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: async () => ({ publicKey: "SGVsbG8" }),
-      }) as unknown as typeof global.fetch;
+  it("PANE-03 (set up): renders three value rows with copy affordances and test/regenerate buttons", async () => {
+    vi.mocked(getNtfySetup).mockResolvedValue(SET_UP_SHAPE as ReturnType<typeof getNtfySetup> extends Promise<infer T> ? T : never);
 
     render(<PreferencesNotificationsPane />);
-    const btn = screen.getByTestId("enable-notifications-button");
 
-    btn.click();
-    // requestPermission MUST have been invoked by the time click() returns.
-    // If a future edit puts an `await` before the call, the count would be
-    // 0 here because the handler would return before the call.
-    expect(notif.requestPermission).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(screen.getByTestId("preferences-notifications-server-address")).toBeTruthy();
+    });
+
+    // Three value rows
+    expect(screen.getByTestId("preferences-notifications-server-address")).toBeTruthy();
+    expect(screen.getByTestId("preferences-notifications-topic-name")).toBeTruthy();
+    expect(screen.getByTestId("preferences-notifications-reading-credential")).toBeTruthy();
+
+    // Values displayed
+    expect(screen.getByTestId("preferences-notifications-server-address").textContent).toContain("term.gigaashley.click");
+    expect(screen.getByTestId("preferences-notifications-topic-name").textContent).toContain("abc123def456");
+    expect(screen.getByTestId("preferences-notifications-reading-credential").textContent).toContain("tk_testreadingcredential");
+
+    // Test and regenerate buttons
+    expect(screen.getByTestId("preferences-notifications-test-button")).toBeTruthy();
+    expect(screen.getByTestId("preferences-notifications-regenerate-button")).toBeTruthy();
   });
 
-  it("Case 5 (granted path): mints subscription and POSTs it; renders enabled state", async () => {
-    installNotificationMock("granted");
-    const subscribe = vi.fn().mockResolvedValue(makeFakeSubscription());
-    installServiceWorkerReadyMock(subscribe);
-
-    global.fetch = vi
-      .fn()
-      .mockImplementationOnce(async () => ({
-        ok: true,
-        status: 200,
-        json: async () => ({ publicKey: "SGVsbG8" }),
-      }))
-      .mockImplementationOnce(async () => ({
-        ok: true,
-        status: 201,
-        json: async () => ({ ok: true }),
-      })) as unknown as typeof global.fetch;
+  it("PANE-04 (setup flow): clicking 'Set up notifications' calls postNtfySetup and transitions to set-up view", async () => {
+    vi.mocked(getNtfySetup).mockResolvedValue(NOT_SET_UP_SHAPE as ReturnType<typeof getNtfySetup> extends Promise<infer T> ? T : never);
+    vi.mocked(postNtfySetup).mockResolvedValue(SET_UP_SHAPE as ReturnType<typeof postNtfySetup> extends Promise<infer T> ? T : never);
 
     render(<PreferencesNotificationsPane />);
-    const btn = screen.getByTestId("enable-notifications-button");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("preferences-notifications-setup-button")).toBeTruthy();
+    });
+
     const user = userEvent.setup();
-    await user.click(btn);
+    await user.click(screen.getByTestId("preferences-notifications-setup-button"));
 
     await waitFor(() => {
-      expect(screen.getByText(/notifications enabled/i)).toBeTruthy();
+      expect(postNtfySetup).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId("preferences-notifications-server-address")).toBeTruthy();
     });
 
-    expect(subscribe).toHaveBeenCalledTimes(1);
-    const [subOpts] = subscribe.mock.calls[0];
-    expect(subOpts.userVisibleOnly).toBe(true);
-    expect(subOpts.applicationServerKey).toBeInstanceOf(Uint8Array);
-
-    const fetchMock = global.fetch as unknown as ReturnType<typeof vi.fn>;
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(fetchMock.mock.calls[0][0]).toBe("/push-subscriptions/vapid-public-key");
-    expect(fetchMock.mock.calls[1][0]).toBe("/push-subscriptions");
+    // After setup, reading credential is shown
+    expect(screen.getByTestId("preferences-notifications-reading-credential").textContent).toContain("tk_testreadingcredential");
   });
 
-  it("Case 6 (denied path): short-circuits after requestPermission; no subscribe, no POST; renders denied hint", async () => {
-    installNotificationMock("denied");
-    const subscribe = vi.fn();
-    installServiceWorkerReadyMock(subscribe);
-    global.fetch = vi.fn() as unknown as typeof global.fetch;
+  it("PANE-05a (test ok): clicking 'Send test notification' shows success copy on ok=true", async () => {
+    vi.mocked(getNtfySetup).mockResolvedValue(SET_UP_SHAPE as ReturnType<typeof getNtfySetup> extends Promise<infer T> ? T : never);
+    vi.mocked(postNtfyTest).mockResolvedValue({ ok: true });
 
     render(<PreferencesNotificationsPane />);
-    const btn = screen.getByTestId("enable-notifications-button");
-    const user = userEvent.setup();
-    await user.click(btn);
 
     await waitFor(() => {
-      expect(screen.getByText(/not enabled/i)).toBeTruthy();
+      expect(screen.getByTestId("preferences-notifications-test-button")).toBeTruthy();
     });
 
-    expect(subscribe).not.toHaveBeenCalled();
-    const fetchMock = global.fetch as unknown as ReturnType<typeof vi.fn>;
-    expect(fetchMock).not.toHaveBeenCalled();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("preferences-notifications-test-button"));
+
+    await waitFor(() => {
+      expect(postNtfyTest).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId("preferences-notifications-test-result")).toBeTruthy();
+    });
+
+    const result = screen.getByTestId("preferences-notifications-test-result");
+    expect(result.textContent).toMatch(/test sent|phone buzzed|setup works/i);
   });
 
-  it("Case 7 (postSubscription rejects): renders failure state; button remains clickable", async () => {
-    installNotificationMock("granted");
-    const subscribe = vi.fn().mockRejectedValue(new Error("subscribe denied by browser"));
-    installServiceWorkerReadyMock(subscribe);
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ publicKey: "SGVsbG8" }),
-    }) as unknown as typeof global.fetch;
+  it("PANE-05b (test failed): clicking 'Send test notification' shows failure message on ok=false", async () => {
+    vi.mocked(getNtfySetup).mockResolvedValue(SET_UP_SHAPE as ReturnType<typeof getNtfySetup> extends Promise<infer T> ? T : never);
+    vi.mocked(postNtfyTest).mockResolvedValue({ ok: false, error: "ntfy unreachable" });
 
     render(<PreferencesNotificationsPane />);
-    const btn = screen.getByTestId("enable-notifications-button");
-    const user = userEvent.setup();
-    await user.click(btn);
 
     await waitFor(() => {
-      expect(screen.getByText(/notifications setup failed/i)).toBeTruthy();
+      expect(screen.getByTestId("preferences-notifications-test-button")).toBeTruthy();
     });
 
-    expect(btn.tagName).toBe("BUTTON");
-    expect((btn as HTMLButtonElement).disabled).toBe(false);
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("preferences-notifications-test-button"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("preferences-notifications-test-result")).toBeTruthy();
+    });
+
+    const result = screen.getByTestId("preferences-notifications-test-result");
+    expect(result.textContent).toMatch(/test failed|ntfy unreachable/i);
+  });
+
+  it("PANE-06a (MC-2 confirm=true): Regenerate with window.confirm=true fires POST /ntfy-regenerate and updates values", async () => {
+    vi.mocked(getNtfySetup).mockResolvedValue(SET_UP_SHAPE as ReturnType<typeof getNtfySetup> extends Promise<infer T> ? T : never);
+
+    const newShape = {
+      ...SET_UP_SHAPE,
+      readingCredential: "tk_rotatedcredential",
+    };
+    vi.mocked(postNtfyRegenerate).mockResolvedValue(newShape as ReturnType<typeof postNtfyRegenerate> extends Promise<infer T> ? T : never);
+
+    // MC-2: mock window.confirm deterministically via vi.spyOn
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    render(<PreferencesNotificationsPane />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("preferences-notifications-regenerate-button")).toBeTruthy();
+    });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("preferences-notifications-regenerate-button"));
+
+    await waitFor(() => {
+      expect(postNtfyRegenerate).toHaveBeenCalledTimes(1);
+    });
+
+    // After regenerate, new reading credential is displayed
+    await waitFor(() => {
+      expect(screen.getByTestId("preferences-notifications-reading-credential").textContent).toContain("tk_rotatedcredential");
+    });
+  });
+
+  it("PANE-06b (MC-2 confirm=false): Regenerate with window.confirm=false does NOT fire POST /ntfy-regenerate", async () => {
+    vi.mocked(getNtfySetup).mockResolvedValue(SET_UP_SHAPE as ReturnType<typeof getNtfySetup> extends Promise<infer T> ? T : never);
+
+    // MC-2: mock window.confirm to return false — cancel branch
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+
+    render(<PreferencesNotificationsPane />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("preferences-notifications-regenerate-button")).toBeTruthy();
+    });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("preferences-notifications-regenerate-button"));
+
+    // No POST should have been fired
+    expect(postNtfyRegenerate).not.toHaveBeenCalled();
+
+    // Original credential unchanged
+    expect(screen.getByTestId("preferences-notifications-reading-credential").textContent).toContain("tk_testreadingcredential");
+  });
+
+  it("PANE-07 (browser-push API absent): component source has no Notification.permission, pushManager, VAPID, or requestPermission references", () => {
+    // This test reads the component source directly — no DOM assertions.
+    const panePath = resolve(
+      __dirname,
+      "PreferencesNotificationsPane.tsx",
+    );
+    const source = readFileSync(panePath, "utf-8");
+
+    // Strip comment lines before checking (// and * lines)
+    const nonCommentLines = source
+      .split("\n")
+      .filter((line) => !/^\s*(\/\/|\*)/.test(line))
+      .join("\n");
+
+    const forbiddenPatterns = [
+      "Notification.permission",
+      "requestPermission",
+      "pushManager",
+      "getVapidPublicKey",
+      "urlBase64ToUint8Array",
+      "pushNotificationsSupported",
+    ];
+
+    for (const pattern of forbiddenPatterns) {
+      expect(nonCommentLines, `Should not contain "${pattern}"`).not.toContain(pattern);
+    }
+  });
+
+  it("PANE-08 (honest copy): pane includes ntfy iOS app section above setup values", async () => {
+    vi.mocked(getNtfySetup).mockResolvedValue(SET_UP_SHAPE as ReturnType<typeof getNtfySetup> extends Promise<infer T> ? T : never);
+
+    render(<PreferencesNotificationsPane />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("preferences-notifications-server-address")).toBeTruthy();
+    });
+
+    // Check for ntfy iOS app copy
+    const container = document.body;
+    expect(container.textContent).toMatch(/ntfy/i);
+    expect(container.textContent).toMatch(/iOS app|phone/i);
   });
 });
