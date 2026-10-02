@@ -75,12 +75,11 @@ describe("PreferencesModal", () => {
     render(<PreferencesModal {...defaultProps} open={true} />);
     const notifBtn = screen.getByTestId("preferences-nav-notifications");
     await user.click(notifBtn);
-    // In test environments pushNotificationsSupported() returns false, so the
-    // unsupported message renders. In supporting browsers, the enable-button
-    // renders. Either confirms the pane is mounted.
-    const notifUnsupported = screen.queryByTestId("preferences-notifications-unsupported");
-    const notifEnableBtn = screen.queryByTestId("enable-notifications-button");
-    expect(notifUnsupported ?? notifEnableBtn).toBeTruthy();
+    // Phase 144: pane rebuilt for ntfy — shows loading state while fetching
+    // ntfy setup from the backend. Loading state confirms the pane is mounted.
+    const notifLoading = screen.queryByTestId("preferences-notifications-loading");
+    const notifError = screen.queryByTestId("preferences-notifications-error");
+    expect(notifLoading ?? notifError).toBeTruthy();
   });
 
   it("(c) clicking About you nav button shows about-you pane content", async () => {

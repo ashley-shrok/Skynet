@@ -1,7 +1,7 @@
 /**
  * Phase 144 Plan 02 Task 2 — ntfy-based push publisher.
  *
- * Replaces Phase 128's webpush.sendNotification() with a plain HTTP POST
+ * Replaces Phase 128's browser-push system with a plain HTTP POST
  * to the ntfy container over the internal Docker network. Preserves the
  * never-throws fire-and-forget contract from push-sender.ts (T-128-09
  * mitigation) — sendPushToUser MUST NOT propagate errors to the trigger loop.

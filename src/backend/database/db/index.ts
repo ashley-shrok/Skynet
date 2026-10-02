@@ -610,7 +610,7 @@ async function initializeCompleteDatabase(): Promise<void> {
     -- encrypted at rest via FieldCrypto (T-144-06). ntfy_username is stored for
     -- DELETE/regenerate routes (MC-4 fix — read from DB, not reconstructed).
     -- HC-3: NO ntfy_publish_config table here — publish token is env-var-only.
-    -- Drop-migration from old web-push schema runs via runPushSubscriptionsRebuild.
+    -- Drop-migration from old browser-push schema runs via runPushSubscriptionsRebuild.
     -- Drizzle mirror at schema.ts pushSubscriptions.
     CREATE TABLE IF NOT EXISTS push_subscriptions (
         id TEXT PRIMARY KEY,
@@ -1008,7 +1008,7 @@ export function runTelegramBotTokensTableDrop(
 }
 
 /**
- * Phase 144 Plan 02 — drop the old Phase 128 web-push push_subscriptions
+ * Phase 144 Plan 02 — drop the old Phase 128 browser-push push_subscriptions
  * table shape (endpoint/p256dh/auth columns) and rebuild with the ntfy shape
  * (user_id UNIQUE, topic_name UNIQUE, reading_credential encrypted, ntfy_username).
  *
@@ -1022,7 +1022,7 @@ export function runTelegramBotTokensTableDrop(
  *   a silent no-op.
  *
  * Step 2: DROP TABLE IF EXISTS push_subscriptions
- *   Discards old web-push rows. Per locked CONTEXT.md decision: "existing
+ *   Discards old browser-push rows. Per locked CONTEXT.md decision: "existing
  *   browser-push rows are discarded in the cutover" — no migration ceremony.
  *
  * Step 3: CREATE TABLE IF NOT EXISTS push_subscriptions (new ntfy schema)
@@ -1055,7 +1055,7 @@ export function runPushSubscriptionsRebuild(
       },
     );
   }
-  // Step 2 — drop the old table (web-push shape). Existing rows are discarded.
+  // Step 2 — drop the old table (browser-push shape). Existing rows are discarded.
   try {
     sqliteDb.exec("DROP TABLE IF EXISTS push_subscriptions;");
   } catch (dropErr) {
@@ -1838,7 +1838,7 @@ const migrateSchema = async () => {
     }
   }
 
-  // Phase 144 Plan 02 — drop the old web-push push_subscriptions shape
+  // Phase 144 Plan 02 — drop the old browser-push push_subscriptions shape
   // (endpoint/p256dh/auth columns) and rebuild with the ntfy shape.
   // runPushSubscriptionsRebuild is idempotent: drops old index + old table,
   // then CREATE TABLE IF NOT EXISTS the new schema. Placed AFTER

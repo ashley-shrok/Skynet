@@ -1,8 +1,7 @@
 /**
  * Phase 144 Plan 02 Task 3 — ntfy push-subscriptions router (rebuilt).
  *
- * Replaces the Phase 128 web-push subscription CRUD (POST /push-subscriptions,
- * DELETE /push-subscriptions/:endpoint, GET /vapid-public-key) with the new
+ * Replaces the Phase 128 browser-push subscription CRUD with the new
  * ntfy setup/test/regenerate/delete API.
  *
  * ## Endpoints

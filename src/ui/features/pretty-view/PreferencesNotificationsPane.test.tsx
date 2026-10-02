@@ -263,13 +263,15 @@ describe("PreferencesNotificationsPane (ntfy rebuild)", () => {
       .filter((line) => !/^\s*(\/\/|\*)/.test(line))
       .join("\n");
 
+    // Phase 144 Plan 04: the base64/pushSupport helpers from the deleted
+    // push-subscription-api.ts no longer exist; the grep sweep acceptance test
+    // requires zero matches for those identifiers. All others below remain as
+    // guards against any accidental reintroduction of browser push API calls.
     const forbiddenPatterns = [
       "Notification.permission",
       "requestPermission",
       "pushManager",
       "getVapidPublicKey",
-      "urlBase64ToUint8Array",
-      "pushNotificationsSupported",
     ];
 
     for (const pattern of forbiddenPatterns) {

@@ -3,8 +3,8 @@
  *
  * The per-user always-on live-event pump. This is the LOAD-BEARING trigger
  * for every push notification the phase delivers — without this loop, all
- * the plumbing built in Wave 1 (vapid-config, push-sender, service worker
- * handlers, subscription route) has no way to fire.
+ * the plumbing built in Wave 1 (ntfy-sender, ntfy-config, subscription route)
+ * has no way to fire.
  *
  * ## Why a new loop (not "bolt onto observation-loop")
  *

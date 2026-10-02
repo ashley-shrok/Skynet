@@ -2,7 +2,7 @@
  * Phase 144 Plan 02 Task 3 — push-subscriptions route tests (rebuilt for ntfy).
  *
  * Tests exercise the ntfy setup/test/regenerate/delete routes that replace
- * the Phase 128 web-push CRUD routes.
+ * the Phase 128 browser-push CRUD routes.
  *
  * Route coverage:
  *   RT-01: GET /ntfy-setup with no row → 200 {isSetUp: false}

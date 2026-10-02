@@ -760,7 +760,13 @@ not something agents drive.
     changes (propose + wait for greenlight).
   - **Agent voices** — voice used by the per-bubble speak button on
     agent messages.
-  - **Notifications** — enable/disable notifications (mobile + desktop).
+  - **Notifications** — set up push notifications on your phone via
+    the ntfy iOS app. The pane shows the server address, topic name,
+    and reading credential to enter in the ntfy app, a **Send test
+    notification** button to confirm end-to-end delivery, and a
+    **Regenerate credential** button to rotate the token (invalidates
+    the old credential immediately; re-enter new values in the ntfy
+    app). iPhone-only in v1; no desktop push.
   - **Log out** — signs the user out of the app. Pinned to the bottom of
     the modal's left nav (below a divider) so it's reachable from any
     section. Confirms before signing out.
@@ -845,8 +851,8 @@ scaffolding, teardown, templates, and behavior.*
 
 The user has her own relay account, and it appears in the same Matrix
 homeserver as agent relay accounts. If you DM the user's relay account
-directly and she has notifications enabled in the app, she gets a push
-notification (mobile or desktop).
+directly and she has the ntfy iOS app set up, she gets a push notification
+on her iPhone (via the ntfy iOS app). Desktop push is not available in v1.
 
 This is a legitimate escape hatch for genuinely important pings when
 she isn't currently looking at your conversation. Rules of use:

@@ -897,7 +897,7 @@ export const relayRoomSessions = sqliteTable("relay_room_sessions", {
 // rows are impossible). UNIQUE(user_id) enforces one-row-per-user.
 // UNIQUE(topic_name) enforces globally unique topics (128-bit entropy from
 // randomBytes(16).toString("hex"); T-144-09 collision probability < 2^-64).
-// Drop-migration from the old web-push schema lives in
+// Drop-migration from the old browser-push schema lives in
 // db/index.ts::runPushSubscriptionsRebuild.
 export const pushSubscriptions = sqliteTable("push_subscriptions", {
   id: text("id").primaryKey(),

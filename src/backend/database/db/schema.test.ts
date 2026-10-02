@@ -5,7 +5,7 @@
  * NEW ntfy-based schema, then asserts sqlite_master shape + FK cascade +
  * UNIQUE constraint enforcement + idempotency + FieldCrypto registration.
  *
- * Replaces the Phase 128-01 tests (old web-push schema with endpoint/p256dh/auth
+ * Replaces the Phase 128-01 tests (old browser-push schema with endpoint/p256dh/auth
  * columns). The new shape carries: id, user_id UNIQUE, topic_name UNIQUE,
  * reading_credential, ntfy_username, created_at — all per-user, one row max.
  *

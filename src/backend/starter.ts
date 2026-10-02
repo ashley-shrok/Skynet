@@ -420,9 +420,9 @@ if (process.env.VITEST !== "true") {
         });
       });
 
-    // Phase 128 — start the push-trigger loop that dispatches web-push
-    // notifications on new DM messages. Fire-and-forget mirroring the
-    // observation-loop-starter block above (S3 discipline in
+    // Phase 128 (updated Phase 144) — start the push-trigger loop that
+    // dispatches ntfy notifications on new DM messages. Fire-and-forget
+    // mirroring the observation-loop-starter block above (S3 discipline in
     // 128-PATTERNS.md § S3): outer catch on the dynamic import, inner
     // catch on the startPushTriggerLoopOnBoot() promise. Both operation
     // strings are grep-anchors — see 128-08-PLAN.md acceptance criteria.
