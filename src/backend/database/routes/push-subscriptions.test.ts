@@ -177,6 +177,15 @@ vi.mock("../../utils/field-crypto.js", () => ({
   },
 }));
 
+// ── DataCrypto mock ───────────────────────────────────────────────────────────
+// Returns a dummy Buffer key; routes use this to call FieldCrypto.encryptField.
+vi.mock("../../utils/data-crypto.js", () => ({
+  DataCrypto: {
+    validateUserAccess: (_userId: string) => Buffer.alloc(32),
+    getUserDataKey: (_userId: string) => Buffer.alloc(32),
+  },
+}));
+
 // ── Response mock ─────────────────────────────────────────────────────────────
 type MockRes = {
   _status: number;

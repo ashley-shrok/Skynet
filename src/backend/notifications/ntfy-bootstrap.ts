@@ -39,7 +39,7 @@
  * ## HC-1 clarification (plan-checker HC-1 flag)
  *
  * This function calls `createNtfyUser(getNtfyAdminUser(), ...)` — it does
- * NOT hardcode the string "skynet-publisher" or any other identity name.
+ * NOT hardcode the admin user identity name as a string literal.
  * The admin user name comes from `NTFY_ADMIN_USER` env var via `getNtfyAdminUser()`.
  * Using getNtfyAdminUser() ensures the bootstrap is coherent with the admin
  * API client and server.yml provisioning, regardless of what name the operator
@@ -58,7 +58,7 @@ import { systemLogger } from "../utils/logger.js";
  * void (fire-and-forget, not awaited) — a failure here must not prevent
  * the backend from starting.
  *
- * HC-1: uses getNtfyAdminUser() — NEVER a hardcoded "skynet-publisher" string.
+ * HC-1: uses getNtfyAdminUser() — NEVER a hardcoded admin identity name literal.
  * HC-2 context: primary provisioning is server.yml at compose up; this is
  * belt-and-suspenders only. The 409 case (user already exists) is the
  * normal, expected outcome.
