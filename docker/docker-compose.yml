@@ -191,6 +191,50 @@ services:
         aliases:
           - matrix
 
+  # Phase 144 — self-hosted ntfy server for durable iOS push notifications.
+  # Caddy routes /ntfy/* to this container (see docker/caddy-config/
+  # Caddyfile.ntfy-additions.snippet for the ship-prep Caddyfile edit).
+  # Internal network only — Caddy reaches it at ntfy:2586; the container
+  # never publishes host ports.
+  #
+  # server.yml bind-mount (./ntfy/server.yml:/etc/ntfy/server.yml:ro)
+  # provisions the admin user + publish token declaratively at startup
+  # — closing the HC-2 bootstrap circularity so Plan 02's HTTP admin API
+  # calls have a credential to authenticate with.
+  #
+  # NTFY_BASE_URL uses the fail-loud :? guard (same pattern as
+  # SKYNET_HOME_MOUNT_SRC at line 129): missing SKYNET_PUBLIC_URL causes an
+  # immediate compose parse error rather than a silent empty base-url that
+  # would corrupt iOS upstream relay poll_request URLs (Pitfall 4).
+  ntfy:
+    image: binwiederhier/ntfy:v2.28.0
+    container_name: ntfy
+    restart: unless-stopped
+    command: serve
+    volumes:
+      # Named volume for cache.db + auth.db persistence across container recreation.
+      - ntfy-data:/var/lib/ntfy
+      # Committed repo config: provisions admin user + publish token at startup.
+      # Read-only: ntfy only reads this file at startup; runtime writes go to
+      # auth.db (in the named volume above).
+      - ./ntfy/server.yml:/etc/ntfy/server.yml:ro
+    env_file:
+      - ${SKYNET_HOST_DIR:-/opt/skynet}/skynet.env
+    environment:
+      # Fail-loud guard: empty SKYNET_PUBLIC_URL → compose parse error (not a
+      # silent broken ntfy base-url). Mirrors SKYNET_HOME_MOUNT_SRC pattern.
+      NTFY_BASE_URL: "${SKYNET_PUBLIC_URL:?SKYNET_PUBLIC_URL must be set for ntfy base-url derivation}/ntfy"
+      NTFY_LISTEN_HTTP: ":2586"
+      NTFY_BEHIND_PROXY: "true"
+      NTFY_UPSTREAM_BASE_URL: "https://ntfy.sh"
+      NTFY_CACHE_FILE: "/var/lib/ntfy/cache.db"
+      NTFY_AUTH_FILE: "/var/lib/ntfy/auth.db"
+      NTFY_AUTH_DEFAULT_ACCESS: "deny-all"
+    expose:
+      - "2586"
+    networks:
+      - skynet-net
+
   # Custom Caddy build (adds route53 DNS-01 plugin for wildcard TLS on the
   # deployment's wildcard subdomain). Uses cross-account AssumeRole against
   # a Route 53 hosted zone via the `caddy` AWS profile. Per-deployment
@@ -245,6 +289,8 @@ volumes:
   caddy-config:
     driver: local
   synapse-data:
+    driver: local
+  ntfy-data:
     driver: local
 
 networks:
