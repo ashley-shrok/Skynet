@@ -1,0 +1,45 @@
+# Phase 144 — ntfy server config.
+#
+# The auth-users and auth-tokens entries below CLOSE the bootstrap circularity
+# (HC-2): the admin user must exist in auth.db before Skynet's HTTP admin API
+# client can authenticate. ntfy syncs this file into auth.db on container
+# startup. See docker/ntfy/README.md for the one-time bcrypt-hashing step for
+# NTFY_ADMIN_PASS.
+#
+# Environment variable interpolation: ntfy reads ${VAR} syntax from this file
+# at container startup via the YAML config loader. The values come from
+# skynet.env passed as env_file in docker-compose.yml.
+#
+# NO literal credentials are stored in this file — only env-var references.
+# The bcrypt hash lives in NTFY_ADMIN_PASS_BCRYPT in skynet.env (on-host only,
+# never committed to git). See docker/ntfy/README.md for the $$ escaping rule
+# and why it does NOT apply when using env_file (env-file values are not
+# re-interpolated by Docker compose; ntfy reads them directly).
+
+base-url: "${NTFY_BASE_URL}"
+listen-http: ":2586"
+behind-proxy: true
+upstream-base-url: "https://ntfy.sh"
+cache-file: "/var/lib/ntfy/cache.db"
+auth-file: "/var/lib/ntfy/auth.db"
+auth-default-access: "deny-all"
+
+# Declarative user provisioning (synced to auth.db on container startup).
+# ntfy auth-users format: "<username>:<bcrypt-hash>:<role>"
+# Role "admin" grants blanket read/write to all topics AND access to the
+# HTTP admin API (/v1/users). One identity is used for both publishing DMs
+# (Bearer token auth) and managing per-user reader accounts (Basic auth as admin).
+#
+# HC-2: This entry provisions the admin user BEFORE Plan 02's HTTP admin API
+# calls run. Without this, POST /v1/users returns 401 (no admin to auth as).
+auth-users:
+  - "${NTFY_ADMIN_USER}:${NTFY_ADMIN_PASS_BCRYPT}:admin"
+
+# Declarative token provisioning (synced to auth.db on container startup).
+# ntfy auth-tokens format: "<username>:<token>"
+# The NTFY_PUBLISH_TOKEN is the write-only Bearer token Skynet's backend uses
+# for fire-and-forget HTTP POST publishes to per-user topics. It is keyed to
+# the SAME admin user above — one identity, two auth modes (Basic for admin
+# API calls, Bearer token for publish calls).
+auth-tokens:
+  - "${NTFY_ADMIN_USER}:${NTFY_PUBLISH_TOKEN}"
