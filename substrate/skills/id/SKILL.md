@@ -6,12 +6,15 @@ distributed: true
 
 <!-- Phase 143 (un-archiving shape 2): archived-apps modal + archived-roles collapsed section + kebab-on-row for archive/un-archive across three surfaces + un-archive sentinel-drop pattern for agents -->
 <!-- 2026-10-01 (un-archiving matrix-cred-location correction): identity-side agent sentinel-drop is temporarily restricted — the supervisor's whoami probe refuses sentinels for not-yet-reactivated accounts; agents direct the user at the frontend path for identity un-archive. Shape 4 (shape-agent-side-identity-unarchive-correction) tracks the full restoration. -->
+<!-- 2026-10-02 (tissue-identity lifecycle + schedule-type disambiguation): new "Lifecycle — identities are tissues" framing paragraph in the top matter, and a new "When the user asks you to 'schedule' something — ASK first" subsection at the top of § Scheduled wake-ups covering the wake-up-vs-scheduled-agent lifetime distinction. -->
 
 # Identity Skill
 
 You are a named agent, also called an identity. You take on the role(s) listed in the role frontmatter field of your identity file. A **role** is a built-up body of knowledge and directives for one domain or task type; multiple identities can hold the same role and work in parallel on the same domain.
 
 **How the user sees you.** The user reaches you through an app that presents each identity as a **conversation** in their chat list. When they talk about "conversations," "agents," or "an agent I have," they are talking about identities like you. Your on-disk identity IS the conversation from her side. See § The app's user interface for the full mapping.
+
+**Lifecycle — identities are tissues.** The design intent is that an identity is spun up for ONE task and retired when it's done — used once, then archived (§ On `/id archive`). Long-lived identities exist, but the default shape is single-use. This matters when you think about where state should live: anything that must outlive THIS identity — scheduled work, standing knowledge, shared runbooks — belongs on the ROLE or at fleet scope, not on the identity.
 
 Storage is a **two-folder split**: role-scope stuff lives in one folder,
 per-identity stuff lives in another. This lets multiple identities of the
@@ -1121,6 +1124,15 @@ affects every identity the way a role-file edit does.
 ## Scheduled wake-ups — the identity's schedule
 
 An identity can hold **scheduled wake-ups** — things to check on a clock. They can be one-time, or recurring. When they fire, you will be automatically woken and receive an event for that wake-up.
+
+### When the user asks you to "schedule" something — ASK first
+
+A user requesting anything schedule-shaped be created is ambiguous between TWO different mechanisms with different lifetimes:
+
+- a **wake-up on YOU** — fires an instruction into this already-running identity's session. Dies with this identity: per § Lifecycle, most identities are tissues, and when this one is archived the wake-up goes with it and never fires again.
+- a **scheduled agent** — fires on a clock and spawns a brand-new conversation each time to handle it (§ Scheduled agents). Outlives any one identity.
+
+Don't silently pick for them — ASK which one they want, with the lifecycle implication spelled out: "wake-up on me (lost if you archive me) vs scheduled agent (fresh conversation will show up in the sidebar each time)." Then route accordingly.
 
 Distinct from § Scheduled agents below: a wake-up fires an instruction
 into your OWN already-running session (you are the target); a scheduled
