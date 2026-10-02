@@ -602,42 +602,25 @@ async function initializeCompleteDatabase(): Promise<void> {
     CREATE UNIQUE INDEX IF NOT EXISTS relay_room_sessions_user_room_uidx
         ON relay_room_sessions(user_id, room_id);
 
-    -- Phase 128 Plan 01 (D-11, D-13, D-14) — push_subscriptions: per-user,
-    -- per-device Web Push subscriptions. Row shape mirrors the browser's
-    -- PushSubscriptionJSON payload (endpoint + keys.p256dh + keys.auth) —
-    -- passed straight to web-push.sendNotification at push time. FK matches
-    -- the relay_room_sessions pattern above (ON DELETE CASCADE — a user
-    -- deletion sweeps their subscription rows, T-128-01 mitigation). Writes
-    -- go through a new store module (Plan 02 slice); every INSERT / DELETE
-    -- MUST be paired with DatabaseSaveTrigger.forceSave("push-subscription-...")
-    -- per the in-memory SQLite invariant. Persisted via a labeled forceSave
-    -- in the migration block below (belt-and-suspenders same as
-    -- relay_room_sessions — the incremental probe adds a second CREATE
-    -- TABLE IF NOT EXISTS in the migration block).
-    --
+    -- Phase 144 Plan 02 — push_subscriptions REBUILT for ntfy-based push.
+    -- One row per user (not per device — ntfy uses one topic per user).
+    -- UNIQUE(user_id) enforces one-row-per-user. UNIQUE(topic_name) ensures
+    -- globally unique topics (128-bit entropy from randomBytes(16).toString("hex")).
+    -- reading_credential stores the ntfy per-user access token (tk_... format)
+    -- encrypted at rest via FieldCrypto (T-144-06). ntfy_username is stored for
+    -- DELETE/regenerate routes (MC-4 fix — read from DB, not reconstructed).
+    -- HC-3: NO ntfy_publish_config table here — publish token is env-var-only.
+    -- Drop-migration from old web-push schema runs via runPushSubscriptionsRebuild.
     -- Drizzle mirror at schema.ts pushSubscriptions.
     CREATE TABLE IF NOT EXISTS push_subscriptions (
         id TEXT PRIMARY KEY,
-        user_id TEXT NOT NULL,
-        endpoint TEXT NOT NULL,
-        p256dh TEXT NOT NULL,
-        auth TEXT NOT NULL,
+        user_id TEXT NOT NULL UNIQUE,
+        topic_name TEXT NOT NULL UNIQUE,
+        reading_credential TEXT NOT NULL,
+        ntfy_username TEXT NOT NULL,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        last_delivered_at TEXT,
         FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
     );
-
-    -- Phase 128 Plan 01 (D-14) — UNIQUE(user_id, endpoint) is LOAD-BEARING
-    -- for the multi-device semantics: one row per (user, endpoint), NOT one
-    -- row per user. Same user on desktop + phone gets TWO rows (two different
-    -- endpoints); same user re-registering the same endpoint (browser
-    -- rotation) hits ON CONFLICT DO NOTHING at the route layer. Do NOT
-    -- collapse this to UNIQUE(user_id) — that would clobber multi-device.
-    -- Do NOT collapse to UNIQUE(endpoint) — endpoints are per-device, but the
-    -- authz key is user_id (a subscription is meaningless without knowing
-    -- WHICH user's messages to route through it).
-    CREATE UNIQUE INDEX IF NOT EXISTS push_subscriptions_user_endpoint_unique
-        ON push_subscriptions(user_id, endpoint);
 
     -- Phase 89 Plan 01 (D-16) — admin_rooms: Skynet-instance-owned internal
     -- ignore-list. Populated when Skynet creates each registry room (D-10)
@@ -1019,6 +1002,93 @@ export function runTelegramBotTokensTableDrop(
         operation: "schema_migration_drop_table",
         table: "telegram_bot_tokens",
         error: dropError,
+      },
+    );
+  }
+}
+
+/**
+ * Phase 144 Plan 02 — drop the old Phase 128 web-push push_subscriptions
+ * table shape (endpoint/p256dh/auth columns) and rebuild with the ntfy shape
+ * (user_id UNIQUE, topic_name UNIQUE, reading_credential encrypted, ntfy_username).
+ *
+ * Mirrors runTelegramBotTokensTableDrop — drop then create, both steps wrapped
+ * in try/catch with databaseLogger.warn on failure (non-fatal: boot continues).
+ *
+ * Step 1: DROP INDEX IF EXISTS push_subscriptions_user_endpoint_unique
+ *   SQLite requires the index to be explicitly dropped before the table when
+ *   it was created as a separate CREATE UNIQUE INDEX (not an inline constraint).
+ *   For fresh installs where the index never existed, DROP INDEX IF EXISTS is
+ *   a silent no-op.
+ *
+ * Step 2: DROP TABLE IF EXISTS push_subscriptions
+ *   Discards old web-push rows. Per locked CONTEXT.md decision: "existing
+ *   browser-push rows are discarded in the cutover" — no migration ceremony.
+ *
+ * Step 3: CREATE TABLE IF NOT EXISTS push_subscriptions (new ntfy schema)
+ *   HC-3 scope guard: NO ntfy_publish_config table is created here — the
+ *   publish token lives in NTFY_PUBLISH_TOKEN env var only (RESEARCH.md Q7's
+ *   singleton-table suggestion deliberately NOT implemented).
+ *
+ * Idempotent: if the new schema is already in place, DROP TABLE drops it and
+ * CREATE TABLE rebuilds it identically (IF NOT EXISTS makes the recreate safe
+ * on fresh installs that never had the old table).
+ *
+ * Exported so schema.test.ts can exercise SCH-06 (idempotency) and SCH-07
+ * (old-schema → new-schema migration path) against test-owned in-memory DBs.
+ */
+export function runPushSubscriptionsRebuild(
+  sqliteDb: Database.Database,
+): void {
+  // Step 1 — drop the old UNIQUE INDEX first (separate DDL object in Phase 128).
+  try {
+    sqliteDb.exec(
+      "DROP INDEX IF EXISTS push_subscriptions_user_endpoint_unique;",
+    );
+  } catch (dropIndexErr) {
+    databaseLogger.warn(
+      "[phase-144] push_subscriptions_user_endpoint_unique index drop failed (non-fatal)",
+      {
+        operation: "schema_migration_drop_index",
+        index: "push_subscriptions_user_endpoint_unique",
+        error: dropIndexErr,
+      },
+    );
+  }
+  // Step 2 — drop the old table (web-push shape). Existing rows are discarded.
+  try {
+    sqliteDb.exec("DROP TABLE IF EXISTS push_subscriptions;");
+  } catch (dropErr) {
+    databaseLogger.warn(
+      "[phase-144] push_subscriptions table drop failed (non-fatal)",
+      {
+        operation: "schema_migration_drop_table",
+        table: "push_subscriptions",
+        error: dropErr,
+      },
+    );
+  }
+  // Step 3 — create new ntfy schema.
+  // HC-3 scope guard: NO ntfy_publish_config table created here.
+  try {
+    sqliteDb.exec(`
+      CREATE TABLE IF NOT EXISTS push_subscriptions (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL UNIQUE,
+        topic_name TEXT NOT NULL UNIQUE,
+        reading_credential TEXT NOT NULL,
+        ntfy_username TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+      );
+    `);
+  } catch (createErr) {
+    databaseLogger.warn(
+      "[phase-144] push_subscriptions rebuild CREATE TABLE failed (non-fatal)",
+      {
+        operation: "schema_migration_create_table",
+        table: "push_subscriptions",
+        error: createErr,
       },
     );
   }
@@ -1768,39 +1838,16 @@ const migrateSchema = async () => {
     }
   }
 
-  // Phase 128 Plan 01 (D-11, D-13, D-14) — belt-and-suspenders migration
-  // probe for push_subscriptions. The top-of-init CREATE TABLE IF NOT EXISTS
-  // block above covers fresh installs; this probe covers the upgrade-from-
-  // old-schema path (relay_room_sessions precedent at L1564-1588). Both DDLs
-  // are idempotent (IF NOT EXISTS + IF NOT EXISTS on the unique index) so
-  // re-execing on an already-migrated DB is a no-op. The labeled forceSave
-  // below persists the migration to the encrypted disk file so a restart
-  // before the next unrelated write does not silently re-run the DDL forever.
-  try {
-    sqlite.prepare("SELECT id FROM push_subscriptions LIMIT 1").get();
-  } catch {
-    try {
-      sqlite.exec(`
-        CREATE TABLE IF NOT EXISTS push_subscriptions (
-          id TEXT PRIMARY KEY,
-          user_id TEXT NOT NULL,
-          endpoint TEXT NOT NULL,
-          p256dh TEXT NOT NULL,
-          auth TEXT NOT NULL,
-          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          last_delivered_at TEXT,
-          FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
-        );
-        CREATE UNIQUE INDEX IF NOT EXISTS push_subscriptions_user_endpoint_unique
-          ON push_subscriptions(user_id, endpoint);
-      `);
-    } catch (createError) {
-      databaseLogger.warn("Failed to create push_subscriptions table", {
-        operation: "schema_migration",
-        error: createError,
-      });
-    }
-  }
+  // Phase 144 Plan 02 — drop the old web-push push_subscriptions shape
+  // (endpoint/p256dh/auth columns) and rebuild with the ntfy shape.
+  // runPushSubscriptionsRebuild is idempotent: drops old index + old table,
+  // then CREATE TABLE IF NOT EXISTS the new schema. Placed AFTER
+  // runTelegramBotTokensTableDrop (same positioning rationale as Phase 128).
+  // HC-3 scope guard enforced inside runPushSubscriptionsRebuild — no
+  // ntfy_publish_config table is created. The labeled forceSave below persists
+  // the schema mutation to the encrypted disk file. Mirrors the phase-89 and
+  // phase-128 forceSave blocks immediately following their respective DDL work.
+  runPushSubscriptionsRebuild(sqlite);
 
   // Phase 89 Plan 01 — persist the new relay_room_sessions + admin_rooms
   // schema to the encrypted SQLite file. Same reason as the phase-75
@@ -1828,29 +1875,25 @@ const migrateSchema = async () => {
     );
   }
 
-  // Phase 128 Plan 01 — persist the new push_subscriptions schema to the
+  // Phase 144 Plan 02 — persist the rebuilt push_subscriptions schema to the
   // encrypted SQLite file. Same reason as the phase-89 save above: the
-  // CREATE TABLE + CREATE UNIQUE INDEX above execute against RAM SQLite;
-  // without an explicit forceSave the new schema lives only in memory until
-  // an unrelated write fires the debounced save trigger. A restart before
-  // that first unrelated write loses the schema and re-runs the DDL on
-  // next boot.
-  //
-  // Wrapped in try/catch with a non-fatal warn: DatabaseSaveTrigger may
-  // not yet be initialized on the first-ever boot; both CREATE TABLE IF
-  // NOT EXISTS + CREATE UNIQUE INDEX IF NOT EXISTS blocks are idempotent,
-  // so a save failure retries on the next boot cycle. Mirrors phase-89
-  // precedent exactly (same shape, same reason).
+  // DROP + CREATE TABLE above execute against RAM SQLite; without an explicit
+  // forceSave the new schema lives only in memory until an unrelated write
+  // fires the debounced save trigger. A restart before that first unrelated
+  // write would re-run the rebuild on next boot (idempotent, so safe but
+  // unnecessary). Wrapped in try/catch — DatabaseSaveTrigger may not yet be
+  // initialized on the first-ever boot; runPushSubscriptionsRebuild is
+  // idempotent so a save failure retries on the next boot cycle.
   try {
     await DatabaseSaveTrigger.forceSave(
-      "phase-128-push-subscriptions-schema-init",
+      "phase-144-push-subscriptions-rebuild",
     );
   } catch (saveError) {
     databaseLogger.warn(
-      "[phase-128] forceSave failed post-schema (non-fatal — CREATE IF NOT EXISTS + UNIQUE INDEX IF NOT EXISTS are idempotent, next boot retries)",
+      "[phase-144] forceSave failed post-rebuild (non-fatal — runPushSubscriptionsRebuild is idempotent, next boot retries)",
       {
         operation: "schema_migration_force_save_post_create",
-        reason: "phase-128-push-subscriptions-schema-init",
+        reason: "phase-144-push-subscriptions-rebuild",
         error: saveError,
       },
     );

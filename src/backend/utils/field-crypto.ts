@@ -55,6 +55,15 @@ class FieldCrypto {
     // rest of src/backend/telegram/ in Plan 128-09. This lookup entry was
     // flagged as dead-weight in the 128-09 Summary's "Issues Encountered"
     // section — clearing it in the same close-loop as the UI teardown.
+    //
+    // Phase 144 Plan 02 — reading_credential stores the per-user ntfy access
+    // token (tk_... format) encrypted at rest via AES-256-GCM (T-144-06
+    // mitigation). The backend surfaces this value to the user in the
+    // preferences pane for manual entry into the ntfy iOS app; bcrypt is
+    // one-way and cannot be surfaced, so we store the plaintext encrypted via
+    // FieldCrypto instead. HC-3 note: the publish token (NTFY_PUBLISH_TOKEN)
+    // is env-var-only and is NOT a field in this table.
+    push_subscriptions: new Set(["reading_credential"]),
   };
 
   static encryptField(

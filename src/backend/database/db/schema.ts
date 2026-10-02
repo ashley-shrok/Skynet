@@ -885,34 +885,32 @@ export const relayRoomSessions = sqliteTable("relay_room_sessions", {
     .default(sql`CURRENT_TIMESTAMP`),
 });
 
-// Phase 128 Plan 01 (D-11, D-13, D-14) — push_subscriptions: per-user,
-// per-device Web Push subscriptions. One row per (user_id, endpoint) — the
-// UNIQUE INDEX on that composite (declared in db/index.ts, not here — SQLite
-// composite indexes live at the DDL layer) is load-bearing for D-14
-// multi-device semantics (register on grant, deliver on trigger, prune on
-// 410 Gone). NOT one row per user — D-14 explicitly fires on every subscribed
-// device. FK cascades on users delete (T-128-01 mitigation — orphaned
-// subscription rows are impossible). `endpoint`, `p256dh`, `auth` come
-// straight off the browser's PushSubscriptionJSON shape and go to
-// web-push.sendNotification verbatim. `last_delivered_at` is nullable
-// (populated once by the sender on first successful push; observability-
-// deferred per D-15). Writes MUST call
-// DatabaseSaveTrigger.forceSave("push-subscription-...") per the in-memory
-// SQLite invariant. Endpoints MUST NOT be logged in full (Security V8 —
-// slice to 40 chars). Drop-migration for the retired telegram_bot_tokens
-// table lives in db/index.ts::runTelegramBotTokensTableDrop (Task 2).
+// Phase 144 Plan 02 — REBUILT for ntfy-based push notifications. One row per
+// user (not per device — ntfy has one topic per user, not per endpoint).
+// HC-3: publish token lives in NTFY_PUBLISH_TOKEN env var only — no
+// ntfy_publish_config singleton table (RESEARCH.md Q7's suggestion deliberately
+// NOT implemented). `reading_credential` is an ntfy per-user access token
+// (tk_... format) encrypted at rest via FieldCrypto (T-144-06 mitigation).
+// `ntfy_username` is the reader account name (stored so DELETE/regenerate
+// routes read it from DB instead of reconstructing — MC-4 fix).
+// FK cascades on users delete (T-128-01 / T-144 continuation — orphaned
+// rows are impossible). UNIQUE(user_id) enforces one-row-per-user.
+// UNIQUE(topic_name) enforces globally unique topics (128-bit entropy from
+// randomBytes(16).toString("hex"); T-144-09 collision probability < 2^-64).
+// Drop-migration from the old web-push schema lives in
+// db/index.ts::runPushSubscriptionsRebuild.
 export const pushSubscriptions = sqliteTable("push_subscriptions", {
   id: text("id").primaryKey(),
   userId: text("user_id")
     .notNull()
+    .unique()
     .references(() => users.id, { onDelete: "cascade" }),
-  endpoint: text("endpoint").notNull(),
-  p256dh: text("p256dh").notNull(),
-  auth: text("auth").notNull(),
+  topicName: text("topic_name").notNull().unique(),
+  readingCredential: text("reading_credential").notNull(),
+  ntfyUsername: text("ntfy_username").notNull(),
   createdAt: text("created_at")
     .notNull()
     .default(sql`CURRENT_TIMESTAMP`),
-  lastDeliveredAt: text("last_delivered_at"),
 });
 
 // Phase 89 Plan 01 (D-16) — admin_rooms: Skynet-instance-owned internal
