@@ -746,16 +746,18 @@ not something agents drive.
 
 - **⚙️ Gear icon — user preferences.**
   - **Avatar** — the user's displayed avatar.
-  - **Agent voices** — voice used by the per-bubble speak button on
-    agent messages.
-  - **Notifications** — enable/disable notifications (mobile + desktop).
   - **About you** — content every one of the user's agents automatically
     sees. Good for shared preferences, info about the user, or anything
-    she'd otherwise have to re-tell each agent.
+    she'd otherwise have to re-tell each agent. The modal grows wider when
+    this section is active so there's room for the markdown editor; it
+    shrinks back when any other section is picked.
     *Agent-side:* this section is a UI on `~/.claude/CLAUDE.md`. Edits
     the user makes in **About you** land as edits to that file, and the
     § User-wide file (`~/.claude/CLAUDE.md`) rules apply to agent-side
     changes (propose + wait for greenlight).
+  - **Agent voices** — voice used by the per-bubble speak button on
+    agent messages.
+  - **Notifications** — enable/disable notifications (mobile + desktop).
   - **Log out** — signs the user out of the app. Pinned to the bottom of
     the modal's left nav (below a divider) so it's reachable from any
     section. Confirms before signing out.

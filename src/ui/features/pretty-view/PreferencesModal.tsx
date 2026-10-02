@@ -2,8 +2,10 @@
  * PreferencesModal — user preferences modal with left-nav navigation.
  *
  * Modal-unification 2026-09-29:
- *   - Shell: canonical <Modal size="settings">. 640×480 fixed per tasting
- *     (was 1000×760 pre-unification).
+ *   - Shell: canonical <Modal>. Size is dynamic on the active pane — "editor"
+ *     (up to 1200×80vh) when About you is active so the markdown editor has
+ *     room; "settings" (720×640 cap) for every other pane. All non-editor
+ *     panes are compact and look wrong at editor dimensions.
  *   - Head: canonical <ModalHead title="Preferences" /> — replaces the
  *     bare glass-close-button-only header of the pre-unification impl.
  *   - Body: two-column flex (~180px left nav + right pane). ModalBody
@@ -36,9 +38,9 @@ import type { HostFolder } from "@/types/ui-types";
 
 const NAV_SECTIONS = [
   { value: "general",       label: "General",       Icon: User      },
+  { value: "about-you",     label: "About you",     Icon: Sparkles  },
   { value: "voice",         label: "Voice",         Icon: Volume2   },
   { value: "notifications", label: "Notifications", Icon: Bell      },
-  { value: "about-you",     label: "About you",     Icon: Sparkles  },
 ] as const;
 
 type SectionValue = (typeof NAV_SECTIONS)[number]["value"];
@@ -95,7 +97,7 @@ export default function PreferencesModal({
     <Modal
       open={open}
       onOpenChange={onOpenChange}
-      size="settings"
+      size={activeSection === "about-you" ? "editor" : "settings"}
       className="flex flex-col"
       data-testid="preferences-modal"
     >
