@@ -1,0 +1,62 @@
+# Phase 144 — ntfy path-prefix routing.
+#
+# Caddy's `handle_path` strips `/ntfy` before forwarding so ntfy container
+# sees root-relative paths (/<topic>/json, /<topic>/sse etc.). ntfy's own
+# `base-url` is set to `${SKYNET_PUBLIC_URL}/ntfy` so upstream relay
+# poll_request URLs include the externally reachable URL.
+# See RESEARCH.md Q5 + Pitfall 2.
+#
+# SHIP-PREP ONLY — orchestrator applies this edit to
+# /opt/skynet/caddy-config/Caddyfile and runs:
+#   docker exec caddy caddy reload
+# This file is a committed repo artifact documenting the required Caddyfile
+# change. It is NOT applied by the Phase 144 Plan 01 executor.
+# apply this edit to /opt/skynet/caddy-config/Caddyfile and docker exec caddy caddy reload — orchestrator ship-prep motion, NOT part of this plan's execution scope
+
+# -----------------------------------------------------------------------
+# BEFORE: current Caddyfile site block
+# -----------------------------------------------------------------------
+# The current bare `reverse_proxy` top-level directive must be converted to
+# a `handle { ... }` fallback block because Caddy does not allow mixing bare
+# `reverse_proxy` with `handle`/`handle_path` blocks in the same site block.
+# (RESEARCH.md Pitfall 2 — a Caddy config parse error occurs otherwise.)
+
+# term.gigaashley.click {
+#     log { format json; output stdout }
+#     reverse_proxy skynet:8080 {
+#         transport http { response_header_timeout 5m; read_timeout 5m }
+#     }
+# }
+
+# -----------------------------------------------------------------------
+# AFTER: add handle_path /ntfy/* block + convert bare reverse_proxy
+# -----------------------------------------------------------------------
+
+term.gigaashley.click {
+    log { format json; output stdout }
+
+    # Phase 144 — ntfy path-prefix routing.
+    # handle_path strips /ntfy from the path before forwarding so ntfy
+    # container sees root-relative paths (/<topic>/json, /v1/users etc.).
+    # Caddy automatically handles WebSocket/SSE upgrades — no explicit
+    # Upgrade header needed (unlike nginx).
+    # ntfy container is named `ntfy` on skynet-net; Caddy reaches it at ntfy:2586.
+    handle_path /ntfy/* {
+        reverse_proxy ntfy:2586
+    }
+
+    # Skynet catchall — must come AFTER the ntfy block.
+    # The bare `reverse_proxy skynet:8080` top-level directive is converted to
+    # a `handle` fallback block to allow coexistence with `handle_path`. Both
+    # the ntfy block and this fallback must be inside `handle`/`handle_path`
+    # blocks — Caddy's `handle` is the catch-all that fires for anything not
+    # matched by the ntfy path prefix.
+    handle {
+        reverse_proxy skynet:8080 {
+            transport http {
+                response_header_timeout 5m
+                read_timeout 5m
+            }
+        }
+    }
+}
