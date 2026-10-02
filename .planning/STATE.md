@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-last_updated: "2026-10-02T22:43:31.906Z"
+status: verifying
+last_updated: "2026-10-02T22:55:45.428Z"
 last_activity: 2026-10-02
 progress:
   total_phases: 143
   completed_phases: 121
   total_plans: 647
-  completed_plans: 636
+  completed_plans: 637
   percent: 85
 ---
 
@@ -101,7 +101,7 @@ Last activity: 2026-08-18 — Shipped inline patch #462 (needs_desk toggle in bo
 
 Phase: 44 (frontend-skill-editing-editor-surface-for-skill-folders-on-a) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 
 Last activity: 2026-08-19
 
@@ -728,6 +728,8 @@ Recent decisions affecting current work:
 - [Phase ?]: ArchivedAppsModal uses endpoint-first un-archive sequence; row never removed until 200
 - [Phase ?]: Apps section header replaced outer button with div role=button to enable sibling archived-box trigger (D-09)
 - [Phase ?]: id-skill substrate updated
+- [Phase ?]: Comment scrub discipline for grep sweep acceptance
+- [Phase ?]: VAPID sanity gate removed from push-trigger-starter in Phase 144 Plan 04
 
 ### Pending Todos
 
@@ -1137,7 +1139,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-02T22:43:31.780Z
+Last session: 2026-10-02T22:55:35.577Z
 Last session: 2026-09-18T02:31:01.008Z
 Last session: 2026-09-10T07:47:17.370Z
 Stopped at: Completed 143-06-PLAN.md
