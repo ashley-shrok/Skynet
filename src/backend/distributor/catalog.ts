@@ -58,10 +58,12 @@
  *       Drizzle migration; first-class-apps campaign shape 1, 2026-09-17;
  *       favicon.svg row retired 2026-09-28 when the scaffold switched to
  *       a static/icon.webp symlink to the app's own icon.webp)
- *     - 11 rows for helper scripts under scripts/
- *       (role-file-watch is one of the four ambient watchers, all four
+ *     - 12 rows for helper scripts under scripts/
+ *       (role-file-watch is one of the five ambient-monitor children, all five
  *       spawned as children of ambient-monitor rather than launched
- *       individually per identity;
+ *       individually per identity; inbox-watcher is the fifth child, added
+ *       by shape-agent-supervisor-inbox for the composebox-via-agent-supervisor
+ *       campaign;
  *       fleet-status-sweep is the Phase 92 batch sweep for the fleet-status
  *       poller; pv-context-pct-sweep is the Phase 95 batch sweep for the
  *       PV context-pct poller;
@@ -342,6 +344,20 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     sourceKind: "bundled",
     bundledPath: "/app/fleet-substrate/scripts/role-file-watch.py",
     installPath: "~/.local/bin/role-file-watch",
+    restartHook: null,
+  },
+  // inbox-watcher — fifth ambient-watcher child (shape-agent-supervisor-inbox).
+  // Watches ~/fleet/identities/<name>/inbox/ for message files dropped by any
+  // process on the box, surfaces their paths up to ambient-monitor's parent via
+  // the RAW-PASTE-FILE: stdout protocol. Harness-bound like the other four
+  // ambient-watcher children — a bytes change here waits for the next natural
+  // harness recycle to apply. Accepted trade-off; mirrors context-watch /
+  // role-file-watch distribution shape.
+  {
+    slug: "inbox-watcher",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/scripts/inbox-watcher.py",
+    installPath: "~/.local/bin/inbox-watcher",
     restartHook: null,
   },
   {

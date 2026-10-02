@@ -32,7 +32,7 @@ function bundledPathToRepoPath(bundledPath: string): string {
 }
 
 describe("FLEET_SUBSTRATE_CATALOG", () => {
-  it("Test 1: contains exactly 126 entries (17 conceptual items + agent-supervisor.service unit + role-file-watch fourth ambient monitor + fleet-status-sweep Phase 92 + pv-context-pct-sweep Phase 95 + ambient-monitor mega-monitor phase + instance-policy-claude-md Phase 114 twinkie + image-gen-skill + image-gen-helper Phase 116 + 24 app-development shape-1 rows (26 originally; favicon.svg row retired 2026-09-28 when the scaffold switched to a static/icon.webp symlink; restore-app.sh row retired 2026-09-30 by the un-archiving campaign, host-side shape) + task-field-check hook + 3 rows for interactive-messages-gc (Phase 140: .py script + .service unit + .timer unit) + 69 rows for interactive-messages skill payload (SKILL.md + create-widget.sh + teardown-widget.sh + iterate-widget.sh + 65 template files across 13 folders, backfilled 2026-09-28 + draft template + iterate-widget added 2026-09-30))", () => {
+  it("Test 1: contains exactly 127 entries (17 conceptual items + agent-supervisor.service unit + role-file-watch fourth ambient monitor + fleet-status-sweep Phase 92 + pv-context-pct-sweep Phase 95 + ambient-monitor mega-monitor phase + instance-policy-claude-md Phase 114 twinkie + image-gen-skill + image-gen-helper Phase 116 + 24 app-development shape-1 rows (26 originally; favicon.svg row retired 2026-09-28 when the scaffold switched to a static/icon.webp symlink; restore-app.sh row retired 2026-09-30 by the un-archiving campaign, host-side shape) + task-field-check hook + 3 rows for interactive-messages-gc (Phase 140: .py script + .service unit + .timer unit) + 69 rows for interactive-messages skill payload (SKILL.md + create-widget.sh + teardown-widget.sh + iterate-widget.sh + 65 template files across 13 folders, backfilled 2026-09-28 + draft template + iterate-widget added 2026-09-30) + inbox-watcher (fifth ambient-monitor child, shape-agent-supervisor-inbox 2026-10-02))", () => {
     // 17 = 6 single-file skills + agent-relay (SKILL.md + recv.sh counted as
     // one item) + id (SKILL.md + 3 companions counted as one item) + 8 helper
     // scripts + 1 mega-monitor launcher (ambient-monitor) + 1 Phase 114 twinkie
@@ -96,7 +96,11 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // -1 for app-development-restore-app row retired 2026-09-30 by the
     // un-archiving campaign (host-side shape); logic now lives in the
     // agent-supervisor's scan_app_unarchive_requested_sentinels() — 127 → 126.
-    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(126);
+    // +1 for inbox-watcher (shape-agent-supervisor-inbox 2026-10-02, fifth
+    // ambient-monitor child; delivery substrate for files dropped into any
+    // identity's inbox folder, enabling the eventual composebox cutover in
+    // shape-composebox-cutover) — 126 → 127.
+    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(127);
   });
 
   it("Test 2: every bundled row's bundledPath starts with /app/fleet-substrate/skills/, /app/fleet-substrate/scripts/, or /app/fleet-substrate/user-onboarding/", () => {
@@ -222,7 +226,7 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // template files across 13 folders — backfilled 2026-09-28; draft
     // template + iterate-widget added 2026-09-30) — 36 → 105.
     expect(skillRows.length).toBe(105);
-    // 16 helper scripts: agent-supervisor + wakeup-scheduler + context-watch +
+    // 17 helper scripts: agent-supervisor + wakeup-scheduler + context-watch +
     // role-file-watch (4th ambient monitor) + usage-reporter + usage-report
     // (distributor-shipped node POSTer — install-usage-reporter.sh was
     // retired in favor of the run-bootstrap.ts Step 6 wire-up so the
@@ -237,8 +241,13 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // residual permission prompts that --dangerously-skip-permissions doesn't) +
     // self-edit-baseline-sync (PostToolUse hook for role-file-watch self-edit
     // suppression, 2026-09-27) +
-    // interactive-messages-gc (Phase 140: seven-day widget backstop sweep script)
-    expect(scriptRows.length).toBe(16);
+    // interactive-messages-gc (Phase 140: seven-day widget backstop sweep script) +
+    // inbox-watcher (shape-agent-supervisor-inbox 2026-10-02, fifth
+    // ambient-monitor child; watches each identity's inbox folder for
+    // dropped message files, surfaces paths up to ambient-monitor via the
+    // RAW-PASTE-FILE: stdout protocol — delivery substrate for the eventual
+    // composebox cutover)
+    expect(scriptRows.length).toBe(17);
     // 4 user-onboarding files: agent-supervisor.service +
     // interactive-messages-gc.service + interactive-messages-gc.timer (Phase 140)
     // + scheduled-agents-scheduler.service (this ship: move
@@ -439,7 +448,9 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // byte-changes actually cause a scheduler restart) — 125 → 126.
     // -1 for app-development-restore-app row retired 2026-09-30 by the
     // un-archiving campaign (host-side shape) — 126 → 125.
-    expect(bundled.length).toBe(125);
+    // +1 for inbox-watcher (shape-agent-supervisor-inbox 2026-10-02, fifth
+    // ambient-monitor child) — 125 → 126.
+    expect(bundled.length).toBe(126);
     expect(runtime.length).toBe(1);
 
     // Every bundled row retains bundledPath under /app/fleet-substrate/
