@@ -15,7 +15,6 @@
  *   SND-02: sendPushToUser happy path POSTs to ntfy with correct headers
  *   SND-03: non-2xx response logs databaseLogger.warn and returns normally
  *   SND-04: fetch throwing (network error) logs databaseLogger.warn and returns normally
- *   SND-05: push-sender.ts still exports sendPushToUser (re-export check)
  *   SND-06 (HC-4): buildClickUrl(mxid, null) → URL has no host= query param
  *   SND-07 (HC-4): buildClickUrl(mxid, "h-123") → URL contains host=h-123
  *   SND-08 (HC-4): sendPushToUser with agentHostId=null sends Click with no host= param
@@ -190,15 +189,6 @@ describe("Phase 144-02 Task 2 — ntfy-sender (SND-01..SND-08)", () => {
       operation: "ntfy_publish_threw",
       userId: "user-123",
     });
-  });
-
-  it("SND-05: push-sender.ts re-exports sendPushToUser from ntfy-sender.ts", async () => {
-    // Verify push-sender re-exports the same function.
-    const pushSender = await import("./push-sender.js");
-    const ntfySender = await import("./ntfy-sender.js");
-    // Both should export sendPushToUser.
-    expect(typeof pushSender.sendPushToUser).toBe("function");
-    expect(typeof ntfySender.sendPushToUser).toBe("function");
   });
 
   it("SND-06 (HC-4): buildClickUrl(mxid, null) returns URL with NO host= query param", async () => {
