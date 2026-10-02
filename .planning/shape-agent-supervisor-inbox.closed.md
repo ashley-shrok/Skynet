@@ -49,16 +49,24 @@ Four moving parts, in the order a dropped request crosses them:
 2. **Fifth ambient-watcher child subprocess** — follows the same
    subprocess pattern as the existing four children (relay receiver,
    wake-up scheduler, context-pressure watch, role/identity-file watch).
-   Watches the inbox via inotify. On file arrival, if the filename
-   matches the final shape (timestamp + hex + `.msg`), surfaces the
-   file's filesystem path up through the parent's wake-emission channel.
-   Files whose names do NOT match the final shape — including mid-write
-   temp files, operator notes, stray artifacts — are ignored. This
-   filter is what makes the write-and-rename contract load-bearing. The
-   fifth child does NOT read the file bytes itself and does NOT delete
-   the file; both belong to the parent (see next point) so the raw bytes
-   never need to travel through the line-oriented child-to-parent IPC
-   channel.
+   Watches the inbox via inotify for both `moved_to` events (the
+   canonical write-and-rename landing) and `close_write` events (so a
+   dropper that writes a complete file directly to a final-shape name
+   also works — operator convenience; the write-and-rename path remains
+   the canonical form and the one the dropper contract documents). On
+   either event, if the filename matches the final shape (timestamp +
+   hex + `.msg`), surfaces the file's filesystem path up through the
+   parent's wake-emission channel. Files whose names do NOT match the
+   final shape — including mid-write temp files, operator notes, stray
+   artifacts — are ignored. This filter is what makes the
+   write-and-rename contract load-bearing. The fifth child ensures the
+   inbox folder exists at startup (`mkdir -p`) so inotify has something
+   to watch from the moment the child comes up — this duplicates the
+   dropper's own contractual mkdir, but harmlessly: both have cause to
+   ensure the folder exists at their own entry point. The fifth child
+   does NOT read the file bytes itself and does NOT delete the file;
+   both belong to the parent (see next point) so the raw bytes never
+   need to travel through the line-oriented child-to-parent IPC channel.
 
 3. **Parent-side read + paste + delete** — the parent reads the file
    bytes directly off disk by the path the fifth child surfaced, grabs
@@ -424,3 +432,54 @@ sweep after that cycle pushes the new ambient-monitor + agent-supervisor
 greenlight per the standing directive.
 
 `/close agent-supervisor-inbox` closes the arc at the end.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-10-02
+**Vehicle used:** inline
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **What this is** — present · ambient-watcher gains a fifth child that watches a per-identity inbox folder and surfaces drops through the same lock-and-paste discipline as the existing four
+- **Shape — per-identity inbox folder** — present · folder path, name-shape regex, raw-bytes body, write-and-rename contract all implemented as described
+- **Shape — fifth ambient-watcher child subprocess** — present · inbox-watcher.py follows the subprocess pattern of the other four, filters by final-name regex, does not read bytes, does not delete
+- **Shape — parent-side read + paste + delete** — present · _handle_raw_paste_file reads bytes, grabs the shared _inject_lock, pastes bare (envelope=False), deletes regardless of outcome
+- **Shape — agent-supervisor dormant-wake path** — present · inbox_has_files() wired into the dormant branch alongside matrix_peek_cached and schedule_peek, routes through existing do_wake, no new timer
+- **Dropper contract** — present · six-step contract documented verbatim in the manual-drive playbook with the openssl rand -hex 4 one-liner
+- **Dropper contract — randomness mechanism mandatory** — present · playbook names CSPRNG as hard requirement, explicitly forbids LLM-eyeball hex, documents fallbacks
+- **Philosophy — uniform-lock property** — present · fifth-child pattern makes the ambient watcher the single serializer for inbound message delivery as well as watcher events
+- **Philosophy — set-it-and-forget-it dropper** — present · dropper has no liveness probe, no wake sentinel, no retry, no ack wait — supervisor's inbox_has_files absorbs the dormancy case
+- **Philosophy — raw-bytes body (now UTF-8-constrained per endorsed drift)** — present · shape amended to make non-UTF-8 refusal a fifth refusal condition; implementation satisfies the amended shape
+- **Philosophy — four-children pattern preserved** — present · inbox-watcher is a separate subprocess rather than threaded into the parent
+- **Prior context — reuses existing wake machinery and liveness check** — present · additive one-line elif in the dormant if-chain; no new reconciler pattern, no new liveness probe
+- **What would make it wrong: live-agent file arrives, fifth child does not pick it up** — present · inotify moved_to+close_write watch with name-shape filter; T-1 in inbox-watcher.test.sh covers pickup
+- **What would make it wrong: dormant file arrives, supervisor's reconciler does not notice** — present · inbox_has_files runs every reconcile tick on the dormant branch; agent-supervisor-inbox-wake.test.sh T-01..T-08 cover detection logic directly, dispatch covered by inspection
+- **What would make it wrong: wake happens but pending file not caught up** — present · startup catch-up sweep in inbox-watcher.py runs before inotify arms; T-3 covers it
+- **What would make it wrong: refused delivery sits silently** — present · parent emits loud stderr lines on every refusal class (harness gone, pane at shell, tmux failures, zero-byte, non-UTF-8 per endorsed drift) and discards the file
+- **What would make it wrong: multiple files processed out of order** — present · lexical sort of timestamp-prefixed filename equals arrival order; T-2 covers inotify path, T-3 covers catch-up path
+- **What would make it wrong: existing four-children behavior perturbed** — present · fifth child is strictly additive to the CHILDREN list; existing four spec entries unchanged; gated on INJECT_MODE so legacy stdout mode is unaffected
+- **What would make it wrong: mid-write dropper processed as complete** — present · FINAL_NAME_RE excludes any .tmp suffix or non-matching name; T-4b probes several variants and confirms rejection
+- **What would make it wrong: dropper diverges on live vs dormant** — present · dropper contract is identical in both cases; supervisor absorbs dormancy; manual-drive doc reinforces this
+- **What would make it wrong: LLM-eyeball hex suffix** — present · playbook names the hard requirement and names LLM-eyeball explicitly as forbidden
+- **Scope edges — IN** — present · all IN items present: fifth child, dropper-created inbox, filename convention + write-and-rename, raw-bytes body (now UTF-8-constrained per drift), zero-byte refusal, fourth dormant-wake kind reusing existing machinery, stderr refusal logging, distributor catalog row, test coverage, manual-drive doc
+- **Scope edges — OUT** — present · no browser-facing changes, no changes to existing four children's internals, no changes to shared lock or paste discipline, no dead-letter folder, no response channel, no changes to the 5s startup delay or 30s reconcile cadence
+- **Scope edges — Tempting but no** — present · inotify handler is a child subprocess not threaded into the parent, no structured JSON log on the fifth child, no JSON wrapping of message bodies, dropper does not probe liveness or drop wake sentinel
+
+### Additions (in the result, not in the shape)
+
+- parent decodes file bytes as UTF-8 and refuses+discards non-UTF-8 content with a loud stderr line, adding a fifth refusal condition to the four the shape originally named — endorsed-as-drift (shape amended before close)
+- inotify watch listens on close_write in addition to moved_to, so a dropper that skips the atomic rename but writes directly to a final-shape filename is accepted — contract still enforced by the name-shape filter — endorsed-as-drift (shape amended before close)
+- watcher-side mkdir -p on the inbox folder at startup, duplicating the dropper's own contractual mkdir — endorsed-as-drift (shape amended before close)
+
+### Follow-ups
+
+- shape amended to make the UTF-8 constraint explicit and name non-UTF-8 as a fifth refusal condition in the shape's refusal set and dropper-contract payload step — accepted-as-drift
+- polling fallback removed from inbox-watcher.py; inotifywait is now a hard startup requirement with FATAL-and-exit if missing, transient OSError on Popen still retries, manual-drive doc updated — accepted-as-drift
+- shape amended to make close_write co-event and watcher-side mkdir sanctioned (both operator-convenience + startup-safety, name-shape filter still enforces the dropper contract) — accepted-as-drift
+
+### Notes
+
+All engaged divergences were endorsed and the shape + code brought into agreement in the same session. UTF-8 refusal and polling-fallback removal landed in commit fb2d35c7; the two remaining additions (close_write co-event, watcher-side mkdir) were surfaced to the user after the reviewer returned and endorsed-as-drift with a short shape amendment in this close-out pass. Verdict is closed-hit — every shape commitment is present in the (now fully-amended) material.
