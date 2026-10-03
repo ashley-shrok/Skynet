@@ -210,13 +210,35 @@ services:
     image: binwiederhier/ntfy:v2.28.0
     container_name: ntfy
     restart: unless-stopped
-    command: serve
+    # ntfy does NOT interpolate ${VAR} syntax in its YAML config file. The
+    # committed server.yml is a template with ${NTFY_ADMIN_USER},
+    # ${NTFY_ADMIN_PASS_BCRYPT}, ${NTFY_PUBLISH_TOKEN} placeholders in the
+    # auth-users / auth-tokens lists (which have no env-var equivalent — all
+    # other settings are set via NTFY_* env vars above). sed renders the
+    # template to /tmp/ntfy-server.yml at container boot, then ntfy serves
+    # against the rendered config. $$ in this YAML escapes the $ so compose
+    # doesn't interpolate at config-parse time; the shell inside the container
+    # sees $VAR and resolves against the container's env_file-loaded vars.
+    # entrypoint: [] overrides the image's default entrypoint (ntfy); we need
+    # a shell to run sed first, then exec ntfy ourselves.
+    entrypoint: []
+    command:
+      - /bin/sh
+      - -c
+      - |
+        sed \
+          -e "s|\$${NTFY_ADMIN_USER}|$${NTFY_ADMIN_USER}|g" \
+          -e "s|\$${NTFY_ADMIN_PASS_BCRYPT}|$${NTFY_ADMIN_PASS_BCRYPT}|g" \
+          -e "s|\$${NTFY_PUBLISH_TOKEN}|$${NTFY_PUBLISH_TOKEN}|g" \
+          /etc/ntfy/server.yml > /tmp/ntfy-server.yml && \
+        exec ntfy serve --config /tmp/ntfy-server.yml
     volumes:
       # Named volume for cache.db + auth.db persistence across container recreation.
       - ntfy-data:/var/lib/ntfy
-      # Committed repo config: provisions admin user + publish token at startup.
-      # Read-only: ntfy only reads this file at startup; runtime writes go to
-      # auth.db (in the named volume above).
+      # Committed repo config template with ${VAR} placeholders — the sed
+      # command above renders the real values into /tmp/ntfy-server.yml at
+      # startup. This file never has real credentials; the renderer uses
+      # the container's env (loaded via env_file + environment: below).
       - ./ntfy/server.yml:/etc/ntfy/server.yml:ro
     env_file:
       - ${SKYNET_HOST_DIR:-/opt/skynet}/skynet.env
