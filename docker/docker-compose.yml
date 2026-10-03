@@ -221,9 +221,11 @@ services:
     env_file:
       - ${SKYNET_HOST_DIR:-/opt/skynet}/skynet.env
     environment:
-      # Fail-loud guard: empty SKYNET_PUBLIC_URL → compose parse error (not a
-      # silent broken ntfy base-url). Mirrors SKYNET_HOME_MOUNT_SRC pattern.
-      NTFY_BASE_URL: "${SKYNET_PUBLIC_URL:?SKYNET_PUBLIC_URL must be set for ntfy base-url derivation}/ntfy"
+      # Fail-loud guard: empty NTFY_PUBLIC_URL → compose parse error (not a
+      # silent broken ntfy base-url). NTFY_PUBLIC_URL is a DEDICATED subdomain
+      # for ntfy (e.g. https://push.example.com) — NOT SKYNET_PUBLIC_URL + /ntfy,
+      # because ntfy's own startup validation refuses path-prefix hosting.
+      NTFY_BASE_URL: "${NTFY_PUBLIC_URL:?NTFY_PUBLIC_URL must be set to a dedicated subdomain for ntfy (e.g. https://push.example.com) — ntfy refuses path-prefix hosting}"
       NTFY_LISTEN_HTTP: ":2586"
       NTFY_BEHIND_PROXY: "true"
       NTFY_UPSTREAM_BASE_URL: "https://ntfy.sh"
