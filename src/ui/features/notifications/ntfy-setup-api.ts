@@ -1,5 +1,7 @@
 /**
  * Phase 144 Plan 03 — ntfy-setup-api
+ * Phase 145 — response shape changed: readingCredential (tk_... token) replaced
+ * by ntfyPassword (Basic-auth password matched to ntfyUsername).
  *
  * Frontend API client for the ntfy setup endpoints.
  * Mirrors the authApi + handleApiError pattern established in the existing
@@ -12,7 +14,7 @@
  *   GET    /push-subscriptions/ntfy-setup       → NtfySetup
  *   POST   /push-subscriptions/ntfy-setup       → NtfySetup  (idempotent provision)
  *   POST   /push-subscriptions/ntfy-test        → { ok: boolean; error?: string }
- *   POST   /push-subscriptions/ntfy-regenerate  → NtfySetup  (rotates reading credential)
+ *   POST   /push-subscriptions/ntfy-regenerate  → NtfySetup  (rotates ntfyPassword)
  *   DELETE /push-subscriptions/ntfy-setup       → { ok: true }
  */
 
@@ -24,8 +26,8 @@ export interface NtfySetup {
   isSetUp: boolean;
   serverAddress?: string;
   topicName?: string;
-  readingCredential?: string;
   ntfyUsername?: string;
+  ntfyPassword?: string;
 }
 
 export interface NtfyTestResult {
@@ -83,10 +85,10 @@ export async function postNtfyTest(): Promise<NtfyTestResult> {
 // ─── API-04: POST /push-subscriptions/ntfy-regenerate ────────────────────────
 
 /**
- * Rotate the current user's ntfy reading credential.
- * Old credential is invalidated server-side immediately (hard rotation,
+ * Rotate the current user's ntfy password.
+ * Old password is invalidated server-side immediately (hard rotation,
  * no overlap window). Returns the new setup shape with the new
- * readingCredential value.
+ * ntfyPassword value.
  */
 export async function postNtfyRegenerate(): Promise<NtfySetup> {
   try {

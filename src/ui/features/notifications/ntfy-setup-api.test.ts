@@ -56,8 +56,8 @@ describe("ntfy-setup-api", () => {
         isSetUp: true,
         serverAddress: "https://push.example.com",
         topicName: "abc123",
-        readingCredential: "tk_testcred",
         ntfyUsername: "skynet-reader-u1",
+        ntfyPassword: "testpassword",
       };
       vi.mocked(authApi.get).mockResolvedValueOnce({ data: responseShape });
 
@@ -89,8 +89,8 @@ describe("ntfy-setup-api", () => {
         isSetUp: true,
         serverAddress: "https://push.example.com",
         topicName: "abc123",
-        readingCredential: "tk_newcred",
         ntfyUsername: "skynet-reader-u1",
+        ntfyPassword: "newpassword",
       };
       vi.mocked(authApi.post).mockResolvedValueOnce({ data: responseShape });
 
@@ -143,8 +143,8 @@ describe("ntfy-setup-api", () => {
         isSetUp: true,
         serverAddress: "https://push.example.com",
         topicName: "abc123",
-        readingCredential: "tk_rotatedcred",
         ntfyUsername: "skynet-reader-u1",
+        ntfyPassword: "rotatedpassword",
       };
       vi.mocked(authApi.post).mockResolvedValueOnce({ data: newShape });
 

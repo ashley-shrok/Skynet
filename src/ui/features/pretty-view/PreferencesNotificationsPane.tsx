@@ -1,14 +1,17 @@
 /**
  * Phase 144 Plan 03 — PreferencesNotificationsPane (ntfy rebuild)
+ * Phase 145 — now surfaces FOUR values (server, topic, username, password).
+ * The ntfy iOS app's per-topic Login dialog does Basic auth; it needs both a
+ * username and a password, not a single bearer token.
  *
  * Rebuilt from scratch. Replaces the Phase 128/137 browser-push flow entirely.
  *
  * Two states:
  *   isSetUp === false  → "Set up notifications" primary button + explainer copy
- *   isSetUp === true   → Three value rows (server address, topic name, reading
- *                        credential) with copy-to-clipboard affordances, a
- *                        "Send test notification" button, and a
- *                        "Regenerate credential" button.
+ *   isSetUp === true   → Four value rows (server address, topic name, ntfy
+ *                        username, ntfy password) with copy-to-clipboard
+ *                        affordances, a "Send test notification" button, and a
+ *                        "Regenerate password" button.
  *
  * Honest state signal: isSetUp is derived from backend truth (GET /ntfy-setup
  * returning a row), NOT from a browser permission bit. The pane has NO calls
@@ -17,7 +20,7 @@
  * The test button is the ONLY ground truth for delivery health — there is no
  * passive "last delivery" indicator, heartbeat, or drift detection.
  *
- * "Regenerate credential" uses window.confirm to gate the hard rotation
+ * "Regenerate password" uses window.confirm to gate the hard rotation
  * (T-144-15: mitigate spoofing — user must explicitly confirm before the
  * backend invalidates the old credential).
  */
@@ -152,7 +155,7 @@ function NotSetUpView({ onSetUp, isSettingUp }: NotSetUpViewProps) {
         className="text-[13px] leading-[18px]"
         style={{ color: "#c8c4b8" }}
       >
-        Tap to generate your ntfy credential. You&apos;ll enter the values
+        Tap to generate your ntfy credentials. You&apos;ll enter the values
         into the ntfy iOS app.
       </p>
       <button
@@ -209,7 +212,7 @@ function SetUpView({
         below.
       </p>
 
-      {/* Three value rows */}
+      {/* Four value rows */}
       <ValueRow
         label="Server address"
         value={setup.serverAddress ?? ""}
@@ -221,9 +224,14 @@ function SetUpView({
         testId="preferences-notifications-topic-name"
       />
       <ValueRow
-        label="Reading credential"
-        value={setup.readingCredential ?? ""}
-        testId="preferences-notifications-reading-credential"
+        label="ntfy username"
+        value={setup.ntfyUsername ?? ""}
+        testId="preferences-notifications-ntfy-username"
+      />
+      <ValueRow
+        label="ntfy password"
+        value={setup.ntfyPassword ?? ""}
+        testId="preferences-notifications-ntfy-password"
       />
 
       {/* Action buttons */}
@@ -260,8 +268,8 @@ function SetUpView({
           type="button"
           onClick={onRegenerate}
           disabled={isRegenerating}
-          aria-label="Regenerate credential"
-          title="Regenerate credential"
+          aria-label="Regenerate password"
+          title="Regenerate password"
           data-testid="preferences-notifications-regenerate-button"
           style={{
             padding: "8px 14px",
@@ -274,7 +282,7 @@ function SetUpView({
             opacity: isRegenerating ? 0.6 : 1,
           }}
         >
-          {isRegenerating ? "Regenerating…" : "Regenerate credential"}
+          {isRegenerating ? "Regenerating…" : "Regenerate password"}
         </button>
       </div>
 
@@ -376,7 +384,7 @@ export function PreferencesNotificationsPane(
   const handleRegenerate = useCallback(async () => {
     // T-144-15 mitigation: hard rotation requires explicit user confirmation
     const confirmed = window.confirm(
-      "Replace the current reading credential? You’ll need to re-enter the new value in the ntfy iOS app.",
+      "Replace the current ntfy password? You’ll need to re-enter the new password in the ntfy iOS app.",
     );
     if (!confirmed) return;
 

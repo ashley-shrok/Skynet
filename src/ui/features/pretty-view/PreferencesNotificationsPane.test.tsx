@@ -1,17 +1,19 @@
 /**
  * Phase 144 Plan 03 Task 1 — PreferencesNotificationsPane tests (ntfy rebuild).
+ * Phase 145 — four value rows (server, topic, ntfy username, ntfy password);
+ * "Regenerate password" (was: "Regenerate credential").
  *
  * Eight behavior cases:
  *   PANE-01: On mount, pane calls getNtfySetup; while loading shows spinner/placeholder; on error shows inline error.
  *   PANE-02: isSetUp=false renders "Set up notifications" primary button with explainer copy.
- *   PANE-03: isSetUp=true renders three value rows (Server address, Topic name, Reading credential)
- *            each with copy affordance; below renders "Send test notification" and "Regenerate credential" buttons.
+ *   PANE-03: isSetUp=true renders four value rows (Server address, Topic name, ntfy username, ntfy password)
+ *            each with copy affordance; below renders "Send test notification" and "Regenerate password" buttons.
  *   PANE-04: Clicking "Set up notifications" POSTs /ntfy-setup, updates state to isSetUp=true,
  *            displays newly-returned values.
  *   PANE-05: Clicking "Send test notification" POSTs /ntfy-test, shows success/failure inline.
- *   PANE-06a (MC-2 happy): Clicking "Regenerate credential" with window.confirm=true fires POST /ntfy-regenerate,
+ *   PANE-06a (MC-2 happy): Clicking "Regenerate password" with window.confirm=true fires POST /ntfy-regenerate,
  *            updates displayed values.
- *   PANE-06b (MC-2 cancel): With window.confirm=false, clicking "Regenerate credential" does NOT POST
+ *   PANE-06b (MC-2 cancel): With window.confirm=false, clicking "Regenerate password" does NOT POST
  *            /ntfy-regenerate.
  *   PANE-07: Pane source contains NO Notification.permission, NO pushManager.subscribe, NO VAPID, NO requestPermission.
  *   PANE-08: Pane includes honest-copy ntfy iOS app section above setup values.
@@ -47,8 +49,8 @@ const SET_UP_SHAPE = {
   isSetUp: true,
   serverAddress: "https://push.example.com",
   topicName: "abc123def456",
-  readingCredential: "tk_testreadingcredential",
   ntfyUsername: "skynet-reader-u1",
+  ntfyPassword: "testntfypassword",
 };
 
 const NOT_SET_UP_SHAPE = { isSetUp: false };
@@ -104,10 +106,10 @@ describe("PreferencesNotificationsPane (ntfy rebuild)", () => {
 
     expect(screen.getByTestId("preferences-notifications-setup-button").textContent).toContain("Set up notifications");
     // Explainer copy
-    expect(screen.getByText(/generate your ntfy credential/i)).toBeTruthy();
+    expect(screen.getByText(/generate your ntfy credentials/i)).toBeTruthy();
   });
 
-  it("PANE-03 (set up): renders three value rows with copy affordances and test/regenerate buttons", async () => {
+  it("PANE-03 (set up): renders four value rows with copy affordances and test/regenerate buttons", async () => {
     vi.mocked(getNtfySetup).mockResolvedValue(SET_UP_SHAPE as ReturnType<typeof getNtfySetup> extends Promise<infer T> ? T : never);
 
     render(<PreferencesNotificationsPane />);
@@ -116,15 +118,17 @@ describe("PreferencesNotificationsPane (ntfy rebuild)", () => {
       expect(screen.getByTestId("preferences-notifications-server-address")).toBeTruthy();
     });
 
-    // Three value rows
+    // Four value rows
     expect(screen.getByTestId("preferences-notifications-server-address")).toBeTruthy();
     expect(screen.getByTestId("preferences-notifications-topic-name")).toBeTruthy();
-    expect(screen.getByTestId("preferences-notifications-reading-credential")).toBeTruthy();
+    expect(screen.getByTestId("preferences-notifications-ntfy-username")).toBeTruthy();
+    expect(screen.getByTestId("preferences-notifications-ntfy-password")).toBeTruthy();
 
     // Values displayed
     expect(screen.getByTestId("preferences-notifications-server-address").textContent).toContain("example.com");
     expect(screen.getByTestId("preferences-notifications-topic-name").textContent).toContain("abc123def456");
-    expect(screen.getByTestId("preferences-notifications-reading-credential").textContent).toContain("tk_testreadingcredential");
+    expect(screen.getByTestId("preferences-notifications-ntfy-username").textContent).toContain("skynet-reader-u1");
+    expect(screen.getByTestId("preferences-notifications-ntfy-password").textContent).toContain("testntfypassword");
 
     // Test and regenerate buttons
     expect(screen.getByTestId("preferences-notifications-test-button")).toBeTruthy();
@@ -149,8 +153,8 @@ describe("PreferencesNotificationsPane (ntfy rebuild)", () => {
       expect(screen.getByTestId("preferences-notifications-server-address")).toBeTruthy();
     });
 
-    // After setup, reading credential is shown
-    expect(screen.getByTestId("preferences-notifications-reading-credential").textContent).toContain("tk_testreadingcredential");
+    // After setup, ntfy password is shown
+    expect(screen.getByTestId("preferences-notifications-ntfy-password").textContent).toContain("testntfypassword");
   });
 
   it("PANE-05a (test ok): clicking 'Send test notification' shows success copy on ok=true", async () => {
@@ -201,7 +205,7 @@ describe("PreferencesNotificationsPane (ntfy rebuild)", () => {
 
     const newShape = {
       ...SET_UP_SHAPE,
-      readingCredential: "tk_rotatedcredential",
+      ntfyPassword: "rotatedntfypassword",
     };
     vi.mocked(postNtfyRegenerate).mockResolvedValue(newShape as ReturnType<typeof postNtfyRegenerate> extends Promise<infer T> ? T : never);
 
@@ -221,9 +225,9 @@ describe("PreferencesNotificationsPane (ntfy rebuild)", () => {
       expect(postNtfyRegenerate).toHaveBeenCalledTimes(1);
     });
 
-    // After regenerate, new reading credential is displayed
+    // After regenerate, new ntfy password is displayed
     await waitFor(() => {
-      expect(screen.getByTestId("preferences-notifications-reading-credential").textContent).toContain("tk_rotatedcredential");
+      expect(screen.getByTestId("preferences-notifications-ntfy-password").textContent).toContain("rotatedntfypassword");
     });
   });
 
@@ -245,8 +249,8 @@ describe("PreferencesNotificationsPane (ntfy rebuild)", () => {
     // No POST should have been fired
     expect(postNtfyRegenerate).not.toHaveBeenCalled();
 
-    // Original credential unchanged
-    expect(screen.getByTestId("preferences-notifications-reading-credential").textContent).toContain("tk_testreadingcredential");
+    // Original password unchanged
+    expect(screen.getByTestId("preferences-notifications-ntfy-password").textContent).toContain("testntfypassword");
   });
 
   it("PANE-07 (browser-push API absent): component source has no Notification.permission, pushManager, VAPID, or requestPermission references", () => {
