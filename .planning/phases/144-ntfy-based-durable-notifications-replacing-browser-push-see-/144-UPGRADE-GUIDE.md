@@ -232,18 +232,28 @@ Each user on your instance who wants notifications:
 
 1. Install the **ntfy** app from the App Store (free).
 2. In Skynet, open **Preferences → Notifications**.
-3. Tap **Set up notifications**. Skynet backend issues a per-user topic
-   and reading credential; the pane displays three values:
+3. Tap **Set up notifications**. Skynet backend provisions a per-user
+   ntfy account + topic; the pane displays four values:
    - Server address (e.g. `https://push.your-domain.com`)
    - Topic name (an opaque per-user string)
-   - Reading credential (a `tk_...` token)
+   - ntfy username (`skynet-reader-<user-id>`)
+   - ntfy password (a 32-char hex, encrypted at rest server-side)
 4. In the ntfy app, tap "Add subscription," toggle "Use another server,"
-   and enter the three values.
+   enter the server + topic. When prompted to log in (the subscription
+   is behind an ACL), enter the ntfy **username** + **password** from
+   the pane (ntfy iOS uses Basic auth, not Bearer tokens).
 5. Back in Skynet, tap **Send test notification**. Your phone should
    buzz.
 
 If the test doesn't buzz, run through section 7's verifications on your
 end first, then check iOS notification settings for the ntfy app.
+
+> **Phase 145 note:** earlier builds of Phase 144 surfaced a single
+> "reading credential" (`tk_...` token). ntfy iOS's per-topic Login
+> dialog does Basic auth and ignored the token. Phase 145 replaced that
+> with the username+password pair above. Any existing `push_subscriptions`
+> rows from an earlier Phase 144 build are dropped on upgrade — users
+> re-click **Set up notifications** once to re-provision.
 
 ---
 

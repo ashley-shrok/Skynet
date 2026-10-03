@@ -761,11 +761,12 @@ not something agents drive.
   - **Agent voices** — voice used by the per-bubble speak button on
     agent messages.
   - **Notifications** — set up push notifications on your phone via
-    the ntfy iOS app. The pane shows the server address, topic name,
-    and reading credential to enter in the ntfy app, a **Send test
+    the ntfy iOS app. The pane shows four values to enter in the ntfy
+    app's per-topic Login dialog — server address, topic name, ntfy
+    username, and ntfy password (Basic auth) — a **Send test
     notification** button to confirm end-to-end delivery, and a
-    **Regenerate credential** button to rotate the token (invalidates
-    the old credential immediately; re-enter new values in the ntfy
+    **Regenerate password** button to rotate the password (invalidates
+    the old one immediately; re-enter the new password in the ntfy
     app). iPhone-only in v1; no desktop push.
   - **Log out** — signs the user out of the app. Pinned to the bottom of
     the modal's left nav (below a divider) so it's reachable from any
