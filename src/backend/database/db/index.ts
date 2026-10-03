@@ -602,21 +602,23 @@ async function initializeCompleteDatabase(): Promise<void> {
     CREATE UNIQUE INDEX IF NOT EXISTS relay_room_sessions_user_room_uidx
         ON relay_room_sessions(user_id, room_id);
 
-    -- Phase 144 Plan 02 — push_subscriptions REBUILT for ntfy-based push.
-    -- One row per user (not per device — ntfy uses one topic per user).
+    -- Phase 144 Plan 02 (schema rebuilt for ntfy) + Phase 145 (column
+    -- renamed reading_credential → ntfy_password; now stores plaintext ntfy
+    -- Basic-auth password encrypted at rest via FieldCrypto, not the tk_...
+    -- access token). One row per user (ntfy uses one topic per user).
     -- UNIQUE(user_id) enforces one-row-per-user. UNIQUE(topic_name) ensures
     -- globally unique topics (128-bit entropy from randomBytes(16).toString("hex")).
-    -- reading_credential stores the ntfy per-user access token (tk_... format)
-    -- encrypted at rest via FieldCrypto (T-144-06). ntfy_username is stored for
-    -- DELETE/regenerate routes (MC-4 fix — read from DB, not reconstructed).
+    -- ntfy_username is stored for DELETE/regenerate routes (MC-4 fix — read
+    -- from DB, not reconstructed).
     -- HC-3: NO ntfy_publish_config table here — publish token is env-var-only.
-    -- Drop-migration from old browser-push schema runs via runPushSubscriptionsRebuild.
+    -- Drop-migration runs via runPushSubscriptionsRebuild (handles browser-push
+    -- shape, Phase-144 shape, and fresh install).
     -- Drizzle mirror at schema.ts pushSubscriptions.
     CREATE TABLE IF NOT EXISTS push_subscriptions (
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL UNIQUE,
         topic_name TEXT NOT NULL UNIQUE,
-        reading_credential TEXT NOT NULL,
+        ntfy_password TEXT NOT NULL,
         ntfy_username TEXT NOT NULL,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
@@ -1009,8 +1011,13 @@ export function runTelegramBotTokensTableDrop(
 
 /**
  * Phase 144 Plan 02 — drop the old Phase 128 browser-push push_subscriptions
- * table shape (endpoint/p256dh/auth columns) and rebuild with the ntfy shape
- * (user_id UNIQUE, topic_name UNIQUE, reading_credential encrypted, ntfy_username).
+ * table shape (endpoint/p256dh/auth columns) and rebuild with the ntfy shape.
+ *
+ * Phase 145 — same DROP + CREATE flow, now creates with the renamed column
+ * (`ntfy_password` instead of `reading_credential`; stores the ntfy Basic-auth
+ * password, not the tk_... token). Rows from the Phase-144 shape are discarded
+ * on upgrade — their stored tokens are unusable in the new flow anyway; each
+ * user re-provisions via one click in the preferences pane.
  *
  * Mirrors runTelegramBotTokensTableDrop — drop then create, both steps wrapped
  * in try/catch with databaseLogger.warn on failure (non-fatal: boot continues).
@@ -1022,8 +1029,10 @@ export function runTelegramBotTokensTableDrop(
  *   a silent no-op.
  *
  * Step 2: DROP TABLE IF EXISTS push_subscriptions
- *   Discards old browser-push rows. Per locked CONTEXT.md decision: "existing
- *   browser-push rows are discarded in the cutover" — no migration ceremony.
+ *   Discards whatever shape exists (browser-push, Phase-144 ntfy with
+ *   reading_credential, or already-new). Per Phase 145 inline-work decision:
+ *   stored tokens from Phase 144 are unusable under the new Basic-auth flow,
+ *   so no backfill — users re-provision from the preferences pane.
  *
  * Step 3: CREATE TABLE IF NOT EXISTS push_subscriptions (new ntfy schema)
  *   HC-3 scope guard: NO ntfy_publish_config table is created here — the
@@ -1076,7 +1085,7 @@ export function runPushSubscriptionsRebuild(
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL UNIQUE,
         topic_name TEXT NOT NULL UNIQUE,
-        reading_credential TEXT NOT NULL,
+        ntfy_password TEXT NOT NULL,
         ntfy_username TEXT NOT NULL,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE

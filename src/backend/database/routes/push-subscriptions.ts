@@ -8,16 +8,18 @@
  *
  *   GET  /ntfy-setup       — Return setup state for the authenticated user.
  *                            {isSetUp:false} if no row; {isSetUp:true, serverAddress,
- *                            topicName, readingCredential, ntfyUsername} if setup.
+ *                            topicName, ntfyUsername, ntfyPassword} if setup.
  *
- *   POST /ntfy-setup       — Idempotent provision. Creates ntfy user + ACL + token
- *                            on first call. Returns existing setup shape on re-call.
+ *   POST /ntfy-setup       — Idempotent provision. Creates ntfy user + ACL +
+ *                            DB row on first call. Returns existing setup shape
+ *                            on re-call. Phase 145: no token mint step.
  *
  *   POST /ntfy-test        — Publish a test notification to the user's topic via
  *                            sendPushToUser. Returns {ok:true} or 500 {error:...}.
  *
- *   POST /ntfy-regenerate  — Revoke old token via ntfy admin API, mint new token,
- *                            update DB, return new setup shape. MC-4: reads
+ *   POST /ntfy-regenerate  — Rotate the user's ntfy password via admin
+ *                            PUT /v1/users, update DB with the new encrypted
+ *                            password, return new setup shape. MC-4: reads
  *                            ntfy_username from the stored DB row.
  *
  *   DELETE /ntfy-setup     — Delete ntfy user + revoke ACL + drop DB row. MC-4:
@@ -30,7 +32,7 @@
  *     req.body (same invariant as Phase 128 Phase-128-21 mitigation).
  *   - NtfyAdminError caught and returned as generic 500 {error:...} — no
  *     credential leakage in error responses (T-144-07 mitigation).
- *   - reading_credential encrypted via FieldCrypto (T-144-06 mitigation).
+ *   - ntfy_password encrypted via FieldCrypto (T-144-06 mitigation).
  *
  * ## MC-4 fix (plan-checker flag)
  *   DELETE and REGENERATE handlers SELECT ntfy_username from the stored DB row
@@ -63,7 +65,7 @@ import {
   deleteNtfyUser,
   grantTopicReadAccess,
   revokeTopicAccess,
-  mintUserToken,
+  updateNtfyUserPassword,
   NtfyAdminError,
 } from "../../notifications/ntfy-admin-client.js";
 import { sendPushToUser } from "../../notifications/ntfy-sender.js";
@@ -80,7 +82,7 @@ interface PushSubscriptionRow {
   id: string;
   user_id: string;
   topic_name: string;
-  reading_credential: string; // encrypted via FieldCrypto
+  ntfy_password: string; // encrypted via FieldCrypto (Phase 145)
   ntfy_username: string;
   created_at: string;
 }
@@ -89,8 +91,8 @@ interface NtfySetupResponse {
   isSetUp: boolean;
   serverAddress?: string;
   topicName?: string;
-  readingCredential?: string; // decrypted
   ntfyUsername?: string;
+  ntfyPassword?: string; // decrypted — ntfy Basic-auth password (Phase 145)
 }
 
 // ---------------------------------------------------------------------------
@@ -99,11 +101,13 @@ interface NtfySetupResponse {
 
 /**
  * Build the ntfy setup response shape for the given user.
- * Returns {isSetUp:false} if no row; decrypts reading_credential via FieldCrypto
+ * Returns {isSetUp:false} if no row; decrypts ntfy_password via FieldCrypto
  * and returns {isSetUp:true, ...} if row exists.
  *
  * MC-4: ntfyUsername is READ from the stored ntfy_username column — never
  * reconstructed from userId.
+ *
+ * Phase 145: returns ntfyPassword (the Basic-auth password), not a tk_ token.
  */
 function buildSetupResponse(
   row: PushSubscriptionRow | undefined,
@@ -113,25 +117,25 @@ function buildSetupResponse(
     return { isSetUp: false };
   }
 
-  // Decrypt the reading_credential via FieldCrypto.
+  // Decrypt the stored ntfy_password via FieldCrypto.
   // Uses the user's data key — DataCrypto.validateUserAccess throws if user
   // data is not unlocked, but in practice all authenticated requests have
   // unlocked user data by the time routes are reached.
   const userDataKey = DataCrypto.validateUserAccess(userId);
-  const decryptedCredential = FieldCrypto.decryptField(
-    row.reading_credential,
+  const decryptedPassword = FieldCrypto.decryptField(
+    row.ntfy_password,
     userDataKey,
     row.id,
-    "reading_credential",
+    "ntfy_password",
   );
 
   return {
     isSetUp: true,
     serverAddress: getNtfyBaseUrl(),
     topicName: row.topic_name,
-    readingCredential: decryptedCredential,
     // MC-4 fix: ntfyUsername is READ from the DB row, not reconstructed from userId.
     ntfyUsername: row.ntfy_username,
+    ntfyPassword: decryptedPassword,
   };
 }
 
@@ -141,7 +145,7 @@ function buildSetupResponse(
  */
 function getSubscriptionRow(userId: string): PushSubscriptionRow | undefined {
   return db.$client
-    .prepare("SELECT id, user_id, topic_name, reading_credential, ntfy_username, created_at FROM push_subscriptions WHERE user_id = ?")
+    .prepare("SELECT id, user_id, topic_name, ntfy_password, ntfy_username, created_at FROM push_subscriptions WHERE user_id = ?")
     .get(userId) as PushSubscriptionRow | undefined;
 }
 
@@ -170,16 +174,19 @@ export async function handleGetNtfySetup(
  * shape without making any ntfy API calls. On first call, creates:
  *   1. A ntfy user: "skynet-reader-<userId>" with a random password
  *   2. ACL: grants that user ro access to the user's topic
- *   3. A token: minted for that user (stored as reading_credential)
+ *   3. DB row: stores the plaintext password (encrypted via FieldCrypto)
  *
  * The ntfy_username stored at creation time is the computed value
  * "skynet-reader-<userId>" — subsequent DELETE/REGENERATE reads it back
  * from the DB (MC-4: never reconstructs from userId at use-time).
  *
- * Credential generation follows RESEARCH.md Pattern 4:
+ * Credential generation:
  *   - topicName: randomBytes(16).toString("hex") — 32-char hex, 128-bit entropy
- *   - readerPassword: randomBytes(16).toString("hex") — 32-char hex
- *   (The token returned by mintUserToken has the "tk_..." prefix from ntfy)
+ *   - ntfyPassword: randomBytes(16).toString("hex") — 32-char hex
+ *
+ * Phase 145: no mintUserToken step. The ntfy iOS app's per-topic Login dialog
+ * does Basic auth (username + password); a bearer token is not useful there.
+ * The password we set via createNtfyUser IS what the user types into the app.
  */
 export async function handlePostNtfySetup(
   userId: string,
@@ -193,12 +200,12 @@ export async function handlePostNtfySetup(
 
   // Generate credentials.
   const topicName = randomBytes(16).toString("hex"); // 32-char hex
-  const readerPassword = randomBytes(16).toString("hex"); // 32-char hex
+  const ntfyPassword = randomBytes(16).toString("hex"); // 32-char hex
   const ntfyUsername = `skynet-reader-${userId}`;
 
   try {
-    // Step 1: Create the ntfy user.
-    await createNtfyUser(ntfyUsername, readerPassword);
+    // Step 1: Create the ntfy user with the generated password.
+    await createNtfyUser(ntfyUsername, ntfyPassword);
   } catch (err) {
     if (err instanceof NtfyAdminError) {
       databaseLogger.warn("[ntfy] setup: create user failed", {
@@ -226,38 +233,22 @@ export async function handlePostNtfySetup(
     throw err;
   }
 
-  let readingToken: string;
-  try {
-    // Step 3: Mint a token for the user (per-user Basic auth via ntfy-admin-client).
-    readingToken = await mintUserToken(ntfyUsername, readerPassword);
-  } catch (err) {
-    if (err instanceof NtfyAdminError) {
-      databaseLogger.warn("[ntfy] setup: mint token failed", {
-        operation: "ntfy_setup_mint_token_failed",
-        userId,
-        status: err.status,
-      });
-      return res.status(500).json({ error: "ntfy admin error" });
-    }
-    throw err;
-  }
-
-  // Encrypt the reading credential via FieldCrypto.
+  // Encrypt the password via FieldCrypto.
   const rowId = randomUUID();
   const userDataKey = DataCrypto.validateUserAccess(userId);
-  const encryptedCredential = FieldCrypto.encryptField(
-    readingToken,
+  const encryptedPassword = FieldCrypto.encryptField(
+    ntfyPassword,
     userDataKey,
     rowId,
-    "reading_credential",
+    "ntfy_password",
   );
 
   // Insert the DB row.
   db.$client
     .prepare(
-      "INSERT INTO push_subscriptions (id, user_id, topic_name, reading_credential, ntfy_username) VALUES (?, ?, ?, ?, ?)",
+      "INSERT INTO push_subscriptions (id, user_id, topic_name, ntfy_password, ntfy_username) VALUES (?, ?, ?, ?, ?)",
     )
-    .run(rowId, userId, topicName, encryptedCredential, ntfyUsername);
+    .run(rowId, userId, topicName, encryptedPassword, ntfyUsername);
 
   try {
     await DatabaseSaveTrigger.forceSave("ntfy-setup-provision");
@@ -309,12 +300,15 @@ export async function handlePostNtfyTest(
 /**
  * POST /ntfy-regenerate handler.
  *
- * Hard credential rotation — revokes the old token and mints a new one.
+ * Hard credential rotation — generates a new password, pushes it to ntfy via
+ * admin API (PUT /v1/users), re-encrypts and stores it. ACL grants are
+ * preserved (no delete-and-recreate dance). Topic name is unchanged.
+ *
  * MC-4 fix: reads ntfy_username from the stored DB row — does NOT reconstruct
  * as "skynet-reader-" + userId, which could differ for older rows.
  *
- * Inline comment: "MC-4 fix: ntfy_username is READ from the DB row, not
- * reconstructed from userId."
+ * Phase 145: simplified from the Phase 144 delete-user-and-mint-token flow
+ * to a single PUT /v1/users password rotation.
  */
 export async function handlePostNtfyRegenerate(
   userId: string,
@@ -327,24 +321,14 @@ export async function handlePostNtfyRegenerate(
   }
 
   const ntfyUsername = row.ntfy_username; // MC-4: stored value, not reconstructed
-
-  // Mint a new token (we need the user's password to auth, but we no longer
-  // have it — use the admin API delete + recreate pattern instead).
-  // Since we can't re-auth as the user without their password, we use the
-  // admin API to delete the user and re-create them, then mint a token.
-  // This is the correct rotation approach when the password is not stored.
-  //
-  // Simplified approach: delete the user (which invalidates all tokens),
-  // recreate them with a new password, grant ACL again, mint a new token.
   const newPassword = randomBytes(16).toString("hex");
 
   try {
-    // Revoke by deleting + recreating the user (all tokens invalidated).
-    await deleteNtfyUser(ntfyUsername);
+    await updateNtfyUserPassword(ntfyUsername, newPassword);
   } catch (err) {
     if (err instanceof NtfyAdminError) {
-      databaseLogger.warn("[ntfy] regenerate: delete user failed", {
-        operation: "ntfy_regenerate_delete_token_failed",
+      databaseLogger.warn("[ntfy] regenerate: update password failed", {
+        operation: "ntfy_regenerate_update_password_failed",
         userId,
         status: err.status,
       });
@@ -353,68 +337,24 @@ export async function handlePostNtfyRegenerate(
     throw err;
   }
 
-  try {
-    await createNtfyUser(ntfyUsername, newPassword);
-  } catch (err) {
-    if (err instanceof NtfyAdminError) {
-      databaseLogger.warn("[ntfy] regenerate: re-create user failed", {
-        operation: "ntfy_regenerate_delete_token_failed",
-        userId,
-        status: err.status,
-      });
-      return res.status(500).json({ error: "ntfy admin error" });
-    }
-    throw err;
-  }
-
-  try {
-    await grantTopicReadAccess(ntfyUsername, row.topic_name);
-  } catch (err) {
-    if (err instanceof NtfyAdminError) {
-      databaseLogger.warn("[ntfy] regenerate: grant access failed", {
-        operation: "ntfy_regenerate_delete_token_failed",
-        userId,
-        status: err.status,
-      });
-      return res.status(500).json({ error: "ntfy admin error" });
-    }
-    throw err;
-  }
-
-  let newToken: string;
-  try {
-    newToken = await mintUserToken(ntfyUsername, newPassword);
-  } catch (err) {
-    if (err instanceof NtfyAdminError) {
-      databaseLogger.warn("[ntfy] regenerate: mint token failed", {
-        operation: "ntfy_regenerate_delete_token_failed",
-        userId,
-        status: err.status,
-      });
-      return res.status(500).json({ error: "ntfy admin error" });
-    }
-    throw err;
-  }
-
-  // Encrypt the new token.
+  // Encrypt + store the new password.
   const userDataKey = DataCrypto.validateUserAccess(userId);
-  const encryptedNewToken = FieldCrypto.encryptField(
-    newToken,
+  const encryptedPassword = FieldCrypto.encryptField(
+    newPassword,
     userDataKey,
     row.id,
-    "reading_credential",
+    "ntfy_password",
   );
 
-  // Update the DB row with the new encrypted credential.
   db.$client
-    .prepare("UPDATE push_subscriptions SET reading_credential = ? WHERE user_id = ?")
-    .run(encryptedNewToken, userId);
+    .prepare("UPDATE push_subscriptions SET ntfy_password = ? WHERE user_id = ?")
+    .run(encryptedPassword, userId);
 
   try {
     await DatabaseSaveTrigger.forceSave("ntfy-regenerate");
   } catch (saveErr) {
     databaseLogger.warn("[ntfy] regenerate: forceSave failed (non-fatal)", {
-      operation: "ntfy_regenerate_delete_token_failed",
+      operation: "ntfy_regenerate_force_save_failed",
       userId,
       error: saveErr instanceof Error ? saveErr.message : "unknown",
     });

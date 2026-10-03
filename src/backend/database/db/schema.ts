@@ -889,16 +889,20 @@ export const relayRoomSessions = sqliteTable("relay_room_sessions", {
 // user (not per device — ntfy has one topic per user, not per endpoint).
 // HC-3: publish token lives in NTFY_PUBLISH_TOKEN env var only — no
 // ntfy_publish_config singleton table (RESEARCH.md Q7's suggestion deliberately
-// NOT implemented). `reading_credential` is an ntfy per-user access token
-// (tk_... format) encrypted at rest via FieldCrypto (T-144-06 mitigation).
+// NOT implemented).
+// Phase 145 — `ntfy_password` stores the per-user ntfy Basic-auth password
+// (plaintext encrypted at rest via FieldCrypto). The ntfy iOS app's per-topic
+// Login dialog does Basic auth (username + password); it does not accept
+// bearer tokens there. Previously stored a `tk_...` access token in
+// `reading_credential`; renamed + resemanticised in Phase 145.
 // `ntfy_username` is the reader account name (stored so DELETE/regenerate
 // routes read it from DB instead of reconstructing — MC-4 fix).
 // FK cascades on users delete (T-128-01 / T-144 continuation — orphaned
 // rows are impossible). UNIQUE(user_id) enforces one-row-per-user.
 // UNIQUE(topic_name) enforces globally unique topics (128-bit entropy from
 // randomBytes(16).toString("hex"); T-144-09 collision probability < 2^-64).
-// Drop-migration from the old browser-push schema lives in
-// db/index.ts::runPushSubscriptionsRebuild.
+// Drop-migration lives in db/index.ts::runPushSubscriptionsRebuild (handles
+// browser-push shape, Phase-144 shape, and fresh install).
 export const pushSubscriptions = sqliteTable("push_subscriptions", {
   id: text("id").primaryKey(),
   userId: text("user_id")
@@ -906,7 +910,7 @@ export const pushSubscriptions = sqliteTable("push_subscriptions", {
     .unique()
     .references(() => users.id, { onDelete: "cascade" }),
   topicName: text("topic_name").notNull().unique(),
-  readingCredential: text("reading_credential").notNull(),
+  ntfyPassword: text("ntfy_password").notNull(),
   ntfyUsername: text("ntfy_username").notNull(),
   createdAt: text("created_at")
     .notNull()

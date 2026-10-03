@@ -1,19 +1,17 @@
 /**
  * Phase 144 Plan 02 Task 2 — ntfy HTTP admin API client.
+ * Phase 145 — mintUserToken removed (never actually useful: the ntfy iOS
+ * app's per-topic Login dialog does Basic auth, not Bearer). Added
+ * updateNtfyUserPassword for the Phase 145 regenerate flow.
  *
  * Talks to the ntfy container's admin HTTP API at http://ntfy:2586/v1/*
  * over the internal Docker network (never traverses the public internet).
  *
- * ## Admin vs per-user auth split (CRITICAL — per RESEARCH.md Q3-ADDENDUM)
+ * ## Admin auth
  *
- * ntfy's admin endpoints (/v1/users, /v1/users/access) are gated by
- * `ensureAdmin` — only a user with the `admin` role can call them.
- * These use HTTP Basic auth with `getNtfyAdminUser()` + `getNtfyAdminPassword()`.
- *
- * ntfy's per-user token endpoint (/v1/account/token) is gated by
- * `ensureUser` — the caller must authenticate AS THAT USER, not as admin.
- * `mintUserToken` authenticates with the per-user username/password (NOT admin).
- * This is the critical split: admin credentials cannot mint per-user tokens.
+ * All exported methods call admin endpoints (/v1/users, /v1/users/access)
+ * gated by `ensureAdmin` — only a user with the `admin` role can call
+ * them. Auth is HTTP Basic with `getNtfyAdminUser()` + `getNtfyAdminPassword()`.
  *
  * ## Error handling
  *
@@ -132,6 +130,34 @@ export async function createNtfyUser(
 }
 
 /**
+ * Update the password for an existing ntfy user.
+ * Authenticates as the ntfy admin user via Basic auth.
+ *
+ * PUT /v1/users (gated by ensureAdmin)
+ * Body: { username, password }
+ *
+ * ntfy's admin API treats PUT /v1/users as "upsert password" for an existing
+ * user. All of the user's existing tokens remain valid; only the Basic-auth
+ * password is replaced. Used by the Phase 145 regenerate flow to rotate a
+ * user's password without the delete-and-recreate dance that would also
+ * invalidate any existing ACL grants.
+ *
+ * Throws NtfyAdminError on non-2xx.
+ */
+export async function updateNtfyUserPassword(
+  username: string,
+  password: string,
+): Promise<void> {
+  const baseUrl = getNtfyInternalPublishUrl();
+  await adminFetch(
+    "PUT",
+    `${baseUrl}/v1/users`,
+    basicAuth(getNtfyAdminUser(), getNtfyAdminPassword()),
+    { username, password },
+  );
+}
+
+/**
  * Delete the ntfy user with the given username.
  * Authenticates as the ntfy admin user via Basic auth.
  *
@@ -198,39 +224,3 @@ export async function revokeTopicAccess(
   );
 }
 
-/**
- * Mint a new access token for the given user.
- *
- * CRITICAL AUTH NOTE: This endpoint (/v1/account/token) is gated by
- * `ensureUser` in ntfy — the caller must authenticate AS THAT USER, not as
- * the admin. Basic auth must use the per-user username/password.
- * Using admin credentials here would fail or mint a token for the admin
- * account instead of the target user.
- *
- * POST /v1/account/token (gated by ensureUser — per-user auth)
- * Returns: the `token` field from the response body (a "tk_..." string)
- *
- * Throws NtfyAdminError on non-2xx.
- */
-export async function mintUserToken(
-  username: string,
-  password: string,
-): Promise<string> {
-  const baseUrl = getNtfyInternalPublishUrl();
-  const response = await adminFetch(
-    "POST",
-    `${baseUrl}/v1/account/token`,
-    // Per-user Basic auth (NOT admin — ensureUser gate in ntfy source)
-    basicAuth(username, password),
-    {},
-  );
-
-  const data = (await response.json()) as { token?: string };
-  if (!data.token) {
-    throw new NtfyAdminError(
-      200,
-      "mintUserToken: ntfy returned 200 but no token field in response body",
-    );
-  }
-  return data.token;
-}

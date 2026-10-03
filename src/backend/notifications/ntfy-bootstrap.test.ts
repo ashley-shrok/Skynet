@@ -47,7 +47,7 @@ vi.mock("./ntfy-admin-client.js", () => ({
   deleteNtfyUser: vi.fn(),
   grantTopicReadAccess: vi.fn(),
   revokeTopicAccess: vi.fn(),
-  mintUserToken: vi.fn(),
+  updateNtfyUserPassword: vi.fn(),
 }));
 
 describe("Phase 144-02 Task 3 — ntfy-bootstrap (NB-01..NB-02)", () => {

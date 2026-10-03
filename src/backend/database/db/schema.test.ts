@@ -1,5 +1,7 @@
 /**
  * Phase 144 Plan 02 Task 1 — Schema tests for the rebuilt push_subscriptions table.
+ * Phase 145 — column renamed reading_credential → ntfy_password (stores
+ * encrypted Basic-auth password, not tk_... token).
  *
  * Boots an in-memory better-sqlite3 with the exact CREATE TABLE DDL for the
  * NEW ntfy-based schema, then asserts sqlite_master shape + FK cascade +
@@ -7,16 +9,16 @@
  *
  * Replaces the Phase 128-01 tests (old browser-push schema with endpoint/p256dh/auth
  * columns). The new shape carries: id, user_id UNIQUE, topic_name UNIQUE,
- * reading_credential, ntfy_username, created_at — all per-user, one row max.
+ * ntfy_password, ntfy_username, created_at — all per-user, one row max.
  *
- * Test coverage (from Plan 144-02 Task 1 <behavior> block):
+ * Test coverage (from Plan 144-02 Task 1 <behavior> block, Phase 145 column rename):
  *   SCH-01: push_subscriptions has exactly 6 columns: id, user_id, topic_name,
- *           reading_credential, ntfy_username, created_at — no endpoint, p256dh,
+ *           ntfy_password, ntfy_username, created_at — no endpoint, p256dh,
  *           auth, last_delivered_at.
  *   SCH-02: UNIQUE(user_id) constraint rejects a second insert for the same user_id.
  *   SCH-03: UNIQUE(topic_name) constraint rejects a second insert with duplicate topic_name.
  *   SCH-04: Deleting a users row cascades the referenced push_subscriptions row.
- *   SCH-05: FieldCrypto.ENCRYPTED_FIELDS.push_subscriptions is a Set containing "reading_credential".
+ *   SCH-05: FieldCrypto.ENCRYPTED_FIELDS.push_subscriptions is a Set containing "ntfy_password".
  *   SCH-06: runPushSubscriptionsRebuild is idempotent — calling it twice on an
  *           already-new-shape DB does not error.
  *   SCH-07: Running runPushSubscriptionsRebuild on a DB with the OLD shape drops the
@@ -27,13 +29,14 @@ import { describe, it, expect } from "vitest";
 import Database from "better-sqlite3";
 import * as schema from "./schema.js";
 
-// Byte-parallel copy of the new push_subscriptions DDL in db/index.ts (Phase 144).
+// Byte-parallel copy of the new push_subscriptions DDL in db/index.ts
+// (Phase 144 + Phase 145 column rename).
 const NEW_PUSH_SUBSCRIPTIONS_DDL = `
   CREATE TABLE IF NOT EXISTS push_subscriptions (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL UNIQUE,
     topic_name TEXT NOT NULL UNIQUE,
-    reading_credential TEXT NOT NULL,
+    ntfy_password TEXT NOT NULL,
     ntfy_username TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
@@ -85,7 +88,7 @@ function bootstrapNewSchemaDb(): Database.Database {
 }
 
 describe("Phase 144-02 Task 1 — push_subscriptions new schema (SCH-01..SCH-08)", () => {
-  it("SCH-01: push_subscriptions has exactly 6 columns (id, user_id, topic_name, reading_credential, ntfy_username, created_at) — no endpoint, p256dh, auth, last_delivered_at", () => {
+  it("SCH-01: push_subscriptions has exactly 6 columns (id, user_id, topic_name, ntfy_password, ntfy_username, created_at) — no endpoint, p256dh, auth, last_delivered_at", () => {
     const db = bootstrapNewSchemaDb();
 
     const cols = db
@@ -98,8 +101,8 @@ describe("Phase 144-02 Task 1 — push_subscriptions new schema (SCH-01..SCH-08)
       [
         "created_at",
         "id",
+        "ntfy_password",
         "ntfy_username",
-        "reading_credential",
         "topic_name",
         "user_id",
       ].sort(),
@@ -116,14 +119,14 @@ describe("Phase 144-02 Task 1 — push_subscriptions new schema (SCH-01..SCH-08)
     const db = bootstrapNewSchemaDb();
 
     db.prepare(
-      "INSERT INTO push_subscriptions (id, user_id, topic_name, reading_credential, ntfy_username) VALUES (?, ?, ?, ?, ?)",
+      "INSERT INTO push_subscriptions (id, user_id, topic_name, ntfy_password, ntfy_username) VALUES (?, ?, ?, ?, ?)",
     ).run("sub-1", "user-A", "topic-aaa", "tk_readcred1", "skynet-reader-user-A");
 
     // Second insert with same user_id, different topic — must throw UNIQUE constraint.
     expect(() =>
       db
         .prepare(
-          "INSERT INTO push_subscriptions (id, user_id, topic_name, reading_credential, ntfy_username) VALUES (?, ?, ?, ?, ?)",
+          "INSERT INTO push_subscriptions (id, user_id, topic_name, ntfy_password, ntfy_username) VALUES (?, ?, ?, ?, ?)",
         )
         .run("sub-2", "user-A", "topic-bbb", "tk_readcred2", "skynet-reader-user-A"),
     ).toThrow(/UNIQUE/i);
@@ -133,14 +136,14 @@ describe("Phase 144-02 Task 1 — push_subscriptions new schema (SCH-01..SCH-08)
     const db = bootstrapNewSchemaDb();
 
     db.prepare(
-      "INSERT INTO push_subscriptions (id, user_id, topic_name, reading_credential, ntfy_username) VALUES (?, ?, ?, ?, ?)",
+      "INSERT INTO push_subscriptions (id, user_id, topic_name, ntfy_password, ntfy_username) VALUES (?, ?, ?, ?, ?)",
     ).run("sub-1", "user-A", "shared-topic", "tk_readcred1", "skynet-reader-user-A");
 
     // Different user, SAME topic_name — must throw UNIQUE constraint.
     expect(() =>
       db
         .prepare(
-          "INSERT INTO push_subscriptions (id, user_id, topic_name, reading_credential, ntfy_username) VALUES (?, ?, ?, ?, ?)",
+          "INSERT INTO push_subscriptions (id, user_id, topic_name, ntfy_password, ntfy_username) VALUES (?, ?, ?, ?, ?)",
         )
         .run("sub-2", "user-B", "shared-topic", "tk_readcred2", "skynet-reader-user-B"),
     ).toThrow(/UNIQUE/i);
@@ -150,7 +153,7 @@ describe("Phase 144-02 Task 1 — push_subscriptions new schema (SCH-01..SCH-08)
     const db = bootstrapNewSchemaDb();
 
     db.prepare(
-      "INSERT INTO push_subscriptions (id, user_id, topic_name, reading_credential, ntfy_username) VALUES (?, ?, ?, ?, ?)",
+      "INSERT INTO push_subscriptions (id, user_id, topic_name, ntfy_password, ntfy_username) VALUES (?, ?, ?, ?, ?)",
     ).run("sub-1", "user-A", "topic-aaa", "tk_readcred1", "skynet-reader-user-A");
 
     // Sanity: row exists before delete.
@@ -168,18 +171,17 @@ describe("Phase 144-02 Task 1 — push_subscriptions new schema (SCH-01..SCH-08)
     expect(after.c).toBe(0);
   });
 
-  it("SCH-05: FieldCrypto.ENCRYPTED_FIELDS.push_subscriptions is a Set containing exactly 'reading_credential'", async () => {
+  it("SCH-05: FieldCrypto.ENCRYPTED_FIELDS.push_subscriptions is a Set containing exactly 'ntfy_password'", async () => {
     // Dynamic import to get the FieldCrypto class internals via the module.
     // FieldCrypto.ENCRYPTED_FIELDS is private, so we access via the exported
-    // isFieldEncrypted method which uses it internally, OR we can check by
-    // inspecting what the module exports. The plan says the Set contains
-    // exactly 'reading_credential'. We validate by importing field-crypto
-    // and checking the ENCRYPTED_FIELDS map via the module's exposed exports.
+    // isFieldEncrypted method which uses it internally.
     const fieldCryptoModule = await import("../../utils/field-crypto.js");
     const FieldCrypto = fieldCryptoModule.FieldCrypto;
 
     // shouldEncryptField checks ENCRYPTED_FIELDS internally.
-    expect(FieldCrypto.shouldEncryptField("push_subscriptions", "reading_credential")).toBe(true);
+    expect(FieldCrypto.shouldEncryptField("push_subscriptions", "ntfy_password")).toBe(true);
+    // Phase 145 — old column name must no longer be registered as encrypted.
+    expect(FieldCrypto.shouldEncryptField("push_subscriptions", "reading_credential")).toBe(false);
     // Other push_subscriptions columns should NOT be encrypted.
     expect(FieldCrypto.shouldEncryptField("push_subscriptions", "topic_name")).toBe(false);
     expect(FieldCrypto.shouldEncryptField("push_subscriptions", "ntfy_username")).toBe(false);
@@ -231,7 +233,7 @@ describe("Phase 144-02 Task 1 — push_subscriptions new schema (SCH-01..SCH-08)
       .all() as { name: string }[];
     const afterNames = afterCols.map((c) => c.name).sort();
     expect(afterNames).toEqual(
-      ["created_at", "id", "ntfy_username", "reading_credential", "topic_name", "user_id"].sort(),
+      ["created_at", "id", "ntfy_password", "ntfy_username", "topic_name", "user_id"].sort(),
     );
     // Old columns gone.
     expect(afterNames).not.toContain("endpoint");

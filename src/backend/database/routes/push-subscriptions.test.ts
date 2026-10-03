@@ -1,17 +1,17 @@
 /**
  * Phase 144 Plan 02 Task 3 — push-subscriptions route tests (rebuilt for ntfy).
- *
- * Tests exercise the ntfy setup/test/regenerate/delete routes that replace
- * the Phase 128 browser-push CRUD routes.
+ * Phase 145 — column renamed reading_credential → ntfy_password; stores
+ * encrypted Basic-auth password (not tk_... token). Setup no longer mints a
+ * per-user token. Regenerate rotates the password via admin PUT /v1/users.
  *
  * Route coverage:
  *   RT-01: GET /ntfy-setup with no row → 200 {isSetUp: false}
- *   RT-02: GET /ntfy-setup with a row → {isSetUp:true, serverAddress, topicName, readingCredential, ntfyUsername}
+ *   RT-02: GET /ntfy-setup with a row → {isSetUp:true, serverAddress, topicName, ntfyUsername, ntfyPassword}
  *          ntfyUsername READ FROM DB ROW (MC-4 fix)
- *   RT-03: POST /ntfy-setup on first call → creates ntfy user + ACL + token + DB row
+ *   RT-03: POST /ntfy-setup on first call → creates ntfy user + ACL + DB row (no token mint)
  *   RT-04: POST /ntfy-setup already exists → idempotent, returns existing shape
  *   RT-05: POST /ntfy-test → publishes test notification, returns {ok:true}
- *   RT-06: POST /ntfy-regenerate → deletes old token, mints new, updates DB, returns new shape
+ *   RT-06: POST /ntfy-regenerate → PUT /v1/users password rotation, updates DB, returns new shape
  *   RT-07 (MC-4): DELETE /ntfy-setup reads ntfy_username FROM DB row, not reconstructed
  *   RT-08: GET /vapid-public-key → 404 (removed)
  *   RT-09: All routes require JWT auth — unauthenticated returns 401
@@ -52,14 +52,14 @@ const mockCreateNtfyUser = vi.fn().mockResolvedValue(undefined);
 const mockDeleteNtfyUser = vi.fn().mockResolvedValue(undefined);
 const mockGrantTopicReadAccess = vi.fn().mockResolvedValue(undefined);
 const mockRevokeTopicAccess = vi.fn().mockResolvedValue(undefined);
-const mockMintUserToken = vi.fn().mockResolvedValue("tk_minted_token_12345678901");
+const mockUpdateNtfyUserPassword = vi.fn().mockResolvedValue(undefined);
 
 vi.mock("../../notifications/ntfy-admin-client.js", () => ({
   createNtfyUser: (...args: unknown[]) => mockCreateNtfyUser(...args),
   deleteNtfyUser: (...args: unknown[]) => mockDeleteNtfyUser(...args),
   grantTopicReadAccess: (...args: unknown[]) => mockGrantTopicReadAccess(...args),
   revokeTopicAccess: (...args: unknown[]) => mockRevokeTopicAccess(...args),
-  mintUserToken: (...args: unknown[]) => mockMintUserToken(...args),
+  updateNtfyUserPassword: (...args: unknown[]) => mockUpdateNtfyUserPassword(...args),
   NtfyAdminError: class NtfyAdminError extends Error {
     status: number;
     constructor(status: number, message: string) {
@@ -90,7 +90,7 @@ type DbRow = {
   id: string;
   user_id: string;
   topic_name: string;
-  reading_credential: string;
+  ntfy_password: string;
   ntfy_username: string;
   created_at: string;
 };
@@ -113,25 +113,25 @@ vi.mock("../db/index.js", () => ({
           },
           all: () => [],
           run: (...args: unknown[]) => {
-            // INSERT: (id, user_id, topic_name, reading_credential, ntfy_username)
+            // INSERT: (id, user_id, topic_name, ntfy_password, ntfy_username)
             if (sql.toLowerCase().includes("insert")) {
-              const [id, userId, topicName, readingCredential, ntfyUsername] = args as string[];
+              const [id, userId, topicName, ntfyPassword, ntfyUsername] = args as string[];
               dbRows.set(userId, {
                 id,
                 user_id: userId,
                 topic_name: topicName,
-                reading_credential: readingCredential,
+                ntfy_password: ntfyPassword,
                 ntfy_username: ntfyUsername,
                 created_at: new Date().toISOString(),
               });
               return { changes: 1 };
             }
-            // UPDATE: updates reading_credential for user_id
-            if (sql.toLowerCase().includes("update") && sql.includes("reading_credential")) {
-              const [newCred, userId] = args as string[];
+            // UPDATE: updates ntfy_password for user_id
+            if (sql.toLowerCase().includes("update") && sql.includes("ntfy_password")) {
+              const [newPassword, userId] = args as string[];
               const row = dbRows.get(userId);
               if (row) {
-                row.reading_credential = newCred;
+                row.ntfy_password = newPassword;
                 dbRows.set(userId, row);
               }
               return { changes: 1 };
@@ -168,7 +168,7 @@ vi.mock("../../utils/auth-manager.js", () => ({
 vi.mock("../../utils/field-crypto.js", () => ({
   FieldCrypto: {
     shouldEncryptField: (table: string, field: string) => {
-      return table === "push_subscriptions" && field === "reading_credential";
+      return table === "push_subscriptions" && field === "ntfy_password";
     },
     encryptField: (_plaintext: string, _key: unknown, _id: string, _field: string) =>
       _plaintext + "_ENCRYPTED",
@@ -238,7 +238,7 @@ describe("Phase 144-02 Task 3 — push-subscriptions routes (RT-01..RT-09)", () 
     mockDeleteNtfyUser.mockReset().mockResolvedValue(undefined);
     mockGrantTopicReadAccess.mockReset().mockResolvedValue(undefined);
     mockRevokeTopicAccess.mockReset().mockResolvedValue(undefined);
-    mockMintUserToken.mockReset().mockResolvedValue("tk_minted_token_12345678901");
+    mockUpdateNtfyUserPassword.mockReset().mockResolvedValue(undefined);
     mockSendPushToUser.mockReset().mockResolvedValue(undefined);
     mockForceSave.mockReset().mockResolvedValue(undefined);
     warnMock.mockReset();
@@ -260,7 +260,7 @@ describe("Phase 144-02 Task 3 — push-subscriptions routes (RT-01..RT-09)", () 
       id: "sub-1",
       user_id: "user-has-row",
       topic_name: "topic-abc123",
-      reading_credential: "tk_storedcred_ENCRYPTED",
+      ntfy_password: "storedpassword_ENCRYPTED",
       ntfy_username: "skynet-reader-weirdcase",  // MC-4: NOT "skynet-reader-user-has-row"
       created_at: "2026-01-01T00:00:00Z",
     });
@@ -275,11 +275,11 @@ describe("Phase 144-02 Task 3 — push-subscriptions routes (RT-01..RT-09)", () 
     // ntfyUsername must come from the stored row, not reconstructed as "skynet-reader-user-has-row"
     expect(body.ntfyUsername).toBe("skynet-reader-weirdcase");
     expect(body.serverAddress).toBe("https://example.com/ntfy");
-    // readingCredential should be decrypted (transparent in our mock)
-    expect(body.readingCredential).toBe("tk_storedcred");
+    // ntfyPassword should be decrypted (transparent in our mock)
+    expect(body.ntfyPassword).toBe("storedpassword");
   });
 
-  it("RT-03: POST /ntfy-setup on first call creates ntfy user + ACL + token + DB row", async () => {
+  it("RT-03: POST /ntfy-setup on first call creates ntfy user + ACL + DB row (no token mint)", async () => {
     const req = makeReq("user-new");
     const res = makeRes();
     await handlePostNtfySetup(req.userId!, res as unknown as Response);
@@ -287,17 +287,25 @@ describe("Phase 144-02 Task 3 — push-subscriptions routes (RT-01..RT-09)", () 
     const body = res._body as Record<string, unknown>;
     expect(body.isSetUp).toBe(true);
 
-    // Verify ntfy admin API was called in the right order
+    // Verify ntfy admin API was called in the right order — no mintUserToken step
     expect(mockCreateNtfyUser).toHaveBeenCalledOnce();
     expect(mockGrantTopicReadAccess).toHaveBeenCalledOnce();
-    expect(mockMintUserToken).toHaveBeenCalledOnce();
+    expect(mockUpdateNtfyUserPassword).not.toHaveBeenCalled();
 
-    // Verify a DB row was created
+    // createNtfyUser must be called with (username, password) — both plaintext,
+    // and the SAME password must appear decrypted on the response body.
+    const [createdUsername, createdPassword] = mockCreateNtfyUser.mock.calls[0] as [string, string];
+    expect(createdUsername).toBe("skynet-reader-user-new");
+    expect(createdPassword).toMatch(/^[0-9a-f]{32}$/); // 32-char hex
+    expect(body.ntfyPassword).toBe(createdPassword);
+
+    // Verify a DB row was created with the expected shape
     const row = dbRows.get("user-new");
     expect(row).toBeDefined();
     expect(row!.user_id).toBe("user-new");
     expect(row!.topic_name).toBeDefined();
-    expect(row!.ntfy_username).toBeDefined();
+    expect(row!.ntfy_username).toBe("skynet-reader-user-new");
+    expect(row!.ntfy_password.endsWith("_ENCRYPTED")).toBe(true);
   });
 
   it("RT-04: POST /ntfy-setup when row already exists → idempotent, no new ntfy calls", async () => {
@@ -305,7 +313,7 @@ describe("Phase 144-02 Task 3 — push-subscriptions routes (RT-01..RT-09)", () 
       id: "sub-1",
       user_id: "user-existing",
       topic_name: "existing-topic",
-      reading_credential: "tk_existingcred_ENCRYPTED",
+      ntfy_password: "existingpassword_ENCRYPTED",
       ntfy_username: "skynet-reader-user-existing",
       created_at: "2026-01-01T00:00:00Z",
     });
@@ -317,11 +325,12 @@ describe("Phase 144-02 Task 3 — push-subscriptions routes (RT-01..RT-09)", () 
     const body = res._body as Record<string, unknown>;
     expect(body.isSetUp).toBe(true);
     expect(body.topicName).toBe("existing-topic");
+    expect(body.ntfyPassword).toBe("existingpassword");
 
     // No ntfy API calls when row already exists
     expect(mockCreateNtfyUser).not.toHaveBeenCalled();
     expect(mockGrantTopicReadAccess).not.toHaveBeenCalled();
-    expect(mockMintUserToken).not.toHaveBeenCalled();
+    expect(mockUpdateNtfyUserPassword).not.toHaveBeenCalled();
   });
 
   it("RT-05: POST /ntfy-test publishes a test notification via sendPushToUser, returns {ok:true}", async () => {
@@ -341,18 +350,16 @@ describe("Phase 144-02 Task 3 — push-subscriptions routes (RT-01..RT-09)", () 
     expect(payload.title).toContain("test");
   });
 
-  it("RT-06: POST /ntfy-regenerate mints new token, updates DB, returns new shape", async () => {
-    const originalCred = "tk_oldcred";
+  it("RT-06: POST /ntfy-regenerate rotates password via PUT /v1/users, updates DB, returns new shape", async () => {
+    const originalPassword = "oldpassword";
     dbRows.set("user-regen", {
       id: "sub-1",
       user_id: "user-regen",
       topic_name: "regen-topic",
-      reading_credential: originalCred + "_ENCRYPTED",
+      ntfy_password: originalPassword + "_ENCRYPTED",
       ntfy_username: "skynet-reader-user-regen",
       created_at: "2026-01-01T00:00:00Z",
     });
-
-    mockMintUserToken.mockResolvedValue("tk_newminted_token_1234567890");
 
     const req = makeReq("user-regen");
     const res = makeRes();
@@ -360,8 +367,26 @@ describe("Phase 144-02 Task 3 — push-subscriptions routes (RT-01..RT-09)", () 
     expect(res._status).toBe(200);
     const body = res._body as Record<string, unknown>;
     expect(body.isSetUp).toBe(true);
-    // New reading credential should be different
-    expect(body.readingCredential).not.toBe(originalCred);
+
+    // updateNtfyUserPassword must have been called with the stored username
+    // (MC-4) and a freshly-generated 32-char hex password.
+    expect(mockUpdateNtfyUserPassword).toHaveBeenCalledOnce();
+    const [sentUsername, sentPassword] = mockUpdateNtfyUserPassword.mock.calls[0] as [string, string];
+    expect(sentUsername).toBe("skynet-reader-user-regen");
+    expect(sentPassword).toMatch(/^[0-9a-f]{32}$/);
+
+    // No delete-and-recreate dance in Phase 145
+    expect(mockDeleteNtfyUser).not.toHaveBeenCalled();
+    expect(mockCreateNtfyUser).not.toHaveBeenCalled();
+
+    // Response body carries the new password (plaintext), and it differs from the old
+    expect(body.ntfyPassword).toBe(sentPassword);
+    expect(body.ntfyPassword).not.toBe(originalPassword);
+    expect(body.topicName).toBe("regen-topic"); // topic preserved
+
+    // DB row's stored (encrypted) password must have been updated
+    const row = dbRows.get("user-regen");
+    expect(row!.ntfy_password).toBe(sentPassword + "_ENCRYPTED");
   });
 
   it("RT-07 (MC-4): DELETE /ntfy-setup reads ntfyUsername FROM DB row, not reconstructed", async () => {
@@ -370,7 +395,7 @@ describe("Phase 144-02 Task 3 — push-subscriptions routes (RT-01..RT-09)", () 
       id: "sub-1",
       user_id: "user-del",
       topic_name: "del-topic",
-      reading_credential: "tk_cred_ENCRYPTED",
+      ntfy_password: "password_ENCRYPTED",
       ntfy_username: "skynet-reader-weirdcase",  // MC-4 test case
       created_at: "2026-01-01T00:00:00Z",
     });

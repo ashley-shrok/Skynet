@@ -1,19 +1,21 @@
 /**
  * Phase 144 Plan 02 Task 2 — ntfy-admin-client tests.
+ * Phase 145 — ADM-05 replaced (updateNtfyUserPassword PUT /v1/users for
+ * password rotation; mintUserToken removed).
  *
  * Tests exercise the HTTP admin API client (ntfy-admin-client.ts) that
- * talks to the ntfy container's /v1/users and /v1/account/token endpoints.
+ * talks to the ntfy container's /v1/users and /v1/users/access endpoints.
  *
  * All fetch calls are mocked via global.fetch = vi.fn() to avoid real
  * network calls. Tests verify the correct HTTP method, URL, headers,
  * body, and error handling behavior.
  *
- * Test coverage (from Plan 144-02 Task 2 <behavior> block):
+ * Test coverage:
  *   ADM-01: createNtfyUser POSTs to /v1/users with admin Basic auth
  *   ADM-02: deleteNtfyUser sends DELETE to /v1/users with admin Basic auth
  *   ADM-03: grantTopicReadAccess POSTs to /v1/users/access with admin auth
  *   ADM-04: revokeTopicAccess sends DELETE to /v1/users/access
- *   ADM-05: mintUserToken POSTs to /v1/account/token with THAT USER's Basic auth
+ *   ADM-05: updateNtfyUserPassword PUTs to /v1/users with admin Basic auth (Phase 145)
  *   ADM-06: All admin methods include a 5-second AbortSignal.timeout
  *   ADM-07: Admin methods throw NtfyAdminError with status code on non-2xx
  */
@@ -142,27 +144,25 @@ describe("Phase 144-02 Task 2 — ntfy-admin-client (ADM-01..ADM-07)", () => {
     });
   });
 
-  it("ADM-05: mintUserToken POSTs to /v1/account/token with THAT USER's Basic auth (not admin)", async () => {
-    const mockFetch = vi.fn().mockResolvedValue(
-      makeOkResponse({ token: "tk_AgQdq7mVBoFD3dEqa78e2cjou7pC" }, 200),
-    );
+  it("ADM-05: updateNtfyUserPassword PUTs to /v1/users with admin Basic auth, body {username, password}", async () => {
+    const mockFetch = vi.fn().mockResolvedValue(makeOkResponse({ success: true }, 200));
     global.fetch = mockFetch;
 
-    const { mintUserToken } = await import("./ntfy-admin-client.js");
-    const token = await mintUserToken("skynet-reader-u1", "pw-abc");
+    const { updateNtfyUserPassword } = await import("./ntfy-admin-client.js");
+    await updateNtfyUserPassword("skynet-reader-u1", "new-pw-xyz");
 
     expect(mockFetch).toHaveBeenCalledOnce();
     const [url, options] = mockFetch.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe("http://ntfy:2586/v1/account/token");
-    expect(options.method).toBe("POST");
-    // MUST be the user's own Basic auth, NOT the admin
-    const expectedUserAuth = "Basic " + Buffer.from("skynet-reader-u1:pw-abc").toString("base64");
-    expect((options.headers as Record<string, string>)["Authorization"]).toBe(expectedUserAuth);
-    // Must NOT be the admin auth
-    const adminAuth = "Basic " + Buffer.from("test-admin:test-admin-pass").toString("base64");
-    expect((options.headers as Record<string, string>)["Authorization"]).not.toBe(adminAuth);
-    // Returns the token string
-    expect(token).toBe("tk_AgQdq7mVBoFD3dEqa78e2cjou7pC");
+    expect(url).toBe("http://ntfy:2586/v1/users");
+    expect(options.method).toBe("PUT");
+    // Admin Basic auth (NOT per-user) — only admins can rotate another user's password
+    const expectedAuth = "Basic " + Buffer.from("test-admin:test-admin-pass").toString("base64");
+    expect((options.headers as Record<string, string>)["Authorization"]).toBe(expectedAuth);
+    expect((options.headers as Record<string, string>)["Content-Type"]).toBe("application/json");
+    expect(JSON.parse(options.body as string)).toEqual({
+      username: "skynet-reader-u1",
+      password: "new-pw-xyz",
+    });
   });
 
   it("ADM-06: All admin methods include AbortSignal.timeout(5000) — slow fetch triggers AbortError", async () => {
@@ -175,8 +175,7 @@ describe("Phase 144-02 Task 2 — ntfy-admin-client (ADM-01..ADM-07)", () => {
       deleteNtfyUser,
       grantTopicReadAccess,
       revokeTopicAccess,
-      mintUserToken,
-      NtfyAdminError,
+      updateNtfyUserPassword,
     } = await import("./ntfy-admin-client.js");
 
     // Each should propagate the AbortError (not swallow it)
@@ -184,7 +183,7 @@ describe("Phase 144-02 Task 2 — ntfy-admin-client (ADM-01..ADM-07)", () => {
     await expect(deleteNtfyUser("u")).rejects.toThrow();
     await expect(grantTopicReadAccess("u", "t")).rejects.toThrow();
     await expect(revokeTopicAccess("u", "t")).rejects.toThrow();
-    await expect(mintUserToken("u", "p")).rejects.toThrow();
+    await expect(updateNtfyUserPassword("u", "p")).rejects.toThrow();
 
     // Verify AbortSignal.timeout(5000) was passed to each fetch call
     // by checking the 'signal' option exists in each fetch call.
