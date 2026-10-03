@@ -239,15 +239,22 @@ function buildAbsSkillFilePath(
 /**
  * Phase 113 D-06 + D-07: compose the seed SKILL.md body for a brand-new skill.
  *
- * Exact 5-line shape (LF line endings, trailing blank line intentional so the
- * editor lands the cursor on a clean body-editing position rather than at the
- * end of frontmatter):
+ * Shape (LF line endings) — frontmatter block + prettified-slug H1 so
+ * MDXEditor's Lexical parser has at least one markdown node to render; with
+ * pure-frontmatter-plus-blank the contenteditable rendered empty and the
+ * silent-failure detector swapped the editor into the code-editor fallback
+ * for every freshly-created skill (field repro 2026-10-03):
  *
  *   ---\n
  *   name: <slug>\n
  *   description: "<yaml-safe-desc>"\n
  *   ---\n
  *   \n
+ *   # <PrettifiedSlug>\n
+ *
+ * Prettify = `-`/`_` → space, first char uppercased (same deslugify shape as
+ * the scheduled-agents `task:` prefix). Users can rename the heading to the
+ * display name they actually want in the editor.
  *
  * YAML-safety (D-07): unconditional double-quote wrap; escape embedded `\` and
  * `"`. ORDER MATTERS — escape `\` FIRST, then `"`. Reversing the order would
@@ -263,7 +270,9 @@ function composeSkillMdSeed(slug: string, description: string): string {
   const yamlSafeDesc = description
     .replace(/\\/g, "\\\\")
     .replace(/"/g, '\\"');
-  return `---\nname: ${slug}\ndescription: "${yamlSafeDesc}"\n---\n\n`;
+  const spaced = slug.replace(/[-_]/g, " ");
+  const heading = spaced.charAt(0).toUpperCase() + spaced.slice(1);
+  return `---\nname: ${slug}\ndescription: "${yamlSafeDesc}"\n---\n\n# ${heading}\n`;
 }
 
 // ---------------------------------------------------------------------------

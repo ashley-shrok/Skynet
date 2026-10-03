@@ -704,10 +704,14 @@ describe("POST /skills-editor/skill", () => {
       "'/home/testuser/.claude/skills/new-skill'",
     );
     // Verify the atomic-write happened at the expected path + BYTE-EXACT seed (D-06 + D-07).
+    // Prettified-slug H1 appended 2026-10-03 — MDXEditor needs at least one
+    // markdown node in the body or Lexical renders empty + the silent-failure
+    // detector swaps to the code editor on first open. Deslugify: `-`/`_` →
+    // space, first char uppercased.
     expect(writeMarkdownFileAtomic).toHaveBeenCalledWith(
       expect.anything(),
       "/home/testuser/.claude/skills/new-skill/SKILL.md",
-      '---\nname: new-skill\ndescription: "A test skill."\n---\n\n',
+      '---\nname: new-skill\ndescription: "A test skill."\n---\n\n# New skill\n',
     );
   });
 
@@ -908,7 +912,7 @@ describe("POST /skills-editor/skill", () => {
     // After "-escape:   has \"quote\" and \\ slash
     // Wrapped:          "has \"quote\" and \\ slash"
     const expectedSeed =
-      '---\nname: yaml-test\ndescription: "has \\"quote\\" and \\\\ slash"\n---\n\n';
+      '---\nname: yaml-test\ndescription: "has \\"quote\\" and \\\\ slash"\n---\n\n# Yaml test\n';
     expect(writeMarkdownFileAtomic).toHaveBeenCalledWith(
       expect.anything(),
       "/home/testuser/.claude/skills/yaml-test/SKILL.md",
