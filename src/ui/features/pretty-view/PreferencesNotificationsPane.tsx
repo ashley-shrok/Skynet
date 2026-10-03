@@ -208,8 +208,8 @@ function SetUpView({
         style={{ color: "#c8c4b8", marginBottom: 8 }}
       >
         Notifications arrive on your phone via the ntfy iOS app (not this
-        browser). Install the ntfy app, add a subscription using the values
-        below.
+        browser). Install the ntfy app, then use the values below to add
+        your topic subscription — step-by-step below the values.
       </p>
 
       {/* Four value rows */}
@@ -233,6 +233,69 @@ function SetUpView({
         value={setup.ntfyPassword ?? ""}
         testId="preferences-notifications-ntfy-password"
       />
+
+      {/* Step-by-step add-subscription instructions (verified against ntfy iOS) */}
+      <div
+        data-testid="preferences-notifications-ios-steps"
+        style={{
+          marginTop: 14,
+          padding: "12px 14px",
+          borderRadius: 8,
+          border: "1px solid rgba(255,240,215,0.08)",
+          background: "rgba(20,21,32,0.4)",
+        }}
+      >
+        <p
+          style={{
+            fontSize: 11,
+            textTransform: "uppercase",
+            letterSpacing: "0.06em",
+            color: "rgba(200,196,184,0.6)",
+            fontWeight: 600,
+            margin: 0,
+            marginBottom: 8,
+          }}
+        >
+          Add this subscription in the ntfy iOS app
+        </p>
+        <ol
+          style={{
+            color: "#c8c4b8",
+            fontSize: 13,
+            lineHeight: "19px",
+            margin: 0,
+            paddingLeft: 20,
+          }}
+        >
+          <li>
+            Tap the <strong>+</strong> button (upper-right) to add a new
+            subscription.
+          </li>
+          <li>
+            Enter the <strong>topic name</strong> (above).
+          </li>
+          <li>
+            Turn on the <strong>Use another server</strong> switch — a
+            server field appears below it.
+          </li>
+          <li>
+            Enter the <strong>server address</strong> (above) into the
+            server field.
+          </li>
+          <li>
+            Tap <strong>Subscribe</strong> (upper-right). A login screen
+            appears — the topic is behind an access-list, so ntfy asks for
+            credentials.
+          </li>
+          <li>
+            Enter the <strong>ntfy username</strong> and{" "}
+            <strong>ntfy password</strong> (both above).
+          </li>
+          <li>
+            Tap the confirm button (upper-right) to finish.
+          </li>
+        </ol>
+      </div>
 
       {/* Action buttons */}
       <div

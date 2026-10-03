@@ -133,6 +133,15 @@ describe("PreferencesNotificationsPane (ntfy rebuild)", () => {
     // Test and regenerate buttons
     expect(screen.getByTestId("preferences-notifications-test-button")).toBeTruthy();
     expect(screen.getByTestId("preferences-notifications-regenerate-button")).toBeTruthy();
+
+    // Step-by-step add-subscription instructions for the ntfy iOS app
+    const steps = screen.getByTestId("preferences-notifications-ios-steps");
+    expect(steps).toBeTruthy();
+    expect(steps.textContent).toMatch(/upper-right/i);
+    expect(steps.textContent).toMatch(/Use another server/i);
+    expect(steps.textContent).toMatch(/Subscribe/i);
+    // All seven steps rendered as an ordered list
+    expect(steps.querySelectorAll("li").length).toBe(7);
   });
 
   it("PANE-04 (setup flow): clicking 'Set up notifications' calls postNtfySetup and transitions to set-up view", async () => {
