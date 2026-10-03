@@ -18,18 +18,47 @@ will crash-loop (missing config). This guide walks the full checklist.
 
 ---
 
-## 1. Add a DNS record for your ntfy subdomain
+## 1. Add a DNS record (or tailnet hostname) for your ntfy subdomain
 
-ntfy refuses to run on a sub-path — it must live at its own hostname. Pick
-a subdomain (e.g. `push.your-domain.com`) and add an A-record pointing at
-your Skynet host's public IP.
+ntfy refuses to run on a sub-path — it must live at its own hostname. The
+hostname only needs to be reachable from (a) your users' phones and
+(b) outbound to ntfy.sh for the iOS wake-up relay. The ntfy server does
+NOT need inbound reachability from the open internet.
 
-Example: for an instance at `skynet.yourdomain.com`, add
-`push.yourdomain.com` pointing at the same public IP.
+**For instances with publicly reachable users:** pick a subdomain
+(e.g. `push.your-domain.com`), add an A-record to your Skynet host's
+public IP. Caddy will issue a Let's Encrypt certificate automatically on
+first request via HTTP-01 — no manual cert work. Wait for DNS
+propagation (`dig +short push.your-domain.com @8.8.8.8` returns the IP)
+before continuing.
 
-Caddy will issue a Let's Encrypt certificate automatically on first request
-via HTTP-01 — no manual cert work. Wait for DNS propagation
-(`dig +short push.yourdomain.com @8.8.8.8` returns the IP) before continuing.
+**For tailnet-only instances** (users only reach Skynet via Tailscale):
+since those users already have Tailscale on their phone (otherwise they
+can't reach the app at all), the ntfy server can live on a `.ts.net`
+hostname with a Tailscale-provisioned cert — no public DNS record, no
+Let's Encrypt. Steps:
+
+1. Pick a tailnet hostname: `push-<instance>.<your-tailnet>.ts.net`.
+2. Run `tailscale cert push-<instance>.<your-tailnet>.ts.net` on the host
+   to provision the TLS cert (Tailscale auto-renews; cert files land in
+   `/var/lib/tailscale/certs/` or similar depending on your setup).
+3. Point your Caddy site block at the `.ts.net` hostname (same shape as
+   the public setup, just the hostname differs) and configure Caddy to
+   use the Tailscale-provisioned cert files directly (or route the
+   traffic through `tailscale serve` as a reverse-proxy if that's
+   simpler for your setup).
+4. Users point the ntfy iOS app at the `.ts.net` URL. Content fetch
+   travels tailnet; the APNs wake-up still goes out through ntfy.sh over
+   the public internet (same metadata-visible-to-ntfy.sh tradeoff as
+   the public setup — no way around this on iOS without building a
+   native app).
+
+**For hybrid instances** (some users via public domain, some via
+tailnet): either run two ntfy deploys (one per hostname, each with its
+own `NTFY_PUBLIC_URL` — not currently supported by the single-container
+layout, would need a code change) OR pick one path and ask the
+other-side users to switch (install Tailscale, or use the public
+domain). Simpler: pick one path.
 
 ---
 
