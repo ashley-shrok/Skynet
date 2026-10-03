@@ -24,7 +24,7 @@
  * with each caller's existing handler.
  */
 
-import { Component, lazy, Suspense, useCallback, useState, type ReactNode } from "react";
+import { Component, lazy, Suspense, useCallback, useEffect, useState, type ReactNode } from "react";
 
 // Lazy-loaded: @mdxeditor/editor bundles Lexical + CodeMirror + Radix
 // Dialog + react-hook-form + js-yaml — ~1.5MB uncompressed. Only paid for
@@ -94,6 +94,10 @@ interface CodeEditorErrorBoundaryProps {
   fallback: ReactNode;
   filename: string;
   children: ReactNode;
+  /** Fired on catch so the parent can also flip its own sticky-fallback
+   *  state. Used by the MdxEditor-branch wrap so a thrown parse exception
+   *  prevents the next render from re-mounting the throwing child. */
+  onError?: () => void;
 }
 
 interface CodeEditorErrorBoundaryState {
@@ -115,9 +119,10 @@ class CodeEditorErrorBoundary extends Component<
     // Record which filename tripped the failure so a later filename change
     // can reset the boundary.
     this.setState({ errorFilename: this.props.filename });
+    this.props.onError?.();
     // eslint-disable-next-line no-console
     console.error(
-      `[MarkdownEditor] Code editor failed to load or crashed for filename=${this.props.filename}; falling back to plain textarea.`,
+      `[MarkdownEditor] Editor subtree crashed for filename=${this.props.filename}; falling back.`,
       error,
     );
   }
@@ -236,53 +241,70 @@ function MarkdownWithSilentFailureFallback({
   placeholder,
   loadingFallback,
 }: MarkdownEditorProps & { loadingFallback: ReactNode }): JSX.Element {
-  // Track which content strings have failed to render. Keyed by the exact
-  // content so a subsequent edit-and-fix would automatically re-attempt
-  // MDXEditor. Rare in practice — most files are stable.
-  const [failedContent, setFailedContent] = useState<string | null>(null);
-  const handleSilentFailure = useCallback(() => {
-    setFailedContent(content);
-  }, [content]);
+  // Sticky per-mount fallback. Once MdxEditor has failed for this filename
+  // — silently (empty contenteditable detected 200ms post-mount) OR by
+  // throwing from inside its useMemo-based import pipeline (js-yaml's
+  // YAMLException on malformed frontmatter is the known trigger) — stay in
+  // the code-editor branch for the rest of this filename's lifetime in the
+  // UI. The previous content-keyed check broke the moment the user typed
+  // one character inside the fallback: equality snapped, the branch flipped
+  // back to MdxEditor, which either re-silent-failed (losing focus every
+  // keystroke) or re-threw and crashed the whole app (no boundary wrapped
+  // this branch before). Reset only on filename change — switching tabs
+  // re-attempts MdxEditor cleanly.
+  const [hasFallenBack, setHasFallenBack] = useState(false);
+  useEffect(() => {
+    setHasFallenBack(false);
+  }, [filename]);
+  const handleFallback = useCallback(() => {
+    setHasFallenBack(true);
+  }, []);
 
-  if (failedContent === content && content !== "") {
-    // Route failed .md content through CodeEditorImpl with the markdown
-    // language pack. Error boundary falls back to RawTextarea if the
-    // CodeMirror bundle itself fails to load (offline / network hiccup) —
-    // mirrors the non-md branch's defense-in-depth.
-    return (
-      <CodeEditorErrorBoundary
-        filename={filename}
-        fallback={
-          <RawTextarea
-            content={content}
-            onChange={onChange}
-            disabled={disabled}
-            placeholder={placeholder}
-          />
-        }
-      >
-        <Suspense fallback={loadingFallback}>
-          <CodeEditorImpl
-            filename={filename}
-            content={content}
-            onChange={onChange}
-            disabled={disabled}
-            placeholder={placeholder}
-          />
-        </Suspense>
-      </CodeEditorErrorBoundary>
-    );
-  }
+  const codeEditorBranch = (
+    <CodeEditorErrorBoundary
+      filename={filename}
+      fallback={
+        <RawTextarea
+          content={content}
+          onChange={onChange}
+          disabled={disabled}
+          placeholder={placeholder}
+        />
+      }
+    >
+      <Suspense fallback={loadingFallback}>
+        <CodeEditorImpl
+          filename={filename}
+          content={content}
+          onChange={onChange}
+          disabled={disabled}
+          placeholder={placeholder}
+        />
+      </Suspense>
+    </CodeEditorErrorBoundary>
+  );
 
+  if (hasFallenBack) return codeEditorBranch;
+
+  // Wrap MdxEditor in the error boundary so a thrown exception (YAMLException
+  // on malformed frontmatter is the field repro) falls back to the code
+  // editor instead of unmounting the whole app. onError also sets the sticky
+  // flag so after a filename-stable re-render the boundary doesn't retry.
   return (
-    <Suspense fallback={loadingFallback}>
-      <MdxEditorImpl
-        key={filename}
-        content={content}
-        onChange={onChange}
-        disabled={disabled}
-        onSilentParseFailure={handleSilentFailure}
-      />
-    </Suspense>
+    <CodeEditorErrorBoundary
+      filename={filename}
+      fallback={codeEditorBranch}
+      onError={handleFallback}
+    >
+      <Suspense fallback={loadingFallback}>
+        <MdxEditorImpl
+          key={filename}
+          content={content}
+          onChange={onChange}
+          disabled={disabled}
+          onSilentParseFailure={handleFallback}
+        />
+      </Suspense>
+    </CodeEditorErrorBoundary>
   );
 }
