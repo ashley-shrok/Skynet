@@ -762,7 +762,7 @@ not something agents drive.
     agent messages.
   - **Notifications** — set up push notifications on your phone via
     the ntfy iOS app. The pane shows four values to enter in the ntfy
-    app's per-topic Login dialog — server address, topic name, ntfy
+    app's per-topic Login dialog — topic name, server address, ntfy
     username, and ntfy password (Basic auth) — a **Send test
     notification** button to confirm end-to-end delivery, and a
     **Regenerate password** button to rotate the password (invalidates
