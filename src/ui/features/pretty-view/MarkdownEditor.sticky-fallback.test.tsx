@@ -4,7 +4,7 @@
  * the rest of the filename's lifetime in the UI. Content changes from
  * typing MUST NOT flip the branch back to MdxEditor.
  *
- * Field repro (Ashley, 2026-10-03): skills modal → open a skill → initial
+ * Field repro (2026-10-03): skills modal → open a skill → initial
  * swap to code editor fires → user clicks at the end of a frontmatter line,
  * hits Enter, types a letter → whole app went blank. Three bugs chained:
  *   1. The previous content-keyed check (failedContent === content) broke
