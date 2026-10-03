@@ -54,7 +54,7 @@ describe("ntfy-setup-api", () => {
     it("API-01 (happy): GETs /push-subscriptions/ntfy-setup and returns parsed body", async () => {
       const responseShape = {
         isSetUp: true,
-        serverAddress: "https://example.com/ntfy",
+        serverAddress: "https://push.example.com",
         topicName: "abc123",
         readingCredential: "tk_testcred",
         ntfyUsername: "skynet-reader-u1",
@@ -87,7 +87,7 @@ describe("ntfy-setup-api", () => {
     it("API-02 (happy): POSTs /push-subscriptions/ntfy-setup with empty body and returns setup shape", async () => {
       const responseShape = {
         isSetUp: true,
-        serverAddress: "https://example.com/ntfy",
+        serverAddress: "https://push.example.com",
         topicName: "abc123",
         readingCredential: "tk_newcred",
         ntfyUsername: "skynet-reader-u1",
@@ -141,7 +141,7 @@ describe("ntfy-setup-api", () => {
     it("API-04 (happy): POSTs /push-subscriptions/ntfy-regenerate and returns new setup shape", async () => {
       const newShape = {
         isSetUp: true,
-        serverAddress: "https://example.com/ntfy",
+        serverAddress: "https://push.example.com",
         topicName: "abc123",
         readingCredential: "tk_rotatedcred",
         ntfyUsername: "skynet-reader-u1",

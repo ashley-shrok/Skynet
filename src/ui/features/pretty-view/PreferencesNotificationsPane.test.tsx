@@ -45,7 +45,7 @@ import { PreferencesNotificationsPane } from "./PreferencesNotificationsPane";
 
 const SET_UP_SHAPE = {
   isSetUp: true,
-  serverAddress: "https://example.com/ntfy",
+  serverAddress: "https://push.example.com",
   topicName: "abc123def456",
   readingCredential: "tk_testreadingcredential",
   ntfyUsername: "skynet-reader-u1",

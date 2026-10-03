@@ -68,11 +68,18 @@ Add these entries to `/opt/skynet/skynet.env`:
 
 ```env
 # Phase 144 — ntfy push notifications
+NTFY_PUBLIC_URL=https://push.your-domain.example.com
 NTFY_ADMIN_USER=skynet-admin
 NTFY_ADMIN_PASS=<your-plaintext-password>
 NTFY_ADMIN_PASS_BCRYPT=$2a$10$<rest-of-bcrypt-hash>
 NTFY_PUBLISH_TOKEN=tk_<29-hex-chars>
 ```
+
+**`NTFY_PUBLIC_URL`** is the ntfy server's own HTTPS URL — a dedicated subdomain
+with its own DNS A-record pointing at this host. ntfy refuses to run on a
+sub-path (its own startup validation), so it cannot share a hostname with the
+rest of Skynet. Caddy issues a Let's Encrypt cert for this subdomain
+automatically on first request via HTTP-01.
 
 ## 5. Credential rotation
 

@@ -3,12 +3,13 @@
  *
  * What this module does:
  *   - `assertNtfyConfigAtBoot()` — invoked once at process start from starter.ts.
- *     Reads SKYNET_PUBLIC_URL, NTFY_PUBLISH_TOKEN, NTFY_ADMIN_USER, NTFY_ADMIN_PASS
+ *     Reads NTFY_PUBLIC_URL, NTFY_PUBLISH_TOKEN, NTFY_ADMIN_USER, NTFY_ADMIN_PASS
  *     from `process.env`; throws a structured Error naming the offender when any
- *     is missing OR when SKYNET_PUBLIC_URL does not start with "https://". Logs a
+ *     is missing OR when NTFY_PUBLIC_URL does not start with "https://". Logs a
  *     redacted-safe success line on the happy path.
- *   - `getNtfyBaseUrl()` — returns `${SKYNET_PUBLIC_URL}/ntfy` (trailing slash
- *     stripped to prevent doubled slashes — Pitfall 7 from RESEARCH.md).
+ *   - `getNtfyBaseUrl()` — returns the trimmed NTFY_PUBLIC_URL (no path append).
+ *     ntfy explicitly rejects path-prefix hosting at startup, so each instance
+ *     deploys ntfy on its own dedicated subdomain (e.g. https://push.example.com).
  *   - `getNtfyInternalPublishUrl()` — returns the literal `"http://ntfy:2586"`
  *     (internal Docker network URL; never traverses the public internet).
  *   - `getNtfyPublishToken()`, `getNtfyAdminUser()`, `getNtfyAdminPassword()` —
@@ -16,15 +17,21 @@
  *
  * Why fail-fast at boot:
  *   Mirrors `assertVapidConfigAtBoot` (Phase 128) and `assertBrandingConfigAtBoot`.
- *   A missing SKYNET_PUBLIC_URL means the ntfy base-url cannot be computed and the
- *   preferences pane would show an empty server address. A missing NTFY_PUBLISH_TOKEN
- *   means every publish POST would return 401 from the ntfy container. Better to
- *   refuse to boot than to run degraded and silently drop every notification.
+ *   A missing NTFY_PUBLIC_URL means the preferences pane would show an empty
+ *   server address. A missing NTFY_PUBLISH_TOKEN means every publish POST would
+ *   return 401 from the ntfy container. Better to refuse to boot than to run
+ *   degraded and silently drop every notification.
  *
- * Why SKYNET_PUBLIC_URL must be https://:
+ * Why NTFY_PUBLIC_URL must be https://:
  *   ntfy's iOS app requires HTTPS for self-hosted servers. The ntfy upstream relay
  *   also sends poll_request URLs derived from base-url — a non-HTTPS base-url
- *   produces broken relay URLs (Pitfall 4, RESEARCH.md).
+ *   produces broken relay URLs.
+ *
+ * Why NTFY_PUBLIC_URL is separate from SKYNET_PUBLIC_URL:
+ *   ntfy refuses to run on a sub-path (its own startup validation). The two
+ *   services must live at distinct hostname roots. Each instance operator sets
+ *   both env vars; both are instance-specific and never hardcoded in the
+ *   codebase.
  *
  * Security discipline:
  *   The success log line emits the derived ntfy base URL (a public URL, safe) but
@@ -47,17 +54,18 @@ function readNtfyEnv(): {
   adminUser: string;
   adminPass: string;
 } {
-  const publicUrl = (process.env.SKYNET_PUBLIC_URL ?? "").trim();
+  const publicUrl = (process.env.NTFY_PUBLIC_URL ?? "").trim();
   const publishToken = (process.env.NTFY_PUBLISH_TOKEN ?? "").trim();
   const adminUser = (process.env.NTFY_ADMIN_USER ?? "").trim();
   const adminPass = (process.env.NTFY_ADMIN_PASS ?? "").trim();
 
   if (publicUrl.length === 0 || !publicUrl.startsWith("https://")) {
     throw new Error(
-      "SKYNET_PUBLIC_URL env var is missing or not an HTTPS URL. " +
-        "Set it to an https:// URL (e.g. https://your-instance.example.com) before boot. " +
-        "ntfy base-url cannot be derived without it, and the ntfy iOS app requires HTTPS " +
-        "for self-hosted servers (Pitfall 4, RESEARCH.md §Phase 144).",
+      "NTFY_PUBLIC_URL env var is missing or not an HTTPS URL. " +
+        "Set it to the ntfy server's own HTTPS URL (e.g. https://push.example.com — " +
+        "NO path prefix; ntfy refuses path-prefix hosting at startup). " +
+        "This is a dedicated subdomain, separate from SKYNET_PUBLIC_URL, because " +
+        "ntfy must run at a hostname root. The ntfy iOS app requires HTTPS for self-hosted servers.",
     );
   }
   if (publishToken.length === 0) {
@@ -100,7 +108,7 @@ function readNtfyEnv(): {
 export function assertNtfyConfigAtBoot(): void {
   const { publicUrl } = readNtfyEnv();
 
-  const baseUrl = `${publicUrl.replace(/\/+$/, "")}/ntfy`;
+  const baseUrl = publicUrl.replace(/\/+$/, "");
 
   systemLogger.info("[ntfy] config loaded", {
     operation: "ntfy_config_boot_loaded",
@@ -110,18 +118,23 @@ export function assertNtfyConfigAtBoot(): void {
 
 /**
  * Returns the ntfy server's public base URL, e.g.
- * `"https://your-instance.example.com/ntfy"`.
+ * `"https://push.example.com"`.
  *
- * Trailing slashes on SKYNET_PUBLIC_URL are stripped before appending `/ntfy`
- * to prevent doubled-slash URLs that break ntfy's upstream relay poll_request
- * URL construction (Pitfall 7, RESEARCH.md §Phase 144).
+ * Reads NTFY_PUBLIC_URL env var (NOT SKYNET_PUBLIC_URL + "/ntfy") because
+ * ntfy's own server validation refuses path-prefix hosting at startup
+ * (error: "base-url must not have a path, as hosting ntfy on a sub-path is
+ * not supported"). Each instance deploys ntfy on its own dedicated subdomain
+ * (e.g., https://push.example.com) and sets NTFY_PUBLIC_URL to that.
+ *
+ * Trailing slashes are stripped to prevent doubled-slash issues in deep-links
+ * and the upstream relay poll_request URL.
  *
  * This is the URL the ntfy iOS app's "Service URL" field must be set to, and
  * the value shown in the Skynet preferences pane (Plan 03).
  */
 export function getNtfyBaseUrl(): string {
-  const publicUrl = (process.env.SKYNET_PUBLIC_URL ?? "").trim();
-  return `${publicUrl.replace(/\/+$/, "")}/ntfy`;
+  const publicUrl = (process.env.NTFY_PUBLIC_URL ?? "").trim();
+  return publicUrl.replace(/\/+$/, "");
 }
 
 /**

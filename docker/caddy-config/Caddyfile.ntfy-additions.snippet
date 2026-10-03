@@ -1,62 +1,32 @@
-# Phase 144 — ntfy path-prefix routing.
+# Phase 144 — ntfy dedicated-subdomain routing.
 #
-# Caddy's `handle_path` strips `/ntfy` before forwarding so ntfy container
-# sees root-relative paths (/<topic>/json, /<topic>/sse etc.). ntfy's own
-# `base-url` is set to `${SKYNET_PUBLIC_URL}/ntfy` so upstream relay
-# poll_request URLs include the externally reachable URL.
-# See RESEARCH.md Q5 + Pitfall 2.
+# ntfy refuses to run on a sub-path at startup ("if set, base-url must not
+# have a path, as hosting ntfy on a sub-path is not supported"). Each
+# instance deploys ntfy at its own dedicated subdomain (e.g. push.example.com).
+# Caddy issues a Let's Encrypt cert automatically on first request via HTTP-01
+# — no manual cert work. The subdomain's A-record must point at this host.
 #
 # SHIP-PREP ONLY — orchestrator applies this edit to
 # /opt/skynet/caddy-config/Caddyfile and runs:
 #   docker exec caddy caddy reload
 # This file is a committed repo artifact documenting the required Caddyfile
-# change. It is NOT applied by the Phase 144 Plan 01 executor.
-# apply this edit to /opt/skynet/caddy-config/Caddyfile and docker exec caddy caddy reload — orchestrator ship-prep motion, NOT part of this plan's execution scope
+# change. It is NOT applied by any Phase 144 plan executor.
 
 # -----------------------------------------------------------------------
-# BEFORE: current Caddyfile site block
-# -----------------------------------------------------------------------
-# The current bare `reverse_proxy` top-level directive must be converted to
-# a `handle { ... }` fallback block because Caddy does not allow mixing bare
-# `reverse_proxy` with `handle`/`handle_path` blocks in the same site block.
-# (RESEARCH.md Pitfall 2 — a Caddy config parse error occurs otherwise.)
-
-# example.com {
-#     log { format json; output stdout }
-#     reverse_proxy skynet:8080 {
-#         transport http { response_header_timeout 5m; read_timeout 5m }
-#     }
-# }
-
-# -----------------------------------------------------------------------
-# AFTER: add handle_path /ntfy/* block + convert bare reverse_proxy
+# Add a new top-level site block for the ntfy subdomain.
+# The existing Skynet site block (e.g. `example.com {...}`) is UNCHANGED —
+# ntfy lives at its own hostname, so there is no conflict and no need to
+# restructure the existing bare `reverse_proxy skynet:8080` directive.
 # -----------------------------------------------------------------------
 
-example.com {
+push.example.com {
+    # Caddy obtains a Let's Encrypt cert on first request via HTTP-01.
+    # No manual cert management needed. The subdomain's A-record must
+    # resolve to this host's public IP before the first request lands.
     log { format json; output stdout }
 
-    # Phase 144 — ntfy path-prefix routing.
-    # handle_path strips /ntfy from the path before forwarding so ntfy
-    # container sees root-relative paths (/<topic>/json, /v1/users etc.).
-    # Caddy automatically handles WebSocket/SSE upgrades — no explicit
-    # Upgrade header needed (unlike nginx).
     # ntfy container is named `ntfy` on skynet-net; Caddy reaches it at ntfy:2586.
-    handle_path /ntfy/* {
-        reverse_proxy ntfy:2586
-    }
-
-    # Skynet catchall — must come AFTER the ntfy block.
-    # The bare `reverse_proxy skynet:8080` top-level directive is converted to
-    # a `handle` fallback block to allow coexistence with `handle_path`. Both
-    # the ntfy block and this fallback must be inside `handle`/`handle_path`
-    # blocks — Caddy's `handle` is the catch-all that fires for anything not
-    # matched by the ntfy path prefix.
-    handle {
-        reverse_proxy skynet:8080 {
-            transport http {
-                response_header_timeout 5m
-                read_timeout 5m
-            }
-        }
-    }
+    # Caddy handles WebSocket/SSE upgrades automatically (long-poll + SSE are
+    # how ntfy delivers to directly-connected clients).
+    reverse_proxy ntfy:2586
 }
