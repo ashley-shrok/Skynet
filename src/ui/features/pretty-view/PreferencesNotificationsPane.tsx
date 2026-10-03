@@ -212,16 +212,18 @@ function SetUpView({
         your topic subscription — step-by-step below the values.
       </p>
 
-      {/* Four value rows */}
-      <ValueRow
-        label="Server address"
-        value={setup.serverAddress ?? ""}
-        testId="preferences-notifications-server-address"
-      />
+      {/* Four value rows — ordered to match the ntfy iOS add-subscription
+          flow (topic first, then server, then login creds) so users can
+          work top-to-bottom without back-tracking. */}
       <ValueRow
         label="Topic name"
         value={setup.topicName ?? ""}
         testId="preferences-notifications-topic-name"
+      />
+      <ValueRow
+        label="Server address"
+        value={setup.serverAddress ?? ""}
+        testId="preferences-notifications-server-address"
       />
       <ValueRow
         label="ntfy username"
