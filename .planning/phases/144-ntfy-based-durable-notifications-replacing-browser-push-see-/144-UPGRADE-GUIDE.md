@@ -238,21 +238,30 @@ Each user on your instance who wants notifications:
    - Topic name (an opaque per-user string)
    - ntfy username (`skynet-reader-<user-id>`)
    - ntfy password (a 32-char hex, encrypted at rest server-side)
-4. In the ntfy app, tap "Add subscription," toggle "Use another server,"
-   enter the server + topic. When prompted to log in (the subscription
-   is behind an ACL), enter the ntfy **username** + **password** from
-   the pane (ntfy iOS uses Basic auth, not Bearer tokens).
+4. In the ntfy iOS app, add the subscription:
+   1. Tap the **+** button in the upper-right.
+   2. Enter the **topic name** (first field on this screen).
+   3. Turn on the **Use another server** switch — this reveals a
+      "server" field below it.
+   4. Enter the **server address** in the server field.
+   5. Tap **Subscribe** in the upper-right. This advances to a login
+      screen (the topic's ACL requires auth).
+   6. Enter the **ntfy username** and **ntfy password**.
+   7. Tap the confirm button in the upper-right to finish.
 5. Back in Skynet, tap **Send test notification**. Your phone should
    buzz.
+
+ntfy iOS uses HTTP Basic auth on the login screen — the username +
+password shown in the pane are what it wants there. Phase 144 originally
+tried to surface a single bearer token, which the iOS login screen does
+not accept; Phase 145 replaced it with the username+password pair.
 
 If the test doesn't buzz, run through section 7's verifications on your
 end first, then check iOS notification settings for the ntfy app.
 
-> **Phase 145 note:** earlier builds of Phase 144 surfaced a single
-> "reading credential" (`tk_...` token). ntfy iOS's per-topic Login
-> dialog does Basic auth and ignored the token. Phase 145 replaced that
-> with the username+password pair above. Any existing `push_subscriptions`
-> rows from an earlier Phase 144 build are dropped on upgrade — users
+> **Phase 145 migration note:** any existing `push_subscriptions` rows
+> from an earlier Phase 144 build are dropped on upgrade — those stored
+> `tk_...` tokens aren't useful under the new Basic-auth flow. Users
 > re-click **Set up notifications** once to re-provision.
 
 ---
