@@ -22,12 +22,14 @@
 #      config needed on this side.
 #   3. For each baseline, derive the corresponding real file from the filename
 #      convention role-file-watch.py uses:
-#          last-snapshot.role         → ~/fleet/roles/<role>/<role>.md
-#          last-snapshot.identity     → ~/fleet/identities/<name>/<name>.md
-#          last-snapshot.id-skill     → ~/.claude/skills/id/SKILL.md
-#          last-snapshot.user-claudemd → ~/.claude/CLAUDE.md
-#          last-snapshot.runbook.<X>  → ~/fleet/roles/<role>/runbooks/<X>/runbook.md
-#      where <role> is parsed from the identity file's YAML frontmatter.
+#          last-snapshot.identity         → ~/fleet/identities/<name>/<name>.md
+#          last-snapshot.id-skill         → ~/.claude/skills/id/SKILL.md
+#          last-snapshot.user-claudemd    → ~/.claude/CLAUDE.md
+#          last-snapshot.role.<role>      → ~/fleet/roles/<role>/<role>.md
+#          last-snapshot.runbook.<role>.<slug>
+#                                         → ~/fleet/roles/<role>/runbooks/<slug>/runbook.md
+#      Role + runbook baselines encode <role> in the filename (watcher's
+#      per-role scheme), so no frontmatter parsing is needed to route them.
 #   4. If real file != baseline, atomically overwrite the baseline (tmp +
 #      rename) and write sha256(real) into <baseline>.self-edit-hash (also
 #      atomic). The watcher, at event time, will see the marker + matching
@@ -133,27 +135,54 @@ timeout 2 bash -c '
     # where the user has not authored one.
     sync_one "$STATE_DIR/last-snapshot.user-claudemd" "$HOME/.claude/CLAUDE.md"
 
-    # (b) role + runbook baselines — need <role>. Skip if unresolved.
-    if [ -n "$ROLE" ]; then
-        role_file="$HOME/fleet/roles/$ROLE/$ROLE.md"
-        sync_one "$STATE_DIR/last-snapshot.role" "$role_file"
+    # (b) role baselines — per-role, iterate over `last-snapshot.role.<role>`
+    # baselines the watcher writes (role-file-watch.py:701). $ROLE from the
+    # identity frontmatter is only the FIRST role; globbing picks up every
+    # role the watcher is tracking, so multi-role installs are covered. The
+    # slug IS the role name, so no $ROLE dependency. The kebab-case validator
+    # also naturally rejects any stray `.self-edit-hash` marker file this
+    # glob would otherwise swallow (stripped name would contain a `.`).
+    shopt -s nullglob
+    for baseline in "$STATE_DIR"/last-snapshot.role.*; do
+        bname=$(basename "$baseline")
+        slug="${bname#last-snapshot.role.}"
+        case "$slug" in
+            *[!a-z0-9-]*|-*|"") continue ;;
+        esac
+        role_file="$HOME/fleet/roles/$slug/$slug.md"
+        sync_one "$baseline" "$role_file"
+    done
+    shopt -u nullglob
 
-        # Runbooks: last-snapshot.runbook.<slug> → runbooks/<slug>/runbook.md.
-        # nullglob keeps the loop silent when no runbook baselines exist.
-        shopt -s nullglob
-        for baseline in "$STATE_DIR"/last-snapshot.runbook.*; do
-            bname=$(basename "$baseline")
-            slug="${bname#last-snapshot.runbook.}"
-            # Defensive slug validation: kebab-case, matches role-file-watch.py.
-            # Anything else — silently skip.
-            case "$slug" in
-                *[!a-z0-9-]*|-*|"") continue ;;
-            esac
-            runbook="$HOME/fleet/roles/$ROLE/runbooks/$slug/runbook.md"
-            sync_one "$baseline" "$runbook"
-        done
-        shopt -u nullglob
-    fi
+    # (c) runbook baselines — per-role-and-slug. The watcher writes
+    # `last-snapshot.runbook.<role>.<slug>` (role-file-watch.py:483) so a
+    # multi-role identity can hold a runbook of the same slug under two roles
+    # without collision. Role AND slug come from the baseline filename; no
+    # $ROLE dependency. The compound-suffix glob also catches the marker
+    # files (`.self-edit-hash`), which the kebab-case slug validator rejects.
+    shopt -s nullglob
+    for baseline in "$STATE_DIR"/last-snapshot.runbook.*; do
+        bname=$(basename "$baseline")
+        suffix="${bname#last-snapshot.runbook.}"
+        # Split suffix on the first `.` → <role>.<slug>. A suffix with no
+        # dot (legacy single-role scheme the watcher migrates away from on
+        # cold-start) has rest == suffix and role_part == suffix; the role
+        # kebab-case check below filters it.
+        role_part="${suffix%%.*}"
+        slug="${suffix#*.}"
+        # Defensive validation: both halves must be kebab-case; the slug
+        # containing a further `.` (as in a `.self-edit-hash` marker, or a
+        # legacy un-roled baseline where slug==role) fails and skips.
+        case "$role_part" in
+            *[!a-z0-9-]*|-*|"") continue ;;
+        esac
+        case "$slug" in
+            *[!a-z0-9-]*|-*|""|"$suffix") continue ;;
+        esac
+        runbook="$HOME/fleet/roles/$role_part/runbooks/$slug/runbook.md"
+        sync_one "$baseline" "$runbook"
+    done
+    shopt -u nullglob
 ' 2>/dev/null || true
 
 exit 0

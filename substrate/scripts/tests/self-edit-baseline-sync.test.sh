@@ -19,6 +19,14 @@
 #          the sync hook's bash body (shell-injection defense)
 #   T-S9 — sync-script id-skill drift → atomic baseline overwrite + hash marker
 #          (the id skill is a fourth watched surface added 2026-09-29)
+#   T-S10 — sync-script role-baseline drift → atomic baseline overwrite + hash
+#           marker. Regression guard for the pre-multi-role-filename bug: hook
+#           wrote `last-snapshot.role` while watcher used `last-snapshot.role.<role>`,
+#           so the sync silently no-op'd on every role-file self-edit.
+#   T-S11 — sync-script runbook-baseline drift → atomic baseline overwrite +
+#           hash marker. Regression guard for the same bug class on runbooks:
+#           watcher writes `last-snapshot.runbook.<role>.<slug>`, hook was
+#           globbing with slug-only extraction and failing kebab-case validation.
 #
 # Exits 0 on all-pass; 1 on any failure with a diagnostic naming the failing
 # test.
@@ -451,6 +459,105 @@ test_T_S9_sync_id_skill() {
   fi
 }
 
+# ============================================================
+# T-S10: sync-script role-baseline drift → atomic baseline overwrite + hash
+# marker. Regression guard: pre-fix the hook wrote to the pre-multi-role
+# `last-snapshot.role` filename while the watcher used `last-snapshot.role.<role>`,
+# so sync_one silently early-bailed on the file-not-found check and no marker
+# was ever written. Every role-file self-edit then emitted a wake across every
+# identity holding that role. Fix: iterate `last-snapshot.role.*`, extract
+# <role> from the suffix, route to `~/fleet/roles/<role>/<role>.md`.
+# ============================================================
+test_T_S10_sync_role_drift() {
+  seed_fixture "s10role" "s10name"
+
+  # Watcher's actual per-role baseline name — NOT the pre-multi-role
+  # un-suffixed one the fixture's seed also writes. Drop the un-suffixed form
+  # so this test proves the hook finds the per-role baseline on its own.
+  local baseline="$STATE_DIR/last-snapshot.role.s10role"
+  cp "$ROLE_MD" "$baseline"
+  rm -f "$BASELINE_ROLE"
+
+  # Diverge the real role file (simulates agent edit).
+  printf '# s10role role\n\nline 1\nline 2 — self-edit\n' > "$ROLE_MD"
+
+  if cmp -s "$ROLE_MD" "$baseline"; then
+    fail "T-S10: fixture broken — baseline already equals real"
+    return
+  fi
+
+  HOME="$HOME_DIR" FLEET_IDENTITY="s10name" bash "$SYNC_SCRIPT" </dev/null
+
+  if ! cmp -s "$ROLE_MD" "$baseline"; then
+    fail "T-S10: role baseline not refreshed after sync (bug would silently no-op here)"
+    return
+  fi
+
+  local marker="$baseline.self-edit-hash"
+  if [ ! -f "$marker" ]; then
+    fail "T-S10: role hash marker not written at $marker"
+    return
+  fi
+
+  local expected recorded
+  expected=$(sha256sum "$ROLE_MD" | awk '{print $1}')
+  recorded=$(cat "$marker" | tr -d '\n')
+  if [ "$expected" != "$recorded" ]; then
+    fail "T-S10: role marker hash mismatch (expected=$expected got=$recorded)"
+    return
+  fi
+}
+
+# ============================================================
+# T-S11: sync-script runbook-baseline drift → atomic baseline overwrite + hash
+# marker. Regression guard: same bug class as T-S10 but for runbooks. Pre-fix
+# the hook globbed `last-snapshot.runbook.*` and treated the full suffix as the
+# slug, which failed kebab-case validation on the watcher's per-role names of
+# shape `last-snapshot.runbook.<role>.<slug>` (role-file-watch.py:483). Fix:
+# split the suffix on first `.` into <role>.<slug> and route to
+# `~/fleet/roles/<role>/runbooks/<slug>/runbook.md`.
+# ============================================================
+test_T_S11_sync_runbook_drift() {
+  seed_fixture "s11role" "s11name"
+
+  local runbook_dir="$HOME_DIR/fleet/roles/s11role/runbooks/deploy"
+  mkdir -p "$runbook_dir"
+  local runbook="$runbook_dir/runbook.md"
+  printf '# deploy runbook\n\nstep 1\n' > "$runbook"
+
+  local baseline="$STATE_DIR/last-snapshot.runbook.s11role.deploy"
+  cp "$runbook" "$baseline"
+
+  # Diverge the real runbook (simulates agent edit).
+  printf '# deploy runbook\n\nstep 1\nstep 2 — self-edit\n' > "$runbook"
+
+  if cmp -s "$runbook" "$baseline"; then
+    fail "T-S11: fixture broken — baseline already equals real"
+    return
+  fi
+
+  HOME="$HOME_DIR" FLEET_IDENTITY="s11name" bash "$SYNC_SCRIPT" </dev/null
+
+  if ! cmp -s "$runbook" "$baseline"; then
+    fail "T-S11: runbook baseline not refreshed after sync (bug would silently no-op here)"
+    return
+  fi
+
+  local marker="$baseline.self-edit-hash"
+  if [ ! -f "$marker" ]; then
+    fail "T-S11: runbook hash marker not written at $marker"
+    return
+  fi
+
+  local expected recorded
+  expected=$(sha256sum "$runbook" | awk '{print $1}')
+  recorded=$(cat "$marker" | tr -d '\n')
+  if [ "$expected" != "$recorded" ]; then
+    fail "T-S11: runbook marker hash mismatch (expected=$expected got=$recorded)"
+    return
+  fi
+}
+
 # ---- run ----
 
 run_test test_T_S1_sync_drift
@@ -462,6 +569,8 @@ run_test test_T_S6_watcher_mismatched_marker_fires
 run_test test_T_S7_watcher_no_marker_fires
 run_test test_T_S8_role_injection_defense
 run_test test_T_S9_sync_id_skill
+run_test test_T_S10_sync_role_drift
+run_test test_T_S11_sync_runbook_drift
 
 # ---- summary ----
 
