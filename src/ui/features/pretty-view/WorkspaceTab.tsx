@@ -21,8 +21,6 @@
  */
 
 import {
-  lazy,
-  Suspense,
   useCallback,
   useEffect,
   useRef,
@@ -73,39 +71,19 @@ import {
   resolveWorkspaceErrorCopy,
   WORKSPACE_ERROR_COPY,
 } from "./workspace-error-copy";
-import GlobalFileTab from "./GlobalFileTab";
-import type { GlobalFileTabData } from "./GlobalFileTab";
 import type { TabState } from "./IdentityFileTab";
-
-// ---------------------------------------------------------------------------
-// Lazy-load MarkdownEditor (avoids pulling ~1.5MB MDX bundle into initial load)
-// Mirrors IdentityFileTab / MarkdownEditor's own Suspense pattern.
-// ---------------------------------------------------------------------------
-
-const MarkdownEditor = lazy(() =>
-  import("./MarkdownEditor").then((m) => ({ default: m.MarkdownEditor }))
-);
-
-// ---------------------------------------------------------------------------
-// File-type dispatch helpers (D-12)
-// ---------------------------------------------------------------------------
-
-const MD_RE = /\.md$/i;
-const TEXT_RE =
-  /\.(txt|json|ts|tsx|js|jsx|css|html|log|yml|yaml|py|sh|env|toml|ini|xml|csv|rs|go|java|c|cpp|h|rb|php|swift|kt)$/i;
-const IMAGE_RE = /\.(png|jpg|jpeg|gif|webp|svg)$/i;
-
-function getFileViewType(
-  name: string
-): "markdown" | "text" | "image" | "binary" {
-  if (MD_RE.test(name)) return "markdown";
-  if (TEXT_RE.test(name)) return "text";
-  if (IMAGE_RE.test(name)) return "image";
-  // Extensionless files (.gitignore, LICENSE, Makefile, Dockerfile, …)
-  // default to text — no extension can't be inferred as binary either.
-  if (name.lastIndexOf(".") <= 0) return "text";
-  return "binary";
-}
+import {
+  FileUnavailableNotice,
+  FileView,
+  type FileViewData,
+} from "./file-viewers/FileView";
+import {
+  BINARY_ENTRY,
+  fileViewIsEditable,
+  isTextByName,
+  resolveFileViewer,
+} from "./file-viewers/registry";
+import { base64ToBytes, decodeUtf8, looksLikeText } from "./file-viewers/text-sniff";
 
 // ---------------------------------------------------------------------------
 // Sorting — folders always above files (D-15)
@@ -217,13 +195,15 @@ function ErrorBanner({
 interface OpenFileState {
   name: string;
   relativePath: string;
-  type: "markdown" | "text" | "image" | "binary";
+  /** From the listing; null when unknown. Drives the too-large skip. */
+  size: number | null;
 }
 
-type FileFetchState =
-  | { status: "loading" }
-  | { status: "ready"; data: { contentBase64: string } }
-  | { status: "error"; errorClass: string };
+/** Mirrors the backend read cap (MAX_READ_BYTES in workspace-routes.ts). */
+const PREVIEW_MAX_BYTES = 2_000_000;
+
+/** Monotonic version token for FileView's draft reseed (fetch + save). */
+let workspaceFileVersion = 0;
 
 function WorkspaceFileViewer({
   file,
@@ -237,78 +217,62 @@ function WorkspaceFileViewer({
   hostId: number;
   hue: number;
 }): JSX.Element {
-  const [fetchState, setFetchState] = useState<FileFetchState>({
-    status: "loading",
-  });
-  const [saveError, setSaveError] = useState<string | null>(null);
+  // The shared file-viewer registry picks the body (D-12 dispatch now lives
+  // in file-viewers/registry). Known-binary types and files over the read
+  // cap skip the fetch entirely and go straight to the notice.
+  const isKnownBinary = resolveFileViewer(file.name) === BINARY_ENTRY;
+  const isTooLarge = file.size !== null && file.size > PREVIEW_MAX_BYTES;
+  const skipFetch = isKnownBinary || isTooLarge;
 
-  // For GlobalFileTab — mtime=0 is last-write-wins V1 compromise (see SUMMARY)
-  const [tabState, setTabState] = useState<TabState<GlobalFileTabData>>({
+  const [fileState, setFileState] = useState<TabState<FileViewData>>({
     status: "loading",
   });
-  const [mdContent, setMdContent] = useState<string>("");
+  // Raw error class for the ErrorBanner copy lookup (fileState.error holds
+  // the same string, kept separate for readability at the render site).
+  const [errorClass, setErrorClass] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<string | null>(null);
   // Unsaved-edit tracking so back-nav can confirm before discarding.
-  // mdOriginalRef holds the last fetched/saved content for markdown-mode
-  // dirty comparison. textDirty is fed by GlobalFileTab.onDraftChange.
-  // textDraft mirrors GlobalFileTab's internal draft via onDraftContentChange —
-  // needed because the outer Save button (below) lives in WorkspaceTab's own
-  // chrome and can't reach into GlobalFileTab's state directly.
-  const mdOriginalRef = useRef<string>("");
-  const [textDirty, setTextDirty] = useState(false);
-  const [textDraft, setTextDraft] = useState<string>("");
+  // FileView feeds both: the dirty flag and the draft for the header Save.
+  const [dirty, setDirty] = useState(false);
+  const [draft, setDraft] = useState<string>("");
   const [saving, setSaving] = useState(false);
 
-  // Helper to decode base64 to UTF-8 string
-  function decodeBase64(b64: string): string {
-    try {
-      return decodeURIComponent(
-        atob(b64)
-          .split("")
-          .map((c) => "%" + c.charCodeAt(0).toString(16).padStart(2, "0"))
-          .join("")
-      );
-    } catch {
-      try {
-        return atob(b64);
-      } catch {
-        return "";
-      }
-    }
-  }
-
-  // Fetch the file content for md / text / image (binary skips fetch)
   useEffect(() => {
-    if (file.type === "binary") return;
+    if (skipFetch) return;
     let cancelled = false;
-    setFetchState({ status: "loading" });
-    setTabState({ status: "loading" });
+    setFileState({ status: "loading" });
+    setErrorClass(null);
     setSaveError(null);
     readWorkspaceFile(target, hostId, file.relativePath)
       .then((data) => {
-        if (!cancelled) {
-          setFetchState({ status: "ready", data });
-          const decoded = decodeBase64(data.contentBase64);
-          setMdContent(decoded);
-          mdOriginalRef.current = decoded;
-          setTextDirty(false);
-          setTabState({ status: "ready", data: { content: decoded, mtime: 0 } });
-        }
+        if (cancelled) return;
+        const bytes = base64ToBytes(data.contentBase64);
+        const isText = isTextByName(file.name) || looksLikeText(bytes);
+        setDirty(false);
+        setFileState({
+          status: "ready",
+          data: {
+            content: isText ? decodeUtf8(bytes) : "",
+            mtime: ++workspaceFileVersion,
+            isText,
+            bytes,
+          },
+        });
       })
       .catch((err) => {
-        if (!cancelled) {
-          const errorClass =
-            err instanceof Error ? err.message : "host_unreachable";
-          setFetchState({ status: "error", errorClass });
-          setTabState({ status: "error", error: errorClass });
-        }
+        if (cancelled) return;
+        const cls = err instanceof Error ? err.message : "host_unreachable";
+        setErrorClass(cls);
+        setFileState({ status: "error", error: cls });
       });
     return () => {
       cancelled = true;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [targetDepKey(target), hostId, file.relativePath, file.type]);
+  }, [targetDepKey(target), hostId, file.relativePath, skipFetch]);
 
-  // Save handler for md + text (all hooks unconditional — Rules of Hooks)
+  // Save handler (last-write-wins V1 — the workspace write has no mtime check)
   const handleSave = useCallback(
     async (newContent: string) => {
       setSaveError(null);
@@ -320,53 +284,36 @@ function WorkspaceFileViewer({
           file.relativePath,
           newContent
         );
-        // Success: content on disk now matches draft — clear dirty flags so
-        // back-nav doesn't prompt for changes already persisted.
-        mdOriginalRef.current = newContent;
-        setTextDirty(false);
+        // Success: the saved text is the new baseline, so the draft is clean
+        // and back-nav doesn't prompt. Bytes are dropped — url modes (e.g.
+        // rendered SVG) rebuild their src from the saved text.
+        setFileState({
+          status: "ready",
+          data: { content: newContent, mtime: ++workspaceFileVersion, isText: true },
+        });
+        setDirty(false);
       } catch (err) {
-        const errorClass =
-          err instanceof Error ? err.message : "generic";
-        const copy = resolveWorkspaceErrorCopy(errorClass);
+        const cls = err instanceof Error ? err.message : "generic";
+        const copy = resolveWorkspaceErrorCopy(cls);
         setSaveError(copy.heading + ": " + copy.body);
       } finally {
         setSaving(false);
       }
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [targetDepKey(target), hostId, file.relativePath]
   );
 
   // Back-nav guard: confirm before discarding unsaved edits.
   const guardedBack = useCallback(() => {
-    const mdDirty = file.type === "markdown" && mdContent !== mdOriginalRef.current;
-    if (
-      (mdDirty || textDirty) &&
-      !window.confirm("Discard unsaved changes?")
-    ) {
-      return;
-    }
+    if (dirty && !window.confirm("Discard unsaved changes?")) return;
     onBack();
-  }, [file.type, mdContent, textDirty, onBack]);
+  }, [dirty, onBack]);
 
-  // Save adapter for GlobalFileTab (accepts mtime argument which we ignore — V1)
-  const globalFileSave = useCallback(
-    async (content: string, _mtime: number) => {
-      await handleSave(content);
-    },
-    [handleSave]
-  );
-
-  // Derive MIME type for image data URIs
-  const mimeByExt: Record<string, string> = {
-    png: "image/png",
-    jpg: "image/jpeg",
-    jpeg: "image/jpeg",
-    gif: "image/gif",
-    webp: "image/webp",
-    svg: "image/svg+xml",
-  };
-  const ext = (file.name.split(".").pop() ?? "").toLowerCase();
-  const mime = mimeByExt[ext] ?? "application/octet-stream";
+  const canSave =
+    !skipFetch &&
+    fileState.status === "ready" &&
+    fileViewIsEditable(file.name, viewMode, fileState.data.isText);
 
   const downloadUrl = downloadWorkspaceFileUrl(
     target,
@@ -447,17 +394,11 @@ function WorkspaceFileViewer({
         <Download size={13} />
         Download
       </a>
-      {(file.type === "markdown" || file.type === "text") && (
+      {canSave && (
         <button
           type="button"
-          onClick={() => { void handleSave(file.type === "markdown" ? mdContent : textDraft); }}
-          disabled={
-            saving ||
-            fetchState.status !== "ready" ||
-            (file.type === "markdown"
-              ? mdContent === mdOriginalRef.current
-              : !textDirty)
-          }
+          onClick={() => { void handleSave(draft); }}
+          disabled={saving || !dirty}
           style={{
             display: "flex",
             alignItems: "center",
@@ -479,8 +420,8 @@ function WorkspaceFileViewer({
   );
 
   // Error state
-  if (fetchState.status === "error") {
-    const copy = resolveWorkspaceErrorCopy(fetchState.errorClass);
+  if (fileState.status === "error") {
+    const copy = resolveWorkspaceErrorCopy(errorClass ?? fileState.error);
     return (
       <div
         style={{
@@ -498,167 +439,49 @@ function WorkspaceFileViewer({
     );
   }
 
-  // Body content
-  let body: JSX.Element;
+  const body = isTooLarge && !isKnownBinary ? (
+    <FileUnavailableNotice
+      heading="Too large to preview"
+      body="Files over 2 MB can't be shown here."
+      downloadUrl={downloadUrl}
+      filename={file.name}
+    />
+  ) : (
+    <FileView
+      filename={file.name}
+      state={fileState}
+      downloadUrl={downloadUrl}
+      onSave={(content) => handleSave(content)}
+      hideSaveButton
+      onDraftChange={setDirty}
+      onDraftContentChange={setDraft}
+      mode={viewMode ?? undefined}
+      onModeChange={setViewMode}
+    />
+  );
 
-  if (file.type === "binary") {
-    // Binary — skip fetch, show empty state + download
-    body = (
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          flex: 1,
-          gap: 16,
-          color: "var(--color-pv-fg-muted)",
-          padding: 24,
-        }}
-      >
-        <File size={40} style={{ opacity: 0.4 }} />
-        <div style={{ textAlign: "center" }}>
-          <div
-            style={{
-              fontSize: 14,
-              fontWeight: 600,
-              color: "var(--color-pv-fg)",
-              marginBottom: 6,
-            }}
-          >
-            This file can&apos;t be previewed.
-          </div>
-          <div style={{ fontSize: 13 }}>
-            Use the Download button above to save it.
-          </div>
-        </div>
-        <a
-          href={downloadUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 6,
-            padding: "8px 16px",
-            borderRadius: 8,
-            background:
-              "hsla(var(--pv-id-hue, 220), 80%, 60%, 0.18)",
-            border:
-              "1px solid hsla(var(--pv-id-hue, 220), 80%, 70%, 0.28)",
-            color: "var(--color-pv-fg)",
-            fontSize: 13,
-            fontWeight: 600,
-            textDecoration: "none",
-          }}
-        >
-          <Download size={14} />
-          Download
-        </a>
-      </div>
-    );
-  } else if (file.type === "image") {
-    if (fetchState.status === "loading") {
-      body = (
-        <div
-          style={{
-            flex: 1,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            color: "var(--color-pv-fg-muted)",
-            fontSize: 13,
-          }}
-        >
-          Loading…
-        </div>
-      );
-    } else {
-      // data:image/<ext>;base64,<contentBase64> — MIME resolved from extension above
-      const dataUri = `data:${mime};base64,${fetchState.data.contentBase64}`;
-      body = (
-        <div
-          style={{
-            flex: 1,
-            overflow: "auto",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: 16,
-          }}
-        >
-          <img
-            src={dataUri}
-            alt={file.name}
-            style={{
-              maxWidth: "100%",
-              maxHeight: "100%",
-              objectFit: "contain",
-              display: "block",
-              margin: "auto",
-              borderRadius: 6,
-            }}
-          />
-        </div>
-      );
-    }
-  } else if (file.type === "markdown") {
-    // Lazy-loaded MarkdownEditor — D-11 reuse, D-10 no modal wrapper.
-    // The MDXEditor internal DOM has no built-in scroll, and the tab body
-    // is height-constrained by the enclosing IdentityModal, so a tall
-    // markdown file's content otherwise clips off the bottom (and takes the
-    // save button below it out of reach). Wrap the editor in a
-    // flex:1 / minHeight:0 / overflow:auto scroll container so tall files
-    // scroll inside the tab while the save-button row below stays fixed.
-    body = (
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        overflow: "hidden",
+        background: "var(--color-pv-surface-quiet)",
+      }}
+    >
+      {header}
       <div
         style={{
           flex: 1,
-          overflow: "hidden",
+          minHeight: 0,
+          overflow: "auto",
           display: "flex",
           flexDirection: "column",
-          padding: "0 2px 2px",
+          padding: "8px 2px 2px",
         }}
       >
-        {fetchState.status === "loading" ? (
-          <div
-            style={{
-              flex: 1,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "var(--color-pv-fg-muted)",
-              fontSize: 13,
-            }}
-          >
-            Loading…
-          </div>
-        ) : (
-          <div style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
-            <Suspense
-              fallback={
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    padding: 24,
-                    color: "var(--color-pv-fg-muted)",
-                    fontSize: 13,
-                  }}
-                >
-                  Loading editor…
-                </div>
-              }
-            >
-              <MarkdownEditor
-                filename={file.name}
-                content={mdContent}
-                onChange={setMdContent}
-              />
-            </Suspense>
-          </div>
-        )}
+        {body}
         {saveError && (
           <div
             style={{
@@ -672,54 +495,6 @@ function WorkspaceFileViewer({
           </div>
         )}
       </div>
-    );
-  } else {
-    // text — GlobalFileTab (D-11 reuse, D-10 no modal wrapper)
-    body = (
-      <div
-        style={{
-          flex: 1,
-          overflow: "hidden",
-          display: "flex",
-          flexDirection: "column",
-          padding: "0 2px 2px",
-        }}
-      >
-        <GlobalFileTab
-          state={tabState}
-          onSave={globalFileSave}
-          onDraftChange={setTextDirty}
-          onDraftContentChange={setTextDraft}
-          filename={file.name}
-          hideSaveButton
-        />
-        {saveError && (
-          <div
-            style={{
-              padding: "4px 8px",
-              fontSize: 12,
-              color: "hsla(6, 80%, 55%, 0.9)",
-            }}
-          >
-            {saveError}
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        overflow: "hidden",
-        background: "var(--color-pv-surface-quiet)",
-      }}
-    >
-      {header}
-      {body}
     </div>
   );
 }
@@ -987,12 +762,11 @@ function WorkspaceListView({
     if (entry.type === "directory") {
       onNavigate([...currentPath, entry.name]);
     } else {
-      const viewType = getFileViewType(entry.name);
       const relativePath =
         currentPath.length > 0
           ? currentPath.join("/") + "/" + entry.name
           : entry.name;
-      onOpenFile({ name: entry.name, relativePath, type: viewType });
+      onOpenFile({ name: entry.name, relativePath, size: entry.size });
     }
   }
 

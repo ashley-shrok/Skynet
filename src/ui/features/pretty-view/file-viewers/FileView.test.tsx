@@ -1,5 +1,6 @@
 /**
- * GlobalFileTab component tests — covers the render branches, with focus on
+ * FileView component tests (ported from the retired GlobalFileTab tests) —
+ * covers the render branches, with focus on
  * the 2026-08-05 change that dropped the empty-branch early-return so a
  * truly-empty file (content="" && mtime===0) renders the editable textarea
  * and the user can type + save to CREATE the file.
@@ -11,7 +12,7 @@
  *     MarkdownEditor.test.tsx (RESEARCH.md §Pitfall 5).
  *   - Existing tests that assert `getByRole('textbox')` on the ready branch
  *     now pass a non-.md filename (e.g. "settings.json", "note.txt") so
- *     they continue to hit the textarea branch after GlobalFileTab adopts
+ *     they continue to hit the textarea branch after FileView adopts
  *     MarkdownEditor. The intent of each test is preserved.
  *
  * Tests:
@@ -58,7 +59,7 @@ vi.mock("@mdxeditor/editor", () => ({
 // Stub CodeEditorImpl (mirrors MarkdownEditor.test.tsx). Mock renders a
 // controlled <textarea> so existing `getByRole("textbox")` assertions on
 // non-markdown paths continue to work.
-vi.mock("./CodeEditorImpl", () => ({
+vi.mock("../CodeEditorImpl", () => ({
   CodeEditorImpl: (props: {
     filename: string;
     content: string;
@@ -77,16 +78,16 @@ vi.mock("./CodeEditorImpl", () => ({
   ),
 }));
 
-import GlobalFileTab from "./GlobalFileTab";
+import { FileView } from "./FileView";
 
-describe("GlobalFileTab — render branches", () => {
+describe("FileView — render branches", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   it("test 1: loading → Skeleton, no textarea, no error", () => {
     render(
-      <GlobalFileTab
+      <FileView
         state={{ status: "loading" }}
         onSave={vi.fn()}
         filename="settings.json"
@@ -98,7 +99,7 @@ describe("GlobalFileTab — render branches", () => {
 
   it("test 2: error → renders error message, no textarea", () => {
     render(
-      <GlobalFileTab
+      <FileView
         state={{ status: "error", error: "sftp read failed" }}
         onSave={vi.fn()}
         filename="settings.json"
@@ -111,7 +112,7 @@ describe("GlobalFileTab — render branches", () => {
 
   it("test 3: ready with non-empty content → textarea seeded with content, save disabled until edit", async () => {
     render(
-      <GlobalFileTab
+      <FileView
         state={{ status: "ready", data: { content: "hello", mtime: 42 } }}
         onSave={vi.fn()}
         filename="settings.json"
@@ -129,7 +130,7 @@ describe("GlobalFileTab — render branches", () => {
   it("test 4: ready with empty content + mtime=0 → EDITABLE textarea; type + save creates the file (regression gate for dropped early-return)", async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     render(
-      <GlobalFileTab
+      <FileView
         state={{ status: "ready", data: { content: "", mtime: 0 } }}
         onSave={onSave}
         filename="settings.json"
@@ -160,7 +161,7 @@ describe("GlobalFileTab — render branches", () => {
 
   it("test 5: 'No content in this file yet.' dead-end copy is GONE (regression gate)", () => {
     render(
-      <GlobalFileTab
+      <FileView
         state={{ status: "ready", data: { content: "", mtime: 0 } }}
         onSave={vi.fn()}
         filename="settings.json"
@@ -180,7 +181,7 @@ describe("GlobalFileTab — render branches", () => {
     // Files modal user is affected.
     const onSave = vi.fn();
     render(
-      <GlobalFileTab
+      <FileView
         state={{ status: "ready", data: { content: "hi", mtime: 1 } }}
         onSave={onSave}
         filename="settings.json"
@@ -200,7 +201,7 @@ describe("GlobalFileTab — render branches", () => {
   it("test 7 (Plan 40-03): onDraftChange fires false→true→false as draft diverges/converges", async () => {
     const onDraftChange = vi.fn<(dirty: boolean) => void>();
     render(
-      <GlobalFileTab
+      <FileView
         state={{ status: "ready", data: { content: "hi", mtime: 1 } }}
         onSave={vi.fn()}
         onDraftChange={onDraftChange}
@@ -233,18 +234,18 @@ describe("GlobalFileTab — render branches", () => {
 });
 
 // ── Filetype gate integration ────────────────────────────────────────────
-// GlobalFileTab is a thin wrapper over MarkdownEditor — the same filetype
+// FileView renders MarkdownEditor for text — the same filetype
 // gate MarkdownEditor.test.tsx covers in isolation must fire end-to-end
 // when the tab hosts it. .md filename → mocked MDXEditor renders;
 // non-markdown filename → mocked CodeEditor renders.
-describe("GlobalFileTab — filetype gate integration", () => {
+describe("FileView — filetype gate integration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   it("test A: filename='notes.md' + ready → renders MDXEditor (pretty branch), no CodeEditor", async () => {
     render(
-      <GlobalFileTab
+      <FileView
         state={{ status: "ready", data: { content: "# hi", mtime: 1 } }}
         onSave={vi.fn()}
         filename="notes.md"
@@ -258,7 +259,7 @@ describe("GlobalFileTab — filetype gate integration", () => {
 
   it("test B: filename='settings.json' + ready → renders CodeEditor, no MDXEditor", async () => {
     render(
-      <GlobalFileTab
+      <FileView
         state={{ status: "ready", data: { content: '{"a":1}', mtime: 1 } }}
         onSave={vi.fn()}
         filename="settings.json"
@@ -268,5 +269,113 @@ describe("GlobalFileTab — filetype gate integration", () => {
     const ta = (await screen.findByTestId("code-editor")) as HTMLTextAreaElement;
     expect(ta.value).toBe('{"a":1}');
     expect(ta.getAttribute("data-filename")).toBe("settings.json");
+  });
+});
+
+describe("FileView — registry dispatch", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("media with a mediaUrl renders straight from it, even while state is loading", () => {
+    render(
+      <FileView
+        filename="photo.png"
+        state={{ status: "loading" }}
+        mediaUrl="https://x/file/h/photo.png"
+      />,
+    );
+    const img = screen.getByAltText("photo.png") as HTMLImageElement;
+    expect(img.getAttribute("src")).toBe("https://x/file/h/photo.png");
+  });
+
+  it("media without a mediaUrl builds a typed blob URL from the fetched bytes", () => {
+    const create = vi.fn((_b: Blob) => "blob:fake");
+    const revoke = vi.fn();
+    const origCreate = URL.createObjectURL;
+    const origRevoke = URL.revokeObjectURL;
+    URL.createObjectURL = create as unknown as typeof URL.createObjectURL;
+    URL.revokeObjectURL = revoke;
+    try {
+      const { unmount } = render(
+        <FileView
+          filename="clip.webm"
+          state={{
+            status: "ready",
+            data: { content: "", mtime: 1, isText: false, bytes: new Uint8Array([1, 2, 3]) },
+          }}
+        />,
+      );
+      expect(document.querySelector("video")?.getAttribute("src")).toBe("blob:fake");
+      expect((create.mock.calls[0][0] as Blob).type).toBe("video/webm");
+      unmount();
+      expect(revoke).toHaveBeenCalledWith("blob:fake");
+    } finally {
+      URL.createObjectURL = origCreate;
+      URL.revokeObjectURL = origRevoke;
+    }
+  });
+
+  it("known-binary extension shows the notice with the download link, whatever the state", () => {
+    render(
+      <FileView
+        filename="report.pdf"
+        state={{ status: "loading" }}
+        downloadUrl="/dl/report.pdf"
+        onSave={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/can't preview this file/i)).toBeTruthy();
+    expect(screen.getByRole("link", { name: /download/i }).getAttribute("href")).toBe(
+      "/dl/report.pdf",
+    );
+    expect(screen.queryByRole("button", { name: /^save$/i })).toBeNull();
+  });
+
+  it("text-type file whose bytes aren't text shows the notice, no editor, no save", () => {
+    render(
+      <FileView
+        filename="mystery.xyz"
+        state={{ status: "ready", data: { content: "", mtime: 1, isText: false } }}
+        onSave={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/can't preview this file/i)).toBeTruthy();
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(screen.queryByRole("button", { name: /^save$/i })).toBeNull();
+    // No download URL given → no download link.
+    expect(screen.queryByRole("link", { name: /download/i })).toBeNull();
+  });
+
+  it("multi-mode types get an inline switcher; SVG flips from rendered to editable source", async () => {
+    const onModeChange = vi.fn();
+    render(
+      <FileView
+        filename="logo.svg"
+        state={{ status: "ready", data: { content: "<svg/>", mtime: 1, isText: true } }}
+        mediaUrl="https://x/file/h/logo.svg"
+        onSave={vi.fn()}
+        onModeChange={onModeChange}
+      />,
+    );
+    expect(screen.getByAltText("logo.svg")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^save$/i })).toBeNull();
+    fireEvent.click(screen.getByTestId("file-view-mode-source"));
+    expect(onModeChange).toHaveBeenCalledWith("source");
+    const editor = (await screen.findByRole("textbox")) as HTMLTextAreaElement;
+    expect(editor.value).toBe("<svg/>");
+    expect(screen.getByRole("button", { name: /^save$/i })).toBeTruthy();
+  });
+
+  it("hideModeSwitcher leaves the switcher to the host", () => {
+    render(
+      <FileView
+        filename="logo.svg"
+        state={{ status: "loading" }}
+        mediaUrl="https://x/file/h/logo.svg"
+        hideModeSwitcher
+      />,
+    );
+    expect(screen.queryByTestId("file-view-mode-source")).toBeNull();
   });
 });

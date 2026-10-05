@@ -33,7 +33,7 @@ import {
   type GlobalFileEntry,
 } from "@/api/global-files-api";
 import type { TabState } from "./IdentityFileTab";
-import type { GlobalFileTabData } from "./GlobalFileTab";
+import type { FileViewData } from "./file-viewers/FileView";
 import { MarkdownEditor } from "./MarkdownEditor";
 
 // IMPLICIT_ABOUT_YOU_PATH: the path that the backend always includes per host
@@ -79,7 +79,7 @@ export function PreferencesAboutYouPane({
   const [selectedHostId, setSelectedHostId] = useState<number | null>(null);
   const [files, setFiles] = useState<TabState<GlobalFileEntry[]>>({ status: "loading" });
   const [activeTab, setActiveTab] = useState<string | null>(null);
-  const [tabData, setTabData] = useState<Map<string, TabState<GlobalFileTabData>>>(new Map());
+  const [tabData, setTabData] = useState<Map<string, TabState<FileViewData>>>(new Map());
 
   // Per-path editor state — one draft per file path so tab switches don't
   // silently overwrite a user's unsaved edits (M1 fix). Paired with

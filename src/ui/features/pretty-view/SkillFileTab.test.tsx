@@ -206,7 +206,7 @@ describe("SkillFileTab — render branches", () => {
     expect(saveBtn.disabled).toBe(false);
   });
 
-  it("test 8: non-text file → renders AlertTriangle placeholder, no textarea", () => {
+  it("test 8: non-text file → shared can't-preview notice, no textarea", () => {
     render(
       <SkillFileTab
         state={{
@@ -214,16 +214,16 @@ describe("SkillFileTab — render branches", () => {
           data: { content: "", mtime: 42, isText: false },
         }}
         onSave={vi.fn()}
-        filename="binary.bin"
+        filename="blob.xyz"
       />,
     );
-    // No textarea — non-text branch replaces the editor pane entirely.
+    // No textarea — the notice replaces the editor pane entirely.
     expect(screen.queryByRole("textbox")).toBeNull();
     // No save button either.
     expect(screen.queryByRole("button", { name: /^save$/i })).toBeNull();
-    // Placeholder copy present (verbatim per UI-SPEC L165-166).
-    expect(screen.getByText(/not a text file/i)).toBeTruthy();
-    expect(screen.getByText(/isn't text and can't be edited/i)).toBeTruthy();
+    expect(screen.getByText(/can't preview this file/i)).toBeTruthy();
+    // Binary files can still be deleted from the skill.
+    expect(screen.getByTitle(/delete this file/i)).toBeTruthy();
   });
 
   it("test 9: delete-file trigger fires onRequestDelete", () => {

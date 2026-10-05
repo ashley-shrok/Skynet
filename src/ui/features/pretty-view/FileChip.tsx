@@ -1,7 +1,8 @@
 import { useState, type MouseEvent } from "react";
-import { Download, FileText, Image as ImageIcon, Music, Video } from "lucide-react";
+import { Download } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatHumanSize } from "@/api/pretty-view-upload-protocol";
+import { resolveFileViewer } from "./file-viewers/registry";
 
 /**
  * Interactive file chip — one canonical rendering for every file URL the
@@ -14,63 +15,26 @@ import { formatHumanSize } from "@/api/pretty-view-upload-protocol";
  * only fires on plain click.
  *
  * Two variants:
- *   plain — file-type icon + underlined filename + optional size + download icon
- *   media — inline preview (image / audio / video / svg) inside a rounded
- *           frame, caption strip below with the same trailing controls
+ *   plain   — file-type icon + underlined filename + optional size + download icon
+ *   preview — the type's inline preview inside a rounded frame, caption strip
+ *             below with the same trailing controls
  *
- * The media source is the URL itself — `<img>` / `<audio>` / `<video>` fetch
- * with the browser's Skynet session cookies. The backend's per-extension
- * inline-disposition serves image/audio/video with real MIME types; SVG is
- * served with attachment disposition for security, but `<img>` renders it
- * natively without executing embedded script.
+ * The file-viewer registry (file-viewers/registry.ts) decides both the icon
+ * and whether a type has an inline preview (`ChipPreview`). Media previews
+ * source from the URL itself — `<img>` / `<audio>` / `<video>` fetch with the
+ * browser's Skynet session cookies. SVG is served with attachment
+ * disposition for security, but `<img>` renders it without executing script.
  */
-
-export type FileChipKind = "image" | "audio" | "video" | "svg" | "plain";
-
-// Extension sets mirror the backend's EXT_INLINE lanes for image/audio/video.
-// SVG is separately called out because the render path differs (rendered here,
-// code-toggle in modal). Anything not in these sets is treated as plain.
-const IMAGE_EXTS = new Set([
-  "png", "jpg", "jpeg", "gif", "webp", "avif", "bmp", "ico",
-]);
-const AUDIO_EXTS = new Set([
-  "mp3", "m4a", "wav", "ogg", "oga", "flac", "opus",
-]);
-const VIDEO_EXTS = new Set([
-  "mp4", "m4v", "webm", "mov", "ogv",
-]);
 
 /**
- * Classify a filename into a chip kind. Extension lookup is case-insensitive.
- * Filenames without an extension fall through to "plain".
+ * Registry entry id when the type has an inline chip preview (today: image,
+ * svg, audio, video), else "plain". Rendered as `data-file-chip-kind`.
  */
-export function classifyFileChipKind(filename: string): FileChipKind {
-  const dot = filename.lastIndexOf(".");
-  if (dot <= 0 || dot === filename.length - 1) return "plain";
-  const ext = filename.slice(dot + 1).toLowerCase();
-  if (ext === "svg") return "svg";
-  if (IMAGE_EXTS.has(ext)) return "image";
-  if (AUDIO_EXTS.has(ext)) return "audio";
-  if (VIDEO_EXTS.has(ext)) return "video";
-  return "plain";
-}
+export type FileChipKind = string;
 
-// Type-icon glyph for the leading position on plain chips and the media
-// caption row. Same mapping as classifyFileChipKind; image/svg share the
-// image icon since visually they're both "picture-like".
-function TypeIcon({ kind, className }: { kind: FileChipKind; className?: string }): JSX.Element {
-  const cls = cn("shrink-0 opacity-70", className);
-  switch (kind) {
-    case "image":
-    case "svg":
-      return <ImageIcon className={cls} aria-hidden />;
-    case "audio":
-      return <Music className={cls} aria-hidden />;
-    case "video":
-      return <Video className={cls} aria-hidden />;
-    default:
-      return <FileText className={cls} aria-hidden />;
-  }
+export function classifyFileChipKind(filename: string): FileChipKind {
+  const entry = resolveFileViewer(filename);
+  return entry.ChipPreview ? entry.id : "plain";
 }
 
 export interface FileChipProps {
@@ -106,7 +70,9 @@ export function FileChip({
   onDownload,
   className,
 }: FileChipProps): JSX.Element {
-  const detectedKind = classifyFileChipKind(filename);
+  const entry = resolveFileViewer(filename);
+  const Icon = entry.icon;
+  const Preview = entry.ChipPreview;
   // Shape (2026-09-28) — media-load-error fallback: if the browser can't
   // render the media (corrupt bytes, truncated file, permission denied on
   // the underlying host), we downgrade the chip to the plain variant so
@@ -114,7 +80,7 @@ export function FileChip({
   // Once flipped, we stay flipped for the lifetime of this render — a
   // re-mount (e.g. after the file is fixed) resets it naturally.
   const [mediaBroken, setMediaBroken] = useState(false);
-  const kind: FileChipKind = mediaBroken ? "plain" : detectedKind;
+  const kind: FileChipKind = mediaBroken || !Preview ? "plain" : entry.id;
 
   // onClick intercept for the whole chip / whole frame. preventDefault
   // stops the anchor from navigating on plain click. Middle-click and
@@ -156,8 +122,8 @@ export function FileChip({
 
   const sizeLabel = typeof size === "number" ? formatHumanSize(size) : null;
 
-  // Plain variant — non-media types (text, pdf, docx, csv, diff, unknown).
-  if (kind === "plain") {
+  // Plain variant — types without an inline preview, or a preview that failed.
+  if (kind === "plain" || !Preview) {
     return (
       <a
         href={url}
@@ -175,7 +141,7 @@ export function FileChip({
         title={sizeLabel ? `${filename} (${sizeLabel})` : filename}
         data-file-chip-kind={kind}
       >
-        <TypeIcon kind={kind} className="size-3.5" />
+        <Icon className="size-3.5 shrink-0 opacity-70" aria-hidden />
         <span
           className={cn(
             "max-w-[220px] truncate underline underline-offset-[3px]",
@@ -194,8 +160,8 @@ export function FileChip({
     );
   }
 
-  // Media variant — image / audio / video / svg. Inline preview inside a
-  // rounded frame, caption row below.
+  // Preview variant — the registry's inline preview inside a rounded frame,
+  // caption row below.
   return (
     <a
       href={url}
@@ -213,12 +179,7 @@ export function FileChip({
       data-file-chip-kind={kind}
     >
       <div className="block bg-black/60">
-        <MediaPreview
-          kind={kind}
-          url={url}
-          filename={filename}
-          onError={() => setMediaBroken(true)}
-        />
+        <Preview url={url} filename={filename} onError={() => setMediaBroken(true)} />
       </div>
       <div
         className={cn(
@@ -226,7 +187,7 @@ export function FileChip({
           "border-t border-white/[0.08]",
         )}
       >
-        <TypeIcon kind={kind} className="size-3.5" />
+        <Icon className="size-3.5 shrink-0 opacity-70" aria-hidden />
         <span
           className={cn(
             "flex-1 min-w-0 truncate underline underline-offset-[3px]",
@@ -241,65 +202,6 @@ export function FileChip({
         <DownloadButton onClick={handleDownload} label={`Download ${filename}`} />
       </div>
     </a>
-  );
-}
-
-/**
- * Inline media preview. All four kinds source directly from the URL —
- * `<img>` / `<audio>` / `<video>` fetch with the browser's session
- * cookies, so no extra fetch layer is needed at chip time. The modal open
- * path (via `onOpen`) still does its own fetch for the editor / viewer.
- *
- * Image and SVG cap at max-height so a tall image doesn't blow out the
- * bubble; audio is a single row of native controls; video renders with
- * native controls and no autoplay (per shape philosophy).
- */
-function MediaPreview({
-  kind,
-  url,
-  filename,
-  onError,
-}: {
-  kind: FileChipKind;
-  url: string;
-  filename: string;
-  /** Fired when the native media element fails to load — corrupt bytes,
-   *  network error, permission denied. The chip flips to plain variant so
-   *  we don't leave a broken-media icon inside the rounded frame. */
-  onError: () => void;
-}): JSX.Element {
-  if (kind === "image" || kind === "svg") {
-    return (
-      <img
-        src={url}
-        alt={filename}
-        className="block max-w-full max-h-[240px] mx-auto"
-        loading="lazy"
-        draggable={false}
-        onError={onError}
-      />
-    );
-  }
-  if (kind === "audio") {
-    return (
-      <audio
-        src={url}
-        controls
-        preload="metadata"
-        className="block w-full"
-        onError={onError}
-      />
-    );
-  }
-  // video
-  return (
-    <video
-      src={url}
-      controls
-      preload="metadata"
-      className="block max-w-full max-h-[240px] mx-auto bg-black"
-      onError={onError}
-    />
   );
 }
 
