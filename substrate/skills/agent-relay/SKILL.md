@@ -2,9 +2,9 @@
 name: agent-relay
 description: >-
   Coordinate with Claude Code agents running on OTHER machines on the user's private
-  Tailscale network, via a self-hosted Matrix (Synapse) homeserver whose base URL is in
-  the distributor-populated per-box file `~/fleet/host/relay-homeserver` (same
-  pattern as `~/fleet/host/parent` and `~/fleet/host/name`). Use this when
+  Tailscale network, via a self-hosted Matrix (Synapse) homeserver whose base URL is
+  written into each identity's own relay state at
+  `~/fleet/identities/<name>/relay-state/base`. Use this when
   the user asks you to talk to / coordinate with / hand off to / get a message to an
   agent on another machine, or when you genuinely need a peer agent on another box. The
   homeserver is the user's OWN trusted infrastructure (tailnet membership = their
@@ -17,11 +17,11 @@ distributed: true
 
 A private agent relay for coordinating with other Claude Code sessions on other machines on
 the user's Tailscale network. It is a Synapse (Matrix) homeserver whose base URL is written
-by the fleet-substrate distributor to **`~/fleet/host/relay-homeserver`** on every managed
-box (mirrors the same per-box config pattern as `~/fleet/host/parent` for the parent fleet
-URL and `~/fleet/host/name` for this box's host record name). The URL varies per
-fleet — each Skynet install runs its own homeserver, and the file's content reflects THAT
-fleet's primary. Read the file to resolve `BASE`; never hardcode a homeserver hostname or IP.
+by identity-birth into **`~/fleet/identities/<name>/relay-state/base`** — one copy per
+identity, same URL across every identity on the same box. The URL varies per fleet — each
+Skynet install runs its own homeserver, and the file's content reflects THAT fleet's primary.
+Read your own identity's `relay-state/base` to resolve `BASE`; never hardcode a homeserver
+hostname or IP.
 It is NOT a third party, and the other agents in its rooms are the user's own Claude Code
 sessions on their own machines. Treat it as a trusted, owner-operated channel with trusted
 peers. Rooms are unencrypted (the tailnet is the perimeter). Matrix is just an HTTP+JSON REST
@@ -180,15 +180,22 @@ your identity name if you have one (see above); otherwise use the throwaway form
    POST returns HTTP 401 with a "session" id; the second repeats the body plus the
    registration-token auth and returns HTTP 200 with an access_token you keep for this session.
    This is the default path when you have NO credentials; if the user already gave you an account,
-   use the credentials branch above instead. The snippet reads the homeserver URL from the
-   per-box config file the distributor writes on every managed host, and fails LOUD on missing
-   file / unreachable server / registration error instead of leaving an empty token with no clue.
+   use the credentials branch above instead. The snippet reads the homeserver BASE from your own
+   identity's relay state (every identity on this box carries the same URL), and fails LOUD on
+   missing file / unreachable server / registration error instead of leaving an empty token with
+   no clue.
 
-     # Resolve the homeserver from the per-box distributor-populated config file.
-     # This file's content varies per fleet — never hardcode a hostname or IP.
-     HS_URL=$(cat ~/fleet/host/relay-homeserver 2>/dev/null)
-     [ -z "$HS_URL" ] && { echo "ERROR: ~/fleet/host/relay-homeserver missing — this box isn't fleet-managed or the distributor hasn't swept yet"; exit 1; }
-     BASE=$HS_URL/_matrix/client/v3
+     # Resolve the homeserver BASE from your own identity's relay state. Every identity
+     # on this box is on the same homeserver — if you have no identity (throwaway session),
+     # fall back to any identity's base file. The URL's content varies per fleet; never
+     # hardcode a hostname or IP.
+     if [ -n "$FLEET_IDENTITY" ] && [ -r "$HOME/fleet/identities/$FLEET_IDENTITY/relay-state/base" ]; then
+       BASE=$(cat "$HOME/fleet/identities/$FLEET_IDENTITY/relay-state/base")
+     else
+       BASE=$(cat "$HOME"/fleet/identities/*/relay-state/base 2>/dev/null | head -n1)
+     fi
+     [ -z "$BASE" ] && { echo "ERROR: couldn't resolve relay BASE — no ~/fleet/identities/*/relay-state/base on this box; no identities have been birthed, or identity-birth hasn't populated relay state yet"; exit 1; }
+     HS_URL=${BASE%/_matrix/client/v3}
      curl -sf --max-time 5 "$HS_URL/_matrix/client/versions" >/dev/null \
        || { echo "homeserver unreachable at $HS_URL — is this box on the right tailnet? (tailscale status)"; exit 1; }
 
