@@ -1,5 +1,6 @@
 import type { ComponentType } from "react";
 import {
+  Box,
   File,
   FileDiff,
   FileSpreadsheet,
@@ -32,6 +33,8 @@ import { XlsxMode } from "./xlsx/xlsx-mode";
 import { DocxChipPreview } from "./docx/DocxChipPreview";
 import { DocxMode } from "./docx/docx-mode";
 import { ConvertedPdfChipPreview, convertedMode } from "./convert/converted-mode";
+import { ModelMode } from "./model3d/model-mode";
+import { ModelChipPreview } from "./model3d/ModelChipPreview";
 
 /**
  * File-viewer registry — the ONE place that decides how a file type is shown.
@@ -307,6 +310,23 @@ export const PRESENTATION_ENTRY: FileViewerEntry = {
 };
 
 /**
+ * 3D models: Online3DViewer engine on three.js (lazy-loaded), view-only by
+ * the "no editing unless it round-trips" rule. Chips show a rendered still.
+ * CAD (STEP/IGES/BREP/FreeCAD), Rhino and IFC decoders load on demand from
+ * our own origin (scripts/vendor-3d-libs.mjs).
+ */
+export const MODEL_3D_ENTRY: FileViewerEntry = {
+  id: "model3d",
+  extensions: [
+    "glb", "gltf", "stl", "obj", "ply", "3mf", "fbx", "dae", "3ds", "off", "amf", "wrl",
+    "step", "stp", "iges", "igs", "brep", "brp", "fcstd", "3dm", "ifc", "bim",
+  ],
+  icon: Box,
+  modes: [{ id: "view", label: "Model", needs: "url", editable: false, View: ModelMode }],
+  ChipPreview: ModelChipPreview,
+};
+
+/**
  * Formats we know are binary and have no viewer yet. Recognising them up
  * front lets surfaces skip the (up to 2 MB) fetch and show the notice
  * immediately. Entries move out of here as they gain real viewers.
@@ -352,6 +372,7 @@ const ENTRIES: readonly FileViewerEntry[] = [
   LEGACY_WORD_ENTRY,
   LEGACY_SHEET_ENTRY,
   PRESENTATION_ENTRY,
+  MODEL_3D_ENTRY,
   BINARY_ENTRY,
 ];
 

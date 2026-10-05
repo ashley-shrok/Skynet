@@ -155,6 +155,21 @@ Ordering below is a starting-point, not locked. Each entry is marked
   off). Chip thumbnails for presentations only. No converter → notice +
   Download. — built, awaiting user check
 
+- **[discovered] shape-3d-viewer** — (2026-10-05) 3D models, view-only:
+  glb/gltf/stl/obj/ply/3mf/fbx/dae/3ds/off/amf/wrl + CAD step/stp/iges/
+  igs/brep/brp/fcstd + 3dm + ifc/bim. Online3DViewer engine (MIT, three.js)
+  driven at the Viewer/ThreeModelLoader level — its EmbeddedViewer puts
+  importer error text (which can quote the file) into innerHTML. Toolbar:
+  fit, Y/Z-up (STEP/IGES start Z-up), edges, ortho, light/dark, PNG
+  snapshot; stats (vertices, triangles, bbox). Missing companion files
+  (.mtl, .bin, textures) are named in a banner. Uncaught importer errors /
+  3-min watchdog fail the load cleanly. Decoders (OpenCascade, rhino3dm,
+  web-ifc, draco) + a CC-BY env map are served from /vendor/3d/ (postinstall
+  patch rewrites the CDN URLs; a Vite plugin serves/emits them from
+  node_modules; nginx block in both confs) — no third-party requests. Chip:
+  rendered still + triangle count, one WebGL context at a time, ≤15 MB. —
+  built, awaiting user check
+
 ## Rule: view-only when editing can't be done properly (2026-10-05)
 
 If we can't give a proper editing-and-saving experience for a file type

@@ -15,6 +15,13 @@ licence text are in `package.json` / `package-lock.json` and each package's
 | ExcelJS (`exceljs`) | Excel workbook reader | MIT | https://github.com/exceljs/exceljs |
 | SSF (`ssf`) | Excel number formatting | Apache-2.0 | https://github.com/SheetJS/ssf |
 | PapaParse (`papaparse`) | CSV parsing and writing | MIT | https://github.com/mholt/PapaParse |
+| Online3DViewer engine (`online-3d-viewer`) | 3D model viewer | MIT | https://github.com/kovacsv/Online3DViewer |
+| three.js (`three`, via Online3DViewer) | 3D rendering | MIT | https://github.com/mrdoob/three.js |
+| occt-import-js (served from `/vendor/3d/`, loaded on demand) | STEP / IGES / BREP import (OpenCascade, WebAssembly) | LGPL-2.1 | https://github.com/kovacsv/occt-import-js |
+| rhino3dm (served from `/vendor/3d/`, loaded on demand) | Rhino .3dm import | MIT | https://github.com/mcneel/rhino3dm |
+| web-ifc (served from `/vendor/3d/`, loaded on demand) | IFC (BIM) import | MPL-2.0 | https://github.com/ThatOpen/engine_web-ifc |
+| Draco (`draco3d`, served from `/vendor/3d/`, loaded on demand) | Compressed glTF meshes | Apache-2.0 | https://github.com/google/draco |
+| "Fisherman's Bastion" cube map by Emil Persson (Humus), from Online3DViewer | Lighting for 3D materials | CC-BY 3.0 | http://www.humus.name |
 | LibreOffice (separate `converter` container, from Ubuntu packages) | Converting .doc/.odt/.xls/.ods/.ppt/.pptx/.odp for viewing | MPL-2.0 | https://www.libreoffice.org/about-us/source-code/ |
 
 ## AGPL-3.0 and Skynet
@@ -27,3 +34,8 @@ link in Preferences → About; instances running modified code must set
 README's License section.
 
 SuperDoc's document-open telemetry is disabled in Skynet.
+
+The OpenCascade-based STEP/IGES importer (occt-import-js, LGPL-2.1) is served
+as separate, unmodified files under `/vendor/3d/` and loaded by the browser
+only when such a file is opened, so it can be replaced independently. Its
+licence texts ship with it (`node_modules/occt-import-js/dist/license.*.txt`).

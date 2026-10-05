@@ -19,6 +19,8 @@ const COMPONENTS: Array<[string, string, string]> = [
   ["AG Grid Community", "CSV and Excel tables", "MIT"],
   ["ExcelJS", "Excel workbook reader", "MIT"],
   ["PapaParse", "CSV parser", "MIT"],
+  ["Online3DViewer + three.js", "3D model viewer", "MIT"],
+  ["occt-import-js", "STEP / IGES import", "LGPL-2.1"],
   ["LibreOffice", "Document converter (server)", "MPL-2.0"],
 ];
 

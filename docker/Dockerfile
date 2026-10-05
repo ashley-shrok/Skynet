@@ -11,6 +11,7 @@ COPY vendor ./vendor
 COPY scripts/patch-guacamole-lite.cjs ./scripts/
 COPY scripts/patch-better-sqlite3.cjs ./scripts/
 COPY scripts/patch-nan.cjs ./scripts/
+COPY scripts/patch-online-3d-viewer.cjs ./scripts/
 
 RUN --mount=type=cache,target=/root/.npm npm ci && \
     node scripts/patch-guacamole-lite.cjs && \
@@ -78,6 +79,7 @@ COPY vendor ./vendor
 COPY scripts/patch-guacamole-lite.cjs ./scripts/
 COPY scripts/patch-better-sqlite3.cjs ./scripts/
 COPY scripts/patch-nan.cjs ./scripts/
+COPY scripts/patch-online-3d-viewer.cjs ./scripts/
 
 RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev && \
     node scripts/patch-guacamole-lite.cjs && \
