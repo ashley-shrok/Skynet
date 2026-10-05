@@ -28,7 +28,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type React from "react";
-import { AlarmClock, ChevronDown, Folder, Mic, Pencil, User, X } from "lucide-react";
+import { AlarmClock, ChevronDown, Folder, GitBranch, Mic, Pencil, User, X } from "lucide-react";
 import { Modal, ModalFoot, ModalTabs } from "@/components/modal";
 import { Tabs, TabsContent } from "@/components/tabs";
 import { updateIdentity } from "@/api/identities-api";
@@ -59,6 +59,7 @@ import { cn } from "@/lib/utils";
 import { IdentityFileTab, type TabState } from "./IdentityFileTab";
 import { WakeupsTab } from "./WakeupsTab";
 import WorkspaceTab from "./WorkspaceTab";
+import GitTab from "./GitTab";
 import { bumpModalOpen } from "@/lib/freeze-diag";
 
 // Title-line clickable treatment for jumping to the role modal. Preserved
@@ -172,6 +173,7 @@ export function IdentityModal({
     { value: "identity", label: "Agent file", Icon: User },
     { value: "identity-wakeups", label: "Wake-ups", Icon: AlarmClock },
     { value: "workspace", label: "Files", Icon: Folder },
+    { value: "git", label: "Git", Icon: GitBranch },
   ] as const;
 
   // Initial fetch of identity file + wake-ups on modal open. Preserved
@@ -736,6 +738,17 @@ export function IdentityModal({
           className="flex-1 min-h-0 overflow-hidden flex flex-col"
         >
           <WorkspaceTab
+            target={{ kind: "identity", identityKey: identity.identityKey }}
+            hostId={hostId}
+            hue={hue}
+          />
+        </TabsContent>
+
+        <TabsContent
+          value="git"
+          className="flex-1 min-h-0 overflow-hidden flex flex-col"
+        >
+          <GitTab
             target={{ kind: "identity", identityKey: identity.identityKey }}
             hostId={hostId}
             hue={hue}

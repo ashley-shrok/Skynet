@@ -192,7 +192,7 @@ afterAll(() => {
 // Test A — post-refactor tab count
 // ─────────────────────────────────────────────────────────────────────────────
 describe("IdentityModal Phase 90 refactor — tab structure", () => {
-  it("A: renders 3 identity-scope tabs (Identity file / Wakeups / Files) — Telegram tab retired in Phase 128 close-loop-fix", async () => {
+  it("A: renders 4 identity-scope tabs (Identity file / Wakeups / Files / Git) — Telegram tab retired in Phase 128 close-loop-fix", async () => {
     renderModal();
     await waitFor(() => {
       expect(document.querySelector('[role="dialog"]')).toBeTruthy();
@@ -203,8 +203,9 @@ describe("IdentityModal Phase 90 refactor — tab structure", () => {
     // (Identity file / Wakeups / Files). Pre-Phase-128: 4 for admins /
     // 3 for non-admins (Telegram was admin-gated); Telegram is now gone
     // for both viewer classes since the bridge is retired end-to-end.
+    // Git tab added after Phase 128 → 4.
     const tabpanels = document.querySelectorAll('[role="tabpanel"]');
-    expect(tabpanels.length).toBe(3);
+    expect(tabpanels.length).toBe(4);
     // Belt-and-suspenders: no button in the identity modal is labelled Telegram.
     const navLabels = Array.from(
       document.querySelectorAll("button"),

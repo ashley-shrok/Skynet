@@ -58,7 +58,7 @@ import type { Client as SSHClientType } from "ssh2";
 /** Role-slug validator — mirrors PROJECT_SLUG_RE/APP_SLUG_RE shape. Kebab-case only. */
 export const ROLE_SLUG_RE = /^[a-z0-9-]{1,64}$/;
 
-type TargetSpec =
+export type TargetSpec =
   | { kind: "identity"; identityKey: string }
   | { kind: "role"; roleSlug: string };
 
@@ -72,7 +72,7 @@ type ExtractTargetResult =
  * shape check. Absent-kind path is byte-identical to the legacy identityKey-only
  * behavior — no existing caller sees a wire change.
  */
-function extractTarget(body: Record<string, unknown>): ExtractTargetResult {
+export function extractTarget(body: Record<string, unknown>): ExtractTargetResult {
   const kind = body.kind;
   if (kind === "role") {
     if (typeof body.roleSlug !== "string") return { ok: false, error: "invalid_body" };
@@ -327,7 +327,7 @@ function sftpCreateEmpty(sftp: SftpLike, absolutePath: string): Promise<void> {
 /*  runWithAbort (copied from pretty-view-fetch-host-file.ts verbatim)     */
 /* ------------------------------------------------------------------------ */
 
-function runWithAbort<T>(signal: AbortSignal, task: () => Promise<T>): Promise<T> {
+export function runWithAbort<T>(signal: AbortSignal, task: () => Promise<T>): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     let settled = false;
     const onAbort = () => {
@@ -375,7 +375,7 @@ type WorkspaceEntry = {
  * Static pre-SFTP traversal check. Rejects relativePath with .. segments
  * in any form before any SFTP call is made.
  */
-function validateRelativePath(p: string): void {
+export function validateRelativePath(p: string): void {
   if (
     p.includes("/../") ||
     p.startsWith("../") ||
@@ -413,7 +413,7 @@ function assertResolvedUnderRoot(resolved: string, workspaceRoot: string): void 
 /*  (extended from pretty-view-fetch-host-file.ts to add workspace classes) */
 /* ------------------------------------------------------------------------ */
 
-function classifyErrorToStatus(err: unknown): number {
+export function classifyErrorToStatus(err: unknown): number {
   const name = err instanceof Error ? err.name : "unknown";
   const msg = err instanceof Error ? err.message : "";
   if (name === "AbortError") return 504;
@@ -441,7 +441,7 @@ function classifyErrorToStatus(err: unknown): number {
   return 502;
 }
 
-function classifyErrorToClass(err: unknown): string {
+export function classifyErrorToClass(err: unknown): string {
   const name = err instanceof Error ? err.name : "unknown";
   const msg = err instanceof Error ? err.message : "";
   if (name === "AbortError") return "ssh_timeout";
