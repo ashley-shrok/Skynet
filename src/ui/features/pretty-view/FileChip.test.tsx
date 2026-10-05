@@ -51,11 +51,12 @@ describe("classifyFileChipKind", () => {
     expect(classifyFileChipKind("data.csv")).toBe("delimited");
     expect(classifyFileChipKind("data.tsv")).toBe("delimited");
     expect(classifyFileChipKind("fix.patch")).toBe("diff");
+    expect(classifyFileChipKind("report.pdf")).toBe("pdf");
   });
 
   it("falls back to plain for text / unknown / extensionless", () => {
     expect(classifyFileChipKind("notes.md")).toBe("plain");
-    expect(classifyFileChipKind("report.pdf")).toBe("plain");
+    expect(classifyFileChipKind("report.docx")).toBe("plain");
     expect(classifyFileChipKind("app.log")).toBe("plain");
     expect(classifyFileChipKind("Dockerfile")).toBe("plain");
     expect(classifyFileChipKind("plainname")).toBe("plain");

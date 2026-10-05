@@ -11,7 +11,12 @@ import {
   FileViewModeSwitcher,
   type FileViewData,
 } from "./file-viewers/FileView";
-import { fileViewNeedsContent } from "./file-viewers/registry";
+import {
+  fileViewNeedsContent,
+  resolveFileViewer,
+  resolveMode,
+  type BinaryDraft,
+} from "./file-viewers/registry";
 import { base64ToBytes, decodeUtf8, looksLikeText } from "./file-viewers/text-sniff";
 
 /**
@@ -181,7 +186,7 @@ export interface EditableFileModalProps {
    * Plan 40-04 wires this to `uploads.stageAttachments("primary", [File])`
    * — depositing the edit as a chip in the ComposeBox attachment strip.
    */
-  onStageEditedFile: (filename: string, content: string) => void;
+  onStageEditedFile: (filename: string, content: string | Uint8Array) => void;
 }
 
 export default function EditableFileModal({
@@ -205,6 +210,8 @@ export default function EditableFileModal({
   // URL-sourced modes (media, rendered SVG) and known-binary types skip the
   // fetch; switching SVG to Source flips the modal into the fetch flow.
   const [viewMode, setViewMode] = useState<string | null>(null);
+  // Unsaved binary edits (PDF annotations) — saved as the edited file's bytes.
+  const [binaryDraft, setBinaryDraft] = useState<BinaryDraft | null>(null);
   const usesEditorFetch = useMemo(
     () => fileViewNeedsContent(filename, viewMode, true),
     [filename, viewMode],
@@ -297,7 +304,7 @@ export default function EditableFileModal({
   // no host file to conflict-check against). Sets savingRef FIRST so the
   // subsequent onOpenChange(false) bypasses the draft-guard confirm.
   const handleSave = useCallback(
-    async (content: string): Promise<void> => {
+    async (content: string | Uint8Array): Promise<void> => {
       savingRef.current = true;
       try {
         onStageEditedFile(filename, content);
@@ -326,11 +333,14 @@ export default function EditableFileModal({
   // handleSave already resets savingRef on throw so the next close will
   // fire the draft-guard confirm correctly.
   const onFootSave = useCallback(() => {
-    handleSave(draft).catch((err) => {
+    const save = binaryDraft
+      ? binaryDraft.getBytes().then((bytes) => handleSave(bytes))
+      : handleSave(draft);
+    save.catch((err) => {
       // eslint-disable-next-line no-console
       console.warn("EditableFileModal foot save failed:", err);
     });
-  }, [handleSave, draft]);
+  }, [handleSave, draft, binaryDraft]);
 
   const isFileUrl = FILE_URL_DISPATCH_RE.test(url);
   const errorHeading =
@@ -346,10 +356,15 @@ export default function EditableFileModal({
         : "The agent's temporary server may have shut down (they auto-kill after 30 minutes) or the network is unreachable. Ask the agent to re-share the file if you still want to edit it."
       : "";
 
+  // Foot (Close + Save) for editable content: fetched text, or a mode that
+  // edits in place from the URL (PDF annotations → binary draft).
+  const urlModeEditable =
+    !usesEditorFetch && resolveMode(resolveFileViewer(filename), viewMode).editable;
   const showFoot =
-    usesEditorFetch &&
-    fetchState.status !== "error" &&
-    !(fetchState.status === "ready" && fetchState.data.isText === false);
+    urlModeEditable ||
+    (usesEditorFetch &&
+      fetchState.status !== "error" &&
+      !(fetchState.status === "ready" && fetchState.data.isText === false));
 
   const fileView = (
     <FileView
@@ -364,6 +379,7 @@ export default function EditableFileModal({
       mode={viewMode ?? undefined}
       onModeChange={setViewMode}
       hideModeSwitcher={true}
+      onBinaryDraftChange={setBinaryDraft}
     />
   );
 
@@ -433,7 +449,7 @@ export default function EditableFileModal({
           <button
             type="button"
             onClick={onFootSave}
-            disabled={!isDirty || fetchState.status !== "ready"}
+            disabled={!isDirty || (!binaryDraft && fetchState.status !== "ready")}
             data-testid="editable-file-modal-save"
             className={cn(
               "px-4 py-1.5 rounded-md text-[12.5px] font-medium cursor-pointer",

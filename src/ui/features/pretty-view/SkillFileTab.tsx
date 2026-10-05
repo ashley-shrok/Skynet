@@ -1,6 +1,7 @@
 import { Trash2 } from "lucide-react";
 import type { TabState } from "./IdentityFileTab";
 import { FileView } from "./file-viewers/FileView";
+import type { BinaryDraft } from "./file-viewers/registry";
 
 // Phase 44 SKILLED-05: per-file tab body for SkillsEditorModal and
 // RunbookEditorModal.
@@ -31,6 +32,7 @@ export default function SkillFileTab({
   onDraftChange,
   mediaUrl,
   downloadUrl,
+  onBinaryDraftChange,
 }: {
   state: TabState<SkillFileTabData>;
   onSave: (content: string, expectedMtime: number) => Promise<void>;
@@ -74,6 +76,8 @@ export default function SkillFileTab({
   mediaUrl?: string;
   /** Download link offered on the can't-preview notice. */
   downloadUrl?: string;
+  /** Unsaved binary edits (PDF annotations); see FileView. */
+  onBinaryDraftChange?: (draft: BinaryDraft | null) => void;
 }): JSX.Element {
   return (
     <FileView
@@ -81,6 +85,7 @@ export default function SkillFileTab({
       state={state}
       mediaUrl={mediaUrl}
       downloadUrl={downloadUrl}
+      onBinaryDraftChange={onBinaryDraftChange}
       onSave={onSave}
       hideSaveButton={hideSaveButton}
       onDraftChange={onDraftChange}

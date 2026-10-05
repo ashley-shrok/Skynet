@@ -134,6 +134,28 @@ export async function readRunbookFile(
 }
 
 /**
+ * PUT /runbooks-editor/write-binary — replace a runbook file with raw bytes
+ * (annotated PDFs etc.). Last-write-wins; no mtime check.
+ */
+export async function writeRunbookFileBinary(
+  hostId: number,
+  roleName: string,
+  runbookName: string,
+  path: string,
+  bytes: Uint8Array,
+): Promise<void> {
+  try {
+    await authApi.put("/runbooks-editor/write-binary", bytes, {
+      params: { hostId, role: roleName, runbook: runbookName, path },
+      headers: { "Content-Type": "application/octet-stream" },
+    });
+  } catch (error) {
+    handleApiError(error, "write runbook file");
+    throw error; // unreachable
+  }
+}
+
+/**
  * GET /runbooks-editor/download URL — synchronous, no network call. A
  * download link, or with `inline` a streamed src for viewers (media, PDF,
  * text; Range-capable). Relative, like downloadWorkspaceFileUrl.

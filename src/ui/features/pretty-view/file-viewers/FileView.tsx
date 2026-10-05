@@ -7,6 +7,7 @@ import {
   mimeFor,
   resolveFileViewer,
   resolveMode,
+  type BinaryDraft,
   type FileViewMode,
   type FileViewerEntry,
 } from "./registry";
@@ -62,6 +63,14 @@ export interface FileViewProps {
   onModeChange?: (mode: string) => void;
   /** Host renders <FileViewModeSwitcher> itself (e.g. in a modal head). */
   hideModeSwitcher?: boolean;
+  /**
+   * Binary edits (PDF annotations): the current unsaved draft, or null.
+   * Hosts with their own Save button write `await draft.getBytes()` and
+   * then call `draft.markSaved(bytes)`.
+   */
+  onBinaryDraftChange?: (draft: BinaryDraft | null) => void;
+  /** Used by FileView's own Save button when a binary draft is pending. */
+  onSaveBytes?: (bytes: Uint8Array, expectedMtime: number) => Promise<void>;
 }
 
 export function FileViewModeSwitcher({
@@ -177,6 +186,8 @@ export function FileView({
   mode: modeProp,
   onModeChange,
   hideModeSwitcher = false,
+  onBinaryDraftChange,
+  onSaveBytes,
 }: FileViewProps): JSX.Element {
   const entry = resolveFileViewer(filename);
   const [innerMode, setInnerMode] = useState<string | null>(null);
@@ -209,12 +220,39 @@ export function FileView({
     onDraftContentChange(draft);
   }, [draft, state, onDraftContentChange]);
 
+  const [binaryDraft, setBinaryDraft] = useState<BinaryDraft | null>(null);
+  const handleBinaryDraft = useCallback(
+    (next: BinaryDraft | null) => {
+      setBinaryDraft(next);
+      onBinaryDraftChange?.(next);
+    },
+    [onBinaryDraftChange],
+  );
+
+  // Dirty = unsaved text edits or a pending binary draft. Binary modes (PDF)
+  // never fetch content, so this can't wait for state to be ready.
   useEffect(() => {
-    if (!onDraftChange || state.status !== "ready") return;
-    onDraftChange(draft !== state.data.content);
-  }, [draft, state, onDraftChange]);
+    if (!onDraftChange) return;
+    const textDirty = state.status === "ready" && draft !== state.data.content;
+    onDraftChange(textDirty || binaryDraft !== null);
+  }, [draft, state, binaryDraft, onDraftChange]);
 
   const handleSave = useCallback(async () => {
+    const mtime = state.status === "ready" ? state.data.mtime : 0;
+    if (binaryDraft && onSaveBytes) {
+      setSaving(true);
+      setSaveError(null);
+      try {
+        const bytes = await binaryDraft.getBytes();
+        await onSaveBytes(bytes, mtime);
+        binaryDraft.markSaved(bytes);
+      } catch (err) {
+        setSaveError(err instanceof Error ? err.message : "Save failed");
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
     if (state.status !== "ready" || !onSave) return;
     setSaving(true);
     setSaveError(null);
@@ -225,7 +263,7 @@ export function FileView({
     } finally {
       setSaving(false);
     }
-  }, [state, draft, onSave]);
+  }, [state, draft, onSave, binaryDraft, onSaveBytes]);
 
   const src = useModeSrc(entry, mode, filename, mediaUrl, state);
 
@@ -236,7 +274,8 @@ export function FileView({
     state.status === "ready" &&
     state.data.isText !== false &&
     (mode.editable || draft !== state.data.content);
-  const showSave = canEdit && !!onSave && !hideSaveButton;
+  const showSave =
+    !hideSaveButton && ((canEdit && !!onSave) || (!!binaryDraft && !!onSaveBytes));
   const toolbar =
     toolbarStart || showSwitcher || showSave ? (
       <div className="flex justify-end gap-2 shrink-0 items-center">
@@ -250,7 +289,10 @@ export function FileView({
           <button
             type="button"
             onClick={() => { void handleSave(); }}
-            disabled={saving || state.status !== "ready" || draft === state.data.content}
+            disabled={
+              saving ||
+              (!binaryDraft && (state.status !== "ready" || draft === state.data.content))
+            }
             className="px-4 py-2 rounded-md bg-[hsla(var(--pv-id-hue,220),80%,60%,0.2)] hover:bg-[hsla(var(--pv-id-hue,220),80%,60%,0.3)] text-[#e8e4d8] disabled:opacity-40 disabled:cursor-not-allowed text-sm cursor-pointer"
           >
             {saving ? "Saving…" : "Save"}
@@ -275,7 +317,18 @@ export function FileView({
     return (
       <div className="flex flex-col h-full gap-2">
         {toolbar}
-        <View filename={filename} src={src} content="" onChange={setDraft} />
+        <div className="flex-1 min-h-0">
+          <View
+            key={filename}
+            filename={filename}
+            src={src}
+            content=""
+            onChange={setDraft}
+            disabled={saving}
+            onBinaryDraft={handleBinaryDraft}
+          />
+        </div>
+        {saveError && <div className="text-sm text-red-400 px-1">{saveError}</div>}
       </div>
     );
   }
@@ -306,11 +359,13 @@ export function FileView({
       {toolbar}
       <div className="flex-1 min-h-0">
         <View
+          key={filename}
           filename={filename}
           src={src}
           content={mode.needs === "content" ? draft : ""}
           onChange={setDraft}
           disabled={saving}
+          onBinaryDraft={handleBinaryDraft}
         />
       </div>
       {saveError && <div className="text-sm text-red-400 px-1">{saveError}</div>}

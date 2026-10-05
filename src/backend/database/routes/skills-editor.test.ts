@@ -1231,3 +1231,54 @@ describe("GET /skills-editor/download", () => {
     }
   });
 });
+
+// ===========================================================================
+// PUT /skills-editor/write-binary
+// ===========================================================================
+
+describe("PUT /skills-editor/write-binary", () => {
+  const put = (q: string, body = "%PDF-1.7") =>
+    httpRequest(server, {
+      method: "PUT",
+      path: `/skills-editor/write-binary?${q}`,
+      headers: { "Content-Type": "application/octet-stream" },
+      body,
+    });
+
+  it("rejects bad input and empty bodies before any SSH", async () => {
+    expect((await put("hostId=1&skill=build&path=../x.pdf")).status).toBe(400);
+    expect((await put("hostId=1&skill=..&path=a.pdf")).status).toBe(400);
+    expect((await put("hostId=1&skill=build&path=a.pdf", "")).status).toBe(400);
+    expect((connectOneShot as Mock).mock.calls).toHaveLength(0);
+  });
+
+  it("404s a host the user doesn't own", async () => {
+    expect((await put("hostId=2&skill=build&path=a.pdf")).status).toBe(404);
+  });
+
+  it("writes the bytes inside the skill directory", async () => {
+    const realStub = stubConn as typeof stubConn & { sftp?: unknown };
+    const writes: string[] = [];
+    realStub.sftp = (cb: (e: Error | null, s: unknown) => void) =>
+      cb(null, {
+        realpath: (p: string, done: (e: Error | null, r: string) => void) =>
+          done(null, p === "." ? "/home/testuser" : p),
+        writeFile: (p: string, _d: Buffer, _o: unknown, done: (e: Error | null) => void) => {
+          writes.push(p);
+          done(null);
+        },
+        ext_openssh_rename: (_f: string, to: string, done: (e: Error | null) => void) => {
+          writes.push(`-> ${to}`);
+          done(null);
+        },
+        unlink: (_p: string, done: (e: Error | null) => void) => done(null),
+      });
+    try {
+      const res = await put("hostId=1&skill=build&path=docs/spec.pdf");
+      expect(res.status).toBe(200);
+      expect(writes.at(-1)).toBe("-> /home/testuser/.claude/skills/build/docs/spec.pdf");
+    } finally {
+      delete realStub.sftp;
+    }
+  });
+});

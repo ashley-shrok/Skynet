@@ -81,6 +81,7 @@ import {
   fileViewIsEditable,
   fileViewNeverNeedsContent,
   isTextByName,
+  type BinaryDraft,
 } from "./file-viewers/registry";
 import { base64ToBytes, decodeUtf8, looksLikeText } from "./file-viewers/text-sniff";
 
@@ -305,6 +306,35 @@ function WorkspaceFileViewer({
     [targetDepKey(target), hostId, file.relativePath]
   );
 
+  // Binary edits (PDF annotations): written back through the upload route,
+  // which replaces the file atomically. Last-write-wins like text saves.
+  const [binaryDraft, setBinaryDraft] = useState<BinaryDraft | null>(null);
+  const handleSaveBytes = useCallback(
+    async (draftToSave: BinaryDraft) => {
+      setSaveError(null);
+      setSaving(true);
+      try {
+        const bytes = await draftToSave.getBytes();
+        await uploadWorkspaceFile(
+          target,
+          hostId,
+          file.relativePath,
+          // globalThis: `File` in this module is the lucide icon.
+          new globalThis.File([bytes as BlobPart], file.name, { type: "application/octet-stream" })
+        );
+        draftToSave.markSaved(bytes);
+      } catch (err) {
+        const cls = err instanceof Error ? err.message : "generic";
+        const copy = resolveWorkspaceErrorCopy(cls);
+        setSaveError(copy.heading + ": " + copy.body);
+      } finally {
+        setSaving(false);
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [targetDepKey(target), hostId, file.relativePath, file.name]
+  );
+
   // Back-nav guard: confirm before discarding unsaved edits.
   const guardedBack = useCallback(() => {
     if (dirty && !window.confirm("Discard unsaved changes?")) return;
@@ -312,9 +342,11 @@ function WorkspaceFileViewer({
   }, [dirty, onBack]);
 
   const canSave =
-    !skipFetch &&
-    fileState.status === "ready" &&
-    (fileViewIsEditable(file.name, viewMode, fileState.data.isText) || dirty);
+    (!skipFetch &&
+      fileState.status === "ready" &&
+      (fileViewIsEditable(file.name, viewMode, fileState.data.isText) || dirty)) ||
+    // Modes that edit in place from the URL (PDF) never fetch content.
+    (neverNeedsContent && fileViewIsEditable(file.name, viewMode, undefined));
 
   const downloadUrl = downloadWorkspaceFileUrl(
     target,
@@ -401,7 +433,9 @@ function WorkspaceFileViewer({
       {canSave && (
         <button
           type="button"
-          onClick={() => { void handleSave(draft); }}
+          onClick={() => {
+            void (binaryDraft ? handleSaveBytes(binaryDraft) : handleSave(draft));
+          }}
           disabled={saving || !dirty}
           style={{
             display: "flex",
@@ -462,6 +496,7 @@ function WorkspaceFileViewer({
       onDraftContentChange={setDraft}
       mode={viewMode ?? undefined}
       onModeChange={setViewMode}
+      onBinaryDraftChange={setBinaryDraft}
     />
   );
 

@@ -8,6 +8,7 @@ import {
   enumerateSkillFiles,
   readSkillFile,
   writeSkillFile,
+  writeSkillFileBinary,
   createSkillFile,
   createSkill,
   deleteSkillFile,
@@ -21,7 +22,7 @@ import {
 } from "@/api/skills-api";
 import { slugifyRoleName } from "@/sidebar/CreateRoleDialog";
 import SkillFileTab, { type SkillFileTabData } from "./SkillFileTab";
-import { fileViewNeverNeedsContent } from "./file-viewers/registry";
+import { fileViewNeverNeedsContent, type BinaryDraft } from "./file-viewers/registry";
 import type { TabState } from "./IdentityFileTab";
 import { bumpModalOpen } from "@/lib/freeze-diag";
 
@@ -103,6 +104,9 @@ export default function SkillsEditorModal({
   // active tab. dirtySet drives the close-confirm draft-guard.
   const [drafts, setDrafts] = useState<Map<string, string>>(new Map());
   const [dirtySet, setDirtySet] = useState<Set<string>>(new Set());
+  // Unsaved binary edits per tab (PDF annotations). The PDF viewer remounts
+  // on tab switch, so these can't survive one — switching away asks first.
+  const [binaryDrafts, setBinaryDrafts] = useState<Map<string, BinaryDraft>>(new Map());
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
 
@@ -274,6 +278,19 @@ export default function SkillsEditorModal({
     [],
   );
 
+  const handleBinaryDraftChange = useCallback(
+    (path: string) => (draft: BinaryDraft | null) => {
+      setBinaryDrafts((prev) => {
+        if ((prev.get(path) ?? null) === draft) return prev;
+        const next = new Map(prev);
+        if (draft) next.set(path, draft);
+        else next.delete(path);
+        return next;
+      });
+    },
+    [],
+  );
+
   // Save handler — SkillFileTab-facing signature. Also called by foot Save.
   const handleSave = useCallback(
     async (path: string, content: string, expectedMtime: number): Promise<void> => {
@@ -330,6 +347,23 @@ export default function SkillsEditorModal({
     if (!activeTab) return;
     const tab = tabData.get(activeTab);
     if (tab?.status !== "ready") return;
+    const binary = binaryDrafts.get(activeTab);
+    if (binary) {
+      if (selectedHostId == null || selectedSkillName == null) return;
+      setSaving(true);
+      savingRef.current = true;
+      try {
+        const bytes = await binary.getBytes();
+        await writeSkillFileBinary(selectedHostId!, selectedSkillName!, activeTab, bytes);
+        binary.markSaved(bytes);
+      } catch (err) {
+        window.alert(err instanceof Error ? `Save failed: ${err.message}` : "Save failed");
+        savingRef.current = false;
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
     const draft = drafts.get(activeTab) ?? tab.data.content;
     if (draft === tab.data.content) return;
     setSaving(true);
@@ -342,7 +376,7 @@ export default function SkillsEditorModal({
     } finally {
       setSaving(false);
     }
-  }, [saving, activeTab, tabData, drafts, handleSave]);
+  }, [saving, activeTab, tabData, drafts, handleSave, binaryDrafts]);
 
   const handleAddFile = useCallback(async (): Promise<void> => {
     if (selectedHostId == null || selectedSkillName == null) return;
@@ -664,7 +698,17 @@ export default function SkillsEditorModal({
             Icon: FileText,
           }))}
           value={activeTab ?? ""}
-          onValueChange={(v) => setActiveTab(v)}
+          onValueChange={(v) => {
+            if (
+              activeTab != null &&
+              v !== activeTab &&
+              binaryDrafts.has(activeTab) &&
+              !window.confirm("Discard unsaved changes to this PDF?")
+            ) {
+              return;
+            }
+            setActiveTab(v);
+          }}
           rowTestId="skills-editor-modal-file-strip"
           testIdPrefix="skills-editor-modal-tab"
           trailing={
@@ -701,6 +745,7 @@ export default function SkillsEditorModal({
                 hideSaveButton={true}
                 onDraftContentChange={handleDraftContentChange(activeTab)}
                 onDraftChange={handleDraftDirtyChange(activeTab)}
+                onBinaryDraftChange={handleBinaryDraftChange(activeTab)}
                 mediaUrl={
                   selectedHostId != null && selectedSkillName != null
                     ? skillFileUrl(selectedHostId, selectedSkillName, activeTab, { inline: true })

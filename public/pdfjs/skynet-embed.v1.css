@@ -1,0 +1,5 @@
+/* Injected into the embedded pdf.js viewer (see README.md). */
+#secondaryOpenFile,
+#openFile {
+  display: none !important;
+}

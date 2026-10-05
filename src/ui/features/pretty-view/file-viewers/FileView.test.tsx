@@ -319,15 +319,15 @@ describe("FileView — registry dispatch", () => {
   it("known-binary extension shows the notice with the download link, whatever the state", () => {
     render(
       <FileView
-        filename="report.pdf"
+        filename="report.docx"
         state={{ status: "loading" }}
-        downloadUrl="/dl/report.pdf"
+        downloadUrl="/dl/report.docx"
         onSave={vi.fn()}
       />,
     );
     expect(screen.getByText(/can't preview this file/i)).toBeTruthy();
     expect(screen.getByRole("link", { name: /download/i }).getAttribute("href")).toBe(
-      "/dl/report.pdf",
+      "/dl/report.docx",
     );
     expect(screen.queryByRole("button", { name: /^save$/i })).toBeNull();
   });

@@ -103,7 +103,17 @@ Ordering below is a starting-point, not locked. Each entry is marked
   documents. Moderate lift, needs a document rendering library. —
   in_progress
 - **[declared] shape-pdf-viewer** — Rendering for PDF files. Heaviest
-  bundle weight of the set, so ordered last. — in_progress
+  bundle weight of the set, so ordered last. Agreed 2026-10-05: Mozilla's
+  complete pdf.js viewer (Firefox's), vendored legacy build under
+  public/pdfjs/v<ver>/ (scripts/vendor-pdfjs-viewer.mjs; not on npm),
+  embedded in a same-origin iframe, dark theme; annotation editors on
+  incl. signature + comment. Annotate-and-save on every surface: FileView
+  BinaryDraft (bytes captured from pdf.js's own save path) → chat stages
+  the edited PDF, workspace writes via upload, skills/runbooks via new
+  PUT /write-binary (atomic, under-root checked). Chip: page-1 thumbnail
+  + page count via the same vendored pdf.js (Range-fetched). nginx gets a
+  /pdfjs/ block (explicit .mjs type, immutable cache). — built, awaiting
+  user check
 
 ## Other work
 

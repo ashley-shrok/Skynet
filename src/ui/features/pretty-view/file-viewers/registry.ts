@@ -1,5 +1,14 @@
 import type { ComponentType } from "react";
-import { File, FileDiff, FileSpreadsheet, FileText, Image as ImageIcon, Music, Video, type LucideIcon } from "lucide-react";
+import {
+  File,
+  FileDiff,
+  FileSpreadsheet,
+  FileText,
+  Image as ImageIcon,
+  Music,
+  Video,
+  type LucideIcon,
+} from "lucide-react";
 import { classifyByExtension } from "../editable-file-whitelist";
 import { extensionOf } from "./registry-ext";
 import {
@@ -15,6 +24,8 @@ import { DiffChipPreview } from "./diff/DiffChipPreview";
 import { SplitDiffMode, UnifiedDiffMode } from "./diff/DiffView";
 import { DelimitedChipPreview } from "./delimited/DelimitedChipPreview";
 import { TableMode } from "./delimited/table-mode";
+import { PdfChipPreview } from "./pdf/PdfChipPreview";
+import { PdfView } from "./pdf/PdfView";
 
 /**
  * File-viewer registry — the ONE place that decides how a file type is shown.
@@ -42,6 +53,19 @@ export interface FileModeViewProps {
   content: string;
   onChange: (next: string) => void;
   disabled?: boolean;
+  /**
+   * Modes that edit the file's bytes in place (e.g. PDF annotations) report
+   * unsaved changes here: a draft while dirty, null once clean / unmounted.
+   */
+  onBinaryDraft?: (draft: BinaryDraft | null) => void;
+}
+
+/** Unsaved binary edits a mode holds (see FileModeViewProps.onBinaryDraft). */
+export interface BinaryDraft {
+  /** The edited file's bytes, as they should be written. */
+  getBytes(): Promise<Uint8Array>;
+  /** The host wrote `bytes`; the mode resets to a clean state showing them. */
+  markSaved(bytes: Uint8Array): void;
 }
 
 export interface FileViewMode {
@@ -179,6 +203,18 @@ export const DELIMITED_ENTRY: FileViewerEntry = {
 };
 
 /**
+ * PDF: Mozilla's pdf.js viewer (vendored, see public/pdfjs/README.md) with
+ * its annotation editors. Edits surface as a BinaryDraft for hosts to save.
+ */
+export const PDF_ENTRY: FileViewerEntry = {
+  id: "pdf",
+  extensions: ["pdf"],
+  icon: FileText,
+  modes: [{ id: "view", label: "View", needs: "url", editable: true, View: PdfView }],
+  ChipPreview: PdfChipPreview,
+};
+
+/**
  * Formats we know are binary and have no viewer yet. Recognising them up
  * front lets surfaces skip the (up to 2 MB) fetch and show the notice
  * immediately. Entries move out of here as they gain real viewers.
@@ -189,7 +225,7 @@ export const BINARY_ENTRY: FileViewerEntry = {
     // archives
     "zip", "gz", "tgz", "tar", "bz2", "xz", "7z", "rar", "zst",
     // documents
-    "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp", "epub",
+    "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp", "epub",
     // executables / objects
     "exe", "dll", "so", "dylib", "o", "a", "class", "jar", "war", "pyc", "wasm", "bin",
     // disk images / databases
@@ -218,6 +254,7 @@ const ENTRIES: readonly FileViewerEntry[] = [
   VIDEO_ENTRY,
   DIFF_ENTRY,
   DELIMITED_ENTRY,
+  PDF_ENTRY,
   BINARY_ENTRY,
 ];
 

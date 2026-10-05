@@ -1264,3 +1264,25 @@ describe("GET /runbooks-editor/download", () => {
     }
   });
 });
+
+// ===========================================================================
+// PUT /runbooks-editor/write-binary
+// ===========================================================================
+
+describe("PUT /runbooks-editor/write-binary", () => {
+  it("rejects bad input and empty bodies before any SSH", async () => {
+    for (const [q, body] of [
+      ["hostId=1&role=box-maintainer&runbook=avatar-flow&path=../x.pdf", "%PDF"],
+      ["hostId=1&role=box-maintainer&runbook=avatar-flow&path=a.pdf", ""],
+    ]) {
+      const res = await httpRequest(server, {
+        method: "PUT",
+        path: `/runbooks-editor/write-binary?${q}`,
+        headers: { "Content-Type": "application/octet-stream" },
+        body,
+      });
+      expect(res.status).toBe(400);
+    }
+    expect((connectOneShot as Mock).mock.calls).toHaveLength(0);
+  });
+});

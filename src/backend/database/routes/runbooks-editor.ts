@@ -75,7 +75,7 @@ import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
 import { writeMarkdownFileAtomic } from "../../claude-session/identity-artifact-reader.js";
 import { sshLogger } from "../../utils/logger.js";
-import { sendRemoteFileUnderRoot } from "../../utils/sftp-download.js";
+import { sendRemoteFileUnderRoot, writeRemoteFileUnderRoot } from "../../utils/sftp-root-files.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -83,6 +83,9 @@ const authenticateJWT = authManager.createAuthMiddleware();
 
 /** SSH connect timeout — matches Phase 23 / Phase 44 (skills-editor.ts L80). */
 const SSH_CONNECT_TIMEOUT_MS = 5000;
+
+/** PUT /write-binary body cap (annotated PDFs etc.); nginx allows 50m here. */
+const MAX_BINARY_WRITE_BYTES = "50mb";
 
 /** SSH exec race timeout — bounded so a hung remote can't stall the route. */
 const SSH_EXEC_TIMEOUT_MS = 5000;
@@ -1574,6 +1577,74 @@ router.get(
         error: result.error,
       });
     }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// PUT /runbooks-editor/write-binary?hostId=&role=&runbook=&path=   (body: raw bytes)
+// ---------------------------------------------------------------------------
+
+/**
+ * Replace (or create) a file inside a runbook with raw bytes — for binary
+ * edits such as an annotated PDF. Atomic temp-file + posix-rename; the
+ * target must stay inside the resolved runbook directory. Last-write-wins
+ * (no mtime check), like the workspace upload.
+ */
+router.put(
+  "/write-binary",
+  authenticateJWT, // BEFORE the body parser (see /read)
+  express.raw({ type: "application/octet-stream", limit: MAX_BINARY_WRITE_BYTES }),
+  async (req: Request, res: Response): Promise<void> => {
+    const userId = (req as AuthenticatedRequest).userId;
+    const q = req.query as Record<string, unknown>;
+    const hostId = typeof q.hostId === "string" ? Number(q.hostId) : NaN;
+    if (!Number.isInteger(hostId) || hostId <= 0) {
+      res.status(400).json({ error: "hostId must be a positive integer" });
+      return;
+    }
+    if (!isValidRoleName(q.role)) {
+      res.status(400).json({ error: "invalid role name" });
+      return;
+    }
+    if (!isValidRunbookName(q.runbook)) {
+      res.status(400).json({ error: "invalid runbook name" });
+      return;
+    }
+    if (!isSafeRelativePath(q.path)) {
+      res.status(400).json({ error: "invalid path" });
+      return;
+    }
+    if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+      res.status(400).json({ error: "body must be non-empty application/octet-stream" });
+      return;
+    }
+    const role = q.role;
+    const runbook = q.runbook;
+    const relPath = q.path;
+    const host = await resolveHostById(hostId, userId);
+    if (!host) {
+      res.status(404).json({ error: "Host not found" });
+      return;
+    }
+    const result = await writeRemoteFileUnderRoot({
+      host: host as unknown as Parameters<typeof connectOneShot>[0],
+      buildPaths: (home) => {
+        const root = `${home}/${ROLE_ROOT_REL}/${role}/runbooks/${runbook}`;
+        const absPath = `${root}/${relPath}`;
+        return absPath.startsWith(root + "/") ? { root, absPath } : null;
+      },
+      bytes: req.body,
+    });
+    if ("error" in result) {
+      sshLogger.warn("runbooks-editor write-binary failed", {
+        operation: "runbooks_editor_write_binary",
+        hostId,
+        error: result.error,
+      });
+      res.status(result.status).json({ error: result.error });
+      return;
+    }
+    res.json({ ok: true });
   },
 );
 
