@@ -37,6 +37,9 @@ import { ConvertedPdfChipPreview, convertedMode } from "./convert/converted-mode
 import { ModelMode } from "./model3d/model-mode";
 import { ModelChipPreview } from "./model3d/ModelChipPreview";
 import { ColumnarMode, SqliteMode } from "./data/data-modes";
+import { DecodedImageMode } from "./images/image-modes";
+import { DecodedImageChipPreview } from "./images/DecodedImageChipPreview";
+import { HEIC_EXTENSIONS, PSD_EXTENSIONS, RAW_EXTENSIONS, TIFF_EXTENSIONS } from "./images/image-formats";
 import { ColumnarChipPreview, SqliteChipPreview } from "./data/DataChipPreviews";
 
 /**
@@ -316,7 +319,7 @@ export const PRESENTATION_ENTRY: FileViewerEntry = {
  * 3D models: Online3DViewer engine on three.js (lazy-loaded), view-only by
  * the "no editing unless it round-trips" rule. Chips show a rendered still.
  * CAD (STEP/IGES/BREP/FreeCAD), Rhino and IFC decoders load on demand from
- * our own origin (scripts/vendor-3d-libs.mjs).
+ * our own origin (scripts/vendor-libs.mjs).
  */
 export const MODEL_3D_ENTRY: FileViewerEntry = {
   id: "model3d",
@@ -356,6 +359,20 @@ export const COLUMNAR_ENTRY: FileViewerEntry = {
 };
 
 /**
+ * Images browsers can't show natively, decoded in a worker: TIFF (pages),
+ * HEIC (libheif, LGPL, loaded from /vendor/heif/), Photoshop (flattened
+ * image + layer panel) and camera RAW (the camera's embedded preview).
+ * View-only; Download PNG exports what's shown.
+ */
+export const DECODED_IMAGE_ENTRY: FileViewerEntry = {
+  id: "decoded-image",
+  extensions: [...TIFF_EXTENSIONS, ...HEIC_EXTENSIONS, ...PSD_EXTENSIONS, ...RAW_EXTENSIONS],
+  icon: ImageIcon,
+  modes: [{ id: "view", label: "View", needs: "url", editable: false, View: DecodedImageMode }],
+  ChipPreview: DecodedImageChipPreview,
+};
+
+/**
  * Formats we know are binary and have no viewer yet. Recognising them up
  * front lets surfaces skip the (up to 2 MB) fetch and show the notice
  * immediately. Entries move out of here as they gain real viewers.
@@ -373,8 +390,6 @@ export const BINARY_ENTRY: FileViewerEntry = {
     "iso", "dmg", "img",
     // fonts
     "woff", "woff2", "ttf", "otf", "eot",
-    // images browsers can't show natively
-    "tif", "tiff", "heic", "heif", "psd",
   ],
   icon: File,
   modes: [{ id: "none", label: "File", needs: "none", editable: false, View: BinaryNoticeMode }],
@@ -404,6 +419,7 @@ const ENTRIES: readonly FileViewerEntry[] = [
   MODEL_3D_ENTRY,
   SQLITE_ENTRY,
   COLUMNAR_ENTRY,
+  DECODED_IMAGE_ENTRY,
   BINARY_ENTRY,
 ];
 

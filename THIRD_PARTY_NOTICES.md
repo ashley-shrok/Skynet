@@ -26,6 +26,10 @@ licence text are in `package.json` / `package-lock.json` and each package's
 | hyparquet, hyparquet-compressors | Parquet reader | MIT | https://github.com/hyparam/hyparquet |
 | Apache Arrow JS (`apache-arrow`) | Arrow / Feather reader | Apache-2.0 | https://github.com/apache/arrow-js |
 | lz4js, fzstd | LZ4 / Zstandard decompression for Arrow files | ISC, MIT | https://github.com/Benzinga/lz4js, https://github.com/101arrowz/fzstd |
+| UTIF.js (`utif`) | TIFF decoder | MIT | https://github.com/photopea/UTIF.js |
+| ag-psd | Photoshop (.psd/.psb) reader | MIT | https://github.com/Agamnentzar/ag-psd |
+| libheif (`libheif-js`, served from `/vendor/heif/`, loaded on demand) | HEIC / HEIF photo decoder (includes libde265) | LGPL-3.0 | https://github.com/catdad-experiments/libheif-js |
+| exifr | Photo metadata (camera, exposure, orientation) | MIT | https://github.com/MikeKovarik/exifr |
 | LibreOffice (separate `converter` container, from Ubuntu packages) | Converting .doc/.odt/.xls/.ods/.ppt/.pptx/.odp for viewing | MPL-2.0 | https://www.libreoffice.org/about-us/source-code/ |
 
 ## AGPL-3.0 and Skynet
@@ -39,7 +43,11 @@ README's License section.
 
 SuperDoc's document-open telemetry is disabled in Skynet.
 
-The OpenCascade-based STEP/IGES importer (occt-import-js, LGPL-2.1) is served
-as separate, unmodified files under `/vendor/3d/` and loaded by the browser
-only when such a file is opened, so it can be replaced independently. Its
-licence texts ship with it (`node_modules/occt-import-js/dist/license.*.txt`).
+The LGPL components — the OpenCascade-based STEP/IGES importer
+(occt-import-js, LGPL-2.1) and libheif for HEIC photos (LGPL-3.0) — are served
+as separate, unmodified files under `/vendor/3d/` and `/vendor/heif/` and loaded
+by the browser only when such a file is opened, so they can be replaced
+independently. Their licence texts ship alongside them
+(`node_modules/occt-import-js/dist/license.*.txt`,
+`/vendor/heif/libheif-js@1.23.5/libheif-wasm/LICENSE`). HEIC images use HEVC
+compression, which is covered by patents in some jurisdictions.

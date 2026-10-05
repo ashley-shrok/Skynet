@@ -189,6 +189,23 @@ Ordering below is a starting-point, not locked. Each entry is marked
   rows/columns from the footer; Arrow ≤20 MB. nginx: hashed *.wasm block
   (application/wasm, immutable). — built, awaiting user check
 
+- **[discovered] shape-decoded-images** — (2026-10-05) view-only viewer for
+  images browsers can't show: TIFF (utif; pages, LZW/Deflate/PackBits/fax,
+  16-bit, Orientation tag), HEIC/HEIF (libheif-js, LGPL-3.0, imported from
+  /vendor/heif/ as its own unmodified file; primary image + extra images),
+  PSD/PSB (ag-psd; flattened image, layer panel with groups / hidden /
+  opacity, click a layer to see it alone; files saved without "Maximize
+  compatibility" — versionInfo.hasRealMergedData=false — are composed from
+  layers with canvas blend modes and flagged approximate) and camera RAW
+  (largest embedded JPEG preview, RAW orientation applied when the preview
+  has none; 22 RAW extensions; no preview → clear message). Decoding in a
+  worker; zoom/pan surface (fit, 1:1, wheel/pinch, drag); EXIF info line
+  (exifr); Download PNG. Chips: thumbnail + caption, queued one at a time.
+  Vendor plugin generalised (scripts/vendor-libs.mjs, nginx /vendor/ block).
+  Tested with real iPhone HEICs and real TIFFs (exifr fixtures); RAW only
+  with a synthetic TIFF-container sample (no real RAW reachable offline).
+  — built, awaiting user check
+
 ## Rule: view-only when editing can't be done properly (2026-10-05)
 
 If we can't give a proper editing-and-saving experience for a file type

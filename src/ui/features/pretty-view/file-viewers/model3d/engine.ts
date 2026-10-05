@@ -8,7 +8,7 @@ import { getBasePath } from "@/lib/base-path";
  *
  * The engine loads its optional decoders (STEP/IGES, Rhino, IFC, Draco) on
  * demand from <base>/vendor/3d/ — see scripts/patch-online-3d-viewer.cjs and
- * scripts/vendor-3d-libs.mjs — never from a CDN.
+ * scripts/vendor-libs.mjs — never from a CDN.
  */
 
 export type O3dv = typeof import("online-3d-viewer");

@@ -5,8 +5,8 @@ import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import svgr from "vite-plugin-svgr";
-// Online3DViewer's decoders, served from our origin (see the file header).
-import { vendor3dLibs } from "./scripts/vendor-3d-libs.mjs";
+// Viewer libraries served from our own origin, not a CDN (see the file header).
+import { vendorLibs } from "./scripts/vendor-libs.mjs";
 
 const sslCertPath = path.join(process.cwd(), "ssl/skynet.crt");
 const sslKeyPath = path.join(process.cwd(), "ssl/skynet.key");
@@ -99,7 +99,7 @@ const buildId: string =
   })();
 
 export default defineConfig({
-  plugins: [react(), tailwindcss(), svgr(), vendor3dLibs()],
+  plugins: [react(), tailwindcss(), svgr(), vendorLibs()],
   define: {
     "import.meta.env.VITE_APP_VERSION": JSON.stringify(
       packageJson.version || "0.0.0",

@@ -24,6 +24,9 @@ const COMPONENTS: Array<[string, string, string]> = [
   ["sql.js", "SQLite database viewer", "MIT"],
   ["hyparquet", "Parquet reader", "MIT"],
   ["Apache Arrow", "Arrow / Feather reader", "Apache-2.0"],
+  ["UTIF.js", "TIFF decoder", "MIT"],
+  ["ag-psd", "Photoshop reader", "MIT"],
+  ["libheif", "HEIC photo decoder", "LGPL-3.0"],
   ["LibreOffice", "Document converter (server)", "MPL-2.0"],
 ];
 

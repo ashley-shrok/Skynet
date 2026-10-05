@@ -1,7 +1,7 @@
 // Online3DViewer loads its optional decoders (STEP/IGES, Rhino, IFC, Draco)
 // from cdn.jsdelivr.net at runtime. Point those URLs at our own origin
 // instead: <globalThis.__SKYNET_3D_LIBS__>/<package>@<version>/..., served by
-// the vendor-3d Vite plugin (scripts/vendor-3d-libs.mjs). Skynet's 3D viewer
+// the vendor-libs Vite plugin (scripts/vendor-libs.mjs). Skynet's 3D viewer
 // sets __SKYNET_3D_LIBS__ to an absolute URL before loading the engine (the
 // STEP worker runs from a blob: URL, so relative paths won't do).
 //

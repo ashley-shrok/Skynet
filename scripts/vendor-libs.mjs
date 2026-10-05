@@ -1,10 +1,13 @@
 /**
- * Decoder libraries (and the lighting environment map) Online3DViewer loads on demand (STEP/IGES via OpenCascade,
- * Rhino .3dm, IFC, Draco-compressed glTF). Upstream fetches them from
- * cdn.jsdelivr.net; scripts/patch-online-3d-viewer.cjs points it at
- * <base>/vendor/3d/ instead, and this Vite plugin serves those files from
- * node_modules in dev and emits them into the build — so the browser never
- * pulls code from a third party.
+ * Libraries the file viewers load on demand as separate, unmodified files,
+ * served from our own origin under <base>/vendor/<group>/ — never from a
+ * CDN. This Vite plugin serves them from node_modules in dev and emits them
+ * into the build.
+ *
+ *   3d/    Online3DViewer's decoders (STEP/IGES via OpenCascade, Rhino .3dm,
+ *          IFC, Draco glTF) and lighting map. Upstream fetches these from
+ *          cdn.jsdelivr.net; scripts/patch-online-3d-viewer.cjs repoints it.
+ *   heif/  libheif (LGPL-3.0) for HEIC photos, kept as its own file.
  *
  * Paths keep the CDN's `<package>@<version>/` layout, so a version bump
  * changes the URL (safe to cache immutably; see the /vendor/3d/ nginx block).
@@ -18,7 +21,7 @@ import { fileURLToPath } from "node:url";
 const NODE_MODULES = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "node_modules");
 
 /** `<pkg>@<version>/<path as requested>` → file inside the installed package. */
-export const VENDOR_3D_FILES = {
+const VENDOR_3D_FILES = {
   "occt-import-js@0.0.22/dist/occt-import-js-worker.js": "dist/occt-import-js-worker.js",
   "occt-import-js@0.0.22/dist/occt-import-js.js": "dist/occt-import-js.js",
   "occt-import-js@0.0.22/dist/occt-import-js.wasm": "dist/occt-import-js.wasm",
@@ -39,9 +42,23 @@ export const VENDOR_3D_FILES = {
   ),
 };
 
-const TYPES = { ".js": "text/javascript", ".wasm": "application/wasm", ".jpg": "image/jpeg" };
+const VENDOR_HEIF_FILES = {
+  // ES module with the WebAssembly inlined; imported by the image worker.
+  "libheif-js@1.23.5/libheif-wasm/libheif-bundle.mjs": "libheif-wasm/libheif-bundle.mjs",
+  "libheif-js@1.23.5/libheif-wasm/LICENSE": "libheif-wasm/LICENSE",
+};
 
-function resolveSource(key) {
+/** Group → files; served at /vendor/<group>/<key>. */
+export const VENDOR_FILES = { "3d": VENDOR_3D_FILES, heif: VENDOR_HEIF_FILES };
+
+const TYPES = {
+  ".js": "text/javascript",
+  ".mjs": "text/javascript",
+  ".wasm": "application/wasm",
+  ".jpg": "image/jpeg",
+};
+
+function resolveSource(group, key) {
   const at = key.indexOf("@", 1);
   const slash = key.indexOf("/", at);
   const pkg = key.slice(0, at);
@@ -51,42 +68,43 @@ function resolveSource(key) {
   const installed = JSON.parse(fs.readFileSync(path.join(pkgDir, "package.json"), "utf8")).version;
   if (installed !== version) {
     throw new Error(
-      `[vendor-3d] ${pkg} ${installed} is installed but Online3DViewer requests ${version}; pin ${pkg}@${version}`,
+      `[vendor-libs] ${pkg} ${installed} is installed but /vendor/${group}/ expects ${version}; pin ${pkg}@${version}`,
     );
   }
-  return path.join(pkgDir, VENDOR_3D_FILES[key]);
+  return path.join(pkgDir, VENDOR_FILES[group][key]);
 }
 
-export function vendor3dLibs() {
-  let base = "/";
+function* allFiles() {
+  for (const [group, files] of Object.entries(VENDOR_FILES)) {
+    for (const key of Object.keys(files)) yield [group, key];
+  }
+}
+
+export function vendorLibs() {
   return {
-    name: "skynet-vendor-3d-libs",
-    configResolved(config) {
-      base = config.base;
-      for (const key of Object.keys(VENDOR_3D_FILES)) resolveSource(key); // fail fast
+    name: "skynet-vendor-libs",
+    configResolved() {
+      for (const [group, key] of allFiles()) resolveSource(group, key); // fail fast
     },
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         const url = (req.url ?? "").split("?")[0];
-        const marker = "/vendor/3d/";
-        const i = url.indexOf(marker);
-        const key = i >= 0 ? decodeURIComponent(url.slice(i + marker.length)) : null;
-        if (!key || !(key in VENDOR_3D_FILES)) return next();
+        const m = /\/vendor\/([a-z0-9]+)\/(.+)$/.exec(url);
+        const group = m?.[1];
+        const key = m ? decodeURIComponent(m[2]) : null;
+        if (!group || !key || !VENDOR_FILES[group] || !(key in VENDOR_FILES[group])) return next();
         res.setHeader("Content-Type", TYPES[path.extname(key)] ?? "application/octet-stream");
-        fs.createReadStream(resolveSource(key)).pipe(res);
+        fs.createReadStream(resolveSource(group, key)).pipe(res);
       });
     },
     generateBundle() {
-      for (const key of Object.keys(VENDOR_3D_FILES)) {
+      for (const [group, key] of allFiles()) {
         this.emitFile({
           type: "asset",
-          fileName: `vendor/3d/${key}`,
-          source: fs.readFileSync(resolveSource(key)),
+          fileName: `vendor/${group}/${key}`,
+          source: fs.readFileSync(resolveSource(group, key)),
         });
       }
-    },
-    get base() {
-      return base;
     },
   };
 }

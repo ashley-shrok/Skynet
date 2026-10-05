@@ -33,3 +33,14 @@ declare module "*.wasm?url" {
 declare module "lz4js" {
   export function decompress(src: Uint8Array, maxSize?: number): Uint8Array;
 }
+
+// utif (Photopea's TIFF decoder) ships no types; the image viewer uses these.
+declare module "utif" {
+  const UTIF: {
+    decode(buffer: ArrayBuffer): Array<Record<string, unknown>>;
+    decodeImage(buffer: ArrayBuffer, ifd: Record<string, unknown>): void;
+    toRGBA8(ifd: Record<string, unknown>): Uint8Array;
+    encodeImage(rgba: ArrayBuffer, width: number, height: number): ArrayBuffer;
+  };
+  export default UTIF;
+}
