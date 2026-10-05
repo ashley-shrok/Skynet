@@ -1052,6 +1052,13 @@ export function PrettyConversationsPanel({
       }
     })();
   }, [sidebarSearchQuery]);
+  // Click handler for the two "everywhere" links (in-input link + all-empty
+  // fallback CTA): escalate with the current query, then clear the sidebar
+  // search so the sidebar isn't left filtered once the modal takes over.
+  const handleEverywhereLinkClick = useCallback(() => {
+    openSearchEverywhere();
+    setSidebarSearchQuery("");
+  }, [openSearchEverywhere]);
   // Phase 44 SKILLED-01: SkillsEditorModal open/closed toggle (opened from menu item, sibling of GlobalFilesModal).
   const [skillsEditorModalOpen, setSkillsEditorModalOpen] = useState(false);
   // Phase 137 D-08: PreferencesModal open/closed toggle (opened from the
@@ -2896,7 +2903,7 @@ export function PrettyConversationsPanel({
           <button
             type="button"
             className={`pv-sidebar-search-everywhere${sidebarSearchActive ? " visible" : ""}`}
-            onClick={openSearchEverywhere}
+            onClick={handleEverywhereLinkClick}
             data-testid="pv-sidebar-search-everywhere-link"
             aria-label="Search everywhere"
             tabIndex={sidebarSearchActive ? 0 : -1}
@@ -2955,7 +2962,7 @@ export function PrettyConversationsPanel({
             <button
               type="button"
               className="pv-sidebar-search-empty-cta text-[12px] text-[color:var(--color-pv-fg-muted)] hover:text-[color:var(--color-pv-fg)] underline underline-offset-2 decoration-dotted"
-              onClick={openSearchEverywhere}
+              onClick={handleEverywhereLinkClick}
               data-testid="pv-sidebar-search-everywhere-cta"
             >
               search everywhere ↗
