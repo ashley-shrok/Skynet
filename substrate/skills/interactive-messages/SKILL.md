@@ -938,7 +938,11 @@ on the first POST to `/submit` or `/update`). The systemd unit lives at
 **File roles:**
 
 - **`widget.html`** — The UI. Served at `GET /` and `GET /index.html`. Must
-  set `<meta name="viewport" content="width=device-width, initial-scale=1">`.
+  set `<meta name="viewport" content="width=device-width, initial-scale=1">`
+  AND report its content height to the parent iframe via a `widget-resize`
+  postMessage (see § Height reporting below) — without it the iframe stays
+  clipped at the parent's 120px initial height regardless of how tall the
+  widget's content actually is.
   If you want `create-widget.sh`'s dispatcher to handle substitution, use
   `__PROMPT_JSON__`-style markers that `args.sh` replaces. Custom widgets
   typically hard-code content directly and skip substitution entirely.
@@ -971,6 +975,62 @@ on the first POST to `/submit` or `/update`). The systemd unit lives at
   deciding whether to tear down the widget. See
   `substrate/skills/interactive-messages/templates/poll-terminal-on-click/metadata.json.template`
   for the canonical shape.
+
+---
+
+### Height reporting (widget-resize)
+
+Every widget — preset or custom, terminal or non-terminal — must postMessage
+its content height to the parent iframe. The parent (`WidgetBubble.tsx`)
+starts the iframe at a 120px initial height and only grows (up to a 480px
+cap, past which the parent's own wrapper scrolls with a custom thumb) when
+the widget emits `{ type: "widget-resize", height: <px> }`. A widget that
+omits this signal renders at 120px forever regardless of how tall its
+content actually is — the author-reported symptom is "iframe only a couple
+hundred pixels tall; content is clipped."
+
+**The canonical snippet** (identical in every preset's `widget.html`):
+
+```js
+var WIDGET_ID = "<your-slug>";
+var __lastReportedHeight = 0;
+
+function reportHeight() {
+  // Measure documentElement, not body — body ignores vertical margins on
+  // children. Ceil so the parent never receives a fractional pixel that
+  // clips the last line.
+  var h = Math.ceil(document.documentElement.scrollHeight);
+  // Dedup: skip no-op reports. Defense in depth against resize-storm
+  // feedback loops (any future parent-side height animation could trigger
+  // subpixel oscillation; widget-side dedup kills the loop at the source).
+  if (h === __lastReportedHeight) return;
+  __lastReportedHeight = h;
+  try {
+    window.parent.postMessage(
+      { type: "widget-resize", widgetId: WIDGET_ID, height: h },
+      window.location.origin   // NEVER "*"
+    );
+  } catch (e) { /* parent gone; harmless */ }
+}
+
+document.addEventListener("DOMContentLoaded", function () {
+  // Initial report, then observe layout changes (interaction state swap,
+  // dynamic insert, text wrap on resize) and re-report.
+  reportHeight();
+  if (typeof ResizeObserver !== "undefined") {
+    var ro = new ResizeObserver(reportHeight);
+    ro.observe(document.documentElement);
+  }
+});
+```
+
+**This applies to non-terminal widgets too.** Non-terminal widgets never
+fire `widget-submit`, but they MUST still fire `widget-resize` — the
+non-terminal presets all do. Height reporting is orthogonal to the
+terminal / non-terminal mode axis.
+
+**Origin argument stays `window.location.origin`.** Same discipline as
+`widget-submit` — never pass `"*"`.
 
 ---
 
@@ -1088,8 +1148,11 @@ The `persistState(data)` function:
 
 1. POST `{ ...data, updated_at: new Date().toISOString() }` to
    `PANE_BASE + "/update"` (NOT `/submit` — non-terminal widgets use `/update`).
-2. **Never** call `window.parent.postMessage`. Non-terminal widgets do not wake
-   the agent.
+2. **Never** call `window.parent.postMessage` with `type: "widget-submit"` —
+   that's the terminal-wake signal, and non-terminal widgets must not wake
+   the agent. (The separate `type: "widget-resize"` call from § Height
+   reporting still fires on every layout change — different concern, keep
+   it.)
 3. On fetch success: update a status line to "Saved."
 4. On fetch failure: prompt retry ("Save failed — interact again to retry.");
    keep the canvas enabled.
@@ -1105,7 +1168,9 @@ function persistState(data) {
   .then(function(res) {
     if (!res.ok && res.status !== 204) throw new Error("update returned " + res.status);
     setStatus("Saved.");
-    // No postMessage — non-terminal widgets never wake the agent.
+    // No widget-submit postMessage — non-terminal widgets never wake the
+    // agent. (widget-resize postMessage still fires from the reportHeight
+    // path — see § Height reporting.)
   })
   .catch(function(err) {
     console.error("[widget] update fetch failed:", err);
@@ -1163,16 +1228,26 @@ shipped widget files.
   Space/Enter to activate where the browser does not provide this by default
   (native `<button>` and `<input>` elements handle this automatically).
 
-- **postMessage discipline**: terminal widgets fire
-  `window.parent.postMessage(payload, window.location.origin)`. The origin
-  argument must be `window.location.origin`. Never pass `"*"` as the origin —
-  `"*"` would allow any frame on any origin to receive the submit signal.
-  Non-terminal widgets never call `postMessage` at all.
+- **postMessage discipline**: all `window.parent.postMessage` calls — whether
+  `widget-submit` (terminal only) or `widget-resize` (every widget) — must
+  pass `window.location.origin` as the origin argument. Never pass `"*"` —
+  `"*"` would allow any frame on any origin to receive the signal.
+  Non-terminal widgets never fire `widget-submit`, but they DO fire
+  `widget-resize` — see § Height reporting.
 
-- **Fetch-before-postMessage**: terminal widgets fire `postMessage` ONLY after
-  the POST to `/submit` resolves with a success status. If the fetch fails or
-  the server returns an error, do NOT fire `postMessage` — the agent must not
-  wake to a submit that did not persist to `state.json`.
+- **Height reporting**: every widget fires `widget-resize` from a
+  `ResizeObserver` on `document.documentElement`, with dedup against the
+  last reported height (prevents feedback loops with any future parent-side
+  height animation). Without it the iframe stays at a 120px initial height
+  no matter how tall the widget's content is. The canonical snippet lives
+  in § Height reporting.
+
+- **Fetch-before-postMessage**: terminal widgets fire `widget-submit`
+  postMessage ONLY after the POST to `/submit` resolves with a success
+  status. If the fetch fails or the server returns an error, do NOT fire
+  `widget-submit` — the agent must not wake to a submit that did not
+  persist to `state.json`. (Does not apply to `widget-resize`, which fires
+  independently of any fetch.)
 
 - **No streaming**: widgets render atomically. Never stream partial state to the
   client via SSE, WebSocket, or long-polling. Never have the widget poll
