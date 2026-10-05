@@ -26,26 +26,6 @@
     "failedToLoadAlerts": "Falha ao carregar alertas",
     "failedToDismissAlert": "Falha ao descartar alerta"
   },
-  "serverConfig": {
-    "title": "Configuração Servidor",
-    "description": "Configure o URL do servidor do Skynet para conectar aos seus serviços de backend",
-    "serverUrl": "URL do servidor",
-    "enterServerUrl": "Por favor, insira uma URL de servidor",
-    "saveFailed": "Falha ao salvar a configuração",
-    "saveError": "Erro ao salvar configuração",
-    "saving": "Salvando...",
-    "saveConfig": "Salvar configuração",
-    "helpText": "Digite a URL onde o servidor do seu Skynet está executando (por exemplo, http://localhost:30001 ou https://seu-servidor.com)",
-    "changeServer": "Alterar Servidor",
-    "mustIncludeProtocol": "O URL do servidor deve começar com http:// ou https://",
-    "allowInvalidCertificate": "Permitir certificado inválido",
-    "allowInvalidCertificateDesc": "Utilize apenas em servidores auto-hospedados fidedignos com certificados autoassinados ou de endereço IP.",
-    "useEmbedded": "Usar servidor local",
-    "embeddedDesc": "Executar Skynet com o servidor local embutido (não é necessário um servidor remoto)",
-    "embeddedConnecting": "Conectando ao servidor local...",
-    "embeddedNotReady": "O servidor local ainda não está pronto. Por favor, aguarde um momento e tente novamente.",
-    "localServer": "Servidor local"
-  },
   "versionCheck": {
     "error": "Erro de verificação de versão",
     "checkFailed": "Não foi possível verificar se há atualizações",
@@ -57,17 +37,13 @@
     "betaVersionDesc": "Você está executando {{current}}, que é mais recente que a última versão estável {{latest}}.",
     "releasedOn": "Lançado em {{date}}",
     "downloadUpdate": "Baixar atualização",
-    "checking": "Verificando atualizações...",
-    "checkUpdates": "Procurar por atualizações",
-    "checkingUpdates": "Verificando atualizações...",
-    "updateRequired": "Atualização Necessária"
+    "checking": "Verificando atualizações..."
   },
   "common": {
     "close": "FECHAR",
     "minimize": "Minimize",
     "online": "Disponível",
     "offline": "Desconectado",
-    "continue": "Continuar",
     "maintenance": "Manutenção",
     "degraded": "Degradado",
     "error": "ERRO",
@@ -99,11 +75,9 @@
     "saving": "Salvando...",
     "delete": "excluir",
     "rename": "Renomear",
-    "edit": "Alterar",
     "add": "Adicionar",
     "confirm": "Confirmar",
     "no": "Não",
-    "or": "ou",
     "next": "Próximo",
     "previous": "Anterior",
     "refresh": "atualizar",
@@ -918,7 +892,6 @@
     "external": "externo",
     "loginWithExternal": "Entrar com o provedor externo",
     "loginWithExternalDesc": "Fazer login usando seu provedor de identidade externo configurado",
-    "externalNotSupportedInElectron": "A autenticação externa ainda não é suportada no aplicativo Electron. Por favor, use a versão web para logar OIDC.",
     "resetPasswordButton": "Redefinir a senha",
     "sendResetCode": "Enviar Código de Redefinição",
     "resetCodeDesc": "Digite seu nome de usuário para receber um código de redefinição de senha. O código será logado nos logs do contêiner docker.",
@@ -973,8 +946,7 @@
     "totpRateLimitedWithTime": "Taxa limitada: Muitas tentativas de verificação TOTP. Aguarde {{time}} segundos antes de tentar novamente.",
     "resetCodeRateLimited": "Taxa limitada: Muitas tentativas de verificação. Por favor, tente novamente mais tarde.",
     "resetCodeRateLimitedWithTime": "Taxa limitada: Muitas tentativas de verificação. Por favor, aguarde {{time}} segundos antes de tentar novamente.",
-    "authTokenSaveFailed": "Falha ao salvar token de autenticação",
-    "failedToLoadServer": "Falha ao carregar servidor"
+    "authTokenSaveFailed": "Falha ao salvar token de autenticação"
   },
   "messages": {
     "registrationDisabled": "O registro da nova conta está desativado por um administrador. Por favor, entre em contato com um administrador.",

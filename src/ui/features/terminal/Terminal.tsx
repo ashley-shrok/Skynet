@@ -21,14 +21,11 @@ import { useTranslation } from "react-i18next";
 import { getBasePath } from "@/lib/base-path";
 import {
   getCookie,
-  isElectron,
-  isEmbeddedMode,
   logActivity,
   getSnippets,
   deleteCommandFromHistory,
   getCommandHistory,
   getHostPassword,
-  getServerConfig,
 } from "@/main-axios.ts";
 import { TOTPDialog } from "@/ssh/dialogs/TOTPDialog.tsx";
 // Lazy-loaded: SSHAuthDialog pulls @uiw/react-codemirror + @codemirror/*
@@ -1240,7 +1237,6 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
       }
 
       const isDev =
-        !isElectron() &&
         process.env.NODE_ENV === "development" &&
         (window.location.port === "3000" ||
           window.location.port === "5173" ||
@@ -1250,61 +1246,14 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
 
       if (isDev) {
         baseWsUrl = `${window.location.protocol === "https:" ? "wss" : "ws"}://localhost:30002`;
-      } else if (isElectron()) {
-        let configuredUrl = (window as { configuredServerUrl?: string | null })
-          .configuredServerUrl;
-
-        if (!configuredUrl && !isEmbeddedMode()) {
-          try {
-            const serverConfig = await getServerConfig();
-            configuredUrl = serverConfig?.serverUrl || null;
-            if (configuredUrl) {
-              (
-                window as Window &
-                  typeof globalThis & {
-                    configuredServerUrl?: string | null;
-                  }
-              ).configuredServerUrl = configuredUrl;
-            }
-          } catch (error) {
-            console.error("Failed to resolve Electron server URL:", error);
-          }
-        }
-
-        if (isEmbeddedMode()) {
-          baseWsUrl = "ws://127.0.0.1:30002";
-          const storedJwt = localStorage.getItem("jwt");
-          if (storedJwt) {
-            baseWsUrl += `?token=${encodeURIComponent(storedJwt)}`;
-          }
-        } else if (!configuredUrl) {
-          console.error("No configured server URL available for Electron SSH");
-          setIsConnected(false);
-          setIsConnecting(false);
-          updateConnectionError(t("errors.failedToLoadServer"));
-          isConnectingRef.current = false;
-          return;
-        } else {
-          const wsProtocol = configuredUrl.startsWith("https://")
-            ? "wss://"
-            : "ws://";
-          const wsHost = configuredUrl
-            .replace(/^https?:\/\//, "")
-            .replace(/\/$/, "");
-          baseWsUrl = `${wsProtocol}${wsHost}/ssh/websocket/`;
-          const storedJwt = localStorage.getItem("jwt");
-          if (storedJwt) {
-            baseWsUrl += `?token=${encodeURIComponent(storedJwt)}`;
-          }
-        }
       } else {
         baseWsUrl = `${getBasePath()}/ssh/websocket/`;
       }
 
       // Phase 111 SKEW-09 (D-08): stamp handshake with CLIENT_BUILD_ID so
       // backend terminal.ts handshake gate can refuse mismatched clients
-      // with 4409. Preserve existing `?token=...` (Electron embedded/served)
-      // by picking `?` vs `&` correctly.
+      // with 4409. Picks `?` vs `&` correctly in case the base URL already
+      // carries a query string.
       baseWsUrl += baseWsUrl.includes("?")
         ? `&build=${encodeURIComponent(CLIENT_BUILD_ID)}`
         : `?build=${encodeURIComponent(CLIENT_BUILD_ID)}`;
@@ -2347,10 +2296,6 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
 
     async function writeTextToClipboard(text: string): Promise<boolean> {
       try {
-        if (window.electronClipboard) {
-          await window.electronClipboard.writeText(text);
-          return true;
-        }
         if (navigator.clipboard && navigator.clipboard.writeText) {
           await navigator.clipboard.writeText(text);
           return true;
@@ -2377,16 +2322,13 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
 
     async function readTextFromClipboard(): Promise<string> {
       try {
-        if (window.electronClipboard) {
-          return window.electronClipboard.readText();
-        }
         if (navigator.clipboard && navigator.clipboard.readText) {
           return await navigator.clipboard.readText();
         }
       } catch {
         // fall through
       }
-      if (window.location.protocol !== "https:" && !isElectron()) {
+      if (window.location.protocol !== "https:") {
         toast.error(t("terminal.clipboardHttpWarning"));
       }
       return "";

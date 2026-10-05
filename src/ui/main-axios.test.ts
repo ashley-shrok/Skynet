@@ -59,10 +59,6 @@ vi.mock("@/lib/base-path", () => ({
   getBasePath: vi.fn().mockReturnValue(""),
 }));
 
-vi.mock("@/lib/electron", () => ({
-  isElectron: vi.fn().mockReturnValue(false),
-}));
-
 vi.mock("@/shell/TabContext", () => ({
   clearSkynetSessionStorage: vi.fn(),
 }));

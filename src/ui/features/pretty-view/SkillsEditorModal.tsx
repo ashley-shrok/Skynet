@@ -8,6 +8,7 @@ import {
   enumerateSkillFiles,
   readSkillFile,
   writeSkillFile,
+  writeSkillFileBinary,
   createSkillFile,
   createSkill,
   deleteSkillFile,
@@ -17,9 +18,11 @@ import {
   SkillAlreadyExistsError,
   type SkillEntry,
   type SkillFileEntry,
+  skillFileUrl,
 } from "@/api/skills-api";
 import { slugifyRoleName } from "@/sidebar/CreateRoleDialog";
 import SkillFileTab, { type SkillFileTabData } from "./SkillFileTab";
+import { fileViewNeverNeedsContent, type BinaryDraft } from "./file-viewers/registry";
 import type { TabState } from "./IdentityFileTab";
 import { bumpModalOpen } from "@/lib/freeze-diag";
 import {
@@ -114,6 +117,9 @@ export default function SkillsEditorModal({
   // active tab. dirtySet drives the close-confirm draft-guard.
   const [drafts, setDrafts] = useState<Map<string, string>>(new Map());
   const [dirtySet, setDirtySet] = useState<Set<string>>(new Set());
+  // Unsaved binary edits per tab (PDF annotations). The PDF viewer remounts
+  // on tab switch, so these can't survive one — switching away asks first.
+  const [binaryDrafts, setBinaryDrafts] = useState<Map<string, BinaryDraft>>(new Map());
   const [saving, setSaving] = useState(false);
   const [togglingInvocation, setTogglingInvocation] = useState(false);
   const savingRef = useRef(false);
@@ -241,6 +247,17 @@ export default function SkillsEditorModal({
     if (selectedHostId == null || !selectedSkillName || !activeTab) return;
     if (tabData.has(activeTab)) return;
     let cancelled = false;
+    // Media and known-binary files render from the streamed URL; reading
+    // them through the text endpoint would pull the whole file for nothing.
+    if (fileViewNeverNeedsContent(activeTab)) {
+      setTabData((prev) =>
+        new Map(prev).set(activeTab, {
+          status: "ready",
+          data: { content: "", mtime: 0, isText: false },
+        }),
+      );
+      return;
+    }
     setTabData((prev) => new Map(prev).set(activeTab, { status: "loading" }));
     readSkillFile(selectedHostId, selectedSkillName, activeTab)
       .then((result) => {
@@ -291,6 +308,19 @@ export default function SkillsEditorModal({
         if (dirty === currentlyDirty) return prev;
         const next = new Set(prev);
         if (dirty) next.add(path);
+        else next.delete(path);
+        return next;
+      });
+    },
+    [],
+  );
+
+  const handleBinaryDraftChange = useCallback(
+    (path: string) => (draft: BinaryDraft | null) => {
+      setBinaryDrafts((prev) => {
+        if ((prev.get(path) ?? null) === draft) return prev;
+        const next = new Map(prev);
+        if (draft) next.set(path, draft);
         else next.delete(path);
         return next;
       });
@@ -354,6 +384,23 @@ export default function SkillsEditorModal({
     if (!activeTab) return;
     const tab = tabData.get(activeTab);
     if (tab?.status !== "ready") return;
+    const binary = binaryDrafts.get(activeTab);
+    if (binary) {
+      if (selectedHostId == null || selectedSkillName == null) return;
+      setSaving(true);
+      savingRef.current = true;
+      try {
+        const bytes = await binary.getBytes();
+        await writeSkillFileBinary(selectedHostId!, selectedSkillName!, activeTab, bytes);
+        binary.markSaved(bytes);
+      } catch (err) {
+        window.alert(err instanceof Error ? `Save failed: ${err.message}` : "Save failed");
+        savingRef.current = false;
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
     const draft = drafts.get(activeTab) ?? tab.data.content;
     if (draft === tab.data.content) return;
     setSaving(true);
@@ -366,7 +413,7 @@ export default function SkillsEditorModal({
     } finally {
       setSaving(false);
     }
-  }, [saving, activeTab, tabData, drafts, handleSave]);
+  }, [saving, activeTab, tabData, drafts, handleSave, binaryDrafts]);
 
   const skillMdState = tabData.get(SKILL_MD);
   const skillMd = skillMdState?.status === "ready" ? skillMdState.data : null;
@@ -741,7 +788,17 @@ export default function SkillsEditorModal({
             Icon: FileText,
           }))}
           value={activeTab ?? ""}
-          onValueChange={(v) => setActiveTab(v)}
+          onValueChange={(v) => {
+            if (
+              activeTab != null &&
+              v !== activeTab &&
+              binaryDrafts.has(activeTab) &&
+              !window.confirm("Discard unsaved changes to this PDF?")
+            ) {
+              return;
+            }
+            setActiveTab(v);
+          }}
           rowTestId="skills-editor-modal-file-strip"
           testIdPrefix="skills-editor-modal-tab"
           trailing={
@@ -778,6 +835,17 @@ export default function SkillsEditorModal({
                 hideSaveButton={true}
                 onDraftContentChange={handleDraftContentChange(activeTab)}
                 onDraftChange={handleDraftDirtyChange(activeTab)}
+                onBinaryDraftChange={handleBinaryDraftChange(activeTab)}
+                mediaUrl={
+                  selectedHostId != null && selectedSkillName != null
+                    ? skillFileUrl(selectedHostId, selectedSkillName, activeTab, { inline: true })
+                    : undefined
+                }
+                downloadUrl={
+                  selectedHostId != null && selectedSkillName != null
+                    ? skillFileUrl(selectedHostId, selectedSkillName, activeTab)
+                    : undefined
+                }
               />
             )}
           </div>

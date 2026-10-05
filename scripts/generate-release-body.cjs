@@ -51,23 +51,13 @@ function youtubeId(raw) {
   fail(`could not parse a YouTube video id from "${value}"`);
 }
 
-function buildTable(version, mobileVersion) {
-  const tag = `release-${version}-tag`;
-  const base = `https://github.com/Skynet-SSH/Skynet/releases/download/${tag}`;
+function buildTable(mobileVersion) {
   const mobileBase = `https://github.com/Skynet-SSH/Mobile/releases/download/release-${mobileVersion}-tag`;
 
-  const win = (file) => `${base}/${file}`;
-  const linux = (file) => `${base}/${file}`;
-  const mac = (file) => `${base}/${file}`;
-
   return [
-    `| Architecture      | Windows                                                                                  | Linux                                                                                     | Mac                                                                                       | Android                                      | iOS                                |`,
-    `|------------------|------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------|---------------------------------------------|-----------------------------------|`,
-    `| **x86-64 (64-bit)** | [EXE](${win("skynet_windows_x64_nsis.exe")}) · [MSI](${win("skynet_windows_x64_msi.msi")}) · [Portable](${win("skynet_windows_x64_portable.zip")}) | [AppImage](${linux("skynet_linux_x64_appimage.AppImage")}) · [DEB](${linux("skynet_linux_x64_deb.deb")}) · [Portable](${linux("skynet_linux_x64_portable.tar.gz")}) | [DMG](${mac("skynet_macos_x64_dmg.dmg")}) | — | — |`,
-    `| **AArch64 (ARM64)** | — | [AppImage](${linux("skynet_linux_arm64_appimage.AppImage")}) · [DEB](${linux("skynet_linux_arm64_deb.deb")}) · [Portable](${linux("skynet_linux_arm64_portable.tar.gz")}) | [DMG](${mac("skynet_macos_arm64_dmg.dmg")}) | [APK (${mobileVersion})](${mobileBase}/skynet_android.apk) | [IPA (${mobileVersion})](${mobileBase}/skynet_ios.ipa) |`,
-    `| **ARMv7 (32-bit)**  | — | [AppImage](${linux("skynet_linux_armv7l_appimage.AppImage")}) · [DEB](${linux("skynet_linux_armv7l_deb.deb")}) · [Portable](${linux("skynet_linux_armv7l_portable.tar.gz")}) | — | — | — |`,
-    `| **x86-32 (32-bit)** | [EXE](${win("skynet_windows_ia32_nsis.exe")}) · [MSI](${win("skynet_windows_ia32_msi.msi")}) · [Portable](${win("skynet_windows_ia32_portable.zip")}) | — | — | — | — |`,
-    `| **Universal**      | [Chocolatey](https://docs.skynet.site/install/connector/windows) | [Flatpak](https://docs.skynet.site/install/connector/linux) | [DMG](${mac("skynet_macos_universal_dmg.dmg")}) · [App Store](https://apps.apple.com/us/app/skynet-ssh-companion/id6752672071) · [Homebrew](https://docs.skynet.site/install/connector/macos) | — | — |`,
+    `| Android                                      | iOS                                |`,
+    `|---------------------------------------------|-----------------------------------|`,
+    `| [APK (${mobileVersion})](${mobileBase}/skynet_android.apk) | [IPA (${mobileVersion})](${mobileBase}/skynet_ios.ipa) |`,
   ].join("\n");
 }
 
@@ -99,7 +89,7 @@ function main() {
     `</a>`,
   ].join("\n");
 
-  const table = buildTable(version, mobileVersion);
+  const table = buildTable(mobileVersion);
 
   const body = [
     summary,

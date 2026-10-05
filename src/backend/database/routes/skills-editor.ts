@@ -71,6 +71,7 @@ import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
 import { writeMarkdownFileAtomic } from "../../claude-session/identity-artifact-reader.js";
 import { sshLogger } from "../../utils/logger.js";
+import { sendRemoteFileUnderRoot, writeRemoteFileUnderRoot } from "../../utils/sftp-root-files.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -78,6 +79,9 @@ const authenticateJWT = authManager.createAuthMiddleware();
 
 /** SSH connect timeout — matches Phase 23 (global-files-read-write.ts L61). */
 const SSH_CONNECT_TIMEOUT_MS = 5000;
+
+/** PUT /write-binary body cap (annotated PDFs etc.); nginx allows 50m here. */
+const MAX_BINARY_WRITE_BYTES = "50mb";
 
 /** SSH exec race timeout — bounded so a hung remote can't stall the route. */
 const SSH_EXEC_TIMEOUT_MS = 5000;
@@ -1432,6 +1436,124 @@ router.delete(
         }
       }
     }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// GET /skills-editor/download?hostId=&skill=&path=[&inline=1]
+// ---------------------------------------------------------------------------
+
+/**
+ * Stream a file inside a skill: a download, or with `inline=1` an in-page
+ * source for viewers (media, PDF, text; html / js / svg stay downloads).
+ * Range requests are honoured. The resolved file must stay inside the
+ * resolved skill directory (symlink-escape check in sendRemoteFileUnderRoot).
+ */
+router.get(
+  "/download",
+  authenticateJWT,
+  async (req: Request, res: Response): Promise<void> => {
+    const userId = (req as AuthenticatedRequest).userId;
+    const q = req.query as Record<string, unknown>;
+    const hostId = typeof q.hostId === "string" ? Number(q.hostId) : NaN;
+    if (!Number.isInteger(hostId) || hostId <= 0) {
+      res.status(400).json({ error: "hostId must be a positive integer" });
+      return;
+    }
+    if (!isValidSkillName(q.skill)) {
+      res.status(400).json({ error: "invalid skill name" });
+      return;
+    }
+    if (!isSafeRelativePath(q.path)) {
+      res.status(400).json({ error: "invalid path" });
+      return;
+    }
+    const skill = q.skill;
+    const relPath = q.path;
+    const host = await resolveHostById(hostId, userId);
+    if (!host) {
+      res.status(404).json({ error: "Host not found" });
+      return;
+    }
+    const result = await sendRemoteFileUnderRoot({
+      req,
+      res,
+      host: host as unknown as Parameters<typeof connectOneShot>[0],
+      buildPaths: (home) => {
+        const paths = buildAbsSkillFilePath(home, skill, relPath);
+        return paths ? { root: paths.skillRoot, absPath: paths.absPath } : null;
+      },
+      inline: q.inline === "1",
+    });
+    if (!result.ok) {
+      sshLogger.warn("skills-editor download failed", {
+        operation: "skills_editor_download",
+        hostId,
+        error: result.error,
+      });
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// PUT /skills-editor/write-binary?hostId=&skill=&path=   (body: raw bytes)
+// ---------------------------------------------------------------------------
+
+/**
+ * Replace (or create) a file inside a skill with raw bytes — for binary
+ * edits such as an annotated PDF. Atomic temp-file + posix-rename; the
+ * target must stay inside the resolved skill directory. Last-write-wins
+ * (no mtime check), like the workspace upload.
+ */
+router.put(
+  "/write-binary",
+  authenticateJWT, // BEFORE the body parser (see /read)
+  express.raw({ type: "application/octet-stream", limit: MAX_BINARY_WRITE_BYTES }),
+  async (req: Request, res: Response): Promise<void> => {
+    const userId = (req as AuthenticatedRequest).userId;
+    const q = req.query as Record<string, unknown>;
+    const hostId = typeof q.hostId === "string" ? Number(q.hostId) : NaN;
+    if (!Number.isInteger(hostId) || hostId <= 0) {
+      res.status(400).json({ error: "hostId must be a positive integer" });
+      return;
+    }
+    if (!isValidSkillName(q.skill)) {
+      res.status(400).json({ error: "invalid skill name" });
+      return;
+    }
+    if (!isSafeRelativePath(q.path)) {
+      res.status(400).json({ error: "invalid path" });
+      return;
+    }
+    if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+      res.status(400).json({ error: "body must be non-empty application/octet-stream" });
+      return;
+    }
+    const skill = q.skill;
+    const relPath = q.path;
+    const host = await resolveHostById(hostId, userId);
+    if (!host) {
+      res.status(404).json({ error: "Host not found" });
+      return;
+    }
+    const result = await writeRemoteFileUnderRoot({
+      host: host as unknown as Parameters<typeof connectOneShot>[0],
+      buildPaths: (home) => {
+        const paths = buildAbsSkillFilePath(home, skill, relPath);
+        return paths ? { root: paths.skillRoot, absPath: paths.absPath } : null;
+      },
+      bytes: req.body,
+    });
+    if ("error" in result) {
+      sshLogger.warn("skills-editor write-binary failed", {
+        operation: "skills_editor_write_binary",
+        hostId,
+        error: result.error,
+      });
+      res.status(result.status).json({ error: result.error });
+      return;
+    }
+    res.json({ ok: true });
   },
 );
 

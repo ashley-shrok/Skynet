@@ -123,6 +123,47 @@ export async function readSkillFile(
 }
 
 /**
+ * GET /skills-editor/download URL — synchronous, no network call. A
+ * download link, or with `inline` a streamed src for viewers (media, PDF,
+ * text; Range-capable). Relative, like downloadWorkspaceFileUrl: frontend
+ * and backend share an origin, and the auth cookie rides along.
+ */
+export function skillFileUrl(
+  hostId: number,
+  skill: string,
+  path: string,
+  opts: { inline?: boolean } = {},
+): string {
+  return (
+    `/skills-editor/download?hostId=${encodeURIComponent(String(hostId))}` +
+    `&skill=${encodeURIComponent(skill)}` +
+    `&path=${encodeURIComponent(path)}` +
+    (opts.inline ? "&inline=1" : "")
+  );
+}
+
+/**
+ * PUT /skills-editor/write-binary — replace a skill file with raw bytes
+ * (annotated PDFs etc.). Last-write-wins; no mtime check.
+ */
+export async function writeSkillFileBinary(
+  hostId: number,
+  skill: string,
+  path: string,
+  bytes: Uint8Array,
+): Promise<void> {
+  try {
+    await authApi.put("/skills-editor/write-binary", bytes, {
+      params: { hostId, skill, path },
+      headers: { "Content-Type": "application/octet-stream" },
+    });
+  } catch (error) {
+    handleApiError(error, "write skill file");
+    throw error; // unreachable
+  }
+}
+
+/**
  * PUT /skills-editor/write
  * Writes content to a skill file via SFTP atomic write.
  * If expectedMtime is set and the file changed since the read, throws

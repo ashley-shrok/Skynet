@@ -2377,9 +2377,9 @@ export function PrettyView({
   );
 
   const handleStageEditedFile = useCallback(
-    (filename: string, content: string) => {
+    (filename: string, content: string | Uint8Array) => {
       const type = guessMimeFromFilename(filename) ?? "text/plain";
-      const file = new File([content], filename, { type });
+      const file = new File([content as BlobPart], filename, { type });
       uploads.stageAttachments("primary", [file]);
     },
     [uploads],

@@ -6,14 +6,17 @@ import {
   enumerateRunbookFiles,
   readRunbookFile,
   writeRunbookFile,
+  writeRunbookFileBinary,
   createRunbookFile,
   deleteRunbookFile,
   deleteRunbook,
   RunbookFileMtimeConflictError,
   RunbookFileAlreadyExistsError,
   type RunbookFileEntry,
+  runbookFileUrl,
 } from "@/api/runbooks-api";
 import SkillFileTab, { type SkillFileTabData } from "./SkillFileTab";
+import { fileViewNeverNeedsContent, type BinaryDraft } from "./file-viewers/registry";
 import type { TabState } from "./IdentityFileTab";
 
 // RunbookEditorModal — role-scoped multi-file editor for a single runbook.
@@ -82,6 +85,9 @@ export default function RunbookEditorModal({
   // the correct content without a ref/imperative call. Keyed by path.
   const [drafts, setDrafts] = useState<Map<string, string>>(new Map());
   const [dirtySet, setDirtySet] = useState<Set<string>>(new Set());
+  // Unsaved binary edits per tab (PDF annotations). The PDF viewer remounts
+  // on tab switch, so these can't survive one — switching away asks first.
+  const [binaryDrafts, setBinaryDrafts] = useState<Map<string, BinaryDraft>>(new Map());
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
 
@@ -134,6 +140,17 @@ export default function RunbookEditorModal({
     if (tabData.has(activeTab)) return; // already loaded
     let cancelled = false;
     console.debug("[RunbookEditorModal] tab-switch", { path: activeTab });
+    // Media and known-binary files render from the streamed URL; reading
+    // them through the text endpoint would pull the whole file for nothing.
+    if (fileViewNeverNeedsContent(activeTab)) {
+      setTabData((prev) =>
+        new Map(prev).set(activeTab, {
+          status: "ready",
+          data: { content: "", mtime: 0, isText: false },
+        }),
+      );
+      return;
+    }
     setTabData((prev) => new Map(prev).set(activeTab, { status: "loading" }));
     readRunbookFile(hostId, roleName, runbookName, activeTab)
       .then((result) => {
@@ -184,6 +201,19 @@ export default function RunbookEditorModal({
         if (dirty === currentlyDirty) return prev;
         const next = new Set(prev);
         if (dirty) next.add(path);
+        else next.delete(path);
+        return next;
+      });
+    },
+    [],
+  );
+
+  const handleBinaryDraftChange = useCallback(
+    (path: string) => (draft: BinaryDraft | null) => {
+      setBinaryDrafts((prev) => {
+        if ((prev.get(path) ?? null) === draft) return prev;
+        const next = new Map(prev);
+        if (draft) next.set(path, draft);
         else next.delete(path);
         return next;
       });
@@ -254,6 +284,22 @@ export default function RunbookEditorModal({
     if (!activeTab) return;
     const tab = tabData.get(activeTab);
     if (tab?.status !== "ready") return;
+    const binary = binaryDrafts.get(activeTab);
+    if (binary) {
+      setSaving(true);
+      savingRef.current = true;
+      try {
+        const bytes = await binary.getBytes();
+        await writeRunbookFileBinary(hostId, roleName, runbookName, activeTab, bytes);
+        binary.markSaved(bytes);
+      } catch (err) {
+        window.alert(err instanceof Error ? `Save failed: ${err.message}` : "Save failed");
+        savingRef.current = false;
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
     const draft = drafts.get(activeTab) ?? tab.data.content;
     if (draft === tab.data.content) return;
     setSaving(true);
@@ -268,7 +314,7 @@ export default function RunbookEditorModal({
       // Leave savingRef true briefly so a subsequent close-on-save doesn't
       // re-prompt. It resets naturally on close via the reset-on-close effect.
     }
-  }, [saving, activeTab, tabData, drafts, handleSave]);
+  }, [saving, activeTab, tabData, drafts, handleSave, binaryDrafts]);
 
   // Add-file handler — window.prompt per D-04.
   const handleAddFile = useCallback(async (): Promise<void> => {
@@ -424,7 +470,17 @@ export default function RunbookEditorModal({
             Icon: FileText,
           }))}
           value={activeTab ?? ""}
-          onValueChange={(v) => setActiveTab(v)}
+          onValueChange={(v) => {
+            if (
+              activeTab != null &&
+              v !== activeTab &&
+              binaryDrafts.has(activeTab) &&
+              !window.confirm("Discard unsaved changes to this PDF?")
+            ) {
+              return;
+            }
+            setActiveTab(v);
+          }}
           rowTestId="runbook-editor-modal-file-strip"
           testIdPrefix="runbook-editor-modal-tab"
           trailing={
@@ -461,6 +517,9 @@ export default function RunbookEditorModal({
                 hideSaveButton={true}
                 onDraftContentChange={handleDraftContentChange(activeTab)}
                 onDraftChange={handleDraftDirtyChange(activeTab)}
+                onBinaryDraftChange={handleBinaryDraftChange(activeTab)}
+                mediaUrl={runbookFileUrl(hostId, roleName, runbookName, activeTab, { inline: true })}
+                downloadUrl={runbookFileUrl(hostId, roleName, runbookName, activeTab)}
               />
             )}
           </div>

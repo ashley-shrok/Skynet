@@ -32,7 +32,6 @@ export default defineConfig({
         "**/node_modules/**",
         "**/dist/**",
         "**/coverage/**",
-        "electron/**",
         "scripts/**",
         "**/*.config.*",
         "**/*.test.{ts,tsx}",

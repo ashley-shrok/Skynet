@@ -26,26 +26,6 @@
     "failedToLoadAlerts": "Impossible de charger les alertes",
     "failedToDismissAlert": "Échec de la suppression de l'alerte"
   },
-  "serverConfig": {
-    "title": "Configuration du serveur",
-    "description": "Configurer l'URL du serveur Skynet pour vous connecter à vos services backend",
-    "serverUrl": "URL du serveur",
-    "enterServerUrl": "Veuillez entrer une URL de serveur",
-    "saveFailed": "Échec de l'enregistrement de la configuration",
-    "saveError": "Erreur lors de l'enregistrement de la configuration",
-    "saving": "Sauvegarde en cours...",
-    "saveConfig": "Enregistrer la configuration",
-    "helpText": "Entrez l'URL où fonctionne votre serveur Skynet (par exemple, http://localhost:30001 ou https://votre-serveur.com)",
-    "changeServer": "Changer de serveur",
-    "mustIncludeProtocol": "L'URL du serveur doit commencer par http:// ou https://",
-    "allowInvalidCertificate": "Autoriser un certificat invalide",
-    "allowInvalidCertificateDesc": "À utiliser uniquement pour des serveurs auto-hébergés de confiance avec des certificats auto-signés ou des certificats d'adresse IP.",
-    "useEmbedded": "Utiliser le serveur local",
-    "embeddedDesc": "Exécuter Skynet avec le serveur local intégré (aucun serveur distant nécessaire)",
-    "embeddedConnecting": "Connexion au serveur local...",
-    "embeddedNotReady": "Le serveur local n'est pas encore prêt. Veuillez patienter un instant et réessayer.",
-    "localServer": "Serveur local"
-  },
   "versionCheck": {
     "error": "Erreur de vérification de version",
     "checkFailed": "Impossible de vérifier les mises à jour",
@@ -57,17 +37,13 @@
     "betaVersionDesc": "Vous utilisez {{current}}, qui est plus récent que la dernière version stable {{latest}}.",
     "releasedOn": "Publié sur {{date}}",
     "downloadUpdate": "Télécharger la mise à jour",
-    "checking": "Vérification des mises à jour...",
-    "checkUpdates": "Vérifier les mises à jour",
-    "checkingUpdates": "Vérification des mises à jour...",
-    "updateRequired": "Mise à jour requise"
+    "checking": "Vérification des mises à jour..."
   },
   "common": {
     "close": "Fermer",
     "minimize": "Minimize",
     "online": "En ligne",
     "offline": "Hors ligne",
-    "continue": "Continuer",
     "maintenance": "Entretien",
     "degraded": "Dégradé",
     "error": "Erreur",
@@ -99,11 +75,9 @@
     "saving": "Sauvegarde en cours...",
     "delete": "Supprimez",
     "rename": "Renommer",
-    "edit": "Editer",
     "add": "Ajouter",
     "confirm": "Valider",
     "no": "Non",
-    "or": "OU",
     "next": "Suivant",
     "previous": "Précédent",
     "refresh": "Rafraîchir",
@@ -918,7 +892,6 @@
     "external": "Externe",
     "loginWithExternal": "Se connecter avec un fournisseur externe",
     "loginWithExternalDesc": "Connectez-vous en utilisant votre fournisseur d'identité externe configuré",
-    "externalNotSupportedInElectron": "L'authentification externe n'est pas encore prise en charge dans l'application Electron. Veuillez utiliser la version web pour la connexion OIDC.",
     "resetPasswordButton": "Réinitialiser le mot de passe",
     "sendResetCode": "Envoyer le code de réinitialisation",
     "resetCodeDesc": "Entrez votre nom d'utilisateur pour recevoir un code de réinitialisation de mot de passe. Le code sera enregistré dans les journaux du conteneur docker.",
@@ -973,8 +946,7 @@
     "totpRateLimitedWithTime": "Taux limité : Trop de tentatives de vérification TOTP. Veuillez attendre {{time}} secondes avant de réessayer.",
     "resetCodeRateLimited": "Taux limité : trop de tentatives de vérification. Veuillez réessayer plus tard.",
     "resetCodeRateLimitedWithTime": "Taux limité : trop de tentatives de vérification. Veuillez attendre {{time}} secondes avant de réessayer.",
-    "authTokenSaveFailed": "Échec de l'enregistrement du jeton d'authentification",
-    "failedToLoadServer": "Impossible de charger le serveur"
+    "authTokenSaveFailed": "Échec de l'enregistrement du jeton d'authentification"
   },
   "messages": {
     "registrationDisabled": "L'enregistrement d'un nouveau compte est actuellement désactivé par un administrateur. Veuillez vous connecter ou contacter un administrateur.",

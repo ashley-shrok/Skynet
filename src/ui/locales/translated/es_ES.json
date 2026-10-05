@@ -26,26 +26,6 @@
     "failedToLoadAlerts": "Error al cargar las alertas",
     "failedToDismissAlert": "Error al descartar la alerta"
   },
-  "serverConfig": {
-    "title": "Configuración del servidor",
-    "description": "Configure la URL del servidor Skynet para conectarse a sus servicios de backend",
-    "serverUrl": "URL del servidor",
-    "enterServerUrl": "Por favor, introduzca una URL del servidor",
-    "saveFailed": "Error al guardar la configuración",
-    "saveError": "Error al guardar la configuración",
-    "saving": "Guardando...",
-    "saveConfig": "Guardar configuración",
-    "helpText": "Introduzca la URL en la que se ejecuta su servidor Skynet (por ejemplo, http://localhost:30001 o https://your-server.com)",
-    "changeServer": "Cambiar servidor",
-    "mustIncludeProtocol": "La URL del servidor debe comenzar con http:// o https://",
-    "allowInvalidCertificate": "Permitir certificado no válido",
-    "allowInvalidCertificateDesc": "Utilizar únicamente en servidores autogestionados de confianza con certificados autofirmados o basados en direcciones IP.",
-    "useEmbedded": "Usar servidor local",
-    "embeddedDesc": "Ejecutar Skynet con el servidor local integrado (no se necesita un servidor remoto)",
-    "embeddedConnecting": "Conectando con el servidor local...",
-    "embeddedNotReady": "El servidor local aún no está listo. Por favor, espere un momento y vuelva a intentarlo.",
-    "localServer": "Servidor local"
-  },
   "versionCheck": {
     "error": "Error de comprobación de versión",
     "checkFailed": "Error al comprobar actualizaciones",
@@ -57,17 +37,13 @@
     "betaVersionDesc": "Está ejecutando {{current}}, que es más reciente que la última versión estable {{latest}}.",
     "releasedOn": "Liberado en {{date}}",
     "downloadUpdate": "Descargar actualización",
-    "checking": "Buscando actualizaciones...",
-    "checkUpdates": "Buscar actualizaciones",
-    "checkingUpdates": "Buscando actualizaciones...",
-    "updateRequired": "Actualización requerida"
+    "checking": "Buscando actualizaciones..."
   },
   "common": {
     "close": "Cerrar",
     "minimize": "Minimize",
     "online": "En línea",
     "offline": "Desconectado",
-    "continue": "Continuar",
     "maintenance": "Mantenimiento",
     "degraded": "Degrado",
     "error": "Error",
@@ -99,11 +75,9 @@
     "saving": "Guardando...",
     "delete": "Eliminar",
     "rename": "Renombrar",
-    "edit": "Editar",
     "add": "Añadir",
     "confirm": "Confirmar",
     "no": "No",
-    "or": "O",
     "next": "Siguiente",
     "previous": "Anterior",
     "refresh": "Recargar",
@@ -918,7 +892,6 @@
     "external": "Externo",
     "loginWithExternal": "Iniciar sesión con proveedor externo",
     "loginWithExternalDesc": "Iniciar sesión usando su proveedor de identidad externo configurado",
-    "externalNotSupportedInElectron": "La autenticación externa no está soportada en la aplicación Electron todavía. Por favor, utilice la versión web para iniciar sesión OIDC.",
     "resetPasswordButton": "Restablecer contraseña",
     "sendResetCode": "Enviar código de reinicio",
     "resetCodeDesc": "Introduzca su nombre de usuario para recibir un código de restablecimiento de contraseña. El código se registrará en los registros del contenedor docker.",
@@ -973,8 +946,7 @@
     "totpRateLimitedWithTime": "Tasa limitada: Demasiados intentos de verificación TOTP. Por favor, espera {{time}} segundos antes de intentarlo de nuevo.",
     "resetCodeRateLimited": "Tasa limitada: Demasiados intentos de verificación. Inténtalo de nuevo más tarde.",
     "resetCodeRateLimitedWithTime": "Tasa limitada: Demasiados intentos de verificación. Por favor, espere {{time}} segundos antes de intentarlo de nuevo.",
-    "authTokenSaveFailed": "Error al guardar el token de autenticación",
-    "failedToLoadServer": "Error al cargar el servidor"
+    "authTokenSaveFailed": "Error al guardar el token de autenticación"
   },
   "messages": {
     "registrationDisabled": "El registro de nueva cuenta está actualmente desactivado por un administrador. Por favor, inicie sesión o póngase en contacto con un administrador.",

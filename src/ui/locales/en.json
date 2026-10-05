@@ -26,26 +26,6 @@
     "failedToLoadAlerts": "Failed to load alerts",
     "failedToDismissAlert": "Failed to dismiss alert"
   },
-  "serverConfig": {
-    "title": "Server Configuration",
-    "description": "Configure the Skynet server URL to connect to your backend services",
-    "serverUrl": "Server URL",
-    "enterServerUrl": "Please enter a server URL",
-    "saveFailed": "Failed to save configuration",
-    "saveError": "Error saving configuration",
-    "saving": "Saving...",
-    "saveConfig": "Save Configuration",
-    "helpText": "Enter the URL where your Skynet server is running (e.g., http://localhost:30001 or https://your-server.com)",
-    "changeServer": "Change Server",
-    "mustIncludeProtocol": "Server URL must start with http:// or https://",
-    "allowInvalidCertificate": "Allow invalid certificate",
-    "allowInvalidCertificateDesc": "Use only for trusted self-hosted servers with self-signed or IP-address certificates.",
-    "useEmbedded": "Use Local Server",
-    "embeddedDesc": "Run Skynet with the built-in local server (no remote server needed)",
-    "embeddedConnecting": "Connecting to local server...",
-    "embeddedNotReady": "Local server is not ready yet. Please wait a moment and try again.",
-    "localServer": "Local Server"
-  },
   "versionCheck": {
     "error": "Version Check Error",
     "checkFailed": "Failed to check for updates",
@@ -57,17 +37,13 @@
     "betaVersionDesc": "You are running {{current}}, which is newer than the latest stable release {{latest}}.",
     "releasedOn": "Released on {{date}}",
     "downloadUpdate": "Download Update",
-    "checking": "Checking for updates...",
-    "checkUpdates": "Check for Updates",
-    "checkingUpdates": "Checking for updates...",
-    "updateRequired": "Update Required"
+    "checking": "Checking for updates..."
   },
   "common": {
     "close": "Close",
     "minimize": "Minimize",
     "online": "Online",
     "offline": "Offline",
-    "continue": "Continue",
     "maintenance": "Maintenance",
     "degraded": "Degraded",
     "error": "Error",
@@ -99,11 +75,9 @@
     "saving": "Saving...",
     "delete": "Delete",
     "rename": "Rename",
-    "edit": "Edit",
     "add": "Add",
     "confirm": "Confirm",
     "no": "No",
-    "or": "OR",
     "next": "Next",
     "previous": "Previous",
     "refresh": "Refresh",
@@ -939,7 +913,6 @@
     "external": "External",
     "loginWithExternal": "Login with External Provider",
     "loginWithExternalDesc": "Login using your configured external identity provider",
-    "externalNotSupportedInElectron": "External authentication is not supported in the Electron app yet. Please use the web version for OIDC login.",
     "resetPasswordButton": "Reset Password",
     "sendResetCode": "Send Reset Code",
     "resetCodeDesc": "Enter your username to receive a password reset code. The code will be logged in the docker container logs.",
@@ -994,8 +967,7 @@
     "totpRateLimitedWithTime": "Rate limited: Too many TOTP verification attempts. Please wait {{time}} seconds before trying again.",
     "resetCodeRateLimited": "Rate limited: Too many verification attempts. Please try again later.",
     "resetCodeRateLimitedWithTime": "Rate limited: Too many verification attempts. Please wait {{time}} seconds before trying again.",
-    "authTokenSaveFailed": "Failed to save authentication token",
-    "failedToLoadServer": "Failed to load server"
+    "authTokenSaveFailed": "Failed to save authentication token"
   },
   "messages": {
     "registrationDisabled": "New account registration is currently disabled by an admin. Please log in or contact an administrator.",

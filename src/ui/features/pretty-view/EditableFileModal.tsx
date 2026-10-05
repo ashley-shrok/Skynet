@@ -5,14 +5,24 @@ import {
   fetchTailnetUrl,
   fetchHostFileUrl,
 } from "@/api/editable-file-api";
-import GlobalFileTab, { type GlobalFileTabData } from "./GlobalFileTab";
-import { classifyFileChipKind, type FileChipKind } from "./FileChip";
 import type { TabState } from "./IdentityFileTab";
+import {
+  FileView,
+  FileViewModeSwitcher,
+  type FileViewData,
+} from "./file-viewers/FileView";
+import {
+  fileViewNeedsContent,
+  resolveFileViewer,
+  resolveMode,
+  type BinaryDraft,
+} from "./file-viewers/registry";
+import { base64ToBytes, decodeUtf8, looksLikeText } from "./file-viewers/text-sniff";
 
 /**
  * Monotonic mtime counter (rev-3 2026-08-14 code-review M4). Previously the
  * modal used `Date.now()` as the mtime sentinel; two sub-millisecond opens
- * would collide, GlobalFileTab's `useEffect([...state.data.mtime])` would
+ * would collide, FileView's mtime-keyed draft reseed would
  * decline to re-seed the draft, and the second open's editor would show the
  * first open's draft (or empty). A monotonic counter guarantees a distinct
  * sentinel per modal-open lifecycle regardless of wall-clock resolution.
@@ -134,20 +144,20 @@ function classifyModalError(
  * write, closes the modal, then types.
  *
  * Head: title = filename. No meta, no subtitle, no "from <agentIdentityName>"
- * attribution (user 2026-09-29 — those were removed). For SVG kind, the
- * head renders a Rendered ↔ Source segmented toggle (pv-variant-tabs) in
- * the actions slot next to the close X.
+ * attribution (user 2026-09-29 — those were removed). For file types with
+ * several view modes (e.g. SVG Rendered ↔ Source) the head renders the
+ * shared <FileViewModeSwitcher> in the actions slot next to the close X.
  *
- * Body branches:
- *   - Media viewer (image / audio / video / svg-rendered): native browser
- *     element sourced from the URL. Read-only. No fetch, no editor.
- *   - Loading / ready (plain OR svg-code-mode): fetches the file bytes,
- *     delegates the editor render to <GlobalFileTab> with
- *     `hideSaveButton={true}`.
+ * Body: the shared <FileView> (file-viewers/registry decides the viewer).
+ *   - URL-sourced modes (image / audio / video / rendered SVG) render
+ *     straight from the URL. No fetch.
+ *   - Known-binary types show the "can't preview" notice. No fetch.
+ *   - Content modes fetch the bytes; non-text bytes (server sniff, else
+ *     client sniff) show the notice instead of decoding garbage.
  *   - Error: rich per-class copy (FILE_URL_ERROR_COPY) with a close button.
  *
- * Foot: rendered ONLY when `usesEditorFetch === true` (editable kinds).
- * Media viewers get no foot — the head X is the only close path (user
+ * Foot: rendered ONLY for editable content (fetched text). Viewers and
+ * the binary notice get no foot — the head X is the only close path (user
  * 2026-09-29: "it should not show at all on file types that can't be
  * edited"). Foot has Close (secondary) + Save (primary). Save calls the
  * existing stage-and-close flow; Save is gated on `isDirty` (nothing to
@@ -159,8 +169,7 @@ function classifyModalError(
  *   D-04: fresh fetch every open, visible in-body error on failure — never
  *         silently fall back to stale bytes.
  *   D-05: chrome forks from the canonical Modal (post-unification); the
- *         editor body reuses GlobalFileTab verbatim (only new prop:
- *         `hideSaveButton`).
+ *         body is the shared FileView with `hideSaveButton`.
  *   D-06: editor stateless — mtime sentinel captured once at open, save =
  *         fresh attachment. Draft-guard confirm on close if dirty.
  */
@@ -177,7 +186,7 @@ export interface EditableFileModalProps {
    * Plan 40-04 wires this to `uploads.stageAttachments("primary", [File])`
    * — depositing the edit as a chip in the ComposeBox attachment strip.
    */
-  onStageEditedFile: (filename: string, content: string) => void;
+  onStageEditedFile: (filename: string, content: string | Uint8Array) => void;
 }
 
 export default function EditableFileModal({
@@ -189,26 +198,24 @@ export default function EditableFileModal({
   agentIdentityName: _agentIdentityName,
   onStageEditedFile,
 }: EditableFileModalProps): JSX.Element {
-  const [fetchState, setFetchState] = useState<TabState<GlobalFileTabData>>({
+  const [fetchState, setFetchState] = useState<TabState<FileViewData>>({
     status: "loading",
   });
   const [isDirty, setIsDirty] = useState(false);
-  // Local draft mirror — GlobalFileTab exposes it via `onDraftContentChange`
+  // Local draft mirror — FileView exposes it via `onDraftContentChange`
   // so the modal's own foot Save button can hand it back to `handleSave`.
   const [draft, setDraft] = useState<string>("");
 
-  // Classify by filename to decide viewer vs. editor. Media kinds (image /
-  // audio / video and svg-in-rendered-mode) render a native browser viewer
-  // straight from the URL and skip the base64→text fetch that the editor
-  // needs. SVG can toggle to code mode, which flips the modal back into
-  // the text-editor fetch flow.
-  const kind: FileChipKind = useMemo(
-    () => classifyFileChipKind(filename),
-    [filename],
+  // The registry decides per view mode whether the file's content is needed.
+  // URL-sourced modes (media, rendered SVG) and known-binary types skip the
+  // fetch; switching SVG to Source flips the modal into the fetch flow.
+  const [viewMode, setViewMode] = useState<string | null>(null);
+  // Unsaved binary edits (PDF annotations) — saved as the edited file's bytes.
+  const [binaryDraft, setBinaryDraft] = useState<BinaryDraft | null>(null);
+  const usesEditorFetch = useMemo(
+    () => fileViewNeedsContent(filename, viewMode, true),
+    [filename, viewMode],
   );
-  const [svgViewMode, setSvgViewMode] = useState<"rendered" | "code">("rendered");
-  const usesEditorFetch =
-    kind === "plain" || (kind === "svg" && svgViewMode === "code");
 
   // Pitfall 6: mtime sentinel MUST be stable across renders. Captured ONCE
   // at fetch-success, reset only when the modal closes.
@@ -216,10 +223,8 @@ export default function EditableFileModal({
   // Rev-2: bypass the draft-guard confirm on save-success closes.
   const savingRef = useRef<boolean>(false);
 
-  // D-04 fresh-fetch-on-open effect. Skips the fetch entirely for pure-
-  // media kinds (image/audio/video and svg-in-rendered-mode) since those
-  // render straight from the URL. Fires normally for plain text kinds
-  // and for SVG when the user has toggled to code mode.
+  // D-04 fresh-fetch-on-open effect. Skipped when the current view mode
+  // doesn't need the content (see usesEditorFetch).
   useEffect(() => {
     if (!open) {
       // Reset state on close so re-open starts fresh (D-06 stateless).
@@ -228,7 +233,7 @@ export default function EditableFileModal({
       setDraft("");
       initialMtimeRef.current = 0;
       savingRef.current = false;
-      setSvgViewMode("rendered");
+      setViewMode(null);
       return;
     }
 
@@ -251,18 +256,20 @@ export default function EditableFileModal({
       .then((result) => {
         if (cancelled) return;
         initialMtimeRef.current = ++mtimeCounter;
-        // Decode base64 -> UTF-8 (rev-3 2026-08-14 code-review B2). Two-step
-        // decode: base64 -> raw bytes -> UTF-8 string via TextDecoder is the
-        // standard fix for non-ASCII content (mojibake otherwise).
-        const rawBytes = Uint8Array.from(atob(result.contentBase64), (c) =>
-          c.charCodeAt(0),
-        );
-        const content = new TextDecoder("utf-8").decode(rawBytes);
+        // Decode base64 -> raw bytes -> UTF-8 (rev-3 2026-08-14 code-review
+        // B2: TextDecoder avoids mojibake on non-ASCII content). Text-ness:
+        // the extension, else the server's byte sniff (only sent when the
+        // extension missed), else the same sniff client-side.
+        const bytes = base64ToBytes(result.contentBase64);
+        const isText =
+          result.isTextByExt || (result.isTextByBytes ?? looksLikeText(bytes));
         setFetchState({
           status: "ready",
           data: {
-            content,
+            content: isText ? decodeUtf8(bytes) : "",
             mtime: initialMtimeRef.current,
+            isText,
+            bytes,
           },
         });
       })
@@ -297,7 +304,7 @@ export default function EditableFileModal({
   // no host file to conflict-check against). Sets savingRef FIRST so the
   // subsequent onOpenChange(false) bypasses the draft-guard confirm.
   const handleSave = useCallback(
-    async (content: string): Promise<void> => {
+    async (content: string | Uint8Array): Promise<void> => {
       savingRef.current = true;
       try {
         onStageEditedFile(filename, content);
@@ -310,9 +317,9 @@ export default function EditableFileModal({
     [filename, onOpenChange, onStageEditedFile],
   );
 
-  // GlobalFileTab's onSave signature includes an expectedMtime we don't
+  // FileView's onSave signature includes an expectedMtime we don't
   // need; adapt to the local handleSave shape.
-  const onGlobalFileTabSave = useCallback(
+  const onFileViewSave = useCallback(
     async (content: string, _expectedMtime: number): Promise<void> => {
       await handleSave(content);
     },
@@ -320,17 +327,20 @@ export default function EditableFileModal({
   );
 
   // Foot Save button — fires with the current draft, uses the same
-  // handleSave path as GlobalFileTab's internal save would.
+  // handleSave path as FileView's internal save would.
   // Catch here (rather than let it become an unhandled rejection) since
   // there's no in-modal error surface for foot-save failures today —
   // handleSave already resets savingRef on throw so the next close will
   // fire the draft-guard confirm correctly.
   const onFootSave = useCallback(() => {
-    handleSave(draft).catch((err) => {
+    const save = binaryDraft
+      ? binaryDraft.getBytes().then((bytes) => handleSave(bytes))
+      : handleSave(draft);
+    save.catch((err) => {
       // eslint-disable-next-line no-console
       console.warn("EditableFileModal foot save failed:", err);
     });
-  }, [handleSave, draft]);
+  }, [handleSave, draft, binaryDraft]);
 
   const isFileUrl = FILE_URL_DISPATCH_RE.test(url);
   const errorHeading =
@@ -346,7 +356,32 @@ export default function EditableFileModal({
         : "The agent's temporary server may have shut down (they auto-kill after 30 minutes) or the network is unreachable. Ask the agent to re-share the file if you still want to edit it."
       : "";
 
-  const showFoot = usesEditorFetch && fetchState.status !== "error";
+  // Foot (Close + Save) for editable content: fetched text, or a mode that
+  // edits in place from the URL (PDF annotations → binary draft).
+  const urlModeEditable =
+    !usesEditorFetch && resolveMode(resolveFileViewer(filename), viewMode).editable;
+  const showFoot =
+    urlModeEditable ||
+    (usesEditorFetch &&
+      fetchState.status !== "error" &&
+      !(fetchState.status === "ready" && fetchState.data.isText === false));
+
+  const fileView = (
+    <FileView
+      filename={filename}
+      state={fetchState}
+      mediaUrl={url}
+      downloadUrl={url}
+      onSave={onFileViewSave}
+      onDraftChange={setIsDirty}
+      onDraftContentChange={setDraft}
+      hideSaveButton={true}
+      mode={viewMode ?? undefined}
+      onModeChange={setViewMode}
+      hideModeSwitcher={true}
+      onBinaryDraftChange={setBinaryDraft}
+    />
+  );
 
   return (
     <Modal
@@ -358,45 +393,16 @@ export default function EditableFileModal({
       <ModalHead
         title={filename}
         actions={
-          kind === "svg" ? (
-            <div
-              className="pv-variant-tabs"
-              role="tablist"
-              aria-label="SVG view mode"
-            >
-              <button
-                type="button"
-                role="tab"
-                aria-selected={svgViewMode === "rendered"}
-                onClick={() => setSvgViewMode("rendered")}
-                data-testid="editable-file-modal-svg-toggle-rendered"
-                className={cn(
-                  "pv-variant-tab",
-                  svgViewMode === "rendered" && "on",
-                )}
-              >
-                Rendered
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={svgViewMode === "code"}
-                onClick={() => setSvgViewMode("code")}
-                data-testid="editable-file-modal-svg-toggle-source"
-                className={cn(
-                  "pv-variant-tab",
-                  svgViewMode === "code" && "on",
-                )}
-              >
-                Source
-              </button>
-            </div>
-          ) : undefined
+          <FileViewModeSwitcher
+            filename={filename}
+            mode={viewMode}
+            onModeChange={setViewMode}
+          />
         }
       />
 
       {!usesEditorFetch ? (
-        <MediaViewer kind={kind} url={url} filename={filename} />
+        <div className="flex-1 min-h-0 flex flex-col">{fileView}</div>
       ) : fetchState.status === "error" ? (
         <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6 py-8 text-center">
           <div className="text-lg font-semibold text-[#f0ebe0]">
@@ -421,14 +427,7 @@ export default function EditableFileModal({
         </div>
       ) : (
         <ModalBody className="p-0 overflow-y-auto flex flex-col px-6 py-4">
-          <GlobalFileTab
-            state={fetchState}
-            onSave={onGlobalFileTabSave}
-            onDraftChange={setIsDirty}
-            onDraftContentChange={setDraft}
-            filename={filename}
-            hideSaveButton={true}
-          />
+          {fileView}
         </ModalBody>
       )}
 
@@ -450,7 +449,7 @@ export default function EditableFileModal({
           <button
             type="button"
             onClick={onFootSave}
-            disabled={!isDirty || fetchState.status !== "ready"}
+            disabled={!isDirty || (!binaryDraft && fetchState.status !== "ready")}
             data-testid="editable-file-modal-save"
             className={cn(
               "px-4 py-1.5 rounded-md text-[12.5px] font-medium cursor-pointer",
@@ -469,53 +468,3 @@ export default function EditableFileModal({
   );
 }
 
-/**
- * Native browser viewer for media kinds (image, audio, video, and svg in
- * rendered mode). Read-only — no save button, no draft state, no download
- * here (the chip's own download button handles save-to-disk).
- */
-function MediaViewer({
-  kind,
-  url,
-  filename,
-}: {
-  kind: FileChipKind;
-  url: string;
-  filename: string;
-}): JSX.Element {
-  if (kind === "image" || kind === "svg") {
-    return (
-      <div className="flex-1 min-h-0 overflow-auto flex items-center justify-center p-6 bg-black/30">
-        <img
-          src={url}
-          alt={filename}
-          className="max-w-full max-h-full object-contain"
-          draggable={false}
-        />
-      </div>
-    );
-  }
-  if (kind === "audio") {
-    return (
-      <div className="flex-1 min-h-0 flex items-center justify-center p-6">
-        <audio
-          src={url}
-          controls
-          preload="metadata"
-          className="w-full max-w-xl"
-        />
-      </div>
-    );
-  }
-  // video
-  return (
-    <div className="flex-1 min-h-0 overflow-auto flex items-center justify-center p-6 bg-black/30">
-      <video
-        src={url}
-        controls
-        preload="metadata"
-        className="max-w-full max-h-full"
-      />
-    </div>
-  );
-}

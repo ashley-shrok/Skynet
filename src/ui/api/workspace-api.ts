@@ -377,11 +377,15 @@ export function downloadWorkspaceFileUrl(
   target: WorkspaceTarget,
   hostId: number,
   relativePath: string,
+  opts: { inline?: boolean } = {},
 ): string {
   return (
     `/workspace/download` +
     `?${targetToQueryString(target)}` +
     `&hostId=${encodeURIComponent(String(hostId))}` +
-    `&relativePath=${encodeURIComponent(relativePath)}`
+    `&relativePath=${encodeURIComponent(relativePath)}` +
+    // inline=1: served in place (media / PDF / text) for viewers to use as
+    // a src, with Range support. html / js / svg still download.
+    (opts.inline ? "&inline=1" : "")
   );
 }

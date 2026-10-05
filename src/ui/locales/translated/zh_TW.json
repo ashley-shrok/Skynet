@@ -26,26 +26,6 @@
     "failedToLoadAlerts": "警示載入失敗",
     "failedToDismissAlert": "未能關閉警示"
   },
-  "serverConfig": {
-    "title": "伺服器配置",
-    "description": "設定 Skynet 伺服器 URL 以連接到您的後端服務",
-    "serverUrl": "伺服器 URL",
-    "enterServerUrl": "請輸入伺服器網址",
-    "saveFailed": "配置儲存失敗",
-    "saveError": "儲存配置時發生錯誤",
-    "saving": "儲存...",
-    "saveConfig": "儲存配置",
-    "helpText": "輸入您的 Skynet 伺服器運作所在的 URL（例如，http://localhost:30001 或 https://your-server.com）",
-    "changeServer": "變更伺服器",
-    "mustIncludeProtocol": "伺服器 URL 必須以 http:// 或 https:// 開頭。",
-    "allowInvalidCertificate": "允許無效證書",
-    "allowInvalidCertificateDesc": "僅適用於具有自簽名憑證或 IP 位址憑證的受信任的自託管伺服器。",
-    "useEmbedded": "使用本地伺服器",
-    "embeddedDesc": "使用內建的本機伺服器運行Skynet（無需遠端伺服器）",
-    "embeddedConnecting": "正在連接本地伺服器...",
-    "embeddedNotReady": "本地伺服器尚未準備就緒，請稍等片刻後再試。",
-    "localServer": "本地伺服器"
-  },
   "versionCheck": {
     "error": "版本檢查錯誤",
     "checkFailed": "檢查更新失敗",
@@ -57,17 +37,13 @@
     "betaVersionDesc": "您正在運行 {{current}}，它比最新的穩定版本 {{latest}} 更新。",
     "releasedOn": "發佈日期： {{date}}",
     "downloadUpdate": "下載更新",
-    "checking": "正在檢查更新...",
-    "checkUpdates": "檢查更新",
-    "checkingUpdates": "正在檢查更新...",
-    "updateRequired": "需要更新"
+    "checking": "正在檢查更新..."
   },
   "common": {
     "close": "關閉",
     "minimize": "最小化",
     "online": "在線的",
     "offline": "離線",
-    "continue": "繼續",
     "maintenance": "維護",
     "degraded": "降級",
     "error": "錯誤",
@@ -99,11 +75,9 @@
     "saving": "儲存...",
     "delete": "刪除",
     "rename": "重新命名",
-    "edit": "編輯",
     "add": "添加",
     "confirm": "確認",
     "no": "不",
-    "or": "或者",
     "next": "下一個",
     "previous": "以前的",
     "refresh": "重新整理",
@@ -918,7 +892,6 @@
     "external": "外部的",
     "loginWithExternal": "使用外部提供者登入",
     "loginWithExternalDesc": "使用您設定的外部身分提供者登入",
-    "externalNotSupportedInElectron": "Electron 應用程式目前尚不支援外部身份驗證。請使用網頁版進行 OIDC 登入。",
     "resetPasswordButton": "重設密碼",
     "sendResetCode": "發送重置代碼",
     "resetCodeDesc": "請輸入您的使用者名稱以取得密碼重設代碼。該程式碼將記錄在 Docker 容器日誌中。",
@@ -973,8 +946,7 @@
     "totpRateLimitedWithTime": "速率限制：TOTP 驗證嘗試次數過多。請稍候 {{time}} 秒後再試。",
     "resetCodeRateLimited": "驗證次數過多，請稍後再試。",
     "resetCodeRateLimitedWithTime": "驗證次數過多，請稍等 {{time}} 秒後再試。",
-    "authTokenSaveFailed": "保存身份驗證令牌失敗",
-    "failedToLoadServer": "伺服器載入失敗"
+    "authTokenSaveFailed": "保存身份驗證令牌失敗"
   },
   "messages": {
     "registrationDisabled": "管理員已停用新帳號註冊功能。請登入或聯絡管理員。",

@@ -64,7 +64,7 @@ const bindingPatched = patchFile(bindingPath, [
 ]);
 
 // 2. nan_implementation_12_inl.h: replace v8::External::New() with the 3-arg form.
-//    Electron 42 / V8 13+ requires an ExternalPointerTypeTag as the third argument.
+//    Newer V8 (13+) requires an ExternalPointerTypeTag as the third argument.
 const implPath = path.join(nanDir, "nan_implementation_12_inl.h");
 let implPatched = false;
 if (fs.existsSync(implPath)) {
@@ -113,9 +113,7 @@ if (fs.existsSync(callbacksPath)) {
 }
 
 if (nanHeaderPatched || bindingPatched || implPatched || callbacksPatched) {
-  console.log(
-    "[patch-nan] Applied compatibility patches for Electron 42 / V8 13+",
-  );
+  console.log("[patch-nan] Applied compatibility patches for V8 13+");
 } else {
   console.log("[patch-nan] Already patched or target code not found");
 }

@@ -26,26 +26,6 @@
     "failedToLoadAlerts": "טעינת ההתראות נכשלה",
     "failedToDismissAlert": "נכשלה סגירת ההתראה"
   },
-  "serverConfig": {
-    "title": "תצורת שרת",
-    "description": "הגדר את כתובת ה-URL של שרת Skynet כדי להתחבר לשירותי ה-backend שלך",
-    "serverUrl": "כתובת URL של השרת",
-    "enterServerUrl": "אנא הזן כתובת URL של שרת",
-    "saveFailed": "שמירת התצורה נכשלה",
-    "saveError": "שגיאה בשמירת התצורה",
-    "saving": "חִסָכוֹן...",
-    "saveConfig": "שמור תצורה",
-    "helpText": "הזן את כתובת ה-URL שבה פועל שרת ה-Skynet שלך (לדוגמה, http://localhost:30001 או https://your-server.com)",
-    "changeServer": "שנה שרת",
-    "mustIncludeProtocol": "כתובת השרת חייבת להתחיל ב-http:// או https://",
-    "allowInvalidCertificate": "אפשר אישור לא חוקי",
-    "allowInvalidCertificateDesc": "השתמש רק עבור שרתים מהימנים המתארחים בעצמם עם אישורי חתימה עצמית או אישורי כתובת IP.",
-    "useEmbedded": "השתמש בשרת מקומי",
-    "embeddedDesc": "הפעל את Skynet עם השרת המקומי המובנה (אין צורך בשרת מרוחק)",
-    "embeddedConnecting": "מתחבר לשרת מקומי...",
-    "embeddedNotReady": "השרת המקומי עדיין לא מוכן. אנא המתן רגע ונסה שוב.",
-    "localServer": "שרת מקומי"
-  },
   "versionCheck": {
     "error": "שגיאת בדיקת גרסה",
     "checkFailed": "נכשל בבדיקת עדכונים",
@@ -57,17 +37,13 @@
     "betaVersionDesc": "אתה מפעיל את {{current}}, שהוא חדש יותר מהגרסה היציבה האחרונה {{latest}}.",
     "releasedOn": "יצא לאור בתאריך {{date}}",
     "downloadUpdate": "הורד עדכון",
-    "checking": "בודק עדכונים...",
-    "checkUpdates": "בדוק אם יש עדכונים",
-    "checkingUpdates": "בודק עדכונים...",
-    "updateRequired": "נדרש עדכון"
+    "checking": "בודק עדכונים..."
   },
   "common": {
     "close": "לִסְגוֹר",
     "minimize": "לְצַמְצֵם",
     "online": "באינטרנט",
     "offline": "לא מקוון",
-    "continue": "לְהַמשִׁיך",
     "maintenance": "תַחזוּקָה",
     "degraded": "מוּשׁפָל",
     "error": "שְׁגִיאָה",
@@ -99,11 +75,9 @@
     "saving": "חִסָכוֹן...",
     "delete": "לִמְחוֹק",
     "rename": "שינוי שם",
-    "edit": "לַעֲרוֹך",
     "add": "לְהוֹסִיף",
     "confirm": "לְאַשֵׁר",
     "no": "לֹא",
-    "or": "אוֹ",
     "next": "הַבָּא",
     "previous": "קוֹדֵם",
     "refresh": "לְרַעֲנֵן",
@@ -918,7 +892,6 @@
     "external": "חִיצוֹנִי",
     "loginWithExternal": "התחברות עם ספק חיצוני",
     "loginWithExternalDesc": "התחבר באמצעות ספק הזהויות החיצוני שתצורתו נקבעה",
-    "externalNotSupportedInElectron": "אימות חיצוני אינו נתמך עדיין באפליקציית Electron. אנא השתמש בגרסת האינטרנט לצורך כניסה ל-OIDC.",
     "resetPasswordButton": "איפוס סיסמה",
     "sendResetCode": "שלח קוד איפוס",
     "resetCodeDesc": "הזן את שם המשתמש שלך כדי לקבל קוד איפוס סיסמה. הקוד יירשם ביומני המכולה של docker.",
@@ -973,8 +946,7 @@
     "totpRateLimitedWithTime": "קצב מוגבל: יותר מדי ניסיונות אימות TOTP. אנא המתן {{time}} שניות לפני שתנסה שוב.",
     "resetCodeRateLimited": "קצב מוגבל: יותר מדי ניסיונות אימות. אנא נסה שוב מאוחר יותר.",
     "resetCodeRateLimitedWithTime": "קצב מוגבל: יותר מדי ניסיונות אימות. אנא המתן {{time}} שניות לפני שתנסה שוב.",
-    "authTokenSaveFailed": "נכשלה שמירת אסימון האימות",
-    "failedToLoadServer": "טעינת השרת נכשלה"
+    "authTokenSaveFailed": "נכשלה שמירת אסימון האימות"
   },
   "messages": {
     "registrationDisabled": "רישום חשבון חדש מושבת כעת על ידי מנהל. אנא התחבר או צור קשר עם מנהל.",

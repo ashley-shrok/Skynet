@@ -27,13 +27,8 @@ import {
   completePasswordReset,
   getOIDCAuthorizeUrl,
   verifyTOTPLogin,
-  getServerConfig,
-  saveServerConfig,
-  isElectron,
-  getEmbeddedServerStatus,
   getCurrentToken,
 } from "@/main-axios";
-import { ElectronServerConfig as ServerConfigComponent } from "@/auth/ElectronServerConfig";
 import i18n from "@/i18n/i18n";
 import {
   removeSilentSigninFromSearch,
@@ -139,23 +134,11 @@ interface AuthProps {
 }
 
 interface ExtendedWindow extends Window {
-  IS_ELECTRON_WEBVIEW?: boolean;
   ReactNativeWebView?: { postMessage: (msg: string) => void };
 }
 
 const isInMobileWebView = () =>
   !!(window as ExtendedWindow).ReactNativeWebView;
-
-const isInElectronWebView = () => {
-  if (isInMobileWebView()) return false;
-  if ((window as ExtendedWindow).IS_ELECTRON_WEBVIEW) return true;
-  try {
-    if (window.self !== window.top) return true;
-  } catch {
-    return true;
-  }
-  return false;
-};
 
 function PasswordInput({
   value,
@@ -272,10 +255,6 @@ export function Auth({ onLogin }: AuthProps) {
   const [dbConnectionFailed, setDbConnectionFailed] = useState(false);
   const [dbHealthChecking, setDbHealthChecking] = useState(true);
 
-  const [showServerConfig, setShowServerConfig] = useState<boolean | null>(
-    null,
-  );
-  const [currentServerUrl, setCurrentServerUrl] = useState("");
   const [webviewAuthSuccess, setWebviewAuthSuccess] = useState(false);
 
   // 260910-pf4: already-authed + valid return= → redirect immediately before form renders.
@@ -305,7 +284,6 @@ export function Auth({ onLogin }: AuthProps) {
   }, []);
 
   useEffect(() => {
-    if (showServerConfig) return;
     setDbHealthChecking(true);
     getSetupRequired()
       .then((res) => {
@@ -317,40 +295,6 @@ export function Auth({ onLogin }: AuthProps) {
       })
       .catch(() => setDbConnectionFailed(true))
       .finally(() => setDbHealthChecking(false));
-  }, [showServerConfig]);
-
-  useEffect(() => {
-    const checkElectron = async () => {
-      if (isInElectronWebView()) {
-        setShowServerConfig(false);
-        return;
-      }
-      if (isElectron()) {
-        try {
-          const [config, status] = await Promise.all([
-            getServerConfig(),
-            getEmbeddedServerStatus(),
-          ]);
-          if (
-            status?.embedded &&
-            status?.running &&
-            config &&
-            !config.serverUrl
-          ) {
-            setShowServerConfig(false);
-            setCurrentServerUrl("");
-            return;
-          }
-          setCurrentServerUrl(config?.serverUrl || "");
-          setShowServerConfig(!config || !config.serverUrl);
-        } catch {
-          setShowServerConfig(true);
-        }
-      } else {
-        setShowServerConfig(false);
-      }
-    };
-    checkElectron();
   }, []);
 
   useEffect(() => {
@@ -395,24 +339,6 @@ export function Auth({ onLogin }: AuthProps) {
             .then((token) => postToken(token ?? ""))
             .catch(() => postToken(""));
         }
-        return;
-      }
-      if (isInElectronWebView()) {
-        window.parent.postMessage(
-          {
-            type: "AUTH_SUCCESS",
-            source: "oidc_callback",
-            platform: "desktop",
-            timestamp: Date.now(),
-          },
-          "*",
-        );
-        setWebviewAuthSuccess(true);
-        window.history.replaceState(
-          {},
-          document.title,
-          window.location.pathname,
-        );
         return;
       }
       getUserInfo()
@@ -477,19 +403,6 @@ export function Auth({ onLogin }: AuthProps) {
         const token = res?.token ?? "";
         (window as ExtendedWindow).ReactNativeWebView?.postMessage(
           JSON.stringify({ type: "AUTH_SUCCESS", token }),
-        );
-        setWebviewAuthSuccess(true);
-        return;
-      }
-      if (isInElectronWebView()) {
-        window.parent.postMessage(
-          {
-            type: "AUTH_SUCCESS",
-            source: "auth_component",
-            platform: "desktop",
-            timestamp: Date.now(),
-          },
-          "*",
         );
         setWebviewAuthSuccess(true);
         return;
@@ -582,19 +495,6 @@ export function Auth({ onLogin }: AuthProps) {
         const token = res?.token ?? "";
         (window as ExtendedWindow).ReactNativeWebView?.postMessage(
           JSON.stringify({ type: "AUTH_SUCCESS", token }),
-        );
-        setWebviewAuthSuccess(true);
-        return;
-      }
-      if (isInElectronWebView()) {
-        window.parent.postMessage(
-          {
-            type: "AUTH_SUCCESS",
-            source: "totp_auth_component",
-            platform: "desktop",
-            timestamp: Date.now(),
-          },
-          "*",
         );
         setWebviewAuthSuccess(true);
         return;
@@ -710,38 +610,6 @@ export function Auth({ onLogin }: AuthProps) {
   const handleOIDCLogin = useCallback(async () => {
     setOidcLoading(true);
     try {
-      if (isElectron()) {
-        const electronAPI = (
-          window as unknown as {
-            electronAPI?: {
-              oidcSystemBrowserAuth?: (
-                authUrl: string,
-                port: number,
-              ) => Promise<{
-                success: boolean;
-                token?: string;
-                error?: string;
-              }>;
-            };
-          }
-        ).electronAPI;
-        if (electronAPI?.oidcSystemBrowserAuth) {
-          const callbackPort = 17832 + Math.floor(Math.random() * 100);
-          const authResponse = await getOIDCAuthorizeUrl(false, callbackPort);
-          const { auth_url: authUrl } = authResponse;
-          if (!authUrl) throw new Error(t("errors.invalidAuthUrl"));
-          const result = await electronAPI.oidcSystemBrowserAuth(
-            authUrl,
-            callbackPort,
-          );
-          if (result.success && result.token) {
-            localStorage.setItem("jwt", result.token);
-            window.location.reload();
-            return;
-          }
-          throw new Error(result.error || "Authentication failed");
-        }
-      }
       const authResponse = await getOIDCAuthorizeUrl(false);
       const { auth_url: authUrl } = authResponse;
       if (!authUrl || authUrl === "undefined")
@@ -773,7 +641,7 @@ export function Auth({ onLogin }: AuthProps) {
     );
 
     silentSigninHandledRef.current = true;
-    if (oidcConfigured && !isElectron()) {
+    if (oidcConfigured) {
       handleOIDCLogin();
       return;
     }
@@ -781,37 +649,7 @@ export function Auth({ onLogin }: AuthProps) {
     toast.info(t("errors.silentSigninOidcUnavailable"));
   }, [handleOIDCLogin, oidcConfigLoaded, oidcConfigured, t]);
 
-  // Electron server config / webview auth success screens
-  if (isElectron() && !isInElectronWebView()) {
-    if (showServerConfig === null)
-      return (
-        <div className="fixed inset-0 flex items-center justify-center bg-[color:var(--color-pv-base)]">
-          <div className="w-5 h-5 border-2 border-[hsla(var(--pv-hue,35),65%,55%,0.7)] border-t-transparent rounded-full animate-spin" />
-        </div>
-      );
-    if (showServerConfig)
-      return (
-        <div className="fixed inset-0 flex items-center justify-center bg-[color:var(--color-pv-base)] p-6">
-          <div className="w-full max-w-md">
-            <ServerConfigComponent
-              onServerConfigured={() => window.location.reload()}
-              onUseEmbedded={async () => {
-                await saveServerConfig({
-                  serverUrl: "",
-                  lastUpdated: new Date().toISOString(),
-                });
-                setShowServerConfig(false);
-                setCurrentServerUrl("");
-              }}
-              onCancel={() => setShowServerConfig(false)}
-              isFirstTime={!currentServerUrl}
-            />
-          </div>
-        </div>
-      );
-  }
-
-  if (webviewAuthSuccess || (isInElectronWebView() && webviewAuthSuccess))
+  if (webviewAuthSuccess)
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-[color:var(--color-pv-base)]">
         <div className="text-center">
@@ -852,30 +690,11 @@ export function Auth({ onLogin }: AuthProps) {
               ))}
             </select>
           </div>
-          {isElectron() && currentServerUrl && (
-            <div className="flex items-center justify-between">
-              <div className="flex flex-col gap-0.5">
-                <span className="text-xs text-[color:var(--color-pv-fg-muted)]">
-                  {t("serverConfig.serverUrl")}
-                </span>
-                <span className="text-xs text-[color:var(--color-pv-fg-muted)] font-mono truncate max-w-[180px]">
-                  {currentServerUrl}
-                </span>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowServerConfig(true)}
-              >
-                {t("common.edit")}
-              </Button>
-            </div>
-          )}
         </div>
       </div>
     );
 
-  if (dbHealthChecking && showServerConfig === false)
+  if (dbHealthChecking)
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-[color:var(--color-pv-base)]">
         <div className="w-5 h-5 border-2 border-[hsla(var(--pv-hue,35),65%,55%,0.7)] border-t-transparent rounded-full animate-spin" />
@@ -887,21 +706,6 @@ export function Auth({ onLogin }: AuthProps) {
       className="fixed inset-0 flex flex-col bg-[color:var(--color-pv-base)] overflow-hidden"
       style={{ "--pv-hue": "190", "--color-pv-code-fg": "#92eafc" } as React.CSSProperties}
     >
-      {isElectron() && !isInElectronWebView() && showServerConfig === false && (
-        <div className="flex items-center justify-between px-4 py-3 border-b border-[color:var(--color-pv-border-quiet)] shrink-0">
-          <button
-            onClick={() => setShowServerConfig(true)}
-            className="flex items-center gap-2 text-sm text-[color:var(--color-pv-fg-muted)] hover:text-[color:var(--color-pv-fg)] transition-colors"
-          >
-            <ArrowLeft className="size-4" />
-            {t("serverConfig.changeServer")}
-          </button>
-          <span className="text-xs text-[color:var(--color-pv-fg-muted)]">
-            {t("serverConfig.localServer")}
-          </span>
-          <div className="w-20" />
-        </div>
-      )}
       <div className="flex flex-1 overflow-hidden">
         {/* Right panel */}
         <div className="flex flex-1 items-center justify-center p-6 overflow-y-auto relative">
@@ -1125,21 +929,15 @@ export function Auth({ onLogin }: AuthProps) {
 
                 {view === "external" && (
                   <div className="flex flex-col gap-4">
-                    {isElectron() ? (
-                      <p className="text-xs text-[color:var(--color-pv-fg-muted)] text-center">
-                        {t("auth.externalNotSupportedInElectron")}
-                      </p>
-                    ) : (
-                      <Button
-                        onClick={handleOIDCLogin}
-                        disabled={oidcLoading}
-                        className="w-full font-bold"
-                      >
-                        {oidcLoading
-                          ? t("common.loading")
-                          : t("auth.loginWithExternal")}
-                      </Button>
-                    )}
+                    <Button
+                      onClick={handleOIDCLogin}
+                      disabled={oidcLoading}
+                      className="w-full font-bold"
+                    >
+                      {oidcLoading
+                        ? t("common.loading")
+                        : t("auth.loginWithExternal")}
+                    </Button>
                   </div>
                 )}
 

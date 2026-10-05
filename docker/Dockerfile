@@ -9,7 +9,6 @@ COPY .npmrc ./
 COPY vendor ./vendor
 
 COPY scripts/patch-guacamole-lite.cjs ./scripts/
-COPY scripts/patch-app-builder-lib.cjs ./scripts/
 COPY scripts/patch-better-sqlite3.cjs ./scripts/
 COPY scripts/patch-nan.cjs ./scripts/
 
@@ -77,7 +76,6 @@ COPY .npmrc ./
 COPY vendor ./vendor
 
 COPY scripts/patch-guacamole-lite.cjs ./scripts/
-COPY scripts/patch-app-builder-lib.cjs ./scripts/
 COPY scripts/patch-better-sqlite3.cjs ./scripts/
 COPY scripts/patch-nan.cjs ./scripts/
 

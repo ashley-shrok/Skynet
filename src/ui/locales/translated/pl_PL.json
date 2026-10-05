@@ -26,26 +26,6 @@
     "failedToLoadAlerts": "Nie udało się załadować alertów",
     "failedToDismissAlert": "Nie udało się odrzucić alertu"
   },
-  "serverConfig": {
-    "title": "Konfiguracja serwera",
-    "description": "Skonfiguruj adres URL serwera Skynet, aby połączyć się z usługami backend",
-    "serverUrl": "Adres URL serwera",
-    "enterServerUrl": "Wprowadź adres URL serwera",
-    "saveFailed": "Nie udało się zapisać konfiguracji",
-    "saveError": "Błąd podczas zapisywania konfiguracji",
-    "saving": "Zapisywanie...",
-    "saveConfig": "Zapisz konfigurację",
-    "helpText": "Wprowadź adres URL, w którym działa Twój serwer Skynet (np. http://localhost:30001 lub https://your-server.com)",
-    "changeServer": "Zmień serwer",
-    "mustIncludeProtocol": "Adres URL serwera musi zaczynać się od http:// lub https://",
-    "allowInvalidCertificate": "Zezwól na nieprawidłowy certyfikat",
-    "allowInvalidCertificateDesc": "Używaj tylko w przypadku zaufanych serwerów hostowanych samodzielnie, z certyfikatami podpisanymi samodzielnie lub opartymi na adresie IP.",
-    "useEmbedded": "Użyj serwera lokalnego",
-    "embeddedDesc": "Uruchom Skynet z wbudowanym serwerem lokalnym (nie jest wymagany zdalny serwer)",
-    "embeddedConnecting": "Łączenie z serwerem lokalnym...",
-    "embeddedNotReady": "Serwer lokalny nie jest jeszcze gotowy. Poczekaj chwilę i spróbuj ponownie.",
-    "localServer": "Serwer lokalny"
-  },
   "versionCheck": {
     "error": "Błąd sprawdzania wersji",
     "checkFailed": "Nie udało się sprawdzić aktualizacji",
@@ -57,17 +37,13 @@
     "betaVersionDesc": "Używasz {{current}}, który jest nowszy niż najnowsze stabilne wydanie {{latest}}.",
     "releasedOn": "Wydano dnia {{date}}",
     "downloadUpdate": "Pobierz aktualizację",
-    "checking": "Sprawdzanie aktualizacji...",
-    "checkUpdates": "Sprawdź aktualizacje",
-    "checkingUpdates": "Sprawdzanie aktualizacji...",
-    "updateRequired": "Wymagana aktualizacja"
+    "checking": "Sprawdzanie aktualizacji..."
   },
   "common": {
     "close": "Zamknij",
     "minimize": "Minimize",
     "online": "Dostępny",
     "offline": "Offline",
-    "continue": "Kontynuuj",
     "maintenance": "Konserwacja",
     "degraded": "Degradacja",
     "error": "Błąd",
@@ -99,11 +75,9 @@
     "saving": "Zapisywanie...",
     "delete": "Usuń",
     "rename": "Zmień nazwę",
-    "edit": "Edytuj",
     "add": "Dodaj",
     "confirm": "Potwierdź",
     "no": "Nie",
-    "or": "LUB",
     "next": "Następny",
     "previous": "Poprzedni",
     "refresh": "Odśwież",
@@ -918,7 +892,6 @@
     "external": "Zewnętrzne",
     "loginWithExternal": "Zaloguj się z zewnętrznym dostawcą",
     "loginWithExternalDesc": "Zaloguj się przy użyciu skonfigurowanego dostawcy zewnętrznej tożsamości",
-    "externalNotSupportedInElectron": "Uwierzytelnianie zewnętrzne nie jest jeszcze obsługiwane w aplikacji Electron. Użyj wersji internetowej dla logowania OIDC.",
     "resetPasswordButton": "Resetuj hasło",
     "sendResetCode": "Wyślij kod resetowania",
     "resetCodeDesc": "Wprowadź swoją nazwę użytkownika, aby otrzymać kod resetowania hasła. Kod zostanie zalogowany w dziennikach kontenera.",
@@ -973,8 +946,7 @@
     "totpRateLimitedWithTime": "Ograniczenie szybkości: Zbyt wiele prób weryfikacji TOTP. Odczekaj {{time}} sekund przed ponowną próbą.",
     "resetCodeRateLimited": "Oceń limit: Zbyt wiele prób weryfikacji. Spróbuj ponownie później.",
     "resetCodeRateLimitedWithTime": "Ograniczenie szybkości: Zbyt wiele prób weryfikacji. Odczekaj {{time}} sekund przed ponowną próbą.",
-    "authTokenSaveFailed": "Nie udało się zapisać tokenu uwierzytelniania",
-    "failedToLoadServer": "Nie udało się załadować serwera"
+    "authTokenSaveFailed": "Nie udało się zapisać tokenu uwierzytelniania"
   },
   "messages": {
     "registrationDisabled": "Rejestracja nowego konta jest obecnie wyłączona przez administratora. Zaloguj się lub skontaktuj się z administratorem.",
