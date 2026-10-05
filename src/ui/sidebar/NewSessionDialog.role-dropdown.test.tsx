@@ -456,11 +456,12 @@ describe("NewSessionDialog roles: multi-select", () => {
     mockListRolesForHost.mockResolvedValueOnce(threeRoles);
     mockOpenBirthStream.mockReturnValueOnce(emptyStream());
     const { createBtn } = await openWithName();
-    // Pick order, not DOM order, decides the primary.
+    // Pick order, not list order, decides which role goes first.
     toggleRole("tina");
     toggleRole("box-maintainer");
+    // The trigger's pills show the picks in pick order.
     await waitFor(() =>
-      expect(pickedRoleValues()).toEqual(["box-maintainer", "tina"]),
+      expect(pickedRoleValues()).toEqual(["tina", "box-maintainer"]),
     );
     await waitFor(() => expect(createBtn().disabled).toBe(false));
     fireEvent.click(createBtn());

@@ -91,7 +91,8 @@ vi.mock("@/hooks/use-is-touch-device", () => ({
 import { NewSessionDialog } from "./NewSessionDialog";
 import {
   queryRolesGroup,
-  roleCheckboxes,
+  roleOptions,
+  getRolesGroup,
   roleOptionValues,
   pickedRoleValues,
 } from "./NewSessionDialog.roles-test-helpers";
@@ -456,9 +457,8 @@ describe("NewSessionDialog chain: Test 7 — pre-filled fields are editable", ()
     ]);
     // Second fetch triggered by host change should not disable the roles after resolution
     await waitFor(() => {
-      const boxes = roleCheckboxes();
-      expect(boxes.length).toBeGreaterThan(0);
-      expect(boxes.every((cb) => !cb.disabled)).toBe(true);
+      expect(getRolesGroup().disabled).toBe(false);
+      expect(roleOptions().length).toBeGreaterThan(0);
     });
   });
 });

@@ -113,6 +113,7 @@ import { Search, Loader2 } from "lucide-react";
 
 import { Modal, ModalHead, ModalBody, ModalFoot } from "@/components/modal";
 import { Button } from "@/components/button";
+import { MultiSelect } from "@/components/multi-select";
 import { Input } from "@/components/input";
 import type { Host, HostFolder } from "@/types/ui-types";
 import {
@@ -1194,53 +1195,27 @@ export function NewSessionDialog({
                   click (wired to CreateRoleDialog in plan 22-04 / SRIC-04). */}
               {selectedHost !== null && (
                 <div className="flex flex-col gap-1.5">
-                  {/* Multi-role: a checkbox list replaces the old single-pick
-                      dropdown. Pick one or more; order of picking is the
-                      order the identity file lists them in. */}
-                  <span
-                    id="new-identity-roles-label"
+                  {/* Multi-role: a dropdown multi-select replaces the old
+                      single-pick <select>. Pick one or more; the order of
+                      picking is the order the identity file lists them in. */}
+                  <label
+                    htmlFor="new-identity-roles"
                     className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--color-pv-fg-muted)]"
                   >
                     Roles
-                  </span>
-                  {rolesLoading ? (
-                    <span className="text-xs text-[color:var(--color-pv-fg-muted)]">
-                      Loading roles...
-                    </span>
-                  ) : (
-                    rolesForHost.length > 0 && (
-                      <div
-                        role="group"
-                        aria-labelledby="new-identity-roles-label"
-                        className="flex flex-col max-h-40 overflow-y-auto rounded-sm border border-[color:var(--color-pv-border-quiet-strong)] bg-white/[0.06]"
-                      >
-                        {rolesForHost.map((r) => {
-                          const checked = selectedRoles.includes(r.name);
-                          return (
-                            <label
-                              key={r.name}
-                              className="flex items-center gap-2 px-3 py-1.5 text-xs text-[color:var(--color-pv-fg)] cursor-pointer hover:bg-white/[0.06] has-[:disabled]:opacity-50 has-[:disabled]:cursor-default"
-                            >
-                              <input
-                                type="checkbox"
-                                value={r.name}
-                                checked={checked}
-                                disabled={formDisabled}
-                                onChange={() =>
-                                  setSelectedRoles((prev) =>
-                                    checked
-                                      ? prev.filter((x) => x !== r.name)
-                                      : [...prev, r.name],
-                                  )
-                                }
-                              />
-                              {roleDisplayName(r.name, r.displayName)}
-                            </label>
-                          );
-                        })}
-                      </div>
-                    )
-                  )}
+                  </label>
+                  <MultiSelect
+                    id="new-identity-roles"
+                    ariaLabel="Roles"
+                    placeholder={rolesLoading ? "Loading roles..." : "Pick roles…"}
+                    disabled={formDisabled || rolesLoading || rolesForHost.length === 0}
+                    options={rolesForHost.map((r) => ({
+                      value: r.name,
+                      label: roleDisplayName(r.name, r.displayName),
+                    }))}
+                    value={selectedRoles}
+                    onChange={setSelectedRoles}
+                  />
                   {/* Role fetch error */}
                   {rolesError && (
                     <span className="text-xs text-[color:var(--color-pv-code-fg)]">
