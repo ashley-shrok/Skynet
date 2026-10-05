@@ -338,6 +338,29 @@ describe("IdentityModal — title-line clickable treatment (D-04)", () => {
     const [firstArg] = onOpenRoleModal.mock.calls[0];
     expect(firstArg.identityKey).toBe("tabitha");
     expect(firstArg.role).toBe("box-maintainer");
+    expect(onOpenRoleModal.mock.calls[0][1]).toBe("box-maintainer");
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("H2: multi-role — header shows one comma-separated link per role; each opens its own role", async () => {
+    const onOpenRoleModal = vi.fn();
+    const onOpenChange = vi.fn();
+    renderModal(
+      { role: null, roles: ["box-maintainer", "sky-uat"], roleDefaults: null },
+      onOpenRoleModal,
+      onOpenChange,
+    );
+    await waitFor(() => {
+      expect(document.querySelector('[role="dialog"]')).toBeTruthy();
+    });
+    expect(screen.getByTestId("identity-modal-role-links").textContent).toContain(
+      "Box Maintainer, Sky Uat›",
+    );
+    const links = screen.getAllByTestId("identity-modal-title-line-jump");
+    expect(links).toHaveLength(2);
+    fireEvent.click(links[1]);
+    expect(onOpenRoleModal).toHaveBeenCalledTimes(1);
+    expect(onOpenRoleModal.mock.calls[0][1]).toBe("sky-uat");
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 

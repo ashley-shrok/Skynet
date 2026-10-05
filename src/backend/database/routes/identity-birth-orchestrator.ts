@@ -220,17 +220,17 @@ export interface BirthOptions {
    * on the target host. Validated at HTTP handler (identity-birth.ts) AND
    * re-validated at Step 2.5 entry (defense in depth per T-22-02-01).
    *
-   * Multi-role: this is the PRIMARY role — the one that drives the MXID
-   * composition, the role-inherited cosmetics, and every single-role reader
-   * (extractRoleFromMarkdown returns the first list entry).
+   * Multi-role: the FIRST of the identity's roles. It's the role segment of
+   * a pool-picked MXID; it carries no other special meaning (a multi-role
+   * identity inherits no single role's look).
    */
   role: string;
   /**
    * Additional roles the identity also takes on, beyond `role`. Absent /
    * empty → single-role identity, frontmatter stays the scalar `role: <role>`.
    * Non-empty → frontmatter becomes the flow list `role: [<role>, ...extras]`
-   * (primary first). Each entry is gated with ROLE_NAME_PATTERN and must
-   * exist as a role folder on the target host, same as the primary.
+   * (`role` first). Each entry is gated with ROLE_NAME_PATTERN and must
+   * exist as a role folder on the target host, same as `role`.
    */
   extraRoles?: string[];
   /**
@@ -579,7 +579,7 @@ const TMUX_SAFE_NAME_RE = /^[a-z][a-z0-9_-]*$/;
 //   forceQuotes: false — let yaml.dump decide per-value; it correctly
 //                        quotes strings containing colons/newlines
 //                        automatically (T-66-01-04)
-/** Every role an identity is born with, primary first, de-duplicated. */
+/** Every role an identity is born with, `role` first, de-duplicated. */
 export function identityRoles(opts: Pick<BirthOptions, "role" | "extraRoles">): string[] {
   return Array.from(new Set([opts.role, ...(opts.extraRoles ?? [])]));
 }
@@ -667,7 +667,7 @@ export function buildIdentityFileBody(
   );
 
   // Multi-role: rewrite the leading scalar `role:` line as a flow list,
-  // primary first. Done post-dump (rather than pushing an array pair) because
+  // `role` first. Done post-dump (rather than pushing an array pair) because
   // yaml.dump would emit a block sequence, and the flow form is the shape the
   // id skill documents. Role names are ROLE_NAME_PATTERN-gated kebab-case, so
   // they need no quoting.

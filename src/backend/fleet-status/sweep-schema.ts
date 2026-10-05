@@ -156,6 +156,13 @@ export interface SweepIdentityLine {
   role?: string | null;
   identity_cosmetics?: SweepRawCosmetics | null;
   role_cosmetics?: SweepRawCosmetics | null;
+  // Multi-role: every role named in the identity's `role:` frontmatter, in
+  // file order ([] when none). `role` / `role_cosmetics` above stay null for
+  // a multi-role identity (no inherited look); `roles_cosmetics` carries each
+  // listed role's cosmetics, index-aligned with `roles`, for the visibility
+  // gate — emitted only when there is more than one role.
+  roles?: string[];
+  roles_cosmetics?: Array<SweepRawCosmetics | null>;
   pinned?: boolean;
   // Phase 115 Plan 115-05 archived axis retired in the Phase 122 shape
   // follow-up. Kept as optional so the orchestrator's belt-and-braces

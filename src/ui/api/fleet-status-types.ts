@@ -103,6 +103,8 @@ export interface IdentityAppearance {
   task: string | null;
   coordinator: boolean;
   role: string | null;
+  /** Multi-role: every role the identity holds (optional — older publishers). */
+  roles?: string[];
   /** Three-valued: null = no role; {} = role with no cosmetics; {...} = role values. */
   roleDefaults: Record<string, unknown> | null;
   avatarUrl: string;

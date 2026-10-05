@@ -6,6 +6,7 @@
 // screen. These helpers are module-scoped + side-effect-free so task-7's
 // unit tests can exercise them without mounting the panel.
 
+import { identityRoles, identityRolesLabel } from "@/lib/identity-roles";
 import type { ConversationRow } from "@/state/conversation-store";
 import type { Identity } from "@/api/identities-api";
 import { roleDisplayName } from "@/lib/role-display-name";
@@ -20,8 +21,8 @@ import { sessionMatchKey } from "@/features/terminal/session-hue";
  *     (task takes the primary line when set; displayName is the fallback —
  *     both remain match targets so typing an identity name still hits when
  *     its task is what's rendered, and vice versa).
- *   - secondary-line candidates: role display name (from identity.role +
- *     identity.roleDefaults?.displayName) AND host.name AND identity.title.
+ *   - secondary-line candidates: role display names (every role in
+ *     identityRoles(identity)) AND host.name AND identity.title.
  *
  * For a relay-room row: row.label + row.roomTitle (either can occupy the
  * primary line depending on state) + host.name (secondary).
@@ -54,11 +55,11 @@ export function getRowCandidateStrings(
     push(identity.displayName);
     push(identity.task);
     push(identity.title);
-    push(identity.role);
     push(identity.roleDefaults?.displayName);
-    if (identity.role) {
-      push(roleDisplayName(identity.role, identity.roleDefaults?.displayName));
-    }
+    // Multi-role: every role the identity holds is a match target, slug and
+    // display form alike.
+    for (const r of identityRoles(identity)) push(r);
+    push(identityRolesLabel(identity));
   }
   return out;
 }

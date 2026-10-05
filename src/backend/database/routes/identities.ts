@@ -21,7 +21,10 @@ import { databaseLogger, systemLogger } from "../../utils/logger.js";
 // Skynet username string the gate compares against on-disk `users:`
 // frontmatter lists (case-sensitive per Pitfall 7 lock; see 129-01 SUMMARY
 // for the design rationale).
-import { isIdentityVisibleToUser } from "../../fleet-status/identity-visibility-gate.js";
+import {
+  isIdentityVisibleToUser,
+  resolveGateRoleSide,
+} from "../../fleet-status/identity-visibility-gate.js";
 import { getUsernameForUserId } from "../../utils/host-user-counter.js";
 // Phase 103 D-10: multipart-origin-guard — CORS-simple content types don't preflight
 import { multipartOriginGuard } from "../../utils/multipart-origin-guard.js";
@@ -36,6 +39,7 @@ import {
   isLocalHostId,
   getLocalIdentitiesRoot,
   extractRoleFromMarkdown,
+  extractRolesFromMarkdown,
   MIME_TO_AVATAR_EXT,
   IDENTITY_KEY_RE,
   // Phase 85 Plan 85-01 Task 2: role-cosmetic merge (per-host memo in GET /
@@ -209,6 +213,10 @@ export function publicIdentity(
    *  frontend rewire) reports the identity as unpinned rather than
    *  fabricating a truthy state. */
   pinned: boolean = false,
+  /** Every role the identity holds (frontmatter order). Omitted → derived
+   *  from `role` (single-role shape). For a multi-role identity `role` is
+   *  null — it inherits no role's look — and this carries the list. */
+  roles?: string[],
 ) {
   // Phase 111 Plan 111-02: delegate the identity-over-role merge to the single
   // authority in `src/backend/fleet-status/identity-appearance.ts`. This keeps
@@ -221,6 +229,7 @@ export function publicIdentity(
     cosmetics,
     roleCosmetics,
     role,
+    roles,
     pinned,
   });
 
@@ -257,6 +266,7 @@ export function publicIdentity(
     // Phase 67 Plan 67-01: coordinator overlay. Absence = actor = false (safe-default).
     coordinator: resolved.coordinator,
     role: resolved.role,
+    roles: resolved.roles,
     // Phase 85 Plan 85-01: roleDefaults echoes the role's raw cosmetic
     // values so IdentityModal (Plan 85-05) can render inherit-vs-override
     // affordances. null when no role; {} when role has no cosmetics.
@@ -458,6 +468,7 @@ router.get("/", authenticateJWT, async (req: Request, res: Response) => {
                   ]);
                   const cosmetics = extractCosmeticsFromFrontmatter(markdown);
                   const role = extractRoleFromMarkdown(markdown) ?? null;
+                  const roles = extractRolesFromMarkdown(markdown);
 
                   // Phase 85: resolve role cosmetics via per-host memo.
                   // No role → pass null so publicIdentity emits roleDefaults=null.
@@ -482,7 +493,13 @@ router.get("/", authenticateJWT, async (req: Request, res: Response) => {
                   if (
                     !isIdentityVisibleToUser(
                       cosmetics,
-                      roleCosmetics,
+                      // Multi-role: every listed role's `users:` must pass.
+                      roles.length > 1
+                        ? await resolveGateRoleSide(
+                            roles,
+                            readRoleCosmeticsMemoized,
+                          )
+                        : roleCosmetics,
                       callerUsername,
                     )
                   ) {
@@ -505,6 +522,7 @@ router.get("/", authenticateJWT, async (req: Request, res: Response) => {
                     role,
                     roleCosmetics,
                     pinned,
+                    roles,
                   );
                 } catch (err) {
                   // Skip this key, but say so: an identity that is absent from
@@ -920,6 +938,8 @@ router.put(
           echoCosmetics,
           roleName ?? null,
           echoRoleCosmetics,
+          false,
+          extractRolesFromMarkdown(postWriteMd),
         ),
       );
     } catch (e) {

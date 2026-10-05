@@ -431,13 +431,29 @@ export function extractRoleFromMarkdown(markdown: string): string | null {
   }
   const parsed = doc.toJS() as Record<string, unknown> | null;
   if (parsed === null || typeof parsed !== "object") return null;
-  // Multi-role identities list their roles (`role: [a, b]` or a block
-  // sequence); the first entry is the PRIMARY role, which is what every
-  // single-role consumer of this helper (cosmetics cascade, visibility gate,
-  // role-file tab) keys on.
-  const raw = parsed.role;
-  const role = Array.isArray(raw) ? raw[0] : raw;
+  // Scalar only: a multi-role identity (`role:` holding a list) yields null
+  // here on purpose — it inherits no single role's look. Use
+  // extractRolesFromMarkdown for the full list.
+  const role = parsed.role;
   return typeof role === "string" && role.length > 0 ? role : null;
+}
+
+/**
+ * Every role named in an identity file's `role:` frontmatter, in file order:
+ * a scalar yields one entry, a flow (`role: [a, b]`) or block list yields all
+ * of them. Non-string / empty entries are dropped, duplicates collapsed.
+ * Returns [] when there is no frontmatter or no `role:` key.
+ */
+export function extractRolesFromMarkdown(markdown: string): string[] {
+  const match = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!match) return [];
+  const parsed = yamlParseDocument(match[1]).toJS() as Record<string, unknown> | null;
+  if (parsed === null || typeof parsed !== "object") return [];
+  const raw = parsed.role;
+  const list = Array.isArray(raw) ? raw : [raw];
+  return Array.from(
+    new Set(list.filter((r): r is string => typeof r === "string" && r.length > 0)),
+  );
 }
 
 /**

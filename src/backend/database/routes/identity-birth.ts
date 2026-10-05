@@ -101,7 +101,7 @@ const execAsync = promisify(exec);
 const IDENTITY_KEY_RE = /^[a-z0-9._=/+-]+$/;
 
 // Multi-role: cap on the optional `roles` body field (additional roles beyond
-// the primary). Generous — the UI never gets near it — but bounds the peer
+// `role`). Generous — the UI never gets near it — but bounds the peer
 // script's role-folder guard loop.
 const MAX_EXTRA_ROLES = 16;
 
@@ -391,8 +391,8 @@ router.post(
     }
 
     // Multi-role: optional `roles` array of ADDITIONAL roles beyond the
-    // primary `role`. Same kebab-case gate as the primary; duplicates (and a
-    // repeat of the primary) collapse silently.
+    // first `role`. Same kebab-case gate as `role`; duplicates (and a
+    // repeat of `role`) collapse silently.
     let extraRoles: string[] = [];
     if (roles !== undefined && roles !== null) {
       if (
@@ -407,10 +407,10 @@ router.post(
         });
         return;
       }
-      const primary = role.trim();
+      const first = role.trim();
       extraRoles = Array.from(
         new Set((roles as string[]).map((r) => r.trim())),
-      ).filter((r) => r !== primary);
+      ).filter((r) => r !== first);
     }
 
     // colorHue and voice are optional (nullable)

@@ -14,7 +14,14 @@ export interface Identity {
   title: string | null;
   colorHue: number | null;
   voice: string | null;
+  /** The single role whose look this identity inherits — null for a
+   *  multi-role identity (it inherits no one role's look). For WHICH roles
+   *  the identity holds, read `roles` via `identityRoles()`. */
   role: string | null;
+  /** Every role the identity holds, in frontmatter order. Optional so older
+   *  payloads/fixtures still type-check; `identityRoles()` falls back to
+   *  `[role]` when absent. */
+  roles?: string[];
   avatarMime: string;
   /** Phase 68 Plan 04: hostId is now baked into avatarUrl by the backend
    *  (publicIdentity emits avatarUrl as `/identities/:key/avatar?hostId=N`).
@@ -606,7 +613,7 @@ export interface BirthRequest {
    *  avatar-sibling write skipped when candidate is absent). */
   avatarCandidateId?: string;
   /** Phase 22 SRIC-02: kebab-case-lowercase role name from the target host.
-   *  The PRIMARY role when `roles` is also sent. */
+   *  The first of the agent's roles when `roles` is also sent. */
   role: string;
   /** Multi-role: additional roles beyond `role`, in pick order. Omit for a
    *  single-role agent. The identity file records `role: [role, ...roles]`. */

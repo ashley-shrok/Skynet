@@ -129,11 +129,6 @@ import { roleDisplayName } from "@/lib/role-display-name";
 import { previewSlugFromPrettyName } from "@/lib/pretty-name-slug-preview";
 import { useBrandingConfig } from "@/branding/branding-store";
 
-// Chrome/Linux renders the <option> popup with browser defaults, not the parent
-// <select>'s classes — light-on-light without this. Same fix as VoicePicker's
-// options and the GlobalFilesModal/SkillsEditorModal host pickers.
-const ROLE_OPTION_STYLE = { background: "#1a1c26", color: "#f0ebe0" } as const;
-
 // Client-side session-name pattern — defense-in-depth (T-06-04-01). Word
 // characters and dashes, 0-64 chars. Empty string matches (Open enabled +
 // server-side auto-fill kicks in).
@@ -251,7 +246,7 @@ export function NewSessionDialog({
   onCreate: (opts: NewSessionOnCreateOpts) => void;
   /**
    * Phase 22 SRIC-05 chain pre-fill: when both `initialHost` and `initialRole`
-   * are provided, the dialog opens with selectedHost + selectedRole seeded
+   * are provided, the dialog opens with selectedHost + selectedRoles seeded
    * from these props. Both remain EDITABLE per D-CONTEXT §Claude's Discretion
    * default ("pre-filled but editable"). When only `initialHost` is provided,
    * host is seeded but role stays empty (user must pick manually). When only
@@ -357,7 +352,7 @@ export function NewSessionDialog({
   const birthStartedRef = useRef(false);
 
   // Phase 22 SRIC-05: tracks the previously-observed selectedHost.id so the
-  // roles-for-host effect only clears selectedRole on an ACTUAL host change,
+  // roles-for-host effect only clears selectedRoles on an ACTUAL host change,
   // not on the initial seeding (which would nuke the chain pre-fill in
   // useEffect #1 above). null = "no host observed yet" (fresh mount).
   const prevHostIdRef = useRef<string | number | null>(null);
@@ -365,18 +360,14 @@ export function NewSessionDialog({
   // Phase 22 SRIC-02: Role dropdown state (populated from GET /roles?hostId=<n>
   // when a host is picked with identity-mode ON). Selection blocks Create until
   // the user actively picks a role. Reset on host change AND on modal close.
-  const [selectedRole, setSelectedRole] = useState<string>("");
+  // Multi-role: every role the agent will hold, in pick order — the first
+  // becomes the frontmatter list's first entry (and the pool-picked MXID's
+  // role segment). At least one is required.
+  const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
   // Mirror for the name-prefill effect (declared above with the other refs) —
   // role is sent along with the pick request but must not be a dep of it.
-  selectedRoleRef.current = selectedRole;
+  selectedRoleRef.current = selectedRoles[0] ?? "";
   const [rolesForHost, setRolesForHost] = useState<RoleSummary[]>([]);
-  // Multi-role: roles the agent takes on IN ADDITION to the primary
-  // `selectedRole`, in pick order. Optional — the dropdown's single pick
-  // still satisfies the "at least one role" gate. Pruned by the effect below
-  // so it never holds the primary or a role the current host doesn't offer
-  // (which also clears it on host change and modal close, since both empty
-  // rolesForHost).
-  const [extraRoles, setExtraRoles] = useState<string[]>([]);
   const [rolesLoading, setRolesLoading] = useState<boolean>(false);
   const [rolesError, setRolesError] = useState<string | null>(null);
 
@@ -418,12 +409,12 @@ export function NewSessionDialog({
   // sole host when the tree has exactly one (existing Test 9 behavior).
   // Phase 22 SRIC-05: `initialHost` takes precedence over auto-select. When
   // both `initialHost` and `initialRole` are provided AND agent mode is ON
-  // (default in Phase 88: `shellOnly === false`), `selectedRole` is also
+  // (default in Phase 88: `shellOnly === false`), `selectedRoles` is also
   // seeded. The roles-for-host effect (keyed on [selectedHost, shellOnly])
   // will fire on the next render as
-  // a consequence of setSelectedHost — but that effect clears selectedRole
+  // a consequence of setSelectedHost — but that effect clears selectedRoles
   // on host change. To make the pre-fill stick we set BOTH here and rely on
-  // a separate validation effect (below) to clear selectedRole later if the
+  // a separate validation effect (below) to clear selectedRoles later if the
   // fetched roles do not contain it (Test 6 stale-role safety net).
   // On close: reset all local state so a re-open starts fresh.
   useEffect(() => {
@@ -436,7 +427,7 @@ export function NewSessionDialog({
         // default), so this branch fires on a fresh open where the caller
         // hasn't toggled the admin-only "Just a shell" checkbox.
         if (initialRole && !shellOnly) {
-          setSelectedRole(initialRole);
+          setSelectedRoles([initialRole]);
         }
       } else if (flatHosts.length === 1) {
         setSelectedHost(flatHosts[0]);
@@ -471,7 +462,7 @@ export function NewSessionDialog({
         collisionTimerRef.current = null;
       }
       // Phase 22 SRIC-02: reset role dropdown state on modal close.
-      setSelectedRole("");
+      setSelectedRoles([]);
       setRolesForHost([]);
       setRolesLoading(false);
       setRolesError(null);
@@ -502,25 +493,25 @@ export function NewSessionDialog({
 
   // Phase 22 SRIC-02: Role dropdown effect — fires whenever the selected host
   // OR agent-mode gate changes. Populates rolesForHost via GET /roles?hostId=<n>.
-  // Clears selectedRole on every host change (force re-pick — a role scoped to
+  // Clears selectedRoles on every host change (force re-pick — a role scoped to
   // host A is not necessarily valid on host B).
   //
   // Effect DOES NOT fire when shell-only mode is on (Role is CREATE-only per
   // D-CONTEXT §UX rules; the role dropdown is agent-mode-only). When
   // shell-only toggles ON or the host clears, we reset rolesForHost +
-  // selectedRole to defaults so a subsequent toggle back to agent mode
+  // selectedRoles to defaults so a subsequent toggle back to agent mode
   // starts fresh.
   useEffect(() => {
     if (!selectedHost || shellOnly) {
-      // Only clear selectedRole when we actually had a prior host (i.e.,
+      // Only clear selectedRoles when we actually had a prior host (i.e.,
       // host was cleared or shell-only toggled ON). On the very first
       // mount when selectedHost is still null-by-initial-state, DO NOT clear
-      // selectedRole — the on-open useEffect above may have just seeded it
+      // selectedRoles — the on-open useEffect above may have just seeded it
       // via initialRole and the state update simply hasn't landed yet
       // (Phase 22 SRIC-05 Test 1).
       setRolesForHost([]);
       if (prevHostIdRef.current !== null) {
-        setSelectedRole("");
+        setSelectedRoles([]);
       }
       setRolesLoading(false);
       setRolesError(null);
@@ -535,7 +526,7 @@ export function NewSessionDialog({
     // on the first observation of a host — that would nuke a chain pre-fill
     // seed placed by the on-open effect (Phase 22 SRIC-05 Test 1).
     if (prevHostIdRef.current !== null && prevHostIdRef.current !== selectedHost.id) {
-      setSelectedRole("");
+      setSelectedRoles([]);
     }
     prevHostIdRef.current = selectedHost.id;
     (async () => {
@@ -558,28 +549,19 @@ export function NewSessionDialog({
   }, [selectedHost, shellOnly]);
 
   // Phase 22 SRIC-05 Test 6: stale-role guard. After the roles-for-host fetch
-  // resolves, if selectedRole was seeded from initialRole (chain pre-fill) but
+  // resolves, if selectedRoles was seeded from initialRole (chain pre-fill) but
   // that role name is not actually present on the picked host, clear the
   // selection so the user sees the empty dropdown state and can't submit with
   // a phantom role. Only runs when there IS a current selection AND the fetch
   // has landed (rolesForHost non-empty OR rolesLoading false after a fetch).
   useEffect(() => {
-    if (!selectedRole || rolesLoading) return;
+    if (selectedRoles.length === 0 || rolesLoading) return;
     if (rolesForHost.length === 0) return;
-    if (!rolesForHost.some((r) => r.name === selectedRole)) {
-      setSelectedRole("");
-    }
-  }, [rolesForHost, rolesLoading, selectedRole]);
-
-  // Multi-role: prune extras that became the primary or left the host's list.
-  useEffect(() => {
-    setExtraRoles((prev) => {
-      const next = prev.filter(
-        (r) => r !== selectedRole && rolesForHost.some((x) => x.name === r),
-      );
-      return next.length === prev.length ? prev : next;
-    });
-  }, [rolesForHost, selectedRole]);
+    const valid = selectedRoles.filter((sel) =>
+      rolesForHost.some((r) => r.name === sel),
+    );
+    if (valid.length !== selectedRoles.length) setSelectedRoles(valid);
+  }, [rolesForHost, rolesLoading, selectedRoles]);
 
   // 2026-09-14: sole-role auto-select. When the picked host offers exactly one
   // role there is no decision to make, so select it rather than parking the
@@ -588,33 +570,33 @@ export function NewSessionDialog({
   // (see the open-effect above and the Phase 84 listbox gate).
   //
   // Ordering vs the two neighbours it must not fight:
-  //   - The chain-prefill seed (open-effect) sets selectedRole BEFORE any fetch
-  //     resolves. The `selectedRole !== ""` bail below means a seeded role is
+  //   - The chain-prefill seed (open-effect) sets selectedRoles BEFORE any fetch
+  //     resolves. The non-empty `selectedRoles` bail below means a seeded role is
   //     never overwritten — and when the seed matches the only available role,
   //     the assignment would be a no-op anyway.
   //   - The stale-role guard directly above may CLEAR a phantom seed once the
   //     fetch lands. That clear and this select both key on [rolesForHost,
-  //     rolesLoading, selectedRole], so the clear re-runs this effect and the
+  //     rolesLoading, selectedRoles], so the clear re-runs this effect and the
   //     lone role is then selected — the user ends up on the only valid choice
   //     instead of an empty dropdown. The two compose; neither loops, because
   //     this effect only ever writes a value the guard considers valid.
   useEffect(() => {
     if (rolesLoading) return;
-    if (selectedRole !== "") return;
+    if (selectedRoles.length > 0) return;
     if (rolesForHost.length !== 1) return;
-    setSelectedRole(rolesForHost[0].name);
-  }, [rolesForHost, rolesLoading, selectedRole]);
+    setSelectedRoles([rolesForHost[0].name]);
+  }, [rolesForHost, rolesLoading, selectedRoles]);
 
   // Phase 80 Plan 80-06 Task 2: auto-prefill Name via pickPoolName.
   //
-  // 2026-09-14: the `!selectedRole` gate is GONE. It was never about names —
+  // 2026-09-14: the `!selectedRoles` gate is GONE. It was never about names —
   // the backend needed a role solely to compose the MXID it probed for
   // availability, and that probe has moved to the host's identity directories
   // (which are role-independent). So a name can be suggested the moment a host
   // is known, instead of the user staring at an empty Name field until they
   // also pick a role.
   //
-  // Keyed on selectedHost only — NOT on selectedRole. Role does not affect the
+  // Keyed on selectedHost only — NOT on selectedRoles. Role does not affect the
   // answer any more (availability is host-scoped and role-independent), so
   // re-picking when a role lands would issue a second request whose result is
   // always discarded. Sole-role auto-select makes that the common path, so the
@@ -681,7 +663,7 @@ export function NewSessionDialog({
     };
     // No exhaustive-deps suppression needed: every value this effect reads
     // reactively IS in the dep array. `name`, `poolPickedName`, and
-    // `selectedRole` are read through refs precisely so they do not belong here.
+    // `selectedRoles` are read through refs precisely so they do not belong here.
   }, [selectedHost, shellOnly]);
 
   // Collision precheck: fired on name blur (debounced 300ms).
@@ -799,10 +781,11 @@ export function NewSessionDialog({
           // publicIdentity merge (identity ?? role ?? null).
           colorHue: null,
           voice: null,
-          // Phase 22 SRIC-02: required role from the dropdown — the primary.
-          role: selectedRole,
-          // Multi-role: any additional roles picked below the dropdown.
-          ...(extraRoles.length > 0 ? { roles: extraRoles } : {}),
+          // Phase 22 SRIC-02: required role. Multi-role: the first pick goes
+          // in `role`, any further picks in `roles`; the identity file lists
+          // them all, in pick order.
+          role: selectedRoles[0],
+          ...(selectedRoles.length > 1 ? { roles: selectedRoles.slice(1) } : {}),
           // 2026-09-14: always the stand-in. The user is no longer asked what
           // the agent will work on at creation time; the agent writes the real
           // task into its own frontmatter on first wake. Sent unconditionally
@@ -952,8 +935,8 @@ export function NewSessionDialog({
       !skynetCollision &&
       !hostCollision &&
       !collisionChecking &&
-      // Phase 22 SRIC-02: role is REQUIRED and CREATE-only.
-      selectedRole !== ""
+      // Phase 22 SRIC-02: at least one role is REQUIRED and CREATE-only.
+      selectedRoles.length > 0
     : selectedHost !== null && nameValid && pathValid);
 
   // Phase 106 Plan 106-02 (D-13/D-15): form fields disabled ONLY while birthing.
@@ -1211,67 +1194,52 @@ export function NewSessionDialog({
                   click (wired to CreateRoleDialog in plan 22-04 / SRIC-04). */}
               {selectedHost !== null && (
                 <div className="flex flex-col gap-1.5">
-                  <label
-                    htmlFor="new-identity-role"
+                  {/* Multi-role: a checkbox list replaces the old single-pick
+                      dropdown. Pick one or more; order of picking is the
+                      order the identity file lists them in. */}
+                  <span
+                    id="new-identity-roles-label"
                     className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--color-pv-fg-muted)]"
                   >
-                    Role
-                  </label>
-                  <select
-                    id="new-identity-role"
-                    aria-label="Role"
-                    value={selectedRole}
-                    onChange={(e) => setSelectedRole(e.target.value)}
-                    disabled={formDisabled || rolesLoading}
-                    className="w-full rounded-sm border border-[color:var(--color-pv-border-quiet-strong)] bg-white/[0.06] px-3 py-2 text-xs text-[color:var(--color-pv-fg)] outline-none disabled:opacity-50"
-                  >
-                    <option value="" disabled style={ROLE_OPTION_STYLE}>
-                      {rolesLoading ? "Loading roles..." : "Pick a role…"}
-                    </option>
-                    {rolesForHost.map((r) => (
-                      <option key={r.name} value={r.name} style={ROLE_OPTION_STYLE}>
-                        {roleDisplayName(r.name, r.displayName)}
-                      </option>
-                    ))}
-                  </select>
-                  {/* Multi-role: optional additional roles. Only offered once a
-                      primary is picked and the host has more than one role. */}
-                  {selectedRole !== "" && rolesForHost.length > 1 && (
-                    <div className="flex flex-col gap-1.5 pt-1">
-                      <span className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--color-pv-fg-muted)]">
-                        Also takes on (optional)
-                      </span>
-                      <div className="flex flex-wrap gap-1.5">
-                        {rolesForHost
-                          .filter((r) => r.name !== selectedRole)
-                          .map((r) => {
-                            const on = extraRoles.includes(r.name);
-                            return (
-                              <button
-                                key={r.name}
-                                type="button"
-                                aria-pressed={on}
+                    Roles
+                  </span>
+                  {rolesLoading ? (
+                    <span className="text-xs text-[color:var(--color-pv-fg-muted)]">
+                      Loading roles...
+                    </span>
+                  ) : (
+                    rolesForHost.length > 0 && (
+                      <div
+                        role="group"
+                        aria-labelledby="new-identity-roles-label"
+                        className="flex flex-col max-h-40 overflow-y-auto rounded-sm border border-[color:var(--color-pv-border-quiet-strong)] bg-white/[0.06]"
+                      >
+                        {rolesForHost.map((r) => {
+                          const checked = selectedRoles.includes(r.name);
+                          return (
+                            <label
+                              key={r.name}
+                              className="flex items-center gap-2 px-3 py-1.5 text-xs text-[color:var(--color-pv-fg)] cursor-pointer hover:bg-white/[0.06] has-[:disabled]:opacity-50 has-[:disabled]:cursor-default"
+                            >
+                              <input
+                                type="checkbox"
+                                value={r.name}
+                                checked={checked}
                                 disabled={formDisabled}
-                                onClick={() =>
-                                  setExtraRoles((prev) =>
-                                    on
+                                onChange={() =>
+                                  setSelectedRoles((prev) =>
+                                    checked
                                       ? prev.filter((x) => x !== r.name)
                                       : [...prev, r.name],
                                   )
                                 }
-                                className={
-                                  "rounded-full border px-2.5 py-1 text-xs transition-colors disabled:opacity-50 " +
-                                  (on
-                                    ? "border-[color:var(--color-pv-fg-muted)] bg-white/[0.14] text-[color:var(--color-pv-fg)]"
-                                    : "border-[color:var(--color-pv-border-quiet-strong)] bg-transparent text-[color:var(--color-pv-fg-muted)] hover:bg-white/[0.06]")
-                                }
-                              >
-                                {roleDisplayName(r.name, r.displayName)}
-                              </button>
-                            );
-                          })}
+                              />
+                              {roleDisplayName(r.name, r.displayName)}
+                            </label>
+                          );
+                        })}
                       </div>
-                    </div>
+                    )
                   )}
                   {/* Role fetch error */}
                   {rolesError && (

@@ -2324,18 +2324,13 @@ export function PrettyView({
   //
   // See 90-CONTEXT.md D-04 for the fallback rationale.
   const handleOpenRoleModal = useCallback(
-    (identity: Identity): void => {
-      if (identity.role === null) {
-        console.debug("[PrettyView] handleOpenRoleModal: no role — skipping", {
-          identity: identity.identityKey,
-        });
-        return;
-      }
-      const roleName = identity.role;
-      // Preferred path: use identity.roleDefaults directly.
+    (identity: Identity, roleName: string): void => {
+      // Preferred path: use identity.roleDefaults directly — only valid when
+      // roleName is the role the identity inherits its look from (a
+      // multi-role identity has none, so it always takes the fetch below).
       // Pretty-names shape (2026-09-30): roles now carry `displayName` in
       // their frontmatter instead of `title`. Read displayName.
-      if (identity.roleDefaults) {
+      if (identity.roleDefaults && roleName === identity.role) {
         const cosmetics: RoleSummary = {
           name: roleName,
           description: "",

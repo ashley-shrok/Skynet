@@ -36,6 +36,7 @@
  * swap-not-stack transition to `<RoleModal>` on that role.
  */
 
+import { identityRoles } from "@/lib/identity-roles";
 import { useEffect, useMemo, useState } from "react";
 import { ChevronRight, ChevronDown, Archive as ArchivedBoxIcon } from "lucide-react";
 import { Modal, ModalHead, ModalBody } from "@/components/modal";
@@ -254,7 +255,7 @@ export function RolesListModal({
     // fallback — same expression as AppShell.tsx:894 (do not special-case
     // "Untitled conversation").
     const affected = identities.filter(
-      (i) => i.role === roleName && i.hostId === hostId,
+      (i) => identityRoles(i).includes(roleName) && i.hostId === hostId,
     );
     // D-03 first confirm: blast-radius disclosure. Complete list, no truncation.
     const dialog1 =

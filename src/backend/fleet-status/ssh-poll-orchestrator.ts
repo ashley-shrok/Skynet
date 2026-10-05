@@ -258,6 +258,8 @@ export interface SshPollOrchestrator {
     identityCosmetics: RawCosmetics | null;
     roleCosmetics: RawCosmetics | null;
     role: string | null;
+    /** Multi-role only: each listed role's cosmetics, for the gate. */
+    rolesCosmetics?: Array<RawCosmetics | null>;
   } | null;
 }
 
@@ -666,6 +668,9 @@ interface PerHostState {
        * emission — malformed or absent → null).
        */
       role: string | null;
+      /** Multi-role only: each listed role's cosmetics (index-aligned with
+       *  the sweep's `roles`), so the gate can check every role's `users:`. */
+      rolesCosmetics?: Array<RawCosmetics | null>;
     }
   >;
 }
@@ -1344,6 +1349,7 @@ function appearanceFromIdentityLine(
     cosmetics: (identityLine.identity_cosmetics as RawCosmetics | null | undefined) ?? null,
     roleCosmetics: (identityLine.role_cosmetics as RawCosmetics | null | undefined) ?? null,
     role: identityLine.role ?? null,
+    ...(Array.isArray(identityLine.roles) ? { roles: identityLine.roles } : {}),
     // Fail-closed on pinned: === true means a missing/undefined key defaults
     // to false. This is Phase 107's .catch(() => false) discipline carried
     // onto this path — a stat error must NEVER paint an identity as pinned
@@ -2322,6 +2328,11 @@ export function createSshPollOrchestrator(
           (identityLine.role_cosmetics as RawCosmetics | null | undefined) ??
           null,
         role: identityLine.role ?? null,
+        ...(Array.isArray(identityLine.roles_cosmetics)
+          ? {
+              rolesCosmetics: identityLine.roles_cosmetics as Array<RawCosmetics | null>,
+            }
+          : {}),
       });
       const fetched = identityLineToPerIdentityFetched(identityLine, hostState);
       const cached = hostState.identityRecycleState.get(identityLine.identity);
@@ -3894,6 +3905,8 @@ export function createSshPollOrchestrator(
       identityCosmetics: RawCosmetics | null;
       roleCosmetics: RawCosmetics | null;
       role: string | null;
+      /** Multi-role only: each listed role's cosmetics, for the gate. */
+      rolesCosmetics?: Array<RawCosmetics | null>;
     } | null {
       const hostState = perHostState.get(hostIdStr);
       if (hostState === undefined) return null;

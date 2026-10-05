@@ -34,6 +34,7 @@ import { Tabs, TabsContent } from "@/components/tabs";
 import { updateIdentity } from "@/api/identities-api";
 import { applyIdentityChange } from "@/state/identities-store";
 import { roleDisplayName } from "@/lib/role-display-name";
+import { identityRoles } from "@/lib/identity-roles";
 import { toast } from "sonner";
 import { VoicePicker } from "./pickers/VoicePicker";
 import {
@@ -68,12 +69,15 @@ function TitleLineJumpToRole({
   className,
   jumpTargetLabel,
   onJump,
+  chevron = true,
 }: {
   identity: Identity;
   text: string;
   className?: string;
   jumpTargetLabel: string;
   onJump: () => void;
+  /** Trailing "›". Off for all but the last link of a multi-role list. */
+  chevron?: boolean;
 }): React.ReactElement {
   const REST_COLOR = "#c4b89a";
   const REST_DECO_COLOR = "rgba(196, 184, 154, 0.35)";
@@ -116,15 +120,17 @@ function TitleLineJumpToRole({
       }}
     >
       {text}
-      <span
-        style={{
-          marginLeft: 3,
-          opacity: hovered ? 1 : 0.7,
-          transition: "opacity 120ms",
-        }}
-      >
-        {"›"}
-      </span>
+      {chevron && (
+        <span
+          style={{
+            marginLeft: 3,
+            opacity: hovered ? 1 : 0.7,
+            transition: "opacity 120ms",
+          }}
+        >
+          {"›"}
+        </span>
+      )}
     </span>
   );
 }
@@ -142,7 +148,8 @@ export function IdentityModal({
   identity: Identity;
   hue: number;
   hostId: number;
-  onOpenRoleModal: (identity: Identity) => void;
+  /** Opens the Role modal for one of the identity's roles (by slug). */
+  onOpenRoleModal: (identity: Identity, roleName: string) => void;
 }): JSX.Element {
   const [activeTab, setActiveTab] = useState<string>("identity");
 
@@ -468,14 +475,21 @@ export function IdentityModal({
   // upload retired). The .no-dormancy sentinel mechanism still exists on
   // disk — agents touch/rm the file per user request.
 
-  const canJumpToRole = identity.role !== null;
+  // Multi-role: one link per role the identity holds, comma-separated.
   // Pretty-names shape (2026-09-30): roles carry `displayName` in their
   // frontmatter instead of `title`. Route through the shared helper so
   // the fallback title-cases the slug ("box-maintainer" → "Box Maintainer")
-  // consistently with every other surface that renders a role name.
-  const roleDisplay = identity.role
-    ? roleDisplayName(identity.role, identity.roleDefaults?.displayName)
-    : "";
+  // consistently with every other surface that renders a role name. Only the
+  // inherited-look role has its displayName on hand (roleDefaults); the
+  // others render title-cased slugs.
+  const roles = identityRoles(identity);
+  const roleLinks = roles.map((roleName) => ({
+    roleName,
+    label: roleDisplayName(
+      roleName,
+      roleName === identity.role ? identity.roleDefaults?.displayName : undefined,
+    ),
+  }));
 
   return (
     <Modal
@@ -523,18 +537,26 @@ export function IdentityModal({
           {/* Role line — clickable, prettified (uses role frontmatter
               title if present, else the raw slug). This is what opens
               RoleModal. */}
-          {canJumpToRole && (
-            <div className="min-w-0">
-              <TitleLineJumpToRole
-                identity={identity}
-                text={roleDisplay}
-                className="text-[12px] font-medium tracking-[0.04em]"
-                jumpTargetLabel={roleDisplay}
-                onJump={() => {
-                  onOpenChange(false);
-                  onOpenRoleModal(identity);
-                }}
-              />
+          {roleLinks.length > 0 && (
+            <div className="min-w-0" data-testid="identity-modal-role-links">
+              {roleLinks.map(({ roleName, label }, i) => (
+                <span key={roleName}>
+                  {i > 0 && (
+                    <span className="text-[12px] text-[#c4b89a]">, </span>
+                  )}
+                  <TitleLineJumpToRole
+                    identity={identity}
+                    text={label}
+                    className="text-[12px] font-medium tracking-[0.04em]"
+                    jumpTargetLabel={label}
+                    chevron={i === roleLinks.length - 1}
+                    onJump={() => {
+                      onOpenChange(false);
+                      onOpenRoleModal(identity, roleName);
+                    }}
+                  />
+                </span>
+              ))}
             </div>
           )}
           {/* Task line + inline pencil. Edit mode uses a full-width input

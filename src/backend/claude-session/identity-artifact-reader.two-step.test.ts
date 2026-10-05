@@ -73,6 +73,7 @@ import { execCommand } from "../ssh/tmux-helper.js";
 import { systemLogger } from "../utils/logger.js";
 import {
   extractRoleFromMarkdown,
+  extractRolesFromMarkdown,
   extractCosmeticsFromFrontmatter,
   resolveRoleForIdentity,
   getLocalRolesRoot,
@@ -89,13 +90,27 @@ describe("extractRoleFromMarkdown", () => {
     expect(extractRoleFromMarkdown(md)).toBe("box-maintainer");
   });
 
-  it("multi-role: flow and block lists resolve to the first (primary) role", () => {
+  it("multi-role: a role list yields null (no single role to inherit a look from)", () => {
     expect(
       extractRoleFromMarkdown("---\nrole: [box-maintainer, sky-uat]\n---\n"),
-    ).toBe("box-maintainer");
+    ).toBeNull();
     expect(
       extractRoleFromMarkdown("---\nrole:\n  - sky-uat\n  - box-maintainer\n---\n"),
-    ).toBe("sky-uat");
+    ).toBeNull();
+  });
+
+  it("extractRolesFromMarkdown: scalar, flow and block shapes all list every role", () => {
+    expect(extractRolesFromMarkdown("---\nrole: box-maintainer\n---\n")).toEqual([
+      "box-maintainer",
+    ]);
+    expect(
+      extractRolesFromMarkdown("---\nrole: [box-maintainer, sky-uat]\n---\n"),
+    ).toEqual(["box-maintainer", "sky-uat"]);
+    expect(
+      extractRolesFromMarkdown("---\nrole:\n  - sky-uat\n  - box-maintainer\n---\n"),
+    ).toEqual(["sky-uat", "box-maintainer"]);
+    expect(extractRolesFromMarkdown("---\ntitle: x\n---\n")).toEqual([]);
+    expect(extractRolesFromMarkdown("# no frontmatter")).toEqual([]);
   });
 
   it("test 2: returns null when frontmatter delimiters are missing", () => {

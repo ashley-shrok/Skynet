@@ -578,8 +578,9 @@ if (process.env.VITEST !== "true") {
         readRoleFileByName: readRoleFileByNameForGate,
         extractCosmeticsFromFrontmatter: extractCosmeticsForGate,
         extractRoleFromMarkdown: extractRoleForGate,
+        extractRolesFromMarkdown: extractRolesForGate,
       } = await import("./claude-session/identity-artifact-reader.js");
-      const { isIdentityVisibleToUser } = await import(
+      const { isIdentityVisibleToUser, resolveGateRoleSide } = await import(
         "./fleet-status/identity-visibility-gate.js"
       );
       const { getUsernameForUserId: getUsernameForUserIdForGate } = await import(
@@ -747,7 +748,7 @@ if (process.env.VITEST !== "true") {
           if (cached !== null) {
             return isIdentityVisibleToUser(
               cached.identityCosmetics,
-              cached.roleCosmetics,
+              cached.rolesCosmetics ?? cached.roleCosmetics,
               callerUsername,
             );
           }
@@ -822,8 +823,27 @@ if (process.env.VITEST !== "true") {
             }
             const identityCos = extractCosmeticsForGate(markdown);
             const role = extractRoleForGate(markdown);
-            let roleCos: ReturnType<typeof extractCosmeticsForGate> | null = null;
-            if (role !== null) {
+            let roleCos:
+              | ReturnType<typeof extractCosmeticsForGate>
+              | null
+              | Array<ReturnType<typeof extractCosmeticsForGate> | null> = null;
+            // Multi-role: `role` is null (no single role); every listed
+            // role's `users:` gate must pass. Unreadable role file → no gate
+            // on that role's side, same as the single-role branch below.
+            const roles = extractRolesForGate(markdown);
+            if (roles.length > 1) {
+              roleCos = await resolveGateRoleSide(roles, async (r) => {
+                try {
+                  const { markdown: roleMd } = await readRoleFileByNameForGate(
+                    conn,
+                    r,
+                  );
+                  return roleMd ? extractCosmeticsForGate(roleMd) : null;
+                } catch {
+                  return null;
+                }
+              });
+            } else if (role !== null) {
               try {
                 const { markdown: roleMd } = await readRoleFileByNameForGate(
                   conn,

@@ -17,7 +17,10 @@
  *   - Pitfall 7: case-sensitive comparison (no toLowerCase/toUpperCase)
  */
 import { describe, it, expect } from "vitest";
-import { isIdentityVisibleToUser } from "./identity-visibility-gate.js";
+import {
+  isIdentityVisibleToUser,
+  resolveGateRoleSide,
+} from "./identity-visibility-gate.js";
 
 describe("isIdentityVisibleToUser — Phase 129 per-user visibility gate", () => {
   it("Test 1: null caller username disables the gate entirely (returns true)", () => {
@@ -126,5 +129,32 @@ describe("isIdentityVisibleToUser — Phase 129 per-user visibility gate", () =>
     expect(
       isIdentityVisibleToUser({ users: ["user"] }, null, "zoe"),
     ).toBe(false);
+  });
+});
+
+describe("isIdentityVisibleToUser — multi-role (role side is a list)", () => {
+  it("every listed role's users gate must pass", () => {
+    const roles = [{ users: ["user", "zoe"] }, { users: ["user"] }];
+    expect(isIdentityVisibleToUser(null, roles, "user")).toBe(true);
+    expect(isIdentityVisibleToUser(null, roles, "zoe")).toBe(false);
+  });
+
+  it("ungated roles (null / no users) fall open; identity side still applies", () => {
+    expect(isIdentityVisibleToUser(null, [null, {}], "zoe")).toBe(true);
+    expect(
+      isIdentityVisibleToUser({ users: ["user"] }, [null, {}], "zoe"),
+    ).toBe(false);
+  });
+});
+
+describe("resolveGateRoleSide", () => {
+  it("one role → that role's cosmetics; several → index-aligned list; none → null", async () => {
+    const read = async (r: string) => ({ users: [r] });
+    expect(await resolveGateRoleSide([], read)).toBeNull();
+    expect(await resolveGateRoleSide(["a"], read)).toEqual({ users: ["a"] });
+    expect(await resolveGateRoleSide(["a", "b"], read)).toEqual([
+      { users: ["a"] },
+      { users: ["b"] },
+    ]);
   });
 });

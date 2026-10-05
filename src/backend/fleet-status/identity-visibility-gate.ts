@@ -45,20 +45,46 @@
 import type { RawCosmetics } from "./identity-appearance.js";
 
 /**
+ * The role side of the gate for an identity holding `roles`: the one role's
+ * cosmetics (null when it has none), or every role's cosmetics when there are
+ * several — the shape `isIdentityVisibleToUser` takes either way. `readRole`
+ * is the caller's (memoized) role-cosmetics reader.
+ */
+export async function resolveGateRoleSide(
+  roles: readonly string[],
+  readRole: (role: string) => Promise<RawCosmetics | null>,
+): Promise<RawCosmetics | null | Array<RawCosmetics | null>> {
+  if (roles.length === 0) return null;
+  if (roles.length === 1) return readRole(roles[0]);
+  return Promise.all(roles.map(readRole));
+}
+
+/**
  * Returns true iff the identity described by (identityCosmetics, roleCosmetics)
  * is visible to `callerUsername`. See file-header docblock for the full
  * intersection-semantics + fallback + null-caller-bypass contract.
  */
 export function isIdentityVisibleToUser(
   identityCosmetics: RawCosmetics | null,
-  roleCosmetics: RawCosmetics | null,
+  /** One role's cosmetics, or — for a multi-role identity — every listed
+   *  role's cosmetics. Each role side must pass (intersection, same as D-2). */
+  roleCosmetics: RawCosmetics | null | ReadonlyArray<RawCosmetics | null>,
   callerUsername: string | null,
 ): boolean {
   // Null caller → gate disabled (internal-server / test / admin bypass).
   if (callerUsername === null) return true;
 
+  if (Array.isArray(roleCosmetics)) {
+    return (
+      isIdentityVisibleToUser(identityCosmetics, null, callerUsername) &&
+      roleCosmetics.every((rc) =>
+        isIdentityVisibleToUser(null, rc, callerUsername),
+      )
+    );
+  }
+
   const identityUsers = identityCosmetics?.users;
-  const roleUsers = roleCosmetics?.users;
+  const roleUsers = (roleCosmetics as RawCosmetics | null)?.users;
 
   // D-3 fallback: absent / non-array / empty list = "no gate on this side"
   // (falls open). Otherwise, callerUsername must be in the list.

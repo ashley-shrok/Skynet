@@ -131,6 +131,7 @@ vi.mock("../../utils/host-user-counter.js", () => ({
 
 vi.mock("../../fleet-status/identity-visibility-gate.js", () => ({
   isIdentityVisibleToUser: () => true,
+  resolveGateRoleSide: async () => null,
 }));
 
 // Phase 66 Plan 04: schema mock narrowed to 5 surviving columns.
@@ -243,6 +244,10 @@ vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
     "image/svg+xml": "svg",
   },
   IDENTITY_KEY_RE: /^[a-z0-9_-]{1,64}$/,
+  extractRolesFromMarkdown: (md: string): string[] => {
+    const m = md.match(/^role:\s*([a-z0-9-]+)\s*$/m);
+    return m ? [m[1]] : [];
+  },
   extractRoleFromMarkdown: (markdown: string): string | null => {
     const match = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---/);
     if (!match) return null;

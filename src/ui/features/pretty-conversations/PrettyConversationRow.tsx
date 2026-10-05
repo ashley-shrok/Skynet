@@ -136,7 +136,7 @@ import { cn } from "@/lib/utils";
 import { armOutboundDrag, mintDragId } from "@/shell/cross-window-drag";
 import type { ConversationRow as ConversationRowShape } from "@/state/conversation-store";
 import { specForTab, encodeWorkspaceSpec } from "@/lib/tab-url";
-import { roleDisplayName } from "@/lib/role-display-name";
+import { identityRolesLabel } from "@/lib/identity-roles";
 
 // shape-sidebar-header-affordances: row context menu + long-press machinery
 // retired; the row's five actions now live in a RowKebabMenu rendered inside
@@ -659,7 +659,7 @@ export function PrettyConversationRow({
               like 'Aqua (Secretary)'". Role carries the "who is this" signal
               a glance needs; the host basically never matters.
               Resolution order:
-                1. identity's role → roleDisplayName(role, roleDefaults.displayName)
+                1. identity's roles → identityRolesLabel(identity)
                 2. row.host?.name — fallback when identity has no role, or for
                    non-identity rows (unresolved sessions)
                 3. absent — no parens at all
@@ -687,7 +687,7 @@ export function PrettyConversationRow({
               <span className="pv-label">{identity.task}</span>
               <span className="pv-ai-title">
                 <strong>
-                  {roleDisplayName(identity.role ?? "", identity.roleDefaults?.displayName)}
+                  {identityRolesLabel(identity)}
                 </strong>
               </span>
             </>
@@ -700,12 +700,8 @@ export function PrettyConversationRow({
                   // name over host.name in the parens; host.name is the
                   // fallback for identities without a role, or for rows with
                   // no identity resolved at all.
-                  const suffix = identity?.role
-                    ? roleDisplayName(
-                        identity.role,
-                        identity.roleDefaults?.displayName,
-                      )
-                    : row.host?.name;
+                  const rolesLabel = identity ? identityRolesLabel(identity) : "";
+                  const suffix = rolesLabel || row.host?.name;
                   return suffix ? (
                     <span className="pv-hostname-suffix"> ({suffix})</span>
                   ) : null;

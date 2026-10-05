@@ -602,6 +602,7 @@ export function mergeIdentityAppearance(
       | "task"
       | "coordinator"
       | "role"
+      | "roles"
       | "roleDefaults"
       | "avatarUrl"
       | "pinned"
@@ -658,6 +659,7 @@ export function mergeIdentityAppearance(
       colorHue: typeof appearance.colorHue === "number" ? appearance.colorHue : null,
       voice: typeof appearance.voice === "string" ? appearance.voice : null,
       role: typeof appearance.role === "string" ? appearance.role : null,
+      ...(Array.isArray(appearance.roles) ? { roles: appearance.roles } : {}),
       avatarMime: "",
       avatarUrl:
         typeof appearance.avatarUrl === "string"
@@ -741,6 +743,12 @@ export function mergeIdentityAppearance(
   if (appearance.role !== undefined && appearance.role !== null) {
     if (next.role !== appearance.role) {
       next.role = appearance.role;
+      changed = true;
+    }
+  }
+  if (Array.isArray(appearance.roles)) {
+    if (JSON.stringify(next.roles ?? null) !== JSON.stringify(appearance.roles)) {
+      next.roles = appearance.roles;
       changed = true;
     }
   }
@@ -939,6 +947,7 @@ export function readAppearanceCache(): Identity[] {
           colorHue: item.colorHue,
           voice: item.voice,
           role: item.role,
+          ...(Array.isArray(item.roles) ? { roles: item.roles } : {}),
           avatarMime: item.avatarMime,
           avatarUrl: item.avatarUrl,
           avatarEtag: item.avatarEtag,
@@ -975,6 +984,7 @@ export function writeAppearanceCache(list: Identity[]): void {
       colorHue: i.colorHue,
       voice: i.voice,
       role: i.role,
+      roles: i.roles,
       avatarMime: i.avatarMime,
       avatarUrl: i.avatarUrl,
       avatarEtag: i.avatarEtag,

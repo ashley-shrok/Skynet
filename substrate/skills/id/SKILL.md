@@ -7,7 +7,7 @@ distributed: true
 <!-- Phase 143 (un-archiving shape 2): archived-apps modal + archived-roles collapsed section + kebab-on-row for archive/un-archive across three surfaces + un-archive sentinel-drop pattern for agents -->
 <!-- 2026-10-01 (un-archiving matrix-cred-location correction): identity-side agent sentinel-drop is temporarily restricted — the supervisor's whoami probe refuses sentinels for not-yet-reactivated accounts; agents direct the user at the frontend path for identity un-archive. Shape 4 (shape-agent-side-identity-unarchive-correction) tracks the full restoration. -->
 <!-- 2026-10-02 (tissue-identity lifecycle + schedule-type disambiguation): new "Lifecycle — identities are tissues" framing paragraph in the top matter, and a new "When the user asks you to 'schedule' something — ASK first" subsection at the top of § Scheduled wake-ups covering the wake-up-vs-scheduled-agent lifetime distinction. -->
-<!-- 2026-10-05 (multi-role identities): § Loading an existing identity now documents the two `role:` shapes (scalar / list, primary first), that every listed role is loaded equally, and what "primary" means; role-file edits go to the role whose domain they belong to; new-agent modal "Also takes on" chips; spawn-request `roles` accepts several. -->
+<!-- 2026-10-05 (multi-role identities): § Loading an existing identity now documents the two `role:` shapes (scalar / list), that every listed role is loaded equally (no primary), and how the app shows a multi-role identity (all roles listed, no inherited look, visibility per role); role-file edits go to the role whose domain they belong to; new-agent modal role multi-select; spawn-request `roles` accepts several. -->
 
 # Identity Skill
 
@@ -140,17 +140,22 @@ frontmatter** — the `role:` key tells you which role(s) this identity
 holds. It takes one of two shapes:
 
 - **One role:** a plain value — `role: box-maintainer`.
-- **Several roles:** a list, primary first — `role: [box-maintainer, sky-uat]`
-  (a block list, `role:` followed by `  - box-maintainer` lines, means the
-  same thing).
+- **Several roles:** a list — `role: [box-maintainer, sky-uat]` (a block
+  list, `role:` followed by `  - box-maintainer` lines, means the same
+  thing).
 
-You hold **every** listed role equally — load each one's role file and
-runbooks, follow each one's directives. The **first** entry is the
-*primary* role, and it only matters for app plumbing: the app takes the
-agent's default look (avatar, color, title, voice) from it, shows its
-role file on the identity's Role tab, and builds the agent's handle from
-it. If two of your roles' directives ever conflict, surface it to the user
-rather than silently picking one.
+You hold **every** listed role equally — there is no primary. Load each
+one's role file and runbooks, follow each one's directives. If two of your
+roles' directives ever conflict, surface it to the user rather than
+silently picking one.
+
+How the app treats a multi-role identity: it lists every role (the
+identity modal's header shows them as comma-separated links, each opening
+that role), and it inherits **no** role's look — the avatar, color, title
+and voice a single-role agent picks up from its role are left at the
+app's defaults unless the identity file sets its own. That's deliberate:
+borrowing one role's face would misstate what you are. Visibility (a
+role's `users:` list) applies for every listed role.
 
 Note the frontmatter's `task:` field — the record of what you are working
 on. Its content is shown to the user in TWO places in the app: the top-middle
@@ -244,7 +249,7 @@ bloat lands if left unmanaged. **Every edit to that file requires user
 approval.**
 
 With several roles, an edit goes in the file of the role whose domain it
-belongs to — not by default in the primary's. Every identity holding that
+belongs to. Every identity holding that
 role inherits the change, so if it's unclear which role a learning belongs
 to, ask as part of the proposal.
 
@@ -570,9 +575,9 @@ below the header, see § The sidebar search input further down):
 
 - **✏️ Pencil-on-paper — new conversation (single agent).** Opens a
   role picker; the new agent is auto-named unless the user ticks "name
-  it myself." The dropdown picks the (primary) role — at least one is
-  required — and an optional "Also takes on" row of chips adds more
-  roles, which land in the identity file as `role: [primary, ...]`.A new conversation opens automatically.
+  it myself." The role picker is a multi-select — at least one role is
+  required; picking several writes them to the identity file as
+  `role: [a, b, ...]` in the order they were picked.A new conversation opens automatically.
   *Agent-side:* see § Spawning another agent — the same mechanism, but
   the agent-side lets you seed the newborn with an initial prompt, which
   the button cannot. User-gated.
@@ -1070,8 +1075,8 @@ the file up within ~10 seconds, claims it by renaming `.json` →
 Extra fields are rejected as malformed.
 
 - `roles` (**required**) — array of one or more role slugs the fresh agent
-  will hold. The first is its primary role (see § Loading an existing
-  identity); the newborn's frontmatter records them all.
+  will hold; the newborn's frontmatter records them all (see § Loading an
+  existing identity for how several roles behave).
 - `task` (**required**, ≤500 chars) — short task-pill for the
   conversation-row line (see § Loading an existing identity for how
   `task:` is displayed).

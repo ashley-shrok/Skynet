@@ -374,6 +374,8 @@ export const IdentityAppearanceSchema = z.object({
   task: z.string().nullable(),
   coordinator: z.boolean(),
   role: z.string().nullable(),
+  // Multi-role: every role the identity holds. Optional for older publishers.
+  roles: z.array(z.string()).optional(),
   // Three-valued semantics: null → no role; {} → role with no cosmetics; {...} → role values.
   roleDefaults: z.record(z.string(), z.unknown()).nullable(),
   avatarUrl: z.string(),

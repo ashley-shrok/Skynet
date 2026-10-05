@@ -101,13 +101,17 @@ import { extractText } from "../../claude-session/session-file-parser.js";
 import {
   extractCosmeticsFromFrontmatter,
   extractRoleFromMarkdown,
+  extractRolesFromMarkdown,
   listIdentityKeysOnHost,
   readIdentityFile,
   readRoleFileByName,
 } from "../../claude-session/identity-artifact-reader.js";
 import { listArchivedIdentityKeysOnHost } from "../../claude-session/list-archived-identity-keys.js";
 import { snippetForHit } from "../../claude-session/session-search-snippet.js";
-import { isIdentityVisibleToUser } from "../../fleet-status/identity-visibility-gate.js";
+import {
+  isIdentityVisibleToUser,
+  resolveGateRoleSide,
+} from "../../fleet-status/identity-visibility-gate.js";
 import type { RawCosmetics } from "../../fleet-status/identity-appearance.js";
 import { getUsernameForUserId } from "../../utils/host-user-counter.js";
 
@@ -532,9 +536,15 @@ async function gateHostRows(
         const role = extractRoleFromMarkdown(markdown);
         const roleCos =
           role !== null ? await readRoleCosmeticsMemoized(role) : null;
+        // Multi-role: `role` is null (no inherited look); gate on every role.
+        const roles = extractRolesFromMarkdown(markdown);
+        const gateRoleCos =
+          roles.length > 1
+            ? await resolveGateRoleSide(roles, readRoleCosmeticsMemoized)
+            : roleCos;
         gateMap.set(
           key,
-          isIdentityVisibleToUser(identityCos, roleCos, callerUsername),
+          isIdentityVisibleToUser(identityCos, gateRoleCos, callerUsername),
         );
         appearanceMap.set(key, {
           displayName:

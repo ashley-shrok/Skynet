@@ -14,6 +14,7 @@ import {
   readIdentityFile,
   readRoleFileByName,
   extractRoleFromMarkdown,
+  extractRolesFromMarkdown,
   extractCosmeticsFromFrontmatter,
 } from "../../claude-session/identity-artifact-reader.js";
 // Phase 129 Plan 129-03: per-user visibility gate on GET /sessions/list —
@@ -25,7 +26,10 @@ import {
 // JWT-authenticated userId into the Skynet username string the gate
 // compares against on-disk `users:` frontmatter lists (case-sensitive per
 // Pitfall 7 lock; see 129-01 SUMMARY for the design rationale).
-import { isIdentityVisibleToUser } from "../../fleet-status/identity-visibility-gate.js";
+import {
+  isIdentityVisibleToUser,
+  resolveGateRoleSide,
+} from "../../fleet-status/identity-visibility-gate.js";
 import { getUsernameForUserId } from "../../utils/host-user-counter.js";
 // Orchestrator holder — used to short-circuit the per-row readIdentityFile
 // SSH read when the fleet-status sweep has already populated cosmetics for
@@ -501,7 +505,7 @@ router.get("/list", authenticateJWT, async (req: Request, res: Response) => {
                       row.role = cached.role;
                       const visible = isIdentityVisibleToUser(
                         cached.identityCosmetics,
-                        cached.roleCosmetics,
+                        cached.rolesCosmetics ?? cached.roleCosmetics,
                         callerUsername,
                       );
                       visibleMap.set(row.sessionName, visible);
@@ -543,10 +547,18 @@ router.get("/list", authenticateJWT, async (req: Request, res: Response) => {
                     // open on the identity side (D-3 fallback).
                     const identityCos =
                       extractCosmeticsFromFrontmatter(markdown);
+                    // Multi-role: `role` is null (no single role), so gate
+                    // on every listed role instead.
+                    const roles = extractRolesFromMarkdown(markdown);
                     const roleCos =
-                      role !== null
-                        ? await readRoleCosmeticsMemoized(role)
-                        : null;
+                      roles.length > 1
+                        ? await resolveGateRoleSide(
+                            roles,
+                            readRoleCosmeticsMemoized,
+                          )
+                        : role !== null
+                          ? await readRoleCosmeticsMemoized(role)
+                          : null;
                     const visible = isIdentityVisibleToUser(
                       identityCos,
                       roleCos,

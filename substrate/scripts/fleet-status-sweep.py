@@ -969,26 +969,9 @@ def _read_frontmatter_cosmetics(path, allowed_keys):
             continue
 
         # --- role: (always extracted; validated before any path use) ---
-        # Multi-role identities list their roles — flow (`role: [a, b]`) or
-        # block (`role:` then `  - a` lines). The FIRST entry is the primary
-        # role, and the primary is what drives role cosmetics here.
-        if role is None and re.match(r"^role:\s*(#.*)?$", line.rstrip("\n")):
-            for look_idx in range(line_idx + 1, len(body_lines)):
-                m_item = re.match(r"^\s+-\s*(.+?)\s*(#.*)?$", body_lines[look_idx])
-                if not m_item:
-                    break
-                skip_until_idx = look_idx
-                if role is None:
-                    raw_role = m_item.group(1).strip().strip('"').strip("'").strip()
-                    if ROLE_NAME_OK.match(raw_role):
-                        role = raw_role
-            continue
         m_role = re.match(r"^role:\s*(.+?)\s*(#.*)?$", line.rstrip("\n"))
         if m_role and role is None:
-            raw_role = m_role.group(1).strip()
-            if raw_role.startswith("[") and raw_role.endswith("]"):
-                raw_role = raw_role[1:-1].split(",")[0].strip()
-            raw_role = raw_role.strip('"').strip("'").strip()
+            raw_role = m_role.group(1).strip().strip('"').strip("'").strip()
             if ROLE_NAME_OK.match(raw_role):
                 role = raw_role
             continue
@@ -1146,6 +1129,52 @@ def _read_frontmatter_cosmetics(path, allowed_keys):
     return cosmetics, role
 
 
+def _read_identity_roles(path):
+    """Return every role named in an identity file's `role:` frontmatter.
+
+    Multi-role identities list their roles — flow (`role: [a, b]`) or block
+    (`role:` then `  - a` lines); a plain scalar yields a one-element list.
+    Entries failing ROLE_NAME_OK are dropped (they're later used in
+    os.path.join). Returns [] on any read error or when there's no role.
+
+    `_read_frontmatter_cosmetics` deliberately keeps its scalar-only `role`:
+    role cosmetics are inherited only by single-role identities.
+    """
+    try:
+        with open(path, encoding="utf-8-sig") as fh:
+            raw = fh.read(FRONTMATTER_HEAD_BYTES)
+    except (OSError, UnicodeDecodeError):
+        return []
+    lines = raw.split("\n")
+    fences = [i for i, ln in enumerate(lines) if ln.strip() == "---"]
+    if len(fences) < 2:
+        return []
+    body = lines[fences[0] + 1: fences[1]]
+    values = []
+    for idx, line in enumerate(body):
+        m = re.match(r"^role:\s*(.*?)\s*(#.*)?$", line.rstrip("\n"))
+        if not m:
+            continue
+        value = m.group(1)
+        if value == "":
+            for item in body[idx + 1:]:
+                m_item = re.match(r"^\s+-\s*(.+?)\s*(#.*)?$", item)
+                if not m_item:
+                    break
+                values.append(m_item.group(1))
+        elif value.startswith("[") and value.endswith("]"):
+            values.extend(value[1:-1].split(","))
+        else:
+            values.append(value)
+        break
+    roles = []
+    for v in values:
+        v = v.strip().strip('"').strip("'").strip()
+        if ROLE_NAME_OK.match(v) and v not in roles:
+            roles.append(v)
+    return roles
+
+
 def _read_role_cosmetics(role, home, role_memo):
     """Return role cosmetics dict or None for `role`, memoizing the result.
 
@@ -1263,6 +1292,8 @@ def _build_identity_line(name, home, sentinels, jsonl_path, jsonl_tail_cache, ro
     identity_cosmetics = None
     role = None
     role_cosmetics = None
+    roles = []
+    roles_cosmetics = None
     try:
         identity_path = os.path.join(home, "fleet", "identities", name, name + ".md")
         identity_cosmetics, role = _read_frontmatter_cosmetics(
@@ -1284,12 +1315,22 @@ def _build_identity_line(name, home, sentinels, jsonl_path, jsonl_tail_cache, ro
         if identity_cosmetics is None:
             _log("identity_cosmetics_unreadable", identity=name[:40])
         role_cosmetics = _read_role_cosmetics(role, home, role_cosmetics_memo)
+        # Multi-role: `role`/`role_cosmetics` stay None (no inherited look),
+        # but every role's cosmetics ride along for the visibility gate, which
+        # must pass each role's `users:` list.
+        roles = _read_identity_roles(identity_path)
+        if len(roles) > 1:
+            roles_cosmetics = [
+                _read_role_cosmetics(r, home, role_cosmetics_memo) for r in roles
+            ]
     except OSError:
         identity_cosmetics = None
         role = None
         role_cosmetics = None
+        roles = []
+        roles_cosmetics = None
 
-    return {
+    line = {
         "line_kind": "identity",
         "schema_version": SCHEMA_VERSION,
         "identity": name,
@@ -1301,6 +1342,7 @@ def _build_identity_line(name, home, sentinels, jsonl_path, jsonl_tail_cache, ro
         "role": role,
         "identity_cosmetics": identity_cosmetics,
         "role_cosmetics": role_cosmetics,
+        "roles": roles,
         "pinned": sentinels["pinned"],
         # Phase 115 Plan 115-05 archived axis retired in the Phase 122 shape
         # follow-up. Field kept in the emit so peers running older sweep
@@ -1308,6 +1350,9 @@ def _build_identity_line(name, home, sentinels, jsonl_path, jsonl_tail_cache, ro
         # tree is no longer walked).
         "archived": sentinels.get("archived", False),
     }
+    if roles_cosmetics is not None:
+        line["roles_cosmetics"] = roles_cosmetics
+    return line
 
 
 def _build_pid_line(pid, identity, home, identity_jsonl_paths, jsonl_tail_cache):

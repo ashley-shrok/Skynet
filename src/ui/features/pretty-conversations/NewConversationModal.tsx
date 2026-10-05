@@ -46,6 +46,7 @@ import { useIdentities } from "@/state/identities-store";
 import { useViewingUserMxid } from "@/state/viewing-user-store";
 import { MXID_REGEX } from "@/features/pretty-view/relay-mxid-resolve";
 import { hueFromSessionName } from "@/features/terminal/session-hue";
+import { identityRolesLabel } from "@/lib/identity-roles";
 import type { BasicUser } from "@/api/user-management-api";
 
 // ─── Hint text per gate reason (shape §Shape) ────────────────────────────────
@@ -168,7 +169,7 @@ export function NewConversationModal({
       avatarUrl: id.avatarUrl ?? null,
       role: "agent" as const,
       identityKey: id.identityKey,
-      subtitle: id.title ?? id.role ?? undefined,
+      subtitle: id.title ?? (identityRolesLabel(id) || undefined),
     }));
   }, [identities, serverName]);
 

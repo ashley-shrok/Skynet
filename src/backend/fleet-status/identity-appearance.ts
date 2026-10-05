@@ -90,7 +90,10 @@ export type ResolvedIdentityAppearance = {
    */
   project: string | null;
   coordinator: boolean;
+  /** The role whose look is inherited — null for a multi-role identity. */
   role: string | null;
+  /** Every role the identity holds, in frontmatter order. */
+  roles: string[];
   /**
    * Three-valued semantics:
    *   - `null`       → no role resolvable (identity has no `role:` frontmatter,
@@ -162,6 +165,8 @@ export function resolveIdentityAppearance(args: {
   cosmetics: RawCosmetics | null;
   roleCosmetics: RawCosmetics | null;
   role: string | null;
+  /** Every listed role. Omitted → `[role]` (or `[]`), the single-role shape. */
+  roles?: string[];
   pinned: boolean;
 }): ResolvedIdentityAppearance {
   const { identityKey, hostId, role, roleCosmetics, pinned } = args;
@@ -253,6 +258,7 @@ export function resolveIdentityAppearance(args: {
     project,
     coordinator,
     role,
+    roles: args.roles ?? (role !== null ? [role] : []),
     roleDefaults,
     avatarUrl,
     pinned,
