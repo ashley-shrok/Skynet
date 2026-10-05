@@ -2,7 +2,7 @@
 
 **Audit date:** 2026-09-21
 **Auditor:** Executor agent (plan 127-04 task 3)
-**Host:** `ubuntu@ip-172-31-243-143` (this host — the Skynet/Vector box)
+**Host:** `ubuntu@ip-172-31-0-10` (this host — the Skynet/Vector box)
 
 ---
 

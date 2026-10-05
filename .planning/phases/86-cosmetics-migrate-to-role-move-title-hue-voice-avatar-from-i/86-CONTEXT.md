@@ -102,13 +102,13 @@ Applies uniformly to all four fields. All four fields are structurally symmetric
 
 ### Migration is OUT of scope (LOCKED — user 2026-09-07)
 
-user 2026-09-07 verbatim: *"Migration isn't part of the build. It's something that whoever deploys on this instance, and Stacy for her instance, would just need to do manually. and then there's no already-overridden problem anyway."*
+user 2026-09-07 verbatim: *"Migration isn't part of the build. It's something that whoever deploys on this instance, and Morgan for her instance, would just need to do manually. and then there's no already-overridden problem anyway."*
 
 Consequences for this phase:
 - No auto-lift-first-identity's-values-to-role-level code.
 - No auto-wipe-redundant-identity-frontmatter code.
 - No "detect and warn" prompts in the UI about redundant overrides.
-- The build ships the MECHANISM (role cosmetics with identity override). Whoever deploys this on t1000 (me, tabitha, as part of the campaign's eventual ship gate) or T800 (Stacy, on her instance) does the data motion by hand: for each existing role, pick appropriate cosmetics, write them to the role file's frontmatter, and wipe the redundant identity frontmatter fields as part of that motion. This turns every existing identity into "explicitly overriding nothing" (empty cosmetic frontmatter → inherit from role) or "explicitly overriding X" (a value the migrator chose to keep as an intentional divergence).
+- The build ships the MECHANISM (role cosmetics with identity override). Whoever deploys this on host-b (me, tabitha, as part of the campaign's eventual ship gate) or host-c (Morgan, on her instance) does the data motion by hand: for each existing role, pick appropriate cosmetics, write them to the role file's frontmatter, and wipe the redundant identity frontmatter fields as part of that motion. This turns every existing identity into "explicitly overriding nothing" (empty cosmetic frontmatter → inherit from role) or "explicitly overriding X" (a value the migrator chose to keep as an intentional divergence).
 
 ### Empty-role-cosmetics is not a scenario (LOCKED — user 2026-09-07)
 
@@ -232,7 +232,7 @@ No external ADRs, specs, or PRDs cited by ROADMAP.md for this phase.
 - Post-creation role cosmetic EDIT via UI (user 2026-09-07 verbatim: *"I would leave this alone because I actually plan on breaking out the role level stuff into its own modal later, and that would be a good opportunity to add it."*). For Phase 86, roles are cosmetically authored ONCE at creation via CreateRoleDialog; subsequent changes require hand-editing the role file on disk. Whoever picks up the role-level modal bounty later adds a role-cosmetic-edit surface then.
 
 **Deferred to whoever deploys (per user 2026-09-07):**
-- Migration of existing identity cosmetics to role-level defaults. Manual work per instance: pick appropriate cosmetics, write to role file frontmatter, wipe redundant identity frontmatter fields. Applies to t1000 (tabitha handles at eventual campaign ship gate) and T800 (Stacy handles on her instance).
+- Migration of existing identity cosmetics to role-level defaults. Manual work per instance: pick appropriate cosmetics, write to role file frontmatter, wipe redundant identity frontmatter fields. Applies to host-b (tabitha handles at eventual campaign ship gate) and host-c (Morgan handles on her instance).
 
 **Deferred to later bounties in the campaign:**
 - The rest of `create-agent-modal-ux-pass` (Path field admin-only, identity-mode checkbox admin-only + label inverted, paired header blurb — shape already written at `.planning/shapes/shape-create-agent-modal-ux-pass.md`).

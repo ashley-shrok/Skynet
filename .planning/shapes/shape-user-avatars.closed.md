@@ -211,7 +211,7 @@ rather than re-eliciting the same discussion. The shape file is the
 agreement; the phase discussion should build on it, not restart it.
 
 The identity currently working this is Tina (box-maintainer role for
-t1000, the EC2 that runs the Skynet instance being modified).
+host-b, the EC2 that runs the Skynet instance being modified).
 
 Downstream: a separate future frontend build consumes this — it is the
 piece that actually puts user avatars on screen and, later, adds the

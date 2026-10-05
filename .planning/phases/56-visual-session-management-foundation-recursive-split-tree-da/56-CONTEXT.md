@@ -85,5 +85,5 @@ The FIRST of three phases delivering a drag-drop session-management model on the
 ## Reference material
 
 - Shape file: `.planning/shapes/shape-visual-session-management.md` — the arc-wide agreement.
-- Prototype: `~/.claude/roles/box-maintainer/bounties/bring-back-split-view/prototype.html` — served on `100.99.149.8:8899/prototype.html` during design. Ports directly for tree algorithm; drop-preview polish is Phase 57.
+- Prototype: `~/.claude/roles/box-maintainer/bounties/bring-back-split-view/prototype.html` — served on `100.64.0.13:8899/prototype.html` during design. Ports directly for tree algorithm; drop-preview polish is Phase 57.
 - Parked bounty: `~/.claude/roles/box-maintainer/bounties/bring-back-split-view/bounty.json`.

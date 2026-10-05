@@ -86,7 +86,7 @@ wants the button to send that instead so she uses it more often.
 The compose surround already has a rich palette of tokens for cool-black
 gradients, warm-off-white text, and glass-treatment buttons. The tab
 inherits from those tokens — no new palette needed. A tasting was run at
-`http://100.99.149.8:8899/tasting.html` on the day the shape was opened;
+`http://100.64.0.13:8899/tasting.html` on the day the shape was opened;
 variant 1 (the pebble notch) was chosen.
 
 ## What would make it wrong
@@ -138,7 +138,7 @@ phase's discuss / plan / wave sequencing would be ceremony for the size.
 **Tasting artifact** — the static prototype used during shape discussion
 lives at
 `~/.claude/roles/box-maintainer/bounties/composebox-buttons-and-queue-tab-redesign/tasting/tasting.html`
-and is served on `http://100.99.149.8:8899/tasting.html` for the duration
+and is served on `http://100.64.0.13:8899/tasting.html` for the duration
 of the session. Variant 1 (pebble notch) is the chosen visual; tint at
 ~4% border, fill matches compose surround, plus glyph is 1.5px hairline.
 

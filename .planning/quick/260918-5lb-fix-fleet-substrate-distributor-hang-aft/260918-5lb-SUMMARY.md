@@ -139,7 +139,7 @@ Fleet test discipline honored: no full-suite `npx vitest run` invocation. That's
 
 ## User Setup Required
 
-None — pure code-only change inside the Skynet repo. No new env vars, no new dashboard configuration, no container-side migration. The fix activates whenever `IDENTITIES_LOCAL_HOST_IDS` already includes the local Skynet host's numeric id (which it does per the Phase 116 deploy). On the next container recreate, `executeSweeForHost` will observe `isLocalHostId(6) === true` (on t1000) and route through the local-FS branch instead of hanging on SSH-to-self.
+None — pure code-only change inside the Skynet repo. No new env vars, no new dashboard configuration, no container-side migration. The fix activates whenever `IDENTITIES_LOCAL_HOST_IDS` already includes the local Skynet host's numeric id (which it does per the Phase 116 deploy). On the next container recreate, `executeSweeForHost` will observe `isLocalHostId(6) === true` (on host-b) and route through the local-FS branch instead of hanging on SSH-to-self.
 
 ## Next Phase Readiness
 

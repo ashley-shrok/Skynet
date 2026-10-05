@@ -17,7 +17,7 @@ accumulated action buttons (New agent pencil, `+ New role`, and now the new
 Edit-global-files entry), so collapse everything except the Filter button under
 a single dropdown menu to keep the header clean. Config file lives in the Skynet
 docker volume (portable across deploys — user's Skynet gets one file listed,
-Stacy's ceo-skynet gets a different set); edited via SSH for MVP (self-hosted
+Morgan's ceo-skynet gets a different set); edited via SSH for MVP (self-hosted
 UI-edit of the config file itself is deferred).
 
 **In-scope:**
@@ -32,7 +32,7 @@ UI-edit of the config file itself is deferred).
   cookie auth.
 - `GlobalFilesModal` React component (host picker → per-file tabs → textarea +
   Save, sized like existing modals, `--color-pv-*` tokens).
-- Bootstrap `global-files.json` for skynet-ec2 pre-populated with
+- Bootstrap `global-files.json` for primary-host pre-populated with
   `~/.claude/CLAUDE.md` for each unix fleet host.
 
 **Out-of-scope (deferred):**
@@ -41,7 +41,7 @@ UI-edit of the config file itself is deferred).
   "anyone could edit" decision 2026-08-04).
 - Any file editing for a Windows host that doesn't have `~/.claude/CLAUDE.md`
   (Windows hosts omitted from bootstrap, not left in with an error state).
-- Multi-tenancy support in the config (skynet-ec2 config vs ceo-skynet config
+- Multi-tenancy support in the config (primary-host config vs ceo-skynet config
   are separate files owned by their respective operators, no shared schema).
 
 </domain>
@@ -85,7 +85,7 @@ UI-edit of the config file itself is deferred).
 - **`label`** is optional; defaults to `basename(path)` on the frontend.
 - **Missing file OR missing host key** = "no files configured for this host"
   → modal shows empty state. Never fabricate a file that isn't in the config.
-- **Bootstrap:** for MVP, the config is edited via SSH into skynet-ec2
+- **Bootstrap:** for MVP, the config is edited via SSH into primary-host
   (e.g. `sudo vim /var/lib/docker/volumes/skynet_skynet-data/_data/global-files.json`
   or similar — planner confirms exact host-side path once it inspects the volume
   driver).
@@ -132,11 +132,11 @@ UI-edit of the config file itself is deferred).
 - **Visual:** `--color-pv-*` tokens, sized like other modals
   (see `IdentityModal`, `CreateRoleDialog`).
 
-### GEFM-06: Config bootstrap + skynet-ec2 initial population
-- **Ship an example `global-files.json`** in the docker volume for skynet-ec2,
+### GEFM-06: Config bootstrap + primary-host initial population
+- **Ship an example `global-files.json`** in the docker volume for primary-host,
   pre-populated with `~/.claude/CLAUDE.md` for each of the current unix fleet hosts:
-  thenasty, workstation, linux-beelink, ZoeyBattlestation, aither-cloud,
-  aither-cloud2, aither-sftp, skynet-ec2.
+  host-a, workstation, linux-minipc, Gaming-pc, acme-cloud,
+  acme-cloud2, acme-sftp, primary-host.
 - **Windows hosts** (WINDOWS-PC and others without `~/.claude/CLAUDE.md`)
   are OMITTED from bootstrap — not left in with an error state.
 - **Document the SSH-edit workflow** in a doc — location TBD by planner
@@ -149,7 +149,7 @@ UI-edit of the config file itself is deferred).
   weigh readability of manually-edited JSON against survivability under host
   rename).
 - Exact host-side path to the `global-files.json` file for the SSH-edit
-  workflow doc (`docker volume inspect skynet-data` on skynet-ec2 to confirm).
+  workflow doc (`docker volume inspect skynet-data` on primary-host to confirm).
 - Whether the Menu dropdown is a shadcn `DropdownMenu` or a custom
   popover (should match existing panel-header patterns; check pretty-conversations
   for prior art).

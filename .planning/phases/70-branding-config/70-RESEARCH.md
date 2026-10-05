@@ -222,7 +222,7 @@ Adapt for branding: same shape, but the "empty state" fallback should be the bun
 |----------|-------------|------------------|
 | Stored data | None — branding config lives outside git and outside the SQLite DB. `/etc/skynet/branding.json` is bind-mounted read-only from host. | None. |
 | Live service config | Nginx serves `/manifest.webmanifest` statically today (L71-78 of `docker/nginx.conf`, L82 of `docker/nginx-https.conf`). These blocks must be flipped to `proxy_pass` OR deleted (so requests fall through to the generic `location /` and hit index.html, which is wrong — deletion alone is NOT sufficient; must add proxy_pass). | Update both nginx configs. |
-| OS-registered state | Service worker (`public/sw.js` → served as `/sw.js`) precaches `/favicon.ico`, `/icons/*.png` (L3-9). After rebrand, the cached favicon may persist across page loads until the SW updates (SW has `self.skipWaiting()` + cache-name versioning). | Note in plan: SW cache name (`skynet-static-v2` at L1) may need bump if bundled defaults are also changed. For a t1000 no-config deploy this doesn't matter (defaults are unchanged). For AI+ deploy, first PWA install picks up the new favicon; existing PWA installs need a hard cache clear (documented behavior, acceptable per D-14/D-15). |
+| OS-registered state | Service worker (`public/sw.js` → served as `/sw.js`) precaches `/favicon.ico`, `/icons/*.png` (L3-9). After rebrand, the cached favicon may persist across page loads until the SW updates (SW has `self.skipWaiting()` + cache-name versioning). | Note in plan: SW cache name (`skynet-static-v2` at L1) may need bump if bundled defaults are also changed. For a host-b no-config deploy this doesn't matter (defaults are unchanged). For AI+ deploy, first PWA install picks up the new favicon; existing PWA installs need a hard cache clear (documented behavior, acceptable per D-14/D-15). |
 | Secrets/env vars | None. Branding config contains only display names and asset paths — no secrets. | None. |
 | Build artifacts | `dist/backend/branding/` will be new after build. `/app/branding-defaults/` in the image is a new COPY layer in Dockerfile. Both created fresh on next image build. | None (natural consequence of the change). |
 
@@ -375,8 +375,8 @@ Store bundled defaults in the repo at `docker/branding-defaults/` (or `branding-
       - /opt/skynet/branding:/etc/skynet/branding:ro
 ```
 Note: Docker WILL fail to start the container if the host path doesn't exist (default behavior for bind mounts). Two approaches:
-- **Approach A (recommended per D-14 "t1000 has no config file"):** Use `type: bind` with `create_host_path: true` in long-form syntax — Docker creates an empty dir/file if missing. Backend then reads empty file → falls back to defaults.
-- **Approach B:** Document that t1000 must have empty placeholder files at `/opt/skynet/branding.json` (empty file → JSON parse fails → falls back to defaults per pitfall-tolerant loader) and empty `/opt/skynet/branding/` dir.
+- **Approach A (recommended per D-14 "host-b has no config file"):** Use `type: bind` with `create_host_path: true` in long-form syntax — Docker creates an empty dir/file if missing. Backend then reads empty file → falls back to defaults.
+- **Approach B:** Document that host-b must have empty placeholder files at `/opt/skynet/branding.json` (empty file → JSON parse fails → falls back to defaults per pitfall-tolerant loader) and empty `/opt/skynet/branding/` dir.
 
 Prefer A. Verify Docker Compose version supports `create_host_path` (Compose spec 3.4+, present in modern Docker).
 
@@ -388,7 +388,7 @@ Not applicable — this is standard Express + React work using patterns that hav
 
 | # | Claim | Section | Risk if Wrong |
 |---|-------|---------|---------------|
-| A1 | Docker Compose `create_host_path: true` under `type: bind` is available in the deploy env's Compose version | Bundled defaults section | Container fails to start on t1000; workaround is placeholder files on host |
+| A1 | Docker Compose `create_host_path: true` under `type: bind` is available in the deploy env's Compose version | Bundled defaults section | Container fails to start on host-b; workaround is placeholder files on host |
 | A2 | Backend Express matches routes in registration order (L1807-L1879 mount order matters) | Anti-Patterns, Pitfall 7 | This is Express default behavior; verified by code comments at database.ts L1818-L1824 explaining the pattern for /identities routes |
 | A3 | PWA on iPhone re-picks-up new manifest on next PWA install (not on hot-reload of existing install) | Pitfall 6 | Existing AI+ PWA users may see stale branding briefly; acceptable per D-15 |
 | A4 | The comment at CONTEXT.md `<specifics>` about `common.appName` being safe-to-leave is correct because LoginPage.tsx is dead code | Pitfall 8, Pitfall 10 | Verified 2026-09-03 via grep — no live imports of LoginPage. |

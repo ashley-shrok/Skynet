@@ -19,7 +19,7 @@ A new tier of persistent instructions that gets loaded into every agent session'
 
 **Not-user-editability.** On managed hosts the file is root-owned and read-only for the OS user that agents run as. Even if someone tampered, the distributor's next sweep would stomp the drift back to canonical. The chain from admin-edits-on-server → managed-host is strictly one-way.
 
-**Per-instance-not-per-host.** Every managed host of a given Skynet instance sees the same content. Different Skynet instances see different content — because each Skynet server has its own host-side branding directory, entirely local, never shared through the repo. The two current forks (the user's on t1000, Aither's on T800) each maintain their own twinkie locally; a `git pull` between them never touches it.
+**Per-instance-not-per-host.** Every managed host of a given Skynet instance sees the same content. Different Skynet instances see different content — because each Skynet server has its own host-side branding directory, entirely local, never shared through the repo. The two current forks (the user's on host-b, Acme's on host-c) each maintain their own twinkie locally; a `git pull` between them never touches it.
 
 ## Philosophy
 
@@ -33,7 +33,7 @@ A new tier of persistent instructions that gets loaded into every agent session'
 
 ## Prior context
 
-- The CLI running across the fleet (same version, 2.1.150, on every managed host) natively loads a managed-policy instruction file from a system-level path on session start. Loads BEFORE the per-user file, layered additively, cannot be excluded. Primary-source-verified against the official memory documentation; empirically PASS on three hosts across two auth flavors (subscription OAuth on t1000 and T800, Bedrock via IAM on a beta VM). Same mechanism, same behavior everywhere.
+- The CLI running across the fleet (same version, 2.1.150, on every managed host) natively loads a managed-policy instruction file from a system-level path on session start. Loads BEFORE the per-user file, layered additively, cannot be excluded. Primary-source-verified against the official memory documentation; empirically PASS on three hosts across two auth flavors (subscription OAuth on host-b and host-c, Bedrock via IAM on a beta VM). Same mechanism, same behavior everywhere.
 - Branding already establishes the pattern this piece slots into. The branding configuration holds filename references; the bytes live in a host-side branding directory bind-mounted read-only into the container; per-file fallback to bundled defaults; the loader never throws so the branding API can't crash at request time. All of that pattern is directly reusable for the twinkie's config field, with one deliberate departure: no bundled default.
 - The distributor already sweeps every managed host and pushes files from the Skynet server to them, on a schedule. Every file it currently pushes lands under the OS-user's home directory. The twinkie is the first item that needs a push to a system-level path, which means the distributor's push shape needs to grow to handle a system-path install target — root-owned on the managed side.
 - Each Skynet fork maintains its own host-side branding directory. Content is per-instance already, entirely local to each server. Nothing about instance-level content needs to live in the shared repo.
@@ -79,10 +79,10 @@ A new tier of persistent instructions that gets loaded into every agent session'
 
 - Working tree: `~/skynet-tina` on the current feature branch. Per role standing directive: `git pull --rebase` before every push (multi-identity role).
 - Seed discuss-phase from THIS file per fleet build rule — the shape's "what / how / why" is already captured here; don't re-elicit.
-- Working identity: mercury on t1000 (this session).
+- Working identity: mercury on host-b (this session).
 - Primary sources verified this session: Claude Code memory documentation (managed-policy system-path exact location, load-order precedence above the user file, cannot-be-excluded semantics, additive layering) plus three empirical PASS tests confirming behavior uniformly across subscription-OAuth and Bedrock-IAM auth flavors on separate hosts.
 - Branding-side patterns to mirror: the existing config loader's read-time load, per-file fallback to bundled defaults, and never-throws contract for the branding API. For the twinkie, the "bundled default" leg of that pattern is intentionally absent — see scope edges.
 - Distributor-side new capability: pushing to a system-level path (owned by root on the managed host) rather than under the OS-user's home directory. First substrate item to require this — the catalog entry and push shape need to grow to accommodate.
 - Deploy discipline (per role standing directives): after code + scoped tests green, the push → build → recreate → verify sequence happens as one atomic motion on the user's greenlight, not before push.
 
-**Content of the twinkie for THIS instance (t1000) is not part of this build.** The mechanism is what gets built; the content the user'll write once the plumbing lands.
+**Content of the twinkie for THIS instance (host-b) is not part of this build.** The mechanism is what gets built; the content the user'll write once the plumbing lands.

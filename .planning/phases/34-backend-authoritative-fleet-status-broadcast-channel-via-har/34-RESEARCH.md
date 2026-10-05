@@ -2,7 +2,7 @@
 
 **Researched:** 2026-08-13
 **Domain:** Claude Code session JSON files, hooks payload shapes, inotify/polling, tmux session correlation, per-box watcher runtime
-**Confidence:** HIGH — all five targets answered via live verification on this box and on thenasty, plus official docs at code.claude.com/docs/en/hooks
+**Confidence:** HIGH — all five targets answered via live verification on this box and on host-a, plus official docs at code.claude.com/docs/en/hooks
 
 ---
 
@@ -97,7 +97,7 @@ The `Stop` hook payload is fully documented at `https://code.claude.com/docs/en/
 
 **Critical finding for ambient-Monitor filtering:** The `Monitor` tool in Claude Code appears in `background_tasks[]` with `"type": "monitor"` per the docs field table. The `server` and `tool` fields are present. The `description` field is populated (from the Monitor tool's own description). **There is NO `env` or environment-variable field in background_tasks entries** — env vars set when launching a Monitor are NOT propagated into the hook payload.
 
-**⚠️ EMPIRICAL DEVIATION (Task 5 live capture, 2026-08-13, evidence at `34-04-EVIDENCE-oq2-payload.json`):** All 4 of tina's persistent Monitor tool calls (thenasty-recv, skynet-recv, wake-up-scheduler, context-watch) reported `"type": "shell"` in the Stop payload, NOT `"type": "monitor"`. The 7-discriminant list from the docs field table overstates the taxonomy — empirically at v2.1.150, Monitor tool-call background tasks are indistinguishable from `run_in_background` bash by `type` alone. Entry fields observed per task: `id`, `type`, `description`, `command`, `status`. NO `server` or `tool` field on these entries. **This does NOT break the ambient filter** — `filterAmbientTasks` in Plan 01 (`src/backend/fleet-status/ambient-filter.ts`) filters on `description.startsWith('[ambient]')` regardless of `type`, so the marker mechanism still holds. But any code that specifically checks `type === "monitor"` would fail on Monitor tool calls; the Plan 01 code does not.
+**⚠️ EMPIRICAL DEVIATION (Task 5 live capture, 2026-08-13, evidence at `34-04-EVIDENCE-oq2-payload.json`):** All 4 of tina's persistent Monitor tool calls (host-a-recv, skynet-recv, wake-up-scheduler, context-watch) reported `"type": "shell"` in the Stop payload, NOT `"type": "monitor"`. The 7-discriminant list from the docs field table overstates the taxonomy — empirically at v2.1.150, Monitor tool-call background tasks are indistinguishable from `run_in_background` bash by `type` alone. Entry fields observed per task: `id`, `type`, `description`, `command`, `status`. NO `server` or `tool` field on these entries. **This does NOT break the ambient filter** — `filterAmbientTasks` in Plan 01 (`src/backend/fleet-status/ambient-filter.ts`) filters on `description.startsWith('[ambient]')` regardless of `type`, so the marker mechanism still holds. But any code that specifically checks `type === "monitor"` would fail on Monitor tool calls; the Plan 01 code does not.
 
 **Also observed in the same live capture:** the payload includes a top-level `effort` field not listed in the docs field table — safe to ignore (parsed but unused).
 
@@ -227,7 +227,7 @@ The Stop hook script must be non-blocking and fast (the hook fires synchronously
 
 ### Answer
 
-**Verified live on this box (3 sessions) and thenasty (2 sessions), plus pbauermeister README-STATE-DETECTION.md.**
+**Verified live on this box (3 sessions) and host-a (2 sessions), plus pbauermeister README-STATE-DETECTION.md.**
 
 #### Complete session JSON schema (v2.1.150, verified):
 
@@ -247,7 +247,7 @@ The Stop hook script must be non-blocking and fast (the hook fires synchronously
 }
 ```
 
-**Note: `bridgeSessionId` field** — present on thenasty's sessions (both running identities), absent on this box's sessions. Both boxes run v2.1.150. Thenasty's sessions are launched via `agent-supervisor.service` (systemd, visible in env: `INVOCATION_ID`, `MANAGERPID`, `JOURNAL_STREAM`). This field is likely populated when the identity uses the Claude Code network bridge/team mode (the `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` env var in our settings). **Not load-bearing for the fleet-status pipeline** — ignore it.
+**Note: `bridgeSessionId` field** — present on host-a's sessions (both running identities), absent on this box's sessions. Both boxes run v2.1.150. Host-a's sessions are launched via `agent-supervisor.service` (systemd, visible in env: `INVOCATION_ID`, `MANAGERPID`, `JOURNAL_STREAM`). This field is likely populated when the identity uses the Claude Code network bridge/team mode (the `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` env var in our settings). **Not load-bearing for the fleet-status pipeline** — ignore it.
 
 **`status` field values (per pbauermeister README and CONTEXT.md):**
 - `"busy"` — Claude is actively working
@@ -263,7 +263,7 @@ The Stop hook script must be non-blocking and fast (the hook fires synchronously
 - `"input needed"` (fallback)
 Present ONLY when `status === "waiting"`.
 
-**`procStart` field:** String containing `/proc/<pid>/stat` field 22 (starttime in jiffies since boot). Verified: `procStart` in session JSON exactly matches field 22 of `/proc/<pid>/stat` for all 5 live processes checked (3 on this box, 2 on thenasty). This is the **liveness probe mechanism** — a session file is stale if its `pid` is no longer running OR if `/proc/<pid>/stat` field 22 doesn't match `procStart` (protects against PID reuse).
+**`procStart` field:** String containing `/proc/<pid>/stat` field 22 (starttime in jiffies since boot). Verified: `procStart` in session JSON exactly matches field 22 of `/proc/<pid>/stat` for all 5 live processes checked (3 on this box, 2 on host-a). This is the **liveness probe mechanism** — a session file is stale if its `pid` is no longer running OR if `/proc/<pid>/stat` field 22 doesn't match `procStart` (protects against PID reuse).
 
 #### Edge case decision table:
 
@@ -287,7 +287,7 @@ Present ONLY when `status === "waiting"`.
 
 ### Source
 - Live session files on this box: `/home/ubuntu/.claude/sessions/131617.json`, `180099.json`, `3941934.json` [VERIFIED: file inspection]
-- Live session files on thenasty: `/home/thenasty/.claude/sessions/1701037.json`, `3760165.json` [VERIFIED: SSH + file inspection]
+- Live session files on host-a: `/home/host-a/.claude/sessions/1701037.json`, `3760165.json` [VERIFIED: SSH + file inspection]
 - `/proc/<pid>/stat` field 22 vs `procStart` match: verified for all 5 live processes [VERIFIED: bash]
 - pbauermeister README-STATE-DETECTION.md — `/clear` sessionId lag behavior (A3), `/exit` no-cleanup, no stale-file reap [VERIFIED: WebFetch]
 
@@ -305,16 +305,16 @@ The watcher MUST implement the procStart liveness check. Do NOT assume `pid` not
 
 | Box | Tailnet IP | OS | Node version | Python version | Go | systemd | Claude Code sessions |
 |-----|------------|----|----|----|----|---------|---------------------|
-| skynet-ec2 (this box) | 100.99.149.8 | Ubuntu 24.04 | v24.15.0 | 3.12.3 | not installed | systemd 255 | 3 live sessions |
-| thenasty | 100.113.23.63 | Ubuntu 24.04 | v22.22.1 | 3.12.3 | go 1.22.2 | systemd 255 | 2 live sessions |
-| workstation | 100.82.225.100 | Ubuntu 24.04 | v24.15.0 | 3.12.3 | — | systemd 255 | 1 live session |
-| ZoeyBattlestation | 100.78.107.56 | Bazzite (ublue-os) | unknown | unknown | unknown | unknown | unknown (unreachable at research time) |
-| WINDOWS-PC | 100.80.122.111 | Windows | N/A | N/A | N/A | N/A | **NOT an identity host** (no tmux) |
-| linux-beelink | 100.124.193.5 | Ubuntu 24.04 | v22.23.1 | 3.12.3 | — | unknown | unknown (SSH key not available from this box) |
+| primary-host (this box) | 100.64.0.13 | Ubuntu 24.04 | v24.15.0 | 3.12.3 | not installed | systemd 255 | 3 live sessions |
+| host-a | 100.64.0.12 | Ubuntu 24.04 | v22.22.1 | 3.12.3 | go 1.22.2 | systemd 255 | 2 live sessions |
+| workstation | 100.64.0.15 | Ubuntu 24.04 | v24.15.0 | 3.12.3 | — | systemd 255 | 1 live session |
+| Gaming-pc | 100.64.0.14 | Bazzite (ublue-os) | unknown | unknown | unknown | unknown | unknown (unreachable at research time) |
+| WINDOWS-PC | 100.64.0.11 | Windows | N/A | N/A | N/A | N/A | **NOT an identity host** (no tmux) |
+| linux-minipc | 100.64.0.16 | Ubuntu 24.04 | v22.23.1 | 3.12.3 | — | unknown | unknown (SSH key not available from this box) |
 
 **WINDOWS-PC is Windows and explicitly not an identity host** (no tmux, per box-map: "Do NOT set autoTmux:true for Windows hosts"). The watcher does NOT deploy there.
 
-**aither-cloud/cloud2/sftp** — RDP-only targets (Windows), NOT identity hosts.
+**acme-cloud/cloud2/sftp** — RDP-only targets (Windows), NOT identity hosts.
 
 #### Delivery mechanism analysis:
 
@@ -335,12 +335,12 @@ Rationale:
 **Runtime language: Node.js (TypeScript)**
 
 Rationale:
-- Node v22+ is present on ALL confirmed identity hosts (skynet-ec2: v24.15.0, thenasty: v22.22.1, workstation: v24.15.0, linux-beelink: v22.23.1)
+- Node v22+ is present on ALL confirmed identity hosts (primary-host: v24.15.0, host-a: v22.22.1, workstation: v24.15.0, linux-minipc: v22.23.1)
 - The project is already Node/TypeScript — the watcher can be compiled from the same build system
 - No new runtime to install or manage on any confirmed host
 - `fs.watch()` in Node uses inotify on Linux natively (no native addon needed)
 - The Skynet codebase already has patterns for SSH transport, JSON parsing, and WS connections the watcher can import
-- Go would give a smaller static binary, but Go is not present on skynet-ec2 (only on thenasty), so building/shipping would require cross-compilation or a build step per box. Reject Go.
+- Go would give a smaller static binary, but Go is not present on primary-host (only on host-a), so building/shipping would require cross-compilation or a build step per box. Reject Go.
 - Python would work but is the wrong stack for this project — no reuse of existing types or utilities.
 
 **Watcher process management: systemd user unit (or system unit)**
@@ -361,11 +361,11 @@ The watcher opens one WebSocket connection to the Skynet backend (ws://localhost
 
 **Log destination:** On each box, watcher logs to `~/.local/var/log/fleet-status-watcher.log` (or `/var/log/fleet-status-watcher.log` for system-level). Journald captures systemd unit output automatically.
 
-**ZoeyBattlestation uncertainty:** Box was unreachable at research time. If it hosts identities, it's likely Bazzite (ublue-os) which is still Linux/systemd — the same watcher deploy would work. Mark as OPEN QUESTION.
+**Gaming-pc uncertainty:** Box was unreachable at research time. If it hosts identities, it's likely Bazzite (ublue-os) which is still Linux/systemd — the same watcher deploy would work. Mark as OPEN QUESTION.
 
 ### Source
 - `/home/ubuntu/.claude/sessions/` — confirmed 3 live sessions [VERIFIED: bash]
-- SSH to thenasty — confirmed Node v22, Python 3.12, Go 1.22, systemd 255 [VERIFIED: bash]
+- SSH to host-a — confirmed Node v22, Python 3.12, Go 1.22, systemd 255 [VERIFIED: bash]
 - SSH to workstation — confirmed Node v24, systemd [VERIFIED: bash]
 - Python ctypes inotify test — confirmed inotify syscall works on this box [VERIFIED: bash]
 - box-map.md — box inventory and OS notes [VERIFIED: file inspection]
@@ -379,7 +379,7 @@ The watcher opens one WebSocket connection to the Skynet backend (ws://localhost
 4. Write Stop hook script (bash, writes to Unix socket) — add to `~/.claude/settings.json` on each box
 5. The update runbook is: build new watcher → `scp` to each box → `systemctl --user restart fleet-status-watcher`
 
-ZoeyBattlestation must be reachable before the watcher can be deployed there. Coordinate separately.
+Gaming-pc must be reachable before the watcher can be deployed there. Coordinate separately.
 
 ---
 
@@ -387,7 +387,7 @@ ZoeyBattlestation must be reachable before the watcher can be deployed there. Co
 
 ### Answer
 
-**Verified via live `/proc/<pid>/environ` inspection on both this box and thenasty.**
+**Verified via live `/proc/<pid>/environ` inspection on both this box and host-a.**
 
 #### Complete verified correlation chain:
 
@@ -406,7 +406,7 @@ ZoeyBattlestation must be reachable before the watcher can be deployed there. Co
     
 `tmux display-message -p -t "$TMUX_PANE" '#{session_name}'`
     │
-    └── tmuxSession   → "tina", "nelly", "shrok", "aqua", etc.
+    └── tmuxSession   → "tina", "nelly", "sable", "aqua", etc.
     
 Skynet conversation row key: (host, tmuxSession)
 ```
@@ -418,11 +418,11 @@ Skynet conversation row key: (host, tmuxSession)
 | 131617 | %0 | tanya | /home/ubuntu/skynet-tanya |
 | 180099 | %1 | tiffany | /home/ubuntu/skynet-tiffany |
 
-**Verified on thenasty (2 processes):**
+**Verified on host-a (2 processes):**
 | PID | TMUX_PANE | tmux session name | session JSON cwd |
 |-----|-----------|-------------------|-----------------|
-| 1701037 | %13 | nelly | /home/thenasty |
-| 3760165 | %2 | shrok | /home/thenasty/shrok |
+| 1701037 | %13 | nelly | /home/host-a |
+| 3760165 | %2 | sable | /home/host-a/sable |
 
 **Key finding:** `TMUX_PANE` uses bare pane IDs (`%0`, `%1`, `%2`, `%13`) that are global within the tmux server. `tmux display-message -p -t "%N" '#{session_name}'` resolves the pane ID to the session name **without needing the session name first**. This is the correct correlation hop.
 
@@ -432,9 +432,9 @@ Skynet conversation row key: (host, tmuxSession)
 
 **`cwd` stability:** `cwd` is set at process start and does not change for a given PID. Stable for the life of the process.
 
-**Two identities sharing a cwd:** Verified: nelly (`pid=1701037`, `cwd=/home/thenasty`) and any future identity also at `/home/thenasty` would share cwd. However, each has a unique `pid` and unique `TMUX_PANE`. The fleet-status pipeline disambiguates by PID (for the session JSON) and by `TMUX_PANE → tmuxSession` (for the Skynet row key). CWD alone is NOT sufficient — but the pipeline never needs to use cwd alone.
+**Two identities sharing a cwd:** Verified: nelly (`pid=1701037`, `cwd=/home/host-a`) and any future identity also at `/home/host-a` would share cwd. However, each has a unique `pid` and unique `TMUX_PANE`. The fleet-status pipeline disambiguates by PID (for the session JSON) and by `TMUX_PANE → tmuxSession` (for the Skynet row key). CWD alone is NOT sufficient — but the pipeline never needs to use cwd alone.
 
-**Identities NOT running Claude Code:** On thenasty, 7 tmux sessions exist (beatrice, natalie, nelly, nicole, shrok, vicky, yolanda) but only 2 have Claude Code running (nelly and shrok). The other 5 sessions have no `<pid>.json` file. The watcher correctly handles this — it watches the `~/.claude/sessions/` directory and only reports PIDs that have session files.
+**Identities NOT running Claude Code:** On host-a, 7 tmux sessions exist (beatrice, natalie, nelly, nicole, sable, vicky, yolanda) but only 2 have Claude Code running (nelly and sable). The other 5 sessions have no `<pid>.json` file. The watcher correctly handles this — it watches the `~/.claude/sessions/` directory and only reports PIDs that have session files.
 
 **PID reuse after crash:** If a Claude Code process crashes and a new unrelated process inherits its PID, the `procStart` cross-check catches this — `/proc/<new_pid>/stat` field 22 will be a different value than the stale `procStart` in the session file. The watcher emits "session gone" for the old session before processing the new PID.
 
@@ -451,8 +451,8 @@ This requires `tmux` to be running and the pane to still exist. If tmux has rest
 
 ### Source
 - `/proc/3941934/environ`, `/proc/131617/environ`, `/proc/180099/environ` — TMUX_PANE and TMUX vars [VERIFIED: bash]
-- SSH to thenasty → `/proc/1701037/environ`, `/proc/3760165/environ` — same pattern [VERIFIED: bash]
-- `tmux display-message -p -t "$TMUX_PANE" '#{session_name}'` on this box and thenasty [VERIFIED: bash]
+- SSH to host-a → `/proc/1701037/environ`, `/proc/3760165/environ` — same pattern [VERIFIED: bash]
+- `tmux display-message -p -t "$TMUX_PANE" '#{session_name}'` on this box and host-a [VERIFIED: bash]
 - `src/backend/claude-session/session-file-discovery.ts` — current correlation primitive, confirmed goes tmux→PID direction [VERIFIED: file inspection]
 
 ### Planner Implication
@@ -467,10 +467,10 @@ The correlation chain is fully determined:
 
 ## Open Questions / Blockers
 
-### OQ-1: ZoeyBattlestation identity status (LOW RISK)
-**What we know:** ZoeyBattlestation (100.78.107.56) runs Bazzite (ublue-os). It's reachable on the tailnet. SSH key was not available from this box at research time.
+### OQ-1: Gaming-pc identity status (LOW RISK)
+**What we know:** Gaming-pc (100.64.0.14) runs Bazzite (ublue-os). It's reachable on the tailnet. SSH key was not available from this box at research time.
 **What's unclear:** Does it currently host Claude Code identities? If yes, what Node/Python/Go versions are installed?
-**Recommendation:** Before the deploy step, tina should SSH to ZoeyBattlestation (using the key in `/opt/skynet/keys/`) and confirm: (a) does `~/.claude/sessions/` exist, (b) what Node version is present. If it does host identities, the ublue-os Bazzite gotcha documented in box-map.md (MOTD glow blocking) requires `~/.config/no-show-user-motd` to be present before autoTmux works correctly.
+**Recommendation:** Before the deploy step, tina should SSH to Gaming-pc (using the key in `/opt/skynet/keys/`) and confirm: (a) does `~/.claude/sessions/` exist, (b) what Node version is present. If it does host identities, the ublue-os Bazzite gotcha documented in box-map.md (MOTD glow blocking) requires `~/.config/no-show-user-motd` to be present before autoTmux works correctly.
 
 ### OQ-2: `background_tasks[]` type for Monitor tool — confirmed but not live-tested (MEDIUM RISK)
 **What we know:** The official docs say Monitor-type tasks appear with `type: "monitor"`, `server`, and `tool` fields. The `description` field is present.
@@ -482,8 +482,8 @@ The correlation chain is fully determined:
 **What's unclear:** Is the hook guaranteed to fire BEFORE or AFTER the session JSON `status` update? Or is it concurrent?
 **Recommendation:** Assume they're concurrent and design the watcher to merge both signals regardless of order. The session JSON gives authoritative `status`; the Stop hook gives `background_tasks[]`. Neither blocks the other.
 
-### OQ-4: linux-beelink identity status (LOW RISK)
-**What we know:** linux-beelink (Ubuntu 24.04) has Node v22.23.1 and Python 3.12 installed. SSH key is not in the standard path from this box.
+### OQ-4: linux-minipc identity status (LOW RISK)
+**What we know:** linux-minipc (Ubuntu 24.04) has Node v22.23.1 and Python 3.12 installed. SSH key is not in the standard path from this box.
 **What's unclear:** Does it currently host Claude Code identities?
 **Recommendation:** Same as OQ-1 — confirm before deploy step. If it does host identities, the watcher deploys normally (same systemd/Node stack as the other Ubuntu boxes).
 
@@ -496,7 +496,7 @@ The correlation chain is fully determined:
 | A1 | Monitor-type tasks appear in `background_tasks[]` with `type: "monitor"` and `description` field populated from the Monitor tool's description | Research Target 1 | If description is not populated, ambient filtering via prefix fails. Fallback: filter by `type === "monitor"` entirely (too aggressive) or by `server`/`tool` fields if known. |
 | A2 | The Stop hook fires for EVERY identity's session on a box when registered in `~/.claude/settings.json` | Research Target 2 | If per-identity `settings.json` files exist and override this, some identities may not fire the hook. Mitigation: verify after install by observing hook output on all running sessions. |
 | A3 | `/exit` leaves the session JSON file on disk (not deleted) | Research Target 3 | If Claude Code actually deletes the file on clean exit, the watcher must NOT treat file deletion as stale — it IS the "session gone" event. Either way the result is the same: session is gone. Risk is LOW. |
-| A4 | ZoeyBattlestation hosts Claude Code identities and runs Linux/systemd | Research Target 4 | If it doesn't host identities, no watcher needed. If it runs a different init system, the systemd deploy doesn't apply. |
+| A4 | Gaming-pc hosts Claude Code identities and runs Linux/systemd | Research Target 4 | If it doesn't host identities, no watcher needed. If it runs a different init system, the systemd deploy doesn't apply. |
 | A5 | `TMUX_PANE` in the Claude process environ is always set when Claude runs inside tmux | Research Target 5 | If any identity runs Claude outside tmux (e.g. direct SSH without tmux), TMUX_PANE will be absent. `discoverClaudeSession()` already handles this case (no_tmux_session). The watcher should handle absent TMUX_PANE gracefully. |
 
 ---
@@ -507,10 +507,10 @@ The correlation chain is fully determined:
 - `/home/ubuntu/.claude/sessions/*.json` — live session file schema, 3 processes [VERIFIED: bash]
 - `/home/ubuntu/.claude/settings.json` — hook registration format, existing hooks [VERIFIED: file read]
 - `src/backend/claude-session/session-file-discovery.ts` — existing correlation primitive [VERIFIED: file read]
-- SSH → thenasty `/home/thenasty/.claude/sessions/*.json` — session schema on managed host [VERIFIED: bash+SSH]
+- SSH → host-a `/home/host-a/.claude/sessions/*.json` — session schema on managed host [VERIFIED: bash+SSH]
 - SSH → workstation `/home/ubuntu/.claude/sessions/428227.json` — session on third box [VERIFIED: bash+SSH]
 - `/proc/<pid>/environ` on all 5 live Claude processes — TMUX_PANE → tmux session correlation [VERIFIED: bash]
-- `tmux display-message` on this box and thenasty — TMUX_PANE resolves to session name [VERIFIED: bash]
+- `tmux display-message` on this box and host-a — TMUX_PANE resolves to session name [VERIFIED: bash]
 - Python ctypes inotify test — inotify works on this box without packages [VERIFIED: bash]
 
 ### Secondary (HIGH confidence — official docs)

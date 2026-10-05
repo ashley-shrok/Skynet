@@ -1,6 +1,6 @@
 # Phase 122 Plan 01 — SUMMARY
 
-**Objective:** Wave 0 empirical checkpoint. Verify Assumption A1 from RESEARCH.md — does `discoverIdentitySessionFile(null, identityKey)` return a non-null path for known-archived identities on t1000, and does the JSONL truly belong to that identity?
+**Objective:** Wave 0 empirical checkpoint. Verify Assumption A1 from RESEARCH.md — does `discoverIdentitySessionFile(null, identityKey)` return a non-null path for known-archived identities on host-b, and does the JSONL truly belong to that identity?
 
 **Outcome:** verdict is `go-same-helper`. All 3 probed archived identities (beacon, andromeda, apollo) returned a non-null path, and each first-user command-args tag matched the identity name. See `122-01-CHECKPOINT-RESULTS.md` for the full evidence.
 

@@ -13,7 +13,7 @@ provides:
   - ${SKYNET_HOST_DIR:-/opt/skynet} parametrization (blocker B-5 fix — makes the same file usable in repo AND on any host with a different Skynet root)
 affects:
   - Plan 09 cutover motion: `cp docker/docker-compose.yml /opt/skynet/docker-compose.yml` — byte-identical, no reconciliation logic needed
-  - Future non-t1000 deploys (Stacy's T800, etc.): set SKYNET_HOST_DIR to that host's Skynet root and everything else works
+  - Future non-host-b deploys (Morgan's host-c, etc.): set SKYNET_HOST_DIR to that host's Skynet root and everything else works
 tech-stack:
   added: []
   patterns:
@@ -78,7 +78,7 @@ Single `skynet-net` bridge — `tg-bridge` joins it so it can reach `skynet` at 
 
 ## Blocker B-5 Parametrization — SKYNET_HOST_DIR Substitution Sites
 
-Six sites, one per host-varying path, all with a `/opt/skynet` default so `docker compose config` works standalone against a fresh checkout on any host where `/opt/skynet` exists (t1000 deploy target). Verified via `grep -n`:
+Six sites, one per host-varying path, all with a `/opt/skynet` default so `docker compose config` works standalone against a fresh checkout on any host where `/opt/skynet` exists (host-b deploy target). Verified via `grep -n`:
 
 | # | Line | Substitution target | Container target |
 |---|------|---------------------|------------------|
@@ -117,7 +117,7 @@ $ docker compose -f docker/docker-compose.yml config >/dev/null 2>&1; echo $?
 0
 ```
 
-The file parses cleanly, all bind-mount sources resolve (default `${SKYNET_HOST_DIR:-/opt/skynet}` matches the live layout on t1000 where the executor runs), the tg-bridge build context path is validated as a well-formed relative path, and all volume/network references cross-check.
+The file parses cleanly, all bind-mount sources resolve (default `${SKYNET_HOST_DIR:-/opt/skynet}` matches the live layout on host-b where the executor runs), the tg-bridge build context path is validated as a well-formed relative path, and all volume/network references cross-check.
 
 ## Env-Var Abstinence Check (user-locked #3)
 
@@ -132,7 +132,7 @@ Zero occurrences. The bridge sources config from `/state/config.env` (written by
 
 ## Two-File Compose Reality — Plan 09 Cutover Motion
 
-Before this plan: the LIVE compose file existed ONLY at `/opt/skynet/docker-compose.yml` on t1000; the repo had no `docker/docker-compose.yml` (only `docker/compose-dev.yml` for local dev). This meant every deploy motion was a manual edit against the host file — high drift risk.
+Before this plan: the LIVE compose file existed ONLY at `/opt/skynet/docker-compose.yml` on host-b; the repo had no `docker/docker-compose.yml` (only `docker/compose-dev.yml` for local dev). This meant every deploy motion was a manual edit against the host file — high drift risk.
 
 After this plan: the repo's `docker/docker-compose.yml` is the canonical shape. Plan 09's cutover step is now a plain:
 
@@ -140,7 +140,7 @@ After this plan: the repo's `docker/docker-compose.yml` is the canonical shape. 
 cp docker/docker-compose.yml /opt/skynet/docker-compose.yml
 ```
 
-Byte-identical — the `${SKYNET_HOST_DIR:-/opt/skynet}` default resolves to the current live paths, so no operator action is needed for t1000. If a different host (Stacy's T800, future deploys) uses a different Skynet root, the operator sets `SKYNET_HOST_DIR=/srv/skynet` in `/srv/skynet/.env-compose` (or shell env) before `docker compose up`, and the same file works there too. Zero drift, zero reconciliation logic.
+Byte-identical — the `${SKYNET_HOST_DIR:-/opt/skynet}` default resolves to the current live paths, so no operator action is needed for host-b. If a different host (Morgan's host-c, future deploys) uses a different Skynet root, the operator sets `SKYNET_HOST_DIR=/srv/skynet` in `/srv/skynet/.env-compose` (or shell env) before `docker compose up`, and the same file works there too. Zero drift, zero reconciliation logic.
 
 ## Deviations from Plan
 

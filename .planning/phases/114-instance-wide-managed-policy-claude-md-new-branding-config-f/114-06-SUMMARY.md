@@ -152,10 +152,10 @@ No new security-relevant surface introduced. Package legitimacy gate: N/A — ze
 
 Per D-24, the executor's remit stops HERE — at code + commit + scoped-tests-green. The orchestrator owns:
 
-- **D-24 push/build/recreate/verify motion**: `git push` → `docker compose build` → `docker compose up --force-recreate` on t1000. Executor makes NO push/build/deploy calls (verified: this SUMMARY documents zero deploy operations in the task work).
-- **D-25 post-deploy sanity check**: after `--force-recreate`, verify on t1000:
+- **D-24 push/build/recreate/verify motion**: `git push` → `docker compose build` → `docker compose up --force-recreate` on host-b. Executor makes NO push/build/deploy calls (verified: this SUMMARY documents zero deploy operations in the task work).
+- **D-25 post-deploy sanity check**: after `--force-recreate`, verify on host-b:
   - (a) `docker logs --since 60s skynet 2>&1 | grep -iE "warn|error|fail|unsupported"` reads clean.
-  - (b) With `instancePolicyFilename` set to a test twinkie AND next distributor sweep firing, `/etc/claude-code/CLAUDE.md` appears on t1000 with matching bytes.
+  - (b) With `instancePolicyFilename` set to a test twinkie AND next distributor sweep firing, `/etc/claude-code/CLAUDE.md` appears on host-b with matching bytes.
   - First-of-kind capability (first runtime-sourced + system-root-installed catalog row) — verify explicitly, do not assume.
 
 ## TDD Gate Compliance

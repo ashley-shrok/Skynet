@@ -132,7 +132,7 @@ Areas where user deferred to implementation:
 - Capturing user's phone Matrix DMs that bypass Skynet's compose
   surface (different signal source; requires agent-relay hook, not
   compose-funnel hook)
-- Multi-user keying (Skynet single-tenant on t1000 today)
+- Multi-user keying (Skynet single-tenant on host-b today)
 - Non-compose Skynet interaction paths (wire through the same hook if any
   are added later)
 - Manual "reset this identity's recency" affordance

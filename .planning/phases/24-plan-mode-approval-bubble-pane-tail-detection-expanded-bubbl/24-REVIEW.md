@@ -387,7 +387,7 @@ present in bottom slice.
 
 **Issue:** `error: message` propagates whatever `err.message` returned by
 ssh2's SFTP callback (e.g., `ENOENT: no such file or directory, open
-'/home/ashley/.claude/plans/foo.md'`). That includes the full absolute
+'/home/alice/.claude/plans/foo.md'`). That includes the full absolute
 path, which then renders inside the bubble as `Plan contents unavailable
 ({contentError})`. React auto-escapes so no XSS, but:
 (a) the string can be arbitrarily long, blowing out the bubble layout, and

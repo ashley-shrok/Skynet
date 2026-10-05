@@ -13,7 +13,7 @@ identities, roles, and apps all already have a per-user gate driven by a
 `users` list on their spec; scheduled agents get the same, patterned to match.
 
 Alongside the code change, the user-wide operator note about tagging apps
-(currently on the multi-user host thenasty's Claude preferences file) gets
+(currently on the multi-user host host-a's Claude preferences file) gets
 extended to also mention scheduled agents, and gets propagated to any other
 box that also hosts identities for more than one Skynet user.
 
@@ -50,7 +50,7 @@ The change has three concepts:
   matching how identity and identity-wakeup writes behave today.
 
 Docs sweep: one paragraph in the user-wide operator instruction file on
-thenasty currently tells you to tag any app you create with your identity's
+host-a currently tells you to tag any app you create with your identity's
 users list. Extend that paragraph so it also tells you to do the same thing
 for any scheduled agent you create. Then enumerate the other fleet hosts
 that actually hold identities under more than one Skynet user, and add the
@@ -89,7 +89,7 @@ correctly wouldn't handle scheduled agents correctly.
   toggle-enabled, delete. None of the existing gated types apply the users
   list to their equivalent write endpoints; only host access matters. Same
   posture applies here.
-- The user-wide operator instruction file that lives on thenasty already
+- The user-wide operator instruction file that lives on host-a already
   carries a "tag your apps" paragraph. It's the template for what the
   scheduled-agents mention should look like. The docs sweep extends that
   paragraph, doesn't invent a new one.
@@ -107,7 +107,7 @@ correctly wouldn't handle scheduled agents correctly.
 - If comparison ever becomes case-insensitive, or normalizes whitespace, or
   otherwise diverges from the storage discipline used by the other four
   types, this has missed the point.
-- If the docs sweep only touches thenasty and leaves other multi-user hosts
+- If the docs sweep only touches host-a and leaves other multi-user hosts
   telling operators "tag your apps" while silently omitting scheduled
   agents, this has missed the point — the user-facing note has to be
   wherever the underlying gate is real.
@@ -128,7 +128,7 @@ correctly wouldn't handle scheduled agents correctly.
 - Test coverage: the new predicate as a pure unit; the list route gates as
   expected against a synthetic set of tagged and untagged rows; write
   endpoints drop a users payload without acknowledging it.
-- Docs sweep: update the multi-user note on thenasty; identify and update
+- Docs sweep: update the multi-user note on host-a; identify and update
   the equivalent note on any other host that hosts identities for more than
   one Skynet user; matching text on all of them.
 
@@ -188,7 +188,7 @@ filter, test shape). If something is unclear here, that work is the answer.
 - **Shape — write endpoints refuse to touch users (silent drop)** — present · strip runs on POST and PATCH before write AND before response echo; toggle/delete don't accept a spec so not applicable there
 - **Shape — write endpoints continue to gate on host access only** — present · no users-list gate added to writes; host-access remains the sole write gate, matching identity + identity-wakeup posture
 - **Shape — predicate paralleled per-resource, not refactored to a shared helper** — present · separate file kept alongside project/app/identity/role gates so a grep answers every-emit-site
-- **Shape — docs sweep extends the multi-user note on thenasty and peer hosts** — present · identical paragraph confirmed on thenasty, zoeybattlestation, and workstation
+- **Shape — docs sweep extends the multi-user note on host-a and peer hosts** — present · identical paragraph confirmed on host-a, gaming-pc, and workstation
 - **Philosophy — sameness with the four existing gated types** — present · predicate and strip discipline are parallel with the existing gates
 - **Prior context — only one emit site to gate (pull-only HTTP fan-out, no subscription frame)** — present · gate lives in the list route only; no subscription-frame filter added
 - **Prior context — substrate-side scheduler unaffected by tagging** — present · no scheduler changes in this commit; users is purely a visibility concern
@@ -212,4 +212,4 @@ None.
 
 ### Notes
 
-The material reads as a faithful mirror of the Phase 130 apps-tagging discipline, exactly as the shape asks. The write-response echo strip is a correct execution of the shape's broader "never on the wire, at every emit site" rule — not an unagreed extension. Toggle-enabled and delete correctly do not touch users because they never accept or echo a spec; that keeps the strip discipline focused on the two endpoints that do (POST + PATCH). Docs sweep landed identically on thenasty, zoeybattlestation, and workstation; text is byte-identical across all three, which will make future audits trivial.
+The material reads as a faithful mirror of the Phase 130 apps-tagging discipline, exactly as the shape asks. The write-response echo strip is a correct execution of the shape's broader "never on the wire, at every emit site" rule — not an unagreed extension. Toggle-enabled and delete correctly do not touch users because they never accept or echo a spec; that keeps the strip discipline focused on the two endpoints that do (POST + PATCH). Docs sweep landed identically on host-a, gaming-pc, and workstation; text is byte-identical across all three, which will make future audits trivial.

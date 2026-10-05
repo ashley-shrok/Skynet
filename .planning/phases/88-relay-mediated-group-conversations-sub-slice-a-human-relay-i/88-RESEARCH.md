@@ -345,7 +345,7 @@ Schema comment changes (inside the `// comment` text, not structural schema chan
 
 ### Q7: Displayname for existing users (legacy mxids)
 
-Legacy users (user, Zoey, Laura) have mxids without the `_human` suffix from the one-shot import. The `createOrUpdateUser` primitive is idempotent and the PUT v2 endpoint updates the `displayname` field on existing accounts. However, slice A only calls `createOrUpdateUser` on NEW user creation, not on existing users — so legacy users' displaynames are not touched. No conflict. [VERIFIED: CONTEXT.md D-02, createOrUpdateUser implementation]
+Legacy users (user, Dana, Riley) have mxids without the `_human` suffix from the one-shot import. The `createOrUpdateUser` primitive is idempotent and the PUT v2 endpoint updates the `displayname` field on existing accounts. However, slice A only calls `createOrUpdateUser` on NEW user creation, not on existing users — so legacy users' displaynames are not touched. No conflict. [VERIFIED: CONTEXT.md D-02, createOrUpdateUser implementation]
 
 ### Q8: Nginx routes — do any new routes need nginx config?
 
@@ -459,7 +459,7 @@ vi.mock("../../matrix/matrix-admin-client.js", () => ({
 }));
 
 // In beforeEach:
-mockCreateOrUpdateUser.mockResolvedValue({ ok: true, mxid: "@user_human:thenasty.taild9b663.ts.net", password: "test-pw", status: 201 });
+mockCreateOrUpdateUser.mockResolvedValue({ ok: true, mxid: "@user_human:host-a.tailnet-example.ts.net", password: "test-pw", status: 201 });
 mockDeactivateUser.mockResolvedValue({ ok: true });
 ```
 

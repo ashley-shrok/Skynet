@@ -128,7 +128,7 @@ _Note: No STATE.md / ROADMAP.md commit produced per orchestrator instructions ("
 - **Fall-through defense in serve-route.ts on missing serveTarget.** If subdomain-dispatch chose not to attach (unknown/missing subdomain header) OR the mount order is misconfigured, serveUrlHandler calls `next()` instead of erroring. Belt-and-braces: primary Skynet frontend remains reachable even under middleware-config bugs.
 - **res.on('finish') registered BEFORE tunnelCache.getOrCreate.** Order matters — if registered after the await, a fast-path already-cached tunnel hit could dispatch the proxy synchronously and race the finish listener into the past. Registered first, then any code path (success + all interstitial branches) triggers finish exactly once.
 - **cookieParser MOVED UP (not duplicated).** Adding a second cookieParser would double-parse Cookie headers and produce duplicate req.cookies entries. Safer to relocate the single existing instance.
-- **Bundled doc-reword cleanups into Task 3 commit.** Tasks 1 and 2 had acceptance criteria `! grep -q 'term.example.com' ...` — my initial docstrings contained the literal string as illustration ("t1000 sets term.example.com, T800 sets its own value"). The grep-gate fires on doc mentions, not just runtime fallbacks. Reworded to "hardcoded primary-domain fallback — t1000 sets its own value, T800 sets its own value" and folded into Task 3's mount commit rather than amending prior commits or making 4 separate one-line fix commits. Zero behavior change.
+- **Bundled doc-reword cleanups into Task 3 commit.** Tasks 1 and 2 had acceptance criteria `! grep -q 'term.example.com' ...` — my initial docstrings contained the literal string as illustration ("host-b sets term.example.com, host-c sets its own value"). The grep-gate fires on doc mentions, not just runtime fallbacks. Reworded to "hardcoded primary-domain fallback — host-b sets its own value, host-c sets its own value" and folded into Task 3's mount commit rather than amending prior commits or making 4 separate one-line fix commits. Zero behavior change.
 
 ## Deviations from Plan
 
@@ -137,17 +137,17 @@ _Note: No STATE.md / ROADMAP.md commit produced per orchestrator instructions ("
 **1. [Rule 3 — Blocking / Verification] Reworded three docstrings in subdomain-dispatch.ts to remove literal 'term.example.com'**
 - **Found during:** Task 3 verification pass (after Task 1 + Task 2 were already committed)
 - **Issue:** Task 1's acceptance criterion `! grep -q 'term\.example\.com' src/backend/serve-url/subdomain-dispatch.ts` initially failed because 3 docstring lines contained the literal string as illustration:
-  1. Docblock header: "NO hardcoded `term.example.com` fallback — t1000 sets its own value..."
+  1. Docblock header: "NO hardcoded `term.example.com` fallback — host-b sets its own value..."
   2. Factory-scope docblock: "no silent-wrong hardcoded 'term.example.com' fallback"
-  3. Throw error message: "(per D-23; t1000 sets term.example.com, T800 sets its own value)"
+  3. Throw error message: "(per D-23; host-b sets term.example.com, host-c sets its own value)"
 - **Fix:** Reworded to "hardcoded primary-domain fallback", "hardcoded primary-domain fallback", and "(per D-23; each Skynet host sets its own value; no hardcoded fallback)" respectively. Zero behavior change; grep-gate now clean.
 - **Files modified:** `src/backend/serve-url/subdomain-dispatch.ts`
 - **Committed in:** `5a375177` (Task 3 commit — bundled with mount changes)
 
 **2. [Rule 3 — Blocking / Verification] Reworded one docstring in serve-route.ts to remove literal 'term.example.com'**
 - **Found during:** Task 3 verification pass
-- **Issue:** Task 2's acceptance criterion `grep -c 'term\.example\.com' src/backend/serve-url/serve-route.ts` returned 1 (docblock line: "NO hardcoded 'term.example.com' fallback — t1000 sets its own").
-- **Fix:** Reworded to "NO hardcoded primary-domain fallback — t1000 sets its own value, T800 sets its own value". Zero behavior change.
+- **Issue:** Task 2's acceptance criterion `grep -c 'term\.example\.com' src/backend/serve-url/serve-route.ts` returned 1 (docblock line: "NO hardcoded 'term.example.com' fallback — host-b sets its own").
+- **Fix:** Reworded to "NO hardcoded primary-domain fallback — host-b sets its own value, host-c sets its own value". Zero behavior change.
 - **Files modified:** `src/backend/serve-url/serve-route.ts`
 - **Committed in:** `5a375177` (Task 3 commit — bundled with mount changes)
 
@@ -176,7 +176,7 @@ _Note: No STATE.md / ROADMAP.md commit produced per orchestrator instructions ("
 
 ## User Setup Required
 
-None — no external service configuration required. The `SKYNET_COOKIE_DOMAIN` env var is required for production boot but was already an established Plan 02 requirement (widened JWT cookie). t1000 sets it in `/opt/skynet/skynet.env` per D-24 single-deploy motion.
+None — no external service configuration required. The `SKYNET_COOKIE_DOMAIN` env var is required for production boot but was already an established Plan 02 requirement (widened JWT cookie). host-b sets it in `/opt/skynet/skynet.env` per D-24 single-deploy motion.
 
 ## Threat Register Realization
 

@@ -299,7 +299,7 @@ router.post("/:id/mxid", authenticateJWT, async (req, res) => {
    matrixCreateOrUpdateUser: (mxid: string, password: string) =>
      Promise<{ ok: true; mxid: string; password: string } | { ok: false; status: number; error: string }>;
    /** Phase 77: Homeserver base to build the mxid (server_name suffix). */
-   matrixHomeserver: string;   // e.g. "thenasty.taild9b663.ts.net"
+   matrixHomeserver: string;   // e.g. "host-a.tailnet-example.ts.net"
    /** Phase 77: relay.json builder — pure function, given mxid+pw returns JSON body per agent-relay convention. */
    buildRelayJsonBody: (opts: { mxid: string; password: string; accessToken: string; homeserverBase: string }) => string;
    ```
@@ -362,8 +362,8 @@ await runStep(8, async () => {
 **relay.json shape** (from RESEARCH.md Example 4 — verified against `~/.claude/skills/agent-relay/recv.sh:25-32, 49-59, 82-91`):
 ```json
 {
-  "base": "http://100.113.23.63:8008/_matrix/client/v3",
-  "user_id": "@<name>:thenasty.taild9b663.ts.net",
+  "base": "http://100.64.0.12:8008/_matrix/client/v3",
+  "user_id": "@<name>:host-a.tailnet-example.ts.net",
   "password": "<agent-password-generated-by-Skynet>",
   "token": "<access-token-from-admin-mint>",
   "access_token": "<access-token-from-admin-mint>"
@@ -393,7 +393,7 @@ const deps: BirthDeps = {
     writeAvatarSiblingFile(conn, identityKey, ext, bytes),
   // NEW Phase 77:
   matrixCreateOrUpdateUser: (mxid, password) => matrixCreateOrUpdateUser(mxid, password),
-  matrixHomeserver: "thenasty.taild9b663.ts.net",  // TODO: read from matrix-admin-creds-store
+  matrixHomeserver: "host-a.tailnet-example.ts.net",  // TODO: read from matrix-admin-creds-store
   buildRelayJsonBody: buildRelayJsonBodyImpl,   // pure function, likely lives in matrix-admin-client.ts
 };
 ```

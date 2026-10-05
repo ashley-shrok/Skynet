@@ -51,7 +51,7 @@ requirements_satisfied: [QRW-01, QRW-02, QRW-03]
 
 Because all four remote identity markdown writers (`writeIdentityFile`, `writeIdentityHistory`, `writeIdentityHandoff`, `writeIdentityBountyFields`) delegate their atomic rename to `writeMarkdownFileAtomic`, the one-line swap transitively fixes the entire IdentityModal save surface.
 
-**JSDoc prologue** on `writeMarkdownFileAtomic` (lines ~817-848) rewritten to record WHY the extension is required. Documents the SFTPv3 SSH_FXP_RENAME → link(old,new) → EEXIST → SSH2_FX_FAILURE trap, the POSIX rename(2) semantics of `posix-rename@openssh.com`, OpenSSH ≥5.1 universality, and the @stacy 2026-08-02 root-cause reference. The prologue's mention of the promise chain now names `ext_openssh_rename` (not `rename`), so the file contains zero executable references to the buggy API.
+**JSDoc prologue** on `writeMarkdownFileAtomic` (lines ~817-848) rewritten to record WHY the extension is required. Documents the SFTPv3 SSH_FXP_RENAME → link(old,new) → EEXIST → SSH2_FX_FAILURE trap, the POSIX rename(2) semantics of `posix-rename@openssh.com`, OpenSSH ≥5.1 universality, and the @morgan 2026-08-02 root-cause reference. The prologue's mention of the promise chain now names `ext_openssh_rename` (not `rename`), so the file contains zero executable references to the buggy API.
 
 **New regression test file** `src/backend/claude-session/identity-artifact-reader.remote-writes.test.ts` (3 tests, 208 lines). Load-bearing mechanism: the mock ssh2 SFTP wrapper installs a throwing trap on `.rename` — any future refactor that reverts the swap will fail LOUDLY with the diagnostic `must not call sftp.rename — use ext_openssh_rename` rather than silently pass. Covers `writeIdentityFile`, `writeIdentityHistory`, and `writeIdentityHandoff` (defensive coverage documenting that the shared helper swap covers all three writers).
 
@@ -68,7 +68,7 @@ Because all four remote identity markdown writers (`writeIdentityFile`, `writeId
 
 ## Root Cause (for the historical record)
 
-Root-caused by @stacy on ceo-skynet 2026-08-02 (full handoff at `~/pretty-view-uploads/2026-08-02/190204-TINA-HANDOFF.md`).
+Root-caused by @morgan on ceo-skynet 2026-08-02 (full handoff at `~/pretty-view-uploads/2026-08-02/190204-TINA-HANDOFF.md`).
 
 The pre-fix code called `sftp.rename(tmp, target, cb)`, which sends SFTPv3 `SSH_FXP_RENAME`. OpenSSH's `process_rename` tries `link(old, new)` first. When `new` already exists, `link()` returns `EEXIST`. OpenSSH's `errno_to_portable()` has no case for `EEXIST` and falls through to `SSH2_FX_FAILURE` — the ssh2 client surfaces a generic `Error: Failure` with code `4` and an empty error string.
 

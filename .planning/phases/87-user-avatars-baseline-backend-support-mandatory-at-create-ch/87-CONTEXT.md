@@ -7,7 +7,7 @@
 <domain>
 ## Phase Boundary
 
-Add baseline backend support for Skynet's human users having avatars — a piece of plumbing so a downstream frontend build can start rendering them. Skynet's users concept currently has no avatar field at all; this phase adds one field on the users row, three backend entry points (mandatory-at-create, replace-later, serve-out), and the on-disk storage lifecycle behind them, inside Skynet's own encrypted data volume on the Skynet EC2 (`t1000`).
+Add baseline backend support for Skynet's human users having avatars — a piece of plumbing so a downstream frontend build can start rendering them. Skynet's users concept currently has no avatar field at all; this phase adds one field on the users row, three backend entry points (mandatory-at-create, replace-later, serve-out), and the on-disk storage lifecycle behind them, inside Skynet's own encrypted data volume on the Skynet EC2 (`host-b`).
 
 Frontend consumption — where avatars actually appear in the UI, and any self-serve UI for choosing or changing one — is DELIBERATELY out of scope and belongs to a downstream build. This phase adds no user-visible surface.
 
@@ -20,7 +20,7 @@ Frontend consumption — where avatars actually appear in the UI, and any self-s
 
 ### Storage location (LOCKED)
 
-- **D-01:** Avatar bytes live as files on disk on the Skynet EC2 itself (Skynet's own `t1000` box), NOT on any managed host Skynet talks to over the network, NOT on a mounted operator-config path, NOT as bytes in a DB column.
+- **D-01:** Avatar bytes live as files on disk on the Skynet EC2 itself (Skynet's own `host-b` box), NOT on any managed host Skynet talks to over the network, NOT on a mounted operator-config path, NOT as bytes in a DB column.
 - **D-02:** Files sit inside Skynet's own encrypted data volume — the same `skynet-data` docker volume that holds the encrypted SQLite DB and other per-user state. Path convention: a new dedicated subdirectory under `DATA_DIR` (`process.env.DATA_DIR || "./db/data"`; production mounts `skynet-data` at `/app/data`). Recommended: `${DATA_DIR}/user-avatars/`. Confirm exact subdir name during planning; the planner may pick a differently-named sibling of the existing data-dir contents if that improves consistency with prior conventions.
 - **D-03:** Rides the existing daily EBS DLM snapshot backup story with no additional plumbing (whole-volume snapshot already covers the data dir).
 

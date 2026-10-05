@@ -6,7 +6,7 @@
 
 ## Summary
 
-Phase 98 replaces Chatterbox (self-hosted rig at tailnet `100.80.122.111`) with Amazon Polly (voice-out, generative engine) + Amazon Transcribe streaming (voice-in). Every architectural gray area has already been resolved in `98-CONTEXT.md` — this research answers implementation HOWs.
+Phase 98 replaces Chatterbox (self-hosted rig at tailnet `100.64.0.11`) with Amazon Polly (voice-out, generative engine) + Amazon Transcribe streaming (voice-in). Every architectural gray area has already been resolved in `98-CONTEXT.md` — this research answers implementation HOWs.
 
 The two AWS SDK packages needed (`@aws-sdk/client-polly` and `@aws-sdk/client-transcribe-streaming`) are current, actively maintained, modular v3 packages that bundle `@aws-sdk/credential-provider-node` — which includes IMDS in its default chain — so the ambient-instance-identity decision from CONTEXT works out of the box with `new PollyClient({ region: "us-east-1" })`. No manual credential wiring.
 
@@ -42,7 +42,7 @@ Format on the wire client-facing: **request MP3 from Polly** (widest browser sup
 | Identity voice migration (one-shot wipe) | API / Backend (script) | Filesystem | Walks `~/.claude/identities/*/*.md` and `~/.claude/roles/*/*.md`, clears `voice:` frontmatter matching old regex |
 | AWS credential resolution | API / Backend (SDK default chain) | AWS IMDS | Ambient instance role via IMDS — SDK default provider chain, no wiring |
 | Off-switch (policy detach) | Ops / Infra | AWS IAM | Not-attaching-the-policy = feature dark, per CONTEXT |
-| Deploy doc | Repo docs | — | New MD file in `docs/deploy/` for operators of both t1000 + T800 |
+| Deploy doc | Repo docs | — | New MD file in `docs/deploy/` for operators of both host-b + host-c |
 
 ## Phase Requirements
 
@@ -103,7 +103,7 @@ RUN apt-get update && apt-get install -y nginx gettext-base openssl ca-certifica
     ...
 ```
 
-**Version verification (verified 2026-09-10 on t1000):**
+**Version verification (verified 2026-09-10 on host-b):**
 ```bash
 npm view @aws-sdk/client-polly version                     # → 3.1129.0
 npm view @aws-sdk/client-transcribe-streaming version      # → 3.1129.0
@@ -560,7 +560,7 @@ console.log(`roles: scanned=${rolesResult.scanned} cleared=${rolesResult.changed
 ```
 
 **Trigger (planner picks — three options):**
-1. **`docker exec` step in the deploy doc.** Cleanest — user/Stacy each run one command post-`docker-compose up`. Operator-visible, easy to re-run if it errors.
+1. **`docker exec` step in the deploy doc.** Cleanest — user/Morgan each run one command post-`docker-compose up`. Operator-visible, easy to re-run if it errors.
 2. **Startup one-shot in `starter.ts`.** Runs every restart. Made idempotent by the "skip if already conforms" guard. Zero operator action — user's preference from Phase 86 was ops-invisible where possible.
 3. **Distributor task in `substrate/`.** Overkill for a one-shot; distributor pattern is for continuous rollout.
 
@@ -600,7 +600,7 @@ Rename/refactor phase (voice-value regex change + Chatterbox integration deletio
 | Secrets/env vars | `STT_RECORDINGS_DIR` env var (in `voice.ts:82`) — preserved unchanged, still governs disk-bank location. No AWS-specific env vars needed (IMDS handles credentials). Region hardcoded in code (`us-east-1`), acceptable per CONTEXT ("Region: any; sample uses us-east-1"). | None. Optionally add `AWS_REGION` env var if operators want to override without code edit — cheap, adds one env-var read. |
 | Build artifacts / installed packages | (1) `@aws-sdk/*` packages need to be installed via `npm install` — will land in `package-lock.json`. (2) `ffmpeg` apt package needs to be in `docker/Dockerfile` Stage 5. Without it, the built image will NOT have ffmpeg and voice-in will fail with `ffmpeg: not found`. (3) Test files that mocked `fetch` for Chatterbox need rewriting to mock AWS SDK clients — this is code changes, not artifact changes. | Add packages via `npm install`, add `ffmpeg` to Dockerfile apt line. `npm install` regenerates `package-lock.json`. |
 
-**Canonical question answer:** After every file in the repo is updated — (a) every identity/role file's `voice:` field will point at a Chatterbox voice that no longer exists (`voice: Elena.wav` on disk); (b) the tg-bridge Docker service still has `/state/config.env` with a `STT_URL=http://100.80.122.111:8000/...` written by Skynet's boot-time writer, and its `tg_voice_to_mx` shell function still tries to POST voice-notes to that URL. Both are runtime-state gaps a grep of the repo would NOT catch.
+**Canonical question answer:** After every file in the repo is updated — (a) every identity/role file's `voice:` field will point at a Chatterbox voice that no longer exists (`voice: Elena.wav` on disk); (b) the tg-bridge Docker service still has `/state/config.env` with a `STT_URL=http://100.64.0.11:8000/...` written by Skynet's boot-time writer, and its `tg_voice_to_mx` shell function still tries to POST voice-notes to that URL. Both are runtime-state gaps a grep of the repo would NOT catch.
 
 ## Common Pitfalls
 
@@ -676,7 +676,7 @@ Rename/refactor phase (voice-value regex change + Chatterbox integration deletio
 
 ### Pitfall 7: ffmpeg not in the docker image at deploy time
 
-**What goes wrong:** Code ships, deploy runs `docker-compose build && up`. Backend starts. First voice recording upload → `handleTranscribe` → `spawn("ffmpeg", ...)` → `ENOENT: ffmpeg not found`. Feature dark for both t1000 and T800.
+**What goes wrong:** Code ships, deploy runs `docker-compose build && up`. Backend starts. First voice recording upload → `handleTranscribe` → `spawn("ffmpeg", ...)` → `ENOENT: ffmpeg not found`. Feature dark for both host-b and host-c.
 
 **Why it happens:** `docker/Dockerfile` Stage 5 doesn't include ffmpeg (verified 2026-09-10). The plan MUST include a task that adds it. Missing this = ship-blocker.
 
@@ -686,7 +686,7 @@ Rename/refactor phase (voice-value regex change + Chatterbox integration deletio
 
 ### Pitfall 8: tg-bridge's STT_URL still points at Chatterbox after Skynet deploys
 
-**What goes wrong:** Skynet deploys, `media-endpoints.ts` deletes, `bridge-config-writer.ts` fails to import → bridge-config write skipped → bridge starts with the pre-existing `/state/config.env` still containing `STT_URL=http://100.80.122.111:8000/...` → Telegram voice notes still POST to Chatterbox, which is dead. tg-bridge voice-note transcription silently breaks.
+**What goes wrong:** Skynet deploys, `media-endpoints.ts` deletes, `bridge-config-writer.ts` fails to import → bridge-config write skipped → bridge starts with the pre-existing `/state/config.env` still containing `STT_URL=http://100.64.0.11:8000/...` → Telegram voice notes still POST to Chatterbox, which is dead. tg-bridge voice-note transcription silently breaks.
 
 **Why it happens:** tg-bridge is a separate Docker service; it has its own transcode-and-transcribe path in `bridge.sh:225` that curl-POSTs to `$STT_URL`. That path is completely independent of Skynet's `handleTranscribe`.
 
@@ -842,7 +842,7 @@ vi.mock("@aws-sdk/client-polly", () => ({
 | A4 | Startup one-shot migration (option 2 in Pattern 6) is acceptable to user | Pattern 6, § Deploy | If user prefers `docker exec` manual step, planner switches to option 1 — script exists either way, just wired to a different trigger. |
 | A5 | tg-bridge's `tg_voice_to_mx` STT path is safely deletable or replaceable — user hasn't sacred-cow'd it | Pitfall 8, § Voice-endpoint config surface | If it must be preserved, plan gains one task (route bridge STT through Skynet's endpoint) but no architectural change. NEEDS USER DECISION at plan-time. |
 | A6 | AWS SDK v3 packages will still be at `~3.1129.x` at ship-time (they publish weekly; version at ship may be `3.1150.x` or later) | Standard Stack, versions | Pin to `^3.1129.0` for install; version bump between plan and ship is normal and non-breaking (v3 line follows semver). |
-| A7 | user's Aither AWS account (via `termix-ssm-role`) and Stacy's T800 AWS account both support generative Polly voices in whatever region they attach the policy to | § Deploy | Generative Polly not available in all regions. If Stacy's default region doesn't have it, deploy doc must specify a region that does (e.g., `us-east-1`). Verified: Polly generative widely available in US East regions per AWS 2026-03 expansion. |
+| A7 | user's Acme AWS account (via `example-ssm-role`) and Morgan's host-c AWS account both support generative Polly voices in whatever region they attach the policy to | § Deploy | Generative Polly not available in all regions. If Morgan's default region doesn't have it, deploy doc must specify a region that does (e.g., `us-east-1`). Verified: Polly generative widely available in US East regions per AWS 2026-03 expansion. |
 | A8 | The `docker/Dockerfile` change (add `ffmpeg` to apt line) doesn't blow past image-size ceilings user cares about | Pitfall 7, § Standard Stack | ffmpeg is ~30MB. Skynet image is already several hundred MB. Negligible in practice. |
 | A9 | Deleting `media-endpoints.ts` entirely (vs reshaping to a stub) doesn't break other consumers | § Voice-endpoint config surface after deletion | Grep confirms only `voice.ts` + `bridge-config-writer.ts` import from it. Both must be updated in the same commit. |
 
@@ -904,7 +904,7 @@ Two consumers. `voice.ts` gets rewritten to import from `polly-voice-catalog.ts`
 | AWS SDK v3 | Voice-in + voice-out | ✗ (not yet installed) | 3.1129.0 target | — |
 | AWS Polly service | Voice-out | ✓ (per exploration 2026-09-09) | — | — |
 | AWS Transcribe streaming | Voice-in | ✓ (per exploration 2026-09-09) | — | — |
-| IMDS credentials (EC2 instance role) | AWS SDK auth | ✓ (t1000: `termix-ssm-role/PollyTranscribeExploratory`) | — | Static keys would work but violate CONTEXT lock |
+| IMDS credentials (EC2 instance role) | AWS SDK auth | ✓ (host-b: `example-ssm-role/PollyTranscribeExploratory`) | — | Static keys would work but violate CONTEXT lock |
 | `~/.claude/identities/` folder on host | Migration script | ✓ (existing) | — | Script tolerates missing folder gracefully |
 | `~/.claude/roles/` folder on host | Migration script | ✓ (existing per Phase 86) | — | Script tolerates missing folder gracefully |
 | `/app/stt-recordings/` dir | STT disk-bank preserve | ✓ (created by mkdir in current code) | — | — |
@@ -945,7 +945,7 @@ Two consumers. `voice.ts` gets rewritten to import from `polly-voice-catalog.ts`
 | P98-MIG-02 | Validator whitelist rejects old-format `.wav` values | unit | `npx vitest run src/backend/database/routes/identities.test.ts -t voice-validator` | ⚠️ (identities.test.ts exists — add cases) |
 | P98-OFF-01 | AccessDenied → 503 clean (no crash) | unit (mocked SDK throws AccessDenied) | `npx vitest run src/backend/database/routes/voice.test.ts -t access-denied` | ❌ Wave 0 |
 | P98-DOC-01 | Doc exists at `docs/deploy/aws-voice-setup.md` and covers all bullets | manual review | plan-checker phase | manual-only |
-| P98-KILL-01 | Grep shows no residual Chatterbox integration | script | `! grep -rn "100.80.122.111\|Chatterbox" src/ substrate/ && echo OK` | ❌ Wave 0 |
+| P98-KILL-01 | Grep shows no residual Chatterbox integration | script | `! grep -rn "100.64.0.11\|Chatterbox" src/ substrate/ && echo OK` | ❌ Wave 0 |
 
 ### Sampling Rate
 - **Per task commit:** `npx vitest run --related <changed-files>` (fleet standard)
@@ -985,7 +985,7 @@ Two consumers. `voice.ts` gets rewritten to import from `polly-voice-catalog.ts`
 | Pattern | STRIDE | Standard Mitigation |
 |---------|--------|---------------------|
 | Text-based prompt injection into TTS (attacker crafts text that Polly reads with a jailbreak-shaped payload) | Tampering | Not applicable — Polly speaks text verbatim; no downstream LLM consumes the audio. Existing SPEAK_TEXT_MAX cap is sufficient. |
-| Cost exhaustion via unbounded Polly calls | Denial of Service | (a) SPEAK_TEXT_MAX = 25000 caps single-call cost at ~$0.75 max per call. (b) JWT auth gate. (c) user/Stacy monitor AWS billing per operator responsibility (CONTEXT: "operator controls the cost gate"). |
+| Cost exhaustion via unbounded Polly calls | Denial of Service | (a) SPEAK_TEXT_MAX = 25000 caps single-call cost at ~$0.75 max per call. (b) JWT auth gate. (c) user/Morgan monitor AWS billing per operator responsibility (CONTEXT: "operator controls the cost gate"). |
 | Cost exhaustion via streaming Transcribe (unbounded audio push) | Denial of Service | multer 25MB cap on upload → ~25 minutes of audio maximum → ~$0.60 max per call. JWT auth gate. |
 | SSRF via `endpoint` param on AWS SDK client | Server-Side Request Forgery | Don't accept endpoint from any input; hardcode `region: "us-east-1"` in client construction. |
 | Credential leak via error responses | Information Disclosure | Wrap all AWS SDK calls; on error, return fixed `{error, status}` shape — never surface `err.message` from AWS (may include credential hints). |

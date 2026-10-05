@@ -145,7 +145,7 @@ Phase 114 has no formal REQUIREMENTS.md IDs (per the verification context — `r
 
 The following are the D-25 post-deploy sanity checks that fall to the orchestrator's ship-motion boundary. They are NOT within the executor's remit and NOT within the verifier's automated scope. They are surfaced here for the developer (the user) to run as part of the D-24 push → build → recreate → verify motion:
 
-1. **Test: End-to-end sweep on t1000 lands the file on a root-SSH managed host**
+1. **Test: End-to-end sweep on host-b lands the file on a root-SSH managed host**
    - Set `instancePolicyFilename` to a test twinkie in `/opt/skynet/branding.json`
    - Place a test markdown file at `/opt/skynet/branding/<filename>` on the host
    - Wait for the next distributor sweep tick (30s retry cadence)
@@ -171,7 +171,7 @@ The following are the D-25 post-deploy sanity checks that fall to the orchestrat
 5. **Test: Claude Code natively picks up `/etc/claude-code/CLAUDE.md` at session start on a managed host**
    - After twinkie lands at `/etc/claude-code/CLAUDE.md` on a root-SSH host, start a new Claude Code session on that host
    - **Expected:** Session picks up the twinkie content as managed-policy layer above `~/.claude/CLAUDE.md`. Load order per code.claude.com/docs/en/memory: managed → user → project → local
-   - **Why human:** CONTEXT.md § "Mechanism gate — already closed" says this was verified out-of-band across three hosts (t1000, T800, test08) BEFORE Phase 114 planning began. It is worth one confirmation post-deploy that the delivered file loads correctly for at least one managed host
+   - **Why human:** CONTEXT.md § "Mechanism gate — already closed" says this was verified out-of-band across three hosts (host-b, host-c, test08) BEFORE Phase 114 planning began. It is worth one confirmation post-deploy that the delivered file loads correctly for at least one managed host
 
 None of these gaps block the phase's automated verification — they are the informational D-25 post-deploy verification anchors the orchestrator (or the user directly) will run as part of the ship motion.
 
@@ -198,7 +198,7 @@ Executor remit stops at code + commit + scoped-tests-green. The orchestrator (th
 
 - `git push`
 - `docker compose build`
-- `docker compose up --force-recreate` on t1000
+- `docker compose up --force-recreate` on host-b
 - D-25 post-deploy sanity checks (enumerated under "Human Verification Required" above)
 
 No push/build/deploy operations were performed in any of the 23 Phase 114 commits (105485cb..069d33cc), as intended by D-24.

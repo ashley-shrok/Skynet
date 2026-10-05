@@ -20,7 +20,7 @@ How should the modal be reorganized so:
 ## How to View
 
 Local: `open .planning/sketches/001-identity-modal-role-vs-identity-split/index.html`
-Tailnet-served (mobile Safari): `http://100.99.149.8:8899/` while the sketch server is running on t1000.
+Tailnet-served (mobile Safari): `http://100.64.0.13:8899/` while the sketch server is running on host-b.
 
 ## Variants
 

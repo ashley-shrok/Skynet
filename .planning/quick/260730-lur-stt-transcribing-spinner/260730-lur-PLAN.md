@@ -101,7 +101,7 @@ Post-task global checks (run once after Task 1 commits):
 3. No regressions in sibling ComposeBox suites: `npx vitest run src/ui/features/pretty-view/ComposeBox.test.tsx src/ui/features/pretty-view/ComposeBox.aside-morph.test.tsx src/ui/features/pretty-view/ComposeBox.aside-props.test.tsx src/ui/features/pretty-view/ComposeBox.recycle-disable.test.tsx` all green.
 4. Frontend-only change confirmed: `git diff --name-only HEAD~1` (post-commit) shows only files under `src/ui/`. No `src/backend/` files — full `npm run build:backend` is intentionally NOT run per task spec.
 5. Scope guards: `git diff --name-only HEAD~1` shows NO files under `~/.claude/identities/tina/`, NO `skynet-patches.md`, NO bounty files.
-6. Terminal boundary: STOP at `git commit` on `feat/tab-title-from-tmux`. Do NOT `git push`, do NOT `docker build`, do NOT `docker compose up`, do NOT touch skynet-ec2. Identity-side bookkeeping (patch catalog, bounty status) is the orchestrator's job after this executor completes.
+6. Terminal boundary: STOP at `git commit` on `feat/tab-title-from-tmux`. Do NOT `git push`, do NOT `docker build`, do NOT `docker compose up`, do NOT touch primary-host. Identity-side bookkeeping (patch catalog, bounty status) is the orchestrator's job after this executor completes.
 </verification>
 
 <threat_model>

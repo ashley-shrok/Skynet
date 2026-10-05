@@ -1,6 +1,6 @@
 # Phase 122 Plan 01 — Wave 0 Empirical Checkpoint Results
 
-**Assumption tested (A1 from RESEARCH.md):** For at least 3 known-archived identities on host t1000, does `discoverIdentitySessionFile(conn, identityKey)` (LOCAL branch, `conn=null`) still return a resolvable transcript path?
+**Assumption tested (A1 from RESEARCH.md):** For at least 3 known-archived identities on host host-b, does `discoverIdentitySessionFile(conn, identityKey)` (LOCAL branch, `conn=null`) still return a resolvable transcript path?
 
 **Investigation method:** Rather than spinning up a `tsx`/`node` shim to import the compiled helper, I replicated its LOCAL-branch algorithm in a small shell script at `/tmp/probe-archived-discover.sh` (throwaway, not committed). The script mirrors `readLocalDiscovery` + `readFirstUserRoleLine` + `__matchesIdentityFirstTurnForTests` exactly:
 

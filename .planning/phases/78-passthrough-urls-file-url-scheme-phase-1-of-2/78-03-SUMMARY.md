@@ -185,14 +185,14 @@ None. Step 4 is fully wired and functional — writes real bytes to real hosts o
 Repeated from the plan's `<output>` block for the orchestrator's post-merge run:
 
 1. Coord-room BEFORE post
-2. SSH to t1000
+2. SSH to host-b
 3. Add `SKYNET_PUBLIC_URL=https://term.example.com` to `/opt/skynet/skynet.env` (create the line if absent)
 4. `docker compose up --force-recreate skynet` (behind the mandatory 15-min deadman timer per PROJECT.md)
 5. Verify: `docker exec skynet-container printenv SKYNET_PUBLIC_URL`
 6. Wait one sweep interval (~2s)
-7. SSH to a managed box (e.g. `thenasty`) and verify `cat ~/.claude/skynet-parent` returns the URL
+7. SSH to a managed box (e.g. `host-a`) and verify `cat ~/.claude/skynet-parent` returns the URL
 8. Coord-room AFTER post
-9. Coord separately with Stacy for T800's equivalent env-var addition (`SKYNET_PUBLIC_URL=https://skynet.aithercloud.com`)
+9. Coord separately with Morgan for host-c's equivalent env-var addition (`SKYNET_PUBLIC_URL=https://skynet.example.net`)
 
 ## Self-Check: PASSED
 

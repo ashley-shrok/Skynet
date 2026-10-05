@@ -11,11 +11,11 @@ autonomous: true
 requirements:
   - QRW-01  # Swap sftp.rename → sftp.ext_openssh_rename in writeMarkdownFileAtomic (root cause of IdentityModal save failure on existing identities)
   - QRW-02  # Add regression test that asserts writeIdentityFile calls ext_openssh_rename (and NOT sftp.rename) on the REMOTE branch
-  - QRW-03  # Update JSDoc prologue on writeMarkdownFileAtomic to record WHY the extension is required (link/EEXIST → SSH2_FX_FAILURE trap; @stacy 2026-08-02 root cause)
+  - QRW-03  # Update JSDoc prologue on writeMarkdownFileAtomic to record WHY the extension is required (link/EEXIST → SSH2_FX_FAILURE trap; @morgan 2026-08-02 root cause)
 
 must_haves:
   truths:
-    - "user's IdentityModal saves against an EXISTING identity file no longer surface generic 'Error: Failure' (SFTP code 4) on skynet-ec2."
+    - "user's IdentityModal saves against an EXISTING identity file no longer surface generic 'Error: Failure' (SFTP code 4) on primary-host."
     - "All four identity writers (writeIdentityFile, writeIdentityHistory, writeIdentityHandoff, writeIdentityBountyFields) route their atomic rename through the OpenSSH posix-rename extension, giving them POSIX rename(2) overwrite semantics."
     - "A regression test in the identity-artifact-reader REMOTE-branch suite fails loudly (throws a diagnostic 'must not call sftp.rename — use ext_openssh_rename') if a future edit reverts writeMarkdownFileAtomic to sftp.rename."
     - "`npm run build:backend` passes on the strict backend tsconfig (belt-and-suspenders per Tina's learned rule — frontend `tsc --noEmit` alone does not catch backend TS errors)."
@@ -40,7 +40,7 @@ must_haves:
 <objective>
 Fix IdentityModal save failure on EXISTING identity files (per QRW-01).
 
-Root cause (confirmed on skynet-ec2, root-caused by @stacy on ceo-skynet 2026-08-02, full handoff at ~/pretty-view-uploads/2026-08-02/190204-TINA-HANDOFF.md):
+Root cause (confirmed on primary-host, root-caused by @morgan on ceo-skynet 2026-08-02, full handoff at ~/pretty-view-uploads/2026-08-02/190204-TINA-HANDOFF.md):
 
   writeMarkdownFileAtomic at src/backend/claude-session/identity-artifact-reader.ts:855
   calls sftp.rename(tmp, target, cb), which sends SFTPv3 SSH_FXP_RENAME.
@@ -121,7 +121,7 @@ test file (identity-artifact-reader.remote-writes.test.ts).
 
     Implementation changes (identity-artifact-reader.ts):
     - Line ~855: change `sftp.rename(tmpPath, targetPath, ...)` → `sftp.ext_openssh_rename(tmpPath, targetPath, ...)`. Callback shape, error handling, and surrounding try/catch/finally are unchanged.
-    - Lines ~817-825 JSDoc prologue for writeMarkdownFileAtomic: rewrite to a short paragraph explaining why the extension is required. Cover: (1) SFTPv3 SSH_FXP_RENAME cannot atomically overwrite; (2) OpenSSH process_rename tries link() first, EEXIST → SSH2_FX_FAILURE via errno_to_portable() gap; (3) posix-rename@openssh.com extension has POSIX rename(2) semantics; (4) supported by every OpenSSH ≥5.1; (5) root-caused 2026-08-02 by @stacy on ceo-skynet, confirmed on skynet-ec2. The existing "Promise-wraps conn.sftp → sftp.writeFile(tmp) → sftp.rename(tmp, target)" sentence must be updated to reference ext_openssh_rename (this is what changes the executable-rename-count grep result).
+    - Lines ~817-825 JSDoc prologue for writeMarkdownFileAtomic: rewrite to a short paragraph explaining why the extension is required. Cover: (1) SFTPv3 SSH_FXP_RENAME cannot atomically overwrite; (2) OpenSSH process_rename tries link() first, EEXIST → SSH2_FX_FAILURE via errno_to_portable() gap; (3) posix-rename@openssh.com extension has POSIX rename(2) semantics; (4) supported by every OpenSSH ≥5.1; (5) root-caused 2026-08-02 by @morgan on ceo-skynet, confirmed on primary-host. The existing "Promise-wraps conn.sftp → sftp.writeFile(tmp) → sftp.rename(tmp, target)" sentence must be updated to reference ext_openssh_rename (this is what changes the executable-rename-count grep result).
   </behavior>
   <action>
 Do this task in strict RED→GREEN order — the regression test is the mechanism that pins QRW-01 in place forever, so it MUST exist and MUST fail before the swap lands.
@@ -130,7 +130,7 @@ STEP A (RED — write test first). Create `src/backend/claude-session/identity-a
 
 STEP B (GREEN — apply the swap + JSDoc). In `src/backend/claude-session/identity-artifact-reader.ts`:
   1. At line ~855 replace `sftp.rename(tmpPath, targetPath, (err) => { ... })` with `sftp.ext_openssh_rename(tmpPath, targetPath, (err) => { ... })`. Preserve the callback body and surrounding Promise wrap exactly.
-  2. Rewrite the JSDoc prologue at lines ~817-825 to record WHY (the EEXIST → SSH2_FX_FAILURE trap, POSIX rename(2) semantics of the extension, OpenSSH ≥5.1 universality, @stacy root-cause 2026-08-02). The prologue's mention of `sftp.rename(tmp, target)` must be updated to `sftp.ext_openssh_rename(tmp, target)` so the file no longer contains any reference to the buggy API in executable position.
+  2. Rewrite the JSDoc prologue at lines ~817-825 to record WHY (the EEXIST → SSH2_FX_FAILURE trap, POSIX rename(2) semantics of the extension, OpenSSH ≥5.1 universality, @morgan root-cause 2026-08-02). The prologue's mention of `sftp.rename(tmp, target)` must be updated to `sftp.ext_openssh_rename(tmp, target)` so the file no longer contains any reference to the buggy API in executable position.
   3. Rerun `npx vitest run src/backend/claude-session/identity-artifact-reader.remote-writes` — both tests must now pass.
 
 STEP C (safety net). Run the full identity-artifact-reader suite and the strict backend build to catch any collateral damage (see `<verify>`).
@@ -153,7 +153,7 @@ Rebase-ability constraint (CLAUDE.md): this is a bugfix, not a numbered patch on
   </verify>
   <done>
     - `sftp.ext_openssh_rename(tmpPath, targetPath, ...)` is the single rename call site inside writeMarkdownFileAtomic (identity-artifact-reader.ts ~line 855).
-    - JSDoc prologue for writeMarkdownFileAtomic (~lines 817-825) documents the EEXIST → SSH2_FX_FAILURE trap and the @stacy 2026-08-02 root cause; no lingering executable reference to `sftp.rename(` remains anywhere in the file.
+    - JSDoc prologue for writeMarkdownFileAtomic (~lines 817-825) documents the EEXIST → SSH2_FX_FAILURE trap and the @morgan 2026-08-02 root cause; no lingering executable reference to `sftp.rename(` remains anywhere in the file.
     - New file `src/backend/claude-session/identity-artifact-reader.remote-writes.test.ts` exists with a `rename: vi.fn(() => { throw ... })` trap that would fail loudly against any future revert to `sftp.rename`. It contains at least one passing test for `writeIdentityFile` and at least one covering `writeIdentityHistory` + `writeIdentityHandoff` (either combined or split).
     - `npx vitest run src/backend/claude-session/identity-artifact-reader` — full suite green (existing local-branch tests untouched + new REMOTE-branch tests passing).
     - `npm run build:backend` — strict backend tsconfig passes.
@@ -200,7 +200,7 @@ Phase-level checks:
 - New regression test file exists and passes, with a throwing `rename` trap that would fail loudly against any future revert.
 - Full identity-artifact-reader vitest suite passes (existing + new).
 - `npm run build:backend`, `npm run build`, and `npx tsc --noEmit` all pass.
-- JSDoc prologue for writeMarkdownFileAtomic explains WHY the extension is required (link/EEXIST trap, POSIX rename(2) semantics, OpenSSH ≥5.1 universality, @stacy root-cause).
+- JSDoc prologue for writeMarkdownFileAtomic explains WHY the extension is required (link/EEXIST trap, POSIX rename(2) semantics, OpenSSH ≥5.1 universality, @morgan root-cause).
 - Change is committed on `feat/tab-title-from-tmux`. Nothing pushed, nothing deployed.
 </success_criteria>
 

@@ -28,7 +28,7 @@ Phase 129 lands a well-shaped visibility gate with a clean pure-function core, d
 const roleDefaults = roleCosmetics;
 ```
 
-`publicIdentity()` then re-emits it under `roleDefaults` in the response body (identities.ts:258). Because `extractCosmeticsFromFrontmatter` now includes `users` on the returned shape (identity-artifact-reader.ts:3245-3258), every visible identity whose role frontmatter has `users: [user, zoe]` will send `{"roleDefaults": {"users": ["user", "zoe"], ...}}` to any authenticated caller that can see the identity — including the caller themselves, who then knows exactly which cohabitants share that role. This tells the user on a shared host "role X is scoped to me + Zoe" purely from a network trace, and it makes the gate discoverable to any curious user via DevTools even without a UI affordance.
+`publicIdentity()` then re-emits it under `roleDefaults` in the response body (identities.ts:258). Because `extractCosmeticsFromFrontmatter` now includes `users` on the returned shape (identity-artifact-reader.ts:3245-3258), every visible identity whose role frontmatter has `users: [user, jess]` will send `{"roleDefaults": {"users": ["user", "jess"], ...}}` to any authenticated caller that can see the identity — including the caller themselves, who then knows exactly which cohabitants share that role. This tells the user on a shared host "role X is scoped to me + Jess" purely from a network trace, and it makes the gate discoverable to any curious user via DevTools even without a UI affordance.
 
 The close-out explicitly asserts under scope-out and D-6 that "users key never leaks into response body" for `roles-list-for-host` (verified true there via the raw/narrowed split). The same discipline was NOT applied for `GET /identities` — the `roleDefaults` pass-through is silently permissive.
 
@@ -64,7 +64,7 @@ The closure is invoked from `app-frame-filter.ts` per subscriber per frame that 
 - `snapshot` (once per subscriber connect, one gate call per state in the snapshot)
 - `gone`, `identity-archived`, `session-project-changed` (per emit)
 
-For a subscriber connecting to a host with N identities, the initial `snapshot` frame triggers **N parallel SSH connects** (via `Promise.all` in app-frame-filter.ts:356-376). With the user's driver scenario ("host shared with Zoe") plus, say, 20 identities across two subscribers, that's 40 concurrent SSH connects at subscribe time — right at the sshd default `MaxSessions=10` limit that the rest of the codebase carefully rations via `getHostSemaphore` (identities.ts:380-384, cap 8) and CONVERSATION_SEARCH's `DISCOVERY_CONCURRENCY = 6` (conversation-search.ts:145).
+For a subscriber connecting to a host with N identities, the initial `snapshot` frame triggers **N parallel SSH connects** (via `Promise.all` in app-frame-filter.ts:356-376). With the user's driver scenario ("host shared with Jess") plus, say, 20 identities across two subscribers, that's 40 concurrent SSH connects at subscribe time — right at the sshd default `MaxSessions=10` limit that the rest of the codebase carefully rations via `getHostSemaphore` (identities.ts:380-384, cap 8) and CONVERSATION_SEARCH's `DISCOVERY_CONCURRENCY = 6` (conversation-search.ts:145).
 
 The WS gate:
 - does NOT go through the per-host semaphore (`starter.ts:660-785` has no `getHostSemaphore` call);

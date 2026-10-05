@@ -151,7 +151,7 @@ WantedBy=default.target
 
 Notes: `RestartSec=5` (vs 10) matches Nina's live unit; `KillMode=mixed` matches Nina's live unit (`agent-supervisor` uses `process` because it supervises tmux sessions that must survive a supervisor restart — the bridge has no such invariant, `mixed` cleans up bash + child curl polls).
 
-**Install path:** `~/.config/systemd/user/tg-bridge.service` (matches agent-supervisor at catalog.ts:237). USER scope needs `loginctl enable-linger ubuntu` on t1000 (already set per RESEARCH.md — verified via user's other USER-scoped units running post-logout).
+**Install path:** `~/.config/systemd/user/tg-bridge.service` (matches agent-supervisor at catalog.ts:237). USER scope needs `loginctl enable-linger ubuntu` on host-b (already set per RESEARCH.md — verified via user's other USER-scoped units running post-logout).
 
 ---
 
@@ -333,7 +333,7 @@ export default router;
 - `POST /telegram/restart` — retry restart (admin OR own-identity)
 
 **Admin-gate for the migration route** (belongs in `matrix-admin/routes.ts` per user decision #5):
-- `POST /matrix-admin/migrate-cred-files` — mirrors `POST /matrix-admin/creds` exactly (same file, same middleware, same error shape); body is empty (idempotent one-shot); returns `{ok:true, minted:["user","zoey"], deleted:["user.cred","zoey.cred"]}`.
+- `POST /matrix-admin/migrate-cred-files` — mirrors `POST /matrix-admin/creds` exactly (same file, same middleware, same error shape); body is empty (idempotent one-shot); returns `{ok:true, minted:["user","dana"], deleted:["user.cred","dana.cred"]}`.
 
 ---
 
@@ -420,7 +420,7 @@ export async function restartUserUnit(
 }
 ```
 
-**Phase B key diff:** for the self-Skynet host (t1000), the SSH channel is against `host id 6` (per user decision #1) — same code path as every other substrate host after the credential wire-up. USER-scoped (per decision #2) so this `--user` command stays as-is (no changes to `ssh-push.ts` needed).
+**Phase B key diff:** for the self-Skynet host (host-b), the SSH channel is against `host id 6` (per user decision #1) — same code path as every other substrate host after the credential wire-up. USER-scoped (per decision #2) so this `--user` command stays as-is (no changes to `ssh-push.ts` needed).
 
 ---
 
@@ -861,7 +861,7 @@ if (sshDataObj.credentialId !== undefined) {
 ```
 
 **Phase B execution (no new code — use existing HTTP surface):**
-1. Create an SSH credential entry (`POST /credentials` — existing endpoint at `src/backend/database/routes/credentials.ts:75`) with an ed25519 keypair for `ubuntu@localhost` (Skynet SSH-ing to itself over t1000's SSH server).
+1. Create an SSH credential entry (`POST /credentials` — existing endpoint at `src/backend/database/routes/credentials.ts:75`) with an ed25519 keypair for `ubuntu@localhost` (Skynet SSH-ing to itself over host-b's SSH server).
 2. Attach it to host id 6 via `PUT /host/6` with `{credentialId: <new-id>}` — the D-08 guard at host.ts:1088-1097 verifies `runsFleetSubstrate && credentialId` invariant holds.
 3. Verify: `docker logs skynet` should stop emitting the `[WARN] fleet_substrate_host_no_credential_id, host:6, hostName:Skynet` line (RESEARCH.md § Pitfall 3 evidence).
 

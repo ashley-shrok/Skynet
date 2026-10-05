@@ -36,7 +36,7 @@ Load-bearing invariants:
 - **The editor surface inside content editors isn't ours to design.** The real editor uses Monaco/CodeMirror. We design the container around it — file tabs, head, foot — nothing else.
 - **Don't add functionality that wasn't there already.** If we want to add a new affordance, that's an explicit conversation, not a silent extension during translation.
 - **Never leak the maintainer's name into user-facing app copy.** No "user reads this" in feedback subtitles, no "user's greenlight" in modal chrome. Windows doesn't say Bill Gates.
-- **Adapt to single-host reality.** Most users have one host. Host pickers disappear in single-host mode. "On t1000" subtitle removed — single-host users don't deal in hosts.
+- **Adapt to single-host reality.** Most users have one host. Host pickers disappear in single-host mode. "On host-b" subtitle removed — single-host users don't deal in hosts.
 - **The canonical is the path of least resistance.** New modals compose from it. Agents picking up feature work should find writing a new modal EASIER via the canonical than by reaching for the raw radix primitive.
 
 ## Prior context
@@ -51,7 +51,7 @@ Load-bearing invariants:
 - A modal in the app that looks visually correct but bypasses the canonical container (drift risk future-forward).
 - A "translation" of a modal that adds functionality the original didn't have (feature creep in disguise).
 - The canonical exists but new features still reach past it for the raw radix primitive because the convention isn't loud enough or the container isn't rich enough for their case.
-- A translated modal that fails single-host case (host picker showing when the user has one host, "on t1000" subtitle appearing, etc.).
+- A translated modal that fails single-host case (host picker showing when the user has one host, "on host-b" subtitle appearing, etc.).
 - Meta lines and subtitles that describe what the modal is instead of adding real information.
 - A translated modal that mentions the maintainer by name in user-visible copy.
 

@@ -88,7 +88,7 @@ None — plan executed exactly as written.
 - `grep -c "useVoiceRecording" skynet-patches.md` returns 6 (>= 1)
 - `grep -c "src/backend/database/routes/voice.ts" skynet-patches.md` returns 2 (>= 1)
 - `grep -c "docker/nginx.conf\|docker/nginx-https.conf" skynet-patches.md` returns 11 (>= 1)
-- `grep -c "100.80.122.111\|faster-whisper" skynet-patches.md` returns 3 (>= 1)
+- `grep -c "100.64.0.11\|faster-whisper" skynet-patches.md` returns 3 (>= 1)
 - Header phrase confirmed: "ONE HUNDRED FIFTY" (bumped by exactly one)
 - New patch entry is at EOF (tail -20 verified)
 - No other patch entries modified (pure-append + header bump; no mid-file insertions)
@@ -100,7 +100,7 @@ None — the catalog entry is complete and self-contained.
 ## Threat Flags
 
 None — as noted in the plan's threat model:
-- T-16-17: The tailnet IP `100.80.122.111` appears in the write-up by design (same disclosure posture as CONTEXT.md / bounty.json which also carry it). The catalog lives under `~/.claude/identities/tina/` — user's private identity directory, not committed to any public repo.
+- T-16-17: The tailnet IP `100.64.0.11` appears in the write-up by design (same disclosure posture as CONTEXT.md / bounty.json which also carry it). The catalog lives under `~/.claude/identities/tina/` — user's private identity directory, not committed to any public repo.
 - T-16-SC: Doc-only edit; no npm/pip/cargo activity.
 
 ## Self-Check: PASSED

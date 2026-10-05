@@ -215,7 +215,7 @@ commit `80a748b6`):
 | M1 | Medium | `mapEndedEventToReason` dead-code for `homeserver_unreachable` + `role_unknown` (emit callback discarded step:failed reasons; all failures collapsed to `birth_failed`) | Emit callback captures last `step:failed` reason; `mapEndedEventToReason` takes reason as 2nd arg |
 | M2 | Medium | Malformed JSON silently dropped in sweep — coord stranded until safety timeout | Sweep calls full `parseRequestBody`; on failure enqueues with `malformedReason`; worker short-circuits and drops `{reason:"malformed", message}` failure file |
 | M3 | Medium | Missing/invalid role collapsed to `birth_failed` instead of `malformed` | Same fix as M2 — sweep-time validation catches role-pattern violations |
-| H1 | High | Success response `mxid` had port embedded (`@willow:thenasty:8008`) | Dropped `mxid` field entirely per H2 |
+| H1 | High | Success response `mxid` had port embedded (`@willow:host-a:8008`) | Dropped `mxid` field entirely per H2 |
 | H2 | High | Success response `mxid` localpart was pool key not derived MXID; orchestrator's ended event doesn't surface it | Dropped `mxid` from `SuccessResponse` — coord uses `name` for dispatch; directory-search resolves name → mxid when needed |
 | L1 | Low | worker.test.ts mock used non-existent MatrixAdminCreds field names | Corrected to real shape |
 | L2 | Low (cross-shape) | Shape 4 coord-instructions described coord watching for request-file deletion as "birth complete" — actual has request deleted at sweep-claim, response file dropped later | Rewrote § Wait for the response file / § Act on the response to describe the paired response-file protocol |

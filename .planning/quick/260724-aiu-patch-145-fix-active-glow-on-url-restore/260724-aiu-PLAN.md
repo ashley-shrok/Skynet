@@ -11,7 +11,7 @@ requirements:
   - PATCH-145
 must_haves:
   truths:
-    - "A browser tab pre-loaded pointing at a session (URL-restore path, e.g. href '#tab=tmux:thenasty:yolanda') shows that session as glowing in the sidebar without any click"
+    - "A browser tab pre-loaded pointing at a session (URL-restore path, e.g. href '#tab=tmux:host-a:yolanda') shows that session as glowing in the sidebar without any click"
     - "A browser tab restored from persisted-tab-storage lights up the first restored tab in the sidebar without any click"
     - "state.selectedId in conversation-store is non-null at mount for both URL-restore and persisted-tab-restore paths"
     - "sessionStorage['pv-conv-active-set'] contains the URL-targeted / persisted-first tab id after mount"
@@ -42,7 +42,7 @@ must_haves:
 <objective>
 Patch #145: fix active-glow on URL-restore and persisted-tab-restore paths.
 
-user UAT'd patch #144 on 2026-07-24 and reported that a browser tab pre-loaded pointing at a session (URL-restore path) does NOT show that session as glowing in the sidebar. Tina's V2 DevTools diag on user's tab (href `#tab=tmux:thenasty:yolanda`) confirmed: `sessionStorage["pv-conv-active-set"]` is EMPTY, 0 `.pv-row` elements have `.active-set` class, and `state.selectedId` stays null despite the URL clearly targeting a specific tab. Only clicking on the row makes it glow.
+user UAT'd patch #144 on 2026-07-24 and reported that a browser tab pre-loaded pointing at a session (URL-restore path) does NOT show that session as glowing in the sidebar. Tina's V2 DevTools diag on user's tab (href `#tab=tmux:host-a:yolanda`) confirmed: `sessionStorage["pv-conv-active-set"]` is EMPTY, 0 `.pv-row` elements have `.active-set` class, and `state.selectedId` stays null despite the URL clearly targeting a specific tab. Only clicking on the row makes it glow.
 
 Root cause: `AppShell.tsx:900` (URL-driven initial open) and `:832` (persisted-tab-restore) both call `setActiveTabId(id)` — local AppShell state — but neither calls `selectConversationDeferred(id)` on the conversation store. The sidebar click handlers at `AppShell.tsx:1295, 1309, 1317` correctly call both. With `state.selectedId` null, the patch #144 useEffect `if (selectedId) addToActiveSet(selectedId)` in `PrettyConversationsPanel.tsx:162-164` skips → activeSet stays empty → no glow.
 
@@ -107,7 +107,7 @@ Commit message (single atomic commit on `feat/tab-title-from-tmux`, NO Co-Author
 patch #145: fix active-glow on URL-restore and persisted-tab-restore
 
 user UAT of #144 caught that URL-preloaded tabs (href
-'#tab=tmux:thenasty:yolanda') and persisted-tab-restored tabs did
+'#tab=tmux:host-a:yolanda') and persisted-tab-restored tabs did
 NOT light up in the sidebar. Tina's V2 DevTools diag confirmed
 sessionStorage['pv-conv-active-set'] empty and 0 rows with
 .active-set class on user's tab.
@@ -150,7 +150,7 @@ pattern. Deploy deferred: batched with #146.
 
 <verification>
 Post-execution manual UAT (user or Tina, deferred to next deploy — NOT gating this patch's commit):
-1. Load skynet with a URL fragment targeting an active session (e.g. `#tab=tmux:thenasty:yolanda`)
+1. Load skynet with a URL fragment targeting an active session (e.g. `#tab=tmux:host-a:yolanda`)
 2. Confirm the sidebar row for that session shows the full pretty-view active-glow bubble treatment (hue-tinted gradient, border, shadow) — NOT the flat ambient recession treatment
 3. Open DevTools → Application → Session Storage, verify `pv-conv-active-set` contains the URL-targeted tab id
 4. Refresh the page (persisted-tab-restore path) and confirm the first restored tab lights up automatically without any click

@@ -85,7 +85,7 @@ The reload does not deliver a fresh session. The user clicks the button, the bro
 
 **Vehicle:** GSD phase. Phase-sized: several coordinated pieces (build-time tag production, server-side stamping and refusal, client-side interception and handshake, lock surface, shell-page cache-header discipline) that ship as a unit and become user-visible on every deploy after this lands. Warrants a plan, a review, and verification against a real staging.
 
-**Identity holding this:** rio, on t1000, in the box-maintainer role.
+**Identity holding this:** rio, on host-b, in the box-maintainer role.
 
 **Working tree:** `~/fleet/identities/rio/workspace/skynet` on the currently active branch.
 

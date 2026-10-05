@@ -295,7 +295,7 @@ while (upgradeSpy.mock.calls.length === 0 && Date.now() - start < 2000) {
 }
 expect(upgradeSpy).toHaveBeenCalledTimes(1);
 expect(mocks.getOrCreateAppPaneProxyForTarget).toHaveBeenCalledWith(
-  expect.objectContaining({ hostname: "t1000" }), 12345, 5, "todo",
+  expect.objectContaining({ hostname: "host-b" }), 12345, 5, "todo",
 );
 ```
 

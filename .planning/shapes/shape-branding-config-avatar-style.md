@@ -29,7 +29,7 @@ The instance refuses to boot if the aesthetic director spec is missing or empty.
 - The functionality was moved into the app a while ago and now runs as a batch endpoint: chat-model archetype draft → three parallel image-model calls → gamma lift → candidate cache → user pick.
 - The director spec currently lives as a fixed constant in the backend, embedding the LoL-champion aesthetic. The runbook file has stayed on disk as reference only and is scheduled for deletion as part of this ship.
 - A branding config already exists (from tiffany's earlier feature work); this build extends its schema.
-- Two production deployments exist: this box (Skynet on t1000) and Stacy's box (AI+ on T800). Both need the migration seed committed to their branding configs at ship time or neither boots.
+- Two production deployments exist: this box (Skynet on host-b) and Morgan's box (AI+ on host-c). Both need the migration seed committed to their branding configs at ship time or neither boots.
 
 ## What would make it wrong
 
@@ -74,7 +74,7 @@ The instance refuses to boot if the aesthetic director spec is missing or empty.
 
 - Vehicle is a GSD phase. Recommended by /build's execution-path directive because there are five coordinated pieces (schema extension, backend presence-check, boot-time validation, migration seed committed into both deployments' branding configs, runbook file deletion) and the failure mode is "both Skynet instances refuse to boot on deploy" — worth the plan + verify structure.
 - Next step: `/gsd:phase add` to slot the phase into the roadmap, then `/gsd:discuss-phase` (auto-proceeds per /build's rule). This shape file seeds CONTEXT.md directly — no need for discuss-phase to re-elicit the shape.
-- Cross-deployment migration: the AI+ box's branding config lives on Stacy's side. Coordination needs to include either (a) preparing the migration script such that Stacy applies it on her side as part of pulling the ship, or (b) my ship touches both configs directly. Which path lives inside the plan phase — the shape doesn't lock it.
+- Cross-deployment migration: the AI+ box's branding config lives on Morgan's side. Coordination needs to include either (a) preparing the migration script such that Morgan applies it on her side as part of pulling the ship, or (b) my ship touches both configs directly. Which path lives inside the plan phase — the shape doesn't lock it.
 - Runbook file to delete: the local box's role-folder runbook file for avatar-flow. This is per-box (local to this box's role folder), not distributed. The per-identity prompt archive files under the same role folder also become dead-history and go in the same ship.
 - Identity doing the work: tina.
 - The `/close <slug>` at the end of /build walks the shape's facets against what got built.

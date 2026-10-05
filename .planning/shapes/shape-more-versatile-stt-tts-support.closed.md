@@ -36,7 +36,7 @@ Two lanes, one philosophy — the client speaks the same shape it already speaks
 - The current voice-in and voice-out paths already happen to speak the same wire shape most external providers use — a happy accident of the local rig having chosen an industry-standard shape. Voice-in on the client side is close to an endpoint swap; real work is on the backend translation layer.
 - The old voice-out streaming pipeline is bespoke to the local rig's server-side chunking. The new pipeline moves chunking responsibility to Skynet's backend — same client experience, different owner of chunk boundaries.
 - Cloud-account access on user's Skynet host was validated end-to-end during /open. The narrow exploratory-scoped policy is already attached to her host's role and produced the sample outputs user signed off on. The eventual production feature runs on the same mechanism.
-- Skynet runs in two production places today — user's own instance and one managed by Stacy on the Aither company's box. Both need the new voice code and both need a policy attached on their side. The code itself is uniform between them.
+- Skynet runs in two production places today — user's own instance and one managed by Morgan on the Acme company's box. Both need the new voice code and both need a policy attached on their side. The code itself is uniform between them.
 
 ## What would make it wrong
 
@@ -44,7 +44,7 @@ Two lanes, one philosophy — the client speaks the same shape it already speaks
 - A message longer than the per-call ceiling producing audible pauses between chunks that a listener perceives as "the voice stopped mid-thought." Chunk-and-stitch should feel continuous.
 - The migration silently mangling existing identity voice values instead of cleanly resetting them. The story is "voice cleared; re-pick next time you open the identity," not "voice still says the old name but nothing plays and there's no signal why."
 - An operator having no way to turn the feature dark without editing app code. Not-attaching-the-policy has to be the off-switch, and the deploy doc has to name that explicitly.
-- The deploy-time doc leaving operators guessing at what steps they need to take on their cloud side. It has to be complete enough that Stacy follows it end-to-end without pinging tabitha.
+- The deploy-time doc leaving operators guessing at what steps they need to take on their cloud side. It has to be complete enough that Morgan follows it end-to-end without pinging tabitha.
 - Time-to-first-byte on voice-out being noticeably longer than today. The exploration confirmed the new provider stays under a few hundred milliseconds; that has to hold at ship.
 
 ## Scope edges
@@ -75,7 +75,7 @@ Two lanes, one philosophy — the client speaks the same shape it already speaks
 
 **Exploration artifacts to reference during discuss-phase and plan-phase:** `~/.claude/roles/box-maintainer/bounties/more-versatile-stt-tts-support/` holds the validation samples user signed off on (real assistant messages fed to the voice-out service, real voice clips fed to the voice-in service, and the actual outputs). Plan-phase should read those to anchor the "real behavior over synthetic samples" philosophy.
 
-**Coordination with Aither Infra:** Iris authored the narrow exploratory-scoped policy already attached to user's host. When shipping is imminent, ping her to re-scope from exploratory-name to a production name (she asked for that ping explicitly). Stacy on the Aither box picks up the new code via the standard cross-tree flow and follows the deploy doc on her side for her instance's cloud role.
+**Coordination with Acme Infra:** Iris authored the narrow exploratory-scoped policy already attached to user's host. When shipping is imminent, ping her to re-scope from exploratory-name to a production name (she asked for that ping explicitly). Morgan on the Acme box picks up the new code via the standard cross-tree flow and follows the deploy doc on her side for her instance's cloud role.
 
 ---
 
@@ -104,7 +104,7 @@ Two lanes, one philosophy — the client speaks the same shape it already speaks
 - **What would make it wrong: chunk-and-stitch audible pauses** — cannot-verify (not readable) · Pipeline DESIGNED to keep audio continuous (sentence-boundary split, prefetch chunk N+1 while chunk N streams); actual perceived continuity is a run-time question that belongs to agent UAT, not /close.
 - **What would make it wrong: migration silently mangles values** — guarded · Migration wraps everything in try/catch, never throws; boot-time one-shot idempotent; quote-strip guard load-bearing.
 - **What would make it wrong: no operator off-switch** — guarded · Not-attaching-the-policy is the off-switch; explicitly named in the deploy doc.
-- **What would make it wrong: deploy doc leaves operators guessing** — guarded · Doc is self-contained (204 lines), lists all four required policy actions inline, includes a verification command, and covers both t1000 and T800 sides.
+- **What would make it wrong: deploy doc leaves operators guessing** — guarded · Doc is self-contained (204 lines), lists all four required policy actions inline, includes a verification command, and covers both host-b and host-c sides.
 - **What would make it wrong: TTFB noticeably slower** — cannot-verify (not readable) · Chosen provider validated at ~few-hundred-ms during exploration; run-time behavior belongs to agent UAT.
 - **Scope edges: In-scope items** — all present · Voice-in swap, voice-out swap with streaming preserved, catalog reshape, hard-reset migration, validator update, deploy-time doc, clean removal of old integration paths.
 - **Scope edges: Out-of-scope items honored** — present · No provider-selection UI/config/dispatch; no non-English voices; no cost dashboards / per-user quotas / spend caps; no in-app engine toggle; no changes to voice-record button or compose-box mic UI or cross-message interrupt behavior; no bidirectional voice-conversational features.
@@ -116,7 +116,7 @@ None. The reviewer scanned the material for behaviors or features not in the sha
 
 ### Follow-ups
 
-- Ping Iris pre-ship to re-scope her `PollyTranscribeExploratory` policy name on `termix-ssm-role` to a production name — deferred (already recorded in the shape's Vehicle notes + in the deploy doc's ship-motion checklist + in Plan 98-09 SUMMARY; not a shape divergence).
+- Ping Iris pre-ship to re-scope her `PollyTranscribeExploratory` policy name on `example-ssm-role` to a production name — deferred (already recorded in the shape's Vehicle notes + in the deploy doc's ship-motion checklist + in Plan 98-09 SUMMARY; not a shape divergence).
 - Behavioral verification of chunk-and-stitch continuity + TTFB perception — deferred to agent UAT (/build step 5), which happens post-deploy against the running container.
 
 ### Notes

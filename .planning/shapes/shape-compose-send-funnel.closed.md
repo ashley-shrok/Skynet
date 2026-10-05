@@ -65,7 +65,7 @@ The reset-button dormant bug is expected to fix as a side-effect of routing rese
 
 GSD phase. The funnel + rewire touches 5 UI affordances + likely a new hook or helper module + tests per trigger. The phase will need its own discuss → plan → execute → verify.
 
-Handoff seed for the phase: this shape file is authoritative for what → discuss-phase should generate CONTEXT.md from it (or drop it in as CONTEXT.md), not re-elicit. Identity doing the work: `tiffany` (box-maintainer of t1000, Skynet). Related files that discuss-phase will need to point at:
+Handoff seed for the phase: this shape file is authoritative for what → discuss-phase should generate CONTEXT.md from it (or drop it in as CONTEXT.md), not re-elicit. Identity doing the work: `tiffany` (box-maintainer of host-b, Skynet). Related files that discuss-phase will need to point at:
 
 - `src/ui/features/pretty-view/ComposeBox.tsx` — all 5 trigger handlers live here (`handleSend`, `handleQueueSlotSend`, `handleQuickSend`, `handleResetSend`, `dispatchResetPayload`)
 - `src/ui/features/pretty-view/PrettyView.tsx` — the `onSend` callback + WS message construction with conditional `messageQueueItemId`

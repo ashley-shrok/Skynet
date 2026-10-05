@@ -1080,7 +1080,7 @@ Beyond the 7 Pitfalls documented above, five candidates from the question worth 
 5. **Header stripping in nginx / Caddy.**
    - **Nginx:** by default, nginx passes ALL custom `X-*` headers through unchanged. The `proxy_set_header` directives in each location block SET headers, but don't STRIP unrelated ones. Verified against the 30+ location blocks in `docker/nginx.conf` — none use `proxy_pass_request_headers off` or `add_header ... "" hide` for `X-Skynet-*` patterns. **Safe by default.**
    - **Caddy at box level (`/opt/skynet/caddy-config/Caddyfile`):** default behavior also passes all headers. The `header_up` directives in the Phase 103 `*.serve.term.*` block SET headers but don't strip. **Safe by default.**
-   - **Recommendation:** add ONE assertion test — `curl -sI https://term.gigathe user.click/ | grep -i x-skynet-server-build` — as a smoke check in the ship runbook. Not strictly needed in the phase's plan but cheap belt-and-suspenders.
+   - **Recommendation:** add ONE assertion test — `curl -sI https://term.example.com/ | grep -i x-skynet-server-build` — as a smoke check in the ship runbook. Not strictly needed in the phase's plan but cheap belt-and-suspenders.
 
 ### Q12: Deploy sequencing
 

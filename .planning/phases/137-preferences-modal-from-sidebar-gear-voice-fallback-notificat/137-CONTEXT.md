@@ -55,7 +55,7 @@ Ships adjacent cleanups: retire the dead `reopenTabsOnLogin` preference (fork ho
 ### About-you pane — folded-in editor
 
 - **D-22:** Rebrand from "Global files" to "About you." Nav item, pane blurb ("Tell your agents anything you want them to know about you — how you work, your preferences, anything.") — all reframe around personal context, not files.
-- **D-23:** Rationale: live production `global-files.json` config on t1000 has every one of 10 hosts mapped to exactly ONE file — `~/.claude/CLAUDE.md`. Multi-file/multi-host abstraction is 100% unused. The user-facing framing should match reality (99% single-host, single-file).
+- **D-23:** Rationale: live production `global-files.json` config on host-b has every one of 10 hosts mapped to exactly ONE file — `~/.claude/CLAUDE.md`. Multi-file/multi-host abstraction is 100% unused. The user-facing framing should match reality (99% single-host, single-file).
 - **D-24:** Reuse Skynet's shared `MarkdownEditor` component (`src/ui/features/pretty-view/MarkdownEditor.tsx`) — the same WYSIWYG editor `IdentityFileTab` and `RoleFileTab` use. Do NOT reuse `GlobalFileTab`'s raw-monospace-textarea (per Phase 112 D-08 consolidation, markdown surfaces use the pretty editor).
 - **D-25:** Explicit Save button in the pane (matches existing markdown-editor UX). Show "unsaved" / "saved" status hint near the button.
 - **D-26:** Preserve the existing mtime-optimistic-concurrency save flow from `GlobalFileTab` — 409 mtime conflict handling stays. This is a wire-level invariant.

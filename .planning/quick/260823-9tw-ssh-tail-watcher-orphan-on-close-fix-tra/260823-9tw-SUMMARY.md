@@ -89,7 +89,7 @@ Plan `<verification>` sanity greps:
 
 ## Expected fleet effect (operator-verifiable, out of scope of this task)
 
-Future WS reconnects to remote hosts (workstation, thenasty, AWS boxes) should no longer
+Future WS reconnects to remote hosts (workstation, host-a, AWS boxes) should no longer
 leave PPID=1 `tail -F` orphans behind. Operator can verify post-deploy with
 `ssh <host> "ps -ef | grep 'tail -F' | grep -v grep | awk '\$3 == 1'"` — expected count is 0
 after a full reconnect cycle. Existing orphans from before the deploy will remain and can

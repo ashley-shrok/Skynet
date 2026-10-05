@@ -88,7 +88,7 @@ The plan's `<output>` calls for phase-close checklist items to be surfaced. Belo
 | Voice catalog — identity modal shows exactly the 7 en-US generative Polly voices | Backend catalog module + validator + tests ship green (Plans 05/07); live UAT belongs to phase-close |
 | Migration — every pre-existing identity has voice value cleared; validator rejects old-format values | Migration one-shot + validator regex updated in Plans 05/07; live-fleet migration is a deploy-time step |
 | Off-switch — with policy detached, feature is dark (no crash, clean AccessDenied handling) | AccessDenied handling in voice.ts (Plan 06); belongs to deploy-time verification |
-| Cross-tree — Stacy on T800 follows the deploy doc unassisted | Deploy doc shipped in Plan 09; verification is Stacy-side runtime |
+| Cross-tree — Morgan on host-c follows the deploy doc unassisted | Deploy doc shipped in Plan 09; verification is Morgan-side runtime |
 | **Kill-list — no residual Chatterbox references in live code** | **✓ CLOSED this plan (see § Residual-Chatterbox Grep Sweep below)** |
 | Backend TSC clean | ✓ verified this plan (`npx tsc --noEmit -p tsconfig.node.json` → 0 output) |
 | Frontend TSC clean | ✓ verified this plan (`npx tsc --noEmit` → 0 output) |
@@ -103,14 +103,14 @@ Ran against `src/` + `substrate/` (excluding `.planning/`):
 | `media-endpoints` | **0** | ✓ Every live-code reference to the deleted module is gone |
 | `STT_URL` | **0 live-code consumers.** Remaining hits are anti-regression assertions (e.g. `.not.toContain("STT_URL")` in bridge-config-writer.test.ts confirming the token is NOT written) and docblock history in test files | ✓ No live consumer |
 | `TTS_URL` / `TTS_STREAM_URL` / `VOICES_URL` | **0** | ✓ Fully purged |
-| `100.80.122.111` | **0 live-code consumers.** Remaining hits are (a) `session-file-parser.outbound-body.test.ts` × 2 — a fixed Nelly-narrative test-payload string preserving a historical out-of-band comms message about the PC being offline; (b) `editable-file-whitelist.test.ts:87` — a URL-parsing sample using this IP string, unrelated to voice/Chatterbox integration | ✓ No Chatterbox integration remaining |
+| `100.64.0.11` | **0 live-code consumers.** Remaining hits are (a) `session-file-parser.outbound-body.test.ts` × 2 — a fixed Nelly-narrative test-payload string preserving a historical out-of-band comms message about the PC being offline; (b) `editable-file-whitelist.test.ts:87` — a URL-parsing sample using this IP string, unrelated to voice/Chatterbox integration | ✓ No Chatterbox integration remaining |
 | `Chatterbox` | **0 live-code integrations.** Remaining hits are all historical documentation / anti-regression assertions (e.g. `webAudioStreamPlayer.ts` docblocks citing the reference streaming implementation; polly-voice-catalog validator tests naming old .wav filenames it rejects; voice-migration.ts naming the old regex it purges) | ✓ Historical markers, not live code |
 
 ## Deviations from Plan
 
 None — plan executed exactly as written. Two minor adjustments folded into Task 3:
 
-- Rephrased my own docblock in `matrix-config.ts` to avoid citing the literal Chatterbox tailnet URL string (`http://100.80.122.111:8000` / `:8001`) so the residual grep is strict-clean. Historical intent preserved via conceptual description ("Chatterbox tailnet URLs (STT / TTS / streaming-TTS / voices)"). This is well within Rule-3 auto-fix scope (blocking-issue prevention for clean grep).
+- Rephrased my own docblock in `matrix-config.ts` to avoid citing the literal Chatterbox tailnet URL string (`http://100.64.0.11:8000` / `:8001`) so the residual grep is strict-clean. Historical intent preserved via conceptual description ("Chatterbox tailnet URLs (STT / TTS / streaming-TTS / voices)"). This is well within Rule-3 auto-fix scope (blocking-issue prevention for clean grep).
 - Normalized the historical comments in `voice.ts:11` and `voice.test.ts:18` (from Plan 06) that referenced the exact string `media-endpoints` — same treatment, same rationale. Both continue to explain WHY the module was deleted, they just describe it conceptually now.
 
 ## Threat Register Closure
@@ -130,7 +130,7 @@ With this plan landed, Phase 98 has:
 - No dead endpoint constants (grep verifies)
 - No stubs (all functions ship with real implementations backed by AWS SDK adapters from Plans 04-06)
 
-The remaining Phase 98 work is orchestrator-owned: push + build + deploy-doc walkthrough + Stacy-side follow-up + Iris-ping to re-scope the exploratory IAM policy name.
+The remaining Phase 98 work is orchestrator-owned: push + build + deploy-doc walkthrough + Morgan-side follow-up + Iris-ping to re-scope the exploratory IAM policy name.
 
 ## Self-Check: PASSED
 

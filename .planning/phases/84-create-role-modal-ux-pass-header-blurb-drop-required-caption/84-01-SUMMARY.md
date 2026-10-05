@@ -55,7 +55,7 @@ Both `t("nav.createRoleDescription", ...)` (required-caption) and `t("nav.create
 `<DialogDescription>{startDescription}</DialogDescription>` → `<DialogDescription>A role is what an agent does and how it thinks — many agents can share one.</DialogDescription>` (exact string, verbatim em-dash preserved). Two-block Phase 84 comment above documents items 1 + 2 rationale. Wrapper element kept as `DialogDescription` to preserve shadcn Dialog aria-describedby wiring without adding an a11y-only element.
 
 ### CHANGE F.2 — Host section wrapped in `flatHosts.length !== 1` guard
-Both the search-input div and the host-listbox div wrapped in a single `{flatHosts.length !== 1 && (<>...</>)}` fragment. Inner JSX byte-preserved — no className, aria-label, event handler, disabled attribute, or filteredHosts empty-state changes. Rationale comment references Aither Health single-VM-per-user segment.
+Both the search-input div and the host-listbox div wrapped in a single `{flatHosts.length !== 1 && (<>...</>)}` fragment. Inner JSX byte-preserved — no className, aria-label, event handler, disabled attribute, or filteredHosts empty-state changes. Rationale comment references Acme Health single-VM-per-user segment.
 
 ### CHANGE F.3 — Delete chain-checkbox render block
 Entire 12-line JSX render block (`<label>` wrapping the `<input type="checkbox">` + `<span>{chainCheckboxLabel}</span>`) removed. Render tree now flows: host-guard fragment → submitError block → DialogFooter.

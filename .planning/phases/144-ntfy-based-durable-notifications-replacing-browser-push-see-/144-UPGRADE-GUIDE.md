@@ -1,7 +1,7 @@
 # Phase 144 — upgrade guide for downstream Skynet instances
 
 **Audience:** operators of Skynet instances OTHER than the one that shipped
-this phase (e.g. Stacy on T800 / aither-cloud).
+this phase (e.g. Morgan on host-c / acme-cloud).
 
 **What this phase does:** replaces the browser-push notification system with
 self-hosted ntfy. Push notifications go through the ntfy iOS app via
@@ -118,7 +118,7 @@ NTFY_ADMIN_PASS_BCRYPT='$2b$10$abcdef...'
 ## 4. Add `NTFY_PUBLIC_URL` to your compose-interpolation env file
 
 If your instance uses a separate file for docker-compose-time variable
-interpolation (on t1000 that's `/opt/skynet/.env`, distinct from
+interpolation (on host-b that's `/opt/skynet/.env`, distinct from
 `skynet.env` which is the container runtime env), also add `NTFY_PUBLIC_URL`
 there. The ntfy service's `environment:` block in `docker-compose.yml`
 uses `${NTFY_PUBLIC_URL:?...}` which is resolved at config-parse time
@@ -170,7 +170,7 @@ Standard deploy flow:
 cd ~/skynet-<your-identity>
 git pull --rebase origin feat/tab-title-from-tmux
 
-# Build (needs both env files on t1000 — adjust for your instance if you
+# Build (needs both env files on host-b — adjust for your instance if you
 # only have one).
 sudo -E docker compose --env-file /opt/skynet/.env --env-file /opt/skynet/skynet.env \
   -f docker/docker-compose.yml \
@@ -186,7 +186,7 @@ sudo -E docker compose --env-file /opt/skynet/.env --env-file /opt/skynet/skynet
 ```
 
 Note: the `docker-compose.host-systemd.override.yml` flag may not apply
-to your instance (it's t1000-specific host-systemd integration). Drop it
+to your instance (it's host-b-specific host-systemd integration). Drop it
 if your instance's compose doesn't need it.
 
 ---
@@ -318,7 +318,7 @@ update it:
 
 ## Questions?
 
-Ping twister-box-maintainer on t1000 or open an issue referencing
+Ping twister-box-maintainer on host-b or open an issue referencing
 Phase 144. Shape file at `.planning/shapes/shape-ntfy-notifications.md`;
 full implementation detail in the plans + SUMMARY.md artifacts under
 `.planning/phases/144-ntfy-based-durable-notifications-replacing-browser-push-see-/`.

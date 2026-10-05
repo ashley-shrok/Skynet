@@ -287,9 +287,9 @@ the AND chain; RDP-group pass-through at Panel.tsx:634-637 stays.
   MUST NOT include a "ship" task at executor scope — deploy motion (push,
   build, force-recreate) is handled by me (tina) after executor returns
   code-done + tests-green.
-- **After-ship Stacy-notify ASK** (tina identity file). This phase touches
+- **After-ship Morgan-notify ASK** (tina identity file). This phase touches
   fork behavior → after the ship completes, I ASK user whether to DM
-  Stacy that a new version is ready to pull. Do NOT DM Stacy on my own.
+  Morgan that a new version is ready to pull. Do NOT DM Morgan on my own.
 
 </constraints>
 

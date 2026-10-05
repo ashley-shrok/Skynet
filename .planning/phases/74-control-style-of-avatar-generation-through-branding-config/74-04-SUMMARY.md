@@ -154,10 +154,10 @@ Returned **zero hits**. Plan 03 Task 1's scrub of the three `identity-avatar-bat
 
 **None** for this plan. Phase 74's ship-day work remains orchestrator-owned per plan `<objective>` (line 40-44):
 
-- Pre-deploy manual seed of `/opt/skynet/branding/branding.json` on t1000 with the LoL-champion director spec + `avatarGammaDefault: 0.7` (via SSM before container restart)
+- Pre-deploy manual seed of `/opt/skynet/branding/branding.json` on host-b with the LoL-champion director spec + `avatarGammaDefault: 0.7` (via SSM before container restart)
 - Coord-room BEFORE/AFTER posts per box-maintainer.md § Container mutations serialize
 - `git push` + `docker build` + `docker compose up --force-recreate` ship motion
-- Stacy briefing DM on Skynet.aithercloud.com relay explaining the new required field, boot-fail behavior, and offering tina's t1000 seed as reference (Stacy authors T800's own aesthetic content; tina does NOT operate on T800 directly per box-maintainer.md L17)
+- Morgan briefing DM on Skynet.example.net relay explaining the new required field, boot-fail behavior, and offering tina's host-b seed as reference (Morgan authors host-c's own aesthetic content; tina does NOT operate on host-c directly per box-maintainer.md L17)
 
 Carried forward from Plan 01: **`isBrandingConfig` runtime guard in `src/ui/branding/branding-fetch.ts`** — frontend fetch predicate doesn't check `avatarDirectorSpec`/`avatarGammaDefault`. Phase 74's backend rewire is unaffected (Plan 03 reads via `loadBrandingConfig()`, not through the frontend fetch). Suggested fix (unchanged): parallel two-line extension after the pwaIcons check.
 
@@ -180,7 +180,7 @@ All four plans (74-01 through 74-04) executed. Phase 74's scope is code-complete
 - 74-03 (route rewire + code-side runbook-ref scrub): shipped
 - 74-04 (local file deletion + repo-side sweep): shipped (this plan)
 
-Remaining ship-day work is orchestrator-owned (see Deferred Items above): pre-deploy seed on t1000 via SSM, container restart with the new code, Stacy briefing DM. Once orchestrator ships, `/close 74-control-style-of-avatar-generation-through-branding-config` walks the shape's facets against what got built.
+Remaining ship-day work is orchestrator-owned (see Deferred Items above): pre-deploy seed on host-b via SSM, container restart with the new code, Morgan briefing DM. Once orchestrator ships, `/close 74-control-style-of-avatar-generation-through-branding-config` walks the shape's facets against what got built.
 
 ## Commits
 

@@ -6,7 +6,7 @@
 **Parent shape:** `.planning/shapes/shape-relay-mediated-group-conversations.md`
 **Parent bounty:** `relay-mediated-group-conversations-humans-agents-in-rooms`
 **Depends on:** sub-slice A (`relay-human-identities-first-class`), sub-slice B (`relay-session-model-generalization`).
-**Tasting prototype:** http://100.99.149.8:8899/index.html — served from the bounty folder for the life of this session; four variants shown across mobile + desktop; user picked variant D (sectioned single list + search filter).
+**Tasting prototype:** http://100.64.0.13:8899/index.html — served from the bounty folder for the life of this session; four variants shown across mobile + desktop; user picked variant D (sectioned single list + search filter).
 
 ## What this is
 
@@ -117,7 +117,7 @@ Design decisions from the tasting (2026-09-09):
 
 Depends on sub-slices A and B (both shipped). Can proceed in parallel with sub-slice D (which is code-complete and awaiting arc-close ship).
 
-The prototype at http://100.99.149.8:8899/index.html is the reference for the modal's shape at both surfaces. The phase's CONTEXT.md should seed from this shape file per `/build` convention — don't re-elicit the discovery `/open` already produced.
+The prototype at http://100.64.0.13:8899/index.html is the reference for the modal's shape at both surfaces. The phase's CONTEXT.md should seed from this shape file per `/build` convention — don't re-elicit the discovery `/open` already produced.
 
 `/close relay-new-conversation-flow` closes the sub-slice at the end. The parent arc's `/close relay-mediated-group-conversations` runs later against the master shape once C and E and the ship all complete.
 

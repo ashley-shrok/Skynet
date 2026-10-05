@@ -26,7 +26,7 @@ must_haves:
     - "handleSpeakStream pipes upstream response body to the Express res object without ever calling arrayBuffer/text/blob on the upstream response (grep-verifiable)"
     - "Missing or empty body.text returns 400; body.text over SPEAK_TEXT_MAX returns 400; body.voice not matching VOICE_FILENAME_RE returns 400"
     - "Chatterbox request body is exactly {text, voice_mode:'predefined', predefined_voice_id: voice ?? 'Elena.wav', stream:true, split_text:true, chunk_size:80}"
-    - "Chatterbox request URL is http://100.80.122.111:8001/tts (not /v1/audio/speech)"
+    - "Chatterbox request URL is http://100.64.0.11:8001/tts (not /v1/audio/speech)"
     - "Non-2xx upstream returns fixed {error:'TTS stream non-2xx', status:<upstream.status>} — no upstream body leak (T-16-03)"
     - "AbortController with 300_000 ms timeout wraps the upstream fetch; AbortError returns 504 {error:'TTS stream timeout', status:504}"
     - "Any other exception returns 502 {error:'TTS stream proxy error', status:502}"
@@ -41,7 +41,7 @@ must_haves:
       contains: "describe(\"handleSpeakStream\""
   key_links:
     - from: "src/backend/database/routes/voice.ts:handleSpeakStream"
-      to: "http://100.80.122.111:8001/tts"
+      to: "http://100.64.0.11:8001/tts"
       via: "fetch() with AbortController and JSON body"
       pattern: "100\\.80\\.122\\.111:8001/tts"
     - from: "src/backend/database/routes/voice.ts:handleSpeakStream"
@@ -68,7 +68,7 @@ Non-negotiables (from 19-CONTEXT.md § Backend route shape + § Security parity,
 - The buffered `handleSpeak` and `POST /speak` route are PRESERVED byte-for-byte.
 - `arrayBuffer()` / `.text()` / `.blob()` MUST NOT appear anywhere inside `handleSpeakStream`.
 - Default voice stays `Elena.wav` (reuse the existing `DEFAULT_VOICE` constant).
-- Upstream URL is `http://100.80.122.111:8001/tts` (NOT `/v1/audio/speech`).
+- Upstream URL is `http://100.64.0.11:8001/tts` (NOT `/v1/audio/speech`).
 </objective>
 
 <execution_context>
@@ -104,7 +104,7 @@ Non-negotiables (from 19-CONTEXT.md § Backend route shape + § Security parity,
     - handleSpeakStream returns 400 on missing/empty body.text (mirrors handleSpeak Test A/A2)
     - handleSpeakStream returns 400 on body.text.length > SPEAK_TEXT_MAX (mirrors Test B)
     - handleSpeakStream returns 400 on invalid body.voice format (mirrors Test C)
-    - handleSpeakStream POSTs to http://100.80.122.111:8001/tts with the Chatterbox body schema on happy path
+    - handleSpeakStream POSTs to http://100.64.0.11:8001/tts with the Chatterbox body schema on happy path
     - handleSpeakStream pipes response body via Readable.fromWeb(...).pipe(res) — no arrayBuffer
     - handleSpeakStream sets response headers Content-Type: audio/wav and X-Accel-Buffering: no BEFORE the pipe starts (headers must be flushed before body bytes)
     - handleSpeakStream returns 504 {error:"TTS stream timeout", status:504} on AbortError
@@ -126,7 +126,7 @@ Non-negotiables (from 19-CONTEXT.md § Backend route shape + § Security parity,
     - The `databaseLogger.error(...)` call inside each catch branch (change operation strings to `voice_speak_stream_timeout` and `voice_speak_stream_proxy` respectively).
 
     Structural elements to REPLACE:
-    - Change the fetch URL from `TTS_URL` to a new module-level constant `TTS_STREAM_URL = "http://100.80.122.111:8001/tts"` (define this constant near line 27 alongside TTS_URL — do NOT modify TTS_URL).
+    - Change the fetch URL from `TTS_URL` to a new module-level constant `TTS_STREAM_URL = "http://100.64.0.11:8001/tts"` (define this constant near line 27 alongside TTS_URL — do NOT modify TTS_URL).
     - Change the fetch body from `{model:"tts-1", input, voice}` to the Chatterbox streaming schema per 19-CONTEXT.md § Request body schema translation:
       keys: `text` (from req.body.text), `voice_mode` ("predefined"), `predefined_voice_id` (req.body.voice ?? DEFAULT_VOICE), `stream` (true), `split_text` (true), `chunk_size` (80). Serialize with JSON.stringify. Content-Type header stays `application/json`.
     - Change the non-2xx error string to `"TTS stream non-2xx"` (analog to `"TTS non-2xx"` in handleSpeak).
@@ -192,7 +192,7 @@ Non-negotiables (from 19-CONTEXT.md § Backend route shape + § Security parity,
     - Test SG: upstream non-2xx returns {error:"TTS stream non-2xx", status:<n>} — upstream response body NOT forwarded (T-16-03 analog)
     - Test SH: fetch throwing AbortError returns 504 {error:"TTS stream timeout", status:504}
     - Test SI: fetch throwing generic Error returns 502 {error:"TTS stream proxy error", status:502}
-    - Test SJ: fetch URL used is http://100.80.122.111:8001/tts (NOT /v1/audio/speech)
+    - Test SJ: fetch URL used is http://100.64.0.11:8001/tts (NOT /v1/audio/speech)
   </behavior>
 
   <action>
@@ -220,7 +220,7 @@ Non-negotiables (from 19-CONTEXT.md § Backend route shape + § Security parity,
     - SG: stub fetch with `{ok:false, status:503, body: ... }`; assert `res._status === 503`, `res._body === {error:"TTS stream non-2xx", status:503}`, `res._writes.length === 0` (upstream body was NOT piped).
     - SH: stub fetch to throw `new DOMException("aborted", "AbortError")`; assert `res._status === 504` and `res._body.error === "TTS stream timeout"`.
     - SI: stub fetch to throw `new Error("upstream socket closed")`; assert `res._status === 502` and `res._body.error === "TTS stream proxy error"`.
-    - SJ: stub fetch capturing the URL argument; call handler; assert captured URL equals `"http://100.80.122.111:8001/tts"` (exact string match; must NOT be `.../v1/audio/speech`).
+    - SJ: stub fetch capturing the URL argument; call handler; assert captured URL equals `"http://100.64.0.11:8001/tts"` (exact string match; must NOT be `.../v1/audio/speech`).
 
     Real vs fake timers: the existing top-level `beforeEach(() => vi.useFakeTimers())` interferes with ReadableStream microtask scheduling. Inside the new describe block, add `beforeEach(() => vi.useRealTimers())` to override (Vitest applies innermost-first). Restore afterEach behavior for other tests by keeping the top-level `afterEach(() => vi.useRealTimers())` unchanged.
 
@@ -239,7 +239,7 @@ Non-negotiables (from 19-CONTEXT.md § Backend route shape + § Security parity,
     - Existing handleSpeak tests A-H still exist and pass unmodified: `grep -c 'it("Test [A-H]' src/backend/database/routes/voice.test.ts` >= 8.
     - SD's captured writes concatenate to the same bytes as the streamed input chunks (byte-equality assertion in test body).
     - SG's captured `_writes.length === 0` (assertion in test body proves T-16-03 no-body-leak on error path).
-    - SJ asserts URL is EXACTLY `"http://100.80.122.111:8001/tts"` (assertion in test body).
+    - SJ asserts URL is EXACTLY `"http://100.64.0.11:8001/tts"` (assertion in test body).
   </acceptance_criteria>
 
   <done>
@@ -255,7 +255,7 @@ Non-negotiables (from 19-CONTEXT.md § Backend route shape + § Security parity,
 | Boundary | Description |
 |----------|-------------|
 | browser → nginx → Express | Untrusted JSON body enters at the /voice/speak-stream endpoint (client-controlled `text` and `voice` fields). JWT gate before parse. |
-| Express → tailnet Chatterbox | Trusted tailnet hop (100.80.122.111 is an internal peer). Body constructed server-side; no client bytes reach Chatterbox without validation. |
+| Express → tailnet Chatterbox | Trusted tailnet hop (100.64.0.11 is an internal peer). Body constructed server-side; no client bytes reach Chatterbox without validation. |
 | Chatterbox → Express → browser | Upstream WAV bytes piped through unmodified. On non-2xx, upstream body is DISCARDED (T-16-03 analog). |
 
 ## STRIDE Threat Register

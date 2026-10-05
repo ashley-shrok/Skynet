@@ -7,7 +7,7 @@
 
 A mechanism that lets a Skynet deployment present itself under a different identity than "Skynet" — different name, different logo, different icon in the browser tab and on the phone home screen — without any code change or image rebuild. The operator drops a config file and some image files on the host machine, and the running app picks them up. A deployment with no config file looks exactly like Skynet does today.
 
-The immediate use case is Aither Intelligence Plus: the same Skynet image, deployed for Aither executives, presenting itself as "Aither Intelligence Plus" (or "AI+" on smaller surfaces).
+The immediate use case is Acme Intelligence Plus: the same Skynet image, deployed for Acme executives, presenting itself as "Acme Intelligence Plus" (or "AI+" on smaller surfaces).
 
 ## Shape
 
@@ -77,7 +77,7 @@ GSD phase. Lives in `~/skynet-tiffany/.planning/phases/` — phase number to be 
 
 The design is fully locked (from a 2026-09-03 planning session). The GSD phase researcher should use this shape file as its CONTEXT.md seed rather than re-eliciting the design — the enumeration of user-facing "Skynet" occurrences in the codebase is the primary discovery task remaining.
 
-Deployment target for this phase is t1000 (current mainline). No config file will be placed on the host after deploy — the deployment uses the bundled defaults, so behavior is identical to today from the user's perspective. The AI+ deployment will supply its own config file when that box is provisioned by Ivy.
+Deployment target for this phase is host-b (current mainline). No config file will be placed on the host after deploy — the deployment uses the bundled defaults, so behavior is identical to today from the user's perspective. The AI+ deployment will supply its own config file when that box is provisioned by Ivy.
 
 Close with `/close branding-config`.
 

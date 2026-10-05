@@ -85,7 +85,7 @@ The identity modal's title span (the small subtitle under displayName, e.g. tabi
 
 ### D-05: Roles-list rows use `.pv-row` conversation-row treatment (LOCKED — user 2026-09-09, from 4-round mock tasting)
 
-**Reference:** locked mock at `~/.claude/roles/box-maintainer/bounties/role-management-modal-split/mock/index.html` Shape 1 column (served at `http://t1000:8898/index.html`).
+**Reference:** locked mock at `~/.claude/roles/box-maintainer/bounties/role-management-modal-split/mock/index.html` Shape 1 column (served at `http://host-b:8898/index.html`).
 
 Each row is a full `.pv-row`-styled element per `pretty-conversations.css:482-517`:
 - Rounded rect, `border-radius: var(--radius-pv-bubble)` (14px).
@@ -273,7 +273,7 @@ Full relative paths — required reading for downstream agents:
 - `.planning/shapes/shape-role-management-modal-split.md`
 
 ### Locked visual references (from the /open tasting)
-- Mock served locally at `http://t1000:8898/index.html` — Shape 1 column (Spartan directory with conversation-row treatment) is the locked reference for roles-list rows.
+- Mock served locally at `http://host-b:8898/index.html` — Shape 1 column (Spartan directory with conversation-row treatment) is the locked reference for roles-list rows.
 - Mock disk path: `~/.claude/roles/box-maintainer/bounties/role-management-modal-split/mock/index.html`.
 - Console snippet for identity-modal title-line treatment: locked version is the SECOND snippet in this session's /open transcript (pill variant rejected in favor of title-decoration variant).
 

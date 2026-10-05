@@ -168,7 +168,7 @@ Non-negotiables (from 19-CONTEXT.md § Deploy discipline + CLAUDE.md § Deploy s
 
     **Result:** <PASS if both exit 0 AND both print `syntax is ok` + `test is successful`; DOCKER_UNAVAILABLE if the docker binary is missing/unreachable here — see escalation note; FAIL if either config has a syntax error>
 
-    <If DOCKER_UNAVAILABLE: "ESCALATED — user MUST run `nginx -t` on skynet-ec2 against both configs BEFORE ship-day `docker compose up -d --force-recreate skynet`. Blocking prerequisite for Task 4 checkpoint approval.">
+    <If DOCKER_UNAVAILABLE: "ESCALATED — user MUST run `nginx -t` on primary-host against both configs BEFORE ship-day `docker compose up -d --force-recreate skynet`. Blocking prerequisite for Task 4 checkpoint approval.">
 
     ## Overall verdict
 
@@ -179,7 +179,7 @@ Non-negotiables (from 19-CONTEXT.md § Deploy discipline + CLAUDE.md § Deploy s
 
     <If all four PASS: "Ready for deploy — hand off to user for greenlight per deploy-runbook.">
     <If any FAIL: "BLOCKING — fix failures before continuing to Task 2/3. Details above.">
-    <If Nginx is DOCKER_UNAVAILABLE-escalated but the other three PASS: "PARTIAL — proceed to Task 2/3 for artifact prep; user MUST run nginx -t on skynet-ec2 as a blocking prerequisite before Task 4 signoff.">
+    <If Nginx is DOCKER_UNAVAILABLE-escalated but the other three PASS: "PARTIAL — proceed to Task 2/3 for artifact prep; user MUST run nginx -t on primary-host as a blocking prerequisite before Task 4 signoff.">
     ```
 
     If any command fails, STOP this plan and route the failure back to the responsible plan:
@@ -246,7 +246,7 @@ Non-negotiables (from 19-CONTEXT.md § Deploy discipline + CLAUDE.md § Deploy s
 
     * **Root cause vs previous approach**: Patch #223 (`handleSpeak` in `src/backend/database/routes/voice.ts`) does `Buffer.from(await response.arrayBuffer())` on the Chatterbox response, then `res.end(buf)`. Server-side full-buffer + client-side `URL.createObjectURL(blob)` + `new Audio(url).play()`. Chatterbox's `/tts` endpoint (NOT the OpenAI-compat `/v1/audio/speech` — different endpoint, different body schema; `stream:true` only works on `/tts`) supports chunked-transfer streaming with a `0xFFFFFFFF` sentinel in the RIFF file-size field. Piping the response through server-side and progressively decoding chunks on the client via Web Audio API preserves the streaming property end-to-end.
 
-    * **Fix summary — backend streaming route** (TTSSTR-01, TTSSTR-02): New `handleSpeakStream` function + `POST /voice/speak-stream` route in `src/backend/database/routes/voice.ts`, mirroring the structure of `handleSpeak` (patch #223) but replacing the `Buffer.from(await response.arrayBuffer()); res.end(buf)` block with `Readable.fromWeb(response.body).pipe(res)`. Sets response headers `Content-Type: audio/wav` and `X-Accel-Buffering: no` before the pipe starts (defense-in-depth against downstream reverse-proxy buffering). Request-body schema translation happens server-side: Skynet client sends `{text, voice?}` (same as buffered route); backend forwards to Chatterbox as `{text, voice_mode:"predefined", predefined_voice_id: voice ?? "Elena.wav", stream:true, split_text:true, chunk_size:80}`. Reuses existing `VOICE_FILENAME_RE` (`/^[A-Z][A-Za-z]+\.wav$/`) and `SPEAK_TEXT_MAX` (25000) constants. Default voice stays `Elena.wav` (unchanged from patch #223 — we did not switch to Adrian just because Nelly's demo used it). Upstream URL is `http://100.80.122.111:8001/tts` (NOT `/v1/audio/speech`).
+    * **Fix summary — backend streaming route** (TTSSTR-01, TTSSTR-02): New `handleSpeakStream` function + `POST /voice/speak-stream` route in `src/backend/database/routes/voice.ts`, mirroring the structure of `handleSpeak` (patch #223) but replacing the `Buffer.from(await response.arrayBuffer()); res.end(buf)` block with `Readable.fromWeb(response.body).pipe(res)`. Sets response headers `Content-Type: audio/wav` and `X-Accel-Buffering: no` before the pipe starts (defense-in-depth against downstream reverse-proxy buffering). Request-body schema translation happens server-side: Skynet client sends `{text, voice?}` (same as buffered route); backend forwards to Chatterbox as `{text, voice_mode:"predefined", predefined_voice_id: voice ?? "Elena.wav", stream:true, split_text:true, chunk_size:80}`. Reuses existing `VOICE_FILENAME_RE` (`/^[A-Z][A-Za-z]+\.wav$/`) and `SPEAK_TEXT_MAX` (25000) constants. Default voice stays `Elena.wav` (unchanged from patch #223 — we did not switch to Adrian just because Nelly's demo used it). Upstream URL is `http://100.64.0.11:8001/tts` (NOT `/v1/audio/speech`).
 
     * **Fix summary — security parity with patch #223** (TTSSTR-07): `authenticateJWT` middleware wired before `express.json` (T-16-04 pattern from `handleTranscribe`). 300s `AbortController` on the upstream fetch (matches patch #223 cap; TTS synthesis of long text can take minutes). Non-2xx upstream returns fixed shape `{error:"TTS stream non-2xx", status:<upstream.status>}` — no upstream body leak (T-16-03 analog). AbortError → 504 `{error:"TTS stream timeout", status:504}`. Other exceptions → 502 `{error:"TTS stream proxy error", status:502}`. Existing `handleSpeak` function and `POST /voice/speak` route preserved BYTE-FOR-BYTE; IdentityModal voice-preview at `src/ui/features/pretty-view/IdentityModal.tsx:783` continues to call `postSpeak()` — the one-shot 25-word sample doesn't benefit from streaming and the buffered path already works there.
 
@@ -272,7 +272,7 @@ Non-negotiables (from 19-CONTEXT.md § Deploy discipline + CLAUDE.md § Deploy s
 
     * **Request-body schema translation table:**
 
-      | Field (client-side POST /voice/speak-stream) | Field (server-side POST http://100.80.122.111:8001/tts) | Value |
+      | Field (client-side POST /voice/speak-stream) | Field (server-side POST http://100.64.0.11:8001/tts) | Value |
       |---|---|---|
       | text | text | (verbatim) |
       | voice (optional) | predefined_voice_id | voice ?? "Elena.wav" |
@@ -509,7 +509,7 @@ Non-negotiables (from 19-CONTEXT.md § Deploy discipline + CLAUDE.md § Deploy s
   <what-built>
     Phase 19 is code-complete and documentation-complete. Backend streaming route + tests, nginx location blocks in both configs, frontend fetch helper + tests, RIFF decoder + tests, Web Audio player + tests, ChatMessage swap + tests, plus the ship-day artifacts (build-verify log, patches-md draft, UAT checklist). All autonomous work is done. The next action — actually shipping — is user's word.
 
-    **Special-case: nginx-ec2 prerequisite** — If `19-BUILD-VERIFY-LOG.md` § Command 4 says DOCKER_UNAVAILABLE-escalated (Warning A escalation path — docker not available in this executor's sandbox to run `nginx -t`), user MUST run `sudo nginx -t` on skynet-ec2 against BOTH configs before the ship-day `docker compose up -d --force-recreate skynet`. Executor: surface this prominently at the top of your Task 4 message to user.
+    **Special-case: nginx-ec2 prerequisite** — If `19-BUILD-VERIFY-LOG.md` § Command 4 says DOCKER_UNAVAILABLE-escalated (Warning A escalation path — docker not available in this executor's sandbox to run `nginx -t`), user MUST run `sudo nginx -t` on primary-host against BOTH configs before the ship-day `docker compose up -d --force-recreate skynet`. Executor: surface this prominently at the top of your Task 4 message to user.
 
     What user should review here:
     - Skim `.planning/phases/19-streaming-tts-output-via-chatterbox-tts-endpoint/19-BUILD-VERIFY-LOG.md` — confirm the three checkboxes are all PASS.
@@ -550,7 +550,7 @@ Non-negotiables (from 19-CONTEXT.md § Deploy discipline + CLAUDE.md § Deploy s
 | Threat ID | Category | Component | Disposition | Mitigation Plan |
 |-----------|----------|-----------|-------------|-----------------|
 | T-19-D01 | Tampering | 19-PATCHES-MD-ENTRY.md misrepresents what was shipped | mitigate | The entry is drafted from the verified TTSSTR-01..07 requirements + the code changes actually made in Plans 01-04. user reviews the draft at Task 4 checkpoint before paste. Any drift between the entry and the actual code is caught at review time. |
-| T-19-D02 | Information Disclosure | UAT checklist reveals internal endpoint/paths in public docs | accept | `.planning/` is not published; the checklist stays in-repo. If Skynet's repo were opened, `100.80.122.111:8001/tts` is a tailnet-only IP — not reachable from the public internet. Same disclosure posture as patches #231/#232. |
+| T-19-D02 | Information Disclosure | UAT checklist reveals internal endpoint/paths in public docs | accept | `.planning/` is not published; the checklist stays in-repo. If Skynet's repo were opened, `100.64.0.11:8001/tts` is a tailnet-only IP — not reachable from the public internet. Same disclosure posture as patches #231/#232. |
 | T-19-D03 | Denial of Service | Bad build-verify results still get greenlit | mitigate | Task 1 acceptance criterion enforces the three PASS checkboxes; if any FAIL, Task 4 checkpoint cannot proceed because the "what-built" text would need to say "BLOCKING" and user wouldn't approve. |
 | T-19-D04 | Elevation of Privilege | Executor pushes/rebuilds/recreates without user's word | mitigate | This plan explicitly has NO deploy commands. `autonomous: false` at plan level forces the human checkpoint. CLAUDE.md § Deploy safety is unambiguous: 15-min deadman + user's word are mandatory. |
 | T-19-SC | Tampering | Package installs | accept | No package installs. |

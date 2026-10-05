@@ -35,7 +35,7 @@ The shape file's `## Phase 2 locked decisions` section at `.planning/shapes/shap
 
 ### URL parse rules (from shape Q2)
 - **D-11:** Parse rule: split on the LAST dash of the leftmost DNS label; right side must be all-digits (port); everything left is the hostname. Reject on parse failure with a clear 400.
-- **D-12:** Enforce at host registration: no hostname may end in `-\d+`. Add validation to the host-add code path. Current fleet passes (thenasty, workstation, linux-beelink, aither-cloud/cloud2/sftp, t1000, t800, WINDOWS-PC, ZoeyBattlestation).
+- **D-12:** Enforce at host registration: no hostname may end in `-\d+`. Add validation to the host-add code path. Current fleet passes (host-a, workstation, linux-minipc, acme-cloud/cloud2/sftp, host-b, host-c, WINDOWS-PC, Gaming-pc).
 - **D-13:** Hostname lookup uses `LOWER(hostname) = LOWER($input)` — no schema migration for existing mixed-case rows. Display case preserved.
 
 ### Broken-serve UX + tunnel lifecycle (from shape Q3)
@@ -44,15 +44,15 @@ The shape file's `## Phase 2 locked decisions` section at `.planning/shapes/shap
 - **D-16:** NO cache eviction built. Per-target proxy instances live for container lifetime; SSH connection lifecycle handled by existing pool. Add eviction only if resource pressure surfaces post-ship.
 
 ### Multi-tenancy resolution (from shape Q5)
-- **D-17:** Backend serve URL routing calls existing `resolveHostByName(name, userId)` from `src/backend/ssh/host-resolver.ts:373` — **owned-only**, matches Phase 78 file URL precedent. Grants (`hostAccess` table) deliberately out of scope for name resolution. Works uniformly on t1000 (single-tenant) and T800 (multi-user).
+- **D-17:** Backend serve URL routing calls existing `resolveHostByName(name, userId)` from `src/backend/ssh/host-resolver.ts:373` — **owned-only**, matches Phase 78 file URL precedent. Grants (`hostAccess` table) deliberately out of scope for name resolution. Works uniformly on host-b (single-tenant) and host-c (multi-user).
 
 ### Domain layout + rollout (from shape Q6 + discuss-phase Q1)
-- **D-18:** Wildcard cert: `*.serve.term.example.com`. Existing hosted zone `example.com` (<personal-hosted-zone-id>). R&D-established cross-account AssumeRole path (Aither `termix-ssm-role` → personal `<caddy-route53-role>`) covers this zone.
+- **D-18:** Wildcard cert: `*.serve.term.example.com`. Existing hosted zone `example.com` (<personal-hosted-zone-id>). R&D-established cross-account AssumeRole path (Acme `example-ssm-role` → personal `<caddy-route53-role>`) covers this zone.
 - **D-19:** Same Caddy container as `term.example.com` and `files.example.com`. Custom Caddy build (two-line Dockerfile change: `caddy:2-builder` + `xcaddy build --with github.com/caddy-dns/route53`). New wildcard site block added to `/opt/skynet/Caddyfile`.
 - **D-20:** Bare `serve.term.example.com` (no host prefix) redirects to `term.example.com`.
 - **D-21:** ACME issuer: **Let's Encrypt production** preferred; ZeroSSL remains automatic fallback via Caddy's default issuer chain.
 - **D-22:** HSTS: mirror whatever `term.example.com` currently sets (verify against existing Caddyfile during plan).
-- **D-23:** T800 (Stacy): entirely her domain + DNS + Caddy config. No code Phase 103 writes handles T800 differently. Ships as a Stacy-briefing patch under the fleet-substrate rule after Phase 103 lands on t1000.
+- **D-23:** host-c (Morgan): entirely her domain + DNS + Caddy config. No code Phase 103 writes handles host-c differently. Ships as a Morgan-briefing patch under the fleet-substrate rule after Phase 103 lands on host-b.
 - **D-24:** **Single deploy** — Caddy image rebuild + cookie widen + subdomain routing + agent URL construction all live in one atomic ship motion. No feature flag, no dark-first infra deploy.
 
 ### id-skill guidance (from shape Q4 + discuss-phase Q3)
@@ -144,7 +144,7 @@ The shape file's `## Phase 2 locked decisions` section at `.planning/shapes/shap
 
 - **Interstitial "try again" button** must NOT auto-refresh (per D-14). User decides to retry — auto-refresh masks legitimate ongoing outages.
 - **Interstitial pages MUST be Skynet-styled**, not bare 502s. User sees "port 3020 of nexthost isn't responding" not "Bad Gateway."
-- **Test with `python -m http.server` on t1000** as the first end-to-end verification per shape file rollout step 4. Concrete: agent construct `t1000-8899.serve.term.example.com` pointing at a python http.server serving a folder with a few files including one HTML that references a sibling image (proves origin isolation works). Manual UAT is fine; automated verification is Claude's discretion.
+- **Test with `python -m http.server` on host-b** as the first end-to-end verification per shape file rollout step 4. Concrete: agent construct `host-b-8899.serve.term.example.com` pointing at a python http.server serving a folder with a few files including one HTML that references a sibling image (proves origin isolation works). Manual UAT is fine; automated verification is Claude's discretion.
 - **Vite HMR test** — POC 2 already proved the `sec-websocket-extensions: ""` fix on `proxyReqWs` works for Vite's `vite-hmr` subprotocol. Phase 103 code MUST include this fix from day one (per R&D GOTCHA 1) — bake into the proxy factory, not left as a follow-up.
 - **CSRF audit output** should produce a checklist (route path, state-changing yes/no, preflight-triggering yes/no, remediation applied, verified). Attach to phase artifacts (SUMMARY.md or a dedicated CSRF-AUDIT.md) so future audits can start from this baseline instead of re-doing the classification.
 
@@ -155,7 +155,7 @@ The shape file's `## Phase 2 locked decisions` section at `.planning/shapes/shap
 
 ### Ideas that surfaced during /open + discuss-phase but belong elsewhere
 
-- **First-class "Apps" concept in Skynet** — persistent, Skynet-managed apps as their own feature (not tied to specific identity), Bun/SQLite stack (per Stacy's app-stack skill), Apps panel UI, droppable into the split-view shell alongside chats, own sharing model (fork vs share instance). Cross-user "share my agent-built app with another user" belongs to THIS concept, NOT to serve URL. Whole shape file worth of design conversation eventually. Bounty `first-class-agent-apps-in-skynet` to open at end of tabitha's session 2026-09-10.
+- **First-class "Apps" concept in Skynet** — persistent, Skynet-managed apps as their own feature (not tied to specific identity), Bun/SQLite stack (per Morgan's app-stack skill), Apps panel UI, droppable into the split-view shell alongside chats, own sharing model (fork vs share instance). Cross-user "share my agent-built app with another user" belongs to THIS concept, NOT to serve URL. Whole shape file worth of design conversation eventually. Bounty `first-class-agent-apps-in-skynet` to open at end of tabitha's session 2026-09-10.
 
 - **Custom visual affordance for BOTH file URLs and serve URLs in the chat surface** — Phase 78 file URLs currently get the pencil-edit affordance (function-specific); Phase 103 serve URLs will land as plain clickable links per D-29. The CUSTOM RENDER work (icon, preview card, "live app" indicator, distinguishing Skynet-proxied URLs from random web links, whatever design lands) becomes its own shape after user tastes options. Not tacked onto Phase 103. Bounty `serve-and-file-url-visual-affordances` to open at end of tabitha's session 2026-09-10.
 

@@ -70,7 +70,7 @@ Three GSD phases, sequential, each UAT-verifiable as its own layer:
 
 **Handoff notes for the implementing agent:**
 
-- Working directory: `/home/ubuntu/skynet-tanya` on branch `feat/tab-title-from-tmux`. Repo is the Skynet fork; deployment is single-image Docker on `t1000` via `/opt/skynet/`.
+- Working directory: `/home/ubuntu/skynet-tanya` on branch `feat/tab-title-from-tmux`. Repo is the Skynet fork; deployment is single-image Docker on `host-b` via `/opt/skynet/`.
 - Identity: `tanya` under role `box-maintainer`.
 - Existing infrastructure to gut/adapt:
   - `src/ui/shell/SplitView.tsx` (766 lines) — fixed-grid geometry gets replaced by tree geometry.

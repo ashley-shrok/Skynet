@@ -84,7 +84,7 @@ completed: 2026-09-06
 - **The relay.json body carries a real access_token at birth-time** (D-OQ6 lock): `runRelayMintAndWrite` calls `matrixLoginAsUser` between the admin-mint and the buildRelayJsonBody call, so recv.sh does not have to invoke its `relogin()` self-heal on the very first read. This is the correctness improvement over the pre-revision plan's "empty accessToken OK" story.
 - **The Q2 no-rollback lock is enforced three ways** (belt-and-braces per W-3): (a) inline code comment `Q2 no-rollback lock — see 77-CONTEXT.md § Storage failure mode + agent-supervisor race` at every catch surface in production code (10 occurrences across orchestrator + retry route), (b) the Phase 77 test names contain the exact phrase `Q2 agent-supervisor race` for Tests B/B2/C/C2 (grep-recoverable rationale that survives casual refactors), (c) an explicit test-side `assertNoRmRfInExecCalls` helper that fails if any execCommand invocation contains rm/rm -rf/rm -r/rm -f.
 - **chmod 600 is a hard step-8 requirement** (S-1): a chmod failure throws `chmod_600_failed` from Step 8, emitting `step:8:failed + ended{ok:false, failedStep:8}`. Test C2 pins this behavior. Rationale: a world-readable relay.json exposes the agent's Matrix credentials to any other target-host user (T-75-18 mitigation).
-- **No hardcoded homeserver fallback** (D-OQ7 / T-75-28): both POST / and POST /retry/:key run a `getMatrixAdminCreds()` check as their first non-validation step. If it returns null, respond `503 {error: "matrix_admin_foundation_not_ingested", detail: "matrix admin foundation not ingested — see deploy runbook"}` and RETURN before opening SSE. `grep -c "thenasty.taild9b663.ts.net" src/backend/database/routes/identity-birth.ts` returns 0.
+- **No hardcoded homeserver fallback** (D-OQ7 / T-75-28): both POST / and POST /retry/:key run a `getMatrixAdminCreds()` check as their first non-validation step. If it returns null, respond `503 {error: "matrix_admin_foundation_not_ingested", detail: "matrix admin foundation not ingested — see deploy runbook"}` and RETURN before opening SSE. `grep -c "host-a.tailnet-example.ts.net" src/backend/database/routes/identity-birth.ts` returns 0.
 - **Retry endpoint lands with no new nginx config** (D-OQ1): `POST /identities/birth/retry/:key` mounts inside identity-birth.ts's router under the existing `/identities/birth` mount, inheriting the existing nginx `/identities` location block. Admin-gated via `createAdminMiddleware`. Validation order: 401 → 403 → 400 (bad key) → 400 (missing hostId) → 503 (missing creds) → 404 (unknown host) → SSE.
 
 ## Task Commits
@@ -246,7 +246,7 @@ If chmod fails, step 8 fails loudly (Test C2). This is S-1 lock — the "DEFERRE
 
 ## No-hardcoded-homeserver confirmation (Output item 6)
 
-`grep -c "thenasty.taild9b663.ts.net" src/backend/database/routes/identity-birth.ts` → **0**. No hardcoded fallback exists anywhere in the file. The sole homeserver source is `getMatrixAdminCreds().homeserverBase` (a first-class column on the matrix_admin_creds table per Plan 01). The 503 fail-early gates at both POST / and POST /retry/:key ensure that a null-creds condition surfaces to the operator as `matrix_admin_foundation_not_ingested` rather than proceeding against a hardcoded or fake homeserver.
+`grep -c "host-a.tailnet-example.ts.net" src/backend/database/routes/identity-birth.ts` → **0**. No hardcoded fallback exists anywhere in the file. The sole homeserver source is `getMatrixAdminCreds().homeserverBase` (a first-class column on the matrix_admin_creds table per Plan 01). The 503 fail-early gates at both POST / and POST /retry/:key ensure that a null-creds condition surfaces to the operator as `matrix_admin_foundation_not_ingested` rather than proceeding against a hardcoded or fake homeserver.
 
 T-75-28 mitigation is complete.
 
@@ -285,7 +285,7 @@ Every `mitigate` disposition in the plan's `<threat_model>` is honored in the im
 | T-75-20 (retry endpoint DoS) | Accepted per plan — admin-only, no rate-limiting added. |
 | T-75-21 (repudiation) | SSE emit stream logs step transitions; ended event carries `failedStep` on any failure. |
 | T-75-22 (agent-supervisor race) | Q2 accepted; inline comments at 10 catch surfaces cite the CONTEXT.md rationale; test names carry the phrase. |
-| T-75-28 (silent divergence via missing admin foundation) | 503 fail-early at both handlers before any SSH/Synapse call. `grep -c "thenasty.taild9b663.ts.net"` = 0. |
+| T-75-28 (silent divergence via missing admin foundation) | 503 fail-early at both handlers before any SSH/Synapse call. `grep -c "host-a.tailnet-example.ts.net"` = 0. |
 | T-75-SC (package legitimacy) | Zero new packages installed. |
 
 ## Threat Flags
@@ -310,7 +310,7 @@ None. No new network endpoints beyond the two documented in the threat model. No
 - `grep -c "createAdminMiddleware" src/backend/database/routes/identity-birth.ts` → 3 (>=1) ✓
 - `grep -c "matrix_admin_foundation_not_ingested" src/backend/database/routes/identity-birth.ts` → 3 (>=1) ✓
 - `grep -c "creds.homeserverBase" src/backend/database/routes/identity-birth.ts` → 3 (>=1) ✓
-- `grep -c "thenasty.taild9b663.ts.net" src/backend/database/routes/identity-birth.ts` → 0 ✓
+- `grep -c "host-a.tailnet-example.ts.net" src/backend/database/routes/identity-birth.ts` → 0 ✓
 - `grep -c "Q2 agent-supervisor race" src/backend/database/routes/identity-birth-orchestrator.test.ts` → 12 (>=3) ✓
 - `grep -c "chmod 600" src/backend/database/routes/identity-birth-orchestrator.test.ts` → 7 (>=1) ✓
 - `grep -Ec 'rm[[:space:]]+-rf' src/backend/database/routes/identity-birth-orchestrator.test.ts` → 5 (>=1 — the anti-rollback grep pattern is asserted in tests) ✓
@@ -318,7 +318,7 @@ None. No new network endpoints beyond the two documented in the threat model. No
 
 ## Follow-ups for downstream work
 
-- **Plan 77-05** (end-to-end integration test) can now exercise the full birth → Synapse admin PUT → login-as-user → SFTP write → chmod 600 chain against live thenasty and verify that (a) the relay.json file lands with mode 0600, (b) its access_token field is a real syt_... token (not empty), (c) recv.sh's first read succeeds without invoking `relogin()`.
+- **Plan 77-05** (end-to-end integration test) can now exercise the full birth → Synapse admin PUT → login-as-user → SFTP write → chmod 600 chain against live host-a and verify that (a) the relay.json file lands with mode 0600, (b) its access_token field is a real syt_... token (not empty), (c) recv.sh's first read succeeds without invoking `relogin()`.
 - **Phase B** (Telegram bridge substrate promotion + identity-modal Telegram section) can build on top of the retry endpoint's admin-gate + SSE-envelope pattern for its own admin surfaces (e.g., "add telegram to identity" flow). The runRelayMintAndWrite shared-helper pattern is the template for any future orchestrator/retry pair.
 - **Frontend Phase B** will need to widen the BirthProgress checklist union to include steps 6/7/8 so the operator sees per-step progress in the birth UI (currently: unknown step numbers are quietly ignored — a Phase B concern per 77-RESEARCH.md Assumption A4).
 - **Deploy runbook** (Wave 3) MUST include the initial-ingestion step for `matrix_admin_creds` via `setMatrixAdminCreds` — otherwise POST /identities/birth returns 503 on every call.

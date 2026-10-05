@@ -69,7 +69,7 @@ because a role without any agent is a shape nobody wants intentionally.
 
 The host picker in both dialogs renders unconditionally, including when the
 user only has one pickable host (a state user regularly hits herself, and
-the target Aither Health users will hit even more often since their instance
+the target Acme Health users will hit even more often since their instance
 provisions one dedicated VM per user).
 
 user shared a full UX-pass digest 2026-09-07 covering both these dialogs,

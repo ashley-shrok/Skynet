@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-09-10
 **Status:** Ready for planning
-**Source:** Follow-up to Phase 98 more-versatile-stt-tts-support. Motivated by user UAT 2026-09-10 (STT wall time ~= audio duration on Amazon Transcribe streaming, felt slow vs the old Chatterbox GPU rig). Verified via research (AWS SDK ships `apply_realtime_delay()` — the streaming API is designed for live mics, not batch upload) and validated via direct benchmark against t1000's Transcribe endpoint (3 s clip → 0.8 s wall, 8 s → 3.6 s, 15 s → 8.8 s, 30 s → 17.8 s — short streams get faster-than-realtime treatment, long streams throttle to ~1.7× real-time).
+**Source:** Follow-up to Phase 98 more-versatile-stt-tts-support. Motivated by user UAT 2026-09-10 (STT wall time ~= audio duration on Amazon Transcribe streaming, felt slow vs the old Chatterbox GPU rig). Verified via research (AWS SDK ships `apply_realtime_delay()` — the streaming API is designed for live mics, not batch upload) and validated via direct benchmark against host-b's Transcribe endpoint (3 s clip → 0.8 s wall, 8 s → 3.6 s, 15 s → 8.8 s, 30 s → 17.8 s — short streams get faster-than-realtime treatment, long streams throttle to ~1.7× real-time).
 
 <domain>
 ## Phase Boundary
@@ -48,8 +48,8 @@ Refactor `handleTranscribe` in `src/backend/database/routes/voice.ts` so that lo
 
 ### Concurrency limit
 
-- **D-09:** Start conservative at N=5 concurrent streams. Amazon's default quota is 25 concurrent StartStreamTranscription per account per region (see canonical refs). N=5 gives us 4× current throughput (probable common-case improvement) while leaving 20 streams of headroom for future concurrent Skynet users on the same AWS account (T800/Stacy is on a separate account so doesn't compete; but if user invites collaborators to her instance later, they share our 25-stream ceiling). Planner may tune upward with justification.
-- **D-10:** Semaphore lives in the adapter module, module-level singleton (mirrors the existing `TranscribeStreamingClient` singleton pattern from Phase 98 `transcribe-adapter.ts:93`). No per-request semaphore state; no cross-request coordination required (single Skynet process on t1000).
+- **D-09:** Start conservative at N=5 concurrent streams. Amazon's default quota is 25 concurrent StartStreamTranscription per account per region (see canonical refs). N=5 gives us 4× current throughput (probable common-case improvement) while leaving 20 streams of headroom for future concurrent Skynet users on the same AWS account (host-c/Morgan is on a separate account so doesn't compete; but if user invites collaborators to her instance later, they share our 25-stream ceiling). Planner may tune upward with justification.
+- **D-10:** Semaphore lives in the adapter module, module-level singleton (mirrors the existing `TranscribeStreamingClient` singleton pattern from Phase 98 `transcribe-adapter.ts:93`). No per-request semaphore state; no cross-request coordination required (single Skynet process on host-b).
 
 ### Stitching algorithm
 
@@ -136,7 +136,7 @@ Refactor `handleTranscribe` in `src/backend/database/routes/voice.ts` so that lo
 <specifics>
 ## Specific Ideas
 
-- **Empirical benchmark drove the design.** Not just user speculation — actual measurements against t1000's Transcribe endpoint at 06:30-06:35 UTC using the shipped `@aws-sdk/client-transcribe-streaming` in the running container. Numbers are reproducible.
+- **Empirical benchmark drove the design.** Not just user speculation — actual measurements against host-b's Transcribe endpoint at 06:30-06:35 UTC using the shipped `@aws-sdk/client-transcribe-streaming` in the running container. Numbers are reproducible.
 - **The `[...]` gap marker (D-08)** — user chose visible gap-marking over silent-skip specifically because voice STT feeds an editable input field before send. A gap that renders as `[...]` is a clear editing signal; a silent gap is a data-loss surface.
 - **Silence-aware chunking (D-01) is the perception fix** — mid-word cuts have been a recurring frustration in every batch STT UX user has used. Even 200 ms of ffmpeg overhead is worth it.
 

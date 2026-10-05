@@ -93,7 +93,7 @@ Every hop is real code (no stubs, no mock defaults, no hardcoded empty values th
 | TypeScript compiles clean | `npm run type-check` (root tsc --noEmit) | Exit 0, zero errors | PASS |
 | End-to-end route + component test coverage exists | 4 dedicated test files + 6 integration tests A15-A20 | All green | PASS |
 | Icon endpoint returns webp bytes | Cannot spot-check without live server (deploy held) | SKIP — see human verification | SKIP |
-| Real UAT on t1000 with scratch app | D-20 explicit UAT step | SKIP — planned for campaign-close (D-20) | SKIP |
+| Real UAT on host-b with scratch app | D-20 explicit UAT step | SKIP — planned for campaign-close (D-20) | SKIP |
 
 Notes:
 - The two SKIP items are legitimately deferred to human UAT (D-20). They require a live Skynet + a scratch `~/fleet/apps/scratch-sidebar-test/` setup, which is out of scope for an in-process verifier and is explicitly scheduled for campaign-close per D-20.
@@ -141,7 +141,7 @@ Zero blockers. Zero warnings.
 | D-17 | No pre-first-frame state | SATISFIED | Store starts empty; useAppTiles returns []; no loading UI. |
 | D-18 | Three-layer testing | SATISFIED | Component (AppTile.test.tsx 11 tests) + Store (app-tiles-store.test.ts 11 tests) + Integration (PrettyConversationsPanel.test.tsx A15-A20) + Backend (apps.test.ts 15 tests + read-app-icon.test.ts 11 tests). |
 | D-19 | Scoped executor test runs | SATISFIED | Each plan's SUMMARY documents `npx vitest related --run <files>` invocations. |
-| D-20 | Real end-to-end agent UAT | DEFERRED — Human required | Scratch app on t1000 required; explicit human step per D-20. See Human Verification section. |
+| D-20 | Real end-to-end agent UAT | DEFERRED — Human required | Scratch app on host-b required; explicit human step per D-20. See Human Verification section. |
 
 **Coverage:** 19/20 D-decisions programmatically SATISFIED. D-20 is explicitly a human UAT step scheduled for campaign-close.
 
@@ -176,11 +176,11 @@ Zero blockers. Zero warnings.
 
 Two items are legitimately out of scope for programmatic verification and are explicitly deferred:
 
-### 1. D-20 real end-to-end agent UAT on t1000
+### 1. D-20 real end-to-end agent UAT on host-b
 
-**Test:** Create scratch `~/fleet/apps/scratch-sidebar-test/` on t1000 with a real `app.json` (title + description) + a real systemd `--user` unit + an `icon.webp` (any small test image); open the Skynet sidebar; expand the Apps section; verify the tile appears with the icon rendered; right-click → "Open in new tab" opens a fresh authenticated tab; stop the unit → tile flips to the unhealthy two-line rendering with the healthMessage; delete the folder → tile disappears on next sweep tick. Cleanup after (delete folder + `systemctl --user stop` + `disable` + `daemon-reload`).
+**Test:** Create scratch `~/fleet/apps/scratch-sidebar-test/` on host-b with a real `app.json` (title + description) + a real systemd `--user` unit + an `icon.webp` (any small test image); open the Skynet sidebar; expand the Apps section; verify the tile appears with the icon rendered; right-click → "Open in new tab" opens a fresh authenticated tab; stop the unit → tile flips to the unhealthy two-line rendering with the healthMessage; delete the folder → tile disappears on next sweep tick. Cleanup after (delete folder + `systemctl --user stop` + `disable` + `daemon-reload`).
 **Expected:** Sidebar Apps section appears, discoverable when empty, populated when a scratch app is dropped, transitions to unhealthy on `systemctl stop`, disappears on folder delete. "Open in new tab" produces an authenticated tab (may 404 in v1 pending shape 4 — acceptable per campaign-hold).
-**Why human:** Requires live Skynet + SSH to t1000 + real systemd unit lifecycle; not programmatically simulatable from the verifier.
+**Why human:** Requires live Skynet + SSH to host-b + real systemd unit lifecycle; not programmatically simulatable from the verifier.
 **When:** Campaign-close, pre-deploy — per D-20 explicit assignment.
 
 ### 2. Icon endpoint response smoke-check
@@ -218,7 +218,7 @@ Both items are ALREADY on the D-20 UAT checklist and are the campaign-close orch
 
 Phase 119 delivers the goal. The sidebar Apps section is real, wired end-to-end, tested at three layers plus the backend route, and shipped as commits on `feat/tab-title-from-tmux` awaiting the campaign-close deploy. Every load-bearing decision (D-01 through D-20 minus the explicit-human D-20 UAT) has code and tests behind it. Every pitfall the researcher flagged is provably mitigated with a code+test pair. Every fleet rule is honoured (deploy held, no worktrees, no streaming, no unrelated file drift).
 
-The one remaining step before deploy is D-20's real-hardware UAT on t1000, which is explicitly the campaign-close orchestrator's job — not a gap in this verification.
+The one remaining step before deploy is D-20's real-hardware UAT on host-b, which is explicitly the campaign-close orchestrator's job — not a gap in this verification.
 
 ---
 

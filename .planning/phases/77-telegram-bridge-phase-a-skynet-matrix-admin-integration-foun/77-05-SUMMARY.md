@@ -9,7 +9,7 @@ requires:
   - phase: 75-telegram-bridge-phase-a-skynet-matrix-admin-integration-foun
     provides: "Plan 77-01 matrix-admin-creds-store.ts (getMatrixAdminCreds) + Plan 77-02 matrix-admin-client.ts (loginAsUser)"
 provides:
-  - "src/backend/matrix/matrix-admin-client.integration.test.ts — end-to-end integration test proving loginAsUser mints a token that can send + read an m.room.message on the live thenasty Synapse (100.113.23.63:8008)"
+  - "src/backend/matrix/matrix-admin-client.integration.test.ts — end-to-end integration test proving loginAsUser mints a token that can send + read an m.room.message on the live host-a Synapse (100.64.0.12:8008)"
   - "Strict INTEGRATION_TESTS === \"1\" gate (S-2 lock) — verified inert against unset, \"0\", \"false\", \"true\""
   - "One-paragraph documentation update in substrate/skills/agent-relay/SKILL.md reflecting Skynet's Phase 77 admin role"
 affects: [phase-b-telegram-bridge]
@@ -19,7 +19,7 @@ tech-stack:
   added: []
   patterns:
     - "Vitest describe.skipIf() with strict env-string gate — the ONLY value that opts in is the literal \"1\"; every other value skips"
-    - "Integration test performs real network I/O against live thenasty Synapse; standard unit-test suite untouched (test skipped when INTEGRATION_TESTS is unset — default CI)"
+    - "Integration test performs real network I/O against live host-a Synapse; standard unit-test suite untouched (test skipped when INTEGRATION_TESTS is unset — default CI)"
     - "Additive-only skill doc edit — one paragraph, no rewrite, no touching of existing register-yourself or send/receive documentation"
 
 key-files:
@@ -48,7 +48,7 @@ completed: 2026-09-06
 
 # Phase 77 Plan 05: End-to-end integration test + agent-relay SKILL.md admin-role note — Summary (RESOLVED — full checkpoint closed 2026-09-06)
 
-**Landed the Phase A completion-criterion proof: a strictly-gated end-to-end integration test that mints a token via `loginAsUser` and sends+reads an `m.room.message` against the live thenasty Synapse, plus a one-paragraph note in `substrate/skills/agent-relay/SKILL.md` documenting Skynet's new admin role. Task 3 (human-verify checkpoint) was resolved same-session via orchestrator-driven curl to the deployed Skynet after docker build + deploy landed cleanly. All 3 tasks complete.**
+**Landed the Phase A completion-criterion proof: a strictly-gated end-to-end integration test that mints a token via `loginAsUser` and sends+reads an `m.room.message` against the live host-a Synapse, plus a one-paragraph note in `substrate/skills/agent-relay/SKILL.md` documenting Skynet's new admin role. Task 3 (human-verify checkpoint) was resolved same-session via orchestrator-driven curl to the deployed Skynet after docker build + deploy landed cleanly. All 3 tasks complete.**
 
 ## Status: DONE — Wave-3 checkpoint (Task 3) resolved 2026-09-06
 
@@ -56,15 +56,15 @@ Tasks 1 and 2 executed autonomously in worktree and committed atomically. Task 3
 
 **Read-only verifications:**
 - `creds-present` ✓ credentials.txt at chmod 600, all 5 fields present in the parked bounty
-- `synapse-reach` ✓ live Synapse at `http://100.113.23.63:8008` returns `admin:true` for the parked token
+- `synapse-reach` ✓ live Synapse at `http://100.64.0.12:8008` returns `admin:true` for the parked token
 - `doc` ✓ orchestrator-authored SKILL.md paragraph reads coherent, states Skynet admin role + preserves existing self-register path + notes humans stay externally-owned
 
 **Write actions (against deployed Skynet post-ship):**
 - user provided admin JWT cookie via /pretty-view file upload (`113814-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.txt`)
-- User-id lookup via `GET /users/list`: `user = JqbJ5OmBQhQ-TGQRkHF3o`, `zoey = pcW9dfHqIw8aNU8k_Iz5A`
-- `POST /matrix-admin/creds` ingestion → `{"ok":true, "mxid":"@skynet-admin:...", "rotation":false}`, verified via `GET /matrix-admin/creds` returning `{"present":true, "mxid":"@skynet-admin:...", "homeserverBase":"http://100.113.23.63:8008"}`
-- `POST /users/JqbJ5OmBQhQ-TGQRkHF3o/mxid` (user → `@ashley:thenasty.taild9b663.ts.net`) → `{"ok":true}`
-- `POST /users/pcW9dfHqIw8aNU8k_Iz5A/mxid` (zoey → `@zoey:thenasty.taild9b663.ts.net`) → `{"ok":true}`
+- User-id lookup via `GET /users/list`: `user = JqbJ5OmBQhQ-TGQRkHF3o`, `dana = pcW9dfHqIw8aNU8k_Iz5A`
+- `POST /matrix-admin/creds` ingestion → `{"ok":true, "mxid":"@skynet-admin:...", "rotation":false}`, verified via `GET /matrix-admin/creds` returning `{"present":true, "mxid":"@skynet-admin:...", "homeserverBase":"http://100.64.0.12:8008"}`
+- `POST /users/JqbJ5OmBQhQ-TGQRkHF3o/mxid` (user → `@alice:host-a.tailnet-example.ts.net`) → `{"ok":true}`
+- `POST /users/pcW9dfHqIw8aNU8k_Iz5A/mxid` (dana → `@dana:host-a.tailnet-example.ts.net`) → `{"ok":true}`
 - Audit trail landed in `docker logs skynet`: `matrix_admin_creds_ingest` + 2× `mxid_register` log lines with adminId/targetUserId/mxid
 - credentials.txt shredded from bounty folder post-ingestion (creds now live only in Skynet's encrypted-secrets store)
 - bounty `skynet-matrix-admin-integration` archived to `bounties/archive/` with status: done
@@ -107,7 +107,7 @@ Task 3 (checkpoint) has no executor commit — it is the human-verify gate itsel
 The test:
 
 1. Reads `getMatrixAdminCreds()` — fails loudly with an operator-friendly message if the singleton row is missing (points at the ingestion runbook step).
-2. Calls `loginAsUser(creds.userId || "@skynet-admin:thenasty.taild9b663.ts.net")` — fails loudly with the exact status + error code if login is denied (points at the admin:true verification curl).
+2. Calls `loginAsUser(creds.userId || "@skynet-admin:host-a.tailnet-example.ts.net")` — fails loudly with the exact status + error code if login is denied (points at the admin:true verification curl).
 3. Uses the minted access_token to (a) create a fresh private plaintext room (unless `MATRIX_INTEGRATION_ROOM_ID` is set for override), (b) PUT `/_matrix/client/v3/rooms/{room}/send/m.room.message/{txnId}` with an `m.text` body containing an ISO timestamp, (c) GET `/_matrix/client/v3/rooms/{room}/messages?dir=b&limit=1`.
 4. Asserts the round-tripped message's `content.body` equals what was sent.
 
@@ -170,15 +170,15 @@ Inserted between the opening infrastructure paragraph (ending at "each is one HT
 
 ## Task 3 — CHECKPOINT (PENDING human resolution)
 
-Task 3 is a `checkpoint:human-verify` gate that combines four read-only verifications (integration test green, Synapse reachable, matrix_admin_creds row present, doc coherent) with one WRITE action (three-user mxid import for user/Zoe/Laura against production DB). Per W-4 in the plan, the operator provides per-step status rather than a single blanket approval.
+Task 3 is a `checkpoint:human-verify` gate that combines four read-only verifications (integration test green, Synapse reachable, matrix_admin_creds row present, doc coherent) with one WRITE action (three-user mxid import for user/Jess/Riley against production DB). Per W-4 in the plan, the operator provides per-step status rather than a single blanket approval.
 
 **Operator actions required — see plan.md § Task 3 for the exact commands:**
 
-1. **integration** — Run `INTEGRATION_TESTS=1 npx vitest run src/backend/matrix/matrix-admin-client.integration.test.ts` on Skynet t1000 backend. Expects 1 passing test. Requires steps 2 and 3 to have already happened.
-2. **synapse-reach** — Confirm `curl -sSf http://100.113.23.63:8008/_synapse/admin/v1/server_version` returns `{"server_version":"1.157.2"}` (or newer).
+1. **integration** — Run `INTEGRATION_TESTS=1 npx vitest run src/backend/matrix/matrix-admin-client.integration.test.ts` on Skynet host-b backend. Expects 1 passing test. Requires steps 2 and 3 to have already happened.
+2. **synapse-reach** — Confirm `curl -sSf http://100.64.0.12:8008/_synapse/admin/v1/server_version` returns `{"server_version":"1.157.2"}` (or newer).
 3. **creds-present** — Confirm the singleton row: `sqlite3 <skynet.db> "SELECT id, user_id, homeserver_base FROM matrix_admin_creds"` returns one row with id=1 and user_id="@skynet-admin:...". This requires the operator to have first run the one-shot ingestion via `setMatrixAdminCreds({...})` (from `~/.claude/roles/box-maintainer/bounties/skynet-matrix-admin-integration/credentials.txt`).
 4. **doc** — Manually read `substrate/skills/agent-relay/SKILL.md` around the new paragraph and confirm it reads coherently and does not contradict the existing register-yourself docs or mention Phase B.
-5. **mxid-import (WRITE)** — Three admin-gated `POST /users/<id>/mxid` calls for user, Zoe, Laura. Verify `sqlite3 skynet.db "SELECT id, username, mxid FROM users WHERE mxid IS NOT NULL"` returns three rows.
+5. **mxid-import (WRITE)** — Three admin-gated `POST /users/<id>/mxid` calls for user, Jess, Riley. Verify `sqlite3 skynet.db "SELECT id, username, mxid FROM users WHERE mxid IS NOT NULL"` returns three rows.
 6. **smoke (optional)** — Manually invoke the birth endpoint against a throwaway test agent to confirm the 1-8 step sequence lands a working relay.json with mode 0600.
 
 **Resume-signal format (verbatim from plan):**
@@ -250,8 +250,8 @@ The Wave 3 human-verify checkpoint (Task 3) requires:
 
 1. **@skynet-admin credential ingestion** — a one-shot REPL call to `setMatrixAdminCreds({ homeserverBase, userId, accessToken, password })` populating the singleton row from values parked in `~/.claude/roles/box-maintainer/bounties/skynet-matrix-admin-integration/credentials.txt`. Without this, Task 3's "integration" and "creds-present" verifications both fail.
 2. **`INTEGRATION_TESTS=1`** environment variable set in the shell before running the integration test suite (strict equality per S-2).
-3. **Synapse reachability** — the running Skynet backend host (t1000) must be on the tailnet and able to reach `100.113.23.63:8008`.
-4. **Three admin-gated POST calls** — for the mxid-import write step (user, Zoe, Laura) with the admin JWT cookie present.
+3. **Synapse reachability** — the running Skynet backend host (host-b) must be on the tailnet and able to reach `100.64.0.12:8008`.
+4. **Three admin-gated POST calls** — for the mxid-import write step (user, Jess, Riley) with the admin JWT cookie present.
 
 ## Next Phase Readiness
 

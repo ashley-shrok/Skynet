@@ -17,7 +17,7 @@ The two Skynet-specific traps the shape file called out (in-memory-SQLite save-t
 ### Locked Decisions
 
 **Storage location:**
-- **D-01:** Avatar bytes live as files on disk on the Skynet EC2 (`t1000`) itself, NOT on any managed host, NOT on a mounted operator-config path, NOT as bytes in a DB column.
+- **D-01:** Avatar bytes live as files on disk on the Skynet EC2 (`host-b`) itself, NOT on any managed host, NOT on a mounted operator-config path, NOT as bytes in a DB column.
 - **D-02:** Files sit inside `skynet-data` docker volume (same volume as encrypted SQLite). Path: `${DATA_DIR}/user-avatars/` (planner may pick a differently-named sibling if consistency argues for it).
 - **D-03:** Rides existing daily EBS DLM snapshot backup story — no additional plumbing.
 
@@ -531,7 +531,7 @@ Step 4 — Add a migration test at `src/backend/database/db/index.migration.test
 // Phase 75 Plan 01 (Q3 locked decision) — mxid mapping for the Matrix
 // relay. Nullable: only humans with a registered relay account have one,
 // and it's populated via POST /users/:id/mxid (Plan 03) or the one-shot
-// import for user/Zoe/Laura. Not a credential; agents' relay identifiers
+// import for user/Jess/Riley. Not a credential; agents' relay identifiers
 // live on-disk in ~/.claude/identities/<name>/relay.json per fleet convention.
 mxid: text("mxid"),
 ```

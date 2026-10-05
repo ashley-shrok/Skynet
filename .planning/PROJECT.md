@@ -55,12 +55,12 @@ hard constraint, not through it.
 
 ## Context
 
-- Fork branch: `feat/tab-title-from-tmux` on `github.com/ashley-shrok/Skynet`
+- Fork branch: `feat/tab-title-from-tmux` on `github.com/example-user/Skynet`
 - Upstream: `github.com/Skynet-SSH/Skynet`
 - 42 numbered patches as of 2026-07-17; each patch is PR-able upstream individually
 - Runtime: `skynet-patched:local` docker image built by
   `/opt/skynet/skynet-patches/build-skynet.sh` and deployed via docker compose
-- Deployed on this EC2 (skynet-ec2), Caddy 2 edge with Let's Encrypt HTTP-01
+- Deployed on this EC2 (primary-host), Caddy 2 edge with Let's Encrypt HTTP-01
 - Maintainer: tina identity (this box's whole-box maintainer)
 - Full runbook and per-patch documentation: `/home/ubuntu/AGENTS.md`
 - Design work for in-flight patches lives at `.planning/shapes/shape-*.md`

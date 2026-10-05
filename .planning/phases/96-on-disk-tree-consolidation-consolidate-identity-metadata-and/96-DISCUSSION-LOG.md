@@ -11,7 +11,7 @@ Documented in the shape file. Summary of resolutions:
 
 ### Shape grill 1: Tree name
 - **Options presented:** `~/skynet/` (brand-locked to the current fleet manager app), `~/SN/` (brand-initialized), `~/fleet/` (brand-neutral, operator's own vocabulary).
-- **user chose:** `~/fleet/` after considering and rejecting `~/SN/` because compressed brand-initials still read as the other brand on differently-branded deployments (T800/AI+).
+- **user chose:** `~/fleet/` after considering and rejecting `~/SN/` because compressed brand-initials still read as the other brand on differently-branded deployments (host-c/AI+).
 - **user verbatim:** *"Fine. We'll go with your option."* (after considering `~/SN/`).
 
 ### Shape grill 2: Grandfathering existing working directories
@@ -50,7 +50,7 @@ Documented in the shape file. Summary of resolutions:
   - (c) README.md inside the phase directory.
   - (d) no dedicated artifact — bake steps into the campaign ship coord message.
 - **My proposed:** (a) role-scope runbook.
-- **user reshaped:** not a role-scope runbook because it's one-shot per box, not repeatable operational procedure; also Stacy can't see box-maintainer's role-scope runbooks on t1000. Put it IN THE REPO so Stacy gets it when she pulls the campaign ship's code.
+- **user reshaped:** not a role-scope runbook because it's one-shot per box, not repeatable operational procedure; also Morgan can't see box-maintainer's role-scope runbooks on host-b. Put it IN THE REPO so Morgan gets it when she pulls the campaign ship's code.
 - **user verbatim:** *"I agree with making a runbook, but it's not repeatable, because you guys are only going to ever use it once, and then Stacey can't see your runbook, so you're just going to have to pass it to her at some point. So, honestly, if there's any miscellaneous place that you could stick it in the repo itself, so that Stacey can easily get it when she does the update to these commits, then I think that would be good."*
 - **Follow-up options presented for repo location:**
   - `.planning/phases/96-.../MIGRATION.md` (co-located with phase artifacts)

@@ -2,14 +2,14 @@
 
 **Gathered:** 2026-09-17
 **Status:** Ready for planning
-**Source:** `/build` → `/open` shape session with user (mercury on t1000, 2026-09-17). Shape file at `.planning/shapes/shape-instance-wide-file.md` is the source-of-truth for scope + intent; this document translates that shape into concrete implementation decisions and open questions for downstream agents. Per fleet build rule ("seed discuss-phase from the shape file"), no re-elicitation of decisions the shape locked.
+**Source:** `/build` → `/open` shape session with user (mercury on host-b, 2026-09-17). Shape file at `.planning/shapes/shape-instance-wide-file.md` is the source-of-truth for scope + intent; this document translates that shape into concrete implementation decisions and open questions for downstream agents. Per fleet build rule ("seed discuss-phase from the shape file"), no re-elicitation of decisions the shape locked.
 
 <domain>
 ## Phase Boundary
 
 Deliver an instance-wide managed-policy CLAUDE.md tier that lands on every managed host of a Skynet instance and is picked up by Claude Code at every session start. The tier layers ABOVE the per-user `~/.claude/CLAUDE.md` file already honored across the fleet, carrying free-form admin-authored content that is true for the whole instance (company name, company type, brand posture, whatever else the admin puts in — the "twinkie").
 
-**Mechanism gate — already closed (empirically verified this session).** Claude Code 2.1.150 natively loads managed-policy CLAUDE.md from `/etc/claude-code/CLAUDE.md` on Linux — additive above the user file, cannot be excluded. Verified PASS on three hosts across two auth flavors: t1000 (subscription OAuth), T800 (subscription OAuth), test08 (Bedrock via IAM instance profile). Primary source: Anthropic memory docs at `code.claude.com/docs/en/memory`. No id-skill change, no agent-side wake-up read step — Claude Code handles loading natively.
+**Mechanism gate — already closed (empirically verified this session).** Claude Code 2.1.150 natively loads managed-policy CLAUDE.md from `/etc/claude-code/CLAUDE.md` on Linux — additive above the user file, cannot be excluded. Verified PASS on three hosts across two auth flavors: host-b (subscription OAuth), host-c (subscription OAuth), test08 (Bedrock via IAM instance profile). Primary source: Anthropic memory docs at `code.claude.com/docs/en/memory`. No id-skill change, no agent-side wake-up read step — Claude Code handles loading natively.
 
 **Three chunks of work:**
 
@@ -31,7 +31,7 @@ Deliver an instance-wide managed-policy CLAUDE.md tier that lands on every manag
 - **Delivery via Claude Code's alternative native mechanism (`claudeMd` key inside managed-settings.json).** The standalone-file mechanism is the chosen path; the settings-key mechanism is a fallback we do NOT wire.
 - **Propagation to non-managed hosts.** Only hosts the fleet-substrate distributor already sweeps get the twinkie. This is not a mechanism for pushing to arbitrary boxes.
 - **Boot gate treating the field as required.** The twinkie is optional — a Skynet instance without one boots and runs identically to today. No boot gate.
-- **Content of the twinkie for THIS instance (t1000).** The mechanism is what's built; the admin authors content once the plumbing lands. Not part of this build.
+- **Content of the twinkie for THIS instance (host-b).** The mechanism is what's built; the admin authors content once the plumbing lands. Not part of this build.
 
 </domain>
 
@@ -114,7 +114,7 @@ Deliver an instance-wide managed-policy CLAUDE.md tier that lands on every manag
 
 ### Deploy discipline
 - **D-24:** [informational] Executor's remit stops at code + commit + scoped tests green. Push → build → recreate → verify happens as one atomic ship motion on user's explicit greenlight, orchestrator-owned. Per role file standing directive (2026-08-29 refinement): the deploy-window boundary sits at `git push`, not at `docker compose up --force-recreate` — a peer's subsequent `--force-recreate` after their `git pull --rebase` would ride-along-ship any pushed-but-not-approved commits.
-- **D-25:** [informational] Post-deploy sanity check: on t1000 after `--force-recreate`, verify (a) `docker logs --since 60s skynet 2>&1 | grep -iE "warn|error|fail|unsupported"` reads clean and (b) with the branding field set to a test twinkie AND next distributor sweep firing, `/etc/claude-code/CLAUDE.md` appears on t1000 with matching bytes. First-of-kind capability — verify explicitly, do not assume.
+- **D-25:** [informational] Post-deploy sanity check: on host-b after `--force-recreate`, verify (a) `docker logs --since 60s skynet 2>&1 | grep -iE "warn|error|fail|unsupported"` reads clean and (b) with the branding field set to a test twinkie AND next distributor sweep firing, `/etc/claude-code/CLAUDE.md` appears on host-b with matching bytes. First-of-kind capability — verify explicitly, do not assume.
 
 ### Claude's Discretion
 - Exact field name on `BrandingConfig` (D-02).
@@ -137,7 +137,7 @@ Deliver an instance-wide managed-policy CLAUDE.md tier that lands on every manag
 User verbatim (2026-09-17): *"okay can we just for right now have it work on the ones that have root and then just log that they couldn't have that file drop for the ones that don't"*
 
 **Consequences the planner should be aware of:**
-- Current fleet state (2026-09-17 per `~/fleet/roles/box-maintainer/box-map.md` § Managed hosts): thenasty SSHes as `thenasty`, workstation as `ubuntu`, ZoeyBattlestation as a non-root key-auth user, beelink as `<user>`. **ZERO of the four current Linux managed hosts SSH as root.** t1000 is self and not a distributor push target.
+- Current fleet state (2026-09-17 per `~/fleet/roles/box-maintainer/box-map.md` § Managed hosts): host-a SSHes as `host-a`, workstation as `ubuntu`, Gaming-pc as a non-root key-auth user, minipc as `<user>`. **ZERO of the four current Linux managed hosts SSH as root.** host-b is self and not a distributor push target.
 - Mechanism will ship functional but land zero twinkies until the org-migration bounty (`~/fleet/roles/box-maintainer/bounties/plan-proper-org-migration-back/`) or ad-hoc per-host migrations flip `hosts.username` to `root` on target hosts.
 - Fine because the twinkie CONTENT is also empty at Phase 114 completion — mechanism first, content later. As hosts migrate, they receive the twinkie automatically on the next sweep with zero Phase 114 code changes.
 - The `installMode: "system-root"` gate is generalized — any FUTURE system-root row (there aren't any planned right now, but the axis exists) inherits the same skip-non-root behavior.

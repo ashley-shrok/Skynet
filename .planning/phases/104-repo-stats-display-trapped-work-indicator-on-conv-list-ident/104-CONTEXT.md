@@ -217,7 +217,7 @@ Research + a DM roundtrip with tanya (peer identity working on the Shape 3 subst
 
 - **Corrected canonical path**: `~/fleet/identities/<name>/workspace/`. The shape file's assumed prefix `~/.claude/identities/…` is superseded by Shape 3, which relocates identity dirs to `~/fleet/identities/…`. Hard-code the corrected path.
 - **Verified in code** (per tanya's inventory): `identity-birth-orchestrator.ts` creates the folder at every new identity birth; `substrate/skills/id/SKILL.md` documents it as an identity-folder sibling (D-04); `substrate/scripts/agent-supervisor.sh` cd's into it when launching if it exists; `substrate/skills/agent-relay/SKILL.md` references paths under it.
-- **Silent-fail semantics for pre-migration identities**: matches the shape's original call. Pre-migration identities have existing workdirs at existing per-box locations (e.g., `~/skynet-<name>/` on t1000, `~/PBMInvoices-<name>/` on workstation) and do NOT get their workdirs relocated. Detector treats "workspace/ absent OR empty" as "no trapped work detected" and skips silently — that's the right semantics, no error, no fallback path.
+- **Silent-fail semantics for pre-migration identities**: matches the shape's original call. Pre-migration identities have existing workdirs at existing per-box locations (e.g., `~/skynet-<name>/` on host-b, `~/PBMInvoices-<name>/` on workstation) and do NOT get their workdirs relocated. Detector treats "workspace/ absent OR empty" as "no trapped work detected" and skips silently — that's the right semantics, no error, no fallback path.
 
 ### Shape 3 order dependency — deploy AFTER Shape 3 ships
 

@@ -107,7 +107,7 @@ docker/nginx-https.conf:259:        location = /voice/speak-stream {
 
 **Result:** SYNTAX_OK — Both configs pass "syntax is ok" from nginx. The test exit code is 1 due to the missing `/tmp/nginx/` runtime directory in the bare nginx:1.27-alpine image — this is a test-environment limitation, not a config error. The `location = /voice/speak-stream` block is confirmed present in both files.
 
-**Note:** user may optionally run `docker exec skynet nginx -t` on skynet-ec2 post-deploy to get a definitive in-container validation. This is informational (not a deploy blocker) since the syntax check passed.
+**Note:** user may optionally run `docker exec skynet nginx -t` on primary-host post-deploy to get a definitive in-container validation. This is informational (not a deploy blocker) since the syntax check passed.
 
 ---
 

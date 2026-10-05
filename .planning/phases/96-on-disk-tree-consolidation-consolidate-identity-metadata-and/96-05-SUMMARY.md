@@ -181,13 +181,13 @@ Step 7 text:
 Before:
 ```
 version through the normal Skynet path (edit under `~/skynet-<name>/substrate/skills/agent-relay/`,
-commit, push, docker build + `--force-recreate` on t1000) and let the distributor propagate.
+commit, push, docker build + `--force-recreate` on host-b) and let the distributor propagate.
 ```
 
 After:
 ```
 version through the normal Skynet path (edit under `~/fleet/identities/<name>/workspace/substrate/skills/agent-relay/`,
-commit, push, docker build + `--force-recreate` on t1000) and let the distributor propagate.
+commit, push, docker build + `--force-recreate` on host-b) and let the distributor propagate.
 ```
 
 **Retained (D-13):** `~/.claude/skills/agent-relay/recv.sh` install path at lines 552–560 area (2 occurrences) — unchanged.

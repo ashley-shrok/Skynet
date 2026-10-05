@@ -16,7 +16,7 @@ updated: 2026-08-03T05:15:00Z
 expected: All 5 steps tick green, pane switches to new session, fresh identity's `/id create-path` fires
 result: [pending]
 
-### 2. Self-birth on skynet-ec2 (local-exec branch)
+### 2. Self-birth on primary-host (local-exec branch)
 expected: Birth completes using local `child_process.exec` rather than SSH; session opens and `/id` fires
 result: [pending]
 

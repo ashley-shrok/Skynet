@@ -16,7 +16,7 @@ A logged-in user sees an identity if, and only if, both gates pass for them:
 - The role gate passes if the role's `users` list is empty, or the logged-in user's name is on it.
 - The identity gate passes if the identity's `users` list is empty, or the logged-in user's name is on it.
 
-Both must pass — this is an intersection. So a shared role (say, `users: [user, zoe]`) can still contain identities that only one of them sees, because each identity's own `users` list narrows further within that role.
+Both must pass — this is an intersection. So a shared role (say, `users: [user, jess]`) can still contain identities that only one of them sees, because each identity's own `users` list narrows further within that role.
 
 When a role or identity is created through the Skynet app on a host that has more than one Skynet user with access to it, the creator's Skynet username is automatically written to the new file's `users` list. When it's created on a host that has only one user, nothing is written — the field stays absent, the file looks exactly like a file made before this feature ever existed. This keeps the feature invisible in the majority case and self-managing in the shared case.
 
@@ -42,7 +42,7 @@ Visibility today is host-level only. A Skynet user owns a set of hosts and sees 
 
 The identity-creation UI is a picker of existing roles on the target host — the user cannot type a new role name at identity-creation time. Roles are created through a separate "+ New role" flow launched from the sidebar header. Both flows already know the Skynet username of the caller at creation time (from the login session), so auto-tagging is reachable from either without new plumbing.
 
-The concrete driver: most Skynet users are one-to-one with a single host, but the user has one host shared with Zoe today, and the sidebar clutter from seeing each other's roles and identities is the day-to-day pain that motivated this.
+The concrete driver: most Skynet users are one-to-one with a single host, but the user has one host shared with Jess today, and the sidebar clutter from seeing each other's roles and identities is the day-to-day pain that motivated this.
 
 ## What would make it wrong
 

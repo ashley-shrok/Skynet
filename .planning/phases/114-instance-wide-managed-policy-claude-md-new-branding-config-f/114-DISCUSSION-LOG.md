@@ -26,7 +26,7 @@
 | Use Claude Code's `@import` mechanism | Import directive inside a managed CLAUDE.md pulling from another path | |
 
 **User's choice:** Native managed-policy CLAUDE.md tier.
-**Notes:** Verified empirically before commitment — PASS on t1000 (subscription OAuth), T800 (subscription OAuth), test08 (Bedrock via IAM instance profile). Primary-source-confirmed via `code.claude.com/docs/en/memory`. `claudeMd` key rejected as awkward (multi-line markdown escaping in JSON). `@import` rejected because it's a feature we might USE inside the file later, not a distribution mechanism.
+**Notes:** Verified empirically before commitment — PASS on host-b (subscription OAuth), host-c (subscription OAuth), test08 (Bedrock via IAM instance profile). Primary-source-confirmed via `code.claude.com/docs/en/memory`. `claudeMd` key rejected as awkward (multi-line markdown escaping in JSON). `@import` rejected because it's a feature we might USE inside the file later, not a distribution mechanism.
 
 ## Storage of the twinkie on the Skynet server
 
@@ -37,7 +37,7 @@
 | Host-side branding folder | Alongside icons in `/opt/skynet/branding/`, filename referenced from branding config | ✓ |
 
 **User's choice:** Host-side branding folder — same pattern icons already use.
-**Notes:** Chosen because the branding-assets pattern already handles per-instance separation (each Skynet server has its own local branding dir; fork pulls don't stomp it). Solves the "Aither pulls from the user's repo but shouldn't inherit the user's twinkie" problem for free.
+**Notes:** Chosen because the branding-assets pattern already handles per-instance separation (each Skynet server has its own local branding dir; fork pulls don't stomp it). Solves the "Acme pulls from the user's repo but shouldn't inherit the user's twinkie" problem for free.
 
 ## Editing surface
 

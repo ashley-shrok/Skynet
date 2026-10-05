@@ -6,9 +6,9 @@
 
 ## Summary
 
-Phase 77 is the Matrix-admin foundation for the two-phase `/build telegram-bridge` work. It ships four artifacts inside Skynet's existing backend: (1) a Matrix admin client that wraps three specific `/_synapse/admin/{v1,v2}` endpoints on the co-located Synapse relay at `http://100.113.23.63:8008`, (2) storage for the `@skynet-admin` account credentials (parked at `~/.claude/roles/box-maintainer/bounties/skynet-matrix-admin-integration/credentials.txt`) in Skynet's per-column `FieldCrypto` pattern, (3) a new `mxid TEXT` column on the `users` table plus a `POST /users/:id/mxid` admin-gated endpoint for registering externally-created human mxids, and (4) an extension to the existing 5-step `identity-birth-orchestrator` sequence so Skynet-driven agent creation mints the relay account via admin and writes `~/.claude/identities/<name>/relay.json` on the target host via the already-in-place SFTP `ext_openssh_rename` atomic-write helper.
+Phase 77 is the Matrix-admin foundation for the two-phase `/build telegram-bridge` work. It ships four artifacts inside Skynet's existing backend: (1) a Matrix admin client that wraps three specific `/_synapse/admin/{v1,v2}` endpoints on the co-located Synapse relay at `http://100.64.0.12:8008`, (2) storage for the `@skynet-admin` account credentials (parked at `~/.claude/roles/box-maintainer/bounties/skynet-matrix-admin-integration/credentials.txt`) in Skynet's per-column `FieldCrypto` pattern, (3) a new `mxid TEXT` column on the `users` table plus a `POST /users/:id/mxid` admin-gated endpoint for registering externally-created human mxids, and (4) an extension to the existing 5-step `identity-birth-orchestrator` sequence so Skynet-driven agent creation mints the relay account via admin and writes `~/.claude/identities/<name>/relay.json` on the target host via the already-in-place SFTP `ext_openssh_rename` atomic-write helper.
 
-The single load-bearing claim from the shape file — that Nina's tg-bridge stores each human's Matrix password on disk to re-log-in when the token dies — was **ground-truth-verified this session** against `/home/thenasty/.config/tg-bridge/bridge.sh` (see § Ground-truth verification). The `acred()` helper reads `<human>.cred` files and `relogin()` uses that plaintext password on any token death. The Phase 77 admin foundation genuinely removes this security surface.
+The single load-bearing claim from the shape file — that Nina's tg-bridge stores each human's Matrix password on disk to re-log-in when the token dies — was **ground-truth-verified this session** against `/home/host-a/.config/tg-bridge/bridge.sh` (see § Ground-truth verification). The `acred()` helper reads `<human>.cred` files and `relogin()` uses that plaintext password on any token death. The Phase 77 admin foundation genuinely removes this security surface.
 
 **Primary recommendation:** Write a slim TypeScript wrapper around exactly 5 Synapse admin endpoints (create/update user, login-as-user, join room, make-room-admin, list rooms) using Node 22's built-in `fetch` — do NOT pull in `matrix-js-sdk` or `matrix-bot-sdk`. Mirror the byte-shape of the existing voice.ts fetch-wrapper pattern for error handling. Store the admin token in `FieldCrypto`-encrypted form on a new dedicated table `matrix_admin_creds` (single-row) rather than smuggling it into `settings` or `ssh_credentials`. Reuse the existing SFTP+`ext_openssh_rename` helper in `identity-artifact-reader.ts` verbatim for the `relay.json` write.
 
@@ -17,7 +17,7 @@ The single load-bearing claim from the shape file — that Nina's tg-bridge stor
 
 ### Locked Decisions (Q1/Q2/Q3 from discuss-phase 2026-09-06)
 
-**Q1 — Non-UI human-mxid registration mechanism: backend endpoint.** A new admin-gated Skynet backend endpoint (shape: `POST /users/:id/mxid { mxid: "@name:homeserver" }` or similar — planner's call on exact URL shape). Same endpoint handles both cases: the new-user provisioning runbook calls it once per new user, and the one-shot import for the three pre-existing hand-made accounts (user, Zoe, Laura) is three calls against existing user rows. Consistent with Skynet's existing admin surface (`POST /users/create`, PATCH settings, admin cookie + TOTP gated). Rejected alternatives: (b) CLI script on the box, (c) config file entry per user.
+**Q1 — Non-UI human-mxid registration mechanism: backend endpoint.** A new admin-gated Skynet backend endpoint (shape: `POST /users/:id/mxid { mxid: "@name:homeserver" }` or similar — planner's call on exact URL shape). Same endpoint handles both cases: the new-user provisioning runbook calls it once per new user, and the one-shot import for the three pre-existing hand-made accounts (user, Jess, Riley) is three calls against existing user rows. Consistent with Skynet's existing admin surface (`POST /users/create`, PATCH settings, admin cookie + TOTP gated). Rejected alternatives: (b) CLI script on the box, (c) config file entry per user.
 
 **Q2 — Atomicity failure mode for Skynet-driven agent creation: partial tolerated + surface error, NO rollback.** The three-step sequence on the target host is: (1) write identity folder + `<name>.md` + frontmatter via SSH (existing Phase 66 pattern), (2) call Matrix admin API on the relay to create the account, (3) write `~/.claude/identities/<name>/relay.json` on the target host via SSH. If step 2 or 3 fails, Skynet does NOT roll back step 1. Rationale is a real race: agent-supervisor on the target host sees the on-disk identity folder as soon as step 1 lands and can start spinning up a tmux session for it before Skynet even knows step 2 or 3 failed. Rolling back the folder at that point would delete something the supervisor is already dealing with. The partial state is also already handled gracefully by the id skill's existing "carry on without relay.json, create it on next wake or by hand" failure mode. Rejected alternatives: (a) full rollback, (c) retry-with-backoff then fallback.
 
@@ -51,10 +51,10 @@ Phase 77 has no explicit REQUIREMENTS.md IDs — the phase description in ROADMA
 
 | ID | Description | Research Support |
 |----|-------------|------------------|
-| MXA-01 | A Matrix admin client on the Skynet side that wraps the relay's admin API (`/_synapse/admin/v1` and `/v2`) | § Synapse admin API surface (verified live against `http://100.113.23.63:8008`); § Standard Stack (built-in fetch) |
+| MXA-01 | A Matrix admin client on the Skynet side that wraps the relay's admin API (`/_synapse/admin/v1` and `/v2`) | § Synapse admin API surface (verified live against `http://100.64.0.12:8008`); § Standard Stack (built-in fetch) |
 | MXA-02 | Storage of `@skynet-admin` credentials in Skynet's existing encrypted-secrets pattern (single entry, only relay credential in Skynet's own storage) | § Storage design for admin credentials; § FieldCrypto pattern |
 | MXA-03 | Skynet-driven agent creation propagates to relay-account creation via admin, writing `~/.claude/identities/<name>/relay.json` on the target host per fleet convention. Partial-tolerated (no rollback). | § Agent creation orchestration; § Identity birth orchestrator extension |
-| MXA-04 | Admin-gated backend endpoint (mirroring `POST /users/create`) that registers an externally-created mxid against a Skynet user, landing it in a new `mxid` column. Same endpoint for provisioning runbook AND the three pre-existing imports (user, Zoe, Laura). | § New `mxid` column migration; § Admin-guarded route pattern |
+| MXA-04 | Admin-gated backend endpoint (mirroring `POST /users/create`) that registers an externally-created mxid against a Skynet user, landing it in a new `mxid` column. Same endpoint for provisioning runbook AND the three pre-existing imports (user, Jess, Riley). | § New `mxid` column migration; § Admin-guarded route pattern |
 | MXA-05 | Skynet ability to force-manage any relay room via the admin API (join, make-room-admin) — the "cover legacy-room mess" capability. Wrapped in the admin client per MXA-01. | § Synapse admin API surface (verified: `POST /_synapse/admin/v1/join/<room>` and `POST /_synapse/admin/v1/rooms/<room>/make_room_admin`) |
 | MXA-06 | The `substrate/skills/agent-relay/` skill body may need a light update to reflect Skynet's admin role once it lands (documented as optional in shape "Vehicle notes"). | § Documentation surface (deferrable to Phase B if scope pressure) |
 
@@ -81,7 +81,7 @@ Every capability in Phase 77 lives strictly in the Skynet backend tier — the s
 
 | Library | Version | Purpose | Why Standard |
 |---------|---------|---------|--------------|
-| `node` builtin `fetch` (undici) | Node ≥ 22.12.0 | HTTP calls to `http://100.113.23.63:8008/_synapse/admin/*` | [VERIFIED: package.json] Node 24.15.0 in dev; project engines pin `>=22.12.0`. Native fetch is Skynet's established outbound-HTTP pattern (voice.ts:231, 314; users.ts:731; usage.ts:46; database.ts:209; pretty-view-fetch-tailnet-url.ts:222 all use it). No new dependency needed. |
+| `node` builtin `fetch` (undici) | Node ≥ 22.12.0 | HTTP calls to `http://100.64.0.12:8008/_synapse/admin/*` | [VERIFIED: package.json] Node 24.15.0 in dev; project engines pin `>=22.12.0`. Native fetch is Skynet's established outbound-HTTP pattern (voice.ts:231, 314; users.ts:731; usage.ts:46; database.ts:209; pretty-view-fetch-tailnet-url.ts:222 all use it). No new dependency needed. |
 | `express` | ^5.2.1 | New route(s): the mxid endpoint + optionally a retry endpoint | [VERIFIED: package.json] Existing framework — all route files use `express.Router()` |
 | `drizzle-orm` | ^0.45.2 | New `mxid` column typing + `UPDATE users SET mxid=?` query | [VERIFIED: package.json] Existing ORM — schema.ts holds all `sqliteTable` definitions |
 | `better-sqlite3` | 12.9.0 | Direct `ALTER TABLE users ADD COLUMN mxid TEXT` at boot via `addColumnIfNotExists()` | [VERIFIED: package.json] Existing driver — the boot-time migration pattern is fully in place |
@@ -115,7 +115,7 @@ grep '"better-sqlite3":' package.json      # 12.9.0 [VERIFIED]
 grep '"drizzle-orm":'    package.json      # ^0.45.2 [VERIFIED]
 grep '"express":'        package.json      # ^5.2.1 [VERIFIED]
 grep '"ssh2":'           package.json      # ^1.17.0 [VERIFIED]
-curl -s http://100.113.23.63:8008/_synapse/admin/v1/server_version   # {"server_version":"1.157.2"} [VERIFIED live 2026-09-06]
+curl -s http://100.64.0.12:8008/_synapse/admin/v1/server_version   # {"server_version":"1.157.2"} [VERIFIED live 2026-09-06]
 ```
 
 ## Package Legitimacy Audit
@@ -136,7 +136,7 @@ Phase 77 installs **zero new packages** — every dependency is already in `pack
 ```
                                     ┌─────────────────────────────────────┐
                                     │  Skynet Backend (Express, port      │
-                                    │  30001, inside Docker on t1000)     │
+                                    │  30001, inside Docker on host-b)     │
                                     │                                     │
   Runbook / curl ──POST /users/     │  ┌───────────────────────────────┐  │
   (human mxid    :id/mxid ─admin──▶ │  │  user-admin-routes.ts (new    │  │
@@ -202,8 +202,8 @@ Phase 77 installs **zero new packages** — every dependency is already in `pack
                                                         │  (SSH+SFTP)
                                                         ▼
    ┌────────────────────────────────────┐   ┌────────────────────────────────────┐
-   │  Synapse relay @ thenasty (tailnet │   │  Target fleet host (via tailnet)   │
-   │  100.113.23.63:8008)               │   │                                    │
+   │  Synapse relay @ host-a (tailnet │   │  Target fleet host (via tailnet)   │
+   │  100.64.0.12:8008)               │   │                                    │
    │                                    │   │  ~/.claude/identities/<name>/      │
    │  /_synapse/admin/v2/users/<uid>    │   │    ├── <name>.md   (step 2 write)  │
    │  /_synapse/admin/v1/users/<uid>/   │   │    ├── <name>.png  (step 2.5)      │
@@ -429,8 +429,8 @@ Phase 77 is additive — not a rename or refactor — but it introduces new runt
 
 | Category | Items Found | Action Required |
 |----------|-------------|------------------|
-| Stored data | (1) NEW `matrix_admin_creds` row (single) in encrypted SQLite, holding `@skynet-admin` access_token + password. (2) NEW `users.mxid` column populated as runbook/import runs against existing 3 users + all future users. | Initial-population runbook needed for the 3 pre-existing accounts (user, Zoe, Laura) — 3 admin-gated POST calls. `credentials.txt` in the bounty folder is the source. |
-| Live service config | (1) `@skynet-admin` account on Synapse @ thenasty. Already exists (verified `admin:true` 2026-09-06). (2) The 3 pre-existing human Matrix accounts (user, Zoe, Laura). Already exist. (3) Nina's tg-bridge at `/home/thenasty/.config/tg-bridge/bridge.sh` — untouched in Phase A; still runs its old flow (per-human `.cred` files). | None in Phase A. Bridge behavior stays as-is until Phase B. |
+| Stored data | (1) NEW `matrix_admin_creds` row (single) in encrypted SQLite, holding `@skynet-admin` access_token + password. (2) NEW `users.mxid` column populated as runbook/import runs against existing 3 users + all future users. | Initial-population runbook needed for the 3 pre-existing accounts (user, Jess, Riley) — 3 admin-gated POST calls. `credentials.txt` in the bounty folder is the source. |
+| Live service config | (1) `@skynet-admin` account on Synapse @ host-a. Already exists (verified `admin:true` 2026-09-06). (2) The 3 pre-existing human Matrix accounts (user, Jess, Riley). Already exist. (3) Nina's tg-bridge at `/home/host-a/.config/tg-bridge/bridge.sh` — untouched in Phase A; still runs its old flow (per-human `.cred` files). | None in Phase A. Bridge behavior stays as-is until Phase B. |
 | OS-registered state | None. Phase 77 does not register any new systemd unit, cron entry, or Task Scheduler task on any box. The Skynet backend + Docker + Caddy infra is unchanged. | None. |
 | Secrets/env vars | (1) The admin token + password are moving OUT of `credentials.txt` (bounty folder, chmod 600, hand-parked by Nicole) INTO Skynet's encrypted DB. `credentials.txt` can be zeroed/deleted after ingestion. (2) No new env vars added — `SystemCrypto.getEncryptionKey()` already covers the master key for field-crypto. | Bounty wind-down (per bounty.json todo #7) can proceed after ingestion is confirmed. |
 | Build artifacts / installed packages | None. No new npm dependencies. `npm ci && npm run build` produces the same artifact shape. | None. |
@@ -508,7 +508,7 @@ If the planner adds a *new* base path (e.g., `/matrix-admin/retry` for the failu
 ```typescript
 // src/backend/matrix/matrix-admin-client.ts
 // Source: verified against https://element-hq.github.io/synapse/latest/admin_api/user_admin_api.html
-//         and live test 2026-09-06 against http://100.113.23.63:8008 (Synapse 1.157.2)
+//         and live test 2026-09-06 against http://100.64.0.12:8008 (Synapse 1.157.2)
 
 import { getMatrixAdminCreds } from "./matrix-admin-creds-store.js";
 import { databaseLogger } from "../utils/logger.js";
@@ -648,8 +648,8 @@ export async function makeRoomAdmin(roomIdOrAlias: string, userId?: string): Pro
 // Verified 2026-09-06 against ~/.claude/skills/agent-relay/recv.sh:25-32, 49-59, 82-91
 // and agent-relay/SKILL.md:100-116 (relay.json format definition)
 {
-  "base":         "http://100.113.23.63:8008/_matrix/client/v3",
-  "user_id":      "@<name>:thenasty.taild9b663.ts.net",
+  "base":         "http://100.64.0.12:8008/_matrix/client/v3",
+  "user_id":      "@<name>:host-a.tailnet-example.ts.net",
   "password":     "<agent-password-generated-by-Skynet>",
   "token":        "<access-token-from-admin-mint>",
   "access_token": "<access-token-from-admin-mint>"
@@ -658,7 +658,7 @@ export async function makeRoomAdmin(roomIdOrAlias: string, userId?: string): Pro
 
 **Notes on the shape:**
 - `base` MUST end in `/_matrix/client/v3` — recv.sh's `MROOT="${BASE%/_matrix/*}"` (line 101) strips this to get the server root for media, and every other endpoint concatenates onto `BASE` directly. Do NOT drop the suffix.
-- `user_id` is the FULL mxid `@localpart:server_name`. server_name is `thenasty.taild9b663.ts.net` (verified from the `whoami` call).
+- `user_id` is the FULL mxid `@localpart:server_name`. server_name is `host-a.tailnet-example.ts.net` (verified from the `whoami` call).
 - Both `token` and `access_token` should be set to the same value. `cred token` in recv.sh reads via `jq -r --arg k "$1" '.[$k] // empty' "$CREDS"` — it doesn't check both keys; but the tg-bridge and other consumers vary. Writing both is defensive.
 - `password` is REQUIRED for recv.sh's `relogin()` self-heal path (recv.sh:49-59). Without a password, a token death is unrecoverable and the agent goes silently deaf until manual repair (see recv.sh:53 fatal error message).
 - File mode: chmod 600. Precedent: agent-relay/SKILL.md:105.
@@ -767,7 +767,7 @@ router.post("/:id/mxid", async (req, res) => {
 5. **Should Phase 77 include tests for the Nina-bridge password-elimination claim, or is that a Phase B verification?**
    - What we know: The whole Phase 77 story is that once admin exists, the bridge stops needing per-human passwords on disk. But Phase A does NOT touch the bridge itself.
    - What's unclear: Do we need a Phase A test that PROVES the admin foundation is sufficient for Phase B's needs — e.g., a test that mints a fresh token via `loginAsUser` and uses it to send a message as that user?
-   - Recommendation: **Include one end-to-end integration test** in Phase A that exercises `loginAsUser(mxid) → use returned token to send m.room.message → confirm the send lands`. This proves the admin foundation delivers what Phase B needs, and catches any admin-permission gotchas early. Runs against the live thenasty relay (or a mocked equivalent).
+   - Recommendation: **Include one end-to-end integration test** in Phase A that exercises `loginAsUser(mxid) → use returned token to send m.room.message → confirm the send lands`. This proves the admin foundation delivers what Phase B needs, and catches any admin-permission gotchas early. Runs against the live host-a relay (or a mocked equivalent).
 
 ## Environment Availability
 
@@ -776,7 +776,7 @@ router.post("/:id/mxid", async (req, res) => {
 | Node runtime | All backend code | ✓ | v24.15.0 (engines require >= 22.12.0) | — |
 | better-sqlite3 | Schema migrations + row queries | ✓ | 12.9.0 (in package.json) | — |
 | ssh2 (SFTP) | Writing relay.json on target hosts | ✓ | ^1.17.0 (in package.json) | — |
-| Synapse relay reachability | All Matrix admin API calls | ✓ | 1.157.2 (verified live at `http://100.113.23.63:8008` on 2026-09-06) | Docker network + tailnet must be up; verified from `t1000`. Deployments to other Skynet boxes would need matching tailnet setup. |
+| Synapse relay reachability | All Matrix admin API calls | ✓ | 1.157.2 (verified live at `http://100.64.0.12:8008` on 2026-09-06) | Docker network + tailnet must be up; verified from `host-b`. Deployments to other Skynet boxes would need matching tailnet setup. |
 | `@skynet-admin` account with `admin:true` on Synapse | Every admin API call | ✓ | Verified live on 2026-09-06 (creation_ts: 1788582003) | If token dies, `credentials.txt` has the password — mint a fresh token via `POST /_matrix/client/v3/login`. |
 | curl on developer box (for verification during dev) | Ad-hoc admin API testing | ✓ | — | — |
 | `credentials.txt` file exists | Initial ingestion at Phase 77 deploy | ✓ | Verified — parked by Nicole 2026-09-05 in the bounty folder | If somehow lost, Nicole can re-mint. Skynet only needs the token once — after ingestion, `credentials.txt` is redundant. |
@@ -860,7 +860,7 @@ router.post("/:id/mxid", async (req, res) => {
 
 The Q2 CONTEXT.md preamble makes this the phase's raison d'être. Verified ground-truth:
 
-- **Baseline (today):** `bridge.sh` `acred()` (line 42) reads `$DIR/<human>.cred` as plaintext password; `relogin()` (line 46-56) POSTs `{type:"m.login.password", password:$pw}` on any 401. Every human whose bot has ever needed a token refresh has their raw Matrix password sitting on `thenasty:/home/thenasty/.config/tg-bridge/`.
+- **Baseline (today):** `bridge.sh` `acred()` (line 42) reads `$DIR/<human>.cred` as plaintext password; `relogin()` (line 46-56) POSTs `{type:"m.login.password", password:$pw}` on any 401. Every human whose bot has ever needed a token refresh has their raw Matrix password sitting on `host-a:/home/host-a/.config/tg-bridge/`.
 - **Post-Phase-75 (before Phase B lands):** The admin foundation exists but the bridge is unchanged — passwords still on disk. **No security regression, but no security improvement yet.**
 - **Post-Phase-B:** Bridge is rewritten (per shape) to call Skynet's admin foundation for token minting instead of holding passwords. Passwords deleted. This is the promised win.
 
@@ -868,13 +868,13 @@ The Q2 CONTEXT.md preamble makes this the phase's raison d'être. Verified groun
 
 ## Ground-truth verification
 
-The shape file (per CONTEXT.md `Open flag`) explicitly asks the researcher to ground-truth Nina's tg-bridge password-storage claim against `/home/thenasty/.config/tg-bridge/bridge.sh` before the planner locks Phase 77's "why this matters" narrative.
+The shape file (per CONTEXT.md `Open flag`) explicitly asks the researcher to ground-truth Nina's tg-bridge password-storage claim against `/home/host-a/.config/tg-bridge/bridge.sh` before the planner locks Phase 77's "why this matters" narrative.
 
-**Verification performed:** SSH to `thenasty@100.113.23.63` (tailnet) on 2026-09-06 and read the bridge.sh file directly.
+**Verification performed:** SSH to `host-a@100.64.0.12` (tailnet) on 2026-09-06 and read the bridge.sh file directly.
 
 **Findings — the claim HOLDS:**
 ```bash
-# From /home/thenasty/.config/tg-bridge/bridge.sh:41-56 (verbatim, 2026-09-06):
+# From /home/host-a/.config/tg-bridge/bridge.sh:41-56 (verbatim, 2026-09-06):
 
 atok(){ cat "$DIR/$1.token"; }         # args: human_name
 acred(){ cat "$DIR/$1.cred"; }         # args: human_name
@@ -889,7 +889,7 @@ relogin(){                              # args: human_name
 }
 ```
 
-Every human whose Telegram bot the bridge currently serves has a `<human>.cred` file in `/home/thenasty/.config/tg-bridge/` holding their **plaintext Matrix password**, used by `relogin()` on any 401 (token death). The bridge also holds `<human>.token` files and refreshes them via `POST $BASE/login` (the plain Matrix login endpoint), which requires the plaintext password.
+Every human whose Telegram bot the bridge currently serves has a `<human>.cred` file in `/home/host-a/.config/tg-bridge/` holding their **plaintext Matrix password**, used by `relogin()` on any 401 (token death). The bridge also holds `<human>.token` files and refreshes them via `POST $BASE/login` (the plain Matrix login endpoint), which requires the plaintext password.
 
 **Impact on Phase 77 narrative:** The shape's "why this matters" story stands as written. The admin foundation genuinely removes this load-bearing security surface — with admin, `POST /_synapse/admin/v1/users/<uid>/login` mints a fresh access token WITHOUT the user's password (see § Code Examples → Example 2). Phase B can then delete every `.cred` file and stop storing passwords entirely.
 
@@ -945,13 +945,13 @@ CONTEXT.md leaves the retry-surface shape open. Three options with tradeoffs:
 - **Fleet-substrate code (VERIFIED via Read 2026-09-06):**
   - `~/.claude/skills/agent-relay/recv.sh` — relay.json format, relogin path, password requirement
   - `~/.claude/skills/agent-relay/SKILL.md` — trust posture, room-power semantics, encryption trap, relay.json shape
-  - `/home/thenasty/.config/tg-bridge/bridge.sh` — GROUND-TRUTHED via SSH; password-storage claim verified
+  - `/home/host-a/.config/tg-bridge/bridge.sh` — GROUND-TRUTHED via SSH; password-storage claim verified
 - **Bounty parked artifacts (VERIFIED via Read 2026-09-06):**
   - `~/.claude/roles/box-maintainer/bounties/skynet-matrix-admin-integration/bounty.json`
   - `~/.claude/roles/box-maintainer/bounties/skynet-matrix-admin-integration/credentials.txt`
 - **Synapse admin API (VERIFIED via live HTTP + official docs 2026-09-06):**
-  - `http://100.113.23.63:8008/_synapse/admin/v1/server_version` returned `1.157.2`
-  - `http://100.113.23.63:8008/_synapse/admin/v2/users` returned users list with `admin:true` visible on `@skynet-admin`
+  - `http://100.64.0.12:8008/_synapse/admin/v1/server_version` returned `1.157.2`
+  - `http://100.64.0.12:8008/_synapse/admin/v2/users` returned users list with `admin:true` visible on `@skynet-admin`
   - [Element-hq Synapse User Admin API](https://element-hq.github.io/synapse/latest/admin_api/user_admin_api.html) — puppet API PUT + login-as-user POST verified
   - [Element-hq Synapse Rooms Admin API](https://element-hq.github.io/synapse/latest/admin_api/rooms.html) — list rooms + make_room_admin verified
   - [Element-hq Synapse Room Membership Admin API](https://element-hq.github.io/synapse/latest/admin_api/room_membership.html) — join endpoint verified

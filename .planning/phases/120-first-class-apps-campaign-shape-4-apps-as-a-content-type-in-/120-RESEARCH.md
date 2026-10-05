@@ -440,7 +440,7 @@ Phase 120 is greenfield in the runtime-state sense (no rename/refactor of existi
 
 ### Pitfall 2: Per-slug proxy cache collision
 
-**What goes wrong:** `proxy-factory.ts`'s cache keys on `(hostname:port::tunnelPort)`. Two apps on the same box (host t1000, ports 3001 and 3002) get different tunnelPorts, so the cache key differs correctly. BUT — when different slugs on the SAME (hostname, port, tunnelPort) get the SAME cached middleware, the middleware's `pathRewrite` is fixed at creation time. If a middleware was built with `pathRewrite: {"^/apps/5/todo/pane": ""}` and Skynet reuses it for `/apps/5/timer/pane/...`, the strip fails.
+**What goes wrong:** `proxy-factory.ts`'s cache keys on `(hostname:port::tunnelPort)`. Two apps on the same box (host host-b, ports 3001 and 3002) get different tunnelPorts, so the cache key differs correctly. BUT — when different slugs on the SAME (hostname, port, tunnelPort) get the SAME cached middleware, the middleware's `pathRewrite` is fixed at creation time. If a middleware was built with `pathRewrite: {"^/apps/5/todo/pane": ""}` and Skynet reuses it for `/apps/5/timer/pane/...`, the strip fails.
 
 **Why it happens:** Two apps on one host that happen to share a listening port (impossible in practice — but the cache key structure doesn't preclude it).
 

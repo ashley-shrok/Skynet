@@ -21,7 +21,7 @@ Post-deploy walk-through for user. Every UPLOAD-NN requirement gets an observabl
 ## Setup — one time
 
 1. Open https://term.example.com in Chrome on desktop.
-2. Open a pretty-view pane on a host where you can write to `~/pretty-view-uploads/` — `thenasty` is fine; the tmux session doesn't need to be Claude Code (UPLOAD-14 says works on any pane).
+2. Open a pretty-view pane on a host where you can write to `~/pretty-view-uploads/` — `host-a` is fine; the tmux session doesn't need to be Claude Code (UPLOAD-14 says works on any pane).
 3. Have a small test file ready on your local Desktop (e.g. `test.txt`, a few hundred bytes of content).
 4. Have a screenshot in your clipboard (or take one now with Cmd+Shift+4 → space → click a window).
 
@@ -62,7 +62,7 @@ Post-deploy walk-through for user. Every UPLOAD-NN requirement gets an observabl
 
 > **UPLOAD-09 contract:** *"Once all files have landed, a message is injected into the tmux session containing the caption text plus a compact metadata block per file: original filename, size, mimetype, upload timestamp, and full landing path on the receiving box; file BYTES are never inlined into the injected message (path-only-with-metadata)"*
 
-- [ ] 🚨 **UPLOAD-09 metadata block on the wire** In another shell, SSH to the same box you tested on (`ssh thenasty` or whichever). Attach to the same tmux session (or view via `tmux capture-pane -pJt <session>` if you don't want to steal focus). The injected user turn text should include:
+- [ ] 🚨 **UPLOAD-09 metadata block on the wire** In another shell, SSH to the same box you tested on (`ssh host-a` or whichever). Attach to the same tmux session (or view via `tmux capture-pane -pJt <session>` if you don't want to steal focus). The injected user turn text should include:
     ```
     <your caption>
 
@@ -74,7 +74,7 @@ Post-deploy walk-through for user. Every UPLOAD-NN requirement gets an observabl
 
 > **UPLOAD-10 contract:** *"Files land at `~/pretty-view-uploads/<yyyy-mm-dd>/<hhmmss>-<original-filename>` under the receiving user's home directory; day-organized subfolders are created on demand; the receiving side does NOT auto-clean any uploads (agent or user deletes them when done)"*
 
-- [ ] 🚨 **UPLOAD-10 landing path** SSH to the receiving box: `ssh thenasty "ls -la ~/pretty-view-uploads/$(date +%Y-%m-%d)/"`. Verify a file named `<hhmmss>-test.txt` exists (e.g. `120347-test.txt`). `cat` it — content matches what you originally created. Verify the day directory `2026-07-20/` was created on demand (was not there before this UAT). Verify no auto-cleanup — file will still be there tomorrow / next week / until you `rm` it.
+- [ ] 🚨 **UPLOAD-10 landing path** SSH to the receiving box: `ssh host-a "ls -la ~/pretty-view-uploads/$(date +%Y-%m-%d)/"`. Verify a file named `<hhmmss>-test.txt` exists (e.g. `120347-test.txt`). `cat` it — content matches what you originally created. Verify the day directory `2026-07-20/` was created on demand (was not there before this UAT). Verify no auto-cleanup — file will still be there tomorrow / next week / until you `rm` it.
 
 ---
 

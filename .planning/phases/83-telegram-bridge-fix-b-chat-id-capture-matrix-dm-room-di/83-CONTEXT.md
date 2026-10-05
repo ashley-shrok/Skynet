@@ -59,8 +59,8 @@ Fix B closes both gaps with a **sentinel handshake pattern** — the bridge writ
   4. For each shared room_id, GET `/_synapse/admin/v1/rooms/{room_id}` (which returns joined_members count) OR `/_synapse/admin/v1/rooms/{room_id}/members` — pick whichever is cheapest
   5. Filter to rooms with exactly 2 joined members (the two mxids we already have)
   6. Return the first match, or `null` if no 2-member shared room exists
-- **No Skynet-driven room creation** — if no shared DM room exists, return null. For Phase 83 this depends on pre-existing rooms from the Nina era (user confirmed Nina's tina↔user DM room is `!ugXtUphVwaxdjoXkIq:thenasty.taild9b663.ts.net` — that's the seed truth). Skynet-driven room creation is deferred to a later phase.
-- **Verified admin API:** the `/_synapse/admin/v1/users/{user_id}/joined_rooms` endpoint is documented Synapse-only (not Continuwuity) — Phase 77's admin foundation already targets this API on the thenasty homeserver, so it's ready.
+- **No Skynet-driven room creation** — if no shared DM room exists, return null. For Phase 83 this depends on pre-existing rooms from the Nina era (user confirmed Nina's tina↔user DM room is `!ugXtUphVwaxdjoXkIq:host-a.tailnet-example.ts.net` — that's the seed truth). Skynet-driven room creation is deferred to a later phase.
+- **Verified admin API:** the `/_synapse/admin/v1/users/{user_id}/joined_rooms` endpoint is documented Synapse-only (not Continuwuity) — Phase 77's admin foundation already targets this API on the host-a homeserver, so it's ready.
 
 ### 4. Registry-writer populates humans[].room via getSharedDMRoom
 

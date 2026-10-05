@@ -6,7 +6,7 @@
 <domain>
 ## Phase Boundary
 
-Add per-instance configurable branding to Skynet: a host-mounted config file + asset directory that lets a deployment swap its name, icon, wordmark, favicon, and PWA manifest without rebuilding the image. A deployment with no config file on the host behaves identically to today (Skynet defaults). The immediate consumer is Aither Intelligence Plus.
+Add per-instance configurable branding to Skynet: a host-mounted config file + asset directory that lets a deployment swap its name, icon, wordmark, favicon, and PWA manifest without rebuilding the image. A deployment with no config file on the host behaves identically to today (Skynet defaults). The immediate consumer is Acme Intelligence Plus.
 
 </domain>
 
@@ -19,7 +19,7 @@ Add per-instance configurable branding to Skynet: a host-mounted config file + a
 - **D-03:** Full config schema:
   ```json
   {
-    "appName": "Aither Intelligence Plus",
+    "appName": "Acme Intelligence Plus",
     "shortName": "AI+",
     "iconPath": "/branding/icon.svg",
     "wordmarkPath": "/branding/wordmark.png",
@@ -51,11 +51,11 @@ Add per-instance configurable branding to Skynet: a host-mounted config file + a
 
 ### Docker / deployment
 - **D-11:** `Dockerfile` copies bundled default branding assets into `/app/branding-defaults/` in the image.
-- **D-12:** `docker-compose.yml` adds two bind-mount entries (both `:ro`): `/opt/skynet/branding.json` → `/etc/skynet/branding.json` and `/opt/skynet/branding/` → `/etc/skynet/branding/`. On t1000 these paths don't exist — the mounts are optional-style (backend checks existence, falls back to defaults). AI+ deployment gets the actual config + assets at provisioning time.
+- **D-12:** `docker-compose.yml` adds two bind-mount entries (both `:ro`): `/opt/skynet/branding.json` → `/etc/skynet/branding.json` and `/opt/skynet/branding/` → `/etc/skynet/branding/`. On host-b these paths don't exist — the mounts are optional-style (backend checks existence, falls back to defaults). AI+ deployment gets the actual config + assets at provisioning time.
 - **D-13:** No rebuild needed for branding changes — only a container restart. This is the whole point of the bind-mount approach.
 
 ### Migration / rollout
-- **D-14:** Deploy to t1000 with NO config file on host. Backend serves bundled defaults = current Skynet behavior. Zero user-visible change on t1000.
+- **D-14:** Deploy to host-b with NO config file on host. Backend serves bundled defaults = current Skynet behavior. Zero user-visible change on host-b.
 - **D-15:** AI+ deployment: Ivy drops `/opt/skynet/branding.json` + assets into `/opt/skynet/branding/` at EC2 provisioning time.
 
 ### Claude's Discretion
@@ -111,7 +111,7 @@ Add per-instance configurable branding to Skynet: a host-mounted config file + a
 ## Specific Ideas
 
 - The conversation header keeps its current two-element structure (small icon + wordmark). The operator supplies both files separately — not a single combined logo. This preserves the existing visual layout without needing to redesign the header.
-- t1000 deploy: drop the config file entirely. Backend falls back to bundled defaults. Behavior = identical to today.
+- host-b deploy: drop the config file entirely. Backend falls back to bundled defaults. Behavior = identical to today.
 - AI+ deploy: Ivy installs `/opt/skynet/branding.json` + branding assets at EC2 provisioning. No Skynet code involvement at provisioning time — it's just files on disk.
 - The `common.appName` i18n key ("Skynet" in translation files) is used in some login flows but the actual login screen surfaces user verified are: tab title + icon/wordmark. The i18n key does not need to be touched; the tab title is handled by the AppShell branding context and the logo surfaces are handled by `iconPath`/`wordmarkPath`.
 

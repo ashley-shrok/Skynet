@@ -109,7 +109,7 @@ Every user-facing decision on the 7 findings is locked in the shape file. This s
 - `.planning/phases/93-relay-rooms-use-the-chat-surface-one-surface-two-data-source/93-VERIFICATION.md` — Phase 93's goal-backward verification report; useful to see what was verified GREEN vs where the veil / drag-drop / URL / etc. were never actually asserted at close-time (the misses this arc is polishing).
 
 ### Design tasting artifact (locked reference for finding 5)
-- `~/.claude/roles/box-maintainer/bounties/phase-93-uat-polish-arc/meter-tasting.html` — served at http://100.99.149.8:8899/meter-tasting.html on the arc's tailnet-serve. Variant A ("simple slotted drawer") is the locked reference. Executor implements the drawer chrome from the CSS in this prototype.
+- `~/.claude/roles/box-maintainer/bounties/phase-93-uat-polish-arc/meter-tasting.html` — served at http://100.64.0.13:8899/meter-tasting.html on the arc's tailnet-serve. Variant A ("simple slotted drawer") is the locked reference. Executor implements the drawer chrome from the CSS in this prototype.
 
 ### Fleet-wide constraints (standing directives that apply)
 - Role file `~/.claude/roles/box-maintainer/box-maintainer.md`: standing directives on logging (structured, boundaries, no `JSON.stringify` on DOM Event objects), test discipline (scoped during dev, full-suite + playwright smoke ship-gate only), executor scope (`git commit` + `tests green`, orchestrator handles deploy motion), no worktrees, multi-identity `git pull --rebase` before push, streaming does not exist anywhere ever.
@@ -151,7 +151,7 @@ Every user-facing decision on the 7 findings is locked in the shape file. This s
 <specifics>
 ## Specific Ideas
 
-- **Meter drawer prototype URL:** http://100.99.149.8:8899/meter-tasting.html (tailnet-served from t1000 during discussion). Variant A "simple slotted drawer" is the locked reference. user reviewed and picked live during the /open tasting.
+- **Meter drawer prototype URL:** http://100.64.0.13:8899/meter-tasting.html (tailnet-served from host-b during discussion). Variant A "simple slotted drawer" is the locked reference. user reviewed and picked live during the /open tasting.
 - **Placeholder copy verbatim:** `"message room"` — user's phrasing.
 - **URL identifier verbatim:** opaque Matrix room ID, readability explicitly not a concern.
 - **Split-out on drag-drop:** if diagnosis at plan-phase shows structural reshape needed, this item drops out of Phase 97 and gets its own `/open`. The other six ship regardless.

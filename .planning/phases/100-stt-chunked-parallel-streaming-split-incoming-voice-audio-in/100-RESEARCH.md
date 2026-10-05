@@ -538,7 +538,7 @@ const transcript = results
 
 **Research finding:** No official AWS documentation specifies a minimum audio duration below which `StartStreamTranscription` returns an error. AWS billing changed to 1-second increments with no minimum. The AWS re:Post note about "15-second timeout if no new audio is received" refers to the **idle timeout** (if you open a stream and stop sending audio, it closes after 15 s) — not a rejection of short audio. [CITED: https://repost.aws/questions/QUhTI1xY9IS8aopypQvYEXNQ]
 
-**Empirical evidence from Phase 98:** `bench.mjs` on t1000 successfully transcribed 3 s clips (0.798 s wall time). This suggests clips as short as 3 s are accepted with no error.
+**Empirical evidence from Phase 98:** `bench.mjs` on host-b successfully transcribed 3 s clips (0.798 s wall time). This suggests clips as short as 3 s are accepted with no error.
 
 **Risk for Phase 100:** If `silencedetect` + overlap math produces an edge-case chunk shorter than ~1–2 s (e.g., a clip starts with 7 s of speech followed by 3 s of silence, chunked at the silence gap, and the overlap extends past the audio end), that sub-2-second chunk should either be skipped or padded before dispatch.
 
@@ -920,7 +920,7 @@ Security enforcement is enabled (no `security_enforcement: false` in config). Ph
 - `100-CONTEXT.md` — all locked decisions D-01 through D-14
 
 ### Secondary (MEDIUM confidence)
-- Phase 98 empirical benchmark (session-transient on t1000): 3 s → 0.798 s, 8 s → 3.562 s, 15 s → 8.797 s, 30 s → 17.835 s — documented in 100-CONTEXT.md
+- Phase 98 empirical benchmark (session-transient on host-b): 3 s → 0.798 s, 8 s → 3.562 s, 15 s → 8.797 s, 30 s → 17.835 s — documented in 100-CONTEXT.md
 - [Amazon Transcribe streaming docs](https://docs.aws.amazon.com/transcribe/latest/dg/streaming.html) — no minimum duration stated
 - [AWS re:Post: Transcribe streaming from Lambda](https://repost.aws/questions/QUhTI1xY9IS8aopypQvYEXNQ) — billing in 1-second increments, no documented minimum
 - `src/backend/ssh/host-transfer.ts:2041-2059` — worker-pool concurrency analog — read in-session

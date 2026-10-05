@@ -1,4 +1,4 @@
-# Plan 23-05 Summary — Bootstrap doc + skynet-ec2 seed
+# Plan 23-05 Summary — Bootstrap doc + primary-host seed
 
 **Plan:** 23-05 (Wave 4, GEFM-06)
 **Status:** COMPLETE
@@ -7,7 +7,7 @@
 
 ## What was built
 
-**Task 1 (info gathering) — direct docker inspect on skynet-ec2:**
+**Task 1 (info gathering) — direct docker inspect on primary-host:**
 - Volume name: `skynet_skynet-data` (compose project prefix `skynet` from `/opt/skynet/docker-compose.yml`)
 - Host-side Mountpoint: `/var/lib/docker/volumes/skynet_skynet-data/_data`
 - `global-files.json` absent from the volume at start (fresh write — no destructive overwrite risk)
@@ -18,12 +18,12 @@
 - Contents: exact volume path, SSM-only workflow (box is SSM-only, no inbound SSH),
   seed JSON blob, jq-validate step, smoke-test procedure.
 
-**Task 3 (human checkpoint → applied) — seed written directly on skynet-ec2:**
+**Task 3 (human checkpoint → applied) — seed written directly on primary-host:**
 - Path: `/var/lib/docker/volumes/skynet_skynet-data/_data/global-files.json`
 - Owner: `root:root`, mode `0644`, size 748 bytes
-- Content: 8 host entries (`thenasty`, `workstation`, `linux-beelink`,
-  `ZoeyBattlestation`, `aither-cloud`, `aither-cloud2`, `aither-sftp`,
-  `skynet-ec2`), each with `~/.claude/CLAUDE.md` at label `User CLAUDE.md`
+- Content: 8 host entries (`host-a`, `workstation`, `linux-minipc`,
+  `Gaming-pc`, `acme-cloud`, `acme-cloud2`, `acme-sftp`,
+  `primary-host`), each with `~/.claude/CLAUDE.md` at label `User CLAUDE.md`
 - Validated with `jq '.hosts | keys | length'` → 8
 - Windows hosts omitted per CONTEXT §GEFM-06 (`WINDOWS-PC` etc.)
 
@@ -53,4 +53,4 @@
 
 ## Requirements satisfied
 
-- **GEFM-06** — bootstrap doc + skynet-ec2 initial population — DONE.
+- **GEFM-06** — bootstrap doc + primary-host initial population — DONE.

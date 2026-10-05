@@ -38,7 +38,7 @@ metrics:
 
 # Quick Task 260909-e9w: Distributor writes ~/.claude/skynet-hostname Summary
 
-Distributor Step 5 now writes `~/.claude/skynet-hostname` (single-line file containing Skynet's canonical `host.name`) on every sweep, and the id skill's Skynet file-URL recipe reads the hostname from that file instead of `$(hostname)` — eliminating the `unknown_host` 404 that cloud VMs (e.g. AWS boxes whose OS hostname is `ip-172-31-243-143`) hit whenever an agent tries to share a file.
+Distributor Step 5 now writes `~/.claude/skynet-hostname` (single-line file containing Skynet's canonical `host.name`) on every sweep, and the id skill's Skynet file-URL recipe reads the hostname from that file instead of `$(hostname)` — eliminating the `unknown_host` 404 that cloud VMs (e.g. AWS boxes whose OS hostname is `ip-172-31-0-10`) hit whenever an agent tries to share a file.
 
 ## What was built
 

@@ -67,7 +67,7 @@ Swap ComposeBox send-button icon from static paper-plane to spinning `Loader2` w
 
 - **NO files touched under `src/backend/`** — frontend-only patch as required.
 - **NO files touched under `~/.claude/identities/tina/`** — no `skynet-patches.md`, no bounty status/archive edits, no `tina.md`. Identity-side bookkeeping is orchestrator's job.
-- **NO push, NO `docker build`, NO `docker compose up`, NO `docker cp`, NO skynet-ec2 or container access.** Stopped cleanly at the `git commit` boundary per the plan's terminal-step rule.
+- **NO push, NO `docker build`, NO `docker compose up`, NO `docker cp`, NO primary-host or container access.** Stopped cleanly at the `git commit` boundary per the plan's terminal-step rule.
 - **Paper-plane SVG NOT reformatted** — inline path attribute, whitespace, and attribute order all byte-identical to the pre-patch markup (`grep "M14.536 21.686"` returns exactly 1 hit).
 
 ## Deviations from Plan

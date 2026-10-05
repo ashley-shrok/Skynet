@@ -41,7 +41,7 @@ Original starting point was "a client archive section" — presumably a collapse
 | Debounced (250-500ms) | Query fires after typing pauses | |
 | Fire on every keystroke | Instant results but hammers hosts | |
 
-**User's choice:** Fire on Enter. **Notes:** Cross-host grep isn't free; modal search is intentional. Confirmed via a quick timing test showing ~600ms wall time for the full corpus grep on t1000.
+**User's choice:** Fire on Enter. **Notes:** Cross-host grep isn't free; modal search is intentional. Confirmed via a quick timing test showing ~600ms wall time for the full corpus grep on host-b.
 
 ---
 

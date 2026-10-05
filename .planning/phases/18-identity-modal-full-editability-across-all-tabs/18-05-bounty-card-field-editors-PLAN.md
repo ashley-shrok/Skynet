@@ -243,7 +243,7 @@ Import BountyFieldsPatch, IdentityUpdateBountyFieldsPayload, IdentityBountyField
 
     IDMEDIT-05 REMOTE-branch UAT re-verification (already done in Plan 02, re-verify for bounty writes):
 
-    9. Open the identity modal on nelly (thenasty box, REMOTE branch). Edit any bounty field. Confirm SFTP write round-trips and disk on thenasty shows the edit.
+    9. Open the identity modal on nelly (host-a box, REMOTE branch). Edit any bounty field. Confirm SFTP write round-trips and disk on host-a shows the edit.
 
     IDMEDIT-07 non-regression walkthrough:
 

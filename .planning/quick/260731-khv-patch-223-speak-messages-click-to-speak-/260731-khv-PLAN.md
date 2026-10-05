@@ -50,7 +50,7 @@ must_haves:
       provides: "voice dropdown + sample button + save-payload test coverage"
   key_links:
     - from: "src/backend/database/routes/voice.ts"
-      to: "http://100.80.122.111:8001/v1/audio/speech"
+      to: "http://100.64.0.11:8001/v1/audio/speech"
       via: "fetch with AbortController 30s + audio/wav passthrough"
       pattern: "100\\.80\\.122\\.111:8001"
     - from: "src/backend/database/db/index.ts"
@@ -136,7 +136,7 @@ Output: One backend route module extension (`/voice/speak` + `/voice/voices`), o
   </behavior>
   <action>
     Extend `src/backend/database/routes/voice.ts` (do NOT rewrite the file — add sibling code to the existing STT-proxy):
-    - Add top-of-file constants: `const TTS_URL = "http://100.80.122.111:8001/v1/audio/speech";` and `const VOICES_URL = "http://100.80.122.111:8001/get_predefined_voices";` and `export const DEFAULT_VOICE = "Elena.wav";` and `export const SPEAK_TEXT_MAX = 25000;` and `export const SAMPLE_PHRASE = "Hi, this is your voice.";` and `const VOICE_FILENAME_RE = /^[A-Z][A-Za-z]+\.wav$/;`. Place these next to the existing STT_URL constant.
+    - Add top-of-file constants: `const TTS_URL = "http://100.64.0.11:8001/v1/audio/speech";` and `const VOICES_URL = "http://100.64.0.11:8001/get_predefined_voices";` and `export const DEFAULT_VOICE = "Elena.wav";` and `export const SPEAK_TEXT_MAX = 25000;` and `export const SAMPLE_PHRASE = "Hi, this is your voice.";` and `const VOICE_FILENAME_RE = /^[A-Z][A-Za-z]+\.wav$/;`. Place these next to the existing STT_URL constant.
     - Add `export async function handleSpeak(req, res)` mirroring handleTranscribe's structure: (a) validate req.body.text is a non-empty string of length 1..SPEAK_TEXT_MAX (400 if not); (b) if req.body.voice is provided, validate against VOICE_FILENAME_RE (400 if not); (c) build `AbortController` with 30_000ms timeout; (d) fetch TTS_URL with method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ model:"tts-1", input:req.body.text, voice: req.body.voice ?? DEFAULT_VOICE }), signal; (e) clearTimeout; (f) on !response.ok return res.status(response.status).json({ error:"TTS non-2xx", status:response.status }) — do NOT forward upstream body (T-16-03 analog); (g) on 2xx: `res.status(200).set("Content-Type","audio/wav")` then send the `Buffer.from(await response.arrayBuffer())` via `res.end(buf)`; (h) catch AbortError → 504 { error:"TTS timeout", status:504 }; other → 502 { error:"TTS proxy error", status:502 }. Log via databaseLogger.error with operation strings "voice_speak_timeout" / "voice_speak_proxy".
     - Add `export async function handleListVoices(req, res)` with the same AbortController 30s + fixed-shape error pattern. Fetch VOICES_URL with method:"GET". On 2xx: forward `await response.json()` verbatim as JSON. On non-2xx: `{ error:"voices non-2xx", status }`. AbortError → 504 { error:"voices timeout", status:504 }; other → 502.
     - Mount new routes AFTER the existing POST /transcribe: `router.post("/speak", authenticateJWT, express.json({ limit: "64kb" }), (req, res) => { void handleSpeak(req, res); });` — using a scoped `express.json()` middleware keeps the 25KB text cap enforced by JSON body size (belt + suspenders: the length check inside handleSpeak is the primary gate). And `router.get("/voices", authenticateJWT, (req, res) => { void handleListVoices(req, res); });`.
@@ -365,7 +365,7 @@ Cross-task phase-level checks — run AFTER Task 3 commits land:
    ```
    Should show (newest first): IdentityModal voice picker → frontend speak button → backend /voice/speak.
 
-7. NO deploy/build motion on skynet-ec2 (per user's greenlight-only-for-code rule). user batches deploys separately.
+7. NO deploy/build motion on primary-host (per user's greenlight-only-for-code rule). user batches deploys separately.
 </verification>
 
 <success_criteria>
@@ -378,7 +378,7 @@ Cross-task phase-level checks — run AFTER Task 3 commits land:
 - Tests: voice.test.ts covers 11 backend behaviors; ChatMessage.speak.test.tsx covers 6 frontend behaviors; IdentityModal.voice.test.tsx covers 6 modal behaviors. All pass. Full suite is 0-failed AND grep-clean.
 - Both `npm run build:backend` and `npm run build` succeed.
 - Three atomic commits landed on feat/tab-title-from-tmux; bare push to origin succeeded. No worktree used (user fleet rule).
-- NO deploy/build/recreate motion on skynet-ec2 (greenlight-only-for-code-work rule).
+- NO deploy/build/recreate motion on primary-host (greenlight-only-for-code-work rule).
 </success_criteria>
 
 <output>

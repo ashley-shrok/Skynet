@@ -408,7 +408,7 @@ modal Skynet renders around it). Grammar:
 - Add a NEW serve-URL sub-section paralleling the file-URL one:
   - Grammar: `<hostname>-<port>.serve.<term-parent>` where `<term-parent>` is derived from `~/.claude/skynet-parent` (strip protocol, then prepend `<hostname>-<port>.serve.`).
   - Bash recipe: construct URL from `~/.claude/skynet-parent` + `~/.claude/skynet-hostname` + agent-chosen port.
-  - Example: `https://t1000-3020.serve.term.example.com`
+  - Example: `https://host-b-3020.serve.term.example.com`
 - Retain the L922-932 "Why we replaced tailnet HTTP-server" reasoning but expand to cover both URL schemes.
 - NO auto-serve heuristics guidance per D-28 (agents-aren't-lied-to).
 
@@ -514,7 +514,7 @@ getSecureCookieOptions(
 
 **Corresponding `getClearCookieOptions` at L722-729** also needs the same `domain` addition — otherwise clearing the cookie leaves the widened-domain version in place. Same modification pattern.
 
-**Env-var vs hardcoded:** use `process.env.SKYNET_COOKIE_DOMAIN` so t1000 vs T800 vs future customer VMs can each set their own value (per D-23 T800 handles its own config; per D-19 t1000 sets `term.example.com`). The env-var goes into `/opt/skynet/skynet.env` on t1000 during the same deploy motion (D-24 "Single deploy — Caddy image rebuild + cookie widen + subdomain routing + agent URL construction all live in one atomic ship motion").
+**Env-var vs hardcoded:** use `process.env.SKYNET_COOKIE_DOMAIN` so host-b vs host-c vs future customer VMs can each set their own value (per D-23 host-c handles its own config; per D-19 host-b sets `term.example.com`). The env-var goes into `/opt/skynet/skynet.env` on host-b during the same deploy motion (D-24 "Single deploy — Caddy image rebuild + cookie widen + subdomain routing + agent URL construction all live in one atomic ship motion").
 
 ---
 
@@ -596,9 +596,9 @@ Add a NEW validation rejecting hostnames ending in `-\d+` (which would collide w
 // -<digits> would be ambiguous with the serve URL grammar
 // (<hostname>-<port>.serve.term.<domain>) which splits on the LAST dash of
 // the leftmost label. Reject at registration time so the ambiguity never
-// enters the DB. Current fleet passes this check (thenasty, workstation,
-// linux-beelink, aither-cloud, aither-cloud2, aither-sftp, t1000, t800,
-// WINDOWS-PC, ZoeyBattlestation).
+// enters the DB. Current fleet passes this check (host-a, workstation,
+// linux-minipc, acme-cloud, acme-cloud2, acme-sftp, host-b, host-c,
+// WINDOWS-PC, Gaming-pc).
 if (typeof name === "string" && /-\d+$/.test(name)) {
   sshLogger.warn("[host-db] host-name-collision-with-serve-url-grammar", {
     operation: "host_create",
@@ -617,7 +617,7 @@ if (typeof name === "string" && /-\d+$/.test(name)) {
 
 **DB-write forceSave check (from CONTEXT.md code_context "In-memory SQLite `forceSave` rule"):** the host-add flow already writes to DB and thus already invokes `DatabaseSaveTrigger.forceSave`. New validation is a REJECT-BEFORE-WRITE — no additional forceSave needed.
 
-**Tests:** grep for `host.test.ts` existing test cases on the create path; add cases for `name = "foo-42"` → 400, `name = "foo-bar"` → 200 (no digit suffix), `name = "t800"` → 200 (no dash), `name = "aither-cloud2"` → 200 (dash + non-terminal digit ok — the check is `-\d+$` anchored to end).
+**Tests:** grep for `host.test.ts` existing test cases on the create path; add cases for `name = "foo-42"` → 400, `name = "foo-bar"` → 200 (no digit suffix), `name = "host-c"` → 200 (no dash), `name = "acme-cloud2"` → 200 (dash + non-terminal digit ok — the check is `-\d+$` anchored to end).
 
 ---
 

@@ -78,7 +78,7 @@ Commit message: `feat(pretty-conversations): patch #136 — full pretty-view bub
 @src/ui/index.css
 
 Live prototype (user-approved v2, Full + Normal locked):
-http://100.99.149.8:8899/conversation-list-bubble-badge-restyle/prototype.html
+http://100.64.0.13:8899/conversation-list-bubble-badge-restyle/prototype.html
 Prototype file on disk: /home/ubuntu/.claude/identities/tina/bounties/conversation-list-bubble-badge-restyle/prototype.html
 </context>
 

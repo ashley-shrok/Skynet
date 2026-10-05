@@ -143,7 +143,7 @@ timeout remains meaningful.
   code no longer present, transcript-echo round-trip still works
   end-to-end under the new transport.
 - Fleet-wide deploy: this touches the app backend, so docker build +
-  docker-compose up on t1000. Gated on explicit greenlight per the
+  docker-compose up on host-b. Gated on explicit greenlight per the
   standing directive.
 
 **Out**:

@@ -41,7 +41,7 @@ The sidebar has a filter-as-you-type input at the top for finding conversations.
 - Archived conversations currently accumulate in an in-memory slice fed by wire messages, but there's no client UI that displays them. They exist but are hidden.
 - Archiving already exists as a server-side concept and is not going to change in this shape.
 - Unarchiving does not exist as a feature yet. Archived conversations are, by design, currently unopenable — the client machinery to view them is missing entirely.
-- On the box the search runs on (t1000, 157 identities, ~1GB of transcripts), a naive content search across the latest transcript per identity takes ~600ms wall time, sub-second regardless of query specificity. At the target minimum host size (4GB Graviton) this is still expected to fit comfortably — grep streams, so memory is not a concern, and CPU is trivial. Room to scale via a smarter implementation later; not a bottleneck at current corpus size.
+- On the box the search runs on (host-b, 157 identities, ~1GB of transcripts), a naive content search across the latest transcript per identity takes ~600ms wall time, sub-second regardless of query specificity. At the target minimum host size (4GB Graviton) this is still expected to fit comfortably — grep streams, so memory is not a concern, and CPU is trivial. Room to scale via a smarter implementation later; not a bottleneck at current corpus size.
 - Existing code paths already resolve identity → latest transcript when opening a conversation in the main view. The search feature should mirror or reuse that mapping strategy rather than reinvent it.
 
 ## What would make it wrong

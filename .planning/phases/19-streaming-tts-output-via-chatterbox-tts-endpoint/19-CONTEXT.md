@@ -34,7 +34,7 @@ Replace the buffered TTS path on the pretty-view bubble speak-button with a prog
 - **New route, not a replacement.** `POST /voice/speak-stream` sits alongside the existing `POST /voice/speak`. Both handlers live in `voice.ts`. The buffered route stays for IdentityModal voice-preview.
 - **Pipe-through, no server-side buffering.** `Readable.fromWeb(response.body).pipe(res)` (or equivalent WHATWG→Node stream bridge). Grep-verifiable rule: `await response.arrayBuffer()`, `.text()`, `.blob()` on the Chatterbox response inside `handleSpeakStream` = plan-checker BLOCK.
 - **Response headers:** `Content-Type: audio/wav` + `X-Accel-Buffering: no` (defense-in-depth against downstream reverse-proxy buffering).
-- **Upstream endpoint:** `http://100.80.122.111:8001/tts` (Chatterbox streaming). NOT `/v1/audio/speech` — the OpenAI-compat endpoint has no `stream` flag.
+- **Upstream endpoint:** `http://100.64.0.11:8001/tts` (Chatterbox streaming). NOT `/v1/audio/speech` — the OpenAI-compat endpoint has no `stream` flag.
 - **AbortController on the upstream fetch:** 300s ceiling (same as patch #223 `handleSpeak`). Reasoning captured in `voice.ts:145-150` — TTS synthesis of long text can take minutes, shorter caps produce false-positive `database-connection-degraded` toasts.
 
 ### Request body schema translation
@@ -207,11 +207,11 @@ See bounty `stream-tts-output-via-chatterbox/bounty.json § premise` for the ful
 > 1. Different endpoint, different body schema. stream:true only works on /tts. The OpenAI-compat /v1/audio/speech has no stream flag.
 > 2. output_format is ignored when streaming — you get WAV, period (not mp3/opus). Fine for <audio> or a raw pipe; for progressive in-browser playback use Web Audio API — parse RIFF header from first bytes, decode each incoming PCM chunk into an AudioBuffer, schedule back-to-back via AudioBufferSourceNode so audio starts on the first samples not on stream end.
 
-**Tina uses the tailnet IP directly for the backend proxy** (`http://100.80.122.111:8001/tts`, not `https://example.com/tts-api/tts`) because the backend already sits inside Skynet's docker network with tailnet access. The public HTTPS URL is only relevant for the client-side / view-source reference.
+**Tina uses the tailnet IP directly for the backend proxy** (`http://100.64.0.11:8001/tts`, not `https://example.com/tts-api/tts`) because the backend already sits inside Skynet's docker network with tailnet access. The public HTTPS URL is only relevant for the client-side / view-source reference.
 
 ### Deploy discipline
 - **Do not push / rebuild / recreate without user's explicit ship word.** Deploy queue #198→#236 (~57 commits) is held; this patch #237 will ride the same bundle whenever she greenlights.
-- **skynet-ec2 recreate warning** (patch #232 discovery): the `--force-recreate` sequence causes a HTTP2_PROTOCOL_ERROR on the first hard-refresh — user pre-warns on ship day, standard workflow.
+- **primary-host recreate warning** (patch #232 discovery): the `--force-recreate` sequence causes a HTTP2_PROTOCOL_ERROR on the first hard-refresh — user pre-warns on ship day, standard workflow.
 
 </specifics>
 

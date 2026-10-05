@@ -152,7 +152,7 @@ skynet-tina HEAD `013e1d6b`) confirmed:
   preferences pane, the URL the ntfy iOS app points at — derive from
   the instance's own existing public-hostname configuration.
 - Code that works on `<instance-hostname>` must work identically on
-  `skynet.aithercloud.com` and any future instance.
+  `skynet.example.net` and any future instance.
 
 ### What's deliberately NOT in this phase
 - System-generated notifications (deploy alerts, login warnings,

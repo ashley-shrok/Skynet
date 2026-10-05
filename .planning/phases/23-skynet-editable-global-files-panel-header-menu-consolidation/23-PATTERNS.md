@@ -356,7 +356,7 @@ services:
 
 **What to note in the plan:**
 - The `skynet-data` volume already mounts to `/app/data` — GEFM-02's config file at `/app/data/global-files.json` requires ZERO docker-compose change. The plan should call this out explicitly so a planner doesn't invent a change here.
-- Host-side path for GEFM-02's SSH-edit workflow doc (via `docker volume inspect skynet-data`): `/var/lib/docker/volumes/docker_skynet-data/_data/global-files.json` typically, but planner must SSH into skynet-ec2 and run `docker volume inspect skynet-data` to confirm the exact path (compose-project prefix depends on docker-compose file location — may be `skynet_skynet-data` or `docker_skynet-data`).
+- Host-side path for GEFM-02's SSH-edit workflow doc (via `docker volume inspect skynet-data`): `/var/lib/docker/volumes/docker_skynet-data/_data/global-files.json` typically, but planner must SSH into primary-host and run `docker volume inspect skynet-data` to confirm the exact path (compose-project prefix depends on docker-compose file location — may be `skynet_skynet-data` or `docker_skynet-data`).
 
 ---
 
@@ -760,8 +760,8 @@ try {
 
 | File | Role | Data Flow | Reason |
 |------|------|-----------|--------|
-| `.planning/phases/23-*/23-BOOTSTRAP.md` | doc | (docs) | Planner drafts the SSH-edit workflow doc fresh. Reference: CONTEXT §GEFM-06 lists the specific hosts to seed (thenasty, workstation, linux-beelink, ZoeyBattlestation, aither-cloud, aither-cloud2, aither-sftp, skynet-ec2 — omit Windows WINDOWS-PC). |
-| Seed `global-files.json` (bootstrap data) | infra config data | (JSON seed) | Content is user-specific (fleet host list × `~/.claude/CLAUDE.md`); no reusable template exists. Ship the file as an operator-authored asset (probably deployed by ssh-ing into skynet-ec2 and writing it into `/var/lib/docker/volumes/skynet_skynet-data/_data/global-files.json`; no in-repo template needed since the config is per-Skynet-instance per CONTEXT §non-negotiables). |
+| `.planning/phases/23-*/23-BOOTSTRAP.md` | doc | (docs) | Planner drafts the SSH-edit workflow doc fresh. Reference: CONTEXT §GEFM-06 lists the specific hosts to seed (host-a, workstation, linux-minipc, Gaming-pc, acme-cloud, acme-cloud2, acme-sftp, primary-host — omit Windows WINDOWS-PC). |
+| Seed `global-files.json` (bootstrap data) | infra config data | (JSON seed) | Content is user-specific (fleet host list × `~/.claude/CLAUDE.md`); no reusable template exists. Ship the file as an operator-authored asset (probably deployed by ssh-ing into primary-host and writing it into `/var/lib/docker/volumes/skynet_skynet-data/_data/global-files.json`; no in-repo template needed since the config is per-Skynet-instance per CONTEXT §non-negotiables). |
 
 ## Metadata
 
@@ -786,4 +786,4 @@ try {
 2. **DropdownMenu prior art:** The shadcn `dropdown-menu.tsx` component exists but has **zero call sites** in the codebase. `PrettyConversationContextMenu.tsx` is the closest visual analog (portal-mounted, glass-styled, matches pretty-view aesthetic). Recommend the planner uses `PrettyConversationContextMenu`'s pattern rather than adopting shadcn `DropdownMenu` — the latter would introduce a token/theming mismatch with the surrounding `.pv-*` chrome.
 3. **Path escaping is new territory:** Neither `readRoleFile` nor `writeRoleFile` shell-escapes their path arguments because role names pass `IDENTITY_KEY_RE` (`[a-z0-9_-]{1,64}`, no shell-special chars). Global-file paths are operator-authored and can contain `$`, backticks, quotes, spaces — the planner MUST apply single-quote escaping (`path.replace(/'/g, "'\"'\"'")`) or use a shell-escape utility before interpolating into `cat` / `stat` commands. Whitelist-enforcement alone does not remove this obligation (whitelist gates auth, escaping gates injection).
 4. **mtime for optimistic concurrency:** No exact analog in the codebase — `file-manager-content-routes.ts` uses `stat -c%s` for size but not `%Y` for mtime. Planner uses `stat -c '%Y'` (Linux) which returns Unix epoch seconds. If the fleet includes non-GNU stat targets (BSD/macOS), fallback needed — but CONTEXT §GEFM-06 lists only Linux hosts (Windows explicitly omitted).
-5. **Volume host-side path for GEFM-06:** `docker volume inspect skynet-data` on skynet-ec2 gives the answer. Compose-project prefix depends on the directory name where `docker-compose.yml` lives (`/opt/skynet/` → likely `skynet_skynet-data` or `docker_skynet-data`). Planner MUST ssh in and confirm before finalizing the bootstrap doc — don't hardcode a guessed path.
+5. **Volume host-side path for GEFM-06:** `docker volume inspect skynet-data` on primary-host gives the answer. Compose-project prefix depends on the directory name where `docker-compose.yml` lives (`/opt/skynet/` → likely `skynet_skynet-data` or `docker_skynet-data`). Planner MUST ssh in and confirm before finalizing the bootstrap doc — don't hardcode a guessed path.

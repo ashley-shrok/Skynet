@@ -5,7 +5,7 @@ subsystem: uat
 tags:
   - uat
   - end-to-end
-  - t1000
+  - host-b
   - python-http-server
   - origin-isolation
   - post-deploy-verification
@@ -18,7 +18,7 @@ dependencies:
     - phase: 103-passthrough-urls-serve-url-scheme-phase-2-of-2
       provides: "Plans 01+02+03a+03b+04+05+06+07+08+09 must be deployed atomically per D-24 before this UAT runs (Caddy wildcard TLS + widened JWT cookie + subdomain dispatch + tunnel cache + proxy factory + WS origin guard + multipart guards + interstitial renderer + id-skill rewrite distributed)"
   provides:
-    - "End-to-end verification transcript covering CONTEXT.md Specifics L147 (python -m http.server t1000 origin-isolation test) — realizes shape file rollout step 4"
+    - "End-to-end verification transcript covering CONTEXT.md Specifics L147 (python -m http.server host-b origin-isolation test) — realizes shape file rollout step 4"
     - "user's explicit sign-off line confirming Phase 103 shipped correctly (or documented failure transcript for orchestrator gap-closure decision)"
   affects:
     - "Phase 103 close-out — all upstream plans' contribution proven correct end-to-end against real traffic. If UAT fails, orchestrator triggers /gsd-plan-phase 103 --gaps against whichever plan owns the failing surface (dispatch=05, tunnel/proxy=03a/03b, Caddy=01, cookie=02, interstitial UX=03a)."
@@ -28,7 +28,7 @@ tech-stack:
   added: []  # No code changes — pure UAT documentation + human-verify checkpoint
   patterns:
     - "Post-deploy manual UAT with 4 independent check gates (positive load / origin isolation / auth wall / port-not-listening interstitial) — each check independently falsifiable"
-    - "Skeleton-then-transcript pattern — executor writes the fillable structure BEFORE presenting checkpoint; user (or whoever is at t1000) fills each field from real UAT observation. NO invented verification data."
+    - "Skeleton-then-transcript pattern — executor writes the fillable structure BEFORE presenting checkpoint; user (or whoever is at host-b) fills each field from real UAT observation. NO invented verification data."
 
 key-files:
   created:
@@ -37,7 +37,7 @@ key-files:
 
 # Executor decisions
 decisions:
-  - "Executor wrote the SUMMARY.md skeleton with the 4-check protocol as an user-runnable checklist BEFORE returning the human-verify checkpoint (per plan action step). Fillable transcript fields left blank — user (or the identity at t1000 post-deploy) populates them during the actual UAT run. Do NOT invent verification data."
+  - "Executor wrote the SUMMARY.md skeleton with the 4-check protocol as an user-runnable checklist BEFORE returning the human-verify checkpoint (per plan action step). Fillable transcript fields left blank — user (or the identity at host-b post-deploy) populates them during the actual UAT run. Do NOT invent verification data."
   - "This plan does NOT deploy. Deploy motion (git push → docker build → docker compose up --force-recreate) is orchestrator-only per box-maintainer standing directive 'Deploy boundary at git push' + 'Subagents don't do deploys.' The UAT below runs POST-DEPLOY, after user's greenlight lands and the atomic ship motion completes."
   - "This plan does NOT push, ship, or run any test suite. It is a documentation + human-verify checkpoint task exclusively. The full-suite ship gate (npx vitest run + npx playwright smoke) runs as the FIRST step of the orchestrator's deploy motion — that's a separate concern from THIS plan."
 
@@ -47,17 +47,17 @@ metrics:
   completed: 2026-09-10
 ---
 
-# Phase 103 Plan 10: End-to-end serve URL verification on t1000 (post-deploy UAT) Summary
+# Phase 103 Plan 10: End-to-end serve URL verification on host-b (post-deploy UAT) Summary
 
 ## One-liner
 
-Post-deploy manual UAT protocol proving the full serve URL stack (Caddy wildcard TLS → subdomain dispatch → JWT auth → SSH tunnel → proxy) works end-to-end on t1000 via `python -m http.server` + sibling image origin-isolation check.
+Post-deploy manual UAT protocol proving the full serve URL stack (Caddy wildcard TLS → subdomain dispatch → JWT auth → SSH tunnel → proxy) works end-to-end on host-b via `python -m http.server` + sibling image origin-isolation check.
 
 ## What this plan is (and is not)
 
 **IS:** A single blocking-human checkpoint task that (a) enumerates the 4-check UAT procedure as an user-runnable checklist and (b) provides the durable transcript template for recording verification observations.
 
-**IS NOT:** Not a deploy. Not a push. Not a test-suite run. Not an executor-driven UAT. The executor of this plan wrote the skeleton below and returned a `CHECKPOINT REACHED` message. The UAT itself executes **AFTER** the orchestrator's ship motion (git push + docker build + docker compose up --force-recreate + verify), triggered by user on t1000.
+**IS NOT:** Not a deploy. Not a push. Not a test-suite run. Not an executor-driven UAT. The executor of this plan wrote the skeleton below and returned a `CHECKPOINT REACHED` message. The UAT itself executes **AFTER** the orchestrator's ship motion (git push + docker build + docker compose up --force-recreate + verify), triggered by user on host-b.
 
 ## Preconditions (must all be true before the UAT runs)
 
@@ -69,13 +69,13 @@ Post-deploy manual UAT protocol proving the full serve URL stack (Caddy wildcard
 
 ## UAT procedure — 4 independent check gates
 
-user (or whichever box-maintainer identity is at t1000 post-deploy) executes each step in order. Fill in the transcript fields below during execution. NO invented data.
+user (or whichever box-maintainer identity is at host-b post-deploy) executes each step in order. Fill in the transcript fields below during execution. NO invented data.
 
 ---
 
 ### Setup (run once before the 4 checks)
 
-**A. SSH into t1000** (or open a terminal directly if physically present).
+**A. SSH into host-b** (or open a terminal directly if physically present).
 
 **B. Create test folder + files:**
 
@@ -110,7 +110,7 @@ python3 -m http.server 8899
 **Transcript — Setup:**
 
 ```
-Timestamp (local time on t1000): [FILL IN — YYYY-MM-DD HH:MM TZ]
+Timestamp (local time on host-b): [FILL IN — YYYY-MM-DD HH:MM TZ]
 Browser + version:               [FILL IN — e.g., "Firefox 129.0 (incognito)"]
 python http.server started at:   [FILL IN — timestamp of first stdout log line]
 skynet_session cookie Domain:    [FILL IN — should read "term.example.com"]
@@ -124,7 +124,7 @@ Preconditions all green?         [YES / NO — if NO, ABORT and report to orches
 **Action:** In the signed-in browser tab from Setup step D, visit:
 
 ```
-https://t1000-8899.serve.term.example.com/
+https://host-b-8899.serve.term.example.com/
 ```
 
 **Expected:**
@@ -156,7 +156,7 @@ CHECK 1 RESULT:                      [PASS / FAIL — if FAIL, note reason and S
 
 **Expected:**
 
-- Image request URL is exactly `https://t1000-8899.serve.term.example.com/image.png`.
+- Image request URL is exactly `https://host-b-8899.serve.term.example.com/image.png`.
 - Image request URL is **NOT** `https://term.example.com/image.png` (which would prove browser resolved absolute path to the PRIMARY domain — origin isolation broken).
 - Image request URL is **NOT** to any other subdomain.
 
@@ -170,7 +170,7 @@ CHECK 1 RESULT:                      [PASS / FAIL — if FAIL, note reason and S
 **Transcript — Check 2:**
 
 ```
-/image.png full request URL (from Network tab): [FILL IN — MUST be t1000-8899.serve.term.example.com]
+/image.png full request URL (from Network tab): [FILL IN — MUST be host-b-8899.serve.term.example.com]
 python http.server log lines (paste verbatim):
 [FILL IN — two "GET" lines with timestamps]
 Origin isolation proven?                        [YES / NO]
@@ -184,7 +184,7 @@ CHECK 2 RESULT:                                 [PASS / FAIL — if FAIL, D-01 d
 **Action:** Open a **DIFFERENT browser** (or the SAME browser after clearing cookies for `term.example.com` — devtools → Application → Storage → Clear site data). Do NOT sign in. Visit:
 
 ```
-https://t1000-8899.serve.term.example.com/
+https://host-b-8899.serve.term.example.com/
 ```
 
 **Expected:**
@@ -210,12 +210,12 @@ CHECK 3 RESULT:                                                               [P
 **Action:**
 
 1. Return to the terminal running `python3 -m http.server 8899` from Setup step C. **Kill it (Ctrl-C).**
-2. Return to the SIGNED-IN browser tab from Checks 1+2. **Refresh** `https://t1000-8899.serve.term.example.com/`.
+2. Return to the SIGNED-IN browser tab from Checks 1+2. **Refresh** `https://host-b-8899.serve.term.example.com/`.
 
 **Expected:**
 
 - Skynet-styled interstitial page renders (NOT a bare "502 Bad Gateway", NOT a browser-default error page).
-- Interstitial body reads something like "port 8899 of t1000 isn't responding" (exact copy per Plan 03a `interstitial.ts` `port_not_listening` template).
+- Interstitial body reads something like "port 8899 of host-b isn't responding" (exact copy per Plan 03a `interstitial.ts` `port_not_listening` template).
 - Interstitial has a **plain "Try again" button** — NO auto-refresh, NO meta refresh, NO JavaScript-timed reload (Specifics L145 + D-14: user decides to retry; auto-refresh masks legitimate ongoing outages).
 - Devtools Network shows the request resolved (some 2xx or 5xx status from the interstitial layer, NOT a hung/timeout).
 
@@ -234,7 +234,7 @@ CHECK 4 RESULT:                            [PASS / FAIL]
 
 ## Sign-off
 
-**user (or the identity at t1000) fills in ONE of the following after running all 4 checks:**
+**user (or the identity at host-b) fills in ONE of the following after running all 4 checks:**
 
 **IF ALL 4 CHECKS PASSED:**
 
@@ -266,7 +266,7 @@ If Check N failed, capture at minimum:
 - **Full screenshot** of the browser state at failure.
 - **`docker logs skynet --since 5m 2>&1`** (Skynet backend logs around the failing request time — look for structured logs from subdomain-dispatch, tunnel-cache, proxy-factory, interstitial renderer).
 - **`docker logs caddy --since 5m 2>&1`** (Caddy edge logs — look for TLS handshake issues, upstream errors, missing X-Skynet-Serve-Subdomain header).
-- **`curl -vv -o /dev/null https://t1000-8899.serve.term.example.com/`** (raw HTTP transcript with headers).
+- **`curl -vv -o /dev/null https://host-b-8899.serve.term.example.com/`** (raw HTTP transcript with headers).
 - **Which plan's surface owns the failure** (best guess, for orchestrator gap-closure targeting):
   - Cert / TLS issue → Plan 01 (Caddy image + Caddyfile)
   - Cookie not reaching subdomain → Plan 02 (cookie widen)
@@ -289,9 +289,9 @@ If Check N failed, capture at minimum:
 
 Executor step: none — skeleton written and committed as designed.
 
-**UAT execution (2026-09-10, post-deploy on t1000):**
-- **Target host**: used `thenasty-8899.serve.term.example.com` instead of `t1000-8899` because this box is registered in Skynet's host DB under the name `Skynet` (id=6), NOT `t1000`. Using thenasty had the added value of proving cross-host reverse-proxy (SSH tunnel to a genuinely-remote box), not self-loopback. Future UAT runs should either register a `t1000` alias or continue with a remote target.
-- **http.server location**: moved from t1000 to thenasty for the same reason.
+**UAT execution (2026-09-10, post-deploy on host-b):**
+- **Target host**: used `host-a-8899.serve.term.example.com` instead of `host-b-8899` because this box is registered in Skynet's host DB under the name `Skynet` (id=6), NOT `host-b`. Using host-a had the added value of proving cross-host reverse-proxy (SSH tunnel to a genuinely-remote box), not self-loopback. Future UAT runs should either register a `host-b` alias or continue with a remote target.
+- **http.server location**: moved from host-b to host-a for the same reason.
 
 ---
 
@@ -304,7 +304,7 @@ Executor step: none — skeleton written and committed as designed.
 - user used her existing signed-in browser session. Cookie migration required deleting the `jwt` cookie once (pre-widen cookie was host-scoped) and re-logging in.
 
 **CHECK 1 — Positive load: PASS**
-- After cookie re-login, `https://thenasty-8899.serve.term.example.com/` rendered the UAT page from thenasty's python http.server. Sibling image.png loaded as a 1x1 red pixel dot (correct — user confirmed).
+- After cookie re-login, `https://host-a-8899.serve.term.example.com/` rendered the UAT page from host-a's python http.server. Sibling image.png loaded as a 1x1 red pixel dot (correct — user confirmed).
 
 **CHECK 2 — Origin isolation: PASS**
 - Sibling `<img src="image.png">` resolved to the same subdomain (curl verified: `content-type: image/png`, `server: SimpleHTTP/0.6 Python/3.12.3` — proving the fetch reached the target http.server via SSH tunnel, not primary Skynet).
@@ -313,7 +313,7 @@ Executor step: none — skeleton written and committed as designed.
 - user's incognito window hit the URL → redirected to `https://term.example.com/login?return=...`. D-14 auth_missing flow verified.
 
 **CHECK 4 — Port-not-listening interstitial: PASS**
-- Killed thenasty:8899, user refreshed. Skynet-styled interstitial rendered with heading "port not responding", body "Port 8899 of thenasty isn't responding. The agent may have stopped whatever was serving there.", Try Again link, "skynet serve URL" footer. Backend log confirmed `errorClass:port_not_listening, errCode:ECONNRESET`.
+- Killed host-a:8899, user refreshed. Skynet-styled interstitial rendered with heading "port not responding", body "Port 8899 of host-a isn't responding. The agent may have stopped whatever was serving there.", Try Again link, "skynet serve URL" footer. Backend log confirmed `errorClass:port_not_listening, errCode:ECONNRESET`.
 
 **Sign-off:**
 
@@ -360,11 +360,11 @@ This SUMMARY.md was written by the Plan 10 executor on the main tree (`~/skynet-
 
 The executor did **NOT**:
 
-- Attempt to execute the UAT itself (would fail — `t1000-8899.serve.term.example.com` doesn't resolve pre-deploy).
+- Attempt to execute the UAT itself (would fail — `host-b-8899.serve.term.example.com` doesn't resolve pre-deploy).
 - Attempt to deploy anything (per standing directive: subagents don't do deploys).
 - Push, build, or run tests (per Plan 10 scope: pure UAT documentation).
 
-user (or the identity at t1000 post-deploy) will fill the transcript fields during the actual UAT run and either sign off with the "All 4 checks passed" line OR record the failure diagnostic + return to orchestrator for gap-closure.
+user (or the identity at host-b post-deploy) will fill the transcript fields during the actual UAT run and either sign off with the "All 4 checks passed" line OR record the failure diagnostic + return to orchestrator for gap-closure.
 
 ## Self-Check: PASSED
 

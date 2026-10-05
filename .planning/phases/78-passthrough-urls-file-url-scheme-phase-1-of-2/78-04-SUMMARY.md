@@ -69,7 +69,7 @@ All 12 mechanical gates from the plan pass:
 > tailnet IP over plain HTTP had three chronic pain points: (1) Chrome flagged
 > every download as "insecure file" because the tailnet has no cert path on
 > user's plan; (2) the tailnet-only reach meant customer VMs and any box off
-> the tailnet (T800 today, future customer boxes tomorrow) simply couldn't be
+> the tailnet (host-c today, future customer boxes tomorrow) simply couldn't be
 > served this way; and (3) every share saddled you with agent-side server
 > lifecycle burden — a backgrounded process to kill, `mktemp -d` staging dirs to
 > clean up, port juggling, PID tracking, self-`pkill` traps. The Skynet
@@ -77,7 +77,7 @@ All 12 mechanical gates from the plan pass:
 > HTTPS end-to-end, works from anywhere Skynet reaches, and no agent-side
 > process to babysit.
 
-**All three RESEARCH-flagged failure modes named:** (1) Chrome insecure-download friction, (2) tailnet-only reach (T800 + customer VMs excluded), (3) agent-side server lifecycle burden. Meets the "MUST name at least two of three" requirement with all three.
+**All three RESEARCH-flagged failure modes named:** (1) Chrome insecure-download friction, (2) tailnet-only reach (host-c + customer VMs excluded), (3) agent-side server lifecycle burden. Meets the "MUST name at least two of three" requirement with all three.
 
 ## Structural Elements Preserved
 

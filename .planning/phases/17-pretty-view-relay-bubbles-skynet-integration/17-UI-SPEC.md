@@ -16,7 +16,7 @@ design_source_of_truth: ~/.claude/identities/tina/bounties/pretty-view-relay-bub
 >
 > **Design is LOCKED via the prototype at
 > `~/.claude/identities/tina/bounties/pretty-view-relay-bubble-prototype/prototype.html`**
-> (served at http://100.99.149.8:8899/relay-bubble-prototype.html, 6/6 acceptance
+> (served at http://100.64.0.13:8899/relay-bubble-prototype.html, 6/6 acceptance
 > battery passed with user 2026-07-28). This UI-SPEC summarizes what the prototype
 > pins down and names the byte-shape references — the prototype's CSS/HTML/JS is the
 > port target, not a re-derivation from this spec.

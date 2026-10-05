@@ -6,7 +6,7 @@ runbook, all identity metadata and working directories will be consolidated unde
 `~/fleet/`, and the old scatter of `~/.claude/identities/`, `~/.claude/roles/`,
 and `~/skynet-<name>/` folders will be removed.
 
-**Applies to:** t1000 (user / tanya box-maintainer), T800 (Stacy), and any
+**Applies to:** host-b (user / tanya box-maintainer), host-c (Morgan), and any
 future box running Skynet or AI+.
 
 **Prerequisite:** The campaign ship is live — Shapes 1–4 commits are on
@@ -122,7 +122,7 @@ configs referencing absolute paths).
 Post-migration state:
 - **Existing identities** (born pre-Shape-3) have their `~/fleet/identities/
   <name>/workspace/` absent, and their current workdirs remain wherever
-  they were on their box (`~/skynet-<name>/` on t1000, `~/PBMInvoices-<name>/`
+  they were on their box (`~/skynet-<name>/` on host-b, `~/PBMInvoices-<name>/`
   on workstation, etc.). Agent-supervisor falls back to `$HOME` for them —
   same behavior as today.
 - **New identities** (born post-Shape-3) automatically get `workspace/` at
@@ -289,7 +289,7 @@ running stale substrate. Recycle (drop \`.recycle-requested\` in your NEW fleet
 path at \`~/fleet/identities/$name/.recycle-requested\`) and re-load — the new
 session will read the new tree correctly.
 
-Contact \`tanya\` (box-maintainer role, t1000) if anything downstream broke.
+Contact \`tanya\` (box-maintainer role, host-b) if anything downstream broke.
 EOF
 done
 ```
@@ -316,7 +316,7 @@ moved to the new location. New substrate reads from there directly.
 If you got here because a script or an old session referenced the old path,
 update the reference to \`~/fleet/roles/$name/\` and it'll work.
 
-Contact \`tanya\` (box-maintainer role, t1000) if anything downstream broke.
+Contact \`tanya\` (box-maintainer role, host-b) if anything downstream broke.
 EOF
 done
 ```

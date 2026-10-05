@@ -135,7 +135,7 @@ Two minor micro-adjustments worth noting (both within the plan's stated Claude-d
 - No `git push` — commits stay local on `feat/tab-title-from-tmux`.
 - No `docker build` — the Skynet container is unchanged in production; the pane router, CSRF middleware, iframe wrapper, and starter-template comment all sit on the held branch waiting for the campaign-close orchestrator.
 - No `docker compose up` / `docker compose up --force-recreate` — the deploy motion is the campaign-close orchestrator's job.
-- No `systemctl --user` calls on t1000 or any fleet host — no fleet mutations.
+- No `systemctl --user` calls on host-b or any fleet host — no fleet mutations.
 - No substrate distributor sweep — `catalog.ts` push motion runs at campaign-close alongside the container deploy.
 
 **Fleet directives honoured** (per `~/fleet/roles/box-maintainer/box-maintainer.md § Standing directives`):
@@ -176,20 +176,20 @@ Plan 05's SUMMARY (`120-05-SUMMARY.md § Caddyfile / Assumption A6 Verification`
 
 ## D-23 UAT Procedure (defer to campaign close)
 
-**Purpose:** After the campaign-close deploy lands on production (all four shapes' commits pushed + container rebuilt + distributor swept), run this 10-step agent-side procedure on a clean logged-in Skynet UI session to validate the whole shape-4 surface end-to-end. Executes on t1000 in the reviewer's browser after the deploy converges.
+**Purpose:** After the campaign-close deploy lands on production (all four shapes' commits pushed + container rebuilt + distributor swept), run this 10-step agent-side procedure on a clean logged-in Skynet UI session to validate the whole shape-4 surface end-to-end. Executes on host-b in the reviewer's browser after the deploy converges.
 
 **When to run:** After the campaign-close orchestrator has finished the deploy motion — NOT before. Per Phase 119's UAT-defer policy: "UAT converges at campaign close, not this phase's individual close." Same policy for Phase 120.
 
-**Cleanup discipline:** Steps 8-10 delete the scratch app and its systemd unit. Do NOT leave a residual `scratch-shape-4-test` folder on t1000; do NOT leave a residual systemd `--user` unit.
+**Cleanup discipline:** Steps 8-10 delete the scratch app and its systemd unit. Do NOT leave a residual `scratch-shape-4-test` folder on host-b; do NOT leave a residual systemd `--user` unit.
 
 ---
 
-### Step 1: Setup on t1000
+### Step 1: Setup on host-b
 
-Create the scratch app on t1000:
+Create the scratch app on host-b:
 
 ```bash
-# On t1000:
+# On host-b:
 mkdir -p ~/fleet/apps/scratch-shape-4-test/
 cd ~/fleet/apps/scratch-shape-4-test/
 
@@ -240,10 +240,10 @@ Wait for Phase 118's fleet-status sweep to pick up the new app frame (default in
 
 ### Step 3: Click gesture (D-06)
 
-Open Skynet UI in a browser session logged in as the same user that owns the app's home box (t1000). Locate the new **Scratch Shape-4 Test** tile in the sidebar Apps section. **Click it.**
+Open Skynet UI in a browser session logged in as the same user that owns the app's home box (host-b). Locate the new **Scratch Shape-4 Test** tile in the sidebar Apps section. **Click it.**
 
 **Verify:**
-- A new pane leaf appears with the app rendering inside via the iframe (`AppPane` mounts at `/apps/<t1000-hostId>/scratch-shape-4-test/pane/`).
+- A new pane leaf appears with the app rendering inside via the iframe (`AppPane` mounts at `/apps/<host-b-hostId>/scratch-shape-4-test/pane/`).
 - The leaf title bar shows the app's static metadata title: **"Scratch Shape-4 Test"** (per D-19; from `app.json`'s `title` field, propagated through Phase 118's app-frame `title` field).
 - The URL bar shows Skynet's own origin (same-origin proxying works).
 
@@ -290,7 +290,7 @@ Reload the whole browser page (Cmd-R / Ctrl-R / F5 — a full page reload, not a
 
 ### Step 8: App stopped (D-17 interstitial)
 
-On t1000, stop the scratch app's systemd unit:
+On host-b, stop the scratch app's systemd unit:
 
 ```bash
 systemctl --user stop app-scratch-shape-4-test.service
@@ -308,7 +308,7 @@ Refresh both leaves (or trigger a re-fetch inside the iframe — a navigation at
 Delete the app folder + fully clean up the systemd unit:
 
 ```bash
-# On t1000:
+# On host-b:
 systemctl --user stop app-scratch-shape-4-test.service
 systemctl --user disable app-scratch-shape-4-test.service
 rm ~/.config/systemd/user/app-scratch-shape-4-test.service
@@ -327,7 +327,7 @@ Wait for the next Phase 118 sweep (or trigger manually).
 Confirm the scratch state is fully gone:
 
 ```bash
-# On t1000:
+# On host-b:
 ls ~/fleet/apps/scratch-shape-4-test/ 2>&1 | head -3          # expect: No such file or directory
 systemctl --user status app-scratch-shape-4-test.service 2>&1 # expect: Unit not found / could not be found
 ls ~/.config/systemd/user/app-scratch-shape-4-test.service 2>&1 # expect: No such file or directory
@@ -367,7 +367,7 @@ And in the Skynet UI:
 6. Verify the built image bundles the updated `substrate/skills/app-development/templates/app-starter/svelte.config.js` (26 lines / 1179 bytes — see § Substrate distributor sweep note above).★
 7. `docker compose up --force-recreate` (per the user 2026-09-12 container-mutation serialization).
 8. Wait for the next distributor sweep to push the updated `svelte.config.js` to all managed hosts (see § Substrate distributor sweep note above).★
-9. Run the **D-23 UAT procedure** on t1000 with the reviewer's browser session (all 10 steps).★
+9. Run the **D-23 UAT procedure** on host-b with the reviewer's browser session (all 10 steps).★
 10. On UAT-pass, close the campaign artifact.
 
 ## Known stubs
@@ -433,7 +433,7 @@ FOUND
 - No `git push` executed at this executor scope.
 - No `docker build` executed.
 - No `docker compose up` executed.
-- No `systemctl --user` calls on t1000 or any fleet host.
+- No `systemctl --user` calls on host-b or any fleet host.
 - No substrate distributor sweep triggered.
 
 All checks pass. The plan closed cleanly. Two commits total: the Task 1 code commit (c0411dc2) and the final metadata commit (pending on this SUMMARY landing).

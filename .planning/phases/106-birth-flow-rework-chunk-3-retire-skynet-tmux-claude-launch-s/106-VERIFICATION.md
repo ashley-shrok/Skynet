@@ -207,12 +207,12 @@ The phase goal — modal shows spinner while Skynet writes disk + mints Matrix, 
 
 **Deploy motion time.** Per D-22 and the shape file's Chunk 3 disposition, this is the load-bearing chunk of the 3-chunk arc (Chunks 1+2 already landed at commits `5f6efd29` and `6cdff0ab`). Now that all three chunks have landed on the branch, the orchestrator should:
 
-1. **Coord-room announce** the pending deploy on `!FHdIfqtmSWcGYUfyVp:thenasty.taild9b663.ts.net`.
+1. **Coord-room announce** the pending deploy on `!FHdIfqtmSWcGYUfyVp:host-a.tailnet-example.ts.net`.
 2. `git pull --rebase origin feat/tab-title-from-tmux`.
 3. Run the full-suite gate (`npx vitest run` + `npx playwright test tests/e2e/smoke.spec.ts --project=chromium` with `SKYNET_TEST_CREDS`).
 4. Push + build + recreate containers + verify.
 5. **AFTER-post** on ship.
-6. **Ask** about notifying Stacy at the downstream deployment (per the standing directive in `~/fleet/roles/box-maintainer/box-maintainer.md`) so the full birth-flow rework arc (Chunks 1+2+3) can be pulled through downstream as one coherent unit (not incrementally, per the arc's original coordination decision).
+6. **Ask** about notifying Morgan at the downstream deployment (per the standing directive in `~/fleet/roles/box-maintainer/box-maintainer.md`) so the full birth-flow rework arc (Chunks 1+2+3) can be pulled through downstream as one coherent unit (not incrementally, per the arc's original coordination decision).
 
 The originally-scoped Chunk 4 (per-step visible checkmarks + error toast) dissolves under this shape and should be **marked done or dropped** in `~/fleet/roles/box-maintainer/bounties/newsessiondialog-ux-per-step-visible/bounty.json` as part of closing the arc, per the CONTEXT.md § Deferred Ideas note.
 

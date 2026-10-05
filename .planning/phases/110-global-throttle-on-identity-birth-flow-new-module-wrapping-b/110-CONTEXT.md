@@ -57,7 +57,7 @@ Bounty: `identity-creation-flow-global-throttle` (box-maintainer's shared pool).
 - **Integration tests at both entry points:**
   - `identity-birth.test.ts`: three concurrent POST /identities/birth requests serialize (assert order of `birthIdentity` invocations); 429 fires when queue at cap.
   - `spawn-requests/worker.test.ts`: two `processBirth` calls in parallel serialize (extend existing tests); bypass semantics honored.
-- **End-to-end smoke** (deferred to ship-time verify, not gated in this phase): drop 10 spawn-request files at once on the running t1000 container; verify none fail on rate limits and last-in-line completes within reasonable latency budget. Not a unit test — a manual verify step in the phase SUMMARY.
+- **End-to-end smoke** (deferred to ship-time verify, not gated in this phase): drop 10 spawn-request files at once on the running host-b container; verify none fail on rate limits and last-in-line completes within reasonable latency budget. Not a unit test — a manual verify step in the phase SUMMARY.
 
 ### Documentation update
 

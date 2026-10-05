@@ -126,7 +126,7 @@ Locked planner choices (per task_spec §4/§6):
 @/home/ubuntu/skynet/src/ui/features/terminal/Terminal.tsx
 @/home/ubuntu/skynet/src/ui/index.css
 
-**Reference prototype (READ-ONLY, do NOT modify):** `/home/ubuntu/.claude/identities/tina/bounties/conversation-list-bubble-badge-restyle/prototype.html` (v4 locked). Also served at `http://100.99.149.8:8899/conversation-list-bubble-badge-restyle/prototype.html` for visual reference.
+**Reference prototype (READ-ONLY, do NOT modify):** `/home/ubuntu/.claude/identities/tina/bounties/conversation-list-bubble-badge-restyle/prototype.html` (v4 locked). Also served at `http://100.64.0.13:8899/conversation-list-bubble-badge-restyle/prototype.html` for visual reference.
 
 **Interface exports to add (executor implements these signatures verbatim):**
 

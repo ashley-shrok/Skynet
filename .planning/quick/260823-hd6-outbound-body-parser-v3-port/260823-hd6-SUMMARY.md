@@ -53,7 +53,7 @@ One-liner: verbatim TS port of `extractor_v3.py` — extends `substituteShellVar
 
 ## Objective (recap)
 
-Port the finalized `extractor_v3.py` algorithm verbatim into TypeScript. The Python source-of-truth is corpus-validated end-to-end (787 real fleet outbound cmds across t1000 + workstation over 2 weeks): 96.3% ok extraction, 0 regressions vs v0, catches 2 latent wrong-body bugs. Purpose: pretty-view relay bubbles render actual body text instead of `rawCommand` fallback for ~19 percentage points more of real corpus, and eliminate the two known wrong-body render cases.
+Port the finalized `extractor_v3.py` algorithm verbatim into TypeScript. The Python source-of-truth is corpus-validated end-to-end (787 real fleet outbound cmds across host-b + workstation over 2 weeks): 96.3% ok extraction, 0 regressions vs v0, catches 2 latent wrong-body bugs. Purpose: pretty-view relay bubbles render actual body text instead of `rawCommand` fallback for ~19 percentage points more of real corpus, and eliminate the two known wrong-body render cases.
 
 ## Tasks Executed
 

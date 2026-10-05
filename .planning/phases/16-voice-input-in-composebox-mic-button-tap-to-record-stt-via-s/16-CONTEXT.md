@@ -22,7 +22,7 @@
 **In-scope surface files:**
 - `src/ui/features/pretty-view/ComposeBox.tsx` — mic button + record-state swap + MediaRecorder wiring + fetch to backend transcribe endpoint.
 - New icon/component sub-files as the planner sees fit (e.g. `MicButton.tsx`, `RecordingControls.tsx`) — keep them local to `pretty-view/`.
-- Backend: new `POST /voice/transcribe` endpoint in the Skynet Node/Express server that forwards multipart audio to `http://100.80.122.111:8000/v1/audio/transcriptions` over tailnet and returns `{text}`. Location: wherever existing pretty-view routes live (planner reads existing patterns).
+- Backend: new `POST /voice/transcribe` endpoint in the Skynet Node/Express server that forwards multipart audio to `http://100.64.0.11:8000/v1/audio/transcriptions` over tailnet and returns `{text}`. Location: wherever existing pretty-view routes live (planner reads existing patterns).
 - `docker/nginx.conf` AND `docker/nginx-https.conf` — mandatory nginx `location` block additions per CLAUDE.md Nginx caveat (else the route 200s with index.html and crashes the frontend on `.map`). Planner MUST include this.
 - Tests: unit tests for the backend endpoint (multipart passthrough, STT-error surface, timeout); frontend integration test for the record → transcribe → append flow with a mocked backend.
 </domain>
@@ -42,14 +42,14 @@
 ### Locked STT contract (Nelly 2026-07-27, verified live)
 
 - **Service:** self-hosted faster-whisper on WindowsPc, tailnet-only.
-- **URL:** `http://100.80.122.111:8000/v1/audio/transcriptions` — direct STT endpoint.
+- **URL:** `http://100.64.0.11:8000/v1/audio/transcriptions` — direct STT endpoint.
 - **Shape:** OpenAI-compatible. `POST` multipart/form-data with field name `file` (NOT `audio`); optional `model` param IGNORED by server, always uses `large-v3`.
 - **Accepted formats:** mp4/m4a/webm/mp3/wav/ogg via ffmpeg on the backend — iOS Safari's `audio/mp4` MediaRecorder output decodes fine. Chrome/Android `audio/webm` also fine.
 - **Response:** `{"text": "..."}` — OpenAI shape.
 - **Auth:** none (tailnet-only).
 - **Latency:** ~0.4s for a 1s silent clip; ~1-2s round-trip for a 10s spoken clip.
 - **Streaming:** NO — batch only. Single POST → final text.
-- **Ground-truth probe verified by Nelly:** `curl -F "file=@silent.wav" http://100.80.122.111:8000/v1/audio/transcriptions` → `{"text":""}` HTTP 200 in 0.31s.
+- **Ground-truth probe verified by Nelly:** `curl -F "file=@silent.wav" http://100.64.0.11:8000/v1/audio/transcriptions` → `{"text":""}` HTTP 200 in 0.31s.
 
 ### Production audio path — cannot be client-direct
 
@@ -60,7 +60,7 @@ user's phone (and any browser) reaches Skynet over the **public internet** at `t
 **Backend endpoint contract (proposed — planner refines):**
 - `POST /voice/transcribe` (route path in the backend router; nginx.conf + nginx-https.conf must both proxy it).
 - Accepts multipart/form-data with a `file` field (browser sends this shape identically to how STT expects it).
-- Forwards the multipart body untouched to `http://100.80.122.111:8000/v1/audio/transcriptions` using a Node HTTP client (fetch/undici/axios — planner picks based on existing patterns in the codebase).
+- Forwards the multipart body untouched to `http://100.64.0.11:8000/v1/audio/transcriptions` using a Node HTTP client (fetch/undici/axios — planner picks based on existing patterns in the codebase).
 - Returns the STT's JSON response verbatim (or wraps errors with a stable shape).
 - On STT error (non-2xx): return `{error: string, status: number}` with the STT's HTTP status code.
 - On STT timeout: apply a reasonable server-side timeout (~30s — a 30s clip transcribes in ~3-5s, so 30s is generous headroom).

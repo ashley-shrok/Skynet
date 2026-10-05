@@ -50,7 +50,7 @@ Failure:
 
 **Claude's clarification:** Right — identities themselves have no DB row (Phase 69 killed that table). But the birth-orchestrator's signature still takes a `userId` parameter — used for host-record lookup, avatar-candidate scope, and other user-scoped state. The question is which userId argument the spawn-request worker passes to the orchestrator when calling it on behalf of a coord-dropped request.
 
-**Claude's revised recommendation:** Look up the owner-userId of the host the request came from — every request file lives on a specific box, that box has a Skynet host record with an owning userId. On single-user boxes (t1000) everything routes to user. On multi-user boxes (T800), Stacy's coord births under Stacy's userId. Natural multi-user isolation boundary.
+**Claude's revised recommendation:** Look up the owner-userId of the host the request came from — every request file lives on a specific box, that box has a Skynet host record with an owning userId. On single-user boxes (host-b) everything routes to user. On multi-user boxes (host-c), Morgan's coord births under Morgan's userId. Natural multi-user isolation boundary.
 
 **user's decision:** *"Sure that works"* — accepted.
 

@@ -345,7 +345,7 @@ function makeMockSftp(plans: Record<string, string> = {}): MockSftp {
     Object.entries(plans).map(([k, v]) => [k, Buffer.from(v, "utf8")]),
   );
   return {
-    realpath: vi.fn((p, cb) => queueMicrotask(() => cb(null, "/home/ashley"))),
+    realpath: vi.fn((p, cb) => queueMicrotask(() => cb(null, "/home/alice"))),
     stat: vi.fn((p, cb) => queueMicrotask(() => {
       if (map.has(p)) cb(null, { size: map.get(p)!.length, isFile: () => true });
       else { const e = new Error("ENOENT") as Error & { code: number }; e.code = 2; cb(e); }
@@ -375,7 +375,7 @@ function makeMockSftp(plans: Record<string, string> = {}): MockSftp {
 | Missing .md suffix | `~/.claude/plans/foo` | `{ error: "invalid plan path" }` |
 | 500KB truncation | 600KB file | `{ content }` with content length ≤ MAX_PLAN_BYTES + "[truncated]" suffix |
 | SFTP readFile error | ENOENT | `{ error: "..." }` (propagates SFTP error string) |
-| Home directory resolution success | mock realpath returns `/home/ashley` | validated absPath uses `/home/ashley/.claude/plans/...` |
+| Home directory resolution success | mock realpath returns `/home/alice` | validated absPath uses `/home/alice/.claude/plans/...` |
 
 **Test skeleton** (mirroring `pretty-view-upload.test.ts` L1-25):
 ```typescript

@@ -59,7 +59,7 @@
 ### Frontend row redesign — the locked v14 shape
 
 **Title line:**
-- Content: identity name (bold-ish, existing weight) + one space + hostname wrapped in parens `(skynet-ec2)`.
+- Content: identity name (bold-ish, existing weight) + one space + hostname wrapped in parens `(primary-host)`.
 - Parens styling: SAME font-size as identity name (not smaller), alpha `.85` (subtly softer to signal parenthetical), inherits font-family from label. This is the "part of the same text" treatment user locked after iteration.
 - Right-edge fade-truncation via `mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 22px), transparent 100%)` + `text-overflow: clip` (not ellipsis). Long identity/hostname combos taper into transparency instead of hard-cutting.
 

@@ -103,7 +103,7 @@ Otherwise, plan executed exactly as written.
 Task 2 is a `checkpoint:human-verify` gate. Executor STOPS at Task 1 completion per checkpoint protocol. user owns:
 
 1. Push `feat/tab-title-from-tmux` (branch already has commit `57d42e3c` on tip).
-2. Build + deploy Skynet container to t1000 (`docker compose up -d --force-recreate skynet`).
+2. Build + deploy Skynet container to host-b (`docker compose up -d --force-recreate skynet`).
 3. Wait 60 seconds for the distributor's per-host SSH-client acquire to re-fire `installStopHook` on every peer.
 4. Execute Task 2's six checks (documented in plan `<how-to-verify>`): container log grep of `plan_mode_deny_applied`, per-peer settings.json grep for the two deny entries, permissions.deny preservation check, hooks preservation check, 30-min post-deploy JSONL grep for actual `tool_use` invocations of the plan-mode tools, startup-warning sanity check.
 5. Reply `all 6 checks PASS — Wave 2 authorized` OR describe failures.

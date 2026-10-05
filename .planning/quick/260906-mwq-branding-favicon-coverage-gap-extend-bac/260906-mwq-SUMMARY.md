@@ -114,7 +114,7 @@ None — the new backend routes (`serveCascadeAsset`) route 7 compile-time liter
 
 Code + 2 commits + scoped tests green + all builds green — orchestrator (Tabitha) picks up:
 1. Full-suite `npx vitest run` (ship gate).
-2. `docker build` + `docker compose up --force-recreate` on t1000.
+2. `docker build` + `docker compose up --force-recreate` on host-b.
 3. Live in-container smoke: `curl -sI http://box/favicon-16.png` returning override bytes when `/etc/skynet/branding/favicon-16.png` exists.
 4. `nginx -t` syntax check in-container after the compose restart.
 5. Set bounty `status: "done"` on successful ship.

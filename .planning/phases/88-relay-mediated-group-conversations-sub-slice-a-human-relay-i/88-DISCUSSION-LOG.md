@@ -31,7 +31,7 @@
 | Only POST /users/create — hand-migrate existing users off-code | Slice touches only new-user creation going forward; existing users get hand-migrated by each instance's maintainer as part of upgrade | ✓ |
 
 **User's choice:** POST /users/create only. Verbatim: *"I think it should just be for every new user going forward, because backfilling is easy enough manual migrations by the agents in charge of upgrading Skynet on these two instances, which are the only instances of the app that exist currently."*
-**Notes:** Reduces slice scope significantly. Only two Skynet deployments exist (t1000 + T800); Taylor + Stacy handle their respective hand-migrations. No backfill code, no sweep, no lazy path.
+**Notes:** Reduces slice scope significantly. Only two Skynet deployments exist (host-b + host-c); Taylor + Morgan handle their respective hand-migrations. No backfill code, no sweep, no lazy path.
 
 ---
 
@@ -51,16 +51,16 @@
 
 | Option | Description | Selected |
 |--------|-------------|----------|
-| Username-derived (`@ashley:server`) | Semantic + short; fragile if usernames ever rename (Matrix mxids are immutable on Synapse) | |
+| Username-derived (`@alice:server`) | Semantic + short; fragile if usernames ever rename (Matrix mxids are immutable on Synapse) | |
 | Opaque mxid + Matrix displayname carries semantics | Stable underlying id (e.g. `@u_<userId>:server`), rename-resilient; displayname (`user`) shows in Element | |
 | Username-derived with `_human` suffix (`@user_human:server`), sanitized to Synapse localpart grammar | Semantically obvious, differentiates humans from agents in same namespace, accepts "no rename" as implicit invariant | ✓ |
 
-**User's choice:** Username-derived with `_human` suffix. Verbatim: *"let's do '@user_human.taild9b663.ts.net' and username would have to be able to be converted to whatever synapse accepts for characters. on the other skynet instance, people may use their emails as usernames, so just want to call that out"*
+**User's choice:** Username-derived with `_human` suffix. Verbatim: *"let's do '@user_human.tailnet-example.ts.net' and username would have to be able to be converted to whatever synapse accepts for characters. on the other skynet instance, people may use their emails as usernames, so just want to call that out"*
 **Notes:** user explicitly steered away from the opaque-mxid detour after being shown a concrete example. `_human` suffix invented in the same turn. Rename-fragility acknowledged as an implicit "usernames don't rename" invariant slice A relies on — noted in deferred ideas.
 
 ---
 
-## Sanitizer approach — email usernames on T800
+## Sanitizer approach — email usernames on host-c
 
 | Option | Description | Selected |
 |--------|-------------|----------|
@@ -69,7 +69,7 @@
 | Trim to safe chars, append hash on collision | Pretty most of the time; order-dependent (which user signed up first) is nasty behavior | |
 
 **User's choice:** Bijective escape (`thumbs up` after Claude recommended it with explicit rejection of the other two options).
-**Notes:** Motivating case is T800 where users may sign in with corporate email addresses (Aither Health). The bijective mapping ensures `user@example.com` becomes `@user_at_example_dot_com_human:...` — verbose but readable and safe.
+**Notes:** Motivating case is host-c where users may sign in with corporate email addresses (Acme Health). The bijective mapping ensures `user@example.com` becomes `@user_at_example_dot_com_human:...` — verbose but readable and safe.
 
 ---
 
@@ -95,7 +95,7 @@
 | Passwordless / SSO on Matrix | Synapse supports it but complicated to wire | |
 
 **User's choice:** Discard. Verbatim (in response to Claude flagging the shift from schema comment): *"The only reason it says that human relay credentials are owned by the human is because for the few existing accounts that are out there already, some of them do, but that has nothing to do with how it's going to be treated normally from now forward."*
-**Notes:** Confirmed the schema comment is a legacy artifact reflecting how user/Zoey/Laura got their accounts; go-forward is Skynet-mediated. Slice A also updates the schema comment as housekeeping.
+**Notes:** Confirmed the schema comment is a legacy artifact reflecting how user/Dana/Riley got their accounts; go-forward is Skynet-mediated. Slice A also updates the schema comment as housekeeping.
 
 ---
 
@@ -136,7 +136,7 @@
 
 ---
 
-## Legacy users (user, Zoey, Laura) — update mxids to `_human` suffix or leave alone
+## Legacy users (user, Dana, Riley) — update mxids to `_human` suffix or leave alone
 
 | Option | Description | Selected |
 |--------|-------------|----------|

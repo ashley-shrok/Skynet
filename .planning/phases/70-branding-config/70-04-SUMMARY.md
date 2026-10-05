@@ -14,7 +14,7 @@ dependency_graph:
     - "src/ui/auth/Auth.tsx login-screen header (L1131-1142) rewired to same brandingConfig-driven <img> pattern. Unifies the login + conversation-list icon+wordmark per D-08."
     - "src/ui/locales/en.json auth.loginTitle value neutralized from 'Login to SKYNET' to 'Login' (Option 1 — locale-neutralize). Removes the fifth SKYNET string from a live locale value even though the key is not consumed by any live surface today."
   affects:
-    - "End-of-phase verification (Plan 70-05) — five surfaces to visually confirm on both t1000 (bundled defaults) and an AI+-like config: (1) conversation-list header icon+wordmark, (2) login-screen header icon+wordmark, (3) browser tab title (initial + after all tabs closed), (4) favicon (post page-reload), (5) neutralized login title if LoginPage.tsx ever re-activates."
+    - "End-of-phase verification (Plan 70-05) — five surfaces to visually confirm on both host-b (bundled defaults) and an AI+-like config: (1) conversation-list header icon+wordmark, (2) login-screen header icon+wordmark, (3) browser tab title (initial + after all tabs closed), (4) favicon (post page-reload), (5) neutralized login title if LoginPage.tsx ever re-activates."
 tech_stack:
   added: []
   patterns:
@@ -184,7 +184,7 @@ End-to-end visual verification surfaces:
 Recommended verification config for AI+ scenario:
 ```json
 {
-  "appName": "Aither Intelligence Plus",
+  "appName": "Acme Intelligence Plus",
   "shortName": "AI+",
   "iconPath": "/branding/icon.png",
   "wordmarkPath": "/branding/wordmark.png",
@@ -192,13 +192,13 @@ Recommended verification config for AI+ scenario:
   "pwaIcons": [...]
 }
 ```
-Verify all five surfaces render "Aither Intelligence Plus" / "AI+" / operator-provided images. Also verify a no-config deploy (t1000 case) renders "Skynet" and the bundled-default assets byte-identically to today's t1000.
+Verify all five surfaces render "Acme Intelligence Plus" / "AI+" / operator-provided images. Also verify a no-config deploy (host-b case) renders "Skynet" and the bundled-default assets byte-identically to today's host-b.
 
 **Deferred / follow-up items (out of scope for this plan):**
 
 - **Translated locales** — 15 `src/ui/locales/translated/*.json` files still contain locale-specific "loginTitle" values like `"Masuk ke SKYNET"`. If operators want the neutral-locale-title behavior for non-en users, a separate mini-plan can batch-update these. Current impact: zero (all feed dead LoginPage.tsx).
 - **SkynetLogo.tsx dead-code cleanup** — file has zero live consumers post-Phase-70. Safe to delete in a future cleanup pass; deferred here per plan action-step 7.
-- **Fifth-surface for AI+ specifically** — if user later wants "Login to Aither Intelligence Plus" instead of just "Login" on the login screen, that's Option 2 territory (dynamic template in the surface that renders it). Would also require reviving or refactoring LoginPage.tsx first, since Auth.tsx doesn't have a "Login to X" heading today.
+- **Fifth-surface for AI+ specifically** — if user later wants "Login to Acme Intelligence Plus" instead of just "Login" on the login screen, that's Option 2 territory (dynamic template in the surface that renders it). Would also require reviving or refactoring LoginPage.tsx first, since Auth.tsx doesn't have a "Login to X" heading today.
 
 ## Threat Flags
 

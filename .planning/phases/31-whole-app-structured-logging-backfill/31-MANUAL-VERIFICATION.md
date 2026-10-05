@@ -24,7 +24,7 @@ Phase 31 cannot diagnose or fix the root causes — it can only confirm the log 
 - Skynet deployed with all Phase 31 commits on the server (plans 31-01 through 31-09 merged; box-maintainer "Subagents don't do deploys" directive applies — deploy is orchestrator-only, not part of this plan).
 - iPhone PWA opened at `term.example.com`.
 - Cellular connection active (WiFi disabled on iPhone) — this matches the 08:03-08:07 UTC 2026-08-11 empirical baseline where both symptoms were observed.
-- SSH access to skynet-ec2 for tailing the log file in a terminal session.
+- SSH access to primary-host for tailing the log file in a terminal session.
 
 ---
 
@@ -32,9 +32,9 @@ Phase 31 cannot diagnose or fix the root causes — it can only confirm the log 
 
 **Targets:** `ws-pause-gate-stuck-connect-cycling` bounty — symptom "Waiting for connection logs..." / "Connection rejected by server"
 
-### Step 1: Start the log tail on skynet-ec2
+### Step 1: Start the log tail on primary-host
 
-Open an SSH session to skynet-ec2 and run:
+Open an SSH session to primary-host and run:
 
 `sudo tail -F /opt/skynet/console-forward-logs/console-forward.log | grep -E '(\[ws\]|\[ws-msg\]|\[pause-gate\]|\[reopen\]|\[ws-server\]|\[pane-state\]|\[pane-state-emitter\]|\[session-server\])'`
 
@@ -84,9 +84,9 @@ If the reconnect cycle NEVER produces `[ws-msg] received type=<...>` lines, the 
 
 **Targets:** `speak-button-broken-on-cellular` bounty — speak button pressed, no audio plays
 
-### Step 1: Start the log tail on skynet-ec2
+### Step 1: Start the log tail on primary-host
 
-Open an SSH session to skynet-ec2 and run:
+Open an SSH session to primary-host and run:
 
 `sudo tail -F /opt/skynet/console-forward-logs/console-forward.log | grep '\[tts\]\|[voice-server]'`
 
@@ -154,8 +154,8 @@ File a revision back to the responsible plan to fix the field extraction.
 ## 6. user's Role
 
 1. After Phase 31 is deployed, reproduce ONE instance of each symptom on her iPhone PWA on cellular (this is the whole point of Phase 31 — ambient-signal collection from the instrumented app).
-2. Open an SSH session to skynet-ec2 and run the `sudo tail -F ... | grep` commands from sections 3 and 4 (5-10 minutes of log watching per symptom).
-3. Capture the log output from the reproduction window (or share the skynet-ec2 grep output).
+2. Open an SSH session to primary-host and run the `sudo tail -F ... | grep` commands from sections 3 and 4 (5-10 minutes of log watching per symptom).
+3. Capture the log output from the reproduction window (or share the primary-host grep output).
 4. Report back with either "log trail lands as expected — opening bounty for diagnosis" or "log trail missing X — revising Phase 31."
 
 The grep commands above are designed to produce a self-contained log excerpt that contains everything needed for diagnosis, without requiring user to understand the log format.

@@ -12,7 +12,7 @@ The conversation-list affordance that tells user "this agent is currently workin
 
 Live console-forward log 13:33–13:37 UTC showed Nelly session `8c514421` oscillating `status:busy → status:shell` across every turn while Nelly was in the harness, actively responding, always-on (`.no-dormancy` present), running four ambient monitors.
 
-**Current predicate** (`shellCountsAsWork` = `status==="shell" && lastStatusChangeAt > lastStopAt`) false-positives because return-to-shell after each Stop bumps `lastStatusChangeAt` to poll-tick time — always AFTER the just-mtime'd `lastStopAt`. Result: `shellCountsAsWork` stays true forever regardless of whether real work is in flight. This is NOT the `bg_tasks-leak` hypothesis from bounty `nelly-phase-61-axes-stayed-null-on-thenasty` (that bounty's Bug 1b self-resolved); the WIP false-positive persists via this different mechanism.
+**Current predicate** (`shellCountsAsWork` = `status==="shell" && lastStatusChangeAt > lastStopAt`) false-positives because return-to-shell after each Stop bumps `lastStatusChangeAt` to poll-tick time — always AFTER the just-mtime'd `lastStopAt`. Result: `shellCountsAsWork` stays true forever regardless of whether real work is in flight. This is NOT the `bg_tasks-leak` hypothesis from bounty `nelly-phase-61-axes-stayed-null-on-host-a` (that bounty's Bug 1b self-resolved); the WIP false-positive persists via this different mechanism.
 
 **True fix requires retiring the whole shell-idle-gate heuristic** — smoothing on top of the same signals will produce the same class of bug.
 
@@ -71,7 +71,7 @@ Ready-to-plan; no further pre-planning discovery needed. Files identified for th
 - `Stop`, `StopFailure`, `PermissionRequest` events route to the stopped marker (stop-hook.sh extended or a sibling script).
 - New backend predicate reading the two marker files' modification times (SSH `stat` or equivalent per session per poll tick).
 - Removing the current status-enum decision logic, the derived `lastStatusChangeAt` transition timestamp, the shell-idle gate (`shellCountsAsWork`), and any pane-command polling that only exists to feed the WIP predicate.
-- Per-identity rollout order — **start with the reproducer (Nelly on thenasty)** to confirm before propagating to other identities. Each managed box needs the new hooks installed; on-wake install path or explicit re-install per identity.
+- Per-identity rollout order — **start with the reproducer (Nelly on host-a)** to confirm before propagating to other identities. Each managed box needs the new hooks installed; on-wake install path or explicit re-install per identity.
 - Backend + frontend + wire-protocol test updates. New tests for the two hook scripts and the new predicate.
 
 **Out:**
@@ -79,7 +79,7 @@ Ready-to-plan; no further pre-planning discovery needed. Files identified for th
 - The background-tasks list mechanism and its `[ambient]`-tag filtering (`ambient-filter.ts`) — separate signal, unrelated to WIP-vs-idle, stays as-is.
 - Pane-command polling for OTHER purposes than WIP (if any exist) — only the WIP-purpose polling is retired.
 - The recycling axis (Phase 53) — orthogonal wire-protocol channel, stays.
-- The background_tasks[] cross-identity leak (bounty `nelly-phase-61-axes-stayed-null-on-thenasty` Bug 1b) — already self-resolved, no follow-up needed.
+- The background_tasks[] cross-identity leak (bounty `nelly-phase-61-axes-stayed-null-on-host-a` Bug 1b) — already self-resolved, no follow-up needed.
 
 **Deferred:**
 - Closing the accepted cosmetic wart in the permission-approve window. Only revisit if operational experience shows the wart matters.
@@ -98,7 +98,7 @@ An upgraded backend against an unupgraded box either sees no markers (interpret 
 2. **Backend defaults to "working"** (safer direction) when no markers are present. Prevents user from getting false-idle and clicking into busy agents. Accepts perpetually-lit affordance on uninstalled boxes as the visible signal that the install is pending.
 3. **Explicit install-first flow** — deploy blocks the affordance entirely on uninstalled boxes (or the WIP dot renders as a distinct "unknown" affordance) until each identity has been re-installed. Most conservative; requires the most operational discipline.
 
-Rollout order per user + shape: **Nelly-on-thenasty is the reproducer**. Install there, confirm the false-positive is gone, then propagate. The migration approach chosen affects what "confirm" looks like for the intermediate identities.
+Rollout order per user + shape: **Nelly-on-host-a is the reproducer**. Install there, confirm the false-positive is gone, then propagate. The migration approach chosen affects what "confirm" looks like for the intermediate identities.
 
 ## Vehicle notes
 
@@ -108,7 +108,7 @@ Executor's remit stops at code + commit + tests green per standing directive (§
 
 ## Bounty tracker
 
-`wip-indicator-hook-based-rewrite` (created 2026-08-30, `in_progress`). Parent lineage: earlier failed approach lives in bounty `nelly-phase-61-axes-stayed-null-on-thenasty` (Bug 1a — the axes-null half — self-resolved; Bug 1b — the WIP false-positive — is what THIS phase closes).
+`wip-indicator-hook-based-rewrite` (created 2026-08-30, `in_progress`). Parent lineage: earlier failed approach lives in bounty `nelly-phase-61-axes-stayed-null-on-host-a` (Bug 1a — the axes-null half — self-resolved; Bug 1b — the WIP false-positive — is what THIS phase closes).
 
 ## Ready for planning
 

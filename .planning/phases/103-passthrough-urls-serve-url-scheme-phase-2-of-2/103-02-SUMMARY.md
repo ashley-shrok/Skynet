@@ -49,7 +49,7 @@ Env-driven domain widening for the JWT session cookie (`getSecureCookieOptions` 
 
 Modified `getSecureCookieOptions` (L709) and `getClearCookieOptions` (L722) — both now read `const skynetDomain = process.env.SKYNET_COOKIE_DOMAIN;` at the top of the method and conditionally spread `...(skynetDomain ? { domain: skynetDomain } : {})` into the returned options object.
 
-- **Env-driven per D-23**: t1000 sets `SKYNET_COOKIE_DOMAIN=term.example.com` in its `/opt/skynet/skynet.env`; T800 sets its own value independently.
+- **Env-driven per D-23**: host-b sets `SKYNET_COOKIE_DOMAIN=term.example.com` in its `/opt/skynet/skynet.env`; host-c sets its own value independently.
 - **Backwards-compatible per D-24**: when env unset (dev, tests, unconfigured envs), the `domain` key is absent from the returned object → today's behavior preserved.
 - **Clear-path mirror is load-bearing**: without matching the set-path's `domain`, clearing the cookie would leave the widened-domain instance in place (a stale wider-scope cookie the browser would still send).
 - All other fields (`httpOnly`, `secure`, `sameSite`, `maxAge`, `path`) untouched.
@@ -70,8 +70,8 @@ Ordering (verified by inspection of L52-79):
 
 **Test (RED, `46d4dc1c`)**: Added new `describe("POST /db/host — D-12 hostname-collision-with-serve-url-grammar", ...)` block in `host.test.ts` with 4 `it(...)` cases:
 - `rejects hostname ending -<digits> with 400` — sends `name: "foo-42"`, asserts status 400, error string contains `"reserved for serve URL grammar"`, `SimpleDBOps.insert` NOT called
-- `accepts hostname with non-terminal digit (aither-cloud2)` — sends `name: "aither-cloud2"`, asserts D-12 error string absent (may still fail on unrelated guards)
-- `accepts hostname without dash (t800)` — sends `name: "t800"`, same negative assertion
+- `accepts hostname with non-terminal digit (acme-cloud2)` — sends `name: "acme-cloud2"`, asserts D-12 error string absent (may still fail on unrelated guards)
+- `accepts hostname without dash (host-c)` — sends `name: "host-c"`, same negative assertion
 - `accepts hostname with dash and non-digit suffix (foo-bar)` — sends `name: "foo-bar"`, same negative assertion
 
 Confirmed RED before implementation: first case failed with `AssertionError: expected 200 to be 400`.
@@ -94,7 +94,7 @@ if (typeof name === "string" && /-\d+$/.test(name)) {
 - **CREATE path only**: PUT handlers on `/db/host/:id` are unchanged — respects the host-record-trap warning that editing a host nulls its SSH key.
 - **Structured log**: `operation: "host_create"` + `userId` + `name` — auditable via T-103-11 mitigation.
 - **Info-leak invariant T-40-05**: message string doesn't interpolate userId bytes (only in structured context); error response returns a static classified sentence, not the user-supplied name.
-- **Fleet compatibility**: all 10 current hostnames pass (thenasty, workstation, linux-beelink, aither-cloud, aither-cloud2, aither-sftp, t1000, t800, WINDOWS-PC, ZoeyBattlestation) — validated against the D-12 constraint at plan time.
+- **Fleet compatibility**: all 10 current hostnames pass (host-a, workstation, linux-minipc, acme-cloud, acme-cloud2, acme-sftp, host-b, host-c, WINDOWS-PC, Gaming-pc) — validated against the D-12 constraint at plan time.
 
 ## Verification Results
 

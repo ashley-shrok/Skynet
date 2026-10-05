@@ -257,7 +257,7 @@ contract is unchanged.
   `skills-editor-mirror-wide-hygiene-followups` touch the same shared file-tab
   layer but are orthogonal to this phase. The planner may fold any that
   naturally land in-path; anything that doesn't stays in that bounty.
-- **The T800 D-07 CSRF regex-gap** — Cairo's finding from the sibling
+- **The host-c D-07 CSRF regex-gap** — Cairo's finding from the sibling
   `serve-url-cors-deny-breaks-module-based-dev-servers` bounty. Orthogonal
   work, its own future bounty, awaiting the user's call on filing.
 

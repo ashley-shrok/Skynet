@@ -46,7 +46,7 @@ The parallel `uiTitle` binding at L844 (`t("nav.newSession", { defaultValue: "Ne
 
 ### CHANGE B — Wrap host search + listbox in `{flatHosts.length !== 1 && (<>...</>)}` fragment
 
-The "Search input" div (previously L890-901) and the "Scrollable host list" div (previously L903-946) are now wrapped in a single JSX fragment gated on `flatHosts.length !== 1`. A 12-line rationale comment above the gate documents item 8 intent, Aither Health target-segment rationale (single dedicated VM per user), and cross-references Plan 84-01's parallel byte-shape.
+The "Search input" div (previously L890-901) and the "Scrollable host list" div (previously L903-946) are now wrapped in a single JSX fragment gated on `flatHosts.length !== 1`. A 12-line rationale comment above the gate documents item 8 intent, Acme Health target-segment rationale (single dedicated VM per user), and cross-references Plan 84-01's parallel byte-shape.
 
 Inner JSX byte-preserved — NO changes to:
 - `value={search} onChange={(e) => setSearch(e.target.value)}` handlers

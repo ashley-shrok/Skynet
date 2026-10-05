@@ -339,7 +339,7 @@ Load-bearing prior art (already in tree — do not re-explain, read directly):
     Patch #346 entry in skynet-patches.md.
   </what-built>
   <how-to-verify>
-    1. Confirm Tiffany's identity is currently dormant on T1000: `ssh tailnet-of-t1000 'ls ~/.claude/identities/tiffany/.dormant && tmux ls | grep tiffany'` — sentinel present, tmux session alive at bare shell prompt. (If not dormant, either wait for supervisor to reconcile OR force it: `kill <claude-pid> && touch ~/.claude/identities/tiffany/.dormant`.)
+    1. Confirm Tiffany's identity is currently dormant on host-b: `ssh tailnet-of-host-b 'ls ~/.claude/identities/tiffany/.dormant && tmux ls | grep tiffany'` — sentinel present, tmux session alive at bare shell prompt. (If not dormant, either wait for supervisor to reconcile OR force it: `kill <claude-pid> && touch ~/.claude/identities/tiffany/.dormant`.)
     2. Open user's PWA at term.example.com; navigate to Tiffany's pretty-view pane.
     3. EXPECT: DormancyOverlay appears with "session is asleep" text + Wake button. Static moon glyph (NO spin). ComposeBox disabled (Send/Reset/ThumbsUp/Recap/QueuedRow-Send all disabled; textarea + mic + attach still usable). The old "no active Claude session" text MUST NOT appear.
     4. Tap Wake. EXPECT: overlay transitions to "waking…" state; after ~15s the "this can take up to 60s" hint appears if wake hasn't completed. Within ~60s (30s supervisor CHECK_INTERVAL + 30s claude launch + /id run), overlay auto-dismisses and ComposeBox re-enables.
@@ -382,5 +382,5 @@ Create `.planning/quick/260808-dmz-dormancy-overlay-never-shows-for-dormant/2608
 - Ship metadata (image sha, container health timestamp, HTTPS 200 confirmation)
 - Patch #346 entry link/reference
 - user UAT outcome
-- Standing-directive follow-up: DMing Stacy question (bundled with #344 + #345 + #346)
+- Standing-directive follow-up: DMing Morgan question (bundled with #344 + #345 + #346)
 </output>

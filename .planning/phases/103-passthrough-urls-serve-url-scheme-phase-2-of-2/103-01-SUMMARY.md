@@ -50,7 +50,7 @@ Two-stage build verbatim from R&D findings-summary L82-87:
 1. `FROM caddy:2-builder AS builder` — `RUN xcaddy build --with github.com/caddy-dns/route53`
 2. `FROM caddy:2` — `COPY --from=builder /usr/bin/caddy /usr/bin/caddy`
 
-Provenance-comment header cites D-19, the cross-account AssumeRole topology (t1000 `termix-ssm-role` in Aither → personal `<caddy-route53-role>` in user's AWS), and the R&D verification checkpoint (`caddy list-modules | grep dns.providers.route53` — verified 2026-09-05).
+Provenance-comment header cites D-19, the cross-account AssumeRole topology (host-b `example-ssm-role` in Acme → personal `<caddy-route53-role>` in user's AWS), and the R&D verification checkpoint (`caddy list-modules | grep dns.providers.route53` — verified 2026-09-05).
 
 ### Task 2 — `docker/docker-compose.yml` caddy service (commit `85daa4d5`)
 

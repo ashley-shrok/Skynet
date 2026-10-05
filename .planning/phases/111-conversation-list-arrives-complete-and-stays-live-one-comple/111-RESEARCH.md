@@ -957,7 +957,7 @@ Included because appearance-on-the-wire changes what runtime systems hold, even 
 **Missing dependencies with no fallback:** none.
 **Missing dependencies with fallback:** none.
 
-**Verified this session:** `python3 -c "import yaml"` → PyYAML 6.0.1 present on t1000. `~/fleet/identities/` → 73 entries. `~/fleet/identities/pixel/pixel.md` → 286 bytes. `~/fleet/roles/box-maintainer/box-maintainer.md` → 44,642 bytes (the read-cap case). Identity frontmatter observed carrying `role`, `displayName`, `task`; role frontmatter carrying `title`, `colorHue`, `avatar` — i.e. **the inheritance case is live on this box right now** (pixel has no `title`/`colorHue` of its own and inherits both from box-maintainer). That makes t1000 a valid test surface for D-01's inheritance requirement without fixture setup.
+**Verified this session:** `python3 -c "import yaml"` → PyYAML 6.0.1 present on host-b. `~/fleet/identities/` → 73 entries. `~/fleet/identities/pixel/pixel.md` → 286 bytes. `~/fleet/roles/box-maintainer/box-maintainer.md` → 44,642 bytes (the read-cap case). Identity frontmatter observed carrying `role`, `displayName`, `task`; role frontmatter carrying `title`, `colorHue`, `avatar` — i.e. **the inheritance case is live on this box right now** (pixel has no `title`/`colorHue` of its own and inherits both from box-maintainer). That makes host-b a valid test surface for D-01's inheritance requirement without fixture setup.
 
 ---
 
@@ -1021,7 +1021,7 @@ Included because appearance-on-the-wire changes what runtime systems hold, even 
 
 | # | Claim | Section | Risk if Wrong |
 |---|-------|---------|---------------|
-| A1 | `~/fleet/roles/<role>/<role>.md` is the correct path on **every** managed box (verified on t1000 + one in-fleet Python precedent at `role-file-watch.py:281`, plus the TS `readRoleFileByName` REMOTE branch at `identity-artifact-reader.ts:668`) | Arch Map; Pitfall 7 | Role inheritance silently yields safe-defaults on non-conforming boxes → agents on those boxes arrive partially undressed. Fail-closed, so not a crash. Cheap verification: run the sweep manually on one peer box. |
+| A1 | `~/fleet/roles/<role>/<role>.md` is the correct path on **every** managed box (verified on host-b + one in-fleet Python precedent at `role-file-watch.py:281`, plus the TS `readRoleFileByName` REMOTE branch at `identity-artifact-reader.ts:668`) | Arch Map; Pitfall 7 | Role inheritance silently yields safe-defaults on non-conforming boxes → agents on those boxes arrive partially undressed. Fail-closed, so not a crash. Cheap verification: run the sweep manually on one peer box. |
 | A2 | Python 3.6+ with the listed stdlib modules exists on every managed box | Env Availability | Sweep dies → empty stdout → legacy path. Mitigated by the fact the sweep already runs fleet-wide today with the same imports, so this is really "unchanged." |
 | A3 | A separate `mergeIdentityAppearance` door is the best structural answer to D-09 + D-10 (vs. a flag on `setIdentities`, or a staging side-map) | Pattern 4 | Named as MEDIUM confidence. The **invariants** are HIGH confidence (they follow from `setIdentities:91` and `tabUtils.tsx:284`); the **packaging** is a judgment call the planner may re-shape. |
 | A4 | A narrow `upsertFleetSession` beats routing the pulse through `updateFleetSessions(array)` | Pattern 3 | MEDIUM. If wrong, the cost is a `fleetSessionsLoaded` flip from the pulse, which interacts with the hydrate gate + pin-pruner. Erring narrow is the safer default. |

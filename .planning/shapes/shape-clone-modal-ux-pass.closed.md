@@ -217,7 +217,7 @@ completes-end-to-end` — small backend patch flagged by Phase 86
 /close; (b) `role-avatar-filename-regex-tightening` — defense-in-
 depth from Phase 86 code review.
 
-**Identity in charge:** tabitha (box-maintainer on t1000).
+**Identity in charge:** tabitha (box-maintainer on host-b).
 
 **Working tree:** `~/skynet-tabitha` on branch `feat/tab-title-from-tmux`.
 

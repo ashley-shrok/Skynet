@@ -164,7 +164,7 @@ None. All threats documented in the plan's `<threat_model>` block (T-74-03-01 th
 
 ## What's Next (Plan 74-04)
 
-The route is fully rewired, the boot gate holds, and both existing deployments will refuse to boot if their branding.json lacks a real `avatarDirectorSpec`. Plan 74-04 handles the cross-deployment migration seed — commits `scripts/deploy/branding-seed-example.json` with the LoL-champion director spec + gamma=0.7, drafts the Stacy-briefing DM for T800/AI+, and documents the SSM apply steps for t1000/Skynet so both instances boot cleanly on ship day. Plan 74-04 also handles the `rm` of the local box's `~/.claude/roles/box-maintainer/runbooks/avatar-flow.md` + the 4 avatar-prompts archive files (`amelia.md`, `beatrice.md`, `becky.md`, `george.md`).
+The route is fully rewired, the boot gate holds, and both existing deployments will refuse to boot if their branding.json lacks a real `avatarDirectorSpec`. Plan 74-04 handles the cross-deployment migration seed — commits `scripts/deploy/branding-seed-example.json` with the LoL-champion director spec + gamma=0.7, drafts the Morgan-briefing DM for host-c/AI+, and documents the SSM apply steps for host-b/Skynet so both instances boot cleanly on ship day. Plan 74-04 also handles the `rm` of the local box's `~/.claude/roles/box-maintainer/runbooks/avatar-flow.md` + the 4 avatar-prompts archive files (`amelia.md`, `beatrice.md`, `becky.md`, `george.md`).
 
 ## Commits
 

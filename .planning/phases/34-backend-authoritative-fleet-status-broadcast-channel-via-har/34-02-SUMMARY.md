@@ -59,7 +59,7 @@ This plan delivers the aggregator side of Phase 34's backend-authoritative topol
 
 1. **`src/backend/fleet-status/wire-protocol.ts`** — the single source of truth for every frame shape that crosses the fleet-status channel. Load-bearing for Plan 04 (watcher transport) and Plan 06 (frontend client) — both will import from here.
 
-2. **`src/backend/fleet-status/host-id-resolver.ts`** — maps watcher-declared hostnames (`thenasty`, `workstation`, etc.) to Skynet DB host records so row keys used by the fleet-status channel align with the existing conversation-store `(host, tmuxSession)` convention.
+2. **`src/backend/fleet-status/host-id-resolver.ts`** — maps watcher-declared hostnames (`host-a`, `workstation`, etc.) to Skynet DB host records so row keys used by the fleet-status channel align with the existing conversation-store `(host, tmuxSession)` convention.
 
 3. **`src/backend/fleet-status/subscription-registry.ts`** — in-memory state map keyed on `${hostId}:${tmuxSession ?? ''}` plus a Set of frontend-connection sinks. Connect-time snapshot + incremental fan-out + gone semantics.
 

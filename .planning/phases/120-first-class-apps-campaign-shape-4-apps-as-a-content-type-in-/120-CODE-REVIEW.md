@@ -26,7 +26,7 @@ The refactor pieces (dispatch table, TabSpec union, drop-target extension), the 
 **File:** `/home/ubuntu/skynet-vision/src/backend/apps/app-proxy-csrf-check.ts:49-58, 77-83`
 **Also:** `/home/ubuntu/skynet-vision/src/backend/apps/app-pane-router.ts:179, 448`
 
-`PRIMARY_DOMAIN` is loaded from `process.env.SKYNET_COOKIE_DOMAIN`. Everywhere else in the codebase (`src/backend/utils/auth-manager.ts:719, 735`; the `Set-Cookie Domain=…` attribute) that env var is treated as a **bare hostname** (e.g. `term.example.com`, `skynet.taild9b663.ts.net`). The comment on `getSecureCookieOptions` (`auth-manager.ts:713`) says so directly: *"widen JWT session cookie to `Domain=<SKYNET_COOKIE_DOMAIN>` (e.g. 'term.example.com')"*.
+`PRIMARY_DOMAIN` is loaded from `process.env.SKYNET_COOKIE_DOMAIN`. Everywhere else in the codebase (`src/backend/utils/auth-manager.ts:719, 735`; the `Set-Cookie Domain=…` attribute) that env var is treated as a **bare hostname** (e.g. `term.example.com`, `skynet.tailnet-example.ts.net`). The comment on `getSecureCookieOptions` (`auth-manager.ts:713`) says so directly: *"widen JWT session cookie to `Domain=<SKYNET_COOKIE_DOMAIN>` (e.g. 'term.example.com')"*.
 
 The browser's `Origin` header, however, is scheme + host + optional port (e.g. `https://term.example.com`). The check `origin === primaryOrigin` will therefore FAIL on every real state-changing request from a real browser: the Origin `https://term.example.com` is never string-equal to the bare hostname `term.example.com`.
 

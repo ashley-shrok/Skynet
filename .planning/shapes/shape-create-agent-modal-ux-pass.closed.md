@@ -88,7 +88,7 @@ The bounty is small on the wire but load-bearing on stance:
 
 **user delegated to tabitha (2026-09-07 verbatim):** *"you're in charge of making sure that we continue with the plan and these bounties go in the right order."*
 
-**Identity in charge:** tabitha (box-maintainer on t1000).
+**Identity in charge:** tabitha (box-maintainer on host-b).
 
 **Working tree:** `~/skynet-tabitha` on branch `feat/tab-title-from-tmux`.
 

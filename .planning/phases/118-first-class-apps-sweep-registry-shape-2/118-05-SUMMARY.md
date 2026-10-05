@@ -256,7 +256,7 @@ Standard fleet checklist per fleet directive 2026-09-07 (executor scope stops at
 
 1. **Full-suite vitest** — `npx vitest run` at the orchestrator level. This plan's scoped runs proved the six touched files + downstream fleet-status directory (517 tests) are green.
 2. **Playwright smoke** — orchestrator responsibility.
-3. **D-23 real end-to-end integration test on t1000** — scratch `~/fleet/apps/scratch-test/` with real `app.json` + real systemd `--user` unit → sweep → subscribe as U1 → assert snapshot contains it → remove → assert app-gone → subscribe as U2 → assert U2 does NOT see it. This is NOT a CI-runnable test; runs by hand as agent-side UAT per /build step 6. This is the final proof-of-life for the entire plan-set.
+3. **D-23 real end-to-end integration test on host-b** — scratch `~/fleet/apps/scratch-test/` with real `app.json` + real systemd `--user` unit → sweep → subscribe as U1 → assert snapshot contains it → remove → assert app-gone → subscribe as U2 → assert U2 does NOT see it. This is NOT a CI-runnable test; runs by hand as agent-side UAT per /build step 6. This is the final proof-of-life for the entire plan-set.
 4. **`starter.ts` wiring update** — see **`starter.ts` Wiring** section above. MUST land in the same deploy as this plan.
 5. **Container-mutation serialization** (the user 2026-09-12) — coordinate with the user before any `docker compose up -d --force-recreate skynet`.
 6. **15-min deadman rollback** (`/opt/skynet/.tmp-revert.sh`) — mandatory; per fork rule.
@@ -355,7 +355,7 @@ Drift is additive-only, no behavioral impact on existing anchors.
 ## Follow-Ups Handed Off (Out of Scope for This Plan)
 
 - **starter.ts wiring update** — DEPLOY MOTION responsibility. See `starter.ts` Wiring section above. LOAD-BEARING for T-118-05-BF closure. Post-wiring, boot log MUST show `fleet_status_filter_attached`; presence of `fleet_status_filter_wiring_skipped` or `fleet_status_unfiltered_mode` is a smoke signal that filtering is NOT active.
-- **D-23 agent-UAT on t1000** — pre-deploy verification. Scratch `~/fleet/apps/scratch-test/` sweep loop, subscribe as U1 vs U2, verify per-user projection end-to-end against the real disk + real systemd. NOT a CI test.
+- **D-23 agent-UAT on host-b** — pre-deploy verification. Scratch `~/fleet/apps/scratch-test/` sweep loop, subscribe as U1 vs U2, verify per-user projection end-to-end against the real disk + real systemd. NOT a CI test.
 - **Identity-frame filtering (D-15 "or will be" language)** — apply the same `fanOutApp` shape to `publishIdentityArchived` + `publishIdentityGoneByName`. Would layer on the pattern this plan establishes. Out of scope; ship-when-approved.
 - **Structured log lines at ordinary allow/deny decisions** — see Executor Discretion Choice #6. Not added to avoid log spam; can be revisited if observability needs surface.
 - **pre-existing distributor/catalog.ts sourceKind type errors** — same set 118-02/03/04 SUMMARY flagged (~15 rows missing `sourceKind`). Out of scope per SCOPE BOUNDARY.

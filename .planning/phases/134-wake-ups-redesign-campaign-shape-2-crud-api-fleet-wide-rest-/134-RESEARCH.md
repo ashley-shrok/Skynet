@@ -26,7 +26,7 @@ Verbatim from `134-CONTEXT.md`:
 - **D-13: Test removal — full-file deletion for 4 files; 2 need audit** (`claude-session-api.role-reads.test.ts` + `PrettyView.role-modal-swap.test.tsx`). `identity-artifact-reader.wakeup-crud.test.ts` STAYS.
 - **D-14: Order-of-operations** — new global CRUD lands FIRST + green in tests; then role-scope removal + `RoleModal` tab deletion + test-file deletions.
 - **D-15: SSH fan-out pattern reused** from `identity-artifact-reader.ts` (delimiter-based one-liner per host, single SSH round-trip per host, aggregated response).
-- **D-16: `skynet` host itself is a managed host** from the API's perspective — LIST fan-out includes t1000.
+- **D-16: `skynet` host itself is a managed host** from the API's perspective — LIST fan-out includes host-b.
 - **D-17: Nginx paired blocks** in BOTH `docker/nginx.conf` AND `docker/nginx-https.conf`.
 - **D-18: Container mutation required.** Standard docker build + `docker compose up --force-recreate skynet`.
 - **D-19: Full test suite is the pre-deploy gate.** `npx vitest run` + `npx playwright test tests/e2e/smoke.spec.ts --project=chromium` BEFORE `docker build`.
@@ -263,7 +263,7 @@ for (const chunk of chunks) {
 ```
 
 ### Pattern 3: LOCAL bind-mount fast path via `isLocalHostId(hostId)`
-**What:** t1000 (Skynet's own host, hostId in `IDENTITIES_LOCAL_HOST_IDS`) reads/writes the fleet subtree through the container's bind mount (`/host-home/fleet/...`) via Node `fs/promises` — no loopback SSH.
+**What:** host-b (Skynet's own host, hostId in `IDENTITIES_LOCAL_HOST_IDS`) reads/writes the fleet subtree through the container's bind mount (`/host-home/fleet/...`) via Node `fs/promises` — no loopback SSH.
 **When to use:** Fan-out branch selection, per-host CRUD branch selection. Mirrors D-16 ("skynet host is a managed host from the API's perspective").
 **Example:**
 ```typescript
@@ -383,7 +383,7 @@ const candidates = rows.filter((h) => {
 | Kebab-case slug normalization | Custom regex + munging | `normalizeWakeupSlug(name)` from identity-artifact-reader.ts:2183 | Existing helper: `name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")`. Kept in ONE place. Import + reuse. |
 | Wakeup-schedule humanization for the LIST response | Rebuild it in the router | `humanizeWakeupSchedule(schedule)` from identity-artifact-reader.ts:116 | Existing helper handles interval/daily/weekly/one_shot + optional days-gate + timezone. Full behavior already tested. |
 | Slug regex gate | Custom `/^[a-z0-9-]+$/` | `IDENTITY_SLUG_RE = /^[a-z0-9_-]{1,80}$/i` from identity-artifact-reader.ts:1431 | Existing shell-safety gate. Match once at handler entry. |
-| Local-vs-remote host detection | Custom check | `isLocalHostId(hostId)` from identity-artifact-reader.ts:233 | Existing predicate. Handles the "container-inside-t1000-has-fleet-bind-mount" fast path uniformly. |
+| Local-vs-remote host detection | Custom check | `isLocalHostId(hostId)` from identity-artifact-reader.ts:233 | Existing predicate. Handles the "container-inside-host-b-has-fleet-bind-mount" fast path uniformly. |
 | Local fleet root resolution | Path constants | Extend `getLocalIdentitiesRoot()` pattern → add `getLocalWakeupsRoot()` helper that returns `<fleetRoot>/wakeups` | Existing HOME_HOST_DIR-derived resolution. One env var (HOME_HOST_DIR) covers all fleet subtrees. |
 | Structured logging | `console.log` | `sshLogger.warn(...)` / `sshLogger.error(...)` / `sshLogger.debug(...)` | Every route logs through this; consistent operation tags for grep-triage. |
 
@@ -395,7 +395,7 @@ Applies because this phase RENAMES / REMOVES a subsystem (per-role wake-up CRUD)
 
 | Category | Items Found | Action Required |
 |----------|-------------|------------------|
-| **Stored data** | Zero fleet-wide. Phase 127 already migrated + deleted all per-role wake-up specs (`~/fleet/roles/<role>/wakeups/`) — verified 2026-09-21 in shape-1 close-out (28 specs migrated on workstation + thenasty; zero remaining). **No new data migration needed for this phase.** | None — Phase 127 already handled. |
+| **Stored data** | Zero fleet-wide. Phase 127 already migrated + deleted all per-role wake-up specs (`~/fleet/roles/<role>/wakeups/`) — verified 2026-09-21 in shape-1 close-out (28 specs migrated on workstation + host-a; zero remaining). **No new data migration needed for this phase.** | None — Phase 127 already handled. |
 | **Live service config** | `~/fleet/wakeups/<slug>/wakeup.json` on each host — these ARE the source of truth. No config elsewhere. The Python scheduler (`substrate/scripts/wakeup-scheduler.py --mode global`) polls this directory on every managed host. | None — API reads/writes this path in-place. |
 | **OS-registered state** | Global scheduler process spawned by `substrate/scripts/agent-supervisor.sh` at supervisor startup. Session-independent. Pidfile at `~/fleet/wakeups/.state/scheduler.pid`. **Untouched by this phase** — API is separate from scheduler. | None. |
 | **Secrets/env vars** | `IDENTITIES_LOCAL_HOST_IDS` — used by `isLocalHostId()` to decide LOCAL vs REMOTE branch. **Already set** in the Skynet container. Wake-up API reuses the same predicate — nothing new to set. | None. `HOME_HOST_DIR` also unchanged. |
@@ -631,7 +631,7 @@ router.post("/", authenticateJWT, bodyParser.json({ limit: "64kb" }), async (req
 |--------------|------------------|--------------|--------|
 | Per-role wake-up dispatch (coordinator Type C) | Global on-disk specs at `~/fleet/wakeups/<slug>/wakeup.json` fired by session-independent scheduler | Phase 127 (2026-09-21, shape 1 of this campaign) | Per-role wake-up subsystem retired fleet-wide; 28 specs migrated. This phase closes the loop by deleting the still-live per-role CRUD API surface. |
 | Wake-up CRUD via WebSocket wire ops | REST HTTP for the new global surface | This phase (D-01) | REST fits fleet-wide aggregation naturally. Existing per-identity WS surface (`identity:list-wakeups`, `identity:update-wakeup`, etc.) STAYS for per-identity wake-ups — a different subsystem. |
-| `sftp.rename(tmp, target)` for atomic overwrites | `sftp.ext_openssh_rename(tmp, target)` | Root-caused 2026-08-02 (Stacy on ceo-skynet) → landed in Skynet fleet-wide | POSIX-semantics atomic overwrite; universal on OpenSSH ≥5.1. Regression test installed at identity-artifact-reader.remote-writes.test.ts. |
+| `sftp.rename(tmp, target)` for atomic overwrites | `sftp.ext_openssh_rename(tmp, target)` | Root-caused 2026-08-02 (Morgan on ceo-skynet) → landed in Skynet fleet-wide | POSIX-semantics atomic overwrite; universal on OpenSSH ≥5.1. Regression test installed at identity-artifact-reader.remote-writes.test.ts. |
 
 **Deprecated/outdated:**
 - **Per-role wake-up specs at `~/fleet/roles/<role>/wakeups/*.json`** — retired Phase 127. Zero remaining fleet-wide. This phase removes the API surface that was still serving them.

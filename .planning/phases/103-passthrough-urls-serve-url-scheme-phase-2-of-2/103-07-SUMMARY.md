@@ -79,7 +79,7 @@ edit-file eligibility wiring for serve URLs.
   - New `describe("SKYNET_SERVE_URL_RE_CLIENT ...")` block with 10 `it(` cases:
     1. matches basic serve URL
     2. matches serve URL with path
-    3. matches serve URL with different hostname + port (thenasty-8080)
+    3. matches serve URL with different hostname + port (host-a-8080)
     4. matches mixed-case hostname (D-13 case preservation)
     5. rejects URL without a digit port (`foo-bar` has no numeric suffix)
     6. rejects a file URL (belongs to SKYNET_FILE_URL_RE_CLIENT)

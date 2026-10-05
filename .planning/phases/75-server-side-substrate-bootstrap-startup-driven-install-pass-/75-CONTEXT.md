@@ -8,7 +8,7 @@
 
 Reshape fleet-substrate distribution from **per-user browser-driven** to **system-driven**. Today the install pass is welded to the `ssh-poll-orchestrator` channel-acquire moment, which only exists while a browser session subscribes to fleet-status AND can only decrypt credentials that belong to the subscribed user. This phase decouples both: the pass runs on Skynet container startup (walking every substrate-flagged host serially), fires immediately on new-host-create, retries unreachable hosts on the existing 30s host-list refresh cadence, and reads credentials through a system-owned key so no user session is required. Existing browser-driven hook is deleted as redundant. Credential handling change is scoped narrowly to substrate-flagged hosts only. One-shot operator-run migration script for existing substrate hosts ships in-phase.
 
-**Unblocks:** Stacy's exec-onboarding runbook Moment 7 on T800 (Aither AI+) — the moment where a freshly-provisioned user's `runsFleetSubstrate:true` VM waits for bootstrap that never fires because that user has never opened the app.
+**Unblocks:** Morgan's exec-onboarding runbook Moment 7 on host-c (Acme AI+) — the moment where a freshly-provisioned user's `runsFleetSubstrate:true` VM waits for bootstrap that never fires because that user has never opened the app.
 
 **Deliberate posture change:** The security property "credentials require the owner to be present to decrypt" is relaxed for one specific class of credentials (substrate-flagged hosts) where the property is already at odds with what the system needs to do (unattended install passes). This is the standard backend-secrets pattern applied narrowly, not a broad security-posture change. All other credentials keep per-user DEK wrapping unchanged.
 
@@ -39,7 +39,7 @@ Reshape fleet-substrate distribution from **per-user browser-driven** to **syste
 
 ### Migration
 - **D-12:** **One-shot operator-run migration script** ships in-phase, delivered as a small script/endpoint in the codebase.
-- **D-13:** Migration takes **every existing substrate-host owner's key material as input** (feasible today because both live instances — this box and T800 — have small, known user populations and user has all the credentials).
+- **D-13:** Migration takes **every existing substrate-host owner's key material as input** (feasible today because both live instances — this box and host-c — have small, known user populations and user has all the credentials).
 - **D-14:** Per-host migration: unwrap credential using the owner's key material → re-wrap with CSKEK → update record. Atomic per host (either the swap succeeds AND the wrap flips, or nothing changes for that host).
 - **D-15:** Migration script is **retired after ship** — new hosts go straight into the new model at create time, so there's no ongoing use for it.
 

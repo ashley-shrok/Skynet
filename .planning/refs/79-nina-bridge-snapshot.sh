@@ -22,12 +22,12 @@
 #   still posts a short notice so nothing disappears without a trace.
 # Adding/activating an agent or a human = edit registry.json then: systemctl --user restart tg-bridge
 set -u
-DIR=/home/thenasty/.config/tg-bridge
-ROOT=http://100.113.23.63:8008
+DIR=/home/host-a/.config/tg-bridge
+ROOT=http://100.64.0.12:8008
 BASE=$ROOT/_matrix/client/v3
 REG="$DIR/registry.json"
 LOG="$DIR/bridge.log"
-STT=http://100.80.122.111:8000/v1/audio/transcriptions   # self-hosted Whisper (WindowsPc, tailnet)
+STT=http://100.64.0.11:8000/v1/audio/transcriptions   # self-hosted Whisper (WindowsPc, tailnet)
 WORK="$DIR/work"; mkdir -p "$WORK"                        # scratch for in-flight media (NOT /tmp)
 
 log(){ printf '%s %s\n' "$(date +%H:%M:%S)" "$1" >> "$LOG"; }
@@ -126,7 +126,7 @@ tg_download(){
   [ -s "$dest" ]
 }
 
-# Human display form for user-visible bridge notices ("user sent" vs "Zoey sent").
+# Human display form for user-visible bridge notices ("user sent" vs "Dana sent").
 # Uppercases the first character of the human name.
 _hdisp(){ local h="$1"; printf '%s' "$(printf '%s' "${h:0:1}" | tr '[:lower:]' '[:upper:]')${h:1}"; }
 

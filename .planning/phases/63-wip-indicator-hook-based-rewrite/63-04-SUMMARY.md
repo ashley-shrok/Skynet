@@ -12,7 +12,7 @@ provides:
   - src/ui/api/fleet-status-types.ts::SessionState (browser-side type mirror of wire-protocol.ts additivity — activityMtime + stoppedMtime as `?: number | null`)
   - src/ui/state/session-working-store.ts::publishFleetStatusSessionState (two-branch isWorking predicate: direct-signal branch on upgraded boxes, retained Phase 59 shell-idle-gate byte-for-byte on unupgraded boxes; new WorkingRecord fields + Axis H + Axis I with Pitfall-3 cache preservation; `bg` retired from direct-signal branch composition per CONTEXT.md §Philosophy; `bg` PRESERVED in fallback branch per §Rollout Option 1's zero-behavior-change promise)
 affects:
-  - Every managed box that has been re-installed with the Plan 62-02 hooks now drives isWorking via the direct-signal predicate — no state machine, no shell-idle gate, no oscillation to fight. Nelly-on-thenasty (per CONTEXT.md rollout order) is the first identity to prove this once the orchestrator triggers the per-identity re-install post-code-land.
+  - Every managed box that has been re-installed with the Plan 62-02 hooks now drives isWorking via the direct-signal predicate — no state machine, no shell-idle gate, no oscillation to fight. Nelly-on-host-a (per CONTEXT.md rollout order) is the first identity to prove this once the orchestrator triggers the per-identity re-install post-code-land.
   - Every managed box that has NOT been re-installed continues to drive isWorking via the retained Phase 59 shell-idle-gate predicate — user has adapted to the known bugs on unupgraded boxes, adaptation is intact until each box gets the Plan 62-02 installer.
 tech-stack:
   added: []
@@ -249,7 +249,7 @@ None. The three files touched introduce no new network endpoints, no new auth pa
 
 1. Full-suite `npx vitest run` as the ship gate.
 2. `docker build` + `docker compose up -d --force-recreate skynet` (behind the 15-min deadman rollback timer per CLAUDE.md).
-3. Per-identity re-install of the Plan 62-02 hooks starting with **Nelly on thenasty** (per CONTEXT.md rollout order: install first, confirm the false-positive is gone).
+3. Per-identity re-install of the Plan 62-02 hooks starting with **Nelly on host-a** (per CONTEXT.md rollout order: install first, confirm the false-positive is gone).
 4. Propagate to the rest of the fleet once Nelly's reproducer is confirmed silent.
 
 **Follow-up phase (post-full-rollout, orchestrator-tracked, NOT this phase):**

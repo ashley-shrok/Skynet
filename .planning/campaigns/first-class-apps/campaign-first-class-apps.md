@@ -8,7 +8,7 @@
 
 Agents build custom apps for their users. Today that's a one-off served URL — an agent runs its own server on some port and hands the user a link. This campaign makes apps a first-class Skynet concept: an app lives on disk under a canonical location on the agent's own box, gets auto-discovered by Skynet, and shows up in the user's sidebar as an always-available tile. A user sees every app her agents have made for her, across every box in her fleet, in one place — clickable to open in the current view, draggable into a split-view leaf, or openable in a separate authenticated browser tab.
 
-The pattern is deliberately instance-agnostic: the Skynet running at term.example.com and Stacy's Skynet on T800 both use it identically without per-instance tailoring.
+The pattern is deliberately instance-agnostic: the Skynet running at term.example.com and Morgan's Skynet on host-c both use it identically without per-instance tailoring.
 
 ## Success criteria
 
@@ -55,4 +55,4 @@ Empty until close-time approvals populate it.
 
 ## UAT hold — deferred to campaign close
 
-The `/build` pipeline's step-6 agent-side pre-deploy UAT requires the code to be live in the running Skynet container. Because the campaign holds deploys until all four shapes close (peer `--force-recreate` ride-along risk on a half-campaign), no shape's live UAT can run against a real deploy in isolation. Instead, all UAT converges at campaign-close: after shape 4 lands, the orchestrator runs full-suite tests + Playwright smoke as the pre-deploy gate, deploys the full campaign, and then executes each shape's D-20 UAT procedure against the deployed instance in one pass. Shape 3's D-20 procedure (scratch app on t1000 + expand sidebar + verify tile + verify Open-in-new-tab + verify unhealthy state + verify sweep-remove) is unchanged — just executed at that later moment.
+The `/build` pipeline's step-6 agent-side pre-deploy UAT requires the code to be live in the running Skynet container. Because the campaign holds deploys until all four shapes close (peer `--force-recreate` ride-along risk on a half-campaign), no shape's live UAT can run against a real deploy in isolation. Instead, all UAT converges at campaign-close: after shape 4 lands, the orchestrator runs full-suite tests + Playwright smoke as the pre-deploy gate, deploys the full campaign, and then executes each shape's D-20 UAT procedure against the deployed instance in one pass. Shape 3's D-20 procedure (scratch app on host-b + expand sidebar + verify tile + verify Open-in-new-tab + verify unhealthy state + verify sweep-remove) is unchanged — just executed at that later moment.

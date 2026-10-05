@@ -26,7 +26,7 @@ The identity modal today has a tab set covering both role-scoped and identity-sc
    - `css-fast-path/css-fast-path.md` → `css-fast-path/runbook.md`
    - `skynet-admin/skynet-admin.md` → `skynet-admin/runbook.md`
    - `user-onboarding/user-onboarding.md` → `user-onboarding/runbook.md`
-   Rename motion propagates via the fleet-substrate distributor to any other box that inherits runbooks (currently just t1000; T800 will pick it up on next sweep).
+   Rename motion propagates via the fleet-substrate distributor to any other box that inherits runbooks (currently just host-b; host-c will pick it up on next sweep).
 
 5. **id-skill body update.** The § Runbooks section currently says the main markdown MUST be named `<slug>.md`. That becomes: MUST be named `runbook.md`. Both the storage subsection and the awareness-on-wake enumeration step need to reflect the new naming; enumeration still keys off folder names (unchanged), but any "read the file named `<slug>.md` inside it" phrasing shifts to "read `runbook.md`."
 

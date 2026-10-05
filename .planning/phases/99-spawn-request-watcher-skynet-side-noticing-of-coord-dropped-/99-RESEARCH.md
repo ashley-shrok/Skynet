@@ -576,7 +576,7 @@ This runs once per queued birth request (not per tick). If the host was deleted 
 |---------------|---------|-----------------|
 | V2 Authentication | no | n/a — no new auth surface; sweep uses existing SSH channel |
 | V3 Session Management | no | n/a |
-| V4 Access Control | yes | Owner-userId derivation (D-14) ensures births happen under the correct user's credential scope. Single-user boxes: trivially correct. Multi-user boxes: Stacy's coord births under Stacy's userId — natural isolation boundary. |
+| V4 Access Control | yes | Owner-userId derivation (D-14) ensures births happen under the correct user's credential scope. Single-user boxes: trivially correct. Multi-user boxes: Morgan's coord births under Morgan's userId — natural isolation boundary. |
 | V5 Input Validation | yes | Request file body: validate role against `ROLE_NAME_PATTERN` (from orchestrator), task against 500-char cap (from HTTP route), uuid against UUID pattern before using in file paths; JSON.parse in try/catch |
 | V6 Cryptography | no | relay.json written by the birth orchestrator with existing 0o600 chmod |
 

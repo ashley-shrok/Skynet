@@ -121,7 +121,7 @@ The `startActiveSessionFlow` is declared as a connection-scoped `let` (before `w
 ## user UAT Outcome
 
 PENDING — Task 5 is the human verify checkpoint. user needs to:
-1. Confirm Tiffany's identity is dormant on T1000 (`ls ~/.claude/identities/tiffany/.dormant`)
+1. Confirm Tiffany's identity is dormant on host-b (`ls ~/.claude/identities/tiffany/.dormant`)
 2. Open Tiffany's pretty-view pane in the PWA at term.example.com
 3. Confirm DormancyOverlay appears ("session is asleep" + Wake button, NOT "no active Claude session")
 4. Tap Wake → confirm overlay transitions to "waking…" → auto-dismisses when Claude relaunches
@@ -130,7 +130,7 @@ PENDING — Task 5 is the human verify checkpoint. user needs to:
 
 ## Standing Directive Follow-Up
 
-DMing Stacy question is bundled with patches #344 + #345 + #346 per the bounty. user should be asked about this during/after UAT.
+DMing Morgan question is bundled with patches #344 + #345 + #346 per the bounty. user should be asked about this during/after UAT.
 
 ## Known Stubs
 

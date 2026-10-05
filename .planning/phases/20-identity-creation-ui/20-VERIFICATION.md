@@ -8,7 +8,7 @@ human_verification:
   - test: "Birth a real test identity on a remote host end-to-end"
     expected: "All 5 steps tick green, pane switches to new session, fresh identity's /id create-path fires"
     why_human: "End-to-end requires SSH to real Tailscale host, real OpenAI API key, real tmux session — cannot be exercised in CI without a running container"
-  - test: "Self-birth on skynet-ec2 (local-exec branch)"
+  - test: "Self-birth on primary-host (local-exec branch)"
     expected: "Birth completes using local child_process.exec rather than SSH; session opens and /id fires"
     why_human: "Requires container running Skynet with the new routes deployed"
   - test: "Skynet-side collision block (create a name that already exists in the identities table)"
@@ -166,9 +166,9 @@ No FIXME, XXX, or TBD markers found in any Phase 20 files. No placeholder implem
 **Expected:** All 5 steps tick green in sequence. Modal closes. Conversation list switches to the new session pane. The fresh identity's `/id create-path fires ("No identity found for <name>. Creating one now.")` is visible.
 **Why human:** Requires live container, OPENAI_API_KEY, SSH to Tailscale host, real tmux session. Cannot verify in CI.
 
-#### 2. Self-birth on skynet-ec2 (local-exec branch)
+#### 2. Self-birth on primary-host (local-exec branch)
 
-**Test:** Same as #1 but select `skynet-ec2` as the target host.
+**Test:** Same as #1 but select `primary-host` as the target host.
 **Expected:** Birth completes using local child_process.exec (no SSH). Functional parity with remote path.
 **Why human:** Requires deployed container and local-exec path exercised at runtime.
 

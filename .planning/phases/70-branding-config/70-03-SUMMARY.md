@@ -82,7 +82,7 @@ Pre-login unauthenticated fetch shape verbatim from `WeeklyUsageMeter.tsx` L99 (
 
 Guard fields checked: `appName`, `shortName`, `iconPath`, `wordmarkPath`, `faviconPath` (all `typeof === "string"`) + `pwaIcons` (`Array.isArray`). Nested per-icon shape (`src/sizes/type`) is intentionally NOT deep-checked at the client boundary — the backend validates it and the frontend never dereferences pwaIcons in a way that would crash on malformed entries (Plan 70-04 uses the icons for `<link>` generation which is defensive to missing fields).
 
-Silent no-op contract on all failure paths: non-2xx response, `JSON.parse` throw, shape-guard rejection, network error. Store retains the sentinel — the app renders "Skynet" branding, byte-identical to today's t1000 behavior (D-14). Per Pitfall 5 rationale: no `console.error` on failure — noisy boot-race logging pollutes the console for every user on every page load.
+Silent no-op contract on all failure paths: non-2xx response, `JSON.parse` throw, shape-guard rejection, network error. Store retains the sentinel — the app renders "Skynet" branding, byte-identical to today's host-b behavior (D-14). Per Pitfall 5 rationale: no `console.error` on failure — noisy boot-race logging pollutes the console for every user on every page load.
 
 **Task 1 verification (all pass):**
 
@@ -124,7 +124,7 @@ Added call immediately BEFORE the existing `prepareClientCacheVersion().finally(
 // Fire-and-forget: the store's initial state is a bundled-default sentinel
 // (byte-for-byte match with docker/branding-defaults/branding.json), so
 // first-paint is defensible even if this fetch never resolves — matches
-// today's t1000 "Skynet" behavior (Pitfall 5 mitigation, D-14). Runs in
+// today's host-b "Skynet" behavior (Pitfall 5 mitigation, D-14). Runs in
 // parallel with prepareClientCacheVersion(); createRoot render is NOT
 // gated on the branding promise.
 void fetchBrandingConfig();
@@ -194,10 +194,10 @@ Otherwise: plan executed exactly as written. Two minor implementation clarificat
   ```
   and dereferences `brandingConfig.appName`, `brandingConfig.iconPath`, `brandingConfig.wordmarkPath`, `brandingConfig.faviconPath`, `brandingConfig.shortName`, `brandingConfig.pwaIcons` as needed. No prop-drilling, no Context wrapper — the hook reads the module singleton via `useSyncExternalStore` and re-renders the component on any published change.
 - **Recommended favicon wiring site:** call `useBrandingFavicon()` ONCE from a top-level always-mounted component. Recommendation is inside `AppShell` (mounted for both pre-login/auth and post-login/main flows) so the favicon applies pre-login as well as post-login. Alternative: `App()` in `main.tsx`. Plan 70-04 owns this call-site decision — the hook itself is idempotent, so calling it in multiple places is safe but wasteful.
-- **First-render defaults:** Store hydration is asynchronous. The first render may see the bundled-default sentinel briefly before the `/api/branding` fetch resolves. This is EXPECTED and DESIRED per Pitfall 5 mitigation — the sentinel matches the actual Skynet defaults byte-for-byte so t1000 users see no flash-of-wrong-brand (both states render as "Skynet" branding). For AI+ deploys, users may see the "Skynet" defaults for a beat before the fetch swaps to "Aither Intelligence Plus" — this is the acceptable trade-off vs blocking first paint on a boot-race network fetch.
+- **First-render defaults:** Store hydration is asynchronous. The first render may see the bundled-default sentinel briefly before the `/api/branding` fetch resolves. This is EXPECTED and DESIRED per Pitfall 5 mitigation — the sentinel matches the actual Skynet defaults byte-for-byte so host-b users see no flash-of-wrong-brand (both states render as "Skynet" branding). For AI+ deploys, users may see the "Skynet" defaults for a beat before the fetch swaps to "Acme Intelligence Plus" — this is the acceptable trade-off vs blocking first paint on a boot-race network fetch.
 - **AppShell integration:** L232 (initial dashboard tab label), L616 (`document.title` fallback chain — last-fallback slot), and L1569 (tab reset on close) each need `"SKYNET"` → `brandingConfig.appName`. Add `const brandingConfig = useBrandingConfig();` near the top of the `AppShell` function (~L225).
 - **PrettyConversationsPanel header:** L1489-1497 `<SkynetLogo>` + `<img src="/skynet-wordmark.png">` → `<img src={brandingConfig.iconPath}>` + `<img src={brandingConfig.wordmarkPath} alt={brandingConfig.appName}>`. Also remove the `SkynetLogo` import at L135 IF no other usage in the file (verify via grep before deleting).
-- **Auth.tsx login header:** L1131-1142 `<img src="/icon.png">` + `<img src="/skynet-wordmark.png">` → same swap as PrettyConversationsPanel. Note: today's login icon is `/icon.png` (raster) NOT `<SkynetLogo>` SVG — unifying both on `iconPath` will visually swap SVG-rendered → PNG-rendered on the conversation header for t1000 no-config deploys. See Plan 70-01 SUMMARY Handoff Notes item 3 for the three ways to preserve pixel-perfect continuity if that visual delta is unacceptable.
+- **Auth.tsx login header:** L1131-1142 `<img src="/icon.png">` + `<img src="/skynet-wordmark.png">` → same swap as PrettyConversationsPanel. Note: today's login icon is `/icon.png` (raster) NOT `<SkynetLogo>` SVG — unifying both on `iconPath` will visually swap SVG-rendered → PNG-rendered on the conversation header for host-b no-config deploys. See Plan 70-01 SUMMARY Handoff Notes item 3 for the three ways to preserve pixel-perfect continuity if that visual delta is unacceptable.
 - **Fifth surface (Auth.tsx L1314 `t("auth.loginTitle")` = "Login to SKYNET"):** research Open Question #1. Plan 70-04's frontmatter says it neutralizes this via en.json — refer to 70-04-PLAN.md for the chosen approach.
 
 **To Plan 70-05 (end-of-phase verify):**

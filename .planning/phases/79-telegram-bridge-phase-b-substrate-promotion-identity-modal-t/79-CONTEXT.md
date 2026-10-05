@@ -10,11 +10,11 @@
 
 ## Domain
 
-Take Nina's hand-configured Telegram bridge — currently a one-off systemd USER unit at `/home/thenasty/.config/tg-bridge/` — and make it a first-class shipping piece of Skynet, distributed by the fleet distributor and configured through the identity modal. Each identity opts in to wrist-reachability via a bot-token paste in a dedicated Telegram tab. Bridge lives where Skynet lives (t1000 for this deployment, T800 for Stacy's). Human Matrix passwords never touch disk; admin mints tokens on demand.
+Take Nina's hand-configured Telegram bridge — currently a one-off systemd USER unit at `/home/host-a/.config/tg-bridge/` — and make it a first-class shipping piece of Skynet, distributed by the fleet distributor and configured through the identity modal. Each identity opts in to wrist-reachability via a bot-token paste in a dedicated Telegram tab. Bridge lives where Skynet lives (host-b for this deployment, host-c for Morgan's). Human Matrix passwords never touch disk; admin mints tokens on demand.
 
 ## Shape overrides (user 2026-09-06, discuss-phase)
 
-- **The shape file's "Migrating co-located relay+bridge onto Skynet box → deferred" is REVERSED for the bridge.** The bridge co-locates with Skynet in Phase B — that's the entire point of substrate promotion. user verbatim: *"the whole point of this is that the bridge is becoming a part of Skynet"* / *"by the time this is done, the bridge is a shipping piece of Skynet, just like Agent Supervisor and everything else"* / *"the shapefile should not have deferred that i didn't agree to it."* The **relay/Matrix homeserver** stays on thenasty (Nicole's infra); only the bridge relocates.
+- **The shape file's "Migrating co-located relay+bridge onto Skynet box → deferred" is REVERSED for the bridge.** The bridge co-locates with Skynet in Phase B — that's the entire point of substrate promotion. user verbatim: *"the whole point of this is that the bridge is becoming a part of Skynet"* / *"by the time this is done, the bridge is a shipping piece of Skynet, just like Agent Supervisor and everything else"* / *"the shapefile should not have deferred that i didn't agree to it."* The **relay/Matrix homeserver** stays on host-a (Nicole's infra); only the bridge relocates.
 
 ---
 
@@ -31,12 +31,12 @@ An earlier revision of this file (and the earlier DISCUSSION-LOG) attributed dec
 
 ### 1. Bridge lives where Skynet lives — co-located, distributor-shipped
 
-- Bridge runs on the Skynet host: t1000 for this deployment, T800 for Stacy's, whatever host in the future.
+- Bridge runs on the Skynet host: host-b for this deployment, host-c for Morgan's, whatever host in the future.
 - Distributed by the **fleet-substrate distributor** as a universal substrate item (like `agent-supervisor.sh`). Not "distributed to only one host" — universal, same as every other substrate piece. user verbatim: *"there's nothing in the distributor that takes a universal piece like the bridge and distributes it to only one host. like that would be dumb and silly and so it certainly doesn't work that way today and it would be weird for us to make it work that way as a part of this."*
 - The systemd unit is enabled on the Skynet host as part of Skynet's own runtime setup (research decides exact wiring — see § Research questions).
 - **Config values the bridge reads come from Skynet's own config**, not hardcoded in the script. This is a HARD requirement — the shape's "each Skynet is its own island" clause is enforced at the config layer:
-  - **Matrix homeserver URL** — comes from Skynet's Matrix config (same source `matrix_admin_creds.base` uses). Removes the hardcoded `http://100.113.23.63:8008` at the top of `bridge.sh`.
-  - **STT URL** — comes from Skynet's existing STT config (user confirmed Skynet already has one — she uses voice input to Skynet, which uses the same STT endpoint). Removes the hardcoded `http://100.80.122.111:8000/v1/audio/transcriptions`.
+  - **Matrix homeserver URL** — comes from Skynet's Matrix config (same source `matrix_admin_creds.base` uses). Removes the hardcoded `http://100.64.0.12:8008` at the top of `bridge.sh`.
+  - **STT URL** — comes from Skynet's existing STT config (user confirmed Skynet already has one — she uses voice input to Skynet, which uses the same STT endpoint). Removes the hardcoded `http://100.64.0.11:8000/v1/audio/transcriptions`.
   - **TTS URL** — if the bridge grows a TTS path, same rule: read from Skynet config.
 - **Reliability check for the executor:** if we come out of this phase and the bridge is NOT reading STT (and Matrix homeserver, and any other shared endpoint) from Skynet config, we've shipped a bug. user verbatim: *"if we come out of this and the bridge is not using the config values for where to get speech to text from that Skynet also uses, then that will have been a mistake."*
 
@@ -85,7 +85,7 @@ An earlier revision of this file (and the earlier DISCUSSION-LOG) attributed dec
 - Phase B removes `<human>.cred` files entirely from the bridge disk. The `relogin()` function is deleted from `bridge.sh`.
 - **New token lifecycle:** Skynet mints tokens via `matrix-admin-client.loginAsUser(<mxid>)` (Phase 77 primitive). Skynet writes `<human>.token` (0600) to the bridge's registry directory. Bridge reads tokens; bridge never knows a password exists.
 - **When a token dies** (Synapse 401): bridge logs LOUD, continues attempting for other humans; that human's Matrix events queue on the relay. Skynet's next reconcile pass detects the dead-token state (via a status field OR by polling `/whoami` on stored tokens periodically — research decides) and re-mints via admin.
-- **Migration:** Phase B ships a one-shot migration that (a) admin-mints fresh tokens for user + Zoe + Laura via `loginAsUser`, (b) writes new `<human>.token` files, (c) deletes existing `<human>.cred` files. The three existing humans get token-refreshed cleanly. Verify: bridge post-migration has zero `.cred` files anywhere.
+- **Migration:** Phase B ships a one-shot migration that (a) admin-mints fresh tokens for user + Jess + Riley via `loginAsUser`, (b) writes new `<human>.token` files, (c) deletes existing `<human>.cred` files. The three existing humans get token-refreshed cleanly. Verify: bridge post-migration has zero `.cred` files anywhere.
 - **Fleet-wide "bridge still bridges if Skynet is unhealthy" invariant preserved:** tokens on disk survive Skynet downtime; only re-minting requires Skynet to be up, and that's the rare path.
 
 **4C. Bridge runs as a Docker Compose service alongside `skynet` / `caddy` / `guacd`. No systemd unit, no host-side install, no cross-boundary SSH.** (Locked 2026-09-06 after the discovery that the Skynet host is not guaranteed to be self-registered in Skynet's own DB, invalidating the earlier SSH-to-self install pathway.)
@@ -96,8 +96,8 @@ An earlier revision of this file (and the earlier DISCUSSION-LOG) attributed dec
 - **Bridge reload on registry change:** bridge watches `/state/registry.json` with `inotifywait` (or the Node equivalent if the bridge grows a Node companion — Nina's bridge stays bash for now, so `inotifywait` inside the container). On change, bridge triggers its own re-exec / re-init.
 - **Bridge reads config from environment variables passed via docker-compose:** `MATRIX_HOMESERVER_BASE` (from `matrix_admin_creds.homeserverBase`, exported by skynet via a shared config mechanism — planner decides how — options include a small config-export sidecar OR direct env-var writing to compose from skynet on first run), `STT_URL` (from the new shared TS constant module). Ship-gate check remains: zero hardcoded IPs anywhere in `substrate/services/tg-bridge/bridge.sh`.
 - **No systemd unit exists** for the bridge in Phase B. The whole USER-vs-SYSTEM systemd question is moot.
-- **No host-side install path** — the bridge lives entirely inside Docker. Fresh Skynet deployments (T800, future) get the bridge automatically via `docker compose up`. Zero operator burden per deployment.
-- **Nina's install on thenasty** (`/home/thenasty/.config/tg-bridge/`) can be shut down after cutover — nothing on the host needs replacing.
+- **No host-side install path** — the bridge lives entirely inside Docker. Fresh Skynet deployments (host-c, future) get the bridge automatically via `docker compose up`. Zero operator burden per deployment.
+- **Nina's install on host-a** (`/home/host-a/.config/tg-bridge/`) can be shut down after cutover — nothing on the host needs replacing.
 
 ### 5. Matrix-cursor disk persistence
 
@@ -134,7 +134,7 @@ An earlier revision of this file (and the earlier DISCUSSION-LOG) attributed dec
 ## Success definition — Phase 79 is done when
 
 - **Bridge is a Docker Compose service** defined in `docker/docker-compose.yml`, alongside `skynet` / `caddy` / `guacd`. It comes up automatically on `docker compose up` and stays up via `Restart: always`. Zero operator-visible install step beyond `docker compose up`.
-- **Bridge source** (`bridge.sh` + any companion files) lives in `~/skynet-tina/substrate/services/tg-bridge/` and is bundled into a `tg-bridge` Docker image built during Skynet's docker build (or a small Dockerfile that copies from a shared context). Nina's `/home/thenasty/.config/tg-bridge/` install can be shut down after cutover.
+- **Bridge source** (`bridge.sh` + any companion files) lives in `~/skynet-tina/substrate/services/tg-bridge/` and is bundled into a `tg-bridge` Docker image built during Skynet's docker build (or a small Dockerfile that copies from a shared context). Nina's `/home/host-a/.config/tg-bridge/` install can be shut down after cutover.
 - **Shared named Docker volume** `tg-bridge-state` is mounted by both `skynet` and `tg-bridge` containers. Holds `registry.json`, per-human `.token`, per-human `.since`, per-human `.token-dead` sentinels, and bridge scratch. Survives container recreate.
 - **Bridge reads Matrix homeserver URL + STT URL (+ any other shared endpoints) from Skynet's config** — no hardcoded IPs in `bridge.sh`. Mechanism: docker-compose environment variables passed from Skynet's config to the tg-bridge service (planner decides exact export mechanism — env var, config file in shared volume, or a small startup script).
 - **Ship-gate reliability check:** `grep -E '100\.113\.23\.63|100\.80\.122\.111' substrate/services/tg-bridge/bridge.sh` returns zero matches. Baked into a permanent CI regression guard.
@@ -147,7 +147,7 @@ An earlier revision of this file (and the earlier DISCUSSION-LOG) attributed dec
 - **Recovery from bad clicks:** Disconnect button in the tab returns to paste-state in one click + one confirm.
 - **No new frontend UI** outside the Telegram tab (scope-locked).
 - **No automatic DM notifications** on bridge failure — surfaced in the tab only.
-- **Migration endpoint** `POST /matrix-admin/migrate-cred-files` — one-shot admin-gated, mints fresh tokens for user + Zoe + Laura, writes to shared volume, deletes any legacy `.cred` files. Idempotent, safe to re-run.
+- **Migration endpoint** `POST /matrix-admin/migrate-cred-files` — one-shot admin-gated, mints fresh tokens for user + Jess + Riley, writes to shared volume, deletes any legacy `.cred` files. Idempotent, safe to re-run.
 - **No host-side systemd unit** for the bridge. No `~/.local/bin/tg-bridge`. No `/home/<user>/.config/tg-bridge/`. All bridge state lives in the Docker named volume.
 - **No SSH-to-self** required for the install pathway. The Skynet host doesn't need to be self-registered in Skynet's own host DB for the bridge to work.
 
@@ -161,7 +161,7 @@ Q1, Q4, and Q7 from the original list are OBSOLETE (see § 4C-revised — bridge
 2. **Where does Skynet's Matrix homeserver base URL config live?** `matrix_admin_creds.homeserverBase` is one candidate (Phase 77). If there's a broader Matrix config, prefer that. If not, either reuse `matrix_admin_creds.homeserverBase` or add a plain broader config value. Bridge reads from the same source.
 3. **How are docker-compose SERVICES structured today?** Read `docker/docker-compose.yml` — enumerate the existing `skynet`, `caddy`, `guacd` service blocks. Find the pattern for adding a new service: image build, volume mount, env var passing, network attachment, restart policy. The `tg-bridge` service block follows this pattern.
 4. **How does Skynet currently pass configuration to Docker services?** Env vars in docker-compose.yml? Env file? Config file bind-mount? The bridge needs its Matrix homeserver URL and STT URL — the mechanism must be consistent with how Skynet already gets its own config.
-5. **What Synapse token lifetime should we expect?** Synapse tokens don't expire by default, but admin-minted `loginAsUser` tokens may behave differently. Verify against the deployed Synapse (Nicole's homeserver on thenasty). Impacts whether Skynet's reconcile-pass needs to poll `/whoami` on stored tokens, or just react to bridge-side 401s (via the `.token-dead` sentinel mechanism).
+5. **What Synapse token lifetime should we expect?** Synapse tokens don't expire by default, but admin-minted `loginAsUser` tokens may behave differently. Verify against the deployed Synapse (Nicole's homeserver on host-a). Impacts whether Skynet's reconcile-pass needs to poll `/whoami` on stored tokens, or just react to bridge-side 401s (via the `.token-dead` sentinel mechanism).
 6. **Named Docker volume shape:** Does `tg-bridge-state` follow the same volume-declaration pattern as `skynet-data`? Verify the pattern for a shared volume mounted by two services (skynet + tg-bridge).
 7. **Bridge Docker image build:** does the bridge script build into a dedicated Docker image (new Dockerfile at `docker/Dockerfile.tg-bridge`), or does it copy into the existing skynet image and get invoked separately? Two viable shapes — planner picks one based on how much the bridge diverges from the skynet base image.
 8. **Where does the Skynet backend WRITE files into the shared volume?** Skynet's SQLite `skynet-data` volume is the reference — Skynet writes via the ORM. For `tg-bridge-state`, Skynet writes raw files (registry.json, .token files) directly via Node's `fs`. Verify that path is bind-mounted into the skynet container (or the volume is mounted the same way `skynet-data` is).
@@ -175,9 +175,9 @@ Q1, Q4, and Q7 from the original list are OBSOLETE (see § 4C-revised — bridge
 - `.planning/phases/73-*/73-*-PLAN.md` — fleet-substrate distributor (feature-02 slice-2). The reconcile-loop pattern Phase B extends for bridge distribution.
 - `.planning/phases/75-*/` — server-side substrate bootstrap; the startup-driven install pass that will place tg-bridge on hosts.
 - `~/skynet-tina/substrate/skills/agent-relay/recv.sh` — reference implementation for disk-persisted Matrix `since` cursor. Bridge's Matrix-cursor persistence mirrors this exact shape.
-- `/home/thenasty/.config/tg-bridge/bridge.sh` (root@100.113.23.63) — Nina's current bridge script, 344 lines. Source of truth for what the bridge does today. Full analysis in this CONTEXT § Locked decisions.
-- `/home/thenasty/.config/tg-bridge/registry.json` — current registry structure: `{agents:[{name, mxid, bot_token, humans:[{name, mxid, chat_id, room, cred, token}]}]}`. Phase B keeps this shape but eliminates `.cred` files.
-- `/home/thenasty/.config/systemd/user/tg-bridge.service` — current systemd USER unit on Nina's install. Phase B does NOT ship a systemd unit — bridge runs as a Docker Compose service instead. Reference kept for the `Type=simple`/`Restart=always`/`RestartSec=5`/`KillMode=mixed` intent, which translates to `restart: always` in the compose service block.
+- `/home/host-a/.config/tg-bridge/bridge.sh` (root@100.64.0.12) — Nina's current bridge script, 344 lines. Source of truth for what the bridge does today. Full analysis in this CONTEXT § Locked decisions.
+- `/home/host-a/.config/tg-bridge/registry.json` — current registry structure: `{agents:[{name, mxid, bot_token, humans:[{name, mxid, chat_id, room, cred, token}]}]}`. Phase B keeps this shape but eliminates `.cred` files.
+- `/home/host-a/.config/systemd/user/tg-bridge.service` — current systemd USER unit on Nina's install. Phase B does NOT ship a systemd unit — bridge runs as a Docker Compose service instead. Reference kept for the `Type=simple`/`Restart=always`/`RestartSec=5`/`KillMode=mixed` intent, which translates to `restart: always` in the compose service block.
 - `src/backend/matrix/client.ts` — Phase 77 admin client. `loginAsUser` is the Phase B token-minting primitive.
 - `src/backend/database/schema.ts` — `matrix_admin_creds` table shape reference for `telegram_bot_tokens` schema.
 - `src/backend/database/field-crypto.ts` + `src/backend/database/schema.ts` (`ENCRYPTED_FIELDS`) — encryption pattern.

@@ -50,8 +50,8 @@ must_haves:
 Phase 25 (shipped 2026-08-05) added a (host, role, label) sort tuple so conversation rows cluster
 by role within their host tier. In production the clustering silently does nothing: role
 resolution goes through identities.ts:82 → `resolveRoleForIdentity(null, ...)` (LOCAL branch),
-which reads role frontmatter from skynet-ec2's own filesystem. Only tina's identity file lives
-on skynet-ec2 — poppy, patricia, pixie, nicole, vicky and every other fleet identity's file lives
+which reads role frontmatter from primary-host's own filesystem. Only tina's identity file lives
+on primary-host — poppy, patricia, pixie, nicole, vicky and every other fleet identity's file lives
 on its home box. So every non-tina identity comes back with role=null and the (host, role, label)
 comparator collapses to plain label-alpha. Confirmed 2026-08-06 hitting /identities as tina admin.
 

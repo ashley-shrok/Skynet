@@ -292,7 +292,7 @@ const HOST_TREE_WITH_RDP: HostFolder = {
 const HOST_TREE_WITH_RDP: HostFolder = {
   name: "root",
   children: [
-    HOST_TREE.children[0], // 1 SSH host (thenasty)
+    HOST_TREE.children[0], // 1 SSH host (host-a)
     { ...HOST_TREE.children[0], id: "3", name: "second-ssh-host", ip: "10.0.0.2" }, // 2nd SSH
     { id: "2", name: "windows-box", enableRdp: true, enableSsh: false, ... }, // filtered
   ],

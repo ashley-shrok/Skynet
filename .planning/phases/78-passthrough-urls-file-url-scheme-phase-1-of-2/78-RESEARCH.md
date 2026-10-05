@@ -104,7 +104,7 @@ Distributor change adds ONE new step to `run-bootstrap.ts` (or a new file `write
 | SFTP for reading bytes | `exec("cat <path>")` over SSH | SFTP avoids shell interpolation entirely (T-24-04 defense); binary-safe; `stat` first prevents `/dev/zero`-shaped hangs. `exec("cat")` is simpler but re-introduces shell-escape gaps. Reject: use SFTP (matches `plan-file-fetch.ts` — same author, same file class). |
 | Verbatim `/file/<host>/<path>` route at Express root | Internal `POST /pretty-view/fetch-host-file` with JSON body `{host, path}` | Verbatim route: matches shape lock exactly, no Caddy work needed. Internal POST: mirrors `/pretty-view/fetch-tailnet-url` shape exactly, response envelope identical. Recommend: **verbatim route** at Express, mounted at `/file/:host/*` (Express `*` captures the rest of the path). Simpler, no Caddy rewrite, URL agents write matches the URL browser hits matches the URL Express routes. Path decoding at Express boundary is trivial (`req.params[0]` for the wildcard). |
 | New env var `SKYNET_PUBLIC_URL` | Reading Caddy config at runtime | Reading Caddy config: brittle (Caddy config isn't machine-readable from inside container); requires filesystem mount. Env var: standard, one line in `/opt/skynet/skynet.env`, immediate. Recommend: **env var**. |
-| Distributor bootstrap-step for `~/.claude/skynet-parent` | Catalog entry with bundled bytes | Catalog: fine if the file's content were static, but the parent domain varies per Skynet deployment (t1000 vs T800 vs future customer VMs); catalog bytes must be identical for every managed host. Bootstrap-step: writes dynamic per-Skynet content. Recommend: **bootstrap-step** in `run-bootstrap.ts`. |
+| Distributor bootstrap-step for `~/.claude/skynet-parent` | Catalog entry with bundled bytes | Catalog: fine if the file's content were static, but the parent domain varies per Skynet deployment (host-b vs host-c vs future customer VMs); catalog bytes must be identical for every managed host. Bootstrap-step: writes dynamic per-Skynet content. Recommend: **bootstrap-step** in `run-bootstrap.ts`. |
 
 **Installation:** No new packages needed. All patterns use resident deps.
 
@@ -119,10 +119,10 @@ No new packages installed by this phase. All work uses resident dependencies (`s
 ### System Architecture Diagram
 
 ```
-                       Agent on managed box (e.g. thenasty)
+                       Agent on managed box (e.g. host-a)
                        │
                        │  reads $(cat ~/.claude/skynet-parent) = "https://term.example.com"
-                       │  writes URL into a chat message: [note](https://term.example.com/file/thenasty/home/ubuntu/note.md)
+                       │  writes URL into a chat message: [note](https://term.example.com/file/host-a/home/ubuntu/note.md)
                        ▼
                        Message JSONL file on the agent's box
                        │
@@ -398,7 +398,7 @@ function sftpReadFile(sftp: SftpLike, p: string) {
 
 /**
  * D-01 URL shape: <skynet-domain>/file/<hostname>/<absolute-path>
- * Example: https://term.example.com/file/thenasty/home/ubuntu/note.md
+ * Example: https://term.example.com/file/host-a/home/ubuntu/note.md
  *
  * Grammar:
  *   - scheme: https:// only (agents on Skynet always run on HTTPS deployment)
@@ -548,7 +548,7 @@ Phase 78 is a feature-add, not a rename/refactor. However, it introduces new per
 | Stored data | Per-managed-box file `~/.claude/skynet-parent` (single line, plaintext) — new artifact on every host under distributor's care | Distributor writes; no migration needed (fresh file); planner must ensure idempotency so it's not rewritten on every sweep churning `updated_at` sentinels |
 | Live service config | None. No n8n workflow / Datadog dashboard equivalent involved. | None. |
 | OS-registered state | None. No systemd unit changes; the file is a plain text file, not a service. | None. |
-| Secrets / env vars | **NEW** `SKYNET_PUBLIC_URL` env var — must be added to `/opt/skynet/skynet.env` on t1000 AND T800 AND any future Skynet deployment. If missing → distributor bootstrap step logs a warn and skips (never rewrites with empty string). | Ship-time: (a) add line to `/opt/skynet/skynet.env` on t1000 during deploy; (b) coord with Stacy to add the same on T800; (c) document in future Skynet deployment runbooks. |
+| Secrets / env vars | **NEW** `SKYNET_PUBLIC_URL` env var — must be added to `/opt/skynet/skynet.env` on host-b AND host-c AND any future Skynet deployment. If missing → distributor bootstrap step logs a warn and skips (never rewrites with empty string). | Ship-time: (a) add line to `/opt/skynet/skynet.env` on host-b during deploy; (b) coord with Morgan to add the same on host-c; (c) document in future Skynet deployment runbooks. |
 | Build artifacts | `substrate/skills/id/SKILL.md` — section rewrite ships as new bytes; distributor pushes on next sweep after container recreate. No .egg-info-style stale artifact. | None beyond normal ship discipline. |
 
 **Nothing found in category:** No stored-data migration (fresh writes). No live-service config to update (no external service depends on the URL scheme yet — only agents starting from the sweep post-ship). No OS registration. No package artifact churn.
@@ -557,7 +557,7 @@ Phase 78 is a feature-add, not a rename/refactor. However, it introduces new per
 
 ### Pitfall 1: Reading a `/proc`, `/sys`, `/dev`, or special-file path hangs or OOMs the backend
 
-**What goes wrong:** An agent writes a URL like `.../file/thenasty/proc/kmsg` or `.../file/thenasty/dev/urandom` or `.../file/thenasty/dev/zero`. SFTP `readFile` on `/proc/kmsg` blocks indefinitely; on `/dev/urandom` returns forever; on `/dev/zero` returns until MAX_BYTES + then some.
+**What goes wrong:** An agent writes a URL like `.../file/host-a/proc/kmsg` or `.../file/host-a/dev/urandom` or `.../file/host-a/dev/zero`. SFTP `readFile` on `/proc/kmsg` blocks indefinitely; on `/dev/urandom` returns forever; on `/dev/zero` returns until MAX_BYTES + then some.
 
 **Why it happens:** SFTP's `readFile` API doesn't distinguish "regular file" from "special file" without an explicit `stat` first. Even with the size cap, a growing/streaming special file breaks the read.
 
@@ -596,7 +596,7 @@ Phase 78 is a feature-add, not a rename/refactor. However, it introduces new per
 
 **How to avoid:**
 1. At backend init, if `process.env.SKYNET_PUBLIC_URL` is missing OR doesn't start with `https://`, log a startup warning and SKIP the bootstrap step 4 entirely (don't write a broken file). Idempotency: skipping means the file stays at whatever value it had (which for a fresh box = missing, which agents already handle per D-03).
-2. Ship-time: add `SKYNET_PUBLIC_URL=https://term.example.com` to `/opt/skynet/skynet.env` BEFORE container recreate. Coord with Stacy to add the T800 equivalent (`https://skynet.aithercloud.com`) before her next deploy.
+2. Ship-time: add `SKYNET_PUBLIC_URL=https://term.example.com` to `/opt/skynet/skynet.env` BEFORE container recreate. Coord with Morgan to add the host-c equivalent (`https://skynet.example.net`) before her next deploy.
 3. Add a startup log line: `Skynet public URL configured as <url>` so operators can grep for it after deploy.
 
 **Warning signs:** `~/.claude/skynet-parent` on some managed hosts is empty or contains stale value; agent messages show broken URLs the user can't click.
@@ -623,7 +623,7 @@ Phase 78 is a feature-add, not a rename/refactor. However, it introduces new per
 
 ### Pitfall 7: `resolveHostByName` name collision across users leaks host presence
 
-**What goes wrong:** Two users both have a host named "thenasty" (different physical boxes). User A's file URL for `thenasty/some/path` accidentally resolves to User B's host, or reveals via 403 error taxonomy that a "thenasty" exists for someone else.
+**What goes wrong:** Two users both have a host named "host-a" (different physical boxes). User A's file URL for `host-a/some/path` accidentally resolves to User B's host, or reveals via 403 error taxonomy that a "host-a" exists for someone else.
 
 **Why it happens:** `hosts.name` is not unique — it's a per-user friendly name. Global lookup by name is ambiguous.
 
@@ -745,7 +745,7 @@ Construct it and emit as a clickable Markdown link:
     FILE=/home/ubuntu/notes/thing.md
     printf '[%s](%s/file/%s%s)\n' "$(basename "$FILE")" "$PARENT" "$HOST" "$FILE"
 
-That renders as `[thing.md](https://term.example.com/file/thenasty/home/ubuntu/notes/thing.md)` — user clicks and gets a modal to view / edit / send-back the file. When she saves the edit, it lands as an attachment in her next message to you — the file at the original path is NEVER overwritten by Skynet; every write goes through her explicit re-share.
+That renders as `[thing.md](https://term.example.com/file/host-a/home/ubuntu/notes/thing.md)` — user clicks and gets a modal to view / edit / send-back the file. When she saves the edit, it lands as an attachment in her next message to you — the file at the original path is NEVER overwritten by Skynet; every write goes through her explicit re-share.
 
 **If `~/.claude/skynet-parent` is missing:** tell the user "I can't share files right now — my parent-Skynet config is missing. Ask the box-maintainer role to check the distributor sweep." Do NOT guess or fall back to serving your own HTTP server.
 
@@ -764,7 +764,7 @@ That renders as `[thing.md](https://term.example.com/file/thenasty/home/ubuntu/n
 
 | Old Approach | Current Approach | When Changed | Impact |
 |--------------|------------------|--------------|--------|
-| Agent stands up `python3 -m http.server` on a tailnet IP, hands user a link with Chrome insecure warning | Skynet reverse-fetches via URL scheme, over HTTPS Caddy | Phase 78 (this) | Kills tailnet dependency (works on T800 + future customer VMs); kills Chrome insecure friction; kills agent-side server lifecycle burden |
+| Agent stands up `python3 -m http.server` on a tailnet IP, hands user a link with Chrome insecure warning | Skynet reverse-fetches via URL scheme, over HTTPS Caddy | Phase 78 (this) | Kills tailnet dependency (works on host-c + future customer VMs); kills Chrome insecure friction; kills agent-side server lifecycle burden |
 | Backend fetches tailnet HTTP proxy for Phase 40 editable-file affordance | Same proxy stays for tailnet URLs + new SFTP-based fetch for host-file URLs | Phase 78 (this) | Two fetch paths dispatch by URL shape; both surface via the same modal + response envelope |
 | Distributor pushes static substrate + settings.json patches + hook cleanup | Distributor also pushes per-Skynet dynamic `~/.claude/skynet-parent` | Phase 78 (this) | Extends the sweep with a per-box dynamic file; template for future per-box dynamic config |
 
@@ -775,10 +775,10 @@ That renders as `[thing.md](https://term.example.com/file/thenasty/home/ubuntu/n
 
 | # | Claim | Section | Risk if Wrong |
 |---|-------|---------|---------------|
-| A1 | `hosts.name` column values are DNS-legal (`[a-zA-Z0-9._-]+`) so the URL regex hostname component covers all real host names | Standard Stack / Code Examples | If any user has a host with `.name = "my host"` (space) or "host!@#" (punctuation), the regex won't match and agents can't reference it. Verified `hosts.name` is a plain text column with no schema constraint — any character allowed. Empirically the fleet uses simple names (`thenasty`, `workstation`, `t1000`, `linux-beelink`), but customer VMs might violate this. Mitigation: (a) planner adds a hostname-legality check at DB write time or (b) SKYNET_FILE_URL_RE_CLIENT is relaxed to accept any URL-safe character except `/` — recommend (b) since it doesn't require a data migration. |
+| A1 | `hosts.name` column values are DNS-legal (`[a-zA-Z0-9._-]+`) so the URL regex hostname component covers all real host names | Standard Stack / Code Examples | If any user has a host with `.name = "my host"` (space) or "host!@#" (punctuation), the regex won't match and agents can't reference it. Verified `hosts.name` is a plain text column with no schema constraint — any character allowed. Empirically the fleet uses simple names (`host-a`, `workstation`, `host-b`, `linux-minipc`), but customer VMs might violate this. Mitigation: (a) planner adds a hostname-legality check at DB write time or (b) SKYNET_FILE_URL_RE_CLIENT is relaxed to accept any URL-safe character except `/` — recommend (b) since it doesn't require a data migration. |
 | A2 | Skynet has no existing `SKYNET_PUBLIC_URL` or equivalent env var; the domain is only declared at the Caddy layer | Runtime State Inventory / Pitfall 4 | Verified: grepped `src/backend/` for `SKYNET_.*URL`, `PUBLIC_URL`, `EXTERNAL_URL`, `APP_URL`, `BASE_URL`, `example` — no hits. `/opt/skynet/skynet.env` contents (redacted) don't include a URL variable. Confirmed. |
 | A3 | The mount pattern `app.use("/pretty-view", prettyViewFetchHostFileRoutes)` will work identically to the existing `/pretty-view/fetch-tailnet-url` mount | Architecture Patterns Pattern 1 | Grepped `database.ts:1871` — mount is a plain `app.use()` on the Express app. New route mounts the same way. Confirmed. |
-| A4 | The Caddy `term.example.com { reverse_proxy skynet:8080 }` block doesn't do path rewriting, so a request to `https://term.example.com/file/thenasty/xyz` reaches Skynet's Express as `/file/thenasty/xyz` verbatim | Architecture Patterns — verbatim `/file/:host/*` route option | Read `/opt/skynet/Caddyfile`; the reverse_proxy block has no `handle_path` or `uri` directives, so paths pass through unchanged. Confirmed. Recommend: mount the new route at BOTH `/file/:host/*` (for verbatim agent-cited URLs) AND `/pretty-view/fetch-host-file` (for the frontend's JSON POST). Two routers, same handler function factored out. |
+| A4 | The Caddy `term.example.com { reverse_proxy skynet:8080 }` block doesn't do path rewriting, so a request to `https://term.example.com/file/host-a/xyz` reaches Skynet's Express as `/file/host-a/xyz` verbatim | Architecture Patterns — verbatim `/file/:host/*` route option | Read `/opt/skynet/Caddyfile`; the reverse_proxy block has no `handle_path` or `uri` directives, so paths pass through unchanged. Confirmed. Recommend: mount the new route at BOTH `/file/:host/*` (for verbatim agent-cited URLs) AND `/pretty-view/fetch-host-file` (for the frontend's JSON POST). Two routers, same handler function factored out. |
 | A5 | `resolveHostByName(name, userId)` doesn't exist today and must be added | Architecture Patterns Pattern 1 | Grepped `host-resolver.ts` — only `resolveHostById(hostId, userId)` and `checkHostAccess(hostId, userId, ...)` exist. Confirmed. |
 | A6 | The distributor's `runBootstrapForHost` deps interface currently accepts no bootstrap-specific deps (it's called with just `channel, host`); adding a `skynetPublicUrl` field requires an interface change threaded through `run-sweep.ts` → `ssh-poll-orchestrator.ts` → the starter | Architecture Patterns Pattern 5 | Read `run-bootstrap.ts` signature: `runBootstrapForHost(channel, host)` — no deps. To pass `SKYNET_PUBLIC_URL` in, the signature must extend to accept a third arg OR read from process.env directly inside the function. Recommend: read from process.env directly at function top with a startup-warn if missing — sidesteps the multi-layer plumbing change. |
 | A7 | The frontend `fetchTailnetUrl` axios helper can be extended (or a sibling `fetchHostFileUrl` added) without touching the axios interceptor auth flow | Standard Stack | Read `editable-file-api.ts:61-73`: uses `authApi.post(...)` from `main-axios.ts`; JWT is auto-attached by the axios request interceptor. Adding a sibling helper works identically. Confirmed. |
@@ -821,7 +821,7 @@ That renders as `[thing.md](https://term.example.com/file/thenasty/home/ubuntu/n
 | `express` npm package | HTTP routing | ✓ | resident | — |
 | `radix-ui` | Modal | ✓ | resident | — |
 | `react-markdown` | Message rendering | ✓ | resident | — |
-| Access to `/opt/skynet/skynet.env` (host-side edit) | Setting `SKYNET_PUBLIC_URL` | ✓ | AWS SSM to t1000; separate coord with Stacy for T800 | — |
+| Access to `/opt/skynet/skynet.env` (host-side edit) | Setting `SKYNET_PUBLIC_URL` | ✓ | AWS SSM to host-b; separate coord with Morgan for host-c | — |
 | Existing SSH connection pool | New backend route | ✓ | Production-stable | — |
 | Existing distributor sweep | New bootstrap step | ✓ | Production-stable (Phase 72) | — |
 | Existing per-user-per-host RBAC | New backend route | ✓ | Production-stable | — |
@@ -831,7 +831,7 @@ That renders as `[thing.md](https://term.example.com/file/thenasty/home/ubuntu/n
 
 **Missing dependencies with fallback:** None.
 
-**Ship coordination:** Container mutation rule applies — post BEFORE `docker build` in box-maintainer coord room (`!FHdIfqtmSWcGYUfyVp:thenasty.taild9b663.ts.net`), post AFTER verify.
+**Ship coordination:** Container mutation rule applies — post BEFORE `docker build` in box-maintainer coord room (`!FHdIfqtmSWcGYUfyVp:host-a.tailnet-example.ts.net`), post AFTER verify.
 
 ## Security Domain
 

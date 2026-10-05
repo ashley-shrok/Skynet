@@ -171,7 +171,7 @@ Task 4's RED test file used top-level `const mockX = vi.fn(); vi.mock(...(mockX)
 - **vitest fake-timer isolation:** Tests 8 + 11 in observation-loop.test.ts use `vi.useFakeTimers()` + `vi.advanceTimersByTimeAsync()` to exercise the scheduler's 1s scan interval + backoff transitions. Followed the existing fleet convention (fleet-status subscription-registry tests) — `vi.useFakeTimers()` inside the test body + `vi.useRealTimers()` in `beforeEach` — no new discovery.
 - **Pre-existing EADDRINUSE:** During the wider `vitest related` sweep (60 test files), the pre-existing `claude-session-server.dormant-tail.test.ts` port-30011 collision surfaced (same environmental issue noted in Plans 89-01 and 89-02 SUMMARYs). Out of scope per executor Rule (Scope Boundary); 959 other tests passed cleanly.
 - **`.husky/pre-commit` and `.husky/commit-msg` hooks not executable:** git printed the same warning on every commit as in Plans 89-01 and 89-02. Pre-existing environment condition — hooks are simply skipped, no commit failed.
-- **Committer identity warning:** git warned about auto-configured committer (Ubuntu <ubuntu@ip-172-31-243-143.ec2.internal>) — pre-existing environment condition, matches Plans 89-01/89-02 pattern. No commit failed.
+- **Committer identity warning:** git warned about auto-configured committer (Ubuntu <ubuntu@ip-172-31-0-10.ec2.internal>) — pre-existing environment condition, matches Plans 89-01/89-02 pattern. No commit failed.
 
 ## User Setup Required
 

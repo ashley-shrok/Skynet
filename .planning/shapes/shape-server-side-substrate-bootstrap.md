@@ -46,7 +46,7 @@ Substrate cannot change without a Skynet container restart, because the bundle i
 
 The system-managed key infrastructure that this work extends already exists and is in production use for a narrow case (one person handing a credential to another). This work extends that existing capability, not builds a new one from scratch.
 
-This work is **blocking Stacy's exec-onboarding runbook on the T800 (Aither AI+) box** — the moment where the runbook waits for the freshly-provisioned host to be picked up by the install pass hangs forever today, because the just-created user has never opened the app in a browser.
+This work is **blocking Morgan's exec-onboarding runbook on the host-c (Acme AI+) box** — the moment where the runbook waits for the freshly-provisioned host to be picked up by the install pass hangs forever today, because the just-created user has never opened the app in a browser.
 
 ## What would make it wrong
 
@@ -96,10 +96,10 @@ This work is **blocking Stacy's exec-onboarding runbook on the T800 (Aither AI+)
 - The current per-user credential wrap infrastructure and the existing system-managed key infrastructure.
 - The host-create endpoint (where the on-add trigger hooks in).
 - The AI+ MVP feature-07 doc (for the Moment 7 requirement this unblocks).
-- The Stacy DM thread on the Skynet-side relay account (for her diagnostic context that seeded the work).
+- The Morgan DM thread on the Skynet-side relay account (for her diagnostic context that seeded the work).
 
 **Migration is a real deliverable in this phase, not a follow-up.** Ship the code and the migration script in the same phase so that on deploy, the migration runs and every existing substrate host is transitioned in one motion.
 
-**Coordination with Stacy after ship.** Because the T800 instance mirrors this instance, once this ships and the migration runs on this instance, the code needs to flow to Stacy's fork-consumer via her normal pull-and-build path, and she needs a briefing on running the migration on her side with her instance's user credentials. Post-ship, follows the standing Stacy-briefing convention in the role file.
+**Coordination with Morgan after ship.** Because the host-c instance mirrors this instance, once this ships and the migration runs on this instance, the code needs to flow to Morgan's fork-consumer via her normal pull-and-build path, and she needs a briefing on running the migration on her side with her instance's user credentials. Post-ship, follows the standing Morgan-briefing convention in the role file.
 
 **Identity doing the work.** tabitha (this identity), holding the box-maintainer role, working in the tabitha working tree on the shared feat/tab-title-from-tmux branch. Same coordination rules apply (`git pull --rebase` before push, container-mutation coord-room announces, orchestrator-only deploys, etc.).

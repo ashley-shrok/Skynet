@@ -54,7 +54,7 @@ Every substantive shape-level decision was worked through in this session's `/bu
 
 ### 6. Per-host opt-in flag — `runs_fleet_substrate BOOLEAN`, default false, migration adds column, operator flips manually
 
-**Decided:** New BOOLEAN column on the host table, default false, migration adds it. Operator flips to true per host they want distributor push on. Feature 07's provisioning path will set true for new exec VMs from the get-go. On t1000 as a managed host of itself, I explicitly opt it in when I'm ready.
+**Decided:** New BOOLEAN column on the host table, default false, migration adds it. Operator flips to true per host they want distributor push on. Feature 07's provisioning path will set true for new exec VMs from the get-go. On host-b as a managed host of itself, I explicitly opt it in when I'm ready.
 
 **Alternatives considered:**
 - Auto-derive from "identity-hosting" (any host with `~/.claude/`) — rejected because it removes operator agency. I might want an identity-hosting host that does NOT get distributor push (e.g., a research VM running experimental substrate versions).

@@ -51,7 +51,7 @@ Work through top-to-bottom on BOTH viewports (desktop + iPhone PWA). Each item h
 ## Setup — one time
 
 1. Open https://term.example.com in **Chrome on a wide desktop window** (1400px+) AND in **Skynet on your iPhone** (PWA-installed, home-screen icon).
-2. Have at least 2 running fleet-identity tmux sessions on distinct hosts (different hues to verify hue propagation) — e.g. `tina@skynet-ec2` + one other identity. Both sessions should have Claude Code running interactively.
+2. Have at least 2 running fleet-identity tmux sessions on distinct hosts (different hues to verify hue propagation) — e.g. `tina@primary-host` + one other identity. Both sessions should have Claude Code running interactively.
 3. Have at least 1 **anonymous** (non-`/id`) Claude Code session running in a random tmux window on some host — this is the negative-case verification for ASIDE-02 (identity gate).
 4. user Prime — open pretty-view on one fleet-identity session in a fresh Chrome tab; the tab should show the session's normal conversation stream at the bottom.
 5. Have a scratchpad ready for the DevTools console verification snippets referenced in items 1 + 6 + 12 + 13 (the source-of-truth Map + WS-frame assertion snippets).
@@ -282,7 +282,7 @@ Work through top-to-bottom on BOTH viewports (desktop + iPhone PWA). Each item h
 
 ### AUTHORITATIVE SOURCE
 
-**Deploy procedure lives at `~/.claude/identities/tina/deploy-runbook.md`** (post-2026-07-21). This is the current, self-contained procedure for shipping `skynet-patched:local` onto skynet-ec2. **Tina follows the steps in that file verbatim.** This UAT checklist does not duplicate the runbook; it points at it.
+**Deploy procedure lives at `~/.claude/identities/tina/deploy-runbook.md`** (post-2026-07-21). This is the current, self-contained procedure for shipping `skynet-patched:local` onto primary-host. **Tina follows the steps in that file verbatim.** This UAT checklist does not duplicate the runbook; it points at it.
 
 ### Stale-reference callout — the 15-min deadman regime is RETIRED
 

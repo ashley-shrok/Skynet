@@ -177,7 +177,7 @@ The 10 items below all require human verification post-deploy. user's UAT walk (
 
 #### 7. Horizontal-scroll tab bar with many-file skill
 
-**Test:** In a skill with 15+ files (the `build` skill on thenasty may qualify per UAT-CHECKLIST reference), pick it and observe the tab bar.
+**Test:** In a skill with 15+ files (the `build` skill on host-a may qualify per UAT-CHECKLIST reference), pick it and observe the tab bar.
 **Expected:** Tabs remain intrinsic-width and horizontal-scroll on overflow (WebKit touch-scroll on iOS PWA); no vertical stacking, no truncation-collapse.
 **Why human:** `overflow-x-auto` behavior is CSS + touch — must be observed in an actual browser at a real viewport (especially iPhone-primary PWA).
 

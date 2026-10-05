@@ -51,7 +51,7 @@ The shape file was produced through an extensive `/open` session with 6 tasting-
 | Fold in as "About you" (rebrand) | Extract editor, rebrand around the intent, treat multi-host/multi-file as rare admin fallbacks | ✓ |
 
 **User's choice:** Fold in + rebrand to "About you."
-**Notes:** Discovery in `/open`: live production `global-files.json` on t1000 has 10 hosts, each mapped to exactly one file (`~/.claude/CLAUDE.md`). Multi-file abstraction 100% unused. User's framing: "the user-wide file is essentially like what the user wants all of their agents to know automatically... similar to the section on Gemini/ChatGPT where you fill in an area that's like about you and preferences you have." Reframe adopted. Multi-host/multi-file cases stay in the code as fallbacks that only appear when the config demands them.
+**Notes:** Discovery in `/open`: live production `global-files.json` on host-b has 10 hosts, each mapped to exactly one file (`~/.claude/CLAUDE.md`). Multi-file abstraction 100% unused. User's framing: "the user-wide file is essentially like what the user wants all of their agents to know automatically... similar to the section on Gemini/ChatGPT where you fill in an area that's like about you and preferences you have." Reframe adopted. Multi-host/multi-file cases stay in the code as fallbacks that only appear when the config demands them.
 
 ---
 

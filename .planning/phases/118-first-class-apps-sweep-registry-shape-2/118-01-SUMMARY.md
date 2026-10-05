@@ -80,7 +80,7 @@ Custom helpers added:
 - `create_test_unit <slug> <port> <active>` — writes `~/.config/systemd/user/app-<slug>.service` with a minimal `/bin/sleep`-based unit + `Environment=PORT=<port>`, runs `daemon-reload`, optionally `start`s, and appends the slug to `REGISTERED_UNITS` for cleanup.
 - `cleanup_test_units` — runs on EXIT via trap; stops + removes every registered unit + daemon-reload. Uses `${arr[@]+"${arr[@]}"}` alt-value expansion for `set -u` safety on empty arrays.
 
-D-23 SKIP gate at the top: if `systemctl --user is-system-running` fails AND `systemctl --user list-units` fails, prints `SKIP: systemd --user session not available (agent-UAT only, per CONTEXT D-23)` and exits 0. Boxes with a live user session (t1000 confirmed) run the full 7-case suite.
+D-23 SKIP gate at the top: if `systemctl --user is-system-running` fails AND `systemctl --user list-units` fails, prints `SKIP: systemd --user session not available (agent-UAT only, per CONTEXT D-23)` and exits 0. Boxes with a live user session (host-b confirmed) run the full 7-case suite.
 
 Seven test cases:
 
@@ -94,7 +94,7 @@ Seven test cases:
 | 6 | with icon | app.json + active unit + icon.webp (arbitrary bytes) | has_icon=true |
 | 7 | slug injection | folder named `Bad-Slug` (uppercase — fails APP_SLUG_RE) | no line emitted, stderr logs `app_slug_skipped` (T-118-01-SL) |
 
-**Verified 7/7 pass on t1000.** No test units leak: `systemctl --user list-units | grep app-sweep-t116-` returns empty after run; no leftover unit files at `~/.config/systemd/user/app-sweep-t116-*`.
+**Verified 7/7 pass on host-b.** No test units leak: `systemctl --user list-units | grep app-sweep-t116-` returns empty after run; no leftover unit files at `~/.config/systemd/user/app-sweep-t116-*`.
 
 ## Verification Transcript
 
@@ -119,7 +119,7 @@ $ grep -c '"line_kind":"app"' /tmp/empty-smoke.out
 
 D-19 fail-open verified: absent `~/fleet/apps/` yields zero app lines with exit 0, no stderr diagnostics.
 
-### D-23 UAT on real t1000 box
+### D-23 UAT on real host-b box
 
 Set up a scratch app in the real `~/fleet/apps/` tree with a real systemd `--user` unit:
 

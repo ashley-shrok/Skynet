@@ -120,7 +120,7 @@ Three surgical edits to `POST /`:
 |------|-------------|-----------|
 | A | Single-user host → creatorUsername undefined; getUsernameForUserId NOT called | Efficiency invariant + shape §"invisible in majority case" |
 | B | Multi-user host + valid lookup → creatorUsername=user passed to birthIdentity | Base auto-tag flow |
-| C | Multi-user host via RBAC-role → creatorUsername=zoe threaded | Assumption A6 write-side lock |
+| C | Multi-user host via RBAC-role → creatorUsername=jess threaded | Assumption A6 write-side lock |
 | D | Multi-user host + lookup=null → auto-tag SKIPPED, warn log, identity still created | Fail-open per PATTERNS.md write-side exception |
 | E | 400 validation fail short-circuits BEFORE isHostMultiUser call | Ordering lock (validation → DB lookups → orchestrator) |
 | F | Orchestrator throw preserves ended emit; auto-tag adds no new error path | No new error surface |

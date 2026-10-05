@@ -699,7 +699,7 @@ RUN apt-get update && apt-get install -y nginx gettext-base openssl ca-certifica
 # AWS voice setup (Polly + Transcribe)
 
 Phase 98 — per-instance operator setup for the AWS-backed voice endpoints.
-Each Skynet instance (t1000, T800, ...) uses its own AWS account and its own
+Each Skynet instance (host-b, host-c, ...) uses its own AWS account and its own
 IAM role; policy attach is a per-operator step, not shipped in code.
 
 ## What this covers
@@ -744,18 +744,18 @@ Feature dark: [describe AccessDenied → 503 UX].
 
 Hardcoded to us-east-1. To change: edit ...
 
-## For t1000 (user's instance)
+## For host-b (user's instance)
 
-Policy is already attached (Iris 2026-09-09, `termix-ssm-role/PollyTranscribeExploratory`).
+Policy is already attached (Iris 2026-09-09, `example-ssm-role/PollyTranscribeExploratory`).
 Pre-ship: ping Iris to re-scope name from `-Exploratory` to production.
 
-## For T800 (Stacy's instance)
+## For host-c (Morgan's instance)
 
 Follow the steps above unmodified. If uncertainty, [contact path].
 ```
 
 **Pitfall specific to this file:**
-- Doc must be self-contained — CONTEXT explicitly says user/Stacy can each execute without pinging tabitha.
+- Doc must be self-contained — CONTEXT explicitly says user/Morgan can each execute without pinging tabitha.
 - Ship-checklist item (from CONTEXT § Specifics): pre-ship, ping Iris to re-scope policy name from `-Exploratory` to production. This coordination lives in the doc AND in the ship checklist.
 
 ---

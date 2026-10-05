@@ -639,7 +639,7 @@ It's a **prompt-and-wait** flow. Skynet cannot pre-inject a role because:
 
 **Recommendation:** Pick B4b(a). It's contained entirely within Skynet's birth orchestrator. It requires ~40 lines added (write file + mkdir wakeups + touch handoff + register-relay SSH block). Testable as unit test with mocked exec.
 
-**B4c relay register on clone:** Clone endpoint also needs a fresh Matrix account. Two options: (a) SSH into the target host and run the id skill's inline register block (line 319-345 of the skill); (b) Skynet backend directly POSTs to the homeserver at `http://thenasty:8008/_matrix/client/v3/register` and writes the `relay.json` via SFTP. Both work. Recommend (b) — Skynet-side control means clone can validate the register response before writing `relay.json`, which the fleet-side script does but with an "off-tailnet skip" branch we don't want to trigger from a Skynet-controlled operation.
+**B4c relay register on clone:** Clone endpoint also needs a fresh Matrix account. Two options: (a) SSH into the target host and run the id skill's inline register block (line 319-345 of the skill); (b) Skynet backend directly POSTs to the homeserver at `http://host-a:8008/_matrix/client/v3/register` and writes the `relay.json` via SFTP. Both work. Recommend (b) — Skynet-side control means clone can validate the register response before writing `relay.json`, which the fleet-side script does but with an "off-tailnet skip" branch we don't want to trigger from a Skynet-controlled operation.
 
 ### B7. writeMarkdownFileAtomic + SFTP EEXIST trap
 
@@ -669,7 +669,7 @@ Fully documented at `identity-artifact-reader.ts:826-849` in the code comments. 
 
 **What goes wrong:** OpenSSH's SFTPv3 `SSH_FXP_RENAME` cannot atomically overwrite an existing file; it tries `link()` first, fails with `EEXIST`, surfaces as generic `Error: Failure` with code 4. Every SECOND edit of the same role file fails silently (first-time write works).
 
-**Why it happens:** Documented at `identity-artifact-reader.ts:826-849`. Root-caused by Stacy on ceo-skynet 2026-08-02.
+**Why it happens:** Documented at `identity-artifact-reader.ts:826-849`. Root-caused by Morgan on ceo-skynet 2026-08-02.
 
 **How to avoid:** Use `writeMarkdownFileAtomic` (which uses `sftp.ext_openssh_rename`) — never raw `sftp.rename`. The existing regression test at `identity-artifact-reader.remote-writes.test.ts` installs a throwing trap on `sftp.rename` that fails loudly.
 
@@ -815,7 +815,7 @@ router.post("/", authenticateJWT, express.json(), async (req, res) => {
     await writeMarkdownFileAtomic(conn, `${remoteHome}/.claude/identities/${newName}/${newName}.md`, identityFileMarkdown);
 
     // Register relay account (Skynet-side POST to homeserver — see B4c)
-    // ... POST http://thenasty:8008/_matrix/client/v3/register with dummy auth
+    // ... POST http://host-a:8008/_matrix/client/v3/register with dummy auth
     // ... write relay.json via SFTP
 
     // Insert Skynet DB row
@@ -905,7 +905,7 @@ All five questions raised during research have been resolved and are consumed by
 | js-yaml | Frontmatter parse | ✓ | ^4.1.1 [VERIFIED: package.json:58] | — |
 | Docker | Build + deploy | ✓ (project's build pipeline) | — | — |
 | OpenAI API key | Avatar regen on clone modal | ⚠ Runtime env var `OPENAI_API_KEY` — 503 on backend if missing | — | Clone can still succeed WITHOUT avatar regen (user picks source's avatar); regen button just fails 503. |
-| Matrix homeserver at thenasty:8008 (or 100.113.23.63:8008) | Clone relay register + Phase 22-B4c pattern | ⚠ Fleet-dependent — always available on tailnet; not available on off-tailnet workstations | — | Fail-clone with clear error message; do NOT write placeholder relay.json (per id skill L347). |
+| Matrix homeserver at host-a:8008 (or 100.64.0.12:8008) | Clone relay register + Phase 22-B4c pattern | ⚠ Fleet-dependent — always available on tailnet; not available on off-tailnet workstations | — | Fail-clone with clear error message; do NOT write placeholder relay.json (per id skill L347). |
 
 **Missing dependencies with no fallback:** None.
 **Missing dependencies with fallback:** OpenAI API key (regen fails 503, source avatar still works); Matrix homeserver (clone fails cleanly when off-tailnet).

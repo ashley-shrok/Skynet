@@ -73,7 +73,7 @@ Fires once for each identity name emitted by B0. Skipped for identities with liv
 
 **IMPORTANT — source B skip semantics (L1114):** `if (liveTmuxSet.has(name) && !isRecycling)` → source B evicts and continues. So the FULL 5 exec-per-identity fires for every identity every tick UNTIL we know whether it's recycling; then non-recycling identities with live PIDs get their source-B state fully torn down. Rebuilding on next tick fires the 5 exec fan-out again. This is the biggest win the batch script gets — source B's 5×N exec cost per tick collapses to 0 additional exec calls (all state comes from the one sweep-script exec).
 
-### Total exec math for a t1000-like box (~15 identities, most with live PIDs)
+### Total exec math for a host-b-like box (~15 identities, most with live PIDs)
 
 Steady-state per poll cycle (2s cadence):
 
@@ -138,7 +138,7 @@ Retry on `channel returned null` (transport-only): `retryOnTransport` at L72–L
 
 **File:** `src/backend/distributor/server-substrate-orchestrator.ts` — Phase 75 D-01 startup pass runs a serial sweep of every `runsFleetSubstrate:true` host at container boot. D-03 30s retry cadence re-sweeps until each host is marked done (`sweepedThisInstance: Set<hostId>`). Once-per-host-per-Skynet-lifetime gate (D-05).
 
-**Rollout implication:** After the sweep script lands in `catalog.ts` and the container is rebuilt + restarted on t1000, the startup pass distributes the script to every `runsFleetSubstrate:true` peer box within seconds (serially, one host at a time). Boxes without `runsFleetSubstrate=true` do NOT get the script — this is a design choice, and Phase 92's backward-compat fallback covers those hosts as well as boxes mid-distribution.
+**Rollout implication:** After the sweep script lands in `catalog.ts` and the container is rebuilt + restarted on host-b, the startup pass distributes the script to every `runsFleetSubstrate:true` peer box within seconds (serially, one host at a time). Boxes without `runsFleetSubstrate=true` do NOT get the script — this is a design choice, and Phase 92's backward-compat fallback covers those hosts as well as boxes mid-distribution.
 
 ### The `runsFleetSubstrate` opt-in
 
@@ -164,7 +164,7 @@ Not every identity-hosting host has `runs_fleet_substrate=true` in the `hosts` t
 
 ### One host = one connection = one 8-slot semaphore bucket
 
-Every `channel.exec` from the poller opens a **new ssh2 exec channel** on that single shared `Client`. sshd's `MaxSessions=10` (per OpenSSH default; no override in t1000's `/etc/ssh/sshd_config` per `issue-log.md`) applies per-connection. The semaphore caps concurrent open channels at 8, leaving 2 for other channel users (SFTP, guacd, ad-hoc terminal).
+Every `channel.exec` from the poller opens a **new ssh2 exec channel** on that single shared `Client`. sshd's `MaxSessions=10` (per OpenSSH default; no override in host-b's `/etc/ssh/sshd_config` per `issue-log.md`) applies per-connection. The semaphore caps concurrent open channels at 8, leaving 2 for other channel users (SFTP, guacd, ad-hoc terminal).
 
 **Implication for the sweep-script caller:** All fleet-status data collection for one host in one poll cycle goes through the same 8-slot bucket. Today that's ~200+ exec calls queued into ~25 serial waves. After the batch sweep it's 1 exec call — leaves 7 slots continuously free for other consumers.
 
@@ -220,7 +220,7 @@ For the sweep-script regression test, the planner will need a `makeSweepJsonl(id
 
 ### What the regression test should NOT try to do
 
-Do NOT try to test the sweep-script's own behavior via a shell subprocess in vitest — it's not what this test surface is for. The plan should include a smaller `substrate/scripts/fleet-status-sweep.sh` unit test (or `.test.bash`) as a separate task, or defer the script-body verification to manual UAT on t1000 (per CONTEXT.md verification decisions). The vitest regression is about the **caller shape**, not the script logic.
+Do NOT try to test the sweep-script's own behavior via a shell subprocess in vitest — it's not what this test surface is for. The plan should include a smaller `substrate/scripts/fleet-status-sweep.sh` unit test (or `.test.bash`) as a separate task, or defer the script-body verification to manual UAT on host-b (per CONTEXT.md verification decisions). The vitest regression is about the **caller shape**, not the script logic.
 
 ---
 
@@ -353,7 +353,7 @@ The planner should turn this research into a plan with tasks that:
 3. **Add catalog row** — one entry in `FLEET_SUBSTRATE_CATALOG` in `catalog.ts`. Update `catalog.test.ts` row-count assertion. `installPath: "~/.local/bin/fleet-status-sweep"`, `restartHook: null`.
 4. **Rewrite caller** — `pollOneHost` in `ssh-poll-orchestrator.ts`: presence probe once per host (cached), on-present invoke sweep exec + parse JSONL + drive existing `livenessMap` / `identityRecycleState` / registry publish contract, on-absent-or-null fall through to existing legacy plumbing (extract A0/A1–A12 + B0/B1–B5 into a helper function so both branches share). Preserve `writeSessionFileCache` (G8), preserve the sessionId character-class regex (G6).
 5. **Regression test** — vitest in `ssh-poll-orchestrator.test.ts`: two tests — (a) sweep-present → one exec per host, no per-identity fan-out, identical SessionState output; (b) sweep-absent → legacy per-identity fan-out fires, identical SessionState output.
-6. **Manual verification on t1000** — container log free of `Channel open failure` under normal load; SFTP file-fetch (Tabitha's reproducer curl) succeeds 20/20; source-B publishes match pre-batch behavior for recycle events. Deferred to `/gsd-verify-work` per CONTEXT.md.
+6. **Manual verification on host-b** — container log free of `Channel open failure` under normal load; SFTP file-fetch (Tabitha's reproducer curl) succeeds 20/20; source-B publishes match pre-batch behavior for recycle events. Deferred to `/gsd-verify-work` per CONTEXT.md.
 
 Everything else CONTEXT.md defers (semaphore removal, push-based state, SFTP directory listing) stays deferred.
 

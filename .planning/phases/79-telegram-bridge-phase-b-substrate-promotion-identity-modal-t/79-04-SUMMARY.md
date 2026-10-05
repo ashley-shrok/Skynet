@@ -180,7 +180,7 @@ STT_URL=<STT_URL>
 
 Where:
 - `<homeserverBase>` is `matrix_admin_creds.homeserverBase` from Phase 77's admin ingestion — resolved via `getMatrixHomeserverBase()` in `../config/media-endpoints.js` (Plan 02). Refused with `{ok:false, reason:"unsafe chars in URL"}` if it contains `#` or `\n`.
-- `<STT_URL>` is the shared TS constant from Plan 02: `http://100.80.122.111:8000/v1/audio/transcriptions`.
+- `<STT_URL>` is the shared TS constant from Plan 02: `http://100.64.0.11:8000/v1/audio/transcriptions`.
 - File is written at 0644 (bridge needs read).
 
 ---

@@ -234,7 +234,7 @@ completed: 2026-09-17
 - Test 11: publishIdentityArchived fans an identity-archived frame to subscribers.
 - Test 12: idempotent — republishing the same (name, hostId, hostname) does NOT re-fan-out; only ONE frame in the receivedFrames buffer after 3 identical publishes.
 - Test 13: late subscriber receives replay frames — 2 archived identities published BEFORE subscribe → late subscriber sees 2 archived frames as part of its initial state.
-- Test 14: cross-host name collision — (wren, 42, thenasty) + (wren, 99, workstation) produce 2 distinct entries and 2 distinct frames.
+- Test 14: cross-host name collision — (wren, 42, host-a) + (wren, 99, workstation) produce 2 distinct entries and 2 distinct frames.
 - Test 15: hostname change → NOT idempotent — republishing (wren, 42) with a different hostname re-fans-out the frame.
 
 **Backend orchestrator (`ssh-poll-orchestrator.ts`):**

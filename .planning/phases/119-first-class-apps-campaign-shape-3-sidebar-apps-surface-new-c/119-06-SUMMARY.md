@@ -298,8 +298,8 @@ same file (six sibling `vi.mock(...)` calls existed before this edit).
 
 **Agent-UAT (NOT this executor's job — the orchestrator or the
 campaign-close step owns it):** D-20 requires real end-to-end
-integration on t1000 before the campaign ships. Create scratch
-`~/fleet/apps/scratch-sidebar-test/` on t1000 with a real `app.json`
+integration on host-b before the campaign ships. Create scratch
+`~/fleet/apps/scratch-sidebar-test/` on host-b with a real `app.json`
 + a real systemd `--user` unit + a real `icon.webp`; open the sidebar;
 expand the Apps section; verify the tile appears with the icon
 rendered; right-click → "Open in new tab" opens a fresh authenticated

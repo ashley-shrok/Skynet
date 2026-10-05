@@ -82,7 +82,7 @@ Deliver ONE complete answer — existence + appearance + resolved inheritance + 
 
 ### The two requests being merged
 - `src/backend/database/routes/sessions.ts` — `GET /list` `:294`. **`:407` `resolveRoleForIdentity` already does a full `readIdentityFile` per session and discards everything but the `role:` line** — the read this phase stops wasting. `TmuxSessionRow` `:260-281`. Relay-room merge block `:569+` (must not regress).
-- `src/backend/database/routes/identities.ts` — `GET /` `:317`. **`:328-334` uses ONLY the hostId VALUES of `identityHosts`; the identity-name KEYS are ignored** (stacy's comment) — the client-supplied mapping is a host-set in disguise. `publicIdentity()` `:160-277` = the canonical appearance shape + identity-over-role merge `:210-227`. Per-host role memo `:382-407` = the read-once pattern. Parallel `.pinned`/`.hidden` probes `:426-448` with fail-closed `.catch(() => false)`.
+- `src/backend/database/routes/identities.ts` — `GET /` `:317`. **`:328-334` uses ONLY the hostId VALUES of `identityHosts`; the identity-name KEYS are ignored** (morgan's comment) — the client-supplied mapping is a host-set in disguise. `publicIdentity()` `:160-277` = the canonical appearance shape + identity-over-role merge `:210-227`. Per-host role memo `:382-407` = the read-once pattern. Parallel `.pinned`/`.hidden` probes `:426-448` with fail-closed `.catch(() => false)`.
 - `src/backend/claude-session/identity-artifact-reader.ts` — `resolveRoleForIdentity` `:334-351`, `readIdentityFile`, `listIdentityKeysOnHost` `:506`, `IDENTITY_KEY_RE` (guarantees lowercase on-disk keys), `extractCosmeticsFromFrontmatter`.
 
 ### Frontend store + guard (D-09, D-10 touch sites)
@@ -118,7 +118,7 @@ Deliver ONE complete answer — existence + appearance + resolved inheritance + 
 
 ### Established Patterns
 - **Fail-closed on sentinel read error** — `.catch(() => false)`. A stat failure must NEVER paint an identity as pinned or hidden by mistake. Extends to appearance: a failed read yields safe-default appearance, NEVER a missing row.
-- **Per-host silent-swallow with a LOG LINE** — one dead box contributes zero rows rather than failing the endpoint, but it MUST log (`identities.ts:473-478,495-499` — a prior version silently dropped a whole host with no trace; stacy 2026-09-15 fixed exactly that). Preserve this: independence per host, but never invisible.
+- **Per-host silent-swallow with a LOG LINE** — one dead box contributes zero rows rather than failing the endpoint, but it MUST log (`identities.ts:473-478,495-499` — a prior version silently dropped a whole host with no trace; morgan 2026-09-15 fixed exactly that). Preserve this: independence per host, but never invisible.
 - **Composite `${hostId}::${identityKey}` keying** for cross-host name collisions (quick-260912-0t4). Two identities named the same on different hosts must not collide. Any new appearance path must key the same way.
 - **Lowercase-on-disk invariant** — `IDENTITY_KEY_RE` forbids uppercase, so folder-name keys are already lowercase and match `session.sessionName` from the wire byte-for-byte.
 

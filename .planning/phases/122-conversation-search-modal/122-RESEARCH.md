@@ -28,7 +28,7 @@
 - **D-10:** Results sort recency-first (most recent conversation at top). Relevance/ranking is deferred.
 - **D-11:** Each result row shows: conversation title, identity + host, and a highlighted snippet of the matching text (so the user can see WHY it hit).
 - **D-12:** Pagination is offset/limit — 20 results per fetch. First fetch is 0-19; "Load more" button at the bottom fires a second server call for 20-39; and so on. Load-more RE-runs the same query with the next offset (server does the grep again). No numbered page controls.
-- **D-13:** Total wall time for a naive grep across the latest transcript per identity on t1000 (157 identities, ~1GB total) is ~600ms — sub-second regardless of query specificity. Not a bottleneck at current corpus size. Index-based search deferred.
+- **D-13:** Total wall time for a naive grep across the latest transcript per identity on host-b (157 identities, ~1GB total) is ~600ms — sub-second regardless of query specificity. Not a bottleneck at current corpus size. Index-based search deferred.
 
 **Click behavior**
 - **D-14:** Clicking an ACTIVE result: opens the conversation (via the existing open-conversation flow), modal closes.
@@ -160,7 +160,7 @@ Every load-bearing primitive already exists in the codebase:
 
 | Instead of | Could Use | Tradeoff |
 |------------|-----------|----------|
-| Shell-side `grep` per host | Node.js stream read + string.includes per file | Shell grep was measured at ~600ms/157 identities on t1000. Node stream would require a REMOTE branch that ships the file (or its search hit) back. Prefer shell grep for parity with the timing evidence. |
+| Shell-side `grep` per host | Node.js stream read + string.includes per file | Shell grep was measured at ~600ms/157 identities on host-b. Node stream would require a REMOTE branch that ships the file (or its search hit) back. Prefer shell grep for parity with the timing evidence. |
 | Node `child_process.spawn("grep", ...)` for LOCAL branch | Node fs.readFile + string.includes | Grep is measured-fast and consistent with the REMOTE branch. Recommended: use the SAME shell-side grep script on both branches (LOCAL branch invokes `sh -c` locally, REMOTE branch invokes it over SSH — mirrors the discovery module's split at `discover-identity-session-file.ts:334`). |
 | New `POST /conversation-search` endpoint | Extend `/sessions/list` | Sessions/list has different semantics (per-session rows). A dedicated endpoint keeps the search body/response schema clean. |
 | Backend flags `isArchived` per result | Frontend joins `useArchivedFleetRows()` post-fetch | Backend flagging is simpler (single source of truth) and avoids client-side race on WS-driven archive updates during the fetch. Recommend backend flag. |
@@ -509,9 +509,9 @@ Skip — Phase 122 is greenfield feature work with no rename/refactor/migration 
 
 **How to avoid:**
 - Investigate during Wave 0 whether an archived identity's JSONL survives at its original `~/.claude/projects/<slug>/<uuid>.jsonl` path.
-- If it does: `discoverIdentitySessionFile` works unchanged for archived identities too — verify empirically on t1000 for at least 3 archived identities before locking the plan.
+- If it does: `discoverIdentitySessionFile` works unchanged for archived identities too — verify empirically on host-b for at least 3 archived identities before locking the plan.
 - If it doesn't: two options — (a) at retire time, record the transcript path in a sidecar file inside the archive folder; (b) fall back to mtime-only walk for archived identities (weaker, but visible-only-not-openable per D-15 lowers the correctness bar).
-- Plan must include a Wave 0 checkpoint task: "Manually verify: pick 3 archived identities on t1000, confirm `discoverIdentitySessionFile(null, name)` returns a non-null absolute path, cat the first ~200 bytes of the returned file to confirm it's the right identity."
+- Plan must include a Wave 0 checkpoint task: "Manually verify: pick 3 archived identities on host-b, confirm `discoverIdentitySessionFile(null, name)` returns a non-null absolute path, cat the first ~200 bytes of the returned file to confirm it's the right identity."
 
 **Warning signs:** Zero archived rows in search results despite matching content in a known-archived identity's transcript.
 
@@ -783,7 +783,7 @@ The wiring in `AppShell.tsx` mirrors the existing `onDetachedRowClick` at L3068 
 | # | Claim | Section | Risk if Wrong |
 |---|-------|---------|---------------|
 | A1 | Archived identities retain a resolvable JSONL under `~/.claude/projects/` after archive | Pitfall 1 | If wrong, archived-branch of D-08 returns zero results silently. Wave 0 checkpoint proposed to verify empirically. |
-| A2 | The naive per-file grep timing measured on t1000 (~600ms wall) extrapolates to the 4GB Graviton target minimum | D-13 (from CONTEXT.md) | If wrong on smaller boxes, first-fire may take multiple seconds. Loading spinner in the modal is required regardless. |
+| A2 | The naive per-file grep timing measured on host-b (~600ms wall) extrapolates to the 4GB Graviton target minimum | D-13 (from CONTEXT.md) | If wrong on smaller boxes, first-fire may take multiple seconds. Loading spinner in the modal is required regardless. |
 | A3 | The user's grep query is not persisted across page reloads (only across modal open/close within a page) | D-05 | CONTEXT.md is silent on cross-reload persistence. Planner may confirm. |
 | A4 | Cross-user JWT scoping is sufficient for the endpoint's authorization (no additional RBAC beyond the caller's host-list filter) | Standard Stack — Auth | Skynet is single-tenant in practice; the `enableSsh + autoTmux` filter in `sessions.ts:304-317` is the effective host-scope. Following the same pattern is consistent with the app. If Skynet grows multi-tenancy, the pattern generalizes with per-host `canAccessHost` (already available). |
 | A5 | Backend flagging `isArchived` on each result is preferable to client-side join against `useArchivedFleetRows()` | Pattern 4 / Architecture map | If wrong, plan can revert to client-side join with a small tweak to `ConversationSearchModal.tsx`. Low risk. |
@@ -795,7 +795,7 @@ The wiring in `AppShell.tsx` mirrors the existing `onDetachedRowClick` at L3068 
 1. **Archived identity's transcript survival post-archive.**
    - What we know: `discoverIdentitySessionFile` walks `~/.claude/projects/` and matches first-user-role. Archive moves the identity folder from `~/fleet/identities/` to `~/fleet/identities-archive/`. What happens to the `.claude/projects/<slug>/<uuid>.jsonl` is not documented in the code paths I traced.
    - What's unclear: whether the transcript remains discoverable, whether the archive process moves/renames it, and whether the `/id <name>` first-user-role line still matches the archived identity's key.
-   - Recommendation: Wave 0 checkpoint task before the endpoint plan lands — "manually run `discoverIdentitySessionFile` for 3 known-archived identities on t1000 and record the return values." If null, plan the archived-branch differently (see Pitfall 1 options a/b).
+   - Recommendation: Wave 0 checkpoint task before the endpoint plan lands — "manually run `discoverIdentitySessionFile` for 3 known-archived identities on host-b and record the return values." If null, plan the archived-branch differently (see Pitfall 1 options a/b).
 
 2. **Placement of the magnifying-glass button relative to existing header buttons.**
    - What we know: There are already 5 buttons in `.pv-header-actions` (New conversation, Create project, Edit roles, Edit global files, More menu — see L2309-L2370). All render behind a `showPencilButton` gate.

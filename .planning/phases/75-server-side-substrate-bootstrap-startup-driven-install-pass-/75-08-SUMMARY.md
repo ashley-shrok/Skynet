@@ -141,7 +141,7 @@ docker exec -i <container-name> npx tsx scripts/migrate-substrate-credentials.ts
 
 # Exit codes: 0=success, 1=precheck aborted, 2=fatal error
 
-# Repeat on T800, then delete ~/known-users.json and this script
+# Repeat on host-c, then delete ~/known-users.json and this script
 ```
 
 ## Deviations from Plan

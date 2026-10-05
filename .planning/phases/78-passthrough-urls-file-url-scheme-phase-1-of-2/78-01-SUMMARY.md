@@ -147,7 +147,7 @@ Set at the top of the GET handler via `res.set(PLAIN_TEXT_HEADERS)` and re-asser
 | `X-Content-Type-Options`  | `nosniff`                         | Defense-in-depth: blocks Chrome/Safari MIME-sniffing heuristics that could override the declared `text/plain` for HTML content. |
 | `Cache-Control`           | `no-store`                        | Cross-user cache poisoning defense (T-78-01-GET2): every hit is a fresh auth-checked backend round-trip; no shared-browser leak. |
 
-**Test 26** hits `/file/thenasty/home/ubuntu/evil.html` returning `<script>alert(1)</script>` bytes and asserts `Content-Type: text/plain; charset=utf-8` (NOT `text/html`) with the raw bytes preserved in the body. **Test 34** asserts all three headers are present on error responses (404 `unknown_host`), not just 200 responses.
+**Test 26** hits `/file/host-a/home/ubuntu/evil.html` returning `<script>alert(1)</script>` bytes and asserts `Content-Type: text/plain; charset=utf-8` (NOT `text/html`) with the raw bytes preserved in the body. **Test 34** asserts all three headers are present on error responses (404 `unknown_host`), not just 200 responses.
 
 ### Split-router mount pattern (W-3)
 

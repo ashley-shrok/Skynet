@@ -71,7 +71,7 @@ Design system notes carrying forward:
 ## Canonical refs (MANDATORY — every downstream agent MUST read)
 
 - **`.planning/shapes/shape-identity-modal-scope-split.md`** — the original shape file. LOCKED source of truth for what this phase delivers. Everything in this CONTEXT.md's first six sections is derived from it.
-- **`.planning/sketches/001-identity-modal-role-vs-identity-split/index.html`** — the visual + interaction contract. Variant D (Top Scope Switch) is the chosen design. Ground layout / palette / interaction details here rather than re-deriving. Sketch is served on tailnet at `http://100.99.149.8:8899/001-identity-modal-role-vs-identity-split/` while the box's HTTP share is running.
+- **`.planning/sketches/001-identity-modal-role-vs-identity-split/index.html`** — the visual + interaction contract. Variant D (Top Scope Switch) is the chosen design. Ground layout / palette / interaction details here rather than re-deriving. Sketch is served on tailnet at `http://100.64.0.13:8899/001-identity-modal-role-vs-identity-split/` while the box's HTTP share is running.
 - **`.planning/sketches/001-identity-modal-role-vs-identity-split/README.md`** — sketch metadata including per-variant read (pros/cons), for future reference on why variants B/C/E were ruled out.
 - **`src/ui/features/pretty-view/IdentityModal.tsx`** — the modal being changed (~1963 lines today).
 - **`src/ui/features/pretty-view/WakeupsTab.tsx`** — the current identity-scope wakeups tab (~848 lines).

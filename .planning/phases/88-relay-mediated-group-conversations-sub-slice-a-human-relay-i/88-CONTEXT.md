@@ -23,7 +23,7 @@ All 8 decisions below were walked one-at-a-time with user during the `/open` con
 
 - **D-01: Skip the discovery-first act.** The seed shape opened with "figure out what exists in Skynet today for per-user relay credentials, then promote to first-class." Codebase reading during `/open` proved the promotion is already done — `users.mxid` is a first-class column landed in Phase 75, `matrix_admin_creds` is a live singleton, and the two Synapse admin primitives (`createOrUpdateUser` + `loginAsUser`) are already wired and exercised. The real gap is eager provisioning at user-create time, not promotion.
 
-- **D-02: No backfill code in this slice.** Existing users without mxids get hand-migrated by the maintainer of each Skynet instance (Taylor on t1000, Stacy on T800) as part of upgrading Skynet on that box. Slice A ships zero backfill/sweep code. Legacy users (user, Zoey, Laura on t1000) — who ALREADY have mxids from the pre-existing one-shot import — are not touched at all.
+- **D-02: No backfill code in this slice.** Existing users without mxids get hand-migrated by the maintainer of each Skynet instance (Taylor on host-b, Morgan on host-c) as part of upgrading Skynet on that box. Slice A ships zero backfill/sweep code. Legacy users (user, Dana, Riley on host-b) — who ALREADY have mxids from the pre-existing one-shot import — are not touched at all.
 
 ### Create-flow provisioning
 
@@ -35,11 +35,11 @@ All 8 decisions below were walked one-at-a-time with user during the `/open` con
 
 ### Identifier shape
 
-- **D-06: mxid format is `@<sanitized-username>_human:<server_name>`.** The `_human` suffix separates humans from agents in the same homeserver namespace (agents get no suffix). Legacy identifiers without the suffix (user, Zoey, Laura) continue to work indefinitely — the suffix is convention going forward, not a schema-enforced correctness requirement.
+- **D-06: mxid format is `@<sanitized-username>_human:<server_name>`.** The `_human` suffix separates humans from agents in the same homeserver namespace (agents get no suffix). Legacy identifiers without the suffix (user, Dana, Riley) continue to work indefinitely — the suffix is convention going forward, not a schema-enforced correctness requirement.
 
-- **D-07: Username → mxid sanitization is a bijective escape.** Per Synapse's localpart grammar `[a-z0-9._=/+-]`, disallowed characters escape to unique multi-char sequences. Table: `_` → `__`, `@` → `_at_`, `.` → `_dot_`, and analogous escapes for other rejected characters. Bijective (escape-the-escape ensures a literal `_at_` in a username cannot be confused with the escape sequence), deterministic (same input always same output), collision-free across any valid Skynet username. The common case stays clean (`user` → `@user_human:...`); the T800 case where a user's username is an email (`user@example.com`) yields a longer-but-readable identifier (`@user_at_example_dot_com_human:...`).
+- **D-07: Username → mxid sanitization is a bijective escape.** Per Synapse's localpart grammar `[a-z0-9._=/+-]`, disallowed characters escape to unique multi-char sequences. Table: `_` → `__`, `@` → `_at_`, `.` → `_dot_`, and analogous escapes for other rejected characters. Bijective (escape-the-escape ensures a literal `_at_` in a username cannot be confused with the escape sequence), deterministic (same input always same output), collision-free across any valid Skynet username. The common case stays clean (`user` → `@user_human:...`); the host-c case where a user's username is an email (`user@example.com`) yields a longer-but-readable identifier (`@user_at_example_dot_com_human:...`).
 
-  Motivating context: on the T800 Skynet deployment (Aither Health), users may sign in with their corporate email address as their Skynet username. That must land as a valid Matrix identifier without collision.
+  Motivating context: on the host-c Skynet deployment (Acme Health), users may sign in with their corporate email address as their Skynet username. That must land as a valid Matrix identifier without collision.
 
 ### Password handling
 
@@ -140,8 +140,8 @@ The following are planner-and-researcher territory; the shape does not lock them
 ## Specific Ideas
 
 - **Concrete mxid examples for the two cases:**
-  - Simple username (`user` on t1000): `@user_human:thenasty.taild9b663.ts.net`
-  - Email username (`user@example.com` on T800): `@user_at_example_dot_com_human:skynet.aithercloud.com`
+  - Simple username (`user` on host-b): `@user_human:host-a.tailnet-example.ts.net`
+  - Email username (`user@example.com` on host-c): `@user_at_example_dot_com_human:skynet.example.net`
 - **Password generation approach** to mirror agent-birth's convention (existing `randomBytes` usage in identity-birth-orchestrator.ts).
 - **Displayname derivation** — for a simple username `user`, the human-friendly displayname is `user` (title-cased). For an email username `user@example.com`, the displayname is either the raw email or the pre-`@` local part title-cased (`user`) — implementer to pick during planning; both are acceptable.
 

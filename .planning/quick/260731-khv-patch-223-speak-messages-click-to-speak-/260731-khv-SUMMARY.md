@@ -48,7 +48,7 @@ One-liner: Per-bubble click-to-speak on assistant messages via Chatterbox TTS re
 ## What Was Built
 
 ### Backend (Task 1)
-- `handleSpeak` (POST /voice/speak): validates text (1..25000 chars) + voice (regex), proxies to Chatterbox TTS at `100.80.122.111:8001/v1/audio/speech`, streams audio/wav bytes back. Fixed-shape error responses (no upstream body leak, T-16-03 analog). 30s AbortController timeout.
+- `handleSpeak` (POST /voice/speak): validates text (1..25000 chars) + voice (regex), proxies to Chatterbox TTS at `100.64.0.11:8001/v1/audio/speech`, streams audio/wav bytes back. Fixed-shape error responses (no upstream body leak, T-16-03 analog). 30s AbortController timeout.
 - `handleListVoices` (GET /voice/voices): fetches predefined voices from Chatterbox, forwards verbatim.
 - `DEFAULT_VOICE = "Elena.wav"`, `SPEAK_TEXT_MAX = 25000`, `SAMPLE_PHRASE = "Hi, this is your voice."`, `VOICE_FILENAME_RE = /^[A-Z][A-Za-z]+\.wav$/` constants added.
 - `identities.voice TEXT` column: added to drizzle schema, CREATE TABLE block, and `migrateSchema()` addColumnIfNotExists — all three required locations.

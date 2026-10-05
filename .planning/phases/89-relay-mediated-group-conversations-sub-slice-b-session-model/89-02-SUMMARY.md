@@ -214,7 +214,7 @@ All four RED commits are strictly before their GREEN counterparts in git log. Ga
 
 ## D-12 REVISION 2026-09-08 post-verifier — auto-backfill removed, backfill is now MANUAL per instance-deployer
 
-user clarified after the verifier surfaced D-12 as a gap (verbatim: *"there's not supposed to be automatic backfill anyways. Like I said, that would be a manual step for whoever deploys this stuff over here on this instance and for Stacy on her instance."*). Matches Phase 88 D-02 precedent (existing users hand-migrated by the maintainer of each Skynet instance).
+user clarified after the verifier surfaced D-12 as a gap (verbatim: *"there's not supposed to be automatic backfill anyways. Like I said, that would be a manual step for whoever deploys this stuff over here on this instance and for Morgan on her instance."*). Matches Phase 88 D-02 precedent (existing users hand-migrated by the maintainer of each Skynet instance).
 
 **Code change:** `observation-loop-starter.ts` no longer imports or calls `runRegistryRoomsBackfill`. Boot sequence is now: `ensureRegistryRoomsExist` (idempotent room creation — safe to auto) → enumerate users → wire deps → `loop.start`. Test 1 asserts `runRegistryRoomsBackfill` is NOT called at boot (regression guard); the removed auto-backfill-failure-path test was deleted as the code path no longer exists.
 
@@ -226,7 +226,7 @@ user clarified after the verifier surfaced D-12 as a gap (verbatim: *"there's no
 
 > **⚠️ 2026-09-09 UPDATE: this runbook was rewritten.** The prior `docker exec skynet node --input-type=module <<...>>` invocation DID NOT WORK — Skynet's `:memory:` SQLite architecture (Phase 68) means each node process opens its OWN fresh empty in-memory DB. The utility only functions when called from within the live backend process. It's now exposed via an admin HTTP endpoint: `POST /relay-room/backfill` (source: `src/backend/database/routes/relay-registry-backfill.ts`, admin-JWT-gated). See bounty `registry-rooms-backfill-runbook-broken-in-memory-db`.
 
-**On t1000 (Taylor's instance):**
+**On host-b (Taylor's instance):**
 
 ```bash
 # One-shot: enumerate humans from users table, join each into the humans
@@ -270,18 +270,18 @@ curl -sS -X POST \
   "https://term.example.com/relay-room/backfill?force=true" | jq .
 ```
 
-Verify humans landed in the humans registry room (user, Zoey, Laura on t1000) via the admin API — or just check the frontend after ~10s (the observation-loop D-08/D-09 classifier will exclude the pre-existing DMs from re-materializing).
+Verify humans landed in the humans registry room (user, Dana, Riley on host-b) via the admin API — or just check the frontend after ~10s (the observation-loop D-08/D-09 classifier will exclude the pre-existing DMs from re-materializing).
 
-**On T800 (Stacy's instance):** Same shape — POST to T800's URL with T800's admin JWT:
+**On host-c (Morgan's instance):** Same shape — POST to host-c's URL with host-c's admin JWT:
 
 ```bash
-ADMIN_JWT=<stacy-admin-jwt>
+ADMIN_JWT=<morgan-admin-jwt>
 curl -sS -X POST \
   -H "Authorization: Bearer $ADMIN_JWT" \
-  https://skynet.aithercloud.com/relay-room/backfill | jq .
+  https://skynet.example.net/relay-room/backfill | jq .
 ```
 
-Stacy runs this as part of her Phase 89 upgrade rollout, AFTER her `docker compose up --force-recreate` completes.
+Morgan runs this as part of her Phase 89 upgrade rollout, AFTER her `docker compose up --force-recreate` completes.
 
 **Agents backfill** — the `runRegistryRoomsBackfill` function accepts an optional `enumerateAgentMxids` dep for enumerating pre-existing agent accounts. The empty-invocation above skips it (agents backfill is a no-op), which is correct behavior for a first-cut deploy where pre-existing agents' DMs simply materialize as duplicate entries until a follow-up. If you want agents backfilled too, pass an SSH-based enumerator that reads `~/.claude/identities/<name>/relay.json` on each fleet host (D-12 explicitly allows disk reads at backfill time — the "no disk-based check" rule targets the observation loop for host-outage tolerance, not one-shot ops).
 

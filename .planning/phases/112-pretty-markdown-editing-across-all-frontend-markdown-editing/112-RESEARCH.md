@@ -49,7 +49,7 @@
 - WYSIWYG editing of code content inside fenced blocks. Code stays as monospaced non-rendered content.
 - Chat message rendering changes — that surface uses read-only `react-markdown` and is already correct; unchanged.
 - Mirror-hygiene followups from Phase 44 — planner may fold any that naturally land in-path; anything that doesn't stays in that bounty.
-- The T800 D-07 CSRF regex-gap — Cairo's finding from the sibling `serve-url-cors-deny-breaks-module-based-dev-servers` bounty. Orthogonal work.
+- The host-c D-07 CSRF regex-gap — Cairo's finding from the sibling `serve-url-cors-deny-breaks-module-based-dev-servers` bounty. Orthogonal work.
 </user_constraints>
 
 ## Summary

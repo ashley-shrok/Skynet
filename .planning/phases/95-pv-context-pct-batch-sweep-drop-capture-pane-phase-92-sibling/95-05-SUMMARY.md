@@ -124,12 +124,12 @@ All 14 tests pass. Full claude-session test suite still green.
 
 ## Task 3: user UAT gate — PENDING
 
-Task 3 is a `checkpoint:human-verify` gate. Phase 95 does not close until user executes checks 1-6 against t1000 and replies `all 6 checks PASS — Phase 95 complete`.
+Task 3 is a `checkpoint:human-verify` gate. Phase 95 does not close until user executes checks 1-6 against host-b and replies `all 6 checks PASS — Phase 95 complete`.
 
 **Prerequisites for UAT:**
 1. Merge `feat/tab-title-from-tmux` branch (Wave 3 commits included)
 2. Rebuild Skynet container with new image
-3. `docker compose up -d --force-recreate skynet` on t1000
+3. `docker compose up -d --force-recreate skynet` on host-b
 4. Wait 60 seconds for distributor sweep to push `pv-context-pct-sweep.py` to peers and for WS connections to churn (or reload browser tabs)
 
 **UAT checklist:**

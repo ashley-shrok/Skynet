@@ -116,7 +116,7 @@ key-decisions:
     remove this comment.') that the wake-up agent acts on during its first
     wake. Test 8 asserts (a) 4 positive seed phrases present; (b) no
     'Skynet' (case-insensitive); (c) no §2/§3/id skill/SKILL.md; (d) no
-    exec commands match /matrix|register|homeserver|thenasty/i.
+    exec commands match /matrix|register|homeserver|host-a/i.
     Rationale (user): fewer moving parts in Skynet, cleaner boundary
     (Skynet does file setup, agent does identity setup), same end-state.
     Matches 22-02 Task 3 revised pattern verbatim."
@@ -225,7 +225,7 @@ completed: 2026-08-04
 
   (cloned from tina)
   ```
-  Test 8 asserts: (a) 4 positive seed phrases present; (b) NO "Skynet" (case-insensitive); (c) NO `§2` / `§3` / `id skill` / `SKILL.md` (case-insensitive); (d) NO exec commands match `/matrix|register|homeserver|thenasty/i` — Skynet does file setup only.
+  Test 8 asserts: (a) 4 positive seed phrases present; (b) NO "Skynet" (case-insensitive); (c) NO `§2` / `§3` / `id skill` / `SKILL.md` (case-insensitive); (d) NO exec commands match `/matrix|register|homeserver|host-a/i` — Skynet does file setup only.
 
 - **database.ts mounts `identityCloneRoutes`** at `/identities/clone` BEFORE `/identities` (line 1813 vs 1826). Same match-precedence discipline as `/identities/birth` and `/identities/exists-on-host` above it.
 
@@ -279,7 +279,7 @@ _TDD gate sequence verified: RED test commit precedes GREEN feat commit for both
 - **Revised spec:** Skynet does file setup only — mkdir wakeups + touch handoff + SFTP identity file with `role: <sourceRole>` frontmatter + `CLONE_SEED_COMMENT` (user-verbatim: "This identity has no relay account yet. On first wake, please register a Matrix relay account for this identity and remove this comment."). No SSH relay-register from Skynet. The fresh agent registers its own Matrix relay account on first wake, prompted by the seed comment.
 - **Impact on plan:**
   - Removed SSH relay-register exec call from the Action code sequence (~10 lines).
-  - Modified Test 8 to (a) grep for seed comment phrases; (b) grep-assert no "Skynet" / no id-skill refs; (c) grep-assert no exec commands match `/matrix|register|homeserver|thenasty/i`.
+  - Modified Test 8 to (a) grep for seed comment phrases; (b) grep-assert no "Skynet" / no id-skill refs; (c) grep-assert no exec commands match `/matrix|register|homeserver|host-a/i`.
   - Removed threat model rows for relay-register-hang DoS and relay-creds leak — no longer applicable.
   - `must_haves.truths` bullet re "relay-register" removed; Skynet's provisioning stops at file setup.
 - **Rationale (user):** fewer moving parts in Skynet, cleaner boundary (Skynet does file setup, agent does identity setup), same end-state. Matches the identity-file seed pattern shipped in 22-02 Task 3 (and mirrored in 22-04 Task 1 for the role file). Third caller of the same seed-comment pattern in a row proves the pattern generalizes cleanly.

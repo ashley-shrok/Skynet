@@ -208,7 +208,7 @@ Roadmap/orchestrator must gate the deploy on 118-05 being in the tree.
 
 - **118-05 (per-user host-visibility filter):** GREENFIELD — layer `checkHostAccess` over the `publishAppUpdate` / `publishAppGoneByHostSlug` fan-out sites AND the subscribe-path app-snapshot emit. LOAD-BEARING for deploy safety.
 - **Observability follow-up:** add structured log lines symmetrically to BOTH the identity reconciliation block AND the app reconciliation block (at reconciliation entry, per-slug-gone, per-slug-update, health-transition points). NOT in this plan's scope; see Discretion Choice #5.
-- **D-23 real-systemd integration test on this box (agent-side UAT, pre-deploy):** create a scratch `~/fleet/apps/scratch-test/` on t1000 with a real `app.json` + a real systemd `--user` unit, trigger a sweep, assert the `app-snapshot` frame contains it. This is NOT a CI test — runs by hand as part of pre-deploy verification.
+- **D-23 real-systemd integration test on this box (agent-side UAT, pre-deploy):** create a scratch `~/fleet/apps/scratch-test/` on host-b with a real `app.json` + a real systemd `--user` unit, trigger a sweep, assert the `app-snapshot` frame contains it. This is NOT a CI test — runs by hand as part of pre-deploy verification.
 - **pre-existing distributor/catalog.ts sourceKind type errors:** ~15 rows missing the `sourceKind` field required by `BundledCatalogEntry`. Same set 118-02 + 118-03 SUMMARY flagged. Confirmed to exist on the pre-change tree via targeted grep filtering — out of scope per SCOPE BOUNDARY directive.
 
 ## TDD Gate Compliance

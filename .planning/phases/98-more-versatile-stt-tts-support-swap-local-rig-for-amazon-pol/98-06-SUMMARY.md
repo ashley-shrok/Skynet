@@ -74,7 +74,7 @@ completed: 2026-09-10
 - **Rewrote `handleSpeakStream`** as the chunk-and-stitch orchestrator: `packChunks(splitIntoSentences(text))` produces N ≤ 2900-char chunks; on iteration i we prefetch chunk i+1's `synthesizeToPcm` promise BEFORE piping chunk i's Readable to `res` with `{end:false}` (Pitfall 5 mitigation, concurrency cap 2). RIFF header is written ONCE at start with the streaming sentinel; `res.end()` fires only after the last chunk drains.
 - **Deleted `handleListVoices` handler + `router.get("/voices", ...)` registration** entirely per D-Claude's-discretion 2026-09-10 (LOCKED DROP). Frontend inlines the 7-voice const in VoicePicker.tsx (Plan 03's responsibility). Dual availability rejected because it invites drift. Grep gates confirm both are absent from voice.ts (0 hits on `handleListVoices`, 0 hits on `"/voices"` in non-comment lines).
 - **AccessDenied handling wired** per P98-OFF-01: every handler's catch branch classifies via `isAwsAccessDenied(err)` first. In `handleTranscribe` + `handleSpeak` → `res.status(503).json({error:"voice ... unavailable", status:503})` with `databaseLogger.info` (not error — feature-dark is expected policy-detached state, not a failure). In `handleSpeakStream` → `headersFlushed` flag chooses between 503 response (pre-flush) and `res.destroy()` (mid-stream, since we cannot send a new status code after response headers have been flushed to the client).
-- **Purged all Chatterbox coupling** from voice.ts: `STT_URL`, `TTS_URL`, `TTS_STREAM_URL`, `VOICES_URL` imports gone; `VOICE_FILENAME_RE` regex gone; hardcoded `100.80.122.111` tailnet reference gone; 300s Chatterbox timeout dropped (Polly first-byte is 200-400ms). `media-endpoints.ts` still exists in the tree (its full deletion is Plan 10's concern for tg-bridge coordination).
+- **Purged all Chatterbox coupling** from voice.ts: `STT_URL`, `TTS_URL`, `TTS_STREAM_URL`, `VOICES_URL` imports gone; `VOICE_FILENAME_RE` regex gone; hardcoded `100.64.0.11` tailnet reference gone; 300s Chatterbox timeout dropped (Polly first-byte is 200-400ms). `media-endpoints.ts` still exists in the tree (its full deletion is Plan 10's concern for tg-bridge coordination).
 - **Preserved all invariants**: `authenticateJWT` middleware BEFORE `multer.upload.single` (T-16-04); multer 25MB fileSize cap (T-16-01); disk-bank writes raw multipart bytes BEFORE any transcode (Pitfall 6); slash-command transform integration verbatim (Phase 34); `X-Accel-Buffering: no` on streaming response (nginx anti-buffering); POST /transcribe, /speak, /speak-stream route registrations byte-identical in middleware chain shape.
 
 ## Task Commits
@@ -117,7 +117,7 @@ None — every handler is fully wired to its real AWS adapter (mocked only in te
 
 ## User Setup Required
 
-None — no configuration required at this plan boundary. AWS credentials come from IMDS (already configured on t1000 via `termix-ssm-role/PollyTranscribeExploratory`; T800 will follow the deploy doc from Plan 09). No env vars, no manual restart, no data migration outside the startup one-shot from Plan 05.
+None — no configuration required at this plan boundary. AWS credentials come from IMDS (already configured on host-b via `example-ssm-role/PollyTranscribeExploratory`; host-c will follow the deploy doc from Plan 09). No env vars, no manual restart, no data migration outside the startup one-shot from Plan 05.
 
 ## Next Phase Readiness
 
@@ -146,7 +146,7 @@ No blockers. No open questions. Every acceptance criterion in the plan is satisf
 **TypeScript compile verified:** `npx tsc --noEmit -p tsconfig.node.json` → exit 0, no errors.
 
 **Acceptance-criteria greps (all satisfied):**
-- Kill list (STT_URL, TTS_URL, TTS_STREAM_URL, VOICES_URL, VOICE_FILENAME_RE, 100.80.122.111, handleListVoices, "/voices") — `grep -v '^\s*//' | grep -c -E ...` returns 0 across all patterns on non-comment lines. The doc-note preamble mentions these strings only in the context of documenting the deletion decision, wording chosen to avoid literal `handleListVoices` / `"/voices"` mentions in comments (kill-list grep in the plan uses `grep -v '^#'` which doesn't strip `//` comments — the code proper is clean).
+- Kill list (STT_URL, TTS_URL, TTS_STREAM_URL, VOICES_URL, VOICE_FILENAME_RE, 100.64.0.11, handleListVoices, "/voices") — `grep -v '^\s*//' | grep -c -E ...` returns 0 across all patterns on non-comment lines. The doc-note preamble mentions these strings only in the context of documenting the deletion decision, wording chosen to avoid literal `handleListVoices` / `"/voices"` mentions in comments (kill-list grep in the plan uses `grep -v '^#'` which doesn't strip `//` comments — the code proper is clean).
 - `isValidPollyVoice`: 5 occurrences (imports + handleSpeak + handleSpeakStream validation call sites)
 - `webmToOggOpus`: 4 occurrences (import + handler docblock + transcodeForTranscribe body + warn log message)
 - `webmToFlac`: 4 occurrences (import + handler docblock + transcodeForTranscribe fallback + warn log)

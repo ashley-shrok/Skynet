@@ -60,7 +60,7 @@ All 15 mechanically-verifiable must-haves from the 6 PLAN frontmatter lists are 
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| `substrate/scripts/fleet-status-sweep.py` | Widened identity line with identity_cosmetics, role_cosmetics, role, pinned, hidden | ✓ VERIFIED | Live sweep on t1000 emits pixel identity line with `role: "box-maintainer"`, `identity_cosmetics: {displayName, task}`, `role_cosmetics: {title, colorHue, avatar}`, `pinned: false`, `hidden: false` at `schema_version: 1` |
+| `substrate/scripts/fleet-status-sweep.py` | Widened identity line with identity_cosmetics, role_cosmetics, role, pinned, hidden | ✓ VERIFIED | Live sweep on host-b emits pixel identity line with `role: "box-maintainer"`, `identity_cosmetics: {displayName, task}`, `role_cosmetics: {title, colorHue, avatar}`, `pinned: false`, `hidden: false` at `schema_version: 1` |
 | `substrate/scripts/tests/fleet-status-sweep-appearance.sh` | Hermetic bash driver, 10 cases + global assertion | ✓ VERIFIED | `bash fleet-status-sweep-appearance.sh` → PASS 11, FAIL 0 |
 | `src/backend/fleet-status/identity-appearance.ts` | Single merge authority, exports resolveIdentityAppearance, RawCosmetics, ResolvedIdentityAppearance | ✓ VERIFIED | File exists, exports confirmed, 0 database/express/zod imports, 34 tests pass |
 | `src/backend/fleet-status/wire-protocol.ts` | IdentityAppearanceSchema + SessionStateSchema.identityAppearance, FRAME_SCHEMA_VERSION=1 | ✓ VERIFIED | IdentityAppearanceSchema at line 366, SessionState.identityAppearance at line 457, version=1 at line 14 |
@@ -76,7 +76,7 @@ All 15 mechanically-verifiable must-haves from the 6 PLAN frontmatter lists are 
 
 | From | To | Via | Status | Details |
 |------|----|-----|--------|---------|
-| `fleet-status-sweep.py` | stdout JSONL identity line | `_build_identity_line` dict keys | ✓ WIRED | Live sweep on t1000 confirms identity lines carry all 5 new keys |
+| `fleet-status-sweep.py` | stdout JSONL identity line | `_build_identity_line` dict keys | ✓ WIRED | Live sweep on host-b confirms identity lines carry all 5 new keys |
 | `sweep-schema.test.ts` | `fleet-status-sweep-appearance.sh` | hermetic bash driver | ✓ WIRED | Bash probe passes 11/11 cases including stdout purity assertion |
 | `identities.ts` | `identity-appearance.ts` | `resolveIdentityAppearance` import | ✓ WIRED | Line 3 import + line 204 call confirmed |
 | `ssh-poll-orchestrator.ts` | `identity-appearance.ts` | `appearanceFromIdentityLine` → `resolveIdentityAppearance` | ✓ WIRED | 2 occurrences of `resolveIdentityAppearance` (import + 1 call site in `appearanceFromIdentityLine`). `appearanceFromIdentityLine` called at source A and source B adapters. |
@@ -91,7 +91,7 @@ All 15 mechanically-verifiable must-haves from the 6 PLAN frontmatter lists are 
 
 | Artifact | Data Variable | Source | Produces Real Data | Status |
 |----------|---------------|--------|--------------------|--------|
-| `fleet-status-sweep.py` | `identity_cosmetics`, `role_cosmetics` | disk frontmatter via `_read_frontmatter_cosmetics` | Yes — live sweep on t1000 shows real values for pixel's `displayName`, `task`, and box-maintainer's `title`, `colorHue`, `avatar` | ✓ FLOWING |
+| `fleet-status-sweep.py` | `identity_cosmetics`, `role_cosmetics` | disk frontmatter via `_read_frontmatter_cosmetics` | Yes — live sweep on host-b shows real values for pixel's `displayName`, `task`, and box-maintainer's `title`, `colorHue`, `avatar` | ✓ FLOWING |
 | `ssh-poll-orchestrator.ts` | `identityAppearance` on `SessionState` | `appearanceFromIdentityLine` → `resolveIdentityAppearance` → sweep line fields | Yes — 7 stamp sites wired, 162 tests confirm values reach frames | ✓ FLOWING |
 | `identities-store.ts` | identity entries (cosmetics fields) | `mergeIdentityAppearance` from WS frame | Yes — additive merge writes displayName/title/colorHue etc. to the existing identity entry; 45 tests confirm | ✓ FLOWING |
 | `conversation-store.ts` | `fleetSessions` rows | `upsertFleetSession` from WS frame | Yes — rows created from live WS frames, removeFleetSession removes them; 137 tests confirm | ✓ FLOWING |
@@ -174,7 +174,7 @@ Scan of all phase-111-modified files for TBD/FIXME/XXX/TODO: None found that are
 
 ### Gaps Summary
 
-No gaps found. All 15 mechanically-verifiable truths are VERIFIED. The phase's automated test suite totals 594 tests across 11 test files, all green. The bash probe passes 11/11 cases. The live sweep on t1000 confirms end-to-end data flow for the pixel identity's role-inherited cosmetics.
+No gaps found. All 15 mechanically-verifiable truths are VERIFIED. The phase's automated test suite totals 594 tests across 11 test files, all green. The bash probe passes 11/11 cases. The live sweep on host-b confirms end-to-end data flow for the pixel identity's role-inherited cosmetics.
 
 Five items require human UAT before the phase can be declared fully closed. These are all behavioral/visual checks that test the rendering and physical device reconnect paths that grep and vitest cannot exercise.
 

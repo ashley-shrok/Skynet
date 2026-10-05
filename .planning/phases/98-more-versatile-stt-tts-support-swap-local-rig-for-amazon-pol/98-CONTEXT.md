@@ -7,13 +7,13 @@
 <domain>
 ## Phase Boundary
 
-Move Skynet's voice-in (mic recording → transcript) and voice-out (assistant message → played audio) off the self-hosted model rig on user's personal PC over the tailnet (Chatterbox on `100.80.122.111:8000`/`:8001`) and onto external cloud providers. user is reclaiming that PC as a gaming machine; the local rig disappears as a model host and Skynet cannot depend on it anymore.
+Move Skynet's voice-in (mic recording → transcript) and voice-out (assistant message → played audio) off the self-hosted model rig on user's personal PC over the tailnet (Chatterbox on `100.64.0.11:8000`/`:8001`) and onto external cloud providers. user is reclaiming that PC as a gaming machine; the local rig disappears as a model host and Skynet cannot depend on it anymore.
 
 **Chosen providers, validated on real distribution:**
 - **Amazon Polly (top-tier generative engine)** for voice-out. 7 en-US voices in the tier (Danielle, Joanna, Ruth, Salli, Matthew, Stephen, Tiffany). Per-call ceiling 6000 chars total / 3000 billed; longer text chunk-and-stitch on the backend.
 - **Amazon Transcribe streaming** (HTTP/2 or WebSocket) for voice-in. No synchronous POST-audio-get-text endpoint exists at AWS; streaming is the only real-time option. Client-side contract stays "upload multipart blob to backend"; backend opens the stream and pushes the recording as a burst.
 
-**Cross-instance:** ships uniformly to both user's Skynet on t1000 AND Stacy's Skynet on T800. Neither instance is "first" — per user 2026-09-09 verbatim: *"we just make sure to include what would need to be done at deploy time or just before it in the repo itself somewhere so that you can do those steps when it deploys over here and Stacy can follow those steps over on her side."* Each operator attaches the narrow Polly/Transcribe policy to their own instance's cloud-account role on their side; a repo-tracked deploy-time doc walks through those steps. On t1000 that policy is ALREADY attached (`termix-ssm-role/PollyTranscribeExploratory`, attached by Iris 2026-09-09) with the caveat that Iris asked for a ping when we ship for prod so she can re-scope the policy name from `-Exploratory` to a production name.
+**Cross-instance:** ships uniformly to both user's Skynet on host-b AND Morgan's Skynet on host-c. Neither instance is "first" — per user 2026-09-09 verbatim: *"we just make sure to include what would need to be done at deploy time or just before it in the repo itself somewhere so that you can do those steps when it deploys over here and Morgan can follow those steps over on her side."* Each operator attaches the narrow Polly/Transcribe policy to their own instance's cloud-account role on their side; a repo-tracked deploy-time doc walks through those steps. On host-b that policy is ALREADY attached (`example-ssm-role/PollyTranscribeExploratory`, attached by Iris 2026-09-09) with the caveat that Iris asked for a ping when we ship for prod so she can re-scope the policy name from `-Exploratory` to a production name.
 
 **Clean cutover, not dual-provider.** No provider-selection UI, no config-driven dispatch, no adapter abstraction for a hypothetical third provider. The old Chatterbox integration paths get deleted, not gated behind a config flag. Future flexibility explicitly deferred (user 2026-09-09 verbatim: *"maybe some future era will involve standardizing or giving more options in that sense but right now that's gonna work really great for me"*).
 
@@ -55,7 +55,7 @@ Move Skynet's voice-in (mic recording → transcript) and voice-out (assistant m
 ### Provider access (locked)
 
 - **Ambient instance identity, no static keys.** Backend reads AWS credentials from IMDS via the AWS SDK's default credential chain. No env vars, no key files stored in Skynet's data volume.
-- **Operator attaches the policy on their instance's cloud role.** t1000 = done (Iris attached `PollyTranscribeExploratory` on `termix-ssm-role`). T800 = Stacy follows the in-repo deploy doc on her side.
+- **Operator attaches the policy on their instance's cloud role.** host-b = done (Iris attached `PollyTranscribeExploratory` on `example-ssm-role`). host-c = Morgan follows the in-repo deploy doc on her side.
 - **Policy actions required:** `polly:SynthesizeSpeech`, `polly:DescribeVoices` (both `*` resource — API-level services with no resource-level scoping), `transcribe:StartStreamTranscription`, `transcribe:StartStreamTranscriptionWebSocket` (both `*`).
 - **Off-switch is policy-absence.** Not attaching the policy → backend gets AccessDenied → feature dark. No app-side config flag, no admin toggle in Skynet. This IS the cost gate too — an operator who doesn't want to pay AWS just doesn't attach the policy.
 
@@ -82,7 +82,7 @@ user can override any of these at plan-review time by saying so.
 ### Kill list
 
 Delete these files/config outright (clean cutover, no dual-provider seam):
-- `src/backend/config/media-endpoints.ts` — the hardcoded Chatterbox URLs (`http://100.80.122.111:8000`, `:8001`). Replace with an AWS-side config module (or delete entirely if the AWS SDK doesn't need it).
+- `src/backend/config/media-endpoints.ts` — the hardcoded Chatterbox URLs (`http://100.64.0.11:8000`, `:8001`). Replace with an AWS-side config module (or delete entirely if the AWS SDK doesn't need it).
 - Chatterbox-specific proxy code in `src/backend/database/routes/voice.ts` — the `handleTranscribe`, `handleSpeak`, `handleSpeakStream`, `handleListVoices` handlers become AWS-backed. Keep the route registrations; rewrite the implementations.
 - Any tg-bridge config writer that references `media-endpoints.ts` — audit and update.
 - The runtime voice-catalog fetch client (`voice-api.ts` `getVoices()`) — reshape to return the hardcoded set OR remove and inline the const in `VoicePicker.tsx`.
@@ -90,7 +90,7 @@ Delete these files/config outright (clean cutover, no dual-provider seam):
 ### Deploy-time doc (in-repo, MANDATORY)
 
 Ships as part of this phase. Location: TBD by planner (`docs/deploy/aws-voice-setup.md` or similar). Must cover, end-to-end without operator having to ping tabitha:
-- Which AWS account (each instance uses its own — user's t1000 uses Aither's Aither account via `termix-ssm-role`; Stacy's T800 uses her own account).
+- Which AWS account (each instance uses its own — user's host-b uses Acme's Acme account via `example-ssm-role`; Morgan's host-c uses her own account).
 - Which IAM role to attach the policy to (each instance's EC2 instance profile / equivalent).
 - The exact policy JSON (4 actions listed above, resource `*`).
 - How to verify the policy is live (`aws polly describe-voices --engine generative --language-code en-US` from the instance).
@@ -104,7 +104,7 @@ Ships as part of this phase. Location: TBD by planner (`docs/deploy/aws-voice-se
 - Voice catalog: identity modal shows exactly the 7 en-US generative voices; picking any of them and reloading the identity persists the choice.
 - Migration: every pre-existing identity has its voice value cleared post-migration; validator rejects any old-format value.
 - Off-switch: with the policy detached, feature is dark (no crash, no console spam — clean AccessDenied handling).
-- Cross-tree: Stacy on T800 follows the deploy doc unassisted and reports her instance works.
+- Cross-tree: Morgan on host-c follows the deploy doc unassisted and reports her instance works.
 
 ### Claude's discretion
 
@@ -165,7 +165,7 @@ Ships as part of this phase. Location: TBD by planner (`docs/deploy/aws-voice-se
 - `src/backend/database/routes/identity-clone.ts` — identity clone flow. Same verification.
 
 **Config + endpoints:**
-- `src/backend/config/media-endpoints.ts:22–33` — DELETE or reshape. The hardcoded `100.80.122.111:8000/:8001` URLs go away.
+- `src/backend/config/media-endpoints.ts:22–33` — DELETE or reshape. The hardcoded `100.64.0.11:8000/:8001` URLs go away.
 - `substrate/services/tg-bridge/bridge.sh` config writer (per Phase 79 Plan 02) — audits any reference to `media-endpoints.ts` and updates.
 
 ### AWS SDK reference
@@ -193,7 +193,7 @@ Ships as part of this phase. Location: TBD by planner (`docs/deploy/aws-voice-se
 - **Cost budget for build phase: ~$20-30 max.** Iris quoted "pocket change" for exploratory ($1-5); build phase testing chunk-and-stitch on long text + integration tests hitting real AWS could plausibly hit $20-30. Flag if it drifts higher; nothing structural stops runaway if tests loop.
 - **Test discipline (fleet rule):** scoped tests during dev (`npx vitest run --related <changed-files>`); full-suite ONLY as the first step of ship motion after user's greenlight. See role file § Test discipline. AWS-touching tests should be tagged so they can be skipped in offline / no-cred environments.
 - **Deploy is orchestrator-owned.** Phase's "done" state is: code + tests green + deploy-doc written + UAT checkpoint prepared. Push + build + `--force-recreate` = orchestrator, not executor.
-- **Ping Iris pre-ship** to re-scope her `PollyTranscribeExploratory` policy name to a production name on `termix-ssm-role`. She asked explicitly. Coordination lives outside the phase — just note it in the ship checklist.
+- **Ping Iris pre-ship** to re-scope her `PollyTranscribeExploratory` policy name to a production name on `example-ssm-role`. She asked explicitly. Coordination lives outside the phase — just note it in the ship checklist.
 - **Real behavior over synthetic samples (from shape philosophy).** Any implementation uncertainty about how Polly or Transcribe behaves under a specific input should be answered by running that input against the real AWS service, not by reasoning about docs. Exploration bounty's `transcribe-flac.py` + the `aws polly synthesize-speech` CLI pattern are already set up for this.
 - **Client player format compatibility check.** Polly emits mp3 / ogg_vorbis / ogg_opus / pcm / mulaw / alaw. `webAudioStreamPlayer.ts` currently decodes Chatterbox's PCM-in-WAV chunk stream. Either request pcm from Polly (matches player's decoder shape best) or add mp3/ogg decoding to the player. Planner picks; the CHOICE is HOW to keep the player unchanged in behavior — the constraint isn't the format specifically.
 

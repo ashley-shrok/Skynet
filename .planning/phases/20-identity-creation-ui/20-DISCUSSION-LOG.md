@@ -30,11 +30,11 @@
 
 | Option | Description | Selected |
 |--------|-------------|----------|
-| Self-birth allowed | Modal permits birthing an identity on skynet-ec2 (same box that hosts the modal); backend takes local-exec branch instead of SSH | ✓ |
-| Self-birth blocked | Modal filters skynet-ec2 out of the host picker when identity-mode is on | |
+| Self-birth allowed | Modal permits birthing an identity on primary-host (same box that hosts the modal); backend takes local-exec branch instead of SSH | ✓ |
+| Self-birth blocked | Modal filters primary-host out of the host picker when identity-mode is on | |
 
 **User's choice:** Self-birth allowed.
-**Notes:** user verbatim: "obviously self-birth would have to be possible too." Implementation: backend detects `targetHost === skynet-ec2` and skips the SSH wrapper, runs tmux/claude commands locally with the same 5-step sequence.
+**Notes:** user verbatim: "obviously self-birth would have to be possible too." Implementation: backend detects `targetHost === primary-host` and skips the SSH wrapper, runs tmux/claude commands locally with the same 5-step sequence.
 
 ---
 

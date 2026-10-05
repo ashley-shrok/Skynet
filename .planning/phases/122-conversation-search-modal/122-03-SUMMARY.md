@@ -158,7 +158,7 @@ Plan 04's job (D-17 removal under D-18 ordering constraint). All 10 removal deli
 1. Reload the frontend (the maintainer's dev shell). The sidebar header should show a magnifying-glass button as the leftmost child of the header-actions cluster.
 2. Click the magnifying-glass. Modal opens with the search input auto-focused; body shows "Type a query and press Enter".
 3. Type `claude` (or any known-hit substring — try an identity name for a fast smoke). Assert **no network request fires yet** (Network tab shows zero /conversation-search calls).
-4. Press Enter. Network tab shows ONE `POST /conversation-search` call. Modal body shows result rows within ~1s (naive grep on t1000 is ~600ms).
+4. Press Enter. Network tab shows ONE `POST /conversation-search` call. Modal body shows result rows within ~1s (naive grep on host-b is ~600ms).
 5. Verify each row:
    - Title = identityKey (aiTitle is null in Wave 1)
    - Subtext = `identityKey · hostName`

@@ -16,7 +16,7 @@ Add `runBootstrapForHost` as a pre-sweep step that handles agent-supervisor syst
 5. Write tests in `run-bootstrap.test.ts` + add catalog.test.ts assertion
 6. Trim furnish.sh — drop steps 7 and 13c/d/e/f
 7. Reorder runbook moments (register-host before auth)
-8. Update bounty + DM Stacy
+8. Update bounty + DM Morgan
 
 ## Key files
 

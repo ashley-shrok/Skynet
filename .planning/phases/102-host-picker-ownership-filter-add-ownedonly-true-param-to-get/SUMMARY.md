@@ -27,7 +27,7 @@ Flipping the default at the API layer:
 Manual smoke test via curl after deploy (no unit test — see "Test rig gap" below):
 
 ```bash
-# Owned-only should return 3 rows for user (thenasty, workstation, ZoeyBattlestation — her own).
+# Owned-only should return 3 rows for user (host-a, workstation, Gaming-pc — her own).
 curl -sk -b /tmp/tina-skynet-cookie.txt \
   "https://term.example.com/host/db/host?ownedOnly=true" \
   | jq 'length'  # expect 3
@@ -35,7 +35,7 @@ curl -sk -b /tmp/tina-skynet-cookie.txt \
 # Default (no param) should still return 6 rows (unchanged behavior — admin cross-user visibility preserved).
 curl -sk -b /tmp/tina-skynet-cookie.txt \
   "https://term.example.com/host/db/host" \
-  | jq 'length'  # expect 6 (user's 3 + joe's workstation + zoey's thenasty + ZoeyBattlestation)
+  | jq 'length'  # expect 6 (user's 3 + joe's workstation + dana's host-a + Gaming-pc)
 ```
 
 Then eyeball the Roles modal, sidebar, and command palette on Skynet post-deploy — non-owned rows should be gone.
@@ -51,5 +51,5 @@ Bundled with commit `f5b6c4e0` (backend newline fix from role-cosmetics-data-mig
 ## Related
 
 - Bounty: `~/.claude/roles/box-maintainer/bounties/host-picker-ownership-filter/`
-- Related: `role-cosmetics-data-migration` (originating session), `T800-multi-user-isolation`.
+- Related: `role-cosmetics-data-migration` (originating session), `host-c-multi-user-isolation`.
 - Preceding commit in ship bundle: `f5b6c4e0` (roles-list-for-host newline guarantee).

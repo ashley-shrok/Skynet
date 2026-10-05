@@ -49,7 +49,7 @@ user reported the Nelly false-positive symptom during UAT and asked whether a St
 - Extending the existing hook installer to add the four new hook events (turn-start via user prompt, turn-start via tool, turn-end error, permission-pending). The existing stop hook stays.
 - New backend predicate reading the two marker files' modification times.
 - Removing the current status-enum decision logic, the derived transition timestamp, the shell-idle gate, and any pane-command polling that only exists to feed the WIP predicate.
-- Per-identity rollout order — start with the reproducer (Nelly on thenasty) to confirm before propagating.
+- Per-identity rollout order — start with the reproducer (Nelly on host-a) to confirm before propagating.
 
 **Out:**
 - The dormant-sentinel mechanism (identity folder sentinel file) — unrelated axis, stays as-is.
@@ -94,7 +94,7 @@ Nothing else in the pipeline needs to know about the design work that happened i
 - **Scope edges: In — installer extended for four new hook events, existing stop hook stays** — present · installer merges six settings.json hook entries (existing Stop plus the four new events plus stopped-hook also on Stop)
 - **Scope edges: In — new backend predicate reading two marker files' mtimes** — present · orchestrator reads activity + stopped marker mtimes per PID per tick with fail-open cache preservation; frontend consumes the two mtimes and computes the predicate
 - **Scope edges: In — remove status-enum decision logic, derived transition timestamp, shell-idle gate, WIP-purpose pane-command polling** — drifted · endorsed intended change of mind — the shell-idle gate and derived transition timestamp are retained as a per-session fallback ONLY on unupgraded boxes; pane-command polling for the WIP purpose is not present; retention is bounded by the follow-up bounty recorded below
-- **Scope edges: In — per-identity rollout order starts with Nelly on thenasty** — present · documented in phase SUMMARY as the first identity to prove the fix; the rollout itself is downstream of the reviewed material per the review instructions
+- **Scope edges: In — per-identity rollout order starts with Nelly on host-a** — present · documented in phase SUMMARY as the first identity to prove the fix; the rollout itself is downstream of the reviewed material per the review instructions
 - **Scope edges: Out — dormant sentinel mechanism stays as-is** — present · dormant axis untouched; ambient-filter.ts and dormant reads remain orthogonal
 - **Scope edges: Out — background-tasks list mechanism stays as-is** — present · backgroundTasks[] stays on the wire; bg dropped only from the upgraded-box direct-signal composition; ambient filter unchanged
 - **Scope edges: Out — pane-command polling for other purposes** — present · only tmux name resolution remains, which is identity resolution not WIP inference

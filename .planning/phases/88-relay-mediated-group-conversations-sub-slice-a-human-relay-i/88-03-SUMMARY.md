@@ -77,7 +77,7 @@ Total: 4 deactivate calls across the rollback branches (label count ≥ 3 per cr
 
 **New vi.mock blocks (after line 330):**
 - `../../matrix/matrix-admin-client.js` — `mockCreateOrUpdateUser` + `mockDeactivateUser` (hoisting-safe wrapper pattern)
-- `../../matrix/username-to-mxid.js` — fixed happy-path stubs (buildHumanMxid returns `@user_human:thenasty.taild9b663.ts.net`)
+- `../../matrix/username-to-mxid.js` — fixed happy-path stubs (buildHumanMxid returns `@user_human:host-a.tailnet-example.ts.net`)
 - `../../matrix/matrix-admin-creds-store.js` — resolves non-null creds
 
 **beforeEach additions:** `mockCreateOrUpdateUser.mockClear()` + default `{ ok: true, mxid: "@user_human:...", status: 201 }`, `mockDeactivateUser.mockClear()` + default `{ ok: true }`.
@@ -85,7 +85,7 @@ Total: 4 deactivate calls across the rollback branches (label count ≥ 3 per cr
 **New tests:**
 - Test B `(88-03-B)`: mint-success — response 200, `mockCreateOrUpdateUser` called once with minted mxid, `users.mxid` equals the minted mxid, `mockDeactivateUser` never called.
 - Test C `(88-03-C)`: mint-failure — `mockCreateOrUpdateUser.mockResolvedValueOnce({ ok: false, status: 502, error: "admin_api_proxy_error" })` → response 500, body `{ error: "relay identity provisioning failed" }`, no row, no file write, no deactivate.
-- Test D `(88-03-D)`: post-mint avatar-write failure — `mockWriteUserAvatar.mockRejectedValueOnce(new Error("disk full"))` → response 500, `mockDeactivateUser` called once with `@user_human:thenasty.taild9b663.ts.net`, no row inserted.
+- Test D `(88-03-D)`: post-mint avatar-write failure — `mockWriteUserAvatar.mockRejectedValueOnce(new Error("disk full"))` → response 500, `mockDeactivateUser` called once with `@user_human:host-a.tailnet-example.ts.net`, no row inserted.
 
 ### Task 3 — user-avatars.integration.test.ts mocks
 
@@ -95,7 +95,7 @@ Three new vi.mock blocks added after the existing mock cluster (after `shared-cr
 
 Title-cased pre-`@` local part:
 - `"user"` → `"user"` (simple username)
-- `"user@example.com"` → `"user"` (email username, T800 use case)
+- `"user@example.com"` → `"user"` (email username, host-c use case)
 - `"USER"` → `"USER"` (already uppercase — charAt(0).toUpperCase() is idempotent)
 
 ## Test Run Output

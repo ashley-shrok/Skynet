@@ -379,10 +379,10 @@ So: user enters `${SKYNET_PUBLIC_URL}/ntfy` → app polls `${SKYNET_PUBLIC_URL}/
 
 [VERIFIED: Caddy docs + live /opt/skynet/caddy-config/Caddyfile inspected]
 
-**Current Caddyfile structure** (live on t1000):
+**Current Caddyfile structure** (live on host-b):
 ```
 {
-    email ahbarnum@gmail.com
+    email admin@example.com
 }
 
 <instance-hostname> {

@@ -44,7 +44,7 @@ This phase reskins **pretty view only** — the top-pane mode introduced by patc
 
 **Path:** `/home/ubuntu/.claude/identities/tina/bounties/pretty-view-visual-overhaul/mock/index.html` (Glass tab — final iterated state after 8 rounds of user's feedback loop)
 
-**Served over tailnet at** `http://100.99.149.8:8090/` during development. Python http.server bound to tailscale interface only (invisible from public internet).
+**Served over tailnet at** `http://100.64.0.13:8090/` during development. Python http.server bound to tailscale interface only (invisible from public internet).
 
 **CSS values in the mock are TARGETS, not exact copies.** Translate to Tailwind v4 idiom:
 - Shared vocabulary → `@theme inline {}` custom tokens in `src/ui/index.css` (e.g. `--color-pv-bg-base`, `--shadow-pv-raised-md`, `--pv-id-hue`)
@@ -98,7 +98,7 @@ Planner's judgment call: any additional tokens for reused values that show up in
 
 ### 2. Dynamic identity-hue wiring (HARD LOCK on approach — planner decides mechanism details)
 
-The mock hardcodes Tina's amber. Real code needs to pull the identity's stored `colorHue` (patch #17 identities registry, 0-360 degrees) dynamically and apply it per-pane, so a Bella pane feels pink, a Zoey pane feels blue, etc.
+The mock hardcodes Tina's amber. Real code needs to pull the identity's stored `colorHue` (patch #17 identities registry, 0-360 degrees) dynamically and apply it per-pane, so a Bella pane feels pink, a Dana pane feels blue, etc.
 
 **Approach**: Expose the identity's hue via a CSS custom property on a scoping root element per pane (probably `<PrettyView>`'s root div). Downstream Tailwind arbitrary-value classes read from that var:
 

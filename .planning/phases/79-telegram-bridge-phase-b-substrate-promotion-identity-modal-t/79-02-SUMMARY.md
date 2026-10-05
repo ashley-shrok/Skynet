@@ -60,10 +60,10 @@ Exports:
 
 | Symbol | Value | Provenance |
 |---|---|---|
-| `STT_URL` (const) | `"http://100.80.122.111:8000/v1/audio/transcriptions"` | voice.ts:28 (Nelly-verified live 2026-07-27) |
-| `TTS_URL` (const) | `"http://100.80.122.111:8001/v1/audio/speech"` | voice.ts:31 (patch #223) |
-| `TTS_STREAM_URL` (const) | `"http://100.80.122.111:8001/tts"` | voice.ts:33 (patch #237) |
-| `VOICES_URL` (const) | `"http://100.80.122.111:8001/get_predefined_voices"` | voice.ts:34 |
+| `STT_URL` (const) | `"http://100.64.0.11:8000/v1/audio/transcriptions"` | voice.ts:28 (Nelly-verified live 2026-07-27) |
+| `TTS_URL` (const) | `"http://100.64.0.11:8001/v1/audio/speech"` | voice.ts:31 (patch #223) |
+| `TTS_STREAM_URL` (const) | `"http://100.64.0.11:8001/tts"` | voice.ts:33 (patch #237) |
+| `VOICES_URL` (const) | `"http://100.64.0.11:8001/get_predefined_voices"` | voice.ts:34 |
 | `getMatrixHomeserverBase()` (async fn) | `Promise<string \| null>` | Dynamic-imports `getMatrixAdminCreds()` from `../matrix/matrix-admin-creds-store.js`, returns `creds?.homeserverBase ?? null`. |
 
 Design notes worth recording for downstream (Plan 04) readers:
@@ -92,7 +92,7 @@ Diff highlights:
   import { STT_URL, TTS_URL, TTS_STREAM_URL, VOICES_URL } from "../../config/media-endpoints.js";
   ```
 - **Deleted** at lines 27–34: the four `const STT_URL = "..."` / `const TTS_URL = "..."` / `const TTS_STREAM_URL = "..."` / `const VOICES_URL = "..."` declarations. Kept the surrounding patch-note comments (`// --- Locked STT endpoint (Nelly-verified live, 2026-07-27) ---`, `// --- Patch #223 ---`, `// --- Patch #237 ---`) to preserve provenance; added a single follow-up line pointing readers at the new shared module.
-- **Rewrote** the comment at line 287 (inside `handleSpeakStream`) — was `//   - Upstream URL: TTS_STREAM_URL (http://100.80.122.111:8001/tts) — NOT TTS_URL.`, now `//   - Upstream URL: TTS_STREAM_URL (Chatterbox /tts on tailnet, see src/backend/config/media-endpoints.ts) — NOT TTS_URL.`. This closes the last `grep 100.80.122.111` hit in the file so the ship-gate is satisfied. The instructional intent (steering readers to the streaming endpoint, not the JSON-response endpoint) is preserved.
+- **Rewrote** the comment at line 287 (inside `handleSpeakStream`) — was `//   - Upstream URL: TTS_STREAM_URL (http://100.64.0.11:8001/tts) — NOT TTS_URL.`, now `//   - Upstream URL: TTS_STREAM_URL (Chatterbox /tts on tailnet, see src/backend/config/media-endpoints.ts) — NOT TTS_URL.`. This closes the last `grep 100.64.0.11` hit in the file so the ship-gate is satisfied. The instructional intent (steering readers to the streaming endpoint, not the JSON-response endpoint) is preserved.
 - Zero changes to function signatures, control flow, error handling, or logging elsewhere in the file.
 
 ---
@@ -110,8 +110,8 @@ Diff highlights:
 | voice.ts inline consts removed | `grep -c 'const STT_URL\|const TTS_URL\|const TTS_STREAM_URL\|const VOICES_URL' src/backend/database/routes/voice.ts` | `0` | `0` (PASS) |
 | voice.ts imports from new module | `grep -c 'from "../../config/media-endpoints' src/backend/database/routes/voice.ts` | `1` | `1` (PASS) |
 | constants still USED in voice.ts | `grep -c 'STT_URL\|TTS_URL\|TTS_STREAM_URL\|VOICES_URL' src/backend/database/routes/voice.ts` | `≥ 4` | `8` (import line + 4 fetch call sites + 1 comment reference — all still active consumers) (PASS) |
-| **PROMPT-LOAD-BEARING ship-gate**: no hardcoded 100.80.122.111 in voice.ts | `grep -n '100\.80\.122\.111' src/backend/database/routes/voice.ts` | 0 matches | 0 matches (PASS) |
-| bonus: no hardcoded 100.113.23.63 in voice.ts (the other Tailscale IP the phase ship-gate targets) | `grep -n '100\.113\.23\.63' src/backend/database/routes/voice.ts` | 0 matches | 0 matches (PASS) |
+| **PROMPT-LOAD-BEARING ship-gate**: no hardcoded 100.64.0.11 in voice.ts | `grep -n '100\.80\.122\.111' src/backend/database/routes/voice.ts` | 0 matches | 0 matches (PASS) |
+| bonus: no hardcoded 100.64.0.12 in voice.ts (the other Tailscale IP the phase ship-gate targets) | `grep -n '100\.113\.23\.63' src/backend/database/routes/voice.ts` | 0 matches | 0 matches (PASS) |
 
 ### Test evidence
 
@@ -135,7 +135,7 @@ $ npx vitest run src/backend/config/media-endpoints.test.ts src/backend/database
 
 44/44 tests pass across both files. Zero regressions in voice.test.ts (all 37 pre-existing tests, including the byte-exact URL assertion at "Test SJ", stay green — proving the refactor is behavior-identical).
 
-Interesting cross-check: `voice.test.ts` contains a test named literally `Test SJ: fetch URL used is exactly http://100.80.122.111:8001/tts (not /v1/audio/speech)`. This test asserts at runtime that the constant equals that URL — its continued passing is a third independent guarantee that our extraction preserved the value byte-for-byte (test-name lives in the test file, which is out of scope for the ship-gate grep on `voice.ts`).
+Interesting cross-check: `voice.test.ts` contains a test named literally `Test SJ: fetch URL used is exactly http://100.64.0.11:8001/tts (not /v1/audio/speech)`. This test asserts at runtime that the constant equals that URL — its continued passing is a third independent guarantee that our extraction preserved the value byte-for-byte (test-name lives in the test file, which is out of scope for the ship-gate grep on `voice.ts`).
 
 ### TypeScript check
 
@@ -181,7 +181,7 @@ Plan 04 next wave can lean on this and NOT reach into `matrix-admin-creds-store`
 
 2. **tsc project flag: `tsconfig.backend.json` → `tsconfig.node.json`.** The plan's Task 1 and Task 2 acceptance criteria referenced `tsconfig.backend.json`, which does not exist in the tree — the backend TS project is `tsconfig.node.json` (verified: `grep -l "src/backend" tsconfig*.json` returns only `tsconfig.node.json`). The check was run against `tsconfig.node.json` and returned zero errors for the new module (backgrounded; exit 0). Not tracked as a Rule-1 bug because it's a plan-authoring path typo, not a code issue.
 
-**Not a deviation, but worth flagging for the phase-level tracker:** the plan's Task 2 asked me to rewrite ONE comment (line 287) that referenced the hardcoded IP verbatim, because the load-bearing ship-gate in the prompt (`grep -n "100.80.122.111" src/backend/media/voice.ts` returns zero) demands zero occurrences of the IP text in the file — including comments. I made that edit and preserved the instructional intent by pointing the reader at the shared module by path. Recording this because it's arguably a Rule-2 auto-completion (making the acceptance criteria unambiguously true) rather than a strict "delete inline consts" scope; the plan is served either way.
+**Not a deviation, but worth flagging for the phase-level tracker:** the plan's Task 2 asked me to rewrite ONE comment (line 287) that referenced the hardcoded IP verbatim, because the load-bearing ship-gate in the prompt (`grep -n "100.64.0.11" src/backend/media/voice.ts` returns zero) demands zero occurrences of the IP text in the file — including comments. I made that edit and preserved the instructional intent by pointing the reader at the shared module by path. Recording this because it's arguably a Rule-2 auto-completion (making the acceptance criteria unambiguously true) rather than a strict "delete inline consts" scope; the plan is served either way.
 
 ---
 
@@ -213,5 +213,5 @@ None. No new network endpoints, no new auth paths, no new file-access patterns, 
 - Commit `0cfd5fd2` (feat GREEN) exists in `git log` (FOUND)
 - Commit `b5270cf7` (refactor Task 2) exists in `git log` (FOUND)
 - All 44 tests pass (7 media-endpoints + 37 voice)
-- Ship-gate grep returns 0 for `100.80.122.111` in voice.ts
-- Ship-gate grep returns 0 for `100.113.23.63` in voice.ts
+- Ship-gate grep returns 0 for `100.64.0.11` in voice.ts
+- Ship-gate grep returns 0 for `100.64.0.12` in voice.ts

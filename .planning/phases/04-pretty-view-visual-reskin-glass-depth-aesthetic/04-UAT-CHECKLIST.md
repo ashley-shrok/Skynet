@@ -19,7 +19,7 @@
 
 - [ ] Open any terminal tab (tmux mode, not pretty). IdentityBadge (if identity-matched) appears in top-right at the same **120px pill, 80px avatar, name-below, title-below** treatment as before deploy.
 - [ ] Session tint on the pane (patch #26) is unchanged — still a subtle static wash of hash-derived or identity hue.
-- [ ] Open an RDP tab (e.g. thenasty-RDP or workstation-RDP). Guacamole canvas fills its container; IdentityBadge (if applicable) styled identically to pre-deploy.
+- [ ] Open an RDP tab (e.g. host-a-RDP or workstation-RDP). Guacamole canvas fills its container; IdentityBadge (if applicable) styled identically to pre-deploy.
 - [ ] Open a VNC tab if any host is configured for VNC. Chrome unchanged.
 - [ ] Open the file manager. Chrome unchanged.
 - [ ] Open the dashboard tab. Session list, remote-host chips, new-session chips — all unchanged.

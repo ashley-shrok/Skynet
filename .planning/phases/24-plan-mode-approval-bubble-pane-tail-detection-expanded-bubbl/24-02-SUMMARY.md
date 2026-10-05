@@ -78,7 +78,7 @@ Vitest suite mirroring `pretty-view-upload.test.ts` L59-100 mock shape.
 **Boundary conditions (3):**
 - 600KB payload → `content.endsWith("[truncated]")` AND `content.length ≤ MAX_PLAN_BYTES + suffix.length`
 - SFTP ENOENT on a valid slug → `{ error }` matching `/ENOENT/`
-- Explicit home-directory resolution: stat + readFile called with the fully-resolved `/home/ashley/.claude/plans/<slug>.md` path
+- Explicit home-directory resolution: stat + readFile called with the fully-resolved `/home/alice/.claude/plans/<slug>.md` path
 
 Every rejection test calls a shared `expectNoSftpContact(client, sftp)` helper — a regression that leaks a bad path onto the wire fails loudly and consistently.
 
@@ -136,7 +136,7 @@ Every rejection test calls a shared `expectNoSftpContact(client, sftp)` helper �
 
 - **Double-quote rejection** — plan's behavior list mentions backtick / single-quote / `$` but not double-quote. Added because the implementation rejects `[\`'"$]` as a class; the test locks that in.
 - **Slash-in-slug rejection** — plan's behavior list mentions traversal but not "slug has a slash without `..`". Added because that's a distinct rejection path (fails the `SLUG_RE` regex, not the `..` check) and it's cheap insurance against a regex regression.
-- **Non-standard $HOME test** — plan requires "home directory resolution success" (covered by the `/home/ashley` test); I added a second case with `/srv/agents/user` to prove the absPath is computed from `realpath(".")`, not hardcoded.
+- **Non-standard $HOME test** — plan requires "home directory resolution success" (covered by the `/home/alice` test); I added a second case with `/srv/agents/user` to prove the absPath is computed from `realpath(".")`, not hardcoded.
 
 Nine rejection tests instead of the plan's minimum of seven; 14 total tests instead of the minimum of 11. All extras follow the same fail-closed assertion pattern (`expectNoSftpContact` helper).
 

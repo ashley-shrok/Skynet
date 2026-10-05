@@ -201,7 +201,7 @@ None — pure frontend refactor. No new dependencies, no new env vars, no extern
   - Plan 92-03: DB pin column dropped physically.
   - Plan 92-04 (this one): frontend rewired to disk-projection reads + identityHosts-carrying writes.
 
-- **Manual per-box migration is orchestrator-owned:** Per D-07 / D-08, each box maintainer (user for t1000, Stacy for T800) runs the pre-deploy `touch ~/.claude/identities/<name>/.pinned` sequence before their container recreate for each identity currently in their pinnedConversationIds list. The DB column is already physically dropped (Plan 92-03), so post-deploy the pin state reads exclusively from disk.
+- **Manual per-box migration is orchestrator-owned:** Per D-07 / D-08, each box maintainer (user for host-b, Morgan for host-c) runs the pre-deploy `touch ~/.claude/identities/<name>/.pinned` sequence before their container recreate for each identity currently in their pinnedConversationIds list. The DB column is already physically dropped (Plan 92-03), so post-deploy the pin state reads exclusively from disk.
 
 - **id-skill-revamp campaign context:** This phase completes Shape 1 of 4. Shape 2 (agent-supervisor archive extension) can now assume the sentinel-per-identity-folder convention is production-live. Shapes 3/4 (on-disk tree consolidation, substrate prose polish) remain future phase work.
 

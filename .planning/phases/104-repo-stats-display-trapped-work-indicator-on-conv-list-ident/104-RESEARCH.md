@@ -99,7 +99,7 @@ Phase 104 is a **surgical retire-and-replace** on an established, well-tested pl
 
 **Key discoveries that shift the plan** (details in sections below):
 
-1. **The "workspace" folder convention is aspirational, not shipped.** On this box (skynet-ec2), inspection of `~/.claude/identities/{tabitha,tanya,taylor,tiffany,tina}/skynet/` shows every one of them contains only `relay.json` + `relay-state/` — no `.git`, no source tree. The identities that ACTUALLY keep code trees do so on peer boxes (t1000, wren, etc.), and the folder name they use is **`skynet/`**, not `workspace/`. There is no `WORKSPACE_HOST_DIR` env var, no runtime discovery helper, no convention path defined anywhere in `src/`. This means the detector must (a) commit to a specific path convention explicitly in the plan, and (b) rely on the shape-file's "silent-fail on pre-convention identities" acceptance.
+1. **The "workspace" folder convention is aspirational, not shipped.** On this box (primary-host), inspection of `~/.claude/identities/{tabitha,tanya,taylor,tiffany,tina}/skynet/` shows every one of them contains only `relay.json` + `relay-state/` — no `.git`, no source tree. The identities that ACTUALLY keep code trees do so on peer boxes (host-b, wren, etc.), and the folder name they use is **`skynet/`**, not `workspace/`. There is no `WORKSPACE_HOST_DIR` env var, no runtime discovery helper, no convention path defined anywhere in `src/`. This means the detector must (a) commit to a specific path convention explicitly in the plan, and (b) rely on the shape-file's "silent-fail on pre-convention identities" acceptance.
 
 2. **The CONTEXT.md "~30s cadence" figure is wrong.** The actual analog (bounty-counts-store) polls at **60_000 ms** (`PrettyConversationsPanel.tsx:558`); the *true* fleet-status SSH-poll orchestrator polls at **2000 ms** (`ssh-poll-orchestrator.ts:978`) — a completely separate subsystem that Phase 104 does NOT touch. The correct cadence to match is 60s, and the correct subsystem to piggyback on is the bounty-counts-style one-shot WS poll — not fleet-status.
 
@@ -164,7 +164,7 @@ This phase installs **no new packages**. Every dependency (`lucide-react`, `ssh2
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│  Peer box (identity's home box, e.g. t1000, wren)                        │
+│  Peer box (identity's home box, e.g. host-b, wren)                        │
 │  ~/.claude/identities/<identityKey>/skynet/  (git repo — the workspace)  │
 │         ↓                                                                 │
 │   python3 script (invoked via SSH exec):                                 │
@@ -269,7 +269,7 @@ export async function readIdentityTrappedWork(
   }
 
   if (conn === null) {
-    // LOCAL branch — for skynet-ec2's own identities.
+    // LOCAL branch — for primary-host's own identities.
     // On this box, ~/.claude/identities/<key>/skynet/ is currently empty for every
     // identity (see Runtime State Inventory). Local branch will normally return
     // {hasTrappedWork: false} — but the code MUST exist and be correct so LOCAL-hosted
@@ -538,7 +538,7 @@ Phase 104 is NOT a rename/refactor phase in the classic sense, but the deletion 
 | OS-registered state | **None.** No cron jobs, no systemd services, no Task Scheduler, no pm2 processes registered against the bounty-count or trapped-work names. | none |
 | Secrets / env vars | **None.** No SOPS keys, no secret rotation. | none |
 | Build artifacts | **None hostname-specific.** The build produces frontend bundles + backend `dist/`. The rename `bounty-counts-store.ts` → `trapped-work-store.ts` will produce a different chunk name in the frontend bundle but that's irrelevant — Skynet is not a public JS library and hash-versioning handles cache-busting via Vite's default asset pipeline. | none |
-| **Workspace path convention (canonical question for this phase)** | Every identity's `~/.claude/identities/<key>/skynet/` on skynet-ec2 (the box-maintainer's central box) is currently **populated only with `relay.json` + `relay-state/`** — no `.git`, no source tree. Verified via `ls ~/.claude/identities/{tabitha,tanya,taylor,tiffany,tina}/skynet/`. The identities that actually hold Skynet source trees do so on peer boxes (t1000, wren, etc.); this box does not host any peer-identity workspaces. The "workspace" folder name in the shape file is aspirational language; the ACTUAL directory in use is `skynet/` (named after the project being worked on). | **PLAN MUST commit to a path convention.** Options: (a) hard-code `skynet/` as the workspace subdir; (b) hard-code `workspace/` as a future-aspirational subdir (will silently return `{hasTrappedWork:false}` for every identity until migration); (c) support both with env-var override. See Open Question #3. |
+| **Workspace path convention (canonical question for this phase)** | Every identity's `~/.claude/identities/<key>/skynet/` on primary-host (the box-maintainer's central box) is currently **populated only with `relay.json` + `relay-state/`** — no `.git`, no source tree. Verified via `ls ~/.claude/identities/{tabitha,tanya,taylor,tiffany,tina}/skynet/`. The identities that actually hold Skynet source trees do so on peer boxes (host-b, wren, etc.); this box does not host any peer-identity workspaces. The "workspace" folder name in the shape file is aspirational language; the ACTUAL directory in use is `skynet/` (named after the project being worked on). | **PLAN MUST commit to a path convention.** Options: (a) hard-code `skynet/` as the workspace subdir; (b) hard-code `workspace/` as a future-aspirational subdir (will silently return `{hasTrappedWork:false}` for every identity until migration); (c) support both with env-var override. See Open Question #3. |
 
 **The canonical question — after every file in the repo is updated, what runtime systems still have the old string cached, stored, or registered?**
 
@@ -562,13 +562,13 @@ Every dependency this phase needs is confirmed available in the deploy environme
 
 ## Common Pitfalls
 
-### Pitfall 1: The `~/.claude/identities/<key>/skynet/` folder is empty on skynet-ec2 — LOCAL-branch tests + smoke-tests need real fixture setup
+### Pitfall 1: The `~/.claude/identities/<key>/skynet/` folder is empty on primary-host — LOCAL-branch tests + smoke-tests need real fixture setup
 
-**What goes wrong:** Executor runs local unit tests, they pass; deploys; QA-tests on skynet-ec2 via the browser; the indicator NEVER lights up for any identity because none of the LOCAL identities have a git tree at `~/.claude/identities/<key>/skynet/`. Executor thinks the wire is broken; actually the wire is correct and no LOCAL identity is eligible.
+**What goes wrong:** Executor runs local unit tests, they pass; deploys; QA-tests on primary-host via the browser; the indicator NEVER lights up for any identity because none of the LOCAL identities have a git tree at `~/.claude/identities/<key>/skynet/`. Executor thinks the wire is broken; actually the wire is correct and no LOCAL identity is eligible.
 
-**Why it happens:** Skynet-ec2 is the central app box; peer identities live on peer boxes. LOCAL branch returns `{hasTrappedWork:false}` for every LOCAL identity because the folder is empty. Only REMOTE branch (peer boxes t1000, wren, etc., where identities keep actual repos) will surface trapped work.
+**Why it happens:** Primary-host is the central app box; peer identities live on peer boxes. LOCAL branch returns `{hasTrappedWork:false}` for every LOCAL identity because the folder is empty. Only REMOTE branch (peer boxes host-b, wren, etc., where identities keep actual repos) will surface trapped work.
 
-**How to avoid:** The plan should include a smoke-test verification against a KNOWN peer box that has trapped work (e.g., "sign in as tina@t1000, confirm the indicator appears on tina's row after the poll cycle"). LOCAL unit tests can use `os.mkdtemp` to construct a fake workspace with a real `git init` + dirty file + push-less commit (exactly the pattern `identity-artifact-reader.count-bounties.test.ts` L60-80 uses for tmpdir fixtures).
+**How to avoid:** The plan should include a smoke-test verification against a KNOWN peer box that has trapped work (e.g., "sign in as tina@host-b, confirm the indicator appears on tina's row after the poll cycle"). LOCAL unit tests can use `os.mkdtemp` to construct a fake workspace with a real `git init` + dirty file + push-less commit (exactly the pattern `identity-artifact-reader.count-bounties.test.ts` L60-80 uses for tmpdir fixtures).
 
 **Warning signs:** "It works locally but I don't see it in production" is the top-of-mind expectation for this phase — flag in the plan's verification section.
 
@@ -745,7 +745,7 @@ export function probeIdentityTrappedWork(
    - Recommendation: `trapped-work-store.ts` (specific). YAGNI wins — the abstraction is not obvious yet, and the byte-shape mirror is the reusable pattern. If a third signal appears, extract at that point (it's 200 lines of mechanical work).
 
 3. **Workspace path convention — `skynet/`, `workspace/`, or env-var override?**
-   - What we know: `~/.claude/identities/<key>/skynet/` is the actual folder in use empirically on skynet-ec2 (per Runtime State Inventory). Shape file uses aspirational language "standardized per-identity workspace-area folder". The shape's canonical example ("box-maintainer identities keep the Skynet source tree in theirs") suggests the folder is literally named `skynet`.
+   - What we know: `~/.claude/identities/<key>/skynet/` is the actual folder in use empirically on primary-host (per Runtime State Inventory). Shape file uses aspirational language "standardized per-identity workspace-area folder". The shape's canonical example ("box-maintainer identities keep the Skynet source tree in theirs") suggests the folder is literally named `skynet`.
    - What's unclear: Was the shape file's "workspace" verbatim intended as a description of purpose (i.e., "her workspace, which happens to be called `skynet/`") or as an intended future folder name? Discuss-phase's silent-fail acceptance covers both readings but not the code that names the path.
    - Recommendation: Plan should hard-code `skynet/` as the workspace subdir, matching the empirical reality. Add a code-comment noting that if the fleet ever standardizes on `workspace/` (or another name), the change is one-line here. Do NOT add an env-var override in this phase — the shape file's "no override, no bandage" language argues against premature configurability. **This assumption should be confirmed with user at plan-check or executor time.**
 
@@ -804,7 +804,7 @@ All primary sources are file:line references inside the Skynet-tina codebase, di
 - `.planning/shapes/shape-repo-stats-display.md` — canonical shape file
 - `.planning/ROADMAP.md:2295-2300` — Phase 104 roadmap entry
 - `.planning/config.json` — GSD config (`nyquist_validation: false` → Validation Architecture section omitted)
-- On-disk inspection: `~/.claude/identities/{tabitha,tanya,taylor,tiffany,tina}/skynet/` — empty on skynet-ec2 (only relay.json + relay-state)
+- On-disk inspection: `~/.claude/identities/{tabitha,tanya,taylor,tiffany,tina}/skynet/` — empty on primary-host (only relay.json + relay-state)
 - Manual git command verification: `git remote -v`, `git stash list`, `git rev-list --branches --not --remotes --count`, `git status --porcelain=v1` all confirmed working shapes
 
 ### Secondary (MEDIUM confidence)
@@ -836,14 +836,14 @@ None.
 ### Correct answer — supersedes A2 + related runtime-state guidance
 
 - **Canonical path**: `~/fleet/identities/<name>/workspace/` — **NOT** `~/.claude/identities/<name>/skynet/`.
-- **Prefix correction**: Shape 3 (Phase 96) relocates identity dirs from `~/.claude/identities/` to `~/fleet/identities/`. The research's inspection of `~/.claude/identities/<key>/skynet/` was empirically accurate but interpreted the wrong way — that `skynet/` folder holds the per-identity second-Matrix-account relay state for the aithercloud homeserver (see tina's identity file), NOT source code.
+- **Prefix correction**: Shape 3 (Phase 96) relocates identity dirs from `~/.claude/identities/` to `~/fleet/identities/`. The research's inspection of `~/.claude/identities/<key>/skynet/` was empirically accurate but interpreted the wrong way — that `skynet/` folder holds the per-identity second-Matrix-account relay state for the example-org homeserver (see tina's identity file), NOT source code.
 - **Verified in code** (per tanya, files to consult before planning):
   - `identity-birth-orchestrator.ts` — creates `~/fleet/identities/<name>/workspace/` at every new identity birth (`mkdir -p .../workspace`)
   - `substrate/skills/id/SKILL.md` — documents `workspace/` as an identity-folder sibling (D-04)
   - `substrate/scripts/agent-supervisor.sh` — cd's into `workspace/` when launching if it exists, else falls back to `$HOME`
   - `substrate/skills/agent-relay/SKILL.md` — references paths under `~/fleet/identities/<name>/workspace/`
 - **Subdir name**: `workspace/`, NOT `skynet/`. Single fixed subdir, not configurable, not a list.
-- **Silent-fail semantics for pre-migration identities**: shape file's original call stands. Pre-migration identities keep existing workdirs at existing per-box locations (e.g., `~/skynet-<name>/` on t1000, `~/PBMInvoices-<name>/` on workstation) and do NOT get their workdirs relocated. Detector treats `workspace/` absent OR empty as "no trapped work" and skips silently — no fallback path, no override, no bandage.
+- **Silent-fail semantics for pre-migration identities**: shape file's original call stands. Pre-migration identities keep existing workdirs at existing per-box locations (e.g., `~/skynet-<name>/` on host-b, `~/PBMInvoices-<name>/` on workstation) and do NOT get their workdirs relocated. Detector treats `workspace/` absent OR empty as "no trapped work" and skips silently — no fallback path, no override, no bandage.
 - **Order dependency**: Phase 104 plan+execute unblocked. **Deploy must land AFTER Shape 3 ships** so `~/fleet/identities/…` paths exist on the running system. Coord with tanya on order.
 
 ### Planner directives — supersede prior research recommendations where they conflict

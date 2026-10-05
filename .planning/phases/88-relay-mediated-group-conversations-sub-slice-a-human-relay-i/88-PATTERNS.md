@@ -286,7 +286,7 @@ import { deactivateUser } from "../../matrix/matrix-admin-client.js";
   // Phase 75 Plan 01 (Q3 locked decision) — mxid mapping for the Matrix
   // relay. Nullable: only humans with a registered relay account have one,
   // and it's populated via POST /users/:id/mxid (Plan 03) or the one-shot
-  // import for user/Zoe/Laura. Not a credential; agents' relay identifiers
+  // import for user/Jess/Riley. Not a credential; agents' relay identifiers
   // live on-disk in ~/.claude/identities/<name>/relay.json per fleet convention.
   mxid: text("mxid"),
 ```
@@ -313,10 +313,10 @@ Update: replace lines 694-697 to reflect that human relay creds are NOT owned by
 // matrix-admin-client.test.ts lines 493-532
 describe("buildRelayJsonBody", () => {
   const BUILD_OPTS = {
-    mxid: "@bob:thenasty.taild9b663.ts.net",
+    mxid: "@bob:host-a.tailnet-example.ts.net",
     password: "bob-pw",
     accessToken: "syt_bob_token",
-    homeserverBase: "http://100.113.23.63:8008",
+    homeserverBase: "http://100.64.0.12:8008",
   };
 
   it("base ends in /_matrix/client/v3 (recv.sh strips this to derive MROOT)", async () => {
@@ -364,7 +364,7 @@ import {
 5. `buildHumanMxid` output satisfies `MXID_RE = /^@[a-z0-9._=/+-]{1,255}:[a-z0-9.-]{1,255}$/` (from matrix-admin-routes.ts line 27)
 6. `generateHumanRelayPassword()` returns a 48-char hex string (24 bytes × 2 hex digits)
 7. `extractServerName("https://matrix.example.com:8448")` → `"matrix.example.com"`
-8. `extractServerName("http://100.113.23.63:8008")` → `"100.113.23.63"`
+8. `extractServerName("http://100.64.0.12:8008")` → `"100.64.0.12"`
 
 ---
 
@@ -463,7 +463,7 @@ vi.mock("../../matrix/matrix-admin-client.js", () => ({
     // Happy-path default: mint succeeds
     mockCreateOrUpdateUser.mockResolvedValue({
       ok: true,
-      mxid: "@user_human:thenasty.taild9b663.ts.net",
+      mxid: "@user_human:host-a.tailnet-example.ts.net",
       password: "test-pw",
       status: 201,
     });
@@ -486,8 +486,8 @@ vi.mock("../../matrix/matrix-admin-client.js", () => ({
 ```typescript
 vi.mock("../../matrix/matrix-admin-creds-store.js", () => ({
   getMatrixAdminCreds: vi.fn(async () => ({
-    homeserverBase: "http://100.113.23.63:8008",
-    userId: "@skynet-admin:thenasty.taild9b663.ts.net",
+    homeserverBase: "http://100.64.0.12:8008",
+    userId: "@skynet-admin:host-a.tailnet-example.ts.net",
     accessToken: "syt_admin_token",
     password: "admin-pw",
   })),
@@ -499,9 +499,9 @@ vi.mock("../../matrix/matrix-admin-creds-store.js", () => ({
 ```typescript
 vi.mock("../../matrix/username-to-mxid.js", () => ({
   buildHumanMxid: vi.fn((_username: string, _serverName: string) =>
-    "@user_human:thenasty.taild9b663.ts.net"),
+    "@user_human:host-a.tailnet-example.ts.net"),
   generateHumanRelayPassword: vi.fn(() => "deadbeef00112233445566778899aabbccddeeff00112233"),
-  extractServerName: vi.fn(() => "thenasty.taild9b663.ts.net"),
+  extractServerName: vi.fn(() => "host-a.tailnet-example.ts.net"),
 }));
 ```
 
@@ -518,16 +518,16 @@ vi.mock("../../matrix/username-to-mxid.js", () => ({
 vi.mock("../../matrix/matrix-admin-client.js", () => ({
   createOrUpdateUser: vi.fn(async () => ({
     ok: true,
-    mxid: "@user_human:thenasty.taild9b663.ts.net",
+    mxid: "@user_human:host-a.tailnet-example.ts.net",
     password: "test-pw",
     status: 201,
   })),
   deactivateUser: vi.fn(async () => ({ ok: true })),
 }));
 vi.mock("../../matrix/username-to-mxid.js", () => ({
-  buildHumanMxid: vi.fn(() => "@user_human:thenasty.taild9b663.ts.net"),
+  buildHumanMxid: vi.fn(() => "@user_human:host-a.tailnet-example.ts.net"),
   generateHumanRelayPassword: vi.fn(() => "deadbeef00112233445566778899aabbccddeeff00112233"),
-  extractServerName: vi.fn(() => "thenasty.taild9b663.ts.net"),
+  extractServerName: vi.fn(() => "host-a.tailnet-example.ts.net"),
 }));
 ```
 Also add `vi.mock("../../matrix/matrix-admin-creds-store.js", ...)` if `users.ts` imports it directly.

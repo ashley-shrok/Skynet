@@ -804,7 +804,7 @@ printf -- 'role: test\ncoordinator: true\n' | awk ... → exit 1               #
 
 ### Secondary (MEDIUM confidence)
 - `~/.claude/roles/box-maintainer/bounties/id-skill-revamp/shape-id-skill-revamp.md` — campaign shape confirming Naomi's deactivate verification and original archive design
-- `~/.claude/roles/box-maintainer/bounties/id-skill-revamp/bounty.json` — confirmed timeline entry: "verified with Naomi (owns Synapse on thenasty) ... client-side self-deactivate with erase:true produces identical post-state to admin-side path"
+- `~/.claude/roles/box-maintainer/bounties/id-skill-revamp/bounty.json` — confirmed timeline entry: "verified with Naomi (owns Synapse on host-a) ... client-side self-deactivate with erase:true produces identical post-state to admin-side path"
 - `src/backend/matrix/matrix-admin-client.ts:957` — Skynet's ADMIN-side deactivate implementation (for contrast — this phase uses CLIENT endpoint, not admin)
 
 ### Tertiary (LOW confidence)

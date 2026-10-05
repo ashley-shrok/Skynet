@@ -6,7 +6,7 @@ tags: [weekly-meter, usage-meter, backend-proxy, nginx, css, react, vitest]
 dependency_graph:
   requires: []
   provides:
-    - /api/usage backend proxy route (skynet → collector at 100.113.23.63:9421)
+    - /api/usage backend proxy route (skynet → collector at 100.64.0.12:9421)
     - WeeklyUsageMeter React component (dual-race F-variant split-bar meter)
     - .pv-usage-meter* CSS classes (locked hsla/rgba F-variant values)
     - Nginx location blocks for /api/usage in both HTTP and HTTPS configs
@@ -43,7 +43,7 @@ metrics:
 
 # Quick Task 260729-1vd: Add Weekly Usage Meter Summary
 
-One-liner: Dual-race split-bar usage meter (warm-coral/cool-cyan F variant) added to the pretty-conversations panel header, backed by a new same-origin /api/usage Express proxy to the tailnet collector at 100.113.23.63:9421.
+One-liner: Dual-race split-bar usage meter (warm-coral/cool-cyan F variant) added to the pretty-conversations panel header, backed by a new same-origin /api/usage Express proxy to the tailnet collector at 100.64.0.12:9421.
 
 ## Tasks Completed
 
@@ -115,7 +115,7 @@ None. The backend route proxies the real collector; the component fetches the re
 
 | Flag | File | Description |
 |------|------|-------------|
-| threat_flag: ssrf-low | src/backend/database/routes/usage.ts | New outbound fetch to hardcoded internal IP (100.113.23.63:9421). Risk is minimal — IP is a tailnet-only endpoint, not user-controlled, and no user input flows into the URL. Noted for awareness. |
+| threat_flag: ssrf-low | src/backend/database/routes/usage.ts | New outbound fetch to hardcoded internal IP (100.64.0.12:9421). Risk is minimal — IP is a tailnet-only endpoint, not user-controlled, and no user input flows into the URL. Noted for awareness. |
 
 ## Deviations from Plan
 

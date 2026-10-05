@@ -346,7 +346,7 @@ The pill's existing drop-shadow (IdentityBadge.tsx:121) is `box-shadow: 0 8px 24
 
 ### Analog
 
-There is no direct session-case analog — the harness case's context meter lives inside the ComposeBox's Row 1 well, not in the badge chrome. The reference is Variant A of the meter-tasting prototype (screenshot equivalent lives at http://100.99.149.8:8899/meter-tasting.html — Variant A section).
+There is no direct session-case analog — the harness case's context meter lives inside the ComposeBox's Row 1 well, not in the badge chrome. The reference is Variant A of the meter-tasting prototype (screenshot equivalent lives at http://100.64.0.13:8899/meter-tasting.html — Variant A section).
 
 ### Landmines
 

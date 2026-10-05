@@ -147,7 +147,7 @@ None. This is a pure library module; no environment variables, no dashboard conf
 
 - **Plan 77-03** (mxid registration endpoint) can proceed independently — it does not import from this module.
 - **Plan 77-04** (birth-orchestrator extension) can `import { createOrUpdateUser, buildRelayJsonBody } from "../../matrix/matrix-admin-client.js"` immediately after wave 1 merges. Signatures match the extension shape in PATTERNS.md § identity-birth-orchestrator.ts.
-- **Plan 77-05** (integration test against live thenasty Synapse) can import all five primitives and drive them behind an env flag. The stable discriminated-union return contract means integration assertions can be written against `result.ok`/`result.status`/`result.error` without probing internal shapes.
+- **Plan 77-05** (integration test against live host-a Synapse) can import all five primitives and drive them behind an env flag. The stable discriminated-union return contract means integration assertions can be written against `result.ok`/`result.status`/`result.error` without probing internal shapes.
 - **Phase B token-minting for humans** can call `loginAsUser(mxid)` with no change to this module.
 
 ## Self-Check: PASSED

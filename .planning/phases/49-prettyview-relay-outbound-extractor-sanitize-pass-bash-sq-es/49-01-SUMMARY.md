@@ -76,7 +76,7 @@ The following deploy motion is INFORMATIONAL for the orchestrator — this plan 
 2. `cd /home/ubuntu/skynet-tabitha && npm run build:backend` (TypeScript compilation)
 3. `docker build -t skynet:latest .` (full container rebuild — backend TS change requires node process reload; fast-path `docker cp` covers only frontend `/app/html/`)
 4. `docker compose up -d --force-recreate skynet`
-5. HTTPS 200 verify: `curl -sk https://thenasty.taild9b663.ts.net/api/health | jq .`
+5. HTTPS 200 verify: `curl -sk https://host-a.tailnet-example.ts.net/api/health | jq .`
 6. Byte-verify sanitize function present in built bundle: `grep -c APOS_MARKER dist-backend/backend/claude-session/session-file-parser.js` — must be >= 1
 7. Post coord-AFTER to box-maintainer coord room: "Phase 49 sanitize pass deployed — extractOutboundBody now handles '" '"' "' apostrophe idiom"
 8. `git push` (push `feat/tab-title-from-tmux` branch)

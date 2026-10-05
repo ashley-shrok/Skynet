@@ -26,7 +26,7 @@ other consumers of the transcript-scan pipeline (ai-title, isWorking,
 dormant, recycling, lastStopAt, activityMtime), any starting-point backfill
 of the new store, any capture of non-Skynet interaction paths (phone Matrix
 DMs bypassing Skynet's compose surface), any manual reset-recency affordance,
-any multi-user keying of the store (Skynet single-tenant on t1000).
+any multi-user keying of the store (Skynet single-tenant on host-b).
 
 </domain>
 
@@ -261,7 +261,7 @@ any multi-user keying of the store (Skynet single-tenant on t1000).
 ## Specific Ideas
 
 - Concrete case user used to name the bug (2026-09-06): "Ivy stood up a
-  VM for Stacy within the last 24 hours, I think... yet she shows up
+  VM for Morgan within the last 24 hours, I think... yet she shows up
   underneath Lulabelle, who hasn't had a message sent to her since at
   least two and a half weeks ago." Ivy lives on workstation. Ivy recycled
   overnight (context-watch 80% nudge triggered on heavy work) → her
@@ -287,9 +287,9 @@ any multi-user keying of the store (Skynet single-tenant on t1000).
   excludes `<remote-content>`-wrapped turns). Adding that path is a
   different piece of work — different signal source, different plumbing
   (agent-relay hook, not Skynet compose funnel).
-- **Multi-user keying** of the send-log store. Skynet on t1000 is
+- **Multi-user keying** of the send-log store. Skynet on host-b is
   single-tenant for user, so the record needs no user column today. If
-  Skynet ever runs multi-tenant (Stacy's Skynet on T800 is per-user), add
+  Skynet ever runs multi-tenant (Morgan's Skynet on host-c is per-user), add
   the user dimension then.
 - **Non-compose Skynet interaction paths.** If a future affordance adds a
   way to talk to an identity from outside the compose surface, wire it

@@ -71,7 +71,7 @@ Read `.planning/shapes/shape-role-file-watch.md` FIRST AND IN FULL. That file is
 
 ### 4. id skill body edit — `substrate/skills/id/SKILL.md`
 
-**This is the canonical source that ships in the docker image and gets distributed. DO NOT edit `~/.claude/skills/id/SKILL.md` on the live filesystem — that's a downstream copy the orchestrator handles separately post-executor via distributor / self-update / Stacy briefing.**
+**This is the canonical source that ships in the docker image and gets distributed. DO NOT edit `~/.claude/skills/id/SKILL.md` on the live filesystem — that's a downstream copy the orchestrator handles separately post-executor via distributor / self-update / Morgan briefing.**
 
 Edits needed:
 - Add a new section titled `## On wake: start your role-file watch` **immediately after** the existing `## On wake: start your context watch` section. Body shape: same as the three sibling sections — one paragraph on why it exists, what it fires on, the one-shot Monitor launch pattern, description prefix, example command. Reference the shape file at `.planning/shapes/shape-role-file-watch.md` (in the box-maintainer role's Skynet repo) for full rationale, but keep the section itself self-contained enough that a fresh identity understands it without needing to fetch the shape.

@@ -158,7 +158,7 @@ None substantive. One instructive moment on Task 2 (see Deviations note 1 above)
 
 ## User Setup Required
 
-None — no external service configuration required at this plan boundary. AWS credentials come from IMDS (already configured on t1000 via `termix-ssm-role/PollyTranscribeExploratory`). The `AWS_INTEGRATION_TESTS=1` env var is the ONLY thing that changes real-AWS test behavior, and it's opt-in for developers who want to bill Polly + Transcribe for validation.
+None — no external service configuration required at this plan boundary. AWS credentials come from IMDS (already configured on host-b via `example-ssm-role/PollyTranscribeExploratory`). The `AWS_INTEGRATION_TESTS=1` env var is the ONLY thing that changes real-AWS test behavior, and it's opt-in for developers who want to bill Polly + Transcribe for validation.
 
 ## Next Phase Readiness
 

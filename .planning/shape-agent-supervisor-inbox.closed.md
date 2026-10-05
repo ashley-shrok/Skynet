@@ -160,16 +160,16 @@ module, equivalent). Fallbacks if openssl is unavailable:
 
 ### Concrete worked example
 
-An agent wants to send the message "ping" to the identity named `stacy`
+An agent wants to send the message "ping" to the identity named `morgan`
 at 02 October 2026, 14:30:22.123 UTC:
 
 ```
 ts=$(date -u +%Y%m%dT%H%M%S%3N)              # 20261002T143022123
 hex=$(openssl rand -hex 4)                   # e.g. a7f3b2c1
 name="${ts}-${hex}.msg"                      # 20261002T143022123-a7f3b2c1.msg
-mkdir -p ~/fleet/identities/stacy/inbox
-printf 'ping' > ~/fleet/identities/stacy/inbox/${name}.tmp
-mv ~/fleet/identities/stacy/inbox/${name}.tmp ~/fleet/identities/stacy/inbox/${name}
+mkdir -p ~/fleet/identities/morgan/inbox
+printf 'ping' > ~/fleet/identities/morgan/inbox/${name}.tmp
+mv ~/fleet/identities/morgan/inbox/${name}.tmp ~/fleet/identities/morgan/inbox/${name}
 ```
 
 A human operator during the manual-drive exercise window can skip the

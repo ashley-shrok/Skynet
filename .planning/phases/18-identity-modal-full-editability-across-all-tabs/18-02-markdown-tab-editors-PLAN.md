@@ -36,7 +36,7 @@ must_haves:
     - "The three save handlers are threaded to their respective tab renderers as props (onSaveIdentityFile, onSaveHistory, onSaveHandoff), each returning Promise<void> and throwing on backend error (per the sendIdentityMutation contract at IdentityModal.tsx:508-512 which throws when res.error is truthy)."
     - "On successful save, IdentityModal.tsx replaces the tab's state via setIdentityFileState / setHistoryState / setHandoffState with { status: 'ready', data: <echoed markdown or entries> } — mirrors the existing setWakeupsState pattern at line 513."
     - "History tab requires a distinct 'raw markdown' fetch path — the existing readIdentityHistory returns parsed entries[], not the raw file body suitable for a textarea editor. Solution baked into Task 2: the HistoryTab requests raw markdown via a one-shot identity:get-history-raw WS call on Edit-click (implemented as a client-side helper that opens a WS, sends identity:get-identity-file with a modified path? NO — see Task 2 for the clean approach: extend the existing identity:get-history handler and event to CARRY BOTH entries AND markdown so no new wire type is needed)."
-    - "IDMEDIT-05 verification acceptance: with Skynet-EC2's frontend connected via browser, an edit to nelly.md against nelly's identity folder on a remote box (hostId ≠ skynet-ec2's local hostId) round-trips via SFTP and the confirmed contents echo back to the modal within ~1-3 seconds. The user UAT task in this plan explicitly walks the cross-machine case."
+    - "IDMEDIT-05 verification acceptance: with Primary-host's frontend connected via browser, an edit to nelly.md against nelly's identity folder on a remote box (hostId ≠ primary-host's local hostId) round-trips via SFTP and the confirmed contents echo back to the modal within ~1-3 seconds. The user UAT task in this plan explicitly walks the cross-machine case."
   artifacts:
     - path: "src/ui/features/pretty-view/IdentityFileTab.tsx"
       provides: "Edit/Save/Cancel toolbar + editable textarea mode; toggles between markdown preview (existing) and monospace textarea editor"
@@ -78,7 +78,7 @@ IDMEDIT-03. user must be able to open the identity modal on nelly (or
 any identity), click Edit on any markdown tab, edit the raw markdown,
 click Save, and see her edit persist through a modal re-open and (for
 IDMEDIT-05 verification) through a cross-machine edit — nelly.md edited
-from a phone against nelly's live folder on thenasty via the skynet-ec2
+from a phone against nelly's live folder on host-a via the primary-host
 frontend.
 
 Output: three tab renderers gain edit-mode + toolbar + textarea; the
@@ -92,8 +92,8 @@ NOT re-litigate the shape here.
 
 Contains a MANDATORY human-verify user UAT checkpoint at end (see Task
 4) walking IDMEDIT-01, IDMEDIT-02, IDMEDIT-03, IDMEDIT-05 against a live
-Skynet with both LOCAL (skynet-ec2 own identity) and REMOTE (nelly on
-thenasty) test cases.
+Skynet with both LOCAL (primary-host own identity) and REMOTE (nelly on
+host-a) test cases.
 </objective>
 
 <execution_context>
@@ -266,22 +266,22 @@ Do NOT invalidateBountyCount (irrelevant for markdown edits). Do NOT touch exist
     Three markdown identity tabs (Identity file, History, Handoff) are editable with an Edit/Save/Cancel toolbar. Save writes the full file atomically via tmp+rename — LOCAL branch via fs.writeFile+rename, REMOTE branch via SFTP.writeFile+rename. Server echoes back the confirmed markdown after write so the tab rehydrates from truth. Cancel with unsaved changes prompts window.confirm.
   </what-built>
   <how-to-verify>
-    Prereqs: Skynet is deployed with Plan 01 backend + Plan 02 UI changes (user does the deploy per fork DEPLOY DISCIPLINE — 15-min deadman rollback). Test identity `tina` lives on skynet-ec2 (LOCAL bind-mount branch); test identity `nelly` lives on thenasty (REMOTE SSH branch).
+    Prereqs: Skynet is deployed with Plan 01 backend + Plan 02 UI changes (user does the deploy per fork DEPLOY DISCIPLINE — 15-min deadman rollback). Test identity `tina` lives on primary-host (LOCAL bind-mount branch); test identity `nelly` lives on host-a (REMOTE SSH branch).
 
     LOCAL branch UAT (IDMEDIT-01, IDMEDIT-02, IDMEDIT-03):
 
     1. Open Skynet in a browser, navigate to a Tina Claude Code session. Open the identity modal (existing patch-#191 gear/tab-strip mechanism).
     2. Click the "Identity" tab (which shows tina.md). Click Edit. Confirm the ReactMarkdown preview is replaced by a monospace textarea populated with the current tina.md content. Confirm the Save button is disabled (no changes yet) and the Cancel button is enabled.
     3. Type a small edit ("test line " + current timestamp) at the end of the textarea. Confirm the Save button becomes enabled. Click Save. Confirm the button reads "Saving…" briefly, then the textarea is replaced by the ReactMarkdown preview with the new content visible. No error surfaces.
-    4. Close and re-open the modal. Confirm the edit persists (tina.md on disk now has the added line). Confirm `cat ~/.claude/identities/tina/tina.md | tail -3` on skynet-ec2 shows the edit.
+    4. Close and re-open the modal. Confirm the edit persists (tina.md on disk now has the added line). Confirm `cat ~/.claude/identities/tina/tina.md | tail -3` on primary-host shows the edit.
     5. Click Edit again, add another line, then click Cancel. Confirm the window.confirm("Discard unsaved changes?") prompt appears. Click Cancel on the prompt (No). Confirm the textarea still shows the dirty edit. Click Cancel again, this time click OK on the prompt (Yes). Confirm the tab reverts to ReactMarkdown preview with the original content (the second line addition is gone).
     6. Repeat steps 2-5 for the History tab and Handoff tab against tina. For History, confirm the entries[] list re-renders after Save with the freshly added line at the top (since history.md is reverse-chronological rendered).
 
     REMOTE branch UAT (IDMEDIT-05):
 
-    7. From user's phone, connect to term.example.com. Navigate to a Nelly Claude Code session (Nelly runs on thenasty, a remote box — hostId is NOT in IDENTITIES_LOCAL_HOST_IDS).
+    7. From user's phone, connect to term.example.com. Navigate to a Nelly Claude Code session (Nelly runs on host-a, a remote box — hostId is NOT in IDENTITIES_LOCAL_HOST_IDS).
     8. Open the identity modal on Nelly. Click Identity tab. Click Edit. Add "phone test line " + timestamp. Click Save. Confirm the edit round-trips within ~1-3 seconds (SFTP is fast on tailnet), the ReactMarkdown preview re-renders with the new content, no error.
-    9. From a shell on thenasty (via a separate SSH), run `cat ~/.claude/identities/nelly/nelly.md | tail -3` and confirm the phone-added line is present on disk on the remote box.
+    9. From a shell on host-a (via a separate SSH), run `cat ~/.claude/identities/nelly/nelly.md | tail -3` and confirm the phone-added line is present on disk on the remote box.
     10. Repeat step 7-9 for History and Handoff tabs on Nelly.
 
     Non-regression walkthrough:

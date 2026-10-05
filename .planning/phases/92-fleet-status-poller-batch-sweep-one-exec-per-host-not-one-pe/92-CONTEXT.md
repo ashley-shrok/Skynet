@@ -89,9 +89,9 @@ Analogy: same transformation you use in SQL to fix N+1 point queries — replace
 ## Specific Ideas
 
 - **Enumerate first, code second.** Task 1 of the plan MUST be enumeration of current per-identity exec sites and what they read. Locking that as the v1 schema before writing the script avoids scope creep and makes parity verification straightforward.
-- **Rollout order matters.** Ship the sweep script + caller change together on Skynet's own container; verify the batch pattern in prod on t1000 first; then let the distributor propagate to peer boxes on their next restarts. The backward-compat fallback covers the rollout gap.
+- **Rollout order matters.** Ship the sweep script + caller change together on Skynet's own container; verify the batch pattern in prod on host-b first; then let the distributor propagate to peer boxes on their next restarts. The backward-compat fallback covers the rollout gap.
 - **Bonus wins from the redesign** (nice-to-have, do NOT gold-plate): atomic-ish snapshot of a poll cycle, lower full-cycle latency, free identity-count scaling, file-fetch no longer competes with fleet-status.
-- **`Skynet` host (id=6) is the primary test surface.** It's what user (userId `JqbJ5OmBQhQ-TGQRkHF3o`) has registered pointing at `100.99.149.8:22` (t1000's own tailnet IP), and it's the connection getting saturated. Verify against it specifically.
+- **`Skynet` host (id=6) is the primary test surface.** It's what user (userId `JqbJ5OmBQhQ-TGQRkHF3o`) has registered pointing at `100.64.0.13:22` (host-b's own tailnet IP), and it's the connection getting saturated. Verify against it specifically.
 
 </specifics>
 

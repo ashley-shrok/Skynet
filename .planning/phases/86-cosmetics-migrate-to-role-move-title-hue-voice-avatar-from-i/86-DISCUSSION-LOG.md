@@ -15,7 +15,7 @@ The bulk of the direction was settled during `/open cosmetics-migrate-to-role`, 
 Key user verbatims from that discussion, all captured in CONTEXT.md:
 
 - *"one shared image"* — settled the avatar semantics (role owns one image, all identities show it; no per-identity generation within a role-defined style).
-- *"Migration isn't part of the build. It's something that whoever deploys on this instance, and Stacy for her instance, would just need to do manually. and then there's no already-overridden problem anyway"* — settled migration as manual, out of scope; consequence: no auto-lift, no auto-wipe, no in-UI redundant-override warnings.
+- *"Migration isn't part of the build. It's something that whoever deploys on this instance, and Morgan for her instance, would just need to do manually. and then there's no already-overridden problem anyway"* — settled migration as manual, out of scope; consequence: no auto-lift, no auto-wipe, no in-UI redundant-override warnings.
 - *"Rolls can't have empty cosmetics with the flows that we have set up, so it's not an issue to solve"* — settled that fall-through-to-null for role cosmetics is a defensive backstop only, not a designed UX.
 - *"'avatars also get uploaded to your Matrix homeserver' untrue, runbook that probably came from should be updated"* — settled the runbook update alongside the code change (Matrix-upload step is stale, gets stripped).
 - *"we can be explicit for the second thing"* — settled the identity-edit UI affordance shape (explicit "inherited from role: X" / "revert to role default" affordances per field, not invisible-empty-means-inherit).

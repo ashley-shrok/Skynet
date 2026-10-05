@@ -137,7 +137,7 @@ None. Task 1 RED confirmed cleanly (test file failed at import resolution becaus
 
 ## User Setup Required
 
-None. This plan is self-contained — the migration runs automatically on the next Skynet backend restart post-98-05 deploy. user + Stacy will each observe their identity/role frontmatter voice values clear on their respective boxes' next boot; the pretty-view identity + role modals will show the placeholder "(default)" until an owner re-picks from the Polly catalog.
+None. This plan is self-contained — the migration runs automatically on the next Skynet backend restart post-98-05 deploy. user + Morgan will each observe their identity/role frontmatter voice values clear on their respective boxes' next boot; the pretty-view identity + role modals will show the placeholder "(default)" until an owner re-picks from the Polly catalog.
 
 ## Next Phase Readiness
 

@@ -1137,7 +1137,7 @@ sibling file `fleet-status-sweep-apps.test.sh`** (matching the
 - Case 6: `~/fleet/apps/with-icon/` — line emitted with `has_icon: true`.
 
 **Caveat:** the systemd cases (3-4) will need a real systemd `--user`
-session to be present in the test environment. On this box (t1000) that's
+session to be present in the test environment. On this box (host-b) that's
 fine. In CI (which doesn't have a user session), those test cases must be
 gated on `test -S /run/systemd/private || skip` or the equivalent
 availability check — matches the CONTEXT D-23 "agent-side UAT, NOT
@@ -1247,7 +1247,7 @@ partial state (folder exists but unit not yet enabled). D-01 check (c)
 next tick sees the finished state. This is the fail-open discipline.
 
 **Test fixture systemd availability:** The Python sweep tests need a real
-`systemd --user` session to exercise the D-01 (b)+(c) branches. On t1000
+`systemd --user` session to exercise the D-01 (b)+(c) branches. On host-b
 that's fine. Vitest tests can mock the sweep JSONL entirely and never touch
 systemd — the mocking happens at the JSONL boundary in
 `channel.setResponse(SWEEP_CMD, ...)`. Only the Python .test.sh cases hit
@@ -1348,7 +1348,7 @@ without special config.
 | A1 | the user's fleet has 0-10 apps per box ceiling for the foreseeable future | Q6 timeout analysis | Higher app count could push the sweep past its 8s budget. Mitigation: the per-app subprocess count is 1 (with the one-shot `systemctl show` consolidation), so ~100 apps × 10ms = 1s of systemctl work. Safe well beyond ~10. |
 | A2 | `systemctl --user show` reliably returns `Environment=` on a running unit | Q6 recommendation | If some units don't have `Environment=` in `show` output (very rare — units WITHOUT `Environment=` directives), port comes back None. D-05 spec allows `port: number \| null`; the frontend/shape 3 handles missing port. |
 | A3 | The filter can go through Promise.allSettled fan-out without measurable UI latency | Q4 async filter | If checkHostAccess is slow (SQLite hit + user session lookup), fan-out could visibly delay frames. Mitigation: LRU cache in `filterAppFrame` (30s TTL keyed on user+host); PermissionManager likely has its own cache too. Verify at execute time. |
-| A4 | Test cases 1-6 in Q7 can run on t1000 with real systemd --user | Q7 test seams | If CI ever tries to run these, they'll fail. Mitigation: gate the shell tests on a systemd-availability check (documented in CONTEXT D-23 as "agent-UAT, not CI"). |
+| A4 | Test cases 1-6 in Q7 can run on host-b with real systemd --user | Q7 test seams | If CI ever tries to run these, they'll fail. Mitigation: gate the shell tests on a systemd-availability check (documented in CONTEXT D-23 as "agent-UAT, not CI"). |
 | A5 | The `create-app.sh` slug regex `^[a-z][a-z0-9-]*$` (max 40 chars) is the canonical slug shape | multiple sections | If shape 1 later relaxes the slug rules, the sweep's `APP_SLUG_RE` needs to widen in lockstep. Currently they're independent — a small copy-paste. Consider extracting a shared regex file if this becomes a maintenance burden. Not in scope for shape 2. |
 
 ## Open Questions
@@ -1381,7 +1381,7 @@ without special config.
 | Python 3.6+ | fleet-status-sweep.py | ✓ | 3.10+ on managed boxes | — (stdlib-only script; no venv needed) |
 | systemctl (--user) | New `_systemd_*` helpers in the sweep | ✓ on managed boxes | systemd 245+ | If missing, `_systemd_*` helpers return False/None → apps excluded (D-01 fails). Fail-open. |
 | Node/TypeScript build toolchain (tsc, vitest) | Skynet backend build + tests | ✓ | Existing | — |
-| Bash 4+ | Python sweep test driver (.test.sh) | ✓ on t1000, CI | 5+ | — |
+| Bash 4+ | Python sweep test driver (.test.sh) | ✓ on host-b, CI | 5+ | — |
 
 **Missing dependencies with no fallback:** None.
 

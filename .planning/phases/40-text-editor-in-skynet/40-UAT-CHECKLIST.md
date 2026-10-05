@@ -13,12 +13,12 @@ Each of the 7 items verifies exactly one LOCKED decision from `40-CONTEXT.md § 
 
 - Skynet deployed to https://term.example.com via the maintainer's deploy motion (git pull --rebase → coord-room BEFORE announce → docker build → deadman-guarded docker compose up --force-recreate → HTTPS 200 verify).
 - user's browser is at HEAD of `feat/tab-title-from-tmux` + Phase 40 patches are live (verify by loading https://term.example.com; hard-refresh once if the first-load HTTP2_PROTOCOL_ERROR appears).
-- At least one fleet agent has served user a tailnet URL via the id skill's `python3 -m http.server` serve pattern (see id-skill § "Sending files to the user"). If unsure whether one is available in a recent conversation, walk the **Ash-side prep** section below first.
+- At least one fleet agent has served user a tailnet URL via the id skill's `python3 -m http.server` serve pattern (see id-skill § "Sending files to the user"). If unsure whether one is available in a recent conversation, walk the **User-side prep** section below first.
 - No dev-tools / no `docker exec` / no shell required for any of the 7 items. Every check is UI-observable on the production Skynet PWA (desktop AND iPhone).
 
 ---
 
-## Ash-side prep
+## User-side prep
 
 Before starting the walk, get an agent-served URL into a pretty-view conversation:
 
@@ -34,7 +34,7 @@ Before starting the walk, get an agent-served URL into a pretty-view conversatio
 **Verifies decision D-01 verbatim:** "Skynet passively watches agent messages for served-tailnet HTTP URLs — the pattern canonicalized in the id skill's 'Sending files to the user' section. NO new primitive on the agent side. Agents keep serving files exactly as they do today; Skynet does all the enrichment."
 
 **Setup:**
-- Have the message from Ash-side prep visible in pretty-view (an assistant message containing a `http://100.x.y.z:PORT/filename.ext` URL).
+- Have the message from User-side prep visible in pretty-view (an assistant message containing a `http://100.x.y.z:PORT/filename.ext` URL).
 
 **Steps:**
 1. Look at the agent message that carries the tailnet URL.

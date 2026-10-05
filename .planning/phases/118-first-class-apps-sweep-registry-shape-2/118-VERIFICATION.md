@@ -58,7 +58,7 @@ verifier: Claude (Opus 4.7 — goal-backward verifier)
 | D-20 | Extend sweep-schema.ts to type the new line | VERIFIED | `sweep-schema.ts:250-261` — `SweepAppLine` interface with all 10 wire fields. `SweepLine` union widened at L267. `isSweepLineOfCurrentSchema` widened at L287. `SweepParseResult` extended with `appLines: SweepAppLine[]` at L305. Parser dispatch at L392-398. `SWEEP_SCHEMA_VERSION` NOT bumped (additive discipline). Extended `SWEEP_FIELD_PARITY` map with C0..C8 rows. |
 | D-21 | Test at four layers — parse, reconciliation, wire, filter | VERIFIED | Parse: `sweep-schema.test.ts` 39 tests (9 new for SweepAppLine dispatch); shell driver 7 cases. Reconciliation: `ssh-poll-orchestrator.test.ts` A1-A5 (removal, disappearance, transient-failure, health-flip, schema-mismatch). Wire: `wire-protocol.test.ts` 68 tests (8 new for app frames); `subscription-registry.test.ts` 35 tests (7 new for apps map + snapshot). Filter: `app-frame-filter.test.ts` 12 tests; `subscription-registry.test.ts` Filter-1..Filter-7 (7 integration tests); `fleet-status-server.test.ts` Server-1..Server-5 (5 combinatorial WS tests). Executor scoped run: 386 tests passed across 10 files. |
 | D-22 | Executor uses scoped test runs | VERIFIED | `git log --format="%B" 55630853^..d7a75bea | grep -iE "npx vitest run\b"` returns **0 matches**. All executor commit bodies use `npx vitest related --run <paths>` or path-scoped invocations. |
-| D-23 | Real end-to-end integration test on this box | VERIFIED (agent-UAT documented in 118-01-SUMMARY.md) | Plan 118-01 SUMMARY documents the D-23 UAT ran on t1000: created `~/fleet/apps/scratch-t116-uat/` with real `app.json` + real systemd `--user` unit, ran the sweep, saw the healthy emit; stopped the unit, saw the unhealthy emit with the exact D-03 string; cleaned up. This is an agent-UAT (per CONTEXT D-23) not a CI test; the SUMMARY transcript is the audit trail. The final plan-set D-23 (WS end-to-end with two subscribers and starter.ts wired) is still pending the deploy motion — flagged below. |
+| D-23 | Real end-to-end integration test on this box | VERIFIED (agent-UAT documented in 118-01-SUMMARY.md) | Plan 118-01 SUMMARY documents the D-23 UAT ran on host-b: created `~/fleet/apps/scratch-t116-uat/` with real `app.json` + real systemd `--user` unit, ran the sweep, saw the healthy emit; stopped the unit, saw the unhealthy emit with the exact D-03 string; cleaned up. This is an agent-UAT (per CONTEXT D-23) not a CI test; the SUMMARY transcript is the audit trail. The final plan-set D-23 (WS end-to-end with two subscribers and starter.ts wired) is still pending the deploy motion — flagged below. |
 
 ---
 
@@ -68,7 +68,7 @@ Traced the full pipeline end-to-end:
 
 | Stage | File | Verified |
 |-------|------|----------|
-| App on disk → JSONL emit | `fleet-status-sweep.py:_enumerate_apps` → `_emit` | YES — real `os.scandir` + `systemctl show` + `os.stat` calls, no static fallbacks. Shell test smoke against real systemd on t1000 (SUMMARY 118-01) proves real data flows. |
+| App on disk → JSONL emit | `fleet-status-sweep.py:_enumerate_apps` → `_emit` | YES — real `os.scandir` + `systemctl show` + `os.stat` calls, no static fallbacks. Shell test smoke against real systemd on host-b (SUMMARY 118-01) proves real data flows. |
 | JSONL → SweepAppLine | `sweep-schema.ts:parseSweepJsonl` L392-398 | YES — lenient cast into `SweepAppLine[]`, one line per JSONL entry. |
 | SweepAppLine → AppState | `ssh-poll-orchestrator.ts:adaptAppLineToState` L1215-1227 | YES — pure field-copy; stamps hostId; no defensive undefined. |
 | AppState → publishAppUpdate | `ssh-poll-orchestrator.ts:1868-1873` (compose+publish loop) | YES — inside `{ok:true}` scope; calls `deps.registry.publishAppUpdate(host.id, adaptAppLineToState(host.id, appLine))` per app line. |
@@ -147,7 +147,7 @@ These are LOAD-BEARING items surfaced by Plan 05's SUMMARY that must land in the
 
 ### 4. D-23 full end-to-end UAT
 
-**Status:** Partial. Plan 118-01 executed the sweep-loop half of D-23 on t1000 (SUMMARY transcript). The full end-to-end (subscribe as U1 vs U2, verify per-user projection over the WS pipe with the wired filter) is documented as pre-deploy UAT in Plan 05 SUMMARY § "Deploy-Gate Reminders" item 3. This must run after starter.ts wiring lands, before container swap.
+**Status:** Partial. Plan 118-01 executed the sweep-loop half of D-23 on host-b (SUMMARY transcript). The full end-to-end (subscribe as U1 vs U2, verify per-user projection over the WS pipe with the wired filter) is documented as pre-deploy UAT in Plan 05 SUMMARY § "Deploy-Gate Reminders" item 3. This must run after starter.ts wiring lands, before container swap.
 
 ### 5. Container-mutation serialization (the user 2026-09-12)
 

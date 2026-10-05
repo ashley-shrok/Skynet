@@ -51,7 +51,7 @@ Fix activeSet id-shape mismatch: ambient fleet-row tap + deactivate no longer re
 
 ### Task 2: Test 20F (double-purge) + Test 20G (single-purge no-crash) — 84cfc06
 
-- **Test 20F** — fixture: `host={id: "3", name: "thenasty"}, targetTmuxSession: "shrok", row.id: "active-1"`; asserts `removeFromActiveSetSpy` called TWICE, nth(1) with `"active-1"`, nth(2) with `"fleet::3::shrok"`, plus `onDeactivateRow` called once with the row.
+- **Test 20F** — fixture: `host={id: "3", name: "host-a"}, targetTmuxSession: "sable", row.id: "active-1"`; asserts `removeFromActiveSetSpy` called TWICE, nth(1) with `"active-1"`, nth(2) with `"fleet::3::sable"`, plus `onDeactivateRow` called once with the row.
 - **Test 20G** — fixture uses `targetTmuxSession: null` (with a valid host — see Deviations below); asserts `removeFromActiveSetSpy` called EXACTLY ONCE with `"active-2"`, no call contains `"fleet::"`, no throw, `onDeactivateRow` called once.
 - Additive-only inside the existing `describe("PrettyConversationsPanel: deactivate action (quick-260727-gm3)")` block; Test 20E untouched.
 - Also added a `fleetRowId` entry to the `vi.mock("@/state/conversation-store")` map — without it the Panel's new named import would resolve to `undefined` at test-time and Test 20F would crash. This is a Rule 3 auto-fix (blocking issue) — tracked in Deviations below.
@@ -84,7 +84,7 @@ Fix activeSet id-shape mismatch: ambient fleet-row tap + deactivate no longer re
 
 - **Found during:** Task 1 (implementation)
 - **Issue:** Plan template `fleetRowId(row.host.id, row.targetTmuxSession)` would fail typecheck: `Host.id: string` but `fleetRowId(hostId: number, ...)` — the two existing call sites in the store use `session.hostId` from `FleetSession.hostId: number`, which fits without conversion. The Panel doesn't have that type coming in.
-- **Fix:** Wrote `fleetRowId(parseInt(row.host.id, 10), row.targetTmuxSession)` at the call site. Matches the store's own bridge at `computeSnapshot` L296 (`dedupKey(String(parseInt(tab.host.id)), tmux)`) — same string↔number seam, same handling. Test 20F's fixture is `host.id: "3"` and asserts on `"fleet::3::shrok"`; `parseInt("3", 10) === 3` produces exactly that.
+- **Fix:** Wrote `fleetRowId(parseInt(row.host.id, 10), row.targetTmuxSession)` at the call site. Matches the store's own bridge at `computeSnapshot` L296 (`dedupKey(String(parseInt(tab.host.id)), tmux)`) — same string↔number seam, same handling. Test 20F's fixture is `host.id: "3"` and asserts on `"fleet::3::sable"`; `parseInt("3", 10) === 3` produces exactly that.
 - **Files modified:** `src/ui/features/pretty-conversations/PrettyConversationsPanel.tsx`
 - **Commit:** cb9b5b1
 
@@ -92,7 +92,7 @@ Fix activeSet id-shape mismatch: ambient fleet-row tap + deactivate no longer re
 
 - **Found during:** Task 2 (test authoring)
 - **Issue:** The test file mocks `@/state/conversation-store` (L138-165) and only exposes the specific symbols the Panel imports. The Panel's new `fleetRowId` import would resolve to `undefined` inside `handleRowDeactivate` at test-time → Test 20F would crash on `undefined is not a function`.
-- **Fix:** Added `fleetRowId: (hostId, sessionName) => `fleet::${hostId}::${sessionName}`` to the mock map so the format matches the real helper verbatim. Test 20F's `toHaveBeenNthCalledWith(2, "fleet::3::shrok")` assertion now has a value to match against.
+- **Fix:** Added `fleetRowId: (hostId, sessionName) => `fleet::${hostId}::${sessionName}`` to the mock map so the format matches the real helper verbatim. Test 20F's `toHaveBeenNthCalledWith(2, "fleet::3::sable")` assertion now has a value to match against.
 - **Files modified:** `src/ui/features/pretty-conversations/PrettyConversationsPanel.test.tsx`
 - **Commit:** 84cfc06
 

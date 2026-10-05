@@ -21,7 +21,7 @@ Extend the New-Session modal to birth a whole new fleet identity in one motion �
 - Per-step contextual failure messages (defaults drafted by Tina; user overrides if any read wrong post-ship)
 - Collision blocking on BOTH Skynet-side (409 pre-check via GET `/identities`) AND target-host-side (backend probes `~/.claude/identities/<name>/` over SSH before submit)
 - Focus-follow to the new session on success (modal closes, conversation view switches to the fresh identity's session)
-- Self-birth support: when target host IS `skynet-ec2` itself, backend runs the tmux/claude commands locally instead of via SSH
+- Self-birth support: when target host IS `primary-host` itself, backend runs the tmux/claude commands locally instead of via SSH
 - Frontend + backend tests, `skynet-patches.md` entry, ship as numbered patch(es) after #288
 
 **Out of scope (deliberate, user-confirmed):**
@@ -73,11 +73,11 @@ Extend the New-Session modal to birth a whole new fleet identity in one motion �
   4. Store the 3 corrected images in a short-lived server-side cache keyed by a batch-id (temporary — expires ~10 min or when picked).
   5. Return URLs the modal can `<img src>`.
 - **User picks one → its bytes get uploaded via existing `POST /identities` multipart contract** when Create fires (see "Compound birth sequence" below step 1).
-- **OpenAI API key source:** Tina's `~/.claude/identities/tina/openai-key.json` on skynet-ec2 (mode 0600) is the operational key today. Backend reads it at boot. Planner should confirm this is the right sharing model during plan-phase, or propose Skynet gets its own key (deferred question — not a blocker for CONTEXT.md).
+- **OpenAI API key source:** Tina's `~/.claude/identities/tina/openai-key.json` on primary-host (mode 0600) is the operational key today. Backend reads it at boot. Planner should confirm this is the right sharing model during plan-phase, or propose Skynet gets its own key (deferred question — not a blocker for CONTEXT.md).
 - **Regen semantics:** Every press of Generate/Regenerate is a fresh archetype draft (step 1 re-runs). No same-prompt-different-seeds mode. If a previous batch is in-flight when Regenerate is clicked, disable the button until the previous batch resolves (my call — user waved forward). Cancellation of an in-flight batch is out of scope for v1.
 - **Stale-avatar handling:** If the user picks an avatar and then edits name/title/brief afterward, the picked avatar stays (silently — no "your inputs changed, please regen" warning). User's call whether to regen. My call, matches "best we can" philosophy.
 
-### Compound birth sequence (5 steps — per Nelly's mechanism, cribbed from `~/vms-apps/apps/home/agent-supervisor.sh` on thenasty)
+### Compound birth sequence (5 steps — per Nelly's mechanism, cribbed from `~/vms-apps/apps/home/agent-supervisor.sh` on host-a)
 
 Runs on backend after Create is clicked. Each step emits progress (SSE or equivalent — planner's call on transport):
 
@@ -87,7 +87,7 @@ Runs on backend after Create is clicked. Each step emits progress (SSE or equiva
 - On failure → step-1 failure blurb, stop.
 
 **Step 2: Open tmux session on target host.**
-- If target host is `skynet-ec2` (self-birth): run locally. Otherwise: SSH into target host via Tailscale (crib the SSH orchestration shape from `~/.claude/skills/spawn-remote-agent/`).
+- If target host is `primary-host` (self-birth): run locally. Otherwise: SSH into target host via Tailscale (crib the SSH orchestration shape from `~/.claude/skills/spawn-remote-agent/`).
 - `mkdir -p <expanded-path>` — create working directory if missing.
 - `tmux new-session -d -s <name> -c <expanded-path>` (optionally `-x 220 -y 50` per Nelly's terminal-sizing gotcha).
 - `sleep 3` (login shell needs to source profile).
@@ -148,10 +148,10 @@ Runs on backend after Create is clicked. Each step emits progress (SSE or equiva
 - Backend already has SSH machinery (identity edit modal talks to hosts, various host CRUD flows use SSH exec channel). Planner should identify the existing SSH-command-exec pattern in the codebase (grep for `exec-channel` or similar) and reuse it rather than introducing a new SSH primitive.
 
 ### Testing
-- **Backend unit tests** for the orchestrator endpoint (mocking SSH shell-out): happy-path 5-step sequence, per-step failure paths, self-birth (skynet-ec2) uses local-exec branch, timing (blind Enter train fires 7 times at 3s intervals, verifiable via mock timer), fixture identity record verification after step 1.
+- **Backend unit tests** for the orchestrator endpoint (mocking SSH shell-out): happy-path 5-step sequence, per-step failure paths, self-birth (primary-host) uses local-exec branch, timing (blind Enter train fires 7 times at 3s intervals, verifiable via mock timer), fixture identity record verification after step 1.
 - **Backend unit tests** for avatar batch endpoint: LLM archetype call with mocked response, gpt-image-1 x3 parallel with mocked response, gamma-correction determinism, cache expiry.
 - **Frontend tests** for `NewSessionDialog.tsx` extension: mode-toggle field visibility, name-collision pre-check UI (both sides), avatar Generate/Regenerate loop with mocked batch endpoint, avatar-pick-required Create-button-enable logic, SSE progress consumption + step render, failure blurb per step, modal-close on failure resets fields, focus-follow onSuccess callback fires with correct payload.
-- **End-to-end manual verify** (part of ship checklist, not a plan task): birth a real test identity on a real test host (e.g., ephemeral name like `phase20test`), verify all 5 steps tick green, verify pane switches to the new session, verify fresh identity's `/id` create-path fires, verify identity file scaffolded on target host. Then birth on skynet-ec2 itself (self-birth) and verify local-exec branch works. Then test both collision blocks (create a name that exists Skynet-side; create a name whose folder exists on target host). Then test at least one failure path (kill SSH mid-step-2, verify blurb).
+- **End-to-end manual verify** (part of ship checklist, not a plan task): birth a real test identity on a real test host (e.g., ephemeral name like `phase20test`), verify all 5 steps tick green, verify pane switches to the new session, verify fresh identity's `/id` create-path fires, verify identity file scaffolded on target host. Then birth on primary-host itself (self-birth) and verify local-exec branch works. Then test both collision blocks (create a name that exists Skynet-side; create a name whose folder exists on target host). Then test at least one failure path (kill SSH mid-step-2, verify blurb).
 
 ### Ship
 - Numbered patch(es) after #288. Planner slices — likely 3-5 plans: (1) backend avatar batch endpoint + LLM/gpt-image-1 integration + gamma correction; (2) backend orchestrator endpoint + SSH sequence + SSE progress + tests; (3) frontend modal extension + validation + pickers reuse; (4) frontend avatar loop + SSE consumption + progress UI + failure blurbs; (5) skynet-patches.md entries + human-verify checklist.
@@ -179,7 +179,7 @@ Runs on backend after Create is clicked. Each step emits progress (SSE or equiva
 
 ### Nelly's mechanism (source of truth for the birth sequence)
 - Nelly's DM 2026-08-03: event `$IC059aLvfcQsVu01q-ffEil9TazzhU0AZ0wfl2zqLNs`, full text at `~/.claude/identities/tina/relay-state/messages/_IC059aLvfcQsVu01q-ffEil9TazzhU0AZ0wfl2zqLNs.txt`. Captures the full 8-line sequence, env-var rationale, failure modes, and architectural recommendation.
-- `~/vms-apps/apps/home/agent-supervisor.sh` on thenasty (served at `http://100.113.23.63/vms/home/agent-supervisor`) — CANONICAL SOURCE for the bootstrap sequence. Relevant chunks:
+- `~/vms-apps/apps/home/agent-supervisor.sh` on host-a (served at `http://100.64.0.12/vms/home/agent-supervisor`) — CANONICAL SOURCE for the bootstrap sequence. Relevant chunks:
   - Lines 106-142: env-var definitions + `accept_trust_for_workdir()` helper (the pre-launch trust-flag write recipe).
   - Lines 326-340: the FRESH-path drive() sequence (what Phase 20 cribs).
   - Lines 227-323: the RESUME path — probably NOT relevant to Phase 20 (Skynet births NEW, doesn't resume).
@@ -241,7 +241,7 @@ Full session captured in bounty timeline. Load-bearing verbatims:
 
 ### discuss-phase decisions (2026-08-03)
 - **Nelly coordination timing:** "the earlier you get with the stuff from Nelly, the better, because you'll just have more context" → coordinated during discuss-phase; her mechanism folded into `<decisions>` above.
-- **Self-birth on skynet-ec2 allowed:** "obviously self-birth would have to be possible too" → local-exec branch when target host === skynet-ec2, SSH otherwise.
+- **Self-birth on primary-host allowed:** "obviously self-birth would have to be possible too" → local-exec branch when target host === primary-host, SSH otherwise.
 - **Progress granularity + failure blurbs = Tina's call:** "whatever you think for number three, and I don't need to approve for number four" → 5 steps as ticking checkboxes; failure blurbs drafted above (user overrides post-ship if any read wrong).
 - **Homeserver-register OUT of scope:** "Nelly does not do that part for the relay, so it wouldn't be part of what you're building either." → No homeserver-register / relay.json step in the birth sequence. Identity self-services relay per historical pattern. Concern flagged to Nelly separately in case current homeserver requires her to do it as a workaround — that's fix-at-source, not bake-into-Skynet.
 

@@ -39,7 +39,7 @@ All twenty D-decisions from `119-CONTEXT.md`'s `<decisions>` block are LOCKED. V
 - **D-17** no pre-first-frame state — `appTiles.length === 0` = "no apps" (whether cold or empty).
 - **D-18** three-layer testing: component, subscription/store, panel-integration.
 - **D-19** executor uses `npx vitest related --run <touched>` — orchestrator runs full suite pre-deploy.
-- **D-20** real end-to-end agent UAT on t1000 with scratch `~/fleet/apps/scratch-sidebar-test/`.
+- **D-20** real end-to-end agent UAT on host-b with scratch `~/fleet/apps/scratch-sidebar-test/`.
 
 ### Claude's Discretion
 
@@ -92,7 +92,7 @@ CONTEXT.md's 20 D-decisions ARE the phase requirements. This project does not us
 | D-17 | No pre-first-frame state | Automatic — subscribe-on-mount + Phase 118 D-16 snapshot-on-subscribe |
 | D-18 | Three-layer test coverage | Test scaffolding: see `Standard Stack` — vitest 4 + @testing-library/react 16 + jsdom |
 | D-19 | Scoped executor test runs | Command: `npx vitest related --run <files>` |
-| D-20 | Real end-to-end UAT | Manual — requires `~/fleet/apps/scratch-sidebar-test/` on t1000 |
+| D-20 | Real end-to-end UAT | Manual — requires `~/fleet/apps/scratch-sidebar-test/` on host-b |
 
 ## Architectural Responsibility Map
 
@@ -149,7 +149,7 @@ Not applicable — this phase installs zero external packages. Section retained 
 ### System Architecture Diagram
 
 ```
-[t1000 disk state]
+[host-b disk state]
      ~/fleet/apps/<slug>/{app.json, icon.webp, systemd unit}
                              │
                              ▼
@@ -648,7 +648,7 @@ Nothing to migrate. Every pattern this phase uses is current-in-repo and battle-
 
 Skip — Phase 119 is a pure code-and-config phase with no new external tool dependencies. All required tools (Node 20+, npm, vitest, docker, ssh) are already established by prior phases and used daily in this repo.
 
-**One implicit dependency worth flagging:** The D-20 agent-UAT step requires SSH access from Skynet's container to t1000's `~/fleet/apps/` and permission to `systemctl --user` a scratch unit. Both are established by prior campaign shapes; nothing new to provision.
+**One implicit dependency worth flagging:** The D-20 agent-UAT step requires SSH access from Skynet's container to host-b's `~/fleet/apps/` and permission to `systemctl --user` a scratch unit. Both are established by prior campaign shapes; nothing new to provision.
 
 ## Security Domain
 

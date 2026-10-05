@@ -26,7 +26,7 @@ Each managed box needs to know its own parent Skynet's domain so agents can cons
 
 **Agents aren't lied to.** The URL an agent writes into a message is the actual URL the user clicks. No rewriting, no dressing localhost as something else, no Skynet-side detection that surfaces "some" paths as clickable while leaving others plain. Agents construct URLs deliberately, users learn to recognize the shape, and the affordance is exactly-when-you-see-it. Both sides share the same picture of what's happening.
 
-**Skynet is the delivery surface, not the agent.** The bytes live on the agent's box; the agent's job is to say where. Skynet is what the user actually talks to over HTTPS. This is what lets us drop the tailnet dependency, kill the Chrome insecure warnings, and cover Skynet deployments (T800 and future user-VMs) that never sit on the fleet tailnet.
+**Skynet is the delivery surface, not the agent.** The bytes live on the agent's box; the agent's job is to say where. Skynet is what the user actually talks to over HTTPS. This is what lets us drop the tailnet dependency, kill the Chrome insecure warnings, and cover Skynet deployments (host-c and future user-VMs) that never sit on the fleet tailnet.
 
 **Files are read-only from Skynet's side; edits round-trip through the user's next message.** Skynet never overwrites files at arbitrary paths on arbitrary hosts. The user's edit becomes an attachment to their next message; the agent decides what to do with it. This clean lack-of-write-authority means "Skynet as universal file access" doesn't quietly become "Skynet as universal file writer" — a much wider blast radius we don't want.
 
@@ -38,7 +38,7 @@ Each managed box needs to know its own parent Skynet's domain so agents can cons
 
 The id skill currently tells agents to bundle files into a temporary directory, launch a small local HTTP server on the tailnet IP, and hand the user a link to that server. Works, but:
 
-- Requires the box to be on the fleet tailnet — T800 (Aither Health deployment, Stacy-maintained) doesn't have this, future customer VMs on their own AWS networks won't either.
+- Requires the box to be on the fleet tailnet — host-c (Acme Health deployment, Morgan-maintained) doesn't have this, future customer VMs on their own AWS networks won't either.
 - Chrome flags every HTTP-to-IP download as insecure — user has to right-click "save as" and then confirm "keep" in the downloads tray. Every time.
 - Agents have to actively serve — stand up their own local server, wrap it to declare correct MIME types on Markdown, kill it by explicit process ID after use, and steer clear of the process-killing patterns that match their own command line.
 - The current section in the id skill has real gotchas baked in (charset handling, process lifecycle, subdirectory serving) — all of that goes away when Skynet is the delivery surface.
@@ -52,7 +52,7 @@ The edit-in-bubble affordance's specific flow is worth calling out because it's 
 - **Agents construct a URL and it silently doesn't work.** User clicks and it hangs or returns a confusing error. This is the load-bearing failure mode — the affordance's credibility depends on "if you can see it, it works." Broken URLs undermine every future URL.
 - **The serve URL claims passthrough but silently drops WebSockets or breaks live reactivity.** An agent stands up a live dev server, hands the URL to the user, the page loads but hot-reload never fires. Neither side has a signal something's wrong. This is the class of bug that reintroduces the "we fixed this and it's still broken" pain from other tangled layers.
 - **Origin isolation gets skipped and modern frontends silently break under path-prefix serve URLs.** A frontend framework that emits absolute-path asset references (most of them do) served at a path prefix will have those references resolve against Skynet's origin instead of the served app's origin. Half the page loads with the rest silently missing. This is why the plan phase for serve has to commit to some form of per-host-per-port origin isolation up front — retrofitting later is much worse than getting it right the first time.
-- **Auth grants stop being respected on the new routes.** A user on T800 who wasn't granted access to another user's VM discovers they can reach it via a proxy URL. This isn't a hypothetical — T800 is going multi-tenant and this door has to inherit the existing gate, not open a wider one.
+- **Auth grants stop being respected on the new routes.** A user on host-c who wasn't granted access to another user's VM discovers they can reach it via a proxy URL. This isn't a hypothetical — host-c is going multi-tenant and this door has to inherit the existing gate, not open a wider one.
 - **Skynet's read access falls short on paths agents actually write to.** Agent writes a scratch file, cites the URL, Skynet's SSH access on that host can't read it. Agent has no easy signal from their side; user sees a broken URL. Whatever mechanic Skynet uses to reach the file has to actually cover the space of paths agents write to.
 - **The tailnet-serve pattern lives on in agent muscle memory because the id skill rewrite is unclear.** Agents keep spinning up their own local HTTP servers because they read the new id skill and didn't quite believe the URL-scheme thing works. The section rewrite has to be affirmative and specific enough that the new pattern is obvious and the old one is clearly retired.
 - **The parent-Skynet-domain config doesn't reliably land on every managed box.** An agent doesn't know what URL to construct because the config file is missing or stale. Silent — the agent falls back to guessing or omitting the URL entirely. The distributor push for this config has to be as reliable as the rest of the substrate.
@@ -92,7 +92,7 @@ The edit-in-bubble affordance's specific flow is worth calling out because it's 
 3. **SSH tunnel machinery in Skynet's existing SSH stack.** How does the current SSH usage layer for tunnels vs terminal sessions? Persistent tunnels vs per-request? Connection pooling? Cleanup lifecycle? Any pattern to reuse.
 4. **Origin-isolation alternatives sanity check.** Confirm wildcard subdomain is the right approach vs any less-heavy alternative (path prefix with response rewriting, per-app base-path config, etc.) — not by argument but by trying the failure modes and confirming they're actually bad.
 
-user offered to hook this up with the Aither VPC team if AWS/DNS resources need to be created for testing.
+user offered to hook this up with the Acme VPC team if AWS/DNS resources need to be created for testing.
 
 **Then, two GSD phases run sequentially:**
 
@@ -125,7 +125,7 @@ Post-R&D `/open` session on 2026-09-10 pressure-tested and locked the following 
 ### Q2 — URL parse rules
 
 - Grammar: `<host>-<port>.serve.term.<skynet-domain>`. Split on the LAST dash of the leftmost DNS label; right side must be all-digits (the port); everything left is the hostname.
-- **Registration constraint**: no hostname may end in `-\d+`. Enforced at host-add time. Current fleet hosts (thenasty, workstation, linux-beelink, aither-cloud, aither-cloud2, aither-sftp, t1000, t800, WINDOWS-PC, ZoeyBattlestation) all pass the constraint.
+- **Registration constraint**: no hostname may end in `-\d+`. Enforced at host-add time. Current fleet hosts (host-a, workstation, linux-minipc, acme-cloud, acme-cloud2, acme-sftp, host-b, host-c, WINDOWS-PC, Gaming-pc) all pass the constraint.
 - Case: keep display case in DB, lowercase for lookup (`LOWER(hostname) = LOWER($input)`) — no schema migration needed for existing mixed-case rows.
 
 ### Q3 — Broken-serve UX + tunnel lifecycle
@@ -144,22 +144,22 @@ Post-R&D `/open` session on 2026-09-10 pressure-tested and locked the following 
 
 - Backend serve URL routing calls existing `resolveHostByName(name, userId)` from Phase 78 — **owned-only**, matches file URL precedent (Phase 78 comment: *"no shared-access branch to walk"*).
 - Grants (`hostAccess`) deliberately out of scope for name resolution. Cross-user serve URL handoff is not supported.
-- Works uniformly on t1000 (single-tenant, no collisions possible) and T800 (multi-user; each user's own hosts are their own namespace; other users' hosts are invisible via name resolution).
+- Works uniformly on host-b (single-tenant, no collisions possible) and host-c (multi-user; each user's own hosts are their own namespace; other users' hosts are invisible via name resolution).
 - Cross-user "share my app with another user" use case is NOT a serve URL gap — it belongs to the future "Apps" concept (see Deferred section above).
 
 ### Q6 — Domain layout
 
-- Wildcard cert: `*.serve.term.example.com` (single-level wildcard). Existing hosted zone `example.com` (<personal-hosted-zone-id>); R&D-established cross-account AssumeRole path (Aither `termix-ssm-role` → personal `<caddy-route53-role>`) already covers this zone.
+- Wildcard cert: `*.serve.term.example.com` (single-level wildcard). Existing hosted zone `example.com` (<personal-hosted-zone-id>); R&D-established cross-account AssumeRole path (Acme `example-ssm-role` → personal `<caddy-route53-role>`) already covers this zone.
 - Same Caddy container as `term.example.com` and `files.example.com`; add a new site block for the wildcard. Requires custom Caddy build (two-line Dockerfile change: `caddy:2-builder` + `xcaddy build --with github.com/caddy-dns/route53`).
 - Bare `serve.term.example.com` (no host prefix) redirects to `term.example.com` — one-line redirect so typos land somewhere sensible.
 - ACME: **Let's Encrypt production** preferred (LE prod is more permissive than LE staging that R&D got tripped by on contact validation; ZeroSSL remains automatic fallback via Caddy's issuer chain).
 - HSTS: mirror whatever `term.example.com` currently sets (verify against existing Caddyfile during plan).
-- T800 (Stacy's deployment): entirely her domain + Route53 (or whatever DNS provider Aither uses) + Caddy config — no shared infra. Ships as a Stacy-briefing patch under the fleet-substrate rule; no code Phase 2 needs to write handles T800 differently.
+- host-c (Morgan's deployment): entirely her domain + Route53 (or whatever DNS provider Acme uses) + Caddy config — no shared infra. Ships as a Morgan-briefing patch under the fleet-substrate rule; no code Phase 2 needs to write handles host-c differently.
 
 ### Rollout sequence
 
 1. Build custom Caddy image with route53 plugin.
 2. Update `/opt/skynet/Caddyfile` with the wildcard block + bare-redirect block.
 3. Deploy — first request against the wildcard subdomain issues the cert via DNS-01.
-4. Test with a single subdomain (e.g. `t1000-8899.serve.term.example.com`) pointed at a `python -m http.server` on t1000 to verify HTTPS + WS + proxy stack end-to-end.
+4. Test with a single subdomain (e.g. `host-b-8899.serve.term.example.com`) pointed at a `python -m http.server` on host-b to verify HTTPS + WS + proxy stack end-to-end.
 5. Only after that verified, flip agent URL construction to use the new scheme + update id-skill.

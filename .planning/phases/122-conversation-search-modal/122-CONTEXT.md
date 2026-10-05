@@ -49,7 +49,7 @@
 - **D-10:** Results sort recency-first (most recent conversation at top). Relevance/ranking is deferred.
 - **D-11:** Each result row shows: conversation title, identity + host, and a highlighted snippet of the matching text (so the user can see WHY it hit).
 - **D-12:** Pagination is offset/limit — 20 results per fetch. First fetch is 0-19; "Load more" button at the bottom fires a second server call for 20-39; and so on. Load-more RE-runs the same query with the next offset (server does the grep again). No numbered page controls.
-- **D-13:** Total wall time for a naive grep across the latest transcript per identity on t1000 (157 identities, ~1GB total) is ~600ms — sub-second regardless of query specificity. Not a bottleneck at current corpus size. Grep streams so memory is not a concern even on the 4GB Graviton target minimum. Index-based search (inverted index at write time) is deferred to a future phase if corpus grows an order of magnitude.
+- **D-13:** Total wall time for a naive grep across the latest transcript per identity on host-b (157 identities, ~1GB total) is ~600ms — sub-second regardless of query specificity. Not a bottleneck at current corpus size. Grep streams so memory is not a concern even on the 4GB Graviton target minimum. Index-based search (inverted index at write time) is deferred to a future phase if corpus grows an order of magnitude.
 
 ### Click behavior
 - **D-14:** Clicking an ACTIVE result: opens the conversation (via the existing open-conversation flow), modal closes.
@@ -117,7 +117,7 @@
 
 - **The alert content on archived-result click:** deliberately blunt — a plain browser `alert()` with wording like "coming soon" is fine. No soft misdirection or fancy dialog. The point is honest feedback that the interaction is a dead end today.
 - **Snippet highlighting:** the matched text should be visually highlighted within the snippet (bold, background color, or similar). Not just returning the text with no visual cue.
-- **The grep speed was tasted during /open** — 5ms per file, ~600ms wall time for 157 identities on t1000. This gives the shape confidence that naive grep is fine at current scale; it's not a premature-optimization guess.
+- **The grep speed was tasted during /open** — 5ms per file, ~600ms wall time for 157 identities on host-b. This gives the shape confidence that naive grep is fine at current scale; it's not a premature-optimization guess.
 
 </specifics>
 

@@ -23,7 +23,7 @@
 
 | Item | Type | Action |
 |------|------|--------|
-| `SKYNET_PUBLIC_URL` env var in `/opt/skynet/skynet.env` | operational config | HOST-SIDE add, no repo change; ship-coord with Stacy for T800 |
+| `SKYNET_PUBLIC_URL` env var in `/opt/skynet/skynet.env` | operational config | HOST-SIDE add, no repo change; ship-coord with Morgan for host-c |
 | Backend init to plumb `process.env.SKYNET_PUBLIC_URL` → distributor step 4 | wiring | Read directly inside `runBootstrapForHost` at function top (per RESEARCH § Assumption A6 — sidesteps 3-layer plumbing) |
 
 ---
@@ -177,7 +177,7 @@ const hostResults = await SimpleDBOps.select(
 
 if (hostResults.length === 0) return null;   // 404 "unknown_host" — do NOT leak cross-user existence
 ```
-> **Cross-user isolation invariant (RESEARCH § Pitfall 7):** `hosts.name` is NOT unique — it's a per-user friendly name. If two users both have a host named `thenasty`, filtering only by `name` would allow User A to trigger fetches on User B's box by guessing the friendly name. `and(name, userId)` returns null on cross-user access, aligning the error taxonomy: 404 for "no such host you can see" rather than 403 which would leak existence.
+> **Cross-user isolation invariant (RESEARCH § Pitfall 7):** `hosts.name` is NOT unique — it's a per-user friendly name. If two users both have a host named `host-a`, filtering only by `name` would allow User A to trigger fetches on User B's box by guessing the friendly name. `and(name, userId)` returns null on cross-user access, aligning the error taxonomy: 404 for "no such host you can see" rather than 403 which would leak existence.
 
 **JSON-field parsing + credential resolution tail** (analog L28-199 — copy VERBATIM including all the try/catch fallbacks for shared credentials and override credentials). The extension only replaces the WHERE clause; the rest of the resolve-credentials machinery is byte-identical.
 
@@ -191,7 +191,7 @@ if (hostResults.length === 0) return null;   // 404 "unknown_host" — do NOT le
 ```typescript
 /**
  * D-01 URL shape (Phase 78): <skynet-domain>/file/<hostname>/<absolute-path>
- * Example: https://term.example.com/file/thenasty/home/ubuntu/note.md
+ * Example: https://term.example.com/file/host-a/home/ubuntu/note.md
  *
  * Grammar:
  *   - scheme: https:// only (agents on Skynet always run on HTTPS deployment)
@@ -598,7 +598,7 @@ function sftpReadFile(sftp: SftpLike, p: string): Promise<Buffer> {
 
 **None.** Every file in Phase 78 has a strong analog in the existing codebase. Phase 78 is explicitly a wiring phase over resident subsystems (RESEARCH § Summary: "90% wiring, 10% net-new code").
 
-The one operational addition — `SKYNET_PUBLIC_URL` env var in `/opt/skynet/skynet.env` + coord with Stacy for T800 — is not a code file and has no analog because Skynet has never before needed to know its own public URL (verified via RESEARCH Assumption A2: grepped `SKYNET_.*URL` / `PUBLIC_URL` / `BASE_URL` / `example` — no hits).
+The one operational addition — `SKYNET_PUBLIC_URL` env var in `/opt/skynet/skynet.env` + coord with Morgan for host-c — is not a code file and has no analog because Skynet has never before needed to know its own public URL (verified via RESEARCH Assumption A2: grepped `SKYNET_.*URL` / `PUBLIC_URL` / `BASE_URL` / `example` — no hits).
 
 ---
 
@@ -615,7 +615,7 @@ Planner should reference this list in every action that touches the correspondin
 - [ ] **DISCARD-BYTES rule** (D-04): bytes fetched for eligibility MUST NEVER flow into the editor path. Modal fires its own fresh fetch on open.
 - [ ] **Idempotent bootstrap step:** content-diff check BEFORE rewrite. No mtime churn.
 - [ ] **Response envelope stable** (`TailnetFetchResult`): both fetch helpers return the same shape. Adding fields OK; renaming/removing NOT.
-- [ ] **Container mutations coord-room rule + `git pull --rebase` before push** (`box-maintainer.md` § Standing directives): ship-time only. Coord-room `!FHdIfqtmSWcGYUfyVp:thenasty.taild9b663.ts.net`.
+- [ ] **Container mutations coord-room rule + `git pull --rebase` before push** (`box-maintainer.md` § Standing directives): ship-time only. Coord-room `!FHdIfqtmSWcGYUfyVp:host-a.tailnet-example.ts.net`.
 
 ---
 

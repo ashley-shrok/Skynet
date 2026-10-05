@@ -227,7 +227,7 @@ Walk each of the four direct-hash-fragment probes below. For each: type the URL 
 
 ### AUTHORITATIVE SOURCE
 
-**Deploy procedure lives at `~/.claude/identities/tina/deploy-runbook.md`** (dated post-2026-07-21). This is the current, self-contained procedure for shipping `skynet-patched:local` onto skynet-ec2. **Follow the steps in that file verbatim.** This UAT checklist does not duplicate the runbook; it points at it.
+**Deploy procedure lives at `~/.claude/identities/tina/deploy-runbook.md`** (dated post-2026-07-21). This is the current, self-contained procedure for shipping `skynet-patched:local` onto primary-host. **Follow the steps in that file verbatim.** This UAT checklist does not duplicate the runbook; it points at it.
 
 ### Stale-reference callout — do NOT follow the fork CLAUDE.md 15-min deadman regime
 

@@ -157,8 +157,8 @@ so only actual directories are enumerated. Regardless of any leftover
 files in that dir (tarballs, backups, notes.txt, .DS_Store), enumeration
 only sees identities.
 
-Also incidentally fixes the mis-attribution in the "commander zoey" (with
-space) vs "commander-zoey" (with hyphen) case — the space-containing entry
+Also incidentally fixes the mis-attribution in the "commander dana" (with
+space) vs "commander-dana" (with hyphen) case — the space-containing entry
 would still enumerate if it's a directory, but the hygiene rule now excludes
 any regular file matching that name.
 ```

@@ -68,7 +68,7 @@ OK
 <raw SESSION_JSON blob>
 ```
 
-Slug construction (`cwd.replace(/[./~]/g, "-")`) stays in JS — same fragile-across-versions reasoning as L224 of the existing helper (Stacy 2026-08-08 on T800).
+Slug construction (`cwd.replace(/[./~]/g, "-")`) stays in JS — same fragile-across-versions reasoning as L224 of the existing helper (Morgan 2026-08-08 on host-c).
 
 ### Task 2: Cache-hit shim in connectToPane (claude-session-server.ts)
 

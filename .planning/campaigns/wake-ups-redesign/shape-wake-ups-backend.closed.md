@@ -101,9 +101,9 @@ Plus a small follow-up commit `feat(127-followup): plumb wake-up name→task + p
 
 **Fleet-wide state at close:**
 - 5/5 supervisor hosts running the new global scheduler as a session-independent process.
-- 28 per-role specs migrated cleanly (24 on workstation + 4 on thenasty); zero per-role specs remaining.
+- 28 per-role specs migrated cleanly (24 on workstation + 4 on host-a); zero per-role specs remaining.
 - Zero per-role scheduler processes remaining.
-- Coord companion files (coordinator-instructions.md, clone-picker-prompt.md, actor-status-prompt.md) deleted on every supervisor host + t1000 stale-dup + thenasty legacy scheduler.py.
+- Coord companion files (coordinator-instructions.md, clone-picker-prompt.md, actor-status-prompt.md) deleted on every supervisor host + host-b stale-dup + host-a legacy scheduler.py.
 
 **End-to-end verification (smoke test #2 post-follow-up):**
 - Spec dropped at `03:41:51Z`, scheduled fire at `03:42:36Z`.
@@ -126,7 +126,7 @@ Plus a small follow-up commit `feat(127-followup): plumb wake-up name→task + p
 
 **Side-bounties spun up during shipment (for future work, not blockers):**
 - Spawn block in `agent-supervisor.sh` logs "started" even when `setsid` redirect silently failed (laptop-host root-owned-fleet-dir issue would have been louder with exit-code checking).
-- Nested `~/fleet/wakeups/wakeups/.state/scheduler.pid` cosmetic artifact on thenasty + zoeybattlestation (probable state-dir path glitch in global mode).
+- Nested `~/fleet/wakeups/wakeups/.state/scheduler.pid` cosmetic artifact on host-a + gaming-pc (probable state-dir path glitch in global mode).
 - Deeper coord-code retirement remains: `ambient-monitor.py`'s IS_COORDINATOR branch, `agent-supervisor.sh`'s `is_coordinator()`, backend `coordinator: boolean` fields — all inert but stale carry-over. Not shape scope.
 
 **Ownership boundary preserved throughout ship:** executor scope stopped at code + commit + scoped tests green; deploy motion + per-host migration + coord-cleanup were orchestrator-managed per fleet rule.

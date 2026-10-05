@@ -58,7 +58,7 @@ Four docs artifacts in `.planning/phases/40-text-editor-in-skynet/`:
    - **Test count reconciliation:** pre-phase-40 baseline 2244 → cumulative +70 tests from Phase 40 (matches original planner estimate exactly) → HEAD 2349 (the +21 tests beyond Phase 40's contribution came from Tanya's Phase 39 landing upstream during the Wave 3 → Wave 4 rebase — pre-notified in this plan's upstream_context).
 
 2. **`40-UAT-CHECKLIST.md`** — 7-item user-walks-this-live post-deploy checklist, one item per LOCKED decision D-01..D-07:
-   - **Preconditions + Ash-side prep** — how to get an agent-served tailnet URL into a pretty-view conversation via the id skill's serve pattern.
+   - **Preconditions + User-side prep** — how to get an agent-served tailnet URL into a pretty-view conversation via the id skill's serve pattern.
    - **7 items, each with Setup/Steps/Expected/Fail-modes structure** (mirrors Phase 19 UAT precedent shape).
    - **Item 1 (D-01):** Passive URL detection — affordance appears next to agent-served tailnet link, no agent-side change required.
    - **Item 2 (D-02):** Whitelist-first + byte-sniff-fallback — `.md` instant, extensionless-but-text ~200-500ms delayed, binary-no-extension no-affordance.
@@ -123,7 +123,7 @@ The four artifacts encode/verify each of the seven LOCKED decisions from `40-CON
 **None.** Task 1, 2, 3 executed exactly as specified in `40-05-PLAN.md`. All acceptance criteria satisfied:
 
 - Task 1: 40-BUILD-VERIFY-LOG.md exists with 5+ `##` sections (actual: 5 — Build verification, Structural invariant grep gates, Test count reconciliation, New files inventory, Files modified, npm dependency changes, Deploy status; count = 7). All 10 grep gates PASS with recorded actuals. All 4 build/test commands exit 0 with recorded durations. Test count reconciliation matches baseline + 70 (Phase 40 contribution; +21 additional from Phase 39 upstream landing noted).
-- Task 2: 40-UAT-CHECKLIST.md exists with exactly 7 D-XX-tagged items (verified: `grep -cE "^### [1-7]\. D-0[1-7]:" 40-UAT-CHECKLIST.md` returns 7 — headings use the plan's literal `### N. D-0N:` shape). Each item has Setup / Steps / Expected / Fail modes subsections. Preconditions + Ash-side prep + Rollback plan + Blocking issues + Sign-off sections present.
+- Task 2: 40-UAT-CHECKLIST.md exists with exactly 7 D-XX-tagged items (verified: `grep -cE "^### [1-7]\. D-0[1-7]:" 40-UAT-CHECKLIST.md` returns 7 — headings use the plan's literal `### N. D-0N:` shape). Each item has Setup / Steps / Expected / Fail modes subsections. Preconditions + User-side prep + Rollback plan + Blocking issues + Sign-off sections present.
 - Task 3: 40-PATCHES-MD-ENTRY.md exists with all 11 required section headings (Patch title, Motivation, What shipped, Files touched, Tests added, Threat model summary, Nginx changes, Rebase risk, Deploy note, Ordinal-count guidance, Cross-references). Doc is dual-shaped: a section-by-section reference above (each required section as its own top-level `##` heading, matching the plan's Task 3 verify regex) + a consolidated paste-ready block at the bottom (matches the bullet-list shape of neighboring patches in `skynet-patches.md` for the maintainer's paste convenience). Every claim cross-references Plans 40-01..40-04 SUMMARY.md or source at HEAD. Deploy note explicitly hands ownership to the maintainer.
 
 ## Authentication gates

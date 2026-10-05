@@ -352,7 +352,7 @@ Commit:
 ## NOT in scope (deferred to orchestrator's ship gate)
 
 - Full test suite run.
-- `docker build` / `docker compose up` / deploy to t1000.
+- `docker build` / `docker compose up` / deploy to host-b.
 - Live in-container HTTP check (`curl -sI http://box/favicon-16.png` returning override bytes) — requires deploy.
 - Nginx `nginx -t` syntax check in-container — the diff is a copy-paste of an existing block pattern that already passes; risk is acceptable to defer.
 </verification>

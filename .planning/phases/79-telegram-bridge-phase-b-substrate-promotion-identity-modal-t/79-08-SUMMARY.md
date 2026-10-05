@@ -48,14 +48,14 @@ Closed Phase 79's reliability loop with (a) a periodic 30s reconcile sweep that 
   - `scanAndReconcileDeadTokens(): Promise<ReconcileResult>` — single-pass scan of `TG_BRIDGE_STATE_DIR` for `*.token-dead` sentinels. Runs `assertSafeHumanName` on every filename BEFORE any fs op (T-79-08-01). Resolves each human's mxid via `db.select({name, mxid}).from(users)`. Calls `mintAndWriteHumanToken(mxid, humanName)` from Plan 04; on success, unlinks the sentinel; on failure, leaves the sentinel for next-tick retry. Never throws — every failure mode is a warn log + continue. Returns `{scanned, minted, failed}`.
   - `startReconcileLoop(intervalMs): NodeJS.Timeout` — `setInterval` wrapper that `.catches` escaped rejections + `.unref()`s the timer so tests don't linger (T-79-08-06).
 - **Modified:** `src/backend/starter.ts` (lines 287-311) — fire-and-forget block that dynamic-imports `./telegram/reconcile-dead-tokens.js` and calls `startReconcileLoop(30_000)` after DB init AND after the Plan 04 `bridge_config_write_startup_failed` block. Ordering asserted below.
-- **New tests:** 6/6 pass — empty state, happy path, malformed sentinel filename (uppercase → guard trips), no-mxid (Laura case), mint rejects (sentinel left for retry), startReconcileLoop returns an `.unref`'d Timeout.
+- **New tests:** 6/6 pass — empty state, happy path, malformed sentinel filename (uppercase → guard trips), no-mxid (Riley case), mint rejects (sentinel left for retry), startReconcileLoop returns an `.unref`'d Timeout.
 
 ### Task 2 — POST /matrix-admin/migrate-cred-files admin-gated migration
 - **Modified:** `src/backend/matrix/matrix-admin-routes.ts` — added handler mirroring the existing `POST /creds` shape:
   - `requireAdmin` middleware → 401 unauth, 403 non-admin (mirrors T-79-08-03).
   - Dynamic-imports `db` + `users` schema at handler time (avoids boot cycle).
   - Per-row response: `{humanName, mxid, status: 'minted' | 'failed' | 'skipped-no-mxid', error?}`.
-  - Laura-like rows (mxid === null) → `status: 'skipped-no-mxid'`.
+  - Riley-like rows (mxid === null) → `status: 'skipped-no-mxid'`.
   - Scans `TG_BRIDGE_STATE_DIR` for `*.cred` files and deletes each — reports in `deletedCredFiles: string[]`.
   - Idempotent: no artificial "already-migrated" gate; second call re-mints (Synapse loginAsUser is cheap + stateless).
 - **Modified tests:** 7 new tests + 10 existing tests, all 17/17 pass — auth (401/403), skipped-no-mxid, mixed mint outcomes, .cred-file deletion (with non-.cred survival check), idempotency (two consecutive calls both 200), empty users table.
@@ -84,9 +84,9 @@ Reconcile sweep tests:
 Migration endpoint tests:
 - 401 no auth — **PASS**
 - 403 non-admin — **PASS**
-- Mixed (user w/mxid + Laura w/o mxid) → minted + skipped-no-mxid — **PASS**
-- Per-row failure isolation → user failed, Zoey still minted — **PASS**
-- `.cred` file deletion → user.cred + zoey.cred deleted, registry.json survives — **PASS**
+- Mixed (user w/mxid + Riley w/o mxid) → minted + skipped-no-mxid — **PASS**
+- Per-row failure isolation → user failed, Dana still minted — **PASS**
+- `.cred` file deletion → user.cred + dana.cred deleted, registry.json survives — **PASS**
 - Idempotency → two consecutive calls both 200, mint called twice — **PASS**
 - Empty users table → ok:true, results:[], deletedCredFiles:[] — **PASS**
 
@@ -168,7 +168,7 @@ Task 2:
 - Line 6: `username: text("username").notNull()`
 - Line 32: `mxid: text("mxid")` (nullable per Plan 75)
 
-Both reconcile-dead-tokens and migrate-cred-files use `db.select({name: users.username, mxid: users.mxid}).from(users)` — matches schema. Prod values for `username` are lowercase (user/Zoey verified during revision pass); defensive `.toLowerCase()` in the migration handler is a no-op today, safety net for future drift.
+Both reconcile-dead-tokens and migrate-cred-files use `db.select({name: users.username, mxid: users.mxid}).from(users)` — matches schema. Prod values for `username` are lowercase (user/Dana verified during revision pass); defensive `.toLowerCase()` in the migration handler is a no-op today, safety net for future drift.
 
 ## Nginx caveat (CLAUDE.md rule)
 
@@ -225,9 +225,9 @@ None. Plan 08 executed exactly as written. Minor cosmetic observations:
 
 ## Ready for Plan 09
 
-Wave 5's second slot is Plan 09 — the go-live human-verify checkpoint against t1000. Everything Plan 08 promised is in place:
+Wave 5's second slot is Plan 09 — the go-live human-verify checkpoint against host-b. Everything Plan 08 promised is in place:
 - Reconcile loop fires every 30s inside the Skynet container, reacts to bridge-side 401 sentinels, silently self-heals dead tokens.
-- Migration endpoint is one POST away from being called against t1000 as part of cutover.
+- Migration endpoint is one POST away from being called against host-b as part of cutover.
 - All security guards (path traversal, admin gate, atomic writes) test-verified.
 
 ## Self-Check: PASSED

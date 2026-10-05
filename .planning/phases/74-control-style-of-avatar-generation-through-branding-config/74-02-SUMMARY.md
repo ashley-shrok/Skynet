@@ -130,7 +130,7 @@ None. No new network endpoints, auth paths, file access patterns, or schema chan
 
 ## What's Next (Plan 74-03)
 
-The schema contract (Plan 01) and boot gate (Plan 02) are now in place — an instance with no branding config, an empty spec, or a whitespace-only spec will refuse to boot with a structured fatal log. Plan 74-03 rewires `src/backend/database/routes/identity-avatar-batch.ts` to read `avatarDirectorSpec` + `avatarGammaDefault` per-request from the loader instead of using the in-file constants, splits the palette-constraint line, and swaps `applyGamma07` for the configurable value. Plan 74-04 handles the cross-deployment migration seed (t1000 + T800).
+The schema contract (Plan 01) and boot gate (Plan 02) are now in place — an instance with no branding config, an empty spec, or a whitespace-only spec will refuse to boot with a structured fatal log. Plan 74-03 rewires `src/backend/database/routes/identity-avatar-batch.ts` to read `avatarDirectorSpec` + `avatarGammaDefault` per-request from the loader instead of using the in-file constants, splits the palette-constraint line, and swaps `applyGamma07` for the configurable value. Plan 74-04 handles the cross-deployment migration seed (host-b + host-c).
 
 ## Commits
 

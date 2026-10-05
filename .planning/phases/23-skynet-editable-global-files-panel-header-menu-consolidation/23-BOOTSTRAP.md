@@ -1,7 +1,7 @@
 # Phase 23 — global-files.json bootstrap + operator workflow
 
 **Purpose:** Seed and maintain `/app/data/global-files.json` (the config
-file that drives GEFM-05's GlobalFilesModal) on the deployed skynet-ec2
+file that drives GEFM-05's GlobalFilesModal) on the deployed primary-host
 Skynet. Also serves as the reference doc for any future Skynet-instance
 operator (Stacey on ceo-skynet, etc.) who wants to enable per-host
 editable global files.
@@ -19,12 +19,12 @@ self-referentially) is deferred per CONTEXT §GEFM-02.
 crown-jewel encrypted SQLite, so it's already backed up by AWS DLM
 snapshots — no separate backup plumbing needed).
 
-**Volume name on skynet-ec2:** `skynet_skynet-data`
+**Volume name on primary-host:** `skynet_skynet-data`
 (compose project prefix is `skynet`, from the directory `/opt/skynet/` where
 `docker-compose.yml` lives — confirmed via `sudo docker volume inspect`
 on 2026-08-05).
 
-**On the skynet-ec2 host filesystem:**
+**On the primary-host host filesystem:**
 ```
 /var/lib/docker/volumes/skynet_skynet-data/_data/global-files.json
 ```
@@ -69,7 +69,7 @@ Rules (per plan 23-01's `global-files-config-loader.ts`):
 
 ---
 
-## Initial seed for skynet-ec2
+## Initial seed for primary-host
 
 user's fleet — 8 unix hosts with `~/.claude/CLAUDE.md`.
 
@@ -81,44 +81,44 @@ this config until Windows host support is designed in a future phase.
 ```json
 {
   "hosts": {
-    "thenasty":          [ { "path": "~/.claude/CLAUDE.md", "label": "User CLAUDE.md" } ],
+    "host-a":          [ { "path": "~/.claude/CLAUDE.md", "label": "User CLAUDE.md" } ],
     "workstation":       [ { "path": "~/.claude/CLAUDE.md", "label": "User CLAUDE.md" } ],
-    "linux-beelink":    [ { "path": "~/.claude/CLAUDE.md", "label": "User CLAUDE.md" } ],
-    "ZoeyBattlestation": [ { "path": "~/.claude/CLAUDE.md", "label": "User CLAUDE.md" } ],
-    "aither-cloud":      [ { "path": "~/.claude/CLAUDE.md", "label": "User CLAUDE.md" } ],
-    "aither-cloud2":     [ { "path": "~/.claude/CLAUDE.md", "label": "User CLAUDE.md" } ],
-    "aither-sftp":       [ { "path": "~/.claude/CLAUDE.md", "label": "User CLAUDE.md" } ],
-    "skynet-ec2":        [ { "path": "~/.claude/CLAUDE.md", "label": "User CLAUDE.md" } ]
+    "linux-minipc":    [ { "path": "~/.claude/CLAUDE.md", "label": "User CLAUDE.md" } ],
+    "Gaming-pc": [ { "path": "~/.claude/CLAUDE.md", "label": "User CLAUDE.md" } ],
+    "acme-cloud":      [ { "path": "~/.claude/CLAUDE.md", "label": "User CLAUDE.md" } ],
+    "acme-cloud2":     [ { "path": "~/.claude/CLAUDE.md", "label": "User CLAUDE.md" } ],
+    "acme-sftp":       [ { "path": "~/.claude/CLAUDE.md", "label": "User CLAUDE.md" } ],
+    "primary-host":        [ { "path": "~/.claude/CLAUDE.md", "label": "User CLAUDE.md" } ]
   }
 }
 ```
 
 Host name sanity-check (confirmed 2026-08-05 via `box-map.md`):
-- `thenasty` — 100.113.23.63 (tailnet)
-- `workstation` — 100.82.225.100 (tailnet, Ubuntu EC2)
-- `linux-beelink` — 100.124.193.5 (tailnet, host id 18)
-- `ZoeyBattlestation` — 100.78.107.56 (tailnet)
-- `aither-cloud` — AWS aither production
-- `aither-cloud2` — AWS aither production (second instance)
-- `aither-sftp` — AWS aither SFTP
-- `skynet-ec2` — this box itself (100.99.149.8)
+- `host-a` — 100.64.0.12 (tailnet)
+- `workstation` — 100.64.0.15 (tailnet, Ubuntu EC2)
+- `linux-minipc` — 100.64.0.16 (tailnet, host id 18)
+- `Gaming-pc` — 100.64.0.14 (tailnet)
+- `acme-cloud` — AWS acme production
+- `acme-cloud2` — AWS acme production (second instance)
+- `acme-sftp` — AWS acme SFTP
+- `primary-host` — this box itself (100.64.0.13)
 
 ---
 
-## How to edit global-files.json on skynet-ec2
+## How to edit global-files.json on primary-host
 
 Per CLAUDE.md, EC2 admin is AWS SSM only (no public inbound SSH, no
 inbound port on the security group). There is NO direct SSH to the EC2.
 
 ### Step-by-step operator workflow
 
-**1. SSM into skynet-ec2:**
+**1. SSM into primary-host:**
 ```bash
 aws ssm start-session --target <instance-id> --profile <profile>
 ```
 (user's alias for this may be `skynet-ssm` — check shell aliases in
 `~/.zshrc` or `~/.bashrc`. The instance ID is visible in the AWS console
-under EC2 → Instances → skynet-ec2.)
+under EC2 → Instances → primary-host.)
 
 **2. Confirm the host-side path (always do this — compose prefix may change):**
 ```bash
@@ -137,7 +137,7 @@ sudo ls -la /var/lib/docker/volumes/skynet_skynet-data/_data/
 sudo vim /var/lib/docker/volumes/skynet_skynet-data/_data/global-files.json
 ```
 (`vim` or `nano` — whichever the operator prefers. If writing from scratch,
-paste the seed JSON from §"Initial seed for skynet-ec2" above.)
+paste the seed JSON from §"Initial seed for primary-host" above.)
 
 **5. Validate JSON before saving:**
 - If using vim: `:%!jq .` to reformat + validate (bails on parse error —
@@ -240,5 +240,5 @@ is easier when the key is human-readable rather than a DB integer).
 
 ---
 
-*Confirmed: 2026-08-05 — Mountpoint inspected directly on skynet-ec2.*
+*Confirmed: 2026-08-05 — Mountpoint inspected directly on primary-host.*
 *Compose prefix: `skynet` (docker-compose.yml lives at `/opt/skynet/`).*

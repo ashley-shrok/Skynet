@@ -69,7 +69,7 @@ Deliver the sidebar surface that renders Phase 118's live app-frame subscription
 
 - **D-19: Executor uses scoped test runs, deploy uses full suite.** Per fleet directive 2026-09-07: executor's green gate is `npx vitest related --run <touched files>` OR targeted paths under `src/ui/features/pretty-conversations/`. Full suite + Playwright smoke are the ORCHESTRATOR's pre-deploy gate, NOT baked into executor prompts. Standard fleet rule; called out so the planner doesn't seed a full-suite invocation into an executor prompt.
 
-- **D-20: Real end-to-end integration test on this box during agent-side UAT.** Pre-deploy verification: create scratch `~/fleet/apps/scratch-sidebar-test/` on t1000 with a real `app.json` (title + description) + a real systemd `--user` unit + an `icon.webp` (any small test image); open the sidebar, expand the Apps section, verify the tile appears with the icon rendered, verify right-click shows "Open in new tab" and the action opens a fresh tab that lands on the app; stop the unit, verify the tile flips to the unhealthy two-line rendering with the healthMessage; delete the folder, verify the tile disappears on next sweep tick. Cleanup after. This is agent-side UAT (per /build step 6), NOT a CI-runnable test.
+- **D-20: Real end-to-end integration test on this box during agent-side UAT.** Pre-deploy verification: create scratch `~/fleet/apps/scratch-sidebar-test/` on host-b with a real `app.json` (title + description) + a real systemd `--user` unit + an `icon.webp` (any small test image); open the sidebar, expand the Apps section, verify the tile appears with the icon rendered, verify right-click shows "Open in new tab" and the action opens a fresh tab that lands on the app; stop the unit, verify the tile flips to the unhealthy two-line rendering with the healthMessage; delete the folder, verify the tile disappears on next sweep tick. Cleanup after. This is agent-side UAT (per /build step 6), NOT a CI-runnable test.
 
 ### Claude's Discretion (planner + executor decide)
 
@@ -182,7 +182,7 @@ Deliver the sidebar surface that renders Phase 118's live app-frame subscription
 - **Component tests for `AppTile` use jsdom + React Testing Library** — mock the icon endpoint via `fetch` mock or `<img>` load event; assert the fallback path when the mock 404s.
 - **Subscription hook tests mock the WS-client** — inject a controllable frame stream, assert the store transitions per each frame type.
 - **The backend route test uses supertest** against the mounted Express app — the same pattern the identity-avatar route test uses. Grep for the identity avatar test as a template.
-- **Real-icon-file agent UAT (D-20)** requires creating a scratch app on t1000 — the app doesn't need to actually serve content (just needs the folder + `app.json` + a systemd unit that starts something trivial like `sleep infinity` + a small `icon.webp`). Cleanup discipline: delete the folder + `systemctl --user stop` the unit + `systemctl --user disable` the unit + `systemctl --user daemon-reload`.
+- **Real-icon-file agent UAT (D-20)** requires creating a scratch app on host-b — the app doesn't need to actually serve content (just needs the folder + `app.json` + a systemd unit that starts something trivial like `sleep infinity` + a small `icon.webp`). Cleanup discipline: delete the folder + `systemctl --user stop` the unit + `systemctl --user disable` the unit + `systemctl --user daemon-reload`.
 
 </code_context>
 

@@ -23,7 +23,7 @@ Replace Skynet's server-side speech-to-text provider from **Amazon Transcribe st
 - Slash-command transform (`slashCommandTransform.ts`, `skill-catalog.ts`) — UNTOUCHED.
 - Disk-bank of raw audio to `/app/stt-recordings/` — UNTOUCHED.
 - ffmpeg install in Dockerfile — already present.
-- IAM policy attachment — already done 2026-09-12 by Iris (`SkynetBedrockNovaSonicAccess` on `termix-ssm-role`).
+- IAM policy attachment — already done 2026-09-12 by Iris (`SkynetBedrockNovaSonicAccess` on `example-ssm-role`).
 
 </domain>
 

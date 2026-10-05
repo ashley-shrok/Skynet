@@ -8,11 +8,11 @@ Shape is clear enough that no separate `/open` was run; this file replaces the C
 
 `GET /host/db/host` returns every host the requester has access to, computed as
 `(hosts owned by requester) ∪ (hosts accessible via shared credentialId) ∪
-(admin-visibility hosts)`. On user's t1000 instance today this surfaces 6 rows
-where she'd expect 3 — `joe`'s workstation, `zoey`'s thenasty + ZoeyBattlestation,
+(admin-visibility hosts)`. On user's host-b instance today this surfaces 6 rows
+where she'd expect 3 — `joe`'s workstation, `dana`'s host-a + Gaming-pc,
 plus her own three. All three physical boxes appear twice or thrice in her picker.
 
-On the T800 instance (Stacy's fleet, ~100 users × dozens of identities each), the
+On the host-c instance (Morgan's fleet, ~100 users × dozens of identities each), the
 same endpoint would swamp her sidebar and every host picker with hundreds of
 irrelevant rows.
 
@@ -62,13 +62,13 @@ irrelevant rows.
 
 - `GET /host/db/host?ownedOnly=true` from an authenticated request returns ONLY
   rows where `hosts.userId === request.userId`. Verified via test + manual curl
-  against t1000 with user's cookie: expect 3 rows (her thenasty, workstation,
-  ZoeyBattlestation), NOT 6.
+  against host-b with user's cookie: expect 3 rows (her host-a, workstation,
+  Gaming-pc), NOT 6.
 - `GET /host/db/host` with the param omitted (or `?ownedOnly=false`) returns the
   full existing list — unchanged behavior. Test covers this.
 - All 6 UI consumers pass `ownedOnly=true` and their host lists no longer show
   non-owned rows.
-- Sidebar (`AppShell`) also filtered — verified by user eyeballing t1000 after ship.
+- Sidebar (`AppShell`) also filtered — verified by user eyeballing host-b after ship.
 - Existing tests for the endpoint continue to pass (no default-behavior regression).
 
 ## Related work
@@ -76,5 +76,5 @@ irrelevant rows.
 - Bounty: `~/.claude/roles/box-maintainer/bounties/host-picker-ownership-filter/`.
 - Related bounty: `role-cosmetics-data-migration` (session where this scope emerged);
   the newline-fix commit `f5b6c4e0` from that work will ship in the same bundle.
-- `T800-multi-user-isolation` bounty likely benefits from this — flag as related
+- `host-c-multi-user-isolation` bounty likely benefits from this — flag as related
   if the shape overlaps.

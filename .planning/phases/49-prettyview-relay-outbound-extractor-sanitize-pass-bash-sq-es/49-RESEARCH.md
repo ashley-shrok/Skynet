@@ -155,7 +155,7 @@ Target: `src/backend/claude-session/session-file-parser.outbound-body.test.ts`
   // corpus: nelly's DM to tabitha 2026-08-20, room !pCARzCxigsTfPfxsfc
   // bash '"'"' idiom for embedding ' in single-quoted BODY (produces literal ')
   name: "NELLY-SHAPE — BODY-sq with '\"'\"' apostrophe escape (bash close-sq/'/open-sq)",
-  cmd: `TOK=$(jq -r .access_token ~/.claude/identities/nelly/relay.json); BASE=$(jq -r .base ~/.claude/identities/nelly/relay.json); ROOM='!wNhqmNRUNlHesCshwg:thenasty.taild9b663.ts.net'; BODY='Relaying user'"'"'s reply: hi'; curl -sS -X PUT "$BASE/rooms/$ROOM/send/m.room.message/$TXID" -d "$(jq -nc --arg b "$BODY" '{msgtype:"m.text", body:$b}')"`,
+  cmd: `TOK=$(jq -r .access_token ~/.claude/identities/nelly/relay.json); BASE=$(jq -r .base ~/.claude/identities/nelly/relay.json); ROOM='!wNhqmNRUNlHesCshwg:host-a.tailnet-example.ts.net'; BODY='Relaying user'"'"'s reply: hi'; curl -sS -X PUT "$BASE/rooms/$ROOM/send/m.room.message/$TXID" -d "$(jq -nc --arg b "$BODY" '{msgtype:"m.text", body:$b}')"`,
   expectedBody: "Relaying user's reply: hi",
 },
 ```

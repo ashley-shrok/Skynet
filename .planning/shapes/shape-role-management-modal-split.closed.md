@@ -72,7 +72,7 @@ If the role modal's chrome hue diverges from the row that opened it — a Box Ma
 
 This is a phase, not a quick. Multi-file work: two new modal components (roles-list and role), a refactor of the existing identity modal (drop scope switch, drop role-scope tabs, add title-line treatment), a new entry in the conversation-list three-dots menu, a new supporting piece to enumerate roles with their cosmetics, and tests across all of the above. Backend-touching (the enumerate-roles piece), visually substantive (hue-tinted role modal, swap-not-stack transitions, conversation-row-treatment rows), and data-model adjacent (formalising role-level cosmetics as expected).
 
-Working identity: **tabitha** on t1000. Bounty workspace lives at `~/.claude/roles/box-maintainer/bounties/role-management-modal-split/`. The design tasting mocks are served at `http://t1000:8898/index.html` (static HTML on the tailnet) and remain a useful visual anchor through implementation — Shape 1 with the conversation-row treatment is the locked reference for the roles-list rows.
+Working identity: **tabitha** on host-b. Bounty workspace lives at `~/.claude/roles/box-maintainer/bounties/role-management-modal-split/`. The design tasting mocks are served at `http://host-b:8898/index.html` (static HTML on the tailnet) and remain a useful visual anchor through implementation — Shape 1 with the conversation-row treatment is the locked reference for the roles-list rows.
 
 Two console snippets exist from the shape-tasting conversation for the identity-modal side:
 - one that hides the scope switch and adds a pill (user redirected away from this shape),

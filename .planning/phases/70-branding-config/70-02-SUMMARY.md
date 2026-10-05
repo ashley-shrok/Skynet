@@ -9,7 +9,7 @@ dependency_graph:
     - "70-01 (docker/branding-defaults/ bundled asset directory with branding.json + 5 image files)"
   provides:
     - "Dockerfile COPY layer baking /app/branding-defaults into the image (D-11)"
-    - "docker-compose bind mounts routing /opt/skynet/branding.json → /etc/skynet/branding.json and /opt/skynet/branding → /etc/skynet/branding, both read-only with create_host_path so t1000 boots cleanly with no config (D-12, D-14)"
+    - "docker-compose bind mounts routing /opt/skynet/branding.json → /etc/skynet/branding.json and /opt/skynet/branding → /etc/skynet/branding, both read-only with create_host_path so host-b boots cleanly with no config (D-12, D-14)"
     - "nginx.conf + nginx-https.conf mirrored location blocks that make /api/branding, /branding/*, /manifest.webmanifest reachable through the ingress proxy"
   affects:
     - "The previous static-serve behavior for /manifest.webmanifest is retired — the file at /app/html/manifest.webmanifest is now shadowed; requests hit the backend"
@@ -28,7 +28,7 @@ key_files:
     - "docker/nginx.conf (+32 lines / -6 lines: REPLACED /manifest.webmanifest static-serve block with proxy_pass; ADDED /api/branding + /branding/* blocks next to /api/usage)"
     - "docker/nginx-https.conf (+32 lines / -6 lines: identical three edits at parallel locations, mirror rule)"
 decisions:
-  - "docker-compose bind mounts use long-form syntax with bind.create_host_path: true rather than the short-form colon-delimited syntax. Rationale: short-form does not support create_host_path, and Docker's default behavior on a missing bind source is fail-to-start — which would break D-14 (t1000 has no /opt/skynet/branding.json)."
+  - "docker-compose bind mounts use long-form syntax with bind.create_host_path: true rather than the short-form colon-delimited syntax. Rationale: short-form does not support create_host_path, and Docker's default behavior on a missing bind source is fail-to-start — which would break D-14 (host-b has no /opt/skynet/branding.json)."
   - "docker-compose target paths are literal string matches for the loader constants — /etc/skynet/branding.json and /etc/skynet/branding. Any drift here would silently break the override capability: backend would read the wrong path, get ENOENT, permanent fall-through to bundled defaults with no operator recourse."
   - "New nginx blocks use ONLY the four proxy_set_header lines that /api/usage uses. No X-Content-Type-Options, no X-Frame-Options, no additional headers — deferred to a future security-hardening pass; consistent with other backend-proxied routes in the codebase."
   - "Cache-Control is NOT set in the new /manifest.webmanifest nginx block. The backend (Plan 70-01 branding-routes.ts) already sets `no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0` — the SAME value the old static-serve block used at nginx.conf L67/L76. Behavior byte-for-byte preserved; no double-header risk."
@@ -43,7 +43,7 @@ metrics:
 
 # Phase 70 Plan 02: Docker + Nginx Deployment Plumbing Summary
 
-Deploy plumbing to make Plan 70-01's backend branding routes reachable end-to-end: Dockerfile bakes `docker/branding-defaults/` into `/app/branding-defaults/` in the image, docker-compose bind-mounts operator overrides at `/etc/skynet/branding{.json,/}` with `create_host_path` so t1000 boots cleanly with no config on disk, and both nginx configs receive three mirrored edits (REPLACE `/manifest.webmanifest` static-serve → proxy_pass; ADD `/api/branding` + `/branding/*` proxy_pass blocks next to the existing `/api/usage` block). Four files modified, zero source code changes.
+Deploy plumbing to make Plan 70-01's backend branding routes reachable end-to-end: Dockerfile bakes `docker/branding-defaults/` into `/app/branding-defaults/` in the image, docker-compose bind-mounts operator overrides at `/etc/skynet/branding{.json,/}` with `create_host_path` so host-b boots cleanly with no config on disk, and both nginx configs receive three mirrored edits (REPLACE `/manifest.webmanifest` static-serve → proxy_pass; ADD `/api/branding` + `/branding/*` proxy_pass blocks next to the existing `/api/usage` block). Four files modified, zero source code changes.
 
 ## Tasks Executed
 
@@ -74,7 +74,7 @@ After (L8-29):
     volumes:
       - skynet-data:/app/data
       # Phase 70: branding config JSON — bind-mount from host, read-only.
-      # create_host_path lets t1000 boot cleanly with no /opt/skynet/branding.json
+      # create_host_path lets host-b boot cleanly with no /opt/skynet/branding.json
       # present; Docker creates an empty file, backend loader falls back to
       # bundled defaults from /app/branding-defaults/.
       - type: bind
@@ -226,7 +226,7 @@ None — plan executed exactly as written.
 
 Two minor observations worth noting (not deviations):
 
-1. The plan's Task 1 verify `grep -c "create_host_path" docker/docker-compose.yml` expected count of 2 — the actual count is 4, but this is because the executor added two comment lines that mention `create_host_path` in the human-readable rationale (`# create_host_path lets t1000 boot...` and `# Same create_host_path semantics; per-file fallback...`). The count of actual YAML keys is 2 as expected. This is a strengthening of the file (comments explaining why the flag matters), not a divergence — the `<done>` gate for "docker/docker-compose.yml contains two new bind-mount entries with `type: bind`, `read_only: true`, and `bind.create_host_path: true`" holds true.
+1. The plan's Task 1 verify `grep -c "create_host_path" docker/docker-compose.yml` expected count of 2 — the actual count is 4, but this is because the executor added two comment lines that mention `create_host_path` in the human-readable rationale (`# create_host_path lets host-b boot...` and `# Same create_host_path semantics; per-file fallback...`). The count of actual YAML keys is 2 as expected. This is a strengthening of the file (comments explaining why the flag matters), not a divergence — the `<done>` gate for "docker/docker-compose.yml contains two new bind-mount entries with `type: bind`, `read_only: true`, and `bind.create_host_path: true`" holds true.
 
 2. Edit 2 in Task 2 was placed AFTER the `/api/usage` block (planner said "before or after — planner discretion — after is fine"). Placing after keeps `/api/usage` as the anchor line for future maintainers grepping for the pattern.
 
@@ -234,12 +234,12 @@ Two minor observations worth noting (not deviations):
 
 **To Plan 70-05 (end-of-phase human verify):**
 
-After `docker build` + t1000 restart with NO `/opt/skynet/branding.json` on host:
+After `docker build` + host-b restart with NO `/opt/skynet/branding.json` on host:
 
 1. **Container start** — should succeed cleanly. Docker's `create_host_path: true` creates empty artifacts at `/opt/skynet/branding.json` and `/opt/skynet/branding/` on first start.
 2. **Backend loader behavior** — reads `/etc/skynet/branding.json`, gets either empty file (JSON.parse fails → falls back to bundled defaults per Plan 70-01's loader) OR ENOENT (also falls back). Bundled defaults come from `/app/branding-defaults/branding.json` (baked in at image build time via the new Dockerfile COPY line).
-3. **Nginx routing** — `curl -I http://<t1000>:8080/manifest.webmanifest` should return backend-set `Cache-Control: no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0` and `Content-Type: application/manifest+json`. `curl http://<t1000>:8080/api/branding` should return JSON (not HTML from SPA fallback). `curl -I http://<t1000>:8080/branding/icon.png` should return `Cache-Control: public, max-age=300`.
-4. **Browser behavior on t1000** — page shows "Skynet" branding = current behavior byte-for-byte per D-14. Zero user-visible change.
+3. **Nginx routing** — `curl -I http://<host-b>:8080/manifest.webmanifest` should return backend-set `Cache-Control: no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0` and `Content-Type: application/manifest+json`. `curl http://<host-b>:8080/api/branding` should return JSON (not HTML from SPA fallback). `curl -I http://<host-b>:8080/branding/icon.png` should return `Cache-Control: public, max-age=300`.
+4. **Browser behavior on host-b** — page shows "Skynet" branding = current behavior byte-for-byte per D-14. Zero user-visible change.
 
 **Out of scope for this plan:** AI+ deploy (D-15). Ivy handles operator-side provisioning of `/opt/skynet/branding.json` and `/opt/skynet/branding/*` at EC2 provisioning time. This plan only wires the plumbing — the actual AI+ config file drop happens outside Skynet code.
 

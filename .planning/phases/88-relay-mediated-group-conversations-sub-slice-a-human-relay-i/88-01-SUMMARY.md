@@ -74,12 +74,12 @@ const ESCAPE_TABLE: readonly (readonly [RegExp, string])[] = [
 
 ## Canonical Input → Output Table
 
-| Input username | sanitizeUsernameToLocalpart output | buildHumanMxid output (server: thenasty.taild9b663.ts.net) |
+| Input username | sanitizeUsernameToLocalpart output | buildHumanMxid output (server: host-a.tailnet-example.ts.net) |
 |---|---|---|
-| `user` | `user` | `@user_human:thenasty.taild9b663.ts.net` |
-| `user` | `user` | `@user_human:thenasty.taild9b663.ts.net` |
-| `user@example.com` | `user_at_example_dot_com` | `@user_at_example_dot_com_human:thenasty.taild9b663.ts.net` |
-| `snake_case` | `snake__case` | `@snake__case_human:thenasty.taild9b663.ts.net` |
+| `user` | `user` | `@user_human:host-a.tailnet-example.ts.net` |
+| `user` | `user` | `@user_human:host-a.tailnet-example.ts.net` |
+| `user@example.com` | `user_at_example_dot_com` | `@user_at_example_dot_com_human:host-a.tailnet-example.ts.net` |
+| `snake_case` | `snake__case` | `@snake__case_human:host-a.tailnet-example.ts.net` |
 | `foo@bar` | `foo_at_bar` | — |
 | `foo_at_bar` | `foo__at__bar` | — |
 

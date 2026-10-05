@@ -182,7 +182,7 @@ Grep-enforced structural invariants on `pane-target-resolver.ts`:
 | `grep -c 'usedTunnel: false' src/backend/apps/pane-target-resolver.ts` | == 0 | 0 |
 | non-comment `catch` | == 0 | 0 |
 
-Test-file cross-check: both a "local-looking" (hostId=1, host name t1000)
+Test-file cross-check: both a "local-looking" (hostId=1, host name host-b)
 and a "remote" (hostId=42, host name remote-box) call path assert
 `usedTunnel: true` — 6 total occurrences of `usedTunnel: true` in the
 test file (the plan required ≥ 2).

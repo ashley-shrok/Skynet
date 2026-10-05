@@ -140,7 +140,7 @@ None. Plan had no checkpoints; all three tasks executed autonomously.
   with `status: "done"` + shipped-commit timeline entry.
 - [x] tina.md § Domain 10K-foot-view patch count NOT bumped (convention: bump
   at deploy time; deploy is HELD per fleet rule).
-- [x] No push to skynet-ec2; no docker compose recreate.
+- [x] No push to primary-host; no docker compose recreate.
 
 ## Known Stubs
 

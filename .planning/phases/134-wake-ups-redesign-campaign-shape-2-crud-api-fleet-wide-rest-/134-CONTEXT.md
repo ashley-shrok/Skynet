@@ -91,7 +91,7 @@ Two responsibilities in one phase (both come out of the shape file, both LOCKED 
 
 - **D-15:** **SSH fan-out pattern reused from `identity-artifact-reader.ts`.** Planner reads the existing cross-host SSH-list pattern (delimiter-based one-liner batched over one SSH round-trip per host) and applies the same shape for the LIST endpoint. No streaming, single response, host-labeled aggregation. Timeout / partial-response semantics (a host is down or slow) match how fleet-status handles it — planner confirms during research.
 
-- **D-16:** **`skynet` host itself is a "managed host" from the API's perspective.** The LIST endpoint's fan-out includes t1000 (Skynet's own host) as one of the enumerated hosts — reads `~/fleet/wakeups/` from the container's own filesystem OR via a loopback SSH the same way fleet-status treats it. Whichever fleet-status already does; planner mirrors.
+- **D-16:** **`skynet` host itself is a "managed host" from the API's perspective.** The LIST endpoint's fan-out includes host-b (Skynet's own host) as one of the enumerated hosts — reads `~/fleet/wakeups/` from the container's own filesystem OR via a loopback SSH the same way fleet-status treats it. Whichever fleet-status already does; planner mirrors.
 
 ### Nginx + routing
 

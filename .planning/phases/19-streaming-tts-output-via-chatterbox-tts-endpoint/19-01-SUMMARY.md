@@ -50,7 +50,7 @@ New `handleSpeakStream` function and `POST /speak-stream` route that pipe-proxie
 
 Added to `src/backend/database/routes/voice.ts`:
 
-1. **`TTS_STREAM_URL` constant** (`"http://100.80.122.111:8001/tts"`) — separate from existing `TTS_URL` (`/v1/audio/speech`). Both constants coexist per TTSSTR-07.
+1. **`TTS_STREAM_URL` constant** (`"http://100.64.0.11:8001/tts"`) — separate from existing `TTS_URL` (`/v1/audio/speech`). Both constants coexist per TTSSTR-07.
 
 2. **`handleSpeakStream(req, res): Promise<void>`** — mirrors `handleSpeak` structure exactly:
    - Same three body-validation blocks (missing/empty text → 400, text > SPEAK_TEXT_MAX → 400, invalid voice format → 400)
@@ -94,7 +94,7 @@ Added to `src/backend/database/routes/voice.test.ts`:
 | SG | non-2xx → fixed error shape, _writes.length === 0 (T-19-04 no-body-leak) | PASS |
 | SH | AbortError → 504 {error:"TTS stream timeout"} | PASS |
 | SI | generic Error → 502 {error:"TTS stream proxy error"} | PASS |
-| SJ | fetch URL exactly "http://100.80.122.111:8001/tts", not /v1/audio/speech | PASS |
+| SJ | fetch URL exactly "http://100.64.0.11:8001/tts", not /v1/audio/speech | PASS |
 
 ## Plan Verification Evidence
 
@@ -149,7 +149,7 @@ None. The implementation is complete and functional. No hardcoded empty values, 
 
 ## Threat Flags
 
-No new security surfaces introduced beyond what the plan's threat model covers. The `TTS_STREAM_URL` constant is hardcoded to the internal tailnet IP (`100.80.122.111:8001`) — no client-controlled URL. All T-19-01 through T-19-07 mitigations are implemented as specified.
+No new security surfaces introduced beyond what the plan's threat model covers. The `TTS_STREAM_URL` constant is hardcoded to the internal tailnet IP (`100.64.0.11:8001`) — no client-controlled URL. All T-19-01 through T-19-07 mitigations are implemented as specified.
 
 ## Self-Check
 

@@ -32,7 +32,7 @@ None during `/open`. Two adjacent topics that came up were properly deferred:
 
 ## Discussion posture
 
-`/open` took user through: shape pitch (me offering the shape I'd heard via her Stacy DM quote) → clarification (she clarified "no flag for un-bootstrapped state, existing runsFleetSubstrate stays") → discussion of the ongoing-update bummer (she confirmed she cares about updates rolling out server-side, not just Stacy's initial install case) → shape reframe (system-side periodic-ish pass, not browser-driven) → crypto discussion (three options offered, she picked A) → sanity check on "is this standard?" (she sought reassurance that scoped-backend-secrets is normal, I confirmed with the 1Password comparison) → grill on parallel-vs-serial, retry-forever-vs-alert, migration → vehicle selection (GSD phase).
+`/open` took user through: shape pitch (me offering the shape I'd heard via her Morgan DM quote) → clarification (she clarified "no flag for un-bootstrapped state, existing runsFleetSubstrate stays") → discussion of the ongoing-update bummer (she confirmed she cares about updates rolling out server-side, not just Morgan's initial install case) → shape reframe (system-side periodic-ish pass, not browser-driven) → crypto discussion (three options offered, she picked A) → sanity check on "is this standard?" (she sought reassurance that scoped-backend-secrets is normal, I confirmed with the 1Password comparison) → grill on parallel-vs-serial, retry-forever-vs-alert, migration → vehicle selection (GSD phase).
 
 Grill closed cleanly with `thumbs up` on the shape file.
 

@@ -59,8 +59,8 @@ overrides_applied: 0
 | Role-file seed comment ("This role file was auto-generated…") present in roles-create.ts | ✓ | `ROLE_STUB_SEED_COMMENT` at L119-120; interpolated at L312 |
 | Zero "Skynet" (case-insensitive) in seed constant string values | ✓ | Programmatically verified via Python extraction: all three constants free of Skynet/skynet |
 | Zero `§2`, `§3`, `id skill`, `SKILL.md` in seed constant string values | ✓ | Programmatically verified: all three constants free of these fragile refs |
-| Zero relay-register SSH exec commands in identity-clone.ts | ✓ | grep for matrix/register/homeserver/thenasty inside identity-clone.ts returns only comments + the seed string; NO exec calls. Actual exec commands are only `mkdir -p`, `touch`, `echo $HOME`, and SFTP writeMarkdownFileAtomic |
-| Zero relay-register SSH exec commands in identity-birth-orchestrator.ts Step 2.5 | ✓ | grep for matrix/register/homeserver/thenasty inside orchestrator returns only comments + seed string; Step 2.5 (L436-467) execs only `echo $HOME`, `mkdir + touch`, and SFTP writeMarkdownFileAtomic |
+| Zero relay-register SSH exec commands in identity-clone.ts | ✓ | grep for matrix/register/homeserver/host-a inside identity-clone.ts returns only comments + the seed string; NO exec calls. Actual exec commands are only `mkdir -p`, `touch`, `echo $HOME`, and SFTP writeMarkdownFileAtomic |
+| Zero relay-register SSH exec commands in identity-birth-orchestrator.ts Step 2.5 | ✓ | grep for matrix/register/homeserver/host-a inside orchestrator returns only comments + seed string; Step 2.5 (L436-467) execs only `echo $HOME`, `mkdir + touch`, and SFTP writeMarkdownFileAtomic |
 
 ---
 

@@ -146,9 +146,9 @@ import { getUsernameForUserId } from "../../utils/host-user-counter.js";
 |---|------|----------|-----|-------|
 | A | Single-user host, no `users` key | Zero regression + per-request-cost lock (getUsernameForUserId called EXACTLY once with the caller's uid) | fail | pass |
 | B | Multi-user host, no `users` key | D-3 fallback = both users see it + no cross-request caching (each request re-fetches its callerUsername) | fail | pass |
-| C | Identity `users:[user]` | D-2 identity-side gate: the user sees it, Zoe gets ZERO rows (D-7 no ghost) | fail | pass |
-| D | Role `users:[user]` (identity untagged) | D-2 role-side gate: Zoe gets zero rows even though her host access is fine | fail | pass |
-| E | Role `users:[user,zoe]` + identity `users:[user]` | D-2 intersection: identity is narrower, Zoe loses | fail | pass |
+| C | Identity `users:[user]` | D-2 identity-side gate: the user sees it, Jess gets ZERO rows (D-7 no ghost) | fail | pass |
+| D | Role `users:[user]` (identity untagged) | D-2 role-side gate: Jess gets zero rows even though her host access is fine | fail | pass |
+| E | Role `users:[user,jess]` + identity `users:[user]` | D-2 intersection: identity is narrower, Jess loses | fail | pass |
 | F | `getUsernameForUserId` returns null | D-8 fail-open: gate is DISABLED (identity still surfaces despite `users:[user]`) + `identities_gate_username_missing` warn fires | fail | pass |
 | G | Identity file read throws mid-fanout | Existing pre-129 null-drop contract preserved: broken row is dropped by the pre-existing warn+null-return path, NOT converted to false-positive visibility | fail | pass |
 

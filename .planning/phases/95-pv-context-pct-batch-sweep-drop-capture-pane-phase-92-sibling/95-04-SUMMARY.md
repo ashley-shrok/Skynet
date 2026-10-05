@@ -94,10 +94,10 @@ Wire-size estimate: ~120 bytes/line. 10 identities = ~1.2KB per tick — well wi
 - Emits compact JSONL on stdout, all errors to stderr, exit 0 always
 - Mode `100755` confirmed: `git ls-files -s substrate/scripts/pv-context-pct-sweep.py` shows mode `100755`
 
-**Live cross-check on t1000 (tiffany identity):**
+**Live cross-check on host-b (tiffany identity):**
 `python3 substrate/scripts/pv-context-pct-sweep.py --identities tiffany` emitted `context_pct=22`, matching the Skynet PV UI display within +/-1%.
 
-**Wall-clock:** sub-second for a single identity on t1000 (warm filesystem cache).
+**Wall-clock:** sub-second for a single identity on host-b (warm filesystem cache).
 
 **No parity gotchas discovered** during the readContextPctFromJsonl port. The normalization math ports 1:1: `remaining_pct = 100 - (token_sum / 1_000_000) * 100`, then `usable_remaining = max(0, ((remaining_pct - 16.5) / (100 - 16.5)) * 100)`, then `displayed = round(100 - usable_remaining)`, clamped 0-100.
 

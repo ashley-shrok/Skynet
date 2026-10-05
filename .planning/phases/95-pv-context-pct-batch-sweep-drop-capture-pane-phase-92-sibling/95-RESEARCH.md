@@ -13,7 +13,7 @@
 
 - Extend the distributor to patch `~/.claude/settings.json` per managed box (or per-user) to add `EnterPlanMode` + `ExitPlanMode` (researcher confirmed — canonical tool names verified against tools-reference) to the disallowedTools/deny list. Idempotent.
 - Roll out via existing distributor sweep cycle — same 30s retry pattern that already patches `.claude/settings.json` for fleet-status hooks. No new mechanism.
-- Fleet-side use verified 2026-09-09: **zero real `tool_use` invocations of ExitPlanMode across 5 identities × ~150 sessions on t1000.** Only `deferred_tools_delta` schema registration (harmless per-session boot noise). Killing plan mode does not break any observed workflow.
+- Fleet-side use verified 2026-09-09: **zero real `tool_use` invocations of ExitPlanMode across 5 identities × ~150 sessions on host-b.** Only `deferred_tools_delta` schema registration (harmless per-session boot noise). Killing plan mode does not break any observed workflow.
 - Peer-box confirmation deferred (DNS resolution failure during verification). Reasonable assumption: peer boxes have similar near-zero usage. Revert path: remove entry from the deny list — no code changes needed.
 
 ### Part B — capture-pane + plan-pending code removal (LOCKED)
@@ -165,7 +165,7 @@ All three cases already have precedent in `readAndMergeHookSettings` (L339-L393)
 
 ### 2c. Per-user variability (fleet convention)
 
-**Harness user varies per box.** user's box-maintainer role file line 225 (per bounty premise) records: `thenasty`, `user`, `zoeysephilya`, `ubuntu` — four different harness user names across the fleet. Skynet resolves this via the SSH connection's own user (each fleet peer's Skynet-registered `hosts` row carries the SSH username). The existing `remote-hook-install.ts` L478-L495 already handles this correctly via `cd ~ && pwd` — tilde expansion goes through the passwd entry independent of `$HOME`. **Part A inherits this — zero new plumbing.**
+**Harness user varies per box.** user's box-maintainer role file line 225 (per bounty premise) records: `host-a`, `user`, `user2`, `ubuntu` — four different harness user names across the fleet. Skynet resolves this via the SSH connection's own user (each fleet peer's Skynet-registered `hosts` row carries the SSH username). The existing `remote-hook-install.ts` L478-L495 already handles this correctly via `cd ~ && pwd` — tilde expansion goes through the passwd entry independent of `$HOME`. **Part A inherits this — zero new plumbing.**
 
 ### 2d. Recommended call site for Part A
 
@@ -653,7 +653,7 @@ Phase 95 installs **zero** new npm/PyPI packages. Python sweep script is stdlib-
 | A5 | The raw_keystrokes WS handler at L7059-L7097 has zero callers other than PlanPendingBubble. | G3 | Low — grep confirmed the only sender is PlanPendingBubble's onApprove/onFeedback. Delete safely. |
 | A6 | `context-pct-parser.ts` has no callers besides claude-session-server.ts L7618. | 3a, G9 | Low — grep confirmed 4 non-test refs, all in claude-session-server. Delete safely. |
 | A7 | The Phase 95 wave-ordering hard-dependency is achievable within GSD phase execution (Wave 1 of Phase 95 ships alone; Wave 2 waits on Wave 1's UAT gate). | Section 5 | Medium — the mechanism is standard; the risk is operational discipline. The plan MUST make the wait-condition explicit and user MUST enforce it. |
-| A8 | Peer boxes have similar-to-zero plan-mode usage — verified only on t1000 as of 2026-09-09. | CONTEXT.md § Locked Decisions | Medium — CONTEXT.md accepts this risk with an explicit revert path. If a peer box has heavy plan-mode usage, Part A causes an unnoticed UX regression until user or that user notices and requests a per-box exception. |
+| A8 | Peer boxes have similar-to-zero plan-mode usage — verified only on host-b as of 2026-09-09. | CONTEXT.md § Locked Decisions | Medium — CONTEXT.md accepts this risk with an explicit revert path. If a peer box has heavy plan-mode usage, Part A causes an unnoticed UX regression until user or that user notices and requests a per-box exception. |
 | A9 | The `deferred_tools_delta` JSONL noise post-Part-A is harmless. | G13 | Low — verified: the tool NAMES appearing in that attachment do not mean the tool is usable. Runtime `tool_use` blocks are what count, and those are gated by `permissions.deny`. |
 | A10 | The current `~/.claude/settings.json` on the Skynet host has `permissions.deny: ["AskUserQuestion"]` and Claude Code honors it, proving the exact JSON shape works in production. | 1c | Low — read directly from `/home/ubuntu/.claude/settings.json`. |
 
@@ -716,7 +716,7 @@ No LOW-confidence sources. All findings anchored to source reads OR live docs.
 | `parseContextPct` fallback drop is safe | HIGH | Verified by reading contextpct-store.ts (null is stored value; reader collapses to null) and PrettyView.tsx (WS frame is no-op post-Phase-90). |
 | Wave-ordering hard-dependency achievability | MEDIUM | The mechanism is standard GSD wave-gating; risk is operational discipline. |
 | `installStopHook` re-invocation cadence (once vs. 30s) | MEDIUM | Docblock says one-time; Task 1 must confirm by reading starter.ts. |
-| Peer-box plan-mode usage (assumed near-zero) | MEDIUM | Verified on t1000 only; peer-box grep deferred due to DNS. CONTEXT.md accepts this. |
+| Peer-box plan-mode usage (assumed near-zero) | MEDIUM | Verified on host-b only; peer-box grep deferred due to DNS. CONTEXT.md accepts this. |
 | SSH-topology decision for Part C | MEDIUM | Three viable options; Task 1 locks. Same as pre-pivot. |
 | Backward-compat mechanics (Part C) | HIGH | Verbatim reuse of Phase 92's proven pattern. |
 | Existing test patterns | HIGH | Read of `dormant-poll.test.ts`, `contextpct-dual-write.test.ts`, Phase 92 test files. |

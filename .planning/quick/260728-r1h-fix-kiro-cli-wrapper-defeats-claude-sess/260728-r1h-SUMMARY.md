@@ -12,7 +12,7 @@ files_modified:
 tags:
   - claude-session
   - kiro-cli-wrapper
-  - thenasty
+  - host-a
   - detection-fix
 ---
 
@@ -24,13 +24,13 @@ Replaced strict `pane_current_command === "claude"` check with a `ps -eo pid=,pp
 
 ## Problem
 
-AWS Kiro CLI's `kiro-cli-term` pty wrapper sets `argv[0]='bash'` on the shell it launches, causing `tmux pane_current_command` to report `'bash'` instead of `'claude'`. The previous detection in `session-file-discovery.ts` did an exact-match check (`trimmedCommand === "claude"`) and returned `{status: 'inactive', reason: 'not_claude'}` for every thenasty pane — even though claude was actively running as a grandchild:
+AWS Kiro CLI's `kiro-cli-term` pty wrapper sets `argv[0]='bash'` on the shell it launches, causing `tmux pane_current_command` to report `'bash'` instead of `'claude'`. The previous detection in `session-file-discovery.ts` did an exact-match check (`trimmedCommand === "claude"`) and returned `{status: 'inactive', reason: 'not_claude'}` for every host-a pane — even though claude was actively running as a grandchild:
 
 ```
 pane_pid (kiro-cli-term) → bash --login → claude
 ```
 
-All 5 thenasty identities (beatrice, nelly, shrok, vicky, yolanda) were affected: pretty-view showed "no active Claude session" fallback despite live sessions.
+All 5 host-a identities (beatrice, nelly, sable, vicky, yolanda) were affected: pretty-view showed "no active Claude session" fallback despite live sessions.
 
 ## Fix
 
@@ -90,7 +90,7 @@ No push was performed. No docker build. No docker compose. Per user's 2026-07-27
 
 Ready for ship-time push + docker build + `docker compose up -d --force-recreate skynet` + skynet-patches.md entry when user greenlights.
 
-Post-deploy verification: open pretty-view for beatrice, nelly, shrok, vicky, yolanda on thenasty — each pane should show active Claude session (message history, compose box) instead of the "no active Claude session" fallback. Cross-check backend logs for `claude_session_discovery status:active` for those panes.
+Post-deploy verification: open pretty-view for beatrice, nelly, sable, vicky, yolanda on host-a — each pane should show active Claude session (message history, compose box) instead of the "no active Claude session" fallback. Cross-check backend logs for `claude_session_discovery status:active` for those panes.
 
 ## Deviations from plan
 

@@ -440,7 +440,7 @@ docker/branding-defaults/
 **Analog block 1 (proxy_pass):** existing `/api/usage` at L900-909 (verified):
 ```nginx
 # WEEKLY-METER-03 (plan 260729-1vd): usage collector proxy — same block in nginx-https.conf.
-# Proxied to the Node backend; the backend proxies tailnet-only 100.113.23.63:9421.
+# Proxied to the Node backend; the backend proxies tailnet-only 100.64.0.12:9421.
 location = /api/usage {
     proxy_pass http://127.0.0.1:30001;
     proxy_http_version 1.1;
@@ -565,7 +565,7 @@ COPY --chown=node:node docker/branding-defaults /app/branding-defaults
         bind:
           create_host_path: true
 ```
-Rationale: t1000 has no config file, but Docker default behavior is to fail-start when a bind source is missing. `create_host_path: true` (Compose spec 3.4+) creates an empty file/dir on first start; backend then reads it, gets ENOENT-or-empty, falls back to bundled defaults per the loader pattern above.
+Rationale: host-b has no config file, but Docker default behavior is to fail-start when a bind source is missing. `create_host_path: true` (Compose spec 3.4+) creates an empty file/dir on first start; backend then reads it, gets ENOENT-or-empty, falls back to bundled defaults per the loader pattern above.
 
 ---
 

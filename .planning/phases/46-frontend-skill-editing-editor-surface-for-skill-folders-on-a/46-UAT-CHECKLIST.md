@@ -2,7 +2,7 @@
 
 **Coverage:** D-01 through D-16 (every decision in `46-CONTEXT.md`).
 **Audience:** user, iPhone-primary PWA + desktop browser.
-**Ship-target URLs:** `https://example.com` (primary) and `https://skynet-ec2.example.com` (secondary).
+**Ship-target URLs:** `https://example.com` (primary) and `https://primary-host.example.com` (secondary).
 
 Walk these steps on production Skynet after the box-maintainer's build + deploy has landed and the 15-minute deadman timer has cancelled cleanly. Sign off each step with the Pass/Fail checkbox + a short note. Any `Fail` routes back to a new planning cycle; a fail on the destructive paths (Steps 9, 10) or the path-safety step (Step 13) means an immediate rollback discussion with the maintainer.
 
@@ -11,7 +11,7 @@ Walk these steps on production Skynet after the box-maintainer's build + deploy 
 **Prep once, before starting:**
 
 - Sign in to Skynet in your usual browser (whichever pane's already open is fine — no need for a fresh window).
-- Pick a host in the fleet that actually has skills under `~/.claude/skills/`. `thenasty` is a safe bet; `skynet-ec2` (this box) is also safe.
+- Pick a host in the fleet that actually has skills under `~/.claude/skills/`. `host-a` is a safe bet; `primary-host` (this box) is also safe.
 - For Step 7 (non-text branch), the maintainer will drop a tiny binary file into one of your skills beforehand — you don't need to make one. Ask them which skill has it.
 
 ---
@@ -50,7 +50,7 @@ No icon next to "Edit skills…". No keyboard-shortcut hint. No "beta" badge. Ta
 
 **D-03:** skill `<select>` populates from whichever host is currently picked.
 
-**Action:** Tap the host `<select>` and pick a host that has skills (e.g., `thenasty`). Wait for the second dropdown to update.
+**Action:** Tap the host `<select>` and pick a host that has skills (e.g., `host-a`). Wait for the second dropdown to update.
 
 **Expected:** The second `<select>` becomes active and its placeholder changes to `Pick a skill…`. Tapping it opens a list of every skill folder that exists under `~/.claude/skills/` on that host, sorted alphabetically.
 
@@ -78,7 +78,7 @@ Body copy while loading files: `Loading files…`. If the skill is empty: headin
 
 **D-06:** if a skill has more tabs than fit, the tab bar becomes horizontally scrollable.
 
-**Action:** Pick a skill with lots of files. The `build` skill on `thenasty` is a candidate if it has ≥12 files; otherwise ask the maintainer which skill on the fleet is the biggest. If no fleet skill has enough files, use "+ Add file" (Step 8) to create four or five throwaway files (`a.md`, `b.md`, `c.md`, `d.md`) in a small skill until the row overflows on your device — delete them afterward in Step 9.
+**Action:** Pick a skill with lots of files. The `build` skill on `host-a` is a candidate if it has ≥12 files; otherwise ask the maintainer which skill on the fleet is the biggest. If no fleet skill has enough files, use "+ Add file" (Step 8) to create four or five throwaway files (`a.md`, `b.md`, `c.md`, `d.md`) in a small skill until the row overflows on your device — delete them afterward in Step 9.
 
 **Expected:** When there are more tabs than the tab bar can show on your current screen, the row scrolls horizontally with a native touch swipe (iPhone) or a two-finger scroll (trackpad). Tabs stay their natural width — they don't shrink to fit. On desktop, a horizontal scrollbar may appear.
 

@@ -52,7 +52,7 @@ Blocking-human checkpoint per RESEARCH § Package Legitimacy Audit. Both package
 **Human verification result (orchestrator-recorded, 2026-09-10):**
 - `@aws-sdk/client-polly` — version 3.1129.0, maintainer `aws-sdk-bot <aws-sdk-js-automation@amazon.com>` + `amzn-oss <osa-3p@amazon.com>`, repository `git+https://github.com/aws/aws-sdk-js-v3.git`. Canonical.
 - `@aws-sdk/client-transcribe-streaming` — same maintainer/repository, version 3.1129.0. Canonical.
-- Verified via `npm view` from t1000. No typosquat detected. Both are the AWS-authored SDK v3 packages the researcher intended.
+- Verified via `npm view` from host-b. No typosquat detected. Both are the AWS-authored SDK v3 packages the researcher intended.
 
 Approval recorded, execution advanced to Task 2. No commit for this task (checkpoint gate).
 
