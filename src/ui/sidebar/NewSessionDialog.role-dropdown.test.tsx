@@ -78,6 +78,12 @@ async function* emptyStream() {
 }
 
 import { NewSessionDialog } from "./NewSessionDialog";
+import {
+  queryRolesGroup,
+  roleOptionValues,
+  pickedRoleValues,
+  toggleRole,
+} from "./NewSessionDialog.roles-test-helpers";
 import type { Host, HostFolder } from "@/types/ui-types";
 
 function makeHost(id: string, name: string, overrides: Partial<Host> = {}): Host {
@@ -184,7 +190,7 @@ describe("NewSessionDialog role dropdown: Test 20 — host selection triggers li
 // Test 21: API returns roles → dropdown renders those options
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog role dropdown: Test 21 — roles render as options", () => {
-  it("Test 21: listRolesForHost returns two roles → dropdown shows both", async () => {
+  it("Test 21: listRolesForHost returns two roles → roles group shows both", async () => {
     mockListRolesForHost.mockResolvedValueOnce([
       { name: "box-maintainer", description: "" },
       { name: "tina", description: "" },
@@ -192,13 +198,11 @@ describe("NewSessionDialog role dropdown: Test 21 — roles render as options", 
     renderDialog();
     fireEvent.click(screen.getByText("alpha"));
     await waitFor(() => {
-      const roleSelect = screen.queryByLabelText(/^role$/i);
-      expect(roleSelect).toBeTruthy();
+      expect(queryRolesGroup()).toBeTruthy();
     });
-    const roleSelect = screen.getByLabelText(/^role$/i) as HTMLSelectElement;
-    const optionTexts = Array.from(roleSelect.options).map((o) => o.value);
-    expect(optionTexts).toContain("box-maintainer");
-    expect(optionTexts).toContain("tina");
+    const optionValues = roleOptionValues();
+    expect(optionValues).toContain("box-maintainer");
+    expect(optionValues).toContain("tina");
   });
 });
 
@@ -219,7 +223,7 @@ describe("NewSessionDialog role dropdown: Test 22 — host change clears role + 
     renderDialog();
     fireEvent.click(screen.getByText("alpha"));
     await waitFor(() => {
-      expect(screen.queryByLabelText(/^role$/i)).toBeTruthy();
+      expect(queryRolesGroup()).toBeTruthy();
     }, { timeout: 15000 });
     // Pick a role. The .value assertion is wrapped in waitFor because under
     // full-suite load React 18 concurrent-mode batching can delay the
@@ -227,12 +231,9 @@ describe("NewSessionDialog role dropdown: Test 22 — host change clears role + 
     // (flake surfaced during quick 260809-ih9's suite run; observed once,
     // did not repro in isolation — this hardening is the fix user asked
     // for post-#370).
-    const roleSelect = screen.getByLabelText(/^role$/i) as HTMLSelectElement;
-    fireEvent.change(roleSelect, { target: { value: "tina" } });
+    toggleRole("tina");
     await waitFor(() => {
-      expect(
-        (screen.getByLabelText(/^role$/i) as HTMLSelectElement).value,
-      ).toBe("tina");
+      expect(pickedRoleValues()).toEqual(["tina"]);
     }, { timeout: 15000 });
 
     // Host B: TWO different roles.
@@ -252,11 +253,11 @@ describe("NewSessionDialog role dropdown: Test 22 — host change clears role + 
     await waitFor(() => {
       expect(mockListRolesForHost).toHaveBeenCalledTimes(2);
     }, { timeout: 15000 });
-    // Selection cleared — the select falls back to placeholder (empty value).
+    // Selection cleared — host B's roles render with nothing checked.
     // Host A's "tina" must NOT carry over.
     await waitFor(() => {
-      const sel = screen.getByLabelText(/^role$/i) as HTMLSelectElement;
-      expect(sel.value).toBe("");
+      expect(roleOptionValues()).toEqual(["other-role", "another-role"]);
+      expect(pickedRoleValues()).toEqual([]);
     }, { timeout: 15000 });
   }, 20000);
 
@@ -264,7 +265,7 @@ describe("NewSessionDialog role dropdown: Test 22 — host change clears role + 
     // Companion to Test 22, and the interaction worth pinning: the stale-role
     // clear and the sole-role auto-select COMPOSE. The clear drops host A's
     // role, then the auto-select lands the user on host B's only valid choice
-    // instead of an empty dropdown that gates Create for no reason.
+    // instead of an empty selection that gates Create for no reason.
     mockListRolesForHost.mockResolvedValueOnce([
       { name: "box-maintainer", description: "" },
       { name: "tina", description: "" },
@@ -272,15 +273,11 @@ describe("NewSessionDialog role dropdown: Test 22 — host change clears role + 
     renderDialog();
     fireEvent.click(screen.getByText("alpha"));
     await waitFor(() => {
-      expect(screen.queryByLabelText(/^role$/i)).toBeTruthy();
+      expect(queryRolesGroup()).toBeTruthy();
     }, { timeout: 15000 });
-    fireEvent.change(screen.getByLabelText(/^role$/i), {
-      target: { value: "tina" },
-    });
+    toggleRole("tina");
     await waitFor(() => {
-      expect(
-        (screen.getByLabelText(/^role$/i) as HTMLSelectElement).value,
-      ).toBe("tina");
+      expect(pickedRoleValues()).toEqual(["tina"]);
     }, { timeout: 15000 });
 
     // Host B offers exactly one role.
@@ -289,8 +286,7 @@ describe("NewSessionDialog role dropdown: Test 22 — host change clears role + 
     ]);
     fireEvent.click(screen.getByText("bravo"));
     await waitFor(() => {
-      const sel = screen.getByLabelText(/^role$/i) as HTMLSelectElement;
-      expect(sel.value).toBe("other-role");
+      expect(pickedRoleValues()).toEqual(["other-role"]);
     }, { timeout: 15000 });
   }, 20000);
 });
@@ -318,8 +314,8 @@ describe("NewSessionDialog role dropdown: Test 23 — Create blocked without rol
     mockGetIdentityExistsOnHost.mockResolvedValue(false);
     const { getByLabelText, getByRole } = renderDialog();
     fireEvent.click(screen.getByText("alpha"));
-    // Wait for the roles fetch to resolve so the dropdown appears
-    await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
+    // Wait for the roles fetch to resolve so the roles group appears
+    await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
     // 2026-09-27: reveal the manual name input by opting into custom name.
     fireEvent.click(getByLabelText(/choose a custom agent name/i));
     // Fill name (title/brief/generate/img UI is gone post-Phase-86)
@@ -330,14 +326,13 @@ describe("NewSessionDialog role dropdown: Test 23 — Create blocked without rol
     }) as HTMLButtonElement;
     expect(createBtn.disabled).toBe(true);
     // Pick role → Create enabled
-    const roleSelect = getByLabelText(/^role$/i) as HTMLSelectElement;
-    fireEvent.change(roleSelect, { target: { value: "box-maintainer" } });
+    toggleRole("box-maintainer");
     await waitFor(() => {
       expect(createBtn.disabled).toBe(false);
     });
   });
 
-  it("Test 23b: single-role host → Create enabled without the user touching the dropdown", async () => {
+  it("Test 23b: single-role host → Create enabled without the user touching the roles", async () => {
     // The payoff of sole-role auto-select: name is prefilled and the only role
     // is selected, so Create is reachable with zero interactions beyond opening
     // the modal. This is the case Aither-style one-role-per-host deployments hit
@@ -364,8 +359,7 @@ describe("NewSessionDialog role dropdown: Test 23 — Create blocked without rol
     fireEvent.click(screen.getByText("alpha"));
 
     await waitFor(() => {
-      const sel = screen.getByLabelText(/^role$/i) as HTMLSelectElement;
-      expect(sel.value).toBe("box-maintainer");
+      expect(pickedRoleValues()).toEqual(["box-maintainer"]);
     });
     // 2026-09-27: reveal the manual input so we can observe the prefilled
     // value. The auto path submits the same value silently, but this test
@@ -408,13 +402,14 @@ describe("NewSessionDialog role dropdown: Test 24 — birth payload carries role
     mockOpenBirthStream.mockReturnValueOnce(emptyStream());
     const { getByLabelText, getByRole } = renderDialog();
     fireEvent.click(screen.getByText("alpha"));
-    await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
+    await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
     // 2026-09-27: reveal the manual name input for typing.
     fireEvent.click(getByLabelText(/choose a custom agent name/i));
     fireEvent.change(getByLabelText(/^name$/i), { target: { value: "alicia" } });
-    // Pick role
-    fireEvent.change(getByLabelText(/^role$/i), {
-      target: { value: "box-maintainer" },
+    // The sole role auto-selects — clicking it again would UNcheck it, so
+    // just confirm it is picked.
+    await waitFor(() => {
+      expect(pickedRoleValues()).toEqual(["box-maintainer"]);
     });
     await waitFor(() => {
       const createBtn = getByRole("button", {
@@ -428,70 +423,75 @@ describe("NewSessionDialog role dropdown: Test 24 — birth payload carries role
     });
     const [payload] = mockOpenBirthStream.mock.calls[0] as [Record<string, unknown>];
     expect(payload.role).toBe("box-maintainer");
+    // Single pick → no `roles` key at all.
+    expect("roles" in payload).toBe(false);
   });
 });
 
-describe("NewSessionDialog role dropdown: multi-role — extra roles ride along", () => {
-  it("picking 'Also takes on' chips sends them as roles[], primary stays in role", async () => {
-    mockListRolesForHost.mockResolvedValueOnce([
-      { name: "box-maintainer", description: "" },
-      { name: "sky-uat", description: "" },
-      { name: "tina", description: "" },
-    ]);
+describe("NewSessionDialog roles: multi-select", () => {
+  const threeRoles = [
+    { name: "box-maintainer", description: "" },
+    { name: "sky-uat", description: "" },
+    { name: "tina", description: "" },
+  ];
+
+  async function openWithName() {
     mockListIdentities.mockResolvedValue([]);
     mockGetIdentityExistsOnHost.mockResolvedValue(false);
-    mockOpenBirthStream.mockReturnValueOnce(emptyStream());
-    const { getByLabelText, getByRole } = renderDialog();
+    const utils = renderDialog();
     fireEvent.click(screen.getByText("alpha"));
-    await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
-    fireEvent.click(getByLabelText(/choose a custom agent name/i));
-    fireEvent.change(getByLabelText(/^name$/i), { target: { value: "alicia" } });
-    // No chips until a primary is picked.
-    expect(screen.queryByText(/also takes on/i)).toBeNull();
-    fireEvent.change(getByLabelText(/^role$/i), {
-      target: { value: "box-maintainer" },
+    await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
+    fireEvent.click(utils.getByLabelText(/choose a custom agent name/i));
+    fireEvent.change(utils.getByLabelText(/^name$/i), {
+      target: { value: "alicia" },
     });
-    await waitFor(() => expect(screen.queryByText(/also takes on/i)).toBeTruthy());
-    // The primary is not offered as an extra.
-    expect(screen.queryByRole("button", { name: /box.maintainer/i })).toBeNull();
-    const tina = getByRole("button", { name: /tina/i });
-    fireEvent.click(tina);
-    expect(tina.getAttribute("aria-pressed")).toBe("true");
-    fireEvent.click(getByRole("button", { name: /sky.uat/i }));
-    await waitFor(() => {
-      const createBtn = getByRole("button", {
+    const createBtn = () =>
+      utils.getByRole("button", {
         name: /^(open|create|creating)/i,
       }) as HTMLButtonElement;
-      expect(createBtn.disabled).toBe(false);
-    });
-    fireEvent.click(getByRole("button", { name: /^(open|create|creating)/i }));
+    return { ...utils, createBtn };
+  }
+
+  it("checking two roles sends the first pick as role and the second in roles[]", async () => {
+    mockListRolesForHost.mockResolvedValueOnce(threeRoles);
+    mockOpenBirthStream.mockReturnValueOnce(emptyStream());
+    const { createBtn } = await openWithName();
+    // Pick order, not DOM order, decides the primary.
+    toggleRole("tina");
+    toggleRole("box-maintainer");
+    await waitFor(() =>
+      expect(pickedRoleValues()).toEqual(["box-maintainer", "tina"]),
+    );
+    await waitFor(() => expect(createBtn().disabled).toBe(false));
+    fireEvent.click(createBtn());
     await waitFor(() => expect(mockOpenBirthStream).toHaveBeenCalledTimes(1));
     const [payload] = mockOpenBirthStream.mock.calls[0] as [Record<string, unknown>];
-    expect(payload.role).toBe("box-maintainer");
-    expect(payload.roles).toEqual(["tina", "sky-uat"]);
+    expect(payload.role).toBe("tina");
+    expect(payload.roles).toEqual(["box-maintainer"]);
   });
 
-  it("an extra that becomes the primary is dropped from the extras", async () => {
-    mockListRolesForHost.mockResolvedValueOnce([
-      { name: "box-maintainer", description: "" },
-      { name: "tina", description: "" },
-      { name: "sky-uat", description: "" },
-    ]);
-    const { getByLabelText, getByRole } = renderDialog();
-    fireEvent.click(screen.getByText("alpha"));
-    await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
-    fireEvent.change(getByLabelText(/^role$/i), {
-      target: { value: "box-maintainer" },
-    });
-    await waitFor(() => expect(screen.queryByText(/also takes on/i)).toBeTruthy());
-    fireEvent.click(getByRole("button", { name: /tina/i }));
-    fireEvent.change(getByLabelText(/^role$/i), { target: { value: "tina" } });
-    await waitFor(() =>
-      expect(
-        getByRole("button", { name: /box.maintainer/i }).getAttribute("aria-pressed"),
-      ).toBe("false"),
-    );
-    expect(screen.queryByRole("button", { name: /^tina$/i })).toBeNull();
+  it("unchecking every role leaves Create disabled", async () => {
+    mockListRolesForHost.mockResolvedValueOnce(threeRoles);
+    const { createBtn } = await openWithName();
+    expect(createBtn().disabled).toBe(true);
+    toggleRole("tina");
+    await waitFor(() => expect(createBtn().disabled).toBe(false));
+    toggleRole("tina");
+    await waitFor(() => expect(pickedRoleValues()).toEqual([]));
+    expect(createBtn().disabled).toBe(true);
+  });
+
+  it("a single pick sends role only, with no roles key", async () => {
+    mockListRolesForHost.mockResolvedValueOnce(threeRoles);
+    mockOpenBirthStream.mockReturnValueOnce(emptyStream());
+    const { createBtn } = await openWithName();
+    toggleRole("sky-uat");
+    await waitFor(() => expect(createBtn().disabled).toBe(false));
+    fireEvent.click(createBtn());
+    await waitFor(() => expect(mockOpenBirthStream).toHaveBeenCalledTimes(1));
+    const [payload] = mockOpenBirthStream.mock.calls[0] as [Record<string, unknown>];
+    expect(payload.role).toBe("sky-uat");
+    expect("roles" in payload).toBe(false);
   });
 });
 
@@ -523,10 +523,11 @@ describe("NewSessionDialog role dropdown: Test 26 — role resets on close", () 
     ]);
     const { rerender, onClose } = renderDialog();
     fireEvent.click(screen.getByText("alpha"));
-    await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
-    const roleSelect = screen.getByLabelText(/^role$/i) as HTMLSelectElement;
-    fireEvent.change(roleSelect, { target: { value: "box-maintainer" } });
-    expect(roleSelect.value).toBe("box-maintainer");
+    await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
+    // Sole role auto-selects — that is the "picked" state under test.
+    await waitFor(() =>
+      expect(pickedRoleValues()).toEqual(["box-maintainer"]),
+    );
 
     // Close modal
     rerender(
@@ -547,9 +548,9 @@ describe("NewSessionDialog role dropdown: Test 26 — role resets on close", () 
       />,
     );
     // Two-host tree does not auto-select — no host is picked yet, so no role
-    // dropdown is rendered on re-open. That's the correct "fresh defaults"
+    // group is rendered on re-open. That's the correct "fresh defaults"
     // behavior.
-    expect(screen.queryByLabelText(/^role$/i)).toBeFalsy();
+    expect(queryRolesGroup()).toBeFalsy();
   });
 });
 
@@ -557,7 +558,7 @@ describe("NewSessionDialog role dropdown: Test 26 — role resets on close", () 
 // Test 27: role dropdown NOT shown when identity-mode is OFF
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog role dropdown: Test 27 — hidden when user opts into shell mode", () => {
-  it("Test 27: click 'Just a shell — no agent' → role dropdown absent from DOM", async () => {
+  it("Test 27: click 'Just a shell — no agent' → roles group absent from DOM", async () => {
     // Phase 88 (Plan 88-03 Task 4): semantic-inverted from the old
     // "identity-mode OFF" framing. Post-Phase-88 clicking the checkbox
     // OPTS INTO shell mode (was: opted out of identity mode); the role
@@ -571,15 +572,15 @@ describe("NewSessionDialog role dropdown: Test 27 — hidden when user opts into
     // Agent mode is the new default (shellOnly=false); picking a host
     // populates the dropdown as before.
     fireEvent.click(screen.getByText("alpha"));
-    await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
+    await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
     // Click the shell-only checkbox to opt INTO shell mode
     const checkbox = getByRole("checkbox", {
       name: /just a shell.*no agent/i,
     });
     fireEvent.click(checkbox);
-    // Role dropdown must disappear
+    // Roles group must disappear
     await waitFor(() => {
-      expect(screen.queryByLabelText(/^role$/i)).toBeFalsy();
+      expect(queryRolesGroup()).toBeFalsy();
     });
   });
 });

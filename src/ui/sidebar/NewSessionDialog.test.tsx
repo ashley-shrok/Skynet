@@ -21,7 +21,7 @@
 // specific coverage has been removed accordingly:
 //
 //   Test F: rewritten — asserts the current identity-mode field cluster
-//     (Task textarea, Name input, Role dropdown) rather than the deleted
+//     (Task textarea, Name input, Roles group) rather than the deleted
 //     title/brief/voice/color/avatar UI.
 //   Test G: rewritten — Create enables on name + role + host (no more
 //     cosmetic gates).
@@ -75,8 +75,8 @@ const mockListIdentities = vi.fn().mockResolvedValue([]);
 const mockGetIdentityExistsOnHost = vi.fn().mockResolvedValue(false);
 const mockOpenBirthStream = vi.fn();
 // Phase 22 SRIC-02: listRolesForHost is now called on every host select in
-// identity-mode. Default to a single role so identity-mode tests can pick it
-// via the dropdown; tests that turn identity-mode OFF are unaffected because
+// identity-mode. Default to a single role, which sole-role auto-select picks
+// for identity-mode tests; tests that turn identity-mode OFF are unaffected because
 // the effect skips the fetch when identityMode is false.
 const mockListRolesForHost = vi.fn().mockResolvedValue([
   { name: "box-maintainer", description: "" },
@@ -158,6 +158,11 @@ vi.mock("@/api/global-files-api", () => ({
 }));
 
 import { NewSessionDialog } from "./NewSessionDialog";
+import {
+  queryRolesGroup,
+  getRolesGroup,
+  pickedRoleValues,
+} from "./NewSessionDialog.roles-test-helpers";
 // Phase 10 Wave 3: Test 10 retargeted from the retiring ConversationsPanel
 // to the new PrettyConversationsPanel. Tests 2-9 in this file cover
 // NewSessionDialog in isolation and are unaffected. Wave 4 pruned Test 1
@@ -686,7 +691,7 @@ describe("NewSessionDialog: Test E — shell mode hides birth fields (opt in via
     fireEvent.click(checkbox);
     // Identity-cluster fields gone
     expect(queryByLabelText(/^task$/i)).toBeNull();
-    expect(queryByLabelText(/^role$/i)).toBeNull();
+    expect(queryRolesGroup()).toBeNull();
     // Phase 86 Plan 86-04: title / brief / voice / color / avatar generate are
     // never rendered anymore — assert their absence as a regression guard.
     expect(queryByLabelText(/^title$/i)).toBeNull();
@@ -701,11 +706,11 @@ describe("NewSessionDialog: Test E — shell mode hides birth fields (opt in via
 // from source — those assertions have been removed.
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog: Test F — identity-mode ON reveals birth fields", () => {
-  it("Test F: default (identity-mode ON) + host picked → role dropdown + auto-name checkbox present; name input hidden until checkbox clicked; task and cosmetic controls absent", async () => {
+  it("Test F: default (identity-mode ON) + host picked → roles group + auto-name checkbox present; name input hidden until checkbox clicked; task and cosmetic controls absent", async () => {
     const { getByLabelText, queryByLabelText, queryByRole } = renderDialog();
-    // Pick a host so the role dropdown wrap renders (host-gated per L983).
+    // Pick a host so the roles group wrap renders (host-gated per L983).
     fireEvent.click(screen.getByText("alpha"));
-    await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
+    await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
 
     // 2026-09-27: the identity-name input is hidden by default now — the
     // vetted-pool picker names the agent silently. A "Choose a custom agent
@@ -715,7 +720,7 @@ describe("NewSessionDialog: Test F — identity-mode ON reveals birth fields", (
     // Click the checkbox → the input appears.
     fireEvent.click(getByLabelText(/choose a custom agent name/i));
     expect(getByLabelText(/^name$/i)).toBeTruthy();
-    expect(getByLabelText(/^role$/i)).toBeTruthy();
+    expect(getRolesGroup()).toBeTruthy();
 
     // 2026-09-14: the task textarea was removed — birth sends a placeholder and
     // the agent self-fills its own `task:` frontmatter on first wake. Asserted
@@ -740,11 +745,13 @@ describe("NewSessionDialog: Test G — name + role + host enables Create", () =>
   it("Test G: pick host, pick role, fill valid name → Create enabled", async () => {
     const { getByLabelText, getByRole } = renderDialog();
     fireEvent.click(screen.getByText("alpha"));
-    // Wait for role dropdown, pick the mocked role.
-    await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
-    fireEvent.change(getByLabelText(/^role$/i), {
-      target: { value: "box-maintainer" },
-    });
+    // Wait for the roles group; the mocked role auto-selects.
+    await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
+    // The mocked host offers one role, which sole-role auto-select picks
+    // (clicking it would UNcheck it) — wait for that to land.
+    await waitFor(() =>
+      expect(pickedRoleValues()).toEqual(["box-maintainer"]),
+    );
     // 2026-09-27: reveal the manual name input by opting into custom name.
     fireEvent.click(getByLabelText(/choose a custom agent name/i));
     // Fill name.
@@ -881,11 +888,13 @@ describe("NewSessionDialog: Test R — onCreate payload with identity-mode ON", 
     const onCreate = vi.fn();
     const { getByLabelText, getByRole } = renderDialog({ onCreate });
     fireEvent.click(screen.getByText("alpha"));
-    // Phase 22 SRIC-02: pick a role
-    await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
-    fireEvent.change(getByLabelText(/^role$/i), {
-      target: { value: "box-maintainer" },
-    });
+    // Phase 22 SRIC-02: a role must be picked
+    await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
+    // The mocked host offers one role, which sole-role auto-select picks
+    // (clicking it would UNcheck it) — wait for that to land.
+    await waitFor(() =>
+      expect(pickedRoleValues()).toEqual(["box-maintainer"]),
+    );
     fireEvent.click(getByLabelText(/choose a custom agent name/i));
     fireEvent.change(getByLabelText(/^name$/i), { target: { value: "alicia" } });
     await waitFor(() => {
@@ -1014,10 +1023,12 @@ describe("NewSessionDialog: Test U — modal state resets on close", () => {
 async function fillIdentityForm(utils: ReturnType<typeof renderDialog>) {
   const { getByLabelText } = utils;
   fireEvent.click(screen.getByText("alpha"));
-  await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
-  fireEvent.change(getByLabelText(/^role$/i), {
-    target: { value: "box-maintainer" },
-  });
+  await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
+  // The mocked host offers one role, which sole-role auto-select picks
+  // (clicking it would UNcheck it) — wait for that to land.
+  await waitFor(() =>
+    expect(pickedRoleValues()).toEqual(["box-maintainer"]),
+  );
   // 2026-09-27: name input is hidden by default (auto-generate mode). Tests that
   // want to control the name explicitly must first check "Choose a custom agent
   // name" to reveal the input.

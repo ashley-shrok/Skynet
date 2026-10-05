@@ -5,15 +5,15 @@
 // CreateRoleDialog with role + host pre-filled. Behavior spec:
 //   - Test 1: open with initialHost + initialRole + identity-mode ON → both pre-filled
 //   - Test 2: open with no props → existing behavior preserved (auto-select-single-host if 1 host, else null)
-//   - Test 3: initialHost only → host pre-filled, role empty (dropdown requires manual pick)
+//   - Test 3: initialHost only → host pre-filled, role empty (user must pick manually)
 //   - Test 4: initialRole only (no host) → role stays empty (can't seed without host);
 //              auto-select-single-host still runs
-//   - Test 5: when opened with both, role dropdown fetches roles-for-host and the
+//   - Test 5: when opened with both, roles group fetches roles-for-host and the
 //              pre-filled role appears in the returned options
 //   - Test 6: if pre-filled role is NOT in the fetched roles list → selectedRole is CLEARED
 //   - Test 7: both pre-filled fields are EDITABLE (not locked / not disabled)
 //   - Test 8: on close + reopen without props → default empty state (no stale seed)
-//   - Test 9: identity-mode OFF → initialRole is IGNORED (role dropdown only exists in
+//   - Test 9: identity-mode OFF → initialRole is IGNORED (roles group only exists in
 //              identity-mode)
 //
 // Mock pattern lifted verbatim from NewSessionDialog.role-dropdown.test.tsx so this
@@ -89,6 +89,12 @@ vi.mock("@/hooks/use-is-touch-device", () => ({
 }));
 
 import { NewSessionDialog } from "./NewSessionDialog";
+import {
+  queryRolesGroup,
+  roleCheckboxes,
+  roleOptionValues,
+  pickedRoleValues,
+} from "./NewSessionDialog.roles-test-helpers";
 import type { Host, HostFolder } from "@/types/ui-types";
 
 function makeHost(id: string, name: string, overrides: Partial<Host> = {}): Host {
@@ -173,10 +179,9 @@ describe("NewSessionDialog chain: Test 1 — initialHost + initialRole pre-fill 
       expect(hostRow.getAttribute("aria-selected")).toBe("true");
     });
 
-    // Role dropdown appears with the pre-filled role selected
+    // Roles group appears with the pre-filled role selected
     await waitFor(() => {
-      const sel = screen.getByLabelText(/^role$/i) as HTMLSelectElement;
-      expect(sel.value).toBe("box-maintainer");
+      expect(pickedRoleValues()).toEqual(["box-maintainer"]);
     });
 
     // listRolesForHost was called with box-a's numeric id
@@ -190,12 +195,19 @@ describe("NewSessionDialog chain: Test 1 — initialHost + initialRole pre-fill 
 // Test 2: no props → existing behavior preserved (regression gate)
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog chain: Test 2 — no props preserves existing behavior", () => {
-  it("Test 2a: open with 1-host tree + no props → auto-select-single-host (role dropdown appears with empty selection)", async () => {
+  it("Test 2a: open with 1-host tree + no props → auto-select-single-host (roles group appears with empty selection)", async () => {
+    // Two roles, overriding the one-role beforeEach default, so sole-role
+    // auto-select does not fill the selection — with no props nothing should
+    // be seeded, and that emptiness is what this test observes.
+    mockListRolesForHost.mockResolvedValue([
+      { name: "box-maintainer", description: "" },
+      { name: "tina", description: "" },
+    ]);
     // Phase 84 hide-picker-when-1-host (commit bc07561e): with a
     // single-host tree the host listbox is suppressed entirely by the
     // `flatHosts.length !== 1` guard at NewSessionDialog.tsx L921. The
     // auto-select side effect (setSelectedHost(flatHosts[0])) still
-    // fires — its visible confirmation is the role dropdown appearing
+    // fires — its visible confirmation is the roles group appearing
     // under the identity-cluster (which is host-gated).
     render(
       <NewSessionDialog
@@ -205,16 +217,14 @@ describe("NewSessionDialog chain: Test 2 — no props preserves existing behavio
         onCreate={vi.fn()}
       />,
     );
-    // Role dropdown fetches roles for the auto-selected host and appears
+    // The roles group fetches roles for the auto-selected host and appears
     // with empty selection — this is the observable proof that auto-
-    // select happened (dropdown is inside `{selectedHost !== null && …}`).
-    await waitFor(() => {
-      const sel = screen.getByLabelText(/^role$/i) as HTMLSelectElement;
-      expect(sel.value).toBe("");
-    });
+    // select happened (the group is inside `{selectedHost !== null && …}`).
+    await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
+    expect(pickedRoleValues()).toEqual([]);
   });
 
-  it("Test 2b: open with 2-host tree + no props → no auto-select, no role dropdown", () => {
+  it("Test 2b: open with 2-host tree + no props → no auto-select, no roles group", () => {
     render(
       <NewSessionDialog
         open
@@ -230,8 +240,8 @@ describe("NewSessionDialog chain: Test 2 — no props preserves existing behavio
     for (const r of rows) {
       expect(r.getAttribute("aria-selected")).not.toBe("true");
     }
-    // No role dropdown rendered because no host is picked
-    expect(screen.queryByLabelText(/^role$/i)).toBeFalsy();
+    // No roles group rendered because no host is picked
+    expect(queryRolesGroup()).toBeFalsy();
   });
 });
 
@@ -242,7 +252,7 @@ describe("NewSessionDialog chain: Test 3 — initialHost alone", () => {
   it("Test 3: initialHost=box-a, initialRole not provided → host pre-filled + role empty", async () => {
     // 2026-09-14: TWO roles, overriding the one-role beforeEach default. This
     // test proves that without initialRole nothing is SEEDED — but sole-role
-    // auto-select would legitimately fill a one-role dropdown, masking the
+    // auto-select would legitimately fill a one-roles group, masking the
     // very absence being asserted. Two roles keeps the empty state observable;
     // Test 3b covers the one-role case on purpose.
     mockListRolesForHost.mockResolvedValue([
@@ -263,16 +273,15 @@ describe("NewSessionDialog chain: Test 3 — initialHost alone", () => {
       const hostRow = screen.getByRole("option", { name: /box-a/i });
       expect(hostRow.getAttribute("aria-selected")).toBe("true");
     });
-    // Role dropdown appears (identity-mode default ON, host picked → dropdown renders)
-    await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
+    // Roles group appears (identity-mode default ON, host picked → group renders)
+    await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
     // Role selection empty (user must manually pick)
-    const sel = screen.getByLabelText(/^role$/i) as HTMLSelectElement;
-    expect(sel.value).toBe("");
+    expect(pickedRoleValues()).toEqual([]);
   });
 
   it("Test 3b: initialHost + a single available role → that role auto-selects", async () => {
     // The complement of Test 3: no initialRole seed, but only one role exists on
-    // the pre-filled host, so there is no decision left to make and the dropdown
+    // the pre-filled host, so there is no decision left to make and the roles group
     // resolves itself rather than gating Create behind a mandatory click.
     mockListRolesForHost.mockResolvedValue([
       { name: "box-maintainer", description: "" },
@@ -287,8 +296,7 @@ describe("NewSessionDialog chain: Test 3 — initialHost alone", () => {
       />,
     );
     await waitFor(() => {
-      const sel = screen.getByLabelText(/^role$/i) as HTMLSelectElement;
-      expect(sel.value).toBe("box-maintainer");
+      expect(pickedRoleValues()).toEqual(["box-maintainer"]);
     });
   });
 });
@@ -297,7 +305,7 @@ describe("NewSessionDialog chain: Test 3 — initialHost alone", () => {
 // Test 4: initialRole only, no initialHost → role stays empty; auto-select single host still runs
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog chain: Test 4 — initialRole alone", () => {
-  it("Test 4a: initialRole='box-maintainer' + 2-host tree (no auto-select) → role empty + no dropdown", () => {
+  it("Test 4a: initialRole='box-maintainer' + 2-host tree (no auto-select) → role empty + no roles group", () => {
     render(
       <NewSessionDialog
         open
@@ -307,21 +315,21 @@ describe("NewSessionDialog chain: Test 4 — initialRole alone", () => {
         initialRole="box-maintainer"
       />,
     );
-    // No host picked → no role dropdown rendered
-    expect(screen.queryByLabelText(/^role$/i)).toBeFalsy();
+    // No host picked → no roles group rendered
+    expect(queryRolesGroup()).toBeFalsy();
   });
 
   it("Test 4b: initialRole='box-maintainer' + single-host tree → auto-select still runs; role empty (needs host-first seed)", async () => {
     // Phase 84 hide-picker-when-1-host (commit bc07561e): with a
     // single-host tree the host listbox is suppressed. The role
-    // dropdown appearance is the observable proof of auto-selection.
+    // roles group appearance is the observable proof of auto-selection.
     //
     // 2026-09-14: TWO roles, overriding the one-role beforeEach default. The
     // assertion below is that initialRole WITHOUT initialHost does not seed;
-    // with one role available, sole-role auto-select would fill the dropdown and
+    // with one role available, sole-role auto-select would fill the selection and
     // the test would fail for an unrelated reason. Note the role names here
     // deliberately EXCLUDE "box-maintainer" — if the seed did wrongly apply, the
-    // phantom-role guard would also clear it, so an empty dropdown would be
+    // phantom-role guard would also clear it, so an empty selection would be
     // ambiguous. Excluding it means empty can only mean "never seeded".
     mockListRolesForHost.mockResolvedValue([
       { name: "general-assistant", description: "" },
@@ -336,18 +344,17 @@ describe("NewSessionDialog chain: Test 4 — initialRole alone", () => {
         initialRole="box-maintainer"
       />,
     );
-    // Role dropdown appears once the auto-selected host resolves
-    await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
+    // Roles group appears once the auto-selected host resolves
+    await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
     // Role selection stays empty — initialRole is only seeded when initialHost is also provided
-    const sel = screen.getByLabelText(/^role$/i) as HTMLSelectElement;
-    expect(sel.value).toBe("");
+    expect(pickedRoleValues()).toEqual([]);
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 5: role dropdown fetches for pre-filled host + pre-filled role appears in options
+// Test 5: roles group fetches for pre-filled host + pre-filled role appears in options
 // ─────────────────────────────────────────────────────────────────────────────
-describe("NewSessionDialog chain: Test 5 — role dropdown fetches for pre-filled host", () => {
+describe("NewSessionDialog chain: Test 5 — roles group fetches for pre-filled host", () => {
   it("Test 5: initialHost + initialRole → listRolesForHost fired with host id, pre-filled role is in options", async () => {
     mockListRolesForHost.mockResolvedValue([
       { name: "box-maintainer", description: "" },
@@ -367,13 +374,10 @@ describe("NewSessionDialog chain: Test 5 — role dropdown fetches for pre-fille
       expect(mockListRolesForHost).toHaveBeenCalled();
     });
     await waitFor(() => {
-      const sel = screen.getByLabelText(/^role$/i) as HTMLSelectElement;
-      const optionVals = Array.from(sel.options).map((o) => o.value);
-      expect(optionVals).toContain("box-maintainer");
+      expect(roleOptionValues()).toContain("box-maintainer");
     });
     // The pre-filled role stays selected because it's in the fetched list
-    const sel = screen.getByLabelText(/^role$/i) as HTMLSelectElement;
-    expect(sel.value).toBe("box-maintainer");
+    expect(pickedRoleValues()).toEqual(["box-maintainer"]);
   });
 });
 
@@ -381,7 +385,7 @@ describe("NewSessionDialog chain: Test 5 — role dropdown fetches for pre-fille
 // Test 6: if pre-filled role is NOT in fetched roles → selectedRole cleared
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog chain: Test 6 — stale pre-filled role is cleared", () => {
-  it("Test 6: initialRole='ghost-role' not in server response → selectedRole cleared to ''", async () => {
+  it("Test 6: initialRole='ghost-role' not in server response → selected roles cleared", async () => {
     mockListRolesForHost.mockResolvedValue([
       { name: "box-maintainer", description: "" },
       { name: "tina", description: "" },
@@ -401,9 +405,9 @@ describe("NewSessionDialog chain: Test 6 — stale pre-filled role is cleared", 
       expect(mockListRolesForHost).toHaveBeenCalled();
     });
     await waitFor(() => {
-      const sel = screen.getByLabelText(/^role$/i) as HTMLSelectElement;
       // rolesForHost has been populated but ghost-role is not in it → clear
-      expect(sel.value).toBe("");
+      expect(roleOptionValues()).toEqual(["box-maintainer", "tina"]);
+      expect(pickedRoleValues()).toEqual([]);
     });
   });
 });
@@ -433,8 +437,7 @@ describe("NewSessionDialog chain: Test 7 — pre-filled fields are editable", ()
       expect(hostRow.getAttribute("aria-selected")).toBe("true");
     });
     await waitFor(() => {
-      const sel = screen.getByLabelText(/^role$/i) as HTMLSelectElement;
-      expect(sel.value).toBe("box-maintainer");
+      expect(pickedRoleValues()).toEqual(["box-maintainer"]);
     });
 
     // Change host — the option button MUST NOT be disabled
@@ -446,15 +449,16 @@ describe("NewSessionDialog chain: Test 7 — pre-filled fields are editable", ()
       expect(rowB.getAttribute("aria-selected")).toBe("true");
     });
 
-    // Change role — the select MUST NOT be disabled (once loading resolves)
+    // Change role — the role checkboxes MUST NOT be disabled (once loading resolves)
     // After host change, roles are re-fetched for host B; wait for that to settle
     mockListRolesForHost.mockResolvedValue([
       { name: "other-role", description: "" },
     ]);
-    // Second fetch triggered by host change should not disable the role dropdown after resolution
+    // Second fetch triggered by host change should not disable the roles after resolution
     await waitFor(() => {
-      const sel = screen.getByLabelText(/^role$/i) as HTMLSelectElement;
-      expect(sel.disabled).toBe(false);
+      const boxes = roleCheckboxes();
+      expect(boxes.length).toBeGreaterThan(0);
+      expect(boxes.every((cb) => !cb.disabled)).toBe(true);
     });
   });
 });
@@ -478,8 +482,7 @@ describe("NewSessionDialog chain: Test 8 — seed values do not persist across c
       />,
     );
     await waitFor(() => {
-      const sel = screen.getByLabelText(/^role$/i) as HTMLSelectElement;
-      expect(sel.value).toBe("box-maintainer");
+      expect(pickedRoleValues()).toEqual(["box-maintainer"]);
     });
 
     // Close modal
@@ -501,8 +504,8 @@ describe("NewSessionDialog chain: Test 8 — seed values do not persist across c
         onCreate={vi.fn()}
       />,
     );
-    // No host picked → no role dropdown → verified stale state was cleared
-    expect(screen.queryByLabelText(/^role$/i)).toBeFalsy();
+    // No host picked → no roles group → verified stale state was cleared
+    expect(queryRolesGroup()).toBeFalsy();
     const rows = screen.getAllByRole("option");
     for (const r of rows) {
       expect(r.getAttribute("aria-selected")).not.toBe("true");
@@ -532,9 +535,9 @@ describe("NewSessionDialog chain: Test 10 — initialBrief ignored (brief field 
         initialBrief="desc-from-role"
       />,
     );
-    // Wait for role dropdown to appear so the identity-cluster is fully
+    // Wait for roles group to appear so the identity-cluster is fully
     // rendered before we assert brief-absence
-    await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
+    await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
     // The brief textarea was deleted in Phase 86 Plan 86-04. initialBrief
     // is accepted for API compat with chain-prefill but no UI consumes it.
     expect(screen.queryByLabelText(/^brief$/i)).toBeFalsy();
@@ -582,14 +585,14 @@ describe("NewSessionDialog chain: Test 10 — initialBrief ignored (brief field 
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 9: user opts into shell mode → initialRole is IGNORED (role dropdown gone)
+// Test 9: user opts into shell mode → initialRole is IGNORED (roles group gone)
 // ─────────────────────────────────────────────────────────────────────────────
 // Phase 88 (Plan 88-03): semantic-inverted from the old "identity-mode OFF"
 // framing. Post-Phase-88 clicking the checkbox OPTS INTO shell mode
 // (was: opted out of identity mode). Same click, inverted intent. The
 // checkbox is admin-gated so this test renders under isAdmin={true}.
 describe("NewSessionDialog chain: Test 9 — initialRole ignored when user opts into shell mode", () => {
-  it("Test 9: open with seed → role dropdown populated; click 'Just a shell — no agent' → role dropdown gone; seed does not leak into shell mode", async () => {
+  it("Test 9: open with seed → roles group populated; click 'Just a shell — no agent' → roles group gone; seed does not leak into shell mode", async () => {
     mockListRolesForHost.mockResolvedValue([
       { name: "box-maintainer", description: "" },
     ]);
@@ -604,17 +607,16 @@ describe("NewSessionDialog chain: Test 9 — initialRole ignored when user opts 
         isAdmin={true}
       />,
     );
-    // Confirm role dropdown starts populated
+    // Confirm roles group starts populated
     await waitFor(() => {
-      const sel = screen.getByLabelText(/^role$/i) as HTMLSelectElement;
-      expect(sel.value).toBe("box-maintainer");
+      expect(pickedRoleValues()).toEqual(["box-maintainer"]);
     });
     // Toggle identity-mode OFF
     const checkbox = screen.getByRole("checkbox", { name: IDENTITY_MODE_CHECKBOX_RE });
     fireEvent.click(checkbox);
-    // Role dropdown must be gone (CREATE-only surface per D-CONTEXT §UX rules)
+    // Roles group must be gone (CREATE-only surface per D-CONTEXT §UX rules)
     await waitFor(() => {
-      expect(screen.queryByLabelText(/^role$/i)).toBeFalsy();
+      expect(queryRolesGroup()).toBeFalsy();
     });
   });
 });
@@ -669,10 +671,9 @@ describe("NewSessionDialog chain: Test 11 — birth+auto-route chain fires on en
       />,
     );
 
-    // Wait for chain-prefill to settle: role dropdown appears with box-maintainer
+    // Wait for chain-prefill to settle: roles group appears with box-maintainer
     await waitFor(() => {
-      const sel = screen.getByLabelText(/^role$/i) as HTMLSelectElement;
-      expect(sel.value).toBe("box-maintainer");
+      expect(pickedRoleValues()).toEqual(["box-maintainer"]);
     });
 
     // 2026-09-27: name input is hidden by default (auto-generate mode). Reveal

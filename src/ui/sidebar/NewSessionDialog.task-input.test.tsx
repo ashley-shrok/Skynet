@@ -71,6 +71,11 @@ async function* emptyStream() {
 }
 
 import { NewSessionDialog } from "./NewSessionDialog";
+import {
+  queryRolesGroup,
+  pickedRoleValues,
+  toggleRole,
+} from "./NewSessionDialog.roles-test-helpers";
 import type { Host, HostFolder } from "@/types/ui-types";
 
 function makeHost(id: string, name: string, overrides: Partial<Host> = {}): Host {
@@ -157,19 +162,25 @@ function renderDialog(overrides: {
   return { ...result, onCreate, onClose };
 }
 
+// Ensure `slug` is checked in the Roles group. A single-role host auto-selects
+// its role, and clicking an already-checked box would UNcheck it, so only
+// click when it is not already picked.
+function ensureRolePicked(slug: string) {
+  if (!pickedRoleValues().includes(slug)) toggleRole(slug);
+}
+
 // Helper that fills in a full identity form ready to submit, given a
-// resolved role list. Selects the first role in the list.
+// resolved role list. Picks "box-maintainer".
 async function fillFormForSubmit(opts: {
   name?: string;
   editNameAfterPrefill?: boolean;
   waitForPrefill?: boolean;
 } = {}) {
   const { name = "alicia", editNameAfterPrefill, waitForPrefill } = opts;
-  // Wait for role dropdown to appear
-  await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
-  // Pick a role → triggers pickPoolName useEffect
-  const roleSelect = screen.getByLabelText(/^role$/i) as HTMLSelectElement;
-  fireEvent.change(roleSelect, { target: { value: "box-maintainer" } });
+  // Wait for the roles group to appear
+  await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
+  // Pick a role (no-op if sole-role auto-select already picked it)
+  ensureRolePicked("box-maintainer");
   // 2026-09-27: the manual name input is hidden by default now (auto-generate
   // mode is default). Every helper caller here needs to either observe the
   // input value or type into it, so reveal the input by opting into custom
@@ -261,11 +272,11 @@ describe("NewSessionDialog task input: removed from the modal (2026-09-14)", () 
 
   it("Task 1a: task textarea is absent in agent mode (the field is gone)", async () => {
     renderDialog();
-    // Wait on the role dropdown first: it proves the agent-mode cluster
+    // Wait on the roles group first: it proves the agent-mode cluster
     // actually rendered, so a missing textarea is meaningful rather than just
     // "nothing has mounted yet".
     await waitFor(() => {
-      expect(screen.queryByLabelText(/^role$/i)).toBeTruthy();
+      expect(queryRolesGroup()).toBeTruthy();
     });
     expect(screen.queryByLabelText(/^task$/i)).toBeFalsy();
     expect(screen.queryByText(/what will this agent work on/i)).toBeFalsy();
@@ -341,6 +352,13 @@ describe("NewSessionDialog task input: pickPoolName auto-prefill", () => {
     //
     // Signature is (hostId, role?) with hostId leading, since it is the only
     // required argument now.
+    //
+    // Two roles, so sole-role auto-select does not pick one for us and the
+    // role pick below is a genuine user change.
+    mockListRolesForHost.mockResolvedValue([
+      { name: "box-maintainer", description: "" },
+      { name: "tina", description: "" },
+    ]);
     mockPickPoolName.mockResolvedValueOnce({ name: "willow" });
     renderDialog();
 
@@ -364,10 +382,11 @@ describe("NewSessionDialog task input: pickPoolName auto-prefill", () => {
 
     // Picking a role must NOT trigger another request.
     const callsBefore = mockPickPoolName.mock.calls.length;
-    await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
-    fireEvent.change(screen.getByLabelText(/^role$/i), {
-      target: { value: "box-maintainer" },
-    });
+    await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
+    toggleRole("box-maintainer");
+    await waitFor(() =>
+      expect(pickedRoleValues()).toEqual(["box-maintainer"]),
+    );
     await new Promise((r) => setTimeout(r, 50));
     expect(mockPickPoolName.mock.calls.length).toBe(callsBefore);
   });
@@ -384,15 +403,14 @@ describe("NewSessionDialog task input: pickPoolName auto-prefill", () => {
       { name: "tina", description: "" },
     ]);
     renderDialog();
-    await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
+    await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
     // 2026-09-27: reveal the manual input so the user can type into it.
     fireEvent.click(screen.getByLabelText(/choose a custom agent name/i));
     // User types a custom name FIRST (before any prefill).
     const nameInput = screen.getByLabelText(/^name$/i) as HTMLInputElement;
     fireEvent.change(nameInput, { target: { value: "custom-name" } });
     // Pick a role → pickPoolName resolves "willow" but name is non-empty, so no overwrite.
-    const roleSelect = screen.getByLabelText(/^role$/i) as HTMLSelectElement;
-    fireEvent.change(roleSelect, { target: { value: "box-maintainer" } });
+    toggleRole("box-maintainer");
     await waitFor(() => expect(mockPickPoolName).toHaveBeenCalled());
     // Give React a tick to potentially setName (but it shouldn't)
     await new Promise((r) => setTimeout(r, 50));
@@ -485,9 +503,8 @@ describe("NewSessionDialog task input: pickPoolName auto-prefill", () => {
   it("Task 2c: pickPoolName failure is silent (no toast/error/throw) — user can type", async () => {
     mockPickPoolName.mockRejectedValueOnce(new Error("pool endpoint down"));
     renderDialog();
-    await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
-    const roleSelect = screen.getByLabelText(/^role$/i) as HTMLSelectElement;
-    fireEvent.change(roleSelect, { target: { value: "box-maintainer" } });
+    await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
+    ensureRolePicked("box-maintainer");
     await waitFor(() => expect(mockPickPoolName).toHaveBeenCalled());
     // Give it a beat to settle
     await new Promise((r) => setTimeout(r, 50));
@@ -522,8 +539,7 @@ describe("NewSessionDialog task input: pickPoolName auto-prefill", () => {
     });
 
     // Role is still unpicked, and the call carried role === undefined.
-    const roleSelect = screen.getByLabelText(/^role$/i) as HTMLSelectElement;
-    expect(roleSelect.value).toBe("");
+    expect(pickedRoleValues()).toEqual([]);
     const [hostId, role] = mockPickPoolName.mock.calls[0] as [
       number,
       string | undefined,
@@ -595,15 +611,15 @@ describe("NewSessionDialog role-select bug fix: host-null affordance", () => {
         screen.queryByText(/pick a host to see available roles/i),
       ).toBeTruthy();
     });
-    // Sanity: role dropdown is still absent when host is null (existing
+    // Sanity: roles group is still absent when host is null (existing
     // L1022 gate {selectedHost !== null && (...)} unchanged by Approach A).
-    expect(screen.queryByLabelText(/^role$/i)).toBeFalsy();
+    expect(queryRolesGroup()).toBeFalsy();
   });
 
-  it("Task 3d: agent mode (default) + one host auto-picked → hint is NOT visible + role dropdown appears", async () => {
+  it("Task 3d: agent mode (default) + one host auto-picked → hint is NOT visible + roles group appears", async () => {
     renderDialog({ hostTree: oneHostTree });
     // Wait for auto-pick to resolve
-    await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
+    await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
     // Hint should be gone (host is now picked)
     expect(
       screen.queryByText(/pick a host to see available roles/i),
