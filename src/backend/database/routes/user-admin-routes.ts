@@ -47,7 +47,7 @@ const MXID_RE = /^@[a-z0-9._=/+-]{1,255}:[a-z0-9.-]{1,255}$/;
  * third-party phone service, which owns any deeper syntactic + reachability
  * checks.
  */
-const PHONE_E164_RE = /^\+[1-9]\d{7,14}$/;
+export const PHONE_E164_RE = /^\+[1-9]\d{7,14}$/;
 
 export function registerUserAdminRoutes(
   router: Router,
@@ -416,9 +416,9 @@ export function registerUserAdminRoutes(
    *       the agent-phone capability — the phone-call-requests worker looks
    *       this up when an agent drops a call request. Nullable in the schema
    *       (users without a number get a "no_phone_on_file" outcome from the
-   *       worker); this endpoint sets it, does not clear it. No UI surfaces
-   *       this field today — the endpoint is called directly with curl using
-   *       an admin cookie.
+   *       worker); this endpoint sets it, does not clear it. This is the
+   *       only way to grant the feature — users can change or clear their
+   *       own number from Preferences (/users/me/phone) but cannot add one.
    *     tags:
    *       - Users
    *     parameters:

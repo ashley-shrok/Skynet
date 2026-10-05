@@ -22,6 +22,10 @@ import { slugifyRoleName } from "@/sidebar/CreateRoleDialog";
 import SkillFileTab, { type SkillFileTabData } from "./SkillFileTab";
 import type { TabState } from "./IdentityFileTab";
 import { bumpModalOpen } from "@/lib/freeze-diag";
+import {
+  isModelInvocationDisabled,
+  setModelInvocationDisabled,
+} from "./skill-frontmatter";
 
 // SkillsEditorModal — cross-host cross-skill multi-file editor.
 //
@@ -55,10 +59,19 @@ import { bumpModalOpen } from "@/lib/freeze-diag";
 // Close/draft-guard: any dirty tab AND !savingRef → window.confirm.
 // savingRef bypasses on save-success and delete-skill closes.
 //
+// "Slash command only" checkbox (picker row) toggles
+// `disable-model-invocation: true` in SKILL.md's frontmatter. It reads from
+// the SKILL.md tabData entry (prefetched on skill pick even when SKILL.md
+// isn't the first tab) and writes immediately — no foot Save. Disabled while
+// SKILL.md has unsaved edits, since the write bumps mtime and SkillFileTab
+// reseeds its draft from the new content on an mtime change.
+//
 // All D-XX behaviors preserved: host auto-select, skill list refetch on
 // host change, file list refetch on skill change, per-tab lazy load,
 // mtime-409 conflict-reload, native window.confirm/prompt for
 // create/delete flows, Phase 113 New-skill / New-file split.
+
+const SKILL_MD = "SKILL.md";
 
 const OPTION_STYLE = { backgroundColor: "#1a1a1a", color: "#e8e4d8" } as const;
 
@@ -102,6 +115,7 @@ export default function SkillsEditorModal({
   const [drafts, setDrafts] = useState<Map<string, string>>(new Map());
   const [dirtySet, setDirtySet] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
+  const [togglingInvocation, setTogglingInvocation] = useState(false);
   const savingRef = useRef(false);
 
   const flatHosts = useMemo(
@@ -186,6 +200,29 @@ export default function SkillsEditorModal({
         if (cancelled) return;
         setFiles({ status: "ready", data: entries });
         if (entries.length > 0) setActiveTab(entries[0].path);
+        // The invocation toggle reads SKILL.md. When it's the first tab the
+        // lazy-load effect below fetches it; otherwise prefetch it here.
+        if (entries.some((e) => e.path === SKILL_MD) && entries[0].path !== SKILL_MD) {
+          readSkillFile(selectedHostId, selectedSkillName, SKILL_MD)
+            .then((result) => {
+              if (cancelled) return;
+              setTabData((prev) =>
+                prev.has(SKILL_MD)
+                  ? prev
+                  : new Map(prev).set(SKILL_MD, {
+                      status: "ready",
+                      data: {
+                        content: result.content,
+                        mtime: result.mtime,
+                        isText: result.isText,
+                      },
+                    }),
+              );
+            })
+            .catch(() => {
+              // Toggle stays hidden; the tab's own lazy load surfaces errors.
+            });
+        }
       })
       .catch((err: unknown) => {
         if (!cancelled)
@@ -330,6 +367,30 @@ export default function SkillsEditorModal({
       setSaving(false);
     }
   }, [saving, activeTab, tabData, drafts, handleSave]);
+
+  const skillMdState = tabData.get(SKILL_MD);
+  const skillMd = skillMdState?.status === "ready" ? skillMdState.data : null;
+  const modelInvocationDisabled = skillMd ? isModelInvocationDisabled(skillMd.content) : false;
+  const skillMdDirty = dirtySet.has(SKILL_MD);
+
+  const handleToggleModelInvocation = useCallback(
+    async (disabled: boolean): Promise<void> => {
+      if (!skillMd || skillMdDirty || togglingInvocation) return;
+      setTogglingInvocation(true);
+      try {
+        await handleSave(
+          SKILL_MD,
+          setModelInvocationDisabled(skillMd.content, disabled),
+          skillMd.mtime,
+        );
+      } catch (err) {
+        window.alert(err instanceof Error ? `Save failed: ${err.message}` : "Save failed");
+      } finally {
+        setTogglingInvocation(false);
+      }
+    },
+    [skillMd, skillMdDirty, togglingInvocation, handleSave],
+  );
 
   const handleAddFile = useCallback(async (): Promise<void> => {
     if (selectedHostId == null || selectedSkillName == null) return;
@@ -502,7 +563,7 @@ export default function SkillsEditorModal({
     >
       <ModalHead
         title="Skills"
-        subtitle="Skills are instructions available to all of your agents that you can invoke on-demand. After you create one, you can ask an agent to invoke it, or invoke it yourself using a slash command like /<name-of-skill>"
+        subtitle="Skills are instructions available to all of your agents that you can invoke on-demand. After you create one, you can ask an agent to invoke it, or invoke it yourself using a slash command like /name-of-skill"
         closeTestId="skills-editor-modal-close"
       />
 
@@ -588,6 +649,35 @@ export default function SkillsEditorModal({
         >
           <Plus size={12} /> New
         </button>
+        {selectedSkillName != null && skillMd != null && (
+          <label
+            title={
+              skillMdDirty
+                ? "Save or discard your SKILL.md edits first"
+                : "Agents won't invoke this skill on their own — only a /" +
+                  selectedSkillName +
+                  " slash command will (sets disable-model-invocation in SKILL.md)"
+            }
+            data-testid="skills-editor-modal-disable-model-invocation"
+            className={cn(
+              "flex items-center gap-1.5 text-[11.5px] text-[#e8e4d8] select-none",
+              skillMdDirty || togglingInvocation
+                ? "opacity-50 cursor-not-allowed"
+                : "cursor-pointer",
+            )}
+          >
+            <input
+              type="checkbox"
+              checked={modelInvocationDisabled}
+              disabled={skillMdDirty || togglingInvocation}
+              onChange={(e) => {
+                void handleToggleModelInvocation(e.target.checked);
+              }}
+              className="cursor-pointer disabled:cursor-not-allowed"
+            />
+            Slash command only
+          </label>
+        )}
         {selectedSkillName != null && (
           <button
             type="button"
