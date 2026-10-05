@@ -57,6 +57,15 @@ export type ScheduledAgentListItem = {
    * uses this for the avatar-sm hue + `--row-hue` CSS custom-property;
    * falls back to 190 when null. */
   colorHue: number | null;
+  /**
+   * Last-fire epoch seconds (from `~/fleet/scheduled-agents/.state/<slug>.last`)
+   * and computed next-fire epoch seconds (from the TS port of the Python
+   * scheduler's `_due` logic — see backend `schedule-next-fire.ts`). Both are
+   * attached per row at list-assembly time; the modal row renders them as
+   * relative times beneath the humanized schedule. Either may be null when
+   * the sentinel is absent or the schedule shape is unknown. */
+  lastFiredAt: number | null;
+  nextFireAt: number | null;
 };
 
 /** Mirror of backend `ScheduledAgentSpec` (scheduled-agents-write.ts). The

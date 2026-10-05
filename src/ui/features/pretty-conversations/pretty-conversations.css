@@ -2126,6 +2126,18 @@
   color: hsla(var(--pv-agent-row-hue), 22%, 88%, 0.62);
 }
 
+.pv-agent-row-runs {
+  font-size: 11px;
+  color: hsla(var(--pv-agent-row-hue), 22%, 88%, 0.48);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.1px;
+}
+
+.pv-agent-row-runs-dot {
+  margin: 0 6px;
+  opacity: 0.55;
+}
+
 .pv-agent-row-prompt {
   font-size: 12px;
   color: hsla(var(--pv-agent-row-hue), 22%, 92%, 0.72);

@@ -1224,7 +1224,12 @@ The user creates and manages scheduled agents via the **clock icon** in
 the upper-left header of the conversation list. The modal lists all
 existing scheduled agents (edit or delete inline) and has a "new
 scheduled agent" button which asks for name, prompt, one or more roles,
-and the schedule (daily / weekly / interval / one-shot). If the user
+and the schedule (daily / weekly / interval / one-shot). Each row shows
+the humanized schedule and, beneath it, inline **Last / Next** run times
+(e.g. `Every 2h · Last: 3h ago · Next: in 27m`) so the user can tell at
+a glance when the agent last fired and when it will fire again — hover
+either chip for the absolute datetime. Rows that have never fired show
+only "Next"; one_shots past their slot show only "Last". If the user
 asks "how do I make a scheduled agent?" — point her at the clock icon.
 
 ### On-disk shape

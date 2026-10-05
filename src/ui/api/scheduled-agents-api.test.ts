@@ -70,6 +70,8 @@ function makeItem(overrides: Partial<ScheduledAgentListItem> = {}): ScheduledAge
     roles: ["assistant"],
     skills: [],
     colorHue: null,
+    lastFiredAt: null,
+    nextFireAt: null,
     ...overrides,
   };
 }

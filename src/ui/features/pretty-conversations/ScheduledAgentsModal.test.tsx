@@ -72,6 +72,8 @@ function makeRow(overrides: Partial<ScheduledAgentListItem> = {}): ScheduledAgen
     roles: ["assistant"],
     skills: [],
     colorHue: null,
+    lastFiredAt: null,
+    nextFireAt: null,
     ...overrides,
   };
 }

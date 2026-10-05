@@ -368,6 +368,12 @@ export function ScheduledAgentsModalForm({
           roles: selectedRoles,
           skills: preservedSkills,
           colorHue: null,
+          // Fire timestamps unknown on just-created rows — the authoritative
+          // refetch replaces them once the server reads .state/<slug>.last
+          // and computes nextFireAt. Nullable is wire-correct (same shape
+          // as any row whose sentinel hasn't been written yet).
+          lastFiredAt: null,
+          nextFireAt: null,
         };
         onSaved(optimistic);
       } else {
@@ -388,6 +394,11 @@ export function ScheduledAgentsModalForm({
           roles: selectedRoles,
           skills: preservedSkills,
           colorHue: prev.colorHue,
+          // Preserve the server-known fire timestamps during optimistic
+          // edit — the refetch will overlay with a recomputed nextFireAt
+          // reflecting the new schedule.
+          lastFiredAt: prev.lastFiredAt,
+          nextFireAt: prev.nextFireAt,
         };
         onSaved(optimistic);
       }

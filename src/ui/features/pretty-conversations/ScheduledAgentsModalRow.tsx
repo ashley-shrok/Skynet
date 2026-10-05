@@ -39,6 +39,11 @@
 
 import type { ScheduledAgentListItem } from "@/api/scheduled-agents-api";
 import { RowKebabMenu } from "./RowKebabMenu";
+import {
+  formatAbsolute,
+  formatRelativeFuture,
+  formatRelativePast,
+} from "./scheduled-agents-time-fmt";
 
 const FALLBACK_HUE = 190;
 
@@ -100,6 +105,26 @@ export function ScheduledAgentsModalRow({
       <div className="pv-agent-row-body">
         <div className="pv-agent-row-name">{prettifyScheduledAgentName(row.name)}</div>
         <div className="pv-agent-row-sub">{row.scheduleHuman}</div>
+        {(row.lastFiredAt !== null || row.nextFireAt !== null) && (() => {
+          const nowSecs = Math.floor(Date.now() / 1000);
+          const hasLast = row.lastFiredAt !== null;
+          const hasNext = row.nextFireAt !== null;
+          return (
+            <div className="pv-agent-row-runs">
+              {hasLast && (
+                <span title={formatAbsolute(row.lastFiredAt!, nowSecs)}>
+                  Last: {formatRelativePast(row.lastFiredAt!, nowSecs)}
+                </span>
+              )}
+              {hasLast && hasNext && <span className="pv-agent-row-runs-dot">·</span>}
+              {hasNext && (
+                <span title={formatAbsolute(row.nextFireAt!, nowSecs)}>
+                  Next: {formatRelativeFuture(row.nextFireAt!, nowSecs)}
+                </span>
+              )}
+            </div>
+          );
+        })()}
         <div className="pv-agent-row-prompt">{row.prompt}</div>
         {(row.roles.length > 0 || row.skills.length > 0) && (
           <div className="pv-agent-row-chips">
