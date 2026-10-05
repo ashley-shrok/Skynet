@@ -30,6 +30,9 @@ licence text are in `package.json` / `package-lock.json` and each package's
 | ag-psd | Photoshop (.psd/.psb) reader | MIT | https://github.com/Agamnentzar/ag-psd |
 | libheif (`libheif-js`, served from `/vendor/heif/`, loaded on demand) | HEIC / HEIF photo decoder (includes libde265) | LGPL-3.0 | https://github.com/catdad-experiments/libheif-js |
 | exifr | Photo metadata (camera, exposure, orientation) | MIT | https://github.com/MikeKovarik/exifr |
+| KaTeX (`katex`, via `remark-math` / `rehype-katex`) | Maths in notebook markdown | MIT | https://github.com/KaTeX/KaTeX |
+| rehype-raw, rehype-sanitize | Sanitised inline HTML in notebook markdown | MIT | https://github.com/rehypejs |
+| anser | Coloured tracebacks in notebook outputs | MIT | https://github.com/IonicaBizau/anser |
 | LibreOffice (separate `converter` container, from Ubuntu packages) | Converting .doc/.odt/.xls/.ods/.ppt/.pptx/.odp for viewing | MPL-2.0 | https://www.libreoffice.org/about-us/source-code/ |
 
 ## AGPL-3.0 and Skynet

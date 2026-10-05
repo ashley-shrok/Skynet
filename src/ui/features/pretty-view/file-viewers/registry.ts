@@ -1,5 +1,6 @@
 import type { ComponentType } from "react";
 import {
+  BookOpen,
   Box,
   Database,
   File,
@@ -39,6 +40,8 @@ import { ModelChipPreview } from "./model3d/ModelChipPreview";
 import { ColumnarMode, SqliteMode } from "./data/data-modes";
 import { DecodedImageMode } from "./images/image-modes";
 import { DecodedImageChipPreview } from "./images/DecodedImageChipPreview";
+import { NotebookMode } from "./notebook/notebook-mode";
+import { NotebookChipPreview } from "./notebook/NotebookChipPreview";
 import { HEIC_EXTENSIONS, PSD_EXTENSIONS, RAW_EXTENSIONS, TIFF_EXTENSIONS } from "./images/image-formats";
 import { ColumnarChipPreview, SqliteChipPreview } from "./data/DataChipPreviews";
 
@@ -373,6 +376,21 @@ export const DECODED_IMAGE_ENTRY: FileViewerEntry = {
 };
 
 /**
+ * Jupyter notebooks: rendered cells (markdown + math, highlighted code,
+ * outputs — HTML sandboxed, nothing executes) and editing of cells (source,
+ * add / move / delete / retype) saved as faithful nbformat JSON. Saves go
+ * through the binary-draft path, so big notebooks aren't capped at the
+ * text-save limit. No kernel: code can't be run here.
+ */
+export const NOTEBOOK_ENTRY: FileViewerEntry = {
+  id: "notebook",
+  extensions: ["ipynb"],
+  icon: BookOpen,
+  modes: [{ id: "notebook", label: "Notebook", needs: "url", editable: true, View: NotebookMode }],
+  ChipPreview: NotebookChipPreview,
+};
+
+/**
  * Formats we know are binary and have no viewer yet. Recognising them up
  * front lets surfaces skip the (up to 2 MB) fetch and show the notice
  * immediately. Entries move out of here as they gain real viewers.
@@ -420,6 +438,7 @@ const ENTRIES: readonly FileViewerEntry[] = [
   SQLITE_ENTRY,
   COLUMNAR_ENTRY,
   DECODED_IMAGE_ENTRY,
+  NOTEBOOK_ENTRY,
   BINARY_ENTRY,
 ];
 

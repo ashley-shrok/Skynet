@@ -206,6 +206,21 @@ Ordering below is a starting-point, not locked. Each entry is marked
   with a synthetic TIFF-container sample (no real RAW reachable offline).
   — built, awaiting user check
 
+- **[discovered] shape-notebooks** — (2026-10-05) Jupyter .ipynb (nbformat 4),
+  EDITABLE (JSON round-trips: byte-identical when untouched — verified on
+  real notebooks; same indent / key order / line-list sources). Markdown
+  cells: react-markdown + GFM + KaTeX (one-line $$…$$ → display) + inline
+  HTML via rehype-raw → rehype-sanitize, cell attachments; double-click to
+  edit. Code cells: CodeMirror (app's setup, kernel language), mounted when
+  near view. Outputs: sandboxed iframe for HTML (no scripts; auto height),
+  PNG/JPEG/SVG (SVG as <img>), markdown, LaTeX, JSON, ANSI streams /
+  tracebacks (anser, escaped first); script-needing HTML (Plotly etc.) and
+  JS/widget outputs fall back to the saved static version — nothing runs.
+  Edit: add (between cells / at end), move, delete, code↔text; "code edited
+  since this output ran" flag. No kernel. Saves via BinaryDraft (url mode)
+  so notebooks over the 2 MB text-save cap still save. Chip: title, cell
+  counts, language, largest of the first plots. — built, awaiting user check
+
 ## Rule: view-only when editing can't be done properly (2026-10-05)
 
 If we can't give a proper editing-and-saving experience for a file type

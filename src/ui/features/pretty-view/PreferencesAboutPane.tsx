@@ -27,6 +27,7 @@ const COMPONENTS: Array<[string, string, string]> = [
   ["UTIF.js", "TIFF decoder", "MIT"],
   ["ag-psd", "Photoshop reader", "MIT"],
   ["libheif", "HEIC photo decoder", "LGPL-3.0"],
+  ["KaTeX", "Maths in notebooks", "MIT"],
   ["LibreOffice", "Document converter (server)", "MPL-2.0"],
 ];
 
