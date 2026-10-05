@@ -151,10 +151,42 @@ services:
       # by Claude Code on the HOST, where /host-home does not exist —
       # Stacy 2026-09-25). Same fail-loud guard as the bind above.
       SKYNET_HOME_MOUNT_SRC: ${SKYNET_HOME_MOUNT_SRC:?SKYNET_HOME_MOUNT_SRC must be set — pass --env-file /opt/skynet/.env to docker compose}
+      # Document converter sidecar (below). Unset it to turn conversion off:
+      # legacy Office / OpenDocument files then get the binary download card.
+      SKYNET_CONVERTER_URL: "http://converter:3030"
     depends_on:
       - guacd
     networks:
       - skynet-net
+      - converter-net
+
+  # LibreOffice document converter: opens .doc/.odt in the Word editor,
+  # .xls/.ods in the Excel viewer, and .ppt/.pptx/.odp as PDFs (and converts
+  # edited .doc/.odt back on save). It parses untrusted documents, so it is
+  # locked down: only on an internal network with no route out (Skynet is
+  # its only peer), read-only filesystem with a tmpfs scratch area, no
+  # capabilities, no privilege escalation, and memory/CPU/process caps. Each
+  # conversion is a fresh LibreOffice process with macros disabled.
+  converter:
+    build:
+      context: ./converter
+    image: skynet-converter:local
+    container_name: skynet-converter
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=1g
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 1536m
+    cpus: 2
+    pids_limit: 256
+    expose:
+      - "3030"
+    networks:
+      - converter-net
 
   guacd:
     image: guacamole/guacd:1.6.0
@@ -320,3 +352,7 @@ volumes:
 networks:
   skynet-net:
     driver: bridge
+  # No external connectivity: the converter can reach Skynet and nothing else.
+  converter-net:
+    driver: bridge
+    internal: true
