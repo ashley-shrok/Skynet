@@ -865,6 +865,30 @@ it("Test 19: role fails ROLE_NAME_PATTERN → 400, orchestrator not called", asy
 });
 
 // ---------------------------------------------------------------------------
+// Multi-role: optional `roles` (extras beyond the primary `role`)
+// ---------------------------------------------------------------------------
+
+it("multi-role: roles[] → extraRoles (deduped, primary excluded) passed to orchestrator", async () => {
+  const body = {
+    ...VALID_BODY,
+    roles: ["sky-uat", VALID_BODY.role, "sky-uat", "tina"],
+  };
+  const result = await httpPost(port, "/identities/birth", body);
+  expect(result.status).toBe(200);
+  const o = mockBirthIdentity.mock.calls[0][0] as Record<string, unknown>;
+  expect(o.role).toBe(VALID_BODY.role);
+  expect(o.extraRoles).toEqual(["sky-uat", "tina"]);
+});
+
+it("multi-role: a malformed entry in roles[] → 400, orchestrator not called", async () => {
+  const body = { ...VALID_BODY, roles: ["sky-uat", "Bad_Role"] };
+  const result = await httpPost(port, "/identities/birth", body);
+  expect(result.status).toBe(400);
+  expect(JSON.parse(result.body).error).toMatch(/roles/i);
+  expect(mockBirthIdentity).not.toHaveBeenCalled();
+});
+
+// ---------------------------------------------------------------------------
 // Phase 80 Plan 80-03: task field body validation
 // ---------------------------------------------------------------------------
 

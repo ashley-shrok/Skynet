@@ -219,8 +219,20 @@ export interface BirthOptions {
    * Phase 22 SRIC-02: kebab-case-lowercase role name from ~/fleet/roles/<role>/
    * on the target host. Validated at HTTP handler (identity-birth.ts) AND
    * re-validated at Step 2.5 entry (defense in depth per T-22-02-01).
+   *
+   * Multi-role: this is the PRIMARY role — the one that drives the MXID
+   * composition, the role-inherited cosmetics, and every single-role reader
+   * (extractRoleFromMarkdown returns the first list entry).
    */
   role: string;
+  /**
+   * Additional roles the identity also takes on, beyond `role`. Absent /
+   * empty → single-role identity, frontmatter stays the scalar `role: <role>`.
+   * Non-empty → frontmatter becomes the flow list `role: [<role>, ...extras]`
+   * (primary first). Each entry is gated with ROLE_NAME_PATTERN and must
+   * exist as a role folder on the target host, same as the primary.
+   */
+  extraRoles?: string[];
   /**
    * Phase 80 Plan 80-03: optional task string written to frontmatter at birth
    * time (write-once per D-05 — no in-UI edit, disk-only, no DB caching).
@@ -567,6 +579,11 @@ const TMUX_SAFE_NAME_RE = /^[a-z][a-z0-9_-]*$/;
 //   forceQuotes: false — let yaml.dump decide per-value; it correctly
 //                        quotes strings containing colons/newlines
 //                        automatically (T-66-01-04)
+/** Every role an identity is born with, primary first, de-duplicated. */
+export function identityRoles(opts: Pick<BirthOptions, "role" | "extraRoles">): string[] {
+  return Array.from(new Set([opts.role, ...(opts.extraRoles ?? [])]));
+}
+
 export function buildIdentityFileBody(
   opts: BirthOptions,
   displayName: string,
@@ -649,7 +666,18 @@ export function buildIdentityFileBody(
     },
   );
 
-  let body = `---\n${yamlBody}---\n\n# ${opts.name}\n`;
+  // Multi-role: rewrite the leading scalar `role:` line as a flow list,
+  // primary first. Done post-dump (rather than pushing an array pair) because
+  // yaml.dump would emit a block sequence, and the flow form is the shape the
+  // id skill documents. Role names are ROLE_NAME_PATTERN-gated kebab-case, so
+  // they need no quoting.
+  const roles = identityRoles(opts);
+  const roleLinedBody =
+    roles.length > 1
+      ? yamlBody.replace(/^role: .*\n/, `role: [${roles.join(", ")}]\n`)
+      : yamlBody;
+
+  let body = `---\n${roleLinedBody}---\n\n# ${opts.name}\n`;
   // Phase 127 follow-up: emit `## Do this first` section when bodyContent
   // is set. Absent-⇒-omit — trims whitespace and skips if empty.
   if (typeof opts.bodyContent === "string" && opts.bodyContent.trim().length > 0) {
@@ -1240,29 +1268,30 @@ export async function runRelayMintAndWrite(
  *            resolve to the fleet dir.
  */
 function buildPeerCommitScript(args: {
-  role: string;
+  roles: string[];
   identityFolderName: string;
   identityFileBody: string;
   relayJsonBody: string;
   fleetRoot: string;
 }): string {
-  // role + identityFolderName are already regex-gated (ROLE_NAME_PATTERN
+  // roles + identityFolderName are already regex-gated (ROLE_NAME_PATTERN
   // and IDENTITY_KEY_RE) before we reach this builder, so shell
   // interpolation is safe.
-  const { role, identityFolderName, fleetRoot } = args;
+  const { roles, identityFolderName, fleetRoot } = args;
   const identityFileBodyB64 = Buffer.from(args.identityFileBody, "utf-8").toString("base64");
   const relayJsonBodyB64 = Buffer.from(args.relayJsonBody, "utf-8").toString("base64");
 
   return `set -e
 FLEET_ROOT="${fleetRoot}"
-ROLE="${role}"
 KEY="${identityFolderName}"
 
-# Guard 1: role folder must exist on peer
-if [ ! -f "$FLEET_ROOT/roles/$ROLE/$ROLE.md" ]; then
-  echo "role not found on target host: $ROLE" >&2
-  exit 90
-fi
+# Guard 1: every role folder must exist on peer
+for ROLE in ${roles.join(" ")}; do
+  if [ ! -f "$FLEET_ROOT/roles/$ROLE/$ROLE.md" ]; then
+    echo "role not found on target host: $ROLE" >&2
+    exit 90
+  fi
+done
 
 # Guard 2: identity folder must NOT already exist
 if [ -d "$FLEET_ROOT/identities/$KEY" ]; then
@@ -1470,10 +1499,12 @@ export async function birthIdentity(
     //         Synapse admin API call.
     // -----------------------------------------------------------------------
     await runStep(1, async () => {
-      if (!opts.role || !ROLE_NAME_PATTERN.test(opts.role)) {
-        throw new Error(
-          `role must match ${ROLE_NAME_PATTERN}; got: ${JSON.stringify(opts.role)}`,
-        );
+      for (const r of [opts.role, ...(opts.extraRoles ?? [])]) {
+        if (!r || !ROLE_NAME_PATTERN.test(r)) {
+          throw new Error(
+            `role must match ${ROLE_NAME_PATTERN}; got: ${JSON.stringify(r)}`,
+          );
+        }
       }
       const derived = await deriveMxidAndFolderName(
         { name: opts.name, role: opts.role, poolPicked: opts.poolPicked },
@@ -1617,7 +1648,7 @@ export async function birthIdentity(
       : "$HOME/fleet";
 
     const peerScript = buildPeerCommitScript({
-      role: opts.role,
+      roles: identityRoles(opts),
       identityFolderName,
       identityFileBody,
       relayJsonBody,

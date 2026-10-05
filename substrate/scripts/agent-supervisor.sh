@@ -365,11 +365,19 @@ identity_has_role() {
   local identity_file="$1" want_role="$2"
   [ -f "$identity_file" ] || return 1
   # Awk match (unquoted OR quoted — Skynet convention is unquoted but tolerate both).
-  awk -v w="$want_role" '
+  if ! awk -v w="$want_role" '
     /^---$/{f++}
     f==1 && ($0 == "role: " w || $0 == "role: \"" w "\"" || $0 == "role: '\''" w "'\''") { found=1; exit }
     END { exit !found }
-  ' "$identity_file" || return 1
+  ' "$identity_file"; then
+    # Multi-role identities list their roles (`role: [a, b]` or a block
+    # sequence) — the scalar awk above can't see those, so fall back to the
+    # list-aware parser and test exact membership.
+    _extract_frontmatter_roles "$identity_file" 2>/dev/null \
+      | python3 -c 'import sys, json; sys.exit(0 if sys.argv[1] in json.load(sys.stdin) else 1)' "$want_role" \
+      2>/dev/null || return 1
+    return 0
+  fi
   # Fleet-drift signal: warn on quoted variants after a match confirmed.
   # (Only fires when a match was found + the shape is quoted — cheap post-hoc grep.)
   if grep -qE "^role: [\"'].*[\"']$" "$identity_file" 2>/dev/null; then

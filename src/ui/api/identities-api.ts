@@ -605,8 +605,12 @@ export interface BirthRequest {
    *  identity-birth.ts (avatarCandidateId-required gate deleted, Step 2.5
    *  avatar-sibling write skipped when candidate is absent). */
   avatarCandidateId?: string;
-  /** Phase 22 SRIC-02: kebab-case-lowercase role name from the target host. */
+  /** Phase 22 SRIC-02: kebab-case-lowercase role name from the target host.
+   *  The PRIMARY role when `roles` is also sent. */
   role: string;
+  /** Multi-role: additional roles beyond `role`, in pick order. Omit for a
+   *  single-role agent. The identity file records `role: [role, ...roles]`. */
+  roles?: string[];
   /** Phase 80: optional task string ("what will this agent work on?").
    *  Frontend soft-caps ~200 chars; backend hard-caps 500 chars. */
   task?: string;

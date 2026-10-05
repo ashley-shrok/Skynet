@@ -89,6 +89,15 @@ describe("extractRoleFromMarkdown", () => {
     expect(extractRoleFromMarkdown(md)).toBe("box-maintainer");
   });
 
+  it("multi-role: flow and block lists resolve to the first (primary) role", () => {
+    expect(
+      extractRoleFromMarkdown("---\nrole: [box-maintainer, sky-uat]\n---\n"),
+    ).toBe("box-maintainer");
+    expect(
+      extractRoleFromMarkdown("---\nrole:\n  - sky-uat\n  - box-maintainer\n---\n"),
+    ).toBe("sky-uat");
+  });
+
   it("test 2: returns null when frontmatter delimiters are missing", () => {
     const md = "# no frontmatter here\n\nrole: box-maintainer\n";
     expect(extractRoleFromMarkdown(md)).toBeNull();

@@ -370,7 +370,7 @@ describe("peer-commit script content", () => {
     await birthPromise;
 
     const script = mockExecCommand.mock.calls[0][1] as string;
-    expect(script).toContain('ROLE="hecate-maintainer"');
+    expect(script).toContain("for ROLE in hecate-maintainer; do");
     // poolPicked=true derives identityFolderName = <name>-<role>
     expect(script).toMatch(/KEY="willow-hecate-maintainer"/);
   });

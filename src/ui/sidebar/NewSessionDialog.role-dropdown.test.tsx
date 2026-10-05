@@ -431,6 +431,70 @@ describe("NewSessionDialog role dropdown: Test 24 — birth payload carries role
   });
 });
 
+describe("NewSessionDialog role dropdown: multi-role — extra roles ride along", () => {
+  it("picking 'Also takes on' chips sends them as roles[], primary stays in role", async () => {
+    mockListRolesForHost.mockResolvedValueOnce([
+      { name: "box-maintainer", description: "" },
+      { name: "sky-uat", description: "" },
+      { name: "tina", description: "" },
+    ]);
+    mockListIdentities.mockResolvedValue([]);
+    mockGetIdentityExistsOnHost.mockResolvedValue(false);
+    mockOpenBirthStream.mockReturnValueOnce(emptyStream());
+    const { getByLabelText, getByRole } = renderDialog();
+    fireEvent.click(screen.getByText("alpha"));
+    await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
+    fireEvent.click(getByLabelText(/choose a custom agent name/i));
+    fireEvent.change(getByLabelText(/^name$/i), { target: { value: "alicia" } });
+    // No chips until a primary is picked.
+    expect(screen.queryByText(/also takes on/i)).toBeNull();
+    fireEvent.change(getByLabelText(/^role$/i), {
+      target: { value: "box-maintainer" },
+    });
+    await waitFor(() => expect(screen.queryByText(/also takes on/i)).toBeTruthy());
+    // The primary is not offered as an extra.
+    expect(screen.queryByRole("button", { name: /box.maintainer/i })).toBeNull();
+    const tina = getByRole("button", { name: /tina/i });
+    fireEvent.click(tina);
+    expect(tina.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(getByRole("button", { name: /sky.uat/i }));
+    await waitFor(() => {
+      const createBtn = getByRole("button", {
+        name: /^(open|create|creating)/i,
+      }) as HTMLButtonElement;
+      expect(createBtn.disabled).toBe(false);
+    });
+    fireEvent.click(getByRole("button", { name: /^(open|create|creating)/i }));
+    await waitFor(() => expect(mockOpenBirthStream).toHaveBeenCalledTimes(1));
+    const [payload] = mockOpenBirthStream.mock.calls[0] as [Record<string, unknown>];
+    expect(payload.role).toBe("box-maintainer");
+    expect(payload.roles).toEqual(["tina", "sky-uat"]);
+  });
+
+  it("an extra that becomes the primary is dropped from the extras", async () => {
+    mockListRolesForHost.mockResolvedValueOnce([
+      { name: "box-maintainer", description: "" },
+      { name: "tina", description: "" },
+      { name: "sky-uat", description: "" },
+    ]);
+    const { getByLabelText, getByRole } = renderDialog();
+    fireEvent.click(screen.getByText("alpha"));
+    await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
+    fireEvent.change(getByLabelText(/^role$/i), {
+      target: { value: "box-maintainer" },
+    });
+    await waitFor(() => expect(screen.queryByText(/also takes on/i)).toBeTruthy());
+    fireEvent.click(getByRole("button", { name: /tina/i }));
+    fireEvent.change(getByLabelText(/^role$/i), { target: { value: "tina" } });
+    await waitFor(() =>
+      expect(
+        getByRole("button", { name: /box.maintainer/i }).getAttribute("aria-pressed"),
+      ).toBe("false"),
+    );
+    expect(screen.queryByRole("button", { name: /^tina$/i })).toBeNull();
+  });
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Test 25: zero-roles response renders inline hint
 // ─────────────────────────────────────────────────────────────────────────────

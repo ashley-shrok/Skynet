@@ -370,6 +370,13 @@ export function NewSessionDialog({
   // role is sent along with the pick request but must not be a dep of it.
   selectedRoleRef.current = selectedRole;
   const [rolesForHost, setRolesForHost] = useState<RoleSummary[]>([]);
+  // Multi-role: roles the agent takes on IN ADDITION to the primary
+  // `selectedRole`, in pick order. Optional — the dropdown's single pick
+  // still satisfies the "at least one role" gate. Pruned by the effect below
+  // so it never holds the primary or a role the current host doesn't offer
+  // (which also clears it on host change and modal close, since both empty
+  // rolesForHost).
+  const [extraRoles, setExtraRoles] = useState<string[]>([]);
   const [rolesLoading, setRolesLoading] = useState<boolean>(false);
   const [rolesError, setRolesError] = useState<string | null>(null);
 
@@ -563,6 +570,16 @@ export function NewSessionDialog({
       setSelectedRole("");
     }
   }, [rolesForHost, rolesLoading, selectedRole]);
+
+  // Multi-role: prune extras that became the primary or left the host's list.
+  useEffect(() => {
+    setExtraRoles((prev) => {
+      const next = prev.filter(
+        (r) => r !== selectedRole && rolesForHost.some((x) => x.name === r),
+      );
+      return next.length === prev.length ? prev : next;
+    });
+  }, [rolesForHost, selectedRole]);
 
   // 2026-09-14: sole-role auto-select. When the picked host offers exactly one
   // role there is no decision to make, so select it rather than parking the
@@ -782,8 +799,10 @@ export function NewSessionDialog({
           // publicIdentity merge (identity ?? role ?? null).
           colorHue: null,
           voice: null,
-          // Phase 22 SRIC-02: required role from the dropdown.
+          // Phase 22 SRIC-02: required role from the dropdown — the primary.
           role: selectedRole,
+          // Multi-role: any additional roles picked below the dropdown.
+          ...(extraRoles.length > 0 ? { roles: extraRoles } : {}),
           // 2026-09-14: always the stand-in. The user is no longer asked what
           // the agent will work on at creation time; the agent writes the real
           // task into its own frontmatter on first wake. Sent unconditionally
@@ -1215,6 +1234,45 @@ export function NewSessionDialog({
                       </option>
                     ))}
                   </select>
+                  {/* Multi-role: optional additional roles. Only offered once a
+                      primary is picked and the host has more than one role. */}
+                  {selectedRole !== "" && rolesForHost.length > 1 && (
+                    <div className="flex flex-col gap-1.5 pt-1">
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--color-pv-fg-muted)]">
+                        Also takes on (optional)
+                      </span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {rolesForHost
+                          .filter((r) => r.name !== selectedRole)
+                          .map((r) => {
+                            const on = extraRoles.includes(r.name);
+                            return (
+                              <button
+                                key={r.name}
+                                type="button"
+                                aria-pressed={on}
+                                disabled={formDisabled}
+                                onClick={() =>
+                                  setExtraRoles((prev) =>
+                                    on
+                                      ? prev.filter((x) => x !== r.name)
+                                      : [...prev, r.name],
+                                  )
+                                }
+                                className={
+                                  "rounded-full border px-2.5 py-1 text-xs transition-colors disabled:opacity-50 " +
+                                  (on
+                                    ? "border-[color:var(--color-pv-fg-muted)] bg-white/[0.14] text-[color:var(--color-pv-fg)]"
+                                    : "border-[color:var(--color-pv-border-quiet-strong)] bg-transparent text-[color:var(--color-pv-fg-muted)] hover:bg-white/[0.06]")
+                                }
+                              >
+                                {roleDisplayName(r.name, r.displayName)}
+                              </button>
+                            );
+                          })}
+                      </div>
+                    </div>
+                  )}
                   {/* Role fetch error */}
                   {rolesError && (
                     <span className="text-xs text-[color:var(--color-pv-code-fg)]">

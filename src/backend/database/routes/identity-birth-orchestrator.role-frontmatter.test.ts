@@ -370,3 +370,25 @@ describe("ROLE_NAME_PATTERN", () => {
     expect(ROLE_NAME_PATTERN.test("box maintainer")).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Multi-role — extraRoles turns `role:` into a flow list, primary first
+// ---------------------------------------------------------------------------
+
+describe("buildIdentityFileBody — multi-role", () => {
+  it("no extraRoles → scalar role line (single-role byte shape unchanged)", () => {
+    const body = buildIdentityFileBody(makeOpts({ extraRoles: [] }), "Testkey", "");
+    expect(body).toMatch(/^---\nrole: box-maintainer\n/);
+  });
+
+  it("extraRoles → flow list, primary first, duplicates collapsed", () => {
+    const body = buildIdentityFileBody(
+      makeOpts({ extraRoles: ["sky-uat", "box-maintainer", "sky-uat"] }),
+      "Testkey",
+      "",
+    );
+    expect(body).toMatch(/^---\nrole: \[box-maintainer, sky-uat\]\n/);
+    expect(extractFrontmatter(body).role).toEqual(["box-maintainer", "sky-uat"]);
+    expect(extractFrontmatter(body).displayName).toBe("Testkey");
+  });
+});

@@ -630,7 +630,8 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
       path: `~/${pickedName.toLowerCase()}/`,
       colorHue: null,
       voice: null,
-      role: item.roles[0], // TODO: multi-role — pass full roles[] once BirthOptions accepts it (D-13, RESEARCH Assumption A2)
+      role: item.roles[0],
+      extraRoles: item.roles.slice(1),
       task: item.task ?? undefined,
       // Phase 127 follow-up: wake-up spec's `prompt` field lands as the
       // newborn's identity-file body `## Do this first` section — id-skill

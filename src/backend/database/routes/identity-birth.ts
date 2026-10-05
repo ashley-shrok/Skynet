@@ -100,6 +100,11 @@ const execAsync = promisify(exec);
 // entry before touching any DB / SSH / Synapse dep (T-75-16 defense-in-depth).
 const IDENTITY_KEY_RE = /^[a-z0-9._=/+-]+$/;
 
+// Multi-role: cap on the optional `roles` body field (additional roles beyond
+// the primary). Generous — the UI never gets near it — but bounds the peer
+// script's role-folder guard loop.
+const MAX_EXTRA_ROLES = 16;
+
 // Pretty-names shape (2026-09-30): when the request body carries a free-form
 // `displayName`, the backend derives the slug from it via the shared helper
 // — the user never has to think about kebab-case or Matrix-safe characters.
@@ -285,6 +290,7 @@ router.post(
       voice,
       avatarCandidateId,
       role,
+      roles,
       task,
       poolPicked,
     } = bodyAny;
@@ -382,6 +388,29 @@ router.post(
         error: "role is required and must be kebab-case-lowercase",
       });
       return;
+    }
+
+    // Multi-role: optional `roles` array of ADDITIONAL roles beyond the
+    // primary `role`. Same kebab-case gate as the primary; duplicates (and a
+    // repeat of the primary) collapse silently.
+    let extraRoles: string[] = [];
+    if (roles !== undefined && roles !== null) {
+      if (
+        !Array.isArray(roles) ||
+        roles.length > MAX_EXTRA_ROLES ||
+        !roles.every(
+          (r) => typeof r === "string" && ROLE_NAME_PATTERN.test(r.trim()),
+        )
+      ) {
+        res.status(400).json({
+          error: `roles must be an array of at most ${MAX_EXTRA_ROLES} kebab-case-lowercase role names`,
+        });
+        return;
+      }
+      const primary = role.trim();
+      extraRoles = Array.from(
+        new Set((roles as string[]).map((r) => r.trim())),
+      ).filter((r) => r !== primary);
     }
 
     // colorHue and voice are optional (nullable)
@@ -771,6 +800,7 @@ router.post(
           colorHue: parsedColorHue,
           voice: parsedVoice,
           role: role.trim(),
+          extraRoles,
           // Phase 80 Plan 80-03: thread task through opts. ?? undefined so
           // parsedTask=null → orchestrator sees undefined (omit-empty matches
           // BirthOptions optional shape).

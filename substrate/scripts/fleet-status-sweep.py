@@ -969,9 +969,26 @@ def _read_frontmatter_cosmetics(path, allowed_keys):
             continue
 
         # --- role: (always extracted; validated before any path use) ---
+        # Multi-role identities list their roles — flow (`role: [a, b]`) or
+        # block (`role:` then `  - a` lines). The FIRST entry is the primary
+        # role, and the primary is what drives role cosmetics here.
+        if role is None and re.match(r"^role:\s*(#.*)?$", line.rstrip("\n")):
+            for look_idx in range(line_idx + 1, len(body_lines)):
+                m_item = re.match(r"^\s+-\s*(.+?)\s*(#.*)?$", body_lines[look_idx])
+                if not m_item:
+                    break
+                skip_until_idx = look_idx
+                if role is None:
+                    raw_role = m_item.group(1).strip().strip('"').strip("'").strip()
+                    if ROLE_NAME_OK.match(raw_role):
+                        role = raw_role
+            continue
         m_role = re.match(r"^role:\s*(.+?)\s*(#.*)?$", line.rstrip("\n"))
         if m_role and role is None:
-            raw_role = m_role.group(1).strip().strip('"').strip("'").strip()
+            raw_role = m_role.group(1).strip()
+            if raw_role.startswith("[") and raw_role.endswith("]"):
+                raw_role = raw_role[1:-1].split(",")[0].strip()
+            raw_role = raw_role.strip('"').strip("'").strip()
             if ROLE_NAME_OK.match(raw_role):
                 role = raw_role
             continue

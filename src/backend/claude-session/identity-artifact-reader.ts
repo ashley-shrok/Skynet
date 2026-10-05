@@ -431,7 +431,12 @@ export function extractRoleFromMarkdown(markdown: string): string | null {
   }
   const parsed = doc.toJS() as Record<string, unknown> | null;
   if (parsed === null || typeof parsed !== "object") return null;
-  const role = parsed.role;
+  // Multi-role identities list their roles (`role: [a, b]` or a block
+  // sequence); the first entry is the PRIMARY role, which is what every
+  // single-role consumer of this helper (cosmetics cascade, visibility gate,
+  // role-file tab) keys on.
+  const raw = parsed.role;
+  const role = Array.isArray(raw) ? raw[0] : raw;
   return typeof role === "string" && role.length > 0 ? role : null;
 }
 
