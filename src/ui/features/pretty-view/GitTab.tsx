@@ -10,10 +10,16 @@
  *     ├─ RepoDetailView — one repo: changed files, history, stashes, remotes
  *     └─ DiffPane       — working-tree or per-commit patch via the shared DiffView
  *
- * Nothing here writes: no commit, checkout, push or fetch. Agents own their repos.
+ * Nothing here changes a repo: no commit, checkout, push or pull. "Check
+ * remote" downloads the upstream branch into a private ref that is deleted
+ * straight after (see buildRemoteCheckScript), so the agent's branches and
+ * origin/* refs never move. Agents own their repos.
+ *
+ * The modals only show this tab when useHasGitRepos (use-has-git-repos.ts)
+ * finds a repo.
  */
 
-import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import {
   AlertTriangle,
   ArrowDown,
@@ -23,14 +29,17 @@ import {
   FolderGit2,
   GitBranch,
   GitCommitHorizontal,
+  RadioTower,
   RefreshCw,
 } from "lucide-react";
 import type { WorkspaceTarget } from "@/api/workspace-api";
 import {
+  checkGitRemote,
   getGitDiff,
   getGitRepo,
   listGitRepos,
   type GitCommit,
+  type GitRemoteCheck,
   type GitDiffResponse,
   type GitDiffSpec,
   type GitFileChange,
@@ -48,19 +57,27 @@ import { resolveWorkspaceErrorCopy, type WorkspaceErrorCopy } from "./workspace-
 const GIT_ERROR_COPY: Record<string, WorkspaceErrorCopy> = {
   git_missing: {
     heading: "Git isn't installed",
-    body: "This box doesn't have git, so there's no project history to show.",
+    body: "This box doesn't have git, so there's no history to show.",
   },
   not_found: {
     heading: "Not found",
-    body: "That project or change is no longer there. Refresh and try again.",
+    body: "That repo or change is no longer there. Refresh and try again.",
   },
   not_a_repo: {
-    heading: "Not a project",
+    heading: "Not a repo",
     body: "That folder isn't tracked by git any more. Refresh and try again.",
   },
   git_error: {
-    heading: "Couldn't read this project",
-    body: "Git refused to read it. Ask the agent to check the project is healthy.",
+    heading: "Couldn't read this repo",
+    body: "Git refused to read it. Ask the agent to check the repo is healthy.",
+  },
+  no_upstream: {
+    heading: "Nothing to compare with",
+    body: "This branch doesn't track a remote branch.",
+  },
+  fetch_failed: {
+    heading: "Couldn't reach the remote",
+    body: "The remote didn't answer or needs credentials this box doesn't have.",
   },
 };
 
@@ -211,15 +228,17 @@ function Pill({ children, hue, title }: { children: ReactNode; hue?: number; tit
   );
 }
 
-/** Toolbar: optional back button, breadcrumb trail, refresh. */
+/** Toolbar: optional back button, breadcrumb trail, extra actions, refresh. */
 function Toolbar({
   crumbs,
   onBack,
   onRefresh,
+  actions,
 }: {
   crumbs: { label: string; onClick?: () => void }[];
   onBack?: () => void;
   onRefresh: () => void;
+  actions?: ReactNode;
 }): JSX.Element {
   return (
     <div
@@ -238,7 +257,7 @@ function Toolbar({
         </button>
       )}
       <nav
-        aria-label="Project path"
+        aria-label="Repo path"
         style={{ display: "flex", alignItems: "center", gap: 2, flex: 1, minWidth: 0, flexWrap: "wrap" }}
       >
         {crumbs.map((c, i) => (
@@ -266,6 +285,7 @@ function Toolbar({
           </span>
         ))}
       </nav>
+      {actions}
       <button type="button" style={{ ...toolbarBtnStyle, padding: "5px 8px" }} onClick={onRefresh} title="Refresh">
         <RefreshCw size={13} />
       </button>
@@ -297,31 +317,95 @@ function targetDepKey(t: WorkspaceTarget): string {
   return t.kind === "identity" ? `identity:${t.identityKey}` : `role:${t.roleSlug}`;
 }
 
-/** Ahead/behind pills, or why there are none. */
+// ---------------------------------------------------------------------------
+// Remote checks
+// ---------------------------------------------------------------------------
+
+type RemoteState =
+  | { status: "checking" }
+  | { status: "done"; result: GitRemoteCheck }
+  | { status: "error"; errorClass: string };
+
+type RemoteChecks = Record<string, RemoteState>;
+
+/** Remote checks in flight at once when checking a whole list. */
+const REMOTE_CHECK_CONCURRENCY = 3;
+
+function canCheckRemote(s: Pick<GitRepoSummary, "upstream" | "detached">): boolean {
+  return !!s.upstream && !s.detached;
+}
+
+/** Ahead/behind pills — from a fresh remote check when there is one. */
 function SyncPills({
   upstream,
   ahead,
   behind,
   detached,
-}: Pick<GitRepoSummary, "upstream" | "ahead" | "behind" | "detached">): JSX.Element {
+  remote,
+}: Pick<GitRepoSummary, "upstream" | "ahead" | "behind" | "detached"> & {
+  remote?: RemoteState;
+}): JSX.Element {
   if (detached) return <Pill hue={40} title="Not on a branch — checked out at a specific commit">Detached</Pill>;
   if (!upstream) return <Pill title="This branch has no remote copy to push to">Local only</Pill>;
-  if (!ahead && !behind) return <Pill title={`Matches ${upstream} as of the last fetch`}>In sync</Pill>;
+  if (remote?.status === "checking") return <Pill>Checking remote…</Pill>;
+
+  const fresh = remote?.status === "done" ? remote.result : null;
+  const a = fresh ? fresh.ahead : ahead;
+  const b = fresh ? fresh.behind : behind;
+  const asOf = fresh ? `checked with the remote ${timeAgo(fresh.checkedAtMs)}` : "as of the agent's last fetch";
   return (
     <>
-      {!!ahead && (
-        <Pill hue={140} title={`${ahead} commit(s) not yet pushed to ${upstream}`}>
+      {!a && !b && <Pill title={`Matches ${upstream} (${asOf})`}>In sync</Pill>}
+      {!!a && (
+        <Pill hue={140} title={`${a} commit(s) not yet pushed to ${upstream} (${asOf})`}>
           <ArrowUp size={11} />
-          {ahead}
+          {a}
         </Pill>
       )}
-      {!!behind && (
-        <Pill hue={210} title={`${behind} commit(s) on ${upstream} not pulled yet (as of the last fetch)`}>
+      {!!b && (
+        <Pill hue={210} title={`${b} commit(s) on ${upstream} not pulled yet (${asOf})`}>
           <ArrowDown size={11} />
-          {behind}
+          {b}
+        </Pill>
+      )}
+      {fresh && (
+        <Pill hue={140} title={`Counts ${asOf}`}>
+          <RadioTower size={11} />
+          live
+        </Pill>
+      )}
+      {remote?.status === "error" && (
+        <Pill hue={6} title={errorCopy(remote.errorClass).body}>
+          <AlertTriangle size={11} />
+          {errorCopy(remote.errorClass).heading}
         </Pill>
       )}
     </>
+  );
+}
+
+function CheckRemoteButton({
+  label,
+  busy,
+  disabled,
+  onClick,
+}: {
+  label: string;
+  busy: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      style={{ ...toolbarBtnStyle, opacity: disabled || busy ? 0.6 : 1, cursor: disabled || busy ? "default" : "pointer" }}
+      disabled={disabled || busy}
+      onClick={onClick}
+      title="Ask the remote for up-to-date push/pull counts. Doesn't change the agent's branches or files."
+    >
+      <RadioTower size={13} />
+      {busy ? "Checking…" : label}
+    </button>
   );
 }
 
@@ -341,25 +425,42 @@ function ChangeSummary({ repo }: { repo: GitRepoSummary }): JSX.Element {
 
 function RepoListView({
   state,
+  introCopy,
+  remote,
+  onCheckRemotes,
   onOpen,
   onRefresh,
 }: {
   state: Load<GitReposResponse>;
+  introCopy: string;
+  remote: RemoteChecks;
+  onCheckRemotes: (paths: string[]) => void;
   onOpen: (path: string) => void;
   onRefresh: () => void;
 }): JSX.Element {
+  const checkable = state.status === "ready" ? state.data.repos.filter((r) => !r.error && canCheckRemote(r)) : [];
+  const busy = Object.values(remote).some((r) => r.status === "checking");
   return (
     <>
-      <Toolbar crumbs={[{ label: "Projects" }]} onRefresh={onRefresh} />
+      <Toolbar
+        crumbs={[{ label: "Repos" }]}
+        onRefresh={onRefresh}
+        actions={
+          <CheckRemoteButton
+            label="Check remotes"
+            busy={busy}
+            disabled={checkable.length === 0}
+            onClick={() => onCheckRemotes(checkable.map((r) => r.path))}
+          />
+        }
+      />
       <div style={{ padding: "6px 10px 8px", fontSize: 12, color: "var(--color-pv-fg-muted)", flexShrink: 0 }}>
-        Code projects in this agent's workspace and what's changed in each. Read-only — the agent makes the commits.
+        {introCopy}
       </div>
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "0 4px 8px" }}>
-        {state.status === "loading" && <Notice>Looking for projects…</Notice>}
+        {state.status === "loading" && <Notice>Looking for repos…</Notice>}
         {state.status === "error" && <ErrorBanner errorClass={state.errorClass} />}
-        {state.status === "ready" && state.data.repos.length === 0 && (
-          <Notice>No code projects in this workspace yet.</Notice>
-        )}
+        {state.status === "ready" && state.data.repos.length === 0 && <Notice>No git repos here yet.</Notice>}
         {state.status === "ready" &&
           state.data.repos.map((repo) => (
             <button
@@ -381,13 +482,13 @@ function RepoListView({
                     </Pill>
                   )}
                   {repo.error ? (
-                    <Pill hue={6} title="Git couldn't read this project">
+                    <Pill hue={6} title="Git couldn't read this repo">
                       <AlertTriangle size={11} />
                       Unreadable
                     </Pill>
                   ) : (
                     <>
-                      <SyncPills {...repo} />
+                      <SyncPills {...repo} remote={remote[repo.path]} />
                       <ChangeSummary repo={repo} />
                     </>
                   )}
@@ -411,7 +512,7 @@ function RepoListView({
             </button>
           ))}
         {state.status === "ready" && state.data.truncated && (
-          <Notice>Showing the first {state.data.repos.length} projects.</Notice>
+          <Notice>Showing the first {state.data.repos.length} repos.</Notice>
         )}
       </div>
     </>
@@ -451,29 +552,40 @@ function CommitRow({ commit, onOpen }: { commit: GitCommit; onOpen: () => void }
 function RepoDetailView({
   repoPath,
   state,
+  remote,
+  onCheckRemote,
   onBack,
   onRefresh,
   onOpenDiff,
 }: {
   repoPath: string;
   state: Load<GitRepoDetail>;
+  remote?: RemoteState;
+  onCheckRemote: () => void;
   onBack: () => void;
   onRefresh: () => void;
   onOpenDiff: (spec: GitDiffSpec, title: string) => void;
 }): JSX.Element {
+  const checkable = state.status === "ready" && canCheckRemote(state.data.status);
   return (
     <>
       <Toolbar
-        crumbs={[{ label: "Projects", onClick: onBack }, { label: repoLabel(repoPath) }]}
+        crumbs={[{ label: "Repos", onClick: onBack }, { label: repoLabel(repoPath) }]}
         onBack={onBack}
         onRefresh={onRefresh}
+        actions={
+          <CheckRemoteButton
+            label="Check remote"
+            busy={remote?.status === "checking"}
+            disabled={!checkable}
+            onClick={onCheckRemote}
+          />
+        }
       />
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "0 4px 8px" }}>
-        {state.status === "loading" && <Notice>Loading project…</Notice>}
+        {state.status === "loading" && <Notice>Loading repo…</Notice>}
         {state.status === "error" && <ErrorBanner errorClass={state.errorClass} />}
-        {state.status === "ready" && (
-          <RepoDetailBody detail={state.data} onOpenDiff={onOpenDiff} />
-        )}
+        {state.status === "ready" && <RepoDetailBody detail={state.data} remote={remote} onOpenDiff={onOpenDiff} />}
       </div>
     </>
   );
@@ -481,9 +593,11 @@ function RepoDetailView({
 
 function RepoDetailBody({
   detail,
+  remote,
   onOpenDiff,
 }: {
   detail: GitRepoDetail;
+  remote?: RemoteState;
   onOpenDiff: (spec: GitDiffSpec, title: string) => void;
 }): JSX.Element {
   const { status, commits, stashes, remotes } = detail;
@@ -495,7 +609,7 @@ function RepoDetailBody({
           {status.branch ?? (status.oid ? `detached at ${status.oid.slice(0, 7)}` : "no branch")}
         </Pill>
         {status.upstream && <Pill title="Remote branch this one tracks">tracks {status.upstream}</Pill>}
-        <SyncPills {...status} />
+        <SyncPills {...status} remote={remote} />
       </div>
 
       <div style={{ ...sectionHeadStyle, display: "flex", alignItems: "center", gap: 8 }}>
@@ -601,7 +715,7 @@ function DiffPane({
     <>
       <Toolbar
         crumbs={[
-          { label: "Projects", onClick: onBackToRepos },
+          { label: "Repos", onClick: onBackToRepos },
           { label: repoLabel(repoPath), onClick: onBack },
           { label: title },
         ]}
@@ -650,6 +764,8 @@ export interface GitTabProps {
   target: WorkspaceTarget;
   hostId: number;
   hue: number;
+  /** Intro copy above the repo list. Identity default when absent. */
+  introCopy?: string;
 }
 
 type View =
@@ -657,11 +773,52 @@ type View =
   | { mode: "repo"; repoPath: string }
   | { mode: "diff"; repoPath: string; spec: GitDiffSpec; title: string };
 
-export default function GitTab({ target, hostId }: GitTabProps): JSX.Element {
+const DEFAULT_INTRO =
+  "Git repos in this agent's workspace and what's changed in each. Read-only — the agent makes the commits.";
+
+export default function GitTab({ target, hostId, introCopy }: GitTabProps): JSX.Element {
   const [view, setView] = useState<View>({ mode: "list" });
   const [refreshKey, setRefreshKey] = useState(0);
-  const refresh = () => setRefreshKey((k) => k + 1);
+  const [remote, setRemote] = useState<RemoteChecks>({});
+  // Bumped on refresh/target change so late remote-check answers are dropped.
+  const generation = useRef(0);
   const tk = targetDepKey(target);
+
+  useEffect(() => {
+    generation.current++;
+    setRemote({});
+  }, [tk, hostId]);
+
+  const refresh = () => {
+    // Remote counts are relative to HEAD at check time — drop them with the rest.
+    generation.current++;
+    setRemote({});
+    setRefreshKey((k) => k + 1);
+  };
+
+  const checkRemotes = useCallback(
+    (paths: string[]) => {
+      const gen = generation.current;
+      const queue = [...paths];
+      setRemote((prev) => ({ ...prev, ...Object.fromEntries(paths.map((p) => [p, { status: "checking" } as const])) }));
+      const worker = async () => {
+        for (let p = queue.shift(); p !== undefined; p = queue.shift()) {
+          const path = p;
+          let next: RemoteState;
+          try {
+            next = { status: "done", result: await checkGitRemote(target, hostId, path) };
+          } catch (err) {
+            next = { status: "error", errorClass: errorClassOf(err) };
+          }
+          if (generation.current !== gen) return;
+          setRemote((prev) => ({ ...prev, [path]: next }));
+        }
+      };
+      for (let i = 0; i < Math.min(REMOTE_CHECK_CONCURRENCY, paths.length); i++) void worker();
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tk, hostId],
+  );
 
   // Each view fetches only while shown; going back refetches (cheap, and the
   // agent may have changed things in the meantime).
@@ -680,6 +837,9 @@ export default function GitTab({ target, hostId }: GitTabProps): JSX.Element {
           target={target}
           hostId={hostId}
           deps={[tk, hostId, refreshKey]}
+          introCopy={introCopy ?? DEFAULT_INTRO}
+          remote={remote}
+          onCheckRemotes={checkRemotes}
           onOpen={(repoPath) => setView({ mode: "repo", repoPath })}
           onRefresh={refresh}
         />
@@ -690,6 +850,8 @@ export default function GitTab({ target, hostId }: GitTabProps): JSX.Element {
           hostId={hostId}
           repoPath={view.repoPath}
           deps={[tk, hostId, view.repoPath, refreshKey]}
+          remote={remote[view.repoPath]}
+          onCheckRemote={() => checkRemotes([view.repoPath])}
           onBack={() => setView({ mode: "list" })}
           onRefresh={refresh}
           onOpenDiff={(spec, title) => setView({ mode: "diff", repoPath: view.repoPath, spec, title })}
@@ -714,11 +876,23 @@ function RepoListLoader(props: {
   target: WorkspaceTarget;
   hostId: number;
   deps: unknown[];
+  introCopy: string;
+  remote: RemoteChecks;
+  onCheckRemotes: (paths: string[]) => void;
   onOpen: (path: string) => void;
   onRefresh: () => void;
 }): JSX.Element {
   const state = useLoad(() => listGitRepos(props.target, props.hostId), props.deps);
-  return <RepoListView state={state} onOpen={props.onOpen} onRefresh={props.onRefresh} />;
+  return (
+    <RepoListView
+      state={state}
+      introCopy={props.introCopy}
+      remote={props.remote}
+      onCheckRemotes={props.onCheckRemotes}
+      onOpen={props.onOpen}
+      onRefresh={props.onRefresh}
+    />
+  );
 }
 
 function RepoDetailLoader(props: {
@@ -726,6 +900,8 @@ function RepoDetailLoader(props: {
   hostId: number;
   repoPath: string;
   deps: unknown[];
+  remote?: RemoteState;
+  onCheckRemote: () => void;
   onBack: () => void;
   onRefresh: () => void;
   onOpenDiff: (spec: GitDiffSpec, title: string) => void;
@@ -735,6 +911,8 @@ function RepoDetailLoader(props: {
     <RepoDetailView
       repoPath={props.repoPath}
       state={state}
+      remote={props.remote}
+      onCheckRemote={props.onCheckRemote}
       onBack={props.onBack}
       onRefresh={props.onRefresh}
       onOpenDiff={props.onOpenDiff}

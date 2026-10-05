@@ -60,6 +60,7 @@ import { IdentityFileTab, type TabState } from "./IdentityFileTab";
 import { WakeupsTab } from "./WakeupsTab";
 import WorkspaceTab from "./WorkspaceTab";
 import GitTab from "./GitTab";
+import { useHasGitRepos } from "./use-has-git-repos";
 import { bumpModalOpen } from "@/lib/freeze-diag";
 
 // Title-line clickable treatment for jumping to the role modal. Preserved
@@ -169,11 +170,14 @@ export function IdentityModal({
   const [identityFileState, setIdentityFileState] = useState<TabState<string>>({ status: "loading" });
   const [identityWakeupsState, setIdentityWakeupsState] = useState<TabState<Wakeup[]>>({ status: "loading" });
 
+  // Git tab only when the workspace actually holds a repo.
+  const gitTarget = { kind: "identity" as const, identityKey: identity.identityKey };
+  const hasGitRepos = useHasGitRepos(gitTarget, hostId, open);
   const NAV_SECTIONS = [
     { value: "identity", label: "Agent file", Icon: User },
     { value: "identity-wakeups", label: "Wake-ups", Icon: AlarmClock },
     { value: "workspace", label: "Files", Icon: Folder },
-    { value: "git", label: "Git", Icon: GitBranch },
+    ...(hasGitRepos ? [{ value: "git", label: "Git", Icon: GitBranch }] : []),
   ] as const;
 
   // Initial fetch of identity file + wake-ups on modal open. Preserved
@@ -744,16 +748,14 @@ export function IdentityModal({
           />
         </TabsContent>
 
-        <TabsContent
-          value="git"
-          className="flex-1 min-h-0 overflow-hidden flex flex-col"
-        >
-          <GitTab
-            target={{ kind: "identity", identityKey: identity.identityKey }}
-            hostId={hostId}
-            hue={hue}
-          />
-        </TabsContent>
+        {hasGitRepos && (
+          <TabsContent
+            value="git"
+            className="flex-1 min-h-0 overflow-hidden flex flex-col"
+          >
+            <GitTab target={gitTarget} hostId={hostId} hue={hue} />
+          </TabsContent>
+        )}
       </Tabs>
 
       {/* Canonical foot — chrome consistency across editor-lg modals. */}

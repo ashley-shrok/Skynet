@@ -8,6 +8,10 @@
  *   POST /diff  — unified patch: working tree vs HEAD (incl. untracked
  *                 files), or one commit vs its first parent
  *                 (body.diff = "working" | "commit" + sha)
+ *   POST /has-repos    — cheap probe (find only, no git) so the modals can
+ *                        hide the Git tab when there is nothing to show
+ *   POST /remote-check — fresh ahead/behind against the upstream branch
+ *                        (see buildRemoteCheckScript for why this is safe)
  *
  * Same request chain as workspace-routes.ts (body check → extractTarget →
  * traversal check → resolveHostById → canAccessHost "read" → pooled SSH),
@@ -48,6 +52,8 @@ import {
 } from "./workspace-routes.js";
 import {
   GitScriptError,
+  parseHasRepos,
+  parseRemoteCheck,
   parseRepoDetail,
   parseRepoList,
 } from "./workspace-git-parse.js";
@@ -69,6 +75,8 @@ const MAX_PATCH_BYTES = 2_000_000;
 const MAX_UNTRACKED_IN_DIFF = 50;
 
 const SHA_RE = /^[0-9a-f]{7,64}$/;
+/** Remote fetch budget — leaves room for the counts inside GIT_OP_TIMEOUT_MS. */
+const FETCH_TIMEOUT_S = 10;
 
 const GIT_ERROR_STATUS: Record<string, number> = {
   git_missing: 501,
@@ -76,6 +84,8 @@ const GIT_ERROR_STATUS: Record<string, number> = {
   not_a_repo: 404,
   path_traversal: 400,
   git_error: 422,
+  no_upstream: 409,
+  fetch_failed: 502,
 };
 
 const authManager = AuthManager.getInstance();
@@ -128,11 +138,20 @@ function enterRepo(repoPath: string): string {
 /** %H US %P US %an US %ct US %D US %s — parsed by parseCommitFields. */
 const COMMIT_FORMAT = "%H%x1f%P%x1f%an%x1f%ct%x1f%D%x1f%s";
 
+/** Repo dirs under the root: prunes heavy dirs, stops descending at each .git (dir or worktree file). */
+const FIND_REPOS =
+  "find . -maxdepth 4 \\( -name node_modules -o -name .venv -o -name venv \\) -prune -o -name .git -prune -print 2>/dev/null";
+
+export function buildHasReposScript(target: TargetSpec): string {
+  // No git needed to answer "are there any repos", but without git there is
+  // nothing to show either — prelude's git_missing covers that.
+  return [prelude(target), `printf '\\036H\\037%s' "$(${FIND_REPOS} | head -n 1 | wc -l)"`].join("\n");
+}
+
 export function buildReposScript(target: TargetSpec): string {
   return [
     prelude(target),
-    // Prune heavy dirs and stop descending at each .git (dir or worktree file).
-    `find . -maxdepth 4 \\( -name node_modules -o -name .venv -o -name venv \\) -prune -o -name .git -prune -print 2>/dev/null | head -n ${MAX_REPOS + 1} | {`,
+    `${FIND_REPOS} | head -n ${MAX_REPOS + 1} | {`,
     `n=0`,
     `while IFS= read -r d; do`,
     `  n=$((n+1)); [ "$n" -gt ${MAX_REPOS} ] && { printf '\\036T\\037'; break; }`,
@@ -151,6 +170,41 @@ export function buildRepoScript(target: TargetSpec, repoPath: string): string {
     `printf '\\036L\\037'; g log -z -n 50 --format='${COMMIT_FORMAT}' 2>/dev/null`,
     `printf '\\036Z\\037'; g stash list -z --format='%gd%x1f%ct%x1f%gs' 2>/dev/null`,
     `printf '\\036M\\037'; g remote -v 2>/dev/null`,
+  ].join("\n");
+}
+
+const PEEK_NS = "refs/skynet-remote-check";
+
+/**
+ * Fresh ahead/behind for the current branch without changing anything the
+ * agent sees. A plain `git fetch` would move origin/<branch> under the agent
+ * (changing its own `git status`) and can race its fetches for that ref's
+ * lock. Instead: fetch the upstream branch into a private ref, count against
+ * it, delete it. `--refmap=` stops git's opportunistic update of
+ * origin/<branch> that a named-remote fetch otherwise does. No branch,
+ * remote-tracking ref, index or file changes; the
+ * only lasting effect is the downloaded objects in .git, which the agent's
+ * next fetch reuses. Leftover peek refs (a killed run) are swept first.
+ *
+ * Non-interactive by construction: no TTY on the exec channel, so ssh/https
+ * cannot prompt, and GIT_TERMINAL_PROMPT=0; `timeout` bounds a hung remote.
+ */
+export function buildRemoteCheckScript(target: TargetSpec, repoPath: string): string {
+  return [
+    prelude(target),
+    enterRepo(repoPath),
+    `br=$(g symbolic-ref -q --short HEAD) || fail no_upstream`,
+    `remote=$(g config --get "branch.$br.remote")`,
+    `merge=$(g config --get "branch.$br.merge")`,
+    `{ [ -n "$remote" ] && [ -n "$merge" ] && [ "$remote" != "." ]; } || fail no_upstream`,
+    `g for-each-ref --format='%(refname)' ${PEEK_NS}/ | while IFS= read -r old; do g update-ref -d "$old"; done`,
+    `peek=${PEEK_NS}/$$`,
+    `nofh=; git fetch -h 2>&1 | grep -q -- "write-fetch-head" && nofh=--no-write-fetch-head`,
+    `to=; command -v timeout >/dev/null 2>&1 && to="timeout ${FETCH_TIMEOUT_S}"`,
+    `$to env GIT_TERMINAL_PROMPT=0 git -c fetch.prune=false -c gc.auto=0 -c maintenance.auto=false fetch --quiet --no-tags --no-recurse-submodules --refmap= $nofh "$remote" "+$merge:$peek" </dev/null >/dev/null 2>&1 || { g update-ref -d "$peek" 2>/dev/null; fail fetch_failed; }`,
+    `behind=$(g rev-list --count "HEAD..$peek"); ahead=$(g rev-list --count "$peek..HEAD")`,
+    `g update-ref -d "$peek"`,
+    `printf '\\036C\\037%s\\037%s\\037%s' "$ahead" "$behind" "$remote/\${merge#refs/heads/}"`,
   ].join("\n");
 }
 
@@ -395,6 +449,30 @@ workspaceGitRoutes.post(
           truncated,
         };
       },
+    }),
+);
+
+workspaceGitRoutes.post(
+  "/has-repos",
+  express.json({ limit: "64kb" }),
+  authenticateJWT,
+  (req: Request, res: Response) =>
+    handleGitRequest(req, res, "has_repos", {
+      maxBytes: 1024,
+      script: (target) => buildHasReposScript(target),
+      respond: ({ stdout }) => ({ hasRepos: parseHasRepos(stdout) }),
+    }),
+);
+
+workspaceGitRoutes.post(
+  "/remote-check",
+  express.json({ limit: "64kb" }),
+  authenticateJWT,
+  (req: Request, res: Response) =>
+    handleGitRequest(req, res, "remote_check", {
+      maxBytes: 1024,
+      script: (target, body) => buildRemoteCheckScript(target, String(body.repoPath ?? "")),
+      respond: ({ stdout }) => ({ ...parseRemoteCheck(stdout), checkedAtMs: Date.now() }),
     }),
 );
 

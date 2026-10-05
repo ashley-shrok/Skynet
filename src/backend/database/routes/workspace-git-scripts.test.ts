@@ -12,11 +12,15 @@ import os from "node:os";
 import path from "node:path";
 import {
   buildDiffScript,
+  buildHasReposScript,
+  buildRemoteCheckScript,
   buildRepoScript,
   buildReposScript,
 } from "./workspace-git-routes.js";
 import {
   GitScriptError,
+  parseHasRepos,
+  parseRemoteCheck,
   parseRepoDetail,
   parseRepoList,
 } from "./workspace-git-parse.js";
@@ -221,5 +225,64 @@ describe("diff script", () => {
   it("unknown commit reports not_found", () => {
     const out = run(buildDiffScript(target, "app", { diff: "commit", sha: "deadbeef" }));
     expect(out).toBe("\x1eX\x1fnot_found");
+  });
+});
+
+describe("has-repos script", () => {
+  it("is true when the workspace holds a repo, false when it holds none", () => {
+    expect(parseHasRepos(run(buildHasReposScript(target)))).toBe(true);
+    fs.mkdirSync(path.join(home, "fleet/roles/plain"), { recursive: true });
+    fs.writeFileSync(path.join(home, "fleet/roles/plain/notes.md"), "x");
+    expect(parseHasRepos(run(buildHasReposScript({ kind: "role", roleSlug: "plain" })))).toBe(false);
+  });
+});
+
+describe("remote-check script", () => {
+  const refsOf = (dir: string) => git(dir, "for-each-ref", "--format=%(refname) %(objectname)");
+
+  it("counts commits on the remote that were never fetched, without moving any ref", () => {
+    const lib = path.join(ws, "nested/lib");
+    // Someone else pushes two commits upstream; lib hasn't fetched them.
+    const other = path.join(home, "other");
+    git(home, "clone", "-q", path.join(home, "upstream.git"), other);
+    for (const n of ["r1", "r2"]) {
+      write(path.join(other, n), n);
+      git(other, "add", n);
+      git(other, "commit", "-q", "-m", n);
+    }
+    git(other, "push", "-q", "origin", "main");
+
+    const before = refsOf(lib);
+    const statusBefore = git(lib, "status", "--porcelain=v2", "--branch");
+
+    const result = parseRemoteCheck(run(buildRemoteCheckScript(target, "nested/lib")));
+    expect(result).toEqual({ ahead: 1, behind: 2, upstream: "origin/main" });
+
+    // origin/main still where it was, no peek ref left behind, status unchanged.
+    expect(refsOf(lib)).toBe(before);
+    expect(git(lib, "status", "--porcelain=v2", "--branch")).toBe(statusBefore);
+    expect(fs.existsSync(path.join(lib, ".git/FETCH_HEAD"))).toBe(false);
+  });
+
+  it("reports no_upstream for a branch that tracks nothing", () => {
+    expect(() => parseRemoteCheck(run(buildRemoteCheckScript(target, "app")))).toThrow(
+      new GitScriptError("no_upstream"),
+    );
+  });
+
+  it("reports fetch_failed when the remote is unreachable", () => {
+    const app = path.join(ws, "app");
+    git(app, "remote", "set-url", "origin", path.join(home, "missing.git"));
+    git(app, "config", "branch.main.remote", "origin");
+    git(app, "config", "branch.main.merge", "refs/heads/main");
+    try {
+      expect(() => parseRemoteCheck(run(buildRemoteCheckScript(target, "app")))).toThrow(
+        new GitScriptError("fetch_failed"),
+      );
+      expect(git(app, "for-each-ref", "refs/skynet-remote-check/")).toBe("");
+    } finally {
+      git(app, "config", "--unset", "branch.main.remote");
+      git(app, "config", "--unset", "branch.main.merge");
+    }
   });
 });

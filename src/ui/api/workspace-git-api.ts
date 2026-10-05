@@ -134,3 +134,37 @@ export function getGitDiff(
     "read git diff",
   );
 }
+
+/** Cheap probe: does the workspace hold any git repo at all? */
+export async function hasGitRepos(target: WorkspaceTarget, hostId: number): Promise<boolean> {
+  const res = await postGit<{ hasRepos: boolean }>(
+    "/has-repos",
+    { ...targetToWireFields(target), hostId },
+    "probe git repos",
+  );
+  return res.hasRepos;
+}
+
+export type GitRemoteCheck = {
+  ahead: number;
+  behind: number;
+  upstream: string;
+  checkedAtMs: number;
+};
+
+/**
+ * Ask the remote for a fresh ahead/behind count. Downloads the upstream
+ * branch into a private ref and deletes it again — the agent's branches and
+ * remote-tracking refs are left untouched.
+ */
+export function checkGitRemote(
+  target: WorkspaceTarget,
+  hostId: number,
+  repoPath: string,
+): Promise<GitRemoteCheck> {
+  return postGit(
+    "/remote-check",
+    { ...targetToWireFields(target), hostId, repoPath },
+    "check git remote",
+  );
+}

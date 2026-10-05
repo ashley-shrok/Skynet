@@ -37,6 +37,7 @@ import {
   BookOpen,
   ChevronDown,
   Folder,
+  GitBranch,
   Mic,
   Pencil,
   Users,
@@ -57,6 +58,8 @@ import { RunbooksTab } from "./RunbooksTab";
 import { VoicePicker } from "./pickers/VoicePicker";
 import { ColorPicker } from "./pickers/ColorPicker";
 import WorkspaceTab from "./WorkspaceTab";
+import GitTab from "./GitTab";
+import { useHasGitRepos } from "./use-has-git-repos";
 import { roleDisplayName } from "@/lib/role-display-name";
 
 // D-05 fallback hue (app accent) — used when the role has no colorHue key.
@@ -67,6 +70,9 @@ const NAV_SECTIONS = [
   { value: "runbooks", label: "Runbooks", Icon: BookOpen },
   { value: "files", label: "Files", Icon: Folder },
 ] as const;
+
+/** Appended to NAV_SECTIONS only when the role folder holds a git repo. */
+const GIT_SECTION = { value: "git", label: "Git", Icon: GitBranch } as const;
 
 /**
  * Names hidden from the Files tab's root listing. The role's own `<slug>.md`
@@ -181,6 +187,8 @@ export function RoleModal({
   const displayName = roleDisplayName(roleName, roleCosmetics.displayName);
 
   const [activeTab, setActiveTab] = useState<string>("role");
+  const gitTarget = { kind: "role" as const, roleSlug: roleName };
+  const hasGitRepos = useHasGitRepos(gitTarget, hostId, open);
   const [roleFileState, setRoleFileState] = useState<TabState<string>>({
     status: "loading",
   });
@@ -574,7 +582,7 @@ export function RoleModal({
         className="flex-1 min-h-0 flex flex-col"
       >
         <ModalTabs
-          tabs={NAV_SECTIONS}
+          tabs={hasGitRepos ? [...NAV_SECTIONS, GIT_SECTION] : NAV_SECTIONS}
           value={activeTab}
           onValueChange={setActiveTab}
           rowTestId="role-modal-nav"
@@ -619,6 +627,20 @@ export function RoleModal({
             introCopy="Files inside this role's folder — reference material, runbooks, etc. Every agent holding this role sees the same stuff."
           />
         </TabsContent>
+
+        {hasGitRepos && (
+          <TabsContent
+            value="git"
+            className="flex-1 min-h-0 overflow-hidden flex flex-col"
+          >
+            <GitTab
+              target={gitTarget}
+              hostId={hostId}
+              hue={hue}
+              introCopy="Git repos inside this role's folder and what's changed in each. Read-only."
+            />
+          </TabsContent>
+        )}
       </Tabs>
 
       <ModalFoot>

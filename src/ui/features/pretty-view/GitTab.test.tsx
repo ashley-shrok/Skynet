@@ -1,12 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, renderHook, screen, fireEvent, waitFor } from "@testing-library/react";
 import GitTab from "./GitTab";
-import { getGitDiff, getGitRepo, listGitRepos } from "@/api/workspace-git-api";
+import { useHasGitRepos } from "./use-has-git-repos";
+import {
+  checkGitRemote,
+  getGitDiff,
+  getGitRepo,
+  hasGitRepos,
+  listGitRepos,
+} from "@/api/workspace-git-api";
 
 vi.mock("@/api/workspace-git-api", () => ({
   listGitRepos: vi.fn(),
   getGitRepo: vi.fn(),
   getGitDiff: vi.fn(),
+  hasGitRepos: vi.fn(),
+  checkGitRemote: vi.fn(),
 }));
 
 const target = { kind: "identity" as const, identityKey: "alice" };
@@ -73,6 +82,31 @@ describe("GitTab", () => {
     expect(row.textContent).toContain("3 modified");
     expect(row.textContent).toContain("Add login form");
     expect(listGitRepos).toHaveBeenCalledWith(target, 7);
+    expect(screen.queryByText(/project/i)).toBeNull();
+  });
+
+  it("Check remotes replaces last-fetch counts with live ones", async () => {
+    vi.mocked(checkGitRemote).mockResolvedValue({
+      ahead: 2,
+      behind: 5,
+      upstream: "origin/main",
+      checkedAtMs: Date.now(),
+    });
+    render(<GitTab target={target} hostId={7} hue={200} />);
+    const row = await screen.findByTestId("git-repo-row");
+    expect(row.textContent).not.toContain("5");
+    fireEvent.click(screen.getByText("Check remotes"));
+    await waitFor(() => expect(row.textContent).toContain("live"));
+    expect(row.textContent).toContain("5");
+    expect(checkGitRemote).toHaveBeenCalledWith(target, 7, "app");
+  });
+
+  it("shows a friendly pill when the remote can't be reached", async () => {
+    vi.mocked(checkGitRemote).mockRejectedValue(new Error("fetch_failed"));
+    render(<GitTab target={target} hostId={7} hue={200} />);
+    const row = await screen.findByTestId("git-repo-row");
+    fireEvent.click(screen.getByText("Check remotes"));
+    await waitFor(() => expect(row.textContent).toContain("Couldn't reach the remote"));
   });
 
   it("drills into a repo, then a commit diff, and back", async () => {
@@ -106,5 +140,25 @@ describe("GitTab", () => {
     vi.mocked(listGitRepos).mockRejectedValue(new Error("git_missing"));
     render(<GitTab target={target} hostId={7} hue={200} />);
     expect(await screen.findByText("Git isn't installed")).toBeTruthy();
+  });
+});
+
+describe("useHasGitRepos", () => {
+  it("is false until the probe says there are repos", async () => {
+    vi.mocked(hasGitRepos).mockResolvedValue(true);
+    const { result } = renderHook(() => useHasGitRepos(target, 7, true));
+    expect(result.current).toBe(false);
+    await waitFor(() => expect(result.current).toBe(true));
+  });
+
+  it("stays false when there are none or the probe fails, and doesn't probe while closed", async () => {
+    vi.mocked(hasGitRepos).mockClear();
+    renderHook(() => useHasGitRepos(target, 7, false));
+    expect(hasGitRepos).not.toHaveBeenCalled();
+
+    vi.mocked(hasGitRepos).mockRejectedValue(new Error("host_unreachable"));
+    const { result } = renderHook(() => useHasGitRepos(target, 7, true));
+    await waitFor(() => expect(hasGitRepos).toHaveBeenCalled());
+    expect(result.current).toBe(false);
   });
 });

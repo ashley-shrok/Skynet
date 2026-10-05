@@ -194,4 +194,16 @@ describe("/workspace/git", () => {
       await post("/diff", { ...ok, repoPath: "app", diff: "commit", sha: "deadbeef" }),
     ).toEqual({ status: 404, body: { error: "not_found" } });
   });
+
+  it("has-repos probes cheaply", async () => {
+    expect(await post("/has-repos", ok)).toEqual({ status: 200, body: { hasRepos: true } });
+    expect(execCommands[0]).not.toContain("status");
+  });
+
+  it("remote-check reports no_upstream for a branch tracking nothing", async () => {
+    expect(await post("/remote-check", { ...ok, repoPath: "app" })).toEqual({
+      status: 409,
+      body: { error: "no_upstream" },
+    });
+  });
 });

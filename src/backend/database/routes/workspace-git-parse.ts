@@ -276,3 +276,18 @@ export function parseRepoDetail(raw: string, path: string): GitRepoDetail {
     remotes: parseRemotes((byTag.get("M") ?? []).join(US)),
   };
 }
+
+/** /has-repos script: one "H" record holding the repo count (0 or 1). */
+export function parseHasRepos(raw: string): boolean {
+  const rec = splitRecords(raw).find((r) => r.tag === "H");
+  return Number(rec?.fields[0]?.trim()) > 0;
+}
+
+/** /remote-check script: one "C" record — [ahead, behind, upstream]. */
+export function parseRemoteCheck(raw: string): { ahead: number; behind: number; upstream: string } {
+  const rec = splitRecords(raw).find((r) => r.tag === "C");
+  const ahead = Number(rec?.fields[0]);
+  const behind = Number(rec?.fields[1]);
+  if (!rec || !Number.isFinite(ahead) || !Number.isFinite(behind)) throw new GitScriptError("git_error");
+  return { ahead, behind, upstream: rec.fields[2] ?? "" };
+}
