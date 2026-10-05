@@ -40,7 +40,7 @@ declare module "utif" {
     decode(buffer: ArrayBuffer): Array<Record<string, unknown>>;
     decodeImage(buffer: ArrayBuffer, ifd: Record<string, unknown>): void;
     toRGBA8(ifd: Record<string, unknown>): Uint8Array;
-    encodeImage(rgba: ArrayBuffer, width: number, height: number): ArrayBuffer;
+    encodeImage(rgba: ArrayBufferLike, width: number, height: number): ArrayBuffer;
   };
   export default UTIF;
 }
