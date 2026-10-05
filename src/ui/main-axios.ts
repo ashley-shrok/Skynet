@@ -1,7 +1,6 @@
 import axios, { AxiosError, type AxiosInstance } from "axios";
 import { toast } from "sonner";
 import { getBasePath } from "@/lib/base-path";
-import { isElectron } from "@/lib/electron";
 import { clearSkynetSessionStorage } from "@/shell/TabContext";
 import type { SSHHost } from "@/types/index";
 
@@ -51,7 +50,6 @@ import {
   tunnelLogger,
   fileLogger,
   statsLogger,
-  systemLogger,
   dashboardLogger,
   type LogContext,
 } from "@/lib/frontend-logger";
@@ -149,24 +147,14 @@ interface OIDCAuthorize {
   auth_url: string;
 }
 
-type ElectronApi = {
-  isElectron?: boolean;
-  getSetting?: (key: string) => Promise<string | null | undefined>;
-  setSetting?: (key: string, value: string) => Promise<void>;
-};
-
-type ElectronWindow = Window &
+type BrowserWindow = Window &
   typeof globalThis & {
-    IS_ELECTRON?: boolean;
-    electronAPI?: ElectronApi;
     ReactNativeWebView?: unknown;
   };
 
 // ============================================================================
 // UTILITY FUNCTIONS
 // ============================================================================
-
-export { isElectron };
 
 function getLoggerForService(serviceName: string) {
   if (serviceName.includes("SSH") || serviceName.includes("ssh")) {
@@ -244,96 +232,18 @@ export function isRetryable(
   return false;
 }
 
-const electronSettingsCache = new Map<string, string>();
-
-if (isElectron()) {
-  (async () => {
-    try {
-      const electronAPI = (window as ElectronWindow).electronAPI;
-
-      if (electronAPI?.getSetting) {
-        const settingsToLoad = ["rightClickCopyPaste"];
-        for (const key of settingsToLoad) {
-          const value = await electronAPI.getSetting(key);
-          if (value !== null && value !== undefined) {
-            // Only populate if not already set to prevent overwriting new values during login
-            if (!localStorage.getItem(key)) {
-              electronSettingsCache.set(key, value);
-              localStorage.setItem(key, value);
-              console.log(`[Electron] Loaded setting ${key} from main process`);
-            } else {
-              // Even if we don't overwrite localStorage, update the cache
-              electronSettingsCache.set(key, localStorage.getItem(key)!);
-            }
-          }
-        }
-      }
-    } catch (error) {
-      console.error("[Electron] Failed to load settings cache:", error);
-    }
-  })();
-}
-
-export function setCookie(
-  name: string,
-  value: string,
-  days = 7,
-): void | Promise<void> {
-  if (isElectron()) {
-    try {
-      if (name === "jwt") {
-        return;
-      }
-
-      const electronAPI = (window as ElectronWindow).electronAPI;
-
-      if (electronAPI?.setSetting) {
-        electronSettingsCache.set(name, value);
-        localStorage.setItem(name, value);
-        electronAPI.setSetting(name, value).catch((err: Error) => {
-          console.error(`[Electron] Failed to persist setting ${name}:`, err);
-        });
-      }
-
-      console.log(`[Electron] Set setting: ${name}`);
-    } catch (error) {
-      console.error(`[Electron] Failed to set setting: ${name}`, error);
-    }
-  } else {
-    const expires = new Date(Date.now() + days * 864e5).toUTCString();
-    document.cookie = `${name}=${encodeURIComponent(value)}; expires=${expires}; path=/`;
-  }
+export function setCookie(name: string, value: string, days = 7): void {
+  const expires = new Date(Date.now() + days * 864e5).toUTCString();
+  document.cookie = `${name}=${encodeURIComponent(value)}; expires=${expires}; path=/`;
 }
 
 export function getCookie(name: string): string | undefined {
-  if (isElectron()) {
-    try {
-      if (name === "jwt") {
-        return undefined;
-      }
-
-      if (electronSettingsCache.has(name)) {
-        return electronSettingsCache.get(name);
-      }
-
-      const token = localStorage.getItem(name) || undefined;
-      if (token) {
-        electronSettingsCache.set(name, token);
-      }
-      console.log(`[Electron] Get setting: ${name} = ${token}`);
-      return token;
-    } catch (error) {
-      console.error(`[Electron] Failed to get setting: ${name}`, error);
-      return undefined;
-    }
-  } else {
-    const value = `; ${document.cookie}`;
-    const parts = value.split(`; ${name}=`);
-    const encodedToken =
-      parts.length === 2 ? parts.pop()?.split(";").shift() : undefined;
-    const token = encodedToken ? decodeURIComponent(encodedToken) : undefined;
-    return token;
-  }
+  const value = `; ${document.cookie}`;
+  const parts = value.split(`; ${name}=`);
+  const encodedToken =
+    parts.length === 2 ? parts.pop()?.split(";").shift() : undefined;
+  const token = encodedToken ? decodeURIComponent(encodedToken) : undefined;
+  return token;
 }
 
 let userWasAuthenticated = false;
@@ -431,20 +341,9 @@ export function createApiInstance(
       logger.requestStart(method, fullUrl, context);
     }
 
-    if (isElectron()) {
-      const jwt = localStorage.getItem("jwt");
-      if (jwt) {
-        if (config.headers.set) {
-          config.headers.set("Authorization", `Bearer ${jwt}`);
-        } else {
-          config.headers["Authorization"] = `Bearer ${jwt}`;
-        }
-      }
-    }
-
     if (
       typeof window !== "undefined" &&
-      (window as ElectronWindow).ReactNativeWebView
+      (window as BrowserWindow).ReactNativeWebView
     ) {
       let platform = "Unknown";
       if (typeof navigator !== "undefined" && navigator.userAgent) {
@@ -469,9 +368,8 @@ export function createApiInstance(
     // axios instances derive from this factory; a single header set here
     // covers every UI-initiated HTTP call. Parallel discipline lives in
     // src/ui/lib/stamped-fetch.ts for the raw-fetch lane. The two-branch
-    // guard matches the existing Authorization / X-Electron-App idiom just
-    // above — AxiosHeaders in real axios, plain-object headers under
-    // axios-mock-adapter in older tests.
+    // guard handles both header shapes — AxiosHeaders in real axios,
+    // plain-object headers under axios-mock-adapter in older tests.
     if (config.headers.set) {
       config.headers.set("X-Skynet-Client-Build", CLIENT_BUILD_ID);
     } else {
@@ -696,15 +594,6 @@ export function createApiInstance(
             return Promise.reject(error);
           }
 
-          if (isElectron()) {
-            const electronAPI = (
-              window as unknown as {
-                electronAPI?: { clearSessionCookies?: () => Promise<void> };
-              }
-            ).electronAPI;
-            electronAPI?.clearSessionCookies?.().catch(() => {});
-          }
-
           if (typeof window !== "undefined") {
             document.cookie =
               "jwt=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
@@ -736,10 +625,6 @@ export function createApiInstance(
 // ============================================================================
 
 function isDev(): boolean {
-  if (isElectron()) {
-    return false;
-  }
-
   return (
     process.env.NODE_ENV === "development" &&
     (window.location.port === "3000" ||
@@ -751,14 +636,6 @@ function isDev(): boolean {
 }
 
 const apiHost = import.meta.env.VITE_API_HOST || "localhost";
-let configuredServerUrl: string | null = null;
-let embeddedMode = false;
-
-export interface ServerConfig {
-  serverUrl: string;
-  lastUpdated: string;
-  allowInvalidCertificate?: boolean;
-}
 
 interface AxiosRequestConfigExtended extends AxiosRequestConfig {
   startTime?: number;
@@ -772,173 +649,10 @@ interface AxiosErrorExtended extends AxiosError {
   config?: AxiosRequestConfigExtended;
 }
 
-export async function getServerConfig(): Promise<ServerConfig | null> {
-  if (!isElectron()) return null;
-
-  try {
-    const result = await (
-      window as Window &
-        typeof globalThis & {
-          IS_ELECTRON?: boolean;
-          electronAPI?: unknown;
-          configuredServerUrl?: string;
-        }
-    ).electronAPI?.invoke("get-server-config");
-    return result;
-  } catch (error) {
-    console.error("Failed to get server config:", error);
-    return null;
-  }
-}
-
-export async function saveServerConfig(config: ServerConfig): Promise<boolean> {
-  if (!isElectron()) return false;
-
-  try {
-    const result = await (
-      window as Window &
-        typeof globalThis & {
-          IS_ELECTRON?: boolean;
-          electronAPI?: unknown;
-          configuredServerUrl?: string;
-        }
-    ).electronAPI?.invoke("save-server-config", config);
-    if (result?.success) {
-      configuredServerUrl = config.serverUrl;
-      (
-        window as Window &
-          typeof globalThis & {
-            IS_ELECTRON?: boolean;
-            electronAPI?: unknown;
-            configuredServerUrl?: string;
-          }
-      ).configuredServerUrl = configuredServerUrl;
-      updateApiInstances();
-      return true;
-    }
-    return false;
-  } catch (error) {
-    console.error("Failed to save server config:", error);
-    return false;
-  }
-}
-
-export function getConfiguredServerUrl(): string | null {
-  return configuredServerUrl;
-}
-
-export async function testServerConnection(
-  serverUrl: string,
-): Promise<{ success: boolean; error?: string }> {
-  if (!isElectron())
-    return { success: false, error: "Not in Electron environment" };
-
-  try {
-    const result = await (
-      window as Window &
-        typeof globalThis & {
-          IS_ELECTRON?: boolean;
-          electronAPI?: unknown;
-          configuredServerUrl?: string;
-        }
-    ).electronAPI?.invoke("test-server-connection", serverUrl);
-    return result;
-  } catch (error) {
-    console.error("Failed to test server connection:", error);
-    return { success: false, error: "Connection test failed" };
-  }
-}
-
-export async function checkElectronUpdate(): Promise<{
-  success: boolean;
-  status?: "up_to_date" | "requires_update" | "beta";
-  localVersion?: string;
-  remoteVersion?: string;
-  latest_release?: {
-    tag_name: string;
-    name: string;
-    published_at: string;
-    html_url: string;
-    body: string;
-  };
-  cached?: boolean;
-  cache_age?: number;
-  error?: string;
-}> {
-  if (!isElectron())
-    return { success: false, error: "Not in Electron environment" };
-
-  try {
-    const result = await (
-      window as Window &
-        typeof globalThis & {
-          IS_ELECTRON?: boolean;
-          electronAPI?: unknown;
-          configuredServerUrl?: string;
-        }
-    ).electronAPI?.invoke("check-electron-update");
-    return result;
-  } catch (error) {
-    console.error("Failed to check Electron update:", error);
-    return { success: false, error: "Update check failed" };
-  }
-}
-
-export async function getEmbeddedServerStatus(): Promise<{
-  running: boolean;
-  embedded: boolean;
-  dataDir: string | null;
-} | null> {
-  if (!isElectron()) return null;
-
-  try {
-    const result = await (
-      window as Window &
-        typeof globalThis & {
-          IS_ELECTRON?: boolean;
-          electronAPI?: {
-            invoke: (channel: string, ...args: unknown[]) => Promise<unknown>;
-          };
-        }
-    ).electronAPI?.invoke("get-embedded-server-status");
-    return result as {
-      running: boolean;
-      embedded: boolean;
-      dataDir: string | null;
-    } | null;
-  } catch {
-    return null;
-  }
-}
-
-export function isEmbeddedMode(): boolean {
-  return embeddedMode;
-}
-
-export function setEmbeddedMode(value: boolean): void {
-  embeddedMode = value;
-  if (value) {
-    configuredServerUrl = null;
-    initializeApiInstances();
-  }
-}
-
 function getApiUrl(path: string, defaultPort: number): string {
   const devMode = isDev();
-  const electronMode = isElectron();
 
-  if (electronMode) {
-    if (embeddedMode && !configuredServerUrl) {
-      return `http://localhost:${defaultPort}${path}`;
-    }
-    if (configuredServerUrl) {
-      const baseUrl = configuredServerUrl.replace(/\/$/, "");
-      const url = `${baseUrl}${path}`;
-      return url;
-    }
-    console.warn("Electron mode but no server configured!");
-    return "http://no-server-configured";
-  } else if (devMode) {
+  if (devMode) {
     const protocol = window.location.protocol === "https:" ? "https" : "http";
     const sslPort = protocol === "https" ? 8443 : defaultPort;
     const url = `${protocol}://${apiHost}:${sslPort}${path}`;
@@ -1013,72 +727,14 @@ export const appReadyPromise: Promise<void> = new Promise((resolve) => {
 });
 
 function initializeApp() {
-  if (isElectron()) {
-    Promise.all([getServerConfig(), getEmbeddedServerStatus()])
-      .then(([config, status]) => {
-        if (status?.embedded && status?.running && !config?.serverUrl) {
-          embeddedMode = true;
-        }
-        if (config?.serverUrl) {
-          configuredServerUrl = config.serverUrl;
-          (
-            window as Window &
-              typeof globalThis & {
-                IS_ELECTRON?: boolean;
-                electronAPI?: unknown;
-                configuredServerUrl?: string;
-              }
-          ).configuredServerUrl = configuredServerUrl;
-        } else if (embeddedMode) {
-          // Embedded backend running, no remote server needed
-        } else {
-          console.warn("No server URL in config");
-        }
-        initializeApiInstances();
-      })
-      .catch((error) => {
-        console.error(
-          "Failed to load server config, initializing with default:",
-          error,
-        );
-        initializeApiInstances();
-      })
-      .finally(() => {
-        _resolveAppReady();
-      });
-  } else {
-    initializeApiInstances();
-    _resolveAppReady();
-  }
+  initializeApiInstances();
+  _resolveAppReady();
 }
 
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", initializeApp);
 } else {
   initializeApp();
-}
-
-function updateApiInstances() {
-  systemLogger.info("Updating API instances with new server configuration", {
-    operation: "api_instance_update",
-    configuredServerUrl,
-  });
-
-  initializeApiInstances();
-
-  (
-    window as Window &
-      typeof globalThis & {
-        IS_ELECTRON?: boolean;
-        electronAPI?: unknown;
-        configuredServerUrl?: string;
-      }
-  ).configuredServerUrl = configuredServerUrl;
-
-  systemLogger.success("All API instances updated successfully", {
-    operation: "api_instance_update_complete",
-    configuredServerUrl,
-  });
 }
 
 // ============================================================================
@@ -1742,25 +1398,6 @@ export async function loginUser(
       password,
     });
 
-    const isInIframe =
-      typeof window !== "undefined" && window.self !== window.top;
-
-    if (isInIframe && isElectron() && response.data.success) {
-      try {
-        window.parent.postMessage(
-          {
-            type: "AUTH_SUCCESS",
-            source: "login_api",
-            platform: "desktop",
-            timestamp: Date.now(),
-          },
-          window.location.origin,
-        );
-      } catch (e) {
-        console.error("[main-axios] Error posting message to parent:", e);
-      }
-    }
-
     if (response.data.token) {
       localStorage.setItem("jwt", response.data.token);
     }
@@ -1794,39 +1431,21 @@ export async function logoutUser(): Promise<{
 
     clearSkynetSessionStorage();
 
-    if (isElectron()) {
-      const electronAPI = (
-        window as unknown as {
-          electronAPI?: { clearSessionCookies?: () => Promise<void> };
-        }
-      ).electronAPI;
-      electronAPI?.clearSessionCookies?.().catch(() => {});
-    } else {
-      const isSecure = window.location.protocol === "https:";
-      const cookieString = isSecure
-        ? "jwt=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; Secure; SameSite=Lax"
-        : "jwt=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; SameSite=Lax";
-      document.cookie = cookieString;
-    }
+    const isSecure = window.location.protocol === "https:";
+    const cookieString = isSecure
+      ? "jwt=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; Secure; SameSite=Lax"
+      : "jwt=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; SameSite=Lax";
+    document.cookie = cookieString;
 
     return response.data;
   } catch (error) {
     clearSkynetSessionStorage();
 
-    if (isElectron()) {
-      const electronAPI = (
-        window as unknown as {
-          electronAPI?: { clearSessionCookies?: () => Promise<void> };
-        }
-      ).electronAPI;
-      electronAPI?.clearSessionCookies?.().catch(() => {});
-    } else {
-      const isSecure = window.location.protocol === "https:";
-      const cookieString = isSecure
-        ? "jwt=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; Secure; SameSite=Lax"
-        : "jwt=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; SameSite=Lax";
-      document.cookie = cookieString;
-    }
+    const isSecure = window.location.protocol === "https:";
+    const cookieString = isSecure
+      ? "jwt=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; Secure; SameSite=Lax"
+      : "jwt=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; SameSite=Lax";
+    document.cookie = cookieString;
     handleApiError(error, "logout user");
   }
 }

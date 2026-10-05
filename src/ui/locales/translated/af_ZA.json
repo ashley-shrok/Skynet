@@ -26,26 +26,6 @@
     "failedToLoadAlerts": "Kon nie waarskuwings laai nie",
     "failedToDismissAlert": "Kon nie waarskuwing toemaak nie"
   },
-  "serverConfig": {
-    "title": "Bedienerkonfigurasie",
-    "description": "Konfigureer die Skynet-bediener-URL om aan jou backend-dienste te koppel",
-    "serverUrl": "Bediener-URL",
-    "enterServerUrl": "Voer asseblief 'n bediener-URL in",
-    "saveFailed": "Kon nie konfigurasie stoor nie",
-    "saveError": "Fout met die stoor van die konfigurasie",
-    "saving": "Stoor...",
-    "saveConfig": "Stoor Konfigurasie",
-    "helpText": "Voer die URL in waar jou Skynet-bediener loop (bv. http://localhost:30001 of https://your-server.com)",
-    "changeServer": "Verander bediener",
-    "mustIncludeProtocol": "Bediener-URL moet met http:// of https:// begin",
-    "allowInvalidCertificate": "Laat ongeldige sertifikaat toe",
-    "allowInvalidCertificateDesc": "Gebruik slegs vir vertroude selfgehoste bedieners met selfgetekende of IP-adres sertifikate.",
-    "useEmbedded": "Gebruik plaaslike bediener",
-    "embeddedDesc": "Begin Skynet met die ingeboude plaaslike bediener (geen afstandbediener nodig nie)",
-    "embeddedConnecting": "Verbind met plaaslike bediener...",
-    "embeddedNotReady": "Die plaaslike bediener is nog nie gereed nie. Wag asseblief 'n oomblik en probeer weer.",
-    "localServer": "Plaaslike bediener"
-  },
   "versionCheck": {
     "error": "Weergawekontrolefout",
     "checkFailed": "Kon nie vir opdaterings kyk nie",
@@ -57,17 +37,13 @@
     "betaVersionDesc": "Jy gebruik {{current}}, wat nuwer is as die nuutste stabiele weergawe {{latest}}.",
     "releasedOn": "Vrygestel op {{date}}",
     "downloadUpdate": "Laai opdatering af",
-    "checking": "Kontroleer tans vir opdaterings...",
-    "checkUpdates": "Kyk vir opdaterings",
-    "checkingUpdates": "Kontroleer tans vir opdaterings...",
-    "updateRequired": "Opdatering Vereis"
+    "checking": "Kontroleer tans vir opdaterings..."
   },
   "common": {
     "close": "Maak toe",
     "minimize": "Minimaliseer",
     "online": "Aanlyn",
     "offline": "Vanlyn",
-    "continue": "Gaan voort",
     "maintenance": "Onderhoud",
     "degraded": "Gedegradeer",
     "error": "Fout",
@@ -99,11 +75,9 @@
     "saving": "Stoor...",
     "delete": "Vee uit",
     "rename": "Hernoem",
-    "edit": "Wysig",
     "add": "Voeg by",
     "confirm": "Bevestig",
     "no": "Nee",
-    "or": "OF",
     "next": "Volgende",
     "previous": "Vorige",
     "refresh": "Verfris",
@@ -918,7 +892,6 @@
     "external": "Eksterne",
     "loginWithExternal": "Teken aan met eksterne verskaffer",
     "loginWithExternalDesc": "Meld aan met jou gekonfigureerde eksterne identiteitsverskaffer",
-    "externalNotSupportedInElectron": "Eksterne verifikasie word nog nie in die Electron-app ondersteun nie. Gebruik asseblief die webweergawe vir OIDC-aanmelding.",
     "resetPasswordButton": "Herstel wagwoord",
     "sendResetCode": "Stuur Herstelkode",
     "resetCodeDesc": "Voer jou gebruikersnaam in om 'n wagwoordherstelkode te ontvang. Die kode sal in die docker-houerlogboeke aangeteken word.",
@@ -973,8 +946,7 @@
     "totpRateLimitedWithTime": "Tempo beperk: Te veel TOTP-verifikasiepogings. Wag asseblief {{time}} sekondes voordat u weer probeer.",
     "resetCodeRateLimited": "Tempo beperk: Te veel verifikasiepogings. Probeer asseblief later weer.",
     "resetCodeRateLimitedWithTime": "Tempo beperk: Te veel verifikasiepogings. Wag asseblief {{time}} sekondes voordat u weer probeer.",
-    "authTokenSaveFailed": "Kon nie verifikasietoken stoor nie",
-    "failedToLoadServer": "Kon nie bediener laai nie"
+    "authTokenSaveFailed": "Kon nie verifikasietoken stoor nie"
   },
   "messages": {
     "registrationDisabled": "Nuwe rekeningregistrasie is tans deur 'n administrateur gedeaktiveer. Meld asseblief aan of kontak 'n administrateur.",

@@ -25,20 +25,6 @@ await Promise.all(
   ),
 );
 
-// icon.png (1024x1024) for Linux electron-builder
-await sharp(svgBuffer)
-  .resize(1024, 1024)
-  .png()
-  .toFile(join(publicDir, "icon.png"));
-console.log("  ✓ icon.png");
-
-// icon-mac.png (512x512) for macOS
-await sharp(svgBuffer)
-  .resize(512, 512)
-  .png()
-  .toFile(join(publicDir, "icon-mac.png"));
-console.log("  ✓ icon-mac.png");
-
 // full-icon.png (1024x1024) used in app UI
 await sharp(svgBuffer)
   .resize(1024, 1024)
@@ -55,29 +41,7 @@ const icoBuffers = await Promise.all(
 writeFileSync(join(publicDir, "favicon.ico"), buildIco(icoBuffers, icoSizes));
 console.log("  ✓ favicon.ico");
 
-// icon.ico — embed 16, 32, 48, 64, 128, 256 px layers
-console.log("Generating icon.ico...");
-const winSizes = [16, 32, 48, 64, 128, 256];
-const winBuffers = await Promise.all(
-  winSizes.map((size) => sharp(svgBuffer).resize(size, size).png().toBuffer()),
-);
-writeFileSync(join(publicDir, "icon.ico"), buildIco(winBuffers, winSizes));
-console.log("  ✓ icon.ico");
-
-// icons/icon.ico and icons/icon.icns placeholders (stubs pointing to source)
-// electron-builder generates .icns; copy the 1024 PNG as icons/icon.png for reference
-await sharp(svgBuffer)
-  .resize(1024, 1024)
-  .png()
-  .toFile(join(iconsDir, "icon.ico").replace("icon.ico", "1024x1024.png"));
-// Copy icon.ico and icon.icns into icons/ as well
-import { copyFileSync } from "fs";
-copyFileSync(join(publicDir, "icon.ico"), join(iconsDir, "icon.ico"));
-console.log("  ✓ icons/icon.ico");
-
-console.log(
-  "\nDone! Note: icon.icns requires macOS tools (iconutil). Use electron-builder on macOS to generate it.",
-);
+console.log("\nDone!");
 
 /**
  * Builds a minimal ICO file from PNG buffers.

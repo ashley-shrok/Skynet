@@ -47,13 +47,7 @@ export function CopyableBlock({
     }
 
     try {
-      // Prefer the Electron clipboard bridge when available (matches the
-      // HostKeyVerificationDialog / WarpgateDialog / ConnectionLog pattern).
-      if (window.electronClipboard?.writeText) {
-        await window.electronClipboard.writeText(text);
-      } else {
-        await navigator.clipboard.writeText(text);
-      }
+      await navigator.clipboard.writeText(text);
 
       // Success: show the Copied affordance and schedule the revert.
       if (timerRef.current !== null) {

@@ -26,26 +26,6 @@
     "failedToLoadAlerts": "فشل تحميل التنبيهات",
     "failedToDismissAlert": "فشل في تجاهل التنبيه"
   },
-  "serverConfig": {
-    "title": "تكوين الخادم",
-    "description": "تكوين عنوان URL للخادم Skynet للاتصال بخدمات الخلفية",
-    "serverUrl": "رابط الخادم",
-    "enterServerUrl": "الرجاء إدخال رابط الخادم",
-    "saveFailed": "فشل في حفظ التكوين",
-    "saveError": "خطأ في حفظ الإعدادات",
-    "saving": "حفظ...",
-    "saveConfig": "حفظ الإعدادات",
-    "helpText": "أدخل عنوان URL حيث يعمل خادم Skynet الخاص بك (على سبيل المثال: http://localhost:30001 أو https://your-server.com)",
-    "changeServer": "تغيير الخادم",
-    "mustIncludeProtocol": "عنوان URL للخادم يجب أن يبدأ مع http:// أو https://",
-    "allowInvalidCertificate": "السماح بشهادة غير صالحة",
-    "allowInvalidCertificateDesc": "استخدمه فقط للخوادم الموثوقة ذاتية الاستضافة التي تحتوي على شهادات موقعة ذاتيًا أو شهادات عناوين IP.",
-    "useEmbedded": "استخدام الخادم المحلي",
-    "embeddedDesc": "تشغيل ترميكس مع الخادم المحلي المدمج (لا حاجة للخادم البعيد)",
-    "embeddedConnecting": "جاري الاتصال بالخادم المحلي...",
-    "embeddedNotReady": "الخادم المحلي غير جاهز بعد. الرجاء الانتظار لحظة وحاول مرة أخرى.",
-    "localServer": "الخادم المحلي"
-  },
   "versionCheck": {
     "error": "خطأ في التحقق من الإصدار",
     "checkFailed": "فشل التحقق من وجود تحديثات",
@@ -57,17 +37,13 @@
     "betaVersionDesc": "أنت تقوم بتشغيل {{current}}، وهو أحدث من أحدث إصدار مستقر {{latest}}.",
     "releasedOn": "صدر على {{date}}",
     "downloadUpdate": "تنزيل التحديث",
-    "checking": "البحث عن تحديثات...",
-    "checkUpdates": "التحقق من وجود تحديثات",
-    "checkingUpdates": "البحث عن تحديثات...",
-    "updateRequired": "التحديث مطلوب"
+    "checking": "البحث عن تحديثات..."
   },
   "common": {
     "close": "أغلق",
     "minimize": "Minimize",
     "online": "متصل",
     "offline": "غير متصل",
-    "continue": "متابعة",
     "maintenance": "صيانة",
     "degraded": "تدهورت",
     "error": "خطأ",
@@ -99,11 +75,9 @@
     "saving": "حفظ...",
     "delete": "حذف",
     "rename": "إعادة تسمية",
-    "edit": "تحرير",
     "add": "إضافة",
     "confirm": "تأكيد",
     "no": "لا",
-    "or": "أو",
     "next": "التالي",
     "previous": "السابق",
     "refresh": "تحديث",
@@ -918,7 +892,6 @@
     "external": "خارجي",
     "loginWithExternal": "تسجيل الدخول مع المزود الخارجي",
     "loginWithExternalDesc": "تسجيل الدخول باستخدام موفر الهوية الخارجي المعد الخاص بك",
-    "externalNotSupportedInElectron": "المصادقة الخارجية غير مدعومة في تطبيق إلكترون بعد. الرجاء استخدام إصدار الويب لتسجيل الدخول OIDC.",
     "resetPasswordButton": "إعادة تعيين كلمة المرور",
     "sendResetCode": "إرسال رمز إعادة التعيين",
     "resetCodeDesc": "أدخل اسم المستخدم الخاص بك لتلقي رمز إعادة تعيين كلمة المرور. سيتم تسجيل الدخول في سجلات حاويات الجهاز التنزيلي.",
@@ -973,8 +946,7 @@
     "totpRateLimitedWithTime": "تم تجاوز الحد المسموح به: عدد محاولات التحقق من رمز TOTP كبير جدًا. يُرجى الانتظار {{time}} ثانية قبل المحاولة مرة أخرى.",
     "resetCodeRateLimited": "معدل محدود: العديد من محاولات التحقق. الرجاء المحاولة مرة أخرى لاحقاً.",
     "resetCodeRateLimitedWithTime": "معدل محدود: العديد من محاولات التحقق. الرجاء الانتظار {{time}} ثانية قبل المحاولة مرة أخرى.",
-    "authTokenSaveFailed": "فشل في حفظ رمز المصادقة",
-    "failedToLoadServer": "فشل تحميل الخادم"
+    "authTokenSaveFailed": "فشل في حفظ رمز المصادقة"
   },
   "messages": {
     "registrationDisabled": "تسجيل الحساب الجديد معطل حاليًا من قبل المسؤول. الرجاء تسجيل الدخول أو الاتصال بالمسؤول.",

@@ -77,6 +77,11 @@ import { PermissionManager } from "../../utils/permission-manager.js";
 import { sshLogger } from "../../utils/logger.js";
 import { classifyByExtension } from "../../utils/editable-file-whitelist.js";
 import { sniffTextBytes } from "../../utils/editable-file-byte-sniff.js";
+import {
+  COMMON_RESPONSE_HEADERS,
+  extractExtension,
+  sendSftpFile,
+} from "../../utils/sftp-file-response.js";
 import { withConnection } from "../../ssh/ssh-connection-pool.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { resolveHostByName } from "../../ssh/host-resolver.js";
@@ -98,10 +103,6 @@ const MAX_BYTES_POST = 2_000_000;
  * per request is a fixed ~64 KiB regardless of file size. Caddy's upstream
  * `read_timeout 5m` provides an orthogonal wall-clock ceiling. */
 const MAX_BYTES_GET = 10 * 1024 ** 3; // 10 GiB
-
-/** Bytes read for unknown-extension sniff. Matches `sniffTextBytes`'s
- * internal 8 KiB sample size — reading more would be wasted work. */
-const SNIFF_BYTES = 8_192;
 
 /** SSH connect timeout for `connectOneShot` (ms). */
 const SSH_CONNECT_TIMEOUT_MS = 5_000;
@@ -126,125 +127,6 @@ const FORBIDDEN_PATH_RE = /^\/(proc|sys|dev)(\/|$)/;
  * short-circuits without touching the resolver.
  */
 const HOSTNAME_RE = /^[a-zA-Z0-9._-]+$/;
-
-/**
- * Headers set on EVERY GET response (200 + 206 + all error paths).
- *
- * - `x-content-type-options: nosniff` — MIME-sniff off. Chrome/Safari won't
- *   second-guess the declared content-type; combined with our per-extension
- *   dispatch this closes the last "browser upgrades text/plain to text/html"
- *   loophole.
- * - `cache-control: no-store` — cross-user cache poisoning defense
- *   (T-78-01-GET2); every hit is a fresh auth-checked backend round-trip.
- *
- * `content-type` is NOT in this common set — it's per-request, dispatched
- * from file extension (or the sniff-fallback). Error responses set
- * content-type to text/plain explicitly.
- */
-const COMMON_RESPONSE_HEADERS = {
-  "x-content-type-options": "nosniff",
-  "cache-control": "no-store",
-} as const;
-
-/**
- * Extension → content-type dispatch table. Three lanes:
- *
- * INLINE — render in-browser with the real content-type. Video/audio/image
- * players + PDF viewer all handle these natively and none execute script.
- *
- * ATTACH — force `Content-Disposition: attachment; filename=<basename>`.
- * Preserves original content-type on the wire, but the disposition tells
- * the browser to download instead of render. Chrome/Safari WILL NOT
- * execute an attachment-disposed HTML/JS/SVG.
- *
- * ASIS — inline, no disposition, no execution risk (text/plain-ish types).
- *
- * Anything NOT in these tables goes through the sniff fallback: read
- * SNIFF_BYTES from the file, classify via sniffTextBytes, then either
- * text/plain inline (text) or application/octet-stream attachment (binary).
- */
-const EXT_INLINE: Record<string, string> = {
-  // video
-  mp4: "video/mp4",
-  m4v: "video/mp4",
-  webm: "video/webm",
-  mov: "video/quicktime",
-  ogv: "video/ogg",
-  // audio
-  mp3: "audio/mpeg",
-  m4a: "audio/mp4",
-  wav: "audio/wav",
-  ogg: "audio/ogg",
-  oga: "audio/ogg",
-  flac: "audio/flac",
-  opus: "audio/opus",
-  // image
-  png: "image/png",
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  gif: "image/gif",
-  webp: "image/webp",
-  avif: "image/avif",
-  bmp: "image/bmp",
-  ico: "image/vnd.microsoft.icon",
-  // document
-  pdf: "application/pdf",
-};
-
-const EXT_ATTACH: Record<string, string> = {
-  html: "text/html; charset=utf-8",
-  htm: "text/html; charset=utf-8",
-  xhtml: "application/xhtml+xml",
-  svg: "image/svg+xml",
-  js: "application/javascript; charset=utf-8",
-  mjs: "application/javascript; charset=utf-8",
-  cjs: "application/javascript; charset=utf-8",
-};
-
-const EXT_ASIS: Record<string, string> = {
-  txt: "text/plain; charset=utf-8",
-  md: "text/plain; charset=utf-8",
-  json: "application/json; charset=utf-8",
-  yaml: "application/yaml; charset=utf-8",
-  yml: "application/yaml; charset=utf-8",
-  toml: "application/toml; charset=utf-8",
-  csv: "text/csv; charset=utf-8",
-  tsv: "text/tab-separated-values; charset=utf-8",
-  log: "text/plain; charset=utf-8",
-  conf: "text/plain; charset=utf-8",
-  ini: "text/plain; charset=utf-8",
-  env: "text/plain; charset=utf-8",
-  sh: "text/plain; charset=utf-8",
-  py: "text/plain; charset=utf-8",
-  rb: "text/plain; charset=utf-8",
-  rs: "text/plain; charset=utf-8",
-  go: "text/plain; charset=utf-8",
-  ts: "text/plain; charset=utf-8",
-  tsx: "text/plain; charset=utf-8",
-  jsx: "text/plain; charset=utf-8",
-  css: "text/css; charset=utf-8",
-  xml: "application/xml; charset=utf-8",
-};
-
-type Disposition = "inline" | "attachment";
-interface DispatchResult {
-  contentType: string;
-  disposition: Disposition;
-}
-
-function dispatchByExtensionOnly(ext: string | null): DispatchResult | null {
-  if (!ext) return null;
-  if (EXT_INLINE[ext]) return { contentType: EXT_INLINE[ext], disposition: "inline" };
-  if (EXT_ATTACH[ext]) return { contentType: EXT_ATTACH[ext], disposition: "attachment" };
-  if (EXT_ASIS[ext]) return { contentType: EXT_ASIS[ext], disposition: "inline" };
-  return null;
-}
-
-function dispatchFromSniff(sample: Uint8Array): DispatchResult {
-  return sniffTextBytes(sample)
-    ? { contentType: "text/plain; charset=utf-8", disposition: "inline" }
-    : { contentType: "application/octet-stream", disposition: "attachment" };
-}
 
 /* ------------------------------------------------------------------------ */
 /*  Wire-up: auth middleware + permission manager                           */
@@ -329,25 +211,6 @@ function sftpReadFile(sftp: SftpLike, p: string): Promise<Buffer> {
       if (err) return reject(err);
       resolve(data);
     });
-  });
-}
-
-/** Read the first N bytes of a file via a bounded SFTP stream. Used only
- * for the sniff-fallback (unknown extension) — a full readFile would
- * defeat the "streaming" property of the GET path on the sniff step. */
-function sftpReadHead(
-  sftp: SftpLike,
-  p: string,
-  bytes: number,
-): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const stream = sftp.createReadStream(p, { start: 0, end: bytes - 1 });
-    const chunks: Buffer[] = [];
-    stream.on("data", (chunk: Buffer | string) => {
-      chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
-    });
-    stream.on("end", () => resolve(Buffer.concat(chunks)));
-    stream.on("error", (err: Error) => reject(err));
   });
 }
 
@@ -492,11 +355,6 @@ function runWithAbort<T>(
 /*  Extension helper (copied from pretty-view-fetch-tailnet-url.ts L96-101) */
 /* ------------------------------------------------------------------------ */
 
-function extractExtension(filename: string): string | null {
-  const dotIdx = filename.lastIndexOf(".");
-  if (dotIdx === -1 || dotIdx === filename.length - 1) return null;
-  return filename.slice(dotIdx + 1).toLowerCase();
-}
 
 /* ------------------------------------------------------------------------ */
 /*  POST handler — modal JSON path                                          */
@@ -579,58 +437,6 @@ async function postHandler(req: Request, res: Response): Promise<void> {
 /*  All responses carry `X-Content-Type-Options: nosniff` and               */
 /*  `Cache-Control: no-store`.                                              */
 /* ------------------------------------------------------------------------ */
-
-/**
- * Parse an RFC 7233 `Range: bytes=X-Y` header into concrete byte offsets
- * bounded by the file size. Supports the two common shapes we care about:
- *
- *   `bytes=X-Y` → { start: X, end: Y }                      (explicit range)
- *   `bytes=X-`  → { start: X, end: size-1 }                 (open-ended tail)
- *   `bytes=-N`  → { start: size-N, end: size-1 }            (suffix range)
- *
- * Any other shape (multi-range `X-Y,A-B`, syntactically invalid) returns
- * `null` → caller falls back to a full-body 200. Multi-range would need
- * multipart/byteranges response support, which isn't worth building for
- * the "media scrubbing + resume download" use case; single ranges cover
- * everything a `<video>` scrubber or a save-as-resume ever asks for.
- *
- * A start beyond `size` returns `"unsatisfiable"` — caller responds 416.
- */
-type RangeSpec = { start: number; end: number };
-function parseRangeHeader(
-  header: string | undefined,
-  size: number,
-): RangeSpec | "unsatisfiable" | null {
-  if (!header || !header.startsWith("bytes=")) return null;
-  const spec = header.slice("bytes=".length);
-  if (spec.includes(",")) return null; // multi-range not supported
-  const match = spec.match(/^(\d*)-(\d*)$/);
-  if (!match) return null;
-  const startStr = match[1];
-  const endStr = match[2];
-  if (startStr === "" && endStr === "") return null;
-  let start: number;
-  let end: number;
-  if (startStr === "") {
-    // Suffix range: `-N` = the last N bytes.
-    const suffix = parseInt(endStr, 10);
-    if (!Number.isFinite(suffix) || suffix <= 0) return null;
-    start = Math.max(0, size - suffix);
-    end = size - 1;
-  } else {
-    start = parseInt(startStr, 10);
-    if (!Number.isFinite(start) || start < 0) return null;
-    if (endStr === "") {
-      end = size - 1;
-    } else {
-      end = parseInt(endStr, 10);
-      if (!Number.isFinite(end) || end < start) return null;
-      if (end > size - 1) end = size - 1;
-    }
-  }
-  if (start >= size) return "unsatisfiable";
-  return { start, end };
-}
 
 function sendErrorText(
   res: Response,
@@ -719,7 +525,6 @@ async function getHandler(req: Request, res: Response): Promise<void> {
   const rangeHeader =
     typeof req.headers.range === "string" ? req.headers.range : undefined;
   const filename = absolutePath.split("/").pop() ?? "";
-  const extension = extractExtension(filename);
 
   // SSH setup timer — bounds realpath + stat + (optional) sniff read +
   // stream open. Cleared before the stream starts piping bytes: the
@@ -755,117 +560,19 @@ async function getHandler(req: Request, res: Response): Promise<void> {
             throw new Error("too_large");
           }
 
-          // Dispatch content-type. Extension-table hit is the fast path;
-          // unknown extension falls back to reading the first SNIFF_BYTES
-          // and running the shared file(1)-style heuristic.
-          let dispatch = dispatchByExtensionOnly(extension);
-          if (!dispatch) {
-            // Empty file → sniff on zero bytes returns text (empty), fine.
-            const sampleSize = Math.min(SNIFF_BYTES, stat.size);
-            const sample =
-              sampleSize > 0
-                ? await sftpReadHead(sftp, resolvedPath, sampleSize)
-                : Buffer.alloc(0);
-            dispatch = dispatchFromSniff(new Uint8Array(sample));
-          }
-
-          // Range handling. `null` = no Range header (full body 200).
-          // Object = single-range parse (206 partial). `"unsatisfiable"` =
-          // 416 with `Content-Range: bytes */<size>` per RFC 7233 §4.4.
-          const rangeParsed = parseRangeHeader(rangeHeader, stat.size);
-          if (rangeParsed === "unsatisfiable") {
-            res.set({
-              ...COMMON_RESPONSE_HEADERS,
-              "content-type": "text/plain; charset=utf-8",
-              "content-range": `bytes */${stat.size}`,
-            });
-            res.status(416).send("range_not_satisfiable");
-            return;
-          }
-
-          // Set final response headers. Content-Length uses the streamed-
-          // byte count (either the full size or the range window).
-          const streamStart = rangeParsed?.start ?? 0;
-          const streamEnd = rangeParsed?.end ?? stat.size - 1;
-          const contentLength =
-            stat.size === 0 ? 0 : streamEnd - streamStart + 1;
-          const responseHeaders: Record<string, string> = {
-            ...COMMON_RESPONSE_HEADERS,
-            "content-type": dispatch.contentType,
-            "accept-ranges": "bytes",
-            "content-length": String(contentLength),
-          };
-          if (dispatch.disposition === "attachment") {
-            // filename= exposes the basename by design — a save-as dialog
-            // needs it. The absolute path stays server-side per T-40-05.
-            const safeFilename = filename.replace(/["\\\r\n]/g, "_");
-            responseHeaders["content-disposition"] =
-              `attachment; filename="${safeFilename}"`;
-          }
-          if (rangeParsed) {
-            responseHeaders["content-range"] =
-              `bytes ${streamStart}-${streamEnd}/${stat.size}`;
-          }
-          res.set(responseHeaders);
-          res.status(rangeParsed ? 206 : 200);
-
-          // Setup done — clear the setup timer BEFORE we start piping.
-          // A multi-GB transfer at slow bandwidth can legitimately take
-          // minutes; the SFTP_SETUP_TIMEOUT_MS budget was for setup only.
-          clearTimeout(setupTimer);
-
-          // Empty-body fast path — nothing to stream. Some clients close
-          // on the response headers alone; explicit end() is safest.
-          if (contentLength === 0) {
-            res.end();
-            return;
-          }
-
-          // Open the payload stream. `end` in ssh2's createReadStream is
-          // inclusive (matches fs.createReadStream semantics).
-          const stream = sftp.createReadStream(resolvedPath, {
-            start: streamStart,
-            end: streamEnd,
-          });
-
-          await new Promise<void>((resolve, reject) => {
-            let settled = false;
-            const finish = (err?: Error) => {
-              if (settled) return;
-              settled = true;
-              if (err) reject(err);
-              else resolve();
-            };
-
-            stream.on("error", (err: Error) => {
-              // Mid-stream failure. If headers are already flushed we
-              // can't send a proper error body — the best we can do is
-              // destroy the response so the client sees a truncated
-              // transfer and (for media) retries via Range.
-              try {
-                if (!res.headersSent) {
-                  // Should be unreachable — we already set headers above,
-                  // but guard anyway.
-                  sendErrorText(res, 502, "host_unreachable");
-                } else {
-                  res.destroy();
-                }
-              } catch {
-                /* ignore secondary error */
-              }
-              finish(err);
-            });
-
-            // Client-side hangup (tab closed, download cancelled). Kill
-            // the SFTP stream so we release the SSH channel promptly.
-            res.on("close", () => {
-              stream.destroy();
-              finish();
-            });
-
-            stream.on("end", () => finish());
-
-            stream.pipe(res);
+          // Content-type dispatch, Range (206 / 416) and streaming live in
+          // the shared sftp-file-response helper. The setup timer is cleared
+          // once bytes start flowing: a multi-GB transfer at slow bandwidth
+          // can legitimately take minutes.
+          await sendSftpFile({
+            req,
+            res,
+            sftp,
+            path: resolvedPath,
+            size: stat.size,
+            filename,
+            disposition: "auto",
+            onStreamStart: () => clearTimeout(setupTimer),
           });
         });
       },

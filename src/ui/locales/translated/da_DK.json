@@ -26,26 +26,6 @@
     "failedToLoadAlerts": "Kunne ikke indlæse advarsler",
     "failedToDismissAlert": "Mislykkedes at afvise advarsel"
   },
-  "serverConfig": {
-    "title": "Server Konfiguration",
-    "description": "Konfigurer Skynet-serverens URL til at oprette forbindelse til dine backend-tjenester",
-    "serverUrl": "Server URL",
-    "enterServerUrl": "Indtast venligst en server URL",
-    "saveFailed": "Konfigurationen kunne ikke gemmes",
-    "saveError": "Fejl under lagring af konfiguration",
-    "saving": "Gemmer...",
-    "saveConfig": "Gem Konfiguration",
-    "helpText": "Angiv URL'en hvor din Skynet-server kører (f.eks. http://localhost:30001 eller https://your-server.com)",
-    "changeServer": "Skift Server",
-    "mustIncludeProtocol": "Server URL skal starte med http:// eller https://",
-    "allowInvalidCertificate": "Tillad ugyldigt certifikat",
-    "allowInvalidCertificateDesc": "Brug kun til betroede, selvhostede servere med selvsignerede certifikater eller IP-adressecertifikater.",
-    "useEmbedded": "Brug Lokal Server",
-    "embeddedDesc": "Kør Skynet med den indbyggede lokale server (ingen fjernserver er nødvendig)",
-    "embeddedConnecting": "Forbinder til lokal server...",
-    "embeddedNotReady": "Lokal server er ikke klar endnu. Vent et øjeblik og prøv igen.",
-    "localServer": "Lokal Server"
-  },
   "versionCheck": {
     "error": "Fejl Ved Versionskontrol",
     "checkFailed": "Mislykkedes at tjekke for opdateringer",
@@ -57,17 +37,13 @@
     "betaVersionDesc": "Du kører {{current}}, som er nyere end den seneste stabile udgave {{latest}}.",
     "releasedOn": "Udgivet til {{date}}",
     "downloadUpdate": "Download Opdatering",
-    "checking": "Søger efter opdateringer...",
-    "checkUpdates": "Søg efter opdateringer",
-    "checkingUpdates": "Søger efter opdateringer...",
-    "updateRequired": "Opdatering Påkrævet"
+    "checking": "Søger efter opdateringer..."
   },
   "common": {
     "close": "Luk",
     "minimize": "Minimize",
     "online": "Online",
     "offline": "Offline",
-    "continue": "Fortsæt",
     "maintenance": "Vedligeholdelse",
     "degraded": "Fortyndet",
     "error": "Fejl",
@@ -99,11 +75,9 @@
     "saving": "Gemmer...",
     "delete": "Slet",
     "rename": "Omdøb",
-    "edit": "Rediger",
     "add": "Tilføj",
     "confirm": "Bekræft",
     "no": "Nej",
-    "or": "ELLER",
     "next": "Næste",
     "previous": "Forrige",
     "refresh": "Opdater",
@@ -918,7 +892,6 @@
     "external": "Ekstern",
     "loginWithExternal": "Log ind med ekstern udbyder",
     "loginWithExternalDesc": "Login ved hjælp af din konfigurerede eksterne identitetsudbyder",
-    "externalNotSupportedInElectron": "Ekstern godkendelse er endnu ikke understøttet i Electron appen. Brug venligst webversionen til OIDC login.",
     "resetPasswordButton": "Nulstil Adgangskode",
     "sendResetCode": "Send Nulstillingskode",
     "resetCodeDesc": "Indtast dit brugernavn for at modtage en adgangskode nulstillingskode. Koden vil blive logget i docker container logs.",
@@ -973,8 +946,7 @@
     "totpRateLimitedWithTime": "Begrænset hastighed: For mange TOTP-bekræftelsesforsøg. Vent venligst {{time}} sekunder, før du prøver igen.",
     "resetCodeRateLimited": "Begrænset sats: For mange bekræftelsesforsøg. Prøv igen senere.",
     "resetCodeRateLimitedWithTime": "Begrænset sats: For mange bekræftelsesforsøg. Vent venligst {{time}} sekunder, før du prøver igen.",
-    "authTokenSaveFailed": "Kunne ikke gemme godkendelsestoken",
-    "failedToLoadServer": "Kunne ikke indlæse server"
+    "authTokenSaveFailed": "Kunne ikke gemme godkendelsestoken"
   },
   "messages": {
     "registrationDisabled": "Ny konto registrering er i øjeblikket deaktiveret af en administrator. Log ind eller kontakt en administrator.",

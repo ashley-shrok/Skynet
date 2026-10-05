@@ -1,10 +1,5 @@
 import { AxiosError } from "axios";
-import {
-  authApi,
-  handleApiError,
-  isElectron,
-  markUserAuthenticated,
-} from "@/main-axios";
+import { authApi, handleApiError, markUserAuthenticated } from "@/main-axios";
 import type { AuthResponse } from "@/main-axios";
 
 // ALERTS
@@ -60,25 +55,6 @@ export async function verifyTOTPLogin(
       temp_token,
       totp_code,
     });
-
-    const isInIframe =
-      typeof window !== "undefined" && window.self !== window.top;
-
-    if (isInIframe && isElectron() && response.data.success) {
-      try {
-        window.parent.postMessage(
-          {
-            type: "AUTH_SUCCESS",
-            source: "totp_verify",
-            platform: "desktop",
-            timestamp: Date.now(),
-          },
-          window.location.origin,
-        );
-      } catch (e) {
-        console.error("[main-axios] Error posting message to parent:", e);
-      }
-    }
 
     if (response.data.success) {
       markUserAuthenticated();

@@ -47,10 +47,17 @@ describe("classifyFileChipKind", () => {
     expect(classifyFileChipKind("logo.SVG")).toBe("svg");
   });
 
+  it("gives delimited and diff files their registry previews", () => {
+    expect(classifyFileChipKind("data.csv")).toBe("delimited");
+    expect(classifyFileChipKind("data.tsv")).toBe("delimited");
+    expect(classifyFileChipKind("fix.patch")).toBe("diff");
+    expect(classifyFileChipKind("report.pdf")).toBe("pdf");
+  });
+
   it("falls back to plain for text / unknown / extensionless", () => {
     expect(classifyFileChipKind("notes.md")).toBe("plain");
-    expect(classifyFileChipKind("report.pdf")).toBe("plain");
-    expect(classifyFileChipKind("data.csv")).toBe("plain");
+    expect(classifyFileChipKind("report.docx")).toBe("plain");
+    expect(classifyFileChipKind("app.log")).toBe("plain");
     expect(classifyFileChipKind("Dockerfile")).toBe("plain");
     expect(classifyFileChipKind("plainname")).toBe("plain");
     // Trailing-dot filenames (no actual extension) — plain fallback
@@ -219,5 +226,20 @@ describe("FileChip — media variant", () => {
     const anchor = screen.getAllByRole("link", { name: /photo\.png/i })[0];
     fireEvent.click(anchor);
     expect(onOpen).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("FileChip — diff preview", () => {
+  it("renders the registry's diff preview for .patch files", () => {
+    vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
+    try {
+      const { container } = render(
+        <FileChip url="https://x/file/h/fix.patch" filename="fix.patch" onOpen={vi.fn()} />,
+      );
+      expect(container.querySelector("[data-file-chip-kind='diff']")).not.toBeNull();
+      expect(screen.getByTestId("diff-chip-preview")).toBeTruthy();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

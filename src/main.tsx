@@ -6,12 +6,11 @@ import "./ui/index.css";
 import "./ui/features/pretty-conversations/pretty-conversations.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import "./ui/i18n/i18n";
-import { isElectron } from "@/lib/electron";
 import { Toaster } from "@/components/sonner";
 import { SkewLockModal } from "@/features/skew-lock/SkewLockModal";
 import { Auth, getStoredAuth, clearStoredAuth } from "@/auth/Auth";
 import { validateReturnUrl, parseReturnFromSearch } from "@/auth/return-url";
-import { getUserInfo, getCurrentToken, appReadyPromise } from "@/main-axios";
+import { getUserInfo, appReadyPromise } from "@/main-axios";
 import { applyAccentColor, applyFontSize } from "@/lib/theme";
 import type { FontSizeId } from "@/types/ui-types";
 import { useServiceWorker } from "@/hooks/use-service-worker";
@@ -73,7 +72,7 @@ const AppShell = lazy(() =>
   import("@/AppShell").then((m) => ({ default: m.AppShell })),
 );
 
-// Full-screen apps opened via query params (e.g. from external links or Electron)
+// Full-screen apps opened via query params (e.g. from external links)
 const TerminalApp = lazy(() =>
   import("@/features/terminal/TerminalApp").then((m) => ({
     default: m.default,
@@ -82,12 +81,6 @@ const TerminalApp = lazy(() =>
 const GuacamoleApp = lazy(() =>
   import("@/features/guacamole/GuacamoleApp").then((m) => ({
     default: m.default,
-  })),
-);
-
-const ElectronVersionCheck = lazy(() =>
-  import("@/user/ElectronVersionCheck").then((module) => ({
-    default: module.ElectronVersionCheck,
   })),
 );
 
@@ -124,8 +117,8 @@ function App() {
   // operator branding-config override reached the browser tab pre-auth.
   //
   // NOT mounted in RootApp: that component short-circuits to <FullscreenApp>
-  // for ?view= popouts and <ElectronVersionCheck> for the Electron gate;
-  // neither branch needs favicon rewrites (out of scope for this bounty).
+  // for ?view= popouts, which doesn't need favicon rewrites (out of scope for
+  // this bounty).
   useBrandingFavicon();
   const stored = getStoredAuth();
   const [phase, setPhase] = useState<Phase>(
@@ -147,21 +140,12 @@ function App() {
   }, []);
 
   // Verify stored session against the server before rendering AppShell.
-  // Wait for API instances to be initialized with correct embedded/server config first.
-  // In Electron, also repopulate localStorage["jwt"] so WebSocket connections can auth
-  // after a session restore (the token is only written to localStorage during a fresh login).
+  // Wait for API instances to be initialized first.
   useEffect(() => {
     if (phase !== "verifying") return;
     appReadyPromise
       .then(() => getUserInfo())
       .then(() => {
-        if (isElectron()) {
-          getCurrentToken()
-            .then((token) => {
-              if (token) localStorage.setItem("jwt", token);
-            })
-            .catch(() => {});
-        }
         setPhase("fading-in");
         timerRef.current = setTimeout(() => setPhase("idle-app"), 450);
       })
@@ -175,9 +159,6 @@ function App() {
     setAuthUsername(u);
     setPhase("fading-in");
     timerRef.current = setTimeout(() => setPhase("idle-app"), 450);
-    if (isElectron()) {
-      window.electronAPI?.startC2SAutoStartTunnels?.().catch(() => {});
-    }
   }
 
   function handleLogout() {
@@ -256,8 +237,6 @@ function App() {
 }
 
 function RootApp() {
-  const [showVersionCheck, setShowVersionCheck] = useState(true);
-
   useServiceWorker();
 
   const searchParams = new URLSearchParams(window.location.search);
@@ -267,14 +246,6 @@ function RootApp() {
     return (
       <Suspense fallback={null}>
         <FullscreenApp />
-      </Suspense>
-    );
-  }
-
-  if (isElectron() && showVersionCheck) {
-    return (
-      <Suspense fallback={null}>
-        <ElectronVersionCheck onContinue={() => setShowVersionCheck(false)} />
       </Suspense>
     );
   }

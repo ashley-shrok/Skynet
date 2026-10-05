@@ -10,8 +10,7 @@
  * the axios lane for all 8 instances).
  *
  * Out-of-scope (do NOT wrap): external URL fetches (avatar candidates from
- * pravatar/gravatar) and Electron server-config probes hitting user-configured
- * remote installs — those keep raw `fetch()`.
+ * pravatar/gravatar) — those keep raw `fetch()`.
  *
  * These tests mock `globalThis.fetch` with `vi.fn()` and assert on the args
  * the mock was called with. Streaming semantics preserved — return type is

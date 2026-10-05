@@ -8,7 +8,7 @@ import {
 } from "react";
 import Guacamole from "guacamole-common-js";
 import { useTranslation } from "react-i18next";
-import { getGuacamoleToken, isElectron, isEmbeddedMode } from "@/main-axios.ts";
+import { getGuacamoleToken } from "@/main-axios.ts";
 import { SimpleLoader } from "@/lib/SimpleLoader.tsx";
 
 export type GuacamoleConnectionType = "rdp" | "vnc" | "telnet";
@@ -157,27 +157,7 @@ export const GuacamoleDisplay = forwardRef<
 
         const wsBase = isDev
           ? `ws://localhost:30008`
-          : isElectron()
-            ? (() => {
-                const configuredUrl = (
-                  window as { configuredServerUrl?: string }
-                ).configuredServerUrl;
-
-                // Embedded mode or no configured remote server: connect directly
-                // to the local guacamole websocket service.
-                if (isEmbeddedMode() || !configuredUrl) {
-                  return "ws://127.0.0.1:30008";
-                }
-
-                const wsProtocol = configuredUrl.startsWith("https://")
-                  ? "wss://"
-                  : "ws://";
-                const wsHost = configuredUrl
-                  .replace(/^https?:\/\//, "")
-                  .replace(/\/$/, "");
-                return `${wsProtocol}${wsHost}/guacamole/websocket/`;
-              })()
-            : `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}/guacamole/websocket/`;
+          : `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}/guacamole/websocket/`;
 
         const params = new URLSearchParams({
           token,

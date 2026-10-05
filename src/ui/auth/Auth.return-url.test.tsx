@@ -124,10 +124,6 @@ vi.mock("@/main-axios", () => ({
   completePasswordReset: vi.fn(),
   getOIDCAuthorizeUrl: vi.fn(),
   verifyTOTPLogin: vi.fn(),
-  getServerConfig: vi.fn().mockResolvedValue(null),
-  saveServerConfig: vi.fn(),
-  isElectron: vi.fn().mockReturnValue(false),
-  getEmbeddedServerStatus: vi.fn().mockResolvedValue(null),
   getCurrentToken: vi.fn().mockResolvedValue(null),
   appReadyPromise: Promise.resolve(),
 }));
@@ -141,10 +137,6 @@ vi.mock("@/i18n/i18n", () => ({ default: { language: "en" } }));
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (k: string) => k }),
   initReactI18next: { type: "3rdParty", init: () => {} },
-}));
-
-vi.mock("@/auth/ElectronServerConfig", () => ({
-  ElectronServerConfig: () => null,
 }));
 
 vi.mock("@/components/button", () => ({

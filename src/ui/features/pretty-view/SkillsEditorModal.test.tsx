@@ -9,7 +9,7 @@
  * Additional tests cover the Phase 44 seams:
  *   - host pick triggers listSkills
  *   - skill pick triggers enumerateSkillFiles
- *   - non-text file → AlertTriangle placeholder + no textbox
+ *   - non-text file → shared can't-preview notice + no textbox
  *   - + Add file prompt round-trip (create + refetch)
  *   - delete-file confirm dialog fires deleteSkillFile
  *   - delete-skill confirm dialog fires deleteSkill
@@ -258,7 +258,7 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     expect(skillsApi.enumerateSkillFiles).toHaveBeenCalledWith(1, "build");
   });
 
-  it("non-text file → renders AlertTriangle placeholder, no textbox", async () => {
+  it("non-text file → renders the shared can't-preview notice, no textbox", async () => {
     // Override readSkillFile for this test only.
     (skillsApi.readSkillFile as ReturnType<typeof vi.fn>).mockImplementationOnce(async () => {
       await new Promise((r) => setTimeout(r, 20));
@@ -284,7 +284,7 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
 
     // Wait for the placeholder heading to appear.
     await waitFor(
-      () => expect(screen.queryByText(/not a text file/i)).toBeTruthy(),
+      () => expect(screen.queryByText(/can.t preview this file/i)).toBeTruthy(),
       { timeout: 2000 },
     );
     // And critically — NO textbox (the read returned isText: false).

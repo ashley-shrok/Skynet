@@ -26,26 +26,6 @@
     "failedToLoadAlerts": "Nepodařilo se načíst upozornění",
     "failedToDismissAlert": "Nepodařilo se zrušit výstrahu"
   },
-  "serverConfig": {
-    "title": "Konfigurace serveru",
-    "description": "Konfigurace URL serveru Skynet pro připojení k vašim službám backendu",
-    "serverUrl": "URL serveru",
-    "enterServerUrl": "Zadejte adresu URL serveru",
-    "saveFailed": "Nepodařilo se uložit konfiguraci",
-    "saveError": "Chyba při ukládání konfigurace",
-    "saving": "Ukládání...",
-    "saveConfig": "Uložit konfiguraci",
-    "helpText": "Zadejte URL, kde běží váš Skynet server (např. http://localhost:30001 nebo https://your-server.com)",
-    "changeServer": "Změnit server",
-    "mustIncludeProtocol": "Adresa URL serveru musí začínat http:// nebo https:////",
-    "allowInvalidCertificate": "Povolit neplatný certifikát",
-    "allowInvalidCertificateDesc": "Používejte pouze pro důvěryhodné servery s vlastním hostováním a certifikáty s vlastním podpisem nebo certifikáty IP adresy.",
-    "useEmbedded": "Použít místní server",
-    "embeddedDesc": "Spustit Skynet s vestavěným lokálním serverem (nepotřebujete vzdálený server)",
-    "embeddedConnecting": "Připojování k lokálnímu serveru...",
-    "embeddedNotReady": "Místní server není ještě připravený. Počkejte prosím chvíli a zkuste to znovu.",
-    "localServer": "Místní server"
-  },
   "versionCheck": {
     "error": "Chyba kontroly verze",
     "checkFailed": "Nepodařilo se zkontrolovat aktualizace",
@@ -57,17 +37,13 @@
     "betaVersionDesc": "Používáte {{current}}, což je novější než poslední stabilní vydání {{latest}}.",
     "releasedOn": "Vydáno v {{date}}",
     "downloadUpdate": "Stáhnout aktualizaci",
-    "checking": "Kontrola aktualizací...",
-    "checkUpdates": "Zkontrolovat aktualizace",
-    "checkingUpdates": "Kontrola aktualizací...",
-    "updateRequired": "Vyžadována aktualizace"
+    "checking": "Kontrola aktualizací..."
   },
   "common": {
     "close": "Zavřít",
     "minimize": "Minimize",
     "online": "Online",
     "offline": "Offline",
-    "continue": "Pokračovat",
     "maintenance": "Údržba",
     "degraded": "Rozklad",
     "error": "Chyba",
@@ -99,11 +75,9 @@
     "saving": "Ukládání...",
     "delete": "Vymazat",
     "rename": "Přejmenovat",
-    "edit": "Upravit",
     "add": "Přidat",
     "confirm": "Potvrdit",
     "no": "Ne",
-    "or": "NEBO",
     "next": "Další",
     "previous": "Předchozí",
     "refresh": "Aktualizovat",
@@ -918,7 +892,6 @@
     "external": "Externí",
     "loginWithExternal": "Přihlásit se s externím poskytovatelem",
     "loginWithExternalDesc": "Přihlášení pomocí vašeho nakonfigurovaného externího poskytovatele identity",
-    "externalNotSupportedInElectron": "Externí ověřování zatím není v aplikaci Electron podporováno. Použijte prosím webovou verzi pro OIDC přihlášení.",
     "resetPasswordButton": "Obnovit heslo",
     "sendResetCode": "Odeslat kód pro obnovení",
     "resetCodeDesc": "Zadejte své uživatelské jméno pro získání kódu pro obnovení hesla. Kód bude přihlášen do logů v dokovacím kontejneru.",
@@ -973,8 +946,7 @@
     "totpRateLimitedWithTime": "Omezená hodnota: Příliš mnoho pokusů o ověření TOTP. Počkejte prosím {{time}} sekund před dalším pokusem.",
     "resetCodeRateLimited": "Omezená hodnota: Příliš mnoho pokusů o ověření. Opakujte akci později.",
     "resetCodeRateLimitedWithTime": "Omezená hodnota: Příliš mnoho pokusů o ověření. Počkejte prosím {{time}} sekund před dalším pokusem.",
-    "authTokenSaveFailed": "Nepodařilo se uložit ověřovací token",
-    "failedToLoadServer": "Nepodařilo se načíst server"
+    "authTokenSaveFailed": "Nepodařilo se uložit ověřovací token"
   },
   "messages": {
     "registrationDisabled": "Registrace nového účtu je v současné době zakázána administrátorem. Přihlaste se nebo kontaktujte správce.",

@@ -13,9 +13,6 @@
 //     `src/ui/sidebar/CreateRoleDialog.tsx` and
 //     `src/ui/features/pretty-view/RoleCosmeticEditBlock.tsx`) — those hit
 //     third-party servers and must not leak `X-Skynet-Client-Build` to them.
-//   - Electron server-config probes hitting user-configured remote installs
-//     (`src/ui/auth/ElectronServerConfig.tsx`) — those may target a different
-//     Skynet install so per-caller convention wins.
 //
 // Signature mirrors the global `fetch`: accepts `RequestInfo | URL` and
 // optional `RequestInit`, returns raw `Response`. No error handling, no

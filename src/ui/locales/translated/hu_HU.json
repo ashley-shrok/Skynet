@@ -26,26 +26,6 @@
     "failedToLoadAlerts": "Nem sikerült betölteni az értesítéseket",
     "failedToDismissAlert": "Nem sikerült elvetni a riasztást"
   },
-  "serverConfig": {
-    "title": "Szerver konfiguráció",
-    "description": "Konfigurálja a Skynet szerver URL-címét a háttérszolgáltatásokhoz való csatlakozáshoz",
-    "serverUrl": "Szerver URL-címe",
-    "enterServerUrl": "Kérjük, adjon meg egy szerver URL-címét",
-    "saveFailed": "Nem sikerült menteni a konfigurációt",
-    "saveError": "Hiba a konfiguráció mentése során",
-    "saving": "Megtakarítás...",
-    "saveConfig": "Konfiguráció mentése",
-    "helpText": "Add meg az URL-címet, ahol a Skynet szervered fut (pl. http://localhost:30001 vagy https://your-server.com)",
-    "changeServer": "Szerverváltás",
-    "mustIncludeProtocol": "A szerver URL-címének http:// vagy https:// előtaggal kell kezdődnie.",
-    "allowInvalidCertificate": "Érvénytelen tanúsítvány engedélyezése",
-    "allowInvalidCertificateDesc": "Csak megbízható, saját üzemeltetésű szerverekhez használja, amelyek önaláírt vagy IP-cím alapú tanúsítvánnyal rendelkeznek.",
-    "useEmbedded": "Helyi szerver használata",
-    "embeddedDesc": "Futtassa a Skynetet a beépített helyi szerverrel (nincs szükség távoli szerverre)",
-    "embeddedConnecting": "Kapcsolódás a helyi szerverhez...",
-    "embeddedNotReady": "A helyi szerver még nem áll készen. Kérjük, várjon egy pillanatot, és próbálja újra.",
-    "localServer": "Helyi szerver"
-  },
   "versionCheck": {
     "error": "Verzióellenőrzési hiba",
     "checkFailed": "Nem sikerült ellenőrizni a frissítéseket",
@@ -57,17 +37,13 @@
     "betaVersionDesc": "A(z) {{current}}verziót futtatod, ami újabb, mint a legújabb stabil kiadás {{latest}}.",
     "releasedOn": "Megjelent: {{date}}",
     "downloadUpdate": "Frissítés letöltése",
-    "checking": "Frissítések keresése...",
-    "checkUpdates": "Frissítések keresése",
-    "checkingUpdates": "Frissítések keresése...",
-    "updateRequired": "Frissítés szükséges"
+    "checking": "Frissítések keresése..."
   },
   "common": {
     "close": "Közeli",
     "minimize": "Minimalizálás",
     "online": "Online",
     "offline": "Offline",
-    "continue": "Folytatás",
     "maintenance": "Karbantartás",
     "degraded": "Leromlott",
     "error": "Hiba",
@@ -99,11 +75,9 @@
     "saving": "Megtakarítás...",
     "delete": "Töröl",
     "rename": "Átnevezés",
-    "edit": "Szerkesztés",
     "add": "Hozzáadás",
     "confirm": "Megerősítés",
     "no": "Nem",
-    "or": "VAGY",
     "next": "Következő",
     "previous": "Előző",
     "refresh": "Frissítés",
@@ -918,7 +892,6 @@
     "external": "Külső",
     "loginWithExternal": "Bejelentkezés külső szolgáltatóval",
     "loginWithExternalDesc": "Bejelentkezés a konfigurált külső identitásszolgáltató használatával",
-    "externalNotSupportedInElectron": "Az Electron alkalmazás egyelőre nem támogatja a külső hitelesítést. Kérjük, használja a webes verziót az OIDC bejelentkezéshez.",
     "resetPasswordButton": "Jelszó visszaállítása",
     "sendResetCode": "Visszaállítási kód küldése",
     "resetCodeDesc": "Add meg a felhasználóneved, hogy jelszó-visszaállító kódot kapj. A kód a Docker konténer naplóiban lesz rögzítve.",
@@ -973,8 +946,7 @@
     "totpRateLimitedWithTime": "Korlátozott sebesség: Túl sok TOTP ellenőrzési kísérlet. Kérjük, várjon {{time}} másodpercet, mielőtt újra próbálkozna.",
     "resetCodeRateLimited": "Korlátozott sebesség: Túl sok ellenőrzési kísérlet. Kérjük, próbálja újra később.",
     "resetCodeRateLimitedWithTime": "Korlátozott sebesség: Túl sok ellenőrzési kísérlet. Kérjük, várjon {{time}} másodpercet, mielőtt újra próbálkozik.",
-    "authTokenSaveFailed": "Nem sikerült menteni a hitelesítési tokent",
-    "failedToLoadServer": "Nem sikerült betölteni a szervert"
+    "authTokenSaveFailed": "Nem sikerült menteni a hitelesítési tokent"
   },
   "messages": {
     "registrationDisabled": "Az új fiók regisztrációját jelenleg egy adminisztrátor letiltotta. Kérjük, jelentkezzen be, vagy vegye fel a kapcsolatot egy adminisztrátorral.",
