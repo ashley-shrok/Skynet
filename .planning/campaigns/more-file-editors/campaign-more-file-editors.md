@@ -100,8 +100,8 @@ Ordering below is a starting-point, not locked. Each entry is marked
   Chip: header + first 4 rows + "N rows × M columns". — built,
   awaiting user check
 - **[declared] shape-docx-viewer** — Read-only rendering for Word
-  documents. Moderate lift, needs a document rendering library. —
-  in_progress
+  documents. Moderate lift, needs a document rendering library. Now
+  planned via shape-office-converter. — in_progress
 - **[declared] shape-pdf-viewer** — Rendering for PDF files. Heaviest
   bundle weight of the set, so ordered last. Agreed 2026-10-05: Mozilla's
   complete pdf.js viewer (Firefox's), vendored legacy build under
@@ -114,6 +114,31 @@ Ordering below is a starting-point, not locked. Each entry is marked
   + page count via the same vendored pdf.js (Range-fetched). nginx gets a
   /pdfjs/ block (explicit .mjs type, immutable cache). — built, awaiting
   user check
+
+- **[discovered] shape-xlsx-viewer** — (2026-10-05) Excel workbooks
+  (.xlsx/.xlsm/.xltx/.xltm), VIEW-ONLY by the rule below. ExcelJS parses,
+  AG Grid shows each sheet on a white Excel-like theme: sheet tabs (hidden
+  sheets skipped), fonts/fills/borders/alignment/wrap incl. theme colours
+  and tints, merges, column widths / row heights, frozen panes (dropped
+  when one would cut a merge), number formats via `ssf`, formula bar,
+  images, row filter, cell text selection. Charts / pivot tables are
+  counted and flagged with a Download hint. Chip: first sheet rows +
+  sheet count (≤4 MB). Rejected: SheetJS (npm copy stuck on a CVE'd
+  0.18.5), Univer (.xlsx I/O is paid Pro), HyperFormula (GPL-3 vs our
+  Apache-2.0), FortuneSheet (round-trip fidelity risk). — built,
+  awaiting user check
+- **[discovered] shape-office-converter** — (planned) LibreOffice
+  headless in the container converts Word / PowerPoint (and legacy
+  .xls/.doc/.ppt, .ods/.odt/.odp) to PDF for the pdf.js viewer. Agreed
+  2026-10-05 as the Word/PPT route (better than any in-browser renderer
+  there); for Excel it would only add charts. Needs its own proposal:
+  image size (~300–500 MB), sandboxing, caching, timeouts.
+
+## Rule: view-only when editing can't be done properly (2026-10-05)
+
+If we can't give a proper editing-and-saving experience for a file type
+(faithful round-trip, working formulas, no silent loss), we don't offer
+editing; we give the best viewing experience we can instead.
 
 ## Other work
 

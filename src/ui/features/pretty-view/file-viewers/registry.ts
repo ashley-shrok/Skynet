@@ -26,6 +26,8 @@ import { DelimitedChipPreview } from "./delimited/DelimitedChipPreview";
 import { TableMode } from "./delimited/table-mode";
 import { PdfChipPreview } from "./pdf/PdfChipPreview";
 import { PdfView } from "./pdf/PdfView";
+import { XlsxChipPreview } from "./xlsx/XlsxChipPreview";
+import { XlsxMode } from "./xlsx/xlsx-mode";
 
 /**
  * File-viewer registry — the ONE place that decides how a file type is shown.
@@ -215,6 +217,21 @@ export const PDF_ENTRY: FileViewerEntry = {
 };
 
 /**
+ * Excel workbooks: read-only viewer (ExcelJS + AG Grid, lazy-loaded) with
+ * sheet tabs, formatting, merges, frozen panes, images and a formula bar.
+ * View-only by design: no free library saves .xlsx back faithfully with
+ * live formulas, so we give the best viewing experience instead (charts and
+ * pivot tables are flagged, not drawn). Macros in .xlsm are never run.
+ */
+export const XLSX_ENTRY: FileViewerEntry = {
+  id: "xlsx",
+  extensions: ["xlsx", "xlsm", "xltx", "xltm"],
+  icon: FileSpreadsheet,
+  modes: [{ id: "view", label: "View", needs: "url", editable: false, View: XlsxMode }],
+  ChipPreview: XlsxChipPreview,
+};
+
+/**
  * Formats we know are binary and have no viewer yet. Recognising them up
  * front lets surfaces skip the (up to 2 MB) fetch and show the notice
  * immediately. Entries move out of here as they gain real viewers.
@@ -225,7 +242,7 @@ export const BINARY_ENTRY: FileViewerEntry = {
     // archives
     "zip", "gz", "tgz", "tar", "bz2", "xz", "7z", "rar", "zst",
     // documents
-    "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp", "epub",
+    "doc", "docx", "xls", "ppt", "pptx", "odt", "ods", "odp", "epub",
     // executables / objects
     "exe", "dll", "so", "dylib", "o", "a", "class", "jar", "war", "pyc", "wasm", "bin",
     // disk images / databases
@@ -255,6 +272,7 @@ const ENTRIES: readonly FileViewerEntry[] = [
   DIFF_ENTRY,
   DELIMITED_ENTRY,
   PDF_ENTRY,
+  XLSX_ENTRY,
   BINARY_ENTRY,
 ];
 
