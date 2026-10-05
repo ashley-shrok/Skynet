@@ -19,6 +19,7 @@ const COMPONENTS: Array<[string, string, string]> = [
   ["AG Grid Community", "CSV and Excel tables", "MIT"],
   ["ExcelJS", "Excel workbook reader", "MIT"],
   ["PapaParse", "CSV parser", "MIT"],
+  ["LibreOffice", "Document converter (server)", "MPL-2.0"],
 ];
 
 export function PreferencesAboutPane(): JSX.Element {

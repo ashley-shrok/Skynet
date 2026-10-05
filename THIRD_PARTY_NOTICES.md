@@ -2,7 +2,8 @@
 
 Skynet's own code is licensed under Apache-2.0 (`LICENSE`). The components
 below are bundled into the web app and keep their own licences. This list
-covers the document viewers and editors; the full dependency set and every
+covers the document viewers and editors (LibreOffice runs in its own
+container and is not part of the web app); the full dependency set and every
 licence text are in `package.json` / `package-lock.json` and each package's
 `LICENSE` file under `node_modules/`.
 
@@ -14,6 +15,7 @@ licence text are in `package.json` / `package-lock.json` and each package's
 | ExcelJS (`exceljs`) | Excel workbook reader | MIT | https://github.com/exceljs/exceljs |
 | SSF (`ssf`) | Excel number formatting | Apache-2.0 | https://github.com/SheetJS/ssf |
 | PapaParse (`papaparse`) | CSV parsing and writing | MIT | https://github.com/mholt/PapaParse |
+| LibreOffice (separate `converter` container, from Ubuntu packages) | Converting .doc/.odt/.xls/.ods/.ppt/.pptx/.odp for viewing | MPL-2.0 | https://www.libreoffice.org/about-us/source-code/ |
 
 ## AGPL-3.0 and Skynet
 

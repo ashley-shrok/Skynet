@@ -46,6 +46,17 @@ const VIEWER_OPTIONS: Record<string, unknown> = {
   enableHighlightFloatingButton: true,
 };
 
+/**
+ * Without an onBinaryDraft there is nowhere to save edits (e.g. a deck
+ * converted to PDF for viewing), so the annotation tools are switched off.
+ */
+const READ_ONLY_OPTIONS: Record<string, unknown> = {
+  annotationEditorMode: -1, // AnnotationEditorType.DISABLE
+  enableSignatureEditor: false,
+  enableComment: false,
+  enableHighlightFloatingButton: false,
+};
+
 /** How often to re-check for changes no pdf.js event reports (page edits). */
 const DIRTY_POLL_MS = 1000;
 
@@ -62,7 +73,8 @@ export function PdfView({ filename, src, onBinaryDraft }: FileModeViewProps): JS
       const source = (e as CustomEvent<{ source: Window }>).detail?.source as PdfJsViewerWindow;
       if (!source || source !== iframeRef.current?.contentWindow) return;
       const opts = source.PDFViewerApplicationOptions;
-      for (const [k, v] of Object.entries(VIEWER_OPTIONS)) opts?.set(k, v);
+      const options = reportRef.current ? VIEWER_OPTIONS : { ...VIEWER_OPTIONS, ...READ_ONLY_OPTIONS };
+      for (const [k, v] of Object.entries(options)) opts?.set(k, v);
     };
     document.addEventListener("webviewerloaded", onLoaded);
     return () => document.removeEventListener("webviewerloaded", onLoaded);

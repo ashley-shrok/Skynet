@@ -5,6 +5,7 @@ import {
   FileSpreadsheet,
   FileText,
   Image as ImageIcon,
+  Presentation,
   Music,
   Video,
   type LucideIcon,
@@ -30,6 +31,7 @@ import { XlsxChipPreview } from "./xlsx/XlsxChipPreview";
 import { XlsxMode } from "./xlsx/xlsx-mode";
 import { DocxChipPreview } from "./docx/DocxChipPreview";
 import { DocxMode } from "./docx/docx-mode";
+import { ConvertedPdfChipPreview, convertedMode } from "./convert/converted-mode";
 
 /**
  * File-viewer registry — the ONE place that decides how a file type is shown.
@@ -247,6 +249,64 @@ export const DOCX_ENTRY: FileViewerEntry = {
 };
 
 /**
+ * Legacy Office and OpenDocument formats open by server-side conversion
+ * (LibreOffice sidecar, see convert/converted-mode.tsx) into the viewers
+ * above. Without a converter they show a notice with a download link.
+ */
+
+/** .doc / .odt: Word editor; Save converts back and overwrites the original. */
+export const LEGACY_WORD_ENTRY: FileViewerEntry = {
+  id: "legacy-word",
+  extensions: ["doc", "odt"],
+  icon: FileText,
+  modes: [
+    {
+      id: "edit",
+      label: "Document",
+      needs: "url",
+      editable: true,
+      View: convertedMode({ target: "docx", Inner: DocxMode, saveBack: true }),
+    },
+  ],
+};
+
+/** .xls / .ods: the Excel viewer, view-only like .xlsx. */
+export const LEGACY_SHEET_ENTRY: FileViewerEntry = {
+  id: "legacy-sheet",
+  extensions: ["xls", "ods"],
+  icon: FileSpreadsheet,
+  modes: [
+    {
+      id: "view",
+      label: "View",
+      needs: "url",
+      editable: false,
+      View: convertedMode({ target: "xlsx", Inner: XlsxMode, saveBack: false }),
+    },
+  ],
+};
+
+/**
+ * Presentations: rendered to PDF and shown in the PDF viewer, view-only
+ * (no free editor round-trips slides faithfully). Chips show slide one.
+ */
+export const PRESENTATION_ENTRY: FileViewerEntry = {
+  id: "presentation",
+  extensions: ["ppt", "pptx", "odp"],
+  icon: Presentation,
+  modes: [
+    {
+      id: "view",
+      label: "Slides",
+      needs: "url",
+      editable: false,
+      View: convertedMode({ target: "pdf", Inner: PdfView, saveBack: false }),
+    },
+  ],
+  ChipPreview: ConvertedPdfChipPreview,
+};
+
+/**
  * Formats we know are binary and have no viewer yet. Recognising them up
  * front lets surfaces skip the (up to 2 MB) fetch and show the notice
  * immediately. Entries move out of here as they gain real viewers.
@@ -257,7 +317,7 @@ export const BINARY_ENTRY: FileViewerEntry = {
     // archives
     "zip", "gz", "tgz", "tar", "bz2", "xz", "7z", "rar", "zst",
     // documents
-    "doc", "xls", "ppt", "pptx", "odt", "ods", "odp", "epub",
+    "epub",
     // executables / objects
     "exe", "dll", "so", "dylib", "o", "a", "class", "jar", "war", "pyc", "wasm", "bin",
     // disk images / databases
@@ -289,6 +349,9 @@ const ENTRIES: readonly FileViewerEntry[] = [
   PDF_ENTRY,
   XLSX_ENTRY,
   DOCX_ENTRY,
+  LEGACY_WORD_ENTRY,
+  LEGACY_SHEET_ENTRY,
+  PRESENTATION_ENTRY,
   BINARY_ENTRY,
 ];
 

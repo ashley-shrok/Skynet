@@ -136,6 +136,8 @@ import globalFilesReadWriteRoutes from "./routes/global-files-read-write.js";
 // path-safety gate (SKILL_NAME_RE + isSafeRelativePath + prefix
 // assertion + shellEscape) — no operator whitelist.
 import skillsEditorRoutes from "./routes/skills-editor.js";
+// /document-convert: LibreOffice converter sidecar front door (file viewers).
+import documentConvertRoutes from "./routes/document-convert.js";
 // Phase 89 Plan 02: /runbooks-editor router — 7 endpoints (list-runbooks / list-files / read / write / create / delete-file / delete-runbook) for editing role-scoped runbook folders on managed hosts. Mount + nginx block sit alongside the /skills-editor pair.
 import runbooksEditorRoutes from "./routes/runbooks-editor.js";
 // Phase 118 Plan 118-01 (D-04, D-16, D-17, D-19, D-20, D-21, D-22): /workspace CRUD router — 9 endpoints (list, read-file, write-file, delete, rename, mkdir, create-file, upload, download) for browsing the identity workspace on any user-accessible host via SFTP. Matching nginx location blocks in BOTH docker/nginx.conf AND docker/nginx-https.conf per CLAUDE.md nginx caveat (missing in HTTPS conf → /workspace returns index.html and crashes the frontend).
@@ -2179,6 +2181,8 @@ app.use("/global-files", globalFilesReadWriteRoutes);
 app.use("/skills-editor", skillsEditorRoutes);
 // Phase 89 Plan 02: /runbooks-editor router — mounted alongside /skills-editor. Matching nginx location blocks in BOTH docker/nginx.conf AND docker/nginx-https.conf (parity load-bearing per patch #446 arc).
 app.use("/runbooks-editor", runbooksEditorRoutes);
+// File viewers: legacy Office / OpenDocument conversion via the converter sidecar (SKYNET_CONVERTER_URL). Matching nginx location blocks in BOTH docker/nginx.conf AND docker/nginx-https.conf.
+app.use("/document-convert", documentConvertRoutes);
 // Phase 118 Plan 118-01 (D-04, D-16, D-17, D-19, D-20, D-21, D-22): /workspace CRUD router — 9 endpoints (list, read-file, write-file, delete, rename, mkdir, create-file, upload, download). Matching nginx location blocks land in BOTH docker/nginx.conf AND docker/nginx-https.conf per CLAUDE.md nginx caveat (missing in HTTPS conf → /workspace returns index.html and crashes the frontend).
 app.use("/workspace", workspaceRoutes);
 // Phase 117 Plan 04 (D-25, D-30, D-36a, D-37): /projects router — GET list

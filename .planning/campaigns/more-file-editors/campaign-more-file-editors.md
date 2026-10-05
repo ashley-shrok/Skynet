@@ -138,12 +138,22 @@ Ordering below is a starting-point, not locked. Each entry is marked
   0.18.5), Univer (.xlsx I/O is paid Pro), HyperFormula (GPL-3 vs our
   Apache-2.0), FortuneSheet (round-trip fidelity risk). — built,
   awaiting user check
-- **[discovered] shape-office-converter** — (planned) LibreOffice
-  headless in the container converts PowerPoint (and legacy
-  .xls/.doc/.ppt, .ods/.odt/.odp) to PDF for the pdf.js viewer. Agreed
-  2026-10-05 as the Word/PPT route (better than any in-browser renderer
-  there); for Excel it would only add charts. Needs its own proposal:
-  image size (~300–500 MB), sandboxing, caching, timeouts.
+- **[discovered] shape-office-converter** — (2026-10-05) LibreOffice in a
+  separate locked-down sidecar (`docker/converter`, compose service
+  `converter`): internal-only network shared with Skynet alone,
+  read-only rootfs + tmpfs, no capabilities, no-new-privileges,
+  memory/CPU/pid caps. One-shot `soffice --convert-to` per request with a
+  throwaway copy of a pre-warmed hardened profile (macros off, links never
+  updated), killed past 60 s; ~0.9 s each, 2 concurrent. (unoserver was
+  tried first and dropped: LibreOffice 24.2 crashes in UNO-server mode on
+  any .docx with comments.) Backend `/document-convert` (auth, 50 MB,
+  in-memory LRU by sha256+target, shared in-flight jobs, `/status`).
+  Registry: .doc/.odt → .docx in the Word editor, Save converts back and
+  overwrites the original (if that fails: error + "Save as .docx" download
+  so edits aren't lost); .xls/.ods → .xlsx in the Excel viewer;
+  .ppt/.pptx/.odp → PDF in the pdf.js viewer, read-only (annotation tools
+  off). Chip thumbnails for presentations only. No converter → notice +
+  Download. — built, awaiting user check
 
 ## Rule: view-only when editing can't be done properly (2026-10-05)
 

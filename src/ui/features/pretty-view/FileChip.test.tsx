@@ -57,7 +57,7 @@ describe("classifyFileChipKind", () => {
 
   it("falls back to plain for text / unknown / extensionless", () => {
     expect(classifyFileChipKind("notes.md")).toBe("plain");
-    expect(classifyFileChipKind("report.pptx")).toBe("plain");
+    expect(classifyFileChipKind("book.epub")).toBe("plain");
     expect(classifyFileChipKind("app.log")).toBe("plain");
     expect(classifyFileChipKind("Dockerfile")).toBe("plain");
     expect(classifyFileChipKind("plainname")).toBe("plain");
