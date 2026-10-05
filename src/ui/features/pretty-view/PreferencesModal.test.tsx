@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import PreferencesModal from "./PreferencesModal";
 import type { UserPreferences } from "@/api/open-tabs-api";
@@ -32,6 +32,19 @@ vi.mock("@/api/open-tabs-api", async (importOriginal) => {
   };
 });
 
+// Phone section gating — the modal fetches the user's number on open.
+const { getMyPhoneMock } = vi.hoisted(() => ({
+  getMyPhoneMock: vi.fn<() => Promise<string | null>>(),
+}));
+vi.mock("@/api/user-phone-api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/api/user-phone-api")>();
+  return {
+    ...actual,
+    getMyPhone: () => getMyPhoneMock(),
+    clearMyPhone: vi.fn().mockResolvedValue(undefined),
+  };
+});
+
 const defaultProps = {
   open: true,
   onOpenChange: vi.fn(),
@@ -46,6 +59,7 @@ const defaultProps = {
 describe("PreferencesModal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getMyPhoneMock.mockResolvedValue(null);
   });
 
   afterEach(() => {
@@ -120,5 +134,42 @@ describe("PreferencesModal", () => {
     // General pane should be visible (no voice pane stub)
     expect(screen.queryByTestId("preferences-voice-pane")).toBeNull();
     expect(screen.getByTestId("preferences-modal-pane")).toBeTruthy();
+  });
+
+  it("(f) hides the Phone section when the user has no number on file", async () => {
+    render(<PreferencesModal {...defaultProps} open={true} />);
+    await waitFor(() => expect(getMyPhoneMock).toHaveBeenCalled());
+    expect(screen.queryByTestId("preferences-nav-phone")).toBeNull();
+  });
+
+  it("(f) hides the Phone section when the number fetch fails", async () => {
+    getMyPhoneMock.mockRejectedValue(new Error("boom"));
+    render(<PreferencesModal {...defaultProps} open={true} />);
+    await waitFor(() => expect(getMyPhoneMock).toHaveBeenCalled());
+    expect(screen.queryByTestId("preferences-nav-phone")).toBeNull();
+  });
+
+  it("(g) shows the Phone section when a number is on file", async () => {
+    getMyPhoneMock.mockResolvedValue("+17165550100");
+    const user = userEvent.setup();
+    render(<PreferencesModal {...defaultProps} open={true} />);
+    await user.click(await screen.findByTestId("preferences-nav-phone"));
+    expect(screen.getByTestId("preferences-phone-pane")).toBeTruthy();
+    expect(
+      (screen.getByTestId("preferences-phone-input") as HTMLInputElement).value,
+    ).toBe("+17165550100");
+  });
+
+  it("(h) removing the number hides the Phone section and returns to General", async () => {
+    getMyPhoneMock.mockResolvedValue("+17165550100");
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const user = userEvent.setup();
+    render(<PreferencesModal {...defaultProps} open={true} />);
+    await user.click(await screen.findByTestId("preferences-nav-phone"));
+    await user.click(screen.getByTestId("preferences-phone-remove"));
+    await waitFor(() =>
+      expect(screen.queryByTestId("preferences-nav-phone")).toBeNull(),
+    );
+    expect(screen.queryByTestId("preferences-phone-pane")).toBeNull();
   });
 });

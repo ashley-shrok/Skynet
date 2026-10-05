@@ -20,16 +20,23 @@
  *
  * D-05 invariant preserved: useEffect resets activeSection to "general"
  * whenever open transitions true → false.
+ *
+ * Phone (agent-phone) — the nav entry only appears when the user already has
+ * a number on file. The number is fetched each time the modal opens; a failed
+ * fetch hides the entry. Removing the number hides it again and drops back
+ * to General.
  */
 
 import { useEffect, useState } from "react";
-import { User, Volume2, Bell, Sparkles, LogOut } from "lucide-react";
+import { User, Volume2, Bell, Sparkles, Phone, LogOut } from "lucide-react";
 import { Modal, ModalHead, ModalBody, ModalFoot } from "@/components/modal";
 import { cn } from "@/lib/utils";
 import { PreferencesGeneralPane } from "./PreferencesGeneralPane";
 import { PreferencesVoicePane } from "./PreferencesVoicePane";
 import { PreferencesNotificationsPane } from "./PreferencesNotificationsPane";
 import { PreferencesAboutYouPane } from "./PreferencesAboutYouPane";
+import { PreferencesPhonePane } from "./PreferencesPhonePane";
+import { getMyPhone } from "@/api/user-phone-api";
 import { logoutUser } from "@/main-axios";
 import type { UserPreferences } from "@/api/open-tabs-api";
 import type { HostFolder } from "@/types/ui-types";
@@ -41,6 +48,7 @@ const NAV_SECTIONS = [
   { value: "about-you",     label: "About you",     Icon: Sparkles  },
   { value: "voice",         label: "Voice",         Icon: Volume2   },
   { value: "notifications", label: "Notifications", Icon: Bell      },
+  { value: "phone",         label: "Phone",         Icon: Phone     },
 ] as const;
 
 type SectionValue = (typeof NAV_SECTIONS)[number]["value"];
@@ -93,6 +101,28 @@ export default function PreferencesModal({
     if (!open) setActiveSection("general");
   }, [open]);
 
+  // null → no number on file → Phone section hidden.
+  const [phoneE164, setPhoneE164] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    getMyPhone()
+      .then((phone) => {
+        if (!cancelled) setPhoneE164(phone);
+      })
+      .catch(() => {
+        if (!cancelled) setPhoneE164(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
+  const visibleSections = NAV_SECTIONS.filter(
+    ({ value }) => value !== "phone" || phoneE164 !== null,
+  );
+
   return (
     <Modal
       open={open}
@@ -117,7 +147,7 @@ export default function PreferencesModal({
             borderRight: "1px solid hsla(var(--pv-id-hue), 60%, 55%, 0.22)",
           }}
         >
-          {NAV_SECTIONS.map(({ value, label, Icon }) => {
+          {visibleSections.map(({ value, label, Icon }) => {
             const isActive = activeSection === value;
             return (
               <button
@@ -200,6 +230,15 @@ export default function PreferencesModal({
               userId={userId}
               hostTree={hostTree ?? null}
               defaultHostId={defaultHostId ?? null}
+            />
+          )}
+          {activeSection === "phone" && phoneE164 !== null && (
+            <PreferencesPhonePane
+              phoneE164={phoneE164}
+              onPhoneChanged={(phone) => {
+                setPhoneE164(phone);
+                if (phone === null) setActiveSection("general");
+              }}
             />
           )}
         </main>
