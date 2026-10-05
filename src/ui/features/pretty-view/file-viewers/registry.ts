@@ -28,6 +28,8 @@ import { PdfChipPreview } from "./pdf/PdfChipPreview";
 import { PdfView } from "./pdf/PdfView";
 import { XlsxChipPreview } from "./xlsx/XlsxChipPreview";
 import { XlsxMode } from "./xlsx/xlsx-mode";
+import { DocxChipPreview } from "./docx/DocxChipPreview";
+import { DocxMode } from "./docx/docx-mode";
 
 /**
  * File-viewer registry — the ONE place that decides how a file type is shown.
@@ -232,6 +234,19 @@ export const XLSX_ENTRY: FileViewerEntry = {
 };
 
 /**
+ * Word documents: SuperDoc editor (lazy-loaded; AGPL-3.0, see
+ * THIRD_PARTY_NOTICES.md). Editing / Suggesting / Viewing inside the view;
+ * edits surface as a BinaryDraft (export to .docx) like PDF annotations.
+ */
+export const DOCX_ENTRY: FileViewerEntry = {
+  id: "docx",
+  extensions: ["docx", "dotx"],
+  icon: FileText,
+  modes: [{ id: "edit", label: "Document", needs: "url", editable: true, View: DocxMode }],
+  ChipPreview: DocxChipPreview,
+};
+
+/**
  * Formats we know are binary and have no viewer yet. Recognising them up
  * front lets surfaces skip the (up to 2 MB) fetch and show the notice
  * immediately. Entries move out of here as they gain real viewers.
@@ -242,7 +257,7 @@ export const BINARY_ENTRY: FileViewerEntry = {
     // archives
     "zip", "gz", "tgz", "tar", "bz2", "xz", "7z", "rar", "zst",
     // documents
-    "doc", "docx", "xls", "ppt", "pptx", "odt", "ods", "odp", "epub",
+    "doc", "xls", "ppt", "pptx", "odt", "ods", "odp", "epub",
     // executables / objects
     "exe", "dll", "so", "dylib", "o", "a", "class", "jar", "war", "pyc", "wasm", "bin",
     // disk images / databases
@@ -273,6 +288,7 @@ const ENTRIES: readonly FileViewerEntry[] = [
   DELIMITED_ENTRY,
   PDF_ENTRY,
   XLSX_ENTRY,
+  DOCX_ENTRY,
   BINARY_ENTRY,
 ];
 

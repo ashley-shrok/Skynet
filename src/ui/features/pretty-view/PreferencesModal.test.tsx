@@ -17,6 +17,17 @@ import type { UserPreferences } from "@/api/open-tabs-api";
 
 // VoicePicker (used by PreferencesVoicePane) imports postSpeak from voice-api.
 // Mock the API so tests don't make real network calls.
+vi.mock("@/api/system-status-api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/api/system-status-api")>();
+  return {
+    ...actual,
+    getVersionInfo: vi.fn(async () => ({
+      localVersion: "9.9.9",
+      sourceUrl: "https://example.com/acme/skynet-fork",
+    })),
+  };
+});
+
 vi.mock("@/api/voice-api", () => ({
   postSpeak: vi.fn(async () => new Blob([], { type: "audio/wav" })),
   postSpeakStream: vi.fn(async () => new Response(null, { status: 200 })),
@@ -171,5 +182,19 @@ describe("PreferencesModal", () => {
       expect(screen.queryByTestId("preferences-nav-phone")).toBeNull(),
     );
     expect(screen.queryByTestId("preferences-phone-pane")).toBeNull();
+  });
+
+  it("(i) About sits just above Log out and shows the version + server-provided source link", async () => {
+    render(<PreferencesModal {...defaultProps} open={true} />);
+    const nav = screen.getByTestId("preferences-modal-nav");
+    const buttons = Array.from(nav.querySelectorAll("button"));
+    const about = screen.getByTestId("preferences-nav-about");
+    expect(buttons.indexOf(about)).toBe(buttons.length - 2);
+    expect(buttons.at(-1)).toBe(screen.getByTestId("preferences-nav-logout"));
+    fireEvent.click(about);
+    expect(await screen.findByText("Version 9.9.9")).toBeTruthy();
+    const link = screen.getByTestId("preferences-about-source-link");
+    expect(link.getAttribute("href")).toBe("https://example.com/acme/skynet-fork");
+    expect(screen.getByText(/AGPL-3\.0 terms/)).toBeTruthy();
   });
 });

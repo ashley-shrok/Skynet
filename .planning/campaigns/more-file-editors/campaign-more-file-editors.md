@@ -100,8 +100,19 @@ Ordering below is a starting-point, not locked. Each entry is marked
   Chip: header + first 4 rows + "N rows × M columns". — built,
   awaiting user check
 - **[declared] shape-docx-viewer** — Read-only rendering for Word
-  documents. Moderate lift, needs a document rendering library. Now
-  planned via shape-office-converter. — in_progress
+  documents. Moderate lift, needs a document rendering library. Upgraded
+  2026-10-05 to full editing with SuperDoc (`superdoc` 2.x, AGPL-3.0 —
+  user accepted the licence after weighing it: Skynet is public; a
+  deployer with patches satisfies §13 by publishing them, e.g. a public
+  fork, and setting SKYNET_SOURCE_URL). .docx/.dotx open in Editing, with
+  Suggesting (tracked changes) and Viewing; comments; save exports .docx
+  through the BinaryDraft path on every surface. SuperDoc telemetry is
+  off (verified: no external requests). Round-trip checked on a test doc
+  (comments, footnotes, header/footer, numbering, table shading, image,
+  tracked changes, two sections, formatting all preserved). Chip: title +
+  opening paragraphs from the XML. Licence work: Preferences → About
+  (above Log out) with version + server-provided source link, README
+  licence section, THIRD_PARTY_NOTICES.md. — built, awaiting user check
 - **[declared] shape-pdf-viewer** — Rendering for PDF files. Heaviest
   bundle weight of the set, so ordered last. Agreed 2026-10-05: Mozilla's
   complete pdf.js viewer (Firefox's), vendored legacy build under
@@ -128,7 +139,7 @@ Ordering below is a starting-point, not locked. Each entry is marked
   Apache-2.0), FortuneSheet (round-trip fidelity risk). — built,
   awaiting user check
 - **[discovered] shape-office-converter** — (planned) LibreOffice
-  headless in the container converts Word / PowerPoint (and legacy
+  headless in the container converts PowerPoint (and legacy
   .xls/.doc/.ppt, .ods/.odt/.odp) to PDF for the pdf.js viewer. Agreed
   2026-10-05 as the Word/PPT route (better than any in-browser renderer
   there); for Excel it would only add charts. Needs its own proposal:

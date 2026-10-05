@@ -523,6 +523,14 @@ app.get("/health", (req, res) => {
  *       500:
  *         description: Fetch error.
  */
+/**
+ * Where this instance's source code is published (Preferences → About).
+ * Builds include AGPL-3.0 code (SuperDoc), so an instance running modified
+ * code must point its users at that modified source: deployers with local
+ * patches set SKYNET_SOURCE_URL to their public fork or branch.
+ */
+const SOURCE_URL = process.env.SKYNET_SOURCE_URL || "https://github.com/ashley-shrok/Skynet";
+
 app.get("/version", authenticateJWT, async (req, res) => {
   let localVersion = process.env.VERSION;
 
@@ -578,7 +586,7 @@ app.get("/version", authenticateJWT, async (req, res) => {
   }
 
   if (req.query.checkRemote === "false") {
-    return res.json({ localVersion, status: "update_check_disabled" });
+    return res.json({ localVersion, status: "update_check_disabled", sourceUrl: SOURCE_URL });
   }
 
   try {
@@ -621,6 +629,7 @@ app.get("/version", authenticateJWT, async (req, res) => {
       },
       cached: releaseData.cached,
       cache_age: releaseData.cache_age,
+      sourceUrl: SOURCE_URL,
     };
 
     res.json(response);
