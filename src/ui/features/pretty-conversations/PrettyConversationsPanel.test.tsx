@@ -4430,6 +4430,30 @@ describe("PrettyConversationsPanel (shape-sidebar-search-inline): sidebar-search
     // the modal's controlled input opens with "beta" already filled in.
     const state = _readSearchState();
     expect(state.query).toBe("beta");
+    // The sidebar search input is cleared once the escalation fires.
+    expect(input.value).toBe("");
+  });
+
+  it("S7b: clicking the all-empty 'search everywhere' CTA clears the sidebar search input", async () => {
+    setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
+    render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        onDeactivateRow={() => {}}
+        onCreateSession={vi.fn()}
+      />,
+    );
+
+    const input = screen.getByTestId("pv-sidebar-search-input") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "zzz-no-match" } });
+
+    const cta = screen.getByTestId("pv-sidebar-search-everywhere-cta");
+    await act(async () => {
+      fireEvent.click(cta);
+    });
+
+    expect(_readSearchState().query).toBe("zzz-no-match");
+    expect(input.value).toBe("");
   });
 
   it("S8: pressing Enter in the input escalates to ConversationSearchModal with pre-populated query", async () => {
@@ -4455,6 +4479,8 @@ describe("PrettyConversationsPanel (shape-sidebar-search-inline): sidebar-search
 
     const state = _readSearchState();
     expect(state.query).toBe("gamma");
+    // The sidebar search input is cleared once the escalation fires.
+    expect(input.value).toBe("");
   });
 
   it("S8b: pressing Enter with EMPTY input does NOT open the modal — /close code-review", async () => {

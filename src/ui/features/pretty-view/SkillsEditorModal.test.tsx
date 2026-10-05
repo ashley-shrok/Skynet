@@ -817,4 +817,69 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     expect(within(hostSelect).queryByText("second-ssh-host")).toBeTruthy();
     expect(within(hostSelect).queryByText("windows-box")).toBeNull();
   });
+  it("'Slash command only' toggle writes disable-model-invocation into SKILL.md", async () => {
+    const seed = '---\nname: build\ndescription: "Builds"\n---\n\n# Build\n';
+    (skillsApi.readSkillFile as ReturnType<typeof vi.fn>).mockResolvedValue({
+      content: seed,
+      mtime: 1_700_000_042,
+      size: seed.length,
+      isText: true,
+    });
+    render(
+      <SkillsEditorModal
+        open={true}
+        onOpenChange={vi.fn()}
+        hostTree={HOST_TREE}
+        defaultHostId={1}
+        container={document.body}
+      />,
+    );
+    await selectSkill("build");
+
+    const label = await screen.findByTestId("skills-editor-modal-disable-model-invocation");
+    const checkbox = within(label).getByRole("checkbox") as HTMLInputElement;
+    expect(checkbox.checked).toBe(false);
+
+    fireEvent.click(checkbox);
+    await waitFor(() => {
+      expect(skillsApi.writeSkillFile).toHaveBeenCalledWith({
+        hostId: 1,
+        skill: "build",
+        path: "SKILL.md",
+        content:
+          '---\nname: build\ndescription: "Builds"\ndisable-model-invocation: true\n---\n\n# Build\n',
+        expectedMtime: 1_700_000_042,
+      });
+    });
+    await waitFor(() => expect(checkbox.checked).toBe(true));
+  });
+
+  it("'Slash command only' toggle reads SKILL.md even when it isn't the first tab", async () => {
+    (skillsApi.enumerateSkillFiles as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+      { path: "README.md" },
+      { path: "SKILL.md" },
+    ]);
+    (skillsApi.readSkillFile as ReturnType<typeof vi.fn>).mockImplementation(
+      async (_h: number, _s: string, path: string) => ({
+        content: path === "SKILL.md" ? "---\ndisable-model-invocation: true\n---\n" : "readme",
+        mtime: 1,
+        size: 1,
+        isText: true,
+      }),
+    );
+    render(
+      <SkillsEditorModal
+        open={true}
+        onOpenChange={vi.fn()}
+        hostTree={HOST_TREE}
+        defaultHostId={1}
+        container={document.body}
+      />,
+    );
+    await selectSkill("build");
+
+    const label = await screen.findByTestId("skills-editor-modal-disable-model-invocation");
+    expect((within(label).getByRole("checkbox") as HTMLInputElement).checked).toBe(true);
+    expect(skillsApi.readSkillFile).toHaveBeenCalledWith(1, "build", "SKILL.md");
+  });
 });

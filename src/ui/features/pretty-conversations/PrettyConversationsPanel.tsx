@@ -1040,6 +1040,9 @@ export function PrettyConversationsPanel({
   const openSearchEverywhere = useCallback(() => {
     const q = sidebarSearchQuery.trim();
     setSearchModalOpen(true);
+    // Escalation hands the query to the modal; clear the sidebar search so
+    // the sidebar isn't left filtered once the modal takes over.
+    setSidebarSearchQuery("");
     if (q.length === 0) return;
     const reqId = startNewSearch(q);
     void (async () => {
