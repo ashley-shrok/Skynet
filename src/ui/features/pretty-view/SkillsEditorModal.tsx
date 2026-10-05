@@ -502,7 +502,7 @@ export default function SkillsEditorModal({
     >
       <ModalHead
         title="Skills"
-        subtitle="Skills are instructions available to all of your agents that you can invoke on-demand. After you create one, you can ask an agent to invoke it, or invoke it yourself using a slash command like /<name-of-skill>"
+        subtitle="Skills are instructions available to all of your agents that you can invoke on-demand. After you create one, you can ask an agent to invoke it, or invoke it yourself using a slash command like /name-of-skill"
         closeTestId="skills-editor-modal-close"
       />
 
