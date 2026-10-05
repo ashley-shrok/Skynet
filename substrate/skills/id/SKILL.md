@@ -1228,8 +1228,9 @@ and the schedule (daily / weekly / interval / one-shot). Each row shows
 the humanized schedule and, beneath it, inline **Last / Next** run times
 (e.g. `Every 2h · Last: 3h ago · Next: in 27m`) so the user can tell at
 a glance when the agent last fired and when it will fire again — hover
-either chip for the absolute datetime. Rows that have never fired show
-only "Next"; one_shots past their slot show only "Last". If the user
+either chip for the absolute datetime. Rows that have never actually
+fired (first-sight anchored only — see § On-disk shape below) show just
+`Next`; one_shots past their slot show just `Last`. If the user
 asks "how do I make a scheduled agent?" — point her at the clock icon.
 
 ### On-disk shape
@@ -1251,6 +1252,13 @@ Schedule kinds (interval / daily / weekly / one_shot) and firing semantics
 (first-sight anchor, one catch-up on a missed slot, one-shot self-delete)
 mirror the wake-ups section above — same underlying scheduler. The
 difference is what happens on fire.
+
+**State sentinels** (under `~/fleet/scheduled-agents/.state/`): per slug,
+`<slug>.anchored` is written once on first-sight (so the scheduler's
+"first fire = anchor + every" rule works) and `<slug>.last` is written
+each time the spec actually fires. These are distinct files — a spec can
+have an `.anchored` without a `.last` (brand-new, never fired yet), and
+the UI uses that to show just "Next" with no misleading "Last" chip.
 
 ### What happens on fire
 

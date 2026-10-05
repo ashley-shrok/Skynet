@@ -430,8 +430,19 @@ def main():
     os.makedirs(state_dir, exist_ok=True)
     _single_instance(state_dir, ident_dir)
 
+    # Sentinel split (2026-10-05): `.last` means strictly "actually fired at
+    # this epoch." Previously, first-sight anchor ALSO wrote `.last`, which
+    # made the UI's "Last run" display lie — a 30d-interval spec with a 7d-old
+    # anchor would read as "last fired 7d ago" even though it had never fired.
+    # Now first-sight writes `.anchored` instead; `.last` is reserved for
+    # real fires. The due-check uses `.last if present else .anchored` as the
+    # scheduling reference, so interval semantics (first fire = anchor + every)
+    # are preserved.
     def last_path(key):
         return os.path.join(state_dir, key + ".last")
+
+    def anchored_path(key):
+        return os.path.join(state_dir, key + ".anchored")
 
     def get_last(key):
         try:
@@ -439,8 +450,17 @@ def main():
         except Exception:
             return None
 
+    def get_anchored(key):
+        try:
+            return float(open(anchored_path(key)).read().strip())
+        except Exception:
+            return None
+
     def set_last(key, ts):
         open(last_path(key), "w").write(str(ts))
+
+    def set_anchored(key, ts):
+        open(anchored_path(key), "w").write(str(ts))
 
     warned = set()          # (key, kind) — one-shot LOUD alert per issue per session
 
@@ -615,10 +635,15 @@ def main():
                                   "— .state/%s.fired sentinel prevents re-fire" % (key, e, key), flush=True)
                 continue
             last = get_last(key)
-            if last is None:                      # first sight -> anchor, don't fire
-                set_last(key, now_ts)
+            anchored = get_anchored(key)
+            if last is None and anchored is None:  # first sight -> anchor, don't fire
+                set_anchored(key, now_ts)
                 continue
-            if _due(spec, last, now_ts, zi):
+            # Due-check reference: real last-fire if we have one, else the
+            # first-sight anchor. Interval math (`now >= reference + every`)
+            # is unchanged — only the sentinel source moves.
+            reference = last if last is not None else anchored
+            if _due(spec, reference, now_ts, zi):
                 utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
                 if is_scheduled_agents_mode:
                     _drop_spawn_request(spec, state_dir)

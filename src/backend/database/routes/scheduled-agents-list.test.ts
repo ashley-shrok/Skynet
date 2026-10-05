@@ -524,6 +524,44 @@ describe("GET /scheduled-agents (fleet-wide LIST)", () => {
     expect(connectOneShotMock).not.toHaveBeenCalled();
   });
 
+  it("Test 5b: LOCAL branch — .anchored sentinel feeds nextFireAt reference", async () => {
+    // Sentinel-split regression (2026-10-05). An anchor-only spec (first-sight
+    // seen but never fired) must have lastFiredAt=null and a nextFireAt
+    // computed from the .anchored epoch, not from `now`.
+    simpleDbSelectMock.mockResolvedValue([hostSkynet]);
+    isLocalHostIdMock.mockImplementation((hostId: number | undefined) => hostId === 1);
+    const anchoredEpoch = Math.floor(Date.now() / 1000) - 3600; // 1h ago
+    fsReaddirMock.mockImplementation(async (p: string) => {
+      if (p.endsWith("/.state")) return ["morning-local.anchored"];
+      return ["morning-local"];
+    });
+    fsReadFileMock.mockImplementation(async (p: string) => {
+      if (p.includes(".state/morning-local.anchored")) return `${anchoredEpoch}\n`;
+      if (p.endsWith("scheduled-agent.json") && p.includes("morning-local")) {
+        return JSON.stringify({
+          name: "Morning local",
+          enabled: true,
+          prompt: "local prompt",
+          schedule: { type: "interval", every: "2h" },
+          roles: ["r1"],
+          skills: [],
+        });
+      }
+      throw new Error("unexpected read: " + p);
+    });
+
+    const res = await httpRequest(server, { method: "GET", path: "/scheduled-agents" });
+    expect(res.status).toBe(200);
+    const body = res.body as { items: Array<Record<string, unknown>> };
+    expect(body.items).toHaveLength(1);
+    expect(body.items[0].lastFiredAt).toBeNull();
+    // nextFireAt = anchoredEpoch + 2h — within a few seconds of now_secs + 1h
+    const nowSecs = Math.floor(Date.now() / 1000);
+    const expected = anchoredEpoch + 2 * 3600;
+    expect(body.items[0].nextFireAt).toBeGreaterThan(nowSecs);
+    expect(Math.abs((body.items[0].nextFireAt as number) - expected)).toBeLessThan(60);
+  });
+
   it("Test 6: REMOTE branch — delimiter one-liner cmd shape", async () => {
     simpleDbSelectMock.mockResolvedValue([hostA]);
     execCommandMock.mockResolvedValue(

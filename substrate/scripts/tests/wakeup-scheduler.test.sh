@@ -307,9 +307,15 @@ JSON
     fail "SA-G3: per-identity mode should not drop spawn-request files; got $req_count"
   fi
 
-  # Per-identity mode: should have created a .last file (first-sight anchor)
+  # Per-identity mode: first-sight should write .anchored (NOT .last — the
+  # sentinel split 2026-10-05 reserves .last for actual fires so the Skynet
+  # scheduled-agents modal can show honest "Last run" times).
+  local anchored_file="$ident_dir/wakeups/.state/legacy.anchored"
+  assert_file_exists "$anchored_file" "SA-G3: .anchored sentinel should exist after first-sight"
   local last_file="$ident_dir/wakeups/.state/legacy.last"
-  assert_file_exists "$last_file" "SA-G3: .last anchor file should exist after first-sight"
+  if [ -f "$last_file" ]; then
+    fail "SA-G3: .last must NOT be written on first-sight anchor (reserved for real fires)"
+  fi
 
   # No ⏰ lines should appear because the interval is 1h and this is first sight
   if grep -q "⏰" "$out_log" 2>/dev/null; then

@@ -94,13 +94,16 @@ function parseOneShotAt(at: unknown): number | null {
 
 /**
  * Return epoch-seconds of the next time this schedule will fire from `now`,
- * given the last-fired timestamp (null when never fired or sentinel missing).
- * Null when: schedule is malformed; schedule type is unknown; a one_shot has
- * already fired; or a days-filter prunes every candidate within 14 days.
+ * given a scheduling-reference timestamp (null when neither `.last` nor
+ * `.anchored` sentinels exist for this slug). Callers should pass
+ * `referenceSecs ?? anchoredSecs` — the Python scheduler's own due-check
+ * uses the same precedence. Null when: schedule is malformed; schedule type
+ * is unknown; a one_shot has already fired; or a days-filter prunes every
+ * candidate within 14 days.
  */
 export function computeNextFireAt(
   schedule: unknown,
-  lastFiredSecs: number | null,
+  referenceSecs: number | null,
   nowSecs: number,
 ): number | null {
   if (typeof schedule !== "object" || schedule === null) return null;
@@ -127,7 +130,7 @@ export function computeNextFireAt(
     if (every === null) return null;
     // When never fired: approximate next-fire as `now + every` so the UI
     // can display something right after a spec is created.
-    const base = lastFiredSecs ?? nowSecs;
+    const base = referenceSecs ?? nowSecs;
     return applyDaysFilter(base + every);
   }
 
@@ -136,10 +139,10 @@ export function computeNextFireAt(
     const todaySlot = slotAtToday(at, nowSecs);
     if (todaySlot === null) return null;
     // If today's slot hasn't passed, that's next. Otherwise, next = +1d.
-    // Account for lastFiredSecs — if we already fired at today's slot
+    // Account for referenceSecs — if we already fired at today's slot
     // or later, next is tomorrow regardless of clock position.
     let candidate: number;
-    if (nowSecs < todaySlot && (lastFiredSecs === null || lastFiredSecs < todaySlot)) {
+    if (nowSecs < todaySlot && (referenceSecs === null || referenceSecs < todaySlot)) {
       candidate = todaySlot;
     } else {
       candidate = todaySlot + 86400;
@@ -158,7 +161,7 @@ export function computeNextFireAt(
     // If today is the target day: fire later today if slot still ahead and
     // we haven't already fired at or past today's slot; otherwise next week.
     if (daysForward === 0) {
-      const firedToday = lastFiredSecs !== null && lastFiredSecs >= todaySlot;
+      const firedToday = referenceSecs !== null && referenceSecs >= todaySlot;
       if (nowSecs >= todaySlot || firedToday) daysForward = 7;
     }
     const candidate = todaySlot + daysForward * 86400;

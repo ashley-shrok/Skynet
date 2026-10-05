@@ -109,10 +109,10 @@ export type ScheduledAgentListItem = {
   colorHue: number | null;
   /**
    * Last fire epoch (seconds). Null when the `.state/<slug>.last` sentinel
-   * is absent (spec not yet seen by the scheduler, or state dir missing).
-   * The scheduler writes `.last` on both first-sight anchor AND on fire —
-   * callers should treat this as "schedule timeline marker" rather than
-   * strictly "last emitted"; the two cases are indistinguishable from disk.
+   * is absent — which post the 2026-10-05 sentinel split means strictly
+   * "has never actually fired yet" (first-sight anchor now writes
+   * `.anchored` instead of `.last`, so `.last` is reserved for real fires).
+   * The modal row omits the "Last" chip when this is null.
    */
   lastFiredAt: number | null;
   /**
@@ -202,21 +202,29 @@ function specToRow(
 }
 
 /**
- * Attach `lastFiredAt` + `nextFireAt` to each row from a per-host
- * `slug→epoch` map of `.state/*.last` reads. Idempotent — safe to call once
- * per branch after specs are parsed. Rows whose `.last` sentinel is absent
- * keep `lastFiredAt: null`; `nextFireAt` is computed either way (interval
- * types still have a usable approximation when the sentinel is missing).
+ * Attach `lastFiredAt` + `nextFireAt` to each row from per-host `slug→epoch`
+ * maps of `.state/*.last` + `.state/*.anchored` reads. Idempotent.
+ *
+ * Semantics (2026-10-05 sentinel split):
+ *   - `lastFiredAt` → strictly from `.last` — null when the spec has never
+ *     actually fired. UI omits the "Last" chip in that case.
+ *   - `nextFireAt` reference → `.last ?? .anchored`. This matches the
+ *     Python scheduler's own due-check precedence so the modal's "Next"
+ *     stays accurate for brand-new (anchored, never fired) specs.
  */
 function attachFireTimestamps(
   rows: ScheduledAgentListItem[],
   lastBySlug: Map<string, number>,
+  anchoredBySlug: Map<string, number>,
   nowSecs: number,
 ): void {
   for (const row of rows) {
     const last = lastBySlug.get(row.slug);
+    const anchored = anchoredBySlug.get(row.slug);
     row.lastFiredAt = typeof last === "number" && Number.isFinite(last) ? last : null;
-    row.nextFireAt = computeNextFireAt(row.schedule, row.lastFiredAt, nowSecs);
+    const reference = row.lastFiredAt ??
+      (typeof anchored === "number" && Number.isFinite(anchored) ? anchored : null);
+    row.nextFireAt = computeNextFireAt(row.schedule, reference, nowSecs);
   }
 }
 
@@ -351,28 +359,38 @@ async function readScheduledAgentsLocal(
     }
   }
   await attachColorHuesForHost(null, out, hostId, hostName);
-  // Read `.state/*.last` sentinels so lastFiredAt + nextFireAt can be
-  // attached. ENOENT on the state dir (scheduler never ran here) collapses
-  // to an empty map — every row keeps lastFiredAt: null and nextFireAt gets
-  // computed from a null anchor (interval types still render usefully).
+  // Read `.state/*.last` + `.state/*.anchored` sentinels so lastFiredAt +
+  // nextFireAt can be attached. ENOENT on the state dir (scheduler never ran
+  // here) collapses to empty maps — every row keeps lastFiredAt: null and
+  // nextFireAt gets computed from a null reference (interval still renders
+  // usefully). Both sentinels are read in one readdir pass.
   const lastBySlug = new Map<string, number>();
+  const anchoredBySlug = new Map<string, number>();
   const stateDir = path.join(scheduledAgentsDir, ".state");
   try {
     const stateEntries = await fs.readdir(stateDir);
     await Promise.all(
-      stateEntries
-        .filter((e) => e.endsWith(".last"))
-        .map(async (fname) => {
-          const slug = fname.slice(0, -".last".length);
-          if (!IDENTITY_SLUG_RE.test(slug)) return;
-          try {
-            const raw = await fs.readFile(path.join(stateDir, fname), "utf-8");
-            const n = Number(raw.trim());
-            if (Number.isFinite(n) && n > 0) lastBySlug.set(slug, n);
-          } catch {
-            /* ignore unreadable sentinel */
-          }
-        }),
+      stateEntries.map(async (fname) => {
+        let slug: string | null = null;
+        let target: Map<string, number> | null = null;
+        if (fname.endsWith(".last")) {
+          slug = fname.slice(0, -".last".length);
+          target = lastBySlug;
+        } else if (fname.endsWith(".anchored")) {
+          slug = fname.slice(0, -".anchored".length);
+          target = anchoredBySlug;
+        } else {
+          return;
+        }
+        if (!IDENTITY_SLUG_RE.test(slug)) return;
+        try {
+          const raw = await fs.readFile(path.join(stateDir, fname), "utf-8");
+          const n = Number(raw.trim());
+          if (Number.isFinite(n) && n > 0) target.set(slug, n);
+        } catch {
+          /* ignore unreadable sentinel */
+        }
+      }),
     );
   } catch (err: unknown) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
@@ -384,7 +402,7 @@ async function readScheduledAgentsLocal(
       });
     }
   }
-  attachFireTimestamps(out, lastBySlug, Math.floor(Date.now() / 1000));
+  attachFireTimestamps(out, lastBySlug, anchoredBySlug, Math.floor(Date.now() / 1000));
   return out;
 }
 
@@ -408,15 +426,18 @@ async function readScheduledAgentsRemote(
   // spurious `===SLUG:*===` chunk; the parser drops it via the
   // !slug || !jsonContent guard below, but that's parser-side defense.
   // Making the shell one-liner correct in isolation is preferable.
-  // Two sections per round-trip: SLUG blocks (as before) then LAST blocks
-  // (one line per `.state/*.last` sentinel in `slug=epoch` form). Keeping
-  // both in a single exec avoids a second round-trip per host.
+  // Three sections per round-trip: SLUG blocks (spec contents), LAST blocks
+  // (`.state/*.last` sentinels — real fires), and ANCHORS blocks
+  // (`.state/*.anchored` sentinels — first-sight anchors, 2026-10-05 split).
+  // Keeping all three in a single exec avoids extra per-host round-trips.
   const cmd =
     `cd "$HOME/fleet/scheduled-agents" 2>/dev/null && ` +
     'shopt -s nullglob; ' +
     'for d in */; do slug="${d%/}"; echo "===SLUG:${slug}==="; cat "$d/scheduled-agent.json" 2>/dev/null; done; ' +
     'echo "===LASTS==="; ' +
-    'for f in .state/*.last; do slug="$(basename "$f" .last)"; echo "${slug}=$(cat "$f" 2>/dev/null)"; done';
+    'for f in .state/*.last; do slug="$(basename "$f" .last)"; echo "${slug}=$(cat "$f" 2>/dev/null)"; done; ' +
+    'echo "===ANCHORS==="; ' +
+    'for f in .state/*.anchored; do slug="$(basename "$f" .anchored)"; echo "${slug}=$(cat "$f" 2>/dev/null)"; done';
   let stdout: string;
   try {
     stdout = await execWithTimeout(conn, cmd);
@@ -431,16 +452,28 @@ async function readScheduledAgentsRemote(
   }
   if (!stdout) return [];
 
-  // Split SLUG section from LAST section. `===LASTS===` boundary is the
-  // sentinel; before it is the SLUG stream, after it is the lastFiredAt
-  // key=value lines (one per sentinel file).
+  // Split the three sections: SLUGs (specs), LASTs (real fires), ANCHORS
+  // (first-sight anchors). Older remote scheduler builds that don't emit
+  // the ANCHORS section are gracefully handled — anchoredSection stays ""
+  // and anchoredBySlug stays empty.
   const lastsIdx = stdout.indexOf("===LASTS===");
+  const anchorsIdx = stdout.indexOf("===ANCHORS===");
   const slugsSection = lastsIdx >= 0 ? stdout.slice(0, lastsIdx) : stdout;
-  const lastsSection = lastsIdx >= 0 ? stdout.slice(lastsIdx + "===LASTS===".length) : "";
+  const lastsSection =
+    lastsIdx >= 0
+      ? stdout.slice(
+          lastsIdx + "===LASTS===".length,
+          anchorsIdx >= 0 ? anchorsIdx : undefined,
+        )
+      : "";
+  const anchorsSection = anchorsIdx >= 0
+    ? stdout.slice(anchorsIdx + "===ANCHORS===".length)
+    : "";
 
-  const lastBySlug = new Map<string, number>();
-  if (lastsSection) {
-    for (const line of lastsSection.split("\n")) {
+  const parseKvSection = (section: string): Map<string, number> => {
+    const out = new Map<string, number>();
+    if (!section) return out;
+    for (const line of section.split("\n")) {
       const trimmed = line.trim();
       if (!trimmed) continue;
       const eq = trimmed.indexOf("=");
@@ -448,9 +481,13 @@ async function readScheduledAgentsRemote(
       const slug = trimmed.slice(0, eq);
       if (!IDENTITY_SLUG_RE.test(slug)) continue;
       const n = Number(trimmed.slice(eq + 1));
-      if (Number.isFinite(n) && n > 0) lastBySlug.set(slug, n);
+      if (Number.isFinite(n) && n > 0) out.set(slug, n);
     }
-  }
+    return out;
+  };
+
+  const lastBySlug = parseKvSection(lastsSection);
+  const anchoredBySlug = parseKvSection(anchorsSection);
 
   const chunks = slugsSection.split("===SLUG:");
   const out: ScheduledAgentListItem[] = [];
@@ -487,7 +524,7 @@ async function readScheduledAgentsRemote(
     }
   }
   await attachColorHuesForHost(conn, out, hostId, hostName);
-  attachFireTimestamps(out, lastBySlug, Math.floor(Date.now() / 1000));
+  attachFireTimestamps(out, lastBySlug, anchoredBySlug, Math.floor(Date.now() / 1000));
   return out;
 }
 
