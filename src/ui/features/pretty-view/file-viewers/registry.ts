@@ -277,3 +277,11 @@ export function fileViewIsEditable(
   const mode = resolveMode(resolveFileViewer(filename), modeId);
   return mode.editable && isText !== false;
 }
+
+/**
+ * True when no mode of the file's type reads its text (media, known
+ * binary) — hosts with a mediaUrl can skip fetching the content entirely.
+ */
+export function fileViewNeverNeedsContent(filename: string): boolean {
+  return resolveFileViewer(filename).modes.every((m) => m.needs !== "content");
+}

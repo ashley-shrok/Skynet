@@ -11,7 +11,8 @@
  *   POST   /mkdir          — sftp.mkdir (exists → 409 already_exists)
  *   POST   /create-file    — createWriteStream flags "wx" (exists → 409 already_exists)
  *   POST   /upload         — multer memoryStorage, SFTP createWriteStream + rename
- *   GET    /download       — readFile (cap 500 MB), Content-Disposition attachment
+ *   GET    /download       — streamed with Range (cap 10 GiB); attachment, or
+ *                             inline for safe types with `inline=1`
  *
  * Every endpoint enforces the 9-step chain:
  *   1. Body/query validation → 400 invalid_body
@@ -40,6 +41,8 @@ import { withConnection } from "../../ssh/ssh-connection-pool.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { IDENTITY_KEY_RE } from "../../claude-session/identity-artifact-reader.js";
+import { sendSftpFile } from "../../utils/sftp-file-response.js";
+import type { Readable } from "node:stream";
 import type { Client as SSHClientType } from "ssh2";
 
 /* ------------------------------------------------------------------------ */
@@ -94,8 +97,9 @@ function buildTargetRoot(homeDir: string, target: TargetSpec): string {
 /** Max bytes for inline read-file response (2 MB). */
 const MAX_READ_BYTES = 2_000_000;
 
-/** Max bytes for download endpoint (500 MB). */
-const MAX_DOWNLOAD_BYTES = 500_000_000;
+/** Max bytes for the download endpoint. It streams (fixed ~64 KiB buffer),
+ * so this is a wrong-path sanity ceiling, matching GET /file/:host/*. */
+const MAX_DOWNLOAD_BYTES = 10 * 1024 ** 3; // 10 GiB
 
 /** Max bytes for upload (50 MB via multer limits + nginx client_max_body_size). */
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
@@ -146,6 +150,7 @@ type SftpLike = {
     ) => void,
   ): void;
   readFile(p: string, cb: (err: Error | null, data: Buffer) => void): void;
+  createReadStream(p: string, options?: { start?: number; end?: number }): Readable;
   readdir(
     p: string,
     cb: (err: Error | null, list: SftpEntry[]) => void,
@@ -1239,6 +1244,7 @@ workspaceRoutes.get(
   async (req: Request, res: Response) => {
     const query = req.query as Record<string, unknown>;
     const { hostId, relativePath } = query;
+    const inline = query.inline === "1";
 
     if (
       typeof relativePath !== "string" ||
@@ -1279,11 +1285,11 @@ workspaceRoutes.get(
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), SFTP_OP_TIMEOUT_MS);
     try {
-      const bytes = await withConnection(
+      await withConnection(
         poolKey,
         () => connectOneShot(host, SSH_CONNECT_TIMEOUT_MS),
         async (client) => {
-          return await runWithAbort(ctrl.signal, async () => {
+          await runWithAbort(ctrl.signal, async () => {
             const sftp = await openSftp(client);
             const homeDir = await sftpRealpath(sftp, ".");
             const workspaceRoot = buildTargetRoot(homeDir, target);
@@ -1297,19 +1303,29 @@ workspaceRoutes.get(
             if (!stat.isFile()) throw new Error("not_a_file");
             if (stat.size > MAX_DOWNLOAD_BYTES) throw new Error("too_large");
 
-            return await sftpReadFile(sftp, resolved);
+            // Streams with Range support. `inline=1` lets the browser show
+            // media / PDF / text in place (viewers use it as a src); html,
+            // js, svg and unknown binary stay attachments regardless.
+            await sendSftpFile({
+              req,
+              res,
+              sftp,
+              path: resolved,
+              size: stat.size,
+              filename: relativePath.split("/").pop() ?? "file",
+              disposition: inline ? "auto" : "attachment",
+              // The setup timeout must not cut off a long transfer.
+              onStreamStart: () => clearTimeout(timer),
+            });
           });
         },
       );
-      const filename = relativePath.split("/").pop() ?? "file";
-      res.set({
-        "Content-Disposition": `attachment; filename="${filename}"`,
-        "Content-Type": "application/octet-stream",
-        "Cache-Control": "no-store",
-      });
-      res.status(200).send(bytes);
     } catch (err) {
-      res.status(classifyErrorToStatus(err)).json({ error: classifyErrorToClass(err) });
+      if (!res.headersSent) {
+        res.status(classifyErrorToStatus(err)).json({ error: classifyErrorToClass(err) });
+      } else {
+        res.destroy();
+      }
       sshLogger.warn("workspace /download error", {
         operation: "workspace_download",
         errorName: err instanceof Error ? err.name : "unknown",

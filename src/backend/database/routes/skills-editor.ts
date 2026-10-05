@@ -71,6 +71,7 @@ import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
 import { writeMarkdownFileAtomic } from "../../claude-session/identity-artifact-reader.js";
 import { sshLogger } from "../../utils/logger.js";
+import { sendRemoteFileUnderRoot } from "../../utils/sftp-download.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -1431,6 +1432,62 @@ router.delete(
           /* best-effort cleanup */
         }
       }
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// GET /skills-editor/download?hostId=&skill=&path=[&inline=1]
+// ---------------------------------------------------------------------------
+
+/**
+ * Stream a file inside a skill: a download, or with `inline=1` an in-page
+ * source for viewers (media, PDF, text; html / js / svg stay downloads).
+ * Range requests are honoured. The resolved file must stay inside the
+ * resolved skill directory (symlink-escape check in sendRemoteFileUnderRoot).
+ */
+router.get(
+  "/download",
+  authenticateJWT,
+  async (req: Request, res: Response): Promise<void> => {
+    const userId = (req as AuthenticatedRequest).userId;
+    const q = req.query as Record<string, unknown>;
+    const hostId = typeof q.hostId === "string" ? Number(q.hostId) : NaN;
+    if (!Number.isInteger(hostId) || hostId <= 0) {
+      res.status(400).json({ error: "hostId must be a positive integer" });
+      return;
+    }
+    if (!isValidSkillName(q.skill)) {
+      res.status(400).json({ error: "invalid skill name" });
+      return;
+    }
+    if (!isSafeRelativePath(q.path)) {
+      res.status(400).json({ error: "invalid path" });
+      return;
+    }
+    const skill = q.skill;
+    const relPath = q.path;
+    const host = await resolveHostById(hostId, userId);
+    if (!host) {
+      res.status(404).json({ error: "Host not found" });
+      return;
+    }
+    const result = await sendRemoteFileUnderRoot({
+      req,
+      res,
+      host: host as unknown as Parameters<typeof connectOneShot>[0],
+      buildPaths: (home) => {
+        const paths = buildAbsSkillFilePath(home, skill, relPath);
+        return paths ? { root: paths.skillRoot, absPath: paths.absPath } : null;
+      },
+      inline: q.inline === "1",
+    });
+    if (!result.ok) {
+      sshLogger.warn("skills-editor download failed", {
+        operation: "skills_editor_download",
+        hostId,
+        error: result.error,
+      });
     }
   },
 );

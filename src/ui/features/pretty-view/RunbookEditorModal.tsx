@@ -12,8 +12,10 @@ import {
   RunbookFileMtimeConflictError,
   RunbookFileAlreadyExistsError,
   type RunbookFileEntry,
+  runbookFileUrl,
 } from "@/api/runbooks-api";
 import SkillFileTab, { type SkillFileTabData } from "./SkillFileTab";
+import { fileViewNeverNeedsContent } from "./file-viewers/registry";
 import type { TabState } from "./IdentityFileTab";
 
 // RunbookEditorModal — role-scoped multi-file editor for a single runbook.
@@ -134,6 +136,17 @@ export default function RunbookEditorModal({
     if (tabData.has(activeTab)) return; // already loaded
     let cancelled = false;
     console.debug("[RunbookEditorModal] tab-switch", { path: activeTab });
+    // Media and known-binary files render from the streamed URL; reading
+    // them through the text endpoint would pull the whole file for nothing.
+    if (fileViewNeverNeedsContent(activeTab)) {
+      setTabData((prev) =>
+        new Map(prev).set(activeTab, {
+          status: "ready",
+          data: { content: "", mtime: 0, isText: false },
+        }),
+      );
+      return;
+    }
     setTabData((prev) => new Map(prev).set(activeTab, { status: "loading" }));
     readRunbookFile(hostId, roleName, runbookName, activeTab)
       .then((result) => {
@@ -461,6 +474,8 @@ export default function RunbookEditorModal({
                 hideSaveButton={true}
                 onDraftContentChange={handleDraftContentChange(activeTab)}
                 onDraftChange={handleDraftDirtyChange(activeTab)}
+                mediaUrl={runbookFileUrl(hostId, roleName, runbookName, activeTab, { inline: true })}
+                downloadUrl={runbookFileUrl(hostId, roleName, runbookName, activeTab)}
               />
             )}
           </div>

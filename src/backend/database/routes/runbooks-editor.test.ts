@@ -35,6 +35,7 @@ import {
 } from "vitest";
 import express from "express";
 import http from "node:http";
+import { Readable } from "node:stream";
 import type { AddressInfo } from "node:net";
 
 // ---------------------------------------------------------------------------
@@ -1214,5 +1215,52 @@ describe("path-safety gate", () => {
     });
     expect(res.status).toBe(400);
     expect((connectOneShot as Mock).mock.calls).toHaveLength(0);
+  });
+});
+
+// ===========================================================================
+// GET /runbooks-editor/download
+// ===========================================================================
+
+describe("GET /runbooks-editor/download", () => {
+  it("rejects bad input before any SSH", async () => {
+    for (const q of [
+      "hostId=1&role=box-maintainer&runbook=avatar-flow&path=../x",
+      "hostId=1&role=Bad Role&runbook=avatar-flow&path=a.md",
+      "hostId=abc&role=box-maintainer&runbook=avatar-flow&path=a.md",
+    ]) {
+      const res = await httpRequest(server, {
+        method: "GET",
+        path: `/runbooks-editor/download?${q.replace(/ /g, "%20")}`,
+      });
+      expect(res.status).toBe(400);
+    }
+    expect((connectOneShot as Mock).mock.calls).toHaveLength(0);
+  });
+
+  it("streams the file from inside the runbook directory", async () => {
+    const realStub = stubConn as typeof stubConn & { sftp?: unknown };
+    const seen: string[] = [];
+    realStub.sftp = (cb: (e: Error | null, s: unknown) => void) =>
+      cb(null, {
+        realpath: (p: string, done: (e: Error | null, r: string) => void) => {
+          seen.push(p);
+          done(null, p === "." ? "/home/testuser" : p);
+        },
+        stat: (_p: string, done: (e: Error | null, s: unknown) => void) =>
+          done(null, { size: 2, isFile: () => true }),
+        createReadStream: () => Readable.from([Buffer.from("ok")]),
+      });
+    try {
+      const res = await httpRequest(server, {
+        method: "GET",
+        path: "/runbooks-editor/download?hostId=1&role=box-maintainer&runbook=avatar-flow&path=steps.md",
+      });
+      expect(res.status).toBe(200);
+      expect(res.body).toBe("ok");
+      expect(seen).toContain("/home/testuser/fleet/roles/box-maintainer/runbooks/avatar-flow/steps.md");
+    } finally {
+      delete realStub.sftp;
+    }
   });
 });

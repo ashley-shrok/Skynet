@@ -36,6 +36,7 @@ import {
   type Mock,
 } from "vitest";
 import express from "express";
+import { Readable } from "node:stream";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 
@@ -137,6 +138,7 @@ interface StubSftp {
   realpath: Mock;
   stat: Mock;
   readFile: Mock;
+  createReadStream: Mock;
   readdir: Mock;
   writeFile: Mock;
   mkdir: Mock;
@@ -152,6 +154,8 @@ interface StubClient {
 }
 
 let stubSftp: StubSftp;
+/** What the stub's createReadStream serves (stat reports size 5). */
+const fileBytes = Buffer.from("hello", "utf8");
 let stubClient: StubClient;
 
 /**
@@ -209,6 +213,10 @@ function resetStubClient() {
       (_p: string, cb: (err: Error | null, data: Buffer) => void) => {
         queueMicrotask(() => cb(null, Buffer.from("hello", "utf8")));
       },
+    ),
+    // Serves `fileBytes` (default "hello"), honouring the inclusive range.
+    createReadStream: vi.fn((_p: string, opts?: { start?: number; end?: number }) =>
+      Readable.from([fileBytes.subarray(opts?.start ?? 0, (opts?.end ?? fileBytes.length - 1) + 1)]),
     ),
     readdir: vi.fn(
       (_p: string, cb: (err: Error | null, list: unknown[]) => void) => {
@@ -958,21 +966,52 @@ describe("POST /workspace/upload", () => {
 /* --------------------------------------------------------------------- */
 
 describe("GET /workspace/download", () => {
-  it("Test 14: valid query → 200 with Content-Disposition attachment", async () => {
-    stubSftp.readFile.mockImplementation(
-      (_p: string, cb: (err: Error | null, data: Buffer) => void) => {
-        queueMicrotask(() => cb(null, Buffer.from("binary data", "utf8")));
-      },
-    );
+  it("Test 14: valid query → 200 streamed, Content-Disposition attachment", async () => {
     const res = await httpRequest(server, {
       method: "GET",
       path: "/workspace/download?identityKey=echo&hostId=42&relativePath=notes.txt",
     });
     expect(res.status).toBe(200);
+    expect(res.rawBody).toBe("hello");
     const cd = res.headers["content-disposition"] as string;
     expect(cd).toContain("attachment");
     expect(cd).toContain("notes.txt");
     expect(res.headers["cache-control"]).toBe("no-store");
+    expect(res.headers["accept-ranges"]).toBe("bytes");
+    expect(stubSftp.readFile).not.toHaveBeenCalled();
+  });
+
+  it("Test 14c: inline=1 serves safe types inline with their real content-type", async () => {
+    const res = await httpRequest(server, {
+      method: "GET",
+      path: "/workspace/download?identityKey=echo&hostId=42&relativePath=clip.mp4&inline=1",
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toBe("video/mp4");
+    expect(res.headers["content-disposition"]).toBeUndefined();
+    expect(res.headers["x-content-type-options"]).toBe("nosniff");
+  });
+
+  it("Test 14d: inline=1 still forces attachment for html / svg (XSS lane)", async () => {
+    for (const name of ["page.html", "logo.svg"]) {
+      const res = await httpRequest(server, {
+        method: "GET",
+        path: `/workspace/download?identityKey=echo&hostId=42&relativePath=${name}&inline=1`,
+      });
+      expect(res.status).toBe(200);
+      expect(res.headers["content-disposition"] as string).toContain("attachment");
+    }
+  });
+
+  it("Test 14e: Range request → 206 with Content-Range and only those bytes", async () => {
+    const res = await httpRequest(server, {
+      method: "GET",
+      path: "/workspace/download?identityKey=echo&hostId=42&relativePath=clip.mp4&inline=1",
+      headers: { Range: "bytes=1-3" },
+    });
+    expect(res.status).toBe(206);
+    expect(res.headers["content-range"]).toBe("bytes 1-3/5");
+    expect(res.rawBody).toBe("ell");
   });
 
   it("Test 14b: traversal in relativePath via query → 400 path_traversal", async () => {

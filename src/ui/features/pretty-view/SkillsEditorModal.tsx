@@ -17,9 +17,11 @@ import {
   SkillAlreadyExistsError,
   type SkillEntry,
   type SkillFileEntry,
+  skillFileUrl,
 } from "@/api/skills-api";
 import { slugifyRoleName } from "@/sidebar/CreateRoleDialog";
 import SkillFileTab, { type SkillFileTabData } from "./SkillFileTab";
+import { fileViewNeverNeedsContent } from "./file-viewers/registry";
 import type { TabState } from "./IdentityFileTab";
 import { bumpModalOpen } from "@/lib/freeze-diag";
 
@@ -204,6 +206,17 @@ export default function SkillsEditorModal({
     if (selectedHostId == null || !selectedSkillName || !activeTab) return;
     if (tabData.has(activeTab)) return;
     let cancelled = false;
+    // Media and known-binary files render from the streamed URL; reading
+    // them through the text endpoint would pull the whole file for nothing.
+    if (fileViewNeverNeedsContent(activeTab)) {
+      setTabData((prev) =>
+        new Map(prev).set(activeTab, {
+          status: "ready",
+          data: { content: "", mtime: 0, isText: false },
+        }),
+      );
+      return;
+    }
     setTabData((prev) => new Map(prev).set(activeTab, { status: "loading" }));
     readSkillFile(selectedHostId, selectedSkillName, activeTab)
       .then((result) => {
@@ -688,6 +701,16 @@ export default function SkillsEditorModal({
                 hideSaveButton={true}
                 onDraftContentChange={handleDraftContentChange(activeTab)}
                 onDraftChange={handleDraftDirtyChange(activeTab)}
+                mediaUrl={
+                  selectedHostId != null && selectedSkillName != null
+                    ? skillFileUrl(selectedHostId, selectedSkillName, activeTab, { inline: true })
+                    : undefined
+                }
+                downloadUrl={
+                  selectedHostId != null && selectedSkillName != null
+                    ? skillFileUrl(selectedHostId, selectedSkillName, activeTab)
+                    : undefined
+                }
               />
             )}
           </div>

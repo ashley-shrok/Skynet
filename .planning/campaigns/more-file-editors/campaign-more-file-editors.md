@@ -115,14 +115,23 @@ Ordering below is a starting-point, not locked. Each entry is marked
 
 Empty until close-time approvals.
 
-## Follow-ups (committed to this session)
+## Follow-ups (committed to this session) — done 2026-10-05
 
-- Skills/Runbooks read routes return raw bytes for non-text files, so
-  images / PDF / docx render there. Do with the first bytes-needing viewer.
-- Skills/Runbooks download endpoint, so their binary notice gets a
-  Download button.
-- Workspace `/download` serves a real content type + Range so large
-  media (and PDF) can stream instead of hitting the 2 MB read cap.
+One mechanism covers all three: a streamed, Range-capable file URL per
+surface, built on a shared backend helper (`src/backend/utils/
+sftp-file-response.ts`, extracted unchanged from GET /file/:host/*, plus
+`sftp-download.ts` for files that must stay under a root).
+
+- Skills/Runbooks: new `GET /skills-editor/download` and
+  `GET /runbooks-editor/download` (symlink-escape checked against the
+  resolved skill / runbook dir). `inline=1` serves media / PDF / text in
+  place; html / js / svg always download. FileView gets it as `mediaUrl`
+  (viewers) and `downloadUrl` (notice). This replaces the planned "read
+  route returns base64 bytes": no 2 MB cap, no base64 bloat, streams.
+  Media / known-binary files no longer go through the text read at all.
+- Workspace `/download`: streamed with Range (was fully buffered), cap
+  raised 500 MB → 10 GiB to match /file/, `inline=1` as above. The
+  workspace viewer streams media from it instead of the 2 MB read.
 
 ## Open questions
 

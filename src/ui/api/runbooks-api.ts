@@ -134,6 +134,27 @@ export async function readRunbookFile(
 }
 
 /**
+ * GET /runbooks-editor/download URL — synchronous, no network call. A
+ * download link, or with `inline` a streamed src for viewers (media, PDF,
+ * text; Range-capable). Relative, like downloadWorkspaceFileUrl.
+ */
+export function runbookFileUrl(
+  hostId: number,
+  roleName: string,
+  runbookName: string,
+  path: string,
+  opts: { inline?: boolean } = {},
+): string {
+  return (
+    `/runbooks-editor/download?hostId=${encodeURIComponent(String(hostId))}` +
+    `&role=${encodeURIComponent(roleName)}` +
+    `&runbook=${encodeURIComponent(runbookName)}` +
+    `&path=${encodeURIComponent(path)}` +
+    (opts.inline ? "&inline=1" : "")
+  );
+}
+
+/**
  * Writes content to a runbook file via SFTP atomic write.
  * If expectedMtime is set and the file changed since the read, throws
  * RunbookFileMtimeConflictError (409) with { currentMtime, currentContent }

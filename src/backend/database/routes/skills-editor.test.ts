@@ -33,6 +33,7 @@ import {
 } from "vitest";
 import express from "express";
 import http from "node:http";
+import { Readable } from "node:stream";
 import type { AddressInfo } from "node:net";
 
 // ---------------------------------------------------------------------------
@@ -1180,5 +1181,53 @@ describe("path-safety gate", () => {
     expect(rmrfCall).toBeUndefined();
     // SSH must NEVER have opened either.
     expect((connectOneShot as Mock).mock.calls).toHaveLength(0);
+  });
+});
+
+// ===========================================================================
+// GET /skills-editor/download
+// ===========================================================================
+
+describe("GET /skills-editor/download", () => {
+  it("rejects bad input before any SSH", async () => {
+    for (const q of [
+      "hostId=0&skill=build&path=SKILL.md",
+      "hostId=1&skill=..&path=SKILL.md",
+      "hostId=1&skill=build&path=../../etc/passwd",
+    ]) {
+      const res = await httpRequest(server, { method: "GET", path: `/skills-editor/download?${q}` });
+      expect(res.status).toBe(400);
+    }
+    expect((connectOneShot as Mock).mock.calls).toHaveLength(0);
+  });
+
+  it("404s a host the user doesn't own", async () => {
+    const res = await httpRequest(server, {
+      method: "GET",
+      path: "/skills-editor/download?hostId=2&skill=build&path=SKILL.md",
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it("streams the file from inside the skill directory", async () => {
+    const realStub = stubConn as typeof stubConn & { sftp?: unknown };
+    realStub.sftp = (cb: (e: Error | null, s: unknown) => void) =>
+      cb(null, {
+        realpath: (p: string, done: (e: Error | null, r: string) => void) =>
+          done(null, p === "." ? "/home/testuser" : p),
+        stat: (_p: string, done: (e: Error | null, s: unknown) => void) =>
+          done(null, { size: 5, isFile: () => true }),
+        createReadStream: () => Readable.from([Buffer.from("hello")]),
+      });
+    try {
+      const res = await httpRequest(server, {
+        method: "GET",
+        path: "/skills-editor/download?hostId=1&skill=build&path=tests/basic.py",
+      });
+      expect(res.status).toBe(200);
+      expect(res.body).toBe("hello");
+    } finally {
+      delete realStub.sftp;
+    }
   });
 });

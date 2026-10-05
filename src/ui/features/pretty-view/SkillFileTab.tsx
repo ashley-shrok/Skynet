@@ -29,6 +29,8 @@ export default function SkillFileTab({
   hideSaveButton = false,
   onDraftContentChange,
   onDraftChange,
+  mediaUrl,
+  downloadUrl,
 }: {
   state: TabState<SkillFileTabData>;
   onSave: (content: string, expectedMtime: number) => Promise<void>;
@@ -68,11 +70,17 @@ export default function SkillFileTab({
    * close-confirm draft-guard. Guarded on `ready` state.
    */
   onDraftChange?: (dirty: boolean) => void;
+  /** Streamed in-place URL for viewers (media, PDF); see skillFileUrl. */
+  mediaUrl?: string;
+  /** Download link offered on the can't-preview notice. */
+  downloadUrl?: string;
 }): JSX.Element {
   return (
     <FileView
       filename={filename}
       state={state}
+      mediaUrl={mediaUrl}
+      downloadUrl={downloadUrl}
       onSave={onSave}
       hideSaveButton={hideSaveButton}
       onDraftChange={onDraftChange}

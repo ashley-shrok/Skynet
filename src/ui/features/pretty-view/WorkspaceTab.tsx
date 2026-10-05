@@ -78,10 +78,9 @@ import {
   type FileViewData,
 } from "./file-viewers/FileView";
 import {
-  BINARY_ENTRY,
   fileViewIsEditable,
+  fileViewNeverNeedsContent,
   isTextByName,
-  resolveFileViewer,
 } from "./file-viewers/registry";
 import { base64ToBytes, decodeUtf8, looksLikeText } from "./file-viewers/text-sniff";
 
@@ -218,11 +217,13 @@ function WorkspaceFileViewer({
   hue: number;
 }): JSX.Element {
   // The shared file-viewer registry picks the body (D-12 dispatch now lives
-  // in file-viewers/registry). Known-binary types and files over the read
-  // cap skip the fetch entirely and go straight to the notice.
-  const isKnownBinary = resolveFileViewer(file.name) === BINARY_ENTRY;
-  const isTooLarge = file.size !== null && file.size > PREVIEW_MAX_BYTES;
-  const skipFetch = isKnownBinary || isTooLarge;
+  // in file-viewers/registry). Media streams from the inline download URL
+  // (any size, Range-capable) and known-binary types show the notice, so
+  // neither fetches. Text over the read cap gets the too-large notice.
+  const neverNeedsContent = fileViewNeverNeedsContent(file.name);
+  const isTooLarge =
+    !neverNeedsContent && file.size !== null && file.size > PREVIEW_MAX_BYTES;
+  const skipFetch = neverNeedsContent || isTooLarge;
 
   const [fileState, setFileState] = useState<TabState<FileViewData>>({
     status: "loading",
@@ -320,6 +321,9 @@ function WorkspaceFileViewer({
     hostId,
     file.relativePath
   );
+  const mediaUrl = downloadWorkspaceFileUrl(target, hostId, file.relativePath, {
+    inline: true,
+  });
 
   // Header
   const header = (
@@ -439,7 +443,7 @@ function WorkspaceFileViewer({
     );
   }
 
-  const body = isTooLarge && !isKnownBinary ? (
+  const body = isTooLarge ? (
     <FileUnavailableNotice
       heading="Too large to preview"
       body="Files over 2 MB can't be shown here."
@@ -450,6 +454,7 @@ function WorkspaceFileViewer({
     <FileView
       filename={file.name}
       state={fileState}
+      mediaUrl={mediaUrl}
       downloadUrl={downloadUrl}
       onSave={(content) => handleSave(content)}
       hideSaveButton
