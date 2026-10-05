@@ -23,3 +23,13 @@ declare module "*.ogg?url" {
   const src: string;
   export default src;
 }
+
+declare module "*.wasm?url" {
+  const src: string;
+  export default src;
+}
+
+// lz4js ships no types; the Arrow viewer uses its frame decompressor.
+declare module "lz4js" {
+  export function decompress(src: Uint8Array, maxSize?: number): Uint8Array;
+}

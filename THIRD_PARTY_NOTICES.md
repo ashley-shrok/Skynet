@@ -22,6 +22,10 @@ licence text are in `package.json` / `package-lock.json` and each package's
 | web-ifc (served from `/vendor/3d/`, loaded on demand) | IFC (BIM) import | MPL-2.0 | https://github.com/ThatOpen/engine_web-ifc |
 | Draco (`draco3d`, served from `/vendor/3d/`, loaded on demand) | Compressed glTF meshes | Apache-2.0 | https://github.com/google/draco |
 | "Fisherman's Bastion" cube map by Emil Persson (Humus), from Online3DViewer | Lighting for 3D materials | CC-BY 3.0 | http://www.humus.name |
+| sql.js (`sql.js`) | SQLite database viewer (SQLite compiled to WebAssembly) | MIT (SQLite itself: public domain) | https://github.com/sql-js/sql.js |
+| hyparquet, hyparquet-compressors | Parquet reader | MIT | https://github.com/hyparam/hyparquet |
+| Apache Arrow JS (`apache-arrow`) | Arrow / Feather reader | Apache-2.0 | https://github.com/apache/arrow-js |
+| lz4js, fzstd | LZ4 / Zstandard decompression for Arrow files | ISC, MIT | https://github.com/Benzinga/lz4js, https://github.com/101arrowz/fzstd |
 | LibreOffice (separate `converter` container, from Ubuntu packages) | Converting .doc/.odt/.xls/.ods/.ppt/.pptx/.odp for viewing | MPL-2.0 | https://www.libreoffice.org/about-us/source-code/ |
 
 ## AGPL-3.0 and Skynet

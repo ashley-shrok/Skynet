@@ -1,6 +1,7 @@
 import type { ComponentType } from "react";
 import {
   Box,
+  Database,
   File,
   FileDiff,
   FileSpreadsheet,
@@ -35,6 +36,8 @@ import { DocxMode } from "./docx/docx-mode";
 import { ConvertedPdfChipPreview, convertedMode } from "./convert/converted-mode";
 import { ModelMode } from "./model3d/model-mode";
 import { ModelChipPreview } from "./model3d/ModelChipPreview";
+import { ColumnarMode, SqliteMode } from "./data/data-modes";
+import { ColumnarChipPreview, SqliteChipPreview } from "./data/DataChipPreviews";
 
 /**
  * File-viewer registry — the ONE place that decides how a file type is shown.
@@ -327,6 +330,32 @@ export const MODEL_3D_ENTRY: FileViewerEntry = {
 };
 
 /**
+ * SQLite databases, read-only: tables/views, a grid that sorts across the
+ * whole table, the schema, and a SQL box whose writes only touch an
+ * in-memory copy (sql.js in a worker). `.db` files without the SQLite
+ * signature get a notice and a download link.
+ */
+export const SQLITE_ENTRY: FileViewerEntry = {
+  id: "sqlite",
+  extensions: ["sqlite", "sqlite3", "db", "db3", "s3db", "sl3"],
+  icon: Database,
+  modes: [{ id: "view", label: "Database", needs: "url", editable: false, View: SqliteMode }],
+  ChipPreview: SqliteChipPreview,
+};
+
+/**
+ * Parquet / Arrow / Feather, view-only: rows load as you scroll (Parquet
+ * via Range requests, footer first), plus schema and file facts.
+ */
+export const COLUMNAR_ENTRY: FileViewerEntry = {
+  id: "columnar",
+  extensions: ["parquet", "arrow", "feather", "arrows"],
+  icon: FileSpreadsheet,
+  modes: [{ id: "view", label: "Data", needs: "url", editable: false, View: ColumnarMode }],
+  ChipPreview: ColumnarChipPreview,
+};
+
+/**
  * Formats we know are binary and have no viewer yet. Recognising them up
  * front lets surfaces skip the (up to 2 MB) fetch and show the notice
  * immediately. Entries move out of here as they gain real viewers.
@@ -341,7 +370,7 @@ export const BINARY_ENTRY: FileViewerEntry = {
     // executables / objects
     "exe", "dll", "so", "dylib", "o", "a", "class", "jar", "war", "pyc", "wasm", "bin",
     // disk images / databases
-    "iso", "dmg", "img", "sqlite", "sqlite3", "db",
+    "iso", "dmg", "img",
     // fonts
     "woff", "woff2", "ttf", "otf", "eot",
     // images browsers can't show natively
@@ -373,6 +402,8 @@ const ENTRIES: readonly FileViewerEntry[] = [
   LEGACY_SHEET_ENTRY,
   PRESENTATION_ENTRY,
   MODEL_3D_ENTRY,
+  SQLITE_ENTRY,
+  COLUMNAR_ENTRY,
   BINARY_ENTRY,
 ];
 

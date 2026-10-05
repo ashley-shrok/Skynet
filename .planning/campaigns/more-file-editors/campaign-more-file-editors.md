@@ -170,6 +170,25 @@ Ordering below is a starting-point, not locked. Each entry is marked
   rendered still + triangle count, one WebGL context at a time, ≤15 MB. —
   built, awaiting user check
 
+- **[discovered] shape-archives** — (2026-10-05) proposed (libarchive.js
+  tree + open-inside, read-only, optional Extract here / zip write-back);
+  user chose to skip. Archives keep the download card.
+- **[discovered] shape-data-viewers** — (2026-10-05) READ-ONLY by user call.
+  SQLite (.sqlite/.sqlite3/.db/.db3/.s3db/.sl3): sql.js in a Web Worker
+  (Cancel terminates it and reopens the file's bytes); tables/views with
+  row counts; AG Grid infinite row model with whole-table ORDER BY sorts;
+  schema (columns, keys, defaults, indexes, CREATE); SQL box (CodeMirror,
+  SQLite dialect + completion, Ctrl/Cmd+Enter), results ≤10k rows; writes
+  touch only the in-memory copy (banner). Signature check (Thumbs.db etc.
+  get a notice + Download); WAL-mode warning (flag cleared on the copy so
+  it opens). ≤200 MB. Parquet: hyparquet (+compressors) — footer first,
+  then row groups on demand via Range (multi-GB OK); Arrow/Feather v2:
+  apache-arrow with LZ4/Zstd codecs registered (lz4js, fzstd; buffers
+  re-aligned to 8 bytes), ≤500 MB. Schema tab with file facts. Export CSV
+  (first 100k rows). Chips: SQLite tables + counts (≤20 MB); Parquet
+  rows/columns from the footer; Arrow ≤20 MB. nginx: hashed *.wasm block
+  (application/wasm, immutable). — built, awaiting user check
+
 ## Rule: view-only when editing can't be done properly (2026-10-05)
 
 If we can't give a proper editing-and-saving experience for a file type

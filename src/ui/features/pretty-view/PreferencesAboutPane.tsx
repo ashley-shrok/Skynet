@@ -21,6 +21,9 @@ const COMPONENTS: Array<[string, string, string]> = [
   ["PapaParse", "CSV parser", "MIT"],
   ["Online3DViewer + three.js", "3D model viewer", "MIT"],
   ["occt-import-js", "STEP / IGES import", "LGPL-2.1"],
+  ["sql.js", "SQLite database viewer", "MIT"],
+  ["hyparquet", "Parquet reader", "MIT"],
+  ["Apache Arrow", "Arrow / Feather reader", "Apache-2.0"],
   ["LibreOffice", "Document converter (server)", "MPL-2.0"],
 ];
 
