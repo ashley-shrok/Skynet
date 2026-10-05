@@ -18,9 +18,9 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-07-17)
+See: .planning/PROJECT.md (updated 2026-10-05)
 
-**Core value:** user never loses access to her fleet — every change preserves reliable browser SSH+RDP, features are added around that hard constraint
+**Core value:** One place to see, talk to, and direct every agent in the fleet — with the conversation as the primary surface and the terminal, files, and desktop one step away when they are needed.
 **Current focus:** Phase 144 — ntfy-based-durable-notifications-replacing-browser-push-see-
 
 ## Current Position

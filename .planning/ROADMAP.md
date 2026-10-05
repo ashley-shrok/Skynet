@@ -1,24 +1,13 @@
-# Roadmap: Skynet Fork — Pretty Session View (Patch #43)
+# Roadmap: Skynet
 
 ## Overview
 
-Patch #43 gives Skynet terminal tabs holding a Claude Code tmux session a
-second top-pane mode: a native web-chat rendering of the current session's
-conversation, backed by tailing the JSONL session file the Claude process
-writes on the remote host. A keyboard chord flips the top pane between the
-existing tmux mode (default) and the new pretty mode. The queue drawer at
-the bottom stays put. Sends go through the same split-send tmux input path
-patch #40 established. No optimism on sends — messages appear when the
-session file confirms them.
-
-The work splits into two vertical slices. Phase 1 lands the backend
-session-file discovery + tail + WebSocket bridge together with a minimal
-read-only pretty view so the pipe is observable end-to-end in production
-without any UI ergonomics yet. Phase 2 layers on the keyboard-chord toggle,
-tmux/pretty layout coexistence, compose box, and native web selection /
-click / paste behavior — the ergonomic payoff the shape file cares most
-about. Both phases ship as fork commits behind the mandatory 15-minute
-deadman rollback timer per the fork's DEPLOY DISCIPLINE.
+The full record of numbered phases, from the first pretty-view slice
+(Phase 1, 2026-07-17) through the current work. Phases 1–19 were scoped
+against the original patch #43 requirements, now archived at
+`.planning/milestones/v1.0-REQUIREMENTS.md`; later phases carry their
+requirements as D-numbered decisions in each phase's `CONTEXT.md`. See
+`.planning/PROJECT.md` for what the project is today.
 
 ## Phases
 

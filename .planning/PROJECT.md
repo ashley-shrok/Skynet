@@ -1,118 +1,202 @@
-# Skynet Fork
+# Skynet
 
 ## What This Is
 
-A maintained fork of Skynet (self-hosted browser SSH/RDP manager) that adds 42
-numbered patches on top of upstream v2.3.x to fit user's specific workflow:
-many parallel Claude Code sessions on many machines, coordinated via
-identity-aware terminal panes with per-pane message queues. Runs in production
-at term.example.com as the central access point for her fleet.
+Skynet is a self-hosted, browser-based workspace for working with a fleet of
+Claude Code agents spread across many machines. A Skynet instance is pointed at
+a set of hosts; every Claude Code agent running on those hosts shows up as a
+conversation in a chat-style sidebar, and the main pane renders that agent's
+session as a native web chat with its own compose box. Behind each
+conversation is a real tmux session running a real Claude Code process on a
+real host, reached over SSH.
+
+Around the chat sits the rest of the workspace: projects that group
+conversations, roles and identities that define what each agent is, apps that
+agents build and publish into the sidebar, Matrix relay rooms for
+agent-to-agent and multi-party messaging, scheduled agents and wake-ups,
+voice in and out, phone-call and notification channels back to the user, and
+RDP/VNC into hosts when a desktop is needed.
+
+The project started as a fork of Termix (a self-hosted SSH/RDP manager) and
+has since diverged completely: the Termix dashboard, host manager, snippets,
+and admin surfaces have been removed, and the codebase is no longer
+compatible with upstream. It is open source under Apache 2.0, and more than
+one independent instance runs it.
 
 ## Core Value
 
-user never loses access to her fleet. Skynet is the gateway to every managed
-machine (SSM-only admin on the EC2, tailnet-only on the peers). Every change
-must preserve reliable browser SSH+RDP access; features are added around that
-hard constraint, not through it.
+One place to see, talk to, and direct every agent in the fleet — with the
+conversation as the primary surface and the terminal, files, and desktop one
+step away when they are needed.
 
 ## Requirements
 
 ### Validated
 
-<!-- Shipped and confirmed valuable. -->
+Shipped capabilities, grouped by area. Phase numbers point into
+`.planning/phases/`.
 
-- ✓ Browser SSH/RDP/VNC to managed hosts — upstream + 42 fork patches
-- ✓ Named tmux session launcher (patch #7) — one-click session list dashboard
-- ✓ Identity registry + per-pane badges (patch #17)
-- ✓ Per-pane message queue drawer with split-send (patches #39–41)
-- ✓ URL-encoded workspace fragments surviving Chrome window-restore (patches #25, #33–35)
-- ✓ RDP single-active takeover per (user, host) (patch #23)
-- ✓ RDP/VNC keep-alive across backgrounded tabs (patch #10)
-- ✓ Identity hue tint row→tab→pane (patches #26, #30, #32)
-- ✓ Keyboard tab chords: switch [/], close L, queue ; (patches #31, #37, #39)
-- ✓ Unified auto-collapse sidebar (patches #14, #28)
-- ✓ tmux 2-line wheel scroll (patch #42, shipped 2026-07-17)
+**Conversations and chat surface**
+- ✓ Pretty view: Claude Code JSONL session tailed from the host and rendered as
+  web chat, with session changeover detection on recycle/resume (Phases 1–3)
+- ✓ Compose box with a single send funnel, optimistic bubbles reconciled
+  against the transcript, hold-to-send, queued messages, and file/image
+  upload to the host (Phases 5, 9, 50, 68, 81)
+- ✓ Windowed message pagination with manual load-more (Phases 43, 45, 47)
+- ✓ Position-derived auto-scroll (Phase 71)
+- ✓ Backend-authoritative working/idle, waiting, and recycling signals driven
+  by Claude Code hooks (Phases 30, 34, 53, 61, 63)
+- ✓ Plan-mode approval bubble and background-agent panel (Phases 24, 51)
+- ✓ Interactive messages: agent-posted widgets (built-in templates and
+  custom widgets) with lifecycle and expiry (Phases 138–142)
+- ✓ Terminal view mounted on demand behind the chat (Phase 41)
+- ✓ Split-view layout: recursive split tree with drag-to-open and drop
+  previews, persisted in the URL (Phases 56–59, 64)
+
+**Sidebar and navigation**
+- ✓ Fleet-discovered conversation list that arrives complete and stays live
+  over a WebSocket channel (Phases 7, 13, 111)
+- ✓ Recency sort from a Skynet-side send log, pins zone, RDP zone, filters,
+  per-row current-work hint and repo-state indicator (Phases 42, 48, 85, 104)
+- ✓ Projects: sidebar sections with drag-and-drop membership and a
+  per-project context file (Phase 117)
+- ✓ Apps section: agent-built apps discovered on disk, opened in a pane, a
+  split, or a new tab through an authenticated reverse proxy (Phases 118–120)
+- ✓ Conversation search, workspace file browser, archived-item discovery and
+  un-archive (Phases 121, 122, 143)
+
+**Agents: roles, identities, lifecycle**
+- ✓ Roles and identities as on-disk folders under `~/fleet/` on each host;
+  disk is the sole source of truth (no identities table) (Phases 66, 69, 96)
+- ✓ Role and identity modals: files, runbooks, skills, cosmetics, wake-ups
+  (Phases 18, 46, 72, 86, 89, 90, 113)
+- ✓ Identity creation through the agent-supervisor as sole spawner, with a
+  name pool, task-scoped creation, and a global birth throttle
+  (Phases 20, 80, 106, 108, 110)
+- ✓ Identity and role archiving with cascade, and un-archiving
+  (Phases 94, 115, 133, 143)
+- ✓ Invisible dormancy: sleeping agents wake on send (Phases 60, 62, 76)
+- ✓ Wake-ups: global specs, CRUD API, management modal (Phases 127, 134, 135)
+- ✓ Scheduled agents: recurring agents created from a sidebar modal
+- ✓ Coordinator marking and identity sharing between users (Phases 38, 67)
+
+**Fleet substrate**
+- ✓ Distributor that installs skills, scripts, and services onto every
+  managed host from a catalog, with a reconcile loop (Phases 73, 75)
+- ✓ Instance-wide managed-policy CLAUDE.md pushed to hosts (Phase 114)
+- ✓ Fleet-status sweep: one batched exec per host per tick (Phases 92, 95)
+- ✓ Per-host SSH concurrency semaphore for all outbound SSH (Phase 101)
+- ✓ File-drop brokers on hosts for spawn requests, image generation, and
+  phone calls (Phases 99, 116)
+
+**Messaging, voice, notifications**
+- ✓ Matrix (Synapse) relay rooms rendered on the same chat surface as agent
+  sessions (Phases 17, 77, 93, 97)
+- ✓ Voice input via Amazon Nova Sonic on Bedrock with chunked parallel
+  streaming; voice "slash" skill invocation; TTS via Amazon Polly
+  (Phases 16, 36, 98, 100, 109)
+- ✓ Notifications to the user's phone through a self-hosted ntfy server
+  (Phases 128, 144)
+- ✓ Audio cue when an agent finishes a turn (Phase 126)
+- ✓ In-app feedback: general feedback and per-message thumbs, delivered by
+  SMTP (Phases 123–125)
+
+**Instance and users**
+- ✓ Per-instance branding config (name, images, avatar style, WIP indicator)
+  (Phases 70, 74, 82)
+- ✓ Multiple users per instance and per host, with per-user visibility of
+  roles and identities (Phases 87, 102, 129)
+- ✓ Preferences modal: voice, notifications, avatar, about-you (Phase 137)
+- ✓ Passthrough URLs for files and served ports (Phases 78, 103)
+- ✓ Markdown (WYSIWYG) and code editing across editor surfaces (Phases 40, 112)
+- ✓ Frontend version-drift lock against stale clients (Phase 132)
+- ✓ Browser RDP/VNC to hosts through guacd
 
 ### Active
 
-<!-- Current scope. Building toward these. -->
+Open campaigns and shapes in `.planning/campaigns/` and `.planning/`:
 
-- [ ] **Pretty session view for Claude Code panes (patch #43)** — see
-  `.planning/shapes/shape-pretty-session-view.md`; native web chat rendering
-  of Claude Code sessions with keyboard-chord toggle from tmux mode; own
-  compose box with no optimism on sends
+- [ ] Un-archiving: sidebar header affordances; agent-side identity
+  un-archive (`campaigns/un-archiving/`)
+- [ ] More file editors: native viewers in the file modal
+  (`campaigns/more-file-editors/`)
+- [ ] ComposeBox cutover to the agent-supervisor inbox
+  (`shape-composebox-cutover.md`, `campaign-composebox-via-agent-supervisor.md`)
+- [ ] Project move affordances (`campaign-project-move-affordances.md`)
 
 ### Out of Scope
 
-<!-- Explicit boundaries. Includes reasoning to prevent re-adding. -->
-
-- Rewriting/replacing upstream Skynet — this is a maintained fork, not a rebrand
-- Changes that break rebase-ability — patches must apply cleanly and stay
-  individually PR-able upstream
-- Speculative features outside user's workflow — no additions for hypothetical users
-- Anything that risks locking user out of the fleet during deploy —
-  deadman rollback covers accidents but the intent is not to court them
+- Non-Claude agent runtimes — the app is built around Claude Code
+  specifically, not as a multi-provider chat client
+- Compatibility with upstream Termix — the codebase has diverged and is not
+  rebased or contributed back
+- The original Termix surfaces (dashboard, host manager, snippets, admin
+  console) — removed in Phases 11–12
+- Telegram bridge and browser Web Push — replaced by ntfy (Phases 128, 144)
+- Bounties as a Skynet concept — retired in Phase 136
+- A database-backed identity registry — identities and pins live on disk
+  (Phases 69, 105)
 
 ## Context
 
-- Fork branch: `feat/tab-title-from-tmux` on `github.com/example-user/Skynet`
-- Upstream: `github.com/Skynet-SSH/Skynet`
-- 42 numbered patches as of 2026-07-17; each patch is PR-able upstream individually
-- Runtime: `skynet-patched:local` docker image built by
-  `/opt/skynet/skynet-patches/build-skynet.sh` and deployed via docker compose
-- Deployed on this EC2 (primary-host), Caddy 2 edge with Let's Encrypt HTTP-01
-- Maintainer: tina identity (this box's whole-box maintainer)
-- Full runbook and per-patch documentation: `/home/ubuntu/AGENTS.md`
-- Design work for in-flight patches lives at `.planning/shapes/shape-*.md`
+- **Shape of a deployment:** one Docker Compose stack per instance —
+  `skynet` (Express backend + built frontend behind nginx), `guacd`,
+  `synapse` (Matrix homeserver), `ntfy`, and `caddy` at the edge. Config and
+  secrets come from `docker/skynet.env`; branding defaults live in
+  `docker/branding-defaults/`.
+- **Hosts:** reached over SSH (typically over a tailnet). Each managed host
+  runs Claude Code in tmux, carries the `~/fleet/` tree (roles, identities,
+  projects, apps, request drop folders), and has substrate installed by the
+  distributor.
+- **Substrate** (`substrate/`): the skills (`id`, `role`, `queue`,
+  `agent-relay`, `app-development`, `interactive-messages`, `image-gen`,
+  `agent-phone`), scripts, and systemd units that run on managed hosts. The
+  agent-supervisor on each host spawns, reconciles, and retires identities.
+- **Planning layout:** numbered phases in `.planning/phases/`; ad-hoc work in
+  `.planning/quick/`; design agreements as `shape-*.md` (`.closed.md` once
+  shipped) in `.planning/shapes/` and `.planning/`; multi-shape efforts in
+  `.planning/campaigns/`. Since roughly Phase 20, each phase's requirements
+  are recorded as D-numbered decisions in its own `CONTEXT.md` rather than as
+  REQ-IDs in `REQUIREMENTS.md`.
+- **Development:** several agents work on the codebase in parallel; phase
+  numbers occasionally collide and are renumbered on landing.
+- **Working branch:** `feat/tab-title-from-tmux`.
 
 ## Constraints
 
-- **Tech stack**: React + TypeScript frontend; Node/Express backend on Drizzle
-  ORM over AES-encrypted SQLite; Docker Compose; Caddy 2 edge; guacd 1.6.0
-  (FreeRDP 2.11.7) for RDP/VNC — the backend session-file work in patch #43
-  goes through the existing SSH exec-channel plumbing, not a new subsystem.
-- **Rebase-ability**: Every fork commit must survive rebases against upstream
-  `main`. Feature commits are numbered and individually PR-able; no squashes.
-- **Deploy safety**: Every `docker compose up -d --force-recreate skynet` runs
-  behind the 15-min deadman rollback timer (`/opt/skynet/.tmp-revert.sh`) —
-  no exceptions, per user 2026-07-03, even when she is at the keyboard.
-- **Blast radius**: A bad deploy loses user access to her whole fleet
-  (Skynet is the gateway to every managed box). Asymmetric risk drives all
-  safety practices.
-- **Encryption**: Skynet stores host credentials + SSH keys in AES-encrypted
-  SQLite (`skynet-data` volume). Backup is daily EBS DLM snapshot of the root
-  volume; no separate DB backup story.
-- **Access model**: EC2 admin is AWS SSM only (no public inbound SSH). Skynet
-  reaches managed targets over Tailscale (not `--accept-routes`).
-- **Nginx caveat**: Every new backend route needs matching `location` blocks
-  in BOTH `docker/nginx.conf` AND `docker/nginx-https.conf`, else it 200s
-  with `index.html` and crashes the frontend on `.map`.
+- **Tech stack:** React + TypeScript (Vite) frontend; Node 22 + Express
+  backend on Drizzle ORM over AES-encrypted SQLite; guacd for RDP/VNC;
+  Synapse for Matrix; ntfy for notifications; Docker Compose; Caddy 2.
+- **Routing:** backend routes are proxied by nginx inside the `skynet`
+  container, configured in both `docker/nginx.conf` and
+  `docker/nginx-https.conf`; a path with no matching `location` falls
+  through to `index.html`.
+- **Blast radius:** a Skynet instance is the user's main way into their
+  hosts, so a broken deploy cuts off access to the whole fleet.
+- **Public repository:** personal and deployment-specific identifiers are
+  checked by `src/backend/no-personal-strings.test.ts` against a banned-list
+  file kept outside the repo.
+- **Credentials:** host credentials and keys are stored encrypted in SQLite
+  (`skynet-data` volume); third-party API keys (AWS, OpenAI, phone provider,
+  SMTP) are held by the backend and never distributed to hosts — hosts reach
+  those services through file-drop brokers.
 
 ## Key Decisions
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Maintain as a numbered-patch fork, not a rewrite | Preserves rebase-ability against upstream + PR-able commits + clear audit trail | ✓ Good — 42 patches shipped, all upstream-PR-able |
-| Mandatory 15-min deadman on every deploy | Asymmetric risk: lose Skynet = lose fleet = can't recover; the timer is the only safety net that survives lockout | ✓ Good — saved 2 known bad deploys |
-| Adopt GSD for the fork (2026-07-17) | Patch #43 is large enough (~500+ lines, backend session-file tail + WS bridge + new pane component + compose box + layout refactor) to justify one-time GSD bootstrap | — Pending |
-| Vertical-MVP phase mode (phase = one patch) | Each shipped patch is an end-to-end user-visible slice; matches how the fork has always worked | — Pending |
-
-## Evolution
-
-This document evolves at phase transitions and milestone boundaries.
-
-**After each phase transition** (via `/gsd-transition`):
-1. Requirements invalidated? → Move to Out of Scope with reason
-2. Requirements validated? → Move to Validated with phase reference
-3. New requirements emerged? → Add to Active
-4. Decisions to log? → Add to Key Decisions
-5. "What This Is" still accurate? → Update if drifted
-
-**After each milestone** (via `/gsd-complete-milestone`):
-1. Full review of all sections
-2. Core Value check — still the right priority?
-3. Audit Out of Scope — reasons still valid?
-4. Update Context with current state
+| Chat view over the Claude Code transcript, terminal one step away | Native web ergonomics (selection, paste, scrolling) without losing tmux | ✓ Pretty view is the primary surface; terminal mounts on demand |
+| Diverge fully from Termix | The product became an agent workspace, not an SSH manager | ✓ Old surfaces purged; no upstream compatibility |
+| Disk on each host is the source of truth for roles, identities, projects, apps, pins | One truth readable by agents and the app alike; no sync layer | ✓ Identities table dropped (69), pins to sentinels (105) |
+| Backend-authoritative state pushed to clients | Client inference from PTY output was unreliable | ✓ Hook-driven status file + fleet-status WS channel |
+| Agent-supervisor is the sole spawner of identities | One place owns lifecycle; Skynet only requests | ✓ Phase 106 |
+| Distributor installs substrate on every host | Hosts stay consistent without manual setup | ✓ Phases 73, 75, 114 |
+| File-drop brokers for paid APIs | Keys stay on the backend; any host can request work | ✓ Spawn, image-gen, phone-call brokers |
+| Optimistic send bubbles, reconciled with the transcript | The original "no optimism" rule made sends feel broken | ✓ Phases 50, 81 reversed the original stance |
+| Plain-DOM windowed pagination instead of virtualization | Virtualization caused correctness bugs with scroll anchoring | ✓ Phases 43, 45 |
+| Managed cloud voice (Nova Sonic STT, Polly TTS) over a local rig | Works on any instance without GPU hosts | ✓ Phases 98, 109 |
+| ntfy for notifications | Browser Web Push was unreliable on iOS; Telegram added infra | ✓ Phase 144 |
+| GSD for planning, one phase per shippable slice | Large multi-file features with many agents working in parallel | ✓ 140+ phases |
 
 ---
-*Last updated: 2026-07-17 after initialization*
+*Rewritten 2026-10-05 to reflect the project as of Phase 144.*
