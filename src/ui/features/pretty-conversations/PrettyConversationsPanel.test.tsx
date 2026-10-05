@@ -4479,6 +4479,8 @@ describe("PrettyConversationsPanel (shape-sidebar-search-inline): sidebar-search
 
     const state = _readSearchState();
     expect(state.query).toBe("gamma");
+    // The sidebar search input is cleared once the escalation fires.
+    expect(input.value).toBe("");
   });
 
   it("S8b: pressing Enter with EMPTY input does NOT open the modal — /close code-review", async () => {
