@@ -298,7 +298,7 @@ describe("CreateRoleDialog", () => {
     // present here keeps a future regression that re-adds it visible.
     expect(
       screen.queryByText(
-        /Roles are the expertise your agents adopt\. Every agent using this role inherits its goals, rules, and knowledge\./,
+        /Roles are the expertise your agents adopt\. Every agent using a role inherits its goals, rules, and knowledge\./,
       ),
     ).toBeNull();
 

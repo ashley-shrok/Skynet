@@ -422,7 +422,7 @@ export function RolesListModal({
           modal-look-unification pattern. */}
       <ModalHead
         title="Roles"
-        subtitle="Roles are the expertise your agents adopt. Every agent using this role inherits its goals, rules, and knowledge."
+        subtitle="Roles are the expertise your agents adopt. Every agent using a role inherits its goals, rules, and knowledge."
         actions={
           <button
             type="button"
