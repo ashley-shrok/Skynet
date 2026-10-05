@@ -97,7 +97,7 @@ const entryPatched = patchFile(entryPath, [
 
 if (macrosPatched || helpersPatched || entryPatched) {
   console.log(
-    "[patch-better-sqlite3] Applied compatibility patches for newer Electron/V8",
+    "[patch-better-sqlite3] Applied compatibility patches for newer V8",
   );
 } else {
   console.log(

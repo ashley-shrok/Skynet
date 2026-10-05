@@ -26,26 +26,6 @@
     "failedToLoadAlerts": "Fehler beim Laden der Warnungen",
     "failedToDismissAlert": "Fehler beim Ausblenden der Warnung"
   },
-  "serverConfig": {
-    "title": "Serverkonfiguration",
-    "description": "Konfigurieren Sie die Skynet-Server-URL für eine Verbindung zu Ihren Backend-Diensten",
-    "serverUrl": "Server-URL",
-    "enterServerUrl": "Bitte geben Sie eine Server-URL ein",
-    "saveFailed": "Fehler beim Speichern der Konfiguration",
-    "saveError": "Fehler beim Speichern der Konfiguration",
-    "saving": "Speichern...",
-    "saveConfig": "Konfiguration speichern",
-    "helpText": "Geben Sie die URL ein, auf der Ihr Skynet Server läuft (z.B. http://localhost:30001 oder https://your-server.com)",
-    "changeServer": "Server ändern",
-    "mustIncludeProtocol": "Server-URL muss mit http:// oder https:// beginnen",
-    "allowInvalidCertificate": "Ungültiges Zertifikat zulassen",
-    "allowInvalidCertificateDesc": "Nur für vertrauenswürdige, selbstgehostete Server mit selbstsignierten oder IP-Adresszertifikaten verwenden.",
-    "useEmbedded": "Lokalen Server verwenden",
-    "embeddedDesc": "Starte Skynet mit dem eingebauten lokalen Server (kein entfernter Server benötigt)",
-    "embeddedConnecting": "Verbindung zum lokalen Server...",
-    "embeddedNotReady": "Lokaler Server ist noch nicht bereit. Bitte warten Sie einen Moment und versuchen Sie es erneut.",
-    "localServer": "Lokaler Server"
-  },
   "versionCheck": {
     "error": "Versionsüberprüfungsfehler",
     "checkFailed": "Fehler bei der Suche nach Updates",
@@ -57,17 +37,13 @@
     "betaVersionDesc": "Sie verwenden {{current}}, was neuer ist als die neueste stabile Version {{latest}}.",
     "releasedOn": "Veröffentlicht am {{date}}",
     "downloadUpdate": "Update herunterladen",
-    "checking": "Suche nach Updates...",
-    "checkUpdates": "Nach Updates suchen",
-    "checkingUpdates": "Suche nach Updates...",
-    "updateRequired": "Update erforderlich"
+    "checking": "Suche nach Updates..."
   },
   "common": {
     "close": "Schließen",
     "minimize": "Minimize",
     "online": "Online",
     "offline": "Offline",
-    "continue": "Weiter",
     "maintenance": "Wartung",
     "degraded": "Degradiert",
     "error": "Fehler",
@@ -99,11 +75,9 @@
     "saving": "Speichern...",
     "delete": "Löschen",
     "rename": "Umbenennen",
-    "edit": "Bearbeiten",
     "add": "Neu",
     "confirm": "Bestätigen",
     "no": "Nein",
-    "or": "ODER",
     "next": "Nächste",
     "previous": "Vorherige",
     "refresh": "Aktualisieren",
@@ -918,7 +892,6 @@
     "external": "Externe",
     "loginWithExternal": "Mit externem Anbieter anmelden",
     "loginWithExternalDesc": "Melden Sie sich mit Ihrem konfigurierten externen Identity Provider an",
-    "externalNotSupportedInElectron": "Externe Authentifizierung wird in der Electron-App noch nicht unterstützt. Bitte verwenden Sie die Web-Version für OIDC-Login.",
     "resetPasswordButton": "Passwort zurücksetzen",
     "sendResetCode": "Sende Reset-Code",
     "resetCodeDesc": "Geben Sie Ihren Benutzernamen ein, um einen Code zum Zurücksetzen des Passworts zu erhalten. Der Code wird in die Docker Containerprotokolle eingeloggt.",
@@ -973,8 +946,7 @@
     "totpRateLimitedWithTime": "Rate begrenzt: Zu viele TOTP-Verifizierungsversuche. Bitte warten Sie {{time}} Sekunden, bevor Sie es erneut versuchen.",
     "resetCodeRateLimited": "Rate begrenzt: Zu viele Verifizierungsversuche. Bitte versuchen Sie es später erneut.",
     "resetCodeRateLimitedWithTime": "Rate begrenzt: Zu viele Verifizierungsversuche. Bitte warten Sie {{time}} Sekunden, bevor Sie es erneut versuchen.",
-    "authTokenSaveFailed": "Authentifizierungstoken konnte nicht gespeichert werden",
-    "failedToLoadServer": "Fehler beim Laden des Servers"
+    "authTokenSaveFailed": "Authentifizierungstoken konnte nicht gespeichert werden"
   },
   "messages": {
     "registrationDisabled": "Die Registrierung eines neuen Kontos ist derzeit von einem Administrator deaktiviert. Bitte melden Sie sich an oder kontaktieren Sie einen Administrator.",

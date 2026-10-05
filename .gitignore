@@ -23,13 +23,11 @@ coverage
 *.sw?
 
 /db/
-/release/
 /.claude/
 /ssl/
 /uploads/
 /nul
 .env
-electron/build-info.cjs
 /.mcp.json
 /CLAUDE.md
 /old_db/

@@ -26,26 +26,6 @@
     "failedToLoadAlerts": "Peringatan gagal dimuat.",
     "failedToDismissAlert": "Gagal menutup peringatan"
   },
-  "serverConfig": {
-    "title": "Konfigurasi Server",
-    "description": "Konfigurasikan URL server Skynet untuk terhubung ke layanan backend Anda.",
-    "serverUrl": "URL Server",
-    "enterServerUrl": "Silakan masukkan URL server",
-    "saveFailed": "Gagal menyimpan konfigurasi",
-    "saveError": "Terjadi kesalahan saat menyimpan konfigurasi.",
-    "saving": "Penghematan...",
-    "saveConfig": "Simpan Konfigurasi",
-    "helpText": "Masukkan URL tempat server Skynet Anda berjalan (misalnya, http://localhost:30001 atau https://your-server.com)",
-    "changeServer": "Ubah Server",
-    "mustIncludeProtocol": "URL server harus diawali dengan http:// atau https://",
-    "allowInvalidCertificate": "Izinkan sertifikat tidak valid",
-    "allowInvalidCertificateDesc": "Gunakan hanya untuk server mandiri tepercaya dengan sertifikat yang ditandatangani sendiri atau sertifikat alamat IP.",
-    "useEmbedded": "Gunakan Server Lokal",
-    "embeddedDesc": "Jalankan Skynet dengan server lokal bawaan (tidak memerlukan server jarak jauh)",
-    "embeddedConnecting": "Menghubungkan ke server lokal...",
-    "embeddedNotReady": "Server lokal belum siap. Mohon tunggu sebentar dan coba lagi.",
-    "localServer": "Server Lokal"
-  },
   "versionCheck": {
     "error": "Kesalahan Pemeriksaan Versi",
     "checkFailed": "Gagal memeriksa pembaruan.",
@@ -57,17 +37,13 @@
     "betaVersionDesc": "Anda menjalankan {{current}}, yang lebih baru daripada rilis stabil terbaru {{latest}}.",
     "releasedOn": "Dirilis pada {{date}}",
     "downloadUpdate": "Unduh Pembaruan",
-    "checking": "Memeriksa pembaruan...",
-    "checkUpdates": "Periksa Pembaruan",
-    "checkingUpdates": "Memeriksa pembaruan...",
-    "updateRequired": "Pembaruan Diperlukan"
+    "checking": "Memeriksa pembaruan..."
   },
   "common": {
     "close": "Menutup",
     "minimize": "Memperkecil",
     "online": "On line",
     "offline": "Offline",
-    "continue": "Melanjutkan",
     "maintenance": "Pemeliharaan",
     "degraded": "Terdegradasi",
     "error": "Kesalahan",
@@ -99,11 +75,9 @@
     "saving": "Penghematan...",
     "delete": "Menghapus",
     "rename": "Ganti nama",
-    "edit": "Edit",
     "add": "Menambahkan",
     "confirm": "Mengonfirmasi",
     "no": "TIDAK",
-    "or": "ATAU",
     "next": "Berikutnya",
     "previous": "Sebelumnya",
     "refresh": "Menyegarkan",
@@ -918,7 +892,6 @@
     "external": "Luar",
     "loginWithExternal": "Masuk dengan Penyedia Eksternal",
     "loginWithExternalDesc": "Masuk menggunakan penyedia identitas eksternal yang telah Anda konfigurasi.",
-    "externalNotSupportedInElectron": "Autentikasi eksternal belum didukung di aplikasi Electron. Silakan gunakan versi web untuk login OIDC.",
     "resetPasswordButton": "Atur Ulang Kata Sandi",
     "sendResetCode": "Kirim Kode Reset",
     "resetCodeDesc": "Masukkan nama pengguna Anda untuk menerima kode pengaturan ulang kata sandi. Kode tersebut akan tercatat dalam log kontainer Docker.",
@@ -973,8 +946,7 @@
     "totpRateLimitedWithTime": "Pembatasan laju: Terlalu banyak upaya verifikasi TOTP. Harap tunggu {{time}} detik sebelum mencoba lagi.",
     "resetCodeRateLimited": "Pembatasan laju: Terlalu banyak upaya verifikasi. Silakan coba lagi nanti.",
     "resetCodeRateLimitedWithTime": "Pembatasan laju: Terlalu banyak upaya verifikasi. Harap tunggu {{time}} detik sebelum mencoba lagi.",
-    "authTokenSaveFailed": "Gagal menyimpan token otentikasi.",
-    "failedToLoadServer": "Server gagal dimuat."
+    "authTokenSaveFailed": "Gagal menyimpan token otentikasi."
   },
   "messages": {
     "registrationDisabled": "Pendaftaran akun baru saat ini dinonaktifkan oleh administrator. Silakan masuk atau hubungi administrator.",

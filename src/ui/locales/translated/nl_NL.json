@@ -26,26 +26,6 @@
     "failedToLoadAlerts": "Laden van waarschuwingen mislukt",
     "failedToDismissAlert": "Waarschuwing sluiten mislukt"
   },
-  "serverConfig": {
-    "title": "Server Configuratie",
-    "description": "Configureer de Skynet-server-URL om verbinding te maken met uw backend-services",
-    "serverUrl": "Server URL",
-    "enterServerUrl": "Voer een server-URL in",
-    "saveFailed": "Configuratie opslaan mislukt",
-    "saveError": "Fout bij opslaan configuratie",
-    "saving": "Opslaan...",
-    "saveConfig": "Configuratie opslaan",
-    "helpText": "Voer de URL in waar uw Skynet server draait (bijv. http://localhost:30001 of https://your-server.com)",
-    "changeServer": "Server wijzigen",
-    "mustIncludeProtocol": "De server-URL moet beginnen met http:// of https://",
-    "allowInvalidCertificate": "Ongeldig certificaat toestaan",
-    "allowInvalidCertificateDesc": "Uitsluitend te gebruiken voor vertrouwde, zelfgehoste servers met zelfondertekende certificaten of IP-adrescertificaten.",
-    "useEmbedded": "Lokale server gebruiken",
-    "embeddedDesc": "Voer Skynet uit met de ingebouwde lokale server (geen externe server nodig)",
-    "embeddedConnecting": "Verbinden met lokale server...",
-    "embeddedNotReady": "Lokale server is nog niet klaar. Wacht even en probeer het opnieuw.",
-    "localServer": "Lokale Server"
-  },
   "versionCheck": {
     "error": "Versie controle fout",
     "checkFailed": "Controleren op updates mislukt",
@@ -57,17 +37,13 @@
     "betaVersionDesc": "Je gebruikt {{current}}, die nieuwer is dan de laatste stabiele versie {{latest}}.",
     "releasedOn": "Uitgebracht op {{date}}",
     "downloadUpdate": "Update downloaden",
-    "checking": "Controleren op updates...",
-    "checkUpdates": "Controleren op updates",
-    "checkingUpdates": "Controleren op updates...",
-    "updateRequired": "Update vereist"
+    "checking": "Controleren op updates..."
   },
   "common": {
     "close": "Afsluiten",
     "minimize": "Minimize",
     "online": "Online",
     "offline": "Offline",
-    "continue": "Doorgaan",
     "maintenance": "Onderhoud",
     "degraded": "Verminderde",
     "error": "Foutmelding",
@@ -99,11 +75,9 @@
     "saving": "Opslaan...",
     "delete": "Verwijderen",
     "rename": "Hernoem",
-    "edit": "Bewerken",
     "add": "Toevoegen",
     "confirm": "Bevestigen",
     "no": "Neen",
-    "or": "of",
     "next": "Volgende",
     "previous": "named@@0",
     "refresh": "Vernieuwen",
@@ -918,7 +892,6 @@
     "external": "Extern",
     "loginWithExternal": "Inloggen met externe provider",
     "loginWithExternalDesc": "Login met behulp van uw geconfigureerde externe identiteitsprovider",
-    "externalNotSupportedInElectron": "Externe authenticatie wordt nog niet ondersteund in de Electron app. Gebruik de web versie voor OIDC login.",
     "resetPasswordButton": "Wachtwoord opnieuw instellen",
     "sendResetCode": "Reset-code verzenden",
     "resetCodeDesc": "Voer uw gebruikersnaam in om een wachtwoord reset code te ontvangen. De code zal worden ingelogd in de container logs van de koppeler.",
@@ -973,8 +946,7 @@
     "totpRateLimitedWithTime": "Tarief beperkt: te veel TOTP verificatiepogingen. Wacht {{time}} seconden voordat u het opnieuw probeert.",
     "resetCodeRateLimited": "Snelheid beperkt: Te veel verificatiepogingen. Probeer het later opnieuw.",
     "resetCodeRateLimitedWithTime": "Tarief beperkt: Te veel verificatiepogingen. Wacht {{time}} seconden voordat u het opnieuw probeert.",
-    "authTokenSaveFailed": "Authenticatietoken opslaan mislukt",
-    "failedToLoadServer": "Kon server niet laden"
+    "authTokenSaveFailed": "Authenticatietoken opslaan mislukt"
   },
   "messages": {
     "registrationDisabled": "Nieuwe accountregistratie is momenteel uitgeschakeld door een beheerder. Log in of neem contact op met een beheerder.",

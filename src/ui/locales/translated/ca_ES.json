@@ -26,26 +26,6 @@
     "failedToLoadAlerts": "No s'han pogut carregar les alertes",
     "failedToDismissAlert": "No s'ha pogut ignorar l'alerta"
   },
-  "serverConfig": {
-    "title": "Configuració del servidor",
-    "description": "Configureu l'URL del servidor Skynet per connectar-vos als vostres serveis de backend",
-    "serverUrl": "URL del servidor",
-    "enterServerUrl": "Si us plau, introduïu una URL de servidor",
-    "saveFailed": "No s'ha pogut desar la configuració",
-    "saveError": "S'ha produït un error en desar la configuració",
-    "saving": "Desant...",
-    "saveConfig": "Desa la configuració",
-    "helpText": "Introduïu l'URL on s'executa el vostre servidor Skynet (per exemple, http://localhost:30001 o https://el-vostre-servidor.com)",
-    "changeServer": "Canviar servidor",
-    "mustIncludeProtocol": "L'URL del servidor ha de començar per http:// o https://",
-    "allowInvalidCertificate": "Permetre certificat no vàlid",
-    "allowInvalidCertificateDesc": "Utilitzeu-ho només per a servidors autoallotjats de confiança amb certificats autosignats o d'adreça IP.",
-    "useEmbedded": "Utilitza el servidor local",
-    "embeddedDesc": "Executeu Skynet amb el servidor local integrat (no cal cap servidor remot)",
-    "embeddedConnecting": "Connectant al servidor local...",
-    "embeddedNotReady": "El servidor local encara no està a punt. Espereu un moment i torneu-ho a intentar.",
-    "localServer": "Servidor local"
-  },
   "versionCheck": {
     "error": "Error de comprovació de versió",
     "checkFailed": "No s'ha pogut comprovar si hi ha actualitzacions",
@@ -57,17 +37,13 @@
     "betaVersionDesc": "Esteu executant {{current}}, que és més recent que l'última versió estable {{latest}}.",
     "releasedOn": "Publicat el {{date}}",
     "downloadUpdate": "Descarrega l'actualització",
-    "checking": "S'estan buscant actualitzacions...",
-    "checkUpdates": "Comprova si hi ha actualitzacions",
-    "checkingUpdates": "S'estan buscant actualitzacions...",
-    "updateRequired": "Actualització necessària"
+    "checking": "S'estan buscant actualitzacions..."
   },
   "common": {
     "close": "Tanca",
     "minimize": "Minimitzar",
     "online": "En línia",
     "offline": "Fora de línia",
-    "continue": "Continua",
     "maintenance": "Manteniment",
     "degraded": "Degradat",
     "error": "Error",
@@ -99,11 +75,9 @@
     "saving": "Desant...",
     "delete": "Suprimeix",
     "rename": "Canvia el nom",
-    "edit": "Edita",
     "add": "Afegeix",
     "confirm": "Confirma",
     "no": "No",
-    "or": "O",
     "next": "Següent",
     "previous": "Anterior",
     "refresh": "Actualitza",
@@ -918,7 +892,6 @@
     "external": "Extern",
     "loginWithExternal": "Inicia la sessió amb un proveïdor extern",
     "loginWithExternalDesc": "Inicia la sessió amb el proveïdor d'identitat extern configurat",
-    "externalNotSupportedInElectron": "L'autenticació externa encara no és compatible amb l'aplicació Electron. Si us plau, utilitzeu la versió web per iniciar sessió a OIDC.",
     "resetPasswordButton": "Restablir contrasenya",
     "sendResetCode": "Enviar codi de restabliment",
     "resetCodeDesc": "Introdueix el teu nom d'usuari per rebre un codi de restabliment de contrasenya. El codi es registrarà als registres del contenidor Docker.",
@@ -973,8 +946,7 @@
     "totpRateLimitedWithTime": "Tarifa limitada: massa intents de verificació TOTP. Espereu {{time}} segons abans de tornar-ho a intentar.",
     "resetCodeRateLimited": "Tarifa limitada: massa intents de verificació. Torna-ho a provar més tard.",
     "resetCodeRateLimitedWithTime": "Taxa limitada: massa intents de verificació. Espereu {{time}} segons abans de tornar-ho a intentar.",
-    "authTokenSaveFailed": "No s'ha pogut desar el testimoni d'autenticació",
-    "failedToLoadServer": "No s'ha pogut carregar el servidor"
+    "authTokenSaveFailed": "No s'ha pogut desar el testimoni d'autenticació"
   },
   "messages": {
     "registrationDisabled": "El registre de comptes nous està desactivat actualment per un administrador. Si us plau, inicia la sessió o contacta amb un administrador.",

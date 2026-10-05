@@ -3,7 +3,6 @@ import type { Request, Response, NextFunction } from "express";
 import { getRequestOrigin } from "./request-origin.js";
 
 const DEV_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"];
-const ELECTRON_FILE_ORIGIN = "file://";
 
 // Phase 103 D-07: primary domain refuses CORS for any *.serve.<domain>
 // origin. This blocks CSRF from serve subdomains at the browser preflight
@@ -70,8 +69,6 @@ export function createCorsMiddleware(
         if (isLocalRequest(req)) return callback(null, true);
 
         if (DEV_ORIGINS.includes(origin)) return callback(null, true);
-        if (origin.startsWith(ELECTRON_FILE_ORIGIN))
-          return callback(null, true);
 
         const configured = getAllowedOrigins();
         if (configured.includes("*") || configured.includes(origin))

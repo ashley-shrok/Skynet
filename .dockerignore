@@ -38,9 +38,6 @@ repo-images/
 
 uploads/
 
-electron/
-electron-builder.json
-
 *.log
 *.tmp
 *.temp

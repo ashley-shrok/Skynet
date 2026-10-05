@@ -26,26 +26,6 @@
     "failedToLoadAlerts": "알림을 불러오는 데 실패했습니다.",
     "failedToDismissAlert": "알림을 닫는 데 실패했습니다."
   },
-  "serverConfig": {
-    "title": "서버 설정",
-    "description": "백엔드 서비스에 연결할 Skynet 서버 URL을 설정하세요.",
-    "serverUrl": "서버 URL",
-    "enterServerUrl": "서버 URL을 입력해 주세요",
-    "saveFailed": "설정을 저장하는 데 실패했습니다.",
-    "saveError": "설정 저장 오류",
-    "saving": "저장 중...",
-    "saveConfig": "설정 저장",
-    "helpText": "Skynet 서버가 실행 중인 URL을 입력하세요(예: http://localhost:30001 또는 https://your-server.com).",
-    "changeServer": "서버 변경",
-    "mustIncludeProtocol": "서버 URL은 http:// 또는 https://로 시작해야 합니다.",
-    "allowInvalidCertificate": "유효하지 않은 인증서를 허용합니다",
-    "allowInvalidCertificateDesc": "자체 서명 인증서 또는 IP 주소 인증서를 사용하는 신뢰할 수 있는 자체 호스팅 서버에서만 사용하십시오.",
-    "useEmbedded": "로컬 서버 사용",
-    "embeddedDesc": "Skynet를 내장된 로컬 서버로 실행하세요(원격 서버는 필요하지 않습니다).",
-    "embeddedConnecting": "로컬 서버에 연결 중...",
-    "embeddedNotReady": "로컬 서버가 아직 준비되지 않았습니다. 잠시 기다렸다가 다시 시도해 주세요.",
-    "localServer": "로컬 서버"
-  },
   "versionCheck": {
     "error": "버전 확인 오류",
     "checkFailed": "업데이트 확인에 실패했습니다",
@@ -57,17 +37,13 @@
     "betaVersionDesc": "현재 실행 중인 버전은 {{current}}이며, 이는 최신 안정 버전인 {{latest}}보다 최신 버전입니다.",
     "releasedOn": "{{date}}에 출시됨",
     "downloadUpdate": "업데이트 다운로드",
-    "checking": "업데이트를 확인하는 중...",
-    "checkUpdates": "업데이트 확인",
-    "checkingUpdates": "업데이트를 확인하는 중...",
-    "updateRequired": "업데이트 필요"
+    "checking": "업데이트를 확인하는 중..."
   },
   "common": {
     "close": "닫기",
     "minimize": "최소화",
     "online": "온라인",
     "offline": "오프라인",
-    "continue": "계속",
     "maintenance": "유지보수",
     "degraded": "성능 저하",
     "error": "오류",
@@ -99,11 +75,9 @@
     "saving": "저장 중...",
     "delete": "삭제",
     "rename": "이름 변경",
-    "edit": "편집",
     "add": "추가",
     "confirm": "확인",
     "no": "아니요",
-    "or": "또는",
     "next": "다음",
     "previous": "이전",
     "refresh": "새로고침",
@@ -918,7 +892,6 @@
     "external": "외부",
     "loginWithExternal": "외부 제공업체로 로그인",
     "loginWithExternalDesc": "구성된 외부 ID 공급자를 사용하여 로그인하세요.",
-    "externalNotSupportedInElectron": "Electron 앱에서는 아직 외부 인증이 지원되지 않습니다. OIDC 로그인을 위해서는 웹 버전을 이용해 주세요.",
     "resetPasswordButton": "비밀번호 재설정",
     "sendResetCode": "재설정 코드 전송",
     "resetCodeDesc": "사용자 이름을 입력하여 비밀번호 재설정 코드를 받으세요. 코드는 Docker 컨테이너 로그에 기록됩니다.",
@@ -973,8 +946,7 @@
     "totpRateLimitedWithTime": "시도 횟수 제한: TOTP 인증 시도 횟수가 너무 많습니다. 다시 시도하기 전에 {{time}} 초 동안 기다려 주세요.",
     "resetCodeRateLimited": "시도 횟수 제한: 인증 시도 횟수가 너무 많습니다. 나중에 다시 시도해 주세요.",
     "resetCodeRateLimitedWithTime": "시도 횟수 제한: 인증 시도 횟수가 너무 많습니다. 다시 시도하기 전에 {{time}} 초 동안 기다려 주세요.",
-    "authTokenSaveFailed": "인증 토큰 저장에 실패했습니다.",
-    "failedToLoadServer": "서버 로드 실패"
+    "authTokenSaveFailed": "인증 토큰 저장에 실패했습니다."
   },
   "messages": {
     "registrationDisabled": "관리자에 의해 신규 계정 등록이 현재 비활성화되었습니다. 로그인하시거나 관리자에게 문의해 주세요.",

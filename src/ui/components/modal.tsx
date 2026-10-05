@@ -34,7 +34,7 @@ import { cn } from "@/lib/utils";
 // Modal instance — closes are always via the close-X or Esc. This is a
 // unified rule (2026-09-29): no per-modal opt-in, no exception. Passing
 // `dismissible={false}` additionally blocks Esc + close-X, reserved for
-// required-shell modals (SkewLockModal, ElectronVersionCheck) where the
+// required-shell modals (e.g. SkewLockModal) where the
 // user must resolve the modal before continuing.
 //
 // Every modal is blocking. There is NO `blocking={false}` escape hatch
@@ -111,7 +111,7 @@ interface ModalProps
   size?: ModalSize;
   /** When false, ESC + close-X do NOT dismiss the modal. Backdrop click
    *  is ALWAYS blocked regardless of this flag (see file header). Reserved
-   *  for required-shell modals (SkewLockModal, ElectronVersionCheck). */
+   *  for required-shell modals (e.g. SkewLockModal). */
   dismissible?: boolean;
   /** Portal container. Defaults to document.body. */
   container?: HTMLElement | null;

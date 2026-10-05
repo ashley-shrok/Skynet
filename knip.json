@@ -5,15 +5,13 @@
     "src/backend/swagger.ts",
     "scripts/**/*.cjs"
   ],
-  "project": ["src/**/*.{ts,tsx}", "electron/**/*.cjs", "scripts/**/*.cjs"],
-  "ignoreBinaries": ["powershell"],
+  "project": ["src/**/*.{ts,tsx}", "scripts/**/*.cjs"],
   "ignoreDependencies": [
     "@codemirror/autocomplete",
     "@codemirror/commands",
     "@codemirror/search",
     "@codemirror/theme-one-dark",
     "@codemirror/view",
-    "@electron/notarize",
     "@monaco-editor/react",
     "@radix-ui/react-accordion",
     "@radix-ui/react-alert-dialog",

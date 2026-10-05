@@ -6,7 +6,6 @@
  *   B. Copy button present with stable data-testid.
  *   C. Click copies plain text via navigator.clipboard.writeText.
  *   D. Copied affordance appears then reverts after 1500ms (fake timers).
- *   E. window.electronClipboard path preferred when available.
  *   F. Rejection from clipboard.writeText is swallowed (no unhandled promise rejection).
  *
  * NOTE on mocking navigator.clipboard in vitest jsdom:
@@ -71,8 +70,6 @@ function mockNavigatorClipboard(writeImpl: () => Promise<void>): {
 
 afterEach(() => {
   cleanup();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  delete (window as any).electronClipboard;
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -206,39 +203,6 @@ describe("CopyableBlock", () => {
       expect(screen.getByRole("button", { name: /copy/i })).not.toBeNull();
       expect(screen.queryByTestId("copyable-block-check")).toBeNull();
     });
-  });
-
-  // Test E: when window.electronClipboard is available, it is preferred over
-  // navigator.clipboard.writeText.
-  it("E: prefers window.electronClipboard.writeText when available", async () => {
-    const { writeText: navWriteText, restore } = mockNavigatorClipboard(() =>
-      Promise.resolve(),
-    );
-    const electronWriteText = vi.fn().mockResolvedValue(true);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (window as any).electronClipboard = {
-      writeText: electronWriteText,
-      readText: vi.fn(),
-    };
-
-    try {
-      const user = userEvent.setup();
-
-      render(
-        <CopyableBlock as="pre">
-          <code>electron path</code>
-        </CopyableBlock>,
-      );
-
-      await user.click(screen.getByTestId("copyable-block-copy"));
-
-      expect(electronWriteText).toHaveBeenCalledTimes(1);
-      expect(navWriteText).not.toHaveBeenCalled();
-    } finally {
-      restore();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      delete (window as any).electronClipboard;
-    }
   });
 
   // Test F: when navigator.clipboard.writeText rejects, the button stays in

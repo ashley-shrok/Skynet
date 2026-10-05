@@ -26,26 +26,6 @@
     "failedToLoadAlerts": "Încărcarea alertelor a eșuat",
     "failedToDismissAlert": "Eroare la respingerea alertei"
   },
-  "serverConfig": {
-    "title": "Configurare server",
-    "description": "Configuraţi URL-ul serverului de Skynet pentru a vă conecta la serviciile de backend",
-    "serverUrl": "URL Server",
-    "enterServerUrl": "Te rog introdu un URL de server",
-    "saveFailed": "Salvarea configurației a eșuat",
-    "saveError": "Eroare la salvarea configurației",
-    "saving": "Salvare...",
-    "saveConfig": "Salvați configurația",
-    "helpText": "Introduceți adresa URL unde funcționează serverul dvs. Skynet (de exemplu, http://localhost:30001 sau https://your-server.com)",
-    "changeServer": "Schimbă Server",
-    "mustIncludeProtocol": "URL-ul serverului trebuie să înceapă cu http:// sau http://",
-    "allowInvalidCertificate": "Permiteți certificatul nevalid",
-    "allowInvalidCertificateDesc": "A se utiliza numai pentru servere auto-găzduite de încredere, cu certificate autosemnate sau cu adresă IP.",
-    "useEmbedded": "Utilizare server local",
-    "embeddedDesc": "Rulează Skynet cu serverul local încorporat (nu este nevoie de niciun server de la distanță)",
-    "embeddedConnecting": "Conectare la serverul local...",
-    "embeddedNotReady": "Serverul local nu este încă gata. Vă rugăm să aşteptaţi un moment şi să încercaţi din nou.",
-    "localServer": "Server local"
-  },
   "versionCheck": {
     "error": "Eroare la verificarea versiunii",
     "checkFailed": "Verificarea actualizărilor a eșuat",
@@ -57,17 +37,13 @@
     "betaVersionDesc": "Rulați {{current}}, care este mai nou decât cea mai recentă versiune stabilă {{latest}}.",
     "releasedOn": "Publicat pe {{date}}",
     "downloadUpdate": "Descarcă actualizare",
-    "checking": "Se caută actualizări...",
-    "checkUpdates": "Verifică pentru actualizări",
-    "checkingUpdates": "Se caută actualizări...",
-    "updateRequired": "Actualizare necesară"
+    "checking": "Se caută actualizări..."
   },
   "common": {
     "close": "Inchide",
     "minimize": "Minimize",
     "online": "Online",
     "offline": "Offline",
-    "continue": "Continuă",
     "maintenance": "Mentenanţă",
     "degraded": "Degradat",
     "error": "Eroare",
@@ -99,11 +75,9 @@
     "saving": "Salvare...",
     "delete": "Ștergere",
     "rename": "Redenumire",
-    "edit": "Editare",
     "add": "Adăugare",
     "confirm": "Confirmare",
     "no": "Nr",
-    "or": "SAU",
     "next": "Următoarea",
     "previous": "Anterior",
     "refresh": "Împrospătează",
@@ -918,7 +892,6 @@
     "external": "Extern",
     "loginWithExternal": "Autentificare cu furnizor extern",
     "loginWithExternalDesc": "Autentifică-te folosind furnizorul de identitate extern configurat",
-    "externalNotSupportedInElectron": "Autentificarea externă nu este încă acceptată în aplicația Electron. Vă rugăm să folosiți versiunea web pentru autentificarea OIDC.",
     "resetPasswordButton": "Resetare parolă",
     "sendResetCode": "Trimite codul de resetare",
     "resetCodeDesc": "Introdu numele tău de utilizator pentru a primi un cod de resetare a parolei. Codul va fi autentificat în jurnalele containerelor de andocare.",
@@ -973,8 +946,7 @@
     "totpRateLimitedWithTime": "Evaluare limitată: Prea multe încercări de verificare TOTP. Vă rugăm să așteptați {{time}} secunde înainte de a încerca din nou.",
     "resetCodeRateLimited": "Evaluare limitată: Prea multe încercări de verificare. Vă rugăm să încercați din nou mai târziu.",
     "resetCodeRateLimitedWithTime": "Evaluare limitată: Prea multe încercări de verificare. Vă rugăm să așteptați {{time}} secunde înainte de a încerca din nou.",
-    "authTokenSaveFailed": "Salvarea token-ului de autentificare a eșuat",
-    "failedToLoadServer": "Încărcarea serverului a eșuat"
+    "authTokenSaveFailed": "Salvarea token-ului de autentificare a eșuat"
   },
   "messages": {
     "registrationDisabled": "Înregistrarea unui cont nou este momentan dezactivată de un administrator. Vă rugăm să vă autentificați sau să contactați un administrator.",

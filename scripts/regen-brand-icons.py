@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Regenerate every Skynet public/ icon asset (+ src/ui/assets/skynet-logo.svg)
 # from the source files in scripts/brand-source/. Run any time the brand mark
-# changes so all favicon / apple-touch-icon / PWA / Electron icon variants stay
+# changes so all favicon / apple-touch-icon / PWA icon variants stay
 # in sync from a single source.
 #
 # Requirements: Pillow (`pip install pillow`).
@@ -37,14 +37,12 @@ def resize_on_dark(size, pad_frac=0.08):
 
 
 # Transparent variants: favicon (browser paints bg), PWA manifest icons
-# (Android uses manifest.background_color), Electron.
+# (Android uses manifest.background_color).
 TRANSPARENT_SIZES = {
     "favicon-16.png": 16,
     "favicon-32.png": 32,
     "apple-touch-icon-192.png": 192,
     "apple-touch-icon-512.png": 512,
-    "icon.png": 600,
-    "icon-mac.png": 600,
     "full-icon.png": 600,
 }
 

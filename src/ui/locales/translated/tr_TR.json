@@ -26,26 +26,6 @@
     "failedToLoadAlerts": "Uyarılar yüklenemedi.",
     "failedToDismissAlert": "Uyarıyı kapatma başarısız oldu."
   },
-  "serverConfig": {
-    "title": "Sunucu Yapılandırması",
-    "description": "Skynet sunucu URL'sini arka uç servislerinize bağlanacak şekilde yapılandırın.",
-    "serverUrl": "Sunucu URL'si",
-    "enterServerUrl": "Lütfen bir sunucu URL'si girin.",
-    "saveFailed": "Yapılandırma kaydedilemedi.",
-    "saveError": "Yapılandırma kaydedilirken hata oluştu.",
-    "saving": "Tasarruf...",
-    "saveConfig": "Yapılandırmayı Kaydet",
-    "helpText": "Skynet sunucunuzun çalıştığı URL adresini girin (örneğin, http://localhost:30001 veya https://your-server.com).",
-    "changeServer": "Sunucuyu Değiştir",
-    "mustIncludeProtocol": "Sunucu URL'si http:// veya https:// ile başlamalıdır.",
-    "allowInvalidCertificate": "Geçersiz sertifikaya izin ver",
-    "allowInvalidCertificateDesc": "Yalnızca kendinden imzalı veya IP adresi sertifikalarına sahip, güvenilir, kendi sunucunuzda barındırdığınız sunucular için kullanın.",
-    "useEmbedded": "Yerel Sunucuyu Kullanın",
-    "embeddedDesc": "Skynet'i yerleşik yerel sunucu ile çalıştırın (uzaktan sunucuya gerek yok).",
-    "embeddedConnecting": "Yerel sunucuya bağlanılıyor...",
-    "embeddedNotReady": "Yerel sunucu henüz hazır değil. Lütfen bir süre bekleyin ve tekrar deneyin.",
-    "localServer": "Yerel Sunucu"
-  },
   "versionCheck": {
     "error": "Sürüm Kontrol Hatası",
     "checkFailed": "Güncellemeleri kontrol etme başarısız oldu.",
@@ -57,17 +37,13 @@
     "betaVersionDesc": "Şu anda çalıştırdığınız sürüm {{current}}, en son kararlı sürüm olan {{latest}}'den daha yenidir.",
     "releasedOn": "{{date}} tarihinde yayınlandı",
     "downloadUpdate": "Güncellemeyi İndir",
-    "checking": "Güncellemeler kontrol ediliyor...",
-    "checkUpdates": "Güncellemeleri kontrol edin",
-    "checkingUpdates": "Güncellemeler kontrol ediliyor...",
-    "updateRequired": "Güncelleme Gerekli"
+    "checking": "Güncellemeler kontrol ediliyor..."
   },
   "common": {
     "close": "Kapalı",
     "minimize": "En aza indirge",
     "online": "Çevrimiçi",
     "offline": "Çevrimdışı",
-    "continue": "Devam etmek",
     "maintenance": "Bakım",
     "degraded": "Bozulmuş",
     "error": "Hata",
@@ -99,11 +75,9 @@
     "saving": "Tasarruf...",
     "delete": "Silmek",
     "rename": "Yeniden isimlendirmek",
-    "edit": "Düzenlemek",
     "add": "Eklemek",
     "confirm": "Onaylamak",
     "no": "HAYIR",
-    "or": "VEYA",
     "next": "Sonraki",
     "previous": "Öncesi",
     "refresh": "Yenile",
@@ -918,7 +892,6 @@
     "external": "Harici",
     "loginWithExternal": "Harici Sağlayıcı ile Giriş Yap",
     "loginWithExternalDesc": "Yapılandırdığınız harici kimlik sağlayıcınızı kullanarak giriş yapın.",
-    "externalNotSupportedInElectron": "Electron uygulamasında harici kimlik doğrulama henüz desteklenmemektedir. OIDC girişi için lütfen web sürümünü kullanın.",
     "resetPasswordButton": "Şifreyi Sıfırla",
     "sendResetCode": "Sıfırlama kodunu gönder",
     "resetCodeDesc": "Parola sıfırlama kodu almak için kullanıcı adınızı girin. Kod, Docker konteyner günlüklerine kaydedilecektir.",
@@ -973,8 +946,7 @@
     "totpRateLimitedWithTime": "Hız sınırlaması: Çok fazla TOTP doğrulama denemesi yapıldı. Lütfen tekrar denemeden önce {{time}} saniye bekleyin.",
     "resetCodeRateLimited": "Hız sınırlaması: Çok fazla doğrulama denemesi yapıldı. Lütfen daha sonra tekrar deneyin.",
     "resetCodeRateLimitedWithTime": "Hız sınırlaması: Çok fazla doğrulama denemesi yapıldı. Lütfen tekrar denemeden önce {{time}} saniye bekleyin.",
-    "authTokenSaveFailed": "Kimlik doğrulama belirteci kaydedilemedi.",
-    "failedToLoadServer": "Sunucu yüklenemedi."
+    "authTokenSaveFailed": "Kimlik doğrulama belirteci kaydedilemedi."
   },
   "messages": {
     "registrationDisabled": "Yeni hesap kaydı şu anda bir yönetici tarafından devre dışı bırakılmıştır. Lütfen giriş yapın veya bir yöneticiyle iletişime geçin.",

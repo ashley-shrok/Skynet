@@ -26,26 +26,6 @@
     "failedToLoadAlerts": "Không thể tải cảnh báo",
     "failedToDismissAlert": "Không thể tắt cảnh báo"
   },
-  "serverConfig": {
-    "title": "Cấu hình máy chủ",
-    "description": "Cấu hình URL máy chủ Skynet để kết nối với các dịch vụ phụ trợ của bạn.",
-    "serverUrl": "URL máy chủ",
-    "enterServerUrl": "Vui lòng nhập URL máy chủ",
-    "saveFailed": "Không thể lưu cấu hình",
-    "saveError": "Lỗi khi lưu cấu hình",
-    "saving": "Đang lưu...",
-    "saveConfig": "Lưu cấu hình",
-    "helpText": "Nhập URL nơi máy chủ Skynet của bạn đang chạy (ví dụ: http://localhost:30001 hoặc https://your-server.com)",
-    "changeServer": "Thay đổi máy chủ",
-    "mustIncludeProtocol": "URL máy chủ phải bắt đầu bằng http:// hoặc https://",
-    "allowInvalidCertificate": "Cho phép chứng chỉ không hợp lệ",
-    "allowInvalidCertificateDesc": "Chỉ sử dụng cho các máy chủ tự lưu trữ đáng tin cậy có chứng chỉ tự ký hoặc chứng chỉ địa chỉ IP.",
-    "useEmbedded": "Sử dụng máy chủ cục bộ",
-    "embeddedDesc": "Chạy Skynet với máy chủ cục bộ tích hợp sẵn (không cần máy chủ từ xa).",
-    "embeddedConnecting": "Đang kết nối đến máy chủ cục bộ...",
-    "embeddedNotReady": "Máy chủ cục bộ chưa sẵn sàng. Vui lòng đợi một lát và thử lại.",
-    "localServer": "Máy chủ cục bộ"
-  },
   "versionCheck": {
     "error": "Lỗi kiểm tra phiên bản",
     "checkFailed": "Không thể kiểm tra cập nhật",
@@ -57,17 +37,13 @@
     "betaVersionDesc": "Bạn đang sử dụng {{current}}, phiên bản này mới hơn bản phát hành ổn định mới nhất {{latest}}.",
     "releasedOn": "Phát hành vào {{date}}",
     "downloadUpdate": "Tải xuống bản cập nhật",
-    "checking": "Đang kiểm tra cập nhật...",
-    "checkUpdates": "Kiểm tra cập nhật",
-    "checkingUpdates": "Đang kiểm tra cập nhật...",
-    "updateRequired": "Cần cập nhật"
+    "checking": "Đang kiểm tra cập nhật..."
   },
   "common": {
     "close": "Đóng",
     "minimize": "Giảm thiểu",
     "online": "Trực tuyến",
     "offline": "Ngoại tuyến",
-    "continue": "Tiếp tục",
     "maintenance": "BẢO TRÌ",
     "degraded": "bị xuống cấp",
     "error": "Lỗi",
@@ -99,11 +75,9 @@
     "saving": "Đang lưu...",
     "delete": "Xóa bỏ",
     "rename": "Đổi tên",
-    "edit": "Biên tập",
     "add": "Thêm vào",
     "confirm": "Xác nhận",
     "no": "KHÔNG",
-    "or": "HOẶC",
     "next": "Kế tiếp",
     "previous": "Trước",
     "refresh": "Làm cho khỏe lại",
@@ -918,7 +892,6 @@
     "external": "Bên ngoài",
     "loginWithExternal": "Đăng nhập bằng tài khoản nhà cung cấp bên ngoài",
     "loginWithExternalDesc": "Đăng nhập bằng nhà cung cấp danh tính bên ngoài đã được cấu hình của bạn",
-    "externalNotSupportedInElectron": "Hiện tại, ứng dụng Electron chưa hỗ trợ xác thực bên ngoài. Vui lòng sử dụng phiên bản web để đăng nhập bằng OIDC.",
     "resetPasswordButton": "Đặt lại mật khẩu",
     "sendResetCode": "Gửi mã đặt lại",
     "resetCodeDesc": "Nhập tên người dùng của bạn để nhận mã đặt lại mật khẩu. Mã này sẽ được ghi lại trong nhật ký của container Docker.",
@@ -973,8 +946,7 @@
     "totpRateLimitedWithTime": "Tốc độ bị giới hạn: Quá nhiều lần thử xác thực TOTP. Vui lòng đợi {{time}} giây trước khi thử lại.",
     "resetCodeRateLimited": "Tốc độ xác thực bị hạn chế: Quá nhiều lần xác thực. Vui lòng thử lại sau.",
     "resetCodeRateLimitedWithTime": "Tốc độ xác thực bị giới hạn: Quá nhiều lần xác thực. Vui lòng đợi {{time}} giây trước khi thử lại.",
-    "authTokenSaveFailed": "Không thể lưu mã xác thực.",
-    "failedToLoadServer": "Không thể tải máy chủ"
+    "authTokenSaveFailed": "Không thể lưu mã xác thực."
   },
   "messages": {
     "registrationDisabled": "Hiện tại, việc đăng ký tài khoản mới đã bị quản trị viên vô hiệu hóa. Vui lòng đăng nhập hoặc liên hệ với quản trị viên.",
