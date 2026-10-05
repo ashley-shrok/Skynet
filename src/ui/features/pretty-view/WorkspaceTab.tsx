@@ -313,7 +313,7 @@ function WorkspaceFileViewer({
   const canSave =
     !skipFetch &&
     fileState.status === "ready" &&
-    fileViewIsEditable(file.name, viewMode, fileState.data.isText);
+    (fileViewIsEditable(file.name, viewMode, fileState.data.isText) || dirty);
 
   const downloadUrl = downloadWorkspaceFileUrl(
     target,

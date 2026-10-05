@@ -230,8 +230,12 @@ export function FileView({
   const src = useModeSrc(entry, mode, filename, mediaUrl, state);
 
   const showSwitcher = !hideModeSwitcher && entry.modes.length > 1;
+  // Save shows in editable modes, and in any mode while the draft is dirty
+  // so edits made in one mode (e.g. diff Raw) aren't stranded in another.
   const canEdit =
-    mode.editable && state.status === "ready" && state.data.isText !== false;
+    state.status === "ready" &&
+    state.data.isText !== false &&
+    (mode.editable || draft !== state.data.content);
   const showSave = canEdit && !!onSave && !hideSaveButton;
   const toolbar =
     toolbarStart || showSwitcher || showSave ? (

@@ -1,5 +1,5 @@
 import type { ComponentType } from "react";
-import { File, FileText, Image as ImageIcon, Music, Video, type LucideIcon } from "lucide-react";
+import { File, FileDiff, FileText, Image as ImageIcon, Music, Video, type LucideIcon } from "lucide-react";
 import { classifyByExtension } from "../editable-file-whitelist";
 import {
   AudioChipPreview,
@@ -10,6 +10,8 @@ import {
   VideoView,
 } from "./media-views";
 import { TextView } from "./text-view";
+import { DiffChipPreview } from "./diff/DiffChipPreview";
+import { SplitDiffMode, UnifiedDiffMode } from "./diff/DiffView";
 
 /**
  * File-viewer registry — the ONE place that decides how a file type is shown.
@@ -142,6 +144,23 @@ export const VIDEO_ENTRY: FileViewerEntry = {
 };
 
 /**
+ * .diff / .patch: rendered unified or side-by-side (a dropdown picks the
+ * file in multi-file patches), plus Raw for editing. The rendered modes
+ * read the current draft, so Raw edits show up when switching back.
+ */
+export const DIFF_ENTRY: FileViewerEntry = {
+  id: "diff",
+  extensions: ["diff", "patch"],
+  icon: FileDiff,
+  modes: [
+    { id: "unified", label: "Unified", needs: "content", editable: false, View: UnifiedDiffMode },
+    { id: "split", label: "Side-by-side", needs: "content", editable: false, View: SplitDiffMode },
+    { ...textMode, id: "raw", label: "Raw" },
+  ],
+  ChipPreview: DiffChipPreview,
+};
+
+/**
  * Formats we know are binary and have no viewer yet. Recognising them up
  * front lets surfaces skip the (up to 2 MB) fetch and show the notice
  * immediately. Entries move out of here as they gain real viewers.
@@ -179,6 +198,7 @@ const ENTRIES: readonly FileViewerEntry[] = [
   SVG_ENTRY,
   AUDIO_ENTRY,
   VIDEO_ENTRY,
+  DIFF_ENTRY,
   BINARY_ENTRY,
 ];
 

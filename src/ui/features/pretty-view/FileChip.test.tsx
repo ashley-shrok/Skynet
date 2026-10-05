@@ -221,3 +221,18 @@ describe("FileChip — media variant", () => {
     expect(onOpen).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("FileChip — diff preview", () => {
+  it("renders the registry's diff preview for .patch files", () => {
+    vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
+    try {
+      const { container } = render(
+        <FileChip url="https://x/file/h/fix.patch" filename="fix.patch" onOpen={vi.fn()} />,
+      );
+      expect(container.querySelector("[data-file-chip-kind='diff']")).not.toBeNull();
+      expect(screen.getByTestId("diff-chip-preview")).toBeTruthy();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});

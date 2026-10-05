@@ -379,3 +379,34 @@ describe("FileView — registry dispatch", () => {
     expect(screen.queryByTestId("file-view-mode-source")).toBeNull();
   });
 });
+
+describe("FileView — diff / patch", () => {
+  const PATCH = "--- a/x.txt\n+++ b/x.txt\n@@ -1 +1 @@\n-old\n+new\n";
+
+  it("opens rendered (unified), edits in Raw carry back, and Save stays reachable while dirty", async () => {
+    const onSave = vi.fn(async () => {});
+    render(
+      <FileView
+        filename="fix.patch"
+        state={{ status: "ready", data: { content: PATCH, mtime: 1, isText: true } }}
+        onSave={onSave}
+      />,
+    );
+    expect(screen.getByTestId("diff-view")).toBeTruthy();
+    expect(screen.getByTestId("file-view-mode-unified").getAttribute("aria-selected")).toBe("true");
+    // Read-only rendered mode, clean draft → no Save yet.
+    expect(screen.queryByRole("button", { name: /^save$/i })).toBeNull();
+
+    fireEvent.click(screen.getByTestId("file-view-mode-raw"));
+    const raw = (await screen.findByRole("textbox")) as HTMLTextAreaElement;
+    fireEvent.change(raw, { target: { value: PATCH.replace("+new", "+newer") } });
+
+    fireEvent.click(screen.getByTestId("file-view-mode-unified"));
+    expect(screen.getByTestId("diff-view").textContent).toContain("newer");
+    const save = screen.getByRole("button", { name: /^save$/i });
+    fireEvent.click(save);
+    await waitFor(() =>
+      expect(onSave).toHaveBeenCalledWith(PATCH.replace("+new", "+newer"), 1),
+    );
+  });
+});

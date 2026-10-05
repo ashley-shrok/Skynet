@@ -77,7 +77,15 @@ Ordering below is a starting-point, not locked. Each entry is marked
   each shape decides its modal view and its chip preview with the user
   before building. — in_progress
 - **[declared] shape-diff-viewer** — Side-by-side rendering for
-  patch/diff files. Small library. — in_progress
+  patch/diff files. Small library. Agreed 2026-10-05: registry entry for
+  .diff/.patch with Unified (default) / Side-by-side / Raw (editable)
+  modes; own unified-diff parser (no new dependency); a dropdown picks
+  the file in multi-file patches ("All files (N)" first, per-file +/−
+  counts; hidden for single-file patches) — dropdown everywhere rather
+  than a sidebar list; side-by-side falls back to unified under 640px.
+  Chip preview: "N files · +A −D" plus the first 6 changed lines,
+  fetched when the chip scrolls into view, capped at 256 KB. — built,
+  awaiting user check
 - **[declared] shape-csv-table-editor** — Table view with a raw-text
   toggle for CSV and TSV files. Moderate lift, needs a table library. —
   in_progress

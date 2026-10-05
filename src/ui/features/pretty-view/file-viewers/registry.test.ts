@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   AUDIO_ENTRY,
   BINARY_ENTRY,
+  DIFF_ENTRY,
   IMAGE_ENTRY,
   SVG_ENTRY,
   TEXT_ENTRY,
@@ -31,6 +32,8 @@ describe("resolveFileViewer", () => {
     ["a.svg", SVG_ENTRY],
     ["a.mp3", AUDIO_ENTRY],
     ["a.webm", VIDEO_ENTRY],
+    ["a.patch", DIFF_ENTRY],
+    ["a.DIFF", DIFF_ENTRY],
     ["a.zip", BINARY_ENTRY],
     ["a.pdf", BINARY_ENTRY],
     ["a.ts", TEXT_ENTRY],
