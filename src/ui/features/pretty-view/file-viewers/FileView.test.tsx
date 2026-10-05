@@ -410,3 +410,22 @@ describe("FileView — diff / patch", () => {
     );
   });
 });
+
+describe("FileView — CSV / TSV", () => {
+  it("opens in the lazy-loaded table, with Raw as the second mode", async () => {
+    render(
+      <FileView
+        filename="people.csv"
+        state={{ status: "ready", data: { content: "name,age\nAda,36\n", mtime: 1, isText: true } }}
+        onSave={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("file-view-mode-table").getAttribute("aria-selected")).toBe("true");
+    expect(await screen.findByTestId("delimited-table", {}, { timeout: 5000 })).toBeTruthy();
+    expect(screen.getByText(/1 row × 2 columns/)).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId("file-view-mode-raw"));
+    const raw = (await screen.findByRole("textbox")) as HTMLTextAreaElement;
+    expect(raw.value).toBe("name,age\nAda,36\n");
+  });
+});

@@ -87,8 +87,18 @@ Ordering below is a starting-point, not locked. Each entry is marked
   fetched when the chip scrolls into view, capped at 256 KB. — built,
   awaiting user check
 - **[declared] shape-csv-table-editor** — Table view with a raw-text
-  toggle for CSV and TSV files. Moderate lift, needs a table library. —
-  in_progress
+  toggle for CSV and TSV files. Moderate lift, needs a table library.
+  Agreed 2026-10-05: PapaParse (parse + format-preserving unparse) and
+  AG Grid Community (chosen over react-data-grid for the "never leave
+  the app" goal: built-in sort, filter, resize, undo/redo), lazy-loaded
+  (~261 KB gzipped chunk, only fetched when a delimited file opens).
+  .csv/.tsv/.psv; Table (editable; add/delete rows + columns, rename
+  column, search, "First row is headers" toggle on by default) + Raw.
+  Saves keep delimiter, line endings, BOM, trailing newline and
+  quote-every-field style; only unneeded quotes can drop. Not in
+  Community: block paste from Excel, fill handle (Enterprise only).
+  Chip: header + first 4 rows + "N rows × M columns". — built,
+  awaiting user check
 - **[declared] shape-docx-viewer** — Read-only rendering for Word
   documents. Moderate lift, needs a document rendering library. —
   in_progress

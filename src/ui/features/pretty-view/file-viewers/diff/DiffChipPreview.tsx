@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
+import { fetchTextPrefix, useInView } from "../chip-fetch";
 import type { ChipPreviewProps } from "../registry";
 import { parsePatch, type DiffLine } from "./parse-diff";
 
@@ -21,51 +22,17 @@ interface Summary {
   partial: boolean;
 }
 
-async function readCapped(res: Response): Promise<{ text: string; partial: boolean }> {
-  if (!res.body) return { text: await res.text(), partial: false };
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder("utf-8");
-  let text = "";
-  let bytes = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) return { text: text + decoder.decode(), partial: false };
-    bytes += value.byteLength;
-    text += decoder.decode(value, { stream: true });
-    if (bytes >= PREVIEW_MAX_BYTES) {
-      void reader.cancel();
-      // Drop the last (probably cut) line so it doesn't parse as garbage.
-      return { text: text.slice(0, text.lastIndexOf("\n") + 1), partial: true };
-    }
-  }
-}
-
 export function DiffChipPreview({ url, onError }: ChipPreviewProps): JSX.Element {
   const [el, setEl] = useState<HTMLDivElement | null>(null);
-  const [visible, setVisible] = useState(false);
+  const visible = useInView(el);
   const [summary, setSummary] = useState<Summary | null>(null);
-
-  useEffect(() => {
-    if (!el || visible) return;
-    if (typeof IntersectionObserver === "undefined") {
-      setVisible(true);
-      return;
-    }
-    const io = new IntersectionObserver((entries) => {
-      if (entries.some((e) => e.isIntersecting)) setVisible(true);
-    });
-    io.observe(el);
-    return () => io.disconnect();
-  }, [el, visible]);
 
   useEffect(() => {
     if (!visible) return;
     const ctrl = new AbortController();
     (async () => {
       try {
-        const res = await fetch(url, { credentials: "same-origin", signal: ctrl.signal });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const { text, partial } = await readCapped(res);
+        const { text, partial } = await fetchTextPrefix(url, PREVIEW_MAX_BYTES, ctrl.signal);
         const patch = parsePatch(text);
         if (patch.files.length === 0) throw new Error("no diff");
         const lines: DiffLine[] = [];

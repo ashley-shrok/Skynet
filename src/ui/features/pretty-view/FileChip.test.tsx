@@ -47,10 +47,16 @@ describe("classifyFileChipKind", () => {
     expect(classifyFileChipKind("logo.SVG")).toBe("svg");
   });
 
+  it("gives delimited and diff files their registry previews", () => {
+    expect(classifyFileChipKind("data.csv")).toBe("delimited");
+    expect(classifyFileChipKind("data.tsv")).toBe("delimited");
+    expect(classifyFileChipKind("fix.patch")).toBe("diff");
+  });
+
   it("falls back to plain for text / unknown / extensionless", () => {
     expect(classifyFileChipKind("notes.md")).toBe("plain");
     expect(classifyFileChipKind("report.pdf")).toBe("plain");
-    expect(classifyFileChipKind("data.csv")).toBe("plain");
+    expect(classifyFileChipKind("app.log")).toBe("plain");
     expect(classifyFileChipKind("Dockerfile")).toBe("plain");
     expect(classifyFileChipKind("plainname")).toBe("plain");
     // Trailing-dot filenames (no actual extension) — plain fallback

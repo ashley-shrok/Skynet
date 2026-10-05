@@ -1,6 +1,7 @@
 import type { ComponentType } from "react";
-import { File, FileDiff, FileText, Image as ImageIcon, Music, Video, type LucideIcon } from "lucide-react";
+import { File, FileDiff, FileSpreadsheet, FileText, Image as ImageIcon, Music, Video, type LucideIcon } from "lucide-react";
 import { classifyByExtension } from "../editable-file-whitelist";
+import { extensionOf } from "./registry-ext";
 import {
   AudioChipPreview,
   AudioView,
@@ -12,6 +13,8 @@ import {
 import { TextView } from "./text-view";
 import { DiffChipPreview } from "./diff/DiffChipPreview";
 import { SplitDiffMode, UnifiedDiffMode } from "./diff/DiffView";
+import { DelimitedChipPreview } from "./delimited/DelimitedChipPreview";
+import { TableMode } from "./delimited/table-mode";
 
 /**
  * File-viewer registry — the ONE place that decides how a file type is shown.
@@ -161,6 +164,21 @@ export const DIFF_ENTRY: FileViewerEntry = {
 };
 
 /**
+ * CSV / TSV / PSV: editable table (AG Grid, lazy-loaded) plus Raw. Saves
+ * keep the file's delimiter, line endings, BOM and quoting style.
+ */
+export const DELIMITED_ENTRY: FileViewerEntry = {
+  id: "delimited",
+  extensions: ["csv", "tsv", "psv"],
+  icon: FileSpreadsheet,
+  modes: [
+    { id: "table", label: "Table", needs: "content", editable: true, View: TableMode },
+    { ...textMode, id: "raw", label: "Raw" },
+  ],
+  ChipPreview: DelimitedChipPreview,
+};
+
+/**
  * Formats we know are binary and have no viewer yet. Recognising them up
  * front lets surfaces skip the (up to 2 MB) fetch and show the notice
  * immediately. Entries move out of here as they gain real viewers.
@@ -199,6 +217,7 @@ const ENTRIES: readonly FileViewerEntry[] = [
   AUDIO_ENTRY,
   VIDEO_ENTRY,
   DIFF_ENTRY,
+  DELIMITED_ENTRY,
   BINARY_ENTRY,
 ];
 
@@ -212,13 +231,7 @@ for (const entry of ENTRIES) {
   }
 }
 
-/** Lower-cased extension without the dot, or null (dotfiles count as none). */
-export function extensionOf(filename: string): string | null {
-  const base = filename.slice(filename.lastIndexOf("/") + 1);
-  const dot = base.lastIndexOf(".");
-  if (dot <= 0 || dot === base.length - 1) return null;
-  return base.slice(dot + 1).toLowerCase();
-}
+export { extensionOf };
 
 /** The registry entry for a filename. Unknown types resolve to TEXT_ENTRY. */
 export function resolveFileViewer(filename: string): FileViewerEntry {
