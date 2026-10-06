@@ -31,6 +31,32 @@ if (typeof window !== "undefined" && !window.matchMedia) {
   }));
 }
 
+// jsdom logs "Not implemented: HTMLMediaElement's play() method" via
+// console.error for every <audio>/<video> .play() call. In the full suite the
+// flood of async console events races vitest-worker rpc teardown and surfaces
+// as "EnvironmentTeardownError: Closing rpc while onUserConsoleLog was
+// pending" — a flaky non-test failure that trips exit 1 even when every test
+// passes. Stub play/pause/load with resolved no-ops. Tests that need to
+// observe or override already mock at a higher level (webAudioStreamPlayer,
+// Audio constructor via vi.stubGlobal) and are unaffected.
+if (typeof window !== "undefined" && window.HTMLMediaElement) {
+  Object.defineProperty(window.HTMLMediaElement.prototype, "play", {
+    configurable: true,
+    writable: true,
+    value: () => Promise.resolve(),
+  });
+  Object.defineProperty(window.HTMLMediaElement.prototype, "pause", {
+    configurable: true,
+    writable: true,
+    value: () => {},
+  });
+  Object.defineProperty(window.HTMLMediaElement.prototype, "load", {
+    configurable: true,
+    writable: true,
+    value: () => {},
+  });
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
