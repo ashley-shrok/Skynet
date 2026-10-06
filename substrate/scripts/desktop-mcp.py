@@ -22,18 +22,35 @@ launch, and inherited by this server). The display is resolved from the
 identity's state, never from $DISPLAY — a claude process started before the
 desktop existed has no DISPLAY in its environment.
 
+Browser tools (browser_*): Playwright MCP (@playwright/mcp, pinned below) runs
+as a child of this server, HEADED on the identity's desktop, so web work gets
+reliable DOM-level actions (accessibility-snapshot refs instead of pixels) and
+the user can still watch it in the Desktop tab. The child is spawned lazily on
+the first browser_* call (after the desktop is up, with DISPLAY set), so agents
+that never browse pay nothing. Its tool list is cached under
+~/.cache/agent-desktop/; on a cold cache the list is fetched in the background
+and announced with notifications/tools/list_changed, so MCP startup never waits
+on an npm download. Each identity keeps a persistent browser profile in its
+desktop state dir, so sign-ins survive restarts. If Chromium isn't installed,
+the first failing call triggers one best-effort `playwright install`.
+
 Human control (v2 hook): while ~/fleet/identities/<name>/desktop/control-lock
-exists, input actions are refused with a "user has control" message; screenshot
-and cursor_position still work so the agent can watch.
+exists, input actions are refused with a "user has control" message; screenshot,
+cursor_position and the read-only browser tools (snapshot, screenshot, console,
+network) still work so the agent can watch.
 """
 
 import base64
 import json
 import os
 import re
+import queue
+import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
+import threading
 import time
 
 SERVER_NAME = "desktop"
@@ -43,6 +60,25 @@ SETTLE_SECONDS = float(os.environ.get("DESKTOP_MCP_SETTLE_SECONDS", "0.5"))
 AGENT_DESKTOP = shutil.which("agent-desktop") or os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "agent-desktop"
 )
+
+# Pinned: tool names/shapes are part of the agent's contract (see the desktop
+# skill). Bump deliberately, together with a run of the browser tests.
+PLAYWRIGHT_MCP_PKG = os.environ.get("DESKTOP_MCP_PLAYWRIGHT_PKG", "@playwright/mcp@0.0.83")
+# Tests swap in a fake MCP server here; the real thing is `npx -y <pkg>`.
+PLAYWRIGHT_CMD_OVERRIDE = os.environ.get("DESKTOP_MCP_PLAYWRIGHT_CMD", "")
+# Optional: a browser binary to use instead of Playwright's own download.
+BROWSER_EXECUTABLE = os.environ.get("DESKTOP_BROWSER_EXECUTABLE", "")
+TOOLS_CACHE_DIR = os.path.join(os.path.expanduser("~"), ".cache", "agent-desktop")
+BROWSER_CALL_TIMEOUT = 180
+# Browser tools that only observe; allowed while the user has control.
+BROWSER_READ_ONLY = {
+    "browser_snapshot",
+    "browser_take_screenshot",
+    "browser_console_messages",
+    "browser_network_requests",
+    "browser_network_request",
+}
+BROWSER_MISSING_RE = re.compile(r"not installed|Executable doesn't exist|playwright install", re.I)
 
 SCREENSHOT_PROP = {
     "screenshot": {
@@ -171,6 +207,10 @@ TOOLS = [
 ]
 
 INPUT_TOOLS = {"click", "move", "drag", "scroll", "type", "key", "launch"}
+USER_HAS_CONTROL = (
+    "The user has taken control of your desktop, so input is paused. "
+    "Wait, then try again; screenshot still works if you want to watch."
+)
 
 
 class ToolError(Exception):
@@ -247,6 +287,227 @@ class Desktop:
 desktop = Desktop()
 
 
+# ---- Playwright MCP child -----------------------------------------------------
+
+
+def _playwright_argv(extra):
+    base = shlex.split(PLAYWRIGHT_CMD_OVERRIDE) if PLAYWRIGHT_CMD_OVERRIDE else ["npx", "-y", PLAYWRIGHT_MCP_PKG]
+    return base + extra
+
+
+class McpChild:
+    """A stdio MCP server we talk to as a client. Responses are matched by id;
+    notifications and stale responses (from timed-out calls) are dropped."""
+
+    def __init__(self, argv, env=None, cwd=None, log_path=None):
+        self._log = open(log_path, "a") if log_path else subprocess.DEVNULL
+        self.proc = subprocess.Popen(
+            argv,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=self._log,
+            text=True,
+            env=env,
+            cwd=cwd,
+            start_new_session=True,  # so close() can take the browser down with it
+        )
+        self._responses = queue.Queue()
+        self._next_id = 0
+        threading.Thread(target=self._read, daemon=True).start()
+
+    def _read(self):
+        for line in self.proc.stdout:
+            try:
+                msg = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(msg, dict) and "id" in msg and ("result" in msg or "error" in msg):
+                self._responses.put(msg)
+        self._responses.put(None)  # EOF
+
+    def _write(self, msg):
+        try:
+            self.proc.stdin.write(json.dumps(msg) + "\n")
+            self.proc.stdin.flush()
+        except (BrokenPipeError, ValueError):
+            raise ToolError("the browser process exited")
+
+    def request(self, method, params, timeout):
+        self._next_id += 1
+        rid = self._next_id
+        self._write({"jsonrpc": "2.0", "id": rid, "method": method, "params": params})
+        deadline = time.monotonic() + timeout
+        while True:
+            left = deadline - time.monotonic()
+            if left <= 0:
+                raise ToolError("the browser didn't answer within %ds" % timeout)
+            try:
+                msg = self._responses.get(timeout=left)
+            except queue.Empty:
+                continue
+            if msg is None:
+                raise ToolError("the browser process exited")
+            if msg.get("id") != rid:
+                continue
+            if "error" in msg:
+                raise ToolError("browser error: %s" % (msg["error"].get("message") or msg["error"]))
+            return msg["result"]
+
+    def handshake(self, timeout):
+        self.request(
+            "initialize",
+            {
+                "protocolVersion": SUPPORTED_PROTOCOLS[0],
+                "capabilities": {},
+                "clientInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},
+            },
+            timeout,
+        )
+        self._write({"jsonrpc": "2.0", "method": "notifications/initialized"})
+
+    def alive(self):
+        return self.proc.poll() is None
+
+    def close(self):
+        if self.alive():
+            try:
+                os.killpg(self.proc.pid, 15)
+            except OSError:
+                pass
+            try:
+                self.proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(self.proc.pid, 9)
+                except OSError:
+                    pass
+        if self._log is not subprocess.DEVNULL:
+            self._log.close()
+
+
+class BrowserBridge:
+    def __init__(self):
+        self.child = None
+        self.child_display = None
+        self._tool_defs = None
+        self._install_tried = False
+        self._warming = False
+
+    @property
+    def _cache_path(self):
+        slug = re.sub(r"[^A-Za-z0-9._-]+", "_", PLAYWRIGHT_MCP_PKG + ("-" + PLAYWRIGHT_CMD_OVERRIDE if PLAYWRIGHT_CMD_OVERRIDE else ""))
+        return os.path.join(TOOLS_CACHE_DIR, slug[:150] + "-tools.json")
+
+    def tool_defs(self):
+        if self._tool_defs is None:
+            try:
+                with open(self._cache_path) as f:
+                    defs = json.load(f)
+                if isinstance(defs, list):
+                    self._tool_defs = [t for t in defs if str(t.get("name", "")).startswith("browser_")]
+            except (OSError, ValueError):
+                pass
+        return self._tool_defs or []
+
+    def warm(self, on_ready):
+        """Fetch + cache the tool list in the background if we don't have it."""
+        if self.tool_defs() or self._warming:
+            return
+        self._warming = True
+
+        def run():
+            child = None
+            try:
+                child = McpChild(_playwright_argv([]), cwd=tempfile.gettempdir())
+                child.handshake(timeout=300)  # first run downloads the npm package
+                defs = child.request("tools/list", {}, timeout=60).get("tools", [])
+                defs = [t for t in defs if str(t.get("name", "")).startswith("browser_")]
+                if defs:
+                    os.makedirs(TOOLS_CACHE_DIR, exist_ok=True)
+                    tmp = self._cache_path + ".tmp"
+                    with open(tmp, "w") as f:
+                        json.dump(defs, f)
+                    os.replace(tmp, self._cache_path)
+                    self._tool_defs = defs
+                    on_ready()
+            except Exception:
+                pass  # no browser tools this session; desktop tools still work
+            finally:
+                if child:
+                    child.close()
+                self._warming = False
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def _start_child(self):
+        self.stop()
+        state = desktop.state_dir
+        argv = _playwright_argv(
+            [
+                "--browser",
+                "chromium",
+                "--user-data-dir",
+                os.path.join(state, "browser-profile"),
+                "--output-dir",
+                os.path.join(state, "browser-output"),
+            ]
+            + (["--executable-path", BROWSER_EXECUTABLE] if BROWSER_EXECUTABLE else [])
+        )
+        env = dict(os.environ)
+        env["DISPLAY"] = desktop.display
+        workspace = os.path.join(os.path.expanduser("~"), "fleet", "identities", desktop.identity, "workspace")
+        self.child = McpChild(
+            argv,
+            env=env,
+            cwd=workspace if os.path.isdir(workspace) else state,
+            log_path=os.path.join(state, "browser.log"),
+        )
+        self.child_display = desktop.display
+        self.child.handshake(timeout=300)
+
+    def stop(self):
+        if self.child:
+            self.child.close()
+        self.child = None
+        self.child_display = None
+
+    def _install_browser(self):
+        """One best-effort Chromium (+ system libraries, if we can be root) install."""
+        if PLAYWRIGHT_CMD_OVERRIDE:
+            return
+        log = os.path.join(desktop.state_dir, "browser.log")
+        pw = ["npx", "-y", "-p", PLAYWRIGHT_MCP_PKG, "playwright"]
+        with open(log, "a") as out:
+            deps = pw + ["install-deps", "chromium"]
+            if os.geteuid() == 0:
+                subprocess.run(deps, stdout=out, stderr=out, timeout=900)
+            elif subprocess.run(["sudo", "-n", "true"], capture_output=True).returncode == 0:
+                subprocess.run(["sudo", "-n", "env", "PATH=" + os.environ.get("PATH", "")] + deps, stdout=out, stderr=out, timeout=900)
+            subprocess.run(pw + ["install", "chromium"], stdout=out, stderr=out, timeout=900)
+
+    def call(self, name, args):
+        desktop.ensure_up()
+        if name not in BROWSER_READ_ONLY and desktop.user_has_control():
+            return {"content": [{"type": "text", "text": USER_HAS_CONTROL}], "isError": False}
+        if not (self.child and self.child.alive() and self.child_display == desktop.display):
+            self._start_child()
+        result = self.child.request("tools/call", {"name": name, "arguments": args}, BROWSER_CALL_TIMEOUT)
+        if result.get("isError") and not self._install_tried and BROWSER_MISSING_RE.search(_result_text(result)):
+            self._install_tried = True
+            self.stop()
+            self._install_browser()
+            self._start_child()
+            result = self.child.request("tools/call", {"name": name, "arguments": args}, BROWSER_CALL_TIMEOUT)
+        return result
+
+
+def _result_text(result):
+    return " ".join(c.get("text", "") for c in result.get("content", []) if isinstance(c, dict))
+
+
+browser = BrowserBridge()
+
+
 def _image_block():
     return {
         "type": "image",
@@ -273,13 +534,7 @@ def call_tool(name, args):
     desktop.ensure_up()
 
     if name in INPUT_TOOLS and desktop.user_has_control():
-        return [
-            {
-                "type": "text",
-                "text": "The user has taken control of your desktop, so input is paused. "
-                "Wait, then try again; screenshot still works if you want to watch.",
-            }
-        ]
+        return [{"type": "text", "text": USER_HAS_CONTROL}]
 
     want_shot = args.get("screenshot", True) is not False
     note = "done"
@@ -388,9 +643,17 @@ def call_tool(name, args):
 # ---- JSON-RPC over stdio ------------------------------------------------------
 
 
+_send_lock = threading.Lock()
+
+
 def _send(msg):
-    sys.stdout.write(json.dumps(msg) + "\n")
-    sys.stdout.flush()
+    with _send_lock:
+        sys.stdout.write(json.dumps(msg) + "\n")
+        sys.stdout.flush()
+
+
+def _announce_tools_changed():
+    _send({"jsonrpc": "2.0", "method": "notifications/tools/list_changed"})
 
 
 def handle(req):
@@ -406,7 +669,7 @@ def handle(req):
             "id": rid,
             "result": {
                 "protocolVersion": version,
-                "capabilities": {"tools": {}},
+                "capabilities": {"tools": {"listChanged": True}},
                 "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},
                 "instructions": (
                     "Your own virtual desktop (a Linux X display only you use). Take a screenshot to see it; "
@@ -416,13 +679,20 @@ def handle(req):
         }
     if method == "ping":
         return {"jsonrpc": "2.0", "id": rid, "result": {}}
+    if method == "notifications/initialized":
+        browser.warm(_announce_tools_changed)
+        return None
     if method == "tools/list":
-        return {"jsonrpc": "2.0", "id": rid, "result": {"tools": TOOLS}}
+        return {"jsonrpc": "2.0", "id": rid, "result": {"tools": TOOLS + browser.tool_defs()}}
     if method == "tools/call":
         params = req.get("params") or {}
+        name = params.get("name")
         try:
-            content = call_tool(params.get("name"), params.get("arguments") or {})
-            result = {"content": content, "isError": False}
+            if isinstance(name, str) and any(t["name"] == name for t in browser.tool_defs()):
+                result = browser.call(name, params.get("arguments") or {})
+            else:
+                content = call_tool(name, params.get("arguments") or {})
+                result = {"content": content, "isError": False}
         except ToolError as e:
             result = {"content": [{"type": "text", "text": str(e)}], "isError": True}
         except subprocess.TimeoutExpired as e:
@@ -449,6 +719,7 @@ def main():
             resp = {"jsonrpc": "2.0", "id": req.get("id"), "error": {"code": -32603, "message": str(e)}}
         if resp is not None:
             _send(resp)
+    browser.stop()  # client went away: take the browser down with us
 
 
 if __name__ == "__main__":

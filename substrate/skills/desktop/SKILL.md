@@ -1,6 +1,6 @@
 ---
 name: desktop
-description: Your own virtual Linux desktop for GUI work — use it when a task needs a graphical app (a desktop program, a site that won't work headless, anything you'd need to see and click). Tools are mcp__desktop__*.
+description: Your own virtual Linux desktop for GUI work — a real browser (mcp__desktop__browser_*) for websites, and screenshot/click/type tools (mcp__desktop__*) for desktop apps. Use it when a task needs a website or graphical app you'd have to see and click.
 distributed: true
 ---
 
@@ -13,7 +13,22 @@ You have your own virtual desktop: a private Linux X display (openbox window man
 - A task needs a **graphical application**: a desktop program, a GUI installer, a file you have to open in its native app, a web page that only works in a real visible browser.
 - **Don't** use it for things the shell can do. Reading files, running commands, calling APIs and editing code are faster and more reliable with your normal tools. The desktop is for when there is no other way.
 
-## The tools
+## Websites: use the browser tools
+
+For anything in a web page, use the `mcp__desktop__browser_*` tools, not pixel clicks. They drive a real Chromium window **on your desktop** (so the user sees it too), but they act on the page's structure, which is far more reliable than clicking coordinates:
+
+1. `browser_navigate` to the URL.
+2. `browser_snapshot` returns the page as an accessibility tree, where every element has a `ref` (like `e12`).
+3. Act by ref: `browser_click`, `browser_type`, `browser_fill_form`, `browser_select_option`, `browser_press_key`, `browser_hover`.
+4. Snapshot again to check the result. Use `browser_take_screenshot` when you need to *see* the page (layout, images, charts).
+
+Other useful ones: `browser_tabs`, `browser_wait_for` (text to appear or disappear), `browser_handle_dialog`, `browser_file_upload`, `browser_navigate_back`, `browser_console_messages`.
+
+The browser keeps **its own profile per identity**: cookies and sign-ins survive between sessions. If a site needs the user to sign in, ask them. Never type a password you were given in chat into a site unless the user explicitly asked you to.
+
+If the first browser call fails because the browser isn't installed, it installs itself once and retries; if that fails too, tell the user (it needs network access and, for system libraries, admin rights on the computer).
+
+## Desktop apps: the screen tools
 
 The desktop starts automatically on your first desktop tool call, so you don't need to start it yourself. Every input tool returns a screenshot of the result unless you pass `screenshot: false`.
 
@@ -41,7 +56,7 @@ The desktop starts automatically on your first desktop tool call, so you don't n
 
 ## If the user takes control
 
-If an input tool says **the user has taken control of your desktop**, they are using it right now. Stop sending input. You can still take screenshots to watch what they do. Try again later, or ask them in conversation whether they're finished.
+If an input tool (screen or browser) says **the user has taken control of your desktop**, they are using it right now. Stop sending input. You can still take screenshots, and `browser_snapshot` / `browser_take_screenshot` still work, so you can watch what they do. Try again later, or ask them in conversation whether they're finished.
 
 ## From the shell
 

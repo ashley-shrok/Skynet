@@ -24,6 +24,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 HELPER="$REPO_ROOT/substrate/scripts/agent-desktop"
 MCP="$REPO_ROOT/substrate/scripts/desktop-mcp.py"
+FAKE_PW="$SCRIPT_DIR/fixtures/fake-playwright-mcp.py"
+SESSION="$SCRIPT_DIR/fixtures/desktop-mcp-session.py"
 
 for f in "$HELPER" "$MCP"; do
   [ -x "$f" ] || { printf 'FATAL: %s missing or not executable\n' "$f" >&2; exit 1; }
@@ -39,6 +41,9 @@ export PATH="$BIN:$PATH"
 export AGENT_DESKTOP_NO_SYSTEMD=1
 export AGENT_DESKTOP_BASE_DISPLAY=700
 export DESKTOP_MCP_SETTLE_SECONDS=0.1
+# Browser bridge: a fake Playwright MCP instead of `npx @playwright/mcp`.
+export DESKTOP_MCP_PLAYWRIGHT_CMD="$FAKE_PW"
+export FAKE_PW_PIDFILE="$FIXTURE/fake-pw.pids"
 unset FLEET_IDENTITY
 
 cleanup() {
@@ -209,6 +214,51 @@ test_mcp_actions_and_control_lock() {
     "$(agent-desktop status --identity alice --json | jq -r .userHasControl)"
 }
 
+# ---- tests: browser bridge -----------------------------------------------------
+
+test_browser_tools_cold_then_cached() {
+  local out
+  # Cold cache: desktop tools now, browser tools announced via list_changed.
+  out="$("$SESSION" "$MCP" init tools wait-list-changed tools)"
+  assert_eq test_browser_cold_initial_count 10 "$(sed -n 2p <<<"$out" | jq '.tools | length')"
+  assert_eq test_browser_list_changed true "$(sed -n 3p <<<"$out" | jq -r .list_changed)"
+  assert_eq test_browser_tools_after_warm "browser_navigate,browser_snapshot" \
+    "$(sed -n 4p <<<"$out" | jq -r '[.tools[] | select(startswith("browser_"))] | join(",")')"
+  # Warm cache: listed straight away, no child spawned just to list them.
+  : > "$FAKE_PW_PIDFILE"
+  out="$("$SESSION" "$MCP" init tools)"
+  assert_eq test_browser_cached_count 12 "$(sed -n 2p <<<"$out" | jq '.tools | length')"
+  assert_eq test_browser_no_spawn_when_cached 0 "$(wc -l < "$FAKE_PW_PIDFILE" | tr -d ' ')"
+}
+
+test_browser_call_runs_on_desktop() {
+  local lock="$FIXTURE/fleet/identities/alice/desktop/control-lock" out pid
+  : > "$FAKE_PW_PIDFILE"
+  out="$(FLEET_IDENTITY=alice "$SESSION" "$MCP" init \
+    'call:browser_navigate:{"url":"https://example.com"}' \
+    "touch:$lock" \
+    'call:browser_navigate:{"url":"https://example.org"}' \
+    'call:browser_snapshot:{}' \
+    "rm:$lock")"
+  local echo1
+  echo1="$(sed -n 2p <<<"$out" | jq -r '.content[0].text')"
+  assert_eq test_browser_call_forwarded https://example.com "$(jq -r .arguments.url <<<"$echo1")"
+  assert_eq test_browser_child_on_identity_display :700 "$(jq -r .display <<<"$echo1")"
+  assert_eq test_browser_profile_per_identity "$FIXTURE/fleet/identities/alice/desktop/browser-profile" \
+    "$(jq -r '.argv as $a | $a[($a | index("--user-data-dir")) + 1]' <<<"$echo1")"
+  case "$(sed -n 3p <<<"$out" | jq -r '.content[0].text')" in
+    *"taken control"*) pass test_browser_input_blocked_by_lock ;;
+    *) fail test_browser_input_blocked_by_lock "$(sed -n 3p <<<"$out")" ;;
+  esac
+  assert_eq test_browser_snapshot_allowed_under_lock browser_snapshot \
+    "$(sed -n 4p <<<"$out" | jq -r '.content[0].text | fromjson | .tool')"
+  # One child for the whole session, gone once the session ends.
+  assert_eq test_browser_single_child 1 "$(wc -l < "$FAKE_PW_PIDFILE" | tr -d ' ')"
+  pid="$(head -1 "$FAKE_PW_PIDFILE")"
+  sleep 0.5
+  if kill -0 "$pid" 2>/dev/null; then fail test_browser_child_reaped "pid $pid still alive"; else pass test_browser_child_reaped; fi
+}
+
 # ---- run ---------------------------------------------------------------------
 
 echo "agent-desktop tests (fixture: $FIXTURE)"
@@ -218,11 +268,13 @@ test_status_json_when_never_started
 test_mcp_protocol
 test_mcp_unknown_protocol_falls_back
 test_mcp_without_identity_is_tool_error
+test_browser_tools_cold_then_cached
 if [ "$HAVE_X" = 1 ]; then
   test_up_allocates_stable_unique_displays
   test_down_then_up_keeps_display
   test_run_launches_app
   test_mcp_actions_and_control_lock
+  test_browser_call_runs_on_desktop
 else
   echo "  SKIP X-server tests (need Xvnc, vncpasswd, openbox, xdotool, import)"
 fi
