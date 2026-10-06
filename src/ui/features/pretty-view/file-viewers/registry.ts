@@ -1,12 +1,26 @@
 import type { ComponentType } from "react";
 import {
+  BookMarked,
+  Network,
+  PenTool,
+  CalendarDays,
+  Contact as ContactIcon,
+  Mail,
+  Shapes,
+  Workflow,
+  BookOpen,
+  Box,
+  Database,
   File,
   FileDiff,
   FileSpreadsheet,
   FileText,
   Image as ImageIcon,
+  Presentation,
   Music,
   Video,
+  Type as TypeIcon,
+  Captions,
   type LucideIcon,
 } from "lucide-react";
 import { classifyByExtension } from "../editable-file-whitelist";
@@ -28,6 +42,32 @@ import { PdfChipPreview } from "./pdf/PdfChipPreview";
 import { PdfView } from "./pdf/PdfView";
 import { XlsxChipPreview } from "./xlsx/XlsxChipPreview";
 import { XlsxMode } from "./xlsx/xlsx-mode";
+import { DocxChipPreview } from "./docx/DocxChipPreview";
+import { DocxMode } from "./docx/docx-mode";
+import { ConvertedPdfChipPreview, convertedMode } from "./convert/converted-mode";
+import { ModelMode } from "./model3d/model-mode";
+import { ModelChipPreview } from "./model3d/ModelChipPreview";
+import { ColumnarMode, SqliteMode } from "./data/data-modes";
+import { DecodedImageMode } from "./images/image-modes";
+import { DecodedImageChipPreview } from "./images/DecodedImageChipPreview";
+import { NotebookMode } from "./notebook/notebook-mode";
+import { NotebookChipPreview } from "./notebook/NotebookChipPreview";
+import { EbookMode } from "./ebook/ebook-mode";
+import { EbookChipPreview } from "./ebook/EbookChipPreview";
+import { GraphvizDiagramMode, GraphvizSplitMode, MermaidDiagramMode, MermaidSplitMode } from "./diagram/diagram-modes";
+import { DiagramChipPreview } from "./diagram/DiagramChipPreview";
+import { ExcalidrawMode } from "./diagram/excalidraw-mode";
+import { ExcalidrawChipPreview } from "./diagram/ExcalidrawChipPreview";
+import { DrawioMode } from "./diagram/drawio-mode";
+import { DrawioChipPreview } from "./diagram/DrawioChipPreview";
+import { CalendarMode, ContactsMode, EmailMode } from "./pim/pim-modes";
+import { CalendarChipPreview, ContactsChipPreview, EmailChipPreview } from "./pim/PimChipPreviews";
+import { FontMode } from "./font/font-mode";
+import { SubtitleMode } from "./subtitle/subtitle-mode";
+import { SubtitleChipPreview } from "./subtitle/SubtitleChipPreview";
+import { FontChipPreview } from "./font/FontChipPreview";
+import { HEIC_EXTENSIONS, PSD_EXTENSIONS, RAW_EXTENSIONS, TIFF_EXTENSIONS } from "./images/image-formats";
+import { ColumnarChipPreview, SqliteChipPreview } from "./data/DataChipPreviews";
 
 /**
  * File-viewer registry — the ONE place that decides how a file type is shown.
@@ -232,6 +272,274 @@ export const XLSX_ENTRY: FileViewerEntry = {
 };
 
 /**
+ * Word documents: SuperDoc editor (lazy-loaded; AGPL-3.0, see
+ * THIRD_PARTY_NOTICES.md). Editing / Suggesting / Viewing inside the view;
+ * edits surface as a BinaryDraft (export to .docx) like PDF annotations.
+ */
+export const DOCX_ENTRY: FileViewerEntry = {
+  id: "docx",
+  extensions: ["docx", "dotx"],
+  icon: FileText,
+  modes: [{ id: "edit", label: "Document", needs: "url", editable: true, View: DocxMode }],
+  ChipPreview: DocxChipPreview,
+};
+
+/**
+ * Legacy Office and OpenDocument formats open by server-side conversion
+ * (LibreOffice sidecar, see convert/converted-mode.tsx) into the viewers
+ * above. Without a converter they show a notice with a download link.
+ */
+
+/** .doc / .odt: Word editor; Save converts back and overwrites the original. */
+export const LEGACY_WORD_ENTRY: FileViewerEntry = {
+  id: "legacy-word",
+  extensions: ["doc", "odt"],
+  icon: FileText,
+  modes: [
+    {
+      id: "edit",
+      label: "Document",
+      needs: "url",
+      editable: true,
+      View: convertedMode({ target: "docx", Inner: DocxMode, saveBack: true }),
+    },
+  ],
+};
+
+/** .xls / .ods: the Excel viewer, view-only like .xlsx. */
+export const LEGACY_SHEET_ENTRY: FileViewerEntry = {
+  id: "legacy-sheet",
+  extensions: ["xls", "ods"],
+  icon: FileSpreadsheet,
+  modes: [
+    {
+      id: "view",
+      label: "View",
+      needs: "url",
+      editable: false,
+      View: convertedMode({ target: "xlsx", Inner: XlsxMode, saveBack: false }),
+    },
+  ],
+};
+
+/**
+ * Presentations: rendered to PDF and shown in the PDF viewer, view-only
+ * (no free editor round-trips slides faithfully). Chips show slide one.
+ */
+export const PRESENTATION_ENTRY: FileViewerEntry = {
+  id: "presentation",
+  extensions: ["ppt", "pptx", "odp"],
+  icon: Presentation,
+  modes: [
+    {
+      id: "view",
+      label: "Slides",
+      needs: "url",
+      editable: false,
+      View: convertedMode({ target: "pdf", Inner: PdfView, saveBack: false }),
+    },
+  ],
+  ChipPreview: ConvertedPdfChipPreview,
+};
+
+/**
+ * 3D models: Online3DViewer engine on three.js (lazy-loaded), view-only by
+ * the "no editing unless it round-trips" rule. Chips show a rendered still.
+ * CAD (STEP/IGES/BREP/FreeCAD), Rhino and IFC decoders load on demand from
+ * our own origin (scripts/vendor-libs.mjs).
+ */
+export const MODEL_3D_ENTRY: FileViewerEntry = {
+  id: "model3d",
+  extensions: [
+    "glb", "gltf", "stl", "obj", "ply", "3mf", "fbx", "dae", "3ds", "off", "amf", "wrl",
+    "step", "stp", "iges", "igs", "brep", "brp", "fcstd", "3dm", "ifc", "bim",
+  ],
+  icon: Box,
+  modes: [{ id: "view", label: "Model", needs: "url", editable: false, View: ModelMode }],
+  ChipPreview: ModelChipPreview,
+};
+
+/**
+ * SQLite databases, read-only: tables/views, a grid that sorts across the
+ * whole table, the schema, and a SQL box whose writes only touch an
+ * in-memory copy (sql.js in a worker). `.db` files without the SQLite
+ * signature get a notice and a download link.
+ */
+export const SQLITE_ENTRY: FileViewerEntry = {
+  id: "sqlite",
+  extensions: ["sqlite", "sqlite3", "db", "db3", "s3db", "sl3"],
+  icon: Database,
+  modes: [{ id: "view", label: "Database", needs: "url", editable: false, View: SqliteMode }],
+  ChipPreview: SqliteChipPreview,
+};
+
+/**
+ * Parquet / Arrow / Feather, view-only: rows load as you scroll (Parquet
+ * via Range requests, footer first), plus schema and file facts.
+ */
+export const COLUMNAR_ENTRY: FileViewerEntry = {
+  id: "columnar",
+  extensions: ["parquet", "arrow", "feather", "arrows"],
+  icon: FileSpreadsheet,
+  modes: [{ id: "view", label: "Data", needs: "url", editable: false, View: ColumnarMode }],
+  ChipPreview: ColumnarChipPreview,
+};
+
+/**
+ * Images browsers can't show natively, decoded in a worker: TIFF (pages),
+ * HEIC (libheif, LGPL, loaded from /vendor/heif/), Photoshop (flattened
+ * image + layer panel) and camera RAW (the camera's embedded preview).
+ * View-only; Download PNG exports what's shown.
+ */
+export const DECODED_IMAGE_ENTRY: FileViewerEntry = {
+  id: "decoded-image",
+  extensions: [...TIFF_EXTENSIONS, ...HEIC_EXTENSIONS, ...PSD_EXTENSIONS, ...RAW_EXTENSIONS],
+  icon: ImageIcon,
+  modes: [{ id: "view", label: "View", needs: "url", editable: false, View: DecodedImageMode }],
+  ChipPreview: DecodedImageChipPreview,
+};
+
+/**
+ * Jupyter notebooks: rendered cells (markdown + math, highlighted code,
+ * outputs — HTML sandboxed, nothing executes) and editing of cells (source,
+ * add / move / delete / retype) saved as faithful nbformat JSON. Saves go
+ * through the binary-draft path, so big notebooks aren't capped at the
+ * text-save limit. No kernel: code can't be run here.
+ */
+export const NOTEBOOK_ENTRY: FileViewerEntry = {
+  id: "notebook",
+  extensions: ["ipynb"],
+  icon: BookOpen,
+  modes: [{ id: "notebook", label: "Notebook", needs: "url", editable: true, View: NotebookMode }],
+  ChipPreview: NotebookChipPreview,
+};
+
+/**
+ * Ebooks: EPUB, Kindle (MOBI / AZW3), FictionBook and comic archives, in a
+ * reader built on foliate-js (vendored). Books render in ebook-reader.html,
+ * an isolated page under a strict CSP, so scripts in books never run.
+ * View-only; position and reading settings are remembered per device.
+ */
+export const EBOOK_ENTRY: FileViewerEntry = {
+  id: "ebook",
+  extensions: ["epub", "mobi", "azw", "azw3", "fb2", "fbz", "cbz"],
+  icon: BookMarked,
+  modes: [{ id: "read", label: "Read", needs: "url", editable: false, View: EbookMode }],
+  ChipPreview: EbookChipPreview,
+};
+
+/**
+ * Text diagrams: Mermaid and Graphviz source with a live drawing beside it
+ * (Split), the drawing alone, or the source alone. Editable — it's text.
+ * Drawings are shown as <img> SVG (no scripts); export SVG / PNG.
+ */
+export const MERMAID_ENTRY: FileViewerEntry = {
+  id: "mermaid",
+  extensions: ["mmd", "mermaid"],
+  icon: Workflow,
+  modes: [
+    { id: "split", label: "Split", needs: "content", editable: true, View: MermaidSplitMode },
+    { id: "diagram", label: "Diagram", needs: "content", editable: false, View: MermaidDiagramMode },
+    { ...textMode, id: "source", label: "Source" },
+  ],
+  ChipPreview: DiagramChipPreview,
+};
+
+export const GRAPHVIZ_ENTRY: FileViewerEntry = {
+  id: "graphviz",
+  extensions: ["dot", "gv"],
+  icon: Network,
+  modes: [
+    { id: "split", label: "Split", needs: "content", editable: true, View: GraphvizSplitMode },
+    { id: "diagram", label: "Diagram", needs: "content", editable: false, View: GraphvizDiagramMode },
+    { ...textMode, id: "source", label: "Source" },
+  ],
+  ChipPreview: DiagramChipPreview,
+};
+
+/**
+ * Excalidraw drawings in the real Excalidraw editor (lazy-loaded; fonts
+ * served from our own origin). Saves write Excalidraw JSON back.
+ */
+export const EXCALIDRAW_ENTRY: FileViewerEntry = {
+  id: "excalidraw",
+  extensions: ["excalidraw"],
+  icon: PenTool,
+  modes: [{ id: "draw", label: "Drawing", needs: "url", editable: true, View: ExcalidrawMode }],
+  ChipPreview: ExcalidrawChipPreview,
+};
+
+/**
+ * draw.io diagrams, view-only, in draw.io's own viewer (vendored in
+ * public/drawio/) inside an opaque-origin sandbox under a strict CSP.
+ */
+export const DRAWIO_ENTRY: FileViewerEntry = {
+  id: "drawio",
+  extensions: ["drawio", "dio"],
+  icon: Shapes,
+  modes: [{ id: "view", label: "Diagram", needs: "url", editable: false, View: DrawioMode }],
+  ChipPreview: DrawioChipPreview,
+};
+
+/**
+ * Emails (.eml, Outlook .msg), view-only: sanitized HTML body in a sandboxed
+ * frame, remote images blocked until asked, attachments opening in these
+ * viewers.
+ */
+export const EMAIL_ENTRY: FileViewerEntry = {
+  id: "email",
+  extensions: ["eml", "msg"],
+  icon: Mail,
+  modes: [{ id: "view", label: "Email", needs: "url", editable: false, View: EmailMode }],
+  ChipPreview: EmailChipPreview,
+};
+
+/** Calendar files: event cards / agenda (ical.js), plus the raw source. */
+export const CALENDAR_ENTRY: FileViewerEntry = {
+  id: "calendar",
+  extensions: ["ics", "ical", "ifb"],
+  icon: CalendarDays,
+  modes: [
+    { id: "view", label: "Events", needs: "url", editable: false, View: CalendarMode },
+    { ...textMode, id: "source", label: "Source" },
+  ],
+  ChipPreview: CalendarChipPreview,
+};
+
+/** Contacts: cards / searchable list (vCard 2.1–4), plus the raw source. */
+export const CONTACTS_ENTRY: FileViewerEntry = {
+  id: "contacts",
+  extensions: ["vcf", "vcard"],
+  icon: ContactIcon,
+  modes: [
+    { id: "view", label: "Contacts", needs: "url", editable: false, View: ContactsMode },
+    { ...textMode, id: "source", label: "Source" },
+  ],
+  ChipPreview: ContactsChipPreview,
+};
+
+/** Fonts: specimen, characters and details, view-only. */
+export const FONT_ENTRY: FileViewerEntry = {
+  id: "font",
+  extensions: ["ttf", "otf", "woff", "woff2"],
+  icon: TypeIcon,
+  modes: [{ id: "view", label: "Font", needs: "url", editable: false, View: FontMode }],
+  ChipPreview: FontChipPreview,
+};
+
+/** Subtitles: an editable table of timed lines, plus the text itself. */
+export const SUBTITLE_ENTRY: FileViewerEntry = {
+  id: "subtitle",
+  extensions: ["srt", "vtt", "ass", "ssa"],
+  icon: Captions,
+  modes: [
+    { id: "lines", label: "Lines", needs: "content", editable: true, View: SubtitleMode },
+    { ...textMode, id: "source", label: "Source" },
+  ],
+  ChipPreview: SubtitleChipPreview,
+};
+
+/**
  * Formats we know are binary and have no viewer yet. Recognising them up
  * front lets surfaces skip the (up to 2 MB) fetch and show the notice
  * immediately. Entries move out of here as they gain real viewers.
@@ -241,16 +549,12 @@ export const BINARY_ENTRY: FileViewerEntry = {
   extensions: [
     // archives
     "zip", "gz", "tgz", "tar", "bz2", "xz", "7z", "rar", "zst",
-    // documents
-    "doc", "docx", "xls", "ppt", "pptx", "odt", "ods", "odp", "epub",
     // executables / objects
     "exe", "dll", "so", "dylib", "o", "a", "class", "jar", "war", "pyc", "wasm", "bin",
     // disk images / databases
-    "iso", "dmg", "img", "sqlite", "sqlite3", "db",
-    // fonts
-    "woff", "woff2", "ttf", "otf", "eot",
-    // images browsers can't show natively
-    "tif", "tiff", "heic", "heif", "psd",
+    "iso", "dmg", "img",
+    // fonts (old IE format; the rest have a viewer)
+    "eot",
   ],
   icon: File,
   modes: [{ id: "none", label: "File", needs: "none", editable: false, View: BinaryNoticeMode }],
@@ -273,6 +577,25 @@ const ENTRIES: readonly FileViewerEntry[] = [
   DELIMITED_ENTRY,
   PDF_ENTRY,
   XLSX_ENTRY,
+  DOCX_ENTRY,
+  LEGACY_WORD_ENTRY,
+  LEGACY_SHEET_ENTRY,
+  PRESENTATION_ENTRY,
+  MODEL_3D_ENTRY,
+  SQLITE_ENTRY,
+  COLUMNAR_ENTRY,
+  DECODED_IMAGE_ENTRY,
+  NOTEBOOK_ENTRY,
+  EBOOK_ENTRY,
+  MERMAID_ENTRY,
+  GRAPHVIZ_ENTRY,
+  EXCALIDRAW_ENTRY,
+  DRAWIO_ENTRY,
+  EMAIL_ENTRY,
+  CALENDAR_ENTRY,
+  CONTACTS_ENTRY,
+  FONT_ENTRY,
+  SUBTITLE_ENTRY,
   BINARY_ENTRY,
 ];
 

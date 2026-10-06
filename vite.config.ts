@@ -5,6 +5,8 @@ import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import svgr from "vite-plugin-svgr";
+// Viewer libraries served from our own origin, not a CDN (see the file header).
+import { vendorLibs } from "./scripts/vendor-libs.mjs";
 
 const sslCertPath = path.join(process.cwd(), "ssl/skynet.crt");
 const sslKeyPath = path.join(process.cwd(), "ssl/skynet.key");
@@ -97,7 +99,7 @@ const buildId: string =
   })();
 
 export default defineConfig({
-  plugins: [react(), tailwindcss(), svgr()],
+  plugins: [react(), tailwindcss(), svgr(), vendorLibs()],
   define: {
     "import.meta.env.VITE_APP_VERSION": JSON.stringify(
       packageJson.version || "0.0.0",
@@ -114,6 +116,12 @@ export default defineConfig({
   build: {
     sourcemap: false,
     rollupOptions: {
+      // ebook-reader.html: the isolated, CSP-locked page that hosts the
+      // ebook engine (see the file's header comment).
+      input: {
+        main: path.resolve(__dirname, "index.html"),
+        ebookReader: path.resolve(__dirname, "ebook-reader.html"),
+      },
       output: {
         manualChunks: getManualChunk,
       },

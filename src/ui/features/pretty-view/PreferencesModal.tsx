@@ -28,7 +28,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { User, Volume2, Bell, Sparkles, Phone, LogOut } from "lucide-react";
+import { User, Volume2, Bell, Sparkles, Phone, LogOut, Info } from "lucide-react";
 import { Modal, ModalHead, ModalBody, ModalFoot } from "@/components/modal";
 import { cn } from "@/lib/utils";
 import { PreferencesGeneralPane } from "./PreferencesGeneralPane";
@@ -36,6 +36,7 @@ import { PreferencesVoicePane } from "./PreferencesVoicePane";
 import { PreferencesNotificationsPane } from "./PreferencesNotificationsPane";
 import { PreferencesAboutYouPane } from "./PreferencesAboutYouPane";
 import { PreferencesPhonePane } from "./PreferencesPhonePane";
+import { PreferencesAboutPane } from "./PreferencesAboutPane";
 import { getMyPhone } from "@/api/user-phone-api";
 import { logoutUser } from "@/main-axios";
 import type { UserPreferences } from "@/api/open-tabs-api";
@@ -51,7 +52,7 @@ const NAV_SECTIONS = [
   { value: "phone",         label: "Phone",         Icon: Phone     },
 ] as const;
 
-type SectionValue = (typeof NAV_SECTIONS)[number]["value"];
+type SectionValue = (typeof NAV_SECTIONS)[number]["value"] | "about";
 
 // ─── Props ───────────────────────────────────────────────────────────────────
 
@@ -169,11 +170,29 @@ export default function PreferencesModal({
             );
           })}
 
+          {/* About — anchored at the bottom with Log out, just above its
+              divider: version, licence and the instance's source link. */}
+          <button
+            type="button"
+            data-testid="preferences-nav-about"
+            aria-current={activeSection === "about" ? "page" : undefined}
+            onClick={() => setActiveSection("about")}
+            className={cn(
+              "mt-auto flex items-center gap-2.5 px-4 py-2 mx-2 mb-2 rounded-lg text-[13px] cursor-pointer transition-[background-color,color] duration-150 text-left",
+              activeSection === "about"
+                ? "bg-[hsla(var(--pv-id-hue),65%,55%,0.24)] text-[#fbf5e8] font-medium"
+                : "text-[hsla(var(--pv-id-hue),22%,88%,0.7)] hover:text-[#d8d4c8] hover:bg-white/5",
+            )}
+          >
+            <Info size={16} className="shrink-0" />
+            <span>About</span>
+          </button>
+
           {/* Log out — pinned to the bottom of the nav below a divider,
               reachable from every tab. Confirmed only UI logout path in
               the frontend (2026-09-29 grep). */}
           <div
-            className="mt-auto pt-2 mx-2"
+            className="pt-2 mx-2"
             style={{
               borderTop:
                 "1px solid hsla(var(--pv-id-hue), 60%, 55%, 0.22)",
@@ -232,6 +251,7 @@ export default function PreferencesModal({
               defaultHostId={defaultHostId ?? null}
             />
           )}
+          {activeSection === "about" && <PreferencesAboutPane />}
           {activeSection === "phone" && phoneE164 !== null && (
             <PreferencesPhonePane
               phoneE164={phoneE164}
