@@ -1,0 +1,423 @@
+#!/usr/bin/env bash
+# agent-desktop — per-identity virtual desktop (Xvnc + openbox) for GUI work.
+#
+# Canonical copy lives in the Skynet repo at substrate/scripts/agent-desktop and
+# is distributed to every managed host by the fleet-substrate distributor (see
+# src/backend/distributor/catalog.ts). Installed per-box at
+# ~/.local/bin/agent-desktop. Do NOT hand-edit the installed copy.
+#
+# Each identity gets its own X display, served by TigerVNC's Xvnc (one process
+# that is both the virtual framebuffer and the VNC server) with openbox as the
+# window manager. The display number is allocated once and kept stable, so the
+# VNC port (15900 + display) is predictable for the Skynet backend.
+#
+# Lifecycle is owned by the templated systemd user unit
+# agent-desktop@<identity>.service (ExecStart = `agent-desktop serve <identity>`),
+# so a crashed desktop restarts and `systemctl --user stop` reaps it. Boxes
+# without a usable systemd user manager fall back to a detached process.
+#
+# Usage:
+#   agent-desktop up      [--identity NAME] [--quiet]   # start (idempotent); prints DISPLAY=:N
+#   agent-desktop down    [--identity NAME]             # stop
+#   agent-desktop status  [--identity NAME] [--json]    # running? display, port, geometry
+#   agent-desktop env     [--identity NAME]             # prints DISPLAY=:N (no start)
+#   agent-desktop run     [--identity NAME] -- CMD...   # launch an app on the desktop (detached)
+#   agent-desktop serve   NAME                          # internal: foreground server (systemd ExecStart)
+#
+# The identity defaults to $FLEET_IDENTITY (exported by agent-supervisor into
+# every claude launch).
+#
+# Per-identity state: ~/fleet/identities/<name>/desktop/
+#   display        allocated display number (stable across restarts)
+#   geometry       screen size, fixed at first allocation (default 1280x800)
+#   vnc-passwd     VNC password file (vncpasswd -f format), mode 600
+#   vnc-password   same password in plain text, mode 600 — read by the Skynet
+#                  backend to open the Guacamole VNC connection
+#   control-lock   present while a human has taken control (desktop-mcp
+#                  refuses input actions while it exists)
+#   serve.pid      pid of the `serve` process (fallback mode)
+#   serve.log      server + window-manager output
+#   apps.log       output of apps launched via `agent-desktop run`
+#
+# Env overrides (tests / operator tuning):
+#   AGENT_DESKTOP_GEOMETRY      screen size for NEW allocations (default 1280x800)
+#   AGENT_DESKTOP_BASE_DISPLAY  first display number to allocate (default 100)
+#   AGENT_DESKTOP_NO_SYSTEMD=1  never use systemd; always use the detached fallback
+#   AGENT_DESKTOP_START_TIMEOUT seconds to wait for the display to come up (default 20)
+#
+# Set flags: `-e` is intentionally NOT set (matches image-gen / agent-supervisor):
+# several probes below are expected to fail on the not-yet-running paths.
+
+set -uo pipefail
+
+FLEET_DIR="${HOME}/fleet"
+IDENTITIES_DIR="${FLEET_DIR}/identities"
+LOCK_FILE="${FLEET_DIR}/.agent-desktop.lock"
+DEFAULT_GEOMETRY="${AGENT_DESKTOP_GEOMETRY:-1280x800}"
+BASE_DISPLAY="${AGENT_DESKTOP_BASE_DISPLAY:-100}"
+START_TIMEOUT="${AGENT_DESKTOP_START_TIMEOUT:-20}"
+# VNC port = VNC_PORT_BASE + display. Not the classic 5900+N: with displays
+# starting at 100 that lands on 6000+, the X11-over-TCP range.
+VNC_PORT_BASE=15900
+SELF="$(command -v agent-desktop 2>/dev/null || true)"
+[ -n "$SELF" ] || SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+
+die() { printf 'agent-desktop: %s\n' "$*" >&2; exit 1; }
+
+usage() {
+  sed -n '/^# Usage:/,/^# The identity defaults/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' | sed '$d' >&2
+}
+
+# ---- identity + state paths --------------------------------------------------
+
+identity=""
+resolve_identity() {
+  [ -n "$identity" ] || identity="${FLEET_IDENTITY:-}"
+  [ -n "$identity" ] || die "no identity: pass --identity NAME or set FLEET_IDENTITY"
+  # Identity names are slugs (spaces -> hyphens); refuse anything that could
+  # escape the identities dir or break a systemd instance name.
+  case "$identity" in
+    *[!A-Za-z0-9._-]*|.*) die "invalid identity name: '$identity'" ;;
+  esac
+  STATE_DIR="${IDENTITIES_DIR}/${identity}/desktop"
+}
+
+ensure_state_dir() {
+  mkdir -p "$STATE_DIR" || die "cannot create $STATE_DIR"
+  chmod 700 "$STATE_DIR" 2>/dev/null || true
+}
+
+read_display() { cat "$STATE_DIR/display" 2>/dev/null || true; }
+read_geometry() {
+  local g
+  g="$(cat "$STATE_DIR/geometry" 2>/dev/null || true)"
+  printf '%s' "${g:-$DEFAULT_GEOMETRY}"
+}
+
+# ---- display allocation ------------------------------------------------------
+
+# A display number is "taken" if another identity has claimed it, or if an X
+# server (ours or anyone's) holds its socket or lock file.
+display_claimed_by_other() {
+  local n="$1" f
+  for f in "$IDENTITIES_DIR"/*/desktop/display; do
+    [ -f "$f" ] || continue
+    [ "$f" = "$STATE_DIR/display" ] && continue
+    [ "$(cat "$f" 2>/dev/null)" = "$n" ] && return 0
+  done
+  return 1
+}
+display_in_use() {
+  local n="$1"
+  [ -e "/tmp/.X11-unix/X${n}" ] || [ -e "/tmp/.X${n}-lock" ]
+}
+
+# Allocate (or re-validate) this identity's display number under a box-wide
+# lock so two identities starting at once can't pick the same number.
+allocate_display() {
+  mkdir -p "$FLEET_DIR"
+  exec 9>"$LOCK_FILE"
+  flock -w 10 9 || die "timed out waiting for $LOCK_FILE"
+
+  local cur n
+  cur="$(read_display)"
+  if [ -n "$cur" ] && ! display_claimed_by_other "$cur"; then
+    # Keep the stable number unless a foreign X server now squats on it.
+    if ! display_in_use "$cur" || server_ready "$cur"; then
+      flock -u 9; exec 9>&-
+      return 0
+    fi
+  fi
+
+  n="$BASE_DISPLAY"
+  while display_claimed_by_other "$n" || display_in_use "$n"; do
+    n=$((n + 1))
+    [ "$n" -lt $((BASE_DISPLAY + 500)) ] || die "no free display number"
+  done
+  printf '%s\n' "$n" > "$STATE_DIR/display"
+  [ -f "$STATE_DIR/geometry" ] || printf '%s\n' "$DEFAULT_GEOMETRY" > "$STATE_DIR/geometry"
+  flock -u 9; exec 9>&-
+}
+
+ensure_password() {
+  [ -s "$STATE_DIR/vnc-passwd" ] && [ -s "$STATE_DIR/vnc-password" ] && return 0
+  local pw
+  # VNC auth only uses the first 8 characters.
+  pw="$(head -c 64 /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 8)"
+  [ "${#pw}" -eq 8 ] || die "could not generate a VNC password"
+  ( umask 077
+    printf '%s\n' "$pw" > "$STATE_DIR/vnc-password"
+    printf '%s\n' "$pw" | vncpasswd -f > "$STATE_DIR/vnc-passwd" ) || die "vncpasswd failed"
+}
+
+# ---- dependencies ------------------------------------------------------------
+
+missing_deps() {
+  local missing=()
+  command -v Xvnc      >/dev/null 2>&1 || missing+=(Xvnc)
+  command -v vncpasswd >/dev/null 2>&1 || missing+=(vncpasswd)
+  command -v openbox   >/dev/null 2>&1 || missing+=(openbox)
+  command -v xdotool   >/dev/null 2>&1 || missing+=(xdotool)
+  command -v import    >/dev/null 2>&1 || missing+=(import)
+  printf '%s\n' "${missing[@]}"
+}
+
+# Best-effort install in the shape of agent-supervisor's ensure_inotifywait:
+# only with non-interactive root, never prompts.
+ensure_deps() {
+  local missing
+  missing="$(missing_deps)"
+  [ -z "$missing" ] && return 0
+
+  local SUDO=""
+  if [ "$(id -u)" != 0 ]; then
+    sudo -n true 2>/dev/null || die "missing: ${missing//$'\n'/ } — install tigervnc-standalone-server tigervnc-tools openbox xdotool imagemagick"
+    SUDO="sudo -n"
+  fi
+  printf 'agent-desktop: installing desktop packages (one-time)...\n' >&2
+  if command -v apt-get >/dev/null 2>&1; then
+    DEBIAN_FRONTEND=noninteractive $SUDO apt-get install -y -q --no-install-recommends \
+      tigervnc-standalone-server tigervnc-tools openbox xdotool imagemagick x11-xserver-utils >/dev/null 2>&1
+  elif command -v dnf >/dev/null 2>&1; then
+    $SUDO dnf install -y -q tigervnc-server openbox xdotool ImageMagick xsetroot >/dev/null 2>&1
+  fi
+  missing="$(missing_deps)"
+  [ -z "$missing" ] || die "missing after install attempt: ${missing//$'\n'/ }"
+}
+
+# ---- readiness ---------------------------------------------------------------
+
+server_ready() {
+  local n="$1"
+  [ -n "$n" ] || return 1
+  DISPLAY=":$n" timeout 3 xdotool getdisplaygeometry >/dev/null 2>&1
+}
+
+wait_ready() {
+  local n="$1" i=0
+  while [ "$i" -lt $((START_TIMEOUT * 4)) ]; do
+    server_ready "$n" && return 0
+    sleep 0.25
+    i=$((i + 1))
+  done
+  return 1
+}
+
+# ---- systemd vs fallback -----------------------------------------------------
+
+use_systemd() {
+  [ "${AGENT_DESKTOP_NO_SYSTEMD:-0}" = 1 ] && return 1
+  command -v systemctl >/dev/null 2>&1 || return 1
+  [ -f "$HOME/.config/systemd/user/agent-desktop@.service" ] || return 1
+  systemctl --user show-environment >/dev/null 2>&1
+}
+
+unit_name() { printf 'agent-desktop@%s.service' "$(systemd-escape -- "$identity")"; }
+
+start_server() {
+  if use_systemd; then
+    systemctl --user start "$(unit_name)" || die "systemctl --user start $(unit_name) failed"
+  else
+    # Detached fallback: own session so it outlives the caller's shell.
+    setsid nohup "$SELF" serve "$identity" >>"$STATE_DIR/serve.log" 2>&1 < /dev/null &
+    disown 2>/dev/null || true
+  fi
+}
+
+stop_server() {
+  if use_systemd && systemctl --user is-active --quiet "$(unit_name)" 2>/dev/null; then
+    systemctl --user stop "$(unit_name)"
+  fi
+  local pid
+  pid="$(cat "$STATE_DIR/serve.pid" 2>/dev/null || true)"
+  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+    kill -TERM "$pid" 2>/dev/null
+    local i=0
+    while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 40 ]; do sleep 0.25; i=$((i + 1)); done
+    kill -KILL "$pid" 2>/dev/null || true
+  fi
+  rm -f "$STATE_DIR/serve.pid"
+}
+
+# ---- subcommands -------------------------------------------------------------
+
+cmd_up() {
+  local quiet=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --identity) identity="${2:-}"; shift 2 ;;
+      --quiet)    quiet=1; shift ;;
+      *) die "up: unknown argument '$1'" ;;
+    esac
+  done
+  resolve_identity
+  ensure_state_dir
+
+  local n
+  n="$(read_display)"
+  if server_ready "$n"; then
+    printf 'DISPLAY=:%s\n' "$n"
+    return 0
+  fi
+
+  ensure_deps
+  allocate_display
+  ensure_password
+  n="$(read_display)"
+  [ "$quiet" = 1 ] || printf 'agent-desktop: starting desktop :%s for %s\n' "$n" "$identity" >&2
+  start_server
+  wait_ready "$n" || die "desktop :$n did not come up within ${START_TIMEOUT}s (see $STATE_DIR/serve.log)"
+  printf 'DISPLAY=:%s\n' "$n"
+}
+
+cmd_down() {
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --identity) identity="${2:-}"; shift 2 ;;
+      *) die "down: unknown argument '$1'" ;;
+    esac
+  done
+  resolve_identity
+  [ -d "$STATE_DIR" ] || return 0
+  stop_server
+}
+
+cmd_status() {
+  local json=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --identity) identity="${2:-}"; shift 2 ;;
+      --json)     json=1; shift ;;
+      *) die "status: unknown argument '$1'" ;;
+    esac
+  done
+  resolve_identity
+
+  local n running=false port="" geometry controlled=false
+  n="$(read_display)"
+  geometry="$(read_geometry)"
+  server_ready "$n" && running=true
+  [ -n "$n" ] && port=$((VNC_PORT_BASE + n))
+  [ -e "$STATE_DIR/control-lock" ] && controlled=true
+
+  if [ "$json" = 1 ]; then
+    jq -cn --arg id "$identity" --argjson running "$running" \
+      --arg display "$n" --arg port "$port" --arg geometry "$geometry" \
+      --argjson controlled "$controlled" \
+      '{identity:$id, running:$running,
+        display:(if $display=="" then null else ($display|tonumber) end),
+        vncPort:(if $port=="" then null else ($port|tonumber) end),
+        geometry:$geometry, userHasControl:$controlled}'
+  elif [ "$running" = true ]; then
+    printf 'running  DISPLAY=:%s  vnc=localhost:%s  %s%s\n' "$n" "$port" "$geometry" \
+      "$([ "$controlled" = true ] && printf '  (user has control)')"
+  else
+    printf 'stopped\n'
+  fi
+  [ "$running" = true ]
+}
+
+cmd_env() {
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --identity) identity="${2:-}"; shift 2 ;;
+      *) die "env: unknown argument '$1'" ;;
+    esac
+  done
+  resolve_identity
+  local n
+  n="$(read_display)"
+  [ -n "$n" ] || die "no desktop allocated for $identity (run: agent-desktop up)"
+  printf 'DISPLAY=:%s\n' "$n"
+}
+
+cmd_run() {
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --identity) identity="${2:-}"; shift 2 ;;
+      --) shift; break ;;
+      *) break ;;
+    esac
+  done
+  [ $# -gt 0 ] || die "run: no command given (usage: agent-desktop run -- CMD...)"
+  resolve_identity
+  local disp
+  disp="$(cmd_up --identity "$identity" --quiet)" || exit 1
+  disp="${disp#DISPLAY=}"
+  # Detached + own session: the app outlives the agent's Bash tool call.
+  DISPLAY="$disp" setsid nohup "$@" >>"$STATE_DIR/apps.log" 2>&1 < /dev/null &
+  local pid=$!
+  disown 2>/dev/null || true
+  printf 'started pid %s on DISPLAY=%s\n' "$pid" "$disp"
+}
+
+# Foreground server. Runs Xvnc + openbox; exits (non-zero) when Xvnc dies so
+# systemd's Restart=on-failure brings it back.
+cmd_serve() {
+  identity="${1:-}"
+  resolve_identity
+  ensure_state_dir
+  allocate_display
+  ensure_password
+
+  local n geometry
+  n="$(read_display)"
+  geometry="$(read_geometry)"
+
+  # Clear a stale lock/socket left by a crashed server on OUR display.
+  if display_in_use "$n" && ! server_ready "$n"; then
+    rm -f "/tmp/.X${n}-lock" "/tmp/.X11-unix/X${n}" 2>/dev/null || true
+  fi
+
+  printf '%s\n' "$$" > "$STATE_DIR/serve.pid"
+
+  # -localhost: VNC listens on loopback only; the Skynet backend reaches it
+  # over an SSH port-forward (or directly when co-located).
+  # -AlwaysShared: the user's viewer never kicks another viewer off.
+  Xvnc ":$n" \
+    -geometry "$geometry" -depth 24 \
+    -rfbport $((VNC_PORT_BASE + n)) -localhost \
+    -SecurityTypes VncAuth -PasswordFile "$STATE_DIR/vnc-passwd" \
+    -AlwaysShared -desktop "$identity" \
+    -nolisten tcp &
+  local xpid=$! wmpid=""
+
+  cleanup_serve() {
+    [ -n "$wmpid" ] && kill -TERM "$wmpid" 2>/dev/null
+    kill -TERM "$xpid" 2>/dev/null
+    wait "$xpid" 2>/dev/null
+    rm -f "$STATE_DIR/serve.pid"
+  }
+  trap 'cleanup_serve; exit 0' TERM INT
+
+  if ! wait_ready "$n"; then
+    printf 'agent-desktop: Xvnc :%s failed to start\n' "$n" >&2
+    cleanup_serve
+    exit 1
+  fi
+
+  command -v xsetroot >/dev/null 2>&1 && DISPLAY=":$n" xsetroot -solid '#2b2f36' 2>/dev/null
+  DISPLAY=":$n" openbox &
+  wmpid=$!
+
+  wait "$xpid"
+  local rc=$?
+  [ -n "$wmpid" ] && kill -TERM "$wmpid" 2>/dev/null
+  rm -f "$STATE_DIR/serve.pid"
+  exit "$((rc == 0 ? 1 : rc))"
+}
+
+# ---- dispatch ----------------------------------------------------------------
+
+sub="${1:-}"
+[ $# -gt 0 ] && shift
+case "$sub" in
+  up)     cmd_up "$@" ;;
+  down)   cmd_down "$@" ;;
+  status) cmd_status "$@" ;;
+  env)    cmd_env "$@" ;;
+  run)    cmd_run "$@" ;;
+  serve)  cmd_serve "$@" ;;
+  -h|--help|help|"") usage; [ -n "$sub" ] ;;
+  *) usage; exit 2 ;;
+esac

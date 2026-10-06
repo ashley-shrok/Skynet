@@ -1,0 +1,10 @@
+[Unit]
+Description=Agent desktop — virtual X display + VNC for identity %I
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/agent-desktop serve %I
+Restart=on-failure
+RestartSec=5
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin

@@ -255,6 +255,28 @@ CLAUDE_LAUNCH_FLAGS="${CLAUDE_MODEL:+--model $CLAUDE_MODEL }--dangerously-skip-p
 [ "${AGENT_SUPERVISOR_LIB_ONLY:-0}" = 1 ] || \
   log "claude-model: $([ -n "$CLAUDE_MODEL" ] && echo "pinned to '$CLAUDE_MODEL'" || echo "unpinned (CLAUDE_MODEL empty) — harness default applies")"
 
+# ---- desktop MCP: per-identity virtual desktop tools for every supervised session ----
+# desktop-mcp (substrate/scripts/desktop-mcp.py) gives the agent screenshot/click/type/key tools
+# against its own X display (allocated + started lazily by agent-desktop). Registered per launch via
+# --mcp-config pointing at a small JSON file, so it adds to (never replaces) the user's own MCP
+# servers in ~/.claude.json. Only wired when desktop-mcp is installed, so a box the distributor
+# hasn't reached yet launches exactly as before. Like every launch flag, a running session picks
+# this up on its next (re)launch.
+DESKTOP_MCP_BIN="$HOME/.local/bin/desktop-mcp"
+DESKTOP_MCP_CONFIG="$HOME/.claude/desktop-mcp.json"
+ensure_desktop_mcp_config() {
+  [ -x "$DESKTOP_MCP_BIN" ] || return 1
+  command -v jq >/dev/null 2>&1 || return 1
+  local want
+  want="$(jq -n --arg cmd "$DESKTOP_MCP_BIN" '{mcpServers:{desktop:{type:"stdio",command:$cmd,args:[]}}}')" || return 1
+  if [ "$(cat "$DESKTOP_MCP_CONFIG" 2>/dev/null)" != "$want" ]; then
+    mkdir -p "$(dirname "$DESKTOP_MCP_CONFIG")" && printf '%s\n' "$want" > "$DESKTOP_MCP_CONFIG" || return 1
+    [ "${AGENT_SUPERVISOR_LIB_ONLY:-0}" = 1 ] || log "desktop-mcp: wrote $DESKTOP_MCP_CONFIG"
+  fi
+  return 0
+}
+ensure_desktop_mcp_config && CLAUDE_LAUNCH_FLAGS="$CLAUDE_LAUNCH_FLAGS --mcp-config $DESKTOP_MCP_CONFIG"
+
 # ---- memory cap (2026-08-06) — wrap claude launches in a systemd scope with MemoryHigh ----
 # Rationale: claude's baseline is ~500 MB RSS per session (Ink React TUI + Node/V8, architectural).
 # On boxes with zram-primary swap, reclaim under a soft MemoryHigh ceiling is cheap enough (LZO

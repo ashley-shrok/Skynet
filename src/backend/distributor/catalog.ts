@@ -297,6 +297,16 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     installPath: "~/.claude/skills/agent-phone/SKILL.md",
     restartHook: null,
   },
+  // desktop: tells the agent when + how to use its per-identity virtual
+  // desktop (agent-desktop CLI + desktop-mcp tools). On-demand-loaded skill
+  // file — no restart hook.
+  {
+    slug: "desktop-skill",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/desktop/SKILL.md",
+    installPath: "~/.claude/skills/desktop/SKILL.md",
+    restartHook: null,
+  },
 
   // --- helper scripts (8 rows prior to Phase 95 addition, 9 total — all under ~/.local/bin/) ---
   // agent-supervisor is the sole entry with a restart hook: bytes must be
@@ -406,6 +416,31 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     restartHook: null,
   },
 
+  // agent-desktop: per-identity virtual desktop (Xvnc + openbox) — allocates
+  // a stable display number, starts/stops it via the agent-desktop@ unit
+  // below. On-demand executable, no restart hook; running desktops keep
+  // their old `serve` bytes until next restart (accepted — serve is tiny).
+  {
+    slug: "agent-desktop-helper",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/scripts/agent-desktop",
+    installPath: "~/.local/bin/agent-desktop",
+    restartHook: null,
+  },
+  // desktop-mcp: stdio MCP server exposing screenshot/click/type/key/... on
+  // the identity's desktop. Registered per claude launch by agent-supervisor
+  // (--mcp-config ~/.claude/desktop-mcp.json, only when this file exists).
+  // Harness-bound like the ambient watchers: each claude session spawns its
+  // own copy, so new bytes apply on the next session (re)launch. No restart
+  // hook.
+  {
+    slug: "desktop-mcp-helper",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/scripts/desktop-mcp.py",
+    installPath: "~/.local/bin/desktop-mcp",
+    restartHook: null,
+  },
+
   // task-field-check: UserPromptSubmit hook that nudges the agent when its
   // identity file's `task:` frontmatter is still "Untitled conversation".
   // Reads $FLEET_IDENTITY (exported by agent-supervisor.sh into every
@@ -512,6 +547,20 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     bundledPath: "/app/fleet-substrate/user-onboarding/interactive-messages-gc.timer",
     installPath: "~/.config/systemd/user/interactive-messages-gc.timer",
     restartHook: "interactive-messages-gc.timer",
+  },
+
+  // agent-desktop@.service — TEMPLATE unit, one instance per identity with a
+  // running desktop (instance = systemd-escaped identity name). Started and
+  // stopped on demand by agent-desktop up/down; never enabled at bootstrap.
+  // No restart hook: a template has no single instance to bounce, and the
+  // per-sweep daemon-reload already picks up new unit bytes for the next
+  // start.
+  {
+    slug: "agent-desktop-service-unit",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/user-onboarding/agent-desktop@.service",
+    installPath: "~/.config/systemd/user/agent-desktop@.service",
+    restartHook: null,
   },
 
   // --- fleet-status-sweep (1 row: python batch sweep for fleet-status poller — Phase 92) ---
