@@ -42,6 +42,8 @@ licence text are in `package.json` / `package-lock.json` and each package's
 | msgreader (`@kenjiuno/msgreader`) | Outlook (.msg) reader | Apache-2.0 | https://github.com/HiraokaHyperTools/msgreader |
 | DOMPurify | Sanitising email HTML | MPL-2.0 or Apache-2.0 | https://github.com/cure53/DOMPurify |
 | ical.js | Calendar (.ics) and contacts (.vcf) reader | MPL-2.0 | https://github.com/kewisch/ical.js |
+| fontkit (with brotli.js for WOFF2) | Font viewer: names, characters, OpenType features, variation axes | MIT | https://github.com/foliojs/fontkit |
+| ass-compiler | Reading .ass/.ssa subtitles | MIT | https://github.com/weizhenye/ass-compiler |
 | LibreOffice (separate `converter` container, from Ubuntu packages) | Converting .doc/.odt/.xls/.ods/.ppt/.pptx/.odp for viewing | MPL-2.0 | https://www.libreoffice.org/about-us/source-code/ |
 
 ## AGPL-3.0 and Skynet

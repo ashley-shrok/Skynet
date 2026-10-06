@@ -275,6 +275,26 @@ Ordering below is a starting-point, not locked. Each entry is marked
   until the button. Real Outlook .msg not tested here (no sample). —
   built, awaiting user check
 
+- **[discovered] shape-fonts-subtitles** — (2026-10-06)
+  Fonts (.ttf/.otf/.woff/.woff2; .eot stays a download), VIEW-ONLY:
+  fontkit reads names, characters, OpenType features, variation axes and
+  embedding rights; the browser draws (FontFace from the bytes, released on
+  close). Specimen: your own text at 72–12 px (right-to-left aware), the
+  font's own script when it was made mainly for one (Arabic, CJK...),
+  feature toggles, variable-font sliders + named styles, light/dark paper.
+  Characters: grid (1024 at a time), search by character or U+code, detail
+  with glyph name / width / copy. Details: names, version, designer,
+  licence, copyright, embedding. Chip: "Aa" + a sample line in the font.
+  Subtitles (.srt/.vtt/.ass/.ssa), EDITABLE: Lines table (AG Grid) with
+  start/end/length/text edited in place, add / delete (ticked) lines,
+  shift timings (all or ticked), undo/redo, problems (reversed times,
+  overlaps (not for ASS), > 21 characters a second), search, export a copy
+  as .srt/.vtt; Source tab shares the draft. Saving rewrites only edited
+  cues: headers, styles, notes, cue ids/settings and untouched lines stay
+  byte-identical (SRT renumbers after add/delete). subsrt-ts was tried and
+  dropped: its writer strips italics and VTT settings. ASS dialogue is read
+  with ass-compiler. Chips for both. — built, awaiting user check
+
 ## Rule: view-only when editing can't be done properly (2026-10-05)
 
 If we can't give a proper editing-and-saving experience for a file type

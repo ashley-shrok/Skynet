@@ -19,6 +19,8 @@ import {
   Presentation,
   Music,
   Video,
+  Type as TypeIcon,
+  Captions,
   type LucideIcon,
 } from "lucide-react";
 import { classifyByExtension } from "../editable-file-whitelist";
@@ -60,6 +62,10 @@ import { DrawioMode } from "./diagram/drawio-mode";
 import { DrawioChipPreview } from "./diagram/DrawioChipPreview";
 import { CalendarMode, ContactsMode, EmailMode } from "./pim/pim-modes";
 import { CalendarChipPreview, ContactsChipPreview, EmailChipPreview } from "./pim/PimChipPreviews";
+import { FontMode } from "./font/font-mode";
+import { SubtitleMode } from "./subtitle/subtitle-mode";
+import { SubtitleChipPreview } from "./subtitle/SubtitleChipPreview";
+import { FontChipPreview } from "./font/FontChipPreview";
 import { HEIC_EXTENSIONS, PSD_EXTENSIONS, RAW_EXTENSIONS, TIFF_EXTENSIONS } from "./images/image-formats";
 import { ColumnarChipPreview, SqliteChipPreview } from "./data/DataChipPreviews";
 
@@ -512,6 +518,27 @@ export const CONTACTS_ENTRY: FileViewerEntry = {
   ChipPreview: ContactsChipPreview,
 };
 
+/** Fonts: specimen, characters and details, view-only. */
+export const FONT_ENTRY: FileViewerEntry = {
+  id: "font",
+  extensions: ["ttf", "otf", "woff", "woff2"],
+  icon: TypeIcon,
+  modes: [{ id: "view", label: "Font", needs: "url", editable: false, View: FontMode }],
+  ChipPreview: FontChipPreview,
+};
+
+/** Subtitles: an editable table of timed lines, plus the text itself. */
+export const SUBTITLE_ENTRY: FileViewerEntry = {
+  id: "subtitle",
+  extensions: ["srt", "vtt", "ass", "ssa"],
+  icon: Captions,
+  modes: [
+    { id: "lines", label: "Lines", needs: "content", editable: true, View: SubtitleMode },
+    { ...textMode, id: "source", label: "Source" },
+  ],
+  ChipPreview: SubtitleChipPreview,
+};
+
 /**
  * Formats we know are binary and have no viewer yet. Recognising them up
  * front lets surfaces skip the (up to 2 MB) fetch and show the notice
@@ -526,8 +553,8 @@ export const BINARY_ENTRY: FileViewerEntry = {
     "exe", "dll", "so", "dylib", "o", "a", "class", "jar", "war", "pyc", "wasm", "bin",
     // disk images / databases
     "iso", "dmg", "img",
-    // fonts
-    "woff", "woff2", "ttf", "otf", "eot",
+    // fonts (old IE format; the rest have a viewer)
+    "eot",
   ],
   icon: File,
   modes: [{ id: "none", label: "File", needs: "none", editable: false, View: BinaryNoticeMode }],
@@ -567,6 +594,8 @@ const ENTRIES: readonly FileViewerEntry[] = [
   EMAIL_ENTRY,
   CALENDAR_ENTRY,
   CONTACTS_ENTRY,
+  FONT_ENTRY,
+  SUBTITLE_ENTRY,
   BINARY_ENTRY,
 ];
 

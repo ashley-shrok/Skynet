@@ -35,6 +35,8 @@ const COMPONENTS: Array<[string, string, string]> = [
   ["postal-mime", "Email reader", "MIT-0"],
   ["msgreader", "Outlook .msg reader", "Apache-2.0"],
   ["ical.js", "Calendar and contacts", "MPL-2.0"],
+  ["fontkit", "Font viewer", "MIT"],
+  ["ass-compiler", "ASS subtitles", "MIT"],
   ["LibreOffice", "Document converter (server)", "MPL-2.0"],
 ];
 
