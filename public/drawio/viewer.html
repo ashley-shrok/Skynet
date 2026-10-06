@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!--
+      Skynet's draw.io viewer page. Loaded in a sandboxed frame WITHOUT
+      allow-same-origin (an opaque origin: no access to Skynet's cookies,
+      storage or DOM) and under this CSP: scripts only from this server,
+      nothing fetched from elsewhere (draw.io defaults to diagrams.net for
+      fonts, stencils, logging). Same policy as the nginx header.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <title>Diagram</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #ffffff; font-family: system-ui, sans-serif; }
+      #diagram { width: 100%; height: 100%; overflow: auto; }
+      #message { padding: 24px; color: #444; font-size: 14px; }
+    </style>
+    <script src="viewer-config.v1.js"></script>
+    <script src="v32.0.2/viewer-static.min.js"></script>
+    <script src="viewer-host.v1.js"></script>
+  </head>
+  <body>
+    <div id="diagram"></div>
+  </body>
+</html>

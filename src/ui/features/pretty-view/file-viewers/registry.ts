@@ -1,6 +1,10 @@
 import type { ComponentType } from "react";
 import {
   BookMarked,
+  Network,
+  PenTool,
+  Shapes,
+  Workflow,
   BookOpen,
   Box,
   Database,
@@ -45,6 +49,12 @@ import { NotebookMode } from "./notebook/notebook-mode";
 import { NotebookChipPreview } from "./notebook/NotebookChipPreview";
 import { EbookMode } from "./ebook/ebook-mode";
 import { EbookChipPreview } from "./ebook/EbookChipPreview";
+import { GraphvizDiagramMode, GraphvizSplitMode, MermaidDiagramMode, MermaidSplitMode } from "./diagram/diagram-modes";
+import { DiagramChipPreview } from "./diagram/DiagramChipPreview";
+import { ExcalidrawMode } from "./diagram/excalidraw-mode";
+import { ExcalidrawChipPreview } from "./diagram/ExcalidrawChipPreview";
+import { DrawioMode } from "./diagram/drawio-mode";
+import { DrawioChipPreview } from "./diagram/DrawioChipPreview";
 import { HEIC_EXTENSIONS, PSD_EXTENSIONS, RAW_EXTENSIONS, TIFF_EXTENSIONS } from "./images/image-formats";
 import { ColumnarChipPreview, SqliteChipPreview } from "./data/DataChipPreviews";
 
@@ -408,6 +418,59 @@ export const EBOOK_ENTRY: FileViewerEntry = {
 };
 
 /**
+ * Text diagrams: Mermaid and Graphviz source with a live drawing beside it
+ * (Split), the drawing alone, or the source alone. Editable — it's text.
+ * Drawings are shown as <img> SVG (no scripts); export SVG / PNG.
+ */
+export const MERMAID_ENTRY: FileViewerEntry = {
+  id: "mermaid",
+  extensions: ["mmd", "mermaid"],
+  icon: Workflow,
+  modes: [
+    { id: "split", label: "Split", needs: "content", editable: true, View: MermaidSplitMode },
+    { id: "diagram", label: "Diagram", needs: "content", editable: false, View: MermaidDiagramMode },
+    { ...textMode, id: "source", label: "Source" },
+  ],
+  ChipPreview: DiagramChipPreview,
+};
+
+export const GRAPHVIZ_ENTRY: FileViewerEntry = {
+  id: "graphviz",
+  extensions: ["dot", "gv"],
+  icon: Network,
+  modes: [
+    { id: "split", label: "Split", needs: "content", editable: true, View: GraphvizSplitMode },
+    { id: "diagram", label: "Diagram", needs: "content", editable: false, View: GraphvizDiagramMode },
+    { ...textMode, id: "source", label: "Source" },
+  ],
+  ChipPreview: DiagramChipPreview,
+};
+
+/**
+ * Excalidraw drawings in the real Excalidraw editor (lazy-loaded; fonts
+ * served from our own origin). Saves write Excalidraw JSON back.
+ */
+export const EXCALIDRAW_ENTRY: FileViewerEntry = {
+  id: "excalidraw",
+  extensions: ["excalidraw"],
+  icon: PenTool,
+  modes: [{ id: "draw", label: "Drawing", needs: "url", editable: true, View: ExcalidrawMode }],
+  ChipPreview: ExcalidrawChipPreview,
+};
+
+/**
+ * draw.io diagrams, view-only, in draw.io's own viewer (vendored in
+ * public/drawio/) inside an opaque-origin sandbox under a strict CSP.
+ */
+export const DRAWIO_ENTRY: FileViewerEntry = {
+  id: "drawio",
+  extensions: ["drawio", "dio"],
+  icon: Shapes,
+  modes: [{ id: "view", label: "Diagram", needs: "url", editable: false, View: DrawioMode }],
+  ChipPreview: DrawioChipPreview,
+};
+
+/**
  * Formats we know are binary and have no viewer yet. Recognising them up
  * front lets surfaces skip the (up to 2 MB) fetch and show the notice
  * immediately. Entries move out of here as they gain real viewers.
@@ -455,6 +518,10 @@ const ENTRIES: readonly FileViewerEntry[] = [
   DECODED_IMAGE_ENTRY,
   NOTEBOOK_ENTRY,
   EBOOK_ENTRY,
+  MERMAID_ENTRY,
+  GRAPHVIZ_ENTRY,
+  EXCALIDRAW_ENTRY,
+  DRAWIO_ENTRY,
   BINARY_ENTRY,
 ];
 

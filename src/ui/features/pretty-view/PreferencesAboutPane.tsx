@@ -29,6 +29,9 @@ const COMPONENTS: Array<[string, string, string]> = [
   ["libheif", "HEIC photo decoder", "LGPL-3.0"],
   ["KaTeX", "Maths in notebooks", "MIT"],
   ["foliate-js", "Ebook reader", "MIT"],
+  ["Mermaid · Viz.js", "Text diagrams", "MIT"],
+  ["Excalidraw", "Drawing editor", "MIT"],
+  ["draw.io viewer", "draw.io diagrams", "Apache-2.0"],
   ["LibreOffice", "Document converter (server)", "MPL-2.0"],
 ];
 

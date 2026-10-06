@@ -2,15 +2,30 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { Maximize, Minus, Plus } from "lucide-react";
 
 /**
- * Pan / zoom surface for a decoded image: fit on load, scroll or pinch to
- * zoom around the pointer, drag to pan, 1:1, +/−. The canvas is shown as-is
- * (scaled with CSS), so huge images aren't re-rendered on every move.
+ * Pan / zoom surface for a decoded image or a rendered diagram: fit on load,
+ * scroll or pinch to zoom around the pointer, drag to pan, 1:1, +/−. A
+ * canvas is scaled with a CSS transform (huge images aren't re-rendered on
+ * every move); an <img> (e.g. an SVG diagram) is resized instead, so vector
+ * art stays crisp at any zoom.
  */
+
+type Zoomable = HTMLCanvasElement | HTMLImageElement;
+
+function naturalSize(el: Zoomable): [number, number] {
+  return el instanceof HTMLImageElement ? [el.naturalWidth || el.width, el.naturalHeight || el.height] : [el.width, el.height];
+}
 
 const MIN = 0.02;
 const MAX = 32;
 
-export function ZoomCanvas({ canvas }: { canvas: HTMLCanvasElement | null }): JSX.Element {
+export function ZoomCanvas({
+  canvas,
+  background = "checker",
+}: {
+  canvas: Zoomable | null;
+  /** Checkerboard shows transparency; "paper" suits diagrams. */
+  background?: "checker" | "paper";
+}): JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState({ scale: 1, x: 0, y: 0 });
   const pointers = useRef(new Map<number, { x: number; y: number }>());
@@ -19,11 +34,13 @@ export function ZoomCanvas({ canvas }: { canvas: HTMLCanvasElement | null }): JS
   const fit = useCallback(() => {
     const host = hostRef.current;
     if (!host || !canvas) return;
-    const scale = Math.min(1, host.clientWidth / canvas.width, host.clientHeight / canvas.height) || 1;
+    const [w, h] = naturalSize(canvas);
+    if (!w || !h) return;
+    const scale = Math.min(1, (host.clientWidth - 16) / w, (host.clientHeight - 16) / h) || 1;
     setView({
       scale,
-      x: (host.clientWidth - canvas.width * scale) / 2,
-      y: (host.clientHeight - canvas.height * scale) / 2,
+      x: (host.clientWidth - w * scale) / 2,
+      y: (host.clientHeight - h * scale) / 2,
     });
   }, [canvas]);
 
@@ -38,6 +55,15 @@ export function ZoomCanvas({ canvas }: { canvas: HTMLCanvasElement | null }): JS
       fit();
     }
   }, [canvas, fit]);
+
+  // Images are resized rather than scaled, to stay sharp.
+  useLayoutEffect(() => {
+    if (!(canvas instanceof HTMLImageElement)) return;
+    const [w, h] = naturalSize(canvas);
+    canvas.style.width = `${w * view.scale}px`;
+    canvas.style.height = `${h * view.scale}px`;
+    canvas.style.maxWidth = "none";
+  }, [canvas, view.scale]);
 
   const zoomAt = useCallback((factor: number, cx: number, cy: number) => {
     setView((v) => {
@@ -96,13 +122,17 @@ export function ZoomCanvas({ canvas }: { canvas: HTMLCanvasElement | null }): JS
       <div
         ref={hostRef}
         className="absolute inset-0 cursor-grab touch-none overflow-hidden active:cursor-grabbing"
-        style={{
-          backgroundColor: "#1c1915",
-          backgroundImage:
-            "linear-gradient(45deg,#26221c 25%,transparent 25%),linear-gradient(-45deg,#26221c 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#26221c 75%),linear-gradient(-45deg,transparent 75%,#26221c 75%)",
-          backgroundSize: "16px 16px",
-          backgroundPosition: "0 0,0 8px,8px -8px,-8px 0",
-        }}
+        style={
+          background === "paper"
+            ? { backgroundColor: "#f7f6f2" }
+            : {
+                backgroundColor: "#1c1915",
+                backgroundImage:
+                  "linear-gradient(45deg,#26221c 25%,transparent 25%),linear-gradient(-45deg,#26221c 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#26221c 75%),linear-gradient(-45deg,transparent 75%,#26221c 75%)",
+                backgroundSize: "16px 16px",
+                backgroundPosition: "0 0,0 8px,8px -8px,-8px 0",
+              }
+        }
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -117,8 +147,11 @@ export function ZoomCanvas({ canvas }: { canvas: HTMLCanvasElement | null }): JS
             left: 0,
             top: 0,
             transformOrigin: "0 0",
-            transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})`,
-            imageRendering: view.scale >= 2 ? "pixelated" : "auto",
+            transform:
+              canvas instanceof HTMLImageElement
+                ? `translate(${view.x}px, ${view.y}px)`
+                : `translate(${view.x}px, ${view.y}px) scale(${view.scale})`,
+            imageRendering: view.scale >= 2 && !(canvas instanceof HTMLImageElement) ? "pixelated" : "auto",
           }}
         />
       </div>

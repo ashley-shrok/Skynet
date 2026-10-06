@@ -34,6 +34,10 @@ licence text are in `package.json` / `package-lock.json` and each package's
 | rehype-raw, rehype-sanitize | Sanitised inline HTML in notebook markdown | MIT | https://github.com/rehypejs |
 | anser | Coloured tracebacks in notebook outputs | MIT | https://github.com/IonicaBizau/anser |
 | foliate-js (vendored in `src/ui/vendor/foliate-js/`, pinned commit; includes zip.js and fflate) | Ebook reader (EPUB, MOBI/AZW3, FB2, CBZ) | MIT (zip.js: BSD-3-Clause, fflate: MIT) | https://github.com/johnfactotum/foliate-js |
+| Mermaid (`mermaid`) | Mermaid diagrams | MIT | https://github.com/mermaid-js/mermaid |
+| Viz.js (`@viz-js/viz`, Graphviz compiled to WebAssembly) | Graphviz diagrams | MIT (Graphviz: EPL-1.0) | https://github.com/mdaines/viz-js |
+| Excalidraw (`@excalidraw/excalidraw`; fonts served from `/vendor/excalidraw/`) | Excalidraw editor | MIT (fonts: OFL-1.1) | https://github.com/excalidraw/excalidraw |
+| draw.io viewer (vendored in `public/drawio/`) | draw.io diagram viewer | Apache-2.0 | https://github.com/jgraph/drawio |
 | LibreOffice (separate `converter` container, from Ubuntu packages) | Converting .doc/.odt/.xls/.ods/.ppt/.pptx/.odp for viewing | MPL-2.0 | https://www.libreoffice.org/about-us/source-code/ |
 
 ## AGPL-3.0 and Skynet

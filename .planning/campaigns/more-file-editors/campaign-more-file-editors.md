@@ -238,6 +238,24 @@ Ordering below is a starting-point, not locked. Each entry is marked
   MOBI/AZW3 not tested here (no sample reachable offline). — built,
   awaiting user check
 
+- **[discovered] shape-diagrams** — (2026-10-06)
+  Mermaid (.mmd/.mermaid) + Graphviz (.dot/.gv): text, EDITABLE — Split
+  (source + live drawing, 300 ms debounce, last good drawing kept with the
+  error), Diagram, Source modes; drawings shown as <img> SVG (no scripts or
+  loads; Mermaid strict security + SVG text labels; Viz.js WASM); zoom
+  surface resizes <img> for crisp vectors; export SVG / PNG; chips render.
+  Excalidraw (.excalidraw): the real editor (0.18, lazy), AI off, file
+  Open/Save/Export-to-file actions hidden (host Save via BinaryDraft;
+  dirty = element versions / files, not selection/scroll); fonts from
+  /vendor/excalidraw/ (vendor plugin now maps directories; esm.sh is only
+  its fallback); chip = exportToSvg thumbnail.
+  draw.io (.drawio/.dio): VIEW-ONLY (user choice) with draw.io's viewer
+  (v32.0.2, vendored in public/drawio/ by scripts/vendor-drawio-viewer.mjs)
+  in an opaque-origin sandbox (no allow-same-origin) + CSP (meta + nginx);
+  paths repointed off diagrams.net; pages / zoom / layers / tags toolbar;
+  chip = page names via inert DOMParser. Full draw.io editor deferred.
+  PlantUML skipped (needs a Java server). — built, awaiting user check
+
 ## Rule: view-only when editing can't be done properly (2026-10-05)
 
 If we can't give a proper editing-and-saving experience for a file type

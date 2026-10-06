@@ -8,6 +8,8 @@
  *          IFC, Draco glTF) and lighting map. Upstream fetches these from
  *          cdn.jsdelivr.net; scripts/patch-online-3d-viewer.cjs repoints it.
  *   heif/  libheif (LGPL-3.0) for HEIC photos, kept as its own file.
+ *   excalidraw/  Excalidraw's fonts (its default is esm.sh). A key ending in
+ *          "/" maps a whole directory.
  *
  * Paths keep the CDN's `<package>@<version>/` layout, so a version bump
  * changes the URL (safe to cache immutably; see the /vendor/3d/ nginx block).
@@ -48,14 +50,21 @@ const VENDOR_HEIF_FILES = {
   "libheif-js@1.23.5/libheif-wasm/LICENSE": "libheif-wasm/LICENSE",
 };
 
+const VENDOR_EXCALIDRAW_FILES = {
+  "@excalidraw/excalidraw@0.18.1/fonts/": "dist/prod/fonts/",
+};
+
 /** Group → files; served at /vendor/<group>/<key>. */
-export const VENDOR_FILES = { "3d": VENDOR_3D_FILES, heif: VENDOR_HEIF_FILES };
+export const VENDOR_FILES = { "3d": VENDOR_3D_FILES, heif: VENDOR_HEIF_FILES, excalidraw: VENDOR_EXCALIDRAW_FILES };
 
 const TYPES = {
   ".js": "text/javascript",
   ".mjs": "text/javascript",
   ".wasm": "application/wasm",
   ".jpg": "image/jpeg",
+  ".woff2": "font/woff2",
+  ".woff": "font/woff",
+  ".ttf": "font/ttf",
 };
 
 function resolveSource(group, key) {
@@ -71,39 +80,67 @@ function resolveSource(group, key) {
       `[vendor-libs] ${pkg} ${installed} is installed but /vendor/${group}/ expects ${version}; pin ${pkg}@${version}`,
     );
   }
-  return path.join(pkgDir, VENDOR_FILES[group][key]);
+  return path.resolve(pkgDir, VENDOR_FILES[group][key]);
 }
 
+function listDir(dir, prefix = "") {
+  const out = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isDirectory()) out.push(...listDir(path.join(dir, entry.name), `${prefix}${entry.name}/`));
+    else out.push(`${prefix}${entry.name}`);
+  }
+  return out;
+}
+
+/** Every [group, key, source file] — directory keys expanded to their files. */
 function* allFiles() {
   for (const [group, files] of Object.entries(VENDOR_FILES)) {
-    for (const key of Object.keys(files)) yield [group, key];
+    for (const key of Object.keys(files)) {
+      const source = resolveSource(group, key);
+      if (key.endsWith("/")) {
+        for (const rel of listDir(source)) yield [group, `${key}${rel}`, path.join(source, rel)];
+      } else {
+        yield [group, key, source];
+      }
+    }
   }
+}
+
+/** Source file for a requested /vendor/<group>/<key>, or null. */
+function lookup(group, key) {
+  const files = VENDOR_FILES[group];
+  if (!files) return null;
+  if (key in files && !key.endsWith("/")) return resolveSource(group, key);
+  for (const dirKey of Object.keys(files)) {
+    if (!dirKey.endsWith("/") || !key.startsWith(dirKey)) continue;
+    const root = resolveSource(group, dirKey);
+    const file = path.resolve(root, key.slice(dirKey.length));
+    // Stay inside the mapped directory.
+    if (!file.startsWith(root) || !fs.existsSync(file) || !fs.statSync(file).isFile()) return null;
+    return file;
+  }
+  return null;
 }
 
 export function vendorLibs() {
   return {
     name: "skynet-vendor-libs",
     configResolved() {
-      for (const [group, key] of allFiles()) resolveSource(group, key); // fail fast
+      for (const _ of allFiles()); // fail fast on missing packages / version drift
     },
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         const url = (req.url ?? "").split("?")[0];
         const m = /\/vendor\/([a-z0-9]+)\/(.+)$/.exec(url);
-        const group = m?.[1];
-        const key = m ? decodeURIComponent(m[2]) : null;
-        if (!group || !key || !VENDOR_FILES[group] || !(key in VENDOR_FILES[group])) return next();
-        res.setHeader("Content-Type", TYPES[path.extname(key)] ?? "application/octet-stream");
-        fs.createReadStream(resolveSource(group, key)).pipe(res);
+        const file = m ? lookup(m[1], decodeURIComponent(m[2])) : null;
+        if (!file) return next();
+        res.setHeader("Content-Type", TYPES[path.extname(file)] ?? "application/octet-stream");
+        fs.createReadStream(file).pipe(res);
       });
     },
     generateBundle() {
-      for (const [group, key] of allFiles()) {
-        this.emitFile({
-          type: "asset",
-          fileName: `vendor/${group}/${key}`,
-          source: fs.readFileSync(resolveSource(group, key)),
-        });
+      for (const [group, key, source] of allFiles()) {
+        this.emitFile({ type: "asset", fileName: `vendor/${group}/${key}`, source: fs.readFileSync(source) });
       }
     },
   };
