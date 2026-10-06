@@ -177,6 +177,8 @@ export function IdentityModal({
   const hasGitRepos = useHasGitRepos(gitTarget, hostId, open);
   // Desktop tab only once the identity's virtual desktop is up.
   const desktopRunning = useDesktopRunning(identity.identityKey, hostId, open);
+  // While the user drives the desktop, Esc belongs to it, not to the modal.
+  const [desktopControl, setDesktopControl] = useState(false);
   const NAV_SECTIONS = [
     { value: "identity", label: "Agent file", Icon: User },
     { value: "identity-wakeups", label: "Wake-ups", Icon: AlarmClock },
@@ -509,6 +511,7 @@ export function IdentityModal({
       hue={hue}
       size="xl"
       className="max-h-[90vh] flex flex-col"
+      dismissible={!desktopControl}
       data-testid="identity-modal"
     >
       {/* Head — avatar + display name (no pencil) + role slug + inline-
@@ -771,6 +774,7 @@ export function IdentityModal({
               identityKey={identity.identityKey}
               hostId={hostId}
               isVisible={open && activeTab === "desktop"}
+              onControlChange={setDesktopControl}
             />
           </TabsContent>
         )}

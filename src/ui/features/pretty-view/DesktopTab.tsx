@@ -1,5 +1,5 @@
 /**
- * DesktopTab — live, view-only look at an identity's virtual desktop.
+ * DesktopTab — live look at an identity's virtual desktop, with "Take control".
  *
  * The desktop is the identity's own X display (substrate/scripts/agent-desktop)
  * that the agent drives through its desktop-mcp tools. This tab streams it
@@ -9,6 +9,12 @@
  *
  * States: connecting → live view; stopped (with a Start button that starts the
  * desktop in the background and polls until it's up); not installed; error.
+ *
+ * Take control: the backend writes the identity's control lease (the agent's
+ * desktop tools pause) and issues an interactive token. While held, the tab
+ * renews the lease every RENEW_MS; Hand back, hiding the tab, closing the
+ * modal, or the stream dropping releases it. If none of that gets through
+ * (tab killed), the lease lapses on its own 90s after the last renew.
  *
  * The identity modal only shows this tab once useDesktopRunning
  * (use-desktop-running.ts) sees the desktop running.
@@ -22,11 +28,23 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
-import { Eye, Monitor, Play, RefreshCw } from "lucide-react";
+import {
+  Eye,
+  Hand,
+  Monitor,
+  MousePointer2,
+  Play,
+  RefreshCw,
+  Undo2,
+} from "lucide-react";
+import { toast } from "sonner";
 import {
   connectDesktop,
   getDesktopStatus,
+  releaseDesktopControl,
+  renewDesktopControl,
   startDesktop,
+  takeDesktopControl,
 } from "@/api/workspace-desktop-api";
 import { GuacamoleDisplay } from "@/features/guacamole/GuacamoleDisplay";
 import {
@@ -37,6 +55,8 @@ import {
 /** How long to wait for a desktop we just started before giving up. */
 const START_TIMEOUT_MS = 90_000;
 const START_POLL_MS = 2_000;
+/** Control lease renew interval — well inside the 90s lease. */
+const RENEW_MS = 30_000;
 
 const DESKTOP_ERROR_COPY: Record<string, WorkspaceErrorCopy> = {
   not_installed: {
@@ -77,7 +97,16 @@ function errorClassOf(err: unknown): string {
 
 type View =
   | { status: "connecting" }
-  | { status: "live"; token: string; geometry: string | null; attempt: number }
+  | {
+      status: "live";
+      token: string;
+      geometry: string | null;
+      attempt: number;
+      /** This tab holds the control lease and an interactive token. */
+      control: boolean;
+      /** Someone (e.g. this user in another window) has control. */
+      agentPaused: boolean;
+    }
   | { status: "stopped" }
   | { status: "starting" }
   | { status: "disconnected" }
@@ -137,24 +166,41 @@ export default function DesktopTab({
   identityKey,
   hostId,
   isVisible,
+  onControlChange,
 }: {
   identityKey: string;
   hostId: number;
   /** Whether the tab is the active one; the stream only connects while visible. */
   isVisible: boolean;
+  /** Told when this tab takes or gives up control (the modal stops Esc from closing it meanwhile). */
+  onControlChange?: (inControl: boolean) => void;
 }): JSX.Element {
   const [view, setView] = useState<View>({ status: "connecting" });
+  const [taking, setTaking] = useState(false);
   const attemptRef = useRef(0);
   const mountedRef = useRef(true);
+  const controlRef = useRef(false);
+  const onControlChangeRef = useRef(onControlChange);
+  onControlChangeRef.current = onControlChange;
+
+  /** Drop the lease if we hold it (fire and forget — it lapses on its own anyway). */
+  const releaseIfHeld = useCallback(() => {
+    if (!controlRef.current) return;
+    controlRef.current = false;
+    onControlChangeRef.current?.(false);
+    releaseDesktopControl(identityKey, hostId).catch(() => {});
+  }, [identityKey, hostId]);
 
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      releaseIfHeld();
     };
-  }, []);
+  }, [releaseIfHeld]);
 
   const connect = useCallback(async () => {
+    releaseIfHeld();
     setView({ status: "connecting" });
     try {
       const conn = await connectDesktop(identityKey, hostId);
@@ -165,6 +211,8 @@ export default function DesktopTab({
         token: conn.token,
         geometry: conn.geometry,
         attempt: attemptRef.current,
+        control: false,
+        agentPaused: conn.userHasControl,
       });
     } catch (err) {
       if (!mountedRef.current) return;
@@ -175,13 +223,59 @@ export default function DesktopTab({
           : { status: "error", errorClass: cls },
       );
     }
-  }, [identityKey, hostId]);
+  }, [identityKey, hostId, releaseIfHeld]);
 
-  // Connect when first shown; drop the stream when the tab is hidden.
+  // Connect when first shown; drop the stream (and any control) when hidden.
   useEffect(() => {
     if (isVisible) void connect();
-    else setView({ status: "connecting" });
-  }, [isVisible, connect]);
+    else {
+      releaseIfHeld();
+      setView({ status: "connecting" });
+    }
+  }, [isVisible, connect, releaseIfHeld]);
+
+  const takeControl = useCallback(async () => {
+    setTaking(true);
+    try {
+      const conn = await takeDesktopControl(identityKey, hostId);
+      if (!mountedRef.current) {
+        releaseDesktopControl(identityKey, hostId).catch(() => {});
+        return;
+      }
+      controlRef.current = true;
+      onControlChangeRef.current?.(true);
+      attemptRef.current += 1;
+      setView({
+        status: "live",
+        token: conn.token,
+        geometry: conn.geometry,
+        attempt: attemptRef.current,
+        control: true,
+        agentPaused: true,
+      });
+    } catch (err) {
+      if (mountedRef.current) toast.error(errorCopy(errorClassOf(err)).heading);
+    } finally {
+      if (mountedRef.current) setTaking(false);
+    }
+  }, [identityKey, hostId]);
+
+  const inControl = view.status === "live" && view.control;
+
+  // Keep the lease alive while we hold it.
+  useEffect(() => {
+    if (!inControl) return;
+    const timer = setInterval(() => {
+      renewDesktopControl(identityKey, hostId).catch(() => {});
+    }, RENEW_MS);
+    return () => clearInterval(timer);
+  }, [inControl, identityKey, hostId]);
+
+  const onStreamLost = useCallback(() => {
+    if (!mountedRef.current) return;
+    releaseIfHeld();
+    setView({ status: "disconnected" });
+  }, [releaseIfHeld]);
 
   const start = useCallback(async () => {
     setView({ status: "starting" });
@@ -222,19 +316,63 @@ export default function DesktopTab({
           color: "var(--color-pv-fg-muted)",
         }}
       >
-        <span
-          title="You're watching the agent's desktop. Input from here is turned off."
-          style={{ display: "inline-flex", alignItems: "center", gap: 5 }}
-          data-testid="desktop-view-only"
-        >
-          <Eye size={13} /> View only
-        </span>
+        {inControl ? (
+          <span
+            title="Your mouse and keyboard go to the desktop. The agent's own input is paused until you hand back."
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 5,
+              color: "hsla(40, 90%, 70%, 1)",
+              fontWeight: 600,
+            }}
+            data-testid="desktop-in-control"
+          >
+            <MousePointer2 size={13} /> You have control · agent paused
+          </span>
+        ) : (
+          <span
+            title="You're watching the agent's desktop. Input from here is turned off."
+            style={{ display: "inline-flex", alignItems: "center", gap: 5 }}
+            data-testid="desktop-view-only"
+          >
+            <Eye size={13} /> View only
+            {live && view.agentPaused && (
+              <span style={{ opacity: 0.8 }}>
+                {" "}
+                · agent paused (someone has control)
+              </span>
+            )}
+          </span>
+        )}
         {live && view.geometry && (
           <span style={{ opacity: 0.7 }}>
             · {view.geometry.replace("x", "×")}
           </span>
         )}
         <span style={{ flex: 1 }} />
+        {live && !inControl && (
+          <button
+            type="button"
+            style={toolbarBtnStyle}
+            onClick={() => void takeControl()}
+            disabled={taking}
+            title="Use your own mouse and keyboard on this desktop. The agent pauses until you hand back."
+            data-testid="desktop-take-control"
+          >
+            <Hand size={12} /> {taking ? "Taking control…" : "Take control"}
+          </button>
+        )}
+        {inControl && (
+          <button
+            type="button"
+            style={toolbarBtnStyle}
+            onClick={() => void connect()}
+            data-testid="desktop-hand-back"
+          >
+            <Undo2 size={12} /> Hand back to agent
+          </button>
+        )}
         {(live ||
           view.status === "disconnected" ||
           view.status === "error") && (
@@ -292,19 +430,15 @@ export default function DesktopTab({
         {live && (
           <GuacamoleDisplay
             key={view.attempt}
-            viewOnly
+            viewOnly={!view.control}
             isVisible={isVisible}
             connectionConfig={{
               token: view.token,
               protocol: "vnc",
               ...(geoW && geoH ? { width: geoW, height: geoH } : {}),
             }}
-            onDisconnect={() =>
-              mountedRef.current && setView({ status: "disconnected" })
-            }
-            onError={() =>
-              mountedRef.current && setView({ status: "disconnected" })
-            }
+            onDisconnect={onStreamLost}
+            onError={onStreamLost}
           />
         )}
       </div>

@@ -204,14 +204,36 @@ test_mcp_actions_and_control_lock() {
   out="$(FLEET_IDENTITY=alice mcp_session \
     "$(printf "$call" 1 click '{"x":10,"y":10}')" \
     "$(printf "$call" 2 screenshot '{}')")"
-  rm -f "$lock"
   case "$(sed -n 1p <<<"$out" | jq -r '.result.content[0].text')" in
     *"taken control"*) pass test_mcp_control_lock_blocks_input ;;
     *) fail test_mcp_control_lock_blocks_input "$(sed -n 1p <<<"$out")" ;;
   esac
   assert_eq test_mcp_control_lock_allows_screenshot image "$(sed -n 2p <<<"$out" | jq -r '.result.content[1].type')"
+
+  # A stale lease (tab closed, no renewals) no longer blocks the agent.
+  touch -d '-120 seconds' "$lock"
+  # shellcheck disable=SC2059
+  out="$(FLEET_IDENTITY=alice mcp_session "$(printf "$call" 1 click '{"x":10,"y":10,"screenshot":false}')")"
+  assert_eq test_mcp_stale_lock_allows_input "Clicked left at (10, 10)." "$(jq -r '.result.content[0].text' <<<"$out")"
+  rm -f "$lock"
   assert_eq test_status_reports_no_control false \
     "$(agent-desktop status --identity alice --json | jq -r .userHasControl)"
+}
+
+test_control_lease() {
+  local lock="$FIXTURE/fleet/identities/carol/desktop/control-lock"
+  agent-desktop control take --identity carol --by user-A
+  assert_eq test_control_take_status true "$(agent-desktop status --identity carol --json | jq -r .userHasControl)"
+  assert_eq test_control_lock_records_who user-A "$(jq -r .by "$lock")"
+  # Not renewed for longer than the lease: stale, the agent gets the desktop back.
+  touch -d '-120 seconds' "$lock"
+  assert_eq test_control_stale_lease false "$(agent-desktop status --identity carol --json | jq -r .userHasControl)"
+  # Renewing is just taking again.
+  agent-desktop control take --identity carol --by user-A
+  assert_eq test_control_renew true "$(agent-desktop status --identity carol --json | jq -r .userHasControl)"
+  agent-desktop control release --identity carol
+  assert_eq test_control_release false "$(agent-desktop status --identity carol --json | jq -r .userHasControl)"
+  if [ -e "$lock" ]; then fail test_control_release_removes_file "still there"; else pass test_control_release_removes_file; fi
 }
 
 # ---- tests: browser bridge -----------------------------------------------------
@@ -269,6 +291,7 @@ test_mcp_protocol
 test_mcp_unknown_protocol_falls_back
 test_mcp_without_identity_is_tool_error
 test_browser_tools_cold_then_cached
+test_control_lease
 if [ "$HAVE_X" = 1 ]; then
   test_up_allocates_stable_unique_displays
   test_down_then_up_keeps_display

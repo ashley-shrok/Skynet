@@ -22,6 +22,7 @@
 #   agent-desktop status  [--identity NAME] [--json]    # running? display, port, geometry
 #   agent-desktop env     [--identity NAME]             # prints DISPLAY=:N (no start)
 #   agent-desktop run     [--identity NAME] -- CMD...   # launch an app on the desktop (detached)
+#   agent-desktop control take|release [--identity NAME] [--by WHO]  # human control lease
 #   agent-desktop serve   NAME                          # internal: foreground server (systemd ExecStart)
 #
 # The identity defaults to $FLEET_IDENTITY (exported by agent-supervisor into
@@ -33,7 +34,10 @@
 #   vnc-passwd     VNC password file (vncpasswd -f format), mode 600
 #   vnc-password   same password in plain text, mode 600 — read by the Skynet
 #                  backend to open the Guacamole VNC connection
-#   control-lock   present while a human has taken control (desktop-mcp
+#   control-lock   a human has taken control: a LEASE, live only while its
+#                  mtime is under CONTROL_LEASE_SECONDS old. The viewer renews
+#                  it (`control take` again) every 30s; a closed tab simply
+#                  stops renewing and the agent gets the desktop back. (desktop-mcp
 #                  refuses input actions while it exists)
 #   serve.pid      pid of the `serve` process (fallback mode)
 #   serve.log      server + window-manager output
@@ -59,6 +63,8 @@ START_TIMEOUT="${AGENT_DESKTOP_START_TIMEOUT:-20}"
 # VNC port = VNC_PORT_BASE + display. Not the classic 5900+N: with displays
 # starting at 100 that lands on 6000+, the X11-over-TCP range.
 VNC_PORT_BASE=15900
+# Must match CONTROL_LEASE_SECONDS in desktop-mcp.py.
+CONTROL_LEASE_SECONDS=90
 SELF="$(command -v agent-desktop 2>/dev/null || true)"
 [ -n "$SELF" ] || SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
 
@@ -298,7 +304,7 @@ cmd_status() {
   geometry="$(read_geometry)"
   server_ready "$n" && running=true
   [ -n "$n" ] && port=$((VNC_PORT_BASE + n))
-  [ -e "$STATE_DIR/control-lock" ] && controlled=true
+  control_live && controlled=true
 
   if [ "$json" = 1 ]; then
     jq -cn --arg id "$identity" --argjson running "$running" \
@@ -315,6 +321,40 @@ cmd_status() {
     printf 'stopped\n'
   fi
   [ "$running" = true ]
+}
+
+# Is a human's control lease present and fresh?
+control_live() {
+  local f="$STATE_DIR/control-lock" mtime
+  [ -f "$f" ] || return 1
+  mtime="$(stat -c %Y "$f" 2>/dev/null)" || return 1
+  [ $(( $(date +%s) - mtime )) -lt "$CONTROL_LEASE_SECONDS" ]
+}
+
+# Take (or renew) / release a human's control lease. The agent's desktop-mcp
+# refuses input while it is live.
+cmd_control() {
+  local action="${1:-}" by=""
+  [ $# -gt 0 ] && shift
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --identity) identity="${2:-}"; shift 2 ;;
+      --by)       by="${2:-}"; shift 2 ;;
+      *) die "control: unknown argument '$1'" ;;
+    esac
+  done
+  resolve_identity
+  case "$action" in
+    take)
+      ensure_state_dir
+      jq -cn --arg by "$by" --argjson at "$(date +%s)" '{by:$by, renewedAt:$at}' \
+        > "$STATE_DIR/control-lock.tmp" && mv -f "$STATE_DIR/control-lock.tmp" "$STATE_DIR/control-lock"
+      ;;
+    release)
+      rm -f "$STATE_DIR/control-lock"
+      ;;
+    *) die "control: expected take or release" ;;
+  esac
 }
 
 cmd_env() {
@@ -417,6 +457,7 @@ case "$sub" in
   status) cmd_status "$@" ;;
   env)    cmd_env "$@" ;;
   run)    cmd_run "$@" ;;
+  control) cmd_control "$@" ;;
   serve)  cmd_serve "$@" ;;
   -h|--help|help|"") usage; [ -n "$sub" ] ;;
   *) usage; exit 2 ;;

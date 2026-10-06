@@ -293,6 +293,25 @@ describe("/workspace/desktop request chain", () => {
     ]);
   });
 
+  it("control needs a valid action and write access", async () => {
+    expect(
+      await post("/control", {
+        identityKey: "alice",
+        hostId: 7,
+        action: "steal",
+      }),
+    ).toEqual({ status: 400, body: { error: "invalid_body" } });
+    canAccessHost.mockClear();
+    await post("/control", {
+      identityKey: "alice",
+      hostId: 7,
+      action: "release",
+    });
+    expect(canAccessHost.mock.calls.map((c) => (c as unknown[])[2])).toEqual([
+      "write",
+    ]);
+  });
+
   it("403 without host access", async () => {
     mockHasAccess = false;
     expect(await post("/connect", { identityKey: "alice", hostId: 7 })).toEqual(
@@ -339,6 +358,21 @@ describe("/workspace/desktop with agent-desktop installed", () => {
         body: { error: "not_running" },
       },
     );
+  });
+
+  it("taking control of a stopped desktop fails without leaving a lease", async () => {
+    expect(
+      await post("/control", {
+        identityKey: "alice",
+        hostId: 7,
+        action: "take",
+      }),
+    ).toEqual({ status: 409, body: { error: "not_running" } });
+    expect(
+      fs.existsSync(
+        path.join(home, "fleet/identities/alice/desktop/control-lock"),
+      ),
+    ).toBe(false);
   });
 
   it.skipIf(!HAVE_X || REAL_GUACD)(
@@ -398,6 +432,64 @@ describe("/workspace/desktop with agent-desktop installed", () => {
     60_000,
   );
 
+  it.skipIf(!HAVE_X || REAL_GUACD)(
+    "take → interactive token + lease; renew; release",
+    async () => {
+      const lock = path.join(
+        home,
+        "fleet/identities/alice/desktop/control-lock",
+      );
+      const take = await post("/control", {
+        identityKey: "alice",
+        hostId: 7,
+        action: "take",
+      });
+      expect(take.status).toBe(200);
+      expect(take.body.userHasControl).toBe(true);
+      const tok = GuacamoleTokenService.getInstance().decryptToken(
+        take.body.token,
+      );
+      expect(tok!.connection.settings["read-only"]).toBe(false);
+      expect(JSON.parse(fs.readFileSync(lock, "utf8")).by).toBe("user-A");
+      expect(
+        (await post("/status", { identityKey: "alice", hostId: 7 })).body
+          .userHasControl,
+      ).toBe(true);
+
+      // Watchers still get a view-only token while someone has control.
+      const view = await post("/connect", { identityKey: "alice", hostId: 7 });
+      expect(
+        GuacamoleTokenService.getInstance().decryptToken(view.body.token)!
+          .connection.settings["read-only"],
+      ).toBe(true);
+      expect(view.body.userHasControl).toBe(true);
+
+      fs.utimesSync(
+        lock,
+        new Date(Date.now() - 60_000),
+        new Date(Date.now() - 60_000),
+      );
+      expect(
+        await post("/control", {
+          identityKey: "alice",
+          hostId: 7,
+          action: "renew",
+        }),
+      ).toEqual({ status: 200, body: { ok: true } });
+      expect(Date.now() - fs.statSync(lock).mtimeMs).toBeLessThan(10_000);
+
+      expect(
+        await post("/control", {
+          identityKey: "alice",
+          hostId: 7,
+          action: "release",
+        }),
+      ).toEqual({ status: 200, body: { ok: true } });
+      expect(fs.existsSync(lock)).toBe(false);
+    },
+    60_000,
+  );
+
   it.skipIf(!HAVE_X || !REAL_GUACD)(
     "real guacd connects through the tunnel, and read-only drops input",
     async () => {
@@ -430,13 +522,27 @@ describe("/workspace/desktop with agent-desktop installed", () => {
       });
       expect(pointer()).toMatch(/^x:10 y:10 /);
 
-      // Control: the same session with read-only off does move the pointer,
-      // so the assertion above is really testing guacd's setting.
-      await guacdSession({ ...settings, "read-only": false }, async (send) => {
+      // Taking control issues a token whose input does land — so the
+      // assertion above is really testing guacd's read-only setting.
+      const take = await post("/control", {
+        identityKey: "alice",
+        hostId: 7,
+        action: "take",
+      });
+      expect(take.status).toBe(200);
+      const interactive = GuacamoleTokenService.getInstance().decryptToken(
+        take.body.token,
+      )!.connection.settings;
+      await guacdSession(interactive, async (send) => {
         send(["mouse", "500", "400", "0"]);
         await new Promise((r) => setTimeout(r, 1000));
       });
       expect(pointer()).toMatch(/^x:500 y:400 /);
+      await post("/control", {
+        identityKey: "alice",
+        hostId: 7,
+        action: "release",
+      });
     },
     60_000,
   );

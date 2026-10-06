@@ -34,8 +34,8 @@ on an npm download. Each identity keeps a persistent browser profile in its
 desktop state dir, so sign-ins survive restarts. If Chromium isn't installed,
 the first failing call triggers one best-effort `playwright install`.
 
-Human control (v2 hook): while ~/fleet/identities/<name>/desktop/control-lock
-exists, input actions are refused with a "user has control" message; screenshot,
+Human control: while ~/fleet/identities/<name>/desktop/control-lock is a live
+lease (renewed within CONTROL_LEASE_SECONDS; see agent-desktop control), input actions are refused with a "user has control" message; screenshot,
 cursor_position and the read-only browser tools (snapshot, screenshot, console,
 network) still work so the agent can watch.
 """
@@ -70,6 +70,9 @@ PLAYWRIGHT_CMD_OVERRIDE = os.environ.get("DESKTOP_MCP_PLAYWRIGHT_CMD", "")
 BROWSER_EXECUTABLE = os.environ.get("DESKTOP_BROWSER_EXECUTABLE", "")
 TOOLS_CACHE_DIR = os.path.join(os.path.expanduser("~"), ".cache", "agent-desktop")
 BROWSER_CALL_TIMEOUT = 180
+# Must match CONTROL_LEASE_SECONDS in agent-desktop: a control lock not renewed
+# for this long is stale (the user's tab closed) and no longer pauses the agent.
+CONTROL_LEASE_SECONDS = 90
 # Browser tools that only observe; allowed while the user has control.
 BROWSER_READ_ONLY = {
     "browser_snapshot",
@@ -260,7 +263,11 @@ class Desktop:
         return proc
 
     def user_has_control(self):
-        return os.path.exists(os.path.join(self.state_dir, "control-lock"))
+        try:
+            age = time.time() - os.path.getmtime(os.path.join(self.state_dir, "control-lock"))
+        except OSError:
+            return False
+        return age < CONTROL_LEASE_SECONDS
 
     def check_point(self, x, y):
         if not (0 <= x < self.width and 0 <= y < self.height):

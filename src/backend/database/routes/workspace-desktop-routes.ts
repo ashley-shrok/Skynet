@@ -2,7 +2,7 @@
  * Identity desktop — status, start, and a view-only Guacamole connection to
  * an identity's virtual desktop (substrate/scripts/agent-desktop).
  *
- * Three endpoints under /workspace/desktop (mounted in database.ts; nginx's
+ * Four endpoints under /workspace/desktop (mounted in database.ts; nginx's
  * /workspace location already proxies them):
  *   POST /status  — { available, running, display, vncPort, geometry, userHasControl }
  *                   `available: false` means agent-desktop isn't installed on the host
@@ -10,22 +10,29 @@
  *                   at once (first start may install packages, far longer than
  *                   nginx's 15s /workspace timeout); the UI polls /status
  *   POST /connect — opens (or reuses) an SSH tunnel guacd can reach and
- *                   returns an encrypted Guacamole VNC token for it
+ *                   returns an encrypted, view-only Guacamole VNC token for it
+ *   POST /control — body.action:
+ *                     "take"    take the control lease + an INTERACTIVE token
+ *                     "renew"   keep the lease alive (the tab calls this every 30s)
+ *                     "release" hand the desktop back to the agent
  *
  * Same request chain as workspace-git-routes.ts: body check → extractTarget
  * (identity only) → resolveHostById → canAccessHost → SSH exec. Watching
- * needs "read"; /start needs "write", since it launches a process on the host
- * (shared hosts are view-only, so a share can watch but not start).
+ * needs "read"; /start and /control need "write", since they launch a process
+ * or drive the desktop (shared hosts are view-only, so a share can watch but
+ * not start or take control).
  *
  * Dev caveat: the tunnel listens on the address this process uses to reach
  * guacd. With the backend on the host and guacd in a container published on
  * localhost (docker/compose-dev.yml), that's 127.0.0.1, which guacd's own
  * loopback can't reach — run guacd with `--network host` to use this in dev.
  *
- * v1 is view-only: the token carries guacd's `read-only` setting, so guacd
- * drops every key and mouse event server-side regardless of the client.
- * Taking control (v2) will flip that and drop the identity's control-lock file
- * so the agent's desktop-mcp pauses its own input.
+ * Watching is view-only: the /connect token carries guacd's `read-only`
+ * setting, so guacd drops every key and mouse event server-side regardless of
+ * the client. Taking control writes the identity's control-lock lease (see
+ * `agent-desktop control`), which pauses the agent's own desktop-mcp input,
+ * and issues a token without `read-only`. The lease lapses 90s after the last
+ * renew, so a closed tab gives the agent its desktop back on its own.
  *
  * Error bodies are { error: "<class>" } only — never err.message (T-40-05).
  */
@@ -122,6 +129,19 @@ export function buildConnectScript(identityKey: string): string {
     buildStatusScript(identityKey),
     `printf '\\nPW:'`,
     `head -c 64 ${pwFile} 2>/dev/null`,
+  ].join("\n");
+}
+
+export type ControlAction = "take" | "release";
+
+export function buildControlScript(
+  identityKey: string,
+  action: ControlAction,
+  by: string,
+): string {
+  return [
+    FIND_AGENT_DESKTOP,
+    `"$ad" control ${action} --identity ${shellEscape(identityKey)} --by ${shellEscape(by)} 2>/dev/null && printf 'CONTROL_OK'`,
   ].join("\n");
 }
 
@@ -350,55 +370,114 @@ workspaceDesktopRoutes.post(
     ),
 );
 
+/**
+ * Check the desktop is up, open (or reuse) its tunnel, and mint a token for
+ * it. View-only unless `interactive`.
+ */
+async function issueConnection(
+  {
+    host,
+    hostId,
+    identityKey,
+  }: { host: Host; hostId: number; identityKey: string },
+  interactive: boolean,
+  beforeToken?: () => Promise<void>,
+) {
+  const out = await runScript(host, hostId, buildConnectScript(identityKey));
+  const status = parseStatus(out);
+  if (!status.available) throw new DesktopError("not_installed");
+  if (!status.running || !status.vncPort) throw new DesktopError("not_running");
+  const pwAt = out.lastIndexOf("\nPW:");
+  const password = pwAt < 0 ? "" : out.slice(pwAt + 4).trim();
+  if (!/^[A-Za-z0-9]{6,64}$/.test(password))
+    throw new DesktopError("no_password");
+
+  const tunnel = await getDesktopTunnel(
+    `${hostId}:${identityKey}:${status.vncPort}`,
+    () => connectOneShot(host, SSH_CONNECT_TIMEOUT_MS),
+    status.vncPort,
+    getGuacdEndpoint(),
+  );
+  await beforeToken?.();
+
+  const token = GuacamoleTokenService.getInstance().createVncToken(
+    tunnel.host,
+    undefined,
+    password,
+    {
+      port: tunnel.port,
+      // Watching: guacd drops all input server-side.
+      "read-only": !interactive,
+      "color-depth": 24,
+    },
+  );
+  return {
+    token,
+    geometry: status.geometry,
+    userHasControl: interactive || status.userHasControl,
+  };
+}
+
+async function runControl(
+  host: Host,
+  hostId: number,
+  identityKey: string,
+  action: ControlAction,
+  userId: string,
+): Promise<void> {
+  const out = await runScript(
+    host,
+    hostId,
+    buildControlScript(identityKey, action, userId),
+  );
+  if (out.startsWith("NOT_INSTALLED")) throw new DesktopError("not_installed");
+  if (!out.includes("CONTROL_OK")) throw new DesktopError("bad_output");
+}
+
+workspaceDesktopRoutes.post(
+  "/control",
+  express.json({ limit: "16kb" }),
+  authenticateJWT,
+  (req: Request, res: Response) => {
+    const action = (req.body as Record<string, unknown> | null)?.action;
+    if (action !== "take" && action !== "renew" && action !== "release") {
+      res.status(400).json({ error: "invalid_body" });
+      return;
+    }
+    return handleDesktopRequest(
+      req,
+      res,
+      `control_${action}`,
+      "write",
+      async (ctx) => {
+        const { host, hostId, identityKey, userId } = ctx;
+        if (action === "take") {
+          // Lease only once the desktop is known to be up and the tunnel is open,
+          // so a failed take never leaves the agent paused.
+          return issueConnection(ctx, true, () =>
+            runControl(host, hostId, identityKey, "take", userId),
+          );
+        }
+        await runControl(
+          host,
+          hostId,
+          identityKey,
+          action === "renew" ? "take" : "release",
+          userId,
+        );
+        return { ok: true };
+      },
+    );
+  },
+);
+
 workspaceDesktopRoutes.post(
   "/connect",
   express.json({ limit: "16kb" }),
   authenticateJWT,
   (req: Request, res: Response) =>
-    handleDesktopRequest(
-      req,
-      res,
-      "connect",
-      "read",
-      async ({ host, hostId, identityKey }) => {
-        const out = await runScript(
-          host,
-          hostId,
-          buildConnectScript(identityKey),
-        );
-        const status = parseStatus(out);
-        if (!status.available) throw new DesktopError("not_installed");
-        if (!status.running || !status.vncPort)
-          throw new DesktopError("not_running");
-        const pwAt = out.lastIndexOf("\nPW:");
-        const password = pwAt < 0 ? "" : out.slice(pwAt + 4).trim();
-        if (!/^[A-Za-z0-9]{6,64}$/.test(password))
-          throw new DesktopError("no_password");
-
-        const tunnel = await getDesktopTunnel(
-          `${hostId}:${identityKey}:${status.vncPort}`,
-          () => connectOneShot(host, SSH_CONNECT_TIMEOUT_MS),
-          status.vncPort,
-          getGuacdEndpoint(),
-        );
-
-        const token = GuacamoleTokenService.getInstance().createVncToken(
-          tunnel.host,
-          undefined,
-          password,
-          {
-            port: tunnel.port,
-            // v1: view-only, enforced by guacd (input is dropped server-side).
-            "read-only": true,
-            "color-depth": 24,
-          },
-        );
-        return {
-          token,
-          geometry: status.geometry,
-          userHasControl: status.userHasControl,
-        };
-      },
+    handleDesktopRequest(req, res, "connect", "read", (ctx) =>
+      issueConnection(ctx, false),
     ),
 );
 

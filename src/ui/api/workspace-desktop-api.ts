@@ -79,3 +79,43 @@ export function connectDesktop(
 ): Promise<DesktopConnection> {
   return postDesktop("/connect", { identityKey, hostId }, "connect to desktop");
 }
+
+/**
+ * Take control: pauses the agent's own desktop input and returns an
+ * INTERACTIVE token. The lease lapses 90s after the last renew, so callers
+ * renew every 30s while they hold it and release when done.
+ */
+export function takeDesktopControl(
+  identityKey: string,
+  hostId: number,
+): Promise<DesktopConnection> {
+  return postDesktop(
+    "/control",
+    { identityKey, hostId, action: "take" },
+    "take desktop control",
+  );
+}
+
+/** Keep the control lease alive. */
+export function renewDesktopControl(
+  identityKey: string,
+  hostId: number,
+): Promise<{ ok: true }> {
+  return postDesktop(
+    "/control",
+    { identityKey, hostId, action: "renew" },
+    "renew desktop control",
+  );
+}
+
+/** Hand the desktop back to the agent. */
+export function releaseDesktopControl(
+  identityKey: string,
+  hostId: number,
+): Promise<{ ok: true }> {
+  return postDesktop(
+    "/control",
+    { identityKey, hostId, action: "release" },
+    "release desktop control",
+  );
+}
