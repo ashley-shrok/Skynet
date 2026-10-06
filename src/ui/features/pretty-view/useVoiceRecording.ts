@@ -103,7 +103,8 @@ export interface UseVoiceRecordingReturn {
   state: VoiceRecordingState;
   errorMessage: string | null;
   start: (opts?: { autoCommit?: boolean }) => void;
-  cancel: () => Promise<void>;
+  /** `silent` skips cancel.mp3 (used when a long-press hands off to voice mode). */
+  cancel: (opts?: { silent?: boolean }) => Promise<void>;
   /**
    * commitStartVisibility() — advances the "starting" state to "recording" and
    * plays start.mp3. Called by:
@@ -507,7 +508,7 @@ export function useVoiceRecording(
    *   3. state === "recording" (normal cancel while recording):
    *      Unchanged behavior — stopRecording() + cancel.mp3 + setState("idle").
    */
-  async function cancel(): Promise<void> {
+  async function cancel(opts?: { silent?: boolean }): Promise<void> {
     const currentState = stateRef.current;
     console.info(`[voice] cancel-entry state=${currentState} ${ctxSuffix}`);
 
@@ -552,7 +553,7 @@ export function useVoiceRecording(
     console.info(`[voice] feedback-playback-order phase=before-teardown ${ctxSuffix}`);
     await stopRecording();
     console.info(`[voice] feedback-playback-order phase=after-teardown-before-feedback ${ctxSuffix}`);
-    const cancelAudio = cancelAudioRef.current;
+    const cancelAudio = opts?.silent === true ? null : cancelAudioRef.current;
     if (cancelAudio) {
       cancelAudio.currentTime = 0;
       Promise.resolve(cancelAudio.play()).then(() => {

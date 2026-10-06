@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ArrowDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { isIosPwa } from "@/lib/is-ios-pwa";
@@ -1108,6 +1108,13 @@ export function PrettyView({
   const [autoplayArmed, setAutoplayArmed] = useState<boolean>(false);
   const [autoplayTargetEventId, setAutoplayTargetEventId] = useState<string | null>(null);
   const autoplayArmedRef = useRef<boolean>(false);
+  // 2026-10-06: hands-free voice mode (owned by ComposeBox/useVoiceMode)
+  // speaks every new assistant reply itself, so auto-speak must stand down
+  // while it is on — two speakers would preempt each other via speak-singleton.
+  const voiceModeActiveRef = useRef<boolean>(false);
+  const handleVoiceModeChange = useCallback((active: boolean) => {
+    voiceModeActiveRef.current = active;
+  }, []);
   // quick 260905-d79 — client-hint-with-backend-override reintroduced.
   //
   // Phase 30 (PS30-05) deleted patch #381's client-hint as redundant once
@@ -2207,6 +2214,13 @@ export function PrettyView({
   // Props declaration around L244) and is already threaded through the pane
   // for context-pct, waiting-key, paneKey, etc.
   const { identity: pvIdentity, identityHue: pvIdentityHue } = useSessionIdentity(tmuxSession, hostId);
+  // 2026-10-06: hands-free voice mode feed for ComposeBox — same voice
+  // resolution chain as the bubble speak buttons (identity → fallback).
+  const voiceModeVoice = pvIdentity?.voice ?? userPrefs.fallbackVoice ?? null;
+  const voiceModeFeed = useMemo(
+    () => ({ isWorking, messages, voice: voiceModeVoice }),
+    [isWorking, messages, voiceModeVoice],
+  );
   const pvIdentityKey = sessionMatchKey(tmuxSession);
   const pvHue = pvIdentityHue ?? 35;
 
@@ -2854,6 +2868,7 @@ export function PrettyView({
           //       user-echo self-fire and image/relay frame contamination)
           if (
             autoplayArmedRef.current &&
+            !voiceModeActiveRef.current &&
             isVisibleRef.current &&
             parsed.role === "assistant"
           ) {
@@ -4735,6 +4750,10 @@ export function PrettyView({
           // `"harness" | "relay"` which matches ComposeBox's mode prop.
           mode={source.kind}
           onSend={handleComposeSend}
+          // 2026-10-06: hands-free voice mode (mic long-press) — harness only;
+          // relay rooms have no working signal and keep hold-to-send.
+          voiceModeFeed={source.kind === "relay" ? undefined : voiceModeFeed}
+          onVoiceModeChange={handleVoiceModeChange}
           // Phase 50 D-01: seed a pending bubble synchronously with the
           // WS write; PrettyView owns the FIFO pendingSends queue.
           // Phase 93 Slice 6 (post-close fix): NOT seeded in relay mode — the

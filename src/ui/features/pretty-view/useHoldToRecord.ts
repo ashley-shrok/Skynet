@@ -103,6 +103,13 @@ export const HOLD_THRESHOLD_MS = 250;
  */
 export const BOUNDS_TOLERANCE_PX = 40;
 
+/**
+ * Hold threshold when the consumer supplies `onLongPress` (long-press-action
+ * mode — the mic's hands-free voice-mode toggle). Longer than the old
+ * hold-to-send threshold so an ordinary slow tap doesn't flip modes.
+ */
+export const LONG_PRESS_ACTION_THRESHOLD_MS = 500;
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -155,6 +162,17 @@ export type UseHoldToRecordArgs = {
    * "first mic tap plays cancel.mp3 + requires double-tap" regression.
    */
   keepRecordingOnShortTap?: boolean;
+  /**
+   * Long-press-action mode (voice mode, 2026-10-06). When supplied, a hold past
+   * the threshold no longer records-to-send: at the threshold the device
+   * vibrates (no start.mp3, recording stays invisible), and a release inside
+   * bounds calls onLongPress() SYNCHRONOUSLY (still inside the user gesture,
+   * so the callee may call getUserMedia) and then silently cancels the
+   * pointerdown-started recording. Release outside bounds just cancels
+   * silently. onLongPressSend is not called in this mode. Short taps are
+   * unchanged. Threshold defaults to LONG_PRESS_ACTION_THRESHOLD_MS.
+   */
+  onLongPress?: () => void;
 };
 
 export type UseHoldToRecordReturn = {
@@ -194,9 +212,14 @@ export type UseHoldToRecordReturn = {
 export function useHoldToRecord(
   args: UseHoldToRecordArgs,
 ): UseHoldToRecordReturn {
-  const { voice, onShortTap, onLongPressSend, asideActive, disabled, keepRecordingOnShortTap } = args;
+  const { voice, onShortTap, onLongPressSend, asideActive, disabled, keepRecordingOnShortTap, onLongPress } = args;
+  const longPressAction = onLongPress !== undefined;
   const effectiveThreshold =
-    typeof args.thresholdMs === "number" ? args.thresholdMs : HOLD_THRESHOLD_MS;
+    typeof args.thresholdMs === "number"
+      ? args.thresholdMs
+      : longPressAction
+        ? LONG_PRESS_ACTION_THRESHOLD_MS
+        : HOLD_THRESHOLD_MS;
 
   // ---- Refs -------------------------------------------------------------
 
@@ -296,6 +319,19 @@ export function useHoldToRecord(
         clearTimeout(holdTimerRef.current);
       }
       holdTimerRef.current = setTimeout(() => {
+        if (longPressAction) {
+          // Long-press-action mode: haptic tick says "release now"; the
+          // recording stays in the invisible "starting" state and is dropped
+          // on release.
+          try {
+            navigator.vibrate?.(30);
+          } catch {
+            // vibrate unsupported (iOS) — ignore.
+          }
+          setHoldCommitted(true);
+          holdCommittedRef.current = true;
+          return;
+        }
         // B-2 fix: commitStartVisibility() fires at the exact threshold instant,
         // advancing state "starting" → "recording" and playing start.mp3. This
         // ensures start.mp3 sounds ONLY when the hold gesture crosses 250ms —
@@ -332,7 +368,7 @@ export function useHoldToRecord(
           " keepRecordingOnShortTap=" + (keepRecordingOnShortTap === true),
       );
     },
-    [asideActive, disabled, voice, effectiveThreshold, keepRecordingOnShortTap],
+    [asideActive, disabled, voice, effectiveThreshold, keepRecordingOnShortTap, longPressAction],
   );
 
   const onPointerUp = useCallback(
@@ -375,7 +411,7 @@ export function useHoldToRecord(
       }
 
       // Branch on gesture outcome.
-      let branch: "short" | "short-keep" | "long-in" | "long-out" | "guarded";
+      let branch: "short" | "short-keep" | "long-in" | "long-out" | "long-action" | "guarded";
       if (!startedRecordingRef.current) {
         // Guard-short-circuited pointerdown — nothing to unwind.
         branch = "guarded";
@@ -417,6 +453,13 @@ export function useHoldToRecord(
           onShortTap();
           branch = "short";
         }
+      } else if (longPressAction) {
+        // Long-press-action mode: run the action FIRST, synchronously, so it
+        // is still inside the user gesture (getUserMedia / AudioContext
+        // unlock), then drop the throwaway pointerdown recording silently.
+        if (withinBounds) onLongPress!();
+        void voice.cancel({ silent: true });
+        branch = withinBounds ? "long-action" : "long-out";
       } else if (withinBounds) {
         // Long press released inside bounds — send. Consumer's onLongPressSend
         // is expected to invoke voice.endSend which stops the recorder
@@ -447,7 +490,7 @@ export function useHoldToRecord(
 
       resetGestureState();
     },
-    [voice, onShortTap, onLongPressSend, effectiveThreshold, resetGestureState, keepRecordingOnShortTap],
+    [voice, onShortTap, onLongPressSend, onLongPress, longPressAction, effectiveThreshold, resetGestureState, keepRecordingOnShortTap],
   );
 
   const onPointerCancel = useCallback(
@@ -484,7 +527,7 @@ export function useHoldToRecord(
         if (keepRecordingOnShortTap === true && !holdCommittedRef.current) {
           voice.commitStartVisibility();
         } else {
-          void voice.cancel();
+          void voice.cancel(longPressAction ? { silent: true } : undefined);
         }
       }
       // quick-260814-iwy: forensic log for iOS pointercancel diagnosis. Emitted
@@ -500,7 +543,7 @@ export function useHoldToRecord(
       );
       resetGestureState();
     },
-    [voice, resetGestureState, keepRecordingOnShortTap],
+    [voice, resetGestureState, keepRecordingOnShortTap, longPressAction],
   );
 
   const onPointerLeave = useCallback(

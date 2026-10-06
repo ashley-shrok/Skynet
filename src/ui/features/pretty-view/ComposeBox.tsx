@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createLogDedup } from "@/lib/log-dedup";
-import { CircleHelp, Paperclip, Plus, RefreshCw, RotateCcw, Square, ThumbsUp, X } from "lucide-react";
+import { AudioLines, CircleHelp, Paperclip, Plus, RefreshCw, RotateCcw, Square, ThumbsUp, X } from "lucide-react";
 import { Button } from "@/components/button";
 import { Textarea } from "@/components/textarea";
 import { cn } from "@/lib/utils";
@@ -25,6 +25,7 @@ import { AttachmentChipStrip, type StagedAttachmentLike } from "./AttachmentChip
 import type { BatchOutcome } from "./use-pretty-view-uploads";
 import { useVoiceRecording } from "./useVoiceRecording";
 import { useHoldToRecord } from "./useHoldToRecord";
+import { useVoiceMode, type VoiceModeMessage, type VoiceModePhase } from "./useVoiceMode";
 import { MicButton } from "./MicButton";
 import { RecordingControls } from "./RecordingControls";
 
@@ -460,6 +461,22 @@ export interface ComposeBoxProps {
   //
   // Value from PrettyView: `status === "error"`.
   reconnectingActive?: boolean;
+  /**
+   * Hands-free voice mode feed (2026-10-06). When supplied, long-pressing the
+   * primary mic toggles voice mode (see useVoiceMode) instead of
+   * hold-to-record-and-send. PrettyView supplies it for harness panes only —
+   * relay panes keep hold-to-send.
+   *   isWorking — agent-working signal (turn-end chime).
+   *   messages  — pane message stream; new assistant replies are spoken.
+   *   voice     — identity voice → fallback voice (null = backend default).
+   */
+  voiceModeFeed?: {
+    isWorking: boolean;
+    messages: ReadonlyArray<VoiceModeMessage>;
+    voice: string | null;
+  };
+  /** Fires when voice mode turns on/off so PrettyView can mute auto-speak. */
+  onVoiceModeChange?: (active: boolean) => void;
   // Phase 56 (2026-08-23): the former dormancy-gate boolean prop was
   // DELETED. Compose stays enabled on dormant panes — send triggers invisible
   // wake at the backend send-path (Plan 56-01) with widened watchdog (Plan
@@ -582,6 +599,69 @@ function useComposeSend(deps: {
   return { send };
 }
 
+const EMPTY_VOICE_MODE_MESSAGES: ReadonlyArray<VoiceModeMessage> = [];
+
+const VOICE_MODE_LABEL: Record<VoiceModePhase, string> = {
+  off: "",
+  starting: "Starting…",
+  listening: "Listening",
+  hearing: "Hearing you…",
+  transcribing: "Sending…",
+  speaking: "Speaking — tap to skip",
+  paused: "Paused while recording",
+};
+
+/**
+ * Voice-mode status strip. Deliberately small and non-modal: it sits above the
+ * compose bar and leaves every other control in place.
+ */
+function VoiceModePill({
+  phase,
+  agentWorking,
+  onSkip,
+  onExit,
+}: {
+  phase: VoiceModePhase;
+  agentWorking: boolean;
+  onSkip: () => void;
+  onExit: () => void;
+}) {
+  const label =
+    phase === "listening" && agentWorking ? "Listening (agent working)" : VOICE_MODE_LABEL[phase];
+  const live = phase === "listening" || phase === "hearing";
+  return (
+    <div
+      data-testid="voice-mode-pill"
+      data-phase={phase}
+      role="status"
+      aria-live="polite"
+      className="flex items-center gap-2 self-start rounded-full border border-[rgba(220,225,245,0.18)] bg-[rgba(220,225,245,0.06)] pl-3 pr-1 py-0.5 text-xs text-[#f0ebe0]"
+    >
+      <AudioLines
+        aria-hidden="true"
+        className={cn("size-4", live ? "opacity-90" : "opacity-50", phase === "hearing" && "animate-pulse")}
+      />
+      <button
+        type="button"
+        onClick={phase === "speaking" ? onSkip : undefined}
+        disabled={phase !== "speaking"}
+        className="opacity-80 disabled:cursor-default enabled:hover:opacity-100"
+      >
+        Voice mode · {label}
+      </button>
+      <button
+        type="button"
+        onClick={onExit}
+        aria-label="Turn off voice mode"
+        title="Turn off voice mode"
+        className="p-1 opacity-50 hover:opacity-90"
+      >
+        <X className="size-3.5" aria-hidden="true" />
+      </button>
+    </div>
+  );
+}
+
 export function ComposeBox({
   onSend,
   onOptimisticSend,
@@ -611,6 +691,8 @@ export function ComposeBox({
   onAsideDismiss,
   recycleActive,
   reconnectingActive,
+  voiceModeFeed,
+  onVoiceModeChange,
   className,
 }: ComposeBoxProps) {
   // Phase 05 — hidden file input driven by the paperclip button. When the
@@ -1993,6 +2075,40 @@ export function ComposeBox({
   //
   // NOTE (Quick 260814-1hz): moved above `showMicButton` so the predicate
   // below can read primaryHold.holdInitiatedRef.current.
+  // Hands-free voice mode (2026-10-06). Runs alongside — never instead of —
+  // the normal compose: it has its own mic stream and sends each transcript
+  // straight through the funnel, leaving the textarea, attachments, queue
+  // slots and Send untouched. Listening pauses while the manual mic records.
+  const voiceMode = useVoiceMode({
+    hostId,
+    tmuxSession,
+    voice: voiceModeFeed?.voice ?? null,
+    isWorking: voiceModeFeed?.isWorking ?? false,
+    messages: voiceModeFeed?.messages ?? EMPTY_VOICE_MODE_MESSAGES,
+    suspended: voice.state !== "idle",
+    send: (transcript) => {
+      // Same gate as handleVoiceSend's auto-send: no dispatch while the pane
+      // is recycling or between sockets — onUndelivered parks the words.
+      if (recycleActive || reconnectingActive) return false;
+      const payload = normalizeNewlinesForSend(transcript.trim());
+      if (!payload) return true;
+      return funnel.send(payload, { trigger: "voice-mode" });
+    },
+    onUndelivered: (transcript) => {
+      // Only time voice mode writes to the compose box: a transcript that
+      // couldn't be sent is appended so it is never lost.
+      const cur = latestBodyRef.current;
+      const next = cur && !/\s$/.test(cur) ? `${cur} ${transcript}` : `${cur}${transcript}`;
+      latestBodyRef.current = next;
+      setText(next);
+      scheduleAutosave(next, latestQueueSlotsRef.current);
+      setErrorMessage("Voice mode couldn't send — your words are in the compose box");
+    },
+  });
+  useEffect(() => {
+    onVoiceModeChange?.(voiceMode.active);
+  }, [voiceMode.active, onVoiceModeChange]);
+
   const primaryHold = useHoldToRecord({
     voice,
     // quick-260814-iwy: no-op — voice is already recording from pointerdown's
@@ -2007,6 +2123,14 @@ export function ComposeBox({
     onLongPressSend: () => {
       void handleVoiceSend("primary");
     },
+    // 2026-10-06: with a voice-mode feed, long-press toggles hands-free voice
+    // mode instead (called synchronously inside the release gesture).
+    onLongPress: voiceModeFeed
+      ? () => {
+          if (voiceMode.active) voiceMode.stop();
+          else voiceMode.start();
+        }
+      : undefined,
     // quick-260814-iwy: opt in to the short-tap-keep branch. Preserves the
     // pointerdown-started recording so a sub-threshold tap on the mic advances
     // "starting" → "recording" (start.mp3) instead of cancel.mp3.
@@ -2046,7 +2170,7 @@ export function ComposeBox({
   // Phase 16: merge voice.errorMessage into the existing displayError. The error
   // display block renders only one message at a time; voice errors are transient
   // (cleared when recording starts again), so they coexist safely with compose errors.
-  const displayError = errorMessage ?? voice.errorMessage;
+  const displayError = errorMessage ?? voice.errorMessage ?? voiceMode.errorMessage;
 
   // B-3 (Phase 32): gate on !holdInitiatedRef so a hold-initiated recording
   // does NOT swap in RecordingControls under the pointer (CONTEXT.md § Visual
@@ -2534,6 +2658,14 @@ export function ComposeBox({
           gradient — never change.
           Phase 93 D-12: Row 2 is byte-identical between mode="harness"
           and mode="relay" (only Row 1 + Paperclip differ). */}
+      {voiceMode.active && (
+        <VoiceModePill
+          phase={voiceMode.phase}
+          agentWorking={voiceModeFeed?.isWorking ?? false}
+          onSkip={voiceMode.skipSpeech}
+          onExit={voiceMode.stop}
+        />
+      )}
       <div data-testid="compose-row-2" className="flex items-end gap-2">
         {/* Patch #84: textarea wrapper. The wrapper owns flex sizing
             (`flex-1 self-stretch`) so the pending overlay can position
@@ -2921,7 +3053,14 @@ export function ComposeBox({
                 onPointerLeave={primaryHold.onPointerLeave}
                 dataHoldActive={primaryHold.holdActive}
                 disabled={voice.state !== "idle"}
-                title="Record voice"
+                title={
+                  voiceMode.active
+                    ? "Voice mode on — hold to turn off"
+                    : voiceModeFeed
+                      ? "Record voice (hold for voice mode)"
+                      : "Record voice"
+                }
+                voiceModeActive={voiceMode.active}
                 positionClass="right-11 bottom-0.5"
               />
             )}
