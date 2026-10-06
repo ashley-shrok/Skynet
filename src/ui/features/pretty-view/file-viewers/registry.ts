@@ -3,6 +3,9 @@ import {
   BookMarked,
   Network,
   PenTool,
+  CalendarDays,
+  Contact as ContactIcon,
+  Mail,
   Shapes,
   Workflow,
   BookOpen,
@@ -55,6 +58,8 @@ import { ExcalidrawMode } from "./diagram/excalidraw-mode";
 import { ExcalidrawChipPreview } from "./diagram/ExcalidrawChipPreview";
 import { DrawioMode } from "./diagram/drawio-mode";
 import { DrawioChipPreview } from "./diagram/DrawioChipPreview";
+import { CalendarMode, ContactsMode, EmailMode } from "./pim/pim-modes";
+import { CalendarChipPreview, ContactsChipPreview, EmailChipPreview } from "./pim/PimChipPreviews";
 import { HEIC_EXTENSIONS, PSD_EXTENSIONS, RAW_EXTENSIONS, TIFF_EXTENSIONS } from "./images/image-formats";
 import { ColumnarChipPreview, SqliteChipPreview } from "./data/DataChipPreviews";
 
@@ -471,6 +476,43 @@ export const DRAWIO_ENTRY: FileViewerEntry = {
 };
 
 /**
+ * Emails (.eml, Outlook .msg), view-only: sanitized HTML body in a sandboxed
+ * frame, remote images blocked until asked, attachments opening in these
+ * viewers.
+ */
+export const EMAIL_ENTRY: FileViewerEntry = {
+  id: "email",
+  extensions: ["eml", "msg"],
+  icon: Mail,
+  modes: [{ id: "view", label: "Email", needs: "url", editable: false, View: EmailMode }],
+  ChipPreview: EmailChipPreview,
+};
+
+/** Calendar files: event cards / agenda (ical.js), plus the raw source. */
+export const CALENDAR_ENTRY: FileViewerEntry = {
+  id: "calendar",
+  extensions: ["ics", "ical", "ifb"],
+  icon: CalendarDays,
+  modes: [
+    { id: "view", label: "Events", needs: "url", editable: false, View: CalendarMode },
+    { ...textMode, id: "source", label: "Source" },
+  ],
+  ChipPreview: CalendarChipPreview,
+};
+
+/** Contacts: cards / searchable list (vCard 2.1–4), plus the raw source. */
+export const CONTACTS_ENTRY: FileViewerEntry = {
+  id: "contacts",
+  extensions: ["vcf", "vcard"],
+  icon: ContactIcon,
+  modes: [
+    { id: "view", label: "Contacts", needs: "url", editable: false, View: ContactsMode },
+    { ...textMode, id: "source", label: "Source" },
+  ],
+  ChipPreview: ContactsChipPreview,
+};
+
+/**
  * Formats we know are binary and have no viewer yet. Recognising them up
  * front lets surfaces skip the (up to 2 MB) fetch and show the notice
  * immediately. Entries move out of here as they gain real viewers.
@@ -522,6 +564,9 @@ const ENTRIES: readonly FileViewerEntry[] = [
   GRAPHVIZ_ENTRY,
   EXCALIDRAW_ENTRY,
   DRAWIO_ENTRY,
+  EMAIL_ENTRY,
+  CALENDAR_ENTRY,
+  CONTACTS_ENTRY,
   BINARY_ENTRY,
 ];
 

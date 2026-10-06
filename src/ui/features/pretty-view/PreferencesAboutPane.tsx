@@ -32,6 +32,9 @@ const COMPONENTS: Array<[string, string, string]> = [
   ["Mermaid · Viz.js", "Text diagrams", "MIT"],
   ["Excalidraw", "Drawing editor", "MIT"],
   ["draw.io viewer", "draw.io diagrams", "Apache-2.0"],
+  ["postal-mime", "Email reader", "MIT-0"],
+  ["msgreader", "Outlook .msg reader", "Apache-2.0"],
+  ["ical.js", "Calendar and contacts", "MPL-2.0"],
   ["LibreOffice", "Document converter (server)", "MPL-2.0"],
 ];
 

@@ -256,6 +256,25 @@ Ordering below is a starting-point, not locked. Each entry is marked
   chip = page names via inert DOMParser. Full draw.io editor deferred.
   PlantUML skipped (needs a Java server). — built, awaiting user check
 
+- **[discovered] shape-pim** — (2026-10-06)
+  Email (.eml via postal-mime, Outlook .msg via msgreader), VIEW-ONLY:
+  headers (Show all headers), attachments bar (open in a nested FileView
+  from a blob: URL, or download), HTML body sanitised with DOMPurify (no
+  forms, frames, objects, meta/base/link, srcset) and shown in a sandboxed
+  iframe without scripts or same-origin, under a CSP meta tag that allows
+  only data: images; cid: images inlined as data URLs. Remote images are
+  BLOCKED by default (user choice) with a "Load remote images" button;
+  links open in a new tab. Plain-text fallback. Calendar (.ics/.ical/.ifb
+  via ical.js): event card or agenda by day, times in local zone + the
+  event's own zone, recurrence described, organiser/attendees, invitation
+  vs cancellation, "Add to calendar" download; Source mode. Contacts
+  (.vcf/.vcard; vCard 3/4 via ical.js, tolerant 2.1 parser with QP):
+  single card or searchable list + card, tel:/mailto: links; Source mode.
+  Chips for all three. Verified with a hostile .eml (script, onerror,
+  onclick, meta refresh, form, iframe): nothing ran, no off-origin request
+  until the button. Real Outlook .msg not tested here (no sample). —
+  built, awaiting user check
+
 ## Rule: view-only when editing can't be done properly (2026-10-05)
 
 If we can't give a proper editing-and-saving experience for a file type

@@ -38,6 +38,10 @@ licence text are in `package.json` / `package-lock.json` and each package's
 | Viz.js (`@viz-js/viz`, Graphviz compiled to WebAssembly) | Graphviz diagrams | MIT (Graphviz: EPL-1.0) | https://github.com/mdaines/viz-js |
 | Excalidraw (`@excalidraw/excalidraw`; fonts served from `/vendor/excalidraw/`) | Excalidraw editor | MIT (fonts: OFL-1.1) | https://github.com/excalidraw/excalidraw |
 | draw.io viewer (vendored in `public/drawio/`) | draw.io diagram viewer | Apache-2.0 | https://github.com/jgraph/drawio |
+| postal-mime | Email (.eml) reader | MIT-0 | https://github.com/postalsys/postal-mime |
+| msgreader (`@kenjiuno/msgreader`) | Outlook (.msg) reader | Apache-2.0 | https://github.com/HiraokaHyperTools/msgreader |
+| DOMPurify | Sanitising email HTML | MPL-2.0 or Apache-2.0 | https://github.com/cure53/DOMPurify |
+| ical.js | Calendar (.ics) and contacts (.vcf) reader | MPL-2.0 | https://github.com/kewisch/ical.js |
 | LibreOffice (separate `converter` container, from Ubuntu packages) | Converting .doc/.odt/.xls/.ods/.ppt/.pptx/.odp for viewing | MPL-2.0 | https://www.libreoffice.org/about-us/source-code/ |
 
 ## AGPL-3.0 and Skynet
