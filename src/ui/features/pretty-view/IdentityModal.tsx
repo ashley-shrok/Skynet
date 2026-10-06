@@ -28,7 +28,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type React from "react";
-import { AlarmClock, ChevronDown, Folder, GitBranch, Mic, Pencil, User, X } from "lucide-react";
+import { AlarmClock, ChevronDown, Folder, GitBranch, Mic, Monitor, Pencil, User, X } from "lucide-react";
 import { Modal, ModalFoot, ModalTabs } from "@/components/modal";
 import { Tabs, TabsContent } from "@/components/tabs";
 import { updateIdentity } from "@/api/identities-api";
@@ -61,6 +61,8 @@ import { WakeupsTab } from "./WakeupsTab";
 import WorkspaceTab from "./WorkspaceTab";
 import GitTab from "./GitTab";
 import { useHasGitRepos } from "./use-has-git-repos";
+import DesktopTab from "./DesktopTab";
+import { useDesktopRunning } from "./use-desktop-running";
 import { bumpModalOpen } from "@/lib/freeze-diag";
 
 // Title-line clickable treatment for jumping to the role modal. Preserved
@@ -173,11 +175,14 @@ export function IdentityModal({
   // Git tab only when the workspace actually holds a repo.
   const gitTarget = { kind: "identity" as const, identityKey: identity.identityKey };
   const hasGitRepos = useHasGitRepos(gitTarget, hostId, open);
+  // Desktop tab only once the identity's virtual desktop is up.
+  const desktopRunning = useDesktopRunning(identity.identityKey, hostId, open);
   const NAV_SECTIONS = [
     { value: "identity", label: "Agent file", Icon: User },
     { value: "identity-wakeups", label: "Wake-ups", Icon: AlarmClock },
     { value: "workspace", label: "Files", Icon: Folder },
     ...(hasGitRepos ? [{ value: "git", label: "Git", Icon: GitBranch }] : []),
+    ...(desktopRunning ? [{ value: "desktop", label: "Desktop", Icon: Monitor }] : []),
   ] as const;
 
   // Initial fetch of identity file + wake-ups on modal open. Preserved
@@ -754,6 +759,19 @@ export function IdentityModal({
             className="flex-1 min-h-0 overflow-hidden flex flex-col"
           >
             <GitTab target={gitTarget} hostId={hostId} hue={hue} />
+          </TabsContent>
+        )}
+
+        {desktopRunning && (
+          <TabsContent
+            value="desktop"
+            className="flex-1 min-h-0 overflow-hidden flex flex-col"
+          >
+            <DesktopTab
+              identityKey={identity.identityKey}
+              hostId={hostId}
+              isVisible={open && activeTab === "desktop"}
+            />
           </TabsContent>
         )}
       </Tabs>

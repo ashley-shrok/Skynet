@@ -142,6 +142,7 @@ import runbooksEditorRoutes from "./routes/runbooks-editor.js";
 import workspaceRoutes from "./routes/workspace-routes.js";
 // Read-only git view over identity workspaces (repos / repo / diff). Served under /workspace/git, so the existing /workspace nginx location blocks already cover it.
 import workspaceGitRoutes from "./routes/workspace-git-routes.js";
+import workspaceDesktopRoutes from "./routes/workspace-desktop-routes.js";
 // Phase 117 Plan 04 (D-25, D-30, D-36a, D-37): /projects router — GET list
 // + POST create + POST :slug/archive. JSON body per D-36a. Backend is
 // authoritative for slug derivation per Pitfall 1.
@@ -2174,6 +2175,8 @@ app.use("/skills-editor", skillsEditorRoutes);
 app.use("/runbooks-editor", runbooksEditorRoutes);
 // Phase 118 Plan 118-01 (D-04, D-16, D-17, D-19, D-20, D-21, D-22): /workspace CRUD router — 9 endpoints (list, read-file, write-file, delete, rename, mkdir, create-file, upload, download). Matching nginx location blocks land in BOTH docker/nginx.conf AND docker/nginx-https.conf per CLAUDE.md nginx caveat (missing in HTTPS conf → /workspace returns index.html and crashes the frontend).
 app.use("/workspace/git", workspaceGitRoutes);
+// Identity desktop (status / start / view-only Guacamole connect) — under /workspace so the existing nginx location covers it.
+app.use("/workspace/desktop", workspaceDesktopRoutes);
 app.use("/workspace", workspaceRoutes);
 // Phase 117 Plan 04 (D-25, D-30, D-36a, D-37): /projects router — GET list
 // + POST create + POST :slug/archive. JSON body per D-36a. Mounted alongside

@@ -18,7 +18,10 @@ export type GuacamoleConnectionType = "rdp" | "vnc" | "telnet";
 // h-screen overflowing AppShell's tab cell by the topbar's height).
 // getBoundingClientRect reports the full box, so guacd ends up rendering
 // at a size larger than the user can see. Clamp to the visible portion.
-function measureVisibleSize(el: HTMLElement): { width: number; height: number } {
+function measureVisibleSize(el: HTMLElement): {
+  width: number;
+  height: number;
+} {
   const rect = el.getBoundingClientRect();
   const left = Math.max(rect.left, 0);
   const top = Math.max(rect.top, 0);
@@ -58,6 +61,13 @@ interface GuacamoleDisplayProps {
   onConnect?: () => void;
   onDisconnect?: () => void;
   onError?: (error: string) => void;
+  /**
+   * Watch only: no mouse/keyboard capture, and no clipboard or file exchange
+   * in either direction (the viewer's clipboard is never read, the remote
+   * clipboard never written to it). Pair with guacd's `read-only` setting in
+   * the token, which enforces the same thing server-side.
+   */
+  viewOnly?: boolean;
 }
 
 const isDev = import.meta.env.DEV;
@@ -66,7 +76,14 @@ export const GuacamoleDisplay = forwardRef<
   GuacamoleDisplayHandle,
   GuacamoleDisplayProps
 >(function GuacamoleDisplay(
-  { connectionConfig, isVisible, onConnect, onDisconnect, onError },
+  {
+    connectionConfig,
+    isVisible,
+    onConnect,
+    onDisconnect,
+    onError,
+    viewOnly = false,
+  },
   ref,
 ) {
   const { t } = useTranslation();
@@ -315,44 +332,46 @@ export const GuacamoleDisplay = forwardRef<
       setIsReady(true);
     }
 
-    const mouse = new Guacamole.Mouse(displayElement);
-    const sendMouseState = (state: Guacamole.Mouse.State) => {
-      displayElement.focus({ preventScroll: true });
-      const scale = scaleRef.current;
-      const adjustedX = Math.round(state.x / scale);
-      const adjustedY = Math.round(state.y / scale);
+    if (!viewOnly) {
+      const mouse = new Guacamole.Mouse(displayElement);
+      const sendMouseState = (state: Guacamole.Mouse.State) => {
+        displayElement.focus({ preventScroll: true });
+        const scale = scaleRef.current;
+        const adjustedX = Math.round(state.x / scale);
+        const adjustedY = Math.round(state.y / scale);
 
-      const adjustedState = new Guacamole.Mouse.State(
-        adjustedX,
-        adjustedY,
-        state.left,
-        state.middle,
-        state.right,
-        state.up,
-        state.down,
-      ) as Guacamole.Mouse.State;
+        const adjustedState = new Guacamole.Mouse.State(
+          adjustedX,
+          adjustedY,
+          state.left,
+          state.middle,
+          state.right,
+          state.up,
+          state.down,
+        ) as Guacamole.Mouse.State;
 
-      client.sendMouseState(adjustedState);
-    };
-    mouse.onmousedown = mouse.onmouseup = mouse.onmousemove = sendMouseState;
+        client.sendMouseState(adjustedState);
+      };
+      mouse.onmousedown = mouse.onmouseup = mouse.onmousemove = sendMouseState;
 
-    const keyboard = new Guacamole.Keyboard(displayElement);
-    keyboardRef.current = keyboard;
+      const keyboard = new Guacamole.Keyboard(displayElement);
+      keyboardRef.current = keyboard;
 
-    const handleDisplayFocus = () => {
-      hasKeyboardFocusRef.current = true;
+      const handleDisplayFocus = () => {
+        hasKeyboardFocusRef.current = true;
+        refreshKeyboardHandlers();
+      };
+
+      const handleDisplayBlur = () => {
+        hasKeyboardFocusRef.current = false;
+        refreshKeyboardHandlers();
+      };
+
+      displayElement.addEventListener("focus", handleDisplayFocus);
+      displayElement.addEventListener("blur", handleDisplayBlur);
+      displayElement.addEventListener("mousedown", handleDisplayFocus);
       refreshKeyboardHandlers();
-    };
-
-    const handleDisplayBlur = () => {
-      hasKeyboardFocusRef.current = false;
-      refreshKeyboardHandlers();
-    };
-
-    displayElement.addEventListener("focus", handleDisplayFocus);
-    displayElement.addEventListener("blur", handleDisplayBlur);
-    displayElement.addEventListener("mousedown", handleDisplayFocus);
-    refreshKeyboardHandlers();
+    }
 
     client.onstatechange = (state: number) => {
       switch (state) {
@@ -397,40 +416,45 @@ export const GuacamoleDisplay = forwardRef<
       onError?.(errorMessage);
     };
 
-    client.onclipboard = (stream: Guacamole.InputStream, mimetype: string) => {
-      if (mimetype === "text/plain") {
-        const reader = new Guacamole.StringReader(stream);
-        let data = "";
-        reader.ontext = (text: string) => {
-          data += text;
-        };
-        reader.onend = () => {
-          navigator.clipboard?.writeText?.(data).catch(() => {});
-        };
-      }
-    };
-
-    client.onaudio = (stream: Guacamole.InputStream, mimetype: string) => {
-      Guacamole.AudioPlayer.getInstance(stream, mimetype);
-    };
-
-    client.onfile = (
-      stream: Guacamole.InputStream,
-      mimetype: string,
-      filename: string,
-    ) => {
-      const reader = new Guacamole.BlobReader(stream, mimetype);
-      reader.onend = () => {
-        const blob = reader.getBlob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = filename;
-        a.click();
-        URL.revokeObjectURL(url);
+    if (!viewOnly) {
+      client.onclipboard = (
+        stream: Guacamole.InputStream,
+        mimetype: string,
+      ) => {
+        if (mimetype === "text/plain") {
+          const reader = new Guacamole.StringReader(stream);
+          let data = "";
+          reader.ontext = (text: string) => {
+            data += text;
+          };
+          reader.onend = () => {
+            navigator.clipboard?.writeText?.(data).catch(() => {});
+          };
+        }
       };
-      stream.sendAck("OK", Guacamole.Status.Code.SUCCESS);
-    };
+
+      client.onaudio = (stream: Guacamole.InputStream, mimetype: string) => {
+        Guacamole.AudioPlayer.getInstance(stream, mimetype);
+      };
+
+      client.onfile = (
+        stream: Guacamole.InputStream,
+        mimetype: string,
+        filename: string,
+      ) => {
+        const reader = new Guacamole.BlobReader(stream, mimetype);
+        reader.onend = () => {
+          const blob = reader.getBlob();
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = filename;
+          a.click();
+          URL.revokeObjectURL(url);
+        };
+        stream.sendAck("OK", Guacamole.Status.Code.SUCCESS);
+      };
+    }
 
     client.connect();
   }, [
@@ -443,6 +467,7 @@ export const GuacamoleDisplay = forwardRef<
     connectionConfig.protocol,
     connectionConfig.type,
     t,
+    viewOnly,
   ]);
 
   const hasInitiatedRef = useRef(false);
@@ -540,7 +565,7 @@ export const GuacamoleDisplay = forwardRef<
 
   const syncClipboard = useCallback(() => {
     const client = clientRef.current;
-    if (!client || !navigator.clipboard?.readText) return;
+    if (viewOnly || !client || !navigator.clipboard?.readText) return;
     navigator.clipboard
       .readText()
       .then((text) => {
@@ -552,7 +577,7 @@ export const GuacamoleDisplay = forwardRef<
         }
       })
       .catch(() => {});
-  }, []);
+  }, [viewOnly]);
 
   useEffect(() => {
     if (isVisible && isReady) {
@@ -590,7 +615,7 @@ export const GuacamoleDisplay = forwardRef<
         ref={displayRef}
         className="relative w-full h-full flex items-start justify-center"
         style={{
-          cursor: isReady ? "none" : "default",
+          cursor: isReady && !viewOnly ? "none" : "default",
           visibility: isReady ? "visible" : "hidden",
         }}
       />
