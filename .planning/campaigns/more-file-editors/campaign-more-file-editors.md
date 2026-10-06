@@ -221,6 +221,23 @@ Ordering below is a starting-point, not locked. Each entry is marked
   so notebooks over the 2 MB text-save cap still save. Chip: title, cell
   counts, language, largest of the first plots. — built, awaiting user check
 
+- **[discovered] shape-ebooks** — (2026-10-06) view-only reader for EPUB,
+  Kindle MOBI/AZW/AZW3, FictionBook (.fb2/.fbz) and comic .cbz on foliate-js
+  (MIT; not on npm — vendored at a pinned commit by
+  scripts/vendor-foliate-js.mjs, its 13 MB PDF backend replaced by a stub).
+  SECURITY: foliate renders book HTML in same-origin frames that allow
+  scripts, so books render in ebook-reader.html — a separate Vite entry under
+  a strict CSP (script-src 'self'; meta tag + identical nginx header block in
+  both confs); blob: section frames inherit it. Verified: inline scripts,
+  script files, event handlers and remote images in hostile EPUBs are all
+  refused, in dev and in the production build under nginx. The Skynet UI
+  drives the page over postMessage (same-origin, source-checked): contents,
+  search with excerpts, text size, Light/Sepia/Dark, pages/scroll, progress
+  slider, position + settings remembered per device (localStorage). Chip:
+  cover + title/author (package files parsed with inert DOMParser only).
+  MOBI/AZW3 not tested here (no sample reachable offline). — built,
+  awaiting user check
+
 ## Rule: view-only when editing can't be done properly (2026-10-05)
 
 If we can't give a proper editing-and-saving experience for a file type

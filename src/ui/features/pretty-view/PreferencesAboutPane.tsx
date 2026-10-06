@@ -28,6 +28,7 @@ const COMPONENTS: Array<[string, string, string]> = [
   ["ag-psd", "Photoshop reader", "MIT"],
   ["libheif", "HEIC photo decoder", "LGPL-3.0"],
   ["KaTeX", "Maths in notebooks", "MIT"],
+  ["foliate-js", "Ebook reader", "MIT"],
   ["LibreOffice", "Document converter (server)", "MPL-2.0"],
 ];
 

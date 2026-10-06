@@ -116,6 +116,12 @@ export default defineConfig({
   build: {
     sourcemap: false,
     rollupOptions: {
+      // ebook-reader.html: the isolated, CSP-locked page that hosts the
+      // ebook engine (see the file's header comment).
+      input: {
+        main: path.resolve(__dirname, "index.html"),
+        ebookReader: path.resolve(__dirname, "ebook-reader.html"),
+      },
       output: {
         manualChunks: getManualChunk,
       },

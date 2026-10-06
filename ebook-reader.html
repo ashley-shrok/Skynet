@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!--
+      Isolated host for the ebook engine (foliate-js). Book sections render
+      in same-origin frames that allow scripts, so this policy is the only
+      thing stopping a book's own JavaScript from running: scripts may come
+      from this origin's files only ('self' — not inline, not blob:). The
+      same policy is sent as a header by nginx (docker/nginx*.conf).
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' blob:; img-src 'self' blob: data:; font-src 'self' blob: data:; media-src 'self' blob: data:; connect-src 'self' blob: data:; frame-src 'self' blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <title>Ebook</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #ffffff; }
+      foliate-view { display: block; width: 100%; height: 100%; }
+    </style>
+  </head>
+  <body>
+    <script type="module" src="/src/ui/ebook-reader/reader-main.ts"></script>
+  </body>
+</html>

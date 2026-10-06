@@ -33,6 +33,7 @@ licence text are in `package.json` / `package-lock.json` and each package's
 | KaTeX (`katex`, via `remark-math` / `rehype-katex`) | Maths in notebook markdown | MIT | https://github.com/KaTeX/KaTeX |
 | rehype-raw, rehype-sanitize | Sanitised inline HTML in notebook markdown | MIT | https://github.com/rehypejs |
 | anser | Coloured tracebacks in notebook outputs | MIT | https://github.com/IonicaBizau/anser |
+| foliate-js (vendored in `src/ui/vendor/foliate-js/`, pinned commit; includes zip.js and fflate) | Ebook reader (EPUB, MOBI/AZW3, FB2, CBZ) | MIT (zip.js: BSD-3-Clause, fflate: MIT) | https://github.com/johnfactotum/foliate-js |
 | LibreOffice (separate `converter` container, from Ubuntu packages) | Converting .doc/.odt/.xls/.ods/.ppt/.pptx/.odp for viewing | MPL-2.0 | https://www.libreoffice.org/about-us/source-code/ |
 
 ## AGPL-3.0 and Skynet

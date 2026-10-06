@@ -1,5 +1,6 @@
 import type { ComponentType } from "react";
 import {
+  BookMarked,
   BookOpen,
   Box,
   Database,
@@ -42,6 +43,8 @@ import { DecodedImageMode } from "./images/image-modes";
 import { DecodedImageChipPreview } from "./images/DecodedImageChipPreview";
 import { NotebookMode } from "./notebook/notebook-mode";
 import { NotebookChipPreview } from "./notebook/NotebookChipPreview";
+import { EbookMode } from "./ebook/ebook-mode";
+import { EbookChipPreview } from "./ebook/EbookChipPreview";
 import { HEIC_EXTENSIONS, PSD_EXTENSIONS, RAW_EXTENSIONS, TIFF_EXTENSIONS } from "./images/image-formats";
 import { ColumnarChipPreview, SqliteChipPreview } from "./data/DataChipPreviews";
 
@@ -391,6 +394,20 @@ export const NOTEBOOK_ENTRY: FileViewerEntry = {
 };
 
 /**
+ * Ebooks: EPUB, Kindle (MOBI / AZW3), FictionBook and comic archives, in a
+ * reader built on foliate-js (vendored). Books render in ebook-reader.html,
+ * an isolated page under a strict CSP, so scripts in books never run.
+ * View-only; position and reading settings are remembered per device.
+ */
+export const EBOOK_ENTRY: FileViewerEntry = {
+  id: "ebook",
+  extensions: ["epub", "mobi", "azw", "azw3", "fb2", "fbz", "cbz"],
+  icon: BookMarked,
+  modes: [{ id: "read", label: "Read", needs: "url", editable: false, View: EbookMode }],
+  ChipPreview: EbookChipPreview,
+};
+
+/**
  * Formats we know are binary and have no viewer yet. Recognising them up
  * front lets surfaces skip the (up to 2 MB) fetch and show the notice
  * immediately. Entries move out of here as they gain real viewers.
@@ -400,8 +417,6 @@ export const BINARY_ENTRY: FileViewerEntry = {
   extensions: [
     // archives
     "zip", "gz", "tgz", "tar", "bz2", "xz", "7z", "rar", "zst",
-    // documents
-    "epub",
     // executables / objects
     "exe", "dll", "so", "dylib", "o", "a", "class", "jar", "war", "pyc", "wasm", "bin",
     // disk images / databases
@@ -439,6 +454,7 @@ const ENTRIES: readonly FileViewerEntry[] = [
   COLUMNAR_ENTRY,
   DECODED_IMAGE_ENTRY,
   NOTEBOOK_ENTRY,
+  EBOOK_ENTRY,
   BINARY_ENTRY,
 ];
 
