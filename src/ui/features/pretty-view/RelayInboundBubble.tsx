@@ -65,8 +65,8 @@ import {
 //     - Footer "via recv.sh" is dropped — implicit for the whole pane.
 //     - Bubble padding widens right side to `pr-[42px]` reserving space for
 //       the speak button (mirroring ChatMessage assistant's gutter).
-//     - Speak button (Volume2/Loader2/Pause/Play) renders bottom-right,
-//       long-press-on-bubble arms autoplay via onLongPressSpeak(eventId).
+//     - Speak button (Volume2/Loader2/Pause/Play) renders bottom-right.
+//       (Long-press auto-speak retired 2026-10-06 — see useVoiceMode.)
 //     - Speak singleton is shared with ChatMessage via ./speak-singleton.ts,
 //       so tapping speak on either component preempts the other.
 //   The `alwaysExpanded=false` (harness) branch is BYTE-FOR-BYTE UNCHANGED.
@@ -81,9 +81,7 @@ import {
 //     harness-view users get the speak button once they tap-to-expand.
 //   - Expanded padding tightened to `pl-[12px] pr-[42px] py-[7px]` in BOTH
 //     views — matches ChatMessage assistant padding exactly.
-//   - Bubble-root long-press pointer handlers REMOVED. The speak button's own
-//     internal handlers own long-press-arms-autoplay (mirrors ChatMessage
-//     pattern). Batch #6's bubble-root wiring was redundant.
+//   - Bubble-root long-press pointer handlers REMOVED.
 
 type FetchState =
   | { kind: "idle" }
@@ -113,22 +111,9 @@ export type RelayInboundBubbleProps = Pick<
    * state starts expanded and the header renders as a plain non-clickable
    * <div> (no toggle chevron). */
   alwaysExpanded?: boolean;
-  /** Phase 97 UAT batch #6 (2026-09-10): matrix event id — used as the
-   * autoplay-target discriminator and as the argument to `onLongPressSpeak`
-   * when long-press arms autoplay. Only meaningful when
-   * `alwaysExpanded={true}` (relay-source view). */
+  /** Phase 97 UAT batch #6 (2026-09-10): matrix event id. Only meaningful
+   * when `alwaysExpanded={true}` (relay-source view). */
   eventId?: string;
-  /** Phase 97 UAT batch #6 (2026-09-10): mirrors ChatMessage — when true, the
-   * speak button gets the identity-hue tint (visual hint that a long-press
-   * has armed autoplay for arriving messages). */
-  autoplayArmed?: boolean;
-  /** Phase 97 UAT batch #6 (2026-09-10): mirrors ChatMessage — when this
-   * bubble's `eventId` matches, autoplay fires. */
-  autoplayTargetEventId?: string | null;
-  /** Phase 97 UAT batch #6 (2026-09-10): mirrors ChatMessage — long-press
-   * arms autoplay in the PrettyView parent. Called with the bubble's
-   * eventId on long-press fire. */
-  onLongPressSpeak?: (eventId: string) => void;
 };
 
 export function RelayInboundBubble({
@@ -138,10 +123,7 @@ export function RelayInboundBubble({
   ts,
   hostId,
   alwaysExpanded = false,
-  eventId,
-  autoplayArmed = false,
-  autoplayTargetEventId = null,
-  onLongPressSpeak,
+  // eventId: accepted for callers; unused since auto-speak was retired.
 }: RelayInboundBubbleProps) {
   const { byKey } = useIdentities();
   const { colorHue, displayName, identity } = resolveMxidToIdentity(sender, byKey);
@@ -204,25 +186,11 @@ export function RelayInboundBubble({
   // Phase 97 UAT batch #6 (2026-09-10). The refs/state are declared
   // unconditionally (Rules of Hooks); the render-side gating on `!collapsed`
   // ensures the button wires up whenever the bubble is expanded (both views).
-  // Phase 97 UAT batch #7 (2026-09-10): the bubble-root long-press pointer
-  // handlers were removed — the speak button's own internal handlers own
-  // long-press-arms-autoplay (mirroring ChatMessage's pattern). The refs
-  // below are used exclusively by the speak-button internal handlers.
   const bubbleIdRef = useRef(Symbol("relay-speak-bubble"));
   const [speakState, setSpeakState] = useState<"idle" | "loading" | "playing" | "paused">("idle");
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Long-press detection refs
-  const longPressTimerRef = useRef<number | null>(null);
-  const longPressFiredRef = useRef<boolean>(false);
-  const pointerStartRef = useRef<{ x: number; y: number } | null>(null);
-
-  // Autoplay dedup ref — stores the last eventId we already fired autoplay for,
-  // preventing double-fire if React re-renders while the effect is settling.
-  const autoplayLastFiredRef = useRef<string | null>(null);
-
-  // Cleanup: stop player on unmount if this bubble owns it; also clear any
-  // pending long-press timer.
+  // Cleanup: stop player on unmount if this bubble owns it.
   useEffect(() => {
     return () => {
       if (getCurrentOwner() === bubbleIdRef.current) {
@@ -231,19 +199,12 @@ export function RelayInboundBubble({
         getCurrentPlayer()?.stop();
         clearCurrentPlayer();
       }
-      if (longPressTimerRef.current != null) {
-        window.clearTimeout(longPressTimerRef.current);
-        longPressTimerRef.current = null;
-      }
     };
   }, []);
 
   // startSpeak: extracted fresh-play path (cross-bubble preempt + loading +
-  // fetch + play). Called by:
-  //   - onSpeakClick (fresh-play branch)
-  //   - long-press handler (single-gesture-single-action)
-  //   - autoplay effect (newly-arrived relay-inbound message while armed)
-  async function startSpeak(trigger: "user-click" | "autoplay" | "long-press" = "user-click") {
+  // fetch + play). Called by onSpeakClick (fresh-play branch).
+  async function startSpeak(trigger: "user-click" = "user-click") {
     // If another bubble is playing (or loading, or paused), stop it first
     // (cross-bubble preempt). This is also the only cancel-from-paused path.
     const preemptTarget = getCurrentPlayer();
@@ -371,25 +332,6 @@ export function RelayInboundBubble({
 
     void startSpeak("user-click");
   }
-
-  // Autoplay effect: fires startSpeak() when a new target arrives that matches
-  // this bubble's eventId. Uses autoplayLastFiredRef to prevent double-fire on
-  // re-renders while the effect is settling. Only fires in relay-source view
-  // (alwaysExpanded=true) — harness view has no speak apparatus.
-  useEffect(() => {
-    if (
-      alwaysExpanded &&
-      autoplayTargetEventId != null &&
-      eventId != null &&
-      autoplayTargetEventId === eventId &&
-      autoplayLastFiredRef.current !== eventId
-    ) {
-      autoplayLastFiredRef.current = eventId;
-      console.info(`[tts] autoplay-fired eventId=${eventId} armed=${autoplayTargetEventId != null} owner=relay`);
-      void startSpeak("autoplay");
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoplayTargetEventId, eventId, alwaysExpanded]);
 
   return (
     <div className="flex justify-start" data-testid="relay-inbound-wrap">
@@ -538,57 +480,7 @@ export function RelayInboundBubble({
         {!collapsed && (
           <button
             type="button"
-            onPointerDown={(e) => {
-              longPressFiredRef.current = false;
-              pointerStartRef.current = { x: e.clientX, y: e.clientY };
-              if (longPressTimerRef.current != null) {
-                window.clearTimeout(longPressTimerRef.current);
-              }
-              longPressTimerRef.current = window.setTimeout(() => {
-                longPressFiredRef.current = true;
-                longPressTimerRef.current = null;
-                // Capture BEFORE toggling: onLongPressSpeak flips autoplayArmed
-                // upstream. On disarm we skip startSpeak — hold-to-turn-off
-                // should not also start playing the pressed bubble.
-                const wasArmed = autoplayArmed;
-                if (eventId && onLongPressSpeak) onLongPressSpeak(eventId);
-                if (!wasArmed) void startSpeak("long-press");
-              }, 800);
-            }}
-            onPointerMove={(e) => {
-              const start = pointerStartRef.current;
-              if (!start || longPressTimerRef.current == null) return;
-              const dx = e.clientX - start.x;
-              const dy = e.clientY - start.y;
-              if (Math.hypot(dx, dy) > 10) {
-                window.clearTimeout(longPressTimerRef.current);
-                longPressTimerRef.current = null;
-              }
-            }}
-            onPointerCancel={() => {
-              if (longPressTimerRef.current != null) {
-                window.clearTimeout(longPressTimerRef.current);
-                longPressTimerRef.current = null;
-              }
-            }}
-            onPointerUp={() => {
-              // Clear the pending timer if it hasn't fired yet — this is a tap.
-              // Do NOT clear longPressFiredRef here — the subsequent onClick
-              // needs to read it.
-              if (longPressTimerRef.current != null) {
-                window.clearTimeout(longPressTimerRef.current);
-                longPressTimerRef.current = null;
-              }
-            }}
-            onClick={(e) => {
-              // Suppress the tap-driven click if a long-press already fired.
-              if (longPressFiredRef.current) {
-                longPressFiredRef.current = false;
-                e.stopPropagation();
-                return;
-              }
-              void onSpeakClick(e);
-            }}
+            onClick={(e) => { void onSpeakClick(e); }}
             aria-label={
               speakState === "playing"
                 ? "Pause speaking"
@@ -612,7 +504,7 @@ export function RelayInboundBubble({
               cursor: "pointer",
               transition: "opacity 120ms, background 120ms, transform 80ms",
             }}
-            className={`pv-speak-btn ${autoplayArmed ? "autospeak-armed" : ""} hover:!opacity-100 hover:!bg-[rgba(0,0,0,0.42)] focus-visible:!opacity-100 active:scale-[0.92] [@media(hover:none)]:!opacity-[0.72]`}
+            className={`pv-speak-btn hover:!opacity-100 hover:!bg-[rgba(0,0,0,0.42)] focus-visible:!opacity-100 active:scale-[0.92] [@media(hover:none)]:!opacity-[0.72]`}
           >
             {speakState === "loading" ? (
               <Loader2 size={16} className="animate-spin" />

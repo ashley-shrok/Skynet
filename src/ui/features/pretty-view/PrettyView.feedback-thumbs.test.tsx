@@ -24,7 +24,7 @@
  *   - Modal close-X fires postFeedback with { kind:"thumbs_down",
  *     userNote:"", messageRef, exchangeText } + toast (dismiss path).
  *
- * Test structure borrows from PrettyView.autoplay.test.tsx (WS-stub-per-
+ * Test structure borrows from the former PrettyView.autoplay.test.tsx (WS-stub-per-
  * render pattern) plus the feedback + voice mock recipe from
  * ChatMessage.feedback-thumbs.test.tsx (Plan 01).
  *
@@ -40,7 +40,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, act, waitFor, screen, fireEvent } from "@testing-library/react";
 
-// ─── WS stub harness (borrowed from PrettyView.autoplay.test.tsx) ──────────
+// ─── WS stub harness (borrowed from the former PrettyView.autoplay.test.tsx) ──────────
 
 type WsStub = {
   readyState: number;
@@ -95,7 +95,7 @@ vi.mock("./webAudioStreamPlayer", () => ({
   })),
 }));
 
-// ─── PrettyView-scope infrastructure mocks (mirrors autoplay.test.tsx) ─────
+// ─── PrettyView-scope infrastructure mocks (mirrors the former autoplay.test.tsx) ─────
 
 vi.mock("@/api/claude-session-api", () => ({
   openClaudeSessionSocket: vi.fn(() => {
@@ -189,7 +189,7 @@ describe("PrettyView feedback-thumbs plumbing (shape 3)", () => {
     wsStubs.length = 0;
     vi.mocked(useFeedbackEnabled).mockReturnValue(true);
     // jsdom doesn't implement ResizeObserver — PrettyView's useAutoScroll
-    // uses it on mount. Stub matches PrettyView.autoplay.test.tsx.
+    // uses it on mount. Stub matches the former PrettyView.autoplay.test.tsx.
     vi.stubGlobal("ResizeObserver", function () {
       return { observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn() };
     });

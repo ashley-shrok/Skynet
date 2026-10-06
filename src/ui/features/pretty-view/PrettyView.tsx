@@ -123,7 +123,6 @@ import {
 // armed AND the pane is visible. Fire-and-forget; pre-unlock is a silent
 // no-op (D-19). AppShell installs the unlock listeners at mount (D-18).
 import { playTink } from "@/audio/ready-cue";
-import { playAutoSpeakOn, playAutoSpeakOff } from "@/audio/auto-speak-cue";
 // Phase 90 Plan 00 Wave 0 (D-10 delivery mechanism, user 2026-09-08 D-03
 // mechanical waiver): contextPct now lives on fleet-status (single source of
 // truth) rather than in this component's local useState. Both PrettyView and
@@ -869,7 +868,7 @@ export function PrettyView({
   );
   // capOffRef: stale-closure-safe mirror of capOff for reads inside the WS
   // onmessage handler (which captures its React closure once per WS-setup
-  // effect run — the same rationale as autoplayArmedRef at L487). The
+  // effect run — the same rationale as isVisibleRef). The
   // useEffect mirror below keeps it synchronized with state.
   const capOffRef = useRef<boolean>(false);
   // loadOlderInFlightRef: SYNCHRONOUS single-request-in-flight guard for
@@ -1096,25 +1095,6 @@ export function PrettyView({
   // after the paint-delay expires. Hook stays trivial (Phase 30 SPEC — the
   // hook has zero setTimeouts). Companion state slot below.
   const [showResolvingSpinner, setShowResolvingSpinner] = useState(false);
-  // Quick 260811-8we: pane-scoped autoplay armed state.
-  // autoplayArmed: true when the user has long-pressed an assistant speak
-  //   button; future incoming assistant messages auto-fire speak while armed.
-  // autoplayTargetEventId: the eventId of the most-recent assistant message
-  //   that should be auto-played; ChatMessage watches this via useEffect.
-  // autoplayArmedRef: stale-closure-safe mirror of autoplayArmed, so the WS
-  //   onmessage dispatch (captured once per WS-setup effect run) can read the
-  //   current armed state without React closure-capture issues.
-  //   Pattern mirrors isVisibleRef / dormantRef / statusRef above.
-  const [autoplayArmed, setAutoplayArmed] = useState<boolean>(false);
-  const [autoplayTargetEventId, setAutoplayTargetEventId] = useState<string | null>(null);
-  const autoplayArmedRef = useRef<boolean>(false);
-  // 2026-10-06: hands-free voice mode (owned by ComposeBox/useVoiceMode)
-  // speaks every new assistant reply itself, so auto-speak must stand down
-  // while it is on — two speakers would preempt each other via speak-singleton.
-  const voiceModeActiveRef = useRef<boolean>(false);
-  const handleVoiceModeChange = useCallback((active: boolean) => {
-    voiceModeActiveRef.current = active;
-  }, []);
   // quick 260905-d79 — client-hint-with-backend-override reintroduced.
   //
   // Phase 30 (PS30-05) deleted patch #381's client-hint as redundant once
@@ -1168,29 +1148,6 @@ export function PrettyView({
   // reference the variable AFTER its `const` declaration — placing the effect here
   // would cause a temporal dead zone ReferenceError. Search for
   // "backend-takeover clear" to find the effect.
-
-  // Quick 260811-8we: long-press speak callback for the pane-scoped autoplay
-  // toggle. Toggles armed state: arm on first press (sets target to the pressed
-  // bubble's eventId so it starts speaking immediately), disarm on second press.
-  // Stable ref via useCallback([]) — dependencies handled via functional-update
-  // form of setAutoplayArmed.
-  const handleLongPressSpeak = useCallback((longPressedEventId: string) => {
-    setAutoplayArmed((currentlyArmed) => {
-      if (currentlyArmed) {
-        // Disarm: clear target and play the off-cue. The button handlers now
-        // skip startSpeak when currentlyArmed so hold-to-disarm no longer also
-        // starts playback of the pressed bubble (was the "tap turns off + also
-        // plays" bug User reported 2026-09-23).
-        setAutoplayTargetEventId(null);
-        playAutoSpeakOff();
-        return false;
-      }
-      // Arm: set target to the just-long-pressed bubble so it starts immediately.
-      setAutoplayTargetEventId(longPressedEventId);
-      playAutoSpeakOn();
-      return true;
-    });
-  }, []);
 
   // Phase 124 Plan 02 (shape 3 — message thumbs, D-18/D-23/D-32/D-33/D-34/D-35/D-38):
   // handleThumbsUp / handleThumbsDown are the PrettyView-side handlers wired
@@ -2100,7 +2057,7 @@ export function PrettyView({
   // trivial usePaneResolvingMachine hook + pure resolveRenderedState
   // reducer. paneStateRef mirrors paneState for stale-closure-safe reads
   // inside the WS onmessage handler (D-18 transition guard needs from=).
-  // Pattern mirrors dormantRef / isVisibleRef / autoplayArmedRef above.
+  // Pattern mirrors dormantRef / isVisibleRef above.
   // React state directly. No client-inference indirection — every
   // ~10 legacy client-hint call sites DELETED per PS30-04 + PS30-05.
   const [paneState, setPaneState] = useState<PaneState | null>(null);
@@ -2527,14 +2484,6 @@ export function PrettyView({
       // cooldown. Backend's connect-time re-attach probe (ASIDE-09) re-emits
       // aside_ready if the NEW pane's tmux still has an open BTW overlay.
       clearAsideState();
-      // Quick 260811-8we: autoplay is per-pane and ephemeral. Clear on fresh-
-      // pane mount (paneKey change) so the new pane starts disarmed. Also sync
-      // the ref directly — the useEffect mirror runs asynchronously after
-      // render; the WS-setup effect re-run may open a new onmessage handler
-      // before the mirror effect fires, so setting the ref here is defensive.
-      setAutoplayArmed(false);
-      setAutoplayTargetEventId(null);
-      autoplayArmedRef.current = false;
       // Fix WR-01/M1 (2026-09-20): feedbackModalContext is per-pane ephemeral —
       // it holds the eventId + exchangeText of the assistant message the user
       // clicked thumbs-down on. Without this clear, a modal opened in pane A
@@ -2861,19 +2810,6 @@ export function PrettyView({
             if (prev === null || parsed.line < prev) return parsed.line;
             return prev;
           });
-          // Quick 260811-8we: autoplay dispatch. Fire only when:
-          //   (a) autoplay is armed (ref is stale-closure-safe — mirrors state)
-          //   (b) the pane is currently visible (ref matches established pattern)
-          //   (c) the frame is an assistant message (role gate — prevents
-          //       user-echo self-fire and image/relay frame contamination)
-          if (
-            autoplayArmedRef.current &&
-            !voiceModeActiveRef.current &&
-            isVisibleRef.current &&
-            parsed.role === "assistant"
-          ) {
-            setAutoplayTargetEventId(parsed.eventId);
-          }
           break;
         }
         case "image": {
@@ -3537,19 +3473,11 @@ export function PrettyView({
     isVisibleRef.current = isVisible;
   }, [isVisible]);
 
-  // Quick 260811-8we: autoplayArmedRef mirror — keeps autoplayArmedRef.current
-  // in sync with the `autoplayArmed` state so the WS onmessage dispatch handler
-  // can read current armed state without stale-closure issues.
-  // Pattern mirrors isVisibleRef mirror above.
-  useEffect(() => {
-    autoplayArmedRef.current = autoplayArmed;
-  }, [autoplayArmed]);
-
   // Phase 47 (load-more button): capOffRef mirror — keeps capOffRef.current
   // in sync with the `capOff` state so the WS onmessage handler at the 5
   // appendDedup sites (L1204/1224/1230/1236/1243, ternary'd in Task 2b) can
   // read the cap-off flag without stale-closure issues. Pattern mirrors
-  // autoplayArmedRef mirror above.
+  // the isVisibleRef mirror above.
   useEffect(() => {
     capOffRef.current = capOff;
   }, [capOff]);
@@ -3599,7 +3527,7 @@ export function PrettyView({
   // Phase 31 (plan 31-06): paneStateRef mirror — keeps paneStateRef.current
   // in sync with `paneState` so the WS onmessage handler's [pane-state]
   // state-transition log can read the from= value without stale-closure risk.
-  // Pattern mirrors dormantRef / isVisibleRef / autoplayArmedRef above.
+  // Pattern mirrors dormantRef / isVisibleRef above.
   useEffect(() => {
     paneStateRef.current = paneState;
   }, [paneState]);
@@ -4468,18 +4396,7 @@ export function PrettyView({
                   ts={m.ts}
                   hostId={hostId}
                   alwaysExpanded={source.kind === "relay"}
-                  // Phase 97 UAT batch #6 (2026-09-10): thread eventId +
-                  // autoplay + long-press props so left-side relay bubbles
-                  // in relay-source view get the same speak affordance as
-                  // ChatMessage's assistant bubbles. All four already in
-                  // scope here — same wiring as the ChatMessage render
-                  // site immediately below. Props are optional on
-                  // RelayInboundBubble so the harness-view (alwaysExpanded=
-                  // false) path stays byte-for-byte unchanged.
                   eventId={m.eventId}
-                  autoplayArmed={autoplayArmed}
-                  autoplayTargetEventId={autoplayTargetEventId}
-                  onLongPressSpeak={handleLongPressSpeak}
                 />
               ) : m.type === "malformed_line" ? (
                 <MalformedBubble bytes={m.bytes} ts={m.ts} />
@@ -4490,10 +4407,7 @@ export function PrettyView({
                   identityVoice={pvIdentity?.voice ?? userPrefs.fallbackVoice ?? null}
                   ts={m.ts}
                   eventId={m.eventId}
-                  autoplayArmed={autoplayArmed}
-                  autoplayTargetEventId={autoplayTargetEventId}
                   hostName={hostName}
-                  onLongPressSpeak={handleLongPressSpeak}
                   onOpenEditor={handleOpenEditor}
                   // Phase 137 D-137: wire widget-submit handler so WidgetBubble
                   // iframes in confirmed messages can fire invisible wake pings.
@@ -4753,7 +4667,6 @@ export function PrettyView({
           // 2026-10-06: hands-free voice mode (mic long-press) — harness only;
           // relay rooms have no working signal and keep hold-to-send.
           voiceModeFeed={source.kind === "relay" ? undefined : voiceModeFeed}
-          onVoiceModeChange={handleVoiceModeChange}
           // Phase 50 D-01: seed a pending bubble synchronously with the
           // WS write; PrettyView owns the FIFO pendingSends queue.
           // Phase 93 Slice 6 (post-close fix): NOT seeded in relay mode — the

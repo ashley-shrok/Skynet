@@ -37,7 +37,7 @@ import { AttachmentChipStrip } from "@/features/pretty-view/AttachmentChipStrip"
 // What is EXCLUDED (assistant-only machinery stripped for the user-only
 // primitive, per D-02 "share truly-primitive pieces only"):
 //   - The role discriminator branch (this primitive is user-only).
-//   - `onLongPressSpeak` / `onOpenEditor` / `autoplayArmed` / speak-button /
+//   - `onOpenEditor` / speak-button /
 //     TTS singleton wiring at ChatMessage L595+ (assistant-only).
 //   - The `injected` (parseInjectedUserTurn) branch (settled-attachment
 //     shape not needed — the `attachments` prop covers pending-with-attachments).

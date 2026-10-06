@@ -475,8 +475,6 @@ export interface ComposeBoxProps {
     messages: ReadonlyArray<VoiceModeMessage>;
     voice: string | null;
   };
-  /** Fires when voice mode turns on/off so PrettyView can mute auto-speak. */
-  onVoiceModeChange?: (active: boolean) => void;
   // Phase 56 (2026-08-23): the former dormancy-gate boolean prop was
   // DELETED. Compose stays enabled on dormant panes — send triggers invisible
   // wake at the backend send-path (Plan 56-01) with widened watchdog (Plan
@@ -692,7 +690,6 @@ export function ComposeBox({
   recycleActive,
   reconnectingActive,
   voiceModeFeed,
-  onVoiceModeChange,
   className,
 }: ComposeBoxProps) {
   // Phase 05 — hidden file input driven by the paperclip button. When the
@@ -2105,9 +2102,6 @@ export function ComposeBox({
       setErrorMessage("Voice mode couldn't send — your words are in the compose box");
     },
   });
-  useEffect(() => {
-    onVoiceModeChange?.(voiceMode.active);
-  }, [voiceMode.active, onVoiceModeChange]);
 
   const primaryHold = useHoldToRecord({
     voice,

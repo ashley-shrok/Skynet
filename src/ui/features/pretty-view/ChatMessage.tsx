@@ -103,9 +103,6 @@ export function ChatMessage({
   identityVoice = null,
   ts,
   eventId,
-  autoplayArmed = false,
-  autoplayTargetEventId = null,
-  onLongPressSpeak,
   onThumbsUp,
   onThumbsDown,
   onOpenEditor,
@@ -119,9 +116,6 @@ export function ChatMessage({
   identityVoice?: string | null;
   ts?: number;
   eventId?: string;
-  autoplayArmed?: boolean;
-  autoplayTargetEventId?: string | null;
-  onLongPressSpeak?: (eventId: string) => void;
   // Phase 124 Plan 01 D-38: leaf-level callbacks the assistant-bubble strip
   // fires on thumbs-up / thumbs-down tap. Payload is the message's eventId
   // (used as `messageRef` per D-32). Both optional — a ChatMessage without
@@ -198,17 +192,7 @@ export function ChatMessage({
   const [thumbsUpPressed, setThumbsUpPressed] = useState<boolean>(false);
   const [thumbsDownPressed, setThumbsDownPressed] = useState<boolean>(false);
 
-  // Long-press detection refs
-  const longPressTimerRef = useRef<number | null>(null);
-  const longPressFiredRef = useRef<boolean>(false);
-  const pointerStartRef = useRef<{ x: number; y: number } | null>(null);
-
-  // Autoplay dedup ref — stores the last eventId we already fired autoplay for,
-  // preventing double-fire if React re-renders while the effect is settling.
-  const autoplayLastFiredRef = useRef<string | null>(null);
-
-  // Cleanup: stop player on unmount if this bubble owns it; also clear any
-  // pending long-press timer.
+  // Cleanup: stop player on unmount if this bubble owns it.
   useEffect(() => {
     return () => {
       if (getCurrentOwner() === bubbleIdRef.current) {
@@ -217,19 +201,14 @@ export function ChatMessage({
         getCurrentPlayer()?.stop();
         clearCurrentPlayer();
       }
-      if (longPressTimerRef.current != null) {
-        window.clearTimeout(longPressTimerRef.current);
-        longPressTimerRef.current = null;
-      }
     };
   }, []);
 
   // startSpeak: extracted fresh-play path (cross-bubble preempt + loading +
-  // fetch + play). Called by:
-  //   - onSpeakClick (fresh-play branch)
-  //   - long-press handler (single-gesture-single-action)
-  //   - autoplay effect (newly-arrived assistant message while armed)
-  async function startSpeak(trigger: "user-click" | "autoplay" | "long-press" = "user-click") {
+  // fetch + play). Called by onSpeakClick (fresh-play branch). Auto-speak
+  // (long-press to read every new reply) was retired 2026-10-06 in favour of
+  // hands-free voice mode on the compose mic (useVoiceMode).
+  async function startSpeak(trigger: "user-click" = "user-click") {
     // If another bubble is playing (or loading, or paused), stop it first
     // (cross-bubble preempt). This is also the only cancel-from-paused path.
     const preemptTarget = getCurrentPlayer();
@@ -384,24 +363,6 @@ export function ChatMessage({
     // Fresh-play path — delegated to startSpeak().
     void startSpeak("user-click");
   }
-
-  // Autoplay effect: fires startSpeak() when a new target arrives that matches
-  // this bubble's eventId. Uses autoplayLastFiredRef to prevent double-fire on
-  // re-renders while the effect is settling.
-  useEffect(() => {
-    if (
-      !isUser &&
-      autoplayTargetEventId != null &&
-      eventId != null &&
-      autoplayTargetEventId === eventId &&
-      autoplayLastFiredRef.current !== eventId
-    ) {
-      autoplayLastFiredRef.current = eventId;
-      console.info(`[tts] autoplay-fired eventId=${eventId} armed=${autoplayTargetEventId != null}`);
-      void startSpeak("autoplay");
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoplayTargetEventId, eventId, isUser]);
 
   // Phase 05 Plan 03: sender-side chip render for injected user turns.
   // When a user-role message's content matches the exact format produced
@@ -772,62 +733,11 @@ export function ChatMessage({
           // true, this DOM node is ABSENT and speak lives in the strip
           // below (see the strip render below the bubble div). Every visual
           // + interaction state (Loader2/Pause/Play/Volume2 glyphs,
-          // autospeak-armed ring, long-press 800ms + 10px drift cancel,
           // hover-lift, touch baseline) is preserved verbatim in the strip
           // copy per D-15/D-16/D-17.
           <button
             type="button"
-            onPointerDown={(e) => {
-              longPressFiredRef.current = false;
-              pointerStartRef.current = { x: e.clientX, y: e.clientY };
-              if (longPressTimerRef.current != null) {
-                window.clearTimeout(longPressTimerRef.current);
-              }
-              longPressTimerRef.current = window.setTimeout(() => {
-                longPressFiredRef.current = true;
-                longPressTimerRef.current = null;
-                // Capture BEFORE toggling: onLongPressSpeak flips autoplayArmed
-                // upstream. On disarm we skip startSpeak — hold-to-turn-off
-                // should not also start playing the pressed bubble.
-                const wasArmed = autoplayArmed;
-                if (eventId && onLongPressSpeak) onLongPressSpeak(eventId);
-                if (!wasArmed) void startSpeak("long-press");
-              }, 800);
-            }}
-            onPointerMove={(e) => {
-              const start = pointerStartRef.current;
-              if (!start || longPressTimerRef.current == null) return;
-              const dx = e.clientX - start.x;
-              const dy = e.clientY - start.y;
-              if (Math.hypot(dx, dy) > 10) {
-                window.clearTimeout(longPressTimerRef.current);
-                longPressTimerRef.current = null;
-              }
-            }}
-            onPointerCancel={() => {
-              if (longPressTimerRef.current != null) {
-                window.clearTimeout(longPressTimerRef.current);
-                longPressTimerRef.current = null;
-              }
-            }}
-            onPointerUp={() => {
-              // Clear the pending timer if it hasn't fired yet — this is a tap.
-              // Do NOT clear longPressFiredRef here — the subsequent onClick
-              // needs to read it.
-              if (longPressTimerRef.current != null) {
-                window.clearTimeout(longPressTimerRef.current);
-                longPressTimerRef.current = null;
-              }
-            }}
-            onClick={(e) => {
-              // Suppress the tap-driven click if a long-press already fired.
-              if (longPressFiredRef.current) {
-                longPressFiredRef.current = false;
-                e.stopPropagation();
-                return;
-              }
-              void onSpeakClick(e);
-            }}
+            onClick={(e) => { void onSpeakClick(e); }}
             aria-label={
               speakState === "playing"
                 ? "Pause speaking"
@@ -851,7 +761,7 @@ export function ChatMessage({
               cursor: "pointer",
               transition: "opacity 120ms, background 120ms, transform 80ms",
             }}
-            className={`pv-speak-btn ${autoplayArmed ? "autospeak-armed" : ""} hover:!opacity-100 hover:!bg-[rgba(0,0,0,0.42)] focus-visible:!opacity-100 active:scale-[0.92] [@media(hover:none)]:!opacity-[0.72]`}
+            className={`pv-speak-btn hover:!opacity-100 hover:!bg-[rgba(0,0,0,0.42)] focus-visible:!opacity-100 active:scale-[0.92] [@media(hover:none)]:!opacity-[0.72]`}
           >
             {speakState === "loading" ? (
               <Loader2 size={16} className="animate-spin" />
@@ -886,53 +796,7 @@ export function ChatMessage({
           <button
             data-testid="pv-chat-message-speak"
             type="button"
-            onPointerDown={(e) => {
-              longPressFiredRef.current = false;
-              pointerStartRef.current = { x: e.clientX, y: e.clientY };
-              if (longPressTimerRef.current != null) {
-                window.clearTimeout(longPressTimerRef.current);
-              }
-              longPressTimerRef.current = window.setTimeout(() => {
-                longPressFiredRef.current = true;
-                longPressTimerRef.current = null;
-                // Capture BEFORE toggling: onLongPressSpeak flips autoplayArmed
-                // upstream. On disarm we skip startSpeak — hold-to-turn-off
-                // should not also start playing the pressed bubble.
-                const wasArmed = autoplayArmed;
-                if (eventId && onLongPressSpeak) onLongPressSpeak(eventId);
-                if (!wasArmed) void startSpeak("long-press");
-              }, 800);
-            }}
-            onPointerMove={(e) => {
-              const start = pointerStartRef.current;
-              if (!start || longPressTimerRef.current == null) return;
-              const dx = e.clientX - start.x;
-              const dy = e.clientY - start.y;
-              if (Math.hypot(dx, dy) > 10) {
-                window.clearTimeout(longPressTimerRef.current);
-                longPressTimerRef.current = null;
-              }
-            }}
-            onPointerCancel={() => {
-              if (longPressTimerRef.current != null) {
-                window.clearTimeout(longPressTimerRef.current);
-                longPressTimerRef.current = null;
-              }
-            }}
-            onPointerUp={() => {
-              if (longPressTimerRef.current != null) {
-                window.clearTimeout(longPressTimerRef.current);
-                longPressTimerRef.current = null;
-              }
-            }}
-            onClick={(e) => {
-              if (longPressFiredRef.current) {
-                longPressFiredRef.current = false;
-                e.stopPropagation();
-                return;
-              }
-              void onSpeakClick(e);
-            }}
+            onClick={(e) => { void onSpeakClick(e); }}
             aria-label={
               speakState === "playing"
                 ? "Pause speaking"
@@ -952,7 +816,7 @@ export function ChatMessage({
               cursor: "pointer",
               transition: "opacity 120ms, background 120ms, transform 80ms",
             }}
-            className={`pv-speak-btn ${autoplayArmed ? "autospeak-armed" : ""} hover:!opacity-100 hover:!bg-[rgba(0,0,0,0.42)] focus-visible:!opacity-100 active:scale-[0.92] [@media(hover:none)]:!opacity-[0.72]`}
+            className={`pv-speak-btn hover:!opacity-100 hover:!bg-[rgba(0,0,0,0.42)] focus-visible:!opacity-100 active:scale-[0.92] [@media(hover:none)]:!opacity-[0.72]`}
           >
             {speakState === "loading" ? (
               <Loader2 size={16} className="animate-spin" />
@@ -999,7 +863,7 @@ export function ChatMessage({
               cursor: "pointer",
               transition: "opacity 120ms, background 120ms, transform 80ms",
             }}
-            className={`pv-speak-btn ${autoplayArmed ? "autospeak-armed" : ""} hover:!opacity-100 hover:!bg-[rgba(0,0,0,0.42)] focus-visible:!opacity-100 active:scale-[0.92] [@media(hover:none)]:!opacity-[0.72]`}
+            className={`pv-speak-btn hover:!opacity-100 hover:!bg-[rgba(0,0,0,0.42)] focus-visible:!opacity-100 active:scale-[0.92] [@media(hover:none)]:!opacity-[0.72]`}
           >
             <ThumbsUp size={16} />
           </button>
@@ -1038,7 +902,7 @@ export function ChatMessage({
               cursor: "pointer",
               transition: "opacity 120ms, background 120ms, transform 80ms",
             }}
-            className={`pv-speak-btn ${autoplayArmed ? "autospeak-armed" : ""} hover:!opacity-100 hover:!bg-[rgba(0,0,0,0.42)] focus-visible:!opacity-100 active:scale-[0.92] [@media(hover:none)]:!opacity-[0.72]`}
+            className={`pv-speak-btn hover:!opacity-100 hover:!bg-[rgba(0,0,0,0.42)] focus-visible:!opacity-100 active:scale-[0.92] [@media(hover:none)]:!opacity-[0.72]`}
           >
             <ThumbsDown size={16} />
           </button>
