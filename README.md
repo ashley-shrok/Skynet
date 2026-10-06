@@ -84,7 +84,15 @@ Everything you need to stand up an instance is in this repo. The Docker Compose 
 
 ## License
 
-Apache 2.0. See `LICENSE`.
+Skynet's own code is licensed under Apache 2.0 (see `LICENSE`).
+
+Builds also include [SuperDoc](https://github.com/superdoc-dev/superdoc), the Word document editor, which is licensed under the **GNU AGPL-3.0**. Apache-2.0 code can be combined with AGPL-3.0 code, but the combined application is then covered by the AGPL-3.0's terms. What that means for anyone running Skynet:
+
+- **Unmodified instances:** nothing extra to do. Preferences → About links to this repository as the source.
+- **Instances running local changes:** the AGPL requires that the people using your instance can get the source of exactly what you run. Publish your changes (a public fork or branch, or a PR to this repo once merged) and set `SKYNET_SOURCE_URL` to that location so Preferences → About points there. You don't have to publish anything to the wider world beyond making that source available.
+- **A closed-source or proprietary distribution** isn't possible while SuperDoc is included, unless you obtain a commercial SuperDoc licence or remove it.
+
+See `THIRD_PARTY_NOTICES.md` for the bundled components and their licences.
 
 ## Origin
 

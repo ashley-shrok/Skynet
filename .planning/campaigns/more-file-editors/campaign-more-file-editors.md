@@ -100,8 +100,19 @@ Ordering below is a starting-point, not locked. Each entry is marked
   Chip: header + first 4 rows + "N rows × M columns". — built,
   awaiting user check
 - **[declared] shape-docx-viewer** — Read-only rendering for Word
-  documents. Moderate lift, needs a document rendering library. Now
-  planned via shape-office-converter. — in_progress
+  documents. Moderate lift, needs a document rendering library. Upgraded
+  2026-10-05 to full editing with SuperDoc (`superdoc` 2.x, AGPL-3.0 —
+  user accepted the licence after weighing it: Skynet is public; a
+  deployer with patches satisfies §13 by publishing them, e.g. a public
+  fork, and setting SKYNET_SOURCE_URL). .docx/.dotx open in Editing, with
+  Suggesting (tracked changes) and Viewing; comments; save exports .docx
+  through the BinaryDraft path on every surface. SuperDoc telemetry is
+  off (verified: no external requests). Round-trip checked on a test doc
+  (comments, footnotes, header/footer, numbering, table shading, image,
+  tracked changes, two sections, formatting all preserved). Chip: title +
+  opening paragraphs from the XML. Licence work: Preferences → About
+  (above Log out) with version + server-provided source link, README
+  licence section, THIRD_PARTY_NOTICES.md. — built, awaiting user check
 - **[declared] shape-pdf-viewer** — Rendering for PDF files. Heaviest
   bundle weight of the set, so ordered last. Agreed 2026-10-05: Mozilla's
   complete pdf.js viewer (Firefox's), vendored legacy build under
@@ -127,12 +138,162 @@ Ordering below is a starting-point, not locked. Each entry is marked
   0.18.5), Univer (.xlsx I/O is paid Pro), HyperFormula (GPL-3 vs our
   Apache-2.0), FortuneSheet (round-trip fidelity risk). — built,
   awaiting user check
-- **[discovered] shape-office-converter** — (planned) LibreOffice
-  headless in the container converts Word / PowerPoint (and legacy
-  .xls/.doc/.ppt, .ods/.odt/.odp) to PDF for the pdf.js viewer. Agreed
-  2026-10-05 as the Word/PPT route (better than any in-browser renderer
-  there); for Excel it would only add charts. Needs its own proposal:
-  image size (~300–500 MB), sandboxing, caching, timeouts.
+- **[discovered] shape-office-converter** — (2026-10-05) LibreOffice in a
+  separate locked-down sidecar (`docker/converter`, compose service
+  `converter`): internal-only network shared with Skynet alone,
+  read-only rootfs + tmpfs, no capabilities, no-new-privileges,
+  memory/CPU/pid caps. One-shot `soffice --convert-to` per request with a
+  throwaway copy of a pre-warmed hardened profile (macros off, links never
+  updated), killed past 60 s; ~0.9 s each, 2 concurrent. (unoserver was
+  tried first and dropped: LibreOffice 24.2 crashes in UNO-server mode on
+  any .docx with comments.) Backend `/document-convert` (auth, 50 MB,
+  in-memory LRU by sha256+target, shared in-flight jobs, `/status`).
+  Registry: .doc/.odt → .docx in the Word editor, Save converts back and
+  overwrites the original (if that fails: error + "Save as .docx" download
+  so edits aren't lost); .xls/.ods → .xlsx in the Excel viewer;
+  .ppt/.pptx/.odp → PDF in the pdf.js viewer, read-only (annotation tools
+  off). Chip thumbnails for presentations only. No converter → notice +
+  Download. — built, awaiting user check
+
+- **[discovered] shape-3d-viewer** — (2026-10-05) 3D models, view-only:
+  glb/gltf/stl/obj/ply/3mf/fbx/dae/3ds/off/amf/wrl + CAD step/stp/iges/
+  igs/brep/brp/fcstd + 3dm + ifc/bim. Online3DViewer engine (MIT, three.js)
+  driven at the Viewer/ThreeModelLoader level — its EmbeddedViewer puts
+  importer error text (which can quote the file) into innerHTML. Toolbar:
+  fit, Y/Z-up (STEP/IGES start Z-up), edges, ortho, light/dark, PNG
+  snapshot; stats (vertices, triangles, bbox). Missing companion files
+  (.mtl, .bin, textures) are named in a banner. Uncaught importer errors /
+  3-min watchdog fail the load cleanly. Decoders (OpenCascade, rhino3dm,
+  web-ifc, draco) + a CC-BY env map are served from /vendor/3d/ (postinstall
+  patch rewrites the CDN URLs; a Vite plugin serves/emits them from
+  node_modules; nginx block in both confs) — no third-party requests. Chip:
+  rendered still + triangle count, one WebGL context at a time, ≤15 MB. —
+  built, awaiting user check
+
+- **[discovered] shape-archives** — (2026-10-05) proposed (libarchive.js
+  tree + open-inside, read-only, optional Extract here / zip write-back);
+  user chose to skip. Archives keep the download card.
+- **[discovered] shape-data-viewers** — (2026-10-05) READ-ONLY by user call.
+  SQLite (.sqlite/.sqlite3/.db/.db3/.s3db/.sl3): sql.js in a Web Worker
+  (Cancel terminates it and reopens the file's bytes); tables/views with
+  row counts; AG Grid infinite row model with whole-table ORDER BY sorts;
+  schema (columns, keys, defaults, indexes, CREATE); SQL box (CodeMirror,
+  SQLite dialect + completion, Ctrl/Cmd+Enter), results ≤10k rows; writes
+  touch only the in-memory copy (banner). Signature check (Thumbs.db etc.
+  get a notice + Download); WAL-mode warning (flag cleared on the copy so
+  it opens). ≤200 MB. Parquet: hyparquet (+compressors) — footer first,
+  then row groups on demand via Range (multi-GB OK); Arrow/Feather v2:
+  apache-arrow with LZ4/Zstd codecs registered (lz4js, fzstd; buffers
+  re-aligned to 8 bytes), ≤500 MB. Schema tab with file facts. Export CSV
+  (first 100k rows). Chips: SQLite tables + counts (≤20 MB); Parquet
+  rows/columns from the footer; Arrow ≤20 MB. nginx: hashed *.wasm block
+  (application/wasm, immutable). — built, awaiting user check
+
+- **[discovered] shape-decoded-images** — (2026-10-05) view-only viewer for
+  images browsers can't show: TIFF (utif; pages, LZW/Deflate/PackBits/fax,
+  16-bit, Orientation tag), HEIC/HEIF (libheif-js, LGPL-3.0, imported from
+  /vendor/heif/ as its own unmodified file; primary image + extra images),
+  PSD/PSB (ag-psd; flattened image, layer panel with groups / hidden /
+  opacity, click a layer to see it alone; files saved without "Maximize
+  compatibility" — versionInfo.hasRealMergedData=false — are composed from
+  layers with canvas blend modes and flagged approximate) and camera RAW
+  (largest embedded JPEG preview, RAW orientation applied when the preview
+  has none; 22 RAW extensions; no preview → clear message). Decoding in a
+  worker; zoom/pan surface (fit, 1:1, wheel/pinch, drag); EXIF info line
+  (exifr); Download PNG. Chips: thumbnail + caption, queued one at a time.
+  Vendor plugin generalised (scripts/vendor-libs.mjs, nginx /vendor/ block).
+  Tested with real iPhone HEICs and real TIFFs (exifr fixtures); RAW only
+  with a synthetic TIFF-container sample (no real RAW reachable offline).
+  — built, awaiting user check
+
+- **[discovered] shape-notebooks** — (2026-10-05) Jupyter .ipynb (nbformat 4),
+  EDITABLE (JSON round-trips: byte-identical when untouched — verified on
+  real notebooks; same indent / key order / line-list sources). Markdown
+  cells: react-markdown + GFM + KaTeX (one-line $$…$$ → display) + inline
+  HTML via rehype-raw → rehype-sanitize, cell attachments; double-click to
+  edit. Code cells: CodeMirror (app's setup, kernel language), mounted when
+  near view. Outputs: sandboxed iframe for HTML (no scripts; auto height),
+  PNG/JPEG/SVG (SVG as <img>), markdown, LaTeX, JSON, ANSI streams /
+  tracebacks (anser, escaped first); script-needing HTML (Plotly etc.) and
+  JS/widget outputs fall back to the saved static version — nothing runs.
+  Edit: add (between cells / at end), move, delete, code↔text; "code edited
+  since this output ran" flag. No kernel. Saves via BinaryDraft (url mode)
+  so notebooks over the 2 MB text-save cap still save. Chip: title, cell
+  counts, language, largest of the first plots. — built, awaiting user check
+
+- **[discovered] shape-ebooks** — (2026-10-06) view-only reader for EPUB,
+  Kindle MOBI/AZW/AZW3, FictionBook (.fb2/.fbz) and comic .cbz on foliate-js
+  (MIT; not on npm — vendored at a pinned commit by
+  scripts/vendor-foliate-js.mjs, its 13 MB PDF backend replaced by a stub).
+  SECURITY: foliate renders book HTML in same-origin frames that allow
+  scripts, so books render in ebook-reader.html — a separate Vite entry under
+  a strict CSP (script-src 'self'; meta tag + identical nginx header block in
+  both confs); blob: section frames inherit it. Verified: inline scripts,
+  script files, event handlers and remote images in hostile EPUBs are all
+  refused, in dev and in the production build under nginx. The Skynet UI
+  drives the page over postMessage (same-origin, source-checked): contents,
+  search with excerpts, text size, Light/Sepia/Dark, pages/scroll, progress
+  slider, position + settings remembered per device (localStorage). Chip:
+  cover + title/author (package files parsed with inert DOMParser only).
+  MOBI/AZW3 not tested here (no sample reachable offline). — built,
+  awaiting user check
+
+- **[discovered] shape-diagrams** — (2026-10-06)
+  Mermaid (.mmd/.mermaid) + Graphviz (.dot/.gv): text, EDITABLE — Split
+  (source + live drawing, 300 ms debounce, last good drawing kept with the
+  error), Diagram, Source modes; drawings shown as <img> SVG (no scripts or
+  loads; Mermaid strict security + SVG text labels; Viz.js WASM); zoom
+  surface resizes <img> for crisp vectors; export SVG / PNG; chips render.
+  Excalidraw (.excalidraw): the real editor (0.18, lazy), AI off, file
+  Open/Save/Export-to-file actions hidden (host Save via BinaryDraft;
+  dirty = element versions / files, not selection/scroll); fonts from
+  /vendor/excalidraw/ (vendor plugin now maps directories; esm.sh is only
+  its fallback); chip = exportToSvg thumbnail.
+  draw.io (.drawio/.dio): VIEW-ONLY (user choice) with draw.io's viewer
+  (v32.0.2, vendored in public/drawio/ by scripts/vendor-drawio-viewer.mjs)
+  in an opaque-origin sandbox (no allow-same-origin) + CSP (meta + nginx);
+  paths repointed off diagrams.net; pages / zoom / layers / tags toolbar;
+  chip = page names via inert DOMParser. Full draw.io editor deferred.
+  PlantUML skipped (needs a Java server). — built, awaiting user check
+
+- **[discovered] shape-pim** — (2026-10-06)
+  Email (.eml via postal-mime, Outlook .msg via msgreader), VIEW-ONLY:
+  headers (Show all headers), attachments bar (open in a nested FileView
+  from a blob: URL, or download), HTML body sanitised with DOMPurify (no
+  forms, frames, objects, meta/base/link, srcset) and shown in a sandboxed
+  iframe without scripts or same-origin, under a CSP meta tag that allows
+  only data: images; cid: images inlined as data URLs. Remote images are
+  BLOCKED by default (user choice) with a "Load remote images" button;
+  links open in a new tab. Plain-text fallback. Calendar (.ics/.ical/.ifb
+  via ical.js): event card or agenda by day, times in local zone + the
+  event's own zone, recurrence described, organiser/attendees, invitation
+  vs cancellation, "Add to calendar" download; Source mode. Contacts
+  (.vcf/.vcard; vCard 3/4 via ical.js, tolerant 2.1 parser with QP):
+  single card or searchable list + card, tel:/mailto: links; Source mode.
+  Chips for all three. Verified with a hostile .eml (script, onerror,
+  onclick, meta refresh, form, iframe): nothing ran, no off-origin request
+  until the button. Real Outlook .msg not tested here (no sample). —
+  built, awaiting user check
+
+- **[discovered] shape-fonts-subtitles** — (2026-10-06)
+  Fonts (.ttf/.otf/.woff/.woff2; .eot stays a download), VIEW-ONLY:
+  fontkit reads names, characters, OpenType features, variation axes and
+  embedding rights; the browser draws (FontFace from the bytes, released on
+  close). Specimen: your own text at 72–12 px (right-to-left aware), the
+  font's own script when it was made mainly for one (Arabic, CJK...),
+  feature toggles, variable-font sliders + named styles, light/dark paper.
+  Characters: grid (1024 at a time), search by character or U+code, detail
+  with glyph name / width / copy. Details: names, version, designer,
+  licence, copyright, embedding. Chip: "Aa" + a sample line in the font.
+  Subtitles (.srt/.vtt/.ass/.ssa), EDITABLE: Lines table (AG Grid) with
+  start/end/length/text edited in place, add / delete (ticked) lines,
+  shift timings (all or ticked), undo/redo, problems (reversed times,
+  overlaps (not for ASS), > 21 characters a second), search, export a copy
+  as .srt/.vtt; Source tab shares the draft. Saving rewrites only edited
+  cues: headers, styles, notes, cue ids/settings and untouched lines stay
+  byte-identical (SRT renumbers after add/delete). subsrt-ts was tried and
+  dropped: its writer strips italics and VTT settings. ASS dialogue is read
+  with ass-compiler. Chips for both. — built, awaiting user check
 
 ## Rule: view-only when editing can't be done properly (2026-10-05)
 

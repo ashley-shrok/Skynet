@@ -23,3 +23,24 @@ declare module "*.ogg?url" {
   const src: string;
   export default src;
 }
+
+declare module "*.wasm?url" {
+  const src: string;
+  export default src;
+}
+
+// lz4js ships no types; the Arrow viewer uses its frame decompressor.
+declare module "lz4js" {
+  export function decompress(src: Uint8Array, maxSize?: number): Uint8Array;
+}
+
+// utif (Photopea's TIFF decoder) ships no types; the image viewer uses these.
+declare module "utif" {
+  const UTIF: {
+    decode(buffer: ArrayBuffer): Array<Record<string, unknown>>;
+    decodeImage(buffer: ArrayBuffer, ifd: Record<string, unknown>): void;
+    toRGBA8(ifd: Record<string, unknown>): Uint8Array;
+    encodeImage(rgba: ArrayBufferLike, width: number, height: number): ArrayBuffer;
+  };
+  export default UTIF;
+}
