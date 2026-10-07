@@ -231,6 +231,8 @@ function resetStubClient() {
 }
 
 vi.mock("../../ssh/ssh-connection-pool.js", () => ({
+  hostPoolKey: (h: { userId?: string; ip: string; port?: number | null; username: string }) =>
+    `${h.userId}:${h.ip}:${h.port ?? 22}:${h.username}`,
   withConnection: vi.fn(
     async (
       _key: string,

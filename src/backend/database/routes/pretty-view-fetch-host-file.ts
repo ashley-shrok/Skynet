@@ -82,7 +82,7 @@ import {
   extractExtension,
   sendSftpFile,
 } from "../../utils/sftp-file-response.js";
-import { withConnection } from "../../ssh/ssh-connection-pool.js";
+import { withConnection, hostPoolKey } from "../../ssh/ssh-connection-pool.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { resolveHostByName } from "../../ssh/host-resolver.js";
 import type { SSHHost } from "../../../types/index.js";
@@ -277,7 +277,7 @@ async function fetchHostFileBytes(
     ctrl.abort();
   }, SFTP_SETUP_TIMEOUT_MS);
 
-  const poolKey = `${host.ip}:${host.port ?? 22}:${host.username}`;
+  const poolKey = hostPoolKey(host);
   try {
     const bytes = await withConnection(
       poolKey,
@@ -535,7 +535,7 @@ async function getHandler(req: Request, res: Response): Promise<void> {
     () => ctrl.abort(),
     SFTP_SETUP_TIMEOUT_MS,
   );
-  const poolKey = `${host.ip}:${host.port ?? 22}:${host.username}`;
+  const poolKey = hostPoolKey(host);
 
   try {
     await withConnection(

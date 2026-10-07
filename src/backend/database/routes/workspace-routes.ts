@@ -37,7 +37,7 @@ import multer from "multer";
 import { AuthManager } from "../../utils/auth-manager.js";
 import { PermissionManager } from "../../utils/permission-manager.js";
 import { sshLogger } from "../../utils/logger.js";
-import { withConnection } from "../../ssh/ssh-connection-pool.js";
+import { withConnection, hostPoolKey } from "../../ssh/ssh-connection-pool.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { IDENTITY_KEY_RE } from "../../claude-session/identity-artifact-reader.js";
@@ -529,7 +529,7 @@ workspaceRoutes.post(
       return;
     }
 
-    const poolKey = `${host.ip}:${host.port ?? 22}:${host.username}`;
+    const poolKey = hostPoolKey(host);
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), SFTP_OP_TIMEOUT_MS);
     try {
@@ -632,7 +632,7 @@ workspaceRoutes.post(
       return;
     }
 
-    const poolKey = `${host.ip}:${host.port ?? 22}:${host.username}`;
+    const poolKey = hostPoolKey(host);
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), SFTP_OP_TIMEOUT_MS);
     try {
@@ -735,7 +735,7 @@ workspaceRoutes.put(
       return;
     }
 
-    const poolKey = `${host.ip}:${host.port ?? 22}:${host.username}`;
+    const poolKey = hostPoolKey(host);
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), SFTP_OP_TIMEOUT_MS);
     try {
@@ -824,7 +824,7 @@ workspaceRoutes.delete(
       return;
     }
 
-    const poolKey = `${host.ip}:${host.port ?? 22}:${host.username}`;
+    const poolKey = hostPoolKey(host);
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), SFTP_OP_TIMEOUT_MS);
     try {
@@ -920,7 +920,7 @@ workspaceRoutes.post(
       return;
     }
 
-    const poolKey = `${host.ip}:${host.port ?? 22}:${host.username}`;
+    const poolKey = hostPoolKey(host);
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), SFTP_OP_TIMEOUT_MS);
     try {
@@ -1013,7 +1013,7 @@ workspaceRoutes.post(
       return;
     }
 
-    const poolKey = `${host.ip}:${host.port ?? 22}:${host.username}`;
+    const poolKey = hostPoolKey(host);
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), SFTP_OP_TIMEOUT_MS);
     try {
@@ -1100,7 +1100,7 @@ workspaceRoutes.post(
       return;
     }
 
-    const poolKey = `${host.ip}:${host.port ?? 22}:${host.username}`;
+    const poolKey = hostPoolKey(host);
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), SFTP_OP_TIMEOUT_MS);
     try {
@@ -1197,7 +1197,7 @@ workspaceRoutes.post(
     }
 
     const fileBuffer = req.file.buffer;
-    const poolKey = `${host.ip}:${host.port ?? 22}:${host.username}`;
+    const poolKey = hostPoolKey(host);
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), SFTP_OP_TIMEOUT_MS);
     try {
@@ -1281,7 +1281,7 @@ workspaceRoutes.get(
       return;
     }
 
-    const poolKey = `${host.ip}:${host.port ?? 22}:${host.username}`;
+    const poolKey = hostPoolKey(host);
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), SFTP_OP_TIMEOUT_MS);
     try {
