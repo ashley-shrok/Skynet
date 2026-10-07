@@ -44,11 +44,14 @@ interface MdxEditorImplProps {
   content: string;
   onChange: (next: string) => void;
   disabled?: boolean;
-  /** Called if the editor mounts but silently renders empty despite
-   *  non-empty content — MDXEditor's parser is known to choke on some
-   *  markdown constructs (e.g. bare `<foo>` outside backticks) and
-   *  produces an empty pane with no error. MarkdownEditor uses this to
-   *  fall back to a plain-textarea render for that content. */
+  /** Called whenever MDXEditor's parser can't produce a trustworthy
+   *  render — either silently (empty contenteditable despite non-empty
+   *  content, detected 200ms post-mount) or loudly (its onError fires
+   *  with a MarkdownParseError / UnrecognizedMarkdownConstructError /
+   *  JsxKindMismatchError, which can also surface as a PARTIAL render
+   *  cut off at the breaking construct). MarkdownEditor uses this to
+   *  fall back to the code-editor branch so the user sees the full
+   *  file source. */
   onSilentParseFailure?: () => void;
 }
 
@@ -128,18 +131,23 @@ export function MdxEditorImpl({
       // round 2026-10-01 where explain + app-development SKILL.md
       // both fell through to the raw-textarea fallback.
       suppressHtmlProcessing={true}
-      // Diagnostic: MDXEditor's tryImportingMarkdown catches
+      // Loud parse failure. MDXEditor's tryImportingMarkdown catches
       // MarkdownParseError / UnrecognizedMarkdownConstructError /
       // JsxKindMismatchError, stashes them on markdownProcessingError$,
-      // and fires this signal — then does NOT populate the Lexical
-      // editor (contenteditable stays empty). Without a handler the
-      // default is noop, so the silent-parse-failure detector 200ms
-      // later swaps in the textarea with zero visibility into which
-      // construct tripped the parser. Log it so the next regression
-      // doesn't require guesswork.
+      // and fires this signal. In SOME failure shapes the Lexical
+      // editor stays empty (the silent-failure detector below handles
+      // that). In OTHERS the parser emits a PARTIAL tree — the pane
+      // renders content up to the breaking construct and then stops —
+      // which the empty-pane check never catches. Rule: a parse error
+      // emitted at all means we can't trust the rendered output, so
+      // propagate to onSilentParseFailure and let MarkdownEditor swap
+      // to the code-editor branch. Also log the payload so the next
+      // regression doesn't require guesswork at which construct tripped
+      // the parser.
       onError={(payload) => {
         // eslint-disable-next-line no-console
         console.error("[MdxEditorImpl] MDXEditor parse error:", payload);
+        onSilentParseFailure?.();
       }}
       className="dark-theme skynet-mdxeditor"
       contentEditableClassName="mdx-prose prose prose-sm prose-invert max-w-none prose-code:before:content-none prose-code:after:content-none"
