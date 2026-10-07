@@ -14,9 +14,21 @@
 import { fireEvent, screen } from "@testing-library/react";
 
 function queryTrigger(): HTMLButtonElement | null {
-  return screen.queryByRole("combobox", {
+  // Preferred path: role-based query. Breaks when the Roles MultiSelect's
+  // Popover is open and running in modal mode (added by the role-dropdown
+  // scroll fix) — Radix stamps aria-hidden="true" on the parent Dialog
+  // while the modal popover is active, and testing-library honors
+  // aria-hidden and returns null. The pills we read live on the trigger
+  // itself (not on hidden siblings), so for test purposes a DOM query is
+  // the right fallback — the user's actual accessibility experience is
+  // not affected by this bypass.
+  const byRole = screen.queryByRole("combobox", {
     name: /^roles$/i,
   }) as HTMLButtonElement | null;
+  if (byRole) return byRole;
+  return document.querySelector<HTMLButtonElement>(
+    'button[role=combobox][aria-label=Roles]',
+  );
 }
 
 /**
@@ -71,4 +83,20 @@ export function toggleRole(slug: string): void {
     );
   }
   fireEvent.click(opt);
+}
+
+/**
+ * Close the Roles multi-select popover if it is open. Needed before tests
+ * interact with Dialog buttons like "Create": the Popover is modal, which
+ * stamps aria-hidden="true" on the parent Dialog while open, blocking
+ * testing-library's role-based queries for anything inside the Dialog.
+ * No-op when already closed. The user flow is equivalent to clicking
+ * outside the dropdown; here we fire Escape against the open trigger,
+ * which Radix maps to onOpenChange(false).
+ */
+export function closeRoleDropdown(): void {
+  const t = queryTrigger();
+  if (!t) return;
+  if (t.getAttribute("aria-expanded") !== "true") return;
+  fireEvent.keyDown(t, { key: "Escape", code: "Escape" });
 }

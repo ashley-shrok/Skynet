@@ -83,6 +83,7 @@ import {
   roleOptionValues,
   pickedRoleValues,
   toggleRole,
+  closeRoleDropdown,
 } from "./NewSessionDialog.roles-test-helpers";
 import type { Host, HostFolder } from "@/types/ui-types";
 
@@ -463,6 +464,9 @@ describe("NewSessionDialog roles: multi-select", () => {
     await waitFor(() =>
       expect(pickedRoleValues()).toEqual(["tina", "box-maintainer"]),
     );
+    // Close the modal Popover so Dialog loses aria-hidden and the Create
+    // button becomes discoverable via role-based queries.
+    closeRoleDropdown();
     await waitFor(() => expect(createBtn().disabled).toBe(false));
     fireEvent.click(createBtn());
     await waitFor(() => expect(mockOpenBirthStream).toHaveBeenCalledTimes(1));
@@ -476,9 +480,11 @@ describe("NewSessionDialog roles: multi-select", () => {
     const { createBtn } = await openWithName();
     expect(createBtn().disabled).toBe(true);
     toggleRole("tina");
+    closeRoleDropdown();
     await waitFor(() => expect(createBtn().disabled).toBe(false));
     toggleRole("tina");
     await waitFor(() => expect(pickedRoleValues()).toEqual([]));
+    closeRoleDropdown();
     expect(createBtn().disabled).toBe(true);
   });
 
@@ -487,6 +493,7 @@ describe("NewSessionDialog roles: multi-select", () => {
     mockOpenBirthStream.mockReturnValueOnce(emptyStream());
     const { createBtn } = await openWithName();
     toggleRole("sky-uat");
+    closeRoleDropdown();
     await waitFor(() => expect(createBtn().disabled).toBe(false));
     fireEvent.click(createBtn());
     await waitFor(() => expect(mockOpenBirthStream).toHaveBeenCalledTimes(1));

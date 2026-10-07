@@ -80,9 +80,13 @@ const SIZE_CLASSES: Record<ModalSize, string> = {
   // Settings — modest horizontal + vertical scaling for 4K.
   settings: "sm:max-w-[min(720px,70vw)] sm:h-[min(85vh,640px)]",
   // File editor — generous both horizontally and vertically; the editor
-  // wants ALL the room. No fixed height — the universal 85vh cap on Modal
-  // handles the top, and the body grows to fill.
-  editor: "sm:max-w-[min(1200px,80vw)]",
+  // wants ALL the room. Explicit sm:h-[85vh] (not just the max-h cap)
+  // forces a definite height on desktop so content with no intrinsic
+  // size (AG Grid's flex-1 min-h-0 wrapper, iframe'd email body, PDF
+  // viewer, font tabs) actually fills the available viewport instead of
+  // collapsing to content height. Mobile is unaffected — max-sm:h-full
+  // on the modal shell always wins.
+  editor: "sm:max-w-[min(1200px,80vw)] sm:h-[85vh]",
 };
 
 // ─── Modal (root) ────────────────────────────────────────────────────────
