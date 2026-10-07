@@ -101,6 +101,7 @@ export interface PendingPhoneCall {
  * Pre-call outcomes come from failures BEFORE any Bland call:
  *   - malformed        : request body failed parse
  *   - unknown_user     : to_user does not exist in the Skynet DB
+ *   - not_permitted    : to_user has not registered the originating host
  *   - no_phone_on_file : user exists but their phoneE164 is null
  */
 export type PhoneCallOutcome =
@@ -115,6 +116,7 @@ export type PhoneCallOutcome =
   | "unknown"
   | "malformed"
   | "unknown_user"
+  | "not_permitted"
   | "no_phone_on_file";
 
 /**

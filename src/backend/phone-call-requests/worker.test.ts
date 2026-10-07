@@ -7,7 +7,7 @@
  * via WorkerDeps.
  */
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 
 const { stubLogger } = vi.hoisted(() => {
   const stub = {
@@ -78,6 +78,7 @@ function makeDeps(overrides: Partial<WorkerDeps> = {}): {
     execCommand: vi.fn() as unknown as WorkerDeps["execCommand"],
     resolveHostById: vi.fn() as unknown as WorkerDeps["resolveHostById"],
     getHostOwnerUserId: vi.fn(async () => "user-1"),
+    userHasRegisteredHost: vi.fn(async () => true),
     getUserByUsername: vi.fn(async (username: string) =>
       username === "alice"
         ? { id: "user-1", phoneE164: "+15551234567" }
@@ -199,6 +200,33 @@ describe("processPhoneCall — pre-call failure branches", () => {
     expect(written).toHaveLength(1);
     expect(written[0].body.outcome).toBe("unknown_user");
     expect(written[0].body.message).toContain("nobody");
+    expect(deps.placeCallAndAwait).not.toHaveBeenCalled();
+  });
+
+  it("returns not_permitted when the target has not registered the origin host", async () => {
+    const hostCheck = vi.fn(async () => false);
+    const { deps, written } = makeDeps({ userHasRegisteredHost: hostCheck });
+    const item = makeItem();
+    await processPhoneCall(item, deps);
+
+    expect(hostCheck).toHaveBeenCalledWith("user-1", item.hostIdNum);
+    expect(written).toHaveLength(1);
+    expect(written[0].body.outcome).toBe("not_permitted");
+    expect(written[0].body.message).toContain("alice");
+    expect(deps.placeCallAndAwait).not.toHaveBeenCalled();
+  });
+
+  it("returns outcome:unknown when the host-registration lookup throws", async () => {
+    const { deps, written } = makeDeps({
+      userHasRegisteredHost: vi.fn(async () => {
+        throw new Error("SQLITE_BUSY: database is locked");
+      }),
+    });
+    await processPhoneCall(makeItem(), deps);
+
+    expect(written).toHaveLength(1);
+    expect(written[0].body.outcome).toBe("unknown");
+    expect(written[0].body.message).toContain("host registration lookup failed");
     expect(deps.placeCallAndAwait).not.toHaveBeenCalled();
   });
 

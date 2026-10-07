@@ -95,6 +95,7 @@ function buildTestDeps(): { deps: WorkerDeps; written: WrittenResponse[] } {
     execCommand: vi.fn() as unknown as WorkerDeps["execCommand"],
     resolveHostById: vi.fn() as unknown as WorkerDeps["resolveHostById"],
     getHostOwnerUserId: vi.fn(async () => "user-1"),
+    userHasRegisteredHost: vi.fn(async () => true),
     getUserByUsername: vi.fn(async (username: string) =>
       username === "alice"
         ? { id: "user-1", phoneE164: "+15551234567" }

@@ -37,7 +37,7 @@ import { resolveHostById } from "../ssh/host-resolver.js";
 import { SSH_CONNECT_TIMEOUT_MS } from "../database/routes/identity-birth-orchestrator.js";
 import { getDb } from "../database/db/index.js";
 import { hosts, users } from "../database/db/schema.js";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { placeCallAndAwait } from "./adapter.js";
 import { buildBlandTaskPrompt, buildBlandFirstSentence } from "./prompt-template.js";
 import type {
@@ -99,6 +99,44 @@ export const getUserByUsername = async (
   return { id: row.id, phoneE164: row.phoneE164 ?? null };
 };
 
+/**
+ * True when `userId` has registered the machine behind host row
+ * `hostIdNum` — either they own that row, or they own another row that
+ * points at the same machine (same ip + port + login). `ssh_data` rows are
+ * per-user, so a box two users both registered appears as two rows, and
+ * the scan that claims a request file may be either one.
+ *
+ * This gates outbound calls: an agent may only phone the people who
+ * registered the host it runs on.
+ */
+export const userHasRegisteredHost = async (
+  userId: string,
+  hostIdNum: number,
+): Promise<boolean> => {
+  const db = getDb();
+  const rows = await db
+    .select({ userId: hosts.userId, ip: hosts.ip, port: hosts.port, username: hosts.username })
+    .from(hosts)
+    .where(eq(hosts.id, hostIdNum))
+    .limit(1);
+  const origin = rows[0];
+  if (!origin) return false;
+  if (origin.userId === userId) return true;
+  const sameMachine = await db
+    .select({ id: hosts.id })
+    .from(hosts)
+    .where(
+      and(
+        eq(hosts.userId, userId),
+        eq(hosts.ip, origin.ip),
+        eq(hosts.port, origin.port),
+        eq(hosts.username, origin.username),
+      ),
+    )
+    .limit(1);
+  return sameMachine.length > 0;
+};
+
 // ---------------------------------------------------------------------------
 // WorkerDeps — dependency-injection interface
 // ---------------------------------------------------------------------------
@@ -113,6 +151,7 @@ export interface WorkerDeps {
   getUserByUsername: (
     username: string,
   ) => Promise<{ id: string; phoneE164: string | null } | null>;
+  userHasRegisteredHost: (userId: string, hostIdNum: number) => Promise<boolean>;
   placeCallAndAwait: typeof placeCallAndAwait;
   now: () => number;
   sleep: (ms: number) => Promise<void>;
@@ -130,6 +169,7 @@ export function buildProductionDeps(): WorkerDeps {
     resolveHostById,
     getHostOwnerUserId,
     getUserByUsername,
+    userHasRegisteredHost,
     placeCallAndAwait,
     now: () => Date.now(),
     sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
@@ -301,6 +341,39 @@ export async function processPhoneCall(
     await writeResponseFile(item, deps, {
       outcome: "unknown_user",
       message: `no Skynet user named "${item.body.to_user}"`,
+    });
+    return;
+  }
+
+  // Step 4b — the target must have registered the host this request came
+  // from. Without this, any agent on any host could ring any user.
+  let permitted: boolean;
+  try {
+    permitted = await deps.userHasRegisteredHost(target.id, item.hostIdNum);
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    systemLogger.warn("phone worker: host-registration lookup threw", {
+      operation: "phone_host_check_threw",
+      uuid: item.uuid,
+      hostId: item.hostIdNum,
+      error: errMsg,
+    });
+    await writeResponseFile(item, deps, {
+      outcome: "unknown",
+      message: `host registration lookup failed: ${errMsg}`,
+    });
+    return;
+  }
+  if (!permitted) {
+    systemLogger.info("phone worker: target has not registered origin host", {
+      operation: "phone_not_permitted",
+      uuid: item.uuid,
+      hostId: item.hostIdNum,
+      toUser: item.body.to_user,
+    });
+    await writeResponseFile(item, deps, {
+      outcome: "not_permitted",
+      message: `user "${item.body.to_user}" has not registered this host in Skynet`,
     });
     return;
   }

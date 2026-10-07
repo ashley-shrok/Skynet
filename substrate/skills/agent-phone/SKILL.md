@@ -22,7 +22,7 @@ agent-phone --to <username> --from "<caller name>" "<message>"
 
 Three arguments, all required:
 
-- `--to <username>` — the Skynet username of the person to call. The backend looks up their phone number from their user record.
+- `--to <username>` — the Skynet username of the person to call. The backend looks up their phone number from their user record. You can only call people who have registered the host you're running on in Skynet; anyone else gets `not_permitted`.
 - `--from "<caller name>"` — a TTS-friendly identifier for you as the caller. Compose it from your identity's `displayName` frontmatter field plus a title-cased version of your role's slug — e.g. `Clipper the Box Maintainer` (identity `clipper`, role `box-maintainer`). This is what the recipient hears on pickup ("Hi, this is Clipper the Box Maintainer, with a message for you: …") and again at the end of the turn ("Your reply has been sent to Clipper the Box Maintainer. You may hang up.") so she knows which of your agents was calling.
 - `<message>` — the line to deliver. The provider's voice model reads it verbatim; write it the way you'd want it spoken. Short is fine; a whole paragraph is fine too. There is no strict length cap but a phone call is not a chat log — keep it to what actually needs saying. **Do NOT self-introduce or sign off in `<message>` — the opener and receipt already do that; see the next section.**
 
@@ -91,6 +91,7 @@ Every response file carries exactly one `outcome`. Successful transcripts land u
 | unknown            | Defensive fallback — the provider returned a state the backend couldn't classify. Treat as a failure and escalate. |
 | malformed          | Your request file was malformed. Check `message` for the specific field problem, fix, and retry. |
 | unknown_user       | No Skynet user by that username. Check the username you passed to `--to`. |
+| not_permitted      | That user has not registered the host you're running on, so you can't call them. You can only call the people who own your host. Not agent-retriable. |
 | no_phone_on_file   | The user exists but has no phone number set on their record. Not agent-retriable — an operator needs to set one via the admin endpoint. |
 
 ## Rate limits, quotas, etiquette
