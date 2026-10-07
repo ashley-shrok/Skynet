@@ -443,10 +443,10 @@ describe("Step 6 integration (runRelayMintAndWrite MXID derivation)", () => {
     expect(countMock).toHaveBeenCalledWith("@willow:mock.homeserver.local");
   }, 30_000);
 
-  it("(q2) opts.poolPicked !== true + account already exists (e.g. a human's @ashley) → mints @ashley-2, never touches @ashley", async () => {
+  it("(q2) opts.poolPicked !== true + account already exists (e.g. a human's @alice) → mints @alice-2, never touches @alice", async () => {
     const mintMock = vi.fn().mockResolvedValue({
       ok: true,
-      mxid: "@ashley-2:mock.homeserver.local",
+      mxid: "@alice-2:mock.homeserver.local",
       password: "mock",
       status: 201,
     });
@@ -458,7 +458,7 @@ describe("Step 6 integration (runRelayMintAndWrite MXID derivation)", () => {
       matrixCreateOrUpdateUser: mintMock,
       matrixCountUsersMatching: countMock,
     });
-    const opts = makeOpts({ name: "ashley", role: "skynet-maintainer" });
+    const opts = makeOpts({ name: "alice", role: "skynet-maintainer" });
 
     const { emit } = collectEvents();
     const birthPromise = birthIdentity(opts, emit, deps);
@@ -466,17 +466,17 @@ describe("Step 6 integration (runRelayMintAndWrite MXID derivation)", () => {
     await birthPromise;
 
     expect(mintMock).toHaveBeenCalledTimes(1);
-    expect(mintMock.mock.calls[0]?.[0]).toBe("@ashley-2:mock.homeserver.local");
+    expect(mintMock.mock.calls[0]?.[0]).toBe("@alice-2:mock.homeserver.local");
     expect(countMock.mock.calls.map((c) => c[0])).toEqual([
-      "@ashley:mock.homeserver.local",
-      "@ashley-2:mock.homeserver.local",
+      "@alice:mock.homeserver.local",
+      "@alice-2:mock.homeserver.local",
     ]);
   }, 30_000);
 
   it("(q3) mint returns 200 (upsert hit an existing account) → Step 6 fails, rollback does NOT deactivate it", async () => {
     const mintMock = vi.fn().mockResolvedValue({
       ok: true,
-      mxid: "@ashley:mock.homeserver.local",
+      mxid: "@alice:mock.homeserver.local",
       password: "mock",
       status: 200,
     });
@@ -491,7 +491,7 @@ describe("Step 6 integration (runRelayMintAndWrite MXID derivation)", () => {
       matrixDeactivateUser: deactivateMock,
       matrixLoginAsUser: loginMock,
     });
-    const opts = makeOpts({ name: "ashley", role: "skynet-maintainer" });
+    const opts = makeOpts({ name: "alice", role: "skynet-maintainer" });
 
     const { events, emit } = collectEvents();
     const birthPromise = birthIdentity(opts, emit, deps);

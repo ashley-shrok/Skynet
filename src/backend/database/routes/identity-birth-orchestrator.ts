@@ -817,7 +817,7 @@ async function deriveMxidAndFolderName(
   // unchecked handle. Synapse's admin PUT /_synapse/admin/v2/users/<mxid>
   // is an upsert: on an existing account it silently resets the password,
   // logs out the owner's devices, and clears admin/deactivated. A birth
-  // named after an existing account (e.g. a human's `@ashley`) would hijack
+  // named after an existing account (e.g. a human's `@alice`) would hijack
   // it, and Step 8 rollback would then deactivate it permanently.
   const mxid = await deriveMxidWithOrdinal(
     baseHandle,
