@@ -13,7 +13,7 @@
  *   7.  404 when readAppIconFile returns null
  *   8.  200 + image/webp + Content-Length + ETag on present
  *   9.  304 when If-None-Match matches ETag
- *   10. 502 when resolveHostById returns null (cross-tenant or unknown)
+ *   10. 502 when resolveHostByUniversalId returns null (cross-tenant or unknown)
  *   11. 502 when connectOneShot throws
  *   12. conn.end() called in finally (REMOTE branch)
  *
@@ -21,7 +21,7 @@
  *   - AuthManager mock injects userId (or 401 when mockUserId=null)
  *   - vi.mock on identity-artifact-reader (readAppIconFile + APP_SLUG_RE
  *     + isLocalHostId), ssh-one-shot (connectOneShot), host-resolver
- *     (resolveHostById), tmux-helper (execCommand)
+ *     (resolveHostByUniversalId), tmux-helper (execCommand)
  *   - Bare Express app + Node http.request for the HTTP surface
  */
 
@@ -80,7 +80,7 @@ vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
 // ---------------------------------------------------------------------------
 
 const connectOneShotMock = vi.fn();
-const resolveHostByIdMock = vi.fn();
+const resolveHostByUniversalIdMock = vi.fn();
 
 vi.mock("../../ssh/ssh-one-shot.js", () => ({
   connectOneShot: (host: unknown, timeoutMs: number) =>
@@ -88,8 +88,8 @@ vi.mock("../../ssh/ssh-one-shot.js", () => ({
 }));
 
 vi.mock("../../ssh/host-resolver.js", () => ({
-  resolveHostById: (hostId: number, userId: string) =>
-    resolveHostByIdMock(hostId, userId),
+  resolveHostByUniversalId: (hostId: number, userId: string) =>
+    resolveHostByUniversalIdMock(hostId, userId),
 }));
 
 vi.mock("../../ssh/tmux-helper.js", () => ({
@@ -181,10 +181,11 @@ beforeEach(() => {
   // Sensible default: REMOTE branch; host resolves; connectOneShot works;
   // readAppIconFile returns null (404). Individual tests override as needed.
   isLocalHostIdMock.mockReturnValue(false);
-  resolveHostByIdMock.mockResolvedValue({
-    // HIGH-1: host.name IS the tailscale hostname the redirect route uses
-    // to build `<hostname>-<port>.serve.<domain>`. Default to "t1000" so
-    // tests that don't override see a realistic value.
+  resolveHostByUniversalIdMock.mockResolvedValue({
+    // The redirect route builds `<machineId>-<port>.serve.<domain>` and
+    // looks the app up under the resolved row's own id.
+    id: 1,
+    machineId: 1,
     name: "t1000",
     ip: "10.0.0.5",
     port: 22,
@@ -331,12 +332,12 @@ describe("GET /apps/:hostId/:slug/icon — 200 + ETag + 304", () => {
 });
 
 // ===========================================================================
-// Test 10 — 502 when resolveHostById returns null
+// Test 10 — 502 when resolveHostByUniversalId returns null
 // ===========================================================================
 
 describe("GET /apps/:hostId/:slug/icon — 502 on unreachable / cross-tenant", () => {
-  it("T10: returns 502 when resolveHostById returns null (unknown OR no access)", async () => {
-    resolveHostByIdMock.mockResolvedValueOnce(null);
+  it("T10: returns 502 when resolveHostByUniversalId returns null (unknown OR no access)", async () => {
+    resolveHostByUniversalIdMock.mockResolvedValueOnce(null);
     const res = await httpGet(server, "/apps/999/scratch-test/icon");
     expect(res.status).toBe(502);
     expect(res.body).toMatchObject({ error: "app home box unreachable" });
@@ -441,7 +442,7 @@ describe("GET /apps/:hostId/:slug/icon — code-review MEDIUM-4 coverage gaps", 
     });
     // Defence-in-depth invariant: the route-boundary regex catches it
     // BEFORE any host resolution, SSH work, or reader invocation.
-    expect(resolveHostByIdMock).not.toHaveBeenCalled();
+    expect(resolveHostByUniversalIdMock).not.toHaveBeenCalled();
     expect(connectOneShotMock).not.toHaveBeenCalled();
     expect(readAppIconFileMock).not.toHaveBeenCalled();
   });
@@ -474,7 +475,7 @@ describe("GET /apps/:hostId/:slug/icon — code-review MEDIUM-4 coverage gaps", 
 //   1. Authenticates via authenticateJWT (401 without token)
 //   2. Validates slug via APP_SLUG_RE (400 on fail)
 //   3. Validates hostId as positive integer (400 on fail)
-//   4. Resolves host via resolveHostById → 502 on null/throw
+//   4. Resolves host via resolveHostByUniversalId → 502 on null/throw
 //   5. Reads app from registry.getAppSnapshot() → 404 on missing OR null-port
 //   6. Redirects 302 to `https://<hostname>-<port>.serve.<request-host>`,
 //      where <request-host> is the incoming request's own Host header —
@@ -499,7 +500,7 @@ describe("GET /apps/:hostId/:slug — HIGH-1 redirect route", () => {
     const res = await httpGet(server, "/apps/1/scratch-test");
     expect(res.status).toBe(401);
     // Downstream mocks should not have been called at all.
-    expect(resolveHostByIdMock).not.toHaveBeenCalled();
+    expect(resolveHostByUniversalIdMock).not.toHaveBeenCalled();
     expect(getAppSnapshotMock).not.toHaveBeenCalled();
   });
 
@@ -509,7 +510,7 @@ describe("GET /apps/:hostId/:slug — HIGH-1 redirect route", () => {
     expect(res.body).toMatchObject({
       error: expect.stringMatching(/slug must match/i),
     });
-    expect(resolveHostByIdMock).not.toHaveBeenCalled();
+    expect(resolveHostByUniversalIdMock).not.toHaveBeenCalled();
   });
 
   it("HIGH-1-T3: 400 on invalid hostId (non-numeric)", async () => {
@@ -518,13 +519,13 @@ describe("GET /apps/:hostId/:slug — HIGH-1 redirect route", () => {
     expect(res.body).toMatchObject({
       error: expect.stringMatching(/hostId/i),
     });
-    expect(resolveHostByIdMock).not.toHaveBeenCalled();
+    expect(resolveHostByUniversalIdMock).not.toHaveBeenCalled();
   });
 
   it("HIGH-1-T4: 400 on zero hostId", async () => {
     const res = await httpGet(server, "/apps/0/scratch-test");
     expect(res.status).toBe(400);
-    expect(resolveHostByIdMock).not.toHaveBeenCalled();
+    expect(resolveHostByUniversalIdMock).not.toHaveBeenCalled();
   });
 
   it("HIGH-1-T5: multi-parent — Location parent matches the request Host, NOT SKYNET_COOKIE_DOMAIN", async () => {
@@ -558,7 +559,7 @@ describe("GET /apps/:hostId/:slug — HIGH-1 redirect route", () => {
     });
     expect(res1.status).toBe(302);
     expect(res1.headers["location"]).toBe(
-      "https://t1000-9502.serve.skynet.aithercloud.com",
+      "https://1-9502.serve.skynet.aithercloud.com",
     );
 
     // Click from ai.aithercloud.com → Location stays on THAT parent.
@@ -567,12 +568,12 @@ describe("GET /apps/:hostId/:slug — HIGH-1 redirect route", () => {
     });
     expect(res2.status).toBe(302);
     expect(res2.headers["location"]).toBe(
-      "https://t1000-9502.serve.ai.aithercloud.com",
+      "https://1-9502.serve.ai.aithercloud.com",
     );
   });
 
-  it("HIGH-1-T6: 502 when resolveHostById returns null (unknown host OR no access)", async () => {
-    resolveHostByIdMock.mockResolvedValueOnce(null);
+  it("HIGH-1-T6: 502 when resolveHostByUniversalId returns null (unknown host OR no access)", async () => {
+    resolveHostByUniversalIdMock.mockResolvedValueOnce(null);
     const res = await httpGet(server, "/apps/999/scratch-test");
     expect(res.status).toBe(502);
     expect(res.body).toMatchObject({ error: "app home box unreachable" });
@@ -580,8 +581,8 @@ describe("GET /apps/:hostId/:slug — HIGH-1 redirect route", () => {
     expect(getAppSnapshotMock).not.toHaveBeenCalled();
   });
 
-  it("HIGH-1-T7: 502 when resolveHostById throws", async () => {
-    resolveHostByIdMock.mockRejectedValueOnce(new Error("DB error"));
+  it("HIGH-1-T7: 502 when resolveHostByUniversalId throws", async () => {
+    resolveHostByUniversalIdMock.mockRejectedValueOnce(new Error("DB error"));
     const res = await httpGet(server, "/apps/1/scratch-test");
     expect(res.status).toBe(502);
     expect(res.body).toMatchObject({ error: "app home box unreachable" });
@@ -643,10 +644,10 @@ describe("GET /apps/:hostId/:slug — HIGH-1 redirect route", () => {
     });
   });
 
-  it("HIGH-1-T11: 302 redirect on happy path — Location = https://<hostname>-<port>.serve.<request-host>", async () => {
-    // Host resolves to name "t1000" (beforeEach default); registry has
+  it("HIGH-1-T11: 302 redirect on happy path — Location = https://<machineId>-<port>.serve.<request-host>", async () => {
+    // Host resolves to row 1 / machine 1 (beforeEach default); registry has
     // the app on port 3020. Client requests Host: term.example.com →
-    // expected target: https://t1000-3020.serve.term.example.com
+    // expected target: https://1-3020.serve.term.example.com
     getAppSnapshotMock.mockReturnValueOnce([
       {
         hostId: "1",
@@ -666,17 +667,17 @@ describe("GET /apps/:hostId/:slug — HIGH-1 redirect route", () => {
     });
     expect(res.status).toBe(302);
     expect(res.headers["location"]).toBe(
-      "https://t1000-3020.serve.term.example.com",
+      "https://1-3020.serve.term.example.com",
     );
   });
 
-  it("HIGH-1-T12: 302 uses the host record's `name` (case preserved per D-13)", async () => {
-    // the user's t1000 stores display case as "Skynet". D-13 preserves it
-    // on the returned host row; the LOWER() lookup happens in
-    // resolveHostByName, not in resolveHostById. The redirect route just
-    // consumes host.name verbatim.
-    resolveHostByIdMock.mockResolvedValueOnce({
-      name: "Skynet",
+  it("HIGH-1-T12: another user's row id → caller's own row for registry, shared machine id in Location", async () => {
+    // /apps/42/... was minted from someone else's row for the same box.
+    // The resolver hands back the caller's row (9) on machine 5.
+    resolveHostByUniversalIdMock.mockResolvedValueOnce({
+      id: 9,
+      machineId: 5,
+      name: "my-name-for-the-box",
       ip: "10.0.0.1",
       port: 22,
       username: "ubuntu",
@@ -685,7 +686,7 @@ describe("GET /apps/:hostId/:slug — HIGH-1 redirect route", () => {
     });
     getAppSnapshotMock.mockReturnValueOnce([
       {
-        hostId: "42",
+        hostId: "9",
         slug: "my-app",
         title: "My App",
         description: "",
@@ -700,9 +701,10 @@ describe("GET /apps/:hostId/:slug — HIGH-1 redirect route", () => {
     const res = await httpGet(server, "/apps/42/my-app", {
       Host: "term.example.com",
     });
+    expect(resolveHostByUniversalIdMock).toHaveBeenCalledWith(42, "test-user");
     expect(res.status).toBe(302);
     expect(res.headers["location"]).toBe(
-      "https://Skynet-8080.serve.term.example.com",
+      "https://5-8080.serve.term.example.com",
     );
   });
 });

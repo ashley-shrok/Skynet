@@ -28,11 +28,10 @@
  *   PHASE 103 D-29 MIRROR-RULE UPDATE (2026-09-10): the frontend twin has
  *   gained a THIRD URL regex `SKYNET_SERVE_URL_RE_CLIENT` (sibling to
  *   `TAILNET_URL_RE_CLIENT` and `SKYNET_FILE_URL_RE_CLIENT`) matching the
- *   serve URL shape `https://<hostname>-<port>.serve.term.<domain>[/path]`.
+ *   serve URL shape `https://<machineId>-<port>.serve.<domain>[/path]`.
  *   This backend twin does NOT re-export that regex — the backend validates
  *   serve URLs via the subdomain-dispatch middleware's own parse logic per
- *   D-11 (split on last dash of leftmost DNS label; right side must be all
- *   digits). Same rationale as `TAILNET_URL_RE_CLIENT` and
+ *   split on the last dash of the leftmost DNS label (both sides digits). Same rationale as `TAILNET_URL_RE_CLIENT` and
  *   `SKYNET_FILE_URL_RE_CLIENT` being client-only. The whitelist DATA
  *   (`EDITABLE_EXTENSIONS`, `EDITABLE_BASENAMES`, `classifyByExtension`)
  *   remains mirrored in lockstep as before — Phase 103 does NOT change the

@@ -47,7 +47,7 @@ process.env.SKYNET_COOKIE_DOMAIN = PRIMARY_ORIGIN;
 let authAllowUserId: string | null = "u1";
 
 const mocks = vi.hoisted(() => ({
-  resolveHostById: vi.fn(),
+  resolveHostByUniversalId: vi.fn(),
   checkHostAccess: vi.fn(),
   getRegistry: vi.fn(),
   getWidgetSnapshot: vi.fn(),
@@ -83,7 +83,7 @@ vi.mock("../../utils/auth-manager.js", () => {
 });
 
 vi.mock("../../ssh/host-resolver.js", () => ({
-  resolveHostById: mocks.resolveHostById,
+  resolveHostByUniversalId: mocks.resolveHostByUniversalId,
   checkHostAccess: mocks.checkHostAccess,
 }));
 
@@ -226,7 +226,7 @@ describe("im-pane-router", () => {
 
   beforeEach(() => {
     authAllowUserId = "u1";
-    mocks.resolveHostById.mockReset();
+    mocks.resolveHostByUniversalId.mockReset();
     mocks.checkHostAccess.mockReset();
     mocks.getRegistry.mockReset();
     mocks.getWidgetSnapshot.mockReset();
@@ -242,7 +242,7 @@ describe("im-pane-router", () => {
     mocks.sshLogger.debug.mockClear();
 
     // Happy defaults; individual tests override.
-    mocks.resolveHostById.mockResolvedValue({
+    mocks.resolveHostByUniversalId.mockResolvedValue({
       id: 3,
       name: "agent-box",
       userId: "u1",
@@ -376,8 +376,8 @@ describe("im-pane-router", () => {
   /* -------- Test 4: unresolvable host → 403 widget-specific body ------- */
 
   describe("Test 4 — unresolvable host", () => {
-    it("resolveHostById null → 403 with 'widget home box unreachable'", async () => {
-      mocks.resolveHostById.mockResolvedValueOnce(null);
+    it("resolveHostByUniversalId null → 403 with 'widget home box unreachable'", async () => {
+      mocks.resolveHostByUniversalId.mockResolvedValueOnce(null);
       const { port, close } = await makeServer(false);
       try {
         const res = await sendHttp(port, "GET", "/interactive/3/poll-abc/pane/");
@@ -396,8 +396,8 @@ describe("im-pane-router", () => {
 
   describe("Test 5 — checkHostAccess denied (info-leak invariant)", () => {
     it("checkHostAccess false → 403 body byte-identical to Test 4", async () => {
-      // Branch A: resolveHostById returns null.
-      mocks.resolveHostById.mockResolvedValueOnce(null);
+      // Branch A: resolveHostByUniversalId returns null.
+      mocks.resolveHostByUniversalId.mockResolvedValueOnce(null);
       const server1 = await makeServer(false);
       let bodyA: string;
       try {
@@ -409,7 +409,7 @@ describe("im-pane-router", () => {
       }
 
       // Branch B: checkHostAccess returns false (host resolves fine).
-      mocks.resolveHostById.mockResolvedValueOnce({
+      mocks.resolveHostByUniversalId.mockResolvedValueOnce({
         id: 3,
         name: "agent-box",
         userId: "u1",

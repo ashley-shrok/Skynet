@@ -924,6 +924,22 @@ describe("runBootstrapForHost", () => {
   // -------------------------------------------------------------------------
 
   describe("step 5b: host-id write", () => {
+    it("writes the machine id (shared across users' rows) when present, else the row id", async () => {
+      const withMachine = makeChannel({});
+      await runBootstrapForHost(withMachine.channel, { ...HOST, machineId: "7" });
+      const cmdA = withMachine.exec.mock.calls
+        .map(([c]) => String(c))
+        .find((c) => c.includes("host/id"));
+      expect(cmdA).toContain("NEW='7'");
+
+      const rowOnly = makeChannel({});
+      await runBootstrapForHost(rowOnly.channel, HOST);
+      const cmdB = rowOnly.exec.mock.calls
+        .map(([c]) => String(c))
+        .find((c) => c.includes("host/id"));
+      expect(cmdB).toContain("NEW='h1'");
+    });
+
     it("(hid-1) BootstrapResult has hostIdOk: boolean field", async () => {
       const { channel } = makeChannel({
         "is-enabled": "enabled\nEXIT:0",

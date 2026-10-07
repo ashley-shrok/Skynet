@@ -30,14 +30,14 @@ import type { AddressInfo } from "node:net";
 import type { Request, Response, NextFunction } from "express";
 
 const mocks = vi.hoisted(() => ({
-  resolveHostByName: vi.fn(),
+  resolveHostByUniversalId: vi.fn(),
   canAccessHost: vi.fn(),
   createAuthMiddleware: vi.fn(),
   sshLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
 vi.mock("../../ssh/host-resolver.js", () => ({
-  resolveHostByName: mocks.resolveHostByName,
+  resolveHostByUniversalId: mocks.resolveHostByUniversalId,
 }));
 
 vi.mock("../../utils/permission-manager.js", () => ({
@@ -68,8 +68,8 @@ const { createSubdomainDispatchMiddleware } = await import(
 );
 const { createCorsMiddleware } = await import("../../utils/cors-config.js");
 
-const SERVE_ORIGIN = "https://t1000-8901.serve.term.example.com";
-const SERVE_HOST = "t1000-8901.serve.term.example.com";
+const SERVE_ORIGIN = "https://7-8901.serve.term.example.com";
+const SERVE_HOST = "7-8901.serve.term.example.com";
 
 /**
  * Stand up an app with the real production mount order. The serve handler is
@@ -132,7 +132,7 @@ afterAll(async () => {
 
 describe("serve-url dispatch mounts above the D-07 CORS deny", () => {
   beforeEach(() => {
-    mocks.resolveHostByName.mockReset();
+    mocks.resolveHostByUniversalId.mockReset();
     mocks.canAccessHost.mockReset();
     mocks.createAuthMiddleware.mockReset();
 
@@ -144,7 +144,7 @@ describe("serve-url dispatch mounts above the D-07 CORS deny", () => {
         next();
       },
     );
-    mocks.resolveHostByName.mockResolvedValue({ id: 7, name: "t1000" });
+    mocks.resolveHostByUniversalId.mockResolvedValue({ id: 7, name: "t1000" });
     mocks.canAccessHost.mockResolvedValue({ hasAccess: true });
   });
 

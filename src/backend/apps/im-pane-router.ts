@@ -30,7 +30,8 @@
  *   1. authenticateJWT — know who's asking before any DB / SSH work.
  *   2. APP_SLUG_RE regex — reject malformed slugs before any DB call.
  *   3. hostId positive-integer check — reject malformed IDs.
- *   4. resolveHostById(hostId, userId) — resolve or refuse.
+ *   4. resolveHostByUniversalId(hostId, userId) — resolve the URL id to the
+ *      caller's own row for the same machine, or refuse.
  *   5. checkHostAccess — RBAC gate. Info-leak-safe: same 403 body as (4).
  *   6. appProxyCsrfCheck — cross-origin state-changing refusal.
  *   7. getRegistry().getWidgetSnapshot() — port lookup for (hostId, slug).
@@ -83,7 +84,7 @@ import type { Request, Response, NextFunction } from "express";
 import type { AuthenticatedRequest } from "../../types/index.js";
 import { AuthManager } from "../utils/auth-manager.js";
 import { APP_SLUG_RE } from "../claude-session/identity-artifact-reader.js";
-import { resolveHostById, checkHostAccess } from "../ssh/host-resolver.js";
+import { resolveHostByUniversalId, checkHostAccess } from "../ssh/host-resolver.js";
 import { logger as sshLogger } from "../utils/logger.js";
 import { getRegistry } from "../fleet-status/registry-holder.js";
 import {
@@ -186,11 +187,11 @@ router.all(
     }
 
     // (iii) hostId as positive integer.
-    const hostIdNum = Number(req.params.hostId);
+    const hostRef = Number(req.params.hostId);
     if (
-      !Number.isFinite(hostIdNum) ||
-      !Number.isInteger(hostIdNum) ||
-      hostIdNum <= 0
+      !Number.isFinite(hostRef) ||
+      !Number.isInteger(hostRef) ||
+      hostRef <= 0
     ) {
       return res
         .status(400)
@@ -198,17 +199,20 @@ router.all(
     }
 
     // (iv) Host resolution. Info-leak-safe 403 body (T-137-03-IL).
-    const host = await resolveHostById(hostIdNum, userId);
+    const host = await resolveHostByUniversalId(hostRef, userId);
     if (!host) {
       sshLogger.warn("im pane: host unresolvable / no access", {
         operation: "im_pane_host_unresolvable",
-        hostId: hostIdNum,
+        hostId: hostRef,
         slug,
       });
       return res
         .status(403)
         .json({ error: "widget home box unreachable" });
     }
+    // The URL id may be another user's row for the same box; from here on
+    // everything is keyed by the caller's own row.
+    const hostIdNum = host.id;
 
     // (v) RBAC gate — same 403 body as (iv) to preserve info-leak invariant.
     const allowed = await checkHostAccess(
@@ -315,7 +319,9 @@ router.all(
     const proxyMiddleware = getOrCreateAppPaneProxyForTarget(
       target,
       tunnelPort,
-      hostIdNum,
+      // URL id, not the caller's row id: the proxy strips this exact
+      // `/<id>/<slug>/pane` prefix and echoes it in the injected <base>.
+      hostRef,
       slug,
     );
     proxyMiddleware(req, res, next);
@@ -414,11 +420,11 @@ export async function handleImPaneUpgrade(
     }
     const hostIdStr = match[1];
     const slug = match[2];
-    const hostIdNum = Number(hostIdStr);
+    const hostRef = Number(hostIdStr);
     if (
-      !Number.isFinite(hostIdNum) ||
-      !Number.isInteger(hostIdNum) ||
-      hostIdNum <= 0
+      !Number.isFinite(hostRef) ||
+      !Number.isInteger(hostRef) ||
+      hostRef <= 0
     ) {
       rejectUpgrade(socket, "HTTP/1.1 400 Bad Request");
       return;
@@ -446,16 +452,19 @@ export async function handleImPaneUpgrade(
     }
 
     // Host resolve — same info-leak invariant as HTTP path.
-    const host = await resolveHostById(hostIdNum, userId);
+    const host = await resolveHostByUniversalId(hostRef, userId);
     if (!host) {
       sshLogger.warn("im pane WS: host unresolvable / no access", {
         operation: "im_pane_ws_host_unresolvable",
-        hostId: hostIdNum,
+        hostId: hostRef,
         slug,
       });
       rejectUpgrade(socket, "HTTP/1.1 403 Forbidden");
       return;
     }
+    // The URL id may be another user's row for the same box; from here on
+    // everything is keyed by the caller's own row.
+    const hostIdNum = host.id;
     const allowed = await checkHostAccess(
       hostIdNum,
       userId,
@@ -554,7 +563,9 @@ export async function handleImPaneUpgrade(
     const proxyMiddleware = getOrCreateAppPaneProxyForTarget(
       target,
       tunnelPort,
-      hostIdNum,
+      // URL id, not the caller's row id: the proxy strips this exact
+      // `/<id>/<slug>/pane` prefix and echoes it in the injected <base>.
+      hostRef,
       slug,
     ) as unknown as {
       upgrade?: (req: IncomingMessage, socket: Socket, head: Buffer) => void;

@@ -434,7 +434,7 @@ forwarding to your app's loopback port, so your route handlers see
 
 There is a SECOND mount context: right-clicking a tile offers "open in
 new tab," which opens the app at its own subdomain
-(`<host>-<port>.serve.<client-domain>`). That path doesn't strip the
+(`<host-id>-<port>.serve.<client-domain>`). That path doesn't strip the
 prefix — your app sees the full `/apps/<hostId>/<slug>/pane/foo` URL.
 Every URL your app emits has to work in BOTH.
 

@@ -29,6 +29,8 @@ export interface QuickAction {
 
 export interface Host {
   id: number;
+  /** Shared by every user's row for the same physical box; use in shareable URLs. */
+  machineId?: number | null;
   name: string;
   ip: string;
   port: number;

@@ -42,6 +42,8 @@ import { systemLogger } from "../utils/logger.js";
 export type SubstrateHostRecord = {
   id: string;
   name: string;
+  /** Shared across every user's row for this box; written to ~/fleet/host/id. */
+  machineId?: string;
   _connDetails: Record<string, unknown>;
 };
 
@@ -85,6 +87,7 @@ export async function listSubstrateHosts(
       .select({
         id: hosts.id,
         name: hosts.name,
+        machineId: hosts.machineId,
         credentialId: hosts.credentialId,
         ip: hosts.ip,
         port: hosts.port,
@@ -179,6 +182,7 @@ export async function listSubstrateHosts(
         results.push({
           id: String(row.id),
           name: row.name ?? String(row.id),
+          machineId: String(row.machineId ?? row.id),
           _connDetails,
         });
       } catch (err) {

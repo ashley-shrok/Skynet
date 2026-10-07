@@ -190,6 +190,11 @@ export const hosts = sqliteTable("ssh_data", {
   // (or the provisioning path for freshly-created exec VMs) flips it to true.
   runsFleetSubstrate: integer("runs_fleet_substrate", { mode: "boolean" }).notNull().default(false),
 
+  // Physical-machine identity shared by every user's row for the same box
+  // (same ip + port). Value is the id of the group's first row. Maintained by
+  // SQLite triggers (machine-id-migration.ts), never written by app code.
+  machineId: integer("machine_id"),
+
   sshPort: integer("ssh_port").default(22),
   rdpPort: integer("rdp_port").default(3389),
   vncPort: integer("vnc_port").default(5900),

@@ -17,7 +17,8 @@
  *     injection mitigation). Enforced BOTH here AND inside readAppIconFile
  *     for defence-in-depth.
  *   - hostId parsed as a positive integer → 400 on any other shape.
- *   - `resolveHostById(hostId, userId)` returns null when the user has no
+ *   - `resolveHostByUniversalId(hostId, userId)` maps the URL id to the
+ *     caller's own row for the same machine; it returns null when the user has no
  *     access OR the host is unknown; both branches produce a canned 502 with
  *     the SAME body ("app home box unreachable") — RESEARCH.md §Security V4
  *     "does NOT distinguish not-found from not-authorized" invariant matches
@@ -40,8 +41,8 @@
  * Prior to this fix that URL had no handler — Skynet's SPA index served the
  * request via HTML content-negotiation fallback, and the fresh tab landed
  * on the app-shell instead of the running app. This route resolves the
- * (hostId, slug) pair to the app's tailscale-hostname + port and issues a
- * 302 to `https://<hostname>-<port>.serve.<request-host>` — the standard
+ * (hostId, slug) pair to the box's machine id + port and issues a
+ * 302 to `https://<machineId>-<port>.serve.<request-host>` — the standard
  * serve-URL convention used everywhere else in the codebase (see
  * src/backend/serve-url/subdomain-dispatch.ts, editable-file-whitelist.ts).
  *
@@ -58,7 +59,7 @@
  *   - authenticateJWT gate (401 without token)
  *   - APP_SLUG_RE gate on slug → 400
  *   - hostId as positive integer → 400
- *   - resolveHostById returns null → 502 (unknown host OR no access; same
+ *   - resolveHostByUniversalId returns null → 502 (unknown host OR no access; same
  *     info-leak-preserving canned body as the icon route)
  *   - App-port lookup via the fleet-status SubscriptionRegistry's
  *     getAppSnapshot() (see fleet-status/registry-holder.ts for the
@@ -82,7 +83,7 @@ import {
   readAppIconFile,
 } from "../../claude-session/identity-artifact-reader.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
-import { resolveHostById } from "../../ssh/host-resolver.js";
+import { resolveHostByUniversalId } from "../../ssh/host-resolver.js";
 import { sshLogger } from "../../utils/logger.js";
 import { getRegistry } from "../../fleet-status/registry-holder.js";
 
@@ -122,7 +123,7 @@ router.get(
     let conn: import("ssh2").Client | null = null;
     if (!local) {
       try {
-        const host = await resolveHostById(hostIdNum, userId);
+        const host = await resolveHostByUniversalId(hostIdNum, userId);
         if (!host) {
           // Code-review MEDIUM-3 (fix pass 2026-09-18): resolveHostById
           // returns null for BOTH "hostId doesn't exist" AND "user has no
@@ -262,9 +263,13 @@ router.get(
     // Host resolution — same access gate as the icon route. Returns null
     // for BOTH "unknown host" AND "user has no access"; identical 502 body
     // preserves the info-leak invariant.
-    let hostname: string;
+    // The URL id may be another user's row for the same box; everything
+    // below works off the caller's own row (resolvedHostId) and emits the
+    // shared machine id in the serve URL so the link works for every user.
+    let resolvedHostId: number;
+    let serveId: number;
     try {
-      const host = await resolveHostById(hostIdNum, userId);
+      const host = await resolveHostByUniversalId(hostIdNum, userId);
       if (!host) {
         sshLogger.warn("app redirect: host unresolvable / no access", {
           operation: "apps_redirect_host_unresolvable",
@@ -275,11 +280,8 @@ router.get(
           .status(502)
           .json({ error: "app home box unreachable" });
       }
-      // Host.name is the tailscale hostname (per src/types/index.ts:32);
-      // this is what serve URLs are built off (see subdomain-dispatch.ts
-      // + editable-file-whitelist.ts:147). D-13 preserves display case
-      // (the LOWER() lookup happens in resolveHostByName, not here).
-      hostname = host.name;
+      resolvedHostId = host.id;
+      serveId = host.machineId ?? host.id;
     } catch (e) {
       sshLogger.warn("app redirect: host resolve threw", {
         operation: "apps_redirect_host_error",
@@ -314,7 +316,7 @@ router.get(
     // AppState.hostId is a STRING on the wire (see wire-protocol.ts +
     // ui/api/fleet-status-types.ts:136). Compare against hostIdNum
     // coerced to a string to match. Slug matches verbatim.
-    const hostIdStr = String(hostIdNum);
+    const hostIdStr = String(resolvedHostId);
     const app = registry
       .getAppSnapshot()
       .find((a) => a.hostId === hostIdStr && a.slug === slug);
@@ -337,11 +339,9 @@ router.get(
         .json({ error: "app is not currently serving on a port" });
     }
 
-    // Compose the serve URL: `https://<hostname>-<port>.serve.<request-host>`.
-    // See src/ui/features/pretty-view/editable-file-whitelist.ts:147 for
-    // the grammar this must match — the D-13 last-dash split works
-    // unambiguously because port is all-digits (no dashes possible).
-    const target = `https://${hostname}-${app.port}.serve.${requestHost}`;
+    // Compose the serve URL: `https://<machineId>-<port>.serve.<request-host>`.
+    // subdomain-dispatch.ts parses the same `<id>-<port>` grammar.
+    const target = `https://${serveId}-${app.port}.serve.${requestHost}`;
 
     // 302 (temporary): the redirect target can change if the app's port
     // rotates or the host is renamed. Semantics match a session-scoped
