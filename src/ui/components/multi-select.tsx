@@ -18,6 +18,12 @@ export interface MultiSelectOption {
  * <select> option rows). The list is portaled, so it is never clipped by a
  * scrolling modal body; Modal already ignores outside interactions, so
  * clicks inside the list don't dismiss the dialog.
+ *
+ * The Popover is `modal` because the portaled list sits outside the
+ * Dialog's DOM, and the Dialog's scroll lock (react-remove-scroll) eats
+ * wheel/touch-move events outside its own content — the list couldn't be
+ * scrolled. A modal Popover pushes its own lock, which is the active one
+ * while open and lets its content scroll.
  */
 export function MultiSelect({
   id,
@@ -57,6 +63,7 @@ export function MultiSelect({
 
   return (
     <Popover
+      modal
       open={open && !disabled}
       onOpenChange={(next) => {
         setOpen(next);
