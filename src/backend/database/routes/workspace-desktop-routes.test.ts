@@ -96,7 +96,12 @@ function makeStubClient() {
   ) => {
     const child = spawn("sh", ["-c", command], {
       env: {
-        PATH: process.env.PATH ?? "",
+        // Controlled PATH: the temp HOME's .local/bin first (where
+        // installHelper symlinks agent-desktop for "installed" cases),
+        // then system bins. Deliberately excludes the parent process's
+        // PATH so a box that has agent-desktop installed at
+        // ~/.local/bin/ doesn't leak into "not_installed" cases.
+        PATH: `${path.join(home, ".local/bin")}:/usr/local/bin:/usr/bin:/bin`,
         HOME: home,
         AGENT_DESKTOP_NO_SYSTEMD: "1",
         AGENT_DESKTOP_BASE_DISPLAY: "720",

@@ -101,9 +101,9 @@ function user(
 const USERS: AdminUser[] = [
   user({
     id: "me",
-    username: "ashley",
+    username: "alice",
     isAdmin: true,
-    mxid: "@ashley_human:skynet",
+    mxid: "@alice_human:skynet",
   }),
   user({ id: "u2", username: "zoey" }),
   user({ id: "u3", username: "bob", isOidc: true }),
@@ -143,7 +143,7 @@ describe("AdminModal — Users tab", () => {
     const pane = await screen.findByTestId("admin-users-pane");
     const rows = within(pane).getAllByRole("button");
     expect(rows.map((r) => r.textContent)).toEqual([
-      expect.stringContaining("ashley"),
+      expect.stringContaining("alice"),
       expect.stringContaining("bob"),
       expect.stringContaining("zoey"),
     ]);
@@ -184,7 +184,7 @@ describe("AdminModal — Users tab", () => {
 describe("AdminUserModal", () => {
   it("disables the admin switch and delete on your own account", async () => {
     renderModal();
-    await openUser("ashley");
+    await openUser("alice");
     expect(
       (screen.getByTestId("admin-user-admin-switch") as HTMLButtonElement)
         .disabled,
@@ -197,7 +197,7 @@ describe("AdminUserModal", () => {
   it("won't delete the last admin", async () => {
     m.getUserList.mockResolvedValue({
       users: [
-        user({ id: "me", username: "ashley" }),
+        user({ id: "me", username: "alice" }),
         user({ id: "a2", username: "root", isAdmin: true }),
       ],
     });
@@ -236,7 +236,7 @@ describe("AdminUserModal", () => {
 
   it("shows notifications as always on, and locked, for admins", async () => {
     renderModal();
-    await openUser("ashley");
+    await openUser("alice");
     const sw = screen.getByTestId(
       "admin-user-notifications-switch",
     ) as HTMLButtonElement;
@@ -318,7 +318,7 @@ describe("AdminUserModal", () => {
         name: "other",
         ip: "10.0.0.2",
         port: 22,
-        username: "ashley",
+        username: "alice",
         userId: "me",
         status: "online",
       },
