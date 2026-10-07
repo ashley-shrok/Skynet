@@ -360,6 +360,10 @@
 .pv-panel-scroll {
   flex: 1;
   overflow-y: auto;
+  /* Never scroll sideways. With only overflow-y set, overflow-x computes to
+   * auto, so any row wider than the panel (long names, glows, badges) made
+   * the whole list pan horizontally. Rows already truncate with ellipsis. */
+  overflow-x: hidden;
   /* mobile-scroll-freeze-overscroll-behavior (2026-08-10): pin rubber-band
    * momentum inside this scroller. Without it, iOS Safari routes end-of-scroll
    * gestures to an ancestor and locks the touch arbitrator for 10-15s while
