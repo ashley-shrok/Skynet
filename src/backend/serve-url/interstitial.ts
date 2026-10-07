@@ -9,6 +9,7 @@
  *   permission_denied  → 403 HTML  ("you don't have access to <host>")
  *   ssh_failure        → 502 HTML  ("SSH tunnel to <host> failed to establish")
  *   auth_missing       → 302        Location: https://<primary>/login?return=...
+ *   invalid_link       → 400 HTML  ("this serve link isn't valid")
  *
  * NO auto-refresh (D-14 + 103-CONTEXT.md specifics L145: "user decides to
  * retry — auto-refresh masks legitimate ongoing outages"). No HTML meta-tag
@@ -221,6 +222,20 @@ export function renderInterstitial(
         body: renderHtmlPage({
           title: "app not serving",
           message: `This app on ${safeHost} isn't currently serving on a port. The agent may not have started it yet, or may have stopped it.`,
+          originalUrl,
+        }),
+        headers: { ...HTML_HEADERS },
+      };
+
+    case "invalid_link":
+      // Deliberately echoes neither target.hostname nor target.port — the
+      // label failed to parse, so both are attacker-supplied text.
+      return {
+        status: 400,
+        body: renderHtmlPage({
+          title: "invalid link",
+          message:
+            "This serve link isn't valid. Serve links look like https://<host-id>-<port>.serve.<domain> — ask the agent for a fresh link.",
           originalUrl,
         }),
         headers: { ...HTML_HEADERS },

@@ -235,11 +235,14 @@ describe("subdomain-dispatch middleware", () => {
     const mod = await import("../subdomain-dispatch.js");
     const middleware = mod.createSubdomainDispatchMiddleware();
     const req = makeReq({ subdomainHeader: "myhost-3000.serve.term.example.com" });
-    const { res, statusCalls } = makeRes();
+    const { res, statusCalls, sendCalls } = makeRes();
     const next = vi.fn();
     await middleware(req, res, next);
     expect(next).not.toHaveBeenCalled();
-    expect(statusCalls[0]).toBeGreaterThanOrEqual(400);
+    // invalid_link page, not "port N isn't responding"
+    expect(statusCalls[0]).toBe(400);
+    expect(sendCalls.join("")).toContain("serve link isn");
+    expect(sendCalls.join("")).not.toContain("responding");
     expect(mocks.resolveHostByUniversalId).not.toHaveBeenCalled();
   });
 

@@ -289,7 +289,7 @@ export function createSubdomainDispatchMiddleware() {
         subdomainLen: subdomainHeader.length,
       });
       const result = renderInterstitial(
-        "port_not_listening",
+        "invalid_link",
         stubTarget(label, 0),
         originalUrl,
         primaryDomain,
@@ -304,7 +304,7 @@ export function createSubdomainDispatchMiddleware() {
         subdomainLen: subdomainHeader.length,
       });
       const result = renderInterstitial(
-        "port_not_listening",
+        "invalid_link",
         stubTarget(label.slice(0, lastDash), 0),
         originalUrl,
         primaryDomain,
@@ -319,7 +319,7 @@ export function createSubdomainDispatchMiddleware() {
         subdomainLen: subdomainHeader.length,
       });
       const result = renderInterstitial(
-        "port_not_listening",
+        "invalid_link",
         stubTarget(label.slice(0, lastDash), 0),
         originalUrl,
         primaryDomain,
@@ -334,7 +334,7 @@ export function createSubdomainDispatchMiddleware() {
         subdomainLen: subdomainHeader.length,
       });
       const result = renderInterstitial(
-        "port_not_listening",
+        "invalid_link",
         stubTarget(hostnameRaw, 0),
         originalUrl,
         primaryDomain,
