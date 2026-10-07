@@ -162,9 +162,11 @@ export async function startPushTriggerLoopOnBoot(): Promise<StartPushTriggerLoop
         };
       },
       // Anchor the forward-cursor at the room's CURRENT head via a
-      // backward-fetch with limit=1. Seed with the response's `start`
+      // backward-fetch of `count` events. Seed with the response's `start`
       // token — the position of the head event in the backward-fetch's
-      // chunk.
+      // chunk. The chunk's messages go back to the loop so it can
+      // dispatch the ones newer than its cold-start cutoff (a brand-new
+      // DM's first message is the head at first observation).
       //
       // M-8 fix (was the deploy-notification-replay bug): use `start`,
       // NOT `end`. Matrix's `end` from a dir=b response points PAST the
@@ -177,15 +179,16 @@ export async function startPushTriggerLoopOnBoot(): Promise<StartPushTriggerLoop
       // position and is the correct forward anchor. See
       // matrix-message-fetch.ts:74-75 for the canonical rule
       // ("beforeEventId - `end` for dir=b, `start` for dir=f").
-      fetchInitialCursor: async (roomId: string) => {
+      fetchInitialCursor: async (roomId: string, count: number) => {
         const result = await fetchRoomHistory(roomId, {
           dir: "b",
-          count: 1,
+          count,
         });
         if (result.ok === false) return result;
         return {
           ok: true as const,
           sinceToken: typeof result.start === "string" ? result.start : null,
+          events: result.events as unknown as readonly MatrixMessageEvent[],
         };
       },
       getUserJoinedRooms,

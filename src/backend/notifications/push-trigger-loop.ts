@@ -38,12 +38,20 @@
  *
  * ## Cold-start policy (T-128-29 mitigation)
  *
- * On the FIRST tick for a room (empty cursor), we issue a `dir:"b",
- * limit:1` fetch via `fetchInitialCursor` and seed our forward cursor
- * with the returned `start` token — the position of the head event in
- * the backward-fetch's chunk (the newest boundary). NO events are
- * dispatched on cold-start. Second tick onward uses fetchLive (dir=f)
- * from that anchored cursor for normal filter+dispatch flow.
+ * On the FIRST tick for a room (empty cursor), we issue a `dir:"b"`
+ * fetch via `fetchInitialCursor` and seed our forward cursor with the
+ * returned `start` token — the position of the head event in the
+ * backward-fetch's chunk (the newest boundary). Second tick onward uses
+ * fetchLive (dir=f) from that anchored cursor for normal filter+dispatch
+ * flow.
+ *
+ * Cold-start dispatches ONLY the backward-fetched messages whose
+ * `origin_server_ts` is at or after the user's `coldStartCutoffMs` (the
+ * moment the loop started for that user). At boot every existing message
+ * predates the cutoff, so nothing replays — the T-128-29 guarantee. A
+ * room first observed AFTER boot (e.g. an agent opens a brand-new DM) has
+ * its first message as the head at observation time; without the
+ * cutoff check that message would sit behind the anchor and never push.
  *
  * Why `start` and NOT `end` (M-8 fix — was the deploy-notification-replay
  * bug): Matrix `/messages` returns pagination tokens whose meaning depends
@@ -172,6 +180,12 @@ export interface PerUserState {
   inFlight: boolean;
   /** roomId → Matrix `end` token (sinceToken) from the last fetchLive call. */
   cursorByRoom: Map<string, string>;
+  /**
+   * ms since epoch — set when the loop starts for this user. On a room's
+   * cold-start, messages with `origin_server_ts` before this are history
+   * (suppressed per T-128-29); messages at or after it are new and dispatch.
+   */
+  coldStartCutoffMs: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -240,15 +254,16 @@ export interface PushTriggerLoopDeps {
    * fetch. See push-trigger-loop.ts module docblock § Cold-start policy
    * for the full rationale.
    *
-   * Returns `{ ok:true, sinceToken }` where sinceToken may be null if
-   * Matrix omits `start` (empty room). Loop treats null as "no cursor yet,
-   * retry on next tick" — same discipline as fetchLive's null
-   * nextSinceToken.
+   * Returns `{ ok:true, sinceToken, events }` where sinceToken may be null
+   * if Matrix omits `start` (empty room) and `events` are the up-to-`count`
+   * newest m.room.message events in dir=b order (newest first). The loop
+   * dispatches the ones newer than `coldStartCutoffMs`.
    */
   fetchInitialCursor(
     roomId: string,
+    count: number,
   ): Promise<
-    | { ok: true; sinceToken: string | null }
+    | { ok: true; sinceToken: string | null; events: readonly MatrixMessageEvent[] }
     | { ok: false; status: number; error: string }
   >;
   /** Enumerate a user's joined rooms via the Matrix admin API. */
@@ -338,12 +353,13 @@ export type PushTriggerTickResult =
  *      AND reason === "harness_dm"                          (D-02, D-01, D-03)
  *
  * Cold-start policy (M-1 review-fix): on the FIRST tick for a room (no
- * cursor entry), we issue a `dir:"b", limit:1` fetch via
- * fetchInitialCursor to anchor at the room's CURRENT head, seed
- * state.cursorByRoom with the returned `end` token, and dispatch NO
- * pushes. Second tick onward uses fetchLive (dir=f) from the anchored
- * cursor for normal filter+dispatch flow. Prevents boot-time push
- * storm (T-128-29 mitigation). Do NOT call fetchLive on cold-start —
+ * cursor entry), we issue a `dir:"b"` fetch via fetchInitialCursor to
+ * anchor at the room's CURRENT head and seed state.cursorByRoom with the
+ * returned `start` token. Only fetched messages at or after
+ * state.coldStartCutoffMs are dispatched — prevents boot-time push storm
+ * (T-128-29 mitigation) while still pushing the first message of a room
+ * created after boot. Second tick onward uses fetchLive (dir=f) from the
+ * anchored cursor. Do NOT call fetchLive on cold-start —
  * dir=f from an empty cursor starts from the room's HISTORICAL start,
  * not the head, and would replay history as fresh pushes on the second
  * tick.
@@ -415,8 +431,13 @@ export async function runPushTriggerTick(
       // head), so seeding the forward cursor with `end` re-includes the
       // head event on the next dir=f fetch. See module docblock
       // § Cold-start policy for the full rationale.
+      let events: readonly MatrixMessageEvent[];
+      let nextCursor: string | null;
       if (isColdStart) {
-        const initialResult = await deps.fetchInitialCursor(roomId);
+        const initialResult = await deps.fetchInitialCursor(
+          roomId,
+          PUSH_TRIGGER_BATCH_SIZE,
+        );
         if (!initialResult.ok) {
           assertNotOk(initialResult);
           // Do NOT set a cursor — subsequent ticks retry the same
@@ -434,50 +455,57 @@ export async function runPushTriggerTick(
           );
           continue;
         }
-        if (initialResult.sinceToken !== null) {
-          state.cursorByRoom.set(roomId, initialResult.sinceToken);
-        } else {
-          // Empty room (Matrix omitted `start`) — mark seen-but-empty
-          // with a "" sentinel so the next tick's has()-check treats
-          // this as warm. Next tick's fetchLive with "" will fetch
-          // from the room's historical start — but since the room is
-          // empty, there's nothing to dispatch. First actual message
-          // will advance the cursor on the following tick.
-          state.cursorByRoom.set(roomId, "");
-        }
+        // Empty room (Matrix omitted `start`) — mark seen-but-empty with
+        // a "" sentinel so the next tick's has()-check treats this as
+        // warm. Next tick's fetchLive with "" will fetch from the room's
+        // historical start — but since the room is empty, there's
+        // nothing to dispatch.
+        nextCursor = initialResult.sinceToken ?? "";
+        // Only messages sent since the loop started are new (T-128-29).
+        // A missing timestamp is treated as history. Reverse the dir=b
+        // chunk so dispatch runs oldest → newest like fetchLive.
+        events = initialResult.events
+          .filter(
+            (e) =>
+              typeof e.origin_server_ts === "number" &&
+              e.origin_server_ts >= state.coldStartCutoffMs,
+          )
+          .reverse();
         databaseLogger.debug(
-          "[phase-128] push-trigger tick — cold-start anchored at current head, NO pushes dispatched",
+          "[phase-128] push-trigger tick — cold-start anchored at current head",
           {
             operation: "push_trigger_tick_cold_start_anchored",
             userId,
             roomId,
             hasSinceToken: initialResult.sinceToken !== null,
+            eventsSinceCutoff: events.length,
           },
         );
-        continue;
-      }
-
-      const cursor = state.cursorByRoom.get(roomId) ?? "";
-      const liveResult = await deps.fetchLive(
-        roomId,
-        cursor,
-        PUSH_TRIGGER_BATCH_SIZE,
-      );
-      if (!liveResult.ok) {
-        assertNotOk(liveResult);
-        // Do NOT advance the cursor — subsequent ticks retry the same
-        // range with the fresh cursor. T-128-32 mitigation.
-        databaseLogger.debug(
-          "[phase-128] push-trigger tick — fetchLive failed, skipping room, cursor NOT advanced",
-          {
-            operation: "push_trigger_tick_fetch_live_failed",
-            userId,
-            roomId,
-            status: liveResult.status,
-            error: liveResult.error,
-          },
+      } else {
+        const cursor = state.cursorByRoom.get(roomId) ?? "";
+        const liveResult = await deps.fetchLive(
+          roomId,
+          cursor,
+          PUSH_TRIGGER_BATCH_SIZE,
         );
-        continue;
+        if (!liveResult.ok) {
+          assertNotOk(liveResult);
+          // Do NOT advance the cursor — subsequent ticks retry the same
+          // range with the fresh cursor. T-128-32 mitigation.
+          databaseLogger.debug(
+            "[phase-128] push-trigger tick — fetchLive failed, skipping room, cursor NOT advanced",
+            {
+              operation: "push_trigger_tick_fetch_live_failed",
+              userId,
+              roomId,
+              status: liveResult.status,
+              error: liveResult.error,
+            },
+          );
+          continue;
+        }
+        events = liveResult.events;
+        nextCursor = liveResult.nextSinceToken;
       }
 
       // Fetch member list ONCE per room-per-tick, only when there ARE
@@ -485,11 +513,11 @@ export async function runPushTriggerTick(
       let membersResult: Awaited<
         ReturnType<typeof deps.getRoomJoinedMembers>
       > | null = null;
-      if (liveResult.events.length > 0) {
+      if (events.length > 0) {
         membersResult = await deps.getRoomJoinedMembers(roomId);
       }
 
-      for (const event of liveResult.events) {
+      for (const event of events) {
         // ─── Filter Step 1: type === "m.room.message" ─────────────────
         // Defense-in-depth: fetchRoomHistory already filters, but a
         // direct caller of runPushTriggerTick could bypass that layer.
@@ -608,8 +636,8 @@ export async function runPushTriggerTick(
       }
 
       // Advance cursor AFTER processing the batch — only when fetch was ok.
-      if (liveResult.nextSinceToken !== null) {
-        state.cursorByRoom.set(roomId, liveResult.nextSinceToken);
+      if (nextCursor !== null) {
+        state.cursorByRoom.set(roomId, nextCursor);
       }
     }
 
@@ -810,6 +838,7 @@ export function createPushTriggerLoop(
         backoffIndex: 0,
         inFlight: false,
         cursorByRoom: new Map(),
+        coldStartCutoffMs: now,
       });
     }
     databaseLogger.info("[phase-128] push-trigger loop start", {

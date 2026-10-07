@@ -60,6 +60,7 @@ import {
   PUSH_TRIGGER_POLL_INTERVAL_MS,
   PUSH_TRIGGER_INITIAL_JITTER_MS,
   PUSH_TRIGGER_BACKOFF_LADDER_MS,
+  PUSH_TRIGGER_BATCH_SIZE,
   type PushTriggerLoopDeps,
   type PerUserState,
 } from "./push-trigger-loop.js";
@@ -75,6 +76,8 @@ const USER_B_MXID = "@bob:server";
 const AGENT_MXID = "@fanny:server";
 const ROOM_ID = "!room1:server";
 const AGENTS_REGISTRY_ROOM_ID = "!registry:server";
+/** Loop start time for fixture states — events before this are history. */
+const COLD_START_CUTOFF_MS = 1_700_000_000_000;
 
 /**
  * Build a happy-path deps object. Individual tests override specific fields.
@@ -96,6 +99,7 @@ function makeDeps(
     fetchInitialCursor: vi.fn(async () => ({
       ok: true as const,
       sinceToken: "cursor-head-anchor",
+      events: [],
     })),
     getUserJoinedRooms: vi.fn(async () => ({
       ok: true as const,
@@ -131,6 +135,7 @@ function makeEvent(overrides: Partial<{
   sender: string;
   content: Record<string, unknown>;
   event_id: string;
+  origin_server_ts: number;
 }> = {}) {
   return {
     type: "m.room.message",
@@ -152,6 +157,7 @@ function makeStateWithWarmCursor(userMxid: string, cursor = "cursor-warm"): PerU
     backoffIndex: 0,
     inFlight: false,
     cursorByRoom: new Map([[ROOM_ID, cursor]]),
+    coldStartCutoffMs: COLD_START_CUTOFF_MS,
   };
 }
 
@@ -354,6 +360,7 @@ describe("runPushTriggerTick — cursor management", () => {
     const fetchInitialCursorSpy = vi.fn(async () => ({
       ok: true as const,
       sinceToken: "cursor-head-anchor",
+      events: [],
     }));
     const deps = makeDeps({
       fetchLive: fetchLiveSpy,
@@ -366,13 +373,14 @@ describe("runPushTriggerTick — cursor management", () => {
       backoffIndex: 0,
       inFlight: false,
       cursorByRoom: new Map(),
+      coldStartCutoffMs: COLD_START_CUTOFF_MS,
     };
 
     await runPushTriggerTick(USER_A, state, deps);
 
     // fetchInitialCursor was called, fetchLive was NOT.
     expect(fetchInitialCursorSpy).toHaveBeenCalledTimes(1);
-    expect(fetchInitialCursorSpy).toHaveBeenCalledWith(ROOM_ID);
+    expect(fetchInitialCursorSpy).toHaveBeenCalledWith(ROOM_ID, PUSH_TRIGGER_BATCH_SIZE);
     expect(fetchLiveSpy).not.toHaveBeenCalled();
     // NO push fired.
     expect(deps.sendPushToUser).not.toHaveBeenCalled();
@@ -390,6 +398,7 @@ describe("runPushTriggerTick — cursor management", () => {
     const fetchInitialCursorSpy = vi.fn(async () => ({
       ok: true as const,
       sinceToken: null,
+      events: [],
     }));
     const deps = makeDeps({
       fetchLive: fetchLiveSpy,
@@ -401,6 +410,7 @@ describe("runPushTriggerTick — cursor management", () => {
       backoffIndex: 0,
       inFlight: false,
       cursorByRoom: new Map(),
+      coldStartCutoffMs: COLD_START_CUTOFF_MS,
     };
 
     await runPushTriggerTick(USER_A, state, deps);
@@ -412,6 +422,84 @@ describe("runPushTriggerTick — cursor management", () => {
     // on next tick → cold-start branch NOT re-entered.
     expect(state.cursorByRoom.has(ROOM_ID)).toBe(true);
     expect(state.cursorByRoom.get(ROOM_ID)).toBe("");
+  });
+
+  it("Cold-start dispatches only messages sent at or after coldStartCutoffMs, oldest first", async () => {
+    // T-128-29 still holds for history: the pre-cutoff message is NOT
+    // pushed. Messages sent since the loop started are new and dispatch.
+    const sendPushToUser = vi.fn(async () => {});
+    const derivePreviewText = vi.fn(
+      (e: { content?: { body?: string } }) => e.content?.body ?? "",
+    );
+    const deps = makeDeps({
+      sendPushToUser,
+      derivePreviewText,
+      // dir=b order: newest first.
+      fetchInitialCursor: vi.fn(async () => ({
+        ok: true as const,
+        sinceToken: "cursor-head-anchor",
+        events: [
+          makeEvent({ event_id: "$new2", content: { body: "new-2" }, origin_server_ts: COLD_START_CUTOFF_MS + 2 }),
+          makeEvent({ event_id: "$new1", content: { body: "new-1" }, origin_server_ts: COLD_START_CUTOFF_MS }),
+          makeEvent({ event_id: "$old", content: { body: "old" }, origin_server_ts: COLD_START_CUTOFF_MS - 1 }),
+          makeEvent({ event_id: "$nots", content: { body: "no-ts" } }),
+        ],
+      })),
+    });
+    const state: PerUserState = {
+      userMxid: USER_A_MXID,
+      nextRunAt: 0,
+      backoffIndex: 0,
+      inFlight: false,
+      cursorByRoom: new Map(),
+      coldStartCutoffMs: COLD_START_CUTOFF_MS,
+    };
+
+    const result = await runPushTriggerTick(USER_A, state, deps);
+
+    expect(result).toEqual({ ok: true, roomsScanned: 1, eventsFired: 2 });
+    expect(sendPushToUser.mock.calls.map((c) => c[1].body)).toEqual(["new-1", "new-2"]);
+    expect(state.cursorByRoom.get(ROOM_ID)).toBe("cursor-head-anchor");
+  });
+
+  it("Regression: first DM in a room created after boot pushes", async () => {
+    // Bug: a brand-new DM room's first message is the head at first
+    // observation; the old cold-start policy anchored past it and
+    // dispatched nothing, so the user never got that notification.
+    const NEW_ROOM = "!newdm:server";
+    let joinedRoomIds = [ROOM_ID];
+    const firstDm = makeEvent({ event_id: "$first", origin_server_ts: COLD_START_CUTOFF_MS + 60_000 });
+    const deps = makeDeps({
+      getUserJoinedRooms: vi.fn(async () => ({ ok: true as const, roomIds: joinedRoomIds })),
+      fetchInitialCursor: vi.fn(async (roomId: string) => ({
+        ok: true as const,
+        sinceToken: "cursor-head-anchor",
+        // Pre-existing room: only history. New room: the first DM.
+        events: roomId === NEW_ROOM
+          ? [firstDm]
+          : [makeEvent({ origin_server_ts: COLD_START_CUTOFF_MS - 60_000 })],
+      })),
+      fetchLive: vi.fn(async () => ({ ok: true as const, events: [], nextSinceToken: "cursor-head-anchor" })),
+    });
+    const state: PerUserState = {
+      userMxid: USER_A_MXID,
+      nextRunAt: 0,
+      backoffIndex: 0,
+      inFlight: false,
+      cursorByRoom: new Map(),
+      coldStartCutoffMs: COLD_START_CUTOFF_MS,
+    };
+
+    // Boot tick: pre-existing room's history is suppressed.
+    await runPushTriggerTick(USER_A, state, deps);
+    expect(deps.sendPushToUser).not.toHaveBeenCalled();
+
+    // Agent opens a new DM between ticks.
+    joinedRoomIds = [ROOM_ID, NEW_ROOM];
+    await runPushTriggerTick(USER_A, state, deps);
+
+    expect(deps.sendPushToUser).toHaveBeenCalledTimes(1);
+    expect(state.cursorByRoom.get(NEW_ROOM)).toBe("cursor-head-anchor");
   });
 
   it("M-1 review-fix: Cold-start fetchInitialCursor failure leaves cursor UNSET so next tick retries", async () => {
@@ -434,6 +522,7 @@ describe("runPushTriggerTick — cursor management", () => {
       backoffIndex: 0,
       inFlight: false,
       cursorByRoom: new Map(),
+      coldStartCutoffMs: COLD_START_CUTOFF_MS,
     };
 
     await runPushTriggerTick(USER_A, state, deps);

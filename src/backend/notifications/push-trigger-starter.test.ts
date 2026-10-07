@@ -227,7 +227,7 @@ describe("startPushTriggerLoopOnBoot", () => {
     expect(t).toBeGreaterThan(1_000_000_000_000);
   });
 
-  it("M-8 fix: fetchInitialCursor calls fetchRoomHistory(dir:'b', count:1) and returns response.start (NOT response.end) as sinceToken", async () => {
+  it("M-8 fix: fetchInitialCursor calls fetchRoomHistory(dir:'b', count) and returns response.start (NOT response.end) as sinceToken", async () => {
     // Load-bearing regression test for the deploy-notification-replay
     // bug (M-8 fix). Matrix's `/messages` response tokens are
     // direction-dependent:
@@ -253,17 +253,18 @@ describe("startPushTriggerLoopOnBoot", () => {
     await startPushTriggerLoopOnBoot();
 
     const depsArg = createPushTriggerLoopMock.mock.calls[0][0];
-    const initialResult = await depsArg.fetchInitialCursor("!room:t1000");
+    const initialResult = await depsArg.fetchInitialCursor("!room:t1000", 20);
 
-    // The wire call — dir=b, count=1.
+    // The wire call — dir=b, count passed through.
     expect(fetchRoomHistoryMock).toHaveBeenCalledWith("!room:t1000", {
       dir: "b",
-      count: 1,
+      count: 20,
     });
     // The cursor stored MUST be `start`, not `end`.
     expect(initialResult).toEqual({
       ok: true,
       sinceToken: "TOKEN_START_HEAD",
+      events: [],
     });
     // Belt-and-suspenders: MUST NOT be the `end` value.
     expect(initialResult).not.toEqual({
@@ -286,8 +287,8 @@ describe("startPushTriggerLoopOnBoot", () => {
     await startPushTriggerLoopOnBoot();
 
     const depsArg = createPushTriggerLoopMock.mock.calls[0][0];
-    const initialResult = await depsArg.fetchInitialCursor("!empty:t1000");
+    const initialResult = await depsArg.fetchInitialCursor("!empty:t1000", 20);
 
-    expect(initialResult).toEqual({ ok: true, sinceToken: null });
+    expect(initialResult).toEqual({ ok: true, sinceToken: null, events: [] });
   });
 });
