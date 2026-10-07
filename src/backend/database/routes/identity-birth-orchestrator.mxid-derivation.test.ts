@@ -113,7 +113,7 @@ function makeDeps(overrides: Partial<BirthDeps> = {}): BirthDeps {
       ok: true,
       mxid: "@testkey:mock.homeserver.local",
       password: "mock-agent-password",
-      status: 200,
+      status: 201,
     }),
     matrixLoginAsUser: vi.fn().mockResolvedValue({
       ok: true,
@@ -359,7 +359,7 @@ describe("Step 6 integration (runRelayMintAndWrite MXID derivation)", () => {
       ok: true,
       mxid: "@willow-skynet-maintainer:mock.homeserver.local",
       password: "mock",
-      status: 200,
+      status: 201,
     });
     const countMock = vi.fn().mockResolvedValue({ ok: true, total: 0 });
     const deps = makeDeps({
@@ -389,7 +389,7 @@ describe("Step 6 integration (runRelayMintAndWrite MXID derivation)", () => {
       ok: true,
       mxid: "@willow-skynet-maintainer-2:mock.homeserver.local",
       password: "mock",
-      status: 200,
+      status: 201,
     });
     const countMock = vi
       .fn()
@@ -416,12 +416,12 @@ describe("Step 6 integration (runRelayMintAndWrite MXID derivation)", () => {
     expect(countMock).toHaveBeenCalledTimes(2);
   }, 30_000);
 
-  it("(q) opts.poolPicked !== true (undefined) → legacy @willow:server MXID; matrixCountUsersMatching NOT called", async () => {
+  it("(q) opts.poolPicked !== true (undefined) → bare @willow:server MXID, still collision-checked", async () => {
     const mintMock = vi.fn().mockResolvedValue({
       ok: true,
       mxid: "@willow:mock.homeserver.local",
       password: "mock",
-      status: 200,
+      status: 201,
     });
     const countMock = vi.fn().mockResolvedValue({ ok: true, total: 0 });
     const deps = makeDeps({
@@ -439,15 +439,79 @@ describe("Step 6 integration (runRelayMintAndWrite MXID derivation)", () => {
     expect(mintMock).toHaveBeenCalled();
     const mxidArg = mintMock.mock.calls[0]?.[0] as string;
     expect(mxidArg).toBe("@willow:mock.homeserver.local");
-    expect(countMock).not.toHaveBeenCalled();
+    expect(countMock).toHaveBeenCalledTimes(1);
+    expect(countMock).toHaveBeenCalledWith("@willow:mock.homeserver.local");
   }, 30_000);
 
-  it("(r) opts.poolPicked === true + name='my-custom' (user-edited non-pool name) → silent fallback to @my-custom:server; matrixCountUsersMatching NOT called", async () => {
+  it("(q2) opts.poolPicked !== true + account already exists (e.g. a human's @ashley) → mints @ashley-2, never touches @ashley", async () => {
+    const mintMock = vi.fn().mockResolvedValue({
+      ok: true,
+      mxid: "@ashley-2:mock.homeserver.local",
+      password: "mock",
+      status: 201,
+    });
+    const countMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, total: 1 })
+      .mockResolvedValueOnce({ ok: true, total: 0 });
+    const deps = makeDeps({
+      matrixCreateOrUpdateUser: mintMock,
+      matrixCountUsersMatching: countMock,
+    });
+    const opts = makeOpts({ name: "ashley", role: "skynet-maintainer" });
+
+    const { emit } = collectEvents();
+    const birthPromise = birthIdentity(opts, emit, deps);
+    await vi.runAllTimersAsync();
+    await birthPromise;
+
+    expect(mintMock).toHaveBeenCalledTimes(1);
+    expect(mintMock.mock.calls[0]?.[0]).toBe("@ashley-2:mock.homeserver.local");
+    expect(countMock.mock.calls.map((c) => c[0])).toEqual([
+      "@ashley:mock.homeserver.local",
+      "@ashley-2:mock.homeserver.local",
+    ]);
+  }, 30_000);
+
+  it("(q3) mint returns 200 (upsert hit an existing account) → Step 6 fails, rollback does NOT deactivate it", async () => {
+    const mintMock = vi.fn().mockResolvedValue({
+      ok: true,
+      mxid: "@ashley:mock.homeserver.local",
+      password: "mock",
+      status: 200,
+    });
+    const deactivateMock = vi.fn().mockResolvedValue({ ok: true });
+    const loginMock = vi.fn().mockResolvedValue({
+      ok: true,
+      accessToken: "syt_mock",
+      status: 200,
+    });
+    const deps = makeDeps({
+      matrixCreateOrUpdateUser: mintMock,
+      matrixDeactivateUser: deactivateMock,
+      matrixLoginAsUser: loginMock,
+    });
+    const opts = makeOpts({ name: "ashley", role: "skynet-maintainer" });
+
+    const { events, emit } = collectEvents();
+    const birthPromise = birthIdentity(opts, emit, deps);
+    await vi.runAllTimersAsync();
+    await birthPromise;
+
+    const failed = events.find(
+      (e) => e.type === "step" && e.n === 6 && e.phase === "failed",
+    ) as (BirthEvent & { reason?: string }) | undefined;
+    expect(failed?.reason).toMatch(/admin_mint_account_exists/);
+    expect(loginMock).not.toHaveBeenCalled();
+    expect(deactivateMock).not.toHaveBeenCalled();
+  }, 30_000);
+
+  it("(r) opts.poolPicked === true + name='my-custom' (user-edited non-pool name) → falls back to bare @my-custom:server, still collision-checked", async () => {
     const mintMock = vi.fn().mockResolvedValue({
       ok: true,
       mxid: "@my-custom:mock.homeserver.local",
       password: "mock",
-      status: 200,
+      status: 201,
     });
     const countMock = vi.fn().mockResolvedValue({ ok: true, total: 0 });
     const deps = makeDeps({
@@ -468,7 +532,7 @@ describe("Step 6 integration (runRelayMintAndWrite MXID derivation)", () => {
     expect(mintMock).toHaveBeenCalled();
     const mxidArg = mintMock.mock.calls[0]?.[0] as string;
     expect(mxidArg).toBe("@my-custom:mock.homeserver.local");
-    expect(countMock).not.toHaveBeenCalled();
+    expect(countMock).toHaveBeenCalledWith("@my-custom:mock.homeserver.local");
   }, 30_000);
 
   it("(s) opts.poolPicked === true + admin count failure → Step 1 emits step:1:failed with sanitized admin_count_failed reason", async () => {
@@ -488,7 +552,7 @@ describe("Step 6 integration (runRelayMintAndWrite MXID derivation)", () => {
       ok: true,
       mxid: "@willow-skynet-maintainer:mock.homeserver.local",
       password: "mock",
-      status: 200,
+      status: 201,
     });
     const deps = makeDeps({
       matrixCreateOrUpdateUser: mintMock,

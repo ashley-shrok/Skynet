@@ -60,10 +60,8 @@ import { resolveHostById } from "../../ssh/host-resolver.js";
 import { isValidPollyVoice } from "../../voice/polly-voice-catalog.js";
 import {
   birthIdentity,
-  runRelayMintAndWrite,
   ROLE_NAME_PATTERN,
   ROLE_NAME_RE,
-  SSH_CONNECT_TIMEOUT_MS,
   sanitizeError,
   type BirthEvent,
   type BirthDeps,
@@ -92,12 +90,11 @@ import type { AuthenticatedRequest } from "../../../types/index.js";
 const router = express.Router();
 const authManager = AuthManager.getInstance();
 const authenticateJWT = authManager.createAuthMiddleware();
-const requireAdmin = authManager.createAdminMiddleware();
 const execAsync = promisify(exec);
 
 // Phase 75 Plan 04 — matches identity-birth-orchestrator.ts IDENTITY_KEY_RE.
-// Duplicated locally so we can validate req.params.key at the retry-route
-// entry before touching any DB / SSH / Synapse dep (T-75-16 defense-in-depth).
+// Duplicated locally so we can validate the identity name at the route layer
+// before touching any DB / SSH / Synapse dep (T-75-16 defense-in-depth).
 const IDENTITY_KEY_RE = /^[a-z0-9._=/+-]+$/;
 
 // Multi-role: cap on the optional `roles` body field (additional roles beyond
@@ -827,8 +824,7 @@ router.post(
       // Unexpected throw from orchestrator (should emit ended event itself,
       // but catch here as a safety net — emit an ended{ok:false} if not already).
       // Phase 106 (D-11): carry sanitized reason on the safety-net emit too,
-      // for log-forensic wire parity with the orchestrator's own outer-catch
-      // and with the retry-route's safety-net emit.
+      // for log-forensic wire parity with the orchestrator's own outer-catch.
       databaseLogger.error("Identity birth orchestrator threw unexpectedly", err, {
         operation: "identity_birth",
         userId,
@@ -859,251 +855,6 @@ router.post(
       // pending frames but before the handler returns to Express. The
       // global-throttle module guards release() with a local `released` flag,
       // so a stray double-call is a no-op.
-      if (release) release();
-    }
-  },
-);
-
-// ---------------------------------------------------------------------------
-// Phase 75 Plan 04 — POST /identities/birth/retry/:key
-//
-// Q2 partial-failure recovery: if a prior birth's Step 6/7/8 failed, the
-// identity folder is on disk (Q2 no-rollback lock) but the relay account /
-// relay.json may be incomplete. This admin-gated route re-runs
-// runRelayMintAndWrite for the existing identity so the operator can recover
-// from the same admin session without touching the target host by hand.
-//
-// D-OQ1 lock: mounted under /identities/birth (inherits existing nginx
-// coverage — no new location blocks required per RESEARCH.md § Pitfall 1).
-// Idempotent: PUT /_synapse/admin/v2/users/<uid> is idempotent (200 update
-// returns fresh state) and writeMarkdownFileAtomic uses ext_openssh_rename
-// for atomic overwrite.
-//
-// Validation order (defense-in-depth):
-//   401 on missing JWT       — createAdminMiddleware
-//   403 on non-admin         — createAdminMiddleware
-//   400 on bad :key          — IDENTITY_KEY_RE
-//   400 on missing hostId    — inline
-//   503 on missing admin creds — getMatrixAdminCreds() === null
-//   then run runRelayMintAndWrite
-//
-// NEVER logs the access_token, agent password, or Synapse response bodies.
-// ---------------------------------------------------------------------------
-router.post("/retry/:key", express.json(), requireAdmin, async (req: Request, res: Response): Promise<void> => {
-    const userId = (req as AuthenticatedRequest).userId;
-    const key = req.params.key;
-
-    // Validate identity key (defense-in-depth: same regex as orchestrator)
-    if (typeof key !== "string" || !IDENTITY_KEY_RE.test(key)) {
-      res.status(400).json({ error: "invalid identity key" });
-      return;
-    }
-
-    const { hostId } = req.body as Record<string, unknown>;
-    if (
-      typeof hostId !== "number" ||
-      !Number.isInteger(hostId) ||
-      hostId <= 0
-    ) {
-      res.status(400).json({ error: "hostId must be a positive integer" });
-      return;
-    }
-
-    // Phase 75 Plan 04 — same fail-early gate as the birth handler above.
-    // Fail-early per D-OQ7 in 75-04-PLAN + T-75-28 in threat model — no
-    // hardcoded homeserver fallback; each Skynet box is its own island
-    // (CONTEXT.md § Philosophy).
-    const creds = await getMatrixAdminCreds();
-    if (!creds) {
-      res.status(503).json({
-        error: "matrix_admin_foundation_not_ingested",
-        detail: "matrix admin foundation not ingested — see deploy runbook",
-      });
-      return;
-    }
-
-    // Resolve the host BEFORE opening SSE so a 404 surfaces as JSON.
-    let host: unknown;
-    try {
-      host = await resolveHostById(hostId, userId);
-    } catch (resolveErr) {
-      databaseLogger.warn("relay retry: host resolve failed", {
-        operation: "identity_birth_retry_host_resolve_failed",
-        userId,
-        hostId,
-        error: resolveErr instanceof Error ? resolveErr.message : String(resolveErr),
-      });
-      res.status(404).json({ error: "host not found" });
-      return;
-    }
-    if (!host) {
-      res.status(404).json({ error: "host not found" });
-      return;
-    }
-
-    // Phase 110 (reshaped 2026-09-24 to per-host): acquire a per-target-host
-    // birth-throttle slot before opening SSE. If the host's queue is at
-    // capacity, reject with 429 JSON (Content-Type application/json) — same
-    // discipline as the POST / handler above. Acquire happens AFTER the
-    // host-resolve 404 gate so a bad hostId doesn't needlessly hold a
-    // throttle slot.
-    let release: (() => void) | null = null;
-    try {
-      release = await acquireBirthSlot({ source: "http", hostId });
-    } catch (err) {
-      if (err instanceof ThrottleRejectedError) {
-        res
-          .status(429)
-          .json({ error: "identity_birth_queue_full", retry_after_ms: err.retryAfterMs });
-        return;
-      }
-      throw err;
-    }
-
-    // Open SSE with the same envelope as the birth handler.
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache, no-transform");
-    res.setHeader("Connection", "keep-alive");
-    res.setHeader("X-Accel-Buffering", "no");
-    res.flushHeaders();
-
-    // Phase 106 (D-09): 30s SSE comment-frame keepalive — mirror of the POST /
-    // route's keepalive above. Retry cumulative time is under 30s in the happy
-    // case (Steps 6/7/8 + no supervisor wait), but a slow Synapse admin API
-    // round-trip could plausibly push a single step past the nginx/Caddy
-    // intermediary idle-timeout. Defense-in-depth to keep the wire warm.
-    const keepAliveInterval = setInterval(() => {
-      try {
-        res.write(":keepalive\n\n");
-      } catch {
-        /* ignore write errors after close */
-      }
-    }, 30000);
-
-    const emit = (e: BirthEvent): void => {
-      res.write(`event: birth\ndata: ${JSON.stringify(e)}\n\n`);
-    };
-
-    // Assemble the deps that runRelayMintAndWrite needs. Same wiring shape
-    // as the birth handler's BirthDeps for consistency; writeIdentityFile
-    // inside runRelayMintAndWrite handles the relay.json write through its
-    // own module import (no deps.writeMarkdownFileAtomic needed).
-    const deps: Pick<
-      BirthDeps,
-      | "matrixCreateOrUpdateUser"
-      | "matrixLoginAsUser"
-      | "matrixHomeserver"
-      | "matrixServerName"
-      | "relayJsonHomeserverBase"
-      | "buildRelayJsonBody"
-      | "execCommand"
-    > = {
-      execCommand,
-      matrixCreateOrUpdateUser: (mxid, password, displayname) =>
-        matrixCreateOrUpdateUser(mxid, password, displayname),
-      matrixLoginAsUser: (mxid, validUntilMs) =>
-        matrixLoginAsUser(mxid, validUntilMs),
-      matrixHomeserver: creds.homeserverBase,
-      matrixServerName: creds.serverName,
-      // Host-reachable relay.json base — falls back to homeserverBase when
-      // the hostSideBase column is null (single-URL fleets like t1000).
-      relayJsonHomeserverBase: creds.hostSideBase ?? creds.homeserverBase,
-      buildRelayJsonBody: (opts) => buildRelayJsonBody(opts),
-    };
-
-    let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
-    let endedEmitted = false;
-    try {
-      conn = await connectOneShot(host as Parameters<typeof connectOneShot>[0], SSH_CONNECT_TIMEOUT_MS);
-      // displayName mirrors the orchestrator's Step 2.5 derivation
-      const displayName =
-        key.length > 0 ? key[0].toUpperCase() + key.slice(1) : key;
-
-      // 2026-09-18 (quick 260918-52n): runRelayMintAndWrite no longer derives
-      // the MXID internally — the caller passes it. The retry route operates
-      // on an already-on-disk folder, so:
-      //   identityFolderName = the folder that already exists (= `key`)
-      //   mxid               = `@${key}:${serverName}` (legacy shape)
-      // The legacy shape is correct here: retry is invoked BY KEY on an
-      // existing folder, so we can't run deriveMxidWithOrdinal (that would
-      // pick a fresh ordinal and mint a NEW account, not repair the
-      // partially-failed birth). Match the original pre-refactor behavior:
-      // retry always took the legacy branch (poolPicked=undefined).
-      //
-      // serverName derivation mirrors runRelayMintAndWrite's pre-refactor
-      // block: prefer creds.serverName when set (explicit override for
-      // deployments where homeserverBase host != real Matrix server_name),
-      // else strip scheme/port/path from homeserverBase.
-      const rawHost = creds.serverName != null
-        ? creds.serverName
-        : creds.homeserverBase
-            .replace(/^https?:\/\//, "")
-            .split("/")[0]
-            .split(":")[0];
-      const retryMxid = `@${key}:${rawHost}`;
-
-      // runRelayMintAndWrite emits ended{ok:false, failedStep:N} on any step
-      // failure via its internal runStep, so we only need to catch here for
-      // "unexpected error, no ended emitted yet" and for the success path
-      // (which does NOT emit ended — the retry route emits ended{ok:true}
-      // on success below).
-      await runRelayMintAndWrite(
-        {
-          name: key,
-          displayName,
-          hostId,
-          mxid: retryMxid,
-          identityFolderName: key,
-        },
-        (e: BirthEvent) => {
-          emit(e);
-          if (e.type === "ended") endedEmitted = true;
-        },
-        deps as BirthDeps,
-        conn,
-      );
-      // Q2 no-rollback lock — see 75-CONTEXT.md § Storage failure mode + agent-supervisor race
-      // Success: emit ended{ok:true} to close out the SSE stream cleanly.
-      // runRelayMintAndWrite only emits ended on FAILURE (via runStep's
-      // catch); happy-path completion needs an explicit ended{ok:true} here.
-      if (!endedEmitted) {
-        emit({ type: "ended", ok: true, identityId: key, sessionName: key });
-      }
-    } catch (err) {
-      // Q2 no-rollback lock — see 75-CONTEXT.md § Storage failure mode + agent-supervisor race
-      // BirthAborted from runStep already emitted step:N:failed + ended.
-      // Any other throw (SSH connect failure, unexpected) needs a fallback
-      // ended{ok:false} emit if runRelayMintAndWrite did not emit one.
-      databaseLogger.error("relay retry unexpectedly threw", err, {
-        operation: "identity_birth_retry",
-        userId,
-        key,
-        hostId,
-      });
-      if (!endedEmitted) {
-        // Phase 106 (D-11 + W-1 fix): carry the sanitized reason string on
-        // the failure ended emit so log-forensic parity holds across birth
-        // and retry paths. sanitizeError is the SAME helper the orchestrator
-        // uses on its outer-catch failure branch — reuses the 200-char cap
-        // + SSH-message-to-safe-string mapping.
-        emit({ type: "ended", ok: false, reason: sanitizeError(err) });
-      }
-    } finally {
-      // Phase 106 (D-09): tear down the keepalive timer FIRST — same
-      // ordering discipline as the POST / route above.
-      clearInterval(keepAliveInterval);
-      if (conn) {
-        try {
-          (conn as unknown as { end: () => void }).end();
-        } catch {
-          // Ignore cleanup errors — Q2 no-rollback lock — see 75-CONTEXT.md § Storage failure mode + agent-supervisor race
-        }
-      }
-      res.end();
-      // Phase 110: release the throttle slot LAST — after res.end() has flushed
-      // pending frames but before the handler returns to Express. Guarded by
-      // `if (release)` because acquire may have thrown before assigning it
-      // (though the 429 path returns early, not falls through).
       if (release) release();
     }
   },
