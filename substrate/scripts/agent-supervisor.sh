@@ -260,8 +260,14 @@ CLAUDE_LAUNCH_FLAGS="${CLAUDE_MODEL:+--model $CLAUDE_MODEL }--dangerously-skip-p
 # against its own X display (allocated + started lazily by agent-desktop). Registered per launch via
 # --mcp-config pointing at a small JSON file, so it adds to (never replaces) the user's own MCP
 # servers in ~/.claude.json. Only wired when desktop-mcp is installed, so a box the distributor
-# hasn't reached yet launches exactly as before. Like every launch flag, a running session picks
-# this up on its next (re)launch.
+# hasn't reached yet launches exactly as before.
+#
+# ⚠️ Computed JUST-IN-TIME at each launch call-site (via compute_desktop_mcp_flag below), NOT
+# cached at supervisor startup. Startup-caching had a distributor race: if the supervisor restarted
+# a beat before `desktop-mcp` was written to disk, the flag was permanently absent from launches
+# for that supervisor's whole lifetime. Just-in-time means every launch reflects live filesystem
+# state — self-healing in both directions (binary appears → next launch picks it up; binary
+# removed → next launch drops it).
 DESKTOP_MCP_BIN="$HOME/.local/bin/desktop-mcp"
 DESKTOP_MCP_CONFIG="$HOME/.claude/desktop-mcp.json"
 ensure_desktop_mcp_config() {
@@ -275,7 +281,14 @@ ensure_desktop_mcp_config() {
   fi
   return 0
 }
-ensure_desktop_mcp_config && CLAUDE_LAUNCH_FLAGS="$CLAUDE_LAUNCH_FLAGS --mcp-config $DESKTOP_MCP_CONFIG"
+# Prints the `--mcp-config <path>` fragment when desktop-mcp is installed and the config is current,
+# otherwise prints nothing. Called inline at every claude-launch send-keys line; cheap because
+# ensure_desktop_mcp_config short-circuits when the on-disk config already matches.
+compute_desktop_mcp_flag() {
+  if ensure_desktop_mcp_config; then
+    printf -- '--mcp-config %s' "$DESKTOP_MCP_CONFIG"
+  fi
+}
 
 # ---- memory cap (2026-08-06) — wrap claude launches in a systemd scope with MemoryHigh ----
 # Rationale: claude's baseline is ~500 MB RSS per session (Ink React TUI + Node/V8, architectural).
@@ -2173,9 +2186,9 @@ redrive_claude() {
   timeout -k 5 10 tmux send-keys -t "$sess" Enter 2>/dev/null
   sleep 0.5
   if [ -n "$resume" ]; then
-    timeout -k 5 10 tmux send-keys -t "$sess" -l "$MEMORY_WRAPPER env FLEET_IDENTITY=$name $CLAUDE_LAUNCH_ENV $CLAUDE --resume $resume $CLAUDE_LAUNCH_FLAGS" 2>/dev/null
+    timeout -k 5 10 tmux send-keys -t "$sess" -l "$MEMORY_WRAPPER env FLEET_IDENTITY=$name $CLAUDE_LAUNCH_ENV $CLAUDE --resume $resume $CLAUDE_LAUNCH_FLAGS $(compute_desktop_mcp_flag)" 2>/dev/null
   else
-    timeout -k 5 10 tmux send-keys -t "$sess" -l "$MEMORY_WRAPPER env FLEET_IDENTITY=$name $CLAUDE_LAUNCH_ENV $CLAUDE $CLAUDE_LAUNCH_FLAGS" 2>/dev/null
+    timeout -k 5 10 tmux send-keys -t "$sess" -l "$MEMORY_WRAPPER env FLEET_IDENTITY=$name $CLAUDE_LAUNCH_ENV $CLAUDE $CLAUDE_LAUNCH_FLAGS $(compute_desktop_mcp_flag)" 2>/dev/null
   fi
   timeout -k 5 10 tmux send-keys -t "$sess" Enter 2>/dev/null
 }
@@ -2310,7 +2323,7 @@ drive() {
     # the known resume-auto-compact bug (GH #56271 / #64923) at source, so the historical Ctrl-C
     # train that fought it post-hoc is gone — ~9s wall-time savings per wake.
     # bash command-scoped assignment — vars apply to this claude only, not the shell.
-    timeout -k 5 10 tmux send-keys -t "$sess" -l "$MEMORY_WRAPPER env FLEET_IDENTITY=$name $CLAUDE_LAUNCH_ENV $CLAUDE --resume $resume $CLAUDE_LAUNCH_FLAGS" 2>/dev/null
+    timeout -k 5 10 tmux send-keys -t "$sess" -l "$MEMORY_WRAPPER env FLEET_IDENTITY=$name $CLAUDE_LAUNCH_ENV $CLAUDE --resume $resume $CLAUDE_LAUNCH_FLAGS $(compute_desktop_mcp_flag)" 2>/dev/null
     timeout -k 5 10 tmux send-keys -t "$sess" Enter 2>/dev/null
     # ⚠️ VERIFY CLAUDE ACTUALLY LAUNCHED (2026-08-29, user witnessed a live failure on workstation).
     # send-keys drops bytes into the pane and returns 0 whether or not they became a viable command.
@@ -2377,7 +2390,7 @@ drive() {
   # Env-var prefix is harmless on a fresh launch (there's no session to summarize) but cheap insurance
   # if a fresh claude ever picks up an older recorded session unexpectedly.
   log "'$name' drive fresh: typing claude launch command into pane '$sess'"
-  timeout -k 5 10 tmux send-keys -t "$sess" -l "$MEMORY_WRAPPER env FLEET_IDENTITY=$name $CLAUDE_LAUNCH_ENV $CLAUDE $CLAUDE_LAUNCH_FLAGS" 2>/dev/null
+  timeout -k 5 10 tmux send-keys -t "$sess" -l "$MEMORY_WRAPPER env FLEET_IDENTITY=$name $CLAUDE_LAUNCH_ENV $CLAUDE $CLAUDE_LAUNCH_FLAGS $(compute_desktop_mcp_flag)" 2>/dev/null
   timeout -k 5 10 tmux send-keys -t "$sess" Enter 2>/dev/null
   # ⚠️ VERIFY CLAUDE ACTUALLY LAUNCHED — same failure mode as the resume path above (see the block
   # in the `if [ -n "$resume" ]` branch for the full story). On second failure, bail without pasting
