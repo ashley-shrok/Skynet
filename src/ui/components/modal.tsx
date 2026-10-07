@@ -240,7 +240,11 @@ function Modal({
             // `sm:` it would also clamp mobile and leave viewport space
             // showing the app behind). On mobile every modal takes the
             // whole viewport regardless of what the consumer declared.
+            // Border + shadow (incl. the inset top rim) are dropped too —
+            // at full-bleed they just outline the viewport edge and give
+            // away that it's a blown-up floating card.
             "max-sm:w-full max-sm:h-full max-sm:max-w-full max-sm:max-h-full max-sm:rounded-none",
+            "max-sm:border-0 max-sm:shadow-none",
           )}
         >
           {children}
