@@ -62,6 +62,7 @@ import {
 export interface SubstrateHostRecord {
   id: string;
   name: string;
+  machineId?: string;
   _connDetails: Record<string, unknown>;
 }
 
@@ -264,6 +265,7 @@ export function createServerSubstrateOrchestrator(
         await bootstrapFleetSubstrateLocally({
           id: host.id,
           name: host.name,
+          machineId: host.machineId,
         });
         result = await installFleetSubstrateLocally(
           { id: host.id, name: host.name },
@@ -324,7 +326,7 @@ export function createServerSubstrateOrchestrator(
             : "unknown";
         result = await runSweepForHost(
           channel,
-          { id: host.id, name: host.name, username },
+          { id: host.id, name: host.name, username, machineId: host.machineId },
           FLEET_SUBSTRATE_CATALOG,
           {
             readBundledBytes: bundledReaderFromDisk,

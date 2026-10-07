@@ -304,7 +304,7 @@ export const USAGE_REPORTER_WRAPPER_PATH = "$HOME/.local/bin/usage-reporter";
  */
 export async function runBootstrapForHost(
   channel: SshChannel,
-  host: { id: string; name: string },
+  host: { id: string; name: string; machineId?: string },
 ): Promise<BootstrapResult> {
   // Phase 75 D-03: parent Skynet's HTTPS URL, read at function top so it flows
   // directly into step 4 without threading it through SweepDeps +
@@ -873,7 +873,9 @@ export async function runBootstrapForHost(
   }
 
   // -------------------------------------------------------------------------
-  // Step 5b: Write ~/fleet/host/id — fleet's numeric DB id for this box.
+  // Step 5b: Write ~/fleet/host/id — the box's machine id (shared by every
+  //          user's row for this box, so all sweeps agree and URLs minted
+  //          from it resolve for every user; falls back to the row id).
   //          Written on every sweep (host.id is always in scope) with
   //          content-diff idempotency. Consumers: the app-development skill's
   //          create-app.sh reads this file to burn the numeric hostId into
@@ -885,7 +887,7 @@ export async function runBootstrapForHost(
   //          sweep (rebrand-neutrality — same rationale as Step 4).
   // -------------------------------------------------------------------------
   try {
-    const safeHostid = host.id.replace(/'/g, "'\\''");
+    const safeHostid = (host.machineId ?? host.id).replace(/'/g, "'\\''");
     const cmd = [
       `SH="$HOME/fleet/host/id"`,
       `mkdir -p "$HOME/fleet/host"`,

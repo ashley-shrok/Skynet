@@ -14,7 +14,7 @@
  *   6.  Path-prefix strip: factory called with (target, tunnelPort,
  *       hostId, slug) so its pathRewrite regex strips
  *       `^/apps/<hostId>/<slug>/pane`.
- *   7.  resolveHostById null → 403 with the SAME body as case 5
+ *   7.  resolveHostByUniversalId null → 403 with the SAME body as case 5
  *       (T-120-26 info-leak invariant).
  *   8.  V5 input validation — slug `../etc/passwd` → 400.
  *   9.  V5 input validation — hostId 0 or negative → 400.
@@ -58,7 +58,7 @@ process.env.SKYNET_COOKIE_DOMAIN = PRIMARY_ORIGIN;
 let authAllowUserId: string | null = "u1";
 
 const mocks = vi.hoisted(() => ({
-  resolveHostById: vi.fn(),
+  resolveHostByUniversalId: vi.fn(),
   checkHostAccess: vi.fn(),
   getRegistry: vi.fn(),
   getAppSnapshot: vi.fn(),
@@ -94,7 +94,7 @@ vi.mock("../../utils/auth-manager.js", () => {
 });
 
 vi.mock("../../ssh/host-resolver.js", () => ({
-  resolveHostById: mocks.resolveHostById,
+  resolveHostByUniversalId: mocks.resolveHostByUniversalId,
   checkHostAccess: mocks.checkHostAccess,
 }));
 
@@ -240,7 +240,7 @@ describe("app-pane-router", () => {
 
   beforeEach(() => {
     authAllowUserId = "u1";
-    mocks.resolveHostById.mockReset();
+    mocks.resolveHostByUniversalId.mockReset();
     mocks.checkHostAccess.mockReset();
     mocks.getRegistry.mockReset();
     mocks.getAppSnapshot.mockReset();
@@ -256,7 +256,7 @@ describe("app-pane-router", () => {
     mocks.sshLogger.debug.mockClear();
 
     // Happy defaults; individual tests override.
-    mocks.resolveHostById.mockResolvedValue({
+    mocks.resolveHostByUniversalId.mockResolvedValue({
       id: 5,
       name: "t1000",
       userId: "u1",
@@ -723,12 +723,33 @@ describe("app-pane-router", () => {
     });
   });
 
+  describe("cross-user URL id", () => {
+    it("resolves another user's row id to the caller's row; proxy keeps the URL id", async () => {
+      // Default resolver mock returns the caller's own row (id 5).
+      const { port, close } = await makeServer(false);
+      try {
+        const res = await sendHttp(port, "GET", "/apps/42/todo/pane/api/list");
+        expect(res.status).toBe(200);
+        expect(mocks.resolveHostByUniversalId).toHaveBeenCalledWith(42, expect.any(String));
+        expect(mocks.checkHostAccess).toHaveBeenCalledWith(5, expect.any(String), "u1", "read");
+        expect(mocks.getOrCreateAppPaneProxyForTarget).toHaveBeenCalledWith(
+          expect.anything(),
+          12345,
+          42,
+          "todo",
+        );
+      } finally {
+        await close();
+      }
+    });
+  });
+
   /* -------------------- Info-leak invariant (case 7) -------------------- */
 
   describe("info-leak invariant", () => {
-    it("resolveHostById null → 403 body byte-identical to checkHostAccess false", async () => {
-      // Branch A: resolveHostById returns null.
-      mocks.resolveHostById.mockResolvedValueOnce(null);
+    it("resolveHostByUniversalId null → 403 body byte-identical to checkHostAccess false", async () => {
+      // Branch A: resolveHostByUniversalId returns null.
+      mocks.resolveHostByUniversalId.mockResolvedValueOnce(null);
       const server1 = await makeServer(false);
       let bodyA: string;
       try {
@@ -740,7 +761,7 @@ describe("app-pane-router", () => {
       }
 
       // Branch B: checkHostAccess returns false (host resolves fine).
-      mocks.resolveHostById.mockResolvedValueOnce({
+      mocks.resolveHostByUniversalId.mockResolvedValueOnce({
         id: 5,
         name: "t1000",
         userId: "u1",

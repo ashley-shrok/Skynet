@@ -1,11 +1,11 @@
 /**
  * Phase 103 Plan 03a — Per-target SSH tunnel cache for serve-URL reverse proxy.
  *
- * For each `(hostname, port)` target the agent constructs into a serve URL,
+ * For each `(machine, port)` target the agent constructs into a serve URL,
  * open exactly one SSH tunnel: a local TCP listener on 127.0.0.1 that pipes
  * bytes over `sshClient.forwardOut` into the agent's port on the agent's
  * box. Cache the resulting `{ server, tunnelPort }` keyed by
- * `${hostname}:${port}` so repeat requests (page load → many asset fetches
+ * `${machineId}:${port}` so repeat requests (page load → many asset fetches
  * → HMR WS) all share the same tunnel instance.
  *
  * SSH reuse invariant (R&D GOTCHA 3): the underlying SSH client comes from
@@ -75,7 +75,7 @@ export interface TunnelInstance {
 /* ------------------------------------------------------------------------ */
 
 class TunnelCache {
-  /** Cache key format: `${target.hostname}:${target.port}` (the AGENT's
+  /** Cache key format: `${machineId}:${target.port}` (the AGENT's
    *  port on the AGENT's box — NOT the SSH port, and NOT the same as the
    *  SSH pool key which incorporates host.ip + host.username). */
   private cache = new Map<string, TunnelInstance>();
@@ -88,7 +88,10 @@ class TunnelCache {
   private inFlight = new Map<string, Promise<TunnelInstance>>();
 
   async getOrCreate(target: ServeTarget): Promise<TunnelInstance> {
-    const cacheKey = `${target.hostname}:${target.port}`;
+    // Keyed by machine, not host name: names are per-user and can collide
+    // across different boxes, while every user's row for one box shares a
+    // machine id (and can safely share the tunnel to it).
+    const cacheKey = `${target.host.machineId ?? target.host.id}:${target.port}`;
     const cached = this.cache.get(cacheKey);
     if (cached) return cached;
 

@@ -1283,7 +1283,7 @@ async function removeLegacyFileIfPresent(legacyPath: string): Promise<void> {
  * NEVER REJECTS. Same never-throw contract as installFleetSubstrateLocally.
  */
 export async function bootstrapFleetSubstrateLocally(
-  host: { id: string; name: string },
+  host: { id: string; name: string; machineId?: string },
 ): Promise<BootstrapResult> {
   let alreadyEnabled = false;
   let bootstrapRan = false;
@@ -1450,12 +1450,15 @@ export async function bootstrapFleetSubstrateLocally(
   }
 
   // ---- Step 5b: host-id ----
-  //   Numeric fleet DB id as string. Consumers: app-development skill's
+  //   The box's machine id (falls back to the row id). Consumers: app-development skill's
   //   create-app.sh reads this at scaffold time to burn PANE_BASE. Same
   //   fail-soft shape as Step 5.
   try {
     const target = path.join(hostConfigDir, "id");
-    const outcome = await writeContentDiffFile(target, host.id + "\n");
+    const outcome = await writeContentDiffFile(
+      target,
+      (host.machineId ?? host.id) + "\n",
+    );
     if (typeof outcome === "object") {
       hadError = true;
       systemLogger.warn(

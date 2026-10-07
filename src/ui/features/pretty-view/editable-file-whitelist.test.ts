@@ -108,61 +108,41 @@ describe("SKYNET_FILE_URL_RE_CLIENT — file-URL client regex (Phase 75 D-01)", 
 });
 
 describe("SKYNET_SERVE_URL_RE_CLIENT — serve-URL client regex (Phase 103 D-29)", () => {
-  it("matches basic serve URL (host + port + no path)", () => {
+  it("matches basic serve URL (machine id + port + no path)", () => {
     SKYNET_SERVE_URL_RE_CLIENT.lastIndex = 0;
-    const url = "https://t1000-3020.serve.term.example.com";
-    const matches = url.match(SKYNET_SERVE_URL_RE_CLIENT);
-    expect(matches).not.toBeNull();
-    expect(matches!.length).toBeGreaterThanOrEqual(1);
-    expect(matches).toContain(url);
+    const url = "https://12-3020.serve.term.example.com";
+    expect(url.match(SKYNET_SERVE_URL_RE_CLIENT)).toContain(url);
   });
 
   it("matches serve URL with path", () => {
     SKYNET_SERVE_URL_RE_CLIENT.lastIndex = 0;
-    const url =
-      "https://t1000-3020.serve.term.example.com/foo/bar";
-    const matches = url.match(SKYNET_SERVE_URL_RE_CLIENT);
-    expect(matches).not.toBeNull();
-    expect(matches!.length).toBeGreaterThanOrEqual(1);
-    expect(matches).toContain(url);
+    const url = "https://12-3020.serve.term.example.com/foo/bar";
+    expect(url.match(SKYNET_SERVE_URL_RE_CLIENT)).toContain(url);
   });
 
-  it("matches serve URL with different hostname + port (thenasty-8080)", () => {
+  it("rejects a host-name serve URL (name-based URLs are retired)", () => {
     SKYNET_SERVE_URL_RE_CLIENT.lastIndex = 0;
-    const url = "https://thenasty-8080.serve.term.example.com";
-    const matches = url.match(SKYNET_SERVE_URL_RE_CLIENT);
-    expect(matches).not.toBeNull();
-    expect(matches!.length).toBeGreaterThanOrEqual(1);
+    expect(
+      "https://thenasty-8080.serve.term.example.com".match(SKYNET_SERVE_URL_RE_CLIENT),
+    ).toBeNull();
+    expect(
+      "https://ip-172-31-209-239-3020.serve.skynet.example.com".match(
+        SKYNET_SERVE_URL_RE_CLIENT,
+      ),
+    ).toBeNull();
   });
 
-  it("matches serve URL with mixed-case hostname (D-13 case preservation)", () => {
+  it("rejects URL without a digit port", () => {
     SKYNET_SERVE_URL_RE_CLIENT.lastIndex = 0;
-    const url = "https://WINDOWS-PC-3000.serve.term.example.com";
-    const matches = url.match(SKYNET_SERVE_URL_RE_CLIENT);
-    expect(matches).not.toBeNull();
-    expect(matches!.length).toBeGreaterThanOrEqual(1);
-  });
-
-  it("rejects URL without a digit port (foo-bar has no numeric suffix)", () => {
-    SKYNET_SERVE_URL_RE_CLIENT.lastIndex = 0;
-    const url = "https://foo-bar.serve.term.example.com";
-    const matches = url.match(SKYNET_SERVE_URL_RE_CLIENT);
-    expect(matches).toBeNull();
+    const url = "https://12-bar.serve.term.example.com";
+    expect(url.match(SKYNET_SERVE_URL_RE_CLIENT)).toBeNull();
   });
 
   // The `.serve.` label no longer carries this instance's own primary-domain
   // labels, so serve URLs on other Skynet instances are detected too.
   it("matches a serve URL on a non-term instance", () => {
     SKYNET_SERVE_URL_RE_CLIENT.lastIndex = 0;
-    const url = "https://t800-3020.serve.skynet.example.com/app";
-    const matches = url.match(SKYNET_SERVE_URL_RE_CLIENT);
-    expect(matches).not.toBeNull();
-    expect(matches![0]).toBe(url);
-  });
-
-  it("matches an AWS-default host name in a serve URL", () => {
-    SKYNET_SERVE_URL_RE_CLIENT.lastIndex = 0;
-    const url = "https://ip-172-31-209-239-3020.serve.skynet.example.com";
+    const url = "https://7-3020.serve.skynet.example.com/app";
     const matches = url.match(SKYNET_SERVE_URL_RE_CLIENT);
     expect(matches).not.toBeNull();
     expect(matches![0]).toBe(url);

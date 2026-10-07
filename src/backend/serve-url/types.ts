@@ -30,15 +30,15 @@ import type { Host } from "../../types/index.js";
 
 /**
  * A serve-URL routing target. Derived by subdomain-dispatch parsing the
- * leftmost DNS label of a `<hostname>-<port>.serve.term.<domain>` request
- * per D-11 (split on last dash; right side must be all-digits port). The
- * `host` field is the DB row resolved via `resolveHostByName(hostname,
- * userId)` per D-17 (owned-only lookup, matches Phase 78 file-URL
- * precedent).
+ * leftmost DNS label of a `<machineId>-<port>.serve.<domain>` request
+ * (split on last dash; both sides all digits). The `host` field is the
+ * caller's own DB row for that machine, resolved via
+ * `resolveHostByUniversalId(machineId, userId)`.
  */
 export interface ServeTarget {
-  /** DNS-legal hostname portion of the label — the AGENT's host name, NOT
-   *  the SSH tunnel bind address. Lowercased for lookup per D-13. */
+  /** The caller's display name for the box (host.name). Used only in
+   *  interstitials, logs and alongside unique keys (tunnelPort) — never
+   *  alone as a routing or cache key, since names are per-user. */
   hostname: string;
   /** Positive integer TCP port on the AGENT's host where the reverse-proxy
    *  target listens. NOT the SSH port. */

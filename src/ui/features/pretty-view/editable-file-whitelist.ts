@@ -144,21 +144,15 @@ export const SKYNET_FILE_URL_RE_CLIENT =
   /https:\/\/[a-zA-Z0-9.-]+(?::\d{1,5})?\/file\/[a-zA-Z0-9._-]+\/[^\s)?#]+/g;
 
 /**
- * Phase 103 D-29 URL shape: <hostname>-<port>.serve.<domain>[/path]
- * Example: https://t1000-3020.serve.term.example.com/foo/bar
+ * Serve URL shape: <machineId>-<port>.serve.<domain>[/path]
+ * Example: https://12-3020.serve.term.example.com/foo/bar
  *
- * Grammar (locked in Phase 103 D-01 + D-11; D-12 superseded — see below):
+ * Grammar:
  *   - scheme:      https:// only (Caddy edge terminates TLS; agents on the
  *                  serve subdomain always speak HTTPS to the user's browser).
- *   - hostname:    [a-zA-Z0-9._-]+ — matches hosts.name for the fleet's
- *                  simple-name convention (D-13 case preserved on the wire;
- *                  backend does LOWER() at lookup time). The LAST-DASH split
- *                  in D-11 is unambiguous by construction: the port is
- *                  all-digits, so it never contains a dash, so the joining
- *                  dash is always the last one. (The old D-12 registration
- *                  guard rejecting `-\d+$` hostnames was redundant and has
- *                  been replaced by a single-DNS-label check.)
- *   - literal:     - (last dash of the leftmost DNS label per D-11)
+ *   - machineId:   \d{1,10} — the box's machine id (shared by every user's
+ *                  host row for that box, so one link works for all of them).
+ *   - literal:     -
  *   - port:        \d{1,5} — the agent's port on the target host.
  *   - literal:     .serve.
  *   - domain:      [a-zA-Z0-9.-]+ — any DNS-legal parent domain, including
@@ -188,14 +182,14 @@ export const SKYNET_FILE_URL_RE_CLIENT =
  * MIRROR-RULE bookkeeping (Phase 40 D-02): the backend twin at
  * src/backend/utils/editable-file-whitelist.ts does NOT re-export this
  * regex — the backend validates serve URLs via the subdomain-dispatch
- * middleware's own parse logic per D-11 (split on last dash of leftmost
- * DNS label; right side must be all digits). Same rationale as
+ * middleware's own parse logic (split on last dash of leftmost DNS label;
+ * both sides must be all digits). Same rationale as
  * TAILNET_URL_RE_CLIENT and SKYNET_FILE_URL_RE_CLIENT being client-only.
  * The backend twin's docblock carries a PHASE 103 mirror-rule paragraph
  * to preserve the paper trail.
  */
 export const SKYNET_SERVE_URL_RE_CLIENT =
-  /https:\/\/[a-zA-Z0-9._-]+-\d{1,5}\.serve\.[a-zA-Z0-9.-]+(?::\d{1,5})?(?:\/[^\s)?#]*)?/g;
+  /https:\/\/\d{1,10}-\d{1,5}\.serve\.[a-zA-Z0-9.-]+(?::\d{1,5})?(?:\/[^\s)?#]*)?/g;
 
 /**
  * Phase 137 D-137: interactive-message widget URL shape.

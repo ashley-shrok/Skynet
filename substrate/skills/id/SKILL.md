@@ -465,15 +465,17 @@ WebSocket traffic through an SSH tunnel to whatever port you tell it.
 
 Grammar:
 
-    https://<hostname>-<port>.serve.<app-parent-domain>
+    https://<host-id>-<port>.serve.<app-parent-domain>
 
-Where `<app-parent-domain>` is derived from `~/fleet/host/parent`:
+Where `<host-id>` is the number in `~/fleet/host/id` and
+`<app-parent-domain>` is derived from `~/fleet/host/parent`:
 strip the protocol, then the serve URL constructs as
-`<hostname>-<port>.serve.<the-rest>`.
+`<host-id>-<port>.serve.<the-rest>`. The host id names this machine for
+every user who has it, so the same link works for all of them.
 Concrete example (with the app-parent at `https://example.com`,
-this box named `boxname-example`, and a dev server on port 3020):
+this box's host id `12`, and a dev server on port 3020):
 
-    https://boxname-example-3020.serve.example.com
+    https://12-3020.serve.example.com
 
 Construct one like so:
 
@@ -483,9 +485,9 @@ Construct one like so:
            "Ask the box-maintainer role to check the distributor sweep." >&2
       exit 1
     fi
-    HOST=$(cat ~/fleet/host/name 2>/dev/null)
-    if [ -z "$HOST" ]; then
-      echo "I can't share a live serve URL right now — my app-hostname config is missing." \
+    HOST_ID=$(tr -d '[:space:]' < ~/fleet/host/id 2>/dev/null)
+    if ! [[ "$HOST_ID" =~ ^[1-9][0-9]*$ ]]; then
+      echo "I can't share a live serve URL right now — my host-id config is missing." \
            "Ask the box-maintainer role to check the distributor sweep." >&2
       exit 1
     fi
@@ -494,7 +496,7 @@ Construct one like so:
     PARENT=${APP_PARENT#https://}
     FIRST_LABEL=${PARENT%%.*}            # e.g. "example"
     REST=${PARENT#*.}                    # e.g. "com"
-    printf '[%s live](https://%s-%d.serve.%s.%s)\n' "$HOST" "$HOST" "$PORT" "$FIRST_LABEL" "$REST"
+    printf '[live on port %d](https://%s-%d.serve.%s.%s)\n' "$PORT" "$HOST_ID" "$PORT" "$FIRST_LABEL" "$REST"
 
 **Round-trip semantics — passthrough only.** Any HTTP method + body +
 WebSocket upgrade flows through unchanged. Your session cookie and auth
@@ -502,19 +504,18 @@ headers are stripped before forwarding — the running thing on the other
 end sees a plain request from the edge, not from a specific authenticated
 user (auth is enforced at the edge, not passed to your app). Modern
 frontends (Vite, Next.js, anything with absolute-path assets) work
-naturally because every `<hostname>-<port>` combination presents as its
+naturally because every `<host-id>-<port>` combination presents as its
 own web origin under the wildcard cert.
 
 **Rules that matter — bake them in every time:**
 
-- **Read `~/fleet/host/name` at construction time — do NOT infer the
-  hostname from the role file, `box-map.md`, or prose you remember.**
-  Same rule as the file URL — the app's record for this box uses that
-  exact string; anything else 404s at the interstitial.
+- **Read `~/fleet/host/id` at construction time — never use the box's
+  name, the tailscale hostname, or a number you remember.** Serve URLs
+  are `<host-id>-<port>` only; a name in that slot is rejected.
 
 - **The port must be listening BEFORE you cite the URL.** If you cite
-  `boxname-example-3020.serve.example.com` and nothing is on 3020, they see
-  "port 3020 of boxname-example isn't responding" interstitial. Polite, but still —
+  `12-3020.serve.example.com` and nothing is on 3020, they see a
+  "port 3020 isn't responding" interstitial. Polite, but still —
   don't cite dead URLs. Confirm the port is up (e.g. `ss -ltn | grep
   :3020`) before you hand them the link.
 
@@ -522,10 +523,7 @@ own web origin under the wildcard cert.
   not a range. If your thing binds to a random port on startup, capture
   the port first and then construct the URL.
 
-- **Hostname can't end in `-<digits>`.** The URL parse rule splits on the
-  last dash of the leftmost label to separate hostname from port.
-
-- **Missing `~/fleet/host/parent` OR missing `~/fleet/host/name` =
+- **Missing `~/fleet/host/parent` OR missing `~/fleet/host/id` =
   surface a clean user-facing error**, never guess and never fall back.
   Same rule as file URLs; the exact wording is in the recipe above.
 
@@ -534,7 +532,7 @@ own web origin under the wildcard cert.
   NOT stand up a local HTTP server as a fallback — you'd be handing them
   a URL Chrome flags as insecure.
   **What they actually see when they click a serve URL.** Their browser
-  opens `https://<hostname>-<port>.serve.<app-parent-domain>` under HTTPS
+  opens `https://<host-id>-<port>.serve.<app-parent-domain>` under HTTPS
   cert. Their session + per-user-per-host access are checked, an SSH tunnel
   opens (or is reused) to the port on your box, and the app reverse-proxies
   HTTP + WebSocket bytes. Everything her browser needs — absolute-path

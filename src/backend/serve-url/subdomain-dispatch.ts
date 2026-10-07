@@ -11,15 +11,15 @@
  *     `header_up X-Skynet-Serve-Subdomain {host}` per Phase 103 Plan 01
  *     Caddyfile snippet). If absent → next() (fall-through to Skynet's
  *     existing frontend serving; the "no route" experience).
- *  2. Parse `<hostname>-<port>` per D-11: split on LAST dash of leftmost
- *     DNS label; right side must be all-digits (port); everything left is
- *     hostname. Parse failure → interstitial + return.
+ *  2. Parse `<machineId>-<port>`: split on LAST dash of leftmost DNS
+ *     label; both sides must be all-digits. Parse failure → interstitial
+ *     + return.
  *  3. Run JWT auth via AuthManager.createAuthMiddleware(). If it writes
  *     a 401, translate into an auth_missing interstitial (302 redirect to
  *     primary /login?return=<original>). If it calls next(), req.userId
  *     is populated.
- *  4. Resolve host via resolveHostByName(hostname.toLowerCase(), userId)
- *     per D-13 (pre-lowercase at dispatch — preserves display case in DB).
+ *  4. Resolve host via resolveHostByUniversalId(machineId, userId) — the
+ *     caller's own row for that machine (or a host_access grant).
  *     Null → host_unreachable interstitial (info-leak-safe per T-103-23 —
  *     unknown vs offline are indistinguishable).
  *  5. Run permissionManager.canAccessHost(userId, host.id, 'read') per
@@ -55,7 +55,7 @@
 import type { Request, Response, NextFunction } from "express";
 import { AuthManager } from "../utils/auth-manager.js";
 import { PermissionManager } from "../utils/permission-manager.js";
-import { resolveHostByName } from "../ssh/host-resolver.js";
+import { resolveHostByUniversalId } from "../ssh/host-resolver.js";
 import { renderInterstitial, writeInterstitial } from "./interstitial.js";
 import { sshLogger } from "../utils/logger.js";
 import type { ServeTarget, ErrorClass } from "./types.js";
@@ -328,6 +328,21 @@ export function createSubdomainDispatchMiddleware() {
       return;
     }
     const hostnameRaw = label.slice(0, lastDash);
+    if (!/^[1-9]\d{0,9}$/.test(hostnameRaw)) {
+      sshLogger.warn("serve-url dispatch: parse-failed", {
+        operation: "serve_url_dispatch_parse_failed",
+        subdomainLen: subdomainHeader.length,
+      });
+      const result = renderInterstitial(
+        "port_not_listening",
+        stubTarget(hostnameRaw, 0),
+        originalUrl,
+        primaryDomain,
+      );
+      writeInterstitial(res, result);
+      return;
+    }
+    const hostRef = Number(hostnameRaw);
 
     // 3. Run JWT auth. If it writes a 401, translate into auth_missing
     // interstitial (302 redirect to primary /login?return=).
@@ -359,14 +374,13 @@ export function createSubdomainDispatchMiddleware() {
       return;
     }
 
-    // 4. Resolve host per D-13 (pre-lowercase at dispatch; display case
-    // preserved on the returned host row for use in Task 6 attach).
-    const hostnameLower = hostnameRaw.toLowerCase();
-    const host = await resolveHostByName(hostnameLower, userId);
+    // 4. Resolve the machine id to the caller's own row for that box, so
+    // one serve URL works for every user who has the machine.
+    const host = await resolveHostByUniversalId(hostRef, userId);
     if (!host) {
       sshLogger.info("serve-url dispatch: unknown-host", {
         operation: "serve_url_dispatch_unknown_host",
-        hostname: hostnameLower,
+        hostId: hostRef,
         port,
       });
       const result = renderInterstitial(
@@ -388,7 +402,7 @@ export function createSubdomainDispatchMiddleware() {
     if (!accessInfo.hasAccess) {
       sshLogger.info("serve-url dispatch: permission-denied", {
         operation: "serve_url_dispatch_permission_denied",
-        hostname: hostnameLower,
+        hostId: hostRef,
         port,
         userId,
       });

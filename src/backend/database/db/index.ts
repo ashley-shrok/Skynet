@@ -8,6 +8,7 @@ import { DatabaseFileEncryption } from "../../utils/database-file-encryption.js"
 import { SystemCrypto } from "../../utils/system-crypto.js";
 import { DatabaseMigration } from "../../utils/database-migration.js";
 import { DatabaseSaveTrigger } from "../../utils/database-save-trigger.js";
+import { applyMachineIdSchema } from "./machine-id-migration.js";
 
 const dataDir = process.env.DATA_DIR || "./db/data";
 const dbDir = path.resolve(dataDir);
@@ -2025,6 +2026,15 @@ const migrateSchema = async () => {
         });
       }
     }
+  }
+
+  try {
+    applyMachineIdSchema(sqlite);
+  } catch (machineIdError) {
+    databaseLogger.warn("Failed to apply machine_id schema", {
+      operation: "schema_migration",
+      error: machineIdError,
+    });
   }
 
   // Copy unencrypted username/domain into protocol-specific columns for old guac hosts.

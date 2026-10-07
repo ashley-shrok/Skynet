@@ -4,7 +4,7 @@
  * Verifies the four-stage gate + fall-through behavior + fail-loud env
  * enforcement per D-03, D-11, D-13, D-17, D-23.
  *
- * Focused unit tests: mocks AuthManager / PermissionManager / resolveHostByName
+ * Focused unit tests: mocks AuthManager / PermissionManager / resolveHostByUniversalId
  * so we exercise ONLY the middleware's decision tree, not the real DB stack.
  */
 
@@ -17,7 +17,7 @@ import type { Request, Response, NextFunction } from "express";
 
 const mocks = vi.hoisted(() => {
   return {
-    resolveHostByName: vi.fn(),
+    resolveHostByUniversalId: vi.fn(),
     canAccessHost: vi.fn(),
     createAuthMiddleware: vi.fn(),
     sshLogger: {
@@ -29,7 +29,7 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock("../../ssh/host-resolver.js", () => ({
-  resolveHostByName: mocks.resolveHostByName,
+  resolveHostByUniversalId: mocks.resolveHostByUniversalId,
 }));
 
 vi.mock("../../utils/permission-manager.js", () => ({
@@ -122,7 +122,7 @@ describe("subdomain-dispatch middleware", () => {
 
   beforeEach(() => {
     process.env.SKYNET_COOKIE_DOMAIN = "term.example.com";
-    mocks.resolveHostByName.mockReset();
+    mocks.resolveHostByUniversalId.mockReset();
     mocks.canAccessHost.mockReset();
     mocks.createAuthMiddleware.mockReset();
     mocks.sshLogger.info.mockClear();
@@ -208,7 +208,7 @@ describe("subdomain-dispatch middleware", () => {
     );
     const mod = await import("../subdomain-dispatch.js");
     const middleware = mod.createSubdomainDispatchMiddleware();
-    const req = makeReq({ subdomainHeader: "myhost-3000.serve.term.example.com" });
+    const req = makeReq({ subdomainHeader: "42-3000.serve.term.example.com" });
     const { res, statusCalls, headers } = makeRes();
     const next = vi.fn();
     await middleware(req, res, next);
@@ -218,8 +218,20 @@ describe("subdomain-dispatch middleware", () => {
     expect(headers["location"]).toMatch(/^https:\/\/term\.example\.com\/login/);
   });
 
-  it("renders host_unreachable interstitial when resolveHostByName returns null", async () => {
-    mocks.resolveHostByName.mockResolvedValue(null);
+  it("renders host_unreachable interstitial when resolveHostByUniversalId returns null", async () => {
+    mocks.resolveHostByUniversalId.mockResolvedValue(null);
+    const mod = await import("../subdomain-dispatch.js");
+    const middleware = mod.createSubdomainDispatchMiddleware();
+    const req = makeReq({ subdomainHeader: "42-3000.serve.term.example.com" });
+    const { res, statusCalls } = makeRes();
+    const next = vi.fn();
+    await middleware(req, res, next);
+    expect(next).not.toHaveBeenCalled();
+    expect(statusCalls[0]).toBeGreaterThanOrEqual(500);
+    expect(mocks.resolveHostByUniversalId).toHaveBeenCalledWith(42, "user-abc");
+  });
+
+  it("rejects a host-name label — serve URLs are `<machineId>-<port>` only", async () => {
     const mod = await import("../subdomain-dispatch.js");
     const middleware = mod.createSubdomainDispatchMiddleware();
     const req = makeReq({ subdomainHeader: "myhost-3000.serve.term.example.com" });
@@ -227,29 +239,12 @@ describe("subdomain-dispatch middleware", () => {
     const next = vi.fn();
     await middleware(req, res, next);
     expect(next).not.toHaveBeenCalled();
-    expect(statusCalls[0]).toBeGreaterThanOrEqual(500);
-    // resolveHostByName MUST be called with lowercase hostname (D-13)
-    expect(mocks.resolveHostByName).toHaveBeenCalledWith(
-      "myhost",
-      "user-abc",
-    );
-  });
-
-  it("lowercases hostname before calling resolveHostByName (D-13)", async () => {
-    mocks.resolveHostByName.mockResolvedValue(null);
-    const mod = await import("../subdomain-dispatch.js");
-    const middleware = mod.createSubdomainDispatchMiddleware();
-    const req = makeReq({
-      subdomainHeader: "MyHost-3000.serve.term.example.com",
-    });
-    const { res } = makeRes();
-    const next = vi.fn();
-    await middleware(req, res, next);
-    expect(mocks.resolveHostByName).toHaveBeenCalledWith("myhost", "user-abc");
+    expect(statusCalls[0]).toBeGreaterThanOrEqual(400);
+    expect(mocks.resolveHostByUniversalId).not.toHaveBeenCalled();
   });
 
   it("renders permission_denied interstitial (403) when canAccessHost returns hasAccess=false", async () => {
-    mocks.resolveHostByName.mockResolvedValue({
+    mocks.resolveHostByUniversalId.mockResolvedValue({
       id: 42,
       name: "MyHost",
       ip: "10.0.0.5",
@@ -259,7 +254,7 @@ describe("subdomain-dispatch middleware", () => {
     mocks.canAccessHost.mockResolvedValue({ hasAccess: false });
     const mod = await import("../subdomain-dispatch.js");
     const middleware = mod.createSubdomainDispatchMiddleware();
-    const req = makeReq({ subdomainHeader: "myhost-3000.serve.term.example.com" });
+    const req = makeReq({ subdomainHeader: "42-3000.serve.term.example.com" });
     const { res, statusCalls } = makeRes();
     const next = vi.fn();
     await middleware(req, res, next);
@@ -276,11 +271,11 @@ describe("subdomain-dispatch middleware", () => {
       port: 22,
       username: "user",
     };
-    mocks.resolveHostByName.mockResolvedValue(hostRow);
+    mocks.resolveHostByUniversalId.mockResolvedValue(hostRow);
     mocks.canAccessHost.mockResolvedValue({ hasAccess: true });
     const mod = await import("../subdomain-dispatch.js");
     const middleware = mod.createSubdomainDispatchMiddleware();
-    const req = makeReq({ subdomainHeader: "myhost-3000.serve.term.example.com" });
+    const req = makeReq({ subdomainHeader: "42-3000.serve.term.example.com" });
     const { res, statusCalls } = makeRes();
     const next = vi.fn();
     await middleware(req, res, next);
@@ -293,36 +288,23 @@ describe("subdomain-dispatch middleware", () => {
       host: unknown;
     };
     expect(target).toBeDefined();
-    // hostname must preserve DB display case (D-13)
+    // hostname is the caller's display name for the box (interstitials only)
     expect(target.hostname).toBe("MyHost");
     expect(target.port).toBe(3000);
     expect(target.host).toBe(hostRow);
   });
 
-  it("parses on LAST dash of leftmost label (D-11) — hostname 'foo-bar', port 3000", async () => {
-    const hostRow = {
-      id: 42,
-      name: "foo-bar",
-      ip: "10.0.0.5",
-      port: 22,
-      username: "user",
-    };
-    mocks.resolveHostByName.mockResolvedValue(hostRow);
-    mocks.canAccessHost.mockResolvedValue({ hasAccess: true });
+  it("rejects a dashed non-numeric prefix like 'foo-12-3000'", async () => {
     const mod = await import("../subdomain-dispatch.js");
     const middleware = mod.createSubdomainDispatchMiddleware();
     const req = makeReq({
-      subdomainHeader: "foo-bar-3000.serve.term.example.com",
+      subdomainHeader: "foo-12-3000.serve.term.example.com",
     });
-    const { res } = makeRes();
+    const { res, statusCalls } = makeRes();
     const next = vi.fn();
     await middleware(req, res, next);
-    expect(next).toHaveBeenCalledWith();
-    expect(mocks.resolveHostByName).toHaveBeenCalledWith("foo-bar", "user-abc");
-    const target = (req as Request & { serveTarget?: unknown }).serveTarget as {
-      hostname: string;
-      port: number;
-    };
-    expect(target.port).toBe(3000);
+    expect(next).not.toHaveBeenCalled();
+    expect(statusCalls[0]).toBeGreaterThanOrEqual(400);
+    expect(mocks.resolveHostByUniversalId).not.toHaveBeenCalled();
   });
 });

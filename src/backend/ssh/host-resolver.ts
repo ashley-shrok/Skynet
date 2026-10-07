@@ -376,6 +376,51 @@ export async function resolveHostById(
 }
 
 /**
+ * Resolve a host id taken from a shareable URL (app pane, widget pane, serve
+ * subdomain) to the *viewer's* row for the same physical machine.
+ *
+ * `ref` may be any row id or a machine_id (see machine-id-migration.ts). It is
+ * mapped to its machine group, and the caller's own row in that group wins
+ * (the oldest, unless `ref` itself is theirs) —
+ * so a link minted from one user's row works for every user who has the box.
+ * With no own row, falls back to `resolveHostById(ref)`, which still honours
+ * host_access grants. Returns null when the caller has no way in.
+ *
+ * Callers must use the returned `host.id` (not `ref`) for anything keyed per
+ * row: registry lookups, tunnel caches, access checks.
+ */
+export async function resolveHostByUniversalId(
+  ref: number,
+  userId: string,
+): Promise<SSHHost | null> {
+  const db = getDb();
+
+  const refRow = await db
+    .select({ machineId: hosts.machineId, userId: hosts.userId })
+    .from(hosts)
+    .where(eq(hosts.id, ref))
+    .limit(1);
+  // The caller's own row is used as-is, even when they have several rows
+  // for the same machine (e.g. different SSH users).
+  if (refRow[0]?.userId === userId) {
+    return resolveHostById(ref, userId);
+  }
+  const machineId = refRow[0]?.machineId ?? ref;
+
+  const own = await db
+    .select({ id: hosts.id })
+    .from(hosts)
+    .where(and(eq(hosts.machineId, machineId), eq(hosts.userId, userId)))
+    .orderBy(hosts.id)
+    .limit(1);
+  if (own.length > 0) {
+    return resolveHostById(own[0].id, userId);
+  }
+
+  return resolveHostById(ref, userId);
+}
+
+/**
  * Resolve a host with its credentials server-side by friendly name, scoped to
  * the requesting user (Phase 75, Plan 75-01, Task 1).
  *
