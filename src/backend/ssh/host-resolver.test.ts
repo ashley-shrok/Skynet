@@ -22,6 +22,7 @@
  *   S1-S3: Non-substrate hosts — CSKEK branch not triggered (D-10)
  *   FC1-FC3: Fail-closed contract
  *   E1: Edge case — runsFleetSubstrate=true but no credentialId
+ *   AZ1-AZ4: Authorization gate — non-owners need a host_access grant
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -103,6 +104,18 @@ vi.mock("../database/db/index.js", () => ({
   getDb: vi.fn(() => ({
     select: mockDbSelectFn,
   })),
+}));
+
+const mockCanAccessHost = vi.fn(async () => ({
+  hasAccess: false,
+  isOwner: false,
+  isShared: false,
+}));
+
+vi.mock("../utils/permission-manager.js", () => ({
+  PermissionManager: {
+    getInstance: vi.fn(() => ({ canAccessHost: mockCanAccessHost })),
+  },
 }));
 
 vi.mock("../utils/simple-db-ops.js", () => ({
@@ -206,6 +219,12 @@ beforeEach(() => {
   );
   // Default: SimpleDBOps.select returns empty
   (SimpleDBOps.select as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+  // Default: non-owner has no host_access grant
+  mockCanAccessHost.mockResolvedValue({
+    hasAccess: false,
+    isOwner: false,
+    isShared: false,
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -449,5 +468,55 @@ describe("Edge cases (E1)", () => {
     // The host is returned as-is (no credentials resolved)
     expect(result).not.toBeNull();
     expect(result!.id).toBe(11);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AZ1-AZ4: Authorization gate
+// ---------------------------------------------------------------------------
+
+describe("Authorization gate (AZ1-AZ4)", () => {
+  it("AZ1: non-owner without access on a substrate host → null, credentials never decrypted", async () => {
+    const hostRow = makeHostRow({ id: 1, userId: "owner", credentialId: 10, runsFleetSubstrate: true });
+    (SimpleDBOps.select as ReturnType<typeof vi.fn>).mockResolvedValue([hostRow]);
+    enqueueLimitResponse([{ runsFleetSubstrate: true }]);
+    enqueueLimitResponse([makeCredRow({ id: 10, systemPassword: "ct-password" })]);
+
+    const result = await resolveHostById(1, "intruder");
+
+    expect(result).toBeNull();
+    expect(mockCanAccessHost).toHaveBeenCalledWith("intruder", 1, "read");
+    expect(FieldCrypto.decryptField).not.toHaveBeenCalled();
+    expect(SystemCrypto.getInstance).not.toHaveBeenCalled();
+  });
+
+  it("AZ2: non-owner without access on an inline-credential host → null", async () => {
+    const hostRow = makeHostRow({ id: 2, userId: "owner", credentialId: null });
+    (SimpleDBOps.select as ReturnType<typeof vi.fn>).mockResolvedValue([hostRow]);
+
+    const result = await resolveHostById(2, "intruder");
+
+    expect(result).toBeNull();
+  });
+
+  it("AZ3: non-owner with a host_access grant → resolves", async () => {
+    const hostRow = makeHostRow({ id: 3, userId: "owner", credentialId: null });
+    (SimpleDBOps.select as ReturnType<typeof vi.fn>).mockResolvedValue([hostRow]);
+    mockCanAccessHost.mockResolvedValue({ hasAccess: true, isOwner: false, isShared: true });
+
+    const result = await resolveHostById(3, "guest");
+
+    expect(result).not.toBeNull();
+    expect(result!.id).toBe(3);
+  });
+
+  it("AZ4: owner → access check skipped", async () => {
+    const hostRow = makeHostRow({ id: 4, userId: "user-1", credentialId: null });
+    (SimpleDBOps.select as ReturnType<typeof vi.fn>).mockResolvedValue([hostRow]);
+
+    const result = await resolveHostById(4, "user-1");
+
+    expect(result).not.toBeNull();
+    expect(mockCanAccessHost).not.toHaveBeenCalled();
   });
 });
