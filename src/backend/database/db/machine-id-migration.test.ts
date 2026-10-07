@@ -47,6 +47,16 @@ describe("machine_id backfill", () => {
     expect(machineOf(d)).toBe(d);
   });
 
+  it("groups exactly like the insert trigger, including odd whitespace", () => {
+    const a = insert("alice", "10.0.0.5");
+    const b = insert("alice", "10.0.0.5\t");
+    applyMachineIdSchema(sqlite);
+    const c = insert("bob", "10.0.0.5\t");
+    const d = insert("bob", "10.0.0.5");
+    expect(machineOf(c)).toBe(machineOf(b));
+    expect(machineOf(d)).toBe(machineOf(a));
+  });
+
   it("is idempotent across boots", () => {
     insert("alice", "10.0.0.5");
     applyMachineIdSchema(sqlite);
