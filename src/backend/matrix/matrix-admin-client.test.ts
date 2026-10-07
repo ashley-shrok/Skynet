@@ -541,10 +541,6 @@ describe("buildRelayJsonBody", () => {
     expect(parsed.password).toBe(BUILD_OPTS.password);
   });
 });
-// Phase 128-09 (D-19): the getSharedDMRoom describe block is deleted
-// alongside the helper it exercised (see matrix-admin-client.ts § "Phase
-// 128-09 (D-19): getSharedDMRoom deleted" for rationale + grep-gate
-// evidence).
 
 // ---------------------------------------------------------------------------
 // deactivateUser (Phase 88-02)
@@ -764,10 +760,8 @@ describe("createRoom", () => {
 });
 
 // ---------------------------------------------------------------------------
-// getUserJoinedRooms (Phase 89-03 Task 1) — top-level primitive originally
-// extracted from an internal helper inside the (Phase 128-09 D-19 deleted)
-// getSharedDMRoom. Discriminated-union return so the observation loop can
-// drive per-user backoff on failure reasons.
+// getUserJoinedRooms (Phase 89-03 Task 1) — discriminated-union return so
+// the observation loop can drive per-user backoff on failure reasons.
 // ---------------------------------------------------------------------------
 
 describe("getUserJoinedRooms", () => {
@@ -831,9 +825,6 @@ describe("getUserJoinedRooms", () => {
       expect(result.error).toBe("admin_api_timeout");
     }
   });
-
-  // Phase 128-09 (D-19): the "getSharedDMRoom's happy path still works after
-  // extraction refactor (regression)" test is deleted alongside the helper.
 });
 
 // ---------------------------------------------------------------------------
@@ -907,8 +898,7 @@ describe("getRoomLatestEventTs", () => {
 
 // ---------------------------------------------------------------------------
 // getRoomJoinedMembers (Phase 89-03 Task 1) — GET /_synapse/admin/v1/rooms/
-// {roomId}/members — top-level primitive originally hoisted from the
-// members-count loop inside the (Phase 128-09 D-19 deleted) getSharedDMRoom.
+// {roomId}/members.
 // ---------------------------------------------------------------------------
 
 describe("getRoomJoinedMembers", () => {

@@ -48,14 +48,6 @@ class FieldCrypto {
     // because matrix-admin-creds-store.ts calls encryptField/decryptField
     // with fieldName="access_token" / "password" against the DB rows.
     matrix_admin_creds: new Set(["access_token", "password"]),
-    // Phase 128 (frontend-teardown close-loop): telegram_bot_tokens field
-    // allowlist entry DELETED. The DB table itself was dropped in Plan 128-01
-    // (runTelegramBotTokensTableDrop in db/index.ts), the Drizzle export
-    // removed in Plan 128-09, and the tokens-store consumer removed with the
-    // rest of src/backend/telegram/ in Plan 128-09. This lookup entry was
-    // flagged as dead-weight in the 128-09 Summary's "Issues Encountered"
-    // section — clearing it in the same close-loop as the UI teardown.
-    //
     // Phase 144 Plan 02 + Phase 145 — ntfy_password stores the per-user ntfy
     // Basic-auth password (plaintext) encrypted at rest via AES-256-GCM
     // (T-144-06 mitigation). The backend surfaces this value to the user in

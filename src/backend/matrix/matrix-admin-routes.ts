@@ -22,11 +22,6 @@ import {
   setMatrixAdminServerName,
   setMatrixAdminHostSideBase,
 } from "./matrix-admin-creds-store.js";
-// Phase 128-09 (D-18): removed imports of ../telegram/human-token-writer.js
-// and ../telegram/shared-volume.js — the /migrate-cred-files handler (a
-// Phase 79 Plan 08 one-shot migration from Nina's install to the Docker
-// tg-bridge) is deleted alongside the bridge itself. The migration was
-// invoked during Phase 79-09 cutover and is no longer reachable.
 
 const MXID_RE = /^@[a-z0-9._=/+-]{1,255}:[a-z0-9.-]{1,255}$/;
 
@@ -262,13 +257,6 @@ router.patch(
     }
   },
 );
-
-// Phase 128-09 (D-18): the Phase 79 Plan 08 POST /matrix-admin/migrate-cred-files
-// one-shot handler (mint fresh Matrix tokens for every registered human +
-// unlink legacy .cred files under TG_BRIDGE_STATE_DIR) is deleted here as
-// part of the tg-bridge teardown. The migration was invoked during Phase
-// 79-09 cutover from Nina's install to the Docker tg-bridge; with the
-// bridge itself removed there is nothing left to migrate onto.
 
 // One-shot admin-gated reset for the two registry-room settings rows.
 // Existing `ensureRegistryRoomsExist` runs at boot only, and takes a

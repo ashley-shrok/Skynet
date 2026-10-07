@@ -755,11 +755,6 @@ export const matrixAdminCreds = sqliteTable("matrix_admin_creds", {
     .default(sql`CURRENT_TIMESTAMP`),
 });
 
-// Phase 128-09 (D-18): the Phase 79 Plan 01 `telegramBotTokens` Drizzle
-// export is deleted alongside the tg-bridge teardown. The at-boot DROP
-// migration for the underlying `telegram_bot_tokens` table lives in
-// db/index.ts::runTelegramBotTokensTableDrop (added in Plan 128-01).
-
 // Phase 68: identities table dropped; identity IS the disk folder on some
 // host per .planning/shapes/shape-kill-identities-table.md. The `identities`
 // schema export is removed — the table no longer exists in any install.

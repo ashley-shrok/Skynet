@@ -336,14 +336,6 @@ async function initializeCompleteDatabase(): Promise<void> {
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
-    -- Phase 128 Plan 01 (D-18) — CREATE TABLE for the retired Telegram
-    -- bridge's per-identity bot-tokens table was DELETED here in Task 2.
-    -- The table is now dropped by the drop-migration in migrateSchema
-    -- below (adjacent to runPinColumnDrop / runHiddenColumnDrop); keeping
-    -- a CREATE IF NOT EXISTS here would defeat that drop by silently
-    -- re-adding the table on every boot. D-20 documents user acceptance
-    -- of the destructive shutdown.
-
     CREATE TABLE IF NOT EXISTS snippets (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id TEXT NOT NULL,
@@ -967,49 +959,6 @@ export function runReopenTabsColumnDrop(sqliteDb: Database.Database): void {
 }
 
 /**
- * Phase 128 Plan 01 (D-18, D-20) — drop the `telegram_bot_tokens` table
- * entirely. The whole tg-bridge is coming out in the same shipping unit as
- * the push-notifications land (D-17); the table (identity_key, bot_token,
- * bot_username, human_user_id, telegram_chat_id) solely supports the bridge
- * and is destructive-shutdown-accepted per D-20 (existing bridge
- * subscriptions/tokens are dropped on deploy; no rollback path).
- *
- * Byte-mirror of runIdentitiesTableDrop (L910-927) — the ONLY difference is
- * the table name. `DROP TABLE IF EXISTS` is idempotent: safe on fresh
- * installs (table never existed) and on upgraded installs (table dropped on
- * first successful boot; subsequent boots no-op).
- *
- * A failed drop is non-fatal (T-128-04): the table is deadweight if it
- * lingers (no runtime code path reads or writes it post-Phase-126 — the
- * whole src/backend/telegram/ directory is scheduled for deletion in a
- * later plan of this same phase), so a warn-and-continue matches the
- * existing runXxxTableDrop discipline.
- *
- * Exported so index.migration.test.ts can exercise Test P128-01 (populated
- * → drop → absent) + Test P128-02 (absent → drop is idempotent no-op)
- * against test-owned in-memory databases — parallel to runIdentitiesTableDrop
- * export pattern at L910-927.
- */
-export function runTelegramBotTokensTableDrop(
-  sqliteDb: Database.Database,
-): void {
-  try {
-    sqliteDb.exec("DROP TABLE IF EXISTS telegram_bot_tokens;");
-  } catch (dropError) {
-    // Non-fatal per T-128-04 accept: boot continues on failure; operator
-    // sees the warn and can re-drop by restarting (IF EXISTS is idempotent).
-    databaseLogger.warn(
-      "Failed to drop telegram_bot_tokens table",
-      {
-        operation: "schema_migration_drop_table",
-        table: "telegram_bot_tokens",
-        error: dropError,
-      },
-    );
-  }
-}
-
-/**
  * Phase 144 Plan 02 — drop the old Phase 128 browser-push push_subscriptions
  * table shape (endpoint/p256dh/auth columns) and rebuild with the ntfy shape.
  *
@@ -1019,7 +968,7 @@ export function runTelegramBotTokensTableDrop(
  * on upgrade — their stored tokens are unusable in the new flow anyway; each
  * user re-provisions via one click in the preferences pane.
  *
- * Mirrors runTelegramBotTokensTableDrop — drop then create, both steps wrapped
+ * Drop then create, both steps wrapped
  * in try/catch with databaseLogger.warn on failure (non-fatal: boot continues).
  *
  * Step 1: DROP INDEX IF EXISTS push_subscriptions_user_endpoint_unique
@@ -1221,39 +1170,6 @@ const migrateSchema = async () => {
     throw preflightErr;
   }
 
-  // Phase 128 Plan 01 (D-18, D-20) — drop the telegram_bot_tokens table
-  // entirely. The whole tg-bridge is coming out in the same shipping unit
-  // as the push-notifications land (D-17); the DB row that solely supports
-  // the bridge is dropped in the same motion. Destructive-shutdown accepted
-  // per D-20 (existing bridge subscriptions/tokens gone on deploy; no
-  // rollback path).
-  //
-  // Ranked adjacent to the runPinColumnDrop / runHiddenColumnDrop calls
-  // above per the drops-before-adds ordering rationale documented at their
-  // callsites (a stale install cannot briefly re-add this table because
-  // the CREATE TABLE IF NOT EXISTS block for it was DELETED from the
-  // top-of-init SQL in the same task).
-  //
-  // Unlike the column drops above, the whole-table drop does NOT need
-  // assertSqliteSupportsDropColumn (DROP TABLE has been supported since
-  // SQLite 1.x). Wrapped in try/catch with a non-fatal warn: a failed
-  // drop leaves the table intact as deadweight (no runtime code path reads
-  // or writes it post-Phase-126 — the whole src/backend/telegram/ directory
-  // is scheduled for deletion in a later plan of this same phase). Boot
-  // continues per T-128-04 (accept disposition).
-  try {
-    runTelegramBotTokensTableDrop(sqlite);
-  } catch (dropErr) {
-    databaseLogger.warn(
-      "[phase-128] telegram_bot_tokens table drop failed (non-fatal — table becomes inert deadweight; next boot retries via IF EXISTS)",
-      {
-        operation: "schema_migration_drop_table",
-        table: "telegram_bot_tokens",
-        error: dropErr,
-      },
-    );
-  }
-
   addColumnIfNotExists("user_preferences", "theme", "TEXT");
   addColumnIfNotExists("user_preferences", "font_size", "TEXT");
   addColumnIfNotExists("user_preferences", "accent_color", "TEXT");
@@ -1263,20 +1179,18 @@ const migrateSchema = async () => {
   // Phase 137 D-31/D-14 — persist the batch of schema mutations from this
   // block to the encrypted SQLite file in one atomic write: (a) the Phase 92
   // pinned_conversation_ids DROP (runPinColumnDrop above), (b) the Phase 107
-  // hidden_conversation_ids DROP (runHiddenColumnDrop above), (c) the Phase 128
-  // telegram_bot_tokens table DROP (runTelegramBotTokensTableDrop above),
-  // (d) the Phase 137 reopen_tabs_on_login DROP (runReopenTabsColumnDrop
-  // above), and (e) the user_preferences addColumnIfNotExists sweep including
+  // hidden_conversation_ids DROP (runHiddenColumnDrop above), (c) the Phase 137
+  // reopen_tabs_on_login DROP (runReopenTabsColumnDrop above), and (d) the
+  // user_preferences addColumnIfNotExists sweep including
   // the new fallback_voice column.
   //
   // Direct .exec() writes only reach RAM per CLAUDE.md § "In-memory SQLite
   // pattern"; without an explicit forceSave the drops live only in memory
   // until an unrelated write fires the debounced save trigger — a restart
   // in that window would lose the schema mutation and re-run the drop on
-  // next boot. Wrapped in try/catch with a non-fatal warn: both
-  // dropColumnIfExists and runTelegramBotTokensTableDrop are idempotent
-  // (DROP TABLE IF EXISTS on the whole-table drop), so a save failure
-  // retries on the next boot cycle. The label is always the LATEST
+  // next boot. Wrapped in try/catch with a non-fatal warn:
+  // dropColumnIfExists and addColumnIfNotExists are idempotent, so a save
+  // failure retries on the next boot cycle. The label is always the LATEST
   // migration touching this file — per Phase 92 Plan 03 precedent, one
   // forceSave batches all prior mutations in a single atomic write.
   // Mirrors the L928-939 (phase-68) / L995-1006 (phase-75) precedent —
@@ -1387,12 +1301,6 @@ const migrateSchema = async () => {
       },
     );
   }
-
-  // Phase 128 Plan 01 (D-18) — the earlier Telegram-bridge forceSave that
-  // persisted the (now-dropped) bot-tokens CREATE TABLE was DELETED in
-  // Task 2. The drop-migration in migrateSchema above has its own labeled
-  // forceSave via the shared drops-then-batched-save discipline
-  // (phase-128-telegram-bot-tokens-table-drop is now the latest label).
 
   // agent-phone shape — E.164 phone number column for the agent-phone
   // capability. Nullable: the phone-call-requests worker checks this at
@@ -1850,8 +1758,7 @@ const migrateSchema = async () => {
   // Phase 144 Plan 02 — drop the old browser-push push_subscriptions shape
   // (endpoint/p256dh/auth columns) and rebuild with the ntfy shape.
   // runPushSubscriptionsRebuild is idempotent: drops old index + old table,
-  // then CREATE TABLE IF NOT EXISTS the new schema. Placed AFTER
-  // runTelegramBotTokensTableDrop (same positioning rationale as Phase 128).
+  // then CREATE TABLE IF NOT EXISTS the new schema.
   // HC-3 scope guard enforced inside runPushSubscriptionsRebuild — no
   // ntfy_publish_config table is created. The labeled forceSave below persists
   // the schema mutation to the encrypted disk file. Mirrors the phase-89 and

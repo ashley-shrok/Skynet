@@ -44,8 +44,8 @@ if [ -z "$BASE" ]; then
   exit 2
 fi
 # relogin(): mint a fresh token from the stored password, persist it, rebuild H. Returns 1 if it
-# can't (no parseable password) — caller decides whether to back off. Mirrors the tg-bridge's
-# self-heal so a token death recovers instead of wedging.
+# can't (no parseable password) — caller decides whether to back off. Self-heals so a token
+# death recovers instead of wedging.
 relogin(){
   local pw lp r t
   pw=$(cred password)
@@ -360,7 +360,7 @@ while :; do
        reason:(.content.reason // "")}' <<<"$R")
   # --- MEDIA: download image/file/audio/video attachments to a local path so the agent can
   # actually open/view them (Element-parity — works for anything in a joined room, whether it
-  # arrived from Element or the Telegram bridge). NEVER silently drop: on a download failure we
+  # arrived from Element or another client). NEVER silently drop: on a download failure we
   # still surface a line naming the media, so a picture can't vanish.
   # ⚠️ A just-uploaded media is NOT instantly downloadable by another user — Continuwuity had a
   # post-upload availability lag that is real but VARIABLE (measured 0s / 3s / >8s across

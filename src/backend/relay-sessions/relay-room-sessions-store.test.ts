@@ -19,7 +19,7 @@
  *   Test 8: If forceSave rejects, the primitive still returns without
  *           throwing (log-and-swallow per host-autostart-routes.ts:173-181).
  *
- * Test infrastructure — mirrors the telegram/tokens-store.test.ts pattern:
+ * Test infrastructure:
  *   - Fresh in-memory better-sqlite3 per test via beforeEach.
  *   - vi.mock("../database/db/index.js") swaps `db` for an object whose
  *     `$client` points at the real in-memory sqlite (the store uses

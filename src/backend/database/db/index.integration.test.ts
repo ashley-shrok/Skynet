@@ -6,26 +6,18 @@
  * src/backend/database/db/index.ts (mirroring runPinColumnDrop /
  * runHiddenColumnDrop / runIdentitiesTableDrop). The `schema_push_requirement`
  * gate in the phase's planning brief is a mandatory pre-deploy verification
- * that the schema motion is correct. This file IS that gate: seven integration
+ * that the schema motion is correct. This file IS that gate: four integration
  * assertions that boot the DB module in-memory and prove the Phase 128 schema
- * state is queryable + the drop-migration executes correctly.
+ * state is queryable.
  *
- * Test coverage (D-11 + D-13 + D-18 traceable):
+ * Test coverage (D-11 + D-13 traceable):
  *   Test 1: push_subscriptions table exists after boot-time DDL (D-11).
  *   Test 2: UNIQUE INDEX on (user_id, endpoint) exists (D-14 multi-device
  *           semantics — one row per (user, endpoint)).
  *   Test 3: UNIQUE constraint enforced — a duplicate (user_id, endpoint)
  *           INSERT surfaces a SQLITE_CONSTRAINT error (the ON CONFLICT DO
  *           NOTHING invariant Plan 05's route relies on).
- *   Test 4: runTelegramBotTokensTableDrop drops telegram_bot_tokens when
- *           present (drop-on-hit — the exact motion a legacy install sees
- *           on first-boot post-deploy, D-18).
- *   Test 5: runTelegramBotTokensTableDrop is a no-op on a fresh DB where
- *           telegram_bot_tokens was never created (drop-on-miss — the exact
- *           motion a fresh install sees, no throw).
- *   Test 6: runTelegramBotTokensTableDrop is idempotent — running twice
- *           against the same DB (post-drop) does not throw.
- *   Test 7: FK cascade — deleting a users row cascades to that user's
+ *   Test 4: FK cascade — deleting a users row cascades to that user's
  *           push_subscriptions rows (T-128-01 orphan-subscription mitigation
  *           at the DDL layer).
  *
@@ -42,7 +34,6 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import Database from "better-sqlite3";
-import { runTelegramBotTokensTableDrop } from "./index.js";
 
 // Byte-parallel copy of the Phase 128 Plan 01 DDL landed in db/index.ts
 // L618-627. If db/index.ts's push_subscriptions CREATE TABLE ever drifts
@@ -73,23 +64,6 @@ const PUSH_SUBSCRIPTIONS_INDEX_SQL = `
   CREATE UNIQUE INDEX IF NOT EXISTS push_subscriptions_user_endpoint_unique
     ON push_subscriptions(user_id, endpoint);
 `;
-
-// The retired telegram_bot_tokens CREATE TABLE — the exact shape a legacy
-// install has at first-boot-post-deploy time. This is a historical DDL:
-// db/index.ts no longer contains a CREATE TABLE for this (Plan 128-01
-// deleted it — that's the whole point of the drop-migration).
-const LEGACY_TELEGRAM_BOT_TOKENS_CREATE_SQL = `
-  CREATE TABLE IF NOT EXISTS telegram_bot_tokens (
-    identity_key TEXT PRIMARY KEY,
-    bot_token TEXT NOT NULL,
-    bot_username TEXT NOT NULL,
-    human_user_id TEXT NOT NULL,
-    telegram_chat_id TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-  );
-`;
-
 /**
  * Bootstrap a fresh in-memory DB with the Phase 128 schema applied. Turns
  * on foreign_keys=ON to match db/index.ts L145 (initializeCompleteDatabase's
@@ -238,103 +212,7 @@ describe("Phase 128 schema integration — [BLOCKING] pre-deploy gate", () => {
     expect(secondEndpointResult.changes).toBe(1);
   });
 
-  it("Test 4: runTelegramBotTokensTableDrop drops telegram_bot_tokens when present (drop-on-hit, D-18)", () => {
-    // Simulate a legacy install: pre-create the retired table with data,
-    // to prove the drop wipes both the table AND its rows.
-    db.exec(LEGACY_TELEGRAM_BOT_TOKENS_CREATE_SQL);
-    db.prepare(
-      "INSERT INTO telegram_bot_tokens (identity_key, bot_token, bot_username, human_user_id, telegram_chat_id) VALUES (?, ?, ?, ?, ?)",
-    ).run("tina", "bot-token-xyz", "@tina_bot", "@ashley:t1000", "12345");
-
-    // Sanity: table present pre-drop.
-    const preRows = db
-      .prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='telegram_bot_tokens'",
-      )
-      .all();
-    expect(preRows.length).toBe(1);
-
-    // Exercise the exported drop function against this test DB (not the
-    // module singleton — same pattern the sibling migration tests use for
-    // runIdentitiesTableDrop / runPinColumnDrop / runHiddenColumnDrop).
-    runTelegramBotTokensTableDrop(db);
-
-    // Post-drop: table must be physically absent.
-    const postRows = db
-      .prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='telegram_bot_tokens'",
-      )
-      .all();
-    expect(postRows).toEqual([]);
-
-    // PRAGMA table_info returns empty for an absent table — belt-and-
-    // suspenders proof (not just hidden from sqlite_master).
-    const pragmaRows = db
-      .prepare("PRAGMA table_info(telegram_bot_tokens)")
-      .all();
-    expect(pragmaRows).toEqual([]);
-
-    // Reading from the dropped table throws — proves rows are gone with the
-    // table.
-    expect(() =>
-      db.prepare("SELECT * FROM telegram_bot_tokens").all(),
-    ).toThrow();
-  });
-
-  it("Test 5: runTelegramBotTokensTableDrop is a no-op on a fresh DB where telegram_bot_tokens was never created (drop-on-miss, D-18)", () => {
-    // Fresh DB — telegram_bot_tokens absent. Mirrors the fresh-install path.
-    const preRows = db
-      .prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='telegram_bot_tokens'",
-      )
-      .all();
-    expect(preRows.length).toBe(0);
-
-    // Must not throw even though drop target is absent (DROP TABLE IF EXISTS
-    // is idempotent by construction).
-    expect(() => runTelegramBotTokensTableDrop(db)).not.toThrow();
-
-    // Post: table still absent (unchanged).
-    const postRows = db
-      .prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='telegram_bot_tokens'",
-      )
-      .all();
-    expect(postRows.length).toBe(0);
-
-    // Push_subscriptions unaffected by the no-op drop — proves the drop
-    // scoped to only the target table.
-    const pushCols = db
-      .prepare("PRAGMA table_info(push_subscriptions)")
-      .all() as Array<{ name: string }>;
-    expect(pushCols.length).toBeGreaterThan(0);
-  });
-
-  it("Test 6: runTelegramBotTokensTableDrop is idempotent — running twice does not throw", () => {
-    // Sequence: create the legacy table → drop it → drop it AGAIN. Both
-    // drop calls must succeed. This proves an operator can safely restart
-    // the container mid-migration and see the same schema outcome.
-    db.exec(LEGACY_TELEGRAM_BOT_TOKENS_CREATE_SQL);
-
-    // First drop — table exists, gets dropped.
-    expect(() => runTelegramBotTokensTableDrop(db)).not.toThrow();
-
-    // Second drop — table now absent, must still be a no-op (idempotent).
-    expect(() => runTelegramBotTokensTableDrop(db)).not.toThrow();
-
-    // Third drop — belt-and-suspenders, still safe.
-    expect(() => runTelegramBotTokensTableDrop(db)).not.toThrow();
-
-    // Table is absent at the end.
-    const postRows = db
-      .prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='telegram_bot_tokens'",
-      )
-      .all();
-    expect(postRows).toEqual([]);
-  });
-
-  it("Test 7: FK ON DELETE CASCADE — deleting a users row cascades to their push_subscriptions rows (T-128-01 orphan-subscription mitigation)", () => {
+  it("Test 4: FK ON DELETE CASCADE — deleting a users row cascades to their push_subscriptions rows (T-128-01 orphan-subscription mitigation)", () => {
     // Seed two users so we can prove the cascade is scoped to the deleted
     // user, not "all rows".
     db.prepare(

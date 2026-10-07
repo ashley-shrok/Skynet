@@ -2056,8 +2056,6 @@ app.use("/users", userRoutes);
 // bootstrap AND future rotation calls (returns rotation:true when overwriting).
 app.use("/matrix-admin", matrixAdminRoutes);
 // Phase 128 Plan 08 — /push-subscriptions router (rebuilt for ntfy in Plan 02).
-// Mounted alongside matrix-admin for structural symmetry with the /telegram
-// mount it displaces (bridge teardown per D-17/D-18).
 app.use("/push-subscriptions", pushSubscriptionsRoutes);
 app.use("/host", hostRoutes);
 app.use("/alerts", alertRoutes);

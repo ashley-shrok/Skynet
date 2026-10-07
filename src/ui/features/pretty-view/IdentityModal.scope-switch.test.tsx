@@ -86,9 +86,6 @@ vi.mock("@/main-axios", () => ({
   getUserInfo: vi.fn().mockResolvedValue({ userId: "u-1" }),
 }));
 
-// Phase 128 close-loop-fix: vi.mock("../../api/telegram-api", …) DELETED —
-// the module is gone and IdentityModal no longer imports it.
-
 import { IdentityModal } from "./IdentityModal";
 
 const BASE_IDENTITY: Identity = {

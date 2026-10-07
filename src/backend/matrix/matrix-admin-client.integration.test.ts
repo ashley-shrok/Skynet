@@ -10,8 +10,7 @@
  *
  * WHAT THIS TEST PROVES:
  *   1. `loginAsUser` can mint a fresh access_token against the live Synapse
- *      admin API (this is the primitive Phase B's Telegram-bridge inbound
- *      path will use to act as a human).
+ *      admin API (the primitive Skynet uses to act as a human).
  *   2. That freshly-minted token has admin-derived authority — it can PUT
  *      a message into a room via the standard client-server API.
  *   3. The message is durably persisted (GET /messages returns it).

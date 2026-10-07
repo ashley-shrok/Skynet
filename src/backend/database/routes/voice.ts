@@ -683,12 +683,6 @@ router.post(
   },
 );
 
-// Phase 128-09 (D-18): the rejectBridgeServiceOnSpeak middleware — which
-// 403'd any /speak or /speak-stream request whose JWT carried
-// userId="tg-bridge-service" — is deleted alongside the tg-bridge itself.
-// The "tg-bridge-service" identity no longer exists post-teardown, so the
-// guard has no live class of caller to gate.
-
 // --- Route: POST /speak ---
 router.post(
   "/speak",

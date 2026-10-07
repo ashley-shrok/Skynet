@@ -463,9 +463,7 @@ export function buildRelayJsonBody(opts: BuildRelayJsonBodyOpts): string {
 // getUserJoinedRooms — GET /_synapse/admin/v1/users/{mxid}/joined_rooms
 // ---------------------------------------------------------------------------
 //
-// Top-level primitive originally extracted from an internal helper inside
-// the (Phase 128-09 D-19 deleted) getSharedDMRoom, hoisted at Phase 89-03
-// Task 1. The observation loop (Plan 89-03) polls each user's joined-rooms
+// Top-level primitive added at Phase 89-03 Task 1. The observation loop (Plan 89-03) polls each user's joined-rooms
 // list on ~10s cadence and needs the failure REASON to drive per-user
 // backoff decisions (D-06), so this primitive returns the standard
 // discriminated-union shape rather than the previous internal-nullable
@@ -616,9 +614,8 @@ export async function getRoomLatestEventTs(
 // getRoomJoinedMembers — GET /_synapse/admin/v1/rooms/{roomId}/members
 // ---------------------------------------------------------------------------
 //
-// Phase 89-03 Task 1 — hoists the members-count endpoint originally used
-// inside the (Phase 128-09 D-19 deleted) getSharedDMRoom to a top-level
-// primitive with the standard discriminated-union return. The observation
+// Phase 89-03 Task 1 — members-count endpoint as a top-level primitive with
+// the standard discriminated-union return. The observation
 // loop uses this (a) to enumerate members for the D-08/D-09 classifier
 // decision, and (b) to fetch the agents-registry-room members for the D-09
 // authority set.
@@ -684,21 +681,6 @@ export async function getRoomJoinedMembers(
     return { ok: false, status: 502, error: ERR_PROXY };
   }
 }
-
-// ---------------------------------------------------------------------------
-// Phase 128-09 (D-19): getSharedDMRoom deleted
-// ---------------------------------------------------------------------------
-//
-// The Plan 128-09 grep gate on `getSharedDMRoom` confirmed zero non-telegram
-// callers in src/ outside matrix-admin-client.ts itself + its .test.ts:
-//   grep -rn "getSharedDMRoom" src/ | grep -v "src/backend/telegram/" \
-//     | grep -v "src/backend/matrix/matrix-admin-client.ts:"
-//   → hits are all in matrix-admin-client.test.ts (test coverage) only.
-// With src/backend/telegram/ deleted in Plan 128-09 Task 1, the sole
-// production caller (bridge-config-writer.ts Plan 81-04) is gone too, so
-// this helper has no live use. Its two internal helpers — getUserJoinedRooms
-// and getRoomJoinedMembers — remain as top-level exports (extracted at
-// Phase 89-03 Task 1) with independent non-telegram callers.
 
 // ---------------------------------------------------------------------------
 // getRoomName — GET /_matrix/client/v3/rooms/{roomId}/state/m.room.name

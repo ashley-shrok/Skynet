@@ -191,8 +191,6 @@ user routes questions to the right person).
 
 - [ ] Ping Iris to re-scope t1000 policy name from `PollyTranscribeExploratory`
       to a production name on `termix-ssm-role` (pre-ship, user owns).
-- [ ] Confirm `SKYNET_BASE` URL is set correctly for tg-bridge → Skynet
-      routing (per Plan 08 rewire).
 - [ ] Confirm `ffmpeg` is present in the docker image (per Plan 01;
       verify with `docker run --rm skynet-patched:local ffmpeg -version`).
 - [ ] Run the AWS integration smoke as a pre-ship sanity check from t1000:

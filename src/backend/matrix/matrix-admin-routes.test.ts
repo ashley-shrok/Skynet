@@ -80,8 +80,6 @@ const { saveMemoryDatabaseToFileMock, dbPrepareRunMock } = vi.hoisted(() => ({
   // POST /reset-registry-rooms deletes the two settings rows via
   // db.$client.prepare(...).run(...). Mock captures the run() call so
   // tests can assert the DELETE was issued.
-  // Phase 128-09 (D-18): the db.select() plumbing that supported the
-  // deleted /migrate-cred-files handler was removed alongside it.
   dbPrepareRunMock: vi.fn(),
 }));
 
@@ -107,14 +105,6 @@ vi.mock("../relay-sessions/registry-rooms.js", () => ({
   SETTINGS_KEY_AGENTS_REGISTRY: "agents_registry_room_id",
   SETTINGS_KEY_HUMANS_REGISTRY: "humans_registry_room_id",
 }));
-
-// Phase 128-09 (D-18): the users schema mock supported the deleted
-// /migrate-cred-files handler; no surviving test path needs it.
-
-// Phase 128-09 (D-18): the Phase 79 Plan 08 vi.mock for
-// ../telegram/human-token-writer.js + ../telegram/shared-volume.js are
-// deleted alongside the migrate-cred-files test block below and the
-// migrate-cred-files handler in matrix-admin-routes.ts.
 
 // Silence logger noise
 vi.mock("../utils/logger.js", () => ({
@@ -617,13 +607,6 @@ describe("PATCH /matrix-admin/creds/host-side-base", () => {
     expect(setMatrixAdminHostSideBaseMock).toHaveBeenCalledWith(null);
   });
 });
-
-// ---------------------------------------------------------------------------
-// Phase 128-09 (D-18): the Phase 79 Plan 08 describe("POST /matrix-admin/
-// migrate-cred-files") block is deleted alongside the corresponding handler
-// in matrix-admin-routes.ts. The bridge is torn down; the one-shot migration
-// endpoint has no reason to exist.
-// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // Relay-migration shape 6 — POST /matrix-admin/reset-registry-rooms tests
