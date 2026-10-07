@@ -40,10 +40,11 @@ import {
 //     content. Same retirement as IdentityModal 2026-09-30.
 //   - Head: two rows.
 //     Row 1: title="Skills" (static — this modal browses across skills,
-//     not scoped to one) + close X via <ModalHead>.
+//     not scoped to one) + "+ New" action + close X via <ModalHead>
+//     (matches ScheduledAgentsModal's header "+ New").
 //     Row 2 (picker bar sibling directly under head): host select
-//     (hidden on single-host installs), skill select, "+ New skill"
-//     button, delete-skill Trash (only when a skill is picked).
+//     (hidden on single-host installs), skill select, delete-skill
+//     Trash (only when a skill is picked).
 //   - File strip MOVED from bottom to TOP (matches RunbookEditor
 //     translation — IDE convention: tabs atop the surface they select).
 //     "+ New file" pill pinned at the end of the strip.
@@ -612,10 +613,32 @@ export default function SkillsEditorModal({
         title="Skills"
         subtitle="Skills are instructions available to all of your agents that you can invoke on-demand. After you create one, you can ask an agent to invoke it, or invoke it yourself using a slash command like /name-of-skill"
         closeTestId="skills-editor-modal-close"
+        actions={
+          <button
+            type="button"
+            onClick={() => {
+              void handleNewSkill();
+            }}
+            disabled={selectedHostId == null}
+            aria-label="+ New skill"
+            title="New skill"
+            data-testid="skills-editor-modal-new-skill"
+            className={cn(
+              "flex items-center gap-1 px-2.5 py-1 rounded-md text-[12px] cursor-pointer",
+              "bg-[hsla(var(--pv-id-hue),65%,55%,0.30)]",
+              "hover:bg-[hsla(var(--pv-id-hue),65%,55%,0.42)]",
+              "border border-[hsla(var(--pv-id-hue),75%,70%,0.45)]",
+              "text-[#fbf5e8]",
+              "disabled:opacity-40 disabled:cursor-not-allowed",
+            )}
+          >
+            <Plus size={12} /> New
+          </button>
+        }
       />
 
       {/* Picker row — sits directly under the head. Host select (multi-host
-          only), skill select, + New skill, delete-skill Trash (when a skill
+          only), skill select, delete-skill Trash (when a skill
           is picked). */}
       <div
         className={cn(
@@ -677,25 +700,6 @@ export default function SkillsEditorModal({
               </option>
             ))}
         </select>
-        <button
-          type="button"
-          onClick={() => {
-            void handleNewSkill();
-          }}
-          disabled={selectedHostId == null}
-          aria-label="+ New skill"
-          data-testid="skills-editor-modal-new-skill"
-          className={cn(
-            "flex items-center gap-1 px-2.5 py-1 rounded-md text-[11.5px] cursor-pointer",
-            "bg-[hsla(var(--pv-id-hue),65%,55%,0.30)]",
-            "hover:bg-[hsla(var(--pv-id-hue),65%,55%,0.42)]",
-            "border border-[hsla(var(--pv-id-hue),75%,70%,0.45)]",
-            "text-[#fbf5e8]",
-            "disabled:opacity-40 disabled:cursor-not-allowed",
-          )}
-        >
-          <Plus size={12} /> New
-        </button>
         {selectedSkillName != null && skillMd != null && (
           <label
             title={
