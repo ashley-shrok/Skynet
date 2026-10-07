@@ -417,6 +417,7 @@ async function postHandler(req: Request, res: Response): Promise<void> {
       operation: "pretty_view_fetch_host_file",
       host: `${hostname}:sftp`,
       errorClass: err instanceof Error ? err.name : "unknown",
+      errorMessage: err instanceof Error ? err.message : String(err),
       duration: Date.now() - startEpoch,
     });
   }
@@ -602,6 +603,7 @@ async function getHandler(req: Request, res: Response): Promise<void> {
       operation: "pretty_view_fetch_host_file_get",
       host: `${hostname}:sftp`,
       errorClass: err instanceof Error ? err.name : "unknown",
+      errorMessage: err instanceof Error ? err.message : String(err),
       duration: Date.now() - startEpoch,
     });
   } finally {
