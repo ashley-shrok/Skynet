@@ -42,6 +42,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Plus, Search, X } from "lucide-react";
+import { toast } from "sonner";
 import { Modal, ModalHead, ModalBody } from "@/components/modal";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/skeleton";
@@ -49,6 +50,7 @@ import type { Host, HostFolder } from "@/types/ui-types";
 import {
   deleteScheduledAgent,
   listScheduledAgents,
+  runScheduledAgentNow,
   toggleScheduledAgentEnabled,
   type ScheduledAgentListItem,
 } from "@/api/scheduled-agents-api";
@@ -110,6 +112,10 @@ export function ScheduledAgentsModal({
 
   // Toggle in-flight guard — rage-click on the same row is a no-op.
   const toggleInFlightRef = useRef<Set<string>>(new Set<string>());
+  // Rows with a run-now request in flight, keyed `${hostId}:${slug}`. State
+  // (not a ref) so the row's menu item re-renders as "Starting…" + disabled,
+  // which is also the double-click guard against spawning two agents.
+  const [runNowPending, setRunNowPending] = useState<Set<string>>(() => new Set<string>());
 
   // Fetch-on-open + reset-on-close (D-03, D-17).
   useEffect(() => {
@@ -233,6 +239,25 @@ export function ScheduledAgentsModal({
       setWriteError(err instanceof Error ? err.message : "Toggle failed");
     } finally {
       toggleInFlightRef.current.delete(row.slug);
+    }
+  }
+
+  async function handleRunNowFromKebab(row: ScheduledAgentListItem): Promise<void> {
+    const key = `${row.hostId}:${row.slug}`;
+    if (runNowPending.has(key)) return;
+    setRunNowPending((cur) => new Set(cur).add(key));
+    setWriteError(null);
+    try {
+      await runScheduledAgentNow(row.slug, row.hostId);
+      toast.success(`Started "${prettifyScheduledAgentName(row.name)}" — the new conversation appears shortly`);
+    } catch (err) {
+      setWriteError(err instanceof Error ? err.message : "Run now failed");
+    } finally {
+      setRunNowPending((cur) => {
+        const next = new Set(cur);
+        next.delete(key);
+        return next;
+      });
     }
   }
 
@@ -500,6 +525,10 @@ export function ScheduledAgentsModal({
                 onDeleteFromKebab={(r) => {
                   void handleDeleteFromKebab(r);
                 }}
+                onRunNowFromKebab={(r) => {
+                  void handleRunNowFromKebab(r);
+                }}
+                runNowPending={runNowPending.has(`${row.hostId}:${row.slug}`)}
               />
             ))
           )}

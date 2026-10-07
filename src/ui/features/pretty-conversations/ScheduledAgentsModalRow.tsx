@@ -70,6 +70,11 @@ export interface ScheduledAgentsModalRowProps {
   onToggleClick: (row: ScheduledAgentListItem) => void;
   onEditFromKebab: (row: ScheduledAgentListItem) => void;
   onDeleteFromKebab: (row: ScheduledAgentListItem) => void;
+  /** Fire once now, outside the schedule. Hidden for one_shot specs (firing
+   *  one early would consume it) — the server rejects those too. */
+  onRunNowFromKebab: (row: ScheduledAgentListItem) => void;
+  /** True while a run-now request for this row is in flight. */
+  runNowPending?: boolean;
 }
 
 export function ScheduledAgentsModalRow({
@@ -78,7 +83,11 @@ export function ScheduledAgentsModalRow({
   onToggleClick,
   onEditFromKebab,
   onDeleteFromKebab,
+  onRunNowFromKebab,
+  runNowPending = false,
 }: ScheduledAgentsModalRowProps): JSX.Element {
+  const isOneShot =
+    (row.schedule as { type?: unknown } | null)?.type === "one_shot";
   const hue = row.colorHue ?? FALLBACK_HUE;
   const letter = avatarLetterFor(row);
   const rowClass = row.enabled ? "pv-agent-row" : "pv-agent-row disabled";
@@ -164,13 +173,23 @@ export function ScheduledAgentsModalRow({
               : "pv-agent-row-toggle"
           }
         />
-        {/* D-29: shared RowKebabMenu — Edit + Delete items. The component
+        {/* D-29: shared RowKebabMenu — Run now + Edit + Delete items. The component
             owns its own open state (Radix) and stop-propagation discipline
             (D-14 revised 2026-10-01), so no `kebabOpen`/`onKebabClick`
             threading is needed from the parent anymore. testId overridden
             to preserve the existing scheduled-agents namespacing. */}
         <RowKebabMenu
           items={[
+            ...(isOneShot
+              ? []
+              : [
+                  {
+                    label: runNowPending ? "Starting…" : "Run now",
+                    disabled: runNowPending,
+                    onClick: () => onRunNowFromKebab(row),
+                    testId: `scheduled-agents-modal-row-${row.slug}-run-now`,
+                  },
+                ]),
             {
               label: "Edit",
               onClick: () => onEditFromKebab(row),

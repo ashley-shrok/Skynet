@@ -96,6 +96,7 @@ vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
   IDENTITY_SLUG_RE: /^[a-z0-9_-]{1,80}$/i,
   isLocalHostId: vi.fn().mockReturnValue(false),
   getLocalScheduledAgentsRoot: vi.fn().mockReturnValue("/tmp/test-fleet/scheduled-agents"),
+  getLocalIdentitiesRoot: vi.fn().mockReturnValue("/tmp/test-fleet/identities"),
 }));
 
 // ---------------------------------------------------------------------------
@@ -247,7 +248,11 @@ function httpRequest(
 // Import router UNDER TEST
 // ---------------------------------------------------------------------------
 
-import router, { __resetSlugMutexRegistryForTests } from "./scheduled-agents-write.js";
+import router, {
+  __resetSlugMutexRegistryForTests,
+  buildRunNowSpawnRequest,
+  prettifyScheduledAgentName,
+} from "./scheduled-agents-write.js";
 
 // ---------------------------------------------------------------------------
 // Stubs
@@ -952,5 +957,183 @@ describe("buildPatchWritePayload (helper)", () => {
     const spec: Record<string, unknown> = { name: "x" };
     expect(buildPatchWritePayload(spec, null)).not.toHaveProperty("users");
     expect(buildPatchWritePayload(spec, "not-an-object")).not.toHaveProperty("users");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /:slug/run-now — manual fire drops a spawn-request, schedule untouched
+// ---------------------------------------------------------------------------
+
+describe("POST /scheduled-agents/:slug/run-now", () => {
+  const UUID_JSON_RE = /\/spawn-requests\/[0-9a-f-]{36}\.json$/;
+
+  function mockRemoteSpec(spec: unknown): void {
+    (execCommand as Mock).mockImplementation(async (_c: unknown, cmd: string) => {
+      if (cmd.includes("scheduled-agent.json")) {
+        return spec === undefined ? "__SCHEDULED_AGENT_MISSING__\n" : JSON.stringify(spec);
+      }
+      return "";
+    });
+  }
+
+  it("happy REMOTE — 202 + spawn-request written atomically to ~/fleet/spawn-requests/<uuid>.json", async () => {
+    mockRemoteSpec({ ...validSpec, users: ["zoey"] });
+
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/scheduled-agents/morning-digest/run-now",
+      body: { host: 7 },
+    });
+    expect(res.status).toBe(202);
+    const out = res.body as { slug: string; host: number; requestId: string };
+    expect(out.slug).toBe("morning-digest");
+    expect(out.host).toBe(7);
+    expect(out.requestId).toMatch(/^[0-9a-f-]{36}$/);
+
+    // The read exec also ensures the drop folder exists.
+    const readCmd = (execCommand as Mock).mock.calls[0][1] as string;
+    expect(readCmd).toContain('mkdir -p "$HOME/fleet/spawn-requests"');
+
+    expect(writeMarkdownFileAtomic).toHaveBeenCalledTimes(1);
+    const [connArg, target, body] = (writeMarkdownFileAtomic as Mock).mock.calls[0];
+    expect(connArg).toBe(stubConn);
+    expect(target).toBe(`$HOME/fleet/spawn-requests/${out.requestId}.json`);
+    const parsed = JSON.parse(body as string);
+    expect(parsed.roles).toEqual(["box-maintainer"]);
+    expect(parsed.skills).toEqual([]);
+    expect(parsed.task).toBe("⏰ Morning digest");
+    expect(parsed.users).toEqual(["zoey"]);
+    expect(parsed.requested_at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+    expect(parsed.prompt).toContain("> Summarize overnight events");
+    expect(parsed.prompt).toContain("started manually");
+    expect(parsed.prompt).toContain("~/fleet/scheduled-agents/morning-digest/scheduled-agent.json");
+
+    // Schedule state is never touched by a manual run.
+    for (const c of (execCommand as Mock).mock.calls) {
+      expect(c[1] as string).not.toMatch(/\.last|\.anchored|\.fired/);
+    }
+  });
+
+  it("happy LOCAL — writes via writeMarkdownFileAtomic(null, ...) under the fleet root, no SSH", async () => {
+    (isLocalHostId as Mock).mockReturnValue(true);
+    fsReadFileMock.mockResolvedValue(JSON.stringify(validSpec));
+    fsMkdirMock.mockResolvedValue(undefined);
+
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/scheduled-agents/morning-digest/run-now",
+      body: { host: 1 },
+    });
+    expect(res.status).toBe(202);
+    expect(fsReadFileMock.mock.calls[0][0]).toBe(
+      "/tmp/test-fleet/scheduled-agents/morning-digest/scheduled-agent.json",
+    );
+    expect(fsMkdirMock.mock.calls[0][0]).toBe("/tmp/test-fleet/spawn-requests");
+    const [connArg, target] = (writeMarkdownFileAtomic as Mock).mock.calls[0];
+    expect(connArg).toBeNull();
+    expect(target).toMatch(UUID_JSON_RE);
+    expect(connectOneShot).not.toHaveBeenCalled();
+  });
+
+  it("disabled spec still runs (manual run is how you test a paused task)", async () => {
+    mockRemoteSpec({ ...validSpec, enabled: false });
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/scheduled-agents/morning-digest/run-now",
+      body: { host: 7 },
+    });
+    expect(res.status).toBe(202);
+    expect(writeMarkdownFileAtomic).toHaveBeenCalledTimes(1);
+  });
+
+  it("missing spec → 404, nothing written", async () => {
+    mockRemoteSpec(undefined);
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/scheduled-agents/nope/run-now",
+      body: { host: 7 },
+    });
+    expect(res.status).toBe(404);
+    expect(writeMarkdownFileAtomic).not.toHaveBeenCalled();
+  });
+
+  it("one_shot spec → 400, nothing written", async () => {
+    mockRemoteSpec({ ...validSpec, schedule: { type: "one_shot", at: "2030-01-01T09:00" } });
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/scheduled-agents/morning-digest/run-now",
+      body: { host: 7 },
+    });
+    expect(res.status).toBe(400);
+    expect(writeMarkdownFileAtomic).not.toHaveBeenCalled();
+  });
+
+  it("invalid slug → 400; unknown host → 404; missing host → 400", async () => {
+    const bad = await httpRequest(server, {
+      method: "POST",
+      path: "/scheduled-agents/bad.slug/run-now",
+      body: { host: 7 },
+    });
+    expect(bad.status).toBe(400);
+    const unknown = await httpRequest(server, {
+      method: "POST",
+      path: "/scheduled-agents/morning-digest/run-now",
+      body: { host: 99 },
+    });
+    expect(unknown.status).toBe(404);
+    const noHost = await httpRequest(server, {
+      method: "POST",
+      path: "/scheduled-agents/morning-digest/run-now",
+      body: {},
+    });
+    expect(noHost.status).toBe(400);
+    expect(writeMarkdownFileAtomic).not.toHaveBeenCalled();
+  });
+
+  it("401 without JWT", async () => {
+    mockUserId = null;
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/scheduled-agents/morning-digest/run-now",
+      body: { host: 7 },
+    });
+    expect(res.status).toBe(401);
+  });
+});
+
+describe("buildRunNowSpawnRequest (helper)", () => {
+  const at = "2026-10-07T12:00:00Z";
+
+  it("rejects empty roles (parse-request-body would reject the request as malformed)", () => {
+    const r = buildRunNowSpawnRequest({ ...validSpec, roles: [] }, "x", at);
+    expect(r.ok).toBe(false);
+  });
+
+  it("rejects missing prompt", () => {
+    const r = buildRunNowSpawnRequest({ ...validSpec, prompt: "" }, "x", at);
+    expect(r.ok).toBe(false);
+  });
+
+  it("omits users when absent; task null when name absent", () => {
+    const { name: _name, ...noName } = validSpec;
+    const r = buildRunNowSpawnRequest(noName, "x", at);
+    expect(r.ok).toBe(true);
+    if (r.ok === true) {
+      expect("users" in r.body).toBe(false);
+      expect(r.body.task).toBeNull();
+    }
+  });
+
+  it("blockquotes every prompt line, trailing newline dropped like Python splitlines()", () => {
+    const r = buildRunNowSpawnRequest({ ...validSpec, prompt: "one\ntwo\n" }, "x", at);
+    expect(r.ok).toBe(true);
+    if (r.ok === true) {
+      expect((r.body.prompt as string).endsWith("> one\n> two")).toBe(true);
+    }
+  });
+
+  it("prettifyScheduledAgentName mirrors the scheduler's _prettify_name", () => {
+    expect(prettifyScheduledAgentName("news-watcher_zoey")).toBe("News watcher zoey");
+    expect(prettifyScheduledAgentName("")).toBe("");
   });
 });
