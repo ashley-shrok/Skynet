@@ -57,8 +57,8 @@ export function registerUserAdminRoutes(
    * @openapi
    * /users/list:
    *   get:
-   *     summary: List all users
-   *     description: Retrieves a list of all users in the system.
+   *     summary: List all users (admin only)
+   *     description: Retrieves every user with the fields the admin panel shows. Non-admin pickers use /users/list-basic instead.
    *     tags:
    *       - Users
    *     responses:
@@ -70,13 +70,26 @@ export function registerUserAdminRoutes(
    *         description: Failed to list users.
    */
   router.get("/list", authenticateJWT, async (req, res) => {
+    const userId = (req as AuthenticatedRequest).userId;
     try {
+      const caller = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, userId));
+      if (!caller || caller.length === 0 || !caller[0].isAdmin) {
+        return res.status(403).json({ error: "Not authorized" });
+      }
+
       const allUsers = await db
         .select({
           id: users.id,
           username: users.username,
           isAdmin: users.isAdmin,
           isOidc: users.isOidc,
+          totpEnabled: users.totpEnabled,
+          mxid: users.mxid,
+          phoneE164: users.phoneE164,
+          avatarPath: users.avatarPath,
         })
         .from(users);
 

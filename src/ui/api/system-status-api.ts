@@ -139,6 +139,17 @@ export async function getVersionInfo(
 // DATABASE HEALTH
 // ============================================================================
 
+// Backing route: GET /users/db-health (admin only) — runs a trivial query
+// against the app database.
+export async function getAdminDbHealth(): Promise<{ status: string }> {
+  try {
+    const response = await authApi.get("/users/db-health");
+    return response.data;
+  } catch (error) {
+    handleApiError(error, "check admin database health");
+  }
+}
+
 export async function getDatabaseHealth(): Promise<Record<string, unknown>> {
   try {
     const response = await authApi.get("/health");
