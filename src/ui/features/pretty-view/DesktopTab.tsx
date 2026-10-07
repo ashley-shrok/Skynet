@@ -389,7 +389,21 @@ export default function DesktopTab({
 
       <div
         className="flex-1 min-h-0 relative"
-        style={{ background: "var(--bg-base, #111)" }}
+        style={{
+          background: "var(--bg-base, #111)",
+          // Give the body a real intrinsic size so the modal (h-auto under
+          // max-h-[90vh]) grows to accommodate the viewer. Without this the
+          // GuacamoleDisplay below is absolute-inset-0 inside a flex-1 that
+          // has no content → collapses to 0px, the stream connects fine but
+          // paints into a zero-size container. Aspect-ratio comes from the
+          // live geometry so a 1280×800 desktop lands at 1.6:1; min-height
+          // keeps the Notice placeholders readable before connect resolves.
+          ...(live && geoW && geoH
+            ? { aspectRatio: `${geoW} / ${geoH}` }
+            : {}),
+          minHeight: 240,
+          maxHeight: "70vh",
+        }}
       >
         {view.status === "connecting" && (
           <Notice heading="Connecting to the desktop…" body="" />
