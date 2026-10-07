@@ -115,7 +115,12 @@ export function MdxEditorImpl({
     <MDXEditor
       ref={editorRef}
       markdown={content}
-      onChange={(md) => {
+      onChange={(md, initialMarkdownNormalize) => {
+        // MDXEditor re-serialises a file as it loads (bullet style, spacing,
+        // final newline). That isn't an edit: passing it on would mark the
+        // file changed just by opening it (or switching to Formatted) and
+        // rewrite its formatting on the next save.
+        if (initialMarkdownNormalize) return;
         lastKnownRef.current = md;
         onChange(md);
       }}
