@@ -20,7 +20,7 @@ import {
 // a RowKebabMenu rendered inside the tile. Hover-reveal on desktop +
 // always-visible on mobile via a CSS-only group-hover + viewport-width gate
 // at the kebab's wrapper div.
-import { RowKebabMenu, type RowKebabMenuItem } from "./RowKebabMenu";
+import { RowKebabMenu, useRowKebabContextMenu, type RowKebabMenuItem } from "./RowKebabMenu";
 
 // ─── AppTile — Phase 119 Plan 03 (D-07..D-13) ───────────────────────────────
 // One tile in the sidebar's Apps section (119-04 integrates it into
@@ -325,6 +325,8 @@ export function AppTile({ app, onOpenApp, onArchive, variant = "desktop" }: AppT
       },
     },
   ];
+  // Right-click on the tile opens the same kebab menu at the cursor.
+  const kebabContextMenu = useRowKebabContextMenu(kebabItems);
 
   return (
     <div
@@ -334,6 +336,7 @@ export function AppTile({ app, onOpenApp, onArchive, variant = "desktop" }: AppT
       draggable={true}
       onDragStart={onTileDragStart}
       onClick={onTileClick}
+      onContextMenu={kebabContextMenu.onContextMenu}
       data-testid="pv-app-tile"
       data-app-key={`${app.hostId}:${app.slug}`}
     >
@@ -370,6 +373,7 @@ export function AppTile({ app, onOpenApp, onArchive, variant = "desktop" }: AppT
           testId="pv-app-tile-kebab-trigger"
           items={kebabItems}
         />
+        {kebabContextMenu.menu}
       </div>
     </div>
   );

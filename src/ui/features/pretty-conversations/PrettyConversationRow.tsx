@@ -145,7 +145,12 @@ import { identityRolesLabel } from "@/lib/identity-roles";
 // md:group-hover:opacity-100 at md+). RowKebabMenu's portal-click-containment
 // prevents item-click leaks to the row's onClick (row body is a clickable
 // surface for session selection).
-import { RowKebabMenu, type RowKebabMenuItem, type RowKebabSubmenuItem } from "./RowKebabMenu";
+import {
+  RowKebabMenu,
+  useRowKebabContextMenu,
+  type RowKebabMenuItem,
+  type RowKebabSubmenuItem,
+} from "./RowKebabMenu";
 
 // ─── Prop shape ──────────────────────────────────────────────────────────────
 // `variant` drives the density class (`pv-row--mobile` vs `pv-row--desktop`)
@@ -543,6 +548,96 @@ export function PrettyConversationRow({
     ? (identity.displayName ?? "?").charAt(0).toUpperCase()
     : null;
 
+  // Kebab items (shared by the ⋮ trigger and right-click on the row body).
+  // Mirrors the retired PrettyConversationContextMenu items[] verbatim
+  // (Pin / Open in new window / Move to project / Kill / Archive).
+  const kebabItems = ((): RowKebabMenuItem[] => {
+    const items: RowKebabMenuItem[] = [];
+    items.push({
+      label: pinned ? "Unpin" : "Pin",
+      onClick: onTogglePin,
+      testId: "pv-row-kebab-item-pin",
+    });
+    // Open in new window — desktop-only, only when the row is URL-
+    // addressable (specForTab produces a spec). Window.open without
+    // "noopener" so we can detect popup-blocker returns null.
+    if (!isMobile) {
+      const spec = specForTab({ type: row.type, host: row.host, targetTmuxSession: row.targetTmuxSession });
+      if (spec !== null) {
+        items.push({
+          label: "Open in new window",
+          onClick: () => {
+            const payload = encodeWorkspaceSpec({ tabs: [spec], activeIndex: 0, only: true });
+            const w = window.open("#" + payload, "_blank");
+            if (w !== null && inActiveSet) {
+              onDeactivate?.();
+            }
+          },
+          testId: "pv-row-kebab-item-open-new-window",
+        });
+      }
+    }
+    // Move to project — drill-in submenu (project list with a
+    // checkmark on the currently-assigned project; followed by
+    // "Remove from project" if the row is currently in one).
+    // Panel gates onMoveToProject on !isRdp && projects.length > 0.
+    if (onMoveToProject && projects.length > 0) {
+      const submenu: RowKebabSubmenuItem[] = [];
+      for (const p of projects) {
+        const isCurrent = p.slug === currentProjectSlug;
+        submenu.push({
+          label: p.displayName,
+          checked: isCurrent,
+          onClick: () => {
+            if (!isCurrent) onMoveToProject(p.slug);
+          },
+          testId: `pv-row-kebab-item-move-to-${p.slug}`,
+        });
+      }
+      if (currentProjectSlug !== null) {
+        submenu.push({
+          label: "Remove from project",
+          onClick: () => onMoveToProject(null),
+          testId: "pv-row-kebab-item-remove-from-project",
+        });
+      }
+      items.push({
+        label: "Move to project",
+        submenu,
+        testId: "pv-row-kebab-item-move-to-project",
+      });
+    }
+    // Kill — hard-terminates the underlying tmux session. Gated to
+    // rows without an identity backing (identity rows have /id save
+    // state and must not be nuked from a context menu).
+    if (
+      onKill &&
+      !isRdp &&
+      !identity &&
+      row.targetTmuxSession !== null &&
+      row.targetTmuxSession !== undefined
+    ) {
+      items.push({
+        label: "Kill",
+        onClick: onKill,
+        danger: true,
+        testId: "pv-row-kebab-item-kill",
+      });
+    }
+    // Archive — gated on `onArchive` being provided. The panel
+    // provides it only for fleet-synthetic identity-backed rows.
+    if (onArchive) {
+      items.push({
+        label: "Archive",
+        onClick: onArchive,
+        danger: true,
+        testId: "pv-row-kebab-item-archive",
+      });
+    }
+    return items;
+  })();
+  const kebabContextMenu = useRowKebabContextMenu(kebabItems);
+
   return (
     <div
       className={wrapperClass}
@@ -556,16 +651,16 @@ export function PrettyConversationRow({
           layout, background, border, shadow, hover, and state variants via
           the composed className. The only inline style is `--pv-hue` (for
           hue-bearing rows). shape-sidebar-header-affordances: `group` class
-          added for the kebab's hover-reveal below; onContextMenu +
-          onTouchStart/Move/End/Cancel handlers retired alongside the right-
-          click / long-press context-menu machinery (the kebab is the sole
-          affordance now). */}
+          added for the kebab's hover-reveal below. onTouchStart/Move/End/Cancel
+          long-press handlers stay retired; onContextMenu opens the SAME kebab
+          menu at the cursor (useRowKebabContextMenu) as a desktop convenience. */}
       <div
         role="button"
         tabIndex={0}
         draggable={true}
         aria-pressed={selected}
         onClick={onBodyClick}
+        onContextMenu={kebabContextMenu.onContextMenu}
         onKeyDown={onBodyKeyDown}
         onMouseEnter={setRowTooltip(identity?.displayName, identity?.task)}
         onDragStart={onRowDragStart}
@@ -754,92 +849,9 @@ export function PrettyConversationRow({
           <RowKebabMenu
             ariaLabel="Conversation menu"
             testId="pv-row-kebab-trigger"
-            items={((): RowKebabMenuItem[] => {
-              const items: RowKebabMenuItem[] = [];
-              items.push({
-                label: pinned ? "Unpin" : "Pin",
-                onClick: onTogglePin,
-                testId: "pv-row-kebab-item-pin",
-              });
-              // Open in new window — desktop-only, only when the row is URL-
-              // addressable (specForTab produces a spec). Window.open without
-              // "noopener" so we can detect popup-blocker returns null.
-              if (!isMobile) {
-                const spec = specForTab({ type: row.type, host: row.host, targetTmuxSession: row.targetTmuxSession });
-                if (spec !== null) {
-                  items.push({
-                    label: "Open in new window",
-                    onClick: () => {
-                      const payload = encodeWorkspaceSpec({ tabs: [spec], activeIndex: 0, only: true });
-                      const w = window.open("#" + payload, "_blank");
-                      if (w !== null && inActiveSet) {
-                        onDeactivate?.();
-                      }
-                    },
-                    testId: "pv-row-kebab-item-open-new-window",
-                  });
-                }
-              }
-              // Move to project — drill-in submenu (project list with a
-              // checkmark on the currently-assigned project; followed by
-              // "Remove from project" if the row is currently in one).
-              // Panel gates onMoveToProject on !isRdp && projects.length > 0.
-              if (onMoveToProject && projects.length > 0) {
-                const submenu: RowKebabSubmenuItem[] = [];
-                for (const p of projects) {
-                  const isCurrent = p.slug === currentProjectSlug;
-                  submenu.push({
-                    label: p.displayName,
-                    checked: isCurrent,
-                    onClick: () => {
-                      if (!isCurrent) onMoveToProject(p.slug);
-                    },
-                    testId: `pv-row-kebab-item-move-to-${p.slug}`,
-                  });
-                }
-                if (currentProjectSlug !== null) {
-                  submenu.push({
-                    label: "Remove from project",
-                    onClick: () => onMoveToProject(null),
-                    testId: "pv-row-kebab-item-remove-from-project",
-                  });
-                }
-                items.push({
-                  label: "Move to project",
-                  submenu,
-                  testId: "pv-row-kebab-item-move-to-project",
-                });
-              }
-              // Kill — hard-terminates the underlying tmux session. Gated to
-              // rows without an identity backing (identity rows have /id save
-              // state and must not be nuked from a context menu).
-              if (
-                onKill &&
-                !isRdp &&
-                !identity &&
-                row.targetTmuxSession !== null &&
-                row.targetTmuxSession !== undefined
-              ) {
-                items.push({
-                  label: "Kill",
-                  onClick: onKill,
-                  danger: true,
-                  testId: "pv-row-kebab-item-kill",
-                });
-              }
-              // Archive — gated on `onArchive` being provided. The panel
-              // provides it only for fleet-synthetic identity-backed rows.
-              if (onArchive) {
-                items.push({
-                  label: "Archive",
-                  onClick: onArchive,
-                  danger: true,
-                  testId: "pv-row-kebab-item-archive",
-                });
-              }
-              return items;
-            })()}
+            items={kebabItems}
           />
+          {kebabContextMenu.menu}
         </div>
       </div>
     </div>

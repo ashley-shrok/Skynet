@@ -38,7 +38,7 @@
  */
 
 import type { ScheduledAgentListItem } from "@/api/scheduled-agents-api";
-import { RowKebabMenu } from "./RowKebabMenu";
+import { RowKebabMenu, useRowKebabContextMenu, type RowKebabMenuItem } from "./RowKebabMenu";
 import {
   formatAbsolute,
   formatRelativeFuture,
@@ -91,6 +91,31 @@ export function ScheduledAgentsModalRow({
   const hue = row.colorHue ?? FALLBACK_HUE;
   const letter = avatarLetterFor(row);
   const rowClass = row.enabled ? "pv-agent-row" : "pv-agent-row disabled";
+  const kebabItems: RowKebabMenuItem[] = [
+    ...(isOneShot
+      ? []
+      : [
+          {
+            label: runNowPending ? "Starting…" : "Run now",
+            disabled: runNowPending,
+            onClick: () => onRunNowFromKebab(row),
+            testId: `scheduled-agents-modal-row-${row.slug}-run-now`,
+          },
+        ]),
+    {
+      label: "Edit",
+      onClick: () => onEditFromKebab(row),
+      testId: `scheduled-agents-modal-row-${row.slug}-edit`,
+    },
+    {
+      label: "Delete",
+      danger: true,
+      onClick: () => onDeleteFromKebab(row),
+      testId: `scheduled-agents-modal-row-${row.slug}-delete`,
+    },
+  ];
+  // Right-click the row → same kebab menu at the cursor.
+  const kebabContextMenu = useRowKebabContextMenu(kebabItems);
 
   return (
     <div
@@ -98,6 +123,7 @@ export function ScheduledAgentsModalRow({
       tabIndex={0}
       data-testid={`scheduled-agents-modal-row-${row.slug}`}
       onClick={() => onRowClick(row)}
+      onContextMenu={kebabContextMenu.onContextMenu}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
@@ -179,32 +205,11 @@ export function ScheduledAgentsModalRow({
             threading is needed from the parent anymore. testId overridden
             to preserve the existing scheduled-agents namespacing. */}
         <RowKebabMenu
-          items={[
-            ...(isOneShot
-              ? []
-              : [
-                  {
-                    label: runNowPending ? "Starting…" : "Run now",
-                    disabled: runNowPending,
-                    onClick: () => onRunNowFromKebab(row),
-                    testId: `scheduled-agents-modal-row-${row.slug}-run-now`,
-                  },
-                ]),
-            {
-              label: "Edit",
-              onClick: () => onEditFromKebab(row),
-              testId: `scheduled-agents-modal-row-${row.slug}-edit`,
-            },
-            {
-              label: "Delete",
-              danger: true,
-              onClick: () => onDeleteFromKebab(row),
-              testId: `scheduled-agents-modal-row-${row.slug}-delete`,
-            },
-          ]}
+          items={kebabItems}
           ariaLabel="More actions"
           testId={`scheduled-agents-modal-row-${row.slug}-kebab`}
         />
+        {kebabContextMenu.menu}
       </div>
     </div>
   );

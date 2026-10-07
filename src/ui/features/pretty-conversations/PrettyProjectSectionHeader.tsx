@@ -55,7 +55,7 @@ import {
 } from "react";
 import { FolderOpen, ChevronDown } from "lucide-react";
 
-import { RowKebabMenu } from "./RowKebabMenu";
+import { RowKebabMenu, useRowKebabContextMenu } from "./RowKebabMenu";
 
 /**
  * Row payload extracted from the DnD dataTransfer's `application/x-skynet-row`
@@ -224,6 +224,8 @@ export function PrettyProjectSectionHeader({
         }]
       : []),
   ];
+  // Right-click on the header row opens the same kebab menu at the cursor.
+  const kebabContextMenu = useRowKebabContextMenu(kebabItems);
 
   return (
     <div
@@ -253,6 +255,7 @@ export function PrettyProjectSectionHeader({
         role="button"
         tabIndex={0}
         onClick={() => onToggleCollapse(slug)}
+        onContextMenu={kebabContextMenu.onContextMenu}
         onKeyDown={(e) => {
           // WAI-ARIA button pattern: Enter and Space both fire the
           // collapse toggle. preventDefault on Space avoids page scroll.
@@ -292,6 +295,7 @@ export function PrettyProjectSectionHeader({
             testId={`pv-project-section-kebab-trigger-${slug}`}
             items={kebabItems}
           />
+          {kebabContextMenu.menu}
         </div>
         <ChevronDown
           className={`size-3.5 text-[#a89a80] opacity-90 shrink-0 transition-transform ${collapsed ? "" : "rotate-180"}`}

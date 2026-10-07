@@ -1,4 +1,6 @@
 import * as React from "react";
+import { createPortal } from "react-dom";
+import { Slot } from "radix-ui";
 import { MoreVertical, Check } from "lucide-react";
 
 // ─── Phase 143 Plan 143-05 (D-12 / D-13 / D-14) — RowKebabMenu ──────────────
@@ -119,6 +121,126 @@ const CONTENT_CLASS = "w-auto rounded-lg bg-[#1f1f24] border border-white/10 sha
 const ITEM_CLASS_BASE = "cursor-pointer rounded-md px-3 py-1.5 text-[12.5px] max-md:px-[14px] max-md:py-[14px] max-md:text-[14px] text-[#e8e4d8] focus:bg-white/10 focus:text-white";
 const ITEM_CLASS_DANGER = "text-[hsla(0,60%,76%,1)] focus:bg-[hsla(0,60%,40%,0.18)] focus:text-[hsla(0,60%,86%,1)]";
 
+/**
+ * The kebab menu surface (content + items), shared by the ⋮ trigger
+ * (RowKebabMenu) and the right-click path (useRowKebabContextMenu) so both
+ * gestures render the identical menu. Must be rendered inside a DropdownMenu.
+ */
+function KebabMenuContent({
+  items,
+  ...contentProps
+}: {
+  items: RowKebabMenuItem[];
+} & Pick<
+  React.ComponentProps<typeof DropdownMenuContent>,
+  "sideOffset" | "alignOffset" | "onCloseAutoFocus"
+>): React.JSX.Element {
+  return (
+    <DropdownMenuContent
+      className={CONTENT_CLASS}
+      {...contentProps}
+      onContextMenu={(e) => {
+        // Right-clicking inside an open menu must not re-open it at the new
+        // cursor position (via useRowKebabContextMenu on the surface behind),
+        // nor show the browser's native menu on top of ours.
+        e.preventDefault();
+        e.stopPropagation();
+      }}
+      onClick={(e) => {
+        e.stopPropagation();
+      }}
+      onPointerDown={(e) => {
+        e.stopPropagation();
+      }}
+    >
+      {items.map((item) => {
+        if (item.submenu && item.submenu.length > 0) {
+          // Submenu parent — DropdownMenuSub with SubTrigger + SubContent.
+          // The SubContent inherits the same CONTENT_CLASS so the drilled
+          // level looks identical to the primary.
+          return (
+            <DropdownMenuSub key={item.label}>
+              <DropdownMenuSubTrigger
+                disabled={item.disabled}
+                data-testid={item.testId}
+                className={cn(
+                  ITEM_CLASS_BASE,
+                  item.danger && ITEM_CLASS_DANGER,
+                )}
+              >
+                {item.label}
+              </DropdownMenuSubTrigger>
+              <DropdownMenuPortal>
+                <DropdownMenuSubContent
+                  className={CONTENT_CLASS}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                  }}
+                  onPointerDown={(e) => {
+                    e.stopPropagation();
+                  }}
+                >
+                  {item.submenu.map((sub) => (
+                    <DropdownMenuItem
+                      key={sub.label}
+                      onSelect={() => {
+                        sub.onClick();
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                      }}
+                      disabled={sub.disabled}
+                      data-testid={sub.testId}
+                      className={cn(
+                        ITEM_CLASS_BASE,
+                        "flex items-center gap-2",
+                        sub.danger && ITEM_CLASS_DANGER,
+                      )}
+                    >
+                      {sub.checked === true ? (
+                        <Check
+                          className="size-[14px] shrink-0"
+                          aria-hidden="true"
+                        />
+                      ) : (
+                        <span
+                          className="inline-block size-[14px] shrink-0"
+                          aria-hidden="true"
+                        />
+                      )}
+                      <span>{sub.label}</span>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuPortal>
+            </DropdownMenuSub>
+          );
+        }
+        // Leaf item.
+        return (
+          <DropdownMenuItem
+            key={item.label}
+            onSelect={() => {
+              item.onClick?.();
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+            }}
+            disabled={item.disabled}
+            data-testid={item.testId}
+            className={cn(
+              ITEM_CLASS_BASE,
+              item.danger && ITEM_CLASS_DANGER,
+            )}
+          >
+            {item.label}
+          </DropdownMenuItem>
+        );
+      })}
+    </DropdownMenuContent>
+  );
+}
+
 export function RowKebabMenu({
   items,
   ariaLabel,
@@ -152,101 +274,134 @@ export function RowKebabMenu({
           <MoreVertical className="size-[16px]" aria-hidden="true" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent
-        className={CONTENT_CLASS}
-        onClick={(e) => {
-          e.stopPropagation();
-        }}
-        onPointerDown={(e) => {
-          e.stopPropagation();
-        }}
-      >
-        {items.map((item) => {
-          if (item.submenu && item.submenu.length > 0) {
-            // Submenu parent — DropdownMenuSub with SubTrigger + SubContent.
-            // The SubContent inherits the same CONTENT_CLASS so the drilled
-            // level looks identical to the primary.
-            return (
-              <DropdownMenuSub key={item.label}>
-                <DropdownMenuSubTrigger
-                  disabled={item.disabled}
-                  data-testid={item.testId}
-                  className={cn(
-                    ITEM_CLASS_BASE,
-                    item.danger && ITEM_CLASS_DANGER,
-                  )}
-                >
-                  {item.label}
-                </DropdownMenuSubTrigger>
-                <DropdownMenuPortal>
-                  <DropdownMenuSubContent
-                    className={CONTENT_CLASS}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                    }}
-                    onPointerDown={(e) => {
-                      e.stopPropagation();
-                    }}
-                  >
-                    {item.submenu.map((sub) => (
-                      <DropdownMenuItem
-                        key={sub.label}
-                        onSelect={() => {
-                          sub.onClick();
-                        }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                        }}
-                        disabled={sub.disabled}
-                        data-testid={sub.testId}
-                        className={cn(
-                          ITEM_CLASS_BASE,
-                          "flex items-center gap-2",
-                          sub.danger && ITEM_CLASS_DANGER,
-                        )}
-                      >
-                        {sub.checked === true ? (
-                          <Check
-                            className="size-[14px] shrink-0"
-                            aria-hidden="true"
-                          />
-                        ) : (
-                          <span
-                            className="inline-block size-[14px] shrink-0"
-                            aria-hidden="true"
-                          />
-                        )}
-                        <span>{sub.label}</span>
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuSubContent>
-                </DropdownMenuPortal>
-              </DropdownMenuSub>
-            );
-          }
-          // Leaf item.
-          return (
-            <DropdownMenuItem
-              key={item.label}
-              onSelect={() => {
-                item.onClick?.();
-              }}
-              onClick={(e) => {
-                e.stopPropagation();
-              }}
-              disabled={item.disabled}
-              data-testid={item.testId}
-              className={cn(
-                ITEM_CLASS_BASE,
-                item.danger && ITEM_CLASS_DANGER,
-              )}
-            >
-              {item.label}
-            </DropdownMenuItem>
-          );
-        })}
-      </DropdownMenuContent>
+      <KebabMenuContent items={items} />
     </DropdownMenu>
+  );
+}
+
+// ─── Right-click → same menu ──────────────────────────────────────────────────
+//
+// Convenience gesture: right-clicking a surface that carries a kebab opens the
+// SAME menu (same items, same KebabMenuContent) at the cursor. The ⋮ trigger
+// stays the primary/discoverable affordance — this is not a second menu, and
+// touch long-press stays retired (shape-sidebar-header-affordances): a
+// contextmenu event synthesized from a touch long-press is ignored so mobile
+// keeps its native behavior and HTML5 row drag is unaffected.
+//
+// Usage:
+//   const ctx = useRowKebabContextMenu(items);
+//   <div onContextMenu={ctx.onContextMenu}> … <RowKebabMenu items={items}/> {ctx.menu} </div>
+//
+// Mechanics: on contextmenu we record the cursor position and open a
+// controlled DropdownMenu whose trigger is an invisible 0×0 element fixed at
+// that point, portaled to <body> so a transformed ancestor (e.g. a centered
+// Dialog) can't re-base `position: fixed`. The menu is only mounted while
+// open, so N rows cost N handlers, not N extra Radix menus. modal={false}
+// for the same body-lock reason as RowKebabMenu.
+
+/** True when the event target is somewhere the native menu is more useful. */
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  return (
+    target.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]') !==
+    null
+  );
+}
+
+export interface RowKebabContextMenu {
+  /** Attach to the surface's onContextMenu. */
+  onContextMenu: (e: React.MouseEvent) => void;
+  /** Render anywhere inside the surface (it portals itself). */
+  menu: React.ReactNode;
+}
+
+export function useRowKebabContextMenu(
+  items: RowKebabMenuItem[],
+): RowKebabContextMenu {
+  const [pos, setPos] = React.useState<{ x: number; y: number } | null>(null);
+  const enabled = items.length > 0;
+
+  const onContextMenu = React.useCallback(
+    (e: React.MouseEvent) => {
+      if (!enabled || e.defaultPrevented) return;
+      // Touch long-press → leave alone (see header comment). `pointerType`
+      // exists where contextmenu is dispatched as a PointerEvent (Chromium).
+      const pointerType = (e.nativeEvent as Partial<PointerEvent>).pointerType;
+      if (pointerType === "touch" || pointerType === "pen") return;
+      if (isEditableTarget(e.target)) return;
+      e.preventDefault();
+      // Innermost kebab surface wins when surfaces nest.
+      e.stopPropagation();
+      setPos({ x: e.clientX, y: e.clientY });
+    },
+    [enabled],
+  );
+
+  const menu =
+    pos === null
+      ? null
+      : createPortal(
+          <DropdownMenu
+            // Remount per position so a second right-click re-anchors cleanly.
+            key={`${pos.x},${pos.y}`}
+            modal={false}
+            open
+            onOpenChange={(open) => {
+              if (!open) setPos(null);
+            }}
+          >
+            <DropdownMenuTrigger asChild>
+              <span
+                aria-hidden="true"
+                data-testid="row-kebab-context-anchor"
+                style={{
+                  position: "fixed",
+                  left: pos.x,
+                  top: pos.y,
+                  width: 0,
+                  height: 0,
+                  pointerEvents: "none",
+                }}
+              />
+            </DropdownMenuTrigger>
+            <KebabMenuContent
+              items={items}
+              // Small offset (as Radix ContextMenu does) so the mouseup that ends
+              // the right-click doesn't land on — and select — the first item.
+              sideOffset={2}
+              alignOffset={2}
+              // The anchor unmounts on close; don't bounce focus to it.
+              onCloseAutoFocus={(e) => {
+                e.preventDefault();
+              }}
+            />
+          </DropdownMenu>,
+          document.body,
+        );
+
+  return { onContextMenu, menu };
+}
+
+/**
+ * Component form of useRowKebabContextMenu for surfaces rendered inside a
+ * .map() (where a hook can't be called per item). Merges onContextMenu onto
+ * its single child element via Slot; the menu itself portals to <body>.
+ *
+ *   <RowKebabContextMenuSurface items={items}><div …row…/></RowKebabContextMenuSurface>
+ */
+export function RowKebabContextMenuSurface({
+  items,
+  children,
+}: {
+  items: RowKebabMenuItem[];
+  children: React.ReactElement;
+}): React.JSX.Element {
+  const { onContextMenu, menu } = useRowKebabContextMenu(items);
+  return (
+    <>
+      <Slot.Root onContextMenu={onContextMenu}>{children}</Slot.Root>
+      {menu}
+    </>
   );
 }
 
