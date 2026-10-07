@@ -76,6 +76,10 @@ export interface ServeTarget {
  *                       fails to reach it — this class fires BEFORE any
  *                       tunnel work, so the message must not reference a
  *                       port number.
+ * - invalid_link       → 400 HTML — the serve subdomain isn't
+ *                       `<machineId>-<port>` (e.g. an old name-based link).
+ *                       Fires before auth or any lookup; the message must
+ *                       not echo the raw subdomain (T-103-27).
  */
 export type ErrorClass =
   | "port_not_listening"
@@ -83,7 +87,8 @@ export type ErrorClass =
   | "permission_denied"
   | "ssh_failure"
   | "auth_missing"
-  | "app_not_serving";
+  | "app_not_serving"
+  | "invalid_link";
 
 /**
  * Exact, lowercase, ordered list of HTTP headers permitted to pass through
