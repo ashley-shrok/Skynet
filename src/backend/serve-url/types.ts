@@ -44,7 +44,7 @@ export interface ServeTarget {
    *  target listens. NOT the SSH port. */
   port: number;
   /** Resolved DB host row. Used to derive SSH credentials + pool key
-   *  (`${host.ip}:${host.port ?? 22}:${host.username}`) for tunnel setup. */
+   *  (`hostPoolKey(host)`, owner-scoped) for tunnel setup. */
   host: Host;
 }
 

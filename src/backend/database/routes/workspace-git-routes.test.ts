@@ -62,6 +62,8 @@ const stubClient = {
 
 vi.mock("../../ssh/ssh-one-shot.js", () => ({ connectOneShot: vi.fn(async () => stubClient) }));
 vi.mock("../../ssh/ssh-connection-pool.js", () => ({
+  hostPoolKey: (h: { userId?: string; ip: string; port?: number | null; username: string }) =>
+    `${h.userId}:${h.ip}:${h.port ?? 22}:${h.username}`,
   withConnection: vi.fn(
     async (_k: string, factory: () => Promise<unknown>, fn: (c: unknown) => Promise<unknown>) =>
       fn(await factory()),

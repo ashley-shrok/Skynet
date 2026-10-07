@@ -38,7 +38,7 @@ import type { Client as SSHClientType } from "ssh2";
 import { AuthManager } from "../../utils/auth-manager.js";
 import { PermissionManager } from "../../utils/permission-manager.js";
 import { sshLogger } from "../../utils/logger.js";
-import { withConnection } from "../../ssh/ssh-connection-pool.js";
+import { withConnection, hostPoolKey } from "../../ssh/ssh-connection-pool.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { getHostSemaphore } from "../../ssh/host-semaphore-registry.js";
@@ -359,7 +359,7 @@ async function handleGitRequest(
     return;
   }
 
-  const poolKey = `${host.ip}:${host.port ?? 22}:${host.username}`;
+  const poolKey = hostPoolKey(host);
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), GIT_OP_TIMEOUT_MS);
   try {

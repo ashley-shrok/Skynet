@@ -281,6 +281,24 @@ class SSHConnectionPool {
 
 export const connectionPool = new SSHConnectionPool();
 
+/**
+ * Pool key for a resolved host row. Scoped to the row's owner: two users can
+ * have rows with the same ip/port/username (one with bogus credentials), and
+ * a key without the owner would hand the second user the first user's
+ * authenticated connection. Every withConnection caller keyed on a host row
+ * must use this.
+ */
+export function hostPoolKey(host: {
+  id?: number;
+  userId?: string;
+  ip: string;
+  port?: number | null;
+  username: string;
+}): string {
+  const owner = host.userId ?? `row${host.id ?? "?"}`;
+  return `${owner}:${host.ip}:${host.port ?? 22}:${host.username}`;
+}
+
 export async function withConnection<T>(
   key: string,
   factory: () => Promise<Client>,
