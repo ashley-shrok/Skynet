@@ -81,14 +81,25 @@ vi.mock("../../state/app-tiles-store", () => ({
   publishAppGone: vi.fn(),
   markPendingAppArchive: vi.fn(),
   clearPendingAppArchive: vi.fn(),
+  setPendingAppTitle: vi.fn(),
+  clearPendingAppTitle: vi.fn(),
 }));
+
+// Keep the real validateAppTitle (the prompt loop's gate); stub the request.
+vi.mock("../../api/apps-rename-api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../api/apps-rename-api")>();
+  return { ...actual, renameApp: vi.fn().mockResolvedValue({ ok: true, title: "" }) };
+});
 
 import { AppTile } from "./AppTile";
 import { archiveApp } from "../../api/apps-archive-api";
+import { renameApp } from "../../api/apps-rename-api";
 import {
   publishAppGone,
   markPendingAppArchive,
   clearPendingAppArchive,
+  setPendingAppTitle,
+  clearPendingAppTitle,
 } from "../../state/app-tiles-store";
 import type { AppState } from "../../api/fleet-status-types";
 
@@ -207,7 +218,7 @@ describe("AppTile — D-10 title-only + D-11 unhealthy two-line", () => {
 });
 
 describe("AppTile — D-12 context menu + Open in new tab", () => {
-  it("H: right-click opens PrettyConversationContextMenu with 'Open in new tab' + 'Archive' items in that order (destructive last)", async () => {
+  it("H: kebab opens the menu with 'Open in new tab', 'Rename…', 'Archive' in that order (destructive last)", async () => {
     render(<AppTile app={makeApp()} />);
     const tile = screen.getByRole("button", { name: /App tile: Scratch/ });
 
@@ -218,12 +229,13 @@ describe("AppTile — D-12 context menu + Open in new tab", () => {
 
     const menu = screen.getByRole("menu");
     expect(menu).not.toBeNull();
-    // app-archive shape adds a second item, "Archive", placed LAST and
-    // danger-styled (mirrors identity/role archive menu placement).
+    // "Archive" stays LAST and danger-styled (mirrors identity/role archive
+    // menu placement); app-rename shape slots "Rename…" in before it.
     const items = menu.querySelectorAll('[role="menuitem"]');
-    expect(items.length).toBe(2);
+    expect(items.length).toBe(3);
     expect(items[0].textContent).toBe("Open in new tab");
-    expect(items[1].textContent).toBe("Archive");
+    expect(items[1].textContent).toBe("Rename…");
+    expect(items[2].textContent).toBe("Archive");
   });
 
   it("I: clicking 'Open in new tab' calls window.open with (url, '_blank', 'noopener,noreferrer')", async () => {
@@ -653,5 +665,116 @@ describe("AppTile — app-archive shape: Archive menu item", () => {
     // silently skipped.
     expect(markPendingAppArchive).toHaveBeenCalledTimes(1);
     expect(publishAppGone).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("AppTile — app-rename shape: Rename menu item", () => {
+  let promptSpy: ReturnType<typeof vi.spyOn>;
+  let alertSpy: ReturnType<typeof vi.spyOn>;
+  let warnSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    promptSpy = vi.spyOn(window, "prompt").mockReturnValue(null);
+    alertSpy = vi.spyOn(window, "alert").mockImplementation(() => undefined);
+    warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    (renameApp as unknown as Mock).mockReset();
+    (renameApp as unknown as Mock).mockResolvedValue({ ok: true, title: "x" });
+    (setPendingAppTitle as unknown as Mock).mockClear();
+    (clearPendingAppTitle as unknown as Mock).mockClear();
+  });
+
+  afterEach(() => {
+    promptSpy.mockRestore();
+    alertSpy.mockRestore();
+    warnSpy.mockRestore();
+  });
+
+  async function clickRename(app: AppState = makeApp({ hostId: "7", slug: "scratch", title: "Scratch" })) {
+    render(<AppTile app={app} />);
+    const tile = screen.getByRole("button", { name: new RegExp(`App tile: ${app.title}`) });
+    await openTileKebab(tile);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Rename…" }));
+    await Promise.resolve();
+    await Promise.resolve();
+  }
+
+  it("prompts pre-filled with the current title", async () => {
+    await clickRename();
+    expect(promptSpy).toHaveBeenCalledTimes(1);
+    expect(promptSpy).toHaveBeenCalledWith('Rename "Scratch" to:', "Scratch");
+  });
+
+  it("cancel → no optimistic update, no request", async () => {
+    promptSpy.mockReturnValueOnce(null);
+    await clickRename();
+    expect(setPendingAppTitle).not.toHaveBeenCalled();
+    expect(renameApp).not.toHaveBeenCalled();
+  });
+
+  it("unchanged title (after trim) → no-op", async () => {
+    promptSpy.mockReturnValueOnce("  Scratch  ");
+    await clickRename();
+    expect(setPendingAppTitle).not.toHaveBeenCalled();
+    expect(renameApp).not.toHaveBeenCalled();
+  });
+
+  it("valid title → trimmed, optimistic setPendingAppTitle BEFORE renameApp, no rollback", async () => {
+    const order: string[] = [];
+    (setPendingAppTitle as unknown as Mock).mockImplementationOnce(() => order.push("set"));
+    (renameApp as unknown as Mock).mockImplementationOnce(() => {
+      order.push("rename");
+      return Promise.resolve({ ok: true, title: "Sketchpad" });
+    });
+    promptSpy.mockReturnValueOnce("  Sketchpad ");
+    await clickRename();
+
+    expect(setPendingAppTitle).toHaveBeenCalledWith("7", "scratch", "Sketchpad");
+    expect(renameApp).toHaveBeenCalledWith(7, "scratch", "Sketchpad");
+    expect(order).toEqual(["set", "rename"]);
+    expect(clearPendingAppTitle).not.toHaveBeenCalled();
+    expect(alertSpy).not.toHaveBeenCalled();
+  });
+
+  it("invalid entry re-prompts with the error and the user's text, until valid", async () => {
+    promptSpy
+      .mockReturnValueOnce("   ")
+      .mockReturnValueOnce("a\nb")
+      .mockReturnValueOnce("x".repeat(81))
+      .mockReturnValueOnce("Good Name");
+    await clickRename();
+
+    expect(promptSpy).toHaveBeenCalledTimes(4);
+    expect(promptSpy.mock.calls[1][0]).toMatch(/can't be empty/);
+    expect(promptSpy.mock.calls[1][1]).toBe("   ");
+    expect(promptSpy.mock.calls[2][0]).toMatch(/line breaks/);
+    expect(promptSpy.mock.calls[3][0]).toMatch(/at most 80/);
+    expect(promptSpy.mock.calls[3][1]).toBe("x".repeat(81));
+    expect(renameApp).toHaveBeenCalledTimes(1);
+    expect(renameApp).toHaveBeenCalledWith(7, "scratch", "Good Name");
+  });
+
+  it("invalid entry then cancel → nothing sent", async () => {
+    promptSpy.mockReturnValueOnce("").mockReturnValueOnce(null);
+    await clickRename();
+    expect(promptSpy).toHaveBeenCalledTimes(2);
+    expect(setPendingAppTitle).not.toHaveBeenCalled();
+    expect(renameApp).not.toHaveBeenCalled();
+  });
+
+  it("renameApp rejects → rollback to previous title + alert + structured warn", async () => {
+    (renameApp as unknown as Mock).mockRejectedValueOnce(new Error("rename app: boom"));
+    promptSpy.mockReturnValueOnce("Sketchpad");
+    await clickRename();
+
+    expect(setPendingAppTitle).toHaveBeenCalledWith("7", "scratch", "Sketchpad");
+    expect(clearPendingAppTitle).toHaveBeenCalledWith("7", "scratch", "Scratch");
+    expect(alertSpy).toHaveBeenCalledTimes(1);
+    expect(alertSpy.mock.calls[0][0]).toContain("Scratch");
+    expect(alertSpy.mock.calls[0][0]).toContain("boom");
+    expect(warnSpy.mock.calls[0][0]).toMatchObject({
+      operation: "app_rename_failed",
+      hostId: 7,
+      slug: "scratch",
+    });
   });
 });

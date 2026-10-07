@@ -7,13 +7,16 @@ import {
 
 import type { AppState } from "../../api/fleet-status-types";
 import { archiveApp } from "../../api/apps-archive-api";
+import { renameApp, validateAppTitle } from "../../api/apps-rename-api";
 import {
   publishAppGone,
   markPendingAppArchive,
   clearPendingAppArchive,
+  setPendingAppTitle,
+  clearPendingAppTitle,
 } from "../../state/app-tiles-store";
 // shape-sidebar-header-affordances: app tile context menu + long-press
-// machinery retired; the two actions (Open in new tab + Archive) now live in
+// machinery retired; the actions (Open in new tab, Rename, Archive) now live in
 // a RowKebabMenu rendered inside the tile. Hover-reveal on desktop +
 // always-visible on mobile via a CSS-only group-hover + viewport-width gate
 // at the kebab's wrapper div.
@@ -215,6 +218,52 @@ export function AppTile({ app, onOpenApp, onArchive, variant = "desktop" }: AppT
         window.open(openUrl, "_blank", "noopener,noreferrer");
       },
       testId: "pv-app-tile-kebab-item-open-new-tab",
+    },
+    // app-rename shape — title only (the slug is the app's identity). Native
+    // window.prompt; an invalid entry re-prompts with the error and the
+    // user's text pre-filled until it validates or they cancel. Sidebar
+    // update: OPTIMISTIC via setPendingAppTitle (the store keeps the new
+    // title over stale fleet-status frames until the sweep re-reads
+    // app.json); rolled back via clearPendingAppTitle on failure.
+    {
+      label: "Rename…",
+      testId: "pv-app-tile-kebab-item-rename",
+      onClick: async () => {
+        const previousTitle = app.title;
+        let message = `Rename "${previousTitle}" to:`;
+        let draft = previousTitle;
+        let title: string;
+        for (;;) {
+          const input = window.prompt(message, draft);
+          if (input === null) return;
+          const v = validateAppTitle(input);
+          if (v.ok) {
+            title = v.title;
+            break;
+          }
+          message = `${v.error}\n\nRename "${previousTitle}" to:`;
+          draft = input;
+        }
+        if (title === previousTitle) return;
+
+        setPendingAppTitle(app.hostId, app.slug, title);
+        try {
+          await renameApp(Number(app.hostId), app.slug, title);
+        } catch (err) {
+          clearPendingAppTitle(app.hostId, app.slug, previousTitle);
+          const errMessage =
+            err instanceof Error ? err.message : String(err);
+          console.warn({
+            operation: "app_rename_failed",
+            hostId: Number(app.hostId),
+            slug: app.slug,
+            errMessage,
+          });
+          window.alert(
+            `Failed to rename app "${previousTitle}": ${errMessage}`,
+          );
+        }
+      },
     },
     // app-archive shape — Archive item, danger-styled, placed LAST (mirrors
     // the identity/role archive menu placement discipline; most destructive

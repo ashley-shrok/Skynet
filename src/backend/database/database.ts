@@ -31,6 +31,8 @@ import appsArchiveListRoutes from "./routes/apps-archive-list.js";
 // preconditions (archive-exists, name-collision). Mounted AFTER appsArchiveRoutes
 // under "/apps" — POST sub-paths are distinct so no handler shadowing occurs.
 import appsUnarchiveRoutes from "./routes/apps-unarchive.js";
+// app-rename shape: PATCH /apps/:hostId/:slug — rewrites app.json `title`.
+import appsRenameRoutes from "./routes/apps-rename.js";
 // Phase 120 Plan 05 (D-08): the /apps/:hostId/:slug/pane/* reverse-proxy
 // route. Named export (not default) to disambiguate from Phase 119's
 // default-exported apps router at the mount site below.
@@ -2217,6 +2219,7 @@ app.use("/identities", identitiesRoutes);
 // handler (mirrors identity-archive + role-archive mount discipline).
 app.use("/apps", appsArchiveRoutes);
 app.use("/apps", appsUnarchiveRoutes); // Phase 143 D-01
+app.use("/apps", appsRenameRoutes); // app-rename shape
 // Phase 143 Plan 143-03 (D-05/D-07): GET /apps-archive — fleet-wide archived-app
 // list. Standalone base path; must mount BEFORE any generic catch-all (mirrors
 // archive-route mount discipline at database.ts:2067).

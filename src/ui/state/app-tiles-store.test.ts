@@ -32,6 +32,8 @@ import {
   readAppTilesCache,
   markPendingAppArchive,
   clearPendingAppArchive,
+  setPendingAppTitle,
+  clearPendingAppTitle,
   __resetForTest,
   __seedFromCacheForTest,
 } from "./app-tiles-store.js";
@@ -742,5 +744,78 @@ describe("app-tiles-store: pending-archive filter", () => {
     expect(result.current[0].hostId).toBe("2");
 
     clearPendingAppArchive("1", "same-slug");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// app-rename shape — optimistic pending-title overrides
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("app-tiles-store: pending-title overrides (app-rename shape)", () => {
+  function titles(): string[] {
+    const { result } = renderHook(() => useAppTiles());
+    return result.current.map((a) => a.title);
+  }
+
+  it("setPendingAppTitle retitles the tile immediately and re-sorts", () => {
+    publishAppSnapshot([
+      makeApp({ slug: "a", title: "Alpha" }),
+      makeApp({ slug: "b", title: "Beta" }),
+    ]);
+    act(() => setPendingAppTitle("1", "a", "Zulu"));
+    expect(titles()).toEqual(["Beta", "Zulu"]);
+  });
+
+  it("stale app-update / app-snapshot frames keep the override until the new title arrives", () => {
+    publishAppSnapshot([makeApp({ slug: "a", title: "Alpha" })]);
+    setPendingAppTitle("1", "a", "Renamed");
+
+    publishAppUpdate(makeApp({ slug: "a", title: "Alpha", isHealthy: false }));
+    const { result } = renderHook(() => useAppTiles());
+    expect(result.current[0].title).toBe("Renamed");
+    // Non-title fields from the frame still land.
+    expect(result.current[0].isHealthy).toBe(false);
+
+    act(() => publishAppSnapshot([makeApp({ slug: "a", title: "Alpha" })]));
+    expect(result.current[0].title).toBe("Renamed");
+
+    // Sweep catches up → override clears itself...
+    act(() => publishAppUpdate(makeApp({ slug: "a", title: "Renamed" })));
+    expect(result.current[0].title).toBe("Renamed");
+    // ...so a later, genuinely different title (e.g. an agent edit) wins.
+    act(() => publishAppUpdate(makeApp({ slug: "a", title: "Agent Edit" })));
+    expect(result.current[0].title).toBe("Agent Edit");
+  });
+
+  it("clearPendingAppTitle restores the previous title and drops the override", () => {
+    publishAppSnapshot([makeApp({ slug: "a", title: "Alpha" })]);
+    setPendingAppTitle("1", "a", "Renamed");
+    act(() => clearPendingAppTitle("1", "a", "Alpha"));
+    expect(titles()).toEqual(["Alpha"]);
+
+    publishAppUpdate(makeApp({ slug: "a", title: "Alpha" }));
+    expect(titles()).toEqual(["Alpha"]);
+  });
+
+  it("clearPendingAppTitle does not clobber a title the backend already replaced", () => {
+    publishAppSnapshot([makeApp({ slug: "a", title: "Alpha" })]);
+    setPendingAppTitle("1", "a", "Renamed");
+    // Sweep caught up before the (late) failure rollback.
+    publishAppUpdate(makeApp({ slug: "a", title: "Renamed" }));
+    clearPendingAppTitle("1", "a", "Alpha");
+    expect(titles()).toEqual(["Renamed"]);
+  });
+
+  it("override only touches its own (hostId, slug)", () => {
+    publishAppSnapshot([
+      makeApp({ hostId: "1", slug: "a", title: "Alpha" }),
+      makeApp({ hostId: "2", slug: "a", title: "Alpha" }),
+    ]);
+    setPendingAppTitle("2", "a", "Other");
+    publishAppSnapshot([
+      makeApp({ hostId: "1", slug: "a", title: "Alpha" }),
+      makeApp({ hostId: "2", slug: "a", title: "Alpha" }),
+    ]);
+    expect(titles()).toEqual(["Alpha", "Other"]);
   });
 });

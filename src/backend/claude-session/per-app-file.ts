@@ -10,16 +10,19 @@
  *
  * Exports:
  *   - writeAppFile(slug, relPath, contents, opts)
- *   - ALLOWED_APP_REL_PATHS (bounded whitelist — currently one entry)
+ *   - updateAppTitle(slug, title, opts) — read-modify-write of app.json `title`
+ *   - validateAppTitle(raw) — title gate shared by the route + updateAppTitle
+ *   - AppManifestError — typed failure for missing / malformed app.json
+ *   - ALLOWED_APP_REL_PATHS (bounded whitelist — two entries)
  *
  * Gates (defense-in-depth, both fire BEFORE any I/O):
  *   1. APP_SLUG_RE /^[a-z0-9-]{1,64}$/ — imported (not redefined) from
  *      identity-artifact-reader.ts, the canonical app-slug validator used
  *      by every other app-scoped surface (routes/apps.ts, app-pane-router.ts).
- *   2. ALLOWED_APP_REL_PATHS whitelist — bounded to the ONE basename this
- *      shape writes (`.archive-requested`). Any other value throws before
- *      I/O. Additional entries must be added deliberately in a future
- *      shape (bounded-scope discipline).
+ *   2. ALLOWED_APP_REL_PATHS whitelist — bounded to the basenames the app
+ *      shapes write (`.archive-requested`, `app.json`). Any other value
+ *      throws before I/O. Additional entries must be added deliberately in
+ *      a future shape (bounded-scope discipline).
  *
  * Routing (mirrors per-identity-file.ts and per-role-file.ts's LOCAL vs
  * REMOTE split):
@@ -51,6 +54,7 @@ import path from "path";
 import fs from "node:fs/promises";
 import type { Client as SSHClientType } from "ssh2";
 
+import { execCommand } from "../ssh/tmux-helper.js";
 import {
   APP_SLUG_RE,
   isLocalHostId,
@@ -64,13 +68,16 @@ import {
 
 /**
  * Bounded set of basenames the per-app file primitive is allowed to touch.
- * Any other value throws before I/O. Currently exactly ONE entry —
- * `.archive-requested` (the app archival sentinel). Additional entries must
- * be added via a deliberate future-shape decision (belt-and-suspenders
- * alongside the app-slug gate).
+ * Any other value throws before I/O. Entries:
+ *   - `.archive-requested` — the app archival sentinel.
+ *   - `app.json` — the app's metadata card, written ONLY via updateAppTitle
+ *     (app-rename shape), which preserves every other field.
+ * Additional entries must be added via a deliberate future-shape decision
+ * (belt-and-suspenders alongside the app-slug gate).
  */
 export const ALLOWED_APP_REL_PATHS: ReadonlySet<string> = new Set([
   ".archive-requested",
+  "app.json",
 ]);
 
 // ---------------------------------------------------------------------------
@@ -151,7 +158,7 @@ export interface WriteAppFileOpts {
  * Gates (defense-in-depth):
  *   1. APP_SLUG_RE /^[a-z0-9-]{1,64}$/ — rejects uppercase, underscore,
  *      dots, slashes, and every path-traversal shape.
- *   2. ALLOWED_APP_REL_PATHS whitelist — currently only `.archive-requested`.
+ *   2. ALLOWED_APP_REL_PATHS whitelist (`.archive-requested`, `app.json`).
  * Both fire BEFORE any I/O.
  *
  * Contents:
@@ -185,4 +192,131 @@ export async function writeAppFile(
   }
   const targetPath = remoteAppTargetPath(slug, relPath);
   await writeMarkdownFileAtomic(opts.conn, targetPath, contents);
+}
+
+// ---------------------------------------------------------------------------
+// Public: app-rename shape — updateAppTitle
+// ---------------------------------------------------------------------------
+
+/** Max title length (in UTF-16 code units, matching the frontend gate). */
+export const APP_TITLE_MAX_LEN = 80;
+
+// C0 + DEL + C1 control characters. A title is a single display line.
+const CONTROL_CHAR_RE = /[\u0000-\u001f\u007f-\u009f]/;
+
+// `never` on the off-branch fields keeps `.error` / `.title` readable
+// without discriminant narrowing (the backend tsconfig doesn't narrow it).
+export type AppTitleCheck =
+  | { ok: true; title: string; error?: never }
+  | { ok: false; error: string; title?: never };
+
+/**
+ * Validate + normalise a user-supplied app title. Returns the trimmed title
+ * or an error string. Mirrored client-side in src/ui/api/apps-rename-api.ts
+ * (no shared module between the backend and UI builds) — keep the two in
+ * lockstep.
+ */
+export function validateAppTitle(
+  raw: unknown,
+): AppTitleCheck {
+  if (typeof raw !== "string") {
+    return { ok: false, error: "title must be a string" };
+  }
+  const title = raw.trim();
+  if (title.length === 0) {
+    return { ok: false, error: "title must not be empty" };
+  }
+  if (title.length > APP_TITLE_MAX_LEN) {
+    return {
+      ok: false,
+      error: `title must be at most ${APP_TITLE_MAX_LEN} characters`,
+    };
+  }
+  if (CONTROL_CHAR_RE.test(title)) {
+    return { ok: false, error: "title must not contain control characters" };
+  }
+  return { ok: true, title };
+}
+
+/**
+ * Typed failure for app.json problems the caller should surface distinctly
+ * from transport errors: `not_found` (no app.json — app gone or never
+ * published) and `malformed` (not a JSON object — refusing to overwrite,
+ * since the sweep drops apps whose card doesn't parse).
+ */
+export class AppManifestError extends Error {
+  constructor(
+    public readonly kind: "not_found" | "malformed",
+    message: string,
+  ) {
+    super(message);
+    this.name = "AppManifestError";
+  }
+}
+
+async function readAppJson(
+  slug: string,
+  opts: WriteAppFileOpts,
+): Promise<string> {
+  if (isLocalHostId(opts.hostId)) {
+    try {
+      return await fs.readFile(localAppTargetPath(slug, "app.json"), "utf-8");
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException)?.code === "ENOENT") {
+        throw new AppManifestError("not_found", "app.json not found");
+      }
+      throw err;
+    }
+  }
+
+  if (opts.conn === null) {
+    throw new Error("conn required for remote host");
+  }
+  // Slug is APP_SLUG_RE-validated, so interpolation inside double quotes is
+  // shell-safe (same argument as readProjectFile). The sentinel lets us tell
+  // "file missing" apart from a transport failure — execCommand rejects on a
+  // non-zero exit with empty stdout.
+  const file = `$HOME/fleet/apps/${slug}/app.json`;
+  const stdout = await execCommand(
+    opts.conn,
+    `if [ -f "${file}" ]; then cat "${file}"; else printf '__SKYNET_NO_APP_JSON__'; fi`,
+  );
+  if (stdout === "__SKYNET_NO_APP_JSON__") {
+    throw new AppManifestError("not_found", "app.json not found");
+  }
+  return stdout;
+}
+
+/**
+ * Rewrite the `title` field of `~/fleet/apps/<slug>/app.json`, preserving
+ * every other field. Read-modify-write; the write is atomic (tmp+rename via
+ * writeAppFile). The sweep picks the new title up on its next tick.
+ *
+ * Throws AppManifestError for missing / malformed app.json, a plain Error
+ * for an invalid title or slug (both gated before I/O), and passes through
+ * transport errors.
+ */
+export async function updateAppTitle(
+  slug: string,
+  rawTitle: string,
+  opts: WriteAppFileOpts,
+): Promise<{ title: string }> {
+  assertValidAppSlug(slug);
+  const v = validateAppTitle(rawTitle);
+  if (!v.ok) throw new Error(v.error);
+
+  const text = await readAppJson(slug, opts);
+  let manifest: unknown;
+  try {
+    manifest = JSON.parse(text);
+  } catch {
+    throw new AppManifestError("malformed", "app.json is not valid JSON");
+  }
+  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
+    throw new AppManifestError("malformed", "app.json is not a JSON object");
+  }
+
+  const next = { ...(manifest as Record<string, unknown>), title: v.title };
+  await writeAppFile(slug, "app.json", JSON.stringify(next, null, 2) + "\n", opts);
+  return { title: v.title };
 }

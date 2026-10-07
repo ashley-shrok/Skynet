@@ -14,9 +14,9 @@
 //   T4 bad relPath rejected before I/O (defends ALLOWED_APP_REL_PATHS
 //      bounded whitelist — future entries must be added deliberately).
 //   T5 REMOTE with null conn throws "conn required for remote host" verbatim.
-//   T6 ALLOWED_APP_REL_PATHS starts minimal — exactly one entry
-//      (".archive-requested"). Pins the whitelist so a future shape adding
-//      more entries has to update this test deliberately.
+//   T6 ALLOWED_APP_REL_PATHS stays minimal — exactly two entries
+//      (".archive-requested", "app.json"). Pins the whitelist so a future
+//      shape adding more entries has to update this test deliberately.
 //   T7 LOCAL honors APPS_HOST_DIR env override (containerized-Skynet
 //      bind-mount case — mirrors per-identity-file's IDENTITIES_HOST_DIR
 //      and per-role-file's ROLES_HOST_DIR handling).
@@ -43,8 +43,12 @@ vi.mock("../ssh/tmux-helper.js", () => ({
 // Import AFTER the vi.mocks so the mocks bind to the module graph.
 import {
   writeAppFile,
+  updateAppTitle,
+  validateAppTitle,
+  AppManifestError,
   ALLOWED_APP_REL_PATHS,
 } from "./per-app-file.js";
+import { execCommand } from "../ssh/tmux-helper.js";
 
 // ──────────────────────────────────────────────────────────────────────
 // SFTP mock builder — mirrors per-role-file.test.ts.
@@ -293,14 +297,14 @@ describe("writeAppFile — REMOTE null conn contract", () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// Test 6 — ALLOWED_APP_REL_PATHS starts minimal (exactly one entry)
+// Test 6 — ALLOWED_APP_REL_PATHS stays minimal (exactly two entries)
 // ──────────────────────────────────────────────────────────────────────
 
 describe("ALLOWED_APP_REL_PATHS — bounded-scope discipline", () => {
-  it("Test 6: whitelist contains exactly ONE entry ('.archive-requested')", () => {
+  it("Test 6: whitelist contains exactly '.archive-requested' and 'app.json'", () => {
     expect(ALLOWED_APP_REL_PATHS).toBeInstanceOf(Set);
-    expect(ALLOWED_APP_REL_PATHS.size).toBe(1);
-    expect([...ALLOWED_APP_REL_PATHS]).toEqual([".archive-requested"]);
+    expect(ALLOWED_APP_REL_PATHS.size).toBe(2);
+    expect([...ALLOWED_APP_REL_PATHS]).toEqual([".archive-requested", "app.json"]);
     expect(ALLOWED_APP_REL_PATHS.has(".archive-requested")).toBe(true);
     // Anti-drift check — identity/role-scoped entries MUST NOT be in the
     // app whitelist.
@@ -337,5 +341,118 @@ describe("writeAppFile — LOCAL env-honoring path resolution", () => {
     if (homedirFallback !== finalPath) {
       await expect(fs.stat(homedirFallback)).rejects.toThrow(/ENOENT/);
     }
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// app-rename shape — validateAppTitle + updateAppTitle
+// ──────────────────────────────────────────────────────────────────────
+
+describe("validateAppTitle", () => {
+  it("trims and accepts a normal title", () => {
+    expect(validateAppTitle("  My App  ")).toEqual({ ok: true, title: "My App" });
+  });
+
+  it.each([
+    ["non-string", 42],
+    ["empty", ""],
+    ["whitespace only", "   "],
+    ["too long", "x".repeat(81)],
+    ["newline", "My\nApp"],
+    ["tab", "My\tApp"],
+    ["DEL", "My\u007fApp"],
+  ])("rejects %s", (_label, raw) => {
+    expect(validateAppTitle(raw).ok).toBe(false);
+  });
+
+  it("accepts exactly 80 chars and non-ASCII text", () => {
+    expect(validateAppTitle("x".repeat(80)).ok).toBe(true);
+    expect(validateAppTitle("Café ☕ 日本").ok).toBe(true);
+  });
+});
+
+describe("updateAppTitle — LOCAL", () => {
+  it("rewrites only the title field, preserving every other field", async () => {
+    const appDir = path.join(scratchRoot, "my-app");
+    await fs.mkdir(appDir, { recursive: true });
+    await fs.writeFile(
+      path.join(appDir, "app.json"),
+      JSON.stringify({ title: "Old", description: "desc", users: ["a"] }),
+    );
+
+    const result = await updateAppTitle("my-app", "  New Name ", {
+      hostId: LOCAL_HOST_ID,
+      conn: null,
+    });
+
+    expect(result).toEqual({ title: "New Name" });
+    const written = JSON.parse(
+      await fs.readFile(path.join(appDir, "app.json"), "utf-8"),
+    );
+    expect(written).toEqual({ title: "New Name", description: "desc", users: ["a"] });
+    await expect(fs.stat(path.join(appDir, "app.json.tmp"))).rejects.toThrow(/ENOENT/);
+  });
+
+  it("throws AppManifestError(not_found) when app.json is missing", async () => {
+    await fs.mkdir(path.join(scratchRoot, "my-app"), { recursive: true });
+    await expect(
+      updateAppTitle("my-app", "New", { hostId: LOCAL_HOST_ID, conn: null }),
+    ).rejects.toMatchObject({ name: "AppManifestError", kind: "not_found" });
+  });
+
+  it.each([
+    ["invalid JSON", "{not json"],
+    ["a JSON array", "[1,2]"],
+    ["a JSON string", '"hi"'],
+  ])("throws AppManifestError(malformed) and leaves the file alone for %s", async (_l, body) => {
+    const appDir = path.join(scratchRoot, "my-app");
+    await fs.mkdir(appDir, { recursive: true });
+    await fs.writeFile(path.join(appDir, "app.json"), body);
+    const err = await updateAppTitle("my-app", "New", {
+      hostId: LOCAL_HOST_ID,
+      conn: null,
+    }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(AppManifestError);
+    expect((err as AppManifestError).kind).toBe("malformed");
+    expect(await fs.readFile(path.join(appDir, "app.json"), "utf-8")).toBe(body);
+  });
+
+  it("rejects an invalid title or slug before any I/O", async () => {
+    await expect(
+      updateAppTitle("my-app", "   ", { hostId: LOCAL_HOST_ID, conn: null }),
+    ).rejects.toThrow(/empty/);
+    await expect(
+      updateAppTitle("../etc", "New", { hostId: LOCAL_HOST_ID, conn: null }),
+    ).rejects.toThrow(/invalid app slug/);
+  });
+});
+
+describe("updateAppTitle — REMOTE", () => {
+  it("reads via exec and writes the merged manifest via SFTP atomic rename", async () => {
+    (execCommand as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      JSON.stringify({ title: "Old", description: "d" }),
+    );
+    const { conn, sftp, renameCalls } = buildMockConn();
+
+    await updateAppTitle("my-app", "New", { hostId: REMOTE_HOST_ID, conn });
+
+    const readCmd = (execCommand as ReturnType<typeof vi.fn>).mock.calls[0][1] as string;
+    expect(readCmd).toContain("$HOME/fleet/apps/my-app/app.json");
+    expect(sftp.writeFile).toHaveBeenCalledTimes(1);
+    const buf = sftp.writeFile.mock.calls[0][1] as Buffer;
+    expect(JSON.parse(buf.toString("utf-8"))).toEqual({ title: "New", description: "d" });
+    expect(renameCalls).toHaveLength(1);
+    expect(renameCalls[0].to).toMatch(/fleet\/apps\/my-app\/app\.json$/);
+  });
+
+  it("maps the missing-file sentinel to AppManifestError(not_found) without writing", async () => {
+    (execCommand as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      "__SKYNET_NO_APP_JSON__",
+    );
+    const { conn, sftp } = buildMockConn();
+    await expect(
+      updateAppTitle("my-app", "New", { hostId: REMOTE_HOST_ID, conn }),
+    ).rejects.toMatchObject({ kind: "not_found" });
+    expect(sftp.writeFile).not.toHaveBeenCalled();
   });
 });

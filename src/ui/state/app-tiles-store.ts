@@ -112,6 +112,68 @@ export function clearPendingAppArchive(hostId: string, slug: string): void {
   pendingAppArchiveKeys.delete(pendingAppArchiveKey(hostId, slug));
 }
 
+// Pending-title overrides (app-rename shape): `${hostId}:${slug}` → title the
+// user just typed. AppTile's Rename applies the new title immediately via
+// setPendingAppTitle, but the backend keeps sending the OLD title in
+// app-snapshot / app-update frames until the host sweep re-reads app.json.
+// Every incoming frame for an overridden key gets its title replaced by the
+// override; the override clears itself the first time a frame arrives that
+// already carries the new title (the sweep caught up), or on rename-failure
+// rollback via clearPendingAppTitle. In-memory only — a reload drops it,
+// by which point the sweep has long since caught up.
+const pendingAppTitles = new Map<string, string>();
+
+/**
+ * Apply an incoming frame against the pending-title overrides. Returns the
+ * AppState to store (title replaced while the override is still pending).
+ */
+function applyPendingTitle(app: AppState): AppState {
+  const key = `${app.hostId}:${app.slug}`;
+  const pending = pendingAppTitles.get(key);
+  if (pending === undefined) return app;
+  if (app.title === pending) {
+    pendingAppTitles.delete(key);
+    return app;
+  }
+  return { ...app, title: pending };
+}
+
+/**
+ * Optimistically retitle one tile. No-op on the store map if the tile isn't
+ * present (the override still applies to later frames).
+ */
+export function setPendingAppTitle(hostId: string, slug: string, title: string): void {
+  const key = `${hostId}:${slug}`;
+  pendingAppTitles.set(key, title);
+  const current = state.map.get(key);
+  if (!current || current.title === title) return;
+  const nextMap = new Map(state.map);
+  nextMap.set(key, { ...current, title });
+  state = { map: nextMap };
+  notify();
+}
+
+/**
+ * Roll back an optimistic retitle: drop the override and restore
+ * `previousTitle` on the tile (if it's still showing the override). The next
+ * fleet-status frame is authoritative either way.
+ */
+export function clearPendingAppTitle(
+  hostId: string,
+  slug: string,
+  previousTitle: string,
+): void {
+  const key = `${hostId}:${slug}`;
+  const pending = pendingAppTitles.get(key);
+  pendingAppTitles.delete(key);
+  const current = state.map.get(key);
+  if (!current || pending === undefined || current.title !== pending) return;
+  const nextMap = new Map(state.map);
+  nextMap.set(key, { ...current, title: previousTitle });
+  state = { map: nextMap };
+  notify();
+}
+
 function notify(): void {
   // Single-authority cache write: every state change that reaches listeners
   // also updates the localStorage cache so the next cold paint has the
@@ -167,7 +229,7 @@ export function publishAppSnapshot(apps: AppState[]): void {
     // supervisor hasn't yet moved the folder. Without this, an app-snapshot
     // arriving mid-window would re-insert the tile the user just archived.
     if (pendingAppArchiveKeys.has(pendingAppArchiveKey(app.hostId, app.slug))) continue;
-    nextMap.set(`${app.hostId}:${app.slug}`, app);
+    nextMap.set(`${app.hostId}:${app.slug}`, applyPendingTitle(app));
   }
   state = { map: nextMap };
   notify();
@@ -198,7 +260,7 @@ export function publishAppUpdate(app: AppState): void {
   });
 
   const nextMap = new Map(state.map);
-  nextMap.set(key, app);
+  nextMap.set(key, applyPendingTitle(app));
   state = { map: nextMap };
   notify();
 }
@@ -359,6 +421,7 @@ export function __resetForTest(): void {
   } catch {
     // Silent.
   }
+  pendingAppTitles.clear();
   state = { map: new Map<string, AppState>() };
   notify();
 }
