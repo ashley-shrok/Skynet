@@ -1310,6 +1310,12 @@ const migrateSchema = async () => {
   // The Drizzle mirror lives at schema.ts users.phoneE164.
   addColumnIfNotExists("users", "phone_e164", "TEXT");
 
+  // Notifications gate — per-user opt-in for push notifications, default off.
+  // Admins bypass it (see notifications/notifications-access.ts). Persisted by
+  // the forceSave below. The Drizzle mirror lives at schema.ts
+  // users.notificationsEnabled.
+  addColumnIfNotExists("users", "notifications_enabled", "INTEGER NOT NULL DEFAULT 0");
+
   // agent-phone — persist the new users.phone_e164 column. Same pattern as
   // phase-75 and phase-85 above: addColumnIfNotExists executes against RAM
   // SQLite; without an explicit forceSave the schema lives only in memory

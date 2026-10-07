@@ -33,6 +33,7 @@ import {
   getNtfyInternalPublishUrl,
   getNtfyPublishToken,
 } from "./ntfy-config.js";
+import { userCanUseNotifications } from "./notifications-access.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -123,6 +124,13 @@ export async function sendPushToUser(
   userId: string,
   payload: PushPayload,
 ): Promise<void> {
+  // Access gate, re-checked on every send: a user who set up ntfy and later
+  // lost notifications access (flag cleared, not an admin) keeps their
+  // push_subscriptions row but gets nothing. Silent like the no-row case.
+  if (!userCanUseNotifications(userId)) {
+    return;
+  }
+
   // Read user's topic — one row per user (new ntfy schema, Phase 144).
   const row = db.$client
     .prepare(

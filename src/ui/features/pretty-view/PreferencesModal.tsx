@@ -25,6 +25,10 @@
  * a number on file. The number is fetched each time the modal opens; a failed
  * fetch hides the entry. Removing the number hides it again and drops back
  * to General.
+ *
+ * Notifications — gated server-side (users.notifications_enabled or admin).
+ * The nav entry only appears when GET /push-subscriptions/ntfy-setup succeeds
+ * on open; a 403 (or any failure) hides it.
  */
 
 import { useEffect, useState } from "react";
@@ -38,6 +42,7 @@ import { PreferencesAboutYouPane } from "./PreferencesAboutYouPane";
 import { PreferencesPhonePane } from "./PreferencesPhonePane";
 import { PreferencesAboutPane } from "./PreferencesAboutPane";
 import { getMyPhone } from "@/api/user-phone-api";
+import { getNtfySetup } from "@/features/notifications/ntfy-setup-api";
 import { logoutUser } from "@/main-axios";
 import type { UserPreferences } from "@/api/open-tabs-api";
 import type { HostFolder } from "@/types/ui-types";
@@ -120,9 +125,29 @@ export default function PreferencesModal({
     };
   }, [open]);
 
-  const visibleSections = NAV_SECTIONS.filter(
-    ({ value }) => value !== "phone" || phoneE164 !== null,
-  );
+  // false → no notifications access (403) → Notifications section hidden.
+  const [notificationsAllowed, setNotificationsAllowed] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    getNtfySetup()
+      .then(() => {
+        if (!cancelled) setNotificationsAllowed(true);
+      })
+      .catch(() => {
+        if (!cancelled) setNotificationsAllowed(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
+  const visibleSections = NAV_SECTIONS.filter(({ value }) => {
+    if (value === "phone") return phoneE164 !== null;
+    if (value === "notifications") return notificationsAllowed;
+    return true;
+  });
 
   return (
     <Modal
@@ -241,7 +266,7 @@ export default function PreferencesModal({
               onUserPrefsChanged={onUserPrefsChanged}
             />
           )}
-          {activeSection === "notifications" && (
+          {activeSection === "notifications" && notificationsAllowed && (
             <PreferencesNotificationsPane userId={userId} />
           )}
           {activeSection === "about-you" && (

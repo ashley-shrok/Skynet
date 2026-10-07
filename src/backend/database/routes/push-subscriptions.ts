@@ -28,6 +28,8 @@
  *
  * ## Security discipline
  *   - All endpoints require JWT auth (authenticateJWT middleware — T-144-08).
+ *   - All endpoints require notifications access (users.notifications_enabled
+ *     or is_admin) — 403 otherwise. See notifications-access.ts.
  *   - userId is sourced from the JWT-verified AuthenticatedRequest, NEVER from
  *     req.body (same invariant as Phase 128 Phase-128-21 mitigation).
  *   - NtfyAdminError caught and returned as generic 500 {error:...} — no
@@ -52,7 +54,7 @@
 
 import type { AuthenticatedRequest } from "../../../types/index.js";
 import express from "express";
-import type { Request, Response } from "express";
+import type { NextFunction, Request, Response } from "express";
 import { randomBytes, randomUUID } from "node:crypto";
 import { db, DatabaseSaveTrigger } from "../db/index.js";
 import { databaseLogger } from "../../utils/logger.js";
@@ -69,6 +71,7 @@ import {
   NtfyAdminError,
 } from "../../notifications/ntfy-admin-client.js";
 import { sendPushToUser } from "../../notifications/ntfy-sender.js";
+import { userCanUseNotifications } from "../../notifications/notifications-access.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -438,6 +441,23 @@ export async function handleDeleteNtfySetup(
   return res.status(200).json({ isSetUp: false });
 }
 
+/**
+ * Notifications access gate — runs after authenticateJWT on every route.
+ * 403 unless the user has users.notifications_enabled set or is an admin.
+ */
+export function requireNotificationsAccess(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): void {
+  const userId = (req as AuthenticatedRequest).userId;
+  if (!userCanUseNotifications(userId)) {
+    res.status(403).json({ error: "Notifications are not enabled for this account" });
+    return;
+  }
+  next();
+}
+
 // ---------------------------------------------------------------------------
 // Route wiring
 // ---------------------------------------------------------------------------
@@ -445,6 +465,7 @@ export async function handleDeleteNtfySetup(
 router.get(
   "/ntfy-setup",
   authenticateJWT,
+  requireNotificationsAccess,
   async (req: Request, res: Response) => {
     const userId = (req as AuthenticatedRequest).userId;
     return handleGetNtfySetup(userId, res);
@@ -454,6 +475,7 @@ router.get(
 router.post(
   "/ntfy-setup",
   authenticateJWT,
+  requireNotificationsAccess,
   express.json({ limit: "8kb" }),
   async (req: Request, res: Response) => {
     const userId = (req as AuthenticatedRequest).userId;
@@ -464,6 +486,7 @@ router.post(
 router.post(
   "/ntfy-test",
   authenticateJWT,
+  requireNotificationsAccess,
   async (req: Request, res: Response) => {
     const userId = (req as AuthenticatedRequest).userId;
     return handlePostNtfyTest(userId, res);
@@ -473,6 +496,7 @@ router.post(
 router.post(
   "/ntfy-regenerate",
   authenticateJWT,
+  requireNotificationsAccess,
   async (req: Request, res: Response) => {
     const userId = (req as AuthenticatedRequest).userId;
     return handlePostNtfyRegenerate(userId, res);
@@ -482,6 +506,7 @@ router.post(
 router.delete(
   "/ntfy-setup",
   authenticateJWT,
+  requireNotificationsAccess,
   async (req: Request, res: Response) => {
     const userId = (req as AuthenticatedRequest).userId;
     return handleDeleteNtfySetup(userId, res);
