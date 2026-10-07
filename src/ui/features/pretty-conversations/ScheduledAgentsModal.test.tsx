@@ -17,6 +17,8 @@
  *   T-13  Save 409 → inline banner with server message, form stays open
  *   T-14  Cancel → back to list view (with refetch — Recommendation #7)
  *   T-15  Modal close → filter state resets on next open
+ *   T-18  Kebab → Run now → POST run-now + success toast; failure → banner;
+ *         one_shot rows have no Run now item
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -40,6 +42,8 @@ const createScheduledAgentMock = vi.fn();
 const updateScheduledAgentMock = vi.fn();
 const toggleScheduledAgentEnabledMock = vi.fn();
 const deleteScheduledAgentMock = vi.fn();
+const runScheduledAgentNowMock = vi.fn();
+const toastSuccessMock = vi.fn();
 const listRolesForHostMock = vi.fn();
 
 vi.mock("@/api/scheduled-agents-api", () => ({
@@ -48,6 +52,11 @@ vi.mock("@/api/scheduled-agents-api", () => ({
   updateScheduledAgent: (...args: unknown[]) => updateScheduledAgentMock(...args),
   toggleScheduledAgentEnabled: (...args: unknown[]) => toggleScheduledAgentEnabledMock(...args),
   deleteScheduledAgent: (...args: unknown[]) => deleteScheduledAgentMock(...args),
+  runScheduledAgentNow: (...args: unknown[]) => runScheduledAgentNowMock(...args),
+}));
+
+vi.mock("sonner", () => ({
+  toast: { success: (...args: unknown[]) => toastSuccessMock(...args) },
 }));
 
 vi.mock("@/api/identities-api", () => ({
@@ -131,6 +140,8 @@ beforeEach(() => {
   updateScheduledAgentMock.mockReset();
   toggleScheduledAgentEnabledMock.mockReset();
   deleteScheduledAgentMock.mockReset();
+  runScheduledAgentNowMock.mockReset();
+  toastSuccessMock.mockReset();
   listRolesForHostMock.mockReset();
   // Default: no roles. Tests that exercise the form opt in by overriding
   // with mockResolvedValueOnce / mockResolvedValue.
@@ -844,5 +855,86 @@ describe("ScheduledAgentsModal: UAT 2026-10-01", () => {
       ).toBeNull();
     });
     expect(saveBtn.disabled).toBe(false);
+  });
+});
+
+describe("ScheduledAgentsModal: Run now", () => {
+  it("T-18: Kebab → Run now → POST run-now + success toast", async () => {
+    const user = userEvent.setup();
+    listScheduledAgentsMock.mockResolvedValueOnce([makeRow()]);
+    runScheduledAgentNowMock.mockResolvedValueOnce({
+      slug: "morning-triage",
+      host: 1,
+      requestId: "00000000-0000-0000-0000-000000000000",
+    });
+    render(
+      <ScheduledAgentsModal
+        open={true}
+        onOpenChange={vi.fn()}
+        hostTree={ONE_HOST_TREE}
+      />,
+    );
+    await screen.findByTestId("scheduled-agents-modal-row-morning-triage");
+    await user.click(
+      screen.getByTestId("scheduled-agents-modal-row-morning-triage-kebab"),
+    );
+    await user.click(
+      await screen.findByTestId("scheduled-agents-modal-row-morning-triage-run-now"),
+    );
+    await waitFor(() => {
+      expect(runScheduledAgentNowMock).toHaveBeenCalledWith("morning-triage", 1);
+    });
+    await waitFor(() => {
+      expect(toastSuccessMock).toHaveBeenCalledTimes(1);
+    });
+    expect(String(toastSuccessMock.mock.calls[0][0])).toContain("Morning triage");
+    expect(screen.queryByTestId("scheduled-agents-modal-write-error")).toBeNull();
+  });
+
+  it("T-18b: Run now failure surfaces the server message in the banner", async () => {
+    const user = userEvent.setup();
+    listScheduledAgentsMock.mockResolvedValueOnce([makeRow()]);
+    runScheduledAgentNowMock.mockRejectedValueOnce(
+      new FakeApiError("scheduled agent needs at least one role to run", 400),
+    );
+    render(
+      <ScheduledAgentsModal
+        open={true}
+        onOpenChange={vi.fn()}
+        hostTree={ONE_HOST_TREE}
+      />,
+    );
+    await screen.findByTestId("scheduled-agents-modal-row-morning-triage");
+    await user.click(
+      screen.getByTestId("scheduled-agents-modal-row-morning-triage-kebab"),
+    );
+    await user.click(
+      await screen.findByTestId("scheduled-agents-modal-row-morning-triage-run-now"),
+    );
+    const banner = await screen.findByTestId("scheduled-agents-modal-write-error");
+    expect(banner.textContent).toMatch(/at least one role/);
+    expect(toastSuccessMock).not.toHaveBeenCalled();
+  });
+
+  it("T-18c: one_shot rows have no Run now item (firing early would consume the spec)", async () => {
+    const user = userEvent.setup();
+    listScheduledAgentsMock.mockResolvedValueOnce([
+      makeRow({ schedule: { type: "one_shot", at: "2030-01-01T09:00" } }),
+    ]);
+    render(
+      <ScheduledAgentsModal
+        open={true}
+        onOpenChange={vi.fn()}
+        hostTree={ONE_HOST_TREE}
+      />,
+    );
+    await screen.findByTestId("scheduled-agents-modal-row-morning-triage");
+    await user.click(
+      screen.getByTestId("scheduled-agents-modal-row-morning-triage-kebab"),
+    );
+    await screen.findByTestId("scheduled-agents-modal-row-morning-triage-edit");
+    expect(
+      screen.queryByTestId("scheduled-agents-modal-row-morning-triage-run-now"),
+    ).toBeNull();
   });
 });

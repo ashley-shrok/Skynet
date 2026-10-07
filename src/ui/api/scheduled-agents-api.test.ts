@@ -51,6 +51,7 @@ import {
   updateScheduledAgent,
   toggleScheduledAgentEnabled,
   deleteScheduledAgent,
+  runScheduledAgentNow,
   type ScheduledAgentSpecWire,
   type ScheduledAgentListItem,
 } from "./scheduled-agents-api";
@@ -159,6 +160,21 @@ describe("scheduled-agents-api", () => {
       host: 1,
       enabled: false,
     });
+  });
+
+  it("T-04b: runScheduledAgentNow(slug, host) POSTs /scheduled-agents/:slug/run-now with {host} body", async () => {
+    postMock.mockResolvedValueOnce({
+      data: { slug: "morning-triage", host: 1, requestId: "00000000-0000-0000-0000-000000000000" },
+    });
+
+    const result = await runScheduledAgentNow("morning-triage", 1);
+
+    expect(postMock).toHaveBeenCalledTimes(1);
+    expect(postMock).toHaveBeenCalledWith(
+      "/scheduled-agents/morning-triage/run-now",
+      { host: 1 },
+    );
+    expect(result.requestId).toBe("00000000-0000-0000-0000-000000000000");
   });
 
   it("T-05: deleteScheduledAgent(slug, host) uses axios data:{} config for the body (DELETE-with-body per RESEARCH Pitfall #4)", async () => {

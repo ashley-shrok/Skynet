@@ -1,5 +1,5 @@
 // Phase 135 Plan 135-01 Task 1 — Front-end helpers for the scheduled-agents
-// REST surface (fleet-wide LIST + per-host CRUD + toggle-enabled).
+// REST surface (fleet-wide LIST + per-host CRUD + toggle-enabled + run-now).
 //
 // This file is the frontend counterpart to
 // `src/backend/database/routes/scheduled-agents-list.ts` (LIST) +
@@ -169,6 +169,29 @@ export async function toggleScheduledAgentEnabled(
     return response.data as { slug: string; host: number; enabled: boolean };
   } catch (error) {
     handleApiError(error, "toggle scheduled agent enabled");
+  }
+}
+
+/**
+ * POST `/scheduled-agents/:slug/run-now` — fire a scheduled agent once, now,
+ * outside its schedule. The server drops a spawn-request on the target host
+ * exactly as a clock fire would (the new identity appears once the spawn-scan
+ * picks it up). The schedule itself is untouched — `lastFiredAt` /
+ * `nextFireAt` don't move. Works on disabled specs; 400 on one_shot specs or
+ * specs with no roles; 404 on unknown slug/host; 502 on transport.
+ */
+export async function runScheduledAgentNow(
+  slug: string,
+  host: number,
+): Promise<{ slug: string; host: number; requestId: string }> {
+  try {
+    const response = await authApi.post(
+      `/scheduled-agents/${encodeURIComponent(slug)}/run-now`,
+      { host },
+    );
+    return response.data as { slug: string; host: number; requestId: string };
+  } catch (error) {
+    handleApiError(error, "run scheduled agent now");
   }
 }
 

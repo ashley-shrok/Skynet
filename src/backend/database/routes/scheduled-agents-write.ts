@@ -9,6 +9,8 @@
  *   PATCH  /:slug                     → UPDATE (full-spec overwrite)
  *   PATCH  /:slug/toggle-enabled      → flip only the `enabled` field
  *   DELETE /:slug                     → hard delete + .fired sentinel cleanup
+ *   POST   /:slug/run-now             → fire once now (drops a spawn-request;
+ *                                        schedule state untouched)
  *
  * D-01: HTTP REST endpoint style (mirrors roles-create.ts).
  * D-02: `host` param on writes — each request dispatches to exactly one host.
@@ -58,6 +60,7 @@ import express from "express";
 import type { Request, Response } from "express";
 import fs from "fs/promises";
 import path from "path";
+import { randomUUID } from "node:crypto";
 import { AuthManager } from "../../utils/auth-manager.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
@@ -70,6 +73,7 @@ import {
   IDENTITY_SLUG_RE,
   isLocalHostId,
   getLocalScheduledAgentsRoot,
+  getLocalIdentitiesRoot,
 } from "../../claude-session/identity-artifact-reader.js";
 
 const router = express.Router();
@@ -355,6 +359,107 @@ function localSpecPath(slug: string): string {
 /** Absolute local path for a slug's .fired sentinel. LOCAL branch. */
 function localSentinelPath(slug: string): string {
   return path.join(getLocalScheduledAgentsRoot(), ".state", `${slug}.fired`);
+}
+
+// ---------------------------------------------------------------------------
+// Run-now helpers — build the spawn-request a manual fire drops
+// ---------------------------------------------------------------------------
+
+/** Render-only de-slug for the `⏰ ` task prefix. Mirrors `_prettify_name` in
+ *  substrate/scripts/wakeup-scheduler.py (and `prettifyScheduledAgentName` in
+ *  ScheduledAgentsModalRow.tsx) so a manual fire's newborn reads the same in
+ *  the sidebar as a clock fire's. */
+export function prettifyScheduledAgentName(name: string): string {
+  const spaced = name.replace(/[-_]+/g, " ");
+  return spaced ? spaced.charAt(0).toUpperCase() + spaced.slice(1) : spaced;
+}
+
+/** Pre-authorization wrapper for a MANUAL fire. Same shape as
+ *  `_wrap_prompt_as_preauthorized` in wakeup-scheduler.py, but says the run
+ *  was started by hand from the Scheduled tasks panel rather than "taking
+ *  effect on schedule" — the newborn's id-skill still needs the explicit
+ *  pre-authorization signal to act on `## Do this first` same-turn. */
+export function wrapPromptAsManualRun(prompt: string, slug: string, firedAt: string): string {
+  // Trailing-newline strip matches Python str.splitlines().
+  const quoted = prompt
+    ? prompt.replace(/\r?\n$/, "").split(/\r?\n/).map((line) => "> " + line).join("\n")
+    : "> ";
+  return (
+    "You are the agent that was spawned to carry out this scheduled task. " +
+    "The instruction below was pre-authorized in the scheduled-agent spec at " +
+    "`~/fleet/scheduled-agents/" + slug + "/scheduled-agent.json`; this run " +
+    "at " + firedAt + " was started manually (\"Run now\" in the Scheduled tasks " +
+    "panel), outside the regular schedule, under that same pre-authorization. " +
+    "Act on the instruction in the same turn — not as a note-to-self to " +
+    "consider later, not as something to confirm back before doing.\n\n" +
+    "Instruction (verbatim from the spec's `prompt` field):\n\n" +
+    quoted
+  );
+}
+
+export type RunNowBuildResult =
+  | { ok: true; body: Record<string, unknown> }
+  | { ok: false; error: string };
+
+/**
+ * Build the `~/fleet/spawn-requests/<uuid>.json` body for a manual fire from
+ * the on-disk spec. Mirrors `_drop_spawn_request` in wakeup-scheduler.py field
+ * for field (roles, skills, wrapped prompt, `⏰ ` task, requested_at, users)
+ * so the spawn-requests pipeline can't tell a manual fire from a clock fire.
+ *
+ * The backend builds the body itself rather than shelling out to the
+ * scheduler: the production image has no python3, so the LOCAL branch could
+ * not run the script.
+ *
+ * Rejects (instead of dropping a request the birth pipeline would fail on):
+ *   - one_shot schedules — firing early would have to consume the spec
+ *     (sentinel + self-delete); the UI hides Run now for these.
+ *   - empty prompt / empty roles — parse-request-body.ts would reject the
+ *     request as malformed after the fact.
+ * `enabled: false` is allowed on purpose: running a paused task is the way
+ * to test it before switching it on.
+ */
+export function buildRunNowSpawnRequest(
+  diskSpec: unknown,
+  slug: string,
+  firedAt: string,
+): RunNowBuildResult {
+  if (diskSpec === null || typeof diskSpec !== "object" || Array.isArray(diskSpec)) {
+    return { ok: false, error: "scheduled agent spec is not a JSON object" };
+  }
+  const s = diskSpec as Record<string, unknown>;
+  const sched = s.schedule as Record<string, unknown> | undefined;
+  if (sched && typeof sched === "object" && sched.type === "one_shot") {
+    return { ok: false, error: "one-shot scheduled agents can't be run manually" };
+  }
+  if (typeof s.prompt !== "string" || s.prompt.length === 0) {
+    return { ok: false, error: "scheduled agent has no prompt" };
+  }
+  const roles = Array.isArray(s.roles) ? s.roles.filter((r): r is string => typeof r === "string" && r.length > 0) : [];
+  if (roles.length === 0) {
+    return { ok: false, error: "scheduled agent needs at least one role to run" };
+  }
+  const skills = Array.isArray(s.skills) ? s.skills : [];
+  const name = typeof s.name === "string" && s.name.length > 0 ? s.name : null;
+  const body: Record<string, unknown> = {
+    roles,
+    skills,
+    prompt: wrapPromptAsManualRun(s.prompt, slug, firedAt),
+    task: name ? "⏰ " + prettifyScheduledAgentName(name) : null,
+    requested_at: firedAt,
+  };
+  // Disk-only `users` tag passes through, exactly like the scheduler's drop.
+  if (Array.isArray(s.users) && s.users.length > 0) {
+    body.users = s.users;
+  }
+  return { ok: true, body };
+}
+
+/** Absolute local path for the spawn-requests drop folder. LOCAL branch.
+ *  Same fleet root the spawn-requests scan-orchestrator reads
+ *  (local-fleet-scan.ts getLocalFleetRoot). */
+function localSpawnRequestsDir(): string {
+  return path.join(path.dirname(getLocalIdentitiesRoot()), "spawn-requests");
 }
 
 // ---------------------------------------------------------------------------
@@ -1054,6 +1159,194 @@ router.delete(
           "scheduled-agents-delete: unhandled error",
           err instanceof Error ? err : new Error(String(err)),
           { operation: "scheduled_agents_delete_unhandled", hostId, slug },
+        );
+        res.status(500).json({ error: "internal" });
+      }
+    } finally {
+      if (conn) {
+        try {
+          conn.end();
+        } catch {
+          /* best-effort cleanup */
+        }
+      }
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// POST /scheduled-agents/:slug/run-now — fire once, outside the schedule
+// ---------------------------------------------------------------------------
+//
+// Reads the spec and drops a spawn-request file, exactly as the scheduler does
+// on a clock fire. Deliberately does NOT touch `.state/<slug>.last`: a manual
+// run doesn't shift the regular schedule.
+
+router.post(
+  "/:slug/run-now",
+  express.json({ limit: JSON_BODY_LIMIT }),
+  authenticateJWT,
+  async (req: Request, res: Response): Promise<void> => {
+    const userId = (req as AuthenticatedRequest).userId;
+    const slug = String(req.params.slug ?? "");
+    if (!slug || !IDENTITY_SLUG_RE.test(slug)) {
+      res.status(400).json({ error: "invalid slug" });
+      return;
+    }
+
+    const hostId = requirePositiveIntegerHost(req.body, res);
+    if (hostId === null) return;
+
+    const host = await resolveHostById(hostId, userId);
+    if (!host) {
+      res.status(404).json({ error: "Host not found" });
+      return;
+    }
+
+    const requestId = randomUUID();
+    const firedAt = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+
+    let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
+    let responded = false;
+    try {
+      // Per-slug mutex — a run-now that races a DELETE either reads the spec
+      // before it's gone or 404s; never fires a half-deleted spec.
+      await getSlugMutex(hostId, slug).run(async () => {
+      await getHostSemaphore(hostId).run(async () => {
+        // ─── LOCAL branch ───────────────────────────────────────────────
+        if (isLocalHostId(hostId)) {
+          let raw: string;
+          try {
+            raw = await fs.readFile(localSpecPath(slug), "utf-8");
+          } catch (err: unknown) {
+            if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+              res.status(404).json({ error: "scheduled agent not found" });
+              responded = true;
+              return;
+            }
+            sshLogger.error(
+              "scheduled-agents-run-now: local read failed",
+              err instanceof Error ? err : new Error(String(err)),
+              { operation: "scheduled_agents_run_now_local_read", hostId, slug },
+            );
+            res.status(502).json({ error: "SFTP write failed" });
+            responded = true;
+            return;
+          }
+          let parsed: unknown;
+          try {
+            parsed = JSON.parse(raw);
+          } catch {
+            res.status(422).json({ error: "scheduled agent spec is not valid JSON" });
+            responded = true;
+            return;
+          }
+          const built = buildRunNowSpawnRequest(parsed, slug, firedAt);
+          if (built.ok === false) {
+            res.status(400).json({ error: built.error });
+            responded = true;
+            return;
+          }
+          const dir = localSpawnRequestsDir();
+          const targetPath = path.join(dir, `${requestId}.json`);
+          try {
+            await fs.mkdir(dir, { recursive: true });
+            // Atomic tmp+rename: the scanner only claims 36-char `<uuid>.json`
+            // basenames, so the `.json.tmp` intermediate is never picked up.
+            await writeMarkdownFileAtomic(null, targetPath, JSON.stringify(built.body));
+          } catch (err) {
+            sshLogger.error(
+              "scheduled-agents-run-now: local write failed",
+              err instanceof Error ? err : new Error(String(err)),
+              { operation: "scheduled_agents_run_now_local_write", hostId, slug, targetPath },
+            );
+            res.status(502).json({ error: "SFTP write failed" });
+            responded = true;
+            return;
+          }
+          res.status(202).json({ slug, host: hostId, requestId });
+          responded = true;
+          return;
+        }
+
+        // ─── REMOTE branch ──────────────────────────────────────────────
+        try {
+          conn = await connectOneShot(
+            host as unknown as Parameters<typeof connectOneShot>[0],
+            SSH_CONNECT_TIMEOUT_MS,
+          );
+        } catch (err) {
+          sshLogger.warn("scheduled-agents-run-now: SSH connect failed", {
+            operation: "scheduled_agents_run_now_connect",
+            hostId,
+            error: err instanceof Error ? err.message : "Unknown",
+          });
+          res.status(502).json({ error: "SSH connect failed" });
+          responded = true;
+          return;
+        }
+
+        // Read the spec and ensure the drop folder exists in one exec.
+        // Slug is IDENTITY_SLUG_RE-validated → shell-safe interpolation.
+        let stdout: string;
+        try {
+          stdout = await execWithTimeout(
+            conn,
+            `mkdir -p "$HOME/fleet/spawn-requests" && (cat "$HOME/fleet/scheduled-agents/${slug}/scheduled-agent.json" 2>/dev/null || echo "__SCHEDULED_AGENT_MISSING__")`,
+          );
+        } catch (err) {
+          sshLogger.warn("scheduled-agents-run-now: read exec failed", {
+            operation: "scheduled_agents_run_now_read",
+            hostId,
+            slug,
+            error: err instanceof Error ? err.message : "Unknown",
+          });
+          res.status(502).json({ error: "SSH exec failed" });
+          responded = true;
+          return;
+        }
+        if (stdout.trim() === "__SCHEDULED_AGENT_MISSING__" || stdout.trim() === "") {
+          res.status(404).json({ error: "scheduled agent not found" });
+          responded = true;
+          return;
+        }
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(stdout);
+        } catch {
+          res.status(422).json({ error: "scheduled agent spec is not valid JSON" });
+          responded = true;
+          return;
+        }
+        const built = buildRunNowSpawnRequest(parsed, slug, firedAt);
+        if (built.ok === false) {
+          res.status(400).json({ error: built.error });
+          responded = true;
+          return;
+        }
+        const targetPath = `$HOME/fleet/spawn-requests/${requestId}.json`;
+        try {
+          await writeMarkdownFileAtomic(conn, targetPath, JSON.stringify(built.body));
+        } catch (err) {
+          sshLogger.error(
+            "scheduled-agents-run-now: SFTP write failed",
+            err instanceof Error ? err : new Error(String(err)),
+            { operation: "scheduled_agents_run_now_sftp_write", hostId, slug, targetPath },
+          );
+          res.status(502).json({ error: "SFTP write failed" });
+          responded = true;
+          return;
+        }
+        res.status(202).json({ slug, host: hostId, requestId });
+        responded = true;
+      });
+      });
+    } catch (err) {
+      if (!responded) {
+        sshLogger.error(
+          "scheduled-agents-run-now: unhandled error",
+          err instanceof Error ? err : new Error(String(err)),
+          { operation: "scheduled_agents_run_now_unhandled", hostId, slug },
         );
         res.status(500).json({ error: "internal" });
       }
