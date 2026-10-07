@@ -29,6 +29,29 @@ export async function resolveHostById(
 
   const host = hostResults[0] as Record<string, unknown>;
 
+  // Authorization gate: the caller must own the host or hold an unexpired
+  // host_access grant (direct or via role). Without this, any authenticated
+  // user could resolve another user's host by id — and for substrate hosts
+  // the CSKEK branch below would hand back decrypted credentials. Callers
+  // already treat null as "not found / not yours" (404).
+  if (host.userId !== userId) {
+    const { PermissionManager } =
+      await import("../utils/permission-manager.js");
+    const access = await PermissionManager.getInstance().canAccessHost(
+      userId,
+      hostId,
+      "read",
+    );
+    if (!access.hasAccess) {
+      sshLogger.warn("Denied host resolve for non-owner without access", {
+        operation: "host_resolver_access_denied",
+        hostId,
+        userId,
+      });
+      return null;
+    }
+  }
+
   // Parse JSON fields
   if (typeof host.jumpHosts === "string" && host.jumpHosts) {
     try {
