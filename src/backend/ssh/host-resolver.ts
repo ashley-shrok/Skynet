@@ -43,7 +43,9 @@ export async function resolveHostById(
       "read",
     );
     if (!access.hasAccess) {
-      sshLogger.warn("Denied host resolve for non-owner without access", {
+      // debug, not warn: the fleet poller's host refresh resolves every
+      // SSH-enabled host for each subscribed user, so denials are routine.
+      sshLogger.debug("Denied host resolve for non-owner without access", {
         operation: "host_resolver_access_denied",
         hostId,
         userId,
