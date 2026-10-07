@@ -514,8 +514,8 @@ function sleep(ms: number): Promise<void> {
  * Sanitize an error message for safe inclusion in SSE reason field.
  * Maps common SSH errors to safe strings. Never leaks raw stacks.
  *
- * Phase 106 (D-11 + W-1 fix): exported so identity-birth.ts's /retry/:key
- * route can carry the same sanitized reason string on its failure `ended`
+ * Phase 106 (D-11 + W-1 fix): exported so identity-birth.ts's birth route
+ * can carry the same sanitized reason string on its safety-net `ended`
  * emit — wire-parity with the orchestrator's outer-catch failure emit.
  */
 export function sanitizeError(err: unknown): string {
@@ -690,8 +690,13 @@ export function buildIdentityFileBody(
 // Phase 75 Plan 04 — runRelayMintAndWrite helper (Steps 6, 7, 8)
 // ---------------------------------------------------------------------------
 //
-// Extracted so BOTH birthIdentity AND the retry endpoint (identity-birth.ts
-// POST /identities/birth/retry/:key) can drive the same three-step sequence:
+// NO LIVE CALLERS: the only caller, POST /identities/birth/retry/:key, was
+// removed because it minted against an unchecked `@<key>` (Synapse's admin
+// PUT is an upsert, so it could hijack any existing account). Do not wire
+// this up again without an ownership check on the target MXID.
+//
+// Originally extracted so birthIdentity and the retry endpoint could drive
+// the same three-step sequence:
 //
 //   Step 6: admin-mint (createOrUpdateUser) — generates a fresh 48-char hex
 //           password locally, calls PUT /_synapse/admin/v2/users/<mxid>, then
@@ -746,9 +751,7 @@ function extractServerName(homeserverBase: string): string {
 // 2026-09-18 (quick 260918-52n): MXID + identity-folder-name derivation
 // ---------------------------------------------------------------------------
 //
-// Shared helper — invoked in Step 1 of birthIdentity BEFORE the folder-
-// existence probe, and by the retry route in identity-birth.ts to compute
-// the same values for a re-invocation against an existing folder.
+// Invoked in Step 1 of birthIdentity, before any Synapse mint.
 //
 // Returns `{ mxid, identityFolderName }` where identityFolderName is the
 // MXID localpart (a plain slice: leading `@` stripped, `:<serverName>`
@@ -791,9 +794,11 @@ async function deriveMxidAndFolderName(
       ? deps.matrixServerName
       : extractServerName(deps.matrixHomeserver);
 
-  let mxid: string;
+  // Base handle: `<pool-name>-<role>` for pool-picked names, else the bare
+  // name (typed-name births, and pool births whose name was edited out of
+  // pool shape).
+  let baseHandle = input.name;
   if (input.poolPicked === true && typeof input.role === "string") {
-    let baseHandle: string | null = null;
     try {
       baseHandle = composeMxidLocalpart(input.name, input.role);
     } catch (e) {
@@ -805,23 +810,20 @@ async function deriveMxidAndFolderName(
       if (!msg.startsWith("mxid_name_not_pool_shape")) {
         throw e;
       }
-      baseHandle = null;
     }
-    if (baseHandle !== null) {
-      mxid = await deriveMxidWithOrdinal(
-        baseHandle,
-        serverName,
-        deps.matrixCountUsersMatching,
-      );
-    } else {
-      // Silent-fallback branch (name-not-pool-shape catch above).
-      mxid = `@${input.name}:${serverName}`;
-    }
-  } else {
-    // Legacy branch — unchanged behavior for pre-Phase-80 identities and the
-    // retry route (poolPicked undefined).
-    mxid = `@${input.name}:${serverName}`;
   }
+
+  // EVERY birth goes through the ordinal search — never mint against an
+  // unchecked handle. Synapse's admin PUT /_synapse/admin/v2/users/<mxid>
+  // is an upsert: on an existing account it silently resets the password,
+  // logs out the owner's devices, and clears admin/deactivated. A birth
+  // named after an existing account (e.g. a human's `@ashley`) would hijack
+  // it, and Step 8 rollback would then deactivate it permanently.
+  const mxid = await deriveMxidWithOrdinal(
+    baseHandle,
+    serverName,
+    deps.matrixCountUsersMatching,
+  );
 
   // identityFolderName = MXID localpart (strip leading `@` and `:<serverName>`
   // suffix by explicit slice). We control the composition so this is a plain
@@ -830,8 +832,9 @@ async function deriveMxidAndFolderName(
   const identityFolderName = mxid.slice(1, mxid.length - serverName.length - 1);
 
   // Defense-in-depth on the DERIVED value. composeMxidLocalpart output is
-  // already lowercase-kebab and the legacy branch just echoes opts.name
-  // (which passed IDENTITY_KEY_RE upstream), so this should never fire —
+  // already lowercase-kebab and the bare-name handle just echoes opts.name
+  // (which passed IDENTITY_KEY_RE upstream) plus an optional `-<n>` ordinal,
+  // so this should never fire —
   // but a future change to the localpart shape must not silently break
   // folder-safety.
   if (!IDENTITY_KEY_RE.test(identityFolderName)) {
@@ -1548,6 +1551,15 @@ export async function birthIdentity(
       if (mintResult.ok === false) {
         throw new Error(
           `admin_mint_failed: ${mintResult.error} (${mintResult.status})`,
+        );
+      }
+      // Only a 201 means this birth created the account. A 200 means the
+      // upsert hit an account that already existed (lost a race against
+      // Step 1's ordinal search) — fail without arming rollback, so the
+      // finally block never deactivates an account this birth didn't create.
+      if (mintResult.status !== 201) {
+        throw new Error(
+          `admin_mint_account_exists: ${mxid} (${mintResult.status})`,
         );
       }
       mintedForRollback = true;
