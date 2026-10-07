@@ -354,6 +354,45 @@ If asked to modify an existing app:
   `0.0.0.0` — that would expose the app to any network the box happens to
   be on.
 
+## Form actions — `use:enhance` by default
+
+SvelteKit form actions default to a full-page POST + reload on every
+submit. That's visibly jarring for anything the user does more than
+once per page view — checking off a todo, snoozing an item,
+incrementing a counter. **Enhance every `<form method="post">` with
+`use:enhance` from `$app/forms`** so submits go through fetch and
+SvelteKit re-runs `load()` in place.
+
+```svelte
+<script>
+    import { enhance } from '$app/forms';
+</script>
+
+<form method="post" action="?/complete" use:enhance>
+    <input type="hidden" name="id" value={t.id} />
+    <button type="submit">✓</button>
+</form>
+```
+
+**The one gotcha: `use:enhance` preserves local component state across
+submits (full reload doesn't).** Any UI that was closing itself "for
+free" on reload — an inline editor collapsing after save, an expanded
+panel resetting — needs an explicit callback:
+
+```svelte
+<form
+    method="post"
+    action="?/edit"
+    use:enhance={() => async ({ update, result }) => {
+        await update();
+        if (result.type === 'success') editingId = null;
+    }}
+>
+```
+
+Skip enhance only when the submit genuinely needs a full navigation
+(auth state change, redirect to a different app).
+
 ## The systemd unit
 
 The starter includes `app-SLUG.service.template` with substitution markers

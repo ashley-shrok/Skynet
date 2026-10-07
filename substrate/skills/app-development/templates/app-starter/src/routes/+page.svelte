@@ -4,6 +4,7 @@
     // prefix (hrefs, fetch, <img src>, <video src>). See src/lib/pane.ts
     // for the mechanism + SKILL.md § How the pane mounts your app.
     import { PANE_BASE } from '$lib/pane';
+    import { enhance } from '$app/forms';
 
     let { data, form }: { data: PageData; form: ActionData } = $props();
 </script>
@@ -15,7 +16,7 @@
 <div class="mx-auto max-w-2xl px-4 py-8">
     <h1 class="mb-6 text-2xl font-semibold">Todos</h1>
 
-    <form method="post" action="?/add" class="mb-6 flex gap-2">
+    <form method="post" action="?/add" use:enhance class="mb-6 flex gap-2">
         <input
             name="text"
             required
@@ -37,7 +38,7 @@
     <ul class="space-y-2">
         {#each data.items as item (item.id)}
             <li class="flex items-center gap-3 rounded border border-gray-800 bg-gray-900 px-3 py-2">
-                <form method="post" action="?/toggle" class="flex items-center">
+                <form method="post" action="?/toggle" use:enhance class="flex items-center">
                     <input type="hidden" name="id" value={item.id} />
                     <button
                         type="submit"
@@ -52,7 +53,7 @@
                     {item.text}
                 </span>
 
-                <form method="post" action="?/delete">
+                <form method="post" action="?/delete" use:enhance>
                     <input type="hidden" name="id" value={item.id} />
                     <button type="submit" class="text-sm text-gray-500 hover:text-red-400">
                         Remove
