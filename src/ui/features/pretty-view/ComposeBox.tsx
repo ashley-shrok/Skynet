@@ -2142,6 +2142,13 @@ export function ComposeBox({
     disabled: showTranscribingSend,
   });
 
+  // While hands-free voice mode is on, any press on the primary mic just turns
+  // it off — it must not reach primaryHold (whose short-tap-keep branch would
+  // start a manual recording and swap in RecordingControls). Set on pointerdown
+  // so the desktop click that follows is swallowed too (iOS suppresses that
+  // click via MicButton's preventDefault, hence the reset on every pointerdown).
+  const voiceModeExitPressRef = useRef(false);
+
   // showMicButton — see comment above (L1587). Quick 260814-1hz adds the
   // holdInitiatedRef disjuncts: during a hold-initiated recording,
   // holdInitiatedRef is true, so keep MicButton mounted through the
@@ -3027,7 +3034,10 @@ export function ComposeBox({
                 // guard makes the second call a no-op (belt-and-suspenders
                 // for browsers that fire click without a hook-observable
                 // pointerup pair).
-                onClick={() => beginRecord("primary")}
+                onClick={() => {
+                  if (voiceModeExitPressRef.current) return;
+                  beginRecord("primary");
+                }}
                 // quick-260814-o22: setMicTarget MUST fire synchronously BEFORE
                 // the hook's pointerdown. MicButton wraps onPointerDown with
                 // e.preventDefault() (quick-260814-iwy) to suppress iOS Safari's
@@ -3041,7 +3051,15 @@ export function ComposeBox({
                 // so this does NOT break D-16-02's iOS Safari sync-gesture
                 // invariant that voice.start() (inside primaryHold.onPointerDown)
                 // must be reachable synchronously from the user gesture.
-                onPointerDown={(e) => { setMicTarget("primary"); primaryHold.onPointerDown(e); }}
+                onPointerDown={(e) => {
+                  voiceModeExitPressRef.current = voiceMode.active;
+                  if (voiceMode.active) {
+                    voiceMode.stop();
+                    return;
+                  }
+                  setMicTarget("primary");
+                  primaryHold.onPointerDown(e);
+                }}
                 onPointerUp={primaryHold.onPointerUp}
                 onPointerCancel={primaryHold.onPointerCancel}
                 onPointerLeave={primaryHold.onPointerLeave}
@@ -3049,7 +3067,7 @@ export function ComposeBox({
                 disabled={voice.state !== "idle"}
                 title={
                   voiceMode.active
-                    ? "Voice mode on — hold to turn off"
+                    ? "Voice mode on — tap to turn off"
                     : voiceModeFeed
                       ? "Record voice (hold for voice mode)"
                       : "Record voice"

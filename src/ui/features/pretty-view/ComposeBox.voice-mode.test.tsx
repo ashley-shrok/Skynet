@@ -177,6 +177,34 @@ describe("ComposeBox — hands-free voice mode (mic long-press)", () => {
     expect(screen.getByTestId("voice-mode-pill")).toBeTruthy();
   });
 
+  it("a short tap on the mic while voice mode is on turns it off without starting a manual recording", async () => {
+    render(<ComposeBox {...props()} />);
+    await longPressMic();
+    const callsBefore = getUserMedia.mock.calls.length;
+
+    const btn = mic();
+    await act(async () => {
+      fireEvent.pointerDown(btn, { pointerId: 2, clientX: 20, clientY: 20, timeStamp: 0 });
+      fireEvent.pointerUp(btn, { pointerId: 2, clientX: 20, clientY: 20, timeStamp: 80 });
+      fireEvent.click(btn);
+    });
+    await flush(50);
+
+    expect(screen.queryByTestId("voice-mode-pill")).toBeNull();
+    expect(mic().getAttribute("data-voice-mode")).toBe("false");
+    expect(screen.queryByRole("button", { name: "Cancel recording" })).toBeNull();
+    expect(getUserMedia.mock.calls.length).toBe(callsBefore);
+
+    // The next tap records normally again.
+    const btn2 = mic();
+    await act(async () => {
+      fireEvent.pointerDown(btn2, { pointerId: 3, clientX: 20, clientY: 20, timeStamp: 0 });
+      fireEvent.pointerUp(btn2, { pointerId: 3, clientX: 20, clientY: 20, timeStamp: 80 });
+    });
+    await flush(50);
+    expect(screen.getByRole("button", { name: "Cancel recording" })).toBeTruthy();
+  });
+
   it("the pill's close button turns voice mode off", async () => {
     render(<ComposeBox {...props()} />);
     await longPressMic();
