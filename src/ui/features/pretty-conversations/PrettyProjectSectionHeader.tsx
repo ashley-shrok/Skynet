@@ -273,7 +273,7 @@ export function PrettyProjectSectionHeader({
           className="size-3.5 text-[#a89a80] opacity-90 shrink-0"
           aria-hidden="true"
         />
-        <span className="text-[13px] font-semibold text-[#a89a80] shrink-0">
+        <span className="pv-section-label shrink-0">
           {displayName}
         </span>
         <span
