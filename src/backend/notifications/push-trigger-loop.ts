@@ -561,14 +561,43 @@ export async function runPushTriggerTick(
           );
           break;
         }
-        const decision = deps.classifyRoom({
-          userMxid,
-          roomId,
-          memberMxids: membersResult.memberMxids,
-          memberCount: membersResult.total,
-          isRoomInAdminList: adminRoomIds.has(roomId),
-          agentsInRegistry,
-        });
+        // Membership is read NOW, but the sender was a member when it
+        // sent the event. An agent that DMs and then archives itself is
+        // deactivated (which parts it from every room, the agents-registry
+        // room included) before the folder move — often before this loop
+        // observes the DM. Classifying against current membership would
+        // then see a solo room and drop its final message. When the sender
+        // has left and is a local agent identity (live or archived — that
+        // is exactly what resolveAgentHostId probes), classify against the
+        // room as it was when the event was sent: current members plus the
+        // sender, with the sender counted as a registry agent.
+        let departedSenderHostId: number | null = null;
+        if (!membersResult.memberMxids.includes(event.sender)) {
+          try {
+            departedSenderHostId = await deps.resolveAgentHostId(event.sender);
+          } catch {
+            departedSenderHostId = null;
+          }
+        }
+        const decision = deps.classifyRoom(
+          departedSenderHostId === null
+            ? {
+                userMxid,
+                roomId,
+                memberMxids: membersResult.memberMxids,
+                memberCount: membersResult.total,
+                isRoomInAdminList: adminRoomIds.has(roomId),
+                agentsInRegistry,
+              }
+            : {
+                userMxid,
+                roomId,
+                memberMxids: [...membersResult.memberMxids, event.sender],
+                memberCount: membersResult.total + 1,
+                isRoomInAdminList: adminRoomIds.has(roomId),
+                agentsInRegistry: new Set([...agentsInRegistry, event.sender]),
+              },
+        );
         if (decision.decision !== "exclude" || decision.reason !== "harness_dm") {
           databaseLogger.debug(
             "[phase-128] push-trigger tick — event excluded by classifier",
@@ -599,7 +628,7 @@ export async function runPushTriggerTick(
           const [displayName, body, agentHostId] = await Promise.all([
             deps.resolveAgentDisplayName(event.sender),
             Promise.resolve(deps.derivePreviewText(event)),
-            deps.resolveAgentHostId(event.sender),
+            departedSenderHostId ?? deps.resolveAgentHostId(event.sender),
           ]);
           if (agentHostId === null) {
             databaseLogger.warn(

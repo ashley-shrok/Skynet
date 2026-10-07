@@ -81,6 +81,27 @@ describe("resolveAgentHostId — env populated with a single hostId", () => {
     expect(result).toBeNull();
   });
 
+  it("identity archived (live dir missing, archive dir exists) → returns first local hostId", async () => {
+    vi.stubEnv("IDENTITIES_HOST_DIR", "/live");
+    vi.stubEnv("IDENTITIES_ARCHIVE_HOST_DIR", "/archive");
+    statMock.mockImplementation(async (p: string) => {
+      if (p === "/archive/retired") return { isDirectory: () => true };
+      throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+    });
+    const result = await resolveAgentHostId("@retired:t1000.example.net");
+    expect(result).toBe(42);
+    expect(statMock.mock.calls.map((c) => c[0])).toEqual([
+      "/live/retired",
+      "/archive/retired",
+    ]);
+  });
+
+  it("live dir exists → archive is not probed", async () => {
+    statMock.mockResolvedValue({ isDirectory: () => true });
+    await resolveAgentHostId("@zulu:t1000.example.net");
+    expect(statMock).toHaveBeenCalledTimes(1);
+  });
+
   it("path exists but is not a directory → null", async () => {
     statMock.mockResolvedValue({ isDirectory: () => false });
     const result = await resolveAgentHostId("@rogue:t1000.example.net");

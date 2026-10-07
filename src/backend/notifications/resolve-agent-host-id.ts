@@ -15,8 +15,12 @@
  *
  * Resolution:
  *   1. Match mxid against `@localpart:server`; malformed → null.
- *   2. `fs.stat` the identity folder under getLocalIdentitiesRoot(); missing
- *      → null. This is the belt-and-suspenders check that ensures we don't
+ *   2. `fs.lstat` the identity folder under getLocalIdentitiesRoot(), then
+ *      under getLocalArchivedIdentitiesRoot(); missing from both → null.
+ *      The archive probe matters because identities routinely DM the user
+ *      and then archive themselves — the push loop can observe that final
+ *      DM after the folder has moved to `~/fleet/identities-archive/`.
+ *      This is the belt-and-suspenders check that ensures we don't
  *      ship a hostId in the payload for an mxid whose identity file isn't
  *      actually on this box (D-01/D-02 shouldn't allow that case, but the
  *      resolver stays honest even if the classifier ever regresses).
@@ -34,6 +38,7 @@ import {
   getLocalIdentitiesRoot,
   IDENTITY_KEY_RE,
 } from "../claude-session/identity-artifact-reader.js";
+import { getLocalArchivedIdentitiesRoot } from "../claude-session/list-archived-identity-keys.js";
 import { databaseLogger } from "../utils/logger.js";
 
 const MXID_PATTERN = /^@([^:]+):(.+)$/;
@@ -91,31 +96,38 @@ export async function resolveAgentHostId(mxid: string): Promise<number | null> {
     return null;
   }
 
-  const identitiesRoot = getLocalIdentitiesRoot();
-  const identityDir = path.join(identitiesRoot, localpart);
+  const found =
+    (await isIdentityDirIn(getLocalIdentitiesRoot(), localpart)) ||
+    (await isIdentityDirIn(getLocalArchivedIdentitiesRoot(), localpart));
+  if (!found) return null;
+
+  return LOCAL_HOST_IDS[0];
+}
+
+/** True when `<root>/<localpart>` is a real (non-symlink) directory. */
+async function isIdentityDirIn(root: string, localpart: string): Promise<boolean> {
+  const identityDir = path.join(root, localpart);
 
   // Belt-and-suspenders against a hypothetical classifier regression: even
   // though IDENTITY_KEY_RE already rules out `.` and `/` so path.join
-  // cannot escape the identities root, we still normalize the resolved
-  // path and prefix-check it before touching the filesystem — if either
-  // ever loosens, the check fails closed rather than following a symlink
-  // or traversal out of the root. lstat (not stat) additionally refuses
-  // to follow a symlinked identity folder.
-  const resolvedRoot = path.resolve(identitiesRoot);
+  // cannot escape the root, we still normalize the resolved path and
+  // prefix-check it before touching the filesystem — if either ever
+  // loosens, the check fails closed rather than following a symlink or
+  // traversal out of the root. lstat (not stat) additionally refuses to
+  // follow a symlinked identity folder.
+  const resolvedRoot = path.resolve(root);
   const resolvedDir = path.resolve(identityDir);
   if (
     resolvedDir !== resolvedRoot &&
     !resolvedDir.startsWith(resolvedRoot + path.sep)
   ) {
-    return null;
+    return false;
   }
 
   try {
     const stats = await fspLstat(identityDir);
-    if (!stats.isDirectory()) return null;
+    return stats.isDirectory();
   } catch {
-    return null;
+    return false;
   }
-
-  return LOCAL_HOST_IDS[0];
 }

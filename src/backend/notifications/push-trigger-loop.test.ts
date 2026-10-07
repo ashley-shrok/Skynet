@@ -328,6 +328,82 @@ describe("runPushTriggerTick — filter pipeline", () => {
 // runPushTriggerTick — cursor advancement + cold-start + non-cursor edge cases
 // ---------------------------------------------------------------------------
 
+describe("runPushTriggerTick — sender departed before observation", () => {
+  // An identity that DMs and then archives itself is deactivated (parted
+  // from every room, including the agents registry) before the loop sees
+  // its final DM. Current membership is just the user.
+  const departedDeps = (overrides: Partial<PushTriggerLoopDeps> = {}) =>
+    makeDeps({
+      fetchLive: vi.fn(async () => ({
+        ok: true as const,
+        events: [makeEvent()],
+        nextSinceToken: "cursor-2",
+      })),
+      getRoomJoinedMembers: vi.fn(async () => ({
+        ok: true as const,
+        memberMxids: [USER_A_MXID],
+        total: 1,
+      })),
+      getRegistryMembers: vi.fn(async () => new Set<string>()),
+      // Real classifier rule shape: two-party with the other in registry.
+      classifyRoom: vi.fn((input) =>
+        input.memberCount === 2 && input.agentsInRegistry.has(AGENT_MXID)
+          ? { decision: "exclude" as const, reason: "harness_dm" }
+          : { decision: "exclude" as const, reason: "solo_room" },
+      ),
+      ...overrides,
+    });
+
+  it("local (archived) sender → classified with the sender restored → push dispatched", async () => {
+    const deps = departedDeps();
+    const state = makeStateWithWarmCursor(USER_A_MXID);
+
+    await runPushTriggerTick(USER_A, state, deps);
+
+    expect(deps.classifyRoom).toHaveBeenCalledWith(
+      expect.objectContaining({
+        memberMxids: [USER_A_MXID, AGENT_MXID],
+        memberCount: 2,
+      }),
+    );
+    expect(deps.sendPushToUser).toHaveBeenCalledTimes(1);
+    expect(deps.sendPushToUser).toHaveBeenCalledWith(USER_A, expect.objectContaining({ agentHostId: 42 }));
+    // Resolved once, reused at dispatch.
+    expect(deps.resolveAgentHostId).toHaveBeenCalledTimes(1);
+  });
+
+  it("departed sender that is NOT a local identity → current membership used → no push", async () => {
+    const deps = departedDeps({ resolveAgentHostId: vi.fn(async () => null) });
+    const state = makeStateWithWarmCursor(USER_A_MXID);
+
+    await runPushTriggerTick(USER_A, state, deps);
+
+    expect(deps.classifyRoom).toHaveBeenCalledWith(
+      expect.objectContaining({ memberMxids: [USER_A_MXID], memberCount: 1 }),
+    );
+    expect(deps.sendPushToUser).not.toHaveBeenCalled();
+  });
+
+  it("departed sender from a group room stays a group room → no push", async () => {
+    const OTHER = "@other:server";
+    const deps = departedDeps({
+      getRoomJoinedMembers: vi.fn(async () => ({
+        ok: true as const,
+        memberMxids: [USER_A_MXID, OTHER],
+        total: 2,
+      })),
+    });
+    const state = makeStateWithWarmCursor(USER_A_MXID);
+
+    await runPushTriggerTick(USER_A, state, deps);
+
+    expect(deps.classifyRoom).toHaveBeenCalledWith(
+      expect.objectContaining({ memberCount: 3 }),
+    );
+    expect(deps.sendPushToUser).not.toHaveBeenCalled();
+  });
+});
+
 describe("runPushTriggerTick — cursor management", () => {
   it("Test 8: Cursor advancement — after successful fetchLive with N events, state.cursorByRoom updates to nextSinceToken", async () => {
     const deps = makeDeps({
