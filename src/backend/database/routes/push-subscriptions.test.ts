@@ -15,6 +15,7 @@
  *   RT-07 (MC-4): DELETE /ntfy-setup reads ntfy_username FROM DB row, not reconstructed
  *   RT-08: GET /vapid-public-key → 404 (removed)
  *   RT-09: All routes require JWT auth — unauthenticated returns 401
+ *   RT-10: requireNotificationsAccess — 403 unless notifications_enabled or admin
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -96,6 +97,8 @@ type DbRow = {
 };
 
 const dbRows = new Map<string, DbRow>();
+// users rows read by the notifications access gate, keyed by user id.
+const accessRows = new Map<string, { is_admin: number; notifications_enabled: number }>();
 
 const mockForceSave = vi.fn().mockResolvedValue(undefined);
 
@@ -108,6 +111,9 @@ vi.mock("../db/index.js", () => ({
             if (sql.includes("push_subscriptions")) {
               const userId = args[0] as string;
               return dbRows.get(userId);
+            }
+            if (sql.includes("FROM users")) {
+              return accessRows.get(args[0] as string);
             }
             return undefined;
           },
@@ -228,12 +234,14 @@ import {
   handlePostNtfyTest,
   handlePostNtfyRegenerate,
   handleDeleteNtfySetup,
+  requireNotificationsAccess,
 } from "./push-subscriptions.js";
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 describe("Phase 144-02 Task 3 — push-subscriptions routes (RT-01..RT-09)", () => {
   beforeEach(() => {
     dbRows.clear();
+    accessRows.clear();
     mockCreateNtfyUser.mockReset().mockResolvedValue(undefined);
     mockDeleteNtfyUser.mockReset().mockResolvedValue(undefined);
     mockGrantTopicReadAccess.mockReset().mockResolvedValue(undefined);
@@ -447,5 +455,53 @@ describe("Phase 144-02 Task 3 — push-subscriptions routes (RT-01..RT-09)", () 
     expect(typeof routerModule.handlePostNtfyTest).toBe("function");
     expect(typeof routerModule.handlePostNtfyRegenerate).toBe("function");
     expect(typeof routerModule.handleDeleteNtfySetup).toBe("function");
+  });
+  describe("RT-10: requireNotificationsAccess", () => {
+    function runGate(userId: string) {
+      const res = makeRes();
+      const next = vi.fn();
+      requireNotificationsAccess(
+        makeReq(userId) as unknown as Request,
+        res as unknown as Response,
+        next,
+      );
+      return { res, next };
+    }
+
+    it("403s a user without the flag who is not an admin", () => {
+      accessRows.set("u-plain", { is_admin: 0, notifications_enabled: 0 });
+      const { res, next } = runGate("u-plain");
+      expect(next).not.toHaveBeenCalled();
+      expect(res._status).toBe(403);
+    });
+
+    it("403s an unknown user", () => {
+      const { res, next } = runGate("u-missing");
+      expect(next).not.toHaveBeenCalled();
+      expect(res._status).toBe(403);
+    });
+
+    it("passes a user with the flag", () => {
+      accessRows.set("u-flag", { is_admin: 0, notifications_enabled: 1 });
+      expect(runGate("u-flag").next).toHaveBeenCalledTimes(1);
+    });
+
+    it("passes an admin without the flag", () => {
+      accessRows.set("u-admin", { is_admin: 1, notifications_enabled: 0 });
+      expect(runGate("u-admin").next).toHaveBeenCalledTimes(1);
+    });
+
+    it("is wired onto every route", async () => {
+      const routerModule = await import("./push-subscriptions.js");
+      const stack = (routerModule.default as unknown as {
+        stack: Array<{ route?: { path: string; stack: Array<{ handle: unknown }> } }>;
+      }).stack;
+      const routes = stack.filter((layer) => layer.route);
+      expect(routes.length).toBe(5);
+      for (const layer of routes) {
+        const handles = layer.route!.stack.map((l) => l.handle);
+        expect(handles).toContain(requireNotificationsAccess);
+      }
+    });
   });
 });

@@ -18,6 +18,8 @@
  *   SND-06 (HC-4): buildClickUrl(mxid, null) → URL has no host= query param
  *   SND-07 (HC-4): buildClickUrl(mxid, "h-123") → URL contains host=h-123
  *   SND-08 (HC-4): sendPushToUser with agentHostId=null sends Click with no host= param
+ *   SND-09: user without notifications access (flag off, not admin) → no fetch even with a row
+ *   SND-10: admin without the flag → still delivered
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -43,11 +45,16 @@ vi.mock("./ntfy-config.js", () => ({
 // ── DB mock ───────────────────────────────────────────────────────────────────
 // Mock the db.$client.prepare(...).get(...) for push_subscriptions SELECT.
 let mockTopicRow: { topic_name: string } | undefined = undefined;
+// users row read by the notifications access gate.
+let mockAccessRow: { is_admin: number; notifications_enabled: number } | undefined = undefined;
 
 const mockPrepare = vi.fn((sql: string) => ({
   get: vi.fn((_userId: string) => {
     if (sql.includes("push_subscriptions")) {
       return mockTopicRow;
+    }
+    if (sql.includes("FROM users")) {
+      return mockAccessRow;
     }
     return undefined;
   }),
@@ -91,6 +98,7 @@ describe("Phase 144-02 Task 2 — ntfy-sender (SND-01..SND-08)", () => {
   beforeEach(() => {
     global.fetch = vi.fn();
     mockTopicRow = undefined;
+    mockAccessRow = { is_admin: 0, notifications_enabled: 1 };
     mockWarn.mockClear();
     mockInfo.mockClear();
     mockPrepare.mockClear();
@@ -237,5 +245,37 @@ describe("Phase 144-02 Task 2 — ntfy-sender (SND-01..SND-08)", () => {
     expect(clickHeader).not.toContain("host=undefined");
     expect(clickHeader).not.toMatch(/[?&]host=/);
     expect(clickHeader).toContain("openHarness=");
+  });
+  it("SND-09: user who lost notifications access (flag off, not admin) gets nothing even with a row", async () => {
+    mockTopicRow = { topic_name: "abc123def456" };
+    mockAccessRow = { is_admin: 0, notifications_enabled: 0 };
+    global.fetch = vi.fn().mockResolvedValue(makeOkResponse(200));
+
+    const { sendPushToUser } = await import("./ntfy-sender.js");
+    await sendPushToUser("user-123", {
+      title: "Agent:",
+      body: "Hello",
+      agentMxid: "@agent:skynet",
+      agentHostId: 42,
+    });
+
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(mockWarn).not.toHaveBeenCalled();
+  });
+
+  it("SND-10: admin without the flag still receives pushes", async () => {
+    mockTopicRow = { topic_name: "abc123def456" };
+    mockAccessRow = { is_admin: 1, notifications_enabled: 0 };
+    global.fetch = vi.fn().mockResolvedValue(makeOkResponse(200));
+
+    const { sendPushToUser } = await import("./ntfy-sender.js");
+    await sendPushToUser("user-123", {
+      title: "Agent:",
+      body: "Hello",
+      agentMxid: "@agent:skynet",
+      agentHostId: 42,
+    });
+
+    expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 });

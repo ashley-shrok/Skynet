@@ -56,6 +56,19 @@ vi.mock("@/api/user-phone-api", async (importOriginal) => {
   };
 });
 
+// Notifications section gating — the modal probes GET /ntfy-setup on open;
+// any failure (403 when the user lacks notifications access) hides it.
+const { getNtfySetupMock } = vi.hoisted(() => ({
+  getNtfySetupMock: vi.fn<() => Promise<{ isSetUp: boolean }>>(),
+}));
+vi.mock("@/features/notifications/ntfy-setup-api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/features/notifications/ntfy-setup-api")>();
+  return {
+    ...actual,
+    getNtfySetup: () => getNtfySetupMock(),
+  };
+});
+
 const defaultProps = {
   open: true,
   onOpenChange: vi.fn(),
@@ -71,6 +84,7 @@ describe("PreferencesModal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getMyPhoneMock.mockResolvedValue(null);
+    getNtfySetupMock.mockResolvedValue({ isSetUp: false });
   });
 
   afterEach(() => {
@@ -98,13 +112,19 @@ describe("PreferencesModal", () => {
   it("(c) clicking Notifications nav button shows notifications pane content", async () => {
     const user = userEvent.setup();
     render(<PreferencesModal {...defaultProps} open={true} />);
-    const notifBtn = screen.getByTestId("preferences-nav-notifications");
+    const notifBtn = await screen.findByTestId("preferences-nav-notifications");
     await user.click(notifBtn);
-    // Phase 144: pane rebuilt for ntfy — shows loading state while fetching
-    // ntfy setup from the backend. Loading state confirms the pane is mounted.
-    const notifLoading = screen.queryByTestId("preferences-notifications-loading");
-    const notifError = screen.queryByTestId("preferences-notifications-error");
-    expect(notifLoading ?? notifError).toBeTruthy();
+    // Mocked getNtfySetup resolves {isSetUp:false} → the pane's setup state.
+    expect(
+      await screen.findByTestId("preferences-notifications-setup-button"),
+    ).toBeTruthy();
+  });
+
+  it("(c) hides the Notifications section when the user lacks notifications access", async () => {
+    getNtfySetupMock.mockRejectedValue(new Error("Request failed with status code 403"));
+    render(<PreferencesModal {...defaultProps} open={true} />);
+    await waitFor(() => expect(getNtfySetupMock).toHaveBeenCalled());
+    expect(screen.queryByTestId("preferences-nav-notifications")).toBeNull();
   });
 
   it("(c) clicking About you nav button shows about-you pane content", async () => {

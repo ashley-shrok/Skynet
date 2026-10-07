@@ -528,6 +528,106 @@ export function registerUserAdminRoutes(
 
   /**
    * @openapi
+   * /users/{id}/notifications-enabled:
+   *   post:
+   *     summary: Grant or revoke push notifications for a user (admin only)
+   *     description: |
+   *       Sets users.notifications_enabled. Push notifications (Preferences →
+   *       Notifications, /push-subscriptions/*, and delivery itself) are off
+   *       unless this is set; admins always have access regardless. Revoking
+   *       stops delivery immediately but leaves any existing ntfy setup in
+   *       place, so re-granting resumes it without re-setup.
+   *     tags:
+   *       - Users
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: string
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               enabled:
+   *                 type: boolean
+   *     responses:
+   *       200:
+   *         description: Flag updated.
+   *       400:
+   *         description: enabled missing or not a boolean.
+   *       403:
+   *         description: Not authorized.
+   *       404:
+   *         description: User not found.
+   *       500:
+   *         description: Failed to update the flag.
+   */
+  router.post("/:id/notifications-enabled", authenticateJWT, async (req, res) => {
+    const userId = (req as AuthenticatedRequest).userId;
+    const targetId = req.params.id as string;
+    const { enabled } = req.body ?? {};
+
+    if (typeof enabled !== "boolean") {
+      return res.status(400).json({ error: "enabled must be a boolean" });
+    }
+
+    try {
+      const adminUser = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, userId));
+      if (!adminUser || adminUser.length === 0 || !adminUser[0].isAdmin) {
+        return res.status(403).json({ error: "Not authorized" });
+      }
+
+      const targetUser = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, targetId))
+        .limit(1);
+      if (!targetUser || targetUser.length === 0) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      await db
+        .update(users)
+        .set({ notificationsEnabled: enabled })
+        .where(eq(users.id, targetId));
+
+      try {
+        const { saveMemoryDatabaseToFile } = await import("../db/index.js");
+        await saveMemoryDatabaseToFile();
+      } catch (saveError) {
+        authLogger.error(
+          "Failed to persist notifications flag update to disk",
+          saveError,
+          {
+            operation: "user_notifications_flag_save_failed",
+            targetId,
+          },
+        );
+      }
+
+      authLogger.info("notifications_enabled set for user", {
+        operation: "user_notifications_flag_set",
+        adminId: userId,
+        targetUserId: targetUser[0].id,
+        previous: !!targetUser[0].notificationsEnabled,
+        enabled,
+      });
+      res.json({ ok: true, enabled });
+    } catch (err) {
+      authLogger.error("Failed to set notifications flag", err);
+      res.status(500).json({ error: "Failed to set notifications flag" });
+    }
+  });
+
+  /**
+   * @openapi
    * /users/remove-admin:
    *   post:
    *     summary: Remove admin status

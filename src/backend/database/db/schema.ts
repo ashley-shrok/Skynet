@@ -67,6 +67,13 @@ export const users = sqliteTable("users", {
   // no dashes, no parens). Validation lives in the admin update endpoint;
   // stored as-is. No UI to set this today — admin-cookie curl only.
   phoneE164: text("phone_e164"),
+
+  // Notifications gate — push notifications (Preferences → Notifications,
+  // /push-subscriptions/*, and sendPushToUser) are off unless this is set.
+  // Admins bypass it. Set via POST /users/:id/notifications-enabled (admin).
+  notificationsEnabled: integer("notifications_enabled", { mode: "boolean" })
+    .notNull()
+    .default(false),
 });
 
 export const settings = sqliteTable("settings", {
