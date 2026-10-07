@@ -90,6 +90,7 @@ export function registerUserAdminRoutes(
           mxid: users.mxid,
           phoneE164: users.phoneE164,
           avatarPath: users.avatarPath,
+          notificationsEnabled: users.notificationsEnabled,
         })
         .from(users);
 

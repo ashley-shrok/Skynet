@@ -2,8 +2,8 @@
  * AdminUserModal — one user's admin view, opened from Admin → Users.
  *
  * Tabs:
- *   - Account:  admin access, phone number, read-only identity details,
- *               delete user.
+ *   - Account:  admin access, push-notification access, phone number,
+ *               read-only identity details, delete user.
  *   - Sessions: that user's live login sessions; revoke one or all.
  *   - Hosts:    hosts the user owns (read-only).
  *
@@ -34,6 +34,7 @@ import {
   removeAdminStatus,
   revokeAllUserSessions,
   revokeSession,
+  setUserNotificationsEnabled,
   setUserPhone,
   type AdminUser,
 } from "@/api/user-management-api";
@@ -161,6 +162,9 @@ function AccountTab({
   const [adminBusy, setAdminBusy] = useState(false);
   const [adminError, setAdminError] = useState<string | null>(null);
 
+  const [notifBusy, setNotifBusy] = useState(false);
+  const [notifError, setNotifError] = useState<string | null>(null);
+
   const [phoneDraft, setPhoneDraft] = useState(user.phoneE164 ?? "");
   const [phoneBusy, setPhoneBusy] = useState(false);
   const [phoneError, setPhoneError] = useState<string | null>(null);
@@ -172,6 +176,21 @@ function AccountTab({
   useEffect(() => {
     setPhoneDraft(user.phoneE164 ?? "");
   }, [user.phoneE164]);
+
+  const toggleNotifications = async (next: boolean) => {
+    setNotifBusy(true);
+    setNotifError(null);
+    try {
+      await setUserNotificationsEnabled(user.id, next);
+      onUserChanged();
+    } catch (err) {
+      setNotifError(
+        adminErrorMessage(err, "Failed to change notifications access."),
+      );
+    } finally {
+      setNotifBusy(false);
+    }
+  };
 
   const toggleAdmin = async (next: boolean) => {
     const prompt = next
@@ -261,6 +280,23 @@ function AccountTab({
             }
           />
           <AdminRow
+            label="Push notifications"
+            description={
+              user.isAdmin
+                ? "Admins always have push notifications."
+                : "Gives this user the Notifications section in Preferences. Turning it off stops their pushes right away."
+            }
+            control={
+              <Switch
+                data-testid="admin-user-notifications-switch"
+                checked={user.isAdmin || user.notificationsEnabled}
+                disabled={notifBusy || user.isAdmin}
+                onCheckedChange={(v) => void toggleNotifications(v)}
+                aria-label="Push notifications"
+              />
+            }
+          />
+          <AdminRow
             label="Two-factor authentication"
             control={
               <span className="text-[12.5px] text-[#cfc8b8]">
@@ -271,6 +307,11 @@ function AccountTab({
         </div>
         {adminError && (
           <AdminError testId="admin-user-admin-error">{adminError}</AdminError>
+        )}
+        {notifError && (
+          <AdminError testId="admin-user-notifications-error">
+            {notifError}
+          </AdminError>
         )}
       </AdminSection>
 

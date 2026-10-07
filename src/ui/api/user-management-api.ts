@@ -14,6 +14,8 @@ export interface AdminUser {
   mxid: string | null;
   phoneE164: string | null;
   avatarPath: string | null;
+  /** Push-notification grant. Admins always have notifications regardless. */
+  notificationsEnabled: boolean;
 }
 
 export async function getUserList(): Promise<{ users: AdminUser[] }> {
@@ -222,6 +224,21 @@ export async function setUserPhone(
     return response.data;
   } catch (error) {
     handleApiError(error, "set user phone");
+  }
+}
+
+export async function setUserNotificationsEnabled(
+  userId: string,
+  enabled: boolean,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await authApi.post(
+      `/users/${encodeURIComponent(userId)}/notifications-enabled`,
+      { enabled },
+    );
+    return response.data;
+  } catch (error) {
+    handleApiError(error, "set user notifications access");
   }
 }
 

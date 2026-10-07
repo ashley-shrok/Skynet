@@ -31,6 +31,7 @@ const m = vi.hoisted(() => ({
   revokeSession: vi.fn(),
   revokeAllUserSessions: vi.fn(),
   setUserPhone: vi.fn(),
+  setUserNotificationsEnabled: vi.fn(),
   getPasswordResetAllowed: vi.fn(),
   getOidcAutoProvision: vi.fn(),
   getOIDCConfig: vi.fn(),
@@ -48,6 +49,7 @@ vi.mock("@/api/user-management-api", () => ({
   revokeSession: m.revokeSession,
   revokeAllUserSessions: m.revokeAllUserSessions,
   setUserPhone: m.setUserPhone,
+  setUserNotificationsEnabled: m.setUserNotificationsEnabled,
   getPasswordResetAllowed: m.getPasswordResetAllowed,
   getOidcAutoProvision: m.getOidcAutoProvision,
   updateRegistrationAllowed: vi.fn(),
@@ -91,6 +93,7 @@ function user(
     mxid: null,
     phoneE164: null,
     avatarPath: null,
+    notificationsEnabled: false,
     ...overrides,
   };
 }
@@ -213,6 +216,32 @@ describe("AdminUserModal", () => {
     await userEvent.click(screen.getByTestId("admin-user-admin-switch"));
     await waitFor(() => expect(m.makeUserAdmin).toHaveBeenCalledWith("u2"));
     await waitFor(() => expect(m.getUserList).toHaveBeenCalledTimes(2));
+  });
+
+  it("grants push notifications to a non-admin and reloads the list", async () => {
+    m.setUserNotificationsEnabled.mockResolvedValue({});
+    renderModal();
+    await openUser("zoey");
+    const sw = screen.getByTestId(
+      "admin-user-notifications-switch",
+    ) as HTMLButtonElement;
+    expect(sw.disabled).toBe(false);
+    expect(sw.getAttribute("aria-checked")).toBe("false");
+    await userEvent.click(sw);
+    await waitFor(() =>
+      expect(m.setUserNotificationsEnabled).toHaveBeenCalledWith("u2", true),
+    );
+    await waitFor(() => expect(m.getUserList).toHaveBeenCalledTimes(2));
+  });
+
+  it("shows notifications as always on, and locked, for admins", async () => {
+    renderModal();
+    await openUser("ashley");
+    const sw = screen.getByTestId(
+      "admin-user-notifications-switch",
+    ) as HTMLButtonElement;
+    expect(sw.disabled).toBe(true);
+    expect(sw.getAttribute("aria-checked")).toBe("true");
   });
 
   it("requires the typed username before deleting", async () => {
