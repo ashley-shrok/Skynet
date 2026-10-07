@@ -1003,7 +1003,7 @@ describe("PrettyConversationRow: quick-260730-o2m context-menu default regressio
     ).toBeNull();
   });
 
-  it("Test 18f (shape-sidebar-header-affordances rewrite): mobile row body does NOT wire onContextMenu AND has NO in-DOM PinAction; kebab trigger IS present", () => {
+  it("Test 18f (shape-sidebar-header-affordances rewrite): right-click opens the SAME kebab menu, touch long-press is a no-op, NO in-DOM PinAction; kebab trigger IS present", async () => {
     // Original (quick-260802-pq2) asserted: (1) mobile onContextMenu is
     // undefined — dispatching contextmenu does NOT open the portal menu;
     // (2) no in-DOM PinAction on a mobile row. shape-sidebar-header-affordances
@@ -1011,6 +1011,10 @@ describe("PrettyConversationRow: quick-260730-o2m context-menu default regressio
     // the stronger invariant is "contextmenu dispatch is a no-op on both
     // mobile AND desktop." The kebab is the sole affordance; its trigger
     // must be in the DOM on mobile (always-visible there since no hover).
+    // Right-click amendment: a mouse right-click now opens the kebab's own
+    // menu (same items) at the cursor as a convenience — still one menu, not
+    // the retired PrettyConversationContextMenu. Touch long-press stays a
+    // no-op.
     currentIdentity = makeIdentity(210, "nelly");
     const { container } = render(
       <PrettyConversationRow
@@ -1026,9 +1030,17 @@ describe("PrettyConversationRow: quick-260730-o2m context-menu default regressio
       '[data-conversation-id="conv-1"]',
     ) as HTMLElement;
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-    // (1) Dispatching contextmenu does NOT open any menu — handler not wired.
-    fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
+    // (1a) contextmenu from a touch long-press does NOT open any menu.
+    const touchEv = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+    Object.defineProperty(touchEv, "pointerType", { value: "touch" });
+    act(() => {
+      body.dispatchEvent(touchEv);
+    });
+    expect(touchEv.defaultPrevented).toBe(false);
     expect(screen.queryByRole("menu")).toBeNull();
+    // (1b) A mouse right-click opens the kebab's menu (same items).
+    fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
+    expect(await screen.findByTestId("pv-row-kebab-item-pin")).toBeTruthy();
     // (2) No PinAction in the row DOM.
     expect(
       container.querySelector('[data-testid="pin-action"]'),

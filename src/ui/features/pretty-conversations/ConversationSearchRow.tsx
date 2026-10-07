@@ -38,7 +38,11 @@
  */
 
 import type { ConversationSearchResult } from "@/api/conversation-search-api";
-import { RowKebabMenu } from "./RowKebabMenu";
+import {
+  RowKebabMenu,
+  useRowKebabContextMenu,
+  type RowKebabMenuItem,
+} from "./RowKebabMenu";
 
 const FALLBACK_HUE = 190;
 
@@ -112,11 +116,23 @@ export function ConversationSearchRow({
   // rows when the onUnarchive callback is provided. The kebab replaces the
   // chevron slot for archived rows; non-archived rows are unaffected.
   const showKebab = result.isArchived && onUnarchive != null;
+  const kebabItems: RowKebabMenuItem[] = showKebab
+    ? [
+        {
+          label: "Un-archive",
+          onClick: () => onUnarchive!(result),
+        },
+      ]
+    : [];
+  // Right-click the row → same kebab menu at the cursor (no-op when the row
+  // has no kebab: empty items leave the native context menu alone).
+  const kebabContextMenu = useRowKebabContextMenu(kebabItems);
 
   return (
     <button
       type="button"
       onClick={onClick}
+      onContextMenu={kebabContextMenu.onContextMenu}
       data-testid={`conversation-search-row-${result.transcriptPath}`}
       data-archived={result.isArchived ? "true" : "false"}
       className="pv-search-row"
@@ -133,14 +149,10 @@ export function ConversationSearchRow({
           <RowKebabMenu
             testId={`conversation-search-archived-row-kebab-${result.identityKey}-${result.hostId}`}
             ariaLabel={`Row menu for ${result.identityKey}`}
-            items={[
-              {
-                label: "Un-archive",
-                onClick: () => onUnarchive!(result),
-              },
-            ]}
+            items={kebabItems}
           />
         )}
+        {kebabContextMenu.menu}
       </div>
       {snippetNode}
     </button>

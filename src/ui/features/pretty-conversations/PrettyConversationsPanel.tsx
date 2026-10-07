@@ -182,7 +182,7 @@ import { ArchivedAppsModal } from "./ArchivedAppsModal";
 // consumer site via a group/group-hover wrapper (RowKebabMenu itself is
 // always-visible — the reveal discipline lives at the consumer, not in
 // the primitive).
-import { RowKebabMenu } from "./RowKebabMenu";
+import { RowKebabMenu, useRowKebabContextMenu, type RowKebabMenuItem } from "./RowKebabMenu";
 import type { ConversationSearchResult } from "@/api/conversation-search-api";
 import {
   useSessionIsWorking,
@@ -1094,6 +1094,19 @@ export function PrettyConversationsPanel({
   // Phase 143 D-09: ArchivedAppsModal open/closed toggle. Opened by the
   // archived-box icon-button on the Apps section header (see header edit below).
   const [archivedAppsModalOpen, setArchivedAppsModalOpen] = useState(false);
+  // Apps section header kebab items — shared by the ⋮ trigger and right-click
+  // on the header row (useRowKebabContextMenu).
+  const appsHeaderKebabItems = useMemo<RowKebabMenuItem[]>(
+    () => [
+      {
+        label: "Archived apps",
+        onClick: () => setArchivedAppsModalOpen(true),
+        testId: "pretty-conversations-archived-apps-item",
+      },
+    ],
+    [],
+  );
+  const appsHeaderContextMenu = useRowKebabContextMenu(appsHeaderKebabItems);
   // Phase 129 (shape 3, wake-ups-redesign) Plan 129-01 Task 4 — controlled
   // open state for the new ScheduledAgentsModal. Opened via the Clock button
   // in .pv-header-actions below (inserted after the Edit-global-files
@@ -3014,6 +3027,7 @@ export function PrettyConversationsPanel({
             role="button"
             tabIndex={0}
             onClick={() => setAppsExpanded((v) => !v)}
+            onContextMenu={appsHeaderContextMenu.onContextMenu}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
@@ -3050,14 +3064,9 @@ export function PrettyConversationsPanel({
               <RowKebabMenu
                 ariaLabel="Apps section menu"
                 testId="pretty-conversations-apps-header-kebab-trigger"
-                items={[
-                  {
-                    label: "Archived apps",
-                    onClick: () => setArchivedAppsModalOpen(true),
-                    testId: "pretty-conversations-archived-apps-item",
-                  },
-                ]}
+                items={appsHeaderKebabItems}
               />
+              {appsHeaderContextMenu.menu}
             </div>
             <ChevronDown
               className={`size-3.5 text-[#a89a80] opacity-90 shrink-0 transition-transform ${appsExpanded || sidebarSearchActive ? "rotate-180" : ""}`}

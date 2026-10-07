@@ -51,7 +51,12 @@ import type { TabState } from "./IdentityFileTab";
 import { roleDisplayName } from "@/lib/role-display-name";
 import { useIdentities } from "@/state/identities-store";
 import { archiveRole } from "@/api/role-archive-api";
-import { RowKebabMenu } from "@/features/pretty-conversations/RowKebabMenu";
+import {
+  RowKebabMenu,
+  RowKebabContextMenuSurface,
+  useRowKebabContextMenu,
+  type RowKebabMenuItem,
+} from "@/features/pretty-conversations/RowKebabMenu";
 import { listArchivedRoles, type ArchivedRoleListEntry } from "@/api/roles-archive-list-api";
 import { unarchiveRole } from "@/api/role-unarchive-api";
 import { UnarchiveError } from "@/api/identity-unarchive-api";
@@ -107,8 +112,14 @@ function ArchivedRoleRow({ entry, onUnarchive }: ArchivedRoleRowProps): JSX.Elem
   const hue = FALLBACK_HUE;
   // Title-case the slug as a display label (no displayName in the minimal schema).
   const label = roleDisplayName(entry.name, undefined);
+  const kebabItems: RowKebabMenuItem[] = [
+    { label: "Un-archive", onClick: () => onUnarchive(entry) },
+  ];
+  // Right-click the row → same kebab menu at the cursor.
+  const kebabContextMenu = useRowKebabContextMenu(kebabItems);
   return (
     <div
+      onContextMenu={kebabContextMenu.onContextMenu}
       style={{
         borderRadius: 14,
         background: `linear-gradient(160deg, hsla(${hue}, 30%, 28%, 0.45), hsla(${hue}, 25%, 16%, 0.50))`,
@@ -177,10 +188,11 @@ function ArchivedRoleRow({ entry, onUnarchive }: ArchivedRoleRowProps): JSX.Elem
 
       {/* Kebab — single "Un-archive" item; no ChevronRight (not drill-in) */}
       <RowKebabMenu
-        items={[{ label: "Un-archive", onClick: () => onUnarchive(entry) }]}
+        items={kebabItems}
         ariaLabel={`Row menu for ${entry.name}`}
         testId={`roles-list-archived-row-kebab-${entry.name}`}
       />
+      {kebabContextMenu.menu}
     </div>
   );
 }
@@ -530,124 +542,129 @@ export function RolesListModal({
                     handleRowSelect();
                   }
                 };
+                const kebabItems: RowKebabMenuItem[] = [
+                  { label: "Archive", danger: true, onClick: () => handleArchiveClick(role.name, label) },
+                ];
                 return (
                   // D-12/D-13/D-14: row is a <div role="button"> so the kebab
                   // <button> can live as a sibling inside it without violating
                   // the HTML rule against nested <button> elements.
-                  // D-15: right-click Archive handler removed — retired on this surface.
-                  <div
-                    key={role.name}
-                    role="button"
-                    tabIndex={0}
-                    aria-label={label}
-                    onClick={handleRowSelect}
-                    onKeyDown={handleRowKeyDown}
-                    // D-05 verbatim: `.pv-row` treatment inline (class-based
-                    // hue is not viable, so we inline the hsla stops keyed
-                    // on the role's hue). Values mirror
-                    // pretty-conversations.css L482-517.
-                    style={{
-                      borderRadius: 14,
-                      background: `linear-gradient(160deg, hsla(${hue}, 50%, 38%, 0.55), hsla(${hue}, 45%, 24%, 0.60))`,
-                      border: `1px solid hsla(${hue}, 65%, 55%, 0.32)`,
-                      boxShadow: [
-                        "0 8px 24px rgba(0, 0, 0, 0.5)",
-                        "inset 0 1px 0 rgba(255, 220, 170, 0.18)",
-                        `0 0 0 0.5px hsla(${hue}, 70%, 55%, 0.20)`,
-                        `0 0 32px hsla(${hue}, 70%, 52%, 0.18)`,
-                      ].join(", "),
-                      backdropFilter: "blur(20px) saturate(1.5)",
-                      WebkitBackdropFilter: "blur(20px) saturate(1.5)",
-                      padding: "10px 12px",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 12,
-                      cursor: "pointer",
-                      color: "#fbf5e8",
-                      textAlign: "left",
-                    }}
-                  >
-                    {/* 40px round `.pv-avatar`-style disc — hue gradient
-                        background with the role's avatar image inside. */}
+                  // D-15: the old right-click Archive handler stays retired;
+                  // right-click now opens the SAME kebab menu at the cursor.
+                  <RowKebabContextMenuSurface key={role.name} items={kebabItems}>
                     <div
+                      role="button"
+                      tabIndex={0}
+                      aria-label={label}
+                      onClick={handleRowSelect}
+                      onKeyDown={handleRowKeyDown}
+                      // D-05 verbatim: `.pv-row` treatment inline (class-based
+                      // hue is not viable, so we inline the hsla stops keyed
+                      // on the role's hue). Values mirror
+                      // pretty-conversations.css L482-517.
                       style={{
-                        width: 40,
-                        height: 40,
-                        borderRadius: 999,
+                        borderRadius: 14,
+                        background: `linear-gradient(160deg, hsla(${hue}, 50%, 38%, 0.55), hsla(${hue}, 45%, 24%, 0.60))`,
+                        border: `1px solid hsla(${hue}, 65%, 55%, 0.32)`,
+                        boxShadow: [
+                          "0 8px 24px rgba(0, 0, 0, 0.5)",
+                          "inset 0 1px 0 rgba(255, 220, 170, 0.18)",
+                          `0 0 0 0.5px hsla(${hue}, 70%, 55%, 0.20)`,
+                          `0 0 32px hsla(${hue}, 70%, 52%, 0.18)`,
+                        ].join(", "),
+                        backdropFilter: "blur(20px) saturate(1.5)",
+                        WebkitBackdropFilter: "blur(20px) saturate(1.5)",
+                        padding: "10px 12px",
                         display: "flex",
                         alignItems: "center",
-                        justifyContent: "center",
-                        background: `linear-gradient(160deg, hsla(${hue}, 45%, 25%, 0.72), hsla(${hue}, 40%, 15%, 0.82))`,
-                        border: `1px solid hsla(${hue}, 65%, 55%, 0.40)`,
-                        boxShadow: [
-                          "0 4px 12px rgba(0, 0, 0, 0.6)",
-                          "inset 0 2px 0 rgba(255, 235, 190, 0.35)",
-                          `0 0 24px hsla(${hue}, 65%, 55%, 0.40)`,
-                        ].join(", "),
-                        overflow: "hidden",
-                        flexShrink: 0,
+                        gap: 12,
+                        cursor: "pointer",
+                        color: "#fbf5e8",
+                        textAlign: "left",
                       }}
                     >
-                      {role.avatar ? (
-                        <img
-                          src={roleAvatarUrl(selectedHostId, role.name)}
-                          alt=""
-                          style={{
-                            width: "100%",
-                            height: "100%",
-                            objectFit: "cover",
-                            borderRadius: 999,
-                          }}
-                        />
-                      ) : (
-                        // Fallback: neutral placeholder — a single letter of
-                        // the display name (D-05 "neutral placeholder avatar").
-                        <span
-                          style={{
-                            fontSize: 15,
-                            fontWeight: 700,
-                            color: "#fbf5e8",
-                          }}
-                        >
-                          {label.charAt(0).toUpperCase()}
-                        </span>
-                      )}
+                      {/* 40px round `.pv-avatar`-style disc — hue gradient
+                          background with the role's avatar image inside. */}
+                      <div
+                        style={{
+                          width: 40,
+                          height: 40,
+                          borderRadius: 999,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          background: `linear-gradient(160deg, hsla(${hue}, 45%, 25%, 0.72), hsla(${hue}, 40%, 15%, 0.82))`,
+                          border: `1px solid hsla(${hue}, 65%, 55%, 0.40)`,
+                          boxShadow: [
+                            "0 4px 12px rgba(0, 0, 0, 0.6)",
+                            "inset 0 2px 0 rgba(255, 235, 190, 0.35)",
+                            `0 0 24px hsla(${hue}, 65%, 55%, 0.40)`,
+                          ].join(", "),
+                          overflow: "hidden",
+                          flexShrink: 0,
+                        }}
+                      >
+                        {role.avatar ? (
+                          <img
+                            src={roleAvatarUrl(selectedHostId, role.name)}
+                            alt=""
+                            style={{
+                              width: "100%",
+                              height: "100%",
+                              objectFit: "cover",
+                              borderRadius: 999,
+                            }}
+                          />
+                        ) : (
+                          // Fallback: neutral placeholder — a single letter of
+                          // the display name (D-05 "neutral placeholder avatar").
+                          <span
+                            style={{
+                              fontSize: 15,
+                              fontWeight: 700,
+                              color: "#fbf5e8",
+                            }}
+                          >
+                            {label.charAt(0).toUpperCase()}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Display name */}
+                      <span
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                          fontWeight: 600,
+                          fontSize: 14,
+                        }}
+                      >
+                        {label}
+                      </span>
+
+                      {/* D-12/D-13: always-visible kebab with single Archive item.
+                          Placed BEFORE ChevronRight so the kebab is the rightmost
+                          interactive element (ChevronRight removed — the whole row
+                          is the click target). ariaLabel uses slug (role.name) not
+                          display label to avoid aria-label collisions with the row
+                          itself (both carry the display name). */}
+                      <RowKebabMenu
+                        items={kebabItems}
+                        ariaLabel={`Row menu for ${role.name}`}
+                        testId={`roles-list-row-kebab-${role.name}`}
+                      />
+
+                      {/* Right-side chevron (low opacity — decorative, not
+                          actionable — the whole row is the click target). */}
+                      <ChevronRight
+                        size={18}
+                        style={{ opacity: 0.55, flexShrink: 0 }}
+                      />
                     </div>
-
-                    {/* Display name */}
-                    <span
-                      style={{
-                        flex: 1,
-                        minWidth: 0,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                        fontWeight: 600,
-                        fontSize: 14,
-                      }}
-                    >
-                      {label}
-                    </span>
-
-                    {/* D-12/D-13: always-visible kebab with single Archive item.
-                        Placed BEFORE ChevronRight so the kebab is the rightmost
-                        interactive element (ChevronRight removed — the whole row
-                        is the click target). ariaLabel uses slug (role.name) not
-                        display label to avoid aria-label collisions with the row
-                        itself (both carry the display name). */}
-                    <RowKebabMenu
-                      items={[{ label: "Archive", danger: true, onClick: () => handleArchiveClick(role.name, label) }]}
-                      ariaLabel={`Row menu for ${role.name}`}
-                      testId={`roles-list-row-kebab-${role.name}`}
-                    />
-
-                    {/* Right-side chevron (low opacity — decorative, not
-                        actionable — the whole row is the click target). */}
-                    <ChevronRight
-                      size={18}
-                      style={{ opacity: 0.55, flexShrink: 0 }}
-                    />
-                  </div>
+                  </RowKebabContextMenuSurface>
                 );
               })}
             </div>

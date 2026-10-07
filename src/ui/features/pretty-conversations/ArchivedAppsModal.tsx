@@ -30,7 +30,11 @@ import {
   type ArchivedAppListEntry,
 } from "@/api/apps-archive-list-api";
 import { unarchiveApp, UnarchiveError } from "@/api/apps-unarchive-api";
-import { RowKebabMenu } from "./RowKebabMenu";
+import {
+  RowKebabMenu,
+  RowKebabContextMenuSurface,
+  type RowKebabMenuItem,
+} from "./RowKebabMenu";
 
 // ─── Internal state shape ─────────────────────────────────────────────────────
 
@@ -149,105 +153,111 @@ export function ArchivedAppsModal({
           >
             {state.data.map((entry) => {
               const label = entry.title ?? entry.slug;
+              const kebabItems: RowKebabMenuItem[] = [
+                {
+                  label: "Un-archive",
+                  onClick: () => void handleUnarchive(entry),
+                },
+              ];
 
               return (
-                <div
+                // Right-click the row → same kebab menu at the cursor.
+                <RowKebabContextMenuSurface
                   key={`${entry.hostId}:${entry.slug}`}
-                  // Slate-tinted row — low saturation + hue from the Modal's
-                  // canonical --pv-id-hue (220). Matches the ScheduledAgents /
-                  // Preferences / other non-identity-non-role modal rows.
-                  style={{
-                    borderRadius: 14,
-                    background: `linear-gradient(160deg, hsla(var(--pv-id-hue), 22%, 32%, 0.55), hsla(var(--pv-id-hue), 24%, 20%, 0.60))`,
-                    border: `1px solid hsla(var(--pv-id-hue), 25%, 55%, 0.32)`,
-                    boxShadow: [
-                      "0 8px 24px rgba(0, 0, 0, 0.5)",
-                      "inset 0 1px 0 rgba(220, 225, 245, 0.14)",
-                      `0 0 32px hsla(var(--pv-id-hue), 30%, 55%, 0.14)`,
-                    ].join(", "),
-                    padding: "10px 12px",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 12,
-                    color: "#e8ecf0",
-                  }}
+                  items={kebabItems}
                 >
-                  {/* D-09: Rounded-SQUARE 40px avatar (NOT circle — D-09 verbatim).
+                  <div
+                    // Slate-tinted row — low saturation + hue from the Modal's
+                    // canonical --pv-id-hue (220). Matches the ScheduledAgents /
+                    // Preferences / other non-identity-non-role modal rows.
+                    style={{
+                      borderRadius: 14,
+                      background: `linear-gradient(160deg, hsla(var(--pv-id-hue), 22%, 32%, 0.55), hsla(var(--pv-id-hue), 24%, 20%, 0.60))`,
+                      border: `1px solid hsla(var(--pv-id-hue), 25%, 55%, 0.32)`,
+                      boxShadow: [
+                        "0 8px 24px rgba(0, 0, 0, 0.5)",
+                        "inset 0 1px 0 rgba(220, 225, 245, 0.14)",
+                        `0 0 32px hsla(var(--pv-id-hue), 30%, 55%, 0.14)`,
+                      ].join(", "),
+                      padding: "10px 12px",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 12,
+                      color: "#e8ecf0",
+                    }}
+                  >
+                    {/* D-09: Rounded-SQUARE 40px avatar (NOT circle — D-09 verbatim).
                       border-radius: 8px matches .pv-app-icon-slot iOS-app-icon target
                       per AppTile.tsx D-10 (10px Claude discretion; 8 used here per
                       plan spec "border-radius: 8"). */}
-                  <div
-                    style={{
-                      width: 40,
-                      height: 40,
-                      borderRadius: 8,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      background: `linear-gradient(160deg, hsla(var(--pv-id-hue), 22%, 22%, 0.72), hsla(var(--pv-id-hue), 24%, 14%, 0.82))`,
-                      border: `1px solid hsla(var(--pv-id-hue), 25%, 55%, 0.40)`,
-                      boxShadow: [
-                        "0 4px 12px rgba(0, 0, 0, 0.6)",
-                        "inset 0 2px 0 rgba(220, 225, 245, 0.22)",
-                        `0 0 24px hsla(var(--pv-id-hue), 30%, 55%, 0.26)`,
-                      ].join(", "),
-                      overflow: "hidden",
-                      flexShrink: 0,
-                    }}
-                  >
-                    {entry.iconUrl ? (
-                      <img
-                        src={entry.iconUrl}
-                        alt=""
-                        style={{
-                          width: "100%",
-                          height: "100%",
-                          objectFit: "cover",
-                          borderRadius: 8,
-                        }}
-                      />
-                    ) : (
-                      // Fallback: first char of the display label (title when
-                      // available, slug otherwise) in bold uppercase.
-                      <span
-                        style={{
-                          fontSize: 15,
-                          fontWeight: 700,
-                          color: "#e8ecf0",
-                        }}
-                      >
-                        {label.charAt(0).toUpperCase()}
-                      </span>
-                    )}
+                    <div
+                      style={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: 8,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        background: `linear-gradient(160deg, hsla(var(--pv-id-hue), 22%, 22%, 0.72), hsla(var(--pv-id-hue), 24%, 14%, 0.82))`,
+                        border: `1px solid hsla(var(--pv-id-hue), 25%, 55%, 0.40)`,
+                        boxShadow: [
+                          "0 4px 12px rgba(0, 0, 0, 0.6)",
+                          "inset 0 2px 0 rgba(220, 225, 245, 0.22)",
+                          `0 0 24px hsla(var(--pv-id-hue), 30%, 55%, 0.26)`,
+                        ].join(", "),
+                        overflow: "hidden",
+                        flexShrink: 0,
+                      }}
+                    >
+                      {entry.iconUrl ? (
+                        <img
+                          src={entry.iconUrl}
+                          alt=""
+                          style={{
+                            width: "100%",
+                            height: "100%",
+                            objectFit: "cover",
+                            borderRadius: 8,
+                          }}
+                        />
+                      ) : (
+                        // Fallback: first char of the display label (title when
+                        // available, slug otherwise) in bold uppercase.
+                        <span
+                          style={{
+                            fontSize: 15,
+                            fontWeight: 700,
+                            color: "#e8ecf0",
+                          }}
+                        >
+                          {label.charAt(0).toUpperCase()}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Middle: entry label — NO host label (D-09 verbatim). */}
+                    <span
+                      style={{
+                        flex: 1,
+                        minWidth: 0,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                        fontWeight: 600,
+                        fontSize: 14,
+                      }}
+                    >
+                      {label}
+                    </span>
+
+                    {/* Right: always-visible kebab menu — single Un-archive item (D-12/D-13). */}
+                    <RowKebabMenu
+                      items={kebabItems}
+                      ariaLabel={`Row menu for ${entry.slug}`}
+                      testId={`archived-apps-row-kebab-${entry.hostId}-${entry.slug}`}
+                    />
                   </div>
-
-                  {/* Middle: entry label — NO host label (D-09 verbatim). */}
-                  <span
-                    style={{
-                      flex: 1,
-                      minWidth: 0,
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                      fontWeight: 600,
-                      fontSize: 14,
-                    }}
-                  >
-                    {label}
-                  </span>
-
-                  {/* Right: always-visible kebab menu — single Un-archive item (D-12/D-13). */}
-                  <RowKebabMenu
-                    items={[
-                      {
-                        label: "Un-archive",
-                        onClick: () => void handleUnarchive(entry),
-                      },
-                    ]}
-                    ariaLabel={`Row menu for ${entry.slug}`}
-                    testId={`archived-apps-row-kebab-${entry.hostId}-${entry.slug}`}
-                  />
-                </div>
+                </RowKebabContextMenuSurface>
               );
             })}
           </div>
