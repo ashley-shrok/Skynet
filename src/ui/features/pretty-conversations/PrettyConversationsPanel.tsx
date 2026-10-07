@@ -66,11 +66,14 @@ import { createPortal } from "react-dom";
 // (aliased ArchivedBoxIcon) glyph was the always-visible archived-apps trigger
 // on the Apps section header. Migrated into the Apps header RowKebabMenu
 // (single "Archived apps" item); icon import removed.
-import { AppWindow, ChevronDown, Clock, Drama, FolderPlus, Loader2, MessageSquare, MessagesSquare, Monitor, MoreVertical, Pin, Search, Settings, SquarePen, X } from "lucide-react";
+import { AppWindow, ChevronDown, Clock, Drama, FolderPlus, Loader2, MessageSquare, MessagesSquare, Monitor, MoreVertical, Pin, Search, Settings, ShieldCheck, SquarePen, X } from "lucide-react";
 import { Button } from "@/components/button";
 import SkillsEditorModal from "@/features/pretty-view/SkillsEditorModal";
 // Phase 137 D-08: PreferencesModal — opened from the sidebar footer gear button.
 import PreferencesModal from "@/features/pretty-view/PreferencesModal";
+// Admin control surface — opened from the shield button next to the gear;
+// only rendered for admins.
+import AdminModal from "@/features/admin/AdminModal";
 // Phase 90 Plan 90-06 (D-07 / D-04): the header's Edit roles icon button
 // opens RolesListModal; a row click swaps to RoleModal; runbook click swaps to
 // RunbookEditorModal (mirrors PrettyView's mount at L3281). All three are
@@ -1060,6 +1063,8 @@ export function PrettyConversationsPanel({
   // Phase 137 D-08: PreferencesModal open/closed toggle (opened from the
   // sidebar footer gear button — was previously an inert <span> placeholder).
   const [preferencesModalOpen, setPreferencesModalOpen] = useState(false);
+  // AdminModal open/closed toggle (sidebar footer shield button, admins only).
+  const [adminModalOpen, setAdminModalOpen] = useState(false);
   // Phase 91 Plan 05 — NewConversationModal open/closed toggle (opened from
   // menu's "New conversation" item — v1 throwaway placement per shape §Philosophy).
   const [newConversationModalOpen, setNewConversationModalOpen] = useState(false);
@@ -3505,6 +3510,18 @@ export function PrettyConversationsPanel({
           >
             <Settings size={18} />
           </button>
+          {isAdmin && (
+            <button
+              type="button"
+              className="pv-footer-btn"
+              aria-label="Admin"
+              title="Admin"
+              data-testid="pv-footer-admin-button"
+              onClick={() => setAdminModalOpen(true)}
+            >
+              <ShieldCheck size={18} />
+            </button>
+          )}
         </div>
         </div>
       </div>
@@ -3687,6 +3704,13 @@ export function PrettyConversationsPanel({
         hostTree={hostTree ?? null}
         defaultHostId={null}
       />
+      {isAdmin && (
+        <AdminModal
+          open={adminModalOpen}
+          onOpenChange={setAdminModalOpen}
+          currentUserId={userId}
+        />
+      )}
       {/* Phase 122 Plan 03 Task 3 — ConversationSearchModal: portal-mounted
           sibling of NewConversationModal + GlobalFilesModal. Opened via the
           magnifying-glass button in .pv-header-actions above (first child of

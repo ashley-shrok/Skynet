@@ -1,10 +1,22 @@
 import { authApi, handleApiError } from "@/main-axios";
-import type { UserInfo } from "@/main-axios";
 
 // USER MANAGEMENT
 // ============================================================================
 
-export async function getUserList(): Promise<{ users: UserInfo[] }> {
+// Backing route: GET /users/list (admin only) — every user with the fields
+// the admin panel shows.
+export interface AdminUser {
+  id: string;
+  username: string;
+  isAdmin: boolean;
+  isOidc: boolean;
+  totpEnabled: boolean;
+  mxid: string | null;
+  phoneE164: string | null;
+  avatarPath: string | null;
+}
+
+export async function getUserList(): Promise<{ users: AdminUser[] }> {
   try {
     const response = await authApi.get("/users/list");
     return response.data;
@@ -95,11 +107,12 @@ export async function revokeSession(
 
 export async function revokeAllUserSessions(
   userId: string,
+  exceptCurrent = false,
 ): Promise<{ success: boolean; message: string }> {
   try {
     const response = await authApi.post("/users/sessions/revoke-all", {
       targetUserId: userId,
-      exceptCurrent: false,
+      exceptCurrent,
     });
     return response.data;
   } catch (error) {
@@ -179,6 +192,36 @@ export async function removeAdminStatus(
     return response.data;
   } catch (error) {
     handleApiError(error, "remove admin status");
+  }
+}
+
+export async function setUserMxid(
+  userId: string,
+  mxid: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await authApi.post(
+      `/users/${encodeURIComponent(userId)}/mxid`,
+      { mxid },
+    );
+    return response.data;
+  } catch (error) {
+    handleApiError(error, "set user mxid");
+  }
+}
+
+export async function setUserPhone(
+  userId: string,
+  phoneE164: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await authApi.post(
+      `/users/${encodeURIComponent(userId)}/phone`,
+      { phoneE164 },
+    );
+    return response.data;
+  } catch (error) {
+    handleApiError(error, "set user phone");
   }
 }
 

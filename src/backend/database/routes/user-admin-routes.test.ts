@@ -776,3 +776,59 @@ describe("POST /users/:id/phone — agent-phone shape", () => {
     );
   });
 });
+
+// ===========================================================================
+// Tests — GET /users/list — admin panel user list
+// ===========================================================================
+
+function httpGet(
+  server: http.Server,
+  path: string,
+  headers: Record<string, string> = {},
+): Promise<{ status: number; body: unknown }> {
+  return new Promise((resolve, reject) => {
+    const { port } = server.address() as AddressInfo;
+    const req = http.request(
+      { hostname: "127.0.0.1", port, method: "GET", path, headers },
+      (res) => {
+        let data = "";
+        res.on("data", (chunk: Buffer) => (data += chunk.toString()));
+        res.on("end", () => {
+          resolve({ status: res.statusCode ?? 0, body: JSON.parse(data) });
+        });
+      },
+    );
+    req.on("error", reject);
+    req.end();
+  });
+}
+
+describe("GET /users/list — admin only", () => {
+  it("non-admin caller → 403, no user rows leaked", async () => {
+    const res = await httpGet(server, "/users/list", {
+      "x-test-user-id": "user-1",
+    });
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ error: "Not authorized" });
+  });
+
+  it("unknown caller → 403", async () => {
+    const res = await httpGet(server, "/users/list", {
+      "x-test-user-id": "ghost",
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("admin caller → 200 with every user", async () => {
+    const res = await httpGet(server, "/users/list", {
+      "x-test-user-id": "admin-1",
+    });
+    expect(res.status).toBe(200);
+    const body = res.body as { users: { id: string }[] };
+    expect(body.users.map((u) => u.id)).toEqual([
+      "admin-1",
+      "user-1",
+      "target-1",
+    ]);
+  });
+});
