@@ -988,16 +988,45 @@ export function runReopenTabsColumnDrop(sqliteDb: Database.Database): void {
  *   publish token lives in NTFY_PUBLISH_TOKEN env var only (RESEARCH.md Q7's
  *   singleton-table suggestion deliberately NOT implemented).
  *
- * Idempotent: if the new schema is already in place, DROP TABLE drops it and
- * CREATE TABLE rebuilds it identically (IF NOT EXISTS makes the recreate safe
- * on fresh installs that never had the old table).
+ * Idempotent — if the current-shape table (with `ntfy_password`) is already
+ * in place, the function returns early BEFORE the DROP. The original
+ * unconditional DROP+CREATE was data-destructive: every boot wiped every
+ * user's `push_subscriptions` row (ntfy user + ACL kept, Skynet forgot the
+ * password/topic/username), so after each container restart users saw the
+ * first-time-setup state and had to re-provision. The current-shape short-
+ * circuit at the top of the function preserves rows across restarts.
  *
- * Exported so schema.test.ts can exercise SCH-06 (idempotency) and SCH-07
- * (old-schema → new-schema migration path) against test-owned in-memory DBs.
+ * Exported so schema.test.ts can exercise SCH-06 (idempotency), SCH-07
+ * (old-schema → new-schema migration path), and SCH-09 (preserves rows on
+ * already-new-shape DB) against test-owned in-memory DBs.
  */
 export function runPushSubscriptionsRebuild(
   sqliteDb: Database.Database,
 ): void {
+  // Short-circuit when the current-shape table is already in place. The
+  // original "idempotent" DROP+CREATE loses every row on every boot — users
+  // lose their ntfy setup on every container restart. Detection: the
+  // `ntfy_password` column only exists in the Phase-145+ shape (fresh install
+  // or already-migrated). Phase-128 browser-push used `endpoint`/`p256dh`/
+  // `auth`; Phase-144 pre-rename used `reading_credential`. If the current
+  // shape is already correct, skip the whole DROP+CREATE sequence.
+  try {
+    const cols = sqliteDb
+      .prepare("PRAGMA table_info(push_subscriptions)")
+      .all() as { name: string }[];
+    if (cols.some((c) => c.name === "ntfy_password")) {
+      return;
+    }
+  } catch (introspectErr) {
+    databaseLogger.warn(
+      "[phase-144] push_subscriptions introspection failed (non-fatal — proceeding with rebuild)",
+      {
+        operation: "schema_migration_introspect",
+        table: "push_subscriptions",
+        error: introspectErr,
+      },
+    );
+  }
   // Step 1 — drop the old UNIQUE INDEX first (separate DDL object in Phase 128).
   try {
     sqliteDb.exec(

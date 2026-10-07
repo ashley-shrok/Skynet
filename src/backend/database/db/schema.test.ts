@@ -24,6 +24,10 @@
  *   SCH-07: Running runPushSubscriptionsRebuild on a DB with the OLD shape drops the
  *           old table and creates the new shape.
  *   SCH-08: There is NO ntfy_publish_config table created at boot (HC-3 scope guard).
+ *   SCH-09: runPushSubscriptionsRebuild on an already-new-shape DB preserves
+ *           existing rows — the current-shape short-circuit at the top of the
+ *           function skips the DROP, so a container restart does not wipe
+ *           users' ntfy setups.
  */
 import { describe, it, expect } from "vitest";
 import Database from "better-sqlite3";
@@ -87,7 +91,7 @@ function bootstrapNewSchemaDb(): Database.Database {
   return db;
 }
 
-describe("Phase 144-02 Task 1 — push_subscriptions new schema (SCH-01..SCH-08)", () => {
+describe("Phase 144-02 Task 1 — push_subscriptions new schema (SCH-01..SCH-09)", () => {
   it("SCH-01: push_subscriptions has exactly 6 columns (id, user_id, topic_name, ntfy_password, ntfy_username, created_at) — no endpoint, p256dh, auth, last_delivered_at", () => {
     const db = bootstrapNewSchemaDb();
 
@@ -245,6 +249,35 @@ describe("Phase 144-02 Task 1 — push_subscriptions new schema (SCH-01..SCH-08)
       .prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='push_subscriptions_user_endpoint_unique'")
       .get();
     expect(oldIndex).toBeUndefined();
+  });
+
+  it("SCH-09: runPushSubscriptionsRebuild on an already-new-shape DB preserves existing rows (no DROP on re-run)", async () => {
+    const { runPushSubscriptionsRebuild } = await import("./index.js");
+    const db = new Database(":memory:");
+    db.exec("PRAGMA foreign_keys = ON");
+    db.exec(USERS_STUB_SQL);
+    // First call: creates the current-shape table.
+    runPushSubscriptionsRebuild(db);
+    // Seed a user + a push_subscriptions row that we expect to survive.
+    db.prepare("INSERT INTO users (id, username) VALUES (?, ?)").run(
+      "u-survives",
+      "survivor",
+    );
+    db.prepare(
+      "INSERT INTO push_subscriptions (id, user_id, topic_name, ntfy_password, ntfy_username) VALUES (?, ?, ?, ?, ?)",
+    ).run("row-1", "u-survives", "topic-abc", "enc-pw", "skynet-reader-u-survives");
+    // Simulate a container restart: migration runs again.
+    runPushSubscriptionsRebuild(db);
+    // The row MUST still be there — this is the whole point of the gate.
+    const row = db
+      .prepare("SELECT user_id, topic_name, ntfy_username FROM push_subscriptions WHERE id = ?")
+      .get("row-1") as
+      | { user_id: string; topic_name: string; ntfy_username: string }
+      | undefined;
+    expect(row).toBeDefined();
+    expect(row?.user_id).toBe("u-survives");
+    expect(row?.topic_name).toBe("topic-abc");
+    expect(row?.ntfy_username).toBe("skynet-reader-u-survives");
   });
 
   it("SCH-08: No ntfy_publish_config table exists after boot (HC-3 scope guard — publish token is env-only)", async () => {
