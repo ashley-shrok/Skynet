@@ -72,41 +72,28 @@ export function applyMachineIdSchema(sqlite: Database): void {
   `);
 }
 
-/** Assign machine_id to any row missing one, oldest rows first. */
+/**
+ * Assign machine_id to any row missing one, oldest rows first. Runs the same
+ * UPDATE as the insert trigger (same SAME_MACHINE expression) so backfilled
+ * and newly inserted rows can never be grouped by different rules.
+ */
 export function backfillMachineIds(sqlite: Database): number {
-  const rows = sqlite
-    .prepare("SELECT id, ip, port, machine_id FROM ssh_data ORDER BY id")
-    .all() as Array<{
-    id: number;
-    ip: string | null;
-    port: number | null;
-    machine_id: number | null;
-  }>;
+  const pending = sqlite
+    .prepare("SELECT id FROM ssh_data WHERE machine_id IS NULL ORDER BY id")
+    .all() as Array<{ id: number }>;
 
-  const keyOf = (r: { ip: string | null; port: number | null }) =>
-    `${(r.ip ?? "").trim().toLowerCase()}|${r.port ?? ""}`;
+  const assign = sqlite.prepare(`
+    UPDATE ssh_data SET machine_id = COALESCE(
+      (SELECT o.machine_id FROM ssh_data o, ssh_data r
+        WHERE r.id = @id AND o.id != r.id AND o.machine_id IS NOT NULL
+          AND ${SAME_MACHINE("o", "r")}
+        ORDER BY o.id LIMIT 1),
+      @id)
+    WHERE id = @id
+  `);
 
-  const groups = new Map<string, number>();
-  for (const r of rows) {
-    if (r.machine_id !== null && !groups.has(keyOf(r))) {
-      groups.set(keyOf(r), r.machine_id);
-    }
-  }
-
-  const update = sqlite.prepare(
-    "UPDATE ssh_data SET machine_id = ? WHERE id = ?",
-  );
-  let assigned = 0;
-  const run = sqlite.transaction(() => {
-    for (const r of rows) {
-      if (r.machine_id !== null) continue;
-      const key = keyOf(r);
-      const machineId = groups.get(key) ?? r.id;
-      groups.set(key, machineId);
-      update.run(machineId, r.id);
-      assigned++;
-    }
-  });
-  run();
-  return assigned;
+  sqlite.transaction(() => {
+    for (const { id } of pending) assign.run({ id });
+  })();
+  return pending.length;
 }
