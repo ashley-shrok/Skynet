@@ -6,6 +6,7 @@
 //   Test 4 — handleVoiceSend slot-target WITH attachment → onSendWithAttachments
 //   Test 5 — handleQueueSlotSend with NO attachment → text-only onSend path preserved
 //   Test 6 — primary compose send with attachment still works (backward-compat)
+//   Test 7 — attachment-only slot (empty text) is sendable, parity with primary
 //
 // Voice mock choice (Test 4): uses full MediaRecorder + fetch stub matching
 // ComposeBox.voice.test.tsx. Reason: the voice-send path in ComposeBox calls
@@ -472,6 +473,54 @@ describe("ComposeBox — queued-slot attachment send (quick-260829-nt9)", () => 
     expect(captionArg).toBe("primary caption");
 
     // text-only onSend NOT called when attachment is present.
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it("Test 7: attachment-only slot (empty text) enables Send and routes to onSendWithAttachments", async () => {
+    const onSend = vi.fn(() => true);
+    const onSendWithAttachments = vi.fn(() =>
+      Promise.resolve({ ok: true as const }),
+    );
+    let slotTarget = "";
+    const getStagedAttachmentsForTarget = vi.fn((target: string) =>
+      target === slotTarget ? [mkAtt("f1", "doc.pdf")] : [],
+    );
+    const props = baseProps({
+      onSend,
+      onSendWithAttachments,
+      getStagedAttachmentsForTarget,
+      clearStagedForTarget: vi.fn(),
+      onRemoveAttachment: vi.fn(),
+    });
+
+    const { rerender } = render(<ComposeBox {...props} />);
+    await flushMountEffect();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
+    });
+
+    const slotSendBtn = () =>
+      screen.getByRole("button", { name: /send queued message/i }) as HTMLButtonElement;
+    // Empty slot with no attachments: nothing to send.
+    expect(slotSendBtn().disabled).toBe(true);
+
+    const slotContainer = document.querySelector("[data-slot-id]") as HTMLElement;
+    slotTarget = `queued:${slotContainer.getAttribute("data-slot-id")}`;
+    // Re-render so the slot picks up its staged attachment (in the app the
+    // staged-attachment store change drives this re-render).
+    rerender(<ComposeBox {...props} />);
+
+    expect(slotSendBtn().disabled).toBe(false);
+    await act(async () => {
+      fireEvent.click(slotSendBtn());
+    });
+    await flushMicrotasks();
+
+    expect(onSendWithAttachments).toHaveBeenCalledTimes(1);
+    const [captionArg, targetArg] = onSendWithAttachments.mock.calls[0] as [string, string];
+    expect(captionArg).toBe("");
+    expect(targetArg).toBe(slotTarget);
     expect(onSend).not.toHaveBeenCalled();
   });
 });

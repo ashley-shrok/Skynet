@@ -1485,14 +1485,15 @@ export function ComposeBox({
     const slot = queueSlots.find((s) => s.id === slotId);
     if (!slot) return;
     const trimmed = slot.text.trim();
-    if (!trimmed) return;
+    const slotTarget = `queued:${slotId}`;
+    const slotAttachments = getStagedAttachmentsForTarget?.(slotTarget) ?? [];
+    // Attachment-only slots are sendable (parity with primary handleSend).
+    if (!trimmed && slotAttachments.length === 0) return;
 
     // quick-260829-nt9: attachment branch — mirrors primary handleSend at
     // L1384-1415. If this slot has staged attachments and onSendWithAttachments
     // is wired, route through the attachment path (awaits upload_ready_to_inject
     // before removing the slot). Text-only path below is unchanged.
-    const slotTarget = `queued:${slotId}`;
-    const slotAttachments = getStagedAttachmentsForTarget?.(slotTarget) ?? [];
     if (slotAttachments.length > 0 && onSendWithAttachments) {
       setErrorMessage(null);
       const captionPayload = normalizeNewlinesForSend(trimmed);
@@ -1517,6 +1518,9 @@ export function ComposeBox({
       void runSlotAttachmentSend();
       return;
     }
+
+    // No attachment transport wired and no text — nothing to send.
+    if (!trimmed) return;
 
     setErrorMessage(null);
 
@@ -3328,7 +3332,7 @@ function QueuedRow(props: QueuedRowProps) {
   // can be read inside showSlotMic).
   const slotSendDisabled =
     showSlotTranscribingSend ||
-    slot.text.trim() === "" ||
+    (slot.text.trim() === "" && stagedCount === 0) ||
     recycleActive === true ||
     reconnectingActive === true;
   // Quick 260814-1hz: hold-to-record gesture MOVED from the slot send button
