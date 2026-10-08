@@ -232,13 +232,11 @@ describe("ComposeBox — hands-free voice mode (mic long-press)", () => {
     expect(screen.getByRole("button", { name: "Cancel recording" })).toBeTruthy();
   });
 
-  it("the pill's close button turns voice mode off", async () => {
+  it("the pill has no close button", async () => {
     render(<ComposeBox {...props()} />);
     await longPressMic();
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Turn off voice mode" }));
-    });
-    expect(screen.queryByTestId("voice-mode-pill")).toBeNull();
+    expect(screen.getByTestId("voice-mode-pill")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Turn off voice mode" })).toBeNull();
   });
 
   it("without a voiceModeFeed (relay) long-press keeps hold-to-record-and-send", async () => {

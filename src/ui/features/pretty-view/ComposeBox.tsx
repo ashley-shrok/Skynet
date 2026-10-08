@@ -618,12 +618,10 @@ function VoiceModePill({
   phase,
   agentWorking,
   onSkip,
-  onExit,
 }: {
   phase: VoiceModePhase;
   agentWorking: boolean;
   onSkip: () => void;
-  onExit: () => void;
 }) {
   const label =
     phase === "listening" && agentWorking ? "Listening (agent working)" : VOICE_MODE_LABEL[phase];
@@ -634,7 +632,7 @@ function VoiceModePill({
       data-phase={phase}
       role="status"
       aria-live="polite"
-      className="flex items-center gap-2 self-start rounded-full border border-[rgba(220,225,245,0.18)] bg-[rgba(220,225,245,0.06)] pl-3 pr-1 py-0.5 text-xs text-[#f0ebe0]"
+      className="flex items-center gap-2 self-start rounded-full border border-[rgba(220,225,245,0.18)] bg-[rgba(220,225,245,0.06)] px-3 py-0.5 text-xs text-[#f0ebe0]"
     >
       <AudioLines
         aria-hidden="true"
@@ -647,15 +645,6 @@ function VoiceModePill({
         className="opacity-80 disabled:cursor-default enabled:hover:opacity-100"
       >
         Voice mode · {label}
-      </button>
-      <button
-        type="button"
-        onClick={onExit}
-        aria-label="Turn off voice mode"
-        title="Turn off voice mode"
-        className="p-1 opacity-50 hover:opacity-90"
-      >
-        <X className="size-3.5" aria-hidden="true" />
       </button>
     </div>
   );
@@ -2637,7 +2626,6 @@ export function ComposeBox({
           phase={voiceMode.phase}
           agentWorking={voiceModeFeed?.isWorking ?? false}
           onSkip={voiceMode.skipSpeech}
-          onExit={voiceMode.stop}
         />
       )}
       <div data-testid="compose-row-2" className="flex items-end gap-2">
