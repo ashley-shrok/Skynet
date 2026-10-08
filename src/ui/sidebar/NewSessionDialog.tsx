@@ -125,7 +125,7 @@ import {
   type BirthEvent,
   type RoleSummary,
 } from "@/api/identities-api";
-import { refreshIdentities } from "@/state/identities-store";
+import { refreshOneIdentity } from "@/state/identities-store";
 import { roleDisplayName } from "@/lib/role-display-name";
 import { previewSlugFromPrettyName } from "@/lib/pretty-name-slug-preview";
 import { useBrandingConfig } from "@/branding/branding-store";
@@ -842,21 +842,19 @@ export function NewSessionDialog({
         // session (no avatar, hostname sublabel, no pretty-view routing).
         // Best-effort — a fetch failure shouldn't block the tab from opening;
         // the next mount's fetchOnce still eventually catches up.
-        // Phase 106 Plan 106-02 (D-18): the refreshIdentities → onCreate order
+        // Phase 106 Plan 106-02 (D-18): the refresh → onCreate order
         // is preserved; refresh MUST fire between ended:ok consumption and
         // onCreate firing so the just-born identity is in the store before
         // AppShell's openTab resolves it into pretty-view routing.
         //
-        // The explicit {name: hostId} entry is what makes that actually work.
-        // refreshIdentities derives its host fanout from fleetSessions, and the
-        // newborn has no tmux session yet (the supervisor opens it on its next
-        // reconcile tick), so a bare refresh queries hosts that don't include
-        // this one and returns nothing for this name — the terminal-instead-of-
-        // PrettyView + missing-avatar symptoms. Naming the host directly means
-        // the backend enumerates it and finds the folder birth just wrote.
-        try {
-          await refreshIdentities({ [bornName]: hostIdNum });
-        } catch { /* best-effort — row will resolve on next store refresh */ }
+        // Fetch ONLY the newborn, by name + host. A bare refresh derives its
+        // hosts from fleetSessions, which may not include the newborn yet —
+        // the terminal-instead-of-PrettyView + missing-avatar symptoms. A full
+        // refresh naming the host did work but read every identity file on
+        // every host first (~6-8s on the live fleet) while the user stared at
+        // the modal. refreshOneIdentity upserts just this row; the rest of the
+        // store is already current. Best-effort — never rejects.
+        await refreshOneIdentity(bornName, hostIdNum);
 
         // Success (D-16): call onCreate for focus-follow, then close modal.
         // AppShell.tsx:2236 onCreateSession handler narrows on identityMode:true

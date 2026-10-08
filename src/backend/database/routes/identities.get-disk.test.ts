@@ -726,6 +726,48 @@ describe("GET /identities — disk-fanout enumeration (Phase 68 Plan 68-02)", ()
     expect(rows).toHaveLength(1);
     expect(rows[0]).toHaveProperty("task", null);
   });
+
+  // -------------------------------------------------------------------------
+  // only=1: the map's keys become a per-host name filter (birth flow)
+  // -------------------------------------------------------------------------
+  it("Only-a: only=1 returns just the named identity and reads no other identity file", async () => {
+    isLocalHostIdMock.mockImplementation((n: number) => n === 1);
+    listIdentityKeysOnHostMock.mockResolvedValue(["tina", "poppy", "moxie"]);
+    readIdentityFileMock.mockResolvedValue({ markdown: "---\nrole: box-maintainer\n---\n" });
+
+    const hostsJson = encodeURIComponent(JSON.stringify({ poppy: 1 }));
+    const res = await httpGet(server, `/identities?identityHosts=${hostsJson}&only=1`);
+
+    expect(res.status).toBe(200);
+    const rows = res.body as Array<Record<string, unknown>>;
+    expect(rows.map((r) => r.identityKey)).toEqual(["poppy"]);
+    expect(readIdentityFileMock).toHaveBeenCalledTimes(1);
+    expect(readIdentityFileMock.mock.calls[0][1]).toBe("poppy");
+  });
+
+  it("Only-b: without only=1 the same map still enumerates the whole host (default unchanged)", async () => {
+    isLocalHostIdMock.mockImplementation((n: number) => n === 1);
+    listIdentityKeysOnHostMock.mockResolvedValue(["tina", "poppy", "moxie"]);
+    readIdentityFileMock.mockResolvedValue({ markdown: "---\nrole: box-maintainer\n---\n" });
+
+    const hostsJson = encodeURIComponent(JSON.stringify({ poppy: 1 }));
+    const res = await httpGet(server, `/identities?identityHosts=${hostsJson}`);
+
+    expect(res.status).toBe(200);
+    expect((res.body as unknown[]).length).toBe(3);
+  });
+
+  it("Only-c: only=1 named identity not on disk → empty result", async () => {
+    isLocalHostIdMock.mockImplementation((n: number) => n === 1);
+    listIdentityKeysOnHostMock.mockResolvedValue(["tina"]);
+
+    const hostsJson = encodeURIComponent(JSON.stringify({ ghost: 1 }));
+    const res = await httpGet(server, `/identities?identityHosts=${hostsJson}&only=1`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([]);
+    expect(readIdentityFileMock).not.toHaveBeenCalled();
+  });
 });
 
 // ===========================================================================

@@ -355,11 +355,13 @@ router.get("/", authenticateJWT, async (req: Request, res: Response) => {
     }
 
     // 3. Collect unique hostIds (Set preserves insertion order on iteration).
-    //    Only the VALUES are used — the identity-name keys are ignored, so
-    //    `{"zeus":11}` enumerates ALL of host 11, not just zeus. Fine for the
-    //    only caller today (the frontend asks for everything), but the param
-    //    shape implies a per-name filter that does not exist; don't write a
-    //    targeted query against it expecting one (stacy, 2026-09-15).
+    //    By default only the VALUES are used — the identity-name keys are
+    //    ignored, so `{"zeus":11}` enumerates ALL of host 11, not just zeus.
+    //    `?only=1` opts into the per-name filter: each host returns just the
+    //    identities the map names for that host. The birth flow uses it to
+    //    load the newborn without paying a fleet-wide fanout (every identity
+    //    file on every host) before the new tab can open.
+    const onlyNamed = req.query.only === "1";
     const uniqueHostIds = [...new Set(Object.values(identityHosts))];
 
     // 4. Per-host fanout via Promise.all. Each host returns an array of publicIdentity objects.
@@ -397,9 +399,14 @@ router.get("/", authenticateJWT, async (req: Request, res: Response) => {
                   getHostSemaphore(hostId).run(fn);
 
             // Enumerate keys on this host.
-            const identityKeys = await withSlot(() =>
+            const allIdentityKeys = await withSlot(() =>
               listIdentityKeysOnHost(conn),
             );
+            const identityKeys = onlyNamed
+              ? allIdentityKeys.filter(
+                  (k) => identityHosts[k.toLowerCase()] === hostId,
+                )
+              : allIdentityKeys;
 
             // Phase 85 Plan 85-01 Task 2: per-host role-cosmetics memo.
             // Multiple identities of the same role on the same host must

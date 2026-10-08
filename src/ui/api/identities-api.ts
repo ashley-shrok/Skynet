@@ -139,12 +139,16 @@ function buildUpdateFormData(
  */
 export async function listIdentities(
   identityHosts: Record<string, number> = {},
+  opts: { onlyNamed?: boolean } = {},
 ): Promise<Identity[]> {
   try {
     const params: Record<string, string> = {};
     if (Object.keys(identityHosts).length > 0) {
       params.identityHosts = JSON.stringify(identityHosts);
     }
+    // onlyNamed: return just the identities the map names (per host) instead
+    // of every identity on every host the map mentions.
+    if (opts.onlyNamed) params.only = "1";
     const response = await authApi.get("/identities", { params });
     return response.data as Identity[];
   } catch (error) {

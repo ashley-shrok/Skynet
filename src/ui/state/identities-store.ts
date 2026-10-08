@@ -371,6 +371,34 @@ export function refreshIdentities(
   return p;
 }
 
+/**
+ * Fetch ONE identity from its host and upsert it into the store. Used by the
+ * birth flow so the newborn is in byKey (PrettyView routing, avatar, title)
+ * before its tab opens — without the fleet-wide fanout refreshIdentities does,
+ * which reads every identity file on every host and held the new tab back by
+ * several seconds. Never rejects; resolves false if the identity didn't load.
+ */
+export async function refreshOneIdentity(
+  identityKey: string,
+  hostId: number,
+): Promise<boolean> {
+  ensureFleetSubscription();
+  try {
+    const list = await listIdentities(
+      { [identityKey]: hostId },
+      { onlyNamed: true },
+    );
+    const keyLc = identityKey.toLowerCase();
+    const row = list.find((i) => i.identityKey.toLowerCase() === keyLc);
+    if (!row) return false;
+    applyIdentityChange(row);
+    return true;
+  } catch (err) {
+    console.warn("identities-store: refreshOneIdentity failed", err);
+    return false;
+  }
+}
+
 export function applyIdentityChange(
   next: Identity | null,
   removedKey?: string,

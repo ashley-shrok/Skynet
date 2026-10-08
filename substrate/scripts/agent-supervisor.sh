@@ -3457,6 +3457,70 @@ reconcile() {
   return 0
 }
 
+# ---- new-identity early wake ----
+# The between-tick sleep ends early when a new identity folder lands in $IDENTITIES_DIR, so a
+# freshly-born identity is launched on the very next reconcile instead of waiting out the
+# remainder of CHECK_INTERVAL. Nothing here launches anything — the single-threaded reconcile
+# loop stays the only actor; this only shortens the nap between passes. Births land as one
+# atomic `mv` from a staging dir outside $IDENTITIES_DIR, so a top-level moved_to/create of a
+# directory is exactly the birth signal. Un-archive (mv archive→live) also triggers it.
+# Everything reconcile schedules is wall-clock gated (idle threshold, 24h archive scan), so an
+# early pass changes no cadence. Missing inotifywait or NEW_IDENTITY_WAKE=off → plain sleep.
+NEW_IDENTITY_WAKE="${NEW_IDENTITY_WAKE:-on}"
+NEW_IDENTITY_MIN_GAP="${NEW_IDENTITY_MIN_GAP:-2}"   # floor between passes so a burst of births can't spin reconcile
+IDENTITY_LISTING_AT_TICK=""
+
+identity_listing() {
+  local d
+  for d in "$IDENTITIES_DIR"/*/; do [ -d "$d" ] && basename "$d"; done | LC_ALL=C sort
+}
+
+# Prints the first identity folder present now but absent from the listing taken at the top of
+# the last tick (catches births that landed mid-reconcile, before the watch was armed).
+new_identity_since_tick() {
+  LC_ALL=C comm -13 <(printf '%s\n' "$IDENTITY_LISTING_AT_TICK") <(identity_listing) | grep -v '^$' | head -1
+}
+
+wait_for_next_tick() {
+  local total="${CHECK_INTERVAL:-30}"
+  if [ "$NEW_IDENTITY_WAKE" != on ] || ! command -v inotifywait >/dev/null 2>&1 || [ ! -d "$IDENTITIES_DIR" ]; then
+    sleep "$total"; return 0
+  fi
+  local gap="$NEW_IDENTITY_MIN_GAP"; [ "$gap" -gt "$total" ] && gap="$total"
+  sleep "$gap"
+  local deadline=$(( $(date +%s) + total - gap ))
+  local out err pid rc remaining ev f i newname
+  out="$(mktemp)"; err="$(mktemp)"
+  while :; do
+    remaining=$(( deadline - $(date +%s) ))
+    [ "$remaining" -ge 1 ] || break
+    : >"$out"; : >"$err"
+    inotifywait -e create -e moved_to -t "$remaining" --format '%e %f' "$IDENTITIES_DIR" >"$out" 2>"$err" &
+    pid=$!
+    # Arm first, then diff the listing — closes the window between reconcile's last look and the watch.
+    i=0; while [ "$i" -lt 40 ] && ! grep -q 'Watches established' "$err" 2>/dev/null && kill -0 "$pid" 2>/dev/null; do sleep 0.05; i=$((i+1)); done
+    newname="$(new_identity_since_tick)"
+    if [ -n "$newname" ]; then
+      kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+      log "new identity '$newname' landed during reconcile — next pass now (early wake)"
+      break
+    fi
+    wait "$pid"; rc=$?
+    if [ "$rc" -ne 0 ]; then
+      # 2 = timeout (normal end of interval); anything else = watcher failed — sleep out the rest.
+      [ "$rc" -ne 2 ] && { remaining=$(( deadline - $(date +%s) )); [ "$remaining" -ge 1 ] && sleep "$remaining"; }
+      break
+    fi
+    read -r ev f <"$out"
+    case "$ev" in
+      *ISDIR*) case "$f" in .*) ;; *) log "new identity '$f' appeared — next pass now (early wake)"; break ;; esac ;;
+    esac
+    # a plain file or dot-dir at the top level — not a birth; keep waiting out the interval
+  done
+  rm -f "$out" "$err"
+  return 0
+}
+
 # ---- LIB_ONLY guard (Phase 94-04) ----
 # When sourced by the test driver (AGENT_SUPERVISOR_LIB_ONLY=1), stop here: all function
 # definitions above are now available in the caller's environment, but the reconcile loop
@@ -3499,6 +3563,6 @@ case "${1:-}" in
     # rm — a fresh supervisor process starts with a clean slate. belt-and-suspenders alongside the
     # freshness-timestamp check consumers use to distinguish this-wake from prior-wake.
     for d in "$IDENTITIES_DIR"/*/; do rm -f "$d/.resume-complete" 2>/dev/null; done
-    while :; do reconcile; sleep "${CHECK_INTERVAL:-30}"; done
+    while :; do IDENTITY_LISTING_AT_TICK="$(identity_listing)"; reconcile; wait_for_next_tick; done
     ;;
 esac

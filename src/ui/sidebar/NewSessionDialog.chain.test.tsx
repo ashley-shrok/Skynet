@@ -76,13 +76,13 @@ vi.mock("@/features/terminal/session-hue", () => ({
   sessionMatchKey: () => null,
   useSessionIdentity: () => ({ identity: null, identityHue: null }),
 }));
-// Phase 106 Plan 106-04 (D-18): mock `refreshIdentities` so the birth+auto-
+// Phase 106 Plan 106-04 (D-18): mock `refreshOneIdentity` so the birth+auto-
 // route chain test (Test 11 below) can assert the success chain fires the
 // D-16 identityMode:true payload on `onCreate` after the ended:ok:true event.
-const mockRefreshIdentities = vi.fn().mockResolvedValue(undefined);
+const mockRefreshOneIdentity = vi.fn().mockResolvedValue(true);
 vi.mock("@/state/identities-store", () => ({
   useIdentities: () => ({ byKey: new Map() }),
-  refreshIdentities: (...args: unknown[]) => mockRefreshIdentities(...args),
+  refreshOneIdentity: (...args: unknown[]) => mockRefreshOneIdentity(...args),
 }));
 vi.mock("@/hooks/use-is-touch-device", () => ({
   useIsTouchDevice: () => false,
@@ -629,7 +629,7 @@ describe("NewSessionDialog chain: Test 9 — initialRole ignored when user opts 
 //
 // This test pins the chain half of the D-21 axis: given a chain-prefilled
 // modal (initialHost + initialRole) that leads into a successful birth, the
-// auto-route chain (refreshIdentities → onCreate → onClose) still fires
+// auto-route chain (refreshOneIdentity → onCreate → onClose) still fires
 // with the D-16 payload shape (identityMode: true, name preserved).
 //
 // The modal is opened with initialHost + initialRole (chain-prefill from a
@@ -639,7 +639,7 @@ describe("NewSessionDialog chain: Test 9 — initialRole ignored when user opts 
 // Plan 106-01's new backend contract where step:1..5 events no longer exist.
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog chain: Test 11 — birth+auto-route chain fires on ended:ok:true (single-event contract)", () => {
-  it("Test 11: chain-prefilled modal + successful birth (single ended:ok:true) → onCreate fires with identityMode:true + refreshIdentities called + onClose fires", async () => {
+  it("Test 11: chain-prefilled modal + successful birth (single ended:ok:true) → onCreate fires with identityMode:true + refreshOneIdentity called + onClose fires", async () => {
     mockListRolesForHost.mockResolvedValue([
       { name: "box-maintainer", description: "" },
     ]);
@@ -695,7 +695,7 @@ describe("NewSessionDialog chain: Test 11 — birth+auto-route chain fires on en
     );
 
     // D-16 + D-18 chain: after the terminal ended:ok:true event, the
-    // frontend fires refreshIdentities → onCreate → onClose.
+    // frontend fires refreshOneIdentity → onCreate → onClose.
     await waitFor(() => {
       expect(onCreate).toHaveBeenCalledTimes(1);
       expect(onClose).toHaveBeenCalledTimes(1);
@@ -703,7 +703,7 @@ describe("NewSessionDialog chain: Test 11 — birth+auto-route chain fires on en
 
     // D-18: identities store was refreshed BEFORE onCreate (so AppShell's
     // openTab can resolve the new identity into pretty-view routing).
-    expect(mockRefreshIdentities).toHaveBeenCalled();
+    expect(mockRefreshOneIdentity).toHaveBeenCalled();
 
     // D-16 payload shape preservation — AppShell.tsx:2236 onCreateSession
     // narrows on identityMode:true; this pins the wire contract that the

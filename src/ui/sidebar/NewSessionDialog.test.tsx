@@ -135,14 +135,14 @@ vi.mock("@/features/terminal/session-hue", () => ({
   sessionMatchKey: () => null,
   useSessionIdentity: () => ({ identity: null, identityHue: null }),
 }));
-// Phase 106 Plan 106-04 (D-18): mock `refreshIdentities` so we can assert
-// the D-18 ordering invariant (refreshIdentities → onCreate → onClose) in
-// the success-path test. `mockRefreshIdentities` is exposed at
+// Phase 106 Plan 106-04 (D-18): mock `refreshOneIdentity` so we can assert
+// the D-18 ordering invariant (refresh → onCreate → onClose) in
+// the success-path test. `mockRefreshOneIdentity` is exposed at
 // module scope so individual tests can inspect .mock.calls / invocationCallOrder.
-const mockRefreshIdentities = vi.fn().mockResolvedValue(undefined);
+const mockRefreshOneIdentity = vi.fn().mockResolvedValue(true);
 vi.mock("@/state/identities-store", () => ({
   useIdentities: () => ({ byKey: new Map() }),
-  refreshIdentities: (...args: unknown[]) => mockRefreshIdentities(...args),
+  refreshOneIdentity: (...args: unknown[]) => mockRefreshOneIdentity(...args),
 }));
 vi.mock("@/hooks/use-is-touch-device", () => ({
   useIsTouchDevice: () => false,
@@ -1092,7 +1092,7 @@ describe("NewSessionDialog: Test V — Create with identity-mode ON calls openBi
 //   Test 106B: during birthing, the Cancel button is disabled AND the Dialog's
 //              onOpenChange no-ops so ESC/backdrop close cannot fire onClose —
 //              D-15 (modal fully locked from Create click to birth resolution).
-//   Test 106C: on ended:ok:true, refreshIdentities fires BEFORE onCreate which
+//   Test 106C: on ended:ok:true, refreshOneIdentity fires BEFORE onCreate which
 //              fires BEFORE onClose — D-18 ordering invariant + D-16 auto-route
 //              chain payload preservation.
 //   Test 106D: on ended:ok:false, window.alert("agent creation failed") fires
@@ -1102,7 +1102,7 @@ describe("NewSessionDialog: Test V — Create with identity-mode ON calls openBi
 //
 // Note: Test R above already exercises the ended:ok:true success payload
 // shape (identityMode:true, name, no cosmetic fields). Test 106C strengthens
-// that with the D-18 ordering-with-refreshIdentities assertion.
+// that with the D-18 ordering-with-refreshOneIdentity assertion.
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Test 106A: spinner-in-Create-button during birthing (D-14)
@@ -1182,10 +1182,10 @@ describe("NewSessionDialog: Test 106B — modal is fully locked during birthing"
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 106C: success chain — refreshIdentities → onCreate → onClose (D-18, D-16)
+// Test 106C: success chain — refreshOneIdentity → onCreate → onClose (D-18, D-16)
 // ─────────────────────────────────────────────────────────────────────────────
-describe("NewSessionDialog: Test 106C — success chain fires refreshIdentities → onCreate → onClose in order", () => {
-  it("Test 106C: on ended:ok:true, refreshIdentities is called BEFORE onCreate which is called BEFORE onClose; onCreate payload matches D-16 (identityMode:true, name)", async () => {
+describe("NewSessionDialog: Test 106C — success chain fires refreshOneIdentity → onCreate → onClose in order", () => {
+  it("Test 106C: on ended:ok:true, refreshOneIdentity is called BEFORE onCreate which is called BEFORE onClose; onCreate payload matches D-16 (identityMode:true, name)", async () => {
     mockOpenBirthStream.mockReturnValueOnce(createMockStream([
       { type: "ended", ok: true, identityId: "alicia", sessionName: "alicia" },
     ]));
@@ -1204,11 +1204,11 @@ describe("NewSessionDialog: Test 106C — success chain fires refreshIdentities 
       expect(onClose).toHaveBeenCalledTimes(1);
     });
 
-    // D-18: refreshIdentities called (at least once).
-    expect(mockRefreshIdentities).toHaveBeenCalled();
+    // D-18: the newborn alone is fetched, by name + host (no fleet-wide fanout).
+    expect(mockRefreshOneIdentity).toHaveBeenCalledWith("alicia", expect.any(Number));
 
-    // D-18 ordering: refreshIdentities fires BEFORE onCreate.
-    const refreshOrder = mockRefreshIdentities.mock.invocationCallOrder[0];
+    // D-18 ordering: the refresh fires BEFORE onCreate.
+    const refreshOrder = mockRefreshOneIdentity.mock.invocationCallOrder[0];
     const createOrder = onCreate.mock.invocationCallOrder[0];
     const closeOrder = onClose.mock.invocationCallOrder[0];
     expect(refreshOrder).toBeLessThan(createOrder);
