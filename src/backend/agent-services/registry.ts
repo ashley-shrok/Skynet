@@ -8,8 +8,10 @@
 import type { ServiceDefinition } from "./engine/types.js";
 import agentPhone from "./services/agent-phone/service.js";
 import imageGen from "./services/image-gen/service.js";
+import stt from "./services/stt/service.js";
 
 export const AGENT_SERVICES: readonly ServiceDefinition[] = [
   agentPhone,
   imageGen,
+  stt,
 ];

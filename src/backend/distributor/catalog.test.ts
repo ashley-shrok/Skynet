@@ -104,7 +104,9 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // desktop-mcp helper + agent-desktop@.service template unit) — 127 → 131.
     // +1 for fleet-service (shared agent-services file-drop client that the
     // image-gen and agent-phone wrappers call) — 131 → 132.
-    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(132);
+    // +2 for stt (SKILL.md + stt helper, speech-to-text agent service) —
+    // 132 → 134.
+    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(134);
   });
 
   it("Test 2: every bundled row's bundledPath starts with /app/fleet-substrate/skills/, /app/fleet-substrate/scripts/, or /app/fleet-substrate/user-onboarding/", () => {
@@ -230,7 +232,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // template files across 13 folders — backfilled 2026-09-28; draft
     // template + iterate-widget added 2026-09-30) — 36 → 105.
     // +1 for the desktop skill (SKILL.md) — 105 → 106.
-    expect(skillRows.length).toBe(106);
+    // +1 for the stt skill (SKILL.md) — 106 → 107.
+    expect(skillRows.length).toBe(107);
     // 17 helper scripts: agent-supervisor + wakeup-scheduler + context-watch +
     // role-file-watch (4th ambient monitor) + usage-reporter + usage-report
     // (distributor-shipped node POSTer — install-usage-reporter.sh was
@@ -254,8 +257,9 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // composebox cutover) +
     // agent-desktop + desktop-mcp (per-identity virtual desktop: lifecycle
     // CLI + MCP server for screenshot/click/type tools) +
-    // fleet-service (shared agent-services file-drop client)
-    expect(scriptRows.length).toBe(20);
+    // fleet-service (shared agent-services file-drop client) +
+    // stt (speech-to-text agent-services wrapper)
+    expect(scriptRows.length).toBe(21);
     // 4 user-onboarding files: agent-supervisor.service +
     // interactive-messages-gc.service + interactive-messages-gc.timer (Phase 140)
     // + scheduled-agents-scheduler.service (this ship: move
@@ -461,7 +465,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // ambient-monitor child) — 125 → 126.
     // +4 for the agent desktop (skill + 2 helpers + template unit) — 126 → 130.
     // +1 for fleet-service (agent-services client) — 130 → 131.
-    expect(bundled.length).toBe(131);
+    // +2 for stt (skill + helper) — 131 → 133.
+    expect(bundled.length).toBe(133);
     expect(runtime.length).toBe(1);
 
     // Every bundled row retains bundledPath under /app/fleet-substrate/

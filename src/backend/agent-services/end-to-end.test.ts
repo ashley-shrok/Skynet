@@ -1,6 +1,6 @@
 /**
  * End to end: the real host-side wrappers (substrate/scripts/image-gen,
- * agent-phone → fleet-service) against the real engine, local-host request
+ * agent-phone, stt → fleet-service) against the real engine, local-host request
  * I/O and atomic writers, in a temp HOME. Only the third-party calls (OpenAI,
  * Bland, the users table) are faked.
  */
@@ -31,6 +31,8 @@ import { createAgentServiceEngine } from "./engine/engine.js";
 import { createResponseWriter, localRequestIo } from "./engine/host-io.js";
 import { createImageGenService } from "./services/image-gen/service.js";
 import { createAgentPhoneService } from "./services/agent-phone/service.js";
+import { createSttService } from "./services/stt/service.js";
+import { groqSttProvider } from "../voice/stt-http-providers.js";
 import { z } from "zod";
 import { defineService, ok } from "./engine/types.js";
 import {
@@ -63,6 +65,7 @@ function makeEngine() {
     images: [Buffer.from("PNG-0"), Buffer.from("PNG-1")],
     generation_time_ms: 5,
   }));
+  const transcribe = vi.fn(async () => "first line\nsecond line");
   const placeCall = vi.fn(async () => ({
     outcome: "completed" as const,
     transcript: "voice: hello\nuser: got it",
@@ -99,6 +102,7 @@ function makeEngine() {
     services: [
       zoho,
       createImageGenService(openAi),
+      createSttService({ resolveProvider: () => groqSttProvider, transcribe }),
       createAgentPhoneService({
         getUserByUsername: async () => ({
           id: "u1",
@@ -125,7 +129,7 @@ function makeEngine() {
       writeBinaryAtomic: writeBinaryFileAtomic,
     }),
   });
-  return { engine, openAi, placeCall, zohoCalls };
+  return { engine, openAi, placeCall, transcribe, zohoCalls };
 }
 
 /** Run a helper while acting as the backend scan loop, until it exits. */
@@ -137,6 +141,7 @@ async function runWithBackend(script: string, args: string[], stdin?: string) {
       HOME: home,
       IMAGE_GEN_TIMEOUT_SEC: "20",
       AGENT_PHONE_TIMEOUT_SEC: "20",
+      STT_TIMEOUT_SEC: "20",
     },
   });
   let stdout = "";
@@ -231,6 +236,37 @@ describe("agent services end to end", () => {
       call_length_seconds: 9,
     });
     expect(fs.readdirSync(wireDir())).toEqual([]);
+  }, 30_000);
+
+  it("stt: audio file in, transcript out, wire folder left clean", async () => {
+    const audio = path.join(home, "memo.M4A");
+    fs.writeFileSync(audio, "AUDIO-BYTES");
+    const r = await runWithBackend("stt", [audio]);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toBe("first line\nsecond line\n");
+    const [provider, input] = r.transcribe.mock.calls[0] as unknown as [
+      { id: string },
+      { audio: Buffer; ext: string; mimetype: string },
+    ];
+    expect(provider.id).toBe("groq");
+    expect(input.audio.toString()).toBe("AUDIO-BYTES");
+    expect(input).toMatchObject({ ext: "m4a", mimetype: "audio/mp4" });
+    expect(JSON.parse(r.stderr.trim())).toEqual({
+      provider: "groq",
+      audio_bytes: 11,
+      transcription_time_ms: expect.any(Number),
+    });
+    expect(fs.readdirSync(wireDir())).toEqual([]);
+  }, 30_000);
+
+  it("stt: unsupported file type comes back as malformed", async () => {
+    const doc = path.join(home, "notes.txt");
+    fs.writeFileSync(doc, "not audio");
+    const r = await runWithBackend("stt", [doc]);
+    expect(r.code).toBe(1);
+    expect(r.stdout).toBe("");
+    expect(JSON.parse(r.stderr.trim())).toMatchObject({ reason: "malformed" });
+    expect(r.transcribe).not.toHaveBeenCalled();
   }, 30_000);
 
   it("per-user secret: --as picks the user, their key reaches the handler", async () => {

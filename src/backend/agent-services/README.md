@@ -13,7 +13,8 @@ host: ~/fleet/service-requests/            backend
 ```
 
 Services today: `agent-phone` (Bland.ai calls), `image-gen` (OpenAI
-gpt-image-1). Identity births (`spawn-requests/`) predate this and still have
+gpt-image-1), `stt` (speech to text through the instance's voice-input
+provider, `src/backend/voice/stt-provider.ts`). Identity births (`spawn-requests/`) predate this and still have
 their own scanner.
 
 ## Layout

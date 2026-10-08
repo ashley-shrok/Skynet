@@ -5,6 +5,7 @@
 #   substrate/scripts/fleet-service   (shared file-drop client)
 #   substrate/scripts/agent-phone      (wrapper)
 #   substrate/scripts/image-gen        (wrapper)
+#   substrate/scripts/stt              (wrapper)
 #
 # A fake backend (fake_backend below) plays the server's part: it waits for a
 # request envelope in $HOME/fleet/service-requests/, claims it the way the
@@ -23,8 +24,9 @@ SCRIPTS="$(cd "$SCRIPT_DIR/.." && pwd)"
 FLEET_SERVICE="$SCRIPTS/fleet-service"
 AGENT_PHONE="$SCRIPTS/agent-phone"
 IMAGE_GEN="$SCRIPTS/image-gen"
+STT="$SCRIPTS/stt"
 
-for s in "$FLEET_SERVICE" "$AGENT_PHONE" "$IMAGE_GEN"; do
+for s in "$FLEET_SERVICE" "$AGENT_PHONE" "$IMAGE_GEN" "$STT"; do
   [ -x "$s" ] || { printf 'FATAL: %s missing or not executable\n' "$s" >&2; exit 1; }
 done
 
@@ -321,6 +323,60 @@ test_image_gen_json_escape_hatch() {
   assert_eq '{"prompt":"from file","quality":"high"}' "$(jq -c .input "$FIXTURE/envelope.json")" "input from file"
 }
 
+# ---------------------------------------------------------------------------
+# stt
+# ---------------------------------------------------------------------------
+
+STT_OK='{"ok":true,"service":"stt","result":{"text":"hello\nworld","provider":"elevenlabs","audio_bytes":5,"transcription_time_ms":7}}'
+
+test_stt_success() {
+  printf 'audio' > "$FIXTURE/memo.ogg"
+  fake_backend "$STT_OK" &
+  local out status
+  out=$(HOME="$FIXTURE" STT_TIMEOUT_SEC=10 "$STT" "$FIXTURE/memo.ogg" 2>"$FIXTURE/err")
+  status=$?
+  wait
+  assert_eq 0 "$status" "exit status"
+  assert_eq $'hello\nworld' "$out" "transcript on stdout"
+  assert_eq '{}' "$(jq -c .input "$FIXTURE/envelope.json")" "input"
+  jq -e '.attachments.audio | endswith(".in.audio.ogg")' "$FIXTURE/envelope.json" >/dev/null ||
+    fail "audio attachment not sent"
+  assert_eq '{"provider":"elevenlabs","audio_bytes":5,"transcription_time_ms":7}' "$(cat "$FIXTURE/err")" "metadata on stderr"
+  assert_eq 0 "$(wire_files_left)" "wire files cleaned up"
+}
+
+test_stt_out_file() {
+  printf 'audio' > "$FIXTURE/memo.ogg"
+  fake_backend "$STT_OK" &
+  local out
+  out=$(HOME="$FIXTURE" STT_TIMEOUT_SEC=10 "$STT" "$FIXTURE/memo.ogg" --out "$FIXTURE/notes/memo.txt" 2>"$FIXTURE/err")
+  wait
+  assert_eq "" "$out" "nothing on stdout"
+  assert_eq $'hello\nworld' "$(cat "$FIXTURE/notes/memo.txt")" "transcript in --out"
+  assert_eq "$FIXTURE/notes/memo.txt" "$(jq -r .out "$FIXTURE/err")" "metadata names --out"
+}
+
+test_stt_failure_shape() {
+  printf 'audio' > "$FIXTURE/memo.ogg"
+  fake_backend '{"ok":false,"service":"stt","error":{"code":"transcription_failed","message":"nope"}}' &
+  local out status
+  out=$(HOME="$FIXTURE" STT_TIMEOUT_SEC=10 "$STT" "$FIXTURE/memo.ogg" 2>"$FIXTURE/err")
+  status=$?
+  wait
+  assert_eq 1 "$status" "exit status"
+  assert_eq "" "$out" "nothing on stdout"
+  assert_eq '{"reason":"transcription_failed","message":"nope"}' "$(cat "$FIXTURE/err")" "failure JSON on stderr"
+}
+
+test_stt_usage_errors() {
+  HOME="$FIXTURE" "$STT" 2>/dev/null
+  assert_eq 2 "$?" "no file"
+  HOME="$FIXTURE" "$STT" "$FIXTURE/missing.mp3" 2>/dev/null
+  assert_eq 2 "$?" "missing file"
+  HOME="$FIXTURE" "$STT" --bogus 2>/dev/null
+  assert_eq 2 "$?" "unknown flag"
+}
+
 printf '=== agent-services helper tests ===\n'
 run_test test_envelope_shape_and_success
 run_test test_as_user_goes_in_the_envelope
@@ -340,6 +396,10 @@ run_test test_image_gen_success_default_outputs
 run_test test_image_gen_out_and_ref
 run_test test_image_gen_failure_shape
 run_test test_image_gen_json_escape_hatch
+run_test test_stt_success
+run_test test_stt_out_file
+run_test test_stt_failure_shape
+run_test test_stt_usage_errors
 
 printf '\nPASS: %s  FAIL: %s\n' "$PASS" "$FAIL"
 if [ "$FAIL" -gt 0 ]; then

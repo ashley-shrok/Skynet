@@ -23,6 +23,7 @@
  * BAA instance never sends audio off-AWS unless someone opts in explicitly.
  */
 
+import { databaseLogger } from "../utils/logger.js";
 import { SttNotConfiguredError } from "./stt-errors.js";
 import { bedrockSttProvider } from "./stt-bedrock.js";
 import {
@@ -38,6 +39,11 @@ export interface SttInput {
   mimetype: string;
   /** File extension derived from the mimetype (`webm`, `mp4`, ...). */
   ext: string;
+  /**
+   * Per-request timeout for the HTTP providers. Defaults to 60 s, which fits
+   * a dictated clip; agent-supplied files can be much longer.
+   */
+  timeoutMs?: number;
 }
 
 export interface SttProvider {
@@ -76,4 +82,44 @@ export function resolveSttProvider(env: NodeJS.ProcessEnv = process.env): SttPro
   throw new SttNotConfiguredError(
     `unknown STT_PROVIDER="${raw}" (expected one of: ${STT_PROVIDER_IDS.join(", ")})`,
   );
+}
+
+/**
+ * Call the instance's STT provider with auto-retry on errors the provider
+ * classifies as transient (Bedrock stream errors, HTTP 429/5xx, network).
+ * Server-side retry catches these before the user sees a 502 and loses their
+ * dictated message (the transcribe-bank still preserves the raw upload, but
+ * by then the client has already dropped the blob and returned to idle).
+ * Total attempts capped at maxAttempts; backoff is linear (500ms × attempt).
+ * Rethrows the last error unchanged when all attempts exhaust or when the
+ * error is non-retriable — the caller's existing 502/503 handling still fires.
+ *
+ * Shared by POST /voice/transcribe and the `stt` agent service.
+ */
+export async function transcribeWithRetries(
+  provider: SttProvider,
+  input: SttInput,
+  maxAttempts: number = 3,
+): Promise<string> {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await provider.transcribe(input);
+    } catch (err: unknown) {
+      lastErr = err;
+      if (attempt < maxAttempts && provider.isRetriable(err)) {
+        const backoffMs = 500 * attempt;
+        const errName = (err as { name?: string })?.name ?? "unknown";
+        const errMessage = err instanceof Error ? err.message : String(err);
+        databaseLogger.warn(
+          `[voice-server] transcribe-retry provider=${provider.id} attempt=${attempt}/${maxAttempts} errName=${errName} errMessage="${errMessage}" backoffMs=${backoffMs}`,
+          { operation: "voice_transcribe_retry", provider: provider.id, attempt, maxAttempts, errName, backoffMs },
+        );
+        await new Promise<void>((resolve) => setTimeout(resolve, backoffMs));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastErr;
 }

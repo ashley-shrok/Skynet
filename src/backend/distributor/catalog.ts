@@ -298,6 +298,15 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     installPath: "~/.claude/skills/agent-phone/SKILL.md",
     restartHook: null,
   },
+  // stt: agent-services skill for speech to text. Same shape as
+  // image-gen-skill above — on-demand-loaded, no restart hook.
+  {
+    slug: "stt-skill",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/stt/SKILL.md",
+    installPath: "~/.claude/skills/stt/SKILL.md",
+    restartHook: null,
+  },
   // desktop: tells the agent when + how to use its per-identity virtual
   // desktop (agent-desktop CLI + desktop-mcp tools). On-demand-loaded skill
   // file — no restart hook.
@@ -419,6 +428,14 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     sourceKind: "bundled",
     bundledPath: "/app/fleet-substrate/scripts/agent-phone",
     installPath: "~/.local/bin/agent-phone",
+    restartHook: null,
+  },
+  // stt wrapper: `stt <audio-file>` → prints the transcript on stdout.
+  {
+    slug: "stt-helper",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/scripts/stt",
+    installPath: "~/.local/bin/stt",
     restartHook: null,
   },
 

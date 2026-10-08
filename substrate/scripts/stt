@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+# stt — transcribe an audio file to text via the fleet's speech-to-text
+# provider.
+#
+# Canonical copy lives in the app's source repo at substrate/scripts/stt and is
+# distributed to every managed host by the fleet-substrate distributor (see
+# src/backend/distributor/catalog.ts). Installed per-box at ~/.local/bin/stt.
+# Do NOT hand-edit the installed copy.
+#
+# Thin wrapper over fleet-service (the shared agent-services client); the
+# backend side is src/backend/agent-services/services/stt/.
+#
+# Usage:
+#   stt recording.m4a
+#   stt meeting.mp3 --out ~/notes/meeting.txt
+#
+# Env overrides:
+#   STT_TIMEOUT_SEC   wait in seconds (default 540 = 9 min, under Claude
+#                     Code's 10-min Bash-tool limit)
+#
+# Exit status:
+#   0  success. Transcript on stdout (or written to --out); metadata JSON
+#      {provider, audio_bytes, transcription_time_ms, out?} on stderr.
+#   1  failure or timeout. {reason, message?} JSON on stderr; nothing on stdout.
+#   2  usage or local error.
+
+set -uo pipefail
+
+TIMEOUT_SEC="${STT_TIMEOUT_SEC:-540}"
+FLEET_SERVICE="$(dirname -- "$(readlink -f -- "$0")")/fleet-service"
+[ -x "$FLEET_SERVICE" ] || FLEET_SERVICE="fleet-service"
+
+usage() {
+  cat >&2 <<'USAGE'
+usage: stt <audio-file> [--out <path>]
+       stt -h | --help
+
+Transcribes an audio file (flac, m4a, mp3, mp4, oga, ogg, opus, wav, webm;
+up to 25 MB) and prints the transcript on stdout. With --out, writes the
+transcript to that file instead.
+
+See ~/.claude/skills/stt/SKILL.md for the failure reasons.
+USAGE
+}
+
+audio=""
+out=""
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --out)     out="${2:-}"; shift 2;;
+    -h|--help) usage; exit 0;;
+    --) shift; break;;
+    -*)
+      printf 'stt: unknown flag: %s\n' "$1" >&2
+      usage
+      exit 2
+      ;;
+    *)
+      if [ -n "$audio" ]; then
+        printf 'stt: unexpected positional arg after audio file: %s\n' "$1" >&2
+        usage
+        exit 2
+      fi
+      audio="$1"
+      shift
+      ;;
+  esac
+done
+
+if [ -z "$audio" ]; then
+  printf 'stt: <audio-file> is required\n' >&2
+  usage
+  exit 2
+fi
+if [ ! -f "$audio" ]; then
+  printf 'stt: audio file not found: %s\n' "$audio" >&2
+  exit 2
+fi
+command -v jq >/dev/null 2>&1 || {
+  printf 'stt: jq is required but not installed (apt install jq)\n' >&2
+  exit 2
+}
+
+response=$(
+  "$FLEET_SERVICE" call stt --input '{}' --attach "audio=$audio" \
+    --timeout "$TIMEOUT_SEC"
+)
+status=$?
+[ "$status" -eq 2 ] && exit 2
+
+if [ "$status" -ne 0 ]; then
+  jq -c '.error | {reason: .code} + del(.code)' <<<"$response" >&2
+  exit 1
+fi
+
+if [ -n "$out" ]; then
+  mkdir -p -- "$(dirname -- "$out")" 2>/dev/null || true
+  if ! jq -r '.result.text' <<<"$response" > "$out"; then
+    printf 'stt: failed to write %s\n' "$out" >&2
+    exit 2
+  fi
+  jq -c --arg out "$out" '.result | del(.text) + {out: $out}' <<<"$response" >&2
+  exit 0
+fi
+
+jq -c '.result | del(.text)' <<<"$response" >&2
+jq -r '.result.text' <<<"$response"
+exit 0

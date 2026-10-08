@@ -19,7 +19,10 @@
 import { SttHttpError, SttNetworkError, SttNotConfiguredError } from "./stt-errors.js";
 import type { SttInput, SttProvider, SttProviderId } from "./stt-provider.js";
 
-/** Longest Skynet clip is ~2 min; batch APIs answer in seconds. */
+/**
+ * Default per-request timeout. The longest dictated clip is ~2 min and batch
+ * APIs answer in seconds; callers with longer audio pass `input.timeoutMs`.
+ */
 const REQUEST_TIMEOUT_MS = 60_000;
 /** Cap on provider error-body text copied into logs. */
 const ERROR_BODY_MAX = 500;
@@ -66,7 +69,7 @@ async function transcribeOverHttp(spec: HttpProviderSpec, input: SttInput): Prom
       method: "POST",
       headers: spec.authHeaders(apiKey),
       body: form,
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      signal: AbortSignal.timeout(input.timeoutMs ?? REQUEST_TIMEOUT_MS),
     });
   } catch (err: unknown) {
     // fetch rejects with TypeError("fetch failed") on DNS/socket errors and

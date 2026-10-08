@@ -16,7 +16,7 @@ import { fetchSkillCatalog, DEFAULT_SKILL_CATALOG_TIMEOUT_MS } from "../../voice
 // onto the backend behind the AWS SDK v3 adapters from Plan 04 + the pure
 // kernels from Plan 02.
 import { synthesizeToPcm } from "../../voice/polly-adapter.js";
-import { resolveSttProvider, type SttInput, type SttProvider } from "../../voice/stt-provider.js";
+import { resolveSttProvider, transcribeWithRetries, type SttProvider } from "../../voice/stt-provider.js";
 import { SttNotConfiguredError } from "../../voice/stt-errors.js";
 import { splitIntoSentences, packChunks } from "../../voice/chunk-and-stitch.js";
 import { buildRiffHeader } from "../../voice/riff-header-builder.js";
@@ -50,44 +50,6 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 25 * 1024 * 1024 },
 });
-
-/**
- * Call the instance's STT provider with auto-retry on errors the provider
- * classifies as transient (Bedrock stream errors, HTTP 429/5xx, network).
- * Server-side retry catches these before the user sees a 502 and loses their
- * dictated message (the transcribe-bank still preserves the raw upload, but
- * by then the client has already dropped the blob and returned to idle).
- * Total attempts capped at maxAttempts; backoff is linear (500ms × attempt).
- * Rethrows the last error unchanged when all attempts exhaust or when the
- * error is non-retriable — the caller's existing 502/503 handling still fires.
- */
-async function transcribeWithRetries(
-  provider: SttProvider,
-  input: SttInput,
-  maxAttempts: number = 3,
-): Promise<string> {
-  let lastErr: unknown;
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      return await provider.transcribe(input);
-    } catch (err: unknown) {
-      lastErr = err;
-      if (attempt < maxAttempts && provider.isRetriable(err)) {
-        const backoffMs = 500 * attempt;
-        const errName = (err as { name?: string })?.name ?? "unknown";
-        const errMessage = err instanceof Error ? err.message : String(err);
-        databaseLogger.warn(
-          `[voice-server] transcribe-retry provider=${provider.id} attempt=${attempt}/${maxAttempts} errName=${errName} errMessage="${errMessage}" backoffMs=${backoffMs}`,
-          { operation: "voice_transcribe_retry", provider: provider.id, attempt, maxAttempts, errName, backoffMs },
-        );
-        await new Promise<void>((resolve) => setTimeout(resolve, backoffMs));
-        continue;
-      }
-      throw err;
-    }
-  }
-  throw lastErr;
-}
 
 // --- Helper: derive a safe filename extension from mimetype ---
 function extFromMimetype(mimetype: string): string {
