@@ -1,7 +1,7 @@
 # Campaign: selectable TTS provider per instance, like STT
 
 **Opened:** 2026-10-08
-**Status:** in_progress
+**Status:** closed (2026-10-08)
 **Workspace:** /home/ubuntu/fleet/identities/anchor-box-maintainer-2/workspace/skynet/.planning/
 
 ## Concept
