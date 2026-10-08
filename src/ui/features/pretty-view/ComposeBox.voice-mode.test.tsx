@@ -150,6 +150,33 @@ describe("ComposeBox — hands-free voice mode (mic long-press)", () => {
     expect(mic().getAttribute("data-voice-mode")).toBe("false");
   });
 
+  it("voice mode turns on mid-hold at the threshold; releasing later (even off the button) changes nothing", async () => {
+    const onSend = vi.fn((_text: string, _mqid?: string) => true);
+    render(<ComposeBox {...props({ onSend })} />);
+
+    const btn = mic();
+    fireEvent.pointerDown(btn, { pointerId: 1, clientX: 20, clientY: 20, timeStamp: 0 });
+    await flush(LONG_PRESS_ACTION_THRESHOLD_MS - 50);
+    expect(screen.queryByTestId("voice-mode-pill")).toBeNull();
+
+    await flush(100);
+    // Still holding — voice mode is already on and the hold glow has dropped.
+    expect(screen.getByTestId("voice-mode-pill")).toBeTruthy();
+    expect(mic().getAttribute("data-voice-mode")).toBe("true");
+    expect(mic().getAttribute("data-hold-active")).toBe("false");
+
+    // Lift well later, far outside the button: no cancel, no record, no send.
+    await flush(2000);
+    await act(async () => {
+      fireEvent.pointerUp(btn, { pointerId: 1, clientX: 500, clientY: 500, timeStamp: 2550 });
+      fireEvent.click(btn);
+    });
+    await flush();
+    expect(screen.getByTestId("voice-mode-pill").getAttribute("data-phase")).toBe("listening");
+    expect(onSend).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Cancel recording" })).toBeNull();
+  });
+
   it("pasted text + Send still works while voice mode is on, and spoken words go out separately without touching the textarea", async () => {
     const onSend = vi.fn((_text: string, _mqid?: string) => true);
     render(<ComposeBox {...props({ onSend })} />);

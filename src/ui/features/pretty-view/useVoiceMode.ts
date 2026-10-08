@@ -24,8 +24,11 @@
  *   - Holds a screen wake lock: mobile browsers suspend the page (and kill the
  *     mic) when the screen locks, so "phone in pocket" needs the screen kept on.
  *
- * start() MUST be called synchronously from a user gesture (getUserMedia +
- * AudioContext unlock — same D-16-02 iOS constraint as useVoiceRecording.start).
+ * Activation happens mid-hold, from a timer, which iOS Safari does not count
+ * as a user gesture. So the gesture-bound work is split out: prime() runs in
+ * the mic's pointerdown and unlocks the VAD AudioContext + the "on" chime;
+ * start() then adopts the primed context. getUserMedia itself does not need a
+ * gesture (the reacquire path below already relies on that).
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -33,7 +36,7 @@ import stopUrl from "../../assets/sounds/mic/stop.mp3?url";
 import errorUrl from "../../assets/sounds/mic/error.mp3?url";
 import { stampedFetch } from "@/lib/stamped-fetch";
 import { postSpeakStream } from "../../api/voice-api";
-import { playAutoSpeakOff, playAutoSpeakOn } from "../../audio/auto-speak-cue";
+import { playAutoSpeakOff, playAutoSpeakOn, primeAutoSpeakOn } from "../../audio/auto-speak-cue";
 import { playTink } from "../../audio/ready-cue";
 import { createWebAudioStreamPlayer } from "./webAudioStreamPlayer";
 import {
@@ -110,7 +113,9 @@ export interface UseVoiceModeReturn {
   active: boolean;
   phase: VoiceModePhase;
   errorMessage: string | null;
-  /** MUST be called synchronously inside a user-gesture handler. */
+  /** Call synchronously inside the gesture that may lead to start(). */
+  prime: () => void;
+  /** Safe outside a gesture once prime() ran in one. */
   start: () => void;
   stop: () => void;
   /** Stop the reply currently being read out and drop the queued ones. */
@@ -194,6 +199,8 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
   const phaseRef = useRef<VoiceModePhase>("off");
   const streamRef = useRef<MediaStream | null>(null);
   const ctxRef = useRef<AudioContext | null>(null);
+  /** AudioContext unlocked by prime() inside a gesture, waiting for start(). */
+  const primedCtxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -616,7 +623,6 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
       setErrorMessage("Voice mode needs microphone access");
       return;
     }
-    // D-16-02: getUserMedia first, synchronously inside the gesture.
     const streamPromise = navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
     });
@@ -624,13 +630,20 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
     setErrorMessage(null);
     setPhase("starting");
     log("start");
-    // Unlock an AudioContext inside the gesture for the VAD analyser.
-    try {
-      const ctx = new AudioContext();
-      void ctx.resume().catch(() => {});
-      ctxRef.current = ctx;
-    } catch {
-      ctxRef.current = null;
+    // VAD analyser context: the one prime() unlocked inside the gesture, else
+    // a fresh one (fine when start() itself runs inside a gesture).
+    const primed = primedCtxRef.current;
+    primedCtxRef.current = null;
+    if (primed && primed.state !== "closed") {
+      ctxRef.current = primed;
+    } else {
+      try {
+        const ctx = new AudioContext();
+        void ctx.resume().catch(() => {});
+        ctxRef.current = ctx;
+      } catch {
+        ctxRef.current = null;
+      }
     }
     // Only messages that arrive from here on are spoken.
     startedAtRef.current = Date.now();
@@ -643,6 +656,27 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
     acquiringRef.current = true;
     streamPromise.then(attachStreamRef.current, failAcquireRef.current);
   }, [setPhase]);
+
+  /**
+   * MUST be called synchronously inside the user gesture (the mic pointerdown)
+   * that may lead to start(). Unlocks the gesture-gated audio so start() can
+   * run later from a timer. Cheap and harmless if start() never follows.
+   */
+  const prime = useCallback(() => {
+    if (activeRef.current) return;
+    if (!primedCtxRef.current || primedCtxRef.current.state === "closed") {
+      try {
+        const ctx = new AudioContext();
+        void ctx.resume().catch(() => {});
+        primedCtxRef.current = ctx;
+      } catch {
+        primedCtxRef.current = null;
+      }
+    } else {
+      void primedCtxRef.current.resume().catch(() => {});
+    }
+    primeAutoSpeakOn();
+  }, []);
 
   const skipSpeech = useCallback(() => {
     queueRef.current = [];
@@ -708,7 +742,14 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
   }, [acquireWakeLock]);
 
   // Unmount → release the mic, player and wake lock.
-  useEffect(() => () => teardown(), [teardown]);
+  useEffect(
+    () => () => {
+      teardown();
+      void primedCtxRef.current?.close().catch(() => {});
+      primedCtxRef.current = null;
+    },
+    [teardown],
+  );
 
-  return { active: phase !== "off", phase, errorMessage, start, stop, skipSpeech };
+  return { active: phase !== "off", phase, errorMessage, prime, start, stop, skipSpeech };
 }

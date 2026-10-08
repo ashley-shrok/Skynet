@@ -27,7 +27,25 @@ function play(audio: HTMLAudioElement): void {
 
 export function playAutoSpeakOn(): void {
   if (!onAudio) onAudio = new Audio(onUrl);
+  onAudio.muted = false;
   play(onAudio);
+}
+
+/**
+ * Unlock the "on" chime inside a user gesture so a later playAutoSpeakOn()
+ * fired from a timer (voice mode's mid-hold activation) isn't blocked by iOS
+ * Safari's autoplay policy: a muted play() inside the gesture marks the element
+ * as user-activated; it is paused again unless the real play got there first.
+ */
+export function primeAutoSpeakOn(): void {
+  if (!onAudio) onAudio = new Audio(onUrl);
+  const audio = onAudio;
+  audio.muted = true;
+  Promise.resolve(audio.play())
+    .then(() => {
+      if (audio.muted) audio.pause();
+    })
+    .catch(() => {});
 }
 
 export function playAutoSpeakOff(): void {

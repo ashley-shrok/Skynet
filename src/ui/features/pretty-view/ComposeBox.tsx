@@ -2122,7 +2122,7 @@ export function ComposeBox({
       void handleVoiceSend("primary");
     },
     // 2026-10-06: with a voice-mode feed, long-press toggles hands-free voice
-    // mode instead (called synchronously inside the release gesture).
+    // mode instead — fired mid-hold at the threshold, not on release.
     onLongPress: voiceModeFeed
       ? () => {
           if (voiceMode.active) voiceMode.stop();
@@ -3007,7 +3007,9 @@ export function ComposeBox({
                 // for browsers that fire click without a hook-observable
                 // pointerup pair).
                 onClick={() => {
-                  if (voiceModeExitPressRef.current) return;
+                  // voiceMode.active also swallows the desktop click that
+                  // trails a hold which turned voice mode on mid-press.
+                  if (voiceModeExitPressRef.current || voiceMode.active) return;
                   beginRecord("primary");
                 }}
                 // quick-260814-o22: setMicTarget MUST fire synchronously BEFORE
@@ -3031,6 +3033,9 @@ export function ComposeBox({
                   }
                   setMicTarget("primary");
                   primaryHold.onPointerDown(e);
+                  // Unlock voice mode's audio while still inside the gesture —
+                  // it switches on mid-hold from a timer, which isn't one.
+                  if (voiceModeFeed && voice.state === "idle") voiceMode.prime();
                 }}
                 onPointerUp={primaryHold.onPointerUp}
                 onPointerCancel={primaryHold.onPointerCancel}
