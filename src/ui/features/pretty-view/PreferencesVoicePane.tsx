@@ -13,10 +13,24 @@
  *   D-17: Single PUT per onChange, fires immediately (RESEARCH Pitfall 5).
  */
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import type { UserPreferences } from "@/api/open-tabs-api";
 import { saveUserPreferences } from "@/api/open-tabs-api";
 import { VoicePicker } from "./pickers/VoicePicker";
+import {
+  TTS_PLAYBACK_RATE_DEFAULT,
+  TTS_PLAYBACK_RATE_MIN,
+  TTS_PLAYBACK_RATE_MAX,
+} from "./webAudioStreamPlayer";
+
+// Speed slider: 0.05 steps across the full allowed range. Saves are debounced
+// so a drag across the track lands as one PUT, not one per tick.
+const TTS_PLAYBACK_RATE_STEP = 0.05;
+export const SPEED_SAVE_DEBOUNCE_MS = 400;
+
+function formatRate(rate: number): string {
+  return `${Number(rate.toFixed(2))}×`;
+}
 
 export interface PreferencesVoicePaneProps {
   userId: string;
@@ -34,6 +48,52 @@ export function PreferencesVoicePane({
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [speed, setSpeed] = useState<number>(
+    userPrefs.ttsPlaybackRate ?? TTS_PLAYBACK_RATE_DEFAULT,
+  );
+  const [speedError, setSpeedError] = useState<string | null>(null);
+  const speedSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastSavedSpeed = useRef<number>(
+    userPrefs.ttsPlaybackRate ?? TTS_PLAYBACK_RATE_DEFAULT,
+  );
+
+  useEffect(() => {
+    const next = userPrefs.ttsPlaybackRate ?? TTS_PLAYBACK_RATE_DEFAULT;
+    lastSavedSpeed.current = next;
+    setSpeed(next);
+  }, [userPrefs.ttsPlaybackRate]);
+
+  useEffect(
+    () => () => {
+      if (speedSaveTimer.current) clearTimeout(speedSaveTimer.current);
+    },
+    [],
+  );
+
+  // Update the readout immediately; persist after the slider settles.
+  // 1.0 is stored as null so the user tracks the default.
+  const handleSpeedChange = useCallback(
+    (next: number) => {
+      setSpeed(next);
+      setSpeedError(null);
+      if (speedSaveTimer.current) clearTimeout(speedSaveTimer.current);
+      speedSaveTimer.current = setTimeout(() => {
+        speedSaveTimer.current = null;
+        const wire = next === TTS_PLAYBACK_RATE_DEFAULT ? null : next;
+        saveUserPreferences({ ttsPlaybackRate: wire })
+          .then(() => {
+            lastSavedSpeed.current = next;
+            onUserPrefsChanged?.({ ttsPlaybackRate: wire });
+          })
+          .catch(() => {
+            setSpeed(lastSavedSpeed.current);
+            setSpeedError("Couldn't save your speed preference — please try again.");
+          });
+      }, SPEED_SAVE_DEBOUNCE_MS);
+    },
+    [onUserPrefsChanged],
+  );
 
   // Sync effect: if an upstream change (e.g. from another tab or optimistic
   // update) modifies userPrefs.fallbackVoice, reflect it locally.
@@ -90,6 +150,54 @@ export function PreferencesVoicePane({
           {error}
         </div>
       )}
+
+      <div className="flex flex-col gap-2 mt-2">
+        <div className="flex items-center justify-between">
+          <label htmlFor="preferences-voice-speed">How fast your agents speak.</label>
+          <div className="flex items-center gap-3">
+            <span
+              className="tabular-nums text-[#e8e4d8]"
+              data-testid="preferences-voice-speed-value"
+            >
+              {formatRate(speed)}
+            </span>
+            <button
+              type="button"
+              className="text-[12px] underline text-[#8a8678] disabled:opacity-40 disabled:no-underline"
+              onClick={() => handleSpeedChange(TTS_PLAYBACK_RATE_DEFAULT)}
+              disabled={speed === TTS_PLAYBACK_RATE_DEFAULT}
+              data-testid="preferences-voice-speed-reset"
+            >
+              Reset
+            </button>
+          </div>
+        </div>
+        <input
+          id="preferences-voice-speed"
+          type="range"
+          min={TTS_PLAYBACK_RATE_MIN}
+          max={TTS_PLAYBACK_RATE_MAX}
+          step={TTS_PLAYBACK_RATE_STEP}
+          value={speed}
+          onChange={(e) => handleSpeedChange(Number(e.target.value))}
+          aria-valuetext={formatRate(speed)}
+          className="w-full accent-[var(--accent-brand)]"
+          data-testid="preferences-voice-speed"
+        />
+        <div className="flex justify-between text-[11px] text-[#8a8678]">
+          <span>{formatRate(TTS_PLAYBACK_RATE_MIN)}</span>
+          <span>Pitch rises with speed.</span>
+          <span>{formatRate(TTS_PLAYBACK_RATE_MAX)}</span>
+        </div>
+        {speedError !== null && (
+          <div
+            className="text-sm text-red-400"
+            data-testid="preferences-voice-speed-error"
+          >
+            {speedError}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

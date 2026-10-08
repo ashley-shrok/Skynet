@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
 
 // Phase 85 (D-22) — INVARIANT: any code that deletes a users row MUST call
@@ -845,6 +845,7 @@ export const userPreferences = sqliteTable("user_preferences", {
   accentColor: text("accent_color"),
   language: text("language"),
   fallbackVoice: text("fallback_voice"),  // NEW per Phase 137 D-14 (nullable — null → TTS provider default voice)
+  ttsPlaybackRate: real("tts_playback_rate"),  // per-user speak playback speed (nullable — null → 1.0)
   updatedAt: text("updated_at")
     .notNull()
     .default(sql`CURRENT_TIMESTAMP`),

@@ -31,6 +31,11 @@ const authenticateJWT = authManager.createAuthMiddleware();
 // subsequent GETs / bloats the encrypted SQLite volume.
 const PINNED_CONVERSATION_IDS_MAX_LENGTH = 1000;
 
+// Per-user speak playback speed bounds. Mirrors TTS_PLAYBACK_RATE_MIN/MAX in
+// src/ui/features/pretty-view/webAudioStreamPlayer.ts — keep the two in step.
+export const TTS_PLAYBACK_RATE_MIN = 0.25;
+export const TTS_PLAYBACK_RATE_MAX = 4;
+
 /**
  * Phase 92 Plan 92-02: parseIdentityHosts mirrors identities.ts:239-255 shape.
  *
@@ -69,6 +74,7 @@ const pickPreferences = (row?: typeof userPreferences.$inferSelect) => ({
   accentColor: row?.accentColor ?? null,
   language: row?.language ?? null,
   fallbackVoice: row?.fallbackVoice ?? null,  // NEW per Phase 137 D-14
+  ttsPlaybackRate: row?.ttsPlaybackRate ?? null,
   // Phase 92 Plan 92-02: pinnedConversationIds NO LONGER surfaces on the GET
   // response body — the row is not consulted for pins (D-03 no DB mirror).
   // The frontend Plan 04 projects pinned state from GET /identities' per-
@@ -137,6 +143,7 @@ export async function handlePutPreferences(
     accentColor,
     language,
     fallbackVoice,  // NEW per Phase 137 D-14
+    ttsPlaybackRate,
     pinnedConversationIds,
     identityHosts: identityHostsRaw,
   } = (body ?? {}) as {
@@ -146,6 +153,7 @@ export async function handlePutPreferences(
     accentColor?: string | null;
     language?: string | null;
     fallbackVoice?: string | null;  // NEW per Phase 137 D-14
+    ttsPlaybackRate?: unknown;
     pinnedConversationIds?: unknown;
     identityHosts?: unknown;
   };
@@ -184,11 +192,27 @@ export async function handlePutPreferences(
     });
   }
 
+  // ttsPlaybackRate: null resets to the 1.0 default; otherwise a finite number
+  // inside [TTS_PLAYBACK_RATE_MIN, TTS_PLAYBACK_RATE_MAX].
+  if (
+    ttsPlaybackRate !== undefined &&
+    ttsPlaybackRate !== null &&
+    (typeof ttsPlaybackRate !== "number" ||
+      !Number.isFinite(ttsPlaybackRate) ||
+      ttsPlaybackRate < TTS_PLAYBACK_RATE_MIN ||
+      ttsPlaybackRate > TTS_PLAYBACK_RATE_MAX)
+  ) {
+    return res.status(400).json({
+      error: `ttsPlaybackRate must be a number between ${TTS_PLAYBACK_RATE_MIN} and ${TTS_PLAYBACK_RATE_MAX}, or null to reset`,
+    });
+  }
+
   if (theme !== undefined) updates.theme = theme;
   if (fontSize !== undefined) updates.fontSize = fontSize;
   if (accentColor !== undefined) updates.accentColor = accentColor;
   if (language !== undefined) updates.language = language;
   if (fallbackVoice !== undefined) updates.fallbackVoice = fallbackVoice;  // ADD per Phase 137 D-14
+  if (ttsPlaybackRate !== undefined) updates.ttsPlaybackRate = ttsPlaybackRate as number | null;
 
   // Function-scope scratch for the disk-authoritative echo the response emits
   // for the pin fanout slice. Populated inside the try block below.
@@ -526,6 +550,10 @@ export async function handlePutPreferences(
  *                   type: string
  *                   nullable: true
  *                   description: "Per-user fallback voice for the speak flow. Null resolves to the active TTS provider's default voice. Phase 137 D-14."
+ *                 ttsPlaybackRate:
+ *                   type: number
+ *                   nullable: true
+ *                   description: "Per-user speak playback speed, 0.25-4. Null resolves to 1.0."
  */
 router.get("/", authenticateJWT, (req: Request, res: Response) => {
   const userId = (req as AuthenticatedRequest).userId;
@@ -550,6 +578,10 @@ router.get("/", authenticateJWT, (req: Request, res: Response) => {
  *                 type: string
  *                 nullable: true
  *                 description: "Per-user fallback voice for the speak flow. Null resolves to the active TTS provider's default voice. Phase 137 D-14."
+ *               ttsPlaybackRate:
+ *                 type: number
+ *                 nullable: true
+ *                 description: "Per-user speak playback speed, 0.25-4. Null resets to 1.0."
  *               pinnedConversationIds:
  *                 type: array
  *                 items:

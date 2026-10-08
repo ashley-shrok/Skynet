@@ -10,7 +10,11 @@
  * Phase 19, Plan 04 (patch #237).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { createWebAudioStreamPlayer } from "./webAudioStreamPlayer";
+import {
+  createWebAudioStreamPlayer,
+  getTtsPlaybackRate,
+  setTtsPlaybackRate,
+} from "./webAudioStreamPlayer";
 
 // ─── Mock AudioContext infrastructure ────────────────────────────────────────
 
@@ -656,5 +660,47 @@ describe("createWebAudioStreamPlayer", () => {
     }
 
     await playPromise;
+  });
+});
+
+describe("per-user playback rate", () => {
+  afterEach(() => setTtsPlaybackRate(null));
+
+  it("Rate 1 — defaults to 1.0 and resets to 1.0 on null / out-of-range / non-finite", () => {
+    expect(getTtsPlaybackRate()).toBe(1);
+    for (const bad of [null, undefined, 0, 0.2, 4.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      setTtsPlaybackRate(1.5);
+      setTtsPlaybackRate(bad);
+      expect(getTtsPlaybackRate()).toBe(1);
+    }
+    setTtsPlaybackRate(0.25);
+    expect(getTtsPlaybackRate()).toBe(0.25);
+    setTtsPlaybackRate(4);
+    expect(getTtsPlaybackRate()).toBe(4);
+  });
+
+  it("Rate 2 — a player applies the rate set before it was created, and paces the schedule by it", async () => {
+    setTtsPlaybackRate(2);
+    // 2000 frames @ 1000Hz = 2s buffer → 1s audible at 2×.
+    const pcm = new Uint8Array(2000 * 2);
+    const chunk = makeWavChunk(pcm, { channels: 1, sampleRate: 1000, bitDepth: 16 });
+    const player = createWebAudioStreamPlayer({});
+    const second = new Uint8Array(2000 * 2);
+
+    await player.play(makeMockResponse([chunk, second]));
+
+    const ctx = ctxInstances[0];
+    expect(ctx.sources).toHaveLength(2);
+    expect(ctx.sources[0].playbackRate.value).toBe(2);
+    expect(ctx.sources[1]._startedAt - ctx.sources[0]._startedAt).toBeCloseTo(1, 5);
+  });
+
+  it("Rate 3 — changing the rate mid-play doesn't affect a player already created", async () => {
+    setTtsPlaybackRate(1.25);
+    const player = createWebAudioStreamPlayer({});
+    setTtsPlaybackRate(3);
+    const pcm = new Uint8Array([0x00, 0x00, 0xff, 0x7f]);
+    await player.play(makeMockResponse([makeWavChunk(pcm)]));
+    expect(ctxInstances[0].sources[0].playbackRate.value).toBe(1.25);
   });
 });

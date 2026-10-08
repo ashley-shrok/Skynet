@@ -21,16 +21,33 @@
 import { parseRiffHeader, decodePcmChunk, type RiffHeader } from "./riffPcmDecode";
 
 // Client-side playback speedup. Applied per AudioBufferSourceNode; pitch scales
-// with rate (Web Audio API has no native time-stretch), so keep this modest.
+// with rate (Web Audio API has no native time-stretch).
 // Advancing `nextStartTimeRef` must divide by this value to stay gapless.
-// Default 1.0 (native rate); override per Skynet deployment via the build-time
-// env `VITE_TTS_PLAYBACK_RATE` (e.g. `VITE_TTS_PLAYBACK_RATE=1.25`). A
-// non-finite or non-positive value falls back to the default.
-const TTS_PLAYBACK_RATE: number = (() => {
-  const raw = import.meta.env.VITE_TTS_PLAYBACK_RATE;
-  const parsed = raw != null ? Number(raw) : NaN;
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1.0;
-})();
+// Per-user preference (user_preferences.tts_playback_rate), pushed in by
+// AppShell via setTtsPlaybackRate whenever the user's preferences load or
+// change. Each player snapshots the rate at creation, so a change applies
+// from the next message spoken. null / out-of-range → 1.0 (native rate).
+// Bounds mirror TTS_PLAYBACK_RATE_MIN/MAX in
+// src/backend/database/routes/user-preferences.ts — keep the two in step.
+export const TTS_PLAYBACK_RATE_DEFAULT = 1.0;
+export const TTS_PLAYBACK_RATE_MIN = 0.25;
+export const TTS_PLAYBACK_RATE_MAX = 4;
+
+let currentTtsPlaybackRate = TTS_PLAYBACK_RATE_DEFAULT;
+
+export function setTtsPlaybackRate(rate: number | null | undefined): void {
+  currentTtsPlaybackRate =
+    typeof rate === "number" &&
+    Number.isFinite(rate) &&
+    rate >= TTS_PLAYBACK_RATE_MIN &&
+    rate <= TTS_PLAYBACK_RATE_MAX
+      ? rate
+      : TTS_PLAYBACK_RATE_DEFAULT;
+}
+
+export function getTtsPlaybackRate(): number {
+  return currentTtsPlaybackRate;
+}
 
 // the operator 2026-09-20 — Chrome silently drops audio output for
 // AudioBufferSourceNodes scheduled too far ahead of the playhead
@@ -117,6 +134,7 @@ export function createWebAudioStreamPlayer(
   opts: WebAudioStreamPlayerOptions = {},
 ): WebAudioStreamPlayer {
   // ─── Internal state ─────────────────────────────────────────────────────────
+  const playbackRate = currentTtsPlaybackRate;
   let audioContext: AudioContext | null = null;
   let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
   const sources: AudioBufferSourceNode[] = [];
@@ -247,7 +265,7 @@ export function createWebAudioStreamPlayer(
 
     const source = ctx.createBufferSource();
     source.buffer = buffer;
-    source.playbackRate.value = TTS_PLAYBACK_RATE;
+    source.playbackRate.value = playbackRate;
     source.connect(ctx.destination);
     const idx = sources.length;
     source.onended = () => onSourceEnded(idx);
@@ -262,7 +280,7 @@ export function createWebAudioStreamPlayer(
     source.start(nextStartTimeRef.value);
     // Audible duration = buffer.duration / playbackRate. Advance by that so
     // consecutive sources remain gapless at the accelerated rate.
-    const audibleDuration = buffer.duration / TTS_PLAYBACK_RATE;
+    const audibleDuration = buffer.duration / playbackRate;
     const startTime = nextStartTimeRef.value;
     const expectedEnd = startTime + audibleDuration;
     nextStartTimeRef.value = expectedEnd;
@@ -270,7 +288,7 @@ export function createWebAudioStreamPlayer(
     scheduledMeta.push({ idx, startTime, bufferDuration: buffer.duration, audibleDuration, expectedEnd });
     const clamped = preClampNextStart !== startTime;
     console.info(
-      `[tts-player] schedule idx=${idx} start=${startTime.toFixed(3)} bufDur=${buffer.duration.toFixed(3)} audible=${audibleDuration.toFixed(3)} expectedEnd=${expectedEnd.toFixed(3)} ctxTime=${ctx.currentTime.toFixed(3)} clamped=${clamped} ctxState=${ctx.state}`,
+      `[tts-player] schedule idx=${idx} start=${startTime.toFixed(3)} bufDur=${buffer.duration.toFixed(3)} audible=${audibleDuration.toFixed(3)} expectedEnd=${expectedEnd.toFixed(3)} ctxTime=${ctx.currentTime.toFixed(3)} clamped=${clamped} ctxState=${ctx.state} rate=${playbackRate}`,
     );
   }
 
@@ -380,7 +398,7 @@ export function createWebAudioStreamPlayer(
         // (pcmRemainder guarantee holds across sub-splits since the outer
         // chunk was already frame-aligned above).
         const bytesPerAudibleSecond =
-          header.sampleRate * frameBytes * TTS_PLAYBACK_RATE;
+          header.sampleRate * frameBytes * playbackRate;
         const maxBytesPerSubChunk = Math.max(
           frameBytes,
           Math.floor(

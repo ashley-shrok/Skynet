@@ -58,6 +58,7 @@ type Row = {
   accentColor: string | null;
   language: string | null;
   fallbackVoice: string | null;  // NEW per Phase 137 D-14
+  ttsPlaybackRate?: number | null;
   pinnedConversationIds: string | null;
   updatedAt: string;
 };
@@ -99,6 +100,7 @@ const insertChain = {
           accentColor: v.accentColor ?? existing?.accentColor ?? null,
           language: v.language ?? existing?.language ?? null,
           fallbackVoice: v.fallbackVoice ?? existing?.fallbackVoice ?? null,  // NEW per Phase 137 D-14
+          ttsPlaybackRate: v.ttsPlaybackRate ?? existing?.ttsPlaybackRate ?? null,
           pinnedConversationIds:
             v.pinnedConversationIds ?? existing?.pinnedConversationIds ?? null,
           updatedAt: v.updatedAt ?? new Date().toISOString(),
@@ -1017,4 +1019,62 @@ describe("Phase 137: PUT fallbackVoice acceptance (D-14)", () => {
     // reopenTabsOnLogin is NOT echoed back
     expect(body).not.toHaveProperty("reopenTabsOnLogin");
   });
+});
+
+// ===========================================================================
+// Per-user TTS playback speed — ttsPlaybackRate GET/PUT
+// ===========================================================================
+
+describe("ttsPlaybackRate GET/PUT", () => {
+  it("TTS-01: GET for a user with no row returns ttsPlaybackRate: null", () => {
+    const res = makeRes();
+    handleGetPreferences(USER_ID, res as unknown as Response);
+
+    expect(res._status).toBe(200);
+    const body = res._body as Record<string, unknown>;
+    expect(body.ttsPlaybackRate).toBeNull();
+  });
+
+  it.each([0.25, 1, 1.25, 4])(
+    "TTS-02: PUT ttsPlaybackRate: %s returns 200 and echoes it",
+    async (rate) => {
+      const res = makeRes();
+      await handlePutPreferences(
+        USER_ID,
+        { ttsPlaybackRate: rate },
+        res as unknown as Response,
+      );
+
+      expect(res._status).toBe(200);
+      const body = res._body as Record<string, unknown>;
+      expect(body.ttsPlaybackRate).toBe(rate);
+    },
+  );
+
+  it("TTS-03: PUT ttsPlaybackRate: null returns 200 (null resets to 1.0)", async () => {
+    const res = makeRes();
+    await handlePutPreferences(
+      USER_ID,
+      { ttsPlaybackRate: null },
+      res as unknown as Response,
+    );
+
+    expect(res._status).toBe(200);
+  });
+
+  it.each([0.2, 4.01, 0, -1, Number.NaN, Number.POSITIVE_INFINITY, "1.25", true])(
+    "TTS-04: PUT ttsPlaybackRate: %s returns 400",
+    async (rate) => {
+      const res = makeRes();
+      await handlePutPreferences(
+        USER_ID,
+        { ttsPlaybackRate: rate },
+        res as unknown as Response,
+      );
+
+      expect(res._status).toBe(400);
+      const body = res._body as { error?: string };
+      expect(body.error).toContain("ttsPlaybackRate");
+    },
+  );
 });

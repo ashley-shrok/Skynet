@@ -11,9 +11,9 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { PreferencesVoicePane } from "./PreferencesVoicePane";
+import { PreferencesVoicePane, SPEED_SAVE_DEBOUNCE_MS } from "./PreferencesVoicePane";
 import type { UserPreferences } from "@/api/open-tabs-api";
 
 // Mock saveUserPreferences from open-tabs-api
@@ -155,5 +155,82 @@ describe("PreferencesVoicePane", () => {
     // Mock was called immediately (no debounce after apply).
     expect(mockSave).toHaveBeenCalledTimes(1);
     expect(mockSave).toHaveBeenCalledWith({ fallbackVoice: "Matthew" });
+  });
+});
+
+describe("PreferencesVoicePane — speed slider", () => {
+  it("speed 1: renders the saved speed, or 1× when unset", () => {
+    const { unmount } = render(
+      <PreferencesVoicePane userId="user1" userPrefs={makePrefs({ ttsPlaybackRate: 1.25 })} />,
+    );
+    expect((screen.getByTestId("preferences-voice-speed") as HTMLInputElement).value).toBe("1.25");
+    expect(screen.getByTestId("preferences-voice-speed-value").textContent).toBe("1.25×");
+    unmount();
+
+    render(<PreferencesVoicePane userId="user1" userPrefs={makePrefs()} />);
+    expect(screen.getByTestId("preferences-voice-speed-value").textContent).toBe("1×");
+  });
+
+  it("speed 2: spans 0.25×–4× in 0.05 steps", () => {
+    render(<PreferencesVoicePane userId="user1" userPrefs={makePrefs()} />);
+    const slider = screen.getByTestId("preferences-voice-speed") as HTMLInputElement;
+    expect(slider.min).toBe("0.25");
+    expect(slider.max).toBe("4");
+    expect(slider.step).toBe("0.05");
+  });
+
+  it("speed 3: a burst of changes saves once, after the debounce, with the final value", async () => {
+    vi.useFakeTimers();
+    try {
+      const onChanged = vi.fn();
+      render(
+        <PreferencesVoicePane userId="user1" userPrefs={makePrefs()} onUserPrefsChanged={onChanged} />,
+      );
+      const slider = screen.getByTestId("preferences-voice-speed");
+      fireEvent.change(slider, { target: { value: "1.5" } });
+      fireEvent.change(slider, { target: { value: "2.75" } });
+      expect(screen.getByTestId("preferences-voice-speed-value").textContent).toBe("2.75×");
+      expect(mockSave).not.toHaveBeenCalled();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(SPEED_SAVE_DEBOUNCE_MS);
+      });
+      expect(mockSave).toHaveBeenCalledTimes(1);
+      expect(mockSave).toHaveBeenCalledWith({ ttsPlaybackRate: 2.75 });
+      expect(onChanged).toHaveBeenCalledWith({ ttsPlaybackRate: 2.75 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("speed 4: Reset saves null so the user tracks the 1× default", async () => {
+    vi.useFakeTimers();
+    try {
+      render(<PreferencesVoicePane userId="user1" userPrefs={makePrefs({ ttsPlaybackRate: 1.25 })} />);
+      fireEvent.click(screen.getByTestId("preferences-voice-speed-reset"));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(SPEED_SAVE_DEBOUNCE_MS);
+      });
+      expect(mockSave).toHaveBeenCalledWith({ ttsPlaybackRate: null });
+      expect(screen.getByTestId("preferences-voice-speed-value").textContent).toBe("1×");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("speed 5: failed save reverts to the last saved speed and shows an inline error", async () => {
+    vi.useFakeTimers();
+    try {
+      mockSave.mockRejectedValueOnce(new Error("boom"));
+      render(<PreferencesVoicePane userId="user1" userPrefs={makePrefs({ ttsPlaybackRate: 1.25 })} />);
+      fireEvent.change(screen.getByTestId("preferences-voice-speed"), { target: { value: "3" } });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(SPEED_SAVE_DEBOUNCE_MS);
+      });
+      expect(screen.getByTestId("preferences-voice-speed-value").textContent).toBe("1.25×");
+      expect(screen.getByTestId("preferences-voice-speed-error")).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

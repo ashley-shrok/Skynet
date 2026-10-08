@@ -74,6 +74,7 @@ import { dbHealthMonitor } from "@/lib/db-health-monitor";
 import type { SSHHostWithStatus } from "@/main-axios";
 // Phase 11 Plan 03 (PURGE-03): ConnectionsPanel import RETIRED alongside AppRail.
 import { PrettyConversationsPanel } from "@/features/pretty-conversations/PrettyConversationsPanel";
+import { setTtsPlaybackRate } from "@/features/pretty-view/webAudioStreamPlayer";
 // Phase 122 Plan 03 Task 3 — ConversationSearchResult type for the new
 // onSearchResultOpenActive prop wired to PrettyConversationsPanel below
 // (mirrors the onDetachedRowClick handler shape at line ~3068).
@@ -1461,6 +1462,12 @@ export function AppShell({
       .catch(() => {})
       .finally(() => setUserPrefsLoaded(true));
   }, []);
+
+  // Per-user speak playback speed: push into the player module whenever the
+  // preference loads or the Voice pane changes it.
+  useEffect(() => {
+    setTtsPlaybackRate(userPrefs.ttsPlaybackRate);
+  }, [userPrefs.ttsPlaybackRate]);
 
   // Load real hosts from API
   const loadHosts = useCallback(async () => {

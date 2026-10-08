@@ -98,6 +98,7 @@ export interface UserPreferences {
   accentColor?: string | null;
   language?: string | null;
   fallbackVoice?: string | null; // Phase 137 D-14 — per-user fallback voice for the speak flow; null resolves to the TTS provider's default voice
+  ttsPlaybackRate?: number | null; // per-user speak playback speed (0.25-4); null resolves to 1.0
 }
 
 export async function getUserPreferences(): Promise<UserPreferences> {
