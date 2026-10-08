@@ -16,8 +16,8 @@ import { fetchSkillCatalog, DEFAULT_SKILL_CATALOG_TIMEOUT_MS } from "../../voice
 // onto the backend behind the AWS SDK v3 adapters from Plan 04 + the pure
 // kernels from Plan 02.
 import { synthesizeToPcm } from "../../voice/polly-adapter.js";
-import { transcribeNovaSonic } from "../../voice/nova-sonic-adapter.js";
-import { webmToPcm16k, padPcmToMinDuration, MIN_PCM_DURATION_MS } from "../../voice/audio-transcode.js";
+import { resolveSttProvider, type SttInput, type SttProvider } from "../../voice/stt-provider.js";
+import { SttNotConfiguredError } from "../../voice/stt-errors.js";
 import { splitIntoSentences, packChunks } from "../../voice/chunk-and-stitch.js";
 import { buildRiffHeader } from "../../voice/riff-header-builder.js";
 import { isValidPollyVoice } from "../../voice/polly-voice-catalog.js";
@@ -51,62 +51,34 @@ const upload = multer({
   limits: { fileSize: 25 * 1024 * 1024 },
 });
 
-// --- Retriable Nova Sonic error classification ---
-// Bedrock occasionally returns transient stream errors whose own message
-// says "Try your request again." Server-side auto-retry catches these
-// before the user sees a 502 and loses their dictated message (the
-// transcribe-bank still preserves the raw webm, but by the time it lands
-// the client has already dropped the blob and returned state=idle).
-//
-// Concrete cases seen in prod:
-//   ModelStreamErrorException  — "The system encountered an unexpected
-//                                error during processing. Try your
-//                                request again." (2026-09-28 incident)
-//   InternalServerException    — Bedrock-side 5xx.
-//   ThrottlingException        — rate-limited; retry with backoff.
-//   ServiceUnavailableException — service busy.
-//
-// Deliberately NOT retriable:
-//   ValidationException  — client bug (bad input), retrying won't help.
-//   AccessDeniedException — policy detached; caller handles via
-//                            isAwsAccessDenied → 503.
-//   ModelErrorException  — content-side rejection; retrying rarely helps.
-const RETRIABLE_NOVA_SONIC_ERRORS = new Set<string>([
-  "ModelStreamErrorException",
-  "InternalServerException",
-  "ThrottlingException",
-  "ServiceUnavailableException",
-]);
-
-function isRetriableNovaSonicError(err: unknown): boolean {
-  const name = (err as { name?: unknown })?.name;
-  return typeof name === "string" && RETRIABLE_NOVA_SONIC_ERRORS.has(name);
-}
-
 /**
- * Call Nova Sonic with auto-retry on retriable stream errors. Total
- * attempts capped at maxAttempts; backoff is linear (500ms × attempt).
- * Rethrows the last error unchanged when all attempts exhaust or when
- * the error is non-retriable — the caller's existing 502/503 handling
- * still fires.
+ * Call the instance's STT provider with auto-retry on errors the provider
+ * classifies as transient (Bedrock stream errors, HTTP 429/5xx, network).
+ * Server-side retry catches these before the user sees a 502 and loses their
+ * dictated message (the transcribe-bank still preserves the raw upload, but
+ * by then the client has already dropped the blob and returned to idle).
+ * Total attempts capped at maxAttempts; backoff is linear (500ms × attempt).
+ * Rethrows the last error unchanged when all attempts exhaust or when the
+ * error is non-retriable — the caller's existing 502/503 handling still fires.
  */
 async function transcribeWithRetries(
-  pcmBuf: Buffer,
+  provider: SttProvider,
+  input: SttInput,
   maxAttempts: number = 3,
 ): Promise<string> {
   let lastErr: unknown;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      return await transcribeNovaSonic(pcmBuf);
+      return await provider.transcribe(input);
     } catch (err: unknown) {
       lastErr = err;
-      if (attempt < maxAttempts && isRetriableNovaSonicError(err)) {
+      if (attempt < maxAttempts && provider.isRetriable(err)) {
         const backoffMs = 500 * attempt;
         const errName = (err as { name?: string })?.name ?? "unknown";
         const errMessage = err instanceof Error ? err.message : String(err);
         databaseLogger.warn(
-          `[voice-server] transcribe-retry attempt=${attempt}/${maxAttempts} errName=${errName} errMessage="${errMessage}" backoffMs=${backoffMs}`,
-          { operation: "voice_transcribe_retry", attempt, maxAttempts, errName, backoffMs },
+          `[voice-server] transcribe-retry provider=${provider.id} attempt=${attempt}/${maxAttempts} errName=${errName} errMessage="${errMessage}" backoffMs=${backoffMs}`,
+          { operation: "voice_transcribe_retry", provider: provider.id, attempt, maxAttempts, errName, backoffMs },
         );
         await new Promise<void>((resolve) => setTimeout(resolve, backoffMs));
         continue;
@@ -126,41 +98,6 @@ function extFromMimetype(mimetype: string): string {
   if (mimetype.includes("flac")) return "flac";
   if (mimetype.includes("mp3") || mimetype.includes("mpeg")) return "mp3";
   return "bin";
-}
-
-/**
- * Bridge the raw multipart audio bytes into a Nova Sonic-accepted format.
- *
- * D-REWIRE + D-AUDIO (109-CONTEXT.md): Production is always WebM/Opus from
- * the browser's MediaRecorder. The FLAC and Ogg passthrough branches (for
- * direct FLAC/Ogg uploads) have been removed — they were never hit in
- * production and Nova Sonic on Bedrock accepts only LPCM s16le mono 16 kHz.
- *
- * Single path: WebM → `webmToPcm16k` → 16 kHz LPCM mono s16le buffer.
- * The `ext` parameter is retained (used by the disk-bank filename builder
- * upstream) but is unused in this function body.
- *
- * @throws when webmToPcm16k fails (caller returns 502).
- */
-async function transcodeForTranscribe(
-  buf: Buffer,
-  ext: string,
-): Promise<{ buffer: Buffer; sampleRateHz: number }> {
-  void ext;
-  // D-AUDIO: WebM → LPCM 16 kHz mono s16le — the only shape Nova Sonic accepts.
-  const pcmBuf = await webmToPcm16k(buf);
-  // Nova Sonic returns "" on <3s clips (streaming ASR needs the trailing-silence
-  // "user finished" cue). Right-pad zeros to MIN_PCM_DURATION_MS. See
-  // padPcmToMinDuration for the experiment behind this threshold.
-  const paddedBuf = padPcmToMinDuration(pcmBuf);
-  if (paddedBuf.length > pcmBuf.length) {
-    const originalMs = Math.round((pcmBuf.length / 32000) * 1000);
-    databaseLogger.info(
-      `[voice-server] transcribe-silence-pad originalMs=${originalMs} paddedMs=${MIN_PCM_DURATION_MS}`,
-      { operation: "voice_transcribe_silence_pad", originalMs, paddedMs: MIN_PCM_DURATION_MS },
-    );
-  }
-  return { buffer: paddedBuf, sampleRateHz: 16000 };
 }
 
 // --- Core handler (exported for direct testing without Express harness) ---
@@ -199,19 +136,18 @@ export async function handleTranscribe(req: Request, res: Response): Promise<Res
 
   databaseLogger.info(`[voice-server] transcribe-req byteSize=${file.size} mimetype=${file.mimetype}`, { operation: "voice_transcribe" });
 
+  // Resolved per request; an unknown STT_PROVIDER surfaces as 503 below.
+  let provider: SttProvider | undefined;
   try {
-    // (b) Transcode raw bytes to a Transcribe-accepted format. WebM → try Ogg-Opus
-    //     remux; on failure, fall back to FLAC full-transcode. MediaEncoding
-    //     switches accordingly.
-    const transcodeResult = await transcodeForTranscribe(file.buffer, ext);
+    // (b) The provider owns any format conversion it needs (Bedrock
+    //     transcodes WebM → 16 kHz PCM; the HTTP providers take WebM as-is).
+    // (c) Wrapped in transcribeWithRetries so transient provider errors
+    //     (Bedrock ModelStreamErrorException, HTTP 429/5xx) don't drop the
+    //     user's dictated message on the first flake.
+    provider = resolveSttProvider();
+    const transcript = await transcribeWithRetries(provider, { audio: file.buffer, mimetype: file.mimetype, ext });
 
-    // (c) D-CUTOVER: single-adapter path — transcribeNovaSonic(pcmBuf).
-    // Wrapped in transcribeWithRetries so Bedrock's transient stream
-    // errors (ModelStreamErrorException et al) don't drop the user's
-    // dictated message on the first flake.
-    const transcript = await transcribeWithRetries(transcodeResult.buffer);
-
-    databaseLogger.info(`[voice-server] transcribe-ok textLen=${transcript.length}`, { operation: "voice_transcribe" });
+    databaseLogger.info(`[voice-server] transcribe-ok provider=${provider.id} textLen=${transcript.length}`, { operation: "voice_transcribe", provider: provider.id });
 
     // --- Phase 34: server-side slash-command transform (PRESERVED VERBATIM) ---
     // If the transcript starts with the "slash <content>" wake-word AND the
@@ -255,11 +191,14 @@ export async function handleTranscribe(req: Request, res: Response): Promise<Res
     }
     return res.status(200).json({ text: transcript });
   } catch (err: unknown) {
-    // (d) AccessDenied → policy detached → structured 503 (T-98-06-04 / P98-OFF-01)
-    if (isAwsAccessDenied(err)) {
+    // (d) Misconfigured or unauthorised provider → structured 503
+    //     (T-98-06-04 / P98-OFF-01: AWS AccessDenied when the policy is
+    //     detached; missing/rejected API key or unknown STT_PROVIDER).
+    if (err instanceof SttNotConfiguredError || provider?.isUnavailable(err)) {
+      const errMessage = err instanceof Error ? err.message : String(err);
       databaseLogger.info(
-        `[voice-server] transcribe-access-denied — policy not attached`,
-        { operation: "voice_transcribe_access_denied" },
+        `[voice-server] transcribe-unavailable provider=${provider?.id ?? "none"} reason="${errMessage}"`,
+        { operation: "voice_transcribe_access_denied", provider: provider?.id },
       );
       return res.status(503).json({ error: "voice STT unavailable", status: 503 });
     }
@@ -271,9 +210,9 @@ export async function handleTranscribe(req: Request, res: Response): Promise<Res
     const errName = err instanceof Error ? err.name : "unknown";
     const errMessage = err instanceof Error ? err.message : String(err);
     databaseLogger.error(
-      `[voice-server] transcribe-error errName=${errName} errMessage="${errMessage}"`,
+      `[voice-server] transcribe-error provider=${provider?.id ?? "none"} errName=${errName} errMessage="${errMessage}"`,
       err instanceof Error ? err : new Error(String(err)),
-      { operation: "voice_transcribe_error", errName },
+      { operation: "voice_transcribe_error", provider: provider?.id, errName },
     );
     return res.status(502).json({ error: "STT error", status: 502 });
   }

@@ -408,6 +408,81 @@ describe("handleTranscribe (Amazon Nova Sonic on Bedrock)", () => {
 // handleSpeak — validation + RIFF-header dataSize + AccessDenied
 // =============================================================================
 
+describe("handleTranscribe (STT_PROVIDER selection)", () => {
+  const savedEnv = { ...process.env };
+  const fetchMock = vi.fn<typeof fetch>();
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockReset();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    process.env = { ...savedEnv };
+  });
+
+  async function transcribe(): Promise<MockRes> {
+    const audioBytes = Buffer.from("fake webm bytes");
+    const req = makeReq({ buffer: audioBytes, mimetype: "audio/webm", size: audioBytes.length });
+    const res = makeRes();
+    await handleTranscribe(
+      req as unknown as import("express").Request,
+      res as unknown as import("express").Response,
+    );
+    return res;
+  }
+
+  it("STT_PROVIDER=groq sends the raw upload over HTTP — no PCM transcode, no Bedrock", async () => {
+    process.env.STT_PROVIDER = "groq";
+    process.env.GROQ_API_KEY = "gq-key";
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ text: "hi from groq" }), { status: 200 }));
+
+    const res = await transcribe();
+
+    expect(res._status).toBe(200);
+    expect((res._body as { text: string }).text).toBe("hi from groq");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(webmToPcm16k)).not.toHaveBeenCalled();
+    expect(vi.mocked(transcribeNovaSonic)).not.toHaveBeenCalled();
+  });
+
+  it("retries a 503 from an HTTP provider, then succeeds", async () => {
+    process.env.STT_PROVIDER = "elevenlabs";
+    process.env.ELEVENLABS_API_KEY = "el-key";
+    fetchMock
+      .mockResolvedValueOnce(new Response("busy", { status: 503 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ text: "second try" }), { status: 200 }));
+
+    const res = await transcribe();
+
+    expect(res._status).toBe(200);
+    expect((res._body as { text: string }).text).toBe("second try");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("selected HTTP provider without its API key → 503 voice STT unavailable", async () => {
+    process.env.STT_PROVIDER = "mistral";
+    delete process.env.MISTRAL_API_KEY;
+
+    const res = await transcribe();
+
+    expect(res._status).toBe(503);
+    expect((res._body as { error: string }).error).toBe("voice STT unavailable");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("unknown STT_PROVIDER → 503, never a silent fallback to another provider", async () => {
+    process.env.STT_PROVIDER = "nope";
+
+    const res = await transcribe();
+
+    expect(res._status).toBe(503);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(vi.mocked(transcribeNovaSonic)).not.toHaveBeenCalled();
+  });
+});
+
 describe("handleSpeak (AWS Polly SynthesizeSpeech, non-streaming)", () => {
   it("returns 400 when body.text is missing", async () => {
     const req = makeSpeakReq({});
