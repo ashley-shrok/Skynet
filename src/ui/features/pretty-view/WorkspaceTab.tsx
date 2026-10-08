@@ -1,16 +1,15 @@
 /**
  * Phase 118 Plan 118-03 — WorkspaceTab.tsx
  *
- * The entire in-modal workspace file browser: list-mode + viewer-mode.
+ * The entire in-modal workspace file browser: file list + file viewer.
  *
  * Architecture:
  *   WorkspaceTab (default export)
- *     ├─ WorkspaceListView  — list-mode body (breadcrumb + toolbar + sortable
+ *     ├─ WorkspaceListView  — list body (breadcrumb + toolbar + sortable
  *     │                       columns + drag-drop + host chip + row overflow)
- *     └─ WorkspaceFileViewer — viewer-mode body (md / text / image / binary)
- *
- * D-10 (no modal stacking): WorkspaceFileViewer is a plain <div> child — no
- * modal or portal chrome wrapping. Grep gate enforces zero modal imports.
+ *     └─ WorkspaceFileViewer — editor-size <Modal> stacked over the host
+ *                              modal (supersedes the old inline D-10 swap, so
+ *                              files get the same room as the chat viewer)
  *
  * D-05 / D-06 (snapshot + no polling): a single useEffect + refreshKey counter.
  * No polling, no live subscriptions, no agent-facing side effects in this file.
@@ -25,9 +24,9 @@ import {
   useEffect,
   useRef,
   useState,
+  type ReactNode,
 } from "react";
 import {
-  ChevronLeft,
   ChevronRight,
   Download,
   File,
@@ -75,8 +74,10 @@ import type { TabState } from "./IdentityFileTab";
 import {
   FileUnavailableNotice,
   FileView,
+  FileViewModeSwitcher,
   type FileViewData,
 } from "./file-viewers/FileView";
+import { Modal, ModalBody, ModalHead } from "@/components/modal";
 import {
   fileViewIsEditable,
   fileViewNeverNeedsContent,
@@ -188,8 +189,8 @@ function ErrorBanner({
 }
 
 // ---------------------------------------------------------------------------
-// WorkspaceFileViewer — inline viewer-mode (D-09, D-10, D-11, D-12)
-// NO modal/portal chrome — inline plain div only (D-10 enforcement).
+// WorkspaceFileViewer — full-size file modal stacked over the host modal
+// (identity / role). Closing it lands back on the list, folder intact.
 // ---------------------------------------------------------------------------
 
 interface OpenFileState {
@@ -207,12 +208,13 @@ let workspaceFileVersion = 0;
 
 function WorkspaceFileViewer({
   file,
-  onBack,
+  onClose,
   target,
   hostId,
+  hue,
 }: {
   file: OpenFileState;
-  onBack: () => void;
+  onClose: () => void;
   target: WorkspaceTarget;
   hostId: number;
   hue: number;
@@ -335,11 +337,11 @@ function WorkspaceFileViewer({
     [targetDepKey(target), hostId, file.relativePath, file.name]
   );
 
-  // Back-nav guard: confirm before discarding unsaved edits.
-  const guardedBack = useCallback(() => {
+  // Close guard: confirm before discarding unsaved edits.
+  const guardedClose = useCallback(() => {
     if (dirty && !window.confirm("Discard unsaved changes?")) return;
-    onBack();
-  }, [dirty, onBack]);
+    onClose();
+  }, [dirty, onClose]);
 
   const canSave =
     (!skipFetch &&
@@ -357,58 +359,13 @@ function WorkspaceFileViewer({
     inline: true,
   });
 
-  // Header
-  const header = (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-        padding: "10px 14px",
-        borderBottom: "1px solid var(--color-pv-border-quiet)",
-        flexShrink: 0,
-      }}
-    >
-      <button
-        type="button"
-        onClick={guardedBack}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 4,
-          background: "none",
-          border: "none",
-          color: "var(--color-pv-fg-muted)",
-          cursor: "pointer",
-          fontSize: 13,
-          padding: "4px 8px",
-          borderRadius: 6,
-        }}
-        onMouseEnter={(e) => {
-          (e.currentTarget as HTMLButtonElement).style.background =
-            "var(--color-pv-border-quiet)";
-        }}
-        onMouseLeave={(e) => {
-          (e.currentTarget as HTMLButtonElement).style.background = "none";
-        }}
-      >
-        <ChevronLeft size={14} />
-        Back
-      </button>
-      <span
-        style={{
-          flex: 1,
-          fontSize: 13,
-          fontWeight: 600,
-          color: "var(--color-pv-fg)",
-          textAlign: "center",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-        }}
-      >
-        {file.name}
-      </span>
+  const headActions = (
+    <>
+      <FileViewModeSwitcher
+        filename={file.name}
+        mode={viewMode}
+        onModeChange={setViewMode}
+      />
       <a
         href={downloadUrl}
         target="_blank"
@@ -454,73 +411,57 @@ function WorkspaceFileViewer({
           {saving ? "Saving…" : "Save"}
         </button>
       )}
-    </div>
+    </>
   );
 
-  // Error state
+  let body: ReactNode;
   if (fileState.status === "error") {
     const copy = resolveWorkspaceErrorCopy(errorClass ?? fileState.error);
-    return (
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          height: "100%",
-          overflow: "hidden",
-        }}
-      >
-        {header}
-        <div style={{ padding: 16 }}>
-          <ErrorBanner heading={copy.heading} body={copy.body} />
-        </div>
+    body = (
+      <div style={{ padding: 16 }}>
+        <ErrorBanner heading={copy.heading} body={copy.body} />
       </div>
+    );
+  } else if (isTooLarge) {
+    body = (
+      <FileUnavailableNotice
+        heading="Too large to preview"
+        body="Files over 2 MB can't be shown here."
+        downloadUrl={downloadUrl}
+        filename={file.name}
+      />
+    );
+  } else {
+    body = (
+      <FileView
+        filename={file.name}
+        state={fileState}
+        mediaUrl={mediaUrl}
+        downloadUrl={downloadUrl}
+        onSave={(content) => handleSave(content)}
+        hideSaveButton
+        onDraftChange={setDirty}
+        onDraftContentChange={setDraft}
+        mode={viewMode ?? undefined}
+        onModeChange={setViewMode}
+        hideModeSwitcher
+        onBinaryDraftChange={setBinaryDraft}
+      />
     );
   }
 
-  const body = isTooLarge ? (
-    <FileUnavailableNotice
-      heading="Too large to preview"
-      body="Files over 2 MB can't be shown here."
-      downloadUrl={downloadUrl}
-      filename={file.name}
-    />
-  ) : (
-    <FileView
-      filename={file.name}
-      state={fileState}
-      mediaUrl={mediaUrl}
-      downloadUrl={downloadUrl}
-      onSave={(content) => handleSave(content)}
-      hideSaveButton
-      onDraftChange={setDirty}
-      onDraftContentChange={setDraft}
-      mode={viewMode ?? undefined}
-      onModeChange={setViewMode}
-      onBinaryDraftChange={setBinaryDraft}
-    />
-  );
-
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        overflow: "hidden",
-        background: "var(--color-pv-surface-quiet)",
+    <Modal
+      open
+      onOpenChange={(next) => {
+        if (!next) guardedClose();
       }}
+      hue={hue}
+      size="editor"
+      data-testid="workspace-file-modal"
     >
-      {header}
-      <div
-        style={{
-          flex: 1,
-          minHeight: 0,
-          overflow: "auto",
-          display: "flex",
-          flexDirection: "column",
-          padding: "8px 2px 2px",
-        }}
-      >
+      <ModalHead title={file.name} actions={headActions} />
+      <ModalBody className="p-0 flex flex-col px-6 py-4">
         {body}
         {saveError && (
           <div
@@ -534,8 +475,8 @@ function WorkspaceFileViewer({
             {saveError}
           </div>
         )}
-      </div>
-    </div>
+      </ModalBody>
+    </Modal>
   );
 }
 
@@ -1675,8 +1616,7 @@ export interface WorkspaceTabProps {
 
 // ---------------------------------------------------------------------------
 // WorkspaceTab — default export
-// Switches between list-mode and viewer-mode based on viewMode state.
-// currentPath is preserved during viewer-mode so Back returns to same folder.
+// File list, plus the file modal stacked over it while a file is open.
 // ---------------------------------------------------------------------------
 
 export default function WorkspaceTab({
@@ -1686,42 +1626,38 @@ export default function WorkspaceTab({
   hiddenNames,
   introCopy,
 }: WorkspaceTabProps): JSX.Element {
-  const [viewMode, setViewMode] = useState<"list" | "viewer">("list");
   const [currentPath, setCurrentPath] = useState<string[]>([]);
   const [openFile, setOpenFile] = useState<OpenFileState | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
-  // Viewer mode — inline swap (D-09, D-10)
-  if (viewMode === "viewer" && openFile) {
-    return (
-      <WorkspaceFileViewer
-        file={openFile}
-        onBack={() => {
-          setViewMode("list");
-        }}
+  // The list stays mounted under the file modal so closing it returns to
+  // the same folder and scroll position. Refresh on close picks up saves.
+  return (
+    <>
+      <WorkspaceListView
+        currentPath={currentPath}
+        onNavigate={setCurrentPath}
+        onOpenFile={setOpenFile}
         target={target}
         hostId={hostId}
         hue={hue}
+        refreshKey={refreshKey}
+        onRefresh={() => setRefreshKey((k) => k + 1)}
+        hiddenNames={hiddenNames}
+        introCopy={introCopy}
       />
-    );
-  }
-
-  // List mode
-  return (
-    <WorkspaceListView
-      currentPath={currentPath}
-      onNavigate={setCurrentPath}
-      onOpenFile={(file) => {
-        setOpenFile(file);
-        setViewMode("viewer");
-      }}
-      target={target}
-      hostId={hostId}
-      hue={hue}
-      refreshKey={refreshKey}
-      onRefresh={() => setRefreshKey((k) => k + 1)}
-      hiddenNames={hiddenNames}
-      introCopy={introCopy}
-    />
+      {openFile && (
+        <WorkspaceFileViewer
+          file={openFile}
+          onClose={() => {
+            setOpenFile(null);
+            setRefreshKey((k) => k + 1);
+          }}
+          target={target}
+          hostId={hostId}
+          hue={hue}
+        />
+      )}
+    </>
   );
 }
