@@ -784,7 +784,8 @@ crown, then gear.
     § User-wide file (`~/.claude/CLAUDE.md`) rules apply to agent-side
     changes (propose + wait for greenlight).
   - **Agent voices** — voice used by the per-bubble speak button on
-    agent messages.
+    agent messages, plus a **speed slider** (0.25×–4×, default 1×, with
+    a Reset) for how fast agents speak.
   - **Notifications** — set up push notifications on your phone via
     the ntfy iOS app. The pane shows four values to enter in the ntfy
     app's per-topic Login dialog — topic name, server address, ntfy
