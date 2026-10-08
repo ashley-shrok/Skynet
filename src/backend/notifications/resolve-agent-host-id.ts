@@ -1,17 +1,22 @@
 /**
  * resolveAgentHostId — mxid → local fleet hostId resolver for push routing.
  *
+ * LOCAL ONLY: this resolver covers identities whose folder lives on this
+ * box. In a multi-box fleet, agents on peer boxes DM the user through the
+ * same homeserver; push-trigger-starter.ts chains
+ * resolveRemoteAgentHostId (resolve-remote-agent-host-id.ts) after this
+ * one to cover them.
+ *
  * Push notifications need to carry a numeric fleet hostId in the payload so
  * the frontend's tap handler can route to the correct harness view without
  * depending on the phone's cached identity list being loaded (see
  * shape-notifications-to-harness.md § Philosophy: "The tap is deterministic.
  * The payload carries what the phone needs to route.").
  *
- * The push-trigger loop fires only for LOCAL agents' outbound DMs to the
- * local human user (D-01/D-02 in push-trigger-loop.ts), so the sender's
- * identity file lives on this box's `~/fleet/identities/` filesystem, and
- * its home host is one of the entries in the IDENTITIES_LOCAL_HOST_IDS
- * env var (parsed once at module load by identity-artifact-reader.ts).
+ * For a local sender, the identity file lives on this box's
+ * `~/fleet/identities/` filesystem, and its home host is one of the entries
+ * in the IDENTITIES_LOCAL_HOST_IDS env var (parsed once at module load by
+ * identity-artifact-reader.ts).
  *
  * Resolution:
  *   1. Match mxid against `@localpart:server`; malformed → null.
@@ -20,16 +25,14 @@
  *      The archive probe matters because identities routinely DM the user
  *      and then archive themselves — the push loop can observe that final
  *      DM after the folder has moved to `~/fleet/identities-archive/`.
- *      This is the belt-and-suspenders check that ensures we don't
- *      ship a hostId in the payload for an mxid whose identity file isn't
- *      actually on this box (D-01/D-02 shouldn't allow that case, but the
- *      resolver stays honest even if the classifier ever regresses).
+ *      This also ensures we don't ship a LOCAL hostId in the payload for
+ *      an mxid whose identity file isn't actually on this box.
  *   3. Return the first entry from LOCAL_HOST_IDS (production has exactly
  *      one entry per box; a multi-entry deploy would need a per-hostId
  *      probe, which we can add if that config ever materializes).
  *
- * Never throws. All failure modes return null; the caller (push-trigger-loop)
- * treats null as "cannot route, drop the push."
+ * Never throws. All failure modes return null; the caller falls back to the
+ * peer-box resolver, and drops the push only if that also returns null.
  */
 
 import { lstat as fspLstat } from "fs/promises";
@@ -58,8 +61,7 @@ const LOCAL_HOST_IDS: number[] = (() => {
 })();
 
 // If the env var contains multiple hostIds, we still pick the FIRST for
-// routing (the classifier is local-only per D-01/D-02 and production has
-// exactly one entry per box). Warn once at module load so ops sees the
+// routing (production has exactly one entry per box). Warn once at module load so ops sees the
 // ambiguity — a legitimately-multi-hostId deploy would need a per-hostId
 // probe here, not the current first-wins fallback.
 if (LOCAL_HOST_IDS.length > 1) {

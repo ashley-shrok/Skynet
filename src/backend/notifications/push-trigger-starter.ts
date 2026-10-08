@@ -66,6 +66,7 @@ import { sendPushToUser } from "./ntfy-sender.js";
 import { derivePreviewText } from "./preview-text.js";
 import { resolveAgentDisplayName } from "./resolve-agent-display-name.js";
 import { resolveAgentHostId } from "./resolve-agent-host-id.js";
+import { resolveRemoteAgentHostId } from "./resolve-remote-agent-host-id.js";
 
 /** Discriminated-union result of startPushTriggerLoopOnBoot. */
 export type StartPushTriggerLoopResult =
@@ -214,7 +215,11 @@ export async function startPushTriggerLoopOnBoot(): Promise<StartPushTriggerLoop
       sendPushToUser,
       derivePreviewText,
       resolveAgentDisplayName,
-      resolveAgentHostId,
+      // Local probe first (cheap fs lstat), then peer boxes over SSH for
+      // agents whose identity folder lives on another fleet host.
+      resolveAgentHostId: async (mxid: string, userId: string) =>
+        (await resolveAgentHostId(mxid)) ??
+        (await resolveRemoteAgentHostId(mxid, userId)),
       now: () => Date.now(),
     };
 

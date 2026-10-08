@@ -110,6 +110,10 @@ vi.mock("./resolve-agent-display-name.js", () => ({
   resolveAgentDisplayName: vi.fn(async () => "Agent"),
 }));
 
+vi.mock("./resolve-remote-agent-host-id.js", () => ({
+  resolveRemoteAgentHostId: vi.fn(async () => null),
+}));
+
 vi.mock("../utils/logger.js", () => ({
   databaseLogger: {
     warn: warnSpy,

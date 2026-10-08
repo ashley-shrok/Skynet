@@ -314,11 +314,14 @@ export interface PushTriggerLoopDeps {
    */
   resolveAgentDisplayName(mxid: string): Promise<string>;
   /**
-   * Resolve a sender mxid to the local fleet hostId whose identity folder
-   * holds this identity. Never-throws — returns null on any failure; the
-   * dispatch site drops the push when null (see the dispatch block below).
+   * Resolve a sender mxid to the fleet hostId whose identity folder holds
+   * this identity — this box first, then the user's peer boxes (agents on
+   * other boxes DM the user through the same homeserver). `userId` scopes
+   * the peer-box lookup to hosts the user can access. Never-throws —
+   * returns null on any failure; the dispatch site drops the push when
+   * null (see the dispatch block below).
    */
-  resolveAgentHostId(mxid: string): Promise<number | null>;
+  resolveAgentHostId(mxid: string, userId: string): Promise<number | null>;
   /**
    * Clock-source dep — accepts an injected fake in tests (deterministic
    * jitter + scheduling). Production wire passes `() => Date.now()`.
@@ -567,14 +570,15 @@ export async function runPushTriggerTick(
         // room included) before the folder move — often before this loop
         // observes the DM. Classifying against current membership would
         // then see a solo room and drop its final message. When the sender
-        // has left and is a local agent identity (live or archived — that
-        // is exactly what resolveAgentHostId probes), classify against the
+        // has left and is a fleet agent identity (live or archived, on this
+        // box or a peer — that is exactly what resolveAgentHostId probes),
+        // classify against the
         // room as it was when the event was sent: current members plus the
         // sender, with the sender counted as a registry agent.
         let departedSenderHostId: number | null = null;
         if (!membersResult.memberMxids.includes(event.sender)) {
           try {
-            departedSenderHostId = await deps.resolveAgentHostId(event.sender);
+            departedSenderHostId = await deps.resolveAgentHostId(event.sender, userId);
           } catch {
             departedSenderHostId = null;
           }
@@ -621,14 +625,15 @@ export async function runPushTriggerTick(
         //
         // agentHostId null → drop the push. The frontend tap needs a
         // valid hostId to route to the harness view deterministically
-        // (shape-notifications-to-harness.md § Philosophy). Local-only
-        // classifier gate (D-01/D-02) should make this vanishingly rare;
-        // when it happens, log at .warn so ops sees the miss.
+        // (shape-notifications-to-harness.md § Philosophy). The classifier
+        // gate is registry membership, not host locality, so the resolver
+        // covers peer boxes too; null means no accessible host holds the
+        // identity folder. Log at .warn so ops sees the miss.
         try {
           const [displayName, body, agentHostId] = await Promise.all([
             deps.resolveAgentDisplayName(event.sender),
             Promise.resolve(deps.derivePreviewText(event)),
-            departedSenderHostId ?? deps.resolveAgentHostId(event.sender),
+            departedSenderHostId ?? deps.resolveAgentHostId(event.sender, userId),
           ]);
           if (agentHostId === null) {
             databaseLogger.warn(

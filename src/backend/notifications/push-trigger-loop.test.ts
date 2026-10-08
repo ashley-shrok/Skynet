@@ -370,6 +370,8 @@ describe("runPushTriggerTick — sender departed before observation", () => {
     expect(deps.sendPushToUser).toHaveBeenCalledWith(USER_A, expect.objectContaining({ agentHostId: 42 }));
     // Resolved once, reused at dispatch.
     expect(deps.resolveAgentHostId).toHaveBeenCalledTimes(1);
+    // userId scopes the peer-box lookup to hosts this user can access.
+    expect(deps.resolveAgentHostId).toHaveBeenCalledWith(AGENT_MXID, USER_A);
   });
 
   it("departed sender that is NOT a local identity → current membership used → no push", async () => {
