@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FileText, Plus, Trash2 } from "lucide-react";
+import { FileText, Plus } from "lucide-react";
+import { RowKebabMenu } from "@/features/pretty-conversations/RowKebabMenu";
 import { Modal, ModalHead, ModalBody, ModalFoot, ModalSidebar } from "@/components/modal";
 import { cn } from "@/lib/utils";
 import type { Host, HostFolder } from "@/types/ui-types";
@@ -58,12 +59,12 @@ import {
 //
 // SkillFileTab passes `hideSaveButton={true}` — outer foot owns save.
 // Delete-file affordance stays inside SkillFileTab (Trash next to the
-// hidden Save slot). Delete-skill lives in the header picker row.
+// hidden Save slot). Delete-skill lives in the picker row's ⋮ skill menu.
 //
 // Close/draft-guard: any dirty tab AND !savingRef → window.confirm.
 // savingRef bypasses on save-success and delete-skill closes.
 //
-// "Slash command only" checkbox (picker row) toggles
+// "Slash command only" (⋮ skill menu item, + a "slash only" chip when on) toggles
 // `disable-model-invocation: true` in SKILL.md's frontmatter. It reads from
 // the SKILL.md tabData entry (prefetched on skill pick even when SKILL.md
 // isn't the first tab) and writes immediately — no foot Save. Disabled while
@@ -638,11 +639,13 @@ export default function SkillsEditorModal({
       />
 
       {/* Picker row — sits directly under the head. Host select (multi-host
-          only), skill select, delete-skill Trash (when a skill
-          is picked). */}
+          only) and skill select share the width; when a skill is picked, a
+          "slash only" chip (if set) and a ⋮ menu holding "Slash command
+          only" + "Delete skill…". Never wraps, so the selects stay legible
+          on phones. */}
       <div
         className={cn(
-          "px-4 py-2.5 flex flex-row items-center gap-2 flex-shrink-0 flex-wrap",
+          "px-4 py-2.5 flex flex-row items-center gap-2 flex-shrink-0",
           "bg-black/25",
           "border-b border-[hsla(var(--pv-id-hue),60%,55%,0.18)]",
         )}
@@ -656,7 +659,7 @@ export default function SkillsEditorModal({
             }
             data-testid="skills-editor-modal-host-select"
             className={cn(
-              "text-[12px] px-2 py-1 rounded-md outline-none cursor-pointer min-w-[120px]",
+              "flex-1 min-w-0 text-[12px] px-2 py-1 rounded-md outline-none cursor-pointer",
               "bg-black/20 border border-[hsla(var(--pv-id-hue),65%,55%,0.22)]",
               "text-[#fbf5e8]",
             )}
@@ -700,48 +703,54 @@ export default function SkillsEditorModal({
               </option>
             ))}
         </select>
-        {selectedSkillName != null && skillMd != null && (
-          <label
-            title={
-              skillMdDirty
-                ? "Save or discard your SKILL.md edits first"
-                : "Agents won't invoke this skill on their own — only a /" +
-                  selectedSkillName +
-                  " slash command will (sets disable-model-invocation in SKILL.md)"
-            }
-            data-testid="skills-editor-modal-disable-model-invocation"
+        {selectedSkillName != null && skillMd != null && modelInvocationDisabled && (
+          <span
+            title={"Only a /" + selectedSkillName + " slash command invokes this skill"}
+            data-testid="skills-editor-modal-slash-only-chip"
             className={cn(
-              "flex items-center gap-1.5 text-[11.5px] text-[#e8e4d8] select-none",
-              skillMdDirty || togglingInvocation
-                ? "opacity-50 cursor-not-allowed"
-                : "cursor-pointer",
+              "shrink-0 whitespace-nowrap text-[11px] px-2 py-0.5 rounded-full",
+              "text-[hsla(var(--pv-id-hue),75%,80%,1)] bg-[hsla(var(--pv-id-hue),55%,40%,0.35)]",
+              "border border-[hsla(var(--pv-id-hue),70%,60%,0.4)]",
             )}
           >
-            <input
-              type="checkbox"
-              checked={modelInvocationDisabled}
-              disabled={skillMdDirty || togglingInvocation}
-              onChange={(e) => {
-                void handleToggleModelInvocation(e.target.checked);
-              }}
-              className="cursor-pointer disabled:cursor-not-allowed"
-            />
-            Slash command only
-          </label>
+            slash only
+          </span>
         )}
         {selectedSkillName != null && (
-          <button
-            type="button"
-            title="Delete this skill"
-            aria-label="Delete this skill"
-            onClick={() => {
-              void handleDeleteSkill();
-            }}
-            data-testid="skills-editor-modal-delete-skill"
-            className="size-8 rounded-md hover:bg-white/[0.06] flex items-center justify-center text-[#a89a80] hover:text-[#f87171] cursor-pointer"
-          >
-            <Trash2 size={16} />
-          </button>
+          <RowKebabMenu
+            ariaLabel="Skill options"
+            testId="skills-editor-modal-skill-menu"
+            triggerClassName="size-7"
+            items={[
+              ...(skillMd != null
+                ? [
+                    {
+                      label: "Slash command only",
+                      hint: skillMdDirty
+                        ? "Save or discard your SKILL.md edits first"
+                        : "Agents won't use it on their own — only /" +
+                          selectedSkillName +
+                          " will",
+                      checked: modelInvocationDisabled,
+                      disabled: skillMdDirty || togglingInvocation,
+                      testId: "skills-editor-modal-disable-model-invocation",
+                      onClick: () => {
+                        void handleToggleModelInvocation(!modelInvocationDisabled);
+                      },
+                    },
+                  ]
+                : []),
+              {
+                label: "Delete skill…",
+                danger: true,
+                separatorBefore: skillMd != null,
+                testId: "skills-editor-modal-delete-skill",
+                onClick: () => {
+                  void handleDeleteSkill();
+                },
+              },
+            ]}
+          />
         )}
       </div>
 

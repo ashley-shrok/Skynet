@@ -19,6 +19,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import { render, screen, waitFor, fireEvent, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { HostFolder } from "@/types/ui-types";
 
 // ── Module mocks (hoisted — must appear before imports of the mocked modules) ──
@@ -177,6 +178,22 @@ const HOST_TREE_WITH_RDP: HostFolder = {
 
 // Helper: pick a skill in the mounted modal. Awaits the skill dropdown becoming
 // enabled (skills list resolved) before firing the change event.
+// jsdom lacks ResizeObserver; Radix DropdownMenu (the ⋮ skill menu) needs it.
+if (typeof window !== "undefined" && !window.ResizeObserver) {
+  window.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+}
+
+/** Open the picker row's ⋮ skill menu ("Slash command only", "Delete skill…"). */
+async function openSkillMenu(): Promise<void> {
+  const trigger = await screen.findByTestId("skills-editor-modal-skill-menu");
+  await userEvent.setup().click(trigger);
+  await screen.findByRole("menu");
+}
+
 async function selectSkill(skillName: string): Promise<void> {
   await waitFor(() => {
     const select = screen.getByRole("combobox", { name: /skill/i }) as HTMLSelectElement;
@@ -783,11 +800,11 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
 
     await selectSkill("build");
 
-    // Click the delete-skill Trash2 in the header (title="Delete this skill").
-    await waitFor(() => {
-      expect(screen.queryByTitle(/delete this skill/i)).toBeTruthy();
-    });
-    fireEvent.click(screen.getByTitle(/delete this skill/i));
+    // Delete lives in the picker row's ⋮ skill menu.
+    await openSkillMenu();
+    await userEvent.setup().click(
+      screen.getByTestId("skills-editor-modal-delete-skill"),
+    );
 
     await waitFor(() => {
       expect(skillsApi.deleteSkill).toHaveBeenCalledWith(1, "build");
@@ -836,11 +853,12 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     );
     await selectSkill("build");
 
-    const label = await screen.findByTestId("skills-editor-modal-disable-model-invocation");
-    const checkbox = within(label).getByRole("checkbox") as HTMLInputElement;
-    expect(checkbox.checked).toBe(false);
+    await openSkillMenu();
+    const item = await screen.findByTestId("skills-editor-modal-disable-model-invocation");
+    expect(item.getAttribute("aria-checked")).toBe("false");
+    expect(screen.queryByTestId("skills-editor-modal-slash-only-chip")).toBeNull();
 
-    fireEvent.click(checkbox);
+    await userEvent.setup().click(item);
     await waitFor(() => {
       expect(skillsApi.writeSkillFile).toHaveBeenCalledWith({
         hostId: 1,
@@ -851,7 +869,15 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
         expectedMtime: 1_700_000_042,
       });
     });
-    await waitFor(() => expect(checkbox.checked).toBe(true));
+    // State is visible without opening the menu via the chip…
+    await screen.findByTestId("skills-editor-modal-slash-only-chip");
+    // …and the menu item reads checked on reopen.
+    await openSkillMenu();
+    expect(
+      screen
+        .getByTestId("skills-editor-modal-disable-model-invocation")
+        .getAttribute("aria-checked"),
+    ).toBe("true");
   });
 
   it("'Slash command only' toggle reads SKILL.md even when it isn't the first tab", async () => {
@@ -878,8 +904,13 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     );
     await selectSkill("build");
 
-    const label = await screen.findByTestId("skills-editor-modal-disable-model-invocation");
-    expect((within(label).getByRole("checkbox") as HTMLInputElement).checked).toBe(true);
+    await screen.findByTestId("skills-editor-modal-slash-only-chip");
+    await openSkillMenu();
+    expect(
+      screen
+        .getByTestId("skills-editor-modal-disable-model-invocation")
+        .getAttribute("aria-checked"),
+    ).toBe("true");
     expect(skillsApi.readSkillFile).toHaveBeenCalledWith(1, "build", "SKILL.md");
   });
 });

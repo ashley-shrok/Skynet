@@ -297,3 +297,67 @@ describe("PreferencesModal", () => {
     expect(screen.getByText(/AGPL-3\.0 terms/)).toBeTruthy();
   });
 });
+
+describe("PreferencesModal mobile drill-in", () => {
+  const realMatchMedia = window.matchMedia;
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getMyPhoneMock.mockResolvedValue(null);
+    getMyServiceSecretsMock.mockResolvedValue([]);
+    getNtfySetupMock.mockResolvedValue({ isSetUp: false });
+    // Below `sm` — the modal is fullscreen.
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: true,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+  });
+  afterEach(() => {
+    window.matchMedia = realMatchMedia;
+  });
+
+  const navHidden = () =>
+    screen.getByTestId("preferences-modal-nav").classList.contains("hidden");
+  const paneHidden = () =>
+    screen.getByTestId("preferences-modal-pane").classList.contains("hidden");
+
+  it("opens on the section list; a section drills in; back returns to the list", async () => {
+    const user = userEvent.setup();
+    render(<PreferencesModal {...defaultProps} open={true} />);
+    expect(navHidden()).toBe(false);
+    expect(paneHidden()).toBe(true);
+
+    await user.click(screen.getByTestId("preferences-nav-voice"));
+    expect(navHidden()).toBe(true);
+    expect(paneHidden()).toBe(false);
+    expect(screen.getByTestId("preferences-voice-pane")).toBeTruthy();
+    const back = screen.getByTestId("preferences-nav-back");
+    expect(back.parentElement?.textContent).toContain("Voice");
+
+    await user.click(back);
+    expect(navHidden()).toBe(false);
+    expect(paneHidden()).toBe(true);
+  });
+
+  it("tapping the already-active section (General) drills in", async () => {
+    const user = userEvent.setup();
+    render(<PreferencesModal {...defaultProps} open={true} />);
+    await user.click(screen.getByTestId("preferences-nav-general"));
+    expect(paneHidden()).toBe(false);
+  });
+
+  it("reopening starts on the list again", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<PreferencesModal {...defaultProps} open={true} />);
+    await user.click(screen.getByTestId("preferences-nav-voice"));
+    rerender(<PreferencesModal {...defaultProps} open={false} />);
+    rerender(<PreferencesModal {...defaultProps} open={true} />);
+    expect(navHidden()).toBe(false);
+    expect(paneHidden()).toBe(true);
+  });
+});

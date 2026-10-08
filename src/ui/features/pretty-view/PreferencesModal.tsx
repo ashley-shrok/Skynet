@@ -36,8 +36,15 @@
  */
 
 import { useEffect, useState } from "react";
-import { User, Volume2, Bell, Sparkles, Phone, KeyRound, LogOut, Info } from "lucide-react";
-import { Modal, ModalHead, ModalBody, ModalFoot } from "@/components/modal";
+import { User, Volume2, Bell, Sparkles, Phone, KeyRound, LogOut, Info, ChevronRight } from "lucide-react";
+import {
+  Modal,
+  ModalHead,
+  ModalBody,
+  ModalFoot,
+  ModalDrillBack,
+  useModalDrillIn,
+} from "@/components/modal";
 import { cn } from "@/lib/utils";
 import { PreferencesGeneralPane } from "./PreferencesGeneralPane";
 import { PreferencesVoicePane } from "./PreferencesVoicePane";
@@ -94,6 +101,17 @@ export interface PreferencesModalProps {
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
+// Mobile drill-in list rows: bigger tap targets, no selected highlight (the
+// list is a menu, not a "you are here" marker), chevron on the right.
+const DRILL_ITEM_CLASS =
+  "py-3 text-[15px] text-[#e8e4d8] hover:bg-white/5";
+
+function DrillChevron(): JSX.Element {
+  return (
+    <ChevronRight size={16} aria-hidden="true" className="ml-auto shrink-0 opacity-45" />
+  );
+}
+
 export default function PreferencesModal({
   open,
   onOpenChange,
@@ -107,6 +125,17 @@ export default function PreferencesModal({
   defaultHostId,
 }: PreferencesModalProps): JSX.Element {
   const [activeSection, setActiveSection] = useState<SectionValue>("general");
+  // Mobile (fullscreen modal): drill-in — nav list OR pane with a back bar.
+  const {
+    fullscreen,
+    drilled,
+    drillIn,
+    back: drillBack,
+  } = useModalDrillIn(activeSection, false, open);
+  const pickSection = (next: SectionValue) => {
+    if (next === activeSection) drillIn();
+    else setActiveSection(next);
+  };
 
   // D-05: reset the active tab to "general" whenever the modal closes so
   // reopening always starts on the General pane.
@@ -189,15 +218,26 @@ export default function PreferencesModal({
       {/* Two-column body: 180px left nav + right pane. Override the
           canonical ModalBody's default px-5 py-3.5 padding so the nav's
           darker sub-surface + right pane span edge-to-edge. */}
-      <ModalBody className="p-0 flex flex-row overflow-hidden">
-        {/* Left nav */}
+      <ModalBody
+        className={cn(
+          "p-0 flex overflow-hidden",
+          fullscreen ? "flex-col" : "flex-row",
+        )}
+      >
+        {/* Left nav — full-width drill-in list on mobile. */}
         <nav
           data-testid="preferences-modal-nav"
-          className="shrink-0 flex flex-col py-3 gap-1"
+          className={cn(
+            "flex flex-col py-3 gap-1",
+            fullscreen ? "flex-1 min-h-0 overflow-y-auto" : "shrink-0",
+            fullscreen && drilled && "hidden",
+          )}
           style={{
-            width: 180,
+            width: fullscreen ? undefined : 180,
             background: "rgba(0, 0, 0, 0.28)",
-            borderRight: "1px solid hsla(var(--pv-id-hue), 60%, 55%, 0.22)",
+            borderRight: fullscreen
+              ? undefined
+              : "1px solid hsla(var(--pv-id-hue), 60%, 55%, 0.22)",
           }}
         >
           {visibleSections.map(({ value, label, Icon }) => {
@@ -208,16 +248,19 @@ export default function PreferencesModal({
                 type="button"
                 data-testid={`preferences-nav-${value}`}
                 aria-current={isActive ? "page" : undefined}
-                onClick={() => setActiveSection(value)}
+                onClick={() => pickSection(value)}
                 className={cn(
                   "flex items-center gap-2.5 px-4 py-2 mx-2 rounded-lg text-[13px] cursor-pointer transition-[background-color,color] duration-150 text-left",
-                  isActive
+                  fullscreen
+                    ? DRILL_ITEM_CLASS
+                    : isActive
                     ? "bg-[hsla(var(--pv-id-hue),65%,55%,0.24)] text-[#fbf5e8] font-medium"
                     : "text-[hsla(var(--pv-id-hue),22%,88%,0.7)] hover:text-[#d8d4c8] hover:bg-white/5",
                 )}
               >
                 <Icon size={16} className="shrink-0" />
                 <span>{label}</span>
+                {fullscreen ? <DrillChevron /> : null}
               </button>
             );
           })}
@@ -228,16 +271,19 @@ export default function PreferencesModal({
             type="button"
             data-testid="preferences-nav-about"
             aria-current={activeSection === "about" ? "page" : undefined}
-            onClick={() => setActiveSection("about")}
+            onClick={() => pickSection("about")}
             className={cn(
               "mt-auto flex items-center gap-2.5 px-4 py-2 mx-2 mb-2 rounded-lg text-[13px] cursor-pointer transition-[background-color,color] duration-150 text-left",
-              activeSection === "about"
+              fullscreen
+                ? DRILL_ITEM_CLASS
+                : activeSection === "about"
                 ? "bg-[hsla(var(--pv-id-hue),65%,55%,0.24)] text-[#fbf5e8] font-medium"
                 : "text-[hsla(var(--pv-id-hue),22%,88%,0.7)] hover:text-[#d8d4c8] hover:bg-white/5",
             )}
           >
             <Info size={16} className="shrink-0" />
             <span>About</span>
+            {fullscreen ? <DrillChevron /> : null}
           </button>
 
           {/* Log out — pinned to the bottom of the nav below a divider,
@@ -273,10 +319,26 @@ export default function PreferencesModal({
           </div>
         </nav>
 
+        {fullscreen && drilled ? (
+          <ModalDrillBack
+            backLabel="Preferences"
+            current={
+              activeSection === "about"
+                ? "About"
+                : visibleSections.find((sec) => sec.value === activeSection)?.label
+            }
+            onBack={drillBack}
+            testId="preferences-nav-back"
+          />
+        ) : null}
+
         {/* Right pane — renders the active section */}
         <main
           data-testid="preferences-modal-pane"
-          className="flex-1 min-w-0 overflow-auto"
+          className={cn(
+            "flex-1 min-w-0 min-h-0 overflow-auto",
+            fullscreen && !drilled && "hidden",
+          )}
         >
           {activeSection === "general" && (
             <PreferencesGeneralPane

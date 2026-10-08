@@ -67,6 +67,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuSubContent,
   DropdownMenuPortal,
+  DropdownMenuSeparator,
 } from "@/components/dropdown-menu";
 import { cn } from "@/lib/utils";
 
@@ -101,12 +102,23 @@ export interface RowKebabMenuItem {
   submenu?: RowKebabSubmenuItem[];
   /** Optional per-item test id (forwarded to DropdownMenuItem). */
   testId?: string;
+  /** Leaf items only: a boolean renders a Check-icon slot on the left
+   *  (checked → icon, false → blank spacer), for toggle-style items like
+   *  the Skills modal's "Slash command only". Undefined = plain item. */
+  checked?: boolean;
+  /** Leaf items only: a muted second line under the label. */
+  hint?: string;
+  /** Leaf items only: a separator is drawn above this item. */
+  separatorBefore?: boolean;
 }
 
 export interface RowKebabMenuProps {
   items: RowKebabMenuItem[];
   ariaLabel?: string;
   testId?: string;
+  /** Extra classes for the ⋮ trigger (e.g. a larger size beside form
+   *  controls). Merged over the default size-6 trigger. */
+  triggerClassName?: string;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -216,25 +228,55 @@ function KebabMenuContent({
             </DropdownMenuSub>
           );
         }
-        // Leaf item.
+        // Leaf item. `checked` (toggle slot) and `hint` (second line) are
+        // opt-in; plain items render exactly as before.
+        const hasCheckSlot = item.checked !== undefined;
         return (
-          <DropdownMenuItem
-            key={item.label}
-            onSelect={() => {
-              item.onClick?.();
-            }}
-            onClick={(e) => {
-              e.stopPropagation();
-            }}
-            disabled={item.disabled}
-            data-testid={item.testId}
-            className={cn(
-              ITEM_CLASS_BASE,
-              item.danger && ITEM_CLASS_DANGER,
-            )}
-          >
-            {item.label}
-          </DropdownMenuItem>
+          <React.Fragment key={item.label}>
+            {item.separatorBefore ? (
+              <DropdownMenuSeparator className="my-1 bg-white/10" />
+            ) : null}
+            <DropdownMenuItem
+              onSelect={() => {
+                item.onClick?.();
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+              }}
+              disabled={item.disabled}
+              data-testid={item.testId}
+              aria-checked={hasCheckSlot ? item.checked : undefined}
+              className={cn(
+                ITEM_CLASS_BASE,
+                (hasCheckSlot || item.hint) && "flex items-start gap-2",
+                item.danger && ITEM_CLASS_DANGER,
+              )}
+            >
+              {hasCheckSlot ? (
+                item.checked ? (
+                  <Check
+                    className="size-[14px] shrink-0 mt-[2px]"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <span
+                    className="inline-block size-[14px] shrink-0"
+                    aria-hidden="true"
+                  />
+                )
+              ) : null}
+              {item.hint ? (
+                <span className="flex flex-col min-w-0">
+                  <span>{item.label}</span>
+                  <span className="text-[11px] max-md:text-[12px] text-[#a39b8a]">
+                    {item.hint}
+                  </span>
+                </span>
+              ) : (
+                item.label
+              )}
+            </DropdownMenuItem>
+          </React.Fragment>
         );
       })}
     </DropdownMenuContent>
@@ -245,6 +287,7 @@ export function RowKebabMenu({
   items,
   ariaLabel,
   testId,
+  triggerClassName,
 }: RowKebabMenuProps): React.JSX.Element {
   return (
     // modal={false} — Phase 143's sidebar-row kebab roll-out hit a Radix
@@ -261,7 +304,10 @@ export function RowKebabMenu({
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="inline-flex items-center justify-center size-6 rounded-md bg-white/10 hover:bg-white/20 text-white/80 hover:text-white shrink-0 transition-colors"
+          className={cn(
+            "inline-flex items-center justify-center size-6 rounded-md bg-white/10 hover:bg-white/20 text-white/80 hover:text-white shrink-0 transition-colors",
+            triggerClassName,
+          )}
           aria-label={ariaLabel ?? "Row menu"}
           data-testid={testId ?? "row-kebab-trigger"}
           onMouseDown={(e) => {

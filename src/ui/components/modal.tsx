@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Dialog as DialogPrimitive } from "radix-ui";
-import { XIcon } from "lucide-react";
+import { ChevronLeft, ChevronRight, XIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -516,6 +516,124 @@ function ModalTabs<V extends string>({
   );
 }
 
+// ─── Mobile drill-in ─────────────────────────────────────────────────────
+//
+// Below the `sm` breakpoint every Modal goes fullscreen (see the max-sm:
+// classes on the content). A 180px side list next to the pane eats half a
+// phone's width there, so side-list modals switch to drill-in: the list
+// fills the modal; picking an item swaps to the pane with a back bar.
+// Desktop (sm+) is untouched. The query mirrors Tailwind's `max-sm:` so the
+// switch lands exactly where the modal goes fullscreen — NOT useIsMobile's
+// 768px, which would drill-in a modal that's still a floating card.
+
+const MODAL_FULLSCREEN_QUERY = "(max-width: 639.98px)";
+
+function subscribeModalFullscreen(cb: () => void): () => void {
+  if (typeof window === "undefined" || !window.matchMedia) return () => {};
+  const mql = window.matchMedia(MODAL_FULLSCREEN_QUERY);
+  mql.addEventListener?.("change", cb);
+  return () => mql.removeEventListener?.("change", cb);
+}
+
+function getModalFullscreen(): boolean {
+  if (typeof window === "undefined" || !window.matchMedia) return false;
+  return !!window.matchMedia(MODAL_FULLSCREEN_QUERY).matches;
+}
+
+/** True while modals render fullscreen (viewport below `sm`). */
+function useModalFullscreen(): boolean {
+  return React.useSyncExternalStore(
+    subscribeModalFullscreen,
+    getModalFullscreen,
+    () => false,
+  );
+}
+
+/**
+ * Drill-in state for a side-list modal. `drilled` = showing the pane (on
+ * mobile). Starts drilled when `startDrilled` (e.g. a one-item list — no
+ * point making the user tap through it). Any change of `value` after mount
+ * drills in, so a selection made outside the list (a new file from
+ * "+ Add file", a refused-then-accepted switch) lands on its pane. Picking
+ * the already-selected item calls `drillIn()` directly.
+ */
+function useModalDrillIn<V>(
+  value: V,
+  startDrilled = false,
+  /** Pass the modal's `open` when the caller outlives the modal content
+   *  (e.g. PreferencesModal) — while closed, drill state resets and value
+   *  changes (a reset-to-default on close) don't drill in. */
+  active = true,
+): {
+  fullscreen: boolean;
+  drilled: boolean;
+  drillIn: () => void;
+  back: () => void;
+} {
+  const fullscreen = useModalFullscreen();
+  const [drilled, setDrilled] = React.useState(startDrilled);
+  const prevValue = React.useRef(value);
+  React.useEffect(() => {
+    if (!active) {
+      prevValue.current = value;
+      setDrilled(startDrilled);
+      return;
+    }
+    if (prevValue.current !== value) {
+      prevValue.current = value;
+      setDrilled(true);
+    }
+  }, [value, active, startDrilled]);
+  return {
+    fullscreen,
+    drilled,
+    drillIn: React.useCallback(() => setDrilled(true), []),
+    back: React.useCallback(() => setDrilled(false), []),
+  };
+}
+
+interface ModalDrillBackProps {
+  /** Where back goes — the list's name ("Files", "Preferences"). */
+  backLabel: string;
+  /** The item currently open, shown after the back button. */
+  current?: React.ReactNode;
+  onBack: () => void;
+  testId?: string;
+}
+
+/** Back bar shown above the pane while drilled in on mobile. */
+function ModalDrillBack({
+  backLabel,
+  current,
+  onBack,
+  testId,
+}: ModalDrillBackProps): JSX.Element {
+  return (
+    <div
+      data-slot="modal-drill-back"
+      className={cn(
+        "shrink-0 flex items-center gap-2 px-3 py-2 min-w-0",
+        "border-b border-[hsla(var(--pv-id-hue),60%,55%,0.22)] bg-black/22",
+      )}
+    >
+      <button
+        type="button"
+        onClick={onBack}
+        data-testid={testId}
+        className="shrink-0 flex items-center gap-0.5 pr-1.5 py-0.5 text-[15px] cursor-pointer text-[hsla(var(--pv-id-hue),75%,72%,1)]"
+      >
+        <ChevronLeft size={18} aria-hidden="true" />
+        {backLabel}
+      </button>
+      {current != null ? (
+        <span className="min-w-0 truncate text-[15px] font-semibold text-[#e8e4d8]">
+          {current}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 // ─── ModalSidebar ────────────────────────────────────────────────────────
 //
 // Canonical vertical file-list + editor layout for modals with an
@@ -553,6 +671,8 @@ interface ModalSidebarProps<V extends string> {
   /** The right-column main editor pane content. */
   children: React.ReactNode;
   className?: string;
+  /** Mobile drill-in back-button text — names the list ("Files"). */
+  backLabel?: string;
 }
 
 function ModalSidebar<V extends string>({
@@ -564,21 +684,37 @@ function ModalSidebar<V extends string>({
   trailing,
   children,
   className,
+  backLabel = "Files",
 }: ModalSidebarProps<V>): JSX.Element {
+  // Mobile: drill-in (list OR pane, never both). A one-item list starts on
+  // its pane. See useModalDrillIn.
+  const { fullscreen, drilled, drillIn, back } = useModalDrillIn(
+    value,
+    tabs.length <= 1,
+  );
+  const drillMode = fullscreen;
+  const showList = !drillMode || !drilled;
+  const showPane = !drillMode || drilled;
+  const currentLabel = tabs.find((t) => t.value === value)?.label;
   return (
     <div
       className={cn(
-        "flex-1 min-h-0 flex flex-row",
+        "flex-1 min-h-0 flex",
+        drillMode ? "flex-col" : "flex-row",
         className,
       )}
       data-slot="modal-split"
+      data-drill={drillMode ? (drilled ? "pane" : "list") : undefined}
     >
-      {/* Sidebar column — fixed width, scrolls vertically. */}
+      {/* Sidebar column — fixed width, scrolls vertically. Full width as
+          the drill-in list on mobile. */}
       <aside
         className={cn(
-          "w-[180px] shrink-0 flex flex-col min-h-0",
-          "border-r border-[hsla(var(--pv-id-hue),60%,55%,0.22)]",
+          "flex flex-col min-h-0",
+          drillMode ? "flex-1" : "w-[180px] shrink-0",
+          !drillMode && "border-r border-[hsla(var(--pv-id-hue),60%,55%,0.22)]",
           "bg-black/22",
+          !showList && "hidden",
         )}
         data-slot="modal-sidebar"
         data-testid={rowTestId}
@@ -590,21 +726,36 @@ function ModalSidebar<V extends string>({
               <button
                 key={v}
                 type="button"
-                onClick={() => onValueChange(v)}
+                onClick={() => {
+                  // A different item drills in via the value-change effect
+                  // (only if the consumer accepts the switch); the current
+                  // item drills in directly.
+                  if (v === value) drillIn();
+                  else onValueChange(v);
+                }}
                 aria-pressed={selected}
                 data-testid={testIdPrefix ? `${testIdPrefix}-${v}` : undefined}
                 className={cn(
-                  "shrink-0 flex items-center gap-2 px-3 py-1.5 text-[12.5px] font-medium cursor-pointer",
+                  "shrink-0 flex items-center gap-2 font-medium cursor-pointer",
                   "border-l-2 transition-colors duration-150 text-left min-w-0",
-                  selected
-                    ? "text-[#fbf5e8] border-[hsla(var(--pv-id-hue),75%,65%,0.9)] bg-[hsla(var(--pv-id-hue),55%,40%,0.35)]"
-                    : "text-[hsla(var(--pv-id-hue),22%,92%,0.6)] hover:text-[#e8e4d8] hover:bg-white/[0.04] border-transparent",
+                  drillMode
+                    ? "px-4 py-3 text-[15px] text-[#e8e4d8] hover:bg-white/[0.04] border-transparent"
+                    : selected
+                    ? "px-3 py-1.5 text-[12.5px] text-[#fbf5e8] border-[hsla(var(--pv-id-hue),75%,65%,0.9)] bg-[hsla(var(--pv-id-hue),55%,40%,0.35)]"
+                    : "px-3 py-1.5 text-[12.5px] text-[hsla(var(--pv-id-hue),22%,92%,0.6)] hover:text-[#e8e4d8] hover:bg-white/[0.04] border-transparent",
                 )}
               >
                 {Icon ? (
-                  <Icon size={13} className="opacity-85 shrink-0" />
+                  <Icon size={drillMode ? 16 : 13} className="opacity-85 shrink-0" />
                 ) : null}
                 <span className="truncate">{label}</span>
+                {drillMode ? (
+                  <ChevronRight
+                    size={16}
+                    aria-hidden="true"
+                    className="ml-auto shrink-0 opacity-45"
+                  />
+                ) : null}
               </button>
             );
           })}
@@ -615,11 +766,35 @@ function ModalSidebar<V extends string>({
           </div>
         ) : null}
       </aside>
-      {/* Main pane — fills remaining width. */}
-      <div className="flex-1 min-w-0 min-h-0 flex flex-col">{children}</div>
+      {/* Main pane — fills remaining width (full modal when drilled in). */}
+      <div
+        className={cn(
+          "flex-1 min-w-0 min-h-0 flex flex-col",
+          !showPane && "hidden",
+        )}
+      >
+        {drillMode ? (
+          <ModalDrillBack
+            backLabel={backLabel}
+            current={currentLabel}
+            onBack={back}
+            testId={testIdPrefix ? `${testIdPrefix}-back` : undefined}
+          />
+        ) : null}
+        {children}
+      </div>
     </div>
   );
 }
 
-export { Modal, ModalHead, ModalBody, ModalFoot, ModalTabs, ModalSidebar };
+export {
+  Modal,
+  ModalHead,
+  ModalBody,
+  ModalFoot,
+  ModalTabs,
+  ModalSidebar,
+  ModalDrillBack,
+  useModalDrillIn,
+};
 export type { ModalProps, ModalSize };
