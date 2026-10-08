@@ -6,7 +6,7 @@
  * 90-06 through their intended user gestures.
  *
  * Tests:
- *   A: panel-header → Edit roles header button → RolesListModal renders →
+ *   A: sidebar footer → Roles button → RolesListModal renders →
  *      pick host → 2 rows visible → click first row → RolesListModal closes →
  *      RoleModal opens with the picked role's cosmetics.
  *      (quick-260914-liu: entry point changed from three-dots menu item to
@@ -341,7 +341,7 @@ afterAll(() => {
 // Test A — end-to-end panel-header path
 // ─────────────────────────────────────────────────────────────────────────────
 describe("Phase 90 role-management flow — panel-header entry point", () => {
-  it("A: three-dots → Edit roles… → RolesListModal → row click → RoleModal opens", async () => {
+  it("A: Roles footer button → RolesListModal → row click → RoleModal opens", async () => {
     render(
       <PrettyConversationsPanel
         variant="desktop"
@@ -351,8 +351,8 @@ describe("Phase 90 role-management flow — panel-header entry point", () => {
       />,
     );
 
-    // Click the dedicated Edit roles header button (quick-260914-liu).
-    fireEvent.click(screen.getByTestId("pv-header-edit-roles-button"));
+    // Click the Roles footer button.
+    fireEvent.click(screen.getByTestId("pv-footer-roles-button"));
 
     // RolesListModal renders with "Roles" DialogTitle.
     await waitFor(() => {
@@ -401,8 +401,8 @@ describe("Phase 90 role-management flow — RoleModal close", () => {
       />,
     );
 
-    // Click the dedicated Edit roles header button (quick-260914-liu).
-    fireEvent.click(screen.getByTestId("pv-header-edit-roles-button"));
+    // Click the Roles footer button.
+    fireEvent.click(screen.getByTestId("pv-footer-roles-button"));
     await waitFor(() => {
       expect(screen.queryByText("Box Maintainer")).toBeTruthy();
     });
@@ -459,8 +459,8 @@ describe("Phase 90 role-management flow — RoleModal cosmetic edit", () => {
       />,
     );
 
-    // Click the dedicated Edit roles header button (quick-260914-liu).
-    fireEvent.click(screen.getByTestId("pv-header-edit-roles-button"));
+    // Click the Roles footer button.
+    fireEvent.click(screen.getByTestId("pv-footer-roles-button"));
     await waitFor(() => {
       expect(screen.queryByText("Box Maintainer")).toBeTruthy();
     });
@@ -500,8 +500,8 @@ describe("Phase 90 role-management flow — CreateRoleDialog swap", () => {
       />,
     );
 
-    // Click the dedicated Edit roles header button (quick-260914-liu).
-    fireEvent.click(screen.getByTestId("pv-header-edit-roles-button"));
+    // Click the Roles footer button.
+    fireEvent.click(screen.getByTestId("pv-footer-roles-button"));
 
     // Wait for RolesListModal — detectable via its "Roles" title.
     await waitFor(() => {

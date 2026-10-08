@@ -52,7 +52,6 @@
 // retired in Wave 4 and NOT ported forward here.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { createPortal } from "react-dom";
 // Phase 41 Plan 01: `Server` icon retired alongside the per-host divider chips.
 // Phase 41 Plan 02: `Search` and `X` icons added for the always-in-DOM search
 // input mounted at the top of the pv-panel-scroll region.
@@ -66,7 +65,7 @@ import { createPortal } from "react-dom";
 // (aliased ArchivedBoxIcon) glyph was the always-visible archived-apps trigger
 // on the Apps section header. Migrated into the Apps header RowKebabMenu
 // (single "Archived apps" item); icon import removed.
-import { AppWindow, ChevronDown, Clock, Crown, Drama, FolderPlus, Loader2, MessageSquare, MessagesSquare, Monitor, MoreVertical, Pin, Search, Settings, SquarePen, X } from "lucide-react";
+import { ChevronDown, Clock, Crown, Drama, Loader2, MessageSquare, Plus, Search, Settings, SquarePen, Wrench, X } from "lucide-react";
 import { Button } from "@/components/button";
 import SkillsEditorModal from "@/features/pretty-view/SkillsEditorModal";
 // Phase 137 D-08: PreferencesModal — opened from the sidebar footer gear button.
@@ -275,11 +274,6 @@ import { archiveIdentity } from "@/api/identity-archive-api";
 import { AppTile } from "./AppTile";
 import { useAppTiles } from "@/state/app-tiles-store";
 import WeeklyUsageMeter from "./WeeklyUsageMeter";
-// Phase 91 Plan 05 — NewConversationModal: portal-mounted sibling of
-// GlobalFilesModal. Opened via the header three-dot menu "New conversation"
-// item. onCreateRelayRoom prop threads the create response to AppShell.
-import { NewConversationModal } from "./NewConversationModal";
-import type { CreateRelayRoomResponse } from "./participant-types";
 // Phase 70 Plan 04: header lockup (small icon + wordmark) now sourced from
 // brandingConfig (Plan 70-03) so operator-provided assets swap in. Prior
 // hardcoded inline-SVG logo import removed — no remaining consumers in this
@@ -526,7 +520,6 @@ export function PrettyConversationsPanel({
   openTabIds = [],
   isAdmin = false,
   username = null,
-  onCreateRelayRoom,
   onOpenApp,
   onArchiveApp,
   onOpenFeedback,
@@ -637,14 +630,6 @@ export function PrettyConversationsPanel({
   // the initials-circle glyph. Null/undefined/empty → footer renders
   // without the anchor slot; footer action affordances still render.
   username?: string | null;
-  /**
-   * Phase 91 Plan 05 — Fired when the user successfully creates a relay room
-   * via NewConversationModal. AppShell wires this to open the relay-room tab
-   * via the canonical openTab signature (mirroring onRelayRoomRowClick). The
-   * modal itself calls onOpenChange(false) before this fires, so the prop is
-   * called after the modal has already closed.
-   */
-  onCreateRelayRoom?: (result: CreateRelayRoomResponse) => void;
   /**
    * Phase 120 D-06 — Fired when the user left-clicks an AppTile in the Apps
    * section. AppShell wires this to
@@ -993,11 +978,6 @@ export function PrettyConversationsPanel({
     description?: string;
   } | null>(null);
 
-  // Phase 23 (GEFM-01): panel-header MoreVertical menu state.
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [menuAnchor, setMenuAnchor] = useState<{ top: number; right: number } | null>(null);
-  const menuButtonRef = useRef<HTMLButtonElement | null>(null);
-  const menuRef = useRef<HTMLDivElement | null>(null);
   // Scroll region ref for save/restore across unmount — see savedListScrollTop
   // at module scope for why. Attached to the .pv-panel-scroll div below.
   const scrollRegionRef = useRef<HTMLDivElement | null>(null);
@@ -1065,20 +1045,10 @@ export function PrettyConversationsPanel({
   const [preferencesModalOpen, setPreferencesModalOpen] = useState(false);
   // AdminModal open/closed toggle (sidebar footer shield button, admins only).
   const [adminModalOpen, setAdminModalOpen] = useState(false);
-  // Phase 91 Plan 05 — NewConversationModal open/closed toggle (opened from
-  // menu's "New conversation" item — v1 throwaway placement per shape §Philosophy).
-  const [newConversationModalOpen, setNewConversationModalOpen] = useState(false);
-  // Phase 117 Plan 117-09 Task 2 (D-27) — pre-select a project slug when
-  // the per-section SquarePen new-conversation button opens the modal. The
-  // freshly-minted room's account_data gets a u.project.<slug> tag via a
-  // follow-up setRelayRoomProject call inside the modal.
-  const [newConversationPreSelectedProject, setNewConversationPreSelectedProject] =
-    useState<string | null>(null);
   // Phase 117 M-F follow-up (2026-09-18): the per-project SquarePen new-conv
-  // button opens the NEW-AGENT dialog (was: NewConversationModal for relay
-  // rooms) with a pending project slug that gets applied to the freshly-
-  // minted identity via setSessionProject after onCreate resolves. Same
-  // pattern as newConversationPreSelectedProject but for the identity path.
+  // button opens the NEW-AGENT dialog with a pending project slug that gets
+  // applied to the freshly-minted identity via setSessionProject after
+  // onCreate resolves.
   const [newSessionPendingProjectSlug, setNewSessionPendingProjectSlug] =
     useState<string | null>(null);
   // Phase 117 M-I follow-up (2026-09-19): also stash the project's hostId
@@ -1158,33 +1128,6 @@ export function PrettyConversationsPanel({
   // could render on either of a row's two lines. ConversationSearchModal
   // remains as the "search everywhere" escalation target, opened from the
   // everywhere-link that materializes on-input in that search row.
-
-  // Phase 23 (GEFM-01): open the header menu anchored below the trigger button.
-  const openMenu = useCallback(() => {
-    const rect = menuButtonRef.current?.getBoundingClientRect();
-    if (rect) setMenuAnchor({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
-    setMenuOpen(true);
-  }, []);
-  const closeMenu = useCallback(() => setMenuOpen(false), []);
-
-  // Phase 23 (GEFM-01): Escape + click-outside dismiss handlers for the menu.
-  useEffect(() => {
-    if (!menuOpen) return;
-    function handleDocClick(e: MouseEvent) {
-      const t = e.target as Node | null;
-      if (menuRef.current?.contains(t) || menuButtonRef.current?.contains(t)) return;
-      setMenuOpen(false);
-    }
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setMenuOpen(false);
-    }
-    document.addEventListener("mousedown", handleDocClick);
-    document.addEventListener("keydown", handleKey);
-    return () => {
-      document.removeEventListener("mousedown", handleDocClick);
-      document.removeEventListener("keydown", handleKey);
-    };
-  }, [menuOpen]);
 
   // Phase 26 D-02 / Phase 104 Plan 03 D-11: the pinned + needs-desk bounty-
   // count filter toggles are RETIRED alongside the bounty-count wire. The
@@ -1441,6 +1384,11 @@ export function PrettyConversationsPanel({
   // ContextMenu; there is no row open-state to coordinate.
 
   const showPencilButton = typeof onCreateSession === "function";
+  // Project sections the sidebar actually renders: during an active search,
+  // sections with no matching rows drop out (shape-sidebar-search-inline).
+  const visibleProjectSections = sidebarSearchActive
+    ? searchedProjectSections.filter((s) => s.rows.length > 0)
+    : searchedProjectSections;
   const isMobileVariant = variant === "mobile";
 
   // Row-click dispatcher — VERBATIM behavior from ConversationsPanel.tsx
@@ -2783,7 +2731,6 @@ export function PrettyConversationsPanel({
                 numbered enumeration here because it goes stale every time
                 the shape shifts; walking the JSX in order is authoritative. */}
             {showPencilButton && (
-              <>
                 <button
                   type="button"
                   className="pv-pencil"
@@ -2794,69 +2741,6 @@ export function PrettyConversationsPanel({
                 >
                   <SquarePen size={18} />
                 </button>
-                {/* Phase 117 Plan 117-08 (D-24) — Create project header
-                    button. Toggles createProjectModalOpen; the actual
-                    CreateProjectModal lands in 117-09 which replaces the
-                    placeholder marker rendered at the bottom of this panel. */}
-                <button
-                  type="button"
-                  className="pv-pencil"
-                  aria-label="New project"
-                  title="New project"
-                  data-testid="pv-header-create-project-button"
-                  onClick={() => {
-                    setPendingProjectSlug(null);
-                    setCreateProjectModalOpen(true);
-                  }}
-                >
-                  <FolderPlus size={18} />
-                </button>
-                <button
-                  type="button"
-                  className="pv-pencil"
-                  aria-label="Roles"
-                  title="Roles"
-                  data-testid="pv-header-edit-roles-button"
-                  onClick={() => setRolesListModalOpen(true)}
-                >
-                  <Drama size={18} />
-                </button>
-                {/* Edit global files (Globe) migrated to the sidebar footer
-                    in shape-sidebar-header-footer-redesign — files scoped to
-                    the whole account belong in the "about me" zone, not the
-                    "act on this conversation list" zone. Phase 137 D-29:
-                    that footer button is now retired; the About-you pane in
-                    Preferences is the single entry point. */}
-                {/* Phase 129 (shape 3, wake-ups-redesign) Plan 129-01 Task 4
-                    — Scheduled-Agents header button. Chrome mirrors sibling
-                    .pv-pencil buttons verbatim: Clock at size 18,
-                    aria-label + title both "Scheduled Agents". Opens the ScheduledAgentsModal
-                    mounted alongside the sibling modals below. */}
-                <button
-                  type="button"
-                  className="pv-pencil"
-                  aria-label="Scheduled Tasks"
-                  title="Scheduled Tasks"
-                  data-testid="pv-header-scheduled-agents-button"
-                  onClick={() => setScheduledAgentsModalOpen(true)}
-                >
-                  <Clock size={18} />
-                </button>
-              </>
-            )}
-            {showPencilButton && (
-              <button
-                ref={menuButtonRef}
-                type="button"
-                className="pv-pencil"
-                onClick={openMenu}
-                data-testid="pv-header-menu-button"
-                aria-label="More actions"
-                aria-haspopup="menu"
-                aria-expanded={menuOpen}
-              >
-                <MoreVertical size={18} />
-              </button>
             )}
           </div>
         </div>
@@ -3039,10 +2923,6 @@ export function PrettyConversationsPanel({
             aria-expanded={appsExpanded || sidebarSearchActive}
             aria-controls="pv-apps-section-content"
           >
-            <AppWindow
-              className="size-3.5 text-[#a89a80] opacity-90 shrink-0"
-              aria-hidden="true"
-            />
             <span className="pv-section-label">
               Apps
             </span>
@@ -3155,10 +3035,6 @@ export function PrettyConversationsPanel({
                 className="flex items-center gap-2.5 pl-1 pr-1 pt-3.5 pb-1.5"
                 data-testid="pretty-conversations-pinned-header"
               >
-                <Pin
-                  className="size-3.5 text-[#a89a80] opacity-90 shrink-0"
-                  aria-hidden="true"
-                />
                 <span className="pv-section-label">
                   Pinned
                 </span>
@@ -3202,78 +3078,111 @@ export function PrettyConversationsPanel({
               )}
             </div>
             )}
-            {/* Phase 117 Plan 117-08 (D-09, D-10, D-11) — projects zone.
+            {/* Phase 117 Plan 117-08 (D-09, D-11) — projects zone.
                 Inserted BETWEEN the pinned zone (above) and the flat middle
-                (below) per D-09's vertical order lock. NO wrapping
-                super-section "Projects" label per D-10 — each header stands
-                alone. Empty sections still render as header-only per D-11
-                UNLESS shape-sidebar-search-inline: when a sidebar search is
-                active, empty sections disappear entirely.
-                Each section wraps its rows in a coral drop lane (D-22
-                gesture #1) via PrettyProjectSectionHeader. */}
-            {(sidebarSearchActive
-              ? searchedProjectSections.filter((s) => s.rows.length > 0)
-              : searchedProjectSections
-            ).map((section) => (
-              <PrettyProjectSectionHeader
-                key={section.slug}
-                slug={section.slug}
-                displayName={section.displayName}
-                // Force-expand during sidebar search so matches inside a
-                // user-collapsed project are actually visible (mirrors the
-                // Apps section's `appsExpanded || sidebarSearchActive`
-                // pattern). Persisted collapse state is untouched — it
-                // reapplies when the search clears.
-                collapsed={sidebarSearchActive ? false : collapsedProjectSlugs.has(section.slug)}
-                onToggleCollapse={toggleProjectCollapse}
-                onNewConversationClick={handleNewConversationInProject}
-                onDropRow={handleProjectDrop}
-                onRenameProject={handleRenameProject}
-                onEditProjectFile={handleEditProjectFile}
-                onArchiveProject={(s) => { void handleArchiveProject(s); }}
-                rows={
-                  section.rows.length === 0 ? (
-                    // UAT 2026-09-19: empty-state message when a project has
-                    // zero conversations — mirrors the Apps section's D-04
-                    // empty-state pattern (centered italic muted line) so
-                    // the two sections read consistently. The drop lane on
-                    // PrettyProjectSectionHeader is already active on the
-                    // whole section, so drag-and-drop works over this text.
-                    <div
-                      className="pv-project-empty px-4 py-2 text-center text-[13px] italic text-[#5c6070]/85"
-                      data-testid="pretty-conversations-project-empty"
+                (below) per D-09's vertical order lock. A "Projects"
+                super-header (label + rule + "+" new-project button) wraps
+                every project section, indented beneath it; the "+" is the
+                sole new-project entry point (the header-strip folder button
+                is retired). The super-header always renders so a project can
+                be created from an empty list, except during an active sidebar
+                search with no project matches, when the whole zone hides.
+                Empty sections still render as header-only per D-11 (hidden
+                during a search). Each section wraps its rows in a coral drop
+                lane (D-22 gesture #1) via PrettyProjectSectionHeader. */}
+            {!(sidebarSearchActive && visibleProjectSections.length === 0) && (
+              <div className="pv-panel-group pv-projects-section" data-testid="pv-projects-super-section">
+                <div
+                  className="flex items-center gap-2.5 pl-1 pr-1 pt-3.5 pb-1.5"
+                  data-testid="pv-projects-super-header"
+                >
+                  <span className="pv-section-label">
+                    Projects
+                  </span>
+                  <span
+                    aria-hidden="true"
+                    className="flex-1 h-px bg-[linear-gradient(90deg,transparent_0%,rgba(168,154,128,0.20)_30%,rgba(168,154,128,0.20)_70%,transparent_100%)]"
+                  />
+                  {showPencilButton && (
+                    <button
+                      type="button"
+                      aria-label="New project"
+                      title="New project"
+                      data-testid="pv-projects-new-project-button"
+                      className="shrink-0 p-0.5 rounded text-[#a89a80] opacity-90 hover:opacity-100 cursor-pointer"
+                      onClick={() => {
+                        setPendingProjectSlug(null);
+                        setCreateProjectModalOpen(true);
+                      }}
                     >
-                      Create a new conversation, or drag one here.
-                    </div>
-                  ) : (
-                    section.rows.map((row) => (
-                      <PrettyConversationRowLive
-                        key={row.id}
-                        row={row}
-                        selected={row.id === selectedId || visibleInSplitTree.has(row.id)}
-                        pinned={isRowPinned(row)}
-                        variant={variant}
-                        onSelect={() => handleRowSelect(row)}
-                        onTogglePin={() => handleTogglePin(row)}
-                        onDeactivate={() => handleRowDeactivate(row)}
-                        onKill={() => handleRowKill(row)}
-                        onArchive={
-                          canonicalArchiveIdForRow(row) !== null
-                            ? () => handleArchive(row)
-                            : undefined
-                        }
-                        onMoveToProject={rowMoveToProjectCallback(row)}
-                        projects={submenuProjectsForRow(row)}
-                        currentProjectSlug={rowIdToProjectSlug.get(row.id) ?? null}
-                        inActiveSet={activeSet.has(row.id)}
-                        sessionKey={sessionWorkingKey(row)}
-                        subtitleMode="identityTitle"
-                      />
-                    ))
-                  )
-                }
-              />
-            ))}
+                      <Plus className="size-3.5" aria-hidden="true" />
+                    </button>
+                  )}
+                </div>
+                <div className="pl-3.5">
+                  {visibleProjectSections.map((section) => (
+                  <PrettyProjectSectionHeader
+                    key={section.slug}
+                    slug={section.slug}
+                    displayName={section.displayName}
+                    // Force-expand during sidebar search so matches inside a
+                    // user-collapsed project are actually visible (mirrors the
+                    // Apps section's `appsExpanded || sidebarSearchActive`
+                    // pattern). Persisted collapse state is untouched — it
+                    // reapplies when the search clears.
+                    collapsed={sidebarSearchActive ? false : collapsedProjectSlugs.has(section.slug)}
+                    onToggleCollapse={toggleProjectCollapse}
+                    onNewConversationClick={handleNewConversationInProject}
+                    onDropRow={handleProjectDrop}
+                    onRenameProject={handleRenameProject}
+                    onEditProjectFile={handleEditProjectFile}
+                    onArchiveProject={(s) => { void handleArchiveProject(s); }}
+                    rows={
+                      section.rows.length === 0 ? (
+                        // UAT 2026-09-19: empty-state message when a project has
+                        // zero conversations — mirrors the Apps section's D-04
+                        // empty-state pattern (centered italic muted line) so
+                        // the two sections read consistently. The drop lane on
+                        // PrettyProjectSectionHeader is already active on the
+                        // whole section, so drag-and-drop works over this text.
+                        <div
+                          className="pv-project-empty px-4 py-2 text-center text-[13px] italic text-[#5c6070]/85"
+                          data-testid="pretty-conversations-project-empty"
+                        >
+                          Create a new conversation, or drag one here.
+                        </div>
+                      ) : (
+                        section.rows.map((row) => (
+                          <PrettyConversationRowLive
+                            key={row.id}
+                            row={row}
+                            selected={row.id === selectedId || visibleInSplitTree.has(row.id)}
+                            pinned={isRowPinned(row)}
+                            variant={variant}
+                            onSelect={() => handleRowSelect(row)}
+                            onTogglePin={() => handleTogglePin(row)}
+                            onDeactivate={() => handleRowDeactivate(row)}
+                            onKill={() => handleRowKill(row)}
+                            onArchive={
+                              canonicalArchiveIdForRow(row) !== null
+                                ? () => handleArchive(row)
+                                : undefined
+                            }
+                            onMoveToProject={rowMoveToProjectCallback(row)}
+                            projects={submenuProjectsForRow(row)}
+                            currentProjectSlug={rowIdToProjectSlug.get(row.id) ?? null}
+                            inActiveSet={activeSet.has(row.id)}
+                            sessionKey={sessionWorkingKey(row)}
+                            subtitleMode="identityTitle"
+                          />
+                        ))
+                      )
+                    }
+                  />
+                  ))}
+                </div>
+              </div>
+            )}
             {/* Phase 41 Plan 01 (user 2026-08-14): FLAT middle zone.
                 No per-host divider chips (retired). Every non-pinned, non-
                 active-set, non-RDP row lands in `displayedMiddle` as a
@@ -3324,10 +3233,6 @@ export function PrettyConversationsPanel({
                   className="flex items-center gap-2.5 pl-1 pr-1 pt-3.5 pb-1.5"
                   data-testid="pv-flat-middle-section-header"
                 >
-                  <MessagesSquare
-                    className="size-3.5 text-[#a89a80] opacity-90 shrink-0"
-                    aria-hidden="true"
-                  />
                   <span className="pv-section-label">
                     Conversations
                   </span>
@@ -3391,10 +3296,6 @@ export function PrettyConversationsPanel({
                   className="flex items-center gap-2.5 pl-1 pr-1 pt-3.5 pb-1.5"
                   data-testid="rdp-divider"
                 >
-                  <Monitor
-                    className="size-3.5 text-[#a89a80] opacity-90 shrink-0"
-                    aria-hidden="true"
-                  />
                   <span className="pv-section-label">
                     {rdpSectionLabel}
                   </span>
@@ -3503,6 +3404,42 @@ export function PrettyConversationsPanel({
           })()}
         </div>
         <div className="pv-footer-actions">
+          {/* Manage surfaces for standing things the user owns live here,
+              beside the gear; the header strip keeps only "new conversation". */}
+          {showPencilButton && (
+            <>
+              <button
+                type="button"
+                className="pv-footer-btn"
+                aria-label="Scheduled Tasks"
+                title="Scheduled Tasks"
+                data-testid="pv-footer-scheduled-agents-button"
+                onClick={() => setScheduledAgentsModalOpen(true)}
+              >
+                <Clock size={18} />
+              </button>
+              <button
+                type="button"
+                className="pv-footer-btn"
+                aria-label="Roles"
+                title="Roles"
+                data-testid="pv-footer-roles-button"
+                onClick={() => setRolesListModalOpen(true)}
+              >
+                <Drama size={18} />
+              </button>
+              <button
+                type="button"
+                className="pv-footer-btn"
+                aria-label="Skills"
+                title="Skills"
+                data-testid="pv-footer-skills-button"
+                onClick={() => setSkillsEditorModalOpen(true)}
+              >
+                <Wrench size={18} />
+              </button>
+            </>
+          )}
           {/* Phase 137 D-08: gear button wired to open PreferencesModal.
               Previously an inert <span>; now a real interactive <button>.
               Phase 137 D-29: Globe button (global files) retired — preferences
@@ -3524,8 +3461,8 @@ export function PrettyConversationsPanel({
           <button
             type="button"
             className="pv-footer-btn"
-            aria-label="User preferences"
-            title="User preferences"
+            aria-label="Preferences"
+            title="Preferences"
             data-testid="pv-footer-preferences-button"
             onClick={() => setPreferencesModalOpen(true)}
           >
@@ -3666,34 +3603,6 @@ export function PrettyConversationsPanel({
         hostTree={hostTree ?? null}
         defaultHostId={null}
       />
-      {/* Phase 91 Plan 05 — NewConversationModal — portal-mounted sibling of
-          existing modal mounts. Opened via the header MoreVertical menu's "New
-          conversation" item. Controlled state; the modal itself owns form state
-          via useNewConversationForm hook. On successful create, calls
-          onCreateRelayRoom which threads through AppShell to open the pane. */}
-      {/* newConversationModalOpen controls the portal; setNewConversationModalOpen
-          is the toggle. onCreated closes + calls the AppShell callback. */}
-      {/* Phase 117 Plan 117-09 Task 2 (D-27) — wrapper node with a data
-          attribute so tests can observe the pre-selected slug wired
-          through the panel without reaching into modal internals. */}
-      <div
-        data-testid="pv-new-conv-modal-wrapper"
-        data-pre-selected-project={newConversationPreSelectedProject ?? ""}
-        hidden
-      />
-      <NewConversationModal
-        open={newConversationModalOpen}
-        onOpenChange={(o) => {
-          setNewConversationModalOpen(o);
-          if (!o) setNewConversationPreSelectedProject(null);
-        }}
-        onCreated={(result) => {
-          setNewConversationModalOpen(false);
-          setNewConversationPreSelectedProject(null);
-          onCreateRelayRoom?.(result); // AppShell-side handler opens the tab
-        }}
-        preSelectedProject={newConversationPreSelectedProject}
-      />
       {/* Phase 137 D-08: PreferencesModal — portal-mounted sibling of other
           modals. Opened via the sidebar footer gear button. userId/avatarPath/
           onAvatarChanged/userPrefs threaded from AppShell for live-sync (D-30)
@@ -3828,67 +3737,6 @@ export function PrettyConversationsPanel({
           roleName={panelRunbookEditorOpenState.roleName}
           runbookName={panelRunbookEditorOpenState.runbookName}
         />
-      )}
-      {/* Phase 23 (GEFM-01): glass portal menu — keyboard-Escape + click-outside
-          dismiss. Portal-mounted to document.body to escape overflow clipping
-          from .pv-panel-header. Chrome mirrors PrettyConversationContextMenu.tsx
-          (same glass gradient, border, backdrop-filter, color tokens). */}
-      {menuOpen && menuAnchor && createPortal(
-        <div
-          ref={menuRef}
-          role="menu"
-          style={{
-            position: "fixed",
-            top: menuAnchor.top,
-            right: menuAnchor.right,
-            minWidth: 200,
-            zIndex: 200,
-            padding: 4,
-            borderRadius: 12,
-            background: "linear-gradient(160deg, rgba(20,21,32,0.94), rgba(10,11,18,0.94))",
-            border: "1px solid rgba(255,240,215,0.12)",
-            boxShadow: "0 12px 32px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,240,215,0.08)",
-            backdropFilter: "blur(20px) saturate(1.6)",
-            WebkitBackdropFilter: "blur(20px) saturate(1.6)",
-            color: "#e8e4d8",
-          }}
-        >
-          {/* KEEP ORDER: New group conversation → Edit skills… (Phase 44 Pitfall 8 guard —
-              do not alphabetize or reshuffle these two survivors). quick-260914-liu moved
-              New agent, Edit roles, and Edit global files into dedicated header icon buttons;
-              those three entries are gone from this list. The Phase 44 no-reshuffle guard still
-              applies to the two items that remain. */}
-          {[
-            { label: "New group conversation", onClick: () => setNewConversationModalOpen(true) }, // Phase 91 Plan 05
-            { label: "Skills", onClick: () => setSkillsEditorModalOpen(true) },
-            // (Phase 137 D-21) kebab notification-entry retired; use Preferences modal.
-          ].map((item) => (
-            <button
-              key={item.label}
-              type="button"
-              role="menuitem"
-              onClick={(e) => { e.stopPropagation(); item.onClick(); closeMenu(); }}
-              className="py-[8px] px-[12px] max-md:py-[18px] max-md:px-[14px]"
-              style={{
-                display: "block",
-                width: "100%",
-                textAlign: "left",
-                fontSize: 14,
-                lineHeight: "18px",
-                borderRadius: 8,
-                background: "transparent",
-                border: "none",
-                color: "#e8e4d8",
-                cursor: "pointer",
-              }}
-              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(255,240,215,0.08)"; }}
-              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>,
-        document.body,
       )}
       {/* Phase 117 Plan 117-09 Task 1 — CreateProjectModal, wired to the
           header "Create project" button (state landed in 117-08). Replaces

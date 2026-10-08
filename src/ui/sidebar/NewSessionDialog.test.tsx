@@ -526,12 +526,10 @@ describe("PrettyConversationsPanel: header pencil renders before rows", () => {
       />,
     );
 
-    // Phase 23 (GEFM-01): the individual "New agent" pencil button is replaced
-    // by a single MoreVertical menu button (data-testid="pv-header-menu-button").
-    // The ordering test still applies: the menu trigger must precede conversation
-    // rows in document order (same guarantee the old pencil provided).
+    // The header pencil is the only header-strip action; it must precede
+    // conversation rows in document order.
     const button = container.querySelector(
-      'button[data-testid="pv-header-menu-button"]',
+      'button[data-testid="pv-header-new-agent-button"]',
     ) as HTMLElement | null;
     const row1 = container.querySelector(
       '[data-conversation-id="t1"]',

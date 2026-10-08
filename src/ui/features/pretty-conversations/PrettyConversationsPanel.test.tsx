@@ -1485,26 +1485,18 @@ describe("PrettyConversationsPanel: header New agent button opens NewSessionDial
 // Test 6 — Header pencil NOT rendered when onCreateSession is undefined
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("PrettyConversationsPanel: all four header buttons gated on onCreateSession", () => {
-  it("Test 6 (quick-260914-liu extend): all four header icon buttons (New agent, Edit roles, kebab) are absent when onCreateSession is undefined — they share one showPencilButton guard; footer gear stays visible", () => {
-    // quick-260914-liu: header buttons join the kebab under the same
-    // showPencilButton guard. When onCreateSession is undefined, all guarded
-    // header buttons must be absent.
-    // Phase 137 D-29: the footer Globe button was retired; preferences modal
-    // replaces its entry point via the gear button (pv-footer-preferences-button).
-    // The gear lives in the same "about me" zone the Globe used to occupy, and
-    // like the Globe before it, is NOT gated by the pencil guard — the footer's
-    // gear stays visible regardless of onCreateSession.
+describe("PrettyConversationsPanel: create + manage buttons gated on onCreateSession", () => {
+  it("Test 6: the header pencil and the footer Scheduled / Roles / Skills buttons are absent when onCreateSession is undefined; footer gear stays visible", () => {
+    // The header pencil and the footer manage buttons share one
+    // showPencilButton guard. The gear is NOT gated — it renders regardless.
     const { container } = render(
       <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
     );
-    expect(container.querySelector('[data-testid="pv-header-menu-button"]')).toBeNull();
     expect(container.querySelector('[data-testid="pv-header-new-agent-button"]')).toBeNull();
-    expect(container.querySelector('[data-testid="pv-header-edit-roles-button"]')).toBeNull();
-    // Retired: pv-footer-global-files-button (Phase 137 D-29).
-    expect(container.querySelector('[data-testid="pv-footer-global-files-button"]')).toBeNull();
-    // Footer's gear renders regardless of the onCreateSession gate — same
-    // "about me" zone semantic the Globe used to occupy.
+    expect(container.querySelector('[data-testid="pv-footer-scheduled-agents-button"]')).toBeNull();
+    expect(container.querySelector('[data-testid="pv-footer-roles-button"]')).toBeNull();
+    expect(container.querySelector('[data-testid="pv-footer-skills-button"]')).toBeNull();
+    expect(container.querySelector('[data-testid="pv-projects-new-project-button"]')).toBeNull();
     expect(container.querySelector('[data-testid="pv-footer-preferences-button"]')).not.toBeNull();
   });
 });
@@ -1567,9 +1559,9 @@ describe("PrettyConversationsPanel: mobile header title (patch #144)", () => {
 
     expect(container.querySelector(".pv-panel-header")).toBeTruthy();
 
-    const menuBtn = container.querySelector('[data-testid="pv-header-menu-button"]') as HTMLElement | null;
-    expect(menuBtn).toBeTruthy();
-    expect(menuBtn!.className).toContain("pv-pencil");
+    const pencilBtn = container.querySelector('[data-testid="pv-header-new-agent-button"]') as HTMLElement | null;
+    expect(pencilBtn).toBeTruthy();
+    expect(pencilBtn!.className).toContain("pv-pencil");
   });
 });
 
@@ -3881,114 +3873,37 @@ describe("PrettyConversationsPanel: WeeklyUsageMeter admin gate (feature 09)", (
 
 // ─── Phase 91 Plan 05 — New conversation menu item + modal ───────────────────
 
-describe("PrettyConversationsPanel: Phase 91 — New conversation menu item + modal", () => {
-  function renderPanelWithCreateRelayRoom(
-    onCreateRelayRoom?: (result: { ok: true; roomId: string; sessionId: string; roomTitle: string }) => void,
-  ) {
+describe("PrettyConversationsPanel: header strip + footer manage buttons", () => {
+  function renderPanel() {
     return render(
-      <PrettyConversationsPanel
-        variant="desktop"
-        onDeactivateRow={() => {}}
-        onCreateSession={vi.fn()} // required to show the three-dot menu button (showPencilButton gate)
-        onCreateRelayRoom={onCreateRelayRoom}
-      />,
+      <PrettyConversationsPanel variant="desktop" onCreateSession={vi.fn()} onDeactivateRow={() => {}} />,
     );
   }
 
-  function openThreeDotMenu() {
-    // The MoreVertical button has data-testid="pv-header-menu-button".
-    const menuBtn = document.querySelector('[data-testid="pv-header-menu-button"]') as HTMLElement;
-    if (!menuBtn) throw new Error("pv-header-menu-button not found");
-    fireEvent.click(menuBtn);
-  }
-
-  // Test 1: menu item exists
-  it("Test 1: clicking the three-dot menu shows a 'New group conversation' item", () => {
-    renderPanelWithCreateRelayRoom();
-    openThreeDotMenu();
-    expect(screen.getByRole("menuitem", { name: /new group conversation/i })).toBeTruthy();
+  it("Test 1: the header strip holds only the New conversation pencil — no kebab, no project / roles / scheduled buttons", () => {
+    const { container } = renderPanel();
+    const actions = container.querySelector(".pv-header-actions")!;
+    const buttons = Array.from(actions.querySelectorAll("button"));
+    expect(buttons.map((b) => b.getAttribute("data-testid"))).toEqual(["pv-header-new-agent-button"]);
+    expect(container.querySelector('[data-testid="pv-header-menu-button"]')).toBeNull();
+    expect(screen.queryByText("New group conversation")).toBeNull();
   });
 
-  // Test 2: menu item opens modal
-  it("Test 2: clicking 'New group conversation' item opens the modal", async () => {
-    renderPanelWithCreateRelayRoom();
-    openThreeDotMenu();
-    const menuItem = screen.getByRole("menuitem", { name: /new group conversation/i });
-    await act(async () => {
-      fireEvent.click(menuItem);
-    });
-    // Modal dialog should be mounted
-    await waitFor(() => {
-      expect(
-        document.querySelector('[role="dialog"]'),
-      ).toBeTruthy();
-    });
+  it("Test 2: footer actions read Scheduled Tasks, Roles, Skills, then the Preferences gear", () => {
+    const { container } = renderPanel();
+    const actions = container.querySelector(".pv-footer-actions")!;
+    const labels = Array.from(actions.querySelectorAll("button")).map((b) => b.getAttribute("aria-label"));
+    expect(labels).toEqual(["Scheduled Tasks", "Roles", "Skills", "Preferences"]);
+    const gear = container.querySelector('[data-testid="pv-footer-preferences-button"]')!;
+    expect(gear.getAttribute("title")).toBe("Preferences");
   });
 
-  // Test 3: onCreateRelayRoom prop threads through (structural verification)
-  it("Test 3: onCreateRelayRoom prop is called when the create response fires", () => {
-    const onCreateRelayRoom = vi.fn();
-    renderPanelWithCreateRelayRoom(onCreateRelayRoom);
-    openThreeDotMenu();
-    // Verify the menu item exists (the full modal→create→prop threading is
-    // covered by NewConversationModal.test.tsx Test 6; here we verify structural
-    // wiring: the prop is passed and the menu item exists).
-    expect(screen.getByRole("menuitem", { name: /new group conversation/i })).toBeTruthy();
-    // The prop being defined means it can receive calls
-    expect(typeof onCreateRelayRoom).toBe("function");
-  });
-
-  // Test 4: kebab now holds exactly two items in locked order.
-  // quick-260914-liu: New agent, Edit roles, Edit global files were promoted
-  // to dedicated header icon buttons. The kebab survivors are:
-  // New group conversation → Skills (Phase 44 Pitfall 8 guard still applies).
-  it("Test 4 (quick-260914-liu rewrite): kebab holds exactly two items in locked order: 'New group conversation' then 'Skills'", () => {
-    renderPanelWithCreateRelayRoom();
-    openThreeDotMenu();
-
-    const items = screen.getAllByRole("menuitem");
-    const labels = items.map((el) => el.textContent?.trim() ?? "");
-
-    // Filter out the feature-detected "Enable notifications…" entry so this
-    // assertion doesn't silently couple to JSDOM's lack of service-worker
-    // support (a future test-env polyfill could otherwise flip this from
-    // two to three items and break the exact-match). The guarded pair
-    // always renders in this exact order.
-    const guardedLabels = labels.filter((l) => l !== "Enable notifications…");
-
-    expect(guardedLabels).toEqual(["New group conversation", "Skills"]);
-  });
-
-  // Test 5: portal-mount pattern — NewConversationModal is sibling of GlobalFilesModal
-  it("Test 5: NewConversationModal appears as a portal-mounted sibling when open", async () => {
-    renderPanelWithCreateRelayRoom();
-    openThreeDotMenu();
-
-    const menuItem = screen.getByRole("menuitem", { name: /new group conversation/i });
-    await act(async () => {
-      fireEvent.click(menuItem);
-    });
-
-    // The dialog should be mounted in the document (portal-mounted to body).
-    // State-controlled: newConversationModalOpen === true after clicking.
-    await waitFor(() => {
-      expect(document.querySelector('[role="dialog"]')).toBeTruthy();
-    });
-  });
-
-  // Test 6: menu-button gate unchanged — only visible when onCreateSession is defined
-  it("Test 6: menu button is NOT visible when onCreateSession is undefined", () => {
-    const { container } = render(
-      <PrettyConversationsPanel
-        variant="desktop"
-        onDeactivateRow={() => {}}
-        // onCreateSession omitted — showPencilButton gate is false
-      />,
-    );
-    // The MoreVertical menu button should NOT be present when showPencilButton=false
-    expect(
-      container.querySelector('[data-testid="pv-header-menu-button"]'),
-    ).toBeNull();
+  it("Test 3: footer Skills button opens the Skills editor", async () => {
+    const { container } = renderPanel();
+    const btn = container.querySelector('[data-testid="pv-footer-skills-button"]') as HTMLButtonElement;
+    expect(btn.className).toContain("pv-footer-btn");
+    fireEvent.click(btn);
+    await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy());
   });
 });
 

@@ -3,7 +3,7 @@
  *
  * Flow-level integration test: drives the complete Slice C user flow.
  *
- *   menu-item click → modal open → participant selection → name entry →
+ *   modal open → participant selection → name entry →
  *   Create click → mocked createRelayRoom → onCreated callback →
  *   assert tab-open shape.
  *
@@ -12,7 +12,7 @@
  *   - This file asserts that the pieces fit together end-to-end.
  *
  * 8 scenarios:
- *   Test 1 — happy path: full flow menu → modal → pick → name → Create → callback
+ *   Test 1 — happy path: modal → pick → name → Create → callback
  *   Test 2 — double-click debounce (T-91-FE-01): second click is a no-op
  *   Test 3 — single-agent-only disable: Create stays disabled; hint mentions agent
  *   Test 4 — zero-participant disable: Create disabled; hint mentions participant
@@ -30,6 +30,7 @@
  * @see 91-PATTERNS.md § Test-file structure (line 943)
  */
 
+import { useState } from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   act,
@@ -233,7 +234,7 @@ vi.mock("@/api/global-files-api", () => ({
 
 // ─── Component under test (import AFTER mocks) ──────────────────────────────────
 
-import { PrettyConversationsPanel } from "./PrettyConversationsPanel";
+import { NewConversationModal } from "./NewConversationModal";
 
 // ─── Additional imports for mock handle access ────────────────────────────────
 
@@ -280,43 +281,33 @@ const ONE_HOST_TREE: HostFolder = {
 };
 
 /**
- * Render the panel with `onCreateSession` and `onCreateRelayRoom` wired.
- * `onCreateSession` must be a function so the header menu button is visible
- * (showPencilButton gate in PrettyConversationsPanel).
+ * Render the modal open, inside a harness that mirrors how a host wires it:
+ * close on onOpenChange(false) and on onCreated, forwarding the create
+ * response to the spy.
  */
-function renderPanel(onCreateRelayRoom: ReturnType<typeof vi.fn> = vi.fn()) {
-  return render(
-    <PrettyConversationsPanel
-      variant="desktop"
-      hostTree={ONE_HOST_TREE}
-      onCreateSession={vi.fn()}
-      onCreateRelayRoom={onCreateRelayRoom}
-      onDeactivateRow={() => {}}
-    />,
+function ModalHarness({ onCreated }: { onCreated: ReturnType<typeof vi.fn> }) {
+  const [open, setOpen] = useState(true);
+  return (
+    <NewConversationModal
+      open={open}
+      onOpenChange={setOpen}
+      onCreated={(result) => {
+        setOpen(false);
+        onCreated(result);
+      }}
+    />
   );
 }
 
-/**
- * Open the header three-dot menu (MoreVertical button).
- * Gate: showPencilButton must be true (onCreateSession wired).
- */
-function openThreeDotMenu() {
-  const btn = screen.getByTestId("pv-header-menu-button");
-  fireEvent.click(btn);
+function renderPanel(onCreateRelayRoom: ReturnType<typeof vi.fn> = vi.fn()) {
+  return render(<ModalHarness onCreated={onCreateRelayRoom} />);
 }
 
 /**
- * Click "New group conversation" in the open menu and wait for the modal dialog.
+ * Wait for the open modal dialog to mount.
  */
 async function openNewConversationModal() {
-  openThreeDotMenu();
-  const menuItem = screen.getByRole("menuitem", { name: /new group conversation/i });
-  await act(async () => {
-    fireEvent.click(menuItem);
-  });
-  // Wait for the modal portal to mount.
-  const dialog = await screen.findByRole("dialog", { name: /new group conversation/i });
-  return dialog;
+  return screen.findByRole("dialog", { name: /new group conversation/i });
 }
 
 // ─── beforeEach / afterEach ─────────────────────────────────────────────────────

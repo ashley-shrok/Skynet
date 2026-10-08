@@ -53,7 +53,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { FolderOpen, ChevronDown } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 
 import { RowKebabMenu, useRowKebabContextMenu } from "./RowKebabMenu";
 
@@ -269,10 +269,6 @@ export function PrettyProjectSectionHeader({
         aria-expanded={!collapsed}
         aria-controls={`pv-project-section-content-${slug}`}
       >
-        <FolderOpen
-          className="size-3.5 text-[#a89a80] opacity-90 shrink-0"
-          aria-hidden="true"
-        />
         <span className="pv-section-label">
           {displayName}
         </span>

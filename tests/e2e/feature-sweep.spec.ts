@@ -60,33 +60,26 @@ test("feature sweep — exercise every visible affordance for a fresh user", asy
   await page.screenshot({ path: path.join(OUT, "04-search-empty-results.png") });
   await search.fill("");
 
-  // 4. More actions menu
-  await page.locator('[data-testid="pv-header-menu-button"]').click();
+  // 4. Roles modal (sidebar footer)
+  await page.locator('[data-testid="pv-footer-roles-button"]').click();
+  await page.waitForTimeout(1200);
+  await page.screenshot({ path: path.join(OUT, "05-roles-modal.png") });
+  await page.keyboard.press("Escape");
   await page.waitForTimeout(500);
-  await page.screenshot({ path: path.join(OUT, "05-more-actions-menu.png") });
 
-  // 5. New role dialog (probably empty since throwaway has no host with roles)
-  const newRole = page.getByRole("menuitem", { name: /new role/i });
-  if (await newRole.isVisible().catch(() => false)) {
-    await newRole.click();
-    await page.waitForTimeout(1200);
-    await page.screenshot({ path: path.join(OUT, "06-new-role-dialog.png") });
-    // Close
-    await page.keyboard.press("Escape");
-    await page.waitForTimeout(500);
-  }
+  // 5. Scheduled Tasks modal (sidebar footer)
+  await page.locator('[data-testid="pv-footer-scheduled-agents-button"]').click();
+  await page.waitForTimeout(1200);
+  await page.screenshot({ path: path.join(OUT, "06-scheduled-tasks-modal.png") });
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(500);
 
-  // 6. Reopen menu, edit skills
-  await page.locator('[data-testid="pv-header-menu-button"]').click();
-  await page.waitForTimeout(400);
-  const editSkills = page.getByRole("menuitem", { name: /edit skills/i });
-  if (await editSkills.isVisible().catch(() => false)) {
-    await editSkills.click();
-    await page.waitForTimeout(1500);
-    await page.screenshot({ path: path.join(OUT, "07-edit-skills.png") });
-    await page.keyboard.press("Escape");
-    await page.waitForTimeout(500);
-  }
+  // 6. Skills editor (sidebar footer)
+  await page.locator('[data-testid="pv-footer-skills-button"]').click();
+  await page.waitForTimeout(1500);
+  await page.screenshot({ path: path.join(OUT, "07-edit-skills.png") });
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(500);
 
   // 7. Edit global files — migrated to the sidebar footer in
   //    shape-sidebar-header-footer-redesign. Test-id: pv-footer-global-files-button.

@@ -5,10 +5,10 @@
 // stores + sibling modals, then a focused describe on the new button).
 //
 // Coverage:
-//   Test 1: pv-header-scheduled-agents-button renders with correct chrome + a11y attrs
+//   Test 1: pv-footer-scheduled-agents-button renders with correct chrome + a11y attrs
 //   Test 2: button absent when onCreateSession is undefined (showPencilButton guard)
 //   Test 3: clicking the button opens ScheduledAgentsModal (stubbed)
-//   Test 4: button position — after Create project, before kebab
+//   Test 4: button position — first footer action, before Roles and the gear
 //
 // Kept as a sibling test file (not appended to the main panel test) so the
 // surface stays isolated from the 25+ pre-existing tests in the main suite —
@@ -201,8 +201,8 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe("PrettyConversationsPanel: Scheduled Agents header button", () => {
-  it("Test 1: pv-header-scheduled-agents-button renders with correct chrome + a11y attrs", () => {
+describe("PrettyConversationsPanel: Scheduled Agents footer button", () => {
+  it("Test 1: pv-footer-scheduled-agents-button renders with correct chrome + a11y attrs", () => {
     render(
       <PrettyConversationsPanel
         variant="desktop"
@@ -211,12 +211,12 @@ describe("PrettyConversationsPanel: Scheduled Agents header button", () => {
         onDeactivateRow={() => {}}
       />,
     );
-    const btn = screen.getByTestId("pv-header-scheduled-agents-button");
+    const btn = screen.getByTestId("pv-footer-scheduled-agents-button");
     expect(btn).toBeTruthy();
     expect(btn.getAttribute("aria-label")).toBe("Scheduled Tasks");
     expect(btn.getAttribute("title")).toBe("Scheduled Tasks");
-    // Shares the .pv-pencil chrome with siblings.
-    expect(btn.classList.contains("pv-pencil")).toBe(true);
+    // Shares the .pv-footer-btn chrome with the footer gear.
+    expect(btn.classList.contains("pv-footer-btn")).toBe(true);
   });
 
   it("Test 2: button absent when onCreateSession is undefined (showPencilButton guard)", () => {
@@ -226,10 +226,10 @@ describe("PrettyConversationsPanel: Scheduled Agents header button", () => {
         onDeactivateRow={() => {}}
       />,
     );
-    expect(screen.queryByTestId("pv-header-scheduled-agents-button")).toBeNull();
+    expect(screen.queryByTestId("pv-footer-scheduled-agents-button")).toBeNull();
   });
 
-  it("Test 3: clicking pv-header-scheduled-agents-button opens ScheduledAgentsModal (stub visible)", async () => {
+  it("Test 3: clicking pv-footer-scheduled-agents-button opens ScheduledAgentsModal (stub visible)", async () => {
     render(
       <PrettyConversationsPanel
         variant="desktop"
@@ -241,19 +241,14 @@ describe("PrettyConversationsPanel: Scheduled Agents header button", () => {
     // Stub is not in doc before click.
     expect(screen.queryByTestId("scheduled-agents-modal-stub")).toBeNull();
 
-    fireEvent.click(screen.getByTestId("pv-header-scheduled-agents-button"));
+    fireEvent.click(screen.getByTestId("pv-footer-scheduled-agents-button"));
 
     await waitFor(() => {
       expect(screen.getByTestId("scheduled-agents-modal-stub")).toBeInTheDocument();
     });
   });
 
-  it("Test 4: button position — appears after Create project, before kebab", () => {
-    // shape-sidebar-header-footer-redesign: Globe migrated to the sidebar
-    // footer, so scheduled-agents' "after Globe" anchor was replaced by "after
-    // Create project" — its actual position in the header after the
-    // migration. Kebab remains the trailing anchor. Scheduled Agents still slots
-    // between the creation actions and the catchall menu.
+  it("Test 4: button position — first footer action, before Roles and the gear", () => {
     render(
       <PrettyConversationsPanel
         variant="desktop"
@@ -262,15 +257,11 @@ describe("PrettyConversationsPanel: Scheduled Agents header button", () => {
         onDeactivateRow={() => {}}
       />,
     );
-    const createProject = screen.getByTestId("pv-header-create-project-button");
-    const scheduledAgents = screen.getByTestId("pv-header-scheduled-agents-button");
-    const kebab = screen.getByTestId("pv-header-menu-button");
+    const scheduledAgents = screen.getByTestId("pv-footer-scheduled-agents-button");
+    const roles = screen.getByTestId("pv-footer-roles-button");
+    const gear = screen.getByTestId("pv-footer-preferences-button");
     // Node.DOCUMENT_POSITION_FOLLOWING = 4
-    expect(
-      createProject.compareDocumentPosition(scheduledAgents) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-    expect(
-      scheduledAgents.compareDocumentPosition(kebab) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+    expect(scheduledAgents.compareDocumentPosition(roles) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(roles.compareDocumentPosition(gear) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });

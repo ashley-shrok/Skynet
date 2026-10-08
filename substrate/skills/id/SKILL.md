@@ -567,11 +567,15 @@ name, so she can find it without knowing the app's terminology.
 
 ### Header of the conversation list
 
-Five controls sit at the top of the conversation list (the previous magnifier
-search-button has been retired — search is now a dedicated input row directly
-below the header, see § The sidebar search input further down):
+One control sits at the top of the conversation list, beside the app logo.
+Search is a dedicated input row directly below the header (see § The
+sidebar search input further down). The surfaces for standing things the
+user owns — scheduled agents, roles, skills — live in the sidebar footer
+beside the gear (§ Sidebar footer); new projects are made from the
+**Projects** super-header (§ Sidebar content). There is no three-dots
+menu in the header and no "new group conversation" control in the app.
 
-- **✏️ Pencil-on-paper — new conversation (single agent).** Opens a
+- **✏️ Pencil-on-paper — new conversation.** Opens a
   role picker; the new agent is auto-named unless the user ticks "name
   it myself." The role picker is a multi-select — at least one role is
   required; picking several writes them to the identity file as
@@ -579,66 +583,6 @@ below the header, see § The sidebar search input further down):
   *Agent-side:* see § Spawning another agent — the same mechanism, but
   the agent-side lets you seed the newborn with an initial prompt, which
   the button cannot. User-gated.
-
-- **📁 Folder — new project.** Takes a display name and creates the
-  project. Slug is derived from the name (kebab-case, `/^[a-z0-9-]{1,64}$/`).
-  Duplicate slug = error.
-  *Agent-side:* a project is just a folder on disk at
-  `~/fleet/projects/<slug>/` containing a `project.md` with `displayName:`
-  frontmatter. Direct filesystem creation works (`mkdir` + write the file)
-  but bypasses the wire event, so open frontends won't see it appear until
-  they refresh or the periodic sweep picks it up. **User-gated.**
-
-- **🎭 Drama masks — roles.** Opens a modal listing every role the
-  user has access to on this box. Clicking one drills in; a **"new
-  role"** button inside the modal creates a fresh role (name, description,
-  host, color, avatar).
-  *Agent-side:* a role is a folder at `~/fleet/roles/<slug>/` containing
-  a `<slug>.md` role file (frontmatter: `title`, `colorHue`, optional
-  `avatar`; body starts with `# <slug>` and a `## Role` section holding
-  the description). Slug rules mirror project. Editing an existing role
-  file follows § Editing the role file (propose + wait for greenlight).
-  Creating a new role is **user-gated**; on greenlight, offer to
-  immediately spawn a fresh agent of that new role as a follow-up (mirrors
-  what the button chains to).
-
-  Every row in this modal carries an always-visible three-dots menu on the
-  right. Clicking it opens a small menu — **Archive** for a live role,
-  **Un-archive** for an archived role. This is the visible action path; the
-  older right-click gesture on this modal is retired.
-
-  Below the live-roles list, the modal also has an **Archived roles**
-  collapsed section — always visible even when zero archived roles exist.
-  Expanding it lazy-loads the archived list for the currently-selected host.
-  Each archived row carries the same three-dots menu with a single
-  **Un-archive** item. On un-archive, the supervisor's reconciler picks up
-  the sentinel drop within ~15 seconds and moves the role folder back to
-  `~/fleet/roles/<name>/`.
-
-- **🕐 Clock — scheduled agents.** Opens the modal that lists all
-  existing scheduled agents (edit or delete inline) plus a **"new
-  scheduled agent"** button that asks for name, prompt, one or more roles,
-  and the schedule (daily / weekly / interval / one-shot).
-  *Agent-side:* see § Scheduled agents. **User-gated.**
-
-- **⋮ Three vertical dots (don't say "kebab" to the user) — menu with
-  two items:**
-  - **New group conversation** — pick any number of humans and agents.
-    You cannot create another 1:1 with an agent the user already has
-    (dedupe); valid combos are 3+ participants OR user + another human.
-    *Agent-side:* creating group Matrix rooms is already how peer agents
-    work day-to-day; see the `agent-relay` skill. Inviting a human as
-    one of the participants is a natural extension of that same
-    mechanism.
-  - **Skills** — lists the user's skills; view/edit any, or create
-    a new one. Skills here are surfaced to every one of the user's agent
-    sessions.
-    *Agent-side:* skills live at `~/.claude/skills/<skill-name>/SKILL.md`
-    (folder + sentinel file, mirroring this id skill's own layout).
-    Reading is fine; **creating or editing follows the same
-    "propose + wait for greenlight" rule as role files, `AGENTS.md`, and
-    the user-wide `CLAUDE.md`** — skills become standing behavior for
-    every session, so they need user sign-off.
 
 ### The sidebar search input
 
@@ -742,9 +686,20 @@ not something agents drive.
   The same menu CONTENT appears via right-click on the identity badge in
   the open conversation view (upper-right).
 
-- **Projects section (below Pinned).** One row per project, expandable
-  and collapsible. Drag conversations in and out to move them. Each
-  project header carries a **kebab menu** with:
+- **Projects section (below Pinned).** A **Projects** super-header
+  with a **➕ plus** on its right; every project sits indented beneath it.
+  The super-header shows even when there are no projects, since its plus is
+  the only way to create one.
+  - **➕ Plus — new project.** Takes a display name and creates the
+    project. Slug is derived from the name (kebab-case, `/^[a-z0-9-]{1,64}$/`).
+    Duplicate slug = error.
+    *Agent-side:* a project is just a folder on disk at
+    `~/fleet/projects/<slug>/` containing a `project.md` with `displayName:`
+    frontmatter. Direct filesystem creation works (`mkdir` + write the file)
+    but bypasses the wire event, so open frontends won't see it appear until
+    they refresh or the periodic sweep picks it up. **User-gated.**
+  Each project is expandable and collapsible. Drag conversations in and
+  out to move them. Each project header carries a **kebab menu** with:
   - **New conversation in this project** — auto-assigns the spawned
     agent to this project.
   - **Edit project file** — opens the project.md editor modal.
@@ -771,7 +726,53 @@ not something agents drive.
 
 ### Sidebar footer
 
-- **⚙️ Gear icon — user preferences.**
+The footer holds the user's avatar and name on the left. On the right is a
+row of icons, in this order: clock, drama masks, wrench, then (admins only)
+crown, then gear.
+
+- **🕐 Clock — scheduled agents.** Opens the modal that lists all
+  existing scheduled agents (edit or delete inline) plus a **"new
+  scheduled agent"** button that asks for name, prompt, one or more roles,
+  and the schedule (daily / weekly / interval / one-shot).
+  *Agent-side:* see § Scheduled agents. **User-gated.**
+
+- **🎭 Drama masks — roles.** Opens a modal listing every role the
+  user has access to on this box. Clicking one drills in; a **"new
+  role"** button inside the modal creates a fresh role (name, description,
+  host, color, avatar).
+  *Agent-side:* a role is a folder at `~/fleet/roles/<slug>/` containing
+  a `<slug>.md` role file (frontmatter: `title`, `colorHue`, optional
+  `avatar`; body starts with `# <slug>` and a `## Role` section holding
+  the description). Slug rules mirror project. Editing an existing role
+  file follows § Editing the role file (propose + wait for greenlight).
+  Creating a new role is **user-gated**; on greenlight, offer to
+  immediately spawn a fresh agent of that new role as a follow-up (mirrors
+  what the button chains to).
+
+  Every row in this modal carries an always-visible three-dots menu on the
+  right. Clicking it opens a small menu — **Archive** for a live role,
+  **Un-archive** for an archived role. This is the visible action path; the
+  older right-click gesture on this modal is retired.
+
+  Below the live-roles list, the modal also has an **Archived roles**
+  collapsed section — always visible even when zero archived roles exist.
+  Expanding it lazy-loads the archived list for the currently-selected host.
+  Each archived row carries the same three-dots menu with a single
+  **Un-archive** item. On un-archive, the supervisor's reconciler picks up
+  the sentinel drop within ~15 seconds and moves the role folder back to
+  `~/fleet/roles/<name>/`.
+
+- **🔧 Wrench — skills.** Lists the user's skills; view/edit any, or create
+  a new one. Skills here are surfaced to every one of the user's agent
+  sessions.
+  *Agent-side:* skills live at `~/.claude/skills/<skill-name>/SKILL.md`
+  (folder + sentinel file, mirroring this id skill's own layout).
+  Reading is fine; **creating or editing follows the same
+  "propose + wait for greenlight" rule as role files, `AGENTS.md`, and
+  the user-wide `CLAUDE.md`** — skills become standing behavior for
+  every session, so they need user sign-off.
+
+- **⚙️ Gear icon — Preferences.**
   - **Avatar** — the user's displayed avatar.
   - **About you** — content every one of the user's agents automatically
     sees. Good for shared preferences, info about the user, or anything
@@ -825,7 +826,7 @@ not something agents drive.
     etc.).
 
 - **Role modal (jump to via the identity modal header, or from the
-  drama-masks header icon → roles → click a role).** Three tabs:
+  drama-masks icon in the footer → click a role).** Three tabs:
   - **Role file** — view and edit the role's own `<role>.md`.
   - **Runbooks** — list the role's runbooks; click one to open the
     runbook editor.
@@ -1246,7 +1247,7 @@ carries out its prompt did not exist a moment ago.
 ### User-side counterpart
 
 The user creates and manages scheduled agents via the **clock icon** in
-the upper-left header of the conversation list. The modal lists all
+the sidebar footer, beside the gear. The modal lists all
 existing scheduled agents (edit or delete inline) and has a "new
 scheduled agent" button which asks for name, prompt, one or more roles,
 and the schedule (daily / weekly / interval / one-shot). Each row shows

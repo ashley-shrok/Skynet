@@ -3,7 +3,7 @@
  *
  * Behavior surface (see 117-08-PLAN.md <behavior> Task 2):
  *   Test 1  — project sections render BETWEEN pinned zone and flat middle (D-09)
- *   Test 2  — no "Projects" super-section wrapping label (D-10)
+ *   Test 2  — "Projects" super-header wraps the project sections
  *   Test 3  — empty project section renders as header-only (D-11) + still droppable
  *   Test 4  — collapse state hides rows; click header calls toggle
  *   Test 5  — create-project header button exists + click opens placeholder modal
@@ -22,6 +22,7 @@ import {
   createEvent,
   cleanup,
   screen,
+  waitFor,
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -636,11 +637,11 @@ describe("PrettyConversationsPanel: projects zone position (D-09)", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 2 — no "Projects" super-section wrapping label (D-10)
+// Test 2 — "Projects" super-header wraps the project sections
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("PrettyConversationsPanel: no super-section 'Projects' label (D-10)", () => {
-  it("Test 2: no element with text 'Projects' exists as a wrapping super-section header", () => {
+describe("PrettyConversationsPanel: 'Projects' super-header", () => {
+  it("Test 2: a 'Projects' super-header wraps every project section", () => {
     const hostA = makeHost("1", "hostA");
     const rowA = makeRow({
       id: "a-1",
@@ -676,13 +677,34 @@ describe("PrettyConversationsPanel: no super-section 'Projects' label (D-10)", (
     expect(container.querySelector('[data-testid="pv-project-section-header-alpha"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="pv-project-section-header-beta"]')).not.toBeNull();
 
-    // No wrapping label named "Projects" (plural). Check that no element has
-    // trimmed text content exactly "Projects" — D-10 explicit rejection.
-    const allSpans = container.querySelectorAll("span");
-    for (const el of Array.from(allSpans)) {
-      const txt = (el.textContent ?? "").trim();
-      expect(txt).not.toBe("Projects");
-    }
+    // A "Projects" super-header wraps every project section, indented beneath it.
+    const superSection = container.querySelector('[data-testid="pv-projects-super-section"]') as HTMLElement;
+    expect(superSection).not.toBeNull();
+    const superHeader = container.querySelector('[data-testid="pv-projects-super-header"]') as HTMLElement;
+    expect(superHeader.querySelector(".pv-section-label")!.textContent!.trim()).toBe("Projects");
+    expect(superSection.querySelector('[data-testid="pv-project-section-header-alpha"]')).not.toBeNull();
+    expect(superSection.querySelector('[data-testid="pv-project-section-header-beta"]')).not.toBeNull();
+  });
+});
+
+describe("PrettyConversationsPanel: 'Projects' super-header new-project button", () => {
+  it("Test 2b: the super-header renders with zero projects, and its '+' opens the create-project modal", async () => {
+    setSnapshot({ projectSections: [] });
+    mockProjects = [];
+    const { container } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={HOST_TREE}
+        onCreateSession={() => {}}
+        onDeactivateRow={() => {}}
+      />,
+    );
+    expect(container.querySelector('[data-testid="pv-projects-super-header"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="pv-header-create-project-button"]')).toBeNull();
+    const plus = container.querySelector('[data-testid="pv-projects-new-project-button"]') as HTMLButtonElement;
+    expect(plus.getAttribute("aria-label")).toBe("New project");
+    fireEvent.click(plus);
+    await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy());
   });
 });
 
@@ -1852,7 +1874,7 @@ describe("rewriteDisplayNameInFrontmatter", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationsPanel: new-conversation-in-project wire (M-F rewire)", () => {
-  it("Test 9: kebab 'New conversation in this project' sets pending project slug on the new-session wrapper (NOT the relay-room wrapper)", async () => {
+  it("Test 9: kebab 'New conversation in this project' sets pending project slug on the new-session wrapper", async () => {
     setSnapshot({
       projectSections: [{ slug: "alpha", displayName: "Alpha", rows: [] }],
     });
@@ -1877,10 +1899,6 @@ describe("PrettyConversationsPanel: new-conversation-in-project wire (M-F rewire
     expect(nsdWrapper).not.toBeNull();
     expect(nsdWrapper!.getAttribute("data-pending-project-slug")).toBe("alpha");
 
-    // OLD wire must NOT have fired — the relay-room modal wrapper stays empty.
-    const oldWrapper = container.querySelector('[data-testid="pv-new-conv-modal-wrapper"]');
-    expect(oldWrapper).not.toBeNull();
-    expect(oldWrapper!.getAttribute("data-pre-selected-project")).toBe("");
   });
 
   it("Test 9b: identity-birth onCreate fires setSessionProject(hostId, newborn identityKey, slug)", async () => {

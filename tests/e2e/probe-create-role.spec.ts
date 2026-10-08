@@ -13,14 +13,14 @@ test("probe: create a role as throwaway-tina on test-vm-throwaway", async ({ bro
   await page.goto("/", { waitUntil: "domcontentloaded" });
   await page.waitForTimeout(3000);
 
-  // Click More Actions
-  console.log("[1] click more actions");
-  await page.locator('[data-testid="pv-header-menu-button"]').click();
+  // Open the Roles modal from the sidebar footer
+  console.log("[1] click roles");
+  await page.locator('[data-testid="pv-footer-roles-button"]').click();
   await page.waitForTimeout(600);
 
   // Click New role
   console.log("[2] click new role");
-  await page.getByRole("menuitem", { name: /new role/i }).click();
+  await page.getByRole("button", { name: /new role/i }).click();
   await page.waitForTimeout(1500);
   await page.screenshot({ path: "test-results/probe-create-role-01.png" });
 

@@ -13,9 +13,9 @@ test("probe: More actions → New agent → pick host → measure open", async (
   await page.waitForTimeout(3000);
   await page.screenshot({ path: "test-results/probe-ns-01-shell.png" });
 
-  console.log("[1] shell loaded, clicking More actions");
-  const moreActions = page.locator('[data-testid="pv-header-menu-button"]');
-  await moreActions.click();
+  console.log("[1] shell loaded, clicking New conversation");
+  const newConversation = page.locator('[data-testid="pv-header-new-agent-button"]');
+  await newConversation.click();
   await page.waitForTimeout(1000);
   await page.screenshot({ path: "test-results/probe-ns-02-menu-open.png" });
 
@@ -29,7 +29,7 @@ test("probe: More actions → New agent → pick host → measure open", async (
     });
     return items.slice(0, 30);
   });
-  console.log("[2] menu items after More Actions click:", menuContent);
+  console.log("[2] items after New conversation click:", menuContent);
 
   // Try to click New agent (or similar)
   const newAgent = page.getByText(/new agent/i).first();
