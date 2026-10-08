@@ -40,8 +40,9 @@ export const REQUESTED_BY_MAX_LENGTH = 200;
  * Returns ok:true + SpawnRequestBody on success, or ok:false + reason + message
  * on any validation failure (D-04, D-05, D-12, T-99-01).
  *
- * Accepted fields: roles[], skills?[], prompt, task, requested_at, users?[],
- * name?, project?, requested_by?.
+ * Accepted fields: roles[], prompt, task, requested_at, users?[], name?,
+ * project?, requested_by?. A legacy `skills` key is tolerated and ignored
+ * (the field never did anything; older scheduler copies still send it).
  * Extra fields (coord_mxid, target-host, priority, retry_count, ordinal) are
  * rejected as malformed (D-05).
  */
@@ -84,19 +85,6 @@ export function parseRequestBody(
     }
   }
 
-  // skills[] validation — optional field (D-04)
-  const skills = obj["skills"];
-  if (skills !== undefined) {
-    if (!Array.isArray(skills)) {
-      return { ok: false, reason: "malformed", message: "skills must be an array if present" };
-    }
-    for (const s of skills) {
-      if (typeof s !== "string" || s.length === 0) {
-        return { ok: false, reason: "malformed", message: "skills: each element must be a non-empty string" };
-      }
-    }
-  }
-
   // prompt validation — plain string, no length cap (D-06)
   const prompt = obj["prompt"];
   if (typeof prompt !== "string" || prompt.length === 0) {
@@ -122,7 +110,7 @@ export function parseRequestBody(
   }
 
   // users[] validation — optional spec-provided user tag for the newborn's
-  // frontmatter `users:` field. Same validation shape as skills[].
+  // frontmatter `users:` field.
   const users = obj["users"];
   if (users !== undefined) {
     if (!Array.isArray(users)) {
@@ -182,7 +170,6 @@ export function parseRequestBody(
     ok: true,
     body: {
       roles,
-      skills: skills as string[] | undefined,
       prompt,
       task: task as string | null,
       requested_at,

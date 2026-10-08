@@ -216,8 +216,8 @@ elif 'test-slug' not in p:
     errors.append('prompt: missing slug reference; got=' + repr(p[:200]))
 elif '> hello' not in p:
     errors.append('prompt: original prompt not blockquoted verbatim; got=' + repr(p[:400]))
-if d.get('skills') != []:
-    errors.append('skills: expected=[] got=' + repr(d.get('skills')))
+if 'skills' in d:
+    errors.append('skills: expected absent (field removed) got=' + repr(d.get('skills')))
 if d.get('task') != '⏰ T1':
     errors.append('task: expected=\"⏰ T1\" (clock-prefixed, de-slugged spec name) got=' + repr(d.get('task')))
 if not isinstance(d.get('requested_at'), str) or not d['requested_at'].endswith('Z'):

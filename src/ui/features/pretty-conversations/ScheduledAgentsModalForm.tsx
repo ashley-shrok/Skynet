@@ -27,9 +27,9 @@
 // Error banner: inline at top of form body, role="alert", API message
 // verbatim per D-25. Dismissible + auto-clears on successful save.
 //
-// Round-trip preservation: preserve top-level `skills` and nested
-// `schedule.timezone` + `schedule.days` on edit-save. The modal only mutates
-// fields it actually shows; hand-editor-only fields (skills, timezone that
+// Round-trip preservation: preserve nested `schedule.timezone` +
+// `schedule.days` on edit-save. The modal only mutates fields it actually
+// shows; hand-editor-only fields (timezone that
 // wasn't picked in the UI, weekday-restrict `days` gate) survive round-trip
 // untouched. Matches the shape's "two paths in, one truth out" spirit —
 // agents editing on disk and the UI editing through the modal are peers.
@@ -208,7 +208,7 @@ export function ScheduledAgentsModalForm({
   );
 
   // Round-trip preservation slot (Option C): keep the raw initialSpec so
-  // `skills` and `schedule.timezone` survive an edit-save round-trip.
+  // `schedule.timezone` + `schedule.days` survive an edit-save round-trip.
   const initialSpecRef = useRef<ScheduledAgentListItem | null>(initialSpec);
 
   // Available roles for the currently-selected host (chip-picker source).
@@ -295,7 +295,7 @@ export function ScheduledAgentsModalForm({
 
     try {
       // Round-trip preservation: merge form fields with the raw initialSpec's
-      // `skills` + `schedule.timezone` + `schedule.days`. The modal only
+      // `schedule.timezone` + `schedule.days`. The modal only
       // mutates fields it actually shows; hand-editor-only fields survive
       // round-trip untouched. (Amended 2026-09-24 during /close — see the
       // file header for rationale.)
@@ -333,11 +333,6 @@ export function ScheduledAgentsModalForm({
         }
       }
 
-      const preservedSkills: string[] =
-        mode === "edit" && initialSpecRef.current !== null
-          ? initialSpecRef.current.skills
-          : [];
-
       const enabledPassthrough =
         mode === "edit" && initialSpecRef.current !== null
           ? initialSpecRef.current.enabled
@@ -348,7 +343,6 @@ export function ScheduledAgentsModalForm({
         prompt: trimmedPrompt,
         schedule: scheduleObj,
         roles: selectedRoles,
-        skills: preservedSkills,
         enabled: enabledPassthrough,
       };
 
@@ -366,8 +360,7 @@ export function ScheduledAgentsModalForm({
           scheduleHuman: "",
           prompt: trimmedPrompt,
           roles: selectedRoles,
-          skills: preservedSkills,
-          colorHue: null,
+            colorHue: null,
           // Fire timestamps unknown on just-created rows — the authoritative
           // refetch replaces them once the server reads .state/<slug>.last
           // and computes nextFireAt. Nullable is wire-correct (same shape
@@ -392,8 +385,7 @@ export function ScheduledAgentsModalForm({
           scheduleHuman: prev.scheduleHuman,
           prompt: trimmedPrompt,
           roles: selectedRoles,
-          skills: preservedSkills,
-          colorHue: prev.colorHue,
+            colorHue: prev.colorHue,
           // Preserve the server-known fire timestamps during optimistic
           // edit — the refetch will overlay with a recomputed nextFireAt
           // reflecting the new schedule.

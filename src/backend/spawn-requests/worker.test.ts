@@ -5,19 +5,19 @@
  *
  * Tests:
  *   Parse-side (parseRequestBody):
- *     1. Valid extended body {roles, skills, prompt} returns ok:true + SpawnRequestBody
+ *     1. Valid extended body {roles, prompt} returns ok:true + SpawnRequestBody
  *     2. Malformed JSON string returns ok:false reason:malformed message:/JSON/i
  *     3. Missing roles field returns malformed + message:/roles/i
  *     4. roles element failing ROLE_NAME_PATTERN returns malformed + message about role/pattern
  *     5. task > 500 chars returns malformed + message:/task.*length|too long/i
  *     6. task null returns ok:true body.task===null
  *     7. Missing requested_at returns malformed + message:/requested_at/i
- *     8. Valid extended body {roles, skills, prompt} asserts body.roles, body.skills, body.prompt
+ *     8. Valid extended body {roles, prompt} asserts body.roles, body.prompt
  *     9. Empty roles array rejected as malformed + message:/roles/i
  *    10. roles element failing ROLE_NAME_PATTERN rejected as malformed
  *    11. Missing prompt rejected as malformed + message:/prompt/i
- *    12. skills present as non-array rejected as malformed + message:/skills/i
- *    13. skills absent (undefined) accepted — field is optional
+ *    12. legacy skills key (any shape) tolerated and dropped
+ *    13. legacy skills key never surfaces on the parsed body
  *
  *   Failure-mapping (mapEndedEventToReason):
  *    14. failedStep:1 + reason:"ssh connect timeout" → peer_host_unreachable
@@ -206,15 +206,14 @@ describe("spawn-request worker", () => {
   // -------------------------------------------------------------------------
 
   describe("parseRequestBody", () => {
-    it("Test 1: valid extended body {roles, skills, prompt} returns ok:true + SpawnRequestBody", () => {
+    it("Test 1: valid extended body {roles, prompt} returns ok:true + SpawnRequestBody", () => {
       const result = parseRequestBody(
         "test-uuid",
-        JSON.stringify({ roles: ["coordinator"], skills: ["id"], prompt: "Check the Kanban", task: "do a thing", requested_at: "2026-09-10T00:00:00Z" }),
+        JSON.stringify({ roles: ["coordinator"], prompt: "Check the Kanban", task: "do a thing", requested_at: "2026-09-10T00:00:00Z" }),
       );
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.body.roles).toEqual(["coordinator"]);
-        expect(result.body.skills).toEqual(["id"]);
         expect(result.body.prompt).toBe("Check the Kanban");
         expect(result.body.task).toBe("do a thing");
         expect(result.body.requested_at).toBe("2026-09-10T00:00:00Z");
@@ -291,12 +290,11 @@ describe("spawn-request worker", () => {
       }
     });
 
-    it("Test 8: valid extended body {roles, skills, prompt} — asserts body.roles / body.skills / body.prompt", () => {
+    it("Test 8: valid extended body {roles, prompt} — asserts body.roles / body.prompt", () => {
       const result = parseRequestBody(
         "test-uuid",
         JSON.stringify({
           roles: ["coordinator"],
-          skills: ["id"],
           prompt: "Check the Kanban",
           task: null,
           requested_at: "2026-09-10T00:00:00Z",
@@ -305,7 +303,6 @@ describe("spawn-request worker", () => {
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.body.roles).toEqual(["coordinator"]);
-        expect(result.body.skills).toEqual(["id"]);
         expect(result.body.prompt).toBe("Check the Kanban");
       }
     });
@@ -346,26 +343,24 @@ describe("spawn-request worker", () => {
       }
     });
 
-    it("Test 12: skills present as non-array rejected as malformed + message:/skills/i", () => {
-      const result = parseRequestBody(
-        "test-uuid",
-        JSON.stringify({ roles: ["coordinator"], skills: "id", prompt: "x", task: null, requested_at: "2026-09-10T00:00:00Z" }),
-      );
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.reason).toBe("malformed");
-        expect(result.message).toMatch(/skills/i);
+    it("Test 12: legacy skills key (any shape) tolerated — older scheduler copies still send it", () => {
+      for (const skills of [[], ["id"], "id"]) {
+        const result = parseRequestBody(
+          "test-uuid",
+          JSON.stringify({ roles: ["coordinator"], skills, prompt: "x", task: null, requested_at: "2026-09-10T00:00:00Z" }),
+        );
+        expect(result.ok).toBe(true);
       }
     });
 
-    it("Test 13: skills absent (undefined) accepted — field is optional", () => {
+    it("Test 13: legacy skills key never surfaces on the parsed body", () => {
       const result = parseRequestBody(
         "test-uuid",
-        JSON.stringify({ roles: ["coordinator"], prompt: "x", task: null, requested_at: "2026-09-10T00:00:00Z" }),
+        JSON.stringify({ roles: ["coordinator"], skills: ["id"], prompt: "x", task: null, requested_at: "2026-09-10T00:00:00Z" }),
       );
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(result.body.skills).toBeUndefined();
+        expect("skills" in result.body).toBe(false);
       }
     });
 

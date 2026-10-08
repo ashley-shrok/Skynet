@@ -69,8 +69,7 @@ function makeItem(overrides: Partial<ScheduledAgentListItem> = {}): ScheduledAge
     scheduleHuman: "Daily at 9:00",
     prompt: "check inbox",
     roles: ["assistant"],
-    skills: [],
-    colorHue: null,
+        colorHue: null,
     lastFiredAt: null,
     nextFireAt: null,
     ...overrides,
@@ -83,8 +82,7 @@ function makeSpec(overrides: Partial<ScheduledAgentSpecWire> = {}): ScheduledAge
     prompt: "check inbox",
     schedule: { type: "daily", at: "09:00", timezone: "America/New_York" },
     roles: ["assistant"],
-    skills: [],
-    enabled: true,
+        enabled: true,
     ...overrides,
   };
 }

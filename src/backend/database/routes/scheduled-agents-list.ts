@@ -6,7 +6,7 @@
  * D-02: Fleet-wide sweep on list — this endpoint enumerates every managed host's
  *       ~/fleet/scheduled-agents/<slug>/scheduled-agent.json in one aggregated response. Each item
  *       carries {slug, host, hostId, name, enabled, schedule, scheduleHuman,
- *       prompt, roles[], skills[]}.
+ *       prompt, roles[]}.
  * D-03: Thin API — files on disk are the source of truth. No SQLite shadow.
  * D-15: SSH fan-out pattern reused from conversation-search.ts:576-622 (per-host
  *       timeout + graceful degradation) + delimiter-batched cat from
@@ -85,7 +85,7 @@ const SSH_EXEC_TIMEOUT_MS = 10_000;
  *  Distinct from the per-identity `Wakeup` type in identity-artifact-reader.ts
  *  (which uses `instruction` — per-identity wake-ups fire an instruction into
  *  a running identity, whereas a scheduled agent spawns a new identity on
- *  firing). Scheduled-agent specs carry `prompt`, `roles[]`, and `skills[]`
+ *  firing). Scheduled-agent specs carry `prompt` and `roles[]`
  *  per Phase 127 D-04 + shape-3 modal renderer. */
 export type ScheduledAgentListItem = {
   slug: string;
@@ -97,7 +97,6 @@ export type ScheduledAgentListItem = {
   scheduleHuman: string;
   prompt: string;
   roles: string[];
-  skills: string[];
   /**
    * First-role's colorHue, resolved from the role file's frontmatter on the
    * OWNING host. Cascade: `roleCosmetics.colorHue ?? null`. Populated
@@ -158,7 +157,7 @@ function execWithTimeout(
 /**
  * Parse a spec object (JSON-loaded from scheduled-agent.json) into a ScheduledAgentListItem
  * row for the aggregated response. Non-string / non-array fields fall back to
- * safe defaults (name→slug, roles→[], skills→[]). Called from both LOCAL and
+ * safe defaults (name→slug, roles→[]). Called from both LOCAL and
  * REMOTE branches so shape normalization lives in one place.
  */
 function specToRow(
@@ -187,7 +186,6 @@ function specToRow(
     scheduleHuman: humanizeWakeupSchedule(spec.schedule),
     prompt: typeof spec.prompt === "string" ? spec.prompt : "",
     roles: Array.isArray(spec.roles) ? (spec.roles as string[]) : [],
-    skills: Array.isArray(spec.skills) ? (spec.skills as string[]) : [],
     // colorHue starts null; the caller populates it via readRoleHueMemo
     // after specToRow returns (batched per-unique-role read reuses the
     // already-open SSH connection / local fs handle for that host).

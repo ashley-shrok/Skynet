@@ -15,7 +15,6 @@
  */
 export interface SpawnRequestBody {
   roles: string[];       // one or more role names (replaces single role: string — D-12)
-  skills?: string[];     // optional list of skill slugs the newborn has ready (D-04)
   prompt: string;        // first user message to the newborn agent (D-05)
   task: string | null;   // kept for coord-drop backwards compat; wake fires set null (D-12)
   requested_at: string;  // ISO-Z timestamp for debug tracing
@@ -45,7 +44,6 @@ export interface PendingBirth {
   hostIdNum: number;   // parseInt(hostId, 10) for BirthOptions.hostId (Pitfall 2)
   uuid: string;        // from filename (strip .json)
   roles: string[];     // one or more role names (replaces role: string — D-12)
-  skills?: string[];   // optional list of skill slugs the newborn has ready (D-04)
   prompt: string;      // first user message to the newborn agent (D-05)
   task: string | null;
   requested_at: string;

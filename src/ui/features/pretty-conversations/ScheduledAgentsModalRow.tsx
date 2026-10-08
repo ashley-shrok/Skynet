@@ -161,16 +161,11 @@ export function ScheduledAgentsModalRow({
           );
         })()}
         <div className="pv-agent-row-prompt">{row.prompt}</div>
-        {(row.roles.length > 0 || row.skills.length > 0) && (
+        {row.roles.length > 0 && (
           <div className="pv-agent-row-chips">
             {row.roles.map((r) => (
               <span key={`role-${r}`} className="pv-agent-row-chip role">
                 {r}
-              </span>
-            ))}
-            {row.skills.map((s) => (
-              <span key={`skill-${s}`} className="pv-agent-row-chip skill">
-                {s}
               </span>
             ))}
           </div>

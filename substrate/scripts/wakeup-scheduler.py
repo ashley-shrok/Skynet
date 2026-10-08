@@ -81,14 +81,13 @@ Schedule specs live at `~/fleet/scheduled-agents/<slug>/scheduled-agent.json`
 
     {"name": "standup-spawn", "enabled": true,
      "roles": ["box-maintainer"],   # one or more role names the newborn takes on (D-04)
-     "skills": ["id"],              # optional list of skill slugs the newborn has ready (D-04)
      "prompt": "Check the work Kanban and triage any unassigned cards.",  # newborn's first turn (D-05)
      "schedule": {"type": "interval", "every": "2h"}}  # same schedule kinds as per-identity
 
 On a due entry the scheduled-agents scheduler drops a create-identity request
 file at `~/fleet/spawn-requests/<uuid>.json` (D-11) for the app's existing
 coordinator-birthing pipeline to consume:
-    {"roles": [...], "skills": [...], "prompt": "...", "task": null,
+    {"roles": [...], "prompt": "...", "task": null,
      "users": [...],   # optional — spec-provided user tag for the newborn's
                        # frontmatter users: field (absent in spec ⇒ omitted)
      "requested_at": "<ISO-8601 Z-suffixed>"}
@@ -317,7 +316,7 @@ def _drop_spawn_request(spec, state_dir):
     """Drop a create-identity request file for the spawn-requests pipeline (D-11).
 
     Writes ~/fleet/spawn-requests/<uuid>.json with the extended schema fields:
-    roles, skills, prompt, task (null for scheduled-agent fires), requested_at (ISO-Z).
+    roles, prompt, task (null for scheduled-agent fires), requested_at (ISO-Z).
     The UUID is 36 chars (standard uuid4) matching the scan-orchestrator's
     ${#base} -eq 36 bash filter. The directory is created if absent (D-03 guard).
 
@@ -336,7 +335,6 @@ def _drop_spawn_request(spec, state_dir):
     fired_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     body = {
         "roles": spec.get("roles", []),
-        "skills": spec.get("skills", []),
         "prompt": _wrap_prompt_as_preauthorized(
             spec.get("prompt", ""), spec.get("_slug", "?"), fired_at,
         ),

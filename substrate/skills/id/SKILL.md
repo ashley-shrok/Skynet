@@ -1083,17 +1083,13 @@ Extra fields are rejected as malformed.
   actor receives via `/id` load on first wake. This IS the delivery
   mechanism; there is no separate DM step after birth.
 - `requested_at` (**required**) — ISO-Z timestamp.
-- `skills` (optional) — array of skill slugs to surface beyond the
-  role's defaults.
 - `name` (optional) — a name for the newborn, same as the
-  new-conversation picker's "name it myself": free-form, turned into a
-  lowercase slug (`"Deploy Watcher"` → `deploy-watcher`, with `-2`, `-3`…
-  added if taken). Absent = auto-named. The success response carries the
+  new-conversation picker's "name it myself": free-form. Absent = auto-named. The success response carries the
   final name.
 - `project` (optional) — project slug; the newborn is born already in that
-  project (`project:` frontmatter). Same box only.
+  project (`project:` frontmatter).
 - `requested_by` (optional) — your own identity name. Logged by the
-  backend for tracing; never written into the newborn's identity file.
+  backend.
 
 ### Write atomically, single-line
 
@@ -1277,7 +1273,6 @@ Specs live at `~/fleet/scheduled-agents/<slug>/scheduled-agent.json`:
   "name": "morning triage",       // human name; slug is kebab-cased from this
   "enabled": true,
   "roles": ["box-maintainer"],    // one or more role names the newborn takes on
-  "skills": ["id"],               // optional list of skill slugs ready in the newborn's context
   "prompt": "Check the work Kanban and triage any unassigned cards.",
   "schedule": { "type": "interval", "every": "2h" }  // same schedule kinds as per-identity wake-ups
 }
@@ -1301,8 +1296,7 @@ The scheduler drops a create-identity request at
 `~/fleet/spawn-requests/<uuid>.json` for the backend's identity-birthing
 pipeline (the same mechanism agents use in § Spawning another agent).
 That pipeline creates a fresh identity, sets its role to the `roles`
-listed, has whatever `skills` were named ready in context, and kicks it
-off with `prompt` as its first user turn. The newborn does the work and
+listed, and kicks it off with `prompt` as its first user turn. The newborn does the work and
 typically exits. No ⏰ line prints anywhere — there is no running harness
 to receive one.
 

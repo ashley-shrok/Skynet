@@ -154,7 +154,6 @@ export type ScheduledAgentSpec = {
     days?: unknown[];
   };
   roles?: string[];
-  skills?: string[];
 };
 
 // ---------------------------------------------------------------------------
@@ -231,16 +230,11 @@ export function validateScheduledAgentSpec(spec: unknown): string | null {
   if (s.enabled !== undefined && typeof s.enabled !== "boolean") {
     return "spec.enabled must be a boolean when present";
   }
-  // roles + skills are pass-through per D-04+D-08 — if present, must be
-  // arrays of strings (structural gate; content is not opined on).
+  // roles are pass-through per D-04+D-08 — if present, must be an array of
+  // strings (structural gate; content is not opined on).
   if (s.roles !== undefined) {
     if (!Array.isArray(s.roles) || s.roles.some((r) => typeof r !== "string")) {
       return "spec.roles must be an array of strings when present";
-    }
-  }
-  if (s.skills !== undefined) {
-    if (!Array.isArray(s.skills) || s.skills.some((r) => typeof r !== "string")) {
-      return "spec.skills must be an array of strings when present";
     }
   }
   return null;
@@ -404,7 +398,7 @@ export type RunNowBuildResult =
 /**
  * Build the `~/fleet/spawn-requests/<uuid>.json` body for a manual fire from
  * the on-disk spec. Mirrors `_drop_spawn_request` in wakeup-scheduler.py field
- * for field (roles, skills, wrapped prompt, `⏰ ` task, requested_at, users)
+ * for field (roles, wrapped prompt, `⏰ ` task, requested_at, users)
  * so the spawn-requests pipeline can't tell a manual fire from a clock fire.
  *
  * The backend builds the body itself rather than shelling out to the
@@ -439,11 +433,9 @@ export function buildRunNowSpawnRequest(
   if (roles.length === 0) {
     return { ok: false, error: "scheduled agent needs at least one role to run" };
   }
-  const skills = Array.isArray(s.skills) ? s.skills : [];
   const name = typeof s.name === "string" && s.name.length > 0 ? s.name : null;
   const body: Record<string, unknown> = {
     roles,
-    skills,
     prompt: wrapPromptAsManualRun(s.prompt, slug, firedAt),
     task: name ? "⏰ " + prettifyScheduledAgentName(name) : null,
     requested_at: firedAt,

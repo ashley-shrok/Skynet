@@ -321,8 +321,7 @@ const validSpec = {
   prompt: "Summarize overnight events",
   schedule: { type: "interval", every: "15m" },
   roles: ["box-maintainer"],
-  skills: [],
-};
+  };
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -1000,7 +999,7 @@ describe("POST /scheduled-agents/:slug/run-now", () => {
     expect(target).toBe(`$HOME/fleet/spawn-requests/${out.requestId}.json`);
     const parsed = JSON.parse(body as string);
     expect(parsed.roles).toEqual(["box-maintainer"]);
-    expect(parsed.skills).toEqual([]);
+    expect("skills" in parsed).toBe(false);
     expect(parsed.task).toBe("⏰ Morning digest");
     expect(parsed.users).toEqual(["zoey"]);
     expect(parsed.requested_at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);

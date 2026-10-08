@@ -11,7 +11,7 @@
  *   1: 401 without JWT
  *   2: happy path — 2 hosts each with 1 scheduled-agent spec → aggregated response
  *      with host, hostId, name, enabled, schedule, scheduleHuman, prompt,
- *      roles[], skills[] fields on each row
+ *      roles[] fields on each row
  *   3: one host connectOneShot fails → contributes [], other host's rows OK
  *   4: one host times out (execCommand hangs past PER_HOST_TIMEOUT_MS) →
  *      contributes [], other host's rows still returned
@@ -384,7 +384,6 @@ describe("GET /scheduled-agents (fleet-wide LIST)", () => {
       enabled: true,
       prompt: "Summarize overnight events",
       roles: ["box-maintainer"],
-      skills: [],
       scheduleHuman: "Every 15m",
     });
     expect((first.schedule as Record<string, unknown>).type).toBe("interval");
@@ -396,8 +395,8 @@ describe("GET /scheduled-agents (fleet-wide LIST)", () => {
       enabled: false,
       prompt: "Review the day",
       roles: [],
-      skills: ["gmail"],
     });
+    expect("skills" in second).toBe(false);
   });
 
   it("Test 3: one host connectOneShot fails → other host's rows still returned", async () => {
@@ -519,7 +518,7 @@ describe("GET /scheduled-agents (fleet-wide LIST)", () => {
     expect(body.items[0].hostId).toBe(1);
     expect(body.items[0].host).toBe("skynet");
     expect(body.items[0].roles).toEqual(["r1"]);
-    expect(body.items[0].skills).toEqual(["s1"]);
+    expect("skills" in body.items[0]).toBe(false);
     // Ensure REMOTE branch was NOT engaged for the local host
     expect(connectOneShotMock).not.toHaveBeenCalled();
   });

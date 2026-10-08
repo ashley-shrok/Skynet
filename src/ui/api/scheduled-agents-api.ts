@@ -10,7 +10,7 @@
 // Wire-type discipline (RESEARCH.md Pitfall #2): the older `WakeupSpecWire`
 // exported from `@/api/claude-session-api` carries the per-identity wake-up
 // field shape (a distinct fleet concept) and MUST NOT be re-imported here.
-// The scheduled-agents path uses `prompt`, `roles`, `skills`.
+// The scheduled-agents path uses `prompt`, `roles`.
 // `ScheduledAgentSpecWire` below is a fresh mirror of the backend
 // `ScheduledAgentSpec` in `scheduled-agents-write.ts`.
 //
@@ -36,9 +36,7 @@ import { authApi, handleApiError } from "@/main-axios";
  *  `@/features/pretty-view/WakeupFormShared` when the form view needs it (the
  *  shared form helpers are named for the per-identity wake-up concept but the
  *  hydration logic is schedule-shape-agnostic). `scheduleHuman` is the
- *  pre-humanized string the server already computed. `skills` is populated
- *  only when hand-edited on disk per Phase 134 D-04 (the modal never writes
- *  it in v1). */
+ *  pre-humanized string the server already computed. */
 export type ScheduledAgentListItem = {
   slug: string;
   host: string;
@@ -49,7 +47,6 @@ export type ScheduledAgentListItem = {
   scheduleHuman: string;
   prompt: string;
   roles: string[];
-  skills: string[];
   /**
    * First-role's resolved colorHue from the OWNING host's role file
    * frontmatter. Piggybacks on a memoized per-host role-file read at
@@ -78,7 +75,6 @@ export type ScheduledAgentSpecWire = {
   prompt: string;
   schedule: Record<string, unknown>;
   roles?: string[];
-  skills?: string[];
 };
 
 // ---------------------------------------------------------------------------

@@ -1563,7 +1563,6 @@ export function parseSpawnRequestBatch(
       hostIdNum,
       uuid,
       roles: parsed.body.roles,
-      skills: parsed.body.skills,
       prompt: parsed.body.prompt,
       task: parsed.body.task,
       requested_at: parsed.body.requested_at,
