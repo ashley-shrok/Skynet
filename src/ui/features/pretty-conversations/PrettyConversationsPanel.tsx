@@ -66,7 +66,7 @@ import { createPortal } from "react-dom";
 // (aliased ArchivedBoxIcon) glyph was the always-visible archived-apps trigger
 // on the Apps section header. Migrated into the Apps header RowKebabMenu
 // (single "Archived apps" item); icon import removed.
-import { AppWindow, ChevronDown, Clock, Drama, FolderPlus, Loader2, MessageSquare, MessagesSquare, Monitor, MoreVertical, Pin, Search, Settings, ShieldCheck, SquarePen, X } from "lucide-react";
+import { AppWindow, ChevronDown, Clock, Crown, Drama, FolderPlus, Loader2, MessageSquare, MessagesSquare, Monitor, MoreVertical, Pin, Search, Settings, SquarePen, X } from "lucide-react";
 import { Button } from "@/components/button";
 import SkillsEditorModal from "@/features/pretty-view/SkillsEditorModal";
 // Phase 137 D-08: PreferencesModal — opened from the sidebar footer gear button.
@@ -3509,6 +3509,18 @@ export function PrettyConversationsPanel({
               modal is the single entry point for About-you / global-files editing.
               Logout button relocated into PreferencesModal (bottom of left nav);
               the modal is now the sole entry point for account-scoped actions. */}
+          {isAdmin && (
+            <button
+              type="button"
+              className="pv-footer-btn"
+              aria-label="Admin"
+              title="Admin"
+              data-testid="pv-footer-admin-button"
+              onClick={() => setAdminModalOpen(true)}
+            >
+              <Crown size={18} />
+            </button>
+          )}
           <button
             type="button"
             className="pv-footer-btn"
@@ -3519,18 +3531,6 @@ export function PrettyConversationsPanel({
           >
             <Settings size={18} />
           </button>
-          {isAdmin && (
-            <button
-              type="button"
-              className="pv-footer-btn"
-              aria-label="Admin"
-              title="Admin"
-              data-testid="pv-footer-admin-button"
-              onClick={() => setAdminModalOpen(true)}
-            >
-              <ShieldCheck size={18} />
-            </button>
-          )}
         </div>
         </div>
       </div>
