@@ -8,10 +8,6 @@ distributed: true
 
 Speech to text: turn an audio file into a transcript. Invoked as a one-line shell helper; the request and response files are handled inside it.
 
-### ⚠️ Your audio may leave this deployment
-
-The audio goes to the speech-to-text provider this instance uses for voice input. Unless the operator has said that provider keeps audio in-house, treat it as a third-party API: you MUST NOT send recordings containing PHI, patient identifiers, or anything your deployment's compliance boundary forbids sending to a third party. If unsure, don't send it. The `provider` field in the metadata says which provider handled a request.
-
 ## Invocation
 
 The helper is `stt`, on your `PATH` (`~/.local/bin/stt`):
