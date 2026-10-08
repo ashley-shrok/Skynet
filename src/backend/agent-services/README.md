@@ -8,7 +8,7 @@ work, and writes the answer back next to it.
 
 ```
 host: ~/fleet/service-requests/            backend
-  agent ──skynet-service──▶ <uuid>.json ──scan (10s)──▶ engine ──▶ service.handle()
+  agent ──fleet-service──▶ <uuid>.json ──scan (10s)──▶ engine ──▶ service.handle()
   agent ◀── result ── <uuid>.response.json ◀──SSH write── engine ◀──┘
 ```
 
@@ -31,7 +31,7 @@ their own scanner.
 | `services/<name>/service.ts`  | One service each                                                             |
 | `user-secrets/`               | Per-user secrets: encrypted store, acting-user resolution, routes            |
 
-Host side: `substrate/scripts/skynet-service` is the shared client. Each
+Host side: `substrate/scripts/fleet-service` is the shared client. Each
 service usually also ships a friendly wrapper (`substrate/scripts/agent-phone`)
 and a skill (`substrate/skills/agent-phone/SKILL.md`) that tells agents when
 and how to use it.
@@ -71,7 +71,7 @@ export default defineService({
 **3. Host side.** Agents can call it right away with the shared client:
 
 ```
-skynet-service call sms --input '{"to_user":"alice","body":"Deploy done"}'
+fleet-service call sms --input '{"to_user":"alice","body":"Deploy done"}'
 ```
 
 For a nicer interface, add a wrapper script in `substrate/scripts/` (copy
@@ -157,7 +157,7 @@ A request comes from a host, not a person, so for services with
 `userSecrets` the engine works out who it acts for. The candidates are the
 host's registrants: everyone with a host row for the same machine.
 
-- `skynet-service call zoho --as alice ...` acts for `alice` if she
+- `fleet-service call zoho --as alice ...` acts for `alice` if she
   registered this host (`not_permitted` if not, `unknown_user` if there's
   no such user). Agents on a shared host may act for any of its
   registrants, the same trust agent-phone uses for who it may call.

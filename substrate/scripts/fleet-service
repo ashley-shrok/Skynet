@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# skynet-service — call a Skynet agent service from a managed host.
+# fleet-service — call one of the app's agent services from a managed host.
 #
-# Canonical copy lives in the Skynet repo at substrate/scripts/skynet-service
+# Canonical copy lives in the app's source repo at substrate/scripts/fleet-service
 # and is distributed to every managed host by the fleet-substrate distributor
 # (src/backend/distributor/catalog.ts). Installed per-box at
-# ~/.local/bin/skynet-service. Do NOT hand-edit the installed copy.
+# ~/.local/bin/fleet-service. Do NOT hand-edit the installed copy.
 #
 # The backend holds the credentials; this script only drops a request file
 # and waits for the answer. Wire protocol (all in ~/fleet/service-requests/):
@@ -19,15 +19,15 @@
 #                              {ok:false, service, error:{code, message?, ...}}
 #
 # Usage:
-#   skynet-service call <service> [--input <json> | --input - | --input-file <path>]
+#   fleet-service call <service> [--input <json> | --input - | --input-file <path>]
 #                       [--attach <slot>=<path>]... [--as <username>]
 #                       [--timeout <sec>] [--out-dir <dir>]
 #
 #   --input -        read the input JSON from stdin (best for long text)
 #   --attach         send a file in the named slot, e.g. --attach ref=cat.png
-#   --as             the Skynet user to act for, for services that use per-user
+#   --as             the app user to act for, for services that use per-user
 #                    keys. Only needed when several people registered this host.
-#   --timeout        seconds to wait (default $SKYNET_SERVICE_TIMEOUT_SEC or 540,
+#   --timeout        seconds to wait (default $FLEET_SERVICE_TIMEOUT_SEC or 540,
 #                    under Claude Code's 10-minute Bash-tool limit)
 #   --out-dir        where output files land (default ~/fleet/service-outputs)
 #
@@ -55,14 +55,14 @@ FAST_POLL_WINDOW_SEC=30
 
 usage() {
   cat >&2 <<'USAGE'
-usage: skynet-service call <service> [--input <json> | --input - | --input-file <path>]
+usage: fleet-service call <service> [--input <json> | --input - | --input-file <path>]
                           [--attach <slot>=<path>]... [--as <username>]
                           [--timeout <sec>] [--out-dir <dir>]
 USAGE
 }
 
 die() {
-  printf 'skynet-service: %s\n' "$1" >&2
+  printf 'fleet-service: %s\n' "$1" >&2
   exit 2
 }
 
@@ -77,7 +77,7 @@ shift
 input_arg=""
 input_file=""
 as_user=""
-timeout_sec="${SKYNET_SERVICE_TIMEOUT_SEC:-540}"
+timeout_sec="${FLEET_SERVICE_TIMEOUT_SEC:-540}"
 out_dir="${HOME}/fleet/service-outputs"
 attach_slots=()
 attach_paths=()
@@ -195,9 +195,9 @@ while [ ! -f "$response_file" ]; do
   now=$(date +%s)
   if [ "$now" -ge "$deadline" ]; then
     if [ -f "$claimed_file" ]; then
-      client_error timeout "Skynet accepted the request but did not answer within ${timeout_sec}s"
+      client_error timeout "the backend accepted the request but did not answer within ${timeout_sec}s"
     fi
-    client_error not_picked_up "Skynet did not pick up the request within ${timeout_sec}s; is the backend running and managing this host?"
+    client_error not_picked_up "the backend did not pick up the request within ${timeout_sec}s; is it running and managing this host?"
   fi
   if [ $(( now - poll_start )) -lt "$FAST_POLL_WINDOW_SEC" ]; then
     sleep "$POLL_INTERVAL_FAST"

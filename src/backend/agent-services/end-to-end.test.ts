@@ -1,6 +1,6 @@
 /**
  * End to end: the real host-side wrappers (substrate/scripts/image-gen,
- * agent-phone → skynet-service) against the real engine, local-host request
+ * agent-phone → fleet-service) against the real engine, local-host request
  * I/O and atomic writers, in a temp HOME. Only the third-party calls (OpenAI,
  * Bland, the users table) are faked.
  */
@@ -234,7 +234,7 @@ describe("agent services end to end", () => {
   }, 30_000);
 
   it("per-user secret: --as picks the user, their key reaches the handler", async () => {
-    const r = await runWithBackend("skynet-service", [
+    const r = await runWithBackend("fleet-service", [
       "call",
       "zoho",
       "--as",
@@ -249,7 +249,7 @@ describe("agent services end to end", () => {
     expect(r.zohoCalls).toEqual([{ user: "bob", token: "bob-company-token" }]);
     expect(r.stdout).not.toContain("bob-company-token");
 
-    const without = await runWithBackend("skynet-service", [
+    const without = await runWithBackend("fleet-service", [
       "call",
       "zoho",
       "--input",

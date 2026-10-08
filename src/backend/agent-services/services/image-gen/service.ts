@@ -2,7 +2,7 @@
  * image-gen — generate images from a prompt (optionally editing a reference
  * image) with OpenAI gpt-image-1, and hand the PNGs back to the agent.
  *
- * Agent side: substrate/scripts/image-gen (wrapper over skynet-service) and
+ * Agent side: substrate/scripts/image-gen (wrapper over fleet-service) and
  * substrate/skills/image-gen/SKILL.md.
  *
  * Limits: 5 requests in flight, a fleet-wide requests-per-minute cap from

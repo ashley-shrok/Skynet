@@ -44,7 +44,7 @@ Grab the first image path in the usual way:
 img=$(image-gen "a cat" | head -1)
 ```
 
-Files land under `~/fleet/image-gen-outputs/` by default (fleet-tree convention — never `/tmp`, which is wiped on reboot). The helper talks to the backend through the shared `skynet-service` client and cleans up its scratch files in `~/fleet/service-requests/` on every exit path — you get back only the moved output paths.
+Files land under `~/fleet/image-gen-outputs/` by default (fleet-tree convention — never `/tmp`, which is wiped on reboot). The helper talks to the backend through the shared `fleet-service` client and cleans up its scratch files in `~/fleet/service-requests/` on every exit path — you get back only the moved output paths.
 
 ## Failure handling
 
@@ -61,6 +61,6 @@ Full failure enum and what to do for each:
 | malformed | Read the `message` field and fix the request (e.g. `n: ...` means `--n` was out of range); retry. |
 | expired | The request waited in the queue past 5 minutes. Retry — the fleet may be overloaded. |
 | timeout | The backend accepted the request but did not answer within 5 minutes. Retry. |
-| not_picked_up | Skynet never picked up the request — the backend may be down or not managing this host. Escalate to the operator. |
+| not_picked_up | The backend never picked up the request — it may be down or not managing this host. Escalate to the operator. |
 | queue_full | Too many requests queued. Retry later. |
 | unknown / internal | Escalate to the operator. |

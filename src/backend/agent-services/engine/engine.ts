@@ -201,7 +201,7 @@ export function createAgentServiceEngine(deps: EngineDeps): AgentServiceEngine {
           def.name,
           engineFailure(
             "not_configured",
-            `${name} is not set on the Skynet backend`,
+            `${name} is not set on the backend`,
           ),
         );
         return;
@@ -254,8 +254,8 @@ export function createAgentServiceEngine(deps: EngineDeps): AgentServiceEngine {
         if (!value) {
           const who =
             spec.managedBy === "admin"
-              ? "a Skynet admin needs to set it for them"
-              : "they can add it in Skynet under Preferences → Services";
+              ? "an admin needs to set it for them"
+              : "they can add it under Preferences → Services";
           await respond(
             host,
             uuid,

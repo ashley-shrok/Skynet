@@ -68,7 +68,7 @@
  *       poller; pv-context-pct-sweep is the Phase 95 batch sweep for the
  *       PV context-pct poller;
  *       image-gen is the Phase 116 file-drop broker helper, now a wrapper
- *       over the shared skynet-service agent-services client)
+ *       over the shared fleet-service agent-services client)
  *     - 1 row for user-onboarding/agent-supervisor.service
  *     - 1 row for instance-policy-claude-md (Phase 114 twinkie — runtime-sourced,
  *       system-root-installed)
@@ -392,16 +392,16 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     installPath: "~/.local/bin/claude-usage-collector",
     restartHook: null,
   },
-  // Agent services: skynet-service is the shared file-drop client every
+  // Agent services: fleet-service is the shared file-drop client every
   // service wrapper calls (request envelope into ~/fleet/service-requests/,
   // wait for the response, collect output files). See
   // src/backend/agent-services/README.md. On-demand executables, no restart
   // hooks.
   {
-    slug: "skynet-service-helper",
+    slug: "fleet-service-helper",
     sourceKind: "bundled",
-    bundledPath: "/app/fleet-substrate/scripts/skynet-service",
-    installPath: "~/.local/bin/skynet-service",
+    bundledPath: "/app/fleet-substrate/scripts/fleet-service",
+    installPath: "~/.local/bin/fleet-service",
     restartHook: null,
   },
   // image-gen wrapper: `image-gen "..."` → prints image paths on stdout.

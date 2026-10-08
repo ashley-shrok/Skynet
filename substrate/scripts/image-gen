@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # image-gen — generate images from a prompt via the fleet's image provider.
 #
-# Canonical copy lives in the Skynet repo at substrate/scripts/image-gen and is
-# distributed to every managed host (including the Skynet host itself) by the
+# Canonical copy lives in the app's source repo at substrate/scripts/image-gen and is
+# distributed to every managed host (including the app's own host) by the
 # fleet-substrate distributor (see src/backend/distributor/catalog.ts).
 # Installed per-box at ~/.local/bin/image-gen. Do NOT hand-edit the installed
 # copy.
 #
-# Thin wrapper over skynet-service (the shared agent-services client); the
+# Thin wrapper over fleet-service (the shared agent-services client); the
 # backend side is src/backend/agent-services/services/image-gen/.
 #
 # Usage:
@@ -29,8 +29,8 @@ set -uo pipefail
 
 OUT_DIR="${HOME}/fleet/image-gen-outputs"
 TIMEOUT_SEC="${IMAGE_GEN_TIMEOUT_SEC:-300}"
-SKYNET_SERVICE="$(dirname -- "$(readlink -f -- "$0")")/skynet-service"
-[ -x "$SKYNET_SERVICE" ] || SKYNET_SERVICE="skynet-service"
+FLEET_SERVICE="$(dirname -- "$(readlink -f -- "$0")")/fleet-service"
+[ -x "$FLEET_SERVICE" ] || FLEET_SERVICE="fleet-service"
 
 usage() {
   cat >&2 <<'USAGE'
@@ -124,7 +124,7 @@ attach=()
 
 response=$(
   printf '%s' "$input" |
-    "$SKYNET_SERVICE" call image-gen --input - "${attach[@]}" \
+    "$FLEET_SERVICE" call image-gen --input - "${attach[@]}" \
       --timeout "$TIMEOUT_SEC" --out-dir "$OUT_DIR"
 )
 status=$?

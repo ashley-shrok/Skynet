@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# agent-phone — ring a Skynet user's phone, speak a message, print their reply.
+# agent-phone — ring an app user's phone, speak a message, print their reply.
 #
-# Canonical copy lives in the Skynet repo at substrate/scripts/agent-phone and
+# Canonical copy lives in the app's source repo at substrate/scripts/agent-phone and
 # is distributed to every managed host by the fleet-substrate distributor (see
 # src/backend/distributor/catalog.ts). Installed per-box at
 # ~/.local/bin/agent-phone. Do NOT hand-edit the installed copy.
 #
-# Thin wrapper over skynet-service (the shared agent-services client); the
+# Thin wrapper over fleet-service (the shared agent-services client); the
 # backend side is src/backend/agent-services/services/agent-phone/.
 #
 # Usage:
@@ -27,8 +27,8 @@
 set -uo pipefail
 
 TIMEOUT_SEC="${AGENT_PHONE_TIMEOUT_SEC:-540}"
-SKYNET_SERVICE="$(dirname -- "$(readlink -f -- "$0")")/skynet-service"
-[ -x "$SKYNET_SERVICE" ] || SKYNET_SERVICE="skynet-service"
+FLEET_SERVICE="$(dirname -- "$(readlink -f -- "$0")")/fleet-service"
+[ -x "$FLEET_SERVICE" ] || FLEET_SERVICE="fleet-service"
 
 usage() {
   cat >&2 <<'USAGE'
@@ -36,9 +36,9 @@ usage: agent-phone --to <username> --from "<caller name>" "<message>"
        agent-phone --to <username> --from "<caller name>" - < message.txt
        agent-phone -h | --help
 
-Places a one-turn phone call to a Skynet user via the fleet's phone service.
+Places a one-turn phone call to an app user via the fleet's phone service.
 
-  --to    <username>    Skynet username of the recipient (required).
+  --to    <username>    App username of the recipient (required).
   --from  "<name>"      TTS-friendly caller identifier (required).
                         Compose from your identity displayName + your role
                         (title-cased). Example: "Clipper the Box Maintainer".
@@ -103,7 +103,7 @@ command -v jq >/dev/null 2>&1 || {
 response=$(
   jq -cn --arg c "$caller_name" --arg t "$to_user" --arg m "$message" \
     '{caller_name: $c, to_user: $t, message: $m}' |
-    "$SKYNET_SERVICE" call agent-phone --input - --timeout "$TIMEOUT_SEC"
+    "$FLEET_SERVICE" call agent-phone --input - --timeout "$TIMEOUT_SEC"
 )
 status=$?
 [ "$status" -eq 2 ] && exit 2

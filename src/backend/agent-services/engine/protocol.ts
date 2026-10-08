@@ -11,7 +11,7 @@
  *   <uuid>.out.<i>.<ext>     output files, written before the response
  *   <uuid>.response.json     the answer, written atomically and last
  *
- * The agent-side helper (substrate/scripts/skynet-service) removes every
+ * The agent-side helper (substrate/scripts/fleet-service) removes every
  * `<uuid>.*` file when it finishes. Anything a vanished helper leaves behind
  * is swept by the scan after a day.
  *
@@ -174,7 +174,7 @@ export function parseEnvelope(body: string): EnvelopeParse {
       obj.as_user.length === 0 ||
       obj.as_user.length > 200)
   ) {
-    return fail("as_user must be a Skynet username");
+    return fail("as_user must be a username");
   }
 
   return {

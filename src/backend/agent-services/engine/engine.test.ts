@@ -201,7 +201,7 @@ describe("agent-services engine", () => {
     const missing = await setup([svc]).submit(envelope({ text: "x" }));
     expect(missing.response.error).toEqual({
       code: "not_configured",
-      message: "API_KEY is not set on the Skynet backend",
+      message: "API_KEY is not set on the backend",
     });
     await setup([svc], { env: { API_KEY: "k" } }).submit(
       envelope({ text: "x" }),
@@ -418,7 +418,7 @@ describe("agent-services engine", () => {
       });
       expect(w.response.error.code).toBe("no_user_secret");
       expect(w.response.error.message).toBe(
-        "alice has no Zoho API token for zoho; a Skynet admin needs to set it for them",
+        "alice has no Zoho API token for zoho; an admin needs to set it for them",
       );
     });
 

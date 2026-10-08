@@ -2,7 +2,7 @@
 # shellcheck shell=bash
 #
 # Hermetic tests for the agent-services host helpers:
-#   substrate/scripts/skynet-service   (shared file-drop client)
+#   substrate/scripts/fleet-service   (shared file-drop client)
 #   substrate/scripts/agent-phone      (wrapper)
 #   substrate/scripts/image-gen        (wrapper)
 #
@@ -20,11 +20,11 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPTS="$(cd "$SCRIPT_DIR/.." && pwd)"
-SKYNET_SERVICE="$SCRIPTS/skynet-service"
+FLEET_SERVICE="$SCRIPTS/fleet-service"
 AGENT_PHONE="$SCRIPTS/agent-phone"
 IMAGE_GEN="$SCRIPTS/image-gen"
 
-for s in "$SKYNET_SERVICE" "$AGENT_PHONE" "$IMAGE_GEN"; do
+for s in "$FLEET_SERVICE" "$AGENT_PHONE" "$IMAGE_GEN"; do
   [ -x "$s" ] || { printf 'FATAL: %s missing or not executable\n' "$s" >&2; exit 1; }
 done
 
@@ -103,13 +103,13 @@ wire_files_left() {
 }
 
 # ---------------------------------------------------------------------------
-# skynet-service
+# fleet-service
 # ---------------------------------------------------------------------------
 
 test_envelope_shape_and_success() {
   fake_backend '{"ok":true,"service":"echo","result":{"hello":"world"}}' &
   local out status
-  out=$(HOME="$FIXTURE" "$SKYNET_SERVICE" call echo --input '{"a":1}' --timeout 10)
+  out=$(HOME="$FIXTURE" "$FLEET_SERVICE" call echo --input '{"a":1}' --timeout 10)
   status=$?
   wait
   assert_eq 0 "$status" "exit status"
@@ -124,11 +124,11 @@ test_envelope_shape_and_success() {
 
 test_as_user_goes_in_the_envelope() {
   fake_backend '{"ok":true,"service":"echo","result":{}}' &
-  HOME="$FIXTURE" "$SKYNET_SERVICE" call echo --as alice --timeout 10 >/dev/null
+  HOME="$FIXTURE" "$FLEET_SERVICE" call echo --as alice --timeout 10 >/dev/null
   wait
   assert_eq "alice" "$(jq -r .as_user "$FIXTURE/envelope.json")" "as_user"
   fake_backend '{"ok":true,"service":"echo","result":{}}' &
-  HOME="$FIXTURE" "$SKYNET_SERVICE" call echo --timeout 10 >/dev/null
+  HOME="$FIXTURE" "$FLEET_SERVICE" call echo --timeout 10 >/dev/null
   wait
   assert_eq "false" "$(jq -r 'has("as_user")' "$FIXTURE/envelope.json")" "no as_user by default"
 }
@@ -136,7 +136,7 @@ test_as_user_goes_in_the_envelope() {
 test_input_from_stdin_keeps_special_characters() {
   fake_backend '{"ok":true,"service":"echo","result":{}}' &
   local msg=$'quotes " and \' and $HOME and\nnewlines'
-  jq -cn --arg m "$msg" '{m: $m}' | HOME="$FIXTURE" "$SKYNET_SERVICE" call echo --input - --timeout 10 >/dev/null
+  jq -cn --arg m "$msg" '{m: $m}' | HOME="$FIXTURE" "$FLEET_SERVICE" call echo --input - --timeout 10 >/dev/null
   wait
   assert_eq "$msg" "$(jq -r .input.m "$FIXTURE/envelope.json")" "message round-trips"
 }
@@ -144,7 +144,7 @@ test_input_from_stdin_keeps_special_characters() {
 test_attachment_written_before_envelope() {
   printf 'img' > "$FIXTURE/cat.PNG"
   fake_backend '{"ok":true,"service":"echo","result":{}}' &
-  HOME="$FIXTURE" "$SKYNET_SERVICE" call echo --attach "ref=$FIXTURE/cat.PNG" --timeout 10 >/dev/null
+  HOME="$FIXTURE" "$FLEET_SERVICE" call echo --attach "ref=$FIXTURE/cat.PNG" --timeout 10 >/dev/null
   wait
   local uuid wire
   uuid=$(jq -r '.attachments.ref | split(".")[0]' "$FIXTURE/envelope.json")
@@ -157,7 +157,7 @@ test_attachment_written_before_envelope() {
 test_output_files_moved_and_paths_returned() {
   fake_backend '{"ok":true,"service":"echo","result":{}}' 2 &
   local out
-  out=$(HOME="$FIXTURE" "$SKYNET_SERVICE" call echo --timeout 10 --out-dir "$FIXTURE/out")
+  out=$(HOME="$FIXTURE" "$FLEET_SERVICE" call echo --timeout 10 --out-dir "$FIXTURE/out")
   wait
   assert_eq 2 "$(jq '.files | length' <<<"$out")" "two files returned"
   local f
@@ -172,7 +172,7 @@ test_output_files_moved_and_paths_returned() {
 test_failure_response_exits_1() {
   fake_backend '{"ok":false,"service":"echo","error":{"code":"malformed","message":"nope"}}' &
   local out status
-  out=$(HOME="$FIXTURE" "$SKYNET_SERVICE" call echo --timeout 10)
+  out=$(HOME="$FIXTURE" "$FLEET_SERVICE" call echo --timeout 10)
   status=$?
   wait
   assert_eq 1 "$status" "exit status"
@@ -182,7 +182,7 @@ test_failure_response_exits_1() {
 
 test_not_picked_up_when_never_claimed() {
   local out status
-  out=$(HOME="$FIXTURE" "$SKYNET_SERVICE" call echo --timeout 1)
+  out=$(HOME="$FIXTURE" "$FLEET_SERVICE" call echo --timeout 1)
   status=$?
   assert_eq 1 "$status" "exit status"
   assert_eq "not_picked_up" "$(jq -r .error.code <<<"$out")" "error code"
@@ -192,14 +192,14 @@ test_not_picked_up_when_never_claimed() {
 test_timeout_when_claimed_but_unanswered() {
   claim_request >/dev/null &
   local out
-  out=$(HOME="$FIXTURE" "$SKYNET_SERVICE" call echo --timeout 2)
+  out=$(HOME="$FIXTURE" "$FLEET_SERVICE" call echo --timeout 2)
   wait
   assert_eq "timeout" "$(jq -r .error.code <<<"$out")" "error code"
   assert_eq 0 "$(wire_files_left)" "claimed marker removed"
 }
 
 test_signal_removes_request() {
-  HOME="$FIXTURE" "$SKYNET_SERVICE" call echo --timeout 30 >/dev/null &
+  HOME="$FIXTURE" "$FLEET_SERVICE" call echo --timeout 30 >/dev/null &
   local pid=$!
   local i
   for i in $(seq 1 50); do
@@ -212,11 +212,11 @@ test_signal_removes_request() {
 }
 
 test_usage_errors_exit_2() {
-  HOME="$FIXTURE" "$SKYNET_SERVICE" call >/dev/null 2>&1
+  HOME="$FIXTURE" "$FLEET_SERVICE" call >/dev/null 2>&1
   assert_eq 2 $? "missing service"
-  HOME="$FIXTURE" "$SKYNET_SERVICE" call echo --input '{bad' >/dev/null 2>&1
+  HOME="$FIXTURE" "$FLEET_SERVICE" call echo --input '{bad' >/dev/null 2>&1
   assert_eq 2 $? "invalid input JSON"
-  HOME="$FIXTURE" "$SKYNET_SERVICE" call echo --attach nofile >/dev/null 2>&1
+  HOME="$FIXTURE" "$FLEET_SERVICE" call echo --attach nofile >/dev/null 2>&1
   assert_eq 2 $? "bad --attach"
   assert_eq 0 "$(wire_files_left)" "nothing left behind"
 }

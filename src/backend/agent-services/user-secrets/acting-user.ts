@@ -7,7 +7,7 @@
  * machine (same ip + port + login; host rows are per-user, so a shared box
  * has one row per person who added it). Rules:
  *
- *   - `as_user` given (skynet-service --as <username>): that user, if they
+ *   - `as_user` given (fleet-service --as <username>): that user, if they
  *     registered this host. Agents on a shared host may act for any of its
  *     registrants, the same trust agent-phone uses for who it may call.
  *   - otherwise, if exactly one user registered the host: that user.
@@ -78,12 +78,12 @@ export async function resolveActingUser(
       ? {
           ok: false,
           code: "unknown_user",
-          message: `no Skynet user named "${asUser}"`,
+          message: `no user named "${asUser}"`,
         }
       : {
           ok: false,
           code: "not_permitted",
-          message: `user "${asUser}" has not registered this host in Skynet`,
+          message: `user "${asUser}" has not registered this host`,
         };
   }
 
@@ -92,13 +92,13 @@ export async function resolveActingUser(
     return {
       ok: false,
       code: "not_permitted",
-      message: "no Skynet user has registered this host",
+      message: "no user has registered this host",
     };
   }
   return {
     ok: false,
     code: "ambiguous_user",
-    message: `this host is registered by several Skynet users (${registrants
+    message: `this host is registered by several users (${registrants
       .map((u) => u.username)
       .join(", ")}); say which one with --as <username>`,
   };

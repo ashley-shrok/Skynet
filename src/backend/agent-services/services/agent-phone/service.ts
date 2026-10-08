@@ -2,7 +2,7 @@
  * agent-phone — place a one-turn voice call to a Skynet user (via Bland.ai)
  * and return the transcript.
  *
- * Agent side: substrate/scripts/agent-phone (wrapper over skynet-service)
+ * Agent side: substrate/scripts/agent-phone (wrapper over fleet-service)
  * and substrate/skills/agent-phone/SKILL.md.
  *
  * Rules:
@@ -55,7 +55,7 @@ export function createAgentPhoneService(deps: AgentPhoneDeps = productionDeps) {
   return defineService({
     name: "agent-phone",
     description:
-      "Ring a Skynet user's phone, speak a message, return their reply",
+      "Ring a user's phone, speak a message, return their reply",
     input: agentPhoneInput,
     secrets: ["BLAND_API_KEY"],
     // Under the helper's 9-minute wait; see the header.
@@ -74,7 +74,7 @@ export function createAgentPhoneService(deps: AgentPhoneDeps = productionDeps) {
         return fail("unknown", `user lookup failed: ${errorMessage(err)}`);
       }
       if (!target)
-        return fail("unknown_user", `no Skynet user named "${input.to_user}"`);
+        return fail("unknown_user", `no user named "${input.to_user}"`);
 
       let permitted: boolean;
       try {
@@ -88,7 +88,7 @@ export function createAgentPhoneService(deps: AgentPhoneDeps = productionDeps) {
       if (!permitted) {
         return fail(
           "not_permitted",
-          `user "${input.to_user}" has not registered this host in Skynet`,
+          `user "${input.to_user}" has not registered this host`,
         );
       }
 
