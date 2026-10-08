@@ -5,6 +5,7 @@ import { unlinkUserAvatar } from "./user-avatar-storage.js";
 import { deactivateUser } from "../../matrix/matrix-admin-client.js";
 import { assertAdminErr } from "../../matrix/matrix-admin-narrow.js";
 import {
+  agentServiceUserSecrets,
   auditLogs,
   commandHistory,
   dashboardPreferences,
@@ -86,6 +87,9 @@ export async function deleteUserAndRelatedData(userId: string): Promise<void> {
     await db.delete(opksshTokens).where(eq(opksshTokens.userId, userId));
     await db.delete(userOpenTabs).where(eq(userOpenTabs.userId, userId));
     await db.delete(userPreferences).where(eq(userPreferences.userId, userId));
+    await db
+      .delete(agentServiceUserSecrets)
+      .where(eq(agentServiceUserSecrets.userId, userId));
 
     db.$client
       .prepare("DELETE FROM settings WHERE key LIKE ?")

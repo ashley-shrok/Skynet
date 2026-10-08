@@ -32,6 +32,8 @@ import {
   type ScanHostRecord,
 } from "./engine/scan-orchestrator.js";
 import { AGENT_SERVICES } from "./registry.js";
+import { resolveActingUser } from "./user-secrets/acting-user.js";
+import { getUserSecret } from "./user-secrets/store.js";
 
 const SCAN_INTERVAL_MS = 10_000;
 
@@ -47,6 +49,8 @@ async function getHostOwnerUserId(hostIdNum: number): Promise<string | null> {
 export function startAgentServices(): void {
   const engine = createAgentServiceEngine({
     services: AGENT_SERVICES,
+    resolveActingUser,
+    loadUserSecret: getUserSecret,
     writeResponse: createResponseWriter({
       isLocalHostId,
       getHostOwnerUserId,

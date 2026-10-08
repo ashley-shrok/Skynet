@@ -648,6 +648,23 @@ async function initializeCompleteDatabase(): Promise<void> {
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- Agent services: per-user secrets a service declares (e.g. a
+    -- company-issued Zoho key). value is FieldCrypto ciphertext under the
+    -- system ENCRYPTION_KEY so agents can use it while the user is logged
+    -- out. Write-only through the API. Drizzle mirror at schema.ts
+    -- agentServiceUserSecrets; store at agent-services/user-secrets/store.ts.
+    CREATE TABLE IF NOT EXISTS agent_service_user_secrets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,
+        service TEXT NOT NULL,
+        name TEXT NOT NULL,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        updated_by TEXT,
+        UNIQUE (user_id, service, name),
+        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+    );
+
 `);
 
   try {

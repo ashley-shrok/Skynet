@@ -944,3 +944,21 @@ export const adminRooms = sqliteTable("admin_rooms", {
     .notNull()
     .default(sql`CURRENT_TIMESTAMP`),
 });
+
+// Agent services — per-user secrets a service declares in `userSecrets`
+// (e.g. a company-issued Zoho key). `value` is FieldCrypto ciphertext under
+// the system ENCRYPTION_KEY (not the user's session key) so agents can use
+// it while the user is logged out. Write-only: no route returns `value`.
+// Store module: src/backend/agent-services/user-secrets/store.ts.
+export const agentServiceUserSecrets = sqliteTable("agent_service_user_secrets", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  service: text("service").notNull(),
+  name: text("name").notNull(),
+  value: text("value").notNull(),
+  updatedAt: text("updated_at").notNull(),
+  /** User id of whoever last set it (the user, or an admin). */
+  updatedBy: text("updated_by"),
+});

@@ -11,7 +11,7 @@
 #
 #   <uuid>.in.<slot>.<ext>   attachments, written first
 #   <uuid>.json              request envelope, written atomically:
-#                              {service, requested_at, input, attachments?}
+#                              {service, requested_at, input, attachments?, as_user?}
 #   <uuid>.claimed.json      appears when the backend accepts the request
 #   <uuid>.out.<i>.<ext>     output files
 #   <uuid>.response.json     the answer, written last:
@@ -20,10 +20,13 @@
 #
 # Usage:
 #   skynet-service call <service> [--input <json> | --input - | --input-file <path>]
-#                       [--attach <slot>=<path>]... [--timeout <sec>] [--out-dir <dir>]
+#                       [--attach <slot>=<path>]... [--as <username>]
+#                       [--timeout <sec>] [--out-dir <dir>]
 #
 #   --input -        read the input JSON from stdin (best for long text)
 #   --attach         send a file in the named slot, e.g. --attach ref=cat.png
+#   --as             the Skynet user to act for, for services that use per-user
+#                    keys. Only needed when several people registered this host.
 #   --timeout        seconds to wait (default $SKYNET_SERVICE_TIMEOUT_SEC or 540,
 #                    under Claude Code's 10-minute Bash-tool limit)
 #   --out-dir        where output files land (default ~/fleet/service-outputs)
@@ -53,7 +56,8 @@ FAST_POLL_WINDOW_SEC=30
 usage() {
   cat >&2 <<'USAGE'
 usage: skynet-service call <service> [--input <json> | --input - | --input-file <path>]
-                          [--attach <slot>=<path>]... [--timeout <sec>] [--out-dir <dir>]
+                          [--attach <slot>=<path>]... [--as <username>]
+                          [--timeout <sec>] [--out-dir <dir>]
 USAGE
 }
 
@@ -72,6 +76,7 @@ shift
 
 input_arg=""
 input_file=""
+as_user=""
 timeout_sec="${SKYNET_SERVICE_TIMEOUT_SEC:-540}"
 out_dir="${HOME}/fleet/service-outputs"
 attach_slots=()
@@ -81,6 +86,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --input)      input_arg="${2-}"; shift 2 || die "--input needs a value";;
     --input-file) input_file="${2-}"; shift 2 || die "--input-file needs a value";;
+    --as)         as_user="${2-}"; shift 2 || die "--as needs a username";;
     --timeout)    timeout_sec="${2-}"; shift 2 || die "--timeout needs a value";;
     --out-dir)    out_dir="${2-}"; shift 2 || die "--out-dir needs a value";;
     --attach)
@@ -164,8 +170,10 @@ jq -cn \
   --arg requested_at "$(date -u +%FT%TZ)" \
   --slurpfile input "$input_tmp" \
   --argjson attachments "$attachments" \
+  --arg as_user "$as_user" \
   '{service: $service, requested_at: $requested_at, input: $input[0]}
-   + (if ($attachments | length) > 0 then {attachments: $attachments} else {} end)' \
+   + (if ($attachments | length) > 0 then {attachments: $attachments} else {} end)
+   + (if $as_user != "" then {as_user: $as_user} else {} end)' \
   > "$req_path.tmp.$$" || die "cannot write request"
 rm -f -- "$input_tmp"
 mv -- "$req_path.tmp.$$" "$req_path" || die "cannot commit request"

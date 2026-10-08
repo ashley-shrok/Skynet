@@ -39,6 +39,35 @@ export interface ServiceOutputFile {
   bytes: Buffer;
 }
 
+/**
+ * A secret stored per Skynet user (e.g. their Zoho API key), encrypted at
+ * rest with the backend's system key so it can be used while they are
+ * logged out. Values are write-only: no API ever returns one.
+ */
+export interface UserSecretSpec {
+  /** Shown next to the input in Preferences or the admin user modal. */
+  label: string;
+  description?: string;
+  /**
+   * "user": the user sets, replaces or clears it in Preferences → Services
+   * (admins can too). "admin": only admins can set or clear it, from the
+   * admin user modal; the user's own UI and API never mention it, so a
+   * company-issued key stays invisible to them.
+   */
+  managedBy: "user" | "admin";
+  /**
+   * Optional backend env var to use when the user has no value stored,
+   * e.g. a company-wide default key.
+   */
+  fallbackEnv?: string;
+}
+
+/** The Skynet user a request is acting for. */
+export interface ActingUser {
+  id: string;
+  username: string;
+}
+
 export interface ServiceLogger {
   info(message: string, context?: Record<string, unknown>): void;
   warn(message: string, context?: Record<string, unknown>): void;
@@ -54,6 +83,13 @@ export interface ServiceContext {
   attachments: Record<string, ServiceAttachment>;
   /** Values of the env vars named in `secrets`, all guaranteed non-empty. */
   secrets: Record<string, string>;
+  /**
+   * The user the request acts for. Set when the service declares
+   * `userSecrets`; see README "Whose request is it?".
+   */
+  user?: ActingUser;
+  /** Values of the `userSecrets` for `user`, all guaranteed non-empty. */
+  userSecrets: Record<string, string>;
   log: ServiceLogger;
   now(): number;
 }
@@ -89,6 +125,14 @@ export interface ServiceDefinition<
    * `not_configured` without calling the handler.
    */
   secrets?: readonly string[];
+  /**
+   * Per-user secrets, keyed by an UPPER_SNAKE name. Declaring any makes the
+   * engine work out which user the request acts for (ctx.user) and load
+   * their values (ctx.userSecrets). A missing value without a fallback is
+   * answered `no_user_secret`, with a message telling the agent who can set
+   * it.
+   */
+  userSecrets?: Record<string, UserSecretSpec>;
   /**
    * How long a request stays worth answering, measured from the envelope's
    * `requested_at`. Requests dequeued after this get `expired`. Keep it at or
@@ -150,4 +194,9 @@ export type EngineErrorCode =
   | "expired"
   | "queue_full"
   | "not_configured"
-  | "internal";
+  | "internal"
+  // acting-user resolution (services with userSecrets)
+  | "ambiguous_user"
+  | "unknown_user"
+  | "not_permitted"
+  | "no_user_secret";

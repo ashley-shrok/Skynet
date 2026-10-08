@@ -29,6 +29,7 @@ import { registerUserOidcAccountRoutes } from "./user-oidc-account-routes.js";
 import { registerUserPasswordResetRoutes } from "./user-password-reset-routes.js";
 import { registerUserAdminRoutes } from "./user-admin-routes.js";
 import { registerUserPhoneRoutes } from "./user-phone-routes.js";
+import { registerServiceSecretRoutes } from "../../agent-services/user-secrets/routes.js";
 import { registerUserDataAccessRoutes } from "./user-data-access-routes.js";
 import {
   userAvatarUpload,
@@ -2846,6 +2847,8 @@ registerUserOidcAccountRoutes(router, {
 registerUserSettingsRoutes(router, authenticateJWT);
 
 registerUserPhoneRoutes(router, authenticateJWT);
+
+registerServiceSecretRoutes(router, authenticateJWT);
 
 registerUserApiKeyRoutes(router, requireAdmin);
 

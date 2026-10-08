@@ -29,6 +29,7 @@ their own scanner.
 | `boot.ts`                     | Wiring, called from `starter.ts`                                             |
 | `registry.ts`                 | The list of services                                                         |
 | `services/<name>/service.ts`  | One service each                                                             |
+| `user-secrets/`               | Per-user secrets: encrypted store, acting-user resolution, routes            |
 
 Host side: `substrate/scripts/skynet-service` is the shared client. Each
 service usually also ships a friendly wrapper (`substrate/scripts/agent-phone`)
@@ -92,6 +93,7 @@ drive a real wrapper script against the real engine.
 | `input`              | Zod schema. Failures go back as `malformed` with the field path. Use `z.strictObject` so typos are caught.                                                                       |
 | `attachments`        | Named file slots (`{ ref: { extensions, maxBytes, required? } }`). The agent sends them with `--attach ref=path`; the handler gets `ctx.attachments.ref.bytes`.                  |
 | `secrets`            | Env vars the handler needs. Any unset → `not_configured`, handler not called.                                                                                                    |
+| `userSecrets`        | Per-user secrets (see below). The handler gets `ctx.user` and `ctx.userSecrets`.                                                                                                 |
 | `ttlMs`              | Requests older than this when they reach the front of the queue → `expired`. Keep it at or under the wrapper's timeout so the backend never does work for a caller that gave up. |
 | `concurrency`        | Max simultaneous requests for this service (default 1).                                                                                                                          |
 | `serializeBy`        | Requests with the same key never overlap (agent-phone: one call per recipient).                                                                                                  |
@@ -107,6 +109,66 @@ checks, as agent-phone does with `userHasRegisteredHost`. The backend knows
 which host a request came from because it read the file off that host itself;
 there is no credential for an agent to forge.
 
+## Per-user secrets
+
+Some services need a key per person rather than one for the whole instance:
+a company-issued Zoho token, say, or someone's own API key. Declare them on
+the service:
+
+```ts
+export default defineService({
+  name: "zoho",
+  description: "Read and update Zoho CRM records",
+  input: z.strictObject({ query: z.string() }),
+  userSecrets: {
+    ZOHO_TOKEN: {
+      label: "Zoho API token",
+      managedBy: "admin", // company-issued: the user never sees or edits it
+    },
+  },
+  ttlMs: 2 * 60 * 1000,
+  async handle(input, ctx) {
+    // ctx.user = { id, username }; ctx.userSecrets.ZOHO_TOKEN is theirs
+  },
+});
+```
+
+That's all the service does. The rest is automatic:
+
+- **Storage.** `agent_service_user_secrets`, encrypted with the backend's
+  system key (not the user's login-derived key) so agents can use it while
+  the user is logged out. Each value is bound to its user, service and name.
+- **Write-only everywhere.** No route returns a value, to users or admins.
+  The UI shows "Set · updated <date>" and offers Replace and Remove.
+- **`managedBy: "user"`.** Shows up in the user's Preferences → Services,
+  where they can set, replace or clear it. Admins can too.
+- **`managedBy: "admin"`.** Only the admin user modal ("Agent service keys")
+  can set or clear it. The user's UI and `/users/me/service-secrets` never
+  mention it; PUT/DELETE on it from `/me` gets the same 404 as a name that
+  doesn't exist.
+- **`fallbackEnv`.** Optional env var used for users with no value of their
+  own (e.g. a shared default key).
+- **Missing value.** The agent gets `no_user_secret`, with a message saying
+  whether the user can add it in Preferences or needs an admin.
+
+### Whose request is it?
+
+A request comes from a host, not a person, so for services with
+`userSecrets` the engine works out who it acts for. The candidates are the
+host's registrants: everyone with a host row for the same machine.
+
+- `skynet-service call zoho --as alice ...` acts for `alice` if she
+  registered this host (`not_permitted` if not, `unknown_user` if there's
+  no such user). Agents on a shared host may act for any of its
+  registrants, the same trust agent-phone uses for who it may call.
+- Without `--as`, a host with a single registrant acts for that person.
+- Without `--as` on a shared host, the agent gets `ambiguous_user` naming the
+  registrants, and retries with `--as`.
+
+Wrapper scripts for such services should pass `--as` through (e.g. an
+`--as` flag or an `AS_USER` env var) and the skill should tell agents when
+to use it.
+
 ## Wire protocol
 
 All files live in `~/fleet/service-requests/` on the host.
@@ -114,7 +176,7 @@ All files live in `~/fleet/service-requests/` on the host.
 | File                     | Written by                | Meaning                                                                                   |
 | ------------------------ | ------------------------- | ----------------------------------------------------------------------------------------- |
 | `<uuid>.in.<slot>.<ext>` | agent, first              | Attachment                                                                                |
-| `<uuid>.json`            | agent, atomically         | Request: `{service, requested_at, input, attachments?}`                                   |
+| `<uuid>.json`            | agent, atomically         | Request: `{service, requested_at, input, attachments?, as_user?}`                         |
 | `<uuid>.claimed.json`    | backend (rename)          | Accepted; the agent can tell "queued" from "nobody home"                                  |
 | `<uuid>.out.<i>.<ext>`   | backend                   | Output files                                                                              |
 | `<uuid>.response.json`   | backend, atomically, last | `{ok:true, service, result, files}` or `{ok:false, service, error:{code, message?, ...}}` |
@@ -124,7 +186,9 @@ signal, so an abandoned request is never picked up later. The scan deletes
 leftovers older than a day.
 
 Error codes any service can return, from the engine: `malformed`,
-`unknown_service`, `expired`, `queue_full`, `not_configured`, `internal`.
+`unknown_service`, `expired`, `queue_full`, `not_configured`, `internal`;
+for services with `userSecrets`, also `ambiguous_user`, `unknown_user`,
+`not_permitted` and `no_user_secret`.
 From the client: `not_picked_up` (never claimed) and `timeout` (claimed, no
 answer in time).
 

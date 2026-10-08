@@ -12,7 +12,7 @@ vi.mock("../../utils/logger.js", () => {
   return { systemLogger: stub, sshLogger: stub };
 });
 
-import { createAgentServiceEngine } from "./engine.js";
+import { createAgentServiceEngine, type EngineDeps } from "./engine.js";
 import type { HostRequestIo, OutgoingFile } from "./host-io.js";
 import { defineService, fail, ok, type ServiceDefinition } from "./types.js";
 
@@ -30,7 +30,12 @@ interface Written {
 
 function setup(
   services: ServiceDefinition[],
-  opts: { env?: Record<string, string>; now?: number } = {},
+  opts: {
+    env?: Record<string, string>;
+    now?: number;
+    resolveActingUser?: EngineDeps["resolveActingUser"];
+    loadUserSecret?: EngineDeps["loadUserSecret"];
+  } = {},
 ) {
   const written: Written[] = [];
   let done: () => void = () => {};
@@ -38,6 +43,8 @@ function setup(
     services,
     now: () => opts.now ?? NOW,
     env: opts.env ?? {},
+    resolveActingUser: opts.resolveActingUser,
+    loadUserSecret: opts.loadUserSecret,
     writeResponse: async (hostIdNum, uuid, files, responseFilename, json) => {
       written.push({
         hostIdNum,
@@ -337,5 +344,145 @@ describe("agent-services engine", () => {
 
   it("refuses duplicate service names", () => {
     expect(() => setup([echo, echo])).toThrow(/duplicate/);
+  });
+
+  describe("per-user secrets", () => {
+    const zoho = defineService({
+      ...echo,
+      name: "zoho",
+      userSecrets: {
+        ZOHO_TOKEN: { label: "Zoho API token", managedBy: "admin" },
+        PREF: {
+          label: "preference key",
+          managedBy: "user",
+          fallbackEnv: "PREF_DEFAULT",
+        },
+      },
+      handle: async (_i, ctx) =>
+        ok({ user: ctx.user, secrets: ctx.userSecrets }),
+    });
+    const alice = { id: "u-alice", username: "alice" };
+    const stored: Record<string, string> = {
+      "u-alice/zoho/ZOHO_TOKEN": "tok",
+      "u-alice/zoho/PREF": "pref",
+    };
+    const deps = (overrides: Parameters<typeof setup>[1] = {}) => ({
+      resolveActingUser: vi.fn(async () => ({
+        ok: true as const,
+        user: alice,
+      })),
+      loadUserSecret: vi.fn(
+        async (u: string, s: string, n: string) =>
+          stored[`${u}/${s}/${n}`] ?? null,
+      ),
+      ...overrides,
+    });
+
+    it("resolves the acting user, passing as_user through, and hands the handler their secrets", async () => {
+      const d = deps();
+      const w = await setup([zoho], d).submit({
+        ...envelope({ text: "x" }),
+        service: "zoho",
+        as_user: "alice",
+      });
+      expect(d.resolveActingUser).toHaveBeenCalledWith(7, "alice");
+      expect(w.response.result).toEqual({
+        user: alice,
+        secrets: { ZOHO_TOKEN: "tok", PREF: "pref" },
+      });
+    });
+
+    it("passes the resolver's refusal straight through", async () => {
+      const d = deps({
+        resolveActingUser: vi.fn(async () => ({
+          ok: false as const,
+          code: "ambiguous_user" as const,
+          message: "several users; say which one with --as",
+        })),
+      });
+      const w = await setup([zoho], d).submit({
+        ...envelope({ text: "x" }),
+        service: "zoho",
+      });
+      expect(w.response.error).toEqual({
+        code: "ambiguous_user",
+        message: "several users; say which one with --as",
+      });
+    });
+
+    it("says an admin must set an admin-managed secret", async () => {
+      const d = deps({ loadUserSecret: vi.fn(async () => null) });
+      const w = await setup([zoho], d).submit({
+        ...envelope({ text: "x" }),
+        service: "zoho",
+      });
+      expect(w.response.error.code).toBe("no_user_secret");
+      expect(w.response.error.message).toBe(
+        "alice has no Zoho API token for zoho; a Skynet admin needs to set it for them",
+      );
+    });
+
+    it("points at Preferences for a user-managed secret, unless the fallback env var is set", async () => {
+      const missingPref = vi.fn(async (_u: string, _s: string, n: string) =>
+        n === "ZOHO_TOKEN" ? "tok" : null,
+      );
+      const w = await setup(
+        [zoho],
+        deps({ loadUserSecret: missingPref }),
+      ).submit({
+        ...envelope({ text: "x" }),
+        service: "zoho",
+      });
+      expect(w.response.error.message).toMatch(/Preferences → Services/);
+
+      const fallback = await setup([zoho], {
+        ...deps({ loadUserSecret: missingPref }),
+        env: { PREF_DEFAULT: "dflt" },
+      }).submit({
+        ...envelope({ text: "x" }),
+        service: "zoho",
+      });
+      expect(fallback.response.result.secrets).toEqual({
+        ZOHO_TOKEN: "tok",
+        PREF: "dflt",
+      });
+    });
+
+    it("answers internal when the secret store throws", async () => {
+      const d = deps({
+        loadUserSecret: vi.fn(async () =>
+          Promise.reject(new Error("bad blob")),
+        ),
+      });
+      const w = await setup([zoho], d).submit({
+        ...envelope({ text: "x" }),
+        service: "zoho",
+      });
+      expect(w.response.error).toEqual({
+        code: "internal",
+        message: "secret lookup failed: bad blob",
+      });
+    });
+
+    it("leaves services without userSecrets alone", async () => {
+      const d = deps();
+      const w = await setup([echo], d).submit({
+        ...envelope({ text: "x" }),
+        as_user: "alice",
+      });
+      expect(d.resolveActingUser).not.toHaveBeenCalled();
+      expect(w.response.ok).toBe(true);
+    });
+
+    it("refuses to start without a secret store, or with a bad secret name", () => {
+      expect(() => setup([zoho])).toThrow(/no user secret store/);
+      const bad = {
+        ...zoho,
+        userSecrets: {
+          "zoho-token": { label: "x", managedBy: "user" as const },
+        },
+      };
+      expect(() => setup([bad], deps())).toThrow(/UPPER_SNAKE/);
+    });
   });
 });

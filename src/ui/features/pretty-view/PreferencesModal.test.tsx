@@ -18,7 +18,8 @@ import type { UserPreferences } from "@/api/open-tabs-api";
 // VoicePicker (used by PreferencesVoicePane) imports postSpeak from voice-api.
 // Mock the API so tests don't make real network calls.
 vi.mock("@/api/system-status-api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/api/system-status-api")>();
+  const actual =
+    await importOriginal<typeof import("@/api/system-status-api")>();
   return {
     ...actual,
     getVersionInfo: vi.fn(async () => ({
@@ -56,13 +57,27 @@ vi.mock("@/api/user-phone-api", async (importOriginal) => {
   };
 });
 
+// Services section gating — the modal lists user-managed service secrets.
+const { getMyServiceSecretsMock, setMyServiceSecretMock } = vi.hoisted(() => ({
+  getMyServiceSecretsMock: vi.fn(),
+  setMyServiceSecretMock: vi.fn(),
+}));
+vi.mock("@/api/service-secrets-api", () => ({
+  getMyServiceSecrets: () => getMyServiceSecretsMock(),
+  setMyServiceSecret: (...a: unknown[]) => setMyServiceSecretMock(...a),
+  clearMyServiceSecret: vi.fn().mockResolvedValue(undefined),
+}));
+
 // Notifications section gating — the modal probes GET /ntfy-setup on open;
 // any failure (403 when the user lacks notifications access) hides it.
 const { getNtfySetupMock } = vi.hoisted(() => ({
   getNtfySetupMock: vi.fn<() => Promise<{ isSetUp: boolean }>>(),
 }));
 vi.mock("@/features/notifications/ntfy-setup-api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/features/notifications/ntfy-setup-api")>();
+  const actual =
+    await importOriginal<
+      typeof import("@/features/notifications/ntfy-setup-api")
+    >();
   return {
     ...actual,
     getNtfySetup: () => getNtfySetupMock(),
@@ -84,6 +99,8 @@ describe("PreferencesModal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getMyPhoneMock.mockResolvedValue(null);
+    getMyServiceSecretsMock.mockResolvedValue([]);
+    setMyServiceSecretMock.mockResolvedValue(undefined);
     getNtfySetupMock.mockResolvedValue({ isSetUp: false });
   });
 
@@ -121,7 +138,9 @@ describe("PreferencesModal", () => {
   });
 
   it("(c) hides the Notifications section when the user lacks notifications access", async () => {
-    getNtfySetupMock.mockRejectedValue(new Error("Request failed with status code 403"));
+    getNtfySetupMock.mockRejectedValue(
+      new Error("Request failed with status code 403"),
+    );
     render(<PreferencesModal {...defaultProps} open={true} />);
     await waitFor(() => expect(getNtfySetupMock).toHaveBeenCalled());
     expect(screen.queryByTestId("preferences-nav-notifications")).toBeNull();
@@ -137,20 +156,30 @@ describe("PreferencesModal", () => {
     expect(screen.getByTestId("preferences-modal-pane")).toBeTruthy();
     // Verify the D-22 blurb text is visible in the about-you pane
     expect(
-      screen.getByText(/Tell your agents anything you want them to know about you/),
+      screen.getByText(
+        /Tell your agents anything you want them to know about you/,
+      ),
     ).toBeTruthy();
   });
 
   it("(d) Escape key calls onOpenChange(false)", () => {
     const onOpenChange = vi.fn();
-    render(<PreferencesModal {...defaultProps} open={true} onOpenChange={onOpenChange} />);
+    render(
+      <PreferencesModal
+        {...defaultProps}
+        open={true}
+        onOpenChange={onOpenChange}
+      />,
+    );
     fireEvent.keyDown(document, { key: "Escape" });
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
   it("(e) reopening after navigating to Voice resets active tab to General (D-05 invariant)", async () => {
     const user = userEvent.setup();
-    const { rerender } = render(<PreferencesModal {...defaultProps} open={true} />);
+    const { rerender } = render(
+      <PreferencesModal {...defaultProps} open={true} />,
+    );
 
     // Navigate to Voice
     const voiceBtn = screen.getByTestId("preferences-nav-voice");
@@ -191,6 +220,49 @@ describe("PreferencesModal", () => {
     ).toBe("+17165550100");
   });
 
+  it("(j) hides the Services section when there are no user-managed secrets", async () => {
+    render(<PreferencesModal {...defaultProps} open={true} />);
+    await waitFor(() => expect(getMyServiceSecretsMock).toHaveBeenCalled());
+    expect(screen.queryByTestId("preferences-nav-services")).toBeNull();
+  });
+
+  it("(k) shows Services, saves a key write-only and refreshes the status", async () => {
+    const secret = {
+      service: "notes",
+      serviceDescription: "Notes service",
+      name: "NOTES_KEY",
+      label: "Notes API key",
+      managedBy: "user",
+      hasFallback: false,
+      isSet: false,
+      updatedAt: null,
+    };
+    getMyServiceSecretsMock
+      .mockResolvedValueOnce([secret])
+      .mockResolvedValue([
+        { ...secret, isSet: true, updatedAt: "2026-10-08T00:00:00Z" },
+      ]);
+    const user = userEvent.setup();
+    render(<PreferencesModal {...defaultProps} open={true} />);
+    await user.click(await screen.findByTestId("preferences-nav-services"));
+    const input = screen.getByTestId(
+      "service-secret-notes-NOTES_KEY-input",
+    ) as HTMLInputElement;
+    expect(input.type).toBe("password");
+    await user.type(input, "abc123");
+    await user.click(screen.getByTestId("service-secret-notes-NOTES_KEY-save"));
+    expect(setMyServiceSecretMock).toHaveBeenCalledWith(
+      expect.objectContaining({ service: "notes", name: "NOTES_KEY" }),
+      "abc123",
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("service-secret-notes-NOTES_KEY-status").textContent,
+      ).toMatch(/^Set/),
+    );
+    expect(input.value).toBe("");
+  });
+
   it("(h) removing the number hides the Phone section and returns to General", async () => {
     getMyPhoneMock.mockResolvedValue("+17165550100");
     vi.spyOn(window, "confirm").mockReturnValue(true);
@@ -214,7 +286,9 @@ describe("PreferencesModal", () => {
     fireEvent.click(about);
     expect(await screen.findByText("Version 9.9.9")).toBeTruthy();
     const link = screen.getByTestId("preferences-about-source-link");
-    expect(link.getAttribute("href")).toBe("https://example.com/acme/skynet-fork");
+    expect(link.getAttribute("href")).toBe(
+      "https://example.com/acme/skynet-fork",
+    );
     expect(screen.getByText(/AGPL-3\.0 terms/)).toBeTruthy();
   });
 });

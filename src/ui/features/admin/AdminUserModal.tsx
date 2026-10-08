@@ -3,7 +3,7 @@
  *
  * Tabs:
  *   - Account:  admin access, push-notification access, phone number,
- *               read-only identity details, delete user.
+ *               agent service keys, read-only identity details, delete user.
  *   - Sessions: that user's live login sessions; revoke one or all.
  *   - Hosts:    hosts the user owns (read-only).
  *
@@ -39,6 +39,7 @@ import {
   type AdminUser,
 } from "@/api/user-management-api";
 import { getSSHHosts } from "@/api/ssh-host-management-api";
+import { AdminServiceSecrets } from "./AdminServiceSecrets";
 import type { SSHHostWithStatus } from "@/main-axios";
 import {
   AdminBadge,
@@ -360,6 +361,8 @@ function AccountTab({
           <span className="text-[12px] text-[#8fd39e]">✓ Number saved</span>
         )}
       </AdminSection>
+
+      <AdminServiceSecrets userId={user.id} />
 
       <AdminSection title="Identity">
         <div className="flex flex-col">

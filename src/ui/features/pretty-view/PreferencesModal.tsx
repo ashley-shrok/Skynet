@@ -26,13 +26,17 @@
  * fetch hides the entry. Removing the number hides it again and drops back
  * to General.
  *
+ * Services — the user's own keys for agent services. The nav entry only
+ * appears when GET /users/me/service-secrets returns at least one
+ * user-managed secret; admin-managed (company) keys are never listed here.
+ *
  * Notifications — gated server-side (users.notifications_enabled or admin).
  * The nav entry only appears when GET /push-subscriptions/ntfy-setup succeeds
  * on open; a 403 (or any failure) hides it.
  */
 
 import { useEffect, useState } from "react";
-import { User, Volume2, Bell, Sparkles, Phone, LogOut, Info } from "lucide-react";
+import { User, Volume2, Bell, Sparkles, Phone, KeyRound, LogOut, Info } from "lucide-react";
 import { Modal, ModalHead, ModalBody, ModalFoot } from "@/components/modal";
 import { cn } from "@/lib/utils";
 import { PreferencesGeneralPane } from "./PreferencesGeneralPane";
@@ -40,8 +44,10 @@ import { PreferencesVoicePane } from "./PreferencesVoicePane";
 import { PreferencesNotificationsPane } from "./PreferencesNotificationsPane";
 import { PreferencesAboutYouPane } from "./PreferencesAboutYouPane";
 import { PreferencesPhonePane } from "./PreferencesPhonePane";
+import { PreferencesServicesPane } from "./PreferencesServicesPane";
 import { PreferencesAboutPane } from "./PreferencesAboutPane";
 import { getMyPhone } from "@/api/user-phone-api";
+import { getMyServiceSecrets, type ServiceSecret } from "@/api/service-secrets-api";
 import { getNtfySetup } from "@/features/notifications/ntfy-setup-api";
 import { logoutUser } from "@/main-axios";
 import type { UserPreferences } from "@/api/open-tabs-api";
@@ -55,6 +61,7 @@ const NAV_SECTIONS = [
   { value: "voice",         label: "Voice",         Icon: Volume2   },
   { value: "notifications", label: "Notifications", Icon: Bell      },
   { value: "phone",         label: "Phone",         Icon: Phone     },
+  { value: "services",      label: "Services",      Icon: KeyRound  },
 ] as const;
 
 type SectionValue = (typeof NAV_SECTIONS)[number]["value"] | "about";
@@ -125,6 +132,25 @@ export default function PreferencesModal({
     };
   }, [open]);
 
+  // [] → no user-managed service secrets → Services section hidden.
+  const [serviceSecrets, setServiceSecrets] = useState<ServiceSecret[]>([]);
+  const [serviceSecretsVersion, setServiceSecretsVersion] = useState(0);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    getMyServiceSecrets()
+      .then((secrets) => {
+        if (!cancelled) setServiceSecrets(secrets);
+      })
+      .catch(() => {
+        if (!cancelled) setServiceSecrets([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, serviceSecretsVersion]);
+
   // false → no notifications access (403) → Notifications section hidden.
   const [notificationsAllowed, setNotificationsAllowed] = useState(false);
 
@@ -145,6 +171,7 @@ export default function PreferencesModal({
 
   const visibleSections = NAV_SECTIONS.filter(({ value }) => {
     if (value === "phone") return phoneE164 !== null;
+    if (value === "services") return serviceSecrets.length > 0;
     if (value === "notifications") return notificationsAllowed;
     return true;
   });
@@ -277,6 +304,12 @@ export default function PreferencesModal({
             />
           )}
           {activeSection === "about" && <PreferencesAboutPane />}
+          {activeSection === "services" && serviceSecrets.length > 0 && (
+            <PreferencesServicesPane
+              secrets={serviceSecrets}
+              onChanged={() => setServiceSecretsVersion((v) => v + 1)}
+            />
+          )}
           {activeSection === "phone" && phoneE164 !== null && (
             <PreferencesPhonePane
               phoneE164={phoneE164}

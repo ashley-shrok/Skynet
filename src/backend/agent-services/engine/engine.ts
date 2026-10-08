@@ -8,7 +8,8 @@
  * queue_full) without queueing.
  *
  * Queued job, per request:
- *   TTL → secrets present → rate limit → handle() → write response
+ *   TTL → env secrets present → acting user + their secrets (services with
+ *   userSecrets) → rate limit → handle() → write response
  *
  * Every request gets exactly one response file unless the write itself
  * fails, in which case the agent's helper times out.
@@ -29,6 +30,7 @@ import {
 import { JobQueue } from "./queue.js";
 import { createTokenBucket, type TokenBucket } from "./token-bucket.js";
 import type {
+  ActingUser,
   ServiceAttachment,
   ServiceContext,
   ServiceDefinition,
@@ -40,9 +42,32 @@ interface RequestHost {
   idNum: number;
 }
 
+export type ActingUserResolution =
+  | { ok: true; user: ActingUser }
+  | {
+      ok: false;
+      code: "ambiguous_user" | "unknown_user" | "not_permitted";
+      message: string;
+    };
+
 export interface EngineDeps {
   services: readonly ServiceDefinition[];
   writeResponse: ResponseWriter;
+  /**
+   * Work out which user a request from `hostIdNum` acts for, optionally
+   * named by the envelope's `as_user`. Required if any service declares
+   * userSecrets.
+   */
+  resolveActingUser?: (
+    hostIdNum: number,
+    asUser: string | undefined,
+  ) => Promise<ActingUserResolution>;
+  /** Decrypted per-user secret, or null when none is stored. */
+  loadUserSecret?: (
+    userId: string,
+    service: string,
+    name: string,
+  ) => Promise<string | null>;
   now?: () => number;
   env?: Record<string, string | undefined>;
   createTokenBucket?: (rpm: number) => TokenBucket;
@@ -61,6 +86,7 @@ export interface AgentServiceEngine {
 }
 
 const DEFAULT_MAX_QUEUE_DEPTH = 1000;
+const USER_SECRET_NAME_RE = /^[A-Z][A-Z0-9_]{0,63}$/;
 
 interface ServiceRuntime {
   def: ServiceDefinition;
@@ -77,6 +103,18 @@ export function createAgentServiceEngine(deps: EngineDeps): AgentServiceEngine {
   for (const def of deps.services) {
     if (runtimes.has(def.name))
       throw new Error(`duplicate agent service: ${def.name}`);
+    for (const name of Object.keys(def.userSecrets ?? {})) {
+      if (!USER_SECRET_NAME_RE.test(name)) {
+        throw new Error(
+          `${def.name}: user secret name must be UPPER_SNAKE: ${name}`,
+        );
+      }
+      if (!deps.resolveActingUser || !deps.loadUserSecret) {
+        throw new Error(
+          `${def.name} declares userSecrets but the engine has no user secret store`,
+        );
+      }
+    }
     const rpm = def.rateLimitPerMinute?.();
     runtimes.set(def.name, {
       def,
@@ -139,6 +177,7 @@ export function createAgentServiceEngine(deps: EngineDeps): AgentServiceEngine {
     requestedAt: string,
     input: unknown,
     attachments: Record<string, ServiceAttachment>,
+    asUser: string | undefined,
   ): Promise<void> {
     const { def } = rt;
 
@@ -170,14 +209,83 @@ export function createAgentServiceEngine(deps: EngineDeps): AgentServiceEngine {
       secrets[name] = value;
     }
 
+    let user: ActingUser | undefined;
+    const userSecrets: Record<string, string> = {};
+    const userSecretSpecs = Object.entries(def.userSecrets ?? {});
+    if (userSecretSpecs.length > 0) {
+      let resolution: ActingUserResolution;
+      try {
+        resolution = await deps.resolveActingUser!(host.idNum, asUser);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        await respond(
+          host,
+          uuid,
+          def.name,
+          engineFailure("internal", `user lookup failed: ${message}`),
+        );
+        return;
+      }
+      if (resolution.ok === false) {
+        await respond(
+          host,
+          uuid,
+          def.name,
+          engineFailure(resolution.code, resolution.message),
+        );
+        return;
+      }
+      user = resolution.user;
+      for (const [name, spec] of userSecretSpecs) {
+        let value: string | null;
+        try {
+          value = await deps.loadUserSecret!(user.id, def.name, name);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          await respond(
+            host,
+            uuid,
+            def.name,
+            engineFailure("internal", `secret lookup failed: ${message}`),
+          );
+          return;
+        }
+        if (!value && spec.fallbackEnv) value = env[spec.fallbackEnv] || null;
+        if (!value) {
+          const who =
+            spec.managedBy === "admin"
+              ? "a Skynet admin needs to set it for them"
+              : "they can add it in Skynet under Preferences → Services";
+          await respond(
+            host,
+            uuid,
+            def.name,
+            engineFailure(
+              "no_user_secret",
+              `${user.username} has no ${spec.label} for ${def.name}; ${who}`,
+            ),
+          );
+          return;
+        }
+        userSecrets[name] = value;
+      }
+    }
+
     if (rt.bucket) await rt.bucket.acquire();
 
-    const logContext = { service: def.name, uuid, fleetHostId: host.id };
+    const logContext = {
+      service: def.name,
+      uuid,
+      fleetHostId: host.id,
+      ...(user ? { actingUser: user.username } : {}),
+    };
     const ctx: ServiceContext = {
       requestId: uuid,
       host,
       attachments,
       secrets,
+      user,
+      userSecrets,
       now,
       log: {
         info: (m, c) =>
@@ -280,7 +388,15 @@ export function createAgentServiceEngine(deps: EngineDeps): AgentServiceEngine {
     const queued = rt.queue.enqueue({
       key: def.serializeBy?.(input.data),
       run: () =>
-        runJob(rt, host, uuid, envelope.requested_at, input.data, attachments),
+        runJob(
+          rt,
+          host,
+          uuid,
+          envelope.requested_at,
+          input.data,
+          attachments,
+          envelope.as_user,
+        ),
     });
     if (!queued) {
       await respond(

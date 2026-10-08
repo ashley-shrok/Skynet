@@ -3,7 +3,8 @@
  *
  * Everything lives in one folder per host, `~/fleet/service-requests/`:
  *
- *   <uuid>.json              request envelope, written atomically by the agent
+ *   <uuid>.json              request envelope, written atomically by the agent:
+ *                            {service, requested_at, input, attachments?, as_user?}
  *   <uuid>.in.<slot>.<ext>   optional attachments, written BEFORE the envelope
  *   <uuid>.claimed.json      the envelope after the backend claims it; its
  *                            appearance tells the agent "accepted"
@@ -101,6 +102,8 @@ interface RequestEnvelope {
   input: unknown;
   /** slot name → wire filename */
   attachments: Record<string, string>;
+  /** Skynet username the request acts for (services with userSecrets). */
+  as_user?: string;
 }
 
 const ENVELOPE_KEYS = new Set([
@@ -108,6 +111,7 @@ const ENVELOPE_KEYS = new Set([
   "requested_at",
   "input",
   "attachments",
+  "as_user",
 ]);
 
 export type EnvelopeParse =
@@ -164,6 +168,15 @@ export function parseEnvelope(body: string): EnvelopeParse {
     }
   }
 
+  if (
+    obj.as_user !== undefined &&
+    (typeof obj.as_user !== "string" ||
+      obj.as_user.length === 0 ||
+      obj.as_user.length > 200)
+  ) {
+    return fail("as_user must be a Skynet username");
+  }
+
   return {
     ok: true,
     envelope: {
@@ -171,6 +184,7 @@ export function parseEnvelope(body: string): EnvelopeParse {
       requested_at: obj.requested_at,
       input: obj.input,
       attachments,
+      ...(obj.as_user !== undefined ? { as_user: obj.as_user as string } : {}),
     },
   };
 }

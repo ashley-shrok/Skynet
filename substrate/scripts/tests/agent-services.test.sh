@@ -122,6 +122,17 @@ test_envelope_shape_and_success() {
   assert_eq 0 "$(wire_files_left)" "wire files cleaned up"
 }
 
+test_as_user_goes_in_the_envelope() {
+  fake_backend '{"ok":true,"service":"echo","result":{}}' &
+  HOME="$FIXTURE" "$SKYNET_SERVICE" call echo --as alice --timeout 10 >/dev/null
+  wait
+  assert_eq "alice" "$(jq -r .as_user "$FIXTURE/envelope.json")" "as_user"
+  fake_backend '{"ok":true,"service":"echo","result":{}}' &
+  HOME="$FIXTURE" "$SKYNET_SERVICE" call echo --timeout 10 >/dev/null
+  wait
+  assert_eq "false" "$(jq -r 'has("as_user")' "$FIXTURE/envelope.json")" "no as_user by default"
+}
+
 test_input_from_stdin_keeps_special_characters() {
   fake_backend '{"ok":true,"service":"echo","result":{}}' &
   local msg=$'quotes " and \' and $HOME and\nnewlines'
@@ -312,6 +323,7 @@ test_image_gen_json_escape_hatch() {
 
 printf '=== agent-services helper tests ===\n'
 run_test test_envelope_shape_and_success
+run_test test_as_user_goes_in_the_envelope
 run_test test_input_from_stdin_keeps_special_characters
 run_test test_attachment_written_before_envelope
 run_test test_output_files_moved_and_paths_returned

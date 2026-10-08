@@ -31,6 +31,8 @@ import { createAgentServiceEngine } from "./engine/engine.js";
 import { createResponseWriter, localRequestIo } from "./engine/host-io.js";
 import { createImageGenService } from "./services/image-gen/service.js";
 import { createAgentPhoneService } from "./services/agent-phone/service.js";
+import { z } from "zod";
+import { defineService, ok } from "./engine/types.js";
 import {
   writeBinaryFileAtomic,
   writeMarkdownFileAtomic,
@@ -66,8 +68,36 @@ function makeEngine() {
     transcript: "voice: hello\nuser: got it",
     call_length_seconds: 9,
   }));
+  // A per-user-secret service like a future Zoho integration: the backend
+  // works out who the agent acts for and hands the handler their key.
+  const zohoCalls: Array<{ user: string; token: string }> = [];
+  const zoho = defineService({
+    name: "zoho",
+    description: "test stand-in for a per-user-key service",
+    input: z.strictObject({ query: z.string() }),
+    userSecrets: { ZOHO_TOKEN: { label: "Zoho token", managedBy: "admin" } },
+    ttlMs: 60_000,
+    async handle(input, ctx) {
+      zohoCalls.push({
+        user: ctx.user!.username,
+        token: ctx.userSecrets.ZOHO_TOKEN,
+      });
+      return ok({ answered: input.query });
+    },
+  });
   const engine = createAgentServiceEngine({
+    resolveActingUser: async (_host, asUser) =>
+      asUser === "bob"
+        ? { ok: true, user: { id: "u-bob", username: "bob" } }
+        : {
+            ok: false,
+            code: "ambiguous_user",
+            message: "say which one with --as",
+          },
+    loadUserSecret: async (userId) =>
+      userId === "u-bob" ? "bob-company-token" : null,
     services: [
+      zoho,
       createImageGenService(openAi),
       createAgentPhoneService({
         getUserByUsername: async () => ({
@@ -95,7 +125,7 @@ function makeEngine() {
       writeBinaryAtomic: writeBinaryFileAtomic,
     }),
   });
-  return { engine, openAi, placeCall };
+  return { engine, openAi, placeCall, zohoCalls };
 }
 
 /** Run a helper while acting as the backend scan loop, until it exits. */
@@ -201,5 +231,33 @@ describe("agent services end to end", () => {
       call_length_seconds: 9,
     });
     expect(fs.readdirSync(wireDir())).toEqual([]);
+  }, 30_000);
+
+  it("per-user secret: --as picks the user, their key reaches the handler", async () => {
+    const r = await runWithBackend("skynet-service", [
+      "call",
+      "zoho",
+      "--as",
+      "bob",
+      "--input",
+      '{"query":"open deals"}',
+      "--timeout",
+      "20",
+    ]);
+    expect(r.code).toBe(0);
+    expect(JSON.parse(r.stdout).result).toEqual({ answered: "open deals" });
+    expect(r.zohoCalls).toEqual([{ user: "bob", token: "bob-company-token" }]);
+    expect(r.stdout).not.toContain("bob-company-token");
+
+    const without = await runWithBackend("skynet-service", [
+      "call",
+      "zoho",
+      "--input",
+      '{"query":"x"}',
+      "--timeout",
+      "20",
+    ]);
+    expect(without.code).toBe(1);
+    expect(JSON.parse(without.stdout).error.code).toBe("ambiguous_user");
   }, 30_000);
 });

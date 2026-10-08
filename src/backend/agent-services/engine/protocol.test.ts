@@ -79,6 +79,17 @@ describe("parseEnvelope", () => {
     expect(r.ok === false && r.message).toMatch(message);
   });
 
+  it("accepts as_user and rejects a non-string one", () => {
+    const r = parseEnvelope(JSON.stringify({ ...base, as_user: "alice" }));
+    expect(r.ok === true && r.envelope.as_user).toBe("alice");
+    expect(parseEnvelope(JSON.stringify({ ...base, as_user: 5 })).ok).toBe(
+      false,
+    );
+    expect(parseEnvelope(JSON.stringify({ ...base, as_user: "" })).ok).toBe(
+      false,
+    );
+  });
+
   it("keeps the service name on failure so the response can carry it", () => {
     const r = parseEnvelope(JSON.stringify({ ...base, extra: 1 }));
     expect(r.ok === false && r.service).toBe("agent-phone");
