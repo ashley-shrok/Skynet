@@ -4,14 +4,14 @@
  * ComposeBox behavior when reconnectingActive=true — mirrors the
  * recycleActive disable pattern. During the pretty-view
  * WS retry window (patch #148 auto-reconnect between an old socket's onclose
- * and a fresh session frame), Send + reset + ThumbsUp + Recap are disabled
+ * and a fresh session frame), Send + reset + ThumbsUp are disabled
  * because onSend would silently no-op (ws.readyState !== 1). Textarea, mic,
  * and paperclip stay usable so user can pre-draft the next message while
  * the socket comes back.
  *
  * Truth table (mirrors ComposeBox.recycle-disable.test.tsx):
  *   - Send: STAYS as Send (aria-label "Send", NOT morphed) but disabled=true.
- *   - Aux WS-side-effect buttons (reset, ThumbsUp, Recap): disabled=true.
+ *   - Aux WS-side-effect buttons (reset, ThumbsUp): disabled=true.
  *   - Textarea: STAYS typeable.
  *   - Enter key: does NOT fire onSend.
  *   - Mic: STAYS enabled (records locally, no WS side-effect).
@@ -62,14 +62,12 @@ describe("ComposeBox — reconnectingActive gating", () => {
     expect(screen.queryByLabelText("Resume")).toBeNull();
   });
 
-  it("R2: reconnectingActive=true — aux WS-side-effect buttons (reset, ThumbsUp, Recap) all disabled", () => {
+  it("R2: reconnectingActive=true — aux WS-side-effect buttons (reset, ThumbsUp) all disabled", () => {
     render(<ComposeBox {...baseProps({ reconnectingActive: true })} />);
     const resetBtn = screen.getByLabelText("Reset context window") as HTMLButtonElement;
     const thumbsUpBtn = screen.getByLabelText("Send 'thumbs up'") as HTMLButtonElement;
-    const recapBtn = screen.getByLabelText("Recap the current situation") as HTMLButtonElement;
     expect(resetBtn.disabled).toBe(true);
     expect(thumbsUpBtn.disabled).toBe(true);
-    expect(recapBtn.disabled).toBe(true);
   });
 
   it("R3: reconnectingActive=true — textarea stays typeable", () => {

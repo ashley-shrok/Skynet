@@ -8,9 +8,8 @@
  *   Test 1 — text submit (Enter key)
  *   Test 2 — reset button (context-window drain + send)
  *   Test 3 — thumbs-up quick-reply
- *   Test 4 — recap quick-reply (/explain)
  *   Test 5 — Send button click (equivalent to text submit; quick-send
- *            is exercised as thumbs-up/recap above)
+ *            is exercised as thumbs-up above)
  *   Test 6 — guard: identityName undefined → NEITHER call fires
  *   Test 7 — guard: tmuxSession null → NEITHER call fires
  *   Test 8 — network failure of stampIdentitySendLog does NOT surface
@@ -143,28 +142,6 @@ describe("useComposeSend — universal send-log hook (Phase 85 Plan 06)", () => 
 
     act(() => {
       fireEvent.click(thumbsBtn);
-    });
-
-    expect(stampIdentitySendLog).toHaveBeenCalledTimes(1);
-    expect(stampIdentitySendLog).toHaveBeenCalledWith("ivy", expect.any(Number));
-
-    expect(seedSessionLastMessageAt).toHaveBeenCalledTimes(1);
-    expect(seedSessionLastMessageAt).toHaveBeenCalledWith(
-      42,
-      "ivy",
-      expect.any(Number),
-    );
-  });
-
-  it("Test 4: recap click fires exactly one stamp + one advance", () => {
-    render(<ComposeBox {...baseProps()} />);
-
-    const recapBtn = screen.getByRole("button", {
-      name: /recap the current situation/i,
-    });
-
-    act(() => {
-      fireEvent.click(recapBtn);
     });
 
     expect(stampIdentitySendLog).toHaveBeenCalledTimes(1);

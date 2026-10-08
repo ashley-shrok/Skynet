@@ -14,10 +14,6 @@
 // The tab preserves the aria-label "Queue a message" of the old button so that
 // existing tests (notably ComposeBox.hold-to-mic.test.tsx:1132) can continue
 // to locate it via `getByRole("button", { name: /queue a message/i })`.
-//
-// This file also carries a redundant Recap-payload assertion (Test D) as a
-// lightweight companion to send-funnel.test.tsx Test 4, keeping all four
-// motions of the 260909-cdi quick behaviorally collocated.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, act } from "@testing-library/react";
@@ -153,31 +149,5 @@ describe("ComposeBox queue plus-tab (260909-cdi)", () => {
     const domSecondId = slots[1]!.getAttribute("data-slot-id");
     expect(domFirstId).not.toBe(firstCreatedId);
     expect(domSecondId).toBe(firstCreatedId);
-  });
-
-  it("Test D: recap button sends the new payload (/explain what has gone on since my last message)", async () => {
-    const onSend = vi.fn(() => true);
-    render(<ComposeBox {...baseProps({ onSend })} />);
-    await flushDraftHydration();
-
-    const recapBtn = screen.getByRole("button", {
-      name: "Recap the current situation",
-    });
-    expect((recapBtn as HTMLButtonElement).disabled).toBe(false);
-
-    await act(async () => {
-      fireEvent.click(recapBtn);
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-
-    expect(onSend).toHaveBeenCalledTimes(1);
-    // Phase 50 D-18: onSend widened to (text, mqid?). The payload string is
-    // the load-bearing assertion for this quick; the mqid shape is
-    // orthogonal but pinned here for good measure.
-    expect(onSend).toHaveBeenCalledWith(
-      "/explain what has gone on since my last message",
-      expect.stringMatching(/^pv-optim-/),
-    );
   });
 });

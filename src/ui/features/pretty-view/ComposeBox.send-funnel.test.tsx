@@ -309,40 +309,6 @@ describe("ComposeBox — send funnel (Phase 68 Plan 01)", () => {
     expect(onSendMqidCapture).toMatch(/^pv-optim-\d+-[0-9a-z]{8}$/);
   });
 
-  it("Test 4: recap routes through funnel — 1 bubble with /explain text, no override, button clickable when dormant", async () => {
-    const { container } = mount();
-    const ws = getCurrentWs();
-    flipToStreaming(ws);
-
-    // Wait for session to be ready.
-    await waitFor(() =>
-      expect(container.querySelector('textarea[placeholder="Write a message…"]')).not.toBeNull(),
-    );
-
-    // D-05 lockdown: recap button must NOT be disabled when streaming/dormant.
-    const recapBtn = container.querySelector(
-      'button[aria-label="Recap the current situation"]',
-    ) as HTMLButtonElement | null;
-    expect(recapBtn).not.toBeNull();
-    expect(recapBtn!.disabled).toBe(false);
-
-    act(() => {
-      fireEvent.click(recapBtn!);
-    });
-
-    // Exactly one pending bubble seeded — recap has NO override, bubble text == send text.
-    await waitFor(() => expect(countPendingBubbles(container)).toBe(1));
-    const pendingEl = container.querySelector('[data-event-id^="pending-"]')!;
-    expect(pendingEl.textContent).toContain("/explain what has gone on since my last message");
-
-    // onSend received the exact recap command string.
-    expect(onSendMock).toHaveBeenCalledOnce();
-    const [callPayload, callMqid] = onSendMock.mock.calls[0] as [string, string];
-    expect(callPayload).toBe("/explain what has gone on since my last message");
-    expect(callMqid).toMatch(/^pv-optim-\d+-[0-9a-z]{8}$/);
-    expect(onSendMqidCapture).toMatch(/^pv-optim-\d+-[0-9a-z]{8}$/);
-  });
-
   it(
     "Test 5 (Phase 90 rewire): reset dispatches through POST /agent-reset endpoint; ZERO bubbles rendered; NO WS input frame containing /id reset",
     async () => {

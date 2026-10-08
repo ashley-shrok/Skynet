@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createLogDedup } from "@/lib/log-dedup";
-import { AudioLines, CircleHelp, Paperclip, Plus, RefreshCw, RotateCcw, Square, ThumbsUp, X } from "lucide-react";
+import { AudioLines, Paperclip, Plus, RefreshCw, RotateCcw, Square, ThumbsUp, X } from "lucide-react";
 import { Button } from "@/components/button";
 import { Textarea } from "@/components/textarea";
 import { cn } from "@/lib/utils";
@@ -327,7 +327,7 @@ export interface ComposeBoxProps {
   showPaperclip?: boolean;
   /**
    * Phase 93 D-11: compose chrome mode. When "relay", the Row 1 instrument
-   * bar (meter/reset/queue/stop/thumbs-up/recap) AND the Paperclip attach
+   * bar (meter/reset/queue/stop/thumbs-up) AND the Paperclip attach
    * button are HIDDEN monolithically. Textarea + Send visual shell unchanged
    * per D-12. Default "harness" preserves today's behavior at every call site.
    */
@@ -414,7 +414,7 @@ export interface ComposeBoxProps {
   onAsideDismiss?: () => void;
   // Quick 260729-j8l: session-recycle-in-flight signal from PrettyView.
   // When true, every WS-side-effecting compose control is disabled or
-  // hidden (Send button, reset cell, paperclip, ThumbsUp, Recap,
+  // hidden (Send button, reset cell, paperclip, ThumbsUp,
   // Queue, Mic). Textarea REMAINS typeable so user can pre-draft the
   // next message during the 2-15s recycle window (autosave path
   // patches #57/#119 untouched → the draft survives the recycle by the
@@ -427,7 +427,7 @@ export interface ComposeBoxProps {
   // button behavior differs, the two props are kept independent — do
   // NOT collapse into a combined `interactionsDisabled` flag.
   //
-  // For the aux buttons (attach, ThumbsUp, Recap, Queue) and Send-
+  // For the aux buttons (attach, ThumbsUp, Queue) and Send-
   // when-not-morphed, the disable EFFECT is identical to asideActive
   // (just render `disabled=true`), so those predicates OR-in
   // `|| recycleActive === true` matching the existing
@@ -440,7 +440,7 @@ export interface ComposeBoxProps {
   recycleActive?: boolean;
   // Phase 24: plan-mode approval prompt is pending. When true, every WS-side-
   // effecting compose control is disabled (Send button STAYS as Send but
-  // disabled=true; reset, ThumbsUp, Recap, Queue all disabled). Textarea
+  // disabled=true; reset, ThumbsUp, Queue all disabled). Textarea
   // REMAINS typeable so user can pre-draft her feedback message while the
   // plan-approval prompt is open — matches the recycleActive behavior verbatim.
   //
@@ -453,7 +453,7 @@ export interface ComposeBoxProps {
   // Pretty-view WS reconnect window (patch #148 auto-retry between an old
   // socket's onclose and a fresh session frame). During that ~2s window the
   // WS is not open so onSend would no-op silently; disable Send + reset +
-  // ThumbsUp + Recap + Queue exactly like recycleActive.
+  // ThumbsUp + Queue exactly like recycleActive.
   // Textarea, mic, and attach stay usable (mic records locally; attach
   // stores locally until Send). Independent prop rather than OR'd into
   // recycleActive so future readers of either prop keep their documented
@@ -1954,7 +1954,7 @@ export function ComposeBox({
   // Phase 68 Plan 02 D-02: accepts optional { bubbleTextOverride } so the
   // thumbs-up caller can seed a "👍" bubble instead of "thumbs up". onSend
   // always receives the literal payload (e.g. "thumbs up"); only the bubble
-  // renders the override. Recap does not use the override.
+  // renders the override.
   //
   // The persisted DRAFT is still cleared on successful dispatch: user
   // may have been composing something in the textarea, then decided to
@@ -1982,7 +1982,7 @@ export function ComposeBox({
     }
     // Patch #313: skip re-focus on touch devices — .focus() on a textarea
     // pops the on-screen keyboard, which is exactly what user doesn't
-    // want after tapping ThumbsUp/Recap (quick-replies are meant to fire
+    // want after tapping ThumbsUp (quick-replies are meant to fire
     // WITHOUT dragging the user into text composition). Desktop keeps the
     // re-focus so a mouse click doesn't lose the caret from an in-progress
     // draft.
@@ -2460,7 +2460,8 @@ export function ComposeBox({
         <div className="flex-1" aria-hidden="true" />
         {/* Aux-button group — Paperclip moved OUT to inside the Row 2
             textarea (2026-07-30 vtk, mirroring Send on the LEFT); this
-            group hosts Stop, ThumbsUp, Recap (CircleHelp). Quick
+            group hosts Stop and ThumbsUp (the Recap button was
+            removed 2026-10-08). Quick
             260909-cdi retired the Queue-a-message ListPlus button from
             this row — the queue-a-message affordance is now the pebble-
             notch QueuePlusTab that rides on the topmost textarea's top
@@ -2545,39 +2546,6 @@ export function ComposeBox({
             )}
           >
             <ThumbsUp className="size-4" />
-          </Button>
-          {/* Patch #152 → Vehicle B (quick 260801-62m): Recap (CircleHelp)
-              quick-reply — mirrors the ThumbsUp pattern (same warm-neutral
-              Glass treatment, same disable rule) but its payload is a
-              canned /explain prompt asking for a recap of the current
-              situation. Semantically distinct: ThumbsUp is "proceed", this
-              is "make it legible for me". Renamed from Lightbulb/Explain
-              and shortened prompt payload per Vehicle B. */}
-          <Button
-            size="icon-sm"
-            variant="secondary"
-            // Phase 32: /explain is a send path — fire onGoodToGo?.() (parent-bound to
-            // jumpToBottom via the parent-bound onGoodToGo prop per Phase 70) alongside handleQuickSend, matching the 'thumbs up'
-            // quick-button above. Per 32-CONTEXT.md § Wire into PrettyView "ALL send paths"
-            // rule + 32-PATTERNS.md § 2d Send-path callsite swaps table.
-            onClick={() => { onGoodToGo?.(); handleQuickSend("/explain what has gone on since my last message"); }}
-            disabled={asideActive === true || recycleActive === true || reconnectingActive === true}
-            aria-label="Recap the current situation"
-            title="Recap"
-            className={cn(
-              "cursor-pointer max-md:size-9 [&_svg]:max-md:size-[1.125rem]",
-              // Same dark blue-gray treatment as the mobile back-to-list
-              // button (AppShell.tsx:1651-1654, patch #272). Hue 218 at
-              // 25% sat — "part of the scheme" per user, ambient chrome
-              // that doesn't compete with blue-190 CTAs.
-              "bg-[linear-gradient(160deg,hsla(218,25%,22%,0.85),hsla(218,25%,14%,0.9))]",
-              "text-[color:var(--color-pv-fg)]",
-              "border-[hsla(218,35%,55%,0.35)]",
-              "shadow-[0_4px_12px_rgba(0,0,0,0.6),inset_0_2px_0_rgba(220,225,245,0.3),0_0_24px_hsla(218,40%,55%,0.3)]",
-              "hover:brightness-110 hover:shadow-[0_6px_16px_rgba(0,0,0,0.65),inset_0_2px_0_rgba(220,225,245,0.35),0_0_28px_hsla(218,40%,55%,0.4)]",
-            )}
-          >
-            <CircleHelp className="size-4" />
           </Button>
         </div>
       </div>

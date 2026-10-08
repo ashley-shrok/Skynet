@@ -83,7 +83,7 @@ describe("ComposeBox — quick 260729-j8l recycleActive gating", () => {
     expect(screen.queryByLabelText("Resume")).toBeNull();
   });
 
-  it("B2: recycleActive=true — aux WS-side-effect buttons (reset, thumbs-up, recap) disabled", () => {
+  it("B2: recycleActive=true — aux WS-side-effect buttons (reset, thumbs-up) disabled", () => {
     render(
       <ComposeBox
         {...baseProps({
@@ -95,10 +95,8 @@ describe("ComposeBox — quick 260729-j8l recycleActive gating", () => {
     );
     const resetBtn = screen.getByLabelText("Reset context window") as HTMLButtonElement;
     const thumbsUpBtn = screen.getByLabelText("Send 'thumbs up'") as HTMLButtonElement;
-    const explainBtn = screen.getByLabelText("Recap the current situation") as HTMLButtonElement;
     expect(resetBtn.disabled).toBe(true);
     expect(thumbsUpBtn.disabled).toBe(true);
-    expect(explainBtn.disabled).toBe(true);
   });
 
   it("B3: recycleActive=true — textarea stays typeable", () => {
