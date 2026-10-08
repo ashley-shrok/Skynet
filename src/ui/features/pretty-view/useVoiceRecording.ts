@@ -311,7 +311,16 @@ export function useVoiceRecording(
     } else {
       console.warn(`[voice] transcribe-fetch-not-ok status=${res.status} ok=${res.ok} ${ctxSuffix}`);
       playSound(errorAudioRef.current);
-      setErrorMessage(`STT error: ${res.status}`);
+      // Prefer the server's human-readable message (e.g. quota exhausted)
+      // over the bare status code.
+      let serverMessage: string | undefined;
+      try {
+        const body = (await res.json()) as { message?: unknown };
+        if (typeof body.message === "string" && body.message) serverMessage = body.message;
+      } catch {
+        // Non-JSON error body — fall back to the status code.
+      }
+      setErrorMessage(serverMessage ?? `STT error: ${res.status}`);
       return null;
     }
 

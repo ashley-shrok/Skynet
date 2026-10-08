@@ -26,7 +26,7 @@ import {
 } from "../../voice/tts-provider.js";
 import { TtsNotConfiguredError } from "../../voice/tts-errors.js";
 import { resolveSttProvider, transcribeWithRetries, type SttProvider } from "../../voice/stt-provider.js";
-import { SttNotConfiguredError } from "../../voice/stt-errors.js";
+import { SttHttpError, SttNotConfiguredError } from "../../voice/stt-errors.js";
 import { splitIntoSentences, packChunks } from "../../voice/chunk-and-stitch.js";
 import { buildRiffHeader } from "../../voice/riff-header-builder.js";
 
@@ -168,6 +168,16 @@ export async function handleTranscribe(req: Request, res: Response): Promise<Res
         `[voice-server] transcribe-unavailable provider=${provider?.id ?? "none"} reason="${errMessage}"`,
         { operation: "voice_transcribe_access_denied", provider: provider?.id },
       );
+      // Out of provider credits (e.g. ElevenLabs `quota_exceeded`): tell the
+      // user plainly, and that the disk-bank above kept their audio.
+      if (err instanceof SttHttpError && /quota/i.test(err.body)) {
+        return res.status(503).json({
+          error: "voice STT unavailable",
+          reason: "quota_exhausted",
+          message: "transcription quota exhausted — your audio was saved",
+          status: 503,
+        });
+      }
       return res.status(503).json({ error: "voice STT unavailable", status: 503 });
     }
 

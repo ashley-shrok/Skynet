@@ -462,6 +462,21 @@ describe("handleTranscribe (STT_PROVIDER selection)", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("provider out of credits → 503 quota_exhausted with a plain message", async () => {
+    process.env.STT_PROVIDER = "elevenlabs";
+    process.env.ELEVENLABS_API_KEY = "el-key";
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ detail: { status: "quota_exceeded", message: "This request exceeds your quota of 10000." } }), { status: 401 }),
+    );
+
+    const res = await transcribe();
+
+    expect(res._status).toBe(503);
+    const body = res._body as { reason: string; message: string };
+    expect(body.reason).toBe("quota_exhausted");
+    expect(body.message).toBe("transcription quota exhausted — your audio was saved");
+  });
+
   it("selected HTTP provider without its API key → 503 voice STT unavailable", async () => {
     process.env.STT_PROVIDER = "mistral";
     delete process.env.MISTRAL_API_KEY;
