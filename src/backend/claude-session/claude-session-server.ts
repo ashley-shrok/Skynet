@@ -15,7 +15,11 @@ import { connectOneShot } from "../ssh/ssh-one-shot.js";
 import { discoverClaudeSession, discoverClaudeSessionBatched } from "./session-file-discovery.js";
 import { readSessionFileCache } from "../fleet-status/session-file-cache.js";
 import { discoverIdentitySessionFile } from "./discover-identity-session-file.js";
-import { parseSessionLine, detectIdReset } from "./session-file-parser.js";
+import {
+  parseSessionLine,
+  detectIdReset,
+  normalizePastedHarnessEnvelopes,
+} from "./session-file-parser.js";
 import { tailSessionFile, type TailHandle } from "./session-file-tail.js";
 // Phase 50 Plan 02 — signal-driven send-path watchdog. Replaces the OLD
 // PTY-activity-proxy watchdog formerly at src/backend/ssh/ (patch quick
@@ -4208,6 +4212,9 @@ wss.on("connection", async (ws: WebSocket, req) => {
         timestamp?: string;
         message?: { content?: unknown };
       };
+      // New-harness pasted_content envelopes → legacy bare-wrapper shape
+      // before the patch #66 startsWith("<task-notification>") checks below.
+      normalizePastedHarnessEnvelopes(obj as Record<string, unknown>);
       const content = obj?.message?.content;
       // Phase 51 Plan 01 refactor-extract: the assistant/user branches that
       // maintain `backgroundedAgents` + `backgroundedShells` (and, after

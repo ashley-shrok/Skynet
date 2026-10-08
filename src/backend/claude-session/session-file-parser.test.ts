@@ -1531,3 +1531,117 @@ describe("isWidgetSubmitEnvelope", () => {
     ).toBe(false);
   });
 });
+
+describe("parseSessionLine — new-harness <pasted_content> envelopes", () => {
+  // Shape captured from Claude Code v2.1.286 (2026-10-08): paste-injected
+  // wakes are wrapped in <pasted_content id="…"> and recorded as human prompts.
+  const ambient =
+    "<task-notification>\n<summary>Ambient watcher event (sky) — delivered by agent-supervisor</summary>\n<event>📝 [id-skill: id] your id skill changed</event>\n</task-notification>";
+  const pasted = (inner: string, id = "0824") =>
+    `<pasted_content id="${id}">\n${inner}\n</pasted_content id="${id}">`;
+
+  it("queued_command attachment (commandMode:prompt, origin human) skips", () => {
+    const parsed = parseSessionLine(
+      line({
+        type: "attachment",
+        uuid: "pc-1",
+        timestamp: "2026-10-08T22:45:33.681Z",
+        attachment: {
+          type: "queued_command",
+          prompt: pasted(ambient),
+          commandMode: "prompt",
+          origin: { kind: "human" },
+        },
+      }),
+    );
+    expect(parsed.kind).toBe("skip");
+  });
+
+  it("user turn with pasted-wrapped notification skips as harness_wrapper", () => {
+    const parsed = parseSessionLine(
+      line({
+        type: "user",
+        uuid: "pc-2",
+        origin: { kind: "human" },
+        message: { role: "user", content: pasted(ambient) },
+      }),
+    );
+    expect(parsed.kind).toBe("skip");
+    if (parsed.kind !== "skip") throw new Error("unreachable");
+    expect(parsed.why).toBe("harness_wrapper");
+  });
+
+  it("queue-operation enqueue with pasted-wrapped notification does not render", () => {
+    const parsed = parseSessionLine(
+      line({
+        type: "queue-operation",
+        operation: "enqueue",
+        timestamp: "2026-10-08T22:45:33.681Z",
+        content: pasted(ambient),
+      }),
+    );
+    expect(parsed.kind).not.toBe("message");
+  });
+
+  it("multiple pasted blocks (notification + system-reminder) skip", () => {
+    const parsed = parseSessionLine(
+      line({
+        type: "user",
+        uuid: "pc-3",
+        origin: { kind: "human" },
+        message: {
+          content:
+            pasted(ambient, "a1") + "\n" + pasted("<system-reminder>x</system-reminder>", "b2"),
+        },
+      }),
+    );
+    expect(parsed.kind).toBe("skip");
+  });
+
+  it("pasted-wrapped recv.sh relay line on a human-origin user turn emits relay_inbound", () => {
+    const body = "banana banana";
+    const inner = `<task-notification>[room !R:server] [@ashley:server] (event $E): ${body}</event></task-notification>`;
+    const parsed = parseSessionLine(
+      line({
+        type: "user",
+        uuid: "pc-4",
+        origin: { kind: "human" },
+        message: { content: pasted(inner) },
+      }),
+    );
+    expect(parsed.kind).toBe("relay_inbound");
+    if (parsed.kind !== "relay_inbound") throw new Error("unreachable");
+    expect(parsed.body).toBe(body);
+  });
+
+  it("pasted-wrapped widget-submit envelope surfaces unwrapped (watchdog + UI gate see legacy shape)", () => {
+    const envelope =
+      "<task-notification>\n<summary>Widget submit — delivered by the app</summary>\n<event>x</event>\n</task-notification>";
+    const parsed = parseSessionLine(
+      line({ type: "user", uuid: "pc-5", origin: { kind: "human" }, message: { content: pasted(envelope) } }),
+    );
+    expect(parsed.kind).toBe("message");
+    if (parsed.kind !== "message") throw new Error("unreachable");
+    expect(parsed.content).toBe(envelope);
+  });
+
+  it("human text that also contains a pasted notification is left untouched and renders", () => {
+    const content = `look at this:\n${pasted(ambient)}`;
+    const parsed = parseSessionLine(
+      line({ type: "user", uuid: "pc-6", origin: { kind: "human" }, message: { content } }),
+    );
+    expect(parsed.kind).toBe("message");
+    if (parsed.kind !== "message") throw new Error("unreachable");
+    expect(parsed.content).toBe(content);
+  });
+
+  it("ordinary pasted text (not a harness wrapper) is left untouched", () => {
+    const content = pasted("some log output");
+    const parsed = parseSessionLine(
+      line({ type: "user", uuid: "pc-7", origin: { kind: "human" }, message: { content } }),
+    );
+    expect(parsed.kind).toBe("message");
+    if (parsed.kind !== "message") throw new Error("unreachable");
+    expect(parsed.content).toBe(content);
+  });
+});

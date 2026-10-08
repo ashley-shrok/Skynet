@@ -777,7 +777,8 @@ function extractInboundFromWrapper(raw: string): {
  * bracket-form signal `[room X] [@sender:server] (event $Y): body</event>`):
  *
  *   1. `type: "user"` + `origin.kind: "task-notification"` — the original
- *      shape, agent-not-busy path. Content in `message.content` (string or
+ *      shape, agent-not-busy path. (Or any origin when the content opens with
+ *      a bare <task-notification> — the unwrapped new-harness pasted form.) Content in `message.content` (string or
  *      array of {text} blocks).
  *
  *   2. `type: "queue-operation"` + `operation: "enqueue"` — busy-turn arrival.
@@ -808,10 +809,14 @@ export function detectRelayInbound(
 
   // Envelope 1: type=user + origin.kind=task-notification (original path).
   if (type === "user") {
+    // Newer harnesses record paste-injected wakes as origin.kind:"human"
+    // (see unwrapPastedHarnessEnvelope); after normalization their content
+    // starts with the bare <task-notification> wrapper, so accept that too.
     const origin = obj.origin;
-    if (!origin || typeof origin !== "object") return null;
-    if ((origin as Record<string, unknown>).kind !== "task-notification")
-      return null;
+    const originIsNotification =
+      !!origin &&
+      typeof origin === "object" &&
+      (origin as Record<string, unknown>).kind === "task-notification";
     // Extract text content — mirrors extractText but also handles plain string
     // at message.content level (task-notification turns often use string form).
     const msg = obj.message;
@@ -834,6 +839,8 @@ export function detectRelayInbound(
     } else {
       return null;
     }
+    if (!originIsNotification && !raw.trimStart().startsWith("<task-notification>"))
+      return null;
     return extractInboundFromWrapper(raw);
   }
 
@@ -1023,6 +1030,57 @@ export function extractImageRefs(obj: Record<string, unknown>): ImageBlock[] {
   return refs;
 }
 
+// Newer Claude Code harnesses (observed v2.1.286, 2026-10-08) wrap input that
+// arrives via terminal paste — which is how agent-supervisor, recv.sh and the
+// widget-submit path inject their <task-notification> / <system-reminder>
+// envelopes — in an outer `<pasted_content id="…">…</pasted_content id="…">`
+// block, and record it as an ordinary human prompt (commandMode:"prompt",
+// origin.kind:"human"). Every downstream filter anchors on the bare wrapper
+// (startsWith("<task-notification>") etc.), so the pasted form rendered as a
+// raw user bubble.
+//
+// Unwrap at the parse boundary so all existing filters see the legacy shape.
+// Only unwrap when the ENTIRE string is pasted blocks whose bodies are harness
+// wrappers — a real human message that quotes/pastes a notification alongside
+// typed text is left byte-identical and still renders.
+const PASTED_HARNESS_WRAPPER_RE =
+  /<pasted_content id="([^"]*)">\s*(<(task-notification|system-reminder)>[\s\S]*?<\/\3>)\s*<\/pasted_content id="\1">/g;
+
+export function unwrapPastedHarnessEnvelope(s: string): string {
+  if (!s.includes("<pasted_content")) return s;
+  if (s.replace(PASTED_HARNESS_WRAPPER_RE, "").trim() !== "") return s;
+  return s.replace(PASTED_HARNESS_WRAPPER_RE, "$2").trim();
+}
+
+/**
+ * In-place normalization of a parsed JSONL object: applies
+ * unwrapPastedHarnessEnvelope to every field known to carry an injected
+ * prompt — message.content (string or text blocks), attachment.prompt
+ * (queued_command / task-notification attachments) and top-level content
+ * (queue-operation). Call right after JSON.parse, before any classification.
+ */
+export function normalizePastedHarnessEnvelopes(obj: Record<string, unknown>): void {
+  const msg = obj.message as Record<string, unknown> | undefined;
+  if (msg !== null && typeof msg === "object") {
+    if (typeof msg.content === "string") {
+      msg.content = unwrapPastedHarnessEnvelope(msg.content);
+    } else if (Array.isArray(msg.content)) {
+      for (const block of msg.content as Array<Record<string, unknown>>) {
+        if (block && block.type === "text" && typeof block.text === "string") {
+          block.text = unwrapPastedHarnessEnvelope(block.text);
+        }
+      }
+    }
+  }
+  const att = obj.attachment as Record<string, unknown> | undefined;
+  if (att !== null && typeof att === "object" && typeof att.prompt === "string") {
+    att.prompt = unwrapPastedHarnessEnvelope(att.prompt);
+  }
+  if (typeof obj.content === "string") {
+    obj.content = unwrapPastedHarnessEnvelope(obj.content);
+  }
+}
+
 function fallbackEventId(): string {
   return String(Date.now()) + "-" + Math.random().toString(36).slice(2, 8);
 }
@@ -1038,6 +1096,7 @@ export function parseSessionLine(line: string, sessionId?: string): ParsedLine {
     sessionParserLogger.info(`[session-parser] classify result=malformed bytesRead=${trimmed.length}`, { operation: "session_classify" });
     return { kind: "malformed", bytes: trimmed.length };
   }
+  normalizePastedHarnessEnvelopes(obj);
 
   const type = obj.type;
   const isUser = type === "user";
