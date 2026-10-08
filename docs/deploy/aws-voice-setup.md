@@ -6,6 +6,13 @@ role; policy attach is a per-operator step, not shipped in code. Without a
 policy attach, voice features are dark (503 responses to `/voice/transcribe`
 and `/voice/speak-stream`) — this is intentional and IS the cost gate.
 
+> **Speech-to-text provider is now selectable.** `/voice/transcribe` defaults
+> to Amazon Nova 2 Sonic on Bedrock (`STT_PROVIDER` unset or `bedrock`), which
+> keeps audio inside AWS for BAA-covered instances. Instances without that
+> requirement can set `STT_PROVIDER=elevenlabs|mistral|groq` plus the
+> matching API key in `skynet.env` (see `docker/skynet.env.example`) and skip
+> the STT half of this guide. TTS (Polly) still uses AWS either way.
+
 ## What this covers
 
 - Attaching a narrow IAM policy to your instance's EC2 role that grants access
