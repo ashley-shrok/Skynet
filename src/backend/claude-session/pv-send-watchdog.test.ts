@@ -875,7 +875,7 @@ describe("Phase 56: widened window for dormant-triggered sends", () => {
 
 const WIDGET_ENVELOPE_BODY =
   "<task-notification>\n" +
-  "<summary>Widget submit — delivered by Skynet</summary>\n" +
+  "<summary>Widget submit — delivered by the app</summary>\n" +
   "<event>[widget test-slug] submitted — read state at ~/fleet/interactive-messages/test-slug/state.json</event>\n" +
   "</task-notification>";
 

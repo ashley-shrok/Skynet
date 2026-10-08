@@ -17,7 +17,7 @@
 # Silent no-op on any unmet precondition (no FLEET_IDENTITY, file absent,
 # already-set, jq missing). Never fails the parent claude turn.
 #
-# Canonical copy in the Skynet repo at substrate/scripts/task-field-check.sh;
+# Canonical copy in the app's source repo at substrate/scripts/task-field-check.sh;
 # distributed to every managed host by the fleet substrate distributor
 # (see src/backend/distributor/catalog.ts). Installed at
 # ~/.local/bin/task-field-check. Do NOT hand-edit the installed copy.

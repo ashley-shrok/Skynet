@@ -7,7 +7,7 @@
 #   __PORT__       → claimed port number from the 9601-9699 range
 
 [Unit]
-Description=Skynet interactive widget: __SLUG__
+Description=Interactive widget: __SLUG__
 After=network.target
 
 [Service]

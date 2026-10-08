@@ -180,7 +180,7 @@ function mountPrettyView() {
 function envelopeFor(widgetId: string): string {
   return (
     "<task-notification>\n" +
-    "<summary>Widget submit — delivered by Skynet</summary>\n" +
+    "<summary>Widget submit — delivered by the app</summary>\n" +
     "<event>[widget " + widgetId + "] submitted — read state at " +
     "~/fleet/interactive-messages/" + widgetId + "/state.json</event>\n" +
     "</task-notification>"

@@ -1499,3 +1499,35 @@ describe("parseSessionLine — session-lifecycle noise skips (quick-260829-r9i)"
     expect(parsed.content).toContain("Deployed v3.4 to prod");
   });
 });
+
+describe("isWidgetSubmitEnvelope", () => {
+  const event =
+    "\n<event>[widget s] submitted — read state at ~/fleet/interactive-messages/s/state.json</event>\n</task-notification>";
+
+  it("matches the current brand-neutral summary", async () => {
+    const { isWidgetSubmitEnvelope } = await import("./session-file-parser.js");
+    expect(
+      isWidgetSubmitEnvelope(
+        "<task-notification>\n<summary>Widget submit — delivered by the app</summary>" + event,
+      ),
+    ).toBe(true);
+  });
+
+  it("still matches the legacy summary from older sessions", async () => {
+    const { isWidgetSubmitEnvelope } = await import("./session-file-parser.js");
+    expect(
+      isWidgetSubmitEnvelope(
+        "<task-notification>\n<summary>Widget submit — delivered by Skynet</summary>" + event,
+      ),
+    ).toBe(true);
+  });
+
+  it("does not match ambient-monitor envelopes", async () => {
+    const { isWidgetSubmitEnvelope } = await import("./session-file-parser.js");
+    expect(
+      isWidgetSubmitEnvelope(
+        "<task-notification>\n<summary>Ambient watcher event (x) — delivered by agent-supervisor</summary>" + event,
+      ),
+    ).toBe(false);
+  });
+});

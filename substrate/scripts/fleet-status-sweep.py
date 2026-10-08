@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""fleet-status-sweep.py — server-side batch emitter for the Skynet fleet-status poller.
+"""fleet-status-sweep.py — server-side batch emitter for the app's fleet-status poller.
 
 Phase 92 Plan 02. Replaces the O(hosts × identities × sentinels) per-poll SSH
 exec fan-out (~200+ `channel.exec` calls per cycle on a t1000-sized box) with
@@ -21,7 +21,7 @@ Wire contract (canonical): src/backend/fleet-status/sweep-schema.ts.
 Invocation (production):
     ~/.local/bin/fleet-status-sweep      # no args, no stdin, reads env $HOME
 
-Distribution: this file is git-committed with the execute bit set. The Skynet
+Distribution: this file is git-committed with the execute bit set. The substrate
 distributor bundles substrate/scripts/*.* into the container at
 /app/fleet-substrate/scripts/, and the Phase 75 startup-sweep pushes it to
 ~/.local/bin/fleet-status-sweep on every runs_fleet_substrate:true host once
@@ -34,7 +34,7 @@ Stdout contract — VERY LOAD-BEARING:
     * stdout is JSONL emission ONLY. One JSON object per line, compact
       (no whitespace via json.dumps(..., separators=(",", ":"))).
     * ANY unhandled exception at the top level logs to stderr and returns
-      exit 0 with empty stdout. The Skynet caller (Plan 04) treats
+      exit 0 with empty stdout. The backend caller (Plan 04) treats
       `channel.exec` returning `null` OR schema-version-mismatch as
       "fall back to legacy per-identity plumbing this cycle". A stderr diag
       + exit 0 + empty stdout is a clean, non-noisy signal that means the
@@ -168,7 +168,7 @@ TAIL_BYTES = 262144  # 256 KB — same window as `tail -c 262144`.
 # `tmux display-message` on a wedged tmux server can't block the entire sweep.
 # 1.5s is well above the local IPC round-trip (~<10ms typical) but small enough
 # that a single bad PID can't push us anywhere near the sweep-script-caller's
-# ~5s Promise.race wrapper on the Skynet side.
+# ~5s Promise.race wrapper on the app's side.
 TMUX_TIMEOUT_SEC = 1.5
 
 # ---------------------------------------------------------------------------
@@ -818,7 +818,7 @@ def _resolve_pid_to_tmux_session(pid):
 #
 # Prior shape (Phase 118 ship): a `systemctl --user show app-<slug>.service`
 # call gave existence (LoadState=loaded), health (ActiveState=active), and
-# port (Environment=PORT=<n>) in one round-trip. That broke on the Skynet
+# port (Environment=PORT=<n>) in one round-trip. That broke on the app's
 # self-poll (hostId 6) once peer's isLocalHostId acquireLocalChannel fix
 # ran the sweep from inside the container: the container is uid 0 with no
 # /run/user/1000 mount and no dbus session, so every `systemctl --user`
@@ -1011,7 +1011,7 @@ def _read_frontmatter_cosmetics(path, allowed_keys):
         # --- colorHue: int, must be in 0..359 (mirrors identity-artifact-reader.ts) ---
         # Accept bare (`324`) OR single/double-quoted (`'324'` / `"324"`) forms.
         # MDXEditor's frontmatter dialog emits the quoted form on save, and
-        # Skynet's writers now standardize on it too, so both shapes appear
+        # the app's writers now standardize on it too, so both shapes appear
         # on disk. Strip surrounding matching quotes before int() so the
         # sweeper doesn't silently drop the field on a quoted value.
         if "colorHue" in allowed_keys:
@@ -1599,7 +1599,7 @@ def _build_app_line(slug, folder_path, home):
     #   1. No PORT declaration → can't probe. Emit as unhealthy with a
     #      diagnostic so the frontend surfaces the misconfiguration.
     #
-    #   2. Running inside the Skynet container's constrained namespace (the
+    #   2. Running inside the app container's constrained namespace (the
     #      isLocalHostId acquireLocalChannel path — see starter.ts). The
     #      container's 127.0.0.1 is not the host's 127.0.0.1 (network
     #      namespaces don't share loopback) so the probe would always fail
@@ -1609,7 +1609,7 @@ def _build_app_line(slug, folder_path, home):
     #      health signal: the sweep runs against the same host that owns
     #      the file, and the click-through path uses the SSH tunnel which
     #      IS namespace-crossing. Signal: `HOME_HOST_DIR` env is set only
-    #      by the Skynet compose config, so this branch is not reachable
+    #      by the app's compose config, so this branch is not reachable
     #      on peer hosts (where the sweep runs in the user's real shell).
     if port is None:
         is_healthy = False
@@ -2029,7 +2029,7 @@ if __name__ == "__main__":
         rc = main()
     except Exception:
         # LOAD-BEARING: any unhandled exception → stderr diag + exit 0 with
-        # (possibly partial, possibly empty) stdout. The Skynet caller's
+        # (possibly partial, possibly empty) stdout. The backend caller's
         # parser will silently discard anything that's not a valid schema-v1
         # JSONL line, so a truncated final line is harmless. What is NOT
         # acceptable is a nonzero exit or a traceback on stdout.

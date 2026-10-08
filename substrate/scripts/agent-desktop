@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # agent-desktop — per-identity virtual desktop (Xvnc + openbox) for GUI work.
 #
-# Canonical copy lives in the Skynet repo at substrate/scripts/agent-desktop and
+# Canonical copy lives in the app's source repo at substrate/scripts/agent-desktop and
 # is distributed to every managed host by the fleet-substrate distributor (see
 # src/backend/distributor/catalog.ts). Installed per-box at
 # ~/.local/bin/agent-desktop. Do NOT hand-edit the installed copy.
@@ -9,7 +9,7 @@
 # Each identity gets its own X display, served by TigerVNC's Xvnc (one process
 # that is both the virtual framebuffer and the VNC server) with openbox as the
 # window manager. The display number is allocated once and kept stable, so the
-# VNC port (15900 + display) is predictable for the Skynet backend.
+# VNC port (15900 + display) is predictable for the backend.
 #
 # Lifecycle is owned by the templated systemd user unit
 # agent-desktop@<identity>.service (ExecStart = `agent-desktop serve <identity>`),
@@ -32,7 +32,7 @@
 #   display        allocated display number (stable across restarts)
 #   geometry       screen size, fixed at first allocation (default 1280x800)
 #   vnc-passwd     VNC password file (vncpasswd -f format), mode 600
-#   vnc-password   same password in plain text, mode 600 — read by the Skynet
+#   vnc-password   same password in plain text, mode 600 — read by the
 #                  backend to open the Guacamole VNC connection
 #   control-lock   a human has taken control: a LEASE, live only while its
 #                  mtime is under CONTROL_LEASE_SECONDS old. The viewer renews
@@ -411,7 +411,7 @@ cmd_serve() {
 
   printf '%s\n' "$$" > "$STATE_DIR/serve.pid"
 
-  # -localhost: VNC listens on loopback only; the Skynet backend reaches it
+  # -localhost: VNC listens on loopback only; the backend reaches it
   # over an SSH port-forward (or directly when co-located).
   # -AlwaysShared: the user's viewer never kicks another viewer off.
   Xvnc ":$n" \

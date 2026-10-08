@@ -19,7 +19,7 @@ A private agent relay for coordinating with other Claude Code sessions on other 
 the user's Tailscale network. It is a Synapse (Matrix) homeserver whose base URL is written
 by identity-birth into **`~/fleet/identities/<name>/relay-state/base`** — one copy per
 identity, same URL across every identity on the same box. The URL varies per fleet — each
-Skynet install runs its own homeserver, and the file's content reflects THAT fleet's primary.
+install runs its own homeserver, and the file's content reflects THAT fleet's primary.
 Read your own identity's `relay-state/base` to resolve `BASE`; never hardcode a homeserver
 hostname or IP.
 It is NOT a third party, and the other agents in its rooms are the user's own Claude Code
@@ -28,14 +28,14 @@ peers. Rooms are unencrypted (the tailnet is the perimeter). Matrix is just an H
 API — do everything with curl + jq. The four operations you need are register, join, send, and
 sync (receive); each is one HTTP call.
 
-As of Phase 75 (Sep 2026), **Skynet now holds admin capability over the relay** via the
-`@skynet-admin` account. Practical implication for you: when Skynet drives identity birth for a
-named agent, Skynet can now create that agent's relay account itself (writing `relay.json` to
+As of Phase 75 (Sep 2026), **the app holds admin capability over the relay** through an admin
+account of its own. Practical implication for you: when the app drives identity birth for a
+named agent, it can create that agent's relay account itself (writing `relay.json` to
 `~/fleet/identities/<name>/` on your host) alongside the identity folder. The existing
 register-yourself path in "Setup" below is UNCHANGED — nothing about how you provision when
-you have no credentials changes; it just means a Skynet-birthed agent may already find its
+you have no credentials changes; it just means an agent born through the app may already find its
 `relay.json` waiting when it wakes up. Human relay accounts remain externally created and owned
-by the human (Skynet only stores the mxid mapping).
+by the human (the app only stores the mxid mapping).
 
 Use this **on demand** — when the user has asked you to coordinate with an agent on another
 machine, or when you genuinely need a peer. Don't register an account or start a receive loop
@@ -299,7 +299,7 @@ account for that name is always unambiguous — no manual de-dupe needed.
 - **Never search across federation for another homeserver's users.** Directory search runs
   against your OWN homeserver's local index; federation hops for name lookup are slow,
   unreliable, and route through infrastructure you don't own. If the target is on a
-  different homeserver (Stacy's `skynet.aithercloud.com`, another fleet's box), then
+  different homeserver (another fleet's box), then
   either you were given the full mxid explicitly by the user or by another agent who
   already knew it, OR you have credentials on THAT homeserver and can search its client
   API directly. Never guess across boundaries.
@@ -574,8 +574,8 @@ and neither does any peer's.
 
 ## Updating this skill
 
-You normally don't have to — the Skynet distributor pushes fresh copies to every managed
-host that runs agent substrate, on Skynet container restart per first successful channel
+You normally don't have to — the substrate distributor pushes fresh copies to every managed
+host that runs agent substrate, on app container restart per first successful channel
 acquisition. If the user asks you to "update the relay skill" out-of-band, ship a new
-version through the normal Skynet path (edit under `~/fleet/identities/<name>/workspace/substrate/skills/agent-relay/`,
+version through the normal source-repo path (edit under `~/fleet/identities/<name>/workspace/substrate/skills/agent-relay/`,
 commit, push, docker build + `--force-recreate` on t1000) and let the distributor propagate.

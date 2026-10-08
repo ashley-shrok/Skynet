@@ -23,7 +23,7 @@ TWO DELIVERY MODES (see shape-supervisor-owns-ambient-monitor.md):
   started by the agent-supervisor alongside the session it brought up. There is no
   harness-owned Monitor to raise events through, so each wake line is DELIVERED INTO
   the session by pasting it as a <task-notification> envelope. Why this exists at all:
-  one Skynet instance is barred from having the Monitor tool present in harnesses, so
+  one app instance is barred from having the Monitor tool present in harnesses, so
   its identities cannot receive real monitor events. Real monitor events are strictly
   more reliable and would be preferred if they were available anywhere we need them —
   injection is a constraint, never a preference.
@@ -31,7 +31,7 @@ TWO DELIVERY MODES (see shape-supervisor-owns-ambient-monitor.md):
 INJECTED EVENTS ARE HONESTLY SYNTHETIC. They use the <task-notification> envelope
 because that shape is already recognized, but they do NOT impersonate a real harness
 task: no forged task id (real ones are `b`+8 base36 for background tasks, `a`+16 hex
-for subagents), and no `[ambient]` prefix (that marker exists solely so Skynet's
+for subagents), and no `[ambient]` prefix (that marker exists solely so the app's
 ambient-filter can hide a REAL background task from its isWorking count — with no
 background task present, claiming it would state something false). The summary names
 what the event actually is. Identities are primed for this at load time by the id
@@ -63,7 +63,7 @@ Design rules (see shape-mega-monitor.md in the box-maintainer role's bounty fold
     line, because losing it means the identity is fully deaf to inbound messages.
     (Not a separate policy — a note about how the death-wake line is formatted.)
 
-Vendored into Skynet's substrate and distributed to every host running agent
+Vendored into the app's substrate and distributed to every host running agent
 substrate. Stdlib only.
 """
 
@@ -856,7 +856,7 @@ def _reap_loop():
 # Hold off before starting anything, so our first paste can't land on top of a paste
 # somebody else is already making into this pane.
 #
-# The supervisor starts us IMMEDIATELY before it drops .resume-complete, and Skynet's
+# The supervisor starts us IMMEDIATELY before it drops .resume-complete, and the app's
 # frontend-send path blocks on exactly that marker (claude-session-server.ts, dormant
 # send) — so it is released to paste the user's message within milliseconds of our
 # launch. Two writers, one pane, no shared lock: _inject_lock serializes us against
@@ -877,7 +877,7 @@ def _reap_loop():
 STARTUP_DELAY_SECONDS = float(
     os.environ.get("AMBIENT_MONITOR_STARTUP_DELAY_SECONDS", "5"))
 if STARTUP_DELAY_SECONDS > 0:
-    emit_diag("holding %gs before starting children (clears the supervisor/Skynet "
+    emit_diag("holding %gs before starting children (clears the supervisor/app "
               "pane-paste window)" % STARTUP_DELAY_SECONDS)
     if shutting_down.wait(timeout=STARTUP_DELAY_SECONDS):
         emit_diag("shutdown signalled during startup delay — exiting before starting "

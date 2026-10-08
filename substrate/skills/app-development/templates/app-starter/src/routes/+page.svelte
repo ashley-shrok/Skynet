@@ -73,7 +73,7 @@
       Demo of the PANE_BASE pattern for internal navigation. Every internal
       <a href>, <img src>, <video src>, and fetch() URL must be prefixed
       this way (see src/lib/pane.ts). Root-absolute hrefs like "/about"
-      would navigate the iframe to Skynet's root, not into this app.
+      would navigate the iframe to the app's root, not into this app.
       Delete this section (and the /about route) when you customize.
     -->
     <p class="mt-8 text-center text-xs text-gray-400">

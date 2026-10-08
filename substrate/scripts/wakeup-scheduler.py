@@ -7,7 +7,7 @@ from one process file:
 
   (2) SCHEDULED AGENTS (--mode scheduled-agents) — fleet-level clock-scheduled
       entries that SPAWN a fresh identity per firing. No ⏰ line is printed;
-      instead a spawn-request file is dropped for Skynet's identity-birthing
+      instead a spawn-request file is dropped for the app's identity-birthing
       pipeline to consume.
 
 The two concepts historically shared the "wake-up" name; the fleet-level kind
@@ -20,8 +20,8 @@ wants its attention; this wakes it when the CLOCK does. Same primitive: it's
 launched once on wake as a persistent `Monitor` and prints one line per due
 wake-up; each printed line is an async wake for the agent.
 
-Vendored into Skynet's substrate and distributed to every host running agent substrate
-via the Skynet distributor (see feature 02). Stdlib only.
+Vendored into the app's substrate and distributed to every host running agent substrate
+via the substrate distributor (see feature 02). Stdlib only.
 
 --- Per-identity mode (default, no --mode flag) ---
 
@@ -86,7 +86,7 @@ Schedule specs live at `~/fleet/scheduled-agents/<slug>/scheduled-agent.json`
      "schedule": {"type": "interval", "every": "2h"}}  # same schedule kinds as per-identity
 
 On a due entry the scheduled-agents scheduler drops a create-identity request
-file at `~/fleet/spawn-requests/<uuid>.json` (D-11) for Skynet's existing
+file at `~/fleet/spawn-requests/<uuid>.json` (D-11) for the app's existing
 coordinator-birthing pipeline to consume:
     {"roles": [...], "skills": [...], "prompt": "...", "task": null,
      "users": [...],   # optional — spec-provided user tag for the newborn's

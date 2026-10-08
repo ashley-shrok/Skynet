@@ -22,7 +22,7 @@ the pct as the first 2 chars of the visible statusline). That worked but coupled
 pane width, ANSI rendering, and the leading-digits convention. The bridge file is the
 harness's authoritative value with none of those hops.
 
-Load-bearing rules from Tanya's Skynet experience:
+Load-bearing rules from earlier experience running this:
   - Re-resolve `CLAUDE_CODE_SESSION_ID` from env EVERY poll — a `--resume` produces a
     fresh session id + fresh bridge file, and caching the path silently reads the stale
     file forever after resume.
@@ -49,8 +49,8 @@ touches `<identity_dir>/.recycle-requested`), the supervisor kills the current c
 re-drives a fresh `claude + /id <name>` into the same tmux session. The SINCE_FILE relay
 cursor means the fresh session catches any messages from the ~seconds of restart.
 
-Vendored into Skynet's substrate and distributed to every host running agent substrate
-via the Skynet distributor (see feature 02). Stdlib only.
+Vendored into the app's substrate and distributed to every host running agent substrate
+via the substrate distributor (see feature 02). Stdlib only.
 
 Usage:  python3 context-watch.py <identity_dir>
 Env:    CTXWATCH_POLL_SEC   (default 180)  loop granularity; context climbs slowly.

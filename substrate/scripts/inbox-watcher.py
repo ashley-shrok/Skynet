@@ -36,7 +36,7 @@ loop. This covers the dormancy case where the agent-supervisor woke the
 harness because the inbox was non-empty — the fresh ambient-monitor spawns
 this child, which drains the pending files on startup.
 
-Vendored into Skynet's substrate and distributed to every host running agent
+Vendored into the app's substrate and distributed to every host running agent
 substrate. Stdlib + inotifywait subprocess only.
 """
 

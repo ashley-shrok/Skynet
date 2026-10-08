@@ -1,8 +1,8 @@
-// The Skynet app-pane proxy at /apps/<hostId>/<slug>/pane/* strips this
+// The app's pane proxy at /apps/<hostId>/<slug>/pane/* strips this
 // prefix before forwarding to your app, and injects <base href="/apps/…/pane/">
 // into every HTML response. Root-absolute hrefs bypass that injected <base>
 // (per URL spec, "/foo" resolves against the document ORIGIN, not the base),
-// so an href like "/settings" would navigate the iframe back to Skynet's own
+// so an href like "/settings" would navigate the iframe back to the app's own
 // root instead of into your app. We emit absolute hrefs already prefixed with
 // the pane URL — the browser then routes correctly in both mount contexts
 // (the pane iframe AND the direct .serve. tab origin).

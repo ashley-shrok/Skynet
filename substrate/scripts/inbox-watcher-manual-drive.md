@@ -70,7 +70,7 @@ composebox code) agree on the same filename shape.
 
 ### If the identity is active
 
-Open the identity's terminal (via tmux attach or the Skynet terminal
+Open the identity's terminal (via tmux attach or the app's terminal
 view). After dropping, you should see the message text appear as if the
 identity had typed it. There is a brief startup delay in the ambient
 monitor (default 5s on its own startup, not per-message), but subsequent

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """desktop-mcp — MCP server that lets an identity see and drive its own desktop.
 
-Canonical copy lives in the Skynet repo at substrate/scripts/desktop-mcp.py and
+Canonical copy lives in the app's source repo at substrate/scripts/desktop-mcp.py and
 is distributed to every managed host by the fleet-substrate distributor (see
 src/backend/distributor/catalog.ts). Installed per-box at ~/.local/bin/desktop-mcp.
 Do NOT hand-edit the installed copy.

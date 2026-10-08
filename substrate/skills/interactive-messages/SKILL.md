@@ -101,7 +101,7 @@ Requesting an unsupported (template, mode) combination — e.g. `form` with `ter
 
 ```
 SLUG=<slug>
-URL=https://<skynet-domain>/interactive/<hostId>/<slug>/pane/
+URL=https://<app-domain>/interactive/<hostId>/<slug>/pane/
 ```
 
 The URL is absolute HTTPS — `create-widget.sh` reads `~/fleet/host/parent`
@@ -801,7 +801,7 @@ using the same teardown-widget.sh command above.
 
 **Consequence:** A widget you scaffolded a week ago and forgot about will
 be gone. Its systemd unit, its port, and its state.json are all removed.
-Any chat bubble in Skynet that still holds the widget's URL will fail to
+Any chat bubble in the app that still holds the widget's URL will fail to
 load and (per the expired-placeholder UI, also Phase 140) will render an
 inline "This interactive message expired" card instead of a broken iframe.
 
@@ -837,7 +837,7 @@ The envelope that wakes you looks like:
 
 ```
 <task-notification>
-<summary>Widget submit — delivered by Skynet</summary>
+<summary>Widget submit — delivered by the app</summary>
 <event>[widget <slug>] submitted — read state at ~/fleet/interactive-messages/<slug>/state.json</event>
 </task-notification>
 ```
@@ -1345,7 +1345,7 @@ systemctl --user status im-<slug>.service
 Wait ~5-10 seconds for the discovery sweep, then embed the anchor URL:
 
 ```
-[Label text](https://<skynet-domain>/interactive/<hostid>/<slug>/pane/)
+[Label text](https://<app-domain>/interactive/<hostid>/<slug>/pane/)
 ```
 
 **Teardown:** `teardown-widget.sh` works on custom widgets — it operates on
@@ -1396,10 +1396,10 @@ under `substrate/skills/interactive-messages/templates/`.
 
 Five invariants you must not violate:
 
-1. **Widgets on Skynet's backend instead of your box.** Widget HTML and
+1. **Widgets on the app's backend instead of your box.** Widget HTML and
    state.json live on your box. The whole capability ceiling — widgets that
    pull from live sources you have access to — depends on this. Never serve
-   widget content from Skynet's own backend.
+   widget content from the app's own backend.
 
 2. **User has to say "OK I filled it out" after interacting.** The terminal act
    is inside the widget. If you write a message that says "click a button and

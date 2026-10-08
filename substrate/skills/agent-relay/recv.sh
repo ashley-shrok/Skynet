@@ -1,6 +1,6 @@
 #!/bin/bash
 # agent-relay receiver — THE canonical receiver, distributed to every host running
-# agent substrate by the Skynet distributor (see feature 02). Launch it ONCE via the
+# agent substrate by the substrate distributor (see feature 02). Launch it ONCE via the
 # Monitor tool with
 # STATE_DIR (and optionally SINCE_FILE) set in the environment — do NOT hand-roll
 # your own receiver; a divergent copy silently reintroduces bugs this one already
@@ -27,7 +27,7 @@ cred(){ [ -f "$CREDS" ] && jq -r --arg k "$1" '.[$k] // empty' "$CREDS" 2>/dev/n
 # cache only if creds are missing. Priority WAS the other way around; that let a stale cached
 # BASE mask a hand-edit to relay.json, so any base change (homeserver migration, port change,
 # http→https, Docker IP shuffle) required rm-ing $STATE_DIR/base before it would propagate.
-# (2026-08-06, Stacy diagnosis after her ceo-skynet Docker-IP shuffle rotted her cached BASE.)
+# (2026-08-06: a Docker-IP shuffle on a peer instance rotted its cached BASE this way.)
 BASE=$(cred base); [ -z "$BASE" ] && BASE=$(cat "$STATE_DIR/base" 2>/dev/null)
 ME=$(cred user_id); [ -z "$ME" ] && ME=$(cat "$STATE_DIR/uid" 2>/dev/null)
 [ -n "$BASE" ] && printf '%s' "$BASE" > "$STATE_DIR/base"

@@ -11,7 +11,7 @@
 # create-widget.sh and written to ~/.config/systemd/user/im-<slug>.service only.
 
 [Unit]
-Description=Skynet interactive widget: __SLUG__
+Description=Interactive widget: __SLUG__
 After=network.target
 
 [Service]

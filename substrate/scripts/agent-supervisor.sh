@@ -7,8 +7,8 @@
 # a live one is left alone. On bring-up, launches are STAGGERED (one at a time) so a box with many
 # identities never forks N sessions at once.
 #
-# Canonical copy lives in the Skynet repo at substrate/scripts/agent-supervisor.sh and is
-# distributed to every managed host (including the Skynet host itself) by the Skynet fleet
+# Canonical copy lives in the app's source repo at substrate/scripts/agent-supervisor.sh and is
+# distributed to every managed host (including the app's own host) by the fleet
 # substrate distributor (see src/backend/distributor/catalog.ts). Installed per-box at
 # ~/.local/bin/agent-supervisor and run as a systemd --user service. Config:
 # ~/.claude/agent-supervisor.conf (a sourced bash file). Do NOT hand-edit the installed copy
@@ -386,7 +386,7 @@ is_coordinator() {
 
 # ---- Phase 133 D-07: identity_has_role <identity_file_path> <role_name> ----
 # Returns 0 IFF the identity file has `role: <role_name>` on its own line
-# BETWEEN the first two `---` frontmatter delimiters. Handles unquoted (Skynet
+# BETWEEN the first two `---` frontmatter delimiters. Handles unquoted (fleet
 # convention — verified across the fleet 2026-09-24), plus double- and single-
 # quoted YAML variants; logs a WARN via the bash caller when a quoted variant is
 # encountered so fleet-drift surfaces (per Assumption A2).
@@ -399,7 +399,7 @@ is_coordinator() {
 identity_has_role() {
   local identity_file="$1" want_role="$2"
   [ -f "$identity_file" ] || return 1
-  # Awk match (unquoted OR quoted — Skynet convention is unquoted but tolerate both).
+  # Awk match (unquoted OR quoted — fleet convention is unquoted but tolerate both).
   if ! awk -v w="$want_role" '
     /^---$/{f++}
     f==1 && ($0 == "role: " w || $0 == "role: \"" w "\"" || $0 == "role: '\''" w "'\''") { found=1; exit }
@@ -416,7 +416,7 @@ identity_has_role() {
   # Fleet-drift signal: warn on quoted variants after a match confirmed.
   # (Only fires when a match was found + the shape is quoted — cheap post-hoc grep.)
   if grep -qE "^role: [\"'].*[\"']$" "$identity_file" 2>/dev/null; then
-    log "WARN: '$identity_file' has quoted role frontmatter — Skynet convention is unquoted (fleet-drift signal)"
+    log "WARN: '$identity_file' has quoted role frontmatter — fleet convention is unquoted (fleet-drift signal)"
   fi
   return 0
 }
@@ -1079,7 +1079,7 @@ run_archive_scan_if_due() {
 #
 # Phase 115 D-11: BYPASSES the .pinned/.no-dormancy/is_coordinator/freshness guards that
 # gate the 180-day run_archive_scan() daily path. Rationale: those guards protect against
-# AUTOMATED retire from surprising the user. A direct click on "Archive" in the Skynet
+# AUTOMATED retire from surprising the user. A direct click on "Archive" in the app's
 # context menu is not automated — if the user clicked archive on a pinned/coordinator/
 # no-dormancy identity, they meant it. Guard bypass lives at the CALLER (this function
 # doesn't call the four guards); retire_identity() itself remains guard-agnostic so no
@@ -1997,7 +1997,7 @@ wait_for_claude() {
 
 # _check_id_first_turn <jsonl-path> <identity-name>
 # Predicate: does the first user-role line of the jsonl match "/id NAME" as a real slash-command
-# user turn? Three byte-string checks (per Tina 2026-08-29 consult on the Skynet approach —
+# user turn? Three byte-string checks (per Tina 2026-08-29 consult on the app's approach —
 # zero JSON.parse, ~40× cheaper and tolerant to Claude Code byte-shape drift):
 #   1. Line is a real user turn: contains "type":"user" AND NOT tool_result / "content":[ /
 #      <local-command-caveat> / <local-command-stdout> (harness-synthesized turns fool a naive check).
@@ -2314,7 +2314,7 @@ drive() {
     [ -z "$cwd" ] && cwd="$HOME"
   fi
   # supervisor is about to touch this pane — clear the "hands off" marker for any consumer polling
-  # it (e.g. Skynet's DormancyOverlay). Refresh happens at each terminal branch below.
+  # it (e.g. the app's DormancyOverlay). Refresh happens at each terminal branch below.
   rm -f "$IDENTITIES_DIR/$name/.resume-complete" 2>/dev/null
   if [ -n "$resume" ]; then
     # RESUME path. The working dir is already trusted (this identity ran here before), so there's no
@@ -2374,12 +2374,12 @@ drive() {
         # re-arm, nothing to tell the agent, one less paste into a freshly-woken Ink.
         start_ambient_monitor "$name" "$sess"
         # supervisor's hands are OFF this pane — drop the marker with a UTC timestamp inside so
-        # consumers (Skynet DormancyOverlay) can distinguish this-wake from a stale prior-wake
+        # consumers (the app's DormancyOverlay) can distinguish this-wake from a stale prior-wake
         # marker via freshness check (marker_ts > wake_trigger_ts).
         #
         # The marker is dropped even if start_ambient_monitor failed: it means "supervisor is done
         # touching this pane", which is true either way, and a DEAF identity is already LOUD in the
-        # log. Withholding it would additionally wedge Skynet's overlay on a pane nobody is driving.
+        # log. Withholding it would additionally wedge the app's overlay on a pane nobody is driving.
         date -u +%Y-%m-%dT%H:%M:%SZ > "$IDENTITIES_DIR/$name/.resume-complete"
         ;;
     esac
@@ -2512,7 +2512,7 @@ recycle() {
   log "'$name' recycle: drive() returned"
   LAST_RECYCLE_AT["$name"]="$(date +%s)"    # log-only: enrich later DEAD/RESUME lines to catch undone recycles
   # Schedule cleanup of .recycled-at ~8s from now — counted from AFTER drive() returned,
-  # so Skynet has a visible "recycling" window post-launch (its polling picks up the
+  # so the app has a visible "recycling" window post-launch (its polling picks up the
   # sentinel; the delay guarantees at least a few polling cycles observe it). Fire-and-forget
   # backgrounded subshell + disown so the reconcile loop doesn't block on the sleep.
   ( sleep 8; rm -f "$IDENTITIES_DIR/$name/.recycled-at" 2>/dev/null && log "'$name' sentinel: .recycled-at cleaned up (+8s post-drive)" ) & disown
@@ -2605,7 +2605,7 @@ launch() {
 #      identity's receiver (which is dead-with-session). New event → wake.
 #   2. schedule_peek — supervisor reads $IDENTITIES_DIR/<name>/wakeups/*.json, computes
 #      next fire, wakes when due. Identity's own scheduler picks up on resume.
-#   3. sentinel-delete — external actor (Skynet, hand) rm's .dormant → sentinel-check below fails
+#   3. sentinel-delete — external actor (the app, hand) rm's .dormant → sentinel-check below fails
 #      → falls through to existing alive-check → claude is dead → recover path relaunches.
 #      FREE — no code, natural fallout of the sentinel check.
 #   4. inbox_has_files — shape-agent-supervisor-inbox: any process on this box can drop a
@@ -3191,7 +3191,7 @@ do_kill_dormant() {
   metric event=kill-start identity="$name" session="$sess" rss_kb_before="$rss_before"
   local sentinel="$IDENTITIES_DIR/$name/.dormant"
   # Write .dormant BEFORE the /exit paste — otherwise there is a window where claude has exited
-  # but the sentinel is not yet on disk, and an external observer (Skynet pane attaching mid-kill)
+  # but the sentinel is not yet on disk, and an external observer (an app pane attaching mid-kill)
   # sees "no claude AND no sentinel" and paints the inactive fallback banner. Rolled back in the
   # poll-fail branch below. Reconcile itself is safe: do_kill_dormant runs synchronously inside
   # the iteration, so no re-entry for this identity during the kill window.
@@ -3311,7 +3311,7 @@ reconcile() {
     sentinel="$IDENTITIES_DIR/$name/.recycle-requested"
     if [ -f "$sentinel" ]; then
       if [ "${DRY_RUN:-0}" = 1 ]; then log "DRY_RUN would recycle '$name' (recycle sentinel present)"; continue; fi
-      # Rename → .recycled-at instead of rm, so Skynet has a visible "recycling"
+      # Rename → .recycled-at instead of rm, so the app has a visible "recycling"
       # signal for the ~seconds while the fresh claude boots (cleaned up below by
       # the delayed rm scheduled at end of recycle() / launch()). The rename is
       # what closes the loop guard — the sentinel MUST no longer match the
@@ -3379,7 +3379,7 @@ reconcile() {
           continue
         fi
         # Dormant + no wake trigger + no tmux session (the post-reboot case): create a bare-shell
-        # tmux session so Skynet can still see + wake this identity. Restores the invariant that
+        # tmux session so the app can still see + wake this identity. Restores the invariant that
         # every supervised identity has a tmux session — dormant or not — so a reboot-since-sleep
         # and dormant-on-current-uptime look identical from any external observer. No claude is
         # launched; the session is just an empty shell in the identity's workdir, ready for a
@@ -3393,7 +3393,7 @@ reconcile() {
           if [ "${DRY_RUN:-0}" = 1 ]; then
             log "DRY_RUN would create bare-shell tmux '$slugname' for dormant '$name' (cwd=$_wd)"
           elif timeout -k 5 10 tmux new-session -d -s "$slugname" -c "$_wd" 2>/dev/null; then
-            log "'$name' dormant: created bare tmux session '$slugname' for Skynet visibility (cwd=$_wd)"
+            log "'$name' dormant: created bare tmux session '$slugname' for app visibility (cwd=$_wd)"
           fi
         fi
         [ "${VERBOSE:-0}" = 1 ] && log "'$name' dormant, no wake trigger"

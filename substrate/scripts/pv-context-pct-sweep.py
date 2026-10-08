@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""pv-context-pct-sweep.py — server-side batch emitter for the Skynet PrettyView
+"""pv-context-pct-sweep.py — server-side batch emitter for the app's PrettyView
 context-pct poller (Phase 95 Part C).
 
 Replaces up to 4 `tail -c` SSH exec calls per identity per 3-second tick with
@@ -22,7 +22,7 @@ Arguments:
     --identities <comma-separated>   identities to sweep (may be a single identity).
                                      If missing or empty → exit 0 with empty stdout.
 
-Distribution: git-committed with execute bit set (mode 100755).  The Skynet
+Distribution: git-committed with execute bit set (mode 100755).  The substrate
 distributor bundles substrate/scripts/*.py into the container at
 /app/fleet-substrate/scripts/ and the startup sweep pushes it to
 ~/.local/bin/pv-context-pct-sweep on every runsFleetSubstrate:true host once
@@ -35,7 +35,7 @@ Stdout contract — VERY LOAD-BEARING:
     * stdout is JSONL emission ONLY.  One JSON object per line, compact
       (no whitespace via json.dumps(..., separators=(",",":"))).
     * ANY unhandled exception at the top level logs to stderr and returns
-      exit 0 with empty stdout (or any already-emitted lines).  The Skynet
+      exit 0 with empty stdout (or any already-emitted lines).  The backend
       caller treats `channel.exec` returning null OR schema-version-mismatch
       as "fall back to legacy per-tail this tick".  A stderr diag + exit 0 +
       empty stdout is a clean, non-noisy fallback signal.  Never emit
@@ -405,7 +405,7 @@ def _emit(record):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="pv-context-pct-sweep: batch context_pct emitter for Skynet PV.",
+        description="pv-context-pct-sweep: batch context_pct emitter for the app's PrettyView.",
         add_help=True,
     )
     parser.add_argument(
@@ -480,7 +480,7 @@ if __name__ == "__main__":
         rc = main()
     except Exception:
         # LOAD-BEARING: any unhandled exception → stderr diag + exit 0.
-        # The Skynet caller's parser silently discards non-schema-v1 lines;
+        # The backend caller's parser silently discards non-schema-v1 lines;
         # a traceback on stdout would be parsed as unknown JSON and discarded
         # (which is harmless) but is still wrong protocol. Use stderr always.
         sys.stderr.write("[pv-context-pct-sweep] op=unhandled_top_level_error\n")

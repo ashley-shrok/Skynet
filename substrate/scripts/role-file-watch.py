@@ -17,7 +17,7 @@ editing it directly (cosmetic frontmatter changes, an identity-scope `remember`)
 incident where a workstation agent grepped the current on-disk SKILL.md but
 mis-read it against its in-context copy from a pre-rename version, spending
 turns chasing a mismatch that was purely stale-memory. For runbooks, the driver
-was the 2026-09-19 canonical-deploy-command update: vision edited the skynet-ship
+was the 2026-09-19 canonical-deploy-command update: an identity edited the deploy
 runbook to include a load-bearing `-f` flag, and a peer identity deployed with
 the OLD command minutes later because the runbook edit fired no ambient event
 and stale memory of the command outweighed re-reading the updated runbook. Every
@@ -38,10 +38,10 @@ The watch is diff-first and dumb on purpose: it fires the unified diff of what
 changed (inline when small, spilled to a file pointer when large), and lets the AGENT
 decide whether the change is its own echo, a peer's, or user's. See the design
 rationale in:
-  .planning/shapes/shape-role-file-watch.md (in the box-maintainer role's Skynet repo)
+  .planning/shapes/shape-role-file-watch.md (in the app's source repo)
 
-Vendored into Skynet's substrate and distributed to every host running agent substrate
-via the Skynet distributor. Stdlib + inotifywait subprocess only.
+Vendored into the app's substrate and distributed to every host running agent substrate
+via the substrate distributor. Stdlib + inotifywait subprocess only.
 
 Usage:  python3 role-file-watch.py <identity_dir>
 Env:    ROLE_WATCH_POLL_SEC (default 2) — fallback polling loop granularity (only

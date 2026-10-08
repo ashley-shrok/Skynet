@@ -6,7 +6,7 @@ interactive-messages shape doc: any widget older than seven days is torn down by
 this script, which runs daily via the interactive-messages-gc.timer systemd user
 timer.
 
-Distribution: this file is git-committed with the execute bit set. The Skynet
+Distribution: this file is git-committed with the execute bit set. The substrate
 distributor (catalog row "interactive-messages-gc") pushes it to
 ~/.local/bin/interactive-messages-gc on every fleet-substrate-managed host. The
 matching .service and .timer units are also distributed; run-bootstrap.ts enables

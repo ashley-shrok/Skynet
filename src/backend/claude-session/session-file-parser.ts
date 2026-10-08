@@ -76,13 +76,18 @@ const GOODBYE_ECHO_VARIANTS = new Set([
 // to route delivery signals to the envelope-arm queue instead of the
 // compose-arm queue.
 //
-// Anchored to the Skynet-specific summary line so it never matches ambient-
+// Anchored to the widget-specific summary line so it never matches ambient-
 // monitor envelopes (whose summary starts with "Ambient watcher event —")
-// or any other future <task-notification> use.
-const WIDGET_ENVELOPE_OPENING =
-  "<task-notification>\n<summary>Widget submit — delivered by Skynet</summary>";
+// or any other future <task-notification> use. The summary used to name the
+// base app; agents see this text, and instances can be branded, so it now
+// says "the app". The legacy form is still matched for older sessions.
+const WIDGET_ENVELOPE_OPENINGS = [
+  "<task-notification>\n<summary>Widget submit — delivered by the app</summary>",
+  "<task-notification>\n<summary>Widget submit — delivered by Skynet</summary>",
+];
 export function isWidgetSubmitEnvelope(content: string): boolean {
-  return content.trimStart().startsWith(WIDGET_ENVELOPE_OPENING);
+  const trimmed = content.trimStart();
+  return WIDGET_ENVELOPE_OPENINGS.some((o) => trimmed.startsWith(o));
 }
 
 export type ConversationalMessage = {

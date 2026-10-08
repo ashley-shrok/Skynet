@@ -569,16 +569,26 @@ const isIdCommand = (content: string): boolean =>
 // Envelope shape mirrors substrate/scripts/ambient-monitor.py's _envelope()
 // pattern, which Claude Code already treats natively as an ambient wake.
 //
-// Match the fixed opening (envelope tag + Skynet-specific summary line).
+// Match the fixed opening (envelope tag + widget-specific summary line).
+// The summary used to name the base app ("delivered by Skynet"); agents see
+// it and instances can be branded, so it now says "the app". Both forms are
+// matched so envelopes in older sessions stay hidden.
 // Ambient-monitor's summary is "Ambient watcher event (…) — delivered by
 // agent-supervisor", so anchoring on our exact summary text keeps this
 // predicate specific to widget submits — it won't blacklist ambient events.
 // Module-local by design (no export, no shared-utils hoist) per Phase 14
 // no-new-shared-utils posture, mirroring isIdCommand's placement discipline.
-const isWidgetSubmit = (content: string): boolean =>
-  content.trimStart().startsWith(
-    "<task-notification>\n<summary>Widget submit — delivered by Skynet</summary>",
+const isWidgetSubmit = (content: string): boolean => {
+  const trimmed = content.trimStart();
+  return (
+    trimmed.startsWith(
+      "<task-notification>\n<summary>Widget submit — delivered by the app</summary>",
+    ) ||
+    trimmed.startsWith(
+      "<task-notification>\n<summary>Widget submit — delivered by Skynet</summary>",
+    )
   );
+};
 
 // Phase 40 (Research A8): nice-to-have MIME hint for chip UX. Not
 // load-bearing — the composebox chip strip renders name + size, NOT MIME.
@@ -2231,7 +2241,7 @@ export function PrettyView({
       // envelope text is never submitted to the agent's prompt.
       const envelope =
         "<task-notification>\n" +
-        "<summary>Widget submit — delivered by Skynet</summary>\n" +
+        "<summary>Widget submit — delivered by the app</summary>\n" +
         "<event>[widget " + widgetId + "] submitted — read state at " +
         "~/fleet/interactive-messages/" + widgetId + "/state.json</event>\n" +
         "</task-notification>\r";
