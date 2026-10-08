@@ -1625,23 +1625,62 @@ describe("parseSessionLine — new-harness <pasted_content> envelopes", () => {
     expect(parsed.content).toBe(envelope);
   });
 
-  it("human text that also contains a pasted notification is left untouched and renders", () => {
-    const content = `look at this:\n${pasted(ambient)}`;
+  it("compose text merged with a pasted ambient event shows only the user's words", () => {
+    // Real shape (2026-10-08): leading blank lines, user chunk + harness chunk, same id.
+    const content = `\n\n${pasted("hello there", "2f45")}\n\n\n${pasted(ambient, "2f45")}\n`;
     const parsed = parseSessionLine(
       line({ type: "user", uuid: "pc-6", origin: { kind: "human" }, message: { content } }),
     );
     expect(parsed.kind).toBe("message");
     if (parsed.kind !== "message") throw new Error("unreachable");
-    expect(parsed.content).toBe(content);
+    expect(parsed.content).toBe("hello there");
   });
 
-  it("ordinary pasted text (not a harness wrapper) is left untouched", () => {
-    const content = pasted("some log output");
+  it("long compose send wrapped as a paste renders unwrapped", () => {
     const parsed = parseSessionLine(
-      line({ type: "user", uuid: "pc-7", origin: { kind: "human" }, message: { content } }),
+      line({ type: "user", uuid: "pc-7", origin: { kind: "human" }, message: { content: pasted("some log output\nline 2") } }),
     );
     expect(parsed.kind).toBe("message");
     if (parsed.kind !== "message") throw new Error("unreachable");
-    expect(parsed.content).toBe(content);
+    expect(parsed.content).toBe("some log output\nline 2");
+  });
+
+  it("nested pasted_content the user pasted is un-escaped back to their literal text", () => {
+    const body = 'see: <\\pasted_content id="30e1">\nx\n<\\/pasted_content id="30e1">';
+    const parsed = parseSessionLine(
+      line({ type: "user", uuid: "pc-8", origin: { kind: "human" }, message: { content: pasted(body, "2f45") } }),
+    );
+    expect(parsed.kind).toBe("message");
+    if (parsed.kind !== "message") throw new Error("unreachable");
+    expect(parsed.content).toBe('see: <pasted_content id="30e1">\nx\n</pasted_content id="30e1">');
+  });
+
+  it("typed text outside any chunk is kept; harness chunk is dropped", () => {
+    const parsed = parseSessionLine(
+      line({ type: "user", uuid: "pc-9", origin: { kind: "human" }, message: { content: `short note\n\n${pasted(ambient)}` } }),
+    );
+    expect(parsed.kind).toBe("message");
+    if (parsed.kind !== "message") throw new Error("unreachable");
+    expect(parsed.content).toBe("short note");
+  });
+
+  it("wrapper tags the user typed inside their own chunk are not stripped", () => {
+    const body = "why does <system-reminder>x</system-reminder> show up? plus words";
+    const parsed = parseSessionLine(
+      line({ type: "user", uuid: "pc-10", origin: { kind: "human" }, message: { content: pasted(body) } }),
+    );
+    expect(parsed.kind).toBe("message");
+    if (parsed.kind !== "message") throw new Error("unreachable");
+    expect(parsed.content).toBe(body);
+  });
+
+  it("assistant text containing a pasted_content tag is never rewritten", () => {
+    const text = pasted("quoted by the agent");
+    const parsed = parseSessionLine(
+      line({ type: "assistant", uuid: "pc-11", message: { role: "assistant", content: [{ type: "text", text }] } }),
+    );
+    expect(parsed.kind).toBe("message");
+    if (parsed.kind !== "message") throw new Error("unreachable");
+    expect(parsed.content).toBe(text);
   });
 });

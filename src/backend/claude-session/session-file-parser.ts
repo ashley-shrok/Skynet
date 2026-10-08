@@ -810,7 +810,7 @@ export function detectRelayInbound(
   // Envelope 1: type=user + origin.kind=task-notification (original path).
   if (type === "user") {
     // Newer harnesses record paste-injected wakes as origin.kind:"human"
-    // (see unwrapPastedHarnessEnvelope); after normalization their content
+    // (see normalizePastedContent); after normalization their content
     // starts with the bare <task-notification> wrapper, so accept that too.
     const origin = obj.origin;
     const originIsNotification =
@@ -1030,54 +1030,82 @@ export function extractImageRefs(obj: Record<string, unknown>): ImageBlock[] {
   return refs;
 }
 
-// Newer Claude Code harnesses (observed v2.1.286, 2026-10-08) wrap input that
-// arrives via terminal paste — which is how agent-supervisor, recv.sh and the
-// widget-submit path inject their <task-notification> / <system-reminder>
-// envelopes — in an outer `<pasted_content id="…">…</pasted_content id="…">`
-// block, and record it as an ordinary human prompt (commandMode:"prompt",
-// origin.kind:"human"). Every downstream filter anchors on the bare wrapper
-// (startsWith("<task-notification>") etc.), so the pasted form rendered as a
-// raw user bubble.
+// Newer Claude Code harnesses (observed v2.1.286, 2026-10-08) wrap every
+// pasted input chunk in `<pasted_content id="…">…</pasted_content id="…">`
+// and record it as an ordinary human prompt (commandMode:"prompt",
+// origin.kind:"human"). That covers both harness-injected wakes
+// (agent-supervisor / recv.sh / widget-submit <task-notification> envelopes,
+// delivered via terminal paste) AND long pretty-view compose sends, which the
+// harness also sees as a paste. Several chunks can land in one turn — e.g. the
+// user's compose text and an ambient event merged together. A literal
+// `<pasted_content` / `</pasted_content` inside a chunk is escaped by the
+// harness as `<\pasted_content` / `<\/pasted_content`.
 //
-// Unwrap at the parse boundary so all existing filters see the legacy shape.
-// Only unwrap when the ENTIRE string is pasted blocks whose bodies are harness
-// wrappers — a real human message that quotes/pastes a notification alongside
-// typed text is left byte-identical and still renders.
-const PASTED_HARNESS_WRAPPER_RE =
-  /<pasted_content id="([^"]*)">\s*(<(task-notification|system-reminder)>[\s\S]*?<\/\3>)\s*<\/pasted_content id="\1">/g;
+// Every downstream filter anchors on the legacy shape (bare wrappers,
+// startsWith("<task-notification>") etc.), so normalize at the parse boundary:
+//   • each pasted chunk is replaced by its body, with the escapes undone;
+//   • a chunk whose body is ONLY <task-notification>/<system-reminder>
+//     wrappers is "harness"; anything else is "human";
+//   • if the turn has any human text, harness chunks are dropped so the bubble
+//     shows only the user's words; if it's harness-only, the bare wrappers are
+//     kept so the wrapper skip / relay-inbound / widget-submit paths apply.
+// Wrapper tags the user typed themselves (inside a human chunk) are untouched.
+const PASTED_CHUNK_RE =
+  /<pasted_content id="([^"]*)">\n?([\s\S]*?)\n?<\/pasted_content id="\1">/g;
 
-export function unwrapPastedHarnessEnvelope(s: string): string {
-  if (!s.includes("<pasted_content")) return s;
-  if (s.replace(PASTED_HARNESS_WRAPPER_RE, "").trim() !== "") return s;
-  return s.replace(PASTED_HARNESS_WRAPPER_RE, "$2").trim();
+function isHarnessWrapperOnly(body: string): boolean {
+  const trimmed = body.trim();
+  return (
+    trimmed !== "" &&
+    trimmed
+      .replace(/<task-notification>[\s\S]*?<\/task-notification>/g, "")
+      .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, "")
+      .trim() === ""
+  );
+}
+
+export function normalizePastedContent(s: string): string {
+  if (!s.includes("<pasted_content id=")) return s;
+  const unescape = (b: string) =>
+    b.replace(/<\\pasted_content/g, "<pasted_content").replace(/<\\\/pasted_content/g, "</pasted_content");
+  const harnessOnly = s.replace(PASTED_CHUNK_RE, (_m, _id, body: string) =>
+    isHarnessWrapperOnly(body) ? "" : "\u0000",
+  );
+  const hasHuman = harnessOnly.includes("\u0000") || harnessOnly.trim() !== "";
+  return s
+    .replace(PASTED_CHUNK_RE, (_m, _id, body: string) =>
+      isHarnessWrapperOnly(body) ? (hasHuman ? "" : body.trim()) : unescape(body),
+    )
+    .trim();
 }
 
 /**
  * In-place normalization of a parsed JSONL object: applies
- * unwrapPastedHarnessEnvelope to every field known to carry an injected
- * prompt — message.content (string or text blocks), attachment.prompt
- * (queued_command / task-notification attachments) and top-level content
- * (queue-operation). Call right after JSON.parse, before any classification.
+ * normalizePastedContent to every field known to carry user/injected input —
+ * user-turn message.content (string or text blocks), attachment.prompt
+ * (queued_command / task-notification attachments) and queue-operation
+ * content. Assistant lines are never touched (an agent may legitimately
+ * write the tag). Call right after JSON.parse, before any classification.
  */
 export function normalizePastedHarnessEnvelopes(obj: Record<string, unknown>): void {
   const msg = obj.message as Record<string, unknown> | undefined;
-  if (msg !== null && typeof msg === "object") {
+  if (obj.type === "user" && msg !== null && typeof msg === "object") {
     if (typeof msg.content === "string") {
-      msg.content = unwrapPastedHarnessEnvelope(msg.content);
+      msg.content = normalizePastedContent(msg.content);
     } else if (Array.isArray(msg.content)) {
       for (const block of msg.content as Array<Record<string, unknown>>) {
         if (block && block.type === "text" && typeof block.text === "string") {
-          block.text = unwrapPastedHarnessEnvelope(block.text);
+          block.text = normalizePastedContent(block.text);
         }
       }
     }
   }
   const att = obj.attachment as Record<string, unknown> | undefined;
-  if (att !== null && typeof att === "object" && typeof att.prompt === "string") {
-    att.prompt = unwrapPastedHarnessEnvelope(att.prompt);
+  if (obj.type === "attachment" && att !== null && typeof att === "object" && typeof att.prompt === "string") {
+    att.prompt = normalizePastedContent(att.prompt);
   }
-  if (typeof obj.content === "string") {
-    obj.content = unwrapPastedHarnessEnvelope(obj.content);
+  if (obj.type === "queue-operation" && typeof obj.content === "string") {
+    obj.content = normalizePastedContent(obj.content);
   }
 }
 
