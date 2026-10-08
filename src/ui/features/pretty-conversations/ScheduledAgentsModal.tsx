@@ -381,14 +381,16 @@ export function ScheduledAgentsModal({
       {view === "list" && (
         <div
           className={cn(
-            "px-4 py-2.5 flex flex-row items-center gap-2 flex-shrink-0",
+            // Below md the selects (sized to their longest option) would squeeze
+            // the search to nothing — wrap so search gets its own full row.
+            "px-4 py-2.5 flex flex-row flex-wrap md:flex-nowrap items-center gap-2 flex-shrink-0",
             "bg-black/25",
             "border-b border-[hsla(var(--pv-id-hue),60%,55%,0.18)]",
           )}
         >
           <div
             className={cn(
-              "flex-1 min-w-0 flex items-center gap-2 px-2 py-1 rounded-md",
+              "basis-full md:basis-auto flex-1 min-w-0 flex items-center gap-2 px-2 py-1 rounded-md",
               "bg-black/20 border border-[hsla(var(--pv-id-hue),65%,55%,0.22)]",
             )}
           >
@@ -413,7 +415,7 @@ export function ScheduledAgentsModal({
             onChange={(e) => setRoleFilter(e.target.value)}
             data-testid="scheduled-agents-modal-filter-role"
             className={cn(
-              "text-[12px] px-2 py-1 rounded-md outline-none cursor-pointer",
+              "flex-1 md:flex-none min-w-0 text-[12px] px-2 py-1 rounded-md outline-none cursor-pointer",
               "bg-black/20 border border-[hsla(var(--pv-id-hue),65%,55%,0.22)]",
               "text-[#fbf5e8]",
             )}
@@ -445,7 +447,7 @@ export function ScheduledAgentsModal({
               }}
               data-testid="scheduled-agents-modal-filter-host"
               className={cn(
-                "text-[12px] px-2 py-1 rounded-md outline-none cursor-pointer",
+                "flex-1 md:flex-none min-w-0 text-[12px] px-2 py-1 rounded-md outline-none cursor-pointer",
                 "bg-black/20 border border-[hsla(var(--pv-id-hue),65%,55%,0.22)]",
                 "text-[#fbf5e8]",
               )}
