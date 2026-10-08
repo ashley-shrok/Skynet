@@ -1,11 +1,10 @@
 #!/bin/bash
 # agent-relay receiver — THE canonical receiver, distributed to every host running
-# agent substrate by the substrate distributor (see feature 02). Launch it ONCE via the
-# Monitor tool with
-# STATE_DIR (and optionally SINCE_FILE) set in the environment — do NOT hand-roll
-# your own receiver; a divergent copy silently reintroduces bugs this one already
-# fixes (self-message filter, single-instance dedup, encrypted-room wake, post-join
-# backfill, read receipts). STATE_DIR holds token/uid/base/since (see the skill).
+# agent substrate by the substrate distributor. The agent-supervisor's ambient monitor
+# launches one per relay account an identity holds (STATE_DIR = that account's *-state
+# folder, RELAY_CREDS = its cred file); agents never launch it themselves. Do NOT fork
+# a divergent copy — it silently reintroduces bugs this one already fixes (self-message
+# filter, single-instance dedup, encrypted-room wake, post-join backfill, read receipts).
 : "${STATE_DIR:?agent-relay recv.sh: set STATE_DIR in the environment before launching}"
 SINCE_FILE="${SINCE_FILE:-$STATE_DIR/since}"
 # --- Credential resolution + SELF-HEAL (added 2026-07-21) ------------------------------------
