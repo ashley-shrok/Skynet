@@ -623,3 +623,44 @@ button[data-hold-active="true"] {
   cursor: not-allowed;
   opacity: 0.5;
 }
+
+/* ── Multi-role gold sheen ───────────────────────────────────
+   MTG-style "multicolor = gold". A multi-role identity with no colorHue of
+   its own resolves to hue 44 (backend identity-appearance.ts); the
+   `pv-multi-role` class (on the PrettyView root, the identity modal, and the
+   sidebar row) adds a metallic band so it reads as gold rather than yellow.
+   The sheen is built off the element's own hue, so an explicit colorHue on a
+   multi-role identity still gets the metallic finish in its own color. */
+.pv-multi-role {
+  --pv-mr-h: var(--pv-id-hue);
+  --pv-mr-sheen: linear-gradient(160deg,
+    hsla(calc(var(--pv-mr-h) + 2), 70%, 64%, 0.62) 0%,
+    hsla(var(--pv-mr-h), 55%, 42%, 0.58) 20%,
+    hsla(calc(var(--pv-mr-h) - 4), 50%, 26%, 0.64) 52%,
+    hsla(var(--pv-mr-h), 58%, 38%, 0.6) 78%,
+    hsla(calc(var(--pv-mr-h) - 6), 45%, 18%, 0.7) 100%);
+  --pv-mr-rim: hsla(calc(var(--pv-mr-h) + 2), 75%, 68%, 0.55);
+}
+.pv-row.pv-multi-role {
+  --pv-mr-h: var(--pv-hue);
+}
+.pv-multi-role .pv-hue-surface,
+.pv-multi-role[data-slot="modal-content"],
+.pv-row.pv-multi-role:not(.pv-row--desktop),
+.pv-row.pv-multi-role .pv-avatar {
+  /* !important: the modal paints its gradient via inline style. */
+  background-image: var(--pv-mr-sheen) !important;
+  border-color: var(--pv-mr-rim) !important;
+}
+.pv-row.pv-row--desktop.pv-multi-role.selected {
+  background: linear-gradient(100deg,
+    hsla(calc(var(--pv-mr-h) + 2), 65%, 58%, 0.34),
+    hsla(calc(var(--pv-mr-h) - 4), 50%, 30%, 0.30) 60%,
+    hsla(var(--pv-mr-h), 55%, 45%, 0.26));
+}
+.pv-row.pv-multi-role .pv-avatar {
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.6),
+    inset 0 2px 0 hsla(calc(var(--pv-mr-h) + 4), 90%, 85%, 0.55),
+    0 0 20px hsla(var(--pv-mr-h), 70%, 55%, 0.45);
+}

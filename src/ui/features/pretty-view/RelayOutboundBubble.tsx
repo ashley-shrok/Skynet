@@ -82,6 +82,7 @@ export function RelayOutboundBubble({
           // styling so the relay-outbound reads as "this agent speaking",
           // tinted by whichever pretty-view identity is currently rendered
           // (--pv-id-hue is set per-pane by useSessionIdentity).
+          "pv-hue-surface",
           "bg-[linear-gradient(160deg,hsla(var(--pv-id-hue),50%,38%,0.55),hsla(var(--pv-id-hue),45%,24%,0.6))]",
           // Rim border — identity-hue at ChatMessage assistant strength.
           "border border-[hsla(var(--pv-id-hue),65%,55%,0.32)]",

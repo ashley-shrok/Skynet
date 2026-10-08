@@ -128,6 +128,10 @@ export function capitalizeFirstIdentityKey(s: string): string {
 // resolveIdentityAppearance — the single cascade
 // ---------------------------------------------------------------------------
 
+/** Hue a multi-role identity with no colorHue of its own resolves to.
+ *  Mirrored in the frontend's `MULTI_ROLE_GOLD_HUE` (lib/identity-roles.ts). */
+export const MULTI_ROLE_GOLD_HUE = 44;
+
 /**
  * Apply the identity-over-role cosmetics merge and return a fully-resolved
  * `ResolvedIdentityAppearance` object.
@@ -184,13 +188,20 @@ export function resolveIdentityAppearance(args: {
         ? roleCosmetics.displayName
         : null;
 
-  // --- colorHue: identity ?? role ?? null (typeof guard preserves 0 as present) ---
+  const roles = args.roles ?? (role !== null ? [role] : []);
+
+  // --- colorHue: identity ?? role ?? (multi-role → gold) ?? null (typeof guard preserves 0 as present) ---
+  // A multi-role identity inherits no role's look, so without its own
+  // colorHue it falls to gold — MTG-style "multicolor = gold" — rather than
+  // the per-surface no-hue defaults (amber pane, blue row/modal).
   const colorHue =
     typeof cosmetics.colorHue === "number"
       ? cosmetics.colorHue
       : typeof roleCosmetics?.colorHue === "number"
         ? roleCosmetics.colorHue
-        : null;
+        : roles.length > 1
+          ? MULTI_ROLE_GOLD_HUE
+          : null;
 
   // --- voice: identity ?? role ?? null ---
   const voice =
@@ -258,7 +269,7 @@ export function resolveIdentityAppearance(args: {
     project,
     coordinator,
     role,
-    roles: args.roles ?? (role !== null ? [role] : []),
+    roles,
     roleDefaults,
     avatarUrl,
     pinned,

@@ -141,6 +141,7 @@ import { WaitingBubble } from "./WaitingBubble";
 import { postFeedback } from "@/feedback/feedback-api";
 import { FeedbackModal } from "@/feedback/FeedbackModal";
 import { toast } from "sonner";
+import { isMultiRole } from "@/lib/identity-roles";
 
 // Patch #148: mirror Terminal.tsx's proven WebSocket auto-reconnect pattern.
 // When the claude-session bridge WS closes unexpectedly (deploy container
@@ -3932,6 +3933,8 @@ export function PrettyView({
         // the IdentityBadge (absolute) a positioning anchor and clips
         // any glass-blur bleed at the edges.
         "h-full w-full flex flex-col relative overflow-hidden",
+        // Multi-role identities: gold sheen on hue surfaces (index.css).
+        isMultiRole(pvIdentity) && "pv-multi-role",
         "text-[var(--color-pv-fg)]",
         "font-[Inter_Variable,ui-sans-serif,system-ui,sans-serif]",
         className,

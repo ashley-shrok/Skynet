@@ -91,6 +91,7 @@ export function AsideBubble({
           "rounded-[var(--radius-pv-bubble)] px-[18px] py-[14px]",
           "backdrop-blur-xl saturate-150",
           "[-webkit-backdrop-filter:blur(20px)_saturate(1.6)]",
+          "pv-hue-surface",
           "bg-[linear-gradient(160deg,hsla(var(--pv-id-hue),50%,38%,0.55),hsla(var(--pv-id-hue),45%,24%,0.6))]",
           "text-[#fbf5e8]",
           // Prose pipeline matching ChatMessage assistant branch — Inter

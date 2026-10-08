@@ -591,6 +591,7 @@ export function ChatMessage({
                 // than the first pass (28% → 50% sat) per user's "colors
                 // should be more vibrant" round. Rich hue border + hue outer
                 // glow at ~15-20% alpha.
+                "pv-hue-surface",
                 "bg-[linear-gradient(160deg,hsla(var(--pv-id-hue),75%,38%,0.55),hsla(var(--pv-id-hue),67.5%,24%,0.6))]",
                 "text-[#fbf5e8]",
                 "border-[hsla(var(--pv-id-hue),65%,55%,0.32)]",

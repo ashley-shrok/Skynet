@@ -34,7 +34,7 @@ import { Tabs, TabsContent } from "@/components/tabs";
 import { updateIdentity } from "@/api/identities-api";
 import { applyIdentityChange } from "@/state/identities-store";
 import { roleDisplayName } from "@/lib/role-display-name";
-import { identityRoles } from "@/lib/identity-roles";
+import { identityRoles, isMultiRole } from "@/lib/identity-roles";
 import { toast } from "sonner";
 import { VoicePicker } from "./pickers/VoicePicker";
 import { useVoiceLabel } from "./pickers/useVoiceCatalog";
@@ -513,7 +513,7 @@ export function IdentityModal({
       onOpenChange={onOpenChange}
       hue={hue}
       size="xl"
-      className="max-h-[90vh] flex flex-col"
+      className={cn("max-h-[90vh] flex flex-col", isMultiRole(identity) && "pv-multi-role")}
       dismissible={!desktopControl}
       data-testid="identity-modal"
     >

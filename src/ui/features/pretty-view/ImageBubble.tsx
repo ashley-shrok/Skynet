@@ -80,6 +80,7 @@ export function ImageBubble({
             : cn(
                 // Assistant / tool_result — identity-hue treatment
                 // (byte-identical to ChatMessage.tsx:434-437 assistant branch).
+                "pv-hue-surface",
                 "bg-[linear-gradient(160deg,hsla(var(--pv-id-hue),50%,38%,0.55),hsla(var(--pv-id-hue),45%,24%,0.6))]",
                 "text-[#fbf5e8]",
                 "border border-[hsla(var(--pv-id-hue),65%,55%,0.32)]",

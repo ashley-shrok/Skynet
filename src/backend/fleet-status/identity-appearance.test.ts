@@ -14,6 +14,7 @@ import { describe, it, expect } from "vitest";
 import {
   resolveIdentityAppearance,
   capitalizeFirstIdentityKey,
+  MULTI_ROLE_GOLD_HUE,
   type RawCosmetics,
   type ResolvedIdentityAppearance,
 } from "./identity-appearance.js";
@@ -111,6 +112,29 @@ describe("colorHue cascade", () => {
       roleCosmetics: { colorHue: 200 },
     }));
     expect(result.colorHue).toBe(0);
+  });
+  it("multi-role with no colorHue of its own → gold", () => {
+    const result = resolveIdentityAppearance({
+      ...makeArgs({ cosmetics: {}, roleCosmetics: null, role: null }),
+      roles: ["box-maintainer", "sky-uat"],
+    });
+    expect(result.colorHue).toBe(MULTI_ROLE_GOLD_HUE);
+  });
+
+  it("multi-role with its own colorHue → identity wins over gold", () => {
+    const result = resolveIdentityAppearance({
+      ...makeArgs({ cosmetics: { colorHue: 120 }, roleCosmetics: null, role: null }),
+      roles: ["box-maintainer", "sky-uat"],
+    });
+    expect(result.colorHue).toBe(120);
+  });
+
+  it("single role with no colorHue anywhere → still null (gold is multi-role only)", () => {
+    const result = resolveIdentityAppearance({
+      ...makeArgs({ cosmetics: {}, roleCosmetics: {}, role: "box-maintainer" }),
+      roles: ["box-maintainer"],
+    });
+    expect(result.colorHue).toBeNull();
   });
 });
 

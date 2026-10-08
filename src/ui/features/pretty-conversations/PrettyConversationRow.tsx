@@ -136,7 +136,7 @@ import { cn } from "@/lib/utils";
 import { armOutboundDrag, mintDragId } from "@/shell/cross-window-drag";
 import type { ConversationRow as ConversationRowShape } from "@/state/conversation-store";
 import { specForTab, encodeWorkspaceSpec } from "@/lib/tab-url";
-import { identityRolesLabel } from "@/lib/identity-roles";
+import { identityRolesLabel, isMultiRole } from "@/lib/identity-roles";
 
 // shape-sidebar-header-affordances: row context menu + long-press machinery
 // retired; the row's five actions now live in a RowKebabMenu rendered inside
@@ -533,6 +533,7 @@ export function PrettyConversationRow({
     // (Phase 115 post-code-review fix 3: `hidden && "hidden"` className toggle
     //  retired alongside the Hide/Show menu branch — hidden prop is gone.)
     isRdp && "rdp",
+    isMultiRole(identity) && "pv-multi-role",
   );
 
   // ─── Hue custom property ─────────────────────────────────────────────────

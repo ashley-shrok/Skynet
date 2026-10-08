@@ -37,3 +37,15 @@ export function identityRolesLabel(
     )
     .join(", ");
 }
+
+/**
+ * True when the identity holds more than one role. A multi-role identity
+ * inherits no role's look; with no colorHue of its own the backend resolves
+ * it to gold (`MULTI_ROLE_GOLD_HUE` in identity-appearance.ts), and the UI
+ * adds a metallic sheen via the `pv-multi-role` class (index.css).
+ */
+export function isMultiRole(
+  identity: Pick<Identity, "role" | "roles"> | null | undefined,
+): boolean {
+  return identity != null && identityRoles(identity).length > 1;
+}
