@@ -67,7 +67,8 @@
  *       fleet-status-sweep is the Phase 92 batch sweep for the fleet-status
  *       poller; pv-context-pct-sweep is the Phase 95 batch sweep for the
  *       PV context-pct poller;
- *       image-gen is the Phase 116 file-drop broker helper)
+ *       image-gen is the Phase 116 file-drop broker helper, now a wrapper
+ *       over the shared skynet-service agent-services client)
  *     - 1 row for user-onboarding/agent-supervisor.service
  *     - 1 row for instance-policy-claude-md (Phase 114 twinkie — runtime-sourced,
  *       system-root-installed)
@@ -391,10 +392,19 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     installPath: "~/.local/bin/claude-usage-collector",
     restartHook: null,
   },
-  // Phase 116: file-drop broker helper for the image-gen skill. On-demand
-  // executable — no restart hook. Callers invoke as `image-gen "..."`;
-  // helper drops a request file into ~/fleet/image-gen-requests/ and polls
-  // for the response before printing paths on stdout / JSON on stderr.
+  // Agent services: skynet-service is the shared file-drop client every
+  // service wrapper calls (request envelope into ~/fleet/service-requests/,
+  // wait for the response, collect output files). See
+  // src/backend/agent-services/README.md. On-demand executables, no restart
+  // hooks.
+  {
+    slug: "skynet-service-helper",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/scripts/skynet-service",
+    installPath: "~/.local/bin/skynet-service",
+    restartHook: null,
+  },
+  // image-gen wrapper: `image-gen "..."` → prints image paths on stdout.
   {
     slug: "image-gen-helper",
     sourceKind: "bundled",
@@ -402,12 +412,8 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     installPath: "~/.local/bin/image-gen",
     restartHook: null,
   },
-  // agent-phone: file-drop broker helper for the phone-call capability.
-  // Same shape as image-gen-helper — on-demand executable, no restart hook.
-  // Callers invoke as `agent-phone --to <user> --from "<name>" "<msg>"`;
-  // drops a request file into ~/fleet/phone-call-requests/ and polls for
-  // the response before printing the transcript on stdout / outcome JSON
-  // on stderr.
+  // agent-phone wrapper: `agent-phone --to <user> --from "<name>" "<msg>"`
+  // → prints the call transcript on stdout.
   {
     slug: "agent-phone-helper",
     sourceKind: "bundled",

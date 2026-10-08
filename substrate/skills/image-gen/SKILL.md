@@ -29,7 +29,7 @@ Flags:
 - `--quality <low|medium|high>` — provider-native quality knob. Provider default when omitted.
 - `--out <path>` — destination for the first generated PNG. When `n>1`, an index suffix (`-0`, `-1`, ...) is appended before the extension. Default when omitted: `~/fleet/image-gen-outputs/<uuid>-<i>.png`.
 - `--ref <path>` — local path to a reference image (PNG/JPEG/WebP), for image-to-image / edit calls. Helper handles the companion-file wire protocol for you.
-- `--json <file>` — escape hatch: send the full request body as JSON verbatim (still subject to the same provider validation). Combine with `--ref` for image-to-image.
+- `--json <file>` — escape hatch: send the input object (`{prompt, size?, quality?, n?}`) as JSON verbatim. Unknown fields are rejected as `malformed`. Combine with `--ref` for image-to-image.
 
 Before invoking: confirm the prompt contains no PHI or compliance-restricted content. See the directive at the top of this file.
 
@@ -44,7 +44,7 @@ Grab the first image path in the usual way:
 img=$(image-gen "a cat" | head -1)
 ```
 
-Files land under `~/fleet/image-gen-outputs/` by default (fleet-tree convention — never `/tmp`, which is wiped on reboot). The helper cleans up the wire-protocol scratch files (request JSON, response JSON, response PNGs in the request folder) as part of the happy path — you get back only the moved output paths.
+Files land under `~/fleet/image-gen-outputs/` by default (fleet-tree convention — never `/tmp`, which is wiped on reboot). The helper talks to the backend through the shared `skynet-service` client and cleans up its scratch files in `~/fleet/service-requests/` on every exit path — you get back only the moved output paths.
 
 ## Failure handling
 
@@ -58,6 +58,9 @@ Full failure enum and what to do for each:
 | rate_limited | Signal misconfiguration to the operator (should never fire under normal load). |
 | provider_unavailable | Retry after a brief delay. |
 | not_configured | Escalate to the operator — the backend has no image provider credential set. |
-| malformed | Read the `message` field and fix the request body; retry. |
-| expired | Retry — the fleet may be overloaded. |
-| unknown | Escalate to the operator. |
+| malformed | Read the `message` field and fix the request (e.g. `n: ...` means `--n` was out of range); retry. |
+| expired | The request waited in the queue past 5 minutes. Retry — the fleet may be overloaded. |
+| timeout | The backend accepted the request but did not answer within 5 minutes. Retry. |
+| not_picked_up | Skynet never picked up the request — the backend may be down or not managing this host. Escalate to the operator. |
+| queue_full | Too many requests queued. Retry later. |
+| unknown / internal | Escalate to the operator. |

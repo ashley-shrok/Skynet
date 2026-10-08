@@ -17,7 +17,7 @@
  *
  * Bypass approach mirrors the Phase 116 scanner bypass pattern in
  * `src/backend/utils/local-fleet-scan.ts` + the `isLocalHostId` branches in
- * `spawn-requests/scan-orchestrator.ts` and `image-gen-requests/scan-orchestrator.ts`:
+ * `spawn-requests/scan-orchestrator.ts` and `agent-services/engine/scan-orchestrator.ts`:
  *   - The container has the host's user-home bind-mounted at
  *     `getLocalHomeRoot()` (=`HOME_HOST_DIR`, typically `/host-home`), so
  *     writes to `<home-root>/.claude/skills/…`, `<home-root>/.local/bin/…`,

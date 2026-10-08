@@ -1333,7 +1333,7 @@ const migrateSchema = async () => {
   }
 
   // agent-phone shape — E.164 phone number column for the agent-phone
-  // capability. Nullable: the phone-call-requests worker checks this at
+  // capability. Nullable: the agent-phone service checks this at
   // process time and fails the request with outcome "no_phone_on_file" when
   // absent. Format enforced at the admin update endpoint (leading "+", digits
   // only, reasonable length). No UI to set this today — admin-cookie curl only.

@@ -1,56 +1,36 @@
 #!/usr/bin/env bash
-# image-gen — file-drop broker helper for generic image generation via the fleet's image provider.
+# image-gen — generate images from a prompt via the fleet's image provider.
 #
 # Canonical copy lives in the Skynet repo at substrate/scripts/image-gen and is
 # distributed to every managed host (including the Skynet host itself) by the
-# fleet-substrate distributor (see src/backend/distributor/catalog.ts). Installed
-# per-box at ~/.local/bin/image-gen. Do NOT hand-edit the installed copy —
-# edits are made in the repo and land on all boxes via the next distributor sweep.
+# fleet-substrate distributor (see src/backend/distributor/catalog.ts).
+# Installed per-box at ~/.local/bin/image-gen. Do NOT hand-edit the installed
+# copy.
 #
-# Wire protocol (mirrors the Phase 99 spawn-request pattern; see .planning/phases/
-# 116-.../116-CONTEXT.md D-06..D-16 for the locked shape):
-#   - Request:  ~/fleet/image-gen-requests/<uuid>.json          (drop signal)
-#               ~/fleet/image-gen-requests/<uuid>.ref.<ext>     (optional companion)
-#   - Success:  ~/fleet/image-gen-requests/<uuid>.success.json  (metadata)
-#               ~/fleet/image-gen-requests/<uuid>.success.<i>.png (image bytes)
-#   - Failure:  ~/fleet/image-gen-requests/<uuid>.failure.json  ({reason, message?})
+# Thin wrapper over skynet-service (the shared agent-services client); the
+# backend side is src/backend/agent-services/services/image-gen/.
 #
 # Usage:
-#   image-gen "a cat"                                                       # simple
-#   image-gen "a portrait" --size 1024x1024 --n 2 --quality high            # flags
-#   image-gen "a landscape" --out ~/pictures/land.png                       # explicit output
-#   image-gen "a cat with hat" --ref /tmp/base-cat.png                      # image-to-image
-#   image-gen --json /path/to/full.json                                     # full-payload escape
-#   image-gen --json /path/to/full.json --ref /path/to/ref.png              # full-payload edit
+#   image-gen "a cat"
+#   image-gen "a portrait" --size 1024x1024 --n 2 --quality high
+#   image-gen "a landscape" --out ~/pictures/land.png
+#   image-gen "a cat with hat" --ref /tmp/base-cat.png      # image-to-image
+#   image-gen --json /path/to/input.json [--ref /path/to/ref.png]
 #
-# Env overrides (for tests / operator tuning):
-#   IMAGE_GEN_TIMEOUT_SEC   poll deadline in seconds (default 300 = 5 min per D-16)
+# Env overrides:
+#   IMAGE_GEN_TIMEOUT_SEC   wait in seconds (default 300 = 5 min)
 #
 # Exit status:
-#   0 — success. Each generated-image path printed on stdout (one per line);
-#       full success JSON copied to stderr for transcript-side debug.
-#   1 — failure or timeout. Failure JSON printed to stderr; nothing on stdout.
-#
-# Set flags: `-e` is intentionally NOT set — some subcommand non-zero exits are
-# expected on the polling / cleanup paths and would otherwise kill the script
-# mid-flight (matches agent-supervisor.sh:35 rationale).
-#
-# Safety: caller-supplied prompt content is NEVER shell-interpolated. All
-# prompt handling flows through `jq --arg` (correct JSON escape). jq is
-# REQUIRED — checked at startup (FIX 7); the prior printf-based fallback did
-# not quote-safely handle `"` or newlines in prompts and could generate
-# malformed JSON that the backend rejects.
+#   0  success. One image path per line on stdout; metadata JSON on stderr.
+#   1  failure or timeout. {reason, message?} JSON on stderr; nothing on stdout.
+#   2  usage or local error.
 
 set -uo pipefail
 
-# ---- constants ---------------------------------------------------------------
-
-REQ_DIR="${HOME}/fleet/image-gen-requests"
 OUT_DIR="${HOME}/fleet/image-gen-outputs"
-POLL_INTERVAL_FAST="0.5"   # first 30s
-POLL_INTERVAL_SLOW="2"     # after 30s
-FAST_POLL_WINDOW_SEC=30
 TIMEOUT_SEC="${IMAGE_GEN_TIMEOUT_SEC:-300}"
+SKYNET_SERVICE="$(dirname -- "$(readlink -f -- "$0")")/skynet-service"
+[ -x "$SKYNET_SERVICE" ] || SKYNET_SERVICE="skynet-service"
 
 usage() {
   cat >&2 <<'USAGE'
@@ -63,8 +43,6 @@ Prints generated image path(s) on stdout, one per line, on exit 0.
 Prints failure JSON on stderr on non-zero exit.
 USAGE
 }
-
-# ---- arg parse ---------------------------------------------------------------
 
 prompt=""
 size=""
@@ -90,13 +68,12 @@ while [ $# -gt 0 ]; do
       exit 2
       ;;
     *)
-      if [ -z "$prompt" ]; then
-        prompt="$1"
-      else
+      if [ -n "$prompt" ]; then
         printf 'image-gen: unexpected positional arg after prompt: %s\n' "$1" >&2
         usage
         exit 2
       fi
+      prompt="$1"
       shift
       ;;
   esac
@@ -107,216 +84,86 @@ if [ -z "$prompt" ] && [ -z "$json_file" ]; then
   usage
   exit 2
 fi
-
 if [ -n "$json_file" ] && [ ! -f "$json_file" ]; then
   printf 'image-gen: --json file not found: %s\n' "$json_file" >&2
   exit 2
 fi
-
 if [ -n "$ref" ] && [ ! -f "$ref" ]; then
   printf 'image-gen: --ref file not found: %s\n' "$ref" >&2
   exit 2
 fi
-
-# ---- jq availability check (FIX 7) -------------------------------------------
-# jq is REQUIRED. The prior implementation had a printf-based fallback that
-# did NOT quote-safely handle `"` or newlines in the prompt — a caller with
-# a legitimate quote (e.g. `image-gen 'a "friendly" cat'`) would generate
-# malformed JSON that the backend parser rejects as `reason: "malformed"`.
-# Fail-fast at startup with a clear install hint is safer than a
-# silently-broken request drop.
-if ! command -v jq >/dev/null 2>&1; then
-  printf 'image-gen: jq is required but not installed — install via '"'"'apt install jq'"'"' or equivalent\n' >&2
+if [ -n "$n" ] && ! [[ "$n" =~ ^[0-9]+$ ]]; then
+  printf 'image-gen: --n must be a whole number\n' >&2
   exit 2
 fi
-
-# ---- ensure fleet dirs exist (D-03: missing folder is not an error) ----------
-
-mkdir -p "$REQ_DIR" "$OUT_DIR"
-
-# ---- uuid --------------------------------------------------------------------
-# Prefer util-linux uuidgen; fall back to /proc/sys/kernel/random/uuid (RESEARCH A1).
-
-if command -v uuidgen >/dev/null 2>&1; then
-  uuid=$(uuidgen | tr '[:upper:]' '[:lower:]')
-else
-  uuid=$(cat /proc/sys/kernel/random/uuid 2>/dev/null | tr '[:upper:]' '[:lower:]')
-fi
-
-if [ -z "$uuid" ]; then
-  printf 'image-gen: could not generate uuid (uuidgen missing and /proc/sys/kernel/random/uuid unreadable)\n' >&2
+command -v jq >/dev/null 2>&1 || {
+  printf 'image-gen: jq is required but not installed (apt install jq)\n' >&2
   exit 2
-fi
+}
 
-req_path="$REQ_DIR/$uuid.json"
-req_tmp="$req_path.tmp.$$"
-success_file="$REQ_DIR/$uuid.success.json"
-failure_file="$REQ_DIR/$uuid.failure.json"
-
-# ---- ref file: WRITE FIRST (Pitfall 3 from RESEARCH.md) ---------------------
-# Write-order is commit-order for the two-file drop. The backend scanner
-# claims on observing the .json; the companion .ref.<ext> MUST already be
-# present at that instant, or the scan reads a null companion and treats
-# the request as malformed. So: ref first, then json, always in that order.
-
-ref_wire_name=""
-if [ -n "$ref" ]; then
-  ext="${ref##*.}"
-  # lower-case the extension so *.PNG normalises to *.png on the wire
-  ext=$(printf '%s' "$ext" | tr '[:upper:]' '[:lower:]')
-  ref_wire_name="$uuid.ref.$ext"
-  ref_dest="$REQ_DIR/$ref_wire_name"
-  ref_tmp="$ref_dest.tmp.$$"
-  if ! cp "$ref" "$ref_tmp"; then
-    printf 'image-gen: failed to stage ref file at %s\n' "$ref_tmp" >&2
-    exit 2
-  fi
-  if ! mv "$ref_tmp" "$ref_dest"; then
-    printf 'image-gen: failed to commit ref file at %s\n' "$ref_dest" >&2
-    rm -f "$ref_tmp" 2>/dev/null || true
-    exit 2
-  fi
-fi
-
-# ---- request body assembly ---------------------------------------------------
-# jq is guaranteed present here (checked at startup — FIX 7). All JSON
-# assembly flows through `jq --arg` / `jq --argjson` for correct escaping.
+# ---- build the service input -------------------------------------------------
 
 if [ -n "$json_file" ]; then
-  # Caller supplied the full JSON body verbatim. jq -c forces single-line
-  # output — the wire protocol is line-delimited (backend scan uses
-  # `printf '%s\t'; cat; printf '\n'` on the SSH path, and the local FS scan
-  # matches). Multi-line JSON breaks the parser with "invalid JSON at
-  # position 1" (same trap coordinator-instructions already documented).
-  if [ -n "$ref_wire_name" ]; then
-    if ! jq -c --arg r "$ref_wire_name" '. + {ref: $r}' "$json_file" > "$req_tmp"; then
-      printf 'image-gen: failed to splice --ref into --json body\n' >&2
-      rm -f "$req_tmp" 2>/dev/null || true
-      [ -n "$ref_wire_name" ] && rm -f "$REQ_DIR/$ref_wire_name" 2>/dev/null || true
-      exit 2
-    fi
-  else
-    # Compact through jq -c even for the pass-through case — caller-supplied
-    # JSON may itself be pretty-printed and would break the wire otherwise.
-    if ! jq -c '.' "$json_file" > "$req_tmp"; then
-      printf 'image-gen: failed to compact --json body\n' >&2
-      rm -f "$req_tmp" 2>/dev/null || true
-      exit 2
-    fi
+  # Escape hatch: the file is the input object. Fields the old request
+  # format carried at the top level (requested_at, ref) are dropped; the
+  # reference image goes through --ref.
+  if ! input=$(jq -c 'del(.requested_at, .ref)' "$json_file"); then
+    printf 'image-gen: --json file is not valid JSON: %s\n' "$json_file" >&2
+    exit 2
   fi
 else
-  requested_at=$(date -u +%FT%TZ)
-  n_val="${n:-1}"
-  jq -cn \
-    --arg prompt "$prompt" \
-    --arg size "$size" \
-    --arg quality "$quality" \
-    --argjson n_num "$n_val" \
-    --arg requested_at "$requested_at" \
-    --arg ref "$ref_wire_name" \
-    '
-    {prompt: $prompt, n: $n_num, requested_at: $requested_at}
-    + (if $size    != "" then {size: $size}       else {} end)
-    + (if $quality != "" then {quality: $quality} else {} end)
-    + (if $ref     != "" then {ref: $ref}         else {} end)
-    ' > "$req_tmp"
+  input=$(jq -cn --arg p "$prompt" --arg s "$size" --arg q "$quality" --arg n "$n" '
+    {prompt: $p}
+    + (if $s != "" then {size: $s} else {} end)
+    + (if $q != "" then {quality: $q} else {} end)
+    + (if $n != "" then {n: ($n | tonumber)} else {} end)')
 fi
 
-# ---- atomic commit of the request json (D-10) --------------------------------
+attach=()
+[ -n "$ref" ] && attach=(--attach "ref=$ref")
 
-if ! mv "$req_tmp" "$req_path"; then
-  printf 'image-gen: failed to commit request json at %s\n' "$req_path" >&2
-  rm -f "$req_tmp" 2>/dev/null || true
-  [ -n "$ref_wire_name" ] && rm -f "$REQ_DIR/$ref_wire_name" 2>/dev/null || true
-  exit 2
-fi
+response=$(
+  printf '%s' "$input" |
+    "$SKYNET_SERVICE" call image-gen --input - "${attach[@]}" \
+      --timeout "$TIMEOUT_SEC" --out-dir "$OUT_DIR"
+)
+status=$?
+[ "$status" -eq 2 ] && exit 2
 
-# ---- poll --------------------------------------------------------------------
-
-poll_start=$(date +%s)
-deadline=$(( poll_start + TIMEOUT_SEC ))
-
-while [ ! -f "$success_file" ] && [ ! -f "$failure_file" ]; do
-  now=$(date +%s)
-  if [ "$now" -ge "$deadline" ]; then
-    # Synthesize the D-27 `expired` failure so the caller's failure-handling
-    # path treats a caller-side timeout identically to a backend-side TTL fire.
-    printf '{"reason":"expired"}\n' >&2
-    rm -f "$req_path" 2>/dev/null || true
-    [ -n "$ref_wire_name" ] && rm -f "$REQ_DIR/$ref_wire_name" 2>/dev/null || true
-    exit 1
-  fi
-  if [ $(( now - poll_start )) -lt "$FAST_POLL_WINDOW_SEC" ]; then
-    sleep "$POLL_INTERVAL_FAST"
-  else
-    sleep "$POLL_INTERVAL_SLOW"
-  fi
-done
-
-# ---- failure branch ----------------------------------------------------------
-
-if [ -f "$failure_file" ]; then
-  # Copy failure JSON to caller stderr BEFORE cleanup, so the transcript keeps
-  # the bytes even if the rm race-loses (belt-and-suspenders — the failure_file
-  # existed on the check above but a concurrent reaper could still remove it).
-  cat "$failure_file" >&2 2>/dev/null || true
-  rm -f "$failure_file" "$req_path" 2>/dev/null || true
-  [ -n "$ref_wire_name" ] && rm -f "$REQ_DIR/$ref_wire_name" 2>/dev/null || true
+if [ "$status" -ne 0 ]; then
+  jq -c '.error | {reason: .code} + del(.code)' <<<"$response" >&2
   exit 1
 fi
 
-# ---- success branch ----------------------------------------------------------
-
-# Move any success.<i>.png images out of the wire folder to the output location.
-# Multiple images (n>1): index suffix is appended before the extension when
-# --out was set explicitly, so "--out /tmp/foo.png" with n=2 lands as
-# /tmp/foo-0.png + /tmp/foo-1.png.
+# ---- success: optionally move images to --out, print paths -------------------
 
 paths=()
 i=0
-# Enable nullglob-style behavior by shopt or by checking each match manually;
-# the manual [ -f ] check works portably without shopt.
-for png in "$REQ_DIR/$uuid.success."*.png; do
-  [ -f "$png" ] || continue
+while IFS= read -r src; do
+  [ -n "$src" ] || continue
+  dest="$src"
   if [ -n "$out" ]; then
-    # Custom output path — respect it verbatim for the first image; append
-    # -<i> suffix before the extension for subsequent images.
+    # First image lands at --out verbatim; later ones get -<i> before the
+    # extension: --out /tmp/foo.png with n=2 → /tmp/foo.png, /tmp/foo-1.png.
     out_dir=$(dirname -- "$out")
     out_base=$(basename -- "$out")
-    out_ext="${out_base##*.}"
-    out_stem="${out_base%.*}"
     if [ "$i" -eq 0 ]; then
       dest="$out"
     else
-      dest="$out_dir/$out_stem-$i.$out_ext"
+      dest="$out_dir/${out_base%.*}-$i.${out_base##*.}"
     fi
-    mkdir -p "$out_dir" 2>/dev/null || true
-  else
-    dest="$OUT_DIR/$uuid-$i.png"
-  fi
-  if ! mv "$png" "$dest"; then
-    printf 'image-gen: failed to move %s -> %s\n' "$png" "$dest" >&2
-    # Continue trying the rest — a partial success is more useful than none.
-    continue
+    mkdir -p -- "$out_dir" 2>/dev/null || true
+    if ! mv -- "$src" "$dest"; then
+      printf 'image-gen: failed to move %s -> %s\n' "$src" "$dest" >&2
+      dest="$src"
+    fi
   fi
   paths+=("$dest")
   i=$(( i + 1 ))
-done
+done < <(jq -r '.files[]' <<<"$response")
 
-# D-14 stdout/stderr split:
-#   - metadata JSON to stderr (visible in transcript for debug)
-#   - image paths to stdout, one per line (grepable / `head -1`-able)
-
-cat "$success_file" >&2 2>/dev/null || true
+jq -c '.result + {images: $ARGS.positional}' --args "${paths[@]}" <<<"$response" >&2
 for p in "${paths[@]}"; do
   printf '%s\n' "$p"
 done
-
-# ---- wire-file cleanup (D-05 — helper owns its own cleanup) ------------------
-
-rm -f "$success_file" "$req_path" 2>/dev/null || true
-# Sweep any leftover success PNGs that weren't picked up above (paranoid safety).
-rm -f "$REQ_DIR/$uuid.success."*.png 2>/dev/null || true
-[ -n "$ref_wire_name" ] && rm -f "$REQ_DIR/$ref_wire_name" 2>/dev/null || true
-
 exit 0

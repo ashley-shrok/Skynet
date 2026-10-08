@@ -33,6 +33,14 @@ agent-phone --to alice --from "Clipper the Box Maintainer" \
   "The Skynet deploy just failed on the fleet-status boot check. Want me to roll back?"
 ```
 
+If the message has quotes, `$`, or other characters that are awkward to shell-quote, pass `-` and send it on stdin instead:
+
+```
+agent-phone --to alice --from "Clipper the Box Maintainer" - <<'MSG'
+The deploy of "fleet-status" failed. Want me to roll back?
+MSG
+```
+
 ## What Skynet already says for you
 
 You do NOT need to introduce yourself or sign off in `<message>` — the phone voice speaks these bookends verbatim, wrapping around whatever you pass:
@@ -54,12 +62,12 @@ Write `<message>` as pure content — no `"Hi, this is …"`, no `"— <name>"` 
 
 ## What happens
 
-1. The helper drops a request file into `~/fleet/phone-call-requests/<uuid>.json`.
-2. The backend scanner picks it up (within ~10 seconds).
+1. The helper (via the shared `skynet-service` client) drops a request into `~/fleet/service-requests/<uuid>.json`.
+2. The backend picks it up within ~10 seconds and renames it to `<uuid>.claimed.json`.
 3. The backend places the call. The recipient's phone rings.
 4. On pickup, the provider's voice speaks the opening line, delivers your message, listens for the reply, then says the receipt phrase and hangs up.
-5. The backend polls for the transcript and drops a `~/fleet/phone-call-requests/<uuid>.response.json` back onto your host.
-6. The helper prints the outcome + transcript to stdout and exits.
+5. The backend polls for the transcript and drops `~/fleet/service-requests/<uuid>.response.json` back onto your host.
+6. The helper prints the transcript to stdout, cleans up its files, and exits.
 
 You should expect a response within about **9 minutes** in the worst case (the backend waits up to 8 minutes for the call to complete). Most successful calls come back in under 2 minutes.
 
@@ -85,11 +93,16 @@ Every response file carries exactly one `outcome`. Successful transcripts land u
 | no_answer          | The phone rang out or voicemail picked up. Try again later, or use a different channel. |
 | busy               | The line was busy. Try again in a bit. |
 | canceled           | Rare — the provider canceled the call mid-flight. Retry. |
-| placement_error    | The provider refused to place the call. Check `message` for the reason (bad phone shape, service down, misconfigured API key). Not agent-retriable — escalate to the operator. |
+| placement_error    | The provider refused to place the call. Check `message` for the reason (bad phone shape, service down, rejected API key). Not agent-retriable — escalate to the operator. |
 | queue_error        | The call was accepted but never actually connected. Usually a transient provider issue; retry. |
-| timeout            | The backend waited 8 minutes for a terminal state and gave up. Rare. Retry. |
+| timeout            | The call was placed but never reached a terminal state in time (or the backend accepted the request but went quiet). Rare. Retry. |
+| expired            | The request sat in the queue past 8 minutes and was dropped without dialing. The fleet may be busy calling that person; retry. |
+| not_picked_up      | Skynet never picked up the request. The backend may be down or not managing this host. Not agent-retriable — escalate to the operator. |
+| not_configured     | The backend has no phone provider key set. Not agent-retriable — escalate to the operator. |
+| queue_full         | Too many calls are queued. Try again later. |
 | unknown            | Defensive fallback — the provider returned a state the backend couldn't classify. Treat as a failure and escalate. |
-| malformed          | Your request file was malformed. Check `message` for the specific field problem, fix, and retry. |
+| internal           | The backend hit an unexpected error handling the request. Escalate to the operator. |
+| malformed          | The request was rejected. Check `message` for the specific field problem (e.g. message over 2000 characters), fix, and retry. |
 | unknown_user       | No Skynet user by that username. Check the username you passed to `--to`. |
 | not_permitted      | That user has not registered the host you're running on, so you can't call them. You can only call the people who own your host. Not agent-retriable. |
 | no_phone_on_file   | The user exists but has no phone number set on their record. Not agent-retriable. Having a number on file is what turns the phone feature on for a user: users who have it can change their number themselves in Preferences → Phone. A user with no number doesn't have the feature, so tell them a Skynet admin needs to turn it on by setting their number. |

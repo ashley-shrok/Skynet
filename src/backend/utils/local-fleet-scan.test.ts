@@ -1,6 +1,5 @@
 /**
- * local-fleet-scan.test.ts — Unit tests for scanLocalFleetFolder +
- * readLocalFleetCompanionRef.
+ * local-fleet-scan.test.ts — Unit tests for scanLocalFleetFolder.
  *
  * Uses a real temp directory (via `os.tmpdir()` + `fs.mkdtemp`) rather than a
  * fs-module mock. Rationale:
@@ -183,59 +182,5 @@ describe("scanLocalFleetFolder — atomic-claim contract", () => {
     // And no tmp files leftover after both scans complete.
     const entries = await fs.readdir(dir);
     expect(entries).toEqual([]);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// readLocalFleetCompanionRef
-// ---------------------------------------------------------------------------
-
-describe("readLocalFleetCompanionRef", () => {
-  const uuid = "aaaaaaaa-1111-2222-3333-444444444444";
-  const refFilename = `${uuid}.ref.png`;
-  const MAX = 20 * 1024 * 1024;
-
-  it("happy path: reads the companion file's bytes when uuid matches and size <= max", async () => {
-    const dir = path.join(fleetRoot, "image-gen-requests");
-    await fs.mkdir(dir, { recursive: true });
-    const bytes = Buffer.from("fake-png-data");
-    await fs.writeFile(path.join(dir, refFilename), bytes);
-    const { readLocalFleetCompanionRef } = await importFresh();
-    const result = await readLocalFleetCompanionRef("image-gen-requests", refFilename, MAX, uuid);
-    expect(result).not.toBeNull();
-    expect(result!.equals(bytes)).toBe(true);
-  });
-
-  it("returns null when the ref file is missing", async () => {
-    const dir = path.join(fleetRoot, "image-gen-requests");
-    await fs.mkdir(dir, { recursive: true });
-    const { readLocalFleetCompanionRef } = await importFresh();
-    const result = await readLocalFleetCompanionRef("image-gen-requests", refFilename, MAX, uuid);
-    expect(result).toBeNull();
-  });
-
-  it("returns null when the ref file exceeds maxBytes", async () => {
-    const dir = path.join(fleetRoot, "image-gen-requests");
-    await fs.mkdir(dir, { recursive: true });
-    // Small cap; write a 100-byte file.
-    const bytes = Buffer.alloc(100, 0x42);
-    await fs.writeFile(path.join(dir, refFilename), bytes);
-    const { readLocalFleetCompanionRef } = await importFresh();
-    const result = await readLocalFleetCompanionRef("image-gen-requests", refFilename, 50, uuid);
-    expect(result).toBeNull();
-  });
-
-  it("returns null when the ref filename uuid does not match the request uuid (cross-request guard)", async () => {
-    const dir = path.join(fleetRoot, "image-gen-requests");
-    await fs.mkdir(dir, { recursive: true });
-    // Write the ref under the FOREIGN uuid's name so the file exists on disk.
-    const foreignUuid = "bbbbbbbb-9999-8888-7777-666666666666";
-    const foreignRefFilename = `${foreignUuid}.ref.png`;
-    await fs.writeFile(path.join(dir, foreignRefFilename), Buffer.from("stolen bytes"));
-    const { readLocalFleetCompanionRef } = await importFresh();
-    // requestUuid is `uuid` (ours), refFilename is `foreignRefFilename` (theirs)
-    // → guard rejects BEFORE reading, returns null.
-    const result = await readLocalFleetCompanionRef("image-gen-requests", foreignRefFilename, MAX, uuid);
-    expect(result).toBeNull();
   });
 });

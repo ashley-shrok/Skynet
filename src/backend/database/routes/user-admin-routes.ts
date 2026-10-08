@@ -43,9 +43,9 @@ const MXID_RE = /^@[a-z0-9._=/+-]{1,255}:[a-z0-9.-]{1,255}$/;
  * discipline as MXID_RE above).
  *
  * Storage-only validation: the number is never dialed by this endpoint. The
- * phone-call-requests worker consumes the value verbatim and hands it to the
- * third-party phone service, which owns any deeper syntactic + reachability
- * checks.
+ * agent-phone service (agent-services/services/agent-phone) consumes the
+ * value verbatim and hands it to the third-party phone service, which owns
+ * any deeper syntactic + reachability checks.
  */
 export const PHONE_E164_RE = /^\+[1-9]\d{7,14}$/;
 
@@ -427,7 +427,7 @@ export function registerUserAdminRoutes(
    *     summary: Set a user's E.164 phone number (admin only)
    *     description: |
    *       Sets the E.164-formatted phone number on a user record. Consumed by
-   *       the agent-phone capability — the phone-call-requests worker looks
+   *       the agent-phone capability — the agent-phone service looks
    *       this up when an agent drops a call request. Nullable in the schema
    *       (users without a number get a "no_phone_on_file" outcome from the
    *       worker); this endpoint sets it, does not clear it. This is the

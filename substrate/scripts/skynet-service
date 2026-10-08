@@ -1,0 +1,226 @@
+#!/usr/bin/env bash
+# skynet-service — call a Skynet agent service from a managed host.
+#
+# Canonical copy lives in the Skynet repo at substrate/scripts/skynet-service
+# and is distributed to every managed host by the fleet-substrate distributor
+# (src/backend/distributor/catalog.ts). Installed per-box at
+# ~/.local/bin/skynet-service. Do NOT hand-edit the installed copy.
+#
+# The backend holds the credentials; this script only drops a request file
+# and waits for the answer. Wire protocol (all in ~/fleet/service-requests/):
+#
+#   <uuid>.in.<slot>.<ext>   attachments, written first
+#   <uuid>.json              request envelope, written atomically:
+#                              {service, requested_at, input, attachments?}
+#   <uuid>.claimed.json      appears when the backend accepts the request
+#   <uuid>.out.<i>.<ext>     output files
+#   <uuid>.response.json     the answer, written last:
+#                              {ok:true,  service, result, files:[...]}
+#                              {ok:false, service, error:{code, message?, ...}}
+#
+# Usage:
+#   skynet-service call <service> [--input <json> | --input - | --input-file <path>]
+#                       [--attach <slot>=<path>]... [--timeout <sec>] [--out-dir <dir>]
+#
+#   --input -        read the input JSON from stdin (best for long text)
+#   --attach         send a file in the named slot, e.g. --attach ref=cat.png
+#   --timeout        seconds to wait (default $SKYNET_SERVICE_TIMEOUT_SEC or 540,
+#                    under Claude Code's 10-minute Bash-tool limit)
+#   --out-dir        where output files land (default ~/fleet/service-outputs)
+#
+# Output: the response JSON on stdout, one line, with `files` rewritten to the
+# absolute paths the output files were moved to.
+#
+# Exit status:
+#   0  ok:true
+#   1  ok:false, including the two client-side codes this script adds:
+#        not_picked_up  the backend never claimed the request
+#        timeout        the backend claimed it but did not answer in time
+#   2  usage or local error (message on stderr, nothing on stdout)
+#
+# Every <uuid>.* wire file is removed on exit, including on Ctrl-C, so a
+# request whose caller has gone away is never picked up later.
+#
+# `-e` is intentionally not set: polling and cleanup expect non-zero exits.
+
+set -uo pipefail
+
+REQ_DIR="${HOME}/fleet/service-requests"
+POLL_INTERVAL_FAST="0.5"   # first 30s
+POLL_INTERVAL_SLOW="2"     # after that
+FAST_POLL_WINDOW_SEC=30
+
+usage() {
+  cat >&2 <<'USAGE'
+usage: skynet-service call <service> [--input <json> | --input - | --input-file <path>]
+                          [--attach <slot>=<path>]... [--timeout <sec>] [--out-dir <dir>]
+USAGE
+}
+
+die() {
+  printf 'skynet-service: %s\n' "$1" >&2
+  exit 2
+}
+
+[ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ] && { usage; exit 0; }
+[ "${1:-}" = "call" ] || { usage; exit 2; }
+shift
+service="${1:-}"
+[ -n "$service" ] || { usage; exit 2; }
+shift
+[[ "$service" =~ ^[a-z][a-z0-9-]{0,63}$ ]] || die "bad service name: $service"
+
+input_arg=""
+input_file=""
+timeout_sec="${SKYNET_SERVICE_TIMEOUT_SEC:-540}"
+out_dir="${HOME}/fleet/service-outputs"
+attach_slots=()
+attach_paths=()
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --input)      input_arg="${2-}"; shift 2 || die "--input needs a value";;
+    --input-file) input_file="${2-}"; shift 2 || die "--input-file needs a value";;
+    --timeout)    timeout_sec="${2-}"; shift 2 || die "--timeout needs a value";;
+    --out-dir)    out_dir="${2-}"; shift 2 || die "--out-dir needs a value";;
+    --attach)
+      spec="${2-}"
+      shift 2 || die "--attach needs <slot>=<path>"
+      slot="${spec%%=*}"
+      path="${spec#*=}"
+      [ "$slot" != "$spec" ] || die "--attach needs <slot>=<path>"
+      [[ "$slot" =~ ^[a-z][a-z0-9_]{0,31}$ ]] || die "bad attachment slot: $slot"
+      [ -f "$path" ] || die "attachment not found: $path"
+      attach_slots+=("$slot")
+      attach_paths+=("$path")
+      ;;
+    -h|--help) usage; exit 0;;
+    *) usage; die "unexpected argument: $1";;
+  esac
+done
+
+[[ "$timeout_sec" =~ ^[0-9]+$ ]] || die "--timeout must be whole seconds"
+command -v jq >/dev/null 2>&1 || die "jq is required but not installed (apt install jq)"
+
+mkdir -p "$REQ_DIR" "$out_dir" || die "cannot create $REQ_DIR or $out_dir"
+
+if command -v uuidgen >/dev/null 2>&1; then
+  uuid=$(uuidgen | tr '[:upper:]' '[:lower:]')
+else
+  uuid=$(tr '[:upper:]' '[:lower:]' < /proc/sys/kernel/random/uuid 2>/dev/null)
+fi
+[ -n "$uuid" ] || die "could not generate a uuid"
+
+# ---- cleanup: every exit path removes this request's wire files -------------
+
+cleanup() {
+  rm -f -- "$REQ_DIR/$uuid".* 2>/dev/null || true
+}
+on_signal() {
+  cleanup
+  trap - "$1"
+  kill -"$1" $$
+}
+trap cleanup EXIT
+trap 'on_signal INT' INT
+trap 'on_signal TERM' TERM
+trap 'on_signal HUP' HUP
+
+# ---- input -------------------------------------------------------------------
+
+input_tmp="$REQ_DIR/$uuid.input.tmp.$$"
+if [ -n "$input_file" ]; then
+  [ -f "$input_file" ] || die "--input-file not found: $input_file"
+  cp -- "$input_file" "$input_tmp" || die "cannot read $input_file"
+elif [ "$input_arg" = "-" ]; then
+  cat > "$input_tmp" || die "cannot read input from stdin"
+elif [ -n "$input_arg" ]; then
+  printf '%s' "$input_arg" > "$input_tmp"
+else
+  printf '{}' > "$input_tmp"
+fi
+jq -e . "$input_tmp" >/dev/null 2>&1 || die "input is not valid JSON"
+
+# ---- attachments, before the envelope (the backend reads them on claim) -----
+
+attachments='{}'
+for i in "${!attach_slots[@]}"; do
+  slot="${attach_slots[$i]}"
+  src="${attach_paths[$i]}"
+  ext="${src##*.}"
+  ext=$(printf '%s' "$ext" | tr '[:upper:]' '[:lower:]')
+  [[ "$ext" =~ ^[a-z0-9]{1,8}$ ]] || die "attachment $slot needs a file extension: $src"
+  wire="$uuid.in.$slot.$ext"
+  cp -- "$src" "$REQ_DIR/$wire.tmp.$$" || die "cannot stage attachment $src"
+  mv -- "$REQ_DIR/$wire.tmp.$$" "$REQ_DIR/$wire" || die "cannot stage attachment $src"
+  attachments=$(jq -c --arg s "$slot" --arg f "$wire" '. + {($s): $f}' <<<"$attachments")
+done
+
+# ---- envelope, committed atomically ------------------------------------------
+
+req_path="$REQ_DIR/$uuid.json"
+jq -cn \
+  --arg service "$service" \
+  --arg requested_at "$(date -u +%FT%TZ)" \
+  --slurpfile input "$input_tmp" \
+  --argjson attachments "$attachments" \
+  '{service: $service, requested_at: $requested_at, input: $input[0]}
+   + (if ($attachments | length) > 0 then {attachments: $attachments} else {} end)' \
+  > "$req_path.tmp.$$" || die "cannot write request"
+rm -f -- "$input_tmp"
+mv -- "$req_path.tmp.$$" "$req_path" || die "cannot commit request"
+
+# ---- wait for the response ---------------------------------------------------
+
+response_file="$REQ_DIR/$uuid.response.json"
+claimed_file="$REQ_DIR/$uuid.claimed.json"
+poll_start=$(date +%s)
+deadline=$(( poll_start + timeout_sec ))
+
+client_error() {
+  jq -cn --arg s "$service" --arg c "$1" --arg m "$2" \
+    '{ok: false, service: $s, error: {code: $c, message: $m}}'
+  exit 1
+}
+
+while [ ! -f "$response_file" ]; do
+  now=$(date +%s)
+  if [ "$now" -ge "$deadline" ]; then
+    if [ -f "$claimed_file" ]; then
+      client_error timeout "Skynet accepted the request but did not answer within ${timeout_sec}s"
+    fi
+    client_error not_picked_up "Skynet did not pick up the request within ${timeout_sec}s; is the backend running and managing this host?"
+  fi
+  if [ $(( now - poll_start )) -lt "$FAST_POLL_WINDOW_SEC" ]; then
+    sleep "$POLL_INTERVAL_FAST"
+  else
+    sleep "$POLL_INTERVAL_SLOW"
+  fi
+done
+
+response=$(cat "$response_file" 2>/dev/null)
+if ! jq -e 'type == "object"' >/dev/null 2>&1 <<<"$response"; then
+  client_error internal "response file was empty or not JSON"
+fi
+
+# ---- move output files out of the wire folder --------------------------------
+
+moved=()
+i=0
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
+  # Only accept this request's own output files.
+  case "$f" in "$uuid".out.*) ;; *) continue;; esac
+  case "$f" in */*) continue;; esac
+  dest="$out_dir/$uuid-$i.${f##*.}"
+  if mv -- "$REQ_DIR/$f" "$dest" 2>/dev/null; then
+    moved+=("$dest")
+    i=$(( i + 1 ))
+  fi
+done < <(jq -r '.files[]? // empty' <<<"$response")
+
+response=$(jq -c 'if .ok == true then .files = $ARGS.positional else . end' --args "${moved[@]}" <<<"$response")
+printf '%s\n' "$response"
+
+[ "$(jq -r '.ok' <<<"$response")" = "true" ] && exit 0
+exit 1

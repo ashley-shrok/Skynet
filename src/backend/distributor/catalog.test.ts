@@ -32,7 +32,7 @@ function bundledPathToRepoPath(bundledPath: string): string {
 }
 
 describe("FLEET_SUBSTRATE_CATALOG", () => {
-  it("Test 1: contains exactly 131 entries (17 conceptual items + agent-supervisor.service unit + role-file-watch fourth ambient monitor + fleet-status-sweep Phase 92 + pv-context-pct-sweep Phase 95 + ambient-monitor mega-monitor phase + instance-policy-claude-md Phase 114 twinkie + image-gen-skill + image-gen-helper Phase 116 + 24 app-development shape-1 rows (26 originally; favicon.svg row retired 2026-09-28 when the scaffold switched to a static/icon.webp symlink; restore-app.sh row retired 2026-09-30 by the un-archiving campaign, host-side shape) + task-field-check hook + 3 rows for interactive-messages-gc (Phase 140: .py script + .service unit + .timer unit) + 69 rows for interactive-messages skill payload (SKILL.md + create-widget.sh + teardown-widget.sh + iterate-widget.sh + 65 template files across 13 folders, backfilled 2026-09-28 + draft template + iterate-widget added 2026-09-30) + inbox-watcher (fifth ambient-monitor child, shape-agent-supervisor-inbox 2026-10-02) + 4 agent-desktop rows (desktop skill + agent-desktop + desktop-mcp + agent-desktop@.service))", () => {
+  it("Test 1: contains exactly 132 entries (17 conceptual items + agent-supervisor.service unit + role-file-watch fourth ambient monitor + fleet-status-sweep Phase 92 + pv-context-pct-sweep Phase 95 + ambient-monitor mega-monitor phase + instance-policy-claude-md Phase 114 twinkie + image-gen-skill + image-gen-helper Phase 116 + 24 app-development shape-1 rows (26 originally; favicon.svg row retired 2026-09-28 when the scaffold switched to a static/icon.webp symlink; restore-app.sh row retired 2026-09-30 by the un-archiving campaign, host-side shape) + task-field-check hook + 3 rows for interactive-messages-gc (Phase 140: .py script + .service unit + .timer unit) + 69 rows for interactive-messages skill payload (SKILL.md + create-widget.sh + teardown-widget.sh + iterate-widget.sh + 65 template files across 13 folders, backfilled 2026-09-28 + draft template + iterate-widget added 2026-09-30) + inbox-watcher (fifth ambient-monitor child, shape-agent-supervisor-inbox 2026-10-02) + 4 agent-desktop rows (desktop skill + agent-desktop + desktop-mcp + agent-desktop@.service) + skynet-service agent-services client)", () => {
     // 17 = 6 single-file skills + agent-relay (SKILL.md + recv.sh counted as
     // one item) + id (SKILL.md + 3 companions counted as one item) + 8 helper
     // scripts + 1 mega-monitor launcher (ambient-monitor) + 1 Phase 114 twinkie
@@ -102,7 +102,9 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // shape-composebox-cutover) — 126 → 127.
     // +4 for the agent desktop (desktop SKILL.md + agent-desktop helper +
     // desktop-mcp helper + agent-desktop@.service template unit) — 127 → 131.
-    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(131);
+    // +1 for skynet-service (shared agent-services file-drop client that the
+    // image-gen and agent-phone wrappers call) — 131 → 132.
+    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(132);
   });
 
   it("Test 2: every bundled row's bundledPath starts with /app/fleet-substrate/skills/, /app/fleet-substrate/scripts/, or /app/fleet-substrate/user-onboarding/", () => {
@@ -251,8 +253,9 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // RAW-PASTE-FILE: stdout protocol — delivery substrate for the eventual
     // composebox cutover) +
     // agent-desktop + desktop-mcp (per-identity virtual desktop: lifecycle
-    // CLI + MCP server for screenshot/click/type tools)
-    expect(scriptRows.length).toBe(19);
+    // CLI + MCP server for screenshot/click/type tools) +
+    // skynet-service (shared agent-services file-drop client)
+    expect(scriptRows.length).toBe(20);
     // 4 user-onboarding files: agent-supervisor.service +
     // interactive-messages-gc.service + interactive-messages-gc.timer (Phase 140)
     // + scheduled-agents-scheduler.service (this ship: move
@@ -457,7 +460,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // +1 for inbox-watcher (shape-agent-supervisor-inbox 2026-10-02, fifth
     // ambient-monitor child) — 125 → 126.
     // +4 for the agent desktop (skill + 2 helpers + template unit) — 126 → 130.
-    expect(bundled.length).toBe(130);
+    // +1 for skynet-service (agent-services client) — 130 → 131.
+    expect(bundled.length).toBe(131);
     expect(runtime.length).toBe(1);
 
     // Every bundled row retains bundledPath under /app/fleet-substrate/

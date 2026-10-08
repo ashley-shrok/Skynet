@@ -1,52 +1,39 @@
 #!/usr/bin/env bash
-# agent-phone — file-drop broker helper for the agent-phone capability.
+# agent-phone — ring a Skynet user's phone, speak a message, print their reply.
 #
 # Canonical copy lives in the Skynet repo at substrate/scripts/agent-phone and
 # is distributed to every managed host by the fleet-substrate distributor (see
 # src/backend/distributor/catalog.ts). Installed per-box at
-# ~/.local/bin/agent-phone. Do NOT hand-edit the installed copy — edits are
-# made in the repo and land on all boxes via the next distributor sweep.
+# ~/.local/bin/agent-phone. Do NOT hand-edit the installed copy.
 #
-# Wire protocol (mirrors the image-gen broker at substrate/scripts/image-gen):
-#   - Request:   ~/fleet/phone-call-requests/<uuid>.json
-#   - Response:  ~/fleet/phone-call-requests/<uuid>.response.json
-#     (single file — outcome field distinguishes success/failure inside)
+# Thin wrapper over skynet-service (the shared agent-services client); the
+# backend side is src/backend/agent-services/services/agent-phone/.
 #
 # Usage:
 #   agent-phone --to <username> --from "<caller name>" "<message>"
+#   agent-phone --to <username> --from "<caller name>" - < message.txt
 #
-# Env overrides (for tests / operator tuning):
-#   AGENT_PHONE_TIMEOUT_SEC   poll deadline in seconds (default 540 = 9 min).
-#                             Fits under Claude Code's 10-min Bash-tool max.
+# Env overrides:
+#   AGENT_PHONE_TIMEOUT_SEC   wait in seconds (default 540 = 9 min, under
+#                             Claude Code's 10-min Bash-tool limit)
 #
 # Exit status:
-#   0 — success. Transcript printed on stdout (one line per speaker turn);
-#       response JSON metadata copied to stderr for transcript-side debug.
-#       Outcome is one of: completed, no_response.
-#   1 — failure or timeout. Response JSON printed to stderr with the
-#       {outcome, message?} details. Nothing on stdout.
-#
-# `-e` is intentionally NOT set — some subcommand non-zero exits are
-# expected on the polling / cleanup paths and would otherwise kill the
-# script mid-flight (matches image-gen helper rationale).
-#
-# Safety: caller-supplied fields (--to, --from, message) are NEVER
-# shell-interpolated. Everything flows through `jq --arg` for correct
-# JSON escaping. jq is REQUIRED — checked at startup.
+#   0  call delivered (outcome completed or no_response). Transcript on
+#      stdout; {outcome, transcript, call_length_seconds} JSON on stderr.
+#   1  anything else. {outcome, message?, ...} JSON on stderr, nothing on
+#      stdout.
+#   2  usage or local error.
 
 set -uo pipefail
 
-# ---- constants ---------------------------------------------------------------
-
-REQ_DIR="${HOME}/fleet/phone-call-requests"
-POLL_INTERVAL_FAST="1"        # first 30s — call setup + queue transitions
-POLL_INTERVAL_SLOW="5"        # after 30s — steady poll cadence
-FAST_POLL_WINDOW_SEC=30
-TIMEOUT_SEC="${AGENT_PHONE_TIMEOUT_SEC:-540}"   # 9 min — under Claude Code Bash-tool 10-min max
+TIMEOUT_SEC="${AGENT_PHONE_TIMEOUT_SEC:-540}"
+SKYNET_SERVICE="$(dirname -- "$(readlink -f -- "$0")")/skynet-service"
+[ -x "$SKYNET_SERVICE" ] || SKYNET_SERVICE="skynet-service"
 
 usage() {
   cat >&2 <<'USAGE'
 usage: agent-phone --to <username> --from "<caller name>" "<message>"
+       agent-phone --to <username> --from "<caller name>" - < message.txt
        agent-phone -h | --help
 
 Places a one-turn phone call to a Skynet user via the fleet's phone service.
@@ -55,7 +42,7 @@ Places a one-turn phone call to a Skynet user via the fleet's phone service.
   --from  "<name>"      TTS-friendly caller identifier (required).
                         Compose from your identity displayName + your role
                         (title-cased). Example: "Clipper the Box Maintainer".
-  <message>             What to say (required, positional).
+  <message>             What to say (required). Pass - to read it from stdin.
 
 On success (outcome=completed or no_response), transcript is printed on
 stdout and full response JSON on stderr. On failure, JSON with the outcome
@@ -65,11 +52,10 @@ See ~/.claude/skills/agent-phone/SKILL.md for outcome enum reference.
 USAGE
 }
 
-# ---- arg parse ---------------------------------------------------------------
-
 to_user=""
 caller_name=""
 message=""
+have_message=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -77,169 +63,57 @@ while [ $# -gt 0 ]; do
     --from)    caller_name="${2:-}";  shift 2;;
     -h|--help) usage; exit 0;;
     --) shift; break;;
+    -)
+      message=$(cat)
+      have_message=1
+      shift
+      ;;
     -*)
       printf 'agent-phone: unknown flag: %s\n' "$1" >&2
       usage
       exit 2
       ;;
     *)
-      if [ -z "$message" ]; then
-        message="$1"
-      else
+      if [ "$have_message" -eq 1 ]; then
         printf 'agent-phone: unexpected positional arg after message: %s\n' "$1" >&2
         usage
         exit 2
       fi
+      message="$1"
+      have_message=1
       shift
       ;;
   esac
 done
 
-if [ -z "$to_user" ]; then
-  printf 'agent-phone: --to <username> is required\n' >&2
-  usage
-  exit 2
-fi
-if [ -z "$caller_name" ]; then
-  printf 'agent-phone: --from "<caller name>" is required\n' >&2
-  usage
-  exit 2
-fi
-if [ -z "$message" ]; then
-  printf 'agent-phone: <message> positional argument is required\n' >&2
-  usage
-  exit 2
-fi
-
-# ---- jq availability check ---------------------------------------------------
-# jq is REQUIRED. The message field can carry arbitrary chars (quotes,
-# newlines, Unicode). Any printf-based JSON assembly would be quote-unsafe
-# and generate malformed requests the backend rejects.
-if ! command -v jq >/dev/null 2>&1; then
-  printf 'agent-phone: jq is required but not installed — install via '"'"'apt install jq'"'"' or equivalent\n' >&2
-  exit 2
-fi
-
-# ---- ensure fleet dir exists (missing folder is not an error) ----------------
-
-mkdir -p "$REQ_DIR"
-
-# ---- uuid --------------------------------------------------------------------
-# Prefer util-linux uuidgen; fall back to /proc/sys/kernel/random/uuid.
-
-if command -v uuidgen >/dev/null 2>&1; then
-  uuid=$(uuidgen | tr '[:upper:]' '[:lower:]')
-else
-  uuid=$(cat /proc/sys/kernel/random/uuid 2>/dev/null | tr '[:upper:]' '[:lower:]')
-fi
-
-if [ -z "$uuid" ]; then
-  printf 'agent-phone: could not generate uuid (uuidgen missing and /proc/sys/kernel/random/uuid unreadable)\n' >&2
-  exit 2
-fi
-
-req_path="$REQ_DIR/$uuid.json"
-req_tmp="$req_path.tmp.$$"
-response_file="$REQ_DIR/$uuid.response.json"
-
-# ---- request body assembly ---------------------------------------------------
-
-requested_at=$(date -u +%FT%TZ)
-if ! jq -cn \
-    --arg caller_name "$caller_name" \
-    --arg to_user "$to_user" \
-    --arg message "$message" \
-    --arg requested_at "$requested_at" \
-    '{caller_name: $caller_name, to_user: $to_user, message: $message, requested_at: $requested_at}' \
-    > "$req_tmp"; then
-  printf 'agent-phone: failed to assemble request body\n' >&2
-  rm -f "$req_tmp" 2>/dev/null || true
-  exit 2
-fi
-
-# ---- atomic commit of the request json ---------------------------------------
-
-if ! mv "$req_tmp" "$req_path"; then
-  printf 'agent-phone: failed to commit request json at %s\n' "$req_path" >&2
-  rm -f "$req_tmp" 2>/dev/null || true
-  exit 2
-fi
-
-# ---- signal-safe cleanup -----------------------------------------------------
-#
-# Once the request file has landed, ANY exit path (normal, SIGINT/SIGTERM
-# from the caller, unexpected error) must remove it — otherwise the
-# backend scanner picks it up on its next tick and rings the callee's
-# phone for a caller that has already vanished. The signal handler
-# forwards the correct exit code (128 + signum) and re-raises so the
-# parent sees a normal signal-triggered exit.
-_agent_phone_cleanup() {
-  rm -f "$req_path" 2>/dev/null || true
-}
-_agent_phone_signal_exit() {
-  _agent_phone_cleanup
-  # Re-raise the signal so the exit code reflects it (bash convention).
-  trap - "$1"
-  kill -"$1" $$
-}
-trap _agent_phone_cleanup EXIT
-trap '_agent_phone_signal_exit INT' INT
-trap '_agent_phone_signal_exit TERM' TERM
-trap '_agent_phone_signal_exit HUP' HUP
-
-# ---- poll for the response file ---------------------------------------------
-
-poll_start=$(date +%s)
-deadline=$(( poll_start + TIMEOUT_SEC ))
-
-while [ ! -f "$response_file" ]; do
-  now=$(date +%s)
-  if [ "$now" -ge "$deadline" ]; then
-    # Client-side timeout — synthesize a timeout response so the caller's
-    # failure-handling path behaves consistently with a backend-side timeout.
-    printf '{"outcome":"timeout","message":"client-side poll deadline hit (%ds)"}\n' "$TIMEOUT_SEC" >&2
-    rm -f "$req_path" 2>/dev/null || true
-    exit 1
-  fi
-  if [ $(( now - poll_start )) -lt "$FAST_POLL_WINDOW_SEC" ]; then
-    sleep "$POLL_INTERVAL_FAST"
-  else
-    sleep "$POLL_INTERVAL_SLOW"
+for req in "to_user:--to <username>" "caller_name:--from \"<caller name>\"" "message:<message>"; do
+  var="${req%%:*}"
+  if [ -z "${!var}" ]; then
+    printf 'agent-phone: %s is required\n' "${req#*:}" >&2
+    usage
+    exit 2
   fi
 done
 
-# ---- read the response file --------------------------------------------------
+command -v jq >/dev/null 2>&1 || {
+  printf 'agent-phone: jq is required but not installed (apt install jq)\n' >&2
+  exit 2
+}
 
-# Cat contents before cleanup so a concurrent reaper can't race the read.
-response_body=$(cat "$response_file" 2>/dev/null || true)
-if [ -z "$response_body" ]; then
-  printf '{"outcome":"unknown","message":"response file was empty"}\n' >&2
-  rm -f "$response_file" "$req_path" 2>/dev/null || true
-  exit 1
+response=$(
+  jq -cn --arg c "$caller_name" --arg t "$to_user" --arg m "$message" \
+    '{caller_name: $c, to_user: $t, message: $m}' |
+    "$SKYNET_SERVICE" call agent-phone --input - --timeout "$TIMEOUT_SEC"
+)
+status=$?
+[ "$status" -eq 2 ] && exit 2
+
+if [ "$status" -eq 0 ]; then
+  jq -c '.result' <<<"$response" >&2
+  transcript=$(jq -r '.result.transcript // ""' <<<"$response")
+  [ -n "$transcript" ] && printf '%s\n' "$transcript"
+  exit 0
 fi
 
-outcome=$(printf '%s' "$response_body" | jq -r '.outcome // "unknown"')
-
-# Successful outcomes: completed (had a full exchange) or no_response
-# (call happened but human hung up). Both mean the message was delivered
-# and the caller wants the transcript on stdout.
-case "$outcome" in
-  completed|no_response)
-    # Metadata to stderr for transcript-side debug.
-    printf '%s\n' "$response_body" >&2
-    # Transcript to stdout — may be absent on no_response (no user turn),
-    # in which case we still print the assistant-only opener if present.
-    transcript=$(printf '%s' "$response_body" | jq -r '.transcript // ""')
-    if [ -n "$transcript" ]; then
-      printf '%s\n' "$transcript"
-    fi
-    rm -f "$response_file" "$req_path" 2>/dev/null || true
-    exit 0
-    ;;
-  *)
-    # Failure branch — outcome JSON to stderr, nothing on stdout.
-    printf '%s\n' "$response_body" >&2
-    rm -f "$response_file" "$req_path" 2>/dev/null || true
-    exit 1
-    ;;
-esac
+jq -c '.error | {outcome: .code} + del(.code)' <<<"$response" >&2
+exit 1
