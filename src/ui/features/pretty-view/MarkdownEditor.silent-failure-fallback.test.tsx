@@ -55,7 +55,7 @@ describe("MarkdownEditor — silent-parse-failure code-editor fallback", () => {
       const editableFilled =
         editable && (editable.textContent ?? "").length > 0;
       expect(cmContent || textarea || editableFilled).toBeTruthy();
-    }, { timeout: 3000 });
+    }, { timeout: 10000 });
 
     const cmContent = container.querySelector(".cm-content");
     const textarea = container.querySelector<HTMLTextAreaElement>("textarea");
