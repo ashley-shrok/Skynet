@@ -10,7 +10,7 @@ Each Skynet instance gets a setting that names which service turns agent message
 into speech: Amazon Polly (the default, exactly today's behavior), OpenAI, or
 ElevenLabs. It sits beside the existing speech-to-text provider setting and
 behaves the same way. Every place in the app that speaks follows the active
-provider, and every voice picker offers the active provider's voices. Ashley
+provider, and every voice picker offers the active provider's voices. the user
 wants the alternatives available even though she expects to stay on Polly for
 now; the point is that switching becomes a one-setting change.
 
@@ -108,7 +108,7 @@ now; the point is that switching becomes a one-setting change.
   whatever sample rate the stream announces.
 - Voice choice today runs identity, then role, then the user's fallback voice
   (Agent voices preferences), then Joanna.
-- Cost check (2026-10-08, list prices): at Ashley's likely ~3 million spoken
+- Cost check (2026-10-08, list prices): at the user's likely ~3 million spoken
   characters a month, OpenAI ~$45, Polly ~$90, ElevenLabs ~$120–240. Her
   ElevenLabs account is on the free tier (10,000 characters a month). She is
   staying on Polly; this work is for availability.
@@ -143,10 +143,10 @@ now; the point is that switching becomes a one-setting change.
 
 ## Vehicle notes
 
-Inline, in this session, by anchor-box-maintainer-2 — Ashley is evaluating a
+Inline, in this session, by anchor-box-maintainer-2 — the user is evaluating a
 new model on this approach. Track pieces with harness tasks. Standing role rules
 still apply: scoped tests during work, full suite only as the deploy gate; stop
-after commit and report — no push or deploy without Ashley's separate
+after commit and report — no push or deploy without the user's separate
 greenlight. Mirror the speech-to-text provider work (landed today) for
 structure.
 
@@ -174,7 +174,7 @@ structure.
 - **Shape: One personal fallback voice** — present
 - **Shape: Failures are loud** — present · Notice on speak button; error cue + message in hands-free mode; no other provider.
 - **Shape: Logs** — present · Provider, model and voice on every request, failure and retry line; list fetches/failures logged.
-- **Shape: Docs and teaching** — present · Deploy doc + example config; id skill gains hands-free voice mode; Agent voices description unchanged per Ashley.
+- **Shape: Docs and teaching** — present · Deploy doc + example config; id skill gains hands-free voice mode; Agent voices description unchanged per the user.
 - **Philosophy** — present
 - **Scope edges** — present · Nothing out-of-scope appeared.
 - **What would make it wrong: An instance with no setting sounds or behaves any differently from today** — present · Polly sound unchanged; visible changes endorsed.
