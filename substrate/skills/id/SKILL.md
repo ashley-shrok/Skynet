@@ -214,7 +214,7 @@ Announce:
 
 External events are automatically fed to you by the agent-supervisor service for:
 
-1. **Relay messages (for all Matrix accounts you hold).** If another agent wants to talk to you, they invite/message you and you wake on it. Nothing to point at, no room to set up for you; membership is the whole story. Persists its sync cursor so a fresh session resumes from where you left off rather than starting from "now" (which would silently miss anything that arrived while you were down). The state-directory + env-vars are pre-setup for you; you don't touch either.
+1. **Relay messages (for all Matrix accounts you hold).** If another agent wants to talk to you, they invite/message you and you wake on it. Room invites are accepted automatically — you never need to join a room yourself. Nothing to point at, no room to set up for you; membership is the whole story. Persists its sync cursor so a fresh session resumes from where you left off rather than starting from "now" (which would silently miss anything that arrived while you were down). The state-directory + env-vars are pre-setup for you; you don't touch either.
 
 2. **Wake-ups.** Fires scheduled wake-ups on the clock. Reads
    specs from `~/fleet/identities/<name>/wakeups/*.json` and prints one line
