@@ -11,10 +11,12 @@
 #   T-02  — /id lands in the startup-written jsonl already in the snapshot → success on attempt 1,
 #           pasted once (the double-/id regression)
 #   T-03  — only a prior session's jsonl (already holding /id NAME) exists, nothing new lands →
-#           NOT counted as landed (scrollback-proofing preserved)
+#           NOT counted as landed (scrollback-proofing preserved); only the retry sends C-c
+#   T-04  — attempt 1 sends no C-c (a C-c into a mid-mount Ink kills claude)
+#   T-05  — compose prompt never shows → paste still goes out after the ~8s readiness bound
 #
 # tmux (PATH stub) and claude_running are stubbed; the paste is simulated by appending a /id user
-# turn to a target file. Poll budget is real (15s per attempt) — T-03 takes ~30s.
+# turn to a target file. Poll budget is real (15s per attempt) — T-03 takes ~30s, T-05 ~8s.
 #
 # Usage: bash substrate/scripts/tests/agent-supervisor-submit-id.test.sh  (from repo root)
 
@@ -64,17 +66,25 @@ id_turn() { printf '{"type":"user","message":{"role":"user","content":"<command-
 mkdir -p "$SCRATCH/bin"
 cat >"$SCRATCH/bin/tmux" <<'STUB'
 #!/usr/bin/env bash
-[ "$1" = paste-buffer ] || exit 0
+case "$1" in
+  capture-pane) [ -n "${PROMPT_VISIBLE:-}" ] && printf '\n❯ \n'; exit 0 ;;
+  send-keys) case " $* " in *" C-c "*) echo x >>"$CTRLC_COUNT_FILE" ;; esac; exit 0 ;;
+  paste-buffer) ;;
+  *) exit 0 ;;
+esac
 echo x >>"$PASTE_COUNT_FILE"
 [ -n "$LAND_TARGET" ] || exit 0
 [ -f "$LAND_TARGET" ] || printf '%s\n' "$STARTUP_LINES" >"$LAND_TARGET"
 printf '{"type":"user","message":{"role":"user","content":"<command-message>id</command-message>\\n<command-name>/id</command-name>\\n<command-args>%s</command-args>"}}\n' "$NAME" >>"$LAND_TARGET"
 STUB
 chmod +x "$SCRATCH/bin/tmux"
-export PATH="$SCRATCH/bin:$PATH" PASTE_COUNT_FILE STARTUP_LINES NAME
+CTRLC_COUNT_FILE="$SCRATCH/ctrlc-count"
+export PROMPT_VISIBLE=1
+export PATH="$SCRATCH/bin:$PATH" PASTE_COUNT_FILE CTRLC_COUNT_FILE STARTUP_LINES NAME
 
-reset() { rm -rf "$PDIR"; mkdir -p "$PDIR"; : >"$PASTE_COUNT_FILE"; export LAND_TARGET=""; }
+reset() { rm -rf "$PDIR"; mkdir -p "$PDIR"; : >"$PASTE_COUNT_FILE"; : >"$CTRLC_COUNT_FILE"; export LAND_TARGET=""; }
 pastes() { wc -l <"$PASTE_COUNT_FILE" | tr -d ' '; }
+ctrlcs() { wc -l <"$CTRLC_COUNT_FILE" | tr -d ' '; }
 
 CURRENT_TEST="T-01 /id lands in a new jsonl"
 reset; export LAND_TARGET="$PDIR/fresh.jsonl"
@@ -84,9 +94,20 @@ CURRENT_TEST="T-02 /id lands in the startup-written jsonl already in the snapsho
 reset; printf '%s\n' "$STARTUP_LINES" >"$PDIR/startup.jsonl"; export LAND_TARGET="$PDIR/startup.jsonl"
 if submit_id "$NAME" sess "$CWD" && [ "$(pastes)" = 1 ]; then pass; else fail "rc/pastes wrong (pastes=$(pastes)) — /id re-pasted"; fi
 
-CURRENT_TEST="T-03 prior session's jsonl with /id NAME is not counted as a landing"
+CURRENT_TEST="T-03 prior session's jsonl with /id NAME is not counted as a landing (attempt 2 C-c's)"
 reset; { printf '%s\n' "$STARTUP_LINES"; id_turn "$NAME"; } >"$PDIR/prior.jsonl"; LAND_TARGET=""
-if submit_id "$NAME" sess "$CWD"; then fail "prior session counted as landed"; else pass; fi
+if submit_id "$NAME" sess "$CWD"; then fail "prior session counted as landed"
+elif [ "$(pastes)" != 2 ] || [ "$(ctrlcs)" != 1 ]; then fail "want 2 pastes / 1 C-c (retry only), got $(pastes)/$(ctrlcs)"
+else pass; fi
+
+CURRENT_TEST="T-04 attempt 1 on a fresh compose sends NO C-c"
+reset; export LAND_TARGET="$PDIR/fresh.jsonl"
+if submit_id "$NAME" sess "$CWD" && [ "$(ctrlcs)" = 0 ]; then pass; else fail "C-c sent on attempt 1 ($(ctrlcs))"; fi
+
+CURRENT_TEST="T-05 compose prompt never appears → still pastes after the ~8s bound"
+reset; export LAND_TARGET="$PDIR/fresh.jsonl"; PROMPT_VISIBLE=""
+t0=$(date +%s); submit_id "$NAME" sess "$CWD"; rc=$?; el=$(( $(date +%s) - t0 )); PROMPT_VISIBLE=1
+if [ "$rc" = 0 ] && [ "$(pastes)" = 1 ] && [ "$el" -ge 7 ] && [ "$el" -le 12 ]; then pass; else fail "rc=$rc pastes=$(pastes) elapsed=${el}s"; fi
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 if [ "$FAIL" -gt 0 ]; then

@@ -12,6 +12,9 @@
 #   T-04  — plain file created at top level → no early wake
 #   T-05  — dot-directory created at top level → no early wake
 #   T-06  — NEW_IDENTITY_WAKE=off → plain sleep, ignores new folders
+#   T-07  — early wake records the newborn's name for the fast path
+#   T-08..T-11 — launch_newborns: launches a plain newborn; skips one with a tmux session, a
+#           dormant / archive-requested / file-less folder, and everything under DRY_RUN
 #
 # Exits 0 on all-pass; 1 on any failure. Requires inotifywait (skips if absent).
 #
@@ -102,6 +105,48 @@ NEW_IDENTITY_WAKE=off
 ms=$(timed_wait); wait
 NEW_IDENTITY_WAKE=on
 if [ "$ms" -ge 3800 ] && [ "$ms" -le 5500 ]; then pass; else fail "elapsed ${ms}ms, want ~4000"; fi
+
+CURRENT_TEST="T-07 early wake records the newborn in EARLY_WAKE_NAMES"
+reset_dir; IDENTITY_LISTING_AT_TICK="$(identity_listing)"; EARLY_WAKE_NAMES=""
+mkdir -p "$SCRATCH/staging/kid"
+( sleep 1.5; mv "$SCRATCH/staging/kid" "$AGENT_IDENTITIES_DIR/kid" ) &
+wait_for_next_tick; wait
+if [ "$EARLY_WAKE_NAMES" = "kid" ]; then pass; else fail "EARLY_WAKE_NAMES='$EARLY_WAKE_NAMES', want 'kid'"; fi
+
+# ---- launch_newborns (fast path) ----
+# launch() is stubbed to record calls; tmux is a PATH stub (launch_newborns calls it via timeout)
+# whose `ls` prints the session names in $SCRATCH/sessions.
+mkdir -p "$SCRATCH/bin"
+printf '#!/usr/bin/env bash\n[ "$1" = ls ] && cat "%s/sessions" 2>/dev/null\nexit 0\n' "$SCRATCH" >"$SCRATCH/bin/tmux"
+chmod +x "$SCRATCH/bin/tmux"
+PATH="$SCRATCH/bin:$PATH"
+LAUNCHED=()
+launch() { LAUNCHED+=("$1:$2:$3"); }
+newborn() { mkdir -p "$AGENT_IDENTITIES_DIR/$1"; touch "$AGENT_IDENTITIES_DIR/$1/$1.md"; }
+
+CURRENT_TEST="T-08 fast path launches a plain newborn fresh, then clears EARLY_WAKE_NAMES"
+reset_dir; : >"$SCRATCH/sessions"; LAUNCHED=(); newborn kid; EARLY_WAKE_NAMES="kid"
+launch_newborns
+if [ "${LAUNCHED[*]}" = "kid:fresh:kid" ] && [ -z "$EARLY_WAKE_NAMES" ]; then pass; else fail "launched='${LAUNCHED[*]}' names='$EARLY_WAKE_NAMES'"; fi
+
+CURRENT_TEST="T-09 fast path skips a newborn that already has a tmux session"
+reset_dir; echo kid >"$SCRATCH/sessions"; LAUNCHED=(); newborn kid; EARLY_WAKE_NAMES="kid"
+launch_newborns
+if [ "${#LAUNCHED[@]}" = 0 ]; then pass; else fail "launched='${LAUNCHED[*]}'"; fi
+
+CURRENT_TEST="T-10 fast path skips dormant / archive-requested / no-identity-file folders"
+reset_dir; : >"$SCRATCH/sessions"; LAUNCHED=()
+newborn sleepy; touch "$AGENT_IDENTITIES_DIR/sleepy/.dormant"
+newborn gone; touch "$AGENT_IDENTITIES_DIR/gone/.archive-requested"
+mkdir -p "$AGENT_IDENTITIES_DIR/halfbaked"
+EARLY_WAKE_NAMES="sleepy gone halfbaked"
+launch_newborns
+if [ "${#LAUNCHED[@]}" = 0 ]; then pass; else fail "launched='${LAUNCHED[*]}'"; fi
+
+CURRENT_TEST="T-11 DRY_RUN → fast path launches nothing"
+reset_dir; : >"$SCRATCH/sessions"; LAUNCHED=(); newborn kid; EARLY_WAKE_NAMES="kid"
+DRY_RUN=1 launch_newborns
+if [ "${#LAUNCHED[@]}" = 0 ]; then pass; else fail "launched='${LAUNCHED[*]}'"; fi
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 if [ "$FAIL" -gt 0 ]; then

@@ -2029,7 +2029,7 @@ _check_id_first_turn() {
 # Approach:
 #   1. Snapshot pre-existing jsonls under ~/.claude/projects/<sanitized-cwd>/
 #      (Claude Code mangles the cwd: replace every "/" with "-".)
-#   2. C-c + load-buffer + paste-buffer + Enter — same paste sequence as before.
+#   2. Wait for Ink's compose prompt, then load-buffer + paste-buffer + Enter (attempt 2 C-c's first).
 #   3. Poll for a NEW jsonl appearing (not in the snapshot) — or a snapshot jsonl that had no
 #      user turn yet (this harness's own startup-written file) — whose first user-role line
 #      matches the /id NAME predicate. Neither can contain scrollback → this is a genuine
@@ -2063,11 +2063,26 @@ submit_id() {
   done
   log "'$name' submit_id: watching $project_dir (${before_count} existing jsonls before submit, $(printf '%s' "$unprompted_existing" | wc -w) without a user turn yet)"
 
+  # submit_id only runs on a FRESH launch, whose compose box is empty — so attempt 1 sends no C-c.
+  # A C-c that lands while Ink is still mounting KILLS claude (the redrive below then costs ~10s),
+  # so instead wait for Ink's compose prompt (❯) before pasting. Bounded: after ~8s, paste anyway.
+  # A retry (attempt 2) still C-c's first, to clear whatever the failed attempt left in the compose.
+  local _ready=0
+  while [ "$_ready" -lt 16 ]; do
+    timeout -k 5 10 tmux capture-pane -pt "$sess" -S -15 2>/dev/null | grep -q '❯' && break
+    sleep 0.5; _ready=$((_ready+1))
+  done
+  [ "$_ready" -ge 16 ] && log "'$name' submit_id: compose prompt not seen after 8s — pasting anyway"
+
   local attempt max=2
   for attempt in $(seq 1 $max); do
-    log "'$name' submit_id attempt $attempt: C-c + load-buffer /id $name + paste-buffer + Enter"
-    timeout -k 5 10 tmux send-keys -t "$sess" C-c 2>/dev/null
-    sleep 0.5
+    if [ "$attempt" -gt 1 ]; then
+      log "'$name' submit_id attempt $attempt: C-c + load-buffer /id $name + paste-buffer + Enter"
+      timeout -k 5 10 tmux send-keys -t "$sess" C-c 2>/dev/null
+      sleep 0.5
+    else
+      log "'$name' submit_id attempt $attempt: load-buffer /id $name + paste-buffer + Enter (fresh compose, no C-c)"
+    fi
     # 2026-09-02 Ink-mount race guard: if our C-c hit Ink mid-mount, claude exited. Self-correcting
     # fix — relaunch with an 8s extended settle, then FALL THROUGH to the paste (do NOT `continue`).
     # 2026-09-08 fix: the previous `continue` looped back to the top and fired another C-c on the
@@ -3473,7 +3488,7 @@ reconcile() {
 # remainder of CHECK_INTERVAL. Nothing here launches anything — the single-threaded reconcile
 # loop stays the only actor; this only shortens the nap between passes. Births land as one
 # atomic `mv` from a staging dir outside $IDENTITIES_DIR, so a top-level moved_to/create of a
-# directory is exactly the birth signal. Un-archive (mv archive→live) also triggers it.
+# directory is exactly the birth signal. The newborn is then launched first (launch_newborns). Un-archive (mv archive→live) also triggers it.
 # Everything reconcile schedules is wall-clock gated (idle threshold, 24h archive scan), so an
 # early pass changes no cadence. Missing inotifywait or NEW_IDENTITY_WAKE=off → plain sleep.
 NEW_IDENTITY_WAKE="${NEW_IDENTITY_WAKE:-on}"
@@ -3488,7 +3503,36 @@ identity_listing() {
 # Prints the first identity folder present now but absent from the listing taken at the top of
 # the last tick (catches births that landed mid-reconcile, before the watch was armed).
 new_identity_since_tick() {
-  LC_ALL=C comm -13 <(printf '%s\n' "$IDENTITY_LISTING_AT_TICK") <(identity_listing) | grep -v '^$' | head -1
+  LC_ALL=C comm -13 <(printf '%s\n' "$IDENTITY_LISTING_AT_TICK") <(identity_listing) | grep -v '^$'
+}
+
+# Names that caused the last early wake; launched by launch_newborns before the next reconcile.
+EARLY_WAKE_NAMES=""
+
+# Newborn fast path: launch the identities that triggered an early wake BEFORE the reconcile pass,
+# instead of waiting for the pass to work through its snapshots (matrix peek over every dormant
+# identity, tmux/ps snapshots, sentinel scans) and reach them in alphabetical order — ~5-13s on a
+# loaded box. Same thread, same launch() as the ABSENT branch; the pass that follows then sees the
+# newborn alive and skips it. Only a plain newborn qualifies — anything with a tmux session or a
+# dormant/recycle/archive sentinel is left for reconcile's normal handling (an un-archived identity
+# arrives .dormant, so it is never fast-pathed).
+launch_newborns() {
+  local names="$EARLY_WAKE_NAMES" name sess n=0
+  EARLY_WAKE_NAMES=""
+  [ "${DRY_RUN:-0}" = 1 ] && return 0
+  for name in $names; do
+    [ -f "$IDENTITIES_DIR/$name/$name.md" ] || continue
+    [ -e "$IDENTITIES_DIR/$name/.dormant" ] && continue
+    [ -e "$IDENTITIES_DIR/$name/.recycle-requested" ] && continue
+    [ -e "$IDENTITIES_DIR/$name/.archive-requested" ] && continue
+    sess="$(slug "$name")"
+    timeout -k 5 10 tmux ls -F '#{session_name}' 2>/dev/null | tr '[:upper:]' '[:lower:]' | grep -qxF "$(_lower "$sess")" && continue
+    [ "$n" -gt 0 ] && sleep "${STAGGER_SECONDS:-8}"
+    log "'$name' (session '$sess') newborn — launching ahead of reconcile (fast path)"
+    launch "$name" fresh "$sess"
+    n=$((n+1))
+  done
+  return 0
 }
 
 wait_for_next_tick() {
@@ -3512,7 +3556,8 @@ wait_for_next_tick() {
     newname="$(new_identity_since_tick)"
     if [ -n "$newname" ]; then
       kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
-      log "new identity '$newname' landed during reconcile — next pass now (early wake)"
+      EARLY_WAKE_NAMES="$newname"
+      log "new identity '$(printf '%s' "$newname" | head -1)' landed during reconcile — next pass now (early wake)"
       break
     fi
     wait "$pid"; rc=$?
@@ -3523,7 +3568,9 @@ wait_for_next_tick() {
     fi
     read -r ev f <"$out"
     case "$ev" in
-      *ISDIR*) case "$f" in .*) ;; *) log "new identity '$f' appeared — next pass now (early wake)"; break ;; esac ;;
+      *ISDIR*) case "$f" in .*) ;; *)
+        EARLY_WAKE_NAMES="$(new_identity_since_tick)"; [ -n "$EARLY_WAKE_NAMES" ] || EARLY_WAKE_NAMES="$f"
+        log "new identity '$f' appeared — next pass now (early wake)"; break ;; esac ;;
     esac
     # a plain file or dot-dir at the top level — not a birth; keep waiting out the interval
   done
@@ -3573,6 +3620,6 @@ case "${1:-}" in
     # rm — a fresh supervisor process starts with a clean slate. belt-and-suspenders alongside the
     # freshness-timestamp check consumers use to distinguish this-wake from prior-wake.
     for d in "$IDENTITIES_DIR"/*/; do rm -f "$d/.resume-complete" 2>/dev/null; done
-    while :; do IDENTITY_LISTING_AT_TICK="$(identity_listing)"; reconcile; wait_for_next_tick; done
+    while :; do IDENTITY_LISTING_AT_TICK="$(identity_listing)"; launch_newborns; reconcile; wait_for_next_tick; done
     ;;
 esac
