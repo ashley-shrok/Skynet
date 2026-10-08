@@ -92,7 +92,7 @@ Every response file carries exactly one `outcome`. Successful transcripts land u
 | malformed          | Your request file was malformed. Check `message` for the specific field problem, fix, and retry. |
 | unknown_user       | No Skynet user by that username. Check the username you passed to `--to`. |
 | not_permitted      | That user has not registered the host you're running on, so you can't call them. You can only call the people who own your host. Not agent-retriable. |
-| no_phone_on_file   | The user exists but has no phone number set on their record. Not agent-retriable — an operator needs to set one via the admin endpoint. |
+| no_phone_on_file   | The user exists but has no phone number set on their record. Not agent-retriable. Having a number on file is what turns the phone feature on for a user: users who have it can change their number themselves in Preferences → Phone. A user with no number doesn't have the feature, so tell them a Skynet admin needs to turn it on by setting their number. |
 
 ## Rate limits, quotas, etiquette
 
