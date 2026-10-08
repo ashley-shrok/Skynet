@@ -2030,8 +2030,9 @@ _check_id_first_turn() {
 #   1. Snapshot pre-existing jsonls under ~/.claude/projects/<sanitized-cwd>/
 #      (Claude Code mangles the cwd: replace every "/" with "-".)
 #   2. C-c + load-buffer + paste-buffer + Enter — same paste sequence as before.
-#   3. Poll for a NEW jsonl appearing (not in the snapshot) whose first user-role line matches
-#      the /id NAME predicate. A new file cannot contain scrollback → this is a genuine
+#   3. Poll for a NEW jsonl appearing (not in the snapshot) — or a snapshot jsonl that had no
+#      user turn yet (this harness's own startup-written file) — whose first user-role line
+#      matches the /id NAME predicate. Neither can contain scrollback → this is a genuine
 #      YES/NO signal, not a pane-scrape heuristic.
 #   4. Two attempts × 15s each = 30s worst-case budget. Second failure → LOUD log + return 1
 #      so drive() bails (same shape as wait_for_claude).
@@ -2051,7 +2052,16 @@ submit_id() {
   before_snapshot=$(ls -1 "$project_dir"/*.jsonl 2>/dev/null | sort -u)
   local before_count
   before_count=$(printf '%s\n' "$before_snapshot" | grep -c '\.jsonl$' || true)
-  log "'$name' submit_id: watching $project_dir (${before_count} existing jsonls before submit)"
+  # Newer Claude Code writes its session jsonl at STARTUP (mode/permission-mode/system lines),
+  # before any prompt — so on a fast box this harness's own file is already in the snapshot and
+  # `/id` lands in it, not in a "new" file. Pre-existing files with NO user turn yet are therefore
+  # watched too: a prior session's file always has a user turn (its own /id), so scrollback-proof
+  # detection still holds. Without this, the /id was missed and re-pasted — a double /id load.
+  local unprompted_existing="" _f
+  for _f in $before_snapshot; do
+    head -c 8192 "$_f" 2>/dev/null | grep -q '"type":"user"' || unprompted_existing="$unprompted_existing $_f"
+  done
+  log "'$name' submit_id: watching $project_dir (${before_count} existing jsonls before submit, $(printf '%s' "$unprompted_existing" | wc -w) without a user turn yet)"
 
   local attempt max=2
   for attempt in $(seq 1 $max); do
@@ -2092,7 +2102,7 @@ submit_id() {
       local now_snapshot new_files path
       now_snapshot=$(ls -1 "$project_dir"/*.jsonl 2>/dev/null | sort -u)
       new_files=$(comm -23 <(printf '%s\n' "$now_snapshot") <(printf '%s\n' "$before_snapshot") 2>/dev/null | grep -v '^$')
-      for path in $new_files; do
+      for path in $new_files $unprompted_existing; do
         if _check_id_first_turn "$path" "$name"; then
           log "'$name' submit_id: /id landed in $(basename "$path") (attempt $attempt)"
           return 0
