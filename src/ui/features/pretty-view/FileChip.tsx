@@ -19,6 +19,12 @@ import { resolveFileViewer } from "./file-viewers/registry";
  *   preview — the type's inline preview inside a rounded frame, caption strip
  *             below with the same trailing controls
  *
+ * Audio / video previews are the exception to "the whole chip is an anchor":
+ * the frame is a plain <div> and only the caption strip is the anchor. A
+ * native player nested inside an <a href> lets iOS Safari treat a tap on the
+ * play button as link activation and navigate to the bare media URL (a
+ * full-screen player with no way back), so the player must sit outside it.
+ *
  * The file-viewer registry (file-viewers/registry.ts) decides both the icon
  * and whether a type has an inline preview (`ChipPreview`). Media previews
  * source from the URL itself — `<img>` / `<audio>` / `<video>` fetch with the
@@ -47,8 +53,9 @@ export interface FileChipProps {
   size?: number;
   /**
    * Called on plain click (whole-chip click for plain variant; whole-frame
-   * click for media variant, except when the click lands on the audio/video
-   * native controls or the download icon). Opens the file-URL modal.
+   * click for preview variant; caption-strip click for audio/video, whose
+   * player sits outside the anchor). Never fires from the download icon.
+   * Opens the file-URL modal.
    */
   onOpen: () => void;
   /**
@@ -87,15 +94,6 @@ export function FileChip({
   // ⌘-click never fire this handler, so browser-native open-in-new-tab
   // survives untouched.
   const handleOpen = (e: MouseEvent<HTMLAnchorElement>) => {
-    // Bail out if the click landed inside an audio/video native control
-    // (users need to be able to play/pause/scrub without triggering the
-    // modal open). The check is a target-walk up to the chip root,
-    // stopping if we hit a media element along the way.
-    let el: HTMLElement | null = e.target as HTMLElement;
-    while (el && el !== e.currentTarget) {
-      if (el.tagName === "AUDIO" || el.tagName === "VIDEO") return;
-      el = el.parentElement;
-    }
     e.preventDefault();
     onOpen();
   };
@@ -162,45 +160,68 @@ export function FileChip({
 
   // Preview variant — the registry's inline preview inside a rounded frame,
   // caption row below.
+  const frameClassName = cn(
+    "block max-w-[340px] rounded-2xl overflow-hidden no-underline",
+    "bg-[rgba(10,12,20,0.5)] border border-white/10",
+    "text-[#e8e4d8]",
+    "hover:border-white/[0.22]",
+    "transition-[border-color] duration-[120ms]",
+    className,
+  );
+  const captionClassName = cn(
+    "flex items-center gap-2 px-2.5 py-1.5 text-xs",
+    "border-t border-white/[0.08]",
+  );
+  const title = sizeLabel ? `${filename} (${sizeLabel})` : filename;
+  const preview = (
+    <div className="block bg-black/60">
+      <Preview url={url} filename={filename} onError={() => setMediaBroken(true)} />
+    </div>
+  );
+  const caption = (
+    <>
+      <Icon className="size-3.5 shrink-0 opacity-70" aria-hidden />
+      <span
+        className={cn(
+          "flex-1 min-w-0 truncate underline underline-offset-[3px]",
+          "decoration-white/[0.35] hover:decoration-white/[0.85]",
+        )}
+      >
+        {filename}
+      </span>
+      {sizeLabel ? (
+        <span className="opacity-60 shrink-0">{sizeLabel}</span>
+      ) : null}
+      <DownloadButton onClick={handleDownload} label={`Download ${filename}`} />
+    </>
+  );
+
+  // Audio / video — the native player stays OUT of the anchor (see header).
+  if (kind === "audio" || kind === "video") {
+    return (
+      <div className={frameClassName} title={title} data-file-chip-kind={kind}>
+        {preview}
+        <a
+          href={url}
+          onClick={handleOpen}
+          className={cn(captionClassName, "no-underline text-inherit cursor-pointer")}
+        >
+          {caption}
+        </a>
+      </div>
+    );
+  }
+
   return (
     <a
       href={url}
       onClick={handleOpen}
-      className={cn(
-        "block max-w-[340px] rounded-2xl overflow-hidden no-underline",
-        "bg-[rgba(10,12,20,0.5)] border border-white/10",
-        "text-[#e8e4d8]",
-        "hover:border-white/[0.22]",
-        "transition-[border-color] duration-[120ms]",
-        "cursor-pointer",
-        className,
-      )}
-      title={sizeLabel ? `${filename} (${sizeLabel})` : filename}
+      className={cn(frameClassName, "cursor-pointer")}
+      title={title}
       data-file-chip-kind={kind}
     >
-      <div className="block bg-black/60">
-        <Preview url={url} filename={filename} onError={() => setMediaBroken(true)} />
-      </div>
-      <div
-        className={cn(
-          "flex items-center gap-2 px-2.5 py-1.5 text-xs",
-          "border-t border-white/[0.08]",
-        )}
-      >
-        <Icon className="size-3.5 shrink-0 opacity-70" aria-hidden />
-        <span
-          className={cn(
-            "flex-1 min-w-0 truncate underline underline-offset-[3px]",
-            "decoration-white/[0.35] hover:decoration-white/[0.85]",
-          )}
-        >
-          {filename}
-        </span>
-        {sizeLabel ? (
-          <span className="opacity-60 shrink-0">{sizeLabel}</span>
-        ) : null}
-        <DownloadButton onClick={handleDownload} label={`Download ${filename}`} />
-      </div>
+      {preview}
+      <div className={captionClassName}>{caption}</div>
     </a>
   );
 }

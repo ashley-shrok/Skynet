@@ -149,7 +149,7 @@ describe("FileChip — plain variant", () => {
     fireEvent.click(screen.getByRole("button", { name: /download song\.mp3/i }));
 
     expect(clickSpy).toHaveBeenCalledTimes(1);
-    // Multiple anchors get created during render (the chip's own outer
+    // Multiple anchors get created during render (the chip's own caption
     // anchor is one). The synthesized download anchor is the LAST anchor
     // — createElement("a") calls from React's render happen first, and
     // our synthesized one fires only after the button click fires.
@@ -205,9 +205,8 @@ describe("FileChip — media variant", () => {
   });
 
   it("does NOT fire onOpen when the user interacts with the native audio controls", () => {
-    // The chip's onClick walks up from event.target; if it hits an <audio>
-    // before reaching the chip root, it bails out. This test simulates a
-    // click on the audio element itself.
+    // The player sits outside the chip's anchor, so a click on it never
+    // reaches the open intercept.
     const url = "https://term.example.com/file/t1000/home/ubuntu/song.mp3";
     const onOpen = vi.fn();
     const { container } = render(
@@ -216,6 +215,30 @@ describe("FileChip — media variant", () => {
     const audio = container.querySelector("audio")!;
     fireEvent.click(audio);
     expect(onOpen).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["song.mp3", "audio"],
+    ["clip.mp4", "video"],
+  ])("keeps the %s player outside any anchor so iOS taps don't navigate", (filename, tag) => {
+    const url = `https://term.example.com/file/t1000/home/ubuntu/${filename}`;
+    const { container } = render(
+      <FileChip url={url} filename={filename} onOpen={vi.fn()} />,
+    );
+    const player = container.querySelector(tag)!;
+    expect(player.closest("a")).toBeNull();
+  });
+
+  it("clicking the audio chip's caption fires onOpen and prevents navigation", () => {
+    const url = "https://term.example.com/file/t1000/home/ubuntu/song.mp3";
+    const onOpen = vi.fn();
+    render(<FileChip url={url} filename="song.mp3" onOpen={onOpen} />);
+    const caption = screen.getByRole("link", { name: /song\.mp3/i });
+    expect(caption.getAttribute("href")).toBe(url);
+    const event = new MouseEvent("click", { bubbles: true, cancelable: true });
+    caption.dispatchEvent(event);
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    expect(event.defaultPrevented).toBe(true);
   });
 
   it("plain click on the surrounding media chip frame still fires onOpen", () => {
