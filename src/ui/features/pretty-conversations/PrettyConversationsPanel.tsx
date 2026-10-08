@@ -3034,7 +3034,7 @@ export function PrettyConversationsPanel({
                 setAppsExpanded((v) => !v);
               }
             }}
-            className="group flex items-center gap-2.5 pl-1 pr-4 pt-3.5 pb-1.5 w-full text-left cursor-pointer"
+            className="group flex items-center gap-2.5 pl-1 pr-1 pt-3.5 pb-1.5 w-full text-left cursor-pointer"
             data-testid="pretty-conversations-apps-header"
             aria-expanded={appsExpanded || sidebarSearchActive}
             aria-controls="pv-apps-section-content"
@@ -3043,7 +3043,7 @@ export function PrettyConversationsPanel({
               className="size-3.5 text-[#a89a80] opacity-90 shrink-0"
               aria-hidden="true"
             />
-            <span className="pv-section-label shrink-0">
+            <span className="pv-section-label">
               Apps
             </span>
             <span
@@ -3058,7 +3058,7 @@ export function PrettyConversationsPanel({
                 lights the trigger. RowKebabMenu's own portal-click-containment
                 prevents item-click leaks to the outer div's collapse toggle. */}
             <div
-              className="opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity shrink-0"
+              className="pv-section-kebab-slot opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity shrink-0"
               data-testid="pretty-conversations-apps-header-kebab-slot"
             >
               <RowKebabMenu
@@ -3152,14 +3152,14 @@ export function PrettyConversationsPanel({
                 />
               )}
               <div
-                className="flex items-center gap-2.5 pl-1 pr-4 pt-3.5 pb-1.5"
+                className="flex items-center gap-2.5 pl-1 pr-1 pt-3.5 pb-1.5"
                 data-testid="pretty-conversations-pinned-header"
               >
                 <Pin
                   className="size-3.5 text-[#a89a80] opacity-90 shrink-0"
                   aria-hidden="true"
                 />
-                <span className="pv-section-label shrink-0">
+                <span className="pv-section-label">
                   Pinned
                 </span>
                 <span
@@ -3321,14 +3321,14 @@ export function PrettyConversationsPanel({
                     follows so the section reads as a real fixture, not a
                     stray label. */}
                 <div
-                  className="flex items-center gap-2.5 pl-1 pr-4 pt-3.5 pb-1.5"
+                  className="flex items-center gap-2.5 pl-1 pr-1 pt-3.5 pb-1.5"
                   data-testid="pv-flat-middle-section-header"
                 >
                   <MessagesSquare
                     className="size-3.5 text-[#a89a80] opacity-90 shrink-0"
                     aria-hidden="true"
                   />
-                  <span className="pv-section-label shrink-0">
+                  <span className="pv-section-label">
                     Conversations
                   </span>
                   <span
@@ -3388,14 +3388,14 @@ export function PrettyConversationsPanel({
                     warm #a89a80 color, matching icon weight + symmetric
                     gradient rule. */}
                 <div
-                  className="flex items-center gap-2.5 pl-1 pr-4 pt-3.5 pb-1.5"
+                  className="flex items-center gap-2.5 pl-1 pr-1 pt-3.5 pb-1.5"
                   data-testid="rdp-divider"
                 >
                   <Monitor
                     className="size-3.5 text-[#a89a80] opacity-90 shrink-0"
                     aria-hidden="true"
                   />
-                  <span className="pv-section-label shrink-0">
+                  <span className="pv-section-label">
                     {rdpSectionLabel}
                   </span>
                   <span

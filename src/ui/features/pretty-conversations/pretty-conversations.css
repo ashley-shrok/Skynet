@@ -248,6 +248,41 @@
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: #a89a80;
+  /* Long project / section titles truncate instead of pushing the trailing
+     chevron past the sidebar's right edge. The spans themselves no longer
+     carry `shrink-0` in JSX. */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Section-header kebab slot. Lives inside Apps + per-project headers next
+   to the trailing chevron. Two jobs:
+     (1) its intrinsic height (24px button) must NOT drive the header's row
+         height — clamp to 14px so the row sits at the icon/label rhythm;
+     (2) on desktop (≥md) collapse the slot's horizontal space when idle so
+         the label gets the ~24px back; expand on hover, focus-within, or
+         while the Radix dropdown is open (data-state="open"). Mobile keeps
+         it always expanded — the slot's own `md:opacity-*` classes handle
+         visibility there. */
+.pv-section-kebab-slot {
+  height: 14px;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  overflow: visible;
+}
+@media (min-width: 768px) {
+  [data-testid="pretty-conversations-apps-header"]:not(:hover):not(:focus-within):not(:has(button[data-state="open"]))
+    > .pv-section-kebab-slot,
+  [data-testid^="pv-project-section-header-"]:not(:hover):not(:focus-within):not(:has(button[data-state="open"]))
+    > .pv-section-kebab-slot {
+    width: 0;
+    margin-left: -10px; /* swallow the gap-2.5 so no dead space remains */
+    overflow: hidden;
+    pointer-events: none;
+  }
 }
 
 .pv-panel-footer .pv-footer-actions {
@@ -386,10 +421,15 @@
    * hunting for a scroll owner (AppShell's outer chain is all overflow-hidden),
    * making the conversation list unresponsive to swipes. */
   overscroll-behavior: contain;
-  padding: 14px 12px 18px;
+  /* 0 top-padding: the first section's own pt-3.5 is the sole gap between
+     the search box and the Apps header (user tasting 2026-10-07). */
+  padding: 0 12px 18px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  /* 0 flex-gap: every section-to-section rhythm is now carried by each
+     header's own pt + pb — no extra "between sections" air (user tasting
+     2026-10-07). Was 8px. */
+  gap: 0;
 }
 
 /* shape-sidebar-search-inline: dedicated search input row that sits between
@@ -487,11 +527,12 @@
   gap: 8px;
 }
 
-/* Project sections tighten the header-to-first-row space vs. the generic
-   .pv-panel-group rhythm (paired with pb-0 on the header row in
-   PrettyProjectSectionHeader.tsx). */
+/* Project sections share the generic .pv-panel-group rhythm (8px internal
+   gap) so the header→first-row spacing matches Pinned / Conversations /
+   RDP. The 6px tighter-gap was tasted-away 2026-10-07 together with the
+   collapsed-header pb:0 / -mt-9 pairing below. */
 .pv-project-section {
-  gap: 6px;
+  gap: 8px;
 }
 
 /* Row-to-row spacing (2026-09-28, user tasting): 5px between consecutive
@@ -512,26 +553,6 @@
 }
 [id^="pv-project-section-content-"] > [data-conversation-id] + [data-conversation-id] {
   margin-top: 5px;
-}
-
-/* Collapsed-section spacing (user tasted via live-tune 2026-10-02).
-   Any section with a collapsible header (Apps + per-project) carries
-   `[role="button"][aria-expanded]` on that header. When collapsed, the
-   header is a header-only row — the pb-1.5 Tailwind padding below it
-   plus the 8px pv-panel-scroll gap plus the next header's pt-3.5
-   produces ~28px of dead air to the next section's label, which reads
-   as excessive. Two rules fix this:
-     (a) zero the collapsed header's padding-bottom.
-     (b) pull the following .pv-panel-group up with margin-top: -9px.
-   The second rule fires regardless of whether the next section is also
-   collapsed — the goal is a consistent compact rhythm after any
-   collapsed header. Non-collapsible section headers (Pinned, flat-
-   middle, RDP) have no aria-expanded, so their siblings aren't trimmed. */
-.pv-panel-group > [role="button"][aria-expanded="false"] {
-  padding-bottom: 0;
-}
-.pv-panel-group:has(> [role="button"][aria-expanded="false"]) + .pv-panel-group {
-  margin-top: -9px;
 }
 
 /* Phase 41 Plan 02 (user 2026-08-14): messaging-app default search-input
