@@ -151,9 +151,10 @@ silently picking one.
 
 How the app treats a multi-role identity: it lists every role (the
 identity modal's header shows them as comma-separated links, each opening
-that role), and it inherits **no** role's look — the avatar, color, title
-and voice a single-role agent picks up from its role are left at the
-app's defaults unless the identity file sets its own. That's deliberate:
+that role), and it inherits **no** role's look — the avatar, title and
+voice a single-role agent picks up from its role are left at the app's
+defaults unless the identity file sets its own. Color is the exception: a multi-role identity shows in **gold**
+color. That's deliberate:
 borrowing one role's face would misstate what you are. Visibility (a
 role's `users:` list) applies for every listed role.
 
