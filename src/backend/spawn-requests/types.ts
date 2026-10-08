@@ -25,6 +25,14 @@ export interface SpawnRequestBody {
   // belongs to (e.g. news-watcher-zoey-email → users:["zoey"] so the newborn
   // lands under Zoey, not the host owner).
   users?: string[];
+  // Optional typed name (pretty name → slug, same as the dialog's "name it
+  // myself"). Absent → pool-picked name.
+  name?: string;
+  // Optional project slug → newborn's `project:` frontmatter.
+  project?: string;
+  // Optional log-only tag naming who dropped the request. Never written to
+  // the newborn's identity file.
+  requested_by?: string;
 }
 
 /**
@@ -42,6 +50,9 @@ export interface PendingBirth {
   task: string | null;
   requested_at: string;
   users?: string[];    // spec-provided user tag (see SpawnRequestBody.users)
+  name?: string;       // typed name (see SpawnRequestBody.name)
+  project?: string;    // project slug (see SpawnRequestBody.project)
+  requested_by?: string; // log-only (see SpawnRequestBody.requested_by)
 
   /**
    * Sweep-side decrypted SSH connection bag threaded down from `scanSpawnRequests`
@@ -101,7 +112,7 @@ export interface PendingBirth {
  * today) or adding a targeted redirection lookup.
  */
 export interface SuccessResponse {
-  name: string;       // pool-picked identity name (lowercase); use directory-search to resolve to mxid
+  name: string;       // identity folder name (lowercase) — the name to `/id` / DM by
   birthed_at: string; // ISO-Z audit timestamp
 }
 

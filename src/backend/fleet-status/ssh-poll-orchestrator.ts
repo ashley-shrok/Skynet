@@ -1568,6 +1568,9 @@ export function parseSpawnRequestBatch(
       task: parsed.body.task,
       requested_at: parsed.body.requested_at,
       users: parsed.body.users,
+      name: parsed.body.name,
+      project: parsed.body.project,
+      requested_by: parsed.body.requested_by,
       hostConnDetails,
     });
   }

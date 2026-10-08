@@ -1085,6 +1085,15 @@ Extra fields are rejected as malformed.
 - `requested_at` (**required**) — ISO-Z timestamp.
 - `skills` (optional) — array of skill slugs to surface beyond the
   role's defaults.
+- `name` (optional) — a name for the newborn, same as the
+  new-conversation picker's "name it myself": free-form, turned into a
+  lowercase slug (`"Deploy Watcher"` → `deploy-watcher`, with `-2`, `-3`…
+  added if taken). Absent = auto-named. The success response carries the
+  final name.
+- `project` (optional) — project slug; the newborn is born already in that
+  project (`project:` frontmatter). Same box only.
+- `requested_by` (optional) — your own identity name. Logged by the
+  backend for tracing; never written into the newborn's identity file.
 
 ### Write atomically, single-line
 

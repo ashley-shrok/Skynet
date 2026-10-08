@@ -33,6 +33,7 @@ import { discoverIdentitySessionFile } from "../claude-session/discover-identity
 import { resolveHostById } from "../ssh/host-resolver.js";
 import { birthIdentity, ROLE_NAME_PATTERN, SSH_CONNECT_TIMEOUT_MS, type BirthEvent, type BirthDeps, type BirthOptions } from "../database/routes/identity-birth-orchestrator.js";
 import { acquireBirthSlot } from "../identity-birth/global-throttle.js";
+import { derivePrettyNameSlug } from "../utils/pretty-name-slug.js";
 import {
   createOrUpdateUser as matrixCreateOrUpdateUser,
   loginAsUser as matrixLoginAsUser,
@@ -344,6 +345,31 @@ async function writeFailureFile(
  *
  * Does NOT retry on failure (D-15). All outcomes produce a response file.
  */
+/**
+ * Typed-name → identity slug (same derivation as the dialog's "name it
+ * myself" path). Returns null when no name was given. The parser already
+ * rejected unusable names, so a failed derivation here also returns null
+ * (falls back to a pool pick rather than crashing).
+ */
+const typedNameToSlug = (name: string | undefined): string | null => {
+  if (name === undefined) return null;
+  const derivation = derivePrettyNameSlug(name);
+  return derivation.ok === true ? derivation.slug : null;
+};
+
+/**
+ * Bump a typed slug past existing identity folders on the target host
+ * (`-2`, `-3`, ...), mirroring identity-birth.ts's resolveFreeIdentitySlug.
+ * Pretty-name slugs contain no digits, so a digit suffix is unambiguous.
+ */
+const freeTypedSlug = (base: string, existing: ReadonlySet<string>): string => {
+  let candidate = base;
+  for (let n = 2; existing.has(candidate); n++) {
+    candidate = `${base}-${n}`;
+  }
+  return candidate;
+};
+
 export const processBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
   // Phase 110: acquire a global-birth-throttle slot. Spawn-request-origin
   // callers set bypassQueueDepth:true — disk-drop items are already
@@ -382,6 +408,9 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
     role: item.roles?.[0] ?? "(none)",  // D-13 bridge: log roles[0] for operator searchability
     roles_count: item.roles?.length ?? 0,
     malformed: item.malformedReason !== undefined,
+    requested_by: item.requested_by ?? null,
+    typed_name: item.name ?? null,
+    project: item.project ?? null,
   });
 
   // 2. Sweep-side malformed short-circuit (post-code-review M2/M3).
@@ -399,9 +428,11 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
 
   // 3. Pre-flight checks — short-circuit before touching birthIdentity
   //
-  //    (a) Pool check
+  //    (a) Pool check — skipped for typed-name requests, which never pick
+  //    from the pool.
+  const typedNameSlug = typedNameToSlug(item.name);
   const pool = deps.getVettedPool();
-  if (pool.length === 0) {
+  if (typedNameSlug === null && pool.length === 0) {
     await writeFailureFile(item, deps, { reason: "pool_exhausted" });
     return;
   }
@@ -529,6 +560,10 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
   // enumeration + tier-3 (full-pool-shuffled) ranker output — preserving the
   // pre-Phase-128 "never fail birth over pool-picker unreachability" behavior.
   let activeNames = new Set<string>();
+  // Full active folder names (not reduced to pool bases) — the typed-name
+  // path bumps its slug against these, mirroring the dialog's
+  // resolveFreeIdentitySlug pre-check.
+  let activeFolderNames = new Set<string>();
   let archivedEntries: readonly ArchivedIdentityEntry[] = [];
   let enumConn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
   try {
@@ -576,6 +611,7 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
     // (`clipper`) before handing to the ranker — its filter compares against
     // pool bases, and a shape mismatch silently bypasses the LRU logic
     // (2026-09-27 regression fix).
+    activeFolderNames = new Set(activeList);
     activeNames = new Set(activeList.map(deriveBaseFromFolderName));
     archivedEntries = archivedList.map((e) => ({
       name: deriveBaseFromFolderName(e.name),
@@ -612,7 +648,10 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
   });
 
   for (let attempt = 0; attempt < MAX_POOL_PICK_ATTEMPTS; attempt++) {
-    const pickedName = ranked.find((n) => !excluded.has(n));
+    const pickedName =
+      typedNameSlug !== null
+        ? freeTypedSlug(typedNameSlug, activeFolderNames)
+        : ranked.find((n) => !excluded.has(n));
     if (pickedName === undefined) {
       // Every ranked candidate has already collided — pool is effectively
       // exhausted for this birth. Different from "pool.length === 0" earlier
@@ -645,7 +684,10 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
       // creatorUsername auto-tag path (which the worker never sets, so on a
       // bare scan-spawn no `users:` key is emitted).
       users: item.users,
-      poolPicked: true, // worker births are always pool-picked (Pattern 6)
+      // Typed-name births use the bare-name MXID shape, same as the dialog's
+      // "name it myself" path; everything else is pool-picked (Pattern 6).
+      poolPicked: typedNameSlug === null,
+      project: item.project,
     };
 
     // Reset per-attempt capture state so the previous attempt's residue doesn't
@@ -672,7 +714,10 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
       // The failure marker carries the partial identity name so operators can
       // check `fleet/identities/<partialName>` before deciding whether to retry.
       if (err instanceof Error && err.message === "BIRTH_ATTEMPT_TIMEOUT") {
-        const partialName = `${pickedName.toLowerCase()}-${item.roles[0]}`;
+        const partialName =
+          typedNameSlug !== null
+            ? pickedName.toLowerCase()
+            : `${pickedName.toLowerCase()}-${item.roles[0]}`;
         systemLogger.warn("spawn-request worker: birth attempt exceeded wall-clock timeout", {
           operation: "spawn_request_birth_attempt_timeout",
           uuid: item.uuid,
@@ -696,7 +741,7 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
     if (endedEvent !== null && (endedEvent as { ok: boolean }).ok === true) {
       break; // success — exit the retry loop, drop success file below
     }
-    if (lastStepFailReason === COLLISION_REASON) {
+    if (lastStepFailReason === COLLISION_REASON && typedNameSlug === null) {
       // Collision — exclude this name locally, log the retry decision, and
       // re-pick. Bounded by MAX_POOL_PICK_ATTEMPTS.
       excluded.add(pickedName.toLowerCase());
@@ -740,15 +785,20 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
     // against Synapse. Dropped per code-review fixup post-Phase-99 (H1 + H2 —
     // see types.ts SuccessResponse doc for rationale). Coord uses `name` for
     // dispatch; directory-search resolves name → mxid when actually needed.
+    // Report the identity FOLDER name (orchestrator's identityId — e.g.
+    // `oak-box-maintainer`), not the pool base (`oak`): the folder name is
+    // what `/id` and DMs resolve against.
+    const bornName = (endedEvent.identityId ?? lastPickedName ?? "").toLowerCase();
     const successPayload: SuccessResponse = {
-      name: (lastPickedName ?? "").toLowerCase(),
+      name: bornName,
       birthed_at: deps.now().toISOString(),
     };
 
     systemLogger.info("spawn-request worker: birth success, writing success file", {
       operation: "spawn_request_birth_success",
       uuid: item.uuid,
-      name: (lastPickedName ?? "").toLowerCase(),
+      name: bornName,
+      requested_by: item.requested_by ?? null,
     });
 
     await writeResponseFile(

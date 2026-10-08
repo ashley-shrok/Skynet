@@ -318,6 +318,12 @@ export interface BirthOptions {
    * title/voice/task pattern above).
    */
   bodyContent?: string;
+  /**
+   * Optional project slug → `project: <slug>` frontmatter (same key the
+   * move-to-project route writes). Absent / empty → omitted. Set by the
+   * spawn-request worker from the request's `project` field.
+   */
+  project?: string;
 }
 
 export interface BirthDeps {
@@ -629,6 +635,9 @@ export function buildIdentityFileBody(
   // do NOT hand-quote here. Round-trip test asserts value preservation.
   if (typeof opts.task === "string" && opts.task.trim().length > 0) {
     pairs.push(["task", opts.task]);
+  }
+  if (typeof opts.project === "string" && opts.project.length > 0) {
+    pairs.push(["project", opts.project]);
   }
   // Phase 129 D-4 auto-tag: users:[creator] on multi-user hosts. Route
   // handler (identity-birth.ts) sets opts.creatorUsername only when

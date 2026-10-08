@@ -414,6 +414,46 @@ describe("spawn-request worker", () => {
         expect(result.message).toMatch(/users/i);
       }
     });
+
+    it("Test 17d: name / project / requested_by accepted and passed through", () => {
+      const result = parseRequestBody(
+        "test-uuid",
+        JSON.stringify({ roles: ["coordinator"], prompt: "x", task: null, requested_at: "2026-10-08T00:00:00Z", name: "Deploy Watcher", project: "skynet-v3", requested_by: "apollo-box-maintainer-2" }),
+      );
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.body.name).toBe("Deploy Watcher");
+        expect(result.body.project).toBe("skynet-v3");
+        expect(result.body.requested_by).toBe("apollo-box-maintainer-2");
+      }
+    });
+
+    it("Test 17e: unslugifiable name rejected as malformed", () => {
+      const result = parseRequestBody(
+        "test-uuid",
+        JSON.stringify({ roles: ["coordinator"], prompt: "x", task: null, requested_at: "2026-10-08T00:00:00Z", name: "!!!" }),
+      );
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.message).toMatch(/name/i);
+    });
+
+    it("Test 17f: project not matching the slug pattern rejected as malformed", () => {
+      const result = parseRequestBody(
+        "test-uuid",
+        JSON.stringify({ roles: ["coordinator"], prompt: "x", task: null, requested_at: "2026-10-08T00:00:00Z", project: "../etc" }),
+      );
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.message).toMatch(/project/i);
+    });
+
+    it("Test 17g: empty requested_by rejected as malformed", () => {
+      const result = parseRequestBody(
+        "test-uuid",
+        JSON.stringify({ roles: ["coordinator"], prompt: "x", task: null, requested_at: "2026-10-08T00:00:00Z", requested_by: "" }),
+      );
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.message).toMatch(/requested_by/i);
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -559,6 +599,61 @@ describe("spawn-request worker", () => {
 
       expect(capturedOpts).not.toBeNull();
       expect((capturedOpts as unknown as BirthOptions).users).toBeUndefined();
+    });
+
+    it("Test 17h: typed name → slug, bare-name MXID shape, no pool pick", async () => {
+      let capturedOpts: BirthOptions | null = null;
+      const deps = buildTestDeps({
+        birthIdentity: vi.fn().mockImplementation(async (opts: BirthOptions, emit: (e: BirthEvent) => void) => {
+          capturedOpts = opts;
+          emit({ type: "ended", ok: true, identityId: opts.name, sessionName: opts.name });
+        }),
+        getVettedPool: vi.fn().mockReturnValue([]), // pool empty — typed name must not need it
+      });
+      await processBirth(makePendingBirth({ name: "Deploy Watcher" }), deps);
+
+      const opts = capturedOpts as unknown as BirthOptions;
+      expect(opts.name).toBe("deploy-watcher");
+      expect(opts.poolPicked).toBe(false);
+      const [, path, body] = (deps.writeMarkdownFileAtomic as ReturnType<typeof vi.fn>).mock.calls[0];
+      expect(path).toMatch(/\.success\.json$/);
+      expect(JSON.parse(body as string).name).toBe("deploy-watcher");
+    });
+
+    it("Test 17i: typed name bumps past existing identity folders", async () => {
+      let capturedOpts: BirthOptions | null = null;
+      const deps = buildTestDeps({
+        birthIdentity: vi.fn().mockImplementation(async (opts: BirthOptions, emit: (e: BirthEvent) => void) => {
+          capturedOpts = opts;
+          emit({ type: "ended", ok: true, identityId: opts.name, sessionName: opts.name });
+        }),
+        listActiveIdentityKeys: vi.fn().mockResolvedValue(["deploy-watcher", "deploy-watcher-2"]),
+      });
+      await processBirth(makePendingBirth({ name: "Deploy Watcher" }), deps);
+      expect((capturedOpts as unknown as BirthOptions).name).toBe("deploy-watcher-3");
+    });
+
+    it("Test 17j: project threads through to BirthOptions.project", async () => {
+      let capturedOpts: BirthOptions | null = null;
+      const deps = buildTestDeps({
+        birthIdentity: vi.fn().mockImplementation(async (opts: BirthOptions, emit: (e: BirthEvent) => void) => {
+          capturedOpts = opts;
+          emit({ type: "ended", ok: true, identityId: "willow-coordinator", sessionName: "willow-coordinator" });
+        }),
+      });
+      await processBirth(makePendingBirth({ project: "skynet-v3" }), deps);
+      expect((capturedOpts as unknown as BirthOptions).project).toBe("skynet-v3");
+    });
+
+    it("Test 17k: success file reports the identity folder name, not the pool base", async () => {
+      const deps = buildTestDeps({
+        birthIdentity: vi.fn().mockImplementation(async (_opts: BirthOptions, emit: (e: BirthEvent) => void) => {
+          emit({ type: "ended", ok: true, identityId: "oak-box-maintainer", sessionName: "oak-box-maintainer" });
+        }),
+      });
+      await processBirth(makePendingBirth(), deps);
+      const [, , body] = (deps.writeMarkdownFileAtomic as ReturnType<typeof vi.fn>).mock.calls[0];
+      expect(JSON.parse(body as string).name).toBe("oak-box-maintainer");
     });
 
     it("Test 17a: birthDeps assembly passes discoverIdentitySessionFile function to birthIdentity (Phase 106 review M4 fix)", async () => {

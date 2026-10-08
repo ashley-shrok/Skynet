@@ -392,3 +392,18 @@ describe("buildIdentityFileBody — multi-role", () => {
     expect(extractFrontmatter(body).displayName).toBe("Testkey");
   });
 });
+
+it("project set → `project:` key emitted after task; absent → omitted", () => {
+  const withProject = extractFrontmatter(
+    buildIdentityFileBody(
+      makeOpts({ task: "watch deploys", project: "skynet-v3" }),
+      "Testkey",
+      "",
+    ),
+  );
+  expect(Object.keys(withProject)).toEqual(["role", "displayName", "task", "project"]);
+  expect(withProject.project).toBe("skynet-v3");
+
+  const without = extractFrontmatter(buildIdentityFileBody(makeOpts(), "Testkey", ""));
+  expect("project" in without).toBe(false);
+});

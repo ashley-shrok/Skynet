@@ -16,6 +16,7 @@
  */
 
 import { ROLE_NAME_PATTERN } from "../utils/role-name-pattern.js";
+import { derivePrettyNameSlug } from "../utils/pretty-name-slug.js";
 import type { SpawnRequestBody } from "./types.js";
 
 /**
@@ -25,11 +26,22 @@ import type { SpawnRequestBody } from "./types.js";
 export const TASK_MAX_LENGTH = 500;
 
 /**
+ * Project slug gate — mirror of PROJECT_SLUG_RE in
+ * claude-session/identity-artifact-reader.ts (duplicated rather than imported
+ * to keep this file dependency-free; see header).
+ */
+const PROJECT_SLUG_PATTERN = /^[a-z0-9-]{1,64}$/;
+
+/** Cap on `requested_by` — a log-only free-form tag, not an identifier. */
+export const REQUESTED_BY_MAX_LENGTH = 200;
+
+/**
  * Parse and validate a request file's raw JSON body.
  * Returns ok:true + SpawnRequestBody on success, or ok:false + reason + message
  * on any validation failure (D-04, D-05, D-12, T-99-01).
  *
- * Accepted fields: roles[], skills?[], prompt, task, requested_at, users?[].
+ * Accepted fields: roles[], skills?[], prompt, task, requested_at, users?[],
+ * name?, project?, requested_by?.
  * Extra fields (coord_mxid, target-host, priority, retry_count, ordinal) are
  * rejected as malformed (D-05).
  */
@@ -123,6 +135,49 @@ export function parseRequestBody(
     }
   }
 
+  // name — optional typed name (the "name it myself" path). Same pretty-name
+  // rules as the new-conversation dialog; the worker derives the slug again
+  // at birth time, this is the early malformed gate.
+  const name = obj["name"];
+  if (name !== undefined) {
+    if (typeof name !== "string") {
+      return { ok: false, reason: "malformed", message: "name must be a string if present" };
+    }
+    const derivation = derivePrettyNameSlug(name);
+    if (derivation.ok !== true) {
+      return { ok: false, reason: "malformed", message: `name is not usable (${derivation.reason}): ${JSON.stringify(name)}` };
+    }
+  }
+
+  // project — optional project slug written to the newborn's `project:`
+  // frontmatter. Pattern-gated only (same as the move-to-project route).
+  const project = obj["project"];
+  if (project !== undefined) {
+    if (typeof project !== "string" || !PROJECT_SLUG_PATTERN.test(project)) {
+      return {
+        ok: false,
+        reason: "malformed",
+        message: `project must match ${PROJECT_SLUG_PATTERN}: ${JSON.stringify(project)}`,
+      };
+    }
+  }
+
+  // requested_by — optional free-form tag naming who dropped the request.
+  // Logged by the worker only; never written to the newborn's identity file.
+  const requested_by = obj["requested_by"];
+  if (requested_by !== undefined) {
+    if (typeof requested_by !== "string" || requested_by.length === 0) {
+      return { ok: false, reason: "malformed", message: "requested_by must be a non-empty string if present" };
+    }
+    if (requested_by.length > REQUESTED_BY_MAX_LENGTH) {
+      return {
+        ok: false,
+        reason: "malformed",
+        message: `requested_by exceeds ${REQUESTED_BY_MAX_LENGTH} character limit (got ${requested_by.length})`,
+      };
+    }
+  }
+
   return {
     ok: true,
     body: {
@@ -132,6 +187,9 @@ export function parseRequestBody(
       task: task as string | null,
       requested_at,
       users: users as string[] | undefined,
+      name: name as string | undefined,
+      project: project as string | undefined,
+      requested_by: requested_by as string | undefined,
     },
   };
 }
