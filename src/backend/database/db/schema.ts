@@ -844,7 +844,7 @@ export const userPreferences = sqliteTable("user_preferences", {
   fontSize: text("font_size"),
   accentColor: text("accent_color"),
   language: text("language"),
-  fallbackVoice: text("fallback_voice"),  // NEW per Phase 137 D-14 (nullable — null → DEFAULT_VOICE fallback)
+  fallbackVoice: text("fallback_voice"),  // NEW per Phase 137 D-14 (nullable — null → TTS provider default voice)
   updatedAt: text("updated_at")
     .notNull()
     .default(sql`CURRENT_TIMESTAMP`),

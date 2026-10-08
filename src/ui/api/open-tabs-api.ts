@@ -97,7 +97,7 @@ export interface UserPreferences {
   fontSize?: string | null;
   accentColor?: string | null;
   language?: string | null;
-  fallbackVoice?: string | null; // Phase 137 D-14 — per-user fallback voice for the speak flow; null resolves to backend DEFAULT_VOICE (Joanna)
+  fallbackVoice?: string | null; // Phase 137 D-14 — per-user fallback voice for the speak flow; null resolves to the TTS provider's default voice
 }
 
 export async function getUserPreferences(): Promise<UserPreferences> {

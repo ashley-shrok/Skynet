@@ -14,6 +14,7 @@ import { parseInjectedUserTurn } from "@/api/pretty-view-upload-protocol";
 import { AttachmentChipStrip } from "./AttachmentChipStrip";
 import { CopyableBlock } from "./CopyableBlock";
 import { postSpeakStream } from "@/api/voice-api";
+import { notifySpeakFailed, speakErrorStatus } from "./speak-errors";
 import { createWebAudioStreamPlayer } from "./webAudioStreamPlayer";
 import { useEditableFileEligibility } from "./use-editable-file-eligibility";
 import { FileChip } from "./FileChip";
@@ -97,10 +98,12 @@ import {
 // tuned for screen legibility. Inline `code` bubbles opt back into
 // mono via the prose-code override in index.css so command names and
 // paths still read as code.
+const NO_VOICES: readonly string[] = [];
+
 export function ChatMessage({
   role,
   content,
-  identityVoice = null,
+  speakVoices = NO_VOICES,
   ts,
   eventId,
   onThumbsUp,
@@ -113,7 +116,8 @@ export function ChatMessage({
 }: {
   role: "user" | "assistant";
   content: string;
-  identityVoice?: string | null;
+  /** Voice candidates in preference order (voice-candidates.ts); [] = provider default. */
+  speakVoices?: readonly string[];
   ts?: number;
   eventId?: string;
   // Phase 124 Plan 01 D-38: leaf-level callbacks the assistant-bubble strip
@@ -232,7 +236,7 @@ export function ChatMessage({
     const text = innerText ?? content;
     const contentLen = content?.length ?? 0;
     const innerTextLen = innerText?.length ?? -1;
-    console.info(`[tts] speak-start owner=${owner.toString()} textLen=${text.length} contentLen=${contentLen} innerTextLen=${innerTextLen} voice="${identityVoice ?? "default"}" trigger=${trigger}`);
+    console.info(`[tts] speak-start owner=${owner.toString()} textLen=${text.length} contentLen=${contentLen} innerTextLen=${innerTextLen} voices=[${speakVoices.join(",")}] trigger=${trigger}`);
 
     const player = createWebAudioStreamPlayer({
       onEnded: () => {
@@ -247,9 +251,10 @@ export function ChatMessage({
         }
       },
       onError: (err) => {
-        // Patch #237: accepted tradeoff per 19-CONTEXT.md § Error handling —
-        // no auto-toast on streaming errors. Log for observability; UI
-        // recovers by returning to idle so the user can retry.
+        // Log for observability; UI returns to idle so the user can retry,
+        // and a notice says speech stopped (supersedes patch #237's
+        // no-toast tradeoff: with selectable TTS providers a failing
+        // provider must never look like silence).
         // D-05: extract err fields explicitly — never JSON.stringify(event).
         const errName = err instanceof Error ? err.name : "unknown";
         const errMessage = err instanceof Error ? err.message : String(err);
@@ -257,6 +262,7 @@ export function ChatMessage({
         if (getCurrentOwner() === owner) {
           clearCurrentPlayer();
           setSpeakState("idle");
+          notifySpeakFailed();
         }
       },
       onPlaying: () => {
@@ -284,7 +290,7 @@ export function ChatMessage({
     try {
       // Fetch stage — D-02 instrumentation.
       console.info(`[tts] fetch-start owner=${owner.toString()} url=/voice/speak-stream textLen=${text.length}`);
-      const response = await postSpeakStream(text, identityVoice ?? undefined);
+      const response = await postSpeakStream(text, speakVoices);
       // Race check: if another bubble preempted us during the fetch,
       // currentOwner has changed. Bail out before scheduling any audio.
       if (getCurrentOwner() !== owner) {
@@ -335,6 +341,7 @@ export function ChatMessage({
       if (getCurrentOwner() === owner) {
         clearCurrentPlayer();
         setSpeakState("idle");
+        notifySpeakFailed(speakErrorStatus(err));
       }
     }
   }

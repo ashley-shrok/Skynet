@@ -100,6 +100,11 @@ vi.mock("@/api/claude-session-api", async (importOriginal) => {
 vi.mock("@/api/voice-api", () => ({
   SAMPLE_PHRASE: "Hi, this is your voice.",
   postSpeak: vi.fn().mockResolvedValue(new Blob(["stub"], { type: "audio/mp3" })),
+  fetchVoiceCatalog: vi.fn(async () => ({
+    voices: ["Danielle", "Joanna", "Ruth", "Salli", "Tiffany", "Matthew", "Stephen"].map((id) => ({ id, name: id })),
+    defaultVoice: "Joanna",
+    listError: false,
+  })),
 }));
 
 // Mock roleAvatarUrl (Test F asserts the deterministic URL shape).

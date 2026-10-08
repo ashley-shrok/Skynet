@@ -4337,7 +4337,7 @@ export function AppShell({
                       isAdmin,
                       // Phase 137 Plan 03 (D-16): thread userPrefs to PrettyView
                       // so the speak-flow uses the user's fallbackVoice preference
-                      // before falling back to backend DEFAULT_VOICE.
+                      // before falling back to the TTS provider's default voice.
                       userPrefs,
                     ),
                     tabNode,

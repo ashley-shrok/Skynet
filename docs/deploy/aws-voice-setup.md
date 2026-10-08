@@ -11,7 +11,14 @@ and `/voice/speak-stream`) — this is intentional and IS the cost gate.
 > keeps audio inside AWS for BAA-covered instances. Instances without that
 > requirement can set `STT_PROVIDER=elevenlabs|mistral|groq` plus the
 > matching API key in `skynet.env` (see `docker/skynet.env.example`) and skip
-> the STT half of this guide. TTS (Polly) still uses AWS either way.
+> the STT half of this guide.
+>
+> **Text-to-speech provider is selectable too.** Speaking defaults to Amazon
+> Polly (`TTS_PROVIDER` unset or `polly`), keeping message text inside AWS.
+> Instances without a BAA requirement can set `TTS_PROVIDER=openai|elevenlabs`
+> plus the matching API key (see `docker/skynet.env.example`) and skip the
+> Polly half of this guide. Voice pickers then list that provider's voices;
+> saved voices are kept and skipped when the active provider lacks them.
 
 ## What this covers
 

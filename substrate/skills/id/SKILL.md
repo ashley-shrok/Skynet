@@ -851,6 +851,18 @@ crown, then gear.
   fires, it arrives as a real `/id reset` — save + recycle sentinel +
   stop, same as always.
 
+- **Mic (in the compose box) — dictation and hands-free voice mode.**
+  Tap the mic to dictate. **Long-press it for hands-free voice mode**
+  (agent conversations only): the app listens, sends what the user says
+  when they pause, reads each new agent reply aloud, then listens again.
+  Typing keeps working while it's on. A small pill shows the state, with
+  skip (stop the current reply) and exit; pressing the mic or saying
+  "stop voice mode" also ends it. Replies are spoken in the agent's voice —
+  its own, else its role's, else the user's **Agent voices** fallback, else
+  the box's default. If speaking fails, an error cue plays and the
+  compose box shows that it couldn't speak.
+  *Agent-side: none.*
+
 ### Interactive messages (widgets in chat bubbles)
 
 Agents can embed a widget inline in their message bubble instead of (or

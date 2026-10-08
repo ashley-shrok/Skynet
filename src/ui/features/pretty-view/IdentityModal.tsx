@@ -37,6 +37,7 @@ import { roleDisplayName } from "@/lib/role-display-name";
 import { identityRoles } from "@/lib/identity-roles";
 import { toast } from "sonner";
 import { VoicePicker } from "./pickers/VoicePicker";
+import { useVoiceLabel } from "./pickers/useVoiceCatalog";
 import {
   openClaudeSessionSocket,
   type IdentityGetIdentityFilePayload,
@@ -166,6 +167,8 @@ export function IdentityModal({
   // Voice chip + popover (pinned top of head).
   const [voicePickerOpen, setVoicePickerOpen] = useState(false);
   const [voiceDraft, setVoiceDraft] = useState<string>(identity.voice ?? "");
+  // Saved voice shown by name, never a raw provider code.
+  const voiceChipLabel = useVoiceLabel(identity.voice ?? "");
   const voicePickerRef = useRef<HTMLDivElement | null>(null);
 
   // Tab data — same shape + WS-based fetches as the pre-unification impl.
@@ -644,7 +647,7 @@ export function IdentityModal({
               aria-label="Voice — click to pick"
               title={
                 identity.voice
-                  ? `Voice: ${identity.voice} — click to change`
+                  ? `Voice: ${voiceChipLabel} — click to change`
                   : "Voice — click to pick (currently inherits role default)"
               }
               onClick={() => setVoicePickerOpen((v) => !v)}
@@ -659,7 +662,7 @@ export function IdentityModal({
             >
               <Mic size={12} className="opacity-85" />
               {identity.voice ? (
-                <span>{identity.voice}</span>
+                <span>{voiceChipLabel}</span>
               ) : (
                 <span className="italic opacity-75">default</span>
               )}

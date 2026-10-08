@@ -95,8 +95,8 @@ export interface VoiceModeMessage {
 export interface UseVoiceModeArgs {
   hostId: number;
   tmuxSession?: string | null;
-  /** Polly voice id for replies (identity voice → fallback); null = backend default. */
-  voice: string | null;
+  /** Voice candidates for replies (identity → role → fallback); [] = provider default. */
+  voices: readonly string[];
   /** Agent-working signal (session-working-store). */
   isWorking: boolean;
   /** The pane's message stream; new assistant messages are spoken. */
@@ -452,7 +452,23 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
       prev.stop();
       clearCurrentPlayer();
     }
-    const player = createWebAudioStreamPlayer({ onEnded: finish, onError: finish });
+    // Never fail silently: the provider may be down or out of credits, and
+    // the server never falls back to another one. Reported once per reply
+    // whether the failure hits before audio starts or mid-stream.
+    let reported = false;
+    const reportFailure = () => {
+      if (reported || !activeRef.current) return;
+      reported = true;
+      playCue("error");
+      setErrorMessage("Voice mode: couldn't speak that reply");
+    };
+    const player = createWebAudioStreamPlayer({
+      onEnded: finish,
+      onError: () => {
+        reportFailure();
+        finish();
+      },
+    });
     setCurrentPlayer(player);
     setCurrentOwner(owner);
     // External stop() (a bubble speak tap, skipSpeech) fires no callback —
@@ -461,16 +477,17 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
       if (getCurrentOwner() !== owner) finish();
     }, 400);
 
-    log(`speak-start textLen=${text.length} voice="${argsRef.current.voice ?? "default"}"`);
+    log(`speak-start textLen=${text.length} voices=[${argsRef.current.voices.join(",")}]`);
     void (async () => {
       try {
-        const res = await postSpeakStream(text, argsRef.current.voice ?? undefined);
+        const res = await postSpeakStream(text, argsRef.current.voices);
         if (getCurrentOwner() !== owner) return finish();
         if (!res.ok) throw new Error(`postSpeakStream returned ${res.status}`);
         await player.play(res);
       } catch (err) {
         console.error(`[voice-mode] speak-failed errMessage="${err instanceof Error ? err.message : String(err)}" ${tagRef.current}`);
         if (getCurrentOwner() === owner) player.stop();
+        reportFailure();
         finish();
       }
     })();

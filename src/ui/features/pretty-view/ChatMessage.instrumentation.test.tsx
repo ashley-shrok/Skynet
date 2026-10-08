@@ -5,7 +5,7 @@
  * match the expected shapes per D-11/D-13/D-20.
  *
  * Covers the 5 behaviors specified in the plan:
- *   INSTR-1: speak-start fires with owner/textLen/voice/trigger fields
+ *   INSTR-1: speak-start fires with owner/textLen/voices/trigger fields
  *   INSTR-2: play-attempt result=success fires when player.play() resolves
  *   INSTR-3: play-attempt result=blocked fires when play() rejects NotAllowedError
  *   INSTR-4: fetch-error fires when postSpeakStream returns 502
@@ -131,7 +131,7 @@ function errorLines(): string[] {
 // ---------------------------------------------------------------------------
 
 describe("ChatMessage [tts] instrumentation", () => {
-  it("INSTR-1: clicking speak fires [tts] speak-start with owner/textLen/voice/trigger fields", async () => {
+  it("INSTR-1: clicking speak fires [tts] speak-start with owner/textLen/voices/trigger fields", async () => {
     render(<ChatMessage role="assistant" content="Hello world" />);
     const btn = screen.getByLabelText(/speak message/i);
     fireEvent.click(btn);
@@ -144,7 +144,7 @@ describe("ChatMessage [tts] instrumentation", () => {
       expect(infoLines()).toEqual(
         expect.arrayContaining([
           expect.stringMatching(
-            /^\[tts\] speak-start owner=\S+ textLen=\d+ contentLen=\d+ innerTextLen=-?\d+ voice="[^"]+" trigger=/,
+            /^\[tts\] speak-start owner=\S+ textLen=\d+ contentLen=\d+ innerTextLen=-?\d+ voices=\[[^\]]*\] trigger=/,
           ),
         ]),
       );

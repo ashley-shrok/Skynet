@@ -111,7 +111,7 @@ import { derivePrettyNameSlug } from "../../utils/pretty-name-slug.js";
 import { sshLogger } from "../../utils/logger.js";
 // Phase 103 D-10: multipart-origin-guard — CORS-simple content types don't preflight
 import { multipartOriginGuard } from "../../utils/multipart-origin-guard.js";
-import { isValidPollyVoice } from "../../voice/polly-voice-catalog.js";
+import { isRecognizedVoiceId } from "../../voice/tts-provider.js";
 import { getHostSemaphore } from "../../ssh/host-semaphore-registry.js";
 // Phase 129 Plan 06 D-4: per-user visibility gate write side. isHostMultiUser
 // gates whether the auto-tag branch fires at all (single-user hosts stay
@@ -426,13 +426,13 @@ router.post(
     if (rawCosmetics.voice !== undefined) {
       if (
         typeof rawCosmetics.voice !== "string" ||
-        !isValidPollyVoice(rawCosmetics.voice)
+        !isRecognizedVoiceId(rawCosmetics.voice)
       ) {
         res
           .status(400)
           .json({
             error:
-              "voice must be one of the 7 supported Amazon Polly generative en-US voice IDs",
+              "voice must be a supported voice ID",
           });
         return;
       }

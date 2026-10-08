@@ -33,6 +33,11 @@ vi.mock("@/api/voice-api", () => ({
   postSpeak: vi.fn(async () => new Blob([], { type: "audio/wav" })),
   postSpeakStream: vi.fn(async () => new Response(null, { status: 200 })),
   SAMPLE_PHRASE: "Hi, this is your voice.",
+  fetchVoiceCatalog: vi.fn(async () => ({
+    voices: ["Danielle", "Joanna", "Ruth", "Salli", "Tiffany", "Matthew", "Stephen"].map((id) => ({ id, name: id })),
+    defaultVoice: "Joanna",
+    listError: false,
+  })),
 }));
 
 // saveUserPreferences is called by PreferencesVoicePane on picker change.

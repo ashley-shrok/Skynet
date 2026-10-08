@@ -10,32 +10,38 @@ import { multipartOriginGuard } from "../../utils/multipart-origin-guard.js";
 import { AuthManager } from "../../utils/auth-manager.js";
 import { WAKE_WORD_REGEX, applyServerSlashTransform } from "../../voice/slashCommandTransform.js";
 import { fetchSkillCatalog, DEFAULT_SKILL_CATALOG_TIMEOUT_MS } from "../../voice/skill-catalog.js";
-// Phase 98 Plan 06 — AWS-backed voice routes. The legacy Chatterbox tailnet
-// URL constants (formerly under src/backend/config/) are deleted alongside
-// this rewrite; those endpoints are dead. All provider translation moves
-// onto the backend behind the AWS SDK v3 adapters from Plan 04 + the pure
-// kernels from Plan 02.
-import { synthesizeToPcm } from "../../voice/polly-adapter.js";
+// Speech routes. Provider translation lives behind the TTS/STT provider
+// contracts (tts-provider.ts / stt-provider.ts); nothing here is specific to
+// one provider.
+import {
+  chooseVoice,
+  defaultVoiceFor,
+  getVoiceList,
+  resolveTtsProvider,
+  synthesizeWithRetries,
+  voiceLabels,
+  VOICE_ID_MAX_LEN,
+  type TtsProvider,
+  type VoiceChoice,
+} from "../../voice/tts-provider.js";
+import { TtsNotConfiguredError } from "../../voice/tts-errors.js";
 import { resolveSttProvider, transcribeWithRetries, type SttProvider } from "../../voice/stt-provider.js";
 import { SttNotConfiguredError } from "../../voice/stt-errors.js";
 import { splitIntoSentences, packChunks } from "../../voice/chunk-and-stitch.js";
 import { buildRiffHeader } from "../../voice/riff-header-builder.js";
-import { isValidPollyVoice } from "../../voice/polly-voice-catalog.js";
-import { isAwsAccessDenied } from "../../voice/aws-errors.js";
 
-// Phase 98 Plan 06 (D-Claude's-discretion 2026-09-10):
-//   - Voice-catalog route DROPPED (frontend inlines POLLY_VOICES per Plan 03).
-//   - Its handler DELETED (dead code after route drop).
-//   - The old .wav-filename regex DELETED (validation moves to isValidPollyVoice).
+// Voice list: GET /voices serves the ACTIVE provider's list — the app keeps
+// no copy of its own (supersedes Phase 98 Plan 03's inlined Polly list).
 //
 // Security posture preserved from prior era (T-16-* + new T-98-06-*):
 //   T-16-01: multer 25 MB fileSize cap prevents memory exhaustion
 //   T-16-04: authenticateJWT wired BEFORE multer — unauthenticated = 401 before parse
-//   T-98-06-03: AWS errors are NEVER surfaced to clients; fixed {error, status} shapes only
-//   T-98-06-04: AccessDenied (policy detached) → 503 + info-level log (no error spam)
-//   T-98-06-05: isValidPollyVoice whitelist gate before any Polly call
+//   T-98-06-03: provider errors are NEVER surfaced to clients; fixed {error, status} shapes only
+//   T-98-06-04: provider unavailable (policy detached, key rejected, unknown
+//               TTS_PROVIDER) → 503 + info-level log (no error spam)
+//   T-98-06-05: voice ids are length-capped and only ever chosen from the
+//               provider's own list (or its own id format when the list is down)
 //   T-98-06-10: handleSpeak RIFF dataSize == pcmBuf.length (byte-accurate; strict WAV parsers)
-export const DEFAULT_VOICE = "Joanna";
 export const SPEAK_TEXT_MAX = 25000;
 export const SAMPLE_PHRASE = "Hi, this is your voice.";
 
@@ -180,11 +186,59 @@ export async function handleTranscribe(req: Request, res: Response): Promise<Res
   }
 }
 
+// --- Shared speak-request helpers ---
+
+/** Most voice candidates a speak request may carry (identity, role, fallback + slack). */
+const MAX_VOICE_CANDIDATES = 8;
+
+/**
+ * Read the voice candidates from a speak body, in preference order.
+ *
+ * Accepts `voices: string[]` (the app sends identity voice, role voice, the
+ * user's fallback voice) or the older single `voice: string`. Candidates the
+ * active provider doesn't offer are skipped later (chooseVoice) — an
+ * unavailable voice is NOT an error, so a voice saved under another provider
+ * still speaks (in the next available voice). Only malformed input is a 400.
+ */
+export function parseVoiceCandidates(body: Record<string, unknown>): { candidates: string[] } | { error: string } {
+  const raw: unknown[] = [];
+  if (body.voices !== undefined) {
+    if (!Array.isArray(body.voices) || body.voices.length > MAX_VOICE_CANDIDATES) {
+      return { error: `body.voices must be an array of at most ${MAX_VOICE_CANDIDATES} voice ids` };
+    }
+    raw.push(...body.voices);
+  }
+  if (body.voice !== undefined) raw.push(body.voice);
+
+  const candidates: string[] = [];
+  for (const v of raw) {
+    if (typeof v !== "string" || v.length === 0 || v.length > VOICE_ID_MAX_LEN) {
+      return { error: `each voice must be a non-empty string of at most ${VOICE_ID_MAX_LEN} characters` };
+    }
+    if (!candidates.includes(v)) candidates.push(v);
+  }
+  return { candidates };
+}
+
+function describeChoice(choice: VoiceChoice): string {
+  return `voice="${choice.voice}" voiceSource=${choice.source} skipped=[${choice.skipped.map((s) => `"${s}"`).join(",")}] listUnavailable=${choice.listUnavailable}`;
+}
+
+/** provider / model / voice for failure log lines (whatever was resolved before the failure). */
+function failureContext(provider: TtsProvider | undefined, choice: VoiceChoice | undefined): string {
+  return `provider=${provider?.id ?? "none"} model=${provider?.model() ?? "none"} voice="${choice?.voice ?? "none"}"`;
+}
+
+/** PCM is always 16-bit mono, so bytes per second = sampleRate × 2. */
+function pcmBytesPerSec(provider: TtsProvider): number {
+  return provider.sampleRate * 2;
+}
+
 // --- handleSpeak — POST /voice/speak (non-streaming) ---
-// Single Polly SynthesizeSpeech call. Collects the full PCM buffer BEFORE
-// writing the RIFF header so `dataSize` in the header is byte-accurate
-// (T-98-06-10 — strict WAV parsers like HTMLAudioElement reject the
-// 0xFFFFFFFF streaming sentinel).
+// Used by the voice pickers' sample button. Synthesizes every chunk in order
+// and collects the full PCM buffer BEFORE writing the RIFF header so
+// `dataSize` in the header is byte-accurate (T-98-06-10 — strict WAV parsers
+// like HTMLAudioElement reject the 0xFFFFFFFF streaming sentinel).
 export async function handleSpeak(req: Request, res: Response): Promise<Response> {
   // (a) Validate body.text
   if (!req.body || typeof req.body.text !== "string" || req.body.text.length === 0) {
@@ -194,45 +248,51 @@ export async function handleSpeak(req: Request, res: Response): Promise<Response
     return res.status(400).json({ error: `body.text exceeds maximum length of ${SPEAK_TEXT_MAX}` });
   }
 
-  // (b) Validate body.voice (whitelist against Polly generative-supported voices)
-  if (req.body.voice !== undefined) {
-    if (typeof req.body.voice !== "string" || !isValidPollyVoice(req.body.voice)) {
-      return res.status(400).json({ error: "body.voice must be one of the supported Polly voice IDs" });
-    }
+  // (b) Validate voice candidates (shape only — availability is decided below)
+  const parsed = parseVoiceCandidates(req.body as Record<string, unknown>);
+  if ("error" in parsed) {
+    return res.status(400).json({ error: parsed.error });
   }
 
-  const voiceId = (req.body.voice as string | undefined) ?? DEFAULT_VOICE;
   const text = req.body.text as string;
+  const reqId = Math.random().toString(36).slice(2, 10);
 
-  databaseLogger.info(
-    `[voice-server] speak-req textLen=${text.length} voice="${voiceId}"`,
-    { operation: "voice_speak" },
-  );
-
+  let provider: TtsProvider | undefined;
+  let choice: VoiceChoice | undefined;
   try {
-    // (c) Fire Polly synth. Adapter returns a Node Readable of raw PCM bytes.
-    const pollyStream = await synthesizeToPcm(text, voiceId);
+    provider = resolveTtsProvider();
+    choice = await chooseVoice(provider, parsed.candidates);
 
-    // (d) Collect the ENTIRE PCM stream so we know pcmBuf.length before writing
-    //     the RIFF header (non-streaming handler serves a self-contained WAV).
+    databaseLogger.info(
+      `[voice-server] speak-req reqId=${reqId} provider=${provider.id} model=${provider.model() ?? "none"} textLen=${text.length} ${describeChoice(choice)}`,
+      { operation: "voice_speak", reqId, provider: provider.id },
+    );
+
+    // (c) Synthesize each ≤maxCharsPerRequest chunk in order and collect the
+    //     ENTIRE PCM so pcmBuf.length is known before the RIFF header.
+    const chunks = packChunks(splitIntoSentences(text), provider.maxCharsPerRequest);
     const pcmChunks: Buffer[] = [];
-    for await (const chunk of pollyStream) {
-      pcmChunks.push(chunk as Buffer);
+    const voice = choice.voice;
+    for (let i = 0; i < chunks.length; i++) {
+      const stream = await synthesizeWithRetries(provider, chunks[i], voice, { reqId, chunkIndex: i });
+      for await (const chunk of stream) {
+        pcmChunks.push(chunk as Buffer);
+      }
     }
     const pcmBuf = Buffer.concat(pcmChunks);
     const dataSize = pcmBuf.length;
 
-    // (e) Build the RIFF header with byte-accurate dataSize (T-98-06-10 mitigation)
+    // (d) Build the RIFF header with byte-accurate dataSize (T-98-06-10 mitigation)
     const header = buildRiffHeader({
       channels: 1,
-      sampleRate: 16000,
+      sampleRate: provider.sampleRate,
       bitDepth: 16,
       dataSize,
     });
 
     databaseLogger.info(
-      `[voice-server] speak-ok pcmSize=${dataSize} totalSize=${header.length + dataSize}`,
-      { operation: "voice_speak" },
+      `[voice-server] speak-ok reqId=${reqId} provider=${provider.id} chunks=${chunks.length} pcmSize=${dataSize} totalSize=${header.length + dataSize}`,
+      { operation: "voice_speak", reqId, provider: provider.id },
     );
 
     res.status(200);
@@ -243,28 +303,68 @@ export async function handleSpeak(req: Request, res: Response): Promise<Response
     res.end(pcmBuf);
     return res;
   } catch (err: unknown) {
-    // AccessDenied → 503 (P98-OFF-01)
-    if (isAwsAccessDenied(err)) {
+    const errName = err instanceof Error ? err.name : "unknown";
+    const errMessage = err instanceof Error ? err.message : String(err);
+    // Misconfigured / unauthorised provider → 503 (P98-OFF-01 + unknown
+    // TTS_PROVIDER, missing or rejected API key, no credits).
+    if (err instanceof TtsNotConfiguredError || provider?.isUnavailable(err)) {
       databaseLogger.info(
-        `[voice-server] speak-access-denied — policy not attached`,
-        { operation: "voice_speak_access_denied" },
+        `[voice-server] speak-unavailable reqId=${reqId} ${failureContext(provider, choice)} errName=${errName} reason="${errMessage}"`,
+        { operation: "voice_speak_access_denied", reqId, provider: provider?.id },
       );
       return res.status(503).json({ error: "voice TTS unavailable", status: 503 });
     }
 
-    databaseLogger.error(`[voice-server] speak-error`, err instanceof Error ? err : new Error(String(err)), {
-      operation: "voice_speak_error",
-    });
+    databaseLogger.error(
+      `[voice-server] speak-error reqId=${reqId} ${failureContext(provider, choice)} errName=${errName} errMessage="${errMessage}"`,
+      err instanceof Error ? err : new Error(String(err)),
+      { operation: "voice_speak_error", reqId, provider: provider?.id, errName },
+    );
     return res.status(502).json({ error: "TTS error", status: 502 });
   }
 }
 
+// --- handleListVoices — GET /voice/voices ---
+// The active provider's voice list, for the app's voice pickers. The app
+// carries no voice list of its own. `labels` maps every voice id the server
+// can name right now (all fixed provider lists + the active list) so the app
+// shows saved voices by name, even ones saved under another provider. When
+// the list can't be fetched (e.g. ElevenLabs unreachable), answers 200 with
+// `listError: true` and an empty list so pickers can still show the saved
+// voice and say the list failed; only an unusable provider config answers 503.
+export async function handleListVoices(_req: Request, res: Response): Promise<Response> {
+  let provider: TtsProvider;
+  let defaultVoice: string;
+  try {
+    provider = resolveTtsProvider();
+    defaultVoice = defaultVoiceFor(provider);
+  } catch (err: unknown) {
+    const errMessage = err instanceof Error ? err.message : String(err);
+    databaseLogger.info(
+      `[voice-server] voice-list-unavailable provider=none reason="${errMessage}"`,
+      { operation: "voice_list_unavailable" },
+    );
+    return res.status(503).json({ error: "voice TTS unavailable", status: 503 });
+  }
+
+  try {
+    const voices = await getVoiceList(provider);
+    return res.status(200).json({ voices, defaultVoice, labels: voiceLabels(voices), listError: false });
+  } catch (err: unknown) {
+    if (err instanceof TtsNotConfiguredError || provider.isUnavailable(err)) {
+      return res.status(503).json({ error: "voice TTS unavailable", status: 503 });
+    }
+    // getVoiceList already logged the failure with provider + error detail.
+    return res.status(200).json({ voices: [], defaultVoice, labels: voiceLabels([]), listError: true });
+  }
+}
+
 // --- TTS diagnostic bank — WAV-per-chunk fire-and-forget writer + rotation ---
-// Purpose: prove/disprove "Polly returned less audio than the text should
-// produce" reports (2026-09-28 cutoff investigation). Each speak-stream
-// request writes one WAV per Polly chunk to the bank so we can play back
-// exactly what came off Polly's wire and hear whether the tail was
-// truncated at the provider or lost downstream.
+// Purpose: prove/disprove "the provider returned less audio than the text
+// should produce" reports (2026-09-28 cutoff investigation). Each speak-stream
+// request writes one WAV per chunk to the bank so we can play back exactly
+// what came off the provider's wire and hear whether the tail was truncated
+// at the provider or lost downstream.
 //
 // Path defaults to /app/stt-recordings/tts-bank — a SUBDIRECTORY of the
 // existing stt-recordings bind mount, so no docker-compose change needed
@@ -294,18 +394,19 @@ async function rotateTtsBank(dir: string, maxFiles: number): Promise<void> {
 
 function writeTtsBankChunk(
   pcmChunks: Buffer[],
-  meta: { reqId: string; chunkIndex: number; voiceId: string; textLen: number },
+  meta: { reqId: string; chunkIndex: number; voiceId: string; textLen: number; sampleRate: number },
 ): void {
   if (!TTS_BANK_ENABLED) return;
   const pcm = Buffer.concat(pcmChunks);
   const header = buildRiffHeader({
     channels: 1,
-    sampleRate: 16000,
+    sampleRate: meta.sampleRate,
     bitDepth: 16,
     dataSize: pcm.length,
   });
   const timestamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+/, "");
-  const filename = `${timestamp}-${meta.reqId}-chunk${meta.chunkIndex}-${meta.voiceId}-len${meta.textLen}.wav`;
+  const safeVoice = meta.voiceId.replace(/[^A-Za-z0-9_-]/g, "_");
+  const filename = `${timestamp}-${meta.reqId}-chunk${meta.chunkIndex}-${safeVoice}-len${meta.textLen}.wav`;
   const fullPath = path.join(TTS_BANK_DIR, filename);
   databaseLogger.info(
     `[voice-server] tts-bank-write reqId=${meta.reqId} chunk=${meta.chunkIndex} filename=${filename} pcmBytes=${pcm.length}`,
@@ -324,11 +425,11 @@ function writeTtsBankChunk(
     });
 }
 
-// Eagerly consume a Polly audio stream into a single contiguous Buffer.
-// Used for prefetched chunks (N≥1) so that holding a Polly response open
+// Eagerly consume a provider audio stream into a single contiguous Buffer.
+// Used for prefetched chunks (N≥1) so that holding a provider response open
 // WITHOUT reading it — while chunk N-1 is still being piped to the client
-// at playback rate (~32 KB/s) — doesn't let the backpressured socket cause
-// Polly to idle-close or stop generating past its send buffer.
+// at playback rate (~32-48 KB/s) — doesn't let the backpressured socket
+// cause the provider to idle-close or stop generating past its send buffer.
 //
 // Observed symptom (2026-10-02 reqId=ywzjfdk1): chunk 0 was streamed
 // directly to res over 31s; chunk 1 was prefetched as a Readable but never
@@ -338,10 +439,10 @@ function writeTtsBankChunk(
 // chunk that should have produced ~5 MB / 2.5 min.
 //
 // Memory cost: at most one fully-drained chunk is in memory at a time
-// (plus the one being written to res, in-memory as `buf`). Each chunk
-// caps at CHUNK_MAX_CHARS=2900 characters, which Polly generative renders
-// at roughly 2000 PCM bytes per char → ~5-6 MB per chunk. Trivial on a
-// multi-GB container.
+// (plus the one being written to res, in-memory as `buf`). Each chunk caps
+// at the provider's per-request limit (2900-4500 chars); at roughly 2000
+// (16 kHz) to 3000 (24 kHz) PCM bytes per char that is ~6-14 MB per chunk.
+// Trivial on a multi-GB container.
 async function drainStreamToBuffer(
   streamPromise: Promise<import("node:stream").Readable>,
 ): Promise<Buffer> {
@@ -356,31 +457,31 @@ async function drainStreamToBuffer(
 }
 
 // --- handleSpeakStream — POST /voice/speak-stream (streaming, chunk-and-stitch) ---
-// Splits long text into ≤2900-char chunks (packChunks), fires one Polly synth
-// per chunk, and pipes PCM to `res` in chunk order. Chunk 0 streams DIRECTLY
-// from its Polly Readable to res for lowest time-to-first-audio. Chunks N≥1
-// are PREFETCHED and EAGERLY DRAINED into Buffers via drainStreamToBuffer so
-// the next-chunk Polly response is read fully from the socket as it arrives,
-// not held open at backpressure for the ~N×30s it takes the preceding chunk
-// to stream to the client. This is the 2026-10-02 cutoff fix: previously
-// `nextPromise` kept a Readable in paused mode while chunk N-1 drained at
-// playback rate, causing chunks N≥1 to truncate at ~144 KiB. See
-// drainStreamToBuffer docstring above for the full symptom.
+// Splits long text into chunks no longer than the active provider's
+// per-request limit (packChunks), fires one synth per chunk, and pipes PCM to
+// `res` in chunk order. Chunk 0 streams DIRECTLY from its provider Readable to
+// res for lowest time-to-first-audio. Chunks N≥1 are PREFETCHED and EAGERLY
+// DRAINED into Buffers via drainStreamToBuffer so the next-chunk response is
+// read fully from the socket as it arrives, not held open at backpressure for
+// the ~N×30s it takes the preceding chunk to stream to the client. This is the
+// 2026-10-02 cutoff fix: previously `nextPromise` kept a Readable in paused
+// mode while chunk N-1 drained at playback rate, causing chunks N≥1 to
+// truncate at ~144 KiB. See drainStreamToBuffer docstring above.
 //
-// Concurrency cap: at most 2 open Polly SynthesizeSpeech operations at once
-// (per Pitfall 5). The RIFF header is written ONCE at start with the
-// 0xFFFFFFFF streaming sentinel (total size unknown at header-write time —
-// this IS the case the sentinel exists for; the client-side riffPcmDecode
-// ignores dataSize on streaming input).
+// Concurrency cap: at most 2 open synth operations at once (per Pitfall 5).
+// The RIFF header (at the provider's sample rate) is written ONCE at start
+// with the 0xFFFFFFFF streaming sentinel (total size unknown at header-write
+// time — this IS the case the sentinel exists for; the client-side
+// riffPcmDecode ignores dataSize on streaming input).
 //
 // Diagnostic instrumentation (2026-09-28): every speak-stream request carries
 // a short reqId that ties `speak-stream-plan` → `speak-stream-chunk-out` →
-// `speak-stream-ok` log lines together, and each Polly chunk's PCM is banked
-// to disk (see writeTtsBankChunk above) so a suspected truncation can be
-// played back and heard directly. 16000 Hz mono 16-bit means 32000 bytes/s
-// of PCM; audioSec = pcmBytes / 32000 and charsPerSec = textLen / audioSec.
-// Anything wildly higher than typical English speech (~15 chars/sec) means
-// Polly returned less audio than the text should have produced.
+// `speak-stream-ok` log lines together, and each chunk's PCM is banked to disk
+// (see writeTtsBankChunk above) so a suspected truncation can be played back
+// and heard directly. PCM is 16-bit mono, so audioSec = pcmBytes /
+// (sampleRate × 2) and charsPerSec = textLen / audioSec. Anything wildly
+// higher than typical English speech (~15 chars/sec) means the provider
+// returned less audio than the text should have produced.
 export async function handleSpeakStream(req: Request, res: Response): Promise<void> {
   // (a) Validate body.text
   if (!req.body || typeof req.body.text !== "string" || req.body.text.length === 0) {
@@ -392,33 +493,38 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
     return;
   }
 
-  // (b) Validate body.voice
-  if (req.body.voice !== undefined) {
-    if (typeof req.body.voice !== "string" || !isValidPollyVoice(req.body.voice)) {
-      res.status(400).json({ error: "body.voice must be one of the supported Polly voice IDs" });
-      return;
-    }
+  // (b) Validate voice candidates (shape only — availability is decided below)
+  const parsed = parseVoiceCandidates(req.body as Record<string, unknown>);
+  if ("error" in parsed) {
+    res.status(400).json({ error: parsed.error });
+    return;
   }
 
-  const voiceId = (req.body.voice as string | undefined) ?? DEFAULT_VOICE;
   const text = req.body.text as string;
   // Short random id to correlate every log line for THIS request. Included
   // in bank filenames so a specific request's chunks can be located on disk.
   const reqId = Math.random().toString(36).slice(2, 10);
 
-  databaseLogger.info(
-    `[voice-server] speak-stream-req reqId=${reqId} textLen=${text.length} voice="${voiceId}"`,
-    { operation: "voice_speak_stream", reqId },
-  );
-
   // Track whether we've already flushed the response headers + first bytes.
   // Once true, we cannot send a new status code — mid-stream errors trigger
   // res.destroy() instead of res.status(503).
   let headersFlushed = false;
+  let provider: TtsProvider | undefined;
+  let choice: VoiceChoice | undefined;
 
   try {
-    // (c) Split + pack into ≤CHUNK_MAX_CHARS chunks
-    const chunks = packChunks(splitIntoSentences(text));
+    provider = resolveTtsProvider();
+    const p = provider;
+    choice = await chooseVoice(p, parsed.candidates);
+    const voiceId = choice.voice;
+
+    databaseLogger.info(
+      `[voice-server] speak-stream-req reqId=${reqId} provider=${p.id} model=${p.model() ?? "none"} textLen=${text.length} ${describeChoice(choice)}`,
+      { operation: "voice_speak_stream", reqId, provider: p.id },
+    );
+
+    // (c) Split + pack into chunks under the provider's per-request limit
+    const chunks = packChunks(splitIntoSentences(text), p.maxCharsPerRequest);
 
     if (chunks.length === 0) {
       // Defensive: SPEAK_TEXT_MAX + non-empty-text validation should prevent this,
@@ -428,11 +534,30 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
     }
 
     // Log the chunk plan up front so a suspected loss can be traced back to
-    // exactly which char range fed which Polly call.
+    // exactly which char range fed which synth call.
     databaseLogger.info(
-      `[voice-server] speak-stream-plan reqId=${reqId} chunkCount=${chunks.length} chunkLens=[${chunks.map((c) => c.length).join(",")}] totalTextLen=${text.length}`,
+      `[voice-server] speak-stream-plan reqId=${reqId} provider=${p.id} chunkCount=${chunks.length} chunkLens=[${chunks.map((c) => c.length).join(",")}] totalTextLen=${text.length}`,
       { operation: "voice_speak_stream_plan", reqId, chunkCount: chunks.length },
     );
+
+    // Listener stopped / navigated away: stop asking the provider for audio
+    // nobody will hear (paid characters on OpenAI / ElevenLabs). The chunk in
+    // flight is abandoned; no further chunks are requested.
+    let clientGone = false;
+    let liveStream: import("node:stream").Readable | null = null;
+    res.once("close", () => {
+      if (res.writableEnded) return;
+      clientGone = true;
+      liveStream?.destroy();
+    });
+    const waitDrain = () =>
+      new Promise<void>((resolve) => {
+        res.once("drain", resolve);
+        res.once("close", resolve);
+      });
+
+    const synth = (i: number) => synthesizeWithRetries(p, chunks[i], voiceId, { reqId, chunkIndex: i });
+    const bytesPerSec = pcmBytesPerSec(p);
 
     // Per-request PCM accounting — populated inside the loop, summarised at end.
     let totalPcmBytes = 0;
@@ -445,31 +570,36 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
     // starter.ts's unhandledRejection handler calls process.exit(1), which
     // would kill the container mid-stream and drop every other connected
     // client. The rejection is still re-thrown when the loop awaits.
-    const chunk0Promise: Promise<import("node:stream").Readable> =
-      synthesizeToPcm(chunks[0], voiceId);
+    const chunk0Promise: Promise<import("node:stream").Readable> = synth(0);
     let nextPrefetch: Promise<Buffer> | null = null;
     if (chunks.length > 1) {
-      nextPrefetch = drainStreamToBuffer(synthesizeToPcm(chunks[1], voiceId));
+      nextPrefetch = drainStreamToBuffer(synth(1));
       nextPrefetch.catch(() => {});
     }
 
     for (let i = 0; i < chunks.length; i++) {
+      if (clientGone) break;
       const chunkTextLen = chunks[i].length;
       const chunkPcmBuffers: Buffer[] = [];
       let chunkPcmBytes = 0;
 
       if (i === 0) {
-        // Chunk 0: direct-stream from Polly to res. Manual data/end/error
-        // handling instead of .pipe() so we can (a) count Polly's exact
-        // per-chunk PCM byte output and (b) accumulate the bytes for the
-        // disk bank. Backpressure preserved by pausing the source when
+        // Chunk 0: direct-stream from the provider to res. Manual
+        // data/end/error handling instead of .pipe() so we can (a) count the
+        // exact per-chunk PCM byte output and (b) accumulate the bytes for
+        // the disk bank. Backpressure preserved by pausing the source when
         // res.write returns false.
         //
-        // Await the Polly Readable BEFORE flushing the response headers —
-        // if Polly throws (e.g. AccessDeniedException because the TTS
-        // policy is detached), we need to be able to send a 503 status,
-        // which requires headers NOT be flushed yet.
+        // Await the provider Readable BEFORE flushing the response headers —
+        // if the provider throws (AccessDenied, rejected key, out of
+        // credits), we need to be able to send a 503 status, which requires
+        // headers NOT be flushed yet.
         const currentStream = await chunk0Promise;
+        liveStream = currentStream;
+        if (clientGone) {
+          currentStream.destroy();
+          break;
+        }
 
         // Flush response headers + RIFF header now that chunk 0's response
         // is confirmed. Streaming sentinel: total PCM byte count is unknown
@@ -478,7 +608,7 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
         res.status(200);
         res.setHeader("Content-Type", "audio/wav");
         res.setHeader("X-Accel-Buffering", "no");
-        res.write(buildRiffHeader({ channels: 1, sampleRate: 16000, bitDepth: 16 }));
+        res.write(buildRiffHeader({ channels: 1, sampleRate: p.sampleRate, bitDepth: 16 }));
         headersFlushed = true;
 
         await new Promise<void>((resolve, reject) => {
@@ -491,31 +621,32 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
             }
           });
           currentStream.on("end", () => resolve());
-          currentStream.on("error", reject);
+          // destroy() on client hang-up ends the stream with "close", not "end".
+          currentStream.on("close", () => resolve());
+          currentStream.on("error", (err) => (clientGone ? resolve() : reject(err)));
         });
+        liveStream = null;
       } else {
         // Chunks i≥1: fire chunk i+1's prefetch FIRST (so it starts synthesizing
         // in parallel with chunk i's await/write), then await and write the
         // already-drained chunk i Buffer. Concurrency cap 2: only chunk i's
         // prefetch (just-awaited) and chunk i+1's prefetch (just-fired) are
-        // open with Polly at the swap point.
+        // open with the provider at the swap point.
         const prevPrefetch = nextPrefetch!;
-        nextPrefetch =
-          i + 1 < chunks.length
-            ? drainStreamToBuffer(synthesizeToPcm(chunks[i + 1], voiceId))
-            : null;
+        nextPrefetch = i + 1 < chunks.length && !clientGone ? drainStreamToBuffer(synth(i + 1)) : null;
         if (nextPrefetch) nextPrefetch.catch(() => {});
 
         const buf = await prevPrefetch;
+        if (clientGone) break;
         chunkPcmBytes = buf.length;
         if (TTS_BANK_ENABLED) chunkPcmBuffers.push(buf);
         if (!res.write(buf)) {
-          await new Promise<void>((drain) => res.once("drain", drain));
+          await waitDrain();
         }
       }
 
       totalPcmBytes += chunkPcmBytes;
-      const chunkAudioSec = chunkPcmBytes / 32000; // 16kHz mono 16bit = 32000 bytes/sec
+      const chunkAudioSec = chunkPcmBytes / bytesPerSec;
       const chunkCharsPerSec = chunkAudioSec > 0 ? chunkTextLen / chunkAudioSec : 0;
       databaseLogger.info(
         `[voice-server] speak-stream-chunk-out reqId=${reqId} i=${i} textLen=${chunkTextLen} pcmBytes=${chunkPcmBytes} audioSec=${chunkAudioSec.toFixed(3)} charsPerSec=${chunkCharsPerSec.toFixed(2)}`,
@@ -526,23 +657,35 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
         chunkIndex: i,
         voiceId,
         textLen: chunkTextLen,
+        sampleRate: p.sampleRate,
       });
     }
 
-    const totalAudioSec = totalPcmBytes / 32000;
+    if (clientGone) {
+      databaseLogger.info(
+        `[voice-server] speak-stream-client-gone reqId=${reqId} provider=${p.id} chunks=${chunks.length} totalPcmBytes=${totalPcmBytes}`,
+        { operation: "voice_speak_stream_client_gone", reqId, provider: p.id },
+      );
+      return;
+    }
+
+    const totalAudioSec = totalPcmBytes / bytesPerSec;
     const totalCharsPerSec = totalAudioSec > 0 ? text.length / totalAudioSec : 0;
     databaseLogger.info(
-      `[voice-server] speak-stream-ok reqId=${reqId} chunks=${chunks.length} totalTextLen=${text.length} totalPcmBytes=${totalPcmBytes} totalAudioSec=${totalAudioSec.toFixed(3)} charsPerSec=${totalCharsPerSec.toFixed(2)}`,
-      { operation: "voice_speak_stream", reqId },
+      `[voice-server] speak-stream-ok reqId=${reqId} provider=${p.id} chunks=${chunks.length} totalTextLen=${text.length} totalPcmBytes=${totalPcmBytes} totalAudioSec=${totalAudioSec.toFixed(3)} charsPerSec=${totalCharsPerSec.toFixed(2)}`,
+      { operation: "voice_speak_stream", reqId, provider: p.id },
     );
 
     res.end();
   } catch (err: unknown) {
-    // AccessDenied → 503 (if we can still send status) OR destroy() (if bytes flushed).
-    if (isAwsAccessDenied(err)) {
+    const errName = err instanceof Error ? err.name : "unknown";
+    const errMessage = err instanceof Error ? err.message : String(err);
+    // Misconfigured / unauthorised provider → 503 (if we can still send
+    // status) OR destroy() (if bytes flushed). Never a fallback provider.
+    if (err instanceof TtsNotConfiguredError || provider?.isUnavailable(err)) {
       databaseLogger.info(
-        `[voice-server] speak-stream-access-denied reqId=${reqId} — policy not attached headersFlushed=${headersFlushed}`,
-        { operation: "voice_speak_stream_access_denied", reqId, headersFlushed },
+        `[voice-server] speak-stream-unavailable reqId=${reqId} ${failureContext(provider, choice)} errName=${errName} reason="${errMessage}" headersFlushed=${headersFlushed}`,
+        { operation: "voice_speak_stream_access_denied", reqId, provider: provider?.id, headersFlushed },
       );
       if (!headersFlushed) {
         res.status(503).json({ error: "voice TTS unavailable", status: 503 });
@@ -553,9 +696,9 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
     }
 
     databaseLogger.error(
-      `[voice-server] speak-stream-error reqId=${reqId}`,
+      `[voice-server] speak-stream-error reqId=${reqId} ${failureContext(provider, choice)} errName=${errName} errMessage="${errMessage}" headersFlushed=${headersFlushed}`,
       err instanceof Error ? err : new Error(String(err)),
-      { operation: "voice_speak_stream_error", reqId, headersFlushed },
+      { operation: "voice_speak_stream_error", reqId, provider: provider?.id, errName, headersFlushed },
     );
     if (!headersFlushed) {
       res.status(502).json({ error: "TTS stream error", status: 502 });
@@ -607,7 +750,14 @@ router.post(
   },
 );
 
-// GET /voices route DELETED (D-Claude's-discretion 2026-09-10) — frontend
-// inlines the 7-voice const via VoicePicker.tsx (Plan 03). No backend round-trip.
+// --- Route: GET /voices ---
+// The active TTS provider's voice list for the app's voice pickers.
+router.get(
+  "/voices",
+  authenticateJWT,
+  (req: Request, res: Response) => {
+    void handleListVoices(req, res);
+  },
+);
 
 export default router;

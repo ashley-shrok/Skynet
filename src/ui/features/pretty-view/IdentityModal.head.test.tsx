@@ -100,6 +100,11 @@ vi.mock("@/main-axios", () => ({
 vi.mock("@/api/voice-api", () => ({
   postSpeak: vi.fn(async () => new Blob([], { type: "audio/wav" })),
   SAMPLE_PHRASE: "Hi, this is your voice.",
+  fetchVoiceCatalog: vi.fn(async () => ({
+    voices: ["Danielle", "Joanna", "Ruth", "Salli", "Tiffany", "Matthew", "Stephen"].map((id) => ({ id, name: id })),
+    defaultVoice: "Joanna",
+    listError: false,
+  })),
 }));
 
 import { IdentityModal } from "./IdentityModal";

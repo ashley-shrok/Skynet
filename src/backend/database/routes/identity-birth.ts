@@ -54,10 +54,10 @@ import {
 import pathModule from "node:path";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 // Phase 98 Plan 07: whitelist voice-value validation on identity birth. Same
-// contract as identities.ts's PUT handler — any voice value that isn't one of
-// the 7 supported Polly voice IDs is 400-rejected. Null/absent are legal
+// contract as identities.ts's PUT handler — any voice value that isn't a
+// recognized voice ID of some TTS provider is 400-rejected. Null/absent are legal
 // (identity is born voiceless; owner picks in the identity modal later).
-import { isValidPollyVoice } from "../../voice/polly-voice-catalog.js";
+import { isRecognizedVoiceId } from "../../voice/tts-provider.js";
 import {
   birthIdentity,
   ROLE_NAME_PATTERN,
@@ -420,15 +420,15 @@ router.post(
       res.status(400).json({ error: "voice must be a string or null" });
       return;
     }
-    // Phase 98 Plan 07: tighten voice validation to the Polly whitelist.
-    // A present-and-string voice value must match one of the 7 supported
-    // Polly voice IDs (isValidPollyVoice). Null / absent voice remains legal
+    // Phase 98 Plan 07: voice validation. A present-and-string voice value
+    // must be a recognized voice ID of some TTS provider
+    // (isRecognizedVoiceId). Null / absent voice remains legal
     // — a newborn identity without a voice frontmatter key inherits its
     // role's voice at read time (Plan 86-01 merge in publicIdentity).
-    if (voice !== null && voice !== undefined && !isValidPollyVoice(voice)) {
+    if (voice !== null && voice !== undefined && !isRecognizedVoiceId(voice)) {
       res
         .status(400)
-        .json({ error: "voice must be one of the supported Polly voice IDs" });
+        .json({ error: "voice must be a supported voice ID" });
       return;
     }
 

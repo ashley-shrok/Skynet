@@ -120,10 +120,10 @@ import {
 import { startHarnessOnIdentity } from "./identity-harness-start.js";
 // Phase 98 Plan 07: whitelist voice-value validation on identity clone. Same
 // contract as identities.ts (PUT) and identity-birth.ts (POST) — any voice
-// value that isn't one of the 7 supported Polly voice IDs is 400-rejected.
+// value that isn't a recognized voice ID of some TTS provider is 400-rejected.
 // Null / absent voice on the clone body is legal (clone omits the `voice:`
 // frontmatter line and the identity inherits from its role).
-import { isValidPollyVoice } from "../../voice/polly-voice-catalog.js";
+import { isRecognizedVoiceId } from "../../voice/tts-provider.js";
 import { getHostSemaphore } from "../../ssh/host-semaphore-registry.js";
 // Phase 129 LOW-1 fix (2026-09-23): auto-tag creator on identity-clone for
 // multi-user hosts. Mirrors the discipline in identity-birth.ts + roles-
@@ -153,10 +153,9 @@ const SSH_EXEC_TIMEOUT_MS = 5000;
 
 /** Field length caps. */
 const MAX_TITLE_LEN = 200;
-// Phase 98 Plan 07: primary voice validation is now the Polly whitelist (see
-// isValidPollyVoice below at the body-validation block). All 7 supported voice
-// IDs are ≤10 chars; this 100-char cap remains as defense-in-depth against
-// absurdly-large payloads reaching the whitelist check.
+// Phase 98 Plan 07: primary voice validation is isRecognizedVoiceId (see the
+// body-validation block below), which caps ids at 64 chars; this 100-char cap
+// remains as defense-in-depth against absurdly-large payloads.
 const MAX_VOICE_LEN = 100;
 /** Working-directory path cap. Typical PATH_MAX is 4096; keep generous. */
 const MAX_PATH_LEN = 4096;
@@ -361,20 +360,20 @@ router.post(
       res.status(400).json({ error: `voice must be ≤${MAX_VOICE_LEN} chars` });
       return;
     }
-    // Phase 98 Plan 07: tighten voice validation to the Polly whitelist. Match
-    // identities.ts (PUT) + identity-birth.ts (POST) behavior — a present-and-
-    // string voice value must be one of the 7 supported Polly voice IDs. If a
+    // Phase 98 Plan 07: voice validation. Match identities.ts (PUT) +
+    // identity-birth.ts (POST) behavior — a present-and-string voice value
+    // must be a recognized voice ID of some TTS provider. If a
     // source identity carries an invalid voice value the caller is responsible
     // for passing null (clone-side dialog defaults to source's value; the
     // frontend picker will only offer valid Polly IDs post-Plan-98-03).
     if (
       rawVoice !== null &&
       rawVoice !== undefined &&
-      !isValidPollyVoice(rawVoice)
+      !isRecognizedVoiceId(rawVoice)
     ) {
       res
         .status(400)
-        .json({ error: "voice must be one of the supported Polly voice IDs" });
+        .json({ error: "voice must be a supported voice ID" });
       return;
     }
     // colorHue: optional. Frontend passes source identity's colorHue (LOCKED

@@ -25,6 +25,7 @@ import {
 // Phase 47 (load-more button) — presentational component (Plan 02 output).
 // Mounted at the top of the message-list scroll container by Task 2b.
 import { LoadMoreOlderButton } from "./LoadMoreOlderButton";
+import { speakVoiceCandidates } from "./voice-candidates";
 import { ChatMessage } from "./ChatMessage";
 import EditableFileModal from "./EditableFileModal";
 import { ImageBubble } from "./ImageBubble";
@@ -364,11 +365,10 @@ export interface PrettyViewProps {
   // "Switch to (terminal/chat) view" is admin-only).
   identityBadgeContextMenuItems?: PrettyContextMenuItem[];
   // Phase 137 Plan 03 (D-16): per-user voice preferences for the speak
-  // flow. When an identity has no bound voice (pvIdentity?.voice === null),
-  // the fallbackVoice preference resolves BEFORE the backend DEFAULT_VOICE.
+  // flow. fallbackVoice is the last voice candidate after the identity's and
+  // role's voices, before the TTS provider's default (voice-candidates.ts).
   // Optional with a default of {} so existing call sites without the prop
-  // continue to work byte-identically (fallbackVoice resolves to undefined,
-  // which ?? null = null, which ?? undefined = undefined in the speak call).
+  // keep working (no fallback candidate is sent).
   userPrefs?: UserPreferences;
 }
 
@@ -2183,10 +2183,13 @@ export function PrettyView({
   const { identity: pvIdentity, identityHue: pvIdentityHue } = useSessionIdentity(tmuxSession, hostId);
   // 2026-10-06: hands-free voice mode feed for ComposeBox — same voice
   // resolution chain as the bubble speak buttons (identity → fallback).
-  const voiceModeVoice = pvIdentity?.voice ?? userPrefs.fallbackVoice ?? null;
+  // Voice candidates in preference order (identity → role → user fallback);
+  // the server speaks in the first one the active TTS provider offers.
+  const speakVoicesKey = speakVoiceCandidates(pvIdentity, userPrefs.fallbackVoice).join("\n");
+  const speakVoices = useMemo(() => (speakVoicesKey ? speakVoicesKey.split("\n") : []), [speakVoicesKey]);
   const voiceModeFeed = useMemo(
-    () => ({ isWorking, messages, voice: voiceModeVoice }),
-    [isWorking, messages, voiceModeVoice],
+    () => ({ isWorking, messages, voices: speakVoices }),
+    [isWorking, messages, speakVoices],
   );
   const pvIdentityKey = sessionMatchKey(tmuxSession);
   const pvHue = pvIdentityHue ?? 35;
@@ -4407,6 +4410,7 @@ export function PrettyView({
                   hostId={hostId}
                   alwaysExpanded={source.kind === "relay"}
                   eventId={m.eventId}
+                  fallbackVoice={userPrefs.fallbackVoice ?? null}
                 />
               ) : m.type === "malformed_line" ? (
                 <MalformedBubble bytes={m.bytes} ts={m.ts} />
@@ -4414,7 +4418,7 @@ export function PrettyView({
                 <ChatMessage
                   role={m.role}
                   content={m.content}
-                  identityVoice={pvIdentity?.voice ?? userPrefs.fallbackVoice ?? null}
+                  speakVoices={speakVoices}
                   ts={m.ts}
                   eventId={m.eventId}
                   hostName={hostName}

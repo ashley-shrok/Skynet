@@ -6,6 +6,8 @@ import { useIdentities } from "@/state/identities-store";
 import { resolveMxidToIdentity } from "./relay-mxid-resolve";
 import { detectFilePointer } from "./relay-pointer-detect";
 import { postSpeakStream } from "@/api/voice-api";
+import { speakVoiceCandidates } from "./voice-candidates";
+import { notifySpeakFailed, speakErrorStatus } from "./speak-errors";
 import { stampedFetch } from "@/lib/stamped-fetch";
 import { createWebAudioStreamPlayer } from "./webAudioStreamPlayer";
 import {
@@ -98,6 +100,8 @@ export type RelayInboundBubbleProps = Pick<
 > & {
   /** hostId from PrettyViewProps — drilled from the PrettyView render site. */
   hostId: number;
+  /** The viewing user's fallback voice — last candidate before the provider default. */
+  fallbackVoice?: string | null;
   /** ms-epoch timestamp of the inbound event; when present, rendered as a
    * hover `title` on the bubble so desktop users can see when the send
    * happened. Optional at the type level so existing tests that don't care
@@ -123,11 +127,12 @@ export function RelayInboundBubble({
   ts,
   hostId,
   alwaysExpanded = false,
+  fallbackVoice = null,
   // eventId: accepted for callers; unused since auto-speak was retired.
 }: RelayInboundBubbleProps) {
   const { byKey } = useIdentities();
   const { colorHue, displayName, identity } = resolveMxidToIdentity(sender, byKey);
-  const identityVoice: string | undefined = identity?.voice ?? undefined;
+  const speakVoices = speakVoiceCandidates(identity, fallbackVoice);
   const [collapsed, setCollapsed] = useState(!alwaysExpanded);
 
   // Avatar-dot colour: resolved identity hue or neutral grey fallback.
@@ -225,7 +230,7 @@ export function RelayInboundBubble({
     // does not implement innerText so tests hit the fallback and never
     // surfaced this. Body is plain matrix message text — the correct source.
     const text = body;
-    console.info(`[tts] speak-start owner=relay:${owner.toString()} textLen=${text.length} voice="${identityVoice ?? "default"}" trigger=${trigger}`);
+    console.info(`[tts] speak-start owner=relay:${owner.toString()} textLen=${text.length} voices=[${speakVoices.join(",")}] trigger=${trigger}`);
 
     const player = createWebAudioStreamPlayer({
       onEnded: () => {
@@ -244,6 +249,7 @@ export function RelayInboundBubble({
         if (getCurrentOwner() === owner) {
           clearCurrentPlayer();
           setSpeakState("idle");
+          notifySpeakFailed();
         }
       },
       onPlaying: () => {
@@ -270,7 +276,7 @@ export function RelayInboundBubble({
 
     try {
       console.info(`[tts] fetch-start owner=relay:${owner.toString()} url=/voice/speak-stream textLen=${text.length}`);
-      const response = await postSpeakStream(text, identityVoice ?? undefined);
+      const response = await postSpeakStream(text, speakVoices);
       if (getCurrentOwner() !== owner) {
         console.warn(`[tts] preempt-during-fetch owner=relay:${owner.toString()} newOwner=${getCurrentOwner()?.toString() ?? "null"}`);
         return;
@@ -311,6 +317,7 @@ export function RelayInboundBubble({
       if (getCurrentOwner() === owner) {
         clearCurrentPlayer();
         setSpeakState("idle");
+        notifySpeakFailed(speakErrorStatus(err));
       }
     }
   }

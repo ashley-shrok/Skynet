@@ -130,13 +130,16 @@ export function splitIntoSentences(text: string): string[] {
  *     word-boundary split producing multiple sub-chunks each ≤
  *     CHUNK_MAX_CHARS. Any in-flight current chunk is closed first.
  *   - Every output chunk satisfies `chunk.length <= CHUNK_MAX_CHARS`.
+ *
+ * `maxChars` overrides the cap per TTS provider (each provider declares its
+ * own per-request limit); it defaults to Polly's CHUNK_MAX_CHARS.
  */
-export function packChunks(sentences: string[]): string[] {
+export function packChunks(sentences: string[], maxChars: number = CHUNK_MAX_CHARS): string[] {
   const chunks: string[] = [];
   let current = "";
 
   for (const sentence of sentences) {
-    if (sentence.length > CHUNK_MAX_CHARS) {
+    if (sentence.length > maxChars) {
       // Over-length single sentence — close in-flight chunk first, then
       // word-boundary fallback split.
       if (current) {
@@ -147,16 +150,16 @@ export function packChunks(sentences: string[]): string[] {
       let sub = "";
       for (const w of words) {
         const separator = sub ? " " : "";
-        if ((sub + separator + w).length > CHUNK_MAX_CHARS) {
+        if ((sub + separator + w).length > maxChars) {
           if (sub) chunks.push(sub);
           // Defensive: a single word longer than CHUNK_MAX_CHARS would
           // violate the invariant if pushed whole. Hard-slice into cap-
           // sized pieces. Preserves the "every output chunk <= CHUNK_MAX
           // _CHARS" contract even for pathological input (e.g. base64
           // blob glued into a message).
-          if (w.length > CHUNK_MAX_CHARS) {
-            for (let off = 0; off < w.length; off += CHUNK_MAX_CHARS) {
-              chunks.push(w.slice(off, off + CHUNK_MAX_CHARS));
+          if (w.length > maxChars) {
+            for (let off = 0; off < w.length; off += maxChars) {
+              chunks.push(w.slice(off, off + maxChars));
             }
             sub = "";
           } else {
@@ -171,7 +174,7 @@ export function packChunks(sentences: string[]): string[] {
     }
 
     const separator = current ? " " : "";
-    if ((current + separator + sentence).length > CHUNK_MAX_CHARS) {
+    if ((current + separator + sentence).length > maxChars) {
       chunks.push(current);
       current = sentence;
     } else {

@@ -132,8 +132,9 @@ export function slugifyRoleName(raw: string): string {
 // when the response header omits Content-Type. Kept local to this dialog per
 // D-CTX-86-surface-3 "extract later if a third caller emerges" precedent.
 // Every new role gets this voice. Set explicitly rather than by leaving `voice`
-// unset — the backend's omitted-voice fallback is Joanna (voice.ts DEFAULT_VOICE),
-// and changing that global would retint every existing voiceless role.
+// unset — the omitted-voice fallback is the TTS provider's default (Joanna on
+// Polly), and changing that would retint every existing voiceless role. On an
+// instance using another provider this saved Polly voice is simply skipped.
 const DEFAULT_ROLE_VOICE = "Danielle";
 
 const MIME_TO_EXT: Record<string, string> = {

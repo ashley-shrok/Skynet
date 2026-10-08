@@ -56,6 +56,7 @@ import type { TabState } from "./IdentityFileTab";
 import { RoleFileTab } from "./RoleFileTab";
 import { RunbooksTab } from "./RunbooksTab";
 import { VoicePicker } from "./pickers/VoicePicker";
+import { useVoiceLabel } from "./pickers/useVoiceCatalog";
 import { ColorPicker } from "./pickers/ColorPicker";
 import WorkspaceTab from "./WorkspaceTab";
 import GitTab from "./GitTab";
@@ -199,6 +200,8 @@ export function RoleModal({
   const [voiceDraft, setVoiceDraft] = useState<string>(
     roleCosmetics.voice ?? "",
   );
+  // Saved voice shown by name, never a raw provider code.
+  const voiceChipLabel = useVoiceLabel(voiceDraft);
   // Committed hue — what's currently persisted on disk (updated on save
   // success). `colorHueDraft` may lead this during a drag; on picker
   // close we save the draft and this state catches up.
@@ -508,7 +511,7 @@ export function RoleModal({
               aria-label="Voice — click to pick"
               title={
                 voiceDraft
-                  ? `Voice: ${voiceDraft} — click to change`
+                  ? `Voice: ${voiceChipLabel} — click to change`
                   : "Voice — click to pick"
               }
               disabled={chipsDisabled}
@@ -525,7 +528,7 @@ export function RoleModal({
             >
               <Mic size={12} className="opacity-85" />
               {voiceDraft ? (
-                <span>{voiceDraft}</span>
+                <span>{voiceChipLabel}</span>
               ) : (
                 <span className="italic opacity-75">default</span>
               )}

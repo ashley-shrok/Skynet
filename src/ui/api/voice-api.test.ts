@@ -4,13 +4,16 @@ import { postSpeakStream } from "./voice-api";
 describe("postSpeakStream (Phase 19 / patch #237)", () => {
   let capturedUrl: string | undefined;
   let capturedInit: RequestInit | undefined;
+  let fetchBodies: string[] = [];
 
   beforeEach(() => {
     capturedUrl = undefined;
     capturedInit = undefined;
+    fetchBodies = [];
     vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
       capturedUrl = url;
       capturedInit = init;
+      fetchBodies.push(init.body as string);
       return new Response(new Uint8Array([82, 73, 70, 70]), {
         status: 200,
         headers: { "Content-Type": "audio/wav" },
@@ -32,19 +35,20 @@ describe("postSpeakStream (Phase 19 / patch #237)", () => {
     expect(capturedInit?.method).toBe("POST");
   });
 
-  // Test 2: body without voice
-  it("sends JSON body with only text when voice is undefined", async () => {
+  // Test 2: body without voices
+  it("sends JSON body with only text when no voice candidates are given", async () => {
     await postSpeakStream("hello");
-    const parsed = JSON.parse(capturedInit?.body as string);
-    expect(parsed).toEqual({ text: "hello" });
-    expect(parsed).not.toHaveProperty("voice");
+    await postSpeakStream("hello", []);
+    for (const call of [0, 1]) {
+      expect(JSON.parse(fetchBodies[call])).toEqual({ text: "hello" });
+    }
   });
 
-  // Test 3: body with voice
-  it("sends JSON body with text and voice when voice is provided", async () => {
-    await postSpeakStream("hello", "Marcus.wav");
+  // Test 3: body with voice candidates, in preference order
+  it("sends JSON body with text and voice candidates when provided", async () => {
+    await postSpeakStream("hello", ["Joanna", "marin"]);
     const parsed = JSON.parse(capturedInit?.body as string);
-    expect(parsed).toEqual({ text: "hello", voice: "Marcus.wav" });
+    expect(parsed).toEqual({ text: "hello", voices: ["Joanna", "marin"] });
   });
 
   // Test 4: JWT present in localStorage

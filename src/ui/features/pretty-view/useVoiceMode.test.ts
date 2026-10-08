@@ -98,7 +98,7 @@ function baseArgs(overrides: Partial<UseVoiceModeArgs> = {}): UseVoiceModeArgs {
   return {
     hostId: 1,
     tmuxSession: "s1",
-    voice: "Ruth",
+    voices: ["Ruth"],
     isWorking: false,
     messages: [],
     suspended: false,
@@ -248,7 +248,7 @@ describe("useVoiceMode", () => {
     rerender(baseArgs({ messages: next, isWorking: true }));
     await flush();
     expect(postSpeakStream).toHaveBeenCalledTimes(1);
-    expect(postSpeakStream).toHaveBeenCalledWith("Hello there", "Ruth");
+    expect(postSpeakStream).toHaveBeenCalledWith("Hello there", ["Ruth"]);
     expect(result.current.phase).toBe("speaking");
     // Half-duplex: recorder stopped while speaking.
     expect(MockMediaRecorder.instances.every((r) => r.state === "inactive")).toBe(true);
@@ -277,12 +277,38 @@ describe("useVoiceMode", () => {
     }));
     await flush();
     expect(postSpeakStream).toHaveBeenCalledTimes(1);
-    expect(postSpeakStream).toHaveBeenLastCalledWith("first", "Ruth");
+    expect(postSpeakStream).toHaveBeenLastCalledWith("first", ["Ruth"]);
     act(() => players[0].opts.onEnded?.());
     await flush();
     expect(postSpeakStream).toHaveBeenCalledTimes(2);
-    expect(postSpeakStream).toHaveBeenLastCalledWith("second", "Ruth");
+    expect(postSpeakStream).toHaveBeenLastCalledWith("second", ["Ruth"]);
     expect(players[0].stop).not.toHaveBeenCalled();
+  });
+
+  it("says it couldn't speak when the voice service fails — never silently", async () => {
+    postSpeakStream.mockResolvedValueOnce(new Response(null, { status: 503 }));
+    const { result, rerender } = renderHook((p: UseVoiceModeArgs) => useVoiceMode(p), { initialProps: baseArgs() });
+    act(() => result.current.start());
+    await flush();
+    rerender(baseArgs({ messages: [{ type: "message", role: "assistant", content: "reply", eventId: "a1", ts: Date.now() }] }));
+    await flush();
+
+    expect(postSpeakStream).toHaveBeenCalledTimes(1);
+    expect(result.current.errorMessage).toBe("Voice mode: couldn't speak that reply");
+    expect(result.current.phase).toBe("listening");
+  });
+
+  it("reports a mid-stream speak failure once", async () => {
+    const { result, rerender } = renderHook((p: UseVoiceModeArgs) => useVoiceMode(p), { initialProps: baseArgs() });
+    act(() => result.current.start());
+    await flush();
+    rerender(baseArgs({ messages: [{ type: "message", role: "assistant", content: "reply", eventId: "a1", ts: Date.now() }] }));
+    await flush();
+
+    act(() => players[players.length - 1].opts.onError?.(new Error("stream dropped")));
+    await flush();
+
+    expect(result.current.errorMessage).toBe("Voice mode: couldn't speak that reply");
   });
 
   it("does not talk over the user mid-utterance", async () => {
@@ -298,7 +324,7 @@ describe("useVoiceMode", () => {
     transcribeReturns("and another thing");
     setLevel(0);
     await flush(SILENCE_END_MS + 100);
-    expect(postSpeakStream).toHaveBeenCalledWith("reply", "Ruth");
+    expect(postSpeakStream).toHaveBeenCalledWith("reply", ["Ruth"]);
   });
 
   it("pauses (and drops the capture) while the manual mic is recording", async () => {

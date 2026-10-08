@@ -567,8 +567,8 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
             tabId={tabId}
             identityBadgeContextMenuItems={identityBadgeContextMenuItems}
             // Phase 137 Plan 03 (D-16): user's fallbackVoice preference for
-            // the speak-flow resolution chain (identity voice → user fallback
-            // → backend DEFAULT_VOICE "Joanna").
+            // the speak-flow voice candidates (identity → role → user fallback
+            // → the TTS provider's default voice).
             userPrefs={userPrefs}
             onSend={(text: string, mqid?: string): boolean => {
               // Patch #110: collapse pretty-view submit into a SINGLE WS event

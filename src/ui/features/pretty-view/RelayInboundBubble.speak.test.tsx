@@ -206,7 +206,7 @@ describe("RelayInboundBubble speak apparatus (Phase 97 UAT batch #6)", () => {
   // Truth 9 — voice resolution paths.
   // ---------------------------------------------------------------------------
 
-  it("Truth 9 — resolved sender with identity.voice → postSpeakStream(text, 'sarah')", async () => {
+  it("Truth 9 — resolved sender with identity.voice → postSpeakStream(text, ['sarah'])", async () => {
     const tina = makeIdentity("tina", "Tina", 45, "sarah");
     mockedUseIdentities.mockReturnValue({
       identities: [tina],
@@ -240,11 +240,11 @@ describe("RelayInboundBubble speak apparatus (Phase 97 UAT batch #6)", () => {
     const call = mockedPostSpeakStream.mock.calls[0];
     expect(call[0]).toBe("Hello Tina");
     expect(call[0]).not.toMatch(/^Tina/);
-    // Second positional argument should be "sarah".
-    expect(call[1]).toBe("sarah");
+    // Second positional argument: the voice candidates, identity voice first.
+    expect(call[1]).toEqual(["sarah"]);
   });
 
-  it("Truth 9 — unresolved sender → postSpeakStream(text, undefined); button STILL renders (not hidden)", async () => {
+  it("Truth 9 — unresolved sender → postSpeakStream(text, []); button STILL renders (not hidden)", async () => {
     // byKey empty (default beforeEach). No identity resolution → identity=null,
     // so identity?.voice is undefined.
     render(
@@ -266,10 +266,9 @@ describe("RelayInboundBubble speak apparatus (Phase 97 UAT batch #6)", () => {
     await waitFor(() => {
       expect(mockedPostSpeakStream).toHaveBeenCalled();
     });
-    // Second positional argument should be undefined (default voice
-    // fallback lives in postSpeakStream contract).
+    // No candidates → the server speaks the provider's default voice.
     const call = mockedPostSpeakStream.mock.calls[0];
-    expect(call[1]).toBeUndefined();
+    expect(call[1]).toEqual([]);
   });
 
   // ---------------------------------------------------------------------------

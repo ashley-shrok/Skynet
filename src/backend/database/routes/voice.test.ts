@@ -13,7 +13,6 @@
  * AWS call is made from this file.
  *
  * NOT tested here (dropped or covered elsewhere):
- *   - `handleListVoices` — deleted entirely per D-Claude's-discretion 2026-09-10.
  *   - Chatterbox-URL forwarding — dead; the old shared-constants module (Phase
  *     79 Plan 02) was deleted in Phase 98 Plan 10 alongside all its imports.
  *   - Chunked-path tests from the prior Phase (T1-T6) — deleted per D-CUTOVER (109-03);
@@ -105,9 +104,10 @@ import {
   handleTranscribe,
   handleSpeak,
   handleSpeakStream,
-  DEFAULT_VOICE,
+  handleListVoices,
   SPEAK_TEXT_MAX,
 } from "./voice.js";
+import { clearVoiceListCache } from "../../voice/tts-provider.js";
 import { fetchSkillCatalog } from "../../voice/skill-catalog.js";
 import { webmToPcm16k } from "../../voice/audio-transcode.js";
 import { transcribeNovaSonic } from "../../voice/nova-sonic-adapter.js";
@@ -244,6 +244,7 @@ beforeEach(() => {
   vi.mocked(webmToPcm16k).mockReset();
   vi.mocked(webmToPcm16k).mockImplementation(async (buf: Buffer) => buf);
   vi.mocked(fetchSkillCatalog).mockReset();
+  clearVoiceListCache();
 });
 
 afterEach(() => {
@@ -521,28 +522,30 @@ describe("handleSpeak (AWS Polly SynthesizeSpeech, non-streaming)", () => {
     expect(res._status).toBe(400);
   });
 
-  it("returns 400 when body.voice is the old Chatterbox shape (e.g. 'Elena.wav')", async () => {
+  it("skips a voice the active provider doesn't offer ('Elena.wav') and speaks the default — never a 400", async () => {
     const req = makeSpeakReq({ text: "hello", voice: "Elena.wav" });
     const res = makeRes();
+    pollySendMock.mockResolvedValueOnce({ AudioStream: Readable.from([Buffer.alloc(10)]) });
 
     await handleSpeak(
       req as unknown as import("express").Request,
       res as unknown as import("express").Response,
     );
 
-    expect(res._status).toBe(400);
+    expect(res._status).toBe(200);
+    expect(synthesizeSpeechCmdCtor.mock.calls[0]?.[0].VoiceId).toBe("Joanna");
   });
 
-  it("returns 400 when body.voice is not in the Polly whitelist ('NotAVoice')", async () => {
-    const req = makeSpeakReq({ text: "hello", voice: "NotAVoice" });
-    const res = makeRes();
-
-    await handleSpeak(
-      req as unknown as import("express").Request,
-      res as unknown as import("express").Response,
-    );
-
-    expect(res._status).toBe(400);
+  it("returns 400 when a voice is malformed (non-string or over-long)", async () => {
+    for (const body of [{ text: "hello", voice: 42 }, { text: "hello", voices: ["x".repeat(65)] }, { text: "hello", voices: "Joanna" }]) {
+      const res = makeRes();
+      await handleSpeak(
+        makeSpeakReq(body) as unknown as import("express").Request,
+        res as unknown as import("express").Response,
+      );
+      expect(res._status).toBe(400);
+    }
+    expect(pollySendMock).not.toHaveBeenCalled();
   });
 
   it("accepts a valid Polly voice ID ('Joanna') and returns 200", async () => {
@@ -564,7 +567,7 @@ describe("handleSpeak (AWS Polly SynthesizeSpeech, non-streaming)", () => {
     expect(cmdArgs.VoiceId).toBe("Joanna");
   });
 
-  it("uses DEFAULT_VOICE when body.voice is omitted (DEFAULT_VOICE is a Polly ID, not '.wav')", async () => {
+  it("uses Polly's default voice (Joanna) when no voice is sent", async () => {
     const pcmBytes = Buffer.alloc(100);
     const req = makeSpeakReq({ text: "hello" });
     const res = makeRes();
@@ -579,8 +582,7 @@ describe("handleSpeak (AWS Polly SynthesizeSpeech, non-streaming)", () => {
 
     expect(res._status).toBe(200);
     const cmdArgs = synthesizeSpeechCmdCtor.mock.calls[0]?.[0];
-    expect(cmdArgs.VoiceId).toBe(DEFAULT_VOICE);
-    expect(DEFAULT_VOICE).not.toMatch(/\.wav$/);
+    expect(cmdArgs.VoiceId).toBe("Joanna");
   });
 
   it("prepends RIFF header with dataSize = pcmBuf.length (byte-accurate, NOT 0xFFFFFFFF sentinel)", async () => {
@@ -689,16 +691,19 @@ describe("handleSpeakStream (AWS Polly, streaming with chunk-and-stitch)", () =>
     expect(res._status).toBe(400);
   });
 
-  it("returns 400 when body.voice is old Chatterbox shape ('Elena.wav')", async () => {
-    const req = makeSpeakReq({ text: "hello", voice: "Elena.wav" });
+  it("speaks the first candidate Polly offers, skipping ones it doesn't (identity → role → fallback)", async () => {
+    const req = makeSpeakReq({ text: "hello", voices: ["SAz9YHcvj6GT2YYXdXww", "marin", "Matthew", "Ruth"] });
     const res = makeRes();
+    pollySendMock.mockResolvedValueOnce({ AudioStream: Readable.from([Buffer.alloc(4)]) });
 
     await handleSpeakStream(
       req as unknown as import("express").Request,
       res as unknown as import("express").Response,
     );
+    await new Promise<void>((resolve) => setImmediate(resolve));
 
-    expect(res._status).toBe(400);
+    expect(res._status).toBe(200);
+    expect(synthesizeSpeechCmdCtor.mock.calls[0]?.[0].VoiceId).toBe("Matthew");
   });
 
   it("short text (single chunk) — sets audio/wav + X-Accel-Buffering headers and pipes PCM bytes with RIFF prefix", async () => {
@@ -751,7 +756,7 @@ describe("handleSpeakStream (AWS Polly, streaming with chunk-and-stitch)", () =>
     expect(res._destroyed).toBe(false);
   });
 
-  it("uses DEFAULT_VOICE (Polly ID, not '.wav') when body.voice is omitted", async () => {
+  it("uses Polly's default voice (Joanna) when no voice is sent", async () => {
     const pcmBytes = Buffer.from([1, 2]);
     const req = makeSpeakReq({ text: "hi." });
     const res = makeRes();
@@ -767,8 +772,318 @@ describe("handleSpeakStream (AWS Polly, streaming with chunk-and-stitch)", () =>
     await new Promise<void>((resolve) => setImmediate(resolve));
 
     const cmdArgs = synthesizeSpeechCmdCtor.mock.calls[0]?.[0];
-    expect(cmdArgs.VoiceId).toBe(DEFAULT_VOICE);
-    expect(DEFAULT_VOICE).not.toMatch(/\.wav$/);
+    expect(cmdArgs.VoiceId).toBe("Joanna");
   });
 });
 
+
+// =============================================================================
+// TTS_PROVIDER selection — speak routes + GET /voices against the provider
+// contract (tts-provider.ts). HTTP providers are exercised through a stubbed
+// global fetch; Polly through the mocked SDK above.
+// =============================================================================
+
+describe("TTS_PROVIDER selection", () => {
+  const savedEnv = { ...process.env };
+  const fetchMock = vi.fn<typeof fetch>();
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockReset();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    process.env = { ...savedEnv };
+  });
+
+  function pcmResponse(bytes = 8): Response {
+    return new Response(new Uint8Array(bytes), { status: 200 });
+  }
+
+  async function speakStream(body: Record<string, unknown>): Promise<MockRes> {
+    const res = makeRes();
+    await handleSpeakStream(
+      makeSpeakReq(body) as unknown as import("express").Request,
+      res as unknown as import("express").Response,
+    );
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    return res;
+  }
+
+  async function listVoices(): Promise<MockRes> {
+    const res = makeRes();
+    await handleListVoices(
+      {} as unknown as import("express").Request,
+      res as unknown as import("express").Response,
+    );
+    return res;
+  }
+
+  function sentBody(callIndex = 0): Record<string, unknown> {
+    return JSON.parse(String(fetchMock.mock.calls[callIndex]?.[1]?.body));
+  }
+
+  it("TTS_PROVIDER=openai: streams OpenAI PCM with a 24 kHz RIFF header, default voice marin, no Polly", async () => {
+    process.env.TTS_PROVIDER = "openai";
+    process.env.OPENAI_API_KEY = "oa-key";
+    fetchMock.mockResolvedValueOnce(pcmResponse(6));
+
+    const res = await speakStream({ text: "Hello there." });
+
+    expect(res._status).toBe(200);
+    expect(pollySendMock).not.toHaveBeenCalled();
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe("https://api.openai.com/v1/audio/speech");
+    expect(sentBody()).toEqual({ model: "gpt-4o-mini-tts", input: "Hello there.", voice: "marin", response_format: "pcm" });
+    const header = Buffer.from(res._writes[0]);
+    expect(header.readUInt32LE(24)).toBe(24000);
+    expect(res._writes.slice(1).reduce((n, w) => n + w.length, 0)).toBe(6);
+  });
+
+  it("openai: a saved Polly voice is skipped for the next candidate the provider offers", async () => {
+    process.env.TTS_PROVIDER = "openai";
+    process.env.OPENAI_API_KEY = "oa-key";
+    fetchMock.mockResolvedValueOnce(pcmResponse());
+
+    await speakStream({ text: "Hi.", voices: ["Joanna", "nova"] });
+
+    expect(sentBody().voice).toBe("nova");
+  });
+
+  it("TTS_MODEL and TTS_DEFAULT_VOICE override the provider's model and default voice", async () => {
+    process.env.TTS_PROVIDER = "openai";
+    process.env.OPENAI_API_KEY = "oa-key";
+    process.env.TTS_MODEL = "tts-1-hd";
+    process.env.TTS_DEFAULT_VOICE = "onyx";
+    fetchMock.mockResolvedValueOnce(pcmResponse());
+
+    await speakStream({ text: "Hi.", voices: ["Joanna"] });
+
+    expect(sentBody()).toMatchObject({ model: "tts-1-hd", voice: "onyx" });
+  });
+
+  it("splits long text at the active provider's own per-request limit", async () => {
+    const sentence = `${"word ".repeat(379)}end.`; // 1899 chars
+    const text = `${sentence} ${sentence}`; // 3799 chars: one OpenAI request, two Polly requests
+
+    process.env.TTS_PROVIDER = "openai";
+    process.env.OPENAI_API_KEY = "oa-key";
+    fetchMock.mockImplementation(async () => pcmResponse());
+    await speakStream({ text });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    delete process.env.TTS_PROVIDER;
+    pollySendMock.mockImplementation(async () => ({ AudioStream: Readable.from([Buffer.alloc(4)]) }));
+    await speakStream({ text });
+    expect(pollySendMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("unknown TTS_PROVIDER → 503 on speak and on the voice list, never a fallback provider", async () => {
+    process.env.TTS_PROVIDER = "nope";
+
+    const speakRes = await speakStream({ text: "Hi." });
+    const listRes = await listVoices();
+
+    expect(speakRes._status).toBe(503);
+    expect((speakRes._body as { error: string }).error).toBe("voice TTS unavailable");
+    expect(listRes._status).toBe(503);
+    expect(pollySendMock).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("selected provider without its API key → 503, no request sent", async () => {
+    process.env.TTS_PROVIDER = "openai";
+    delete process.env.OPENAI_API_KEY;
+
+    const res = await speakStream({ text: "Hi." });
+
+    expect(res._status).toBe(503);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("provider rejecting the key (401) or out of credits (402) → 503 voice TTS unavailable", async () => {
+    process.env.TTS_PROVIDER = "openai";
+    process.env.OPENAI_API_KEY = "oa-key";
+    for (const status of [401, 402]) {
+      fetchMock.mockResolvedValueOnce(new Response("no", { status }));
+      const res = await speakStream({ text: "Hi." });
+      expect(res._status).toBe(503);
+    }
+  });
+
+  it("out of credit (429 insufficient_quota) → 503 straight away, no retries", async () => {
+    process.env.TTS_PROVIDER = "openai";
+    process.env.OPENAI_API_KEY = "oa-key";
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: { code: "insufficient_quota" } }), { status: 429 }),
+    );
+
+    const res = await speakStream({ text: "Hi." });
+
+    expect(res._status).toBe(503);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("TTS_DEFAULT_VOICE from another provider → 503 on speak and on the voice list, nothing sent", async () => {
+    process.env.TTS_PROVIDER = "openai";
+    process.env.OPENAI_API_KEY = "oa-key";
+    process.env.TTS_DEFAULT_VOICE = "Joanna";
+
+    const speakRes = await speakStream({ text: "Hi." });
+    const listRes = await listVoices();
+
+    expect(speakRes._status).toBe(503);
+    expect(listRes._status).toBe(503);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("retries a 429 from the provider before any audio, then streams", async () => {
+    process.env.TTS_PROVIDER = "openai";
+    process.env.OPENAI_API_KEY = "oa-key";
+    fetchMock
+      .mockResolvedValueOnce(new Response("slow down", { status: 429 }))
+      .mockResolvedValueOnce(pcmResponse(4));
+
+    const res = await speakStream({ text: "Hi." });
+
+    expect(res._status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("elevenlabs: speaks a saved voice from the account list, 24 kHz PCM, default model", async () => {
+    process.env.TTS_PROVIDER = "elevenlabs";
+    process.env.ELEVENLABS_API_KEY = "el-key";
+    fetchMock.mockImplementation(async (url) =>
+      String(url).endsWith("/v1/voices")
+        ? new Response(JSON.stringify({ voices: [{ voice_id: "EXAVITQu4vr4xnSDxMaL", name: "Sarah - Mature" }] }), { status: 200 })
+        : pcmResponse(),
+    );
+
+    const res = await speakStream({ text: "Hi.", voices: ["Joanna", "EXAVITQu4vr4xnSDxMaL"] });
+
+    expect(res._status).toBe(200);
+    const synthCall = fetchMock.mock.calls.find((c) => String(c[0]).includes("/text-to-speech/"));
+    expect(String(synthCall?.[0])).toBe(
+      "https://api.elevenlabs.io/v1/text-to-speech/EXAVITQu4vr4xnSDxMaL/stream?output_format=pcm_24000",
+    );
+    expect(JSON.parse(String(synthCall?.[1]?.body))).toEqual({ text: "Hi.", model_id: "eleven_multilingual_v2" });
+  });
+
+  it("elevenlabs: a saved voice still speaks when the voice list can't be fetched", async () => {
+    process.env.TTS_PROVIDER = "elevenlabs";
+    process.env.ELEVENLABS_API_KEY = "el-key";
+    fetchMock.mockImplementation(async (url) => {
+      if (String(url).endsWith("/v1/voices")) throw new TypeError("fetch failed");
+      return pcmResponse();
+    });
+
+    const res = await speakStream({ text: "Hi.", voices: ["Joanna", "EXAVITQu4vr4xnSDxMaL"] });
+
+    expect(res._status).toBe(200);
+    expect(fetchMock.mock.calls.some((c) => String(c[0]).includes("/text-to-speech/EXAVITQu4vr4xnSDxMaL/"))).toBe(true);
+  });
+
+  it("listener hangs up mid-message → no further chunks are requested from the provider", async () => {
+    process.env.TTS_PROVIDER = "openai";
+    process.env.OPENAI_API_KEY = "oa-key";
+    const sentence = `${"word ".repeat(700)}end.`; // ~3504 chars → one chunk each
+    const text = [sentence, sentence, sentence].join(" ");
+    // Chunk 0's audio never finishes; chunk 1's prefetch answers normally.
+    fetchMock
+      .mockResolvedValueOnce(new Response(new ReadableStream({ start(c) { c.enqueue(new Uint8Array(4)); } }), { status: 200 }))
+      .mockImplementation(async () => pcmResponse());
+
+    const listeners: Record<string, Array<() => void>> = {};
+    const res = makeRes();
+    res.once = (event: string, cb: unknown) => {
+      (listeners[event] ??= []).push(cb as () => void);
+      return res;
+    };
+    const done = handleSpeakStream(
+      makeSpeakReq({ text }) as unknown as import("express").Request,
+      res as unknown as import("express").Response,
+    );
+    await new Promise<void>((resolve) => setTimeout(resolve, 20));
+    expect(res._status).toBe(200);
+
+    for (const cb of listeners.close ?? []) cb(); // the browser went away
+    await done;
+
+    expect(fetchMock).toHaveBeenCalledTimes(2); // chunk 0 + the one prefetch; chunk 2 never asked for
+    expect(res._streamedEnded).toBe(false);
+  });
+
+  it("GET /voices: Polly's seven voices + Joanna default when TTS_PROVIDER is unset", async () => {
+    delete process.env.TTS_PROVIDER;
+
+    const res = await listVoices();
+
+    expect(res._status).toBe(200);
+    const body = res._body as { voices: { id: string; name: string }[]; defaultVoice: string; listError: boolean };
+    expect(body.voices.map((v) => v.id)).toEqual(["Danielle", "Joanna", "Ruth", "Salli", "Tiffany", "Matthew", "Stephen"]);
+    expect(body.defaultVoice).toBe("Joanna");
+    expect(body.listError).toBe(false);
+  });
+
+  it("GET /voices: elevenlabs account voices with names split from descriptions; cached between calls", async () => {
+    process.env.TTS_PROVIDER = "elevenlabs";
+    process.env.ELEVENLABS_API_KEY = "el-key";
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          voices: [
+            { voice_id: "SAz9YHcvj6GT2YYXdXww", name: "River - Relaxed, Neutral, Informative" },
+            { voice_id: "wL82Y8r3Rj84NiLda6qb", name: "Arvis" },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const res = await listVoices();
+    await listVoices();
+
+    expect(res._body).toMatchObject({
+      voices: [
+        { id: "SAz9YHcvj6GT2YYXdXww", name: "River", description: "Relaxed, Neutral, Informative" },
+        { id: "wL82Y8r3Rj84NiLda6qb", name: "Arvis" },
+      ],
+      defaultVoice: "SAz9YHcvj6GT2YYXdXww",
+      listError: false,
+    });
+    // Names for saved voices of any provider: the active list + every fixed list.
+    const labels = (res._body as { labels: Record<string, string> }).labels;
+    expect(labels).toMatchObject({ SAz9YHcvj6GT2YYXdXww: "River", Joanna: "Joanna", marin: "Marin" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("GET /voices: list down after a successful fetch → saved voices still named from the last known list", async () => {
+    process.env.TTS_PROVIDER = "elevenlabs";
+    process.env.ELEVENLABS_API_KEY = "el-key";
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ voices: [{ voice_id: "EXAVITQu4vr4xnSDxMaL", name: "Sarah - Mature" }] }), { status: 200 }),
+    );
+    await listVoices();
+    vi.spyOn(Date, "now").mockReturnValue(Date.now() + 10 * 60_000); // past the list TTL
+    fetchMock.mockRejectedValueOnce(new TypeError("fetch failed"));
+
+    const res = await listVoices();
+
+    expect(res._body).toMatchObject({ voices: [], listError: true, labels: { EXAVITQu4vr4xnSDxMaL: "Sarah" } });
+  });
+
+  it("GET /voices: list unreachable → 200 with listError so pickers keep showing the saved voice", async () => {
+    process.env.TTS_PROVIDER = "elevenlabs";
+    process.env.ELEVENLABS_API_KEY = "el-key";
+    fetchMock.mockRejectedValue(new TypeError("fetch failed"));
+
+    const res = await listVoices();
+
+    expect(res._status).toBe(200);
+    expect(res._body).toMatchObject({ voices: [], defaultVoice: "SAz9YHcvj6GT2YYXdXww", listError: true });
+    // Fixed-list providers can still be named; the account's own voices can't.
+    const labels = (res._body as { labels: Record<string, string> }).labels;
+    expect(labels.Joanna).toBe("Joanna");
+    expect(labels.SAz9YHcvj6GT2YYXdXww).toBeUndefined();
+  });
+});

@@ -468,12 +468,12 @@ export interface ComposeBoxProps {
    * relay panes keep hold-to-send.
    *   isWorking — agent-working signal (turn-end chime).
    *   messages  — pane message stream; new assistant replies are spoken.
-   *   voice     — identity voice → fallback voice (null = backend default).
+   *   voices    — voice candidates, identity → role → fallback ([] = provider default).
    */
   voiceModeFeed?: {
     isWorking: boolean;
     messages: ReadonlyArray<VoiceModeMessage>;
-    voice: string | null;
+    voices: readonly string[];
   };
   // Phase 56 (2026-08-23): the former dormancy-gate boolean prop was
   // DELETED. Compose stays enabled on dormant panes — send triggers invisible
@@ -598,6 +598,7 @@ function useComposeSend(deps: {
 }
 
 const EMPTY_VOICE_MODE_MESSAGES: ReadonlyArray<VoiceModeMessage> = [];
+const EMPTY_VOICE_MODE_VOICES: readonly string[] = [];
 
 const VOICE_MODE_LABEL: Record<VoiceModePhase, string> = {
   off: "",
@@ -2083,7 +2084,7 @@ export function ComposeBox({
   const voiceMode = useVoiceMode({
     hostId,
     tmuxSession,
-    voice: voiceModeFeed?.voice ?? null,
+    voices: voiceModeFeed?.voices ?? EMPTY_VOICE_MODE_VOICES,
     isWorking: voiceModeFeed?.isWorking ?? false,
     messages: voiceModeFeed?.messages ?? EMPTY_VOICE_MODE_MESSAGES,
     suspended: voice.state !== "idle",

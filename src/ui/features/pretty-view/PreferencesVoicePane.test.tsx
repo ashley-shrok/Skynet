@@ -21,6 +21,17 @@ vi.mock("@/api/open-tabs-api", () => ({
   saveUserPreferences: vi.fn(),
 }));
 
+// VoicePicker loads the active TTS provider's voice list from the server.
+vi.mock("@/api/voice-api", () => ({
+  SAMPLE_PHRASE: "Hi, this is your voice.",
+  postSpeak: vi.fn(async () => new Blob([], { type: "audio/wav" })),
+  fetchVoiceCatalog: vi.fn(async () => ({
+    voices: ["Danielle", "Joanna", "Ruth", "Salli", "Tiffany", "Matthew", "Stephen"].map((id) => ({ id, name: id })),
+    defaultVoice: "Joanna",
+    listError: false,
+  })),
+}));
+
 import { saveUserPreferences } from "@/api/open-tabs-api";
 
 const mockSave = saveUserPreferences as ReturnType<typeof vi.fn>;

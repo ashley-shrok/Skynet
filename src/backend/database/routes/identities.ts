@@ -52,12 +52,12 @@ import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 // Phase 98 Plan 07: replaces the legacy filename regex (`/^[A-Z][A-Za-z]+\.wav$/`)
-// with a hard whitelist of the 7 supported Amazon Polly generative voice IDs.
-// Plan 98-05's boot-time migration wipes any legacy `.wav` values BEFORE Skynet
-// accepts HTTP traffic, so this validator can be strict from first request
-// without rejecting operators' existing frontmatter. See polly-voice-catalog.ts
-// for the seven-entry catalog + guard.
-import { isValidPollyVoice } from "../../voice/polly-voice-catalog.js";
+// with isRecognizedVoiceId: a voice id of ANY known TTS provider is accepted,
+// whichever provider the instance is using — saved voices are never rejected
+// for belonging to an inactive provider (see tts-provider.ts). Plan 98-05's
+// boot-time migration wipes any legacy `.wav` values BEFORE Skynet accepts
+// HTTP traffic, so this validator can be strict from first request.
+import { isRecognizedVoiceId } from "../../voice/tts-provider.js";
 // Phase 92 (renumbered from 92 in ROADMAP → Phase 105 post-collision with tina P92)
 // Plan 92-02 Task 1: per-identity `.pinned` sentinel probe. identityFileExists is
 // the read-side of the D-05 wire — a fail-closed stat against
@@ -86,9 +86,8 @@ const upload = multer({
 
 // Phase 98 Plan 07: the legacy voice-shape regex constant (formerly matching
 // `/^[A-Z][A-Za-z]+\.wav$/`) is deleted here — voice-value validation now goes
-// through `isValidPollyVoice` imported above from `polly-voice-catalog.ts`.
-// The whitelist enforces the 7-Polly-voice-IDs contract; any old-shape `Foo.wav`
-// value fails validation.
+// through `isRecognizedVoiceId` imported above from `tts-provider.ts`. Any
+// old-shape `Foo.wav` value fails validation.
 
 // Phase 86 code-review fix: match roles-create.ts MAX_TITLE_LENGTH so the two
 // authoring surfaces (POST /roles at create, PUT /identities/:key at override)
@@ -665,11 +664,11 @@ router.put(
     if (
       meta.voice !== undefined &&
       meta.voice !== null &&
-      !isValidPollyVoice(meta.voice)
+      !isRecognizedVoiceId(meta.voice)
     ) {
       return res
         .status(400)
-        .json({ error: "voice must be one of the supported Polly voice IDs" });
+        .json({ error: "voice must be a supported voice ID" });
     }
 
     // Route via isLocalHostId (module-load parsed IDENTITIES_LOCAL_HOST_IDS
