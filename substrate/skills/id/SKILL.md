@@ -766,6 +766,10 @@ crown, then gear.
 - **🔧 Wrench — skills.** Lists the user's skills; view/edit any, or create
   a new one. Skills here are surfaced to every one of the user's agent
   sessions.
+  Pick a skill at the top; the **three-dots (⋮) menu** beside them holds
+  **Slash command only** (agents won't invoke the skill on their own —
+  only `/<name>` will) and **Delete skill…**. The skill's files list down
+  the left; click one to edit it.
   *Agent-side:* skills live at `~/.claude/skills/<skill-name>/SKILL.md`
   (folder + sentinel file, mirroring this id skill's own layout).
   Reading is fine; **creating or editing follows the same
@@ -796,8 +800,12 @@ crown, then gear.
     the old one immediately; re-enter the new password in the ntfy
     app). iPhone-only in v1; no desktop push.
   - **Log out** — signs the user out of the app. Pinned to the bottom of
-    the modal's left nav (below a divider) so it's reachable from any
-    section. Confirms before signing out.
+    the modal's section list.
+
+- **Side-list modals on a phone.** Preferences, Skills and the runbook
+  editor list their sections/files down the left on desktop. On a phone
+  they drill in instead: the list fills the screen, tapping an item opens
+  it full screen with a back arrow (‹ Preferences / ‹ Files) to return.
 
 ### Conversation view
 
