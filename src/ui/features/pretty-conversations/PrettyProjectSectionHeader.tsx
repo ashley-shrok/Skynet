@@ -264,7 +264,7 @@ export function PrettyProjectSectionHeader({
             onToggleCollapse(slug);
           }
         }}
-        className="group flex items-center gap-2.5 pl-1 pr-4 pt-3.5 pb-1.5 w-full text-left cursor-pointer"
+        className="group flex items-center gap-2.5 pl-1 pr-1 pt-3.5 pb-1.5 w-full text-left cursor-pointer"
         data-testid={`pv-project-section-header-${slug}`}
         aria-expanded={!collapsed}
         aria-controls={`pv-project-section-content-${slug}`}
@@ -273,7 +273,7 @@ export function PrettyProjectSectionHeader({
           className="size-3.5 text-[#a89a80] opacity-90 shrink-0"
           aria-hidden="true"
         />
-        <span className="pv-section-label shrink-0">
+        <span className="pv-section-label">
           {displayName}
         </span>
         <span
@@ -287,7 +287,7 @@ export function PrettyProjectSectionHeader({
             RowKebabMenu's portal-click-containment prevents item-click
             leaks to the outer div's collapse toggle. */}
         <div
-          className="opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity shrink-0"
+          className="pv-section-kebab-slot opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity shrink-0"
           data-testid={`pv-project-section-kebab-slot-${slug}`}
         >
           <RowKebabMenu
