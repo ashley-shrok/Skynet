@@ -315,6 +315,7 @@ let mockFleetSessionsLoaded = false;
 let mockFleetSessionsSnapshot: unknown[] = [];
 
 vi.mock("@/state/conversation-store", () => ({
+  patchRoomProjectAssignment: () => () => {},
   useConversations: () => ({
     activeSet: snapshot.activeSet,
     pinned: snapshot.pinned,

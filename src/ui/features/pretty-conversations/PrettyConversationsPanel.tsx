@@ -110,6 +110,7 @@ import {
   // drop the fleet-session row so the sidebar updates without waiting for the
   // supervisor's ~15s retire tick.
   removeFleetSession,
+  patchRoomProjectAssignment,
   markPendingArchive,
   clearPendingArchive,
   type ConversationRow as ConversationRowShape,
@@ -2020,8 +2021,10 @@ export function PrettyConversationsPanel({
           return;
         }
         console.info(`[project-drop] slug=${slug} kind=relay-room roomId=${payload.matrixRoomId}`);
+        const rollbackDrop = patchRoomProjectAssignment(payload.matrixRoomId, slug);
         setRelayRoomProject(payload.matrixRoomId, viewingUserMxid, slug).catch(
           (err: unknown) => {
+            rollbackDrop();
             const msg = err instanceof Error ? err.message : String(err);
             console.error(`[project-drop] setRelayRoomProject failed: ${msg}`);
           },
@@ -2136,8 +2139,10 @@ export function PrettyConversationsPanel({
         console.info(
           `[project-menu] slug=${slug ?? "(null)"} kind=relay-room roomId=${roomId}`,
         );
+        const rollbackMenu = patchRoomProjectAssignment(roomId, slug);
         setRelayRoomProject(roomId, viewingUserMxid, slug).catch(
           (err: unknown) => {
+            rollbackMenu();
             const msg = err instanceof Error ? err.message : String(err);
             console.error(`[project-menu] setRelayRoomProject failed: ${msg}`);
           },
@@ -2286,8 +2291,10 @@ export function PrettyConversationsPanel({
           return;
         }
         console.info(`[project-drop] clear kind=relay-room roomId=${p.matrixRoomId}`);
+        const rollbackClear = patchRoomProjectAssignment(p.matrixRoomId, null);
         setRelayRoomProject(p.matrixRoomId, viewingUserMxid, null).catch(
           (err: unknown) => {
+            rollbackClear();
             const msg = err instanceof Error ? err.message : String(err);
             console.error(`[project-drop] setRelayRoomProject(null) failed: ${msg}`);
           },

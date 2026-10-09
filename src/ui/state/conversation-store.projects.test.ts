@@ -47,6 +47,7 @@ import {
   setProjects,
   mergeProjectsForHost,
   setRoomProjectAssignments,
+  patchRoomProjectAssignment,
   setIdentityProjectAssignments,
   readProjectsCache,
   writeProjectsCache,
@@ -559,6 +560,31 @@ describe("conversation-store (projects cache): cold-boot seed + write-on-setter"
     });
     const cached = readProjectsCache();
     expect(cached.roomProjectAssignments.get("!room:server")).toBe("alpha");
+  });
+
+  it("patchRoomProjectAssignment applies optimistically; rollback restores the previous slug", () => {
+    act(() => setRoomProjectAssignments(new Map([["!r:hs", "alpha"]])));
+    let rollback: () => void = () => {};
+    act(() => {
+      rollback = patchRoomProjectAssignment("!r:hs", "beta");
+    });
+    expect(readProjectsCache().roomProjectAssignments.get("!r:hs")).toBe("beta");
+    act(() => rollback());
+    expect(readProjectsCache().roomProjectAssignments.get("!r:hs")).toBe("alpha");
+  });
+
+  it("patchRoomProjectAssignment(null) removes; a superseded rollback is a no-op", () => {
+    act(() => setRoomProjectAssignments(new Map([["!r:hs", "alpha"]])));
+    let first: () => void = () => {};
+    act(() => {
+      first = patchRoomProjectAssignment("!r:hs", null);
+    });
+    expect(readProjectsCache().roomProjectAssignments.has("!r:hs")).toBe(false);
+    act(() => {
+      patchRoomProjectAssignment("!r:hs", "gamma"); // newer move
+    });
+    act(() => first()); // first write's failure arrives late
+    expect(readProjectsCache().roomProjectAssignments.get("!r:hs")).toBe("gamma");
   });
 
   it("identity-equal skip in setProjects does not overwrite cache", () => {

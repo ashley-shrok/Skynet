@@ -162,6 +162,7 @@ type MockRow = {
 const selectConversationSpy = vi.fn();
 
 vi.mock("@/state/conversation-store", () => ({
+  patchRoomProjectAssignment: () => () => {},
   useConversations: () => ({
     activeSet: [],
     pinned: [],

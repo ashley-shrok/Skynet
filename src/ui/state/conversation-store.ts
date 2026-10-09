@@ -2577,6 +2577,29 @@ export function setRoomProjectAssignments(
   notify();
 }
 
+// Optimistic single-room project re-tag. The relay-room tag write
+// (POST /relay-rooms/:roomId/project) publishes no wire frame and room
+// assignments are otherwise only hydrated at boot, so without this a move /
+// remove never showed until reload. Returns a rollback for the caller's
+// failure path — it restores the previous slug only if the assignment still
+// holds the value this call set (a newer move wins).
+export function patchRoomProjectAssignment(
+  roomId: string,
+  slug: string | null,
+): () => void {
+  const prev = state.roomProjectAssignments.get(roomId) ?? null;
+  const apply = (value: string | null): void => {
+    const next = new Map(state.roomProjectAssignments);
+    if (value === null) next.delete(roomId);
+    else next.set(roomId, value);
+    setRoomProjectAssignments(next);
+  };
+  apply(slug);
+  return () => {
+    if ((state.roomProjectAssignments.get(roomId) ?? null) === slug) apply(prev);
+  };
+}
+
 // Test-only reset — same shape as __resetPinnedIdsForTest et al. Also clears
 // the localStorage cache so cross-test bleed via seed-on-load can't happen.
 export function __resetProjectsForTest(): void {

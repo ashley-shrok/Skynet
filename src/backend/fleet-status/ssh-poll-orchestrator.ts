@@ -1278,6 +1278,10 @@ function appearanceFingerprintSegment(a: IdentityAppearance | null): string {
     a.pinned === true ? "1" : a.pinned === false ? "0" : "",
     roleDefaultsSeg,
     a.avatarUrl ?? "",
+    // `project:` frontmatter — without it an on-disk project change alone
+    // (agent edit / Identity-file tab save) never published, so the row
+    // stayed in its old section until some other field changed.
+    a.project ?? "",
   ].join("|");
 }
 

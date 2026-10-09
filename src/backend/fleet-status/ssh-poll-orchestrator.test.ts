@@ -8941,11 +8941,14 @@ describe("Phase 111 Plan 03 — appearance axis at both publish sources", () => 
           tick2Opts: { pinned: true },
         },
         // (Phase 115 Plan 115-02: prior `hidden` fingerprint-axis test retired per D-21.)
+        {
+          field: "project",
+          tick1Opts: { identity_cosmetics: { project: "alpha" } },
+          tick2Opts: { identity_cosmetics: { project: "beta" } },
+        },
       ];
 
-      // Verify the test covers all 8 fields
-      // (Phase 115 Plan 115-02: was 9 before the `hidden` axis retirement per D-21.)
-      expect(fieldChanges.length).toBe(8);
+      expect(fieldChanges.length).toBe(9);
 
       for (const { field, tick1Opts, tick2Opts } of fieldChanges) {
         // Fresh state per field test

@@ -505,7 +505,11 @@ export function AppShell({
 
   const isMobile = useIsMobile();
   const isTouchDevice = useIsTouchDevice();
-  const { byKey: identitiesByKey, loaded: identitiesLoaded } = useIdentities();
+  const {
+    byKey: identitiesByKey,
+    byHostKey: identitiesByHostKey,
+    loaded: identitiesLoaded,
+  } = useIdentities();
   // quick-260829-ih3: window-scoped hook — returns the tabId of the currently-
   // in-flight identity badge drag (via IdentityBadge dragstart payload MIME
   // application/x-skynet-badge), or null if none is in flight. Feeds the
@@ -1609,16 +1613,20 @@ export function AppShell({
   //
   // The setter's identity-equal-skip absorbs no-op fires (StrictMode
   // double-invoke, listeners-fire-without-changes, etc.).
+  //
+  // Iterates byHostKey (one entry per host+identity), NOT byKey — byKey is
+  // name-only, so two same-named identities on different hosts collapsed to
+  // one and the other lost its project section.
   useEffect(() => {
     const next = new Map<string, string>();
-    for (const identity of identitiesByKey.values()) {
+    for (const identity of identitiesByHostKey.values()) {
       if (identity.project == null) continue;
       if (typeof identity.hostId !== "number") continue;
       const key = `${identity.hostId}::${identity.identityKey.toLowerCase()}`;
       next.set(key, identity.project);
     }
     setIdentityProjectAssignments(next);
-  }, [identitiesByKey]);
+  }, [identitiesByHostKey]);
 
   // Custom event bridge: any surface can request a tab open via skynet:open-tab
   useEffect(() => {

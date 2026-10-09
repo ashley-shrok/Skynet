@@ -32,7 +32,7 @@ import { AlarmClock, ChevronDown, Folder, GitBranch, Mic, Monitor, Pencil, User,
 import { Modal, ModalFoot, ModalTabs } from "@/components/modal";
 import { Tabs, TabsContent } from "@/components/tabs";
 import { updateIdentity } from "@/api/identities-api";
-import { applyIdentityChange } from "@/state/identities-store";
+import { applyIdentityChange, refreshIdentities } from "@/state/identities-store";
 import { roleDisplayName } from "@/lib/role-display-name";
 import { identityRoles, isMultiRole } from "@/lib/identity-roles";
 import { toast } from "sonner";
@@ -433,6 +433,11 @@ export function IdentityModal({
     >(payload, "identity:identity-file-updated");
     if (res.error) throw new Error(res.error);
     setIdentityFileState({ status: "ready", data: res.markdown });
+    // A raw file save can change task/title/role/project. The pulse picks up
+    // most of that next tick, but it deliberately never blanks a field (a
+    // cleared `task:` would linger in the sidebar) — the authoritative
+    // /identities refetch does.
+    refreshIdentities().catch(() => {});
   }
 
   // Per-field inline save — task.
