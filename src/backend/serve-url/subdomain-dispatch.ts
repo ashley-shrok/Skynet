@@ -56,7 +56,11 @@ import type { Request, Response, NextFunction } from "express";
 import { AuthManager } from "../utils/auth-manager.js";
 import { PermissionManager } from "../utils/permission-manager.js";
 import { resolveHostByUniversalId } from "../ssh/host-resolver.js";
-import { renderInterstitial, writeInterstitial } from "./interstitial.js";
+import {
+  renderInterstitial,
+  trackInterstitialRetry,
+  writeInterstitial,
+} from "./interstitial.js";
 import { sshLogger } from "../utils/logger.js";
 import type { ServeTarget, ErrorClass } from "./types.js";
 import type { Host } from "../../types/index.js";
@@ -275,6 +279,7 @@ export function createSubdomainDispatchMiddleware() {
       return next();
     }
     const subdomainHeader = String(rawHeader);
+    trackInterstitialRetry(req, res);
 
     // Compute originalUrl for interstitial "Try again" anchor + redirect
     // return-param. Uses the raw subdomain header for the Host portion.

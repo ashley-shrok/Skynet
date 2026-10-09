@@ -96,6 +96,7 @@ import { resolvePaneTarget } from "./pane-target-resolver.js";
 import { classifyTunnelError } from "../serve-url/error-classifier.js";
 import {
   renderInterstitial,
+  trackInterstitialRetry,
   writeInterstitial,
 } from "../serve-url/interstitial.js";
 
@@ -122,6 +123,7 @@ router.all(
   "/:hostId/:slug/pane{/*splat}",
   authenticateJWT,
   async (req: Request, res: Response, next: NextFunction) => {
+    trackInterstitialRetry(req, res);
     const userId = (req as AuthenticatedRequest).userId;
 
     // (ii) Slug validation — APP_SLUG_RE gate BEFORE any DB / SSH work.

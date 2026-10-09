@@ -106,6 +106,7 @@ vi.mock("../../serve-url/error-classifier.js", () => ({
 vi.mock("../../serve-url/interstitial.js", () => ({
   renderInterstitial: mocks.renderInterstitial,
   writeInterstitial: mocks.writeInterstitial,
+  trackInterstitialRetry: vi.fn(),
 }));
 
 vi.mock("../../utils/logger.js", () => ({

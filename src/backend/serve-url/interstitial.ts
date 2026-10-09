@@ -11,9 +11,15 @@
  *   auth_missing       → 302        Location: https://<primary>/login?return=...
  *   invalid_link       → 400 HTML  ("this serve link isn't valid")
  *
- * NO auto-refresh (D-14 + 103-CONTEXT.md specifics L145: "user decides to
- * retry — auto-refresh masks legitimate ongoing outages"). No HTML meta-tag
- * reload, no JS-timer navigation. Plain "Try again" anchor only.
+ * Self-retry for transient classes (supersedes D-14's no-auto-refresh rule,
+ * per Ashley 2026-10-09): port_not_listening, host_unreachable, ssh_failure
+ * and app_not_serving render a neutral "Loading…" screen whose inline script
+ * re-probes the same URL with backoff (~1 min). A probe answered by anything
+ * other than another interstitial reloads the page into the real app; if the
+ * budget runs out the classic error card + "Try again" anchor is revealed.
+ * permission_denied and invalid_link never self-heal, so they render the
+ * error card immediately. Probes carry `x-skynet-interstitial-retry: <n>` so
+ * trackInterstitialRetry() can log whether retries still fail or recovered.
  *
  * Info-leak invariant (T-40-05 / T-103-17): renderInterstitial() accepts
  * NO err argument — only the ErrorClass discriminator + typed ServeTarget
@@ -32,8 +38,9 @@
  * result objects into an Express Response, so DRY the write here.
  */
 
-import type { Response } from "express";
+import type { Request, Response } from "express";
 import type { ErrorClass, ServeTarget } from "./types.js";
+import { sshLogger } from "../utils/logger.js";
 
 /* ------------------------------------------------------------------------ */
 /*  Public types                                                            */
@@ -84,6 +91,29 @@ const HTML_HEADERS: Readonly<Record<string, string>> = {
   "cache-control": "no-store",
 };
 
+/** Response header naming the failure class on every HTML interstitial. The
+ *  self-retry probe treats its presence as "still failing"; anything without
+ *  it is the real app answering. */
+export const INTERSTITIAL_CLASS_HEADER = "x-skynet-interstitial";
+
+/** Request header the self-retry probe sends, carrying the attempt number. */
+export const INTERSTITIAL_RETRY_HEADER = "x-skynet-interstitial-retry";
+
+/** Classes that can clear up on their own and get the self-retry screen. */
+const RETRYABLE_CLASSES: ReadonlySet<ErrorClass> = new Set<ErrorClass>([
+  "port_not_listening",
+  "host_unreachable",
+  "ssh_failure",
+  "app_not_serving",
+]);
+
+/** Seconds between probes; sums to ~55s before the error card is revealed. */
+const RETRY_DELAYS_SEC = [1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 5, 5, 5, 5, 5];
+
+function htmlHeaders(errorClass: ErrorClass): Record<string, string> {
+  return { ...HTML_HEADERS, [INTERSTITIAL_CLASS_HEADER]: errorClass };
+}
+
 /* ------------------------------------------------------------------------ */
 /*  HTML template                                                           */
 /* ------------------------------------------------------------------------ */
@@ -101,20 +131,60 @@ function renderHtmlPage(params: {
   title: string;
   message: string;
   originalUrl: string;
+  retry: boolean;
 }): string {
   const title = escapeHtml(params.title);
   const message = escapeHtml(params.message);
   const returnHref = escapeHtml(params.originalUrl);
+  // The retry script embeds no request-derived data — it probes
+  // location.href and reloads in place.
+  const retryBlock = params.retry
+    ? `<div class="loading" id="loading">Loading…</div>
+<script>
+(function () {
+  var delays = ${JSON.stringify(RETRY_DELAYS_SEC)};
+  var attempt = 0;
+  function giveUp() {
+    document.getElementById("loading").hidden = true;
+    document.getElementById("card").hidden = false;
+    document.title = ${JSON.stringify(params.title)};
+  }
+  function probe() {
+    attempt += 1;
+    var headers = {};
+    headers[${JSON.stringify(INTERSTITIAL_RETRY_HEADER)}] = String(attempt);
+    fetch(location.href, { cache: "no-store", redirect: "manual", headers: headers })
+      .then(function (res) {
+        if (res.type === "opaqueredirect" || !res.headers.get(${JSON.stringify(INTERSTITIAL_CLASS_HEADER)})) {
+          location.reload();
+          return;
+        }
+        if (res.body) res.body.cancel();
+        next();
+      })
+      .catch(next);
+  }
+  function next() {
+    if (attempt >= delays.length) { giveUp(); return; }
+    setTimeout(probe, delays[attempt] * 1000);
+  }
+  next();
+})();
+</script>
+`
+    : "";
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${title}</title>
+<title>${params.retry ? "Loading…" : title}</title>
 <style>
   html, body { margin: 0; padding: 0; height: 100%; background: #0d1117; color: #e6edf3; }
   body { display: flex; align-items: center; justify-content: center; padding: 2rem; box-sizing: border-box;
          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+  [hidden] { display: none !important; }
+  .loading { font-size: 0.95rem; color: #8b949e; }
   .card { max-width: 32rem; width: 100%; }
   h1 { font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
        font-size: 1.25rem; font-weight: 600; margin: 0 0 1rem 0; color: #7ee2b8; }
@@ -123,10 +193,11 @@ function renderHtmlPage(params: {
             color: #e6edf3; text-decoration: none; font-family: inherit; }
   a.retry:hover { background: #161b22; border-color: #7ee2b8; }
   footer { margin-top: 2rem; font-size: 0.8rem; color: #6e7681; }
-</style>
+</style>${params.retry ? `
+<noscript><style>.loading { display: none !important; } .card { display: block !important; }</style></noscript>` : ""}
 </head>
 <body>
-<main class="card">
+${retryBlock}<main class="card" id="card"${params.retry ? " hidden" : ""}>
 <h1>${title}</h1>
 <p>${message}</p>
 <a class="retry" href="${returnHref}">Try again</a>
@@ -175,8 +246,9 @@ export function renderInterstitial(
           title: "port not responding",
           message: `Port ${safePort} of ${safeHost} isn't responding. The agent may have stopped whatever was serving there.`,
           originalUrl,
+          retry: RETRYABLE_CLASSES.has(errorClass),
         }),
-        headers: { ...HTML_HEADERS },
+        headers: htmlHeaders("port_not_listening"),
       };
 
     case "host_unreachable":
@@ -186,8 +258,9 @@ export function renderInterstitial(
           title: "host unreachable",
           message: `${safeHost} may be offline. The server couldn't open a connection to it.`,
           originalUrl,
+          retry: RETRYABLE_CLASSES.has(errorClass),
         }),
-        headers: { ...HTML_HEADERS },
+        headers: htmlHeaders("host_unreachable"),
       };
 
     case "permission_denied":
@@ -197,8 +270,9 @@ export function renderInterstitial(
           title: "access denied",
           message: `You don't have access to ${safeHost}.`,
           originalUrl,
+          retry: RETRYABLE_CLASSES.has(errorClass),
         }),
-        headers: { ...HTML_HEADERS },
+        headers: htmlHeaders("permission_denied"),
       };
 
     case "ssh_failure":
@@ -208,8 +282,9 @@ export function renderInterstitial(
           title: "ssh tunnel failure",
           message: `SSH tunnel to ${safeHost} failed to establish. The box may be up but its sshd could not authenticate the backend.`,
           originalUrl,
+          retry: RETRYABLE_CLASSES.has(errorClass),
         }),
-        headers: { ...HTML_HEADERS },
+        headers: htmlHeaders("ssh_failure"),
       };
 
     case "app_not_serving":
@@ -223,8 +298,9 @@ export function renderInterstitial(
           title: "app not serving",
           message: `This app on ${safeHost} isn't currently serving on a port. The agent may not have started it yet, or may have stopped it.`,
           originalUrl,
+          retry: RETRYABLE_CLASSES.has(errorClass),
         }),
-        headers: { ...HTML_HEADERS },
+        headers: htmlHeaders("app_not_serving"),
       };
 
     case "invalid_link":
@@ -237,8 +313,9 @@ export function renderInterstitial(
           message:
             "This serve link isn't valid. Serve links look like https://<host-id>-<port>.serve.<domain> — ask the agent for a fresh link.",
           originalUrl,
+          retry: RETRYABLE_CLASSES.has(errorClass),
         }),
-        headers: { ...HTML_HEADERS },
+        headers: htmlHeaders("invalid_link"),
       };
 
     case "auth_missing": {
@@ -281,4 +358,40 @@ export function writeInterstitial(
   } else {
     res.end();
   }
+}
+
+/* ------------------------------------------------------------------------ */
+/*  Self-retry observability                                                */
+/* ------------------------------------------------------------------------ */
+
+/**
+ * If this request is a self-retry probe from the Loading screen, log its
+ * outcome once the response finishes: still failing (another interstitial,
+ * with its class) or recovered (the real app answered). Call at the top of
+ * every handler that can render an interstitial. No-op for normal requests.
+ */
+export function trackInterstitialRetry(req: Request, res: Response): void {
+  const raw = req.headers[INTERSTITIAL_RETRY_HEADER];
+  if (typeof raw !== "string") return;
+  const attempt = Number.parseInt(raw, 10);
+  if (!Number.isInteger(attempt) || attempt <= 0) return;
+  res.on("finish", () => {
+    const errorClass = res.getHeader(INTERSTITIAL_CLASS_HEADER);
+    if (typeof errorClass === "string") {
+      sshLogger.info("interstitial retry: still failing", {
+        operation: "interstitial_retry_failed",
+        attempt,
+        errorClass,
+        status: res.statusCode,
+        path: req.originalUrl.split("?")[0],
+      });
+    } else {
+      sshLogger.info("interstitial retry: recovered", {
+        operation: "interstitial_retry_recovered",
+        attempt,
+        status: res.statusCode,
+        path: req.originalUrl.split("?")[0],
+      });
+    }
+  });
 }
