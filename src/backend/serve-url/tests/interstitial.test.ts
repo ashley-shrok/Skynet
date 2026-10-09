@@ -22,10 +22,9 @@ describe("renderInterstitial self-retry", () => {
   const retryable: ErrorClass[] = [
     "port_not_listening",
     "host_unreachable",
-    "ssh_failure",
     "app_not_serving",
   ];
-  const terminal: ErrorClass[] = ["permission_denied", "invalid_link"];
+  const terminal: ErrorClass[] = ["permission_denied", "invalid_link", "ssh_failure"];
 
   it.each(retryable)("%s renders the Loading screen with a hidden error card", (cls) => {
     const r = renderInterstitial(cls, target, url, "term.example.com");

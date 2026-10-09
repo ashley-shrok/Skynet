@@ -121,9 +121,13 @@ const PANE_UPGRADE_PATH_RE = /^\/apps\/(\d+)\/([a-z0-9-]{1,64})\/pane(\/|$)/;
  */
 router.all(
   "/:hostId/:slug/pane{/*splat}",
+  // Before auth so a retry probe rejected by authenticateJWT still logs.
+  (req: Request, res: Response, next: NextFunction) => {
+    trackInterstitialRetry(req, res);
+    next();
+  },
   authenticateJWT,
   async (req: Request, res: Response, next: NextFunction) => {
-    trackInterstitialRetry(req, res);
     const userId = (req as AuthenticatedRequest).userId;
 
     // (ii) Slug validation — APP_SLUG_RE gate BEFORE any DB / SSH work.

@@ -12,13 +12,17 @@
  *   invalid_link       → 400 HTML  ("this serve link isn't valid")
  *
  * Self-retry for transient classes (supersedes D-14's no-auto-refresh rule,
- * per Ashley 2026-10-09): port_not_listening, host_unreachable, ssh_failure
- * and app_not_serving render a neutral "Loading…" screen whose inline script
- * re-probes the same URL with backoff (~1 min). A probe answered by anything
- * other than another interstitial reloads the page into the real app; if the
- * budget runs out the classic error card + "Try again" anchor is revealed.
- * permission_denied and invalid_link never self-heal, so they render the
- * error card immediately. Probes carry `x-skynet-interstitial-retry: <n>` so
+ * per Ashley 2026-10-09): port_not_listening, host_unreachable and
+ * app_not_serving render a neutral "Loading…" screen whose inline script
+ * re-probes the same URL with backoff, capped at 60s wall-clock. A probe that
+ * isn't another interstitial and isn't a 5xx (nginx's own 502 during a
+ * backend restart carries no class header) navigates into the real app via a
+ * GET (location.replace — never re-submits a POST); if the budget runs out
+ * the classic error card + "Try again" anchor is revealed.
+ * permission_denied, invalid_link and ssh_failure render the error card
+ * immediately — ssh_failure includes rejected-key auth failures, and
+ * re-probing those would hammer the box's sshd (fail2ban risk).
+ * Probes Probes carry `x-skynet-interstitial-retry: <n>` so
  * trackInterstitialRetry() can log whether retries still fail or recovered.
  *
  * Info-leak invariant (T-40-05 / T-103-17): renderInterstitial() accepts
@@ -103,12 +107,13 @@ export const INTERSTITIAL_RETRY_HEADER = "x-skynet-interstitial-retry";
 const RETRYABLE_CLASSES: ReadonlySet<ErrorClass> = new Set<ErrorClass>([
   "port_not_listening",
   "host_unreachable",
-  "ssh_failure",
   "app_not_serving",
 ]);
 
-/** Seconds between probes; sums to ~55s before the error card is revealed. */
+/** Seconds between probes (sums to ~55s); RETRY_BUDGET_MS caps the whole
+ *  window since slow probes (SSH connect timeouts) add to it. */
 const RETRY_DELAYS_SEC = [1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 5, 5, 5, 5, 5];
+const RETRY_BUDGET_MS = 60_000;
 
 function htmlHeaders(errorClass: ErrorClass): Record<string, string> {
   return { ...HTML_HEADERS, [INTERSTITIAL_CLASS_HEADER]: errorClass };
@@ -144,6 +149,7 @@ function renderHtmlPage(params: {
 (function () {
   var delays = ${JSON.stringify(RETRY_DELAYS_SEC)};
   var attempt = 0;
+  var deadline = Date.now() + ${RETRY_BUDGET_MS};
   function giveUp() {
     document.getElementById("loading").hidden = true;
     document.getElementById("card").hidden = false;
@@ -155,8 +161,8 @@ function renderHtmlPage(params: {
     headers[${JSON.stringify(INTERSTITIAL_RETRY_HEADER)}] = String(attempt);
     fetch(location.href, { cache: "no-store", redirect: "manual", headers: headers })
       .then(function (res) {
-        if (res.type === "opaqueredirect" || !res.headers.get(${JSON.stringify(INTERSTITIAL_CLASS_HEADER)})) {
-          location.reload();
+        if (res.type === "opaqueredirect" || (res.status < 500 && !res.headers.get(${JSON.stringify(INTERSTITIAL_CLASS_HEADER)}))) {
+          location.replace(location.href);
           return;
         }
         if (res.body) res.body.cancel();
@@ -165,7 +171,7 @@ function renderHtmlPage(params: {
       .catch(next);
   }
   function next() {
-    if (attempt >= delays.length) { giveUp(); return; }
+    if (attempt >= delays.length || Date.now() >= deadline) { giveUp(); return; }
     setTimeout(probe, delays[attempt] * 1000);
   }
   next();
