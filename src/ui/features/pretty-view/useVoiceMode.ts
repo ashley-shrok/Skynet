@@ -688,6 +688,14 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
 
   // Manual mic in use → pause; released → resume.
   useEffect(() => {
+    // Don't play a reply into the user's dictation: cut the current one short
+    // (queued replies wait until the manual mic is released).
+    const speaking = speakingRef.current;
+    if (args.suspended && speaking) {
+      log("speech-cut-by-manual-mic");
+      if (getCurrentOwner() === speaking.owner) getCurrentPlayer()?.stop();
+      speaking.finish();
+    }
     if (!args.suspended && activeRef.current && streamRef.current) {
       const dead = streamRef.current
         .getAudioTracks()

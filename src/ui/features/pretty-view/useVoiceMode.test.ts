@@ -392,6 +392,28 @@ describe("useVoiceMode", () => {
     expect(result.current.phase).toBe("listening");
   });
 
+  it("cuts the current reply when the manual mic starts, and speaks the queue after release", async () => {
+    const { result, rerender } = renderHook((p: UseVoiceModeArgs) => useVoiceMode(p), { initialProps: baseArgs() });
+    act(() => result.current.start());
+    await flush();
+    const messages = [
+      { type: "message", role: "assistant", content: "first", eventId: "a1", ts: Date.now() },
+      { type: "message", role: "assistant", content: "second", eventId: "a2", ts: Date.now() },
+    ];
+    rerender(baseArgs({ messages }));
+    await flush();
+    expect(result.current.phase).toBe("speaking");
+    rerender(baseArgs({ messages, suspended: true }));
+    await flush();
+    expect(players[0].stop).toHaveBeenCalled();
+    expect(result.current.phase).toBe("paused");
+    expect(postSpeakStream).toHaveBeenCalledTimes(1);
+    rerender(baseArgs({ messages, suspended: false }));
+    await flush();
+    expect(postSpeakStream).toHaveBeenCalledTimes(2);
+    expect(postSpeakStream).toHaveBeenLastCalledWith("second", ["Ruth"]);
+  });
+
   it("skipSpeech stops the current reply and drops the queue", async () => {
     const { result, rerender } = renderHook((p: UseVoiceModeArgs) => useVoiceMode(p), { initialProps: baseArgs() });
     act(() => result.current.start());

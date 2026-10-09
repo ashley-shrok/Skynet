@@ -204,6 +204,18 @@ describe("ComposeBox — hands-free voice mode (aux-row button)", () => {
     expect(chipPhase()).toBe("paused");
   });
 
+  it("the start button is disabled while a manual recording is running", async () => {
+    render(<ComposeBox {...props()} />);
+    const btn = mic();
+    await act(async () => {
+      fireEvent.pointerDown(btn, { pointerId: 4, clientX: 20, clientY: 20, timeStamp: 0 });
+      fireEvent.pointerUp(btn, { pointerId: 4, clientX: 20, clientY: 20, timeStamp: 80 });
+    });
+    await flush(50);
+    expect(screen.getByRole("button", { name: "Cancel recording" })).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Start voice mode" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("long-pressing the mic is hold-to-record-and-send again, with or without a voiceModeFeed", async () => {
     for (const voiceModeFeed of [props().voiceModeFeed, undefined]) {
       const onSend = vi.fn((_text: string, _mqid?: string) => true);

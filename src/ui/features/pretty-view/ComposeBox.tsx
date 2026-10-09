@@ -2535,7 +2535,14 @@ export function ComposeBox({
             <VoiceModeButton
               phase={voiceMode.phase}
               agentWorking={voiceModeFeed.isWorking}
-              disabled={asideActive === true || recycleActive === true || reconnectingActive === true}
+              // voice.state: no second mic capture while dictating (iOS would
+              // end the manual recording's track).
+              disabled={
+                asideActive === true ||
+                recycleActive === true ||
+                reconnectingActive === true ||
+                voice.state !== "idle"
+              }
               onStart={voiceMode.start}
               onStop={voiceMode.stop}
               onSkip={voiceMode.skipSpeech}
@@ -2562,10 +2569,7 @@ export function ComposeBox({
               // button (AppShell.tsx:1651-1654, patch #272). Hue 218 at
               // 25% sat — "part of the scheme" per user, ambient chrome
               // that doesn't compete with blue-190 CTAs.
-              "bg-[linear-gradient(160deg,hsla(218,25%,22%,0.85),hsla(218,25%,14%,0.9))]",
-              "text-[color:var(--color-pv-fg)]",
-              "border-[hsla(218,35%,55%,0.35)]",
-              "shadow-[0_4px_12px_rgba(0,0,0,0.6),inset_0_2px_0_rgba(220,225,245,0.3),0_0_24px_hsla(218,40%,55%,0.3)]",
+              AUX_BUTTON_CLASS,
               "hover:brightness-110 hover:shadow-[0_6px_16px_rgba(0,0,0,0.65),inset_0_2px_0_rgba(220,225,245,0.35),0_0_28px_hsla(218,40%,55%,0.4)]",
             )}
             >
@@ -2593,10 +2597,7 @@ export function ComposeBox({
               // button (AppShell.tsx:1651-1654, patch #272). Hue 218 at
               // 25% sat — "part of the scheme" per user, ambient chrome
               // that doesn't compete with blue-190 CTAs.
-              "bg-[linear-gradient(160deg,hsla(218,25%,22%,0.85),hsla(218,25%,14%,0.9))]",
-              "text-[color:var(--color-pv-fg)]",
-              "border-[hsla(218,35%,55%,0.35)]",
-              "shadow-[0_4px_12px_rgba(0,0,0,0.6),inset_0_2px_0_rgba(220,225,245,0.3),0_0_24px_hsla(218,40%,55%,0.3)]",
+              AUX_BUTTON_CLASS,
               "hover:brightness-110 hover:shadow-[0_6px_16px_rgba(0,0,0,0.65),inset_0_2px_0_rgba(220,225,245,0.35),0_0_28px_hsla(218,40%,55%,0.4)]",
             )}
           >
