@@ -8165,7 +8165,7 @@ describe("Phase 92 — batch sweep dispatch", () => {
         identities: [{ identity: "alpha" }],
         pids: [],
         projectList: [
-          { slug: "new-proj", display_name: "New Proj", users: ["ashley"] },
+          { slug: "new-proj", display_name: "New Proj", users: ["alice"] },
           { slug: "open", display_name: "open", users: null },
         ],
       }),
@@ -8180,7 +8180,7 @@ describe("Phase 92 — batch sweep dispatch", () => {
       {
         hostId: "host-1",
         projects: [
-          { slug: "new-proj", displayName: "New Proj", hostId: "host-1", hostname: "testhost", archived: false, users: ["ashley"] },
+          { slug: "new-proj", displayName: "New Proj", hostId: "host-1", hostname: "testhost", archived: false, users: ["alice"] },
           { slug: "open", displayName: "open", hostId: "host-1", hostname: "testhost", archived: false, users: null },
         ],
       },

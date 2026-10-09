@@ -1030,12 +1030,12 @@ describe("parseSweepJsonl — project-list dispatch", () => {
   it("captures a well-formed project-list line", () => {
     const r = parseSweepJsonl(
       line([
-        { slug: "a", display_name: "A", users: ["ashley"] },
+        { slug: "a", display_name: "A", users: ["alice"] },
         { slug: "b", display_name: "b", users: null },
       ]) + "\n",
     );
     expect(r.projectList?.projects).toEqual([
-      { slug: "a", display_name: "A", users: ["ashley"] },
+      { slug: "a", display_name: "A", users: ["alice"] },
       { slug: "b", display_name: "b", users: null },
     ]);
     expect(r.unknownLines).toBe(0);

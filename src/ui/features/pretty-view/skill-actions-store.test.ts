@@ -6,7 +6,7 @@ vi.mock("@/api/skills-api", () => ({
   listSkills: (hostId: number) => listSkillsMock(hostId),
 }));
 
-let currentUser: string | null = "ashley";
+let currentUser: string | null = "alice";
 vi.mock("@/state/user-scoped-cache", () => ({
   getCurrentUser: () => currentUser,
 }));
@@ -23,7 +23,7 @@ describe("skill-actions-store", () => {
     __resetSkillActionsStoreForTests();
     localStorage.clear();
     listSkillsMock.mockReset();
-    currentUser = "ashley";
+    currentUser = "alice";
   });
 
   it("is null (unknown) for a host never fetched", () => {

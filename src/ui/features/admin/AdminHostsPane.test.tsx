@@ -50,7 +50,7 @@ const FULL_DISK = host({
 });
 const BROKEN_AGENT = host({
   key: "beelink",
-  name: "ashley-beelink",
+  name: "alice-beelink",
   agentHost: true,
   fleet: { agents: 5, running: 0, apps: 0, supervisorRunning: false },
   substrate: { lastSuccessAt: null, lastFailureAt: NOW - 60_000, lastError: "couldn't connect over SSH", consecutiveFailures: 3, inFlight: false },
@@ -65,7 +65,7 @@ const RDP_ONLY = host({
 });
 const OFFLINE = host({
   key: "laptop",
-  name: "ashley-laptop",
+  name: "alice-laptop",
   online: false,
   latencyMs: null,
   lastSeenAt: NOW - 3 * 86_400_000,

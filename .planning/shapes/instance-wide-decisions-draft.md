@@ -1,6 +1,6 @@
 # Instance-wide roles & skills — running decisions (pre-shape-file)
 
-Agreed with Ashley during /open discussion, 2026-10-09. Folded into
+Agreed with the user during /open discussion, 2026-10-09. Folded into
 shape-instance-wide-roles-and-skills.md when written.
 
 1. Master copy lives inside the app (with host list / app data), not on a
@@ -63,7 +63,7 @@ shape-instance-wide-roles-and-skills.md when written.
       vanishing NEVER means remove-everywhere — removal is app-only; a missing
       folder is restored.
     - Junk travels (everything in the folder), except editor-backup / cache
-      files ignored by name pattern. (Ashley thumbs-up'd the bundle incl. this.)
+      files ignored by name pattern. (the user thumbs-up'd the bundle incl. this.)
 19. REVISES 6/7: instance-wide skills live in the regular harness skills folder
     (the agent user's personal skills location) on each host — NOT the system
     folder. Agents edit them natively where they already look. Name clash =
@@ -73,4 +73,4 @@ shape-instance-wide-roles-and-skills.md when written.
     host with the instance-wide marker; promote clash = list + confirm; app role
     windows on a host route edits to master for admins, read-only otherwise.
     (Proposed; no objection raised.)
-21. Vehicle: inline (Ashley: "evaluating perf on new model and this is good for that").
+21. Vehicle: inline (the user: "evaluating perf on new model and this is good for that").

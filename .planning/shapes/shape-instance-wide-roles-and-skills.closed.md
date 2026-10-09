@@ -165,12 +165,12 @@ admin-panel section for instance-wide items; notifying running agents of updates
 ## Vehicle notes
 
 Inline, worked by emerald-box-maintainer-2 in this session, with harness tasks
-tracking the pieces. Ashley is evaluating the new model's performance on this
+tracking the pieces. the user is evaluating the new model's performance on this
 work, so it stays inline rather than going through a GSD phase. The running
 decision log with the reasoning behind each point is
 `instance-wide-decisions-draft.md` beside this file. Box-maintainer rules apply:
 scoped tests during development, full suite only at the deploy gate; commit
-without pushing until Ashley gives the word; any user-facing change must update
+without pushing until the user gives the word; any user-facing change must update
 the identity skill in the same piece of work.
 
 ---
@@ -179,7 +179,7 @@ the identity skill in the same piece of work.
 
 **Closed:** 2026-10-09
 **Vehicle used:** inline (local commits on feat/tab-title-from-tmux, not pushed) plus the identity-skill edit
-**Overall verdict:** closed-hit (all three additions endorsed by Ashley as drift)
+**Overall verdict:** closed-hit (all three additions endorsed by the user as drift)
 
 ### Shape features (conformance)
 
@@ -219,12 +219,12 @@ the identity skill in the same piece of work.
 
 - 30-second check of admin-owned hosts so their edits spread within about a minute (instead of wiring the role-file watcher) — endorsed-as-drift
 - Size limit of 2,000 files / 25 MB per item on promote and write-back — endorsed-as-drift
-- An admin editing an instance-wide role through a host in their account (even one whose primary owner isn't an admin) makes that host's next sync admin-sourced, so other recent changes in that role on that host travel too — endorsed-as-drift (Ashley: host-to-user linking is how Skynet works; a host in an admin's account acts with that admin's authority)
+- An admin editing an instance-wide role through a host in their account (even one whose primary owner isn't an admin) makes that host's next sync admin-sourced, so other recent changes in that role on that host travel too — endorsed-as-drift (the user: host-to-user linking is how Skynet works; a host in an admin's account acts with that admin's authority)
 
 ### Follow-ups
 
 - Identity-skill timing text aligned to "about a minute" — accepted-as-drift (done)
-- Identity-skill edit awaiting Ashley's sign-off on the exact text before commit — issue
+- Identity-skill edit awaiting the user's sign-off on the exact text before commit — issue
 - Promote /build, /campaign, /open, /close and retire their thenasty self-download — deferred
 
 ### Notes
@@ -233,5 +233,5 @@ Backend-only extras not surfaced in the UI: an admin-only "sync now" endpoint; a
 
 ### Amendments after close (2026-10-09)
 
-- **Identity skill:** per Ashley, it does NOT describe instance-wide items at all — agents don't need to know (the native-editing design), and the controls are admin-only. Only the retired "chronological history" mention was removed. (Supersedes the "Identity skill updated — present" line above.)
+- **Identity skill:** per the user, it does NOT describe instance-wide items at all — agents don't need to know (the native-editing design), and the controls are admin-only. Only the retired "chronological history" mention was removed. (Supersedes the "Identity skill updated — present" line above.)
 - **Code review fixes** (unbiased review, 15 findings, all addressed in one commit): host operations confined to the item folder inside the real home folder (no symlink following); file permissions travel with files; unreadable files fail loudly; emptied folders restored rather than spread as deletes; .git/node_modules ignored; admin ownership judged on the host account actually synced; admin app-writes marked before landing; role-file writes without a host id guarded; safe download content types; per-host detail hidden from non-admins; names of the app's built-in skills can't be made instance-wide.

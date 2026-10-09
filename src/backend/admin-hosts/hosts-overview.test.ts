@@ -68,7 +68,7 @@ describe("groupHostRows", () => {
   });
 
   it("pings SSH and RDP ports when a parked entry has nothing enabled", () => {
-    const [g] = groupHostRows([row({ id: 10, name: "GIGAASHLEYPC", ip: "100.2.2.2" })]);
+    const [g] = groupHostRows([row({ id: 10, name: "DESKTOPPC", ip: "100.2.2.2" })]);
     expect(g.protocols).toEqual([]);
     expect(g.pingPorts).toEqual([22, 3389]);
   });
