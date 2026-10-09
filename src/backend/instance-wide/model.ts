@@ -102,6 +102,13 @@ export const MAX_ITEM_BYTES = 25 * 1024 * 1024;
 /** Catch-up cadence. */
 export const CATCH_UP_INTERVAL_MS = 5 * 60 * 1000;
 
+/**
+ * Admin-owned machines are also checked this often, so an agent's native edit
+ * there reaches every host in well under a minute rather than at the next
+ * catch-up. Cheap: one hashing command per admin machine.
+ */
+export const ADMIN_QUICK_CHECK_MS = 30 * 1000;
+
 /** A machine not contacted for this long is "offline" and never counted as behind. */
 export const OFFLINE_AFTER_MS = 24 * 60 * 60 * 1000;
 

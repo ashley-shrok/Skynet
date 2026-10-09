@@ -23,6 +23,7 @@ import {
   type ItemKind,
   type ItemKey,
   type Manifest,
+  ADMIN_QUICK_CHECK_MS,
   CATCH_UP_INTERVAL_MS,
   MAX_ITEM_BYTES,
   MAX_ITEM_FILES,
@@ -105,6 +106,7 @@ export class InstanceWideEngine {
   private readonly now: () => number;
   private lock: Promise<unknown> = Promise.resolve();
   private timer: ReturnType<typeof setInterval> | null = null;
+  private quickTimer: ReturnType<typeof setInterval> | null = null;
   private pendingTimer: ReturnType<typeof setTimeout> | null = null;
   private running: Promise<void> | null = null;
   private rerun = false;
@@ -126,12 +128,45 @@ export class InstanceWideEngine {
     this.timer = si(() => {
       this.requestSync();
     }, CATCH_UP_INTERVAL_MS);
+    this.quickTimer = si(() => {
+      void this.quickAdminCheck();
+    }, ADMIN_QUICK_CHECK_MS);
     this.requestSync();
+  }
+
+  /**
+   * Between catch-ups, look only at admin-owned machines (the only ones whose
+   * changes flow back). If one changed the master, a full pass follows so the
+   * change reaches everyone. Skipped while a full pass is running.
+   */
+  async quickAdminCheck(): Promise<void> {
+    if (this.stopped || this.running) return;
+    let machines: SyncMachine[];
+    try {
+      machines = (await this.deps.listMachines()).filter((m) => m.adminOwned);
+    } catch {
+      return;
+    }
+    let masterChanged = false;
+    for (const machine of machines) {
+      if (this.stopped || this.running) return;
+      let channel: SshChannel | null = null;
+      try {
+        channel = await this.deps.acquireChannel(machine);
+      } catch {
+        channel = null;
+      }
+      if (!channel) continue;
+      if (await this.withLock(() => this.syncMachine(machine, channel))) masterChanged = true;
+    }
+    if (masterChanged) this.requestSync();
   }
 
   stop(): void {
     this.stopped = true;
     if (this.timer) (this.deps.clearInterval ?? clearInterval)(this.timer);
+    if (this.quickTimer) (this.deps.clearInterval ?? clearInterval)(this.quickTimer);
+    this.quickTimer = null;
     if (this.pendingTimer) clearTimeout(this.pendingTimer);
     this.timer = null;
     this.pendingTimer = null;

@@ -221,6 +221,24 @@ describe("InstanceWideEngine", () => {
     expect(status.behind).toBe(0);
   });
 
+  it("quick admin check carries an admin machine's edit to everyone", async () => {
+    await engine.promote("skill", "demo", machines[0]);
+    await engine.syncNow();
+    await put("b", "SKILL.md", "quick edit\n");
+    await engine.quickAdminCheck();
+    // The master changed, so a full pass is requested; run it now.
+    await engine.syncNow();
+    expect(read("c", "SKILL.md")).toBe("quick edit\n");
+  });
+
+  it("quick admin check never touches non-admin machines", async () => {
+    await engine.promote("skill", "demo", machines[0]);
+    await engine.syncNow();
+    await put("c", "SKILL.md", "tampered\n");
+    await engine.quickAdminCheck();
+    expect(read("c", "SKILL.md")).toBe("tampered\n");
+  });
+
   it("syncs roles into ~/fleet/roles and binary files intact", async () => {
     const roleDir = path.join(homes.a, "fleet/roles/helper");
     await fs.mkdir(roleDir, { recursive: true });
