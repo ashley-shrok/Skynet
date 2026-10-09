@@ -85,6 +85,7 @@ import {
   updateOpenTabs,
   updateFleetSessions,
   removeFleetSession,
+  clearPendingArchive,
   upsertFleetSession,
   updateHostsFlat,
   updateIdentitiesByKey,
@@ -197,6 +198,7 @@ import {
   publishAppSnapshot,
   publishAppUpdate,
   publishAppGone,
+  clearPendingAppArchive,
 } from "@/state/app-tiles-store";
 import { useAnyIdentityModalOpen } from "@/state/identity-modal-open-store";
 import {
@@ -823,6 +825,10 @@ export function AppShell({
         // reason (defensive against a wire-shape drift) treated as
         // pid_stale — do NOT close, safer default.
         if (reason === "identity_gone") {
+          // The supervisor's retire landed — an optimistic archive's
+          // pending-archive mark has done its job. Drop it so a later
+          // un-archive / same-name re-birth isn't filtered out of this tab.
+          clearPendingArchive(goneHostId, tmuxSession);
           for (const tab of tabsRef.current) {
             if (
               tab.host != null &&
@@ -848,6 +854,9 @@ export function AppShell({
         publishAppUpdate(app);
       },
       onAppGone: (hostId, slug) => {
+        // Backend-confirmed removal — release any optimistic-archive mark
+        // (the local optimistic drop calls publishAppGone directly, not this).
+        clearPendingAppArchive(hostId, slug);
         publishAppGone(hostId, slug);
       },
     });

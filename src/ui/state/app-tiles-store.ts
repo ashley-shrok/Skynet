@@ -94,18 +94,45 @@ const listeners = new Set<() => void>();
 // keeps appearing in the backend's app-snapshot / app-update frames until
 // the supervisor's next sweep tick moves the app folder. Without this filter
 // the next `app-update` frame's publishAppUpdate would re-insert the tile
-// (visual flicker-back). Cleared on archive-failure rollback via
-// clearPendingAppArchive; otherwise naturally GC'd on page reload (Set is
-// module-scope, in-memory only). Mirrors the pendingArchiveKeys pattern in
+// (visual flicker-back). Mirrors the pendingArchiveKeys pattern in
 // conversation-store for identity archive.
-const pendingAppArchiveKeys = new Set<string>();
+//
+// Lifecycle — the mark must not outlive the archive, or a later un-archive /
+// same-slug re-create stays invisible in this tab until reload:
+//   - cleared on archive-failure rollback (clearPendingAppArchive)
+//   - cleared on a backend `app-gone` frame (AppShell onAppGone)
+//   - cleared when an app-snapshot no longer contains the app
+//   - cleared when an un-archive of the same app succeeds
+//   - expires after PENDING_APP_ARCHIVE_TTL_MS as a backstop
+// Value = expiry epoch-ms. Module-scope, in-memory only.
+export const PENDING_APP_ARCHIVE_TTL_MS = 2 * 60 * 1000;
+const pendingAppArchiveKeys = new Map<string, number>();
 
 function pendingAppArchiveKey(hostId: string, slug: string): string {
   return `${hostId}:${slug}`;
 }
 
+function isPendingAppArchive(key: string): boolean {
+  if (pendingAppArchiveKeys.size === 0) return false;
+  const expiresAt = pendingAppArchiveKeys.get(key);
+  if (expiresAt === undefined) return false;
+  if (Date.now() >= expiresAt) {
+    pendingAppArchiveKeys.delete(key);
+    console.warn({
+      operation: "pending_app_archive_expired",
+      key,
+      ttlMs: PENDING_APP_ARCHIVE_TTL_MS,
+    });
+    return false;
+  }
+  return true;
+}
+
 export function markPendingAppArchive(hostId: string, slug: string): void {
-  pendingAppArchiveKeys.add(pendingAppArchiveKey(hostId, slug));
+  pendingAppArchiveKeys.set(
+    pendingAppArchiveKey(hostId, slug),
+    Date.now() + PENDING_APP_ARCHIVE_TTL_MS,
+  );
 }
 
 export function clearPendingAppArchive(hostId: string, slug: string): void {
@@ -224,12 +251,20 @@ export function publishAppSnapshot(apps: AppState[]): void {
   });
 
   const nextMap = new Map<string, AppState>();
+  const presentKeys = new Set<string>();
   for (const app of apps) {
+    const key = pendingAppArchiveKey(app.hostId, app.slug);
+    presentKeys.add(key);
     // Pending-archive filter: skip apps whose archive was fired but the
     // supervisor hasn't yet moved the folder. Without this, an app-snapshot
     // arriving mid-window would re-insert the tile the user just archived.
-    if (pendingAppArchiveKeys.has(pendingAppArchiveKey(app.hostId, app.slug))) continue;
-    nextMap.set(`${app.hostId}:${app.slug}`, applyPendingTitle(app));
+    if (isPendingAppArchive(key)) continue;
+    nextMap.set(key, applyPendingTitle(app));
+  }
+  // A full snapshot that no longer carries a pending app means the archive
+  // completed backend-side — release the mark.
+  for (const key of [...pendingAppArchiveKeys.keys()]) {
+    if (!presentKeys.has(key)) pendingAppArchiveKeys.delete(key);
   }
   state = { map: nextMap };
   notify();
@@ -251,7 +286,7 @@ export function publishAppUpdate(app: AppState): void {
   // the user just archived. The identity is still alive on the backend
   // until the supervisor's sweep tick moves the folder; any update in
   // that window would flicker the tile back on screen.
-  if (pendingAppArchiveKeys.has(key)) return;
+  if (isPendingAppArchive(key)) return;
   console.info({
     operation: "app_tiles_store_update",
     hostId: app.hostId,
@@ -422,6 +457,7 @@ export function __resetForTest(): void {
     // Silent.
   }
   pendingAppTitles.clear();
+  pendingAppArchiveKeys.clear();
   state = { map: new Map<string, AppState>() };
   notify();
 }

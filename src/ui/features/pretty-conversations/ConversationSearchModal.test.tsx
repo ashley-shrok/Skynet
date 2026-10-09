@@ -74,6 +74,12 @@ if (typeof window !== "undefined" && !window.ResizeObserver) {
 import { _resetForTests, useSearchState } from "@/state/search-store";
 import { ConversationSearchModal } from "./ConversationSearchModal";
 import { UnarchiveError } from "@/api/identity-unarchive-api";
+import {
+  markPendingArchive,
+  upsertFleetSession,
+  __getFleetOnlyRowsForTest,
+  __resetFleetSessionsForTest,
+} from "@/state/conversation-store";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -639,6 +645,36 @@ describe("Phase 143 — kebab-menu Un-archive on archived-identity rows (D-11, D
       expect(unarchiveIdentityMock).toHaveBeenCalledWith(7, "eve"),
       { timeout: 2000 },
     );
+  });
+
+  it("4b: successful Un-archive releases this tab's pending-archive mark so the restored row can re-surface", async () => {
+    __resetFleetSessionsForTest();
+    // This tab archived eve earlier; the mark is still held.
+    markPendingArchive(7, "eve");
+    const archivedRow = makeRow({
+      transcriptPath: "/archived3b.jsonl",
+      identityKey: "eve",
+      hostId: 7,
+      isArchived: true,
+    });
+    const user = userEvent.setup();
+    vi.spyOn(window, "alert").mockImplementation(() => {});
+    render(
+      <ConversationSearchModal
+        open={true}
+        onOpenChange={vi.fn()}
+        onOpenActiveConversation={vi.fn()}
+      />,
+    );
+    await searchAndGetResults([archivedRow]);
+    await user.click(screen.getByTestId("conversation-search-archived-row-kebab-eve-7"));
+    await user.click(await screen.findByRole("menuitem", { name: /^Un-archive$/ }));
+    await waitFor(() => expect(window.alert).toHaveBeenCalled(), { timeout: 2000 });
+
+    // Reconciler restored it; the next sweep's frame must land.
+    upsertFleetSession({ hostId: 7, hostName: "h7", sessionName: "eve", created: 1, role: null });
+    expect(__getFleetOnlyRowsForTest().some((r) => r.id === "fleet::7::eve")).toBe(true);
+    __resetFleetSessionsForTest();
   });
 
   it("5: row disappears ONLY after endpoint returns 200 (endpoint-first sequence — locks CONTEXT.md Risk Summary invariant, replaces retired T-08's pre-endpoint-removal pattern)", async () => {

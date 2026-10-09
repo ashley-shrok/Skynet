@@ -525,17 +525,47 @@ const listeners = new Set<() => void>();
 // Change immediately after firing archiveIdentity, but the identity keeps
 // pulsing fleet-status for ~15s until the supervisor's scan tick retires it.
 // Without this filter, the next `update` frame's upsertFleetSession would
-// re-insert the row (row-flicker back on screen). Cleared on archive-failure
-// rollback via clearPendingArchive; otherwise naturally GC'd on page reload
-// (Set is module-scope, in-memory only).
-const pendingArchiveKeys = new Set<string>();
+// re-insert the row (row-flicker back on screen).
+//
+// Lifecycle — the mark must not outlive the archive, or a later un-archive /
+// same-name re-birth stays invisible in this tab until reload:
+//   - cleared on archive-failure rollback (clearPendingArchive)
+//   - cleared when the supervisor's retire lands (`identity_gone` frame,
+//     AppShell onGone)
+//   - cleared when an un-archive of the same identity succeeds
+//   - expires after PENDING_ARCHIVE_TTL_MS as a backstop (supervisor retire
+//     failing and retrying forever would otherwise hide a live identity)
+// Value = expiry epoch-ms. Module-scope, in-memory only.
+export const PENDING_ARCHIVE_TTL_MS = 2 * 60 * 1000;
+const pendingArchiveKeys = new Map<string, number>();
 
 function pendingArchiveKey(hostId: number, sessionName: string): string {
   return `${hostId}::${sessionName}`;
 }
 
+function isPendingArchive(hostId: number, sessionName: string): boolean {
+  if (pendingArchiveKeys.size === 0) return false;
+  const key = pendingArchiveKey(hostId, sessionName);
+  const expiresAt = pendingArchiveKeys.get(key);
+  if (expiresAt === undefined) return false;
+  if (Date.now() >= expiresAt) {
+    pendingArchiveKeys.delete(key);
+    console.warn({
+      operation: "pending_archive_expired",
+      hostId,
+      sessionName,
+      ttlMs: PENDING_ARCHIVE_TTL_MS,
+    });
+    return false;
+  }
+  return true;
+}
+
 export function markPendingArchive(hostId: number, sessionName: string): void {
-  pendingArchiveKeys.add(pendingArchiveKey(hostId, sessionName));
+  pendingArchiveKeys.set(
+    pendingArchiveKey(hostId, sessionName),
+    Date.now() + PENDING_ARCHIVE_TTL_MS,
+  );
 }
 
 export function clearPendingArchive(hostId: number, sessionName: string): void {
@@ -1407,7 +1437,7 @@ export function updateFleetSessions(sessions: FleetSession[]): void {
   // bulk-replace path never re-inserts a row we've committed to hiding.
   if (pendingArchiveKeys.size > 0) {
     sessions = sessions.filter(
-      (s) => !pendingArchiveKeys.has(pendingArchiveKey(s.hostId, s.sessionName)),
+      (s) => !isPendingArchive(s.hostId, s.sessionName),
     );
   }
   // quick-260727-kbw: compute shallow no-op WITHOUT early-return — the
@@ -1539,7 +1569,7 @@ export function upsertFleetSession(session: FleetSession): void {
   // optimistically by handleArchive; the identity keeps pulsing fleet-status
   // until the supervisor retires it (~15s), so without this guard the very
   // next update frame would re-insert the row.
-  if (pendingArchiveKeys.has(pendingArchiveKey(session.hostId, session.sessionName))) return;
+  if (isPendingArchive(session.hostId, session.sessionName)) return;
 
   const idx = state.fleetSessions.findIndex(
     (s) => s.hostId === session.hostId && s.sessionName === session.sessionName,
@@ -2735,6 +2765,7 @@ export function __resetPinnedIdsForTest(): void {
 // updateFleetSessions([]) which — post-fix — flips the flag true, so
 // tests that need to observe the flip subscribe AFTER this reset).
 export function __resetFleetSessionsForTest(): void {
+  pendingArchiveKeys.clear();
   state = { ...state, fleetSessions: [], fleetSessionsLoaded: false };
   notify();
 }

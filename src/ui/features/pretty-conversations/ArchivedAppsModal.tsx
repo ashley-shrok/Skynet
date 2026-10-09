@@ -30,6 +30,7 @@ import {
   type ArchivedAppListEntry,
 } from "@/api/apps-archive-list-api";
 import { unarchiveApp, UnarchiveError } from "@/api/apps-unarchive-api";
+import { clearPendingAppArchive } from "@/state/app-tiles-store";
 import {
   RowKebabMenu,
   RowKebabContextMenuSurface,
@@ -84,6 +85,9 @@ export function ArchivedAppsModal({
     try {
       // STEP 1: endpoint first — row MUST NOT be removed before this resolves.
       await unarchiveApp(entry.hostId, entry.slug);
+      // Release any optimistic-archive mark this tab still holds for the
+      // app, so the reconciler's restore re-surfaces the tile here too.
+      clearPendingAppArchive(String(entry.hostId), entry.slug);
 
       // STEP 2: 200 received — now remove the row.
       setState((prev) =>

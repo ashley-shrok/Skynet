@@ -24,6 +24,7 @@ import {
   upsertFleetSession,
   markPendingArchive,
   clearPendingArchive,
+  PENDING_ARCHIVE_TTL_MS,
   updateHostsFlat,
   updateIdentitiesByKey,
   selectConversation,
@@ -1245,6 +1246,32 @@ describe("conversation-store: pending-archive filter", () => {
     expect(
       __getFleetOnlyRowsForTest().some((r) => r.id === "fleet::3::rollback-me"),
     ).toBe(true);
+  });
+
+  it("pending-archive mark expires after PENDING_ARCHIVE_TTL_MS (supervisor-failure backstop)", () => {
+    vi.useFakeTimers();
+    try {
+      markPendingArchive(4, "stuck");
+      const row = { hostId: 4, hostName: "hostD", sessionName: "stuck", created: 400, role: null };
+
+      act(() => upsertFleetSession(row));
+      expect(__getFleetOnlyRowsForTest().some((r) => r.id === "fleet::4::stuck")).toBe(false);
+
+      vi.advanceTimersByTime(PENDING_ARCHIVE_TTL_MS);
+      act(() => upsertFleetSession(row));
+      expect(__getFleetOnlyRowsForTest().some((r) => r.id === "fleet::4::stuck")).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("__resetFleetSessionsForTest clears pending-archive marks", () => {
+    markPendingArchive(5, "leak");
+    __resetFleetSessionsForTest();
+    act(() => upsertFleetSession({
+      hostId: 5, hostName: "hostE", sessionName: "leak", created: 500, role: null,
+    }));
+    expect(__getFleetOnlyRowsForTest().some((r) => r.id === "fleet::5::leak")).toBe(true);
   });
 });
 

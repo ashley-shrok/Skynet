@@ -32,6 +32,7 @@ import {
   readAppTilesCache,
   markPendingAppArchive,
   clearPendingAppArchive,
+  PENDING_APP_ARCHIVE_TTL_MS,
   setPendingAppTitle,
   clearPendingAppTitle,
   __resetForTest,
@@ -744,6 +745,57 @@ describe("app-tiles-store: pending-archive filter", () => {
     expect(result.current[0].hostId).toBe("2");
 
     clearPendingAppArchive("1", "same-slug");
+  });
+
+  it("a snapshot without the pending app releases the mark — a later un-archive re-surfaces the tile", () => {
+    const { result, rerender } = renderHook(() => useAppTiles());
+
+    markPendingAppArchive("4", "restored");
+    // Supervisor moved the folder: the next full snapshot no longer carries it.
+    act(() => {
+      publishAppSnapshot([makeApp({ hostId: "1", slug: "keeper", title: "Keeper" })]);
+    });
+    // Un-archive: reconciler restores it and the sweep re-publishes it.
+    act(() => {
+      publishAppUpdate(makeApp({ hostId: "4", slug: "restored", title: "Restored" }));
+    });
+    rerender();
+
+    expect(result.current.map((a) => a.slug).sort()).toEqual(["keeper", "restored"]);
+  });
+
+  it("pending-archive mark expires after PENDING_APP_ARCHIVE_TTL_MS (supervisor-failure backstop)", () => {
+    vi.useFakeTimers();
+    try {
+      const { result, rerender } = renderHook(() => useAppTiles());
+      markPendingAppArchive("5", "stuck");
+
+      act(() => {
+        publishAppUpdate(makeApp({ hostId: "5", slug: "stuck", title: "Stuck" }));
+      });
+      rerender();
+      expect(result.current).toHaveLength(0);
+
+      vi.advanceTimersByTime(PENDING_APP_ARCHIVE_TTL_MS);
+      act(() => {
+        publishAppUpdate(makeApp({ hostId: "5", slug: "stuck", title: "Stuck" }));
+      });
+      rerender();
+      expect(result.current).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("__resetForTest clears pending-archive marks", () => {
+    markPendingAppArchive("6", "leak");
+    __resetForTest();
+    const { result, rerender } = renderHook(() => useAppTiles());
+    act(() => {
+      publishAppUpdate(makeApp({ hostId: "6", slug: "leak", title: "Leak" }));
+    });
+    rerender();
+    expect(result.current).toHaveLength(1);
   });
 });
 

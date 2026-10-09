@@ -55,6 +55,13 @@ vi.mock("@/api/apps-unarchive-api", () => ({
 import { ArchivedAppsModal } from "./ArchivedAppsModal";
 // Import the mocked UnarchiveError so tests can instantiate it.
 import { UnarchiveError } from "@/api/apps-unarchive-api";
+import { renderHook } from "@testing-library/react";
+import {
+  markPendingAppArchive,
+  publishAppUpdate,
+  useAppTiles,
+  __resetForTest as __resetAppTilesForTest,
+} from "@/state/app-tiles-store";
 
 // ─── jsdom stubs ─────────────────────────────────────────────────────────────
 
@@ -312,6 +319,36 @@ describe("Phase 143 Plan 143-06 Task 1 — ArchivedAppsModal", () => {
   });
 
   // ─── Test 7: Modal stays open after un-archive (D-19) ────────────────────
+
+  it("Test 4b: successful un-archive releases this tab's pending-archive mark so the restored tile can re-surface", async () => {
+    __resetAppTilesForTest();
+    markPendingAppArchive("1", "notes-app");
+    const user = userEvent.setup();
+    listArchivedAppsMock.mockResolvedValue([makeEntry({ hostId: 1, slug: "notes-app" })]);
+    unarchiveAppMock.mockResolvedValue({ ok: true });
+
+    render(<ArchivedAppsModal open={true} onOpenChange={vi.fn()} />);
+    await screen.findByText("notes-app");
+    await user.click(screen.getByTestId("archived-apps-row-kebab-1-notes-app"));
+    await user.click(await screen.findByText("Un-archive"));
+    await waitFor(() => expect(alertSpy).toHaveBeenCalled());
+
+    // Reconciler restored it; the next sweep's app-update must land.
+    publishAppUpdate({
+      hostId: "1",
+      slug: "notes-app",
+      title: "Notes",
+      description: "",
+      port: null,
+      hasIcon: false,
+      createdAtMs: 1,
+      isHealthy: true,
+      healthMessage: null,
+    });
+    const { result } = renderHook(() => useAppTiles());
+    expect(result.current.map((a) => a.slug)).toContain("notes-app");
+    __resetAppTilesForTest();
+  });
 
   it("Test 7 (D-19): onOpenChange(false) is NEVER called after a successful un-archive", async () => {
     const user = userEvent.setup();

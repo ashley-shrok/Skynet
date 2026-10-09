@@ -69,6 +69,7 @@ import {
   removeResultByIdentity,
 } from "@/state/search-store";
 import { unarchiveIdentity, UnarchiveError } from "@/api/identity-unarchive-api";
+import { clearPendingArchive } from "@/state/conversation-store";
 import { ConversationSearchRow } from "./ConversationSearchRow";
 
 const PAGE_SIZE = 20; // D-12: 20 results per fetch
@@ -200,6 +201,9 @@ export function ConversationSearchModal({
     try {
       // Step 1: call endpoint FIRST — row untouched while request is in flight.
       await unarchiveIdentity(result.hostId, result.identityKey);
+      // Release any optimistic-archive mark this tab still holds, so the
+      // reconciler's restore re-surfaces the row here too.
+      clearPendingArchive(result.hostId, result.identityKey);
 
       // Step 2: endpoint returned 200 — now remove the row from the store.
       removeResultByIdentity(result.hostId, result.identityKey);
