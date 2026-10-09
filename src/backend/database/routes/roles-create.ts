@@ -540,7 +540,11 @@ router.post(
           classification = (
             await execWithTimeout(
               conn,
-              `mkdir "$HOME/fleet/roles/${name}" 2>/dev/null && echo __MKDIR_OK__ || { if [ -d "$HOME/fleet/roles/${name}" ]; then echo __MKDIR_COLLIDE__; else echo __MKDIR_FAIL__; fi; }`,
+              // An archived role holding this name also counts as a
+              // collision: reusing it would later block archiving the new
+              // role (the supervisor refuses rather than nest) and make
+              // un-archiving the old one a name clash.
+              `if [ -e "$HOME/fleet/roles-archive/${name}" ]; then echo __MKDIR_COLLIDE__; else mkdir "$HOME/fleet/roles/${name}" 2>/dev/null && echo __MKDIR_OK__ || { if [ -d "$HOME/fleet/roles/${name}" ]; then echo __MKDIR_COLLIDE__; else echo __MKDIR_FAIL__; fi; }; fi`,
             )
           ).trim();
         } catch (err) {

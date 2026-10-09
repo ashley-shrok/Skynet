@@ -473,6 +473,26 @@ describe("POST /roles — regression guards (multipart form)", () => {
     expect(stubConn.end).toHaveBeenCalledTimes(1);
   });
 
+  it("R-5d: the slug probe treats an ARCHIVED role of that name as a collision (roles-archive checked first)", async () => {
+    const childCmds: string[] = [];
+    (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
+      if (cmd.includes("mkdir -p") && cmd.includes("fleet/roles")) return "";
+      if (cmd.includes("__MKDIR_OK__")) {
+        childCmds.push(cmd);
+        return "__MKDIR_OK__";
+      }
+      if (cmd.includes("echo $HOME")) return "/home/ubuntu";
+      return "";
+    });
+    const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
+      data: { displayName: "Box maintainer", description: "x", hostId: 5 },
+    }));
+    expect(res.status).toBe(201);
+    expect(childCmds[0]).toMatch(
+      /^if \[ -e "\$HOME\/fleet\/roles-archive\/box-maintainer" \]; then echo __MKDIR_COLLIDE__; else mkdir /,
+    );
+  });
+
   it("R-5c: triple collision auto-suffixes to -4 (chain of __MKDIR_COLLIDE__ sentinels)", async () => {
     let childMkdirCount = 0;
     (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {

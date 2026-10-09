@@ -1173,6 +1173,17 @@ scan_role_archive_requested_sentinels() {
 
     log "role '$role_name' archive: .archive-requested detected — cascading"
 
+    # Destination guard — checked BEFORE the cascade so nothing is retired
+    # when the move can't happen. `mv dir/ existing-dir` nests the role
+    # inside the old archive (roles-archive/<name>/<name>/) and reports
+    # success. An archived role of the same name blocks this archive; the
+    # user has to un-archive or remove the old one first.
+    if [ -e "$ROLES_ARCHIVE_DIR/$role_name" ]; then
+      log "ERROR: role '$role_name' archive REFUSED: $ROLES_ARCHIVE_DIR/$role_name already exists (an archived role with this name). No identities retired; role stays live. Sentinel deleted."
+      rm -f "$d/.archive-requested" 2>/dev/null
+      continue
+    fi
+
     # D-07: fresh enumeration on every scan.
     local to_retire=()
     for identity_dir in "$IDENTITIES_DIR"/*/; do

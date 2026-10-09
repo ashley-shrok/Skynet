@@ -492,6 +492,29 @@ test_role_cascade_empty_immediate_folder_move() {
   teardown_role_scratch "$scratch"
 }
 
+# Test C2 — destination guard: an archived role with the same name already
+# exists → refuse BEFORE the cascade (no identity retired, no nesting).
+test_role_archive_refused_when_archive_dest_exists() {
+  local scratch; scratch=$(setup_role_scratch)
+  local role="reused-role"
+  fixture_role_folder "$scratch" "$role" --with-sentinel
+  mkdir -p "${scratch}-roles-archive/$role"
+  printf 'old\n' > "${scratch}-roles-archive/$role/$role.md"
+  fixture_identity "$scratch" holder --role "$role"
+
+  local out
+  out=$( _source_supervisor_with_roles "$scratch"
+         scan_role_archive_requested_sentinels 2>&1 ) || true
+
+  assert_file   "${scratch}-roles/$role"                   "dest guard: role stays live"
+  assert_nofile "${scratch}-roles-archive/$role/$role/"    "dest guard: no nested archive"
+  assert_nofile "${scratch}-roles/$role/.archive-requested" "dest guard: sentinel deleted"
+  assert_file   "$scratch/holder"                          "dest guard: holder identity NOT retired"
+  assert_grep "archive REFUSED" "$out" "dest guard: loud refusal logged"
+
+  teardown_role_scratch "$scratch"
+}
+
 # Test D — guard bypass: pinned + coordinator identity gets cascade-retired regardless (D-10).
 test_role_cascade_guard_bypass() {
   _stub_preamble || { PASS=$((PASS + 1)); return; }
@@ -680,6 +703,7 @@ test_identity_has_role_body_line_ignored() {
 run_test test_role_cascade_happy_path_2_identities
 run_test test_role_cascade_fail_soft_partial
 run_test test_role_cascade_empty_immediate_folder_move
+run_test test_role_archive_refused_when_archive_dest_exists
 run_test test_role_cascade_guard_bypass
 run_test test_role_cascade_sentinel_deleted_on_full_failure
 run_test test_scanner_noop_when_no_sentinel
