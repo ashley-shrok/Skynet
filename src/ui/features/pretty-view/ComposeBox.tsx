@@ -27,6 +27,7 @@ import { useVoiceRecording } from "./useVoiceRecording";
 import { useHoldToRecord } from "./useHoldToRecord";
 import { useVoiceMode, type VoiceModeMessage, type VoiceModePhase } from "./useVoiceMode";
 import { MicButton } from "./MicButton";
+import { SkillActionsButton } from "./SkillActionsButton";
 import { RecordingControls } from "./RecordingControls";
 
 // Compose-and-send box for the pretty view.
@@ -2501,8 +2502,8 @@ export function ComposeBox({
         <div className="flex-1" aria-hidden="true" />
         {/* Aux-button group — Paperclip moved OUT to inside the Row 2
             textarea (2026-07-30 vtk, mirroring Send on the LEFT); this
-            group hosts Stop and ThumbsUp (the Recap button was
-            removed 2026-10-08). Quick
+            group hosts Stop, the skill-actions lightning bolt, and
+            ThumbsUp (the Recap button was removed 2026-10-08). Quick
             260909-cdi retired the Queue-a-message ListPlus button from
             this row — the queue-a-message affordance is now the pebble-
             notch QueuePlusTab that rides on the topmost textarea's top
@@ -2582,6 +2583,21 @@ export function ComposeBox({
               deliberately does NOT wear the assistant's identity hue.
               Kept vibrant (90% sat + brighter hover) so it still
               dominates the composer visually. */}
+          {/* Skill-actions menu (shape skill-action-menu): lightning bolt
+              left of ThumbsUp — a skill fires through the same quick-send
+              path, same disabled gates. Renders nothing until the host is
+              known to have skills; never in relay panes. */}
+          <SkillActionsButton
+            hostId={hostId}
+            enabled={mode === "harness"}
+            disabled={asideActive === true || recycleActive === true || reconnectingActive === true}
+            onFire={(skillName) => { onGoodToGo?.(); handleQuickSend(`/${skillName}`); }}
+            buttonClassName={cn(
+              "cursor-pointer max-md:size-9 [&_svg]:max-md:size-[1.125rem]",
+              AUX_BUTTON_CLASS,
+              "hover:brightness-110 hover:shadow-[0_6px_16px_rgba(0,0,0,0.65),inset_0_2px_0_rgba(220,225,245,0.35),0_0_28px_hsla(218,40%,55%,0.4)]",
+            )}
+          />
           <Button
             size="icon-sm"
             variant="secondary"

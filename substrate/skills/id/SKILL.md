@@ -9,6 +9,7 @@ distributed: true
 <!-- 2026-10-02 (tissue-identity lifecycle + schedule-type disambiguation): new "Lifecycle — identities are tissues" framing paragraph in the top matter, and a new "When the user asks you to 'schedule' something — ASK first" subsection at the top of § Scheduled wake-ups covering the wake-up-vs-scheduled-agent lifetime distinction. -->
 <!-- 2026-10-05 (multi-role identities): § Loading an existing identity now documents the two `role:` shapes (scalar / list), that every listed role is loaded equally (no primary), and how the app shows a multi-role identity (all roles listed, no inherited look, visibility per role); role-file edits go to the role whose domain they belong to; new-agent modal role multi-select; spawn-request `roles` accepts several. -->
 <!-- 2026-10-09 (pinned XOR project): pinned and in-a-project are mutually exclusive — the row/badge menu's Pin item folded into a "Move to" submenu (Pinned + projects); pinning leaves the project, moving into a project unpins; a conversation with both on disk shows in its project. -->
+<!-- 2026-10-09 (skill actions): new lightning-bolt button left of thumbs-up opens a menu of the box's skills — tap sends `/<name>` at once; the footer Skills-editor icon changed from wrench to the same lightning bolt. -->
 <!-- 2026-10-09 (voice-mode button): hands-free voice mode moved off the mic long-press onto its own sound-wave button left of Stop; the status pill became that button's chip (state label, tap-to-skip, × to end). -->
 
 # Identity Skill
@@ -759,7 +760,7 @@ not something agents drive.
 ### Sidebar footer
 
 The footer holds the user's avatar and name on the left. On the right is a
-row of icons, in this order: clock, drama masks, wrench, then (admins only)
+row of icons, in this order: clock, drama masks, lightning bolt, then (admins only)
 crown, then gear.
 
 - **🕐 Clock — scheduled agents.** Opens the modal that lists all
@@ -794,7 +795,7 @@ crown, then gear.
   the sentinel drop within ~15 seconds and moves the role folder back to
   `~/fleet/roles/<name>/`.
 
-- **🔧 Wrench — skills.** Lists the user's skills; view/edit any, or create
+- **⚡ Lightning bolt — skills.** Lists the user's skills; view/edit any, or create
   a new one. Skills here are surfaced to every one of the user's agent
   sessions.
   Pick a skill at the top; the **three-dots (⋮) menu** beside them holds
@@ -898,7 +899,7 @@ crown, then gear.
 
 - **Sound-wave button — hands-free voice mode** (agent conversations
   only). Sits in the row of small buttons above the compose box, left of
-  the stop (square) and thumbs-up buttons. Tapping it turns voice mode
+  the stop (square), lightning-bolt and thumbs-up buttons. Tapping it turns voice mode
   on: the app listens, sends what the user says when they pause, reads
   each new agent reply aloud, then listens again. Typing keeps working
   while it's on, and using the mic pauses voice mode while it records.
@@ -910,6 +911,19 @@ crown, then gear.
   the box's default. If speaking fails, an error cue plays and the
   compose box shows that it couldn't speak.
   *Agent-side: none.*
+
+- **⚡ Lightning bolt — skill actions** (agent conversations only). Sits
+  in the row of small buttons above the compose box, just left of the
+  thumbs-up. Tapping it opens a menu listing the skills on the box this
+  agent runs on — the same set the footer's lightning-bolt Skills editor
+  shows (fleet-distributed skills are left out), alphabetical, each with
+  its one-line description. Tapping a skill sends `/<skill-name>` at once,
+  exactly like thumbs-up sends its reply: no arguments, anything the user
+  had typed stays in the compose box. The button is hidden until the app
+  knows the box has at least one such skill. To give the user a new
+  one-tap action, write an argument-free skill (via the Skills editor,
+  user-gated as usual) — it appears in this menu.
+  *Agent-side: none* — it arrives as an ordinary slash command.
 
 ### Interactive messages (widgets in chat bubbles)
 

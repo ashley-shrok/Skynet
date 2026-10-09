@@ -64,6 +64,7 @@
 
 import type { AuthenticatedRequest } from "../../../types/index.js";
 import express from "express";
+import yaml from "js-yaml";
 import type { Request, Response } from "express";
 import { AuthManager } from "../../utils/auth-manager.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
@@ -283,6 +284,50 @@ function composeSkillMdSeed(slug: string, description: string): string {
 // GET /skills-editor/skills?hostId=<n>
 // ---------------------------------------------------------------------------
 
+/** Cap on a returned description — the menu shows one truncated line. */
+const MAX_SKILL_DESCRIPTION_CHARS = 500;
+
+export type ListedSkill = { name: string; description?: string };
+
+/**
+ * Parse the list command's output: records separated by \x1e, each record
+ * = skill name on its first line + that skill's frontmatter after it.
+ * `description` is the frontmatter's description with whitespace collapsed
+ * (folded/multi-line YAML flattened to one line), capped; absent when the
+ * frontmatter is missing, unparseable, or has no string description.
+ */
+export function parseSkillListOutput(output: string): ListedSkill[] {
+  const skills: ListedSkill[] = [];
+  // Element 0 precedes the first separator — real records always start with
+  // one, so anything there is stray remote stdout (e.g. an rc file's echo).
+  for (const record of output.split("\x1e").slice(1)) {
+    const nl = record.indexOf("\n");
+    const name = (nl === -1 ? record : record.slice(0, nl)).trim();
+    if (name.length === 0) continue;
+    const frontmatter = nl === -1 ? "" : record.slice(nl + 1);
+    let description: string | undefined;
+    try {
+      const parsed = yaml.load(frontmatter);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        const raw = (parsed as Record<string, unknown>).description;
+        if (typeof raw === "string") {
+          const flat = raw.replace(/\s+/g, " ").trim();
+          if (flat.length > 0) {
+            description =
+              flat.length > MAX_SKILL_DESCRIPTION_CHARS
+                ? flat.slice(0, MAX_SKILL_DESCRIPTION_CHARS - 1).trimEnd() + "…"
+                : flat;
+          }
+        }
+      }
+    } catch {
+      // Malformed frontmatter — list the skill without a description.
+    }
+    skills.push(description === undefined ? { name } : { name, description });
+  }
+  return skills;
+}
+
 /**
  * List skills on the host — `find ~/.claude/skills -mindepth 1 -maxdepth 1
  * -type d -printf '%f\n' | sort`. Returns empty array when the directory
@@ -355,20 +400,27 @@ router.get(
       // "don't hand-patch distributed content" invariant. Frontmatter-only
       // scoping via awk prevents a `distributed:` line in the body from
       // producing a false-positive filter.
+      //
+      // Each kept skill is emitted as a record: an ASCII record-separator
+      // (\036) + the skill name on one line, then its frontmatter lines.
+      // The frontmatter rides along so the skill-actions menu can show each
+      // skill's one-line description (parseSkillListOutput).
       const listCmd =
         `find ${escapedSkillsRoot} -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | ` +
         `while read -r dir; do ` +
-        `  awk '/^---$/{n++; if(n==2) exit} n==1' "$dir/SKILL.md" 2>/dev/null | ` +
-        `    grep -q '^distributed: *true[[:space:]]*$' && continue; ` +
-        `  basename "$dir"; ` +
+        `  fm=$(awk '/^---$/{n++; if(n==2) exit} n==1' "$dir/SKILL.md" 2>/dev/null); ` +
+        `  printf '%s\\n' "$fm" | grep -q '^distributed: *true[[:space:]]*$' && continue; ` +
+        `  printf '\\036%s\\n%s\\n' "$(basename "$dir")" "$fm"; ` +
         `done`;
       const output = await execWithTimeout(conn, listCmd);
-      const skills = output
-        .split("\n")
-        .map((line) => line.trim())
-        .filter((line) => line.length > 0)
-        .map((name) => ({ name }));
+      const skills = parseSkillListOutput(output);
 
+      sshLogger.info("skills-editor skills: listed", {
+        operation: "skills_editor_skills_listed",
+        hostId,
+        count: skills.length,
+        withDescription: skills.filter((s) => s.description !== undefined).length,
+      });
       res.json({ skills });
     } catch (err) {
       sshLogger.error("skills-editor skills: unexpected error", {

@@ -65,7 +65,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, use
 // (aliased ArchivedBoxIcon) glyph was the always-visible archived-apps trigger
 // on the Apps section header. Migrated into the Apps header RowKebabMenu
 // (single "Archived apps" item); icon import removed.
-import { ChevronDown, Clock, Crown, Drama, Loader2, MessageSquare, Plus, Search, Settings, SquarePen, Wrench, X } from "lucide-react";
+import { ChevronDown, Clock, Crown, Drama, Loader2, MessageSquare, Plus, Search, Settings, SquarePen, X, Zap } from "lucide-react";
 import { Button } from "@/components/button";
 import SkillsEditorModal from "@/features/pretty-view/SkillsEditorModal";
 // Phase 137 D-08: PreferencesModal — opened from the sidebar footer gear button.
@@ -3561,7 +3561,7 @@ export function PrettyConversationsPanel({
                 data-testid="pv-footer-skills-button"
                 onClick={() => setSkillsEditorModalOpen(true)}
               >
-                <Wrench size={18} />
+                <Zap size={18} />
               </button>
             </>
           )}

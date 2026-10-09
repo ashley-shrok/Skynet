@@ -179,7 +179,7 @@ const stubHost = {
 // Import the router under test (dynamic import AFTER vi.mock() declarations)
 // ---------------------------------------------------------------------------
 
-const { default: router } = await import("./skills-editor.js");
+const { default: router, parseSkillListOutput } = await import("./skills-editor.js");
 
 let server: http.Server;
 
@@ -192,7 +192,10 @@ let server: http.Server;
 function defaultExecImpl(cmd: string): Promise<string> {
   if (cmd === "echo $HOME") return Promise.resolve("/home/testuser\n");
   if (cmd.startsWith("find") && cmd.includes("-maxdepth 1"))
-    return Promise.resolve("build\nexplain\n");
+    return Promise.resolve(
+      "\x1ebuild\nname: build\ndescription: Deliver a feature end-to-end.\n" +
+        "\x1eexplain\nname: explain\n",
+    );
   if (cmd.startsWith("find") && cmd.includes("-type f"))
     return Promise.resolve("SKILL.md\ntests/basic.py\n");
   if (cmd.startsWith("cat ")) return Promise.resolve("hello world");
@@ -242,14 +245,17 @@ afterEach(() => {
 // ===========================================================================
 
 describe("GET /skills-editor/skills", () => {
-  it("200 with { skills: [{name}...] } sorted alphabetically", async () => {
+  it("200 with { skills: [{name, description?}...] } in listed order", async () => {
     const res = await httpRequest(server, {
       method: "GET",
       path: "/skills-editor/skills?hostId=1",
     });
     expect(res.status).toBe(200);
-    const body = res.body as { skills: { name: string }[] };
-    expect(body.skills).toEqual([{ name: "build" }, { name: "explain" }]);
+    const body = res.body as { skills: { name: string; description?: string }[] };
+    expect(body.skills).toEqual([
+      { name: "build", description: "Deliver a feature end-to-end." },
+      { name: "explain" },
+    ]);
   });
 
   it("400 on missing hostId", async () => {
@@ -313,7 +319,7 @@ describe("GET /skills-editor/skills", () => {
         if (cmd === "echo $HOME") return "/home/testuser\n";
         if (cmd.startsWith("find") && cmd.includes("-maxdepth 1")) {
           capturedListCmd = cmd;
-          return "build\nexplain\n";
+          return "\x1ebuild\n\x1eexplain\n";
         }
         return "";
       },
@@ -330,6 +336,63 @@ describe("GET /skills-editor/skills", () => {
     // either piece breaks the test.
     expect(capturedListCmd).toContain("awk '/^---$/");
     expect(capturedListCmd).toContain("distributed: *true");
+    // Each kept skill is emitted as a \036-prefixed record carrying its
+    // frontmatter (for the skill-actions menu's descriptions).
+    expect(capturedListCmd).toContain("printf '\\036%s");
+  });
+});
+
+// ===========================================================================
+// parseSkillListOutput (skill-actions menu descriptions)
+// ===========================================================================
+
+describe("parseSkillListOutput", () => {
+  it("returns [] for empty output", () => {
+    expect(parseSkillListOutput("")).toEqual([]);
+  });
+
+  it("ignores stray output before the first record (e.g. shell rc noise)", () => {
+    expect(parseSkillListOutput("Welcome to box!\n\x1ebuild\nname: build\n")).toEqual([
+      { name: "build" },
+    ]);
+  });
+
+  it("flattens folded / multi-line descriptions to one line", () => {
+    const out =
+      "\x1eapp-development\nname: app-development\ndescription: |\n  Builds a new app,\n  or edits one.\n" +
+      "\x1eopen\nname: open\ndescription: >\n  Open a piece\n  of work.\n";
+    expect(parseSkillListOutput(out)).toEqual([
+      { name: "app-development", description: "Builds a new app, or edits one." },
+      { name: "open", description: "Open a piece of work." },
+    ]);
+  });
+
+  it("handles quoted descriptions containing colons", () => {
+    const out = '\x1eid\nname: id\ndescription: "Load a named agent: by name."\n';
+    expect(parseSkillListOutput(out)).toEqual([
+      { name: "id", description: "Load a named agent: by name." },
+    ]);
+  });
+
+  it("lists the skill without a description when frontmatter is missing, malformed, or non-string", () => {
+    const out =
+      "\x1ebare\n\n" +
+      "\x1ebroken\ndescription: [unclosed\n" +
+      "\x1enumeric\ndescription: 42\n" +
+      "\x1eblank\ndescription: \"   \"\n";
+    expect(parseSkillListOutput(out)).toEqual([
+      { name: "bare" },
+      { name: "broken" },
+      { name: "numeric" },
+      { name: "blank" },
+    ]);
+  });
+
+  it("caps very long descriptions with an ellipsis", () => {
+    const long = "x".repeat(800);
+    const [skill] = parseSkillListOutput(`\x1elong\ndescription: ${long}\n`);
+    expect(skill.description).toHaveLength(500);
+    expect(skill.description?.endsWith("…")).toBe(true);
   });
 });
 
