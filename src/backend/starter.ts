@@ -1587,6 +1587,8 @@ if (process.env.VITEST !== "true") {
           operation: "fleet_substrate_orchestrator_lifecycle",
         });
         substrateOrch.stop();
+        // Declared later in this block; only read at shutdown.
+        instanceWide.stop();
         for (const [, client] of substrateHostClients) {
           try {
             client.end();
@@ -1635,7 +1637,6 @@ if (process.env.VITEST !== "true") {
       systemLogger.info("Instance-wide sync started", {
         operation: "instance_wide_started",
       });
-      process.once("SIGTERM", () => instanceWide.stop());
     }
 
     // =========================================================================
