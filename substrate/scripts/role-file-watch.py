@@ -82,6 +82,20 @@ POLL = int(os.environ.get("ROLE_WATCH_POLL_SEC", "2"))
 # Shape rationale: .planning/shapes/shape-stop-self-edit-events.md.
 SELF_EDIT_SETTLE_MS = int(os.environ.get("ROLE_WATCH_SELF_EDIT_SETTLE_MS", "200"))
 
+# Self-edit claims — the settle window alone only covers tool calls that
+# return within it, because the PostToolUse hook fires when the WHOLE call
+# returns. A Bash call that edits a watched file and then keeps running
+# (`sed -i … && git log …`, an edit followed by a build) outlived it and the
+# agent's own edit emitted. The PreToolUse side of the same hook drops
+# `<baseline_dir>/claims/<baseline-name>.<tool_use_id>` for each watched file
+# the call names; while a live claim exists on a CHANGED file we hold the
+# comparison until the hook releases it (after syncing), then run the normal
+# settle + hash-guard. Claims older than CLAIM_MAX_SEC are ignored — covers a
+# call interrupted before any Post* hook could release it. 600s = the
+# harness's max foreground Bash timeout.
+CLAIM_MAX_SEC = int(os.environ.get("ROLE_WATCH_CLAIM_MAX_SEC", "600"))
+CLAIM_POLL_SEC = 0.1
+
 # Module-level inotifywait subprocess handle so signal handlers can clean it up.
 _inotify_proc = None
 
@@ -376,6 +390,54 @@ def _is_self_edit(baseline_path, current_bytes):
     return matched
 
 
+def _live_claims(baseline_path):
+    """Claim files on this baseline younger than CLAIM_MAX_SEC (see
+    CLAIM_MAX_SEC). Any OSError → treated as no claim (fail toward emitting)."""
+    claim_dir = os.path.join(os.path.dirname(baseline_path), "claims")
+    prefix = os.path.basename(baseline_path) + "."
+    live = []
+    try:
+        names = os.listdir(claim_dir)
+    except OSError:
+        return live
+    now = time.time()
+    for name in names:
+        if not name.startswith(prefix):
+            continue
+        try:
+            if now - os.path.getmtime(os.path.join(claim_dir, name)) < CLAIM_MAX_SEC:
+                live.append(name)
+        except OSError:
+            pass
+    return live
+
+
+def _wait_for_claim_release(target_path, baseline_path):
+    """If the target has drifted from its baseline AND the agent's in-flight
+    tool call has claimed it, block until the claim is released or goes stale.
+
+    Only drifted files wait, so an event on one target never holds another
+    target that merely got claimed by a call that hasn't written it yet. The
+    loop is single-threaded, so other events queue behind the hold — they
+    are delayed, never dropped."""
+    current = _read_bytes(target_path)
+    if current is None or current == _read_bytes(baseline_path):
+        return
+    claims = _live_claims(baseline_path)
+    if not claims:
+        return
+    started = time.time()
+    while claims:
+        time.sleep(CLAIM_POLL_SEC)
+        claims = _live_claims(baseline_path)
+    print(
+        "[role-file-watch] held %s %.1fs for in-flight tool call claim"
+        % (os.path.basename(baseline_path), time.time() - started),
+        file=sys.stderr,
+        flush=True,
+    )
+
+
 def _diff_and_emit(kind, label, target_path, baseline_dir, baseline_path, spill_dir):
     """Compare current target file against its baseline; if different, emit event
     and update baseline. Returns True if target file is gone (caller should exit).
@@ -385,7 +447,9 @@ def _diff_and_emit(kind, label, target_path, baseline_dir, baseline_path, spill_
     hash marker. Then _is_self_edit checks whether the current content matches
     what the hook recorded — if yes, silent baseline refresh, no emit; if no
     (marker absent, or content changed since hook ran), fall through to normal
-    diff + emit."""
+    diff + emit. A changed file claimed by an in-flight tool call is held
+    first (see _wait_for_claim_release)."""
+    _wait_for_claim_release(target_path, baseline_path)
     if SELF_EDIT_SETTLE_MS > 0:
         time.sleep(SELF_EDIT_SETTLE_MS / 1000.0)
 
@@ -601,7 +665,10 @@ def _handle_runbook_event(
     if is_write:
         # Settle window: give the PostToolUse sync hook time to refresh the
         # baseline + drop its hash marker before we compare (matches
-        # _diff_and_emit's settle for role/identity events).
+        # _diff_and_emit's settle for role/identity events), after holding
+        # for any in-flight tool call that claimed this runbook.
+        if slug in tracked_slugs:
+            _wait_for_claim_release(rb_path, base_path)
         if SELF_EDIT_SETTLE_MS > 0:
             time.sleep(SELF_EDIT_SETTLE_MS / 1000.0)
         current = _read_bytes(rb_path)

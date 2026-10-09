@@ -36,8 +36,9 @@
  *          prompts the harness's --dangerously-skip-permissions flag doesn't
  *          cover (rm -rf $HOME / rm -rf / circuit-breaker patterns). See
  *          substrate/scripts/allow-all-tools.sh.
- *        - hooks.PostToolUse contains a "self-edit-baseline-sync" entry
- *          matching Write|Edit|MultiEdit|NotebookEdit|Bash — suppresses
+ *        - hooks.PreToolUse, hooks.PostToolUse and hooks.PostToolUseFailure
+ *          each contain a "self-edit-baseline-sync" entry matching
+ *          Write|Edit|MultiEdit|NotebookEdit|Bash — suppresses
  *          role-file-watch events on the agent's own edits. See
  *          substrate/scripts/self-edit-baseline-sync.sh.
  *      Merges the flags in without clobbering any other keys (OAuth token,
@@ -211,16 +212,19 @@ function logBootstrapFailed(
  * shell. Local jq invocation must NOT expand it either (pass the expression
  * as an argv arg, not through a shell).
  *
- * Currently sets eight keys total: five simple flags/env vars, plus three
+ * Currently sets ten keys total: five simple flags/env vars, plus five
  * hook entries under .hooks —
  *   - task-field-check on UserPromptSubmit (identity `task:` placeholder nudge).
  *   - allow-all-tools on PreToolUse (fleet-wide auto-allow — no matcher,
  *     fires for every tool; completes "no prompts, ever" by overriding the
  *     harness's residual circuit-breaker that survives
  *     --dangerously-skip-permissions).
- *   - self-edit-baseline-sync on PostToolUse (self-edit suppression for the
- *     role-file-watch ambient watcher; matcher covers every tool that can
- *     write to disk — Write|Edit|MultiEdit|NotebookEdit|Bash).
+ *   - self-edit-baseline-sync on PreToolUse, PostToolUse and
+ *     PostToolUseFailure (self-edit suppression for the role-file-watch
+ *     ambient watcher — PreToolUse claims the watched files a call is about
+ *     to write, the Post* events sync baselines + release the claims; the
+ *     script dispatches on the payload's hook_event_name; matcher covers
+ *     every tool that can write to disk — Write|Edit|MultiEdit|NotebookEdit|Bash).
  */
 export const SETTINGS_MERGE_JQ =
   `.permissions = ((.permissions // {}) | .deny = (((.deny // []) + ["AskUserQuestion"]) | unique))` +
@@ -230,7 +234,9 @@ export const SETTINGS_MERGE_JQ =
   `  | .hooks = ((.hooks // {})` +
   `      | .UserPromptSubmit = ((.UserPromptSubmit // []) | if any(.[]?.hooks[]?.command // ""; test("task-field-check")) then . else . + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/task-field-check"}]}] end)` +
   `      | .PreToolUse = ((.PreToolUse // []) | if any(.[]?.hooks[]?.command // ""; test("allow-all-tools")) then . else . + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/allow-all-tools"}]}] end)` +
+  `      | .PreToolUse = ((.PreToolUse // []) | if any(.[]?.hooks[]?.command // ""; test("self-edit-baseline-sync")) then . else . + [{"matcher":"Write|Edit|MultiEdit|NotebookEdit|Bash","hooks":[{"type":"command","command":"$HOME/.local/bin/self-edit-baseline-sync"}]}] end)` +
   `      | .PostToolUse = ((.PostToolUse // []) | if any(.[]?.hooks[]?.command // ""; test("self-edit-baseline-sync")) then . else . + [{"matcher":"Write|Edit|MultiEdit|NotebookEdit|Bash","hooks":[{"type":"command","command":"$HOME/.local/bin/self-edit-baseline-sync"}]}] end)` +
+  `      | .PostToolUseFailure = ((.PostToolUseFailure // []) | if any(.[]?.hooks[]?.command // ""; test("self-edit-baseline-sync")) then . else . + [{"matcher":"Write|Edit|MultiEdit|NotebookEdit|Bash","hooks":[{"type":"command","command":"$HOME/.local/bin/self-edit-baseline-sync"}]}] end)` +
   `    )`;
 
 /** CHECK jq expression. Returns true iff every required key is set. */
@@ -242,7 +248,9 @@ export const SETTINGS_CHECK_JQ =
   `  and (.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS == "1")` +
   `  and ((.hooks.UserPromptSubmit // []) | any(.[]?.hooks[]?.command // ""; test("task-field-check")))` +
   `  and ((.hooks.PreToolUse // []) | any(.[]?.hooks[]?.command // ""; test("allow-all-tools")))` +
-  `  and ((.hooks.PostToolUse // []) | any(.[]?.hooks[]?.command // ""; test("self-edit-baseline-sync")))`;
+  `  and ((.hooks.PreToolUse // []) | any(.[]?.hooks[]?.command // ""; test("self-edit-baseline-sync")))` +
+  `  and ((.hooks.PostToolUse // []) | any(.[]?.hooks[]?.command // ""; test("self-edit-baseline-sync")))` +
+  `  and ((.hooks.PostToolUseFailure // []) | any(.[]?.hooks[]?.command // ""; test("self-edit-baseline-sync")))`;
 
 /**
  * Number of required keys enforced by SETTINGS_CHECK_JQ, derived from the
@@ -630,7 +638,8 @@ export async function runBootstrapForHost(
   //             $HOME/.local/bin/allow-all-tools with NO matcher (universal
   //             auto-allow for every tool call). Match on the string
   //             "allow-all-tools" for the same idempotency-check reason.
-  //           - hooks.PostToolUse contains an entry matching
+  //           - hooks.PreToolUse, hooks.PostToolUse and
+  //             hooks.PostToolUseFailure each contain an entry matching
   //             Write|Edit|MultiEdit|NotebookEdit|Bash that runs
   //             $HOME/.local/bin/self-edit-baseline-sync (suppresses
   //             role-file-watch events on the agent's own edits).

@@ -27,6 +27,15 @@
 #           hash marker. Regression guard for the same bug class on runbooks:
 #           watcher writes `last-snapshot.runbook.<role>.<slug>`, hook was
 #           globbing with slug-only extraction and failing kebab-case validation.
+#   T-S12 — PreToolUse Edit payload claims the exact target; Post* with the
+#           same tool_use_id syncs the baseline then releases the claim
+#   T-S13 — PreToolUse Bash payload claims files the command names (basename
+#           for identity, full path for the id skill) and nothing else
+#   T-S14 — watcher holds a claimed self-edit past the settle window and stays
+#           silent once the Post* hook syncs + releases (the "edit early in a
+#           long Bash call" leak)
+#   T-S15 — watcher ignores a stale claim (older than ROLE_WATCH_CLAIM_MAX_SEC)
+#           and emits — interrupted calls can't mute the watcher
 #
 # Exits 0 on all-pass; 1 on any failure with a diagnostic naming the failing
 # test.
@@ -560,6 +569,141 @@ test_T_S11_sync_runbook_drift() {
 
 # ---- run ----
 
+# hook_payload <event> <tool_use_id> <tool_name> <json tool_input>
+hook_payload() {
+  printf '{"hook_event_name":"%s","tool_use_id":"%s","tool_name":"%s","tool_input":%s}' \
+    "$1" "$2" "$3" "$4"
+}
+
+# ============================================================
+# T-S12: PreToolUse Edit claims exact target; Post* syncs then releases.
+# ============================================================
+test_T_S12_claim_edit_then_release() {
+  seed_fixture "s12role" "s12name"
+  local claim="$STATE_DIR/claims/last-snapshot.identity.toolu_12"
+
+  hook_payload PreToolUse toolu_12 Edit "{\"file_path\":\"$IDENT_MD\"}" \
+    | HOME="$HOME_DIR" FLEET_IDENTITY="s12name" bash "$SYNC_SCRIPT"
+  if [ ! -f "$claim" ]; then
+    fail "T-S12: PreToolUse did not claim the identity file at $claim"
+    return
+  fi
+  if [ -n "$(find "$STATE_DIR/claims" -type f ! -name 'last-snapshot.identity.*')" ]; then
+    fail "T-S12: PreToolUse claimed files the Edit does not target"
+    return
+  fi
+
+  printf -- '---\nrole: s12role\ntask: edited\n---\n\n# s12name\n' > "$IDENT_MD"
+  hook_payload PostToolUse toolu_12 Edit "{\"file_path\":\"$IDENT_MD\"}" \
+    | HOME="$HOME_DIR" FLEET_IDENTITY="s12name" bash "$SYNC_SCRIPT"
+  if [ -f "$claim" ]; then
+    fail "T-S12: PostToolUse did not release the claim"
+    return
+  fi
+  if ! cmp -s "$IDENT_MD" "$BASELINE_IDENT"; then
+    fail "T-S12: PostToolUse did not sync the baseline"
+    return
+  fi
+}
+
+# ============================================================
+# T-S13: PreToolUse Bash claims only what the command names.
+# ============================================================
+test_T_S13_claim_bash_by_name() {
+  seed_fixture "s13role" "s13name"
+  mkdir -p "$HOME_DIR/.claude/skills/id"
+  local skill="$HOME_DIR/.claude/skills/id/SKILL.md"
+  printf '# id\n' > "$skill"
+  cp "$skill" "$STATE_DIR/last-snapshot.id-skill"
+
+  hook_payload PreToolUse toolu_13a Bash '{"command":"cd ~/fleet/identities/s13name && sed -i s/a/b/ s13name.md && sleep 5"}' \
+    | HOME="$HOME_DIR" FLEET_IDENTITY="s13name" bash "$SYNC_SCRIPT"
+  if [ ! -f "$STATE_DIR/claims/last-snapshot.identity.toolu_13a" ]; then
+    fail "T-S13: Bash naming the identity basename did not claim it"
+    return
+  fi
+  if [ -f "$STATE_DIR/claims/last-snapshot.id-skill.toolu_13a" ]; then
+    fail "T-S13: Bash claimed the id skill without naming it"
+    return
+  fi
+
+  hook_payload PreToolUse toolu_13b Bash "{\"command\":\"cat $skill >/dev/null\"}" \
+    | HOME="$HOME_DIR" FLEET_IDENTITY="s13name" bash "$SYNC_SCRIPT"
+  if [ ! -f "$STATE_DIR/claims/last-snapshot.id-skill.toolu_13b" ]; then
+    fail "T-S13: Bash naming the id skill path did not claim it"
+    return
+  fi
+
+  hook_payload PreToolUse toolu_13c Bash '{"command":"git status"}' \
+    | HOME="$HOME_DIR" FLEET_IDENTITY="s13name" bash "$SYNC_SCRIPT"
+  if [ -n "$(find "$STATE_DIR/claims" -type f -name '*.toolu_13c')" ]; then
+    fail "T-S13: Bash naming no watched file still claimed something"
+    return
+  fi
+}
+
+# ============================================================
+# T-S14: watcher holds a claimed self-edit until release → silent.
+# Reproduces the field leak: edit lands, the tool call keeps running well past
+# the settle window, PostToolUse fires only afterwards.
+# ============================================================
+test_T_S14_watcher_holds_claimed_self_edit() {
+  seed_fixture "s14role" "s14name"
+  launch_watcher "$HOME_DIR" "$IDENT_DIR"
+  if ! wait_for_baseline "$BASELINE_IDENT"; then
+    fail "T-S14: identity baseline never landed"
+    return
+  fi
+  sleep 0.3
+
+  local cmd='{"command":"sed -i s/x/y/ s14name.md && sleep 2"}'
+  hook_payload PreToolUse toolu_14 Bash "$cmd" \
+    | HOME="$HOME_DIR" FLEET_IDENTITY="s14name" bash "$SYNC_SCRIPT"
+  printf -- '---\nrole: s14role\ntask: long call\n---\n\n# s14name\n' > "$IDENT_MD"
+
+  # The "rest of the Bash call" — far past the 50ms test settle window.
+  sleep 1.5
+  if grep -qE '📝 \[identity-file:' "$OUT_LOG" 2>/dev/null; then
+    fail "T-S14: watcher emitted while the claiming tool call was in flight; out=$(cat "$OUT_LOG")"
+    return
+  fi
+
+  hook_payload PostToolUse toolu_14 Bash "$cmd" \
+    | HOME="$HOME_DIR" FLEET_IDENTITY="s14name" bash "$SYNC_SCRIPT"
+  sleep 1
+  if grep -qE '📝 \[identity-file:' "$OUT_LOG" 2>/dev/null; then
+    fail "T-S14: watcher emitted the agent's own edit after release; out=$(cat "$OUT_LOG")"
+    return
+  fi
+  if ! grep -q 'held last-snapshot.identity' "$ERR_LOG" 2>/dev/null; then
+    fail "T-S14: watcher never logged holding for the claim; err=$(cat "$ERR_LOG")"
+    return
+  fi
+}
+
+# ============================================================
+# T-S15: stale claim (interrupted call) does not mute the watcher.
+# ============================================================
+test_T_S15_stale_claim_ignored() {
+  seed_fixture "s15role" "s15name"
+  launch_watcher "$HOME_DIR" "$IDENT_DIR"
+  if ! wait_for_baseline "$BASELINE_IDENT"; then
+    fail "T-S15: identity baseline never landed"
+    return
+  fi
+  sleep 0.3
+
+  mkdir -p "$STATE_DIR/claims"
+  : > "$STATE_DIR/claims/last-snapshot.identity.toolu_15"
+  touch -d '20 minutes ago' "$STATE_DIR/claims/last-snapshot.identity.toolu_15"
+
+  printf -- '---\nrole: s15role\ntask: peer after interrupt\n---\n\n# s15name\n' > "$IDENT_MD"
+  if ! wait_for_stdout_match '📝 \[identity-file: s15name\]' "$OUT_LOG"; then
+    fail "T-S15: watcher did not emit despite only a stale claim; out=$(cat "$OUT_LOG") err=$(cat "$ERR_LOG")"
+    return
+  fi
+}
+
 run_test test_T_S1_sync_drift
 run_test test_T_S2_sync_no_drift
 run_test test_T_S3_no_fleet_identity
@@ -571,6 +715,10 @@ run_test test_T_S8_role_injection_defense
 run_test test_T_S9_sync_id_skill
 run_test test_T_S10_sync_role_drift
 run_test test_T_S11_sync_runbook_drift
+run_test test_T_S12_claim_edit_then_release
+run_test test_T_S13_claim_bash_by_name
+run_test test_T_S14_watcher_holds_claimed_self_edit
+run_test test_T_S15_stale_claim_ignored
 
 # ---- summary ----
 

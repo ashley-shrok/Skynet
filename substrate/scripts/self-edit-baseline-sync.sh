@@ -1,7 +1,8 @@
 #!/bin/bash
 #
 # Self-edit baseline sync hook — dropped onto each identity-hosting box by the
-# fleet-substrate distributor and wired via ~/.claude/settings.json PostToolUse.
+# fleet-substrate distributor and wired via ~/.claude/settings.json on three
+# events: PreToolUse (claim), PostToolUse + PostToolUseFailure (sync + release).
 #
 # Purpose: prevent the role-file-watch ambient watcher from waking the agent
 # with the agent's OWN edits. After every Write / Edit / MultiEdit /
@@ -35,6 +36,26 @@
 #      atomic). The watcher, at event time, will see the marker + matching
 #      current hash and stay silent.
 #
+# Claims (PreToolUse) — closes the "edit early in a long tool call" leak:
+#   PostToolUse only fires when the WHOLE tool call returns, but the watcher
+#   sees the write the moment it lands. A `sed -i <file> && <slow command>`
+#   Bash call outlived the watcher's 200ms settle window, so the self-edit
+#   emitted before this hook ever ran. Now, before the tool runs, this hook
+#   drops a claim at  <state-dir>/claims/<baseline-name>.<tool_use_id>  for
+#   every watched file the call looks like it will touch:
+#     * Write / Edit / MultiEdit / NotebookEdit — the exact target path.
+#     * Bash — the command text names the file: its full path, its ~/ or
+#       $HOME/ form, its last two path components (`id/SKILL.md`,
+#       `.claude/CLAUDE.md`, `<slug>/runbook.md`), or — for identity and role
+#       files, whose basenames are already unique — the bare basename.
+#   The watcher holds a changed, claimed file until the claim is released
+#   (or goes stale — ROLE_WATCH_CLAIM_MAX_SEC, default 600s, covers calls
+#   interrupted before any Post* hook), then runs its normal hash-guard check.
+#   PostToolUse / PostToolUseFailure syncs first, then releases this call's
+#   claims. Unclaimed files are never held. A Bash call that writes a file
+#   without naming it (a script that edits it) still emits — fails toward
+#   noise, never toward hiding a peer's edit.
+#
 # Failure semantics — graceful degradation to today's behavior:
 #   * Never exits non-zero. The tool call must not be interrupted.
 #   * Every filesystem op is best-effort; missing files, unreadable dirs, and
@@ -46,15 +67,13 @@
 # Timeout: wrapped in `timeout 2` (same pattern as fleet-status-*.sh)
 # so a full disk or unreachable FS cannot hang the harness turn indefinitely.
 #
-# stdin: harness pipes a JSON payload; consumed but ignored (this hook is
-# event-payload-agnostic — the fact that a PostToolUse hook fired is the
-# entire signal).
+# stdin: harness JSON payload. `hook_event_name` picks the mode (PreToolUse →
+# claim; anything else, including an empty/unparseable payload → sync +
+# release); `tool_use_id` keys the claims; `tool_input` drives claim matching.
 #
 set -eu
 
-# Consume stdin so the harness's pipe doesn't back-pressure on us. Content
-# irrelevant.
-cat > /dev/null 2>&1 || true
+PAYLOAD=$(cat 2>/dev/null || true)
 
 IDENT="${FLEET_IDENTITY:-}"
 [ -z "$IDENT" ] && exit 0
@@ -63,30 +82,75 @@ STATE_DIR="$HOME/fleet/identities/$IDENT/role-file-watch"
 [ -d "$STATE_DIR" ] || exit 0
 
 IDENTITY_FILE="$HOME/fleet/identities/$IDENT/$IDENT.md"
+CLAIM_DIR="$STATE_DIR/claims"
+CLAIM_MAX_SEC="${ROLE_WATCH_CLAIM_MAX_SEC:-600}"
 
-# Resolve <role> from the identity file's YAML frontmatter. Falls back to
-# empty (no role-file / runbook baselines get synced) if unreadable — the
-# identity baseline still syncs since it doesn't need the role name.
-ROLE=""
-if [ -r "$IDENTITY_FILE" ]; then
-    # Extract first `role: <value>` line inside the frontmatter block (before
-    # the second `---` fence). awk stops at the second fence to avoid matching
-    # a stray `role:` in the body.
-    ROLE=$(awk '
-        /^---[[:space:]]*$/ { fence++; if (fence == 2) exit; next }
-        fence == 1 && /^role:[[:space:]]/ { sub(/^role:[[:space:]]*/, ""); sub(/[[:space:]].*$/, ""); print; exit }
-    ' "$IDENTITY_FILE" 2>/dev/null || true)
+# Pull the payload fields we need. Missing jq or bad JSON → empty fields →
+# sync+release mode with no tool id, i.e. exactly the pre-claims behavior.
+EVENT=""; TOOL_ID=""; TARGET_PATH=""; BASH_CMD=""
+if [ -n "$PAYLOAD" ] && command -v jq >/dev/null 2>&1; then
+    EVENT=$(printf '%s' "$PAYLOAD" | jq -r '.hook_event_name // ""' 2>/dev/null || true)
+    TOOL_ID=$(printf '%s' "$PAYLOAD" | jq -r '.tool_use_id // ""' 2>/dev/null || true)
+    TARGET_PATH=$(printf '%s' "$PAYLOAD" | jq -r '.tool_input.file_path // .tool_input.notebook_path // ""' 2>/dev/null || true)
+    BASH_CMD=$(printf '%s' "$PAYLOAD" | jq -r 'if .tool_name == "Bash" then (.tool_input.command // "") else "" end' 2>/dev/null || true)
 fi
+# tool_use_id lands in a filename — keep it to a safe charset.
+TOOL_ID=$(printf '%s' "$TOOL_ID" | tr -cd 'A-Za-z0-9_-')
 
 # Bounded work. Wrapped in timeout so a hung FS cannot hang the harness turn.
-# NB: we pass STATE_DIR/IDENT/ROLE/IDENTITY_FILE to the child bash via `export`
-# rather than by splicing them into the single-quoted script body. The prior
-# `'"$X"'` splicing pattern would let a value containing a single-quote break
-# out of the quoting and inject shell — and ROLE is parsed from the identity
-# file's YAML frontmatter, which is agent-writable. Export-inherit keeps
-# untrusted values as data, never re-parsed by the child shell.
-export STATE_DIR IDENT ROLE IDENTITY_FILE
+# NB: values reach the child bash via `export`, never by splicing them into
+# the single-quoted script body. Splicing would let a value containing a
+# single-quote break out of the quoting and inject shell — role names come
+# from agent-writable baseline filenames and the tool input is whatever the
+# agent sent. Export-inherit keeps untrusted values as data.
+export STATE_DIR IDENT IDENTITY_FILE CLAIM_DIR CLAIM_MAX_SEC EVENT TOOL_ID TARGET_PATH BASH_CMD
 timeout 2 bash -c '
+    TAB="$(printf "\t")"
+
+    # One "<baseline>\t<real file>\t<distinctive basename 0|1>" line per
+    # watched surface.
+    list_targets() {
+        printf "%s\t%s\t1\n" "$STATE_DIR/last-snapshot.identity" "$IDENTITY_FILE"
+        # id skill + user-wide CLAUDE.md. A missing target file (fresh box
+        # pre-distributor-sweep, a user with no CLAUDE.md, a hermetic test
+        # env) short-circuits via sync_one'"'"'s `[ -f "$real" ]` guard.
+        printf "%s\t%s\t0\n" "$STATE_DIR/last-snapshot.id-skill" "$HOME/.claude/skills/id/SKILL.md"
+        printf "%s\t%s\t0\n" "$STATE_DIR/last-snapshot.user-claudemd" "$HOME/.claude/CLAUDE.md"
+
+        # Role baselines — `last-snapshot.role.<role>` (role-file-watch.py
+        # per-role scheme), so multi-role identities are covered. The slug IS
+        # the role name. The kebab-case validator also rejects any stray
+        # `.self-edit-hash` marker the glob would otherwise swallow.
+        shopt -s nullglob
+        for baseline in "$STATE_DIR"/last-snapshot.role.*; do
+            bname=$(basename "$baseline")
+            slug="${bname#last-snapshot.role.}"
+            case "$slug" in
+                *[!a-z0-9-]*|-*|"") continue ;;
+            esac
+            printf "%s\t%s\t1\n" "$baseline" "$HOME/fleet/roles/$slug/$slug.md"
+        done
+
+        # Runbook baselines — `last-snapshot.runbook.<role>.<slug>`. Role AND
+        # slug come from the filename; both halves must be kebab-case. A slug
+        # containing a further `.` (a `.self-edit-hash` marker, or a legacy
+        # un-roled baseline where slug == suffix) fails and skips.
+        for baseline in "$STATE_DIR"/last-snapshot.runbook.*; do
+            bname=$(basename "$baseline")
+            suffix="${bname#last-snapshot.runbook.}"
+            role_part="${suffix%%.*}"
+            slug="${suffix#*.}"
+            case "$role_part" in
+                *[!a-z0-9-]*|-*|"") continue ;;
+            esac
+            case "$slug" in
+                *[!a-z0-9-]*|-*|""|"$suffix") continue ;;
+            esac
+            printf "%s\t%s\t0\n" "$baseline" "$HOME/fleet/roles/$role_part/runbooks/$slug/runbook.md"
+        done
+        shopt -u nullglob
+    }
+
     sync_one() {
         baseline="$1"
         real="$2"
@@ -122,67 +186,55 @@ timeout 2 bash -c '
         fi
     }
 
-    # (a) identity baseline — always syncable, no role needed.
-    sync_one "$STATE_DIR/last-snapshot.identity" "$IDENTITY_FILE"
-
-    # (a2) id-skill baseline — user-wide skill file, no role needed. Missing
-    # target file (fresh box pre-distributor-sweep, or a hermetic test env)
-    # short-circuits via sync_one'"'"'s `[ -f "$real" ] || return 0` guard.
-    sync_one "$STATE_DIR/last-snapshot.id-skill" "$HOME/.claude/skills/id/SKILL.md"
-
-    # (a3) user-wide CLAUDE.md baseline — user'"'"'s always-on instruction file,
-    # no role needed. Same missing-file short-circuit as id-skill for boxes
-    # where the user has not authored one.
-    sync_one "$STATE_DIR/last-snapshot.user-claudemd" "$HOME/.claude/CLAUDE.md"
-
-    # (b) role baselines — per-role, iterate over `last-snapshot.role.<role>`
-    # baselines the watcher writes (role-file-watch.py:701). $ROLE from the
-    # identity frontmatter is only the FIRST role; globbing picks up every
-    # role the watcher is tracking, so multi-role installs are covered. The
-    # slug IS the role name, so no $ROLE dependency. The kebab-case validator
-    # also naturally rejects any stray `.self-edit-hash` marker file this
-    # glob would otherwise swallow (stripped name would contain a `.`).
-    shopt -s nullglob
-    for baseline in "$STATE_DIR"/last-snapshot.role.*; do
-        bname=$(basename "$baseline")
-        slug="${bname#last-snapshot.role.}"
-        case "$slug" in
-            *[!a-z0-9-]*|-*|"") continue ;;
+    # Does this tool call look like it will write <real>? See header § Claims.
+    targets_file() {
+        real="$1"
+        distinctive="$2"
+        if [ -n "$TARGET_PATH" ]; then
+            a=$(readlink -m -- "$TARGET_PATH" 2>/dev/null || printf "%s" "$TARGET_PATH")
+            b=$(readlink -m -- "$real" 2>/dev/null || printf "%s" "$real")
+            [ "$a" = "$b" ] && return 0
+        fi
+        [ -n "$BASH_CMD" ] || return 1
+        rel="${real#"$HOME"/}"
+        tail2="$(basename "$(dirname "$real")")/$(basename "$real")"
+        case "$BASH_CMD" in
+            *"$real"*|*"~/$rel"*|*"\$HOME/$rel"*|*"\${HOME}/$rel"*|*"$tail2"*) return 0 ;;
         esac
-        role_file="$HOME/fleet/roles/$slug/$slug.md"
-        sync_one "$baseline" "$role_file"
+        if [ "$distinctive" = "1" ]; then
+            case "$BASH_CMD" in
+                *"$(basename "$real")"*) return 0 ;;
+            esac
+        fi
+        return 1
+    }
+
+    if [ "$EVENT" = "PreToolUse" ]; then
+        [ -n "$TOOL_ID" ] || exit 0
+        [ -n "$TARGET_PATH$BASH_CMD" ] || exit 0
+        mkdir -p "$CLAIM_DIR" 2>/dev/null || exit 0
+        list_targets | while IFS="$TAB" read -r baseline real distinctive; do
+            [ -f "$baseline" ] || continue
+            if targets_file "$real" "$distinctive"; then
+                : > "$CLAIM_DIR/$(basename "$baseline").$TOOL_ID" 2>/dev/null || true
+            fi
+        done
+        exit 0
+    fi
+
+    # PostToolUse / PostToolUseFailure / unknown: sync first, THEN release —
+    # the watcher re-checks as soon as the claim disappears, so the baseline
+    # and marker must already be in place.
+    list_targets | while IFS="$TAB" read -r baseline real distinctive; do
+        sync_one "$baseline" "$real"
     done
-    shopt -u nullglob
-
-    # (c) runbook baselines — per-role-and-slug. The watcher writes
-    # `last-snapshot.runbook.<role>.<slug>` (role-file-watch.py:483) so a
-    # multi-role identity can hold a runbook of the same slug under two roles
-    # without collision. Role AND slug come from the baseline filename; no
-    # $ROLE dependency. The compound-suffix glob also catches the marker
-    # files (`.self-edit-hash`), which the kebab-case slug validator rejects.
-    shopt -s nullglob
-    for baseline in "$STATE_DIR"/last-snapshot.runbook.*; do
-        bname=$(basename "$baseline")
-        suffix="${bname#last-snapshot.runbook.}"
-        # Split suffix on the first `.` → <role>.<slug>. A suffix with no
-        # dot (legacy single-role scheme the watcher migrates away from on
-        # cold-start) has rest == suffix and role_part == suffix; the role
-        # kebab-case check below filters it.
-        role_part="${suffix%%.*}"
-        slug="${suffix#*.}"
-        # Defensive validation: both halves must be kebab-case; the slug
-        # containing a further `.` (as in a `.self-edit-hash` marker, or a
-        # legacy un-roled baseline where slug==role) fails and skips.
-        case "$role_part" in
-            *[!a-z0-9-]*|-*|"") continue ;;
-        esac
-        case "$slug" in
-            *[!a-z0-9-]*|-*|""|"$suffix") continue ;;
-        esac
-        runbook="$HOME/fleet/roles/$role_part/runbooks/$slug/runbook.md"
-        sync_one "$baseline" "$runbook"
-    done
-    shopt -u nullglob
+    if [ -d "$CLAIM_DIR" ]; then
+        if [ -n "$TOOL_ID" ]; then
+            find "$CLAIM_DIR" -maxdepth 1 -type f -name "*.$TOOL_ID" -delete 2>/dev/null || true
+        fi
+        # Sweep claims orphaned by interrupted calls (no Post* hook ever ran).
+        find "$CLAIM_DIR" -maxdepth 1 -type f -mmin "+$(( (CLAIM_MAX_SEC + 59) / 60 ))" -delete 2>/dev/null || true
+    fi
 ' 2>/dev/null || true
 
 exit 0
