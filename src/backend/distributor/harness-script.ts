@@ -37,6 +37,8 @@
  * than detail never contain spaces.
  */
 
+import { HARNESS_PIN_PATTERN } from "./harness-pin.js";
+
 /** Refuse to install below this much free space in $HOME (KiB). The
  *  installer downloads the latest build (~240 MB) as a bootstrapper AND the
  *  pinned build (~240 MB); 1 GiB leaves headroom above both. */
@@ -74,9 +76,9 @@ emit() {
 
 clean() { printf '%s' "$1" | tr '\\r\\n\\t' '   ' | cut -c1-300; }
 
-case "$PIN" in
-  *[!0-9.]*|"") emit "action=failed wanted=invalid found=unknown reason=bad-pin detail=pin must be MAJOR.MINOR.PATCH" ;;
-esac
+if ! printf '%s' "$PIN" | grep -Eq '^[0-9]+\\.[0-9]+\\.[0-9]+$'; then
+  emit "action=failed wanted=invalid found=unknown reason=bad-pin detail=pin must be MAJOR.MINOR.PATCH"
+fi
 
 if [ "$(uname -s)" != "Linux" ]; then
   emit "action=skipped wanted=$PIN found=unknown reason=not-linux detail=$(clean "$(uname -s)")"
@@ -113,12 +115,45 @@ esac
 
 mkdir -p "$WORK" "$HOME/.local/bin"
 
+# One reconcile at a time per host. A Skynet restart mid-install does not
+# kill the host-side run (no tty, closed channel), so the next Skynet's
+# startup sweep could otherwise start a second one racing on the same
+# download + install paths. A busy host reports failed/busy and is retried
+# on the normal backoff.
+if command -v flock >/dev/null 2>&1; then
+  exec 9>"$WORK/lock"
+  flock -n 9 || emit "action=failed wanted=$PIN found=$FOUND reason=busy detail=another harness reconcile is running on this host"
+else
+  LOCKDIR="$WORK/lock.d"
+  if ! mkdir "$LOCKDIR" 2>/dev/null; then
+    # No flock: a lock dir older than the installer ceiling is stale.
+    if [ -n "$(find "$LOCKDIR" -maxdepth 0 -mmin +${Math.ceil(HARNESS_INSTALL_TIMEOUT_S / 60) + 5} 2>/dev/null)" ]; then
+      rm -rf "$LOCKDIR"; mkdir "$LOCKDIR" 2>/dev/null
+    else
+      emit "action=failed wanted=$PIN found=$FOUND reason=busy detail=another harness reconcile is running on this host"
+    fi
+  fi
+  trap 'rmdir "$LOCKDIR" 2>/dev/null' EXIT
+fi
+
 reports_pin() {
   "$1" --version 2>/dev/null | head -n1 | grep -q "^$PIN "
 }
 
 relink() {
   ln -sfn "$TARGET" "$BIN.skynet-tmp.$$" && mv -Tf "$BIN.skynet-tmp.$$" "$BIN"
+}
+
+# A version is in use while any process is executing it. Deleting a running
+# binary is NOT harmless for the harness: it re-execs itself for built-in
+# tools (e.g. its embedded ripgrep), which breaks once the file is gone. So
+# such a version is kept until a later prune finds it idle.
+in_use() {
+  f_r="$(canon "$1")"
+  for p in /proc/[0-9]*; do
+    [ "$(readlink "$p/exe" 2>/dev/null)" = "$f_r" ] && return 0
+  done
+  return 1
 }
 
 prune() {
@@ -129,9 +164,9 @@ prune() {
     case "$v" in
       "$PIN"|"$PREV") continue ;;
     esac
-    if printf '%s' "$v" | grep -Eq '^[0-9]+\\.[0-9]+\\.[0-9]+$'; then
-      if rm -f "$f" 2>/dev/null; then PRUNED="\${PRUNED:+$PRUNED,}$v"; fi
-    fi
+    printf '%s' "$v" | grep -Eq '^[0-9]+\\.[0-9]+\\.[0-9]+$' || continue
+    in_use "$f" && continue
+    if rm -f "$f" 2>/dev/null; then PRUNED="\${PRUNED:+$PRUNED,}$v"; fi
   done
   printf '%s' "$PRUNED"
 }
@@ -150,14 +185,19 @@ if [ -n "$AVAIL_KB" ] && [ "$AVAIL_KB" -lt ${HARNESS_MIN_FREE_KB} ] 2>/dev/null;
 fi
 
 INSTALLER="$WORK/install.sh"
+# Never run a leftover installer from an earlier, interrupted run.
+rm -f "$INSTALLER"
 if command -v curl >/dev/null 2>&1; then
-  curl -fsSL "${HARNESS_INSTALLER_URL}" -o "$INSTALLER" >"$LOG" 2>&1
+  curl -fsSL --connect-timeout 20 --max-time 120 "${HARNESS_INSTALLER_URL}" -o "$INSTALLER" >"$LOG" 2>&1
+  DL=$?
 elif command -v wget >/dev/null 2>&1; then
-  wget -q -O "$INSTALLER" "${HARNESS_INSTALLER_URL}" >"$LOG" 2>&1
+  wget -q --timeout=60 --tries=2 -O "$INSTALLER" "${HARNESS_INSTALLER_URL}" >"$LOG" 2>&1
+  DL=$?
 else
   emit "action=failed wanted=$PIN found=$FOUND reason=no-downloader detail=neither curl nor wget on PATH"
 fi
-if [ ! -s "$INSTALLER" ]; then
+if [ "$DL" -ne 0 ] || [ ! -s "$INSTALLER" ]; then
+  rm -f "$INSTALLER"
   emit "action=failed wanted=$PIN found=$FOUND reason=download-failed detail=$(clean "$(tail -n 3 "$LOG" 2>/dev/null)")"
 fi
 
@@ -247,6 +287,11 @@ export function parseHarnessResult(output: string | null): HarnessResult | null 
  * otherwise inherit (and eat) the script on stdin.
  */
 export function buildRemoteHarnessCommand(pin: string): string {
+  // The pin is pasted into single quotes below — never accept anything but
+  // an exact version, regardless of what the caller validated.
+  if (!HARNESS_PIN_PATTERN.test(pin)) {
+    throw new Error(`harness pin must be MAJOR.MINOR.PATCH, got "${pin}"`);
+  }
   const b64 = Buffer.from(HARNESS_RECONCILE_SCRIPT, "utf-8").toString("base64");
   return (
     `S=$(mktemp) && printf '%s' '${b64}' | base64 -d > "$S" && ` +

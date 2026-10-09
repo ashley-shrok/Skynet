@@ -5,7 +5,7 @@
  * ~/.local/share/claude/versions/<v>, symlink at ~/.local/bin/claude).
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { spawnSync } from "child_process";
+import { spawn, spawnSync } from "child_process";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -239,9 +239,59 @@ describe("harness reconcile script", () => {
   });
 
   it("rejects a non-exact pin", () => {
-    const r = parseHarnessResult(run(["latest"]).stdout);
-    expect(r).toMatchObject({ action: "failed", reason: "bad-pin" });
+    for (const bad of ["latest", "2..1", "...", "2.1", "2.1.286.1"]) {
+      const r = parseHarnessResult(run([bad]).stdout);
+      expect(r).toMatchObject({ action: "failed", reason: "bad-pin" });
+    }
     expect(curlCalls()).toBe(0);
+  });
+
+  it("reports busy instead of racing a reconcile that is already running on the host", () => {
+    const work = path.join(home, ".cache/skynet-harness");
+    fs.mkdirSync(work, { recursive: true });
+    const holder = spawn("flock", [path.join(work, "lock"), "sleep", "10"], { stdio: "ignore" });
+    try {
+      // Give flock a moment to take the lock.
+      spawnSync("bash", ["-c", "sleep 0.3"]);
+      const r = parseHarnessResult(run([PIN]).stdout);
+      expect(r).toMatchObject({ action: "failed", reason: "busy" });
+      expect(curlCalls()).toBe(0);
+    } finally {
+      holder.kill();
+    }
+  });
+
+  it("never runs a leftover installer when the fresh download fails", () => {
+    const work = path.join(home, ".cache/skynet-harness");
+    fs.mkdirSync(work, { recursive: true });
+    const marker = path.join(root, "stale-ran");
+    writeExec(path.join(work, "install.sh"), `#!/bin/bash
+touch "${marker}"
+`);
+    const r = parseHarnessResult(run([PIN], { FAKE_CURL_FAIL: "1" }).stdout);
+    expect(r).toMatchObject({ action: "failed", reason: "download-failed" });
+    expect(fs.existsSync(marker)).toBe(false);
+    expect(fs.existsSync(path.join(work, "install.sh"))).toBe(false);
+  });
+
+  it("keeps an old version that a running process is still executing", async () => {
+    const dir = path.join(home, ".local/share/claude/versions");
+    fs.mkdirSync(dir, { recursive: true });
+    // A real executable so /proc/<pid>/exe points at the versions file.
+    const busy = path.join(dir, "2.1.100");
+    fs.copyFileSync(spawnSync("bash", ["-c", "command -v sleep"], { encoding: "utf-8" }).stdout.trim(), busy);
+    fs.chmodSync(busy, 0o755);
+    placeVersion("2.1.150");
+    linkTo(placeVersion("2.1.200"));
+    const proc = spawn(busy, ["10"], { stdio: "ignore" });
+    try {
+      await new Promise((r) => setTimeout(r, 200));
+      const r = parseHarnessResult(run([PIN]).stdout);
+      expect(r).toMatchObject({ action: "installed", pruned: ["2.1.150"] });
+      expect(fs.existsSync(busy)).toBe(true);
+    } finally {
+      proc.kill();
+    }
   });
 
   it("also writes the result line to the result file when given one", () => {
@@ -262,6 +312,11 @@ describe("harness reconcile script", () => {
 });
 
 describe("buildRemoteHarnessCommand", () => {
+  it("refuses a pin that is not an exact version", () => {
+    expect(() => buildRemoteHarnessCommand("2.1.286'; rm -rf ~; '")).toThrow();
+    expect(() => buildRemoteHarnessCommand("latest")).toThrow();
+  });
+
   it("runs the script end-to-end through a shell and reports the exit marker", () => {
     linkTo(placeVersion(PIN));
     const r = spawnSync("bash", ["-c", buildRemoteHarnessCommand(PIN)], {

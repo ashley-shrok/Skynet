@@ -546,9 +546,10 @@ export function createServerSubstrateOrchestrator(
         const retryHosts = await deps.listSubstrateHosts();
         for (const h of retryHosts) {
           if (!sweepedThisInstance.has(h.id)) {
-            // The harness reconcile is queued when this sweep finishes —
-            // never alongside it, so the two never race to open the host's
-            // first SSH client.
+            // The harness reconcile is queued when this sweep finishes rather
+            // than alongside it, so the two don't both try to open the host's
+            // first SSH client in the same tick. (A later sweep CAN overlap a
+            // long install — harmless once the client is cached.)
             queueSweepForHost(h);
           } else {
             // Self-gating: no-op for converged / in-flight / backing-off hosts.

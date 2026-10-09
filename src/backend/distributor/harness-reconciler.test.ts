@@ -249,6 +249,32 @@ describe("harness reconciler", () => {
     expect(harnessLogs("fleet_substrate_harness_bad_pin")).toHaveLength(1);
   });
 
+  it("abandons an attempt that never returns, logs a timeout and backs off", async () => {
+    vi.useFakeTimers();
+    try {
+      const { deps } = makeDeps([OK_NONE]);
+      const exec = vi.fn(() => new Promise<string>(() => {}));
+      deps.acquireChannel = vi.fn(async () => ({ exec }));
+      const r = createHarnessReconciler({ ...deps, attemptTimeoutMs: 5000 });
+      r.queue(hostA);
+      await flush();
+      await vi.advanceTimersByTimeAsync(5000);
+      await flush();
+      expect(harnessLogs("fleet_substrate_harness_result")[0][1]).toMatchObject({
+        action: "failed",
+        reason: "timeout",
+      });
+      expect(deps.releaseChannel).not.toHaveBeenCalled();
+      // No longer stuck in flight: once the backoff passes it tries again.
+      deps.advance(HARNESS_BACKOFF_BASE_MS);
+      r.queue(hostA);
+      await flush();
+      expect(exec).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("is inert after stop()", async () => {
     const { deps, exec } = makeDeps([OK_NONE]);
     const r = createHarnessReconciler(deps);

@@ -26,7 +26,7 @@ launch/recycle/dormant-wake.
 
 ## Shapes
 
-- **[declared] shape-harness-distribution** — pinned-version harness install/upgrade step on both sweep paths, with logging — in_progress
+- **[declared] shape-harness-distribution** — pinned-version harness install/upgrade step on both sweep paths, with logging — closed
 
 ## Other work
 

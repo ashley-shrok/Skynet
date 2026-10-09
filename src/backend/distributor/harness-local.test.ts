@@ -4,7 +4,11 @@
  * every failure path collapsing into a parseable `action=failed` line.
  */
 import { describe, it, expect, vi } from "vitest";
-import { runLocalHarnessReconcile, type LocalHarnessDeps } from "./harness-local.js";
+import {
+  escapeForSystemdExec,
+  runLocalHarnessReconcile,
+  type LocalHarnessDeps,
+} from "./harness-local.js";
 import { HARNESS_RECONCILE_SCRIPT, parseHarnessResult } from "./harness-script.js";
 
 const PIN = "2.1.286";
@@ -57,6 +61,23 @@ function scriptArgv(execFile: LocalHarnessDeps["execFile"]) {
   return { call, args, argc, argv, after: args.slice(i + 4 + argc) };
 }
 
+/** What systemd does to an ExecStart argument set over D-Bus: `$$` → `$`,
+ *  `${NAME}` / `$NAME` → env value (empty here). Mirrors behaviour verified
+ *  on systemd 255. */
+function systemdExpand(arg: string): string {
+  return arg.replace(/\$\$|\$\{[A-Za-z_][A-Za-z0-9_]*\}|\$[A-Za-z_][A-Za-z0-9_]*/g, (m) =>
+    m === "$$" ? "$" : "",
+  );
+}
+
+describe("escapeForSystemdExec", () => {
+  it("makes the reconcile script survive systemd's argument expansion byte-for-byte", () => {
+    // Unescaped, systemd would mangle it (sanity-check the emulation).
+    expect(systemdExpand(HARNESS_RECONCILE_SCRIPT)).not.toBe(HARNESS_RECONCILE_SCRIPT);
+    expect(systemdExpand(escapeForSystemdExec(HARNESS_RECONCILE_SCRIPT))).toBe(HARNESS_RECONCILE_SCRIPT);
+  });
+});
+
 describe("runLocalHarnessReconcile", () => {
   it("reports none from the bind mount without touching the host service manager", async () => {
     const { deps } = makeDeps({
@@ -89,7 +110,11 @@ describe("runLocalHarnessReconcile", () => {
     expect(argc).toBe(argv.length);
     expect(argv[0]).toBe("/bin/bash");
     expect(argv[1]).toBe("-c");
-    expect(argv[2]).toBe(HARNESS_RECONCILE_SCRIPT);
+    expect(argv[2]).toBe(escapeForSystemdExec(HARNESS_RECONCILE_SCRIPT));
+    // The unit is capped so an orphaned run can't outlive the result poll.
+    const props = args.slice(args.indexOf("fail") + 1);
+    expect(props[0]).toBe("3");
+    expect(props).toContain("RuntimeMaxUSec");
     expect(argv[4]).toBe(PIN);
     expect(argv[5]).toMatch(new RegExp(`^${HOST}/\\.cache/skynet-harness/result-`));
     expect(after).toEqual(["false", "0"]);

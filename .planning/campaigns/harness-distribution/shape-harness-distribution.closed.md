@@ -95,3 +95,47 @@ performance and wants it worked through inline rather than via GSD). Track piece
 tasks. Scoped tests during development; full suite only as the deploy gate. Code motion only —
 push and deploy each need Ashley's explicit greenlight. No id-skill change is needed (nothing
 user-facing in the app changes). Campaign artifact sits alongside this file.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-10-09
+**Vehicle used:** inline (one commit on feat/tab-title-from-tmux by callisto-box-maintainer-2; nothing pushed or deployed at close time)
+**Overall verdict:** closed-hit (initially closed-partial; all three additions and the retry-alert drift endorsed by Ashley)
+
+### Shape features (conformance)
+
+- **The pin** — present · One exact version (2.1.286) in the repo, carried in each build; up and down use the same path; a non-exact pin disables the step with a warning.
+- **The check** — present · Cheap look at whether the launch entry points at the pinned, runnable version; if so nothing else happens.
+- **The install** — present · Over the sweep's own login (same user, no root), Anthropic's installer for exactly the pin, verified afterwards; runs alongside the sweep, one attempt per host at a time.
+- **t1000 (Skynet's own box)** — present · Cheap check through the shared home, else the box's own service manager runs the same script as a one-off job for the box user.
+- **Cleanup of old versions** — present · After a successful move only; keeps pin + previous; deletes only version-named items.
+- **Retry on failure** — drifted (endorsed) · Backoff 2 min doubling to 1 h; a separate harness-only "keeps failing" alert at three in a row instead of feeding the existing sweep alert — Ashley kept it.
+- **When it runs** — present · After each sweep at startup, on retry ticks, and on host add; converged hosts not rechecked until restart.
+- **Visibility** — present · Logs only: wanted, found, action, reason, pruned.
+- **Philosophy: never ship harness bytes** — present
+- **Philosophy: never interrupt running agents** — present
+- **Philosophy: all hosts at once, cheap when nothing is wrong** — present
+- **What would make it wrong: host left on non-pin after a reachable sweep** — present
+- **What would make it wrong: host on pin downloads or reinstalls** — present
+- **What would make it wrong: one host's install delays its own sweep or other hosts** — present
+- **What would make it wrong: re-download every 30 seconds** — present
+- **What would make it wrong: cleanup removes the pin or leaves no runnable harness** — present
+- **What would make it wrong: t1000 silently left out** — present
+- **Scope OUT / tempting-but-no** — present
+- **Tests for all of it** — present
+
+### Additions (in the result, not in the shape)
+
+- A 1 GB free-disk floor: the host refuses to install and reports a failure below it — endorsed-as-drift
+- A ~15-minute limit on one installer run (~17 minutes for the t1000 result wait), counted as a failed attempt — endorsed-as-drift
+- A separate harness-specific "keeps failing" alert, distinct from the existing host-sweep alert — endorsed-as-drift
+
+### Follow-ups
+
+None.
+
+### Notes
+
+Rollback to a version still on disk re-points the launch entry without running Anthropic's installer — that is how "instant rollback with no download" is delivered. The commit carries the shape and campaign files alongside the code.

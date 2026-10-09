@@ -20,6 +20,12 @@
  *   - Unreachable host (channel acquire returns null) is NOT an attempt: no
  *     backoff bump, no failure count — it just retries on the next tick, same
  *     as the substrate sweep. The substrate sweep owns reachability alerts.
+ *     (A channel that is acquired but whose exec then fails — e.g. a dead
+ *     cached SSH client — IS an attempt: it surfaces as reason=no-result.)
+ *   - Every attempt has a deadline (installer ceiling + margin). A stalled
+ *     exec is abandoned as reason=timeout so the host is never stuck
+ *     in-flight for the rest of the uptime; the host-side lock makes any
+ *     still-running orphan answer reason=busy until it finishes.
  *   - After `persistentFailureThreshold` consecutive failed attempts, one
  *     loud alert per uptime (reset on the next success).
  *
@@ -34,6 +40,7 @@ import type { SshChannel } from "../fleet-status/ssh-poll-orchestrator.js";
 import { systemLogger } from "../utils/logger.js";
 import { HARNESS_PIN, HARNESS_PIN_PATTERN } from "./harness-pin.js";
 import {
+  HARNESS_INSTALL_TIMEOUT_S,
   buildRemoteHarnessCommand,
   parseHarnessResult,
   type HarnessResult,
@@ -59,6 +66,9 @@ export interface HarnessReconcilerDeps<H extends HarnessHost = HarnessHost> {
   backoffBaseMs?: number;
   backoffCapMs?: number;
   persistentFailureThreshold?: number;
+  /** Abandon an attempt after this long (ms). Defaults to the installer
+   *  ceiling plus a 5-minute margin. */
+  attemptTimeoutMs?: number;
 }
 
 export interface HarnessReconciler<H extends HarnessHost = HarnessHost> {
@@ -71,6 +81,19 @@ export interface HarnessReconciler<H extends HarnessHost = HarnessHost> {
 
 export const HARNESS_BACKOFF_BASE_MS = 2 * 60 * 1000;
 export const HARNESS_BACKOFF_CAP_MS = 60 * 60 * 1000;
+export const HARNESS_ATTEMPT_TIMEOUT_MS = (HARNESS_INSTALL_TIMEOUT_S + 300) * 1000;
+
+class AttemptTimeout extends Error {}
+
+/** Race `p` against a deadline; the timer never keeps the process alive. */
+function withDeadline<T>(p: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new AttemptTimeout()), ms);
+    (timer as { unref?: () => void }).unref?.();
+  });
+  return Promise.race([p, deadline]).finally(() => clearTimeout(timer));
+}
 
 export function createHarnessReconciler<H extends HarnessHost>(
   deps: HarnessReconcilerDeps<H>,
@@ -79,6 +102,7 @@ export function createHarnessReconciler<H extends HarnessHost>(
   const backoffBaseMs = deps.backoffBaseMs ?? HARNESS_BACKOFF_BASE_MS;
   const backoffCapMs = deps.backoffCapMs ?? HARNESS_BACKOFF_CAP_MS;
   const threshold = deps.persistentFailureThreshold ?? 3;
+  const attemptTimeoutMs = deps.attemptTimeoutMs ?? HARNESS_ATTEMPT_TIMEOUT_MS;
   const pinValid = HARNESS_PIN_PATTERN.test(pin);
 
   const converged = new Set<string>();
@@ -139,25 +163,26 @@ export function createHarnessReconciler<H extends HarnessHost>(
     }
   }
 
-  async function attempt(host: H): Promise<void> {
-    let output: string | null = null;
+  /** Runs the reconcile; resolves undefined when the host was unreachable. */
+  async function runOnce(host: H): Promise<string | null | undefined> {
+    if (deps.isLocalHost(host)) return deps.runLocal(pin);
+    const channel = await deps.acquireChannel(host);
+    if (channel === null) return undefined; // unreachable — not an attempt
     try {
-      if (deps.isLocalHost(host)) {
-        output = await deps.runLocal(pin);
-      } else {
-        const channel = await deps.acquireChannel(host);
-        if (channel === null) return; // unreachable — not an attempt
-        try {
-          output = await channel.exec(buildRemoteHarnessCommand(pin));
-        } finally {
-          try {
-            deps.releaseChannel(host, channel);
-          } catch {
-            /* release cannot throw into the reconciler */
-          }
-        }
+      return await channel.exec(buildRemoteHarnessCommand(pin));
+    } finally {
+      try {
+        deps.releaseChannel(host, channel);
+      } catch {
+        /* release cannot throw into the reconciler */
       }
-      if (stopped) return;
+    }
+  }
+
+  async function attempt(host: H): Promise<void> {
+    try {
+      const output = await withDeadline(runOnce(host), attemptTimeoutMs);
+      if (output === undefined || stopped) return;
       const parsed = parseHarnessResult(output);
       recordResult(
         host,
@@ -171,12 +196,15 @@ export function createHarnessReconciler<H extends HarnessHost>(
       );
     } catch (err) {
       if (stopped) return;
+      const timedOut = err instanceof AttemptTimeout;
       recordResult(host, {
         action: "failed",
         wanted: pin,
         found: "unknown",
-        reason: "exception",
-        detail: (err instanceof Error ? err.message : String(err)).slice(0, 300),
+        reason: timedOut ? "timeout" : "exception",
+        detail: timedOut
+          ? `no result after ${Math.round(attemptTimeoutMs / 1000)}s`
+          : (err instanceof Error ? err.message : String(err)).slice(0, 300),
       });
     } finally {
       inFlight.delete(host.id);

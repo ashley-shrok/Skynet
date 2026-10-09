@@ -37,6 +37,16 @@ import {
 
 const execFileP = promisify(execFileCb);
 
+/**
+ * systemd expands `$VAR`-style references and `$$` in ExecStart arguments
+ * set over D-Bus (verified on systemd 255: `${X}` → value/empty, `$$` → `$`;
+ * `%` specifiers are NOT expanded). Doubling every `$` makes each argument
+ * reach bash byte-for-byte.
+ */
+export function escapeForSystemdExec(arg: string): string {
+  return arg.replace(/\$/g, "$$$$");
+}
+
 export interface LocalHarnessDeps {
   /** Container-side path of the host home (bind mount). */
   localHomeRoot: string;
@@ -150,10 +160,15 @@ export async function runLocalHarnessReconcile(
         "ssa(sv)a(sa(sv))",
         unit,
         "fail",
-        "2",
+        "3",
         "Description",
         "s",
         `Skynet harness reconcile (pin ${pin})`,
+        // Never outlive the result poll: an orphaned run is killed by the
+        // host, not left racing the next attempt.
+        "RuntimeMaxUSec",
+        "t",
+        String((HARNESS_INSTALL_TIMEOUT_S + 60) * 1_000_000),
         "ExecStart",
         "a(sasb)",
         "1",
@@ -162,10 +177,10 @@ export async function runLocalHarnessReconcile(
         "6",
         "/bin/bash",
         "-c",
-        HARNESS_RECONCILE_SCRIPT,
+        escapeForSystemdExec(HARNESS_RECONCILE_SCRIPT),
         "skynet-harness",
-        pin,
-        hostResult,
+        escapeForSystemdExec(pin),
+        escapeForSystemdExec(hostResult),
         "false",
         "0",
       ],

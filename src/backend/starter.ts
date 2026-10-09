@@ -1485,9 +1485,18 @@ if (process.env.VITEST !== "true") {
             );
             substrateHostClients.set(host.id, client);
             // Auto-evict on disconnect so the next acquire creates a fresh client.
-            client.on("end", () => substrateHostClients.delete(host.id));
-            client.on("close", () => substrateHostClients.delete(host.id));
-            client.on("error", () => substrateHostClients.delete(host.id));
+            // Identity-checked: if two acquires raced and a second client
+            // replaced this one in the map, this one closing must not evict
+            // the live replacement.
+            const own = client;
+            const evict = () => {
+              if (substrateHostClients.get(host.id) === own) {
+                substrateHostClients.delete(host.id);
+              }
+            };
+            client.on("end", evict);
+            client.on("close", evict);
+            client.on("error", evict);
           }
 
           // Shared registry semaphore — same instance as fleet-status on this
