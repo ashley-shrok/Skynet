@@ -80,6 +80,7 @@ import {
 import { ROLE_NAME_PATTERN } from "../../utils/role-name-pattern.js";
 
 import { normalizeUploadedAvatar } from "../../utils/avatar-normalize.js";
+import { invalidateCachedAvatarsForHost } from "./identity-avatar-cache.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -433,6 +434,7 @@ router.post(
       // Step 1: write avatar bytes to the sibling file (bytes-first per
       // two-step atomicity — matches roles-create.ts:565-587).
       await writeRoleAvatarByName(conn, roleName, filename, req.file.buffer);
+      invalidateCachedAvatarsForHost(hostIdNum);
 
       // Step 2: read + splice + write the role markdown's frontmatter to
       // point `avatar:` at the new filename. Mirrors the identities.ts PUT

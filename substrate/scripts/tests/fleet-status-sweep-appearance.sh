@@ -817,6 +817,16 @@ avatar: painter.webp
   printf 'own' > "$FIXTURE/fleet/identities/vera/vera.png"
   v4=$(avatar_version_of "$(run_sweep)" vera)
   [ "$v4" != "$v3" ] || fail "avatar_version unchanged after identity sibling avatar added"
+  # Repointing the identity's own avatar: frontmatter (no file change) must
+  # change the version too — the route picks the sibling by that value.
+  make_identity "vera" "---
+role: painter
+avatar: vera.png
+---
+"
+  local v5
+  v5=$(avatar_version_of "$(run_sweep)" vera)
+  [ "$v5" != "$v4" ] || fail "avatar_version unchanged after identity avatar: frontmatter change"
 }
 
 run_test test_case_01_full_inheritance

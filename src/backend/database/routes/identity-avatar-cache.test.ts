@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import {
   getCachedAvatar,
   invalidateCachedAvatar,
+  invalidateCachedAvatarsForHost,
   _resetAvatarCacheForTest,
   _avatarCacheStatsForTest,
 } from "./identity-avatar-cache.js";
@@ -80,6 +81,34 @@ describe("identity-avatar-cache", () => {
     await getCachedAvatar(7, "aqua", "v", async () => img("a"));
     invalidateCachedAvatar(7, "aqua");
     expect((await getCachedAvatar(7, "aqua", "v", async () => img("b"))).hit).toBe(false);
+  });
+
+  it("a load in flight during invalidation does not repopulate the cache", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const slow = getCachedAvatar(7, "aqua", null, async () => {
+      await gate;
+      return img("old");
+    });
+    invalidateCachedAvatar(7, "aqua");
+    // A request after the invalidation must not join the stale load.
+    const fresh = await getCachedAvatar(7, "aqua", null, async () => img("new"));
+    expect(fresh.avatar?.bytes.toString()).toBe("new");
+    release();
+    await slow;
+    const after = await getCachedAvatar(7, "aqua", null, async () => img("unused"));
+    expect(after.hit).toBe(true);
+    expect(after.avatar?.bytes.toString()).toBe("new");
+  });
+
+  it("host invalidation drops every identity on that host only", async () => {
+    await getCachedAvatar(7, "a", "v", async () => img("a"));
+    await getCachedAvatar(7, "b", "v", async () => img("b"));
+    await getCachedAvatar(6, "a", "v", async () => img("six"));
+    invalidateCachedAvatarsForHost(7);
+    expect((await getCachedAvatar(7, "a", "v", async () => img("a2"))).hit).toBe(false);
+    expect((await getCachedAvatar(7, "b", "v", async () => img("b2"))).hit).toBe(false);
+    expect((await getCachedAvatar(6, "a", "v", async () => img("x"))).hit).toBe(true);
   });
 
   it("keys by host as well as identity", async () => {

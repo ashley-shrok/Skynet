@@ -54,3 +54,30 @@ describe("normalizeUploadedAvatar", () => {
     await expect(normalizeUploadedAvatar(undefined)).resolves.toBeUndefined();
   });
 });
+
+describe("normalizeAvatar — input guards", () => {
+  it("leaves bytes whose real format doesn't match the declared mime untouched", async () => {
+    const jpeg = await sharp({
+      create: { width: 900, height: 900, channels: 3, background: { r: 9, g: 9, b: 9 } },
+    }).jpeg().toBuffer();
+    expect(await normalizeAvatar(jpeg, "image/png")).toEqual({ bytes: jpeg, mime: "image/png" });
+  });
+
+  it("leaves animated WebP untouched", async () => {
+    const frames = Buffer.alloc(600 * 1200 * 3);
+    for (let i = 0; i < frames.length; i++) frames[i] = i < frames.length / 2 ? 0 : 255;
+    const animated = await sharp(frames, {
+      raw: { width: 600, height: 1200, channels: 3, pageHeight: 600 },
+    }).webp({ loop: 0, delay: [100, 100] }).toBuffer();
+    const meta = await sharp(animated).metadata();
+    expect(meta.pages).toBe(2);
+    expect(await normalizeAvatar(animated, "image/webp")).toEqual({ bytes: animated, mime: "image/webp" });
+  });
+
+  it("refuses to decode an oversized canvas (keeps original)", async () => {
+    const huge = await sharp({
+      create: { width: 5000, height: 5000, channels: 3, background: { r: 0, g: 0, b: 0 } },
+    }).png().toBuffer();
+    expect(await normalizeAvatar(huge, "image/png")).toEqual({ bytes: huge, mime: "image/png" });
+  });
+});

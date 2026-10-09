@@ -1013,11 +1013,16 @@ router.get(
         .json({ error: "hostId query required (positive integer)" });
     }
 
-    // `v` = the sweep's avatar version baked into avatarUrl. A valid token
-    // makes the response immutable (the URL changes when the avatar does).
+    // `v` = the sweep's avatar version baked into avatarUrl. Only the version
+    // the sweep currently reports is trusted: it makes the response immutable
+    // (the URL changes when the avatar does) and keys the cache. Any other
+    // `v` (stale, or made up by the caller) is served as unversioned, so it
+    // can neither pin bytes as immutable nor churn the cache.
     const rawVersion = req.query.v;
     const version =
-      typeof rawVersion === "string" && AVATAR_VERSION_RE.test(rawVersion)
+      typeof rawVersion === "string" &&
+      AVATAR_VERSION_RE.test(rawVersion) &&
+      rawVersion === getAvatarVersion(hostIdNum, identityKey)
         ? rawVersion
         : null;
 

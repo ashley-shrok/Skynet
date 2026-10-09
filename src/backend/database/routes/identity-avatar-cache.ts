@@ -34,6 +34,10 @@ const NEGATIVE_TTL_MS = 60_000;
 
 const entries = new Map<string, Entry>();
 const inflight = new Map<string, Promise<CachedAvatar | null>>();
+// Bumped by invalidation. A load that started under an older generation must
+// not write its (pre-invalidation) bytes back, and later requests must not
+// join it.
+const generations = new Map<string, number>();
 let totalBytes = 0;
 
 const entryKey = (hostId: number, identityKey: string) => `${hostId}:${identityKey}`;
@@ -87,7 +91,8 @@ export async function getCachedAvatar(
     return { avatar: e.avatar, hit: true };
   }
 
-  const flightKey = `${k}:${version ?? ""}`;
+  const gen = generations.get(k) ?? 0;
+  const flightKey = `${k}:${version ?? ""}:${gen}`;
   let p = inflight.get(flightKey);
   if (!p) {
     p = (async () => {
@@ -99,7 +104,9 @@ export async function getCachedAvatar(
             etag: `"disk-${createHash("md5").update(loaded.bytes).digest("hex")}"`,
           }
         : null;
-      put(k, { avatar, version, fetchedAt: Date.now() });
+      if ((generations.get(k) ?? 0) === gen) {
+        put(k, { avatar, version, fetchedAt: Date.now() });
+      }
       return avatar;
     })().finally(() => {
       inflight.delete(flightKey);
@@ -111,12 +118,31 @@ export async function getCachedAvatar(
 
 /** Drop the cached avatar for one identity (call after an avatar write). */
 export function invalidateCachedAvatar(hostId: number, identityKey: string): void {
-  remove(entryKey(hostId, identityKey));
+  const k = entryKey(hostId, identityKey);
+  generations.set(k, (generations.get(k) ?? 0) + 1);
+  remove(k);
+}
+
+/** Drop every cached avatar for a host (e.g. a role avatar changed, which any
+ *  identity on that host may inherit). */
+export function invalidateCachedAvatarsForHost(hostId: number): void {
+  const prefix = `${hostId}:`;
+  for (const k of [...entries.keys()]) {
+    if (k.startsWith(prefix)) invalidateCachedAvatar(hostId, k.slice(prefix.length));
+  }
+  for (const f of [...inflight.keys()]) {
+    if (f.startsWith(prefix)) {
+      const identityKey = f.slice(prefix.length).split(":")[0];
+      const k = entryKey(hostId, identityKey);
+      generations.set(k, (generations.get(k) ?? 0) + 1);
+    }
+  }
 }
 
 export function _resetAvatarCacheForTest(): void {
   entries.clear();
   inflight.clear();
+  generations.clear();
   totalBytes = 0;
 }
 

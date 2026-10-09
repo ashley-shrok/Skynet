@@ -30,7 +30,16 @@ function log(level: "info" | "warn", msg: string, meta: Record<string, unknown>)
   }
 }
 
-const NORMALIZABLE_MIMES = new Set(["image/png", "image/jpeg", "image/webp"]);
+/** sharp-detected format each normalizable mime must actually decode as. */
+const FORMAT_FOR_MIME: Record<string, string> = {
+  "image/png": "png",
+  "image/jpeg": "jpeg",
+  "image/webp": "webp",
+};
+const NORMALIZABLE_MIMES = new Set(Object.keys(FORMAT_FOR_MIME));
+
+/** Decode cap: refuse decompression bombs (a tiny file declaring a huge canvas). */
+const MAX_INPUT_PIXELS = 4096 * 4096;
 
 export async function normalizeAvatar(
   bytes: Buffer,
@@ -38,7 +47,13 @@ export async function normalizeAvatar(
 ): Promise<{ bytes: Buffer; mime: string }> {
   if (!NORMALIZABLE_MIMES.has(mime)) return { bytes, mime };
   try {
-    const out = await sharp(bytes)
+    const meta = await sharp(bytes, { limitInputPixels: MAX_INPUT_PIXELS }).metadata();
+    // Declared-vs-actual mismatch (e.g. SVG/TIFF labelled PNG) or animation
+    // (multi-frame WebP would be flattened to frame one) → leave untouched.
+    if (meta.format !== FORMAT_FOR_MIME[mime] || (meta.pages ?? 1) > 1) {
+      return { bytes, mime };
+    }
+    const out = await sharp(bytes, { limitInputPixels: MAX_INPUT_PIXELS })
       .rotate()
       .resize({
         width: AVATAR_MAX_PX,

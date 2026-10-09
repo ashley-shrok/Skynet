@@ -362,12 +362,14 @@ function httpGet(
 
 import { _resetAvatarCacheForTest } from "./identity-avatar-cache.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
+import { recordAvatarVersion, _clearAvatarVersionsForTest } from "../../fleet-status/avatar-version-registry.js";
 
 let server: http.Server;
 
 beforeEach(() => {
   vi.clearAllMocks();
   _resetAvatarCacheForTest();
+  _clearAvatarVersionsForTest();
   mockUserId = "test-user";
   dbState.identities = [];
   filterAccum = {};
@@ -801,8 +803,9 @@ describe("GET /identities/:identityKey/avatar — Phase 68 rekeyed", () => {
     expect(readAvatarSiblingFileMock.mock.calls[0][1]).toBe("tina");
   });
 
-  it("Avatar-V1: valid ?v= version → immutable Cache-Control", async () => {
+  it("Avatar-V1: ?v= matching the sweep's version → immutable Cache-Control", async () => {
     isLocalHostIdMock.mockReturnValue(false);
+    recordAvatarVersion(1, "tina", "0123abcd");
     readAvatarSiblingFileMock.mockResolvedValue({ bytes: Buffer.from("PNGDATA"), mime: "image/png", ext: "png" });
 
     const res = await httpGet(server, `/identities/tina/avatar?hostId=1&v=0123abcd`);
@@ -821,8 +824,20 @@ describe("GET /identities/:identityKey/avatar — Phase 68 rekeyed", () => {
     expect(res.headers["cache-control"]).toBe("max-age=0, stale-while-revalidate=86400");
   });
 
+  it("Avatar-V2b: a well-formed ?v= the sweep doesn't vouch for is served unversioned", async () => {
+    isLocalHostIdMock.mockReturnValue(false);
+    recordAvatarVersion(1, "tina", "aaaa");
+    readAvatarSiblingFileMock.mockResolvedValue({ bytes: Buffer.from("PNGDATA"), mime: "image/png", ext: "png" });
+
+    const res = await httpGet(server, `/identities/tina/avatar?hostId=1&v=bbbb`);
+
+    expect(res.status).toBe(200);
+    expect(res.headers["cache-control"]).toBe("max-age=0, stale-while-revalidate=86400");
+  });
+
   it("Avatar-V3: repeat request for the same version is served from cache — no second SSH connect or read", async () => {
     isLocalHostIdMock.mockReturnValue(false);
+    recordAvatarVersion(1, "tina", "abc");
     readAvatarSiblingFileMock.mockResolvedValue({ bytes: Buffer.from("PNGDATA"), mime: "image/png", ext: "png" });
 
     const first = await httpGet(server, `/identities/tina/avatar?hostId=1&v=abc`);
@@ -837,6 +852,7 @@ describe("GET /identities/:identityKey/avatar — Phase 68 rekeyed", () => {
 
   it("Avatar-V4: a cache hit still requires host access", async () => {
     isLocalHostIdMock.mockReturnValue(false);
+    recordAvatarVersion(1, "tina", "abc");
     readAvatarSiblingFileMock.mockResolvedValue({ bytes: Buffer.from("PNGDATA"), mime: "image/png", ext: "png" });
     await httpGet(server, `/identities/tina/avatar?hostId=1&v=abc`);
 

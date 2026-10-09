@@ -12,6 +12,10 @@
  */
 
 const versions = new Map<string, string>();
+// After forgetAvatarVersion: the just-superseded version, refused for a short
+// window so a sweep that stat'd the files BEFORE the write can't put it back.
+const blocked = new Map<string, { version: string; until: number }>();
+const BLOCK_MS = 60_000;
 
 const key = (hostId: number, identityKey: string) => `${hostId}:${identityKey}`;
 
@@ -20,9 +24,14 @@ export function recordAvatarVersion(
   identityKey: string,
   version: string | null | undefined,
 ): void {
-  if (typeof version === "string" && version.length > 0) {
-    versions.set(key(hostId, identityKey), version);
+  if (typeof version !== "string" || version.length === 0) return;
+  const k = key(hostId, identityKey);
+  const b = blocked.get(k);
+  if (b) {
+    if (Date.now() < b.until && b.version === version) return;
+    blocked.delete(k);
   }
+  versions.set(k, version);
 }
 
 export function getAvatarVersion(
@@ -34,9 +43,13 @@ export function getAvatarVersion(
 
 /** Drop the known version (after an avatar write, until the next sweep). */
 export function forgetAvatarVersion(hostId: number, identityKey: string): void {
-  versions.delete(key(hostId, identityKey));
+  const k = key(hostId, identityKey);
+  const old = versions.get(k);
+  if (old !== undefined) blocked.set(k, { version: old, until: Date.now() + BLOCK_MS });
+  versions.delete(k);
 }
 
 export function _clearAvatarVersionsForTest(): void {
   versions.clear();
+  blocked.clear();
 }

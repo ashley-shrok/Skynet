@@ -1274,7 +1274,7 @@ def _stat_token(path):
     return "%d:%d" % (st.st_mtime_ns, st.st_size)
 
 
-def _avatar_version(name, home, role_avatars):
+def _avatar_version(name, home, own_avatar, role_avatars):
     """Short digest that changes whenever the avatar GET /identities/:key/avatar
     would serve changes.
 
@@ -1285,9 +1285,12 @@ def _avatar_version(name, home, role_avatars):
     under-covering here would pin a stale avatar; over-covering only costs a
     refetch.
 
+    `own_avatar` is the identity's own frontmatter `avatar:` value (or None):
+    the route uses it to choose between sibling files, so repointing it must
+    change the version even when no file changed.
     `role_avatars` is a list of (role, avatar_filename_or_None).
     """
-    parts = []
+    parts = ["own=" + (own_avatar if isinstance(own_avatar, str) else "")]
     ident_dir = os.path.join(home, "fleet", "identities", name)
     for ext in AVATAR_SIBLING_EXTS:
         parts.append(_stat_token(os.path.join(ident_dir, name + "." + ext)))
@@ -1368,7 +1371,9 @@ def _build_identity_line(name, home, sentinels, jsonl_path, jsonl_tail_cache, ro
         for r in roles or ([role] if role else []):
             cos = _read_role_cosmetics(r, home, role_cosmetics_memo)
             role_avatars.append((r, cos.get("avatar") if isinstance(cos, dict) else None))
-        avatar_version = _avatar_version(name, home, role_avatars)
+        own_cos, _ignored = _read_frontmatter_cosmetics(identity_path, ("avatar",))
+        own_avatar = own_cos.get("avatar") if isinstance(own_cos, dict) else None
+        avatar_version = _avatar_version(name, home, own_avatar, role_avatars)
     except OSError:
         identity_cosmetics = None
         role = None
