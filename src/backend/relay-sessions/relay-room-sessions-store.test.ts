@@ -189,6 +189,25 @@ describe("relay-room-sessions-store — materializeRelayRoomSession", () => {
 });
 
 describe("relay-room-sessions-store — markRelayRoomSessionInactive", () => {
+  it("Test 2b: a renamed room's new title replaces the stored one; same/null title is a no-op (no save)", async () => {
+    await materializeRelayRoomSession("user-A", "!room1:server", "Old name");
+    forceSaveSpy.mockClear();
+
+    await materializeRelayRoomSession("user-A", "!room1:server", "Old name");
+    expect(forceSaveSpy).not.toHaveBeenCalled();
+
+    await materializeRelayRoomSession("user-A", "!room1:server", null);
+    expect(forceSaveSpy).not.toHaveBeenCalled();
+
+    await materializeRelayRoomSession("user-A", "!room1:server", "New name");
+    expect(forceSaveSpy).toHaveBeenCalledTimes(1);
+
+    const rows = sqliteInstance
+      .prepare("SELECT room_title FROM relay_room_sessions WHERE room_id = ?")
+      .all("!room1:server") as Array<{ room_title: string | null }>;
+    expect(rows).toEqual([{ room_title: "New name" }]);
+  });
+
   it("Test 3: flips state='inactive', preserves the row (NOT DELETE)", async () => {
     await materializeRelayRoomSession("user-A", "!room1:server", "Room 1");
     await markRelayRoomSessionInactive("user-A", "!room1:server");

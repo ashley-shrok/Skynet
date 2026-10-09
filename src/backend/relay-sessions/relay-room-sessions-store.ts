@@ -79,13 +79,22 @@ export async function materializeRelayRoomSession(
     .prepare(
       `INSERT INTO relay_room_sessions (id, user_id, room_id, room_title, state)
        VALUES (?, ?, ?, ?, 'active')
-       ON CONFLICT(user_id, room_id) DO NOTHING`,
+       ON CONFLICT(user_id, room_id) DO UPDATE SET
+         room_title = excluded.room_title,
+         updated_at = CURRENT_TIMESTAMP
+       WHERE excluded.room_title IS NOT NULL
+         AND relay_room_sessions.room_title IS NOT excluded.room_title`,
     )
     .run(id, userId, roomId, roomTitle);
 
-  // Skip save when the INSERT was a no-op (row already existed). Observation
+  // Existing row: the title is refreshed only when the observed name actually
+  // changed (a Matrix rename, or a first-sight lookup that had failed and
+  // stored null/raw id) — previously the first-seen title stuck forever.
+  // A null observation never blanks a known title.
+  //
+  // Skip save when nothing changed (row existed, same title). Observation
   // loop calls this per-tick per-room; without this guard every tick fires a
-  // full-DB rewrite via forceSave. Only save when a real INSERT happened.
+  // full-DB rewrite via forceSave. Only save on a real INSERT or rename.
   // (Disk-sat hotfix 2026-09-09: tina diagnosis, node PID was writing 128 MB/sec.)
   if (result.changes === 0) return;
 
