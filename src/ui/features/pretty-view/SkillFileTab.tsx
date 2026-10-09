@@ -91,7 +91,7 @@ export default function SkillFileTab({
       onDraftChange={onDraftChange}
       onDraftContentChange={onDraftContentChange}
       toolbarStart={
-        state.status === "ready" && filename !== "SKILL.md" ? (
+        state.status === "ready" && filename !== "SKILL.md" && onRequestDelete ? (
           <button
             type="button"
             title="Delete this file"

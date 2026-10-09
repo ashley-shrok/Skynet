@@ -206,6 +206,17 @@ describe("SkillFileTab — render branches", () => {
     expect(saveBtn.disabled).toBe(false);
   });
 
+  it("no delete trigger when deleting isn't allowed (read-only instance-wide skill)", () => {
+    render(
+      <SkillFileTab
+        state={{ status: "ready", data: { content: "x", mtime: 1, isText: true } }}
+        onSave={vi.fn()}
+        filename="notes.md"
+      />,
+    );
+    expect(screen.queryByTitle(/delete this file/i)).toBeNull();
+  });
+
   it("test 8: non-text file → shared can't-preview notice, no textarea", () => {
     render(
       <SkillFileTab
@@ -214,6 +225,7 @@ describe("SkillFileTab — render branches", () => {
           data: { content: "", mtime: 42, isText: false },
         }}
         onSave={vi.fn()}
+        onRequestDelete={vi.fn()}
         filename="blob.xyz"
       />,
     );

@@ -30,6 +30,16 @@ import {
   isModelInvocationDisabled,
   setModelInvocationDisabled,
 } from "./skill-frontmatter";
+import {
+  INSTANCE_HOST_ID,
+  listInstanceWide,
+  previewPromote,
+  promote,
+  promoteConfirmText,
+  removeInstanceWide,
+  type InstanceWideList,
+} from "@/api/instance-wide-api";
+import { InstanceWideChip, InstanceWideSyncStatus } from "./InstanceWideStatus";
 
 // SkillsEditorModal — cross-host cross-skill multi-file editor.
 //
@@ -125,6 +135,30 @@ export default function SkillsEditorModal({
   const [saving, setSaving] = useState(false);
   const [togglingInvocation, setTogglingInvocation] = useState(false);
   const savingRef = useRef(false);
+  // Instance-wide section: skills whose master copy lives in the app. When
+  // one is picked, every file call goes to INSTANCE_HOST_ID instead of the
+  // selected host. Non-admins see them read-only.
+  const [instanceWide, setInstanceWide] = useState<InstanceWideList | null>(null);
+  const [selectedIsInstance, setSelectedIsInstance] = useState(false);
+  const apiHostId = selectedIsInstance ? INSTANCE_HOST_ID : selectedHostId;
+  const iwItems = instanceWide?.items ?? [];
+  const isAdmin = instanceWide?.isAdmin ?? false;
+  const selectedIwItem = selectedIsInstance
+    ? iwItems.find((i) => i.name === selectedSkillName) ?? null
+    : null;
+  const readOnly = selectedIsInstance && !isAdmin;
+
+  const refreshInstanceWide = useCallback(async (): Promise<InstanceWideList> => {
+    try {
+      const list = await listInstanceWide("skill");
+      setInstanceWide(list);
+      return list;
+    } catch {
+      const empty = { isAdmin: false, items: [] };
+      setInstanceWide(empty);
+      return empty;
+    }
+  }, []);
 
   const flatHosts = useMemo(
     () => collectAllHosts(hostTree?.children ?? []).filter((h) => h.enableRdp !== true),
@@ -142,6 +176,8 @@ export default function SkillsEditorModal({
     if (!open) {
       setSelectedHostId(null);
       setSelectedSkillName(null);
+      setSelectedIsInstance(false);
+      setInstanceWide(null);
       setSkills({ status: "loading" });
       setFiles({ status: "loading" });
       setActiveTab(null);
@@ -159,12 +195,17 @@ export default function SkillsEditorModal({
     if (flatHosts.length === 1) setSelectedHostId(Number(flatHosts[0].id));
   }, [open, defaultHostId, flatHosts]);
 
+  useEffect(() => {
+    if (open) void refreshInstanceWide();
+  }, [open, refreshInstanceWide]);
+
   // Fetch skills list when host changes.
   useEffect(() => {
     if (selectedHostId == null) return;
     let cancelled = false;
     setSkills({ status: "loading" });
     setSelectedSkillName(null);
+    setSelectedIsInstance(false);
     setFiles({ status: "loading" });
     setActiveTab(null);
     setTabData(new Map());
@@ -189,7 +230,7 @@ export default function SkillsEditorModal({
 
   // Fetch file list when skill changes.
   useEffect(() => {
-    if (selectedHostId == null || selectedSkillName == null) {
+    if (apiHostId == null || selectedSkillName == null) {
       setFiles({ status: "loading" });
       setActiveTab(null);
       setTabData(new Map());
@@ -203,7 +244,7 @@ export default function SkillsEditorModal({
     setTabData(new Map());
     setDrafts(new Map());
     setDirtySet(new Set());
-    enumerateSkillFiles(selectedHostId, selectedSkillName)
+    enumerateSkillFiles(apiHostId, selectedSkillName)
       .then((entries) => {
         if (cancelled) return;
         setFiles({ status: "ready", data: entries });
@@ -211,7 +252,7 @@ export default function SkillsEditorModal({
         // The invocation toggle reads SKILL.md. When it's the first tab the
         // lazy-load effect below fetches it; otherwise prefetch it here.
         if (entries.some((e) => e.path === SKILL_MD) && entries[0].path !== SKILL_MD) {
-          readSkillFile(selectedHostId, selectedSkillName, SKILL_MD)
+          readSkillFile(apiHostId, selectedSkillName, SKILL_MD)
             .then((result) => {
               if (cancelled) return;
               setTabData((prev) =>
@@ -242,11 +283,11 @@ export default function SkillsEditorModal({
     return () => {
       cancelled = true;
     };
-  }, [selectedHostId, selectedSkillName]);
+  }, [apiHostId, selectedSkillName]);
 
   // Lazy-load content for the active tab.
   useEffect(() => {
-    if (selectedHostId == null || !selectedSkillName || !activeTab) return;
+    if (apiHostId == null || !selectedSkillName || !activeTab) return;
     if (tabData.has(activeTab)) return;
     let cancelled = false;
     // Media and known-binary files render from the streamed URL; reading
@@ -261,7 +302,7 @@ export default function SkillsEditorModal({
       return;
     }
     setTabData((prev) => new Map(prev).set(activeTab, { status: "loading" }));
-    readSkillFile(selectedHostId, selectedSkillName, activeTab)
+    readSkillFile(apiHostId, selectedSkillName, activeTab)
       .then((result) => {
         if (cancelled) return;
         setTabData((prev) =>
@@ -288,7 +329,7 @@ export default function SkillsEditorModal({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedHostId, selectedSkillName, activeTab]);
+  }, [apiHostId, selectedSkillName, activeTab]);
 
   // Per-tab draft callbacks — factory functions per active tab keep the
   // callbacks referentially stable within a single tab's mount cycle.
@@ -333,10 +374,10 @@ export default function SkillsEditorModal({
   // Save handler — SkillFileTab-facing signature. Also called by foot Save.
   const handleSave = useCallback(
     async (path: string, content: string, expectedMtime: number): Promise<void> => {
-      if (selectedHostId == null || selectedSkillName == null) return;
+      if (apiHostId == null || selectedSkillName == null) return;
       try {
         const result = await writeSkillFile({
-          hostId: selectedHostId,
+          hostId: apiHostId,
           skill: selectedSkillName,
           path,
           content,
@@ -377,7 +418,7 @@ export default function SkillsEditorModal({
         throw err;
       }
     },
-    [selectedHostId, selectedSkillName],
+    [apiHostId, selectedSkillName],
   );
 
   // Foot Save — dispatches to active tab's save with tracked draft.
@@ -388,12 +429,12 @@ export default function SkillsEditorModal({
     if (tab?.status !== "ready") return;
     const binary = binaryDrafts.get(activeTab);
     if (binary) {
-      if (selectedHostId == null || selectedSkillName == null) return;
+      if (apiHostId == null || selectedSkillName == null) return;
       setSaving(true);
       savingRef.current = true;
       try {
         const bytes = await binary.getBytes();
-        await writeSkillFileBinary(selectedHostId!, selectedSkillName!, activeTab, bytes);
+        await writeSkillFileBinary(apiHostId!, selectedSkillName!, activeTab, bytes);
         binary.markSaved(bytes);
       } catch (err) {
         window.alert(err instanceof Error ? `Save failed: ${err.message}` : "Save failed");
@@ -415,7 +456,7 @@ export default function SkillsEditorModal({
     } finally {
       setSaving(false);
     }
-  }, [saving, activeTab, tabData, drafts, handleSave, binaryDrafts]);
+  }, [saving, activeTab, tabData, drafts, handleSave, binaryDrafts, apiHostId, selectedSkillName]);
 
   const skillMdState = tabData.get(SKILL_MD);
   const skillMd = skillMdState?.status === "ready" ? skillMdState.data : null;
@@ -442,14 +483,14 @@ export default function SkillsEditorModal({
   );
 
   const handleAddFile = useCallback(async (): Promise<void> => {
-    if (selectedHostId == null || selectedSkillName == null) return;
+    if (apiHostId == null || selectedSkillName == null) return;
     const raw = window.prompt("New file name (relative to skill root):", "");
     if (raw == null) return;
     const relPath = raw.trim();
     if (relPath.length === 0) return;
     try {
-      await createSkillFile(selectedHostId, selectedSkillName, relPath);
-      const entries = await enumerateSkillFiles(selectedHostId, selectedSkillName);
+      await createSkillFile(apiHostId, selectedSkillName, relPath);
+      const entries = await enumerateSkillFiles(apiHostId, selectedSkillName);
       setFiles({ status: "ready", data: entries });
       setActiveTab(relPath);
     } catch (err) {
@@ -461,7 +502,7 @@ export default function SkillsEditorModal({
           : `Couldn't create "${relPath}".`;
       window.alert(msg);
     }
-  }, [selectedHostId, selectedSkillName]);
+  }, [apiHostId, selectedSkillName]);
 
   // New-skill handler — chained window.prompt (name → description); slugify
   // client-side; empty slug reprompts name; empty description reprompts
@@ -515,11 +556,11 @@ export default function SkillsEditorModal({
 
   const handleDeleteFile = useCallback(
     async (doomedPath: string): Promise<void> => {
-      if (selectedHostId == null || selectedSkillName == null) return;
+      if (apiHostId == null || selectedSkillName == null) return;
       if (!window.confirm(`Delete "${selectedSkillName}/${doomedPath}"? This can't be undone.`)) return;
       try {
-        await deleteSkillFile(selectedHostId, selectedSkillName, doomedPath);
-        const entries = await enumerateSkillFiles(selectedHostId, selectedSkillName);
+        await deleteSkillFile(apiHostId, selectedSkillName, doomedPath);
+        const entries = await enumerateSkillFiles(apiHostId, selectedSkillName);
         setFiles({ status: "ready", data: entries });
         if (activeTab === doomedPath) {
           setActiveTab(entries.length > 0 ? entries[0].path : null);
@@ -545,11 +586,11 @@ export default function SkillsEditorModal({
         window.alert(msg);
       }
     },
-    [selectedHostId, selectedSkillName, activeTab],
+    [apiHostId, selectedSkillName, activeTab],
   );
 
   const handleDeleteSkill = useCallback(async (): Promise<void> => {
-    if (selectedHostId == null || selectedSkillName == null) return;
+    if (selectedHostId == null || selectedSkillName == null || selectedIsInstance) return;
     if (
       !window.confirm(
         `Delete skill "${selectedSkillName}"? This removes the skill folder and every file inside it. This can't be undone.`,
@@ -573,7 +614,73 @@ export default function SkillsEditorModal({
       const msg = err instanceof Error ? `Couldn't delete: ${err.message}` : "Couldn't delete";
       window.alert(msg);
     }
-  }, [selectedHostId, selectedSkillName]);
+  }, [selectedHostId, selectedSkillName, selectedIsInstance]);
+
+  const clearSkillSelection = useCallback(() => {
+    setSelectedSkillName(null);
+    setSelectedIsInstance(false);
+    setFiles({ status: "loading" });
+    setActiveTab(null);
+    setTabData(new Map());
+    setDrafts(new Map());
+    setDirtySet(new Set());
+  }, []);
+
+  // "Make instance-wide…" (admins, host skills): preview the size and any
+  // same-name skills on other hosts, confirm with a blanket warning, promote,
+  // then show the skill in the instance-wide section.
+  const handlePromote = useCallback(async (): Promise<void> => {
+    if (selectedHostId == null || selectedSkillName == null || selectedIsInstance) return;
+    const name = selectedSkillName;
+    try {
+      const preview = await previewPromote("skill", name, selectedHostId);
+      if (preview.tooLarge) {
+        window.alert(
+          `"${name}" is too big to make instance-wide (${preview.files} files). Clean up its folder first.`,
+        );
+        return;
+      }
+      if (!window.confirm(promoteConfirmText("skill", name, preview))) return;
+      savingRef.current = true;
+      await promote("skill", name, selectedHostId);
+      await refreshInstanceWide();
+      const entries = await listSkills(selectedHostId);
+      setSkills({ status: "ready", data: entries });
+      clearSkillSelection();
+      setSelectedSkillName(name);
+      setSelectedIsInstance(true);
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "Couldn't make it instance-wide");
+    } finally {
+      savingRef.current = false;
+    }
+  }, [selectedHostId, selectedSkillName, selectedIsInstance, refreshInstanceWide, clearSkillSelection]);
+
+  // "Remove from every host…" (admins, instance-wide skills).
+  const handleRemoveInstance = useCallback(async (): Promise<void> => {
+    if (!selectedIsInstance || selectedSkillName == null) return;
+    const name = selectedSkillName;
+    const count = selectedIwItem?.hostCount ?? 0;
+    if (
+      !window.confirm(
+        `Remove the instance-wide skill "${name}"? Its folder will be deleted from ${count} host${count === 1 ? "" : "s"}. This can't be undone.`,
+      )
+    )
+      return;
+    try {
+      savingRef.current = true;
+      await removeInstanceWide("skill", name);
+      await refreshInstanceWide();
+      clearSkillSelection();
+      if (selectedHostId != null) {
+        setSkills({ status: "ready", data: await listSkills(selectedHostId) });
+      }
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "Couldn't remove it");
+    } finally {
+      savingRef.current = false;
+    }
+  }, [selectedIsInstance, selectedSkillName, selectedIwItem, selectedHostId, refreshInstanceWide, clearSkillSelection]);
 
   // Close/draft-guard.
   const handleOpenChange = useCallback(
@@ -594,10 +701,14 @@ export default function SkillsEditorModal({
     !saving &&
     activeTab != null &&
     activeTabState?.status === "ready" &&
-    dirtySet.has(activeTab);
+    dirtySet.has(activeTab) &&
+    !readOnly;
 
   const showHostSelect = flatHosts.length > 1;
-  const skillPickerDisabled = selectedHostId == null || skills.status !== "ready";
+  const skillPickerDisabled =
+    iwItems.length === 0 && (selectedHostId == null || skills.status !== "ready");
+  const hostLabel =
+    flatHosts.find((h) => Number(h.id) === selectedHostId)?.name ?? "This host";
 
   return (
     <Modal
@@ -677,9 +788,11 @@ export default function SkillsEditorModal({
         <select
           aria-label="Skill"
           value={selectedSkillName ?? ""}
-          onChange={(e) =>
-            setSelectedSkillName(e.target.value ? e.target.value : null)
-          }
+          onChange={(e) => {
+            const name = e.target.value ? e.target.value : null;
+            setSelectedSkillName(name);
+            setSelectedIsInstance(name != null && iwItems.some((i) => i.name === name));
+          }}
           disabled={skillPickerDisabled}
           data-testid="skills-editor-modal-skill-select"
           className={cn(
@@ -696,13 +809,36 @@ export default function SkillsEditorModal({
               ? "Couldn't load skills"
               : "Pick a skill…"}
           </option>
+          {iwItems.length > 0 && (
+            <optgroup label="Instance-wide — every host" style={OPTION_STYLE}>
+              {iwItems.map((i) => (
+                <option key={`iw:${i.name}`} value={i.name} style={OPTION_STYLE}>
+                  {i.name}
+                </option>
+              ))}
+            </optgroup>
+          )}
           {skills.status === "ready" &&
-            skills.data.map((s) => (
-              <option key={s.name} value={s.name} style={OPTION_STYLE}>
-                {s.name}
-              </option>
+            (iwItems.length > 0 ? (
+              skills.data.length > 0 && (
+                <optgroup label={hostLabel} style={OPTION_STYLE}>
+                  {skills.data.map((s) => (
+                    <option key={s.name} value={s.name} style={OPTION_STYLE}>
+                      {s.name}
+                    </option>
+                  ))}
+                </optgroup>
+              )
+            ) : (
+              skills.data.map((s) => (
+                <option key={s.name} value={s.name} style={OPTION_STYLE}>
+                  {s.name}
+                </option>
+              ))
             ))}
         </select>
+        {selectedIsInstance && <InstanceWideChip />}
+        {selectedIwItem && <InstanceWideSyncStatus item={selectedIwItem} />}
         {selectedSkillName != null && skillMd != null && modelInvocationDisabled && (
           <span
             title={"Only a /" + selectedSkillName + " slash command invokes this skill"}
@@ -722,7 +858,7 @@ export default function SkillsEditorModal({
             testId="skills-editor-modal-skill-menu"
             triggerClassName="size-7"
             items={[
-              ...(skillMd != null
+              ...(skillMd != null && !readOnly
                 ? [
                     {
                       label: "Slash command only",
@@ -740,15 +876,51 @@ export default function SkillsEditorModal({
                     },
                   ]
                 : []),
-              {
-                label: "Delete skill…",
-                danger: true,
-                separatorBefore: skillMd != null,
-                testId: "skills-editor-modal-delete-skill",
-                onClick: () => {
-                  void handleDeleteSkill();
-                },
-              },
+              ...(!selectedIsInstance && isAdmin
+                ? [
+                    {
+                      label: "Make instance-wide…",
+                      hint: "Keep one copy of this skill in step on every host",
+                      separatorBefore: skillMd != null,
+                      testId: "skills-editor-modal-promote-skill",
+                      onClick: () => {
+                        void handlePromote();
+                      },
+                    },
+                  ]
+                : []),
+              ...(selectedIsInstance
+                ? isAdmin
+                  ? [
+                      {
+                        label: "Remove from every host…",
+                        danger: true,
+                        separatorBefore: skillMd != null,
+                        testId: "skills-editor-modal-remove-instance-skill",
+                        onClick: () => {
+                          void handleRemoveInstance();
+                        },
+                      },
+                    ]
+                  : [
+                      {
+                        label: "Managed instance-wide — only an admin can change it",
+                        disabled: true,
+                        testId: "skills-editor-modal-instance-readonly",
+                        onClick: () => {},
+                      },
+                    ]
+                : [
+                    {
+                      label: "Delete skill…",
+                      danger: true,
+                      separatorBefore: skillMd != null || isAdmin,
+                      testId: "skills-editor-modal-delete-skill",
+                      onClick: () => {
+                        void handleDeleteSkill();
+                      },
+                    },
+                  ]),
             ]}
           />
         )}
@@ -757,19 +929,22 @@ export default function SkillsEditorModal({
       {/* Layered branches for the skill/file state. Once ready + a
           skill is picked + files loaded, we drop into <ModalSidebar>
           (vertical file list + editor pane). */}
-      {selectedHostId == null ? (
+      {!selectedIsInstance && selectedHostId == null ? (
         <ModalBody className="flex items-center justify-center text-[hsla(var(--pv-id-hue),22%,88%,0.65)] text-sm">
           Pick a host to load its skills.
         </ModalBody>
-      ) : skills.status === "loading" ? (
+      ) : !selectedIsInstance && skills.status === "loading" ? (
         <ModalBody className="flex items-center justify-center text-[hsla(var(--pv-id-hue),22%,88%,0.65)] text-sm">
           Loading skills…
         </ModalBody>
-      ) : skills.status === "error" ? (
+      ) : !selectedIsInstance && skills.status === "error" ? (
         <ModalBody className="flex items-center justify-center text-red-400 text-sm px-6 text-center">
           Couldn&apos;t load skills: {skills.error}
         </ModalBody>
-      ) : skills.data.length === 0 ? (
+      ) : !selectedIsInstance &&
+        skills.status === "ready" &&
+        skills.data.length === 0 &&
+        iwItems.length === 0 ? (
         <ModalBody className="flex flex-col items-center justify-center text-[hsla(var(--pv-id-hue),22%,88%,0.65)] gap-2 text-sm text-center px-6">
           <div>No skills on this host.</div>
           <div className="text-xs opacity-70">Nothing to edit here yet.</div>
@@ -815,6 +990,7 @@ export default function SkillsEditorModal({
           rowTestId="skills-editor-modal-file-strip"
           testIdPrefix="skills-editor-modal-tab"
           trailing={
+            readOnly ? undefined : (
             <button
               type="button"
               onClick={() => {
@@ -829,6 +1005,7 @@ export default function SkillsEditorModal({
             >
               <Plus size={12} /> Add file
             </button>
+            )
           }
         >
           <div
@@ -841,22 +1018,26 @@ export default function SkillsEditorModal({
                 onSave={(content, expectedMtime) =>
                   handleSave(activeTab, content, expectedMtime)
                 }
-                onRequestDelete={() => {
-                  void handleDeleteFile(activeTab);
-                }}
+                onRequestDelete={
+                  readOnly
+                    ? undefined
+                    : () => {
+                        void handleDeleteFile(activeTab);
+                      }
+                }
                 filename={activeTab}
                 hideSaveButton={true}
                 onDraftContentChange={handleDraftContentChange(activeTab)}
                 onDraftChange={handleDraftDirtyChange(activeTab)}
                 onBinaryDraftChange={handleBinaryDraftChange(activeTab)}
                 mediaUrl={
-                  selectedHostId != null && selectedSkillName != null
-                    ? skillFileUrl(selectedHostId, selectedSkillName, activeTab, { inline: true })
+                  apiHostId != null && selectedSkillName != null
+                    ? skillFileUrl(apiHostId, selectedSkillName, activeTab, { inline: true })
                     : undefined
                 }
                 downloadUrl={
-                  selectedHostId != null && selectedSkillName != null
-                    ? skillFileUrl(selectedHostId, selectedSkillName, activeTab)
+                  apiHostId != null && selectedSkillName != null
+                    ? skillFileUrl(apiHostId, selectedSkillName, activeTab)
                     : undefined
                 }
               />
