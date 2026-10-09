@@ -81,6 +81,7 @@ import { RolesListModal } from "@/features/pretty-view/RolesListModal";
 import { RoleModal } from "@/features/pretty-view/RoleModal";
 import RunbookEditorModal from "@/features/pretty-view/RunbookEditorModal";
 import { useTranslation } from "react-i18next";
+import { useDragPreviewClaim } from "@/shell/drag-preview-session";
 
 import {
   useConversations,
@@ -1795,24 +1796,18 @@ export function PrettyConversationsPanel({
   const [isBadgeDragOver, setIsBadgeDragOver] = useState(false);
   const prevConvlistVisibleRef = useRef<boolean | null>(null);
 
-  // Phase 59 Gap 2 — window-level dragend listener for Escape-cancel path.
-  // Escape cancels a drag WITHOUT moving the cursor, so no dragleave fires;
-  // dragend on the drag source (IdentityBadge per Phase 58 Plan 01) is the
-  // only reliable signal. Window-level attach — dragend fires on the SOURCE
-  // element, not on this panel. Empty deps: ref-write pattern doesn't
-  // capture any changing state (unlike Task 1's splitTree closure).
-  useEffect(() => {
-    const onDragEnd = () => {
+  // Exclusive-claim + session-end sweep (drag-preview-session.ts) — covers
+  // Escape-cancel (no dragleave fires) and a dragend lost to a detached
+  // drag source. Replaces the Phase 59 Gap 2 window dragend listener.
+  const { claim: claimBadgePreview, release: releaseBadgePreview } =
+    useDragPreviewClaim("convlist-badge", () => {
       setIsBadgeDragOver(false);
       if (prevConvlistVisibleRef.current !== false) {
         // eslint-disable-next-line no-console
         console.info(`[convlist-drop-preview] visible=false`);
         prevConvlistVisibleRef.current = false;
       }
-    };
-    window.addEventListener("dragend", onDragEnd);
-    return () => window.removeEventListener("dragend", onDragEnd);
-  }, []);
+    });
 
   const handlePanelDragOver = (e: React.DragEvent<HTMLDivElement>) => {
     // Only badge drags get captured. Row drags + OS file drags fall through
@@ -1826,6 +1821,7 @@ export function PrettyConversationsPanel({
       // (row drags, OS file drags) NEVER trigger tint (per CONTEXT.md
       // §Edge case #3). Zone-change-gated log for audit trail.
       setIsBadgeDragOver(true);
+      claimBadgePreview();
       if (prevConvlistVisibleRef.current !== true) {
         // eslint-disable-next-line no-console
         console.info(`[convlist-drop-preview] visible=true`);
@@ -1852,6 +1848,7 @@ export function PrettyConversationsPanel({
       e.clientY <= rect.bottom;
     if (stillInside) return;
     setIsBadgeDragOver(false);
+    releaseBadgePreview();
     if (prevConvlistVisibleRef.current !== false) {
       // eslint-disable-next-line no-console
       console.info(`[convlist-drop-preview] visible=false`);
@@ -1864,6 +1861,7 @@ export function PrettyConversationsPanel({
     // handler (shouldn't be possible given the dragover type-gate) still
     // clears state. Idempotent.
     setIsBadgeDragOver(false);
+    releaseBadgePreview();
     if (prevConvlistVisibleRef.current !== false) {
       // eslint-disable-next-line no-console
       console.info(`[convlist-drop-preview] visible=false`);
@@ -2182,11 +2180,8 @@ export function PrettyConversationsPanel({
 
   const [isFlatMiddleDragOver, setIsFlatMiddleDragOver] = useState(false);
 
-  useEffect(() => {
-    const onDragEnd = () => setIsFlatMiddleDragOver(false);
-    window.addEventListener("dragend", onDragEnd);
-    return () => window.removeEventListener("dragend", onDragEnd);
-  }, []);
+  const { claim: claimFlatMiddlePreview, release: releaseFlatMiddlePreview } =
+    useDragPreviewClaim("convlist-flat-middle", () => setIsFlatMiddleDragOver(false));
 
   const handleFlatMiddleDragOver = useCallback(
     (e: React.DragEvent<HTMLDivElement>) => {
@@ -2197,8 +2192,9 @@ export function PrettyConversationsPanel({
       // relies on unrelated MIMEs falling through, and the row MIME never
       // reaches the outer handler because its badge type-gate rejects it.
       setIsFlatMiddleDragOver(true);
+      claimFlatMiddlePreview();
     },
-    [],
+    [claimFlatMiddlePreview],
   );
 
   const handleFlatMiddleDragLeave = useCallback(
@@ -2213,13 +2209,15 @@ export function PrettyConversationsPanel({
         e.clientY <= rect.bottom;
       if (stillInside) return;
       setIsFlatMiddleDragOver(false);
+      releaseFlatMiddlePreview();
     },
-    [],
+    [releaseFlatMiddlePreview],
   );
 
   const handleFlatMiddleDrop = useCallback(
     (e: React.DragEvent<HTMLDivElement>) => {
       setIsFlatMiddleDragOver(false);
+      releaseFlatMiddlePreview();
       const raw = e.dataTransfer?.getData("application/x-skynet-row") ?? "";
       if (raw === "") return;
       let parsed: unknown;
@@ -2293,7 +2291,7 @@ export function PrettyConversationsPanel({
         console.error(`[project-drop] setSessionProject(null) failed: ${msg}`);
       });
     },
-    [rowIdToProjectSlug, viewingUserMxid, pinnedIds],
+    [rowIdToProjectSlug, viewingUserMxid, pinnedIds, releaseFlatMiddlePreview],
   );
 
   // Pinned-zone drop lane — mirror of the flat-middle machinery. Drop a row
@@ -2303,11 +2301,8 @@ export function PrettyConversationsPanel({
   // openTab id churn across URL-restores.
   const [isPinnedZoneDragOver, setIsPinnedZoneDragOver] = useState(false);
 
-  useEffect(() => {
-    const onDragEnd = () => setIsPinnedZoneDragOver(false);
-    window.addEventListener("dragend", onDragEnd);
-    return () => window.removeEventListener("dragend", onDragEnd);
-  }, []);
+  const { claim: claimPinnedPreview, release: releasePinnedPreview } =
+    useDragPreviewClaim("convlist-pinned", () => setIsPinnedZoneDragOver(false));
 
   const handlePinnedZoneDragOver = useCallback(
     (e: React.DragEvent<HTMLDivElement>) => {
@@ -2315,8 +2310,9 @@ export function PrettyConversationsPanel({
       if (!(types && Array.from(types).includes("application/x-skynet-row"))) return;
       e.preventDefault();
       setIsPinnedZoneDragOver(true);
+      claimPinnedPreview();
     },
-    [],
+    [claimPinnedPreview],
   );
 
   const handlePinnedZoneDragLeave = useCallback(
@@ -2331,13 +2327,15 @@ export function PrettyConversationsPanel({
         e.clientY <= rect.bottom;
       if (stillInside) return;
       setIsPinnedZoneDragOver(false);
+      releasePinnedPreview();
     },
-    [],
+    [releasePinnedPreview],
   );
 
   const handlePinnedZoneDrop = useCallback(
     (e: React.DragEvent<HTMLDivElement>) => {
       setIsPinnedZoneDragOver(false);
+      releasePinnedPreview();
       const raw = e.dataTransfer?.getData("application/x-skynet-row") ?? "";
       if (raw === "") return;
       let parsed: unknown;
@@ -2368,7 +2366,7 @@ export function PrettyConversationsPanel({
       console.info(`[pin-drop] pin id=${targetId} (from rowId=${p.id})`);
       pinConversation(targetId);
     },
-    [pinnedIds],
+    [pinnedIds, releasePinnedPreview],
   );
 
   // Phase 117 M-F follow-up (2026-09-18): the section's SquarePen opens the

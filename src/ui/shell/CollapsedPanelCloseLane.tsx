@@ -40,6 +40,7 @@
 // — same rationale that put `isolate` on the SplitView Pane wrapper.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { subscribeDragSessionEnd, useDragPreviewClaim } from "./drag-preview-session";
 import { X } from "lucide-react";
 
 interface CollapsedPanelCloseLaneProps {
@@ -118,6 +119,12 @@ export default function CollapsedPanelCloseLane({
     setOuterEl(el);
   }, []);
   const [hover, setHover] = useState(false);
+  // Exclusive-claim + session-end sweep (drag-preview-session.ts) — also
+  // replaces the lane's own window dragend listener.
+  const { claim: claimPreview, release: releasePreview } = useDragPreviewClaim(
+    "close-lane",
+    () => setHover(false),
+  );
 
   // quick-260829-ih3 code-review finding #1 (listener churn): the effect
   // that attaches native drag listeners MUST NOT re-run on every AppShell
@@ -156,6 +163,7 @@ export default function CollapsedPanelCloseLane({
       // this cursor position; nothing else should react to it.
       e.stopPropagation();
       setHover(true);
+      claimPreview();
     };
 
     const onDragLeave = (e: DragEvent) => {
@@ -176,6 +184,7 @@ export default function CollapsedPanelCloseLane({
         e.clientY <= rect.bottom;
       if (stillInside) return;
       setHover(false);
+      releasePreview();
     };
 
     const onDrop = (e: DragEvent) => {
@@ -183,6 +192,7 @@ export default function CollapsedPanelCloseLane({
       // .tsx:1373 defensive-clear). Idempotent — even a non-badge drop that
       // somehow reached this handler still clears state.
       setHover(false);
+      releasePreview();
       // Step 1: read the discriminator MIME. Empty string = not a badge drop.
       const raw = e.dataTransfer?.getData("application/x-skynet-badge") ?? "";
       if (raw === "") return;
@@ -223,27 +233,17 @@ export default function CollapsedPanelCloseLane({
       onCloseTabRef.current(tabId);
     };
 
-    // Window-level dragend cleanup — Escape cancels a drag WITHOUT moving
-    // the cursor, so no dragleave fires; dragend on the source (IdentityBadge)
-    // is the only reliable signal. Window-level attach because dragend fires
-    // on the SOURCE element (IdentityBadge), not on this lane. Idempotent —
-    // setState(false) on already-false is a no-op. Mirrors SplitView.tsx:378-381
-    // + PrettyConversationsPanel.tsx:1311-1322.
-    const onDragEnd = () => {
-      setHover(false);
-    };
-
+    // Escape-cancel / lost-dragend cleanup lives in useDragPreviewClaim's
+    // session-end sweep (drag-preview-session.ts).
     el.addEventListener("dragover", onDragOver);
     el.addEventListener("dragleave", onDragLeave);
     el.addEventListener("drop", onDrop);
-    window.addEventListener("dragend", onDragEnd);
     return () => {
       el.removeEventListener("dragover", onDragOver);
       el.removeEventListener("dragleave", onDragLeave);
       el.removeEventListener("drop", onDrop);
-      window.removeEventListener("dragend", onDragEnd);
     };
-  }, [outerEl]);
+  }, [outerEl, claimPreview, releasePreview]);
 
   // Own gate: nothing to render outside a badge drag. The parent AppShell
   // mount gate handles the isMobile/isMobileListScreen/sidebarOpen exclusion;
@@ -347,17 +347,17 @@ export function useDraggedBadgeTabId(): string | null {
       setTabId((parsed as { tabId: string }).tabId);
     };
 
-    const onDragEnd = () => {
-      // Unconditional clear — dragend fires whether the drag ended via drop,
-      // drop-elsewhere, or Escape-cancel. Idempotent.
-      setTabId(null);
-    };
+    // Unconditional clear on drag-session end (drop / dragend / heartbeat
+    // watchdog — drag-preview-session.ts). A bare window dragend is not
+    // enough: dropping a badge onto a pane reparents the badge, so its
+    // dragend fires on a detached node and never reaches window, leaving
+    // the lane mounted after the drop. Idempotent.
+    const unsubscribe = subscribeDragSessionEnd(() => setTabId(null));
 
     window.addEventListener("dragstart", onDragStart);
-    window.addEventListener("dragend", onDragEnd);
     return () => {
       window.removeEventListener("dragstart", onDragStart);
-      window.removeEventListener("dragend", onDragEnd);
+      unsubscribe();
     };
   }, []);
 

@@ -26,8 +26,9 @@
 
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, fireEvent, createEvent, cleanup } from "@testing-library/react";
+import { render, fireEvent, createEvent, cleanup, act } from "@testing-library/react";
 import { SplitView, computeNearestEdge } from "./SplitView";
+import { DRAG_PREVIEW_WATCHDOG_MS } from "./drag-preview-session";
 import type { SplitNode, SplitPath, DropEdge } from "@/lib/split-tree";
 import type { Tab } from "@/types/ui-types";
 
@@ -852,6 +853,71 @@ describe("SplitView — Phase 57: drop-preview overlay + edge-zone hit-testing",
     expect(
       container.querySelector('[data-testid="pane-drop-preview-overlay"]'),
     ).toBeNull();
+  });
+
+  // ─── drag-preview-session.ts regressions (stuck coral zones) ──────────────
+  function renderTwoPanes() {
+    const tree: SplitNode = split("horizontal", leaf("aaa"), leaf("bbb"));
+    const utils = render(<SplitView splitTree={tree} tabs={[tabA, tabB]} />);
+    const paneA = findPaneOuter(
+      utils.container.querySelector('[data-tab-id="aaa"]') as HTMLElement,
+    );
+    const paneB = findPaneOuter(
+      utils.container.querySelector('[data-tab-id="bbb"]') as HTMLElement,
+    );
+    mockRect(paneA, { left: 0, right: 100, top: 0, bottom: 100 });
+    mockRect(paneB, { left: 100, right: 200, top: 0, bottom: 100 });
+    const overlays = () =>
+      utils.container.querySelectorAll('[data-testid="pane-drop-preview-overlay"]');
+    return { ...utils, paneA, paneB, overlays };
+  }
+
+  it("Test 14: lighting a second pane clears the first even when its dragleave never cleared it", () => {
+    const { paneA, paneB, overlays } = renderTwoPanes();
+    dispatchDragOverAt(paneA, 10, 50);
+    expect(overlays()).toHaveLength(1);
+    // Leave lands exactly on the shared edge — passes A's inclusive
+    // still-inside guard, so A does NOT clear itself.
+    dispatchDragLeaveAt(paneA, 100, 50);
+    dispatchDragOverAt(paneB, 190, 50);
+    const lit = overlays();
+    expect(lit).toHaveLength(1);
+    expect(paneB.contains(lit[0])).toBe(true);
+  });
+
+  it("Test 15: a drop anywhere clears a lit pane even when dragend never reaches window (detached source)", async () => {
+    const { container, paneA, overlays } = renderTwoPanes();
+    dispatchDragOverAt(paneA, 10, 50);
+    expect(overlays()).toHaveLength(1);
+    // Drop handled elsewhere (no dragend follows — the source was detached).
+    fireEvent.drop(container);
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(overlays()).toHaveLength(0);
+  });
+
+  it("Test 16: heartbeat watchdog clears a lit pane once dragover stops arriving", () => {
+    vi.useFakeTimers();
+    try {
+      const { paneA, overlays } = renderTwoPanes();
+      dispatchDragOverAt(paneA, 10, 50);
+      act(() => {
+        vi.advanceTimersByTime(DRAG_PREVIEW_WATCHDOG_MS - 100);
+      });
+      // Still-held drag keeps firing dragover → stays lit.
+      dispatchDragOverAt(paneA, 10, 50);
+      act(() => {
+        vi.advanceTimersByTime(DRAG_PREVIEW_WATCHDOG_MS - 100);
+      });
+      expect(overlays()).toHaveLength(1);
+      act(() => {
+        vi.advanceTimersByTime(200);
+      });
+      expect(overlays()).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

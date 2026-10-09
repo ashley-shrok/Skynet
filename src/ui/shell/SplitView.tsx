@@ -26,6 +26,7 @@ import { useTranslation } from "react-i18next";
 import type { Tab } from "@/types/ui-types";
 import type { SplitNode, SplitPath, DropEdge, DropZone } from "@/lib/split-tree";
 import { computeEdgeZone } from "@/lib/split-tree";
+import { useDragPreviewClaim } from "./drag-preview-session";
 // Phase 120 LOW-15 cleanup (2026-09-19): route the app-tile drop-dispatch
 // logs through the fleet's structured frontend logger instead of raw
 // console.info / console.warn. Every other console.* call in this file is
@@ -325,6 +326,17 @@ const Pane = memo(function Pane({
   // write happens synchronously inside the dragover handler (effect body,
   // not render body — React does not double-invoke effect handlers).
   const prevZoneRef = useRef<DropZone | null>(null);
+  // Exclusive-claim + session-end sweep (drag-preview-session.ts). Covers
+  // the holes the local dragleave/drop handlers can't: a leave whose final
+  // coordinates sit on a shared edge, and a dragend lost because the drop
+  // detached the drag source. Also replaces the per-pane window dragend.
+  const { claim: claimPreview, release: releasePreview } = useDragPreviewClaim(
+    `pane:${tabId}`,
+    () => {
+      setDropPreview(null);
+      prevZoneRef.current = null;
+    },
+  );
 
   const contentRef = useCallback(
     (el: HTMLDivElement | null) => {
@@ -420,6 +432,7 @@ const Pane = memo(function Pane({
             prevZoneRef.current = null;
           }
           setDropPreview((prev) => (prev === null ? prev : null));
+          releasePreview();
           return;
         }
       }
@@ -441,6 +454,7 @@ const Pane = memo(function Pane({
         if (prev !== null && prev.zone === zone) return prev;
         return { zone, rect };
       });
+      claimPreview();
     };
     const onDragLeave = (e: DragEvent) => {
       // Type-gate FIRST — scope the flicker-fix machinery to our own skynet
@@ -473,6 +487,7 @@ const Pane = memo(function Pane({
         // next dragover-back-into-the-pane won't emit a [pv-split-preview]
         // log because the ref still holds the last zone.
         prevZoneRef.current = null;
+        releasePreview();
       }
     };
     const onDrop = (e: DragEvent) => {
@@ -486,6 +501,7 @@ const Pane = memo(function Pane({
       e.stopPropagation();
       setDropPreview(null);
       prevZoneRef.current = null;
+      releasePreview();
       const rect = el.getBoundingClientRect();
       const zone = computeEdgeZone(rect, e.clientX, e.clientY);
       // Phase 97 Plan 01 Task 1: temporary diagnostic emit (suffix "-diag" to
@@ -765,26 +781,15 @@ const Pane = memo(function Pane({
         onOpenSessionInTree?.(payloadTabId, path, edge);
       }
     };
-    // Window-level dragend cleanup — Escape cancels a drag WITHOUT moving
-    // the cursor, so no dragleave fires; dragend on the source is the only
-    // reliable signal that the drag has ended. Window-level attach because
-    // dragend fires on the SOURCE element (conv-list row / identity badge),
-    // not on this Pane; scoping to `el` would miss it. Idempotent — nulling
-    // already-null state is a no-op, so this is safe even when a drop
-    // already cleared the state.
-    const onDragEnd = () => {
-      setDropPreview(null);
-      prevZoneRef.current = null;
-    };
+    // Escape-cancel / lost-dragend cleanup lives in useDragPreviewClaim's
+    // session-end sweep (drag-preview-session.ts).
     el.addEventListener("dragover", onDragOver);
     el.addEventListener("dragleave", onDragLeave);
     el.addEventListener("drop", onDrop);
-    window.addEventListener("dragend", onDragEnd);
     return () => {
       el.removeEventListener("dragover", onDragOver);
       el.removeEventListener("dragleave", onDragLeave);
       el.removeEventListener("drop", onDrop);
-      window.removeEventListener("dragend", onDragEnd);
     };
     // path is a fresh array each render; JSON.stringify it into the dep
     // list so a real path change reattaches (identity would fire every
@@ -801,6 +806,8 @@ const Pane = memo(function Pane({
     onDropBadgeInTree,
     onCenterDropBadge,
     tabId,
+    claimPreview,
+    releasePreview,
   ]);
 
   return (

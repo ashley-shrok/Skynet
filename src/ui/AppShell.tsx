@@ -46,6 +46,7 @@ import CollapsedPanelCloseLane, {
   useDraggedBadgeTabId,
   shouldMountCloseLane,
 } from "@/shell/CollapsedPanelCloseLane";
+import { useDragPreviewClaim } from "@/shell/drag-preview-session";
 import { renderTabContent } from "@/shell/tabUtils";
 import type {
   Tab,
@@ -573,16 +574,13 @@ export function AppShell({
     initReadyCueAudioUnlock();
   }, []);
 
-  // Phase 59 Plan 01 Gap 1 — window-level dragend listener for the empty-PV
-  // coral tint's Escape-cancel path. Escape cancels a drag WITHOUT moving
-  // the cursor, so no dragleave fires; dragend on the drag source is the
-  // only reliable signal. Window-level attach because dragend fires on the
-  // SOURCE element (conv-list row), not on the empty-PV wrapper; scoping to
-  // the wrapper would miss it. Idempotent — clearing already-false state is
-  // a no-op, so this is safe even when a drop already cleared the state.
-  // Dep on splitTree so the log's splitTreeNull field reflects current state.
-  useEffect(() => {
-    const onDragEnd = () => {
+  // Empty-PV coral tint: exclusive-claim + session-end sweep
+  // (drag-preview-session.ts). Covers Escape-cancel (no dragleave fires) and
+  // a dragend lost to a detached drag source. Replaces the Phase 59 Gap 1
+  // window dragend listener. The hook keeps the latest clear closure, so the
+  // log's splitTreeNull field reflects current state.
+  const { claim: claimEmptyPvPreview, release: releaseEmptyPvPreview } =
+    useDragPreviewClaim("empty-pv", () => {
       setConvRowDragZone(null);
       if (prevEmptyPvZoneRef.current !== null) {
         // eslint-disable-next-line no-console
@@ -591,10 +589,7 @@ export function AppShell({
         );
         prevEmptyPvZoneRef.current = null;
       }
-    };
-    window.addEventListener("dragend", onDragEnd);
-    return () => window.removeEventListener("dragend", onDragEnd);
-  }, [splitTree]);
+    });
 
   const terminalRefs = useRef<Map<string, ReturnType<typeof createRef>>>(
     new Map(),
@@ -3843,6 +3838,10 @@ export function AppShell({
                   ? "full"
                   : computeNearestEdge(rect, e.clientX, e.clientY);
                 setConvRowDragZone((prev) => (prev === zone ? prev : zone));
+                // The tint only renders with no split tree; with a tree, the
+                // Panes own the preview and must not be displaced by this
+                // invisible state.
+                if (splitTree === null) claimEmptyPvPreview();
                 if (prevEmptyPvZoneRef.current !== zone) {
                   // eslint-disable-next-line no-console
                   console.info(
@@ -3875,6 +3874,7 @@ export function AppShell({
                   e.clientY <= rect.bottom;
                 if (stillInside) return;
                 setConvRowDragZone(null);
+                releaseEmptyPvPreview();
                 if (prevEmptyPvZoneRef.current !== null) {
                   // eslint-disable-next-line no-console
                   console.info(
@@ -3889,6 +3889,7 @@ export function AppShell({
                 // always clears state immediately, even for skip paths).
                 // Idempotent — clearing already-null state is a no-op.
                 setConvRowDragZone(null);
+                releaseEmptyPvPreview();
                 if (prevEmptyPvZoneRef.current !== null) {
                   // eslint-disable-next-line no-console
                   console.info(

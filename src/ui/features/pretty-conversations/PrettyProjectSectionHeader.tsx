@@ -49,11 +49,12 @@
 //     CollapsedPanelCloseLane.tsx:40 discipline).
 
 import {
-  useEffect,
   useState,
   type ReactNode,
 } from "react";
 import { ChevronDown } from "lucide-react";
+
+import { useDragPreviewClaim } from "@/shell/drag-preview-session";
 
 import { RowKebabMenu, useRowKebabContextMenu } from "./RowKebabMenu";
 
@@ -124,15 +125,13 @@ export function PrettyProjectSectionHeader({
 }: PrettyProjectSectionHeaderProps) {
   const [isDragOver, setIsDragOver] = useState(false);
 
-  // Window-level dragend for Escape-cancel path — a drag cancelled via
-  // Escape does NOT fire dragleave on the section (cursor did not move),
-  // so the overlay would stay lit forever without this listener. Mirrors
-  // PrettyConversationsPanel.tsx:1499-1510 + CollapsedPanelCloseLane.tsx:232-234.
-  useEffect(() => {
-    const onDragEnd = () => setIsDragOver(false);
-    window.addEventListener("dragend", onDragEnd);
-    return () => window.removeEventListener("dragend", onDragEnd);
-  }, []);
+  // Exclusive-claim + session-end sweep (drag-preview-session.ts). Covers
+  // Escape-cancel (no dragleave fires) and the lost dragend when dropping a
+  // row here re-sorts it into this section and detaches the drag source.
+  const { claim: claimPreview, release: releasePreview } = useDragPreviewClaim(
+    `project:${slug}`,
+    () => setIsDragOver(false),
+  );
 
   const onDragOver = (e: React.DragEvent<HTMLDivElement>) => {
     // Type-gate FIRST — ONLY row drags activate the coral overlay. Badge
@@ -143,6 +142,7 @@ export function PrettyProjectSectionHeader({
     e.preventDefault();
     e.stopPropagation();
     setIsDragOver(true);
+    claimPreview();
   };
 
   const onDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
@@ -161,11 +161,13 @@ export function PrettyProjectSectionHeader({
       e.clientY <= rect.bottom;
     if (stillInside) return;
     setIsDragOver(false);
+    releasePreview();
   };
 
   const onDrop = (e: React.DragEvent<HTMLDivElement>) => {
     // Clear overlay FIRST regardless of downstream branch (idempotent).
     setIsDragOver(false);
+    releasePreview();
     // Step 1: read the discriminator MIME. Empty string = not a row drop.
     const raw = e.dataTransfer?.getData(ROW_MIME) ?? "";
     if (raw === "") return;
