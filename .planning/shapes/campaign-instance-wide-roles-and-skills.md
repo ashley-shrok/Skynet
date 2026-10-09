@@ -32,7 +32,7 @@ mainly in the admin interface and in what part of a role is shared.
 ## Shapes
 
 - **[declared] shape-instance-wide-roles-and-skills** — the shared distribution
-  mechanism plus the skills and roles surfaces on top of it — in_progress
+  mechanism plus the skills and roles surfaces on top of it — closed
 
 ## Other work
 

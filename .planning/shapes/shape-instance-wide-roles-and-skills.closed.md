@@ -172,3 +172,61 @@ decision log with the reasoning behind each point is
 scoped tests during development, full suite only at the deploy gate; commit
 without pushing until Ashley gives the word; any user-facing change must update
 the identity skill in the same piece of work.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-10-09
+**Vehicle used:** inline (local commits on feat/tab-title-from-tmux, not pushed) plus the identity-skill edit
+**Overall verdict:** closed-hit (all three additions endorsed by Ashley as drift)
+
+### Shape features (conformance)
+
+- **Master copy in the app, whole folders** — present · kept on the app's data volume as whole skill/role folders plus a state file; no host is special.
+- **Copies land in the regular places** — present · skills in the agent user's skills folder, roles in the regular roles location.
+- **Which hosts** — present · every host flagged for standard agent files; a box with several registrations is synced once; no opt-out or targeting.
+- **Immediate push on save/add/remove** — present · every app-side change requests a sync right away.
+- **Five-minute catch-up** — present · covers offline, new and host-changed copies; returning hosts also receive removals.
+- **Write-back rule** — present · per file against the last agreed version; admin-owned means the box's primary owner is an admin.
+- **Role-file watcher prompts an immediate sync** — drifted · replaced by a 30-second check of admin-owned hosts (endorsed).
+- **Conflicts kept aside and shown** — present · losing version saved beside the file under a conflict name, counted and listed in the status.
+- **Single-file delete propagates; missing folder restored** — present · removal only via the app; archiving an instance-wide role is refused.
+- **Editor-backup and cache files ignored** — present.
+- **Admin-only changes; only admin-owned hosts write back** — present.
+- **Skills window instance-wide section** — present · own group, marker, admin controls, read-only for others.
+- **Roles window instance-wide section** — present · own heading, marker, admin Remove, read-only notice for others.
+- **Quiet sync status** — present · warning chip only when out of step, per-host detail on click, long-offline hosts not counted, no alerts.
+- **Opening through a host's view** — present · skills edit the master; admin role edits flow out, non-admins refused.
+- **Role picker marker** — present.
+- **Promote** — present · admin-only, whole folder, blanket warning, clash list across hosts, original becomes the copy in place.
+- **Remove** — present · confirmation names host count; folder deleted on every host, offline hosts on return.
+- **Running agents: nothing special** — present.
+- **Retire role history** — present · identity-skill mention dropped, role-creation skill and its installed copies removed, dead history code deleted, existing files untouched.
+- **Identity skill updated** — present · sections, markers, status, promote/remove, short agent note.
+- **Philosophy** — present.
+- **What would make it wrong: admin-host edit silently fails or is reverted** — present · a write-back over the size limit is refused visibly (host shown behind with the reason).
+- **What would make it wrong: a non-admin's host changes an item for everyone** — present · with the accepted edge case below.
+- **What would make it wrong: colliding edits vanish** — present.
+- **What would make it wrong: rebuilt box / deleted folder removes everywhere** — present.
+- **What would make it wrong: admin can't tell if an update landed** — present.
+- **What would make it wrong: agents must be taught** — present.
+- **What would make it wrong: noisy sync** — present.
+- **What would make it wrong: offline host stays stale** — present.
+- **Scope OUT / tempting-but-no / deferred** — present · none built; deferred item logged in the campaign.
+
+### Additions (in the result, not in the shape)
+
+- 30-second check of admin-owned hosts so their edits spread within about a minute (instead of wiring the role-file watcher) — endorsed-as-drift
+- Size limit of 2,000 files / 25 MB per item on promote and write-back — endorsed-as-drift
+- An admin editing an instance-wide role through a host in their account (even one whose primary owner isn't an admin) makes that host's next sync admin-sourced, so other recent changes in that role on that host travel too — endorsed-as-drift (Ashley: host-to-user linking is how Skynet works; a host in an admin's account acts with that admin's authority)
+
+### Follow-ups
+
+- Identity-skill timing text aligned to "about a minute" — accepted-as-drift (done)
+- Identity-skill edit awaiting Ashley's sign-off on the exact text before commit — issue
+- Promote /build, /campaign, /open, /close and retire their thenasty self-download — deferred
+
+### Notes
+
+Backend-only extras not surfaced in the UI: an admin-only "sync now" endpoint; a path to create a brand-new instance-wide skill directly (the UI creates via promote); non-admins' instance-wide role list filtered by the existing role-visibility rule.
