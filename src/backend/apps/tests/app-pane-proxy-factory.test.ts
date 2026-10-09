@@ -549,7 +549,9 @@ describe("proxyRes buffered path (text/html + application/xhtml+xml)", () => {
     );
     const { res, headers } = makeExpressRes();
     opts.on.proxyRes(proxyRes, makeExpressReq(), res);
-    await flush();
+    // Decompression runs on libuv's threadpool — a fixed flush() races it on a
+    // loaded box, so wait for the injection itself.
+    await vi.waitFor(() => expect(mocks.injectBaseTag).toHaveBeenCalled());
     // injectBaseTag receives DECOMPRESSED bytes.
     expect(mocks.injectBaseTag).toHaveBeenCalledWith(
       Buffer.from(html, "utf8"),
@@ -575,7 +577,8 @@ describe("proxyRes buffered path (text/html + application/xhtml+xml)", () => {
     );
     const { res } = makeExpressRes();
     opts.on.proxyRes(proxyRes, makeExpressReq(), res);
-    await flush();
+    // Threadpool decompression — wait for the injection, not a fixed flush().
+    await vi.waitFor(() => expect(mocks.injectBaseTag).toHaveBeenCalled());
     expect(mocks.injectBaseTag).toHaveBeenCalledWith(
       Buffer.from(html, "utf8"),
       5,

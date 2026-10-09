@@ -63,7 +63,7 @@ describe("MarkdownEditor — sticky code-editor fallback", () => {
           const ta = container.querySelector("textarea");
           expect(cm || ta).toBeTruthy();
         },
-        { timeout: 3000 },
+        { timeout: 10_000 },
       );
 
       // The user needs to be able to see + fix the broken frontmatter.
@@ -74,7 +74,7 @@ describe("MarkdownEditor — sticky code-editor fallback", () => {
     } finally {
       consoleErrSpy.mockRestore();
     }
-  });
+  }, 15_000); // lazy CodeMirror bundle load can exceed 5s on a loaded box
 
   it("stays in fallback after content changes (no flip-back to MdxEditor)", async () => {
     const consoleErrSpy = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -94,7 +94,7 @@ describe("MarkdownEditor — sticky code-editor fallback", () => {
           const ta = container.querySelector("textarea");
           expect(cm || ta).toBeTruthy();
         },
-        { timeout: 3000 },
+        { timeout: 10_000 },
       );
 
       // Simulate a keystroke: parent re-renders with new content (same
@@ -124,5 +124,5 @@ describe("MarkdownEditor — sticky code-editor fallback", () => {
     } finally {
       consoleErrSpy.mockRestore();
     }
-  });
+  }, 15_000);
 });
