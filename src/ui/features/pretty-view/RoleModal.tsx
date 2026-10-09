@@ -340,6 +340,8 @@ export function RoleModal({
     }
   }
 
+  const [avatarBust, setAvatarBust] = useState<number | null>(null);
+
   async function onAvatarPick(
     e: React.ChangeEvent<HTMLInputElement>,
   ): Promise<void> {
@@ -353,6 +355,8 @@ export function RoleModal({
     try {
       const { filename } = await updateRoleAvatarByName(hostId, roleName, file);
       await saveCosmeticField({ avatar: filename });
+      // Same <img src> before and after → the browser keeps the old image.
+      setAvatarBust(Date.now());
     } catch (err) {
       toast.error(
         err instanceof Error
@@ -397,7 +401,7 @@ export function RoleModal({
         {/* Avatar with pencil overlay */}
         <div className="relative shrink-0">
           <img
-            src={roleAvatarUrl(hostId, roleName)}
+            src={withAvatarBust(roleAvatarUrl(hostId, roleName), avatarBust)}
             alt=""
             draggable={false}
             data-testid="role-modal-header-avatar"
@@ -663,4 +667,9 @@ export function RoleModal({
       </ModalFoot>
     </Modal>
   );
+}
+
+function withAvatarBust(url: string, bust: number | null): string {
+  if (bust === null) return url;
+  return `${url}${url.includes("?") ? "&" : "?"}v=${bust}`;
 }
