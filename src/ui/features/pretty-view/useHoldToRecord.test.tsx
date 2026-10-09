@@ -23,7 +23,6 @@ import { render, fireEvent, screen, act } from "@testing-library/react";
 import {
   useHoldToRecord,
   HOLD_THRESHOLD_MS,
-  LONG_PRESS_ACTION_THRESHOLD_MS,
   type UseHoldToRecordArgs,
 } from "./useHoldToRecord";
 import type {
@@ -742,46 +741,5 @@ describe("useHoldToRecord", () => {
     expect((args.voice.commitStartVisibility as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
     // onShortTap NOT called on long-press branch.
     expect((args.onShortTap as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
-  });
-
-  it("long-press-action: onLongPress fires at the threshold mid-hold; release and pointercancel afterwards are no-ops", async () => {
-    const onLongPress = vi.fn();
-    const args = makeArgs({ onLongPress, keepRecordingOnShortTap: true });
-    render(<TestConsumer args={args} />);
-    const button = screen.getByTestId("hold-btn");
-    installBoundsShim(button);
-    const cancel = args.voice.cancel as ReturnType<typeof vi.fn>;
-
-    fireEvent.pointerDown(button, { pointerId: 1, clientX: 20, clientY: 20, timeStamp: 0 });
-    act(() => {
-      vi.advanceTimersByTime(LONG_PRESS_ACTION_THRESHOLD_MS - 1);
-    });
-    expect(onLongPress).not.toHaveBeenCalled();
-
-    act(() => {
-      vi.advanceTimersByTime(1);
-    });
-    expect(onLongPress).toHaveBeenCalledTimes(1);
-    expect(cancel).toHaveBeenCalledTimes(1);
-    expect(cancel).toHaveBeenCalledWith({ silent: true });
-    expect(button.getAttribute("data-hold-active")).toBe("false");
-
-    // Release far outside bounds — must not re-fire or cancel again.
-    await act(async () => {
-      fireEvent.pointerUp(button, { pointerId: 1, clientX: 500, clientY: 500, timeStamp: 3000 });
-    });
-    expect(onLongPress).toHaveBeenCalledTimes(1);
-    expect(cancel).toHaveBeenCalledTimes(1);
-    expect(args.onShortTap).not.toHaveBeenCalled();
-
-    // A fresh hold interrupted by pointercancel after firing is also inert.
-    fireEvent.pointerDown(button, { pointerId: 2, clientX: 20, clientY: 20, timeStamp: 4000 });
-    act(() => {
-      vi.advanceTimersByTime(LONG_PRESS_ACTION_THRESHOLD_MS);
-    });
-    expect(onLongPress).toHaveBeenCalledTimes(2);
-    fireEvent.pointerCancel(button, { pointerId: 2 });
-    expect(cancel).toHaveBeenCalledTimes(2);
-    expect(args.voice.commitStartVisibility).not.toHaveBeenCalled();
   });
 });

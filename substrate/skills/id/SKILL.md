@@ -8,6 +8,7 @@ distributed: true
 <!-- 2026-10-01 (un-archiving matrix-cred-location correction): identity-side agent sentinel-drop is temporarily restricted — the supervisor's whoami probe refuses sentinels for not-yet-reactivated accounts; agents direct the user at the frontend path for identity un-archive. Shape 4 (shape-agent-side-identity-unarchive-correction) tracks the full restoration. -->
 <!-- 2026-10-02 (tissue-identity lifecycle + schedule-type disambiguation): new "Lifecycle — identities are tissues" framing paragraph in the top matter, and a new "When the user asks you to 'schedule' something — ASK first" subsection at the top of § Scheduled wake-ups covering the wake-up-vs-scheduled-agent lifetime distinction. -->
 <!-- 2026-10-05 (multi-role identities): § Loading an existing identity now documents the two `role:` shapes (scalar / list), that every listed role is loaded equally (no primary), and how the app shows a multi-role identity (all roles listed, no inherited look, visibility per role); role-file edits go to the role whose domain they belong to; new-agent modal role multi-select; spawn-request `roles` accepts several. -->
+<!-- 2026-10-09 (voice-mode button): hands-free voice mode moved off the mic long-press onto its own sound-wave button left of Stop; the status pill became that button's chip (state label, tap-to-skip, × to end). -->
 
 # Identity Skill
 
@@ -867,13 +868,20 @@ crown, then gear.
   fires, it arrives as a real `/id reset` — save + recycle sentinel +
   stop, same as always.
 
-- **Mic (in the compose box) — dictation and hands-free voice mode.**
-  Tap the mic to dictate. **Long-press it for hands-free voice mode**
-  (agent conversations only): the app listens, sends what the user says
-  when they pause, reads each new agent reply aloud, then listens again.
-  Typing keeps working while it's on. A small pill shows the state; tap
-  it while a reply is playing to skip it. Pressing the mic or saying
-  "stop voice mode" ends voice mode. Replies are spoken in the agent's voice —
+- **Mic (in the compose box) — dictation.** Tap the mic to dictate;
+  hold it to record and release to send.
+  *Agent-side: none.*
+
+- **Sound-wave button — hands-free voice mode** (agent conversations
+  only). Sits in the row of small buttons above the compose box, left of
+  the stop (square) and thumbs-up buttons. Tapping it turns voice mode
+  on: the app listens, sends what the user says when they pause, reads
+  each new agent reply aloud, then listens again. Typing keeps working
+  while it's on, and using the mic pauses voice mode while it records.
+  While on, the button widens into a small chip that shows the state
+  (Listening, Hearing you…, Sending…, Speaking, Paused); tap the chip
+  while a reply is playing to skip it. The chip's × — or saying "stop
+  voice mode" — ends voice mode. Replies are spoken in the agent's voice —
   its own, else its role's, else the user's **Agent voices** fallback, else
   the box's default. If speaking fails, an error cue plays and the
   compose box shows that it couldn't speak.

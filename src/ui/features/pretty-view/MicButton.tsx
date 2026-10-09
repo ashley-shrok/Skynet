@@ -49,11 +49,6 @@ export interface MicButtonProps {
    * so pre-260814-1hz zero-arg callers get byte-identical DOM output.
    */
   dataHoldActive?: boolean;
-  /**
-   * Hands-free voice mode is on (2026-10-06): the icon stays lit and the
-   * button reports aria-pressed so the mode is visible at a glance.
-   */
-  voiceModeActive?: boolean;
 }
 
 export function MicButton({
@@ -66,7 +61,6 @@ export function MicButton({
   onPointerCancel,
   onPointerLeave,
   dataHoldActive,
-  voiceModeActive,
 }: MicButtonProps) {
   // quick-260814-iwy Bug 1 fix: wrap onPointerDown with e.preventDefault() so
   // the browser's native long-press gesture layer (iOS Safari callout menu,
@@ -94,9 +88,6 @@ export function MicButton({
       disabled={disabled}
       aria-label={title || "Record voice"}
       title={title || "Record voice"}
-      {...(voiceModeActive !== undefined
-        ? { "aria-pressed": voiceModeActive, "data-voice-mode": voiceModeActive ? "true" : "false" }
-        : {})}
       {...(dataHoldActive !== undefined
         ? { "data-hold-active": dataHoldActive ? "true" : "false" }
         : {})}
@@ -115,7 +106,6 @@ export function MicButton({
         // — audibly cancelling user's hold-to-record attempt.
         "[-webkit-touch-callout:none]",
         "text-[#f0ebe0] opacity-30 hover:opacity-90",
-        voiceModeActive === true && "opacity-90 text-[#9fd3ff]",
         "disabled:opacity-[0.15]",
         "disabled:cursor-not-allowed",
         "transition-[color,opacity,transform] duration-120",

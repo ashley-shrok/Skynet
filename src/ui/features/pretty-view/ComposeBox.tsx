@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createLogDedup } from "@/lib/log-dedup";
-import { AudioLines, Paperclip, Plus, RefreshCw, RotateCcw, Square, ThumbsUp, X } from "lucide-react";
+import { AudioLines, LoaderCircle, Mic, Paperclip, Pause, Plus, RefreshCw, RotateCcw, SkipForward, Square, ThumbsUp, Volume2, X } from "lucide-react";
 import { Button } from "@/components/button";
 import { Textarea } from "@/components/textarea";
 import { cn } from "@/lib/utils";
@@ -462,10 +462,9 @@ export interface ComposeBoxProps {
   // Value from PrettyView: `status === "error"`.
   reconnectingActive?: boolean;
   /**
-   * Hands-free voice mode feed (2026-10-06). When supplied, long-pressing the
-   * primary mic toggles voice mode (see useVoiceMode) instead of
-   * hold-to-record-and-send. PrettyView supplies it for harness panes only —
-   * relay panes keep hold-to-send.
+   * Hands-free voice mode feed (2026-10-06). When supplied, the aux row shows
+   * the voice-mode toggle/status chip (see useVoiceMode, VoiceModeButton).
+   * PrettyView supplies it for harness panes only.
    *   isWorking — agent-working signal (turn-end chime).
    *   messages  — pane message stream; new assistant replies are spoken.
    *   voices    — voice candidates, identity → role → fallback ([] = provider default).
@@ -606,45 +605,113 @@ const VOICE_MODE_LABEL: Record<VoiceModePhase, string> = {
   listening: "Listening",
   hearing: "Hearing you…",
   transcribing: "Sending…",
-  speaking: "Speaking — tap to skip",
-  paused: "Paused while recording",
+  speaking: "Speaking",
+  paused: "Paused",
 };
 
+// Per-phase glyph tint. Deliberately not amber (VISUAL-08: Send owns amber).
+const VOICE_MODE_COLOR: Record<VoiceModePhase, string> = {
+  off: "var(--color-pv-fg)",
+  starting: "#9fd3ff",
+  listening: "#9fd3ff",
+  hearing: "#d6f0ff",
+  transcribing: "#c9c3ff",
+  speaking: "#a8f0c8",
+  paused: "#8a93a6",
+};
+
+// Same dark blue-gray Glass treatment as the Stop / ThumbsUp aux buttons.
+const AUX_BUTTON_CLASS = cn(
+  "bg-[linear-gradient(160deg,hsla(218,25%,22%,0.85),hsla(218,25%,14%,0.9))]",
+  "text-[color:var(--color-pv-fg)]",
+  "border-[hsla(218,35%,55%,0.35)]",
+  "shadow-[0_4px_12px_rgba(0,0,0,0.6),inset_0_2px_0_rgba(220,225,245,0.3),0_0_24px_hsla(218,40%,55%,0.3)]",
+);
+
 /**
- * Voice-mode status strip. Deliberately small and non-modal: it sits above the
- * compose bar and leaves every other control in place.
+ * Voice-mode toggle in the aux-button row (2026-10-09, replaced the mic
+ * long-press + status pill). Off: an icon button that starts voice mode. On:
+ * the button widens into a chip that IS the status display — phase glyph +
+ * label (a tap on it skips speech while the agent is talking) and an × that
+ * ends voice mode.
  */
-function VoiceModePill({
+function VoiceModeButton({
   phase,
   agentWorking,
+  disabled,
+  onStart,
+  onStop,
   onSkip,
 }: {
   phase: VoiceModePhase;
   agentWorking: boolean;
+  disabled: boolean;
+  onStart: () => void;
+  onStop: () => void;
   onSkip: () => void;
 }) {
-  const label =
-    phase === "listening" && agentWorking ? "Listening (agent working)" : VOICE_MODE_LABEL[phase];
-  const live = phase === "listening" || phase === "hearing";
+  if (phase === "off") {
+    return (
+      <Button
+        size="icon-sm"
+        variant="secondary"
+        onClick={onStart}
+        disabled={disabled}
+        aria-label="Start voice mode"
+        title="Start voice mode"
+        data-testid="voice-mode-button"
+        data-phase="off"
+        className={cn(
+          "cursor-pointer max-md:size-9 [&_svg]:max-md:size-[1.125rem]",
+          AUX_BUTTON_CLASS,
+          "hover:brightness-110",
+        )}
+      >
+        <AudioLines className="size-4" />
+      </Button>
+    );
+  }
+  const busy = phase === "starting" || phase === "transcribing";
+  const Glyph = busy ? LoaderCircle : phase === "speaking" ? Volume2 : phase === "paused" ? Pause : Mic;
+  const label = phase === "listening" && agentWorking ? "Listening · agent working" : VOICE_MODE_LABEL[phase];
+  const speaking = phase === "speaking";
   return (
     <div
-      data-testid="voice-mode-pill"
+      data-testid="voice-mode-button"
       data-phase={phase}
-      role="status"
-      aria-live="polite"
-      className="flex items-center gap-2 self-start rounded-full border border-[rgba(220,225,245,0.18)] bg-[rgba(220,225,245,0.06)] px-3 py-0.5 text-xs text-[#f0ebe0]"
+      className={cn(
+        "flex h-7 max-md:h-9 items-center gap-0.5 rounded-[6px] border pl-1.5 pr-0.5 text-xs whitespace-nowrap",
+        AUX_BUTTON_CLASS,
+      )}
+      style={{ color: VOICE_MODE_COLOR[phase] }}
     >
-      <AudioLines
-        aria-hidden="true"
-        className={cn("size-4", live ? "opacity-90" : "opacity-50", phase === "hearing" && "animate-pulse")}
-      />
       <button
         type="button"
-        onClick={phase === "speaking" ? onSkip : undefined}
-        disabled={phase !== "speaking"}
-        className="opacity-80 disabled:cursor-default enabled:hover:opacity-100"
+        onClick={speaking ? onSkip : undefined}
+        disabled={!speaking}
+        aria-label={speaking ? "Skip speech" : undefined}
+        title={speaking ? "Skip" : undefined}
+        className="flex items-center gap-1.5 rounded px-0.5 py-1 enabled:cursor-pointer enabled:hover:bg-[rgba(220,225,245,0.12)] disabled:cursor-default"
       >
-        Voice mode · {label}
+        <Glyph
+          aria-hidden="true"
+          className={cn(
+            "size-4",
+            busy && "animate-spin",
+            (phase === "hearing" || speaking) && "animate-pulse",
+          )}
+        />
+        <span role="status" aria-live="polite">{label}</span>
+        {speaking && <SkipForward aria-hidden="true" className="size-3.5" />}
+      </button>
+      <button
+        type="button"
+        onClick={onStop}
+        aria-label="End voice mode"
+        title="End voice mode"
+        className="flex items-center rounded p-1 opacity-70 cursor-pointer hover:opacity-100 hover:bg-[rgba(220,225,245,0.12)]"
+      >
+        <X aria-hidden="true" className="size-3.5" />
       </button>
     </div>
   );
@@ -2111,14 +2178,6 @@ export function ComposeBox({
     onLongPressSend: () => {
       void handleVoiceSend("primary");
     },
-    // 2026-10-06: with a voice-mode feed, long-press toggles hands-free voice
-    // mode instead — fired mid-hold at the threshold, not on release.
-    onLongPress: voiceModeFeed
-      ? () => {
-          if (voiceMode.active) voiceMode.stop();
-          else voiceMode.start();
-        }
-      : undefined,
     // quick-260814-iwy: opt in to the short-tap-keep branch. Preserves the
     // pointerdown-started recording so a sub-threshold tap on the mic advances
     // "starting" → "recording" (start.mp3) instead of cancel.mp3.
@@ -2135,13 +2194,6 @@ export function ComposeBox({
     // primary double-arm guard.
     disabled: showTranscribingSend,
   });
-
-  // While hands-free voice mode is on, any press on the primary mic just turns
-  // it off — it must not reach primaryHold (whose short-tap-keep branch would
-  // start a manual recording and swap in RecordingControls). Set on pointerdown
-  // so the desktop click that follows is swallowed too (iOS suppresses that
-  // click via MicButton's preventDefault, hence the reset on every pointerdown).
-  const voiceModeExitPressRef = useRef(false);
 
   // showMicButton — see comment above (L1587). Quick 260814-1hz adds the
   // holdInitiatedRef disjuncts: during a hold-initiated recording,
@@ -2476,6 +2528,19 @@ export function ComposeBox({
               canSend — the stop button must be reachable even when the
               WS is in a half-state; the parent's onInterrupt silently
               no-ops on WS-not-ready. */}
+          {/* 2026-10-09: voice-mode toggle + status chip, left of Stop.
+              Harness panes only (voiceModeFeed is undefined in relay).
+              start() runs inside the click gesture (getUserMedia + audio). */}
+          {voiceModeFeed && (
+            <VoiceModeButton
+              phase={voiceMode.phase}
+              agentWorking={voiceModeFeed.isWorking}
+              disabled={asideActive === true || recycleActive === true || reconnectingActive === true}
+              onStart={voiceMode.start}
+              onStop={voiceMode.stop}
+              onSkip={voiceMode.skipSpeech}
+            />
+          )}
           {onInterrupt && (
             <Button
               size="icon-sm"
@@ -2621,13 +2686,6 @@ export function ComposeBox({
           gradient — never change.
           Phase 93 D-12: Row 2 is byte-identical between mode="harness"
           and mode="relay" (only Row 1 + Paperclip differ). */}
-      {voiceMode.active && (
-        <VoiceModePill
-          phase={voiceMode.phase}
-          agentWorking={voiceModeFeed?.isWorking ?? false}
-          onSkip={voiceMode.skipSpeech}
-        />
-      )}
       <div data-testid="compose-row-2" className="flex items-end gap-2">
         {/* Patch #84: textarea wrapper. The wrapper owns flex sizing
             (`flex-1 self-stretch`) so the pending overlay can position
@@ -2995,12 +3053,7 @@ export function ComposeBox({
                 // guard makes the second call a no-op (belt-and-suspenders
                 // for browsers that fire click without a hook-observable
                 // pointerup pair).
-                onClick={() => {
-                  // voiceMode.active also swallows the desktop click that
-                  // trails a hold which turned voice mode on mid-press.
-                  if (voiceModeExitPressRef.current || voiceMode.active) return;
-                  beginRecord("primary");
-                }}
+                onClick={() => beginRecord("primary")}
                 // quick-260814-o22: setMicTarget MUST fire synchronously BEFORE
                 // the hook's pointerdown. MicButton wraps onPointerDown with
                 // e.preventDefault() (quick-260814-iwy) to suppress iOS Safari's
@@ -3015,30 +3068,14 @@ export function ComposeBox({
                 // invariant that voice.start() (inside primaryHold.onPointerDown)
                 // must be reachable synchronously from the user gesture.
                 onPointerDown={(e) => {
-                  voiceModeExitPressRef.current = voiceMode.active;
-                  if (voiceMode.active) {
-                    voiceMode.stop();
-                    return;
-                  }
                   setMicTarget("primary");
                   primaryHold.onPointerDown(e);
-                  // Unlock voice mode's audio while still inside the gesture —
-                  // it switches on mid-hold from a timer, which isn't one.
-                  if (voiceModeFeed && voice.state === "idle") voiceMode.prime();
                 }}
                 onPointerUp={primaryHold.onPointerUp}
                 onPointerCancel={primaryHold.onPointerCancel}
                 onPointerLeave={primaryHold.onPointerLeave}
                 dataHoldActive={primaryHold.holdActive}
                 disabled={voice.state !== "idle"}
-                title={
-                  voiceMode.active
-                    ? "Voice mode on — tap to turn off"
-                    : voiceModeFeed
-                      ? "Record voice (hold for voice mode)"
-                      : "Record voice"
-                }
-                voiceModeActive={voiceMode.active}
                 positionClass="right-11 bottom-0.5"
               />
             )}
