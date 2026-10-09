@@ -14,8 +14,7 @@
 //
 //   The fetch sends `credentials: "include"` so the auth cookie travels with
 //   the request per fleet cookie-auth convention (matches the app's other
-//   authenticated fetches — e.g. WeeklyUsageMeter L96-111 pattern for GETs
-//   that need the JWT cookie).
+//   authenticated fetches that need the JWT cookie).
 //
 // No console.error on failure — matches branding-fetch philosophy. Silent
 // retain is correct: feedback is a non-essential ambient feature; noisy logs

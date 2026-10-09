@@ -75,8 +75,7 @@
   border-bottom: 1px solid var(--color-pv-border-quiet);
 }
 
-/* Patch 260729-1vd: inner row wrapper holding .pv-title + .pv-header-actions
-   (the original single-row header content), replaced by column-stack approach. */
+/* Inner row wrapper holding .pv-title + .pv-header-actions. */
 .pv-panel-header-row {
   display: flex;
   align-items: center;
@@ -339,73 +338,6 @@
   /* Intentionally empty — the safe defaults on .pv-footer-btn already
      produce the desired "no clickability" appearance. Kept as a hook
      for future style adjustments specific to inert placeholders. */
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   USAGE METER — single-bar fill+tick (user 2026-07-29 pick, B variant from
-   the tune-meter picker with a slight prominence bump before lock-in).
-   Two rows (5h + Week). Each row: full-height warm-coral usage fill +
-   thin cyan tick at the elapsed-time position. One bar, two pieces of info.
-   ═══════════════════════════════════════════════════════════════════════════ */
-
-.pv-usage-meter {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 2px 0 0 0;
-}
-
-.pv-usage-meter-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.pv-usage-meter-label {
-  font: 700 10px/1 inherit;
-  color: #e8e4d8;
-  opacity: 0.75;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  min-width: 36px;
-}
-
-.pv-usage-meter-bar {
-  flex: 1;
-  position: relative;
-  height: 10px;
-  background: rgba(255, 255, 255, 0.08);
-  border-radius: 3px;
-  /* No overflow:hidden — the elapsed tick extends ~2px above and below the
-     bar for a legible target read. The fill has its own border-radius, and
-     widths are clamped in JS + backend, so no defense-in-depth needed here. */
-}
-
-/* Full-height usage fill. Structural bits only (positioning + border-radius);
-   the actual gradient + glow + inset highlight come from inline
-   `background`/`boxShadow` computed per band in WeeklyUsageMeter.tsx
-   (green→amber→red matching the ComposeBox context-window meter). */
-.pv-usage-meter-fill-usage {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  border-radius: 3px;
-}
-
-/* Elapsed-time tick — thin bright cyan vertical marker at the elapsed
-   position. Extends 2px above and below the bar for a clear "target line"
-   read. Prominence bump: 3px wide (was 2px), brighter cyan, stronger glow. */
-.pv-usage-meter-tick {
-  position: absolute;
-  top: -2px;
-  bottom: -2px;
-  width: 3px;
-  transform: translateX(-1.5px);
-  background: hsla(190, 95%, 78%, 1);
-  box-shadow: 0 0 8px hsla(190, 90%, 65%, 0.95);
-  pointer-events: none;
-  border-radius: 1.5px;
 }
 
 .pv-panel-scroll {
@@ -1566,7 +1498,7 @@
   /* Shrink outer header vertical padding on mobile to match the smaller
      48px buttons + 32px logo (user 2026-08-17 follow-up to #459: the
      14px top/bottom read as too much empty space around the shrunken row).
-     Horizontal padding + border-bottom + gap-to-WeeklyUsageMeter unchanged. */
+     Horizontal padding + border-bottom unchanged. */
   .pv-panel-header {
     padding-top: 8px;
     padding-bottom: 8px;
@@ -1636,17 +1568,6 @@
   .pv-avatar .pv-trapped-work-indicator .pv-trapped-work-icon {
     width: 18px;
     height: 18px;
-  }
-
-  /* Patch #270 — bump 5h + weekly usage-meter bar height on mobile per user
-     2026-08-02 verbatim: "increasing the height on the five-hour and weekly
-     usage meters in the header of the conversation list on mobile ... on
-     desktop, their height is decent ... on mobile, they are oddly skinny
-     bars vertically." Desktop 10px stays; mobile 16px = 1.6x, matching the
-     bounty-badge and ready-dot mobile-bump precedents. Tick's ±2px overhang
-     rides the taller bar naturally. Desktop untouched. */
-  .pv-usage-meter-bar {
-    height: 16px;
   }
 
   /* Phase 48 Plan 05: Patch #251's mobile-bump ready-dot rule DELETED — the

@@ -20,8 +20,8 @@
 //     while `useFleetSessionsLoaded()` is still false. Sits above whatever
 //     rows have already arrived (RDP + openTab rows tend to land first
 //     while the fleet enumeration is still in flight). No dedicated
-//     empty-state card — the header chrome (SKYNET logo, pencil, filter,
-//     usage meter) is affordance enough for a truly-empty list.
+//     empty-state card — the header chrome (SKYNET logo, pencil, filter)
+//     is affordance enough for a truly-empty list.
 //   - Header carries a `variant` prop-driven layout:
 //       * variant="mobile"  → pencil icon ONLY (right-aligned); no title
 //       * variant="desktop" → title "Conversations" (left) + pencil (right)
@@ -274,7 +274,6 @@ import { archiveIdentity } from "@/api/identity-archive-api";
 // present so the empty-expanded prompt is discoverable).
 import { AppTile } from "./AppTile";
 import { useAppTiles } from "@/state/app-tiles-store";
-import WeeklyUsageMeter from "./WeeklyUsageMeter";
 // Phase 70 Plan 04: header lockup (small icon + wordmark) now sourced from
 // brandingConfig (Plan 70-03) so operator-provided assets swap in. Prior
 // hardcoded inline-SVG logo import removed — no remaining consumers in this
@@ -620,11 +619,8 @@ export function PrettyConversationsPanel({
   // non-AppShell caller default to "no tab is open" and every drop is a
   // silent no-op.
   openTabIds?: readonly string[];
-  // Feature 09 (per-user usage meter) collapsed 2026-09-04 to an admin-only
-  // visibility gate on the existing single-source WeeklyUsageMeter. Non-admin
-  // users don't see anyone's usage — not their own, not the box aggregate.
   // Sourced from /users/me.is_admin (AppShell state); default false so tests
-  // and any non-AppShell caller render as non-admin (meter hidden).
+  // and any non-AppShell caller render as non-admin (admin-only affordances hidden).
   isAdmin?: boolean;
   // Sidebar-footer "you" anchor — current user's username, sourced from
   // /users/me.username (AppShell state). Feeds both the display name and
@@ -2690,10 +2686,9 @@ export function PrettyConversationsPanel({
             desktop → title (left) + pencil (right)
             mobile  → empty left, pencil only (right)  */}
       <div className="pv-panel-header shrink-0" data-sidebar-toggle-overlaps={sidebarToggleOverlaps ? "true" : "false"}>
-        {/* Plan 260729-1vd: .pv-panel-header-row wraps the original title +
-            actions so the header can stack vertically (column) with the
-            WeeklyUsageMeter below. Patch #142 data-sidebar-toggle-overlaps
-            attribute stays on the outer .pv-panel-header (unchanged). */}
+        {/* .pv-panel-header-row wraps the title + actions. Patch #142
+            data-sidebar-toggle-overlaps attribute stays on the outer
+            .pv-panel-header (unchanged). */}
         <div className="pv-panel-header-row">
           {/* Patch #144 Fix (f): title renders on BOTH mobile and desktop.
               Prior handoff note "deliberately left off per Phase 10 design"
@@ -2742,11 +2737,6 @@ export function PrettyConversationsPanel({
             )}
           </div>
         </div>
-        {/* Plan 260729-1vd (WEEKLY-METER-01): dual-race split-bar meter.
-            Sibling of .pv-panel-header-row, still INSIDE .pv-panel-header.
-            Polls /api/usage every 15s; gracefully retains last values on failure.
-            Feature 09 (2026-09-04): admin-only visibility. */}
-        {isAdmin && <WeeklyUsageMeter />}
       </div>
 
       {/* shape-sidebar-search-inline: sidebar-search input row. Sibling of

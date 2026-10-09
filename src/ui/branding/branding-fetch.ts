@@ -4,8 +4,7 @@
 // (non-2xx, network error, JSON.parse throw, unexpected shape) the fetch is
 // a silent no-op and the store retains its bundled-default sentinel.
 //
-// Unauthenticated (pre-login) — matches
-// src/ui/features/pretty-conversations/WeeklyUsageMeter.tsx L96-111 pattern:
+// Unauthenticated (pre-login) —
 // plain fetch("/api/branding") with no auth wrapper, no JWT header. Backend
 // route is unauthenticated per Plan 70-01 D-05.
 //

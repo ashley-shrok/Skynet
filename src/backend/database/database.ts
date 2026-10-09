@@ -215,9 +215,6 @@ import brandingRoutes from "../branding/branding-routes.js";
 // docker/nginx-https.conf per CLAUDE.md nginx caveat).
 import feedbackRoutes from "../feedback/feedback-routes.js";
 import { getBrandedIndexHtml } from "../branding/branding-template.js";
-// WEEKLY-METER-02: usage collector proxy (plan 260729-1vd).
-// Matching location /api/usage blocks in BOTH nginx configs per CLAUDE.md constraint.
-import usageRoutes from "./routes/usage.js";
 import { createCorsMiddleware } from "../utils/cors-config.js";
 import fs from "fs";
 import path from "path";
@@ -2267,9 +2264,6 @@ app.use("/user-preferences", userPreferencesRoutes);
 // AND docker/nginx-https.conf — see CLAUDE.md nginx caveat. Handler uses head -c bounded remote
 // read for CLAUDE.md fleet-availability protection ("user never loses access to her fleet").
 app.use("/relay-pointer", relayPointerRoutes);
-// WEEKLY-METER-02: usage collector proxy. No auth — collector is IP-gated to the tailnet.
-// See docker/nginx.conf + docker/nginx-https.conf for the matching /api/usage location blocks.
-app.use("/api/usage", usageRoutes);
 app.use("/debug", debugRoutes);
 app.use("/voice", voiceRoutes);
 // Phase 70 (branding-config): unauthenticated pre-login surface. Mounted
