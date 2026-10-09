@@ -2459,10 +2459,43 @@ export function PrettyConversationsPanel({
         (r) => !!(r as { matrixRoomId?: string | null; roomId?: string | null }).matrixRoomId ||
           !!(r as { roomId?: string | null }).roomId,
       );
-      // 4. Build the single-batch Promise.allSettled ops. Identity members
-      //    call archiveIdentity(hostId, identityKey); relay-room members
-      //    call setRelayRoomProject(roomId, mxid, null) (Fix 3 — tag clear
-      //    instead of Matrix-room deactivate; the room itself survives).
+      // 4. Folder move FIRST. If it fails (host unreachable, destination
+      //    clash), nothing has been archived yet and the user can retry —
+      //    the old members-first order archived every conversation and then
+      //    left the project behind with no error shown. hostId comes from the
+      //    project's own row (D-01; M7: never infer it).
+      const proj = projectsList.find((p) => p.slug === slug);
+      const projHostIdNum = proj ? parseInt(proj.hostId, 10) : NaN;
+      if (!proj || !(Number.isFinite(projHostIdNum) && projHostIdNum > 0)) {
+        console.warn({
+          operation: "archive_project_folder_move_skipped_no_host",
+          slug,
+          reason: proj
+            ? "project host invalid"
+            : "project not found in projectsList",
+        });
+        window.alert("Couldn't archive this project — its host couldn't be determined. Nothing was archived.");
+        return;
+      }
+      try {
+        await archiveProject(projHostIdNum, slug);
+      } catch (err) {
+        console.error({
+          operation: "archive_project_folder_move_failed",
+          slug,
+          hostId: projHostIdNum,
+          errMessage: err instanceof Error ? err.message : "unknown",
+        });
+        window.alert(
+          `Couldn't archive this project: ${err instanceof Error ? err.message : String(err)}. Nothing was archived.`,
+        );
+        return;
+      }
+      // 5. Member ops in one Promise.allSettled batch. Identity members get
+      //    the same optimistic removal as a single-row archive (pending mark
+      //    + row drop), so they don't fall into the unassigned list for the
+      //    ~15s until the supervisor retires them. Relay-room members get a
+      //    tag clear (Fix 3 — the room itself survives).
       const ops: Promise<unknown>[] = [];
       const hostForRow = (
         row: { host?: { id: string } | null; targetTmuxSession?: string | null },
@@ -2474,12 +2507,20 @@ export function PrettyConversationsPanel({
           ? sessionMatchKey(row.targetTmuxSession) ?? row.targetTmuxSession
           : null;
         if (!key) return null;
-        return { hostId: n, identityKey: key };
+        return { hostId: n, identityKey: key, sessionName: row.targetTmuxSession as string };
       };
       for (const r of identityMembers) {
         const parsed = hostForRow(r);
         if (!parsed) continue;
-        ops.push(archiveIdentity(parsed.hostId, parsed.identityKey));
+        markPendingArchive(parsed.hostId, parsed.sessionName);
+        removeFleetSession(parsed.hostId, parsed.sessionName);
+        applyIdentityChange(null, parsed.identityKey, parsed.hostId);
+        ops.push(
+          archiveIdentity(parsed.hostId, parsed.identityKey).catch((err: unknown) => {
+            clearPendingArchive(parsed.hostId, parsed.sessionName);
+            throw err;
+          }),
+        );
       }
       // relay-room tag-clear ops require the viewing user's mxid (D-05a).
       if (relayRoomMembers.length > 0) {
@@ -2499,11 +2540,11 @@ export function PrettyConversationsPanel({
             // Fix 3 gate: setRelayRoomProject(roomId, mxid, null) is the
             // canonical tag-clear call. The literal `null` third arg is
             // asserted by the acceptance grep on this file.
+            patchRoomProjectAssignment(roomId, null);
             ops.push(setRelayRoomProject(roomId, viewingUserMxid, null));
           }
         }
       }
-      // 5. Await the single batch.
       const results = await Promise.allSettled(ops);
       const failures = results.filter((r) => r.status === "rejected");
       if (failures.length > 0) {
@@ -2520,45 +2561,9 @@ export function PrettyConversationsPanel({
               : "",
           ),
         });
-      }
-      // 6. Folder-move regardless of partial failures. hostId comes from
-      //    the project's own hostId (D-01: projects live under a specific
-      //    host's ~/fleet/projects/ tree). Look up the ProjectRow by slug
-      //    from useProjects.
-      //
-      // Phase 117 M7 fix (2026-09-18): pre-fix, if projectsList did not
-      // contain the slug (which "should never happen"), the code fell
-      // back to the panel-inferred "first host in hostTree" hostId — a
-      // DIFFERENT host than the one the project actually lives on. That
-      // fallback would silently fail or, worse, archive a same-slug
-      // project on the wrong host. (That inferred-hostId derivation was
-      // retired in M-G when CreateProjectModal grew its own host picker.)
-      // Correct behavior: if we cannot resolve the project's host, log a
-      // warning and RETURN early. Better to skip the folder-move than to
-      // archive on the wrong host. The identity-side ops (Section 4-5
-      // above) already ran, so the member conversations are archived;
-      // the on-disk project directory itself just doesn't move.
-      const proj = projectsList.find((p) => p.slug === slug);
-      const projHostIdNum = proj ? parseInt(proj.hostId, 10) : NaN;
-      if (!proj || !(Number.isFinite(projHostIdNum) && projHostIdNum > 0)) {
-        console.warn({
-          operation: "archive_project_folder_move_skipped_no_host",
-          slug,
-          reason: proj
-            ? "project host invalid"
-            : "project not found in projectsList",
-        });
-        return;
-      }
-      try {
-        await archiveProject(projHostIdNum, slug);
-      } catch (err) {
-        console.error({
-          operation: "archive_project_folder_move_failed",
-          slug,
-          hostId: projHostIdNum,
-          errMessage: err instanceof Error ? err.message : "unknown",
-        });
+        window.alert(
+          `The project was archived, but ${failures.length} of its ${ops.length} conversation${ops.length === 1 ? "" : "s"} couldn't be archived — they're back in the sidebar.`,
+        );
       }
     },
     [projectSections, projectsList, viewingUserMxid],

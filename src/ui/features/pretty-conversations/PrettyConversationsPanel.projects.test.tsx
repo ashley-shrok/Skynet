@@ -117,6 +117,7 @@ vi.mock("@/state/identities-store", () => ({
   }),
   deriveDiskPinnedIds: () => [],
   buildIdentityHostsFromFleet: () => ({}),
+  applyIdentityChange: () => {},
   refreshIdentities: (extra?: Record<string, number>) =>
     refreshIdentitiesSpy(extra),
 }));
@@ -215,6 +216,9 @@ let mockFleetSessionsLoaded = true;
 
 vi.mock("@/state/conversation-store", () => ({
   patchRoomProjectAssignment: () => () => {},
+  markPendingArchive: () => {},
+  clearPendingArchive: () => {},
+  removeFleetSession: () => {},
   useConversations: () => ({
     activeSet: snapshot.activeSet,
     pinned: snapshot.pinned,
@@ -1500,7 +1504,7 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
     );
   });
 
-  it("A9 Test 2 (cascade fires N archiveIdentity + archiveProject after): 3 identity members → 3 archiveIdentity + 1 archiveProject", async () => {
+  it("A9 Test 2 (cascade: archiveProject first, then N archiveIdentity): 3 identity members → 3 archiveIdentity + 1 archiveProject", async () => {
     const hostA = makeHost("1", "hostA");
     const row1 = makeRow({ id: "r1", host: hostA, targetTmuxSession: "wren" });
     const row2 = makeRow({ id: "r2", host: hostA, targetTmuxSession: "sparrow" });
@@ -1534,9 +1538,45 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
     expect(archiveIdentity).toHaveBeenCalledTimes(3);
     expect(archiveProjectSpy).toHaveBeenCalledTimes(1);
     expect(archiveProjectSpy).toHaveBeenCalledWith(1, "alpha");
+    // Folder move goes first so a failed move archives nothing.
+    const idOrder = (archiveIdentity as unknown as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0];
+    expect(archiveProjectSpy.mock.invocationCallOrder[0]).toBeLessThan(idOrder);
   });
 
-  it("A9 Test 3 (partial failure): 1 archiveIdentity throws → archiveProject STILL fires; console.error logs", async () => {
+  it("A9 Test 2b (folder move fails): NO member is archived and the user is alerted", async () => {
+    const hostA = makeHost("1", "hostA");
+    const row1 = makeRow({ id: "r1", host: hostA, targetTmuxSession: "wren" });
+    setSnapshot({
+      projectSections: [{ slug: "alpha", displayName: "Alpha", rows: [row1] }],
+    });
+    mockProjects = [
+      { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false },
+    ];
+    confirmSpy.mockReturnValue(true);
+    archiveProjectSpy.mockRejectedValueOnce(new Error("archive destination already exists"));
+    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const { container } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={HOST_TREE}
+        onCreateSession={() => {}}
+        onDeactivateRow={() => {}}
+      />,
+    );
+    await openProjectKebabAndClickItem(container, "alpha", "Archive project");
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+
+    const { archiveIdentity } = await import("@/api/identity-archive-api");
+    expect(archiveIdentity).not.toHaveBeenCalled();
+    expect(alertSpy).toHaveBeenCalledWith(expect.stringMatching(/Nothing was archived/));
+    alertSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
+
+  it("A9 Test 3 (partial failure): 1 archiveIdentity throws → console.error logs + user alerted", async () => {
     const hostA = makeHost("1", "hostA");
     const row1 = makeRow({ id: "r1", host: hostA, targetTmuxSession: "wren" });
     const row2 = makeRow({ id: "r2", host: hostA, targetTmuxSession: "sparrow" });
@@ -1579,7 +1619,7 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
     errorSpy.mockRestore();
   });
 
-  it("A9 Test 3a (Fix 3 — mixed identity + relay-room cascade): BOTH archiveIdentity + setRelayRoomProject(null) fire before archiveProject", async () => {
+  it("A9 Test 3a (Fix 3 — mixed identity + relay-room cascade): archiveProject first, then BOTH archiveIdentity + setRelayRoomProject(null)", async () => {
     const hostA = makeHost("1", "hostA");
     const identityRow = makeRow({
       id: "identity-1",

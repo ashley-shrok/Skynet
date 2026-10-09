@@ -1049,36 +1049,22 @@ export async function archiveProject(
     const root = getLocalProjectsRoot();
     const archiveRoot = path.join(root, "archive");
     const src = path.join(root, slug);
-    const dest = path.join(archiveRoot, slug);
     await fs.mkdir(archiveRoot, { recursive: true });
 
-    // Phase 117 M1 fix (2026-09-18): probe archive destination BEFORE
-    // rename. Pre-fix, POSIX fs.rename onto an existing directory has
-    // varied semantics across platforms; more importantly, if a project
-    // named "foo" is archived, a new "foo" is created, then archived
-    // again, some implementations silently NEST the second archive
-    // inside the first (~/fleet/projects/archive/foo/foo/...) — the
-    // docblock explicitly promised "Does NOT overwrite" so we throw
-    // EEXIST here to make the invariant load-bearing.
-    let destExists = false;
-    try {
-      await fs.stat(dest);
-      destExists = true;
-    } catch (err: unknown) {
-      if (
-        !(
-          typeof err === "object" &&
-          err !== null &&
-          (err as NodeJS.ErrnoException).code === "ENOENT"
-        )
-      ) {
+    // Never rename onto an existing directory (POSIX nests src inside it —
+    // the M1 nested-corruption bug). But a re-created slug that was archived
+    // before is normal (listProjects ignores archive/, so the slug is free
+    // again) — refusing used to fail the folder move AFTER the panel's
+    // cascade had already archived every member. Archived projects are not
+    // addressed by slug anywhere, so suffix the destination instead.
+    let dest = path.join(archiveRoot, slug);
+    if (await pathExists(dest)) {
+      dest = path.join(archiveRoot, `${slug}-${archiveStamp()}`);
+      if (await pathExists(dest)) {
+        const err = new Error(`archive destination already exists: ${dest}`);
+        (err as NodeJS.ErrnoException).code = "EEXIST";
         throw err;
       }
-    }
-    if (destExists) {
-      const err = new Error(`archive slug already exists: ${slug}`);
-      (err as NodeJS.ErrnoException).code = "EEXIST";
-      throw err;
     }
 
     await fs.rename(src, dest);
@@ -1091,26 +1077,40 @@ export async function archiveProject(
   // PROJECT_SLUG_RE ([a-z0-9-]) blocks all shell metacharacters in the
   // slug, so double-quoted interpolation is safe.
   //
-  // Phase 117 M1 fix (2026-09-18): probe archive destination BEFORE
-  // mv. POSIX `mv src dest` where dest is an existing directory moves
-  // src INSIDE dest (dest/basename(src)) — a silent nested-corruption
-  // bug when a slug is archived twice. Throw EEXIST if the archive
-  // destination already exists.
-  const probeOut = (
-    await execWithTimeout(
-      conn,
-      `test -d "$HOME/fleet/projects/archive/${slug}" && echo ok || echo missing`,
-    )
-  ).trim();
-  if (probeOut === "ok") {
-    const err = new Error(`archive slug already exists: ${slug}`);
+  // Same destination rule as the local branch: suffix on collision, and
+  // refuse (exit 17) rather than mv onto an existing dir (mv would nest).
+  const stamp = archiveStamp();
+  const cmd =
+    `mkdir -p "$HOME/fleet/projects/archive" && ` +
+    `d="$HOME/fleet/projects/archive/${slug}"; ` +
+    `if [ -e "$d" ]; then d="$d-${stamp}"; fi; ` +
+    `if [ -e "$d" ]; then echo EEXIST; exit 17; fi; ` +
+    `mv "$HOME/fleet/projects/${slug}" "$d" && echo ok`;
+  const out = (await execWithTimeout(conn, cmd)).trim();
+  if (out.endsWith("EEXIST")) {
+    const err = new Error(`archive destination already exists for slug: ${slug}`);
     (err as NodeJS.ErrnoException).code = "EEXIST";
     throw err;
   }
-  const cmd =
-    `mkdir -p "$HOME/fleet/projects/archive" && ` +
-    `mv "$HOME/fleet/projects/${slug}" "$HOME/fleet/projects/archive/${slug}"`;
-  await execWithTimeout(conn, cmd);
+  if (!out.endsWith("ok")) {
+    // mv failed (missing source, permissions) — don't report success.
+    throw new Error(`archive move failed for slug: ${slug}`);
+  }
+}
+
+/** UTC compact timestamp for archive-collision suffixes, e.g. 20261009T041500Z. */
+function archiveStamp(): string {
+  return new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
+}
+
+async function pathExists(p: string): Promise<boolean> {
+  try {
+    await fs.stat(p);
+    return true;
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException)?.code === "ENOENT") return false;
+    throw err;
+  }
 }
 
 // ---------------------------------------------------------------------------
