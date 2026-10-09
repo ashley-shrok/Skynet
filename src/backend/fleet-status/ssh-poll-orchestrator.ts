@@ -2264,6 +2264,28 @@ export function createSshPollOrchestrator(
       return { ok: false, reason: "schema-mismatch" };
     }
 
+    // Source E — publish this host's project list every successful tick. The
+    // /projects HTTP routes publish on their own writes, but a project created
+    // straight on disk (agent mkdir + project.md) has no other path to open
+    // clients. The registry's per-host deep-equal skip makes steady-state
+    // ticks a no-op. null = older sweep / enumeration failed → publish
+    // nothing (never read as "zero projects"). Sits BEFORE the empty-output
+    // check so a host with projects but no identities still publishes, and
+    // does not participate in that check (the heuristic stays as it was).
+    if (parsed.projectList !== null) {
+      deps.registry.publishProjectListChanged(
+        host.id,
+        parsed.projectList.projects.map((p) => ({
+          slug: p.slug,
+          displayName: p.display_name,
+          hostId: host.id,
+          hostname: host.name,
+          archived: false,
+          users: p.users,
+        })),
+      );
+    }
+
     // Empty output disambiguation: freshly-provisioned or empty box vs
     // broken script. Prior-tick evidence of content (livenessMap or
     // identityRecycleState non-empty) → treat empty as suspicious and fall

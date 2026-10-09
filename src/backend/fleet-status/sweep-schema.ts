@@ -356,11 +356,30 @@ export interface SweepInteractiveMessageLine {
 // Union + narrow validator
 // ---------------------------------------------------------------------------
 
+/**
+ * Source E: the host's full non-archived project list, ONE line per tick from
+ * `_enumerate_projects` in `fleet-status-sweep.py`. A single array-carrying
+ * line (not one line per project) so "zero projects" (line present, empty
+ * array) is distinguishable from "older sweep that doesn't enumerate projects"
+ * (line absent). Lets projects created straight on disk reach open clients —
+ * the /projects HTTP routes are not the only way a project appears.
+ */
+export interface SweepProjectListLine {
+  line_kind: "project-list";
+  schema_version: SweepSchemaVersion;
+  projects: Array<{
+    slug: string;
+    display_name: string;
+    users: string[] | null;
+  }>;
+}
+
 export type SweepLine =
   | SweepIdentityLine
   | SweepPidLine
   | SweepAppLine
-  | SweepInteractiveMessageLine;
+  | SweepInteractiveMessageLine
+  | SweepProjectListLine;
 
 /**
  * Narrow type-guard used by parseSweepJsonl (and available to tests). Returns
@@ -382,7 +401,8 @@ export function isSweepLineOfCurrentSchema(obj: unknown): obj is SweepLine {
     rec.line_kind === "identity" ||
     rec.line_kind === "pid" ||
     rec.line_kind === "app" ||
-    rec.line_kind === "interactive-message"
+    rec.line_kind === "interactive-message" ||
+    rec.line_kind === "project-list"
   );
 }
 
@@ -410,6 +430,12 @@ export interface SweepParseResult {
    * for the `/interactive/` proxy router (Plan 137-03).
    */
   interactiveMessageLines: SweepInteractiveMessageLine[];
+  /**
+   * Source E: the host's project list, or null when the sweep emitted no
+   * well-formed `project-list` line (older script, or enumeration failed).
+   * null means "unknown — keep the last picture", NOT "zero projects".
+   */
+  projectList: SweepProjectListLine | null;
   /**
    * Count of JSON-parseable lines whose `line_kind` was neither "identity",
    * "pid", "app", nor "interactive-message". Observability only; not a failure
@@ -456,6 +482,7 @@ export function parseSweepJsonl(raw: string): SweepParseResult {
   // `_enumerate_widgets`. Sibling to the other arrays; the empty-input fast-
   // path returns this array so consumers can safely destructure it.
   const interactiveMessageLines: SweepInteractiveMessageLine[] = [];
+  let projectList: SweepProjectListLine | null = null;
   let unknownLines = 0;
   let schemaMismatch = false;
 
@@ -465,6 +492,7 @@ export function parseSweepJsonl(raw: string): SweepParseResult {
       pidLines,
       appLines,
       interactiveMessageLines,
+      projectList,
       unknownLines,
       schemaMismatch,
     };
@@ -515,6 +543,14 @@ export function parseSweepJsonl(raw: string): SweepParseResult {
       // Downstream (Plan 137-02 registry adapter → Zod schema) is the
       // runtime-validation gate for the 6-field source-D shape.
       interactiveMessageLines.push(parsed as SweepInteractiveMessageLine);
+    } else if (rec.line_kind === "project-list") {
+      // Source E: unlike the lenient casts above, validate here — a malformed
+      // array would otherwise be published as the host's whole project list
+      // and wipe its sidebar sections. Bad entries drop the line entirely
+      // (projectList stays null = "keep last picture").
+      if (isWellFormedProjectList(rec.projects)) {
+        projectList = parsed as SweepProjectListLine;
+      }
     } else {
       // Unknown line_kind at the current schema version — forward-compat
       // marker, not a failure. Bump the counter for observability.
@@ -527,9 +563,26 @@ export function parseSweepJsonl(raw: string): SweepParseResult {
     pidLines,
     appLines,
     interactiveMessageLines,
+    projectList,
     unknownLines,
     schemaMismatch,
   };
+}
+
+function isWellFormedProjectList(
+  raw: unknown,
+): raw is SweepProjectListLine["projects"] {
+  if (!Array.isArray(raw)) return false;
+  return raw.every((p: unknown) => {
+    if (p === null || typeof p !== "object") return false;
+    const r = p as Record<string, unknown>;
+    return (
+      typeof r.slug === "string" &&
+      typeof r.display_name === "string" &&
+      (r.users === null ||
+        (Array.isArray(r.users) && r.users.every((u) => typeof u === "string")))
+    );
+  });
 }
 
 // ---------------------------------------------------------------------------

@@ -1965,6 +1965,72 @@ def _enumerate_widgets(home):
     return out
 
 
+# ---------------------------------------------------------------------------
+# Source E: ~/fleet/projects/* enumeration — ONE `project-list` line per tick.
+# ---------------------------------------------------------------------------
+#
+# Projects created straight on disk (an agent doing mkdir + write project.md,
+# as the id skill permits) never went through the /projects HTTP route, so no
+# project-list-changed frame ever fired and open clients never learned of the
+# project until reload. Emitting the full list every tick lets the orchestrator
+# publish it; the registry's per-host deep-equal skip keeps steady state silent.
+#
+# A single line carrying the whole array (not one line per project) so the
+# backend can tell "zero projects" (line present, empty array) from "older
+# sweep that doesn't enumerate projects" (line absent) — the latter must never
+# be read as "every project on this host vanished".
+#
+# Parity with listProjects in identity-artifact-reader.ts: non-archive dirs
+# matching PROJECT_SLUG_RE, sorted by slug; displayName falls back to the slug;
+# users is a list of strings or null.
+PROJECT_ENUM_CAP = 500
+
+
+def _enumerate_projects(home):
+    """Return the `project-list` line dict, or None if enumeration failed.
+
+    An absent ~/fleet/projects/ is a valid empty state → line with []. Any
+    other scandir failure → None (emit nothing; the backend keeps its last
+    picture rather than publishing a bogus empty list).
+    """
+    root = os.path.join(home, "fleet", "projects")
+    slugs = []
+    try:
+        with os.scandir(root) as it:
+            for entry in it:
+                if not entry.is_dir(follow_symlinks=False):
+                    continue
+                if entry.name == "archive" or not PROJECT_SLUG_RE.match(entry.name):
+                    continue
+                slugs.append(entry.name)
+                if len(slugs) >= PROJECT_ENUM_CAP:
+                    _log("fleet_status_projects_cap_hit", cap=PROJECT_ENUM_CAP)
+                    break
+    except FileNotFoundError:
+        pass
+    except OSError as e:
+        _log("projects_scandir_failed", errno=e.errno)
+        return None
+
+    projects = []
+    for slug in sorted(slugs):
+        cosmetics, _role = _read_frontmatter_cosmetics(
+            os.path.join(root, slug, "project.md"), ("displayName", "users"),
+        )
+        cosmetics = cosmetics or {}
+        display_name = cosmetics.get("displayName") or slug
+        users = cosmetics.get("users")
+        if not (isinstance(users, list) and all(isinstance(u, str) for u in users)):
+            users = None
+        projects.append({"slug": slug, "display_name": display_name, "users": users})
+
+    return {
+        "line_kind": "project-list",
+        "schema_version": SCHEMA_VERSION,
+        "projects": projects,
+    }
+
+
 def _emit(record):
     """Write one JSON line to stdout — compact, terminated with \\n."""
     sys.stdout.write(json.dumps(record, separators=(",", ":")))
@@ -2071,6 +2137,11 @@ def main():
     #      easy to find on future reads (D-14 additive-newest-last discipline).
     for line in widget_records:
         _emit(line)
+
+    # ---- Source E: one project-list line (absent only on scandir failure).
+    project_list_line = _enumerate_projects(home)
+    if project_list_line is not None:
+        _emit(project_list_line)
 
     sys.stdout.flush()
     return 0

@@ -271,6 +271,7 @@ describe("parseSweepJsonl — empty input", () => {
       pidLines: [],
       appLines: [],
       interactiveMessageLines: [],
+      projectList: null,
       unknownLines: 0,
       schemaMismatch: false,
     });
@@ -285,6 +286,7 @@ describe("parseSweepJsonl — empty input", () => {
       pidLines: [],
       appLines: [],
       interactiveMessageLines: [],
+      projectList: null,
       unknownLines: 0,
       schemaMismatch: false,
     });
@@ -1013,5 +1015,49 @@ describe("Phase 137 Plan 137-01: isSweepLineOfCurrentSchema interactive-message"
   it("rejects interactive-message line with no schema_version", () => {
     const { schema_version: _, ...noVersion } = makeInteractiveMessageLine();
     expect(isSweepLineOfCurrentSchema(noVersion)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Source E: `line_kind: "project-list"` — one line carrying the host's full
+// non-archived project list. Absent / malformed → projectList null ("unknown,
+// keep last picture"), never an empty list.
+// ---------------------------------------------------------------------------
+describe("parseSweepJsonl — project-list dispatch", () => {
+  const line = (projects: unknown) =>
+    JSON.stringify({ line_kind: "project-list", schema_version: 1, projects });
+
+  it("captures a well-formed project-list line", () => {
+    const r = parseSweepJsonl(
+      line([
+        { slug: "a", display_name: "A", users: ["ashley"] },
+        { slug: "b", display_name: "b", users: null },
+      ]) + "\n",
+    );
+    expect(r.projectList?.projects).toEqual([
+      { slug: "a", display_name: "A", users: ["ashley"] },
+      { slug: "b", display_name: "b", users: null },
+    ]);
+    expect(r.unknownLines).toBe(0);
+  });
+
+  it("an empty array is a real zero-projects picture, not null", () => {
+    expect(parseSweepJsonl(line([])).projectList?.projects).toEqual([]);
+  });
+
+  it("is null when the sweep emits no project-list line (older script)", () => {
+    expect(parseSweepJsonl("").projectList).toBeNull();
+  });
+
+  it("drops a malformed project-list line rather than publishing it", () => {
+    expect(parseSweepJsonl(line("nope")).projectList).toBeNull();
+    expect(parseSweepJsonl(line([{ slug: "a" }])).projectList).toBeNull();
+    expect(
+      parseSweepJsonl(line([{ slug: "a", display_name: "A", users: [1] }])).projectList,
+    ).toBeNull();
+  });
+
+  it("isSweepLineOfCurrentSchema accepts a project-list line", () => {
+    expect(isSweepLineOfCurrentSchema(JSON.parse(line([])))).toBe(true);
   });
 });

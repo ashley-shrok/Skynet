@@ -28,7 +28,7 @@ import {
   scanSpawnRequests,
 } from "./ssh-poll-orchestrator.js";
 import type { PendingBirth } from "../spawn-requests/types.js";
-import type { SubscriptionRegistry } from "./subscription-registry.js";
+import type { SubscriptionRegistry, ProjectListEntry } from "./subscription-registry.js";
 import type { AppState, SessionState, WidgetState } from "./wire-protocol.js";
 import type { HostRecord } from "./host-id-resolver.js";
 import {
@@ -43,6 +43,7 @@ import {
   type SweepAppLine,
   type SweepIdentityLine,
   type SweepInteractiveMessageLine,
+  type SweepProjectListLine,
   type SweepPidLine,
   type SweepStatResult,
 } from "./sweep-schema.js";
@@ -272,6 +273,13 @@ class MockRegistry implements SubscriptionRegistry {
     this.publishedAppGone.push({ hostId, slug });
   }
 
+  // Source E — project-list publishes from the sweep's project-list line.
+  publishedProjectLists: Array<{ hostId: string; projects: ProjectListEntry[] }> = [];
+
+  publishProjectListChanged(hostId: string, projects: ProjectListEntry[]): void {
+    this.publishedProjectLists.push({ hostId, projects });
+  }
+
   // Pre-existing registry content (from a previous poller) — lets tests
   // exercise the first-sweep registry reconcile.
   seededApps: AppState[] = [];
@@ -393,6 +401,8 @@ function makeSweepJsonl(input: {
   // Partial-with-required-key discipline. Defaults describe a healthy widget
   // on port 9601; every field can be overridden per-entry.
   widgets?: Array<Partial<SweepInteractiveMessageLine> & { slug: string }>;
+  // Source E — when set, emits ONE project-list line carrying this array.
+  projectList?: SweepProjectListLine["projects"];
   schemaVersionOverride?: number;
 }): string {
   const version = (input.schemaVersionOverride ?? SWEEP_SCHEMA_VERSION) as 1;
@@ -486,6 +496,14 @@ function makeSweepJsonl(input: {
       port: raw.port ?? 9601,
       is_healthy: raw.is_healthy ?? true,
       created_at_ms: raw.created_at_ms ?? 1_700_000_000_000,
+    };
+    lines.push(JSON.stringify(line));
+  }
+  if (input.projectList !== undefined) {
+    const line: SweepProjectListLine = {
+      line_kind: "project-list",
+      schema_version: version,
+      projects: input.projectList,
     };
     lines.push(JSON.stringify(line));
   }
@@ -8134,6 +8152,74 @@ describe("Phase 92 — batch sweep dispatch", () => {
   //        connection-lifetime latch as identity+pid schema mismatches — the
   //        batch path abandons this SSH channel until reconnect.
   // -------------------------------------------------------------------------
+
+  // Source E — projects created straight on disk reach open clients via the
+  // sweep's project-list line (the /projects HTTP routes aren't the only way
+  // a project appears).
+  it("project-list line publishes the host's project list (camelCased, hostname stamped)", async () => {
+    const channel = new MockSshChannel();
+    wireBatchProbe(channel, true);
+    channel.setResponse(
+      "~/.local/bin/fleet-status-sweep 2>/dev/null",
+      makeSweepJsonl({
+        identities: [{ identity: "alpha" }],
+        pids: [],
+        projectList: [
+          { slug: "new-proj", display_name: "New Proj", users: ["ashley"] },
+          { slug: "open", display_name: "open", users: null },
+        ],
+      }),
+    );
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+    });
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(deps.registry.publishedProjectLists).toEqual([
+      {
+        hostId: "host-1",
+        projects: [
+          { slug: "new-proj", displayName: "New Proj", hostId: "host-1", hostname: "testhost", archived: false, users: ["ashley"] },
+          { slug: "open", displayName: "open", hostId: "host-1", hostname: "testhost", archived: false, users: null },
+        ],
+      },
+    ]);
+  });
+
+  it("project-list with zero projects publishes an empty list even on an otherwise-empty box", async () => {
+    const channel = new MockSshChannel();
+    wireBatchProbe(channel, true);
+    channel.setResponse(
+      "~/.local/bin/fleet-status-sweep 2>/dev/null",
+      makeSweepJsonl({ identities: [], pids: [], projectList: [] }),
+    );
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+    });
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(deps.registry.publishedProjectLists).toEqual([
+      { hostId: "host-1", projects: [] },
+    ]);
+  });
+
+  it("no project-list line (older sweep) publishes nothing — never read as zero projects", async () => {
+    const channel = new MockSshChannel();
+    wireBatchProbe(channel, true);
+    channel.setResponse(
+      "~/.local/bin/fleet-status-sweep 2>/dev/null",
+      makeSweepJsonl({ identities: [{ identity: "alpha" }], pids: [] }),
+    );
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+    });
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(deps.registry.publishedProjectLists).toHaveLength(0);
+  });
 
   it("Test P118-04-A1: first tick with two app lines fires publishAppUpdate twice + publishAppGoneByHostSlug zero times", async () => {
     const channel = new MockSshChannel();
