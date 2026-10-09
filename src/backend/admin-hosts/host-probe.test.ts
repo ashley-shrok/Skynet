@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import net from "node:net";
-import { parseProbeOutput, tcpPing } from "./host-probe.js";
+import { execFileSync } from "node:child_process";
+import { PROBE_COMMAND, REMOTE_PROBE_COMMAND, parseProbeOutput, tcpPing } from "./host-probe.js";
 
 const FLEET_OUTPUT = [
   "os=Ubuntu 24.04.4 LTS",
@@ -77,5 +78,17 @@ describe("tcpPing", () => {
     expect(await tcpPing("127.0.0.1", port)).toBeTypeOf("number");
     await new Promise<void>((r) => server.close(() => r()));
     expect(await tcpPing("127.0.0.1", port, 500)).toBeNull();
+  });
+});
+
+describe("REMOTE_PROBE_COMMAND", () => {
+  it("runs from a non-bash shell and yields the same parseable output", () => {
+    const viaSh = execFileSync("sh", ["-c", REMOTE_PROBE_COMMAND]).toString();
+    const direct = execFileSync("bash", ["-c", PROBE_COMMAND]).toString();
+    const a = parseProbeOutput(viaSh)!;
+    const b = parseProbeOutput(direct)!;
+    expect(a).not.toBeNull();
+    expect(a.resources.os).toBe(b.resources.os);
+    expect(a.resources.cores).toBe(b.resources.cores);
   });
 });

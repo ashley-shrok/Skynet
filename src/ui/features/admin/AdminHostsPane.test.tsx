@@ -133,6 +133,21 @@ describe("AdminHostsPane", () => {
     );
   });
 
+  it("skips polls while the browser tab is hidden", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+    render(<AdminHostsPane />);
+    await screen.findByTestId("admin-hosts-summary");
+    expect(m.getAdminHosts).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(31_000);
+    expect(m.getAdminHosts).toHaveBeenCalledTimes(1);
+    hidden.mockReturnValue(false);
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(m.getAdminHosts).toHaveBeenCalledTimes(2);
+    hidden.mockRestore();
+    vi.useRealTimers();
+  });
+
   it("shows an error when the overview fails to load", async () => {
     m.getAdminHosts.mockRejectedValue(new Error("boom"));
     render(<AdminHostsPane />);
@@ -141,13 +156,11 @@ describe("AdminHostsPane", () => {
 });
 
 describe("needsAttention", () => {
-  it("flags high CPU load against core count", () => {
-    const busy = host({
-      key: "n",
-      name: "n",
-      resources: { ...host({ key: "", name: "" }).resources!, load1: 3.2, cores: 4 },
-    });
-    expect(needsAttention(busy)).toBe(true);
+  it("flags CPU only once load reaches the core count", () => {
+    const withLoad = (load1: number) =>
+      host({ key: "n", name: "n", resources: { ...host({ key: "", name: "" }).resources!, load1, cores: 4 } });
+    expect(needsAttention(withLoad(3.2))).toBe(false);
+    expect(needsAttention(withLoad(4.1))).toBe(true);
     expect(needsAttention(host({ key: "ok", name: "ok" }))).toBe(false);
   });
 });

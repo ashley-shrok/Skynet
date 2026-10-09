@@ -36,6 +36,8 @@ export interface HostRow {
   enableRdp: boolean;
   enableVnc: boolean;
   runsFleetSubstrate: boolean;
+  /** Probe can't route through jump hosts; such rows are skipped. */
+  hasJumpHosts: boolean;
 }
 
 export type Protocol = "ssh" | "rdp" | "vnc";
@@ -80,6 +82,9 @@ export type RemoteExecResult =
   | { ok: true; output: string | null }
   | { ok: false; reason: "no_access" | "connect_failed" };
 
+/** Cap on probing one machine (all candidate rows together). */
+export const MACHINE_PROBE_DEADLINE_MS = 15_000;
+
 export interface OverviewDeps {
   listRows(): Promise<HostRow[]>;
   isLocal(hostId: number): boolean;
@@ -90,14 +95,39 @@ export interface OverviewDeps {
   now(): number;
   /** Shared across calls so "last seen" survives between refreshes. */
   lastSeen: Map<string, number>;
+  /** Override for tests. */
+  probeDeadlineMs?: number;
 }
 
 const RDP_SUFFIX = /[-_ ]?rdp$/i;
 
+const sshPortOf = (r: HostRow) => r.sshPort ?? r.port;
+
+/**
+ * Group key: the address, except when one address fronts several SSH ports
+ * (NAT / port-forwards to different boxes) — then each SSH port is its own
+ * machine and non-SSH rows stay on the bare address.
+ */
+function machineKey(row: HostRow, splitAddresses: Set<string>): string {
+  const ip = row.ip.trim().toLowerCase();
+  return splitAddresses.has(ip) && row.enableSsh ? `${ip}:${sshPortOf(row)}` : ip;
+}
+
 export function groupHostRows(rows: HostRow[]): MachineGroup[] {
+  const sshPorts = new Map<string, Set<number>>();
+  for (const r of rows) {
+    if (!r.enableSsh) continue;
+    const ip = r.ip.trim().toLowerCase();
+    if (!sshPorts.has(ip)) sshPorts.set(ip, new Set());
+    sshPorts.get(ip)!.add(sshPortOf(r));
+  }
+  const split = new Set(
+    [...sshPorts.entries()].filter(([, ports]) => ports.size > 1).map(([ip]) => ip),
+  );
+
   const byAddress = new Map<string, HostRow[]>();
   for (const row of [...rows].sort((a, b) => a.id - b.id)) {
-    const key = row.ip.trim().toLowerCase();
+    const key = machineKey(row, split);
     const list = byAddress.get(key);
     if (list) list.push(row);
     else byAddress.set(key, [row]);
@@ -118,7 +148,7 @@ export function groupHostRows(rows: HostRow[]): MachineGroup[] {
       if (!ports.includes(port)) ports.push(port);
     };
     for (const r of group) {
-      if (r.enableSsh) add("ssh", r.sshPort ?? r.port);
+      if (r.enableSsh) add("ssh", sshPortOf(r));
       if (r.enableRdp) add("rdp", r.rdpPort ?? 3389);
       if (r.enableVnc) add("vnc", r.vncPort ?? 5900);
     }
@@ -155,9 +185,10 @@ async function probeMachine(
   }
   // Substrate row first (system creds, no per-user decrypt), then any
   // SSH-enabled row the admin can open.
+  const sshRows = group.rows.filter((r) => r.enableSsh && !r.hasJumpHosts);
   const candidates = [
-    ...group.rows.filter((r) => r.runsFleetSubstrate && r.enableSsh),
-    ...group.rows.filter((r) => !r.runsFleetSubstrate && r.enableSsh),
+    ...sshRows.filter((r) => r.runsFleetSubstrate),
+    ...sshRows.filter((r) => !r.runsFleetSubstrate),
   ];
   if (candidates.length === 0) {
     return { output: null, attempted: false, note: "no_ssh" };
@@ -182,8 +213,18 @@ export async function buildHostsOverview(
 
   const hosts = await Promise.all(
     groups.map(async (group): Promise<AdminHostOverview> => {
+      const deadline = deps.probeDeadlineMs ?? MACHINE_PROBE_DEADLINE_MS;
+      let timer: ReturnType<typeof setTimeout> | undefined;
       const [probe, latencies] = await Promise.all([
-        probeMachine(group, deps),
+        Promise.race([
+          probeMachine(group, deps),
+          new Promise<Awaited<ReturnType<typeof probeMachine>>>((resolve) => {
+            timer = setTimeout(
+              () => resolve({ output: null, attempted: true, note: "probe_failed" }),
+              deadline,
+            );
+          }),
+        ]).finally(() => clearTimeout(timer)),
         Promise.all(group.pingPorts.map((p) => deps.tcpPing(group.address, p))),
       ]);
 

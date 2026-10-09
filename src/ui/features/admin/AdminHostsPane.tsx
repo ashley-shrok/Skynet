@@ -16,6 +16,10 @@ import { AdminError, AdminMuted, adminErrorMessage } from "./admin-ui";
 const POLL_MS = 15_000;
 const WARN = 0.75;
 const CRIT = 0.9;
+// CPU is load average per core: 1.0 = every core busy. Busy agent hosts sit
+// near 0.8 routinely, so only saturation is worth flagging.
+const CPU_WARN = 1.0;
+const CPU_CRIT = 1.5;
 
 const C = {
   text: "#e8e4d8",
@@ -25,7 +29,8 @@ const C = {
   bad: "#d38f8f",
 };
 
-const level = (f: number) => (f >= CRIT ? C.bad : f >= WARN ? C.warn : C.ok);
+const level = (f: number, warn = WARN, crit = CRIT) =>
+  f >= crit ? C.bad : f >= warn ? C.warn : C.ok;
 
 function ago(ts: number, now: number): string {
   const s = Math.max(0, Math.round((now - ts) / 1000));
@@ -81,7 +86,8 @@ function substrateFailing(h: AdminHostOverview): boolean {
 export function needsAttention(h: AdminHostOverview): boolean {
   if (!h.online) return true;
   const f = fractions(h);
-  if ([f.cpu, f.mem, f.disk].some((x) => x !== null && x >= WARN)) return true;
+  if (f.cpu !== null && f.cpu >= CPU_WARN) return true;
+  if ([f.mem, f.disk].some((x) => x !== null && x >= WARN)) return true;
   if (substrateFailing(h)) return true;
   return !!h.fleet && !h.fleet.supervisorRunning;
 }
@@ -91,13 +97,19 @@ function Meter({
   frac,
   detail,
   testId,
+  warn = WARN,
+  crit = CRIT,
 }: {
   label: string;
   frac: number;
   detail: string;
   testId: string;
+  warn?: number;
+  crit?: number;
 }) {
-  const color = level(frac);
+  const color = level(frac, warn, crit);
+  // CPU can exceed 1.0; the bar fills at the critical mark.
+  const fill = frac / Math.max(1, crit);
   return (
     <div className="flex items-center gap-2.5 text-[12px]" data-testid={testId}>
       <span className="w-[52px] shrink-0" style={{ color: C.muted }}>
@@ -106,12 +118,12 @@ function Meter({
       <div className="flex-1 h-1.5 rounded-full bg-white/[0.08] overflow-hidden">
         <div
           className="h-full rounded-full"
-          style={{ width: `${Math.min(100, Math.round(frac * 100))}%`, background: color }}
+          style={{ width: `${Math.min(100, Math.round(fill * 100))}%`, background: color }}
         />
       </div>
       <span
         className="w-[130px] shrink-0 text-right tabular-nums"
-        style={{ color: frac >= WARN ? color : C.text }}
+        style={{ color: frac >= warn ? color : C.text }}
       >
         {detail}
       </span>
@@ -217,6 +229,8 @@ function HostCard({ h, now }: { h: AdminHostOverview; now: number }) {
               frac={f.cpu}
               detail={`load ${r.load1!.toFixed(1)} / ${r.cores} cores`}
               testId={`admin-host-${h.key}-cpu`}
+              warn={CPU_WARN}
+              crit={CPU_CRIT}
             />
           )}
           {f.mem !== null && (
@@ -287,10 +301,20 @@ export function AdminHostsPane() {
     setNow(Date.now());
   }, []);
 
+  // Poll only while the browser tab is visible; refresh on return.
   useEffect(() => {
     void load();
-    const t = setInterval(() => void load(), POLL_MS);
-    return () => clearInterval(t);
+    const t = setInterval(() => {
+      if (!document.hidden) void load();
+    }, POLL_MS);
+    const onVisible = () => {
+      if (!document.hidden) void load();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [load]);
 
   const hosts = data

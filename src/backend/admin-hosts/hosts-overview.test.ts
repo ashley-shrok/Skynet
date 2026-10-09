@@ -17,6 +17,7 @@ function row(p: Partial<HostRow> & { id: number; ip: string }): HostRow {
     enableRdp: false,
     enableVnc: false,
     runsFleetSubstrate: false,
+    hasJumpHosts: false,
     ...p,
   };
 }
@@ -54,6 +55,16 @@ describe("groupHostRows", () => {
     expect(nasty.rows.map((r) => r.id)).toEqual([3, 5, 22]);
     // RDP-only machine: suffix stripped from the display name.
     expect(groups.find((g) => g.address === "172.31.0.1")!.name).toBe("aither-cloud-prod");
+  });
+
+  it("splits one address fronting several SSH ports into separate machines", () => {
+    const groups = groupHostRows([
+      row({ id: 1, name: "vm-a", ip: "10.0.0.1", sshPort: 2201, enableSsh: true }),
+      row({ id: 2, name: "vm-b", ip: "10.0.0.1", sshPort: 2202, enableSsh: true }),
+      row({ id: 3, name: "gw-RDP", ip: "10.0.0.1", port: 3389, enableRdp: true }),
+    ]);
+    expect(groups.map((g) => g.key).sort()).toEqual(["10.0.0.1", "10.0.0.1:2201", "10.0.0.1:2202"]);
+    expect(groups.find((g) => g.key === "10.0.0.1:2202")!.name).toBe("vm-b");
   });
 
   it("pings SSH and RDP ports when a parked entry has nothing enabled", () => {
@@ -114,6 +125,28 @@ describe("buildHostsOverview", () => {
     );
     expect(execRemote).toHaveBeenCalledTimes(2);
     expect(res.hosts[0].resources).not.toBeNull();
+  });
+
+  it("skips rows that need a jump host", async () => {
+    const execRemote = vi.fn();
+    const res = await buildHostsOverview(
+      deps({ listRows: async () => [row({ id: 60, ip: "j", enableSsh: true, hasJumpHosts: true })], execRemote }),
+    );
+    expect(execRemote).not.toHaveBeenCalled();
+    expect(res.hosts[0].resourcesNote).toBe("no_ssh");
+  });
+
+  it("gives up on a machine whose probe overruns the deadline", async () => {
+    const res = await buildHostsOverview(
+      deps({
+        listRows: async () => [row({ id: 70, ip: "slow", enableSsh: true })],
+        execRemote: () => new Promise(() => {}),
+        probeDeadlineMs: 20,
+      }),
+    );
+    expect(res.hosts[0].resources).toBeNull();
+    expect(res.hosts[0].resourcesNote).toBe("probe_failed");
+    expect(res.hosts[0].online).toBe(true);
   });
 
   it("marks RDP-only machines online via TCP with a no_ssh note", async () => {

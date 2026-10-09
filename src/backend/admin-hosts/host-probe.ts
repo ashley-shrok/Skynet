@@ -34,6 +34,12 @@ export const PROBE_COMMAND = [
   `echo "probe=ok"`,
 ].join("\n");
 
+/**
+ * PROBE_COMMAND wrapped in `bash -c '…'` for SSH, where exec runs in the
+ * remote user's login shell (which may be zsh / fish rather than bash).
+ */
+export const REMOTE_PROBE_COMMAND = `bash -c '${PROBE_COMMAND.replace(/'/g, `'\\''`)}'`;
+
 export interface HostResources {
   os: string | null;
   arch: string | null;
