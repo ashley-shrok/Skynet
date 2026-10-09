@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ArrowDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { isIosPwa } from "@/lib/is-ios-pwa";
@@ -1581,6 +1581,46 @@ export function PrettyView({
   // shape-file § Session re-entry. See use-auto-scroll.ts header + shape-pv-autoscroll-rewrite.md.
   const { scrollRef, jumpToBottom, onSendFired, mode, revealed } = useAutoScroll(paneKey);
 
+  // ── Load-more scroll anchor (bounty load-more-scroll-and-order-corruption) ─
+  // The container has overflow-anchor:none (useAutoScroll owns position), so
+  // prepending an older batch leaves scrollTop where it was and the reading
+  // position slides down by the batch height — the user lands at the top of
+  // the new batch. Anchor on the top-most visible bubble instead: capture its
+  // viewport offset when the batch arrives, restore it after the prepend
+  // commits. Element-based (not scrollHeight delta) so a live frame appended
+  // in the same commit can't skew it. A programmatic scrollTop write never
+  // transitions the auto-scroll mode (the hook doesn't listen for scroll).
+  const scrollElRef = useRef<HTMLElement | null>(null);
+  const setScrollEl = useCallback(
+    (el: HTMLElement | null) => {
+      scrollElRef.current = el;
+      scrollRef(el);
+    },
+    [scrollRef],
+  );
+  const prependAnchorRef = useRef<{ eventId: string; offset: number } | null>(
+    null,
+  );
+  const capturePrependAnchor = useCallback(() => {
+    prependAnchorRef.current = null;
+    const container = scrollElRef.current;
+    if (!container) return;
+    const containerTop = container.getBoundingClientRect().top;
+    const bubbles = container.querySelectorAll<HTMLElement>(
+      "[data-pv-bubble][data-event-id]",
+    );
+    for (const b of bubbles) {
+      const rect = b.getBoundingClientRect();
+      if (rect.bottom > containerTop) {
+        prependAnchorRef.current = {
+          eventId: b.getAttribute("data-event-id") ?? "",
+          offset: rect.top - containerTop,
+        };
+        return;
+      }
+    }
+  }, []);
+
   // Phase 50 D-18 (Blocker #4 middle): widened to (text, mqid?) so the
   // ComposeBox-generated mqid threads through to the parent's onSend
   // (typically IdentitySessionPane's onSend at ~L237-270, which then
@@ -2994,6 +3034,7 @@ export function PrettyView({
               `[pv-load-more-diag] batch[${i}] eid=${m.eventId.slice(0, 8)} line=${m.line ?? "?"} type=${m.type} role=${m.role ?? "-"} preview="${preview}"`,
             );
           }
+          capturePrependAnchor();
           setMessages((prev) => {
             logPreLen = prev.length;
             const combined = [...parsed.messages, ...prev];
@@ -3564,6 +3605,39 @@ export function PrettyView({
     }
     setOldestLoadedLine((prev) => (prev === derivedMin ? prev : derivedMin));
   }, [effectiveMessages, capOff]);
+
+  // Load-more scroll anchor restore — see capturePrependAnchor. Layout
+  // effect so the correction lands before paint (no visible jump).
+  useLayoutEffect(() => {
+    const anchor = prependAnchorRef.current;
+    if (!anchor) return;
+    prependAnchorRef.current = null;
+    const container = scrollElRef.current;
+    if (!container) return;
+    let anchorEl: HTMLElement | null = null;
+    for (const b of container.querySelectorAll<HTMLElement>(
+      "[data-pv-bubble][data-event-id]",
+    )) {
+      if (b.getAttribute("data-event-id") === anchor.eventId) {
+        anchorEl = b;
+        break;
+      }
+    }
+    if (!anchorEl) {
+      console.info(
+        `[pv-load-more] anchor-miss eventId=${anchor.eventId.slice(0, 8)} paneKey=${paneKey}`,
+      );
+      return;
+    }
+    const offsetNow =
+      anchorEl.getBoundingClientRect().top -
+      container.getBoundingClientRect().top;
+    const delta = offsetNow - anchor.offset;
+    console.info(
+      `[pv-load-more] anchor-restore eventId=${anchor.eventId.slice(0, 8)} delta=${Math.round(delta)} scrollTopBefore=${Math.round(container.scrollTop)} paneKey=${paneKey}`,
+    );
+    if (delta !== 0) container.scrollTop += delta;
+  }, [effectiveMessages, paneKey]);
 
   // quick 260808-cd6: dormantRef mirror — keeps dormantRef.current in sync
   // with the `dormant` state so the WS onmessage auto-dismiss hook can read
@@ -4347,7 +4421,7 @@ export function PrettyView({
         source.kind === "relay") && (
         <div
           // Outer scroll container. useAutoScroll's scrollRef drives pinned-follow behavior.
-          ref={scrollRef}
+          ref={setScrollEl}
           // mobile-scroll-freeze-overscroll-behavior (2026-08-10): `overscroll-contain`
           // stops iOS Safari from routing rubber-band momentum to an ancestor scroller
           // on end-of-scroll. Without it, iOS locks the touch for 10-15s while its

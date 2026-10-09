@@ -557,7 +557,40 @@ describe("PrettyView load-more button + cap-off + prepend behavior", () => {
     ).toBe("evt-tail-1");
   });
 
-  it("Test 6: scroll position preserved on prepend (does not yank to top or bottom)", async () => {
+  it("Test 6: scroll position preserved on prepend — the top-most visible bubble keeps its viewport offset", async () => {
+    // Layout model for this test: every bubble is 80px tall, stacked in DOM
+    // order from y=0 of the scroll content; the container's viewport is
+    // 600px tall with its top at y=0. A bubble's on-screen top is therefore
+    // index*80 - scrollTop. The container has overflow-anchor:none, so
+    // without explicit anchoring a prepend leaves scrollTop unchanged and
+    // the reading position slides down by the batch height.
+    const BUBBLE_H = 80;
+    HTMLElement.prototype.getBoundingClientRect = function (): DOMRect {
+      const rect = (top: number, h: number): DOMRect =>
+        ({
+          top,
+          bottom: top + h,
+          left: 0,
+          right: 1024,
+          width: 1024,
+          height: h,
+          x: 0,
+          y: top,
+          toJSON: () => ({}),
+        }) as DOMRect;
+      if (this.hasAttribute && this.hasAttribute("data-pv-bubble")) {
+        const sc = this.closest(".overflow-y-auto") as HTMLElement | null;
+        if (!sc) return rect(0, BUBBLE_H);
+        const all = Array.from(sc.querySelectorAll("[data-pv-bubble]"));
+        return rect(all.indexOf(this) * BUBBLE_H - sc.scrollTop, BUBBLE_H);
+      }
+      const cls = (this.className as string) || "";
+      if (typeof cls === "string" && cls.includes("overflow-y-auto")) {
+        return rect(0, 600);
+      }
+      return originalGetBoundingClientRect.call(this);
+    };
+
     const { container } = render(
       <PrettyView
         hostId={1}
@@ -580,33 +613,32 @@ describe("PrettyView load-more button + cap-off + prepend behavior", () => {
       expect(getBubbles().length).toBe(20);
     });
 
-    const scrollContainer = findScrollContainer(container);
+    const scrollContainer = findScrollContainer(container)!;
     expect(scrollContainer).toBeTruthy();
-    // Simulate a mid-view scroll position. Set scrollHeight and clientHeight
-    // to non-zero so the assertion is meaningful.
-    Object.defineProperty(scrollContainer!, "scrollHeight", {
-      configurable: true,
-      value: 2000,
-    });
-    Object.defineProperty(scrollContainer!, "clientHeight", {
+    Object.defineProperty(scrollContainer, "clientHeight", {
       configurable: true,
       value: 600,
     });
+    // User scrolls up near the top (real input event → not-at-bottom, so
+    // the auto-scroll hook won't chase). scrollTop=100: bubble 0 spans
+    // -100..-20 (off-screen), bubble 1 (evt-tail-2) spans -20..60 — the
+    // top-most visible bubble, at offset -20.
+    // Flush the hydration's pending RAF chase first, or it lands after the
+    // scroll below and pins the container back to the bottom.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    await act(async () => {
+      scrollContainer.scrollTop = 100;
+      fireEvent.wheel(scrollContainer, { deltaY: -100 });
+      await new Promise((r) => setTimeout(r, 50));
+    });
+
     act(() => {
-      scrollContainer!.scrollTop = 100;
-      fireEvent.scroll(scrollContainer!);
+      fireEvent.click(
+        screen.getByRole("button", { name: /Load older messages/i }),
+      );
     });
-
-    // Snapshot scrollTop BEFORE the prepend.
-    const scrollTopBefore = scrollContainer!.scrollTop;
-
-    const button = screen.getByRole("button", {
-      name: /Load older messages/i,
-    });
-    act(() => {
-      fireEvent.click(button);
-    });
-
     const olderBatch: Array<Record<string, unknown>> = [];
     for (let i = 0; i < 20; i++) {
       olderBatch.push({
@@ -623,18 +655,18 @@ describe("PrettyView load-more button + cap-off + prepend behavior", () => {
     await waitFor(() => {
       expect(getBubbles().length).toBe(40);
     });
+    // Let any RAF-coalesced auto-scroll work settle before asserting.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
 
-    // Scroll position preserved: EITHER browser's overflow-anchor:auto shifted
-    // scrollTop upward (positive delta) OR the implementation preserved it
-    // manually. Either way, scrollTop MUST NOT snap to 0 (yank-to-top) or to
-    // scrollHeight (yank-to-bottom). Assert bounded near the original position
-    // OR grown proportionally to the prepended content — accept both because
-    // JSDOM's overflow-anchor behavior is implementation-dependent.
-    const scrollTopAfter = scrollContainer!.scrollTop;
-    // The one thing that would be wrong: yank to 0 (top) with the user having
-    // been mid-scroll before. Allow the browser to have shifted it upward
-    // (native overflow-anchor) OR left it unchanged (manual anchoring).
-    expect(scrollTopAfter).toBeGreaterThanOrEqual(scrollTopBefore);
+    // evt-tail-2 is now bubble 21; to keep it at offset -20 the container
+    // must have scrolled down by the 20 prepended bubbles: 100 + 20*80.
+    expect(scrollContainer.scrollTop).toBe(100 + 20 * BUBBLE_H);
+    const anchor = container.querySelector(
+      '[data-event-id="evt-tail-2"]',
+    ) as HTMLElement;
+    expect(anchor.getBoundingClientRect().top).toBe(-20);
   });
 
   it("Test 7: rapid double-click blocked by in-flight state — only 1 send", async () => {
