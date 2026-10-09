@@ -79,19 +79,15 @@
  *      contract is preserved. Also removes the legacy ~/.claude/skynet-hostname
  *      file on every sweep (rebrand-neutrality).
  *
- *   6. usage-reporter statusLine wire-up + legacy cleanup:
- *      Idempotently point ~/.claude/settings.json.statusLine at
- *      ~/.local/bin/usage-reporter (distributor-shipped). If the current
- *      statusLine.command is already the wrapper, no-op (preserves the
- *      WRAPPED-original captured in ~/.claude/usage/usage-reporter.conf on
- *      the first wrap). Otherwise: capture whatever the current command is
- *      into the conf as WRAPPED=<shell-safe>, then rewrite statusLine to
- *      the wrapper. Also removes three legacy paths that pre-dated the
- *      distributor-owned pipeline: ~/.local/bin/install-usage-reporter
- *      (retired install script), ~/.claude/usage/usage-reporter.sh (dup of
- *      distributor copy), ~/.claude/usage/usage-report.js (dup of
- *      distributor copy). Retires the previous manual install-usage-reporter
- *      step — statusLine wire-up now runs automatically on every sweep.
+ *   6. usage-reporter retirement (the usage meter + its collector are gone):
+ *      If ~/.claude/settings.json.statusLine.command is still the
+ *      usage-reporter wrapper, restore the original command captured in
+ *      ~/.claude/usage/usage-reporter.conf (WRAPPED=), or drop statusLine
+ *      entirely when there was no real original. Only once settings.json no
+ *      longer points at the wrapper, remove the wrapper, the reporter, the
+ *      collector script, the retired install script, and ~/.claude/usage/.
+ *      A statusLine that is NOT the wrapper is never touched. Idempotent —
+ *      after the first sweep it's a jq read + rm -f on absent paths.
  *
  * NEVER-THROW CONTRACT:
  *   runBootstrapForHost NEVER rejects. All risky calls are wrapped in
@@ -138,10 +134,9 @@ export interface BootstrapResult {
    *  the numeric fleet-DB hostId into PANE_BASE at scaffold time — agents
    *  never need to know or look up the integer themselves. */
   hostIdOk: boolean;
-  /** Whether the statusLine wire-up + legacy-cleanup step succeeded. Step 6
-   *  is idempotent (no-op when statusLine is already the wrapper) and always
-   *  runs; a false value implies hadError. */
-  statusLineWireOk: boolean;
+  /** Whether the usage-reporter retirement step succeeded. Step 6 is
+   *  idempotent and always runs; a false value implies hadError. */
+  usageReporterRetireOk: boolean;
   /** Whether interactive-messages-gc.timer was already enabled before Step 1b.
    *  True = cheap probe only; false = enable-and-start ran (or was skipped due
    *  to an earlier Step 1 channel failure that prevented daemon-reload). */
@@ -281,14 +276,18 @@ export const GSD_MONITOR_STRIP_JQ =
   `.hooks.PostToolUse |= map(select(any(.hooks[]?.command // ""; test("gsd-context-monitor")) | not))`;
 
 /**
- * Path of the distributor-shipped usage-reporter wrapper on managed hosts.
- * Single source of truth for Step 6: settings.json.statusLine.command is
- * wired to this exact string. Kept as a shell-expansion template ($HOME) so
- * the SSH-exec surface (this file) and the local-fleet surface
- * (local-fleet-install.ts, which resolves $HOME differently) each expand it
- * with their own semantics before comparing / writing.
+ * Step 6 — usage-reporter retirement. Paths (relative to $HOME) removed once
+ * settings.json.statusLine no longer points at the wrapper. Shared with the
+ * local-fleet surface (local-fleet-install.ts). ~/.claude/usage/ (conf,
+ * throttle stamp, legacy dup copies) is removed as a whole directory.
  */
-export const USAGE_REPORTER_WRAPPER_PATH = "$HOME/.local/bin/usage-reporter";
+export const USAGE_REPORTER_RETIRED_FILES = [
+  ".local/bin/usage-reporter",
+  ".local/bin/usage-report",
+  ".local/bin/claude-usage-collector",
+  ".local/bin/install-usage-reporter",
+] as const;
+export const USAGE_REPORTER_RETIRED_DIR = ".claude/usage";
 
 /**
  * Run idempotent pre-sweep bootstrap on a managed host.
@@ -926,83 +925,68 @@ export async function runBootstrapForHost(
   }
 
   // -------------------------------------------------------------------------
-  // Step 6: usage-reporter statusLine wire-up + legacy cleanup.
+  // Step 6: usage-reporter retirement.
   //   (a) Read the current settings.json.statusLine.command.
-  //   (b) If already the distributor-shipped wrapper: no-op (preserves the
-  //       WRAPPED-original captured in ~/.claude/usage/usage-reporter.conf
-  //       on the first wrap — never re-wrap the wrapper).
-  //   (c) Otherwise: capture the current command into the conf as
-  //       WRAPPED=<shell-safe>, then rewrite settings.json.statusLine to
-  //       point at the wrapper. On a fresh box CUR is empty, WRAPPED="" is
-  //       correct (nothing to pass through).
-  //   (d) Remove three legacy paths that pre-dated the distributor-owned
-  //       pipeline: the retired install script + two dup copies of files
-  //       now shipped to ~/.local/bin/ by the distributor.
-  //
-  //   Idempotent: happy path on an already-wired box is a jq read + three
-  //   rm -f on absent files. No mtime churn on settings.json (jq write only
-  //   fires when CUR != WRAPPER).
+  //   (b) If it's the wrapper (any path ending /.local/bin/usage-reporter —
+  //       also catches the old co-located `/host-home/...` mis-write):
+  //       source WRAPPED= from the conf in a subshell (same read the wrapper
+  //       itself did every tick). A real original → restore it as
+  //       statusLine.command (keeps other statusLine keys); empty or itself
+  //       a usage-reporter path → del(.statusLine).
+  //   (c) Only if (b) succeeded or wasn't needed: rm the retired files +
+  //       ~/.claude/usage/. Ordering matters — never delete the wrapper while
+  //       settings.json still execs it.
   // -------------------------------------------------------------------------
-  let statusLineWireOk = false;
+  let usageReporterRetireOk = false;
   try {
-    // Ordering: wrap-or-no-op FIRST (via && chain so a mid-block failure never
-    // reaches the sentinel), THEN legacy cleanup (rm -f is idempotent — never
-    // errors on absent files, so unconditional after wrap succeeds).
-    // Shell quoting: `printf %q` isn't POSIX, so use `jq @sh` to shell-quote
-    // CUR so a statusLine command containing spaces / quotes / $ round-trips
-    // safely through the conf file's `source`-based read (usage-reporter.sh:
-    // `[ -f "$CONF" ] && . "$CONF"`). WRAPPER assignment expands $HOME at
-    // shell time so both sides of the `[ "$CUR" != "$WRAPPER" ]` compare are
-    // absolute paths — jq stores the expanded value in settings.json on the
-    // wrap, so subsequent sweeps read back the same absolute path and the
-    // check idempotently short-circuits.
-    const wireCmd = [
+    const rmFiles = USAGE_REPORTER_RETIRED_FILES.map((rel) => `"$HOME/${rel}"`).join(" ");
+    const retireCmd = [
       `SETTINGS="$HOME/.claude/settings.json"`,
-      `WRAPPER="${USAGE_REPORTER_WRAPPER_PATH}"`,
-      `CONF="$HOME/.claude/usage/usage-reporter.conf"`,
+      `CONF="$HOME/${USAGE_REPORTER_RETIRED_DIR}/usage-reporter.conf"`,
       `CUR=""`,
       `if [ -f "$SETTINGS" ]; then`,
       `  CUR=$(jq -r '.statusLine.command // ""' "$SETTINGS" 2>/dev/null || printf '')`,
       `fi`,
-      `if [ "$CUR" = "$WRAPPER" ]; then`,
-      `  WROTE_OK=1`,
-      `else`,
-      `  WROTE_OK=0`,
-      `  mkdir -p "$HOME/.claude/usage" && \\`,
-      `    QUOTED=$(jq -rn --arg s "$CUR" '$s | @sh') && \\`,
-      `    printf 'WRAPPED=%s\\n' "$QUOTED" > "$CONF.new" && \\`,
-      `    mv "$CONF.new" "$CONF" && \\`,
-      `    { [ -f "$SETTINGS" ] || { mkdir -p "$(dirname "$SETTINGS")" && echo '{}' > "$SETTINGS"; }; } && \\`,
-      `    jq --arg cmd "$WRAPPER" '.statusLine = {type:"command", command:$cmd}' "$SETTINGS" > "$SETTINGS.new" && \\`,
-      `    mv "$SETTINGS.new" "$SETTINGS" && \\`,
-      `    WROTE_OK=1`,
-      `fi`,
-      `if [ "$WROTE_OK" = "1" ]; then`,
-      `  rm -f "$HOME/.local/bin/install-usage-reporter" "$HOME/.claude/usage/usage-reporter.sh" "$HOME/.claude/usage/usage-report.js"`,
-      `  echo "__STATUSLINE_OK__"`,
+      `UNWRAP_OK=1`,
+      `case "$CUR" in`,
+      `  */.local/bin/usage-reporter)`,
+      `    ORIG=""`,
+      `    if [ -f "$CONF" ]; then ORIG=$(WRAPPED=""; . "$CONF" >/dev/null 2>&1; printf '%s' "$WRAPPED"); fi`,
+      `    case "$ORIG" in *usage-reporter*) ORIG="" ;; esac`,
+      `    if [ -n "$ORIG" ]; then`,
+      `      jq --arg cmd "$ORIG" '.statusLine.command = $cmd' "$SETTINGS" > "$SETTINGS.new" && mv "$SETTINGS.new" "$SETTINGS" || UNWRAP_OK=0`,
+      `    else`,
+      `      jq 'del(.statusLine)' "$SETTINGS" > "$SETTINGS.new" && mv "$SETTINGS.new" "$SETTINGS" || UNWRAP_OK=0`,
+      `    fi`,
+      `    ;;`,
+      `esac`,
+      `if [ "$UNWRAP_OK" = "1" ]; then`,
+      `  rm -f ${rmFiles}`,
+      `  rm -rf "$HOME/${USAGE_REPORTER_RETIRED_DIR}"`,
+      `  echo "__USAGE_REPORTER_RETIRED__"`,
       `fi`,
     ].join("\n");
 
-    const raw = await channel.exec(wireCmd);
+    const raw = await channel.exec(retireCmd);
 
     if (raw === null) {
       hadError = true;
-      logBootstrapFailed(host, "statusline-wire", "channel returned null");
-    } else if (!raw.trimEnd().endsWith("__STATUSLINE_OK__")) {
+      logBootstrapFailed(host, "usage-reporter-retire", "channel returned null");
+    } else if (!raw.trimEnd().endsWith("__USAGE_REPORTER_RETIRED__")) {
       hadError = true;
       logBootstrapFailed(
         host,
-        "statusline-wire",
-        raw.trimEnd().slice(0, 500) || "statusline wire-up failed",
+        "usage-reporter-retire",
+        raw.trimEnd().slice(0, 500) || "usage-reporter retirement failed",
       );
     } else {
-      statusLineWireOk = true;
+      usageReporterRetireOk = true;
     }
   } catch (err) {
     hadError = true;
     logBootstrapFailed(
       host,
-      "statusline-wire",
+      "usage-reporter-retire",
       err instanceof Error ? err.message : "unknown throw",
     );
   }
@@ -1016,7 +1000,7 @@ export async function runBootstrapForHost(
     hostParentOk,
     hostNameOk,
     hostIdOk,
-    statusLineWireOk,
+    usageReporterRetireOk,
     gcTimerAlreadyEnabled,
     gcTimerBootstrapped,
     scheduledAgentsSchedulerAlreadyEnabled,

@@ -106,7 +106,9 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // image-gen and agent-phone wrappers call) — 131 → 132.
     // +2 for stt (SKILL.md + stt helper, speech-to-text agent service) —
     // 132 → 134.
-    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(134);
+    // -3 for usage-reporter + usage-report + claude-usage-collector, retired
+    // 2026-10-09 with the usage meter — 134 → 131.
+    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(131);
   });
 
   it("Test 2: every bundled row's bundledPath starts with /app/fleet-substrate/skills/, /app/fleet-substrate/scripts/, or /app/fleet-substrate/user-onboarding/", () => {
@@ -234,12 +236,10 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // +1 for the desktop skill (SKILL.md) — 105 → 106.
     // +1 for the stt skill (SKILL.md) — 106 → 107.
     expect(skillRows.length).toBe(107);
-    // 17 helper scripts: agent-supervisor + wakeup-scheduler + context-watch +
-    // role-file-watch (4th ambient monitor) + usage-reporter + usage-report
-    // (distributor-shipped node POSTer — install-usage-reporter.sh was
-    // retired in favor of the run-bootstrap.ts Step 6 wire-up so the
-    // distributor sweep automatically installs the statusLine wrap) +
-    // claude-usage-collector + fleet-status-sweep (Phase 92 batch sweep) +
+    // 18 helper scripts: agent-supervisor + wakeup-scheduler + context-watch +
+    // role-file-watch (4th ambient monitor) + fleet-status-sweep (Phase 92
+    // batch sweep) + (usage-reporter / usage-report / claude-usage-collector
+    // retired 2026-10-09 with the usage meter — 21 → 18) +
     // pv-context-pct-sweep (Phase 95 PrettyView context-pct batch sweep) +
     // ambient-monitor (mega-monitor phase, single on-wake launcher) +
     // image-gen (Phase 116 file-drop broker helper) +
@@ -259,7 +259,7 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // CLI + MCP server for screenshot/click/type tools) +
     // fleet-service (shared agent-services file-drop client) +
     // stt (speech-to-text agent-services wrapper)
-    expect(scriptRows.length).toBe(21);
+    expect(scriptRows.length).toBe(18);
     // 4 user-onboarding files: agent-supervisor.service +
     // interactive-messages-gc.service + interactive-messages-gc.timer (Phase 140)
     // + scheduled-agents-scheduler.service (this ship: move
@@ -466,7 +466,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // +4 for the agent desktop (skill + 2 helpers + template unit) — 126 → 130.
     // +1 for fleet-service (agent-services client) — 130 → 131.
     // +2 for stt (skill + helper) — 131 → 133.
-    expect(bundled.length).toBe(133);
+    // -3 for the retired usage-reporter trio — 133 → 130.
+    expect(bundled.length).toBe(130);
     expect(runtime.length).toBe(1);
 
     // Every bundled row retains bundledPath under /app/fleet-substrate/

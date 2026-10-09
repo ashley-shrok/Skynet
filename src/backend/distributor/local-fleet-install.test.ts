@@ -56,9 +56,9 @@ vi.mock("../utils/logger.js", () => ({
 }));
 
 // A fresh tmpdir per test; env var swapped so getLocalHomeRoot points here.
-// A SEPARATE `hostExecRoot` env pins the HOST-side path getHostExecHomeRoot()
-// returns — kept distinct from tmpRoot so tests can assert wire values that
-// depend on the container-vs-host path split (Stacy 2026-09-25 bug).
+// A SEPARATE `hostExecRoot` (SKYNET_HOME_MOUNT_SRC) stands in for the
+// HOST-side home path — kept distinct from tmpRoot so tests that seed a
+// host-side wrapper path in settings.json can't pass by accident.
 let tmpRoot: string;
 let hostExecRoot: string;
 let originalHomeEnv: string | undefined;
@@ -921,154 +921,180 @@ describe("BR2 — bootstrap patches settings.json + runs gsd-context-monitor cle
 });
 
 // ---------------------------------------------------------------------------
-// BR3 — bootstrap Step 6: usage-reporter statusLine wire-up + legacy cleanup.
-// Byte-parallel with SSH surface (run-bootstrap.ts Step 6, tests sl-1..sl-7).
+// BR3 — bootstrap Step 6: usage-reporter retirement.
+// Parallel with SSH surface (run-bootstrap.ts Step 6, tests sl-1..sl-8).
 // ---------------------------------------------------------------------------
 
-describe("BR3 — bootstrap wires usage-reporter statusLine + cleans up legacy paths", () => {
-  it("fresh box (no settings.json) → statusLineWireOk:true, conf written with WRAPPED='' round-trip", async () => {
-    process.env.SKYNET_PUBLIC_URL = "https://skynet.example.com";
-    const { bootstrapFleetSubstrateLocally } = await importFresh();
-    const result = await bootstrapFleetSubstrateLocally(host);
+describe("BR3 — bootstrap retires the usage-reporter statusLine wrap", () => {
+  const RETIRED_BIN = [
+    "usage-reporter",
+    "usage-report",
+    "claude-usage-collector",
+    "install-usage-reporter",
+  ];
 
-    expect(result.hadError).toBe(false);
-    expect(result.statusLineWireOk).toBe(true);
-
-    // settings.json now points statusLine at the wrapper.
-    const settingsPath = path.join(tmpRoot, ".claude/settings.json");
-    const parsed = JSON.parse(await fs.readFile(settingsPath, "utf-8"));
-    expect(parsed.statusLine.type).toBe("command");
-    // Wire value must be the HOST-side exec path (hostExecRoot), NOT the
-    // container-side write path (tmpRoot) — Stacy's bug fix, 2026-09-25.
-    expect(parsed.statusLine.command).toBe(
-      path.join(hostExecRoot, ".local/bin/usage-reporter"),
-    );
-
-    // Conf holds an empty WRAPPED that round-trips through shell source.
-    const confPath = path.join(tmpRoot, ".claude/usage/usage-reporter.conf");
-    const conf = await fs.readFile(confPath, "utf-8");
-    expect(conf).toBe("WRAPPED=''\n");
-  });
-
-  it("existing custom statusLine → captured verbatim into WRAPPED, wrapper installed", async () => {
-    process.env.SKYNET_PUBLIC_URL = "https://skynet.example.com";
-    const claudeDir = path.join(tmpRoot, ".claude");
-    await fs.mkdir(claudeDir, { recursive: true });
-    await fs.writeFile(
-      path.join(claudeDir, "settings.json"),
-      JSON.stringify(
-        {
-          theme: "dark",
-          statusLine: { type: "command", command: "my-status --arg here" },
-        },
-        null,
-        2,
-      ),
-    );
-
-    const { bootstrapFleetSubstrateLocally } = await importFresh();
-    const result = await bootstrapFleetSubstrateLocally(host);
-
-    expect(result.statusLineWireOk).toBe(true);
-    expect(result.hadError).toBe(false);
-
-    const parsed = JSON.parse(
-      await fs.readFile(path.join(claudeDir, "settings.json"), "utf-8"),
-    );
-    // Wire value must be the HOST-side exec path (hostExecRoot), NOT the
-    // container-side write path (tmpRoot) — Stacy's bug fix, 2026-09-25.
-    expect(parsed.statusLine.command).toBe(
-      path.join(hostExecRoot, ".local/bin/usage-reporter"),
-    );
-    // Other keys preserved.
-    expect(parsed.theme).toBe("dark");
-
-    const conf = await fs.readFile(
-      path.join(claudeDir, "usage/usage-reporter.conf"),
-      "utf-8",
-    );
-    expect(conf).toBe("WRAPPED='my-status --arg here'\n");
-  });
-
-  it("spicy statusLine with quotes/spaces/$ → shell-escaped correctly", async () => {
-    process.env.SKYNET_PUBLIC_URL = "https://skynet.example.com";
-    const claudeDir = path.join(tmpRoot, ".claude");
-    await fs.mkdir(claudeDir, { recursive: true });
-    const spicy = `my-status --arg "hi $USER's world" -x`;
-    await fs.writeFile(
-      path.join(claudeDir, "settings.json"),
-      JSON.stringify(
-        { statusLine: { type: "command", command: spicy } },
-        null,
-        2,
-      ),
-    );
-
-    const { bootstrapFleetSubstrateLocally } = await importFresh();
-    const result = await bootstrapFleetSubstrateLocally(host);
-    expect(result.statusLineWireOk).toBe(true);
-
-    // Round-trip through bash `source`: shell parses the conf line and echoes
-    // $WRAPPED. Assert the captured value equals the original spicy string.
-    const confPath = path.join(claudeDir, "usage/usage-reporter.conf");
-    const { execSync } = await import("node:child_process");
-    const stdout = execSync(
-      `bash -c '. "${confPath}" && printf "%s" "$WRAPPED"'`,
-      { encoding: "utf-8" },
-    );
-    expect(stdout).toBe(spicy);
-  });
-
-  it("idempotent: second call does not rewrite settings.json or conf (mtime unchanged)", async () => {
-    process.env.SKYNET_PUBLIC_URL = "https://skynet.example.com";
-    const { bootstrapFleetSubstrateLocally } = await importFresh();
-
-    await bootstrapFleetSubstrateLocally(host);
-    const settingsPath = path.join(tmpRoot, ".claude/settings.json");
-    const confPath = path.join(tmpRoot, ".claude/usage/usage-reporter.conf");
-    const statSettingsFirst = await fs.stat(settingsPath);
-    const statConfFirst = await fs.stat(confPath);
-
-    // Second sweep: spy on writeFile so we can catch any rewrite of these two.
-    const writeFileSpy = vi.spyOn(fs, "writeFile");
-    await bootstrapFleetSubstrateLocally(host);
-    for (const call of writeFileSpy.mock.calls) {
-      const target = String(call[0]);
-      // Any write to a tmp-file for either target is a rewrite bug (would
-      // then mv onto the final path).
-      expect(target.includes("settings.json.new") ||
-             target.includes("settings.json.tmp")).toBe(false);
-      expect(target.includes("usage-reporter.conf.new") ||
-             target.includes("usage-reporter.conf.tmp")).toBe(false);
-    }
-    const statSettingsSecond = await fs.stat(settingsPath);
-    const statConfSecond = await fs.stat(confPath);
-    expect(statSettingsSecond.mtimeMs).toBe(statSettingsFirst.mtimeMs);
-    expect(statConfSecond.mtimeMs).toBe(statConfFirst.mtimeMs);
-    writeFileSpy.mockRestore();
-  });
-
-  it("legacy paths present → all three removed after wire-up", async () => {
-    process.env.SKYNET_PUBLIC_URL = "https://skynet.example.com";
+  async function seedWrapped(opts: {
+    wrapperCmd?: string;
+    confBody?: string | null;
+    extraSettings?: Record<string, unknown>;
+  }) {
     const claudeDir = path.join(tmpRoot, ".claude");
     const usageDir = path.join(claudeDir, "usage");
     const binDir = path.join(tmpRoot, ".local/bin");
     await fs.mkdir(usageDir, { recursive: true });
     await fs.mkdir(binDir, { recursive: true });
-    const legacyInstall = path.join(binDir, "install-usage-reporter");
-    const legacyWrapper = path.join(usageDir, "usage-reporter.sh");
-    const legacyReporter = path.join(usageDir, "usage-report.js");
-    await fs.writeFile(legacyInstall, "#!/bin/sh\necho legacy\n");
-    await fs.writeFile(legacyWrapper, "#!/bin/sh\necho legacy\n");
-    await fs.writeFile(legacyReporter, "// legacy\n");
+    for (const f of RETIRED_BIN) {
+      await fs.writeFile(path.join(binDir, f), "#!/bin/sh\n");
+    }
+    await fs.writeFile(path.join(usageDir, "last-post-ts"), "1\n");
+    if (opts.confBody !== null) {
+      await fs.writeFile(
+        path.join(usageDir, "usage-reporter.conf"),
+        opts.confBody ?? "WRAPPED=''\n",
+      );
+    }
+    await fs.writeFile(
+      path.join(claudeDir, "settings.json"),
+      JSON.stringify(
+        {
+          theme: "dark",
+          ...opts.extraSettings,
+          statusLine: {
+            type: "command",
+            command:
+              opts.wrapperCmd ?? path.join(hostExecRoot, ".local/bin/usage-reporter"),
+            padding: 0,
+          },
+        },
+        null,
+        2,
+      ),
+    );
+    return { claudeDir, usageDir, binDir };
+  }
+
+  async function readSettings() {
+    return JSON.parse(
+      await fs.readFile(path.join(tmpRoot, ".claude/settings.json"), "utf-8"),
+    );
+  }
+
+  async function expectRetiredFilesGone(binDir: string, usageDir: string) {
+    for (const f of RETIRED_BIN) {
+      await expect(fs.access(path.join(binDir, f))).rejects.toThrow();
+    }
+    await expect(fs.access(usageDir)).rejects.toThrow();
+  }
+
+  it("fresh box (nothing wired) → usageReporterRetireOk:true, no statusLine added", async () => {
+    process.env.SKYNET_PUBLIC_URL = "https://skynet.example.com";
+    const { bootstrapFleetSubstrateLocally } = await importFresh();
+    const result = await bootstrapFleetSubstrateLocally(host);
+
+    expect(result.hadError).toBe(false);
+    expect(result.usageReporterRetireOk).toBe(true);
+    const parsed = await readSettings().catch(() => ({}));
+    expect(parsed.statusLine).toBeUndefined();
+  });
+
+  it("wrapped with a real original → original restored, other keys kept, files removed", async () => {
+    process.env.SKYNET_PUBLIC_URL = "https://skynet.example.com";
+    const { binDir, usageDir } = await seedWrapped({
+      confBody: "WRAPPED='my-status --arg here'\n",
+    });
 
     const { bootstrapFleetSubstrateLocally } = await importFresh();
     const result = await bootstrapFleetSubstrateLocally(host);
-    expect(result.statusLineWireOk).toBe(true);
 
-    await expect(fs.access(legacyInstall)).rejects.toThrow();
-    await expect(fs.access(legacyWrapper)).rejects.toThrow();
-    await expect(fs.access(legacyReporter)).rejects.toThrow();
+    expect(result.usageReporterRetireOk).toBe(true);
+    expect(result.hadError).toBe(false);
+    const parsed = await readSettings();
+    expect(parsed.statusLine).toEqual({
+      type: "command",
+      command: "my-status --arg here",
+      padding: 0,
+    });
+    expect(parsed.theme).toBe("dark");
+    await expectRetiredFilesGone(binDir, usageDir);
+  });
+
+  it("spicy original with quotes/spaces/$ → restored verbatim", async () => {
+    process.env.SKYNET_PUBLIC_URL = "https://skynet.example.com";
+    const spicy = `my-status --arg "hi $USER's world" -x`;
+    // Exactly what the old wire-up wrote: single-quoted, ' as '\''.
+    const quoted = "'" + spicy.replace(/'/g, "'\\''") + "'";
+    await seedWrapped({ confBody: `WRAPPED=${quoted}\n` });
+
+    const { bootstrapFleetSubstrateLocally } = await importFresh();
+    await bootstrapFleetSubstrateLocally(host);
+
+    expect((await readSettings()).statusLine.command).toBe(spicy);
+  });
+
+  it("empty WRAPPED → statusLine dropped", async () => {
+    process.env.SKYNET_PUBLIC_URL = "https://skynet.example.com";
+    const { binDir, usageDir } = await seedWrapped({ confBody: "WRAPPED=''\n" });
+
+    const { bootstrapFleetSubstrateLocally } = await importFresh();
+    const result = await bootstrapFleetSubstrateLocally(host);
+
+    expect(result.usageReporterRetireOk).toBe(true);
+    const parsed = await readSettings();
+    expect(parsed.statusLine).toBeUndefined();
+    expect(parsed.theme).toBe("dark");
+    await expectRetiredFilesGone(binDir, usageDir);
+  });
+
+  it("missing conf → statusLine dropped", async () => {
+    process.env.SKYNET_PUBLIC_URL = "https://skynet.example.com";
+    await seedWrapped({ confBody: null });
+
+    const { bootstrapFleetSubstrateLocally } = await importFresh();
+    await bootstrapFleetSubstrateLocally(host);
+
+    expect((await readSettings()).statusLine).toBeUndefined();
+  });
+
+  it("original is itself a usage-reporter path (old /host-home mis-wire) → statusLine dropped", async () => {
+    process.env.SKYNET_PUBLIC_URL = "https://skynet.example.com";
+    await seedWrapped({
+      wrapperCmd: "/host-home/.local/bin/usage-reporter",
+      confBody: "WRAPPED='/host-home/.local/bin/usage-reporter'\n",
+    });
+
+    const { bootstrapFleetSubstrateLocally } = await importFresh();
+    await bootstrapFleetSubstrateLocally(host);
+
+    expect((await readSettings()).statusLine).toBeUndefined();
+  });
+
+  it("statusLine that isn't the wrapper is left alone; leftovers still removed", async () => {
+    process.env.SKYNET_PUBLIC_URL = "https://skynet.example.com";
+    const { binDir, usageDir } = await seedWrapped({
+      wrapperCmd: "my-own-status",
+      confBody: "WRAPPED='something-else'\n",
+    });
+
+    const { bootstrapFleetSubstrateLocally } = await importFresh();
+    const result = await bootstrapFleetSubstrateLocally(host);
+
+    expect(result.usageReporterRetireOk).toBe(true);
+    expect((await readSettings()).statusLine.command).toBe("my-own-status");
+    await expectRetiredFilesGone(binDir, usageDir);
+  });
+
+  it("idempotent: second call does not rewrite settings.json (mtime unchanged)", async () => {
+    process.env.SKYNET_PUBLIC_URL = "https://skynet.example.com";
+    await seedWrapped({ confBody: "WRAPPED='my-status'\n" });
+    const { bootstrapFleetSubstrateLocally } = await importFresh();
+
+    await bootstrapFleetSubstrateLocally(host);
+    const settingsPath = path.join(tmpRoot, ".claude/settings.json");
+    const statFirst = await fs.stat(settingsPath);
+
+    const second = await bootstrapFleetSubstrateLocally(host);
+    expect(second.usageReporterRetireOk).toBe(true);
+    expect((await fs.stat(settingsPath)).mtimeMs).toBe(statFirst.mtimeMs);
   });
 });
 

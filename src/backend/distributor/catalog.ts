@@ -380,27 +380,6 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     installPath: "~/.local/bin/inbox-watcher",
     restartHook: null,
   },
-  {
-    slug: "usage-reporter",
-    sourceKind: "bundled",
-    bundledPath: "/app/fleet-substrate/scripts/usage-reporter.sh",
-    installPath: "~/.local/bin/usage-reporter",
-    restartHook: null,
-  },
-  {
-    slug: "usage-report",
-    sourceKind: "bundled",
-    bundledPath: "/app/fleet-substrate/scripts/usage-report.js",
-    installPath: "~/.local/bin/usage-report",
-    restartHook: null,
-  },
-  {
-    slug: "claude-usage-collector",
-    sourceKind: "bundled",
-    bundledPath: "/app/fleet-substrate/scripts/claude-usage-collector.py",
-    installPath: "~/.local/bin/claude-usage-collector",
-    restartHook: null,
-  },
   // Agent services: fleet-service is the shared file-drop client every
   // service wrapper calls (request envelope into ~/fleet/service-requests/,
   // wait for the response, collect output files). See

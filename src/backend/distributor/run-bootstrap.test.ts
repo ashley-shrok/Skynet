@@ -47,16 +47,18 @@
  *          happy path at the channel-mock level (both emit the sentinel); assert
  *          hostNameOk=true with no error.
  *
- * Step 6 additions (usage-reporter statusLine wire-up + legacy cleanup):
- *   (sl-1) BootstrapResult has statusLineWireOk: boolean field.
- *   (sl-2) Shell command shape — WRAPPER path, jq @sh raw mode, statusLine
- *          jq write, cleanup rm -f for three legacy paths, sentinel.
- *   (sl-3) Sentinel present → statusLineWireOk=true, hadError=false.
- *   (sl-4) Channel returns null → hadError=true, statusLineWireOk=false,
- *          logBootstrapFailed(statusline-wire, "channel returned null").
+ * Step 6 additions (usage-reporter retirement):
+ *   (sl-1) BootstrapResult has usageReporterRetireOk: boolean field.
+ *   (sl-2) Shell command shape — wrapper match, WRAPPED= restore or
+ *          del(.statusLine), rm of retired files + ~/.claude/usage, sentinel.
+ *   (sl-3) Sentinel present → usageReporterRetireOk=true, hadError=false.
+ *   (sl-4) Channel returns null → hadError=true, usageReporterRetireOk=false,
+ *          logBootstrapFailed(usage-reporter-retire, "channel returned null").
  *   (sl-5) Missing sentinel → hadError=true with trimmed remote output.
  *   (sl-6) Channel throws → hadError=true, function still resolves (NEVER-THROW).
- *   (sl-7) logBootstrapResult payload includes statusLineWireOk field.
+ *   (sl-7) logBootstrapResult payload includes usageReporterRetireOk field.
+ *   (sl-8) Retire script executed under real `sh` against a temp $HOME —
+ *          restore / spicy / empty / no-conf / self-wrap / not-wrapped.
  *
  * NEVER-THROW contract: every test calls runBootstrapForHost and awaits the
  * result with `resolves` — it must never reject.
@@ -98,7 +100,7 @@ function makeChannel(
   // Object.entries iteration order). Tests specifically about a seeded step
   // override with their own value (including null for failure paths).
   const seeded: Record<string, string | null> = {
-    __STATUSLINE_OK__: "__STATUSLINE_OK__",
+    __USAGE_REPORTER_RETIRED__: "__USAGE_REPORTER_RETIRED__",
     // Default happy-path for Step 5b (host-id). Tests specifically
     // exercising the hostid step override this key with their own value.
     // Same shape as tests explicitly seeding "host/name" for Step 5.
@@ -1119,22 +1121,22 @@ describe("runBootstrapForHost", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Step 6: usage-reporter statusLine wire-up + legacy cleanup.
-  //   (sl-1) BootstrapResult has statusLineWireOk: boolean field.
-  //   (sl-2) Shell command shape — WRAPPER path, jq @sh, statusLine jq write,
-  //          cleanup rm -f for all three legacy paths, sentinel.
-  //   (sl-3) Sentinel present → statusLineWireOk=true, hadError=false.
-  //   (sl-4) Channel returns null → hadError=true, statusLineWireOk=false,
-  //          logBootstrapFailed(statusline-wire, "channel returned null").
+  // Step 6: usage-reporter retirement.
+  //   (sl-1) BootstrapResult has usageReporterRetireOk: boolean field.
+  //   (sl-2) Shell command shape — wrapper match, WRAPPED= restore or
+  //          del(.statusLine), rm of retired files + ~/.claude/usage, sentinel.
+  //   (sl-3) Sentinel present → usageReporterRetireOk=true, hadError=false.
+  //   (sl-4) Channel returns null → hadError=true, usageReporterRetireOk=false,
+  //          logBootstrapFailed(usage-reporter-retire, "channel returned null").
   //   (sl-5) Missing sentinel → hadError=true with trimmed remote output.
   //   (sl-6) Channel throws → hadError=true, function still resolves (NEVER-THROW).
-  //   (sl-7) logBootstrapResult payload includes statusLineWireOk field.
+  //   (sl-7) logBootstrapResult payload includes usageReporterRetireOk field.
   //
-  // The seeded default in makeChannel supplies __STATUSLINE_OK__ so all
+  // The seeded default in makeChannel supplies __USAGE_REPORTER_RETIRED__ so all
   // pre-existing tests keep passing; these tests explicitly override.
   // -------------------------------------------------------------------------
-  describe("step 6: usage-reporter statusLine wire-up + legacy cleanup", () => {
-    it("(sl-1) BootstrapResult has statusLineWireOk: boolean field", async () => {
+  describe("step 6: usage-reporter retirement", () => {
+    it("(sl-1) BootstrapResult has usageReporterRetireOk: boolean field", async () => {
       const { channel } = makeChannel({
         "is-enabled": "enabled\nEXIT:0",
         "daemon-reload": "__RELOAD_OK__",
@@ -1143,10 +1145,10 @@ describe("runBootstrapForHost", () => {
         "host/name": "__HOST_NAME_OK__",
       });
       const result = await runBootstrapForHost(channel, HOST);
-      expect(typeof result.statusLineWireOk).toBe("boolean");
+      expect(typeof result.usageReporterRetireOk).toBe("boolean");
     });
 
-    it("(sl-2) shell command shape — WRAPPER path, jq @sh, statusLine write, cleanup rm -f, sentinel", async () => {
+    it("(sl-2) shell command shape — unwrap before removing files, sentinel", async () => {
       const { channel, exec } = makeChannel({
         "is-enabled": "enabled\nEXIT:0",
         "daemon-reload": "__RELOAD_OK__",
@@ -1158,63 +1160,66 @@ describe("runBootstrapForHost", () => {
       await runBootstrapForHost(channel, HOST);
 
       const cmds = captureCommands(exec);
-      const wireCmd = cmds.find((c) => c.includes("__STATUSLINE_OK__"));
-      expect(wireCmd).toBeDefined();
-      if (!wireCmd) return;
+      const retireCmd = cmds.find((c) => c.includes("__USAGE_REPORTER_RETIRED__"));
+      expect(retireCmd).toBeDefined();
+      if (!retireCmd) return;
 
-      // Wrapper path (from USAGE_REPORTER_WRAPPER_PATH constant).
-      expect(wireCmd).toContain(`WRAPPER="$HOME/.local/bin/usage-reporter"`);
-      // Read current statusLine.command from settings.json via jq -r.
-      expect(wireCmd).toContain(`jq -r '.statusLine.command // ""' "$SETTINGS"`);
-      // Compare CUR to WRAPPER for idempotency.
-      expect(wireCmd).toContain(`if [ "$CUR" = "$WRAPPER" ]`);
-      // Use jq @sh in RAW mode (-rn) to shell-quote the original command.
-      expect(wireCmd).toContain(`jq -rn --arg s "$CUR" '$s | @sh'`);
-      // Atomic conf write (tmp file + mv).
-      expect(wireCmd).toContain(`> "$CONF.new"`);
-      expect(wireCmd).toContain(`mv "$CONF.new" "$CONF"`);
-      // Rewrite settings.json.statusLine via jq --arg cmd.
-      expect(wireCmd).toContain(
-        `jq --arg cmd "$WRAPPER" '.statusLine = {type:"command", command:$cmd}'`,
-      );
-      expect(wireCmd).toContain(`mv "$SETTINGS.new" "$SETTINGS"`);
-      // Cleanup all three legacy paths.
-      expect(wireCmd).toContain(`rm -f "$HOME/.local/bin/install-usage-reporter"`);
-      expect(wireCmd).toContain(`"$HOME/.claude/usage/usage-reporter.sh"`);
-      expect(wireCmd).toContain(`"$HOME/.claude/usage/usage-report.js"`);
-      // Sentinel.
-      expect(wireCmd).toContain(`echo "__STATUSLINE_OK__"`);
+      // Read current statusLine.command; only the wrapper path is unwrapped.
+      expect(retireCmd).toContain(`jq -r '.statusLine.command // ""' "$SETTINGS"`);
+      expect(retireCmd).toContain(`*/.local/bin/usage-reporter)`);
+      // Original comes from the conf's WRAPPED=, read in a subshell.
+      expect(retireCmd).toContain(`CONF="$HOME/.claude/usage/usage-reporter.conf"`);
+      expect(retireCmd).toContain(`. "$CONF"`);
+      // A wrapper-of-the-wrapper original is treated as no original.
+      expect(retireCmd).toContain(`case "$ORIG" in *usage-reporter*) ORIG="" ;; esac`);
+      // Restore or drop, atomically.
+      expect(retireCmd).toContain(`jq --arg cmd "$ORIG" '.statusLine.command = $cmd'`);
+      expect(retireCmd).toContain(`jq 'del(.statusLine)'`);
+      expect(retireCmd).toContain(`mv "$SETTINGS.new" "$SETTINGS"`);
+      // Files only removed after the unwrap succeeded.
+      const rmIdx = retireCmd.indexOf("rm -f");
+      expect(rmIdx).toBeGreaterThan(retireCmd.indexOf(`if [ "$UNWRAP_OK" = "1" ]`));
+      for (const rel of [
+        ".local/bin/usage-reporter",
+        ".local/bin/usage-report",
+        ".local/bin/claude-usage-collector",
+        ".local/bin/install-usage-reporter",
+      ]) {
+        expect(retireCmd).toContain(`"$HOME/${rel}"`);
+      }
+      expect(retireCmd).toContain(`rm -rf "$HOME/.claude/usage"`);
+      expect(retireCmd).toContain(`echo "__USAGE_REPORTER_RETIRED__"`);
     });
 
-    it("(sl-3) sentinel present → statusLineWireOk=true, hadError=false", async () => {
+    it("(sl-3) sentinel present → usageReporterRetireOk=true, hadError=false", async () => {
       const { channel } = makeChannel({
         "is-enabled": "enabled\nEXIT:0",
         "daemon-reload": "__RELOAD_OK__",
         SETTINGS: "__SETTINGS_OK__",
         "gsd-context-monitor": "__CLEANUP_OK__",
         "host/name": "__HOST_NAME_OK__",
-        __STATUSLINE_OK__: "some benign chatter\n__STATUSLINE_OK__",
+        __USAGE_REPORTER_RETIRED__: "some benign chatter\n__USAGE_REPORTER_RETIRED__",
       });
 
       const result = await runBootstrapForHost(channel, HOST);
 
-      expect(result.statusLineWireOk).toBe(true);
+      expect(result.usageReporterRetireOk).toBe(true);
       expect(result.hadError).toBe(false);
     });
 
-    it("(sl-4) channel returns null on statusline-wire → hadError=true, statusLineWireOk=false, logBootstrapFailed called with 'channel returned null'", async () => {
+    it("(sl-4) channel returns null on usage-reporter-retire → hadError=true, usageReporterRetireOk=false, logBootstrapFailed called with 'channel returned null'", async () => {
       const { channel } = makeChannel({
         "is-enabled": "enabled\nEXIT:0",
         "daemon-reload": "__RELOAD_OK__",
         SETTINGS: "__SETTINGS_OK__",
         "gsd-context-monitor": "__CLEANUP_OK__",
         "host/name": "__HOST_NAME_OK__",
-        __STATUSLINE_OK__: null,
+        __USAGE_REPORTER_RETIRED__: null,
       });
 
       const result = await runBootstrapForHost(channel, HOST);
 
-      expect(result.statusLineWireOk).toBe(false);
+      expect(result.usageReporterRetireOk).toBe(false);
       expect(result.hadError).toBe(true);
 
       const warnCalls = vi.mocked(systemLogger.warn).mock.calls;
@@ -1222,8 +1227,8 @@ describe("runBootstrapForHost", () => {
         const c = (ctx ?? {}) as Record<string, unknown>;
         return (
           typeof msg === "string" &&
-          msg.includes("statusline-wire") &&
-          c.step === "statusline-wire" &&
+          msg.includes("usage-reporter-retire") &&
+          c.step === "usage-reporter-retire" &&
           c.errorMessage === "channel returned null"
         );
       });
@@ -1237,12 +1242,12 @@ describe("runBootstrapForHost", () => {
         SETTINGS: "__SETTINGS_OK__",
         "gsd-context-monitor": "__CLEANUP_OK__",
         "host/name": "__HOST_NAME_OK__",
-        __STATUSLINE_OK__: "jq: parse error at line 1\n",
+        __USAGE_REPORTER_RETIRED__: "jq: parse error at line 1\n",
       });
 
       const result = await runBootstrapForHost(channel, HOST);
 
-      expect(result.statusLineWireOk).toBe(false);
+      expect(result.usageReporterRetireOk).toBe(false);
       expect(result.hadError).toBe(true);
 
       const warnCalls = vi.mocked(systemLogger.warn).mock.calls;
@@ -1250,8 +1255,8 @@ describe("runBootstrapForHost", () => {
         const c = (ctx ?? {}) as Record<string, unknown>;
         return (
           typeof msg === "string" &&
-          msg.includes("statusline-wire") &&
-          c.step === "statusline-wire" &&
+          msg.includes("usage-reporter-retire") &&
+          c.step === "usage-reporter-retire" &&
           typeof c.errorMessage === "string" &&
           (c.errorMessage as string).includes("jq: parse error")
         );
@@ -1263,11 +1268,11 @@ describe("runBootstrapForHost", () => {
       const exec = vi.fn(async (cmd: string) => {
         if (cmd.includes("is-enabled")) return "enabled\nEXIT:0";
         if (cmd.includes("daemon-reload")) return "__RELOAD_OK__";
-        if (cmd.includes("SETTINGS=") && !cmd.includes("__STATUSLINE_OK__"))
+        if (cmd.includes("SETTINGS=") && !cmd.includes("__USAGE_REPORTER_RETIRED__"))
           return "__SETTINGS_OK__";
         if (cmd.includes("gsd-context-monitor")) return "__CLEANUP_OK__";
         if (cmd.includes("host/name")) return "__HOST_NAME_OK__";
-        if (cmd.includes("__STATUSLINE_OK__")) {
+        if (cmd.includes("__USAGE_REPORTER_RETIRED__")) {
           throw new Error("boom");
         }
         return null;
@@ -1280,10 +1285,10 @@ describe("runBootstrapForHost", () => {
 
       const result = await runBootstrapForHost(throwingChannel, HOST);
       expect(result.hadError).toBe(true);
-      expect(result.statusLineWireOk).toBe(false);
+      expect(result.usageReporterRetireOk).toBe(false);
     });
 
-    it("(sl-7) logBootstrapResult payload includes statusLineWireOk field", async () => {
+    it("(sl-7) logBootstrapResult payload includes usageReporterRetireOk field", async () => {
       const { channel } = makeChannel({
         "is-enabled": "enabled\nEXIT:0",
         "daemon-reload": "__RELOAD_OK__",
@@ -1297,12 +1302,95 @@ describe("runBootstrapForHost", () => {
       const infoCalls = vi.mocked(systemLogger.info).mock.calls;
       const summary = infoCalls.find(([, ctx]) => {
         const c = (ctx ?? {}) as Record<string, unknown>;
-        return c.operation === "fleet_substrate_bootstrap_result" && "statusLineWireOk" in c;
+        return c.operation === "fleet_substrate_bootstrap_result" && "usageReporterRetireOk" in c;
       });
       expect(summary).toBeDefined();
       if (!summary) return;
       const ctx = summary[1] as Record<string, unknown>;
-      expect(ctx.statusLineWireOk).toBe(true);
+      expect(ctx.usageReporterRetireOk).toBe(true);
+    });
+
+    it("(sl-8) retire script, executed under a real POSIX shell against a temp $HOME", async () => {
+      const { channel, exec } = makeChannel({
+        "is-enabled": "enabled\nEXIT:0",
+        "daemon-reload": "__RELOAD_OK__",
+        SETTINGS: "__SETTINGS_OK__",
+        "gsd-context-monitor": "__CLEANUP_OK__",
+        "host/name": "__HOST_NAME_OK__",
+      });
+      await runBootstrapForHost(channel, HOST);
+      const retireCmd = captureCommands(exec).find((c) =>
+        c.includes("__USAGE_REPORTER_RETIRED__"),
+      );
+      expect(retireCmd).toBeDefined();
+      if (!retireCmd) return;
+
+      const fsp = await import("node:fs/promises");
+      const nodePath = await import("node:path");
+      const nodeOs = await import("node:os");
+      const { execFileSync } = await import("node:child_process");
+
+      const spicy = `my-status --arg "hi $USER's world" -x`;
+      const cases: Array<{
+        name: string;
+        cmd: string;
+        conf: string | null;
+        expectCmd: string | undefined;
+      }> = [
+        { name: "restore", cmd: "WRAP", conf: `WRAPPED='my-status --x'\n`, expectCmd: "my-status --x" },
+        {
+          name: "spicy",
+          cmd: "WRAP",
+          conf: `WRAPPED='${spicy.replace(/'/g, "'\\''")}'\n`,
+          expectCmd: spicy,
+        },
+        { name: "empty", cmd: "WRAP", conf: `WRAPPED=''\n`, expectCmd: undefined },
+        { name: "no-conf", cmd: "WRAP", conf: null, expectCmd: undefined },
+        {
+          name: "self-wrap",
+          cmd: "/host-home/.local/bin/usage-reporter",
+          conf: `WRAPPED='/host-home/.local/bin/usage-reporter'\n`,
+          expectCmd: undefined,
+        },
+        { name: "not-wrapped", cmd: "my-own-status", conf: `WRAPPED='x'\n`, expectCmd: "my-own-status" },
+      ];
+
+      for (const c of cases) {
+        const home = await fsp.mkdtemp(nodePath.join(nodeOs.tmpdir(), `retire-${c.name}-`));
+        try {
+          const bin = nodePath.join(home, ".local/bin");
+          const usage = nodePath.join(home, ".claude/usage");
+          await fsp.mkdir(bin, { recursive: true });
+          await fsp.mkdir(usage, { recursive: true });
+          for (const f of ["usage-reporter", "usage-report", "claude-usage-collector", "install-usage-reporter"]) {
+            await fsp.writeFile(nodePath.join(bin, f), "#!/bin/sh\n");
+          }
+          if (c.conf !== null) {
+            await fsp.writeFile(nodePath.join(usage, "usage-reporter.conf"), c.conf);
+          }
+          const wrapper = c.cmd === "WRAP" ? nodePath.join(home, ".local/bin/usage-reporter") : c.cmd;
+          const settingsPath = nodePath.join(home, ".claude/settings.json");
+          await fsp.writeFile(
+            settingsPath,
+            JSON.stringify({ theme: "dark", statusLine: { type: "command", command: wrapper, padding: 0 } }),
+          );
+
+          const out = execFileSync("sh", ["-c", retireCmd], {
+            env: { PATH: process.env.PATH, HOME: home, USER: "u" },
+            encoding: "utf-8",
+          });
+          expect(out.trimEnd().endsWith("__USAGE_REPORTER_RETIRED__"), c.name).toBe(true);
+
+          const parsed = JSON.parse(await fsp.readFile(settingsPath, "utf-8"));
+          expect(parsed.theme, c.name).toBe("dark");
+          expect(parsed.statusLine?.command, c.name).toBe(c.expectCmd);
+          if (c.expectCmd !== undefined) expect(parsed.statusLine.padding, c.name).toBe(0);
+          expect((await fsp.readdir(bin)).length, c.name).toBe(0);
+          await expect(fsp.access(usage), c.name).rejects.toThrow();
+        } finally {
+          await fsp.rm(home, { recursive: true, force: true });
+        }
+      }
     });
   });
 
@@ -1378,8 +1466,8 @@ describe("runBootstrapForHost", () => {
         // Step 1c: happy-path skip for scheduled-agents-scheduler (this
         // test is scoped to Step 1b behavior; Step 1c shouldn't affect it).
         if (cmd.includes("is-enabled scheduled-agents-scheduler.service")) return "enabled\nEXIT:0";
-        // Step 6 statusLine wire: check sentinel first since cmd also has SETTINGS=.
-        if (cmd.includes("__STATUSLINE_OK__")) return "__STATUSLINE_OK__";
+        // Step 6 usage-reporter retire: check sentinel first since cmd also has SETTINGS=.
+        if (cmd.includes("__USAGE_REPORTER_RETIRED__")) return "__USAGE_REPORTER_RETIRED__";
         if (cmd.includes("SETTINGS=")) return "__SETTINGS_OK__";
         if (cmd.includes("gsd-context-monitor")) return "__CLEANUP_OK__";
         if (cmd.includes("host/parent")) return "__HOST_PARENT_OK__";
@@ -1423,7 +1511,7 @@ describe("runBootstrapForHost", () => {
         if (cmd.includes("daemon-reload")) return "__RELOAD_OK__";
         if (cmd.includes("enable --now interactive-messages-gc.timer")) return null;
         if (cmd.includes("is-enabled interactive-messages-gc.timer")) return "disabled\nEXIT:1";
-        if (cmd.includes("__STATUSLINE_OK__")) return "__STATUSLINE_OK__";
+        if (cmd.includes("__USAGE_REPORTER_RETIRED__")) return "__USAGE_REPORTER_RETIRED__";
         if (cmd.includes("SETTINGS=")) return "__SETTINGS_OK__";
         if (cmd.includes("gsd-context-monitor")) return "__CLEANUP_OK__";
         if (cmd.includes("host/parent")) return "__HOST_PARENT_OK__";
@@ -1446,7 +1534,7 @@ describe("runBootstrapForHost", () => {
         if (cmd.includes("enable --now interactive-messages-gc.timer"))
           return "Failed to start interactive-messages-gc.timer\n";
         if (cmd.includes("is-enabled interactive-messages-gc.timer")) return "disabled\nEXIT:1";
-        if (cmd.includes("__STATUSLINE_OK__")) return "__STATUSLINE_OK__";
+        if (cmd.includes("__USAGE_REPORTER_RETIRED__")) return "__USAGE_REPORTER_RETIRED__";
         if (cmd.includes("SETTINGS=")) return "__SETTINGS_OK__";
         if (cmd.includes("gsd-context-monitor")) return "__CLEANUP_OK__";
         if (cmd.includes("host/parent")) return "__HOST_PARENT_OK__";
@@ -1522,7 +1610,7 @@ describe("runBootstrapForHost", () => {
           return "__SCHED_OK__";
         if (cmd.includes("is-enabled scheduled-agents-scheduler.service"))
           return "disabled\nEXIT:1";
-        if (cmd.includes("__STATUSLINE_OK__")) return "__STATUSLINE_OK__";
+        if (cmd.includes("__USAGE_REPORTER_RETIRED__")) return "__USAGE_REPORTER_RETIRED__";
         if (cmd.includes("SETTINGS=")) return "__SETTINGS_OK__";
         if (cmd.includes("gsd-context-monitor")) return "__CLEANUP_OK__";
         if (cmd.includes("host/parent")) return "__HOST_PARENT_OK__";
@@ -1572,7 +1660,7 @@ describe("runBootstrapForHost", () => {
           return null;
         if (cmd.includes("is-enabled scheduled-agents-scheduler.service"))
           return "disabled\nEXIT:1";
-        if (cmd.includes("__STATUSLINE_OK__")) return "__STATUSLINE_OK__";
+        if (cmd.includes("__USAGE_REPORTER_RETIRED__")) return "__USAGE_REPORTER_RETIRED__";
         if (cmd.includes("SETTINGS=")) return "__SETTINGS_OK__";
         if (cmd.includes("gsd-context-monitor")) return "__CLEANUP_OK__";
         if (cmd.includes("host/parent")) return "__HOST_PARENT_OK__";
@@ -1598,7 +1686,7 @@ describe("runBootstrapForHost", () => {
           return "Failed to start scheduled-agents-scheduler.service\n";
         if (cmd.includes("is-enabled scheduled-agents-scheduler.service"))
           return "disabled\nEXIT:1";
-        if (cmd.includes("__STATUSLINE_OK__")) return "__STATUSLINE_OK__";
+        if (cmd.includes("__USAGE_REPORTER_RETIRED__")) return "__USAGE_REPORTER_RETIRED__";
         if (cmd.includes("SETTINGS=")) return "__SETTINGS_OK__";
         if (cmd.includes("gsd-context-monitor")) return "__CLEANUP_OK__";
         if (cmd.includes("host/parent")) return "__HOST_PARENT_OK__";

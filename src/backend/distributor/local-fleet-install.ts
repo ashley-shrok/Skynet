@@ -103,27 +103,23 @@ import {
   SETTINGS_REQUIRED_KEY_COUNT,
   GSD_MONITOR_DETECT_JQ,
   GSD_MONITOR_STRIP_JQ,
+  USAGE_REPORTER_RETIRED_FILES,
+  USAGE_REPORTER_RETIRED_DIR,
 } from "./run-bootstrap.js";
 
 /**
- * Legacy paths cleaned up in Step 6 — the retired install script and two
- * duplicate copies now shipped to ~/.local/bin/ by the distributor. Same
- * three paths as the SSH-surface bootstrap.
+ * Read the WRAPPED= original statusLine command out of a usage-reporter.conf
+ * body. The conf was always written as `WRAPPED=<jq @sh / single-quoted>` —
+ * a single-quoted string with embedded quotes as `'\''`. Anything else
+ * (unquoted, multi-token, unparseable) returns "" so the caller drops
+ * statusLine rather than guessing.
  */
-const STATUSLINE_LEGACY_PATHS = [
-  ".local/bin/install-usage-reporter",
-  ".claude/usage/usage-reporter.sh",
-  ".claude/usage/usage-report.js",
-] as const;
-
-/**
- * Shell-quote a string for safe inclusion in a `WRAPPED='<...>'` conf line
- * that will be sourced by `. "$CONF"`. Matches jq's `@sh` filter output —
- * wraps in single quotes and escapes embedded single quotes via `'\''`.
- * Byte-parallel with the SSH-surface's `jq -rn --arg s "$CUR" '$s | @sh'`.
- */
-function shSingleQuote(s: string): string {
-  return "'" + s.replace(/'/g, "'\\''") + "'";
+export function parseWrappedFromConf(conf: string): string {
+  const m = conf.match(/^WRAPPED=(.*)$/m);
+  if (!m) return "";
+  const v = m[1].trim();
+  if (!/^'(?:[^']|'\\'')*'$/.test(v)) return "";
+  return v.slice(1, -1).replace(/'\\''/g, "'");
 }
 
 const execFile = promisify(execFileCb);
@@ -187,35 +183,6 @@ export interface LocalInstallResult {
  */
 function getLocalHomeRoot(): string {
   return process.env.HOME_HOST_DIR || os.homedir();
-}
-
-/**
- * Return the HOST-side user-home root — the path as the host filesystem
- * sees it (typically `/home/ubuntu`), NOT the container-side bind-mount
- * point (`/host-home`).
- *
- * Read from `SKYNET_HOME_MOUNT_SRC` (the same env var that
- * docker-compose interpolates as the LEFT side of the bind mount:
- * `${SKYNET_HOME_MOUNT_SRC}:/host-home`). Falls back to `os.homedir()`
- * for dev / non-container contexts where the two are the same path.
- *
- * When to use vs `getLocalHomeRoot()`:
- *   - `getLocalHomeRoot()` — path THIS PROCESS reads/writes files at
- *     (files are opened inside the container, so container-side path).
- *   - `getHostExecHomeRoot()` — path a HOST-SIDE PROCESS will exec /
- *     resolve later (the value goes into a file that another program
- *     on the HOST will read, e.g. `~/.claude/settings.json.statusLine.command`
- *     which Claude Code on the HOST execs).
- *
- * Reported by Stacy (T800 maintainer) 2026-09-25: the pre-fix
- * `wireStatusLineLocally` wrote `/host-home/.local/bin/usage-reporter`
- * into `settings.json.statusLine.command`, breaking statusLine for every
- * agent on every co-located host (Claude Code runs on the HOST where
- * `/host-home` does not exist). SSH-branch unaffected (remote shell
- * expands `$HOME` to the remote user's real home).
- */
-function getHostExecHomeRoot(): string {
-  return process.env.SKYNET_HOME_MOUNT_SRC || os.homedir();
 }
 
 /**
@@ -1026,6 +993,104 @@ export async function installFleetSubstrateLocally(
 // ---------------------------------------------------------------------------
 
 /**
+ * Local port of SSH-bootstrap Step 6 — usage-reporter retirement. If
+ * settings.json.statusLine.command still ends in /.local/bin/usage-reporter
+ * (also catches the old co-located `/host-home/...` mis-write), restore the
+ * WRAPPED= original from ~/.claude/usage/usage-reporter.conf, or drop
+ * statusLine when there was no real original. Only after that write lands,
+ * remove the retired files + ~/.claude/usage/. A statusLine that is not the
+ * wrapper is never touched. Returns true on success, false on any failure.
+ * Never throws.
+ */
+async function retireUsageReporterLocally(host: {
+  id: string;
+  name: string;
+}): Promise<boolean> {
+  const homeRoot = getLocalHomeRoot();
+  const settingsPath = path.join(homeRoot, ".claude", "settings.json");
+  const usageDir = path.join(homeRoot, USAGE_REPORTER_RETIRED_DIR);
+  const warn = (site: string, error: unknown, extra?: Record<string, unknown>) =>
+    systemLogger.warn(
+      `local-fleet-bootstrap: usage-reporter retirement failed (${site}) for ${host.name}`,
+      {
+        operation: "local_fleet_usage_reporter_retire_error",
+        site,
+        fleetHostId: host.id,
+        hostName: host.name,
+        error: error instanceof Error ? error.message : String(error),
+        ...extra,
+      },
+    );
+
+  let parsed: Record<string, unknown> | null = null;
+  try {
+    parsed = JSON.parse(await fs.readFile(settingsPath, "utf-8")) as Record<string, unknown>;
+  } catch (err) {
+    if ((err as { code?: string } | undefined)?.code !== "ENOENT") {
+      // Unreadable settings — don't delete the wrapper it may still exec.
+      warn("read_settings", err);
+      return false;
+    }
+  }
+
+  const statusLine = parsed?.statusLine as Record<string, unknown> | undefined;
+  const cmd = typeof statusLine?.command === "string" ? statusLine.command : "";
+  if (parsed && cmd.endsWith("/.local/bin/usage-reporter")) {
+    let original = "";
+    try {
+      original = parseWrappedFromConf(
+        await fs.readFile(path.join(usageDir, "usage-reporter.conf"), "utf-8"),
+      );
+    } catch {
+      // No/unreadable conf — nothing to restore; drop statusLine.
+    }
+    if (original.includes("usage-reporter")) original = "";
+    if (original) {
+      parsed.statusLine = { ...statusLine, command: original };
+    } else {
+      delete parsed.statusLine;
+    }
+    const outcome = await writeContentDiffFile(
+      settingsPath,
+      JSON.stringify(parsed, null, 2) + "\n",
+    );
+    if (typeof outcome === "object") {
+      warn(outcome.site, outcome.error);
+      return false;
+    }
+    systemLogger.info(
+      `local-fleet-bootstrap: usage-reporter unwrapped from statusLine for ${host.name}`,
+      {
+        operation: "local_fleet_usage_reporter_unwrapped",
+        fleetHostId: host.id,
+        hostName: host.name,
+        restored: original ? "original" : "removed",
+      },
+    );
+  }
+
+  let ok = true;
+  for (const rel of USAGE_REPORTER_RETIRED_FILES) {
+    const target = path.join(homeRoot, rel);
+    try {
+      await fs.unlink(target);
+    } catch (err) {
+      if ((err as { code?: string } | undefined)?.code !== "ENOENT") {
+        warn("unlink", err, { path: target });
+        ok = false;
+      }
+    }
+  }
+  try {
+    await fs.rm(usageDir, { recursive: true, force: true });
+  } catch (err) {
+    warn("rm_usage_dir", err, { path: usageDir });
+    ok = false;
+  }
+  return ok;
+}
+
+/**
  * Write bytes to a "single-line-content, content-diff idempotent" file.
  * Used for all three host-config writes (parent, name, id). Never throws.
  *
@@ -1034,170 +1099,6 @@ export async function installFleetSubstrateLocally(
  *   - "unchanged"   — file already matches; silent no-op (no mtime churn).
  *   - { error: string, site: string } — FS failure.
  */
-/**
- * Local port of SSH-bootstrap Step 6 — usage-reporter statusLine wire-up +
- * legacy cleanup. Idempotent:
- *   - If settings.json.statusLine.command already equals the expanded wrapper
- *     path (~/.local/bin/usage-reporter), skip the wrap. Preserves whatever
- *     WRAPPED= was captured on the first wire-up (never re-wrap the wrapper).
- *   - Otherwise: capture the current command (shell-safe quoted) into
- *     ~/.claude/usage/usage-reporter.conf, patch settings.json.statusLine to
- *     the wrapper, using writeContentDiffFile so mtime doesn't churn.
- * Always runs the legacy cleanup regardless of wrap state — unlink of an
- * absent path is a no-op (ENOENT tolerated).
- *
- * Returns true on success (wired + cleaned OR already-wired + cleaned),
- * false on any failure. Never throws.
- */
-async function wireStatusLineLocally(host: {
-  id: string;
-  name: string;
-}): Promise<boolean> {
-  const homeRoot = getLocalHomeRoot();
-  const claudeDir = path.join(homeRoot, ".claude");
-  const settingsPath = path.join(claudeDir, "settings.json");
-  const usageDir = path.join(claudeDir, "usage");
-  const confPath = path.join(usageDir, "usage-reporter.conf");
-  // wrapperPath goes INTO settings.json.statusLine.command — Claude Code
-  // on the HOST reads this and execs it, so the path must be host-side
-  // (`/home/ubuntu/.local/bin/usage-reporter`) not container-side
-  // (`/host-home/.local/bin/usage-reporter`). See getHostExecHomeRoot()
-  // docblock for the full container-vs-host path discipline.
-  const wrapperPath = path.join(
-    getHostExecHomeRoot(),
-    ".local",
-    "bin",
-    "usage-reporter",
-  );
-
-  // Read current statusLine.command from settings.json (empty if absent/malformed).
-  let currentCommand = "";
-  try {
-    const raw = await fs.readFile(settingsPath, "utf-8");
-    const parsed = JSON.parse(raw);
-    const cmd = parsed?.statusLine?.command;
-    if (typeof cmd === "string") currentCommand = cmd;
-  } catch (err) {
-    const errno = (err as { code?: string } | undefined)?.code;
-    if (errno !== "ENOENT") {
-      // Non-ENOENT read/parse failure — log and continue (empty current
-      // command means we'll attempt to wire fresh).
-      systemLogger.warn(
-        `local-fleet-bootstrap: settings.json read/parse failed reading statusLine for ${host.name}`,
-        {
-          operation: "local_fleet_statusline_wire_error",
-          site: "read_settings",
-          fleetHostId: host.id,
-          hostName: host.name,
-          error: err instanceof Error ? err.message : String(err),
-        },
-      );
-      return false;
-    }
-  }
-
-  // Wrap-side work only if the wrap is not already in place.
-  if (currentCommand !== wrapperPath) {
-    try {
-      await fs.mkdir(usageDir, { recursive: true });
-      const confContent = `WRAPPED=${shSingleQuote(currentCommand)}\n`;
-      const confOutcome = await writeContentDiffFile(confPath, confContent);
-      if (typeof confOutcome === "object") {
-        systemLogger.warn(
-          `local-fleet-bootstrap: usage-reporter.conf write failed for ${host.name}`,
-          {
-            operation: "local_fleet_statusline_wire_error",
-            site: confOutcome.site,
-            fleetHostId: host.id,
-            hostName: host.name,
-            error: confOutcome.error,
-          },
-        );
-        return false;
-      }
-
-      // Patch settings.json.statusLine, preserving all other keys. Read-merge-
-      // write directly (no jq spawn) since Node already parsed JSON above.
-      let parsed: Record<string, unknown> = {};
-      try {
-        const raw = await fs.readFile(settingsPath, "utf-8");
-        parsed = JSON.parse(raw) as Record<string, unknown>;
-      } catch (err) {
-        const errno = (err as { code?: string } | undefined)?.code;
-        if (errno !== "ENOENT") {
-          systemLogger.warn(
-            `local-fleet-bootstrap: settings.json read failed for statusLine wire ${host.name}`,
-            {
-              operation: "local_fleet_statusline_wire_error",
-              site: "read_settings_for_merge",
-              fleetHostId: host.id,
-              hostName: host.name,
-              error: err instanceof Error ? err.message : String(err),
-            },
-          );
-          return false;
-        }
-        // ENOENT — start from {}.
-      }
-      parsed.statusLine = { type: "command", command: wrapperPath };
-      const merged = JSON.stringify(parsed, null, 2) + "\n";
-      const settingsOutcome = await writeContentDiffFile(settingsPath, merged);
-      if (typeof settingsOutcome === "object") {
-        systemLogger.warn(
-          `local-fleet-bootstrap: settings.json statusLine write failed for ${host.name}`,
-          {
-            operation: "local_fleet_statusline_wire_error",
-            site: settingsOutcome.site,
-            fleetHostId: host.id,
-            hostName: host.name,
-            error: settingsOutcome.error,
-          },
-        );
-        return false;
-      }
-    } catch (err) {
-      systemLogger.warn(
-        `local-fleet-bootstrap: statusLine wire threw unexpectedly for ${host.name}`,
-        {
-          operation: "local_fleet_statusline_wire_error",
-          site: "wire_catchall",
-          fleetHostId: host.id,
-          hostName: host.name,
-          error: err instanceof Error ? err.message : String(err),
-        },
-      );
-      return false;
-    }
-  }
-
-  // Legacy cleanup — always run (idempotent; ENOENT tolerated). Failure to
-  // remove a legacy file is logged but does not fail the wire-up (the wrap
-  // is what matters; leftover dupes are cosmetic).
-  for (const rel of STATUSLINE_LEGACY_PATHS) {
-    const target = path.join(homeRoot, rel);
-    try {
-      await fs.unlink(target);
-    } catch (err) {
-      const errno = (err as { code?: string } | undefined)?.code;
-      if (errno !== "ENOENT") {
-        systemLogger.warn(
-          `local-fleet-bootstrap: legacy path cleanup unlink failed for ${host.name}`,
-          {
-            operation: "local_fleet_statusline_wire_error",
-            site: "legacy_unlink",
-            fleetHostId: host.id,
-            hostName: host.name,
-            path: target,
-            error: err instanceof Error ? err.message : String(err),
-          },
-        );
-      }
-    }
-  }
-
-  return true;
-}
-
 async function writeContentDiffFile(
   finalPath: string,
   wantedContent: string,
@@ -1293,7 +1194,7 @@ export async function bootstrapFleetSubstrateLocally(
   let hostParentOk = false;
   let hostNameOk = false;
   let hostIdOk = false;
-  let statusLineWireOk = false;
+  let usageReporterRetireOk = false;
   let hadError = false;
 
   const claudeDir = path.join(getLocalHomeRoot(), ".claude");
@@ -1490,24 +1391,24 @@ export async function bootstrapFleetSubstrateLocally(
     );
   }
 
-  // ---- Step 6: usage-reporter statusLine wire-up + legacy cleanup ----
-  // Pure fs work — no systemd dependency. Byte-parallel with SSH surface
-  // (run-bootstrap.ts Step 6). Idempotent (no-op on already-wired boxes).
+  // ---- Step 6: usage-reporter retirement ----
+  // Pure fs work — no systemd dependency. Parallel with SSH surface
+  // (run-bootstrap.ts Step 6). Idempotent.
   try {
-    statusLineWireOk = await wireStatusLineLocally(host);
-    if (!statusLineWireOk) hadError = true;
+    usageReporterRetireOk = await retireUsageReporterLocally(host);
+    if (!usageReporterRetireOk) hadError = true;
   } catch (err) {
     systemLogger.warn(
-      `local-fleet-bootstrap: statusLine wire step threw for ${host.name}`,
+      `local-fleet-bootstrap: usage-reporter retirement threw for ${host.name}`,
       {
-        operation: "local_fleet_statusline_wire_error",
+        operation: "local_fleet_usage_reporter_retire_error",
         site: "outer_catch",
         fleetHostId: host.id,
         hostName: host.name,
         error: err instanceof Error ? err.message : String(err),
       },
     );
-    statusLineWireOk = false;
+    usageReporterRetireOk = false;
     hadError = true;
   }
 
@@ -1520,7 +1421,7 @@ export async function bootstrapFleetSubstrateLocally(
     hostParentOk,
     hostNameOk,
     hostIdOk,
-    statusLineWireOk,
+    usageReporterRetireOk,
     hadError,
     // Local branch doesn't run the interactive-messages-gc.timer OR
     // scheduled-agents-scheduler.service enable step yet (pre-existing gap
