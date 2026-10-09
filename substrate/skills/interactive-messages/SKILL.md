@@ -119,8 +119,14 @@ Here is the widget:
 
 Paste the URL exactly as `create-widget.sh` emitted it — do NOT strip the
 scheme or domain. The anchor text does not matter. The frontend replaces the
-entire `<a>` tag with the inline widget frame. Keep the message brief — the
-widget IS the interaction.
+entire `<a>` tag with the inline widget frame.
+
+**Put the widget URL in the LAST message of your turn** — the reply you end
+on, after your final tool call. Text you write between tool calls is not
+reliably delivered: the harness may condense it into a one-line summary or
+drop it from the session record, so a URL placed there never reaches the user
+and no widget renders. If you have more work to do after scaffolding, finish
+it first, then end your turn with the URL.
 
 ---
 
@@ -836,10 +842,12 @@ cat ~/fleet/interactive-messages/<slug>/state.json
 The envelope that wakes you looks like:
 
 ```
+<pasted_content id="…">
 <task-notification>
 <summary>Widget submit — delivered by the app</summary>
 <event>[widget <slug>] submitted — read state at ~/fleet/interactive-messages/<slug>/state.json</event>
 </task-notification>
+</pasted_content id="…">
 ```
 
 The state file is always present and fully written before the postMessage
