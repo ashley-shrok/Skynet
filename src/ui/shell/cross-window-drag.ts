@@ -25,6 +25,8 @@
 // The whole surface is a no-op when BroadcastChannel is unavailable (Safari
 // 15.4+ and every other modern browser 2016+; tests may shim it).
 
+import { APP_HOST_ID_RE, APP_SLUG_RE } from "@/lib/tab-url";
+
 const CHANNEL_NAME = "skynet-drag-accept";
 // 60s — was 5000, but a manual cross-window drag can easily take longer than
 // five seconds (user positions cursor across panes, alt-tabs to the target
@@ -142,4 +144,36 @@ export function mintDragId(): string {
     return crypto.randomUUID();
   }
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+const MAX_APP_LABEL = 128;
+
+/**
+ * shape-app-pane-strip: an app bar's drag payload carries
+ * `descriptor: { tabType: "app", app: { hostId, slug }, label }` so a window
+ * that doesn't hold the source tab can open the same app leaf. Returns the
+ * openTab arguments, or null when the descriptor isn't a well-formed app.
+ */
+export function appLeafFromDescriptor(
+  descriptor:
+    | {
+        tabType?: string;
+        app?: { hostId?: unknown; slug?: unknown } | null;
+        label?: string | null;
+      }
+    | null
+    | undefined,
+): { hostId: number; slug: string; label: string } | null {
+  if (!descriptor || descriptor.tabType !== "app") return null;
+  const hostId = descriptor.app?.hostId;
+  const slug = descriptor.app?.slug;
+  // Same gate as app leaves restored from the URL: the payload can come from
+  // any same-origin window, and the slug lands in the iframe src.
+  if (typeof hostId !== "number" || !APP_HOST_ID_RE.test(String(hostId))) return null;
+  if (typeof slug !== "string" || !APP_SLUG_RE.test(slug)) return null;
+  const label =
+    typeof descriptor.label === "string" && descriptor.label.trim().length > 0
+      ? descriptor.label.trim().slice(0, MAX_APP_LABEL)
+      : slug;
+  return { hostId, slug, label };
 }

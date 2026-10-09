@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>App strip tasting</title>
+<style>
+  :root {
+    --base: #141520; --base-mid: #101118; --base-end: #0a0b12;
+    --surface-quiet: rgba(25,26,34,0.5);
+    --border-quiet: rgba(220,225,245,0.06);
+    --border-quiet-strong: rgba(220,225,245,0.1);
+    --fg: #e8e4d8; --fg-muted: #a89a80; --fg-dim: #7a6f60;
+    --coral-fill: rgba(255,184,150,0.22); --coral-border: rgba(255,184,150,0.60);
+    --app-hue: 210;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: linear-gradient(180deg, var(--base), var(--base-mid) 60%, var(--base-end));
+    color: var(--fg); font: 13px/1.4 Inter, ui-sans-serif, system-ui, sans-serif;
+    padding: 16px; overflow-x: hidden;
+  }
+  h1 { font-size: 16px; margin: 0 0 4px; font-weight: 600; }
+  .lede { color: var(--fg-muted); margin: 0 0 14px; max-width: 760px; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; align-items: center; }
+  .controls .lbl { color: var(--fg-dim); font-size: 11px; text-transform: uppercase; letter-spacing: .12em; margin-right: 4px; }
+  .chip {
+    background: var(--surface-quiet); border: 1px solid var(--border-quiet-strong); color: var(--fg-muted);
+    padding: 6px 12px; border-radius: 999px; cursor: pointer; font: inherit;
+  }
+  .chip[aria-pressed="true"] { color: var(--fg); border-color: rgba(232,228,216,0.45); background: rgba(232,228,216,0.08); }
+  .desc { color: var(--fg-muted); margin: 0 0 12px; min-height: 2.8em; max-width: 760px; }
+
+  /* ── mock shell ─────────────────────────────────────────── */
+  .stage { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-start; }
+  .shell {
+    display: flex; height: 460px; flex: 1 1 760px; min-width: 0; max-width: 1100px;
+    border: 1px solid var(--border-quiet-strong); border-radius: 10px; overflow: hidden;
+    background: linear-gradient(180deg, var(--base), var(--base-end));
+  }
+  .sidebar {
+    width: 200px; flex: none; border-right: 1px solid var(--border-quiet-strong);
+    padding: 12px 10px; display: flex; flex-direction: column; gap: 6px;
+  }
+  .sb-head { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--fg-dim); margin: 6px 4px 2px; }
+  .sb-row { display: flex; align-items: center; gap: 8px; padding: 6px; border-radius: 8px; color: var(--fg-muted); }
+  .sb-row .av { width: 26px; height: 26px; border-radius: 50%; background: hsl(324 45% 35%); flex: none; }
+  .sb-row .ic { width: 26px; height: 26px; border-radius: 7px; flex: none; }
+  .sb-row span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .panes { flex: 1; display: flex; min-width: 0; }
+  .panes.solo .conv-pane { display: none; }
+  .pane { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; position: relative; }
+  .pane + .pane { border-left: 1px solid var(--border-quiet-strong); }
+  .pane.focused { box-shadow: inset 0 0 0 1px rgba(255,184,150,0.3); }
+
+  /* mock conversation pane */
+  .conv-pane { padding: 70px 18px 18px; gap: 10px; }
+  .badge {
+    position: absolute; top: 14px; right: 16px; display: flex; align-items: center; gap: 9px;
+    padding: 5px 14px 5px 5px; border-radius: 32px;
+    background: linear-gradient(160deg, hsla(324,45%,25%,.72), hsla(324,40%,15%,.82));
+    border: 1px solid hsla(324,65%,55%,.4);
+    box-shadow: 0 8px 24px rgba(0,0,0,.6), 0 0 40px hsla(324,65%,55%,.28);
+  }
+  .badge .av { width: 36px; height: 36px; border-radius: 50%; background: hsl(324 45% 40%); }
+  .badge b { font-size: 12.5px; color: #f0ebe0; display: block; }
+  .badge small { font-size: 10px; color: var(--fg-muted); }
+  .bubble { background: var(--surface-quiet); border: 1px solid var(--border-quiet); border-radius: 14px; padding: 10px 12px; color: var(--fg-muted); max-width: 85%; }
+  .bubble.me { align-self: flex-end; background: rgba(232,228,216,0.07); }
+
+  /* mock app content */
+  .app-frame { flex: 1; min-height: 0; overflow: hidden; position: relative; }
+  .app {
+    height: 100%; padding: 18px 20px; background: #f6f4ef; color: #22252b; font-family: ui-sans-serif, system-ui;
+  }
+  .app.dark { background: #1b1d24; color: #dfe2ea; }
+  .app h2 { margin: 0 0 10px; font-size: 18px; }
+  .app .row { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid rgba(0,0,0,.08); }
+  .app.dark .row { border-color: rgba(255,255,255,.07); }
+  .app .row i { width: 12px; height: 12px; border-radius: 3px; background: hsl(var(--app-hue) 60% 55%); margin-top: 3px; flex: none; }
+  .app a { color: hsl(var(--app-hue) 70% 45%); cursor: pointer; text-decoration: underline; }
+  .app.dark a { color: hsl(var(--app-hue) 80% 70%); }
+  .crumb { font-size: 11px; opacity: .55; margin-bottom: 6px; }
+
+  /* ── the strip, shared bits ─────────────────────────────── */
+  .strip { display: flex; align-items: center; flex: none; user-select: none; cursor: grab; position: relative; }
+  .strip:active { cursor: grabbing; }
+  .strip button {
+    all: unset; display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
+    color: var(--fg-muted); border-radius: 6px; transition: color .12s, background .12s, opacity .12s;
+  }
+  .strip button:hover:not([disabled]) { color: var(--fg); background: rgba(232,228,216,0.08); }
+  .strip button[disabled] { opacity: .28; cursor: default; }
+  .strip svg { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .strip .navs { display: flex; gap: 2px; }
+  .strip .ident { display: flex; align-items: center; gap: 7px; min-width: 0; }
+  .strip .ident .ic { flex: none; border-radius: 5px; background: linear-gradient(150deg, hsl(var(--app-hue) 60% 55%), hsl(var(--app-hue) 55% 38%)); display: grid; place-items: center; color: #fff; font-weight: 700; }
+  .strip .ident .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* A — Quiet bar (recommended) */
+  .v-a .strip { height: 30px; padding: 0 8px; gap: 8px; background: var(--base); border-bottom: 1px solid var(--border-quiet-strong); }
+  .v-a .strip button { width: 24px; height: 22px; }
+  .v-a .strip .ic { width: 16px; height: 16px; font-size: 9px; border-radius: 4px; }
+  .v-a .strip .nm { color: var(--fg-muted); font-size: 12px; }
+
+  /* B — Badge echo: glass gradient + soft app-hue glow */
+  .v-b .strip {
+    height: 36px; padding: 0 10px; gap: 10px;
+    background: linear-gradient(160deg, hsla(var(--app-hue),30%,22%,.85), hsla(var(--app-hue),28%,13%,.92));
+    border-bottom: 1px solid hsla(var(--app-hue),65%,55%,.35);
+    box-shadow: 0 6px 18px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,220,170,.12);
+    z-index: 1;
+  }
+  .v-b .strip button { width: 26px; height: 26px; border-radius: 50%; }
+  .v-b .strip .ic { width: 22px; height: 22px; font-size: 11px; border-radius: 6px; box-shadow: 0 0 14px hsla(var(--app-hue),65%,55%,.45); }
+  .v-b .strip .nm { color: #f0ebe0; font-weight: 600; font-size: 12.5px; }
+
+  /* C — Identity-left: app icon + name first, nav pushed right */
+  .v-c .strip { height: 32px; padding: 0 6px 0 10px; gap: 8px; background: var(--base-mid); border-bottom: 1px solid var(--border-quiet-strong); }
+  .v-c .strip .ident { flex: 1; }
+  .v-c .strip .navs { order: 2; }
+  .v-c .strip button { width: 26px; height: 24px; }
+  .v-c .strip .ic { width: 18px; height: 18px; font-size: 10px; }
+  .v-c .strip .nm { color: var(--fg); font-size: 12.5px; font-weight: 500; }
+
+  /* D — Hairline: ultra-thin, icons only, name tiny */
+  .v-d .strip { height: 22px; padding: 0 6px; gap: 6px; background: var(--base-end); border-bottom: 1px solid var(--border-quiet); }
+  .v-d .strip button { width: 20px; height: 18px; }
+  .v-d .strip svg { width: 12px; height: 12px; }
+  .v-d .strip .ic { display: none !important; }
+  .v-d .strip .nm { color: var(--fg-dim); font-size: 10.5px; letter-spacing: .04em; }
+
+  /* E — Centered title: nav left, name centered (browser-window feel) */
+  .v-e .strip { height: 30px; padding: 0 8px; gap: 8px; background: var(--base); border-bottom: 1px solid var(--border-quiet-strong); }
+  .v-e .strip .ident { position: absolute; left: 50%; transform: translateX(-50%); max-width: 55%; pointer-events: none; }
+  .v-e .strip button { width: 24px; height: 22px; }
+  .v-e .strip .ic { width: 16px; height: 16px; font-size: 9px; border-radius: 4px; }
+  .v-e .strip .nm { color: var(--fg-muted); font-size: 12px; }
+
+  /* dragging demo */
+  .shell.dragging .sidebar { background: var(--coral-fill); outline: 2px solid var(--coral-border); outline-offset: -2px; }
+  .shell.dragging .strip { opacity: .55; }
+
+  /* phone */
+  .phone {
+    width: 320px; height: 600px; flex: none; border: 1px solid var(--border-quiet-strong); border-radius: 28px;
+    overflow: hidden; display: flex; flex-direction: column; background: var(--base); padding-top: 26px;
+  }
+  .phone .strip { cursor: default; }
+  .phone .app { padding: 14px; }
+  .caption { font-size: 11px; color: var(--fg-dim); text-transform: uppercase; letter-spacing: .12em; margin: 0 0 6px; }
+  .note { color: var(--fg-dim); font-size: 11.5px; margin-top: 10px; max-width: 760px; }
+  @media (max-width: 820px) { .sidebar { width: 120px; } .shell { height: 400px; } }
+</style>
+</head>
+<body>
+  <h1>App strip tasting</h1>
+  <p class="lede">The strip across the top of an open app. Pick a style, toggle the layout, and try the buttons: click links inside the mock app, then use back, forward and reload. Grab the strip's empty area to see the drag state (the sidebar lights coral as the close target).</p>
+
+  <div class="controls" id="variants">
+    <span class="lbl">Style</span>
+    <button class="chip" data-v="a" aria-pressed="true">A · Quiet bar</button>
+    <button class="chip" data-v="b">B · Badge echo</button>
+    <button class="chip" data-v="c">C · Name first</button>
+    <button class="chip" data-v="d">D · Hairline</button>
+    <button class="chip" data-v="e">E · Centered name</button>
+  </div>
+  <div class="controls">
+    <span class="lbl">Layout</span>
+    <button class="chip" data-layout="split" aria-pressed="true">In a split</button>
+    <button class="chip" data-layout="solo">Alone</button>
+    <span class="lbl" style="margin-left:12px">App theme</span>
+    <button class="chip" data-theme="light" aria-pressed="true">Light app</button>
+    <button class="chip" data-theme="dark">Dark app</button>
+  </div>
+  <p class="desc" id="desc"></p>
+
+  <div class="stage v-a" id="stage">
+    <div class="shell" id="shell">
+      <div class="sidebar">
+        <div class="sb-head">Apps</div>
+        <div class="sb-row"><div class="ic" style="background:linear-gradient(150deg,hsl(210 60% 55%),hsl(210 55% 38%))"></div><span>Grocery Tracker</span></div>
+        <div class="sb-row"><div class="ic" style="background:linear-gradient(150deg,hsl(140 45% 50%),hsl(140 45% 32%))"></div><span>Box Dashboard</span></div>
+        <div class="sb-head">Conversations</div>
+        <div class="sb-row"><div class="av"></div><span>Morpheus</span></div>
+        <div class="sb-row"><div class="av" style="background:hsl(200 45% 35%)"></div><span>Trinity</span></div>
+        <div class="sb-row"><div class="av" style="background:hsl(40 45% 35%)"></div><span>Niobe</span></div>
+      </div>
+      <div class="panes" id="panes">
+        <div class="pane conv-pane">
+          <div class="badge"><div class="av"></div><div><b>Morpheus</b><small>box-maintainer</small></div></div>
+          <div class="bubble">The strip is on the right-hand pane.</div>
+          <div class="bubble me">nice, let me try it</div>
+        </div>
+        <div class="pane focused app-pane" data-app></div>
+      </div>
+    </div>
+    <div>
+      <p class="caption">On a phone · not draggable</p>
+      <div class="phone"><div class="pane app-pane" data-app style="flex:1"></div></div>
+    </div>
+  </div>
+  <p class="note">Mock only. Buttons drive a fake three-page app so you can feel the greyed-out states; the real strip reads the app frame's own history.</p>
+
+<script>
+  const DESCS = {
+    a: "Quiet bar (my recommendation). A slim row in Skynet's dark chrome, separated from the app by a faint line. Small icon buttons on the left, then the app's icon and name in muted text.",
+    b: "Badge echo. Borrows the conversation badge's look: a glassy gradient tinted with the app's color, a soft glow, round buttons and a bright name. More presence, more 'Skynet object'.",
+    c: "Name first. The app's icon and name lead on the left, with the navigation buttons pushed to the right edge, like a window title with controls.",
+    d: "Hairline. As thin as it can usefully be: tiny icons, no app icon, the name in small dim text. Almost disappears.",
+    e: "Centered name. Buttons on the left, the app's name centered, like a browser window's title bar."
+  };
+  const ICONS = {
+    back: '<svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>',
+    fwd: '<svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>',
+    reload: '<svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 4v5h-5"/></svg>'
+  };
+  const PAGES = {
+    home: { title: "Grocery Tracker", body: () => `<div class="crumb">/</div><h2>This week</h2>${["Milk","Eggs","Coffee beans","Spinach"].map(x=>`<div class="row"><i></i>${x}</div>`).join("")}<p><a data-go="list">Open the Costco list →</a></p>` },
+    list: { title: "Costco list", body: () => `<div class="crumb">/lists/costco</div><h2>Costco list</h2>${["Paper towels","Olive oil","Frozen berries"].map(x=>`<div class="row"><i></i>${x}</div>`).join("")}<p><a data-go="item">Olive oil details →</a></p>` },
+    item: { title: "Olive oil", body: () => `<div class="crumb">/lists/costco/olive-oil</div><h2>Olive oil</h2><p>Kirkland, 2L. Last bought Sept 28.</p><p>This is the deepest page. Back is now available twice; forward is greyed until you go back.</p>` }
+  };
+
+  // one tiny history per app pane
+  document.querySelectorAll("[data-app]").forEach(pane => {
+    const hist = ["home"]; let idx = 0;
+    pane.innerHTML = `
+      <div class="strip" draggable="true">
+        <div class="navs">
+          <button data-act="back" title="Back" aria-label="Back">${ICONS.back}</button>
+          <button data-act="fwd" title="Forward" aria-label="Forward">${ICONS.fwd}</button>
+          <button data-act="reload" title="Reload" aria-label="Reload">${ICONS.reload}</button>
+        </div>
+        <div class="ident"><div class="ic">G</div><div class="nm">Grocery Tracker</div></div>
+      </div>
+      <div class="app-frame"><div class="app"></div></div>`;
+    const app = pane.querySelector(".app");
+    const [bBack, bFwd] = pane.querySelectorAll("[data-act=back],[data-act=fwd]");
+    const render = () => {
+      app.innerHTML = PAGES[hist[idx]].body();
+      bBack.disabled = idx === 0; bFwd.disabled = idx === hist.length - 1;
+    };
+    pane.addEventListener("click", e => {
+      const go = e.target.closest("[data-go]");
+      if (go) { hist.splice(idx + 1); hist.push(go.dataset.go); idx++; render(); return; }
+      const act = e.target.closest("[data-act]");
+      if (!act || act.disabled) return;
+      if (act.dataset.act === "back") idx--;
+      if (act.dataset.act === "fwd") idx++;
+      if (act.dataset.act === "reload") { app.style.opacity = .25; setTimeout(() => app.style.opacity = 1, 180); }
+      render();
+    });
+    const strip = pane.querySelector(".strip");
+    if (pane.closest(".phone")) strip.removeAttribute("draggable");
+    strip.addEventListener("dragstart", e => {
+      if (e.target.closest("button")) { e.preventDefault(); return; }
+      e.dataTransfer.setData("text/plain", "app"); document.getElementById("shell").classList.add("dragging");
+    });
+    strip.addEventListener("dragend", () => document.getElementById("shell").classList.remove("dragging"));
+    render();
+  });
+
+  const stage = document.getElementById("stage"), desc = document.getElementById("desc");
+  const press = (sel, btn) => document.querySelectorAll(sel).forEach(b => b.setAttribute("aria-pressed", b === btn));
+  const setV = v => { stage.className = "stage v-" + v; desc.textContent = DESCS[v]; };
+  document.querySelectorAll("[data-v]").forEach(b => b.onclick = () => { press("[data-v]", b); setV(b.dataset.v); });
+  document.querySelectorAll("[data-layout]").forEach(b => b.onclick = () => { press("[data-layout]", b); document.getElementById("panes").classList.toggle("solo", b.dataset.layout === "solo"); });
+  document.querySelectorAll("[data-theme]").forEach(b => b.onclick = () => { press("[data-theme]", b); document.querySelectorAll(".app").forEach(a => a.classList.toggle("dark", b.dataset.theme === "dark")); });
+  setV("a");
+</script>
+</body>
+</html>

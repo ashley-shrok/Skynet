@@ -726,11 +726,26 @@ not something agents drive.
 - **Drag & drop / split view.** Dragging any sidebar item (conversation
   or app) into the content area opens it (or, if something is already
   open, presents a placement UI so the user can split the view —
-  arbitrary depth). Each open pane has a **badge**; dragging its badge
-  back to the sidebar closes that pane, dragging it to a different spot
-  in the split tree rearranges panes.
+  arbitrary depth). Each open conversation pane has a **badge**, and each
+  open app pane has its **app bar** (below); dragging either back to the
+  sidebar closes that pane, dragging it to a different spot in the split
+  tree rearranges panes. Moving an app pane keeps the app on the page it
+  was on.
   *Agent-side: none.* Pure client-side window management; no persistent
   state, no disk artifact.
+
+- **App bar (top of every open app).** A glassy bar across the top of an
+  open app's pane, whether the app fills the screen or sits in a split.
+  Left: **back**, **forward**, and **reload** (circular-arrow) buttons —
+  they act only on the page inside that app, never on Skynet or any other
+  pane, and back/forward grey out when there's nowhere to go. Going back
+  or forward loads that page fresh (it isn't restored mid-scroll).
+  Center: the app's icon and name. The **whole bar is the drag handle**, same as a
+  conversation's badge: drag it to the sidebar to close the app, onto
+  another pane to rearrange, or into another Skynet window. On a phone the
+  bar shows but isn't draggable.
+  *Agent-side: none.* Pure client-side navigation; the app never knows
+  it's being navigated from the bar.
 
 ### Sidebar footer
 

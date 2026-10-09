@@ -360,6 +360,9 @@ type RendererDeps = {
   // PrettyView for the fallbackVoice speak-flow resolution chain.
   // Optional — PrettyView defaults to {} when absent.
   userPrefs?: UserPreferences;
+  // shape-app-pane-strip: clicking an app pane's bar selects that pane
+  // (split focus). Optional — absent means the bar click is a no-op.
+  onSelectPane?: (tabId: string) => void;
 };
 
 type Renderer = (tab: Tab, deps: RendererDeps) => ReactNode;
@@ -439,6 +442,8 @@ const renderAppTab: Renderer = (tab, deps) => {
       slug={tab.app.slug}
       tabId={tab.id}
       isVisible={deps.isVisible}
+      label={tab.label}
+      onSelectPane={deps.onSelectPane}
     />
   );
 };
@@ -478,6 +483,7 @@ export function renderTabContent(
   // Phase 137 Plan 03 (D-16): per-user voice preferences for the
   // fallbackVoice speak-flow resolution chain in PrettyView.
   userPrefs?: UserPreferences,
+  onSelectPane?: (tabId: string) => void,
 ) {
   return RENDERERS[tab.type](tab, {
     onOpenSingletonTab,
@@ -489,5 +495,6 @@ export function renderTabContent(
     onTmuxSessionMissing,
     isAdmin,
     userPrefs,
+    onSelectPane,
   });
 }

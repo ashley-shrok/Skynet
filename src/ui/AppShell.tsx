@@ -147,6 +147,8 @@ import type { TabSpec } from "@/lib/tab-url";
 // (Phase 56 / 64 / 97 drop-lane dispatch) and stays as-is — this cleanup
 // is scoped to the Phase 120 additions per the review's LOW-15 finding.
 import { systemLogger } from "@/lib/frontend-logger";
+import { moveNodeInto } from "@/shell/move-node";
+import { resolveOuterDrop } from "@/shell/outer-drop-resolve";
 // Phase 56 Plan 02 — split-tree state (retires the prior mode-enum + slot-
 // array state and their localStorage effects). URL is the single source of
 // truth for the split arrangement.
@@ -156,6 +158,7 @@ import { computeNearestEdge, overlayGeometryForZone } from "@/shell/SplitView";
 import {
   postDragAccept,
   subscribeToDragAccepts,
+  appLeafFromDescriptor,
 } from "@/shell/cross-window-drag";
 import {
   encodeSplitTreeToUrl,
@@ -620,6 +623,7 @@ export function AppShell({
   // target never changes (changing the target causes a remount).
   const tabNodesRef = useRef<Map<string, HTMLDivElement>>(new Map());
   const normalViewRef = useRef<HTMLDivElement>(null);
+  const parkingRef = useRef<HTMLDivElement>(null);
 
   const getTabNode = useCallback((tabId: string, isTerminal: boolean) => {
     if (!tabNodesRef.current.has(tabId)) {
@@ -645,7 +649,27 @@ export function AppShell({
       if (el) {
         paneElsRef.current.set(tabId, el);
       } else {
+        // shape-app-pane-strip: React detaches this ref while the outgoing
+        // pane element is still in the DOM, just before removing it (split
+        // collapse, leaf replaced). If the tab's stable node is still inside
+        // it, it would be removed along with the pane — detaching any app
+        // iframe inside, which then reloads from its start page when the
+        // placement effect re-inserts it. Park it in the holding area while
+        // everything is still connected (moved in place where the browser
+        // can); the placement effect then moves it to its new home and
+        // re-applies visibility. The holding area stays laid out, so scroll
+        // positions survive (the normal view can be display:none mid-split,
+        // which would zero them).
+        const oldEl = paneElsRef.current.get(tabId);
         paneElsRef.current.delete(tabId);
+        const node = tabNodesRef.current.get(tabId);
+        const parking = parkingRef.current;
+        if (oldEl && node && parking && node.parentElement === oldEl) {
+          // The node may carry its own visibility:visible from pane
+          // placement, which would override the holding area's hidden.
+          node.style.visibility = "hidden";
+          moveNodeInto(parking, node);
+        }
       }
     },
     [],
@@ -2666,6 +2690,8 @@ export function AppShell({
         relayRoomId?: string;
         relayRoomTitle?: string | null;
         targetTmuxSession?: string | null;
+        app?: { hostId?: number; slug?: string } | null;
+        label?: string | null;
       } | null;
     }): string | null => {
       // Same-window: tabId already known to this window's tabs[].
@@ -2689,6 +2715,18 @@ export function AppShell({
           relayRoomId: descriptor.relayRoomId,
           relayRoomTitle: descriptor.relayRoomTitle ?? null,
           label: descriptor.relayRoomTitle ?? descriptor.relayRoomId,
+        });
+      }
+      // App leaf (shape-app-pane-strip): hostless tab keyed by (hostId, slug),
+      // same tuple onOpenApp mints. The proxy's own host-access check gates
+      // whether this window's user can actually load it.
+      if (descriptor.tabType === "app") {
+        const leaf = appLeafFromDescriptor(descriptor);
+        if (leaf === null) return null;
+        return openTab(null, "app", undefined, {
+          app: { hostId: leaf.hostId, slug: leaf.slug },
+          label: leaf.label,
+          allowCreateTmux: false,
         });
       }
       // Host-based session (terminal/rdp/vnc/telnet). hostId lookup against
@@ -2729,6 +2767,8 @@ export function AppShell({
           relayRoomId?: string;
           relayRoomTitle?: string | null;
           targetTmuxSession?: string | null;
+          app?: { hostId?: number; slug?: string } | null;
+          label?: string | null;
         } | null;
       },
       path: SplitPath,
@@ -2770,6 +2810,8 @@ export function AppShell({
           relayRoomId?: string;
           relayRoomTitle?: string | null;
           targetTmuxSession?: string | null;
+          app?: { hostId?: number; slug?: string } | null;
+          label?: string | null;
         } | null;
       },
       targetTabId: string,
@@ -3184,8 +3226,8 @@ export function AppShell({
       }
     }
 
-    // Preserve scroll positions across an appendChild-move reparent. Browser
-    // reparent drops the container's scrollTop to 0; without this, panes
+    // Preserve scroll positions across a reparent. An appendChild-move
+    // (the fallback when moveBefore is unavailable) drops the container's scrollTop to 0; without this, panes
     // pinned to the bottom lose their pin AND useAutoScroll's stateRef stays
     // stuck at "at-bottom" (in equal-size split-view swaps neither the MO nor
     // the RO fires, so nothing chases and the jump-pill won't appear until
@@ -3208,7 +3250,21 @@ export function AppShell({
           });
         }
       }
-      target.appendChild(moving);
+      // shape-app-pane-strip: move in place where the browser can, so app
+      // iframes keep their page + history across a rearrange.
+      const wasConnected = moving.isConnected;
+      const how = moveNodeInto(target, moving);
+      // Log the decision for every real move (an already-placed node); the
+      // first placement of a fresh node is not a move. A fallback on a node
+      // holding an iframe means that app reloaded.
+      if (wasConnected) {
+        systemLogger.info(`tab-node reparent ${how}`, {
+          operation: "tab_node_reparent",
+          how,
+          hasIframe: moving.querySelector("iframe") !== null,
+          hasMoveBefore: typeof (target as { moveBefore?: unknown }).moveBefore === "function",
+        });
+      }
       for (const s of scrollables) {
         s.el.scrollTop = s.wasAtBottom ? s.el.scrollHeight : s.savedTop;
       }
@@ -3581,6 +3637,9 @@ export function AppShell({
         {!isMobileListScreen && !hideBackButtonForModal && (
           <button
             type="button"
+            // Stable hook for the app bar's clearance measurement (the
+            // aria-label is translated, so it can't be the selector).
+            data-sidebar-toggle=""
             onClick={() =>
               isTouchDevice ? navigateToList() : setSidebarOpen(!sidebarOpen)
             }
@@ -4074,25 +4133,27 @@ export function AppShell({
                 // through resolveRowPayloadTabId which mirrors the row-
                 // click ladder — openTab-if-needed for fleet-only /
                 // rdp-host rows. Fall back to text/plain-only for legacy
-                // drags that never learned the JSON payload.
-                const richJson = e.dataTransfer.getData(
-                  "application/x-skynet-row",
+                // drags that never learned the JSON payload, then to the
+                // badge descriptor for drags from another window (see
+                // shell/outer-drop-resolve.ts).
+                const resolution = resolveOuterDrop<
+                  Parameters<typeof resolveBadgePayloadTabId>[0] & {
+                    dragId?: string | null;
+                  }
+                >(e.dataTransfer, {
+                  resolveRow: (p) =>
+                    resolveRowPayloadTabId(
+                      p as Parameters<typeof resolveRowPayloadTabId>[0],
+                    ),
+                  isLocalTab: (id) => tabs.some((t) => t.id === id),
+                  resolveBadge: resolveBadgePayloadTabId,
+                });
+                const resolvedTabId = resolution.tabId;
+                const crossWindowDragId = resolution.acceptDragId;
+                // eslint-disable-next-line no-console
+                console.info(
+                  `[pv-split-drop] outer via=${resolution.via ?? "none"} crossWindow=${crossWindowDragId !== null}`,
                 );
-                let resolvedTabId: string | null = null;
-                if (richJson) {
-                  try {
-                    const parsed = JSON.parse(richJson);
-                    resolvedTabId = resolveRowPayloadTabId(parsed);
-                  } catch {
-                    resolvedTabId = null;
-                  }
-                }
-                if (resolvedTabId === null) {
-                  const bareId = e.dataTransfer.getData("text/plain");
-                  if (bareId && tabs.some((t) => t.id === bareId)) {
-                    resolvedTabId = bareId;
-                  }
-                }
                 // eslint-disable-next-line no-console
                 console.info(
                   `[pv-split-drop] outer resolvedTabId=${resolvedTabId ?? "(null — aborting)"} splitTree=${describeTreeShape(splitTree)}`,
@@ -4151,6 +4212,9 @@ export function AppShell({
                 // updateOpenTabs and the pane becomes visible.
                 selectConversationDeferred(tabId);
                 setFocusedTabId(tabId);
+                if (crossWindowDragId !== null) {
+                  postDragAccept(crossWindowDragId);
+                }
               }}
             >
               {/* Phase 59 Plan 01 Gap 1 — coral drop-target-affordance tint
@@ -4330,6 +4394,18 @@ export function AppShell({
                 </div>
               )}
 
+              {/* shape-app-pane-strip: holding area for a tab node whose pane
+                  is being torn down (see onPaneContentRef). Laid out but
+                  invisible and click-through — unlike the normal view, which
+                  can be display:none while a split is up, so content parked
+                  here keeps its scroll position until the placement effect
+                  moves it on. Never holds anything between commits. */}
+              <div
+                ref={parkingRef}
+                aria-hidden="true"
+                className="absolute inset-0"
+                style={{ visibility: "hidden", pointerEvents: "none", zIndex: -1 }}
+              />
               {/* Normal-view container. Tab nodes are appended here (or to pane elements)
                   by the DOM-placement effect above. React portals each tab's content
                   into its stable per-tab node so the component is never remounted.
@@ -4395,6 +4471,7 @@ export function AppShell({
                       // so the speak-flow uses the user's fallbackVoice preference
                       // before falling back to the TTS provider's default voice.
                       userPrefs,
+                      setFocusedTabId,
                     ),
                     tabNode,
                     tab.id,

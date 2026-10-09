@@ -121,6 +121,12 @@ const PROTOCOLS: TabSpec["protocol"][] = [
   "app", // Phase 120 D-16 — app-leaf URL-fragment variant
 ];
 
+// App leaf identity shape (MEDIUM-7). Shared with the cross-window app-bar
+// drop path (shell/cross-window-drag.ts) so every way an app leaf is minted
+// from outside input applies the same gate.
+export const APP_HOST_ID_RE = /^[1-9][0-9]{0,9}$/;
+export const APP_SLUG_RE = /^[a-z0-9-]{1,64}$/;
+
 export function parseTabParam(raw: string | null): TabSpec | null {
   if (!raw) return null;
   const idx1 = raw.indexOf(":");
@@ -223,11 +229,11 @@ export function parseTabParam(raw: string | null): TabSpec | null {
     // MEDIUM-7: positive-integer regex on hostId (fleet-realistic 10-digit
     // upper bound stays well within Number.MAX_SAFE_INTEGER, so downstream
     // `Number(spec.hostId)` is guaranteed safe post-validation).
-    if (!/^[1-9][0-9]{0,9}$/.test(hostId)) return null;
+    if (!APP_HOST_ID_RE.test(hostId)) return null;
     // MEDIUM-7: APP_SLUG_RE-shape on slug (mirrors the backend at
     // `src/backend/claude-session/identity-artifact-reader.ts`). Reject
     // anything outside `[a-z0-9-]{1,64}`.
-    if (!/^[a-z0-9-]{1,64}$/.test(slug)) return null;
+    if (!APP_SLUG_RE.test(slug)) return null;
     return { protocol: "app", hostId, slug };
   }
   // Phase 97 code-review Fix 5 (extended via quick-260910-gqi): generic-host
