@@ -17,7 +17,7 @@
  *     signal to the app about which Skynet page opened it.
  *   - `loading="eager"` — the pane is visible immediately on tab open;
  *     lazy would defer first paint unnecessarily.
- *   - `className="h-full w-full border-0"` — fills the leaf; the iframe IS
+ *   - `className="h-full w-full border-0 bg-white scheme-light"` — fills the leaf; the iframe IS
  *     the entire in-pane view; Skynet draws no chrome around it.
  *   - `title={`App ${slug}`}` — accessibility affordance; iframes need a
  *     title. Reflects the slug (NOT the app's live document.title per D-19).
@@ -137,12 +137,12 @@ describe("AppPane iframe wrapper (Phase 120 D-05)", () => {
     expect(iframe?.getAttribute("data-tab-id")).toBe("tab-xyz");
   });
 
-  it("Test 10: iframe has className 'h-full w-full border-0'", () => {
+  it("Test 10: iframe has className 'h-full w-full border-0 bg-white scheme-light'", () => {
     const { container } = render(
       <AppPane hostId={1} slug="todo" tabId="t1" isVisible={true} />,
     );
     const iframe = container.querySelector("iframe");
-    expect(iframe?.getAttribute("class")).toBe("h-full w-full border-0");
+    expect(iframe?.getAttribute("class")).toBe("h-full w-full border-0 bg-white scheme-light");
   });
 });
 

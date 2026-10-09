@@ -34,8 +34,18 @@ import { subscribeDragSessionEnd } from "./drag-preview-session";
 //     origin + fully authenticated + trusted at the pane level per shape
 //     file philosophy; restricting frame permissions would break the app's
 //     own JavaScript, forms, and cookies.
-//   - `className="h-full w-full border-0"` — fills the leaf. No border,
-//     because the app owns the entire content area.
+//   - `className="h-full w-full border-0 bg-white scheme-light"` —
+//     fills the leaf. No border, because the app owns the entire content
+//     area. The white bg + light color-scheme reproduce a top-level tab's
+//     browser-default-white canvas for apps that declare no background,
+//     without touching the app document: when the iframe element's
+//     color-scheme matches the app's (light by default) the app canvas is
+//     transparent and this white shows through; an app declaring
+//     `color-scheme: dark` mismatches and the browser paints an opaque dark
+//     canvas instead — same as in its own tab. Never inject a background
+//     into the app's html/body — a root-element background stops the app's
+//     `body` background from propagating to the canvas, leaving short dark
+//     apps white below their content (2026-10-09).
 //   - `title={`App ${slug}`}` — accessibility affordance (iframes need a
 //     title). Reflects the slug (NOT the app's live document.title per D-19
 //     — the pane never peeks at the app's internal state).
@@ -162,7 +172,7 @@ export function AppPane({
       title={`App ${slug}`}
       referrerPolicy="no-referrer"
       loading="eager"
-      className="h-full w-full border-0"
+      className="h-full w-full border-0 bg-white scheme-light"
       data-app-hostid={hostId}
       data-app-slug={slug}
       data-tab-id={tabId}

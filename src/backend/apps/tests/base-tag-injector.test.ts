@@ -3,15 +3,14 @@
  *
  * Verifies the pure Buffer transform that Wave 2's app-pane
  * responseInterceptor invokes on text/html responses to inject the pane's
- * head prefix: `<base href="/apps/:hostId/:slug/pane/">` for absolute-path
- * resolution + `<style>` for the default light-mode background (added
- * 2026-09-19 — see the module docblock for the "agents assume browser
- * default = white" rationale).
+ * `<base href="/apps/:hostId/:slug/pane/">` for relative-path resolution.
+ * No `<style>` is injected (removed 2026-10-09 — a root-element background
+ * blocked app `body` backgrounds from filling the frame; see module docblock).
  *
  * Load-bearing invariants exercised:
- *  - `<base>` comes FIRST, then `<style>`, both immediately after `<head>`.
+ *  - `<base>` lands immediately after `<head>`, and is the ONLY injection.
  *  - Case-insensitive first-match `<head[^>]*>` replacement.
- *  - Prepend fallback when no `<head>` is present (both tags land in the
+ *  - Prepend fallback when no `<head>` is present (the tag lands in the
  *    implicit head).
  *  - Only the FIRST `<head>` is replaced (regex is non-global).
  *  - slug is encodeURIComponent-encoded; hostId is NOT encoded.
@@ -22,10 +21,10 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { injectBaseTag, PANE_DEFAULT_STYLE_TAG } from "../base-tag-injector.js";
+import { injectBaseTag } from "../base-tag-injector.js";
 
 describe("injectBaseTag", () => {
-  it("injects <base> then <style> immediately after <head> in a well-formed document", async () => {
+  it("injects <base> immediately after <head> in a well-formed document", async () => {
     const input = Buffer.from(
       `<html><head><title>X</title></head><body>Y</body></html>`,
       "utf8",
@@ -33,7 +32,7 @@ describe("injectBaseTag", () => {
     const output = await injectBaseTag(input, 5, "todo");
     const html = output.toString("utf8");
     expect(html).toContain(
-      `<head><base href="/apps/5/todo/pane/">${PANE_DEFAULT_STYLE_TAG}<title>X</title>`,
+      `<head><base href="/apps/5/todo/pane/"><title>X</title>`,
     );
   });
 
@@ -45,7 +44,7 @@ describe("injectBaseTag", () => {
     const output = await injectBaseTag(input, 5, "todo");
     const html = output.toString("utf8");
     expect(html).toContain(
-      `<HEAD><base href="/apps/5/todo/pane/">${PANE_DEFAULT_STYLE_TAG}`,
+      `<HEAD><base href="/apps/5/todo/pane/">`,
     );
   });
 
@@ -57,26 +56,27 @@ describe("injectBaseTag", () => {
     const output = await injectBaseTag(input, 5, "todo");
     const html = output.toString("utf8");
     expect(html).toContain(
-      `<head lang="en"><base href="/apps/5/todo/pane/">${PANE_DEFAULT_STYLE_TAG}`,
+      `<head lang="en"><base href="/apps/5/todo/pane/">`,
     );
   });
 
-  it("prepends both tags when no <head> is present (fallback path)", async () => {
+  it("prepends the tag when no <head> is present (fallback path)", async () => {
     const input = Buffer.from(`<html><body>X</body></html>`, "utf8");
     const output = await injectBaseTag(input, 5, "todo");
     const html = output.toString("utf8");
-    const prefix = `<base href="/apps/5/todo/pane/">${PANE_DEFAULT_STYLE_TAG}`;
+    const prefix = `<base href="/apps/5/todo/pane/">`;
     expect(html.startsWith(prefix)).toBe(true);
     expect(html).toBe(`${prefix}<html><body>X</body></html>`);
   });
 
-  it("style tag carries the light-mode defaults with no !important (cascade-friendly)", async () => {
-    // Author-supplied later declarations must be able to override — the
-    // whole point of the "default, not override" contract.
-    expect(PANE_DEFAULT_STYLE_TAG).toContain("background:#fff");
-    expect(PANE_DEFAULT_STYLE_TAG).toContain("color:#000");
-    expect(PANE_DEFAULT_STYLE_TAG).toContain("color-scheme:light");
-    expect(PANE_DEFAULT_STYLE_TAG).not.toContain("!important");
+  it("injects no <style> — app backgrounds must reach the canvas unobstructed", async () => {
+    // A root-element background (the old injected `html{background:#fff}`)
+    // stops an app's `body` background from propagating to the canvas, so a
+    // short dark-body app showed white below its content in the pane.
+    const input = Buffer.from(`<html><head></head><body></body></html>`, "utf8");
+    const html = (await injectBaseTag(input, 5, "todo")).toString("utf8");
+    expect(html).toBe(`<html><head><base href="/apps/5/todo/pane/"></head><body></body></html>`);
+    expect(html).not.toContain("<style");
   });
 
   it("replaces ONLY the first <head> tag when the document is malformed with two", async () => {
@@ -93,12 +93,9 @@ describe("injectBaseTag", () => {
     expect(firstHeadIdx).toBeGreaterThanOrEqual(0);
     expect(baseIdx).toBeGreaterThan(firstHeadIdx);
     expect(baseIdx).toBeLessThan(secondHeadIdx);
-    // Only one base tag total AND only one style tag total — the second
-    // head must not receive either injected element.
+    // Only one base tag total — the second head must not receive one.
     const baseMatches = html.match(/<base href=/g) ?? [];
     expect(baseMatches.length).toBe(1);
-    const styleMatches = html.match(/color-scheme:light/g) ?? [];
-    expect(styleMatches.length).toBe(1);
   });
 
   it("URL-encodes a slug with a space character", async () => {
