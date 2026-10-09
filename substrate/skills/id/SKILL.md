@@ -11,6 +11,7 @@ distributed: true
 <!-- 2026-10-09 (pinned XOR project): pinned and in-a-project are mutually exclusive — the row/badge menu's Pin item folded into a "Move to" submenu (Pinned + projects); pinning leaves the project, moving into a project unpins; a conversation with both on disk shows in its project. -->
 <!-- 2026-10-09 (skill actions): new lightning-bolt button left of thumbs-up opens a menu of the box's skills — tap sends `/<name>` at once; the footer Skills-editor icon changed from wrench to the same lightning bolt. -->
 <!-- 2026-10-09 (voice-mode button): hands-free voice mode moved off the mic long-press onto its own sound-wave button left of Stop; the status pill became that button's chip (state label, tap-to-skip, × to end). -->
+<!-- 2026-10-09 (role history retired): "chronological history" dropped from the role-folder description (concept retired with the /role skill). -->
 
 # Identity Skill
 
@@ -25,9 +26,9 @@ per-identity stuff lives in another. This lets multiple identities of the
 same role run in parallel — parallel workers on the same domain.
 
 - `~/fleet/roles/<role>/` — the **ROLE**: role file (directives,
-  preferences), chronological history, runbooks (see § Runbooks), and any
-  deeper reference file(s) the role wants (e.g. `box-map.md`). Shared across
-  every identity that adopts the role.
+  preferences), runbooks (see § Runbooks), and any deeper reference
+  file(s) the role wants (e.g. `box-map.md`). Shared across every
+  identity that adopts the role.
 
 - `~/fleet/identities/<name>/` — the **IDENTITY**: a `<name>.md` file naming
   the role and recording what this identity is working on, a `workspace/`
