@@ -186,6 +186,9 @@ export type ConversationList = {
    */
   projectSections: Array<{
     slug: string;
+    // Project slugs are only unique per host — sections are per (host, slug).
+    // Optional on the type for test fixtures that predate it.
+    hostId?: string;
     displayName: string;
     rows: ConversationRow[];
   }>;
@@ -1164,17 +1167,27 @@ function computeSnapshot(): ConversationList {
   // The pinned + middle rows built above are re-bucketed here into the new
   // shape. Existing `pinned`, `middle`, `rdpGroup` fields remain populated for
   // backward-compat with pre-Phase-117 consumers.
-  const projectsBySlug = new Map<string, ProjectRow>();
-  for (const p of state.projects) projectsBySlug.set(p.slug, p);
+  // Projects are host-scoped: the same slug on two hosts is two projects.
+  // Sections and buckets key on `${hostId}::${slug}` (the slug alone merged
+  // both hosts' members into one section, and archiving it hit both).
+  const projectKey = (hostId: string, slug: string) => `${hostId}::${slug}`;
+  const projectsByKey = new Map<string, ProjectRow>();
+  const firstProjectKeyBySlug = new Map<string, string>();
+  for (const p of state.projects) {
+    const k = projectKey(p.hostId, p.slug);
+    projectsByKey.set(k, p);
+    if (!firstProjectKeyBySlug.has(p.slug)) firstProjectKeyBySlug.set(p.slug, k);
+  }
 
-  // Helper: resolve a row → project slug (or null).
+  // Helper: resolve a row → project key (or null).
   function projectForRow(row: ConversationRow): string | null {
     if (row.rdpHostRow === true) return null; // D-08 defense
     if (row.roomId !== undefined) {
       const raw = state.roomProjectAssignments.get(row.roomId);
       if (raw === undefined) return null;
-      // D-07 graceful degradation: dangling slug → null.
-      return projectsBySlug.has(raw) ? raw : null;
+      // Room tags are fleet-wide (slug only) — resolve to the first project
+      // carrying that slug. D-07 graceful degradation: dangling slug → null.
+      return firstProjectKeyBySlug.get(raw) ?? null;
     }
     // Identity-associated: key = `${hostId}::${identityKey}`. Use
     // targetTmuxSession (canonical identity name lives in the tmux session
@@ -1190,7 +1203,9 @@ function computeSnapshot(): ConversationList {
     const mapKey = `${row.host.id}::${identityKey}`;
     const raw = state.identityProjectAssignments.get(mapKey);
     if (raw === undefined) return null;
-    return projectsBySlug.has(raw) ? raw : null;
+    // An identity's `project:` names a project on its OWN host.
+    const k = projectKey(row.host.id, raw);
+    return projectsByKey.has(k) ? k : null;
   }
 
   // Row → displayName for the intra-project D-16 alphabetical sort. For
@@ -1218,7 +1233,7 @@ function computeSnapshot(): ConversationList {
   // We deliberately walk `pinned` (from the pinned tier above) + `middleRows`
   // (from the middle tier above); RDP rows are handled separately.
   const pinnedUnassigned: ConversationRow[] = [];
-  const projectRowsBySlug = new Map<string, ConversationRow[]>();
+  const projectRowsByKey = new Map<string, ConversationRow[]>();
   // Middle for the new derived shape — starts from the existing middleRows
   // then filters out rows that get promoted into a project section.
   const derivedMiddle: ConversationRow[] = [];
@@ -1233,9 +1248,9 @@ function computeSnapshot(): ConversationList {
       // D-19: pinned in-project floats to top of that section — mark by
       // prepending to a per-slug bucket that we later sort with pinned-first
       // discipline (we track pinned rows via state.pinnedIds membership).
-      const bucket = projectRowsBySlug.get(slug) ?? [];
+      const bucket = projectRowsByKey.get(slug) ?? [];
       bucket.push(row);
-      projectRowsBySlug.set(slug, bucket);
+      projectRowsByKey.set(slug, bucket);
     }
   }
 
@@ -1245,9 +1260,9 @@ function computeSnapshot(): ConversationList {
     if (slug === null) {
       derivedMiddle.push(row);
     } else {
-      const bucket = projectRowsBySlug.get(slug) ?? [];
+      const bucket = projectRowsByKey.get(slug) ?? [];
       bucket.push(row);
-      projectRowsBySlug.set(slug, bucket);
+      projectRowsByKey.set(slug, bucket);
     }
   }
 
@@ -1257,11 +1272,12 @@ function computeSnapshot(): ConversationList {
   // by displayName (D-15).
   const projectSections: Array<{
     slug: string;
+    hostId: string;
     displayName: string;
     rows: ConversationRow[];
   }> = [];
   for (const project of state.projects) {
-    const rowsRaw = projectRowsBySlug.get(project.slug) ?? [];
+    const rowsRaw = projectRowsByKey.get(projectKey(project.hostId, project.slug)) ?? [];
     // Split into pinned + unpinned (D-19). state.pinnedIds is the pin oracle.
     const pinnedInProject: ConversationRow[] = [];
     const unpinnedInProject: ConversationRow[] = [];
@@ -1289,6 +1305,7 @@ function computeSnapshot(): ConversationList {
     );
     projectSections.push({
       slug: project.slug,
+      hostId: project.hostId,
       displayName: project.displayName,
       rows: [...pinnedInProject, ...unpinnedInProject],
     });

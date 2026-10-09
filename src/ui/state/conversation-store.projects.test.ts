@@ -409,9 +409,34 @@ describe("conversation-store (117-07): empty project section (D-11)", () => {
     expect(snap.projectSections).toHaveLength(1);
     expect(snap.projectSections[0]).toEqual({
       slug: "empty",
+      hostId: expect.any(String),
       displayName: "Empty",
       rows: [],
     });
+  });
+
+  it("Test 9b: same slug on two hosts → two sections, each with only its own host's members", () => {
+    const hostA = makeHost("1", "hostA");
+    const hostB = makeHost("2", "hostB");
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA, hostB] });
+      updateHostsFlat(new Map([[1, hostA], [2, hostB]]));
+      updateFleetSessions([
+        { hostId: 1, hostName: "hostA", sessionName: "wren", created: 1, role: null },
+        { hostId: 2, hostName: "hostB", sessionName: "finch", created: 1, role: null },
+      ]);
+      setProjects([
+        { slug: "ops", displayName: "Ops", hostId: "1", hostname: "hostA", archived: false },
+        { slug: "ops", displayName: "Ops", hostId: "2", hostname: "hostB", archived: false },
+      ]);
+      setIdentityProjectAssignments(new Map([["1::wren", "ops"], ["2::finch", "ops"]]));
+    });
+    const snap = __getSnapshotForTest();
+    const ops = snap.projectSections.filter((s) => s.slug === "ops");
+    expect(ops).toHaveLength(2);
+    const byHost = new Map(ops.map((s) => [s.hostId, s.rows.map((r) => r.targetTmuxSession)]));
+    expect(byHost.get("1")).toEqual(["wren"]);
+    expect(byHost.get("2")).toEqual(["finch"]);
   });
 });
 

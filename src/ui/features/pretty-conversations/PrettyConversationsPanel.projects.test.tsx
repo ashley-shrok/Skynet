@@ -159,6 +159,7 @@ type MockSnapshot = {
   pinnedUnassigned: MockRow[];
   projectSections: Array<{
     slug: string;
+    hostId?: string;
     displayName: string;
     rows: MockRow[];
   }>;
@@ -1670,6 +1671,45 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
     // Then archiveProject fired.
     expect(archiveProjectSpy).toHaveBeenCalledTimes(1);
     expect(archiveProjectSpy).toHaveBeenCalledWith(1, "alpha");
+  });
+
+  it("A9 Test 3b (same slug on two hosts): archiving host 2's section only touches host 2", async () => {
+    const hostA = makeHost("1", "hostA");
+    const hostB = makeHost("2", "hostB");
+    const rowA = makeRow({ id: "rA", host: hostA, targetTmuxSession: "wren" });
+    const rowB = makeRow({ id: "rB", host: hostB, targetTmuxSession: "finch" });
+    setSnapshot({
+      projectSections: [
+        { slug: "ops", hostId: "1", displayName: "Ops", rows: [rowA] },
+        { slug: "ops", hostId: "2", displayName: "Ops", rows: [rowB] },
+      ],
+    });
+    mockProjects = [
+      { slug: "ops", displayName: "Ops", hostId: "1", hostname: "hostA", archived: false },
+      { slug: "ops", displayName: "Ops", hostId: "2", hostname: "hostB", archived: false },
+    ];
+    confirmSpy.mockReturnValue(true);
+    const { container } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={HOST_TREE}
+        onCreateSession={() => {}}
+        onDeactivateRow={() => {}}
+      />,
+    );
+    const user = userEvent.setup();
+    const triggers = container.querySelectorAll('[data-testid="pv-project-section-kebab-trigger-ops"]');
+    expect(triggers).toHaveLength(2);
+    await user.click(triggers[1] as HTMLElement);
+    await user.click(screen.getByRole("menuitem", { name: "Archive project" }));
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+
+    const { archiveIdentity } = await import("@/api/identity-archive-api");
+    expect(archiveProjectSpy).toHaveBeenCalledTimes(1);
+    expect(archiveProjectSpy).toHaveBeenCalledWith(2, "ops");
+    expect(archiveIdentity).toHaveBeenCalledTimes(1);
+    expect(archiveIdentity).toHaveBeenCalledWith(2, "finch");
   });
 
   it("A9 Test 4 (cancel): user clicks Cancel in confirm → no cascade, no archiveProject", async () => {

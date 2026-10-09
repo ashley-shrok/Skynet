@@ -1279,8 +1279,7 @@ export function PrettyConversationsPanel({
   // continue to render as header-only per D-11.
   const displayedProjectSections = anyFilterOn
     ? projectSections.map((s) => ({
-        slug: s.slug,
-        displayName: s.displayName,
+        ...s,
         rows: s.rows.filter(matchesFilterForRow),
       }))
     : projectSections;
@@ -1317,8 +1316,7 @@ export function PrettyConversationsPanel({
   // the section — /close review 2026-09-29).
   const searchedProjectSections = sidebarSearchActive
     ? displayedProjectSections.map((s) => ({
-        slug: s.slug,
-        displayName: s.displayName,
+        ...s,
         rows: s.rows.filter(searchFilterRow),
       }))
     : displayedProjectSections;
@@ -2074,9 +2072,17 @@ export function PrettyConversationsPanel({
     return projectSections.map((s) => ({
       slug: s.slug,
       displayName: s.displayName,
-      hostId: hostBySlug.get(s.slug) ?? null,
+      hostId: s.hostId ?? hostBySlug.get(s.slug) ?? null,
     }));
   }, [projectSections, projectsList]);
+
+  // Project slugs are only unique per host, so project lookups take the
+  // section's hostId when known (fixtures without it fall back to slug-only).
+  const findProject = useCallback(
+    (slug: string, hostId?: string) =>
+      projectsList.find((p) => p.slug === slug && (hostId === undefined || p.hostId === hostId)),
+    [projectsList],
+  );
 
   // Per-row narrowing for the "Move to project" submenu.
   //
@@ -2406,11 +2412,11 @@ export function PrettyConversationsPanel({
   // Phase 117 M-I follow-up (2026-09-19): also stash the project's hostId
   // so the dialog renders with a single-host tree (picker auto-hides).
   const handleNewConversationInProject = useCallback(
-    (slug: string) => {
+    (slug: string, hostId?: string) => {
       setNewSessionPendingProjectSlug(slug);
       // Resolve the project's home host (projects live per-host; the newborn
       // agent must be born on the SAME host to appear under the section).
-      const proj = projectsList.find((p) => p.slug === slug);
+      const proj = findProject(slug, hostId);
       const projHostIdNum = proj ? parseInt(proj.hostId, 10) : NaN;
       setNewSessionPendingProjectHostId(
         Number.isFinite(projHostIdNum) && projHostIdNum > 0
@@ -2419,7 +2425,7 @@ export function PrettyConversationsPanel({
       );
       setNewSessionDialogOpen(true);
     },
-    [projectsList],
+    [findProject],
   );
 
   // Phase 117 Plan 117-09 Task 2 (D-28, D-29, D-30 + Fix 3) — archive
@@ -2440,9 +2446,11 @@ export function PrettyConversationsPanel({
   // should never emit them into a project section, but the filter here is
   // a safety net.
   const handleArchiveProject = useCallback(
-    async (slug: string) => {
+    async (slug: string, hostId?: string) => {
       // 1. Collect member rows from the derived selector snapshot.
-      const section = projectSections.find((s) => s.slug === slug);
+      const section = projectSections.find(
+        (s) => s.slug === slug && (hostId === undefined || s.hostId === undefined || s.hostId === hostId),
+      );
       const members = section?.rows ?? [];
       // 2. Verbatim D-29 warning.
       const proceed = window.confirm(
@@ -2464,7 +2472,7 @@ export function PrettyConversationsPanel({
       //    the old members-first order archived every conversation and then
       //    left the project behind with no error shown. hostId comes from the
       //    project's own row (D-01; M7: never infer it).
-      const proj = projectsList.find((p) => p.slug === slug);
+      const proj = findProject(slug, hostId);
       const projHostIdNum = proj ? parseInt(proj.hostId, 10) : NaN;
       if (!proj || !(Number.isFinite(projHostIdNum) && projHostIdNum > 0)) {
         console.warn({
@@ -2566,7 +2574,7 @@ export function PrettyConversationsPanel({
         );
       }
     },
-    [projectSections, projectsList, viewingUserMxid],
+    [projectSections, findProject, viewingUserMxid],
   );
 
   // Phase 117 Plan 117-09 Task 2 (D-14) — handleSectionContextMenu RETIRED
@@ -2582,8 +2590,8 @@ export function PrettyConversationsPanel({
   // happen — the menu opens from a rendered section header), log a warning
   // and no-op rather than silently opening against an ambiguous host.
   const handleEditProjectFile = useCallback(
-    (slug: string) => {
-      const proj = projectsList.find((p) => p.slug === slug);
+    (slug: string, hostId?: string) => {
+      const proj = findProject(slug, hostId);
       const projHostIdNum = proj ? parseInt(proj.hostId, 10) : NaN;
       if (!proj || !(Number.isFinite(projHostIdNum) && projHostIdNum > 0)) {
         // eslint-disable-next-line no-console
@@ -2602,7 +2610,7 @@ export function PrettyConversationsPanel({
         hostId: projHostIdNum,
       });
     },
-    [projectsList],
+    [findProject],
   );
 
   // Rename via context menu: native window.prompt + frontmatter swap. Keeps the
@@ -2617,8 +2625,8 @@ export function PrettyConversationsPanel({
   // block — a fresh project.md that has never been edited has exactly that
   // shape (writeProjectFile's initial write per identity-artifact-reader.ts).
   const handleRenameProject = useCallback(
-    (slug: string, currentDisplayName: string) => {
-      const proj = projectsList.find((p) => p.slug === slug);
+    (slug: string, currentDisplayName: string, hostId?: string) => {
+      const proj = findProject(slug, hostId);
       const projHostIdNum = proj ? parseInt(proj.hostId, 10) : NaN;
       if (!proj || !(Number.isFinite(projHostIdNum) && projHostIdNum > 0)) {
         // eslint-disable-next-line no-console
@@ -2661,7 +2669,7 @@ export function PrettyConversationsPanel({
         }
       })();
     },
-    [projectsList],
+    [findProject],
   );
 
   // Phase 22 (SRIC-04): label for the `+ New role` launcher button.
@@ -3145,7 +3153,7 @@ export function PrettyConversationsPanel({
                 <div className="pl-3.5">
                   {visibleProjectSections.map((section) => (
                   <PrettyProjectSectionHeader
-                    key={section.slug}
+                    key={`${section.hostId ?? ""}::${section.slug}`}
                     slug={section.slug}
                     displayName={section.displayName}
                     // Force-expand during sidebar search so matches inside a
@@ -3155,11 +3163,11 @@ export function PrettyConversationsPanel({
                     // reapplies when the search clears.
                     collapsed={sidebarSearchActive ? false : collapsedProjectSlugs.has(section.slug)}
                     onToggleCollapse={toggleProjectCollapse}
-                    onNewConversationClick={handleNewConversationInProject}
+                    onNewConversationClick={(s) => handleNewConversationInProject(s, section.hostId)}
                     onDropRow={handleProjectDrop}
-                    onRenameProject={handleRenameProject}
-                    onEditProjectFile={handleEditProjectFile}
-                    onArchiveProject={(s) => { void handleArchiveProject(s); }}
+                    onRenameProject={(s, name) => handleRenameProject(s, name, section.hostId)}
+                    onEditProjectFile={(s) => handleEditProjectFile(s, section.hostId)}
+                    onArchiveProject={(s) => { void handleArchiveProject(s, section.hostId); }}
                     rows={
                       section.rows.length === 0 ? (
                         // UAT 2026-09-19: empty-state message when a project has

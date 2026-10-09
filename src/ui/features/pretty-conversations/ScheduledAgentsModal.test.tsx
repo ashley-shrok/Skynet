@@ -336,7 +336,7 @@ describe("ScheduledAgentsModal: form-view entry points", () => {
       name: "root",
       children: [
         (ONE_HOST_TREE.children[0] as never),
-        { ...(ONE_HOST_TREE.children[0] as never), id: "2", name: "host-b" } as never,
+        { ...(ONE_HOST_TREE.children[0] as unknown as Record<string, unknown>), id: "2", name: "host-b" } as never,
       ],
     };
     render(
