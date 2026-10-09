@@ -219,8 +219,10 @@ export function PrettyConversationRow({
   pinned: boolean;
   variant: "mobile" | "desktop";
   onSelect: () => void;
-  // Omitted for rows that can't be pinned (relay rooms, non-identity
-  // terminals — no `.pinned` sentinel to write); the Pin item is then hidden.
+  // Fired by the "Pinned" entry of the Move-to submenu (when `pinned` is
+  // false) and by its "Unpin" leaf (when true). Omitted for rows that can't
+  // be pinned (relay rooms, non-identity terminals — no `.pinned` sentinel
+  // to write); Pinned is then left out of the submenu.
   onTogglePin?: () => void;
   // quick-260727-gm3: fired when user clicks the red-tinted Deactivate
   // menu item (desktop right-click OR mobile long-press). MUST be provided by
@@ -258,13 +260,13 @@ export function PrettyConversationRow({
    * / setRelayRoomProject). The panel wires this to the same routing
    * handleProjectDrop uses (identity vs relay-room based on the row's own
    * data). The panel gates this prop on !isRdp AND projects.length > 0, so
-   * absence at the row is the row's signal to omit the "Move to project"
-   * parent item entirely (hidden-not-greyed per shape).
+   * absence at the row is the row's signal to leave projects (and "Remove
+   * from project") out of the "Move to" submenu.
    */
   onMoveToProject?: (slug: string | null) => void;
   /**
    * shape-move-to-project-context-menu (2026-09-23): the project list shown
-   * inside the "Move to project" submenu, in the same order the sidebar
+   * inside the "Move to" submenu, in the same order the sidebar
    * renders its project sections. Empty array is the "zero projects"
    * signal — combined with `onMoveToProject` being provided/absent, the
    * row's items[] gate handles hiding the parent item.
@@ -552,17 +554,9 @@ export function PrettyConversationRow({
     : null;
 
   // Kebab items (shared by the ⋮ trigger and right-click on the row body).
-  // Mirrors the retired PrettyConversationContextMenu items[] verbatim
-  // (Pin / Open in new window / Move to project / Kill / Archive).
+  // (Open in new window / Move to / Kill / Archive).
   const kebabItems = ((): RowKebabMenuItem[] => {
     const items: RowKebabMenuItem[] = [];
-    if (onTogglePin) {
-      items.push({
-        label: pinned ? "Unpin" : "Pin",
-        onClick: onTogglePin,
-        testId: "pv-row-kebab-item-pin",
-      });
-    }
     // Open in new window — desktop-only, only when the row is URL-
     // addressable (specForTab produces a spec). Window.open without
     // "noopener" so we can detect popup-blocker returns null.
@@ -582,35 +576,59 @@ export function PrettyConversationRow({
         });
       }
     }
-    // Move to project — drill-in submenu (project list with a
-    // checkmark on the currently-assigned project; followed by
-    // "Remove from project" if the row is currently in one).
-    // Panel gates onMoveToProject on !isRdp && projects.length > 0.
-    if (onMoveToProject && projects.length > 0) {
+    // Move to — drill-in submenu. Pinned and every project are destinations
+    // of the same kind: a row is in at most one of them (pinned and in-a-
+    // project are mutually exclusive), so they share one list with a
+    // checkmark on wherever the row is now, followed by the leaf that takes
+    // it out ("Unpin" / "Remove from project"). Pinned is offered when the
+    // row is pinnable (onTogglePin); projects when the panel provides
+    // onMoveToProject (non-RDP, this host has projects).
+    {
       const submenu: RowKebabSubmenuItem[] = [];
-      for (const p of projects) {
-        const isCurrent = p.slug === currentProjectSlug;
+      const canPin = onTogglePin !== undefined && !isRdp;
+      if (canPin) {
         submenu.push({
-          label: p.displayName,
-          checked: isCurrent,
+          label: "Pinned",
+          checked: pinned,
           onClick: () => {
-            if (!isCurrent) onMoveToProject(p.slug);
+            if (!pinned) onTogglePin?.();
           },
-          testId: `pv-row-kebab-item-move-to-${p.slug}`,
+          testId: "pv-row-kebab-item-move-to-pinned",
         });
       }
-      if (currentProjectSlug !== null) {
+      if (onMoveToProject) {
+        for (const p of projects) {
+          const isCurrent = p.slug === currentProjectSlug;
+          submenu.push({
+            label: p.displayName,
+            checked: isCurrent,
+            onClick: () => {
+              if (!isCurrent) onMoveToProject(p.slug);
+            },
+            testId: `pv-row-kebab-item-move-to-${p.slug}`,
+          });
+        }
+      }
+      if (pinned && canPin) {
+        submenu.push({
+          label: "Unpin",
+          onClick: onTogglePin,
+          testId: "pv-row-kebab-item-unpin",
+        });
+      } else if (onMoveToProject && currentProjectSlug !== null) {
         submenu.push({
           label: "Remove from project",
           onClick: () => onMoveToProject(null),
           testId: "pv-row-kebab-item-remove-from-project",
         });
       }
-      items.push({
-        label: "Move to project",
-        submenu,
-        testId: "pv-row-kebab-item-move-to-project",
-      });
+      if (submenu.length > 0) {
+        items.push({
+          label: "Move to",
+          submenu,
+          testId: "pv-row-kebab-item-move-to",
+        });
+      }
     }
     // Kill — hard-terminates the underlying tmux session. Gated to
     // rows without an identity backing (identity rows have /id save
@@ -845,8 +863,8 @@ export function PrettyConversationRow({
             exists). RowKebabMenu's portal-click-containment prevents item
             onClicks from leaking through to the row body's onClick. The
             items[] builder mirrors the retired PrettyConversationContextMenu
-            items[] verbatim (Pin / Open in new window / Move to project / Kill /
-            Archive) with the same per-item eligibility gates. */}
+            items[] (Open in new window / Move to / Kill / Archive) with the
+            same per-item eligibility gates. */}
         <div
           className="absolute top-1.5 right-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity shrink-0 z-[5]"
           data-testid="pv-row-kebab-slot"

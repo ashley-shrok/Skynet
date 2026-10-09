@@ -98,6 +98,10 @@ vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
   listProjects: vi.fn(),
 }));
 
+vi.mock("../../claude-session/per-identity-file.js", () => ({
+  removeIdentityFile: vi.fn(),
+}));
+
 // subscription-registry singleton accessor — Wave 2 route relies on this
 // to reach the WS registry that starter.ts creates.
 const mockPublishProjectListChanged = vi.fn();
@@ -120,6 +124,7 @@ import {
   writeSessionProjectField,
   listProjects,
 } from "../../claude-session/identity-artifact-reader.js";
+import { removeIdentityFile } from "../../claude-session/per-identity-file.js";
 
 // ---------------------------------------------------------------------------
 // HTTP request helper — mirrors identity-archive.test.ts
@@ -227,6 +232,8 @@ beforeEach(() => {
 
   // Default: listProjects resolves to [] (empty list post-write is fine).
   (listProjects as Mock).mockResolvedValue([]);
+
+  (removeIdentityFile as Mock).mockResolvedValue(undefined);
 
   // Rebuild app per test.
   const app = express();
@@ -563,5 +570,41 @@ describe("POST /identities/:key/project", () => {
     expect(writeSessionProjectField).not.toHaveBeenCalled();
     expect(resolveHostById).not.toHaveBeenCalled();
     expect(connectOneShot).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /identities/:key/project — pinned and in-a-project are exclusive", () => {
+  it("assigning a project removes the .pinned sentinel", async () => {
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/wren/project",
+      body: { hostId: 7, project: "alpha" },
+    });
+    expect(res.status).toBe(200);
+    expect(removeIdentityFile).toHaveBeenCalledWith("wren", ".pinned", {
+      hostId: 7,
+      conn: stubConn,
+    });
+  });
+
+  it("clearing the project leaves the pin alone", async () => {
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/wren/project",
+      body: { hostId: 5, project: null },
+    });
+    expect(res.status).toBe(200);
+    expect(removeIdentityFile).not.toHaveBeenCalled();
+  });
+
+  it("a failed unpin still returns the project write as 200", async () => {
+    (removeIdentityFile as Mock).mockRejectedValue(new Error("disk"));
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/wren/project",
+      body: { hostId: 5, project: "alpha" },
+    });
+    expect(res.status).toBe(200);
+    expect(mockPublishSessionProjectChanged).toHaveBeenCalledWith("wren", 5, "alpha");
   });
 });

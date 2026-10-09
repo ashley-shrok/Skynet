@@ -896,6 +896,11 @@ export function PrettyConversationsPanel({
   // quick-260912-0t4: ref mirrors of BOTH maps — poller uses byHostKey with
   // byKey fallback to survive test fixtures that only seed the bare-name map.
   const identitiesByHostKeyRef = useRef(identitiesByHostKey);
+  // Read by handleSetPinned, which is defined before these values exist.
+  const rowIdToProjectSlugRef = useRef<ReadonlyMap<string, string>>(new Map());
+  const handleRowMoveToProjectRef = useRef<
+    ((row: ConversationRowShape, slug: string | null) => void) | null
+  >(null);
   const identitiesByKeyRef = useRef(identitiesByKey);
   pinnedRowsRef.current = pinned;
   middleRef.current = middle;
@@ -1654,27 +1659,62 @@ export function PrettyConversationsPanel({
     );
   };
   // Pinned non-identity rows (legacy pins from before the gate) keep Unpin.
-  const togglePinFor = (row: ConversationRowShape): (() => void) | undefined =>
-    isIdentityRow(row) || isRowPinned(row) ? () => handleTogglePin(row) : undefined;
+  // `shownPinned` is what the row displays — a project-section row shows
+  // unpinned even if a stale `.pinned` exists (project outranks pin), so its
+  // Pinned entry must PIN (and thereby leave the project), never toggle off.
+  const togglePinFor = (
+    row: ConversationRowShape,
+    shownPinned: boolean,
+  ): (() => void) | undefined =>
+    isIdentityRow(row) || isRowPinned(row)
+      ? () => handleSetPinned(row, !shownPinned)
+      : undefined;
 
-  const handleTogglePin = (row: ConversationRowShape) => {
-    // (Phase 115 Plan 115-02: prior "unhide-before-pin" side effect retired
-    //  per D-21 alongside the Hide affordance. Once 115-06 lands the Archive
-    //  affordance, pinning an archived row is out of scope — archived rows
-    //  render inert per D-06 without a Pin/Unpin item.)
+  // Pinned and in-a-project are mutually exclusive. Pinning a project member
+  // takes it out of the project: the backend pin route clears `project:` and
+  // fans out session-project-changed. If the row already carries a (stale)
+  // pin, pinConversation is a no-op and the PUT never fires — clear the
+  // project directly instead.
+  const handleSetPinned = (row: ConversationRowShape, wantPinned: boolean) => {
     const shadowFleetId =
       row.host && row.targetTmuxSession
         ? fleetRowId(parseInt(row.host.id, 10), row.targetTmuxSession)
         : null;
     const openTabPinned = pinnedIds.has(row.id);
     const shadowPinned = shadowFleetId !== null && pinnedIds.has(shadowFleetId);
-    if (openTabPinned || shadowPinned) {
+    if (!wantPinned) {
       if (openTabPinned) unpinConversation(row.id);
       if (shadowPinned && shadowFleetId !== null) unpinConversation(shadowFleetId);
-    } else {
-      pinConversation(shadowFleetId ?? row.id);
+      return;
     }
+    if (openTabPinned || shadowPinned) {
+      if (rowIdToProjectSlugRef.current.has(row.id)) {
+        console.info(`[pin] stale pin on project member — clearing project rowId=${row.id}`);
+        handleRowMoveToProjectRef.current?.(row, null);
+      }
+      return;
+    }
+    console.info(`[pin] pin rowId=${row.id} inProject=${rowIdToProjectSlugRef.current.has(row.id)}`);
+    pinConversation(shadowFleetId ?? row.id);
   };
+
+  // Moving a row into a project unpins it (mutual exclusivity). The backend
+  // project route removes `.pinned` too; this drops the local pin ids so the
+  // row doesn't flash back into Pinned before the next disk hydrate.
+  const unpinForProjectMove = (p: {
+    id: string;
+    host?: { id: string } | null;
+    targetTmuxSession?: string | null;
+  }) => {
+    const shadowFleetId =
+      p.host && p.targetTmuxSession
+        ? fleetRowId(parseInt(p.host.id, 10), p.targetTmuxSession)
+        : null;
+    if (pinnedIds.has(p.id)) unpinConversation(p.id);
+    if (shadowFleetId !== null && pinnedIds.has(shadowFleetId)) unpinConversation(shadowFleetId);
+  };
+  const unpinForProjectMoveRef = useRef(unpinForProjectMove);
+  unpinForProjectMoveRef.current = unpinForProjectMove;
 
   // (Phase 115 Plan 115-02: prior `handleToggleHide` handler retired per
   //  D-21 alongside the Hide/Show context-menu item on both the sidebar row
@@ -1988,6 +2028,7 @@ export function PrettyConversationsPanel({
     }
     return m;
   }, [projectSections]);
+  rowIdToProjectSlugRef.current = rowIdToProjectSlug;
 
   // (d) handleProjectDrop — fired by PrettyProjectSectionHeader's onDropRow.
   //     The section-level component has already:
@@ -2035,6 +2076,7 @@ export function PrettyConversationsPanel({
           return;
         }
         console.info(`[project-drop] slug=${slug} kind=relay-room roomId=${payload.matrixRoomId}`);
+        unpinForProjectMoveRef.current({ id: payload.id });
         const rollbackDrop = patchRoomProjectAssignment(payload.matrixRoomId, slug);
         setRelayRoomProject(payload.matrixRoomId, viewingUserMxid, slug).catch(
           (err: unknown) => {
@@ -2062,6 +2104,7 @@ export function PrettyConversationsPanel({
         return;
       }
       console.info(`[project-drop] slug=${slug} kind=identity hostId=${hostIdNum} key=${identityKey}`);
+      unpinForProjectMoveRef.current({ id: payload.id, host: payload.host, targetTmuxSession: payload.targetTmuxSession });
       setSessionProject(hostIdNum, identityKey, slug).catch((err: unknown) => {
         const msg = err instanceof Error ? err.message : String(err);
         console.error(`[project-drop] setSessionProject failed: ${msg}`);
@@ -2071,7 +2114,7 @@ export function PrettyConversationsPanel({
   );
 
   // shape-move-to-project-context-menu (2026-09-23): sidebar-order project
-  // list piped into every non-RDP row's "Move to project" submenu. Same
+  // list piped into every non-RDP row's "Move to" submenu. Same
   // ordering the sidebar renders its project sections in (projectSections
   // is the authoritative order from the derived selector) — the menu's
   // mental map matches the sidebar's. Displayed even for the currently-
@@ -2100,7 +2143,7 @@ export function PrettyConversationsPanel({
     [projectsList],
   );
 
-  // Per-row narrowing for the "Move to project" submenu.
+  // Per-row narrowing for the projects in the "Move to" submenu.
   //
   // Identity rows are host-scoped: projects live under the identity's
   // host's ~/fleet/projects/ tree (D-01), and setSessionProject writes
@@ -2161,6 +2204,7 @@ export function PrettyConversationsPanel({
         console.info(
           `[project-menu] slug=${slug ?? "(null)"} kind=relay-room roomId=${roomId}`,
         );
+        if (slug !== null) unpinForProjectMoveRef.current(row);
         const rollbackMenu = patchRoomProjectAssignment(roomId, slug);
         setRelayRoomProject(roomId, viewingUserMxid, slug).catch(
           (err: unknown) => {
@@ -2200,6 +2244,7 @@ export function PrettyConversationsPanel({
       console.info(
         `[project-menu] slug=${slug ?? "(null)"} kind=identity hostId=${hostIdNum} key=${identityKey}`,
       );
+      if (slug !== null) unpinForProjectMoveRef.current(row);
       setSessionProject(hostIdNum, identityKey, slug).catch((err: unknown) => {
         const msg = err instanceof Error ? err.message : String(err);
         console.error(`[project-menu] setSessionProject failed: ${msg}`);
@@ -2207,9 +2252,10 @@ export function PrettyConversationsPanel({
     },
     [viewingUserMxid, identitiesByHostKey, identitiesByKey],
   );
+  handleRowMoveToProjectRef.current = handleRowMoveToProject;
 
   // Returns the row-scoped onMoveToProject callback, or undefined to hide
-  // the "Move to project" affordance entirely (RDP row OR zero projects
+  // projects from the row's "Move to" submenu (RDP row OR zero projects
   // ON THIS ROW'S HOST — both are hide-not-grey per shape). Called at
   // each row render site. Zero-projects check uses submenuProjectsForRow
   // so an identity on a host with no local projects hides the item even
@@ -2406,15 +2452,26 @@ export function PrettyConversationsPanel({
           : null;
       const openTabPinned = pinnedIds.has(p.id);
       const shadowPinned = shadowFleetId !== null && pinnedIds.has(shadowFleetId);
-      if (openTabPinned || shadowPinned) return; // already pinned — no-op
+      const inProject = rowIdToProjectSlug.has(p.id);
+      if ((openTabPinned || shadowPinned) && !inProject) return; // already pinned — no-op
       if (!isIdentityRow(p)) return; // non-identity rows aren't pinnable
       e.preventDefault();
       e.stopPropagation();
+      if (openTabPinned || shadowPinned) {
+        // Stale pin on a project member (project outranks it in the sidebar):
+        // pinConversation would no-op, so take it out of the project directly.
+        const row = projectSections
+          .flatMap((sec) => sec.rows)
+          .find((r) => r.id === p.id);
+        console.info(`[pin-drop] stale pin on project member — clearing project rowId=${p.id}`);
+        if (row) handleRowMoveToProjectRef.current?.(row, null);
+        return;
+      }
       const targetId = shadowFleetId ?? p.id;
       console.info(`[pin-drop] pin id=${targetId} (from rowId=${p.id})`);
       pinConversation(targetId);
     },
-    [pinnedIds, releasePinnedPreview],
+    [pinnedIds, releasePinnedPreview, rowIdToProjectSlug, projectSections],
   );
 
   // Phase 117 M-F follow-up (2026-09-18): the section's SquarePen opens the
@@ -3109,7 +3166,7 @@ export function PrettyConversationsPanel({
                     pinned={true}
                     variant={variant}
                     onSelect={() => handleRowSelect(row)}
-                    onTogglePin={togglePinFor(row)}
+                    onTogglePin={togglePinFor(row, true)}
                     onDeactivate={() => handleRowDeactivate(row)}
                     onKill={() => handleRowKill(row)}
                     onArchive={
@@ -3207,10 +3264,10 @@ export function PrettyConversationsPanel({
                             key={row.id}
                             row={row}
                             selected={row.id === selectedId || visibleInSplitTree.has(row.id)}
-                            pinned={isRowPinned(row)}
+                            pinned={false}
                             variant={variant}
                             onSelect={() => handleRowSelect(row)}
-                            onTogglePin={togglePinFor(row)}
+                            onTogglePin={togglePinFor(row, false)}
                             onDeactivate={() => handleRowDeactivate(row)}
                             onKill={() => handleRowKill(row)}
                             onArchive={
@@ -3307,7 +3364,7 @@ export function PrettyConversationsPanel({
                     pinned={isRowPinned(row)}
                     variant={variant}
                     onSelect={() => handleRowSelect(row)}
-                    onTogglePin={togglePinFor(row)}
+                    onTogglePin={togglePinFor(row, isRowPinned(row))}
                     onDeactivate={() => handleRowDeactivate(row)}
                     onKill={() => handleRowKill(row)}
                     onArchive={

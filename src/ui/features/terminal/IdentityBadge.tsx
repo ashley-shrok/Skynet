@@ -198,7 +198,7 @@ export function IdentityBadge({
   // Pinned-state subscription — mirrors the sidebar's row-level pin check so
   // the badge's indicator flips in lockstep with the row's. Checked against
   // BOTH the open-tab id and the shadow fleet-row id (same both-sources check
-  // PrettyConversationsPanel's handleTogglePin uses), so pinning via either
+  // PrettyConversationsPanel's handleSetPinned uses), so pinning via either
   // route surfaces here. Called BEFORE the `if (!identity) return null` early
   // return to satisfy Rules of Hooks (same discipline as the other hooks
   // above).
@@ -209,7 +209,7 @@ export function IdentityBadge({
     dragDescriptor?.targetTmuxSession
       ? fleetRowId(hostId, dragDescriptor.targetTmuxSession)
       : null;
-  const isPinned =
+  const rawPinned =
     (tabId != null && pinnedIds.has(tabId)) ||
     (shadowFleetId != null && pinnedIds.has(shadowFleetId));
 
@@ -223,6 +223,9 @@ export function IdentityBadge({
           p.hostId === String(identity.hostId),
       )?.displayName ?? null)
     : null;
+  // Pinned and in-a-project are mutually exclusive; project outranks a stale
+  // pin, same as the sidebar (which files the row under its project, unpinned).
+  const isPinned = rawPinned && projectDisplayName === null;
 
   if (!identity) return null;
 

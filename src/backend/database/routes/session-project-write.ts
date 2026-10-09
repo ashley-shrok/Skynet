@@ -40,6 +40,10 @@
  * (project directory missing → skip clause) so the failure mode is
  * inert. See threat model in 117-05-PLAN.md § threat_model.
  *
+ * Pinned and in-a-project are mutually exclusive: assigning a project (non-
+ * null) also removes the identity's `.pinned` sentinel. Clearing (null)
+ * leaves the pin alone. The inverse lives in identity-pin.ts.
+ *
  * Mounted at /identities in database.ts AFTER identity-archive so the
  * :key/project sub-route isn't shadowed by identitiesRoutes's :identityKey
  * handlers.
@@ -62,6 +66,7 @@ import {
   // a session-field write (which does not change the list itself).
 } from "../../claude-session/identity-artifact-reader.js";
 import { getSubscriptionRegistry } from "../../fleet-status/subscription-registry.js";
+import { removeIdentityFile } from "../../claude-session/per-identity-file.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -191,6 +196,21 @@ router.post(
         );
         res.status(500).json({ error: "failed to write session project" });
         return;
+      }
+
+      // 5b. Moving into a project unpins (mutual exclusivity). Best-effort:
+      // the project write is the user's gesture and already landed; a stale
+      // `.pinned` is outranked by project membership in the sidebar anyway.
+      if (project !== null) {
+        try {
+          await removeIdentityFile(key, ".pinned", { hostId, conn });
+        } catch (unpinErr) {
+          databaseLogger.warn(
+            `session-project unpin failed key=${key} hostId=${hostId}: ${
+              unpinErr instanceof Error ? unpinErr.message : String(unpinErr)
+            }`,
+          );
+        }
       }
 
       // 6. Post-write wire event: fan out session-project-changed carrying

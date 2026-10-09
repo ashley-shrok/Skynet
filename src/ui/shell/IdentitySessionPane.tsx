@@ -156,8 +156,9 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
     // Identity-badge context-menu items — mirrors the conversation-row menu
     // (PrettyConversationRow.tsx items[] builder) so both surfaces offer the
     // same affordances for an identity. Order:
-    //   Pin/Unpin → Move to new window (desktop-only) →
-    //     Switch to (terminal/chat) view (admin-only) → Archive
+    //   Move to new window (desktop-only) →
+    //     Switch to (terminal/chat) view (admin-only) →
+    //     Move to (Pinned / projects) → Archive
     // Rendered on both desktop and mobile — mobile trigger is long-press
     // on the badge, desktop trigger is right-click.
     //
@@ -167,7 +168,7 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
     //
     // Pin uses the fleet-synthetic id form (`fleet::<hostId>::<session>`)
     // so state survives openTab id churn across URL-restores — mirrors
-    // PrettyConversationsPanel.handleTogglePin's shadowFleetId preference.
+    // PrettyConversationsPanel.handleSetPinned's shadowFleetId preference.
     // The Unpin label checks BOTH the shadow-fleet id AND tab.id so
     // legacy pins persisted under the openTab id shape still detect.
     const pinnedIds = usePinnedIds();
@@ -186,18 +187,6 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
 
     const identityBadgeContextMenuItems = useMemo<PrettyContextMenuItem[]>(() => {
       const items: PrettyContextMenuItem[] = [];
-
-      items.push({
-        label: isPinned ? "Unpin" : "Pin",
-        onClick: () => {
-          if (isPinned) {
-            if (shadowFleetId !== null && pinnedIds.has(shadowFleetId)) unpinConversation(shadowFleetId);
-            if (pinnedIds.has(tabId)) unpinConversation(tabId);
-          } else {
-            pinConversation(shadowFleetId ?? tabId);
-          }
-        },
-      });
 
       // Move-to-new-window is desktop-only — mobile has no multi-window story.
       if (!isMobile) {
@@ -241,12 +230,12 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
         });
       }
 
-      // Badge-menu Move-to-project (2026-09-27): mirrors the row-menu item
-      // at PrettyConversationRow.tsx L1507-1529. Badge is per-host by
+      // Badge-menu Move to (Pinned / projects): mirrors the row menu's
+      // "Move to" submenu in PrettyConversationRow.tsx. Badge is per-host by
       // construction (the identity lives on this pane's host), so the
       // per-row hostId filter the panel needs simplifies here to a
-      // filter on projectsList by host.id. Same hide-not-grey rule:
-      // when this host has zero projects, drop the item entirely.
+      // filter on projectsList by host.id. Always present for identity
+      // panes — Pinned is a destination even when the host has no projects.
       //
       // currentProjectSlug is read from the already-resolved identity's
       // `project` field (identities-store carries it, refreshed on
@@ -262,57 +251,66 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
           .filter((p) => p.hostId === host.id && !p.archived)
           .slice()
           .sort((a, b) => a.displayName.localeCompare(b.displayName));
-        if (hostProjects.length > 0) {
-          const identityKey = sessionMatchKey(effectiveTmuxSession) ?? effectiveTmuxSession;
-          const resolved =
-            (Number.isFinite(hostIdNum)
-              ? identitiesByHostKey?.get(`${hostIdNum}::${identityKey}`)
-              : undefined) ?? identitiesByKey.get(identityKey);
-          const currentProjectSlug = resolved?.project ?? null;
-          const submenu: PrettyContextMenuSubmenuItem[] = [];
-          for (const p of hostProjects) {
-            const isCurrent = p.slug === currentProjectSlug;
-            submenu.push({
-              label: p.displayName,
-              checked: isCurrent,
-              onClick: () => {
-                if (isCurrent) return;
-                void setSessionProject(hostIdNum, identityKey, p.slug).catch(
-                  (err: unknown) => {
-                    console.warn({
-                      operation: "badge_menu_move_to_project_failed",
-                      hostId: hostIdNum,
-                      identityKey,
-                      slug: p.slug,
-                      errMessage: err instanceof Error ? err.message : String(err),
-                    });
-                  },
-                );
-              },
-            });
-          }
-          if (currentProjectSlug !== null) {
-            submenu.push({
-              label: "Remove from project",
-              onClick: () => {
-                void setSessionProject(hostIdNum, identityKey, null).catch(
-                  (err: unknown) => {
-                    console.warn({
-                      operation: "badge_menu_remove_from_project_failed",
-                      hostId: hostIdNum,
-                      identityKey,
-                      errMessage: err instanceof Error ? err.message : String(err),
-                    });
-                  },
-                );
-              },
-            });
-          }
-          items.push({
-            label: "Move to project",
-            submenu,
+        const identityKey = sessionMatchKey(effectiveTmuxSession) ?? effectiveTmuxSession;
+        const resolved =
+          (Number.isFinite(hostIdNum)
+            ? identitiesByHostKey?.get(`${hostIdNum}::${identityKey}`)
+            : undefined) ?? identitiesByKey.get(identityKey);
+        const currentProjectSlug = resolved?.project ?? null;
+        // Project outranks a stale pin — same rule as the sidebar.
+        const shownPinned = isPinned && currentProjectSlug === null;
+        const unpinLocal = () => {
+          if (pinnedIds.has(shadowFleetId)) unpinConversation(shadowFleetId);
+          if (pinnedIds.has(tabId)) unpinConversation(tabId);
+        };
+        const setProject = (slug: string | null) => {
+          // Moving into a project unpins (the backend route removes
+          // `.pinned` too; this keeps the local pin set from lagging).
+          if (slug !== null) unpinLocal();
+          void setSessionProject(hostIdNum, identityKey, slug).catch(
+            (err: unknown) => {
+              console.warn({
+                operation: "badge_menu_set_project_failed",
+                hostId: hostIdNum,
+                identityKey,
+                slug,
+                errMessage: err instanceof Error ? err.message : String(err),
+              });
+            },
+          );
+        };
+        const submenu: PrettyContextMenuSubmenuItem[] = [];
+        submenu.push({
+          label: "Pinned",
+          checked: shownPinned,
+          onClick: () => {
+            if (shownPinned) return;
+            // Pinning leaves the project: the pin route clears `project:`.
+            // A stale pin would make pinConversation a no-op, so clear the
+            // project directly in that case.
+            if (isPinned) setProject(null);
+            else pinConversation(shadowFleetId);
+          },
+        });
+        for (const p of hostProjects) {
+          const isCurrent = p.slug === currentProjectSlug;
+          submenu.push({
+            label: p.displayName,
+            checked: isCurrent,
+            onClick: () => {
+              if (!isCurrent) setProject(p.slug);
+            },
           });
         }
+        if (shownPinned) {
+          submenu.push({ label: "Unpin", onClick: unpinLocal });
+        } else if (currentProjectSlug !== null) {
+          submenu.push({ label: "Remove from project", onClick: () => setProject(null) });
+        }
+        items.push({
+          label: "Move to",
+          submenu,
+        });
       }
 
       // Phase 115 Plan 115-06 (D-01, D-02, D-03, D-04): Archive item.

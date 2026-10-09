@@ -1011,12 +1011,6 @@ function computeSnapshot(): ConversationList {
     emittedIds.add(row.id);
   }
   pinned.sort(compareByHostRoleLabel);
-  // Phase 117 Plan 117-07: capture the set of row ids that landed in the pinned
-  // tier so the projects-derived selector below can distinguish pinned-in-project
-  // (float to project section top per D-19) from unpinned-in-project (alphabetical
-  // by displayName). Cheaper than re-deriving shadow-id for each row a second time.
-  const pinnedRowIdSet = new Set<string>();
-  for (const r of pinned) pinnedRowIdSet.add(r.id);
 
   // ── Middle zone (Phase 41 Plan 01): FLAT list of non-pinned / non-RDP
   //    identity-tmux + fleet-synthetic rows, sorted by compareByRecencyDesc.
@@ -1240,16 +1234,13 @@ function computeSnapshot(): ConversationList {
   // then filters out rows that get promoted into a project section.
   const derivedMiddle: ConversationRow[] = [];
 
-  // Pinned rows: assign to project section (pinned-in-project → project top)
-  // or to pinnedUnassigned (pinned + no project).
+  // Pinned rows: a pinned row with a project goes to that project section as
+  // an ordinary member (project outranks pin); otherwise to pinnedUnassigned.
   for (const row of pinned) {
     const slug = projectForRow(row);
     if (slug === null) {
       pinnedUnassigned.push(row);
     } else {
-      // D-19: pinned in-project floats to top of that section — mark by
-      // prepending to a per-slug bucket that we later sort with pinned-first
-      // discipline (we track pinned rows via state.pinnedIds membership).
       const bucket = projectRowsByKey.get(slug) ?? [];
       bucket.push(row);
       projectRowsByKey.set(slug, bucket);
@@ -1269,9 +1260,11 @@ function computeSnapshot(): ConversationList {
   }
 
   // Build projectSections. Every project in state.projects gets a section,
-  // even if empty (D-11). Rows within each section: pinned first (D-19),
-  // then alphabetical by displayName (D-16). Sections sorted alphabetical
-  // by displayName (D-15).
+  // even if empty (D-11). Rows within each section are alphabetical by
+  // displayName (D-16) — pinned and in-a-project are mutually exclusive, so
+  // a row that is somehow both (a stale `.pinned` an agent left behind)
+  // shows as a plain project member: project membership outranks the pin.
+  // Sections sorted alphabetical by displayName (D-15).
   const projectSections: Array<{
     slug: string;
     hostId: string;
@@ -1279,28 +1272,8 @@ function computeSnapshot(): ConversationList {
     rows: ConversationRow[];
   }> = [];
   for (const project of state.projects) {
-    const rowsRaw = projectRowsByKey.get(projectKey(project.hostId, project.slug)) ?? [];
-    // Split into pinned + unpinned (D-19). state.pinnedIds is the pin oracle.
-    const pinnedInProject: ConversationRow[] = [];
-    const unpinnedInProject: ConversationRow[] = [];
-    for (const row of rowsRaw) {
-      // pin check: mirrors the pinned-tier logic above — a row is pinned iff
-      // its id (or fleet-shadow id) is in state.pinnedIds. The pinned tier
-      // above already selected rows using state.pinnedIds, so rows arriving
-      // here from `pinned` are all pinned; rows from `middleRows` are not.
-      // Rather than re-derive shadow-id here, key off the source array via
-      // a stamp: use a Set of ids we know are pinned from the pinned tier.
-      // (Cheaper than a shadow-id lookup for each row.)
-      if (pinnedRowIdSet.has(row.id)) pinnedInProject.push(row);
-      else unpinnedInProject.push(row);
-    }
-    // Alphabetical by displayName within each subgroup.
-    pinnedInProject.sort((a, b) =>
-      rowDisplayName(a).localeCompare(rowDisplayName(b), undefined, {
-        sensitivity: "base",
-      }),
-    );
-    unpinnedInProject.sort((a, b) =>
+    const rows = [...(projectRowsByKey.get(projectKey(project.hostId, project.slug)) ?? [])];
+    rows.sort((a, b) =>
       rowDisplayName(a).localeCompare(rowDisplayName(b), undefined, {
         sensitivity: "base",
       }),
@@ -1309,7 +1282,7 @@ function computeSnapshot(): ConversationList {
       slug: project.slug,
       hostId: project.hostId,
       displayName: project.displayName,
-      rows: [...pinnedInProject, ...unpinnedInProject],
+      rows,
     });
   }
   // Sort sections alphabetical by displayName (D-15).

@@ -18,6 +18,11 @@
  * identity-appearance fingerprint carries `pinned`, so the next tick emits an
  * update frame.
  *
+ * Pinned and in-a-project are mutually exclusive: pinning also clears the
+ * identity's `project:` frontmatter (and fans out session-project-changed so
+ * open sidebars move the row out of its project section). The inverse lives
+ * in session-project-write.ts.
+ *
  * Mounted in database.ts BEFORE the generic /identities router (same
  * discipline as no-dormancy / archive).
  */
@@ -32,7 +37,10 @@ import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import {
   isLocalHostId,
   IDENTITY_KEY_RE,
+  readSessionProjectField,
+  writeSessionProjectField,
 } from "../../claude-session/identity-artifact-reader.js";
+import { getSubscriptionRegistry } from "../../fleet-status/subscription-registry.js";
 import {
   writeIdentityFile,
   removeIdentityFile,
@@ -43,6 +51,49 @@ const authManager = AuthManager.getInstance();
 const authenticateJWT = authManager.createAuthMiddleware();
 
 const SSH_CONNECT_TIMEOUT_MS = 3000;
+
+/**
+ * Pinning takes the identity out of its project. Best-effort: the pin itself
+ * already landed, so a failed project clear is logged rather than turned into
+ * a 500 — the sidebar shows project membership over the pin until it's fixed.
+ */
+async function clearProjectOnPin(
+  conn: Awaited<ReturnType<typeof connectOneShot>> | null,
+  key: string,
+  hostId: number,
+  userId: string | undefined,
+): Promise<void> {
+  try {
+    const current = await readSessionProjectField(conn, key);
+    if (current === null) return;
+    await writeSessionProjectField(conn, key, null);
+    databaseLogger.info("identity pin cleared project", {
+      operation: "identity_pin_cleared_project",
+      userId,
+      hostId,
+      identityKey: key,
+      previousProject: current,
+    });
+    try {
+      getSubscriptionRegistry()?.publishSessionProjectChanged(key, hostId, null);
+    } catch (pubErr) {
+      databaseLogger.warn("session-project-changed publish failed after pin", {
+        operation: "identity_pin_project_publish_failed",
+        hostId,
+        identityKey: key,
+        errMessage: pubErr instanceof Error ? pubErr.message : String(pubErr),
+      });
+    }
+  } catch (err) {
+    databaseLogger.warn("identity pin could not clear project", {
+      operation: "identity_pin_clear_project_failed",
+      userId,
+      hostId,
+      identityKey: key,
+      errMessage: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
 
 router.put(
   "/:key/pinned",
@@ -93,6 +144,7 @@ router.put(
     try {
       if (pinned) {
         await writeIdentityFile(key, ".pinned", "", { hostId, conn });
+        await clearProjectOnPin(conn, key, hostId, userId);
       } else {
         await removeIdentityFile(key, ".pinned", { hostId, conn });
       }

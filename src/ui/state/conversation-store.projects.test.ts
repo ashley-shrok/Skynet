@@ -8,7 +8,11 @@
  *      snapshotVersion (no listener notify).
  *   3: setProjects delta triggers exactly one notify per real change.
  *   4: derived selector — pinned + unassigned floats to pinnedUnassigned zone.
- *   5: derived selector — pinned + in-project floats to top of that section (D-19).
+ *   5: derived selector — a row that is BOTH pinned and in a project lands in
+ *      that project's section as an ordinary member (project outranks pin;
+ *      pinned and in-a-project are mutually exclusive, D-19 float retired),
+ *      sorted alphabetically with the other members — never in
+ *      pinnedUnassigned.
  *   6: derived selector — project sections sorted alphabetical by displayName
  *      (D-15).
  *   7: derived selector — dangling project ref falls to middle (D-07).
@@ -250,10 +254,14 @@ describe("conversation-store (117-07): pinned + unassigned floats to pinnedUnass
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 5: derived selector — pinned + in-project floats to top of that section
+// Test 5: derived selector — pinned + in-project row is a plain project member
 // ─────────────────────────────────────────────────────────────────────────────
-describe("conversation-store (117-07): pinning contextual scope (D-19)", () => {
-  it("Test 5: pinned in-project row floats to TOP of that project section — NOT to global pinnedUnassigned", () => {
+// Pinned and in-a-project are mutually exclusive. A row that is somehow both
+// (a stale `.pinned` left behind) is filed under its project — project
+// outranks the pin — and sorted alphabetically with the other members. The
+// old D-19 "pinned floats to the top of its project section" rule is retired.
+describe("conversation-store: pinned + in-project row is filed under its project (project outranks pin)", () => {
+  it("Test 5: pinned in-project row lands in its project section — NOT in global pinnedUnassigned", () => {
     const hostA = makeHost("1", "t1000");
     const tree: HostFolder = { name: "root", children: [hostA] };
     // Three identities in project "alpha", one pinned.
@@ -283,17 +291,67 @@ describe("conversation-store (117-07): pinning contextual scope (D-19)", () => {
         makeTab("t-wren", "terminal", hostA, "wren"),
       ]);
     });
-    act(() => pinConversation("t-beryl")); // pin BERYL — display-name middle sort would put Beryl between Cora and Wren; with pinning, Beryl must land FIRST.
+    act(() => pinConversation("t-beryl")); // pin BERYL — alphabetically first anyway; Test 5b pins the alphabetically-LAST member to prove there's no float.
 
     const { result } = renderHook(() => useConversations());
     const snap = result.current;
     expect(snap.projectSections).toHaveLength(1);
     const section = snap.projectSections[0];
     expect(section.slug).toBe("alpha");
-    // Beryl (pinned) first; then Cora, Wren alphabetical by displayName.
+    // Alphabetical by displayName: Beryl, Cora, Wren.
     expect(section.rows.map((r) => r.id)).toEqual(["t-beryl", "t-cora", "t-wren"]);
     // Beryl is NOT in the global pinnedUnassigned zone.
     expect(snap.pinnedUnassigned.map((r) => r.id)).toEqual([]);
+  });
+
+  it("Test 5b: a pinned AND assigned row sorts alphabetically with its project's members (no pinned-first float) and is absent from pinnedUnassigned", () => {
+    const hostA = makeHost("1", "t1000");
+    const tree: HostFolder = { name: "root", children: [hostA] };
+    act(() => {
+      updateHostTree(tree);
+      updateHostsFlat(new Map([[1, hostA]]));
+      updateIdentitiesByKey(
+        identitiesMap(
+          makeIdentity("wren", "actor", { displayName: "Wren", project: "alpha" }),
+          makeIdentity("beryl", "actor", { displayName: "Beryl", project: "alpha" }),
+          makeIdentity("cora", "actor", { displayName: "Cora", project: "alpha" }),
+          makeIdentity("dax", "actor", { displayName: "Dax" }),
+        ),
+      );
+      setIdentityProjectAssignments(
+        new Map<string, string>([
+          ["1::wren", "alpha"],
+          ["1::beryl", "alpha"],
+          ["1::cora", "alpha"],
+        ]),
+      );
+      setProjects([
+        { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "t1000", archived: false },
+      ]);
+      updateOpenTabs([
+        makeTab("t-cora", "terminal", hostA, "cora"),
+        makeTab("t-beryl", "terminal", hostA, "beryl"),
+        makeTab("t-wren", "terminal", hostA, "wren"),
+        makeTab("t-dax", "terminal", hostA, "dax"),
+      ]);
+    });
+    // Pin WREN — alphabetically LAST in the project. Under the retired D-19
+    // rule it would have floated to the top; now it stays in sort order.
+    // Also pin DAX (no project) as a control: it belongs in pinnedUnassigned.
+    act(() => {
+      pinConversation("t-wren");
+      pinConversation("t-dax");
+    });
+
+    const { result } = renderHook(() => useConversations());
+    const snap = result.current;
+    expect(snap.projectSections).toHaveLength(1);
+    const section = snap.projectSections[0];
+    expect(section.slug).toBe("alpha");
+    expect(section.rows.map((r) => r.id)).toEqual(["t-beryl", "t-cora", "t-wren"]);
+    // Wren is filed under its project only — never in pinnedUnassigned.
+    expect(snap.pinnedUnassigned.map((r) => r.id)).toEqual(["t-dax"]);
+    expect(snap.middle.map((r) => r.id)).not.toContain("t-wren");
   });
 });
 

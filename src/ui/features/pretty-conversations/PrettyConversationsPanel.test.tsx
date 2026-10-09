@@ -63,6 +63,17 @@ async function openRowKebabInBody(body: HTMLElement): Promise<HTMLElement> {
   await user.click(trigger);
   return screen.getByRole("menu");
 }
+
+// Pinned and in-a-project are mutually exclusive: the row kebab has no
+// top-level Pin/Unpin. Pinning is the "Pinned" entry of the "Move to"
+// submenu; unpinning is that submenu's trailing "Unpin" leaf. Opens the
+// kebab and drills into "Move to".
+async function openRowMoveToInBody(body: HTMLElement): Promise<void> {
+  const menu = await openRowKebabInBody(body);
+  await userEvent.setup().click(
+    within(menu).getByTestId("pv-row-kebab-item-move-to"),
+  );
+}
 // Phase 119 Plan 119-06 (D-18 three-layer testing): AppState type shape used
 // by the new mockAppTiles fixture + vi.mock("@/state/app-tiles-store", ...)
 // below.
@@ -1109,7 +1120,7 @@ describe("PrettyConversationsPanel: middle zone is FLAT (Phase 41 Plan 01)", () 
 //   - Mobile RDP → no swipe strip at all (pre-existing contract).
 
 describe("PrettyConversationsPanel: deactivate action (quick-260727-gm3)", () => {
-  it("Test 20A: desktop active-set non-RDP row → contextmenu opens portal menu carrying Pin (Deactivate removed from menu 2026-08-17)", async () => {
+  it("Test 20A: desktop active-set non-RDP row → contextmenu opens portal menu carrying Move to → Pinned (Deactivate removed from menu 2026-08-17)", async () => {
     // Phase 42 UAT amendment 2026-08-17: the Tier 1 active-set render tier
     // was retired — active-set rows now flow through to pinned (if pinned)
     // or middle (by recency). user 2026-08-17 follow-up: the Deactivate
@@ -1160,14 +1171,18 @@ describe("PrettyConversationsPanel: deactivate action (quick-260727-gm3)", () =>
     const body = rowEl!.querySelector('[role="button"]') as HTMLElement;
     await openRowKebabInBody(body);
     const menu = screen.getByRole("menu");
-    expect(within(menu).getByRole("menuitem", { name: /pin/i })).toBeTruthy();
+    expect(within(menu).getByTestId("pv-row-kebab-item-move-to")).toBeTruthy();
     // Deactivate menu item removed 2026-08-17 (user).
     expect(
       within(menu).queryByRole("menuitem", { name: /deactivate/i }),
     ).toBeNull();
+    await userEvent.setup().click(
+      within(menu).getByTestId("pv-row-kebab-item-move-to"),
+    );
+    expect(screen.getByTestId("pv-row-kebab-item-move-to-pinned")).toBeTruthy();
   });
 
-  it("Test 20A2: a non-identity row (no identity behind its tmux session) offers NO Pin item", async () => {
+  it("Test 20A2: a non-identity row (no identity behind its tmux session) offers NO Pinned entry", async () => {
     const hostA = makeHost("h1", "hostA");
     setSnapshot({
       activeSet: [],
@@ -1192,6 +1207,12 @@ describe("PrettyConversationsPanel: deactivate action (quick-260727-gm3)", () =>
     await openRowKebabInBody(body);
     const menu = screen.getByRole("menu");
     expect(within(menu).queryByRole("menuitem", { name: /^pin$/i })).toBeNull();
+    // Not pinnable → no Pinned destination. With no projects either, the
+    // Move-to submenu is empty and its parent is hidden; if projects exist
+    // it may render, but must not offer Pinned.
+    const moveTo = within(menu).queryByTestId("pv-row-kebab-item-move-to");
+    if (moveTo) await userEvent.setup().click(moveTo);
+    expect(screen.queryByTestId("pv-row-kebab-item-move-to-pinned")).toBeNull();
   });
 
   it("Test 20B: desktop ambient (non-active-set) row renders NO deactivate-action", () => {
@@ -1286,7 +1307,7 @@ describe("PrettyConversationsPanel: deactivate action (quick-260727-gm3)", () =>
 // pinned computation (conversation-store.ts:493-499) at the two
 // active-set-tier render sites (active-set map + grouped host map).
 describe("PrettyConversationsPanel: active-set fleet-shadow-id pinned recognition (quick-260807-e4s)", () => {
-  it("Test E4S-01: active-set row whose pin lives under fleet::HOSTID::SESSIONNAME shows Unpin (not Pin) in the right-click context menu", async () => {
+  it("Test E4S-01: active-set row whose pin lives under fleet::HOSTID::SESSIONNAME shows Pinned checked + an Unpin leaf in the kebab's Move-to submenu", async () => {
     // Phase 42 UAT amendment 2026-08-17: active-set render tier retired; seed
     // row into `middle` and mark active-in-set via `mockActiveSet`.
     const hostA = makeHost("1", "hostA");
@@ -1314,17 +1335,17 @@ describe("PrettyConversationsPanel: active-set fleet-shadow-id pinned recognitio
     expect(rowEl).toBeTruthy();
 
     const body = rowEl!.querySelector('[role="button"]') as HTMLElement;
-    await openRowKebabInBody(body);
-    const menu = screen.getByRole("menu");
+    await openRowMoveToInBody(body);
+    expect(screen.getByTestId("pv-row-kebab-item-unpin")).toBeTruthy();
     expect(
-      within(menu).getByRole("menuitem", { name: /^unpin$/i }),
-    ).toBeTruthy();
-    expect(
-      within(menu).queryByRole("menuitem", { name: /^pin$/i }),
-    ).toBeNull();
+      screen
+        .getByTestId("pv-row-kebab-item-move-to-pinned")
+        .querySelector("svg.lucide-check"),
+    ).not.toBeNull();
+    expect(screen.queryByRole("menuitem", { name: /^pin$/i })).toBeNull();
   });
 
-  // quick-260807 followup: E4S-01 fixed the READ side (menu label). This
+  // quick-260807 followup: E4S-01 fixed the READ side (pinned state). This
   // locks in the WRITE side — clicking Unpin on the same fixture must
   // remove the fleet-synthetic pin from pinnedIds (via unpinConversation)
   // rather than ADDING the openTab-id shape (which was the pre-fix bug:
@@ -1358,10 +1379,9 @@ describe("PrettyConversationsPanel: active-set fleet-shadow-id pinned recognitio
     expect(rowEl).toBeTruthy();
 
     const body = rowEl!.querySelector('[role="button"]') as HTMLElement;
-    await openRowKebabInBody(body);
-    const menu = screen.getByRole("menu");
-    const unpinItem = within(menu).getByRole("menuitem", { name: /^unpin$/i });
-    fireEvent.click(unpinItem);
+    await openRowMoveToInBody(body);
+    const unpinItem = screen.getByTestId("pv-row-kebab-item-unpin");
+    await userEvent.setup().click(unpinItem);
 
     await waitFor(() => {
       expect(unpinConversationSpy).toHaveBeenCalledWith("fleet::1::alpha");
@@ -1377,7 +1397,7 @@ describe("PrettyConversationsPanel: active-set fleet-shadow-id pinned recognitio
   // Complementary: fresh pin from an active-set row with a resolvable fleet
   // id must land the pin under the CANONICAL (fleet-synthetic) shape so the
   // pin survives openTab-id churn across URL-restores.
-  it("Test E4S-03: clicking Pin on an unpinned active-set row with host+targetTmuxSession pins under the fleet-synthetic canonical id (not the openTab id)", async () => {
+  it("Test E4S-03: clicking Move to → Pinned on an unpinned active-set row with host+targetTmuxSession pins under the fleet-synthetic canonical id (not the openTab id)", async () => {
     // Phase 42 UAT amendment 2026-08-17: active-set render tier retired; seed
     // row into `middle` and mark active-in-set via `mockActiveSet`.
     const hostA = makeHost("1", "hostA");
@@ -1404,10 +1424,9 @@ describe("PrettyConversationsPanel: active-set fleet-shadow-id pinned recognitio
       '[data-conversation-id="active-alpha"]',
     ) as HTMLElement | null;
     const body = rowEl!.querySelector('[role="button"]') as HTMLElement;
-    await openRowKebabInBody(body);
-    const menu = screen.getByRole("menu");
-    const pinItem = within(menu).getByRole("menuitem", { name: /^pin$/i });
-    fireEvent.click(pinItem);
+    await openRowMoveToInBody(body);
+    const pinItem = screen.getByTestId("pv-row-kebab-item-move-to-pinned");
+    await userEvent.setup().click(pinItem);
 
     await waitFor(() => {
       expect(pinConversationSpy).toHaveBeenCalledWith("fleet::1::alpha");

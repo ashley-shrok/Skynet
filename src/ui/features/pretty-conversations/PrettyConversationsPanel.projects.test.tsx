@@ -2290,10 +2290,11 @@ describe("PrettyConversationsPanel: flat-middle section header (M-J)", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Move-to-project context menu — per-row host filtering
+// Move-to context menu — per-row host filtering
 // ─────────────────────────────────────────────────────────────────────────────
 //
-// The "Move to project" drill-in submenu must list only projects that live on
+// The "Move to" drill-in submenu (Pinned + projects; renamed from "Move to
+// project" when pinned and in-a-project became mutually exclusive) must list only projects that live on
 // the row's host for IDENTITY rows: projects live under a specific host's
 // ~/fleet/projects/ tree (D-01), and setSessionProject writes to that host's
 // identity file. Offering a cross-host project would fire
@@ -2303,7 +2304,7 @@ describe("PrettyConversationsPanel: flat-middle section header (M-J)", () => {
 // RELAY-ROOM rows are cross-host by design (the setRelayRoomProject payload
 // has no hostId), so their submenu keeps the full projects list.
 
-describe("PrettyConversationsPanel: Move-to-project host filtering", () => {
+describe("PrettyConversationsPanel: Move-to host filtering", () => {
   it("identity row on host 1 sees only host-1 projects in the drill-in submenu", async () => {
     const hostA = makeHost("1", "hostA");
     const identityRow = makeRow({
@@ -2346,7 +2347,7 @@ describe("PrettyConversationsPanel: Move-to-project host filtering", () => {
 
     const menu = screen.getByRole("menu");
     await userEvent.setup().click(
-      within(menu).getByRole("menuitem", { name: /move to project/i }),
+      within(menu).getByRole("menuitem", { name: /^move to$/i }),
     );
 
     // Alpha (host 1) present; Beta (host 2) filtered out.
@@ -2400,7 +2401,7 @@ describe("PrettyConversationsPanel: Move-to-project host filtering", () => {
     await openRowKebabInBody(body);
     const menu = screen.getByRole("menu");
     await userEvent.setup().click(
-      within(menu).getByRole("menuitem", { name: /move to project/i }),
+      within(menu).getByRole("menuitem", { name: /^move to$/i }),
     );
 
     // Submenu lives in a separate Radix portal — query via screen (global).
@@ -2412,7 +2413,7 @@ describe("PrettyConversationsPanel: Move-to-project host filtering", () => {
     ).toBeNull();
   });
 
-  it("identity row on a host with zero projects hides the 'Move to project' item entirely (hide-not-grey)", async () => {
+  it("identity row on a host with zero projects offers no project destinations in the 'Move to' submenu (hide-not-grey)", async () => {
     const hostZ = makeHost("9", "hostZ");
     const identityRow = makeRow({
       id: "id-row-z",
@@ -2451,6 +2452,15 @@ describe("PrettyConversationsPanel: Move-to-project host filtering", () => {
     const menu = screen.getByRole("menu");
     expect(
       within(menu).queryByRole("menuitem", { name: /move to project/i }),
+    ).toBeNull();
+    // "Move to" may still render (it carries Pinned for pinnable rows), but
+    // it must never list a project from another host, nor offer Remove.
+    const moveTo = within(menu).queryByTestId("pv-row-kebab-item-move-to");
+    if (moveTo) await userEvent.setup().click(moveTo);
+    expect(screen.queryByRole("menuitem", { name: /^Alpha$/ })).toBeNull();
+    expect(screen.queryByTestId("pv-row-kebab-item-move-to-alpha")).toBeNull();
+    expect(
+      screen.queryByTestId("pv-row-kebab-item-remove-from-project"),
     ).toBeNull();
   });
 
@@ -2498,7 +2508,7 @@ describe("PrettyConversationsPanel: Move-to-project host filtering", () => {
     await openRowKebabInBody(body);
     const menu = screen.getByRole("menu");
     await userEvent.setup().click(
-      within(menu).getByRole("menuitem", { name: /move to project/i }),
+      within(menu).getByRole("menuitem", { name: /^move to$/i }),
     );
 
     // Submenu lives in a separate Radix portal — query via screen (global).

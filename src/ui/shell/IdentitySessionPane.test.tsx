@@ -462,16 +462,21 @@ describe("IdentitySessionPane — Phase 41 Plan 02", () => {
     expect(true).toBe(true);
   });
 
-  // ── Badge-menu Move-to-project (2026-09-27) ─────────────────────────────────
+  // ── Badge-menu Move-to (2026-09-27; renamed from "Move to project") ───────
   // Mirror of the row-menu shape (PrettyConversationRow items[] builder).
   // Badge-menu is per-host by construction, so host-scoping is a
   // filter-by-host.id, not the panel's projectsForRow narrowing.
+  // Pinned and in-a-project are mutually exclusive, so the submenu lists
+  // both kinds of destination: "Pinned" → host projects → trailing leaf
+  // ("Unpin" when pinned, else "Remove from project" when in a project).
 
-  describe("badge-menu Move-to-project", () => {
-    beforeEach(() => {
+  describe("badge-menu Move-to", () => {
+    beforeEach(async () => {
       mockProjectsList = [];
       mockIdentity = { ...mockIdentity, project: null };
       mockSetSessionProject.mockClear();
+      const store = await import("@/state/conversation-store");
+      vi.mocked(store.usePinnedIds).mockImplementation(() => new Set<string | number>());
     });
 
     function getMenuItems() {
@@ -481,14 +486,40 @@ describe("IdentitySessionPane — Phase 41 Plan 02", () => {
       }>;
     }
 
-    it("hides the Move-to-project item entirely when this host has zero projects (hide-not-grey)", () => {
+    function getMoveToSubmenu() {
+      const move = getMenuItems().find((it) => it.label === "Move to");
+      expect(move).toBeDefined();
+      return move!.submenu!;
+    }
+
+    async function setPinnedIds(ids: string[]) {
+      const store = await import("@/state/conversation-store");
+      vi.mocked(store.usePinnedIds).mockImplementation(() => new Set<string | number>(ids));
+      return store;
+    }
+
+    it("zero projects on this host → 'Move to' still present, carrying only Pinned (no project entries)", () => {
       mockProjectsList = [
-        // Non-matching host — should NOT surface an item on host 42's badge.
+        // Non-matching host — should NOT surface on host 42's badge.
         { slug: "elsewhere", displayName: "Elsewhere", hostId: "99", hostname: "other", archived: false },
       ];
       render(<IdentitySessionPane {...makeProps()} />);
       const items = getMenuItems();
       expect(items.find((it) => it.label === "Move to project")).toBeUndefined();
+      const submenu = getMoveToSubmenu();
+      expect(submenu.map((s) => s.label)).toEqual(["Pinned"]);
+      expect(submenu[0].checked).toBe(false);
+    });
+
+    it("Pinned entry with zero projects pins under the fleet-synthetic id", async () => {
+      const store = await import("@/state/conversation-store");
+      render(<IdentitySessionPane {...makeProps()} />);
+      const submenu = getMoveToSubmenu();
+      submenu.find((s) => s.label === "Pinned")!.onClick();
+      expect(store.pinConversation).toHaveBeenCalledTimes(1);
+      expect(store.pinConversation).toHaveBeenCalledWith("fleet::42::tina");
+      expect(store.unpinConversation).not.toHaveBeenCalled();
+      expect(mockSetSessionProject).not.toHaveBeenCalled();
     });
 
     it("filters submenu to projects on the badge's host (host-scoped)", () => {
@@ -498,11 +529,9 @@ describe("IdentitySessionPane — Phase 41 Plan 02", () => {
         { slug: "elsewhere", displayName: "Elsewhere", hostId: "99", hostname: "other", archived: false },
       ];
       render(<IdentitySessionPane {...makeProps()} />);
-      const move = getMenuItems().find((it) => it.label === "Move to project");
-      expect(move).toBeDefined();
-      const labels = (move!.submenu ?? []).map((s) => s.label);
-      // No "Remove from project" leaf when currentProjectSlug is null.
-      expect(labels).toEqual(["Local A", "Local B"]);
+      const labels = getMoveToSubmenu().map((s) => s.label);
+      // Pinned first; no trailing leaf when neither pinned nor in a project.
+      expect(labels).toEqual(["Pinned", "Local A", "Local B"]);
     });
 
     it("checkmarks the currently-assigned project and appends Remove-from-project leaf", () => {
@@ -512,12 +541,15 @@ describe("IdentitySessionPane — Phase 41 Plan 02", () => {
       ];
       mockIdentity = { ...mockIdentity, project: "local-b" };
       render(<IdentitySessionPane {...makeProps()} />);
-      const submenu = getMenuItems().find((it) => it.label === "Move to project")!.submenu!;
+      const submenu = getMoveToSubmenu();
+      const pinned = submenu.find((s) => s.label === "Pinned");
       const a = submenu.find((s) => s.label === "Local A");
       const b = submenu.find((s) => s.label === "Local B");
+      expect(pinned?.checked).toBe(false);
       expect(a?.checked).toBe(false);
       expect(b?.checked).toBe(true);
       expect(submenu[submenu.length - 1].label).toBe("Remove from project");
+      expect(submenu.map((s) => s.label)).not.toContain("Unpin");
     });
 
     it("omits Remove-from-project leaf when identity has no project assigned", () => {
@@ -526,7 +558,7 @@ describe("IdentitySessionPane — Phase 41 Plan 02", () => {
       ];
       // mockIdentity.project === null (beforeEach reset).
       render(<IdentitySessionPane {...makeProps()} />);
-      const submenu = getMenuItems().find((it) => it.label === "Move to project")!.submenu!;
+      const submenu = getMoveToSubmenu();
       expect(submenu.map((s) => s.label)).not.toContain("Remove from project");
     });
 
@@ -535,7 +567,7 @@ describe("IdentitySessionPane — Phase 41 Plan 02", () => {
         { slug: "local-a", displayName: "Local A", hostId: "42", hostname: "box-1", archived: false },
       ];
       render(<IdentitySessionPane {...makeProps()} />);
-      const submenu = getMenuItems().find((it) => it.label === "Move to project")!.submenu!;
+      const submenu = getMoveToSubmenu();
       submenu.find((s) => s.label === "Local A")!.onClick();
       expect(mockSetSessionProject).toHaveBeenCalledTimes(1);
       expect(mockSetSessionProject).toHaveBeenCalledWith(42, "tina", "local-a");
@@ -547,7 +579,7 @@ describe("IdentitySessionPane — Phase 41 Plan 02", () => {
       ];
       mockIdentity = { ...mockIdentity, project: "local-a" };
       render(<IdentitySessionPane {...makeProps()} />);
-      const submenu = getMenuItems().find((it) => it.label === "Move to project")!.submenu!;
+      const submenu = getMoveToSubmenu();
       submenu.find((s) => s.label === "Local A")!.onClick();
       expect(mockSetSessionProject).not.toHaveBeenCalled();
     });
@@ -558,7 +590,7 @@ describe("IdentitySessionPane — Phase 41 Plan 02", () => {
       ];
       mockIdentity = { ...mockIdentity, project: "local-a" };
       render(<IdentitySessionPane {...makeProps()} />);
-      const submenu = getMenuItems().find((it) => it.label === "Move to project")!.submenu!;
+      const submenu = getMoveToSubmenu();
       submenu.find((s) => s.label === "Remove from project")!.onClick();
       expect(mockSetSessionProject).toHaveBeenCalledTimes(1);
       expect(mockSetSessionProject).toHaveBeenCalledWith(42, "tina", null);
@@ -570,11 +602,61 @@ describe("IdentitySessionPane — Phase 41 Plan 02", () => {
         { slug: "old", displayName: "Old", hostId: "42", hostname: "box-1", archived: true },
       ];
       render(<IdentitySessionPane {...makeProps()} />);
-      const submenu = getMenuItems().find((it) => it.label === "Move to project")!.submenu!;
-      expect(submenu.map((s) => s.label)).toEqual(["Local A"]);
+      const submenu = getMoveToSubmenu();
+      expect(submenu.map((s) => s.label)).toEqual(["Pinned", "Local A"]);
     });
 
-    it("mobile: Move-to-project still surfaces (badge menu now populates on mobile too)", async () => {
+    it("pinned (no project): Pinned is checked, trailing leaf is Unpin, and Unpin calls unpinConversation with the fleet id", async () => {
+      const store = await setPinnedIds(["fleet::42::tina"]);
+      mockProjectsList = [
+        { slug: "local-a", displayName: "Local A", hostId: "42", hostname: "box-1", archived: false },
+      ];
+      render(<IdentitySessionPane {...makeProps()} />);
+      const submenu = getMoveToSubmenu();
+      expect(submenu.map((s) => s.label)).toEqual(["Pinned", "Local A", "Unpin"]);
+      expect(submenu[0].checked).toBe(true);
+      expect(submenu.map((s) => s.label)).not.toContain("Remove from project");
+      // The checked Pinned entry is a no-op.
+      submenu[0].onClick();
+      expect(store.pinConversation).not.toHaveBeenCalled();
+      expect(store.unpinConversation).not.toHaveBeenCalled();
+      submenu.find((s) => s.label === "Unpin")!.onClick();
+      expect(store.unpinConversation).toHaveBeenCalledWith("fleet::42::tina");
+      expect(store.unpinConversation).not.toHaveBeenCalledWith("tab-1");
+      expect(mockSetSessionProject).not.toHaveBeenCalled();
+    });
+
+    it("picking a project while pinned unpins locally AND fires setSessionProject", async () => {
+      const store = await setPinnedIds(["fleet::42::tina"]);
+      mockProjectsList = [
+        { slug: "local-a", displayName: "Local A", hostId: "42", hostname: "box-1", archived: false },
+      ];
+      render(<IdentitySessionPane {...makeProps()} />);
+      getMoveToSubmenu().find((s) => s.label === "Local A")!.onClick();
+      expect(store.unpinConversation).toHaveBeenCalledWith("fleet::42::tina");
+      expect(mockSetSessionProject).toHaveBeenCalledTimes(1);
+      expect(mockSetSessionProject).toHaveBeenCalledWith(42, "tina", "local-a");
+      expect(store.pinConversation).not.toHaveBeenCalled();
+    });
+
+    it("stale pin on a project member: project wins — Pinned unchecked, leaf is Remove from project, and Pinned clears the project", async () => {
+      const store = await setPinnedIds(["fleet::42::tina"]);
+      mockProjectsList = [
+        { slug: "local-a", displayName: "Local A", hostId: "42", hostname: "box-1", archived: false },
+      ];
+      mockIdentity = { ...mockIdentity, project: "local-a" };
+      render(<IdentitySessionPane {...makeProps()} />);
+      const submenu = getMoveToSubmenu();
+      expect(submenu.map((s) => s.label)).toEqual(["Pinned", "Local A", "Remove from project"]);
+      expect(submenu[0].checked).toBe(false);
+      // A stale pin would make pinConversation a no-op, so Pinned clears the
+      // project directly instead.
+      submenu[0].onClick();
+      expect(store.pinConversation).not.toHaveBeenCalled();
+      expect(mockSetSessionProject).toHaveBeenCalledWith(42, "tina", null);
+    });
+
+    it("mobile: Move to still surfaces (badge menu now populates on mobile too)", async () => {
       // Prior behavior — useMemo returned [] on mobile — was retired when
       // the mobile badge grew its own long-press → context-menu affordance
       // (shape-context-menu-on-identity-badge-mobile). Mobile now gets
@@ -587,7 +669,7 @@ describe("IdentitySessionPane — Phase 41 Plan 02", () => {
       ];
       render(<IdentitySessionPane {...makeProps()} />);
       const labels = getMenuItems().map((it) => it.label);
-      expect(labels).toContain("Move to project");
+      expect(labels).toContain("Move to");
       // Move-to-new-window still guarded out on mobile.
       expect(labels).not.toContain("Move to new window");
     });
@@ -599,19 +681,22 @@ describe("IdentitySessionPane — Phase 41 Plan 02", () => {
   // list flowing to PrettyView's `identityBadgeContextMenuItems` prop under
   // each combination of (isAdmin, isMobile):
   //
-  //   BADGE-MENU-1: admin  + desktop → Pin/Unpin, Move to new window,
-  //                                    Switch to terminal view, Archive
-  //   BADGE-MENU-2: non-admin + desktop → Pin/Unpin, Move to new window,
+  //   BADGE-MENU-1: admin  + desktop → Move to new window,
+  //                                    Switch to terminal view, Move to, Archive
+  //   BADGE-MENU-2: non-admin + desktop → Move to new window, Move to,
   //                                       Archive (NO Switch item)
-  //   BADGE-MENU-3: admin  + mobile  → Pin/Unpin, Switch to terminal view,
+  //   BADGE-MENU-3: admin  + mobile  → Switch to terminal view, Move to,
   //                                    Archive (NO Move to new window)
-  //   BADGE-MENU-4: non-admin + mobile → Pin/Unpin, Archive (neither Switch
-  //                                      nor Move)
+  //   BADGE-MENU-4: non-admin + mobile → Move to, Archive (neither Switch
+  //                                      nor Move to new window)
+  //
+  // There is no top-level Pin/Unpin item: pinning lives in the "Move to"
+  // submenu (pinned and in-a-project are mutually exclusive).
   //
   // useIsMobile is mocked at the top of this file to return false by
   // default; the helper below overrides via vi.mocked(...).mockReturnValue
   // for tests that need mobile. Mirrors the pattern already used by the
-  // "badge-menu Move-to-project" mobile test.
+  // "badge-menu Move-to" mobile test.
   async function setMobile(isMobile: boolean) {
     const useIsMobileMod = await import("@/hooks/use-mobile");
     vi.mocked(useIsMobileMod.useIsMobile).mockReturnValue(isMobile);
@@ -623,28 +708,27 @@ describe("IdentitySessionPane — Phase 41 Plan 02", () => {
     return items.map((it) => it.label);
   }
 
-  it("BADGE-MENU-1: admin + desktop → includes Pin, Move to new window, Switch to terminal view, Archive (in that order)", async () => {
+  it("BADGE-MENU-1: admin + desktop → exactly Move to new window, Switch to terminal view, Move to, Archive (in that order; no Pin)", async () => {
     await setMobile(false);
     render(<IdentitySessionPane {...makeProps({ isAdmin: true })} />);
     const labels = itemLabels();
-    expect(labels).toContain("Pin");
-    expect(labels).toContain("Move to new window");
     // Initial isPrettyMode = true → label reads "Switch to terminal view".
-    expect(labels).toContain("Switch to terminal view");
-    expect(labels).toContain("Archive");
-    // Order: Pin < Move < Switch < Archive.
-    expect(labels.indexOf("Pin")).toBeLessThan(labels.indexOf("Move to new window"));
-    expect(labels.indexOf("Move to new window")).toBeLessThan(labels.indexOf("Switch to terminal view"));
-    expect(labels.indexOf("Switch to terminal view")).toBeLessThan(labels.indexOf("Archive"));
+    expect(labels).toEqual([
+      "Move to new window",
+      "Switch to terminal view",
+      "Move to",
+      "Archive",
+    ]);
+    expect(labels).not.toContain("Pin");
+    expect(labels).not.toContain("Unpin");
   });
 
   it("BADGE-MENU-2: non-admin + desktop → Switch item absent; Move to new window still present", async () => {
     await setMobile(false);
     render(<IdentitySessionPane {...makeProps({ isAdmin: false })} />);
     const labels = itemLabels();
-    expect(labels).toContain("Pin");
-    expect(labels).toContain("Move to new window");
-    expect(labels).toContain("Archive");
+    expect(labels).not.toContain("Pin");
+    expect(labels).toEqual(["Move to new window", "Move to", "Archive"]);
     expect(labels).not.toContain("Switch to terminal view");
     expect(labels).not.toContain("Switch to chat view");
   });
@@ -653,21 +737,18 @@ describe("IdentitySessionPane — Phase 41 Plan 02", () => {
     await setMobile(true);
     render(<IdentitySessionPane {...makeProps({ isAdmin: true })} />);
     const labels = itemLabels();
-    expect(labels).toContain("Pin");
-    expect(labels).toContain("Switch to terminal view");
-    expect(labels).toContain("Archive");
+    expect(labels).not.toContain("Pin");
     expect(labels).not.toContain("Move to new window");
-    // Order: Pin < Switch < Archive.
-    expect(labels.indexOf("Pin")).toBeLessThan(labels.indexOf("Switch to terminal view"));
-    expect(labels.indexOf("Switch to terminal view")).toBeLessThan(labels.indexOf("Archive"));
+    // Order: Switch < Move to < Archive.
+    expect(labels).toEqual(["Switch to terminal view", "Move to", "Archive"]);
   });
 
-  it("BADGE-MENU-4: non-admin + mobile → neither Switch nor Move present", async () => {
+  it("BADGE-MENU-4: non-admin + mobile → neither Switch nor Move to new window present", async () => {
     await setMobile(true);
     render(<IdentitySessionPane {...makeProps({ isAdmin: false })} />);
     const labels = itemLabels();
-    expect(labels).toContain("Pin");
-    expect(labels).toContain("Archive");
+    expect(labels).not.toContain("Pin");
+    expect(labels).toEqual(["Move to", "Archive"]);
     expect(labels).not.toContain("Switch to terminal view");
     expect(labels).not.toContain("Switch to chat view");
     expect(labels).not.toContain("Move to new window");

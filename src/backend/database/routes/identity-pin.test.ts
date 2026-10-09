@@ -65,6 +65,15 @@ vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
   stringifyColorHueForYaml: (obj: Record<string, unknown>) => (typeof obj.colorHue === "number" ? { ...obj, colorHue: String(obj.colorHue) } : obj),
   isLocalHostId: vi.fn(),
   IDENTITY_KEY_RE: /^[a-z0-9_-]{1,64}$/,
+  readSessionProjectField: vi.fn(),
+  writeSessionProjectField: vi.fn(),
+}));
+
+const mockPublishSessionProjectChanged = vi.fn();
+vi.mock("../../fleet-status/subscription-registry.js", () => ({
+  getSubscriptionRegistry: () => ({
+    publishSessionProjectChanged: mockPublishSessionProjectChanged,
+  }),
 }));
 
 vi.mock("../../claude-session/per-identity-file.js", () => ({
@@ -78,7 +87,11 @@ vi.mock("../../claude-session/per-identity-file.js", () => ({
 
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
-import { isLocalHostId } from "../../claude-session/identity-artifact-reader.js";
+import {
+  isLocalHostId,
+  readSessionProjectField,
+  writeSessionProjectField,
+} from "../../claude-session/identity-artifact-reader.js";
 import { writeIdentityFile, removeIdentityFile } from "../../claude-session/per-identity-file.js";
 
 // ---------------------------------------------------------------------------
@@ -184,6 +197,10 @@ beforeEach(() => {
   (writeIdentityFile as Mock).mockResolvedValue(undefined);
   (removeIdentityFile as Mock).mockResolvedValue(undefined);
 
+  // Default: identity is in no project
+  (readSessionProjectField as Mock).mockResolvedValue(null);
+  (writeSessionProjectField as Mock).mockResolvedValue(undefined);
+
   // Rebuild app per test
   const app = express();
   app.use(express.json());
@@ -280,5 +297,57 @@ describe("PUT /identities/:key/pinned", () => {
       body: { hostId: 5, pinned: true },
     });
     expect(res.status).toBe(401);
+  });
+});
+
+describe("PUT /identities/:key/pinned — pinned and in-a-project are exclusive", () => {
+  it("pinning an identity in a project clears its project and fans out the change", async () => {
+    (readSessionProjectField as Mock).mockResolvedValue("alpha");
+    const res = await httpRequest(server, {
+      method: "PUT",
+      path: "/identities/wren/pinned",
+      body: { hostId: 5, pinned: true },
+    });
+    expect(res.status).toBe(200);
+    expect(writeIdentityFile).toHaveBeenCalledWith("wren", ".pinned", "", { hostId: 5, conn: null });
+    expect(writeSessionProjectField).toHaveBeenCalledWith(null, "wren", null);
+    expect(mockPublishSessionProjectChanged).toHaveBeenCalledWith("wren", 5, null);
+  });
+
+  it("pinning an identity with no project leaves the identity file alone", async () => {
+    const res = await httpRequest(server, {
+      method: "PUT",
+      path: "/identities/wren/pinned",
+      body: { hostId: 5, pinned: true },
+    });
+    expect(res.status).toBe(200);
+    expect(writeSessionProjectField).not.toHaveBeenCalled();
+    expect(mockPublishSessionProjectChanged).not.toHaveBeenCalled();
+  });
+
+  it("unpinning never touches the project", async () => {
+    (readSessionProjectField as Mock).mockResolvedValue("alpha");
+    const res = await httpRequest(server, {
+      method: "PUT",
+      path: "/identities/wren/pinned",
+      body: { hostId: 5, pinned: false },
+    });
+    expect(res.status).toBe(200);
+    expect(readSessionProjectField).not.toHaveBeenCalled();
+    expect(writeSessionProjectField).not.toHaveBeenCalled();
+  });
+
+  it("a failed project clear still returns the pin as 200", async () => {
+    (readSessionProjectField as Mock).mockResolvedValue("alpha");
+    (writeSessionProjectField as Mock).mockRejectedValue(new Error("disk"));
+    const res = await httpRequest(server, {
+      method: "PUT",
+      path: "/identities/wren/pinned",
+      body: { hostId: 7, pinned: true },
+    });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ pinned: true });
+    expect(writeSessionProjectField).toHaveBeenCalledWith(stubConn, "wren", null);
+    expect(mockPublishSessionProjectChanged).not.toHaveBeenCalled();
   });
 });

@@ -8,6 +8,7 @@ distributed: true
 <!-- 2026-10-01 (un-archiving matrix-cred-location correction): identity-side agent sentinel-drop is temporarily restricted — the supervisor's whoami probe refuses sentinels for not-yet-reactivated accounts; agents direct the user at the frontend path for identity un-archive. Shape 4 (shape-agent-side-identity-unarchive-correction) tracks the full restoration. -->
 <!-- 2026-10-02 (tissue-identity lifecycle + schedule-type disambiguation): new "Lifecycle — identities are tissues" framing paragraph in the top matter, and a new "When the user asks you to 'schedule' something — ASK first" subsection at the top of § Scheduled wake-ups covering the wake-up-vs-scheduled-agent lifetime distinction. -->
 <!-- 2026-10-05 (multi-role identities): § Loading an existing identity now documents the two `role:` shapes (scalar / list), that every listed role is loaded equally (no primary), and how the app shows a multi-role identity (all roles listed, no inherited look, visibility per role); role-file edits go to the role whose domain they belong to; new-agent modal role multi-select; spawn-request `roles` accepts several. -->
+<!-- 2026-10-09 (pinned XOR project): pinned and in-a-project are mutually exclusive — the row/badge menu's Pin item folded into a "Move to" submenu (Pinned + projects); pinning leaves the project, moving into a project unpins; a conversation with both on disk shows in its project. -->
 <!-- 2026-10-09 (voice-mode button): hands-free voice mode moved off the mic long-press onto its own sound-wave button left of Stop; the status pill became that button's chip (state label, tap-to-skip, × to end). -->
 
 # Identity Skill
@@ -666,11 +667,17 @@ not something agents drive.
     within ~15 seconds.
 
 - **Pinned section (under Apps).** Conversations the user has pinned for
-  quick access. To pin/unpin: use the row's **kebab menu** (Pin / Unpin
-  item), or drag it onto the Pinned section.
+  quick access. To pin: the row's **kebab menu** → **Move to** → **Pinned**,
+  or drag it onto the Pinned section. To unpin: **Move to** → **Unpin**, or
+  move it somewhere else.
+  **Pinned and in-a-project are mutually exclusive** — a conversation sits
+  in exactly one place. Pinning a conversation takes it out of its project;
+  moving a pinned conversation into a project unpins it.
   *Agent-side:* pinning is controlled by an empty **sentinel file** at
   `~/fleet/identities/<name>/.pinned` — presence = pinned, absence = not.
-  Toggle with `touch` / `rm`. Since the sentinel lives inside the
+  Toggle with `touch` / `rm`. If you pin yourself, also remove your
+  `project:` frontmatter key — when both are set, the app shows you in the
+  project and ignores the pin. Since the sentinel lives inside the
   identity's own folder, you can only pin/unpin **yourself** this way;
   peer-identity pin state isn't yours to touch. **User-gated** — same
   reason as `.no-dormancy`, this is a UI-organization signal the user
@@ -678,17 +685,19 @@ not something agents drive.
 
 - **Kebab menu on any sidebar row (conversation).** The three-dots menu
   on the row. Contents:
-  - **Pin / Unpin** — see Pinned section above.
   - **Open in new window** — opens that conversation in a separate
     client instance (distinct from apps' "open in new tab").
     *Agent-side: none.*
-  - **Move to project** — drill-in submenu listing every project (with a
-    checkmark on the row's current project if any), plus a "Remove from
-    project" item when the row is currently in a project.
-    *Agent-side:* the identity's project affiliation lives in its own
-    frontmatter (`project: <slug>` in `~/fleet/identities/<name>/<name>.md`).
-    Add / change / remove that key to move in / between / out. UI reflects
-    it within a few seconds. **User-gated.**
+  - **Move to** — drill-in submenu listing **Pinned** first, then every
+    project, with a checkmark on wherever the row is now (at most one —
+    see Pinned section above). It ends with **Unpin** when the row is
+    pinned, or **Remove from project** when it's in a project.
+    *Agent-side:* pinned = the `.pinned` sentinel (Pinned section above);
+    the identity's project affiliation lives in its own frontmatter
+    (`project: <slug>` in `~/fleet/identities/<name>/<name>.md`).
+    Add / change / remove that key to move in / between / out; adding one
+    means also removing `.pinned`. UI reflects it within a few seconds.
+    **User-gated.**
   - **Archive** — retires the identity. See § On `/id archive`.
 
   The same menu CONTENT appears via right-click on the identity badge in

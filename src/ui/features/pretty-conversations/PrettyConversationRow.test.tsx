@@ -116,6 +116,18 @@ async function openRowKebab(container: HTMLElement): Promise<HTMLElement> {
   return screen.getByRole("menu");
 }
 
+// Pinned and in-a-project are mutually exclusive: there is no top-level
+// Pin/Unpin item any more. Pinning lives in the "Move to" submenu ("Pinned"
+// entry, alongside the projects) and unpinning is its trailing "Unpin" leaf.
+// Opens the row kebab, then drills into "Move to"; resolves once the
+// submenu items are in the DOM.
+async function openRowMoveToSubmenu(container: HTMLElement): Promise<void> {
+  const menu = await openRowKebab(container);
+  await userEvent.setup().click(
+    within(menu).getByTestId("pv-row-kebab-item-move-to"),
+  );
+}
+
 // shape-sidebar-header-affordances: variant of openRowKebab that scopes the
 // trigger lookup to a specific wrapper (used in multi-row test fixtures where
 // the generic container.querySelector would hit the first row's kebab, not
@@ -397,9 +409,11 @@ describe("PrettyConversationRow: RDP-row exclusion (T-Test-34)", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationRow: desktop context-menu pin path", () => {
-  it("Test 8: desktop non-RDP row wires onContextMenu; contextmenu → Pin item → onTogglePin fires only (not onSelect)", async () => {
+  it("Test 8: desktop non-RDP row wires onContextMenu; kebab → Move to → Pinned → onTogglePin fires only (not onSelect)", async () => {
     // Post quick-260730-o2m: the always-visible desktop PinAction in .pv-meta
-    // is gone. Pin is reachable via the right-click context menu instead.
+    // is gone. Pin is reachable via the kebab menu instead — now as the
+    // "Pinned" destination inside the "Move to" submenu (pinned and
+    // in-a-project are mutually exclusive, so they share one list).
     // The menu is portal-mounted to document.body (see
     // PrettyConversationContextMenu.tsx createPortal(…, document.body)) so we
     // query via `screen`, not `container`.
@@ -425,9 +439,10 @@ describe("PrettyConversationRow: desktop context-menu pin path", () => {
       '[data-conversation-id="conv-1"]',
     ) as HTMLElement;
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-    await openRowKebab(container);
-    const pinItem = screen.getByRole("menuitem", { name: /pin/i });
-    fireEvent.click(pinItem);
+    await openRowMoveToSubmenu(container);
+    const pinItem = screen.getByTestId("pv-row-kebab-item-move-to-pinned");
+    expect(pinItem.querySelector("svg.lucide-check")).toBeNull();
+    await userEvent.setup().click(pinItem);
     expect(onTogglePin).toHaveBeenCalledTimes(1);
     expect(onSelect).not.toHaveBeenCalled();
   });
@@ -468,8 +483,8 @@ describe("PrettyConversationRow: no-identity avatar fallback", () => {
 // Test 10 — Pinned desktop row carries `pinned` class + PinAction in DOM
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("PrettyConversationRow: pinned desktop row → context menu carries `Unpin` label", () => {
-  it("Test 10: pinned=true → row carries `pinned` class AND context menu opens with an `Unpin` menu item", async () => {
+describe("PrettyConversationRow: pinned desktop row → Move-to submenu carries `Unpin` leaf", () => {
+  it("Test 10: pinned=true → row carries `pinned` class AND the Move-to submenu ends with an `Unpin` leaf", async () => {
     currentIdentity = makeIdentity(80, "nelly");
     const { container } = render(
       <PrettyConversationRow
@@ -490,12 +505,16 @@ describe("PrettyConversationRow: pinned desktop row → context menu carries `Un
     // regardless of where the pin action lives.
     expect(body.className).toContain("pinned");
     // Post quick-260730-o2m: the always-visible desktop PinAction in
-    // .pv-meta is gone; Pin/Unpin lives in the right-click context menu.
-    // The label flips based on `pinned` (see PrettyConversationRow.tsx
-    // items.push({ label: pinned ? "Unpin" : "Pin", … })).
-    await openRowKebab(container);
-    const menu = screen.getByRole("menu");
-    expect(within(menu).getByRole("menuitem", { name: /unpin/i })).toBeTruthy();
+    // .pv-meta is gone. There is no top-level Pin/Unpin item either: a
+    // pinned row's "Move to" submenu carries a checked "Pinned" entry and a
+    // trailing "Unpin" leaf.
+    const menu = await openRowKebab(container);
+    expect(within(menu).queryByRole("menuitem", { name: /^(un)?pin$/i })).toBeNull();
+    await userEvent.setup().click(
+      within(menu).getByTestId("pv-row-kebab-item-move-to"),
+    );
+    expect(screen.getByTestId("pv-row-kebab-item-unpin")).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: /^unpin$/i })).toBeTruthy();
   });
 });
 
@@ -905,17 +924,18 @@ describe("PrettyConversationRow: Phase 41 Plan 01 ambient-recession retirement",
 //                  untouched regression guards
 // ─────────────────────────────────────────────────────────────────────────────
 // Direct regression guards for the strip: the always-visible desktop
-// PinAction + DeactivateAction icons in .pv-meta are gone; Pin action lives
-// in the right-click context menu (unconditional on desktop non-RDP).
+// PinAction + DeactivateAction icons in .pv-meta are gone; pinning lives in
+// the kebab's "Move to" submenu ("Pinned" entry; unconditional on desktop
+// non-RDP when onTogglePin is provided).
 // Deactivate was removed from the context menu 2026-08-17 (user); the row
 // itself no longer exposes a user-facing deactivate trigger — the panel's
 // 5-min idle sweep and the "Open in new window" side effect are the only
 // remaining callers of onDeactivate.
 // The four tests below lock this:
 //   18c — no PinAction / no DeactivateAction in desktop .pv-meta
-//   18d — desktop contextmenu opens portal menu with Pin but NEVER Deactivate
-//         (regardless of inActiveSet + onDeactivate)
-//   18e — desktop contextmenu opens portal menu with Pin only (Deactivate
+//   18d — desktop contextmenu opens portal menu with Move to (→ Pinned) but
+//         NEVER Deactivate (regardless of inActiveSet + onDeactivate)
+//   18e — desktop contextmenu opens portal menu with Move to only (Deactivate
 //         absent) when !inActiveSet — same invariant as 18d, kept as a
 //         redundant guard against a regression that only fires on the
 //         inActiveSet=false branch
@@ -946,7 +966,7 @@ describe("PrettyConversationRow: quick-260730-o2m context-menu default regressio
     ).toBeNull();
   });
 
-  it("Test 18d: desktop non-RDP row body has onContextMenu; contextmenu opens portal menu with Pin — Deactivate is NEVER in the menu even with inActiveSet + onDeactivate provided (removed 2026-08-17)", async () => {
+  it("Test 18d: desktop non-RDP row body has onContextMenu; contextmenu opens portal menu with Move to (→ Pinned) — Deactivate is NEVER in the menu even with inActiveSet + onDeactivate provided (removed 2026-08-17)", async () => {
     currentIdentity = makeIdentity(210, "nelly");
     const onDeactivate = vi.fn();
     const { container } = render(
@@ -967,13 +987,20 @@ describe("PrettyConversationRow: quick-260730-o2m context-menu default regressio
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
     await openRowKebab(container);
     const menu = screen.getByRole("menu");
-    expect(within(menu).getByRole("menuitem", { name: /pin/i })).toBeTruthy();
+    expect(within(menu).getByTestId("pv-row-kebab-item-move-to")).toBeTruthy();
     expect(
       within(menu).queryByRole("menuitem", { name: /deactivate/i }),
     ).toBeNull();
+    await userEvent.setup().click(
+      within(menu).getByTestId("pv-row-kebab-item-move-to"),
+    );
+    expect(screen.getByTestId("pv-row-kebab-item-move-to-pinned")).toBeTruthy();
+    expect(
+      screen.queryByRole("menuitem", { name: /deactivate/i }),
+    ).toBeNull();
   });
 
-  it("Test 18e: desktop non-RDP row NOT in active-set opens the context menu with only `Pin` (no `Deactivate`)", async () => {
+  it("Test 18e: desktop non-RDP row NOT in active-set opens the context menu with only `Move to` (→ Pinned; no `Deactivate`)", async () => {
     // user 2026-08-17 removed the Deactivate menu item entirely — it no
     // longer renders regardless of inActiveSet. Kept as a redundant guard
     // against a regression that only manifests on the inActiveSet=false
@@ -997,9 +1024,16 @@ describe("PrettyConversationRow: quick-260730-o2m context-menu default regressio
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
     await openRowKebab(container);
     const menu = screen.getByRole("menu");
-    expect(within(menu).getByRole("menuitem", { name: /pin/i })).toBeTruthy();
+    expect(within(menu).getByTestId("pv-row-kebab-item-move-to")).toBeTruthy();
     expect(
       within(menu).queryByRole("menuitem", { name: /deactivate/i }),
+    ).toBeNull();
+    await userEvent.setup().click(
+      within(menu).getByTestId("pv-row-kebab-item-move-to"),
+    );
+    expect(screen.getByTestId("pv-row-kebab-item-move-to-pinned")).toBeTruthy();
+    expect(
+      screen.queryByRole("menuitem", { name: /deactivate/i }),
     ).toBeNull();
   });
 
@@ -1040,7 +1074,7 @@ describe("PrettyConversationRow: quick-260730-o2m context-menu default regressio
     expect(screen.queryByRole("menu")).toBeNull();
     // (1b) A mouse right-click opens the kebab's menu (same items).
     fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
-    expect(await screen.findByTestId("pv-row-kebab-item-pin")).toBeTruthy();
+    expect(await screen.findByTestId("pv-row-kebab-item-move-to")).toBeTruthy();
     // (2) No PinAction in the row DOM.
     expect(
       container.querySelector('[data-testid="pin-action"]'),
@@ -2449,20 +2483,21 @@ describe("PrettyConversationRow: trapped-work indicator visibility (Phase 104 Pl
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// "Move to project" menu item (shape-move-to-project-context-menu, 2026-09-23)
+// "Move to" menu item (shape-move-to-project-context-menu, 2026-09-23;
+// renamed from "Move to project" when pinned and in-a-project became
+// mutually exclusive)
 // ─────────────────────────────────────────────────────────────────────────────
 //
-// Row's items[] builder gates the "Move to project" parent on
-//   onMoveToProject !== undefined  &&  projects.length > 0
-// The panel enforces both — passes onMoveToProject as UNDEFINED for RDP rows
-// AND when the fleet has zero projects — so a single-condition gate at the
-// row is enough. When present, the item is a submenu-parent that carries
-// projects as menuitemradio children (checkmark on the currently-assigned
-// project) plus a terminal "Remove from project" only when the row IS
-// currently in a project.
+// The "Move to" submenu lists every destination a row can live in:
+//   "Pinned" (only when onTogglePin is provided AND the row is not RDP) →
+//   each project (only when onMoveToProject is provided) →
+//   trailing leaf: "Unpin" when pinned, else "Remove from project" when the
+//   row is currently in a project.
+// The parent renders whenever that submenu is non-empty. Checkmark on the
+// current destination.
 
 describe("PrettyConversationRow: Move to project menu item (shape-move-to-project-context-menu)", () => {
-  it("desktop non-RDP row, onMoveToProject provided, projects non-empty → context menu contains 'Move to project' as a submenu parent (aria-haspopup=menu)", async () => {
+  it("desktop non-RDP row, onMoveToProject provided, projects non-empty → context menu contains 'Move to' as a submenu parent (aria-haspopup=menu)", async () => {
     currentIdentity = null;
     const onMoveToProject = vi.fn();
     const { container } = render(
@@ -2488,13 +2523,18 @@ describe("PrettyConversationRow: Move to project menu item (shape-move-to-projec
     await openRowKebab(container);
     const menu = screen.getByRole("menu");
     const item = within(menu).getByRole("menuitem", {
-      name: /move to project/i,
+      name: /^move to$/i,
     });
     expect(item).toBeTruthy();
+    expect(item.getAttribute("data-testid")).toBe("pv-row-kebab-item-move-to");
     expect(item.getAttribute("aria-haspopup")).toBe("menu");
+    // The old label is gone.
+    expect(
+      within(menu).queryByRole("menuitem", { name: /move to project/i }),
+    ).toBeNull();
   });
 
-  it("onMoveToProject undefined → 'Move to project' NOT in menu (panel enforces RDP/zero-projects gate by omitting the prop)", async () => {
+  it("onMoveToProject undefined → 'Move to' carries only Pinned, no projects and no Remove-from-project (panel enforces RDP/zero-projects gate by omitting the prop)", async () => {
     currentIdentity = null;
     const { container } = render(
       <PrettyConversationRow
@@ -2505,21 +2545,39 @@ describe("PrettyConversationRow: Move to project menu item (shape-move-to-projec
         onSelect={vi.fn()}
         onTogglePin={vi.fn()}
         projects={[{ slug: "foo", displayName: "Foo" }]}
-        currentProjectSlug={null}
+        currentProjectSlug="foo"
       />,
     );
-    const wrapper = container.querySelector(
-      '[data-conversation-id="conv-1"]',
-    ) as HTMLElement;
-    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-    await openRowKebab(container);
-    const menu = screen.getByRole("menu");
+    await openRowMoveToSubmenu(container);
+    expect(screen.getByTestId("pv-row-kebab-item-move-to-pinned")).toBeTruthy();
+    expect(screen.queryByTestId("pv-row-kebab-item-move-to-foo")).toBeNull();
     expect(
-      within(menu).queryByRole("menuitem", { name: /move to project/i }),
+      screen.queryByTestId("pv-row-kebab-item-remove-from-project"),
     ).toBeNull();
   });
 
-  it("projects empty → 'Move to project' NOT in menu (defense-in-depth against panel forgetting the gate)", async () => {
+  it("onMoveToProject AND onTogglePin both undefined → 'Move to' NOT in menu (empty submenu hides the parent)", async () => {
+    currentIdentity = null;
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ targetTmuxSession: "claude-abc" })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onKill={vi.fn()}
+        projects={[{ slug: "foo", displayName: "Foo" }]}
+        currentProjectSlug={null}
+      />,
+    );
+    const menu = await openRowKebab(container);
+    expect(within(menu).queryByTestId("pv-row-kebab-item-move-to")).toBeNull();
+    expect(
+      within(menu).queryByRole("menuitem", { name: /^move to/i }),
+    ).toBeNull();
+  });
+
+  it("projects empty → 'Move to' still present for a pinnable row, carrying only Pinned (no project entries)", async () => {
     currentIdentity = null;
     const { container } = render(
       <PrettyConversationRow
@@ -2534,14 +2592,16 @@ describe("PrettyConversationRow: Move to project menu item (shape-move-to-projec
         currentProjectSlug={null}
       />,
     );
-    const wrapper = container.querySelector(
-      '[data-conversation-id="conv-1"]',
-    ) as HTMLElement;
-    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-    await openRowKebab(container);
-    const menu = screen.getByRole("menu");
+    await openRowMoveToSubmenu(container);
+    const pinned = screen.getByTestId("pv-row-kebab-item-move-to-pinned");
+    expect(pinned.textContent?.trim()).toBe("Pinned");
+    // Only the Pinned entry — no projects, no trailing leaf.
     expect(
-      within(menu).queryByRole("menuitem", { name: /move to project/i }),
+      screen.queryAllByTestId(/^pv-row-kebab-item-move-to-(?!pinned$)/),
+    ).toHaveLength(0);
+    expect(screen.queryByTestId("pv-row-kebab-item-unpin")).toBeNull();
+    expect(
+      screen.queryByTestId("pv-row-kebab-item-remove-from-project"),
     ).toBeNull();
   });
 
@@ -2571,7 +2631,7 @@ describe("PrettyConversationRow: Move to project menu item (shape-move-to-projec
     await openRowKebab(container);
     const menu = screen.getByRole("menu");
     await userEvent.setup().click(
-      within(menu).getByRole("menuitem", { name: /move to project/i }),
+      within(menu).getByRole("menuitem", { name: /^move to$/i }),
     );
     const foo = screen.getByRole("menuitem", { name: /^foo$/i });
     const bar = screen.getByRole("menuitem", { name: /^bar$/i });
@@ -2583,6 +2643,20 @@ describe("PrettyConversationRow: Move to project menu item (shape-move-to-projec
     expect(bar.querySelector("svg.lucide-check")).not.toBeNull();
     expect(foo.querySelector("svg.lucide-check")).toBeNull();
     expect(baz.querySelector("svg.lucide-check")).toBeNull();
+    // Pinned leads the list, unchecked (the row is in a project, not pinned).
+    const pinned = screen.getByTestId("pv-row-kebab-item-move-to-pinned");
+    expect(pinned.querySelector("svg.lucide-check")).toBeNull();
+    const order = screen
+      .getAllByTestId(/^pv-row-kebab-item-(move-to-|remove-from-project$)/)
+      .filter((el) => el.getAttribute("data-testid") !== "pv-row-kebab-item-move-to")
+      .map((el) => el.getAttribute("data-testid"));
+    expect(order).toEqual([
+      "pv-row-kebab-item-move-to-pinned",
+      "pv-row-kebab-item-move-to-foo",
+      "pv-row-kebab-item-move-to-bar",
+      "pv-row-kebab-item-move-to-baz",
+      "pv-row-kebab-item-remove-from-project",
+    ]);
   });
 
   it("Remove from project appears when currentProjectSlug is non-null", async () => {
@@ -2607,7 +2681,7 @@ describe("PrettyConversationRow: Move to project menu item (shape-move-to-projec
     await openRowKebab(container);
     const menu = screen.getByRole("menu");
     await userEvent.setup().click(
-      within(menu).getByRole("menuitem", { name: /move to project/i }),
+      within(menu).getByRole("menuitem", { name: /^move to$/i }),
     );
     expect(
       screen.getByRole("menuitem", { name: /remove from project/i }),
@@ -2636,7 +2710,7 @@ describe("PrettyConversationRow: Move to project menu item (shape-move-to-projec
     await openRowKebab(container);
     const menu = screen.getByRole("menu");
     await userEvent.setup().click(
-      within(menu).getByRole("menuitem", { name: /move to project/i }),
+      within(menu).getByRole("menuitem", { name: /^move to$/i }),
     );
     expect(
       screen.queryByRole("menuitem", { name: /remove from project/i }),
@@ -2669,7 +2743,7 @@ describe("PrettyConversationRow: Move to project menu item (shape-move-to-projec
     await openRowKebab(container);
     const menu = screen.getByRole("menu");
     await userEvent.setup().click(
-      within(menu).getByRole("menuitem", { name: /move to project/i }),
+      within(menu).getByRole("menuitem", { name: /^move to$/i }),
     );
     await userEvent.setup().click(screen.getByRole("menuitem", { name: /^bar$/i }));
     expect(onMoveToProject).toHaveBeenCalledTimes(1);
@@ -2702,7 +2776,7 @@ describe("PrettyConversationRow: Move to project menu item (shape-move-to-projec
     await openRowKebab(container);
     const menu = screen.getByRole("menu");
     await userEvent.setup().click(
-      within(menu).getByRole("menuitem", { name: /move to project/i }),
+      within(menu).getByRole("menuitem", { name: /^move to$/i }),
     );
     await userEvent.setup().click(screen.getByRole("menuitem", { name: /^foo$/i }));
     expect(onMoveToProject).not.toHaveBeenCalled();
@@ -2731,7 +2805,7 @@ describe("PrettyConversationRow: Move to project menu item (shape-move-to-projec
     await openRowKebab(container);
     const menu = screen.getByRole("menu");
     await userEvent.setup().click(
-      within(menu).getByRole("menuitem", { name: /move to project/i }),
+      within(menu).getByRole("menuitem", { name: /^move to$/i }),
     );
     fireEvent.click(
       screen.getByRole("menuitem", { name: /remove from project/i }),
@@ -2740,7 +2814,7 @@ describe("PrettyConversationRow: Move to project menu item (shape-move-to-projec
     expect(onMoveToProject).toHaveBeenCalledWith(null);
   });
 
-  it("'Move to project' sits between 'Open in new window' and 'Kill' in menu order", async () => {
+  it("'Move to' sits between 'Open in new window' and 'Kill' in menu order (no top-level Pin item)", async () => {
     currentIdentity = null;
     const { container } = render(
       <PrettyConversationRow
@@ -2766,7 +2840,7 @@ describe("PrettyConversationRow: Move to project menu item (shape-move-to-projec
     const menuitems = within(menu).getAllByRole("menuitem");
     const labels = menuitems.map((m) => (m.textContent ?? "").trim());
     const iOpen = labels.findIndex((l) => /open in new window/i.test(l));
-    const iMove = labels.findIndex((l) => /move to project/i.test(l));
+    const iMove = labels.findIndex((l) => /^move to$/i.test(l));
     const iKill = labels.findIndex((l) => /^kill$/i.test(l));
     const iArchive = labels.findIndex((l) => /^archive$/i.test(l));
     expect(iOpen).toBeGreaterThan(-1);
@@ -2776,5 +2850,93 @@ describe("PrettyConversationRow: Move to project menu item (shape-move-to-projec
     expect(iMove).toBeGreaterThan(iOpen);
     expect(iMove).toBeLessThan(iKill);
     expect(iKill).toBeLessThan(iArchive);
+    // Open in new window leads; there is no top-level Pin/Unpin.
+    expect(iOpen).toBe(0);
+    expect(labels.some((l) => /^(un)?pin$/i.test(l))).toBe(false);
+  });
+
+  it("pinned row: Move-to submenu shows Pinned checked + trailing Unpin leaf, and NO Remove from project", async () => {
+    currentIdentity = null;
+    const onTogglePin = vi.fn();
+    const onMoveToProject = vi.fn();
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ targetTmuxSession: "claude-abc" })}
+        selected={false}
+        pinned={true}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={onTogglePin}
+        onMoveToProject={onMoveToProject}
+        projects={[
+          { slug: "foo", displayName: "Foo" },
+          { slug: "bar", displayName: "Bar" },
+        ]}
+        // Even with a (stale) project slug, a pinned row shows Unpin, not
+        // Remove from project — the two leaves are mutually exclusive.
+        currentProjectSlug="foo"
+      />,
+    );
+    await openRowMoveToSubmenu(container);
+    const pinned = screen.getByTestId("pv-row-kebab-item-move-to-pinned");
+    expect(pinned.querySelector("svg.lucide-check")).not.toBeNull();
+    const unpin = screen.getByTestId("pv-row-kebab-item-unpin");
+    expect(unpin.textContent?.trim()).toBe("Unpin");
+    expect(
+      screen.queryByTestId("pv-row-kebab-item-remove-from-project"),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("menuitem", { name: /remove from project/i }),
+    ).toBeNull();
+    // Unpin is the last submenu entry.
+    const subItems = screen
+      .getAllByTestId(/^pv-row-kebab-item-(move-to-|unpin$)/)
+      .map((el) => el.getAttribute("data-testid"));
+    expect(subItems[subItems.length - 1]).toBe("pv-row-kebab-item-unpin");
+    // Clicking the already-checked Pinned entry is a no-op…
+    await userEvent.setup().click(pinned);
+    expect(onTogglePin).not.toHaveBeenCalled();
+    // …while the Unpin leaf toggles the pin off.
+    await openRowMoveToSubmenu(container);
+    await userEvent.setup().click(screen.getByTestId("pv-row-kebab-item-unpin"));
+    expect(onTogglePin).toHaveBeenCalledTimes(1);
+    expect(onMoveToProject).not.toHaveBeenCalled();
+  });
+
+  it("RDP row: Move-to submenu has NO Pinned entry even when onTogglePin is provided", async () => {
+    currentIdentity = null;
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ rdpHostRow: true, targetTmuxSession: null })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        onMoveToProject={vi.fn()}
+        projects={[{ slug: "foo", displayName: "Foo" }]}
+        currentProjectSlug={null}
+      />,
+    );
+    await openRowMoveToSubmenu(container);
+    expect(screen.getByTestId("pv-row-kebab-item-move-to-foo")).toBeTruthy();
+    expect(screen.queryByTestId("pv-row-kebab-item-move-to-pinned")).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: /^pinned$/i })).toBeNull();
+  });
+
+  it("RDP row with no onMoveToProject: no Move to item at all (Pinned alone is not offered to RDP)", async () => {
+    currentIdentity = null;
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ rdpHostRow: true, targetTmuxSession: null })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+      />,
+    );
+    const menu = await openRowKebab(container);
+    expect(within(menu).queryByTestId("pv-row-kebab-item-move-to")).toBeNull();
   });
 });
