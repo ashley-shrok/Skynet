@@ -55,6 +55,8 @@ function endSession(reason: DragSessionEndReason): void {
   for (const cb of endListeners) cb(reason);
 }
 
+// Also armed at dragstart so a drag that dies before its first dragover is
+// still swept.
 const onWindowDragOver = (): void => {
   if (watchdog !== null) clearTimeout(watchdog);
   watchdog = setTimeout(() => {
@@ -72,6 +74,7 @@ const onWindowDragEnd = (): void => endSession("dragend");
 function install(): void {
   if (installed || typeof window === "undefined") return;
   installed = true;
+  window.addEventListener("dragstart", onWindowDragOver, true);
   window.addEventListener("dragover", onWindowDragOver, true);
   window.addEventListener("drop", onWindowDrop, true);
   window.addEventListener("dragend", onWindowDragEnd, true);
@@ -80,6 +83,7 @@ function install(): void {
 function uninstallIfIdle(): void {
   if (!installed || endListeners.size > 0) return;
   installed = false;
+  window.removeEventListener("dragstart", onWindowDragOver, true);
   window.removeEventListener("dragover", onWindowDragOver, true);
   window.removeEventListener("drop", onWindowDrop, true);
   window.removeEventListener("dragend", onWindowDragEnd, true);

@@ -2,6 +2,7 @@ import type { ReactElement } from "react";
 import { useEffect, useRef } from "react";
 
 import { hasSkynetDragPayload } from "./SplitView";
+import { subscribeDragSessionEnd } from "./drag-preview-session";
 
 // ─── AppPane — Phase 120 Plan 06 (D-05, D-19, D-20) ─────────────────────────
 //
@@ -50,16 +51,16 @@ import { hasSkynetDragPayload } from "./SplitView";
 // dragover listener at SplitView.tsx:355 — no coral preview, drop silently
 // ignored. While a Skynet drag is in flight we set the iframe's
 // pointer-events to "none" so those events pass through to the pane element
-// underneath; dragend/drop restore. Gated on hasSkynetDragPayload so browser
-// text-selection drags and OS file drags leave the iframe interactive.
+// underneath. Gated on hasSkynetDragPayload so browser text-selection drags
+// and OS file drags leave the iframe interactive.
 //
-// Watchdog (2026-09-28): dragend does NOT fire when the drag source is
-// removed from the DOM mid-drag AND the user cancels via ESC / drops off-
-// window (drop only fires on successful drops; dragend on a detached source
-// does not bubble to window). Without a backstop the iframe stays muted for
-// the rest of the session. dragover fires continuously during ANY live drag,
-// so we treat 2s of dragover silence while muted as "drag definitely ended
-// one way or another" and force-restore.
+// Restore rides the shared drag-session end (drag-preview-session.ts):
+// window-capture drop (a bubble-phase drop listener never sees drops onto a
+// split Pane — the Pane stopPropagation()s), dragend, or the dragover
+// heartbeat watchdog for drags whose dragend is lost to a detached source.
+// Restoring on watchdog is deliberate — a stuck-muted iframe eats every
+// click. A watchdog can also fire mid-drag (cursor outside the window), so
+// the next Skynet dragover re-mutes.
 //
 // ─── Chrome auto-rendered-viewer dark-mode injection ──────────────────────
 // When an app route returns Content-Type: application/json or text/plain,
@@ -112,48 +113,26 @@ export function AppPane({
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
-    let watchdog: ReturnType<typeof setTimeout> | null = null;
-    const armWatchdog = () => {
-      if (watchdog !== null) clearTimeout(watchdog);
-      watchdog = setTimeout(() => {
-        watchdog = null;
-        const el = iframeRef.current;
-        if (el !== null) el.style.pointerEvents = "";
-      }, 2000);
-    };
-    const restore = () => {
-      if (watchdog !== null) {
-        clearTimeout(watchdog);
-        watchdog = null;
-      }
-      const el = iframeRef.current;
-      if (el !== null) el.style.pointerEvents = "";
-    };
-    const onDragStart = (e: DragEvent) => {
+    const mute = (e: DragEvent) => {
       if (!hasSkynetDragPayload(e.dataTransfer)) return;
       const el = iframeRef.current;
-      if (el !== null) el.style.pointerEvents = "none";
-      armWatchdog();
+      if (el !== null && el.style.pointerEvents !== "none") {
+        el.style.pointerEvents = "none";
+      }
     };
-    const onDragOver = () => {
-      // Heartbeat: drag is still alive. Only re-arm while the watchdog is
-      // active (i.e. we muted the iframe for a Skynet drag) — non-Skynet
-      // drags never armed it and shouldn't now.
-      if (watchdog !== null) armWatchdog();
-    };
-    window.addEventListener("dragstart", onDragStart);
-    window.addEventListener("dragover", onDragOver);
-    window.addEventListener("dragend", restore);
-    // Belt-and-braces: some drag sources (e.g. rows removed from a filtered
-    // list mid-drop) are unmounted before dragend fires. drop on window is
-    // the last-chance signal that the drag has ended.
-    window.addEventListener("drop", restore);
+    const unsubscribe = subscribeDragSessionEnd(() => {
+      const el = iframeRef.current;
+      if (el !== null) el.style.pointerEvents = "";
+    });
+    // dragstart mutes a local drag up front; dragover re-mutes after a
+    // mid-drag watchdog restore (and covers drags started in another
+    // Skynet window).
+    window.addEventListener("dragstart", mute);
+    window.addEventListener("dragover", mute);
     return () => {
-      window.removeEventListener("dragstart", onDragStart);
-      window.removeEventListener("dragover", onDragOver);
-      window.removeEventListener("dragend", restore);
-      window.removeEventListener("drop", restore);
-      if (watchdog !== null) clearTimeout(watchdog);
+      window.removeEventListener("dragstart", mute);
+      window.removeEventListener("dragover", mute);
+      unsubscribe();
     };
   }, []);
 

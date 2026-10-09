@@ -27,6 +27,7 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, cleanup } from "@testing-library/react";
 import { AppPane, injectDarkViewerStylesheetIfApplicable } from "./AppPane";
+import { DRAG_PREVIEW_WATCHDOG_MS } from "./drag-preview-session";
 
 // Map-backed DataTransfer stub. Mirrors the shape used in
 // SplitView.text-selection-drag.test.tsx so the type-gate check
@@ -187,17 +188,47 @@ describe("AppPane drag-passthrough", () => {
   });
 
   it("drop restores iframe pointer-events (dragend safety net)", () => {
-    const { container } = render(
-      <AppPane hostId={1} slug="todo" tabId="t1" isVisible={true} />,
-    );
-    const iframe = container.querySelector("iframe") as HTMLIFrameElement;
-    fireWindowDragEvent(
-      "dragstart",
-      makeDataTransferStub({ "application/x-skynet-row": "x" }),
-    );
-    expect(iframe.style.pointerEvents).toBe("none");
-    fireWindowDragEvent("drop", null);
-    expect(iframe.style.pointerEvents).toBe("");
+    vi.useFakeTimers();
+    try {
+      const { container } = render(
+        <AppPane hostId={1} slug="todo" tabId="t1" isVisible={true} />,
+      );
+      const iframe = container.querySelector("iframe") as HTMLIFrameElement;
+      fireWindowDragEvent(
+        "dragstart",
+        makeDataTransferStub({ "application/x-skynet-row": "x" }),
+      );
+      expect(iframe.style.pointerEvents).toBe("none");
+      fireWindowDragEvent("drop", null);
+      // Session end is deferred one tick so the target's drop handler runs first.
+      vi.advanceTimersByTime(0);
+      expect(iframe.style.pointerEvents).toBe("");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("drop onto a target that stops propagation (split Pane) still restores", () => {
+    vi.useFakeTimers();
+    try {
+      const { container } = render(
+        <AppPane hostId={1} slug="todo" tabId="t1" isVisible={true} />,
+      );
+      const iframe = container.querySelector("iframe") as HTMLIFrameElement;
+      fireWindowDragEvent(
+        "dragstart",
+        makeDataTransferStub({ "application/x-skynet-badge": "x" }),
+      );
+      const pane = document.createElement("div");
+      document.body.appendChild(pane);
+      pane.addEventListener("drop", (e) => e.stopPropagation());
+      pane.dispatchEvent(new Event("drop", { bubbles: true }));
+      vi.advanceTimersByTime(0);
+      expect(iframe.style.pointerEvents).toBe("");
+      pane.remove();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("non-Skynet drag (text/plain only) does NOT mute the iframe", () => {
@@ -238,13 +269,33 @@ describe("AppPane drag-passthrough", () => {
       );
       expect(iframe.style.pointerEvents).toBe("none");
       // Live drag: dragover heartbeat keeps the watchdog alive.
-      vi.advanceTimersByTime(1500);
+      vi.advanceTimersByTime(DRAG_PREVIEW_WATCHDOG_MS - 100);
       fireWindowDragEvent("dragover", null);
-      vi.advanceTimersByTime(1500);
+      vi.advanceTimersByTime(DRAG_PREVIEW_WATCHDOG_MS - 100);
       expect(iframe.style.pointerEvents).toBe("none");
       // Drag dies silently — no more dragover, no dragend, no drop.
-      vi.advanceTimersByTime(2000);
+      vi.advanceTimersByTime(DRAG_PREVIEW_WATCHDOG_MS);
       expect(iframe.style.pointerEvents).toBe("");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a Skynet dragover after a mid-drag watchdog restore re-mutes the iframe", () => {
+    vi.useFakeTimers();
+    try {
+      const { container } = render(
+        <AppPane hostId={1} slug="todo" tabId="t1" isVisible={true} />,
+      );
+      const iframe = container.querySelector("iframe") as HTMLIFrameElement;
+      const dt = makeDataTransferStub({ "application/x-skynet-badge": "x" });
+      fireWindowDragEvent("dragstart", dt);
+      // Cursor leaves the window — dragover goes silent, watchdog restores.
+      vi.advanceTimersByTime(DRAG_PREVIEW_WATCHDOG_MS);
+      expect(iframe.style.pointerEvents).toBe("");
+      // Cursor comes back with the drag still live.
+      fireWindowDragEvent("dragover", dt);
+      expect(iframe.style.pointerEvents).toBe("none");
     } finally {
       vi.useRealTimers();
     }
