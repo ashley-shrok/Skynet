@@ -33,13 +33,14 @@ import { useCallback, useEffect, useRef } from "react";
 export const DRAG_PREVIEW_WATCHDOG_MS = 1000;
 
 type Owner = { id: object; label: string; clear: () => void };
+export type DragSessionEndReason = "drop" | "dragend" | "watchdog";
 
 let owner: Owner | null = null;
-const endListeners = new Set<() => void>();
+const endListeners = new Set<(reason: DragSessionEndReason) => void>();
 let watchdog: ReturnType<typeof setTimeout> | null = null;
 let installed = false;
 
-function endSession(reason: "drop" | "dragend" | "watchdog"): void {
+function endSession(reason: DragSessionEndReason): void {
   if (watchdog !== null) {
     clearTimeout(watchdog);
     watchdog = null;
@@ -51,7 +52,7 @@ function endSession(reason: "drop" | "dragend" | "watchdog"): void {
     console.info(`[drag-preview] session-end reason=${reason} cleared=${prev.label}`);
     prev.clear();
   }
-  for (const cb of endListeners) cb();
+  for (const cb of endListeners) cb(reason);
 }
 
 const onWindowDragOver = (): void => {
@@ -103,8 +104,16 @@ export function releaseDragPreview(id: object): void {
   if (owner !== null && owner.id === id) owner = null;
 }
 
-/** Subscribe to drag-session end (drop / dragend / watchdog). */
-export function subscribeDragSessionEnd(cb: () => void): () => void {
+/**
+ * Subscribe to drag-session end. `reason` is "drop" / "dragend" (the drag
+ * really ended) or "watchdog" (no dragover for WATCHDOG_MS — the drag may
+ * still be live with the cursor outside the window or over an iframe that
+ * swallows drag events). State that can only be set at dragstart must
+ * ignore "watchdog", or it is lost for the rest of a still-live drag.
+ */
+export function subscribeDragSessionEnd(
+  cb: (reason: DragSessionEndReason) => void,
+): () => void {
   endListeners.add(cb);
   install();
   return () => {

@@ -31,6 +31,7 @@
 //      dragend clears to null.
 
 import { useEffect, useState } from "react";
+import { DRAG_PREVIEW_WATCHDOG_MS } from "./drag-preview-session";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   render,
@@ -487,6 +488,49 @@ describe("useDraggedBadgeTabId hook (quick-260829-ih3 Task 1)", () => {
     });
     // Row drag MUST NOT setState — probe stays empty.
     expect(probe.textContent).toBe("");
+  });
+
+  function startBadgeDrag(tabId: string): void {
+    const dt = makeDataTransferStub({
+      "text/plain": tabId,
+      "application/x-skynet-badge": JSON.stringify({ tabId }),
+    });
+    act(() => {
+      const evt = new Event("dragstart", { bubbles: true });
+      Object.defineProperty(evt, "dataTransfer", { value: dt, configurable: true });
+      window.dispatchEvent(evt);
+    });
+  }
+
+  it("Test J.3: a dragover gap (watchdog) does NOT clear the tabId — the drag may still be live", () => {
+    vi.useFakeTimers();
+    try {
+      const { getByTestId } = render(<HookProbe />);
+      startBadgeDrag("tab-user-1");
+      // Cursor over a widget iframe / outside the window: dragover stops.
+      act(() => {
+        window.dispatchEvent(new Event("dragover"));
+        vi.advanceTimersByTime(DRAG_PREVIEW_WATCHDOG_MS * 3);
+      });
+      expect(getByTestId("probe").textContent).toBe("tab-user-1");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("Test J.4: a drop clears the tabId even when dragend never reaches window (badge reparented)", () => {
+    vi.useFakeTimers();
+    try {
+      const { getByTestId } = render(<HookProbe />);
+      startBadgeDrag("tab-user-1");
+      act(() => {
+        document.body.dispatchEvent(new Event("drop", { bubbles: true }));
+        vi.advanceTimersByTime(0);
+      });
+      expect(getByTestId("probe").textContent).toBe("");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

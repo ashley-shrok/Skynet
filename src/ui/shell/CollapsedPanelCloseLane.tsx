@@ -347,12 +347,19 @@ export function useDraggedBadgeTabId(): string | null {
       setTabId((parsed as { tabId: string }).tabId);
     };
 
-    // Unconditional clear on drag-session end (drop / dragend / heartbeat
-    // watchdog — drag-preview-session.ts). A bare window dragend is not
-    // enough: dropping a badge onto a pane reparents the badge, so its
-    // dragend fires on a detached node and never reaches window, leaving
-    // the lane mounted after the drop. Idempotent.
-    const unsubscribe = subscribeDragSessionEnd(() => setTabId(null));
+    // Clear on a REAL drag end — window-capture drop or dragend
+    // (drag-preview-session.ts). A bare window dragend is not enough:
+    // dropping a badge onto a pane reparents the badge, so its dragend fires
+    // on a detached node and never reaches window, leaving the lane mounted
+    // after the drop. Watchdog ends are IGNORED: the tabId is only set at
+    // dragstart, so clearing it on a mere dragover gap (cursor outside the
+    // window, or over a widget/PDF/email iframe that swallows drag events)
+    // would hide the lane for the rest of a still-live drag. Escape-cancel
+    // and drops outside the window still deliver dragend from the attached
+    // badge. Idempotent.
+    const unsubscribe = subscribeDragSessionEnd((reason) => {
+      if (reason !== "watchdog") setTabId(null);
+    });
 
     window.addEventListener("dragstart", onDragStart);
     return () => {
