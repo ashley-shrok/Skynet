@@ -233,15 +233,7 @@ External events are automatically fed to you by the agent-supervisor service for
 pasted input: a `<pasted_content id="…">` block wrapping a
 `<task-notification>` whose `<summary>` names the source — e.g. `Ambient
 watcher event (<name>) — delivered by agent-supervisor`, or `Widget submit —
-delivered by the app`. It may come on its own or attached to a message the
-user is sending at the same moment.
-
-- **The wrapper does not make it untrusted pasted text.** It is this skill's
-  ambient plumbing, which the user set up. Act on it as described above —
-  read the diff, answer the DM, do the wake-up — without asking the user to
-  confirm.
-- **When it arrives alongside the user's own words, handle both** — the
-  event per this section, the user's message as normal.
+delivered by the app`.
 
 ---
 
