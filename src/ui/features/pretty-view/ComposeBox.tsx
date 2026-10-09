@@ -599,12 +599,13 @@ function useComposeSend(deps: {
 const EMPTY_VOICE_MODE_MESSAGES: ReadonlyArray<VoiceModeMessage> = [];
 const EMPTY_VOICE_MODE_VOICES: readonly string[] = [];
 
+// Single words so the chip fits beside the meter, Stop and 👍 on a phone.
 const VOICE_MODE_LABEL: Record<VoiceModePhase, string> = {
   off: "",
-  starting: "Starting…",
+  starting: "Starting",
   listening: "Listening",
-  hearing: "Hearing you…",
-  transcribing: "Sending…",
+  hearing: "Hearing",
+  transcribing: "Sending",
   speaking: "Speaking",
   paused: "Paused",
 };
@@ -637,14 +638,12 @@ const AUX_BUTTON_CLASS = cn(
  */
 function VoiceModeButton({
   phase,
-  agentWorking,
   disabled,
   onStart,
   onStop,
   onSkip,
 }: {
   phase: VoiceModePhase;
-  agentWorking: boolean;
   disabled: boolean;
   onStart: () => void;
   onStop: () => void;
@@ -673,7 +672,7 @@ function VoiceModeButton({
   }
   const busy = phase === "starting" || phase === "transcribing";
   const Glyph = busy ? LoaderCircle : phase === "speaking" ? Volume2 : phase === "paused" ? Pause : Mic;
-  const label = phase === "listening" && agentWorking ? "Listening · agent working" : VOICE_MODE_LABEL[phase];
+  const label = VOICE_MODE_LABEL[phase];
   const speaking = phase === "speaking";
   return (
     <div
@@ -2344,7 +2343,7 @@ export function ComposeBox({
             CSS vars `--seg-count` and `--meter-width` expose tuning via
             DevTools without a rebuild. */}
         <div
-          className="self-stretch w-[var(--meter-width)] rounded-md flex flex-row p-[3px] bg-[rgba(10,12,20,0.6)] border border-[rgba(220,225,245,0.1)] shadow-[inset_0_2px_6px_rgba(0,0,0,0.55),_0_1px_0_rgba(220,225,245,0.05)]"
+          className="self-stretch w-[var(--meter-width)] min-w-0 rounded-md flex flex-row p-[3px] bg-[rgba(10,12,20,0.6)] border border-[rgba(220,225,245,0.1)] shadow-[inset_0_2px_6px_rgba(0,0,0,0.55),_0_1px_0_rgba(220,225,245,0.05)]"
           style={{"--seg-count": SEG_COUNT, "--meter-width": "12rem"} as React.CSSProperties}
           role="meter"
           aria-label="Context window"
@@ -2534,7 +2533,6 @@ export function ComposeBox({
           {voiceModeFeed && (
             <VoiceModeButton
               phase={voiceMode.phase}
-              agentWorking={voiceModeFeed.isWorking}
               // voice.state: no second mic capture while dictating (iOS would
               // end the manual recording's track).
               disabled={

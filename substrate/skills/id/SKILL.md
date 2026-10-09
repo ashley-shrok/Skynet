@@ -879,7 +879,7 @@ crown, then gear.
   each new agent reply aloud, then listens again. Typing keeps working
   while it's on, and using the mic pauses voice mode while it records.
   While on, the button widens into a small chip that shows the state
-  (Listening, Hearing you…, Sending…, Speaking, Paused); tap the chip
+  (Starting, Listening, Hearing, Sending, Speaking, Paused); tap the chip
   while a reply is playing to skip it. The chip's × — or saying "stop
   voice mode" — ends voice mode. Replies are spoken in the agent's voice —
   its own, else its role's, else the user's **Agent voices** fallback, else

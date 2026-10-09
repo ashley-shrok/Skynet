@@ -157,10 +157,10 @@ describe("ComposeBox — hands-free voice mode (aux-row button)", () => {
     expect(vm.nextElementSibling).toBe(stop);
   });
 
-  it("the chip shows when the agent is working while listening", async () => {
+  it("the chip does not show the agent-working state (the WIP indicator does)", async () => {
     render(<ComposeBox {...props({ voiceModeFeed: { isWorking: true, messages: [], voices: [] } })} />);
     await startVoiceMode();
-    expect(screen.getByRole("status").textContent).toBe("Listening · agent working");
+    expect(screen.getByRole("status").textContent).toBe("Listening");
   });
 
   it("pasted text + Send still works while voice mode is on, and spoken words go out separately without touching the textarea", async () => {
