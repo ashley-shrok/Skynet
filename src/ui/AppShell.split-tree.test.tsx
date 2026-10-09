@@ -103,6 +103,7 @@ function MechanismScaffold({
   onSplitTreeChange,
   registerHandle,
   useLayoutHydration = false,
+  initialSelectedTabId = null,
 }: {
   tabs: TestTab[];
   simulateTabsReady?: boolean;
@@ -116,8 +117,13 @@ function MechanismScaffold({
     getSplitTree: () => SplitNode | null;
   }) => void;
   useLayoutHydration?: boolean;
+  initialSelectedTabId?: string | null;
 }) {
   const [splitTree, setSplitTree] = useState<SplitNode | null>(null);
+  // Mirrors AppShell's effectiveSelectedTabId — the selected conversation.
+  const [selectedTabId, setSelectedTabId] = useState<string | null>(
+    initialSelectedTabId,
+  );
   const [tabsReady, setTabsReady] = useState(false);
   const paneElsRef = useRef<Map<string, HTMLDivElement>>(new Map());
   const tabNodesRef = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -227,6 +233,8 @@ function MechanismScaffold({
   const replaceInTree = useCallback(
     (replacementTabId: string, targetTabId: string) => {
       setSplitTree((prev) => replaceLeaf(prev, targetTabId, replacementTabId));
+      // Mirrors AppShell.replaceInTree's selectConversationDeferred.
+      setSelectedTabId(replacementTabId);
     },
     [],
   );
@@ -315,7 +323,16 @@ function MechanismScaffold({
           onPaneContentRef={onPaneContentRef}
         />
       </div>
-      <div ref={normalViewRef} data-testid="normal-view">
+      {/* data-overlay mirrors AppShell's normal-view zIndex:10 rule — the
+          normal view covers the split when the selected tab is not in it. */}
+      <div
+        ref={normalViewRef}
+        data-testid="normal-view"
+        data-overlay={String(
+          hasSplit &&
+            (selectedTabId == null || findLeaf(splitTree, selectedTabId) === null),
+        )}
+      >
         {tabs.map((tab) => {
           const tabNode = getTabNode(tab.id);
           return createPortal(
@@ -841,6 +858,54 @@ describe("AppShell split-tree mechanism (Phase 56 Plan 02)", () => {
     // out of the grid. Phase 64 does not call any closeTab-analog for the
     // displaced session; the scaffold has no closeTab wire so this
     // invariant holds by absence of a mutation path.
+  });
+
+  it("center-drop replace onto the SELECTED pane moves selection to the replacement — normal view never overlays the split", async () => {
+    // Regression: dropping a third conversation onto the centre of the
+    // selected pane left the displaced (still-selected) tab out of the
+    // tree, so the normal view rose to zIndex 10 and showed it full-screen
+    // over the split.
+    const tabA = makeTab("t-aaa", "host1", "aqua");
+    const tabB = makeTab("t-bbb", "host1", "nelly");
+    const tabC = makeTab("t-ccc", "host1", "blizzard");
+    let handle: {
+      openSessionInTree: (
+        tabId: string,
+        path: SplitPath,
+        edge: DropEdge,
+      ) => void;
+      replaceInTree: (replacementTabId: string, targetTabId: string) => void;
+      swapInTree: (tabIdA: string, tabIdB: string) => void;
+      getSplitTree: () => SplitNode | null;
+    } | null = null;
+    const { getByTestId } = render(
+      <MechanismScaffold
+        tabs={[tabA, tabB, tabC]}
+        initialSelectedTabId="t-bbb"
+        registerHandle={(h) => {
+          handle = h;
+        }}
+      />,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    await act(async () => {
+      handle!.openSessionInTree(tabA.id, [], "left");
+      await Promise.resolve();
+    });
+    await act(async () => {
+      handle!.openSessionInTree(tabB.id, [], "right");
+      await Promise.resolve();
+    });
+    expect(getByTestId("normal-view").getAttribute("data-overlay")).toBe("false");
+    await act(async () => {
+      handle!.replaceInTree("t-ccc", "t-bbb");
+      await Promise.resolve();
+    });
+    const post = handle!.getSplitTree();
+    expect(collectTabIds(post!).sort()).toEqual(["t-aaa", "t-ccc"]);
+    expect(getByTestId("normal-view").getAttribute("data-overlay")).toBe("false");
   });
 
   it("Phase 64 Test 3: portal-preservation across center-drop swap — Object.is holds on both nodes (mirrors Test 6)", async () => {

@@ -2627,6 +2627,11 @@ export function AppShell({
       );
       setSplitTree((prev) => replaceLeaf(prev, targetTabId, replacementTabId));
       setFocusedTabId(replacementTabId);
+      // The displaced tab is often the selected conversation. Left selected
+      // while out of the tree, it trips the normal-view overlay (zIndex 10)
+      // and covers the whole split full-screen. Select the incoming tab —
+      // parity with every edge-drop path.
+      selectConversationDeferred(replacementTabId);
     },
     [],
   );
@@ -3133,8 +3138,7 @@ export function AppShell({
   // onDropAppTileInTree edge-drop path) then replaceInTree(newTabId,
   // targetTabId) to swap the target pane's contents to the fresh app leaf.
   // Displaced session stays live in tabs[] per the replaceLeaf contract
-  // (see comment at replaceInTree def). selectConversationDeferred focuses
-  // the newborn — parity with the edge-drop path.
+  // (see comment at replaceInTree def), which also selects the newborn.
   const onCenterDropAppTile = useCallback(
     (
       payload: { hostId: number; slug: string; title: string },
@@ -3152,9 +3156,8 @@ export function AppShell({
         allowCreateTmux: false,
       });
       replaceInTree(newTabId, targetTabId);
-      selectConversationDeferred(newTabId);
     },
-    [openTab, replaceInTree, selectConversationDeferred],
+    [openTab, replaceInTree],
   );
 
   // ─── Sidebar ─────────────────────────────────────────────────────────────
