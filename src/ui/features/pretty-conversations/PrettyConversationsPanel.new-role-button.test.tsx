@@ -57,6 +57,7 @@ vi.mock("@/hooks/use-is-touch-device", () => ({
 }));
 
 vi.mock("@/state/conversation-store", () => ({
+  upsertFleetSession: () => {},
   patchRoomProjectAssignment: () => () => {},
   useConversations: () => ({
     activeSet: [],

@@ -2253,9 +2253,14 @@ describe("conversation-store (Phase 15): pinnedIds ↔ server persistence", () =
   });
 
   // Test 30k — unpin fires the single-identity write with pinned=false.
-  it("30k: unpinConversation(fleet id) removes id AND fires setIdentityPinned(key, host, false)", () => {
+  it("30k: unpinConversation(fleet id) removes id AND fires setIdentityPinned(key, host, false)", async () => {
     const spy = vi.mocked(UserPreferencesApi.setIdentityPinned);
     act(() => pinConversation("fleet::1::tina"));
+    // Let the pin write settle so the unpin isn't queued behind it.
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
     spy.mockClear();
 
     act(() => unpinConversation("fleet::1::tina"));
@@ -2359,6 +2364,29 @@ describe("conversation-store (Phase 15): pinnedIds ↔ server persistence", () =
     // Settled: the intent overlay is gone, hydrate is authoritative again.
     act(() => hydratePinnedIdsFromServer(["fleet::2::other"]));
     expect(__getSnapshotForTest().pinnedIds.has("fleet::1::tina")).toBe(false);
+  });
+
+  // Test 30n4 — writes for one row are sent in click order.
+  it("30n4: pin then quick unpin — the unpin write is not sent until the pin write settles", async () => {
+    const spy = vi.mocked(UserPreferencesApi.setIdentityPinned);
+    spy.mockClear();
+    let resolveFirst: () => void = () => {};
+    spy.mockImplementationOnce(() => new Promise<void>((r) => { resolveFirst = r; }));
+    spy.mockResolvedValueOnce(undefined);
+
+    act(() => pinConversation("fleet::1::tina"));
+    act(() => unpinConversation("fleet::1::tina"));
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenLastCalledWith("tina", 1, true);
+
+    await act(async () => {
+      resolveFirst();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(spy).toHaveBeenLastCalledWith("tina", 1, false);
   });
 
   // Test 30n3 — pin then quick unpin: the first write's late failure must

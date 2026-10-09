@@ -8234,6 +8234,43 @@ describe("Phase 92 — batch sweep dispatch", () => {
     expect(deps.registry.publishedAppGone).toEqual([]);
   });
 
+  it("a lone EMPTY first sweep does not reconcile the registry; a second consecutive empty sweep does", async () => {
+    const channel = new MockSshChannel();
+    wireBatchProbe(channel, true);
+    channel.setResponse(
+      "~/.local/bin/fleet-status-sweep 2>/dev/null",
+      makeSweepJsonl({ identities: [], pids: [], apps: [] }),
+    );
+    const setIntervalFns: Array<() => void> = [];
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: vi.fn((fn: () => void) => {
+        setIntervalFns.push(fn);
+        return 1 as unknown as ReturnType<typeof setInterval>;
+      }) as unknown as typeof setInterval,
+    });
+    deps.registry.seededStates = [
+      {
+        hostId: "host-1",
+        tmuxSession: "kept",
+        sessionId: "s-k",
+        pid: null,
+        status: "idle",
+        backgroundTasks: [],
+        updatedAt: 1,
+        identityAppearance: { displayName: "Kept" } as unknown as SessionState["identityAppearance"],
+      } as SessionState,
+    ];
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+    expect(deps.registry.publishedGone).toEqual([]);
+
+    for (const fn of setIntervalFns) fn();
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(deps.registry.publishedGone.map((g) => g.tmuxSession)).toContain("kept");
+  });
+
   it("Test P118-04-A2: second tick with one app removed fires publishAppGoneByHostSlug for the dropped slug", async () => {
     const channel = new MockSshChannel();
     wireBatchProbe(channel, true);

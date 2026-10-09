@@ -644,6 +644,9 @@ interface PerHostState {
   // running (identity archived overnight, app archived with every tab
   // closed) was never marked gone and got replayed in every connect snapshot.
   registryReconciled: boolean;
+  // Consecutive successful-but-empty batch sweeps (reset by any non-empty
+  // one). Gates the registry reconcile on the empty-box path.
+  emptySweepStreak: number;
 
   // Per-identity raw cosmetics cache — populated by the source-B loop on every
   // successful sweep tick for EVERY live-tree identity (before the skip-and-
@@ -2294,7 +2297,16 @@ export function createSshPollOrchestrator(
         return { ok: false, reason: "empty-output-on-nonempty-box" };
       }
       // Genuinely-empty box — success with zero counts.
-      reconcileRegistryWithFirstSweep(hostState, new Set(), new Set(), new Set());
+      //
+      // The first-sweep registry reconcile must not trust a lone empty sweep:
+      // hasPriorContent is always false on a fresh host state, so a glitchy
+      // empty emission would otherwise "gone" every cached row for the host
+      // (identity_gone closes open tabs). Require a second consecutive empty
+      // sweep before reconciling an empty picture.
+      hostState.emptySweepStreak += 1;
+      if (hostState.emptySweepStreak >= 2) {
+        reconcileRegistryWithFirstSweep(hostState, new Set(), new Set(), new Set());
+      }
       return { ok: true, identityCount: 0, pidCount: 0 };
     }
 
@@ -2478,6 +2490,7 @@ export function createSshPollOrchestrator(
     }
     hostState.lastTickLiveWidgets = thisTickLiveWidgets;
 
+    hostState.emptySweepStreak = 0;
     const thisTickLiveNames = new Set(thisTickLiveTreeIdentities);
     for (const pidLine of parsed.pidLines) thisTickLiveNames.add(pidLine.identity);
     reconcileRegistryWithFirstSweep(
@@ -3753,6 +3766,7 @@ export function createSshPollOrchestrator(
         // publishWidgetGoneByHostSlug for any slug that dropped out.
         lastTickLiveWidgets: new Set<string>(),
         registryReconciled: false,
+        emptySweepStreak: 0,
         // Phase 92 — sweep-first / legacy-fallback dispatch cache. All three
         // fields are per-SSH-channel-lifetime: reset when pollOneHost sees a
         // fresh channel object reference (see PerHostState docblock above).

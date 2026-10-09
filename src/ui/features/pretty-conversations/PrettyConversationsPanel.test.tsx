@@ -275,6 +275,7 @@ const hydratePinnedIdsFromServerSpy = vi.fn();
 // the fleet-status flicker-back path during the supervisor's ~15s retire
 // window (and the rollback path on archive failure).
 const removeFleetSessionSpy = vi.fn();
+const upsertFleetSessionSpy = vi.fn();
 const markPendingArchiveSpy = vi.fn();
 const clearPendingArchiveSpy = vi.fn();
 
@@ -315,6 +316,7 @@ let mockFleetSessionsLoaded = false;
 let mockFleetSessionsSnapshot: unknown[] = [];
 
 vi.mock("@/state/conversation-store", () => ({
+  upsertFleetSession: (session: unknown) => upsertFleetSessionSpy(session),
   patchRoomProjectAssignment: () => () => {},
   useConversations: () => ({
     activeSet: snapshot.activeSet,
@@ -2764,6 +2766,9 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
   //      naturally re-inserts the row (identity is still alive).
   it("A12: archiveIdentity rejects → clearPendingArchive + window.alert fire (rollback)", async () => {
     const hostA = makeHost("42", "hostA");
+    const wrenSession = { hostId: 42, hostName: "hostA", sessionName: "wren", created: 1, role: null };
+    mockFleetSessionsSnapshot = [wrenSession];
+    upsertFleetSessionSpy.mockClear();
     mockIdentitiesByKey = new Map([
       ["wren", { identityKey: "wren", displayName: "wren", title: null }],
     ]);
@@ -2811,6 +2816,9 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
       expect(clearPendingArchiveSpy).toHaveBeenCalledTimes(1);
     });
     expect(clearPendingArchiveSpy).toHaveBeenCalledWith(42, "wren");
+    // The captured session row is put straight back (a fingerprint-
+    // suppressed pulse may never re-insert it).
+    expect(upsertFleetSessionSpy).toHaveBeenCalledWith(wrenSession);
     expect(alertSpy).toHaveBeenCalledTimes(1);
     expect(alertSpy.mock.calls[0][0]).toContain("archive failed");
     expect(alertSpy.mock.calls[0][0]).toContain("boom");

@@ -92,6 +92,7 @@ import {
   // Phase 92 Plan 04: hydrate effect reads the fleet-sessions snapshot to
   // build the identityHosts map for the deriveDiskPinnedIds projection.
   getFleetSessionsSnapshot,
+  upsertFleetSession,
   selectConversation,
   addToActiveSet,
   removeFromActiveSet,
@@ -1709,6 +1710,25 @@ export function PrettyConversationsPanel({
   //      land.
   //
   // D-05 lock: no un-archive branch. One-way gesture.
+  // Optimistic archive removal + its undo. The undo can't wait for the next
+  // fleet-status pulse to re-insert the row — pulses are fingerprint-
+  // suppressed, so an idle identity may not publish again for hours. Put
+  // the captured session row back directly and re-fetch identities (the
+  // removal also dropped it from the identities store).
+  const optimisticArchiveRemove = (hostId: number, sessionName: string, identityKey: string) => {
+    const removed = getFleetSessionsSnapshot().find(
+      (fs) => fs.hostId === hostId && fs.sessionName === sessionName,
+    );
+    markPendingArchive(hostId, sessionName);
+    removeFleetSession(hostId, sessionName);
+    applyIdentityChange(null, identityKey, hostId);
+    return () => {
+      clearPendingArchive(hostId, sessionName);
+      if (removed) upsertFleetSession(removed);
+      refreshIdentities({ [identityKey]: hostId }).catch(() => {});
+    };
+  };
+
   const handleArchive = async (row: ConversationRowShape) => {
     if (canonicalArchiveIdForRow(row) === null) return;
     if (!row.host || !row.targetTmuxSession) return; // gate above already ensures this; TS narrowing
@@ -1729,16 +1749,12 @@ export function PrettyConversationsPanel({
     // Optimistic removal — mark pending FIRST so any in-flight fleet-status
     // frame that races with the removes below is silent-dropped rather than
     // re-inserting the row.
-    markPendingArchive(hostIdNum, identityKey);
-    removeFleetSession(hostIdNum, identityKey);
-    applyIdentityChange(null, identityKey, hostIdNum);
+    const undoRemove = optimisticArchiveRemove(hostIdNum, identityKey, identityKey);
     try {
       await archiveIdentity(hostIdNum, identityKey);
     } catch (err) {
-      // Rollback: clear the pending flag so the next fleet-status pulse
-      // (still coming — identity is alive) re-inserts the row via the
-      // normal upsertFleetSession path.
-      clearPendingArchive(hostIdNum, identityKey);
+      // Rollback: put the row back now (see optimisticArchiveRemove).
+      undoRemove();
       console.warn({
         operation: "identity_archive_failed",
         hostId: hostIdNum,
@@ -2520,12 +2536,10 @@ export function PrettyConversationsPanel({
       for (const r of identityMembers) {
         const parsed = hostForRow(r);
         if (!parsed) continue;
-        markPendingArchive(parsed.hostId, parsed.sessionName);
-        removeFleetSession(parsed.hostId, parsed.sessionName);
-        applyIdentityChange(null, parsed.identityKey, parsed.hostId);
+        const undoRemove = optimisticArchiveRemove(parsed.hostId, parsed.sessionName, parsed.identityKey);
         ops.push(
           archiveIdentity(parsed.hostId, parsed.identityKey).catch((err: unknown) => {
-            clearPendingArchive(parsed.hostId, parsed.sessionName);
+            undoRemove();
             throw err;
           }),
         );
@@ -2548,8 +2562,13 @@ export function PrettyConversationsPanel({
             // Fix 3 gate: setRelayRoomProject(roomId, mxid, null) is the
             // canonical tag-clear call. The literal `null` third arg is
             // asserted by the acceptance grep on this file.
-            patchRoomProjectAssignment(roomId, null);
-            ops.push(setRelayRoomProject(roomId, viewingUserMxid, null));
+            const undoTag = patchRoomProjectAssignment(roomId, null);
+            ops.push(
+              setRelayRoomProject(roomId, viewingUserMxid, null).catch((err: unknown) => {
+                undoTag();
+                throw err;
+              }),
+            );
           }
         }
       }
@@ -2570,7 +2589,7 @@ export function PrettyConversationsPanel({
           ),
         });
         window.alert(
-          `The project was archived, but ${failures.length} of its ${ops.length} conversation${ops.length === 1 ? "" : "s"} couldn't be archived — they're back in the sidebar.`,
+          `The project was archived, but ${failures.length} of its ${ops.length} conversation${ops.length === 1 ? "" : "s"} couldn't be archived. They're back in the sidebar, outside any project.`,
         );
       }
     },

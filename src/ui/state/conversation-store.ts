@@ -543,7 +543,9 @@ export const PENDING_ARCHIVE_TTL_MS = 2 * 60 * 1000;
 const pendingArchiveKeys = new Map<string, number>();
 
 function pendingArchiveKey(hostId: number, sessionName: string): string {
-  return `${hostId}::${sessionName}`;
+  // Case-folded: the mark is set from a row's tmux session name but cleared
+  // from an identity key (un-archive); identity keys are lowercase.
+  return `${hostId}::${sessionName.toLowerCase()}`;
 }
 
 function isPendingArchive(hostId: number, sessionName: string): boolean {
@@ -2362,6 +2364,8 @@ function syncIdentityFlagAfterWrite(
 // these intents on its input. Cleared when the request settles; `seq` makes a
 // superseded settle (pin then quick unpin) a no-op.
 const pendingPinIntents = new Map<string, { pinned: boolean; seq: number }>();
+// Per-row tail of the pin write chain (see writePin).
+const pinWriteChains = new Map<string, Promise<void>>();
 let pinIntentSeq = 0;
 
 // Resolve a pin row id to the identity it targets. Fleet-synthetic ids carry
@@ -2400,7 +2404,21 @@ function writePin(id: string, pinned: boolean): void {
   const seq = ++pinIntentSeq;
   pendingPinIntents.set(id, { pinned, seq });
   setPinnedLocal(id, pinned);
-  setIdentityPinned(target.identityKey, target.hostId, pinned)
+  // Writes for one row go out strictly in click order — each PUT opens its
+  // own SSH connection, so a quick pin→unpin could otherwise land on the
+  // host reversed and leave disk disagreeing with the screen.
+  const prev = pinWriteChains.get(id);
+  const write =
+    prev === undefined
+      ? setIdentityPinned(target.identityKey, target.hostId, pinned)
+      : prev
+          .catch(() => {})
+          .then(() => setIdentityPinned(target.identityKey, target.hostId, pinned));
+  pinWriteChains.set(id, write);
+  void write.finally(() => {
+    if (pinWriteChains.get(id) === write) pinWriteChains.delete(id);
+  }).catch(() => {});
+  write
     .then(() => {
       // Mirror into identities-store so a panel remount / re-derive agrees
       // with the write (mobile list→session→list unmount — fern 2026-09-13).
@@ -2886,6 +2904,7 @@ export function __resetPinnedIdsForTest(): void {
     // Silent.
   }
   pendingPinIntents.clear();
+  pinWriteChains.clear();
   state = { ...state, pinnedIds: new Set<string>() };
   notify();
 }

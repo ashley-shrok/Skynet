@@ -139,6 +139,7 @@ let mockActiveSet: ReadonlySet<string> = new Set();
 let mockFleetSessionsLoaded = false;
 
 vi.mock("@/state/conversation-store", () => ({
+  upsertFleetSession: () => {},
   patchRoomProjectAssignment: () => () => {},
   useConversations: () => ({
     activeSet: snapshot.activeSet,
