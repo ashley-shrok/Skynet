@@ -37,7 +37,7 @@ import {
   parseItemKey,
 } from "./model.js";
 import { planMerge, planIsNoop } from "./merge.js";
-import { InstanceWideStore, type SyncState, type MachineState } from "./store.js";
+import { InstanceWideStore, sha256, type SyncState, type MachineState } from "./store.js";
 import * as hostOps from "./host-ops.js";
 import { systemLogger } from "../utils/logger.js";
 
@@ -61,6 +61,12 @@ export interface EngineDeps {
   clearInterval?(h: ReturnType<typeof setInterval>): void;
   /** Debounce before an immediate sync starts (coalesces bursts of edits). */
   immediateDelayMs?: number;
+  /**
+   * Names the app's own standard files already use (e.g. the built-in skills
+   * it distributes). Those can't be made instance-wide — the two would fight
+   * over the same folder.
+   */
+  isReservedName?(kind: ItemKind, name: string): boolean;
 }
 
 export type HostSyncState = "current" | "behind" | "conflict" | "offline";
@@ -85,7 +91,7 @@ export interface ItemStatus {
 
 export class PromoteError extends Error {
   constructor(
-    public readonly code: "not_found" | "too_large" | "unreachable" | "exists",
+    public readonly code: "not_found" | "too_large" | "unreachable" | "exists" | "unsafe" | "reserved",
     message: string,
   ) {
     super(message);
@@ -107,6 +113,7 @@ export class InstanceWideEngine {
   private lock: Promise<unknown> = Promise.resolve();
   private timer: ReturnType<typeof setInterval> | null = null;
   private quickTimer: ReturnType<typeof setInterval> | null = null;
+  private quickRunning = false;
   private pendingTimer: ReturnType<typeof setTimeout> | null = null;
   private running: Promise<void> | null = null;
   private rerun = false;
@@ -140,7 +147,16 @@ export class InstanceWideEngine {
    * change reaches everyone. Skipped while a full pass is running.
    */
   async quickAdminCheck(): Promise<void> {
-    if (this.stopped || this.running) return;
+    if (this.stopped || this.running || this.quickRunning) return;
+    this.quickRunning = true;
+    try {
+      await this.quickAdminCheckInner();
+    } finally {
+      this.quickRunning = false;
+    }
+  }
+
+  private async quickAdminCheckInner(): Promise<void> {
     let machines: SyncMachine[];
     try {
       machines = (await this.deps.listMachines()).filter((m) => m.adminOwned);
@@ -185,6 +201,14 @@ export class InstanceWideEngine {
    * machine whose pending changes were made by an admin through the app, so
    * they flow back even if the machine itself is not admin-owned.
    */
+  /**
+   * Mark a machine before an admin's app-side write lands on it, so a sync
+   * that happens to probe mid-write already treats the change as an admin's.
+   */
+  markAdminSourced(machineId: string): void {
+    this.adminSourced.add(machineId);
+  }
+
   requestSync(opts: { adminSourcedMachineId?: string } = {}): void {
     if (this.stopped) return;
     if (opts.adminSourcedMachineId) this.adminSourced.add(opts.adminSourcedMachineId);
@@ -207,10 +231,14 @@ export class InstanceWideEngine {
     }
     this.running = (async () => {
       try {
+        // Write-backs ask for another pass so earlier machines get the change;
+        // cap it so a host whose files never stop changing can't spin us.
+        let passes = 0;
         do {
           this.rerun = false;
           await this.passOverMachines();
-        } while (this.rerun && !this.stopped);
+          passes++;
+        } while (this.rerun && !this.stopped && passes < 3);
       } finally {
         this.running = null;
       }
@@ -287,7 +315,7 @@ export class InstanceWideEngine {
       const probes = await hostOps.probeFolders(channel, dirs);
       ms.lastContactAt = now;
       delete ms.lastError;
-      this.adminSourced.delete(machine.machineId);
+      let itemFailed = false;
 
       for (const key of removals) {
         const parsed = parseItemKey(key);
@@ -322,6 +350,7 @@ export class InstanceWideEngine {
           );
           if (changed) masterChanged = true;
         } catch (err) {
+          itemFailed = true;
           const prev = ms.items[key];
           ms.items[key] = {
             base: prev?.base ?? {},
@@ -338,6 +367,9 @@ export class InstanceWideEngine {
           });
         }
       }
+
+      // An admin's app-side edit is only "consumed" once everything synced.
+      if (!itemFailed) this.adminSourced.delete(machine.machineId);
 
       // Forget items that are gone from the master (tombstones handled above).
       for (const key of Object.keys(ms.items)) {
@@ -379,6 +411,9 @@ export class InstanceWideEngine {
   ): Promise<boolean> {
     const key = itemKey(kind, name);
     const dir = hostRelDir(kind, name);
+    if (probe.unsafe) {
+      throw new Error("the folder on this host is a link or leaves the home folder — not synced");
+    }
     const master = await this.store.manifest(kind, name);
 
     let host: Manifest | null = null;
@@ -393,7 +428,15 @@ export class InstanceWideEngine {
 
     const prev = ms.items[key];
     const base = prev && prev.base && prev.syncedAt > 0 ? prev.base : null;
-    const plan = planMerge(base, master, host, mayWriteBack);
+    // An emptied folder, or one where every file vanished at once (a folder
+    // being replaced mid-sync, a botched checkout), is treated like a missing
+    // folder: restored, never spread as "delete everything".
+    if (host && Object.keys(host).length === 0 && Object.keys(master).length > 0) host = null;
+    let plan = planMerge(base, master, host, mayWriteBack);
+    const masterCount = Object.keys(master).length;
+    if (masterCount > 0 && plan.masterDeletes.length === masterCount) {
+      plan = planMerge(base, master, null, mayWriteBack);
+    }
 
     if (planIsNoop(plan)) {
       ms.items[key] = { base: master, syncedAt: this.now(), conflicts: conflictCopies.sort() };
@@ -419,7 +462,11 @@ export class InstanceWideEngine {
     // 1. Changes flowing back into the master.
     if (plan.masterWrites.length > 0) {
       const bytes = await hostOps.readFiles(ch, dir, plan.masterWrites);
-      for (const [p, buf] of bytes) await this.store.writeFile(kind, name, p, buf);
+      for (const [p, buf] of bytes) {
+        await this.store.writeFile(kind, name, p, buf, probe.modes[p]);
+        // Record what was actually read, not what the probe saw a moment earlier.
+        plan.nextMaster[p] = sha256(buf);
+      }
     }
     for (const p of plan.masterDeletes) await this.store.deleteFile(kind, name, p);
     const masterChanged = plan.masterWrites.length > 0 || plan.masterDeletes.length > 0;
@@ -439,7 +486,8 @@ export class InstanceWideEngine {
 
     // 3. The master flowing down to the host.
     for (const p of plan.hostWrites) {
-      await hostOps.writeFile(ch, dir, p, await this.store.readFile(kind, name, p));
+      const mode = (await this.store.statFile(kind, name, p))?.mode ?? 0o644;
+      await hostOps.writeFile(ch, dir, p, await this.store.readFile(kind, name, p), mode);
     }
     if (plan.hostDeletes.length > 0) await hostOps.deleteFiles(ch, dir, plan.hostDeletes);
     if (plan.hostWrites.length > 0 || plan.conflicts.length > 0) {
@@ -567,6 +615,7 @@ export class InstanceWideEngine {
 
   /** Create a brand-new item from files (e.g. "new skill" in the instance-wide section). */
   async createItem(kind: ItemKind, name: string, files: Map<string, Buffer>): Promise<void> {
+    this.assertNotReserved(kind, name);
     await this.withLock(async () => {
       if (await this.store.hasItem(kind, name)) {
         throw new PromoteError("exists", `${kind} "${name}" is already instance-wide`);
@@ -579,6 +628,15 @@ export class InstanceWideEngine {
       await this.store.saveState(state);
     });
     this.requestSync();
+  }
+
+  private assertNotReserved(kind: ItemKind, name: string): void {
+    if (this.deps.isReservedName?.(kind, name)) {
+      throw new PromoteError(
+        "reserved",
+        `"${name}" is the name of one of the app's built-in ${kind}s — rename it first`,
+      );
+    }
   }
 
   /** Machines (other than `exceptMachineId`) that already have a folder with this name. */
@@ -620,6 +678,7 @@ export class InstanceWideEngine {
     try {
       const dir = hostRelDir(kind, name);
       const probe = (await hostOps.probeFolders(ch, [dir])).get(dir);
+      if (probe?.unsafe) throw new PromoteError("unsafe", `the ${kind} folder on ${machine.hostName} is a link or leaves the home folder`);
       if (!probe?.manifest) throw new PromoteError("not_found", `${kind} "${name}" not found on ${machine.hostName}`);
       const paths = Object.keys(probe.manifest).filter((p) => !isIgnoredPath(p));
       const bytes = paths.reduce((n, p) => n + (probe.sizes[p] ?? 0), 0);
@@ -640,6 +699,7 @@ export class InstanceWideEngine {
    * the next sync (the caller has confirmed the clash list).
    */
   async promote(kind: ItemKind, name: string, machine: SyncMachine): Promise<{ files: number; bytes: number }> {
+    this.assertNotReserved(kind, name);
     const result = await this.withLock(async () => {
       if (await this.store.hasItem(kind, name)) {
         throw new PromoteError("exists", `${kind} "${name}" is already instance-wide`);
@@ -649,6 +709,9 @@ export class InstanceWideEngine {
       try {
         const dir = hostRelDir(kind, name);
         const probe = (await hostOps.probeFolders(ch, [dir])).get(dir);
+        if (probe?.unsafe) {
+          throw new PromoteError("unsafe", `the ${kind} folder on ${machine.hostName} is a link or leaves the home folder`);
+        }
         if (!probe?.manifest) {
           throw new PromoteError("not_found", `${kind} "${name}" not found on ${machine.hostName}`);
         }
@@ -661,7 +724,7 @@ export class InstanceWideEngine {
           );
         }
         const files = await hostOps.readFiles(ch, dir, paths);
-        await this.store.putItem(kind, name, files);
+        await this.store.putItem(kind, name, files, probe.modes);
         const master = await this.store.manifest(kind, name);
 
         const state = await this.store.loadState();
@@ -703,8 +766,9 @@ export class InstanceWideEngine {
         throw new PromoteError("not_found", `${kind} "${name}" is not instance-wide`);
       }
       const state = await this.store.loadState();
+      const current = new Set((await this.deps.listMachines()).map((m) => m.machineId));
       const pending = Object.entries(state.machines)
-        .filter(([, ms]) => key in ms.items)
+        .filter(([id, ms]) => current.has(id) && key in ms.items)
         .map(([id]) => id);
       await this.store.removeItem(kind, name);
       delete state.items[key];
@@ -723,10 +787,11 @@ export class InstanceWideEngine {
   }
 
   /** Machines the item currently sits on (for the remove confirmation). */
-  async hostCount(kind: ItemKind, name: string): Promise<number> {
+  async hostCount(kind: ItemKind, name: string, machines?: SyncMachine[]): Promise<number> {
     const state = await this.store.loadState();
     const key = itemKey(kind, name);
-    return Object.values(state.machines).filter((ms) => key in ms.items).length;
+    const current = new Set((machines ?? (await this.deps.listMachines())).map((m) => m.machineId));
+    return Object.entries(state.machines).filter(([id, ms]) => current.has(id) && key in ms.items).length;
   }
 }
 

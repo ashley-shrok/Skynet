@@ -90,6 +90,7 @@ import {
   writeIdentityHandoff,
   writeRoleFile,
   writeRoleFileByName,
+  resolveRoleForIdentity,
   type WakeupSpec,
 } from "./identity-artifact-reader.js";
 import { ROLE_NAME_PATTERN } from "../database/routes/identity-birth-orchestrator.js";
@@ -1428,6 +1429,11 @@ export async function handleIdentityGetRoleFile(
 // server echo is authoritative). writeRoleFile handles the two-step, byte
 // cap, and IDENTITY_KEY_RE guards internally.
 
+/** A missing or local host id means the co-located host; pass undefined for it. */
+function useLocalHostId(hostIdNum: number | undefined): number | undefined {
+  return hostIdNum === undefined || isLocalHostId(hostIdNum) ? undefined : hostIdNum;
+}
+
 export async function handleIdentityUpdateRoleFile(
   ws: WebSocket,
   msg: unknown,
@@ -1451,6 +1457,37 @@ export async function handleIdentityUpdateRoleFile(
     typeof rawHostId === "number" && Number.isFinite(rawHostId) && rawHostId > 0
       ? rawHostId
       : undefined;
+  // Instance-wide roles: resolve the identity's role first and apply the same
+  // admin-only rule as role:update-file.
+  let instanceWideMachineId: string | null = null;
+  if (userId) {
+    let resolvedRole: string | null = null;
+    try {
+      if (hostIdNum === undefined || isLocalHostId(hostIdNum)) {
+        resolvedRole = await resolveRoleForIdentity(null, identityKey);
+      } else {
+        const resolvedHost = await resolveHostById(hostIdNum, userId);
+        if (resolvedHost) {
+          const probeConn = await connectOneShot(resolvedHost as unknown as Parameters<typeof connectOneShot>[0], 5000);
+          try {
+            resolvedRole = await resolveRoleForIdentity(probeConn, identityKey);
+          } finally {
+            try { probeConn.end(); } catch { /* best-effort */ }
+          }
+        }
+      }
+    } catch {
+      resolvedRole = null; // the write below surfaces the real error
+    }
+    if (resolvedRole) {
+      const check = await checkInstanceWideRoleWrite(userId, useLocalHostId(hostIdNum), resolvedRole);
+      if (check.verdict === "refuse") {
+        try { ws.send(JSON.stringify({ type: "identity:role-file-updated", markdown: "", error: INSTANCE_WIDE_ROLE_REFUSAL })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:role-file-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+        return;
+      }
+      if (check.verdict === "admin") instanceWideMachineId = check.machineId;
+    }
+  }
   const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
   try {
     let markdown: string;
@@ -1481,6 +1518,7 @@ export async function handleIdentityUpdateRoleFile(
         try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
       }
     }
+    if (instanceWideMachineId) afterAdminWrite(instanceWideMachineId);
     try { ws.send(JSON.stringify({ type: "identity:role-file-updated", markdown })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:role-file-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
   } catch (err) {
     sshLogger.error(
@@ -1540,8 +1578,8 @@ export async function handleRoleUpdateFile(
   // Instance-wide roles: non-admins are refused; an admin's write is followed
   // by a sync that carries it from this host to every machine.
   let instanceWideMachineId: string | null = null;
-  if (hostIdNum !== undefined && userId) {
-    const check = await checkInstanceWideRoleWrite(userId, hostIdNum, roleName);
+  if (userId) {
+    const check = await checkInstanceWideRoleWrite(userId, useLocalHostId(hostIdNum), roleName);
     if (check.verdict === "refuse") {
       try { ws.send(JSON.stringify({ type: "role:file-updated", markdown: "", error: INSTANCE_WIDE_ROLE_REFUSAL })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=role:file-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
       return;

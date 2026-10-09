@@ -24,6 +24,12 @@ import type { HostFolder } from "@/types/ui-types";
 
 // ── Module mocks (hoisted — must appear before imports of the mocked modules) ──
 
+// Instance-wide list: none (keeps these tests off the network).
+vi.mock("@/api/instance-wide-api", async (importOriginal) => {
+  const orig = (await importOriginal()) as Record<string, unknown>;
+  return { ...orig, listInstanceWide: vi.fn().mockResolvedValue({ isAdmin: false, items: [] }) };
+});
+
 vi.mock("@/api/skills-api", async (importOriginal) => {
   const orig = (await importOriginal()) as Record<string, unknown>;
   return {

@@ -239,6 +239,92 @@ describe("InstanceWideEngine", () => {
     expect(read("c", "SKILL.md")).toBe("tampered\n");
   });
 
+  it("keeps permission bits: private files stay private, scripts stay executable", async () => {
+    await fs.chmod(path.join(skillDir("a"), "scripts/run.sh"), 0o755);
+    await put("a", "creds.json", "{}\n");
+    await fs.chmod(path.join(skillDir("a"), "creds.json"), 0o600);
+    await engine.promote("skill", "demo", machines[0]);
+    await engine.syncNow();
+    const mode = async (m: string, rel: string) =>
+      ((await fs.stat(path.join(skillDir(m), rel))).mode & 0o777).toString(8);
+    expect(await mode("b", "creds.json")).toBe("600");
+    expect(await mode("b", "scripts/run.sh")).toBe("755");
+  });
+
+  it("never follows a symlinked item folder out of the home folder", async () => {
+    await engine.promote("skill", "demo", machines[0]);
+    await engine.syncNow();
+    // Replace beta's copy with a link to a folder outside its home.
+    const outside = path.join(tmp, "outside");
+    await fs.mkdir(outside, { recursive: true });
+    await fs.writeFile(path.join(outside, "secret.key"), "TOP SECRET\n");
+    await fs.rm(skillDir("b"), { recursive: true });
+    await fs.symlink(outside, skillDir("b"));
+    await engine.syncNow();
+    // Nothing from outside reached the master or anyone else; the outside
+    // folder was not written to.
+    expect(read("a", "secret.key")).toBeNull();
+    expect(read("c", "secret.key")).toBeNull();
+    expect(await fs.readdir(outside)).toEqual(["secret.key"]);
+    const [status] = await engine.status();
+    expect(status.hosts.find((h) => h.hostName === "beta")?.state).toBe("behind");
+  });
+
+  it("never follows a symlinked file inside an item", async () => {
+    await engine.promote("skill", "demo", machines[0]);
+    await engine.syncNow();
+    const outside = path.join(tmp, "outside.txt");
+    await fs.writeFile(outside, "TOP SECRET\n");
+    await fs.symlink(outside, path.join(skillDir("b"), "link.txt"));
+    await engine.syncNow();
+    expect(read("a", "link.txt")).toBeNull();
+    // Overwriting a file that has been swapped for a link replaces the link,
+    // never the file it points to.
+    await fs.rm(path.join(skillDir("c"), "SKILL.md"));
+    await fs.symlink(outside, path.join(skillDir("c"), "SKILL.md"));
+    await engine.syncNow();
+    expect(readFileSync(outside, "utf-8")).toBe("TOP SECRET\n");
+    expect(read("c", "SKILL.md")).toContain("v1");
+  });
+
+  it("an emptied folder on an admin host is restored, not spread as deletes", async () => {
+    await engine.promote("skill", "demo", machines[0]);
+    await engine.syncNow();
+    await fs.rm(path.join(skillDir("b"), "SKILL.md"));
+    await fs.rm(path.join(skillDir("b"), "scripts"), { recursive: true });
+    await engine.syncNow();
+    expect(read("a", "SKILL.md")).toContain("v1");
+    expect(read("b", "SKILL.md")).toContain("v1");
+  });
+
+  it("git repos and dependency folders never travel", async () => {
+    await put("a", ".git/HEAD", "ref: refs/heads/main\n");
+    await put("a", "node_modules/x/index.js", "x\n");
+    await engine.promote("skill", "demo", machines[0]);
+    await engine.syncNow();
+    expect(read("b", ".git/HEAD")).toBeNull();
+    expect(read("b", "node_modules/x/index.js")).toBeNull();
+  });
+
+  it("refuses names the app's built-in files use", async () => {
+    const reserved = new InstanceWideEngine({
+      store: new InstanceWideStore(path.join(tmp, "store2")),
+      listMachines: async () => machines,
+      acquireChannel: async () => bashChannel(homes.a),
+      isReservedName: (kind, name) => kind === "skill" && name === "demo",
+      immediateDelayMs: 60_000,
+    });
+    await expect(reserved.promote("skill", "demo", machines[0])).rejects.toMatchObject({ code: "reserved" });
+    reserved.stop();
+  });
+
+  it("remove counts only machines still in the fleet", async () => {
+    await engine.promote("skill", "demo", machines[0]);
+    await engine.syncNow();
+    machines = machines.slice(0, 2);
+    expect(await engine.hostCount("skill", "demo")).toBe(2);
+  });
+
   it("syncs roles into ~/fleet/roles and binary files intact", async () => {
     const roleDir = path.join(homes.a, "fleet/roles/helper");
     await fs.mkdir(roleDir, { recursive: true });

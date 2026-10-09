@@ -69,7 +69,8 @@ export function isConflictCopy(relPath: string): boolean {
   return base.includes(CONFLICT_MARKER);
 }
 
-const IGNORED_DIR_SEGMENTS = new Set(["__pycache__", ".cache"]);
+/** Cache folders, plus git repos and dependency trees (live state that would churn and corrupt). */
+const IGNORED_DIR_SEGMENTS = new Set(["__pycache__", ".cache", ".git", "node_modules"]);
 
 /**
  * Editor-backup and cache files are ignored by name pattern; so are conflict
@@ -86,7 +87,7 @@ export function isIgnoredPath(relPath: string): boolean {
   if (/\.bak$/.test(base) || /\.bak\./.test(base)) return true;
   if (base.endsWith(".orig") || base.endsWith(".pyc")) return true;
   if (base === ".DS_Store") return true;
-  if (base.endsWith(".iw-tmp")) return true;
+  if (base.endsWith(".iw-tmp") || base.startsWith(".iw-")) return true;
   if (base.includes(CONFLICT_MARKER)) return true;
   return false;
 }

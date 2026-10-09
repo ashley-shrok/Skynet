@@ -177,21 +177,33 @@ export class InstanceWideStore {
     kind: ItemKind,
     name: string,
     rel: string,
-  ): Promise<{ mtime: number; size: number } | null> {
+  ): Promise<{ mtime: number; size: number; mode: number } | null> {
     try {
       const st = await fs.stat(this.filePath(kind, name, rel));
       if (!st.isFile()) return null;
-      return { mtime: Math.floor(st.mtimeMs / 1000), size: st.size };
+      return { mtime: Math.floor(st.mtimeMs / 1000), size: st.size, mode: st.mode & 0o7777 };
     } catch {
       return null;
     }
   }
 
-  async writeFile(kind: ItemKind, name: string, rel: string, bytes: Buffer): Promise<void> {
+  /**
+   * Write a master file. Permission bits travel with the file to every host;
+   * `mode` defaults to the existing file's (0644 for a new one).
+   */
+  async writeFile(
+    kind: ItemKind,
+    name: string,
+    rel: string,
+    bytes: Buffer,
+    mode?: number,
+  ): Promise<void> {
     const abs = this.filePath(kind, name, rel);
+    const finalMode = mode ?? (await this.statFile(kind, name, rel))?.mode ?? 0o644;
     await fs.mkdir(path.dirname(abs), { recursive: true });
     const tmp = `${abs}.iw-tmp`;
-    await fs.writeFile(tmp, bytes);
+    await fs.writeFile(tmp, bytes, { mode: 0o600 });
+    await fs.chmod(tmp, finalMode & 0o7777);
     await fs.rename(tmp, abs);
   }
 
@@ -211,17 +223,26 @@ export class InstanceWideStore {
     }
   }
 
-  /** Create (or wholly replace) an item from a set of files. */
-  async putItem(kind: ItemKind, name: string, files: Map<string, Buffer>): Promise<void> {
+  /**
+   * Create (or wholly replace) an item from a set of files. Staged outside
+   * items/ so a crash mid-way never leaves something that looks like an item.
+   */
+  async putItem(
+    kind: ItemKind,
+    name: string,
+    files: Map<string, Buffer>,
+    modes: Record<string, number> = {},
+  ): Promise<void> {
     const dir = this.itemDir(kind, name);
-    const staging = `${dir}.staging-${process.pid}-${Date.now()}`;
+    const staging = path.join(this.root, "staging", `${kind}-${name}-${process.pid}-${Date.now()}`);
     await fs.rm(staging, { recursive: true, force: true });
     await fs.mkdir(staging, { recursive: true });
     for (const [rel, bytes] of files) {
       if (!isSafeRelPath(rel)) throw new Error(`invalid path: ${rel}`);
       const abs = path.join(staging, rel);
       await fs.mkdir(path.dirname(abs), { recursive: true });
-      await fs.writeFile(abs, bytes);
+      await fs.writeFile(abs, bytes, { mode: 0o600 });
+      await fs.chmod(abs, (modes[rel] ?? 0o644) & 0o7777);
     }
     await fs.mkdir(path.dirname(dir), { recursive: true });
     await fs.rm(dir, { recursive: true, force: true });

@@ -8,7 +8,7 @@
  * host itself is not admin-owned.
  */
 import type { Response } from "express";
-import { getInstanceWide, machineForHostRow } from "./production.js";
+import { getInstanceWide, localMachine, machineForHostRow } from "./production.js";
 import { callerIsAdmin } from "./admin.js";
 
 export const INSTANCE_WIDE_ROLE_REFUSAL =
@@ -20,14 +20,18 @@ export const INSTANCE_WIDE_ROLE_REFUSAL =
  */
 export async function checkInstanceWideRoleWrite(
   userId: string,
-  hostId: number,
+  /** undefined = a write to the co-located host (no host id given). */
+  hostId: number | undefined,
   role: string,
 ): Promise<{ verdict: "allow" | "refuse" } | { verdict: "admin"; machineId: string }> {
   const engine = getInstanceWide();
   if (!engine || !(await engine.isInstanceWide("role", role))) return { verdict: "allow" };
-  const machine = await machineForHostRow(hostId);
+  const machine = hostId === undefined ? await localMachine() : await machineForHostRow(hostId);
   if (!machine) return { verdict: "allow" };
   if (!(await callerIsAdmin(userId))) return { verdict: "refuse" };
+  // Marked before the write lands, so a sync that probes mid-write already
+  // treats the change as the admin's rather than putting it back.
+  engine.markAdminSourced(machine.machineId);
   return { verdict: "admin", machineId: machine.machineId };
 }
 

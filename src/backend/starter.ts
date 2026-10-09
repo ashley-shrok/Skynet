@@ -1614,9 +1614,16 @@ if (process.env.VITEST !== "true") {
       } = await import("./instance-wide/production.js");
       type IwMachine = import("./instance-wide/production.js").ProductionMachine;
       const listIwMachines = () => listInstanceWideMachines(getDbForSubstrate);
+      const { reservedNameCheck } = await import("./instance-wide/production.js");
+      const { FLEET_SUBSTRATE_CATALOG: iwCatalog } = await import("./distributor/catalog.js");
+      const { RETIRED_SUBSTRATE_DIRS } = await import("./distributor/run-bootstrap.js");
       const instanceWide = new InstanceWideEngine({
         store: new InstanceWideStore(),
         listMachines: listIwMachines,
+        isReservedName: reservedNameCheck(
+          iwCatalog.map((row) => row.installPath),
+          RETIRED_SUBSTRATE_DIRS,
+        ),
         acquireChannel: async (m) => {
           const pm = m as IwMachine;
           if (pm.local) return instanceWideLocalChannel();

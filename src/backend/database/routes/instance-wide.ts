@@ -56,7 +56,15 @@ function parseTarget(body: Record<string, unknown>):
 function sendPromoteError(res: Response, err: unknown): void {
   if (err instanceof PromoteError) {
     const status =
-      err.code === "not_found" ? 404 : err.code === "exists" ? 409 : err.code === "too_large" ? 413 : 502;
+      err.code === "not_found"
+        ? 404
+        : err.code === "exists" || err.code === "reserved"
+          ? 409
+          : err.code === "too_large"
+            ? 413
+            : err.code === "unsafe"
+              ? 400
+              : 502;
     res.status(status).json({ error: err.message, code: err.code });
     return;
   }
@@ -103,6 +111,9 @@ router.get("/items", authenticateJWT, async (req: Request, res: Response) => {
         typeof fm.description === "string" ? fm.description.replace(/\s+/g, " ").trim() : undefined;
       items.push({
         ...st,
+        // Per-host detail (host names, errors) is for admins; everyone else
+        // gets the counts only.
+        hosts: isAdmin ? st.hosts : [],
         description,
         hostCount: await engine.hostCount(st.kind, st.name),
       });

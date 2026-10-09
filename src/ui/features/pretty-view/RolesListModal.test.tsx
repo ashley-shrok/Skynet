@@ -37,6 +37,12 @@ import type { ArchivedRoleListEntry } from "@/api/roles-archive-list-api";
 // without vitest hoisting complaining about closure over live bindings.
 const listRolesForHost = vi.fn<(hostId: number) => Promise<RoleSummary[]>>();
 
+// Instance-wide list: none (keeps these tests off the network).
+vi.mock("@/api/instance-wide-api", async (importOriginal) => {
+  const orig = (await importOriginal()) as Record<string, unknown>;
+  return { ...orig, listInstanceWide: vi.fn().mockResolvedValue({ isAdmin: false, items: [] }) };
+});
+
 vi.mock("@/api/identities-api", async (importOriginal) => {
   const orig = (await importOriginal()) as Record<string, unknown>;
   return {

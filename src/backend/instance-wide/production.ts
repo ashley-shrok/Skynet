@@ -26,8 +26,9 @@ type GetDb = () => ReturnType<typeof import("../database/db/index.js").getDb>;
  * Every fleet-substrate machine, one entry per physical box. A box several
  * users registered is reached through its primary row (id == machine id) when
  * that row is a substrate row, else the lowest-id substrate row. "Admin-owned"
- * means the primary row's owner is an admin — a box an admin merely has a row
- * for does not count, so an employee's box stays non-admin.
+ * is judged on that same row — the account whose home folder is actually
+ * synced — so an employee's box an admin also registered never counts as the
+ * admin's.
  */
 export async function listMachines(getDb: GetDb): Promise<ProductionMachine[]> {
   const substrate = await listSubstrateHosts({ getDb });
@@ -54,14 +55,12 @@ export async function listMachines(getDb: GetDb): Promise<ProductionMachine[]> {
     recs.sort((a, b) => Number(a.id) - Number(b.id));
     const record = recs.find((r) => r.id === machineId) ?? recs[0];
     const machineRows = rows.filter((r) => String(r.machineId ?? r.id) === machineId);
-    const primary =
-      machineRows.find((r) => String(r.id) === machineId) ??
-      machineRows.sort((a, b) => a.id - b.id)[0];
+    const syncedRow = machineRows.find((r) => String(r.id) === record.id);
     const hostRowIds = machineRows.map((r) => String(r.id));
     out.push({
       machineId,
       hostName: record.name,
-      adminOwned: !!primary?.isAdmin,
+      adminOwned: !!syncedRow?.isAdmin,
       hostRowIds,
       record,
       local: hostRowIds.some((id) => isLocalHostId(Number(id))),
@@ -122,4 +121,30 @@ export async function getMachines(): Promise<ProductionMachine[]> {
 export async function machineForHostRow(hostId: number): Promise<ProductionMachine | null> {
   const id = String(hostId);
   return (await getMachines()).find((m) => m.hostRowIds.includes(id)) ?? null;
+}
+
+/**
+ * Skill/role names the app's own standard files use (built-in skills it
+ * distributes, plus retired ones it actively deletes). Making one of these
+ * instance-wide would have two mechanisms fighting over one folder.
+ */
+export function reservedNameCheck(
+  catalogInstallPaths: string[],
+  retiredDirs: readonly string[],
+): (kind: "skill" | "role", name: string) => boolean {
+  const skills = new Set<string>();
+  for (const p of catalogInstallPaths) {
+    const m = /^~\/\.claude\/skills\/([^/]+)\//.exec(p);
+    if (m) skills.add(m[1]);
+  }
+  for (const d of retiredDirs) {
+    const m = /^\.claude\/skills\/([^/]+)$/.exec(d);
+    if (m) skills.add(m[1]);
+  }
+  return (kind, name) => kind === "skill" && skills.has(name);
+}
+
+/** The co-located machine (writes with no host id land there). */
+export async function localMachine(): Promise<ProductionMachine | null> {
+  return (await getMachines()).find((m) => m.local) ?? null;
 }

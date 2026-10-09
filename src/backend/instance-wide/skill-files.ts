@@ -13,6 +13,7 @@ import yaml from "js-yaml";
 import type { AuthenticatedRequest } from "../../types/index.js";
 import { getInstanceWide } from "./production.js";
 import { isSafeRelPath, isValidItemName } from "./model.js";
+import { COMMON_RESPONSE_HEADERS, dispatchByExtensionOnly } from "../utils/sftp-file-response.js";
 import { callerIsAdmin } from "./admin.js";
 
 export const INSTANCE_HOST_ID = 0;
@@ -241,9 +242,9 @@ export async function deleteInstanceSkill(req: Request, res: Response): Promise<
   res.json({ ok: true, ...result });
 }
 
-const ALWAYS_DOWNLOAD = new Set([".html", ".htm", ".js", ".mjs", ".svg"]);
-
-// GET /download
+// GET /download — same content-type policy as the host-side file routes:
+// only media/PDF/plain-text types render inline; markup and script types are
+// always attachments; anything unknown is an octet-stream attachment.
 export async function downloadInstanceSkillFile(req: Request, res: Response): Promise<void> {
   const a = args(req);
   const skill = await skillOr404(res, a.skill);
@@ -258,7 +259,17 @@ export async function downloadInstanceSkillFile(req: Request, res: Response): Pr
     return;
   }
   const abs = store.absolutePath("skill", skill, a.path);
-  const ext = path.extname(a.path).toLowerCase();
-  if (a.inline !== "1" || ALWAYS_DOWNLOAD.has(ext)) res.attachment(path.basename(a.path));
+  const ext = path.extname(a.path).slice(1).toLowerCase() || null;
+  const dispatch = dispatchByExtensionOnly(ext) ?? {
+    contentType: "application/octet-stream",
+    disposition: "attachment" as const,
+  };
+  res.set(COMMON_RESPONSE_HEADERS);
+  if (a.inline !== "1" || dispatch.disposition === "attachment") {
+    res.attachment(path.basename(a.path));
+  }
+  // After attachment(), which guesses a type from the name; send() keeps an
+  // already-set content-type.
+  res.setHeader("content-type", dispatch.contentType);
   res.sendFile(abs, { dotfiles: "allow" });
 }

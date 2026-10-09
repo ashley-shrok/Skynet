@@ -29,6 +29,17 @@ export function InstanceWideSyncStatus({ item }: { item: InstanceWideItem }): JS
   const [open, setOpen] = useState(false);
   const summary = syncSummary(item);
   if (!summary) return null;
+  // Non-admins get counts only (no per-host detail), so nothing to open.
+  if (item.hosts.length === 0) {
+    return (
+      <span
+        data-testid="instance-wide-sync-warning"
+        className="shrink-0 whitespace-nowrap text-[11px] px-2 py-0.5 rounded-full text-[#fde7c2] bg-[rgba(200,130,40,0.30)] border border-[rgba(230,160,70,0.5)]"
+      >
+        {summary}
+      </span>
+    );
+  }
   return (
     <div className="relative shrink-0">
       <button

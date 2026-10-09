@@ -36,6 +36,12 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 // stub @mdxeditor/editor with a real <textarea data-testid="mdxeditor"> that
 // wires props.onChange to the DOM change event — same shape used at
 // RoleFileTab.test.tsx and MarkdownEditor.test.tsx (RESEARCH §Pitfall 5).
+// Instance-wide list: none (keeps these tests off the network).
+vi.mock("@/api/instance-wide-api", async (importOriginal) => {
+  const orig = (await importOriginal()) as Record<string, unknown>;
+  return { ...orig, listInstanceWide: vi.fn().mockResolvedValue({ isAdmin: false, items: [] }) };
+});
+
 vi.mock("@mdxeditor/editor", () => ({
   MDXEditor: (props: {
     markdown: string;
