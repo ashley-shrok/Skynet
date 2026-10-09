@@ -20,7 +20,7 @@ Skills feel like actions you take in the app, not text you type — the same way
 
 ## Other work
 
-- Voice: multi-word "slash <name>" not landing as the dashed command. Matcher already joins words with dashes against the box's skill list, so the failure is elsewhere — leading hypothesis: transcription renders spoken "slash" as a literal "/" and bypasses the matcher. Investigate (record a test phrase, see what comes back), then fix the right layer — open
+- Voice: "slash <multi-word name>" — the matcher already joined dashed names; the user scoped the fix to STT writing a literal "/" for spoken "slash". Gate widened to accept a leading "/" (fix-voice-slash-char.closed.md) — done
 
 ## Lingerers (explicitly approved)
 

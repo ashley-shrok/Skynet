@@ -234,3 +234,50 @@ describe("applyServerSlashTransform — matches from CONTEXT.md § Specific Idea
     expect(result.command).toBe(null);
   });
 });
+
+// fix-voice-slash-char (2026-10-09): some STT providers render the spoken
+// word "slash" as a literal "/" — the same matcher must apply.
+describe("applyServerSlashTransform — literal '/' from STT", () => {
+  const LR = new Set(["light-review", "gsd-quick", "gsd", "queue"]);
+
+  it("'/light review' → '/light-review' (multi-word joined)", () => {
+    const r = applyServerSlashTransform("/light review", LR);
+    expect(r).toEqual({ transformed: "/light-review", matched: true, command: "/light-review" });
+  });
+
+  it("'/ light review' (space after the slash) → '/light-review'", () => {
+    expect(applyServerSlashTransform("/ light review", LR).transformed).toBe("/light-review");
+  });
+
+  it("'/Light Review.' (STT capitalisation + trailing period) → '/light-review'", () => {
+    expect(applyServerSlashTransform("/Light Review.", LR).transformed).toBe("/light-review");
+  });
+
+  it("'/gsd quick fix the login bug' keeps the verbatim tail", () => {
+    expect(applyServerSlashTransform("/gsd quick fix the login bug", LR).transformed).toBe(
+      "/gsd-quick fix the login bug",
+    );
+  });
+
+  it("'/light-review' (already dashed) is unchanged in effect", () => {
+    expect(applyServerSlashTransform("/light-review", LR).transformed).toBe("/light-review");
+  });
+
+  it("a leading '/' that matches no skill passes through byte-identical", () => {
+    const input = "/etc/hosts looks wrong";
+    expect(applyServerSlashTransform(input, LR)).toEqual({ transformed: input, matched: false, command: null });
+  });
+
+  it("bare '/' passes through", () => {
+    expect(applyServerSlashTransform("/", LR).matched).toBe(false);
+  });
+
+  it("mid-message '/' is not a trigger", () => {
+    const input = "use /light review later";
+    expect(applyServerSlashTransform(input, LR).transformed).toBe(input);
+  });
+
+  it("the spoken-word form still works alongside", () => {
+    expect(applyServerSlashTransform("slash light review", LR).transformed).toBe("/light-review");
+  });
+});

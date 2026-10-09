@@ -32,7 +32,7 @@
  *   the requires-content contract from the retired client-side
  *   composeIntentTransform.ts.
  *
- * - Punctuation-tolerance class `[\s.,;:!?\-]+` — used identically in the
+ * - Punctuation-tolerance class `[\s.,;:!?-]+` — used identically in the
  *   wake-word regex AND in the tokenizer split. Whisper habitually inserts
  *   commas/periods around "slash" ("slash. gsd status", "slash, bounty
  *   add a thing") and between the post-slash words; the class matches all
@@ -81,7 +81,7 @@
  *   explicitly because the matched prefix may consume the entire post-
  *   slash content).
  *
- * ReDoS note: the wake-word regex uses only a bounded `[\s.,;:!?\-]+`
+ * ReDoS note: the wake-word regex uses only a bounded `[\s.,;:!?-]+`
  *   punctuation class and a single unbounded `.*` inside a capture group
  *   with no nested quantifiers and no backreferences, so catastrophic
  *   backtracking is not a concern on chat-message-sized input. The
@@ -91,14 +91,19 @@
 
 /**
  * Front-anchored, punctuation-tolerant, case-insensitive "slash <content>"
- * wake-word gate. Verbatim from CONTEXT.md § Specific Ideas.
+ * wake-word gate. Originally verbatim from CONTEXT.md § Specific Ideas;
+ * widened 2026-10-09 (campaign skill-actions, fix-voice-slash-char) to also
+ * accept a literal leading "/" — some STT providers render the spoken word
+ * "slash" as the character, e.g. "/light review". After "/" the delimiter
+ * run is optional ("/light review" and "/ light review" both gate). A "/"
+ * whose words match no skill still passes through unchanged (step 5).
  *
  * Single capture group = the post-slash content (guaranteed non-empty by
  * the `\S.*` clause). Feed that capture into the tokenizer + matcher.
  *
  * See module JSDoc for the full invariant breakdown.
  */
-export const WAKE_WORD_REGEX = /^\s*slash[\s.,;:!?\-]+(\S.*)$/is;
+export const WAKE_WORD_REGEX = /^\s*(?:slash[\s.,;:!?-]+|\/[\s.,;:!?-]*)(\S.*)$/is;
 
 /**
  * Defensive cap on the prefix-join length. Real on-disk skill names are
@@ -131,7 +136,7 @@ export interface SlashTransformResult {
  * consumer below. Kept local (not exported) — it's an implementation
  * detail of the two-step (regex-gate then tokenize) pipeline.
  */
-const DELIMITER_CLASS_SPLIT = /[\s.,;:!?\-]+/;
+const DELIMITER_CLASS_SPLIT = /[\s.,;:!?-]+/;
 
 /**
  * Anchored delimiter-run matcher, used by the verbatim-tail consumer to
@@ -139,14 +144,14 @@ const DELIMITER_CLASS_SPLIT = /[\s.,;:!?\-]+/;
  * post-slash string. `y` flag = sticky (matches only at `lastIndex`), so
  * we can advance a cursor without allocating substrings.
  */
-const DELIMITER_RUN_ANCHORED = /[\s.,;:!?\-]+/y;
+const DELIMITER_RUN_ANCHORED = /[\s.,;:!?-]+/y;
 
 /**
  * Anchored non-delimiter-run matcher, used by the verbatim-tail consumer
  * to skip a single token at a specific offset in the original post-slash
  * string. Same `y` flag semantics.
  */
-const TOKEN_RUN_ANCHORED = /[^\s.,;:!?\-]+/y;
+const TOKEN_RUN_ANCHORED = /[^\s.,;:!?-]+/y;
 
 /**
  * Pure server-side "slash <skill-name> <args>" matcher.
