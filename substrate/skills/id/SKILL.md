@@ -808,8 +808,8 @@ crown, then gear.
   - **Log out** — signs the user out of the app. Pinned to the bottom of
     the modal's section list.
 
-- **Side-list modals on a phone.** Preferences, Skills and the runbook
-  editor list their sections/files down the left on desktop. On a phone
+- **Side-list modals on a phone.** Preferences, Admin, Skills and the
+  runbook editor list their sections/files down the left on desktop. On a phone
   they drill in instead: the list fills the screen, tapping an item opens
   it full screen with a back arrow (‹ Preferences / ‹ Files) to return.
 

@@ -23,7 +23,7 @@ import {
   ModalBody,
   ModalFoot,
   ModalHead,
-  ModalTabs,
+  ModalSidebar,
   type ModalTabDef,
 } from "@/components/modal";
 import { Switch } from "@/components/switch";
@@ -117,27 +117,31 @@ export default function AdminUserModal({
           )
         }
       />
-      <ModalTabs<UserTab>
+      {/* Side list on desktop, drill-in on mobile — same shape as the
+          Admin modal behind it. */}
+      <ModalSidebar<UserTab>
         tabs={TABS}
         value={tab}
         onValueChange={setTab}
         testIdPrefix="admin-user-tab"
-      />
-      <ModalBody className="p-0">
-        {user && tab === "account" && (
-          <AccountTab
-            user={user}
-            isSelf={user.id === currentUserId}
-            adminCount={adminCount}
-            onUserChanged={onUserChanged}
-            onUserDeleted={onUserDeleted}
-          />
-        )}
-        {user && tab === "sessions" && (
-          <SessionsTab user={user} isSelf={user.id === currentUserId} />
-        )}
-        {user && tab === "hosts" && <HostsTab user={user} />}
-      </ModalBody>
+        backLabel={user?.username ?? "User"}
+      >
+        <ModalBody className="p-0">
+          {user && tab === "account" && (
+            <AccountTab
+              user={user}
+              isSelf={user.id === currentUserId}
+              adminCount={adminCount}
+              onUserChanged={onUserChanged}
+              onUserDeleted={onUserDeleted}
+            />
+          )}
+          {user && tab === "sessions" && (
+            <SessionsTab user={user} isSelf={user.id === currentUserId} />
+          )}
+          {user && tab === "hosts" && <HostsTab user={user} />}
+        </ModalBody>
+      </ModalSidebar>
       <ModalFoot>
         <AdminButton onClick={() => onOpenChange(false)}>Close</AdminButton>
       </ModalFoot>
