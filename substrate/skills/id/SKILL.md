@@ -712,9 +712,9 @@ not something agents drive.
     Duplicate slug = error.
     *Agent-side:* a project is just a folder on disk at
     `~/fleet/projects/<slug>/` containing a `project.md` with `displayName:`
-    frontmatter. Direct filesystem creation works (`mkdir` + write the file)
-    but bypasses the wire event, so open frontends won't see it appear until
-    they refresh or the periodic sweep picks it up. **User-gated.**
+    frontmatter. Direct filesystem creation works (`mkdir` + write the file);
+    open frontends pick it up on the next fleet-status sweep, within a few
+    seconds. **User-gated.**
   Each project is expandable and collapsible. Drag conversations in and
   out to move them. Each project header carries a **kebab menu** with:
   - **New conversation in this project** — auto-assigns the spawned
