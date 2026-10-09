@@ -16,6 +16,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 vi.mock("@/api/user-preferences-api", () => ({
   // Phase 92 Plan 04: getPinnedIds retired.
   putPinnedIds: vi.fn().mockResolvedValue([]),
+  setIdentityPinned: vi.fn().mockResolvedValue(undefined),
 }));
 
 import {

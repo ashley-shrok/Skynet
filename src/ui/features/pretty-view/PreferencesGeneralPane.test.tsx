@@ -22,6 +22,7 @@ vi.mock("@/api/user-preferences-api", () => ({
   uploadUserAvatar: vi.fn(),
   removeUserAvatar: vi.fn(),
   putPinnedIds: vi.fn(),
+  setIdentityPinned: vi.fn().mockResolvedValue(undefined),
   toBareIdentityKey: vi.fn((id: string) => id),
 }));
 

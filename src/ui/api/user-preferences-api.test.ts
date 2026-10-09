@@ -200,3 +200,23 @@ describe("Phase 115 Plan 115-02 — putHiddenIds retired", () => {
     expect(surface.getHiddenIds).toBeUndefined();
   });
 });
+
+describe("setIdentityPinned", () => {
+  beforeEach(() => {
+    vi.mocked(authApi.put).mockReset();
+  });
+
+  it("PUTs /identities/:key/pinned with { hostId, pinned }", async () => {
+    vi.mocked(authApi.put).mockResolvedValueOnce({ data: { pinned: true } });
+    await UserPreferencesApi.setIdentityPinned("tina", 3, true);
+    expect(authApi.put).toHaveBeenCalledWith("/identities/tina/pinned", {
+      hostId: 3,
+      pinned: true,
+    });
+  });
+
+  it("rejects when the request fails", async () => {
+    vi.mocked(authApi.put).mockRejectedValueOnce(new Error("boom"));
+    await expect(UserPreferencesApi.setIdentityPinned("tina", 3, false)).rejects.toThrow();
+  });
+});

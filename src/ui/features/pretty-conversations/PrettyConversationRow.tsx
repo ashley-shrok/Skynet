@@ -219,7 +219,9 @@ export function PrettyConversationRow({
   pinned: boolean;
   variant: "mobile" | "desktop";
   onSelect: () => void;
-  onTogglePin: () => void;
+  // Omitted for rows that can't be pinned (relay rooms, non-identity
+  // terminals — no `.pinned` sentinel to write); the Pin item is then hidden.
+  onTogglePin?: () => void;
   // quick-260727-gm3: fired when user clicks the red-tinted Deactivate
   // menu item (desktop right-click OR mobile long-press). MUST be provided by
   // the panel whenever inActiveSet === true — otherwise the menu item is
@@ -554,11 +556,13 @@ export function PrettyConversationRow({
   // (Pin / Open in new window / Move to project / Kill / Archive).
   const kebabItems = ((): RowKebabMenuItem[] => {
     const items: RowKebabMenuItem[] = [];
-    items.push({
-      label: pinned ? "Unpin" : "Pin",
-      onClick: onTogglePin,
-      testId: "pv-row-kebab-item-pin",
-    });
+    if (onTogglePin) {
+      items.push({
+        label: pinned ? "Unpin" : "Pin",
+        onClick: onTogglePin,
+        testId: "pv-row-kebab-item-pin",
+      });
+    }
     // Open in new window — desktop-only, only when the row is URL-
     // addressable (specForTab produces a spec). Window.open without
     // "noopener" so we can detect popup-blocker returns null.

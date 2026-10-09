@@ -184,6 +184,7 @@ vi.mock("@/api/user-preferences-api", () => ({
   // Phase 92 Plan 04: getPinnedIds retired.
   // (Phase 115 Plan 115-02: putHiddenIds retired per D-21.)
   putPinnedIds: vi.fn().mockResolvedValue([]),
+  setIdentityPinned: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("@/state/session-working-store", () => ({

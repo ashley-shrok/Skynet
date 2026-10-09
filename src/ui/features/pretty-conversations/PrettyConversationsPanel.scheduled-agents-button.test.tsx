@@ -96,6 +96,7 @@ vi.mock("@/api/session-project-api", () => ({
 
 vi.mock("@/api/user-preferences-api", () => ({
   putPinnedIds: vi.fn().mockResolvedValue([]),
+  setIdentityPinned: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("@/state/session-working-store", () => ({

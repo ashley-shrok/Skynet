@@ -436,6 +436,7 @@ vi.mock("@/state/app-tiles-store", () => ({
 //  alongside the backend HIDDEN FANOUT block removal.)
 vi.mock("@/api/user-preferences-api", () => ({
   putPinnedIds: vi.fn().mockResolvedValue([]),
+  setIdentityPinned: vi.fn().mockResolvedValue(undefined),
 }));
 
 // Phase 115 Plan 115-06 (D-01, D-17): archiveIdentity mock — panel's
@@ -1118,9 +1119,16 @@ describe("PrettyConversationsPanel: deactivate action (quick-260727-gm3)", () =>
       activeSet: [],
       pinned: [],
       middle: [
-        makeConversationRow({ id: "active-1", label: "active-session", host: hostA }),
+        makeConversationRow({
+          id: "active-1",
+          label: "active-session",
+          host: hostA,
+          targetTmuxSession: "active-session",
+        }),
       ],
     });
+    // Pin is offered only on identity rows — seed the identity behind it.
+    mockIdentitiesByKey = new Map([["active-session", { identityKey: "active-session" }]]);
     // The row's inActiveSet prop is driven by useActiveSet (mockActiveSet).
     mockActiveSet = new Set<string>(["active-1"]);
 
@@ -1154,6 +1162,33 @@ describe("PrettyConversationsPanel: deactivate action (quick-260727-gm3)", () =>
     expect(
       within(menu).queryByRole("menuitem", { name: /deactivate/i }),
     ).toBeNull();
+  });
+
+  it("Test 20A2: a non-identity row (no identity behind its tmux session) offers NO Pin item", async () => {
+    const hostA = makeHost("h1", "hostA");
+    setSnapshot({
+      activeSet: [],
+      pinned: [],
+      middle: [
+        makeConversationRow({
+          id: "plain-1",
+          label: "plain-shell",
+          host: hostA,
+          targetTmuxSession: "plain-shell",
+        }),
+      ],
+    });
+    // Non-empty identities map (gate open) that does NOT contain plain-shell.
+    mockIdentitiesByKey = new Map([["someone-else", { identityKey: "someone-else" }]]);
+
+    const { container } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+    const rowEl = container.querySelector('[data-conversation-id="plain-1"]');
+    const body = rowEl!.querySelector('[role="button"]') as HTMLElement;
+    await openRowKebabInBody(body);
+    const menu = screen.getByRole("menu");
+    expect(within(menu).queryByRole("menuitem", { name: /^pin$/i })).toBeNull();
   });
 
   it("Test 20B: desktop ambient (non-active-set) row renders NO deactivate-action", () => {
@@ -1355,6 +1390,7 @@ describe("PrettyConversationsPanel: active-set fleet-shadow-id pinned recognitio
       middle: [activeRow],
       pinnedIds: new Set(),
     });
+    mockIdentitiesByKey = new Map([["alpha", { identityKey: "alpha" }]]);
     mockActiveSet = new Set<string>(["active-alpha"]);
 
     const { container } = render(

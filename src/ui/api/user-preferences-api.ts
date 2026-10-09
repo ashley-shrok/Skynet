@@ -41,6 +41,27 @@ export function toBareIdentityKey(id: string): string {
   return id;
 }
 
+/**
+ * Pin or unpin ONE identity — PUT /identities/:key/pinned writes/removes that
+ * identity's `.pinned` sentinel on its host. This is the pin/unpin click path;
+ * it replaces the whole-set putPinnedIds write, which let a stale tab clobber
+ * another tab's pins and 400'd entirely on any unmappable id.
+ */
+export async function setIdentityPinned(
+  identityKey: string,
+  hostId: number,
+  pinned: boolean,
+): Promise<void> {
+  try {
+    await authApi.put(`/identities/${encodeURIComponent(identityKey)}/pinned`, {
+      hostId,
+      pinned,
+    });
+  } catch (error) {
+    throw new Error(handleApiError(error));
+  }
+}
+
 export async function putPinnedIds(
   ids: string[],
   identityHosts: Record<string, number>,

@@ -426,7 +426,7 @@ function PrettyConversationRowLive(props: {
   pinned: boolean;
   variant: "mobile" | "desktop";
   onSelect: () => void;
-  onTogglePin: () => void;
+  onTogglePin?: () => void;
   // quick-260727-gm3: forwarded verbatim to PrettyConversationRow. Only
   // wired at render sites where the row can be in the active-set (active-
   // set group, pinned group, non-RDP grouped block). RDP sentinel omits
@@ -1635,6 +1635,28 @@ export function PrettyConversationsPanel({
   // pinned, remove BOTH; if NEITHER, pin the canonical (fleet-synthetic
   // when host+targetTmuxSession are available so the pin survives openTab
   // id churn across URL-restores).
+  // Pin writes an identity's `.pinned` sentinel, so only identity rows are
+  // pinnable — relay rooms and plain terminals have nothing to persist (and a
+  // non-identity id in the pin set used to fail every later pin write).
+  // Resolved through refs so the drop handler's useCallback stays stable.
+  const isIdentityRow = (p: {
+    host?: { id: string } | null;
+    targetTmuxSession?: string | null;
+  }): boolean => {
+    if (!p.host || !p.targetTmuxSession) return false;
+    const matchKey = sessionMatchKey(p.targetTmuxSession);
+    if (matchKey === null) return false;
+    const hostIdNum = parseInt(p.host.id, 10);
+    return (
+      (Number.isFinite(hostIdNum) &&
+        identitiesByHostKeyRef.current?.get(`${hostIdNum}::${matchKey}`) !== undefined) ||
+      identitiesByKeyRef.current?.get(matchKey) !== undefined
+    );
+  };
+  // Pinned non-identity rows (legacy pins from before the gate) keep Unpin.
+  const togglePinFor = (row: ConversationRowShape): (() => void) | undefined =>
+    isIdentityRow(row) || isRowPinned(row) ? () => handleTogglePin(row) : undefined;
+
   const handleTogglePin = (row: ConversationRowShape) => {
     // (Phase 115 Plan 115-02: prior "unhide-before-pin" side effect retired
     //  per D-21 alongside the Hide affordance. Once 115-06 lands the Archive
@@ -2356,6 +2378,7 @@ export function PrettyConversationsPanel({
       const openTabPinned = pinnedIds.has(p.id);
       const shadowPinned = shadowFleetId !== null && pinnedIds.has(shadowFleetId);
       if (openTabPinned || shadowPinned) return; // already pinned — no-op
+      if (!isIdentityRow(p)) return; // non-identity rows aren't pinnable
       e.preventDefault();
       e.stopPropagation();
       const targetId = shadowFleetId ?? p.id;
@@ -3047,7 +3070,7 @@ export function PrettyConversationsPanel({
                     pinned={true}
                     variant={variant}
                     onSelect={() => handleRowSelect(row)}
-                    onTogglePin={() => handleTogglePin(row)}
+                    onTogglePin={togglePinFor(row)}
                     onDeactivate={() => handleRowDeactivate(row)}
                     onKill={() => handleRowKill(row)}
                     onArchive={
@@ -3148,7 +3171,7 @@ export function PrettyConversationsPanel({
                             pinned={isRowPinned(row)}
                             variant={variant}
                             onSelect={() => handleRowSelect(row)}
-                            onTogglePin={() => handleTogglePin(row)}
+                            onTogglePin={togglePinFor(row)}
                             onDeactivate={() => handleRowDeactivate(row)}
                             onKill={() => handleRowKill(row)}
                             onArchive={
@@ -3245,7 +3268,7 @@ export function PrettyConversationsPanel({
                     pinned={isRowPinned(row)}
                     variant={variant}
                     onSelect={() => handleRowSelect(row)}
-                    onTogglePin={() => handleTogglePin(row)}
+                    onTogglePin={togglePinFor(row)}
                     onDeactivate={() => handleRowDeactivate(row)}
                     onKill={() => handleRowKill(row)}
                     onArchive={

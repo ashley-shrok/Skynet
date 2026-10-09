@@ -59,6 +59,7 @@ import type { Socket as NetSocket } from "node:net";
 import identityAvatarBatchRoutes from "./routes/identity-avatar-batch.js";
 import identityExistsOnHostRoutes from "./routes/identity-exists-on-host.js";
 import identityNoDormancyRoutes from "./routes/identity-no-dormancy.js";
+import identityPinRoutes from "./routes/identity-pin.js";
 // Phase 115 Plan 115-03 (D-17): user-initiated archive — POST
 // /identities/:key/archive drops the `.archive-requested` sentinel on the
 // identity's host. Mounted BEFORE the generic /identities router so the
@@ -2091,6 +2092,9 @@ app.use("/identities", identityExistsOnHostRoutes);
 // the generic /identities router so /:key/no-dormancy resolves here and does
 // not fall through to identitiesRoutes's /:id routes.
 app.use("/identities", identityNoDormancyRoutes);
+// Single-identity .pinned toggle (PUT /identities/:key/pinned) — same
+// mount-before-generic discipline as no-dormancy.
+app.use("/identities", identityPinRoutes);
 // Phase 115 Plan 115-03 (D-17): user-initiated archive endpoint — POST
 // /identities/:key/archive drops `.archive-requested` on the identity's host
 // via the per-identity-file primitive. Mounted alongside the sibling

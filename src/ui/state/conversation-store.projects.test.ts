@@ -31,6 +31,7 @@ import { renderHook, act } from "@testing-library/react";
 // imports from @/api/user-preferences-api on pin/unpin. Hoisted vi.mock.
 vi.mock("@/api/user-preferences-api", () => ({
   putPinnedIds: vi.fn().mockResolvedValue([]),
+  setIdentityPinned: vi.fn().mockResolvedValue(undefined),
 }));
 
 import {

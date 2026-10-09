@@ -49,7 +49,7 @@
 
 import { useSyncExternalStore } from "react";
 import type { Host, HostFolder, Tab, TabType } from "@/types/ui-types";
-import { putPinnedIds } from "@/api/user-preferences-api";
+import { setIdentityPinned } from "@/api/user-preferences-api";
 import type { Identity } from "@/api/identities-api";
 import { sessionMatchKey } from "@/features/terminal/session-hue";
 import {
@@ -2269,61 +2269,81 @@ function syncIdentityFlagAfterWrite(
   patchIdentityFlag(identityKey, hostId, field, value);
 }
 
-export function pinConversation(id: string): void {
-  if (state.pinnedIds.has(id)) return; // already pinned — no-op
-  // Patch #149 (A): the pre-#149 defense-in-depth guard rejected any id
-  // not present in state.openTabs, which silently no-op'd pin clicks on
-  // every fleet-derived row (~26 of 32 in user's normal panel). Mock v4
-  // treats all non-RDP rows uniformly — the row-level render only excludes
-  // RDP rows from the pin affordance, so any id that reaches this function
-  // is legitimately pinnable. An orphaned pin id (session gone) is inert:
-  // computeSnapshot's pinned-section iteration skips ids without a matching
-  // row source, so no render damage.
+// In-flight pin intents: row id → { pinned, seq }. A pin/unpin is optimistic,
+// but the panel's disk-recompute effect (hydratePinnedIdsFromServer) can fire
+// mid-request from an identities-store that hasn't seen the write yet — and
+// would revert the click (flicker) until the request lands. Hydrate overlays
+// these intents on its input. Cleared when the request settles; `seq` makes a
+// superseded settle (pin then quick unpin) a no-op.
+const pendingPinIntents = new Map<string, { pinned: boolean; seq: number }>();
+let pinIntentSeq = 0;
+
+// Resolve a pin row id to the identity it targets. Fleet-synthetic ids carry
+// the host; bare/legacy ids fall back to the fleet-session host map. Returns
+// null for anything that isn't an identity (relay rooms, plain terminals) —
+// those have no `.pinned` sentinel to write.
+function resolvePinTarget(id: string): { identityKey: string; hostId: number } | null {
+  const parsed = parseFleetRowId(id);
+  const identityKey = parsed.identityKey.toLowerCase();
+  const hostId =
+    parsed.hostId ?? buildIdentityHostsFromFleet(state.fleetSessions)[identityKey] ?? null;
+  if (hostId === null) return null;
+  return { identityKey, hostId };
+}
+
+function setPinnedLocal(id: string, pinned: boolean): void {
+  if (state.pinnedIds.has(id) === pinned) return;
   const nextPinnedIds = new Set(state.pinnedIds);
-  nextPinnedIds.add(id);
-  // Phase 15: fire-and-forget server write. Failures leave the optimistic
-  // pin in place; the next pin/unpin OR next panel mount reconciles from
-  // server. Mirrors addToActiveSet's silent-catch pattern at L713-722.
-  //
-  // Phase 92 Plan 04 (H2 identityHosts lock): identityHosts is sourced from
-  // buildIdentityHostsFromFleet (identities-store.ts:74-85) which uses
-  // sessionMatchKey — correctly skips relay-room sessions (sessionName ===
-  // undefined) and any future non-identity harness sessions. Do NOT replace
-  // with an inline `fleetSessions.map(s => [s.sessionName.toLowerCase(),
-  // s.hostId])` pattern — that crashes on the undefined sessionName case.
-  const identityHosts = buildIdentityHostsFromFleet(state.fleetSessions);
-  // On success, mirror the write into identities-store so a subsequent
-  // PrettyConversationsPanel remount doesn't re-derive a stale pinnedIds
-  // set from the un-patched identities snapshot and clobber this local
-  // update (mobile list→session→list unmounts the panel — fern 2026-09-13).
-  // Fire-and-forget with async-rejection swallow. `void`d + try/catch would only
-  // catch synchronous throws; putPinnedIds is async so rejections propagate as
-  // unhandled promise rejections. Optimistic update stands; retry on next mount
-  // or next pin/unpin. (Phase 107 code-review M3, fixed on the pin path.)
-  putPinnedIds([...nextPinnedIds], identityHosts)
-    .then(() => syncIdentityFlagAfterWrite(id, "pinned", true))
-    .catch(() => refreshIdentities().catch(() => {}));
+  if (pinned) nextPinnedIds.add(id);
+  else nextPinnedIds.delete(id);
   state = { ...state, pinnedIds: nextPinnedIds };
   persistPinnedIds();
   notify();
 }
 
+function writePin(id: string, pinned: boolean): void {
+  const target = resolvePinTarget(id);
+  if (target === null) {
+    // Not an identity (relay room, plain terminal, legacy tab id): there is
+    // no `.pinned` sentinel to write, so this pin is local-only. The row UI
+    // doesn't offer Pin for these rows; unpin still clears legacy pins.
+    console.info({ operation: "pin_local_only_non_identity", id, pinned });
+    setPinnedLocal(id, pinned);
+    return;
+  }
+  const seq = ++pinIntentSeq;
+  pendingPinIntents.set(id, { pinned, seq });
+  setPinnedLocal(id, pinned);
+  setIdentityPinned(target.identityKey, target.hostId, pinned)
+    .then(() => {
+      // Mirror into identities-store so a panel remount / re-derive agrees
+      // with the write (mobile list→session→list unmount — fern 2026-09-13).
+      syncIdentityFlagAfterWrite(id, "pinned", pinned);
+    })
+    .catch((err: unknown) => {
+      console.warn({
+        operation: "pin_write_failed",
+        id,
+        pinned,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      // Roll back — unless a newer click on this row already superseded us.
+      if (pendingPinIntents.get(id)?.seq === seq) setPinnedLocal(id, !pinned);
+      refreshIdentities().catch(() => {});
+    })
+    .finally(() => {
+      if (pendingPinIntents.get(id)?.seq === seq) pendingPinIntents.delete(id);
+    });
+}
+
+export function pinConversation(id: string): void {
+  if (state.pinnedIds.has(id)) return; // already pinned — no-op
+  writePin(id, true);
+}
+
 export function unpinConversation(id: string): void {
   if (!state.pinnedIds.has(id)) return; // not pinned — no-op
-  const nextPinnedIds = new Set(state.pinnedIds);
-  nextPinnedIds.delete(id);
-  // Phase 92 Plan 04 (H2 identityHosts lock): same helper as pinConversation
-  // above — buildIdentityHostsFromFleet is the SINGLE fleetSessions →
-  // identityHosts derivation site. Do not fork.
-  const identityHosts = buildIdentityHostsFromFleet(state.fleetSessions);
-  // Fire-and-forget with async-rejection swallow (see pinConversation comment
-  // above — Phase 107 code-review M3).
-  putPinnedIds([...nextPinnedIds], identityHosts)
-    .then(() => syncIdentityFlagAfterWrite(id, "pinned", false))
-    .catch(() => refreshIdentities().catch(() => {}));
-  state = { ...state, pinnedIds: nextPinnedIds };
-  persistPinnedIds();
-  notify();
+  writePin(id, false);
 }
 
 export function togglePinConversation(id: string): void {
@@ -2348,6 +2368,12 @@ export function hydratePinnedIdsFromServer(ids: string[]): void {
   // (the PrettyConversationsPanel hydrate effect) MUST guard empty derivations
   // at their own callsite. This function trusts its input.
   const nextPinnedIds = new Set(ids);
+  // Overlay in-flight pin/unpin clicks — the disk projection can't reflect
+  // them yet, and adopting it would flicker the row back.
+  for (const [id, intent] of pendingPinIntents) {
+    if (intent.pinned) nextPinnedIds.add(id);
+    else nextPinnedIds.delete(id);
+  }
   if (nextPinnedIds.size === state.pinnedIds.size) {
     let allSame = true;
     for (const id of nextPinnedIds) {
@@ -2750,6 +2776,7 @@ export function __resetPinnedIdsForTest(): void {
   } catch {
     // Silent.
   }
+  pendingPinIntents.clear();
   state = { ...state, pinnedIds: new Set<string>() };
   notify();
 }

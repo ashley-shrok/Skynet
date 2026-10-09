@@ -12,6 +12,7 @@ vi.mock("@/api/user-preferences-api", () => ({
   // that still references UserPreferencesApi.getPinnedIds surfaces as a
   // TypeError, which is the intended tripwire.
   putPinnedIds: vi.fn().mockResolvedValue([]),
+  setIdentityPinned: vi.fn().mockResolvedValue(undefined),
   // (Phase 115 Plan 115-02: prior putHiddenIds mock retired per D-21 alongside
   //  the source-code deletion of the same export.)
 }));
@@ -2238,80 +2239,49 @@ describe("conversation-store (patch #230 B): pinned tier surfaces fleet-shadow p
 // Tests 30j-30p (Phase 15): pinnedIds ↔ server persistence
 // ─────────────────────────────────────────────────────────────────────────────
 describe("conversation-store (Phase 15): pinnedIds ↔ server persistence", () => {
-  // Test 30j — pin fires PUT with the new post-mutation set (PIN-03).
-  it("30j: pinConversation(id) adds id to pinnedIds AND fires putPinnedIds with the post-mutation set", () => {
-    const hostA = makeHost("hA", "alpha");
-    act(() => {
-      updateHostTree({ name: "root", children: [hostA] });
-      updateOpenTabs([makeTab("t-A", "terminal", hostA)]);
-    });
+  // Test 30j — pin of an identity row fires the single-identity write.
+  it("30j: pinConversation(fleet id) adds id to pinnedIds AND fires setIdentityPinned(key, host, true)", () => {
+    const spy = vi.mocked(UserPreferencesApi.setIdentityPinned);
+    spy.mockClear();
 
-    const putSpy = vi.mocked(UserPreferencesApi.putPinnedIds);
-    putSpy.mockClear(); // isolate from any updateOpenTabs-driven noise
+    act(() => pinConversation("fleet::1::tina"));
 
-    act(() => pinConversation("t-A"));
-
-    // In-memory mutation happened
-    const snap = __getSnapshotForTest();
-    expect(snap.pinnedIds.has("t-A")).toBe(true);
-
-    // Server write fired exactly once with the post-mutation set.
-    // ordering guard: put must receive the post-mutation set (["t-A"]),
-    // NOT the pre-mutation set ([]) — a future refactor that swaps the
-    // compute-then-put ordering (putting stale state.pinnedIds instead
-    // of nextPinnedIds) would silently drift pins on the server. The
-    // assertion below MUST equal ["t-A"], not [].
-    //
-    // Phase 92 Plan 04: putPinnedIds now takes a SECOND argument
-    // (identityHosts) sourced from buildIdentityHostsFromFleet(state.fleetSessions).
-    // Since this test seeds no fleet sessions, the identityHosts arg is `{}`.
-    expect(putSpy).toHaveBeenCalledTimes(1);
-    expect(putSpy).toHaveBeenCalledWith(["t-A"], {});
+    expect(__getSnapshotForTest().pinnedIds.has("fleet::1::tina")).toBe(true);
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledWith("tina", 1, true);
   });
 
-  // Test 30k — unpin fires PUT with the reduced set (PIN-03).
-  it("30k: unpinConversation(id) removes id from pinnedIds AND fires putPinnedIds with the reduced set", () => {
-    const hostA = makeHost("hA", "alpha");
-    act(() => {
-      updateHostTree({ name: "root", children: [hostA] });
-      updateOpenTabs([makeTab("t-A", "terminal", hostA)]);
-    });
+  // Test 30k — unpin fires the single-identity write with pinned=false.
+  it("30k: unpinConversation(fleet id) removes id AND fires setIdentityPinned(key, host, false)", () => {
+    const spy = vi.mocked(UserPreferencesApi.setIdentityPinned);
+    act(() => pinConversation("fleet::1::tina"));
+    spy.mockClear();
 
-    const putSpy = vi.mocked(UserPreferencesApi.putPinnedIds);
+    act(() => unpinConversation("fleet::1::tina"));
 
-    // Pin first, then clear the spy so we count only the unpin write.
-    act(() => pinConversation("t-A"));
-    putSpy.mockClear();
-
-    act(() => unpinConversation("t-A"));
-
-    const snap = __getSnapshotForTest();
-    expect(snap.pinnedIds.has("t-A")).toBe(false);
-
-    // Server write fired once with the reduced (empty) set.
-    // Phase 92 Plan 04: second arg is identityHosts (empty here — no fleet).
-    expect(putSpy).toHaveBeenCalledTimes(1);
-    expect(putSpy).toHaveBeenCalledWith([], {});
+    expect(__getSnapshotForTest().pinnedIds.has("fleet::1::tina")).toBe(false);
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledWith("tina", 1, false);
   });
 
-  // Test 30l — idempotent no-op: pin on already-pinned id does NOT fire PUT.
-  it("30l: pinConversation(id) on an already-pinned id does NOT fire putPinnedIds (idempotent)", () => {
-    const hostA = makeHost("hA", "alpha");
-    act(() => {
-      updateHostTree({ name: "root", children: [hostA] });
-      updateOpenTabs([makeTab("t-A", "terminal", hostA)]);
-    });
+  // Test 30l — idempotent no-op: pin on already-pinned id does NOT write.
+  it("30l: pinConversation(id) on an already-pinned id does NOT fire a write (idempotent)", () => {
+    const spy = vi.mocked(UserPreferencesApi.setIdentityPinned);
+    act(() => pinConversation("fleet::1::tina"));
+    spy.mockClear();
 
-    const putSpy = vi.mocked(UserPreferencesApi.putPinnedIds);
+    act(() => pinConversation("fleet::1::tina"));
 
-    // First pin fires the write; clear the spy to isolate the second call.
-    act(() => pinConversation("t-A"));
-    putSpy.mockClear();
+    expect(spy).toHaveBeenCalledTimes(0);
+  });
 
-    // Second pin on the same id — early-return before the network call.
-    act(() => pinConversation("t-A"));
-
-    expect(putSpy).toHaveBeenCalledTimes(0);
+  // Test 30l2 — non-identity ids are local-only (no sentinel to write).
+  it("30l2: a non-identity id (no host mapping) pins locally without any server write", () => {
+    const spy = vi.mocked(UserPreferencesApi.setIdentityPinned);
+    spy.mockClear();
+    act(() => pinConversation("relay::!room:hs"));
+    expect(__getSnapshotForTest().pinnedIds.has("relay::!room:hs")).toBe(true);
+    expect(spy).toHaveBeenCalledTimes(0);
   });
 
   // Test 30m — hydrate replaces stale in-memory pins with server-authoritative set (PIN-04 partial).
@@ -2348,26 +2318,67 @@ describe("conversation-store (Phase 15): pinnedIds ↔ server persistence", () =
     expect(putSpy).toHaveBeenCalledTimes(0);
   });
 
-  // Test 30n — server error does not roll back the optimistic pin (PIN-05).
-  it("30n: putPinnedIds rejection does NOT roll back the optimistic pin (retry-on-next-sync)", async () => {
-    const hostA = makeHost("hA", "alpha");
-    act(() => {
-      updateHostTree({ name: "root", children: [hostA] });
-      updateOpenTabs([makeTab("t-A", "terminal", hostA)]);
+  // Test 30n — a failed write rolls the optimistic pin back.
+  it("30n: setIdentityPinned rejection rolls back the optimistic pin", async () => {
+    const spy = vi.mocked(UserPreferencesApi.setIdentityPinned);
+    spy.mockRejectedValueOnce(new Error("network"));
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    act(() => pinConversation("fleet::1::tina"));
+    expect(__getSnapshotForTest().pinnedIds.has("fleet::1::tina")).toBe(true);
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
     });
 
-    const putSpy = vi.mocked(UserPreferencesApi.putPinnedIds);
-    putSpy.mockRejectedValueOnce(new Error("network"));
+    expect(__getSnapshotForTest().pinnedIds.has("fleet::1::tina")).toBe(false);
+    warnSpy.mockRestore();
+  });
 
-    act(() => pinConversation("t-A"));
+  // Test 30n2 — a disk re-derive mid-request must not revert the click.
+  it("30n2: hydratePinnedIdsFromServer during an in-flight pin keeps the pin (no flicker)", async () => {
+    const spy = vi.mocked(UserPreferencesApi.setIdentityPinned);
+    let resolveWrite: () => void = () => {};
+    spy.mockImplementationOnce(() => new Promise<void>((r) => { resolveWrite = r; }));
 
-    // Flush the microtask queue so the rejected promise settles before we assert.
-    await Promise.resolve();
-    await Promise.resolve();
+    act(() => pinConversation("fleet::1::tina"));
+    // Identities-store hasn't seen the write yet → its projection lacks it.
+    act(() => hydratePinnedIdsFromServer(["fleet::2::other"]));
 
-    const snap = __getSnapshotForTest();
-    // PIN-05 locked semantics: optimistic pin stays even though write failed.
-    expect(snap.pinnedIds.has("t-A")).toBe(true);
+    const mid = __getSnapshotForTest().pinnedIds;
+    expect(mid.has("fleet::1::tina")).toBe(true);
+    expect(mid.has("fleet::2::other")).toBe(true);
+
+    await act(async () => {
+      resolveWrite();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    // Settled: the intent overlay is gone, hydrate is authoritative again.
+    act(() => hydratePinnedIdsFromServer(["fleet::2::other"]));
+    expect(__getSnapshotForTest().pinnedIds.has("fleet::1::tina")).toBe(false);
+  });
+
+  // Test 30n3 — pin then quick unpin: the first write's late failure must
+  // not resurrect / flip the row.
+  it("30n3: a superseded write's failure does not roll back the newer click", async () => {
+    const spy = vi.mocked(UserPreferencesApi.setIdentityPinned);
+    let rejectFirst: (e: Error) => void = () => {};
+    spy.mockImplementationOnce(() => new Promise<void>((_, rej) => { rejectFirst = rej; }));
+    spy.mockResolvedValueOnce(undefined);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    act(() => pinConversation("fleet::1::tina"));
+    act(() => unpinConversation("fleet::1::tina"));
+    await act(async () => {
+      rejectFirst(new Error("late"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(__getSnapshotForTest().pinnedIds.has("fleet::1::tina")).toBe(false);
+    warnSpy.mockRestore();
   });
 
   // Test 30o — same-content hydrate does not bump snapshotVersion.
@@ -2431,104 +2442,14 @@ describe("conversation-store (Phase 15): pinnedIds ↔ server persistence", () =
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Phase 92 Plan 04 Task 2 — STORE-92-* tests: identityHosts fanout companion
+// Pin target resolution — which (identityKey, hostId) a pin write targets.
 // ─────────────────────────────────────────────────────────────────────────────
-// Locks the H2 identityHosts derivation invariant at the pin toggle callsites.
-// The single source of truth for the fleetSessions → identityHosts map is
-// buildIdentityHostsFromFleet (identities-store.ts:74-85). pinConversation /
-// unpinConversation build the map via that helper and thread it into
-// putPinnedIds so the backend fanout (Plan 92-02) can route each .pinned
-// sentinel write to the correct host.
-
 import { buildIdentityHostsFromFleet } from "./identities-store.js";
 
-describe("Phase 92 Plan 04 — pin toggle passes identityHosts via buildIdentityHostsFromFleet", () => {
-  it("STORE-92-01: pinConversation passes identityHosts derived from state.fleetSessions", () => {
-    const hostA = makeHost("hA", "alpha");
-    act(() => {
-      updateHostTree({ name: "root", children: [hostA] });
-      updateOpenTabs([makeTab("fleet::1::tina", "terminal", hostA)]);
-      // Seed a fleet session that maps identityKey "tina" → hostId 1.
-      updateFleetSessions([
-        { hostId: 1, hostName: "alpha", sessionName: "tina", created: 100, role: null },
-      ]);
-    });
-
-    const putSpy = vi.mocked(UserPreferencesApi.putPinnedIds);
-    putSpy.mockClear();
-
-    act(() => pinConversation("fleet::1::tina"));
-
-    expect(putSpy).toHaveBeenCalledTimes(1);
-    // Second arg carries the identityHosts map — { tina: 1 }.
-    expect(putSpy).toHaveBeenCalledWith(
-      ["fleet::1::tina"],
-      { tina: 1 },
-    );
-  });
-
-  it("STORE-92-02: unpinConversation passes identityHosts derived from state.fleetSessions", () => {
-    const hostA = makeHost("hA", "alpha");
-    act(() => {
-      updateHostTree({ name: "root", children: [hostA] });
-      updateOpenTabs([makeTab("fleet::1::tina", "terminal", hostA)]);
-      updateFleetSessions([
-        { hostId: 1, hostName: "alpha", sessionName: "tina", created: 100, role: null },
-      ]);
-    });
-
-    // Pin first so unpin has something to remove; clear spy to isolate the unpin.
-    act(() => pinConversation("fleet::1::tina"));
-    const putSpy = vi.mocked(UserPreferencesApi.putPinnedIds);
-    putSpy.mockClear();
-
-    act(() => unpinConversation("fleet::1::tina"));
-
-    expect(putSpy).toHaveBeenCalledTimes(1);
-    expect(putSpy).toHaveBeenCalledWith([], { tina: 1 });
-  });
-
-  it("STORE-92-03: identityHosts derivation matches buildIdentityHostsFromFleet(state.fleetSessions) byte-for-byte", () => {
-    const hostA = makeHost("hA", "alpha");
-    const hostB = makeHost("hB", "beta");
+describe("pin target resolution", () => {
+  it("bare identity id resolves its host via buildIdentityHostsFromFleet (relay-room sessions skipped, no crash)", () => {
     const fleet: FleetSession[] = [
-      { hostId: 1, hostName: "alpha", sessionName: "tina", created: 100, role: null },
-      { hostId: 2, hostName: "beta", sessionName: "user", created: 200, role: null },
-    ];
-    act(() => {
-      updateHostTree({ name: "root", children: [hostA, hostB] });
-      updateOpenTabs([makeTab("fleet::1::tina", "terminal", hostA)]);
-      updateFleetSessions(fleet);
-    });
-
-    const putSpy = vi.mocked(UserPreferencesApi.putPinnedIds);
-    putSpy.mockClear();
-
-    act(() => pinConversation("fleet::1::tina"));
-
-    // Compare against the SAME helper the identities-store uses. If the pin
-    // toggle callsite ever forks its derivation, this equality trips.
-    const expected = buildIdentityHostsFromFleet(fleet);
-    expect(expected).toEqual({ tina: 1, user: 2 });
-    expect(putSpy).toHaveBeenCalledWith(
-      ["fleet::1::tina"],
-      expected,
-    );
-  });
-
-  it("STORE-92-04 (H2 lock): relay-room sessions are skipped by sessionMatchKey; no crash on undefined sessionName", () => {
-    const hostA = makeHost("hA", "alpha");
-    // Mix of harness + relay-room. The relay-room entry has
-    // `sessionName === undefined` (per conversation-store.ts L710-731); a
-    // naive helper doing `sessionName.toLowerCase()` would crash here. The
-    // buildIdentityHostsFromFleet helper uses sessionMatchKey which returns
-    // null on empty/undefined sessionName → the entry is skipped cleanly.
-    const fleet: FleetSession[] = [
-      { hostId: 1, hostName: "alpha", sessionName: "tina", created: 100, role: null },
-      // Relay-room-shaped session — no hostId, no hostName, no sessionName.
-      // TypeScript's FleetSession union accepts this shape via the relay-room
-      // discriminant. Cast to satisfy the fixture builder without altering
-      // the type.
+      { hostId: 2, hostName: "beta", sessionName: "Tina", created: 100, role: null },
       {
         kind: "relay-room",
         id: "relay::!abc:matrix.org",
@@ -2536,38 +2457,21 @@ describe("Phase 92 Plan 04 — pin toggle passes identityHosts via buildIdentity
         roomTitle: "Test Room",
         lastActivityAt: null,
       } as unknown as FleetSession,
-      { hostId: 2, hostName: "beta", sessionName: "user", created: 300, role: null },
     ];
-    act(() => {
-      updateHostTree({ name: "root", children: [hostA] });
-      updateOpenTabs([makeTab("fleet::1::tina", "terminal", hostA)]);
-      updateFleetSessions(fleet);
-    });
+    act(() => updateFleetSessions(fleet));
+    expect(buildIdentityHostsFromFleet(fleet)).toEqual({ tina: 2 });
 
-    const putSpy = vi.mocked(UserPreferencesApi.putPinnedIds);
-    putSpy.mockClear();
+    const spy = vi.mocked(UserPreferencesApi.setIdentityPinned);
+    spy.mockClear();
+    expect(() => act(() => pinConversation("tina"))).not.toThrow();
+    expect(spy).toHaveBeenCalledWith("tina", 2, true);
+  });
 
-    // MUST NOT throw during derivation. The forbidden pattern
-    // `session.sessionName.toLowerCase()` would throw on the relay-room
-    // entry — proving that pattern is absent from the pin path.
-    expect(() => act(() => pinConversation("fleet::1::tina"))).not.toThrow();
-
-    expect(putSpy).toHaveBeenCalledTimes(1);
-    const [, actualIdentityHosts] = putSpy.mock.calls[0]!;
-
-    // Positive shape lock: map has the two harness entries + omits any key
-    // derived from the relay-room session.
-    expect(actualIdentityHosts).toEqual({ tina: 1, user: 2 });
-    // Anti-crash lock: no "undefined" key, no `undefined` value.
-    expect(Object.keys(actualIdentityHosts)).not.toContain("undefined");
-    for (const v of Object.values(actualIdentityHosts)) {
-      expect(v).not.toBeUndefined();
-      expect(typeof v).toBe("number");
-    }
-    // H2 byte-for-byte equality with the helper's own output.
-    expect(actualIdentityHosts).toEqual(
-      buildIdentityHostsFromFleet(fleet),
-    );
+  it("fleet id's own host wins and the key is lowercased", () => {
+    const spy = vi.mocked(UserPreferencesApi.setIdentityPinned);
+    spy.mockClear();
+    act(() => pinConversation("fleet::3::Wren"));
+    expect(spy).toHaveBeenCalledWith("wren", 3, true);
   });
 });
 

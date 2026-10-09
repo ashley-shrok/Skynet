@@ -19,6 +19,7 @@ vi.mock("@/api/user-preferences-api", () => ({
   // (Phase 115 Plan 115-02: prior putHiddenIds mock retired per D-21 alongside
   //  the source-code deletion of the same export.)
   putPinnedIds: vi.fn().mockResolvedValue([]),
+  setIdentityPinned: vi.fn().mockResolvedValue(undefined),
 }));
 
 import {

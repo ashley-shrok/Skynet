@@ -105,9 +105,11 @@ vi.mock("@/features/terminal/session-hue", () => ({
 
 const refreshIdentitiesSpy = vi.fn(async () => true);
 
+// Pin is offered only on identity rows; pin tests seed the identity here.
+let mockIdentitiesByKey = new Map<string, { identityKey: string }>();
 vi.mock("@/state/identities-store", () => ({
   useIdentities: () => ({
-    byKey: new Map(),
+    byKey: mockIdentitiesByKey,
     byHostKey: new Map(),
     identities: [],
     loaded: true,
@@ -307,6 +309,7 @@ vi.mock("@/state/viewing-user-store", () => ({
 
 vi.mock("@/api/user-preferences-api", () => ({
   putPinnedIds: vi.fn().mockResolvedValue([]),
+  setIdentityPinned: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("@/api/identity-archive-api", () => ({
@@ -554,6 +557,7 @@ function dispatchDrop(
 }
 
 beforeEach(() => {
+  mockIdentitiesByKey = new Map();
   cleanup();
   vi.clearAllMocks();
   setSnapshot({});
@@ -1121,6 +1125,7 @@ describe("PrettyConversationsPanel: CreateProjectModal wire (117-09 Task 1)", ()
 
 describe("PrettyConversationsPanel: pin-drop on Pinned zone", () => {
   it("PinDrop-1: drop unpinned row on Pinned zone fires pinConversation with shadowFleetId", () => {
+    mockIdentitiesByKey = new Map([["wren-session", { identityKey: "wren-session" }]]);
     const hostA = makeHost("1", "hostA");
     const middleRow = makeRow({
       id: "wren-row",
@@ -1161,6 +1166,35 @@ describe("PrettyConversationsPanel: pin-drop on Pinned zone", () => {
     // The mocked fleetRowId returns `fleet::${hostId}::${sessionName}`.
     expect(pinConversationSpy).toHaveBeenCalledWith("fleet::1::wren-session");
     expect(unpinConversationSpy).not.toHaveBeenCalled();
+  });
+
+  it("PinDrop-1b: dropping a non-identity row on Pinned zone does NOT pin", () => {
+    mockIdentitiesByKey = new Map();
+    const hostA = makeHost("1", "hostA");
+    setSnapshot({
+      middle: [makeRow({ id: "plain-row", host: hostA, targetTmuxSession: "plain-shell" })],
+      pinnedIds: new Set(),
+    });
+    const { container } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={HOST_TREE}
+        onCreateSession={() => {}}
+        onDeactivateRow={() => {}}
+      />,
+    );
+    const pinnedZone = container.querySelector('[data-pinned-group="true"]') as HTMLElement;
+    const dt = makeDataTransferStub({
+      "application/x-skynet-row": JSON.stringify({
+        id: "plain-row",
+        host: { id: "1" },
+        targetTmuxSession: "plain-shell",
+        rdpHostRow: false,
+      }),
+    });
+    dispatchDragOverAt(pinnedZone, 100, 20, dt);
+    dispatchDrop(pinnedZone, dt);
+    expect(pinConversationSpy).not.toHaveBeenCalled();
   });
 
   it("PinDrop-2: drop already-pinned row (via shadow id) on Pinned zone is a no-op", () => {
