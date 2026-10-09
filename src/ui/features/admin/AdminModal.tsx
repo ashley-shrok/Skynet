@@ -3,7 +3,7 @@
  * the sidebar footer. Only mounted for admins; every call it makes is
  * admin-gated on the backend regardless.
  *
- * Tabs:
+ * Sections (side list on desktop, drill-in on mobile):
  *   - Users:   every user; a row opens AdminUserModal for that user.
  *   - Sign-in: registration / password-reset policy and session timeout.
  *   - System:  version + update check, database health, log level.
@@ -20,7 +20,7 @@ import {
   ModalBody,
   ModalFoot,
   ModalHead,
-  ModalTabs,
+  ModalSidebar,
   type ModalTabDef,
 } from "@/components/modal";
 import { getUserList, type AdminUser } from "@/api/user-management-api";
@@ -91,25 +91,30 @@ export default function AdminModal({
         data-testid="admin-modal"
       >
         <ModalHead title="Admin" />
-        <ModalTabs<AdminTab>
+        {/* Side list on desktop, drill-in on mobile — same shape as
+            Preferences. ModalSidebar re-mounts with the modal, so every
+            open starts on the list on a phone. */}
+        <ModalSidebar<AdminTab>
           tabs={TABS}
           value={tab}
           onValueChange={setTab}
           testIdPrefix="admin-tab"
-        />
-        <ModalBody className="p-0">
-          {tab === "users" && (
-            <AdminUsersPane
-              users={users}
-              error={usersError}
-              currentUserId={currentUserId}
-              oidcInUse={oidcInUse}
-              onOpenUser={setSelectedUserId}
-            />
-          )}
-          {tab === "signin" && <AdminSignInPane oidcInUse={oidcInUse} />}
-          {tab === "system" && <AdminSystemPane />}
-        </ModalBody>
+          backLabel="Admin"
+        >
+          <ModalBody className="p-0">
+            {tab === "users" && (
+              <AdminUsersPane
+                users={users}
+                error={usersError}
+                currentUserId={currentUserId}
+                oidcInUse={oidcInUse}
+                onOpenUser={setSelectedUserId}
+              />
+            )}
+            {tab === "signin" && <AdminSignInPane oidcInUse={oidcInUse} />}
+            {tab === "system" && <AdminSystemPane />}
+          </ModalBody>
+        </ModalSidebar>
         <ModalFoot>
           <AdminButton
             data-testid="admin-close-foot"
