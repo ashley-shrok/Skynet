@@ -852,9 +852,8 @@ export function PrettyView({
   // loadOlderError: error string surfaced into LoadMoreOlderButton's aria-
   //   label when loadOlderState === "error"; null otherwise.
   // sessionTotalLines: total JSONL line-count captured from the widened
-  //   `session` frame (Plan 01 SessionMetaEvent.totalLines?). Drives the
-  //   button visibility gate: hasOlderMessages = sessionTotalLines != null
-  //   && sessionHasMore && sessionTotalLines > messages.length.
+  //   `session` frame (Plan 01 SessionMetaEvent.totalLines?). Diagnostic
+  //   only since 2026-10-09 (logged on click); no longer gates the button.
   // sessionHasMore: server-reported "there are still older lines behind
   //   this batch" — flipped false when a successful response carries
   //   hasMore: false; hides the button per Test 9 acceptance.
@@ -900,6 +899,11 @@ export function PrettyView({
   // Written inside setMessages updaters, which run before the render that
   // reads it.
   const capDroppedRef = useRef<boolean>(false);
+  // staleOlderBatchesRef: fetch_older_range_batch responses still owed for
+  // requests sent before a same-socket reset (session_changed). Responses
+  // arrive in request order on one WS, so the next N batches belong to the
+  // replaced transcript and are dropped instead of prepended.
+  const staleOlderBatchesRef = useRef<number>(0);
   const [status, setStatus] = useState<Status>("connecting");
   const [inactiveReason, setInactiveReason] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -1448,11 +1452,20 @@ export function PrettyView({
 
   // Back to the default cap-enforced state. Called wherever messages[] is
   // rebuilt from a fresh replay (pane switch, wire_boot on every WS
-  // attach/reconnect, session-file rotation) — a cursor or capOff carried
-  // across would point into a replaced transcript, leave the replay
-  // uncapped, or leave a spinner waiting on a response that died with the
-  // old WS.
-  const resetLoadOlderState = useCallback(() => {
+  // attach/reconnect, session-file rotation, session_changed) — a cursor or
+  // capOff carried across would point into a replaced transcript, leave the
+  // replay uncapped, or leave a spinner waiting on a response that died
+  // with the old WS.
+  //
+  // sameSocket: the WS survives the reset (session_changed), so a request
+  // in flight will still be answered — from the OLD transcript. Count it
+  // stale. Otherwise the socket is new and nothing old can arrive.
+  const resetLoadOlderState = useCallback((opts?: { sameSocket?: boolean }) => {
+    if (opts?.sameSocket) {
+      if (loadOlderInFlightRef.current) staleOlderBatchesRef.current += 1;
+    } else {
+      staleOlderBatchesRef.current = 0;
+    }
     setCapOff(false);
     capOffRef.current = false;
     setLoadOlderState("idle");
@@ -1460,7 +1473,14 @@ export function PrettyView({
     setSessionHasMore(true);
     setOldestLoadedLine(null);
     loadOlderInFlightRef.current = false;
-    capDroppedRef.current = false;
+    // Cleared through the messages queue, not directly: setMessages
+    // updaters queued before this reset (old-transcript frames that may
+    // cap-drop) run at the next render, AFTER a direct write, and would
+    // re-set the flag for the fresh transcript.
+    setMessages((prev) => {
+      capDroppedRef.current = false;
+      return prev;
+    });
   }, []);
 
   // Phase 35 — outbound-write callbacks registered with Terminal.tsx via the
@@ -2771,9 +2791,8 @@ export function PrettyView({
           // Session-info frame — flip to streaming; not rendered.
           setStatus("streaming");
           // Phase 47 (load-more button): capture the widened `totalLines`
-          // field (Plan 01 SessionMetaEvent.totalLines?). Drives the button
-          // visibility gate via hasOlderMessages = sessionTotalLines != null
-          // && sessionHasMore && sessionTotalLines > messages.length.
+          // field (Plan 01 SessionMetaEvent.totalLines?). Diagnostic only —
+          // see the hasOlderMessages gate for what drives the button.
           // Optional in the wire type for backward-compat with pre-Phase-47
           // backend builds; we only set state when a numeric value arrives
           // so the null default (fresh pane) is preserved for old backends.
@@ -2959,6 +2978,13 @@ export function PrettyView({
           break;
         }
         case "fetch_older_range_batch": {
+          if (staleOlderBatchesRef.current > 0) {
+            staleOlderBatchesRef.current -= 1;
+            console.info(
+              `[pv-load-more] stale-batch-dropped messagesLen=${parsed.messages.length} oldestLine=${parsed.oldestLine} hostId=${hostId} tmuxSession=${tmuxSession ?? 'null'}`,
+            );
+            break;
+          }
           // Phase 47 (load-more button) — server response to handleLoadOlder's
           // fetch_older_range send. Two paths:
           //
@@ -3287,7 +3313,7 @@ export function PrettyView({
           // (T-30-01 mitigation — no filesystem paths in reason); the
           // session_changed frame remains authoritative for the reset.
           setMessages([]);
-          resetLoadOlderState();
+          resetLoadOlderState({ sameSocket: true });
           setHarnessTasks([]);
           // Phase 90 Plan 00 Wave 0 (D-10 delivery mechanism) — contextPct
           // now lives on fleet-status; no local reset needed. Next
@@ -3967,8 +3993,13 @@ export function PrettyView({
   // every pane and the button lied (click → nothing older exists). Now:
   // before the first click, shown only if the cap actually dropped an older
   // frame from the full replay; after it, the server's hasMore decides.
+  // oldestLoadedLine guard: a click without a cursor > 1 is a no-op in
+  // handleLoadOlder (frames without `line`, or an old backend).
   const hasOlderMessages =
-    sessionHasMore && (capOff || capDroppedRef.current);
+    sessionHasMore &&
+    oldestLoadedLine !== null &&
+    oldestLoadedLine > 1 &&
+    (capOff || capDroppedRef.current);
 
   return (
     <div
@@ -4431,17 +4462,15 @@ export function PrettyView({
           // useAutoScroll owns scroll position exclusively (shape-file § Explicit ownership
           // LOCKED). Browser scroll-anchoring fighting explicit `scrollTop = scrollHeight`
           // writes was one of the six pitfalls named in shape-file § What would make it wrong.
-          // Load-more anchor preservation (the reason Phase 43 removed this) is deferred to
-          // the follow-on `load-more-scroll-and-order-corruption` bounty per Phase 70 § Scope
-          // edges Out-of-scope.
+          // Load-more anchor preservation is explicit too — capturePrependAnchor +
+          // the restore layout effect (bounty load-more-scroll-and-order-corruption).
           className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain [overflow-anchor:none] px-4 py-3"
         >
           {/* Phase 47 (load-more button) — mounted at the TOP of the scroll
               container, immediately above the messages.map. Visibility gate
               `hasOlderMessages` derived below matches CONTEXT.md § What would
-              make it wrong "no lie" invariant: only shown when the server has
-              signaled totalLines > messages.length AND hasMore. See truth
-              table in the plan's <behavior> block for boundary rows. Same
+              make it wrong "no lie" invariant: only shown when something older
+              than the view is known to exist (see the gate's comment). Same
               in-flow structural convention as the accessory siblings below
               (WipBubble/WaitingBubble/etc.) — plain child of the same scroll
               container, no position:absolute. */}

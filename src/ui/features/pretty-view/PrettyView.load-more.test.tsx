@@ -1160,4 +1160,77 @@ describe("PrettyView load-more button + cap-off + prepend behavior", () => {
       screen.getByRole("button", { name: /^Load older messages$/i }),
     ).toHaveProperty("disabled", false);
   });
+
+  it("Test 16: a load-more response owed from before session_changed is dropped, not prepended into the new transcript", async () => {
+    render(
+      <PrettyView
+        hostId={1}
+        tmuxSession="s1"
+        onSend={() => true}
+        isVisible={true}
+      />,
+    );
+    const ws = getCurrentWs();
+    flipToStreaming(ws, { totalLines: 100 });
+    fireMessageBatch(ws, 21, 80, (i) => ({
+      type: "message",
+      role: "assistant",
+      content: `old ${i}`,
+      eventId: `evt-oldsess-${i}`,
+      ts: 1_000_000 + i,
+    }));
+    await waitFor(() => {
+      expect(getBubbles().length).toBe(20);
+    });
+    act(() => {
+      fireEvent.click(
+        screen.getByRole("button", { name: /Load older messages/i }),
+      );
+    });
+
+    // Same-socket recycle onto a new session file, then its replay.
+    act(() => {
+      ws.onmessage?.(
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            type: "session_changed",
+            newSessionFile: "/tmp/y.jsonl",
+          }),
+        }),
+      );
+    });
+    fireMessageBatch(ws, 5, 1, (i) => ({
+      type: "message",
+      role: "assistant",
+      content: `new ${i}`,
+      eventId: `evt-newsess-${i}`,
+      ts: 3_000_000 + i,
+    }));
+    await waitFor(() => {
+      expect(getBubbles().length).toBe(5);
+    });
+
+    // The old session's response finally lands.
+    const olderBatch: Array<Record<string, unknown>> = [];
+    for (let i = 0; i < 20; i++) {
+      olderBatch.push({
+        type: "message",
+        role: "assistant",
+        content: `stale ${i}`,
+        eventId: `evt-stale-${i}`,
+        ts: 900_000 + i,
+        line: 61 + i,
+      });
+    }
+    fireLoadOlderResponse(ws, olderBatch, 61, true);
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    expect(getBubbles().length).toBe(5);
+    // Fresh 5-message transcript: nothing cap-dropped → no button.
+    expect(
+      screen.queryByRole("button", { name: /Load older messages/i }),
+    ).toBeNull();
+  });
 });

@@ -1876,10 +1876,9 @@ export const __handleIdentityDeleteWakeupForTests = handleIdentityDeleteWakeup;
 // `currentSessionFile` is read from `deps` (the dispatch branch captures it
 // from connection scope at L1845). Never accepted from the client payload.
 //
-// v1 skip-frame policy (LOCKED via Test 8 of the plan's test suite): skip
-// frames drop out, batch may be shorter than count. We do NOT re-read to
-// refill — additive behavior means clicking again works, and the client's
-// next `beforeLine` uses the batch's oldest visible line via `oldestLine`.
+// Skip-frame policy (v2, quick-260822-7no): skip frames drop out and the
+// handler refills from older slices until it holds `count` frames or
+// reaches line 1 — see the refill loop below.
 //
 // Reject-not-clamp (LOCKED via Test 4): count > 20 or < 1 emits an error
 // frame; matches Plan 01's reader-side 200-cap defense-in-depth and
@@ -2029,8 +2028,8 @@ export async function handleFetchOlderRange(
   }
 
   // ─ v2 refill policy (quick-260822-7no): parse + reshape each line via
-  //   the SHARED helper (Hunk A output), then KEEP READING older 20-line
-  //   slices until either the accumulator holds ≥20 non-skip wire frames
+  //   the SHARED helper (Hunk A output), then KEEP READING older slices
+  //   (REFILL_SLICE_LINES wide) until either the accumulator holds ≥20 non-skip wire frames
   //   OR the read cursor reaches startLine=1. Under v1 a single click on
   //   a skip-heavy JSONL (Sally's session was 88% skip) could return 0–4
   //   messages even though 20 non-skip messages existed further back —

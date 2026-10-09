@@ -201,11 +201,16 @@ export async function readSessionFileRange(
   // acceptance criterion counts call sites, and the redundancy documents
   // the T-47-01 defense-in-depth at every point of use.
   const cmd =
+    // `;<end>q` stops sed at the last wanted line instead of scanning the
+    // rest of the file — load-more reads walk toward the START of large
+    // JSONLs, so this is most of the file on most calls.
     "sed -n '" +
     startLine +
     "," +
     endLine +
-    "p' " +
+    "p;" +
+    endLine +
+    "q' " +
     shellEscape(sessionFilePath) +
     " && printf '\\n---TOTAL---\\n' && wc -l < " +
     shellEscape(sessionFilePath);

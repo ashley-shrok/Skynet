@@ -406,6 +406,10 @@ export function AppShell({
   // the loadSavedTabs effect at ~L906-1149 decodes and hydrates the tree
   // after tabs are materialized.
   const [splitTree, setSplitTree] = useState<SplitNode | null>(null);
+  // Committed-tree mirror for callbacks that must not close over a stale
+  // splitTree (replaceInTree's target-present check).
+  const splitTreeRef = useRef<SplitNode | null>(null);
+  splitTreeRef.current = splitTree;
   const [focusedTabId, setFocusedTabId] = useState<string | null>(null);
   // Coral drop-target preview for the empty-PV wrapper. The overlay owns
   // dragover/drop when splitTree === null (the SplitView Pane's own preview
@@ -2621,6 +2625,17 @@ export function AppShell({
 
   const replaceInTree = useCallback(
     (replacementTabId: string, targetTabId: string) => {
+      // Stale target (pane closed between drag start and drop): replaceLeaf
+      // would no-op, and selecting the replacement anyway would leave the
+      // selection outside the tree — the full-screen overlay this handler's
+      // selection exists to prevent.
+      if (findLeaf(splitTreeRef.current, targetTabId) === null) {
+        // eslint-disable-next-line no-console
+        console.info(
+          `[pv-split-drop] replace-skipped target-not-in-tree target=${targetTabId} with=${replacementTabId}`,
+        );
+        return;
+      }
       // eslint-disable-next-line no-console
       console.info(
         `[pv-split-drop] replace target=${targetTabId} with=${replacementTabId}`,
