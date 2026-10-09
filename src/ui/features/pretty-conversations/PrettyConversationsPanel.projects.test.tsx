@@ -1546,6 +1546,38 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
     expect(archiveProjectSpy.mock.invocationCallOrder[0]).toBeLessThan(idOrder);
   });
 
+  it("A9 Test 2a (open member pane): archiving the project closes a member's open pane", async () => {
+    const hostA = makeHost("1", "hostA");
+    const row1 = makeRow({ id: "r1", host: hostA, targetTmuxSession: "wren" });
+    const row2 = makeRow({ id: "r2", host: hostA, targetTmuxSession: "sparrow" });
+    setSnapshot({
+      projectSections: [{ slug: "alpha", displayName: "Alpha", rows: [row1, row2] }],
+    });
+    mockProjects = [
+      { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false },
+    ];
+    mockActiveSet = new Set(["r1"]);
+    confirmSpy.mockReturnValue(true);
+    const onDeactivateRow = vi.fn();
+
+    const { container } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={HOST_TREE}
+        onCreateSession={() => {}}
+        onDeactivateRow={onDeactivateRow}
+      />,
+    );
+    await openProjectKebabAndClickItem(container, "alpha", "Archive project");
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(onDeactivateRow).toHaveBeenCalledTimes(1);
+    expect(onDeactivateRow).toHaveBeenCalledWith(expect.objectContaining({ id: "r1" }));
+    expect(removeFromActiveSetSpy).toHaveBeenCalledWith("r1");
+    mockActiveSet = new Set();
+  });
+
   it("A9 Test 2b (folder move fails): NO member is archived and the user is alerted", async () => {
     const hostA = makeHost("1", "hostA");
     const row1 = makeRow({ id: "r1", host: hostA, targetTmuxSession: "wren" });

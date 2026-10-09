@@ -2581,6 +2581,10 @@ export function PrettyConversationsPanel({
       for (const r of identityMembers) {
         const parsed = hostForRow(r);
         if (!parsed) continue;
+        // Close the member's pane if open, as handleArchive does.
+        if (activeSetRef.current.has(r.id)) {
+          handleRowDeactivateRef.current(r);
+        }
         const undoRemove = optimisticArchiveRemove(parsed.hostId, parsed.sessionName, parsed.identityKey);
         ops.push(
           archiveIdentity(parsed.hostId, parsed.identityKey).catch((err: unknown) => {
