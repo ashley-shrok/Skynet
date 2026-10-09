@@ -96,6 +96,10 @@ SELF_EDIT_SETTLE_MS = int(os.environ.get("ROLE_WATCH_SELF_EDIT_SETTLE_MS", "200"
 CLAIM_MAX_SEC = int(os.environ.get("ROLE_WATCH_CLAIM_MAX_SEC", "600"))
 CLAIM_POLL_SEC = 0.1
 
+# Harness PID for the orphan check inside the claim hold (set in main()). The
+# hold can last as long as a tool call; a dead harness must still end us.
+_harness_pid = None
+
 # Module-level inotifywait subprocess handle so signal handlers can clean it up.
 _inotify_proc = None
 
@@ -419,7 +423,9 @@ def _wait_for_claim_release(target_path, baseline_path):
     Only drifted files wait, so an event on one target never holds another
     target that merely got claimed by a call that hasn't written it yet. The
     loop is single-threaded, so other events queue behind the hold — they
-    are delayed, never dropped."""
+    are delayed, never dropped: the hook's release step syncs only the files
+    the call claimed, so a queued peer edit to another file is still a diff
+    when we reach it."""
     current = _read_bytes(target_path)
     if current is None or current == _read_bytes(baseline_path):
         return
@@ -428,6 +434,11 @@ def _wait_for_claim_release(target_path, baseline_path):
         return
     started = time.time()
     while claims:
+        if _harness_pid is not None:
+            try:
+                os.kill(_harness_pid, 0)
+            except OSError:
+                sys.exit(0)
         time.sleep(CLAIM_POLL_SEC)
         claims = _live_claims(baseline_path)
     print(
@@ -438,7 +449,7 @@ def _wait_for_claim_release(target_path, baseline_path):
     )
 
 
-def _diff_and_emit(kind, label, target_path, baseline_dir, baseline_path, spill_dir):
+def _diff_and_emit(kind, label, target_path, baseline_dir, baseline_path, spill_dir, hold=True):
     """Compare current target file against its baseline; if different, emit event
     and update baseline. Returns True if target file is gone (caller should exit).
 
@@ -448,8 +459,11 @@ def _diff_and_emit(kind, label, target_path, baseline_dir, baseline_path, spill_
     what the hook recorded — if yes, silent baseline refresh, no emit; if no
     (marker absent, or content changed since hook ran), fall through to normal
     diff + emit. A changed file claimed by an in-flight tool call is held
-    first (see _wait_for_claim_release)."""
-    _wait_for_claim_release(target_path, baseline_path)
+    first (see _wait_for_claim_release) — except at cold start (hold=False):
+    claims surviving a watcher restart belong to calls we can't see finish,
+    and blocking there would delay arming inotifywait."""
+    if hold:
+        _wait_for_claim_release(target_path, baseline_path)
     if SELF_EDIT_SETTLE_MS > 0:
         time.sleep(SELF_EDIT_SETTLE_MS / 1000.0)
 
@@ -914,6 +928,8 @@ def main():
                         break
         except (OSError, ValueError):
             pass
+    global _harness_pid
+    _harness_pid = harness_pid
     if harness_pid is None:
         print(
             "role-file-watch: orphan-check disabled (couldn't resolve grandparent)",
@@ -937,7 +953,9 @@ def main():
             _atomic_write_baseline(baseline_dir, baseline_path, current)
             # Emit NOTHING to stdout on cold start (shape file "silent on cold start" invariant)
         else:
-            gone = _diff_and_emit(kind, label, target_path, baseline_dir, baseline_path, spill_dir)
+            gone = _diff_and_emit(
+                kind, label, target_path, baseline_dir, baseline_path, spill_dir, hold=False,
+            )
             if gone:
                 sys.exit(1)
 

@@ -36,6 +36,9 @@
 #           long Bash call" leak)
 #   T-S15 — watcher ignores a stale claim (older than ROLE_WATCH_CLAIM_MAX_SEC)
 #           and emits — interrupted calls can't mute the watcher
+#   T-S16 — a peer edit to an UNCLAIMED file during a held call still emits
+#           after release (release syncs only the call's own claims)
+#   T-S17 — UserPromptSubmit clears every claim (interrupt cleanup)
 #
 # Exits 0 on all-pass; 1 on any failure with a diagnostic naming the failing
 # test.
@@ -640,6 +643,21 @@ test_T_S13_claim_bash_by_name() {
     fail "T-S13: Bash naming no watched file still claimed something"
     return
   fi
+
+  # Names glued to a longer path/name are not the watched file.
+  hook_payload PreToolUse toolu_13d Bash '{"command":"cat old-s13name.md notes/s13name.md repo/skills/fleet-id/SKILL.md"}' \
+    | HOME="$HOME_DIR" FLEET_IDENTITY="s13name" bash "$SYNC_SCRIPT"
+  if [ -n "$(find "$STATE_DIR/claims" -type f -name '*.toolu_13d')" ]; then
+    fail "T-S13: look-alike paths claimed: $(ls "$STATE_DIR/claims" | grep toolu_13d)"
+    return
+  fi
+
+  hook_payload PreToolUse toolu_13e Bash '{"command":"sed -i s/a/b/ ./s13name.md"}' \
+    | HOME="$HOME_DIR" FLEET_IDENTITY="s13name" bash "$SYNC_SCRIPT"
+  if [ ! -f "$STATE_DIR/claims/last-snapshot.identity.toolu_13e" ]; then
+    fail "T-S13: ./<basename> did not claim the identity file"
+    return
+  fi
 }
 
 # ============================================================
@@ -704,6 +722,60 @@ test_T_S15_stale_claim_ignored() {
   fi
 }
 
+# ============================================================
+# T-S16: peer edit to an unclaimed file during a held call still emits.
+# The agent's long Bash call claims + edits the identity file (watcher holds);
+# meanwhile a peer edits the role file. Release must sync only the identity,
+# so the role edit is still a diff when the watcher gets to it.
+# ============================================================
+test_T_S16_peer_edit_during_hold_emits() {
+  seed_fixture "s16role" "s16name"
+  launch_watcher "$HOME_DIR" "$IDENT_DIR"
+  local role_baseline="$STATE_DIR/last-snapshot.role.s16role"
+  if ! wait_for_baseline "$BASELINE_IDENT" || ! wait_for_baseline "$role_baseline"; then
+    fail "T-S16: baselines never landed"
+    return
+  fi
+  sleep 0.3
+
+  local cmd='{"command":"sed -i s/x/y/ s16name.md && npm run build"}'
+  hook_payload PreToolUse toolu_16 Bash "$cmd" \
+    | HOME="$HOME_DIR" FLEET_IDENTITY="s16name" bash "$SYNC_SCRIPT"
+  printf -- '---\nrole: s16role\ntask: agent edit\n---\n\n# s16name\n' > "$IDENT_MD"
+  sleep 0.5
+  printf '# s16role role\n\nline 1\npeer line\n' > "$ROLE_MD"
+  sleep 0.5
+
+  hook_payload PostToolUse toolu_16 Bash "$cmd" \
+    | HOME="$HOME_DIR" FLEET_IDENTITY="s16name" bash "$SYNC_SCRIPT"
+
+  if ! wait_for_stdout_match '📝 \[role-file' "$OUT_LOG"; then
+    fail "T-S16: peer role-file edit during the hold was swallowed; out=$(cat "$OUT_LOG") err=$(cat "$ERR_LOG")"
+    return
+  fi
+  if grep -qE '📝 \[identity-file:' "$OUT_LOG" 2>/dev/null; then
+    fail "T-S16: agent's own claimed identity edit emitted; out=$(cat "$OUT_LOG")"
+    return
+  fi
+}
+
+# ============================================================
+# T-S17: UserPromptSubmit clears every claim.
+# ============================================================
+test_T_S17_prompt_clears_claims() {
+  seed_fixture "s17role" "s17name"
+  mkdir -p "$STATE_DIR/claims"
+  : > "$STATE_DIR/claims/last-snapshot.identity.toolu_a"
+  : > "$STATE_DIR/claims/last-snapshot.role.s17role.toolu_b"
+
+  printf '{"hook_event_name":"UserPromptSubmit","prompt":"hi"}' \
+    | HOME="$HOME_DIR" FLEET_IDENTITY="s17name" bash "$SYNC_SCRIPT"
+  if [ -n "$(find "$STATE_DIR/claims" -type f)" ]; then
+    fail "T-S17: claims survived UserPromptSubmit: $(ls "$STATE_DIR/claims")"
+    return
+  fi
+}
+
 run_test test_T_S1_sync_drift
 run_test test_T_S2_sync_no_drift
 run_test test_T_S3_no_fleet_identity
@@ -719,6 +791,8 @@ run_test test_T_S12_claim_edit_then_release
 run_test test_T_S13_claim_bash_by_name
 run_test test_T_S14_watcher_holds_claimed_self_edit
 run_test test_T_S15_stale_claim_ignored
+run_test test_T_S16_peer_edit_during_hold_emits
+run_test test_T_S17_prompt_clears_claims
 
 # ---- summary ----
 

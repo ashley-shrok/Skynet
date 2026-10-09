@@ -1,8 +1,9 @@
 #!/bin/bash
 #
 # Self-edit baseline sync hook — dropped onto each identity-hosting box by the
-# fleet-substrate distributor and wired via ~/.claude/settings.json on three
-# events: PreToolUse (claim), PostToolUse + PostToolUseFailure (sync + release).
+# fleet-substrate distributor and wired via ~/.claude/settings.json on four
+# events: PreToolUse (claim), PostToolUse + PostToolUseFailure (sync +
+# release), UserPromptSubmit (clear every claim).
 #
 # Purpose: prevent the role-file-watch ambient watcher from waking the agent
 # with the agent's OWN edits. After every Write / Edit / MultiEdit /
@@ -44,17 +45,37 @@
 #   drops a claim at  <state-dir>/claims/<baseline-name>.<tool_use_id>  for
 #   every watched file the call looks like it will touch:
 #     * Write / Edit / MultiEdit / NotebookEdit — the exact target path.
-#     * Bash — the command text names the file: its full path, its ~/ or
-#       $HOME/ form, its last two path components (`id/SKILL.md`,
-#       `.claude/CLAUDE.md`, `<slug>/runbook.md`), or — for identity and role
-#       files, whose basenames are already unique — the bare basename.
-#   The watcher holds a changed, claimed file until the claim is released
-#   (or goes stale — ROLE_WATCH_CLAIM_MAX_SEC, default 600s, covers calls
-#   interrupted before any Post* hook), then runs its normal hash-guard check.
-#   PostToolUse / PostToolUseFailure syncs first, then releases this call's
-#   claims. Unclaimed files are never held. A Bash call that writes a file
-#   without naming it (a script that edits it) still emits — fails toward
-#   noise, never toward hiding a peer's edit.
+#     * Bash — the command text names the file as a whole path token: its
+#       full path, its ~/ or $HOME/ form, its last two path components
+#       (`id/SKILL.md`, `.claude/CLAUDE.md`, `<slug>/runbook.md`), or — for
+#       identity and role files, whose basenames are already unique — the
+#       bare basename. "Whole token" = not glued to a longer path or name, so
+#       `repo/.claude/CLAUDE.md` does not claim ~/.claude/CLAUDE.md and
+#       `old-dev.md` does not claim role `dev`.
+#   The watcher holds a changed, claimed file until the claim is released,
+#   then runs its normal hash-guard check.
+#
+#   Release (PostToolUse / PostToolUseFailure) syncs ONLY the files this call
+#   claimed, then deletes its claims. While the watcher is held its event
+#   loop is stalled, so any other drifted file may be a peer edit queued
+#   behind the hold — syncing it would record the peer's content as ours and
+#   swallow the wake. The legacy sync-every-drifted-file pass runs only when
+#   this call claimed nothing AND no other claim is live (nothing can be
+#   held, so the watcher has already seen anything older than its settle).
+#
+#   Stale claims: UserPromptSubmit clears every claim (no tool call of this
+#   session can be in flight when a prompt lands — covers interrupts), and
+#   the watcher ignores claims older than ROLE_WATCH_CLAIM_MAX_SEC (600s).
+#
+#   Known limits (all fail toward noise or a delayed wake, except the first):
+#     * A peer edit to a file the in-flight call itself claimed is
+#       indistinguishable from the agent's own and is absorbed.
+#     * A Bash call that writes a file without naming it (a script that
+#       edits it) still emits.
+#     * run_in_background Bash: PostToolUse fires at launch, so the claim is
+#       released before the background job writes — its edits still emit.
+#     * While the watcher holds a claimed file, wakes for other watched files
+#       queue behind it until the call ends — delayed, never dropped.
 #
 # Failure semantics — graceful degradation to today's behavior:
 #   * Never exits non-zero. The tool call must not be interrupted.
@@ -68,8 +89,9 @@
 # so a full disk or unreachable FS cannot hang the harness turn indefinitely.
 #
 # stdin: harness JSON payload. `hook_event_name` picks the mode (PreToolUse →
-# claim; anything else, including an empty/unparseable payload → sync +
-# release); `tool_use_id` keys the claims; `tool_input` drives claim matching.
+# claim; UserPromptSubmit → clear claims; anything else, including an
+# empty/unparseable payload → sync + release); `tool_use_id` keys the claims;
+# `tool_input` drives claim matching.
 #
 set -eu
 
@@ -97,13 +119,46 @@ fi
 # tool_use_id lands in a filename — keep it to a safe charset.
 TOOL_ID=$(printf '%s' "$TOOL_ID" | tr -cd 'A-Za-z0-9_-')
 
+# Bash claim matcher. stdin: list_targets lines; stdout: the baselines whose
+# real file $BASH_CMD names as a whole token. A match must not be glued to a
+# longer path/name on the left (no preceding path or name character) or the
+# right (no following name character). Forms tried: full path, ~/rel,
+# $HOME/rel, ${HOME}/rel, last two components, and — for distinctive
+# basenames — the bare basename (also allowed right after "./"). One python
+# start for all targets; Bash calls whose text has no ".md" skip it entirely.
+NAMES_FILE_PY='
+import os, re, sys
+cmd = os.environ.get("BASH_CMD", "")
+home = os.environ.get("HOME", "")
+left = r"(?<![\w./~$}-])"
+right = r"(?![\w.-])"
+def names(real, distinctive):
+    rel = real[len(home) + 1:] if home and real.startswith(home + "/") else None
+    forms = [real]
+    if rel:
+        forms += ["~/" + rel, "$HOME/" + rel, "${HOME}/" + rel]
+    forms.append(os.path.basename(os.path.dirname(real)) + "/" + os.path.basename(real))
+    for f in forms:
+        if re.search(left + re.escape(f) + right, cmd):
+            return True
+    if distinctive == "1":
+        b = re.escape(os.path.basename(real))
+        if re.search(r"(?:" + left + r"|(?<![\w.~$}/-])\./)" + b + right, cmd):
+            return True
+    return False
+for line in sys.stdin:
+    parts = line.rstrip("\n").split("\t")
+    if len(parts) == 3 and names(parts[1], parts[2]):
+        print(parts[0])
+'
+
 # Bounded work. Wrapped in timeout so a hung FS cannot hang the harness turn.
 # NB: values reach the child bash via `export`, never by splicing them into
 # the single-quoted script body. Splicing would let a value containing a
 # single-quote break out of the quoting and inject shell — role names come
 # from agent-writable baseline filenames and the tool input is whatever the
 # agent sent. Export-inherit keeps untrusted values as data.
-export STATE_DIR IDENT IDENTITY_FILE CLAIM_DIR CLAIM_MAX_SEC EVENT TOOL_ID TARGET_PATH BASH_CMD
+export STATE_DIR IDENT IDENTITY_FILE CLAIM_DIR CLAIM_MAX_SEC EVENT TOOL_ID TARGET_PATH BASH_CMD NAMES_FILE_PY
 timeout 2 bash -c '
     TAB="$(printf "\t")"
 
@@ -186,53 +241,60 @@ timeout 2 bash -c '
         fi
     }
 
-    # Does this tool call look like it will write <real>? See header § Claims.
-    targets_file() {
-        real="$1"
-        distinctive="$2"
-        if [ -n "$TARGET_PATH" ]; then
-            a=$(readlink -m -- "$TARGET_PATH" 2>/dev/null || printf "%s" "$TARGET_PATH")
-            b=$(readlink -m -- "$real" 2>/dev/null || printf "%s" "$real")
-            [ "$a" = "$b" ] && return 0
-        fi
-        [ -n "$BASH_CMD" ] || return 1
-        rel="${real#"$HOME"/}"
-        tail2="$(basename "$(dirname "$real")")/$(basename "$real")"
-        case "$BASH_CMD" in
-            *"$real"*|*"~/$rel"*|*"\$HOME/$rel"*|*"\${HOME}/$rel"*|*"$tail2"*) return 0 ;;
-        esac
-        if [ "$distinctive" = "1" ]; then
-            case "$BASH_CMD" in
-                *"$(basename "$real")"*) return 0 ;;
-            esac
-        fi
-        return 1
-    }
+    if [ "$EVENT" = "UserPromptSubmit" ]; then
+        [ -d "$CLAIM_DIR" ] && find "$CLAIM_DIR" -maxdepth 1 -type f -delete 2>/dev/null
+        exit 0
+    fi
 
     if [ "$EVENT" = "PreToolUse" ]; then
         [ -n "$TOOL_ID" ] || exit 0
         [ -n "$TARGET_PATH$BASH_CMD" ] || exit 0
+        if [ -n "$TARGET_PATH" ]; then
+            want=$(readlink -m -- "$TARGET_PATH" 2>/dev/null || printf "%s" "$TARGET_PATH")
+            claimed=$(list_targets | while IFS="$TAB" read -r baseline real distinctive; do
+                [ "$(readlink -m -- "$real" 2>/dev/null)" = "$want" ] && printf "%s\n" "$baseline"
+            done)
+        else
+            case "$BASH_CMD" in *.md*) ;; *) exit 0 ;; esac
+            claimed=$(list_targets | python3 -c "$NAMES_FILE_PY" 2>/dev/null)
+        fi
+        [ -n "$claimed" ] || exit 0
         mkdir -p "$CLAIM_DIR" 2>/dev/null || exit 0
-        list_targets | while IFS="$TAB" read -r baseline real distinctive; do
+        printf "%s\n" "$claimed" | while read -r baseline; do
             [ -f "$baseline" ] || continue
-            if targets_file "$real" "$distinctive"; then
-                : > "$CLAIM_DIR/$(basename "$baseline").$TOOL_ID" 2>/dev/null || true
-            fi
+            : > "$CLAIM_DIR/$(basename "$baseline").$TOOL_ID" 2>/dev/null || true
         done
         exit 0
     fi
 
-    # PostToolUse / PostToolUseFailure / unknown: sync first, THEN release —
+    # PostToolUse / PostToolUseFailure / unknown. Sync first, THEN release —
     # the watcher re-checks as soon as the claim disappears, so the baseline
-    # and marker must already be in place.
-    list_targets | while IFS="$TAB" read -r baseline real distinctive; do
-        sync_one "$baseline" "$real"
-    done
-    if [ -d "$CLAIM_DIR" ]; then
-        if [ -n "$TOOL_ID" ]; then
-            find "$CLAIM_DIR" -maxdepth 1 -type f -name "*.$TOOL_ID" -delete 2>/dev/null || true
+    # and marker must already be in place. See header § Release for why only
+    # claimed files are synced while anything could be held.
+    mine=""
+    if [ -n "$TOOL_ID" ] && [ -d "$CLAIM_DIR" ]; then
+        mine=$(find "$CLAIM_DIR" -maxdepth 1 -type f -name "*.$TOOL_ID" -printf "%f\n" 2>/dev/null)
+    fi
+    if [ -n "$mine" ]; then
+        list_targets | while IFS="$TAB" read -r baseline real distinctive; do
+            if printf "%s\n" "$mine" | grep -qxF "$(basename "$baseline").$TOOL_ID"; then
+                sync_one "$baseline" "$real"
+            fi
+        done
+        find "$CLAIM_DIR" -maxdepth 1 -type f -name "*.$TOOL_ID" -delete 2>/dev/null || true
+    else
+        live=""
+        if [ -d "$CLAIM_DIR" ]; then
+            live=$(find "$CLAIM_DIR" -maxdepth 1 -type f -mmin "-$(( (CLAIM_MAX_SEC + 59) / 60 ))" -print -quit 2>/dev/null)
         fi
-        # Sweep claims orphaned by interrupted calls (no Post* hook ever ran).
+        if [ -z "$live" ]; then
+            list_targets | while IFS="$TAB" read -r baseline real distinctive; do
+                sync_one "$baseline" "$real"
+            done
+        fi
+    fi
+    if [ -d "$CLAIM_DIR" ]; then
+        # Sweep claims orphaned by calls that never reached a Post* hook.
         find "$CLAIM_DIR" -maxdepth 1 -type f -mmin "+$(( (CLAIM_MAX_SEC + 59) / 60 ))" -delete 2>/dev/null || true
     fi
 ' 2>/dev/null || true
