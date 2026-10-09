@@ -467,6 +467,13 @@
   gap: 8px;
 }
 
+/* Projects super-section: no flex gap — header→first-project spacing is
+   carried by the super-header's pb + the project header's pt, same as every
+   other header→header pair. With the inherited 8px gap it read 28px vs 20px. */
+.pv-projects-section {
+  gap: 0;
+}
+
 /* Row-to-row spacing (2026-09-28, user tasting): 5px between consecutive
    conversation rows in EVERY section — pinned, conversations, apps, RDP,
    and project sections. Header→first-row spacing is intentionally NOT
