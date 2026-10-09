@@ -927,8 +927,11 @@ export async function runBootstrapForHost(
   // -------------------------------------------------------------------------
   // Step 6: usage-reporter retirement.
   //   (a) Read the current settings.json.statusLine.command.
-  //   (b) If it's the wrapper (any path ending /.local/bin/usage-reporter —
-  //       also catches the old co-located `/host-home/...` mis-write):
+  //       If settings.json exists but can't be read (malformed, no jq),
+  //       stop — never delete the wrapper a statusLine may still exec.
+  //   (b) If it's any usage-reporter command (~/.local/bin/usage-reporter,
+  //       the old co-located `/host-home/...` mis-write, or the pre-
+  //       distributor ~/.claude/usage/usage-reporter.sh):
   //       source WRAPPED= from the conf in a subshell (same read the wrapper
   //       itself did every tick). A real original → restore it as
   //       statusLine.command (keeps other statusLine keys); empty or itself
@@ -944,19 +947,19 @@ export async function runBootstrapForHost(
       `SETTINGS="$HOME/.claude/settings.json"`,
       `CONF="$HOME/${USAGE_REPORTER_RETIRED_DIR}/usage-reporter.conf"`,
       `CUR=""`,
-      `if [ -f "$SETTINGS" ]; then`,
-      `  CUR=$(jq -r '.statusLine.command // ""' "$SETTINGS" 2>/dev/null || printf '')`,
-      `fi`,
       `UNWRAP_OK=1`,
+      `if [ -f "$SETTINGS" ]; then`,
+      `  CUR=$(jq -r '.statusLine.command // ""' "$SETTINGS" 2>/dev/null) || UNWRAP_OK=0`,
+      `fi`,
       `case "$CUR" in`,
-      `  */.local/bin/usage-reporter)`,
+      `  *usage-reporter*)`,
       `    ORIG=""`,
       `    if [ -f "$CONF" ]; then ORIG=$(WRAPPED=""; . "$CONF" >/dev/null 2>&1; printf '%s' "$WRAPPED"); fi`,
       `    case "$ORIG" in *usage-reporter*) ORIG="" ;; esac`,
       `    if [ -n "$ORIG" ]; then`,
-      `      jq --arg cmd "$ORIG" '.statusLine.command = $cmd' "$SETTINGS" > "$SETTINGS.new" && mv "$SETTINGS.new" "$SETTINGS" || UNWRAP_OK=0`,
+      `      jq --arg cmd "$ORIG" '.statusLine.command = $cmd' "$SETTINGS" > "$SETTINGS.new" && mv "$SETTINGS.new" "$SETTINGS" || { rm -f "$SETTINGS.new"; UNWRAP_OK=0; }`,
       `    else`,
-      `      jq 'del(.statusLine)' "$SETTINGS" > "$SETTINGS.new" && mv "$SETTINGS.new" "$SETTINGS" || UNWRAP_OK=0`,
+      `      jq 'del(.statusLine)' "$SETTINGS" > "$SETTINGS.new" && mv "$SETTINGS.new" "$SETTINGS" || { rm -f "$SETTINGS.new"; UNWRAP_OK=0; }`,
       `    fi`,
       `    ;;`,
       `esac`,

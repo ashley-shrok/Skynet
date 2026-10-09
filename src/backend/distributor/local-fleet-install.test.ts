@@ -1068,6 +1068,34 @@ describe("BR3 — bootstrap retires the usage-reporter statusLine wrap", () => {
     expect((await readSettings()).statusLine).toBeUndefined();
   });
 
+  it("legacy ~/.claude/usage/usage-reporter.sh statusLine → unwrapped before its dir is removed", async () => {
+    process.env.SKYNET_PUBLIC_URL = "https://skynet.example.com";
+    const { binDir, usageDir } = await seedWrapped({
+      wrapperCmd: path.join(hostExecRoot, ".claude/usage/usage-reporter.sh"),
+      confBody: "WRAPPED='old-status'\n",
+    });
+
+    const { bootstrapFleetSubstrateLocally } = await importFresh();
+    const result = await bootstrapFleetSubstrateLocally(host);
+
+    expect(result.usageReporterRetireOk).toBe(true);
+    expect((await readSettings()).statusLine.command).toBe("old-status");
+    await expectRetiredFilesGone(binDir, usageDir);
+  });
+
+  it("malformed settings.json → retire fails, wrapper + conf left in place", async () => {
+    process.env.SKYNET_PUBLIC_URL = "https://skynet.example.com";
+    const { binDir, usageDir, claudeDir } = await seedWrapped({});
+    await fs.writeFile(path.join(claudeDir, "settings.json"), "{ not json");
+
+    const { bootstrapFleetSubstrateLocally } = await importFresh();
+    const result = await bootstrapFleetSubstrateLocally(host);
+
+    expect(result.usageReporterRetireOk).toBe(false);
+    await expect(fs.access(path.join(binDir, "usage-reporter"))).resolves.toBeUndefined();
+    await expect(fs.access(usageDir)).resolves.toBeUndefined();
+  });
+
   it("statusLine that isn't the wrapper is left alone; leftovers still removed", async () => {
     process.env.SKYNET_PUBLIC_URL = "https://skynet.example.com";
     const { binDir, usageDir } = await seedWrapped({

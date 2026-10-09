@@ -994,8 +994,9 @@ export async function installFleetSubstrateLocally(
 
 /**
  * Local port of SSH-bootstrap Step 6 — usage-reporter retirement. If
- * settings.json.statusLine.command still ends in /.local/bin/usage-reporter
- * (also catches the old co-located `/host-home/...` mis-write), restore the
+ * settings.json.statusLine.command is still any usage-reporter command
+ * (~/.local/bin/usage-reporter, the old co-located `/host-home/...`
+ * mis-write, or the pre-distributor ~/.claude/usage/usage-reporter.sh), restore the
  * WRAPPED= original from ~/.claude/usage/usage-reporter.conf, or drop
  * statusLine when there was no real original. Only after that write lands,
  * remove the retired files + ~/.claude/usage/. A statusLine that is not the
@@ -1035,7 +1036,7 @@ async function retireUsageReporterLocally(host: {
 
   const statusLine = parsed?.statusLine as Record<string, unknown> | undefined;
   const cmd = typeof statusLine?.command === "string" ? statusLine.command : "";
-  if (parsed && cmd.endsWith("/.local/bin/usage-reporter")) {
+  if (parsed && cmd.includes("usage-reporter")) {
     let original = "";
     try {
       original = parseWrappedFromConf(

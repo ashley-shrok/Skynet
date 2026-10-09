@@ -58,7 +58,8 @@
  *   (sl-6) Channel throws → hadError=true, function still resolves (NEVER-THROW).
  *   (sl-7) logBootstrapResult payload includes usageReporterRetireOk field.
  *   (sl-8) Retire script executed under real `sh` against a temp $HOME —
- *          restore / spicy / empty / no-conf / self-wrap / not-wrapped.
+ *          restore / spicy / empty / no-conf / self-wrap / not-wrapped /
+ *          legacy .claude/usage/usage-reporter.sh / malformed settings.json.
  *
  * NEVER-THROW contract: every test calls runBootstrapForHost and awaits the
  * result with `resolves` — it must never reject.
@@ -1166,7 +1167,7 @@ describe("runBootstrapForHost", () => {
 
       // Read current statusLine.command; only the wrapper path is unwrapped.
       expect(retireCmd).toContain(`jq -r '.statusLine.command // ""' "$SETTINGS"`);
-      expect(retireCmd).toContain(`*/.local/bin/usage-reporter)`);
+      expect(retireCmd).toContain(`*usage-reporter*)`);
       // Original comes from the conf's WRAPPED=, read in a subshell.
       expect(retireCmd).toContain(`CONF="$HOME/.claude/usage/usage-reporter.conf"`);
       expect(retireCmd).toContain(`. "$CONF"`);
@@ -1177,7 +1178,7 @@ describe("runBootstrapForHost", () => {
       expect(retireCmd).toContain(`jq 'del(.statusLine)'`);
       expect(retireCmd).toContain(`mv "$SETTINGS.new" "$SETTINGS"`);
       // Files only removed after the unwrap succeeded.
-      const rmIdx = retireCmd.indexOf("rm -f");
+      const rmIdx = retireCmd.indexOf(`rm -f "$HOME/`);
       expect(rmIdx).toBeGreaterThan(retireCmd.indexOf(`if [ "$UNWRAP_OK" = "1" ]`));
       for (const rel of [
         ".local/bin/usage-reporter",
@@ -1353,7 +1354,34 @@ describe("runBootstrapForHost", () => {
           expectCmd: undefined,
         },
         { name: "not-wrapped", cmd: "my-own-status", conf: `WRAPPED='x'\n`, expectCmd: "my-own-status" },
+        {
+          name: "legacy-sh",
+          cmd: "LEGACY",
+          conf: `WRAPPED='old-status'\n`,
+          expectCmd: "old-status",
+        },
       ];
+
+      // Unreadable settings.json → no sentinel, wrapper + conf left in place.
+      {
+        const home = await fsp.mkdtemp(nodePath.join(nodeOs.tmpdir(), "retire-malformed-"));
+        try {
+          await fsp.mkdir(nodePath.join(home, ".local/bin"), { recursive: true });
+          await fsp.mkdir(nodePath.join(home, ".claude/usage"), { recursive: true });
+          const wrapperPath = nodePath.join(home, ".local/bin/usage-reporter");
+          await fsp.writeFile(wrapperPath, "#!/bin/sh\n");
+          await fsp.writeFile(nodePath.join(home, ".claude/settings.json"), "{ not json");
+          const out = execFileSync("sh", ["-c", retireCmd], {
+            env: { PATH: process.env.PATH, HOME: home },
+            encoding: "utf-8",
+          });
+          expect(out.includes("__USAGE_REPORTER_RETIRED__")).toBe(false);
+          await expect(fsp.access(wrapperPath)).resolves.toBeUndefined();
+          await expect(fsp.access(nodePath.join(home, ".claude/usage"))).resolves.toBeUndefined();
+        } finally {
+          await fsp.rm(home, { recursive: true, force: true });
+        }
+      }
 
       for (const c of cases) {
         const home = await fsp.mkdtemp(nodePath.join(nodeOs.tmpdir(), `retire-${c.name}-`));
@@ -1368,7 +1396,12 @@ describe("runBootstrapForHost", () => {
           if (c.conf !== null) {
             await fsp.writeFile(nodePath.join(usage, "usage-reporter.conf"), c.conf);
           }
-          const wrapper = c.cmd === "WRAP" ? nodePath.join(home, ".local/bin/usage-reporter") : c.cmd;
+          const wrapper =
+            c.cmd === "WRAP"
+              ? nodePath.join(home, ".local/bin/usage-reporter")
+              : c.cmd === "LEGACY"
+                ? nodePath.join(home, ".claude/usage/usage-reporter.sh")
+                : c.cmd;
           const settingsPath = nodePath.join(home, ".claude/settings.json");
           await fsp.writeFile(
             settingsPath,
