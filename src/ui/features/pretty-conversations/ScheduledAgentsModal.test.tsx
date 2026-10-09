@@ -24,6 +24,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { useState } from "react";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -349,6 +350,25 @@ describe("ScheduledAgentsModal: form-view entry points", () => {
     fireEvent.click(hostBRow);
     const prompt = (await screen.findByLabelText(/instructions/i)) as HTMLTextAreaElement;
     expect(prompt.value).toBe("host B prompt");
+  });
+
+  it("T-07c: while the list is open, a passed Next slot triggers one refetch (Last/Next chips stay live)", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const nowSecs = Math.floor(Date.now() / 1000);
+      listScheduledAgentsMock.mockResolvedValue([makeRow({ nextFireAt: nowSecs + 10 })]);
+      render(
+        <ScheduledAgentsModal open={true} onOpenChange={vi.fn()} hostTree={ONE_HOST_TREE} />,
+      );
+      await screen.findByTestId("scheduled-agents-modal-row-morning-triage");
+      expect(listScheduledAgentsMock).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        vi.advanceTimersByTime(30_000);
+      });
+      await waitFor(() => expect(listScheduledAgentsMock).toHaveBeenCalledTimes(2));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("T-08: '+' button → form view, create mode, all fields empty", async () => {

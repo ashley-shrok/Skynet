@@ -162,6 +162,32 @@ export function ScheduledAgentsModal({
     }
   }, []);
 
+  // Keep the Last / Next chips honest while the list is open: re-render
+  // every 30s (the chips compute relative time at render), and refetch once
+  // whenever an enabled task's Next slot has passed since the last tick so
+  // its Last chip catches up. Without this "Next: in 2m" froze until reopen.
+  const [, setChipTick] = useState(0);
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  useEffect(() => {
+    if (!open || view !== "list") return;
+    let lastCheckSecs = Math.floor(Date.now() / 1000);
+    const handle = setInterval(() => {
+      const nowSecs = Math.floor(Date.now() / 1000);
+      const fired = (itemsRef.current ?? []).some(
+        (i) =>
+          i.enabled &&
+          i.nextFireAt !== null &&
+          i.nextFireAt > lastCheckSecs &&
+          i.nextFireAt <= nowSecs,
+      );
+      lastCheckSecs = nowSecs;
+      setChipTick((t) => t + 1);
+      if (fired) void refetch();
+    }, 30_000);
+    return () => clearInterval(handle);
+  }, [open, view, refetch]);
+
   const flatHosts = useMemo(
     () =>
       collectAllHosts(hostTree?.children ?? []).filter(
