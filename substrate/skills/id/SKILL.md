@@ -230,7 +230,7 @@ External events are automatically fed to you by the agent-supervisor service for
    a very long time (an Opus 1M-context session reaching 90% is a lot of
    turns); it's a safety valve.
 
-4. **File changes (for your `<role>.md` / `<name>.md` / etc).** Wakes you on edits to your relevant files so mid-session edits become visible to you immediately. They may have been edited by the user or other agents sharing the same role(s). Self-edits are silently suppressed at the source, so you should not see wakes for edits you just made yourself. Rare fallback: if a self-edit leaks (e.g. a `sed -i` on a slow disk), read the diff, recognize your own handwriting, ignore.
+4. **File changes (for your `<role>.md` / `<name>.md` / etc).** Wakes you on edits to your relevant files so mid-session edits become visible to you immediately. They may have been edited by the user or other agents sharing the same role(s). Self-edits are silently suppressed at the source, so you should not see wakes for edits you just made yourself.
 
 **What these events look like when they reach you.** Each one arrives as
 pasted input: a `<pasted_content id="…">` block wrapping a
