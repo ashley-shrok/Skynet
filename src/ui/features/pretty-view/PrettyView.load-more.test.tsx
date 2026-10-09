@@ -365,7 +365,7 @@ describe("PrettyView load-more button + cap-off + prepend behavior", () => {
     // totalLines=100; the streaming tail delivers lines 81..100 (already after
     // client-side cap of 20 during hydration). 100 > 20 = older exists.
     flipToStreaming(ws, { totalLines: 100 });
-    fireMessageBatch(ws, 20, 81, (i) => ({
+    fireMessageBatch(ws, 21, 80, (i) => ({
       type: "message",
       role: i % 2 === 0 ? "user" : "assistant",
       content: `tail ${i}`,
@@ -394,7 +394,7 @@ describe("PrettyView load-more button + cap-off + prepend behavior", () => {
     );
     const ws = getCurrentWs();
     flipToStreaming(ws, { totalLines: 100 });
-    fireMessageBatch(ws, 20, 81, (i) => ({
+    fireMessageBatch(ws, 21, 80, (i) => ({
       type: "message",
       role: "assistant",
       content: `tail ${i}`,
@@ -502,7 +502,7 @@ describe("PrettyView load-more button + cap-off + prepend behavior", () => {
     );
     const ws = getCurrentWs();
     flipToStreaming(ws, { totalLines: 100 });
-    fireMessageBatch(ws, 20, 81, (i) => ({
+    fireMessageBatch(ws, 21, 80, (i) => ({
       type: "message",
       role: "assistant",
       content: `tail ${i}`,
@@ -517,7 +517,7 @@ describe("PrettyView load-more button + cap-off + prepend behavior", () => {
     const bubblesBefore = container.querySelectorAll("[data-pv-bubble]");
     expect(
       (bubblesBefore[0] as HTMLElement).getAttribute("data-event-id"),
-    ).toBe("evt-tail-0");
+    ).toBe("evt-tail-1"); // evt-tail-0 (line 80) was cap-dropped
 
     const button = screen.getByRole("button", {
       name: /Load older messages/i,
@@ -550,11 +550,11 @@ describe("PrettyView load-more button + cap-off + prepend behavior", () => {
     expect(
       (bubblesAfter[0] as HTMLElement).getAttribute("data-event-id"),
     ).toBe("evt-older-0");
-    // What was previously the first bubble (evt-tail-0 at line 81) is now at
+    // What was previously the first bubble (evt-tail-1 at line 81) is now at
     // DOM position 20 (0-indexed) — after the 20 prepended older bubbles.
     expect(
       (bubblesAfter[20] as HTMLElement).getAttribute("data-event-id"),
-    ).toBe("evt-tail-0");
+    ).toBe("evt-tail-1");
   });
 
   it("Test 6: scroll position preserved on prepend (does not yank to top or bottom)", async () => {
@@ -568,7 +568,7 @@ describe("PrettyView load-more button + cap-off + prepend behavior", () => {
     );
     const ws = getCurrentWs();
     flipToStreaming(ws, { totalLines: 100 });
-    fireMessageBatch(ws, 20, 81, (i) => ({
+    fireMessageBatch(ws, 21, 80, (i) => ({
       type: "message",
       role: "assistant",
       content: `tail ${i}`,
@@ -648,7 +648,7 @@ describe("PrettyView load-more button + cap-off + prepend behavior", () => {
     );
     const ws = getCurrentWs();
     flipToStreaming(ws, { totalLines: 100 });
-    fireMessageBatch(ws, 20, 81, (i) => ({
+    fireMessageBatch(ws, 21, 80, (i) => ({
       type: "message",
       role: "assistant",
       content: `tail ${i}`,
@@ -685,7 +685,7 @@ describe("PrettyView load-more button + cap-off + prepend behavior", () => {
     );
     const ws = getCurrentWs();
     flipToStreaming(ws, { totalLines: 100 });
-    fireMessageBatch(ws, 20, 81, (i) => ({
+    fireMessageBatch(ws, 21, 80, (i) => ({
       type: "message",
       role: "assistant",
       content: `tail ${i}`,
@@ -755,7 +755,7 @@ describe("PrettyView load-more button + cap-off + prepend behavior", () => {
     );
     const ws = getCurrentWs();
     flipToStreaming(ws, { totalLines: 100 });
-    fireMessageBatch(ws, 20, 81, (i) => ({
+    fireMessageBatch(ws, 21, 80, (i) => ({
       type: "message",
       role: "assistant",
       content: `tail ${i}`,
@@ -809,7 +809,7 @@ describe("PrettyView load-more button + cap-off + prepend behavior", () => {
     );
     const wsA = getCurrentWs();
     flipToStreaming(wsA, { totalLines: 100 });
-    fireMessageBatch(wsA, 20, 81, (i) => ({
+    fireMessageBatch(wsA, 21, 80, (i) => ({
       type: "message",
       role: "assistant",
       content: `A-tail ${i}`,
@@ -947,7 +947,7 @@ describe("PrettyView load-more button + cap-off + prepend behavior", () => {
         }),
       );
     });
-    fireMessageBatch(ws, 20, 81, (i) => ({
+    fireMessageBatch(ws, 21, 80, (i) => ({
       type: "message",
       role: i % 2 === 0 ? "user" : "assistant",
       content: `dormant tail ${i}`,
@@ -1004,5 +1004,128 @@ describe("PrettyView load-more button + cap-off + prepend behavior", () => {
     expect(
       screen.queryByRole("button", { name: /Load older messages/i }),
     ).toBeNull();
+  });
+
+  it("Test 13: skip-heavy file with every message already shown → button hidden (totalLines far exceeds messages)", async () => {
+    // 2026-10-09 live log: 230-line JSONL, 8 renderable messages, all on
+    // screen. The old `totalLines > messages.length` gate showed the button;
+    // the click found nothing. Nothing was cap-dropped → no button.
+    render(
+      <PrettyView
+        hostId={1}
+        tmuxSession="s1"
+        onSend={() => true}
+        isVisible={true}
+      />,
+    );
+    const ws = getCurrentWs();
+    flipToStreaming(ws, { totalLines: 230 });
+    fireMessageBatch(ws, 8, 60, (i) => ({
+      type: "message",
+      role: i % 2 === 0 ? "user" : "assistant",
+      content: `sparse ${i}`,
+      eventId: `evt-sparse-${i}`,
+      ts: 1_000_000 + i,
+    }));
+
+    await waitFor(() => {
+      expect(getBubbles().length).toBe(8);
+    });
+    expect(
+      screen.queryByRole("button", { name: /Load older messages/i }),
+    ).toBeNull();
+  });
+
+  it("Test 14: WS close while a load is in flight releases the spinner", async () => {
+    render(
+      <PrettyView
+        hostId={1}
+        tmuxSession="s1"
+        onSend={() => true}
+        isVisible={true}
+      />,
+    );
+    const ws = getCurrentWs();
+    flipToStreaming(ws, { totalLines: 100 });
+    fireMessageBatch(ws, 21, 80, (i) => ({
+      type: "message",
+      role: "assistant",
+      content: `tail ${i}`,
+      eventId: `evt-close-${i}`,
+      ts: 1_000_000 + i,
+    }));
+    await waitFor(() => {
+      expect(getBubbles().length).toBe(20);
+    });
+    act(() => {
+      fireEvent.click(
+        screen.getByRole("button", { name: /Load older messages/i }),
+      );
+    });
+    expect(
+      screen.getByRole("button", { name: /Loading older messages/i }),
+    ).toHaveProperty("disabled", true);
+
+    act(() => {
+      ws.onclose?.();
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("button", { name: /Loading older messages/i }),
+      ).toBeNull();
+    });
+  });
+
+  it("Test 15: wire_boot after a click restores the cap for the fresh replay", async () => {
+    render(
+      <PrettyView
+        hostId={1}
+        tmuxSession="s1"
+        onSend={() => true}
+        isVisible={true}
+      />,
+    );
+    const ws = getCurrentWs();
+    flipToStreaming(ws, { totalLines: 100 });
+    fireMessageBatch(ws, 21, 80, (i) => ({
+      type: "message",
+      role: "assistant",
+      content: `tail ${i}`,
+      eventId: `evt-wb-${i}`,
+      ts: 1_000_000 + i,
+    }));
+    await waitFor(() => {
+      expect(getBubbles().length).toBe(20);
+    });
+    act(() => {
+      fireEvent.click(
+        screen.getByRole("button", { name: /Load older messages/i }),
+      );
+    });
+
+    // Reconnect: wire_boot, then the tail replays the whole file again.
+    act(() => {
+      ws.onmessage?.(
+        new MessageEvent("message", {
+          data: JSON.stringify({ type: "wire_boot" }),
+        }),
+      );
+    });
+    fireMessageBatch(ws, 100, 1, (i) => ({
+      type: "message",
+      role: "assistant",
+      content: `replay ${i}`,
+      eventId: `evt-replay-${i}`,
+      ts: 2_000_000 + i,
+    }));
+
+    // Cap back in force (not 100 bubbles), button back to idle.
+    await waitFor(() => {
+      expect(getBubbles().length).toBe(20);
+    });
+    expect(
+      screen.getByRole("button", { name: /^Load older messages$/i }),
+    ).toHaveProperty("disabled", false);
   });
 });

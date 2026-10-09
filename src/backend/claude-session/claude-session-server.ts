@@ -2079,10 +2079,14 @@ export async function handleFetchOlderRange(
     currentBefore = lastStartLine;
   }
 
-  // Refill loop: keep reading older 20-line slices until quota hit or top.
+  // Refill loop: keep reading older slices until quota hit or top. Refill
+  // slices are REFILL_SLICE_LINES wide (the reader's 200-line cap) — most
+  // JSONL lines are skip frames, so 20-line slices meant a dozen serial SSH
+  // round-trips (2-4s) per click on a typical session.
+  const REFILL_SLICE_LINES = 200;
   while (accumulator.length < 20 && currentBefore > 1) {
-    const nextStartLine = Math.max(1, currentBefore - 20);
-    const nextRangeCount = Math.min(20, currentBefore - 1);
+    const nextStartLine = Math.max(1, currentBefore - REFILL_SLICE_LINES);
+    const nextRangeCount = Math.min(REFILL_SLICE_LINES, currentBefore - 1);
     try {
       readResult = await readSessionFileRange(
         deps.sshConn,
@@ -2120,7 +2124,12 @@ export async function handleFetchOlderRange(
     messages.length > 0 && typeof messages[0].line === "number"
       ? messages[0].line
       : lastStartLine;
-  const hasMore = oldestLine > 1;
+  // More exists only if the scan stopped short of line 1, or frames older
+  // than `messages` were trimmed off by the slice above. NOT `oldestLine >
+  // 1` — a scan that reached line 1 with the oldest message on, say, line 23
+  // would claim more, and the next click would read lines 1-22 and get
+  // nothing back.
+  const hasMore = lastStartLine > 1 || accumulator.length > messages.length;
 
   databaseLogger.info(
     `[fetch-older-range] emit oldestLine=${oldestLine} messagesLen=${messages.length} hasMore=${hasMore} refillIterations=${refillIterations}`,

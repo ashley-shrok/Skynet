@@ -471,6 +471,7 @@ function appendDedupWithCap<T extends { eventId: string; line?: number; ts?: num
   prev: T[],
   next: T,
   cap: number,
+  onCapDrop?: () => void,
 ): T[] {
   if (prev.some((m) => m.eventId === next.eventId)) return prev;
   // Relay-inbound matrixEventId dedup — same rationale as appendDedup above
@@ -532,6 +533,7 @@ function appendDedupWithCap<T extends { eventId: string; line?: number; ts?: num
     console.info(
       `[pv-scroll] cap-drop prevLen=${prev.length} cap=${cap} droppedEid=${dropped.eventId.slice(0, 8)} newAddedEid=${next.eventId.slice(0, 8)}`,
     );
+    onCapDrop?.();
     return withNew.slice(withNew.length - cap);
   }
   return withNew;
@@ -891,6 +893,13 @@ export function PrettyView({
   // returns early. Reset in the response case branch AND on error path AND
   // in the fresh-pane reset. Test 7 locks the behavior.
   const loadOlderInFlightRef = useRef<boolean>(false);
+  // capDroppedRef: true once WORKING_SET_CAP has dropped an older frame
+  // since the last reset. The tail replays the whole JSONL from line 1, so
+  // this is the exact answer to "is there anything older than what's
+  // shown?" before the first click (after it, the server's hasMore is).
+  // Written inside setMessages updaters, which run before the render that
+  // reads it.
+  const capDroppedRef = useRef<boolean>(false);
   const [status, setStatus] = useState<Status>("connecting");
   const [inactiveReason, setInactiveReason] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -1432,6 +1441,27 @@ export function PrettyView({
     setLoadOlderState("in-flight");
     setLoadOlderError(null);
   }, [oldestLoadedLine]);
+
+  const markCapDrop = useCallback(() => {
+    capDroppedRef.current = true;
+  }, []);
+
+  // Back to the default cap-enforced state. Called wherever messages[] is
+  // rebuilt from a fresh replay (pane switch, wire_boot on every WS
+  // attach/reconnect, session-file rotation) — a cursor or capOff carried
+  // across would point into a replaced transcript, leave the replay
+  // uncapped, or leave a spinner waiting on a response that died with the
+  // old WS.
+  const resetLoadOlderState = useCallback(() => {
+    setCapOff(false);
+    capOffRef.current = false;
+    setLoadOlderState("idle");
+    setLoadOlderError(null);
+    setSessionHasMore(true);
+    setOldestLoadedLine(null);
+    loadOlderInFlightRef.current = false;
+    capDroppedRef.current = false;
+  }, []);
 
   // Phase 35 — outbound-write callbacks registered with Terminal.tsx via the
   // ref-forwarding surface (onRegisterSendInput / onRegisterSendInterrupt props).
@@ -2516,14 +2546,8 @@ export function PrettyView({
       // flag AND its oldestLoadedLine cursor — the next click would send
       // a beforeLine pointing into the OLD session file, contradicting
       // CONTEXT.md § Philosophy "Transient across pane lifetimes".
-      setCapOff(false);
-      setLoadOlderState("idle");
-      setLoadOlderError(null);
+      resetLoadOlderState();
       setSessionTotalLines(null);
-      setSessionHasMore(true);
-      setOldestLoadedLine(null);
-      capOffRef.current = false;
-      loadOlderInFlightRef.current = false;
       // inline-260823-pv-session-file-rotation-reset: fresh-pane mount also
       // clears the last-known sessionFile so the first `session` frame on the
       // new pane doesn't spuriously flag "rotation" against a stale ref value
@@ -2729,6 +2753,7 @@ export function PrettyView({
               `[session-frame] rotation-detected prev=${prevSessionFile} next=${parsed.sessionFile} hostId=${hostId} tmuxSession=${tmuxSession ?? 'null'}`,
             );
             setMessages([]);
+            resetLoadOlderState();
             setHarnessTasks([]);
             // Phase 90 Plan 00 Wave 0 (D-10 delivery mechanism) — contextPct
             // now lives on fleet-status; no local reset needed. Next
@@ -2811,7 +2836,7 @@ export function PrettyView({
             setMessages((prev) =>
               capOffRef.current
                 ? appendDedup(prev, parsed)
-                : appendDedupWithCap(prev, parsed, WORKING_SET_CAP),
+                : appendDedupWithCap(prev, parsed, WORKING_SET_CAP, markCapDrop),
             );
           }
           // Phase 47 (load-more button) — seed oldestLoadedLine from the min
@@ -2834,7 +2859,7 @@ export function PrettyView({
           setMessages((prev) =>
             capOffRef.current
               ? appendDedup(prev, parsed)
-              : appendDedupWithCap(prev, parsed, WORKING_SET_CAP),
+              : appendDedupWithCap(prev, parsed, WORKING_SET_CAP, markCapDrop),
           );
           // Phase 47 (load-more button) — seed oldestLoadedLine (see message case).
           setOldestLoadedLine((prev) => {
@@ -2850,7 +2875,7 @@ export function PrettyView({
           setMessages((prev) =>
             capOffRef.current
               ? appendDedup(prev, parsed)
-              : appendDedupWithCap(prev, parsed, WORKING_SET_CAP),
+              : appendDedupWithCap(prev, parsed, WORKING_SET_CAP, markCapDrop),
           );
           // Phase 47 (load-more button) — seed oldestLoadedLine (see message case).
           setOldestLoadedLine((prev) => {
@@ -2866,7 +2891,7 @@ export function PrettyView({
           setMessages((prev) =>
             capOffRef.current
               ? appendDedup(prev, parsed)
-              : appendDedupWithCap(prev, parsed, WORKING_SET_CAP),
+              : appendDedupWithCap(prev, parsed, WORKING_SET_CAP, markCapDrop),
           );
           // Phase 47 (load-more button) — seed oldestLoadedLine (see message case).
           setOldestLoadedLine((prev) => {
@@ -2883,7 +2908,7 @@ export function PrettyView({
           setMessages((prev) =>
             capOffRef.current
               ? appendDedup(prev, parsed)
-              : appendDedupWithCap(prev, parsed, WORKING_SET_CAP),
+              : appendDedupWithCap(prev, parsed, WORKING_SET_CAP, markCapDrop),
           );
           // Phase 47 (load-more button) — seed oldestLoadedLine (see message case).
           setOldestLoadedLine((prev) => {
@@ -3221,6 +3246,7 @@ export function PrettyView({
           // (T-30-01 mitigation — no filesystem paths in reason); the
           // session_changed frame remains authoritative for the reset.
           setMessages([]);
+          resetLoadOlderState();
           setHarnessTasks([]);
           // Phase 90 Plan 00 Wave 0 (D-10 delivery mechanism) — contextPct
           // now lives on fleet-status; no local reset needed. Next
@@ -3279,6 +3305,7 @@ export function PrettyView({
           // deliberately preserve (dormantRef / draft).
           console.info(`[wire-boot] reset messages sessionId=${tmuxSession ?? 'null'} hostId=${hostId} paneKey=${paneKey}`);
           setMessages([]);
+          resetLoadOlderState();
           setErrorMessage(null);
           break;
         }
@@ -3332,6 +3359,13 @@ export function PrettyView({
       // with Plan 50-02's backend per-connection pendingMqidsForThisConnection
       // cleanup so both sides release together on WS teardown.
       clearAllPendingSends("ws-close-unmount");
+      // A fetch_older_range response can't arrive on a dead WS — release the
+      // in-flight guard so the button isn't stuck disabled on its spinner.
+      if (loadOlderInFlightRef.current) {
+        console.info(`[pv-load-more] in-flight released on ws-close hostId=${hostId} tmuxSession=${tmuxSession ?? 'null'}`);
+        loadOlderInFlightRef.current = false;
+        setLoadOlderState("idle");
+      }
       // Patch #148: auto-reconnect on close, mirroring Terminal.tsx's pattern.
       //
       // INACTIVE short-circuit (FALLBACK-01 preservation): when the server has
@@ -3851,23 +3885,16 @@ export function PrettyView({
   }, [sendInput, sendInterrupt, onRegisterSendInput, onRegisterSendInterrupt, onUnregisterSendInput, onUnregisterSendInterrupt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Phase 47 (load-more button) — visibility gate for LoadMoreOlderButton.
-  // Truth table (see 47-04-PLAN.md § Task 2b behavior):
-  //   sessionTotalLines | messages.length | sessionHasMore | hasOlderMessages
-  //   ------------------|-----------------|----------------|-----------------
-  //   null              | any             | any            | false  (pre-hydration)
-  //   15                | 15              | true           | false  (short convo)
-  //   100               | 20              | true           | true   (cap, older exists)
-  //   100               | 40              | true           | true   (post-1st-click)
-  //   100               | 100             | true           | false  (all loaded)
-  //   100               | 40              | false          | false  (hasMore=false edge)
-  //   500               | 20              | true           | true   (long history)
+  // "No lie" invariant (CONTEXT.md § What would make it wrong): the button
+  // never appears on a conversation with nothing older behind it.
   //
-  // Guards against CONTEXT.md § "What would make it wrong" "no lie" — the
-  // button never appears on a conversation with nothing older behind it.
+  // 2026-10-09: the gate was `sessionTotalLines > messages.length`, but most
+  // JSONL lines are skip frames that never render, so it held on nearly
+  // every pane and the button lied (click → nothing older exists). Now:
+  // before the first click, shown only if the cap actually dropped an older
+  // frame from the full replay; after it, the server's hasMore decides.
   const hasOlderMessages =
-    sessionTotalLines != null &&
-    sessionHasMore &&
-    sessionTotalLines > effectiveMessages.length;
+    sessionHasMore && (capOff || capDroppedRef.current);
 
   return (
     <div
