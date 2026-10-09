@@ -103,7 +103,9 @@ export function ScheduledAgentsModal({
 
   // Two internal views (D-27).
   const [view, setView] = useState<"list" | "form">("list");
-  const [editingSlug, setEditingSlug] = useState<string | null>(null);
+  // Keyed by (hostId, slug): slugs are only unique per host, so a slug-only
+  // lookup opened (and saved over) another host's same-named task.
+  const [editing, setEditing] = useState<{ hostId: number; slug: string } | null>(null);
 
   // Unified error slot — one dismissible banner shows whichever write
   // most recently failed (toggle / delete / load). Priority: load-error
@@ -126,7 +128,7 @@ export function ScheduledAgentsModal({
       setRoleFilter(ALL_SENTINEL);
       setHostFilter(ALL_SENTINEL);
       setView("list");
-      setEditingSlug(null);
+      setEditing(null);
       setWriteError(null);
       return;
     }
@@ -224,13 +226,14 @@ export function ScheduledAgentsModal({
   const totalItems = items ?? [];
 
   function handleRowClick(row: ScheduledAgentListItem): void {
-    setEditingSlug(row.slug);
+    setEditing({ hostId: row.hostId, slug: row.slug });
     setView("form");
   }
 
   async function handleToggleClick(row: ScheduledAgentListItem): Promise<void> {
-    if (toggleInFlightRef.current.has(row.slug)) return;
-    toggleInFlightRef.current.add(row.slug);
+    const toggleKey = `${row.hostId}:${row.slug}`;
+    if (toggleInFlightRef.current.has(toggleKey)) return;
+    toggleInFlightRef.current.add(toggleKey);
     setWriteError(null);
     try {
       await toggleScheduledAgentEnabled(row.slug, row.hostId, !row.enabled);
@@ -238,7 +241,7 @@ export function ScheduledAgentsModal({
     } catch (err) {
       setWriteError(err instanceof Error ? err.message : "Toggle failed");
     } finally {
-      toggleInFlightRef.current.delete(row.slug);
+      toggleInFlightRef.current.delete(toggleKey);
     }
   }
 
@@ -262,7 +265,7 @@ export function ScheduledAgentsModal({
   }
 
   function handleEditFromKebab(row: ScheduledAgentListItem): void {
-    setEditingSlug(row.slug);
+    setEditing({ hostId: row.hostId, slug: row.slug });
     setView("form");
   }
 
@@ -282,13 +285,13 @@ export function ScheduledAgentsModal({
   }
 
   function enterCreateMode(): void {
-    setEditingSlug(null);
+    setEditing(null);
     setView("form");
   }
 
   function backToList(optimistic: ScheduledAgentListItem | null = null): void {
     setView("list");
-    setEditingSlug(null);
+    setEditing(null);
     // On create, splice the fresh row in immediately so it's visible before
     // the authoritative refetch resolves (UAT 2026-10-01). Dedupe on
     // (hostId, slug) so a re-save of the same scheduled agent doesn't
@@ -313,7 +316,7 @@ export function ScheduledAgentsModal({
   const headerTitle =
     view === "list"
       ? "Scheduled Tasks"
-      : editingSlug !== null
+      : editing !== null
         ? "Edit scheduled task"
         : "New scheduled task";
 
@@ -330,7 +333,7 @@ export function ScheduledAgentsModal({
         e.stopPropagation();
         e.preventDefault();
         setView("list");
-        setEditingSlug(null);
+        setEditing(null);
         void refetch();
       }
     },
@@ -538,10 +541,10 @@ export function ScheduledAgentsModal({
       ) : (
         <ModalBody className="p-0 flex flex-col min-h-0 overflow-hidden">
           <ScheduledAgentsModalForm
-            mode={editingSlug !== null ? "edit" : "create"}
+            mode={editing !== null ? "edit" : "create"}
             initialSpec={
-              editingSlug !== null
-                ? (items?.find((i) => i.slug === editingSlug) ?? null)
+              editing !== null
+                ? (items?.find((i) => i.hostId === editing.hostId && i.slug === editing.slug) ?? null)
                 : null
             }
             flatHosts={flatHosts}

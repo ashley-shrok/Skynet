@@ -327,6 +327,30 @@ describe("ScheduledAgentsModal: form-view entry points", () => {
     expect(screen.getByTestId("scheduled-agents-modal-form-host-locked")).toBeInTheDocument();
   });
 
+  it("T-07b: same slug on two hosts — clicking the second row edits THAT host's task", async () => {
+    listScheduledAgentsMock.mockResolvedValueOnce([
+      makeRow({ host: "host-a", hostId: 1, prompt: "host A prompt" }),
+      makeRow({ host: "host-b", hostId: 2, prompt: "host B prompt" }),
+    ]);
+    const TWO_HOST_TREE: HostFolder = {
+      name: "root",
+      children: [
+        (ONE_HOST_TREE.children[0] as never),
+        { ...(ONE_HOST_TREE.children[0] as never), id: "2", name: "host-b" } as never,
+      ],
+    };
+    render(
+      <ScheduledAgentsModal open={true} onOpenChange={vi.fn()} hostTree={TWO_HOST_TREE} />,
+    );
+    await screen.findAllByTestId("scheduled-agents-modal-row-morning-triage");
+    const rows = screen.getAllByTestId("scheduled-agents-modal-row-morning-triage");
+    expect(rows).toHaveLength(2);
+    const hostBRow = rows.find((r) => r.textContent?.includes("host-b")) ?? rows[1];
+    fireEvent.click(hostBRow);
+    const prompt = (await screen.findByLabelText(/instructions/i)) as HTMLTextAreaElement;
+    expect(prompt.value).toBe("host B prompt");
+  });
+
   it("T-08: '+' button → form view, create mode, all fields empty", async () => {
     listScheduledAgentsMock.mockResolvedValueOnce([]);
     render(
