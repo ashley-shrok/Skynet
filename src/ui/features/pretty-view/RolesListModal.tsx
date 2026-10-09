@@ -60,6 +60,15 @@ import {
 import { listArchivedRoles, type ArchivedRoleListEntry } from "@/api/roles-archive-list-api";
 import { unarchiveRole } from "@/api/role-unarchive-api";
 import { UnarchiveError } from "@/api/identity-unarchive-api";
+import {
+  listInstanceWide,
+  previewPromote,
+  promote,
+  promoteConfirmText,
+  removeInstanceWide,
+  type InstanceWideList,
+} from "@/api/instance-wide-api";
+import { InstanceWideChip, InstanceWideSyncStatus } from "./InstanceWideStatus";
 
 // Chrome/Linux desktop <option> popup — same OPTION_STYLE that
 // GlobalFilesModal.tsx L33 pins for popup contrast.
@@ -248,6 +257,64 @@ export function RolesListModal({
   });
   const [archivedHasFetched, setArchivedHasFetched] = useState(false);
 
+  // Instance-wide roles (master copy in the app, on every host) are listed in
+  // their own section above the host's own roles. reloadKey re-fetches the
+  // host's roles after a promote/remove.
+  const [instanceWide, setInstanceWide] = useState<InstanceWideList | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+  const isAdmin = instanceWide?.isAdmin ?? false;
+  useEffect(() => {
+    if (!open) {
+      setInstanceWide(null);
+      return;
+    }
+    let cancelled = false;
+    listInstanceWide("role")
+      .then((list) => {
+        if (!cancelled) setInstanceWide(list);
+      })
+      .catch(() => {
+        if (!cancelled) setInstanceWide({ isAdmin: false, items: [] });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, reloadKey]);
+
+  const handlePromoteRole = async (roleName: string): Promise<void> => {
+    if (selectedHostId == null) return;
+    try {
+      const preview = await previewPromote("role", roleName, selectedHostId);
+      if (preview.tooLarge) {
+        window.alert(
+          `"${roleName}" is too big to make instance-wide (${preview.files} files). Clean up its folder first.`,
+        );
+        return;
+      }
+      if (!window.confirm(promoteConfirmText("role", roleName, preview))) return;
+      await promote("role", roleName, selectedHostId);
+      setReloadKey((k) => k + 1);
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "Couldn't make it instance-wide");
+    }
+  };
+
+  const handleRemoveInstanceRole = async (roleName: string, label: string): Promise<void> => {
+    const count = instanceWide?.items.find((i) => i.name === roleName)?.hostCount ?? 0;
+    if (
+      !window.confirm(
+        `Remove the instance-wide role ${label}? Its folder will be deleted from ${count} host${count === 1 ? "" : "s"}, along with anything agents saved in it there. This can't be undone.`,
+      )
+    )
+      return;
+    try {
+      await removeInstanceWide("role", roleName);
+      setReloadKey((k) => k + 1);
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "Couldn't remove it");
+    }
+  };
+
   // Phase 133 Plan 133-05 (D-01, D-03, D-04): the archive click handler.
   // - D-04 cascade preview computed frontend-side from useIdentities().
   // - D-03 double confirm — cancel at either stops with zero API calls.
@@ -360,7 +427,7 @@ export function RolesListModal({
     return () => {
       cancelled = true;
     };
-  }, [selectedHostId]);
+  }, [selectedHostId, reloadKey]);
 
   // Phase 143 Plan 143-07 (D-07) — host-scope reset for archived section.
   // When selectedHostId changes, reset archived section state so the next
@@ -524,8 +591,21 @@ export function RolesListModal({
               className="flex-1 min-h-0 overflow-y-auto px-6 py-4"
               style={{ display: "flex", flexDirection: "column", gap: 8 }}
             >
-              {rolesState.data.map((role) => {
+              {[
+                ...rolesState.data.filter((r) => r.instanceWide),
+                ...rolesState.data.filter((r) => !r.instanceWide),
+              ].map((role, index, ordered) => {
                 const hue = hueFor(role);
+                const iwItem = role.instanceWide
+                  ? instanceWide?.items.find((i) => i.name === role.name) ?? null
+                  : null;
+                const hasIwSection = ordered.some((r) => r.instanceWide);
+                const sectionHeading =
+                  hasIwSection && index === 0
+                    ? "Instance-wide — every host"
+                    : hasIwSection && !role.instanceWide && ordered[index - 1]?.instanceWide
+                    ? flatHosts.find((h) => Number(h.id) === selectedHostId)?.name ?? "This host"
+                    : null;
                 const label = displayNameFor(role);
                 // D-14: row handlers — row click opens RoleModal; kebab click
                 // stops propagation (handled inside RowKebabMenu per D-14).
@@ -542,16 +622,61 @@ export function RolesListModal({
                     handleRowSelect();
                   }
                 };
-                const kebabItems: RowKebabMenuItem[] = [
-                  { label: "Archive", danger: true, onClick: () => handleArchiveClick(role.name, label) },
-                ];
+                const kebabItems: RowKebabMenuItem[] = role.instanceWide
+                  ? isAdmin
+                    ? [
+                        {
+                          label: "Remove from every host…",
+                          danger: true,
+                          testId: `roles-list-remove-instance-${role.name}`,
+                          onClick: () => {
+                            void handleRemoveInstanceRole(role.name, label);
+                          },
+                        },
+                      ]
+                    : [
+                        {
+                          label: "Managed instance-wide — only an admin can change it",
+                          disabled: true,
+                          onClick: () => {},
+                        },
+                      ]
+                  : [
+                      ...(isAdmin
+                        ? [
+                            {
+                              label: "Make instance-wide…",
+                              hint: "Keep one copy of this role in step on every host",
+                              testId: `roles-list-promote-${role.name}`,
+                              onClick: () => {
+                                void handlePromoteRole(role.name);
+                              },
+                            },
+                          ]
+                        : []),
+                      {
+                        label: "Archive",
+                        danger: true,
+                        separatorBefore: isAdmin,
+                        onClick: () => handleArchiveClick(role.name, label),
+                      },
+                    ];
                 return (
-                  // D-12/D-13/D-14: row is a <div role="button"> so the kebab
-                  // <button> can live as a sibling inside it without violating
-                  // the HTML rule against nested <button> elements.
-                  // D-15: the old right-click Archive handler stays retired;
-                  // right-click now opens the SAME kebab menu at the cursor.
-                  <RowKebabContextMenuSurface key={role.name} items={kebabItems}>
+                  <div key={role.name} style={{ display: "contents" }}>
+                  {sectionHeading && (
+                    <div
+                      data-testid="roles-list-section-heading"
+                      className="text-[12px] font-semibold uppercase tracking-wide text-[hsla(var(--pv-id-hue),22%,88%,0.55)] pt-1"
+                    >
+                      {sectionHeading}
+                    </div>
+                  )}
+                  {/* D-12/D-13/D-14: row is a <div role="button"> so the kebab
+                      <button> can live as a sibling inside it without violating
+                      the HTML rule against nested <button> elements.
+                      D-15: the old right-click Archive handler stays retired;
+                      right-click now opens the SAME kebab menu at the cursor. */}
+                  <RowKebabContextMenuSurface items={kebabItems}>
                     <div
                       role="button"
                       tabIndex={0}
@@ -644,6 +769,12 @@ export function RolesListModal({
                       >
                         {label}
                       </span>
+                      {role.instanceWide && <InstanceWideChip />}
+                      {iwItem && (
+                        <span onClick={(e) => e.stopPropagation()}>
+                          <InstanceWideSyncStatus item={iwItem} />
+                        </span>
+                      )}
 
                       {/* D-12/D-13: always-visible kebab with single Archive item.
                           Placed BEFORE ChevronRight so the kebab is the rightmost
@@ -665,6 +796,7 @@ export function RolesListModal({
                       />
                     </div>
                   </RowKebabContextMenuSurface>
+                  </div>
                 );
               })}
             </div>

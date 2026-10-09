@@ -32,6 +32,8 @@
 // body to work from.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { listInstanceWide, type InstanceWideList } from "@/api/instance-wide-api";
+import { InstanceWideChip, InstanceWideSyncStatus } from "./InstanceWideStatus";
 import type React from "react";
 import {
   BookOpen,
@@ -167,6 +169,8 @@ export interface RoleModalProps {
     colorHue?: number;
     voice?: string;
     avatar?: string;
+    /** Managed instance-wide — edits by admins go to every host. */
+    instanceWide?: boolean;
   };
   hostId: number;
   onOpenRunbook: (runbookName: string) => void;
@@ -186,6 +190,24 @@ export function RoleModal({
   const [colorHueDraft, setColorHueDraft] = useState<number>(initialHue);
   const hue = colorHueDraft;
   const displayName = roleDisplayName(roleName, roleCosmetics.displayName);
+
+  // Instance-wide roles: sync status + whether this viewer may change it.
+  const [instanceWideList, setInstanceWideList] = useState<InstanceWideList | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    listInstanceWide("role")
+      .then((list) => {
+        if (!cancelled) setInstanceWideList(list);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+  const instanceWideItem = instanceWideList?.items.find((i) => i.name === roleName) ?? null;
+  const isInstanceWideRole = !!roleCosmetics.instanceWide || instanceWideItem != null;
+  const instanceWideIsAdmin = instanceWideList?.isAdmin ?? false;
 
   const [activeTab, setActiveTab] = useState<string>("role");
   const gitTarget = { kind: "role" as const, roleSlug: roleName };
@@ -449,6 +471,17 @@ export function RoleModal({
           <span className="font-semibold text-[16px] text-[#f0ebe0] truncate leading-tight">
             {displayName}
           </span>
+          {isInstanceWideRole && (
+            <div className="flex flex-wrap items-center gap-1.5" data-testid="role-modal-instance-wide">
+              <InstanceWideChip />
+              {instanceWideItem && <InstanceWideSyncStatus item={instanceWideItem} />}
+              <span className="text-[11px] text-[#a89a80]">
+                {instanceWideIsAdmin
+                  ? "Changes you make here go to every host."
+                  : "Only an admin can change this role."}
+              </span>
+            </div>
+          )}
         </div>
         {/* Chips + close X — pinned to top-right. */}
         <div className="flex items-start gap-1 shrink-0">

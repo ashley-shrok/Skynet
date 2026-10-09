@@ -1218,7 +1218,10 @@ export function NewSessionDialog({
                     disabled={formDisabled || rolesLoading || rolesForHost.length === 0}
                     options={rolesForHost.map((r) => ({
                       value: r.name,
-                      label: roleDisplayName(r.name, r.displayName),
+                      // Instance-wide roles carry a marker (same role on every host).
+                      label:
+                        roleDisplayName(r.name, r.displayName) +
+                        (r.instanceWide ? " · instance-wide" : ""),
                     }))}
                     value={selectedRoles}
                     onChange={setSelectedRoles}
