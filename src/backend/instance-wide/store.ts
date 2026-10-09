@@ -164,6 +164,11 @@ export class InstanceWideStore {
     return m;
   }
 
+  /** Absolute on-disk path of a master file (validated; may not exist). */
+  absolutePath(kind: ItemKind, name: string, rel: string): string {
+    return this.filePath(kind, name, rel);
+  }
+
   async readFile(kind: ItemKind, name: string, rel: string): Promise<Buffer> {
     return fs.readFile(this.filePath(kind, name, rel));
   }

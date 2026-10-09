@@ -32,6 +32,7 @@
  */
 
 import express from "express";
+import { guardInstanceWideRoleWrite } from "../../instance-wide/role-guard.js";
 import type { Request, Response } from "express";
 import multer from "multer";
 import { AuthManager } from "../../utils/auth-manager.js";
@@ -715,6 +716,7 @@ workspaceRoutes.put(
       return;
     }
     const target = targetResult.target;
+    if (target.kind === "role" && !(await guardInstanceWideRoleWrite(res, userId, Number(hostId), target.roleSlug))) return;
 
     try {
       validateRelativePath(relativePath);
@@ -804,6 +806,7 @@ workspaceRoutes.delete(
       return;
     }
     const target = targetResult.target;
+    if (target.kind === "role" && !(await guardInstanceWideRoleWrite(res, userId, Number(hostId), target.roleSlug))) return;
 
     try {
       validateRelativePath(relativePath);
@@ -898,6 +901,7 @@ workspaceRoutes.post(
       return;
     }
     const target = targetResult.target;
+    if (target.kind === "role" && !(await guardInstanceWideRoleWrite(res, userId, Number(hostId), target.roleSlug))) return;
 
     // Validate both from and to
     try {
@@ -993,6 +997,7 @@ workspaceRoutes.post(
       return;
     }
     const target = targetResult.target;
+    if (target.kind === "role" && !(await guardInstanceWideRoleWrite(res, userId, Number(hostId), target.roleSlug))) return;
 
     try {
       validateRelativePath(relativePath);
@@ -1080,6 +1085,7 @@ workspaceRoutes.post(
       return;
     }
     const target = targetResult.target;
+    if (target.kind === "role" && !(await guardInstanceWideRoleWrite(res, userId, Number(hostId), target.roleSlug))) return;
 
     try {
       validateRelativePath(relativePath);
@@ -1176,6 +1182,7 @@ workspaceRoutes.post(
       return;
     }
     const target = targetResult.target;
+    if (target.kind === "role" && !(await guardInstanceWideRoleWrite(res, userId, Number(hostId), target.roleSlug))) return;
 
     try {
       validateRelativePath(relativePath);

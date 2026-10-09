@@ -492,6 +492,15 @@ export class InstanceWideEngine {
     return out;
   }
 
+  readMasterFile(kind: ItemKind, name: string, rel: string): Promise<Buffer> {
+    return this.store.readFile(kind, name, rel);
+  }
+
+  /** Direct read access to the master copy (for the instance-wide skill editor). */
+  get masterStore(): InstanceWideStore {
+    return this.store;
+  }
+
   async isInstanceWide(kind: ItemKind, name: string): Promise<boolean> {
     return this.store.hasItem(kind, name);
   }

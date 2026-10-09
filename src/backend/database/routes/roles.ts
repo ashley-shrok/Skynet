@@ -54,6 +54,7 @@
  */
 
 import type { AuthenticatedRequest } from "../../../types/index.js";
+import { guardInstanceWideRoleWrite } from "../../instance-wide/role-guard.js";
 import express from "express";
 import multer from "multer";
 import yaml from "js-yaml";
@@ -342,6 +343,21 @@ router.post(
       return res
         .status(400)
         .json({ error: "hostId query required (positive integer)" });
+    }
+    next();
+  },
+  // Instance-wide roles: non-admins refused; an admin's avatar change syncs out.
+  async (req: Request, res: Response, next: express.NextFunction) => {
+    const userId = (req as AuthenticatedRequest).userId;
+    if (
+      !(await guardInstanceWideRoleWrite(
+        res,
+        userId,
+        Number(req.query.hostId),
+        String(req.params.name),
+      ))
+    ) {
+      return;
     }
     next();
   },

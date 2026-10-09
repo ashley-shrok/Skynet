@@ -67,6 +67,7 @@
  */
 
 import type { AuthenticatedRequest } from "../../../types/index.js";
+import { guardInstanceWideRoleWrite } from "../../instance-wide/role-guard.js";
 import express from "express";
 import type { Request, Response } from "express";
 import { AuthManager } from "../../utils/auth-manager.js";
@@ -814,6 +815,7 @@ router.put(
 
     const hostId = rawHostId;
     const role = rawRole;
+    if (!(await guardInstanceWideRoleWrite(res, userId, hostId, role))) return;
     const runbook = rawRunbook;
     const relPath = rawPath;
     const content = rawContent;
@@ -1025,6 +1027,7 @@ router.post(
     }
     const hostId = rawHostId;
     const role = rawRole;
+    if (!(await guardInstanceWideRoleWrite(res, userId, hostId, role))) return;
     const runbook = rawRunbook;
     const relPath = rawPath;
 
@@ -1220,6 +1223,7 @@ router.delete(
     }
     const hostId = rawHostId;
     const role = rawRole;
+    if (!(await guardInstanceWideRoleWrite(res, userId, hostId, role))) return;
     const runbook = rawRunbook;
     const relPath = rawPath;
 
@@ -1388,6 +1392,7 @@ router.delete(
     }
     const hostId = rawHostId;
     const role = rawRole;
+    if (!(await guardInstanceWideRoleWrite(res, userId, hostId, role))) return;
     const runbook = rawRunbook;
 
     // 2. Per-user host isolation.
@@ -1619,6 +1624,7 @@ router.put(
       return;
     }
     const role = q.role;
+    if (!(await guardInstanceWideRoleWrite(res, userId, hostId, role))) return;
     const runbook = q.runbook;
     const relPath = q.path;
     const host = await resolveHostById(hostId, userId);

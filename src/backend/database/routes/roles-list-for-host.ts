@@ -35,6 +35,7 @@
  */
 
 import type { AuthenticatedRequest } from "../../../types/index.js";
+import { getInstanceWide } from "../../instance-wide/production.js";
 import express from "express";
 import type { Request, Response } from "express";
 import { AuthManager } from "../../utils/auth-manager.js";
@@ -347,9 +348,15 @@ router.get(
         return visible;
       });
 
+      // Instance-wide roles are flagged so the roles window can list them in
+      // their own section and the role picker can mark them.
+      const instanceWideRoles = new Set(
+        (await getInstanceWide()?.listNames("role")) ?? [],
+      );
       const result = gatedRoles.map((name) => ({
         name,
         description: descByName.get(name) ?? "",
+        ...(instanceWideRoles.has(name) ? { instanceWide: true } : {}),
         // Spread cosmetics last — only present keys land on the entry.
         // NB: this is `cosByName` (the narrowed RoleCosmetics), NOT
         // `rawCosByName` — the raw map is gate-only and never leaks

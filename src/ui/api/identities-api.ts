@@ -306,6 +306,8 @@ export type RoleSummary = {
   colorHue?: number;
   voice?: string;
   avatar?: string;
+  /** Managed instance-wide (master copy in the app, synced to every host). */
+  instanceWide?: boolean;
 };
 
 export async function listRolesForHost(hostId: number): Promise<RoleSummary[]> {

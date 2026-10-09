@@ -1599,6 +1599,36 @@ if (process.env.VITEST !== "true") {
         // semaphores now live in the shared registry; registry lifecycle is
         // process-scoped and does not need SIGTERM cleanup.
       });
+
+      // ---------------------------------------------------------------------
+      // Instance-wide skills & roles sync. Shares the substrate SSH client
+      // pool (same hosts, same CSKEK creds); the co-located host goes through
+      // the bind-mounted home instead of SSH-to-self.
+      // ---------------------------------------------------------------------
+      const { InstanceWideEngine } = await import("./instance-wide/engine.js");
+      const { InstanceWideStore } = await import("./instance-wide/store.js");
+      const {
+        listMachines: listInstanceWideMachines,
+        localChannel: instanceWideLocalChannel,
+        setInstanceWide,
+      } = await import("./instance-wide/production.js");
+      type IwMachine = import("./instance-wide/production.js").ProductionMachine;
+      const listIwMachines = () => listInstanceWideMachines(getDbForSubstrate);
+      const instanceWide = new InstanceWideEngine({
+        store: new InstanceWideStore(),
+        listMachines: listIwMachines,
+        acquireChannel: async (m) => {
+          const pm = m as IwMachine;
+          if (pm.local) return instanceWideLocalChannel();
+          return substrateAcquireChannel(pm.record);
+        },
+      });
+      setInstanceWide(instanceWide, listIwMachines);
+      instanceWide.start();
+      systemLogger.info("Instance-wide sync started", {
+        operation: "instance_wide_started",
+      });
+      process.once("SIGTERM", () => instanceWide.stop());
     }
 
     // =========================================================================

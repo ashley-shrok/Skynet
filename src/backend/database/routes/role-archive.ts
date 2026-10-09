@@ -59,6 +59,7 @@
  */
 
 import type { AuthenticatedRequest } from "../../../types/index.js";
+import { getInstanceWide } from "../../instance-wide/production.js";
 import express from "express";
 import type { Request, Response } from "express";
 import { AuthManager } from "../../utils/auth-manager.js";
@@ -117,6 +118,15 @@ router.post(
       return res
         .status(400)
         .json({ error: "role name must match [a-z0-9-]" });
+    }
+
+    // Instance-wide roles are restored by the sync if archived on one host;
+    // they come off every host via "Remove" in the instance-wide section.
+    if (await getInstanceWide()?.isInstanceWide("role", name)) {
+      return res.status(409).json({
+        error: "this role is instance-wide — remove it from the instance-wide section instead",
+        code: "instance_wide",
+      });
     }
 
     // 3. Verify host ownership (T-133-01-01 gate). Returns null for cross-user

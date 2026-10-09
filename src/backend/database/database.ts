@@ -139,6 +139,7 @@ import globalFilesReadWriteRoutes from "./routes/global-files-read-write.js";
 // path-safety gate (SKILL_NAME_RE + isSafeRelativePath + prefix
 // assertion + shellEscape) — no operator whitelist.
 import skillsEditorRoutes from "./routes/skills-editor.js";
+import instanceWideRoutes from "./routes/instance-wide.js";
 // /document-convert: LibreOffice converter sidecar front door (file viewers).
 import documentConvertRoutes from "./routes/document-convert.js";
 // Phase 89 Plan 02: /runbooks-editor router — 7 endpoints (list-runbooks / list-files / read / write / create / delete-file / delete-runbook) for editing role-scoped runbook folders on managed hosts. Mount + nginx block sit alongside the /skills-editor pair.
@@ -2183,6 +2184,9 @@ app.use("/global-files", globalFilesReadWriteRoutes);
 // `location ~ ^/skills-editor(/.*)?$` blocks in BOTH docker/nginx.conf
 // AND docker/nginx-https.conf (parity load-bearing per patch #446 arc).
 app.use("/skills-editor", skillsEditorRoutes);
+// Instance-wide skills & roles (list / promote / remove / sync). Matching nginx
+// location blocks in BOTH docker/nginx.conf AND docker/nginx-https.conf.
+app.use("/instance-wide", express.json({ limit: "64kb" }), instanceWideRoutes);
 // Phase 89 Plan 02: /runbooks-editor router — mounted alongside /skills-editor. Matching nginx location blocks in BOTH docker/nginx.conf AND docker/nginx-https.conf (parity load-bearing per patch #446 arc).
 app.use("/runbooks-editor", runbooksEditorRoutes);
 // File viewers: legacy Office / OpenDocument conversion via the converter sidecar (SKYNET_CONVERTER_URL). Matching nginx location blocks in BOTH docker/nginx.conf AND docker/nginx-https.conf.

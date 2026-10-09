@@ -1254,13 +1254,22 @@ describe("path-safety gate", () => {
 describe("GET /skills-editor/download", () => {
   it("rejects bad input before any SSH", async () => {
     for (const q of [
-      "hostId=0&skill=build&path=SKILL.md",
+      "hostId=-1&skill=build&path=SKILL.md",
       "hostId=1&skill=..&path=SKILL.md",
       "hostId=1&skill=build&path=../../etc/passwd",
     ]) {
       const res = await httpRequest(server, { method: "GET", path: `/skills-editor/download?${q}` });
       expect(res.status).toBe(400);
     }
+    expect((connectOneShot as Mock).mock.calls).toHaveLength(0);
+  });
+
+  it("hostId=0 is the instance-wide section — never SSH", async () => {
+    const res = await httpRequest(server, {
+      method: "GET",
+      path: "/skills-editor/download?hostId=0&skill=build&path=SKILL.md",
+    });
+    expect(res.status).toBe(404);
     expect((connectOneShot as Mock).mock.calls).toHaveLength(0);
   });
 

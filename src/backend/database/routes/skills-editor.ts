@@ -73,6 +73,20 @@ import { execCommand } from "../../ssh/tmux-helper.js";
 import { writeMarkdownFileAtomic } from "../../claude-session/identity-artifact-reader.js";
 import { sshLogger } from "../../utils/logger.js";
 import { sendRemoteFileUnderRoot, writeRemoteFileUnderRoot } from "../../utils/sftp-root-files.js";
+import {
+  isInstanceScope,
+  listInstanceSkills,
+  listInstanceSkillFiles,
+  readInstanceSkillFile,
+  writeInstanceSkillFile,
+  writeInstanceSkillBinary,
+  createInstanceSkillFile,
+  createInstanceSkill,
+  deleteInstanceSkillFile,
+  deleteInstanceSkill,
+  downloadInstanceSkillFile,
+} from "../../instance-wide/skill-files.js";
+import { getInstanceWide } from "../../instance-wide/production.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -338,6 +352,10 @@ router.get(
   authenticateJWT,
   async (req: Request, res: Response): Promise<void> => {
     const userId = (req as AuthenticatedRequest).userId;
+    if (isInstanceScope(req)) {
+      await listInstanceSkills(req, res);
+      return;
+    }
 
     // 1. Parse + validate hostId (mirrors global-files.ts L52-60).
     const rawHostId = req.query.hostId;
@@ -413,7 +431,14 @@ router.get(
         `  printf '\\036%s\\n%s\\n' "$(basename "$dir")" "$fm"; ` +
         `done`;
       const output = await execWithTimeout(conn, listCmd);
-      const skills = parseSkillListOutput(output);
+      // Instance-wide skills sit in the same folder but are listed (and edited)
+      // in the window's instance-wide section, never as this host's own.
+      const instanceWide = new Set(
+        (await getInstanceWide()?.listNames("skill")) ?? [],
+      );
+      const skills = parseSkillListOutput(output).filter(
+        (s) => !instanceWide.has(s.name),
+      );
 
       sshLogger.info("skills-editor skills: listed", {
         operation: "skills_editor_skills_listed",
@@ -458,6 +483,10 @@ router.get(
   authenticateJWT,
   async (req: Request, res: Response): Promise<void> => {
     const userId = (req as AuthenticatedRequest).userId;
+    if (isInstanceScope(req)) {
+      await listInstanceSkillFiles(req, res);
+      return;
+    }
 
     // 1. Parse + validate hostId.
     const rawHostId = req.query.hostId;
@@ -573,6 +602,10 @@ router.post(
   express.json({ limit: "32kb" }), // hostId + skill + path only
   async (req: Request, res: Response): Promise<void> => {
     const userId = (req as AuthenticatedRequest).userId;
+    if (isInstanceScope(req)) {
+      await readInstanceSkillFile(req, res);
+      return;
+    }
 
     // 1. Body validation — 400 BEFORE any I/O.
     const body = (req.body ?? {}) as Record<string, unknown>;
@@ -719,6 +752,10 @@ router.put(
   express.json({ limit: "4mb" }), // matches nginx client_max_body_size
   async (req: Request, res: Response): Promise<void> => {
     const userId = (req as AuthenticatedRequest).userId;
+    if (isInstanceScope(req)) {
+      await writeInstanceSkillFile(req, res);
+      return;
+    }
 
     // 1. Body validation — 400 BEFORE any I/O.
     const body = (req.body ?? {}) as Record<string, unknown>;
@@ -910,6 +947,10 @@ router.post(
   express.json({ limit: "32kb" }),
   async (req: Request, res: Response): Promise<void> => {
     const userId = (req as AuthenticatedRequest).userId;
+    if (isInstanceScope(req)) {
+      await createInstanceSkillFile(req, res);
+      return;
+    }
 
     // 1. Body validation.
     const body = (req.body ?? {}) as Record<string, unknown>;
@@ -1078,6 +1119,10 @@ router.post(
   express.json({ limit: "32kb" }),
   async (req: Request, res: Response): Promise<void> => {
     const userId = (req as AuthenticatedRequest).userId;
+    if (isInstanceScope(req)) {
+      await createInstanceSkill(req, res, composeSkillMdSeed);
+      return;
+    }
 
     // 1. Body validation — 400 BEFORE any I/O.
     const body = (req.body ?? {}) as Record<string, unknown>;
@@ -1262,6 +1307,10 @@ router.delete(
   express.json({ limit: "32kb" }),
   async (req: Request, res: Response): Promise<void> => {
     const userId = (req as AuthenticatedRequest).userId;
+    if (isInstanceScope(req)) {
+      await deleteInstanceSkillFile(req, res);
+      return;
+    }
 
     // 1. Body validation.
     const body = (req.body ?? {}) as Record<string, unknown>;
@@ -1395,6 +1444,10 @@ router.delete(
   express.json({ limit: "32kb" }),
   async (req: Request, res: Response): Promise<void> => {
     const userId = (req as AuthenticatedRequest).userId;
+    if (isInstanceScope(req)) {
+      await deleteInstanceSkill(req, res);
+      return;
+    }
 
     // 1. Body validation — skill only.
     const body = (req.body ?? {}) as Record<string, unknown>;
@@ -1506,6 +1559,10 @@ router.get(
   authenticateJWT,
   async (req: Request, res: Response): Promise<void> => {
     const userId = (req as AuthenticatedRequest).userId;
+    if (isInstanceScope(req)) {
+      await downloadInstanceSkillFile(req, res);
+      return;
+    }
     const q = req.query as Record<string, unknown>;
     const hostId = typeof q.hostId === "string" ? Number(q.hostId) : NaN;
     if (!Number.isInteger(hostId) || hostId <= 0) {
@@ -1563,6 +1620,10 @@ router.put(
   express.raw({ type: "application/octet-stream", limit: MAX_BINARY_WRITE_BYTES }),
   async (req: Request, res: Response): Promise<void> => {
     const userId = (req as AuthenticatedRequest).userId;
+    if (isInstanceScope(req)) {
+      await writeInstanceSkillBinary(req, res);
+      return;
+    }
     const q = req.query as Record<string, unknown>;
     const hostId = typeof q.hostId === "string" ? Number(q.hostId) : NaN;
     if (!Number.isInteger(hostId) || hostId <= 0) {
