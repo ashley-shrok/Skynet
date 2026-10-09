@@ -792,6 +792,11 @@ describe("writeProjectFile", () => {
 });
 
 describe("createProject — LOCAL branch", () => {
+  it("reserved slug 'archive' → EEXIST before any I/O (route auto-suffixes to archive-2)", async () => {
+    await expect(createProject(null, "archive", "Archive")).rejects.toMatchObject({ code: "EEXIST" });
+    expect(fsMkdirMock).not.toHaveBeenCalled();
+  });
+
   it("Test C1 (M2 fix): happy — parent recursive-mkdir, then atomic non-recursive mkdir(projectDir), then writeMarkdownFileAtomic with frontmatter displayName + empty body", async () => {
     // Both mkdirs succeed.
     fsMkdirMock.mockImplementation(() => Promise.resolve());

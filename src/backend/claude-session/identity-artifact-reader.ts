@@ -910,6 +910,15 @@ export async function createProject(
   if (!PROJECT_SLUG_RE.test(slug)) {
     throw new Error("invalid project slug");
   }
+  // `archive` is the archived-projects folder (listProjects skips it), so a
+  // project with that slug would be invisible and later archives would land
+  // inside it. Report it as taken — the create route's collision loop then
+  // auto-suffixes to archive-2.
+  if (slug === "archive") {
+    const err = new Error("project slug reserved: archive");
+    (err as NodeJS.ErrnoException).code = "EEXIST";
+    throw err;
+  }
   if (typeof displayName !== "string") {
     throw new Error("invalid displayName (must be string)");
   }
