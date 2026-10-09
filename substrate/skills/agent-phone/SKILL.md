@@ -23,7 +23,7 @@ agent-phone --to <username> --from "<caller name>" "<message>"
 Three arguments, all required:
 
 - `--to <username>` — the app username of the person to call. The backend looks up their phone number from their user record. You can only call people who have registered the host you're running on in the app; anyone else gets `not_permitted`.
-- `--from "<caller name>"` — a TTS-friendly identifier for you as the caller. Compose it from your identity's `displayName` frontmatter field plus a title-cased version of your role's slug — e.g. `Clipper the Box Maintainer` (identity `clipper`, role `box-maintainer`). This is what the recipient hears on pickup ("Hi, this is Clipper the Box Maintainer, with a message for you: …") and again at the end of the turn ("Your reply has been sent to Clipper the Box Maintainer. You may hang up.") so she knows which of your agents was calling.
+- `--from "<caller name>"` — a TTS-friendly identifier for you as the caller. Compose it from your identity's `displayName` frontmatter field plus a title-cased version of your role's slug — e.g. `Clipper the Box Maintainer` (identity `clipper`, role `box-maintainer`). This is what the recipient hears on pickup ("Hi, this is Clipper the Box Maintainer. …") and again at the end of the turn ("Your reply has been sent back to Clipper the Box Maintainer. You may hang up.") so she knows which of your agents was calling.
 - `<message>` — the line to deliver. The provider's voice model reads it verbatim; write it the way you'd want it spoken. Short is fine; a whole paragraph is fine too. There is no strict length cap but a phone call is not a chat log — keep it to what actually needs saying. **Do NOT self-introduce or sign off in `<message>` — the opener and receipt already do that; see the next section.**
 
 Example:
@@ -45,18 +45,18 @@ MSG
 
 You do NOT need to introduce yourself or sign off in `<message>` — the phone voice speaks these bookends verbatim, wrapping around whatever you pass:
 
-- **On pickup:** `Hi, this is <--from name>, with a message for you: <message>`
-- **On end of turn:** `Your reply has been sent to <--from name>. You may hang up.`
+- **On pickup:** `Hi, this is <--from name>. <message>`
+- **On end of turn:** `Your reply has been sent back to <--from name>. You may hang up.`
 
 So with `--from "Clipper the Box Maintainer"` and `<message>` `"The deploy failed"`, the callee hears:
 
-> Hi, this is Clipper the Box Maintainer, with a message for you: The deploy failed
+> Hi, this is Clipper the Box Maintainer. The deploy failed
 > [callee replies]
-> Your reply has been sent to Clipper the Box Maintainer. You may hang up.
+> Your reply has been sent back to Clipper the Box Maintainer. You may hang up.
 
 If you self-introduce in `<message>` (e.g. `"Hi, this is Clipper, the deploy failed"`), the callee hears the double intro:
 
-> Hi, this is Clipper the Box Maintainer, with a message for you: Hi, this is Clipper, the deploy failed
+> Hi, this is Clipper the Box Maintainer. Hi, this is Clipper, the deploy failed
 
 Write `<message>` as pure content — no `"Hi, this is …"`, no `"— <name>"` sign-off. The bookends handle identity.
 

@@ -7,9 +7,8 @@
  *   - Bland's LLM will chatter if allowed. The prompt has to explicitly
  *     enforce deliver-line, listen, do not fill silence, do not extend
  *     the conversation, end with the receipt phrase and hang up.
- *   - The bracketing lines — "this is X, with a message for you" on
- *     pickup and "your reply has been sent to X. You may hang up." at
- *     end of turn — are
+ *   - The bracketing lines — "Hi, this is X." on pickup and "Your reply
+ *     has been sent back to X. You may hang up." at end of turn — are
  *     what let the human hang up confident her words landed with the
  *     right agent. They are NOT optional.
  *
@@ -51,13 +50,13 @@ export function buildBlandTaskPrompt(
     `Each call is one turn: the agent drafts a line, this call delivers it, the human responds by speaking, and the human HANGS UP when done. The agent reads the transcript afterward and places another call if needed. Every call is exactly one turn.`,
     ``,
     `RULES:`,
-    `1. Your opening line is exactly, word-for-word: "Hi, this is ${safeCaller}, with a message for you: ${safeMessage}"`,
+    `1. Your opening line is exactly, word-for-word: "Hi, this is ${safeCaller}. ${safeMessage}"`,
     `2. Do NOT paraphrase, do NOT add "how can I help you", do NOT add a greeting beyond the opening line above.`,
     `3. After the opening line, LISTEN. Do not talk. Do not fill silence.`,
     `4. Long pauses while they think are fine — do not prompt.`,
     `5. If asked a direct question you cannot answer as a speaking-proxy, say briefly "I'll pass that along" and then say the receipt phrase in rule 7 and hang up.`,
     `6. When the human is finished speaking (they say "that's all", "goodbye", "ok", "got it", or an unambiguous natural end), immediately say the receipt phrase in rule 7 and hang up. Do NOT try to keep the conversation going.`,
-    `7. Receipt phrase (say verbatim before hanging up): "Your reply has been sent to ${safeCaller}. You may hang up."`,
+    `7. Receipt phrase (say verbatim before hanging up): "Your reply has been sent back to ${safeCaller}. You may hang up."`,
     `8. Do NOT extend the conversation beyond this one exchange. Deliver, listen, receipt, end.`,
   ].join("\n");
 }
@@ -74,5 +73,5 @@ export function buildBlandFirstSentence(
 ): string {
   const safeCaller = sanitizeForPrompt(callerName);
   const safeMessage = sanitizeForPrompt(message);
-  return `Hi, this is ${safeCaller}, with a message for you: ${safeMessage}`;
+  return `Hi, this is ${safeCaller}. ${safeMessage}`;
 }

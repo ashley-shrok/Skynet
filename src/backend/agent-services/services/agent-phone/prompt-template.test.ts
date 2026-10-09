@@ -13,9 +13,9 @@ describe("buildBlandTaskPrompt", () => {
   it("interpolates caller_name into both the opener and the receipt phrase", () => {
     const p = buildBlandTaskPrompt("Clipper the Box Maintainer", "hello world");
     // Opener quoted verbatim
-    expect(p).toContain('"Hi, this is Clipper the Box Maintainer, with a message for you: hello world"');
+    expect(p).toContain('"Hi, this is Clipper the Box Maintainer. hello world"');
     // Receipt phrase quoted verbatim
-    expect(p).toContain('"Your reply has been sent to Clipper the Box Maintainer. You may hang up."');
+    expect(p).toContain('"Your reply has been sent back to Clipper the Box Maintainer. You may hang up."');
   });
 
   it("enforces the deliver-listen-end discipline via explicit numbered rules", () => {
@@ -52,8 +52,8 @@ describe("buildBlandTaskPrompt", () => {
 
   it("trims surrounding whitespace on both fields", () => {
     const p = buildBlandTaskPrompt("  Clipper  ", "  hello  ");
-    expect(p).toContain('"Hi, this is Clipper, with a message for you: hello"');
-    expect(p).toContain('"Your reply has been sent to Clipper. You may hang up."');
+    expect(p).toContain('"Hi, this is Clipper. hello"');
+    expect(p).toContain('"Your reply has been sent back to Clipper. You may hang up."');
   });
 });
 
@@ -67,7 +67,7 @@ describe("buildBlandFirstSentence", () => {
   it("carries the caller_name and message into a natural utterance", () => {
     const sentence = buildBlandFirstSentence("Clipper the Box Maintainer", "your CI failed");
     expect(sentence).toBe(
-      "Hi, this is Clipper the Box Maintainer, with a message for you: your CI failed",
+      "Hi, this is Clipper the Box Maintainer. your CI failed",
     );
   });
 });
