@@ -84,6 +84,9 @@ import {
   updateHostTree,
   updateOpenTabs,
   updateFleetSessions,
+  reconcileFleetSessionsFromList,
+  getFleetSessionsSnapshot,
+  getProjectsSnapshot,
   removeFleetSession,
   clearPendingArchive,
   upsertFleetSession,
@@ -131,7 +134,7 @@ import {
   listProjects,
   listRelayRoomProjectTags,
 } from "@/api/project-list-api";
-import { getSessionList, killTmuxSession } from "@/api/sessions-api";
+import { getSessionListWithMeta, killTmuxSession } from "@/api/sessions-api";
 import {
   consumePendingWorkspace,
   specForTab,
@@ -670,6 +673,13 @@ export function AppShell({
   // how a live value reaches it without re-subscribing the socket.
   const hostsByIdRef = useRef<Map<number, Host>>(new Map());
 
+  // Reconnect backstop: the snapshot a re-subscribe delivers only upserts —
+  // it can't remove a row whose `gone` was missed while disconnected. So
+  // every snapshot after the first triggers a reconciling /sessions/list
+  // refetch. Ref because fetchAndApplyFleetSessions is declared further down.
+  const fetchFleetSessionsRef = useRef<((opts: { isColdStart: boolean }) => Promise<void>) | null>(null);
+  const seenFleetSnapshotRef = useRef(false);
+
   // Phase 34 Plan 06: fleet-status control WebSocket — exactly one WS opened
   // at AppShell boot. Reconnects on drop via createFleetStatusClient's built-in
   // retry-with-backoff (mirrors patch #148 pattern). Dispatches snapshot/update/gone
@@ -776,6 +786,11 @@ export function AppShell({
         for (const fleetState of states) {
           applyFleetState(fleetState);
         }
+        if (seenFleetSnapshotRef.current) {
+          console.info({ operation: "fleet_status_reconnect_refetch", stateCount: states.length });
+          void fetchFleetSessionsRef.current?.({ isColdStart: false });
+        }
+        seenFleetSnapshotRef.current = true;
       },
       onUpdate: (fleetState) => {
         applyFleetState(fleetState);
@@ -1069,10 +1084,13 @@ export function AppShell({
     if (fetchInflightRef.current) return; // coalesce concurrent fetches
     fetchInflightRef.current = true;
     try {
-      const sessions = await getSessionList();
+      // Reconcile (not wholesale-replace) against frames that land while this
+      // SSH-backed fetch is in flight, and keep rows for unreachable hosts.
+      const startedAt = Date.now();
+      const { sessions, unreachableHostIds } = await getSessionListWithMeta();
       if (opts.isColdStart && !mountedRef.current) return; // unmounted during cold-start fetch
       const fresh = Array.isArray(sessions) ? sessions : [];
-      updateFleetSessions(fresh);
+      reconcileFleetSessionsFromList(fresh, { startedAt, unreachableHostIds });
       // Phase 44 Plan 04 — seed working-store from the fresh /sessions/list
       // snapshot. Max-wins reconciliation in the working-store handles
       // ordering vs. WS-live updates (which may arrive before or after this).
@@ -1089,7 +1107,9 @@ export function AppShell({
       // quick-260805-tub: persist the fresh snapshot for the next refresh.
       // Both cold-start and re-ask update the cache — a successful re-ask
       // is strictly good. Silent on write failure (see writeFleetSessionsCache).
-      writeFleetSessionsCache(fresh);
+      // Persist the reconciled store view (pending-archive filtered), not the
+      // raw response — the raw one re-adds a just-archived row on reload.
+      writeFleetSessionsCache(getFleetSessionsSnapshot());
     } catch {
       if (opts.isColdStart) {
         // quick-260821-m36: flag-flip on failure so cold-cache clients don't
@@ -1113,6 +1133,7 @@ export function AppShell({
       fetchInflightRef.current = false;
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  fetchFleetSessionsRef.current = fetchAndApplyFleetSessions;
 
   // Mount effect — seed from localStorage cache THEN fetch (cold start only).
   // TG-17: the empty dep array now enforces "the SEED is exactly once per mount"
@@ -1557,12 +1578,22 @@ export function AppShell({
             }));
             return rows;
           } catch {
-            return [] as ProjectRow[];
+            // null = unknown (host unreachable), NOT "no projects" — keep
+            // whatever we already show for it instead of wiping its sections.
+            return null;
           }
         }),
       );
       if (cancelled) return;
-      const aggregated: ProjectRow[] = projectResults.flat();
+      const aggregated: ProjectRow[] = [];
+      projectResults.forEach((rows, i) => {
+        if (rows !== null) {
+          aggregated.push(...rows);
+        } else {
+          const hostId = allHosts[i].id;
+          aggregated.push(...getProjectsSnapshot().filter((p) => p.hostId === hostId));
+        }
+      });
       setProjects(aggregated);
 
       // Relay-room project-tag hydration (Fix 1 gate). Aggregates the

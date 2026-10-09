@@ -55,6 +55,26 @@ export async function getSessionList(): Promise<RemoteTmuxSession[]> {
 }
 
 /**
+ * GET /sessions/list plus the hosts the backend couldn't reach (header
+ * `X-Skynet-Unreachable-Hosts`, comma-separated host ids). Their empty
+ * contribution means "unknown", so callers keep the rows they already have.
+ */
+export async function getSessionListWithMeta(): Promise<{
+  sessions: RemoteTmuxSession[];
+  unreachableHostIds: number[];
+}> {
+  const response = await authApi.get("/sessions/list");
+  const raw = (response.headers as Record<string, unknown> | undefined)?.[
+    "x-skynet-unreachable-hosts"
+  ];
+  const unreachableHostIds =
+    typeof raw === "string" && raw !== ""
+      ? raw.split(",").map((v) => parseInt(v, 10)).filter(Number.isFinite)
+      : [];
+  return { sessions: response.data, unreachableHostIds };
+}
+
+/**
  * quick-260810-n3a: Kill a tmux session on a remote host via the backend SSH route.
  * Sends POST /host/:hostId/session/kill with { tmuxSession } as JSON.
  * On non-2xx: throws Error with the backend's error message (or axios's default).

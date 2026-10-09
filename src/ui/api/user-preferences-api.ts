@@ -58,7 +58,7 @@ export async function setIdentityPinned(
       pinned,
     });
   } catch (error) {
-    throw new Error(handleApiError(error));
+    throw new Error(handleApiError(error, "set identity pin"));
   }
 }
 

@@ -322,6 +322,11 @@ router.get("/list", authenticateJWT, async (req: Request, res: Response) => {
       return cfg.autoTmux !== false;
     });
 
+    // Hosts whose list-sessions failed (unreachable / timeout). Their `[]`
+    // means "unknown", not "no sessions" — surfaced in a response header so
+    // the client keeps the rows it already has for them instead of wiping
+    // them on a wholesale replace.
+    const unreachableHostIds: number[] = [];
     const results = await Promise.all(
       candidates.map(async (h): Promise<TmuxSessionRow[]> => {
         const hostId = h.id as number;
@@ -675,6 +680,7 @@ router.get("/list", authenticateJWT, async (req: Request, res: Response) => {
             hostName,
             error: e instanceof Error ? e.message : "unknown",
           });
+          unreachableHostIds.push(hostId);
           return [];
         }
       }),
@@ -726,6 +732,9 @@ router.get("/list", authenticateJWT, async (req: Request, res: Response) => {
     }
 
     const flat = mergeRelayRoomsIntoFlat(harnessFlat, relayRows);
+    if (unreachableHostIds.length > 0) {
+      res.setHeader("X-Skynet-Unreachable-Hosts", unreachableHostIds.join(","));
+    }
     return res.json(flat);
   } catch (e) {
     databaseLogger.error("Failed to list tmux sessions", e, {

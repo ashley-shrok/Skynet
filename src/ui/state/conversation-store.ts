@@ -1416,6 +1416,73 @@ export function updateOpenTabs(tabs: Tab[]): void {
   notify();
 }
 
+// Live-frame membership changes, keyed `${hostId}::${sessionName}` → when
+// and which way. GET /sessions/list is SSH-backed and can take seconds; a
+// `gone` or a newborn's first upsert that lands while it is in flight must not
+// be undone by the (older) response — `gone` is one-shot and an upsert only
+// re-fires on a fingerprint change, so a clobbered row stays wrong.
+const fleetRowTouches = new Map<string, { kind: "added" | "removed"; at: number }>();
+const FLEET_ROW_TOUCH_RETAIN_MS = 5 * 60 * 1000;
+
+function noteFleetRowTouch(hostId: number, sessionName: string, kind: "added" | "removed"): void {
+  const now = Date.now();
+  fleetRowTouches.set(`${hostId}::${sessionName}`, { kind, at: now });
+  if (fleetRowTouches.size > 500) {
+    for (const [k, v] of fleetRowTouches) {
+      if (now - v.at > FLEET_ROW_TOUCH_RETAIN_MS) fleetRowTouches.delete(k);
+    }
+  }
+}
+
+/**
+ * Apply a GET /sessions/list response that was REQUESTED at `startedAt`,
+ * reconciling it against what changed since instead of replacing wholesale:
+ *   - rows removed by a live `gone` after startedAt stay removed;
+ *   - rows added by a live upsert after startedAt (absent from the response)
+ *     are kept;
+ *   - rows for hosts the backend couldn't reach (their `[]` means unknown,
+ *     not empty) are kept as-is.
+ * Then hands the result to updateFleetSessions (pending-archive filter,
+ * empty-preserve and no-op guards all still apply).
+ */
+export function reconcileFleetSessionsFromList(
+  fresh: FleetSession[],
+  opts: { startedAt: number; unreachableHostIds?: readonly number[] },
+): void {
+  const unreachable = new Set(opts.unreachableHostIds ?? []);
+  const key = (s: FleetSession) => `${s.hostId}::${s.sessionName}`;
+  const isHarness = (s: FleetSession) =>
+    s.kind !== "relay-room" && typeof s.sessionName === "string" && s.sessionName !== "";
+  const touchedSince = (s: FleetSession, kind: "added" | "removed") => {
+    const t = fleetRowTouches.get(key(s));
+    return t !== undefined && t.kind === kind && t.at >= opts.startedAt;
+  };
+
+  const out = fresh.filter((s) => {
+    if (!isHarness(s)) return true;
+    if (unreachable.has(s.hostId)) return true;
+    return !touchedSince(s, "removed");
+  });
+  const outKeys = new Set(out.filter(isHarness).map(key));
+  let kept = 0;
+  for (const existing of state.fleetSessions) {
+    if (!isHarness(existing) || outKeys.has(key(existing))) continue;
+    if (unreachable.has(existing.hostId) || touchedSince(existing, "added")) {
+      out.push(existing);
+      outKeys.add(key(existing));
+      kept += 1;
+    }
+  }
+  if (kept > 0 || unreachable.size > 0) {
+    console.info({
+      operation: "fleet_sessions_list_reconciled",
+      keptRows: kept,
+      unreachableHostIds: [...unreachable],
+    });
+  }
+  updateFleetSessions(out);
+}
+
 // Plan 07-01 (TG-12, TG-17): fleet-discovery snapshot input. AppShell calls
 // this ONCE per page-load after getSessionList() resolves. No polling — the
 // hard shape lock (see 07-CONTEXT.md §Scope Fence item #2) forbids any
@@ -1503,6 +1570,7 @@ export function updateFleetSessions(sessions: FleetSession[]): void {
  * closeTab is a no-op for them.
  */
 export function removeFleetSession(hostId: number, sessionName: string): void {
+  noteFleetRowTouch(hostId, sessionName, "removed");
   const nextFleetSessions = state.fleetSessions.filter(
     (s) => !(s.hostId === hostId && s.sessionName === sessionName),
   );
@@ -1582,6 +1650,7 @@ export function upsertFleetSession(session: FleetSession): void {
     // where appending on miss would poison the existence discriminator. fleetSessions
     // is a pure membership list; the row-builder handles ordering downstream.
     nextFleetSessions = [...state.fleetSessions, session];
+    noteFleetRowTouch(session.hostId, session.sessionName, "added");
   } else {
     // Present → additive field merge. List every FleetSession field explicitly
     // (advanceSessionAiTitle pattern) so a future field addition is a visible
@@ -2465,7 +2534,7 @@ export function setProjects(rows: readonly ProjectRow[]): void {
   notify();
 }
 
-function getProjectsSnapshot(): readonly ProjectRow[] {
+export function getProjectsSnapshot(): readonly ProjectRow[] {
   return state.projects;
 }
 
@@ -2816,6 +2885,7 @@ export function __resetPinnedIdsForTest(): void {
 // tests that need to observe the flip subscribe AFTER this reset).
 export function __resetFleetSessionsForTest(): void {
   pendingArchiveKeys.clear();
+  fleetRowTouches.clear();
   state = { ...state, fleetSessions: [], fleetSessionsLoaded: false };
   notify();
 }

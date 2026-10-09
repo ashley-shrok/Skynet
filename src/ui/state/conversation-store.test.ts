@@ -21,6 +21,7 @@ import {
   updateHostTree,
   updateOpenTabs,
   updateFleetSessions,
+  reconcileFleetSessionsFromList,
   removeFleetSession,
   upsertFleetSession,
   markPendingArchive,
@@ -4168,5 +4169,54 @@ describe("upsertFleetSession — pulse row-appear contract", () => {
     expect(parsed.some((s: unknown) => (s as { sessionName: string }).sessionName === "willow")).toBe(true);
 
     spy.mockRestore();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// reconcileFleetSessionsFromList — /sessions/list vs in-flight live frames
+// ─────────────────────────────────────────────────────────────────────────────
+describe("conversation-store: reconcileFleetSessionsFromList", () => {
+  const row = (hostId: number, sessionName: string): FleetSession => ({
+    hostId,
+    hostName: `h${hostId}`,
+    sessionName,
+    created: 1,
+    role: null,
+  });
+  const ids = () => __getFleetOnlyRowsForTest().map((r) => r.id).sort();
+
+  it("a row removed by a live gone during the fetch stays removed", () => {
+    act(() => updateFleetSessions([row(1, "a"), row(1, "b")]));
+    const startedAt = Date.now();
+    act(() => removeFleetSession(1, "b")); // gone frame mid-fetch
+    act(() => reconcileFleetSessionsFromList([row(1, "a"), row(1, "b")], { startedAt }));
+    expect(ids()).toEqual(["fleet::1::a"]);
+  });
+
+  it("a row added by a live upsert during the fetch is kept even though the response lacks it", () => {
+    act(() => updateFleetSessions([row(1, "a")]));
+    const startedAt = Date.now();
+    act(() => upsertFleetSession(row(1, "newborn")));
+    act(() => reconcileFleetSessionsFromList([row(1, "a")], { startedAt }));
+    expect(ids()).toEqual(["fleet::1::a", "fleet::1::newborn"]);
+  });
+
+  it("rows for an unreachable host are kept; reachable hosts are replaced", () => {
+    act(() => updateFleetSessions([row(1, "a"), row(2, "idle-agent"), row(1, "stale")]));
+    act(() =>
+      reconcileFleetSessionsFromList([row(1, "a")], {
+        startedAt: Date.now(),
+        unreachableHostIds: [2],
+      }),
+    );
+    expect(ids()).toEqual(["fleet::1::a", "fleet::2::idle-agent"]);
+  });
+
+  it("a removal from before the fetch started does not suppress a row the response has again", () => {
+    act(() => updateFleetSessions([row(1, "a")]));
+    act(() => removeFleetSession(1, "a"));
+    const startedAt = Date.now() + 1;
+    act(() => reconcileFleetSessionsFromList([row(1, "a")], { startedAt }));
+    expect(ids()).toEqual(["fleet::1::a"]);
   });
 });

@@ -637,6 +637,13 @@ interface PerHostState {
   // Reconciliation runs ONLY on sweep success (same success-gate as apps above).
   // Initialized empty so the FIRST successful sweep publishes nothing gone.
   lastTickLiveWidgets: Set<string>;
+  // False until this host state's first successful batch sweep has been
+  // reconciled against the process-wide registry (see
+  // reconcileRegistryWithFirstSweep). The lastTick* sets start empty, so
+  // without that one-shot pass anything that vanished while no poller was
+  // running (identity archived overnight, app archived with every tab
+  // closed) was never marked gone and got replayed in every connect snapshot.
+  registryReconciled: boolean;
 
   // Per-identity raw cosmetics cache — populated by the source-B loop on every
   // successful sweep tick for EVERY live-tree identity (before the skip-and-
@@ -2287,6 +2294,7 @@ export function createSshPollOrchestrator(
         return { ok: false, reason: "empty-output-on-nonempty-box" };
       }
       // Genuinely-empty box — success with zero counts.
+      reconcileRegistryWithFirstSweep(hostState, new Set(), new Set(), new Set());
       return { ok: true, identityCount: 0, pidCount: 0 };
     }
 
@@ -2469,6 +2477,15 @@ export function createSshPollOrchestrator(
       }
     }
     hostState.lastTickLiveWidgets = thisTickLiveWidgets;
+
+    const thisTickLiveNames = new Set(thisTickLiveTreeIdentities);
+    for (const pidLine of parsed.pidLines) thisTickLiveNames.add(pidLine.identity);
+    reconcileRegistryWithFirstSweep(
+      hostState,
+      thisTickLiveNames,
+      thisTickLiveApps,
+      thisTickLiveWidgets,
+    );
     // NOTE: The empty-sweep disambiguation guard at lines 1986-1999 above is
     // app-and-session-focused — it checks appLines.length + identityLines.length
     // + pidLines.length. Widget lines are additive-newest-last (D-14) and do not
@@ -3735,6 +3752,7 @@ export function createSshPollOrchestrator(
         // Subsequent ticks compare against this and emit
         // publishWidgetGoneByHostSlug for any slug that dropped out.
         lastTickLiveWidgets: new Set<string>(),
+        registryReconciled: false,
         // Phase 92 — sweep-first / legacy-fallback dispatch cache. All three
         // fields are per-SSH-channel-lifetime: reset when pollOneHost sees a
         // fresh channel object reference (see PerHostState docblock above).
@@ -3778,6 +3796,56 @@ export function createSshPollOrchestrator(
           error: err instanceof Error ? err.message : "unknown",
         });
       }
+    }
+  }
+
+  // One-shot, on a host state's first successful batch sweep: drop registry
+  // entries for this host that the sweep no longer shows. The registry is
+  // process-wide and outlives per-user pollers, while each poller's lastTick*
+  // diff sets start empty — so an identity/app/widget that disappeared while
+  // no poller ran was never published gone and lingered as a ghost row/tile.
+  // Identity entries go out as identity_gone (closes open tabs, like a normal
+  // retire); entries without identity appearance as pid_stale.
+  function reconcileRegistryWithFirstSweep(
+    hostState: PerHostState,
+    liveNames: Set<string>,
+    liveApps: Set<string>,
+    liveWidgets: Set<string>,
+  ): void {
+    if (hostState.registryReconciled) return;
+    hostState.registryReconciled = true;
+    const { host } = hostState;
+    let identities = 0;
+    let apps = 0;
+    let widgets = 0;
+    for (const st of deps.registry.getSnapshot()) {
+      if (st.hostId !== host.id || st.tmuxSession === null) continue;
+      if (liveNames.has(st.tmuxSession)) continue;
+      if (st.identityAppearance != null) {
+        deps.registry.publishIdentityGoneByName(host.id, st.tmuxSession);
+      } else {
+        deps.registry.publishSessionGone(host.id, st.tmuxSession, st.sessionId);
+      }
+      identities += 1;
+    }
+    for (const app of deps.registry.getAppSnapshot()) {
+      if (app.hostId !== host.id || liveApps.has(app.slug)) continue;
+      deps.registry.publishAppGoneByHostSlug(host.id, app.slug);
+      apps += 1;
+    }
+    for (const widget of deps.registry.getWidgetSnapshot()) {
+      if (widget.hostId !== host.id || liveWidgets.has(widget.slug)) continue;
+      deps.registry.publishWidgetGoneByHostSlug(host.id, widget.slug);
+      widgets += 1;
+    }
+    if (identities + apps + widgets > 0) {
+      systemLogger.info("Fleet-status: first-sweep registry reconcile dropped ghosts", {
+        operation: "fleet_status_registry_reconcile",
+        fleetHostId: host.id,
+        identities,
+        apps,
+        widgets,
+      });
     }
   }
 

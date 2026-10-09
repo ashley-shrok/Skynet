@@ -272,8 +272,13 @@ class MockRegistry implements SubscriptionRegistry {
     this.publishedAppGone.push({ hostId, slug });
   }
 
+  // Pre-existing registry content (from a previous poller) — lets tests
+  // exercise the first-sweep registry reconcile.
+  seededApps: AppState[] = [];
+  seededStates: SessionState[] = [];
+
   getAppSnapshot(): AppState[] {
-    return [];
+    return this.seededApps;
   }
 
   // Phase 137 Plan 02 — widget-scoped publish stubs. Match the SubscriptionRegistry
@@ -297,7 +302,7 @@ class MockRegistry implements SubscriptionRegistry {
   }
 
   getSnapshot(): SessionState[] {
-    return this.publishedStates.map((p) => p.state);
+    return [...this.seededStates, ...this.publishedStates.map((p) => p.state)];
   }
 
   // Phase 39 — presence-signal stubs to satisfy the extended
@@ -8169,6 +8174,64 @@ describe("Phase 92 — batch sweep dispatch", () => {
     // (c) Zero publishAppGoneByHostSlug — first tick has empty
     //     lastTickLiveApps, nothing to reconcile against.
     expect(deps.registry.publishedAppGone).toHaveLength(0);
+  });
+
+  it("first successful sweep drops registry ghosts left by a previous poller (identity + app), once", async () => {
+    const channel = new MockSshChannel();
+    wireBatchProbe(channel, true);
+    channel.setResponse(
+      "~/.local/bin/fleet-status-sweep 2>/dev/null",
+      makeSweepJsonl({ identities: [], pids: [], apps: [{ slug: "todo" }] }),
+    );
+    const setIntervalFns: Array<() => void> = [];
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: vi.fn((fn: () => void) => {
+        setIntervalFns.push(fn);
+        return 1 as unknown as ReturnType<typeof setInterval>;
+      }) as unknown as typeof setInterval,
+    });
+    // Archived while no poller ran: still cached process-wide.
+    deps.registry.seededStates = [
+      {
+        hostId: "host-1",
+        tmuxSession: "ghosty",
+        sessionId: "s-ghost",
+        pid: null,
+        status: "idle",
+        backgroundTasks: [],
+        updatedAt: 1,
+        identityAppearance: { displayName: "Ghosty" } as unknown as SessionState["identityAppearance"],
+      } as SessionState,
+      // Other host — untouched.
+      {
+        hostId: "host-2",
+        tmuxSession: "elsewhere",
+        sessionId: "s-2",
+        pid: null,
+        status: "idle",
+        backgroundTasks: [],
+        updatedAt: 1,
+      } as SessionState,
+    ];
+    deps.registry.seededApps = [
+      { hostId: "host-1", slug: "oldapp" } as AppState,
+      { hostId: "host-1", slug: "todo" } as AppState,
+    ];
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(deps.registry.publishedGone.map((g) => g.tmuxSession)).toEqual(["ghosty"]);
+    expect(deps.registry.publishedAppGone).toEqual([{ hostId: "host-1", slug: "oldapp" }]);
+
+    // One-shot: a later tick does not re-reconcile.
+    deps.registry.publishedGone.length = 0;
+    deps.registry.publishedAppGone.length = 0;
+    for (const fn of setIntervalFns) fn();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(deps.registry.publishedGone.filter((g) => g.tmuxSession === "ghosty")).toEqual([]);
+    expect(deps.registry.publishedAppGone).toEqual([]);
   });
 
   it("Test P118-04-A2: second tick with one app removed fires publishAppGoneByHostSlug for the dropped slug", async () => {
