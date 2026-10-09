@@ -1,7 +1,7 @@
 # Campaign: some way to activate skills with mouse only
 
 **Opened:** 2026-10-09
-**Status:** in_progress
+**Status:** closed (2026-10-09 — all items terminal; pushed, not yet deployed)
 **Workspace:** .planning/campaigns/skill-actions/ (in the Skynet repo)
 
 ## Concept
