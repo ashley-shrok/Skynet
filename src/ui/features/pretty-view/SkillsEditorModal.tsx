@@ -147,6 +147,13 @@ export default function SkillsEditorModal({
     ? iwItems.find((i) => i.name === selectedSkillName) ?? null
     : null;
   const readOnly = selectedIsInstance && !isAdmin;
+  // The host list includes instance-wide skills (they sit in the same folder
+  // on disk); this window shows them only in the instance-wide section.
+  const hostSkills = useMemo(() => {
+    if (skills.status !== "ready") return [];
+    const iwNames = new Set(iwItems.map((i) => i.name));
+    return skills.data.filter((s) => !iwNames.has(s.name));
+  }, [skills, iwItems]);
 
   const refreshInstanceWide = useCallback(async (): Promise<InstanceWideList> => {
     try {
@@ -820,9 +827,9 @@ export default function SkillsEditorModal({
           )}
           {skills.status === "ready" &&
             (iwItems.length > 0 ? (
-              skills.data.length > 0 && (
+              hostSkills.length > 0 && (
                 <optgroup label={hostLabel} style={OPTION_STYLE}>
-                  {skills.data.map((s) => (
+                  {hostSkills.map((s) => (
                     <option key={s.name} value={s.name} style={OPTION_STYLE}>
                       {s.name}
                     </option>
@@ -830,7 +837,7 @@ export default function SkillsEditorModal({
                 </optgroup>
               )
             ) : (
-              skills.data.map((s) => (
+              hostSkills.map((s) => (
                 <option key={s.name} value={s.name} style={OPTION_STYLE}>
                   {s.name}
                 </option>
@@ -943,7 +950,7 @@ export default function SkillsEditorModal({
         </ModalBody>
       ) : !selectedIsInstance &&
         skills.status === "ready" &&
-        skills.data.length === 0 &&
+        hostSkills.length === 0 &&
         iwItems.length === 0 ? (
         <ModalBody className="flex flex-col items-center justify-center text-[hsla(var(--pv-id-hue),22%,88%,0.65)] gap-2 text-sm text-center px-6">
           <div>No skills on this host.</div>

@@ -276,6 +276,17 @@ describe("SkillsEditorModal — instance-wide section", () => {
     expect(screen.getByTestId("instance-wide-sync-detail")).toHaveTextContent("laptop");
   });
 
+  it("an instance-wide skill also present in the host's folder shows only in the instance-wide group", async () => {
+    vi.mocked(iwApi.listInstanceWide).mockResolvedValue({ isAdmin: true, items: [IW_ITEM] });
+    vi.mocked(skillsApi.listSkills).mockResolvedValueOnce([{ name: "build" }, { name: "shared-skill" }]);
+    renderModal();
+    const group = await screen.findByRole("group", { name: /instance-wide/i });
+    await waitFor(() => expect(screen.getByRole("group", { name: "thenasty" })).toBeInTheDocument());
+    expect(within(group).getAllByRole("option").map((o) => o.textContent)).toEqual(["shared-skill"]);
+    const hostGroup = screen.getByRole("group", { name: "thenasty" });
+    expect(within(hostGroup).getAllByRole("option").map((o) => o.textContent)).toEqual(["build"]);
+  });
+
   it("shows no warning when every host is current", async () => {
     vi.mocked(iwApi.listInstanceWide).mockResolvedValue({
       isAdmin: true,

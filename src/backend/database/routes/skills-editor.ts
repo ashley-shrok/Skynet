@@ -86,7 +86,6 @@ import {
   deleteInstanceSkill,
   downloadInstanceSkillFile,
 } from "../../instance-wide/skill-files.js";
-import { getInstanceWide } from "../../instance-wide/production.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -431,14 +430,10 @@ router.get(
         `  printf '\\036%s\\n%s\\n' "$(basename "$dir")" "$fm"; ` +
         `done`;
       const output = await execWithTimeout(conn, listCmd);
-      // Instance-wide skills sit in the same folder but are listed (and edited)
-      // in the window's instance-wide section, never as this host's own.
-      const instanceWide = new Set(
-        (await getInstanceWide()?.listNames("skill")) ?? [],
-      );
-      const skills = parseSkillListOutput(output).filter(
-        (s) => !instanceWide.has(s.name),
-      );
+      // Instance-wide skills sit in the same folder and are listed here too
+      // (the skill-actions menu needs every skill on the box); the skills
+      // window moves them into its instance-wide section client-side.
+      const skills = parseSkillListOutput(output);
 
       sshLogger.info("skills-editor skills: listed", {
         operation: "skills_editor_skills_listed",
