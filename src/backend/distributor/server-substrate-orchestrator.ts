@@ -46,6 +46,7 @@ import { bundledReaderFromDisk } from "./bundled-reader.js";
 import { readInstanceFileBytes } from "../instance-file/store.js";
 import { systemLogger } from "../utils/logger.js";
 import type { SshChannel } from "../fleet-status/ssh-poll-orchestrator.js";
+import type { HarnessReconciler } from "./harness-reconciler.js";
 import { isLocalHostId } from "../claude-session/identity-artifact-reader.js";
 import {
   installFleetSubstrateLocally,
@@ -104,6 +105,14 @@ export interface ServerSubstrateOrchestratorDeps {
    *   (c) matches D-06's "small number, likely 3-5" guidance
    */
   persistentFailureThreshold?: number;
+
+  /**
+   * Keeps each host on the pinned Claude Code harness (harness-reconciler.ts).
+   * Queued after every host sweep and on every retry tick; it gates itself
+   * (converged / in-flight / backoff) and never blocks the sweep. Optional so
+   * tests that don't exercise it stay unaffected.
+   */
+  harnessReconciler?: HarnessReconciler<SubstrateHostRecord>;
 }
 
 /**
@@ -488,6 +497,7 @@ export function createServerSubstrateOrchestrator(
     sweepInFlight.add(host.id);
     queueMicrotask(async () => {
       await executeSweeForHost(host);
+      deps.harnessReconciler?.queue(host);
     });
   }
 
@@ -520,6 +530,10 @@ export function createServerSubstrateOrchestrator(
         // Await directly in the startup pass (not fire-and-forget) so start()
         // resolves only after all startup sweeps complete (S1/S2/S3 requirements)
         await executeSweeForHost(host);
+        // Harness reconcile runs alongside, never inside, the serial pass —
+        // queue() is fire-and-forget so a slow install can't hold up the
+        // next host.
+        deps.harnessReconciler?.queue(host);
       }
 
       // Install retry interval after startup pass
@@ -532,7 +546,13 @@ export function createServerSubstrateOrchestrator(
         const retryHosts = await deps.listSubstrateHosts();
         for (const h of retryHosts) {
           if (!sweepedThisInstance.has(h.id)) {
+            // The harness reconcile is queued when this sweep finishes —
+            // never alongside it, so the two never race to open the host's
+            // first SSH client.
             queueSweepForHost(h);
+          } else {
+            // Self-gating: no-op for converged / in-flight / backing-off hosts.
+            deps.harnessReconciler?.queue(h);
           }
         }
       }, retryIntervalMs);
@@ -553,6 +573,7 @@ export function createServerSubstrateOrchestrator(
       consecutiveFailures.clear();
       persistentAlertFired.clear();
       sweepOutcomes.clear();
+      deps.harnessReconciler?.stop();
     },
 
     /**
@@ -590,6 +611,7 @@ export function createServerSubstrateOrchestrator(
       // Pass the resolved hostRecord (with _connDetails), NOT the narrowed input.
       queueMicrotask(async () => {
         await executeSweeForHost(hostRecord);
+        deps.harnessReconciler?.queue(hostRecord);
       });
     },
 

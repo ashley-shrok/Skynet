@@ -863,6 +863,81 @@ describe("getHostSweepStatus (admin Hosts overview)", () => {
     const orch = createServerSubstrateOrchestrator(deps);
     await orch.start();
     expect(orch.getHostSweepStatus("h1")!.lastError).toBe("couldn't connect over SSH");
+
+describe("Harness reconciler wiring", () => {
+  function makeHarness() {
+    return { queue: vi.fn(), stop: vi.fn() };
+  }
+
+  it("HR1: queues the harness reconcile for every host after its startup sweep", async () => {
+    const h = makeDeps({ hosts: [{ id: "h1", name: "one" }, { id: "h2", name: "two" }] });
+    const harness = makeHarness();
+    const orch = createServerSubstrateOrchestrator({ ...h.deps, harnessReconciler: harness });
+    await orch.start();
+    expect(harness.queue.mock.calls.map((c) => c[0].id)).toEqual(["h1", "h2"]);
+    // Queued with the full host record (connDetails) for channel acquisition.
+    expect(harness.queue.mock.calls[0][0]._connDetails).toBeDefined();
+    orch.stop();
+  });
+
+  it("HR2: queues it for EVERY host on each retry tick, including already-swept ones", async () => {
+    const h = makeDeps({ hosts: [{ id: "h1", name: "one" }] });
+    const harness = makeHarness();
+    const orch = createServerSubstrateOrchestrator({ ...h.deps, harnessReconciler: harness });
+    await orch.start();
+    harness.queue.mockClear();
+    vi.mocked(runSweepForHost).mockClear();
+    await h.fireTick();
+    // Host already swept → no substrate re-sweep, but harness still gets a
+    // chance (it self-gates on its own converged/backoff state).
+    expect(runSweepForHost).not.toHaveBeenCalled();
+    expect(harness.queue).toHaveBeenCalledTimes(1);
+    orch.stop();
+  });
+
+  it("HR3: queues it after an on-add sweepOneHost", async () => {
+    const h = makeDeps({ hosts: [{ id: "h9", name: "new" }] });
+    const harness = makeHarness();
+    const orch = createServerSubstrateOrchestrator({ ...h.deps, harnessReconciler: harness });
+    await orch.sweepOneHost({ id: "h9", name: "new" });
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    expect(harness.queue).toHaveBeenCalledWith(expect.objectContaining({ id: "h9" }));
+  });
+
+  it("HR4: stop() stops the harness reconciler", async () => {
+    const h = makeDeps();
+    const harness = makeHarness();
+    const orch = createServerSubstrateOrchestrator({ ...h.deps, harnessReconciler: harness });
+    await orch.start();
+    orch.stop();
+    expect(harness.stop).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Harness reconciler wiring — ordering", () => {
+  it("HR5: on a retry tick, an un-swept host gets the harness reconcile only AFTER its sweep finishes", async () => {
+    const h = makeDeps({ hosts: [{ id: "h1", name: "one" }] });
+    const harness = { queue: vi.fn(), stop: vi.fn() };
+    // First sweep fails so the host stays un-swept for the retry tick.
+    vi.mocked(runSweepForHost).mockResolvedValueOnce({ itemsChecked: 1, itemsChanged: 0, itemsFailed: 1 });
+    const orch = createServerSubstrateOrchestrator({ ...h.deps, harnessReconciler: harness });
+    await orch.start();
+    harness.queue.mockClear();
+
+    let finishSweep!: () => void;
+    vi.mocked(runSweepForHost).mockImplementationOnce(
+      () =>
+        new Promise((res) => {
+          finishSweep = () => res({ itemsChecked: 1, itemsChanged: 0, itemsFailed: 0 });
+        }),
+    );
+    await h.fireTick();
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    expect(harness.queue).not.toHaveBeenCalled();
+
+    finishSweep();
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    expect(harness.queue).toHaveBeenCalledTimes(1);
     orch.stop();
   });
 });

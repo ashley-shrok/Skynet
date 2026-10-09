@@ -1536,6 +1536,29 @@ if (process.env.VITEST !== "true") {
         // intentional no-op — see comment above
       }
 
+      // Keeps every substrate host on the pinned Claude Code harness
+      // (distributor/harness-pin.ts). Shares the substrate SSH channels; the
+      // co-located host goes through its systemd --user manager instead.
+      const { createHarnessReconciler } = await import(
+        "./distributor/harness-reconciler.js"
+      );
+      const { runLocalHarnessReconcile } = await import(
+        "./distributor/harness-local.js"
+      );
+      const harnessReconciler = createHarnessReconciler<{
+        id: string;
+        name: string;
+        _connDetails: Record<string, unknown>;
+      }>({
+        acquireChannel: substrateAcquireChannel as Parameters<
+          typeof createHarnessReconciler
+        >[0]["acquireChannel"],
+        releaseChannel: substrateReleaseChannel,
+        isLocalHost: (host) => isLocalHostId(parseInt(host.id, 10)),
+        runLocal: (pin) => runLocalHarnessReconcile(pin),
+        now: () => Date.now(),
+      });
+
       const substrateOrch = createServerSubstrateOrchestrator({
         listSubstrateHosts: () =>
           listSubstrateHostsFn({ getDb: getDbForSubstrate }),
@@ -1550,6 +1573,7 @@ if (process.env.VITEST !== "true") {
         now: () => Date.now(),
         retryIntervalMs: 30000,
         persistentFailureThreshold: 3,
+        harnessReconciler,
       });
 
       // Populate the singleton so the host-create route (75-06) can reach it.
