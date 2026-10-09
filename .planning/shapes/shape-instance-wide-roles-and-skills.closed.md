@@ -230,3 +230,8 @@ the identity skill in the same piece of work.
 ### Notes
 
 Backend-only extras not surfaced in the UI: an admin-only "sync now" endpoint; a path to create a brand-new instance-wide skill directly (the UI creates via promote); non-admins' instance-wide role list filtered by the existing role-visibility rule.
+
+### Amendments after close (2026-10-09)
+
+- **Identity skill:** per Ashley, it does NOT describe instance-wide items at all — agents don't need to know (the native-editing design), and the controls are admin-only. Only the retired "chronological history" mention was removed. (Supersedes the "Identity skill updated — present" line above.)
+- **Code review fixes** (unbiased review, 15 findings, all addressed in one commit): host operations confined to the item folder inside the real home folder (no symlink following); file permissions travel with files; unreadable files fail loudly; emptied folders restored rather than spread as deletes; .git/node_modules ignored; admin ownership judged on the host account actually synced; admin app-writes marked before landing; role-file writes without a host id guarded; safe download content types; per-host detail hidden from non-admins; names of the app's built-in skills can't be made instance-wide.
