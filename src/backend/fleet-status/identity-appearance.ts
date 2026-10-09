@@ -132,6 +132,10 @@ export function capitalizeFirstIdentityKey(s: string): string {
  *  Mirrored in the frontend's `MULTI_ROLE_GOLD_HUE` (lib/identity-roles.ts). */
 export const MULTI_ROLE_GOLD_HUE = 44;
 
+/** Shape of an avatar version token (`&v=` on avatarUrl). Shared with the
+ *  avatar GET route, which only grants immutable caching to a valid token. */
+export const AVATAR_VERSION_RE = /^[a-f0-9]{1,64}$/;
+
 /**
  * Apply the identity-over-role cosmetics merge and return a fully-resolved
  * `ResolvedIdentityAppearance` object.
@@ -172,6 +176,10 @@ export function resolveIdentityAppearance(args: {
   /** Every listed role. Omitted → `[role]` (or `[]`), the single-role shape. */
   roles?: string[];
   pinned: boolean;
+  /** Sweep-computed avatar digest. Present → baked into avatarUrl as `&v=`,
+   *  which the avatar route serves as immutable. Absent/null → unversioned
+   *  URL (revalidated on every paint). */
+  avatarVersion?: string | null;
 }): ResolvedIdentityAppearance {
   const { identityKey, hostId, role, roleCosmetics, pinned } = args;
   // null cosmetics → treat as empty object (fail-closed contract)
@@ -257,8 +265,11 @@ export function resolveIdentityAppearance(args: {
           return rest;
         })();
 
-  // --- avatarUrl: deterministic from (identityKey, hostId) ---
-  const avatarUrl = `/identities/${identityKey}/avatar?hostId=${hostId}`;
+  // --- avatarUrl: (identityKey, hostId) + optional avatar version ---
+  const avatarUrl =
+    typeof args.avatarVersion === "string" && AVATAR_VERSION_RE.test(args.avatarVersion)
+      ? `/identities/${identityKey}/avatar?hostId=${hostId}&v=${args.avatarVersion}`
+      : `/identities/${identityKey}/avatar?hostId=${hostId}`;
 
   return {
     displayName,

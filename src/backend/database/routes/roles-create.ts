@@ -124,6 +124,8 @@ import {
   getUsernameForUserId,
 } from "../../utils/host-user-counter.js";
 
+import { normalizeUploadedAvatar } from "../../utils/avatar-normalize.js";
+
 const router = express.Router();
 const authManager = AuthManager.getInstance();
 const authenticateJWT = authManager.createAuthMiddleware();
@@ -447,6 +449,7 @@ router.post(
     // -----------------------------------------------------------------------
     let avatarExt: string | null = null;
     if (req.file) {
+      await normalizeUploadedAvatar(req.file);
       const ext = MIME_TO_AVATAR_EXT[req.file.mimetype];
       if (!ext) {
         // Belt: multer's fileFilter should have rejected this already, but

@@ -164,6 +164,10 @@ export interface SweepIdentityLine {
   roles?: string[];
   roles_cosmetics?: Array<SweepRawCosmetics | null>;
   pinned?: boolean;
+  // Digest of the identity's avatar sibling files + role avatar files (mtime +
+  // size). Baked into avatarUrl as `&v=` so browsers can cache avatar bytes as
+  // immutable. null when the appearance read failed; absent on older sweeps.
+  avatar_version?: string | null;
   // Phase 115 Plan 115-05 archived axis retired in the Phase 122 shape
   // follow-up. Kept as optional so the orchestrator's belt-and-braces
   // `line.archived === true` skip still typechecks during rolling-deploy
@@ -585,6 +589,7 @@ export const SWEEP_FIELD_PARITY: Record<
   | "B7"
   | "B8"
   | "B9"
+  | "B10"
   | "C0"
   | "C1"
   | "C2"
@@ -657,6 +662,7 @@ export const SWEEP_FIELD_PARITY: Record<
   // documented, but the Python sweep no longer walks identities-archive/, so
   // Phase 122+ sweeps never emit archived: true.
   B9: { field: "archived" },
+  B10: { field: "avatar_version" },
 
   // --- Per-host source-C enumeration driver (Phase 118 Plan 118-02, D-20) ---
   C0: {

@@ -241,9 +241,12 @@ body
   assert_identity_field "$out" "alpha" "archived" 'false'
 }
 
-# Case 2: archive-tree only.
-# ~/fleet/identities-archive/beta/ present. Sweep emits an identity line for
-# beta WITH archived==true.
+# Cases 2-7 originally covered the Phase 115 archive-tree walk. The Phase 122
+# shape follow-up retired that walk: the sweep reads ONLY the live tree, so
+# anything under ~/fleet/identities-archive/ must produce no identity line,
+# no log noise, and must never shadow a live identity.
+
+# Case 2: archive tree only → no identity lines.
 test_case_02_archive_tree_only() {
   make_archive_identity "beta" "---
 displayName: Beta (archived)
@@ -252,13 +255,11 @@ body
 "
   local out
   out=$(run_sweep)
-  assert_identity_line_count "$out" "1"
-  assert_identity_field "$out" "beta" "archived" 'true'
+  assert_identity_line_count "$out" "0"
+  assert_identity_line_missing "$out" "beta"
 }
 
-# Case 3: both roots.
-# alpha in live tree, beta in archive tree. Both identity lines emit;
-# alpha has archived==false, beta has archived==true.
+# Case 3: both roots → only the live identity emits.
 test_case_03_both_roots() {
   make_live_identity "alpha" "---
 displayName: Alpha
@@ -272,9 +273,9 @@ body
 "
   local out
   out=$(run_sweep)
-  assert_identity_line_count "$out" "2"
+  assert_identity_line_count "$out" "1"
   assert_identity_field "$out" "alpha" "archived" 'false'
-  assert_identity_field "$out" "beta" "archived" 'true'
+  assert_identity_line_missing "$out" "beta"
 }
 
 # Case 4: missing archive tree.
@@ -293,13 +294,7 @@ test_case_04_missing_archive_tree() {
   assert_identity_field "$out" "alpha" "archived" 'false'
 }
 
-# Case 5: unsafe folder name in archive tree.
-# A folder like `..evil` in the archive tree — SAFE_NAME_RE rejects it.
-# Sweep does not emit a line for it, but does emit the safe live-tree line.
-# (Note: `..evil` is used instead of `../evil` because a literal `../` in a
-# subdir under identities-archive/ would either become a real path traversal
-# in mkdir or get normalised — `..evil` is a directory name that fails
-# SAFE_NAME_RE without breaking mkdir.)
+# Case 5: an unsafe folder name in the archive tree is never even looked at.
 test_case_05_unsafe_archive_name() {
   make_live_identity "alpha" "---
 ---
@@ -308,38 +303,23 @@ test_case_05_unsafe_archive_name() {
 
   local out
   out=$(run_sweep)
-  # Only the live alpha line — the ..evil folder is rejected.
   assert_identity_line_count "$out" "1"
   assert_identity_field "$out" "alpha" "archived" 'false'
   assert_identity_line_missing "$out" "..evil"
-
-  # A grep of stderr should reveal the identity_name_skipped log tag.
-  if [ ! -f "$STDERR_FILE" ] || ! grep -q "identity_name_skipped" "$STDERR_FILE"; then
-    fail "case 5: expected identity_name_skipped log tag in stderr"
-  fi
 }
 
-# Case 6: missing role.md / jsonl in archive tree.
-# Archive-tree identity is a bare folder with no *.md file, no .pinned, etc.
-# Sweep still emits its line without crashing. Cosmetic fields land as null.
+# Case 6: a bare archive-tree folder → no identity line, no crash.
 test_case_06_bare_archive_dir() {
-  # Bare folder: no <name>.md file.
   mkdir -p "$FIXTURE/fleet/identities-archive/gamma"
 
   local out
   out=$(run_sweep)
-  assert_identity_line_count "$out" "1"
-  assert_identity_field "$out" "gamma" "archived" 'true'
-  assert_identity_field "$out" "gamma" "identity_cosmetics" 'null'
-  assert_identity_field "$out" "gamma" "role" 'null'
-  assert_identity_field "$out" "gamma" "role_cosmetics" 'null'
+  assert_identity_line_count "$out" "0"
+  assert_identity_line_missing "$out" "gamma"
 }
 
-# Case 7 (post-code-review fix 2): State 3 anomaly — same identity name in
-# BOTH live and archive trees. The shape says this must be impossible (retire
-# flow is move+delete with collision-abort), but the sweep now defends
-# explicitly: emit ONCE (live-tree wins because it walks first) and log an
-# identity_name_collision warning on stderr for the archive-tree copy.
+# Case 7: same name in both trees → exactly the live copy, untouched by the
+# archived one.
 test_case_07_name_collision_both_trees() {
   make_live_identity "delta" "---
 displayName: Delta (live)
@@ -354,17 +334,9 @@ body
 
   local out
   out=$(run_sweep)
-  # Exactly ONE line — the live-tree copy wins because it walks first.
   assert_identity_line_count "$out" "1"
   assert_identity_field "$out" "delta" "archived" 'false'
-
-  # The archive-tree copy is anomalous — assert the structured warning fired.
-  if [ ! -f "$STDERR_FILE" ] || ! grep -q "identity_name_collision" "$STDERR_FILE"; then
-    fail "case 7: expected identity_name_collision log tag in stderr"
-  fi
-  if [ -f "$STDERR_FILE" ] && ! grep -q '"identities-archive"' "$STDERR_FILE"; then
-    fail "case 7: expected collision log to name root=identities-archive"
-  fi
+  assert_identity_field "$out" "delta" "identity_cosmetics.displayName" '"Delta (live)"'
 }
 
 # ============================================================

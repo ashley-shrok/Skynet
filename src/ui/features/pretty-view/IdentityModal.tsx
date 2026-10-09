@@ -528,11 +528,8 @@ export function IdentityModal({
         }}
       >
         <img
-          src={
-            identity.avatarEtag
-              ? `${identity.avatarUrl}&v=${identity.avatarEtag}`
-              : identity.avatarUrl
-          }
+          // avatarUrl already carries the sweep's avatar version (`&v=`).
+          src={identity.avatarUrl}
           alt=""
           draggable={false}
           className="shrink-0 object-cover"

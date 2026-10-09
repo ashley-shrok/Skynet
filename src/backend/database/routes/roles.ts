@@ -79,6 +79,8 @@ import {
 // Consolidating avoids the divergence risk called out in the unbiased code review.
 import { ROLE_NAME_PATTERN } from "../../utils/role-name-pattern.js";
 
+import { normalizeUploadedAvatar } from "../../utils/avatar-normalize.js";
+
 const router = express.Router();
 const authManager = AuthManager.getInstance();
 const authenticateJWT = authManager.createAuthMiddleware();
@@ -377,6 +379,7 @@ router.post(
     if (!req.file) {
       return res.status(400).json({ error: "no avatar file" });
     }
+    await normalizeUploadedAvatar(req.file);
 
     // Defensive re-check of the mimetype allowlist after multer (belt +
     // suspenders — multer's fileFilter should have caught this).

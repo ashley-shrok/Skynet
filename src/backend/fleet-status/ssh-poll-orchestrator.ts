@@ -33,6 +33,7 @@
  * All SSH, all DB, all timers are injected. The module is unit-testable with
  * vi.useFakeTimers() + vi.fn() without any real SSH or database.
  */
+import { recordAvatarVersion } from "./avatar-version-registry.js";
 import { systemLogger } from "../utils/logger.js";
 import {
   parseSessionJson,
@@ -1222,8 +1223,8 @@ function computeFingerprint(state: SessionState): string {
   // voice, task, coordinator, role, pinned, roleDefaults) publishes a
   // new frame even when every other axis is unchanged. The segment is appended
   // at the END per the append-at-END rule stated twice above. avatarUrl is
-  // deliberately OMITTED: it is a pure function of (identityKey, hostId), both
-  // fixed for a given frame, so it can never change and is a constant segment.
+  // included: it carries the sweep's avatar version (`&v=`), so an avatar
+  // change must publish a frame.
   // (Phase 115 Plan 115-02: `hidden` retired from the fingerprint axis list per D-21.)
   return `${state.status}|${state.waitingFor ?? ""}|${bgKey}|${state.updatedAt}|${state.lastMessageAt ?? ""}|${state.aiTitle ?? ""}|${state.dormant === true ? "1" : state.dormant === false ? "0" : ""}|${state.recycling === true ? "1" : state.recycling === false ? "0" : ""}|${state.lastStopAt ?? ""}|${state.lastStatusChangeAt ?? ""}|${state.activityMtime ?? ""}|${state.stoppedMtime ?? ""}|${appearanceFingerprintSegment(state.identityAppearance ?? null)}`;
 }
@@ -1254,9 +1255,8 @@ function computeFingerprint(state: SessionState): string {
  * Object.assign / spread operations — non-deterministic key order would
  * produce a spurious publish every tick (T-111-17 mitigation).
  *
- * `avatarUrl` is deliberately OMITTED: it is a pure function of
- * (identityKey, hostId), both fixed for a given frame, so it is a constant
- * segment that can never change.
+ * `avatarUrl` is included: it carries the sweep's avatar version (`&v=`),
+ * which changes when the avatar file does.
  */
 function appearanceFingerprintSegment(a: IdentityAppearance | null): string {
   if (a === null) return "";
@@ -1277,6 +1277,7 @@ function appearanceFingerprintSegment(a: IdentityAppearance | null): string {
     a.role ?? "",
     a.pinned === true ? "1" : a.pinned === false ? "0" : "",
     roleDefaultsSeg,
+    a.avatarUrl ?? "",
   ].join("|");
 }
 
@@ -1355,7 +1356,9 @@ function appearanceFromIdentityLine(
     // onto this path — a stat error must NEVER paint an identity as pinned
     // by mistake.
     pinned: identityLine.pinned === true,
+    avatarVersion: identityLine.avatar_version ?? null,
   });
+  recordAvatarVersion(hostId, identityName, identityLine.avatar_version);
 
   return resolved;
 }

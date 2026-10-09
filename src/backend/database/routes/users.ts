@@ -49,6 +49,8 @@ import { joinHumanToHumansRegistry } from "../../relay-sessions/registry-rooms.j
 
 const authManager = AuthManager.getInstance();
 
+import { normalizeUploadedAvatar } from "../../utils/avatar-normalize.js";
+
 const router = express.Router();
 
 // Router-level timing middleware — SLICE 1 of auth-slow-requests-on-pwa-boot bounty.
@@ -242,6 +244,7 @@ router.post("/create", multipartOriginGuard, userAvatarUpload.single("avatar"), 
     // If the file-write itself fails, we abort before any DB change — clean failure.
     let avatarFilename: string;
     try {
+      await normalizeUploadedAvatar(req.file);
       avatarFilename = await writeUserAvatar(id, req.file.mimetype, req.file.buffer);
     } catch (writeErr) {
       // M4: mime-mismatch (declared vs sniffed bytes) → 400, not 500.
@@ -618,6 +621,7 @@ router.put("/:id/avatar", multipartOriginGuard, authenticateJWT, assertOwnOrAdmi
       // 5a: Write new file first.
       let newFilename: string;
       try {
+        await normalizeUploadedAvatar(req.file);
         newFilename = await writeUserAvatar(targetUserId, req.file.mimetype, req.file.buffer);
       } catch (writeErr) {
         // M4: mime-mismatch (declared vs sniffed bytes) → 400, not 500.

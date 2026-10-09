@@ -30,6 +30,7 @@ function makeArgs(overrides: {
   roleCosmetics?: RawCosmetics | null;
   role?: string | null;
   pinned?: boolean;
+  avatarVersion?: string | null;
 } = {}): Parameters<typeof resolveIdentityAppearance>[0] {
   return {
     identityKey: overrides.identityKey ?? "pixel",
@@ -38,6 +39,7 @@ function makeArgs(overrides: {
     roleCosmetics: overrides.roleCosmetics !== undefined ? overrides.roleCosmetics : null,
     role: overrides.role !== undefined ? overrides.role : null,
     pinned: overrides.pinned ?? false,
+    ...(overrides.avatarVersion !== undefined ? { avatarVersion: overrides.avatarVersion } : {}),
   };
 }
 
@@ -425,6 +427,26 @@ describe("avatarUrl", () => {
       hostId: 42,
     }));
     expect(result.avatarUrl).toBe("/identities/tabitha/avatar?hostId=42");
+  });
+
+  it("appends the avatar version as &v= when one is given", () => {
+    const result = resolveIdentityAppearance(makeArgs({
+      identityKey: "pixel",
+      hostId: 6,
+      avatarVersion: "0123abcd4567ef89",
+    }));
+    expect(result.avatarUrl).toBe("/identities/pixel/avatar?hostId=6&v=0123abcd4567ef89");
+  });
+
+  it("ignores a null or malformed avatar version", () => {
+    for (const avatarVersion of [null, "", "NOT-HEX", "a&b=c"]) {
+      const result = resolveIdentityAppearance(makeArgs({
+        identityKey: "pixel",
+        hostId: 6,
+        avatarVersion,
+      }));
+      expect(result.avatarUrl).toBe("/identities/pixel/avatar?hostId=6");
+    }
   });
 });
 

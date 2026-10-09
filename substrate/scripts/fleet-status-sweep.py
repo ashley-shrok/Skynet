@@ -87,6 +87,7 @@ Constraints:
 """
 
 import glob
+import hashlib
 import json
 import os
 import re
@@ -1260,6 +1261,45 @@ def _read_proc_stat(pid):
 # ---------------------------------------------------------------------------
 
 
+AVATAR_SIBLING_EXTS = ("webp", "png", "jpg", "gif", "svg")
+AVATAR_FILENAME_OK = re.compile(r"^[a-z0-9-]+\.(webp|png|jpg|gif|svg)$")
+
+
+def _stat_token(path):
+    """`<mtime_ns>:<size>` for path, or "-" when it can't be stat'd."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return "-"
+    return "%d:%d" % (st.st_mtime_ns, st.st_size)
+
+
+def _avatar_version(name, home, role_avatars):
+    """Short digest that changes whenever the avatar GET /identities/:key/avatar
+    would serve changes.
+
+    Covers a superset of what the route can resolve: every canonical sibling
+    `<name>.<ext>` in the identity folder, plus each role's frontmatter
+    `avatar:` filename and that file's stat. The backend bakes this into
+    avatarUrl as `&v=`, which lets browsers cache the bytes as immutable — so
+    under-covering here would pin a stale avatar; over-covering only costs a
+    refetch.
+
+    `role_avatars` is a list of (role, avatar_filename_or_None).
+    """
+    parts = []
+    ident_dir = os.path.join(home, "fleet", "identities", name)
+    for ext in AVATAR_SIBLING_EXTS:
+        parts.append(_stat_token(os.path.join(ident_dir, name + "." + ext)))
+    for role_name, avatar in role_avatars:
+        if isinstance(avatar, str) and AVATAR_FILENAME_OK.match(avatar):
+            parts.append(
+                role_name + "/" + avatar + ":"
+                + _stat_token(os.path.join(home, "fleet", "roles", role_name, avatar))
+            )
+    return hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()[:16]
+
+
 def _build_identity_line(name, home, sentinels, jsonl_path, jsonl_tail_cache, role_cosmetics_memo):
     """Assemble a SweepIdentityLine dict.
 
@@ -1294,6 +1334,7 @@ def _build_identity_line(name, home, sentinels, jsonl_path, jsonl_tail_cache, ro
     role_cosmetics = None
     roles = []
     roles_cosmetics = None
+    avatar_version = None
     try:
         identity_path = os.path.join(home, "fleet", "identities", name, name + ".md")
         identity_cosmetics, role = _read_frontmatter_cosmetics(
@@ -1323,6 +1364,11 @@ def _build_identity_line(name, home, sentinels, jsonl_path, jsonl_tail_cache, ro
             roles_cosmetics = [
                 _read_role_cosmetics(r, home, role_cosmetics_memo) for r in roles
             ]
+        role_avatars = []
+        for r in roles or ([role] if role else []):
+            cos = _read_role_cosmetics(r, home, role_cosmetics_memo)
+            role_avatars.append((r, cos.get("avatar") if isinstance(cos, dict) else None))
+        avatar_version = _avatar_version(name, home, role_avatars)
     except OSError:
         identity_cosmetics = None
         role = None
@@ -1344,6 +1390,7 @@ def _build_identity_line(name, home, sentinels, jsonl_path, jsonl_tail_cache, ro
         "role_cosmetics": role_cosmetics,
         "roles": roles,
         "pinned": sentinels["pinned"],
+        "avatar_version": avatar_version,
         # Phase 115 Plan 115-05 archived axis retired in the Phase 122 shape
         # follow-up. Field kept in the emit so peers running older sweep
         # schemas still see the expected key (always False now — the archive

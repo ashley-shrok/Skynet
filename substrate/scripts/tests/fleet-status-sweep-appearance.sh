@@ -779,6 +779,46 @@ printf 'sweep: %s\n' "$SWEEP"
 printf 'fixture: %s\n' "$FIXTURE"
 printf '\n'
 
+# Case 20: avatar_version — 16-hex digest, stable across sweeps, and changes
+# when the role's avatar file, or the identity's own sibling avatar, changes.
+avatar_version_of() {
+  printf '%s' "$1" | python3 -c "
+import sys, json
+for l in sys.stdin.read().splitlines():
+    if not l.strip(): continue
+    o = json.loads(l)
+    if o.get('line_kind') == 'identity' and o.get('identity') == '$2':
+        print(o.get('avatar_version')); break
+"
+}
+
+test_case_20_avatar_version() {
+  make_identity "vera" "---
+role: painter
+---
+"
+  make_role "painter" "---
+title: Painter
+avatar: painter.webp
+---
+"
+  printf 'v1' > "$FIXTURE/fleet/roles/painter/painter.webp"
+  local v1 v2 v3 v4
+  v1=$(avatar_version_of "$(run_sweep)" vera)
+  case "$v1" in
+    [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
+    *) fail "avatar_version not 16 hex: '$v1'" ;;
+  esac
+  v2=$(avatar_version_of "$(run_sweep)" vera)
+  assert_eq "$v1" "$v2" "avatar_version stable across sweeps"
+  printf 'v2-longer' > "$FIXTURE/fleet/roles/painter/painter.webp"
+  v3=$(avatar_version_of "$(run_sweep)" vera)
+  [ "$v3" != "$v2" ] || fail "avatar_version unchanged after role avatar rewrite"
+  printf 'own' > "$FIXTURE/fleet/identities/vera/vera.png"
+  v4=$(avatar_version_of "$(run_sweep)" vera)
+  [ "$v4" != "$v3" ] || fail "avatar_version unchanged after identity sibling avatar added"
+}
+
 run_test test_case_01_full_inheritance
 run_test test_case_02_read_once_per_role
 run_test test_case_03_no_frontmatter
@@ -800,6 +840,7 @@ run_test test_case_17_users_block_style
 run_test test_case_18_users_absent
 run_test test_case_19_users_empty_flow
 run_test test_case_19a_users_block_with_inline_comment
+run_test test_case_20_avatar_version
 run_test test_global_stderr_stdout_separation
 
 printf '\n===============================\n'

@@ -2,10 +2,10 @@ import type { AuthenticatedRequest } from "../../../types/index.js";
 import {
   resolveIdentityAppearance,
   capitalizeFirstIdentityKey,
+  AVATAR_VERSION_RE,
 } from "../../fleet-status/identity-appearance.js";
 import express from "express";
 import multer from "multer";
-import { createHash } from "crypto";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import yaml from "js-yaml";
@@ -64,6 +64,10 @@ import { isRecognizedVoiceId } from "../../voice/tts-provider.js";
 // `~/fleet/identities/<identityKey>/.pinned` on the identity's host.
 import { identityFileExists } from "../../claude-session/per-identity-file.js";
 import { getHostSemaphore } from "../../ssh/host-semaphore-registry.js";
+
+import { getAvatarVersion, forgetAvatarVersion } from "../../fleet-status/avatar-version-registry.js";
+import { normalizeAvatar, normalizeUploadedAvatar } from "../../utils/avatar-normalize.js";
+import { getCachedAvatar, invalidateCachedAvatar } from "./identity-avatar-cache.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -230,6 +234,7 @@ export function publicIdentity(
     role,
     roles,
     pinned,
+    avatarVersion: getAvatarVersion(hostId, identityKey),
   });
 
   return {
@@ -811,6 +816,7 @@ router.put(
       // ---- Avatar handling ----
       let newExt: string | null = null;
       if (req.file) {
+        await normalizeUploadedAvatar(req.file);
         const mapped = MIME_TO_AVATAR_EXT[req.file.mimetype];
         if (!mapped) {
           return res
@@ -898,6 +904,14 @@ router.put(
             /* best-effort */
           });
         }
+      }
+
+      // Avatar changed → drop the server-side cached bytes, and forget the
+      // sweep's version so this response (and any GET /identities before the
+      // next sweep) emits an unversioned URL instead of the old immutable one.
+      if (req.file || meta.avatar === null) {
+        invalidateCachedAvatar(hostId, identityKey);
+        forgetAvatarVersion(hostId, identityKey);
       }
 
       // ---- Post-write re-read for response echo ----
@@ -999,99 +1013,134 @@ router.get(
         .json({ error: "hostId query required (positive integer)" });
     }
 
-    // No row lookup — identityKey from URL param feeds directly into
-    // readAvatarSiblingFile's shell interpolation, guarded by IDENTITY_KEY_RE
-    // pre-validation in the artifact-reader (T-68-02-01).
+    // `v` = the sweep's avatar version baked into avatarUrl. A valid token
+    // makes the response immutable (the URL changes when the avatar does).
+    const rawVersion = req.query.v;
+    const version =
+      typeof rawVersion === "string" && AVATAR_VERSION_RE.test(rawVersion)
+        ? rawVersion
+        : null;
+
+    // Host access check runs BEFORE the cache so a cache hit never serves a
+    // remote host's avatar to a caller without access to that host.
     const local = isLocalHostId(hostIdNum);
-    let conn: import("ssh2").Client | null = null;
+    let host: Awaited<ReturnType<typeof resolveHostById>> = null;
     if (!local) {
       try {
-        const host = await resolveHostById(hostIdNum, userId);
-        if (!host) {
-          return res
-            .status(502)
-            .json({ error: "identity home box unreachable" });
-        }
-        conn = await connectOneShot(host, 5_000);
+        host = await resolveHostById(hostIdNum, userId);
       } catch {
+        host = null;
+      }
+      if (!host) {
         return res
           .status(502)
           .json({ error: "identity home box unreachable" });
       }
     }
 
+    const startedAt = Date.now();
+    let result: Awaited<ReturnType<typeof getCachedAvatar>>;
     try {
-      let readResult = await readAvatarSiblingFile(conn, identityKey);
-
-      // Phase 85 Plan 85-01 Task 2: role-folder avatar fallback. When the
-      // identity has no sibling avatar of its own, resolve the identity's
-      // role via its markdown frontmatter; if the role's frontmatter names
-      // an avatar filename AND the role folder holds that sibling, serve
-      // the role's shared avatar. Only 404 if BOTH branches return null.
-      // Any error in the role-side chain is treated as "no fallback found"
-      // (falls through to 404) — never surfaces as 5xx here.
-      if (readResult === null) {
-        try {
-          const { markdown } = await readIdentityFile(conn, identityKey);
-          const role = extractRoleFromMarkdown(markdown);
-          if (role !== null) {
-            const { markdown: roleMd } = await readRoleFileByName(conn, role);
-            if (roleMd) {
-              const roleCos = extractCosmeticsFromFrontmatter(roleMd);
-              if (typeof roleCos.avatar === "string" && roleCos.avatar.length > 0) {
-                readResult = await readAvatarSiblingFileByRole(
-                  conn,
-                  role,
-                  roleCos.avatar,
-                );
-              }
-            }
-          }
-        } catch {
-          // Silent — role-side chain error → no fallback (existing 404 path).
-        }
-      }
-
-      if (readResult === null) {
-        return res
-          .status(404)
-          .json({ error: "no avatar on disk for this identity" });
-      }
-
-      // stale-while-revalidate: browser paints cached bytes instantly (no
-      // network wait) AND fires an If-None-Match revalidation in the
-      // background. Unchanged → 304 keeps cache fresh; changed → 200 body
-      // lands and NEXT paint uses it. max-age=0 forces the SWR path on every
-      // request (never "fresh, skip revalidation"). Prior `no-cache` blocked
-      // every paint on the network round-trip, which surfaced as slow avatar
-      // load on every app open. Trade-off: one stale paint after an avatar
-      // edit before the fresh bytes swap in — acceptable for avatars that
-      // change rarely.
-      const etag = `"disk-${createHash("md5").update(readResult.bytes).digest("hex")}"`;
-      const ifNoneMatch = req.headers["if-none-match"];
-      if (ifNoneMatch && ifNoneMatch === etag) {
-        res.setHeader("ETag", etag);
-        res.setHeader("Cache-Control", "max-age=0, stale-while-revalidate=86400");
-        return res.status(304).end();
-      }
-      res.setHeader("Content-Type", readResult.mime);
-      res.setHeader("Content-Length", String(readResult.bytes.byteLength));
-      res.setHeader("ETag", etag);
-      res.setHeader("Cache-Control", "max-age=0, stale-while-revalidate=86400");
-      return res.send(readResult.bytes);
+      result = await getCachedAvatar(hostIdNum, identityKey, version, () =>
+        loadAvatarFromDisk(host, identityKey),
+      );
     } catch {
       // SSH-layer / SFTP error → 502 with canned message (T-68-02-01);
       // never leak raw SSH exceptions into the response body.
       return res
         .status(502)
         .json({ error: "identity home box unreachable" });
-    } finally {
-      if (conn) {
-        try { conn.end(); } catch { /* ignore */ }
-      }
     }
+    if (!result.hit) {
+      systemLogger.info("Identity avatar cache fill", {
+        operation: "identity_avatar_cache_fill",
+        hostId: hostIdNum,
+        identityKey,
+        versioned: version !== null,
+        found: result.avatar !== null,
+        bytes: result.avatar?.bytes.byteLength ?? 0,
+        ms: Date.now() - startedAt,
+      });
+    }
+
+    const avatar = result.avatar;
+    if (avatar === null) {
+      return res
+        .status(404)
+        .json({ error: "no avatar on disk for this identity" });
+    }
+
+    // Versioned URL → immutable: the browser never re-requests it, and a new
+    // avatar arrives as a new URL via the sweep. Unversioned (sweep hasn't
+    // reported this identity yet) → stale-while-revalidate as before.
+    const cacheControl =
+      version !== null
+        ? "private, max-age=31536000, immutable"
+        : "max-age=0, stale-while-revalidate=86400";
+    const ifNoneMatch = req.headers["if-none-match"];
+    if (ifNoneMatch && ifNoneMatch === avatar.etag) {
+      res.setHeader("ETag", avatar.etag);
+      res.setHeader("Cache-Control", cacheControl);
+      return res.status(304).end();
+    }
+    res.setHeader("Content-Type", avatar.mime);
+    res.setHeader("Content-Length", String(avatar.bytes.byteLength));
+    res.setHeader("ETag", avatar.etag);
+    res.setHeader("Cache-Control", cacheControl);
+    return res.send(avatar.bytes);
   },
 );
+
+/**
+ * Read an identity's avatar from its home box: its own sibling file, else its
+ * role's avatar (Phase 85 Plan 85-01 role-folder fallback). Returns normalized
+ * bytes, or null when neither exists. SSH errors throw.
+ */
+async function loadAvatarFromDisk(
+  host: Awaited<ReturnType<typeof resolveHostById>>,
+  identityKey: string,
+): Promise<{ bytes: Buffer; mime: string } | null> {
+  let conn: import("ssh2").Client | null = null;
+  if (host) {
+    conn = await connectOneShot(host, 5_000);
+  }
+  try {
+    let readResult = await readAvatarSiblingFile(conn, identityKey);
+
+    // Role-folder fallback: when the identity has no sibling avatar of its
+    // own, resolve its role via frontmatter and serve the role's avatar if
+    // the role names one and the file exists. Any error in the role-side
+    // chain is treated as "no fallback found" — never surfaces as 5xx.
+    if (readResult === null) {
+      try {
+        const { markdown } = await readIdentityFile(conn, identityKey);
+        const role = extractRoleFromMarkdown(markdown);
+        if (role !== null) {
+          const { markdown: roleMd } = await readRoleFileByName(conn, role);
+          if (roleMd) {
+            const roleCos = extractCosmeticsFromFrontmatter(roleMd);
+            if (typeof roleCos.avatar === "string" && roleCos.avatar.length > 0) {
+              readResult = await readAvatarSiblingFileByRole(
+                conn,
+                role,
+                roleCos.avatar,
+              );
+            }
+          }
+        }
+      } catch {
+        // Silent — role-side chain error → no fallback (404 path).
+      }
+    }
+
+    if (readResult === null) return null;
+    return normalizeAvatar(readResult.bytes, readResult.mime);
+  } finally {
+    if (conn) {
+      try { conn.end(); } catch { /* ignore */ }
+    }
+  }
+}
 
 router.use(
   (

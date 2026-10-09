@@ -32,6 +32,7 @@ import type { Request, Response, NextFunction } from "express";
 import multer from "multer";
 import { nanoid } from "nanoid";
 import sharp from "sharp";
+import { normalizeAvatar, normalizeUploadedAvatar } from "../../utils/avatar-normalize.js";
 import { AuthManager } from "../../utils/auth-manager.js";
 // Phase 103 D-10: multipart-origin-guard — CORS-simple content types don't preflight
 import { multipartOriginGuard } from "../../utils/multipart-origin-guard.js";
@@ -420,12 +421,13 @@ router.post(
     // still carries 0.7 for backwards compatibility with the pre-Phase-74
     // aesthetic; operators can override per-branding.
     // ------------------------------------------------------------------
-    let gammaCorrected: Buffer[];
+    let gammaCorrected: Array<{ bytes: Buffer; mime: string }>;
     try {
       gammaCorrected = await Promise.all(
         b64Results.map(async (b64) => {
           const pngBuffer = Buffer.from(b64, "base64");
-          return applyGamma(pngBuffer, gammaValue);
+          const corrected = await applyGamma(pngBuffer, gammaValue);
+          return normalizeAvatar(corrected, "image/png");
         }),
       );
     } catch {
@@ -437,14 +439,14 @@ router.post(
     // Step 4: Store in candidate cache, generate IDs
     // CR-06: evictIfNeeded is called before each set to enforce global + per-user caps.
     // ------------------------------------------------------------------
-    const candidates = gammaCorrected.map((bytes) => {
+    const candidates = gammaCorrected.map(({ bytes, mime }) => {
       const id = nanoid();
       evictIfNeeded(userId);
       candidateCache.set(id, {
         userId,
         bytes,
         createdAt: Date.now(),
-        mime: "image/png",
+        mime,
       });
       return { id, url: `/identities/avatar/candidate/${id}` };
     });
@@ -492,13 +494,14 @@ router.post(
   multipartOriginGuard,
   authenticateJWT,
   manualUpload.single("avatar"),
-  (req: Request, res: Response): void => {
+  async (req: Request, res: Response): Promise<void> => {
     const userId = (req as AuthenticatedRequest).userId;
 
     if (!req.file) {
       res.status(400).json({ error: "missing avatar field" });
       return;
     }
+    await normalizeUploadedAvatar(req.file);
 
     const id = nanoid();
     evictIfNeeded(userId);

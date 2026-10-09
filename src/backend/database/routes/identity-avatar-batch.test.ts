@@ -44,6 +44,7 @@ import express from "express";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import sharp from "sharp";
+import { normalizeAvatar } from "../../utils/avatar-normalize.js";
 
 // ---------------------------------------------------------------------------
 // Auth manager mock — controls whether a request is authenticated
@@ -829,8 +830,10 @@ describe("POST /candidate/manual", () => {
     expect(cache.has(body.id!)).toBe(true);
     const entry = cache.get(body.id!)!;
     expect(entry.userId).toBe("user-1");
-    expect(Buffer.compare(entry.bytes, pngBytes)).toBe(0);
-    expect(entry.mime).toBe("image/png");
+    // Upload is normalized (avatar-normalize.ts) before it lands in the cache.
+    const expected = await normalizeAvatar(pngBytes, "image/png");
+    expect(Buffer.compare(entry.bytes, expected.bytes)).toBe(0);
+    expect(entry.mime).toBe(expected.mime);
 
     // Verify GET /candidate/:id returns the same bytes
     const getRes = await httpRequest(server, {
@@ -838,7 +841,7 @@ describe("POST /candidate/manual", () => {
       path: `/identities/avatar/candidate/${body.id}`,
     });
     expect(getRes.status).toBe(200);
-    expect(Buffer.compare(getRes.rawBuffer!, pngBytes)).toBe(0);
+    expect(Buffer.compare(getRes.rawBuffer!, expected.bytes)).toBe(0);
   });
 
   it("auth: POST with mockUserId=null → 401, no cache entry created", async () => {

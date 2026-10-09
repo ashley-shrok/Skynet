@@ -360,10 +360,14 @@ function httpGet(
 // Setup / teardown
 // ---------------------------------------------------------------------------
 
+import { _resetAvatarCacheForTest } from "./identity-avatar-cache.js";
+import { resolveHostById } from "../../ssh/host-resolver.js";
+
 let server: http.Server;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  _resetAvatarCacheForTest();
   mockUserId = "test-user";
   dbState.identities = [];
   filterAccum = {};
@@ -795,6 +799,51 @@ describe("GET /identities/:identityKey/avatar — Phase 68 rekeyed", () => {
     expect(res.headers["etag"]).toMatch(/^"disk-[a-f0-9]{32}"$/);
     // readAvatarSiblingFile was called with identityKey="tina" (the URL param)
     expect(readAvatarSiblingFileMock.mock.calls[0][1]).toBe("tina");
+  });
+
+  it("Avatar-V1: valid ?v= version → immutable Cache-Control", async () => {
+    isLocalHostIdMock.mockReturnValue(false);
+    readAvatarSiblingFileMock.mockResolvedValue({ bytes: Buffer.from("PNGDATA"), mime: "image/png", ext: "png" });
+
+    const res = await httpGet(server, `/identities/tina/avatar?hostId=1&v=0123abcd`);
+
+    expect(res.status).toBe(200);
+    expect(res.headers["cache-control"]).toBe("private, max-age=31536000, immutable");
+  });
+
+  it("Avatar-V2: malformed ?v= is ignored → SWR Cache-Control", async () => {
+    isLocalHostIdMock.mockReturnValue(false);
+    readAvatarSiblingFileMock.mockResolvedValue({ bytes: Buffer.from("PNGDATA"), mime: "image/png", ext: "png" });
+
+    const res = await httpGet(server, `/identities/tina/avatar?hostId=1&v=NOT-HEX`);
+
+    expect(res.status).toBe(200);
+    expect(res.headers["cache-control"]).toBe("max-age=0, stale-while-revalidate=86400");
+  });
+
+  it("Avatar-V3: repeat request for the same version is served from cache — no second SSH connect or read", async () => {
+    isLocalHostIdMock.mockReturnValue(false);
+    readAvatarSiblingFileMock.mockResolvedValue({ bytes: Buffer.from("PNGDATA"), mime: "image/png", ext: "png" });
+
+    const first = await httpGet(server, `/identities/tina/avatar?hostId=1&v=abc`);
+    const second = await httpGet(server, `/identities/tina/avatar?hostId=1&v=abc`);
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(second.rawBody.equals(first.rawBody)).toBe(true);
+    expect(connectOneShotMock).toHaveBeenCalledTimes(1);
+    expect(readAvatarSiblingFileMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("Avatar-V4: a cache hit still requires host access", async () => {
+    isLocalHostIdMock.mockReturnValue(false);
+    readAvatarSiblingFileMock.mockResolvedValue({ bytes: Buffer.from("PNGDATA"), mime: "image/png", ext: "png" });
+    await httpGet(server, `/identities/tina/avatar?hostId=1&v=abc`);
+
+    vi.mocked(resolveHostById).mockResolvedValueOnce(null);
+    const res = await httpGet(server, `/identities/tina/avatar?hostId=1&v=abc`);
+
+    expect(res.status).toBe(502);
   });
 
   it("Avatar-6: If-None-Match matches current bytes → 304 + no body + ETag + Cache-Control: SWR", async () => {
