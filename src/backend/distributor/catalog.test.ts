@@ -16,6 +16,10 @@ import {
   FLEET_SUBSTRATE_CATALOG,
   type CatalogEntry,
 } from "./catalog.js";
+import {
+  RETIRED_SUBSTRATE_FILES,
+  RETIRED_SUBSTRATE_DIRS,
+} from "./run-bootstrap.js";
 
 // Repo root for Test 7 (executable-bit sanity check). The test file lives at
 // src/backend/distributor/catalog.test.ts; four levels up is the repo root.
@@ -108,7 +112,9 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // 132 → 134.
     // -3 for usage-reporter + usage-report + claude-usage-collector, retired
     // 2026-10-09 with the usage meter — 134 → 131.
-    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(131);
+    // -1 for the role skill, retired 2026-10-09 with the role-history
+    // retirement — 131 → 130.
+    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(130);
   });
 
   it("Test 2: every bundled row's bundledPath starts with /app/fleet-substrate/skills/, /app/fleet-substrate/scripts/, or /app/fleet-substrate/user-onboarding/", () => {
@@ -217,7 +223,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
 
     // 32 skill-side files: 1 under id/ (companions retired 2026-09-20 with
     // coord-as-mode retirement) + 2 under agent-relay/ + 2 single-file
-    // skills (queue, role; backlog/bounty/next-bounty retired 2026-09-20,
+    // skills (queue, role [role retired 2026-10-09 — see below];
+    // backlog/bounty/next-bounty retired 2026-09-20,
     // promote-to-coordinator retired 2026-09-20) + 1 image-gen (Phase 116) +
     // 24 under app-development/ (SKILL.md + 4 helpers + 19 template files
     // including the 3-file pre-generated initial Drizzle migration,
@@ -235,7 +242,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // template + iterate-widget added 2026-09-30) — 36 → 105.
     // +1 for the desktop skill (SKILL.md) — 105 → 106.
     // +1 for the stt skill (SKILL.md) — 106 → 107.
-    expect(skillRows.length).toBe(107);
+    // -1 for the role skill, retired 2026-10-09 — 107 → 106.
+    expect(skillRows.length).toBe(106);
     // 18 helper scripts: agent-supervisor + wakeup-scheduler + context-watch +
     // role-file-watch (4th ambient monitor) + fleet-status-sweep (Phase 92
     // batch sweep) + (usage-reporter / usage-report / claude-usage-collector
@@ -280,9 +288,10 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     );
     expect(agentRelayRows.length).toBe(2);
 
-    // Two single-file skills each contribute one entry (backlog, bounty,
-    // next-bounty, promote-to-coordinator all retired 2026-09-20).
-    const singleFileSkillSlugs = ["queue", "role"];
+    // Single-file skills each contribute one entry (backlog, bounty,
+    // next-bounty, promote-to-coordinator all retired 2026-09-20; role
+    // retired 2026-10-09).
+    const singleFileSkillSlugs = ["queue"];
     for (const slug of singleFileSkillSlugs) {
       const rows = skillRows.filter((e) =>
         e.bundledPath.startsWith(`/app/fleet-substrate/skills/${slug}/`),
@@ -467,7 +476,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // +1 for fleet-service (agent-services client) — 130 → 131.
     // +2 for stt (skill + helper) — 131 → 133.
     // -3 for the retired usage-reporter trio — 133 → 130.
-    expect(bundled.length).toBe(130);
+    // -1 for the retired role skill — 130 → 129.
+    expect(bundled.length).toBe(129);
     expect(runtime.length).toBe(1);
 
     // Every bundled row retains bundledPath under /app/fleet-substrate/
@@ -488,5 +498,34 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
       (runtime[0] as { resolverKey: string }).resolverKey,
     ).toBe("instance-policy");
     expect(runtime[0].restartHook).toBeNull();
+  });
+});
+
+describe("retired substrate paths", () => {
+  it("no catalog row installs a path the bootstrap deletes as retired", () => {
+    // run-bootstrap.ts Step 3 rm -f's every RETIRED_SUBSTRATE_FILES path on
+    // every sweep. A catalog row installing the same path would be written
+    // and deleted on every tick — re-adding a retired file means removing it
+    // from the retired list first.
+    const installed = new Set(
+      FLEET_SUBSTRATE_CATALOG.map((e) => e.installPath.replace(/^~\//, "")),
+    );
+    for (const rel of RETIRED_SUBSTRATE_FILES) {
+      expect(installed.has(rel), `${rel} is both installed and retired`).toBe(false);
+    }
+    // ...and no catalog row installs INTO a retired dir.
+    for (const dir of RETIRED_SUBSTRATE_DIRS) {
+      for (const p of installed) {
+        expect(p.startsWith(`${dir}/`), `${p} installs into retired dir ${dir}`).toBe(false);
+      }
+    }
+  });
+
+  it("the /role skill is retired: no catalog row, and its install path is on the retired list", () => {
+    expect(
+      FLEET_SUBSTRATE_CATALOG.some((e) => e.installPath.startsWith("~/.claude/skills/role/")),
+    ).toBe(false);
+    expect(RETIRED_SUBSTRATE_FILES).toContain(".claude/skills/role/SKILL.md");
+    expect(RETIRED_SUBSTRATE_DIRS).toContain(".claude/skills/role");
   });
 });

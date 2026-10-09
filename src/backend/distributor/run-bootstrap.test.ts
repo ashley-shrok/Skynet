@@ -66,7 +66,11 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { SshChannel } from "../fleet-status/ssh-poll-orchestrator.js";
-import { runBootstrapForHost } from "./run-bootstrap.js";
+import {
+  runBootstrapForHost,
+  RETIRED_SUBSTRATE_FILES,
+  RETIRED_SUBSTRATE_DIRS,
+} from "./run-bootstrap.js";
 import { systemLogger } from "../utils/logger.js";
 
 // Suppress logger output in tests
@@ -404,6 +408,59 @@ describe("runBootstrapForHost", () => {
     // "PostToolUse:Bash hook error" noise on every tool call (2026-09-05
     // regression guard).
     expect(cleanupCmd).toContain(".[]?.hooks[]?.command");
+  });
+
+  it("(k2) step 3 also removes retired substrate files (role skill) and rmdirs their folder only when empty — real sh against a temp $HOME", async () => {
+    const { channel, exec } = makeChannel({
+      "is-enabled": "enabled\nEXIT:0",
+      "daemon-reload": "__RELOAD_OK__",
+      "SETTINGS": "__SETTINGS_OK__",
+      "gsd-context-monitor": "__CLEANUP_OK__",
+      "host/name": "__HOST_NAME_OK__",
+    });
+    await runBootstrapForHost(channel, HOST);
+    const cleanupCmd = captureCommands(exec).find((c) => c.includes("gsd-context-monitor"));
+    expect(cleanupCmd).toBeDefined();
+    if (!cleanupCmd) return;
+    for (const rel of RETIRED_SUBSTRATE_FILES) {
+      expect(cleanupCmd).toContain(`rm -f "$HOME/${rel}"`);
+    }
+    for (const rel of RETIRED_SUBSTRATE_DIRS) {
+      expect(cleanupCmd).toContain(`rmdir "$HOME/${rel}" 2>/dev/null || true`);
+    }
+    // Never a recursive delete of a retired folder.
+    expect(cleanupCmd).not.toContain("rm -rf");
+
+    const fsp = await import("node:fs/promises");
+    const nodePath = await import("node:path");
+    const nodeOs = await import("node:os");
+    const { execFileSync } = await import("node:child_process");
+    const run = (home: string): string =>
+      execFileSync("sh", ["-c", cleanupCmd], {
+        env: { PATH: process.env.PATH, HOME: home },
+        encoding: "utf-8",
+      });
+
+    // (1) installed copy → file + now-empty folder both gone; sentinel prints.
+    const home = await fsp.mkdtemp(nodePath.join(nodeOs.tmpdir(), "retired-substrate-"));
+    try {
+      const roleDir = nodePath.join(home, ".claude/skills/role");
+      await fsp.mkdir(roleDir, { recursive: true });
+      await fsp.writeFile(nodePath.join(roleDir, "SKILL.md"), "---\nname: role\n---\n");
+      expect(run(home).trimEnd().endsWith("__CLEANUP_OK__")).toBe(true);
+      await expect(fsp.access(roleDir)).rejects.toThrow();
+      // (2) idempotent: second run on a clean home still prints the sentinel.
+      expect(run(home).trimEnd().endsWith("__CLEANUP_OK__")).toBe(true);
+      // (3) a hand-added extra file keeps the folder (rmdir only when empty).
+      await fsp.mkdir(roleDir, { recursive: true });
+      await fsp.writeFile(nodePath.join(roleDir, "SKILL.md"), "x");
+      await fsp.writeFile(nodePath.join(roleDir, "notes.md"), "keep me");
+      expect(run(home).trimEnd().endsWith("__CLEANUP_OK__")).toBe(true);
+      await expect(fsp.access(nodePath.join(roleDir, "SKILL.md"))).rejects.toThrow();
+      await expect(fsp.readFile(nodePath.join(roleDir, "notes.md"), "utf-8")).resolves.toBe("keep me");
+    } finally {
+      await fsp.rm(home, { recursive: true, force: true });
+    }
   });
 
   it("(l) gsd-context-monitor cleanup: channel returns null — hadError=true, cleanupOk=false, still resolves", async () => {

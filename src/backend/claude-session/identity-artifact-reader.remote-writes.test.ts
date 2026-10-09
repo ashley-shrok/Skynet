@@ -23,7 +23,7 @@
 //
 // The mock ssh2 Client here only needs .sftp() populated because
 // tmux-helper.execCommand is vi.mocked to return "/home/tester" for the
-// `echo $HOME` call that writeIdentityFile/writeIdentityHistory/writeIdentityHandoff
+// `echo $HOME` call that writeIdentityFile/writeIdentityHandoff
 // each make before opening SFTP. This keeps the test surface tiny (no fake
 // exec channel wiring) and mirrors the pattern already used across the
 // claude-session suite (e.g. claude-session-server.aside.test.ts).
@@ -43,7 +43,6 @@ vi.mock("../ssh/tmux-helper.js", () => ({
 // Import AFTER the vi.mock so the mock is bound to the module graph.
 import {
   writeIdentityFile,
-  writeIdentityHistory,
   writeIdentityHandoff,
   writeAvatarSiblingFile,
   IDMEDIT_MAX_AVATAR_BYTES,
@@ -164,32 +163,13 @@ describe("writeIdentityFile — REMOTE branch atomic-rename API (quick 260802-qr
   });
 });
 
-describe("writeIdentityHistory and writeIdentityHandoff — REMOTE branch (quick 260802-qrw)", () => {
+describe("writeIdentityHandoff — REMOTE branch (quick 260802-qrw)", () => {
   // Defensive coverage: the shared writeMarkdownFileAtomic helper is the
-  // rename call site for ALL three markdown writers. Verifying two more of
+  // rename call site for ALL the markdown writers. Verifying one more of
   // them documents that the single-helper swap covers the whole surface.
   // (writeIdentityBountyFields also delegates to writeMarkdownFileAtomic
   // but has more setup — left out of scope; the shared helper guarantees
   // the fix transitively.)
-
-  it("writeIdentityHistory routes through ext_openssh_rename to /<home>/fleet/identities/tina/history.md", async () => {
-    const { conn, sftp, renameCalls } = buildMockConn();
-
-    await writeIdentityHistory(conn, "tina", "# history\n");
-
-    expect(sftp.ext_openssh_rename).toHaveBeenCalledTimes(1);
-    expect(sftp.rename).not.toHaveBeenCalled();
-
-    expect(renameCalls).toHaveLength(1);
-    expect(renameCalls[0].from).toBe(
-      "/home/tester/fleet/identities/tina/history.md.tmp",
-    );
-    expect(renameCalls[0].to).toBe(
-      "/home/tester/fleet/identities/tina/history.md",
-    );
-
-    expect(sftp.end).toHaveBeenCalledTimes(1);
-  });
 
   it("writeIdentityHandoff routes through ext_openssh_rename to /<home>/fleet/identities/tina/handoff.md", async () => {
     const { conn, sftp, renameCalls } = buildMockConn();

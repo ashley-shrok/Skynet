@@ -78,7 +78,6 @@ import {
   IDENTITY_SLUG_RE,
   humanizeWakeupSchedule,
   readIdentityFile,
-  readIdentityHistory,
   readIdentityWakeups,
   readIdentityHandoff,
   readIdentityTrappedWork,
@@ -88,7 +87,6 @@ import {
   writeIdentityWakeupCreate,
   writeIdentityWakeupDelete,
   writeIdentityFile,
-  writeIdentityHistory,
   writeIdentityHandoff,
   writeRoleFile,
   writeRoleFileByName,
@@ -108,7 +106,6 @@ import { getHostSemaphore } from "../ssh/host-semaphore-registry.js";
  *     // patch #17g/#92: identity artifact fetches (one-shot; no pane needed):
  *     { type: "identity:get-identity-file", identityKey: string, hostId?: number } // patch #17g/#92: fetch <key>.md
  *     { type: "identity:get-role-file", identityKey: string, hostId?: number }     // Phase 22 SRIC-06: fetch ~/fleet/roles/<role>/<role>.md via backend two-step (identity file → role: frontmatter → role artifact)
- *     { type: "identity:get-history", identityKey: string, hostId?: number }       // patch #17g/#92: fetch history.md
  *     { type: "identity:list-wakeups", identityKey: string, hostId?: number }      // patch #17g/#92: list wakeups/*.json
  *     { type: "identity:get-handoff", identityKey: string, hostId?: number }       // patch #17g/#92: fetch handoff.md
  *     // patch #154: first WRITE paths on identity artifacts. Same hostId routing.
@@ -126,7 +123,6 @@ import { getHostSemaphore } from "../ssh/host-semaphore-registry.js";
  *     { type: "role:get-file", roleName: string, hostId?: number }                                          // Phase 90 Plan 90-07: role-name-keyed companion of identity:get-role-file — read ~/fleet/roles/<roleName>/<roleName>.md directly.
  *     // Phase 134 Plan 134-02 retired role:list-wakeups / create-wakeup /
  *     // update-wakeup / delete-wakeup. Phase 136 retired role:list-bounties.
- *     { type: "identity:update-history", identityKey: string, hostId: number, contents: string }       // Phase 18: full-overwrite <key>/history.md
  *     { type: "identity:update-handoff", identityKey: string, hostId: number, contents: string }       // Phase 18: full-overwrite <key>/handoff.md
  *     // hostId routing (patch #92): when omitted OR when the hostId is in IDENTITIES_LOCAL_HOST_IDS,
  *     // reads from the local bind-mount (IDENTITIES_HOST_DIR); otherwise SSHes to the pane's host.
@@ -158,7 +154,6 @@ import { getHostSemaphore } from "../ssh/host-semaphore-registry.js";
  *     // patch #17g: identity artifact responses (one-shot; WS closed by client after receipt):
  *     { type: "identity:identity-file", markdown: string, error?: string } // patch #17g: response to identity:get-identity-file
  *     { type: "identity:role-file", markdown: string, error?: string }      // Phase 22 SRIC-06: response to identity:get-role-file
- *     { type: "identity:history", entries: string[], error?: string }       // patch #17g: response to identity:get-history
  *     { type: "identity:wakeups", wakeups: Wakeup[], error?: string }       // patch #17g: response to identity:list-wakeups
  *     { type: "identity:handoff", markdown: string, error?: string }        // patch #17g: response to identity:get-handoff
  *     // patch #154: post-write responses carry the FRESH list so the client can atomically re-render without a follow-up read.
@@ -173,7 +168,6 @@ import { getHostSemaphore } from "../ssh/host-semaphore-registry.js";
  *     { type: "role:file-loaded", markdown: string, error?: string }                                        // Phase 90 Plan 90-07: response to role:get-file
  *     // Phase 134 Plan 134-02 retired role:wakeups-loaded / wakeup-created /
  *     // wakeup-updated / wakeup-deleted. Phase 136 retired role:bounties-loaded.
- *     { type: "identity:history-updated", entries: string[], error?: string }       // Phase 18: response to identity:update-history (server re-reads + re-parses entries)
  *     { type: "identity:handoff-updated", markdown: string, error?: string }        // Phase 18: response to identity:update-handoff (confirmed markdown post-write)
  *
  * Image frames carry inline base64 payloads: each `images[]` element is
@@ -5231,66 +5225,6 @@ wss.on("connection", async (ws: WebSocket, req) => {
       return;
     }
 
-    // Patch #17g/#92: identity:get-history — read history.md; reverse lines for most-recent-first.
-    // Patch #92: routes via helper; local branch for local hosts, SSH branch for remote hosts.
-    if (msg.type === "identity:get-history") {
-      const rawKey = (msg as { type: unknown; identityKey?: unknown }).identityKey;
-      if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
-        try {
-          ws.send(JSON.stringify({ type: "identity:history", entries: [], error: "invalid identityKey" }));
-        } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:history err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-        return;
-      }
-      const identityKey = rawKey;
-      const rawHostId = (msg as { type: unknown; hostId?: unknown }).hostId;
-      const hostIdNum =
-        typeof rawHostId === "number" && Number.isFinite(rawHostId) && rawHostId > 0
-          ? rawHostId
-          : undefined;
-      const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
-
-      try {
-        let entries: string[];
-        let markdown: string;
-        if (useLocal) {
-          ({ entries, markdown } = await readIdentityHistory(null, identityKey));
-          sshLogger.info("identity:get-history", {
-            operation: "identity_get_history",
-            userId, identityKey, hostId: hostIdNum, useLocal: true, payloadSize: entries.length,
-          });
-        } else {
-          const resolved = await resolveHostById(hostIdNum!, userId!);
-          if (!resolved) {
-            try { ws.send(JSON.stringify({ type: "identity:history", entries: [], markdown: "", error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:history err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-            return;
-          }
-          const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
-          try {
-            ({ entries, markdown } = await readIdentityHistory(conn, identityKey));
-            sshLogger.info("identity:get-history", {
-              operation: "identity_get_history",
-              userId, identityKey, hostId: hostIdNum, useLocal: false, payloadSize: entries.length,
-            });
-          } finally {
-            try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
-          }
-        }
-        // Phase 18 / IDMEDIT-02: emit markdown alongside entries so HistoryTab
-        // can populate its textarea editor without a separate raw-file fetch.
-        try { ws.send(JSON.stringify({ type: "identity:history", entries, markdown })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:history err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-      } catch (err: unknown) {
-        sshLogger.error(
-          "identity:get-history error",
-          err instanceof Error ? err : new Error(String(err)),
-          { operation: "identity_get_history_error", userId, identityKey, hostId: hostIdNum },
-        );
-        try {
-          ws.send(JSON.stringify({ type: "identity:history", entries: [], markdown: "", error: err instanceof Error ? err.message : String(err) }));
-        } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:history err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-      }
-      return;
-    }
-
     // Patch #17g/#92: identity:list-wakeups — enumerate wakeups/*.json and humanize each schedule.
     // Patch #92: routes via helper; local branch for local hosts, SSH branch for remote hosts.
     if (msg.type === "identity:list-wakeups") {
@@ -5569,75 +5503,6 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // (role:list-wakeups / role:create-wakeup / role:update-wakeup /
     // role:delete-wakeup). Phase 136 retired the role:list-bounties
     // dispatcher.
-
-    // Phase 18 / IDMEDIT-06: identity:update-history — full-overwrite
-    // <key>/history.md. After write, re-reads via readIdentityHistory so the
-    // client receives parsed entries (mirrors HistoryTab's existing wire shape).
-    if (msg.type === "identity:update-history") {
-      const raw = msg as { identityKey?: unknown; hostId?: unknown; contents?: unknown };
-      const rawKey = raw.identityKey;
-      const rawContents = raw.contents;
-      if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
-        try { ws.send(JSON.stringify({ type: "identity:history-updated", entries: [], error: "invalid identityKey" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:history-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-        return;
-      }
-      if (typeof rawContents !== "string") {
-        try { ws.send(JSON.stringify({ type: "identity:history-updated", entries: [], error: "contents must be a string" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:history-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-        return;
-      }
-      const identityKey = rawKey;
-      const contents = rawContents;
-      const rawHostId = raw.hostId;
-      const hostIdNum =
-        typeof rawHostId === "number" && Number.isFinite(rawHostId) && rawHostId > 0
-          ? rawHostId
-          : undefined;
-      const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
-      try {
-        let entries: string[];
-        let markdown: string;
-        if (useLocal) {
-          await writeIdentityHistory(null, identityKey, contents);
-          ({ entries, markdown } = await readIdentityHistory(null, identityKey));
-          sshLogger.info("identity:update-history", {
-            operation: "identity_update_history",
-            userId, identityKey, hostId: hostIdNum, useLocal: true,
-            bytes: Buffer.byteLength(contents, "utf-8"),
-          });
-        } else {
-          const resolved = await resolveHostById(hostIdNum!, userId!);
-          if (!resolved) {
-            try { ws.send(JSON.stringify({ type: "identity:history-updated", entries: [], markdown: "", error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:history-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-            return;
-          }
-          const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
-          try {
-            await writeIdentityHistory(conn, identityKey, contents);
-            ({ entries, markdown } = await readIdentityHistory(conn, identityKey));
-            sshLogger.info("identity:update-history", {
-              operation: "identity_update_history",
-              userId, identityKey, hostId: hostIdNum, useLocal: false,
-              bytes: Buffer.byteLength(contents, "utf-8"),
-            });
-          } finally {
-            try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
-          }
-        }
-        // Phase 18 / IDMEDIT-02: echo both entries and markdown so HistoryTab
-        // rehydrates the textarea from server truth after Save.
-        try { ws.send(JSON.stringify({ type: "identity:history-updated", entries, markdown })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:history-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-      } catch (err) {
-        sshLogger.error(
-          "identity:update-history unexpected error",
-          err instanceof Error ? err : new Error(String(err)),
-          { operation: "identity_update_history_error", userId, identityKey, hostId: hostIdNum },
-        );
-        try {
-          ws.send(JSON.stringify({ type: "identity:history-updated", entries: [], markdown: "", error: err instanceof Error ? err.message : String(err) }));
-        } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:history-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-      }
-      return;
-    }
 
     // Phase 18 / IDMEDIT-06: identity:update-handoff — full-overwrite
     // <key>/handoff.md. After write, re-reads via readIdentityHandoff so the

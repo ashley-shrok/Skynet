@@ -3,20 +3,14 @@
 // Phase 22 SRIC-01: verifies the helpers that unlock role-folder reads without
 // changing the (identityKey, hostId) frontend contract.
 //
-// The History tab on IdentityModal used to root at ~/fleet/identities/<key>/history.md.
-// Post the fleet role/identity migration those folders are empty — the actual
-// data lives at ~/fleet/roles/<role>/history.md, and the role is discovered by
-// reading `role:` from the identity file's YAML frontmatter.
+// Role assignment lives in the `role:` key of the identity file's YAML
+// frontmatter; role-scoped artifacts live at ~/fleet/roles/<role>/.
 //
 // This test file covers:
 //   Task 1 (tests 1-9):  extractRoleFromMarkdown, resolveRoleForIdentity,
 //                         getLocalRolesRoot — the three helpers Wave-2 plans reuse.
-//   Task 2 (tests 11/13/15): readIdentityHistory now does the two-step internally
-//                             on both LOCAL and REMOTE branches; signatures unchanged;
-//                             throws propagate.
-//                             (Note: former tests 10/12/14/16 covered a companion
-//                             reader that was removed in Phase 133 Plan 133-07;
-//                             test numbers preserved for git-blame continuity.)
+//   (Former Task 2 tests 10-16 covered history / companion readers that have
+//   since been removed; numbering preserved for git-blame continuity.)
 //
 // Test framework: vitest (matches every sibling test file in
 // src/backend/claude-session/*.test.ts).
@@ -24,21 +18,12 @@
 // Mock strategy for Task 1 (helpers):
 //   - Mock ../ssh/tmux-helper.js execCommand so we can stub readIdentityFile's
 //     REMOTE `cat` response (tests 6-8) without a real ssh2 exec channel.
-//   - Use fs + os.tmpdir + IDENTITIES_HOST_DIR / ROLES_HOST_DIR env vars for
+//   - Use os.homedir + ROLES_HOST_DIR env var for
 //     LOCAL-branch fixtures (test 9).
-//
-// Mock strategy for Task 2 (readIdentityHistory):
-//   - Same execCommand mock, but with an implementation that inspects the
-//     command string to route responses (identity-file read → frontmatter,
-//     history read → payload). This mirrors the same pattern used in
-//     identity-artifact-reader.remote-writes.test.ts but with a smarter router.
-//   - For LOCAL branch, temp filesystem fixtures at IDENTITIES_HOST_DIR +
-//     ROLES_HOST_DIR let the real fs paths flow through.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import os from "os";
 import path from "path";
-import fs from "fs/promises";
 import type { Client as SSHClientType } from "ssh2";
 
 // Mock tmux-helper.execCommand BEFORE importing the module under test so the
@@ -77,7 +62,6 @@ import {
   extractCosmeticsFromFrontmatter,
   resolveRoleForIdentity,
   getLocalRolesRoot,
-  readIdentityHistory,
 } from "./identity-artifact-reader.js";
 
 // ──────────────────────────────────────────────────────────────────────
@@ -362,151 +346,5 @@ describe("getLocalRolesRoot", () => {
 
     delete process.env.ROLES_HOST_DIR;
     expect(getLocalRolesRoot()).toBe(path.join(os.homedir(), "fleet", "roles"));
-  });
-});
-
-// ──────────────────────────────────────────────────────────────────────
-// Task 2 — readIdentityHistory two-step (tests 11 / 13 / 15)
-// ──────────────────────────────────────────────────────────────────────
-//
-// Note: former tests 10 / 12 / 14 / 16 covered a companion reader and were
-// removed in Phase 133 Plan 133-07 alongside the deletion of that reader.
-// Test numbers preserved to keep git-blame / historical-reference continuity.
-
-describe("readIdentityHistory — two-step", () => {
-  // Router for the REMOTE-branch execCommand mock — inspects the command
-  // string and returns the appropriate stubbed response. Order-agnostic so
-  // the reader's internal call order can evolve without breaking tests.
-  //
-  // Contract:
-  //   - `cat "$HOME/fleet/identities/<key>/<key>.md"` → identity file body
-  //   - `cat "$HOME/fleet/roles/<role>/history.md"` → history body
-  //
-  // Tests assert on the command string via a captured spy so path substitution
-  // is verified even when the response is a stub.
-  function makeRouter(opts: {
-    identityFile?: string;
-    historyMd?: string;
-  }): (conn: SSHClientType, cmd: string) => Promise<string> {
-    return async (_conn, cmd) => {
-      if (cmd.includes("fleet/identities/") && cmd.startsWith("cat ")) {
-        return opts.identityFile ?? "";
-      }
-      if (cmd.includes("fleet/roles/") && cmd.includes("/history.md")) {
-        return opts.historyMd ?? "";
-      }
-      return "";
-    };
-  }
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("test 11: readIdentityHistory (REMOTE) reads $HOME/fleet/roles/<role>/history.md, not identity folder", async () => {
-    const identityMd = "---\nrole: box-maintainer\n---\n";
-    const historyMd = "# History\n\n- entry one\n- entry two\n";
-    const capturedCommands: string[] = [];
-    (execCommand as unknown as ReturnType<typeof vi.fn>).mockImplementation(
-      async (_conn: unknown, cmd: string) => {
-        capturedCommands.push(cmd);
-        if (cmd.includes("fleet/identities/")) return identityMd;
-        if (cmd.includes("/history.md")) return historyMd;
-        return "";
-      },
-    );
-
-    const conn = {} as SSHClientType;
-    const result = await readIdentityHistory(conn, "moxie");
-
-    const historyCmd = capturedCommands.find((c) => c.includes("/history.md"));
-    expect(historyCmd).toBeDefined();
-    expect(historyCmd).toContain("$HOME/fleet/roles/box-maintainer/history.md");
-    expect(historyCmd).not.toContain("$HOME/fleet/identities/moxie/history.md");
-    expect(result.markdown).toBe(historyMd);
-    // history entries: strip #-headings + blank lines, reverse (mirrors existing behavior)
-    expect(result.entries).toEqual(["- entry two", "- entry one"]);
-  });
-
-  // LOCAL-branch fixture — writes both the identity file (with role: frontmatter)
-  // and the role folder into two separate temp roots pointed at by
-  // IDENTITIES_HOST_DIR and ROLES_HOST_DIR env vars.
-  describe("LOCAL branch (conn=null) — reads from role folder", () => {
-    let identitiesRoot: string;
-    let rolesRoot: string;
-    const KEY = "moxie";
-    const ROLE = "box-maintainer";
-
-    beforeEach(async () => {
-      identitiesRoot = await fs.mkdtemp(
-        path.join(os.tmpdir(), "22-01-identities-"),
-      );
-      rolesRoot = await fs.mkdtemp(path.join(os.tmpdir(), "22-01-roles-"));
-      process.env.IDENTITIES_HOST_DIR = identitiesRoot;
-      process.env.ROLES_HOST_DIR = rolesRoot;
-
-      // Identity file with role: frontmatter (drives the two-step)
-      const identityDir = path.join(identitiesRoot, KEY);
-      await fs.mkdir(identityDir, { recursive: true });
-      await fs.writeFile(
-        path.join(identityDir, `${KEY}.md`),
-        `---\nrole: ${ROLE}\n---\n\n# ${KEY}\n`,
-        "utf-8",
-      );
-
-      // Role folder with history
-      const roleDir = path.join(rolesRoot, ROLE);
-      await fs.mkdir(roleDir, { recursive: true });
-      await fs.writeFile(
-        path.join(roleDir, "history.md"),
-        "# History\n\n- role entry one\n",
-        "utf-8",
-      );
-    });
-
-    afterEach(async () => {
-      delete process.env.IDENTITIES_HOST_DIR;
-      delete process.env.ROLES_HOST_DIR;
-      await fs.rm(identitiesRoot, { recursive: true, force: true });
-      await fs.rm(rolesRoot, { recursive: true, force: true });
-    });
-
-    it("test 13: readIdentityHistory (LOCAL) reads from ROLES_HOST_DIR/<role>/history.md", async () => {
-      const result = await readIdentityHistory(null, KEY);
-      expect(result.markdown).toContain("- role entry one");
-      expect(result.entries).toEqual(["- role entry one"]);
-    });
-  });
-
-  it("test 15: readIdentityHistory propagates the throw when identity file has no role frontmatter", async () => {
-    (execCommand as unknown as ReturnType<typeof vi.fn>).mockImplementation(
-      async (_conn: unknown, cmd: string) => {
-        if (cmd.includes("fleet/identities/")) {
-          return "# just a heading, no frontmatter\n";
-        }
-        return "";
-      },
-    );
-    const conn = {} as SSHClientType;
-    await expect(readIdentityHistory(conn, "moxie")).rejects.toThrow(
-      /no role|moxie/,
-    );
-  });
-
-  // Compile-time smoke check: signature stays (SSHClientType|null, string).
-  // If a future edit widens the readIdentityHistory signature to accept a
-  // third argument, tsc --noEmit (run separately in the verification step)
-  // catches it; this runtime test just proves the call compiles + runs.
-  it("test 16 (signature smoke): readIdentityHistory accepts (SSHClientType|null, string)", async () => {
-    (execCommand as unknown as ReturnType<typeof vi.fn>).mockImplementation(
-      makeRouter({ identityFile: "---\nrole: box-maintainer\n---\n" }),
-    );
-    const conn = {} as SSHClientType;
-    // Note: no third argument — proves the signature stays 2-ary.
-    const historyPromise: Promise<{
-      entries: string[];
-      markdown: string;
-    }> = readIdentityHistory(conn, "moxie");
-    await historyPromise;
   });
 });

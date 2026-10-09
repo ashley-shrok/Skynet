@@ -289,6 +289,22 @@ export const GSD_MONITOR_STRIP_JQ =
   `.hooks.PostToolUse |= map(select(any(.hooks[]?.command // ""; test("gsd-context-monitor")) | not))`;
 
 /**
+ * Step 3 (tail) — retired substrate files. Paths (relative to $HOME) that the
+ * catalog USED to install but no longer distributes; every sweep rm -f's
+ * them so hosts converge on absence. RETIRED_SUBSTRATE_DIRS are the
+ * now-orphaned parent folders, removed with rmdir ONLY when empty (never
+ * rm -rf — anything an agent added there by hand is left alone). Shared with
+ * the local-fleet surface (local-fleet-install.ts).
+ *
+ *   - .claude/skills/role/SKILL.md — /role skill, retired 2026-10-09 with
+ *     the role-history retirement.
+ */
+export const RETIRED_SUBSTRATE_FILES = [
+  ".claude/skills/role/SKILL.md",
+] as const;
+export const RETIRED_SUBSTRATE_DIRS = [".claude/skills/role"] as const;
+
+/**
  * Step 6 — usage-reporter retirement. Paths (relative to $HOME) removed once
  * settings.json.statusLine no longer points at the wrapper. Shared with the
  * local-fleet surface (local-fleet-install.ts). ~/.claude/usage/ (conf,
@@ -709,6 +725,8 @@ export async function runBootstrapForHost(
   //         (a) Strip any settings.json .hooks.PostToolUse[] entry whose
   //             command references gsd-context-monitor.js.
   //         (b) rm -f the hook file at ~/.claude/hooks/gsd-context-monitor.js.
+  //         (c) rm -f every RETIRED_SUBSTRATE_FILES path and rmdir (only if
+  //             empty) every RETIRED_SUBSTRATE_DIRS folder.
   //         Idempotent: no-op after first sweep on each host.
   // -------------------------------------------------------------------------
   try {
@@ -732,6 +750,8 @@ export async function runBootstrapForHost(
       `  jq '${GSD_MONITOR_STRIP_JQ}' "$S_FILE" > "$S_FILE.new" && mv "$S_FILE.new" "$S_FILE"`,
       `fi`,
       `rm -f "$HOME/.claude/hooks/gsd-context-monitor.js"`,
+      ...RETIRED_SUBSTRATE_FILES.map((rel) => `rm -f "$HOME/${rel}"`),
+      ...RETIRED_SUBSTRATE_DIRS.map((rel) => `rmdir "$HOME/${rel}" 2>/dev/null || true`),
       `echo "__CLEANUP_OK__"`,
     ].join("\n");
 

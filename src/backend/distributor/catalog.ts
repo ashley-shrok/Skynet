@@ -48,10 +48,12 @@
  *     - 1 row for id/           (SKILL.md; 3 companions retired 2026-09-20
  *       with coord-as-mode retirement — coordinator became its own role)
  *     - 2 rows for agent-relay/ (SKILL.md + recv.sh)
- *     - 2 rows for the single-file skills (queue, role) — backlog, bounty,
+ *     - 1 row for the single-file skills (queue) — backlog, bounty,
  *       and next-bounty retired 2026-09-20 with the bounty-concept
  *       retirement; promote-to-coordinator retired 2026-09-20 with the
- *       coord-as-mode retirement
+ *       coord-as-mode retirement; role retired 2026-10-09 with the
+ *       role-history retirement (host copies removed via
+ *       RETIRED_SUBSTRATE_FILES in run-bootstrap.ts)
  *     - 1 row for image-gen skill (Phase 116 file-drop broker SKILL.md)
  *     - 25 rows for app-development/ (SKILL.md + 5 helper scripts +
  *       19 starter-template files including a pre-generated initial
@@ -262,20 +264,15 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     restartHook: null,
   },
 
-  // --- single-file skills (2 rows, one SKILL.md each; promote-to-coordinator
-  //     retired 2026-09-20 with the coord-as-mode retirement) ---
+  // --- single-file skills (1 row, one SKILL.md each; promote-to-coordinator
+  //     retired 2026-09-20 with the coord-as-mode retirement; role retired
+  //     2026-10-09 with the role-history retirement — installed copies are
+  //     removed by run-bootstrap.ts RETIRED_SUBSTRATE_FILES) ---
   {
     slug: "queue-skill",
     sourceKind: "bundled",
     bundledPath: "/app/fleet-substrate/skills/queue/SKILL.md",
     installPath: "~/.claude/skills/queue/SKILL.md",
-    restartHook: null,
-  },
-  {
-    slug: "role-skill",
-    sourceKind: "bundled",
-    bundledPath: "/app/fleet-substrate/skills/role/SKILL.md",
-    installPath: "~/.claude/skills/role/SKILL.md",
     restartHook: null,
   },
   // Phase 116: file-drop broker skill body — carries the D-17 PHI directive

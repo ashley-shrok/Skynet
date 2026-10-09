@@ -374,7 +374,7 @@ export function getLocalAppsRoot(): string {
 //
 // The fleet-side role/identity paradigm stores role assignment as YAML
 // frontmatter (`role: <name>`) at the top of ~/fleet/identities/<key>/<key>.md.
-// Role-scoped artifacts (bounties, history, role-file) live at
+// Role-scoped artifacts (bounties, role-file) live at
 // ~/fleet/roles/<role>/... — so any backend op that needs a role artifact
 // must first read the identity file, parse the frontmatter, and extract role.
 //
@@ -466,7 +466,7 @@ export function extractRolesFromMarkdown(markdown: string): string[] {
  *   - role: value fails the IDENTITY_KEY_RE = /^[a-z0-9_-]{1,64}$/ gate.
  *
  * The second gate is defense-in-depth: role is shell-interpolated into
- * SSH exec commands by callers (readIdentityBounties, readIdentityHistory,
+ * SSH exec commands by callers (readIdentityBounties and other role-scoped readers,
  * and future role-scoped writers), so re-validating role with the same
  * regex that guards identityKey shell-safety is required. See threat model
  * T-22-01-01 / T-22-01-02.
@@ -1270,7 +1270,7 @@ export async function listIdentityKeysOnHost(
  *
  * Two-step happens BEFORE the LOCAL/REMOTE branch split so both branches share
  * the same role → path substitution (matches the pattern established by
- * readIdentityBounties / readIdentityHistory in Plan 22-01).
+ * readIdentityBounties in Plan 22-01).
  *
  * Throws (via resolveRoleForIdentity) when the identity file lacks role:
  * frontmatter — no fallback per D-CONTEXT § "No no-role fallback branches"
@@ -1384,71 +1384,6 @@ export async function readRoleFileByName(
   const cmd = `cat "$HOME/fleet/roles/${roleName}/${roleName}.md" 2>/dev/null || true`;
   const stdout = await execWithTimeout(conn, cmd);
   return { markdown: stdout };
-}
-
-// ---------------------------------------------------------------------------
-// 2. readIdentityHistory — <key>/history.md
-// ---------------------------------------------------------------------------
-
-/** Result shape for history reads. Matches the wire shape "identity:history".
- * Phase 18 / IDMEDIT-02: widened to also carry `markdown` (raw file body)
- * so the HistoryTab editor can populate its textarea without a separate read.
- * The `entries` field is unchanged — additive widening, no consumers broken.
- *
- * Phase 22 SRIC-01: reads via two-step — identity file → role: frontmatter →
- * role folder (~/fleet/roles/<role>/history.md). Public signature untouched;
- * frontend contract stays (identityKey, hostId) per D-CONTEXT lockdown. See
- * resolveRoleForIdentity above for the no-fallback semantics.
- */
-export async function readIdentityHistory(
-  conn: SSHClientType | null,
-  identityKey: string,
-): Promise<{ entries: string[]; markdown: string }> {
-  // Phase 22 SRIC-01: two-step — resolve role from identity file's frontmatter
-  // before any artifact read. Throws (no fallback) if role is missing or fails
-  // the IDENTITY_KEY_RE shell-safety gate. Propagates to WS `error` field.
-  const role = await resolveRoleForIdentity(conn, identityKey);
-
-  if (conn === null) {
-    // LOCAL branch — reads from ROLES_HOST_DIR (mirrors identity-folder pattern
-    // pre-SRIC-01 but rooted at ~/fleet/roles/<role>/history.md)
-    const root = getLocalRolesRoot();
-    const filePath = path.join(root, role, "history.md");
-    try {
-      const markdown = await fs.readFile(filePath, "utf-8");
-      const entries = markdown
-        .split("\n")
-        .map((line) => line.trim())
-        .filter((line) => line.length > 0 && !line.startsWith("#"))
-        .reverse();
-      return { entries, markdown };
-    } catch (err: unknown) {
-      if (
-        typeof err === "object" &&
-        err !== null &&
-        (err as NodeJS.ErrnoException).code === "ENOENT"
-      ) {
-        return { entries: [], markdown: "" };
-      }
-      throw err;
-    }
-  }
-
-  // REMOTE branch — patch #94: `|| true` so missing history.md resolves as
-  // empty stdout instead of throwing "Command exited with code 1".
-  // Patch #95: direct interpolation is shell-safe because BOTH identityKey
-  // (via caller) AND role (via resolveRoleForIdentity's IDENTITY_KEY_RE gate)
-  // are validated by /^[a-z0-9_-]{1,64}$/ — none of those characters are
-  // shell-special inside double quotes.
-  const cmd = `cat "$HOME/fleet/roles/${role}/history.md" 2>/dev/null || true`;
-  const markdown = await execWithTimeout(conn, cmd);
-  if (!markdown) return { entries: [], markdown: "" };
-  const entries = markdown
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0 && !line.startsWith("#"))
-    .reverse();
-  return { entries, markdown };
 }
 
 // ---------------------------------------------------------------------------
@@ -1916,7 +1851,7 @@ export async function writeIdentityWakeupDelete(
 // 6b. Markdown atomic write primitives — Phase 18 (IDMEDIT-06)
 // ---------------------------------------------------------------------------
 //
-// Three exported writers (writeIdentityFile, writeIdentityHistory,
+// Two exported writers (writeIdentityFile,
 // writeIdentityHandoff) plus one exported SFTP helper (writeMarkdownFileAtomic —
 // exported in Phase 22 Plan 22-02 SRIC-02 for the identity-birth Step 2.5
 // pre-write, which needs to write a role-frontmatter-seeded identity file
@@ -3116,34 +3051,6 @@ export async function writeIdentityFile(
   }
   const remoteHome = (await execWithTimeout(conn, "echo $HOME")).trim();
   const targetPath = `${remoteHome}/fleet/identities/${identityKey}/${identityKey}.md`;
-  await writeMarkdownFileAtomic(conn, targetPath, contents);
-}
-
-/** Write the identity history file (<key>/history.md) atomically.
- *
- * Identical shape to writeIdentityFile; targetPath basename is history.md. */
-export async function writeIdentityHistory(
-  conn: SSHClientType | null,
-  identityKey: string,
-  contents: string,
-): Promise<void> {
-  if (conn === null) {
-    const root = getLocalIdentitiesRoot();
-    const filePath = path.join(root, identityKey, "history.md");
-    const tmpPath = filePath + ".tmp";
-    await fs.writeFile(tmpPath, contents, "utf-8");
-    await fs.rename(tmpPath, filePath);
-    return;
-  }
-
-  if (!IDENTITY_KEY_RE.test(identityKey)) {
-    throw new Error("invalid identityKey");
-  }
-  if (Buffer.byteLength(contents, "utf-8") > IDMEDIT_MAX_MARKDOWN_BYTES) {
-    throw new Error("markdown payload exceeds IDMEDIT_MAX_MARKDOWN_BYTES");
-  }
-  const remoteHome = (await execWithTimeout(conn, "echo $HOME")).trim();
-  const targetPath = `${remoteHome}/fleet/identities/${identityKey}/history.md`;
   await writeMarkdownFileAtomic(conn, targetPath, contents);
 }
 

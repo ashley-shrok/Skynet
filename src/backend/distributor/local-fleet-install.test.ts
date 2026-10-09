@@ -844,6 +844,34 @@ describe("BR2 — bootstrap patches settings.json + runs gsd-context-monitor cle
     expect(anyGsd).toBe(false);
   });
 
+  it("retired substrate cleanup: installed /role skill file + its now-empty folder are removed", async () => {
+    process.env.SKYNET_PUBLIC_URL = "https://skynet.example.com";
+    const roleDir = path.join(tmpRoot, ".claude/skills/role");
+    await fs.mkdir(roleDir, { recursive: true });
+    await fs.writeFile(path.join(roleDir, "SKILL.md"), "---\nname: role\n---\n");
+    const { bootstrapFleetSubstrateLocally } = await importFresh();
+    const result = await bootstrapFleetSubstrateLocally(host);
+    expect(result.gsdContextMonitorCleanupOk).toBe(true);
+    expect(result.hadError).toBe(false);
+    await expect(fs.access(roleDir)).rejects.toThrow();
+    // Sibling skills folder survives.
+    await expect(fs.access(path.join(tmpRoot, ".claude/skills"))).resolves.toBeUndefined();
+  });
+
+  it("retired substrate cleanup: folder with hand-added files is kept (only SKILL.md removed)", async () => {
+    process.env.SKYNET_PUBLIC_URL = "https://skynet.example.com";
+    const roleDir = path.join(tmpRoot, ".claude/skills/role");
+    await fs.mkdir(roleDir, { recursive: true });
+    await fs.writeFile(path.join(roleDir, "SKILL.md"), "x");
+    await fs.writeFile(path.join(roleDir, "notes.md"), "keep me");
+    const { bootstrapFleetSubstrateLocally } = await importFresh();
+    const result = await bootstrapFleetSubstrateLocally(host);
+    expect(result.gsdContextMonitorCleanupOk).toBe(true);
+    expect(result.hadError).toBe(false);
+    await expect(fs.access(path.join(roleDir, "SKILL.md"))).rejects.toThrow();
+    await expect(fs.readFile(path.join(roleDir, "notes.md"), "utf-8")).resolves.toBe("keep me");
+  });
+
   it("gsd-context-monitor cleanup: matching hook present in settings + hook file present → strip settings entry AND unlink hook file", async () => {
     process.env.SKYNET_PUBLIC_URL = "https://skynet.example.com";
     const claudeDir = path.join(tmpRoot, ".claude");

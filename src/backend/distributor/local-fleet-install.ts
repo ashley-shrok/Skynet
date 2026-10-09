@@ -104,6 +104,8 @@ import {
   GSD_MONITOR_DETECT_JQ,
   GSD_MONITOR_STRIP_JQ,
   USAGE_REPORTER_RETIRED_FILES,
+  RETIRED_SUBSTRATE_FILES,
+  RETIRED_SUBSTRATE_DIRS,
   USAGE_REPORTER_RETIRED_DIR,
 } from "./run-bootstrap.js";
 
@@ -544,6 +546,55 @@ async function patchSettingsJsonLocally(host: {
     },
   );
   return true;
+}
+
+/**
+ * Local port of the SSH-bootstrap step 3 tail (retired substrate files).
+ * Unlinks every RETIRED_SUBSTRATE_FILES path under the local home root and
+ * rmdir's every RETIRED_SUBSTRATE_DIRS folder only when it is empty
+ * (ENOENT / ENOTEMPTY are not errors). Idempotent. Never-throws.
+ */
+async function removeRetiredSubstrateFilesLocally(host: {
+  id: string;
+  name: string;
+}): Promise<boolean> {
+  const homeRoot = getLocalHomeRoot();
+  let ok = true;
+  const warn = (site: string, target: string, err: unknown): void => {
+    ok = false;
+    systemLogger.warn(
+      `local-fleet-bootstrap: retired substrate cleanup failed for ${host.name}`,
+      {
+        operation: "local_fleet_retired_substrate_cleanup_error",
+        site,
+        target,
+        fleetHostId: host.id,
+        hostName: host.name,
+        error: err instanceof Error ? err.message : String(err),
+      },
+    );
+  };
+  for (const rel of RETIRED_SUBSTRATE_FILES) {
+    const target = path.join(homeRoot, rel);
+    try {
+      await fs.unlink(target);
+    } catch (err) {
+      const errno = (err as { code?: string } | undefined)?.code;
+      if (errno !== "ENOENT") warn("unlink", target, err);
+    }
+  }
+  for (const rel of RETIRED_SUBSTRATE_DIRS) {
+    const target = path.join(homeRoot, rel);
+    try {
+      await fs.rmdir(target);
+    } catch (err) {
+      const errno = (err as { code?: string } | undefined)?.code;
+      if (errno !== "ENOENT" && errno !== "ENOTEMPTY" && errno !== "EEXIST") {
+        warn("rmdir", target, err);
+      }
+    }
+  }
+  return ok;
 }
 
 /**
@@ -1242,11 +1293,15 @@ export async function bootstrapFleetSubstrateLocally(
     hadError = true;
   }
 
-  // ---- Step 3: gsd-context-monitor cleanup ----
+  // ---- Step 3: gsd-context-monitor cleanup + retired substrate files ----
   // Pure fs + jq — no systemd dependency. Idempotent (no-op on already-
   // clean hosts, of which this box is one).
   try {
-    gsdContextMonitorCleanupOk = await cleanupGsdContextMonitorLocally(host);
+    const monitorOk = await cleanupGsdContextMonitorLocally(host);
+    // Step 3 tail: retired substrate files (always runs, even if the
+    // monitor cleanup above failed — the two are independent).
+    const retiredOk = await removeRetiredSubstrateFilesLocally(host);
+    gsdContextMonitorCleanupOk = monitorOk && retiredOk;
     if (!gsdContextMonitorCleanupOk) hadError = true;
   } catch (err) {
     systemLogger.warn(
