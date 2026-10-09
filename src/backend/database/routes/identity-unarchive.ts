@@ -98,13 +98,13 @@ import {
   isLocalHostId,
   IDENTITY_KEY_RE,
   getLocalIdentitiesRoot,
+  getLocalRolesRoot,
 } from "../../claude-session/identity-artifact-reader.js";
 import {
   writeIdentityArchiveFile,
   readIdentityArchiveFile,
 } from "../../claude-session/per-identity-archive-file.js";
 import { getLocalArchivedIdentitiesRoot } from "../../claude-session/list-archived-identity-keys.js";
-import { getLocalArchivedRolesRoot } from "../../claude-session/per-role-archive-file.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
 import {
   createOrUpdateUser,
@@ -253,7 +253,11 @@ async function parseRolesFromRemoteIdentityMd(
   try {
     fileContent = await execCommand(
       conn,
-      `cat "$HOME/fleet/identities-archive/${key}/identity.md" 2>/dev/null || true`,
+      // Identity files are `<key>/<key>.md`; `identity.md` kept as a legacy
+      // fallback. (Reading only identity.md made roles always [] → the
+      // missing_roles precondition never fired and the supervisor refused
+      // silently after a 200.)
+      `cat "$HOME/fleet/identities-archive/${key}/${key}.md" 2>/dev/null || cat "$HOME/fleet/identities-archive/${key}/identity.md" 2>/dev/null || true`,
     );
   } catch {
     return [];
@@ -424,40 +428,45 @@ router.post(
       let roles: string[];
       if (conn === null) {
         // LOCAL branch
-        const identityMdPath = path.join(
-          getLocalArchivedIdentitiesRoot(),
-          key,
-          "identity.md",
-        );
-        roles = await parseRolesFromLocalIdentityMd(identityMdPath);
+        // `<key>/<key>.md` is the identity file; identity.md is a legacy
+        // fallback (see the remote branch).
+        const archivedDir = path.join(getLocalArchivedIdentitiesRoot(), key);
+        roles = await parseRolesFromLocalIdentityMd(path.join(archivedDir, `${key}.md`));
+        if (roles.length === 0) {
+          roles = await parseRolesFromLocalIdentityMd(path.join(archivedDir, "identity.md"));
+        }
       } else {
         // REMOTE branch
         roles = await parseRolesFromRemoteIdentityMd(conn, key);
       }
 
       if (roles.length > 0) {
-        // Check each role — collect still-archived ones.
+        // Check each role — collect ones that are NOT live. Must match the
+        // supervisor's un-archive gate exactly (it requires `~/fleet/roles/<role>/`
+        // to exist): a role that is archived OR absent from the host would
+        // otherwise pass here with a 200 and then be refused silently by the
+        // supervisor. Role names come from frontmatter and are interpolated
+        // into a shell command — anything not slug-shaped counts as missing.
         const stillArchived: string[] = [];
+        const ROLE_NAME_RE = /^[a-z0-9_-]{1,64}$/;
 
         for (const roleName of roles) {
+          if (!ROLE_NAME_RE.test(roleName)) {
+            stillArchived.push(roleName);
+            continue;
+          }
           if (conn === null) {
-            // LOCAL: role is still archived if its folder exists under roles-archive
             try {
-              await fs.access(
-                path.join(getLocalArchivedRolesRoot(), roleName),
-              );
-              // access succeeded → still archived
-              stillArchived.push(roleName);
+              await fs.access(path.join(getLocalRolesRoot(), roleName));
             } catch {
-              // ENOENT → not archived (live or doesn't exist — either way, not blocking)
+              stillArchived.push(roleName);
             }
           } else {
-            // REMOTE
             const out = await execCommand(
               conn,
-              `test -d "$HOME/fleet/roles-archive/${roleName}" && echo yes || echo no`,
+              `test -d "$HOME/fleet/roles/${roleName}" && echo yes || echo no`,
             );
-            if (out.trim() === "yes") {
+            if (out.trim() !== "yes") {
               stillArchived.push(roleName);
             }
           }

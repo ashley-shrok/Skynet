@@ -112,6 +112,7 @@ vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
   isLocalHostId: vi.fn(),
   IDENTITY_KEY_RE: /^[a-z0-9_-]{1,64}$/,
   getLocalIdentitiesRoot: vi.fn(),
+  getLocalRolesRoot: vi.fn(),
 }));
 
 // ---------------------------------------------------------------------------
@@ -181,6 +182,7 @@ import { resolveHostById } from "../../ssh/host-resolver.js";
 import {
   isLocalHostId,
   getLocalIdentitiesRoot,
+  getLocalRolesRoot,
 } from "../../claude-session/identity-artifact-reader.js";
 import {
   writeIdentityArchiveFile,
@@ -298,6 +300,7 @@ const stubHost = {
 const FAKE_ARCHIVE_ROOT = "/tmp/test-identities-archive";
 const FAKE_LIVE_ROOT = "/tmp/test-identities-live";
 const FAKE_ROLES_ARCHIVE_ROOT = "/tmp/test-roles-archive";
+const FAKE_ROLES_LIVE_ROOT = "/tmp/test-roles-live";
 
 // ---------------------------------------------------------------------------
 // Import the router under test — AFTER all vi.mock() calls
@@ -359,6 +362,7 @@ beforeEach(() => {
   (getLocalArchivedIdentitiesRoot as Mock).mockReturnValue(FAKE_ARCHIVE_ROOT);
   (getLocalIdentitiesRoot as Mock).mockReturnValue(FAKE_LIVE_ROOT);
   (getLocalArchivedRolesRoot as Mock).mockReturnValue(FAKE_ROLES_ARCHIVE_ROOT);
+  (getLocalRolesRoot as Mock).mockReturnValue(FAKE_ROLES_LIVE_ROOT);
 
 
   // Default LOCAL fs.access behavior:
@@ -533,12 +537,14 @@ describe("POST /identities/:key/unarchive", () => {
         const err = Object.assign(new Error("ENOENT"), { code: "ENOENT" });
         return Promise.reject(err); // no collision
       }
-      if (p.startsWith(FAKE_ROLES_ARCHIVE_ROOT)) {
+      // Live-roles gate (matches the supervisor): ops-oncall has no live
+      // folder (still archived), researcher is live.
+      if (p.startsWith(FAKE_ROLES_LIVE_ROOT)) {
         if (p.endsWith("/ops-oncall")) {
-          return Promise.resolve(); // ops-oncall still archived
+          const err = Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+          return Promise.reject(err);
         }
-        const err = Object.assign(new Error("ENOENT"), { code: "ENOENT" });
-        return Promise.reject(err); // researcher not archived
+        return Promise.resolve();
       }
       // archive root + identity.md → present
       return Promise.resolve();
@@ -571,8 +577,9 @@ describe("POST /identities/:key/unarchive", () => {
         const err = Object.assign(new Error("ENOENT"), { code: "ENOENT" });
         return Promise.reject(err); // no collision
       }
-      if (p.startsWith(FAKE_ROLES_ARCHIVE_ROOT)) {
-        return Promise.resolve(); // both roles still archived
+      if (p.startsWith(FAKE_ROLES_LIVE_ROOT)) {
+        const err = Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+        return Promise.reject(err); // neither role is live
       }
       // archive root + identity.md → present
       return Promise.resolve();
@@ -590,6 +597,35 @@ describe("POST /identities/:key/unarchive", () => {
     // Both roles present, sorted alphabetically
     expect(body.missingRoles).toEqual(["ops-oncall", "researcher"]);
     expect(writeIdentityArchiveFile).not.toHaveBeenCalled();
+  });
+
+  it("Test 5b: a role absent from BOTH roles/ and roles-archive/ is reported missing (supervisor would refuse it)", async () => {
+    mockPython3Returns('["deleted-role"]');
+    mockFsAccess.mockImplementation((p: string) => {
+      if (p.startsWith(FAKE_LIVE_ROOT) || p.startsWith(FAKE_ROLES_LIVE_ROOT) || p.startsWith(FAKE_ROLES_ARCHIVE_ROOT)) {
+        return Promise.reject(Object.assign(new Error("ENOENT"), { code: "ENOENT" }));
+      }
+      return Promise.resolve();
+    });
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/wren/unarchive",
+      body: { hostId: 42 },
+    });
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ reason: "missing_roles", missingRoles: ["deleted-role"] });
+    expect(writeIdentityArchiveFile).not.toHaveBeenCalled();
+  });
+
+  it("Test 5c: roles are read from the real identity file `<key>/<key>.md`", async () => {
+    mockPython3Returns('["ops-oncall"]');
+    await httpRequest(server, {
+      method: "POST",
+      path: "/identities/wren/unarchive",
+      body: { hostId: 42 },
+    });
+    const parsedPaths = mockExecFile.mock.calls.map((c: unknown[]) => (c[1] as string[])?.[2]);
+    expect(parsedPaths).toContain(`${FAKE_ARCHIVE_ROOT}/wren/wren.md`);
   });
 
   // -------------------------------------------------------------------------
