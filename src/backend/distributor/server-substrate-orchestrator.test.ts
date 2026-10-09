@@ -816,3 +816,52 @@ describe("Phase 114 — runtime bytes resolver (once per tick, fan-to-hosts)", (
     expect(receivedDeps.resolvedRuntimeBytes?.get("instance-policy")).toBeNull();
   });
 });
+
+describe("getHostSweepStatus (admin Hosts overview)", () => {
+  beforeEach(() => {
+    vi.mocked(runSweepForHost).mockReset();
+  });
+
+  it("is null before a host is attempted", () => {
+    const { deps } = makeDeps();
+    const orch = createServerSubstrateOrchestrator(deps);
+    expect(orch.getHostSweepStatus("h1")).toBeNull();
+  });
+
+  it("records a clean sweep as lastSuccessAt", async () => {
+    vi.mocked(runSweepForHost).mockResolvedValue({ itemsChecked: 3, itemsChanged: 1, itemsFailed: 0 });
+    const { deps } = makeDeps();
+    deps.now = vi.fn(() => 4242);
+    const orch = createServerSubstrateOrchestrator(deps);
+    await orch.start();
+    expect(orch.getHostSweepStatus("h1")).toEqual({
+      lastSuccessAt: 4242,
+      lastFailureAt: null,
+      lastError: null,
+      consecutiveFailures: 0,
+      inFlight: false,
+    });
+    orch.stop();
+  });
+
+  it("records failed items with a readable reason", async () => {
+    vi.mocked(runSweepForHost).mockResolvedValue({ itemsChecked: 3, itemsChanged: 0, itemsFailed: 2 });
+    const { deps } = makeDeps();
+    const orch = createServerSubstrateOrchestrator(deps);
+    await orch.start();
+    const s = orch.getHostSweepStatus("h1")!;
+    expect(s.lastSuccessAt).toBeNull();
+    expect(s.lastFailureAt).not.toBeNull();
+    expect(s.lastError).toBe("2 items failed to install");
+    expect(s.consecutiveFailures).toBe(1);
+    orch.stop();
+  });
+
+  it("records a failed SSH connect", async () => {
+    const { deps } = makeDeps({ acquireChannel: async () => null });
+    const orch = createServerSubstrateOrchestrator(deps);
+    await orch.start();
+    expect(orch.getHostSweepStatus("h1")!.lastError).toBe("couldn't connect over SSH");
+    orch.stop();
+  });
+});

@@ -123,6 +123,22 @@ export interface ServerSubstrateOrchestrator {
 
   /** Returns the number of sweep ticks completed (startup pass = 1, first retry = 2, …). */
   getSweepTickCount(): number;
+
+  /**
+   * Last-known sweep outcome for a host (admin Hosts overview). Null when the
+   * host has not been attempted this process lifetime.
+   */
+  getHostSweepStatus(hostId: string): HostSweepStatus | null;
+}
+
+/** Per-host sweep outcome surfaced to the admin Hosts overview. */
+export interface HostSweepStatus {
+  lastSuccessAt: number | null;
+  lastFailureAt: number | null;
+  /** Short human-readable reason for the most recent failure. */
+  lastError: string | null;
+  consecutiveFailures: number;
+  inFlight: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -150,6 +166,29 @@ export function createServerSubstrateOrchestrator(
 
   /** Hosts for which the persistent-failure alert has already fired this uptime. */
   const persistentAlertFired = new Set<string>();
+
+  /** Last success / failure per host.id, for getHostSweepStatus. */
+  const sweepOutcomes = new Map<
+    string,
+    { lastSuccessAt: number | null; lastFailureAt: number | null; lastError: string | null }
+  >();
+
+  function recordOutcome(hostId: string, error: string | null): void {
+    const prev = sweepOutcomes.get(hostId) ?? {
+      lastSuccessAt: null,
+      lastFailureAt: null,
+      lastError: null,
+    };
+    sweepOutcomes.set(
+      hostId,
+      error === null
+        ? { ...prev, lastSuccessAt: deps.now(), lastError: null }
+        : { ...prev, lastFailureAt: deps.now(), lastError: error },
+    );
+  }
+
+  const itemsFailedError = (n: number) =>
+    `${n} item${n === 1 ? "" : "s"} failed to install`;
 
   let sweepTickCount = 0;
   let retryTimer: ReturnType<typeof setInterval> | null = null;
@@ -223,6 +262,7 @@ export function createServerSubstrateOrchestrator(
     host: SubstrateHostRecord,
     failed: number,
   ): void {
+    recordOutcome(host.id, failed === 0 ? null : itemsFailedError(failed));
     if (failed === 0) {
       sweepedThisInstance.add(host.id);
       consecutiveFailures.delete(host.id);
@@ -286,6 +326,7 @@ export function createServerSubstrateOrchestrator(
           errorMessage: err instanceof Error ? err.message : "unknown",
         });
         applySweepBookkeeping(host, 1);
+        recordOutcome(host.id, err instanceof Error ? err.message : "unknown error");
         sweepInFlight.delete(host.id);
         return;
       }
@@ -300,6 +341,7 @@ export function createServerSubstrateOrchestrator(
 
       if (channel === null) {
         // Channel acquire failed — record as a sweep failure
+        recordOutcome(host.id, "couldn't connect over SSH");
         const n = (consecutiveFailures.get(host.id) ?? 0) + 1;
         consecutiveFailures.set(host.id, n);
         if (n >= persistentFailureThreshold && !persistentAlertFired.has(host.id)) {
@@ -347,10 +389,12 @@ export function createServerSubstrateOrchestrator(
           hostName: host.name,
           errorMessage: err instanceof Error ? err.message : "unknown",
         });
+        recordOutcome(host.id, err instanceof Error ? err.message : "unknown error");
         return;
       }
 
       const failed = result?.itemsFailed ?? 0;
+      recordOutcome(host.id, failed === 0 ? null : itemsFailedError(failed));
       if (failed === 0) {
         // Clean sweep — mark done for this uptime, reset failure tracking
         sweepedThisInstance.add(host.id);
@@ -376,6 +420,7 @@ export function createServerSubstrateOrchestrator(
         hostName: host.name,
         errorMessage: err instanceof Error ? err.message : "unknown",
       });
+      recordOutcome(host.id, err instanceof Error ? err.message : "unknown error");
     } finally {
       sweepInFlight.delete(host.id);
       if (channel !== null) {
@@ -465,6 +510,7 @@ export function createServerSubstrateOrchestrator(
       sweepInFlight.clear();
       consecutiveFailures.clear();
       persistentAlertFired.clear();
+      sweepOutcomes.clear();
     },
 
     /**
@@ -508,6 +554,19 @@ export function createServerSubstrateOrchestrator(
     /** Observability — mirrors getPollTickCount() from ssh-poll-orchestrator.ts:2297-2299. */
     getSweepTickCount(): number {
       return sweepTickCount;
+    },
+
+    getHostSweepStatus(hostId: string): HostSweepStatus | null {
+      const outcome = sweepOutcomes.get(hostId);
+      const inFlight = sweepInFlight.has(hostId);
+      if (!outcome && !inFlight) return null;
+      return {
+        lastSuccessAt: outcome?.lastSuccessAt ?? null,
+        lastFailureAt: outcome?.lastFailureAt ?? null,
+        lastError: outcome?.lastError ?? null,
+        consecutiveFailures: consecutiveFailures.get(hostId) ?? 0,
+        inFlight,
+      };
     },
   };
 }

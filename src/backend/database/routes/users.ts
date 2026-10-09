@@ -28,6 +28,7 @@ import { registerUserSessionRoutes } from "./user-session-routes.js";
 import { registerUserOidcAccountRoutes } from "./user-oidc-account-routes.js";
 import { registerUserPasswordResetRoutes } from "./user-password-reset-routes.js";
 import { registerUserAdminRoutes } from "./user-admin-routes.js";
+import { registerAdminHostsRoutes } from "../../admin-hosts/routes.js";
 import { registerUserPhoneRoutes } from "./user-phone-routes.js";
 import { registerServiceSecretRoutes } from "../../agent-services/user-secrets/routes.js";
 import { registerUserDataAccessRoutes } from "./user-data-access-routes.js";
@@ -2732,6 +2733,7 @@ router.post("/change-username", authenticateJWT, async (req, res) => {
 });
 
 registerUserAdminRoutes(router, authenticateJWT);
+registerAdminHostsRoutes(router, requireAdmin);
 
 registerUserTotpRoutes(router, {
   authenticateJWT,

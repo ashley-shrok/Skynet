@@ -7,6 +7,8 @@
  *   - Users:   every user; a row opens AdminUserModal for that user.
  *   - Sign-in: registration / password-reset policy and session timeout.
  *   - System:  version + update check, database health, log level.
+ *   - Hosts:   every machine Skynet knows about — reachability, resources,
+ *              agent-host health.
  *
  * "OIDC in use" is decided once here and threaded down: true when an OIDC
  * provider is configured or any existing user signed up through OIDC.
@@ -14,7 +16,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { LogIn, Server, Users } from "lucide-react";
+import { LogIn, Server, SlidersHorizontal, Users } from "lucide-react";
 import {
   Modal,
   ModalBody,
@@ -29,14 +31,16 @@ import { AdminButton, adminErrorMessage } from "./admin-ui";
 import { AdminUsersPane } from "./AdminUsersPane";
 import { AdminSignInPane } from "./AdminSignInPane";
 import { AdminSystemPane } from "./AdminSystemPane";
+import { AdminHostsPane } from "./AdminHostsPane";
 import AdminUserModal from "./AdminUserModal";
 
-type AdminTab = "users" | "signin" | "system";
+type AdminTab = "users" | "signin" | "system" | "hosts";
 
 const TABS: ReadonlyArray<ModalTabDef<AdminTab>> = [
   { value: "users", label: "Users", Icon: Users },
   { value: "signin", label: "Sign-in", Icon: LogIn },
-  { value: "system", label: "System", Icon: Server },
+  { value: "system", label: "System", Icon: SlidersHorizontal },
+  { value: "hosts", label: "Hosts", Icon: Server },
 ];
 
 export interface AdminModalProps {
@@ -113,6 +117,7 @@ export default function AdminModal({
             )}
             {tab === "signin" && <AdminSignInPane oidcInUse={oidcInUse} />}
             {tab === "system" && <AdminSystemPane />}
+            {tab === "hosts" && <AdminHostsPane />}
           </ModalBody>
         </ModalSidebar>
         <ModalFoot>

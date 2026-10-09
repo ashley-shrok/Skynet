@@ -79,6 +79,10 @@ vi.mock("@/api/system-status-api", () => ({
   getAdminDbHealth: vi.fn(async () => ({ status: "ok" })),
 }));
 
+vi.mock("@/api/admin-hosts-api", () => ({
+  getAdminHosts: vi.fn(async () => ({ hosts: [], generatedAt: Date.now() })),
+}));
+
 vi.mock("@/api/ssh-host-management-api", () => ({
   getSSHHosts: m.getSSHHosts,
 }));
@@ -357,5 +361,15 @@ describe("AdminModal — Sign-in tab", () => {
       await screen.findByTestId("admin-signin-passwordLogin"),
     ).toBeTruthy();
     expect(screen.getByTestId("admin-signin-oidcAutoProvision")).toBeTruthy();
+  });
+});
+
+describe("AdminModal — Hosts tab", () => {
+  it("opens the Hosts pane from the side list", async () => {
+    renderModal();
+    await screen.findByTestId("admin-users-pane");
+    await userEvent.click(screen.getByTestId("admin-tab-hosts"));
+    expect(await screen.findByTestId("admin-hosts-pane")).toBeTruthy();
+    expect(await screen.findByText("No hosts yet.")).toBeTruthy();
   });
 });
