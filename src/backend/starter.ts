@@ -98,6 +98,9 @@ function acquireLocalChannel(): SshChannel {
           }
           resolve(stdout.trim());
         });
+        // A command that exits before reading stdin makes the write EPIPE;
+        // without a listener that surfaces as an uncaught exception.
+        child.stdin.on("error", () => {});
         if (stdinBody !== undefined) {
           child.stdin.end(stdinBody);
         } else {
