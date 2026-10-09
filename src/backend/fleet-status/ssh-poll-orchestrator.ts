@@ -3402,7 +3402,9 @@ export function createSshPollOrchestrator(
           pid,
           sessionId,
         });
-        deps.registry.publishSessionGone(host.id, entryTmuxSession, sessionId);
+        if (deps.registry.publishSessionGone(host.id, entryTmuxSession, sessionId, { pid })) {
+          invalidateSourceBFingerprint(hostState, entryTmuxSession);
+        }
         livenessMap.delete(pid);
         return;
       }
@@ -3775,6 +3777,21 @@ export function createSshPollOrchestrator(
     }
   }
 
+  // A pid_stale gone deletes the registry entry for (host, tmuxSession), but
+  // source B's per-identity fingerprint cache still remembers what it last
+  // published there — so a recycling:true state that was live before the
+  // reap would be suppressed as "unchanged" and never re-sent (the recycle
+  // overlay / composer lock would clear early). Blank the fingerprint so the
+  // next source-B tick republishes.
+  function invalidateSourceBFingerprint(
+    hostState: PerHostState,
+    tmuxSession: string | null,
+  ): void {
+    if (tmuxSession === null) return;
+    const cached = hostState.identityRecycleState.get(tmuxSession);
+    if (cached !== undefined) cached.lastPublishedFingerprint = "";
+  }
+
   async function sweepOneHost(hostState: PerHostState): Promise<void> {
     const { host, channel, livenessMap } = hostState;
 
@@ -3809,11 +3826,16 @@ export function createSshPollOrchestrator(
               sessionId: entry.sessionId,
             },
           );
-          deps.registry.publishSessionGone(
-            host.id,
-            entry.tmuxSession,
-            entry.sessionId,
-          );
+          if (
+            deps.registry.publishSessionGone(
+              host.id,
+              entry.tmuxSession,
+              entry.sessionId,
+              { pid },
+            )
+          ) {
+            invalidateSourceBFingerprint(hostState, entry.tmuxSession);
+          }
           livenessMap.delete(pid);
         }
       } catch (err) {

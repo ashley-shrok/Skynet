@@ -204,17 +204,28 @@ export interface SubscriptionRegistry {
   ): void;
 
   /**
-   * Mark a session as gone. If the key exists in the map:
+   * Mark a session as gone. If the key exists in the map AND the cached entry
+   * still belongs to the process that died:
    *   - Removes it from the map
    *   - Fans out a `gone` frame to all subscribers
+   *   - Returns true
    * If the key does NOT exist, this is a no-op (prevents false-negative churn
    * from watcher restart cycles).
+   *
+   * Superseded guard: the cache is keyed by (host, tmuxSession), and /id
+   * reset re-launches claude in the SAME tmux session. The stale-PID reap can
+   * land after the fresh claude (or source B's recycling frame) has already
+   * published into that key — deleting then would wipe the NEW session's
+   * row. So when `opts.pid` is given, only an entry carrying that exact PID
+   * is deleted; without a pid (host-watcher frame), only an entry whose
+   * sessionId matches. A superseded gone returns false and fans out nothing.
    */
   publishSessionGone(
     hostId: string,
     tmuxSession: string | null,
     sessionId: string,
-  ): void;
+    opts?: { pid?: number },
+  ): boolean;
 
   /**
    * Phase 115 hotfix (2026-09-18): identity-scoped "gone" for the per-host
@@ -976,12 +987,34 @@ export function createSubscriptionRegistry(
       hostId: string,
       tmuxSession: string | null,
       sessionId: string,
-    ): void {
+      opts?: { pid?: number },
+    ): boolean {
       const key = makeKey(hostId, tmuxSession);
 
       // No-op if key doesn't exist — prevents false churn on watcher restarts
-      if (!state.has(key)) {
-        return;
+      const existing = state.get(key);
+      if (existing === undefined) {
+        return false;
+      }
+
+      // Superseded guard (see interface docblock): the key now holds a newer
+      // publication than the process this gone is about.
+      const pid = opts?.pid;
+      const superseded =
+        pid !== undefined
+          ? existing.pid !== pid
+          : sessionId !== "" && existing.sessionId !== "" && existing.sessionId !== sessionId;
+      if (superseded) {
+        systemLogger.info("Fleet-status: gone superseded by newer session — skipped", {
+          operation: "fleet_status_gone_superseded",
+          fleetHostId: hostId,
+          tmuxSession,
+          goneSessionId: sessionId,
+          gonePid: pid ?? null,
+          currentSessionId: existing.sessionId,
+          currentPid: existing.pid,
+        });
+        return false;
       }
 
       state.delete(key);
@@ -994,6 +1027,7 @@ export function createSubscriptionRegistry(
       } else {
         fanOut(subscribers, frame);
       }
+      return true;
     },
 
     publishIdentityGoneByName(hostId: string, identityName: string): void {

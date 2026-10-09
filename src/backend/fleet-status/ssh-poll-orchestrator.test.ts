@@ -230,12 +230,18 @@ class MockRegistry implements SubscriptionRegistry {
     this.publishedStates.push({ hostId, state });
   }
 
+  // pid the caller scoped each publishSessionGone to (superseded guard).
+  publishedGonePids: Array<number | undefined> = [];
+
   publishSessionGone(
     hostId: string,
     tmuxSession: string | null,
     sessionId: string,
-  ): void {
+    opts?: { pid?: number },
+  ): boolean {
     this.publishedGone.push({ hostId, tmuxSession, sessionId });
+    this.publishedGonePids.push(opts?.pid);
+    return true;
   }
 
   // Phase 115 hotfix (2026-09-18): identity-scoped gone routes through the
@@ -7152,6 +7158,9 @@ describe("transport-vs-dead distinction in stat read (bounty 9c8d4a72)", () => {
     expect(deps.registry.publishedGone).toHaveLength(1);
     expect(deps.registry.publishedGone[0].hostId).toBe("host-1");
     expect(deps.registry.publishedGone[0].sessionId).toBe("test-session-id");
+    // Scoped to the dead PID so a recycled claude in the same tmux key
+    // can't be wiped by this reap (registry superseded guard).
+    expect(deps.registry.publishedGonePids).toEqual([12345]);
   });
 
   it("Test 3 — Live PID: sentinel-wrapped stat with matching field22 does NOT reap [baseline]", async () => {

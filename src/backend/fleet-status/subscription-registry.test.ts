@@ -169,6 +169,49 @@ describe("subscription-registry", () => {
     expect(sender).not.toHaveBeenCalled();
   });
 
+  it("Test 6b: a late pid_stale gone for the OLD pid is skipped when a recycled claude already republished the same tmux key", () => {
+    const registry = createSubscriptionRegistry();
+    // Old claude (pid 1000) → /id reset → fresh claude (pid 2000) in the same tmux.
+    registry.publishSessionState("host-42", { ...makeState("host-42", "tina", "session-old"), pid: 1000 });
+    registry.publishSessionState("host-42", { ...makeState("host-42", "tina", "session-new"), pid: 2000 });
+
+    const sender = vi.fn();
+    registry.subscribe(sender);
+    sender.mockClear();
+
+    const deleted = registry.publishSessionGone("host-42", "tina", "session-old", { pid: 1000 });
+
+    expect(deleted).toBe(false);
+    expect(sender).not.toHaveBeenCalled();
+    expect(registry.getSnapshot().map((s) => s.sessionId)).toEqual(["session-new"]);
+  });
+
+  it("Test 6c: a pid_stale gone is skipped when source B's pid-less recycling entry now holds the key", () => {
+    const registry = createSubscriptionRegistry();
+    registry.publishSessionState("host-42", { ...makeState("host-42", "tina", "session-1"), pid: null });
+
+    expect(registry.publishSessionGone("host-42", "tina", "session-1", { pid: 1000 })).toBe(false);
+    expect(registry.getSnapshot()).toHaveLength(1);
+  });
+
+  it("Test 6d: matching pid deletes and returns true", () => {
+    const registry = createSubscriptionRegistry();
+    registry.publishSessionState("host-42", makeState("host-42", "tina", "session-1"));
+    expect(registry.publishSessionGone("host-42", "tina", "session-1", { pid: 1000 })).toBe(true);
+    expect(registry.getSnapshot()).toHaveLength(0);
+  });
+
+  it("Test 6e: watcher-path gone (no pid) is skipped when the cached sessionId differs, applied when it matches", () => {
+    const registry = createSubscriptionRegistry();
+    registry.publishSessionState("host-42", makeState("host-42", "tina", "session-new"));
+
+    expect(registry.publishSessionGone("host-42", "tina", "session-old")).toBe(false);
+    expect(registry.getSnapshot()).toHaveLength(1);
+
+    expect(registry.publishSessionGone("host-42", "tina", "session-new")).toBe(true);
+    expect(registry.getSnapshot()).toHaveLength(0);
+  });
+
   it("Test 7: Subscribing twice from the same sender is idempotent (Set, not Array)", () => {
     const registry = createSubscriptionRegistry();
     const sender = vi.fn();
