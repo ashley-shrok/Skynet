@@ -290,6 +290,7 @@ router.post(
       roles,
       task,
       poolPicked,
+      project,
     } = bodyAny;
 
     if (
@@ -515,6 +516,13 @@ router.post(
     // legacy shape).
     const parsedPoolPicked =
       typeof poolPicked === "boolean" ? poolPicked : undefined;
+    // Optional project slug (born-into-project from a section's "New
+    // conversation"). Same slug shape as the project routes; anything else is
+    // dropped rather than 400'd — the post-birth move still runs client-side.
+    const parsedProject =
+      typeof project === "string" && /^[a-z0-9-]{1,64}$/.test(project.trim())
+        ? project.trim()
+        : undefined;
 
     // -----------------------------------------------------------------------
     // Pretty-names shape (2026-10-01): auto-suffix the identity slug for the
@@ -807,6 +815,7 @@ router.post(
           // MXID branch. true → derivation path. false → legacy branch
           // (explicit opt-out preserved as boolean, distinct from undefined).
           poolPicked: parsedPoolPicked,
+          project: parsedProject,
           // Phase 106 review M1 fix: thread the client-disconnect signal into
           // the orchestrator so the wait-for-supervisor loop breaks early on
           // browser navigation / tab close instead of pinning an SSH conn.

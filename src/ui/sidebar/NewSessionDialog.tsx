@@ -240,7 +240,15 @@ export function NewSessionDialog({
   initialRole,
   initialBrief: _initialBrief,
   isAdmin = false,
+  project = null,
 }: {
+  /**
+   * Project slug the agent is born into (opened from a project section's
+   * "New conversation"). Sent with the birth request so the identity file is
+   * born with `project:` — the row appears in its section from the first
+   * frame instead of landing unassigned and jumping in seconds later.
+   */
+  project?: string | null;
   open: boolean;
   onClose: () => void;
   hostTree: HostFolder | null;
@@ -804,6 +812,7 @@ export function NewSessionDialog({
             poolPickedName !== null && name.trim() === poolPickedName
               ? true
               : undefined,
+          ...(project ? { project } : {}),
         },
         abortControllerRef.current.signal,
       );

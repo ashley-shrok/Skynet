@@ -1737,3 +1737,27 @@ describe("Phase 129: auto-tag on multi-user hosts", () => {
     expect(payload.creatorUsername).toBe("user");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Born-into-project: optional `project` body field threads to the orchestrator
+// ---------------------------------------------------------------------------
+
+it("project slug in body → orchestrator receives opts.project", async () => {
+  let capturedOpts: unknown;
+  mockBirthIdentity.mockImplementation(async (opts: unknown) => {
+    capturedOpts = opts;
+  });
+  const result = await httpPost(port, "/identities/birth", { ...VALID_BODY, project: "ops" });
+  expect(result.status).toBe(200);
+  expect((capturedOpts as Record<string, unknown>).project).toBe("ops");
+});
+
+it("non-slug project value is dropped (opts.project undefined), birth still proceeds", async () => {
+  let capturedOpts: unknown;
+  mockBirthIdentity.mockImplementation(async (opts: unknown) => {
+    capturedOpts = opts;
+  });
+  const result = await httpPost(port, "/identities/birth", { ...VALID_BODY, project: "../etc" });
+  expect(result.status).toBe(200);
+  expect((capturedOpts as Record<string, unknown>).project).toBeUndefined();
+});

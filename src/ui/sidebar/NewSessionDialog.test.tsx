@@ -578,6 +578,7 @@ function renderDialog(overrides: {
   onCreate?: ReturnType<typeof vi.fn>;
   hostTree?: typeof threeHostTree;
   isAdmin?: boolean;
+  project?: string | null;
 } = {}) {
   const onCreate = overrides.onCreate ?? vi.fn();
   const onClose = overrides.onClose ?? vi.fn();
@@ -588,6 +589,7 @@ function renderDialog(overrides: {
       hostTree={overrides.hostTree ?? threeHostTree}
       onCreate={onCreate}
       isAdmin={overrides.isAdmin ?? true}
+      project={overrides.project ?? null}
     />,
   );
   return { ...result, onCreate, onClose };
@@ -1076,6 +1078,18 @@ describe("NewSessionDialog: Test V — Create with identity-mode ON calls openBi
     // Must NOT contain identityMode or sessionName keys (backend-only payload)
     expect(payload).not.toHaveProperty("identityMode");
     expect(payload).not.toHaveProperty("sessionName");
+  });
+});
+
+describe("NewSessionDialog: born into a project", () => {
+  it("project prop → birth request carries project; absent → no project key", async () => {
+    mockOpenBirthStream.mockReturnValueOnce(createMockStream([]));
+    const utils = renderDialog({ project: "ops" });
+    await fillIdentityForm(utils);
+    fireEvent.click(utils.getByRole("button", { name: /^(open|create|creating)/i }));
+    await waitFor(() => expect(mockOpenBirthStream).toHaveBeenCalledTimes(1));
+    const [payload] = mockOpenBirthStream.mock.calls[0] as [Record<string, unknown>];
+    expect(payload.project).toBe("ops");
   });
 });
 

@@ -3520,6 +3520,7 @@ export function PrettyConversationsPanel({
       {showPencilButton && (
         <NewSessionDialog
           open={newSessionDialogOpen}
+          project={newSessionPendingProjectSlug}
           onClose={() => {
             setNewSessionDialogOpen(false);
             // Phase 22 SRIC-05: clear chainPrefill on close so a subsequent

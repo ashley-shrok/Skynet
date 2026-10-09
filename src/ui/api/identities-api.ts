@@ -633,6 +633,8 @@ export interface BirthRequest {
    *  field value came from `pickPoolName` prefill AND the user did not edit
    *  it further. */
   poolPicked?: boolean;
+  /** Project slug → the identity is born with `project: <slug>` frontmatter. */
+  project?: string;
 }
 
 export type BirthEvent =
