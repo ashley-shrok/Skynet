@@ -2521,3 +2521,69 @@ describe("PrettyConversationsPanel: Move-to host filtering", () => {
     ).not.toBeNull();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pinned XOR project — menu-path unpin timing
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("PrettyConversationsPanel: pinned and in-a-project are exclusive (Move-to menu)", () => {
+  const HOST_TREE_ONE: HostFolder = { name: "root", children: [makeHost("1", "hostA")] };
+
+  async function openMoveTo(container: HTMLElement, rowId: string): Promise<void> {
+    const rowWrapper = container.querySelector(
+      `[data-conversation-id="${rowId}"]`,
+    ) as HTMLElement;
+    const body = rowWrapper.querySelector('[role="button"]') as HTMLElement;
+    await openRowKebabInBody(body);
+    await userEvent.setup().click(
+      within(screen.getByRole("menu")).getByRole("menuitem", { name: /^move to$/i }),
+    );
+  }
+
+  it("Remove from project on a stale-pinned project member also unpins it (lands in Conversations, not Pinned)", async () => {
+    unpinConversationSpy.mockClear();
+    setSessionProjectSpy.mockClear();
+    const row = makeRow({ id: "id-row-a", host: makeHost("1", "hostA"), targetTmuxSession: "wren-session" });
+    setSnapshot({
+      projectSections: [{ slug: "alpha", hostId: "1", displayName: "Alpha", rows: [row] }],
+      pinnedIds: new Set(["fleet::1::wren-session"]),
+    });
+    mockProjects = [{ slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false }];
+    const { container } = render(
+      <PrettyConversationsPanel variant="desktop" hostTree={HOST_TREE_ONE} onCreateSession={() => {}} onDeactivateRow={() => {}} />,
+    );
+    await openMoveTo(container, "id-row-a");
+    await userEvent.setup().click(screen.getByRole("menuitem", { name: /^Remove from project$/ }));
+    expect(unpinConversationSpy).toHaveBeenCalledWith("fleet::1::wren-session");
+    expect(setSessionProjectSpy).toHaveBeenCalledWith(1, expect.any(String), null);
+  });
+
+  it("moving a pinned row into a project unpins only after the write lands; a failed write keeps the pin", async () => {
+    unpinConversationSpy.mockClear();
+    setSessionProjectSpy.mockClear();
+    const row = makeRow({ id: "id-row-a", host: makeHost("1", "hostA"), targetTmuxSession: "wren-session" });
+    setSnapshot({
+      pinnedUnassigned: [row],
+      pinned: [row],
+      projectSections: [{ slug: "alpha", hostId: "1", displayName: "Alpha", rows: [] }],
+      pinnedIds: new Set(["fleet::1::wren-session"]),
+    });
+    mockProjects = [{ slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false }];
+    setSessionProjectSpy.mockRejectedValueOnce(new Error("500"));
+    const { container } = render(
+      <PrettyConversationsPanel variant="desktop" hostTree={HOST_TREE_ONE} onCreateSession={() => {}} onDeactivateRow={() => {}} />,
+    );
+    await openMoveTo(container, "id-row-a");
+    await userEvent.setup().click(screen.getByRole("menuitem", { name: /^Alpha$/ }));
+    expect(setSessionProjectSpy).toHaveBeenCalledWith(1, expect.any(String), "alpha");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(unpinConversationSpy).not.toHaveBeenCalled();
+
+    // Second attempt succeeds → unpin follows.
+    await openMoveTo(container, "id-row-a");
+    await userEvent.setup().click(screen.getByRole("menuitem", { name: /^Alpha$/ }));
+    await vi.waitFor(() =>
+      expect(unpinConversationSpy).toHaveBeenCalledWith("fleet::1::wren-session"),
+    );
+  });
+});

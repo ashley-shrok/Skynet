@@ -2104,11 +2104,15 @@ export function PrettyConversationsPanel({
         return;
       }
       console.info(`[project-drop] slug=${slug} kind=identity hostId=${hostIdNum} key=${identityKey}`);
-      unpinForProjectMoveRef.current({ id: payload.id, host: payload.host, targetTmuxSession: payload.targetTmuxSession });
-      setSessionProject(hostIdNum, identityKey, slug).catch((err: unknown) => {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error(`[project-drop] setSessionProject failed: ${msg}`);
-      });
+      setSessionProject(hostIdNum, identityKey, slug)
+        .then(() => {
+          // After the write lands (see handleRowMoveToProject).
+          unpinForProjectMoveRef.current({ id: payload.id, host: payload.host, targetTmuxSession: payload.targetTmuxSession });
+        })
+        .catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error(`[project-drop] setSessionProject failed: ${msg}`);
+        });
     },
     [viewingUserMxid],
   );
@@ -2244,11 +2248,17 @@ export function PrettyConversationsPanel({
       console.info(
         `[project-menu] slug=${slug ?? "(null)"} kind=identity hostId=${hostIdNum} key=${identityKey}`,
       );
-      if (slug !== null) unpinForProjectMoveRef.current(row);
-      setSessionProject(hostIdNum, identityKey, slug).catch((err: unknown) => {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error(`[project-menu] setSessionProject failed: ${msg}`);
-      });
+      // Unpin only once the project write landed — a failed write must not
+      // cost the row its pin (the backend already removed `.pinned`; this
+      // just catches the local pin set up).
+      setSessionProject(hostIdNum, identityKey, slug)
+        .then(() => {
+          if (slug !== null) unpinForProjectMoveRef.current(row);
+        })
+        .catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error(`[project-menu] setSessionProject failed: ${msg}`);
+        });
     },
     [viewingUserMxid, identitiesByHostKey, identitiesByKey],
   );
@@ -2264,7 +2274,15 @@ export function PrettyConversationsPanel({
     (row: ConversationRowShape): ((slug: string | null) => void) | undefined => {
       if (row.rdpHostRow === true) return undefined;
       if (submenuProjectsForRow(row).length === 0) return undefined;
-      return (slug: string | null) => handleRowMoveToProject(row, slug);
+      return (slug: string | null) => {
+        // "Remove from project" lands the row in Conversations — any pin it
+        // carries is a stale one the project was outranking, so drop it too
+        // or the row would surface in Pinned instead. (handleSetPinned calls
+        // handleRowMoveToProject directly to clear a project while KEEPING
+        // the pin, so this lives here, not there.)
+        if (slug === null) unpinForProjectMoveRef.current(row);
+        handleRowMoveToProject(row, slug);
+      };
     },
     [submenuProjectsForRow, handleRowMoveToProject],
   );

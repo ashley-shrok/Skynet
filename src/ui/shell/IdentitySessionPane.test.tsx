@@ -633,10 +633,50 @@ describe("IdentitySessionPane — Phase 41 Plan 02", () => {
       ];
       render(<IdentitySessionPane {...makeProps()} />);
       getMoveToSubmenu().find((s) => s.label === "Local A")!.onClick();
-      expect(store.unpinConversation).toHaveBeenCalledWith("fleet::42::tina");
       expect(mockSetSessionProject).toHaveBeenCalledTimes(1);
       expect(mockSetSessionProject).toHaveBeenCalledWith(42, "tina", "local-a");
+      // Unpin waits for the project write to land.
+      await vi.waitFor(() =>
+        expect(store.unpinConversation).toHaveBeenCalledWith("fleet::42::tina"),
+      );
       expect(store.pinConversation).not.toHaveBeenCalled();
+    });
+
+    it("a failed project write keeps the pin", async () => {
+      const store = await setPinnedIds(["fleet::42::tina"]);
+      mockProjectsList = [
+        { slug: "local-a", displayName: "Local A", hostId: "42", hostname: "box-1", archived: false },
+      ];
+      mockSetSessionProject.mockRejectedValueOnce(new Error("500"));
+      render(<IdentitySessionPane {...makeProps()} />);
+      getMoveToSubmenu().find((s) => s.label === "Local A")!.onClick();
+      // Flush the rejected write's .then/.catch (suite runs fake timers).
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+      expect(store.unpinConversation).not.toHaveBeenCalled();
+    });
+
+    it("Remove from project on a stale-pinned member drops the pin too (lands in Conversations)", async () => {
+      const store = await setPinnedIds(["fleet::42::tina"]);
+      mockProjectsList = [
+        { slug: "local-a", displayName: "Local A", hostId: "42", hostname: "box-1", archived: false },
+      ];
+      mockIdentity = { ...mockIdentity, project: "local-a" };
+      render(<IdentitySessionPane {...makeProps()} />);
+      getMoveToSubmenu().find((s) => s.label === "Remove from project")!.onClick();
+      expect(store.unpinConversation).toHaveBeenCalledWith("fleet::42::tina");
+      expect(mockSetSessionProject).toHaveBeenCalledWith(42, "tina", null);
+    });
+
+    it("a `project:` naming no known project on this host doesn't count: pinned shows checked with Unpin", async () => {
+      await setPinnedIds(["fleet::42::tina"]);
+      mockProjectsList = [
+        { slug: "local-a", displayName: "Local A", hostId: "42", hostname: "box-1", archived: false },
+      ];
+      mockIdentity = { ...mockIdentity, project: "gone" };
+      render(<IdentitySessionPane {...makeProps()} />);
+      const submenu = getMoveToSubmenu();
+      expect(submenu[0].checked).toBe(true);
+      expect(submenu.map((s) => s.label)).toEqual(["Pinned", "Local A", "Unpin"]);
     });
 
     it("stale pin on a project member: project wins — Pinned unchecked, leaf is Remove from project, and Pinned clears the project", async () => {

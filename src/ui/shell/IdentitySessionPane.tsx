@@ -256,7 +256,14 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
           (Number.isFinite(hostIdNum)
             ? identitiesByHostKey?.get(`${hostIdNum}::${identityKey}`)
             : undefined) ?? identitiesByKey.get(identityKey);
-        const currentProjectSlug = resolved?.project ?? null;
+        // Same membership rule as the sidebar: a `project:` naming no known
+        // project on this host doesn't count (the row shows in Pinned/
+        // Conversations there, so the badge must agree).
+        const currentProjectSlug =
+          resolved?.project &&
+          projectsList.some((p) => p.hostId === host.id && p.slug === resolved.project)
+            ? resolved.project
+            : null;
         // Project outranks a stale pin — same rule as the sidebar.
         const shownPinned = isPinned && currentProjectSlug === null;
         const unpinLocal = () => {
@@ -265,10 +272,13 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
         };
         const setProject = (slug: string | null) => {
           // Moving into a project unpins (the backend route removes
-          // `.pinned` too; this keeps the local pin set from lagging).
-          if (slug !== null) unpinLocal();
-          void setSessionProject(hostIdNum, identityKey, slug).catch(
-            (err: unknown) => {
+          // `.pinned` too; this keeps the local pin set from lagging). Only
+          // after the write lands, so a failed move keeps the pin.
+          void setSessionProject(hostIdNum, identityKey, slug)
+            .then(() => {
+              if (slug !== null) unpinLocal();
+            })
+            .catch((err: unknown) => {
               console.warn({
                 operation: "badge_menu_set_project_failed",
                 hostId: hostIdNum,
@@ -305,7 +315,15 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
         if (shownPinned) {
           submenu.push({ label: "Unpin", onClick: unpinLocal });
         } else if (currentProjectSlug !== null) {
-          submenu.push({ label: "Remove from project", onClick: () => setProject(null) });
+          submenu.push({
+            label: "Remove from project",
+            onClick: () => {
+              // Lands in Conversations: drop any stale pin the project was
+              // outranking, or it would resurface in Pinned.
+              unpinLocal();
+              setProject(null);
+            },
+          });
         }
         items.push({
           label: "Move to",
