@@ -75,4 +75,40 @@ describe("MarkdownEditor — silent-parse-failure code-editor fallback", () => {
       expect(editable?.textContent).toContain("Explain");
     }
   });
+
+  // Field repro (2026-10-10): the explain skill opened in the skills modal
+  // showed a PARTIAL formatted render cut off at "sets X to " (the bare
+  // `<thing>` after it) — MDXEditor's onError fired during mount, but a
+  // [filename]-keyed reset effect in the parent ran right after and wiped
+  // the fallback flag. Only switching Plain → Formatted made it stick. The
+  // first open must land on the full source, with the "can't show" note.
+  it("first open of a partially-parsing file lands on the full source, not a truncated formatted render", async () => {
+    const PARTIAL_PARSE_CONTENT = `---
+name: explain
+description: >-
+  Describe X to the user without using code symbols.
+---
+
+# Explain
+
+Argument: \`/explain <thing>\` sets X to <thing>; bare \`/explain\` sets X.
+
+Not a metaphor — explain the actual thing.
+`;
+    const { container, getByTestId } = render(
+      <MarkdownEditor filename="SKILL.md" content={PARTIAL_PARSE_CONTENT} onChange={() => {}} />,
+    );
+
+    await waitFor(() => {
+      expect(container.querySelector(".cm-content") || container.querySelector("textarea")).toBeTruthy();
+    }, { timeout: 10000 });
+
+    const visible =
+      container.querySelector(".cm-content")?.textContent ??
+      container.querySelector<HTMLTextAreaElement>("textarea")?.value ??
+      "";
+    expect(visible).toContain("Not a metaphor");
+    expect(container.querySelector(".mdxeditor")).toBeNull();
+    expect(getByTestId("markdown-formatted-unavailable")).toBeTruthy();
+  }, 15000);
 });

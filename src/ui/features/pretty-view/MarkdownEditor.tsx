@@ -24,7 +24,7 @@
  * with each caller's existing handler.
  */
 
-import { Component, lazy, Suspense, useCallback, useEffect, useState, type ReactNode } from "react";
+import { Component, lazy, Suspense, useCallback, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { useMarkdownEditorMode, type MarkdownEditorMode } from "./markdown-editor-mode-preference";
 
@@ -254,13 +254,20 @@ function MarkdownWithSilentFailureFallback({
   // keystroke) or re-threw and crashed the whole app (no boundary wrapped
   // this branch before). Reset only on filename change — switching tabs
   // re-attempts MdxEditor cleanly.
-  const [hasFallenBack, setHasFallenBack] = useState(false);
-  useEffect(() => {
-    setHasFallenBack(false);
-  }, [filename]);
+  //
+  // Keyed on the filename itself rather than a boolean reset by a
+  // `[filename]` effect: MDXEditor reports a parse error (onError) during its
+  // own mount, and child effects run before the parent's — so a mount-time
+  // reset effect wiped the flag right after it was set, leaving the first
+  // open on a truncated formatted render (explain SKILL.md cut off at a bare
+  // `<thing>`). Only a later remount (mode switch) made the fallback stick.
+  const [fallenBackFor, setFallenBackFor] = useState<string | null>(null);
+  const hasFallenBack = fallenBackFor === filename;
   const handleFallback = useCallback(() => {
-    setHasFallenBack(true);
-  }, []);
+    // eslint-disable-next-line no-console
+    console.warn(`[MarkdownEditor] Formatted editor can't render filename=${filename}; showing plain text.`);
+    setFallenBackFor(filename);
+  }, [filename]);
 
   const codeEditorBranch = (
     <CodeEditorErrorBoundary
