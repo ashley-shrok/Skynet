@@ -61,11 +61,12 @@ async function ready() {
 describe("createVoiceModeCues", () => {
   it("plays the sent / your-turn / error samples through the context", async () => {
     const { ctx, cues } = await ready();
-    expect(ctx.decodeAudioData).toHaveBeenCalledTimes(3);
+    expect(ctx.decodeAudioData).toHaveBeenCalledTimes(4);
     cues.play("sent");
     cues.play("yourTurn");
     cues.play("error");
-    expect(ctx.sources).toHaveLength(3);
+    cues.play("off");
+    expect(ctx.sources).toHaveLength(4);
     for (const s of ctx.sources) {
       expect(s.connect).toHaveBeenCalledWith(ctx.destination);
       expect(s.start).toHaveBeenCalled();

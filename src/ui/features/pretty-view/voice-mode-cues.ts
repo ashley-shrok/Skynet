@@ -11,6 +11,7 @@
  *   sent     — the compose-box mic's stop sound, when a message is sent
  *   yourTurn — the compose-box mic's start sound, when the agent is done
  *   error    — the mic's error sound (a reply couldn't be spoken, etc.)
+ *   off      — the auto-speak "off" chime, when voice mode ends
  *   alarm    — synthesized, deliberately unpleasant: voice mode bailed
  *   ticking  — synthesized soft wooden tick twice a second while the agent
  *              works (the tasted "soft ticking" variant)
@@ -19,8 +20,9 @@
 import startUrl from "../../assets/sounds/mic/start.mp3?url";
 import stopUrl from "../../assets/sounds/mic/stop.mp3?url";
 import errorUrl from "../../assets/sounds/mic/error.mp3?url";
+import offUrl from "../../assets/sounds/auto-speak/off.mp3?url";
 
-export type VoiceModeCue = "sent" | "yourTurn" | "error" | "alarm";
+export type VoiceModeCue = "sent" | "yourTurn" | "error" | "off" | "alarm";
 
 export interface VoiceModeCues {
   play: (cue: VoiceModeCue) => void;
@@ -34,6 +36,7 @@ const SAMPLE_URLS: Record<Exclude<VoiceModeCue, "alarm">, string> = {
   sent: stopUrl,
   yourTurn: startUrl,
   error: errorUrl,
+  off: offUrl,
 };
 
 /** Seconds between ticks, and how far ahead ticks are scheduled. */

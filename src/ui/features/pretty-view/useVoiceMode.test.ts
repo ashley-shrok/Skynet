@@ -420,6 +420,7 @@ describe("useVoiceMode", () => {
       expect(send).not.toHaveBeenCalled();
       expect(onUndelivered).not.toHaveBeenCalled();
       expect(result.current.phase).toBe("off");
+      expect(cuesPlayed).toEqual(["off"]);
       expect(track.stop).toHaveBeenCalled();
       expect(wakeLockRelease).toHaveBeenCalled();
     });

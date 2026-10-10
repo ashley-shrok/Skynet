@@ -92,6 +92,8 @@ const NOISE_MULTIPLIER = 3;
 const HISTORY_SLACK_MS = 60 * 1000;
 /** Let the bail alarm finish before the AudioContext is closed. */
 const ALARM_TAIL_MS = 1500;
+/** Let the "off" chime finish before the AudioContext is closed. */
+const OFF_TAIL_MS = 1000;
 
 const TRANSCRIBE_URL = "/voice/transcribe";
 
@@ -580,10 +582,17 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
     if (!activeRef.current) return;
     const dropped = piecesRef.current.length;
     log(`stop draftPiecesDropped=${dropped}`);
-    teardown();
+    // The off chime goes through the unlocked context (iOS: stop may come from
+    // a spoken exit phrase, outside any tap); fall back if there is none.
+    if (cuesRef.current) {
+      playCue("off");
+      teardown(OFF_TAIL_MS);
+    } else {
+      teardown();
+      playAutoSpeakOff();
+    }
     setPhase("off");
-    playAutoSpeakOff();
-  }, [log, teardown, setPhase]);
+  }, [log, playCue, teardown, setPhase]);
   const stopRef = useRef(stop);
   stopRef.current = stop;
 
