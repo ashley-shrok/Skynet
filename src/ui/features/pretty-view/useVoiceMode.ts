@@ -43,6 +43,7 @@ import {
   setCurrentOwner,
   setCurrentPlayer,
 } from "./speak-singleton";
+import { registerVoiceModeActive } from "./voice-mode-registry";
 
 // ---------------------------------------------------------------------------
 // Tuning
@@ -730,6 +731,13 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
     document.addEventListener("visibilitychange", onVisibility);
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, [acquireWakeLock]);
+
+  // App-wide flag: while on, every other mic / voice-mode button is disabled.
+  const isOn = phase !== "off";
+  useEffect(() => {
+    if (!isOn) return;
+    return registerVoiceModeActive(Symbol("voice-mode"));
+  }, [isOn]);
 
   // Unmount → release the mic, player and wake lock.
   useEffect(

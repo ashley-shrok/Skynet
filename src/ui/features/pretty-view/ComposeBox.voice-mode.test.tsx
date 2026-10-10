@@ -10,9 +10,10 @@
 // AudioContext/AnalyserNode whose level the test drives for VAD.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { render, screen, fireEvent, act, within } from "@testing-library/react";
 import type { ComposeBoxProps } from "./ComposeBox";
 import { SILENCE_END_MS } from "./useVoiceMode";
+import { __resetVoiceModeRegistryForTests } from "./voice-mode-registry";
 
 vi.mock("@/api/compose-drafts-api", () => ({
   getComposeDraft: vi.fn().mockResolvedValue({ body: "", queueSlots: [] }),
@@ -106,6 +107,7 @@ function chipPhase(): string | null {
 beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
+  __resetVoiceModeRegistryForTests();
   level = 0;
   MockMediaRecorder.instances = [];
   vi.stubGlobal("MediaRecorder", MockMediaRecorder);
@@ -190,18 +192,71 @@ describe("ComposeBox — hands-free voice mode (aux-row button)", () => {
     expect(chipPhase()).toBe("listening");
   });
 
-  it("tapping the mic while voice mode is on records manually and pauses voice mode", async () => {
+  it("the mic is disabled while voice mode is on, and re-enabled when it ends", async () => {
     render(<ComposeBox {...props()} />);
+    expect(mic().disabled).toBe(false);
     await startVoiceMode();
+    expect(mic().disabled).toBe(true);
+    expect(mic().title).toBe("Voice mode is on");
 
-    const btn = mic();
     await act(async () => {
-      fireEvent.pointerDown(btn, { pointerId: 2, clientX: 20, clientY: 20, timeStamp: 0 });
-      fireEvent.pointerUp(btn, { pointerId: 2, clientX: 20, clientY: 20, timeStamp: 80 });
+      fireEvent.click(screen.getByRole("button", { name: "End voice mode" }));
     });
-    await flush(50);
-    expect(screen.getByRole("button", { name: "Cancel recording" })).toBeTruthy();
-    expect(chipPhase()).toBe("paused");
+    expect(mic().disabled).toBe(false);
+  });
+
+  it("voice mode in one pane disables every mic and the voice-mode button in other panes", async () => {
+    render(
+      <>
+        <div data-testid="pane-a"><ComposeBox {...props({ tmuxSession: "a" })} /></div>
+        <div data-testid="pane-b"><ComposeBox {...props({ tmuxSession: "b" })} /></div>
+        <div data-testid="pane-relay"><ComposeBox {...props({ tmuxSession: "r", voiceModeFeed: undefined })} /></div>
+      </>,
+    );
+    const pane = (id: string) => within(screen.getByTestId(id));
+    await act(async () => {
+      fireEvent.click(pane("pane-a").getByRole("button", { name: "Start voice mode" }));
+    });
+    await flush();
+
+    expect(pane("pane-a").getByTestId("voice-mode-button").getAttribute("data-phase")).toBe("listening");
+    const otherStart = pane("pane-b").getByRole("button", { name: "Start voice mode" }) as HTMLButtonElement;
+    expect(otherStart.disabled).toBe(true);
+    expect(otherStart.title).toBe("Voice mode is on");
+    for (const id of ["pane-a", "pane-b", "pane-relay"]) {
+      expect((pane(id).getByRole("button", { name: "Record voice" }) as HTMLButtonElement).disabled).toBe(true);
+    }
+
+    // Ending it releases the lock everywhere else.
+    await act(async () => {
+      fireEvent.click(pane("pane-a").getByRole("button", { name: "End voice mode" }));
+    });
+    expect(otherStart.disabled).toBe(false);
+    for (const id of ["pane-b", "pane-relay"]) {
+      expect((pane(id).getByRole("button", { name: "Record voice" }) as HTMLButtonElement).disabled).toBe(false);
+    }
+  });
+
+  it("unmounting the pane that owns voice mode re-enables the other panes", async () => {
+    const { rerender } = render(
+      <>
+        <div key="a" data-testid="pane-a"><ComposeBox {...props({ tmuxSession: "a" })} /></div>
+        <div key="b" data-testid="pane-b"><ComposeBox {...props({ tmuxSession: "b" })} /></div>
+      </>,
+    );
+    await act(async () => {
+      fireEvent.click(within(screen.getByTestId("pane-a")).getByRole("button", { name: "Start voice mode" }));
+    });
+    await flush();
+    expect((within(screen.getByTestId("pane-b")).getByRole("button", { name: "Record voice" }) as HTMLButtonElement).disabled).toBe(true);
+
+    rerender(
+      <>
+        <div key="b" data-testid="pane-b"><ComposeBox {...props({ tmuxSession: "b" })} /></div>
+      </>,
+    );
+    expect((screen.getByRole("button", { name: "Record voice" }) as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole("button", { name: "Start voice mode" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("the start button is disabled while a manual recording is running", async () => {

@@ -26,6 +26,7 @@ import type { BatchOutcome } from "./use-pretty-view-uploads";
 import { useVoiceRecording } from "./useVoiceRecording";
 import { useHoldToRecord } from "./useHoldToRecord";
 import { useVoiceMode, type VoiceModeMessage, type VoiceModePhase } from "./useVoiceMode";
+import { useVoiceModeActiveAnywhere } from "./voice-mode-registry";
 import { MicButton } from "./MicButton";
 import { SkillActionsButton } from "./SkillActionsButton";
 import { RecordingControls } from "./RecordingControls";
@@ -637,15 +638,21 @@ const AUX_BUTTON_CLASS = cn(
  * label (a tap on it skips speech while the agent is talking) and an × that
  * ends voice mode.
  */
+/** Tooltip on mics / voice-mode buttons disabled because voice mode is on. */
+const VOICE_MODE_ON_TITLE = "Voice mode is on";
+
 function VoiceModeButton({
   phase,
   disabled,
+  disabledTitle,
   onStart,
   onStop,
   onSkip,
 }: {
   phase: VoiceModePhase;
   disabled: boolean;
+  /** Tooltip shown instead of "Start voice mode" when disabled. */
+  disabledTitle?: string;
   onStart: () => void;
   onStop: () => void;
   onSkip: () => void;
@@ -658,7 +665,7 @@ function VoiceModeButton({
         onClick={onStart}
         disabled={disabled}
         aria-label="Start voice mode"
-        title="Start voice mode"
+        title={disabled && disabledTitle ? disabledTitle : "Start voice mode"}
         data-testid="voice-mode-button"
         data-phase="off"
         className={cn(
@@ -2164,6 +2171,11 @@ export function ComposeBox({
     },
   });
 
+  // 2026-10-10: one voice mode at a time. While it is on in ANY pane (this one
+  // included) every mic is disabled, and the voice-mode button is disabled in
+  // every pane but the one that owns it.
+  const voiceModeAnywhere = useVoiceModeActiveAnywhere();
+
   const primaryHold = useHoldToRecord({
     voice,
     // quick-260814-iwy: no-op — voice is already recording from pointerdown's
@@ -2192,7 +2204,7 @@ export function ComposeBox({
     // press cannot arm while the previous STT round-trip is still in
     // flight. voice.state !== "idle" (checked inside the hook, L219) is the
     // primary double-arm guard.
-    disabled: showTranscribingSend,
+    disabled: showTranscribingSend || voiceModeAnywhere,
   });
 
   // showMicButton — see comment above (L1587). Quick 260814-1hz adds the
@@ -2540,8 +2552,10 @@ export function ComposeBox({
                 asideActive === true ||
                 recycleActive === true ||
                 reconnectingActive === true ||
-                voice.state !== "idle"
+                voice.state !== "idle" ||
+                (voiceMode.phase === "off" && voiceModeAnywhere)
               }
+              disabledTitle={voiceModeAnywhere ? VOICE_MODE_ON_TITLE : undefined}
               onStart={voiceMode.start}
               onStop={voiceMode.stop}
               onSkip={voiceMode.skipSpeech}
@@ -3090,7 +3104,8 @@ export function ComposeBox({
                 onPointerCancel={primaryHold.onPointerCancel}
                 onPointerLeave={primaryHold.onPointerLeave}
                 dataHoldActive={primaryHold.holdActive}
-                disabled={voice.state !== "idle"}
+                disabled={voice.state !== "idle" || voiceModeAnywhere}
+                title={voiceModeAnywhere ? VOICE_MODE_ON_TITLE : undefined}
                 positionClass="right-11 bottom-0.5"
               />
             )}
@@ -3219,6 +3234,7 @@ interface QueuedRowProps {
 }
 
 function QueuedRow(props: QueuedRowProps) {
+  const voiceModeAnywhere = useVoiceModeActiveAnywhere();
   const {
     slot,
     isTopmostInStack,
@@ -3389,7 +3405,7 @@ function QueuedRow(props: QueuedRowProps) {
     // applies to the hold-record gesture. Retain showSlotTranscribingSend
     // so a fresh press cannot arm while STT is in-flight from a prior
     // send. voice.state !== "idle" guard inside the hook handles double-arm.
-    disabled: showSlotTranscribingSend,
+    disabled: showSlotTranscribingSend || voiceModeAnywhere,
   });
   // Quick 260814-1hz: `|| slotHold.holdInitiatedRef.current` disjunct on the
   // isSlotActiveMic gate keeps the slot MicButton mounted through the voice
@@ -3648,8 +3664,8 @@ function QueuedRow(props: QueuedRowProps) {
                 onPointerCancel={slotHold.onPointerCancel}
                 onPointerLeave={slotHold.onPointerLeave}
                 dataHoldActive={slotHold.holdActive}
-                disabled={voice.state !== "idle"}
-                title="Record voice"
+                disabled={voice.state !== "idle" || voiceModeAnywhere}
+                title={voiceModeAnywhere ? VOICE_MODE_ON_TITLE : "Record voice"}
                 positionClass="right-11 bottom-0.5"
               />
             )}

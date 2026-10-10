@@ -13,6 +13,7 @@ distributed: true
 <!-- 2026-10-09 (voice-mode button): hands-free voice mode moved off the mic long-press onto its own sound-wave button left of Stop; the status pill became that button's chip (state label, tap-to-skip, × to end). -->
 <!-- 2026-10-10 (new-role shortcut): the new-conversation role dropdown's first row is "New role…" — hops to the new-role dialog and back with picks kept. -->
 <!-- 2026-10-09 (role history retired): "chronological history" dropped from the role-folder description (concept retired with the /role skill). -->
+<!-- 2026-10-10 (voice mode exclusive): one conversation in voice mode at a time — while on, every mic and every other voice-mode button is disabled; message speak buttons unaffected. -->
 
 # Identity Skill
 
@@ -908,7 +909,10 @@ crown, then gear.
   the stop (square), lightning-bolt and thumbs-up buttons. Tapping it turns voice mode
   on: the app listens, sends what the user says when they pause, reads
   each new agent reply aloud, then listens again. Typing keeps working
-  while it's on, and using the mic pauses voice mode while it records.
+  while it's on. Only one conversation can be in voice mode at a time:
+  while it's on, every mic and every other conversation's voice-mode
+  button is greyed out ("Voice mode is on") until it ends. Message speak
+  buttons still work — tapping one cuts off the current spoken reply.
   While on, the button widens into a small chip that shows the state
   (Starting, Listening, Hearing, Sending, Speaking, Paused); tap the chip
   while a reply is playing to skip it. The chip's × — or saying "stop

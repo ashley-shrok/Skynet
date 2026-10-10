@@ -86,7 +86,7 @@ export function MicButton({
       onPointerCancel={onPointerCancel}
       onPointerLeave={onPointerLeave}
       disabled={disabled}
-      aria-label={title || "Record voice"}
+      aria-label="Record voice"
       title={title || "Record voice"}
       {...(dataHoldActive !== undefined
         ? { "data-hold-active": dataHoldActive ? "true" : "false" }
