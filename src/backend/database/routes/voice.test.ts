@@ -923,6 +923,15 @@ describe("TTS_PROVIDER selection", () => {
       expect(streamedPcmBytes(res)).toBe(Math.round(14.15 * SR) * 2);
     });
 
+    it("ends unpunctuated text with a period so the model pauses before the filler", async () => {
+      fetchMock.mockResolvedValueOnce(streamedResponse(synthPcm([["speech", 8]])));
+      await speakStream({ text: "Next step:" });
+      expect(sentBody().input).toBe(`Next step:. ${TAIL_GUARD_FILLER}`);
+      fetchMock.mockResolvedValueOnce(streamedResponse(synthPcm([["speech", 8]])));
+      await speakStream({ text: 'He said "go."' });
+      expect(sentBody(1).input).toBe(`He said "go." ${TAIL_GUARD_FILLER}`);
+    });
+
     it("plays untrimmed when no pause fits the filler", async () => {
       const pcm = synthPcm([["speech", 8]]);
       fetchMock.mockResolvedValueOnce(streamedResponse(pcm));

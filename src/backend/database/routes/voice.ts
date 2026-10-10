@@ -256,11 +256,18 @@ function pcmBytesPerSec(provider: TtsProvider): number {
 // afterwards; chunks are packed short enough to leave room for it.
 function planSpeakChunks(provider: TtsProvider, text: string): { chunks: string[]; guard: boolean } {
   const guard = tailGuardApplies(provider.id, provider.model());
+  // Room for the filler, its leading space and a possibly added period.
   const maxChars = guard
-    ? provider.maxCharsPerRequest - TAIL_GUARD_FILLER.length - 1
+    ? provider.maxCharsPerRequest - TAIL_GUARD_FILLER.length - 2
     : provider.maxCharsPerRequest;
   const chunks = packChunks(splitIntoSentences(text), maxChars);
-  if (guard && chunks.length > 0) chunks[chunks.length - 1] += " " + TAIL_GUARD_FILLER;
+  if (guard && chunks.length > 0) {
+    // The cut relies on the sentence-break pause before the filler; text
+    // ending on a colon or bare phrase would run straight into it.
+    const last = chunks[chunks.length - 1];
+    const ended = /[.!?]["'”’)\]]*$/.test(last);
+    chunks[chunks.length - 1] = `${last}${ended ? "" : "."} ${TAIL_GUARD_FILLER}`;
+  }
   return { chunks, guard };
 }
 
@@ -634,7 +641,9 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
 
     for (let i = 0; i < chunks.length; i++) {
       if (clientGone) break;
-      const chunkTextLen = chunks[i].length;
+      // Rate logs measure the real text only (the filler is cut off the audio).
+      const chunkTextLen =
+        guard && i === chunks.length - 1 ? chunks[i].length - TAIL_GUARD_FILLER.length - 1 : chunks[i].length;
       const chunkPcmBuffers: Buffer[] = [];
       let chunkPcmBytes = 0;
 
@@ -674,6 +683,9 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
         const held: Buffer[] = [];
         let heldBytes = 0;
         let streamedBytes = 0;
+        // Only a cleanly ended stream has the filler at its tail; a provider
+        // stream that merely closed was cut short and plays as-is.
+        let providerEnded = false;
         const writeOut = (buf: Buffer) => {
           streamedBytes += buf.length;
           if (!res.write(buf)) {
@@ -697,7 +709,10 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
               writeOut(out);
             }
           });
-          currentStream.on("end", () => resolve());
+          currentStream.on("end", () => {
+            providerEnded = true;
+            resolve();
+          });
           // destroy() on client hang-up ends the stream with "close", not "end".
           currentStream.on("close", () => resolve());
           currentStream.on("error", (err) => (clientGone ? resolve() : reject(err)));
@@ -708,7 +723,7 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
           // stream's frame grid before analysing it.
           const tail = Buffer.concat(held, heldBytes);
           const skew = streamedBytes % 2;
-          const kept = applyTailGuard(tail.subarray(skew), p, reqId);
+          const kept = providerEnded ? applyTailGuard(tail.subarray(skew), p, reqId) : tail.subarray(skew);
           const out = tail.subarray(0, skew + kept.length);
           streamedBytes += out.length;
           if (!res.write(out)) await waitDrain();

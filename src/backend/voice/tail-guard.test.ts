@@ -59,6 +59,15 @@ describe("findTailGuardCut", () => {
     expect(sec(d.cutByte)).toBeCloseTo(3.13, 2);
   });
 
+  it("refuses rather than cut real text when the filler itself was cut short", () => {
+    // Real sentence, sentence break, then only ~2s of the filler before the model stopped.
+    const d = findTailGuardCut(
+      pcm([["speech", 3], ["pause", 0.5], ["speech", 2], ["pause", 0.5], ["speech", 2]]),
+      SR,
+    );
+    expect(d).toMatchObject({ decision: "refused", reason: "filler-truncated" });
+  });
+
   it("refuses on continuous speech (no pause long enough)", () => {
     const d = findTailGuardCut(pcm([["speech", 3], ["pause", 0.2], ["speech", 4.5]]), SR);
     expect(d).toMatchObject({ decision: "refused", reason: "no-qualifying-pause" });

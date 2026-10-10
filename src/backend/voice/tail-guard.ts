@@ -18,7 +18,9 @@
  *   - scanning pauses from the end, cut at the first one whose following
  *     speech lasts FILLER_MIN_SEC..FILLER_MAX_SEC (the filler's spoken length)
  *   - none qualifies → refuse: play untrimmed (filler audible, nothing lost)
- * Pauses inside the filler fail the length test, so they're skipped.
+ * Pauses inside the filler fail the length test, so they're skipped — but a
+ * skipped pause as long as a sentence break means the filler was itself cut
+ * short, and the scan refuses rather than reach back into real text.
  *
  * Pure — no I/O. Research harness + data: the investigating identity's
  * workspace `tts-research/` (not in this repo).
@@ -37,6 +39,14 @@ const FILLER_MIN_SEC = 3.2;
 const FILLER_MAX_SEC = 6.0;
 /** Cut this far into the pause (or mid-pause if shorter) — lands in silence. */
 const CUT_INTO_PAUSE_SEC = 0.15;
+/**
+ * Skipping a pause this long on the way back means the trailing speech is
+ * likely a truncated filler, and cutting further back would take real words
+ * — refuse instead. Pauses inside a fully spoken filler and the sentence
+ * break before it overlap in length; 0.5s refuses ~0.8% of good cuts (filler
+ * audible) and catches ~70% of truncated fillers (measured, 244 clips).
+ */
+const SENTENCE_BREAK_SEC = 0.5;
 
 /**
  * PCM the streaming path must hold back before it can decide the cut: the
@@ -51,7 +61,11 @@ export function tailGuardApplies(providerId: string, model: string | null): bool
 
 export type TailGuardDecision =
   | { decision: "cut"; cutByte: number; pauseSec: number; fillerSec: number }
-  | { decision: "refused"; reason: "no-speech" | "no-qualifying-pause"; speechEndSec: number };
+  | {
+      decision: "refused";
+      reason: "no-speech" | "no-qualifying-pause" | "filler-truncated";
+      speechEndSec: number;
+    };
 
 /**
  * Decide where to cut the filler off `pcm` (mono 16-bit LE). `cutByte` is a
@@ -86,11 +100,17 @@ export function findTailGuardCut(pcm: Buffer, sampleRate: number): TailGuardDeci
 
   const minTail = FILLER_MIN_SEC * sampleRate;
   const maxTail = FILLER_MAX_SEC * sampleRate;
+  const sentenceBreak = Math.round(SENTENCE_BREAK_SEC * sampleRate);
   for (let k = runs.length - 1; k >= 0; k--) {
     const [s, e] = runs[k];
     if (s === 0 || e - s < pauseMin) continue; // a run touching the buffer start may be truncated
     const tail = speechEnd - e;
-    if (tail < minTail) continue;
+    if (tail < minTail) {
+      if (e - s >= sentenceBreak) {
+        return { decision: "refused", reason: "filler-truncated", speechEndSec: speechEnd / sampleRate };
+      }
+      continue;
+    }
     if (tail > maxTail) break; // earlier pauses only have longer tails
     const cutSample = s + Math.min(Math.round(CUT_INTO_PAUSE_SEC * sampleRate), Math.floor((e - s) / 2));
     return {
