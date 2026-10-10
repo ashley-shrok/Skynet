@@ -231,7 +231,7 @@ export function IdentityBadge({
 
   // Identity hue drives border + inset rim + outer glow. NULL colorHue
   // falls back to hue 35 (warm amber, matches PrettyView's neutral
-  // --pv-id-hue fallback). Font stack Inter for name/title.
+  // --pv-id-hue fallback).
   const hue = identity.colorHue ?? 35;
   // `[-webkit-touch-callout:none]` suppresses iOS Safari's native long-
   // press callout (magnifier, share sheet, "Look Up") so our own context

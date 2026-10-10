@@ -94,8 +94,8 @@ export function AsideBubble({
           "pv-hue-surface",
           "bg-[linear-gradient(160deg,hsla(var(--pv-id-hue),50%,38%,0.55),hsla(var(--pv-id-hue),45%,24%,0.6))]",
           "text-[#fbf5e8]",
-          // Prose pipeline matching ChatMessage assistant branch — Inter
-          // font + prose-invert for readable typography on the dark
+          // Prose pipeline matching ChatMessage assistant branch —
+          // prose-invert for readable typography on the dark
           // identity-hue background. First/last-child margin reset keeps
           // the tight bubble aesthetic (typography plugin defaults would
           // leave whitespace stripes top and bottom).

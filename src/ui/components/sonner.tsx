@@ -20,7 +20,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
       toastOptions={{
         classNames: {
           toast:
-            "group toast group-[.toaster]:rounded-[var(--radius-pv-card)]! group-[.toaster]:shadow-[0_8px_24px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(220,225,245,0.06)] group-[.toaster]:font-mono",
+            "group toast group-[.toaster]:rounded-[var(--radius-pv-card)]! group-[.toaster]:shadow-[0_8px_24px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(220,225,245,0.06)]",
           description:
             "group-[.toast]:text-[color:var(--color-pv-fg-muted)]",
           actionButton:

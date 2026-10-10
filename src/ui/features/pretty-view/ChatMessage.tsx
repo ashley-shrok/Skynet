@@ -92,12 +92,9 @@ import {
 // prose colors — dark grays that read as "faint/unreadable" against
 // the dark card background.
 //
-// Font: Skynet sets `font-mono` (JetBrains Mono) globally for the
-// terminal aesthetic. Pretty view is a prose surface, so we override
-// with Inter — the modern default for chat/UI text at small sizes,
-// tuned for screen legibility. Inline `code` bubbles opt back into
-// mono via the prose-code override in index.css so command names and
-// paths still read as code.
+// Font: inherits the app-wide Inter default (index.css). Inline `code`
+// bubbles opt into mono via the prose-code override in index.css so
+// command names and paths still read as code.
 const NO_VOICES: readonly string[] = [];
 
 export function ChatMessage({

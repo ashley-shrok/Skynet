@@ -39,8 +39,8 @@
   --accentBorder: hsla(var(--pv-id-hue, 220), 80%, 60%, 0.40);
   --accentSolid: hsla(var(--pv-id-hue, 220), 80%, 60%, 0.35);
 
-  /* Typography — match Skynet's fonts (Inter Variable + JetBrains Mono). */
-  font-family: Inter Variable, ui-sans-serif, system-ui, sans-serif;
+  /* Typography — follow Skynet's theme fonts (index.css @theme). */
+  font-family: var(--font-sans, ui-sans-serif, system-ui, sans-serif);
   --font-mono: JetBrains Mono Variable, ui-monospace, monospace;
   background: transparent;
 }
