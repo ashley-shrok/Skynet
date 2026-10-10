@@ -372,6 +372,130 @@ resolve_identities() {
 
 slug() { printf '%s' "$1" | tr ' ' '-'; }   # canonical session name: spaces -> hyphens, case preserved
 
+# ---- project members: derived `members:` list in each project.md ----
+# Every live identity's `project:` frontmatter is the source of truth for membership; this
+# rewrites the `members:` key in ~/fleet/projects/<slug>/project.md to the sorted list of
+# identity names (folder name = relay localpart) that point at it. Running it every tick is
+# what keeps it correct from every angle — app moves, an agent editing its own frontmatter,
+# spawn-into-project, archive / un-archive — without any of those writers knowing about the
+# field. Archived identities aren't under $IDENTITIES_DIR, so they drop off on their own.
+# Combined with role-file-watch's project-file target, a change wakes every live member.
+#
+# Writes only when the list changed (steady state touches nothing), atomically (tmp + rename,
+# which role-file-watch handles as DELETE_SELF → re-arm). Only the `members:` key is replaced;
+# every other byte of the file is kept. A project.md with no frontmatter is left alone. A
+# rewrite that would push the closing `---` past FLEET_STATUS's 4096-char frontmatter read cap
+# is refused and logged — past the cap the app loses displayName AND the `users:` visibility
+# gate (which then falls open), far worse than a stale members list.
+FLEET_PROJECTS_DIR="${AGENT_FLEET_PROJECTS_DIR:-$HOME/fleet/projects}"
+PROJECT_FRONTMATTER_CAP="${PROJECT_FRONTMATTER_CAP:-4096}"
+sync_project_members() {
+  [ -d "$FLEET_PROJECTS_DIR" ] || return 0
+  local out
+  out=$(python3 - "$IDENTITIES_DIR" "$FLEET_PROJECTS_DIR" "${DRY_RUN:-0}" "$PROJECT_FRONTMATTER_CAP" <<'PY' 2>&1
+import os, re, sys
+ident_dir, proj_dir, dry_run, cap = sys.argv[1], sys.argv[2], sys.argv[3] == "1", int(sys.argv[4])
+SLUG = re.compile(r"^[a-z0-9-]{1,64}$")
+NOTE = "  # auto-maintained by agent-supervisor from identities' project: — edits are overwritten"
+
+def fences(lines):
+    idx = [i for i, ln in enumerate(lines) if ln.rstrip("\r\n") == "---"]
+    return (idx[0], idx[1]) if len(idx) >= 2 and idx[0] == 0 else (None, None)
+
+def project_of(path):
+    try:
+        with open(path, encoding="utf-8-sig") as f:
+            lines = f.readlines()
+    except OSError:
+        return None
+    a, b = fences(lines)
+    if a is None:
+        return None
+    for ln in lines[a + 1:b]:
+        m = re.match(r"^project:\s*(.*?)\s*(#.*)?$", ln.rstrip("\r\n"))
+        if m:
+            v = (m.group(1) or "").strip().strip('"').strip("'").strip()
+            return v if SLUG.match(v) else None
+    return None
+
+members = {}
+try:
+    names = sorted(os.listdir(ident_dir))
+except OSError:
+    names = []
+for name in names:
+    p = project_of(os.path.join(ident_dir, name, name + ".md"))
+    if p:
+        members.setdefault(p, []).append(name)
+
+try:
+    slugs = sorted(os.listdir(proj_dir))
+except OSError:
+    slugs = []
+for slug in slugs:
+    if slug == "archive" or not SLUG.match(slug):
+        continue
+    path = os.path.join(proj_dir, slug, "project.md")
+    try:
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+    except OSError:
+        continue
+    lines = text.splitlines(keepends=True)
+    a, b = fences(lines)
+    if a is None:
+        continue
+    fm = lines[a + 1:b]
+    # Drop any existing members: key (flow `members: [..]` or block header + `  - x` items,
+    # blank/comment lines inside the block included) and remember where it sat.
+    kept, at, i = [], None, 0
+    while i < len(fm):
+        if re.match(r"^members:(\s|$)", fm[i]):
+            at = len(kept)
+            i += 1
+            if not re.match(r"^members:\s*\[", fm[i - 1]):
+                while i < len(fm) and (re.match(r"^\s+-", fm[i]) or not fm[i].strip() or fm[i].lstrip().startswith("#")):
+                    i += 1
+            continue
+        kept.append(fm[i])
+        i += 1
+    want = members.get(slug, [])
+    if want:
+        block = ["members:" + NOTE + "\n"] + ["  - %s\n" % n for n in want]
+    else:
+        block = ["members: []" + NOTE + "\n"]
+    if at is None:
+        at = len(kept)
+        if kept and not kept[-1].endswith("\n"):
+            kept[-1] += "\n"
+    new_fm = kept[:at] + block + kept[at:]
+    if new_fm == fm:
+        continue
+    new_lines = lines[:a + 1] + new_fm + lines[b:]
+    head = "".join(new_lines[:a + 1 + len(new_fm) + 1])
+    if len(head) > cap:
+        print("WARN project '%s': members list (%d) would push frontmatter past %d chars — not written" % (slug, len(want), cap))
+        continue
+    if dry_run:
+        print("DRY_RUN would set project '%s' members=%s" % (slug, ",".join(want) or "(none)"))
+        continue
+    tmp = path + ".members.tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write("".join(new_lines))
+        os.chmod(tmp, os.stat(path).st_mode & 0o7777)
+        os.replace(tmp, path)
+        print("project '%s' members → %s" % (slug, ",".join(want) or "(none)"))
+    except OSError as e:
+        try: os.remove(tmp)
+        except OSError: pass
+        print("ERROR project '%s' members write failed: %s" % (slug, e))
+PY
+)
+  [ -n "$out" ] && while IFS= read -r _l; do log "project-members: $_l"; done <<< "$out"
+  return 0
+}
+
 # ---- archive scan (Phase 94) — coordinator detection ----
 # is_coordinator <identity_file_path>
 # Returns 0 IFF the file has `coordinator: true` as a top-level key on its own line
@@ -3340,6 +3464,7 @@ reconcile() {
   scan_role_unarchive_requested_sentinels          # un-archive host-side shape: user-initiated role UN-archive (folder mv only, no identity cascade)
   scan_app_unarchive_requested_sentinels           # un-archive host-side shape: user-initiated app UN-archive (folded-in restore-app.sh: port-collision check under create-lock, mv archive→live, systemd reinstall + enable+start)
   resolve_identities
+  sync_project_members                             # rewrite each project.md's derived `members:` list from identities' project: frontmatter (writes only on change)
   snapshot_schedule_peek                           # one python subprocess per tick over the fleet; schedule_peek reads from SCHEDULE_PEEK_SNAPSHOT. MUST run AFTER resolve_identities (needs IDENTITIES populated).
   snapshot_matrix_peek                             # parallel curls (default -P 20) to Matrix homeservers for all dormant identities; matrix_peek_cached reads from MATRIX_PEEK_SNAPSHOT.
   if [ "${#IDENTITIES[@]}" -eq 0 ]; then log "no identities to supervise (no <name>/<name>.md folders under $IDENTITIES_DIR)"; return 0; fi
