@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createLogDedup } from "@/lib/log-dedup";
-import { AudioLines, LoaderCircle, Mic, Paperclip, Pause, Plus, RefreshCw, RotateCcw, SkipForward, Square, ThumbsUp, Volume2, X } from "lucide-react";
+import { AudioLines, LoaderCircle, Mic, Paperclip, Pause, Plus, RefreshCw, RotateCcw, Square, ThumbsUp, Volume2, X } from "lucide-react";
 import { Button } from "@/components/button";
 import { Textarea } from "@/components/textarea";
 import { cn } from "@/lib/utils";
@@ -715,7 +715,6 @@ function VoiceModeButton({
           )}
         />
         <span role="status" aria-live="polite">{label}</span>
-        {speaking && <SkipForward aria-hidden="true" className="size-3.5" />}
       </button>
       <button
         type="button"
