@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Check, ChevronDown } from "lucide-react";
+import { Check, ChevronDown, Plus } from "lucide-react";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/popover";
 import { cn } from "@/lib/utils";
 
@@ -24,6 +24,10 @@ export interface MultiSelectOption {
  * wheel/touch-move events outside its own content — the list couldn't be
  * scrolled. A modal Popover pushes its own lock, which is the active one
  * while open and lets its content scroll.
+ *
+ * `leadingAction` adds a non-option row above the list (e.g. "New role…")
+ * that closes the list and runs its callback. When set, the list can open
+ * even with zero options, so the action is always reachable.
  */
 export function MultiSelect({
   id,
@@ -33,6 +37,7 @@ export function MultiSelect({
   onChange,
   placeholder = "Pick…",
   disabled = false,
+  leadingAction,
 }: {
   id?: string;
   ariaLabel: string;
@@ -41,6 +46,7 @@ export function MultiSelect({
   onChange: (next: string[]) => void;
   placeholder?: string;
   disabled?: boolean;
+  leadingAction?: { label: string; onSelect: () => void };
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -118,6 +124,27 @@ export function MultiSelect({
             className="mb-1 w-full rounded-sm bg-black/20 px-2 py-1.5 text-xs outline-none placeholder:text-[#f0ebe0]/50"
           />
         )}
+        {leadingAction && (
+          <>
+            <button
+              type="button"
+              data-testid="multi-select-leading-action"
+              onClick={() => {
+                setOpen(false);
+                setQuery("");
+                leadingAction.onSelect();
+              }}
+              className={cn(
+                "flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs outline-none",
+                "text-[color:var(--color-pv-code-fg)] hover:bg-white/[0.08] focus-visible:bg-white/[0.08]",
+              )}
+            >
+              <Plus className="size-3.5 shrink-0" aria-hidden />
+              {leadingAction.label}
+            </button>
+            {options.length > 0 && <div className="my-1 h-px bg-white/10" aria-hidden />}
+          </>
+        )}
         <div
           role="listbox"
           aria-label={ariaLabel}
@@ -147,7 +174,7 @@ export function MultiSelect({
               </button>
             );
           })}
-          {visible.length === 0 && (
+          {visible.length === 0 && (options.length > 0 || !leadingAction) && (
             <div className="px-2 py-3 text-center text-xs opacity-60">No matches</div>
           )}
         </div>

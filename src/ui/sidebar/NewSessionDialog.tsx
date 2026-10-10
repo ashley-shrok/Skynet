@@ -238,9 +238,11 @@ export function NewSessionDialog({
   onCreate,
   initialHost,
   initialRole,
+  initialRoles,
   initialBrief: _initialBrief,
   isAdmin = false,
   project = null,
+  onNewRole,
 }: {
   /**
    * Project slug the agent is born into (opened from a project section's
@@ -274,7 +276,20 @@ export function NewSessionDialog({
    */
   initialHost?: Host | null;
   initialRole?: string | null;
+  /**
+   * Several roles to seed, in pick order. Takes precedence over
+   * `initialRole`. Used when returning from the "New role…" hop so the roles
+   * picked before the hop survive alongside the new one.
+   */
+  initialRoles?: string[] | null;
   initialBrief?: string | null;
+  /**
+   * "New role…" row at the top of the Roles dropdown. The caller swaps this
+   * dialog for CreateRoleDialog and brings the user back afterwards; the
+   * current host + picked roles are handed over so they can be restored.
+   * Absent = no row (and a host with zero roles shows a plain hint).
+   */
+  onNewRole?: (ctx: { host: Host; roles: string[] }) => void;
   /**
    * Admin-gate forwarded from AppShell state `users.is_admin` (via
    * PrettyConversationsPanel). Fail-closed default: a caller that forgets
@@ -435,8 +450,9 @@ export function NewSessionDialog({
         // default flip: `shellOnly` defaults to false (agent mode is the
         // default), so this branch fires on a fresh open where the caller
         // hasn't toggled the admin-only "Just a shell" checkbox.
-        if (initialRole && !shellOnly) {
-          setSelectedRoles([initialRole]);
+        const seedRoles = initialRoles ?? (initialRole ? [initialRole] : []);
+        if (seedRoles.length > 0 && !shellOnly) {
+          setSelectedRoles(seedRoles);
         }
       } else if (flatHosts.length === 1) {
         setSelectedHost(flatHosts[0]);
@@ -1215,7 +1231,11 @@ export function NewSessionDialog({
                     id="new-identity-roles"
                     ariaLabel="Roles"
                     placeholder={rolesLoading ? "Loading roles..." : "Pick roles…"}
-                    disabled={formDisabled || rolesLoading || rolesForHost.length === 0}
+                    disabled={
+                      formDisabled ||
+                      rolesLoading ||
+                      (rolesForHost.length === 0 && !onNewRole)
+                    }
                     options={rolesForHost.map((r) => ({
                       value: r.name,
                       // Instance-wide roles carry a marker (same role on every host).
@@ -1225,6 +1245,19 @@ export function NewSessionDialog({
                     }))}
                     value={selectedRoles}
                     onChange={setSelectedRoles}
+                    leadingAction={
+                      onNewRole
+                        ? {
+                            label: "New role…",
+                            onSelect: () => {
+                              console.log(
+                                `[new-session] new-role hop hostId=${selectedHost.id} roles=${selectedRoles.join(",") || "-"}`,
+                              );
+                              onNewRole({ host: selectedHost, roles: selectedRoles });
+                            },
+                          }
+                        : undefined
+                    }
                   />
                   {/* Role fetch error */}
                   {rolesError && (
@@ -1232,22 +1265,16 @@ export function NewSessionDialog({
                       {rolesError}
                     </span>
                   )}
-                  {/* Zero-roles inline hint — click handler is a no-op stub in
-                      this plan; will be wired to CreateRoleDialog in Plan 22-04
-                      / SRIC-04. Preserves the UX affordance per D-CONTEXT
-                      §Failure modes even before CreateRoleDialog exists. */}
+                  {/* Zero-roles hint. With onNewRole wired the dropdown stays
+                      openable and its "New role…" row is the way forward. */}
                   {!rolesLoading &&
                     !rolesError &&
                     rolesForHost.length === 0 && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          /* no-op stub — wired in 22-04 / SRIC-04 */
-                        }}
-                        className="text-xs text-left text-[color:var(--color-pv-code-fg)] underline underline-offset-2 hover:opacity-80"
-                      >
-                        no roles on this host — create one first
-                      </button>
+                      <span className="text-xs italic text-[color:var(--color-pv-fg-muted)]">
+                        {onNewRole
+                          ? "No roles on this host yet — create one from the Roles dropdown."
+                          : "No roles on this host yet."}
+                      </span>
                     )}
                 </div>
               )}

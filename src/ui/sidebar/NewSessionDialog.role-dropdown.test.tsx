@@ -507,17 +507,80 @@ describe("NewSessionDialog roles: multi-select", () => {
 // Test 25: zero-roles response renders inline hint
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog role dropdown: Test 25 — zero roles renders inline hint", () => {
-  it("Test 25: listRolesForHost returns [] → 'no roles on this host — create one first' hint", async () => {
+  it("Test 25: listRolesForHost returns [] → 'no roles on this host' hint (not a link)", async () => {
     mockListRolesForHost.mockResolvedValueOnce([]);
     renderDialog();
     fireEvent.click(screen.getByText("alpha"));
     await waitFor(() => {
-      expect(
-        screen.queryByText(/no roles on this host/i),
-      ).toBeTruthy();
+      expect(screen.queryByText(/no roles on this host/i)).toBeTruthy();
     });
-    // Must include the "create one first" phrasing per D-CONTEXT §Failure modes
-    expect(screen.queryByText(/create one first/i)).toBeTruthy();
+    expect(screen.queryByText(/no roles on this host/i)!.tagName).not.toBe("BUTTON");
+    // Without onNewRole the dropdown stays disabled and has no New role row.
+    expect(queryRolesGroup()!.disabled).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// "New role…" row at the top of the Roles dropdown
+// ─────────────────────────────────────────────────────────────────────────────
+describe("NewSessionDialog role dropdown: New role… row", () => {
+  const twoRoles = [
+    { name: "box-maintainer", description: "" },
+    { name: "tina", description: "" },
+  ];
+
+  function renderWithNewRole(extra: Partial<Parameters<typeof NewSessionDialog>[0]> = {}) {
+    const onNewRole = vi.fn();
+    const utils = render(
+      <NewSessionDialog
+        open
+        onClose={vi.fn()}
+        hostTree={twoHostTree}
+        onCreate={vi.fn()}
+        isAdmin
+        onNewRole={onNewRole}
+        {...extra}
+      />,
+    );
+    return { ...utils, onNewRole };
+  }
+
+  it("is the first row; clicking it hands over the host and picked roles", async () => {
+    mockListRolesForHost.mockResolvedValueOnce(twoRoles);
+    const { onNewRole } = renderWithNewRole();
+    fireEvent.click(screen.getByText("alpha"));
+    await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
+    toggleRole("tina");
+    const row = screen.getByTestId("multi-select-leading-action");
+    expect(row.textContent).toMatch(/new role/i);
+    fireEvent.click(row);
+    expect(onNewRole).toHaveBeenCalledTimes(1);
+    const [ctx] = onNewRole.mock.calls[0];
+    expect(ctx.host.id).toBe("h1");
+    expect(ctx.roles).toEqual(["tina"]);
+  });
+
+  it("keeps the dropdown openable on a host with zero roles", async () => {
+    mockListRolesForHost.mockResolvedValueOnce([]);
+    const { onNewRole } = renderWithNewRole();
+    fireEvent.click(screen.getByText("alpha"));
+    await waitFor(() => expect(screen.queryByText(/no roles on this host/i)).toBeTruthy());
+    const trigger = queryRolesGroup()!;
+    expect(trigger.disabled).toBe(false);
+    fireEvent.click(trigger);
+    expect(screen.queryByText(/no matches/i)).toBeNull();
+    fireEvent.click(screen.getByTestId("multi-select-leading-action"));
+    expect(onNewRole.mock.calls[0][0].roles).toEqual([]);
+  });
+
+  it("initialRoles seeds several picks in order", async () => {
+    mockListRolesForHost.mockResolvedValueOnce(twoRoles);
+    renderWithNewRole({
+      initialHost: twoHostTree.children[0] as Host,
+      initialRoles: ["tina", "box-maintainer"],
+    });
+    await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
+    await waitFor(() => expect(pickedRoleValues()).toEqual(["tina", "box-maintainer"]));
   });
 });
 

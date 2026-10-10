@@ -167,6 +167,8 @@ export interface CreateRoleDialogProps {
    * they're usually the same thing.
    */
   onChainToCreateIdentity?: (opts: { role: string; host: Host; description: string }) => void;
+  /** Host to pre-pick on open (still editable) — set by the new-agent dialog's "New role…" hop. */
+  initialHost?: Host | null;
 }
 
 export function CreateRoleDialog({
@@ -175,6 +177,7 @@ export function CreateRoleDialog({
   hostTree,
   onCreated,
   onChainToCreateIdentity,
+  initialHost = null,
 }: CreateRoleDialogProps) {
   const { t } = useTranslation();
 
@@ -248,6 +251,7 @@ export function CreateRoleDialog({
       // Phase 86: re-seed colorHue on each OPEN transition (never-touched
       // roles vary in hue). Not re-run on flatHosts updates — see M3.
       setColorHue(Math.floor(Math.random() * 360));
+      if (initialHost) setSelectedHost(initialHost);
     } else {
       setName("");
       setDescription("");

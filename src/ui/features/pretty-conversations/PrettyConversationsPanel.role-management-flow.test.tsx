@@ -529,6 +529,37 @@ describe("Phase 90 role-management flow — CreateRoleDialog swap", () => {
   });
 });
 
+describe("new-agent dialog → New role… hop", () => {
+  it("F: New role… swaps to CreateRoleDialog; cancelling returns with the earlier picks", async () => {
+    const { toggleRole, pickedRoleValues, queryRolesGroup } = await import(
+      "@/sidebar/NewSessionDialog.roles-test-helpers"
+    );
+    render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={ONE_HOST_TREE}
+        onCreateSession={vi.fn()}
+        onDeactivateRow={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("pv-header-new-agent-button"));
+    // Single host → auto-picked; wait for the roles to load.
+    await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
+    toggleRole("hallmonitor");
+    fireEvent.click(screen.getByTestId("multi-select-leading-action"));
+
+    // Swap, not stack: only the role-creation dialog is up.
+    await waitFor(() => expect(queryRolesGroup()).toBeNull());
+    expect(document.querySelectorAll('[role="dialog"]').length).toBe(1);
+    expect(screen.getAllByText("New role").length).toBeGreaterThan(0);
+
+    // Cancel role creation → new-agent dialog back with the pick intact.
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape", code: "Escape" });
+    await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
+    await waitFor(() => expect(pickedRoleValues()).toEqual(["hallmonitor"]));
+  });
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Test E — identity-modal title-line jump → RoleModal
 // ─────────────────────────────────────────────────────────────────────────────

@@ -11,6 +11,7 @@ distributed: true
 <!-- 2026-10-09 (pinned XOR project): pinned and in-a-project are mutually exclusive — the row/badge menu's Pin item folded into a "Move to" submenu (Pinned + projects); pinning leaves the project, moving into a project unpins; a conversation with both on disk shows in its project. -->
 <!-- 2026-10-09 (skill actions): new lightning-bolt button left of thumbs-up opens a menu of the box's skills — tap sends `/<name>` at once; the footer Skills-editor icon changed from wrench to the same lightning bolt. -->
 <!-- 2026-10-09 (voice-mode button): hands-free voice mode moved off the mic long-press onto its own sound-wave button left of Stop; the status pill became that button's chip (state label, tap-to-skip, × to end). -->
+<!-- 2026-10-10 (new-role shortcut): the new-conversation role dropdown's first row is "New role…" — hops to the new-role dialog and back with picks kept. -->
 <!-- 2026-10-09 (role history retired): "chronological history" dropped from the role-folder description (concept retired with the /role skill). -->
 
 # Identity Skill
@@ -590,7 +591,11 @@ menu in the header and no "new group conversation" control in the app.
   role picker; the new agent is auto-named unless the user ticks "name
   it myself." The role picker is a multi-select — at least one role is
   required; picking several writes them to the identity file as
-  `role: [a, b, ...]` in the order they were picked.A new conversation opens automatically.
+  `role: [a, b, ...]` in the order they were picked. The first row of the
+  roles dropdown is **New role…**: it swaps to the new-role dialog (host
+  already picked) and, once the role is made, comes back with the earlier
+  picks plus the new role; cancelling comes back as the user left it. A
+  new conversation opens automatically.
   *Agent-side:* see § Spawning another agent — the same mechanism, but
   the agent-side lets you seed the newborn with an initial prompt, which
   the button cannot. User-gated.

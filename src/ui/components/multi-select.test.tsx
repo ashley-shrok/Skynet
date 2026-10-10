@@ -61,4 +61,28 @@ describe("MultiSelect", () => {
     fireEvent.click(screen.getByRole("combobox", { name: "Things" }));
     expect(screen.queryByRole("listbox")).toBeNull();
   });
+
+  it("leadingAction renders above the options, closes the list and fires", () => {
+    const onSelect = vi.fn();
+    render(
+      <MultiSelect
+        ariaLabel="Things"
+        options={OPTIONS}
+        value={[]}
+        onChange={() => {}}
+        leadingAction={{ label: "New thing…", onSelect }}
+      />,
+    );
+    fireEvent.click(screen.getByRole("combobox", { name: "Things" }));
+    const action = screen.getByRole("button", { name: /New thing/ });
+    // Not an option: picks are unaffected and it sits before the listbox.
+    expect(action.getAttribute("role")).toBeNull();
+    expect(
+      action.compareDocumentPosition(screen.getByRole("listbox", { name: "Things" })) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    fireEvent.click(action);
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("listbox", { name: "Things" })).toBeNull();
+  });
 });

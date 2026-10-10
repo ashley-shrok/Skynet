@@ -977,10 +977,20 @@ export function PrettyConversationsPanel({
   // so subsequent manual opens via the pencil don't inherit stale chain state
   // (regression gate — Test 13).
   const [chainPrefill, setChainPrefill] = useState<{
-    role: string;
+    role?: string;
+    roles?: string[];
     host: Host;
     description?: string;
   } | null>(null);
+  // "New role…" hop from the new-agent dialog's Roles dropdown: the dialog is
+  // swapped for CreateRoleDialog, and this remembers what to restore when the
+  // user comes back (role created → picks + new role; cancelled → picks as
+  // they were). A ref, because CreateRoleDialog fires its chain callback and
+  // then onClose in the same tick — onClose must see the chain's clear.
+  // The pending project slug/hostId state is deliberately left untouched
+  // across the hop so a per-project new-agent flow keeps its project.
+  const newRoleHopRef = useRef<{ host: Host; roles: string[] } | null>(null);
+  const [createRoleInitialHost, setCreateRoleInitialHost] = useState<Host | null>(null);
 
   // Scroll region ref for save/restore across unmount — see savedListScrollTop
   // at module scope for why. Attached to the .pv-panel-scroll div below.
@@ -3695,7 +3705,15 @@ export function PrettyConversationsPanel({
           // CreateRoleDialog's onChainToCreateIdentity fired.
           initialHost={chainPrefill?.host ?? null}
           initialRole={chainPrefill?.role ?? null}
+          initialRoles={chainPrefill?.roles ?? null}
           initialBrief={chainPrefill?.description ?? null}
+          onNewRole={({ host, roles }) => {
+            newRoleHopRef.current = { host, roles };
+            setNewSessionDialogOpen(false);
+            setChainPrefill(null);
+            setCreateRoleInitialHost(host);
+            setCreateRoleDialogOpen(true);
+          }}
           // Phase 88: forward admin-gate to NewSessionDialog for Path field + shell checkbox visibility (see 88-CONTEXT.md §isAdmin prop plumbing).
           isAdmin={isAdmin}
         />
@@ -3708,11 +3726,35 @@ export function PrettyConversationsPanel({
           host + description pre-filled, restoring the historical chain. */}
       <CreateRoleDialog
         open={createRoleDialogOpen}
-        onClose={() => setCreateRoleDialogOpen(false)}
-        hostTree={hostTree ?? null}
-        onChainToCreateIdentity={({ role, host, description }) => {
+        onClose={() => {
           setCreateRoleDialogOpen(false);
-          setChainPrefill({ role, host, description });
+          setCreateRoleInitialHost(null);
+          // Cancelled out of a "New role…" hop: back to the new-agent dialog
+          // as the user left it. (A successful create already cleared the ref.)
+          const hop = newRoleHopRef.current;
+          if (hop) {
+            newRoleHopRef.current = null;
+            console.log(`[new-role-hop] cancelled — restoring new-agent dialog hostId=${hop.host.id}`);
+            setChainPrefill({ host: hop.host, roles: hop.roles });
+            setNewSessionDialogOpen(true);
+          }
+        }}
+        hostTree={hostTree ?? null}
+        initialHost={createRoleInitialHost}
+        onChainToCreateIdentity={({ role, host, description }) => {
+          const hop = newRoleHopRef.current;
+          newRoleHopRef.current = null;
+          setCreateRoleDialogOpen(false);
+          // Back from a hop on the same host: keep the earlier picks and add
+          // the new role. A different host invalidates the earlier picks.
+          const roles =
+            hop && hop.host.id === host.id
+              ? [...hop.roles.filter((r) => r !== role), role]
+              : undefined;
+          console.log(
+            `[new-role-hop] role created role=${role} hostId=${host.id} fromHop=${hop !== null} roles=${roles?.join(",") ?? role}`,
+          );
+          setChainPrefill({ role, roles, host, description });
           setNewSessionDialogOpen(true);
         }}
       />
