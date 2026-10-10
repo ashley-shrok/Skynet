@@ -187,7 +187,10 @@ For as many roles as you have listed in your role frontmatter field:
    
    - Read `~/fleet/projects/<slug>/project.md` into context — it names
      what this project is for, plus any shared conventions or references
-     the project needs.
+     the project needs. Its `members:` frontmatter lists every live
+     identity in the project (each is that agent's relay name), and it's
+     kept current automatically — don't edit it. When someone joins or
+     leaves, you're woken with the diff.
    
    - Silently enumerate the top-level contents of
      `~/fleet/projects/<slug>/`. Hold the names in context. Each file's
@@ -236,7 +239,7 @@ External events are automatically fed to you by the agent-supervisor service for
    a very long time (an Opus 1M-context session reaching 90% is a lot of
    turns); it's a safety valve.
 
-4. **File changes (for your `<role>.md` / `<name>.md` / etc).** Wakes you on edits to your relevant files so mid-session edits become visible to you immediately. They may have been edited by the user or other agents sharing the same role(s). Self-edits are silently suppressed at the source, so you should not see wakes for edits you just made yourself.
+4. **File changes (for your `<role>.md` / `<name>.md` / your project's `project.md` / etc).** Wakes you on edits to your relevant files so mid-session edits become visible to you immediately. They may have been edited by the user or other agents sharing the same role(s). Self-edits are silently suppressed at the source, so you should not see wakes for edits you just made yourself.
 
 **What these events look like when they reach you.** Each one arrives as
 pasted input: a `<pasted_content id="…">` block wrapping a
