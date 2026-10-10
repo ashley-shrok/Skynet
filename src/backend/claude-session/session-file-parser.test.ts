@@ -1350,6 +1350,54 @@ describe("parseSessionLine — session-lifecycle noise skips (quick-260829-r9i)"
     expect(parsed.why).toBe("resume_injection");
   });
 
+  it("teammate_message — agent-team peer send (harness preamble) is skipped", () => {
+    const parsed = parseSessionLine(
+      line({
+        type: "user",
+        uuid: "u-tm-1",
+        timestamp: "2026-10-10T07:03:37.555Z",
+        message: {
+          content:
+            'Another Claude session sent a message:\n<teammate-message teammate_id="audit-b" color="green" summary="Batch B report part 1 of 3">\nBatch B audit report, part 1 of 3.\n</teammate-message>\n\nThis came from another Claude session — not typed by your user.',
+        },
+      }),
+    );
+    expect(parsed.kind).toBe("skip");
+    if (parsed.kind !== "skip") throw new Error("unreachable");
+    expect(parsed.why).toBe("teammate_message");
+  });
+
+  it("teammate_message — the same text pasted by the user (pasted_content wrapped) still renders", () => {
+    const parsed = parseSessionLine(
+      line({
+        type: "user",
+        uuid: "u-tm-2",
+        timestamp: "2026-10-10T07:05:00.000Z",
+        message: {
+          content:
+            '<pasted_content id="7f58">\nAnother Claude session sent a message:\n<teammate-message teammate_id="audit-b" color="green">\nhi\n</teammate-message>\n</pasted_content id="7f58">',
+        },
+      }),
+    );
+    expect(parsed.kind).toBe("message");
+    if (parsed.kind !== "message") throw new Error("unreachable");
+    expect(parsed.content).toContain("<teammate-message");
+  });
+
+  it("teammate_message — preamble quoted mid-prose passes through", () => {
+    const parsed = parseSessionLine(
+      line({
+        type: "user",
+        uuid: "u-tm-3",
+        timestamp: "2026-10-10T07:06:00.000Z",
+        message: {
+          content: 'why do I see "Another Claude session sent a message:\n<teammate-message" turns?',
+        },
+      }),
+    );
+    expect(parsed.kind).toBe("message");
+  });
+
   it("Test R9I-5: ctrl_c_kill — double Ctrl-C (\\x03\\x03) is skipped", () => {
     const parsed = parseSessionLine(
       line({

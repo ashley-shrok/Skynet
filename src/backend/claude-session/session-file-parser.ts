@@ -90,6 +90,16 @@ export function isWidgetSubmitEnvelope(content: string): boolean {
   return WIDGET_ENVELOPE_OPENINGS.some((o) => trimmed.startsWith(o));
 }
 
+// Agent-team teammate messages (Claude Code SendMessage between sessions) land
+// as plain type:"user" string turns — no origin, no isMeta — that always open
+// with this fixed harness preamble, so the prefix is the only signal. Checked
+// on the RAW turn (before pasted-content unwrapping): real teammate turns are
+// never paste-wrapped, while a user pasting one into compose is.
+const TEAMMATE_MESSAGE_PREFIX = "Another Claude session sent a message:\n<teammate-message";
+export function isTeammateMessage(content: string): boolean {
+  return content.startsWith(TEAMMATE_MESSAGE_PREFIX);
+}
+
 export type ConversationalMessage = {
   kind: "message";
   role: "user" | "assistant";
@@ -1124,6 +1134,9 @@ export function parseSessionLine(line: string, sessionId?: string): ParsedLine {
     sessionParserLogger.info(`[session-parser] classify result=malformed bytesRead=${trimmed.length}`, { operation: "session_classify" });
     return { kind: "malformed", bytes: trimmed.length };
   }
+  const rawMsg = obj.message as Record<string, unknown> | null | undefined;
+  const teammateTurn =
+    obj.type === "user" && typeof rawMsg?.content === "string" && isTeammateMessage(rawMsg.content);
   normalizePastedHarnessEnvelopes(obj);
 
   const type = obj.type;
@@ -1426,6 +1439,9 @@ export function parseSessionLine(line: string, sessionId?: string): ParsedLine {
     }
     if (content.startsWith("Your session was just resumed by the agent-supervisor")) {
       return { kind: "skip", why: "resume_injection" };
+    }
+    if (teammateTurn) {
+      return { kind: "skip", why: "teammate_message" };
     }
     if (content.trim().replace(/[\x00-\x1F]/g, "") === "") {
       return { kind: "skip", why: "ctrl_c_kill" };

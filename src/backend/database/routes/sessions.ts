@@ -10,6 +10,7 @@ import { sshLogger, databaseLogger, systemLogger } from "../../utils/logger.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
+import { isTeammateMessage } from "../../claude-session/session-file-parser.js";
 import {
   readIdentityFile,
   readRoleFileByName,
@@ -170,6 +171,8 @@ function isRealUserTurn(rawLine: string): { ok: true; ts: number } | { ok: false
   // Step 7 (2026-08-29 refinement): drop agent-supervisor resumed-injection sentinel.
   // Prefix-anchored to avoid matching quoted mentions in real user prose.
   if (content.startsWith("Your session was just resumed by the agent-supervisor")) return { ok: false };
+  // Step 8: drop agent-team teammate messages (harness-delivered peer sends, not user speech).
+  if (isTeammateMessage(content)) return { ok: false };
   // Passed all gates — extract ts from the timestamp field.
   const rawTs = top.timestamp;
   if (typeof rawTs !== "string") return { ok: false };
