@@ -207,6 +207,7 @@ import {
   clearPendingAppArchive,
 } from "@/state/app-tiles-store";
 import { useAnyIdentityModalOpen } from "@/state/identity-modal-open-store";
+import { useKeyboardViewportLock } from "@/hooks/use-keyboard-viewport-lock";
 import {
   publishFleetStatusTmuxSession,
   publishFleetStatusTmuxSessionGone,
@@ -515,6 +516,7 @@ export function AppShell({
 
   const isMobile = useIsMobile();
   const isTouchDevice = useIsTouchDevice();
+  useKeyboardViewportLock(isTouchDevice);
   const {
     byKey: identitiesByKey,
     byHostKey: identitiesByHostKey,
@@ -3607,7 +3609,9 @@ export function AppShell({
       <div
         className="flex w-screen bg-[color:var(--color-pv-base)]"
         style={{
-          height: "100dvh",
+          // --app-height is set only while the iOS keyboard is up
+          // (useKeyboardViewportLock); otherwise 100dvh as before.
+          height: "var(--app-height, 100dvh)",
           paddingTop: "max(env(safe-area-inset-top), 0px)",
         }}
       >

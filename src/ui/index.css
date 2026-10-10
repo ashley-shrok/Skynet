@@ -305,7 +305,7 @@ input[type="radio"] {
   html,
   body,
   #root {
-    height: 100dvh;
+    height: var(--app-height, 100dvh);
     @apply overflow-hidden;
   }
   body {
@@ -354,6 +354,19 @@ html {
  * bottompad diagnostic tuner (see bounty pwa-bottom-safe-area-reclaim). */
 body {
   min-height: 100vh;
+}
+
+/* iOS keyboard-viewport lock (see src/ui/hooks/use-keyboard-viewport-lock.ts):
+ * while the keyboard is up the app is sized to the visual viewport and the
+ * document must not be scrollable, or iOS scrolls it and the tap-to-caret /
+ * space-bar trackpad math goes off by the scroll offset. Drop the 100vh floor
+ * above, and the bottom safe-area pad (the home indicator is behind the
+ * keyboard). */
+html.kb-open body {
+  min-height: 0;
+}
+html.kb-open {
+  --kb-safe-bottom: 0px;
 }
 
 /* Font size scale applied to html element */
