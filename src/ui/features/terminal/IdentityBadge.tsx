@@ -1,4 +1,4 @@
-import type { DragEvent as ReactDragEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
+import type { DragEvent as ReactDragEvent } from "react";
 import { Folder, GitPullRequestDraft, Pin } from "lucide-react";
 import { useIdentities } from "@/state/identities-store";
 import { useProjects, usePinnedIds, fleetRowId } from "@/state/conversation-store";
@@ -108,7 +108,9 @@ export function IdentityBadge({
   // Called before the `if (!identity) return null` early return (Rules of
   // Hooks — same discipline as the hooks below).
   const kebabItems = menuItems ?? [];
-  const hasMenu = kebabItems.length > 0;
+  // Interactive badges only — the non-interactive branch is aria-hidden, and
+  // a focusable trigger can't live inside an aria-hidden subtree.
+  const hasMenu = !!onClick && kebabItems.length > 0;
   const kebabContextMenu = useRowKebabContextMenu(kebabItems);
 
   // Phase 104 Plan 02 (D-05, D-06, D-07): per-identity trapped-work snapshot.
@@ -198,6 +200,61 @@ export function IdentityBadge({
   // on IdentityBadgeProps for backward-compat with existing call sites but is
   // no longer used to build the URL here.
   const avatarSrc = identity.avatarUrl;
+  const pillMain = (
+    <>
+      <img
+        src={avatarSrc}
+        alt=""
+        className="object-cover shrink-0"
+        style={{
+          position: "relative",
+          zIndex: 1,
+          width: 50,
+          height: 50,
+          borderRadius: "50%",
+          boxShadow: `0 4px 12px rgba(0,0,0,0.6), inset 0 2px 0 rgba(255,235,190,0.35), 0 0 24px hsla(${hue}, 65%, 55%, 0.4)`,
+        }}
+        draggable={false}
+      />
+      <div
+        className="flex flex-col min-w-0"
+        style={{ position: "relative", zIndex: 1 }}
+      >
+        <span
+          className="font-semibold truncate leading-tight"
+          style={{ fontSize: 13.5, color: "#f0ebe0" }}
+        >
+          {identity.displayName}
+        </span>
+        {identity.title && (
+          <span
+            className="truncate leading-tight"
+            style={{ fontSize: 10.8, color: "#a89a80" }}
+          >
+            {identity.title}
+          </span>
+        )}
+        {projectDisplayName && (
+          <span
+            data-testid="pv-identity-project-breadcrumb"
+            className="truncate inline-flex items-center gap-1"
+            style={{
+              fontSize: 9,
+              fontWeight: 600,
+              color: `hsla(${hue}, 40%, 78%, 0.85)`,
+              textTransform: "uppercase",
+              letterSpacing: "0.12em",
+              lineHeight: 1,
+              marginTop: 3,
+            }}
+          >
+            <Folder width={9} height={9} aria-hidden="true" />
+            {projectDisplayName}
+          </span>
+        )}
+      </div>
+    </>
+  );
   const inner = (
     <>
       {/* Pin indicator — mirrors the sidebar row's `.pv-pin-indicator` (dark
@@ -313,63 +370,41 @@ export function IdentityBadge({
           or a container that set `isolation: isolate` could have flipped
           the watermark above primaries. `position: relative` gives z-index
           bite on the flex items. */}
-      <img
-        src={avatarSrc}
-        alt=""
-        className="object-cover shrink-0"
-        style={{
-          position: "relative",
-          zIndex: 1,
-          width: 50,
-          height: 50,
-          borderRadius: "50%",
-          boxShadow: `0 4px 12px rgba(0,0,0,0.6), inset 0 2px 0 rgba(255,235,190,0.35), 0 0 24px hsla(${hue}, 65%, 55%, 0.4)`,
-        }}
-        draggable={false}
-      />
-      <div
-        className="flex flex-col min-w-0"
-        style={{ position: "relative", zIndex: 1 }}
-      >
-        <span
-          className="font-semibold truncate leading-tight"
-          style={{ fontSize: 13.5, color: "#f0ebe0" }}
+      {onClick ? (
+        // The pill's primary control. The pill root (below) owns the click,
+        // so a click on the pill's padding still opens IdentityModal; this
+        // native button gives keyboard + screen-reader users that action,
+        // and its click bubbles to the root handler. A sibling of the kebab
+        // trigger, never its ancestor — interactive controls can't nest.
+        <button
+          type="button"
+          aria-label="Open agent info"
+          data-testid="identity-badge-open"
+          className="flex flex-row items-center gap-[11px] min-w-0 text-left cursor-pointer rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/50"
         >
-          {identity.displayName}
-        </span>
-        {identity.title && (
-          <span
-            className="truncate leading-tight"
-            style={{ fontSize: 10.8, color: "#a89a80" }}
-          >
-            {identity.title}
-          </span>
-        )}
-        {projectDisplayName && (
-          <span
-            data-testid="pv-identity-project-breadcrumb"
-            className="truncate inline-flex items-center gap-1"
-            style={{
-              fontSize: 9,
-              fontWeight: 600,
-              color: `hsla(${hue}, 40%, 78%, 0.85)`,
-              textTransform: "uppercase",
-              letterSpacing: "0.12em",
-              lineHeight: 1,
-              marginTop: 3,
-            }}
-          >
-            <Folder width={9} height={9} aria-hidden="true" />
-            {projectDisplayName}
-          </span>
-        )}
-      </div>
+          {pillMain}
+        </button>
+      ) : (
+        pillMain
+      )}
       {hasMenu && (
         // Relative + z-1 lifts the trigger above the absolutely-positioned
         // coordinator watermark, same as the avatar + text column. The
         // trigger stops mousedown/click propagation, so it never also opens
         // IdentityModal; the menu content stops its own clicks too.
-        <span className="shrink-0" style={{ position: "relative", zIndex: 1 }}>
+        //
+        // The span is its own (cancelled) drag source so a press-and-move
+        // that starts on the ⋮ doesn't drag the whole badge (and move or
+        // close the pane) — the pill root is the HTML5 drag source.
+        <span
+          className="shrink-0"
+          style={{ position: "relative", zIndex: 1 }}
+          draggable
+          onDragStart={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+        >
           <RowKebabMenu
             items={kebabItems}
             ariaLabel="Agent menu"
@@ -440,27 +475,16 @@ export function IdentityBadge({
     : {};
 
   if (onClick) {
-    // Interactive branch: a <div role="button"> rather than a <button> — the
-    // pill holds the kebab's own <button>, and buttons can't nest. Tailwind
-    // v4 doesn't default cursor: pointer, so `cursor-pointer` is explicit.
-    const handleKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
-      if (e.target !== e.currentTarget) return;
-      if (e.key === "Enter" || e.key === " ") {
-        e.preventDefault();
-        onClick();
-      }
-    };
+    // Interactive branch: a plain wrapper holding two sibling controls (the
+    // open-agent-info button and, when there are menu items, the kebab).
+    // Tailwind v4 doesn't default cursor: pointer, so it's explicit.
     return (
       <div
-        role="button"
-        tabIndex={0}
         data-testid="identity-badge-root"
         onClick={onClick}
-        onKeyDown={handleKeyDown}
         draggable={isDragSource}
         onDragStart={onDragStart}
         {...contextMenuProps}
-        aria-label="Open agent info"
         title="Agent info"
         className={`${rootClassName} cursor-pointer`}
         style={rootStyle}

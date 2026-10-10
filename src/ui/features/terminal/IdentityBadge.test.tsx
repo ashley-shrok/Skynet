@@ -126,14 +126,16 @@ describe("IdentityBadge — core render", () => {
       { label: "Archive", danger: true, onClick: vi.fn() },
     ];
 
-    it("KEB-1: menuItems → kebab trigger renders inside a role=button <div> root", () => {
+    it("KEB-1: open button and kebab trigger are SIBLING controls inside a plain <div> root (no nested interactives)", () => {
       render(<IdentityBadge identityKey="tina" onClick={vi.fn()} menuItems={items()} />);
       const root = screen.getByTestId("identity-badge-root");
       expect(root.tagName).toBe("DIV");
-      expect(root.getAttribute("role")).toBe("button");
-      const trigger = screen.getByTestId("identity-badge-kebab-trigger");
-      expect(root.contains(trigger)).toBe(true);
-      expect(trigger.getAttribute("aria-label")).toBe("Agent menu");
+      expect(root.getAttribute("role")).toBeNull();
+      const open = screen.getByRole("button", { name: "Open agent info" });
+      const trigger = screen.getByRole("button", { name: "Agent menu" });
+      expect(root.contains(open) && root.contains(trigger)).toBe(true);
+      expect(open.contains(trigger)).toBe(false);
+      expect(trigger.contains(open)).toBe(false);
     });
 
     it("KEB-2: no menuItems (or empty) → no kebab trigger", () => {
@@ -170,13 +172,44 @@ describe("IdentityBadge — core render", () => {
       expect(screen.queryByRole("menu")).toBeNull();
     });
 
-    it("KEB-6: Enter / Space on the focused pill fire onClick", () => {
+    it("KEB-6: keyboard on the open button fires onClick once per press; Enter on the kebab does not", async () => {
+      const user = userEvent.setup();
       const onClick = vi.fn();
       render(<IdentityBadge identityKey="tina" onClick={onClick} menuItems={items()} />);
-      const root = screen.getByTestId("identity-badge-root");
-      fireEvent.keyDown(root, { key: "Enter" });
-      fireEvent.keyDown(root, { key: " " });
+      screen.getByRole("button", { name: "Open agent info" }).focus();
+      await user.keyboard("{Enter}");
+      await user.keyboard(" ");
       expect(onClick).toHaveBeenCalledTimes(2);
+      screen.getByRole("button", { name: "Agent menu" }).focus();
+      await user.keyboard("{Enter}");
+      expect(onClick).toHaveBeenCalledTimes(2);
+      expect(await screen.findByRole("menu")).toBeTruthy();
+    });
+
+    it("KEB-7: a drag starting on the kebab is cancelled (doesn't drag the badge)", () => {
+      const consoleInfo = vi.spyOn(console, "info").mockImplementation(() => {});
+      render(<IdentityBadge identityKey="tina" tabId="tab-1" onClick={vi.fn()} menuItems={items()} />);
+      const trigger = screen.getByTestId("identity-badge-kebab-trigger");
+      const ev = new Event("dragstart", { bubbles: true, cancelable: true });
+      act(() => {
+        trigger.dispatchEvent(ev);
+      });
+      expect(ev.defaultPrevented).toBe(true);
+      expect(consoleInfo.mock.calls.some((c) => String(c[0]).includes("[badge-drag]"))).toBe(false);
+      consoleInfo.mockRestore();
+    });
+
+    it("KEB-8: non-interactive (no onClick) badge never renders a kebab, even with menuItems", () => {
+      render(<IdentityBadge identityKey="tina" menuItems={items()} />);
+      expect(screen.getByTestId("identity-badge-root").getAttribute("aria-hidden")).toBe("true");
+      expect(screen.queryByTestId("identity-badge-kebab-trigger")).toBeNull();
+    });
+
+    it("KEB-9: clicking the pill padding (root itself) still fires onClick", () => {
+      const onClick = vi.fn();
+      render(<IdentityBadge identityKey="tina" onClick={onClick} menuItems={items()} />);
+      fireEvent.click(screen.getByTestId("identity-badge-root"));
+      expect(onClick).toHaveBeenCalledTimes(1);
     });
   });
 });
