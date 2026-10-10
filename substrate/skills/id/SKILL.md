@@ -14,6 +14,7 @@ distributed: true
 <!-- 2026-10-10 (voice mode v2): voice mode hears speech in pieces split at short pauses (no-word pieces like sneezes dropped silently); turn ends after 3s of silence or, as a preference, on a spoken send phrase; new cue set (send sound, soft ticking while the agent works, mic-start sound for your turn, alarm on bail); Agent voices pane gained the "when voice mode sends" choice. -->
 <!-- 2026-10-10 (new-role shortcut): the new-conversation role dropdown's first row is "New role…" — hops to the new-role dialog and back with picks kept. -->
 <!-- 2026-10-09 (role history retired): "chronological history" dropped from the role-folder description (concept retired with the /role skill). -->
+<!-- 2026-10-10 (skill invocation modes): Skills editor ⋮ "Slash command only" renamed "User-invoked only"; new "Agent-invoked only" (`user-invocable: false`), mutually exclusive with it; compose-box lightning bolt renamed "Skills" (tooltip) and leaves agent-only skills out of its menu. -->
 <!-- 2026-10-10 (voice mode exclusive): one conversation in voice mode at a time — while on, every mic and every other voice-mode button is disabled; message speak buttons unaffected. -->
 
 # Identity Skill
@@ -807,8 +808,11 @@ crown, then gear.
   a new one. Skills here are surfaced to every one of the user's agent
   sessions.
   Pick a skill at the top; the **three-dots (⋮) menu** beside them holds
-  **Slash command only** (agents won't invoke the skill on their own —
-  only `/<name>` will) and **Delete skill…**. The skill's files list down
+  **User-invoked only** (`disable-model-invocation: true` — agents won't
+  invoke the skill on their own, only `/<name>` will), **Agent-invoked
+  only** (`user-invocable: false` — only agents invoke it; typing
+  `/<name>` is refused and it's left out of the compose box's Skills
+  menu) — the two are mutually exclusive — and **Delete skill…**. The skill's files list down
   the left; click one to edit it.
   *Agent-side:* skills live at `~/.claude/skills/<skill-name>/SKILL.md`
   (folder + sentinel file, mirroring this id skill's own layout).
@@ -938,11 +942,11 @@ crown, then gear.
   compose box shows that it couldn't speak.
   *Agent-side: none.*
 
-- **⚡ Lightning bolt — skill actions** (agent conversations only). Sits
+- **⚡ Lightning bolt — Skills menu** (agent conversations only). Sits
   in the row of small buttons above the compose box, just left of the
   thumbs-up. Tapping it opens a menu listing the skills on the box this
   agent runs on — the same set the footer's lightning-bolt Skills editor
-  shows (fleet-distributed skills are left out), alphabetical, each with
+  shows (fleet-distributed and agent-only skills are left out), alphabetical, each with
   its one-line description. Tapping a skill sends `/<skill-name>` at once,
   exactly like thumbs-up sends its reply: no arguments, anything the user
   had typed stays in the compose box. The button is hidden until the app
