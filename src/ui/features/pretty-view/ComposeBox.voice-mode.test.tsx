@@ -271,6 +271,37 @@ describe("ComposeBox — hands-free voice mode (aux-row button)", () => {
     expect((screen.getByRole("button", { name: "Start voice mode" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it("a manual recording in one pane disables the voice-mode button in other panes", async () => {
+    render(
+      <>
+        <div data-testid="pane-a"><ComposeBox {...props({ tmuxSession: "a" })} /></div>
+        <div data-testid="pane-b"><ComposeBox {...props({ tmuxSession: "b" })} /></div>
+      </>,
+    );
+    const startA = within(screen.getByTestId("pane-a")).getByRole("button", { name: "Start voice mode" }) as HTMLButtonElement;
+    expect(startA.disabled).toBe(false);
+
+    const micB = within(screen.getByTestId("pane-b")).getByRole("button", { name: "Record voice" });
+    Object.defineProperty(micB, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({ left: 0, right: 40, top: 0, bottom: 40, x: 0, y: 0, width: 40, height: 40, toJSON: () => ({}) }),
+    });
+    await act(async () => {
+      fireEvent.pointerDown(micB, { pointerId: 5, clientX: 20, clientY: 20, timeStamp: 0 });
+      fireEvent.pointerUp(micB, { pointerId: 5, clientX: 20, clientY: 20, timeStamp: 80 });
+    });
+    await flush(50);
+    expect(within(screen.getByTestId("pane-b")).getByRole("button", { name: "Cancel recording" })).toBeTruthy();
+    expect(startA.disabled).toBe(true);
+    expect(startA.title).toBe("A mic is recording");
+
+    await act(async () => {
+      fireEvent.click(within(screen.getByTestId("pane-b")).getByRole("button", { name: "Cancel recording" }));
+    });
+    await flush(50);
+    expect(startA.disabled).toBe(false);
+  });
+
   it("long-pressing the mic is hold-to-record-and-send again, with or without a voiceModeFeed", async () => {
     for (const voiceModeFeed of [props().voiceModeFeed, undefined]) {
       const onSend = vi.fn((_text: string, _mqid?: string) => true);

@@ -14,8 +14,9 @@
  *     textarea, attachments, queue slots or the tap-to-record `useVoiceRecording`
  *     instance, so typing / pasting / Send keep working while voice mode is on.
  *     Replies to typed sends are spoken too.
- *   - When the manual mic is in use (`suspended`), listening pauses so the same
- *     words are not captured twice.
+ *   - One mic listener at a time: while voice mode is on, ComposeBox disables
+ *     every mic (voice-mode-registry.ts). `suspended` (manual mic in use →
+ *     listening pauses) is kept as a fallback.
  *   - Half-duplex: the recorder is stopped while TTS plays (iOS Safari shares one
  *     AudioSession between MediaRecorder and playback — see the AudioSession-
  *     safety notes in useVoiceRecording.ts) and so the agent never hears itself.

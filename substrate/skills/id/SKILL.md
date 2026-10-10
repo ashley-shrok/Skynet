@@ -911,7 +911,8 @@ crown, then gear.
   each new agent reply aloud, then listens again. Typing keeps working
   while it's on. Only one conversation can be in voice mode at a time:
   while it's on, every mic and every other conversation's voice-mode
-  button is greyed out ("Voice mode is on") until it ends. Message speak
+  button is greyed out ("Voice mode is on") until it ends — and while
+  any mic is recording, every voice-mode button is greyed out. Message speak
   buttons still work — tapping one cuts off the current spoken reply.
   While on, the button widens into a small chip that shows the state
   (Starting, Listening, Hearing, Sending, Speaking, Paused); tap the chip

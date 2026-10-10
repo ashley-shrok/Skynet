@@ -26,7 +26,11 @@ import type { BatchOutcome } from "./use-pretty-view-uploads";
 import { useVoiceRecording } from "./useVoiceRecording";
 import { useHoldToRecord } from "./useHoldToRecord";
 import { useVoiceMode, type VoiceModeMessage, type VoiceModePhase } from "./useVoiceMode";
-import { useVoiceModeActiveAnywhere } from "./voice-mode-registry";
+import {
+  registerManualRecording,
+  useManualRecordingAnywhere,
+  useVoiceModeActiveAnywhere,
+} from "./voice-mode-registry";
 import { MicButton } from "./MicButton";
 import { SkillActionsButton } from "./SkillActionsButton";
 import { RecordingControls } from "./RecordingControls";
@@ -640,6 +644,8 @@ const AUX_BUTTON_CLASS = cn(
  */
 /** Tooltip on mics / voice-mode buttons disabled because voice mode is on. */
 const VOICE_MODE_ON_TITLE = "Voice mode is on";
+/** Tooltip on voice-mode buttons disabled because a mic is recording somewhere. */
+const MIC_RECORDING_TITLE = "A mic is recording";
 
 function VoiceModeButton({
   phase,
@@ -2143,7 +2149,8 @@ export function ComposeBox({
   // Hands-free voice mode (2026-10-06). Runs alongside — never instead of —
   // the normal compose: it has its own mic stream and sends each transcript
   // straight through the funnel, leaving the textarea, attachments, queue
-  // slots and Send untouched. Listening pauses while the manual mic records.
+  // slots and Send untouched. While it is on every mic is disabled (see
+  // voiceModeAnywhere below); `suspended` remains as a fallback.
   const voiceMode = useVoiceMode({
     hostId,
     tmuxSession,
@@ -2175,6 +2182,14 @@ export function ComposeBox({
   // included) every mic is disabled, and the voice-mode button is disabled in
   // every pane but the one that owns it.
   const voiceModeAnywhere = useVoiceModeActiveAnywhere();
+  // ...and the reverse: a manual recording in any pane blocks starting voice
+  // mode anywhere (one `voice` instance per ComposeBox covers its queue slots).
+  const manualRecordingAnywhere = useManualRecordingAnywhere();
+  const manualRecordingHere = voice.state !== "idle";
+  useEffect(() => {
+    if (!manualRecordingHere) return;
+    return registerManualRecording(Symbol("manual-recording"));
+  }, [manualRecordingHere]);
 
   const primaryHold = useHoldToRecord({
     voice,
@@ -2552,10 +2567,12 @@ export function ComposeBox({
                 asideActive === true ||
                 recycleActive === true ||
                 reconnectingActive === true ||
-                voice.state !== "idle" ||
+                manualRecordingAnywhere ||
                 (voiceMode.phase === "off" && voiceModeAnywhere)
               }
-              disabledTitle={voiceModeAnywhere ? VOICE_MODE_ON_TITLE : undefined}
+              disabledTitle={
+                voiceModeAnywhere ? VOICE_MODE_ON_TITLE : manualRecordingAnywhere ? MIC_RECORDING_TITLE : undefined
+              }
               onStart={voiceMode.start}
               onStop={voiceMode.stop}
               onSkip={voiceMode.skipSpeech}
