@@ -154,6 +154,16 @@ class TunnelCache {
    * guacamole/routes.ts:321-368. Difference from that pattern: no
    * setTimeout auto-cleanup (per D-16); on-close cache eviction wired in
    * (per D-15).
+   *
+   * Stale-client recovery (2026-10-10 polaris): the tunnel outlives the SSH
+   * client it was built on. Once the tunnel goes quiet for >10 min (a paused
+   * video, or Chrome sitting on a big read-ahead buffer of a long video) the
+   * pool's idle sweep closes that client, and the next browser socket used to
+   * fail with a 502 — the video element gives up on a mid-stream error and
+   * never retries. Now each socket checks the client first and, if it is
+   * dead (or forwardOut throws `Not connected`), swaps in a fresh pooled
+   * client and forwards on that, so the request succeeds. Only when no fresh
+   * client can be had does the socket fail and the server close (D-15).
    */
   private buildLocalServer(
     sshClient: SSHClient,
@@ -161,6 +171,37 @@ class TunnelCache {
     sshPoolKey: string,
     cacheKey: string,
   ): Promise<TunnelInstance> {
+    let current = sshClient;
+    // Coalesces concurrent swaps: a page load opens many sockets at once.
+    let refreshing: Promise<SSHClient> | null = null;
+
+    const refreshClient = (): Promise<SSHClient> => {
+      if (!refreshing) {
+        const stale = current;
+        refreshing = withConnection<SSHClient>(
+          sshPoolKey,
+          () => connectOneShot(target.host, SSH_CONNECT_TIMEOUT_MS),
+          async (fresh) => fresh,
+        )
+          .then((fresh) => {
+            current = fresh;
+            const bornAt = getClientBornAt(fresh);
+            sshLogger.info("serve-url tunnel: swapped stale ssh client", {
+              operation: "serve_url_tunnel_client_swap",
+              target: cacheKey,
+              sshPoolKey,
+              sameClient: fresh === stale,
+              freshClientAgeMs: bornAt !== null ? Date.now() - bornAt : -1,
+            });
+            return fresh;
+          })
+          .finally(() => {
+            refreshing = null;
+          });
+      }
+      return refreshing;
+    };
+
     return new Promise((resolve, reject) => {
       const server = net.createServer((sock) => {
         // Reach the agent's port at `127.0.0.1:target.port` FROM THE SSH
@@ -168,96 +209,19 @@ class TunnelCache {
         // which is the agent's box). We do NOT reference target.host.ip
         // here — that's the box's tailnet address, not what the agent's
         // process is bound to. Agents bind to 127.0.0.1 by convention.
-        //
-        // ssh2's Client.forwardOut throws SYNCHRONOUSLY with
-        // `Error: Not connected` when the pooled SSH client's underlying
-        // TCP connection has died between cache hits. The callback pattern
-        // doesn't catch sync throws — without this try/catch it propagates
-        // to the top of net.Server's event emitter and crashes Node.
-        // Close-the-server triggers the D-15 cache eviction below, so the
-        // next request rebuilds a fresh tunnel via a fresh pooled client.
-        //
-        // Diagnostic instrumentation (2026-09-28 wyvern): the captured
-        // `sshClient` reference goes stale when its underlying socket dies
-        // between tunnel-build and forwardOut. Every browser TCP connection
-        // to this tunnel logs an attempt line with the client's current
-        // sock state + age; sync-throw and async-error paths log with the
-        // same shape so we can correlate death signal (pool's client-death
-        // log) with the specific requests that hit the dead client.
-        const bornAt = getClientBornAt(sshClient);
-        const underlying = (
-          sshClient as unknown as {
-            _sock?: { destroyed?: boolean; writable?: boolean };
-          }
-        )._sock;
-        const sockDestroyed = underlying?.destroyed ?? true;
-        const sockWritable = underlying?.writable ?? false;
-        const sshClientAgeMs = bornAt !== null ? Date.now() - bornAt : -1;
-        // Stamp pool.lastUsed BEFORE forwardOut so the pool's cleanup()
-        // sweep (2-min tick, 10-min maxAge) treats an actively-serving
-        // tunnel as in use. Without this, the tunnel-cache's captured
-        // `sshClient` looks idle to the pool from the moment
-        // `withConnection` releases it in openTunnel() — cleanup then
-        // reliably closes it at ~10 min, surfacing to the browser as a
-        // 502 chain (see incident 2026-09-28, ssh_pool_client_death @
-        // 10-11 min ageMs matching cleanup ticks).
-        connectionPool.markUsed(sshPoolKey, sshClient);
-        sshLogger.info("serve-url tunnel: forwardOut attempt", {
-          operation: "serve_url_tunnel_forward_out_attempt",
-          target: cacheKey,
-          sshPoolKey,
-          sshClientAgeMs,
-          sockDestroyed,
-          sockWritable,
-        });
-        try {
-          sshClient.forwardOut(
-            "127.0.0.1",
-            0,
-            "127.0.0.1",
-            target.port,
-            (err, stream) => {
-              if (err) {
-                const e = (err ?? {}) as {
-                  code?: string;
-                  name?: string;
-                  message?: string;
-                };
-                sshLogger.warn("serve-url tunnel: forwardOut async error", {
-                  operation: "serve_url_tunnel_forward_out_async_error",
-                  target: cacheKey,
-                  sshPoolKey,
-                  sshClientAgeMs:
-                    bornAt !== null ? Date.now() - bornAt : -1,
-                  sockDestroyed:
-                    underlying?.destroyed ?? true,
-                  sockWritable:
-                    underlying?.writable ?? false,
-                  errCode: typeof e.code === "string" ? e.code : "",
-                  errName: typeof e.name === "string" ? e.name : "",
-                  errMessage: typeof e.message === "string" ? e.message : "",
-                });
-                sock.destroy();
-                return;
-              }
-              sock.pipe(stream).pipe(sock);
-              sock.on("error", () => stream.destroy());
-              stream.on("error", () => sock.destroy());
-            },
-          );
-        } catch (err) {
-          const e = (err ?? {}) as {
-            code?: string;
-            name?: string;
-            message?: string;
-          };
+        sock.on("error", () => {});
+
+        const failSocket = (err: unknown, client: SSHClient) => {
+          const e = (err ?? {}) as { code?: string; name?: string; message?: string };
+          const bornAt = getClientBornAt(client);
+          const underlying = sockOf(client);
           sshLogger.warn("serve-url tunnel: forwardOut sync throw", {
             operation: "serve_url_tunnel_forward_out_sync_error",
             target: cacheKey,
             sshPoolKey,
             sshClientAgeMs: bornAt !== null ? Date.now() - bornAt : -1,
-            sockDestroyed,
-            sockWritable,
+            sockDestroyed: underlying?.destroyed ?? true,
+            sockWritable: underlying?.writable ?? false,
             errorClass: err instanceof Error ? err.name : "unknown",
             errCode: typeof e.code === "string" ? e.code : "",
             errName: typeof e.name === "string" ? e.name : "",
@@ -265,7 +229,79 @@ class TunnelCache {
           });
           sock.destroy();
           server.close();
-        }
+        };
+
+        // ssh2's Client.forwardOut throws SYNCHRONOUSLY with
+        // `Error: Not connected` when the client's TCP connection has died.
+        // The callback pattern doesn't catch sync throws — without the
+        // try/catch it propagates to the top of net.Server's event emitter
+        // and crashes Node.
+        const forward = (client: SSHClient, isRetry: boolean): void => {
+          if (sock.destroyed) return;
+          const bornAt = getClientBornAt(client);
+          const underlying = sockOf(client);
+          const sockDestroyed = underlying?.destroyed ?? true;
+          const sockWritable = underlying?.writable ?? false;
+          if (!isRetry && (sockDestroyed || !sockWritable)) {
+            refreshClient().then(
+              (fresh) => forward(fresh, true),
+              (err) => failSocket(err, client),
+            );
+            return;
+          }
+          // Stamp pool.lastUsed BEFORE forwardOut so the pool's cleanup()
+          // sweep (2-min tick, 10-min maxAge) treats an actively-serving
+          // tunnel as in use (incident 2026-09-28).
+          connectionPool.markUsed(sshPoolKey, client);
+          sshLogger.info("serve-url tunnel: forwardOut attempt", {
+            operation: "serve_url_tunnel_forward_out_attempt",
+            target: cacheKey,
+            sshPoolKey,
+            sshClientAgeMs: bornAt !== null ? Date.now() - bornAt : -1,
+            sockDestroyed,
+            sockWritable,
+            isRetry,
+          });
+          try {
+            client.forwardOut("127.0.0.1", 0, "127.0.0.1", target.port, (err, stream) => {
+              if (err) {
+                const e = (err ?? {}) as { code?: string; name?: string; message?: string };
+                const u = sockOf(client);
+                sshLogger.warn("serve-url tunnel: forwardOut async error", {
+                  operation: "serve_url_tunnel_forward_out_async_error",
+                  target: cacheKey,
+                  sshPoolKey,
+                  sshClientAgeMs: bornAt !== null ? Date.now() - bornAt : -1,
+                  sockDestroyed: u?.destroyed ?? true,
+                  sockWritable: u?.writable ?? false,
+                  errCode: typeof e.code === "string" ? e.code : "",
+                  errName: typeof e.name === "string" ? e.name : "",
+                  errMessage: typeof e.message === "string" ? e.message : "",
+                });
+                sock.destroy();
+                return;
+              }
+              if (sock.destroyed) {
+                stream.destroy();
+                return;
+              }
+              sock.pipe(stream).pipe(sock);
+              sock.on("error", () => stream.destroy());
+              stream.on("error", () => sock.destroy());
+            });
+          } catch (err) {
+            if (isRetry) {
+              failSocket(err, client);
+              return;
+            }
+            refreshClient().then(
+              (fresh) => forward(fresh, true),
+              (refreshErr) => failSocket(refreshErr, client),
+            );
+          }
+        };
+
+        forward(current, false);
       });
 
       // On any local server close (whether triggered by our own code or by
@@ -273,7 +309,7 @@ class TunnelCache {
       // the cache entry so the NEXT request for this target rebuilds. This
       // is the D-15 transparent-recovery hook.
       server.on("close", () => {
-        this.cache.delete(cacheKey);
+        if (this.cache.get(cacheKey)?.server === server) this.cache.delete(cacheKey);
         sshLogger.warn("serve-url tunnel: closed", {
           operation: "serve_url_tunnel_close",
           target: cacheKey,
@@ -296,6 +332,13 @@ class TunnelCache {
       });
     });
   }
+}
+
+/** The ssh2 client's underlying TCP socket (private field), for liveness. */
+function sockOf(
+  client: SSHClient,
+): { destroyed?: boolean; writable?: boolean } | undefined {
+  return (client as unknown as { _sock?: { destroyed?: boolean; writable?: boolean } })._sock;
 }
 
 /**
