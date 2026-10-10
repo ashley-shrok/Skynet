@@ -209,6 +209,13 @@ const MAX_PASSAGES = 3;
  */
 const PASSAGE_SCAN_LINES = 30;
 
+/**
+ * Ceiling on the passage pass's per-host row count. topN is offset+limit
+ * (client-controlled); without a cap a deep offset would re-grep every
+ * matching transcript. Rows ranked past this fall back to the snippet.
+ */
+const PASSAGE_MAX_ROWS_PER_HOST = 200;
+
 /** Default pagination window. */
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
@@ -447,6 +454,7 @@ async function resolveIdentityPaths(
   const allKeys = [...liveKeys, ...archivedKeys];
   if (allKeys.length === 0) return [];
   const archivedKeySet = new Set<string>(archivedKeys);
+  const liveKeySet = new Set<string>(liveKeys);
 
   let stdout: string;
   try {
@@ -475,7 +483,10 @@ async function resolveIdentityPaths(
         resolved.push({
           key,
           path: rec.path,
-          isArchived: archivedKeySet.has(key),
+          // Live wins: a key with BOTH folders (stale/partial archive) is a
+          // live identity — matches runOneHost's pathIndex rule, and keeps
+          // the gate reading the live file (the archive copy may be empty).
+          isArchived: archivedKeySet.has(key) && !liveKeySet.has(key),
         });
         break;
       }
@@ -562,7 +573,10 @@ async function gateHostRows(
 
   const lookByKey = new Map<string, SearchRowLook>();
   for (const key of uniqueKeys) {
-    const markdown = identityMd.get(key) ?? "";
+    // A key the batch couldn't even attempt (failed its name gate) is
+    // unverifiable → hidden, never treated as "no restriction".
+    const markdown = identityMd.get(key);
+    if (markdown === undefined) continue;
     const identityCos = extractCosmeticsFromFrontmatter(markdown);
     const roles = extractRolesFromMarkdown(markdown);
     const role = extractRoleFromMarkdown(markdown);
@@ -902,15 +916,29 @@ router.post(
             CONNECT_TIMEOUT_MS,
           );
           try {
-            const rows = await Promise.race<ConversationSearchResult[]>([
-              runOneHost(
-                conn as unknown as Parameters<
-                  typeof discoverIdentitySessionFile
-                >[0],
-                hostId,
-                hostName,
-                query,
-              ),
+            const c = conn as unknown as Parameters<
+              typeof discoverIdentitySessionFile
+            >[0];
+            // Every SSH exec for this host — grep, gate frontmatter batch,
+            // passage pass — runs inside ONE per-host timeout, so a host that
+            // stalls at any step costs its own rows, never the whole request.
+            return await Promise.race<ConversationSearchResult[]>([
+              (async () => {
+                const rows = await runOneHost(c, hostId, hostName, query);
+                // Phase 129 Plan 129-04: D-7 deep-gate seam #4 — batched
+                // frontmatter fetch, fail-CLOSED filter. Applied AFTER
+                // runOneHost so live and archived hits share one pass; BEFORE
+                // flatten so hidden hits never enter the aggregated response.
+                // See gateHostRows docblock for the fail-closed rationale.
+                const gatedRows = await gateHostRows(c, hostId, callerUsername, rows);
+                return attachPassages(
+                  c,
+                  hostId,
+                  gatedRows,
+                  query,
+                  Math.min(offset + limit, PASSAGE_MAX_ROWS_PER_HOST),
+                );
+              })(),
               new Promise<ConversationSearchResult[]>((_, reject) =>
                 setTimeout(
                   () => reject(new Error("per_host_timeout")),
@@ -918,26 +946,6 @@ router.post(
                 ),
               ),
             ]);
-            // Phase 129 Plan 129-04: D-7 deep-gate seam #4 — batched
-            // per-unique-identityKey frontmatter fetch, fail-CLOSED filter.
-            // Applied AFTER runOneHost returns hits so both live and
-            // archived paths share the same gateMap; BEFORE flatten so
-            // hidden hits never enter the aggregated response. See
-            // gateHostRows docblock for the fail-closed rationale (opposite
-            // of list-endpoint fail-open discipline).
-            const gatedRows = await gateHostRows(
-              conn as unknown as Parameters<typeof discoverIdentitySessionFile>[0],
-              hostId,
-              callerUsername,
-              rows,
-            );
-            return await attachPassages(
-              conn as unknown as Parameters<typeof discoverIdentitySessionFile>[0],
-              hostId,
-              gatedRows,
-              query,
-              offset + limit,
-            );
           } finally {
             try {
               (conn as { end?: () => void }).end?.();

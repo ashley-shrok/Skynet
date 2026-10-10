@@ -236,6 +236,23 @@ describe("passageForLine", () => {
     expect(passageForLine(line({ type: "user", message: { content: "cheese" } }), "")).toBeNull();
   });
 
+  it("finds the match on the original text even when lowercasing changes length (İ)", () => {
+    const p = passageForLine(
+      JSON.stringify({ type: "user", message: { content: "İİİİ then cheese" } }),
+      "cheese",
+    )!;
+    expect(p.text).toBe("İİİİ then cheese");
+  });
+
+  it("treats regex metacharacters in the query literally", () => {
+    expect(
+      passageForLine(JSON.stringify({ type: "user", message: { content: "cost is $5.00 (est)" } }), "$5.00 (est)"),
+    ).toMatchObject({ text: "cost is $5.00 (est)" });
+    expect(
+      passageForLine(JSON.stringify({ type: "user", message: { content: "cost is 5x00" } }), "5.00"),
+    ).toBeNull();
+  });
+
   it("collapses whitespace and windows ±220 chars with ellipses", () => {
     const long = "a".repeat(400) + "\n\n  CHEESE  " + "b".repeat(400);
     const p = passageForLine(line({ type: "user", message: { content: long } }), "cheese")!;

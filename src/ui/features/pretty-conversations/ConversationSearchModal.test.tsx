@@ -295,6 +295,21 @@ describe("ConversationSearchModal: sidebar-parity look + passages", () => {
     expect(row).not.toHaveTextContent("hello world");
   });
 
+  it("T-PASS-3: capped scan with no extra text passages still says there are more; highlight survives İ", async () => {
+    const row = await renderAndSearch(
+      makeRow({
+        transcriptPath: "/cap0.jsonl",
+        passages: [{ speaker: "user", text: "İİİİ foo", boilerplate: false }],
+        matchCount: 1,
+        matchCountCapped: true,
+      }),
+    );
+    expect(row.querySelector(".pv-search-row-more")).toHaveTextContent(
+      "More matches in this conversation",
+    );
+    expect(within(row).getByText("foo", { selector: "span.pv-search-hit" })).toBeInTheDocument();
+  });
+
   it("T-PASS-2: capped match count renders as N+", async () => {
     const row = await renderAndSearch(
       makeRow({

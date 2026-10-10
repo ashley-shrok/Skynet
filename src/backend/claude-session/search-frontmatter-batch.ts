@@ -24,7 +24,7 @@ import { execCommand } from "../ssh/tmux-helper.js";
 
 /** Names travel as positional args (never shell syntax); this gate is
  *  defense-in-depth against path games like `..`. */
-const NAME_RE = /^[a-z0-9_][a-z0-9._-]{0,63}$/;
+const NAME_RE = /^[a-z0-9_-][a-z0-9._-]{0,63}$/;
 
 /** ASCII record separator — cannot appear in a markdown frontmatter line. */
 const RS = "\x1e";
@@ -70,9 +70,11 @@ async function readBatch(
 
 /**
  * Frontmatter for each identity key, read from the live folder or — for keys
- * in `archivedKeys` — the archive folder. Keys with no readable file map to
- * "" (same contract as readIdentityFile's ENOENT branch). Throws when the
- * exec itself fails; the caller decides the fail-closed policy.
+ * in `archivedKeys` — the archive folder. Keys with no file map to "" (same
+ * contract as readIdentityFile's ENOENT branch); keys failing the name gate
+ * are ABSENT from the map so the caller can treat them as unverifiable.
+ * Throws when the exec itself fails; the caller decides the fail-closed
+ * policy.
  */
 export async function readIdentityFrontmattersBatch(
   conn: Client,

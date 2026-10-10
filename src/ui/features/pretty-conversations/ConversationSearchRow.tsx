@@ -91,19 +91,24 @@ function formatRelativeTime(mtimeMs: number, nowMs: number): string {
 /** Split `text` into React children with every case-insensitive
  *  occurrence of `query` wrapped in a .pv-search-hit span. */
 function highlightAll(text: string, query: string): Array<string | JSX.Element> {
-  const q = query.trim().toLowerCase();
+  const q = query.trim();
   if (q.length === 0) return [text];
-  const lower = text.toLowerCase();
+  // Case-insensitive regex over the ORIGINAL text — indices from a
+  // toLowerCase() copy drift on characters whose lowercase differs in
+  // length (e.g. "İ").
+  const re = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "giu");
   const out: Array<string | JSX.Element> = [];
   let i = 0;
-  for (let j = lower.indexOf(q); j !== -1; j = lower.indexOf(q, i)) {
+  for (const m of text.matchAll(re)) {
+    const j = m.index ?? 0;
+    if (m[0].length === 0) break;
     if (j > i) out.push(text.slice(i, j));
     out.push(
       <span key={j} className="pv-search-hit">
-        {text.slice(j, j + q.length)}
+        {m[0]}
       </span>,
     );
-    i = j + q.length;
+    i = j + m[0].length;
   }
   if (i < text.length) out.push(text.slice(i));
   return out;
@@ -169,10 +174,15 @@ export function ConversationSearchRow({
             </div>
           </div>
         ))}
-        {more > 0 && (
+        {/* matchCountCapped = the scan stopped before the end of the
+            transcript, so there may be more even when `more` is 0 (the
+            capped lines were tool output, not text). */}
+        {(more > 0 || result.matchCountCapped) && (
           <div className="pv-search-row-more">
             {result.matchCountCapped
-              ? `${more}+ more matches in this conversation`
+              ? more > 0
+                ? `${more}+ more matches in this conversation`
+                : "More matches in this conversation"
               : `+${more} more ${more === 1 ? "match" : "matches"} in this conversation`}
           </div>
         )}

@@ -1360,6 +1360,43 @@ describe("Phase 129: search-surface visibility gate", () => {
     expect(row.matchCountCapped).toBe(false);
   });
 
+  it("Test J: a key with BOTH a live and an archive folder is live — not archived, gated on the LIVE file", async () => {
+    mockSearchWithIdentityUsers("fig", { identityUsers: ["user"] });
+    mockSearchHits([{ identityKey: "fig", mtime: 200, content: "cheese" }]);
+    listArchivedIdentityKeysOnHostMock.mockResolvedValue(["fig"]); // stale archive folder too
+    mockUserId = "uid-zoe";
+    getUsernameForUserIdMock.mockResolvedValue("zoe");
+
+    const res = await httpPostJson(server, "/conversation-search", { query: "cheese" });
+    expect(res.status).toBe(200);
+    // The live file's users:[user] gate still closes for zoe.
+    expect((res.body as { results: unknown[] }).results).toHaveLength(0);
+    expect([...readIdentityBatchMock.mock.calls[0][2]]).toEqual([]);
+
+    getUsernameForUserIdMock.mockResolvedValue("user");
+    const res2 = await httpPostJson(server, "/conversation-search", { query: "cheese" });
+    const rows = (res2.body as { results: Array<Record<string, unknown>> }).results;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].isArchived).toBe(false);
+  });
+
+  it("Test K: a key the batch could not attempt (absent from its map) is HIDDEN, not ungated", async () => {
+    mockSearchWithIdentityUsers("scone");
+    mockSearchHits([
+      { identityKey: "muffin", mtime: 200, content: "cheese platter" },
+      { identityKey: "scone", mtime: 100, content: "cheese and crackers" },
+    ]);
+    readIdentityBatchMock.mockImplementation(async () => new Map([["scone", "---\n---\n"]]));
+    mockUserId = "uid-user";
+    getUsernameForUserIdMock.mockResolvedValue("user");
+
+    const res = await httpPostJson(server, "/conversation-search", { query: "cheese" });
+    const keys = (res.body as { results: Array<Record<string, unknown>> }).results.map(
+      (r) => r.identityKey,
+    );
+    expect(keys).toEqual(["scone"]);
+  });
+
   // -------------------------------------------------------------------------
   // Test G — FAIL-OPEN on null callerUsername (defensive per-request)
   // -------------------------------------------------------------------------

@@ -173,6 +173,10 @@ export interface SearchPassage {
 }
 
 const PASSAGE_HALF_WINDOW = 220;
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 const MARKUP_TAG_RE = /<\/?[a-z][a-z0-9_-]*(?:\s[^>]*)?>/gi;
 
 /**
@@ -202,10 +206,14 @@ export function passageForLine(rawLine: string, query: string): SearchPassage | 
     text = text.replace(MARKUP_TAG_RE, " ").replace(/\s+/g, " ").trim();
   }
 
-  const idx = text.toLowerCase().indexOf(query.toLowerCase());
-  if (idx === -1) return null;
+  // Case-insensitive regex on the ORIGINAL text (not indexOf on a
+  // toLowerCase() copy): some characters change length when lowercased
+  // (e.g. "İ"), which would shift the window off the match.
+  const m = new RegExp(escapeRegExp(query), "iu").exec(text);
+  if (m === null) return null;
+  const idx = m.index;
   const start = Math.max(0, idx - PASSAGE_HALF_WINDOW);
-  const end = Math.min(text.length, idx + query.length + PASSAGE_HALF_WINDOW);
+  const end = Math.min(text.length, idx + m[0].length + PASSAGE_HALF_WINDOW);
   return {
     speaker,
     text:
