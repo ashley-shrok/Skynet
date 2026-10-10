@@ -16,6 +16,7 @@ distributed: true
 <!-- 2026-10-09 (role history retired): "chronological history" dropped from the role-folder description (concept retired with the /role skill). -->
 <!-- 2026-10-10 (skill invocation modes): Skills editor ⋮ "Slash command only" renamed "User-invoked only"; new "Agent-invoked only" (`user-invocable: false`), mutually exclusive with it; compose-box lightning bolt renamed "Skills" (tooltip) and leaves agent-only skills out of its menu. -->
 <!-- 2026-10-10 (voice mode exclusive): one conversation in voice mode at a time — while on, every mic and every other voice-mode button is disabled; message speak buttons unaffected. -->
+<!-- 2026-10-10 (scheduled tasks rename): "scheduled agents" → "scheduled tasks" throughout, matching the app's clock-icon modal; on-disk paths (`~/fleet/scheduled-agents/`, `scheduled-agent.json`) unchanged. -->
 
 # Identity Skill
 
@@ -571,7 +572,7 @@ conversations open. Everything below is a mapping so that:
   there's nothing meaningful to drive (a pure user-navigation gesture).
 
 **Anti-clutter rule (recurring):** most controls that create new items
-in the user's sidebar (a project, a role, a scheduled agent, a spawned
+in the user's sidebar (a project, a role, a scheduled task, a spawned
 agent) are **user-gated on your side** — offer, don't self-execute. This
 is the same posture as `/id reset`, `/id archive`, and `.no-dormancy`.
 Where a section below says "user-gated," this is the rule it's invoking.
@@ -585,7 +586,7 @@ name, so she can find it without knowing the app's terminology.
 One control sits at the top of the conversation list, beside the app logo.
 Search is a dedicated input row directly below the header (see § The
 sidebar search input further down). The surfaces for standing things the
-user owns — scheduled agents, roles, skills — live in the sidebar footer
+user owns — scheduled tasks, roles, skills — live in the sidebar footer
 beside the gear (§ Sidebar footer); new projects are made from the
 **Projects** super-header (§ Sidebar content). There is no three-dots
 menu in the header and no "new group conversation" control in the app.
@@ -772,11 +773,11 @@ The footer holds the user's avatar and name on the left. On the right is a
 row of icons, in this order: clock, drama masks, lightning bolt, then (admins only)
 crown, then gear.
 
-- **🕐 Clock — scheduled agents.** Opens the modal that lists all
-  existing scheduled agents (edit or delete inline) plus a **"new
-  scheduled agent"** button that asks for name, prompt, one or more roles,
+- **🕐 Clock — scheduled tasks.** Opens the modal that lists all
+  existing scheduled tasks (edit or delete inline) plus a **"new
+  scheduled task"** button that asks for name, prompt, one or more roles,
   and the schedule (daily / weekly / interval / one-shot).
-  *Agent-side:* see § Scheduled agents. **User-gated.**
+  *Agent-side:* see § Scheduled tasks. **User-gated.**
 
 - **🎭 Drama masks — roles.** Opens a modal listing every role the
   user has access to on this box. Clicking one drills in; a **"new
@@ -1273,11 +1274,11 @@ An identity can hold **scheduled wake-ups** — things to check on a clock. They
 A user requesting anything schedule-shaped be created is ambiguous between TWO different mechanisms with different lifetimes:
 
 - a **wake-up on YOU** — fires an instruction into this already-running identity's session. Dies with this identity: per § Lifecycle, most identities are tissues, and when this one is archived the wake-up goes with it and never fires again.
-- a **scheduled agent** — fires on a clock and spawns a brand-new conversation each time to handle it (§ Scheduled agents). Outlives any one identity.
+- a **scheduled task** — fires on a clock and spawns a brand-new conversation each time to handle it (§ Scheduled tasks). Outlives any one identity.
 
-Don't silently pick for them — ASK which one they want, with the lifecycle implication spelled out: "wake-up on me (lost if you archive me) vs scheduled agent (fresh conversation will show up in the sidebar each time)." Then route accordingly.
+Don't silently pick for them — ASK which one they want, with the lifecycle implication spelled out: "wake-up on me (lost if you archive me) vs scheduled task (fresh conversation will show up in the sidebar each time)." Then route accordingly.
 
-Distinct from § Scheduled agents below: a wake-up fires an instruction
+Distinct from § Scheduled tasks below: a wake-up fires an instruction
 into your OWN already-running session (you are the target); a scheduled
 agent fires on a clock and spawns a **brand-new** identity to handle the
 prompt.
@@ -1342,7 +1343,7 @@ One JSON file per wake-up at
 
 ---
 
-## Scheduled agents (fleet-level) — the fleet's schedule
+## Scheduled tasks (fleet-level) — the fleet's schedule
 
 Distinct concept from the scheduled wake-ups above. Wake-ups fire an
 instruction into an **already-running** identity's session; **scheduled
@@ -1350,16 +1351,16 @@ agents** fire on a clock and **spawn a brand-new identity** to handle the
 prompt. Same primitive (a schedule on disk) — different consequence.
 
 Whereas a wake-up spec belongs to one identity and lives inside that
-identity's folder, a scheduled agent spec is a fleet-level thing that
+identity's folder, a scheduled task spec is a fleet-level thing that
 lives on the box, not on any identity. When it fires, the identity that
 carries out its prompt did not exist a moment ago.
 
 ### User-side counterpart
 
-The user creates and manages scheduled agents via the **clock icon** in
+The user creates and manages scheduled tasks via the **clock icon** in
 the sidebar footer, beside the gear. The modal lists all
-existing scheduled agents (edit or delete inline) and has a "new
-scheduled agent" button which asks for name, prompt, one or more roles,
+existing scheduled tasks (edit or delete inline) and has a "new
+scheduled task" button which asks for name, prompt, one or more roles,
 and the schedule (daily / weekly / interval / one-shot). Each row shows
 the humanized schedule and, beneath it, inline **Last / Next** run times
 (e.g. `Every 2h · Last: 3h ago · Next: in 27m`) so the user can tell at
@@ -1367,11 +1368,12 @@ a glance when the agent last fired and when it will fire again — hover
 either chip for the absolute datetime. Rows that have never actually
 fired (first-sight anchored only — see § On-disk shape below) show just
 `Next`; one_shots past their slot show just `Last`. If the user
-asks "how do I make a scheduled agent?" — point her at the clock icon.
+asks "how do I make a scheduled task?" — point her at the clock icon.
 
 ### On-disk shape
 
-Specs live at `~/fleet/scheduled-agents/<slug>/scheduled-agent.json`:
+Specs live at `~/fleet/scheduled-agents/<slug>/scheduled-agent.json` (the on-disk
+names predate the "scheduled tasks" name in the app — same thing):
 
 ```jsonc
 {
@@ -1417,13 +1419,13 @@ downstream re-writes it, and the stored `name` field on disk is untouched.
 
 ### Governance — user-reserved
 
-Same rule as wake-ups. An agent may **suggest** a scheduled agent, but
+Same rule as wake-ups. An agent may **suggest** a scheduled task, but
 only the user creates one — she says yes to a suggestion, or asks for it
 directly. Agents never self-schedule.
 
-### Two things a scheduled agent is NOT to be confused with
+### Two things a scheduled task is NOT to be confused with
 
-Both look superficially similar; neither is what a scheduled agent is.
+Both look superficially similar; neither is what a scheduled task is.
 
 - **Per-identity wake-ups** (the section above). Fire an instruction into
   your OWN running session. You are the target. A wake-up does not spawn
@@ -1437,7 +1439,7 @@ Both look superficially similar; neither is what a scheduled agent is.
   sometimes see it listed. **When the fleet's version of a concept and
   the harness's version of a concept exist for the same-sounding thing,
   agents choose the fleet's version — always.** For "scheduled
-  something": that means scheduled agents (this section), not `/schedule`.
+  something": that means scheduled tasks (this section), not `/schedule`.
 
 ---
 
