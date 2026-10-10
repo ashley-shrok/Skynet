@@ -857,7 +857,7 @@ export function PrettyConversationRow({
                 spinner ring on `.pv-avatar::before` (see pretty-conversations
                 .css). */}
         {/* shape-sidebar-header-affordances: row-level kebab menu. Positioned
-            absolute, top-right of the row card. Hover-reveal on desktop
+            absolute, right edge of the row card, vertically centered. Hover-reveal on desktop
             (opacity-0 at md+, group-hover + group-focus-within bump to 100);
             always-visible on mobile (opacity-100 at <md where no hover
             exists). RowKebabMenu's portal-click-containment prevents item
@@ -866,7 +866,7 @@ export function PrettyConversationRow({
             items[] (Open in new window / Move to / Kill / Archive) with the
             same per-item eligibility gates. */}
         <div
-          className="absolute top-1.5 right-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity shrink-0 z-[5]"
+          className="absolute top-1/2 -translate-y-1/2 right-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity shrink-0 z-[5]"
           data-testid="pv-row-kebab-slot"
         >
           <RowKebabMenu
