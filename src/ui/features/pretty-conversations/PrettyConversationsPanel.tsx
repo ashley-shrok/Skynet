@@ -333,6 +333,37 @@ const EMPTY_VISIBLE_SET: ReadonlySet<string> = new Set();
 // short-circuits to null → dot suppressed at the row level. RDP rows carry
 // targetTmuxSession=null and resolve to `${hostId}:` — a well-formed key
 // whose store entry stays null (Terminal.tsx never publishes to it).
+// The sidebar row an open pane's badge stands for, as the row-drag payload
+// the section drop handlers take — null when it has no (fileable) row. Open
+// tab ids don't always equal row ids, so fall back to the room, or to
+// host + session.
+function badgeRowDropPayload(
+  badge: DraggedBadge,
+  rows: readonly ConversationRowShape[],
+): PrettyProjectDropPayload | null {
+  const key = sessionMatchKey(badge.targetTmuxSession ?? badge.identityKey);
+  const row =
+    rows.find((r) => r.id === badge.tabId) ??
+    (badge.relayRoomId !== null
+      ? rows.find((r) => r.roomId === badge.relayRoomId)
+      : badge.hostId !== null && key !== null
+        ? rows.find(
+            (r) =>
+              r.host?.id === String(badge.hostId) &&
+              sessionMatchKey(r.targetTmuxSession) === key,
+          )
+        : undefined);
+  if (!row || row.rdpHostRow === true) return null;
+  return {
+    id: row.id,
+    host: row.host ?? null,
+    targetTmuxSession: row.targetTmuxSession ?? null,
+    matrixRoomId: row.roomId ?? null,
+    rdpHostRow: false,
+    identityKey: null,
+  };
+}
+
 function sessionWorkingKey(row: ConversationRowShape): string | null {
   if (!row.host) return null;
   return `${row.host.id}:${row.targetTmuxSession ?? ""}`;
@@ -2164,34 +2195,24 @@ export function PrettyConversationsPanel({
   // archive — lives on the BadgeDropLane, not the sidebar.) dragover can't
   // read the payload, so acceptance resolves the badge captured at
   // dragstart (badge-drag.ts); the drop itself resolves its own payload.
+  // dragover fires many times a second and every section asks, so the
+  // answer is remembered for the dragged badge (one object per drag).
+  const badgeDropCacheRef = useRef<{
+    badge: DraggedBadge;
+    sections: typeof projectSections;
+    payload: PrettyProjectDropPayload | null;
+  } | null>(null);
   const resolveBadgeDrop = useCallback(
     (badge: DraggedBadge | null): PrettyProjectDropPayload | null => {
       if (badge === null) return null;
-      const rows = [
+      const cached = badgeDropCacheRef.current;
+      if (cached?.badge === badge && cached.sections === projectSections) return cached.payload;
+      const payload = badgeRowDropPayload(badge, [
         ...rowsByIdRef.current.values(),
         ...projectSections.flatMap((sec) => sec.rows),
-      ];
-      const key = sessionMatchKey(badge.targetTmuxSession ?? badge.identityKey);
-      const row =
-        rows.find((r) => r.id === badge.tabId) ??
-        (badge.relayRoomId !== null
-          ? rows.find((r) => r.roomId === badge.relayRoomId)
-          : badge.hostId !== null && key !== null
-            ? rows.find(
-                (r) =>
-                  r.host?.id === String(badge.hostId) &&
-                  sessionMatchKey(r.targetTmuxSession) === key,
-              )
-            : undefined);
-      if (!row || row.rdpHostRow === true) return null;
-      return {
-        id: row.id,
-        host: row.host ?? null,
-        targetTmuxSession: row.targetTmuxSession ?? null,
-        matrixRoomId: row.roomId ?? null,
-        rdpHostRow: false,
-        identityKey: null,
-      };
+      ]);
+      badgeDropCacheRef.current = { badge, sections: projectSections, payload };
+      return payload;
     },
     [projectSections],
   );
@@ -2250,7 +2271,7 @@ export function PrettyConversationsPanel({
       setIsFlatMiddleDragOver(false);
       releaseFlatMiddlePreview();
     },
-    [releaseFlatMiddlePreview],
+    [releaseFlatMiddlePreview, acceptsSidebarDrag],
   );
 
   const handleFlatMiddleDrop = useCallback(
@@ -2360,7 +2381,7 @@ export function PrettyConversationsPanel({
       setIsPinnedZoneDragOver(false);
       releasePinnedPreview();
     },
-    [releasePinnedPreview],
+    [releasePinnedPreview, acceptsSidebarDrag],
   );
 
   const handlePinnedZoneDrop = useCallback(

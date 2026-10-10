@@ -121,5 +121,5 @@ export function useDraggedBadge(): DraggedBadge | null {
 
 /** Test-only: drop any captured badge. */
 export function __resetDraggedBadgeForTests(): void {
-  current = null;
+  set(null);
 }

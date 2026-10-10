@@ -3878,7 +3878,14 @@ export function AppShell({
               lane's hover state doesn't compete with PrettyView targets. */}
           {shouldMountBadgeDropLane({ isMobile, isMobileListScreen }) && (
             <BadgeDropLane
-              draggedBadge={draggedBadge}
+              // A badge whose tab is already gone (a cross-window move closed
+              // it before its dragend could reach this window) hides the lane
+              // rather than leaving it stuck over the content.
+              draggedBadge={
+                draggedBadge !== null && tabs.some((t) => t.id === draggedBadge.tabId)
+                  ? draggedBadge
+                  : null
+              }
               openTabIds={tabs.map((t) => t.id)}
               onCloseTab={closeTab}
               onArchiveTab={archiveBadgePane}

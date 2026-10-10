@@ -144,7 +144,9 @@ export default function BadgeDropLane({
       const zone = zoneAt(el.getBoundingClientRect(), e.clientY, archiveZoneRef.current);
       // eslint-disable-next-line no-console
       console.info(`[badge-lane-drop] zone=${zone} tabId=${badge.tabId}`);
-      if (zone === "archive") onArchiveTabRef.current?.(badge);
+      // The archive confirm is a modal — open it after the drop has
+      // finished, not while the browser is still inside the drag.
+      if (zone === "archive") setTimeout(() => onArchiveTabRef.current?.(badge), 0);
       else onCloseTabRef.current(badge.tabId);
     };
 

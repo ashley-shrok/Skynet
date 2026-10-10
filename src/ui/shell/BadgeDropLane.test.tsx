@@ -146,8 +146,13 @@ describe("BadgeDropLane", () => {
   });
 
   it("drop on the archive zone hands the badge to onArchiveTab (which owns the confirm)", () => {
+    vi.useFakeTimers();
     const { lane, onCloseTab, onArchiveTab } = renderLane();
     dispatchNative(lane(), "drop", badgeDt(), { y: ARCHIVE_Y });
+    // Deferred past the drop so the confirm modal doesn't open mid-drag.
+    expect(onArchiveTab).not.toHaveBeenCalled();
+    vi.runAllTimers();
+    vi.useRealTimers();
     expect(onArchiveTab).toHaveBeenCalledTimes(1);
     expect(onArchiveTab.mock.calls[0][0]).toMatchObject({ tabId: "tab-1" });
     expect(onCloseTab).not.toHaveBeenCalled();
