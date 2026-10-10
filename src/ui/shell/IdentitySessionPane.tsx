@@ -13,11 +13,10 @@ import { useIdentities, applyIdentityChange } from "@/state/identities-store";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useTabsSafe } from "@/shell/TabContext";
 import { specForTab, encodeWorkspaceSpec } from "@/lib/tab-url";
-import {
-  PrettyConversationContextMenu,
-  type PrettyContextMenuItem,
-  type PrettyContextMenuSubmenuItem,
-} from "@/features/pretty-conversations/PrettyConversationContextMenu";
+import type {
+  RowKebabMenuItem,
+  RowKebabSubmenuItem,
+} from "@/features/pretty-conversations/RowKebabMenu";
 import {
   fleetRowId,
   usePinnedIds,
@@ -122,16 +121,6 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
     const [isPrettyMode, setIsPrettyMode] = useState(true);
     const [isMessageQueueOpen, setIsMessageQueueOpen] = useState(false);
     const [isIdentityModalOpen, setIsIdentityModalOpen] = useState(false);
-    // Terminal-mode identity-badge context menu state. Cursor coords on
-    // desktop right-click; badge-anchored coords on mobile long-press
-    // (positioning handled at the trigger site). Null = closed.
-    // Pretty-mode has its own equivalent state slot inside PrettyView —
-    // the two badges are conditionally mounted (gated on !isPrettyMode
-    // vs isPrettyMode), so their menu states never coexist.
-    const [terminalBadgeMenu, setTerminalBadgeMenu] = useState<
-      { x: number; y: number } | null
-    >(null);
-
     // --- Hoisted refs ---
     // PrettyView populates these on mount via onRegisterSendInput/onRegisterSendInterrupt.
     // MessageQueueDrawer reads pvSendInputRef.current for sends.
@@ -185,8 +174,8 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
       (shadowFleetId !== null && pinnedIds.has(shadowFleetId)) ||
       pinnedIds.has(tabId);
 
-    const identityBadgeContextMenuItems = useMemo<PrettyContextMenuItem[]>(() => {
-      const items: PrettyContextMenuItem[] = [];
+    const identityBadgeContextMenuItems = useMemo<RowKebabMenuItem[]>(() => {
+      const items: RowKebabMenuItem[] = [];
 
       // Move-to-new-window is desktop-only — mobile has no multi-window story.
       if (!isMobile) {
@@ -289,7 +278,7 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
             },
           );
         };
-        const submenu: PrettyContextMenuSubmenuItem[] = [];
+        const submenu: RowKebabSubmenuItem[] = [];
         submenu.push({
           label: "Pinned",
           checked: shownPinned,
@@ -739,40 +728,9 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
                 sessionKind: "harness",
                 targetTmuxSession: effectiveTmuxSession,
               }}
-              onContextMenu={
-                identityBadgeContextMenuItems.length > 0
-                  ? (e) => {
-                      e.preventDefault();
-                      if (isMobile) {
-                        // Mobile long-press → menu anchored to the badge,
-                        // not the touch coord (which sits under the user's
-                        // finger). Drops down-and-inward from the badge's
-                        // bottom-left; PrettyConversationContextMenu's
-                        // viewport-clamp handles edge cases.
-                        const rect = e.currentTarget.getBoundingClientRect();
-                        setTerminalBadgeMenu({ x: rect.left, y: rect.bottom + 4 });
-                      } else {
-                        setTerminalBadgeMenu({ x: e.clientX, y: e.clientY });
-                      }
-                    }
-                  : undefined
-              }
+              menuItems={identityBadgeContextMenuItems}
             />
           )}
-          {/* Terminal-mode badge context menu — mirrors the pretty-mode
-              equivalent inside PrettyView. Same item list (built once
-              above and threaded to PrettyView via
-              identityBadgeContextMenuItems), same close semantics. */}
-          {terminalBadgeMenu !== null &&
-            identityBadgeContextMenuItems.length > 0 && (
-              <PrettyConversationContextMenu
-                x={terminalBadgeMenu.x}
-                y={terminalBadgeMenu.y}
-                items={identityBadgeContextMenuItems}
-                hue={sessionHue ?? null}
-                onClose={() => setTerminalBadgeMenu(null)}
-              />
-            )}
 
           {/* IdentityModal — gated on !isPrettyMode (terminal-mode surface).
               Replaces Terminal.tsx L3424-3446. Wrapper owns isIdentityModalOpen. */}

@@ -16,6 +16,7 @@ distributed: true
 <!-- 2026-10-09 (role history retired): "chronological history" dropped from the role-folder description (concept retired with the /role skill). -->
 <!-- 2026-10-10 (skill invocation modes): Skills editor ⋮ "Slash command only" renamed "User-invoked only"; new "Agent-invoked only" (`user-invocable: false`), mutually exclusive with it; compose-box lightning bolt renamed "Skills" (tooltip) and leaves agent-only skills out of its menu. -->
 <!-- 2026-10-10 (voice mode exclusive): one conversation in voice mode at a time — while on, every mic and every other voice-mode button is disabled; message speak buttons unaffected. -->
+<!-- 2026-10-10 (badge kebab): the conversation badge gained an always-visible ⋮ at the pill's right end opening the same menu style as sidebar rows; right-click opens it too; badge long-press retired. -->
 <!-- 2026-10-10 (scheduled tasks rename): "scheduled agents" → "scheduled tasks" throughout, matching the app's clock-icon modal; on-disk paths (`~/fleet/scheduled-agents/`, `scheduled-agent.json`) unchanged. -->
 
 # Identity Skill
@@ -714,8 +715,9 @@ not something agents drive.
     **User-gated.**
   - **Archive** — retires the identity. See § On `/id archive`.
 
-  The same menu CONTENT appears via right-click on the identity badge in
-  the open conversation view (upper-right).
+  The same menu CONTENT appears on the identity badge in the open
+  conversation view (upper-right) — its own three-dots button, or
+  right-click.
 
 - **Projects section (below Pinned).** A **Projects** super-header
   with a **➕ plus** on its right; every project sits indented beneath it.
@@ -874,8 +876,11 @@ crown, then gear.
   conversation is pinned, a dark-bubble pin indicator overlays the
   avatar's top-left corner — same visual as the sidebar row's pin
   flag, flips in lockstep with it. Click = opens the **identity
-  modal** (next item). Right-click = the same right-click menu as the
-  sidebar row (pin, open in new window, move to project, archive).
+  modal** (next item). A **three-dots (⋮) button** at the pill's right
+  end — always visible, and the way in on a phone — opens the badge menu;
+  right-clicking the badge opens the same menu. Same look as the sidebar
+  row's menu: **Move to new window** (desktop only), **Switch to terminal
+  / chat view** (admins only), **Move to** (Pinned + projects), **Archive**.
 
 - **Identity modal (click the badge).** Three tabs:
   - **Identity file** — view and edit the identity's own `<name>.md`.

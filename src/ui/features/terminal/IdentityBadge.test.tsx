@@ -15,7 +15,8 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { Identity } from "@/api/identities-api";
 
 // ── Fixture identity (must satisfy full Identity shape) ─────────────────────
@@ -116,117 +117,66 @@ describe("IdentityBadge — core render", () => {
     expect(root.className).toContain("[-webkit-touch-callout:none]");
   });
 
-  // On mobile the browser-native contextmenu event doesn't fire reliably
-  // on long-press (iOS Safari suppresses it when the callout is disabled;
-  // Chrome Android is inconsistent on <button> + select-none). The badge
-  // restores parity via a 500ms pointerdown timer that synthesizes the
-  // onContextMenu call. This test locks that behavior.
-  //   L1: pointerdown + 500ms fires onContextMenu once with badge rect
-  //   L2: pointerup BEFORE 500ms does NOT fire onContextMenu; click fires
-  //   L3: completed long-press swallows the trailing click
-  //   L4: desktop viewport does NOT fire onContextMenu from pointerdown
-  //       (native contextmenu still handles right-click there)
-  describe("mobile long-press → onContextMenu (parity restore)", () => {
-    beforeEach(() => {
-      vi.useFakeTimers();
-    });
-    afterEach(() => {
-      vi.useRealTimers();
-      setMobileViewport(false);
+  // Badge kebab (shared RowKebabMenu surface). menuItems non-empty → a ⋮
+  // trigger renders inside the pill and right-click opens the same menu.
+  // Touch long-press is retired (kebab is the mobile path, as on rows).
+  describe("badge kebab menu", () => {
+    const items = () => [
+      { label: "Move to new window", onClick: vi.fn() },
+      { label: "Archive", danger: true, onClick: vi.fn() },
+    ];
+
+    it("KEB-1: menuItems → kebab trigger renders inside a role=button <div> root", () => {
+      render(<IdentityBadge identityKey="tina" onClick={vi.fn()} menuItems={items()} />);
+      const root = screen.getByTestId("identity-badge-root");
+      expect(root.tagName).toBe("DIV");
+      expect(root.getAttribute("role")).toBe("button");
+      const trigger = screen.getByTestId("identity-badge-kebab-trigger");
+      expect(root.contains(trigger)).toBe(true);
+      expect(trigger.getAttribute("aria-label")).toBe("Agent menu");
     });
 
-    it("L1: mobile pointerdown + 500ms fires onContextMenu once with currentTarget = badge", () => {
-      setMobileViewport(true);
-      const onClick = vi.fn();
-      const onContextMenu = vi.fn();
-      render(
-        <IdentityBadge
-          identityKey="tina"
-          onClick={onClick}
-          onContextMenu={onContextMenu}
-        />,
-      );
-      const root = screen.getByTestId("identity-badge-root");
-      fireEvent.pointerDown(root, {
-        pointerType: "touch",
-        button: 0,
-        clientX: 100,
-        clientY: 40,
-      });
-      expect(onContextMenu).not.toHaveBeenCalled();
-      vi.advanceTimersByTime(500);
-      expect(onContextMenu).toHaveBeenCalledTimes(1);
-      const arg = onContextMenu.mock.calls[0][0];
-      expect(arg.currentTarget).toBe(root);
-      expect(arg.clientX).toBe(100);
-      expect(arg.clientY).toBe(40);
-      expect(typeof arg.preventDefault).toBe("function");
+    it("KEB-2: no menuItems (or empty) → no kebab trigger", () => {
+      const { rerender } = render(<IdentityBadge identityKey="tina" onClick={vi.fn()} />);
+      expect(screen.queryByTestId("identity-badge-kebab-trigger")).toBeNull();
+      rerender(<IdentityBadge identityKey="tina" onClick={vi.fn()} menuItems={[]} />);
+      expect(screen.queryByTestId("identity-badge-kebab-trigger")).toBeNull();
     });
 
-    it("L2: mobile pointerup BEFORE 500ms does NOT fire onContextMenu; onClick fires normally", () => {
-      setMobileViewport(true);
+    it("KEB-3: kebab opens the menu, item click fires its onClick, badge onClick does NOT fire", async () => {
+      const user = userEvent.setup();
       const onClick = vi.fn();
-      const onContextMenu = vi.fn();
-      render(
-        <IdentityBadge
-          identityKey="tina"
-          onClick={onClick}
-          onContextMenu={onContextMenu}
-        />,
-      );
-      const root = screen.getByTestId("identity-badge-root");
-      fireEvent.pointerDown(root, { pointerType: "touch", button: 0 });
-      vi.advanceTimersByTime(200);
-      fireEvent.pointerUp(root, { pointerType: "touch", button: 0 });
-      vi.advanceTimersByTime(500);
-      expect(onContextMenu).not.toHaveBeenCalled();
-      fireEvent.click(root);
-      expect(onClick).toHaveBeenCalledTimes(1);
-    });
-
-    it("L3: completed long-press swallows the trailing synthetic click", () => {
-      setMobileViewport(true);
-      const onClick = vi.fn();
-      const onContextMenu = vi.fn();
-      render(
-        <IdentityBadge
-          identityKey="tina"
-          onClick={onClick}
-          onContextMenu={onContextMenu}
-        />,
-      );
-      const root = screen.getByTestId("identity-badge-root");
-      fireEvent.pointerDown(root, { pointerType: "touch", button: 0 });
-      vi.advanceTimersByTime(500);
-      fireEvent.pointerUp(root, { pointerType: "touch", button: 0 });
-      fireEvent.click(root);
-      expect(onContextMenu).toHaveBeenCalledTimes(1);
+      const its = items();
+      render(<IdentityBadge identityKey="tina" onClick={onClick} menuItems={its} />);
+      await user.click(screen.getByTestId("identity-badge-kebab-trigger"));
+      await user.click(screen.getByRole("menuitem", { name: "Move to new window" }));
+      expect(its[0].onClick).toHaveBeenCalledTimes(1);
       expect(onClick).not.toHaveBeenCalled();
-      // Next tap works normally.
-      fireEvent.click(root);
-      expect(onClick).toHaveBeenCalledTimes(1);
     });
 
-    it("L4: desktop pointerdown + 500ms does NOT fire onContextMenu (native contextmenu handles it)", () => {
-      setMobileViewport(false);
-      const onClick = vi.fn();
-      const onContextMenu = vi.fn();
-      render(
-        <IdentityBadge
-          identityKey="tina"
-          onClick={onClick}
-          onContextMenu={onContextMenu}
-        />,
-      );
-      const root = screen.getByTestId("identity-badge-root");
-      fireEvent.pointerDown(root, {
-        pointerType: "mouse",
-        button: 0,
-        clientX: 100,
-        clientY: 40,
+    it("KEB-4: mouse right-click on the pill opens the same menu", async () => {
+      render(<IdentityBadge identityKey="tina" onClick={vi.fn()} menuItems={items()} />);
+      fireEvent.contextMenu(screen.getByTestId("identity-badge-root"), { clientX: 100, clientY: 40 });
+      expect(await screen.findByRole("menuitem", { name: "Archive" })).toBeTruthy();
+    });
+
+    it("KEB-5: touch long-press contextmenu does NOT open the menu", () => {
+      render(<IdentityBadge identityKey="tina" onClick={vi.fn()} menuItems={items()} />);
+      const ev = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+      Object.defineProperty(ev, "pointerType", { value: "touch" });
+      act(() => {
+        screen.getByTestId("identity-badge-root").dispatchEvent(ev);
       });
-      vi.advanceTimersByTime(500);
-      expect(onContextMenu).not.toHaveBeenCalled();
+      expect(screen.queryByRole("menu")).toBeNull();
+    });
+
+    it("KEB-6: Enter / Space on the focused pill fire onClick", () => {
+      const onClick = vi.fn();
+      render(<IdentityBadge identityKey="tina" onClick={onClick} menuItems={items()} />);
+      const root = screen.getByTestId("identity-badge-root");
+      fireEvent.keyDown(root, { key: "Enter" });
+      fireEvent.keyDown(root, { key: " " });
+      expect(onClick).toHaveBeenCalledTimes(2);
     });
   });
 });
@@ -478,58 +428,6 @@ describe("IdentityBadge — Phase 67 coordinator watermark", () => {
     const inlineStyle = watermark.getAttribute("style") ?? "";
     expect(inlineStyle).toContain("rgb(151, 189, 247)"); // = hsl(216, 85%, 78%)
     expect(inlineStyle).not.toContain("rgb(247, 207, 151)"); // ≠ hsl(35, 85%, 78%)
-  });
-
-  // ── onContextMenu wire-up (pv-identity-badge-move-to-new-window bounty) ──
-  // Guards the identity-badge → PV context-menu integration surface. The
-  // badge itself only owns the handler wire; the menu rendering + item
-  // semantics live upstream (PrettyView + IdentitySessionPane). If a
-  // future refactor drops onContextMenu from the button/div render branches
-  // the "Move to new window" affordance goes silent — this catches it.
-  describe("onContextMenu prop", () => {
-    beforeEach(() => {
-      vi.mocked(useIdentities).mockReturnValue({
-        identities: [FIXTURE],
-        byKey: new Map([["tina", FIXTURE]]),
-        loaded: true,
-        refresh: vi.fn(),
-      });
-    });
-
-    it("CTX-1: interactive <button> branch fires onContextMenu on right-click", () => {
-      const onContextMenu = vi.fn();
-      render(
-        <IdentityBadge
-          identityKey="tina"
-          onClick={vi.fn()}
-          onContextMenu={onContextMenu}
-        />,
-      );
-      const root = screen.getByTestId("identity-badge-root");
-      expect(root.tagName).toBe("BUTTON");
-      fireEvent.contextMenu(root);
-      expect(onContextMenu).toHaveBeenCalledTimes(1);
-    });
-
-    it("CTX-2: non-interactive <div> branch also fires onContextMenu on right-click", () => {
-      const onContextMenu = vi.fn();
-      render(
-        <IdentityBadge identityKey="tina" onContextMenu={onContextMenu} />,
-      );
-      const root = screen.getByTestId("identity-badge-root");
-      expect(root.tagName).toBe("DIV");
-      fireEvent.contextMenu(root);
-      expect(onContextMenu).toHaveBeenCalledTimes(1);
-    });
-
-    it("CTX-3: no onContextMenu → default browser context menu is not suppressed", () => {
-      render(<IdentityBadge identityKey="tina" onClick={vi.fn()} />);
-      const root = screen.getByTestId("identity-badge-root");
-      // No throw + no attached handler ⇒ the event bubbles without React
-      // catching it. Just verify the render is clean.
-      expect(root).toBeTruthy();
-      fireEvent.contextMenu(root); // must not throw
-    });
   });
 });
 

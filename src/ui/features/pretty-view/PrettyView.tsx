@@ -86,12 +86,8 @@ import {
   useSessionIdentity,
 } from "@/features/terminal/session-hue";
 import { IdentityBadge } from "@/features/terminal/IdentityBadge";
-import {
-  PrettyConversationContextMenu,
-  type PrettyContextMenuItem,
-} from "@/features/pretty-conversations/PrettyConversationContextMenu";
+import type { RowKebabMenuItem } from "@/features/pretty-conversations/RowKebabMenu";
 import { useIsTouchDevice } from "@/hooks/use-is-touch-device";
-import { useIsMobile } from "@/hooks/use-mobile";
 import { formatInjectedUserTurn } from "@/api/pretty-view-upload-protocol";
 // Phase 137 Plan 03 (D-16): UserPreferences type for the fallbackVoice
 // resolution chain in the speak flow.
@@ -353,18 +349,15 @@ export interface PrettyViewProps {
   // (the sole production caller) always has `tab.id` in scope and passes
   // it through.
   tabId?: string;
-  // Context-menu items to attach to the IdentityBadge. Absent OR empty
-  // array = no context menu (badge behaves as before). Present with items
-  // = the shared PrettyConversationContextMenu opens on right-click
-  // (desktop) or long-press (mobile) — the trigger site anchors to the
-  // touch coord on desktop and to the badge's own rect on mobile so the
-  // menu doesn't open under the user's finger. Caller owns each item's
+  // Menu items for the IdentityBadge. Absent OR empty array = no menu.
+  // Present with items = the badge shows a ⋮ kebab and right-click opens
+  // the same menu (shared RowKebabMenu surface). Caller owns each item's
   // onClick semantic (e.g. "Move to new window" builds a workspace spec
   // + window.open + closes the current tab). Same items list flows to
   // both surfaces (terminal-mode and pretty-mode badges) — the caller
   // filters items per-surface (e.g. "Move to new window" is desktop-only,
   // "Switch to (terminal/chat) view" is admin-only).
-  identityBadgeContextMenuItems?: PrettyContextMenuItem[];
+  identityBadgeContextMenuItems?: RowKebabMenuItem[];
   // Phase 137 Plan 03 (D-16): per-user voice preferences for the speak
   // flow. fallbackVoice is the last voice candidate after the identity's and
   // role's voices, before the TTS provider's default (voice-candidates.ts).
@@ -1009,12 +1002,6 @@ export function PrettyView({
     pushIdentityModalOpen();
     return () => popIdentityModalOpen();
   }, [isIdentityModalOpen]);
-  // Identity badge right-click context menu. Populated on onContextMenu at
-  // cursor coords; cleared by the menu's onClose (Esc, click-outside, item
-  // click). Only opens when the caller supplied identityBadgeContextMenuItems.
-  const [identityBadgeMenu, setIdentityBadgeMenu] = useState<
-    { x: number; y: number } | null
-  >(null);
   // Phase 89 Plan 06: swap-not-stack coordination (D-06) — non-null when the
   // runbook editor is open, null when closed. Set by handleOpenRunbook (fired
   // from IdentityModal's Runbooks tab row click OR from RoleModal's Runbooks
@@ -2172,10 +2159,6 @@ export function PrettyView({
   // regardless of window width. Do NOT re-detect touch here; the shared
   // hook (patch #102) is the single source of truth.
   const isTouchDevice = useIsTouchDevice();
-  // Viewport-based mobile check — used by the identity-badge context-menu
-  // trigger to anchor the menu to the badge (not the touch coord) so the
-  // menu doesn't open under the user's finger on mobile long-press.
-  const isMobile = useIsMobile();
 
   // Phase 05: drag/drop state for the DropOverlay. `dragCounter` tracks
   // enter/leave events, which can misfire when the drag moves over child
@@ -4145,25 +4128,7 @@ export function PrettyView({
             sessionKind: "harness",
             targetTmuxSession: tmuxSession || null,
           }}
-          onContextMenu={
-            identityBadgeContextMenuItems &&
-            identityBadgeContextMenuItems.length > 0
-              ? (e) => {
-                  e.preventDefault();
-                  if (isMobile) {
-                    // Mobile long-press → menu anchored to the badge, not
-                    // the touch coord (which sits under the user's finger).
-                    // Drops down-and-inward from the badge's bottom-left;
-                    // PrettyConversationContextMenu's viewport-clamp
-                    // handles edge cases.
-                    const rect = e.currentTarget.getBoundingClientRect();
-                    setIdentityBadgeMenu({ x: rect.left, y: rect.bottom + 4 });
-                  } else {
-                    setIdentityBadgeMenu({ x: e.clientX, y: e.clientY });
-                  }
-                }
-              : undefined
-          }
+          menuItems={identityBadgeContextMenuItems}
         />
       )}
       {/* Phase 93 Slice 2 (D-01/D-02/D-03/D-18): relay-case multi-badge
@@ -4189,17 +4154,6 @@ export function PrettyView({
           relayRoomTitle={source.kind === "relay" ? source.roomTitle : undefined}
         />
       )}
-      {identityBadgeMenu !== null &&
-        identityBadgeContextMenuItems &&
-        identityBadgeContextMenuItems.length > 0 && (
-          <PrettyConversationContextMenu
-            x={identityBadgeMenu.x}
-            y={identityBadgeMenu.y}
-            items={identityBadgeContextMenuItems}
-            hue={pvIdentity?.colorHue ?? null}
-            onClose={() => setIdentityBadgeMenu(null)}
-          />
-        )}
       {/* Phase 80 Plan 07: centered task pill in the top bar. Sibling to
           IdentityBadge (which stays top-right at z-[101]). Renders iff
           the identity resolves AND carries a truthy `task` string (D-06

@@ -1,15 +1,15 @@
-import { useEffect, useRef } from "react";
-import type {
-  DragEvent as ReactDragEvent,
-  MouseEvent as ReactMouseEvent,
-  PointerEvent as ReactPointerEvent,
-} from "react";
+import type { DragEvent as ReactDragEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Folder, GitPullRequestDraft, Pin } from "lucide-react";
 import { useIdentities } from "@/state/identities-store";
 import { useProjects, usePinnedIds, fleetRowId } from "@/state/conversation-store";
 import { useIsMobile } from "@/hooks/use-mobile";
 import type { TabType } from "@/types/ui-types";
 import { armOutboundDrag, mintDragId } from "@/shell/cross-window-drag";
+import {
+  RowKebabMenu,
+  useRowKebabContextMenu,
+  type RowKebabMenuItem,
+} from "@/features/pretty-conversations/RowKebabMenu";
 // Phase 68 Plan 04: avatarUrlWithHost deleted — backend bakes hostId into identity.avatarUrl.
 // Phase 104 Plan 02: the `hostId` prop below is REACTIVATED for the trapped-
 // work store lookup (superseding the Phase 68 "no longer used" note). Existing
@@ -62,19 +62,12 @@ export interface IdentityBadgeProps {
     relayRoomTitle?: string | null;
     targetTmuxSession?: string | null;
   };
-  // Context-menu handler. Fires on desktop right-click and on mobile
-  // long-press. On desktop the browser-native `contextmenu` event drives
-  // it. On mobile we can't rely on that: iOS Safari suppresses the
-  // contextmenu-event pathway when the callout is disabled via
-  // `[-webkit-touch-callout:none]` (which we DO set to hide the magnifier /
-  // share sheet), and Chrome Android's contextmenu-on-long-press dispatch
-  // is inconsistent on <button> + select-none. So when `isMobile` is true
-  // we drive this via a 500ms pointerdown timer inside the component and
-  // synthesize the call with a minimal event-shaped object
-  // ({preventDefault, currentTarget, clientX, clientY}) — the fields both
-  // call sites (PrettyView + IdentitySessionPane) actually read. Wired to
-  // both render branches (<button> + <div>).
-  onContextMenu?: (e: ReactMouseEvent<HTMLElement>) => void;
+  // Badge menu (Move to new window / Switch view / Move to / Archive).
+  // Non-empty → a ⋮ kebab renders at the pill's right end and right-click
+  // on the pill opens the same menu — the shared RowKebabMenu surface every
+  // sidebar kebab uses. Touch long-press is retired, as on sidebar rows: the
+  // kebab is always visible, so it is the mobile path.
+  menuItems?: RowKebabMenuItem[];
 }
 
 // Quick 260806-lzd — single-variant refactor. The former `md` branch
@@ -90,7 +83,7 @@ export function IdentityBadge({
   onClick,
   tabId,
   dragDescriptor,
-  onContextMenu,
+  menuItems,
 }: IdentityBadgeProps) {
   const { byKey, byHostKey } = useIdentities();
   // Cosmetics consumer: prefer byHostKey composite lookup (quick-260912-0t4)
@@ -112,66 +105,11 @@ export function IdentityBadge({
   const isMobile = useIsMobile();
   const isDragSource = !!tabId && !isMobile;
 
-  // Mobile-only long-press → synthesized onContextMenu call. See prop
-  // docstring above for why the browser-native contextmenu path can't
-  // carry mobile: iOS Safari suppresses it when the callout is disabled,
-  // and Chrome Android is inconsistent. This 500ms pointerdown timer
-  // restores desktop right-click parity on touch devices.
-  //   longPressTimerRef  — the setTimeout id while armed; null once
-  //                        cleared or fired.
-  //   longPressFiredRef  — true from the moment the timer fired until the
-  //                        trailing synthetic click resets it. Used to
-  //                        swallow the click so a completed long-press
-  //                        does not also open IdentityModal.
-  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const longPressFiredRef = useRef(false);
-  useEffect(() => {
-    return () => {
-      if (longPressTimerRef.current !== null) {
-        clearTimeout(longPressTimerRef.current);
-        longPressTimerRef.current = null;
-      }
-    };
-  }, []);
-  const wireLongPress = isMobile && !!onContextMenu;
-  const clearLongPressTimer = () => {
-    if (longPressTimerRef.current !== null) {
-      clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
-    }
-  };
-  const handleLongPressPointerDown = wireLongPress
-    ? (e: ReactPointerEvent<HTMLElement>) => {
-        // Mouse right-click on a touch-capable laptop should not fight the
-        // timer — desktop's onContextMenu path handles that. `button` is
-        // 0 for touch/pen taps.
-        if (e.pointerType === "mouse" && e.button !== 0) return;
-        longPressFiredRef.current = false;
-        clearLongPressTimer();
-        const target = e.currentTarget;
-        const startX = e.clientX;
-        const startY = e.clientY;
-        longPressTimerRef.current = setTimeout(() => {
-          longPressFiredRef.current = true;
-          longPressTimerRef.current = null;
-          onContextMenu?.({
-            preventDefault: () => {},
-            currentTarget: target,
-            clientX: startX,
-            clientY: startY,
-          } as unknown as ReactMouseEvent<HTMLElement>);
-        }, 500);
-      }
-    : undefined;
-  const handleLongPressPointerMove = wireLongPress
-    ? clearLongPressTimer
-    : undefined;
-  const handleLongPressPointerUp = wireLongPress
-    ? clearLongPressTimer
-    : undefined;
-  const handleLongPressPointerCancel = wireLongPress
-    ? clearLongPressTimer
-    : undefined;
+  // Called before the `if (!identity) return null` early return (Rules of
+  // Hooks — same discipline as the hooks below).
+  const kebabItems = menuItems ?? [];
+  const hasMenu = kebabItems.length > 0;
+  const kebabContextMenu = useRowKebabContextMenu(kebabItems);
 
   // Phase 104 Plan 02 (D-05, D-06, D-07): per-identity trapped-work snapshot.
   // hostId prop is reactivated here (Pattern 4 in RESEARCH.md — Phase 68 made
@@ -234,8 +172,7 @@ export function IdentityBadge({
   // --pv-id-hue fallback).
   const hue = identity.colorHue ?? 35;
   // `[-webkit-touch-callout:none]` suppresses iOS Safari's native long-
-  // press callout (magnifier, share sheet, "Look Up") so our own context
-  // menu is the only surface that appears on mobile long-press. Matches
+  // press callout (magnifier, share sheet, "Look Up") on the pill. Matches
   // the pattern established for MicButton (ComposeBox.hold-to-mic.test —
   // Test 12 locks the class token). `select-none` already prevents text
   // selection on all platforms; the callout guard is iOS-specific.
@@ -245,7 +182,9 @@ export function IdentityBadge({
     // where the 50px avatar circle sits concentric to the left curve.
     borderRadius: 32,
     overflow: "hidden", // Phase 67: clip coordinator watermark bleed at pill edge
-    padding: "7px 16px 7px 7px",
+    // With a kebab the right padding tightens so the ⋮ sits close to the
+    // pill's right curve.
+    padding: hasMenu ? "7px 10px 7px 7px" : "7px 16px 7px 7px",
     background: `linear-gradient(160deg, hsla(${hue}, 45%, 25%, 0.72), hsla(${hue}, 40%, 15%, 0.82))`,
     backdropFilter: "blur(24px) saturate(1.4)",
     WebkitBackdropFilter: "blur(24px) saturate(1.4)",
@@ -425,6 +364,19 @@ export function IdentityBadge({
           </span>
         )}
       </div>
+      {hasMenu && (
+        // Relative + z-1 lifts the trigger above the absolutely-positioned
+        // coordinator watermark, same as the avatar + text column. The
+        // trigger stops mousedown/click propagation, so it never also opens
+        // IdentityModal; the menu content stops its own clicks too.
+        <span className="shrink-0" style={{ position: "relative", zIndex: 1 }}>
+          <RowKebabMenu
+            items={kebabItems}
+            ariaLabel="Agent menu"
+            testId="identity-badge-kebab-trigger"
+          />
+        </span>
+      )}
     </>
   );
 
@@ -483,41 +435,39 @@ export function IdentityBadge({
       }
     : undefined;
 
+  const contextMenuProps = hasMenu
+    ? { onContextMenu: kebabContextMenu.onContextMenu }
+    : {};
+
   if (onClick) {
-    // Interactive branch: <button> with click affordance. Tailwind v4
-    // does NOT default `<button>` to cursor: pointer, so `cursor-pointer`
-    // is explicit on the button className (patch #89 rationale carried
-    // through the consolidation).
-    // A completed mobile long-press synthesizes onContextMenu; the trailing
-    // synthetic click that mobile browsers fire after pointerup on a
-    // <button> must NOT also open the modal on top of the menu we just
-    // opened. Reset the flag so subsequent taps still work.
-    const handleClick = () => {
-      if (longPressFiredRef.current) {
-        longPressFiredRef.current = false;
-        return;
+    // Interactive branch: a <div role="button"> rather than a <button> — the
+    // pill holds the kebab's own <button>, and buttons can't nest. Tailwind
+    // v4 doesn't default cursor: pointer, so `cursor-pointer` is explicit.
+    const handleKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+      if (e.target !== e.currentTarget) return;
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        onClick();
       }
-      onClick();
     };
     return (
-      <button
-        type="button"
+      <div
+        role="button"
+        tabIndex={0}
         data-testid="identity-badge-root"
-        onClick={handleClick}
-        onPointerDown={handleLongPressPointerDown}
-        onPointerMove={handleLongPressPointerMove}
-        onPointerUp={handleLongPressPointerUp}
-        onPointerCancel={handleLongPressPointerCancel}
+        onClick={onClick}
+        onKeyDown={handleKeyDown}
         draggable={isDragSource}
         onDragStart={onDragStart}
-        onContextMenu={onContextMenu}
+        {...contextMenuProps}
         aria-label="Open agent info"
         title="Agent info"
         className={`${rootClassName} cursor-pointer`}
         style={rootStyle}
       >
         {inner}
-      </button>
+        {kebabContextMenu.menu}
+      </div>
     );
   }
   return (
@@ -526,15 +476,12 @@ export function IdentityBadge({
       aria-hidden="true"
       draggable={isDragSource}
       onDragStart={onDragStart}
-      onContextMenu={onContextMenu}
-      onPointerDown={handleLongPressPointerDown}
-      onPointerMove={handleLongPressPointerMove}
-      onPointerUp={handleLongPressPointerUp}
-      onPointerCancel={handleLongPressPointerCancel}
+      {...contextMenuProps}
       className={rootClassName}
       style={rootStyle}
     >
       {inner}
+      {kebabContextMenu.menu}
     </div>
   );
 }
