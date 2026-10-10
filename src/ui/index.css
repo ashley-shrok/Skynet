@@ -663,11 +663,18 @@ button[data-hold-active="true"] {
   --pv-mr-h: var(--pv-hue);
 }
 .pv-multi-role .pv-hue-surface,
-.pv-multi-role[data-slot="modal-content"],
 .pv-row.pv-multi-role:not(.pv-row--desktop),
 .pv-row.pv-multi-role .pv-avatar {
-  /* !important: the modal paints its gradient via inline style. */
   background-image: var(--pv-mr-sheen) !important;
+  border-color: var(--pv-mr-rim) !important;
+}
+/* The modal is an opaque surface (its normal gradient is plain hsl), but the
+   sheen's stops are translucent — painted alone it lets the chat behind show
+   through. Layer the sheen over the modal's usual opaque base instead. */
+.pv-multi-role[data-slot="modal-content"] {
+  /* !important: the modal paints its gradient via inline style. */
+  background-image: var(--pv-mr-sheen),
+    linear-gradient(160deg, hsl(var(--pv-id-hue), 50%, 38%), hsl(var(--pv-id-hue), 45%, 22%)) !important;
   border-color: var(--pv-mr-rim) !important;
 }
 .pv-row.pv-row--desktop.pv-multi-role.selected {
