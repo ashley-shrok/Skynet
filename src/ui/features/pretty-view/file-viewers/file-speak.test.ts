@@ -61,6 +61,31 @@ describe("markdownToSpeech", () => {
     expect(markdownToSpeech("Before.\n\n```\ncode forever")).toBe("Before.");
   });
 
+  it("skips indented code fences, URLs, rules and setext underlines", () => {
+    const md = [
+      "1. Step one",
+      "   ```sh",
+      "   hidden command",
+      "   ```",
+      "See <https://a.example/x> and https://b.example/y_z now.",
+      "",
+      "- - -",
+      "* * *",
+      "Title",
+      "=====",
+      "Next",
+    ].join("\n");
+    const out = markdownToSpeech(md);
+    expect(out).toBe("Step one\n\nSee  and  now.\n\nTitle\n\nNext");
+  });
+
+  it("keeps heading punctuation, generics and mid-word underscores", () => {
+    expect(markdownToSpeech("## What is it?")).toBe("What is it?");
+    expect(markdownToSpeech("Use List<T> here")).toBe("Use List<T> here");
+    expect(markdownToSpeech("call `__init__` and some__thing")).toBe("call __init__ and some__thing");
+    expect(markdownToSpeech("some __bold__ and _em_ text")).toBe("some bold and em text");
+  });
+
   it("leaves snake_case words intact", () => {
     expect(markdownToSpeech("use some_var_name here")).toBe("use some_var_name here");
   });

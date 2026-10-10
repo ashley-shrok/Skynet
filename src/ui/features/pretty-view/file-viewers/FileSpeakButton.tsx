@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useMemo, useRef } from "react";
 import { Loader2, Pause, Play, Volume2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSpeakPlayback } from "../useSpeakPlayback";
@@ -28,18 +28,34 @@ export function FileSpeakButton({
   text: string | null | undefined;
   className?: string;
 }): JSX.Element | null {
-  const textRef = useRef(text);
-  textRef.current = text;
+  // What would actually be spoken — a markdown file holding only code blocks
+  // or images has nothing to say, so no button.
+  const speech = useMemo(
+    () =>
+      isSpeakableFile(filename) && text ? fileSpeechText(filename, text) : "",
+    [filename, text],
+  );
+  if (speech.length === 0) return null;
+  // Keyed by filename: switching files in a host that reuses the viewer
+  // (skills/runbook editor tabs) remounts, and the unmount stops playback.
+  return <SpeakButton key={filename} speech={speech} className={className} />;
+}
+
+function SpeakButton({
+  speech,
+  className,
+}: {
+  speech: string;
+  className?: string;
+}): JSX.Element {
+  const speechRef = useRef(speech);
+  speechRef.current = speech;
   const { speakState, onSpeakClick } = useSpeakPlayback({
     ownerName: "file-speak",
     logPrefix: "file:",
-    voices: fileSpeakVoices(),
-    getText: () =>
-      splitForSpeech(fileSpeechText(filename, textRef.current ?? "")),
+    voices: fileSpeakVoices,
+    getText: () => splitForSpeech(speechRef.current),
   });
-
-  if (!isSpeakableFile(filename) || !text || text.trim().length === 0)
-    return null;
 
   const label =
     speakState === "playing"

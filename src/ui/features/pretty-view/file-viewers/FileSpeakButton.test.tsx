@@ -51,6 +51,8 @@ describe("FileSpeakButton", () => {
     expect(screen.queryByLabelText("Speak file")).toBeNull();
     rerender(<FileSpeakButton filename="notes.md" text="   " />);
     expect(screen.queryByLabelText("Speak file")).toBeNull();
+    rerender(<FileSpeakButton filename="notes.md" text={"```\ncode only\n```\n![img](a.png)"} />);
+    expect(screen.queryByLabelText("Speak file")).toBeNull();
   });
 
   it("speaks the markdown as plain text in the fallback voice", async () => {
@@ -87,5 +89,43 @@ describe("FileSpeakButton", () => {
     players[1].opts.onEnded?.();
     await waitFor(() => expect(screen.queryByLabelText("Speak file")).not.toBeNull());
     expect(mockedPost).toHaveBeenCalledTimes(2);
+  });
+
+  it("reads the fallback voice at click time, not render time", async () => {
+    render(<FileSpeakButton filename="a.txt" text="Hello" />);
+    setFileSpeakVoice("onyx");
+    fireEvent.click(screen.getByLabelText("Speak file"));
+    await waitFor(() => expect(mockedPost).toHaveBeenCalledWith("Hello", ["onyx"]));
+  });
+
+  it("switching to another file stops the one playing", async () => {
+    const { rerender } = render(<FileSpeakButton filename="a.md" text="First file" />);
+    fireEvent.click(screen.getByLabelText("Speak file"));
+    await waitFor(() => expect(screen.queryByLabelText("Pause speaking")).not.toBeNull());
+    rerender(<FileSpeakButton filename="b.md" text="Second file" />);
+    expect(players[0].stop).toHaveBeenCalled();
+    expect(screen.queryByLabelText("Speak file")).not.toBeNull();
+  });
+
+  it("pausing while the next piece downloads holds it until resume", async () => {
+    const para = "word ".repeat(3000).trim();
+    let release!: (r: Response) => void;
+    render(<FileSpeakButton filename="long.txt" text={`${para}\n\n${para}`} />);
+    fireEvent.click(screen.getByLabelText("Speak file"));
+    await waitFor(() => expect(players[0]?.play).toHaveBeenCalled());
+
+    mockedPost.mockImplementationOnce(
+      () => new Promise<Response>((r) => { release = r; }),
+    );
+    players[0].opts.onEnded?.(); // piece 1 finishes; piece 2 starts downloading
+    await waitFor(() => expect(mockedPost).toHaveBeenCalledTimes(2));
+    fireEvent.click(screen.getByLabelText("Pause speaking"));
+    release(new Response(new ReadableStream({ start(c) { c.close(); } }), { status: 200 }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(players[1].play).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText("Resume speaking")).not.toBeNull();
+
+    fireEvent.click(screen.getByLabelText("Resume speaking"));
+    expect(players[1].play).toHaveBeenCalled();
   });
 });

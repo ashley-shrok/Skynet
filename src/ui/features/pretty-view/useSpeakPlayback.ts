@@ -35,7 +35,8 @@ export function useSpeakPlayback(opts: {
   getText: () => string | readonly string[];
   /** Extra `key=value` fields for the speak-start log line, read after getText. */
   logFields?: () => string;
-  voices: readonly string[];
+  /** Voice candidates; a function is read at click time. */
+  voices: readonly string[] | (() => readonly string[]);
 }): {
   speakState: SpeakState;
   onSpeakClick: (e: React.MouseEvent) => void;
@@ -214,7 +215,11 @@ export function useSpeakPlayback(opts: {
       clearCurrentPlayer();
     }
 
-    const { getText, voices } = optsRef.current;
+    const { getText } = optsRef.current;
+    const voices =
+      typeof optsRef.current.voices === "function"
+        ? optsRef.current.voices()
+        : optsRef.current.voices;
     const raw = getText();
     const pieces = (typeof raw === "string" ? [raw] : [...raw]).filter(
       (p) => p.trim().length > 0,

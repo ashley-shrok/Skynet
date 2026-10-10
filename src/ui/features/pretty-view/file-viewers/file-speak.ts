@@ -46,35 +46,60 @@ export function markdownToSpeech(md: string): string {
   let s = md.replace(/\r\n?/g, "\n");
   // Frontmatter block at the very top.
   s = s.replace(/^---\n[\s\S]*?\n---\n/, "");
-  // Fenced code blocks and HTML comments are skipped entirely.
-  s = s.replace(/^(`{3,}|~{3,})[^\n]*\n[\s\S]*?(^\1[^\n]*$|(?![\s\S]))/gm, "");
+  // Fenced code blocks (at any indent, e.g. under a list item) and HTML
+  // comments are skipped entirely; an unclosed fence runs to the end.
+  s = s.replace(
+    /^[ \t]*(`{3,}|~{3,})[^\n]*\n[\s\S]*?(^[ \t]*\1[^\n]*$|(?![\s\S]))/gm,
+    "",
+  );
   s = s.replace(/<!--[\s\S]*?-->/g, "");
-  // Images drop; links keep their text (inline, reference, autolinks).
+  // Images drop; links keep their text (inline, reference); URLs drop.
   s = s.replace(/!\[[^\]]*\]\([^)]*\)/g, "");
   s = s.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
   s = s.replace(/\[([^\]]+)\]\[[^\]]*\]/g, "$1");
   s = s.replace(/^[ \t]*\[[^\]]+\]:\s*\S+.*$/gm, "");
-  s = s.replace(/<(https?:\/\/[^>]+)>/g, "$1");
-  // Remaining HTML tags.
-  s = s.replace(/<\/?[a-zA-Z][^>]*>/g, "");
-  // Block markers: headings, blockquotes, list bullets/numbers, task boxes.
-  s = s.replace(/^[ \t]{0,3}#{1,6}[ \t]+(.*?)[ \t]*#*[ \t]*$/gm, "$1.");
+  s = s.replace(/<https?:\/\/[^>]+>/g, "");
+  s = s.replace(/\bhttps?:\/\/[^\s)>\]]+/g, "");
+  // Remaining HTML tags (lowercase names only, so prose like <T> survives).
+  s = s.replace(/<\/?[a-z][a-z0-9-]*(?:\s[^<>]*)?\/?>/g, "");
+  // Horizontal rules and setext underlines — before list stripping, which
+  // would otherwise eat the first "- " of "- - -".
+  s = s.replace(/^[ \t]*([-*_])([ \t]*\1){2,}[ \t]*$/gm, "");
+  s = s.replace(/^[ \t]*=+[ \t]*$/gm, "");
+  // Block markers: headings (a period marks the pause unless the heading
+  // already ends in punctuation), blockquotes, list bullets, task boxes.
+  s = s.replace(
+    /^[ \t]{0,3}#{1,6}[ \t]+(.*?)[ \t]*#*[ \t]*$/gm,
+    (_m, h: string) => (/[.!?:;]$/.test(h) ? h : `${h}.`),
+  );
   s = s.replace(/^[ \t]*>\s?/gm, "");
   s = s.replace(/^[ \t]*(?:[-*+]|\d+[.)])\s+(?:\[[ xX]\]\s+)?/gm, "");
-  // Horizontal rules and table separator rows; table pipes become pauses.
-  s = s.replace(/^[ \t]*([-*_])(\s*\1){2,}[ \t]*$/gm, "");
-  s = s.replace(/^[ \t]*\|?(\s*:?-{2,}:?\s*\|)+\s*:?-*:?\s*\|?[ \t]*(?:\n|$)/gm, "");
+  // Table separator rows drop; table pipes become pauses.
+  s = s.replace(
+    /^[ \t]*\|?(\s*:?-{2,}:?\s*\|)+\s*:?-*:?\s*\|?[ \t]*(?:\n|$)/gm,
+    "",
+  );
   s = s.replace(/^[ \t]*\|(.*)\|[ \t]*$/gm, (_m, row: string) =>
     row
       .split("|")
       .map((c) => c.trim())
       .join(", "),
   );
-  // Inline emphasis / code / strikethrough markers.
-  s = s.replace(/(\*\*|__)(.+?)\1/g, "$2");
-  s = s.replace(/(^|[^\w*])[*_]([^*_\n]+)[*_](?=[^\w*]|$)/g, "$1$2");
+  // Inline code spans keep their text verbatim: set aside before the
+  // emphasis passes so `__init__` / `*args` aren't stripped, restored after.
+  const spans: string[] = [];
+  s = s.replace(
+    /`([^`\n]+)`/g,
+    (_m, code: string) => `\u0000${spans.push(code) - 1}\u0000`,
+  );
+  // Emphasis / strikethrough markers. Underscore emphasis only at word
+  // edges, so snake_case stays intact.
+  s = s.replace(/\*\*(.+?)\*\*/g, "$1");
+  s = s.replace(/(^|[^\w_])__(?=\S)(.+?)__(?![\w_])/g, "$1$2");
+  s = s.replace(/(^|[^\w*])\*(?=\S)([^*\n]+?)\*(?![\w*])/g, "$1$2");
+  s = s.replace(/(^|[^\w_])_(?=\S)([^_\n]+?)_(?![\w_])/g, "$1$2");
   s = s.replace(/~~(.+?)~~/g, "$1");
-  s = s.replace(/`([^`\n]+)`/g, "$1");
+  s = s.replace(/\u0000(\d+)\u0000/g, (_m, i: string) => spans[Number(i)]);
   // Collapse leftover blank runs.
   s = s.replace(/[ \t]+$/gm, "").replace(/\n{3,}/g, "\n\n");
   return s.trim();
