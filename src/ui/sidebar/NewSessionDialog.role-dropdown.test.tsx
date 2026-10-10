@@ -573,6 +573,50 @@ describe("NewSessionDialog role dropdown: New role… row", () => {
     expect(onNewRole.mock.calls[0][0].roles).toEqual([]);
   });
 
+  it("a new hostTree object while open does not re-seed over the user's picks", async () => {
+    mockListRolesForHost.mockResolvedValue(twoRoles);
+    const props = {
+      open: true,
+      onClose: vi.fn(),
+      onCreate: vi.fn(),
+      isAdmin: true,
+      onNewRole: vi.fn(),
+      initialHost: twoHostTree.children[0] as Host,
+      initialRoles: ["tina"],
+    };
+    const { rerender } = render(<NewSessionDialog {...props} hostTree={twoHostTree} />);
+    await waitFor(() => expect(pickedRoleValues()).toEqual(["tina"]));
+    toggleRole("box-maintainer");
+    await waitFor(() => expect(pickedRoleValues()).toEqual(["tina", "box-maintainer"]));
+    // Same hosts, fresh object (what a parent re-render can hand over).
+    rerender(<NewSessionDialog {...props} hostTree={{ ...twoHostTree, children: [...twoHostTree.children] }} />);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(pickedRoleValues()).toEqual(["tina", "box-maintainer"]);
+  });
+
+  it("hands over a typed custom name and restores it via initialName", async () => {
+    mockListRolesForHost.mockResolvedValue(twoRoles);
+    mockListIdentities.mockResolvedValue([]);
+    mockGetIdentityExistsOnHost.mockResolvedValue(false);
+    const first = renderWithNewRole();
+    fireEvent.click(screen.getByText("alpha"));
+    await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
+    fireEvent.click(first.getByLabelText(/choose a custom agent name/i));
+    fireEvent.change(first.getByLabelText(/^name$/i), { target: { value: "alicia" } });
+    fireEvent.click(queryRolesGroup()!);
+    fireEvent.click(screen.getByTestId("multi-select-leading-action"));
+    expect(first.onNewRole.mock.calls[0][0].name).toBe("alicia");
+    first.unmount();
+
+    const back = renderWithNewRole({
+      initialHost: twoHostTree.children[0] as Host,
+      initialName: "alicia",
+    });
+    await waitFor(() =>
+      expect((back.getByLabelText(/^name$/i) as HTMLInputElement).value).toBe("alicia"),
+    );
+  });
+
   it("initialRoles seeds several picks in order", async () => {
     mockListRolesForHost.mockResolvedValueOnce(twoRoles);
     renderWithNewRole({

@@ -239,6 +239,7 @@ export function NewSessionDialog({
   initialHost,
   initialRole,
   initialRoles,
+  initialName = null,
   initialBrief: _initialBrief,
   isAdmin = false,
   project = null,
@@ -289,7 +290,13 @@ export function NewSessionDialog({
    * current host + picked roles are handed over so they can be restored.
    * Absent = no row (and a host with zero roles shows a plain hint).
    */
-  onNewRole?: (ctx: { host: Host; roles: string[] }) => void;
+  onNewRole?: (ctx: { host: Host; roles: string[]; name: string | null }) => void;
+  /**
+   * A custom agent name to restore (with the custom-name input revealed) —
+   * set when returning from the "New role…" hop. Pool suggestions are not
+   * carried; a fresh one is picked on reopen.
+   */
+  initialName?: string | null;
   /**
    * Admin-gate forwarded from AppShell state `users.is_admin` (via
    * PrettyConversationsPanel). Fail-closed default: a caller that forgets
@@ -441,8 +448,14 @@ export function NewSessionDialog({
   // a separate validation effect (below) to clear selectedRoles later if the
   // fetched roles do not contain it (Test 6 stale-role safety net).
   // On close: reset all local state so a re-open starts fresh.
+  // The pre-fill seeds (roles, name) apply ONCE per open: this effect also
+  // re-runs on every `flatHosts` change while open, and re-seeding then would
+  // silently revert picks the user changed since.
+  const seededThisOpenRef = useRef(false);
   useEffect(() => {
     if (open) {
+      const firstRun = !seededThisOpenRef.current;
+      seededThisOpenRef.current = true;
       if (initialHost) {
         setSelectedHost(initialHost);
         // Seed the role too, but only when agent mode is on (the role
@@ -451,8 +464,13 @@ export function NewSessionDialog({
         // default), so this branch fires on a fresh open where the caller
         // hasn't toggled the admin-only "Just a shell" checkbox.
         const seedRoles = initialRoles ?? (initialRole ? [initialRole] : []);
-        if (seedRoles.length > 0 && !shellOnly) {
+        if (firstRun && seedRoles.length > 0 && !shellOnly) {
           setSelectedRoles(seedRoles);
+        }
+        if (firstRun && initialName) {
+          nameRef.current = initialName;
+          setName(initialName);
+          setAutoName(true);
         }
       } else if (flatHosts.length === 1) {
         setSelectedHost(flatHosts[0]);
@@ -461,6 +479,7 @@ export function NewSessionDialog({
       // textarea (cosmetic-strip per D-CTX-86-surface-4). Prop still
       // accepted for backward-compat but ignored.
     } else {
+      seededThisOpenRef.current = false;
       // Abort any in-flight birth stream
       abortControllerRef.current?.abort();
       // Reset all state to defaults on close
@@ -1253,7 +1272,13 @@ export function NewSessionDialog({
                               console.log(
                                 `[new-session] new-role hop hostId=${selectedHost.id} roles=${selectedRoles.join(",") || "-"}`,
                               );
-                              onNewRole({ host: selectedHost, roles: selectedRoles });
+                              // Only a name the user chose travels; a pool
+                              // suggestion is re-picked on the way back.
+                              const customName =
+                                autoName && name.trim() !== "" && name !== poolPickedName
+                                  ? name
+                                  : null;
+                              onNewRole({ host: selectedHost, roles: selectedRoles, name: customName });
                             },
                           }
                         : undefined

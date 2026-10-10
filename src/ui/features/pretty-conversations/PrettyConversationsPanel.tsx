@@ -979,6 +979,7 @@ export function PrettyConversationsPanel({
   const [chainPrefill, setChainPrefill] = useState<{
     role?: string;
     roles?: string[];
+    name?: string | null;
     host: Host;
     description?: string;
   } | null>(null);
@@ -989,7 +990,7 @@ export function PrettyConversationsPanel({
   // then onClose in the same tick — onClose must see the chain's clear.
   // The pending project slug/hostId state is deliberately left untouched
   // across the hop so a per-project new-agent flow keeps its project.
-  const newRoleHopRef = useRef<{ host: Host; roles: string[] } | null>(null);
+  const newRoleHopRef = useRef<{ host: Host; roles: string[]; name: string | null } | null>(null);
   const [createRoleInitialHost, setCreateRoleInitialHost] = useState<Host | null>(null);
 
   // Scroll region ref for save/restore across unmount — see savedListScrollTop
@@ -1072,6 +1073,22 @@ export function PrettyConversationsPanel({
   // must be born on the same host to appear under the section).
   const [newSessionPendingProjectHostId, setNewSessionPendingProjectHostId] =
     useState<number | null>(null);
+  // Phase 117 M-I follow-up: when the new-agent dialog is opened via the
+  // per-project SquarePen, it gets a synthetic single-host tree so its
+  // auto-hide-when-single-host logic kicks in — the destination host is
+  // implied (project lives on one host; agent must be born there to appear
+  // under the section). Header pencil (pendingProjectHostId===null) gets the
+  // full tree. Memoized: the dialog's open effect keys on this tree, so a
+  // fresh object every render re-fires it.
+  const newSessionHostTree = useMemo(() => {
+    const fullTree = hostTree ?? null;
+    if (newSessionPendingProjectHostId === null || !fullTree) return fullTree;
+    const projectHost = collectHostsFromFolder(fullTree).find(
+      (h) => parseInt(h.id, 10) === newSessionPendingProjectHostId,
+    );
+    if (!projectHost) return fullTree; // fall back to full tree if not found
+    return { name: fullTree.name, children: [projectHost] };
+  }, [hostTree, newSessionPendingProjectHostId]);
   // Phase 90 Plan 90-06 (D-07): RolesListModal open/closed toggle. Opened by
   // the header's Edit roles icon button (Drama). See <RolesListModal> mount below.
   const [rolesListModalOpen, setRolesListModalOpen] = useState(false);
@@ -3636,23 +3653,8 @@ export function PrettyConversationsPanel({
             setNewSessionPendingProjectSlug(null);
             setNewSessionPendingProjectHostId(null);
           }}
-          // Phase 117 M-I follow-up: when opened via the per-project
-          // SquarePen, pass a synthetic single-host tree so NewSessionDialog's
-          // existing Phase-84 auto-hide-when-single-host logic kicks in — the
-          // destination host is implied (project lives on one host; agent
-          // must be born there to appear under the section). When opened
-          // via the header pencil (pendingProjectHostId===null), pass the
-          // full hostTree unchanged.
-          hostTree={(() => {
-            const fullTree = hostTree ?? null;
-            if (newSessionPendingProjectHostId === null) return fullTree;
-            if (!fullTree) return fullTree;
-            const projectHost = collectHostsFromFolder(fullTree).find(
-              (h) => parseInt(h.id, 10) === newSessionPendingProjectHostId,
-            );
-            if (!projectHost) return fullTree; // fall back to full tree if not found
-            return { name: fullTree.name, children: [projectHost] };
-          })()}
+          // Single-host tree when opened from a project — see newSessionHostTree.
+          hostTree={newSessionHostTree}
           onCreate={(opts) => {
             onCreateSession!(opts);
             // Phase 117 M-F: if this dialog was opened via the per-project
@@ -3706,9 +3708,10 @@ export function PrettyConversationsPanel({
           initialHost={chainPrefill?.host ?? null}
           initialRole={chainPrefill?.role ?? null}
           initialRoles={chainPrefill?.roles ?? null}
+          initialName={chainPrefill?.name ?? null}
           initialBrief={chainPrefill?.description ?? null}
-          onNewRole={({ host, roles }) => {
-            newRoleHopRef.current = { host, roles };
+          onNewRole={({ host, roles, name }) => {
+            newRoleHopRef.current = { host, roles, name };
             setNewSessionDialogOpen(false);
             setChainPrefill(null);
             setCreateRoleInitialHost(host);
@@ -3735,11 +3738,14 @@ export function PrettyConversationsPanel({
           if (hop) {
             newRoleHopRef.current = null;
             console.log(`[new-role-hop] cancelled — restoring new-agent dialog hostId=${hop.host.id}`);
-            setChainPrefill({ host: hop.host, roles: hop.roles });
+            setChainPrefill({ host: hop.host, roles: hop.roles, name: hop.name });
             setNewSessionDialogOpen(true);
           }
         }}
-        hostTree={hostTree ?? null}
+        // A per-project hop locks role creation to the project's host (the
+        // same single-host tree the new-agent dialog got) so the role — and
+        // the agent born with it — can't land on a host the project isn't on.
+        hostTree={createRoleInitialHost ? newSessionHostTree : (hostTree ?? null)}
         initialHost={createRoleInitialHost}
         onChainToCreateIdentity={({ role, host, description }) => {
           const hop = newRoleHopRef.current;
@@ -3754,7 +3760,13 @@ export function PrettyConversationsPanel({
           console.log(
             `[new-role-hop] role created role=${role} hostId=${host.id} fromHop=${hop !== null} roles=${roles?.join(",") ?? role}`,
           );
-          setChainPrefill({ role, roles, host, description });
+          setChainPrefill({
+            role,
+            roles,
+            name: hop && hop.host.id === host.id ? hop.name : null,
+            host,
+            description,
+          });
           setNewSessionDialogOpen(true);
         }}
       />
