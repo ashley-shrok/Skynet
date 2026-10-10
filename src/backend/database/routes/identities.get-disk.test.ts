@@ -222,6 +222,8 @@ vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
   },
   IDENTITY_KEY_RE: /^[a-z0-9_-]{1,64}$/,
   extractRolesFromMarkdown: (md: string): string[] => {
+    const list = md.match(/^role:\s*\[([^\]]*)\]\s*$/m);
+    if (list) return list[1].split(",").map((r) => r.trim()).filter(Boolean);
     const m = md.match(/^role:\s*([a-z0-9-]+)\s*$/m);
     return m ? [m[1]] : [];
   },
@@ -362,6 +364,7 @@ function httpGet(
 
 import { _resetAvatarCacheForTest } from "./identity-avatar-cache.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
+import sharp from "sharp";
 import { recordAvatarVersion, _clearAvatarVersionsForTest } from "../../fleet-status/avatar-version-registry.js";
 
 let server: http.Server;
@@ -1207,6 +1210,63 @@ describe("GET /identities/:key/avatar — Phase 85 role-folder fallback", () => 
     const body = res.body as { error?: string };
     expect(body.error?.toLowerCase()).toContain("no avatar");
     // Role-avatar reader NOT called (no avatar filename in role frontmatter)
+    expect(readAvatarSiblingFileByRoleMock).not.toHaveBeenCalled();
+  });
+
+  it("AVATAR-M-4: multi-role identity with no own avatar → split composite of every role's avatar", async () => {
+    isLocalHostIdMock.mockReturnValue(false);
+    readAvatarSiblingFileMock.mockResolvedValue(null);
+    readIdentityFileMock.mockResolvedValue({
+      markdown: "---\nrole: [box-maintainer, sky-uat]\ndisplayName: Tina\n---\n",
+    });
+    readRoleFileByNameMock.mockImplementation(async (_conn: unknown, role: string) => ({
+      markdown: `---\ntitle: ${role}\navatar: "${role}.png"\n---\n`,
+    }));
+    const solid = (r: number, g: number, b: number) =>
+      sharp({ create: { width: 64, height: 64, channels: 3, background: { r, g, b } } }).png().toBuffer();
+    const red = await solid(255, 0, 0);
+    const blue = await solid(0, 0, 255);
+    readAvatarSiblingFileByRoleMock.mockImplementation(async (_conn: unknown, role: string) => ({
+      bytes: role === "box-maintainer" ? red : blue,
+      mime: "image/png",
+      ext: "png",
+    }));
+
+    const res = await httpGet(server, `/identities/tina/avatar?hostId=1`);
+
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toBe("image/webp");
+    const roleCalls = readAvatarSiblingFileByRoleMock.mock.calls.map((c) => [c[1], c[2]]);
+    expect(roleCalls).toEqual([
+      ["box-maintainer", "box-maintainer.png"],
+      ["sky-uat", "sky-uat.png"],
+    ]);
+    // First role upper-left, second lower-right (diagonal split).
+    const { data, info } = await sharp(res.rawBody).raw().toBuffer({ resolveWithObject: true });
+    const px = (x: number, y: number) => {
+      const i = (y * info.width + x) * info.channels;
+      return [data[i], data[i + 1], data[i + 2]];
+    };
+    const [r1, , b1] = px(Math.round(info.width * 0.3), Math.round(info.height * 0.3));
+    const [r2, , b2] = px(Math.round(info.width * 0.7), Math.round(info.height * 0.7));
+    expect(r1).toBeGreaterThan(200);
+    expect(b1).toBeLessThan(60);
+    expect(b2).toBeGreaterThan(200);
+    expect(r2).toBeLessThan(60);
+  });
+
+  it("AVATAR-M-5: multi-role identity where a role has no avatar → still a composite (placeholder slice), not 404", async () => {
+    isLocalHostIdMock.mockReturnValue(false);
+    readAvatarSiblingFileMock.mockResolvedValue(null);
+    readIdentityFileMock.mockResolvedValue({
+      markdown: "---\nrole: [box-maintainer, sky-uat]\n---\n",
+    });
+    readRoleFileByNameMock.mockResolvedValue({ markdown: "---\ntitle: no-avatar\n---\n" });
+
+    const res = await httpGet(server, `/identities/tina/avatar?hostId=1`);
+
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toBe("image/webp");
     expect(readAvatarSiblingFileByRoleMock).not.toHaveBeenCalled();
   });
 });

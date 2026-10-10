@@ -67,6 +67,7 @@ import { getHostSemaphore } from "../../ssh/host-semaphore-registry.js";
 
 import { getAvatarVersion, forgetAvatarVersion } from "../../fleet-status/avatar-version-registry.js";
 import { normalizeAvatar, normalizeUploadedAvatar } from "../../utils/avatar-normalize.js";
+import { composeSplitAvatar, type SplitAvatarPart } from "../../utils/avatar-split.js";
 import { getCachedAvatar, invalidateCachedAvatar } from "./identity-avatar-cache.js";
 
 const router = express.Router();
@@ -1098,8 +1099,9 @@ router.get(
 
 /**
  * Read an identity's avatar from its home box: its own sibling file, else its
- * role's avatar (Phase 85 Plan 85-01 role-folder fallback). Returns normalized
- * bytes, or null when neither exists. SSH errors throw.
+ * role's avatar (Phase 85 Plan 85-01 role-folder fallback), else — for a
+ * multi-role identity — a split avatar composed from every role's avatar.
+ * Returns normalized bytes, or null when nothing applies. SSH errors throw.
  */
 async function loadAvatarFromDisk(
   host: Awaited<ReturnType<typeof resolveHostById>>,
@@ -1110,31 +1112,43 @@ async function loadAvatarFromDisk(
     conn = await connectOneShot(host, 5_000);
   }
   try {
-    let readResult = await readAvatarSiblingFile(conn, identityKey);
+    let readResult: { bytes: Buffer; mime: string } | null =
+      await readAvatarSiblingFile(conn, identityKey);
 
     // Role-folder fallback: when the identity has no sibling avatar of its
-    // own, resolve its role via frontmatter and serve the role's avatar if
-    // the role names one and the file exists. Any error in the role-side
-    // chain is treated as "no fallback found" — never surfaces as 5xx.
+    // own, resolve its role(s) via frontmatter. One role → serve that role's
+    // avatar if it names one and the file exists. Several roles → serve a
+    // split avatar composed from every role's avatar (a multi-role identity
+    // inherits no single role's look). Any error in the role-side chain is
+    // treated as "no fallback found" — never surfaces as 5xx.
     if (readResult === null) {
       try {
         const { markdown } = await readIdentityFile(conn, identityKey);
-        const role = extractRoleFromMarkdown(markdown);
-        if (role !== null) {
-          const { markdown: roleMd } = await readRoleFileByName(conn, role);
-          if (roleMd) {
-            const roleCos = extractCosmeticsFromFrontmatter(roleMd);
-            if (typeof roleCos.avatar === "string" && roleCos.avatar.length > 0) {
-              readResult = await readAvatarSiblingFileByRole(
-                conn,
-                role,
-                roleCos.avatar,
-              );
-            }
+        const roles = extractRolesFromMarkdown(markdown);
+        if (roles.length > 1) {
+          const parts: SplitAvatarPart[] = [];
+          for (const role of roles) {
+            parts.push({ role, image: await readRoleAvatar(conn, role) });
           }
+          const composite = await composeSplitAvatar(parts);
+          systemLogger.info("Split avatar composed for multi-role identity", {
+            operation: "identity_split_avatar_composed",
+            identityKey,
+            roles,
+            missing: parts.filter((p) => p.image === null).map((p) => p.role),
+            bytes: composite.bytes.byteLength,
+          });
+          return composite;
         }
-      } catch {
-        // Silent — role-side chain error → no fallback (404 path).
+        if (roles.length === 1) {
+          readResult = await readRoleAvatar(conn, roles[0]);
+        }
+      } catch (err) {
+        systemLogger.warn("Identity avatar role fallback failed", {
+          operation: "identity_avatar_role_fallback_failed",
+          identityKey,
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
     }
 
@@ -1144,6 +1158,28 @@ async function loadAvatarFromDisk(
     if (conn) {
       try { conn.end(); } catch { /* ignore */ }
     }
+  }
+}
+
+/**
+ * A role's avatar bytes from its role folder, or null when the role names no
+ * avatar or the file is missing/unreadable. Used by the identity avatar's
+ * role fallback (single role) and split composite (several roles).
+ */
+async function readRoleAvatar(
+  conn: import("ssh2").Client | null,
+  role: string,
+): Promise<{ bytes: Buffer; mime: string } | null> {
+  try {
+    const { markdown: roleMd } = await readRoleFileByName(conn, role);
+    if (!roleMd) return null;
+    const roleCos = extractCosmeticsFromFrontmatter(roleMd);
+    if (typeof roleCos.avatar !== "string" || roleCos.avatar.length === 0) {
+      return null;
+    }
+    return await readAvatarSiblingFileByRole(conn, role, roleCos.avatar);
+  } catch {
+    return null;
   }
 }
 
