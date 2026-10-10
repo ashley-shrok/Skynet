@@ -300,7 +300,7 @@ function composeSkillMdSeed(slug: string, description: string): string {
 /** Cap on a returned description — the menu shows one truncated line. */
 const MAX_SKILL_DESCRIPTION_CHARS = 500;
 
-export type ListedSkill = { name: string; description?: string };
+export type ListedSkill = { name: string; description?: string; userInvocable?: false };
 
 /**
  * Parse the list command's output: records separated by \x1e, each record
@@ -308,6 +308,8 @@ export type ListedSkill = { name: string; description?: string };
  * `description` is the frontmatter's description with whitespace collapsed
  * (folded/multi-line YAML flattened to one line), capped; absent when the
  * frontmatter is missing, unparseable, or has no string description.
+ * `userInvocable: false` is set only when the frontmatter has
+ * `user-invocable: false` (agent-only — the Skills menu leaves it out).
  */
 export function parseSkillListOutput(output: string): ListedSkill[] {
   const skills: ListedSkill[] = [];
@@ -319,9 +321,12 @@ export function parseSkillListOutput(output: string): ListedSkill[] {
     if (name.length === 0) continue;
     const frontmatter = nl === -1 ? "" : record.slice(nl + 1);
     let description: string | undefined;
+    let agentOnly = false;
     try {
       const parsed = yaml.load(frontmatter);
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        const ui = (parsed as Record<string, unknown>)["user-invocable"];
+        agentOnly = ui === false || (typeof ui === "string" && ui.trim().toLowerCase() === "false");
         const raw = (parsed as Record<string, unknown>).description;
         if (typeof raw === "string") {
           const flat = raw.replace(/\s+/g, " ").trim();
@@ -336,7 +341,9 @@ export function parseSkillListOutput(output: string): ListedSkill[] {
     } catch {
       // Malformed frontmatter — list the skill without a description.
     }
-    skills.push(description === undefined ? { name } : { name, description });
+    const skill: ListedSkill = description === undefined ? { name } : { name, description };
+    if (agentOnly) skill.userInvocable = false;
+    skills.push(skill);
   }
   return skills;
 }
@@ -440,6 +447,7 @@ router.get(
         hostId,
         count: skills.length,
         withDescription: skills.filter((s) => s.description !== undefined).length,
+        agentOnly: skills.filter((s) => s.userInvocable === false).length,
       });
       res.json({ skills });
     } catch (err) {

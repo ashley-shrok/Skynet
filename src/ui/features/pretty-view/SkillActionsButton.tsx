@@ -12,7 +12,8 @@ import { refreshSkillActions, useSkillActions, type SkillActionEntry } from "./s
 
 // Skill-actions menu (campaign skill-actions, shape skill-action-menu): the
 // lightning-bolt aux button left of ThumbsUp. Opens a flat alphabetical list
-// of the host's skills (the Skills editor's set); picking one fires it at
+// of the host's skills (the Skills editor's set, minus agent-only skills —
+// `user-invocable: false`, which the harness won't run from `/<name>`); picking one fires it at
 // once as `/<name>` through the same quick-send path ThumbsUp uses. Hidden
 // until the host is known to have at least one skill. Deliberately no
 // curation, grouping, search, or arguments in v1.
@@ -82,8 +83,8 @@ export function SkillActionsButton({
           size="icon-sm"
           variant="secondary"
           disabled={disabled}
-          aria-label="Skill actions"
-          title="Skill actions"
+          aria-label="Skills"
+          title="Skills"
           data-testid="skill-actions-button"
           className={buttonClassName}
         >

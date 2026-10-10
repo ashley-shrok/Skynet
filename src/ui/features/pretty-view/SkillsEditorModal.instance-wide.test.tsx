@@ -206,7 +206,7 @@ if (typeof window !== "undefined" && !window.ResizeObserver) {
   };
 }
 
-/** Open the picker row's ⋮ skill menu ("Slash command only", "Delete skill…"). */
+/** Open the picker row's ⋮ skill menu ("User-invoked only", "Agent-invoked only", "Delete skill…"). */
 async function openSkillMenu(): Promise<void> {
   const trigger = await screen.findByTestId("skills-editor-modal-skill-menu");
   await userEvent.setup().click(trigger);

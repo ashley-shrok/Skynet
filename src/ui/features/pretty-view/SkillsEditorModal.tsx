@@ -28,7 +28,9 @@ import type { TabState } from "./IdentityFileTab";
 import { bumpModalOpen } from "@/lib/freeze-diag";
 import {
   isModelInvocationDisabled,
+  isUserInvocationDisabled,
   setModelInvocationDisabled,
+  setUserInvocationDisabled,
 } from "./skill-frontmatter";
 import {
   INSTANCE_HOST_ID,
@@ -74,8 +76,11 @@ import { InstanceWideChip, InstanceWideSyncStatus } from "./InstanceWideStatus";
 // Close/draft-guard: any dirty tab AND !savingRef → window.confirm.
 // savingRef bypasses on save-success and delete-skill closes.
 //
-// "Slash command only" (⋮ skill menu item, + a "slash only" chip when on) toggles
-// `disable-model-invocation: true` in SKILL.md's frontmatter. It reads from
+// "User-invoked only" / "Agent-invoked only" (⋮ skill menu items, + a "user
+// only" / "agent only" chip when on) toggle `disable-model-invocation: true` /
+// `user-invocable: false` in SKILL.md's frontmatter — mutually exclusive,
+// turning one on clears the other. Agent-only skills are also left out of
+// the compose box's Skills menu (skill-actions-store). They read from
 // the SKILL.md tabData entry (prefetched on skill pick even when SKILL.md
 // isn't the first tab) and writes immediately — no foot Save. Disabled while
 // SKILL.md has unsaved edits, since the write bumps mtime and SkillFileTab
@@ -468,25 +473,29 @@ export default function SkillsEditorModal({
   const skillMdState = tabData.get(SKILL_MD);
   const skillMd = skillMdState?.status === "ready" ? skillMdState.data : null;
   const modelInvocationDisabled = skillMd ? isModelInvocationDisabled(skillMd.content) : false;
+  const userInvocationDisabled = skillMd ? isUserInvocationDisabled(skillMd.content) : false;
   const skillMdDirty = dirtySet.has(SKILL_MD);
 
-  const handleToggleModelInvocation = useCallback(
-    async (disabled: boolean): Promise<void> => {
+  const handleToggleInvocation = useCallback(
+    async (which: "user-only" | "agent-only", on: boolean): Promise<void> => {
       if (!skillMd || skillMdDirty || togglingInvocation) return;
       setTogglingInvocation(true);
       try {
-        await handleSave(
-          SKILL_MD,
-          setModelInvocationDisabled(skillMd.content, disabled),
-          skillMd.mtime,
+        const next =
+          which === "user-only"
+            ? setModelInvocationDisabled(skillMd.content, on)
+            : setUserInvocationDisabled(skillMd.content, on);
+        console.info(
+          `[skills-editor] invocation-toggle hostId=${apiHostId} skill=${selectedSkillName} mode=${which} on=${on}`,
         );
+        await handleSave(SKILL_MD, next, skillMd.mtime);
       } catch (err) {
         window.alert(err instanceof Error ? `Save failed: ${err.message}` : "Save failed");
       } finally {
         setTogglingInvocation(false);
       }
     },
-    [skillMd, skillMdDirty, togglingInvocation, handleSave],
+    [skillMd, skillMdDirty, togglingInvocation, handleSave, apiHostId, selectedSkillName],
   );
 
   const handleAddFile = useCallback(async (): Promise<void> => {
@@ -758,8 +767,8 @@ export default function SkillsEditorModal({
 
       {/* Picker row — sits directly under the head. Host select (multi-host
           only) and skill select share the width; when a skill is picked, a
-          "slash only" chip (if set) and a ⋮ menu holding "Slash command
-          only" + "Delete skill…". Never wraps, so the selects stay legible
+          "user only" / "agent only" chip (if set) and a ⋮ menu holding
+          "User-invoked only", "Agent-invoked only" + "Delete skill…". Never wraps, so the selects stay legible
           on phones. */}
       <div
         className={cn(
@@ -846,17 +855,25 @@ export default function SkillsEditorModal({
         </select>
         {selectedIsInstance && <InstanceWideChip />}
         {selectedIwItem && <InstanceWideSyncStatus item={selectedIwItem} />}
-        {selectedSkillName != null && skillMd != null && modelInvocationDisabled && (
+        {selectedSkillName != null && skillMd != null && (modelInvocationDisabled || userInvocationDisabled) && (
           <span
-            title={"Only a /" + selectedSkillName + " slash command invokes this skill"}
-            data-testid="skills-editor-modal-slash-only-chip"
+            title={
+              modelInvocationDisabled
+                ? "Only you can invoke this skill, with /" + selectedSkillName
+                : "Only agents can invoke this skill"
+            }
+            data-testid={
+              modelInvocationDisabled
+                ? "skills-editor-modal-user-only-chip"
+                : "skills-editor-modal-agent-only-chip"
+            }
             className={cn(
               "shrink-0 whitespace-nowrap text-[11px] px-2 py-0.5 rounded-full",
               "text-[hsla(var(--pv-id-hue),75%,80%,1)] bg-[hsla(var(--pv-id-hue),55%,40%,0.35)]",
               "border border-[hsla(var(--pv-id-hue),70%,60%,0.4)]",
             )}
           >
-            slash only
+            {modelInvocationDisabled ? "user only" : "agent only"}
           </span>
         )}
         {selectedSkillName != null && (
@@ -871,7 +888,7 @@ export default function SkillsEditorModal({
               ...(!readOnly
                 ? [
                     {
-                      label: "Slash command only",
+                      label: "User-invoked only",
                       hint: skillMd == null
                         ? "Loading…"
                         : skillMdDirty
@@ -883,7 +900,23 @@ export default function SkillsEditorModal({
                       disabled: skillMd == null || skillMdDirty || togglingInvocation,
                       testId: "skills-editor-modal-disable-model-invocation",
                       onClick: () => {
-                        void handleToggleModelInvocation(!modelInvocationDisabled);
+                        void handleToggleInvocation("user-only", !modelInvocationDisabled);
+                      },
+                    },
+                    {
+                      label: "Agent-invoked only",
+                      hint: skillMd == null
+                        ? "Loading…"
+                        : skillMdDirty
+                          ? "Save or discard your SKILL.md edits first"
+                          : "Only agents use it — /" +
+                            selectedSkillName +
+                            " won't run, and it's left out of the Skills menu",
+                      checked: userInvocationDisabled,
+                      disabled: skillMd == null || skillMdDirty || togglingInvocation,
+                      testId: "skills-editor-modal-agent-invoked-only",
+                      onClick: () => {
+                        void handleToggleInvocation("agent-only", !userInvocationDisabled);
                       },
                     },
                   ]

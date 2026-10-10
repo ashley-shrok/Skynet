@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { isModelInvocationDisabled, setModelInvocationDisabled } from "./skill-frontmatter";
+import {
+  isModelInvocationDisabled,
+  isUserInvocationDisabled,
+  setModelInvocationDisabled,
+  setUserInvocationDisabled,
+} from "./skill-frontmatter";
 
 const SEED = '---\nname: build\ndescription: "Builds"\n---\n\n# Build\n';
 
@@ -46,5 +51,24 @@ describe("skill-frontmatter", () => {
     expect(setModelInvocationDisabled(src, true)).toBe(
       "---\r\nname: x\r\ndisable-model-invocation: true\r\n---\r\nbody\r\n",
     );
+  });
+
+  it("agent-only writes user-invocable: false and round-trips", () => {
+    const out = setUserInvocationDisabled(SEED, true);
+    expect(out).toBe('---\nname: build\ndescription: "Builds"\nuser-invocable: false\n---\n\n# Build\n');
+    expect(isUserInvocationDisabled(out)).toBe(true);
+    expect(isUserInvocationDisabled("---\nuser-invocable: true\n---\n")).toBe(false);
+    expect(setUserInvocationDisabled(out, false)).toBe(SEED);
+  });
+
+  it("the two modes are mutually exclusive — turning one on clears the other", () => {
+    const userOnly = setModelInvocationDisabled(SEED, true);
+    const agentOnly = setUserInvocationDisabled(userOnly, true);
+    expect(isModelInvocationDisabled(agentOnly)).toBe(false);
+    expect(isUserInvocationDisabled(agentOnly)).toBe(true);
+    const back = setModelInvocationDisabled(agentOnly, true);
+    expect(isModelInvocationDisabled(back)).toBe(true);
+    expect(isUserInvocationDisabled(back)).toBe(false);
+    expect(back).toBe(userOnly);
   });
 });

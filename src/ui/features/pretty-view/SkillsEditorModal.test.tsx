@@ -193,7 +193,7 @@ if (typeof window !== "undefined" && !window.ResizeObserver) {
   };
 }
 
-/** Open the picker row's ⋮ skill menu ("Slash command only", "Delete skill…"). */
+/** Open the picker row's ⋮ skill menu ("User-invoked only", "Agent-invoked only", "Delete skill…"). */
 async function openSkillMenu(): Promise<void> {
   const trigger = await screen.findByTestId("skills-editor-modal-skill-menu");
   await userEvent.setup().click(trigger);
@@ -865,7 +865,7 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     expect(within(hostSelect).queryByText("second-ssh-host")).toBeTruthy();
     expect(within(hostSelect).queryByText("windows-box")).toBeNull();
   });
-  it("'Slash command only' toggle writes disable-model-invocation into SKILL.md", async () => {
+  it("'User-invoked only' toggle writes disable-model-invocation into SKILL.md", async () => {
     const seed = '---\nname: build\ndescription: "Builds"\n---\n\n# Build\n';
     (skillsApi.readSkillFile as ReturnType<typeof vi.fn>).mockResolvedValue({
       content: seed,
@@ -887,7 +887,7 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     await openSkillMenu();
     const item = await screen.findByTestId("skills-editor-modal-disable-model-invocation");
     expect(item.getAttribute("aria-checked")).toBe("false");
-    expect(screen.queryByTestId("skills-editor-modal-slash-only-chip")).toBeNull();
+    expect(screen.queryByTestId("skills-editor-modal-user-only-chip")).toBeNull();
 
     await userEvent.setup().click(item);
     await waitFor(() => {
@@ -901,7 +901,7 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
       });
     });
     // State is visible without opening the menu via the chip…
-    await screen.findByTestId("skills-editor-modal-slash-only-chip");
+    await screen.findByTestId("skills-editor-modal-user-only-chip");
     // …and the menu item reads checked on reopen.
     await openSkillMenu();
     expect(
@@ -911,7 +911,44 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     ).toBe("true");
   });
 
-  it("'Slash command only' toggle reads SKILL.md even when it isn't the first tab", async () => {
+  it("'Agent-invoked only' writes user-invocable: false and clears 'User-invoked only'", async () => {
+    const seed = '---\nname: build\ndisable-model-invocation: true\n---\n\n# Build\n';
+    (skillsApi.readSkillFile as ReturnType<typeof vi.fn>).mockResolvedValue({
+      content: seed,
+      mtime: 1_700_000_043,
+      size: seed.length,
+      isText: true,
+    });
+    render(
+      <SkillsEditorModal
+        open={true}
+        onOpenChange={vi.fn()}
+        hostTree={HOST_TREE}
+        defaultHostId={1}
+        container={document.body}
+      />,
+    );
+    await selectSkill("build");
+    await screen.findByTestId("skills-editor-modal-user-only-chip");
+
+    await openSkillMenu();
+    const item = await screen.findByTestId("skills-editor-modal-agent-invoked-only");
+    expect(item.getAttribute("aria-checked")).toBe("false");
+    await userEvent.setup().click(item);
+    await waitFor(() => {
+      expect(skillsApi.writeSkillFile).toHaveBeenCalledWith({
+        hostId: 1,
+        skill: "build",
+        path: "SKILL.md",
+        content: "---\nname: build\nuser-invocable: false\n---\n\n# Build\n",
+        expectedMtime: 1_700_000_043,
+      });
+    });
+    await screen.findByTestId("skills-editor-modal-agent-only-chip");
+    expect(screen.queryByTestId("skills-editor-modal-user-only-chip")).toBeNull();
+  });
+
+  it("'User-invoked only' toggle reads SKILL.md even when it isn't the first tab", async () => {
     (skillsApi.enumerateSkillFiles as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
       { path: "README.md" },
       { path: "SKILL.md" },
@@ -935,7 +972,7 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     );
     await selectSkill("build");
 
-    await screen.findByTestId("skills-editor-modal-slash-only-chip");
+    await screen.findByTestId("skills-editor-modal-user-only-chip");
     await openSkillMenu();
     expect(
       screen

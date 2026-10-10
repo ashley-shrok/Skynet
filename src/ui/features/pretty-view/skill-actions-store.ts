@@ -34,6 +34,9 @@ function lsKey(hostId: number): string {
 function normalize(entries: SkillEntry[]): SkillActionEntry[] {
   return entries
     .filter((e) => typeof e?.name === "string" && e.name.length > 0)
+    // Agent-only skills (`user-invocable: false`) can't be run by the user,
+    // so the Skills menu leaves them out.
+    .filter((e) => e.userInvocable !== false)
     .map((e) =>
       typeof e.description === "string" && e.description.length > 0
         ? { name: e.name, description: e.description }

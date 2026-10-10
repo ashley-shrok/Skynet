@@ -10,7 +10,8 @@ import { authApi, handleApiError } from "@/main-axios";
 // § Open Question 5). Same posture as Phase 23 duplicating execWithTimeout /
 // shellEscape (fourth intentional instance in the codebase).
 
-export type SkillEntry = { name: string; description?: string };
+/** `userInvocable: false` = frontmatter `user-invocable: false` (agent-only). */
+export type SkillEntry = { name: string; description?: string; userInvocable?: false };
 
 export type SkillFileEntry = { path: string };
 

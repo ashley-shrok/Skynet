@@ -104,7 +104,7 @@ export interface RowKebabMenuItem {
   testId?: string;
   /** Leaf items only: a boolean renders a Check-icon slot on the left
    *  (checked → icon, false → blank spacer), for toggle-style items like
-   *  the Skills modal's "Slash command only". Undefined = plain item. */
+   *  the Skills modal's "User-invoked only". Undefined = plain item. */
   checked?: boolean;
   /** Leaf items only: a muted second line under the label. */
   hint?: string;

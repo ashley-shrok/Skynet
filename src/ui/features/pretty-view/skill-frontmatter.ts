@@ -1,11 +1,17 @@
-// SKILL.md frontmatter helpers for the Skills modal's
-// `disable-model-invocation` toggle. Line-based on purpose — only the one
-// key is read or rewritten; every other frontmatter line (and the body) is
-// left byte-for-byte untouched, so we don't round-trip through a YAML
-// serializer that would reformat the author's hand-written frontmatter.
+// SKILL.md frontmatter helpers for the Skills modal's invocation toggles:
+// "User-invoked only" = `disable-model-invocation: true`, "Agent-invoked
+// only" = `user-invocable: false` (both harness-recognized). Line-based on
+// purpose — only those keys are read or rewritten; every other frontmatter
+// line (and the body) is left byte-for-byte untouched, so we don't
+// round-trip through a YAML serializer that would reformat the author's
+// hand-written frontmatter.
 
-const KEY = "disable-model-invocation";
-const KEY_LINE = new RegExp(`^${KEY}\\s*:\\s*(.*?)\\s*$`);
+const MODEL_KEY = "disable-model-invocation";
+const USER_KEY = "user-invocable";
+
+function keyLine(key: string): RegExp {
+  return new RegExp(`^${key}\\s*:\\s*(.*?)\\s*$`);
+}
 
 type Split = { eol: string; fm: string[] | null; body: string };
 
@@ -22,20 +28,49 @@ function split(content: string): Split {
   };
 }
 
-export function isModelInvocationDisabled(content: string): boolean {
+function hasBool(content: string, key: string, value: boolean): boolean {
   const { fm } = split(content);
   if (!fm) return false;
+  const re = keyLine(key);
   for (const line of fm) {
-    const m = KEY_LINE.exec(line);
-    if (m) return /^["']?true["']?$/i.test(m[1]);
+    const m = re.exec(line);
+    if (m) return new RegExp(`^["']?${value}["']?$`, "i").test(m[1]);
   }
   return false;
 }
 
-export function setModelInvocationDisabled(content: string, disabled: boolean): string {
+/** Drop `key` from the frontmatter, then append `key: value` when value is non-null. */
+function setKey(content: string, key: string, value: boolean | null): string {
   const { eol, fm, body } = split(content);
-  const kept = (fm ?? []).filter((line) => !KEY_LINE.test(line));
-  if (disabled) kept.push(`${KEY}: true`);
+  const re = keyLine(key);
+  const kept = (fm ?? []).filter((line) => !re.test(line));
+  if (value !== null) kept.push(`${key}: ${value}`);
   if (!fm && kept.length === 0) return content;
   return ["---", ...kept, "---"].join(eol) + eol + (fm ? body : content);
+}
+
+export function isModelInvocationDisabled(content: string): boolean {
+  return hasBool(content, MODEL_KEY, true);
+}
+
+export function isUserInvocationDisabled(content: string): boolean {
+  return hasBool(content, USER_KEY, false);
+}
+
+/**
+ * "User-invoked only". Turning it on also clears "Agent-invoked only" —
+ * with both set nobody could invoke the skill.
+ */
+export function setModelInvocationDisabled(content: string, disabled: boolean): string {
+  const next = setKey(content, MODEL_KEY, disabled ? true : null);
+  return disabled && isUserInvocationDisabled(next) ? setKey(next, USER_KEY, null) : next;
+}
+
+/**
+ * "Agent-invoked only". Turning it on also clears "User-invoked only" —
+ * with both set nobody could invoke the skill.
+ */
+export function setUserInvocationDisabled(content: string, disabled: boolean): string {
+  const next = setKey(content, USER_KEY, disabled ? false : null);
+  return disabled && isModelInvocationDisabled(next) ? setKey(next, MODEL_KEY, null) : next;
 }

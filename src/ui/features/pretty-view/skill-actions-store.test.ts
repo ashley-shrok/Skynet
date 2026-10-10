@@ -103,4 +103,13 @@ describe("skill-actions-store", () => {
     currentUser = "stacy";
     expect(getSkillActions(9)).toBeNull();
   });
+
+  it("leaves out agent-only skills (userInvocable false)", async () => {
+    listSkillsMock.mockResolvedValue([
+      { name: "build", description: "Builds" },
+      { name: "campaign", description: "Arc", userInvocable: false },
+    ]);
+    await refreshSkillActions(3, "prefetch");
+    expect(getSkillActions(3)).toEqual([{ name: "build", description: "Builds" }]);
+  });
 });

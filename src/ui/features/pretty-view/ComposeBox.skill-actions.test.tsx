@@ -58,7 +58,7 @@ describe("ComposeBox — skill-actions menu", () => {
   it("button appears left of thumbs-up once the host's skills are known", async () => {
     render(<ComposeBox {...baseProps()} />);
     const btn = await findButton();
-    expect(btn.getAttribute("aria-label")).toBe("Skill actions");
+    expect(btn.getAttribute("aria-label")).toBe("Skills");
     const thumbs = screen.getByLabelText("Send 'thumbs up'");
     expect(btn.nextElementSibling).toBe(thumbs);
     expect(listSkillsMock).toHaveBeenCalledWith(1);
