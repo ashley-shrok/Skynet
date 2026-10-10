@@ -3044,7 +3044,8 @@ pending_check() {
 #       peek (never on wake — a wake that fails to launch must be re-seen next tick). The
 #       receiver-since column binds it to one dormancy: once the receiver advances its own
 #       cursor (it ran), the stored peek cursor is discarded and peeking restarts from the
-#       receiver's since. recv.sh never reads this file.
+#       receiver's since. A server error while on the peek cursor deletes the file (falls back
+#       to the receiver's since next tick). recv.sh never reads this file.
 #   (2) Sync filter: only m.room.message / m.room.encrypted from other senders in timelines,
 #       no state / ephemeral / presence / account data. Invites still arrive (verified live
 #       against Synapse 2026-10-10).
@@ -3113,6 +3114,15 @@ _matrix_peek_one() {
     fi
     return 1                                # skip this cycle; next cycle uses fresh token
   fi
+  # Any other server error while on the peek cursor: drop it so the next tick falls back to
+  # the receiver's since. Otherwise a cursor the server rejects (e.g. after a DB restore)
+  # would be retried forever — it is only rebound when the receiver runs, which needs a wake.
+  if echo "$resp" | jq -e 'has("errcode")' >/dev/null 2>&1; then
+    [ "$peek_since" != "$since" ] && rm -f "$pf"
+    metric event=matrix-peek identity="$name" account="$account" result=error \
+      errcode="$(echo "$resp" | jq -r '.errcode' 2>/dev/null)"
+    return 1
+  fi
   # Count wake signals: (1) new MESSAGE events (m.room.message / m.room.encrypted) in JOINED
   # rooms from senders != self; (2) any pending entry in .rooms.invite. State events
   # (m.room.member, m.room.name, m.room.topic, etc.) do NOT wake — e.g. registry-room
@@ -3144,8 +3154,8 @@ _matrix_peek_one() {
   fi
   local nb
   nb=$(echo "$resp" | jq -r '.next_batch // empty' 2>/dev/null)
-  if [ -n "$nb" ]; then
-    printf '%s %s\n' "$since" "$nb" > "$pf.tmp.$$" && mv -f "$pf.tmp.$$" "$pf"
+  if [ -n "$nb" ] && [ "$nb" != "$peek_since" ]; then
+    { printf '%s %s\n' "$since" "$nb" > "$pf.tmp.$$" && mv -f "$pf.tmp.$$" "$pf"; } || rm -f "$pf.tmp.$$"
   fi
   metric event=matrix-peek identity="$name" account="$account" result=quiet
   return 1

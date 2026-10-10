@@ -20,7 +20,11 @@
 #   T-08 next peek resumes from the stored peek cursor
 #   T-09 receiver cursor moved (it ran) -> stale peek cursor ignored
 #   T-10 wake does NOT advance the peek cursor
-#   T-11 request carries the sync filter (messages only, no state, not self)
+#   T-11 invite seen from an advanced peek cursor wakes
+#   T-12 server error drops the peek cursor (falls back to receiver since)
+#   T-13 no next_batch (unreachable/garbage) leaves the peek cursor alone
+#   T-14 token-refresh path leaves the peek cursor alone
+#   T-15 request carries the sync filter (messages only, no state, not self)
 #
 # Exits 0 on all-pass; 1 on any failure with a diagnostic naming the failing test.
 #
@@ -384,6 +388,55 @@ test_wake_does_not_advance_peek_cursor() {
   teardown_scratch "$scratch"
 }
 
+test_invite_from_advanced_cursor_wakes() {
+  local scratch; scratch=$(setup_scratch)
+  _peek_session "$scratch" "iv" "@iv:test"
+  printf 's_1_2_3 s_5\n' > "$scratch/iv/relay-state/peek-since"
+  set_stub_body '{"next_batch":"s_6","rooms":{"invite":{"!new:test":{"invite_state":{"events":[]}}}}}'
+  assert_eq "0" "$(_peek "$scratch" iv)" "invite seen from advanced cursor should wake"
+  assert_eq "s_5" "$(_req_param 1 since)" "peek used the stored peek cursor"
+  stop_sync_stub
+  teardown_scratch "$scratch"
+}
+
+# Server rejects the peek cursor -> drop it so the next tick falls back to receiver since.
+test_server_error_drops_peek_cursor() {
+  local scratch; scratch=$(setup_scratch)
+  _peek_session "$scratch" "er" "@er:test"
+  printf 's_1_2_3 s_bad\n' > "$scratch/er/relay-state/peek-since"
+  set_stub_body '{"errcode":"M_UNKNOWN","error":"Invalid stream token"}'
+  assert_eq "1" "$(_peek "$scratch" er)" "error should not wake"
+  [ -e "$scratch/er/relay-state/peek-since" ] && fail "peek-since should be deleted after server error"
+  set_stub_body '{"next_batch":"s_7"}'
+  _peek "$scratch" er >/dev/null
+  assert_eq "s_1_2_3" "$(_req_param 2 since)" "next peek falls back to receiver since"
+  stop_sync_stub
+  teardown_scratch "$scratch"
+}
+
+# Unreachable / garbage response (no next_batch, no errcode) -> leave the cursor alone.
+test_no_next_batch_leaves_peek_cursor() {
+  local scratch; scratch=$(setup_scratch)
+  _peek_session "$scratch" "nb" "@nb:test"
+  printf 's_1_2_3 s_5\n' > "$scratch/nb/relay-state/peek-since"
+  set_stub_body 'not json'
+  assert_eq "1" "$(_peek "$scratch" nb)" "garbage should not wake"
+  assert_eq "s_1_2_3 s_5" "$(cat "$scratch/nb/relay-state/peek-since")" "peek cursor unchanged"
+  stop_sync_stub
+  teardown_scratch "$scratch"
+}
+
+test_token_refresh_leaves_peek_cursor() {
+  local scratch; scratch=$(setup_scratch)
+  _peek_session "$scratch" "tr" "@tr:test"
+  printf 's_1_2_3 s_5\n' > "$scratch/tr/relay-state/peek-since"
+  set_stub_body '{"errcode":"M_UNKNOWN_TOKEN","error":"expired"}'
+  assert_eq "1" "$(_peek "$scratch" tr)" "token refresh should not wake"
+  assert_eq "s_1_2_3 s_5" "$(cat "$scratch/tr/relay-state/peek-since")" "token refresh keeps peek cursor"
+  stop_sync_stub
+  teardown_scratch "$scratch"
+}
+
 test_request_carries_sync_filter() {
   local scratch; scratch=$(setup_scratch)
   _peek_session "$scratch" "fl" "@fl:test"
@@ -411,6 +464,10 @@ run_test test_quiet_peek_records_cursor
 run_test test_next_peek_resumes_from_peek_cursor
 run_test test_receiver_moved_discards_stale_peek_cursor
 run_test test_wake_does_not_advance_peek_cursor
+run_test test_invite_from_advanced_cursor_wakes
+run_test test_server_error_drops_peek_cursor
+run_test test_no_next_batch_leaves_peek_cursor
+run_test test_token_refresh_leaves_peek_cursor
 run_test test_request_carries_sync_filter
 
 echo "==============================="
