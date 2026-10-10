@@ -56,6 +56,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 import time
 import traceback
 
@@ -102,6 +103,81 @@ _harness_pid = None
 
 # Module-level inotifywait subprocess handle so signal handlers can clean it up.
 _inotify_proc = None
+
+# Self-reload — pick up a new version of this script without a session restart.
+# The ambient-monitor never restarts its children, so a long-lived session
+# (always-on identities especially) kept running whatever code it started
+# with long after the distributor installed a newer copy. A daemon thread
+# polls this file; once a change has held still for two polls AND compiles,
+# it sets _reload_pending and terminates inotifywait. The main loop drains
+# what inotifywait already printed, sees EOF, and re-execs in place: same
+# PID (ambient-monitor's child handle and our stdout pipe survive, and
+# _single_instance skips its own PID), fresh code. The new image's startup
+# pass diffs every baseline, so a change that landed during the handoff
+# still emits — nothing is lost, at worst a self-edit in flight at the exact
+# moment of reload emits once.
+SELF_RELOAD_POLL_SEC = float(os.environ.get("ROLE_WATCH_SELF_RELOAD_POLL_SEC", "30"))
+_SELF_PATH = os.path.realpath(__file__)
+_reload_pending = threading.Event()
+
+
+def _self_stat():
+    try:
+        st = os.stat(_SELF_PATH)
+        return (st.st_ino, st.st_size, st.st_mtime_ns)
+    except OSError:
+        return None
+
+
+# Taken at import — the version this process is actually running. Sampling
+# later (after the startup pass) could mistake an install that landed during
+# startup for the running code and never reload into it.
+_SELF_START_STAT = _self_stat()
+
+
+def _self_reload_watch(start_stat):
+    """Daemon thread body — see SELF_RELOAD_POLL_SEC."""
+    seen = start_stat
+    while not _reload_pending.is_set():
+        time.sleep(SELF_RELOAD_POLL_SEC)
+        cur = _self_stat()
+        if cur is None or cur == start_stat:
+            seen = cur
+            continue
+        if cur != seen:
+            seen = cur  # still changing (or first sight) — wait one more poll
+            continue
+        try:
+            with open(_SELF_PATH) as f:
+                compile(f.read(), _SELF_PATH, "exec")
+        except Exception as e:
+            # A broken install must not replace a working watcher; keep
+            # running the old code and retry when the file changes again.
+            print(
+                "⚠️ [role-file-watch] new version at %s does not compile (%s) — "
+                "staying on the running version" % (_SELF_PATH, e),
+                file=sys.stderr,
+                flush=True,
+            )
+            start_stat = cur
+            continue
+        _reload_pending.set()
+        proc = _inotify_proc
+        if proc is not None:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+
+
+def _reexec_self():
+    print(
+        "[role-file-watch] new version installed — reloading in place (pid %d)" % os.getpid(),
+        file=sys.stderr,
+        flush=True,
+    )
+    sys.stdout.flush()
+    os.execv(sys.executable, [sys.executable, _SELF_PATH] + sys.argv[1:])
 
 
 # Role slug validation — mirrors ~fleet convention: lowercase kebab, must start
@@ -1031,6 +1107,11 @@ def main():
 
     global _inotify_proc
 
+    if SELF_RELOAD_POLL_SEC > 0:
+        threading.Thread(
+            target=_self_reload_watch, args=(_SELF_START_STAT,), daemon=True,
+        ).start()
+
     if use_inotify:
         # inotifywait-based watch loop with `--format` output so we can route
         # events by path. Three watched surfaces:
@@ -1085,6 +1166,9 @@ def main():
             if inotify_backoff_sec > 0:
                 time.sleep(inotify_backoff_sec)
 
+            if _reload_pending.is_set():
+                _reexec_self()
+
             try:
                 _inotify_proc = subprocess.Popen(
                     [
@@ -1097,6 +1181,22 @@ def main():
                     stderr=subprocess.PIPE,
                     text=True,
                 )
+                # The reload thread may have fired while no inotifywait was
+                # running to terminate — end this one so the loop reaches EOF.
+                if _reload_pending.is_set():
+                    _inotify_proc.terminate()
+                # Close the arming gap: a change landing between our last
+                # diff (the startup pass, or the MOVE_SELF/DELETE_SELF diff
+                # just before a respawn) and inotifywait's watches going live
+                # fires no event and would sit unseen until the next one.
+                # Wait for "Watches established." (inotifywait's stderr), then
+                # re-diff once. Error output stops the wait at EOF and is
+                # still surfaced by the exit-code path below.
+                for err_line in _inotify_proc.stderr:
+                    if "Watches established" in err_line:
+                        if _diff_and_emit_all(targets, baseline_dir, spill_dir):
+                            sys.exit(1)
+                        break
                 for event_line in _inotify_proc.stdout:
                     # Any event = healthy inotifywait. Reset backoff and emit
                     # a recovery event if the previous cycle surfaced a failure.
@@ -1187,11 +1287,29 @@ def main():
                     # Anything else is companion churn or events on an
                     # unrelated path — ignore.
 
+                # Self-reload: the watch thread terminated inotifywait and
+                # everything it printed has been handled — swap in new code.
+                if _reload_pending.is_set():
+                    if _inotify_proc is not None:
+                        try:
+                            _inotify_proc.wait(timeout=5)
+                        except Exception:
+                            pass
+                    _reexec_self()
+
                 # for-loop exited: either _inotify_proc is None (controlled
                 # respawn via MOVE_SELF/DELETE_SELF above) or inotifywait died
                 # on its own (EOF on stdout). In the death case, capture exit
                 # code + stderr so a saturated inotify limit surfaces to the
                 # agent instead of hot-looping deaf.
+                # A fixed target deleted before inotifywait could arm on it
+                # makes inotifywait die on startup ("No such file"); that is
+                # the same genuine-delete case as DELETE_SELF, not a transient
+                # inotify failure to back off from.
+                if any(not os.path.exists(t[2]) for t in targets):
+                    if _diff_and_emit_all(targets, baseline_dir, spill_dir):
+                        sys.exit(1)
+
                 if _inotify_proc is not None:
                     try:
                         exit_code = _inotify_proc.wait(timeout=5)
@@ -1248,6 +1366,9 @@ def main():
                     os.kill(harness_pid, 0)
                 except OSError:
                     sys.exit(0)
+
+            if _reload_pending.is_set():
+                _reexec_self()
 
             time.sleep(POLL)
             changed = False

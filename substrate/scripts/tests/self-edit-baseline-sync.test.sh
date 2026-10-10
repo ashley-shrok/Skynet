@@ -39,6 +39,10 @@
 #   T-S16 — a peer edit to an UNCLAIMED file during a held call still emits
 #           after release (release syncs only the call's own claims)
 #   T-S17 — UserPromptSubmit clears every claim (interrupt cleanup)
+#   T-S18 — watcher reloads itself in place (same PID) when its script file
+#           changes, and keeps emitting afterwards
+#   T-S19 — a new version that doesn't compile is NOT loaded; the running
+#           watcher keeps working
 #
 # Exits 0 on all-pass; 1 on any failure with a diagnostic naming the failing
 # test.
@@ -139,13 +143,14 @@ seed_fixture() {
 # launch_watcher: start role-file-watch.py under a hermetic HOME with a short
 # settle window (50ms). Sets WATCHER_PID, OUT_LOG, ERR_LOG.
 launch_watcher() {
-  local home_dir="$1" ident_dir="$2"
+  local home_dir="$1" ident_dir="$2" script="${3:-$WATCHER}"
   OUT_LOG=$(make_tmpdir)/out.log
   ERR_LOG=$(make_tmpdir)/err.log
   HOME="$home_dir" \
     AMBIENT_MONITOR_HARNESS_PID="$$" \
     ROLE_WATCH_SELF_EDIT_SETTLE_MS=50 \
-    python3 "$WATCHER" "$ident_dir" \
+    ROLE_WATCH_SELF_RELOAD_POLL_SEC="${SELF_RELOAD_POLL:-30}" \
+    python3 "$script" "$ident_dir" \
     >"$OUT_LOG" 2>"$ERR_LOG" &
   WATCHER_PID=$!
   ALL_PIDS+=("$WATCHER_PID")
@@ -157,6 +162,22 @@ wait_for_baseline() {
   local elapsed=0
   while [ "$elapsed" -lt "$timeout" ]; do
     [ -f "$baseline" ] && return 0
+    sleep 0.1
+    elapsed=$((elapsed + 1))
+  done
+  return 1
+}
+
+# wait_for_watcher: block until the watcher has finished its startup pass.
+# seed_fixture pre-seeds the identity baseline, so waiting on that proves
+# nothing; the per-role baseline `last-snapshot.role.<role>` is written only
+# by the watcher's cold start. Generous timeout — the box may be loaded.
+wait_for_watcher() {
+  local state_dir="$1"
+  local timeout="${2:-150}"
+  local elapsed=0
+  while [ "$elapsed" -lt "$timeout" ]; do
+    compgen -G "$state_dir/last-snapshot.role.*" >/dev/null && return 0
     sleep 0.1
     elapsed=$((elapsed + 1))
   done
@@ -286,8 +307,8 @@ test_T_S5_watcher_matching_marker_silent() {
   launch_watcher "$HOME_DIR" "$IDENT_DIR"
 
   # Wait for cold-start baselines to settle (watcher writes them silently).
-  if ! wait_for_baseline "$BASELINE_IDENT"; then
-    fail "T-S5: identity baseline never landed"
+  if ! wait_for_watcher "$STATE_DIR"; then
+    fail "T-S5: watcher never started"
     return
   fi
   # Cold start emits nothing.
@@ -302,13 +323,16 @@ task: quiet
 
 # s5name
 '
-  printf '%s' "$new_content" > "$IDENT_MD"
+  # Stage the hook's output (refreshed baseline + marker) BEFORE the file
+  # changes, then move the new content into place. Writing the file first
+  # raced the 50ms test settle window on a loaded box.
+  local staged="$IDENT_DIR/.s5-staged"
+  printf '%s' "$new_content" > "$staged"
   local expected_hash
-  expected_hash=$(sha256sum "$IDENT_MD" | awk '{print $1}')
-  # The sync hook would also refresh the baseline atomically:
-  cp "$IDENT_MD" "$BASELINE_IDENT"
-  # And drop the marker:
+  expected_hash=$(sha256sum "$staged" | awk '{print $1}')
+  cp "$staged" "$BASELINE_IDENT"
   printf '%s\n' "$expected_hash" > "$BASELINE_IDENT.self-edit-hash"
+  mv "$staged" "$IDENT_MD"
 
   # Wait 1.5s. If the watcher was going to emit, it would have by now
   # (200ms settle + inotify tick + emit).
@@ -336,8 +360,8 @@ test_T_S6_watcher_mismatched_marker_fires() {
   seed_fixture "s6role" "s6name"
   launch_watcher "$HOME_DIR" "$IDENT_DIR"
 
-  if ! wait_for_baseline "$BASELINE_IDENT"; then
-    fail "T-S6: identity baseline never landed"
+  if ! wait_for_watcher "$STATE_DIR"; then
+    fail "T-S6: watcher never started"
     return
   fi
   sleep 0.3
@@ -369,8 +393,8 @@ test_T_S7_watcher_no_marker_fires() {
   seed_fixture "s7role" "s7name"
   launch_watcher "$HOME_DIR" "$IDENT_DIR"
 
-  if ! wait_for_baseline "$BASELINE_IDENT"; then
-    fail "T-S7: identity baseline never landed"
+  if ! wait_for_watcher "$STATE_DIR"; then
+    fail "T-S7: watcher never started"
     return
   fi
   sleep 0.3
@@ -668,8 +692,8 @@ test_T_S13_claim_bash_by_name() {
 test_T_S14_watcher_holds_claimed_self_edit() {
   seed_fixture "s14role" "s14name"
   launch_watcher "$HOME_DIR" "$IDENT_DIR"
-  if ! wait_for_baseline "$BASELINE_IDENT"; then
-    fail "T-S14: identity baseline never landed"
+  if ! wait_for_watcher "$STATE_DIR"; then
+    fail "T-S14: watcher never started"
     return
   fi
   sleep 0.3
@@ -705,8 +729,8 @@ test_T_S14_watcher_holds_claimed_self_edit() {
 test_T_S15_stale_claim_ignored() {
   seed_fixture "s15role" "s15name"
   launch_watcher "$HOME_DIR" "$IDENT_DIR"
-  if ! wait_for_baseline "$BASELINE_IDENT"; then
-    fail "T-S15: identity baseline never landed"
+  if ! wait_for_watcher "$STATE_DIR"; then
+    fail "T-S15: watcher never started"
     return
   fi
   sleep 0.3
@@ -732,7 +756,7 @@ test_T_S16_peer_edit_during_hold_emits() {
   seed_fixture "s16role" "s16name"
   launch_watcher "$HOME_DIR" "$IDENT_DIR"
   local role_baseline="$STATE_DIR/last-snapshot.role.s16role"
-  if ! wait_for_baseline "$BASELINE_IDENT" || ! wait_for_baseline "$role_baseline"; then
+  if ! wait_for_watcher "$STATE_DIR" || ! wait_for_baseline "$role_baseline"; then
     fail "T-S16: baselines never landed"
     return
   fi
@@ -776,6 +800,81 @@ test_T_S17_prompt_clears_claims() {
   fi
 }
 
+# ============================================================
+# T-S18: watcher reloads in place when its own script changes.
+# ============================================================
+test_T_S18_self_reload_in_place() {
+  seed_fixture "s18role" "s18name"
+  local script_copy
+  script_copy="$(make_tmpdir)/role-file-watch"
+  cp "$WATCHER" "$script_copy"
+  SELF_RELOAD_POLL=0.2 launch_watcher "$HOME_DIR" "$IDENT_DIR" "$script_copy"
+  # The role baseline is written only by the watcher (seed_fixture pre-seeds
+  # the identity one), so this proves the watcher has loaded its code before
+  # we change the script under it.
+  if ! wait_for_baseline "$STATE_DIR/last-snapshot.role.s18role" 100; then
+    fail "T-S18: watcher never started"
+    return
+  fi
+  sleep 0.5
+
+  # "Install" a new version (tmp + rename, like an atomic deploy).
+  { cat "$WATCHER"; printf '\n# s18 new version\n'; } > "$script_copy.tmp"
+  mv "$script_copy.tmp" "$script_copy"
+
+  if ! wait_for_stdout_match 'reloading in place' "$ERR_LOG" 50; then
+    fail "T-S18: watcher never reloaded; err=$(cat "$ERR_LOG")"
+    return
+  fi
+  if ! kill -0 "$WATCHER_PID" 2>/dev/null; then
+    fail "T-S18: watcher PID $WATCHER_PID gone after reload; err=$(cat "$ERR_LOG")"
+    return
+  fi
+  sleep 0.5
+
+  printf -- '---\nrole: s18role\ntask: after reload\n---\n\n# s18name\n' > "$IDENT_MD"
+  if ! wait_for_stdout_match '📝 \[identity-file: s18name\]' "$OUT_LOG"; then
+    fail "T-S18: reloaded watcher did not emit; out=$(cat "$OUT_LOG") err=$(cat "$ERR_LOG")"
+    return
+  fi
+}
+
+# ============================================================
+# T-S19: a broken new version is not loaded.
+# ============================================================
+test_T_S19_broken_version_not_loaded() {
+  seed_fixture "s19role" "s19name"
+  local script_copy
+  script_copy="$(make_tmpdir)/role-file-watch"
+  cp "$WATCHER" "$script_copy"
+  SELF_RELOAD_POLL=0.2 launch_watcher "$HOME_DIR" "$IDENT_DIR" "$script_copy"
+  # The role baseline is written only by the watcher (seed_fixture pre-seeds
+  # the identity one), so this proves the watcher has loaded its code before
+  # we change the script under it.
+  if ! wait_for_baseline "$STATE_DIR/last-snapshot.role.s19role" 100; then
+    fail "T-S19: watcher never started"
+    return
+  fi
+  sleep 0.5
+
+  printf '\ndef broken(:\n' >> "$script_copy"
+
+  if ! wait_for_stdout_match 'does not compile' "$ERR_LOG" 50; then
+    fail "T-S19: broken version not reported; err=$(cat "$ERR_LOG")"
+    return
+  fi
+  if grep -q 'reloading in place' "$ERR_LOG"; then
+    fail "T-S19: watcher reloaded into a broken version"
+    return
+  fi
+
+  printf -- '---\nrole: s19role\ntask: still watching\n---\n\n# s19name\n' > "$IDENT_MD"
+  if ! wait_for_stdout_match '📝 \[identity-file: s19name\]' "$OUT_LOG"; then
+    fail "T-S19: watcher stopped emitting after a broken install; out=$(cat "$OUT_LOG") err=$(cat "$ERR_LOG")"
+    return
+  fi
+}
+
 run_test test_T_S1_sync_drift
 run_test test_T_S2_sync_no_drift
 run_test test_T_S3_no_fleet_identity
@@ -793,6 +892,8 @@ run_test test_T_S14_watcher_holds_claimed_self_edit
 run_test test_T_S15_stale_claim_ignored
 run_test test_T_S16_peer_edit_during_hold_emits
 run_test test_T_S17_prompt_clears_claims
+run_test test_T_S18_self_reload_in_place
+run_test test_T_S19_broken_version_not_loaded
 
 # ---- summary ----
 
