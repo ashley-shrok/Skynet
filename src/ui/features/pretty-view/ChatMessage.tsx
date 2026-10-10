@@ -14,6 +14,7 @@ import { parseInjectedUserTurn } from "@/api/pretty-view-upload-protocol";
 import { AttachmentChipStrip } from "./AttachmentChipStrip";
 import { CopyableBlock } from "./CopyableBlock";
 import { useSpeakPlayback } from "./useSpeakPlayback";
+import { handleCleanCopy } from "./clean-copy";
 import { useEditableFileEligibility } from "./use-editable-file-eligibility";
 import { FileChip } from "./FileChip";
 import { WidgetBubble } from "./WidgetBubble";
@@ -338,6 +339,8 @@ export function ChatMessage({
   // flex-col — so the render path is untouched (D-02 lock).
   return (
     <div
+      // Copy without the dark-theme backgrounds/colors (see clean-copy.ts).
+      onCopy={handleCleanCopy}
       className={cn(
         "flex",
         isUser ? "justify-end" : "justify-start",
