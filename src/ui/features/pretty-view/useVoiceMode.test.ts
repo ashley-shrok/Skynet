@@ -31,7 +31,10 @@ const cuesPlayed: string[] = [];
 let ticking = false;
 vi.mock("./voice-mode-cues", () => ({
   createVoiceModeCues: () => ({
-    play: (cue: string) => cuesPlayed.push(cue),
+    play: (cue: string) => {
+      cuesPlayed.push(cue);
+      return true;
+    },
     startTicking: () => {
       ticking = true;
     },
@@ -497,9 +500,9 @@ describe("useVoiceMode", () => {
       expect(ticking).toBe(true);
       expect(cuesPlayed).not.toContain("yourTurn");
 
-      // Agent finishes → ticking stops, "your turn".
+      // Agent finishes → ticking stops, "your turn" (after a short settle).
       rerender(baseArgs({ messages: next, isWorking: false }));
-      await flush();
+      await flush(1000);
       expect(ticking).toBe(false);
       expect(cuesPlayed).toEqual(["yourTurn"]);
     });
@@ -590,6 +593,106 @@ describe("useVoiceMode", () => {
       expect(players[0].stop).toHaveBeenCalled();
       expect(postSpeakStream).toHaveBeenCalledTimes(1);
       expect(result.current.phase).toBe("listening");
+    });
+  });
+
+  describe("review hardening", () => {
+    it("bails (never sends around the gap) when a closed piece comes back with no audio", async () => {
+      const send = vi.fn(() => true);
+      const { result } = await startVoiceMode(baseArgs({ send }));
+      transcribeReturns("first part");
+      await sayPiece();
+      // The next recorder loses its audio (iOS dropped data).
+      const rec = MockMediaRecorder.instances[MockMediaRecorder.instances.length - 1];
+      rec.stop = vi.fn(() => {
+        rec.state = "inactive";
+        rec.onstop?.();
+      });
+      await sayPiece();
+      await flush(TIMED_END_MS);
+      expect(send).not.toHaveBeenCalled();
+      expect(cuesPlayed).toContain("alarm");
+      expect(result.current.phase).toBe("off");
+    });
+
+    it("bails when a transcription attempt hangs instead of waiting forever", async () => {
+      const send = vi.fn(() => true);
+      const { result } = await startVoiceMode(baseArgs({ send }));
+      stampedFetch.mockReturnValue(new Promise(() => {})); // never answers
+      await sayPiece();
+      await flush(TRANSCRIBE_RETRY_WINDOW_MS + 20_000);
+      expect(send).not.toHaveBeenCalled();
+      expect(cuesPlayed).toContain("alarm");
+      expect(result.current.phase).toBe("off");
+    });
+
+    it("timed mode: short noises after speaking don't postpone the send", async () => {
+      const send = vi.fn(() => true);
+      await startVoiceMode(baseArgs({ send }));
+      transcribeReturns("check the build");
+      await sayPiece();
+      // A key clack every second — each under the speech threshold.
+      for (let i = 0; i < 3; i += 1) {
+        setLevel(0.2);
+        await flush(100);
+        setLevel(0);
+        await flush(900);
+      }
+      expect(send).toHaveBeenCalledWith("check the build");
+    });
+
+    it("phrase mode: a second send phrase while the first turn is still transcribing is honoured", async () => {
+      setVoiceModeSettings({ endOfTurn: "phrase" });
+      const send = vi.fn(() => true);
+      await startVoiceMode(baseArgs({ send }));
+      const first = transcribeDeferred();
+      await sayPiece();
+      transcribeReturns("send it");
+      await sayPiece();
+      transcribeReturns("now the second message. Send it.");
+      await sayPiece();
+      expect(send).not.toHaveBeenCalled();
+      first("the first message");
+      await flush();
+      expect(send).toHaveBeenNthCalledWith(1, "the first message");
+      expect(send).toHaveBeenNthCalledWith(2, "now the second message.");
+    });
+
+    it("a piece from a stopped session can't touch a new one", async () => {
+      const send = vi.fn(() => true);
+      const { result } = await startVoiceMode(baseArgs({ send }));
+      const stale = transcribeDeferred();
+      await sayPiece();
+      act(() => result.current.stop());
+      await flush(2000);
+      act(() => result.current.start());
+      await flush();
+      stale("stop voice mode");
+      await flush(TIMED_END_MS * 2);
+      expect(result.current.phase).toBe("listening");
+      expect(send).not.toHaveBeenCalled();
+    });
+
+    it("plays 'your turn' once when the agent goes idle just before its last reply lands", async () => {
+      const { rerender } = await startVoiceMode(baseArgs({ isWorking: true }));
+      rerender(baseArgs({ isWorking: false }));
+      await flush(100);
+      rerender(baseArgs({ messages: [{ type: "message", role: "assistant", content: "final", eventId: "a1", ts: Date.now() }] }));
+      await flush(1000);
+      act(() => players[0].opts.onEnded?.());
+      await flush(1000);
+      expect(cuesPlayed.filter((c) => c === "yourTurn")).toHaveLength(1);
+    });
+
+    it("only the first piece of a draft carries the host (for the server's slash rewrite)", async () => {
+      await startVoiceMode();
+      transcribeReturns("slash deploy");
+      await sayPiece();
+      transcribeReturns("slash not a command");
+      await sayPiece();
+      const forms = stampedFetch.mock.calls.map((c) => (c[1] as { body: FormData }).body);
+      expect(forms[0].get("hostId")).toBe("1");
+      expect(forms[1].get("hostId")).toBeNull();
     });
   });
 

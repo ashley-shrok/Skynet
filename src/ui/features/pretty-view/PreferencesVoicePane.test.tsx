@@ -297,6 +297,15 @@ describe("PreferencesVoicePane — voice mode: when to send", () => {
     expect(mockSave).not.toHaveBeenCalled();
   });
 
+  it("saves an edited phrase if the pane closes before the box loses focus", async () => {
+    const { unmount } = render(
+      <PreferencesVoicePane userId="user1" userPrefs={makePrefs({ voiceModeEndOfTurn: "phrase" })} />,
+    );
+    fireEvent.change(screen.getByTestId("preferences-voice-mode-phrase"), { target: { value: "that's all" } });
+    unmount();
+    await waitFor(() => expect(mockSave).toHaveBeenCalledWith({ voiceModeSendPhrase: "that's all" }));
+  });
+
   it("reverts the choice and shows an error when the save fails", async () => {
     mockSave.mockRejectedValueOnce(new Error("nope"));
     render(<PreferencesVoicePane userId="user1" userPrefs={makePrefs()} />);

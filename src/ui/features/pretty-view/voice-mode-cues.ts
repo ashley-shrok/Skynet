@@ -25,7 +25,8 @@ import offUrl from "../../assets/sounds/auto-speak/off.mp3?url";
 export type VoiceModeCue = "sent" | "yourTurn" | "error" | "off" | "alarm";
 
 export interface VoiceModeCues {
-  play: (cue: VoiceModeCue) => void;
+  /** Play a cue; false when it couldn't be (sample not loaded, disposed, error). */
+  play: (cue: VoiceModeCue) => boolean;
   startTicking: () => void;
   stopTicking: () => void;
   isTicking: () => boolean;
@@ -91,25 +92,27 @@ export function createVoiceModeCues(ctx: AudioContext, log: (msg: string) => voi
     }
   };
 
-  const play = (cue: VoiceModeCue) => {
-    if (disposed) return;
+  const play = (cue: VoiceModeCue): boolean => {
+    if (disposed) return false;
     wake();
     try {
       if (cue === "alarm") {
         playAlarm();
-        return;
+        return true;
       }
       const buf = buffers.get(cue);
       if (!buf) {
         log(`cue-not-ready cue=${cue}`);
-        return;
+        return false;
       }
       const src = ctx.createBufferSource();
       src.buffer = buf;
       src.connect(ctx.destination);
       src.start();
+      return true;
     } catch (err) {
       log(`cue-play-failed cue=${cue} errMessage="${err instanceof Error ? err.message : String(err)}"`);
+      return false;
     }
   };
 

@@ -162,6 +162,24 @@ export function PreferencesVoicePane({
     }
   }, [phrase, onUserPrefsChanged]);
 
+  // Closing Preferences while the phrase box still has focus may never blur
+  // it — save a changed, valid phrase on the way out.
+  const phraseRef = useRef(phrase);
+  phraseRef.current = phrase;
+  const onPrefsChangedRef = useRef(onUserPrefsChanged);
+  onPrefsChangedRef.current = onUserPrefsChanged;
+  useEffect(
+    () => () => {
+      const effective = phraseRef.current.trim() || VOICE_MODE_SEND_PHRASE_DEFAULT;
+      if (effective === lastSavedPhrase.current || !/[\p{L}\p{N}]/u.test(effective)) return;
+      const wire = effective.toLowerCase() === VOICE_MODE_SEND_PHRASE_DEFAULT ? null : effective;
+      saveUserPreferences({ voiceModeSendPhrase: wire })
+        .then(() => onPrefsChangedRef.current?.({ voiceModeSendPhrase: wire }))
+        .catch(() => {});
+    },
+    [],
+  );
+
   // Sync effect: if an upstream change (e.g. from another tab or optimistic
   // update) modifies userPrefs.fallbackVoice, reflect it locally.
   useEffect(() => {
