@@ -3096,11 +3096,17 @@ def _next_slot_wall(sch, now_dt, days, span_days):
         if cand.timestamp() > now: return cand.timestamp()
     return None
 
+# Reference point for the next slot: `.last` (real fire) if present, else `.anchored`
+# (first-sight, never fired) — same fallback as wakeup-scheduler.py. Reading `.last` alone
+# meant a never-fired recurring spec could never wake a dormant identity (2026-10-10 miss:
+# sulfur's daily 09:30 slept through its first slot).
 def _read_last(state_dir, spec_path):
-    p = os.path.join(state_dir, os.path.basename(spec_path).replace('.json','.last'))
-    if not os.path.exists(p): return None
-    try: return float(open(p).read().strip())
-    except Exception: return None
+    base = os.path.join(state_dir, os.path.basename(spec_path)[:-len('.json')])
+    for p in (base + '.last', base + '.anchored'):
+        if not os.path.exists(p): continue
+        try: return float(open(p).read().strip())
+        except Exception: continue
+    return None
 
 def _peek_one(wakedir):
     """Returns (detail_or_empty_string, list_of_errors)."""
