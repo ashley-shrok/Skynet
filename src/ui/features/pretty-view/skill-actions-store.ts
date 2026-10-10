@@ -91,7 +91,10 @@ function getByKey(key: string): SkillActionEntry[] | null {
  * share one request. Never throws; a failure keeps the remembered list.
  * Resolves true on success, false on failure.
  */
-export function refreshSkillActions(hostId: number, reason: "prefetch" | "menu-open"): Promise<boolean> {
+export function refreshSkillActions(
+  hostId: number,
+  reason: "prefetch" | "menu-open" | "invocation-toggle",
+): Promise<boolean> {
   const key = lsKey(hostId);
   const existing = inFlight.get(key);
   if (existing) return existing;

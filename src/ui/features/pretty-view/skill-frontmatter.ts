@@ -9,8 +9,11 @@
 const MODEL_KEY = "disable-model-invocation";
 const USER_KEY = "user-invocable";
 
+// Captures the value without a trailing `# comment`, so a hand-written
+// `user-invocable: false  # helper` reads the way a YAML parser (and the
+// server's skill list) reads it.
 function keyLine(key: string): RegExp {
-  return new RegExp(`^${key}\\s*:\\s*(.*?)\\s*$`);
+  return new RegExp(`^${key}\\s*:\\s*([^#]*?)\\s*(?:#.*)?$`);
 }
 
 type Split = { eol: string; fm: string[] | null; body: string };

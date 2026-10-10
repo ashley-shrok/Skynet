@@ -71,4 +71,12 @@ describe("skill-frontmatter", () => {
     expect(isUserInvocationDisabled(back)).toBe(false);
     expect(back).toBe(userOnly);
   });
+
+  it("ignores a trailing # comment when reading, and clears a commented key", () => {
+    const src = "---\nname: x\nuser-invocable: false   # helper only\n---\nbody";
+    expect(isUserInvocationDisabled(src)).toBe(true);
+    expect(setModelInvocationDisabled(src, true)).toBe(
+      "---\nname: x\ndisable-model-invocation: true\n---\nbody",
+    );
+  });
 });

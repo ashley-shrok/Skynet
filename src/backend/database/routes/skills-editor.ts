@@ -432,7 +432,8 @@ router.get(
       const listCmd =
         `find ${escapedSkillsRoot} -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | ` +
         `while read -r dir; do ` +
-        `  fm=$(awk '/^---$/{n++; if(n==2) exit} n==1' "$dir/SKILL.md" 2>/dev/null); ` +
+        // sub(/\r$/) reads CRLF SKILL.md files too — the editor preserves CRLF.
+        `  fm=$(awk '{sub(/\\r$/, "")} /^---$/{n++; if(n==2) exit} n==1' "$dir/SKILL.md" 2>/dev/null); ` +
         `  printf '%s\\n' "$fm" | grep -q '^distributed: *true[[:space:]]*$' && continue; ` +
         `  printf '\\036%s\\n%s\\n' "$(basename "$dir")" "$fm"; ` +
         `done`;

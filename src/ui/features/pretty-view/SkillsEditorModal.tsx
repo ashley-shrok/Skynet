@@ -32,6 +32,7 @@ import {
   setModelInvocationDisabled,
   setUserInvocationDisabled,
 } from "./skill-frontmatter";
+import { refreshSkillActions } from "./skill-actions-store";
 import {
   INSTANCE_HOST_ID,
   listInstanceWide,
@@ -489,13 +490,16 @@ export default function SkillsEditorModal({
           `[skills-editor] invocation-toggle hostId=${apiHostId} skill=${selectedSkillName} mode=${which} on=${on}`,
         );
         await handleSave(SKILL_MD, next, skillMd.mtime);
+        // The compose Skills menu leaves agent-only skills out — refresh its
+        // remembered list now so the next open doesn't show a stale entry.
+        if (selectedHostId != null) void refreshSkillActions(selectedHostId, "invocation-toggle");
       } catch (err) {
         window.alert(err instanceof Error ? `Save failed: ${err.message}` : "Save failed");
       } finally {
         setTogglingInvocation(false);
       }
     },
-    [skillMd, skillMdDirty, togglingInvocation, handleSave, apiHostId, selectedSkillName],
+    [skillMd, skillMdDirty, togglingInvocation, handleSave, apiHostId, selectedSkillName, selectedHostId],
   );
 
   const handleAddFile = useCallback(async (): Promise<void> => {
@@ -858,14 +862,18 @@ export default function SkillsEditorModal({
         {selectedSkillName != null && skillMd != null && (modelInvocationDisabled || userInvocationDisabled) && (
           <span
             title={
-              modelInvocationDisabled
-                ? "Only you can invoke this skill, with /" + selectedSkillName
-                : "Only agents can invoke this skill"
+              modelInvocationDisabled && userInvocationDisabled
+                ? "Both modes are set, so nobody can invoke this skill — turn one off"
+                : modelInvocationDisabled
+                  ? "Only you can invoke this skill, with /" + selectedSkillName
+                  : "Only agents can invoke this skill"
             }
             data-testid={
-              modelInvocationDisabled
-                ? "skills-editor-modal-user-only-chip"
-                : "skills-editor-modal-agent-only-chip"
+              modelInvocationDisabled && userInvocationDisabled
+                ? "skills-editor-modal-no-one-chip"
+                : modelInvocationDisabled
+                  ? "skills-editor-modal-user-only-chip"
+                  : "skills-editor-modal-agent-only-chip"
             }
             className={cn(
               "shrink-0 whitespace-nowrap text-[11px] px-2 py-0.5 rounded-full",
@@ -873,7 +881,11 @@ export default function SkillsEditorModal({
               "border border-[hsla(var(--pv-id-hue),70%,60%,0.4)]",
             )}
           >
-            {modelInvocationDisabled ? "user only" : "agent only"}
+            {modelInvocationDisabled && userInvocationDisabled
+              ? "no one"
+              : modelInvocationDisabled
+                ? "user only"
+                : "agent only"}
           </span>
         )}
         {selectedSkillName != null && (
