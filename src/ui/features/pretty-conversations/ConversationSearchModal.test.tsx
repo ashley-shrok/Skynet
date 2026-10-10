@@ -100,6 +100,12 @@ function makeRow(overrides: Partial<ConversationSearchResult> = {}): Conversatio
     tmuxSessionName: "alice",
     displayName: null,
     colorHue: null,
+    task: null,
+    roles: [],
+    avatarUrl: null,
+    passages: [],
+    matchCount: 0,
+    matchCountCapped: false,
     ...overrides,
   };
 }
@@ -202,6 +208,105 @@ describe("ConversationSearchModal: D-01 (Enter-only fire)", () => {
         screen.getByTestId("conversation-search-row-/a.jsonl"),
       ).toBeInTheDocument();
     });
+  });
+});
+
+describe("ConversationSearchModal: sidebar-parity look + passages", () => {
+  async function renderAndSearch(row: ConversationSearchResult, query = "foo") {
+    searchConversationsMock.mockResolvedValueOnce({ results: [row], hasMore: false });
+    render(
+      <ConversationSearchModal
+        open={true}
+        onOpenChange={vi.fn()}
+        onOpenActiveConversation={vi.fn()}
+      />,
+    );
+    const user = userEvent.setup();
+    await user.type(screen.getByTestId("conversation-search-input"), query);
+    await user.keyboard("{Enter}");
+    return screen.findByTestId(`conversation-search-row-${row.transcriptPath}`);
+  }
+
+  it("T-LOOK-1: title is the task line; second line is name · role display names; avatar img + hue", async () => {
+    const row = await renderAndSearch(
+      makeRow({
+        transcriptPath: "/look.jsonl",
+        displayName: "Soprano",
+        task: "Search modal polish",
+        colorHue: 324,
+        roles: [{ slug: "box-maintainer", displayName: "Skynet" }],
+        avatarUrl: "/identities/soprano/avatar?hostId=6",
+      }),
+    );
+    expect(row.querySelector(".pv-search-row-name")).toHaveTextContent("Search modal polish");
+    expect(row.querySelector(".pv-search-row-identity")).toHaveTextContent("Soprano");
+    expect(row.querySelector(".pv-search-row-role")).toHaveTextContent("Skynet");
+    expect(row.querySelector("img.pv-search-row-avatar-img")).toHaveAttribute(
+      "src",
+      "/identities/soprano/avatar?hostId=6",
+    );
+    expect(row.style.getPropertyValue("--pv-search-row-hue")).toBe("324");
+    expect(row).not.toHaveClass("pv-multi-role");
+  });
+
+  it("T-LOOK-2: no avatarUrl → initial letter; multi-role → pv-multi-role + every role listed (slug title-cased when no displayName)", async () => {
+    const row = await renderAndSearch(
+      makeRow({
+        transcriptPath: "/multi.jsonl",
+        displayName: "Gemini",
+        roles: [
+          { slug: "box-maintainer", displayName: "Skynet" },
+          { slug: "sky-uat", displayName: null },
+        ],
+        avatarUrl: null,
+      }),
+    );
+    expect(row.querySelector("img")).toBeNull();
+    expect(row.querySelector(".pv-search-row-avatar")).toHaveTextContent("G");
+    expect(row).toHaveClass("pv-multi-role");
+    expect(row.querySelector(".pv-search-row-role")).toHaveTextContent("Skynet, Sky Uat");
+  });
+
+  it("T-PASS-1: passages render with speaker labels, every occurrence highlighted, boilerplate muted, and a +N more line", async () => {
+    const row = await renderAndSearch(
+      makeRow({
+        transcriptPath: "/pass.jsonl",
+        displayName: "Soprano",
+        passages: [
+          { speaker: "user", text: "foo then FOO again", boilerplate: false },
+          { speaker: "agent", text: "agent says foo", boilerplate: false },
+          { speaker: "skill", text: "skill foo text", boilerplate: true },
+        ],
+        matchCount: 5,
+        matchCountCapped: false,
+      }),
+    );
+    const passages = row.querySelectorAll(".pv-search-row-passage");
+    expect(passages).toHaveLength(3);
+    expect(passages[0].querySelector(".pv-search-row-speaker")).toHaveTextContent("You");
+    expect(passages[1].querySelector(".pv-search-row-speaker")).toHaveTextContent("Soprano");
+    expect(passages[2].querySelector(".pv-search-row-speaker")).toHaveTextContent("Skill text");
+    expect(passages[2]).toHaveClass("pv-search-row-passage--boilerplate");
+    expect(passages[0].querySelectorAll("span.pv-search-hit")).toHaveLength(2);
+    expect(row.querySelector(".pv-search-row-more")).toHaveTextContent(
+      "+2 more matches in this conversation",
+    );
+    // Legacy single snippet is not rendered when passages exist.
+    expect(row).not.toHaveTextContent("hello world");
+  });
+
+  it("T-PASS-2: capped match count renders as N+", async () => {
+    const row = await renderAndSearch(
+      makeRow({
+        transcriptPath: "/cap.jsonl",
+        passages: [{ speaker: "user", text: "foo", boilerplate: false }],
+        matchCount: 30,
+        matchCountCapped: true,
+      }),
+    );
+    expect(row.querySelector(".pv-search-row-more")).toHaveTextContent(
+      "29+ more matches in this conversation",
+    );
   });
 });
 

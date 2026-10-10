@@ -20,7 +20,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { snippetForHit } from "./session-search-snippet.js";
+import { snippetForHit, passageForLine } from "./session-search-snippet.js";
 
 describe("snippetForHit", () => {
   // ---------------------------------------------------------------------
@@ -209,5 +209,39 @@ describe("snippetForHit", () => {
     expect(result.hitLength).toBe(6);
     // hitStart lands on 'needle' inside the snippet
     expect(result.snippet.slice(result.hitStart, result.hitStart + result.hitLength)).toBe("needle");
+  });
+});
+
+describe("passageForLine", () => {
+  const line = (o: Record<string, unknown>) => JSON.stringify(o);
+  const text = (t: string) => [{ type: "text", text: t }];
+
+  it("labels user, agent, skill (isMeta), command and event lines", () => {
+    expect(passageForLine(line({ type: "user", message: { content: "find the cheese" } }), "cheese"))
+      .toEqual({ speaker: "user", text: "find the cheese", boilerplate: false });
+    expect(passageForLine(line({ type: "assistant", message: { content: text("cheese found") } }), "cheese"))
+      .toEqual({ speaker: "agent", text: "cheese found", boilerplate: false });
+    expect(passageForLine(line({ type: "user", isMeta: true, message: { content: text("skill: cheese") } }), "cheese"))
+      .toMatchObject({ speaker: "skill", boilerplate: true });
+    expect(passageForLine(line({ type: "user", message: { content: "<command-message>cheese</command-message> <command-name>/cheese</command-name>" } }), "cheese"))
+      .toEqual({ speaker: "command", text: "cheese /cheese", boilerplate: true });
+    expect(passageForLine(line({ type: "user", message: { content: '<pasted_content id="1">relay says cheese</pasted_content>' } }), "cheese"))
+      .toEqual({ speaker: "event", text: "relay says cheese", boilerplate: false });
+  });
+
+  it("returns null for tool output, non-message lines, malformed JSON and empty query", () => {
+    expect(passageForLine(line({ type: "user", message: { content: [{ type: "tool_result", content: "cheese" }] } }), "cheese")).toBeNull();
+    expect(passageForLine(line({ type: "system", message: { content: "cheese" } }), "cheese")).toBeNull();
+    expect(passageForLine("{not json cheese", "cheese")).toBeNull();
+    expect(passageForLine(line({ type: "user", message: { content: "cheese" } }), "")).toBeNull();
+  });
+
+  it("collapses whitespace and windows ±220 chars with ellipses", () => {
+    const long = "a".repeat(400) + "\n\n  CHEESE  " + "b".repeat(400);
+    const p = passageForLine(line({ type: "user", message: { content: long } }), "cheese")!;
+    expect(p.text.startsWith("…")).toBe(true);
+    expect(p.text.endsWith("…")).toBe(true);
+    expect(p.text).toContain("a CHEESE b");
+    expect(p.text.length).toBeLessThanOrEqual(220 * 2 + "cheese".length + 2);
   });
 });

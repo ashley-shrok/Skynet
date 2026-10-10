@@ -103,16 +103,25 @@ import {
   extractRoleFromMarkdown,
   extractRolesFromMarkdown,
   listIdentityKeysOnHost,
-  readIdentityFile,
-  readRoleFileByName,
 } from "../../claude-session/identity-artifact-reader.js";
 import { listArchivedIdentityKeysOnHost } from "../../claude-session/list-archived-identity-keys.js";
-import { snippetForHit } from "../../claude-session/session-search-snippet.js";
+import {
+  snippetForHit,
+  passageForLine,
+  type SearchPassage,
+} from "../../claude-session/session-search-snippet.js";
+import {
+  readIdentityFrontmattersBatch,
+  readRoleFrontmattersBatch,
+} from "../../claude-session/search-frontmatter-batch.js";
 import {
   isIdentityVisibleToUser,
   resolveGateRoleSide,
 } from "../../fleet-status/identity-visibility-gate.js";
-import type { RawCosmetics } from "../../fleet-status/identity-appearance.js";
+import {
+  resolveIdentityAppearance,
+  type RawCosmetics,
+} from "../../fleet-status/identity-appearance.js";
 import { getUsernameForUserId } from "../../utils/host-user-counter.js";
 
 // ---------------------------------------------------------------------------
@@ -190,6 +199,16 @@ const MAX_QUERY_LEN = 500;
  */
 const MAX_HITS_PER_FILE = 5;
 
+/** Passages shown per result row. */
+const MAX_PASSAGES = 3;
+
+/**
+ * Lines scanned per transcript in the passage pass. The pass only runs on
+ * each host's top offset+limit rows (never every matching transcript), so
+ * the higher cap stays bounded. Doubles as the "+N more" count ceiling.
+ */
+const PASSAGE_SCAN_LINES = 30;
+
 /** Default pagination window. */
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
@@ -242,7 +261,28 @@ export interface ConversationSearchResult {
    * identity recognition (modal-tasting.html § conversation search).
    */
   colorHue: number | null;
+  /** Identity's `task:` line — the row title, same as the sidebar's. */
+  task: string | null;
+  /** Every listed role, with the role file's `displayName` when it has one. */
+  roles: Array<{ slug: string; displayName: string | null }>;
+  /** Avatar to paint. Live: the identity avatar route (falls back to the
+   *  role's). Archived: the role's avatar route, or null (initial letter). */
+  avatarUrl: string | null;
+  /** Up to MAX_PASSAGES matching passages, real conversation before
+   *  boilerplate (skill text / slash commands). Empty when the passage pass
+   *  didn't run for this row (outside the host's top offset+limit). */
+  passages: SearchPassage[];
+  /** Text-matching lines seen in the passage pass (capped at
+   *  PASSAGE_SCAN_LINES; `matchCountCapped` marks the cap). */
+  matchCount: number;
+  matchCountCapped: boolean;
 }
+
+/** The look fields gateHostRows attaches to every visible row. */
+type SearchRowLook = Pick<
+  ConversationSearchResult,
+  "displayName" | "colorHue" | "task" | "roles" | "avatarUrl"
+>;
 
 // ---------------------------------------------------------------------------
 // Router setup
@@ -289,13 +329,13 @@ function shellSingleQuote(s: string): string {
  * completes; internal 2>/dev/null suppresses per-file "no such file"
  * chatter.
  */
-function buildGrepScript(): string {
+function buildGrepScript(maxCount: number = MAX_HITS_PER_FILE): string {
   return (
     'QUERY="$1"; shift; ' +
     'for path in "$@"; do ' +
     '  mtime=$(stat -c "%Y" "$path" 2>/dev/null || echo 0); ' +
     '  [ "$mtime" = "0" ] && continue; ' +
-    `  grep -F -i -n --max-count=${MAX_HITS_PER_FILE} -- "$QUERY" "$path" 2>/dev/null | ` +
+    `  grep -F -i -n --max-count=${maxCount} -- "$QUERY" "$path" 2>/dev/null | ` +
     '  while IFS=: read -r lineno content; do ' +
     '    printf "%s\\t%s\\t%s\\t%s\\n" "$mtime" "$path" "$lineno" "$content"; ' +
     '  done; ' +
@@ -315,8 +355,12 @@ function buildGrepScript(): string {
  * ALSO single-quote-wrapped as defense-in-depth against a hypothetical
  * `execCommand` implementation change.
  */
-function composeGrepCommand(query: string, paths: string[]): string {
-  const script = buildGrepScript();
+function composeGrepCommand(
+  query: string,
+  paths: string[],
+  maxCount: number = MAX_HITS_PER_FILE,
+): string {
+  const script = buildGrepScript(maxCount);
   const parts = [
     "sh",
     "-c",
@@ -442,38 +486,25 @@ async function resolveIdentityPaths(
 
 /**
  * Phase 129 Plan 129-04: gate a host's search hits by the D-2 intersection
- * visibility rule.
+ * visibility rule, and attach each visible row's look (name, hue, task,
+ * roles, avatar) from the same frontmatter reads.
  *
- * Batched per-unique-identityKey frontmatter fetch (Pitfall 4): O(unique
- * keys in this host's result page) — NOT O(hits). The result page is
- * bounded by DEFAULT_LIMIT (20), so the SSH read cost stays predictable
- * even on very large hosts. Storing the identity read as a Promise (not
- * the resolved value) collapses parallel duplicate keys within the same
- * Promise.all wave (mirrors identities.ts roleReadCache pattern).
+ * Frontmatter is read in TWO batched execs per host (identities, then the
+ * roles they name) via search-frontmatter-batch.ts — never one SSH channel
+ * per key (that blew past sshd MaxSessions and silently dropped hits).
+ * Archived keys read from `~/fleet/identities-archive/`.
  *
  * FAIL-CLOSED on frontmatter read error — Phase 129 exception documented
  * in PATTERNS.md § Shared Patterns "Read-path fail-open, write-path
  * fail-closed". Rationale: search returns hits DELIBERATELY targeted by a
  * query, so leaking a hit for a hidden identity is more visible than
- * dropping an inaccessible identity. The D-7 depth invariant ("if the
- * gate hides you, the gate hides you everywhere") wins over the D-8
- * fail-open default in the search context.
- *
- * The `gateMap.get(r.identityKey) === true` filter shape (NOT `!== false`)
- * is the fail-closed semantic: unresolved keys stay hidden. This
- * intentional inversion of the sessions.ts / identities.ts fail-open
- * shape must NOT drift back to `!== false` — that would silently flip
- * search's fail-closed discipline to fail-open. See Test F in
+ * dropping an inaccessible identity. A failed batch drops the host's hits;
+ * only keys with a resolved look (lookByKey) are surfaced. See Test F in
  * conversation-search.test.ts for the regression lock.
  *
- * Applies to BOTH live and archive identityKeys — the gate scans unique
- * keys across the whole `rows` array, so archive hits (Test D) share the
- * same gateMap as live hits with no additional plumbing.
- *
- * `callerUsername === null` short-circuits: no gate applied, all rows
- * pass through (D-8 fail-open on the per-REQUEST side — a null caller is
- * an infra bug, not a gate signal). Distinct from the per-HIT fail-closed
- * behavior above.
+ * `callerUsername === null` disables the gate (D-8 fail-open on the
+ * per-REQUEST side — a null caller is an infra bug, not a gate signal) but
+ * rows still get their look attached.
  */
 async function gateHostRows(
   conn: Parameters<typeof discoverIdentitySessionFile>[0],
@@ -481,105 +512,106 @@ async function gateHostRows(
   callerUsername: string | null,
   rows: ConversationSearchResult[],
 ): Promise<ConversationSearchResult[]> {
-  if (callerUsername === null || rows.length === 0) return rows;
+  if (rows.length === 0) return rows;
 
   const uniqueKeys = Array.from(new Set(rows.map((r) => r.identityKey)));
-  const gateMap = new Map<string, boolean>();
-  // Per-key resolved appearance — piggybacks on the same identity+role
-  // frontmatter reads the gate does. Cascade shape mirrors
-  // resolveIdentityAppearance: identity value beats role value; null
-  // when both absent. Consumed after the gate to attach display fields
-  // onto each visible row (see visibleRows loop below).
-  interface ResolvedAppearance {
-    displayName: string | null;
-    colorHue: number | null;
-  }
-  const appearanceMap = new Map<string, ResolvedAppearance>();
-  // Per-host role-cosmetics memo (mirror identities.ts L399-424 roleReadCache
-  // pattern). Multiple identityKeys of the same role read the role file
-  // AT MOST ONCE per gate pass. Storing the in-flight Promise (not the
-  // resolved value) collapses parallel duplicate role reads.
-  const roleReadCache = new Map<string, Promise<RawCosmetics | null>>();
-  const readRoleCosmeticsMemoized = (
-    roleName: string,
-  ): Promise<RawCosmetics | null> => {
-    const existing = roleReadCache.get(roleName);
-    if (existing !== undefined) return existing;
-    const p = (async (): Promise<RawCosmetics | null> => {
-      try {
-        const { markdown: roleMd } = await readRoleFileByName(
-          conn as Parameters<typeof readRoleFileByName>[0],
-          roleName,
-        );
-        return roleMd ? extractCosmeticsFromFrontmatter(roleMd) : null;
-      } catch {
-        // Role read fail → null cosmetics. The identity-side gate call
-        // still decides; a null role side means "no gate on that side"
-        // per D-3 fallback, which is intentional here because a role file
-        // read fail is transient infra, not a gate signal. The identity-
-        // side read fail is the fail-closed signal (handled below).
-        return null;
-      }
-    })();
-    roleReadCache.set(roleName, p);
-    return p;
-  };
-
-  await Promise.all(
-    uniqueKeys.map(async (key) => {
-      try {
-        const { markdown } = await readIdentityFile(
-          conn as Parameters<typeof readIdentityFile>[0],
-          key,
-        );
-        const identityCos = extractCosmeticsFromFrontmatter(markdown);
-        const role = extractRoleFromMarkdown(markdown);
-        const roleCos =
-          role !== null ? await readRoleCosmeticsMemoized(role) : null;
-        // Multi-role: `role` is null (no inherited look); gate on every role.
-        const roles = extractRolesFromMarkdown(markdown);
-        const gateRoleCos =
-          roles.length > 1
-            ? await resolveGateRoleSide(roles, readRoleCosmeticsMemoized)
-            : roleCos;
-        gateMap.set(
-          key,
-          isIdentityVisibleToUser(identityCos, gateRoleCos, callerUsername),
-        );
-        appearanceMap.set(key, {
-          displayName:
-            identityCos.displayName ?? roleCos?.displayName ?? null,
-          colorHue: identityCos.colorHue ?? roleCos?.colorHue ?? null,
-        });
-      } catch (err) {
-        // FAIL-CLOSED: search hit for an identity we could not verify
-        // visibility on MUST NOT be surfaced (Phase 129 exception per
-        // PATTERNS.md). Warn-log the drop so ops can trace the discrepancy.
-        gateMap.set(key, false);
-        systemLogger.warn(
-          "Phase 129: search gate frontmatter read error — hit dropped (fail-closed)",
-          {
-            operation: "search_gate_read_error",
-            hostId,
-            identityKey: key,
-            error: err instanceof Error ? err.message : String(err),
-          },
-        );
-      }
-    }),
+  const archivedKeys = new Set(
+    rows.filter((r) => r.isArchived).map((r) => r.identityKey),
   );
+
+  // Two execs per host (identities, then the roles they name) — NOT one
+  // channel per key. See search-frontmatter-batch.ts for the MaxSessions
+  // failure the per-key fan-out caused.
+  let identityMd: Map<string, string>;
+  let roleMd: Map<string, { markdown: string; archived: boolean }>;
+  try {
+    identityMd = await readIdentityFrontmattersBatch(
+      conn as unknown as Parameters<typeof readIdentityFrontmattersBatch>[0],
+      uniqueKeys,
+      archivedKeys,
+    );
+    const roleNames = new Set<string>();
+    for (const md of identityMd.values()) {
+      for (const r of extractRolesFromMarkdown(md)) roleNames.add(r);
+    }
+    roleMd = await readRoleFrontmattersBatch(
+      conn as unknown as Parameters<typeof readRoleFrontmattersBatch>[0],
+      [...roleNames],
+    );
+  } catch (err) {
+    // FAIL-CLOSED: could not verify visibility for this host's hits, so
+    // none are surfaced (Phase 129 exception per PATTERNS.md).
+    systemLogger.warn(
+      "Phase 129: search gate frontmatter batch read error — host hits dropped (fail-closed)",
+      {
+        operation: "search_gate_read_error",
+        hostId,
+        keyCount: uniqueKeys.length,
+        error: err instanceof Error ? err.message : String(err),
+      },
+    );
+    return [];
+  }
+
+  const roleCos = new Map<string, RawCosmetics | null>();
+  for (const [name, { markdown }] of roleMd) {
+    roleCos.set(name, markdown ? extractCosmeticsFromFrontmatter(markdown) : null);
+  }
+  const readRoleCos = async (name: string): Promise<RawCosmetics | null> =>
+    roleCos.get(name) ?? null;
+
+  const lookByKey = new Map<string, SearchRowLook>();
+  for (const key of uniqueKeys) {
+    const markdown = identityMd.get(key) ?? "";
+    const identityCos = extractCosmeticsFromFrontmatter(markdown);
+    const roles = extractRolesFromMarkdown(markdown);
+    const role = extractRoleFromMarkdown(markdown);
+    // Multi-role: `role` is null (no inherited look); gate on every role.
+    const gateRoleCos = await resolveGateRoleSide(roles, readRoleCos);
+    const visible =
+      callerUsername === null ||
+      isIdentityVisibleToUser(identityCos, gateRoleCos, callerUsername);
+    if (!visible) continue;
+
+    const isArchived = archivedKeys.has(key);
+    const appearance = resolveIdentityAppearance({
+      identityKey: key,
+      hostId,
+      cosmetics: identityCos,
+      roleCosmetics: role !== null ? (roleCos.get(role) ?? null) : null,
+      role,
+      roles,
+      pinned: false,
+    });
+    // Archived identities: the identity avatar route only reads the live
+    // folder, so point at the role's avatar instead (single live role with
+    // an avatar), else no avatar → the row paints the initial letter.
+    let avatarUrl: string | null = appearance.avatarUrl;
+    if (isArchived) {
+      const onlyRole = roles.length === 1 ? roles[0] : null;
+      const r = onlyRole !== null ? roleMd.get(onlyRole) : undefined;
+      avatarUrl =
+        onlyRole !== null && r && !r.archived && roleCos.get(onlyRole)?.avatar
+          ? `/roles/${onlyRole}/avatar?hostId=${hostId}`
+          : null;
+    }
+    lookByKey.set(key, {
+      displayName: appearance.displayName,
+      colorHue: appearance.colorHue,
+      task: appearance.task,
+      roles: roles.map((slug) => ({
+        slug,
+        displayName: roleCos.get(slug)?.displayName ?? null,
+      })),
+      avatarUrl,
+    });
+  }
 
   const visibleRows: ConversationSearchResult[] = [];
   for (const row of rows) {
-    // === true (not !== false) is the fail-closed shape — unresolved keys
-    // stay hidden. Do NOT drift to !== false; see gateHostRows docblock.
-    if (gateMap.get(row.identityKey) === true) {
-      const appearance = appearanceMap.get(row.identityKey);
-      visibleRows.push({
-        ...row,
-        displayName: appearance?.displayName ?? null,
-        colorHue: appearance?.colorHue ?? null,
-      });
+    const look = lookByKey.get(row.identityKey);
+    if (look) {
+      visibleRows.push({ ...row, ...look });
     } else {
       systemLogger.debug("Phase 129: search hit hidden by visibility gate", {
         operation: "search_gate_hidden",
@@ -590,6 +622,69 @@ async function gateHostRows(
     }
   }
   return visibleRows;
+}
+
+/**
+ * Passage pass: for this host's newest `topN` rows (a superset of whatever
+ * lands on the requested page), re-grep just those transcripts with a
+ * higher per-file cap and build the multi-passage preview. Real
+ * conversation first, boilerplate (skill text / commands) after; each group
+ * stays in transcript order. Failure leaves rows with empty passages — the
+ * frontend falls back to the single snippet.
+ */
+async function attachPassages(
+  conn: Parameters<typeof discoverIdentitySessionFile>[0],
+  hostId: number,
+  rows: ConversationSearchResult[],
+  query: string,
+  topN: number,
+): Promise<ConversationSearchResult[]> {
+  const top = [...rows]
+    .sort((a, b) => b.transcriptMtime - a.transcriptMtime)
+    .slice(0, topN);
+  if (top.length === 0) return rows;
+  let hits: RawHit[];
+  try {
+    const stdout = await execCommand(
+      conn as Parameters<typeof execCommand>[0],
+      composeGrepCommand(
+        query,
+        top.map((r) => r.transcriptPath),
+        PASSAGE_SCAN_LINES,
+      ),
+    );
+    hits = parseGrepOutput(stdout);
+  } catch (err) {
+    systemLogger.warn("conversation-search: passage pass failed — rows keep single snippet", {
+      operation: "search_passage_pass_error",
+      hostId,
+      rowCount: top.length,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return rows;
+  }
+  const byPath = new Map<string, { passages: SearchPassage[]; lines: number }>();
+  for (const hit of hits) {
+    const entry = byPath.get(hit.path) ?? { passages: [], lines: 0 };
+    entry.lines += 1;
+    const p = passageForLine(hit.rawLine, query);
+    if (p) entry.passages.push(p);
+    byPath.set(hit.path, entry);
+  }
+  return rows.map((row) => {
+    const entry = byPath.get(row.transcriptPath);
+    if (!entry || entry.passages.length === 0) return row;
+    const ordered = [
+      ...entry.passages.filter((p) => !p.boilerplate),
+      ...entry.passages.filter((p) => p.boilerplate),
+    ];
+    return {
+      ...row,
+      passages: ordered.slice(0, MAX_PASSAGES),
+      matchCount: entry.passages.length,
+      matchCountCapped: entry.lines >= PASSAGE_SCAN_LINES,
+    };
+  });
 }
 
 async function runOneHost(
@@ -679,6 +774,12 @@ async function runOneHost(
       // fallback hue when null.
       displayName: null,
       colorHue: null,
+      task: null,
+      roles: [],
+      avatarUrl: null,
+      passages: [],
+      matchCount: 0,
+      matchCountCapped: false,
     });
   }
   return rows;
@@ -830,7 +931,13 @@ router.post(
               callerUsername,
               rows,
             );
-            return gatedRows;
+            return await attachPassages(
+              conn as unknown as Parameters<typeof discoverIdentitySessionFile>[0],
+              hostId,
+              gatedRows,
+              query,
+              offset + limit,
+            );
           } finally {
             try {
               (conn as { end?: () => void }).end?.();

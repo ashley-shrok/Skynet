@@ -185,6 +185,40 @@ vi.mock(
   },
 );
 
+// Batched frontmatter reads (search-frontmatter-batch.ts). The fakes
+// delegate key-by-key to readIdentityFileMock / readRoleFileByNameMock so
+// the per-identity fixtures above keep driving the gate; any per-key throw
+// fails the whole batch, matching one exec per host at runtime.
+const { readIdentityBatchMock, readRoleBatchMock } = vi.hoisted(() => ({
+  readIdentityBatchMock: vi.fn(),
+  readRoleBatchMock: vi.fn(),
+}));
+
+vi.mock("../../claude-session/search-frontmatter-batch.js", () => ({
+  readIdentityFrontmattersBatch: (
+    conn: unknown,
+    keys: string[],
+    archived: ReadonlySet<string>,
+  ) => readIdentityBatchMock(conn, keys, archived),
+  readRoleFrontmattersBatch: (conn: unknown, roles: string[]) =>
+    readRoleBatchMock(conn, roles),
+}));
+
+function installDelegatingBatchMocks(): void {
+  readIdentityBatchMock.mockImplementation(async (conn: unknown, keys: string[]) => {
+    const out = new Map<string, string>();
+    for (const k of keys) out.set(k, (await readIdentityFileMock(conn, k)).markdown);
+    return out;
+  });
+  readRoleBatchMock.mockImplementation(async (conn: unknown, roles: string[]) => {
+    const out = new Map<string, { markdown: string; archived: boolean }>();
+    for (const r of roles) {
+      out.set(r, { markdown: (await readRoleFileByNameMock(conn, r)).markdown, archived: false });
+    }
+    return out;
+  });
+}
+
 // Phase 129 Plan 129-04: getUsernameForUserId mock powers the per-request
 // callerUsername resolution. Tests install per-mockUserId maps to route
 // different callers ("user" vs "zoe") through the same handler.
@@ -362,6 +396,7 @@ beforeEach(() => {
   // "test-user" so pre-129 tests are unaffected.
   readIdentityFileMock.mockResolvedValue({ markdown: "" });
   readRoleFileByNameMock.mockResolvedValue({ markdown: "" });
+  installDelegatingBatchMocks();
   getUsernameForUserIdMock.mockResolvedValue("test-user");
   systemLoggerWarnMock.mockReset();
   systemLoggerDebugMock.mockReset();
@@ -1153,7 +1188,7 @@ describe("Phase 129: search-surface visibility gate", () => {
   // Test E — batched-lookup counter (Pitfall 4 O(unique keys) discipline)
   // -------------------------------------------------------------------------
 
-  it("Test E: 20 hits across 3 unique identityKeys → readIdentityFile called ≤ 3 times (batched O(unique-keys) discipline)", async () => {
+  it("Test E: 20 hits across 3 unique identityKeys → ONE batched identity read for the host, ≤ 3 key reads (batched O(unique-keys) discipline)", async () => {
     mockSearchWithIdentityUsers("alpha");
     mockSearchWithIdentityUsers("beta");
     mockSearchWithIdentityUsers("gamma");
@@ -1173,10 +1208,18 @@ describe("Phase 129: search-surface visibility gate", () => {
     getUsernameForUserIdMock.mockResolvedValue("user");
 
     const readCount = mockReadIdentityFileCounter();
+    readIdentityBatchMock.mockClear();
     const res = await httpPostJson(server, "/conversation-search", {
       query: "cheese",
     });
     expect(res.status).toBe(200);
+    // ONE batched identity read per host — never a channel per key.
+    expect(readIdentityBatchMock).toHaveBeenCalledTimes(1);
+    expect([...readIdentityBatchMock.mock.calls[0][1]].sort()).toEqual([
+      "alpha",
+      "beta",
+      "gamma",
+    ]);
     // The gate MUST have fetched frontmatter per UNIQUE key (≤ 3),
     // never per hit (which would be 20). Equality is the strict form;
     // ≤ 3 permits any legitimate deduping.
@@ -1187,7 +1230,7 @@ describe("Phase 129: search-surface visibility gate", () => {
   // Test F — FAIL-CLOSED on read error (Phase 129 exception)
   // -------------------------------------------------------------------------
 
-  it("Test F: readIdentityFile throws for muffin → muffin hits are DROPPED (fail-CLOSED per PATTERNS.md exception) + search_gate_read_error warn logged", async () => {
+  it("Test F: batched frontmatter read throws → the host's hits are DROPPED (fail-CLOSED per PATTERNS.md exception) + search_gate_read_error warn logged", async () => {
     // scone reads normally; muffin's frontmatter read throws
     mockSearchWithIdentityUsers("scone");
     mockSearchHits([
@@ -1209,10 +1252,11 @@ describe("Phase 129: search-surface visibility gate", () => {
     });
     expect(res.status).toBe(200);
     const body = res.body as { results: Array<Record<string, unknown>> };
-    // muffin was DROPPED (fail-closed) — User sees only scone
+    // One exec reads every key on the host, so a failed read can't vouch
+    // for ANY of them — both are dropped (fail-closed), never leaked.
     const keys = body.results.map((r) => r.identityKey);
     expect(keys).not.toContain("muffin");
-    expect(keys).toContain("scone");
+    expect(keys).not.toContain("scone");
 
     // structured warn log MUST fire with operation:"search_gate_read_error"
     const warnCalls = systemLoggerWarnMock.mock.calls;
@@ -1221,6 +1265,99 @@ describe("Phase 129: search-surface visibility gate", () => {
       return meta?.operation === "search_gate_read_error";
     });
     expect(gateErrorWarn).toBeTruthy();
+  });
+
+  // -------------------------------------------------------------------------
+  // Test H / I — row look (task, roles, hue, avatar) + passages
+  // -------------------------------------------------------------------------
+
+  it("Test H: rows carry the sidebar look — task, roles with display names, role hue, avatar (live → identity route, archived → role route)", async () => {
+    mockSearchWithIdentityUsers("muffin", { roleName: "baker" });
+    mockSearchWithIdentityUsers("scone", { roleName: "baker" });
+    identityFrontmatterMap.set(
+      "muffin",
+      "---\nrole: baker\ndisplayName: Muffin\ntask: Proof the dough\n---\n",
+    );
+    identityFrontmatterMap.set(
+      "scone",
+      "---\nrole: baker\ndisplayName: Scone\ntask: Old bake\n---\n",
+    );
+    roleFrontmatterMap.set(
+      "baker",
+      "---\ndisplayName: Bakery\ncolorHue: '324'\navatar: baker.webp\n---\n",
+    );
+    mockSearchHits([
+      { identityKey: "muffin", mtime: 200, content: "cheese platter" },
+      { identityKey: "scone", mtime: 100, content: "cheese scone", isArchived: true },
+    ]);
+    mockUserId = "uid-user";
+    getUsernameForUserIdMock.mockResolvedValue("user");
+
+    const res = await httpPostJson(server, "/conversation-search", { query: "cheese" });
+    expect(res.status).toBe(200);
+    const body = res.body as { results: Array<Record<string, unknown>> };
+    const byKey = Object.fromEntries(body.results.map((r) => [r.identityKey, r]));
+    expect(byKey.muffin).toMatchObject({
+      displayName: "Muffin",
+      task: "Proof the dough",
+      colorHue: 324,
+      roles: [{ slug: "baker", displayName: "Bakery" }],
+      avatarUrl: "/identities/muffin/avatar?hostId=1",
+    });
+    // Archived keys are read from the archive folder (archived set passed
+    // to the batch) and point at the live role's avatar.
+    expect([...readIdentityBatchMock.mock.calls[0][2]]).toEqual(["scone"]);
+    expect(byKey.scone).toMatchObject({
+      displayName: "Scone",
+      task: "Old bake",
+      colorHue: 324,
+      avatarUrl: "/roles/baker/avatar?hostId=1",
+    });
+  });
+
+  it("Test I: rows carry passages from the passage pass — speaker-labelled, real conversation before skill text, with a match count", async () => {
+    mockSearchWithIdentityUsers("muffin");
+    mockSearchHits([{ identityKey: "muffin", mtime: 200, content: "cheese platter" }]);
+    const skillLine = JSON.stringify({
+      type: "user",
+      isMeta: true,
+      message: { role: "user", content: [{ type: "text", text: "Skill body mentions cheese" }] },
+    });
+    const agentLine = JSON.stringify({
+      type: "assistant",
+      message: { role: "assistant", content: [{ type: "text", text: "I like cheese too" }] },
+    });
+    const toolLine = JSON.stringify({
+      type: "user",
+      message: { role: "user", content: [{ type: "tool_result", content: "cheese.txt" }] },
+    });
+    const baseImpl = execCommandMock.getMockImplementation()!;
+    execCommandMock.mockImplementation(async (conn: unknown, cmd: string) => {
+      if (cmd.includes("--max-count=30")) {
+        return fakeGrepOutput(
+          [skillLine, jsonlLine("cheese platter"), toolLine, agentLine].map((rawLine, i) => ({
+            mtime: 200,
+            path: "/x/muffin.jsonl",
+            lineno: i + 1,
+            rawLine,
+          })),
+        );
+      }
+      return baseImpl(conn, cmd);
+    });
+    mockUserId = "uid-user";
+    getUsernameForUserIdMock.mockResolvedValue("user");
+
+    const res = await httpPostJson(server, "/conversation-search", { query: "cheese" });
+    expect(res.status).toBe(200);
+    const row = (res.body as { results: Array<Record<string, unknown>> }).results[0];
+    expect(row.passages).toEqual([
+      { speaker: "user", text: "cheese platter", boilerplate: false },
+      { speaker: "agent", text: "I like cheese too", boilerplate: false },
+      { speaker: "skill", text: "Skill body mentions cheese", boilerplate: true },
+    ]);
+    expect(row.matchCount).toBe(3); // tool_result line is not a passage
+    expect(row.matchCountCapped).toBe(false);
   });
 
   // -------------------------------------------------------------------------

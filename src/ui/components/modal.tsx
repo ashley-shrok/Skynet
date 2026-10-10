@@ -55,6 +55,7 @@ type ModalSize =
   | "lg"
   | "xl"
   | "list"
+  | "wide-list"
   | "settings"
   | "editor";
 
@@ -77,6 +78,9 @@ const SIZE_CLASSES: Record<ModalSize, string> = {
   // rows are visible at once (common UAT ask on 4K: "I want to see more of
   // the scheduled-agents list without scrolling").
   list: "sm:max-w-[600px] sm:h-[min(85vh,780px)]",
+  // Wide list — rows that carry readable text (conversation search
+  // passages) and earn the extra width on big screens; full 85vh tall.
+  "wide-list": "sm:max-w-[min(1150px,70vw)] sm:h-[85vh]",
   // Settings — modest horizontal + vertical scaling for 4K.
   settings: "sm:max-w-[min(720px,70vw)] sm:h-[min(85vh,640px)]",
   // File editor — generous both horizontally and vertically; the editor

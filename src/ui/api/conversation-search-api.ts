@@ -36,6 +36,22 @@ export interface ConversationSearchResult {
   hitLength: number; // length of match (0 on fallback)
   isArchived: boolean; // true iff row came from listArchivedIdentityKeysOnHost
   tmuxSessionName: string | null; // canonical tmux session — AppShell feeds openTab
+  displayName: string | null; // identity displayName ?? capitalized key
+  colorHue: number | null; // identity ?? role ?? (multi-role → gold) hue
+  task: string | null; // identity's task: line — the row title, as in the sidebar
+  roles: Array<{ slug: string; displayName: string | null }>; // every listed role
+  avatarUrl: string | null; // live: identity avatar route; archived: role avatar route or null
+  passages: ConversationSearchPassage[]; // up to 3, real conversation before boilerplate
+  matchCount: number; // text-matching lines seen in the passage pass
+  matchCountCapped: boolean; // matchCount hit the scan cap — render as "N+"
+}
+
+export interface ConversationSearchPassage {
+  /** user = the human; agent = the identity; skill = injected skill body;
+   *  command = slash-command echo; event = ambient/relay input. */
+  speaker: "user" | "agent" | "skill" | "command" | "event";
+  text: string; // plain text, ±220 chars around the first match
+  boilerplate: boolean; // skill / command — rendered muted
 }
 
 export interface ConversationSearchResponse {

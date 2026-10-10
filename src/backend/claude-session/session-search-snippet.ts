@@ -152,3 +152,64 @@ export function snippetForHit(rawLine: string, query: string): SnippetResult {
 
   return { snippet, hitStart, hitLength };
 }
+
+// ---------------------------------------------------------------------------
+// passageForLine — multi-passage previews for the search modal rows
+// ---------------------------------------------------------------------------
+
+/** Who a passage came from, as the row labels it. `skill` = skill body the
+ *  harness injected as a hidden user turn (isMeta); `command` = a slash
+ *  command echo; `event` = ambient/relay input pasted into the session. */
+export type SearchPassageSpeaker = "user" | "agent" | "skill" | "command" | "event";
+
+export interface SearchPassage {
+  speaker: SearchPassageSpeaker;
+  /** Plain text, whitespace-collapsed, windowed ±PASSAGE_HALF_WINDOW around
+   *  the first match. The frontend highlights every query occurrence. */
+  text: string;
+  /** skill / command passages — real but not what the user said or the
+   *  agent wrote; ordered after real conversation and painted muted. */
+  boilerplate: boolean;
+}
+
+const PASSAGE_HALF_WINDOW = 220;
+const MARKUP_TAG_RE = /<\/?[a-z][a-z0-9_-]*(?:\s[^>]*)?>/gi;
+
+/**
+ * Turn one transcript line into a preview passage, or null when the query
+ * isn't in its user/assistant TEXT (tool calls, tool output, thinking and
+ * system lines never produce a passage).
+ */
+export function passageForLine(rawLine: string, query: string): SearchPassage | null {
+  if (query.length === 0) return null;
+  let obj: { type?: unknown; isMeta?: unknown; message?: { content?: unknown } };
+  try {
+    obj = JSON.parse(rawLine);
+  } catch {
+    return null;
+  }
+  if (obj === null || typeof obj !== "object") return null;
+  if (obj.type !== "user" && obj.type !== "assistant") return null;
+
+  let text = extractText(obj.message?.content).replace(/\s+/g, " ").trim();
+  let speaker: SearchPassageSpeaker;
+  if (obj.type === "assistant") speaker = "agent";
+  else if (obj.isMeta === true) speaker = "skill";
+  else if (/^<(pasted_content|task-notification)\b/.test(text)) speaker = "event";
+  else if (/^<command-(message|name|args)>/.test(text)) speaker = "command";
+  else speaker = "user";
+  if (speaker === "event" || speaker === "command") {
+    text = text.replace(MARKUP_TAG_RE, " ").replace(/\s+/g, " ").trim();
+  }
+
+  const idx = text.toLowerCase().indexOf(query.toLowerCase());
+  if (idx === -1) return null;
+  const start = Math.max(0, idx - PASSAGE_HALF_WINDOW);
+  const end = Math.min(text.length, idx + query.length + PASSAGE_HALF_WINDOW);
+  return {
+    speaker,
+    text:
+      (start > 0 ? "…" : "") + text.slice(start, end) + (end < text.length ? "…" : ""),
+    boilerplate: speaker === "skill" || speaker === "command",
+  };
+}

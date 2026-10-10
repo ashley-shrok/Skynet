@@ -49,6 +49,8 @@
  * L2466-2515). Load more is inline at the end of the results list; the
  * foot is rendered ONLY when there's an error to surface. Backdrop click
  * never dismisses (unified rule at the Modal layer — no per-modal opt-in).
+ * Size "wide-list" (2026-10-10): grows wide + full 85vh on big screens so
+ * the multi-passage rows have room to read.
  */
 
 import { useEffect, useState } from "react";
@@ -262,7 +264,7 @@ export function ConversationSearchModal({
     <Modal
       open={open}
       onOpenChange={onOpenChange}
-      size="list"
+      size="wide-list"
       data-testid="conversation-search-modal"
     >
       <ModalHead title="Search conversations" />
@@ -356,6 +358,7 @@ export function ConversationSearchModal({
           <ConversationSearchRow
             key={r.transcriptPath}
             result={r}
+            query={state.query}
             onClick={() => handleRowClick(r)}
             onUnarchive={r.isArchived ? handleUnarchive : undefined}
           />

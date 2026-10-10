@@ -9,26 +9,24 @@
  * `onUnarchive` is provided — non-archived rows are unaffected.
  * See .planning/campaigns/un-archiving/shape-unarchive-frontend-backend.md
  *
- * Tasting anatomy (modal-tasting.html § conversation search):
- *   Line 1 (.pv-search-row-header): sender-dot (hue = result.colorHue,
- *   fallback 190) + display name + right-aligned relative time.
- *   Line 2 (.pv-search-row-snippet): plain-text snippet with the matched
- *   substring wrapped in a <span className="pv-search-hit"> — split via
- *   slice() around hitStart/hitLength, React text children only (D-11 /
- *   T-122-FE-01, XSS-safe).
+ * Anatomy (2026-10-10 search-row look — sidebar parity + passages):
+ *   Head: avatar disc (avatarUrl → initial-letter fallback, hue =
+ *   result.colorHue, gold sheen for multi-role via .pv-multi-role) + two
+ *   lines — (1) task ?? displayName ?? identityKey, right-aligned relative
+ *   time; (2) "Name · Role[, Role]" + archived pill.
+ *   Body: up to 3 passages, each labelled with its speaker ("You", the
+ *   agent's name, "Skill text", "Command", "Event"); boilerplate passages
+ *   (skill / command) paint muted. Every case-insensitive occurrence of the
+ *   query is wrapped in <span className="pv-search-hit"> — React text
+ *   children only, never raw HTML (T-122-FE-01). "+N more matches" when the
+ *   backend saw more than it sent.
  *
- * Row title: aiTitle ?? displayName ?? identityKey. aiTitle is deferred
- * (always null in the current wave); displayName is the visible tasting
- * choice ("Gambit" over "gambit-box-maintainer-2"). Falls back to raw
- * identityKey only when both are absent (fail-visible rather than blank).
+ * Fallback: rows the backend's passage pass didn't cover (passages empty)
+ * render the single legacy snippet, split around hitStart/hitLength; when
+ * hitStart is -1 the snippet renders unhighlighted.
  *
  * hostName is intentionally NOT rendered. Tasting dropped it; per user
  * 2026-09-29: "if tasting dropped something then we are not re-adding it".
- *
- * Fallback: if hitStart is -1 (backend couldn't locate the match inside
- * the extracted text — see session-search-snippet.ts fallback branches),
- * render the raw snippet unhighlighted. Still displayed (better than
- * nothing) but no <span> wraps.
  *
  * Archived pill retained — real behavior signal (parent routes archived
  * clicks to kebab-menu Un-archive path per D-11/D-12/D-13/D-14).
@@ -37,7 +35,13 @@
  * it naturally. Parent (ConversationSearchModal) provides the onClick.
  */
 
-import type { ConversationSearchResult } from "@/api/conversation-search-api";
+import { useState } from "react";
+import type {
+  ConversationSearchPassage,
+  ConversationSearchResult,
+} from "@/api/conversation-search-api";
+import { roleDisplayName } from "@/lib/role-display-name";
+import { cn } from "@/lib/utils";
 import {
   RowKebabMenu,
   useRowKebabContextMenu,
@@ -49,6 +53,8 @@ const FALLBACK_HUE = 190;
 export interface ConversationSearchRowProps {
   result: ConversationSearchResult;
   onClick: () => void;
+  /** The fired query — every occurrence is highlighted in the passages. */
+  query?: string;
   /**
    * Phase 143 D-11 / D-12 / D-13 / D-14 — when provided and
    * result.isArchived === true, the row renders an always-visible RowKebabMenu
@@ -82,26 +88,104 @@ function formatRelativeTime(mtimeMs: number, nowMs: number): string {
   });
 }
 
+/** Split `text` into React children with every case-insensitive
+ *  occurrence of `query` wrapped in a .pv-search-hit span. */
+function highlightAll(text: string, query: string): Array<string | JSX.Element> {
+  const q = query.trim().toLowerCase();
+  if (q.length === 0) return [text];
+  const lower = text.toLowerCase();
+  const out: Array<string | JSX.Element> = [];
+  let i = 0;
+  for (let j = lower.indexOf(q); j !== -1; j = lower.indexOf(q, i)) {
+    if (j > i) out.push(text.slice(i, j));
+    out.push(
+      <span key={j} className="pv-search-hit">
+        {text.slice(j, j + q.length)}
+      </span>,
+    );
+    i = j + q.length;
+  }
+  if (i < text.length) out.push(text.slice(i));
+  return out;
+}
+
+function speakerLabel(
+  speaker: ConversationSearchPassage["speaker"],
+  agentName: string,
+): string {
+  switch (speaker) {
+    case "user":
+      return "You";
+    case "agent":
+      return agentName;
+    case "skill":
+      return "Skill text";
+    case "command":
+      return "Command";
+    case "event":
+      return "Event";
+  }
+}
+
 export function ConversationSearchRow({
   result,
   onClick,
+  query = "",
   onUnarchive,
   now,
 }: ConversationSearchRowProps): JSX.Element {
-  const title = result.aiTitle ?? result.displayName ?? result.identityKey;
+  const name = result.displayName ?? result.identityKey;
+  const title = result.aiTitle ?? result.task ?? name;
   const hue = result.colorHue ?? FALLBACK_HUE;
   const when = formatRelativeTime(result.transcriptMtime, now ?? Date.now());
+  const roles = result.roles ?? [];
+  const rolesLabel = roles
+    .map((r) => roleDisplayName(r.slug, r.displayName))
+    .join(", ");
+  const isMultiRole = roles.length > 1;
+  const [avatarFailed, setAvatarFailed] = useState(false);
+  const showAvatarImg = result.avatarUrl != null && !avatarFailed;
 
-  const hasHit = result.hitStart >= 0 && result.hitLength > 0;
-  let snippetNode: JSX.Element;
-  if (hasHit) {
+  const passages = result.passages ?? [];
+  let body: JSX.Element;
+  if (passages.length > 0) {
+    const more = (result.matchCount ?? passages.length) - passages.length;
+    body = (
+      <div className="pv-search-row-passages">
+        {passages.map((p, i) => (
+          <div
+            key={i}
+            className={cn(
+              "pv-search-row-passage",
+              p.boilerplate && "pv-search-row-passage--boilerplate",
+            )}
+            data-speaker={p.speaker}
+          >
+            <span className="pv-search-row-speaker">
+              {speakerLabel(p.speaker, name)}
+            </span>
+            <div className="pv-search-row-snippet">
+              {highlightAll(p.text, query)}
+            </div>
+          </div>
+        ))}
+        {more > 0 && (
+          <div className="pv-search-row-more">
+            {result.matchCountCapped
+              ? `${more}+ more matches in this conversation`
+              : `+${more} more ${more === 1 ? "match" : "matches"} in this conversation`}
+          </div>
+        )}
+      </div>
+    );
+  } else if (result.hitStart >= 0 && result.hitLength > 0) {
     const before = result.snippet.slice(0, result.hitStart);
     const hit = result.snippet.slice(
       result.hitStart,
       result.hitStart + result.hitLength,
     );
     const after = result.snippet.slice(result.hitStart + result.hitLength);
-    snippetNode = (
+    body = (
       <div className="pv-search-row-snippet">
         {before}
         <span className="pv-search-hit">{hit}</span>
@@ -109,7 +193,7 @@ export function ConversationSearchRow({
       </div>
     );
   } else {
-    snippetNode = <div className="pv-search-row-snippet">{result.snippet}</div>;
+    body = <div className="pv-search-row-snippet">{result.snippet}</div>;
   }
 
   // Phase 143 D-11 / D-12 / D-13 / D-14: render the kebab only on archived
@@ -135,16 +219,42 @@ export function ConversationSearchRow({
       onContextMenu={kebabContextMenu.onContextMenu}
       data-testid={`conversation-search-row-${result.transcriptPath}`}
       data-archived={result.isArchived ? "true" : "false"}
-      className="pv-search-row"
+      className={cn("pv-search-row", isMultiRole && "pv-multi-role")}
       style={{ ["--pv-search-row-hue" as string]: String(hue) }}
     >
       <div className="pv-search-row-header">
-        <span className="pv-search-row-dot" aria-hidden="true" />
-        <span className="pv-search-row-name">{title}</span>
-        {result.isArchived && (
-          <span className="pv-search-archived-pill">archived</span>
-        )}
-        <span className="pv-search-row-when">{when}</span>
+        <span className="pv-search-row-avatar" aria-hidden="true">
+          {showAvatarImg ? (
+            <img
+              src={result.avatarUrl!}
+              alt=""
+              className="pv-search-row-avatar-img"
+              onError={() => setAvatarFailed(true)}
+            />
+          ) : (
+            name.charAt(0).toUpperCase()
+          )}
+        </span>
+        <span className="pv-search-row-lines">
+          <span className="pv-search-row-line1">
+            <span className="pv-search-row-name">{title}</span>
+            <span className="pv-search-row-when">{when}</span>
+          </span>
+          <span className="pv-search-row-line2">
+            <span className="pv-search-row-identity">{name}</span>
+            {rolesLabel && (
+              <>
+                <span className="pv-search-row-sep" aria-hidden="true">
+                  ·
+                </span>
+                <span className="pv-search-row-role">{rolesLabel}</span>
+              </>
+            )}
+            {result.isArchived && (
+              <span className="pv-search-archived-pill">archived</span>
+            )}
+          </span>
+        </span>
         {showKebab && (
           <RowKebabMenu
             testId={`conversation-search-archived-row-kebab-${result.identityKey}-${result.hostId}`}
@@ -154,7 +264,7 @@ export function ConversationSearchRow({
         )}
         {kebabContextMenu.menu}
       </div>
-      {snippetNode}
+      {body}
     </button>
   );
 }

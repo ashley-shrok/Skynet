@@ -1927,18 +1927,18 @@
    dangerouslySetInnerHTML. See ConversationSearchRow.tsx and
    src/backend/database/routes/conversation-search.ts (T-122-FE-01).
 
-   Anatomy (2026-09-29 modal-unification pass): tasting `.search-row` shape.
-   Line 1 (`.pv-search-row-header`): sender-dot (hue = --pv-search-row-hue)
-   + name + right-aligned relative time. Line 2 (`.pv-search-row-snippet`):
-   snippet + hue-tinted highlight. hostName is intentionally NOT rendered
-   (tasting dropped it). See modal-tasting.html L2466-2515. */
+   Anatomy (2026-10-10 sidebar-parity pass): head = avatar disc (role hue,
+   gold sheen for multi-role) + two lines — task title / relative time, then
+   "Name · Role" + archived pill. Body = up to 3 speaker-labelled passages
+   (boilerplate muted), or the legacy single snippet as fallback. hostName is
+   intentionally NOT rendered (tasting dropped it). */
 
 .pv-search-row {
   --pv-search-row-hue: 190;
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  padding: 10px 12px;
+  gap: 8px;
+  padding: 10px 12px 11px;
   border-radius: 10px;
   background: rgba(8, 10, 16, 0.4);
   border: 1px solid hsla(var(--pv-search-row-hue), 60%, 55%, 0.14);
@@ -1956,39 +1956,166 @@
 .pv-search-row-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 12.5px;
-  font-weight: 500;
-  color: hsla(var(--pv-search-row-hue), 25%, 92%, 0.9);
+  gap: 10px;
+  min-width: 0;
 }
 
-.pv-search-row-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: hsla(var(--pv-search-row-hue), 65%, 55%, 0.9);
+/* Same disc recipe as the sidebar's .pv-avatar, a touch smaller. */
+.pv-search-row-avatar {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: linear-gradient(160deg,
+    hsla(var(--pv-search-row-hue), 45%, 25%, 0.72),
+    hsla(var(--pv-search-row-hue), 40%, 15%, 0.82));
+  border: 1px solid hsla(var(--pv-search-row-hue), 65%, 55%, 0.40);
+  box-shadow:
+    0 3px 10px rgba(0, 0, 0, 0.55),
+    inset 0 2px 0 rgba(255, 235, 190, 0.3),
+    0 0 18px hsla(var(--pv-search-row-hue), 65%, 55%, 0.35);
+  color: #fbf5e8;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.pv-search-row-avatar-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 999px;
+}
+
+.pv-search-row[data-archived="true"] .pv-search-row-avatar {
+  filter: saturate(0.55) brightness(0.85);
+}
+
+/* Sheen built off the row's hue (index.css .pv-multi-role defaults it to
+   --pv-id-hue); two-class selector so it wins regardless of sheet order. */
+.pv-search-row.pv-multi-role {
+  --pv-mr-h: var(--pv-search-row-hue);
+}
+
+.pv-search-row.pv-multi-role .pv-search-row-avatar {
+  background-image: var(--pv-mr-sheen);
+  border-color: var(--pv-mr-rim);
+  box-shadow:
+    0 3px 10px rgba(0, 0, 0, 0.55),
+    inset 0 2px 0 hsla(calc(var(--pv-mr-h) + 4), 90%, 85%, 0.55),
+    0 0 20px hsla(var(--pv-mr-h), 70%, 55%, 0.45);
+}
+
+.pv-search-row-lines {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pv-search-row-line1 {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
 }
 
 .pv-search-row-name {
+  flex: 1;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fbf5e8;
 }
 
 .pv-search-row-when {
-  margin-left: auto;
   flex-shrink: 0;
   font-size: 10.5px;
   color: hsla(var(--pv-search-row-hue), 22%, 88%, 0.55);
 }
 
+.pv-search-row-line2 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 11.5px;
+  color: hsla(var(--pv-search-row-hue), 25%, 85%, 0.7);
+}
+
+.pv-search-row-role {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+  color: hsla(var(--pv-search-row-hue), 70%, 72%, 0.95);
+}
+
+.pv-search-row-sep {
+  opacity: 0.5;
+}
+
+.pv-search-row-passages {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-left: 44px;
+}
+
+.pv-search-row-passage {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 8px;
+  border-left: 2px solid hsla(var(--pv-search-row-hue), 60%, 55%, 0.35);
+}
+
+.pv-search-row-passage--boilerplate {
+  opacity: 0.55;
+  border-left-style: dashed;
+}
+
+.pv-search-row-speaker {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: hsla(var(--pv-search-row-hue), 45%, 75%, 0.75);
+}
+
+.pv-search-row-more {
+  padding-left: 10px;
+  font-size: 10.5px;
+  font-style: italic;
+  color: hsla(var(--pv-search-row-hue), 22%, 88%, 0.5);
+}
+
+/* Phones: passages use the full row width instead of indenting under the
+   avatar. */
+@media (max-width: 639.98px) {
+  .pv-search-row-passages {
+    padding-left: 0;
+  }
+}
+
 .pv-search-row-snippet {
   font-size: 12px;
-  color: hsla(var(--pv-search-row-hue), 22%, 88%, 0.75);
+  color: hsla(var(--pv-search-row-hue), 22%, 88%, 0.8);
   line-height: 1.5;
-  /* Snippet may span 2-3 lines; clip via -webkit-line-clamp to keep
+  overflow-wrap: anywhere;
+  /* Each passage may span up to 3 lines; clip via -webkit-line-clamp to keep
      result rows compact. Modern browsers only; falls back to no clamp on
      old engines (still readable, just taller). */
   display: -webkit-box;
