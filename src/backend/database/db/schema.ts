@@ -846,6 +846,8 @@ export const userPreferences = sqliteTable("user_preferences", {
   language: text("language"),
   fallbackVoice: text("fallback_voice"),  // NEW per Phase 137 D-14 (nullable — null → TTS provider default voice)
   ttsPlaybackRate: real("tts_playback_rate"),  // per-user speak playback speed (nullable — null → 1.0)
+  voiceModeEndOfTurn: text("voice_mode_end_of_turn"),  // hands-free voice mode turn end: "timed" | "phrase" (null → "timed")
+  voiceModeSendPhrase: text("voice_mode_send_phrase"),  // spoken send phrase for "phrase" mode (null → "send it")
   updatedAt: text("updated_at")
     .notNull()
     .default(sql`CURRENT_TIMESTAMP`),

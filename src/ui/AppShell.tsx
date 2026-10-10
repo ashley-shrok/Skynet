@@ -76,6 +76,7 @@ import type { SSHHostWithStatus } from "@/main-axios";
 // Phase 11 Plan 03 (PURGE-03): ConnectionsPanel import RETIRED alongside AppRail.
 import { PrettyConversationsPanel } from "@/features/pretty-conversations/PrettyConversationsPanel";
 import { setTtsPlaybackRate } from "@/features/pretty-view/webAudioStreamPlayer";
+import { setVoiceModeSettings } from "@/features/pretty-view/voice-mode-settings";
 // Phase 122 Plan 03 Task 3 — ConversationSearchResult type for the new
 // onSearchResultOpenActive prop wired to PrettyConversationsPanel below
 // (mirrors the onDetachedRowClick handler shape at line ~3068).
@@ -1527,6 +1528,14 @@ export function AppShell({
   useEffect(() => {
     setTtsPlaybackRate(userPrefs.ttsPlaybackRate);
   }, [userPrefs.ttsPlaybackRate]);
+
+  // Hands-free voice mode turn-end preference → the voice-mode settings module.
+  useEffect(() => {
+    setVoiceModeSettings({
+      endOfTurn: userPrefs.voiceModeEndOfTurn,
+      sendPhrase: userPrefs.voiceModeSendPhrase,
+    });
+  }, [userPrefs.voiceModeEndOfTurn, userPrefs.voiceModeSendPhrase]);
 
   // Load real hosts from API
   const loadHosts = useCallback(async () => {

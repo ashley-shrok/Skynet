@@ -11,6 +11,7 @@ distributed: true
 <!-- 2026-10-09 (pinned XOR project): pinned and in-a-project are mutually exclusive — the row/badge menu's Pin item folded into a "Move to" submenu (Pinned + projects); pinning leaves the project, moving into a project unpins; a conversation with both on disk shows in its project. -->
 <!-- 2026-10-09 (skill actions): new lightning-bolt button left of thumbs-up opens a menu of the box's skills — tap sends `/<name>` at once; the footer Skills-editor icon changed from wrench to the same lightning bolt. -->
 <!-- 2026-10-09 (voice-mode button): hands-free voice mode moved off the mic long-press onto its own sound-wave button left of Stop; the status pill became that button's chip (state label, tap-to-skip, × to end). -->
+<!-- 2026-10-10 (voice mode v2): voice mode hears speech in pieces split at short pauses (no-word pieces like sneezes dropped silently); turn ends after 3s of silence or, as a preference, on a spoken send phrase; new cue set (send sound, soft ticking while the agent works, mic-start sound for your turn, alarm on bail); Agent voices pane gained the "when voice mode sends" choice. -->
 <!-- 2026-10-10 (new-role shortcut): the new-conversation role dropdown's first row is "New role…" — hops to the new-role dialog and back with picks kept. -->
 <!-- 2026-10-09 (role history retired): "chronological history" dropped from the role-folder description (concept retired with the /role skill). -->
 <!-- 2026-10-10 (voice mode exclusive): one conversation in voice mode at a time — while on, every mic and every other voice-mode button is disabled; message speak buttons unaffected. -->
@@ -829,7 +830,10 @@ crown, then gear.
     changes (propose + wait for greenlight).
   - **Agent voices** — voice used by the per-bubble speak button on
     agent messages, plus a **speed slider** (0.25×–4×, default 1×, with
-    a Reset) for how fast agents speak.
+    a Reset) for how fast agents speak, and **when voice mode sends**:
+    *After a pause* (default — three seconds of silence) or *When I say a
+    phrase* (silence never sends; ending with the phrase does — "send it"
+    by default, editable). Follows the user's account across devices.
   - **Notifications** — set up push notifications on your phone via
     the ntfy iOS app. The pane shows four values to enter in the ntfy
     app's per-topic Login dialog — topic name, server address, ntfy
@@ -907,8 +911,18 @@ crown, then gear.
 - **Sound-wave button — hands-free voice mode** (agent conversations
   only). Sits in the row of small buttons above the compose box, left of
   the stop (square), lightning-bolt and thumbs-up buttons. Tapping it turns voice mode
-  on: the app listens, sends what the user says when they pause, reads
-  each new agent reply aloud, then listens again. Typing keeps working
+  on: the app listens, sends what the user says when their turn ends, reads
+  each new agent reply aloud, then listens again. It hears speech in pieces
+  split at short pauses and transcribes each in the background; a piece
+  with no words (a sneeze, a cough) is dropped without a sound. The turn
+  ends after three seconds of silence, or — if the user chose it under
+  **Agent voices** — only when they end with their send phrase ("send it"
+  by default; the phrase is removed from the message). Replies that arrive
+  while they're mid-message wait until it's sent. Sounds mark the round
+  trip: the mic's send sound when the message goes, a soft ticking while
+  the agent works, the mic's start sound when it's the user's turn. If a
+  piece can't be transcribed even after retrying, voice mode stops, the
+  message is thrown away unsent, and an alarm plays. Typing keeps working
   while it's on. Only one conversation can be in voice mode at a time:
   while it's on, every mic and every other conversation's voice-mode
   button is greyed out ("Voice mode is on") until it ends — and while
@@ -916,8 +930,9 @@ crown, then gear.
   buttons still work — tapping one cuts off the current spoken reply.
   While on, the button widens into a small chip that shows the state
   (Starting, Listening, Hearing, Sending, Speaking, Paused); tap the chip
-  while a reply is playing to skip it. The chip's × — or saying "stop
-  voice mode" — ends voice mode. Replies are spoken in the agent's voice —
+  while a reply is playing to skip it. The chip's × — or ending a sentence
+  with "stop voice mode" — ends voice mode and throws away anything not yet
+  sent. Replies are spoken in the agent's voice —
   its own, else its role's, else the user's **Agent voices** fallback, else
   the box's default. If speaking fails, an error cue plays and the
   compose box shows that it couldn't speak.

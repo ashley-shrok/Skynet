@@ -539,6 +539,8 @@ async function initializeCompleteDatabase(): Promise<void> {
         language TEXT,
         fallback_voice TEXT,                                   -- NEW per Phase 137 D-14
         tts_playback_rate REAL,                                -- per-user speak playback speed; NULL → 1.0
+        voice_mode_end_of_turn TEXT,                           -- voice mode turn end: 'timed' | 'phrase'; NULL → 'timed'
+        voice_mode_send_phrase TEXT,                           -- voice mode send phrase; NULL → 'send it'
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
     );
@@ -1224,6 +1226,8 @@ const migrateSchema = async () => {
   addColumnIfNotExists("user_preferences", "language", "TEXT");
   addColumnIfNotExists("user_preferences", "fallback_voice", "TEXT");  // NEW per Phase 137 D-14
   addColumnIfNotExists("user_preferences", "tts_playback_rate", "REAL");
+  addColumnIfNotExists("user_preferences", "voice_mode_end_of_turn", "TEXT");
+  addColumnIfNotExists("user_preferences", "voice_mode_send_phrase", "TEXT");
 
   // Phase 137 D-31/D-14 — persist the batch of schema mutations from this
   // block to the encrypted SQLite file in one atomic write: (a) the Phase 92

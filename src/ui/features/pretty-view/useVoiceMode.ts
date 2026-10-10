@@ -3,14 +3,34 @@
  *
  * Toggled by the voice-mode button in the ComposeBox aux row. Once on, the loop is:
  *
- *   listening ──(speech detected)──▶ hearing ──(trailing silence)──▶ transcribing
- *       ▲                                                                │
- *       │                                         send(transcript) ◀─────┘
- *       └──── speaking ◀── new assistant messages (identity voice TTS)
+ *   listening ──(speech)──▶ hearing ──(turn ends)──▶ transcribing ──▶ send(draft)
+ *       ▲                                                                 │
+ *       └──── speaking ◀── new assistant messages (identity voice TTS) ◀──┘
  *
- * Design rules (user 2026-10-06: "the voice mode doesn't take over anything it
- * doesn't have to"):
- *   - Owns its OWN MediaStream + MediaRecorder. It never touches the compose
+ * v2 (shape-voice-mode-v2, 2026-10-10) — "let me take my time":
+ *   - Pieces. A short pause (PIECE_GAP_MS) closes the current piece of audio and
+ *     a fresh recorder starts at once (the user is silent, so nothing falls in
+ *     the gap). Each closed piece is transcribed in the background and joins
+ *     the draft in spoken order. A piece with no words (sneeze, cough, bump) is
+ *     dropped silently — no cue, nothing sent.
+ *   - Turn end is the user's preference (voice-mode-settings.ts):
+ *       timed  — TIMED_END_MS of silence after a draft exists sends it;
+ *       phrase — silence never sends; a piece ending in the send phrase does
+ *                (phrase stripped). The phrase only works in this mode.
+ *     Either way the draft goes only once every earlier piece has resolved.
+ *   - A piece ending in "stop voice mode" (or a variant) turns voice mode off
+ *     and throws the draft away.
+ *   - A piece whose transcription keeps failing is retried for
+ *     TRANSCRIBE_RETRY_WINDOW_MS; then voice mode bails: off, draft thrown
+ *     away, alarm cue. Nothing half-finished ever reaches the agent.
+ *   - While a draft is in progress, replies wait and the working ticks stay
+ *     quiet.
+ *   - Cues (voice-mode-cues.ts) play through this hook's AudioContext, which
+ *     start() unlocks inside the tap — so they work on iOS with the mic open.
+ *
+ * Standing design rules (user 2026-10-06: "the voice mode doesn't take over
+ * anything it doesn't have to"):
+ *   - Owns its OWN MediaStream + MediaRecorders. It never touches the compose
  *     textarea, attachments, queue slots or the tap-to-record `useVoiceRecording`
  *     instance, so typing / pasting / Send keep working while voice mode is on.
  *     Replies to typed sends are spoken too.
@@ -25,17 +45,14 @@
  *   - Holds a screen wake lock: mobile browsers suspend the page (and kill the
  *     mic) when the screen locks, so "phone in pocket" needs the screen kept on.
  *
- * start() is called from the button's click, so the VAD AudioContext and the
- * "on" chime are unlocked inside a user gesture.
+ * start() is called from the button's click, so the VAD/cue AudioContext and
+ * the "on" chime are unlocked inside a user gesture.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import stopUrl from "../../assets/sounds/mic/stop.mp3?url";
-import errorUrl from "../../assets/sounds/mic/error.mp3?url";
 import { stampedFetch } from "@/lib/stamped-fetch";
 import { postSpeakStream } from "../../api/voice-api";
 import { playAutoSpeakOff, playAutoSpeakOn } from "../../audio/auto-speak-cue";
-import { playTink } from "../../audio/ready-cue";
 import { createWebAudioStreamPlayer } from "./webAudioStreamPlayer";
 import {
   clearCurrentPlayer,
@@ -45,6 +62,8 @@ import {
   setCurrentPlayer,
 } from "./speak-singleton";
 import { registerVoiceModeActive } from "./voice-mode-registry";
+import { createVoiceModeCues, type VoiceModeCue, type VoiceModeCues } from "./voice-mode-cues";
+import { getVoiceModeSettings } from "./voice-mode-settings";
 
 // ---------------------------------------------------------------------------
 // Tuning
@@ -52,20 +71,27 @@ import { registerVoiceModeActive } from "./voice-mode-registry";
 
 /** VAD poll cadence. */
 const VAD_TICK_MS = 50;
-/** Voiced time needed before an utterance counts as started (filters clicks/bumps). */
+/** Voiced time needed before a piece counts as speech (filters clicks/bumps). */
 const SPEECH_START_MS = 200;
-/** Trailing silence that ends an utterance. Long enough for walking-pace pauses. */
-export const SILENCE_END_MS = 1800;
-/** Hard cap on a single utterance. */
-const MAX_UTTERANCE_MS = 5 * 60 * 1000;
+/** A pause this long closes the current piece and starts the next. */
+export const PIECE_GAP_MS = 1500;
+/** Timed mode: silence this long after a draft exists ends the turn. */
+export const TIMED_END_MS = 3000;
+/** Safety cap on one piece of unbroken speech (the message itself has no cap). */
+export const MAX_PIECE_MS = 5 * 60 * 1000;
 /** Rotate the idle recorder so a quiet stretch never builds a huge clip. */
 const IDLE_ROTATE_MS = 30 * 1000;
+/** Keep retrying a failed piece this long before bailing. */
+export const TRANSCRIBE_RETRY_WINDOW_MS = 30 * 1000;
+const TRANSCRIBE_RETRY_FIRST_DELAY_MS = 1000;
 /** RMS floor below which nothing counts as speech, regardless of noise floor. */
 const MIN_SPEECH_RMS = 0.012;
 /** Speech must be this many times louder than the tracked noise floor. */
 const NOISE_MULTIPLIER = 3;
 /** History frames older than voice-mode start (minus slack) are never spoken. */
 const HISTORY_SLACK_MS = 60 * 1000;
+/** Let the bail alarm finish before the AudioContext is closed. */
+const ALARM_TAIL_MS = 1500;
 
 const TRANSCRIBE_URL = "/voice/transcribe";
 
@@ -123,17 +149,42 @@ export interface UseVoiceModeReturn {
 // Pure helpers (exported for tests)
 // ---------------------------------------------------------------------------
 
-const EXIT_PHRASE =
-  /^(?:please )?(?:stop|end|exit|quit|close|turn off|cancel) (?:the )?voice mode(?: please)?$/;
-
-/** True when a transcript is a spoken request to leave voice mode. */
-export function isExitPhrase(transcript: string): boolean {
-  const norm = transcript
+function normalizeSpeech(text: string): string {
+  return text
     .toLowerCase()
     .replace(/[^\p{L}\p{N}\s]/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
-  return EXIT_PHRASE.test(norm);
+}
+
+const EXIT_PHRASE_AT_END =
+  /(?:^| )(?:please )?(?:stop|end|exit|quit|close|turn off|cancel) (?:the )?voice mode(?: please)?$/;
+
+/** True when a transcript ends with a spoken request to leave voice mode. */
+export function endsWithExitPhrase(transcript: string): boolean {
+  return EXIT_PHRASE_AT_END.test(normalizeSpeech(transcript));
+}
+
+/**
+ * If `transcript` ends with `phrase` (ignoring capitals and punctuation),
+ * return the transcript with the phrase removed; otherwise null.
+ */
+export function stripSendPhrase(transcript: string, phrase: string): string | null {
+  const norm = (w: string) => w.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+  const target = phrase.split(/\s+/).map(norm).filter(Boolean);
+  if (target.length === 0) return null;
+  const words = transcript.trim().split(/\s+/).filter(Boolean);
+  let i = words.length - 1;
+  for (let k = target.length - 1; k >= 0; k -= 1) {
+    while (i >= 0 && norm(words[i]) === "") i -= 1; // stray punctuation
+    if (i < 0 || norm(words[i]) !== target[k]) return null;
+    i -= 1;
+  }
+  return words
+    .slice(0, i + 1)
+    .join(" ")
+    .replace(/[\s,;:–—-]+$/u, "")
+    .trim();
 }
 
 /**
@@ -159,26 +210,20 @@ export function toSpeakableText(markdown: string): string {
     .trim();
 }
 
-// ---------------------------------------------------------------------------
-// Module-level cue audio (same pattern as useVoiceRecording / auto-speak-cue)
-// ---------------------------------------------------------------------------
+type WakeLockSentinelLike = { release: () => Promise<void>; released?: boolean };
 
-let stopAudio: HTMLAudioElement | null = null;
-let errorAudio: HTMLAudioElement | null = null;
-
-function playCue(kind: "stop" | "error"): void {
-  if (kind === "stop") {
-    if (!stopAudio) stopAudio = new Audio(stopUrl);
-    stopAudio.currentTime = 0;
-    Promise.resolve(stopAudio.play()).catch(() => {});
-  } else {
-    if (!errorAudio) errorAudio = new Audio(errorUrl);
-    errorAudio.currentTime = 0;
-    Promise.resolve(errorAudio.play()).catch(() => {});
-  }
+/** One closed piece of the draft. */
+interface Piece {
+  id: number;
+  status: "pending" | "done";
+  text: string;
 }
 
-type WakeLockSentinelLike = { release: () => Promise<void>; released?: boolean };
+/** A live recorder plus the chunks it has produced. */
+interface RecorderSlot {
+  recorder: MediaRecorder;
+  chunks: Blob[];
+}
 
 // ---------------------------------------------------------------------------
 // Hook
@@ -193,12 +238,14 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
   argsRef.current = args;
 
   const activeRef = useRef(false);
+  /** Bumped on every start/teardown so stale async work can tell it's stale. */
+  const sessionRef = useRef(0);
   const phaseRef = useRef<VoiceModePhase>("off");
   const streamRef = useRef<MediaStream | null>(null);
   const ctxRef = useRef<AudioContext | null>(null);
+  const cuesRef = useRef<VoiceModeCues | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
+  const slotRef = useRef<RecorderSlot | null>(null);
   const vadTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const wakeLockRef = useRef<WakeLockSentinelLike | null>(null);
 
@@ -206,18 +253,68 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
   const startedAtRef = useRef(0);
   const queueRef = useRef<string[]>([]);
   const speakingRef = useRef<{ owner: symbol; finish: () => void } | null>(null);
-  const busyRef = useRef(false); // transcribing / sending
   const acquiringRef = useRef(false); // getUserMedia in flight
+
+  // Draft state.
+  const piecesRef = useRef<Piece[]>([]);
+  const nextPieceIdRef = useRef(1);
+  /** Speech detected in the piece currently being recorded. */
+  const pieceSpeechRef = useRef(false);
+  /** Turn has ended: send every piece with id <= upToId once all resolve. */
+  const turnEndRef = useRef<{ upToId: number; reason: "timed" | "phrase" } | null>(null);
+  /** performance.now() of the last voiced VAD frame (spans pieces). */
+  const lastVoiceAtRef = useRef(0);
 
   const tag = `hostId=${args.hostId} tmuxSession=${args.tmuxSession ?? "null"}`;
   const tagRef = useRef(tag);
   tagRef.current = tag;
-  const log = (msg: string) => console.info(`[voice-mode] ${msg} ${tagRef.current}`);
+  const log = useCallback((msg: string) => console.info(`[voice-mode] ${msg} ${tagRef.current}`), []);
+
+  const playCue = useCallback((cue: VoiceModeCue) => {
+    cuesRef.current?.play(cue);
+  }, []);
 
   const setPhase = useCallback((p: VoiceModePhase) => {
     phaseRef.current = p;
     setPhaseState(p);
   }, []);
+
+  /** The user is mid-turn: speaking now, or holding an unsent draft. */
+  const isComposing = () =>
+    pieceSpeechRef.current || piecesRef.current.length > 0 || turnEndRef.current !== null;
+
+  /** While listening, show where the turn stands. */
+  const refreshListeningPhase = () => {
+    if (!activeRef.current || vadTimerRef.current === null) return;
+    const next: VoiceModePhase = turnEndRef.current
+      ? "transcribing"
+      : isComposing()
+        ? "hearing"
+        : "listening";
+    if (phaseRef.current !== next) setPhase(next);
+  };
+
+  /** Working ticks: agent working, nothing playing, user not mid-turn. */
+  const updateTickingRef = useRef<() => void>(() => {});
+  updateTickingRef.current = () => {
+    const cues = cuesRef.current;
+    if (!cues) return;
+    const should =
+      activeRef.current &&
+      argsRef.current.isWorking &&
+      !argsRef.current.suspended &&
+      speakingRef.current === null &&
+      queueRef.current.length === 0 &&
+      !isComposing() &&
+      streamRef.current !== null;
+    if (should && !cues.isTicking()) {
+      log("ticking-start");
+      cues.startTicking();
+    } else if (!should && cues.isTicking()) {
+      log("ticking-stop");
+      cues.stopTicking();
+    }
+  };
 
   // ---- Recorder / VAD ----------------------------------------------------
 
@@ -228,14 +325,10 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
     }
   }, []);
 
-  /** Stop the current recorder; resolve its clip (or null when discarding). */
-  const stopRecorder = useCallback((keep: boolean): Promise<Blob | null> => {
-    const recorder = recorderRef.current;
-    recorderRef.current = null;
-    if (!recorder || recorder.state === "inactive") {
-      chunksRef.current = [];
-      return Promise.resolve(null);
-    }
+  /** Stop a recorder; resolve its clip (or null when discarding). */
+  const stopSlot = useCallback((slot: RecorderSlot | null, keep: boolean): Promise<Blob | null> => {
+    if (!slot || slot.recorder.state === "inactive") return Promise.resolve(null);
+    const { recorder, chunks } = slot;
     return new Promise((resolve) => {
       let done = false;
       const finish = (blob: Blob | null) => {
@@ -244,18 +337,13 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
         resolve(blob);
       };
       recorder.onstop = () => {
-        const blob = keep
-          ? new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" })
-          : null;
-        chunksRef.current = [];
-        finish(blob);
+        finish(keep ? new Blob(chunks, { type: recorder.mimeType || "audio/webm" }) : null);
       };
       // iOS occasionally drops onstop (see useVoiceRecording.stopRecording).
       setTimeout(() => {
         if (!done) {
           console.warn(`[voice-mode] recorder-onstop-watchdog ${tagRef.current}`);
-          chunksRef.current = [];
-          finish(null);
+          finish(keep && chunks.length > 0 ? new Blob(chunks, { type: recorder.mimeType || "audio/webm" }) : null);
         }
       }, 8000);
       try {
@@ -271,12 +359,12 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
     if (!stream) return false;
     try {
       const recorder = new MediaRecorder(stream);
-      chunksRef.current = [];
+      const slot: RecorderSlot = { recorder, chunks: [] };
       recorder.ondataavailable = (e: BlobEvent) => {
-        if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
+        if (e.data && e.data.size > 0) slot.chunks.push(e.data);
       };
       recorder.start();
-      recorderRef.current = recorder;
+      slotRef.current = slot;
       return true;
     } catch (err) {
       console.error(`[voice-mode] recorder-start-failed errMessage="${err instanceof Error ? err.message : String(err)}" ${tagRef.current}`);
@@ -284,9 +372,21 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
     }
   }, []);
 
-  // Forward refs so the scheduler / VAD / speaker can call each other.
+  /** Swap the live recorder for a fresh one; returns the old one's clip. */
+  const rotateRecorder = useCallback(
+    (keep: boolean): Promise<Blob | null> => {
+      const old = slotRef.current;
+      slotRef.current = null;
+      startRecorder();
+      return stopSlot(old, keep);
+    },
+    [startRecorder, stopSlot],
+  );
+
+  // Forward refs so the scheduler / VAD / speaker / pieces can call each other.
   const pumpRef = useRef<() => void>(() => {});
-  const finishUtteranceRef = useRef<() => void>(() => {});
+  const closePieceRef = useRef<() => void>(() => {});
+  const endTurnRef = useRef<(reason: "timed" | "phrase", upToId: number) => void>(() => {});
 
   const beginListening = useCallback(() => {
     if (!activeRef.current || !streamRef.current) return;
@@ -296,16 +396,14 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
       setErrorMessage("Voice mode: microphone unavailable");
       return;
     }
-    setPhase("listening");
 
     const analyser = analyserRef.current;
     const buf = analyser ? new Float32Array(analyser.fftSize) : null;
     let noiseFloor = MIN_SPEECH_RMS / NOISE_MULTIPLIER;
     let voicedMs = 0;
-    let speechStarted = false;
     let speechStartAt = 0;
-    let lastVoiceAt = 0;
-    let recorderStartAt = performance.now();
+    let pieceStartAt = performance.now();
+    pieceSpeechRef.current = false;
 
     stopVad();
     vadTimerRef.current = setInterval(() => {
@@ -318,47 +416,73 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
       const threshold = Math.max(MIN_SPEECH_RMS, noiseFloor * NOISE_MULTIPLIER);
 
       if (rms > threshold) {
-        lastVoiceAt = now;
-        if (!speechStarted) {
+        lastVoiceAtRef.current = now;
+        if (!pieceSpeechRef.current) {
           voicedMs += VAD_TICK_MS;
           if (voicedMs >= SPEECH_START_MS) {
-            speechStarted = true;
+            pieceSpeechRef.current = true;
             speechStartAt = now;
-            setPhase("hearing");
+            // Timed mode: talking again before the draft went out means the
+            // turn isn't over after all — fold this into the same message.
+            if (turnEndRef.current?.reason === "timed") {
+              log("turn-end-cancelled-by-speech");
+              turnEndRef.current = null;
+            }
+            updateTickingRef.current();
+            refreshListeningPhase();
           }
         }
-      } else {
-        if (!speechStarted) {
-          voicedMs = Math.max(0, voicedMs - VAD_TICK_MS / 2);
-          // Track ambient noise only while nobody is talking.
-          noiseFloor = noiseFloor * 0.97 + rms * 0.03;
-        }
+      } else if (!pieceSpeechRef.current) {
+        voicedMs = Math.max(0, voicedMs - VAD_TICK_MS / 2);
+        // Track ambient noise only while nobody is talking.
+        noiseFloor = noiseFloor * 0.97 + rms * 0.03;
       }
 
-      if (speechStarted) {
-        if (now - lastVoiceAt >= SILENCE_END_MS || now - speechStartAt >= MAX_UTTERANCE_MS) {
-          stopVad();
-          finishUtteranceRef.current();
+      if (pieceSpeechRef.current) {
+        const paused = now - lastVoiceAtRef.current >= PIECE_GAP_MS;
+        if (paused || now - speechStartAt >= MAX_PIECE_MS) {
+          if (!paused) log("piece-max-length");
+          pieceSpeechRef.current = false;
+          voicedMs = 0;
+          pieceStartAt = now;
+          closePieceRef.current();
         }
-      } else if (now - recorderStartAt >= IDLE_ROTATE_MS) {
+        return;
+      }
+
+      // No speech in the current piece.
+      if (
+        getVoiceModeSettings().endOfTurn === "timed" &&
+        turnEndRef.current === null &&
+        piecesRef.current.length > 0 &&
+        now - lastVoiceAtRef.current >= TIMED_END_MS
+      ) {
+        const last = piecesRef.current[piecesRef.current.length - 1];
+        endTurnRef.current("timed", last.id);
+      }
+      if (now - pieceStartAt >= IDLE_ROTATE_MS) {
         // Nothing said for a while — drop the clip and start a fresh one.
-        recorderStartAt = now;
-        void stopRecorder(false).then(() => {
-          if (activeRef.current && phaseRef.current === "listening") startRecorder();
-        });
+        pieceStartAt = now;
+        void rotateRecorder(false);
       }
     }, VAD_TICK_MS);
-  }, [setPhase, startRecorder, stopRecorder, stopVad]);
+    refreshListeningPhase();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [log, rotateRecorder, startRecorder, stopVad]);
 
-  /** Stop listening without keeping what was captured. */
+  /** Stop listening without keeping what the live recorder captured. */
   const stopListening = useCallback(() => {
     stopVad();
-    void stopRecorder(false);
-  }, [stopRecorder, stopVad]);
+    pieceSpeechRef.current = false;
+    const slot = slotRef.current;
+    slotRef.current = null;
+    void stopSlot(slot, false);
+  }, [stopSlot, stopVad]);
 
-  // ---- Transcribe + send -------------------------------------------------
+  // ---- Transcription -----------------------------------------------------
 
-  const transcribe = useCallback(async (blob: Blob): Promise<string | null> => {
+  /** One attempt. Resolves the text ("" = no words) or null on failure. */
+  const transcribeOnce = useCallback(async (blob: Blob): Promise<string | null> => {
     const ext = blob.type.includes("webm") ? "webm" : blob.type.includes("mp4") ? "mp4" : blob.type.includes("wav") ? "wav" : "bin";
     const fd = new FormData();
     fd.append("file", blob, `clip.${ext}`);
@@ -379,41 +503,187 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
     }
   }, []);
 
-  const stopRef = useRef<() => void>(() => {});
-
-  finishUtteranceRef.current = () => {
-    busyRef.current = true;
-    setPhase("transcribing");
-    void (async () => {
-      const blob = await stopRecorder(true);
-      if (!activeRef.current) return;
-      playCue("stop");
-      const transcript = blob && blob.size > 0 ? await transcribe(blob) : "";
-      if (!activeRef.current) {
-        // Voice mode was turned off mid-transcription — don't lose the words.
-        if (transcript) argsRef.current.onUndelivered(transcript);
-        return;
+  /**
+   * Transcribe with retries for TRANSCRIBE_RETRY_WINDOW_MS. Resolves the text,
+   * null when it finally gave up, or undefined when the session ended first.
+   */
+  const transcribeWithRetry = useCallback(
+    async (blob: Blob, pieceId: number): Promise<string | null | undefined> => {
+      const session = sessionRef.current;
+      const deadline = Date.now() + TRANSCRIBE_RETRY_WINDOW_MS;
+      let delay = TRANSCRIBE_RETRY_FIRST_DELAY_MS;
+      for (let attempt = 1; ; attempt += 1) {
+        const text = await transcribeOnce(blob);
+        if (sessionRef.current !== session) return undefined;
+        if (text !== null) return text;
+        if (Date.now() + delay > deadline) {
+          console.error(`[voice-mode] piece-transcribe-gave-up pieceId=${pieceId} attempts=${attempt} ${tagRef.current}`);
+          return null;
+        }
+        log(`piece-transcribe-retry pieceId=${pieceId} attempt=${attempt} delayMs=${delay}`);
+        await new Promise((r) => setTimeout(r, delay));
+        if (sessionRef.current !== session) return undefined;
+        delay *= 2;
       }
-      busyRef.current = false;
-      if (transcript === null) {
-        playCue("error");
-        setErrorMessage("Voice mode: couldn't transcribe that — try again");
-      } else if (transcript === "") {
-        log("utterance-empty");
-      } else if (isExitPhrase(transcript)) {
-        log("exit-phrase");
-        stopRef.current();
-        return;
-      } else {
-        setErrorMessage(null);
-        const sent = argsRef.current.send(transcript);
-        log(`utterance-sent len=${transcript.length} dispatched=${sent}`);
-        if (!sent) {
-          playCue("error");
-          argsRef.current.onUndelivered(transcript);
+    },
+    [log, transcribeOnce],
+  );
+
+  // ---- Lifecycle helpers (declared early: pieces + speaker need them) ----
+
+  const releaseWakeLock = useCallback(() => {
+    const lock = wakeLockRef.current;
+    wakeLockRef.current = null;
+    if (lock && !lock.released) void lock.release().catch(() => {});
+  }, []);
+
+  /** Tear everything down. `closeAfterMs` lets a final cue finish playing. */
+  const teardown = useCallback(
+    (closeAfterMs = 0) => {
+      activeRef.current = false;
+      sessionRef.current += 1;
+      queueRef.current = [];
+      piecesRef.current = [];
+      turnEndRef.current = null;
+      pieceSpeechRef.current = false;
+      acquiringRef.current = false;
+      stopVad();
+      const slot = slotRef.current;
+      slotRef.current = null;
+      void stopSlot(slot, false);
+      const speaking = speakingRef.current;
+      speakingRef.current = null;
+      if (speaking && getCurrentOwner() === speaking.owner) {
+        getCurrentPlayer()?.stop();
+        clearCurrentPlayer();
+      }
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+      analyserRef.current = null;
+      const cues = cuesRef.current;
+      const ctx = ctxRef.current;
+      cuesRef.current = null;
+      ctxRef.current = null;
+      cues?.stopTicking();
+      const close = () => {
+        cues?.dispose();
+        void ctx?.close().catch(() => {});
+      };
+      if (closeAfterMs > 0) setTimeout(close, closeAfterMs);
+      else close();
+      releaseWakeLock();
+    },
+    [releaseWakeLock, stopSlot, stopVad],
+  );
+
+  const stop = useCallback(() => {
+    if (!activeRef.current) return;
+    const dropped = piecesRef.current.length;
+    log(`stop draftPiecesDropped=${dropped}`);
+    teardown();
+    setPhase("off");
+    playAutoSpeakOff();
+  }, [log, teardown, setPhase]);
+  const stopRef = useRef(stop);
+  stopRef.current = stop;
+
+  /** Something went badly wrong mid-turn: off, draft gone, alarm. */
+  const bail = useCallback(
+    (reason: string) => {
+      if (!activeRef.current) return;
+      console.error(`[voice-mode] bail reason=${reason} draftPiecesDropped=${piecesRef.current.length} ${tagRef.current}`);
+      playCue("alarm");
+      teardown(ALARM_TAIL_MS);
+      setPhase("off");
+      setErrorMessage("Voice mode stopped: couldn't transcribe what you said — nothing was sent");
+    },
+    [playCue, teardown, setPhase],
+  );
+
+  // ---- Pieces + turn end -------------------------------------------------
+
+  /** Send the draft once the turn has ended and its pieces have all resolved. */
+  const tryFinishTurn = () => {
+    const turn = turnEndRef.current;
+    if (!turn || !activeRef.current) return;
+    const included = piecesRef.current.filter((p) => p.id <= turn.upToId);
+    if (included.some((p) => p.status === "pending")) return;
+    piecesRef.current = piecesRef.current.filter((p) => p.id > turn.upToId);
+    turnEndRef.current = null;
+    const text = included
+      .map((p) => p.text)
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+    if (!text) {
+      log(`turn-end-empty reason=${turn.reason} pieces=${included.length}`);
+      return;
+    }
+    setErrorMessage(null);
+    const sent = argsRef.current.send(text);
+    log(`draft-sent reason=${turn.reason} pieces=${included.length} len=${text.length} dispatched=${sent}`);
+    if (sent) {
+      playCue("sent");
+    } else {
+      playCue("error");
+      argsRef.current.onUndelivered(text);
+    }
+  };
+
+  endTurnRef.current = (reason, upToId) => {
+    if (turnEndRef.current) return;
+    log(`turn-end reason=${reason} upToId=${upToId}`);
+    turnEndRef.current = { upToId, reason };
+    tryFinishTurn();
+    refreshListeningPhase();
+    pumpRef.current();
+  };
+
+  const onPieceResult = (piece: Piece, text: string | null | undefined) => {
+    if (text === undefined || !activeRef.current) return; // session over
+    if (text === null) {
+      bail(`piece-transcribe-failed pieceId=${piece.id}`);
+      return;
+    }
+    if (endsWithExitPhrase(text)) {
+      log(`exit-phrase pieceId=${piece.id}`);
+      stopRef.current();
+      return;
+    }
+    piece.status = "done";
+    piece.text = text;
+    if (!text) {
+      // Sneeze, cough, bump: drop it without a trace.
+      log(`piece-empty pieceId=${piece.id}`);
+      piecesRef.current = piecesRef.current.filter((p) => p !== piece);
+    } else {
+      log(`piece-done pieceId=${piece.id} len=${text.length}`);
+      const settings = getVoiceModeSettings();
+      if (settings.endOfTurn === "phrase" && turnEndRef.current === null) {
+        const stripped = stripSendPhrase(text, settings.sendPhrase);
+        if (stripped !== null) {
+          piece.text = stripped;
+          endTurnRef.current("phrase", piece.id);
+          return;
         }
       }
-      pumpRef.current();
+    }
+    tryFinishTurn();
+    refreshListeningPhase();
+    pumpRef.current();
+  };
+
+  closePieceRef.current = () => {
+    const piece: Piece = { id: nextPieceIdRef.current, status: "pending", text: "" };
+    nextPieceIdRef.current += 1;
+    piecesRef.current.push(piece);
+    refreshListeningPhase();
+    void (async () => {
+      const blob = await rotateRecorder(true);
+      if (!activeRef.current) return;
+      log(`piece-closed pieceId=${piece.id} bytes=${blob?.size ?? 0}`);
+      const text = blob && blob.size > 0 ? await transcribeWithRetry(blob, piece.id) : "";
+      onPieceResult(piece, text);
     })();
   };
 
@@ -433,12 +703,13 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
       if (getCurrentOwner() === owner) clearCurrentPlayer();
       if (speakingRef.current?.owner === owner) speakingRef.current = null;
       if (!activeRef.current) return;
-      // Reply finished and the agent is done → "your turn" chime.
-      if (queueRef.current.length === 0 && !argsRef.current.isWorking) playTink();
+      // Reply finished and the agent is done → "your turn".
+      if (queueRef.current.length === 0 && !argsRef.current.isWorking) playCue("yourTurn");
       pumpRef.current();
     };
 
     speakingRef.current = { owner, finish };
+    cuesRef.current?.stopTicking();
     setPhase("speaking");
 
     // Cross-bubble preempt, same as ChatMessage.startSpeak.
@@ -486,7 +757,7 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
         finish();
       }
     })();
-  }, [setPhase]);
+  }, [log, playCue, setPhase]);
 
   // ---- Scheduler ---------------------------------------------------------
 
@@ -494,19 +765,18 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
 
   pumpRef.current = () => {
     if (!activeRef.current) return;
-    if (busyRef.current || speakingRef.current) return;
-    const current = phaseRef.current;
-    // Manual mic took over — drop whatever we were capturing so the same words
-    // aren't sent twice. Replies wait until it is released.
+    if (speakingRef.current) return;
+    // Manual mic took over — drop the piece being recorded so the same words
+    // aren't captured twice. The draft so far is kept; replies wait.
     if (argsRef.current.suspended) {
-      if (current === "listening" || current === "hearing") stopListening();
-      setPhase("paused");
+      if (vadTimerRef.current !== null) stopListening();
+      if (phaseRef.current !== "paused") setPhase("paused");
+      updateTickingRef.current();
       return;
     }
-    // Never talk over the user mid-utterance; replies wait their turn.
-    if (current === "hearing") return;
-    if (queueRef.current.length > 0) {
-      if (current === "listening") stopListening();
+    // Never talk over the user mid-turn: replies wait until the draft is sent.
+    if (queueRef.current.length > 0 && !isComposing()) {
+      if (vadTimerRef.current !== null) stopListening();
       speakNext();
       return;
     }
@@ -516,16 +786,12 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
       if (!acquiringRef.current) acquireStreamRef.current();
       return;
     }
-    if (current !== "listening") beginListening();
+    if (vadTimerRef.current === null) beginListening();
+    else refreshListeningPhase();
+    updateTickingRef.current();
   };
 
   // ---- Lifecycle ---------------------------------------------------------
-
-  const releaseWakeLock = useCallback(() => {
-    const lock = wakeLockRef.current;
-    wakeLockRef.current = null;
-    if (lock && !lock.released) void lock.release().catch(() => {});
-  }, []);
 
   const acquireWakeLock = useCallback(async () => {
     const wl = (navigator as Navigator & {
@@ -540,36 +806,6 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
     }
   }, [releaseWakeLock]);
 
-  const teardown = useCallback(() => {
-    activeRef.current = false;
-    busyRef.current = false;
-    queueRef.current = [];
-    acquiringRef.current = false;
-    stopVad();
-    void stopRecorder(false);
-    const speaking = speakingRef.current;
-    speakingRef.current = null;
-    if (speaking && getCurrentOwner() === speaking.owner) {
-      getCurrentPlayer()?.stop();
-      clearCurrentPlayer();
-    }
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    streamRef.current = null;
-    analyserRef.current = null;
-    void ctxRef.current?.close().catch(() => {});
-    ctxRef.current = null;
-    releaseWakeLock();
-  }, [releaseWakeLock, stopRecorder, stopVad]);
-
-  const stop = useCallback(() => {
-    if (!activeRef.current) return;
-    log("stop");
-    teardown();
-    setPhase("off");
-    playAutoSpeakOff();
-  }, [teardown, setPhase]);
-  stopRef.current = stop;
-
   const failAcquireRef = useRef<(err: unknown) => void>(() => {});
   failAcquireRef.current = (err: unknown) => {
     acquiringRef.current = false;
@@ -577,9 +813,17 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
     console.error(`[voice-mode] getUserMedia-failed errMessage="${err instanceof Error ? err.message : String(err)}" ${tagRef.current}`);
     playCue("error");
     setErrorMessage("Voice mode: microphone unavailable or permission denied");
-    teardown();
+    teardown(ALARM_TAIL_MS);
     setPhase("off");
   };
+
+  /** Forget the current stream (and its recorder/VAD) without leaving voice mode. */
+  function dropStream() {
+    stopListening();
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    analyserRef.current = null;
+  }
 
   const attachStreamRef = useRef<(stream: MediaStream) => void>(() => {});
   attachStreamRef.current = (stream: MediaStream) => {
@@ -596,7 +840,7 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
         // (after the manual mic, if that is what took it, is released).
         console.warn(`[voice-mode] mic-track-ended ${tagRef.current}`);
         dropStream();
-        if (phaseRef.current === "listening" || phaseRef.current === "hearing") setPhase("paused");
+        if (phaseRef.current !== "speaking") setPhase("paused");
         pumpRef.current();
       };
     }
@@ -620,15 +864,6 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
       .then(attachStreamRef.current, failAcquireRef.current);
   };
 
-  /** Forget the current stream (and its recorder/VAD) without leaving voice mode. */
-  function dropStream() {
-    stopVad();
-    void stopRecorder(false);
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    streamRef.current = null;
-    analyserRef.current = null;
-  }
-
   const start = useCallback(() => {
     if (activeRef.current) return;
     if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
@@ -639,16 +874,24 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
     });
     activeRef.current = true;
+    sessionRef.current += 1;
+    piecesRef.current = [];
+    turnEndRef.current = null;
+    pieceSpeechRef.current = false;
     setErrorMessage(null);
     setPhase("starting");
-    log("start");
-    // VAD analyser context — created here, inside the start gesture.
+    const settings = getVoiceModeSettings();
+    log(`start endOfTurn=${settings.endOfTurn}`);
+    // VAD analyser + cue context — created here, inside the start gesture, so
+    // cues can play later with the mic open (iOS).
     try {
       const ctx = new AudioContext();
       void ctx.resume().catch(() => {});
       ctxRef.current = ctx;
+      cuesRef.current = createVoiceModeCues(ctx, log);
     } catch {
       ctxRef.current = null;
+      cuesRef.current = null;
     }
     // Only messages that arrive from here on are spoken.
     startedAtRef.current = Date.now();
@@ -660,7 +903,7 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
 
     acquiringRef.current = true;
     streamPromise.then(attachStreamRef.current, failAcquireRef.current);
-  }, [setPhase]);
+  }, [log, setPhase]);
 
   const skipSpeech = useCallback(() => {
     queueRef.current = [];
@@ -711,13 +954,17 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [args.suspended]);
 
-  // Agent finished while we were just listening → "your turn" chime.
+  // Agent working/finished → ticking follows it; finished while idle → "your turn".
   const prevWorkingRef = useRef(args.isWorking);
   useEffect(() => {
     const was = prevWorkingRef.current;
     prevWorkingRef.current = args.isWorking;
+    updateTickingRef.current();
     if (!activeRef.current || !was || args.isWorking) return;
-    if (phaseRef.current === "listening" && queueRef.current.length === 0) playTink();
+    if (speakingRef.current === null && queueRef.current.length === 0 && !isComposing() && phaseRef.current === "listening") {
+      playCue("yourTurn");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [args.isWorking]);
 
   // Coming back to the foreground: re-take the wake lock (the browser drops it

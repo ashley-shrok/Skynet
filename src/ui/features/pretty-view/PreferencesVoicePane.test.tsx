@@ -234,3 +234,74 @@ describe("PreferencesVoicePane — speed slider", () => {
     }
   });
 });
+
+describe("PreferencesVoicePane — voice mode: when to send", () => {
+  it("defaults to 'after a pause' with no phrase box", () => {
+    render(<PreferencesVoicePane userId="user1" userPrefs={makePrefs()} />);
+    expect((screen.getByTestId("preferences-voice-mode-turn-timed") as HTMLInputElement).checked).toBe(true);
+    expect(screen.queryByTestId("preferences-voice-mode-phrase")).toBeNull();
+  });
+
+  it("choosing 'when I say a phrase' saves it and shows the phrase prefilled with 'send it'", async () => {
+    const onUserPrefsChanged = vi.fn();
+    render(<PreferencesVoicePane userId="user1" userPrefs={makePrefs()} onUserPrefsChanged={onUserPrefsChanged} />);
+    fireEvent.click(screen.getByTestId("preferences-voice-mode-turn-phrase"));
+    await waitFor(() => expect(mockSave).toHaveBeenCalledWith({ voiceModeEndOfTurn: "phrase" }));
+    expect(onUserPrefsChanged).toHaveBeenCalledWith({ voiceModeEndOfTurn: "phrase" });
+    expect((screen.getByTestId("preferences-voice-mode-phrase") as HTMLInputElement).value).toBe("send it");
+  });
+
+  it("switching back to 'after a pause' stores null (the default)", async () => {
+    render(<PreferencesVoicePane userId="user1" userPrefs={makePrefs({ voiceModeEndOfTurn: "phrase" })} />);
+    fireEvent.click(screen.getByTestId("preferences-voice-mode-turn-timed"));
+    await waitFor(() => expect(mockSave).toHaveBeenCalledWith({ voiceModeEndOfTurn: null }));
+  });
+
+  it("saves a custom phrase on blur, trimmed", async () => {
+    const onUserPrefsChanged = vi.fn();
+    render(
+      <PreferencesVoicePane
+        userId="user1"
+        userPrefs={makePrefs({ voiceModeEndOfTurn: "phrase" })}
+        onUserPrefsChanged={onUserPrefsChanged}
+      />,
+    );
+    const input = screen.getByTestId("preferences-voice-mode-phrase") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "  over and out " } });
+    fireEvent.blur(input);
+    await waitFor(() => expect(mockSave).toHaveBeenCalledWith({ voiceModeSendPhrase: "over and out" }));
+    expect(onUserPrefsChanged).toHaveBeenCalledWith({ voiceModeSendPhrase: "over and out" });
+  });
+
+  it("a blank phrase falls back to the default without an extra save", async () => {
+    render(<PreferencesVoicePane userId="user1" userPrefs={makePrefs({ voiceModeEndOfTurn: "phrase" })} />);
+    const input = screen.getByTestId("preferences-voice-mode-phrase") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "   " } });
+    fireEvent.blur(input);
+    await waitFor(() => expect(input.value).toBe("send it"));
+    expect(mockSave).not.toHaveBeenCalled();
+  });
+
+  it("rejects a phrase with no letters and keeps the saved one", async () => {
+    render(
+      <PreferencesVoicePane
+        userId="user1"
+        userPrefs={makePrefs({ voiceModeEndOfTurn: "phrase", voiceModeSendPhrase: "over and out" })}
+      />,
+    );
+    const input = screen.getByTestId("preferences-voice-mode-phrase") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "!!!" } });
+    fireEvent.blur(input);
+    await waitFor(() => expect(screen.getByTestId("preferences-voice-mode-turn-error")).toBeTruthy());
+    expect(input.value).toBe("over and out");
+    expect(mockSave).not.toHaveBeenCalled();
+  });
+
+  it("reverts the choice and shows an error when the save fails", async () => {
+    mockSave.mockRejectedValueOnce(new Error("nope"));
+    render(<PreferencesVoicePane userId="user1" userPrefs={makePrefs()} />);
+    fireEvent.click(screen.getByTestId("preferences-voice-mode-turn-phrase"));
+    await waitFor(() => expect(screen.getByTestId("preferences-voice-mode-turn-error")).toBeTruthy());
+    expect((screen.getByTestId("preferences-voice-mode-turn-timed") as HTMLInputElement).checked).toBe(true);
+  });
+});

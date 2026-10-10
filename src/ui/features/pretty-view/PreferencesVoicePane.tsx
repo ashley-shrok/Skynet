@@ -22,6 +22,11 @@ import {
   TTS_PLAYBACK_RATE_MIN,
   TTS_PLAYBACK_RATE_MAX,
 } from "./webAudioStreamPlayer";
+import {
+  VOICE_MODE_SEND_PHRASE_DEFAULT,
+  VOICE_MODE_SEND_PHRASE_MAX_LEN,
+  type VoiceModeEndOfTurn,
+} from "./voice-mode-settings";
 
 // Speed slider: 0.05 steps across the full allowed range. Saves are debounced
 // so a drag across the track lands as one PUT, not one per tick.
@@ -94,6 +99,68 @@ export function PreferencesVoicePane({
     },
     [onUserPrefsChanged],
   );
+
+  // ---- Voice mode: when to send ------------------------------------------
+  const [endOfTurn, setEndOfTurn] = useState<VoiceModeEndOfTurn>(
+    userPrefs.voiceModeEndOfTurn === "phrase" ? "phrase" : "timed",
+  );
+  const [phrase, setPhrase] = useState<string>(
+    userPrefs.voiceModeSendPhrase ?? VOICE_MODE_SEND_PHRASE_DEFAULT,
+  );
+  const lastSavedPhrase = useRef<string>(
+    userPrefs.voiceModeSendPhrase ?? VOICE_MODE_SEND_PHRASE_DEFAULT,
+  );
+  const [turnError, setTurnError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setEndOfTurn(userPrefs.voiceModeEndOfTurn === "phrase" ? "phrase" : "timed");
+  }, [userPrefs.voiceModeEndOfTurn]);
+  useEffect(() => {
+    const next = userPrefs.voiceModeSendPhrase ?? VOICE_MODE_SEND_PHRASE_DEFAULT;
+    lastSavedPhrase.current = next;
+    setPhrase(next);
+  }, [userPrefs.voiceModeSendPhrase]);
+
+  // "timed" is the default, so it is stored as null.
+  const handleEndOfTurnChange = useCallback(
+    async (next: VoiceModeEndOfTurn) => {
+      const prev = endOfTurn;
+      setEndOfTurn(next);
+      setTurnError(null);
+      const wire = next === "timed" ? null : next;
+      try {
+        await saveUserPreferences({ voiceModeEndOfTurn: wire });
+        onUserPrefsChanged?.({ voiceModeEndOfTurn: wire });
+      } catch {
+        setEndOfTurn(prev);
+        setTurnError("Couldn't save when voice mode sends — please try again.");
+      }
+    },
+    [endOfTurn, onUserPrefsChanged],
+  );
+
+  // Saved on blur / Enter. Blank or default text goes back to the default.
+  const commitPhrase = useCallback(async () => {
+    const trimmed = phrase.trim();
+    const effective = trimmed || VOICE_MODE_SEND_PHRASE_DEFAULT;
+    if (!/[\p{L}\p{N}]/u.test(effective)) {
+      setPhrase(lastSavedPhrase.current);
+      setTurnError("The send phrase needs at least one letter.");
+      return;
+    }
+    setPhrase(effective);
+    if (effective === lastSavedPhrase.current) return;
+    setTurnError(null);
+    const wire = effective.toLowerCase() === VOICE_MODE_SEND_PHRASE_DEFAULT ? null : effective;
+    try {
+      await saveUserPreferences({ voiceModeSendPhrase: wire });
+      lastSavedPhrase.current = effective;
+      onUserPrefsChanged?.({ voiceModeSendPhrase: wire });
+    } catch {
+      setPhrase(lastSavedPhrase.current);
+      setTurnError("Couldn't save your send phrase — please try again.");
+    }
+  }, [phrase, onUserPrefsChanged]);
 
   // Sync effect: if an upstream change (e.g. from another tab or optimistic
   // update) modifies userPrefs.fallbackVoice, reflect it locally.
@@ -198,6 +265,72 @@ export function PreferencesVoicePane({
           </div>
         )}
       </div>
+
+      <fieldset className="flex flex-col gap-2 mt-2" data-testid="preferences-voice-mode-turn">
+        <legend className="mb-2">When voice mode sends what you said.</legend>
+        <label className="flex items-start gap-2 cursor-pointer">
+          <input
+            type="radio"
+            name="preferences-voice-mode-turn"
+            value="timed"
+            checked={endOfTurn === "timed"}
+            onChange={() => void handleEndOfTurnChange("timed")}
+            className="mt-[3px] accent-[var(--accent-brand)]"
+            data-testid="preferences-voice-mode-turn-timed"
+          />
+          <span>
+            After a pause
+            <span className="block text-[11px] text-[#8a8678]">
+              Three seconds of silence sends it.
+            </span>
+          </span>
+        </label>
+        <label className="flex items-start gap-2 cursor-pointer">
+          <input
+            type="radio"
+            name="preferences-voice-mode-turn"
+            value="phrase"
+            checked={endOfTurn === "phrase"}
+            onChange={() => void handleEndOfTurnChange("phrase")}
+            className="mt-[3px] accent-[var(--accent-brand)]"
+            data-testid="preferences-voice-mode-turn-phrase"
+          />
+          <span>
+            When I say a phrase
+            <span className="block text-[11px] text-[#8a8678]">
+              Pause as long as you like; end with the phrase to send.
+            </span>
+          </span>
+        </label>
+        {endOfTurn === "phrase" && (
+          <div className="flex items-center gap-2 ml-6">
+            <label htmlFor="preferences-voice-mode-phrase" className="text-[12px] text-[#8a8678]">
+              Phrase
+            </label>
+            <input
+              id="preferences-voice-mode-phrase"
+              type="text"
+              value={phrase}
+              maxLength={VOICE_MODE_SEND_PHRASE_MAX_LEN}
+              onChange={(e) => setPhrase(e.target.value)}
+              onBlur={() => void commitPhrase()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  (e.target as HTMLInputElement).blur();
+                }
+              }}
+              className="flex-1 rounded border border-[#3a3832] bg-transparent px-2 py-1 text-[13px] text-[#e8e4d8]"
+              data-testid="preferences-voice-mode-phrase"
+            />
+          </div>
+        )}
+        {turnError !== null && (
+          <div className="text-sm text-red-400" data-testid="preferences-voice-mode-turn-error">
+            {turnError}
+          </div>
+        )}
+      </fieldset>
     </div>
   );
 }

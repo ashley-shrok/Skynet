@@ -59,6 +59,8 @@ type Row = {
   language: string | null;
   fallbackVoice: string | null;  // NEW per Phase 137 D-14
   ttsPlaybackRate?: number | null;
+  voiceModeEndOfTurn?: string | null;
+  voiceModeSendPhrase?: string | null;
   pinnedConversationIds: string | null;
   updatedAt: string;
 };
@@ -101,6 +103,8 @@ const insertChain = {
           language: v.language ?? existing?.language ?? null,
           fallbackVoice: v.fallbackVoice ?? existing?.fallbackVoice ?? null,  // NEW per Phase 137 D-14
           ttsPlaybackRate: v.ttsPlaybackRate ?? existing?.ttsPlaybackRate ?? null,
+          voiceModeEndOfTurn: v.voiceModeEndOfTurn ?? existing?.voiceModeEndOfTurn ?? null,
+          voiceModeSendPhrase: v.voiceModeSendPhrase ?? existing?.voiceModeSendPhrase ?? null,
           pinnedConversationIds:
             v.pinnedConversationIds ?? existing?.pinnedConversationIds ?? null,
           updatedAt: v.updatedAt ?? new Date().toISOString(),
@@ -1077,4 +1081,46 @@ describe("ttsPlaybackRate GET/PUT", () => {
       expect(body.error).toContain("ttsPlaybackRate");
     },
   );
+});
+
+// ===========================================================================
+// Hands-free voice mode turn end — voiceModeEndOfTurn / voiceModeSendPhrase
+// ===========================================================================
+
+describe("voice mode turn-end preferences GET/PUT", () => {
+  it("VM-01: GET for a user with no row returns both fields null", () => {
+    const res = makeRes();
+    handleGetPreferences(USER_ID, res as unknown as Response);
+    const body = res._body as Record<string, unknown>;
+    expect(body.voiceModeEndOfTurn).toBeNull();
+    expect(body.voiceModeSendPhrase).toBeNull();
+  });
+
+  it.each(["timed", "phrase", null])("VM-02: PUT voiceModeEndOfTurn: %s returns 200", async (v) => {
+    const res = makeRes();
+    await handlePutPreferences(USER_ID, { voiceModeEndOfTurn: v }, res as unknown as Response);
+    expect(res._status).toBe(200);
+    if (v !== null) expect((res._body as Record<string, unknown>).voiceModeEndOfTurn).toBe(v);
+  });
+
+  it.each(["auto", "", 1, true])("VM-03: PUT voiceModeEndOfTurn: %s returns 400", async (v) => {
+    const res = makeRes();
+    await handlePutPreferences(USER_ID, { voiceModeEndOfTurn: v }, res as unknown as Response);
+    expect(res._status).toBe(400);
+    expect((res._body as { error?: string }).error).toContain("voiceModeEndOfTurn");
+  });
+
+  it("VM-04: PUT voiceModeSendPhrase trims and echoes the phrase", async () => {
+    const res = makeRes();
+    await handlePutPreferences(USER_ID, { voiceModeSendPhrase: "  over and out " }, res as unknown as Response);
+    expect(res._status).toBe(200);
+    expect((res._body as Record<string, unknown>).voiceModeSendPhrase).toBe("over and out");
+  });
+
+  it.each(["", "   ", "!!!", "x".repeat(41), 7])("VM-05: PUT voiceModeSendPhrase: %s returns 400", async (v) => {
+    const res = makeRes();
+    await handlePutPreferences(USER_ID, { voiceModeSendPhrase: v }, res as unknown as Response);
+    expect(res._status).toBe(400);
+    expect((res._body as { error?: string }).error).toContain("voiceModeSendPhrase");
+  });
 });

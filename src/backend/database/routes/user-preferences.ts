@@ -36,6 +36,11 @@ const PINNED_CONVERSATION_IDS_MAX_LENGTH = 1000;
 export const TTS_PLAYBACK_RATE_MIN = 0.25;
 export const TTS_PLAYBACK_RATE_MAX = 4;
 
+// Hands-free voice mode turn-end preference. Mirrors voice-mode-settings.ts
+// in src/ui/features/pretty-view — keep the two in step.
+export const VOICE_MODE_END_OF_TURN_VALUES = ["timed", "phrase"] as const;
+export const VOICE_MODE_SEND_PHRASE_MAX_LEN = 40;
+
 /**
  * Phase 92 Plan 92-02: parseIdentityHosts mirrors identities.ts:239-255 shape.
  *
@@ -75,6 +80,8 @@ const pickPreferences = (row?: typeof userPreferences.$inferSelect) => ({
   language: row?.language ?? null,
   fallbackVoice: row?.fallbackVoice ?? null,  // NEW per Phase 137 D-14
   ttsPlaybackRate: row?.ttsPlaybackRate ?? null,
+  voiceModeEndOfTurn: row?.voiceModeEndOfTurn ?? null,
+  voiceModeSendPhrase: row?.voiceModeSendPhrase ?? null,
   // Phase 92 Plan 92-02: pinnedConversationIds NO LONGER surfaces on the GET
   // response body — the row is not consulted for pins (D-03 no DB mirror).
   // The frontend Plan 04 projects pinned state from GET /identities' per-
@@ -144,6 +151,8 @@ export async function handlePutPreferences(
     language,
     fallbackVoice,  // NEW per Phase 137 D-14
     ttsPlaybackRate,
+    voiceModeEndOfTurn,
+    voiceModeSendPhrase,
     pinnedConversationIds,
     identityHosts: identityHostsRaw,
   } = (body ?? {}) as {
@@ -154,6 +163,8 @@ export async function handlePutPreferences(
     language?: string | null;
     fallbackVoice?: string | null;  // NEW per Phase 137 D-14
     ttsPlaybackRate?: unknown;
+    voiceModeEndOfTurn?: unknown;
+    voiceModeSendPhrase?: unknown;
     pinnedConversationIds?: unknown;
     identityHosts?: unknown;
   };
@@ -207,12 +218,45 @@ export async function handlePutPreferences(
     });
   }
 
+  // voiceModeEndOfTurn: null resets to "timed".
+  if (
+    voiceModeEndOfTurn !== undefined &&
+    voiceModeEndOfTurn !== null &&
+    !(VOICE_MODE_END_OF_TURN_VALUES as readonly unknown[]).includes(voiceModeEndOfTurn)
+  ) {
+    return res.status(400).json({
+      error: `voiceModeEndOfTurn must be one of ${VOICE_MODE_END_OF_TURN_VALUES.join(", ")}, or null to reset`,
+    });
+  }
+
+  // voiceModeSendPhrase: null resets to "send it"; otherwise a short phrase
+  // containing at least one letter or digit (it is matched against speech).
+  let sendPhrase: string | null | undefined;
+  if (voiceModeSendPhrase !== undefined) {
+    if (voiceModeSendPhrase === null) {
+      sendPhrase = null;
+    } else if (
+      typeof voiceModeSendPhrase !== "string" ||
+      voiceModeSendPhrase.trim().length === 0 ||
+      voiceModeSendPhrase.trim().length > VOICE_MODE_SEND_PHRASE_MAX_LEN ||
+      !/[\p{L}\p{N}]/u.test(voiceModeSendPhrase)
+    ) {
+      return res.status(400).json({
+        error: `voiceModeSendPhrase must be a phrase of 1-${VOICE_MODE_SEND_PHRASE_MAX_LEN} characters with at least one letter, or null to reset`,
+      });
+    } else {
+      sendPhrase = voiceModeSendPhrase.trim();
+    }
+  }
+
   if (theme !== undefined) updates.theme = theme;
   if (fontSize !== undefined) updates.fontSize = fontSize;
   if (accentColor !== undefined) updates.accentColor = accentColor;
   if (language !== undefined) updates.language = language;
   if (fallbackVoice !== undefined) updates.fallbackVoice = fallbackVoice;  // ADD per Phase 137 D-14
   if (ttsPlaybackRate !== undefined) updates.ttsPlaybackRate = ttsPlaybackRate as number | null;
+  if (voiceModeEndOfTurn !== undefined) updates.voiceModeEndOfTurn = voiceModeEndOfTurn as string | null;
+  if (sendPhrase !== undefined) updates.voiceModeSendPhrase = sendPhrase;
 
   // Function-scope scratch for the disk-authoritative echo the response emits
   // for the pin fanout slice. Populated inside the try block below.
@@ -554,6 +598,15 @@ export async function handlePutPreferences(
  *                   type: number
  *                   nullable: true
  *                   description: "Per-user speak playback speed, 0.25-4. Null resolves to 1.0."
+ *                 voiceModeEndOfTurn:
+ *                   type: string
+ *                   enum: [timed, phrase]
+ *                   nullable: true
+ *                   description: "Hands-free voice mode turn end. Null resolves to timed."
+ *                 voiceModeSendPhrase:
+ *                   type: string
+ *                   nullable: true
+ *                   description: "Spoken send phrase for phrase mode. Null resolves to 'send it'."
  */
 router.get("/", authenticateJWT, (req: Request, res: Response) => {
   const userId = (req as AuthenticatedRequest).userId;
@@ -582,6 +635,15 @@ router.get("/", authenticateJWT, (req: Request, res: Response) => {
  *                 type: number
  *                 nullable: true
  *                 description: "Per-user speak playback speed, 0.25-4. Null resets to 1.0."
+ *               voiceModeEndOfTurn:
+ *                 type: string
+ *                 enum: [timed, phrase]
+ *                 nullable: true
+ *                 description: "Hands-free voice mode turn end. Null resets to timed."
+ *               voiceModeSendPhrase:
+ *                 type: string
+ *                 nullable: true
+ *                 description: "Spoken send phrase for phrase mode (1-40 chars). Null resets to 'send it'."
  *               pinnedConversationIds:
  *                 type: array
  *                 items:
