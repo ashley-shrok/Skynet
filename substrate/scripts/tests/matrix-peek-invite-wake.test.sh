@@ -16,6 +16,11 @@
 #        guard for 2026-09-12 registry-churn fix)
 #   T-05 own message only (sender-filter guard)        -> no wake  (return 1)
 #   T-06 combined: peer msg + invite                   -> wake     (return 0)
+#   T-07 quiet peek records peek-since "<since> <next_batch>"
+#   T-08 next peek resumes from the stored peek cursor
+#   T-09 receiver cursor moved (it ran) -> stale peek cursor ignored
+#   T-10 wake does NOT advance the peek cursor
+#   T-11 request carries the sync filter (messages only, no state, not self)
 #
 # Exits 0 on all-pass; 1 on any failure with a diagnostic naming the failing test.
 #
@@ -120,12 +125,14 @@ STUB_PID=""
 STUB_PORT=""
 STUB_LOG=""
 STUB_BODY_FILE=""
+STUB_REQ_FILE=""
 
 start_sync_stub() {
   STUB_PID=""
   STUB_PORT=""
   STUB_LOG=$(mktemp)
   STUB_BODY_FILE=$(mktemp)
+  STUB_REQ_FILE=$(mktemp)
   printf '{}' > "$STUB_BODY_FILE"   # sensible default so an unset test returns valid JSON
 
   python3 -c "
@@ -133,9 +140,12 @@ import http.server, sys, socketserver
 
 port_file = sys.argv[1]
 body_file = sys.argv[2]
+req_file = sys.argv[3]
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
+        with open(req_file, 'a') as f:
+            f.write(self.path + '\\n')
         with open(body_file, 'rb') as f:
             body = f.read()
         self.send_response(200)
@@ -159,7 +169,7 @@ with socketserver.TCPServer(('127.0.0.1', 0), Handler) as server:
     with open(port_file, 'w') as f:
         f.write(str(port))
     server.serve_forever()
-" "$STUB_LOG" "$STUB_BODY_FILE" &
+" "$STUB_LOG" "$STUB_BODY_FILE" "$STUB_REQ_FILE" &
   STUB_PID=$!
 
   local waited=0
@@ -183,8 +193,10 @@ stop_sync_stub() {
   fi
   [ -n "$STUB_LOG" ]       && rm -f "$STUB_LOG"
   [ -n "$STUB_BODY_FILE" ] && rm -f "$STUB_BODY_FILE"
+  [ -n "$STUB_REQ_FILE" ]  && rm -f "$STUB_REQ_FILE"
   STUB_LOG=""
   STUB_BODY_FILE=""
+  STUB_REQ_FILE=""
   STUB_PORT=""
 }
 
@@ -294,6 +306,97 @@ test_combined_message_and_invite_wakes() {
   teardown_scratch "$scratch"
 }
 
+# ---- peek-cursor scaffolding ----
+# _peek_session: fixture + stub + source, leaving the stub running so a test can peek
+# several times. Caller stops the stub itself.
+_peek_session() {
+  local scratch="$1" name="$2" mxid="$3"
+  fixture_identity_with_relay "$scratch" "$name" "$mxid"
+  start_sync_stub || return 1
+  sed -i "s|STUB_PORT|$STUB_PORT|" "$scratch/$name/relay.json"
+  _source_supervisor "$scratch"
+  metric() { :; }
+}
+
+_peek() {
+  local scratch="$1" name="$2" rc=0
+  _matrix_peek_one "$name" "$scratch/$name/relay.json" "$scratch/$name/relay-state" >/dev/null 2>&1 || rc=$?
+  echo "$rc"
+}
+
+# _req_param <n> <param>: value of a query param on the Nth (1-based) request the stub saw.
+_req_param() {
+  sed -n "${1}p" "$STUB_REQ_FILE" | python3 -c '
+import sys, urllib.parse as u
+q = u.parse_qs(u.urlparse(sys.stdin.read().strip()).query)
+print(q.get(sys.argv[1], [""])[0])' "$2"
+}
+
+test_quiet_peek_records_cursor() {
+  local scratch; scratch=$(setup_scratch)
+  _peek_session "$scratch" "pc" "@pc:test"
+  set_stub_body '{"next_batch":"s_9"}'
+  assert_eq "1" "$(_peek "$scratch" pc)" "quiet peek should not wake"
+  assert_eq "s_1_2_3 s_9" "$(cat "$scratch/pc/relay-state/peek-since" 2>/dev/null)" "peek-since after quiet peek"
+  assert_eq "s_1_2_3" "$(cat "$scratch/pc/relay-state/since")" "receiver since must be untouched"
+  stop_sync_stub
+  teardown_scratch "$scratch"
+}
+
+test_next_peek_resumes_from_peek_cursor() {
+  local scratch; scratch=$(setup_scratch)
+  _peek_session "$scratch" "pr" "@pr:test"
+  set_stub_body '{"next_batch":"s_9"}'
+  _peek "$scratch" pr >/dev/null
+  set_stub_body '{"next_batch":"s_12"}'
+  _peek "$scratch" pr >/dev/null
+  assert_eq "s_1_2_3" "$(_req_param 1 since)" "first peek uses receiver since"
+  assert_eq "s_9" "$(_req_param 2 since)" "second peek uses peek cursor"
+  assert_eq "s_1_2_3 s_12" "$(cat "$scratch/pr/relay-state/peek-since")" "peek cursor advanced again"
+  stop_sync_stub
+  teardown_scratch "$scratch"
+}
+
+# Receiver ran since the peek cursor was written (its since moved) -> peek cursor is from
+# an earlier dormancy and would skip nothing useful; restart from the receiver's since.
+test_receiver_moved_discards_stale_peek_cursor() {
+  local scratch; scratch=$(setup_scratch)
+  _peek_session "$scratch" "rm" "@rm:test"
+  printf 's_0 s_5\n' > "$scratch/rm/relay-state/peek-since"
+  set_stub_body '{"next_batch":"s_20"}'
+  _peek "$scratch" rm >/dev/null
+  assert_eq "s_1_2_3" "$(_req_param 1 since)" "stale peek cursor must be ignored"
+  assert_eq "s_1_2_3 s_20" "$(cat "$scratch/rm/relay-state/peek-since")" "peek cursor rebound to receiver since"
+  stop_sync_stub
+  teardown_scratch "$scratch"
+}
+
+# A wake that fails to launch must be re-seen next tick, so wake leaves the cursor alone.
+test_wake_does_not_advance_peek_cursor() {
+  local scratch; scratch=$(setup_scratch)
+  _peek_session "$scratch" "wk" "@wk:test"
+  printf 's_1_2_3 s_5\n' > "$scratch/wk/relay-state/peek-since"
+  set_stub_body '{"next_batch":"s_30","rooms":{"join":{"!r:test":{"timeline":{"events":[{"sender":"@peer:test","type":"m.room.message","content":{"body":"hi"}}]}}}}}'
+  assert_eq "0" "$(_peek "$scratch" wk)" "peer message should wake"
+  assert_eq "s_5" "$(_req_param 1 since)" "peek used the stored peek cursor"
+  assert_eq "s_1_2_3 s_5" "$(cat "$scratch/wk/relay-state/peek-since")" "wake must leave peek cursor in place"
+  stop_sync_stub
+  teardown_scratch "$scratch"
+}
+
+test_request_carries_sync_filter() {
+  local scratch; scratch=$(setup_scratch)
+  _peek_session "$scratch" "fl" "@fl:test"
+  set_stub_body '{"next_batch":"s_9"}'
+  _peek "$scratch" fl >/dev/null
+  local f; f=$(_req_param 1 filter)
+  assert_eq '["m.room.message","m.room.encrypted"]' "$(echo "$f" | jq -c .room.timeline.types)" "timeline types"
+  assert_eq '["@fl:test"]' "$(echo "$f" | jq -c .room.timeline.not_senders)" "not_senders self"
+  assert_eq '[]' "$(echo "$f" | jq -c .room.state.types)" "no state events"
+  stop_sync_stub
+  teardown_scratch "$scratch"
+}
+
 # ============================================================
 # DRIVER
 # ============================================================
@@ -304,6 +407,11 @@ run_test test_pending_invite_wakes
 run_test test_state_event_only_no_wake
 run_test test_own_message_no_wake
 run_test test_combined_message_and_invite_wakes
+run_test test_quiet_peek_records_cursor
+run_test test_next_peek_resumes_from_peek_cursor
+run_test test_receiver_moved_discards_stale_peek_cursor
+run_test test_wake_does_not_advance_peek_cursor
+run_test test_request_carries_sync_filter
 
 echo "==============================="
 echo "PASS: $PASS  FAIL: $FAIL"

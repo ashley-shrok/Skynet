@@ -3037,6 +3037,18 @@ pending_check() {
 # Supervisor does NOT write back to since — receiver picks up from the same cursor on wake
 # and backfills naturally.
 #
+# Peek cost is kept flat (2026-10-10 — the frozen cursor made every peek re-serialize the whole
+# since-dormancy backlog, ~200KB × 172 accounts every tick, Synapse 25-68% CPU):
+#   (1) Supervisor-private peek cursor in <state-dir>/peek-since, one line "<receiver-since>
+#       <peek-since>". Starts at the receiver's since; advanced to next_batch after every QUIET
+#       peek (never on wake — a wake that fails to launch must be re-seen next tick). The
+#       receiver-since column binds it to one dormancy: once the receiver advances its own
+#       cursor (it ran), the stored peek cursor is discarded and peeking restarts from the
+#       receiver's since. recv.sh never reads this file.
+#   (2) Sync filter: only m.room.message / m.room.encrypted from other senders in timelines,
+#       no state / ephemeral / presence / account data. Invites still arrive (verified live
+#       against Synapse 2026-10-10).
+#
 # On 401 (token expired/revoked) for a given account, _matrix_peek_one falls back to fresh login
 # using THAT account's cred-file password + saves the NEW token back to THAT account's own
 # state-dir/token (matches recv.sh's own 401 behavior — that path is proven; per-account isolation
@@ -3069,8 +3081,19 @@ _matrix_peek_one() {
   # Missing state is only expected on a brand-new identity whose receiver never ran; safe default
   # is "no wake" (receiver will seed on first wake anyway).
   [ -n "$tok" ] && [ -n "$since" ] || { metric event=matrix-peek identity="$name" account="$account" result=no-state; return 1; }
+  local pf="$rs/peek-since" peek_since="$since" pbase="" pcur=""
+  if [ -f "$pf" ]; then
+    read -r pbase pcur < "$pf" || true
+    [ "$pbase" = "$since" ] && [ -n "$pcur" ] && peek_since="$pcur"
+  fi
+  local filter
+  filter=$(jq -rn --arg self "$self" '{
+      presence:{not_types:["*"]}, account_data:{not_types:["*"]},
+      room:{state:{types:[]}, ephemeral:{not_types:["*"]}, account_data:{not_types:["*"]},
+            timeline:{types:["m.room.message","m.room.encrypted"], not_senders:[$self], limit:5}}
+    } | tojson | @uri')
   local resp; resp=$(curl -sS --max-time 15 -H "Authorization: Bearer $tok" \
-    "$base/sync?timeout=0&since=$since" 2>/dev/null)
+    "$base/sync?timeout=0&since=$peek_since&filter=$filter" 2>/dev/null)
   # 401 → re-login with password, save new token back to receiver's location so the receiver
   # inherits the fresh token on wake (mirrors recv.sh's own re-login pattern).
   if echo "$resp" | jq -e '.errcode == "M_UNKNOWN_TOKEN"' >/dev/null 2>&1; then
@@ -3118,6 +3141,11 @@ _matrix_peek_one() {
   if [ "${ec:-0}" -gt 0 ]; then
     metric event=matrix-peek identity="$name" account="$account" result=wake events="${ec:-0}"
     return 0
+  fi
+  local nb
+  nb=$(echo "$resp" | jq -r '.next_batch // empty' 2>/dev/null)
+  if [ -n "$nb" ]; then
+    printf '%s %s\n' "$since" "$nb" > "$pf.tmp.$$" && mv -f "$pf.tmp.$$" "$pf"
   fi
   metric event=matrix-peek identity="$name" account="$account" result=quiet
   return 1
