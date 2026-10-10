@@ -100,7 +100,6 @@ export function AsideBubble({
           // the tight bubble aesthetic (typography plugin defaults would
           // leave whitespace stripes top and bottom).
           "prose prose-sm max-w-none prose-invert",
-          "font-[Inter_Variable,ui-sans-serif,system-ui,sans-serif]",
           "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
         )}
         style={{

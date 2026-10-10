@@ -190,7 +190,6 @@ function Modal({
               background: canonical
                 ? CANONICAL_BACKGROUND
                 : "linear-gradient(160deg, hsl(var(--pv-id-hue), 50%, 38%), hsl(var(--pv-id-hue), 45%, 22%))",
-              fontFamily: '"Inter Variable", system-ui, sans-serif',
             } as React.CSSProperties
           }
           // Backdrop click never dismisses — the backdrop is decorative-only

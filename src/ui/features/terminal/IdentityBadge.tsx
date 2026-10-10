@@ -239,7 +239,7 @@ export function IdentityBadge({
   // the pattern established for MicButton (ComposeBox.hold-to-mic.test —
   // Test 12 locks the class token). `select-none` already prevents text
   // selection on all platforms; the callout guard is iOS-specific.
-  const rootClassName = `pv-identity-breathe absolute top-4 right-5 z-[101] flex flex-row items-center gap-[11px] select-none [-webkit-touch-callout:none] font-[Inter_Variable,ui-sans-serif,system-ui,sans-serif] transition-transform hover:scale-[1.015] active:scale-[0.995] hover:shadow-[0_8px_24px_rgba(0,0,0,0.6),_inset_0_1px_0_rgba(255,220,170,0.22),_0_0_56px_hsla(${hue},65%,55%,0.42)]`;
+  const rootClassName = `pv-identity-breathe absolute top-4 right-5 z-[101] flex flex-row items-center gap-[11px] select-none [-webkit-touch-callout:none] transition-transform hover:scale-[1.015] active:scale-[0.995] hover:shadow-[0_8px_24px_rgba(0,0,0,0.6),_inset_0_1px_0_rgba(255,220,170,0.22),_0_0_56px_hsla(${hue},65%,55%,0.42)]`;
   const rootStyle: React.CSSProperties = {
     // Pill shape: border-radius 32 + padding 7 16 7 7 makes a capsule
     // where the 50px avatar circle sits concentric to the left curve.

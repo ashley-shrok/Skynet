@@ -75,7 +75,12 @@ input[type="radio"] {
 @custom-variant dracula (&:is(.dracula *));
 
 @theme inline {
-  --font-heading: var(--font-mono);
+  /* App default is Inter (sans). Mono is opt-in only (`font-mono`) — for
+     code, diffs, keys, fingerprints, IDs. Anything that doesn't pick a
+     font (incl. portaled menus/popovers, which escape every wrapper)
+     inherits the sans default from html/body below. */
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-heading: var(--font-sans);
   --font-mono: "JetBrains Mono Variable", monospace;
   --color-accent-brand: var(--accent-brand);
   --color-sidebar-ring: var(--sidebar-ring);
@@ -309,10 +314,10 @@ input[type="radio"] {
     @apply overflow-hidden;
   }
   body {
-    @apply bg-background text-foreground font-mono;
+    @apply bg-background text-foreground font-sans;
   }
   html {
-    @apply font-mono;
+    @apply font-sans;
   }
   /* Tailwind v4's preflight drops the UA `cursor: pointer` on <button>, so
    * every clickable in the app rendered an arrow. Lives in @layer base rather

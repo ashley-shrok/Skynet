@@ -65,8 +65,6 @@ export function ImageBubble({
           // Glass.
           "backdrop-blur-xl saturate-150",
           "[-webkit-backdrop-filter:blur(20px)_saturate(1.6)]",
-          // Font override matches ChatMessage.
-          "font-[Inter_Variable,ui-sans-serif,system-ui,sans-serif]",
           isUser
             ? cn(
                 // User branch — byte-identical to ChatMessage.tsx:422-425 user

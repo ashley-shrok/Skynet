@@ -225,7 +225,6 @@
 }
 
 .pv-panel-footer .pv-footer-username {
-  font-family: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
   font-size: 12px;
   font-weight: 500;
   color: var(--color-pv-fg);
@@ -236,12 +235,9 @@
 
 /* Sidebar section labels — Apps / Pinned / each project / Conversations /
    RDP. Shared chrome-label treatment so every section header reads with
-   the same voice. Converted off the mono root (which was leaking into
-   these spans — the row labels in .pv-body already escape to Inter) and
-   given the classic uppercase+tracked "section label" shape so the chrome
-   recedes behind the row content below each header. */
+   the same voice. Classic uppercase+tracked "section label" shape so the
+   chrome recedes behind the row content below each header. */
 .pv-section-label {
-  font-family: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
   font-size: 11px;
   font-weight: 500;
   letter-spacing: 0.08em;
@@ -808,10 +804,6 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  /* Match the IdentityBadge (pretty-view top-right) + IdentityModal header
-     name/title font. Both use Inter Variable; the app root defaults to
-     JetBrains Mono, which was leaking into the row's label/host until now. */
-  font-family: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
   /* Phase 67 /close 2026-09-01 follow-up (M4): explicit z-index so the
      text label/subtitle always paints above the `.pv-coordinator-
      watermark` (z-index: 0) sibling. `.pv-body` needs a stacking context

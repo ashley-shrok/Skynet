@@ -133,7 +133,6 @@ export function OutboundBubble({
           // typography classes ensure any future switch to markdown flow
           // gets ChatMessage-parity treatment for free.
           "prose prose-sm max-w-[90%]",
-          "font-[Inter_Variable,ui-sans-serif,system-ui,sans-serif]",
           "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
           // User-branch gradient (VERBATIM copy from ChatMessage.tsx L466-476
           // per D-13 — user is always user, no per-pane variation).

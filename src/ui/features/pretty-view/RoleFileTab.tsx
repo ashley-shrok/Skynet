@@ -156,7 +156,6 @@ export function RoleFileTab({
         <div
           className={[
             "prose prose-sm max-w-none overflow-y-auto h-full px-1",
-            "font-[Inter_Variable,ui-sans-serif,system-ui,sans-serif]",
             "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
             "dark:prose-invert",
             "prose-pre:my-2 prose-pre:p-2 prose-pre:rounded",

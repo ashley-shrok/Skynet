@@ -345,7 +345,6 @@ function WakeupRow({
       className={cn(
         "rounded-[var(--radius-pv-bubble)] px-4 py-3 flex flex-col gap-2",
         "backdrop-blur-lg saturate-[1.3] [-webkit-backdrop-filter:blur(16px)_saturate(1.3)]",
-        "font-[Inter_Variable,ui-sans-serif,system-ui,sans-serif]",
       )}
       style={{
         background: `linear-gradient(160deg, hsla(${hue}, 40%, 22%, 0.5), hsla(${hue}, 35%, 14%, 0.55))`,

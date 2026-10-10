@@ -4068,7 +4068,6 @@ export function PrettyView({
         // Multi-role identities: gold sheen on hue surfaces (index.css).
         isMultiRole(pvIdentity) && "pv-multi-role",
         "text-[var(--color-pv-fg)]",
-        "font-[Inter_Variable,ui-sans-serif,system-ui,sans-serif]",
         className,
       )}
       style={
@@ -4217,7 +4216,7 @@ export function PrettyView({
       {pvIdentityKey && pvIdentity?.task && (
         <div
           data-testid="pv-task-pill"
-          className="pv-identity-breathe absolute top-4 left-1/2 -translate-x-1/2 z-[100] select-none font-[Inter_Variable,ui-sans-serif,system-ui,sans-serif]"
+          className="pv-identity-breathe absolute top-4 left-1/2 -translate-x-1/2 z-[100] select-none"
           style={{
             borderRadius: 20,
             padding: "6px 14px",

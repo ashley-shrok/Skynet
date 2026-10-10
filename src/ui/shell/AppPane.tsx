@@ -420,7 +420,7 @@ export function AppPane({
         }}
         onDragStart={isDragSource ? onBarDragStart : undefined}
         onClick={() => onSelectPane?.(tabId)}
-        className={`relative z-[1] grid flex-none items-center gap-2 px-2 select-none [-webkit-touch-callout:none] font-[Inter_Variable,ui-sans-serif,system-ui,sans-serif] ${
+        className={`relative z-[1] grid flex-none items-center gap-2 px-2 select-none [-webkit-touch-callout:none] ${
           isDragSource ? "cursor-grab active:cursor-grabbing" : ""
         }`}
         style={{
