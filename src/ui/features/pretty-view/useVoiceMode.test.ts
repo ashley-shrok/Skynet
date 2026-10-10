@@ -56,6 +56,7 @@ import {
   PIECE_GAP_MS,
   TIMED_END_MS,
   TRANSCRIBE_RETRY_WINDOW_MS,
+  AWAIT_REPLY_MAX_MS,
   type UseVoiceModeArgs,
   type VoiceModeMessage,
 } from "./useVoiceMode";
@@ -514,6 +515,30 @@ describe("useVoiceMode", () => {
       act(() => players[0].opts.onEnded?.());
       await flush();
       expect(cuesPlayed).toEqual(["yourTurn"]);
+    });
+
+    it("ticks from the moment a message is sent, even before a dormant agent shows it is working", async () => {
+      const { rerender } = await startVoiceMode();
+      transcribeReturns("are you there");
+      await sayUtterance();
+      expect(cuesPlayed).toEqual(["sent"]);
+      expect(ticking).toBe(true); // agent still asleep — isWorking is false
+      rerender(baseArgs({ isWorking: true }));
+      await flush();
+      expect(ticking).toBe(true);
+      rerender(baseArgs({ isWorking: false }));
+      await flush(1000);
+      expect(ticking).toBe(false);
+      expect(cuesPlayed).toEqual(["sent", "yourTurn"]);
+    });
+
+    it("stops the post-send ticking if the agent never picks the message up", async () => {
+      await startVoiceMode();
+      transcribeReturns("hello?");
+      await sayUtterance();
+      expect(ticking).toBe(true);
+      await flush(AWAIT_REPLY_MAX_MS + 100);
+      expect(ticking).toBe(false);
     });
 
     it("stops ticking as soon as the user starts talking", async () => {

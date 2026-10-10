@@ -86,6 +86,11 @@ export const TRANSCRIBE_RETRY_WINDOW_MS = 30 * 1000;
 const TRANSCRIBE_RETRY_FIRST_DELAY_MS = 1000;
 /** Floor on one attempt's timeout (a long piece can take a while to transcribe). */
 const TRANSCRIBE_ATTEMPT_MIN_TIMEOUT_MS = 15 * 1000;
+/**
+ * After a send, tick until the agent shows it is working (or replies), even if
+ * it is still waking from dormancy — capped so a lost send can't tick forever.
+ */
+export const AWAIT_REPLY_MAX_MS = 2 * 60 * 1000;
 /** Debounce on "your turn" after the agent goes idle — the last reply may still be landing. */
 const YOUR_TURN_SETTLE_MS = 700;
 /** RMS floor below which nothing counts as speech, regardless of noise floor. */
@@ -273,6 +278,8 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
   /** performance.now() of the last frame of real speech (spans pieces) — timed turn end. */
   const lastSpeechAtRef = useRef(0);
   const yourTurnTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** A message was just sent and the agent hasn't picked it up yet. */
+  const awaitingReplyRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const tag = `hostId=${args.hostId} tmuxSession=${args.tmuxSession ?? "null"}`;
   const tagRef = useRef(tag);
@@ -310,7 +317,7 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
     if (!cues) return;
     const should =
       activeRef.current &&
-      argsRef.current.isWorking &&
+      (argsRef.current.isWorking || awaitingReplyRef.current !== null) &&
       !argsRef.current.suspended &&
       speakingRef.current === null &&
       queueRef.current.length === 0 &&
@@ -323,6 +330,19 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
       log("ticking-stop");
       cues.stopTicking();
     }
+  };
+
+  const clearAwaitingReply = () => {
+    if (awaitingReplyRef.current !== null) clearTimeout(awaitingReplyRef.current);
+    awaitingReplyRef.current = null;
+  };
+  const markAwaitingReply = () => {
+    clearAwaitingReply();
+    awaitingReplyRef.current = setTimeout(() => {
+      awaitingReplyRef.current = null;
+      log("awaiting-reply-expired");
+      updateTickingRef.current();
+    }, AWAIT_REPLY_MAX_MS);
   };
 
   // ---- Recorder / VAD ----------------------------------------------------
@@ -596,6 +616,7 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
       acquiringRef.current = false;
       if (yourTurnTimerRef.current !== null) clearTimeout(yourTurnTimerRef.current);
       yourTurnTimerRef.current = null;
+      clearAwaitingReply();
       stopVad();
       const slot = slotRef.current;
       slotRef.current = null;
@@ -685,6 +706,7 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
       log(`draft-sent reason=${reason} pieces=${included.length} len=${text.length} dispatched=${sent}`);
       if (sent) {
         playCue("sent");
+        markAwaitingReply();
       } else {
         playCue("error");
         argsRef.current.onUndelivered(text);
@@ -1007,6 +1029,7 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
       if (text) {
         queueRef.current.push(text);
         added = true;
+        clearAwaitingReply();
       }
     }
     if (added) pumpRef.current();
@@ -1040,6 +1063,8 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
   useEffect(() => {
     const was = prevWorkingRef.current;
     prevWorkingRef.current = args.isWorking;
+    // The agent picked the message up — its own working signal takes over.
+    if (args.isWorking) clearAwaitingReply();
     updateTickingRef.current();
     if (yourTurnTimerRef.current !== null) {
       clearTimeout(yourTurnTimerRef.current);

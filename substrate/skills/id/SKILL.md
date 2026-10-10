@@ -923,8 +923,9 @@ crown, then gear.
   **Agent voices** — only when they end with their send phrase ("send it"
   by default; the phrase is removed from the message). Replies that arrive
   while they're mid-message wait until it's sent. Sounds mark the round
-  trip: the mic's send sound when the message goes, a soft ticking while
-  the agent works, the mic's start sound when it's the user's turn. If a
+  trip: the mic's send sound when the message goes, a soft ticking from
+  then until the agent is done (including while a dormant agent wakes),
+  the mic's start sound when it's the user's turn. If a
   piece can't be transcribed even after retrying, voice mode stops, the
   message is thrown away unsent, and an alarm plays. Typing keeps working
   while it's on. Only one conversation can be in voice mode at a time:
