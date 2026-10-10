@@ -819,6 +819,31 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     confirmSpy.mockRestore();
   });
 
+  it("skill menu keeps 'Delete skill…' in place while SKILL.md is still loading", async () => {
+    // A fast click must not land on an item that popped in above Delete.
+    (skillsApi.readSkillFile as ReturnType<typeof vi.fn>).mockImplementation(
+      () => new Promise(() => {}),
+    );
+
+    render(
+      <SkillsEditorModal
+        open={true}
+        onOpenChange={vi.fn()}
+        hostTree={HOST_TREE}
+        defaultHostId={1}
+        container={document.body}
+      />,
+    );
+
+    await selectSkill("build");
+    await openSkillMenu();
+
+    const items = screen.getAllByRole("menuitem").concat(screen.queryAllByRole("menuitemcheckbox"));
+    const slashOnly = screen.getByTestId("skills-editor-modal-disable-model-invocation");
+    expect(slashOnly).toHaveAttribute("data-disabled");
+    expect(items).toContain(screen.getByTestId("skills-editor-modal-delete-skill"));
+  });
+
   it("RDP-only hosts are filtered from the host <select>", async () => {
     // Phase 113 D-17 companion edit: HOST_TREE_WITH_RDP now carries a second
     // SSH host so flatHosts.length > 1 after filtering — otherwise the

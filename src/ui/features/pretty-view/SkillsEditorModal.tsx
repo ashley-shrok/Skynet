@@ -865,17 +865,22 @@ export default function SkillsEditorModal({
             testId="skills-editor-modal-skill-menu"
             triggerClassName="size-7"
             items={[
-              ...(skillMd != null && !readOnly
+              // Items render from the start (disabled while their data
+              // loads) so nothing pops in above "Delete skill…" and shifts it
+              // under a fast click.
+              ...(!readOnly
                 ? [
                     {
                       label: "Slash command only",
-                      hint: skillMdDirty
-                        ? "Save or discard your SKILL.md edits first"
-                        : "Agents won't use it on their own — only /" +
-                          selectedSkillName +
-                          " will",
+                      hint: skillMd == null
+                        ? "Loading…"
+                        : skillMdDirty
+                          ? "Save or discard your SKILL.md edits first"
+                          : "Agents won't use it on their own — only /" +
+                            selectedSkillName +
+                            " will",
                       checked: modelInvocationDisabled,
-                      disabled: skillMdDirty || togglingInvocation,
+                      disabled: skillMd == null || skillMdDirty || togglingInvocation,
                       testId: "skills-editor-modal-disable-model-invocation",
                       onClick: () => {
                         void handleToggleModelInvocation(!modelInvocationDisabled);
@@ -883,12 +888,17 @@ export default function SkillsEditorModal({
                     },
                   ]
                 : []),
-              ...(!selectedIsInstance && isAdmin
+              // Admin status is unknown until the instance-wide list loads;
+              // hold the slot (disabled) until then.
+              ...(!selectedIsInstance && (isAdmin || instanceWide == null)
                 ? [
                     {
                       label: "Make instance-wide…",
-                      hint: "Keep one copy of this skill in step on every host",
-                      separatorBefore: skillMd != null,
+                      hint: instanceWide == null
+                        ? "Loading…"
+                        : "Keep one copy of this skill in step on every host",
+                      disabled: instanceWide == null,
+                      separatorBefore: !readOnly,
                       testId: "skills-editor-modal-promote-skill",
                       onClick: () => {
                         void handlePromote();
@@ -902,7 +912,7 @@ export default function SkillsEditorModal({
                       {
                         label: "Remove from every host…",
                         danger: true,
-                        separatorBefore: skillMd != null,
+                        separatorBefore: !readOnly,
                         testId: "skills-editor-modal-remove-instance-skill",
                         onClick: () => {
                           void handleRemoveInstance();
@@ -921,7 +931,7 @@ export default function SkillsEditorModal({
                     {
                       label: "Delete skill…",
                       danger: true,
-                      separatorBefore: skillMd != null || isAdmin,
+                      separatorBefore: true,
                       testId: "skills-editor-modal-delete-skill",
                       onClick: () => {
                         void handleDeleteSkill();
