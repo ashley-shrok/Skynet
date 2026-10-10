@@ -66,6 +66,11 @@ describe("MarkdownEditor — sticky code-editor fallback", () => {
         { timeout: 10_000 },
       );
 
+      // A thrown MdxEditor must land on CodeMirror, not the bare textarea —
+      // the textarea is only for when the CodeMirror bundle can't load.
+      await waitFor(() => expect(container.querySelector(".cm-content")).toBeTruthy(), { timeout: 10_000 });
+      expect(container.querySelector("textarea")).toBeNull();
+
       // The user needs to be able to see + fix the broken frontmatter.
       const cm = container.querySelector(".cm-content");
       const ta = container.querySelector<HTMLTextAreaElement>("textarea");

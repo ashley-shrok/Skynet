@@ -204,6 +204,7 @@ export function MarkdownEditor({
 
   return (
     <MarkdownWithSilentFailureFallback
+      key={filename}
       filename={filename}
       content={content}
       onChange={onChange}
@@ -244,33 +245,32 @@ function MarkdownWithSilentFailureFallback({
   loadingFallback,
 }: MarkdownEditorProps & { loadingFallback: ReactNode }): JSX.Element {
   // Sticky per-mount fallback. Once MdxEditor has failed for this filename
-  // — silently (empty contenteditable detected 200ms post-mount) OR by
-  // throwing from inside its useMemo-based import pipeline (js-yaml's
+  // — silently (empty contenteditable detected 200ms post-mount), via its
+  // onError parse signal (partial render cut off at the breaking construct),
+  // OR by throwing from inside its useMemo-based import pipeline (js-yaml's
   // YAMLException on malformed frontmatter is the known trigger) — stay in
   // the code-editor branch for the rest of this filename's lifetime in the
-  // UI. The previous content-keyed check broke the moment the user typed
-  // one character inside the fallback: equality snapped, the branch flipped
-  // back to MdxEditor, which either re-silent-failed (losing focus every
-  // keystroke) or re-threw and crashed the whole app (no boundary wrapped
-  // this branch before). Reset only on filename change — switching tabs
-  // re-attempts MdxEditor cleanly.
+  // UI. A content-keyed check would break the moment the user typed one
+  // character inside the fallback (branch flips back to MdxEditor, which
+  // re-fails or re-throws).
   //
-  // Keyed on the filename itself rather than a boolean reset by a
-  // `[filename]` effect: MDXEditor reports a parse error (onError) during its
-  // own mount, and child effects run before the parent's — so a mount-time
-  // reset effect wiped the flag right after it was set, leaving the first
-  // open on a truncated formatted render (explain SKILL.md cut off at a bare
-  // `<thing>`). Only a later remount (mode switch) made the fallback stick.
-  const [fallenBackFor, setFallenBackFor] = useState<string | null>(null);
-  const hasFallenBack = fallenBackFor === filename;
+  // The caller mounts this component with `key={filename}`, so a filename
+  // change remounts it and re-attempts MdxEditor cleanly. Do NOT replace
+  // that with a `[filename]` reset effect: MDXEditor fires onError during
+  // its own mount, child effects run before the parent's, and a mount-time
+  // reset wipes the flag right after it's set — the first open then sat on
+  // a truncated formatted render (explain SKILL.md cut off at a bare
+  // `<thing>`) until a mode switch remounted it.
+  const [hasFallenBack, setHasFallenBack] = useState(false);
   const handleFallback = useCallback(() => {
     // eslint-disable-next-line no-console
     console.warn(`[MarkdownEditor] Formatted editor can't render filename=${filename}; showing plain text.`);
-    setFallenBackFor(filename);
+    setHasFallenBack(true);
   }, [filename]);
 
   const codeEditorBranch = (
     <CodeEditorErrorBoundary
+      key="plain"
       filename={filename}
       fallback={
         <RawTextarea
@@ -305,7 +305,12 @@ function MarkdownWithSilentFailureFallback({
   const editor = plain ? (
     codeEditorBranch
   ) : (
+    // Distinct key from codeEditorBranch's boundary: same element type at the
+    // same position would otherwise be reused across the swap, carrying its
+    // hasError flag and rendering its RawTextarea fallback instead of
+    // CodeMirror.
     <CodeEditorErrorBoundary
+      key="mdx"
       filename={filename}
       fallback={codeEditorBranch}
       onError={handleFallback}

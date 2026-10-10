@@ -70,9 +70,11 @@ describe("MarkdownEditor — silent-parse-failure code-editor fallback", () => {
       // Defense-in-depth path — RawTextarea when CodeMirror bundle fails.
       expect(textarea.value).toBe(EXPLAIN_SKILL_CONTENT);
     } else {
-      // MDXEditor itself rendered — future-upgrade path.
+      // MDXEditor itself rendered — future-upgrade path. Must be the WHOLE
+      // file: a partial render cut off at the bare `<thing>` is the bug.
       const editable = container.querySelector('[contenteditable="true"]');
       expect(editable?.textContent).toContain("Explain");
+      expect(editable?.textContent).toContain("bare");
     }
   });
 
@@ -111,4 +113,24 @@ Not a metaphor — explain the actual thing.
     expect(container.querySelector(".mdxeditor")).toBeNull();
     expect(getByTestId("markdown-formatted-unavailable")).toBeTruthy();
   }, 15000);
+
+  // A filename change must re-attempt the formatted editor: a.md failed,
+  // the user fixed it in plain text, moved to b.md and back — a.md should
+  // now open formatted, not stay stuck on the earlier fallback.
+  it("re-attempts formatted after a filename round-trip once the file is fixed", async () => {
+    const BROKEN = "# A\n\nsets X to <thing>; more text after.\n";
+    const FIXED = "# A\n\nsets X to a thing; more text after.\n";
+    const { container, rerender, queryByTestId } = render(
+      <MarkdownEditor filename="a.md" content={BROKEN} onChange={() => {}} />,
+    );
+    await waitFor(() => expect(queryByTestId("markdown-formatted-unavailable")).toBeTruthy(), { timeout: 10000 });
+
+    rerender(<MarkdownEditor filename="b.md" content={"# B\n"} onChange={() => {}} />);
+    rerender(<MarkdownEditor filename="a.md" content={FIXED} onChange={() => {}} />);
+
+    await waitFor(() => {
+      expect(container.querySelector('.mdxeditor [contenteditable="true"]')?.textContent).toContain("more text after");
+    }, { timeout: 10000 });
+    expect(queryByTestId("markdown-formatted-unavailable")).toBeNull();
+  }, 25000);
 });
