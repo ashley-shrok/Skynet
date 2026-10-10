@@ -82,6 +82,13 @@ import { RoleModal } from "@/features/pretty-view/RoleModal";
 import RunbookEditorModal from "@/features/pretty-view/RunbookEditorModal";
 import { useTranslation } from "react-i18next";
 import { useDragPreviewClaim } from "@/shell/drag-preview-session";
+import {
+  BADGE_MIME,
+  getDraggedBadge,
+  hasBadgeMime,
+  parseBadgePayload,
+  type DraggedBadge,
+} from "@/shell/badge-drag";
 
 import {
   useConversations,
@@ -145,7 +152,7 @@ import { useViewingUserMxid } from "@/state/viewing-user-store";
 // in this plan. Consumes projectSections from the store selector; emits
 // onDropRow → panel's handleProjectDrop (which resolves identity vs
 // relay-room routing).
-import { PrettyProjectSectionHeader } from "./PrettyProjectSectionHeader";
+import { PrettyProjectSectionHeader, type PrettyProjectDropPayload } from "./PrettyProjectSectionHeader";
 // Phase 117 Plan 117-09 Task 1 — CreateProjectModal: swap-target for the
 // 117-08 placeholder marker. Controlled modal wired to the header
 // "Create project" button; on 200 fires onCreated with the backend-echoed
@@ -518,8 +525,6 @@ export function PrettyConversationsPanel({
   onKillRow,
   sidebarToggleOverlaps = false,
   visibleInSplitTreeTabIds,
-  onCloseSession,
-  openTabIds = [],
   isAdmin = false,
   username = null,
   onOpenApp,
@@ -602,25 +607,6 @@ export function PrettyConversationsPanel({
   // Optional so tests + non-AppShell renders default to the pre-Phase-56
   // single-visible behavior via an empty set.
   visibleInSplitTreeTabIds?: ReadonlySet<string>;
-  // Phase 58 PV58-CONVLIST-DROP-TARGET-CLOSE — receives a VALIDATED tabId
-  // (validated against openTabIds below) from a badge dropped on the panel's
-  // outermost DOM element. AppShell wires this to closeTab so a badge-drop
-  // closes the tab (with the confirm-tab-close toast branch preserved by
-  // closeTab's existing behavior + the setSplitTree removeLeaf reconcile at
-  // AppShell.tsx:1498 firing on the doCloseTab side). Optional so tests and
-  // any pre-Phase-58 caller that doesn't wire it can render safely — an
-  // absent handler makes the drop a silent no-op after validation.
-  onCloseSession?: (tabId: string) => void;
-  // Phase 58 PV58-CONVLIST-DROP-TARGET-CLOSE — validation source for the
-  // drop handler (per security_config / threat T-58-02-01: "in the conv-list
-  // drop handler, validate the received tabId matches an entry in the
-  // current tabs[] array before calling closeTab"). A drop whose parsed
-  // tabId is NOT in this list is silently dropped — defense against
-  // attacker-controlled dataTransfer payloads that could inject an
-  // arbitrary tabId string. Optional; defaults to [] so tests and any
-  // non-AppShell caller default to "no tab is open" and every drop is a
-  // silent no-op.
-  openTabIds?: readonly string[];
   // Sourced from /users/me.is_admin (AppShell state); default false so tests
   // and any non-AppShell caller render as non-admin (admin-only affordances hidden).
   isAdmin?: boolean;
@@ -1859,149 +1845,6 @@ export function PrettyConversationsPanel({
   // regresses).
   const rdpNoopTogglePin = () => {};
 
-  // ─── Phase 58 Plan 02: conv-list panel-level drop target for badge close ─
-  // Wires the outermost <div data-testid="pretty-conversations-panel"> as a
-  // drop target that closes the dragged tab when a badge (identified by the
-  // Phase 58 Plan 01 dual-MIME dragstart payload) is released on it.
-  //
-  // Wire contract (matches IdentityBadge.tsx Phase 58 Plan 01 dragstart):
-  //   dataTransfer["application/x-skynet-badge"] = JSON.stringify({tabId})
-  //     — the discriminator MIME. A drop without this key is ignored
-  //       (row-drags, OS file drags, etc. fall through — T-58-02-06).
-  //   dataTransfer["text/plain"] = tabId
-  //     — routes to Phase 56 Pane onDrop's rearrange path when the drop
-  //       lands on a Pane instead. NOT read here (belt-and-suspenders —
-  //       requiring the explicit badge MIME as the discriminator; see
-  //       Phase 58 Plan 02 Test C).
-  //
-  // Security / threat model (per plan's <threat_model> block):
-  //   T-58-02-01 (Spoofing): parsed tabId is validated against openTabIds
-  //     BEFORE calling onCloseSession. An unknown tabId is silently dropped.
-  //   T-58-02-02 (Tampering): JSON.parse wrapped in try/catch — malformed
-  //     payload is silently dropped without throwing.
-  //   T-58-02-04 (Repudiation): single explicit-field structured log emits
-  //     on the close path — no JSON.stringify(event).
-  //   T-58-02-06 (Tampering): dragover type-gate on application/x-skynet-badge
-  //     means non-badge drops (e.g. OS file drags) never call preventDefault
-  //     during dragover — the browser's default not-a-drop-target semantic
-  //     is preserved.
-  // ─── Phase 59 Plan 01 Gap 2: coral tint state for badge drop-to-close ───
-  // Additive on the existing Phase 58 Plan 02 handlers. Set true INSIDE the
-  // badge type-gate so row drags + OS file drags NEVER trigger tint. Cleared
-  // on drop / bounding-rect-guarded dragleave / window-level dragend
-  // (Escape-cancel). Ref-based zone-change gate for the structured log
-  // mirrors SplitView.tsx:223 prevZoneRef — synchronous ref-write is atomic
-  // with log emission, avoids React 18 strict-mode double-fire. `null`
-  // initial (not `false`) so the first false→false transition never emits.
-  const [isBadgeDragOver, setIsBadgeDragOver] = useState(false);
-  const prevConvlistVisibleRef = useRef<boolean | null>(null);
-
-  // Exclusive-claim + session-end sweep (drag-preview-session.ts) — covers
-  // Escape-cancel (no dragleave fires) and a dragend lost to a detached
-  // drag source. Replaces the Phase 59 Gap 2 window dragend listener.
-  const { claim: claimBadgePreview, release: releaseBadgePreview } =
-    useDragPreviewClaim("convlist-badge", () => {
-      setIsBadgeDragOver(false);
-      if (prevConvlistVisibleRef.current !== false) {
-        // eslint-disable-next-line no-console
-        console.info(`[convlist-drop-preview] visible=false`);
-        prevConvlistVisibleRef.current = false;
-      }
-    });
-
-  const handlePanelDragOver = (e: React.DragEvent<HTMLDivElement>) => {
-    // Only badge drags get captured. Row drags + OS file drags fall through
-    // without preventDefault so the browser doesn't treat the panel as a
-    // drop target for them. NO log here — dragover fires constantly during
-    // a drag hover; only dragstart + drop should log per fleet directive.
-    const types = e.dataTransfer?.types;
-    if (types && Array.from(types).indexOf("application/x-skynet-badge") !== -1) {
-      e.preventDefault();
-      // Phase 59 Gap 2 tint state — INSIDE the type-gate so non-badge drags
-      // (row drags, OS file drags) NEVER trigger tint (per CONTEXT.md
-      // §Edge case #3). Zone-change-gated log for audit trail.
-      setIsBadgeDragOver(true);
-      claimBadgePreview();
-      if (prevConvlistVisibleRef.current !== true) {
-        // eslint-disable-next-line no-console
-        console.info(`[convlist-drop-preview] visible=true`);
-        prevConvlistVisibleRef.current = true;
-      }
-    }
-  };
-  const handlePanelDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
-    // Phase 59 Gap 2 — type-gate FIRST (mirror SplitView.tsx:292 pattern +
-    // handlePanelDragOver's :1300 type-gate shape). Unrelated dragleaves
-    // (row drags, OS file drags) never clear tint state.
-    const types = e.dataTransfer?.types;
-    if (
-      !(types && Array.from(types).indexOf("application/x-skynet-badge") !== -1)
-    )
-      return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    // Bounding-rect stateless guard (mirror SplitView.tsx:301-305) — robust
-    // against dragleaves fired when the cursor crosses child row boundaries.
-    const stillInside =
-      e.clientX >= rect.left &&
-      e.clientX <= rect.right &&
-      e.clientY >= rect.top &&
-      e.clientY <= rect.bottom;
-    if (stillInside) return;
-    setIsBadgeDragOver(false);
-    releaseBadgePreview();
-    if (prevConvlistVisibleRef.current !== false) {
-      // eslint-disable-next-line no-console
-      console.info(`[convlist-drop-preview] visible=false`);
-      prevConvlistVisibleRef.current = false;
-    }
-  };
-  const handlePanelDrop = (e: React.DragEvent<HTMLDivElement>) => {
-    // Phase 59 Gap 2 tint clear — clear FIRST regardless of downstream 6-step
-    // gauntlet outcome. Defensive: even a non-badge drop that reaches this
-    // handler (shouldn't be possible given the dragover type-gate) still
-    // clears state. Idempotent.
-    setIsBadgeDragOver(false);
-    releaseBadgePreview();
-    if (prevConvlistVisibleRef.current !== false) {
-      // eslint-disable-next-line no-console
-      console.info(`[convlist-drop-preview] visible=false`);
-      prevConvlistVisibleRef.current = false;
-    }
-    // Step 1: read the discriminator MIME. Empty string = not a badge drop.
-    const raw = e.dataTransfer?.getData("application/x-skynet-badge") ?? "";
-    if (raw === "") return;
-    // Step 2: parse JSON safely (T-58-02-02).
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      return;
-    }
-    // Step 3: extract + validate tabId shape.
-    if (
-      parsed === null ||
-      typeof parsed !== "object" ||
-      typeof (parsed as { tabId?: unknown }).tabId !== "string" ||
-      (parsed as { tabId: string }).tabId === ""
-    ) {
-      return;
-    }
-    const tabId = (parsed as { tabId: string }).tabId;
-    // Step 4: validate against openTabIds (T-58-02-01 mitigation). This is
-    // the security guard — an attacker-controlled dataTransfer payload
-    // cannot inject an arbitrary tabId that closes a tab the user did not
-    // open. Silent drop on miss.
-    if (!openTabIds.includes(tabId)) return;
-    // Step 5: signal the drop is handled (prevents default browser
-    // behavior like navigating to the text payload).
-    e.preventDefault();
-    // Step 6: structured log (T-58-02-04 mitigation, PV58-STRUCTURED-LOGGING).
-    // Explicit-field extraction — no JSON.stringify(event).
-    console.info(`[convlist-drop] close tabId=${tabId}`);
-    // Step 7: fire the callback (optional so tests without the prop don't throw).
-    onCloseSession?.(tabId);
-  };
-
   // ─── Phase 117 Plan 117-08 — projects DnD + create-project state ─────────────
   //
   // (a) createProjectModalOpen — state toggle wired to the header "Create
@@ -2314,6 +2157,71 @@ export function PrettyConversationsPanel({
     [submenuProjectsForRow, handleRowMoveToProject],
   );
 
+  // ─── Identity badges dropped on sidebar sections ──────────────────────────
+  // An open conversation's badge files the conversation exactly like its
+  // sidebar row would: the badge resolves to that row and the section
+  // handlers run on the row's payload. (Putting a badge AWAY — close /
+  // archive — lives on the BadgeDropLane, not the sidebar.) dragover can't
+  // read the payload, so acceptance resolves the badge captured at
+  // dragstart (badge-drag.ts); the drop itself resolves its own payload.
+  const resolveBadgeDrop = useCallback(
+    (badge: DraggedBadge | null): PrettyProjectDropPayload | null => {
+      if (badge === null) return null;
+      const rows = [
+        ...rowsByIdRef.current.values(),
+        ...projectSections.flatMap((sec) => sec.rows),
+      ];
+      const key = sessionMatchKey(badge.targetTmuxSession ?? badge.identityKey);
+      const row =
+        rows.find((r) => r.id === badge.tabId) ??
+        (badge.relayRoomId !== null
+          ? rows.find((r) => r.roomId === badge.relayRoomId)
+          : badge.hostId !== null && key !== null
+            ? rows.find(
+                (r) =>
+                  r.host?.id === String(badge.hostId) &&
+                  sessionMatchKey(r.targetTmuxSession) === key,
+              )
+            : undefined);
+      if (!row || row.rdpHostRow === true) return null;
+      return {
+        id: row.id,
+        host: row.host ?? null,
+        targetTmuxSession: row.targetTmuxSession ?? null,
+        matrixRoomId: row.roomId ?? null,
+        rdpHostRow: false,
+        identityKey: null,
+      };
+    },
+    [projectSections],
+  );
+
+  // Pinned / Conversations accept row drags and resolvable badge drags.
+  const acceptsSidebarDrag = useCallback(
+    (dt: DataTransfer | null | undefined): boolean =>
+      (!!dt && Array.from(dt.types).includes("application/x-skynet-row")) ||
+      (hasBadgeMime(dt) && resolveBadgeDrop(getDraggedBadge()) !== null),
+    [resolveBadgeDrop],
+  );
+
+  // The dropped payload: the row MIME, else the dropped badge's row.
+  const readSidebarDrop = useCallback(
+    (dt: DataTransfer | null | undefined): unknown => {
+      const raw = dt?.getData("application/x-skynet-row") ?? "";
+      if (raw === "") {
+        return hasBadgeMime(dt)
+          ? resolveBadgeDrop(parseBadgePayload(dt!.getData(BADGE_MIME)))
+          : null;
+      }
+      try {
+        return JSON.parse(raw);
+      } catch {
+        return null;
+      }
+    },
+    [resolveBadgeDrop],
+  );
+
   const [isFlatMiddleDragOver, setIsFlatMiddleDragOver] = useState(false);
 
   const { claim: claimFlatMiddlePreview, release: releaseFlatMiddlePreview } =
@@ -2321,22 +2229,17 @@ export function PrettyConversationsPanel({
 
   const handleFlatMiddleDragOver = useCallback(
     (e: React.DragEvent<HTMLDivElement>) => {
-      const types = e.dataTransfer?.types;
-      if (!(types && Array.from(types).includes("application/x-skynet-row"))) return;
+      if (!acceptsSidebarDrag(e.dataTransfer)) return;
       e.preventDefault();
-      // Do NOT stopPropagation — the outer panel handler's badge drag machinery
-      // relies on unrelated MIMEs falling through, and the row MIME never
-      // reaches the outer handler because its badge type-gate rejects it.
       setIsFlatMiddleDragOver(true);
       claimFlatMiddlePreview();
     },
-    [claimFlatMiddlePreview],
+    [claimFlatMiddlePreview, acceptsSidebarDrag],
   );
 
   const handleFlatMiddleDragLeave = useCallback(
     (e: React.DragEvent<HTMLDivElement>) => {
-      const types = e.dataTransfer?.types;
-      if (!(types && Array.from(types).includes("application/x-skynet-row"))) return;
+      if (!acceptsSidebarDrag(e.dataTransfer)) return;
       const rect = e.currentTarget.getBoundingClientRect();
       const stillInside =
         e.clientX >= rect.left &&
@@ -2354,14 +2257,7 @@ export function PrettyConversationsPanel({
     (e: React.DragEvent<HTMLDivElement>) => {
       setIsFlatMiddleDragOver(false);
       releaseFlatMiddlePreview();
-      const raw = e.dataTransfer?.getData("application/x-skynet-row") ?? "";
-      if (raw === "") return;
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(raw);
-      } catch {
-        return;
-      }
+      const parsed = readSidebarDrop(e.dataTransfer);
       if (parsed === null || typeof parsed !== "object") return;
       const p = parsed as {
         id?: string;
@@ -2375,8 +2271,7 @@ export function PrettyConversationsPanel({
       if (p.rdpHostRow === true) return; // D-08 defense
       // Drop on Other = "neither pinned nor in a project". Two actions may
       // fire; either is optional but at least one must apply or this is a
-      // no-op (fall through so outer badge machinery can still catch other
-      // MIMEs). Order: unpin first (pure store write, no async), then clear
+      // no-op. Order: unpin first (pure store write, no async), then clear
       // project (network round-trip).
       const currentSlug = rowIdToProjectSlug.get(p.id);
       const inProject = currentSlug !== undefined;
@@ -2429,7 +2324,7 @@ export function PrettyConversationsPanel({
         console.error(`[project-drop] setSessionProject(null) failed: ${msg}`);
       });
     },
-    [rowIdToProjectSlug, viewingUserMxid, pinnedIds, releaseFlatMiddlePreview],
+    [rowIdToProjectSlug, viewingUserMxid, pinnedIds, releaseFlatMiddlePreview, readSidebarDrop],
   );
 
   // Pinned-zone drop lane — mirror of the flat-middle machinery. Drop a row
@@ -2444,19 +2339,17 @@ export function PrettyConversationsPanel({
 
   const handlePinnedZoneDragOver = useCallback(
     (e: React.DragEvent<HTMLDivElement>) => {
-      const types = e.dataTransfer?.types;
-      if (!(types && Array.from(types).includes("application/x-skynet-row"))) return;
+      if (!acceptsSidebarDrag(e.dataTransfer)) return;
       e.preventDefault();
       setIsPinnedZoneDragOver(true);
       claimPinnedPreview();
     },
-    [claimPinnedPreview],
+    [claimPinnedPreview, acceptsSidebarDrag],
   );
 
   const handlePinnedZoneDragLeave = useCallback(
     (e: React.DragEvent<HTMLDivElement>) => {
-      const types = e.dataTransfer?.types;
-      if (!(types && Array.from(types).includes("application/x-skynet-row"))) return;
+      if (!acceptsSidebarDrag(e.dataTransfer)) return;
       const rect = e.currentTarget.getBoundingClientRect();
       const stillInside =
         e.clientX >= rect.left &&
@@ -2474,14 +2367,7 @@ export function PrettyConversationsPanel({
     (e: React.DragEvent<HTMLDivElement>) => {
       setIsPinnedZoneDragOver(false);
       releasePinnedPreview();
-      const raw = e.dataTransfer?.getData("application/x-skynet-row") ?? "";
-      if (raw === "") return;
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(raw);
-      } catch {
-        return;
-      }
+      const parsed = readSidebarDrop(e.dataTransfer);
       if (parsed === null || typeof parsed !== "object") return;
       const p = parsed as {
         id?: string;
@@ -2516,7 +2402,7 @@ export function PrettyConversationsPanel({
       console.info(`[pin-drop] pin id=${targetId} (from rowId=${p.id})`);
       pinConversation(targetId);
     },
-    [pinnedIds, releasePinnedPreview, rowIdToProjectSlug, projectSections],
+    [pinnedIds, releasePinnedPreview, rowIdToProjectSlug, projectSections, readSidebarDrop],
   );
 
   // Phase 117 M-F follow-up (2026-09-18): the section's SquarePen opens the
@@ -2809,33 +2695,7 @@ export function PrettyConversationsPanel({
       className="relative flex flex-col flex-1 min-h-0 overflow-hidden pb-[env(safe-area-inset-bottom)]"
       data-testid="pretty-conversations-panel"
       data-variant={variant}
-      onDragOver={handlePanelDragOver}
-      onDragLeave={handlePanelDragLeave}
-      onDrop={handlePanelDrop}
     >
-      {/* Phase 59 Plan 01 Gap 2 — coral drop-target-affordance tint overlay.
-          Sibling to the header (:pv-panel-header shrink-0) and scroll region
-          below. Signals that dropping an IdentityBadge here will close the
-          session (destructive gesture — user UAT 2026-08-28: "no tint or
-          anything. So it doesn't necessarily seem interactable.").
-          Palette values verbatim from SplitView.tsx:446-447 (`--highlight`
-          from prototype). pointer-events-none is LOAD-BEARING — drop still
-          fires on the underlying panel div. zIndex 30 matches Gap 1
-          (AppShell.tsx empty-PV overlay) for visual-language consistency.
-          Single-condition render gate — no architectural exclusion here
-          (unlike Gap 1's splitTree === null gate). */}
-      {isBadgeDragOver && (
-        <div
-          data-testid="convlist-drop-preview"
-          className="absolute inset-0 pointer-events-none"
-          style={{
-            background: "rgba(255, 184, 150, 0.22)",
-            border: "2px solid rgba(255, 184, 150, 0.60)",
-            zIndex: 30,
-            transition: "opacity 120ms ease",
-          }}
-        />
-      )}
       {/* Header: mock v4 `.pv-panel-header` treatment (14px 16px padding +
           hairline border-bottom via --color-pv-border-quiet, 12px UPPERCASE
           700-weight 0.1em-tracked title in --color-pv-fg, 32x32 transparent
@@ -3286,6 +3146,7 @@ export function PrettyConversationsPanel({
                     onToggleCollapse={toggleProjectCollapse}
                     onNewConversationClick={(s) => handleNewConversationInProject(s, section.hostId)}
                     onDropRow={handleProjectDrop}
+                    resolveBadgeDrop={resolveBadgeDrop}
                     onRenameProject={(s, name) => handleRenameProject(s, name, section.hostId)}
                     onEditProjectFile={(s) => handleEditProjectFile(s, section.hostId)}
                     onArchiveProject={(s) => { void handleArchiveProject(s, section.hostId); }}

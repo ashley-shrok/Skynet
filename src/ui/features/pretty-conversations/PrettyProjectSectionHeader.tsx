@@ -37,16 +37,18 @@
 //     handlers own the modal state + API dispatch; the header just wires the
 //     item onClicks.
 //
-// Security invariants (T-117-08-01, T-117-08-02, T-117-08-03) — unchanged:
-//   - Type-gate on application/x-skynet-row ONLY. Badge drags + OS file drops
-//     never activate the overlay AND never reach onDropRow (Pitfall 7).
+// Security invariants (T-117-08-01, T-117-08-02, T-117-08-03):
+//   - Type-gate on application/x-skynet-row, or an identity badge that
+//     `resolveBadgeDrop` maps to a sidebar row (it then files as that row).
+//     OS file drops and unresolvable badges never activate the overlay AND
+//     never reach onDropRow (Pitfall 7).
 //   - JSON.parse wrapped in try/catch. Malformed payloads silent-drop.
 //   - `id` field required + non-empty; `rdpHostRow === true` REFUSED at the
 //     section boundary as defense-in-depth (backend also refuses per D-08 but
 //     the frontend gate short-circuits UX).
 //   - `isolation: isolate` on the wrapper sandboxes the overlay's z-index
 //     budget so it can't escape past outer stacking contexts (mirrors
-//     CollapsedPanelCloseLane.tsx:40 discipline).
+//     BadgeDropLane.tsx discipline).
 
 import {
   useState,
@@ -55,6 +57,13 @@ import {
 import { ChevronDown } from "lucide-react";
 
 import { useDragPreviewClaim } from "@/shell/drag-preview-session";
+import {
+  BADGE_MIME,
+  getDraggedBadge,
+  hasBadgeMime,
+  parseBadgePayload,
+  type DraggedBadge,
+} from "@/shell/badge-drag";
 
 import { RowKebabMenu, useRowKebabContextMenu } from "./RowKebabMenu";
 
@@ -94,6 +103,12 @@ export interface PrettyProjectSectionHeaderProps {
   /** Fired on a successful drop with the section's slug + parsed row payload. */
   onDropRow: (slug: string, payload: PrettyProjectDropPayload) => void;
   /**
+   * Resolves a dragged identity badge to the row payload it files as —
+   * null when the badge has no sidebar row (or can't be filed). Absent →
+   * badge drags aren't accepted here.
+   */
+  resolveBadgeDrop?: (badge: DraggedBadge | null) => PrettyProjectDropPayload | null;
+  /**
    * shape-sidebar-header-affordances: per-action callbacks for the section's
    * kebab items. All optional so the header can be mounted in test contexts
    * that don't exercise every action.
@@ -104,6 +119,9 @@ export interface PrettyProjectSectionHeaderProps {
 }
 
 const ROW_MIME = "application/x-skynet-row";
+
+const hasRowMime = (dt: DataTransfer | null | undefined) =>
+  !!dt && Array.from(dt.types).includes(ROW_MIME);
 
 /**
  * Per-project section wrapper: header + drop lane + collapsible rows.
@@ -119,6 +137,7 @@ export function PrettyProjectSectionHeader({
   onToggleCollapse,
   onNewConversationClick,
   onDropRow,
+  resolveBadgeDrop,
   onRenameProject,
   onEditProjectFile,
   onArchiveProject,
@@ -133,12 +152,16 @@ export function PrettyProjectSectionHeader({
     () => setIsDragOver(false),
   );
 
+  // Row drags, plus badge drags that resolve to a fileable row. Anything
+  // else (OS file drops, unresolvable badges) falls through without
+  // preventDefault so the browser's not-a-drop-target default holds
+  // (Pitfall 7).
+  const accepts = (dt: DataTransfer | null | undefined) =>
+    hasRowMime(dt) ||
+    (hasBadgeMime(dt) && resolveBadgeDrop !== undefined && resolveBadgeDrop(getDraggedBadge()) !== null);
+
   const onDragOver = (e: React.DragEvent<HTMLDivElement>) => {
-    // Type-gate FIRST — ONLY row drags activate the coral overlay. Badge
-    // drags + OS file drops fall through without preventDefault so the
-    // browser's default not-a-drop-target semantic is preserved (Pitfall 7).
-    const types = e.dataTransfer?.types;
-    if (!(types && Array.from(types).includes(ROW_MIME))) return;
+    if (!accepts(e.dataTransfer)) return;
     e.preventDefault();
     e.stopPropagation();
     setIsDragOver(true);
@@ -146,9 +169,7 @@ export function PrettyProjectSectionHeader({
   };
 
   const onDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
-    // Type-gate FIRST (mirrors PrettyConversationsPanel.tsx:1531-1539).
-    const types = e.dataTransfer?.types;
-    if (!(types && Array.from(types).includes(ROW_MIME))) return;
+    if (!accepts(e.dataTransfer)) return;
     // Bounding-rect stateless guard against child-boundary crossings —
     // moving the cursor between the header button and the rows region
     // fires dragleave on the outer div; the cursor is still inside the
@@ -168,15 +189,20 @@ export function PrettyProjectSectionHeader({
     // Clear overlay FIRST regardless of downstream branch (idempotent).
     setIsDragOver(false);
     releasePreview();
-    // Step 1: read the discriminator MIME. Empty string = not a row drop.
+    // Step 1: read the discriminator MIME. A badge drop files as the row
+    // it resolves to; no row MIME and no resolvable badge = not ours.
     const raw = e.dataTransfer?.getData(ROW_MIME) ?? "";
-    if (raw === "") return;
-    // Step 2: JSON.parse safely (T-117-08-01 — malformed payload silent drop).
     let parsed: unknown;
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      return;
+    if (raw === "") {
+      if (!hasBadgeMime(e.dataTransfer) || resolveBadgeDrop === undefined) return;
+      parsed = resolveBadgeDrop(parseBadgePayload(e.dataTransfer.getData(BADGE_MIME)));
+    } else {
+      // Step 2: JSON.parse safely (T-117-08-01 — malformed payload silent drop).
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        return;
+      }
     }
     // Step 3: shape validation. Must be an object with a non-empty string `id`.
     if (parsed === null || typeof parsed !== "object") return;

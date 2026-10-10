@@ -24,6 +24,7 @@ import {
   screen,
   waitFor,
   within,
+  act,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
@@ -2585,5 +2586,109 @@ describe("PrettyConversationsPanel: pinned and in-a-project are exclusive (Move-
     await vi.waitFor(() =>
       expect(unpinConversationSpy).toHaveBeenCalledWith("fleet::1::wren-session"),
     );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Identity badges dropped on sidebar sections file the conversation like its
+// row would (closing a badge moved to the BadgeDropLane).
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("PrettyConversationsPanel: badge drops file the conversation", () => {
+  // The tab id an open pane carries differs from its fleet row id — the
+  // badge resolves to the row by host + session.
+  const badgePayload = {
+    tabId: "Skynet-terminal-123",
+    dragId: "d1",
+    identityKey: "wren",
+    hostId: 1,
+    descriptor: { tabType: "terminal", sessionKind: "harness", targetTmuxSession: "wren-session" },
+  };
+  const badgeDt = () =>
+    makeDataTransferStub({
+      "text/plain": badgePayload.tabId,
+      "application/x-skynet-badge": JSON.stringify(badgePayload),
+    });
+  function startBadgeDrag(dt: ReturnType<typeof makeDataTransferStub>) {
+    const evt = new Event("dragstart", { bubbles: true });
+    Object.defineProperty(evt, "dataTransfer", { value: dt, configurable: true });
+    act(() => {
+      window.dispatchEvent(evt);
+    });
+  }
+  afterEach(() => {
+    act(() => {
+      window.dispatchEvent(new Event("dragend"));
+    });
+  });
+
+  function renderWith(rows: { middle?: MockRow[]; alpha?: MockRow[] }) {
+    mockIdentitiesByKey = new Map([["wren-session", { identityKey: "wren-session" }]]);
+    setSnapshot({
+      middle: rows.middle ?? [],
+      pinnedIds: new Set(),
+      projectSections: [{ slug: "alpha", displayName: "Alpha", rows: rows.alpha ?? [] }],
+    });
+    mockProjects = [
+      { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false },
+    ];
+    return render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={HOST_TREE}
+        onCreateSession={() => {}}
+        onDeactivateRow={() => {}}
+      />,
+    );
+  }
+  const wrenRow = () =>
+    makeRow({ id: "fleet::1::wren-session", host: makeHost("1", "hostA"), targetTmuxSession: "wren-session" });
+
+  it("badge on a project section → setSessionProject for the badge's identity", () => {
+    const { container } = renderWith({ middle: [wrenRow()] });
+    const section = container.querySelector('[data-testid="pv-project-section-alpha"]') as HTMLElement;
+    const dt = badgeDt();
+    startBadgeDrag(dt);
+    const evt = createEvent.dragOver(section, { dataTransfer: dt });
+    fireEvent(section, evt);
+    expect(evt.defaultPrevented).toBe(true);
+    dispatchDrop(section, dt);
+    expect(setSessionProjectSpy).toHaveBeenCalledExactlyOnceWith(1, "wren-session", "alpha");
+  });
+
+  it("badge on the Pinned zone → pins the badge's conversation", () => {
+    const { container } = renderWith({ middle: [wrenRow()] });
+    const pinnedZone = container.querySelector('[data-pinned-group="true"]') as HTMLElement;
+    const dt = badgeDt();
+    startBadgeDrag(dt);
+    dispatchDragOverAt(pinnedZone, 100, 20, dt);
+    dispatchDrop(pinnedZone, dt);
+    expect(pinConversationSpy).toHaveBeenCalledExactlyOnceWith("fleet::1::wren-session");
+  });
+
+  it("badge on Conversations → takes its conversation out of the project", () => {
+    const { container } = renderWith({ alpha: [wrenRow()] });
+    const flatMiddle = container.querySelector('[data-middle-group="true"]') as HTMLElement;
+    const dt = badgeDt();
+    startBadgeDrag(dt);
+    dispatchDragOverAt(flatMiddle, 100, 100, dt);
+    dispatchDrop(flatMiddle, dt);
+    expect(setSessionProjectSpy).toHaveBeenCalledExactlyOnceWith(1, "wren-session", null);
+  });
+
+  it("a badge with no sidebar row isn't accepted anywhere — and nothing in the sidebar closes it", () => {
+    const { container, getByTestId } = renderWith({ middle: [] });
+    const section = container.querySelector('[data-testid="pv-project-section-alpha"]') as HTMLElement;
+    const dt = badgeDt();
+    startBadgeDrag(dt);
+    const over = createEvent.dragOver(section, { dataTransfer: dt });
+    fireEvent(section, over);
+    expect(over.defaultPrevented).toBe(false);
+    const panelOver = createEvent.dragOver(getByTestId("pretty-conversations-panel"), { dataTransfer: dt });
+    fireEvent(getByTestId("pretty-conversations-panel"), panelOver);
+    expect(panelOver.defaultPrevented).toBe(false);
+    dispatchDrop(section, dt);
+    expect(setSessionProjectSpy).not.toHaveBeenCalled();
+    expect(pinConversationSpy).not.toHaveBeenCalled();
   });
 });

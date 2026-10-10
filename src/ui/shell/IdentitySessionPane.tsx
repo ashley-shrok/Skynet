@@ -9,7 +9,7 @@ import { IdentityBadge } from "@/features/terminal/IdentityBadge";
 import { IdentityModal } from "@/features/pretty-view/IdentityModal";
 import { MessageQueueDrawer } from "@/features/terminal/MessageQueueDrawer";
 import { sessionMatchKey, hueFromSessionName } from "@/features/terminal/session-hue";
-import { useIdentities, applyIdentityChange } from "@/state/identities-store";
+import { useIdentities } from "@/state/identities-store";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useTabsSafe } from "@/shell/TabContext";
 import { specForTab, encodeWorkspaceSpec } from "@/lib/tab-url";
@@ -23,14 +23,9 @@ import {
   pinConversation,
   unpinConversation,
   useProjects,
-  markPendingArchive,
-  clearPendingArchive,
-  removeFleetSession,
 } from "@/state/conversation-store";
-// Phase 115 Plan 115-06 (D-01): archive API client for the badge-menu
-// Archive item. Same helper the panel's handleArchive uses so both entry
-// points hit the identical backend endpoint.
-import { archiveIdentity } from "@/api/identity-archive-api";
+// Badge-menu Archive item — shared with the badge drop lane's archive zone.
+import { confirmAndArchiveIdentityPane } from "./archive-identity-pane";
 // Badge-menu Move-to-project (2026-09-27): same wire the row menu uses via
 // PrettyConversationsPanel.handleRowMoveToProject.
 import { setSessionProject } from "@/api/session-project-api";
@@ -320,6 +315,12 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
         });
       }
 
+      // Close — the click path for what dropping the badge on the close
+      // lane does. Desktop-only: on a phone the pane IS the screen.
+      if (!isMobile && onCloseTab) {
+        items.push({ label: "Close", onClick: () => onCloseTab(tabId) });
+      }
+
       // Phase 115 Plan 115-06 (D-01, D-02, D-03, D-04): Archive item.
       // Mirrors the panel row menu's Archive slot BYTE-FOR-BYTE — same
       // label, same danger styling, same confirmation copy, same
@@ -351,37 +352,13 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
         items.push({
           label: "Archive",
           danger: true,
-          onClick: () => {
-            if (!window.confirm(`archive ${label}? this can't be undone.`)) return;
-            // D-04 side effect: close the visible pane BEFORE firing the
-            // API call (mirrors the deleted Hide handler + the panel's
-            // handleArchive).
-            onCloseTab?.(tabId);
-            // Optimistic sidebar removal — mirrors
-            // PrettyConversationsPanel.handleArchive so the row disappears
-            // immediately from the sidebar instead of lingering until the
-            // next fleet-status pulse retires it. markPendingArchive FIRST so
-            // any in-flight upsert races silent-drop rather than re-inserting.
-            markPendingArchive(hostIdNum, identityKey);
-            removeFleetSession(hostIdNum, identityKey);
-            applyIdentityChange(null, identityKey, hostIdNum);
-            void (async () => {
-              try {
-                await archiveIdentity(hostIdNum, identityKey);
-              } catch (err) {
-                clearPendingArchive(hostIdNum, identityKey);
-                console.warn({
-                  operation: "identity_archive_failed",
-                  hostId: hostIdNum,
-                  identityKey,
-                  errMessage: err instanceof Error ? err.message : String(err),
-                });
-                window.alert(
-                  `archive failed: ${err instanceof Error ? err.message : String(err)}`,
-                );
-              }
-            })();
-          },
+          onClick: () =>
+            confirmAndArchiveIdentityPane({
+              hostId: hostIdNum,
+              identityKey,
+              label,
+              closePane: () => onCloseTab?.(tabId),
+            }),
         });
       }
 

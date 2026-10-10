@@ -44,8 +44,10 @@ export interface IdentityBadgeProps {
   // discriminate on the application/x-skynet-badge MIME:
   //   - Phase 56 Pane onDrop reads text/plain and routes to
   //     openSessionInTree(tabId, path, edge) — rearranges within the tree.
-  //   - Phase 58 Plan 02 conv-list onDrop reads application/x-skynet-badge
-  //     and calls closeTab(tabId) — full close.
+  //   - BadgeDropLane reads application/x-skynet-badge and closes the tab
+  //     (or archives the identity, from its archive zone).
+  //   - Sidebar sections (project / Pinned / Conversations) file the
+  //     conversation the badge stands for, as its row drag would.
   // Absent tabId OR mobile viewport → draggable=false, no handler wired.
   tabId?: string;
   // Optional descriptor for cross-window drag support. When present AND the
@@ -424,11 +426,10 @@ export function IdentityBadge({
   //                                        which routes to openSessionInTree
   //                                        (rearrange path — reused as-is).
   //   2. application/x-skynet-badge:
-  //        JSON.stringify({tabId})       — NEW MIME distinct from patch #511's
-  //                                        row-drag MIME. Phase 58 Plan 02
-  //                                        conv-list onDrop reads this to
-  //                                        discriminate badge-close from
-  //                                        stray row drags. Payload minimal.
+  //        JSON.stringify({tabId, …})    — distinct from patch #511's
+  //                                        row-drag MIME; parsed by
+  //                                        shell/badge-drag.ts for the
+  //                                        BadgeDropLane + sidebar sections.
   //   3. effectAllowed = "move"          — matches conv-list row convention.
   //
   // Structured log (PV58-STRUCTURED-LOGGING, T-58-01-01 mitigation):

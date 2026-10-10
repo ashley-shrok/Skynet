@@ -51,7 +51,7 @@ if (typeof window !== "undefined" && !window.ResizeObserver) {
 import { PrettyProjectSectionHeader } from "./PrettyProjectSectionHeader";
 
 // Helper: build a stub DataTransfer with a Map-backed store. Mirrors the shape
-// used at PrettyConversationsPanel.test.tsx and CollapsedPanelCloseLane.test.tsx.
+// used at PrettyConversationsPanel.test.tsx and BadgeDropLane.test.tsx.
 function makeDataTransferStub(entries: Record<string, string> = {}) {
   const store = new Map<string, string>(Object.entries(entries));
   return {

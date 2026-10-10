@@ -18,6 +18,7 @@ distributed: true
 <!-- 2026-10-10 (voice mode exclusive): one conversation in voice mode at a time — while on, every mic and every other voice-mode button is disabled; message speak buttons unaffected. -->
 <!-- 2026-10-10 (badge kebab): the conversation badge gained an always-visible ⋮ at the pill's right end opening the same menu style as sidebar rows; right-click opens it too; badge long-press retired. -->
 <!-- 2026-10-10 (scheduled tasks rename): "scheduled agents" → "scheduled tasks" throughout, matching the app's clock-icon modal; on-disk paths (`~/fleet/scheduled-agents/`, `scheduled-agent.json`) unchanged. -->
+<!-- 2026-10-10 (badge drop lane): dragging a badge or app bar always shows a lane beside the sidebar — top two-thirds Close, bottom third Archive (with confirm); dropping on the sidebar no longer closes — a badge dropped on a project / Pinned / Conversations files it there; new Close item on the badge menu and the open row's menu. -->
 
 # Identity Skill
 
@@ -713,6 +714,8 @@ not something agents drive.
     Add / change / remove that key to move in / between / out; adding one
     means also removing `.pinned`. UI reflects it within a few seconds.
     **User-gated.**
+  - **Close** — only while that conversation is open (desktop): closes
+    its pane. *Agent-side: none.*
   - **Archive** — retires the identity. See § On `/id archive`.
 
   The same menu CONTENT appears on the identity badge in the open
@@ -752,10 +755,18 @@ not something agents drive.
   or app) into the content area opens it (or, if something is already
   open, presents a placement UI so the user can split the view —
   arbitrary depth). Each open conversation pane has a **badge**, and each
-  open app pane has its **app bar** (below); dragging either back to the
-  sidebar closes that pane, dragging it to a different spot in the split
-  tree rearranges panes. Moving an app pane keeps the app on the page it
-  was on.
+  open app pane has its **app bar** (below); dragging it to a different
+  spot in the split tree rearranges panes. Moving an app pane keeps the app
+  on the page it was on.
+  While a badge or app bar is being dragged, a **drop lane** appears along
+  the left edge of the content area (beside the sidebar, or at the window
+  edge when the sidebar is collapsed): its top two-thirds is **Close**
+  (✕ — closes that pane), its bottom third **Archive** (archives the agent
+  after the usual "can't be undone" confirm; shown only for an agent's own
+  conversation, not relay rooms or apps). Dropping a conversation's badge
+  on a project, Pinned, or Conversations files it there, exactly like
+  dragging its sidebar row, and the pane stays open. Dropping anywhere
+  else in the sidebar does nothing.
   *Agent-side: none.* Pure client-side window management; no persistent
   state, no disk artifact.
 
@@ -766,8 +777,8 @@ not something agents drive.
   pane, and back/forward grey out when there's nowhere to go. Going back
   or forward loads that page fresh (it isn't restored mid-scroll).
   Center: the app's icon and name. The **whole bar is the drag handle**, same as a
-  conversation's badge: drag it to the sidebar to close the app, onto
-  another pane to rearrange, or into another Skynet window. On a phone the
+  conversation's badge: drag it to the drop lane's Close to close the app,
+  onto another pane to rearrange, or into another Skynet window. On a phone the
   bar shows but isn't draggable.
   *Agent-side: none.* Pure client-side navigation; the app never knows
   it's being navigated from the bar.
@@ -880,7 +891,9 @@ crown, then gear.
   end — always visible, and the way in on a phone — opens the badge menu;
   right-clicking the badge opens the same menu. Same look as the sidebar
   row's menu: **Move to new window** (desktop only), **Switch to terminal
-  / chat view** (admins only), **Move to** (Pinned + projects), **Archive**.
+  / chat view** (admins only), **Move to** (Pinned + projects), **Close**
+  (desktop only), **Archive**. Drag = see § Drag & drop (drop lane,
+  filing into sidebar sections).
 
 - **Identity modal (click the badge).** Three tabs:
   - **Identity file** — view and edit the identity's own `<name>.md`.

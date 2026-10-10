@@ -39,13 +39,11 @@ import { CommandPalette } from "@/shell/CommandPalette";
 // sidebar is now the only visible sidebar-panel content. Panel FILES stay on
 // disk (Phase 12+ scope-fence).
 import { SplitView } from "@/shell/SplitView";
-// quick-260829-ih3: CollapsedPanelCloseLane — proxy close-target lane that
-// stands in for the PrettyConversationsPanel during a badge drag when the
-// sidebar is closed. See .planning/shapes/shape-drop-lane-close-in-split-view.md.
-import CollapsedPanelCloseLane, {
-  useDraggedBadgeTabId,
-  shouldMountCloseLane,
-} from "@/shell/CollapsedPanelCloseLane";
+// BadgeDropLane — the close / archive lane that appears beside the sidebar
+// during an identity-badge drag.
+import BadgeDropLane, { shouldMountBadgeDropLane } from "@/shell/BadgeDropLane";
+import { useDraggedBadge, archivableIdentity, type DraggedBadge } from "@/shell/badge-drag";
+import { confirmAndArchiveIdentityPane } from "@/shell/archive-identity-pane";
 import { useDragPreviewClaim } from "@/shell/drag-preview-session";
 import { renderTabContent } from "@/shell/tabUtils";
 import type {
@@ -523,11 +521,9 @@ export function AppShell({
     byHostKey: identitiesByHostKey,
     loaded: identitiesLoaded,
   } = useIdentities();
-  // quick-260829-ih3: window-scoped hook — returns the tabId of the currently-
-  // in-flight identity badge drag (via IdentityBadge dragstart payload MIME
-  // application/x-skynet-badge), or null if none is in flight. Feeds the
-  // CollapsedPanelCloseLane mount gate below.
-  const draggedBadgeTabId = useDraggedBadgeTabId();
+  // The identity badge being dragged in this window (null if none) — feeds
+  // the BadgeDropLane below.
+  const draggedBadge = useDraggedBadge();
 
   // Phase 41 Plan 02: document.title retarget — read the active tab's tmux
   // session name from the fleet-status broadcast store (session-tmux-store)
@@ -2483,6 +2479,23 @@ export function AppShell({
     doCloseTab(id);
   }
 
+  // Badge dropped on the lane's archive zone. Confirm copy uses the sidebar
+  // row's label (task, else displayName, else key) — same as the menu item.
+  // The archive confirm stands in for the close confirm, so the pane closes
+  // directly.
+  function archiveBadgePane(badge: DraggedBadge) {
+    const target = archivableIdentity(badge);
+    if (target === null) return;
+    const resolved =
+      identitiesByHostKey?.get(`${target.hostId}::${target.identityKey}`) ??
+      identitiesByKey.get(target.identityKey);
+    confirmAndArchiveIdentityPane({
+      ...target,
+      label: resolved?.task || resolved?.displayName || target.identityKey,
+      closePane: () => doCloseTab(badge.tabId),
+    });
+  }
+
   // Phase 56 Plan 02: the four preset-mode helpers (add / remove / quick /
   // assign) are RETIRED. Their consumers were the retired SplitView prop set
   // (slot-array assignment, mode-enum preset picker). The new tree model has
@@ -3378,15 +3391,6 @@ export function AppShell({
           username={meUsername}
           onOpenApp={onOpenApp}
           onArchiveApp={onArchiveApp}
-          // Phase 58 PV58-CONVLIST-DROP-TARGET-CLOSE + PV58-DOCLOSETAB-TREE-
-          // RECONCILE: badge drop on the conv-list panel closes the tab.
-          // closeTab already reconciles splitTree via removeLeaf inside
-          // doCloseTab (AppShell.tsx:1498) — no additional wiring needed
-          // here. openTabIds is the validation source for the panel's drop
-          // guard (per security_config / threat T-58-02-01: validate the
-          // parsed tabId matches an entry in currently-open tabs before
-          // firing onCloseSession).
-          onCloseSession={closeTab}
           // Phase 123 shape 2 (D-07/D-08): lift the EXISTING feedbackOpen
           // state atom (L357) to "general" when the panel's header
           // "Send feedback" button is clicked. Reuses the shape-1
@@ -3397,7 +3401,6 @@ export function AppShell({
           onOpenFeedback={() =>
             setFeedbackOpen((prev) => (prev === false ? "general" : prev))
           }
-          openTabIds={tabs.map((t) => t.id)}
           onConversationSelected={
             isTouchDevice ? () => navigateToView() : undefined
           }
@@ -3867,29 +3870,19 @@ export function AppShell({
               become dead weight. user's UAT (2026-07-24) confirmed two
               chevrons were rendering simultaneously on mobile-in-conv;
               deleting this block resolves the duplicate. */}
-          {/* quick-260829-ih3: CollapsedPanelCloseLane — proxy close-target
-              for the collapsed conv-list panel during a badge drag. Gate
-              matches the shape file's suppression rules:
-                - !isMobile              (no split view on mobile)
-                - !isMobileListScreen    (sidebar occupies the whole viewport)
-                - !sidebarOpen           (real panel is already the drop
-                                          target — no need for a proxy)
-              Mounted INSIDE the main-content column (:2253 outer, which is
-              already `relative flex flex-col flex-1 min-w-0 overflow-hidden`)
-              but OUTSIDE the inner :2291 wrapper that owns the empty-PV drop
-              handlers — so the lane's absolute-positioned coral hover state
-              doesn't compete with PrettyView drop targets. Wire pass-throughs
-              mirror the panel-drop wire at :1919 verbatim (closeTab +
-              tabs.map(t => t.id)) — same close routine, new surface. */}
-          {shouldMountCloseLane({
-            isMobile,
-            isMobileListScreen,
-            sidebarOpen,
-          }) && (
-            <CollapsedPanelCloseLane
-              draggedBadgeTabId={draggedBadgeTabId}
+          {/* BadgeDropLane — close / archive target during a badge drag.
+              Mounted INSIDE the main-content column (already `relative`), so
+              left:0 is the content area's left edge: beside the sidebar when
+              it's open, the window edge when it's collapsed. OUTSIDE the
+              inner wrapper that owns the empty-PV drop handlers, so the
+              lane's hover state doesn't compete with PrettyView targets. */}
+          {shouldMountBadgeDropLane({ isMobile, isMobileListScreen }) && (
+            <BadgeDropLane
+              draggedBadge={draggedBadge}
               openTabIds={tabs.map((t) => t.id)}
               onCloseTab={closeTab}
+              onArchiveTab={archiveBadgePane}
+              canArchive={draggedBadge !== null && archivableIdentity(draggedBadge) !== null}
             />
           )}
           <div className="flex flex-col flex-1 min-w-0 min-h-0 overflow-hidden">

@@ -763,6 +763,20 @@ describe("IdentitySessionPane — Phase 41 Plan 02", () => {
     expect(labels).not.toContain("Unpin");
   });
 
+  it("BADGE-MENU-CLOSE: with onCloseTab, desktop shows Close before Archive and it closes the pane; mobile has none", async () => {
+    await setMobile(false);
+    const onCloseTab = vi.fn();
+    const { unmount } = render(<IdentitySessionPane {...makeProps({ onCloseTab })} />);
+    expect(itemLabels()).toEqual(["Move to new window", "Move to", "Close", "Archive"]);
+    const items = capturedPrettyViewProps?.identityBadgeContextMenuItems as Array<{ label: string; onClick?: () => void }>;
+    items.find((it) => it.label === "Close")!.onClick!();
+    expect(onCloseTab).toHaveBeenCalledWith("tab-1");
+    unmount();
+    await setMobile(true);
+    render(<IdentitySessionPane {...makeProps({ onCloseTab })} />);
+    expect(itemLabels()).not.toContain("Close");
+  });
+
   it("BADGE-MENU-2: non-admin + desktop → Switch item absent; Move to new window still present", async () => {
     await setMobile(false);
     render(<IdentitySessionPane {...makeProps({ isAdmin: false })} />);

@@ -554,7 +554,7 @@ export function PrettyConversationRow({
     : null;
 
   // Kebab items (shared by the ⋮ trigger and right-click on the row body).
-  // (Open in new window / Move to / Kill / Archive).
+  // (Open in new window / Move to / Close / Kill / Archive).
   const kebabItems = ((): RowKebabMenuItem[] => {
     const items: RowKebabMenuItem[] = [];
     // Open in new window — desktop-only, only when the row is URL-
@@ -629,6 +629,16 @@ export function PrettyConversationRow({
           testId: "pv-row-kebab-item-move-to",
         });
       }
+    }
+    // Close — closes this conversation's open pane; same as the badge
+    // menu's Close and dropping the badge on the close lane. Desktop-only
+    // (on a phone the pane is the whole screen).
+    if (!isMobile && inActiveSet && onDeactivate) {
+      items.push({
+        label: "Close",
+        onClick: onDeactivate,
+        testId: "pv-row-kebab-item-close",
+      });
     }
     // Kill — hard-terminates the underlying tmux session. Gated to
     // rows without an identity backing (identity rows have /id save

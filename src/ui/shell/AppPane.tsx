@@ -88,9 +88,10 @@ import { subscribeDragSessionEnd } from "./drag-preview-session";
 // The pane is no longer chrome-free: a glass bar sits above the iframe, always
 // visible. The WHOLE bar (minus its buttons) is the pane's drag handle and
 // writes the same application/x-skynet-badge payload an IdentityBadge does,
-// so every existing badge drop path (split edges/center, sidebar close, the
-// collapsed-sidebar close lane, cross-window via the descriptor) applies with
-// no app-specific branch. Not draggable on mobile (no split view there).
+// so every existing badge drop path (split edges/center, the badge drop
+// lane's Close zone, cross-window via the descriptor) applies with no
+// app-specific branch. Sidebar sections don't take it (no sidebar row) and
+// the lane offers no Archive for it. Not draggable on mobile (no split view there).
 //
 // Back / forward / reload act on the iframe only. The bar keeps its own list
 // of the pages this pane has visited (app-frame-history.ts) and moves by

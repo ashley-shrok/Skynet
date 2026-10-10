@@ -70,7 +70,7 @@
 // and identities-store to per-test-controllable outputs.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { act, render, fireEvent, screen, within } from "@testing-library/react";
+import { act, render, fireEvent, screen, within, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { Identity } from "@/api/identities-api";
 import type { ConversationRow as ConversationRowShape } from "@/state/conversation-store";
@@ -2938,5 +2938,39 @@ describe("PrettyConversationRow: Move to project menu item (shape-move-to-projec
     );
     const menu = await openRowKebab(container);
     expect(within(menu).queryByTestId("pv-row-kebab-item-move-to")).toBeNull();
+  });
+});
+
+describe("PrettyConversationRow: Close menu item", () => {
+  const renderRow = (props: { inActiveSet: boolean; variant?: "desktop" | "mobile" }) => {
+    const onDeactivate = vi.fn();
+    const utils = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant={props.variant ?? "desktop"}
+        onSelect={vi.fn()}
+        onDeactivate={onDeactivate}
+        inActiveSet={props.inActiveSet}
+      />,
+    );
+    return { ...utils, onDeactivate };
+  };
+
+  it("an open conversation's menu has Close, which closes its pane", async () => {
+    const { container, onDeactivate } = renderRow({ inActiveSet: true });
+    await openRowKebabAndClickItem(container, "Close");
+    expect(onDeactivate).toHaveBeenCalledTimes(1);
+  });
+
+  it("no Close when the conversation isn't open, or on mobile", async () => {
+    const closed = renderRow({ inActiveSet: false });
+    let menu = await openRowKebab(closed.container);
+    expect(within(menu).queryByTestId("pv-row-kebab-item-close")).toBeNull();
+    cleanup();
+    const mobile = renderRow({ inActiveSet: true, variant: "mobile" });
+    menu = await openRowKebab(mobile.container);
+    expect(within(menu).queryByTestId("pv-row-kebab-item-close")).toBeNull();
   });
 });
