@@ -74,6 +74,7 @@ import type { SSHHostWithStatus } from "@/main-axios";
 // Phase 11 Plan 03 (PURGE-03): ConnectionsPanel import RETIRED alongside AppRail.
 import { PrettyConversationsPanel } from "@/features/pretty-conversations/PrettyConversationsPanel";
 import { setTtsPlaybackRate } from "@/features/pretty-view/webAudioStreamPlayer";
+import { setFileSpeakVoice } from "@/features/pretty-view/file-viewers/file-speak";
 import { setVoiceModeSettings } from "@/features/pretty-view/voice-mode-settings";
 // Phase 122 Plan 03 Task 3 — ConversationSearchResult type for the new
 // onSearchResultOpenActive prop wired to PrettyConversationsPanel below
@@ -1524,6 +1525,12 @@ export function AppShell({
   useEffect(() => {
     setTtsPlaybackRate(userPrefs.ttsPlaybackRate);
   }, [userPrefs.ttsPlaybackRate]);
+
+  // File speak buttons read in the user's fallback voice (files aren't tied
+  // to an identity) — push it into the file-speak module.
+  useEffect(() => {
+    setFileSpeakVoice(userPrefs.fallbackVoice);
+  }, [userPrefs.fallbackVoice]);
 
   // Hands-free voice mode turn-end preference → the voice-mode settings module.
   useEffect(() => {

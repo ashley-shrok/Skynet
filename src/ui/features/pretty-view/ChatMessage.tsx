@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect, useMemo } from "react";
+import React, { useRef, useState, useMemo } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
@@ -13,9 +13,7 @@ import { preprocessCommandTriplets, splitMarkers } from "./commandTags";
 import { parseInjectedUserTurn } from "@/api/pretty-view-upload-protocol";
 import { AttachmentChipStrip } from "./AttachmentChipStrip";
 import { CopyableBlock } from "./CopyableBlock";
-import { postSpeakStream } from "@/api/voice-api";
-import { notifySpeakFailed, speakErrorStatus } from "./speak-errors";
-import { createWebAudioStreamPlayer } from "./webAudioStreamPlayer";
+import { useSpeakPlayback } from "./useSpeakPlayback";
 import { useEditableFileEligibility } from "./use-editable-file-eligibility";
 import { FileChip } from "./FileChip";
 import { WidgetBubble } from "./WidgetBubble";
@@ -49,27 +47,6 @@ function buildSkynetFileUrl(hostName: string, landingPath: string): string {
     .join("/");
   return `${window.location.origin}/file/${encodedHost}/${encodedPath}`;
 }
-import {
-  getCurrentPlayer,
-  setCurrentPlayer,
-  getCurrentOwner,
-  setCurrentOwner,
-  clearCurrentPlayer,
-} from "./speak-singleton";
-
-// Patch #237 (Phase 19): singleton now tracks a WebAudioStreamPlayer instance.
-// The player encapsulates the AudioContext, scheduled AudioBufferSourceNodes,
-// and the fetch reader loop. See ./webAudioStreamPlayer.ts.
-// Cross-bubble Stop / new-bubble-preempt semantics preserved: starting on
-// bubble A while bubble B plays stops B first; clicking Stop on the playing
-// bubble stops it; unmount cleanup stops if this bubble owns the singleton.
-//
-// Phase 97 UAT batch #6 (2026-09-10): the singleton pair now lives in
-// ./speak-singleton.ts so RelayInboundBubble can share the SAME pair —
-// tapping speak on either component preempts the other. Access via the
-// getCurrentPlayer / setCurrentPlayer / getCurrentOwner / setCurrentOwner /
-// clearCurrentPlayer helpers imported above.
-
 // Presentational chat bubble for one conversational message.
 //
 // Content is rendered as markdown (GFM) via react-markdown so **bold**,
@@ -173,8 +150,6 @@ export function ChatMessage({
   // D-01: hook fires for both roles; user messages never carry tailnet URLs
   // so the Set stays empty. Simpler than a conditional hook (Rules of Hooks).
   const eligibleUrls = useEditableFileEligibility(eventId ?? null, content);
-  const bubbleIdRef = useRef(Symbol("speak-bubble"));
-  const [speakState, setSpeakState] = useState<"idle" | "loading" | "playing" | "paused">("idle");
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Phase 124 Plan 01 (D-39): leaf-level feedback-enabled subscription. When
@@ -193,180 +168,21 @@ export function ChatMessage({
   const [thumbsUpPressed, setThumbsUpPressed] = useState<boolean>(false);
   const [thumbsDownPressed, setThumbsDownPressed] = useState<boolean>(false);
 
-  // Cleanup: stop player on unmount if this bubble owns it.
-  useEffect(() => {
-    return () => {
-      if (getCurrentOwner() === bubbleIdRef.current) {
-        const owner = bubbleIdRef.current;
-        console.info(`[tts] stop-current owner=${owner.toString()} trigger=unmount`);
-        getCurrentPlayer()?.stop();
-        clearCurrentPlayer();
-      }
-    };
-  }, []);
-
-  // startSpeak: extracted fresh-play path (cross-bubble preempt + loading +
-  // fetch + play). Called by onSpeakClick (fresh-play branch). Auto-speak
-  // (long-press to read every new reply) was retired 2026-10-06 in favour of
-  // hands-free voice mode on the compose mic (useVoiceMode).
-  async function startSpeak(trigger: "user-click" = "user-click") {
-    // If another bubble is playing (or loading, or paused), stop it first
-    // (cross-bubble preempt). This is also the only cancel-from-paused path.
-    const preemptTarget = getCurrentPlayer();
-    if (preemptTarget) {
-      const prevOwner = getCurrentOwner();
-      console.info(`[tts] stop-current owner=${prevOwner?.toString() ?? "null"} trigger=new-bubble`);
-      preemptTarget.stop();
-      clearCurrentPlayer();
-    }
-
-    setSpeakState("loading");
-    const owner = bubbleIdRef.current;
-
-    // Speak-start — entry log for every TTS invocation.
-    // 2026-09-28 cutoff investigation: pin whether innerText silently drops
-    // rendered content vs the raw message prop by logging both lengths on
-    // every invocation. A gap here (innerText < content) means the DOM is
-    // hiding text from the speak path — a different bug from Polly
-    // truncation, and one we can't tell apart from the backend alone.
-    const innerText = containerRef.current?.innerText;
-    const text = innerText ?? content;
-    const contentLen = content?.length ?? 0;
-    const innerTextLen = innerText?.length ?? -1;
-    console.info(`[tts] speak-start owner=${owner.toString()} textLen=${text.length} contentLen=${contentLen} innerTextLen=${innerTextLen} voices=[${speakVoices.join(",")}] trigger=${trigger}`);
-
-    const player = createWebAudioStreamPlayer({
-      onEnded: () => {
-        // Only clear if this bubble still owns the singleton — guard against
-        // a race where a NEW speak-click already replaced the singleton
-        // (setSpeakState on the OLD bubble would flash "idle" briefly and
-        // race the new bubble's "loading" render).
-        if (getCurrentOwner() === owner) {
-          console.info(`[tts] media-ended owner=${owner.toString()}`);
-          clearCurrentPlayer();
-          setSpeakState("idle");
-        }
-      },
-      onError: (err) => {
-        // Log for observability; UI returns to idle so the user can retry,
-        // and a notice says speech stopped (supersedes patch #237's
-        // no-toast tradeoff: with selectable TTS providers a failing
-        // provider must never look like silence).
-        // D-05: extract err fields explicitly — never JSON.stringify(event).
-        const errName = err instanceof Error ? err.name : "unknown";
-        const errMessage = err instanceof Error ? err.message : String(err);
-        console.error(`[tts] player-error owner=${owner.toString()} errName="${errName}" errMessage="${errMessage}"`);
-        if (getCurrentOwner() === owner) {
-          clearCurrentPlayer();
-          setSpeakState("idle");
-          notifySpeakFailed();
-        }
-      },
-      onPlaying: () => {
-        console.info(`[tts] media-playing owner=${owner.toString()}`);
-      },
-      onCanPlay: () => {
-        console.info(`[tts] media-canplay owner=${owner.toString()}`);
-      },
-      onPause: () => {
-        console.info(`[tts] media-pause owner=${owner.toString()}`);
-      },
-      onStalled: () => {
-        console.warn(`[tts] media-stalled owner=${owner.toString()}`);
-      },
-      onSuspend: () => {
-        console.warn(`[tts] media-suspend owner=${owner.toString()}`);
-      },
-    });
-
-    // Install the singleton BEFORE the fetch so a same-tick preempt from
-    // another bubble sees a non-null currentPlayer and can stop us cleanly.
-    setCurrentPlayer(player);
-    setCurrentOwner(owner);
-
-    try {
-      // Fetch stage — D-02 instrumentation.
-      console.info(`[tts] fetch-start owner=${owner.toString()} url=/voice/speak-stream textLen=${text.length}`);
-      const response = await postSpeakStream(text, speakVoices);
-      // Race check: if another bubble preempted us during the fetch,
-      // currentOwner has changed. Bail out before scheduling any audio.
-      if (getCurrentOwner() !== owner) {
-        console.warn(`[tts] preempt-during-fetch owner=${owner.toString()} newOwner=${getCurrentOwner()?.toString() ?? "null"}`);
-        return;
-      }
-      console.info(`[tts] fetch-resolved status=${response.status} ok=${response.ok} owner=${owner.toString()}`);
-      if (!response.ok) {
-        console.error(`[tts] fetch-error owner=${owner.toString()} status=${response.status} statusText="${response.statusText}"`);
-        throw new Error(`postSpeakStream returned ${response.status}`);
-      }
-      setSpeakState("playing");
-      // Decode/audio-context init — the WebAudioStreamPlayer creates an AudioContext
-      // internally on play(). Log the play-attempt before delegating.
-      console.info(`[tts] decode-init owner=${owner.toString()} contextState=n/a`);
-      // play-attempt: fire before delegating to player.play() which drives the read loop.
-      console.info(`[tts] play-attempt owner=${owner.toString()} src=stream`);
-      // Fire-and-forget: play() drives its own read loop; we hear back via callbacks.
-      void player.play(response).then(() => {
-        console.info(`[tts] play-attempt owner=${owner.toString()} result=success`);
-      }).catch((err: unknown) => {
-        // Extract name/message from both Error and non-Error throwables.
-        // DOMException does not extend Error in all environments (JSDOM, older
-        // Safari) — check for a .name property on any object before falling
-        // back to "unknown". This ensures NotAllowedError detection is robust.
-        const errName =
-          err instanceof Error
-            ? err.name
-            : (err != null && typeof (err as Record<string, unknown>).name === "string"
-                ? (err as { name: string }).name
-                : "unknown");
-        const errMessage =
-          err instanceof Error
-            ? err.message
-            : (err != null && typeof (err as Record<string, unknown>).message === "string"
-                ? (err as { message: string }).message
-                : String(err));
-        if (errName === "NotAllowedError") {
-          console.warn(`[tts] play-attempt owner=${owner.toString()} result=blocked errName="NotAllowedError" errMessage="${errMessage}"`);
-        } else {
-          console.error(`[tts] play-attempt owner=${owner.toString()} result=error errName="${errName}" errMessage="${errMessage}"`);
-        }
-      });
-    } catch (err) {
-      const errName = err instanceof Error ? err.name : "unknown";
-      const errMessage = err instanceof Error ? err.message : String(err);
-      console.error(`[tts] fetch-error owner=${owner.toString()} errName="${errName}" errMessage="${errMessage}"`);
-      if (getCurrentOwner() === owner) {
-        clearCurrentPlayer();
-        setSpeakState("idle");
-        notifySpeakFailed(speakErrorStatus(err));
-      }
-    }
-  }
-
-  async function onSpeakClick(e: React.MouseEvent) {
-    e.stopPropagation();
-
-    // Same-bubble click while playing: pause. AudioContext.suspend() freezes
-    // the context clock — already-scheduled sources and any that arrive from
-    // the read loop during the pause naturally queue up until resume.
-    if (speakState === "playing" && getCurrentOwner() === bubbleIdRef.current) {
-      void getCurrentPlayer()?.pause();
-      setSpeakState("paused");
-      return;
-    }
-
-    // Same-bubble click while paused: resume. If the browser killed the
-    // AudioContext under us (long background suspension), the player fires
-    // onError → the handler below flips speakState back to idle.
-    if (speakState === "paused" && getCurrentOwner() === bubbleIdRef.current) {
-      void getCurrentPlayer()?.resume();
-      setSpeakState("playing");
-      return;
-    }
-
-    // Fresh-play path — delegated to startSpeak().
-    void startSpeak("user-click");
-  }
+  // Speak apparatus (state, pause/resume, cross-bubble preempt) — shared
+  // with RelayInboundBubble and the file viewer. Reads the rendered text at
+  // click time. 2026-09-28 cutoff investigation: speak-start logs innerText
+  // vs the raw prop, so a DOM hiding text from the speak path shows in logs.
+  const speakLensRef = useRef("");
+  const { speakState, onSpeakClick } = useSpeakPlayback({
+    ownerName: "speak-bubble",
+    voices: speakVoices,
+    getText: () => {
+      const innerText = containerRef.current?.innerText;
+      speakLensRef.current = `contentLen=${content?.length ?? 0} innerTextLen=${innerText?.length ?? -1}`;
+      return innerText ?? content;
+    },
+    logFields: () => speakLensRef.current,
+  });
 
   // Phase 05 Plan 03: sender-side chip render for injected user turns.
   // When a user-role message's content matches the exact format produced

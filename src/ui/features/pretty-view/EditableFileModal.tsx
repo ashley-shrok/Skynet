@@ -18,6 +18,7 @@ import {
   type BinaryDraft,
 } from "./file-viewers/registry";
 import { base64ToBytes, decodeUtf8, looksLikeText } from "./file-viewers/text-sniff";
+import { FileSpeakButton } from "./file-viewers/FileSpeakButton";
 
 /**
  * Monotonic mtime counter (rev-3 2026-08-14 code-review M4). Previously the
@@ -379,6 +380,7 @@ export default function EditableFileModal({
       mode={viewMode ?? undefined}
       onModeChange={setViewMode}
       hideModeSwitcher={true}
+      hideSpeakButton={true}
       onBinaryDraftChange={setBinaryDraft}
     />
   );
@@ -393,11 +395,18 @@ export default function EditableFileModal({
       <ModalHead
         title={filename}
         actions={
-          <FileViewModeSwitcher
-            filename={filename}
-            mode={viewMode}
-            onModeChange={setViewMode}
-          />
+          <>
+            {usesEditorFetch &&
+              fetchState.status === "ready" &&
+              fetchState.data.isText !== false && (
+                <FileSpeakButton filename={filename} text={draft} />
+              )}
+            <FileViewModeSwitcher
+              filename={filename}
+              mode={viewMode}
+              onModeChange={setViewMode}
+            />
+          </>
         }
       />
 

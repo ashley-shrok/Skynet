@@ -66,10 +66,7 @@ import type {
 function targetDepKey(t: WorkspaceTarget): string {
   return t.kind === "identity" ? `identity:${t.identityKey}` : `role:${t.roleSlug}`;
 }
-import {
-  resolveWorkspaceErrorCopy,
-  WORKSPACE_ERROR_COPY,
-} from "./workspace-error-copy";
+import { resolveWorkspaceErrorCopy } from "./workspace-error-copy";
 import type { TabState } from "./IdentityFileTab";
 import {
   FileUnavailableNotice,
@@ -85,6 +82,7 @@ import {
   type BinaryDraft,
 } from "./file-viewers/registry";
 import { base64ToBytes, decodeUtf8, looksLikeText } from "./file-viewers/text-sniff";
+import { FileSpeakButton } from "./file-viewers/FileSpeakButton";
 
 // ---------------------------------------------------------------------------
 // Sorting — folders always above files (D-15)
@@ -361,6 +359,12 @@ function WorkspaceFileViewer({
 
   const headActions = (
     <>
+      {!skipFetch &&
+        !isTooLarge &&
+        fileState.status === "ready" &&
+        fileState.data.isText !== false && (
+          <FileSpeakButton filename={file.name} text={draft} />
+        )}
       <FileViewModeSwitcher
         filename={file.name}
         mode={viewMode}
@@ -445,6 +449,7 @@ function WorkspaceFileViewer({
         mode={viewMode ?? undefined}
         onModeChange={setViewMode}
         hideModeSwitcher
+        hideSpeakButton
         onBinaryDraftChange={setBinaryDraft}
       />
     );

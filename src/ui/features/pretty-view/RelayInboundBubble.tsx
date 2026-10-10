@@ -5,18 +5,9 @@ import type { RelayInboundEvent } from "@/api/claude-session-api";
 import { useIdentities } from "@/state/identities-store";
 import { resolveMxidToIdentity } from "./relay-mxid-resolve";
 import { detectFilePointer } from "./relay-pointer-detect";
-import { postSpeakStream } from "@/api/voice-api";
 import { speakVoiceCandidates } from "./voice-candidates";
-import { notifySpeakFailed, speakErrorStatus } from "./speak-errors";
 import { stampedFetch } from "@/lib/stamped-fetch";
-import { createWebAudioStreamPlayer } from "./webAudioStreamPlayer";
-import {
-  getCurrentPlayer,
-  setCurrentPlayer,
-  getCurrentOwner,
-  setCurrentOwner,
-  clearCurrentPlayer,
-} from "./speak-singleton";
+import { useSpeakPlayback } from "./useSpeakPlayback";
 
 // Phase 17 Plan 03 — RelayInboundBubble
 //
@@ -186,159 +177,20 @@ export function RelayInboundBubble({
       });
   }, [pointer?.pointerPath, hostId, collapsed]);
 
-  // ─── Speak apparatus — mirror of ChatMessage's, gated on !collapsed ───
+  // ─── Speak apparatus — shared useSpeakPlayback, gated on !collapsed ───
   //
-  // Phase 97 UAT batch #6 (2026-09-10). The refs/state are declared
-  // unconditionally (Rules of Hooks); the render-side gating on `!collapsed`
-  // ensures the button wires up whenever the bubble is expanded (both views).
-  const bubbleIdRef = useRef(Symbol("relay-speak-bubble"));
-  const [speakState, setSpeakState] = useState<"idle" | "loading" | "playing" | "paused">("idle");
+  // Declared unconditionally (Rules of Hooks); the render-side gating on
+  // `!collapsed` wires the button up whenever the bubble is expanded.
+  // Speak text = `body`, NOT containerRef.innerText: the container wraps the
+  // header (dot + displayName) too, so innerText would speak "Tina hello
+  // world". JSDOM lacks innerText, so tests never surfaced this.
+  const { speakState, onSpeakClick } = useSpeakPlayback({
+    ownerName: "relay-speak-bubble",
+    logPrefix: "relay:",
+    voices: speakVoices,
+    getText: () => body,
+  });
   const containerRef = useRef<HTMLDivElement>(null);
-
-  // Cleanup: stop player on unmount if this bubble owns it.
-  useEffect(() => {
-    return () => {
-      if (getCurrentOwner() === bubbleIdRef.current) {
-        const owner = bubbleIdRef.current;
-        console.info(`[tts] stop-current owner=relay:${owner.toString()} trigger=unmount`);
-        getCurrentPlayer()?.stop();
-        clearCurrentPlayer();
-      }
-    };
-  }, []);
-
-  // startSpeak: extracted fresh-play path (cross-bubble preempt + loading +
-  // fetch + play). Called by onSpeakClick (fresh-play branch).
-  async function startSpeak(trigger: "user-click" = "user-click") {
-    // If another bubble is playing (or loading, or paused), stop it first
-    // (cross-bubble preempt). This is also the only cancel-from-paused path.
-    const preemptTarget = getCurrentPlayer();
-    if (preemptTarget) {
-      const prevOwner = getCurrentOwner();
-      console.info(`[tts] stop-current owner=${prevOwner?.toString() ?? "null"} trigger=new-bubble`);
-      preemptTarget.stop();
-      clearCurrentPlayer();
-    }
-
-    setSpeakState("loading");
-    const owner = bubbleIdRef.current;
-
-    // Speak-start — read `body` directly, NOT containerRef.innerText. The
-    // bubble container wraps both header (dot + displayName) AND body, so
-    // innerText would include the sender name and TTS would speak
-    // "Tina hello world" instead of "hello world" in a real browser. JSDOM
-    // does not implement innerText so tests hit the fallback and never
-    // surfaced this. Body is plain matrix message text — the correct source.
-    const text = body;
-    console.info(`[tts] speak-start owner=relay:${owner.toString()} textLen=${text.length} voices=[${speakVoices.join(",")}] trigger=${trigger}`);
-
-    const player = createWebAudioStreamPlayer({
-      onEnded: () => {
-        // Only clear if this bubble still owns the singleton — guard against
-        // a race where a NEW speak-click already replaced the singleton.
-        if (getCurrentOwner() === owner) {
-          console.info(`[tts] media-ended owner=relay:${owner.toString()}`);
-          clearCurrentPlayer();
-          setSpeakState("idle");
-        }
-      },
-      onError: (err) => {
-        const errName = err instanceof Error ? err.name : "unknown";
-        const errMessage = err instanceof Error ? err.message : String(err);
-        console.error(`[tts] player-error owner=relay:${owner.toString()} errName="${errName}" errMessage="${errMessage}"`);
-        if (getCurrentOwner() === owner) {
-          clearCurrentPlayer();
-          setSpeakState("idle");
-          notifySpeakFailed();
-        }
-      },
-      onPlaying: () => {
-        console.info(`[tts] media-playing owner=relay:${owner.toString()}`);
-      },
-      onCanPlay: () => {
-        console.info(`[tts] media-canplay owner=relay:${owner.toString()}`);
-      },
-      onPause: () => {
-        console.info(`[tts] media-pause owner=relay:${owner.toString()}`);
-      },
-      onStalled: () => {
-        console.warn(`[tts] media-stalled owner=relay:${owner.toString()}`);
-      },
-      onSuspend: () => {
-        console.warn(`[tts] media-suspend owner=relay:${owner.toString()}`);
-      },
-    });
-
-    // Install the singleton BEFORE the fetch so a same-tick preempt from
-    // another bubble sees a non-null currentPlayer and can stop us cleanly.
-    setCurrentPlayer(player);
-    setCurrentOwner(owner);
-
-    try {
-      console.info(`[tts] fetch-start owner=relay:${owner.toString()} url=/voice/speak-stream textLen=${text.length}`);
-      const response = await postSpeakStream(text, speakVoices);
-      if (getCurrentOwner() !== owner) {
-        console.warn(`[tts] preempt-during-fetch owner=relay:${owner.toString()} newOwner=${getCurrentOwner()?.toString() ?? "null"}`);
-        return;
-      }
-      console.info(`[tts] fetch-resolved status=${response.status} ok=${response.ok} owner=relay:${owner.toString()}`);
-      if (!response.ok) {
-        console.error(`[tts] fetch-error owner=relay:${owner.toString()} status=${response.status} statusText="${response.statusText}"`);
-        throw new Error(`postSpeakStream returned ${response.status}`);
-      }
-      setSpeakState("playing");
-      console.info(`[tts] decode-init owner=relay:${owner.toString()} contextState=n/a`);
-      console.info(`[tts] play-attempt owner=relay:${owner.toString()} src=stream`);
-      void player.play(response).then(() => {
-        console.info(`[tts] play-attempt owner=relay:${owner.toString()} result=success`);
-      }).catch((err: unknown) => {
-        const errName =
-          err instanceof Error
-            ? err.name
-            : (err != null && typeof (err as Record<string, unknown>).name === "string"
-                ? (err as { name: string }).name
-                : "unknown");
-        const errMessage =
-          err instanceof Error
-            ? err.message
-            : (err != null && typeof (err as Record<string, unknown>).message === "string"
-                ? (err as { message: string }).message
-                : String(err));
-        if (errName === "NotAllowedError") {
-          console.warn(`[tts] play-attempt owner=relay:${owner.toString()} result=blocked errName="NotAllowedError" errMessage="${errMessage}"`);
-        } else {
-          console.error(`[tts] play-attempt owner=relay:${owner.toString()} result=error errName="${errName}" errMessage="${errMessage}"`);
-        }
-      });
-    } catch (err) {
-      const errName = err instanceof Error ? err.name : "unknown";
-      const errMessage = err instanceof Error ? err.message : String(err);
-      console.error(`[tts] fetch-error owner=relay:${owner.toString()} errName="${errName}" errMessage="${errMessage}"`);
-      if (getCurrentOwner() === owner) {
-        clearCurrentPlayer();
-        setSpeakState("idle");
-        notifySpeakFailed(speakErrorStatus(err));
-      }
-    }
-  }
-
-  async function onSpeakClick(e: React.MouseEvent) {
-    e.stopPropagation();
-
-    if (speakState === "playing" && getCurrentOwner() === bubbleIdRef.current) {
-      void getCurrentPlayer()?.pause();
-      setSpeakState("paused");
-      return;
-    }
-
-    if (speakState === "paused" && getCurrentOwner() === bubbleIdRef.current) {
-      void getCurrentPlayer()?.resume();
-      setSpeakState("playing");
-      return;
-    }
-
-    void startSpeak("user-click");
-  }
 
   return (
     <div className="flex justify-start" data-testid="relay-inbound-wrap">

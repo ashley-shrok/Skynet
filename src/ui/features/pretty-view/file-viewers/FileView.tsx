@@ -11,6 +11,8 @@ import {
   type FileViewMode,
   type FileViewerEntry,
 } from "./registry";
+import { FileSpeakButton } from "./FileSpeakButton";
+import { isSpeakableFile } from "./file-speak";
 
 /**
  * FileView — the shared body for every surface that opens an arbitrary file
@@ -63,6 +65,8 @@ export interface FileViewProps {
   onModeChange?: (mode: string) => void;
   /** Host renders <FileViewModeSwitcher> itself (e.g. in a modal head). */
   hideModeSwitcher?: boolean;
+  /** Host renders <FileSpeakButton> itself (e.g. in a modal head). */
+  hideSpeakButton?: boolean;
   /**
    * Binary edits (PDF annotations): the current unsaved draft, or null.
    * Hosts with their own Save button write `await draft.getBytes()` and
@@ -186,6 +190,7 @@ export function FileView({
   mode: modeProp,
   onModeChange,
   hideModeSwitcher = false,
+  hideSpeakButton = false,
   onBinaryDraftChange,
   onSaveBytes,
 }: FileViewProps): JSX.Element {
@@ -276,10 +281,17 @@ export function FileView({
     (mode.editable || draft !== state.data.content);
   const showSave =
     !hideSaveButton && ((canEdit && !!onSave) || (!!binaryDraft && !!onSaveBytes));
+  // Prose files (.md / .txt) can be read aloud — speaks the draft as shown.
+  const showSpeak =
+    !hideSpeakButton &&
+    isSpeakableFile(filename) &&
+    state.status === "ready" &&
+    state.data.isText !== false;
   const toolbar =
-    toolbarStart || showSwitcher || showSave ? (
+    toolbarStart || showSwitcher || showSave || showSpeak ? (
       <div className="flex justify-end gap-2 shrink-0 items-center">
         {toolbarStart}
+        {showSpeak ? <FileSpeakButton filename={filename} text={draft} /> : null}
         {showSwitcher ? (
           <div className="mr-auto order-first">
             <FileViewModeSwitcher filename={filename} mode={mode.id} onModeChange={setMode} />

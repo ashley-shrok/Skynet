@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils";
 import { getProjectFile, updateProjectFile } from "@/api/project-list-api";
 import type { TabState } from "@/features/pretty-view/IdentityFileTab";
 import { ProjectFileTab } from "./ProjectFileTab";
+import { FileSpeakButton } from "@/features/pretty-view/file-viewers/FileSpeakButton";
 
 export interface ProjectFileModalProps {
   /** Controlled — true = modal open. */
@@ -135,7 +136,11 @@ export function ProjectFileModal({
       size="editor"
       data-testid="project-file-modal"
     >
-      <ModalHead title={displayName} closeTestId="project-file-modal-close" />
+      <ModalHead
+        title={displayName}
+        closeTestId="project-file-modal-close"
+        actions={<FileSpeakButton filename="project.md" text={draft} />}
+      />
 
       <ModalBody className="p-0 overflow-y-auto flex flex-col px-6 py-4">
         <ProjectFileTab
