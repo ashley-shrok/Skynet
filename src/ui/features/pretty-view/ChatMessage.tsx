@@ -568,6 +568,14 @@ export function ChatMessage({
           "prose-code:font-[JetBrains_Mono_Variable,ui-monospace,monospace]",
           "prose-code:bg-white/[0.08] prose-code:text-[var(--color-pv-code-fg)]",
           "prose-code:border prose-code:border-white/[0.06]",
+          // Tables: the bubble's overflow-wrap:anywhere shrinks every column's
+          // min-content to one character, so on a phone auto layout crushes
+          // columns into one-letter-per-line stacks. Undo it inside tables and
+          // let a too-wide table scroll sideways within the bubble instead.
+          "prose-table:block prose-table:max-w-full prose-table:overflow-x-auto",
+          "prose-table:[overflow-wrap:normal] prose-table:[word-break:normal]",
+          "prose-th:[overflow-wrap:normal] prose-td:[overflow-wrap:normal]",
+          "prose-th:min-w-[4.5em] prose-td:min-w-[4.5em] prose-th:whitespace-nowrap",
           isUser
             ? cn(
                 // User bubble = mock's original assistant treatment
