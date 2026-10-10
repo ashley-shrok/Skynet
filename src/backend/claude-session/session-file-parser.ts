@@ -1134,9 +1134,19 @@ export function parseSessionLine(line: string, sessionId?: string): ParsedLine {
     sessionParserLogger.info(`[session-parser] classify result=malformed bytesRead=${trimmed.length}`, { operation: "session_classify" });
     return { kind: "malformed", bytes: trimmed.length };
   }
-  const rawMsg = obj.message as Record<string, unknown> | null | undefined;
-  const teammateTurn =
-    obj.type === "user" && typeof rawMsg?.content === "string" && isTeammateMessage(rawMsg.content);
+  // Teammate check on the RAW text of every user-carrying envelope (plain user
+  // turn, busy-turn queued_command attachment, queue-operation enqueue) —
+  // must run before normalizePastedHarnessEnvelopes unwraps pastes.
+  const rawAtt = obj.attachment as Record<string, unknown> | null | undefined;
+  const rawUserText =
+    obj.type === "user"
+      ? extractText((obj.message as Record<string, unknown> | null | undefined)?.content)
+      : obj.type === "attachment" && rawAtt?.type === "queued_command" && typeof rawAtt.prompt === "string"
+        ? rawAtt.prompt
+        : obj.type === "queue-operation" && typeof obj.content === "string"
+          ? obj.content
+          : "";
+  const teammateTurn = isTeammateMessage(rawUserText);
   normalizePastedHarnessEnvelopes(obj);
 
   const type = obj.type;
@@ -1209,6 +1219,7 @@ export function parseSessionLine(line: string, sessionId?: string): ParsedLine {
     if (att !== null && typeof att === "object") {
       const attObj = att as Record<string, unknown>;
       if (attObj.type === "queued_command") {
+        if (teammateTurn) return { kind: "skip", why: "teammate_message" };
         const prompt = attObj.prompt;
         if (typeof prompt === "string" && prompt.length > 0) {
           const stripped = prompt
@@ -1293,6 +1304,7 @@ export function parseSessionLine(line: string, sessionId?: string): ParsedLine {
     typeof obj.content === "string"
   ) {
     const qopContent = obj.content;
+    if (teammateTurn) return { kind: "skip", why: "teammate_message" };
     // When a session is busy, Claude Code writes queued slash-command
     // invocations to the JSONL as a queue-operation with RAW plain-text
     // content (e.g. content:"/id reset"), then later writes the wrapped
@@ -1420,7 +1432,7 @@ export function parseSessionLine(line: string, sessionId?: string): ParsedLine {
   //
   // Mirrors the isRealUserTurn predicate in
   // src/backend/fleet-status/ssh-poll-orchestrator.ts for slash_exit,
-  // resume_injection, and ctrl_c_kill. slash_id is NOT excluded there
+  // resume_injection, ctrl_c_kill, and teammate_message. slash_id is NOT excluded there
   // (backend uses /id as an "user present" signal) but IS excluded here
   // (bubble noise). goodbye_echo is narrow to the four literal exit-echo
   // variants (Goodbye! / Catch you later! / See ya! / Bye!) — other

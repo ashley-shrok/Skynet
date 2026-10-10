@@ -136,6 +136,8 @@ const PER_HOST_TIMEOUT_MS = 30_000;
  *   content contains "<command-name>/exit</command-name>".
  * - Resumed-injection sentinel: supervisor injects "Your session was just
  *   resumed by the agent-supervisor…" as a type:"user" turn in some paths.
+ * - Teammate message: agent-team peer sends ("Another Claude session sent a
+ *   message:\n<teammate-message …") land as plain type:"user" string turns.
  */
 function isRealUserTurn(rawLine: string): { ok: true; ts: number } | { ok: false } {
   const trimmed = rawLine.trim();

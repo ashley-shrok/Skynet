@@ -1384,6 +1384,52 @@ describe("parseSessionLine — session-lifecycle noise skips (quick-260829-r9i)"
     expect(parsed.content).toContain("<teammate-message");
   });
 
+  it("teammate_message — list-form content is skipped too", () => {
+    const parsed = parseSessionLine(
+      line({
+        type: "user",
+        uuid: "u-tm-4",
+        timestamp: "2026-10-10T07:07:00.000Z",
+        message: {
+          content: [{ type: "text", text: 'Another Claude session sent a message:\n<teammate-message teammate_id="a" color="blue">\nhi\n</teammate-message>' }],
+        },
+      }),
+    );
+    expect(parsed.kind).toBe("skip");
+  });
+
+  it("teammate_message — busy-turn queue-operation enqueue is skipped", () => {
+    const parsed = parseSessionLine(
+      line({
+        type: "queue-operation",
+        operation: "enqueue",
+        timestamp: "2026-10-10T07:08:00.000Z",
+        content: 'Another Claude session sent a message:\n<teammate-message teammate_id="a" color="blue">\nhi\n</teammate-message>',
+      }),
+      "sess-1",
+    );
+    expect(parsed.kind).toBe("skip");
+    if (parsed.kind !== "skip") throw new Error("unreachable");
+    expect(parsed.why).toBe("teammate_message");
+  });
+
+  it("teammate_message — busy-turn queued_command attachment is skipped", () => {
+    const parsed = parseSessionLine(
+      line({
+        type: "attachment",
+        uuid: "u-tm-6",
+        timestamp: "2026-10-10T07:09:00.000Z",
+        attachment: {
+          type: "queued_command",
+          prompt: 'Another Claude session sent a message:\n<teammate-message teammate_id="a" color="blue">\nhi\n</teammate-message>',
+        },
+      }),
+    );
+    expect(parsed.kind).toBe("skip");
+    if (parsed.kind !== "skip") throw new Error("unreachable");
+    expect(parsed.why).toBe("teammate_message");
+  });
+
   it("teammate_message — preamble quoted mid-prose passes through", () => {
     const parsed = parseSessionLine(
       line({

@@ -227,6 +227,8 @@ describe("passageForLine", () => {
       .toEqual({ speaker: "command", text: "cheese /cheese", boilerplate: true });
     expect(passageForLine(line({ type: "user", message: { content: '<pasted_content id="1">relay says cheese</pasted_content>' } }), "cheese"))
       .toEqual({ speaker: "event", text: "relay says cheese", boilerplate: false });
+    expect(passageForLine(line({ type: "user", message: { content: 'Another Claude session sent a message:\n<teammate-message teammate_id="a" color="blue">\nteam says cheese\n</teammate-message>' } }), "cheese"))
+      .toMatchObject({ speaker: "event" });
   });
 
   it("returns null for tool output, non-message lines, malformed JSON and empty query", () => {

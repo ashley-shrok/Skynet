@@ -200,6 +200,7 @@ export function passageForLine(rawLine: string, query: string): SearchPassage | 
   if (obj.type === "assistant") speaker = "agent";
   else if (obj.isMeta === true) speaker = "skill";
   else if (/^<(pasted_content|task-notification)\b/.test(text)) speaker = "event";
+  else if (/^Another Claude session sent a message: <teammate-message\b/.test(text)) speaker = "event";
   else if (/^<command-(message|name|args)>/.test(text)) speaker = "command";
   else speaker = "user";
   if (speaker === "event" || speaker === "command") {

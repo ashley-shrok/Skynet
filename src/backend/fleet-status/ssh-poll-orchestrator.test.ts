@@ -1747,6 +1747,20 @@ describe("isRealUserTurn — user 2026-08-23 lock predicate matrix", () => {
     expect(await scanSingleLine(rawLine)).toBeNull();
   });
 
+  it("Case 11 (DROP — teammate message): agent-team peer send must NOT count", async () => {
+    const rawLine = JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content:
+          'Another Claude session sent a message:\n<teammate-message teammate_id="audit-b" color="green">\nreport\n</teammate-message>',
+      },
+      timestamp: "2026-10-10T07:03:37.000Z",
+      uuid: "u11",
+    });
+    expect(await scanSingleLine(rawLine)).toBeNull();
+  });
+
   it("2026-08-29 refinement — positive regression: real chat + real slash-command still count", async () => {
     // Real chat prose still returns the parsed ts.
     const tsChat = Date.parse("2026-08-29T16:00:00.000Z");
