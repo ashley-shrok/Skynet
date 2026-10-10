@@ -12,7 +12,7 @@
  *   invalid_link       → 400 HTML  ("this serve link isn't valid")
  *
  * Self-retry for transient classes (supersedes D-14's no-auto-refresh rule,
- * per Ashley 2026-10-09): port_not_listening, host_unreachable and
+ * per the owner 2026-10-09): port_not_listening, host_unreachable and
  * app_not_serving render a neutral "Loading…" screen whose inline script
  * re-probes the same URL with backoff, capped at 60s wall-clock. A probe that
  * isn't another interstitial and isn't a 5xx (nginx's own 502 during a

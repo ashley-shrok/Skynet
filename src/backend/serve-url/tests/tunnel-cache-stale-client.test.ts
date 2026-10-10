@@ -47,7 +47,7 @@ const notConnected = () => {
 };
 
 const row = (id: number): Host =>
-  ({ id, userId: "ashley", name: "nasty", ip: "10.0.0.9", port: 22, username: "u" }) as unknown as Host;
+  ({ id, userId: "owner", name: "box", ip: "10.0.0.9", port: 22, username: "u" }) as unknown as Host;
 
 function roundTrip(port: number): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -71,7 +71,7 @@ describe("tunnel cache stale SSH client", () => {
     const fresh = liveClient();
     clients.push(original, fresh);
 
-    const t = await tunnelCache.getOrCreate({ hostname: "nasty", port: 9501, host: row(31) });
+    const t = await tunnelCache.getOrCreate({ hostname: "box", port: 9501, host: row(31) });
     expect(await roundTrip(t.tunnelPort)).toBe("ping");
     expect(original.forwardOut).toHaveBeenCalledTimes(1);
 
@@ -87,7 +87,7 @@ describe("tunnel cache stale SSH client", () => {
     // Later sockets keep using the fresh client; the tunnel stays cached.
     expect(await roundTrip(t.tunnelPort)).toBe("ping");
     expect(fresh.forwardOut).toHaveBeenCalledTimes(2);
-    expect(await tunnelCache.getOrCreate({ hostname: "nasty", port: 9501, host: row(31) })).toBe(t);
+    expect(await tunnelCache.getOrCreate({ hostname: "box", port: 9501, host: row(31) })).toBe(t);
   });
 
   it("retries on a fresh client when forwardOut throws Not connected on a healthy-looking socket", async () => {
@@ -96,7 +96,7 @@ describe("tunnel cache stale SSH client", () => {
     const fresh = liveClient();
     clients.push(original, fresh);
 
-    const t = await tunnelCache.getOrCreate({ hostname: "nasty", port: 9502, host: row(32) });
+    const t = await tunnelCache.getOrCreate({ hostname: "box", port: 9502, host: row(32) });
     expect(await roundTrip(t.tunnelPort)).toBe("ping");
     expect(fresh.forwardOut).toHaveBeenCalledTimes(1);
   });
@@ -108,13 +108,13 @@ describe("tunnel cache stale SSH client", () => {
     alsoDead.forwardOut.mockImplementation(notConnected);
     clients.push(original, alsoDead);
 
-    const t = await tunnelCache.getOrCreate({ hostname: "nasty", port: 9503, host: row(33) });
+    const t = await tunnelCache.getOrCreate({ hostname: "box", port: 9503, host: row(33) });
     await expect(roundTrip(t.tunnelPort)).rejects.toThrow();
     await new Promise((r) => setTimeout(r, 20));
 
     const rebuilt = liveClient();
     clients.push(rebuilt);
-    const t2 = await tunnelCache.getOrCreate({ hostname: "nasty", port: 9503, host: row(33) });
+    const t2 = await tunnelCache.getOrCreate({ hostname: "box", port: 9503, host: row(33) });
     expect(t2).not.toBe(t);
     expect(await roundTrip(t2.tunnelPort)).toBe("ping");
   });

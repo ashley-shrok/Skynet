@@ -334,7 +334,7 @@ describe("GET /skills-editor/skills", () => {
     // scoping matters: a body line starting with `distributed:` must NOT
     // filter its skill out. Assert both tokens so a refactor that drops
     // either piece breaks the test.
-    expect(capturedListCmd).toContain("awk '/^---$/");
+    expect(capturedListCmd).toContain("/^---$/{n++; if(n==2) exit} n==1");
     expect(capturedListCmd).toContain("distributed: *true");
     // Each kept skill is emitted as a \036-prefixed record carrying its
     // frontmatter (for the skill-actions menu's descriptions).
