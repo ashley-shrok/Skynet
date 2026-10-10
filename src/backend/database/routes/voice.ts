@@ -29,6 +29,12 @@ import { resolveSttProvider, transcribeWithRetries, type SttProvider } from "../
 import { SttHttpError, SttNotConfiguredError } from "../../voice/stt-errors.js";
 import { splitIntoSentences, packChunks } from "../../voice/chunk-and-stitch.js";
 import { buildRiffHeader } from "../../voice/riff-header-builder.js";
+import {
+  TAIL_GUARD_FILLER,
+  TAIL_GUARD_HOLD_SEC,
+  findTailGuardCut,
+  tailGuardApplies,
+} from "../../voice/tail-guard.js";
 
 // Voice list: GET /voices serves the ACTIVE provider's list — the app keeps
 // no copy of its own (supersedes Phase 98 Plan 03's inlined Polly list).
@@ -244,6 +250,42 @@ function pcmBytesPerSec(provider: TtsProvider): number {
   return provider.sampleRate * 2;
 }
 
+// --- Tail guard (see voice/tail-guard.ts) ---
+// gpt-4o-mini-tts intermittently drops the final sentence. When the guard
+// applies, the last chunk carries a filler sentence that is cut off the PCM
+// afterwards; chunks are packed short enough to leave room for it.
+function planSpeakChunks(provider: TtsProvider, text: string): { chunks: string[]; guard: boolean } {
+  const guard = tailGuardApplies(provider.id, provider.model());
+  const maxChars = guard
+    ? provider.maxCharsPerRequest - TAIL_GUARD_FILLER.length - 1
+    : provider.maxCharsPerRequest;
+  const chunks = packChunks(splitIntoSentences(text), maxChars);
+  if (guard && chunks.length > 0) chunks[chunks.length - 1] += " " + TAIL_GUARD_FILLER;
+  return { chunks, guard };
+}
+
+/**
+ * Cut the filler off the last chunk's PCM. `pcm` may be the whole chunk or
+ * just its held-back tail; returns the bytes to play. Refusal plays untrimmed
+ * (filler audible, nothing lost) and is logged so drift in the model's timing
+ * shows up in the logs.
+ */
+function applyTailGuard(pcm: Buffer, provider: TtsProvider, reqId: string): Buffer {
+  const d = findTailGuardCut(pcm, provider.sampleRate);
+  if (d.decision === "cut") {
+    databaseLogger.info(
+      `[voice-server] speak-tail-guard reqId=${reqId} decision=cut pauseSec=${d.pauseSec.toFixed(3)} fillerSec=${d.fillerSec.toFixed(3)} trimmedBytes=${pcm.length - d.cutByte}`,
+      { operation: "voice_speak_tail_guard", reqId, decision: "cut" },
+    );
+    return pcm.subarray(0, d.cutByte);
+  }
+  databaseLogger.warn(
+    `[voice-server] speak-tail-guard reqId=${reqId} decision=refused reason=${d.reason} speechEndSec=${d.speechEndSec.toFixed(3)} pcmBytes=${pcm.length}`,
+    { operation: "voice_speak_tail_guard", reqId, decision: "refused", reason: d.reason },
+  );
+  return pcm;
+}
+
 // --- handleSpeak — POST /voice/speak (non-streaming) ---
 // Used by the voice pickers' sample button. Synthesizes every chunk in order
 // and collects the full PCM buffer BEFORE writing the RIFF header so
@@ -280,14 +322,17 @@ export async function handleSpeak(req: Request, res: Response): Promise<Response
 
     // (c) Synthesize each ≤maxCharsPerRequest chunk in order and collect the
     //     ENTIRE PCM so pcmBuf.length is known before the RIFF header.
-    const chunks = packChunks(splitIntoSentences(text), provider.maxCharsPerRequest);
+    const { chunks, guard } = planSpeakChunks(provider, text);
     const pcmChunks: Buffer[] = [];
     const voice = choice.voice;
     for (let i = 0; i < chunks.length; i++) {
       const stream = await synthesizeWithRetries(provider, chunks[i], voice, { reqId, chunkIndex: i });
+      const bufs: Buffer[] = [];
       for await (const chunk of stream) {
-        pcmChunks.push(chunk as Buffer);
+        bufs.push(chunk as Buffer);
       }
+      const chunkPcm = Buffer.concat(bufs);
+      pcmChunks.push(guard && i === chunks.length - 1 ? applyTailGuard(chunkPcm, provider, reqId) : chunkPcm);
     }
     const pcmBuf = Buffer.concat(pcmChunks);
     const dataSize = pcmBuf.length;
@@ -534,7 +579,7 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
     );
 
     // (c) Split + pack into chunks under the provider's per-request limit
-    const chunks = packChunks(splitIntoSentences(text), p.maxCharsPerRequest);
+    const { chunks, guard } = planSpeakChunks(p, text);
 
     if (chunks.length === 0) {
       // Defensive: SPEAK_TEXT_MAX + non-empty-text validation should prevent this,
@@ -546,7 +591,7 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
     // Log the chunk plan up front so a suspected loss can be traced back to
     // exactly which char range fed which synth call.
     databaseLogger.info(
-      `[voice-server] speak-stream-plan reqId=${reqId} provider=${p.id} chunkCount=${chunks.length} chunkLens=[${chunks.map((c) => c.length).join(",")}] totalTextLen=${text.length}`,
+      `[voice-server] speak-stream-plan reqId=${reqId} provider=${p.id} chunkCount=${chunks.length} chunkLens=[${chunks.map((c) => c.length).join(",")}] totalTextLen=${text.length} tailGuard=${guard}`,
       { operation: "voice_speak_stream_plan", reqId, chunkCount: chunks.length },
     );
 
@@ -621,13 +666,35 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
         res.write(buildRiffHeader({ channels: 1, sampleRate: p.sampleRate, bitDepth: 16 }));
         headersFlushed = true;
 
+        // Tail guard on a single-chunk request: hold back the last
+        // TAIL_GUARD_HOLD_SEC of PCM so the filler can be cut once the
+        // provider finishes. Everything older streams through unchanged.
+        const holdTail = guard && chunks.length === 1;
+        const holdBytes = TAIL_GUARD_HOLD_SEC * bytesPerSec;
+        const held: Buffer[] = [];
+        let heldBytes = 0;
+        let streamedBytes = 0;
+        const writeOut = (buf: Buffer) => {
+          streamedBytes += buf.length;
+          if (!res.write(buf)) {
+            currentStream.pause();
+            res.once("drain", () => currentStream.resume());
+          }
+        };
+
         await new Promise<void>((resolve, reject) => {
           currentStream.on("data", (buf: Buffer) => {
-            chunkPcmBytes += buf.length;
             if (TTS_BANK_ENABLED) chunkPcmBuffers.push(buf);
-            if (!res.write(buf)) {
-              currentStream.pause();
-              res.once("drain", () => currentStream.resume());
+            if (!holdTail) {
+              writeOut(buf);
+              return;
+            }
+            held.push(buf);
+            heldBytes += buf.length;
+            while (held.length > 1 && heldBytes - held[0].length >= holdBytes) {
+              const out = held.shift()!;
+              heldBytes -= out.length;
+              writeOut(out);
             }
           });
           currentStream.on("end", () => resolve());
@@ -636,6 +703,17 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
           currentStream.on("error", (err) => (clientGone ? resolve() : reject(err)));
         });
         liveStream = null;
+        if (holdTail && !clientGone && heldBytes > 0) {
+          // Provider chunks can split a sample; re-align the held tail to the
+          // stream's frame grid before analysing it.
+          const tail = Buffer.concat(held, heldBytes);
+          const skew = streamedBytes % 2;
+          const kept = applyTailGuard(tail.subarray(skew), p, reqId);
+          const out = tail.subarray(0, skew + kept.length);
+          streamedBytes += out.length;
+          if (!res.write(out)) await waitDrain();
+        }
+        chunkPcmBytes = streamedBytes;
       } else {
         // Chunks i≥1: fire chunk i+1's prefetch FIRST (so it starts synthesizing
         // in parallel with chunk i's await/write), then await and write the
@@ -646,10 +724,11 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
         nextPrefetch = i + 1 < chunks.length && !clientGone ? drainStreamToBuffer(synth(i + 1)) : null;
         if (nextPrefetch) nextPrefetch.catch(() => {});
 
-        const buf = await prevPrefetch;
+        const raw = await prevPrefetch;
         if (clientGone) break;
+        if (TTS_BANK_ENABLED) chunkPcmBuffers.push(raw);
+        const buf = guard && i === chunks.length - 1 ? applyTailGuard(raw, p, reqId) : raw;
         chunkPcmBytes = buf.length;
-        if (TTS_BANK_ENABLED) chunkPcmBuffers.push(buf);
         if (!res.write(buf)) {
           await waitDrain();
         }

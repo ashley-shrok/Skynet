@@ -108,6 +108,7 @@ import {
   SPEAK_TEXT_MAX,
 } from "./voice.js";
 import { clearVoiceListCache } from "../../voice/tts-provider.js";
+import { TAIL_GUARD_FILLER } from "../../voice/tail-guard.js";
 import { fetchSkillCatalog } from "../../voice/skill-catalog.js";
 import { webmToPcm16k } from "../../voice/audio-transcode.js";
 import { transcribeNovaSonic } from "../../voice/nova-sonic-adapter.js";
@@ -849,7 +850,12 @@ describe("TTS_PROVIDER selection", () => {
     expect(res._status).toBe(200);
     expect(pollySendMock).not.toHaveBeenCalled();
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe("https://api.openai.com/v1/audio/speech");
-    expect(sentBody()).toEqual({ model: "gpt-4o-mini-tts", input: "Hello there.", voice: "marin", response_format: "pcm" });
+    expect(sentBody()).toEqual({
+      model: "gpt-4o-mini-tts",
+      input: `Hello there. ${TAIL_GUARD_FILLER}`,
+      voice: "marin",
+      response_format: "pcm",
+    });
     const header = Buffer.from(res._writes[0]);
     expect(header.readUInt32LE(24)).toBe(24000);
     expect(res._writes.slice(1).reduce((n, w) => n + w.length, 0)).toBe(6);
@@ -874,7 +880,66 @@ describe("TTS_PROVIDER selection", () => {
 
     await speakStream({ text: "Hi.", voices: ["Joanna"] });
 
-    expect(sentBody()).toMatchObject({ model: "tts-1-hd", voice: "onyx" });
+    expect(sentBody()).toMatchObject({ model: "tts-1-hd", voice: "onyx", input: "Hi." });
+  });
+
+  describe("tail guard (gpt-4o-mini-tts drops final sentences)", () => {
+    const SR = 24000;
+    // Speech = 440 Hz tone; pause = digital silence.
+    function synthPcm(segs: Array<["speech" | "pause", number]>): Uint8Array {
+      const total = segs.reduce((n, [, s]) => n + Math.round(s * SR), 0);
+      const buf = Buffer.alloc(total * 2);
+      let i = 0;
+      for (const [kind, s] of segs) {
+        for (let k = 0; k < Math.round(s * SR); k++, i++) {
+          buf.writeInt16LE(kind === "speech" ? Math.round(8000 * Math.sin((2 * Math.PI * 440 * i) / SR)) : 0, i * 2);
+        }
+      }
+      return new Uint8Array(buf);
+    }
+    // The provider body arrives in several reads, odd-sized, like a real stream.
+    function streamedResponse(bytes: Uint8Array): Response {
+      const parts: Uint8Array[] = [];
+      for (let off = 0; off < bytes.length; off += 4801) parts.push(bytes.subarray(off, off + 4801));
+      return new Response(new ReadableStream({ start(c) { parts.forEach((p) => c.enqueue(p)); c.close(); } }), { status: 200 });
+    }
+    const streamedPcmBytes = (res: MockRes) => res._writes.slice(1).reduce((n, w) => n + w.length, 0);
+
+    beforeEach(() => {
+      process.env.TTS_PROVIDER = "openai";
+      process.env.OPENAI_API_KEY = "oa-key";
+    });
+
+    it("cuts the filler off a short single-chunk message", async () => {
+      fetchMock.mockResolvedValueOnce(streamedResponse(synthPcm([["speech", 2], ["pause", 0.5], ["speech", 4.5], ["pause", 0.3]])));
+      const res = await speakStream({ text: "Want me to push?" });
+      expect(streamedPcmBytes(res)).toBe(Math.round(2.15 * SR) * 2);
+    });
+
+    it("streams everything before the held-back tail and cuts the filler off a long message", async () => {
+      fetchMock.mockResolvedValueOnce(streamedResponse(synthPcm([["speech", 14], ["pause", 0.5], ["speech", 4.5], ["pause", 0.3]])));
+      const res = await speakStream({ text: "A long message. Want me to push?" });
+      expect(res._writes.length).toBeGreaterThan(3);
+      expect(streamedPcmBytes(res)).toBe(Math.round(14.15 * SR) * 2);
+    });
+
+    it("plays untrimmed when no pause fits the filler", async () => {
+      const pcm = synthPcm([["speech", 8]]);
+      fetchMock.mockResolvedValueOnce(streamedResponse(pcm));
+      const res = await speakStream({ text: "Hi." });
+      expect(streamedPcmBytes(res)).toBe(pcm.length);
+    });
+
+    it("cuts the filler on the non-streaming speak route too", async () => {
+      fetchMock.mockResolvedValueOnce(streamedResponse(synthPcm([["speech", 2], ["pause", 0.5], ["speech", 4.5]])));
+      const res = makeRes();
+      await handleSpeak(
+        makeSpeakReq({ text: "Sample." }) as unknown as import("express").Request,
+        res as unknown as import("express").Response,
+      );
+      expect(sentBody().input).toBe(`Sample. ${TAIL_GUARD_FILLER}`);
+      expect(res._endedBuf?.length).toBe(Math.round(2.15 * SR) * 2);
+    });
   });
 
   it("splits long text at the active provider's own per-request limit", async () => {
