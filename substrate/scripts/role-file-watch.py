@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""role-file-watch.py — fourth ambient monitor: watch for edits to an identity's role file, identity file, id skill, AND runbooks.
+"""role-file-watch.py — fourth ambient monitor: watch for edits to an identity's role file, identity file, id skill, runbooks, AND project file.
 
 The sibling of the relay receiver, the wake-up scheduler, and the context-watch.
 The receiver wakes on a MESSAGE, the scheduler on the CLOCK, the context-watch on
@@ -23,6 +23,11 @@ the OLD command minutes later because the runbook edit fired no ambient event
 and stale memory of the command outweighed re-reading the updated runbook. Every
 fresh /id load STILL reads role + identity + id skill + enumerates runbooks;
 this is purely additive.
+
+Project coverage: when the identity file's frontmatter has `project: <slug>`, the
+watch includes `~/fleet/projects/<slug>/project.md` (event tag `project-file`).
+Moving into, between, or out of a project re-execs the watcher so the target
+follows; joining mid-session emits a pointer to read the new project file.
 
 Runbook coverage extends to the sentinel file only — `~/fleet/roles/<role>/runbooks/<slug>/runbook.md`
 per the id skill's runbook convention. Companion files in the same subfolder
@@ -170,9 +175,9 @@ def _self_reload_watch(start_stat):
                 pass
 
 
-def _reexec_self():
+def _reexec_self(reason="new version installed"):
     print(
-        "[role-file-watch] new version installed — reloading in place (pid %d)" % os.getpid(),
+        "[role-file-watch] %s — reloading in place (pid %d)" % (reason, os.getpid()),
         file=sys.stderr,
         flush=True,
     )
@@ -273,6 +278,89 @@ def _parse_roles_from_frontmatter(identity_file_path):
     return valid, None
 
 
+# Project slug — mirrors the app's project-slug rule (/^[a-z0-9-]{1,64}$/).
+_PROJECT_SLUG_RE = re.compile(r"^[a-z0-9-]{1,64}$")
+
+
+def _parse_project_from_frontmatter(identity_file_path):
+    """Return the `project:` slug from the identity file's frontmatter, or None.
+
+    Absent key, empty value, unreadable file, or a value failing
+    `_PROJECT_SLUG_RE` all read as "not in a project" — the project watch is
+    optional, so ambiguity means don't-watch rather than an error.
+    """
+    try:
+        with open(identity_file_path) as f:
+            lines = f.readlines()
+    except OSError:
+        return None
+    fence_indices = [i for i, ln in enumerate(lines) if ln.strip() == "---"]
+    if len(fence_indices) < 2:
+        return None
+    for i in range(fence_indices[0] + 1, fence_indices[1]):
+        m = re.match(r"^project:\s*(.*?)\s*(#.*)?$", lines[i].rstrip("\n"))
+        if m:
+            slug = (m.group(1) or "").strip().strip('"').strip("'").strip()
+            return slug if _PROJECT_SLUG_RE.match(slug) else None
+    return None
+
+
+def _resolve_project(identity_file_path):
+    """(slug, project.md path) for the identity's current project, or
+    (None, None) when it has none or the project file isn't on disk (an
+    archived project lives under ~/fleet/projects/archive/, so it resolves to
+    None here too)."""
+    slug = _parse_project_from_frontmatter(identity_file_path)
+    if slug is None:
+        return None, None
+    path = os.path.expanduser("~/fleet/projects/%s/project.md" % slug)
+    if not os.path.isfile(path):
+        return None, None
+    return slug, path
+
+
+def _project_baseline_path(baseline_dir, slug):
+    return os.path.join(baseline_dir, "last-snapshot.project.%s" % slug)
+
+
+def _restart_if_project_changed(identity_file_path, watched_project, baseline_dir):
+    """Re-exec when the identity's effective project differs from the one this
+    process is watching — moved into, between, or out of a project, or the
+    watched project file vanished (archived). The targets list and the
+    inotifywait argv are fixed per process, so a restart is how the watch
+    follows the move; the new process cold-snapshots the new project file.
+
+    On a join, emit a pointer to the new project file: the agent read no
+    project file at /id load (or read a different one), and the identity-file
+    diff alone only shows the `project:` line changing. The old project's
+    baseline is removed so a later re-join starts clean instead of diffing
+    against a stale snapshot."""
+    new_slug, new_path = _resolve_project(identity_file_path)
+    if new_slug == watched_project:
+        return
+    if watched_project is not None:
+        try:
+            os.remove(_project_baseline_path(baseline_dir, watched_project))
+        except OSError:
+            pass
+    if new_slug is not None:
+        print(
+            "📝 [project-file: %s] you're now in project %s — Read %s"
+            % (new_slug, new_slug, new_path),
+            flush=True,
+        )
+    global _inotify_proc
+    proc = _inotify_proc
+    if proc is not None:
+        try:
+            proc.terminate()
+            proc.wait(timeout=5)
+        except Exception:
+            pass
+        _inotify_proc = None
+    _reexec_self("project changed (%s → %s)" % (watched_project, new_slug))
+
+
 def _single_instance(state_dir, ident_dir):
     """Newest-wins guard: kill any prior role-file-watch for THIS identity, claim the pidfile."""
     pf = os.path.join(state_dir, "role-file-watch.pid")
@@ -371,6 +459,8 @@ def _change_phrase(kind, label):
         return "your id skill"
     if kind == "user-claudemd":
         return "your user-wide CLAUDE.md"
+    if kind == "project-file":
+        return "your project file"
     if kind == "runbook":
         slug = label.split("/", 1)[-1]
         return "your %s runbook" % slug
@@ -577,8 +667,13 @@ def _diff_and_emit(kind, label, target_path, baseline_dir, baseline_path, spill_
 
 
 def _diff_and_emit_all(targets, baseline_dir, spill_dir):
-    """Run _diff_and_emit for every target. Returns True if ANY target is gone."""
+    """Run _diff_and_emit for every target. Returns True if ANY target is gone.
+
+    A vanished project file is not fatal — the project was archived or the
+    identity left it; _restart_if_project_changed handles that."""
     for kind, label, target_path, baseline_path in targets:
+        if kind == "project-file" and not os.path.exists(target_path):
+            continue
         gone = _diff_and_emit(kind, label, target_path, baseline_dir, baseline_path, spill_dir)
         if gone:
             return True
@@ -890,6 +985,18 @@ def main():
             ("user-claudemd", "user", user_claudemd_path, user_claudemd_baseline_path)
         )
 
+    # --- Project file target — `~/fleet/projects/<slug>/project.md` for the
+    # identity's `project:` frontmatter, if it has one and the file exists.
+    # Watched like a role file; a move into / between / out of projects (an
+    # identity-file edit) restarts the process so the target follows — see
+    # _restart_if_project_changed.
+    watched_project, project_path = _resolve_project(identity_file_path)
+    if watched_project is not None:
+        targets.append((
+            "project-file", watched_project, project_path,
+            _project_baseline_path(baseline_dir, watched_project),
+        ))
+
     # --- Runbooks trees — role-scope; one dir per role. Empty or nonexistent
     # is fine (skipped). `runbook_roles` is the ordered list of (role, dir) that
     # actually exist on disk; `runbooks_watched` is true iff at least one does.
@@ -1020,6 +1127,8 @@ def main():
     # the right thing: the role gets a startup diff, the identity gets a silent cold
     # snapshot.
     for kind, label, target_path, baseline_path in targets:
+        if kind == "project-file" and not os.path.exists(target_path):
+            continue  # vanished since resolve — the post-arm check restarts us
         if not os.path.exists(baseline_path):
             current = _read_bytes(target_path)
             if current is None:
@@ -1196,6 +1305,9 @@ def main():
                     if "Watches established" in err_line:
                         if _diff_and_emit_all(targets, baseline_dir, spill_dir):
                             sys.exit(1)
+                        _restart_if_project_changed(
+                            identity_file_path, watched_project, baseline_dir,
+                        )
                         break
                 for event_line in _inotify_proc.stdout:
                     # Any event = healthy inotifywait. Reset backoff and emit
@@ -1258,6 +1370,9 @@ def main():
                                 # pre-fix DELETE_SELF behavior). _diff_and_emit
                                 # returns True when the file is unreadable.
                                 sys.exit(1)
+                            _restart_if_project_changed(
+                                identity_file_path, watched_project, baseline_dir,
+                            )
                             # Respawn to re-arm on new inode.
                             try:
                                 _inotify_proc.terminate()
@@ -1267,6 +1382,9 @@ def main():
                             break
                         if _diff_and_emit_all(targets, baseline_dir, spill_dir):
                             sys.exit(1)
+                        _restart_if_project_changed(
+                            identity_file_path, watched_project, baseline_dir,
+                        )
                         continue
 
                     # (B) Route runbook-tree events. Only fires when we're
@@ -1309,6 +1427,9 @@ def main():
                 if any(not os.path.exists(t[2]) for t in targets):
                     if _diff_and_emit_all(targets, baseline_dir, spill_dir):
                         sys.exit(1)
+                    _restart_if_project_changed(
+                        identity_file_path, watched_project, baseline_dir,
+                    )
 
                 if _inotify_proc is not None:
                     try:
@@ -1349,6 +1470,7 @@ def main():
 
     else:
         # Fallback: mtime polling loop over both targets.
+        _restart_if_project_changed(identity_file_path, watched_project, baseline_dir)
         try:
             last_mtimes = {t[2]: os.path.getmtime(t[2]) for t in targets}
         except OSError as e:
@@ -1376,6 +1498,9 @@ def main():
                 try:
                     cur_mtime = os.path.getmtime(target_path)
                 except OSError:
+                    if kind == "project-file":
+                        changed = True
+                        continue
                     print(
                         "⚠️ [role-file-watch] %s file disappeared: %s"
                         % (kind, target_path),
@@ -1390,6 +1515,9 @@ def main():
             if changed:
                 if _diff_and_emit_all(targets, baseline_dir, spill_dir):
                     sys.exit(1)
+                _restart_if_project_changed(
+                    identity_file_path, watched_project, baseline_dir,
+                )
 
 
 if __name__ == "__main__":

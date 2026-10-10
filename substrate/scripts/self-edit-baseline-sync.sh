@@ -30,6 +30,7 @@
 #          last-snapshot.role.<role>      → ~/fleet/roles/<role>/<role>.md
 #          last-snapshot.runbook.<role>.<slug>
 #                                         → ~/fleet/roles/<role>/runbooks/<slug>/runbook.md
+#          last-snapshot.project.<slug>   → ~/fleet/projects/<slug>/project.md
 #      Role + runbook baselines encode <role> in the filename (watcher's
 #      per-role scheme), so no frontmatter parsing is needed to route them.
 #   4. If real file != baseline, atomically overwrite the baseline (tmp +
@@ -202,6 +203,18 @@ timeout 2 bash -c '
                 *[!a-z0-9-]*|-*|""|"$suffix") continue ;;
             esac
             printf "%s\t%s\t0\n" "$baseline" "$HOME/fleet/roles/$role_part/runbooks/$slug/runbook.md"
+        done
+
+        # Project baseline — `last-snapshot.project.<slug>` (at most one: the
+        # identity'"'"'s current project). project.md is not a distinctive
+        # basename; Bash claims match on `<slug>/project.md` and longer forms.
+        for baseline in "$STATE_DIR"/last-snapshot.project.*; do
+            bname=$(basename "$baseline")
+            slug="${bname#last-snapshot.project.}"
+            case "$slug" in
+                *[!a-z0-9-]*|"") continue ;;
+            esac
+            printf "%s\t%s\t0\n" "$baseline" "$HOME/fleet/projects/$slug/project.md"
         done
         shopt -u nullglob
     }
