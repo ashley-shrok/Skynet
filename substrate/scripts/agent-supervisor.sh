@@ -3123,7 +3123,7 @@ inbox_has_files() {
 # fires within FALSE_KILL_MINUTES. Empty string = not due. Per-identity errors go to stderr and
 # get logged as a metric each.
 #
-# Handles all four schedule types (interval, daily, weekly, one_shot) — same semantics as the
+# Handles all five schedule types (interval, daily, weekly, yearly, one_shot) — same semantics as the
 # retired per-identity schedule_peek. Any exception in a single identity's block is caught and
 # recorded as an error metric for that identity; other identities in the batch are unaffected.
 #
@@ -3227,7 +3227,7 @@ def _peek_one(wakedir):
             if not spec.get('enabled', True): continue
             sch = spec.get('schedule', {})
             t = sch.get('type')
-            if t not in ('interval','daily','weekly','one_shot'): continue
+            if t not in ('interval','daily','weekly','yearly','one_shot'): continue
             zi, tz_err = _zone(spec)
             if tz_err: continue
             if t == 'interval': zi = None
@@ -3259,6 +3259,19 @@ def _peek_one(wakedir):
                     next_fire = this_slot
                 else:
                     next_fire = _next_slot_wall(sch, now_dt, days, 15)
+            elif t == 'yearly':
+                last = _read_last(state_dir, spec_path)
+                if last is None or last == 0: continue
+                month, day = (int(x) for x in str(sch['date']).strip().split('-'))
+                if (month, day) == (2, 29): continue
+                this_slot_dt = _slot_at(now_dt.replace(month=month, day=day), sch['at'])
+                if this_slot_dt > now_dt:
+                    this_slot_dt = this_slot_dt.replace(year=this_slot_dt.year - 1)
+                this_slot = this_slot_dt.timestamp()
+                if last < this_slot:
+                    next_fire = this_slot
+                else:
+                    next_fire = this_slot_dt.replace(year=this_slot_dt.year + 1).timestamp()
             elif t == 'one_shot':
                 fired_path = os.path.join(state_dir, os.path.basename(spec_path).replace('.json','.fired'))
                 if os.path.exists(fired_path): continue

@@ -1,8 +1,8 @@
 /**
  * Unit tests for the computeNextFireAt / parseDurationSecs port of the
  * Python scheduler's _due() + _dur_secs() in substrate/scripts/wakeup-
- * scheduler.py. Covers the four schedule shapes (interval / daily / weekly /
- * one_shot), the optional `days` gate, and malformed input fallbacks.
+ * scheduler.py. Covers the five schedule shapes (interval / daily / weekly /
+ * yearly / one_shot), the optional `days` gate, and malformed input fallbacks.
  */
 
 import { describe, expect, it } from "vitest";
@@ -168,5 +168,36 @@ describe("computeNextFireAt — malformed schedule", () => {
     expect(
       computeNextFireAt({ type: "quarterly", at: "09:00" }, null, 1_700_000_000),
     ).toBeNull();
+  });
+});
+
+describe("computeNextFireAt — yearly", () => {
+  // Container-local wall clock, same as the daily/weekly branches.
+  const at = (y: number, mo: number, d: number, h = 0, mi = 0) =>
+    Math.floor(new Date(y, mo - 1, d, h, mi).getTime() / 1000);
+  const sch = { type: "yearly", date: "08-03", at: "09:00" };
+
+  it("returns this year's slot when it is still ahead", () => {
+    expect(computeNextFireAt(sch, at(2026, 8, 3, 9, 0), at(2027, 1, 10))).toBe(at(2027, 8, 3, 9, 0));
+  });
+
+  it("returns next year's slot once this year's has fired", () => {
+    expect(computeNextFireAt(sch, at(2027, 8, 3, 9, 0), at(2027, 9, 1))).toBe(at(2028, 8, 3, 9, 0));
+  });
+
+  it("returns next year's slot when never seen and this year's has passed", () => {
+    expect(computeNextFireAt(sch, null, at(2027, 9, 1))).toBe(at(2028, 8, 3, 9, 0));
+  });
+
+  it("returns this year's (past) slot when it was missed — scheduler catches up", () => {
+    expect(computeNextFireAt(sch, at(2027, 1, 1), at(2027, 9, 1))).toBe(at(2027, 8, 3, 9, 0));
+  });
+
+  it("returns null for 02-29 and malformed dates", () => {
+    const now = at(2027, 1, 1);
+    expect(computeNextFireAt({ type: "yearly", date: "02-29", at: "09:00" }, null, now)).toBeNull();
+    expect(computeNextFireAt({ type: "yearly", date: "04-31", at: "09:00" }, null, now)).toBeNull();
+    expect(computeNextFireAt({ type: "yearly", date: "8-3", at: "09:00" }, null, now)).toBeNull();
+    expect(computeNextFireAt({ type: "yearly", date: "08-03" }, null, now)).toBeNull();
   });
 });

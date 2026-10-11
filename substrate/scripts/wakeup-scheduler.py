@@ -31,9 +31,12 @@ Schedule specs live at `~/fleet/identities/<name>/wakeups/<slug>.json`:
      "schedule": {"type": "interval", "every": "2h"},        # or:
      #           {"type": "daily",    "at": "09:00"}         # local time
      #           {"type": "weekly",   "day": "mon", "at": "09:00"}
+     #           {"type": "yearly",   "date": "08-03", "at": "09:00"}   # MM-DD, every year
      #           {"type": "one_shot", "at": "2026-08-15T09:00:00-04:00"}   # fires once, spec self-deletes after
+     # yearly: `date` is MM-DD; 02-29 is rejected (would skip 3 of 4 years). Malformed
+     #   `date` = LOUD one-shot alert, spec DOES NOT FIRE.
      # optional on interval/daily/weekly: "days": ["mon","tue","wed","thu","fri"]  (box-local; weekdays-only)
-     # optional on daily/weekly/one_shot: "timezone": "America/New_York"  (IANA name)
+     # optional on daily/weekly/yearly/one_shot: "timezone": "America/New_York"  (IANA name)
      #   pins `at` to that zone year-round (DST-safe); absent = box-local.
      #   Malformed tz name = LOUD one-shot alert + spec DOES NOT FIRE.
      #   Timezone on interval-type = one-shot note (no-op; interval fires by elapsed seconds).
@@ -208,6 +211,34 @@ def _parse_at_ts(at_str, zi):
     return dt.timestamp(), has_offset, None
 
 
+def _yearly_err(sch):
+    """Validate a yearly schedule's `date` (MM-DD) + `at` (HH:MM). Returns err_msg or None."""
+    d = sch.get("date")
+    if not isinstance(d, str) or not re.fullmatch(r"\d{2}-\d{2}", d.strip()):
+        return "yearly: `date` must be MM-DD, got %r" % (d,)
+    month, day = (int(x) for x in d.strip().split("-"))
+    if (month, day) == (2, 29):
+        return "yearly: `date` 02-29 is not supported (pick 02-28 or 03-01)"
+    try:
+        datetime(2001, month, day)
+    except ValueError:
+        return "yearly: `date` %r is not a real calendar day" % d
+    at = sch.get("at")
+    if not isinstance(at, str) or not re.fullmatch(r"\d{1,2}:\d{2}", at.strip()):
+        return "yearly: `at` must be HH:MM, got %r" % (at,)
+    return None
+
+
+def _yearly_slot(now, sch):
+    """Most recent yearly slot at or before `now` (an aware-or-naive datetime in the
+    schedule's zone). Caller has already validated with _yearly_err."""
+    month, day = (int(x) for x in sch["date"].strip().split("-"))
+    slot = _slot_at(now.replace(month=month, day=day), sch["at"])
+    if slot > now:
+        slot = slot.replace(year=slot.year - 1)
+    return slot
+
+
 def _due(spec, last_fired, now_ts, zi=None):
     """Return True if this entry should fire now. last_fired is an epoch or None;
     caller guarantees last_fired is not None here (first-sight is anchored earlier).
@@ -232,6 +263,9 @@ def _due(spec, last_fired, now_ts, zi=None):
         target = _DOW[str(sch["day"]).lower()[:3]]
         back = (now.weekday() - target) % 7          # days since most-recent target weekday
         slot = (_slot_at(now, sch["at"]) - timedelta(days=back)).timestamp()
+        return now_ts >= slot and last_fired < slot
+    if t == "yearly":
+        slot = _yearly_slot(now, sch).timestamp()
         return now_ts >= slot and last_fired < slot
     return False
 
@@ -632,6 +666,14 @@ def main():
                             print("⚠️ [wakeup-scheduler: %s] fired, but spec auto-delete failed: %s "
                                   "— .state/%s.fired sentinel prevents re-fire" % (key, e, key), flush=True)
                 continue
+            if sch_type == "yearly":
+                y_err = _yearly_err(spec["schedule"])
+                if y_err:
+                    if (key, "yearly_bad") not in warned:
+                        print("⚠️ [wakeup-scheduler: %s] %s — spec DOES NOT FIRE until fixed"
+                              % (key, y_err), flush=True)
+                        warned.add((key, "yearly_bad"))
+                    continue
             last = get_last(key)
             anchored = get_anchored(key)
             if last is None and anchored is None:  # first sight -> anchor, don't fire

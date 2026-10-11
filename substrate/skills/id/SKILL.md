@@ -809,7 +809,7 @@ crown, then gear.
 - **🕐 Clock — scheduled tasks.** Opens the modal that lists all
   existing scheduled tasks (edit or delete inline) plus a **"new
   scheduled task"** button that asks for name, prompt, one or more roles,
-  and the schedule (daily / weekly / interval / one-shot).
+  and the schedule (daily / weekly / yearly / interval / one-shot).
   *Agent-side:* see § Scheduled tasks. **User-gated.**
 
 - **🎭 Drama masks — roles.** Opens a modal listing every role the
@@ -1331,8 +1331,9 @@ One JSON file per wake-up at
   "schedule": { "type": "interval", "every": "2h" },   // OR one of:
   //           { "type": "daily",    "at": "09:00" }                                (box-local time)
   //           { "type": "weekly",   "day": "mon", "at": "09:00" }
+  //           { "type": "yearly",   "date": "08-03", "at": "09:00" }               (MM-DD every year; 02-29 rejected)
   //           { "type": "one_shot", "at": "2026-08-15T09:00:00-04:00" }            (fires once, spec self-deletes)
-  //   optional on daily/weekly/one_shot: "timezone": "America/New_York"  (IANA name)
+  //   optional on daily/weekly/yearly/one_shot: "timezone": "America/New_York"  (IANA name)
   //     pins `at` to that zone year-round (DST-safe); absent = box-local.
   //     Malformed tz name = LOUD one-shot alert + spec DOES NOT FIRE.
   //     Timezone on interval-type = one-shot note (no-op; interval fires by elapsed seconds).
@@ -1397,7 +1398,7 @@ The user creates and manages scheduled tasks via the **clock icon** in
 the sidebar footer, beside the gear. The modal lists all
 existing scheduled tasks (edit or delete inline) and has a "new
 scheduled task" button which asks for name, prompt, one or more roles,
-and the schedule (daily / weekly / interval / one-shot). Each row shows
+and the schedule (daily / weekly / yearly / interval / one-shot). Each row shows
 the humanized schedule and, beneath it, inline **Last / Next** run times
 (e.g. `Every 2h · Last: 3h ago · Next: in 27m`) so the user can tell at
 a glance when the agent last fired and when it will fire again — hover
@@ -1421,7 +1422,7 @@ names predate the "scheduled tasks" name in the app — same thing):
 }
 ```
 
-Schedule kinds (interval / daily / weekly / one_shot) and firing semantics
+Schedule kinds (interval / daily / weekly / yearly / one_shot) and firing semantics
 (first-sight anchor, one catch-up on a missed slot, one-shot self-delete)
 mirror the wake-ups section above — same underlying scheduler. The
 difference is what happens on fire.

@@ -27,7 +27,7 @@
  * D-08: Validation MIRRORS wakeup-scheduler.py `_load_specs_scheduled_agents()`
  *       at L224-248 exactly — spec is accepted iff dict-shaped, enabled !== false,
  *       has truthy `prompt` string, has truthy `schedule` object with a valid
- *       `type` (interval | daily | weekly | one_shot) and its type-specific
+ *       `type` (interval | daily | weekly | yearly | one_shot) and its type-specific
  *       required fields. NO additional gates (no prompt-cap, no roles-min).
  *       Drift-flavored test names are grep-banned in acceptance criteria.
  * D-16: LOCAL branch uses getLocalScheduledAgentsRoot() for Skynet's own host.
@@ -134,7 +134,7 @@ export function __resetSlugMutexRegistryForTests(): void {
 // Types
 // ---------------------------------------------------------------------------
 
-type ScheduledAgentScheduleType = "interval" | "daily" | "weekly" | "one_shot";
+type ScheduledAgentScheduleType = "interval" | "daily" | "weekly" | "yearly" | "one_shot";
 
 /** Scheduled-agent spec shape — mirrors Phase 127 D-04 + wakeup-scheduler.py's
  *  scheduled-agents-mode acceptance criteria (the substrate scheduler file is
@@ -151,6 +151,7 @@ export type ScheduledAgentSpec = {
     every?: string | number;
     at?: string;
     day?: string;
+    date?: string;
     days?: unknown[];
   };
   roles?: string[];
@@ -169,9 +170,10 @@ export type ScheduledAgentSpec = {
  *   - spec.enabled !== false (missing or truthy is acceptable)
  *   - spec.prompt is a truthy string
  *   - spec.schedule is a truthy object
- *   - spec.schedule.type ∈ {"interval","daily","weekly","one_shot"} AND its
- *     type-specific required fields are present (interval→`every`;
- *     daily→`at`; weekly→`day` + `at`; one_shot→`at`).
+ *   - spec.schedule.type ∈ {"interval","daily","weekly","yearly","one_shot"} AND
+ *     its type-specific required fields are present (interval→`every`;
+ *     daily→`at`; weekly→`day` + `at`; yearly→`date` (MM-DD, not 02-29) +
+ *     `at`; one_shot→`at`).
  *   - spec.name is a non-empty string (needed to derive slug — the scheduler
  *     also accepts spec-with-name-missing by falling back to basename, but
  *     our HTTP API needs a name to derive the slug from, so require it here).
@@ -182,6 +184,24 @@ export type ScheduledAgentSpec = {
  * length, no roles-min-count, no arbitrary field caps). Any drift-flavored
  * validation is a bug.
  */
+/** Mirrors wakeup-scheduler.py `_yearly_err` for `date`: MM-DD, a real
+ *  calendar day, and not 02-29 (the scheduler refuses it — it would skip
+ *  three years in four). */
+function validateYearlyDate(raw: unknown): string | null {
+  if (typeof raw !== "string" || !/^\d{2}-\d{2}$/.test(raw.trim())) {
+    return "spec.schedule.date is required for yearly schedules (MM-DD)";
+  }
+  const [month, day] = raw.trim().split("-").map(Number);
+  if (month === 2 && day === 29) {
+    return "spec.schedule.date 02-29 is not supported (pick 02-28 or 03-01)";
+  }
+  const probe = new Date(2001, month - 1, day);
+  if (probe.getMonth() !== month - 1 || probe.getDate() !== day) {
+    return `spec.schedule.date ${raw} is not a real calendar day`;
+  }
+  return null;
+}
+
 export function validateScheduledAgentSpec(spec: unknown): string | null {
   if (spec === null || typeof spec !== "object" || Array.isArray(spec)) {
     return "spec must be a JSON object";
@@ -199,8 +219,8 @@ export function validateScheduledAgentSpec(spec: unknown): string | null {
   }
   const sc = sched as Record<string, unknown>;
   const t = sc.type;
-  if (t !== "interval" && t !== "daily" && t !== "weekly" && t !== "one_shot") {
-    return "spec.schedule.type must be one of interval, daily, weekly, one_shot";
+  if (t !== "interval" && t !== "daily" && t !== "weekly" && t !== "yearly" && t !== "one_shot") {
+    return "spec.schedule.type must be one of interval, daily, weekly, yearly, one_shot";
   }
   if (t === "interval") {
     if (
@@ -219,6 +239,12 @@ export function validateScheduledAgentSpec(spec: unknown): string | null {
     }
     if (typeof sc.at !== "string" || sc.at.length === 0) {
       return "spec.schedule.at is required for weekly schedules";
+    }
+  } else if (t === "yearly") {
+    const dateErr = validateYearlyDate(sc.date);
+    if (dateErr) return dateErr;
+    if (typeof sc.at !== "string" || sc.at.length === 0) {
+      return "spec.schedule.at is required for yearly schedules";
     }
   } else if (t === "one_shot") {
     if (typeof sc.at !== "string" || sc.at.length === 0) {

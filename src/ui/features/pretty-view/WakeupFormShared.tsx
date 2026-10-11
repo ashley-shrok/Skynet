@@ -22,6 +22,7 @@ export type FormSchedule =
   | { type: "interval"; n: number; u: "s" | "m" | "h" | "d"; days?: Weekday[] }
   | { type: "daily"; at: string; days?: Weekday[] }
   | { type: "weekly"; day: "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun"; at: string; days?: Weekday[] }
+  | { type: "yearly"; date: string /* MM-DD */; at: string }
   | { type: "one_shot"; at: string /* datetime-local YYYY-MM-DDTHH:MM */ };
 
 export const WEEKDAY_VALUES = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
@@ -67,6 +68,36 @@ export function detectBrowserTimezone(): string {
 
 export function pad2(n: number): string {
   return String(n).padStart(2, "0");
+}
+
+export const MONTH_LABELS = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+] as const;
+
+// Yearly `date` is MM-DD. Feb is capped at 28 — the scheduler refuses 02-29
+// (it would skip three years in four).
+const DAYS_IN_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+export function parseYearlyDate(date: string): { month: number; day: number } | null {
+  const m = /^(\d{2})-(\d{2})$/.exec(date.trim());
+  if (!m) return null;
+  const month = Number(m[1]);
+  const day = Number(m[2]);
+  if (month < 1 || month > 12 || day < 1 || day > DAYS_IN_MONTH[month - 1]) return null;
+  return { month, day };
+}
+
+// Build MM-DD, clamping the day into the month (so switching Jan 31 → Feb
+// lands on Feb 28 rather than an invalid date).
+export function formatYearlyDate(month: number, day: number): string {
+  const clamped = Math.min(Math.max(1, day), DAYS_IN_MONTH[month - 1]);
+  return `${pad2(month)}-${pad2(clamped)}`;
+}
+
+function defaultYearlyDate(): string {
+  const d = new Date();
+  return formatYearlyDate(d.getMonth() + 1, d.getDate());
 }
 
 // Convert a `datetime-local` input string (YYYY-MM-DDTHH:MM) to a timezone-
@@ -115,6 +146,11 @@ export function hydrateFormSchedule(sched: unknown): FormSchedule {
     const days = normalizeDays(s.days);
     return days !== undefined ? { type: "weekly", day, at, days } : { type: "weekly", day, at };
   }
+  if (t === "yearly") {
+    const date = typeof s.date === "string" && parseYearlyDate(s.date) ? s.date.trim() : defaultYearlyDate();
+    const at = typeof s.at === "string" && /^\d\d:\d\d$/.test(s.at) ? s.at : "09:00";
+    return { type: "yearly", date, at };
+  }
   if (t === "one_shot") {
     if (typeof s.at === "string") {
       const d = new Date(s.at);
@@ -137,7 +173,7 @@ export function hydrateFormSchedule(sched: unknown): FormSchedule {
 }
 
 // Build the schedule object that gets written back. Interval OMITS timezone
-// (scheduler no-ops it); daily/weekly/one_shot include the browser-detected zone.
+// (scheduler no-ops it); daily/weekly/yearly/one_shot include the browser-detected zone.
 // Phase 65-02: emit `days:` key only when normalizeDays returns a non-empty,
 // non-full-7 subset (D-02 + D-04 drop-the-field on both bounds).
 export function buildSchedule(fs: FormSchedule, tz: string): Record<string, unknown> {
@@ -159,6 +195,9 @@ export function buildSchedule(fs: FormSchedule, tz: string): Record<string, unkn
     if (days !== undefined) base.days = days;
     return base;
   }
+  if (fs.type === "yearly") {
+    return { type: "yearly", date: fs.date, at: fs.at, timezone: tz };
+  }
   // one_shot: convert local datetime string to ISO+offset.
   return { type: "one_shot", at: toIsoWithOffset(fs.at), timezone: tz };
 }
@@ -175,6 +214,11 @@ export function validateForm(fs: FormSchedule): string | null {
   if (fs.type === "daily" || fs.type === "weekly") {
     if (!/^\d\d:\d\d$/.test(fs.at)) return "`at` must be HH:MM";
     if (fs.type === "weekly" && !isWeekday(fs.day)) return "`day` must be one of mon..sun";
+    return null;
+  }
+  if (fs.type === "yearly") {
+    if (!parseYearlyDate(fs.date)) return "`date` must be a real month + day (Feb 29 isn't supported)";
+    if (!/^\d\d:\d\d$/.test(fs.at)) return "`at` must be HH:MM";
     return null;
   }
   // one_shot
@@ -241,5 +285,64 @@ export function RestrictToDaysChips({
         })}
       </div>
     </div>
+  );
+}
+
+// Month select + day-of-month input for the yearly schedule kind. Shared by
+// the wake-up dialogs and the scheduled-tasks form; each passes its own
+// input styling so the picker matches the surrounding fields.
+export function YearlyDateFields({
+  date,
+  onChange,
+  idPrefix,
+  inputClassName,
+  labelClassName,
+}: {
+  date: string;
+  onChange: (next: string) => void;
+  idPrefix: string;
+  inputClassName: string;
+  labelClassName: string;
+}): JSX.Element {
+  const parsed = parseYearlyDate(date) ?? { month: 1, day: 1 };
+  return (
+    <>
+      <div className="flex flex-col gap-1 flex-1 min-w-[110px]">
+        <label htmlFor={`${idPrefix}-month`} className={labelClassName}>
+          Month
+        </label>
+        <select
+          id={`${idPrefix}-month`}
+          data-testid={`${idPrefix}-month`}
+          value={parsed.month}
+          onChange={(e) => onChange(formatYearlyDate(Number(e.target.value), parsed.day))}
+          className={inputClassName}
+        >
+          {MONTH_LABELS.map((label, i) => (
+            <option key={label} value={i + 1}>
+              {label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="flex flex-col gap-1 w-[70px]">
+        <label htmlFor={`${idPrefix}-day`} className={labelClassName}>
+          Day
+        </label>
+        <input
+          id={`${idPrefix}-day`}
+          data-testid={`${idPrefix}-day`}
+          type="number"
+          min={1}
+          max={DAYS_IN_MONTH[parsed.month - 1]}
+          value={parsed.day}
+          onChange={(e) => {
+            const n = parseInt(e.target.value, 10);
+            if (Number.isFinite(n)) onChange(formatYearlyDate(parsed.month, n));
+          }}
+          className={inputClassName}
+        />
+      </div>
+    </>
   );
 }

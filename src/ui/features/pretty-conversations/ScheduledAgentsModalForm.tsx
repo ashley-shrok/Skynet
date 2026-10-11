@@ -57,6 +57,7 @@ import {
   validateForm,
   WEEKDAY_VALUES,
   type Weekday,
+  YearlyDateFields,
 } from "@/features/pretty-view/WakeupFormShared";
 import {
   createScheduledAgent,
@@ -691,6 +692,7 @@ export function ScheduledAgentsModalForm({
               [
                 { key: "daily", label: "Daily" },
                 { key: "weekly", label: "Weekly" },
+                { key: "yearly", label: "Yearly" },
                 { key: "interval", label: "Interval" },
                 { key: "one_shot", label: "One-shot" },
               ] as const
@@ -710,6 +712,8 @@ export function ScheduledAgentsModalForm({
                         day: "mon",
                         at: "09:00",
                       });
+                    } else if (key === "yearly") {
+                      setFormSchedule(hydrateFormSchedule({ type: "yearly" }));
                     } else if (key === "interval") {
                       setFormSchedule({ type: "interval", n: 30, u: "m" });
                     } else {
@@ -809,6 +813,50 @@ export function ScheduledAgentsModalForm({
                     })
                   }
                   data-testid="scheduled-agents-modal-form-schedule-weekly-at"
+                  className={cn(
+                    "px-2 py-1 rounded-md text-sm text-[#e8e4d8]",
+                    "bg-black/20 border border-white/10 outline-none",
+                    "focus:border-[hsla(220,65%,55%,0.5)]",
+                  )}
+                />
+              </div>
+            </div>
+          )}
+
+          {formSchedule.type === "yearly" && (
+            <div className="flex flex-row items-end gap-2 flex-wrap">
+              <YearlyDateFields
+                date={formSchedule.date}
+                onChange={(date) =>
+                  setFormSchedule({ type: "yearly", date, at: formSchedule.at })
+                }
+                idPrefix="scheduled-agents-modal-form-schedule-yearly"
+                labelClassName="text-[11px] text-[color:var(--color-pv-fg-muted)]"
+                inputClassName={cn(
+                  "px-2 py-1 rounded-md text-sm text-[#e8e4d8]",
+                  "bg-black/20 border border-white/10 outline-none",
+                  "focus:border-[hsla(220,65%,55%,0.5)]",
+                )}
+              />
+              <div className="flex flex-col gap-1">
+                <label
+                  htmlFor="scheduled-agents-modal-form-schedule-yearly-at"
+                  className="text-[11px] text-[color:var(--color-pv-fg-muted)]"
+                >
+                  At
+                </label>
+                <input
+                  id="scheduled-agents-modal-form-schedule-yearly-at"
+                  type="time"
+                  value={formSchedule.at}
+                  onChange={(e) =>
+                    setFormSchedule({
+                      type: "yearly",
+                      date: formSchedule.date,
+                      at: e.target.value,
+                    })
+                  }
+                  data-testid="scheduled-agents-modal-form-schedule-yearly-at"
                   className={cn(
                     "px-2 py-1 rounded-md text-sm text-[#e8e4d8]",
                     "bg-black/20 border border-white/10 outline-none",

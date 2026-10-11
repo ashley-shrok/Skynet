@@ -8,8 +8,8 @@
  * "Next: in 27m" alongside the humanized schedule.
  *
  * Pragmatic simplification: the Python side honors an optional `timezone`
- * IANA zone on daily/weekly/one_shot specs. This port runs daily/weekly
- * wall-clock math in the container's local zone and ignores the `timezone`
+ * IANA zone on daily/weekly/yearly/one_shot specs. This port runs
+ * daily/weekly/yearly wall-clock math in the container's local zone and ignores the `timezone`
  * field — matching the humanizer's `(box-local)` suffix and keeping the port
  * dependency-free. The resulting "Next" string is approximate when a spec
  * carries a `timezone` that differs from box-local (relative-time rounding
@@ -170,6 +170,29 @@ export function computeNextFireAt(
     // excluded). Honor the gate by walking forward; the 14-day cap stops
     // the loop in the pathological case.
     return applyDaysFilter(candidate);
+  }
+
+  if (type === "yearly") {
+    const dm = typeof sch.date === "string" ? /^(\d{2})-(\d{2})$/.exec(sch.date.trim()) : null;
+    const hm = typeof sch.at === "string" ? /^(\d{1,2}):(\d{2})$/.exec(sch.at) : null;
+    if (!dm || !hm) return null;
+    const month = Number(dm[1]) - 1;
+    const day = Number(dm[2]);
+    if (month === 1 && day === 29) return null; // scheduler refuses 02-29
+    const slotIn = (year: number): number | null => {
+      const d = new Date(year, month, day, Number(hm[1]), Number(hm[2]), 0, 0);
+      if (d.getMonth() !== month || d.getDate() !== day) return null;
+      return Math.floor(d.getTime() / 1000);
+    };
+    const year = new Date(nowSecs * 1000).getFullYear();
+    const thisYear = slotIn(year);
+    if (thisYear === null) return null;
+    // Slot still ahead this year (and not already fired at/after it) → this
+    // year's; otherwise next year's. A missed slot (reference before it, now
+    // past it) catches up on the scheduler's next poll — show it as now-ish.
+    if (referenceSecs !== null && referenceSecs >= thisYear) return slotIn(year + 1);
+    if (nowSecs < thisYear) return thisYear;
+    return referenceSecs === null ? slotIn(year + 1) : thisYear;
   }
 
   if (type === "one_shot") {

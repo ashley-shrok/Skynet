@@ -217,3 +217,21 @@ describe("humanizeWakeupSchedule — defensive input handling (Phase 65 / D-07)"
     expect(humanizeWakeupSchedule({ type: "one_shot" })).toBe("Once");
   });
 });
+
+describe("humanizeWakeupSchedule — yearly", () => {
+  it("renders month name + day + time", () => {
+    expect(humanizeWakeupSchedule({ type: "yearly", date: "08-03", at: "09:00" })).toBe(
+      "Yearly on Aug 3 at 09:00 (box-local)",
+    );
+  });
+
+  it("omits the time when `at` is missing", () => {
+    expect(humanizeWakeupSchedule({ type: "yearly", date: "12-25" })).toBe("Yearly on Dec 25 (box-local)");
+  });
+
+  it("shows '?' for a malformed date", () => {
+    expect(humanizeWakeupSchedule({ type: "yearly", date: "aug 3", at: "09:00" })).toBe(
+      "Yearly on ? at 09:00 (box-local)",
+    );
+  });
+});

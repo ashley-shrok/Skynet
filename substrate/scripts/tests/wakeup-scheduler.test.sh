@@ -8,6 +8,7 @@
 #   T-G3 — per-identity mode unchanged — regression guard for D-07
 #   T-G4 — orphan-check disabled in scheduled-agents mode; active in per-identity mode
 #   T-G5 — one-shot spec self-deletes in scheduled-agents mode + sentinel written
+#   T-G9 — yearly schedule due math + date validation
 #
 # Exits 0 on all-pass; exits 1 on any failure with a diagnostic naming the
 # failing test.
@@ -603,6 +604,63 @@ print('OK' if 'users' not in d else 'FAIL: users key present when spec has no us
 # ============================================================
 # MAIN
 # ============================================================
+# SA-G9: yearly schedule type — _due slot math + _yearly_err validation
+test_SA_G9_yearly_due_and_validation() {
+  local unit_result
+  unit_result=$(python3 -c "
+import importlib.util
+from datetime import datetime, timezone
+spec = importlib.util.spec_from_file_location('ws', '$PY_SCRIPT')
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+utc = timezone.utc
+def ts(*a): return datetime(*a, tzinfo=utc).timestamp()
+sp = {'schedule': {'type': 'yearly', 'date': '08-03', 'at': '09:00'}}
+errors = []
+def chk(label, got, want):
+    if got != want: errors.append('%s: got %r wanted %r' % (label, got, want))
+# Not yet reached this year; last fire was last year's slot -> not due.
+chk('before-slot', m._due(sp, ts(2026,8,3,9,0), ts(2027,8,3,8,59), utc), False)
+# Slot reached, last fire was last year's -> due.
+chk('at-slot', m._due(sp, ts(2026,8,3,9,0), ts(2027,8,3,9,0), utc), True)
+# Already fired this year's slot -> not due again later in the year.
+chk('after-fired', m._due(sp, ts(2027,8,3,9,0,30), ts(2027,12,31,23,0), utc), False)
+# Box was down at the slot; first poll after -> one catch-up fire.
+chk('catch-up', m._due(sp, ts(2026,8,3,9,0), ts(2027,9,1,0,0), utc), True)
+# Anchored early in the year (never fired) -> due once slot arrives.
+chk('anchored', m._due(sp, ts(2027,1,10,0,0), ts(2027,8,3,9,1), utc), True)
+# Leap-day 'now' must not crash the slot math.
+chk('leap-now', m._due(sp, ts(2027,8,3,9,0,30), ts(2028,2,29,12,0), utc), False)
+chk('ok', m._yearly_err(sp['schedule']), None)
+for bad in ({'date': '02-29', 'at': '09:00'}, {'date': '13-01', 'at': '09:00'},
+            {'date': '04-31', 'at': '09:00'}, {'date': '8-3', 'at': '09:00'},
+            {'at': '09:00'}, {'date': '08-03'}):
+    if m._yearly_err(bad) is None: errors.append('accepted bad %r' % bad)
+print('FAIL: ' + '; '.join(errors) if errors else 'OK')
+" 2>&1)
+  if [ "$unit_result" != "OK" ]; then
+    fail "SA-G9 unit: $unit_result"
+    return
+  fi
+
+  # End-to-end — malformed yearly spec emits a LOUD alert and does not anchor.
+  local ident_dir home_dir out_log
+  ident_dir=$(make_tmpdir)
+  home_dir=$(make_tmpdir)
+  out_log=$(make_tmpdir)/out.log
+  mkdir -p "$ident_dir/wakeups"
+  cat > "$ident_dir/wakeups/bad-yearly.json" <<'JSON'
+{"name": "bad-yearly", "enabled": true,
+ "schedule": {"type": "yearly", "date": "02-29", "at": "09:00"},
+ "instruction": "never"}
+JSON
+  HOME="$home_dir" timeout 3 python3 "$PY_SCRIPT" "$ident_dir" >"$out_log" 2>/dev/null || true
+  if ! grep -q "bad-yearly.*02-29 is not supported.*DOES NOT FIRE" "$out_log"; then
+    fail "SA-G9: expected loud 02-29 alert, got: $(cat "$out_log")"
+  fi
+  assert_file_absent "$ident_dir/wakeups/.state/bad-yearly.anchored" "SA-G9 bad spec must not anchor"
+}
+
+# ============================================================
 printf '=== wakeup-scheduler.py scheduled-agents-mode test driver ===\n'
 printf 'script: %s\n' "$PY_SCRIPT"
 printf '\n'
@@ -615,6 +673,7 @@ run_test test_SA_G5_one_shot_scheduled_agents_mode
 run_test test_SA_G6_prettify_name_de_slugs_task_prefix
 run_test test_SA_G7_users_propagation
 run_test test_SA_G8_users_absent_absent_in_body
+run_test test_SA_G9_yearly_due_and_validation
 
 printf '\n===============================\n'
 printf 'PASS: %s  FAIL: %s\n' "$PASS" "$FAIL"

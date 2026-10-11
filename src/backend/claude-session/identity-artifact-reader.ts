@@ -119,7 +119,7 @@ function daysGateLabel(days: WeekdayCode[]): string {
 
 /**
  * Humanize a wakeup schedule object into a human-readable string.
- * Handles interval / daily / weekly schedule types; falls back to "custom schedule".
+ * Handles interval / daily / weekly / yearly / one_shot schedule types; falls back to "custom schedule".
  * Exported so claude-session-server.ts can re-export it (patch #92: moved here to
  * avoid a circular dependency — artifact reader must not import from server.ts).
  *
@@ -175,6 +175,15 @@ export function humanizeWakeupSchedule(schedule: unknown): string {
       return `${baseWeekly} — NEVER FIRES (weekly day excluded from days gate)`;
     }
     return baseWeekly;
+  }
+  if (type === "yearly") {
+    // `date` is MM-DD; render as "Yearly on Aug 3 at 09:00 (box-local)".
+    const at = typeof s.at === "string" ? s.at : "";
+    const m = typeof s.date === "string" ? /^(\d{2})-(\d{2})$/.exec(s.date.trim()) : null;
+    const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const month = m ? MONTHS[Number(m[1]) - 1] : undefined;
+    const when = m && month ? `${month} ${Number(m[2])}` : "?";
+    return at ? `Yearly on ${when} at ${at} (box-local)` : `Yearly on ${when} (box-local)`;
   }
   if (type === "one_shot") {
     // Phase 128 code-review fix #2: one_shot was falling through to "custom

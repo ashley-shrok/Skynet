@@ -26,6 +26,7 @@ import {
   pad2,
   RestrictToDaysChips,
   validateForm,
+  YearlyDateFields,
 } from "./WakeupFormShared";
 
 // Patch #17g: tab renderer for the identity's wakeups/*.json files.
@@ -579,6 +580,7 @@ function WakeupRow({
                     if (next === "interval") setFormSchedule({ type: "interval", n: 30, u: "m" });
                     else if (next === "daily") setFormSchedule({ type: "daily", at: "09:00" });
                     else if (next === "weekly") setFormSchedule({ type: "weekly", day: "mon", at: "09:00" });
+                    else if (next === "yearly") setFormSchedule(hydrateFormSchedule({ type: "yearly" }));
                     else if (next === "one_shot") {
                       const d = new Date(Date.now() + 3600e3);
                       d.setMinutes(0, 0, 0);
@@ -596,6 +598,7 @@ function WakeupRow({
                   <option value="interval">interval — every N s/m/h/d</option>
                   <option value="daily">daily — at a time each day</option>
                   <option value="weekly">weekly — on a day + time</option>
+                  <option value="yearly">yearly — on a date + time each year</option>
                   <option value="one_shot">one_shot — fires once at a datetime</option>
                 </select>
               </div>
@@ -740,6 +743,44 @@ function WakeupRow({
                     onChange={(next) => setFormSchedule({ ...formSchedule, days: next })}
                     slug={wakeup.slug}
                   />
+                </>
+              )}
+
+              {formSchedule.type === "yearly" && (
+                <>
+                  <div className="flex items-end gap-2 flex-wrap">
+                    <YearlyDateFields
+                      date={formSchedule.date}
+                      onChange={(date) => setFormSchedule({ ...formSchedule, date })}
+                      idPrefix={`wakeup-yearly-${wakeup.slug}`}
+                      labelClassName="text-[10px] uppercase tracking-wide text-[var(--color-pv-fg-dim)] font-semibold"
+                      inputClassName={cn(
+                        "bg-black/30 text-[#e8e4d8] border border-white/10",
+                        "focus:outline-none focus:border-white/25 rounded px-2 py-1.5 text-xs",
+                      )}
+                    />
+                    <div className="flex flex-col gap-1 flex-1 min-w-[110px]">
+                      <label
+                        htmlFor={`wakeup-yearly-at-${wakeup.slug}`}
+                        className="text-[10px] uppercase tracking-wide text-[var(--color-pv-fg-dim)] font-semibold"
+                      >
+                        Time (local)
+                      </label>
+                      <input
+                        id={`wakeup-yearly-at-${wakeup.slug}`}
+                        type="time"
+                        value={formSchedule.at}
+                        onChange={(e) => setFormSchedule({ ...formSchedule, at: e.target.value })}
+                        className={cn(
+                          "bg-black/30 text-[#e8e4d8] border border-white/10",
+                          "focus:outline-none focus:border-white/25 rounded px-2 py-1.5 text-xs",
+                        )}
+                      />
+                    </div>
+                  </div>
+                  <div className="text-xs text-[var(--color-pv-fg-dim)] font-mono">
+                    Timezone (auto-detected from browser): <b>{detectedTz}</b>
+                  </div>
                 </>
               )}
 

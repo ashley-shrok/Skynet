@@ -30,9 +30,11 @@ import {
   type Weekday,
   buildSchedule,
   detectBrowserTimezone,
+  hydrateFormSchedule,
   pad2,
   RestrictToDaysChips,
   validateForm,
+  YearlyDateFields,
 } from "./WakeupFormShared";
 // Phase 112 Plan 03: instruction field adopts the shared MarkdownEditor with
 // a synthetic `filename="wakeup.md"` that forces the pretty (MDXEditor) branch
@@ -190,6 +192,7 @@ export function AddWakeupDialog({
                 if (next === "interval") setFormSchedule({ type: "interval", n: 30, u: "m" });
                 else if (next === "daily") setFormSchedule({ type: "daily", at: "09:00" });
                 else if (next === "weekly") setFormSchedule({ type: "weekly", day: "mon", at: "09:00" });
+                else if (next === "yearly") setFormSchedule(hydrateFormSchedule({ type: "yearly" }));
                 else if (next === "one_shot") setFormSchedule({ type: "one_shot", at: defaultOneShotAt() });
               }}
               className={cn(
@@ -200,6 +203,7 @@ export function AddWakeupDialog({
               <option value="interval">interval — every N s/m/h/d</option>
               <option value="daily">daily — at a time each day</option>
               <option value="weekly">weekly — on a day + time</option>
+              <option value="yearly">yearly — on a date + time each year</option>
               <option value="one_shot">one_shot — fires once at a datetime</option>
             </select>
           </div>
@@ -345,6 +349,39 @@ export function AddWakeupDialog({
                 slug="add"
               />
             </>
+          )}
+
+          {formSchedule.type === "yearly" && (
+            <div className="flex items-end gap-2 flex-wrap">
+              <YearlyDateFields
+                date={formSchedule.date}
+                onChange={(date) => setFormSchedule({ ...formSchedule, date })}
+                idPrefix="add-wakeup-yearly"
+                labelClassName="text-[10px] uppercase tracking-wide text-white/90 font-semibold"
+                inputClassName={cn(
+                  "bg-black/30 text-[#e8e4d8] border border-white/10",
+                  "focus:outline-none focus:border-white/25 rounded px-2 py-1.5 text-xs",
+                )}
+              />
+              <div className="flex flex-col gap-1 flex-1 min-w-[110px]">
+                <label
+                  htmlFor="add-wakeup-yearly-at"
+                  className="text-[10px] uppercase tracking-wide text-white/90 font-semibold"
+                >
+                  Time (local)
+                </label>
+                <input
+                  id="add-wakeup-yearly-at"
+                  type="time"
+                  value={formSchedule.at}
+                  onChange={(e) => setFormSchedule({ ...formSchedule, at: e.target.value })}
+                  className={cn(
+                    "bg-black/30 text-[#e8e4d8] border border-white/10",
+                    "focus:outline-none focus:border-white/25 rounded px-2 py-1.5 text-xs",
+                  )}
+                />
+              </div>
+            </div>
           )}
 
           {formSchedule.type === "one_shot" && (

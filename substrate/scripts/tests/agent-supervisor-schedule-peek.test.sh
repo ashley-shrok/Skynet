@@ -14,6 +14,8 @@
 #   T-05  — weekly, only .anchored, this week's slot overdue → due
 #   T-06  — no .last and no .anchored (never seen by scheduler) → not due
 #   T-07  — .last wins over .anchored when both present
+#   T-08  — yearly, only .anchored, this year's slot overdue → due
+#   T-09  — yearly, .last after this year's slot → not due
 #
 # Exits 0 on all-pass; 1 on any failure.
 #
@@ -143,6 +145,22 @@ t07() {
   expect_not_due
 }
 
+t08() {
+  local date
+  date=$(date -d "@$((NOW - 600))" +%m-%d)
+  write_spec "{\"name\":\"w\",\"schedule\":{\"type\":\"yearly\",\"date\":\"$date\",\"at\":\"$SLOT_PAST\"},\"instruction\":\"x\"}"
+  write_state anchored "$((NOW - 30 * 86400))"
+  expect_due
+}
+
+t09() {
+  local date
+  date=$(date -d "@$((NOW - 600))" +%m-%d)
+  write_spec "{\"name\":\"w\",\"schedule\":{\"type\":\"yearly\",\"date\":\"$date\",\"at\":\"$SLOT_PAST\"},\"instruction\":\"x\"}"
+  write_state last "$((NOW - 60))"
+  expect_not_due
+}
+
 run_case "T-01 daily anchored-only overdue → due" t01
 run_case "T-02 daily fired after slot → not due" t02
 run_case "T-03 interval anchored-only overdue → due" t03
@@ -150,6 +168,8 @@ run_case "T-04 interval anchored-only future → not due" t04
 run_case "T-05 weekly anchored-only overdue → due" t05
 run_case "T-06 no state at all → not due" t06
 run_case "T-07 .last wins over .anchored" t07
+run_case "T-08 yearly anchored-only overdue → due" t08
+run_case "T-09 yearly fired after slot → not due" t09
 
 printf '\n===============================\n'
 printf 'PASS: %d  FAIL: %d\n' "$PASS" "$FAIL"

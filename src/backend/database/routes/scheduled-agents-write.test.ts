@@ -8,7 +8,7 @@
  *   4: spec.name normalizes to empty slug → 400
  *   5: spec missing prompt → 400 (scheduler-parity gate)
  *   6: spec missing schedule → 400 (scheduler-parity gate)
- *   7: spec.schedule.type not in {interval,daily,weekly,one_shot} → 400
+ *   7: spec.schedule.type not in {interval,daily,weekly,yearly,one_shot} → 400
  *   8: 409 on clobber (existence probe returns EXISTS)
  *   9: happy CREATE REMOTE — writeMarkdownFileAtomic called with JSON body;
  *      NEVER via sftp.rename (throwing trap installed)
@@ -252,6 +252,7 @@ import router, {
   __resetSlugMutexRegistryForTests,
   buildRunNowSpawnRequest,
   prettifyScheduledAgentName,
+  validateScheduledAgentSpec,
 } from "./scheduled-agents-write.js";
 
 // ---------------------------------------------------------------------------
@@ -1134,5 +1135,29 @@ describe("buildRunNowSpawnRequest (helper)", () => {
   it("prettifyScheduledAgentName mirrors the scheduler's _prettify_name", () => {
     expect(prettifyScheduledAgentName("news-watcher_zoey")).toBe("News watcher zoey");
     expect(prettifyScheduledAgentName("")).toBe("");
+  });
+});
+
+describe("validateScheduledAgentSpec — yearly", () => {
+  const base = { name: "token-renewal", prompt: "renew it" };
+  const withSchedule = (schedule: Record<string, unknown>) => ({ ...base, schedule });
+
+  it("accepts MM-DD + at", () => {
+    expect(validateScheduledAgentSpec(withSchedule({ type: "yearly", date: "08-03", at: "09:00" }))).toBeNull();
+  });
+
+  it("rejects 02-29", () => {
+    expect(validateScheduledAgentSpec(withSchedule({ type: "yearly", date: "02-29", at: "09:00" }))).toMatch(/02-29/);
+  });
+
+  it("rejects missing, malformed, or impossible dates", () => {
+    expect(validateScheduledAgentSpec(withSchedule({ type: "yearly", at: "09:00" }))).toMatch(/date is required/);
+    expect(validateScheduledAgentSpec(withSchedule({ type: "yearly", date: "8-3", at: "09:00" }))).toMatch(/date is required/);
+    expect(validateScheduledAgentSpec(withSchedule({ type: "yearly", date: "04-31", at: "09:00" }))).toMatch(/not a real calendar day/);
+    expect(validateScheduledAgentSpec(withSchedule({ type: "yearly", date: "13-01", at: "09:00" }))).toMatch(/not a real calendar day/);
+  });
+
+  it("requires at", () => {
+    expect(validateScheduledAgentSpec(withSchedule({ type: "yearly", date: "08-03" }))).toMatch(/at is required/);
   });
 });
