@@ -142,7 +142,7 @@ vi.mock("./sources/use-chat-surface-adapter", () => ({
   useChatSurfaceAdapter: (..._args: unknown[]) => adapterStateRef.value,
 }));
 
-import { PrettyView } from "./PrettyView";
+import { PrettyView, OPTIMISTIC_WIP_DELIVERED_GRACE_MS } from "./PrettyView";
 import {
   publishFleetStatusSessionState,
   __resetForTest as resetWorkingStore,
@@ -2270,23 +2270,83 @@ describe("PrettyView — optimistic WipBubble (spinner retired)", () => {
     await waitFor(() => expect(container.querySelector(WIP_SELECTOR)).toBeNull());
   });
 
-  it("releases on an assistant reply when the backend never reported working", async () => {
+  it("delivery signals shorten the hold to a grace window when the backend never reports working", async () => {
+    vi.useFakeTimers();
     const { container } = mount();
-    await ready(container);
+    flipToStreaming(getCurrentWs());
+    await act(async () => {
+      await Promise.resolve();
+    });
     typeAndEnter(container, "quick one");
-    await waitFor(() => expect(container.querySelector(WIP_SELECTOR)).not.toBeNull());
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(container.querySelector(WIP_SELECTOR)).not.toBeNull();
 
-    // The user echo alone does NOT release it — the agent hasn't answered.
+    // Echo + an intro line: the agent may still be mid-turn, so neither
+    // releases the indicator outright — they start the grace window.
     sendWsFrame(getCurrentWs(), {
       type: "message", role: "user", content: "quick one", eventId: "ev-u1", ts: Date.now(),
     });
-    await waitFor(() => expect(countPendingBubbles(container)).toBe(0));
+    sendWsFrame(getCurrentWs(), {
+      type: "message", role: "assistant", content: "on it", eventId: "ev-a1", ts: Date.now(),
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(OPTIMISTIC_WIP_DELIVERED_GRACE_MS - 1000);
+      await Promise.resolve();
+    });
     expect(container.querySelector(WIP_SELECTOR)).not.toBeNull();
 
-    sendWsFrame(getCurrentWs(), {
-      type: "message", role: "assistant", content: "done", eventId: "ev-a1", ts: Date.now(),
+    await act(async () => {
+      vi.advanceTimersByTime(2000);
+      await Promise.resolve();
     });
+    expect(container.querySelector(WIP_SELECTOR)).toBeNull();
+  });
+
+  it("a still-latched backend 'working' from the previous turn does not cancel a fresh send", async () => {
+    const { container } = mount();
+    await ready(container);
+    publishWorking(true);
+    typeAndEnter(container, "fast follow-up");
+    await act(async () => {
+      await Promise.resolve();
+    });
+    // Previous turn's latch drops — the optimistic indicator bridges the gap.
+    publishWorking(false);
+    expect(container.querySelector(WIP_SELECTOR)).not.toBeNull();
+    // New turn observed → handoff; later idle hides it.
+    publishWorking(true);
+    publishWorking(false);
     await waitFor(() => expect(container.querySelector(WIP_SELECTOR)).toBeNull());
+  });
+
+  it("an older send's failure does not release the indicator armed by a newer send", async () => {
+    vi.useFakeTimers();
+    const { container } = mount();
+    flipToStreaming(getCurrentWs());
+    await act(async () => {
+      await Promise.resolve();
+    });
+    typeAndEnter(container, "A");
+    await act(async () => {
+      vi.advanceTimersByTime(30_000);
+      await Promise.resolve();
+    });
+    typeAndEnter(container, "B");
+    // A's 90s ceiling fires (B is at 60s of its own).
+    await act(async () => {
+      vi.advanceTimersByTime(60_001);
+      await Promise.resolve();
+    });
+    expect(container.querySelectorAll("[data-pv-bubble-failed]").length).toBe(1);
+    expect(container.querySelector(WIP_SELECTOR)).not.toBeNull();
+    // B's own ceiling releases it.
+    await act(async () => {
+      vi.advanceTimersByTime(30_000);
+      await Promise.resolve();
+    });
+    expect(container.querySelector(WIP_SELECTOR)).toBeNull();
   });
 
   it("/id commands do not arm the optimistic WipBubble", async () => {

@@ -211,6 +211,14 @@ const WORKING_SET_CAP = 20;
  */
 export const PENDING_SEND_TIMEOUT_MS_NORMAL = 90_000;
 export const PENDING_SEND_TIMEOUT_MS_DORMANT = 220_000;
+/**
+ * Optimistic-WIP release window once a send is evidently delivered (user
+ * echo, widget envelope, or assistant message). Several fleet-status polls
+ * (2s cadence) — long enough for backend isWorking to take over a real turn,
+ * short enough that a turn the poll never observed doesn't hold the
+ * indicator for the full send ceiling.
+ */
+export const OPTIMISTIC_WIP_DELIVERED_GRACE_MS = 10_000;
 
 // Minimal read-only pretty view for a live Claude Code session.
 //
@@ -1698,39 +1706,72 @@ export function PrettyView({
 
   // Optimistic WIP: every harness send (compose, attachment batch, widget
   // submit) shows the WipBubble immediately instead of waiting for the
-  // backend working signal, which lags by seconds normally and by the whole
-  // wake on a dormant pane. Released on the first of: backend isWorking
-  // observed (handoff to the real indicator), an assistant message arriving
-  // (fast replies the working poll never saw), the send failing, the same
-  // client timeout the pending bubble uses, or session teardown. A single
-  // flag — a newer send re-arms the timer to its own timeout.
+  // backend working signal, which lags by a poll normally and by the whole
+  // wake on a dormant pane. Released on the first of: a false→true edge of
+  // backend isWorking after arm (handoff to the real indicator — a level
+  // check would let a still-latched "working" from the previous turn cancel
+  // it instantly), failure of the send that armed it, the same client
+  // timeout the pending bubble uses, or session teardown. Once the turn is
+  // evidently delivered (user echo / widget envelope / assistant message),
+  // the timeout shortens to OPTIMISTIC_WIP_DELIVERED_GRACE_MS: enough polls
+  // for the working signal to take over, without holding the indicator for
+  // the full send ceiling on turns too short for the poll to observe.
+  // Single slot — a newer send takes it over (mqid + timer).
   const [optimisticWip, setOptimisticWip] = useState(false);
-  const optimisticWipRef = useRef(false);
+  const optimisticWipMqidRef = useRef<string | null>(null);
   const optimisticWipTimerRef = useRef<number | null>(null);
+  const optimisticWipDeadlineRef = useRef<number>(0);
   const clearOptimisticWip = useCallback((reason: string) => {
     if (optimisticWipTimerRef.current !== null) {
       window.clearTimeout(optimisticWipTimerRef.current);
       optimisticWipTimerRef.current = null;
     }
-    if (!optimisticWipRef.current) return;
-    optimisticWipRef.current = false;
+    const mqid = optimisticWipMqidRef.current;
+    if (mqid === null) return;
+    optimisticWipMqidRef.current = null;
     setOptimisticWip(false);
-    console.info(`[pv-optim-wip] clear reason=${reason}`);
+    console.info(`[pv-optim-wip] clear mqid=${mqid} reason=${reason}`);
   }, []);
-  const armOptimisticWip = useCallback(
-    (mqid: string, timeoutMs: number) => {
+  const scheduleOptimisticWipRelease = useCallback(
+    (timeoutMs: number, reason: string) => {
       if (optimisticWipTimerRef.current !== null) {
         window.clearTimeout(optimisticWipTimerRef.current);
       }
+      optimisticWipDeadlineRef.current = Date.now() + timeoutMs;
       optimisticWipTimerRef.current = window.setTimeout(() => {
         optimisticWipTimerRef.current = null;
-        clearOptimisticWip(`timeout mqid=${mqid}`);
+        clearOptimisticWip(reason);
       }, timeoutMs);
-      optimisticWipRef.current = true;
+    },
+    [clearOptimisticWip],
+  );
+  const armOptimisticWip = useCallback(
+    (mqid: string, timeoutMs: number) => {
+      optimisticWipMqidRef.current = mqid;
+      scheduleOptimisticWipRelease(timeoutMs, "timeout");
       setOptimisticWip(true);
       console.info(`[pv-optim-wip] arm mqid=${mqid} timeoutMs=${timeoutMs}`);
     },
+    [scheduleOptimisticWipRelease],
+  );
+  const clearOptimisticWipForMqid = useCallback(
+    (mqid: string, reason: string) => {
+      if (optimisticWipMqidRef.current === mqid) clearOptimisticWip(reason);
+    },
     [clearOptimisticWip],
+  );
+  const noteOptimisticWipDelivered = useCallback(
+    (signal: string) => {
+      if (optimisticWipMqidRef.current === null) return;
+      const graceDeadline = Date.now() + OPTIMISTIC_WIP_DELIVERED_GRACE_MS;
+      if (graceDeadline >= optimisticWipDeadlineRef.current) return;
+      scheduleOptimisticWipRelease(
+        OPTIMISTIC_WIP_DELIVERED_GRACE_MS,
+        `delivered-grace signal=${signal}`,
+      );
+      console.info(`[pv-optim-wip] delivered mqid=${optimisticWipMqidRef.current} signal=${signal} graceMs=${OPTIMISTIC_WIP_DELIVERED_GRACE_MS}`);
+    },
+    [scheduleOptimisticWipRelease],
   );
   // Phase 50 D-03 failure-path repopulate signal. Passed to ComposeBox
   // as `overrideText`; ComposeBox's useEffect populates the textarea AND
@@ -1785,8 +1826,8 @@ export function PrettyView({
         p.mqid === mqid ? { ...p, state: "failed", timer: null } : p,
       );
     });
-    clearOptimisticWip(`send-failed mqid=${mqid} cause=${reason}`);
-  }, [clearOptimisticWip]);
+    clearOptimisticWipForMqid(mqid, `send-failed cause=${reason}`);
+  }, [clearOptimisticWipForMqid]);
 
   // handleOptimisticSend: called by ComposeBox's onOptimisticSend prop
   // synchronously with (and often BEFORE) the WS write. When
@@ -1849,7 +1890,7 @@ export function PrettyView({
       // is about to work), and skips /id commands (recycle overlay owns
       // that feedback). WS-not-open sends release it instead of arming.
       if (immediateFailure) {
-        clearOptimisticWip(`immediate-failure mqid=${mqid}`);
+        clearOptimisticWipForMqid(mqid, "immediate-failure");
       } else if (!isIdCommand(payload) || isAttachmentSend) {
         armOptimisticWip(mqid, timeoutMs);
       }
@@ -1921,7 +1962,7 @@ export function PrettyView({
         },
       ]);
     },
-    [normalizeNewlinesForBubble, flipToFailed, armOptimisticWip, clearOptimisticWip],
+    [normalizeNewlinesForBubble, flipToFailed, armOptimisticWip, clearOptimisticWipForMqid],
   );
 
   // handleOverrideTextConsumed: ComposeBox's useEffect fires this the same
@@ -1961,30 +2002,16 @@ export function PrettyView({
   // single colon, not the double-colon paneKey used for auto-scroll.
   const sessionWorkingKey = `${hostId}:${tmuxSession ?? ""}`;
   const isWorking = useSessionIsWorking(sessionWorkingKey);
-  // Optimistic WIP handoff: once the backend reports working, the real
-  // indicator takes over (no flicker — both feed the same WipBubble mount).
+  // Optimistic WIP handoff on the false→true edge only (see the
+  // optimisticWip declaration for why a level check is wrong). Armed while
+  // already working: the flag simply rides along until the next edge,
+  // bridging the gap if the previous turn ends before this one is picked up.
+  const optimisticWipPrevWorkingRef = useRef<boolean>(isWorking);
   useEffect(() => {
-    if (isWorking && optimisticWip) clearOptimisticWip("backend-working");
-  }, [isWorking, optimisticWip, clearOptimisticWip]);
-  // Optimistic WIP release on reply: covers turns fast enough that the
-  // working poll never observed them.
-  // Compares tail identity rather than length: the working-set cap drops
-  // oldest entries, so length can stay flat while a reply is appended.
-  const optimisticWipTailRef = useRef<StreamEvent | undefined>(messages[messages.length - 1]);
-  useEffect(() => {
-    const tail = messages[messages.length - 1];
-    const prevTail = optimisticWipTailRef.current;
-    optimisticWipTailRef.current = tail;
-    if (!optimisticWipRef.current || tail === prevTail) return;
-    const prevIdx = prevTail === undefined ? -1 : messages.lastIndexOf(prevTail);
-    for (let i = prevIdx + 1; i < messages.length; i += 1) {
-      const entry = messages[i];
-      if (entry && entry.type === "message" && entry.role === "assistant") {
-        clearOptimisticWip("assistant-message");
-        return;
-      }
-    }
-  }, [messages, clearOptimisticWip]);
+    const was = optimisticWipPrevWorkingRef.current;
+    optimisticWipPrevWorkingRef.current = isWorking;
+    if (!was && isWorking) clearOptimisticWip("backend-working");
+  }, [isWorking, clearOptimisticWip]);
   // Phase 53 Plan 03 — backend-authoritative recycling signal, sourced from
   // the working-store's Axis E (Plan 53-02). Replaces the retired client-side
   // recycling bridge (deleted in Task 2) which required this PrettyView to be
@@ -2918,6 +2945,9 @@ export function PrettyView({
           // user-role frame clears the oldest sending pending (FIFO + role +
           // state gate), period. Independent of appendDedupWithCap below
           // (per-eventId dedup, different purpose).
+          if (parsed.role === "user" || parsed.role === "assistant") {
+            noteOptimisticWipDelivered(isEnvelope ? "widget-envelope" : `${parsed.role}-message`);
+          }
           if (parsed.role === "user" && !isEnvelope) {
             const list = pendingSendsRef.current;
             const oldestSendingIdx = list.findIndex((p) => p.state === "sending");
