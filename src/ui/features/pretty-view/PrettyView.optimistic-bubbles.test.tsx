@@ -27,8 +27,8 @@
  *
  * The render interleaving (Task 3b):
  *   - Optimistic bubbles render AFTER confirmed messages (chronological).
- *   - Only the newest 'sending' pending renders with the spinner
- *     (D-04 latest-only, iMessage-style).
+ *   - 'sending' pendings render as plain bubbles (no spinner); the
+ *     optimistic WipBubble carries the in-flight feedback instead.
  *   - Every 'failed' pending shows red styling regardless of position.
  *   - Bubble transitions on match are stable (no visual reshuffling).
  */
@@ -143,6 +143,11 @@ vi.mock("./sources/use-chat-surface-adapter", () => ({
 }));
 
 import { PrettyView } from "./PrettyView";
+import {
+  publishFleetStatusSessionState,
+  __resetForTest as resetWorkingStore,
+} from "@/state/session-working-store";
+import type { SessionState } from "@/api/fleet-status-types";
 
 function flipToStreaming(ws: WsStub) {
   act(() => {
@@ -174,6 +179,10 @@ function sendWsFrame(ws: WsStub, frame: unknown) {
     );
   });
 }
+
+// Optimistic WipBubble (aria-label set in WipBubble.tsx). Doubles as the
+// in-flight marker now that pending bubbles carry no spinner.
+const WIP_SELECTOR = '[aria-label="Claude is working"]';
 
 function countPendingBubbles(container: HTMLElement): number {
   return container.querySelectorAll('[data-event-id^="pending-"]').length;
@@ -248,8 +257,9 @@ describe("PrettyView — optimistic bubbles state machine (Phase 50 Plan 03 Task
     expect(eventId).toMatch(/^pending-pv-optim-/);
     // Bubble content is the payload.
     expect(pendingEl.textContent).toContain("hello");
-    // Sending spinner should be present (only-pending → latest).
-    expect(pendingEl.querySelector("[data-pv-bubble-spinner]")).not.toBeNull();
+    // Truly optimistic: no in-bubble spinner; the WipBubble shows instead.
+    expect(container.querySelector("[data-pv-bubble-spinner]")).toBeNull();
+    expect(container.querySelector(WIP_SELECTOR)).not.toBeNull();
   });
 
   it("Test 2: matching WS message frame clears the head-pending", async () => {
@@ -409,9 +419,9 @@ describe("PrettyView — optimistic bubbles state machine (Phase 50 Plan 03 Task
       await Promise.resolve();
     });
     expect(countPendingBubbles(container)).toBe(1);
-    // Bubble is sending (spinner present).
+    // Bubble is sending (optimistic WipBubble present).
     expect(
-      container.querySelector("[data-pv-bubble-spinner]"),
+      container.querySelector(WIP_SELECTOR),
     ).not.toBeNull();
 
     // At T+20001 the bubble MUST still be spinning — NORMAL was widened
@@ -422,7 +432,7 @@ describe("PrettyView — optimistic bubbles state machine (Phase 50 Plan 03 Task
       await Promise.resolve();
     });
     expect(container.querySelector("[data-pv-bubble-failed]")).toBeNull();
-    expect(container.querySelector("[data-pv-bubble-spinner]")).not.toBeNull();
+    expect(container.querySelector(WIP_SELECTOR)).not.toBeNull();
 
     // Advance past 90000ms cumulative — NORMAL ceiling fires.
     await act(async () => {
@@ -432,8 +442,8 @@ describe("PrettyView — optimistic bubbles state machine (Phase 50 Plan 03 Task
     // Pending should now be in 'failed' state.
     const failedEl = container.querySelector("[data-pv-bubble-failed]");
     expect(failedEl).not.toBeNull();
-    // No spinner anymore (mutually exclusive).
-    expect(container.querySelector("[data-pv-bubble-spinner]")).toBeNull();
+    // Failure releases the optimistic WipBubble.
+    expect(container.querySelector(WIP_SELECTOR)).toBeNull();
 
     // ComposeBox textarea stays EMPTY after failure — the red bubble is
     // the record of the send; no edit-and-resend repopulate (user
@@ -466,9 +476,9 @@ describe("PrettyView — optimistic bubbles state machine (Phase 50 Plan 03 Task
       await Promise.resolve();
     });
     expect(countPendingBubbles(container)).toBe(1);
-    // Spinner still present — pending is 'sending'.
+    // WipBubble still present — pending is 'sending'.
     expect(
-      container.querySelector("[data-pv-bubble-spinner]"),
+      container.querySelector(WIP_SELECTOR),
     ).not.toBeNull();
 
     // Advance past the NORMAL 20000ms timeout — dormant path defers flip,
@@ -481,7 +491,7 @@ describe("PrettyView — optimistic bubbles state machine (Phase 50 Plan 03 Task
     });
     expect(container.querySelector("[data-pv-bubble-failed]")).toBeNull();
     expect(
-      container.querySelector("[data-pv-bubble-spinner]"),
+      container.querySelector(WIP_SELECTOR),
     ).not.toBeNull();
 
     // Advance to just past the DORMANT 220000ms ceiling (total from arm =
@@ -491,7 +501,7 @@ describe("PrettyView — optimistic bubbles state machine (Phase 50 Plan 03 Task
       await Promise.resolve();
     });
     expect(container.querySelector("[data-pv-bubble-failed]")).not.toBeNull();
-    expect(container.querySelector("[data-pv-bubble-spinner]")).toBeNull();
+    expect(container.querySelector(WIP_SELECTOR)).toBeNull();
 
     // Composebox stays EMPTY after failure (same no-repopulate contract as Test 5).
     const textarea = container.querySelector(
@@ -578,9 +588,9 @@ describe("PrettyView — optimistic bubbles state machine (Phase 50 Plan 03 Task
     // Step 9: Send a message on the fresh dormant connection
     typeAndEnter(container, "reconnect-dormant-send-payload");
 
-    // Step 10: Pending bubble should be present and spinning
+    // Step 10: Pending bubble present + optimistic WipBubble shown
     expect(countPendingBubbles(container)).toBe(1);
-    expect(container.querySelector("[data-pv-bubble-spinner]")).not.toBeNull();
+    expect(container.querySelector(WIP_SELECTOR)).not.toBeNull();
 
     // Step 11: Advance past NORMAL 20000ms ceiling
     await act(async () => {
@@ -593,7 +603,7 @@ describe("PrettyView — optimistic bubbles state machine (Phase 50 Plan 03 Task
     // dormantRef.current was false on ws2 (pane_state handler did not call
     // setDormant). Under Phase 76 code this assertion PASSES.
     expect(container.querySelector("[data-pv-bubble-failed]")).toBeNull();
-    expect(container.querySelector("[data-pv-bubble-spinner]")).not.toBeNull();
+    expect(container.querySelector(WIP_SELECTOR)).not.toBeNull();
 
     // Step 13: Advance to just past DORMANT 220000ms ceiling
     // (total from arm = 20001 + 200000 = 220001ms)
@@ -604,7 +614,7 @@ describe("PrettyView — optimistic bubbles state machine (Phase 50 Plan 03 Task
 
     // Step 14: Now the widened ceiling fires — bubble must be failed
     expect(container.querySelector("[data-pv-bubble-failed]")).not.toBeNull();
-    expect(container.querySelector("[data-pv-bubble-spinner]")).toBeNull();
+    expect(container.querySelector(WIP_SELECTOR)).toBeNull();
   });
 
   it("Test 5d: multi-send during widened wait after reconnect-mid-dormancy — two sends arm 220s branch, both clear in FIFO order when matching frames arrive (D-07 verification of Phase 62 multi-send claim)", async () => {
@@ -1095,7 +1105,7 @@ describe("PrettyView — render latest-only + interleaving (Phase 50 Plan 03 Tas
     return { container, unmount, send };
   }
 
-  it("Test 14 (D-04): only-latest 'sending' bubble shows spinner", async () => {
+  it("Test 14: 'sending' bubbles render without a spinner; one WipBubble covers all in-flight sends", async () => {
     const { container } = mount();
     const ws = getCurrentWs();
     flipToStreaming(ws);
@@ -1107,16 +1117,11 @@ describe("PrettyView — render latest-only + interleaving (Phase 50 Plan 03 Tas
     typeAndEnter(container, "B");
     await waitFor(() => expect(countPendingBubbles(container)).toBe(2));
 
-    // Only ONE spinner should be present in the DOM — on the latest (B).
-    const spinners = container.querySelectorAll("[data-pv-bubble-spinner]");
-    expect(spinners.length).toBe(1);
-    // The spinner belongs to bubble containing "B".
-    const spinnerBubble = spinners[0]!.closest('[data-event-id^="pending-"]');
-    expect(spinnerBubble).not.toBeNull();
-    expect(spinnerBubble!.textContent).toContain("B");
+    expect(container.querySelectorAll("[data-pv-bubble-spinner]").length).toBe(0);
+    expect(container.querySelectorAll(WIP_SELECTOR).length).toBe(1);
   });
 
-  it("Test 15: failed bubbles render red regardless of position; sending bubble shows spinner", async () => {
+  it("Test 15: failed bubbles render red regardless of position; a later sending bubble re-arms the WipBubble", async () => {
     vi.useFakeTimers();
     // Setup: onSend returns false for first call → immediateFailure, then true.
     let callCount = 0;
@@ -1142,8 +1147,9 @@ describe("PrettyView — render latest-only + interleaving (Phase 50 Plan 03 Tas
     expect(countPendingBubbles(container)).toBe(2);
     // Failed bubble present (A).
     expect(container.querySelector("[data-pv-bubble-failed]")).not.toBeNull();
-    // Spinner ONE (B - latest sending).
-    expect(container.querySelectorAll("[data-pv-bubble-spinner]").length).toBe(1);
+    // B is in flight → optimistic WipBubble shown, no spinner.
+    expect(container.querySelectorAll("[data-pv-bubble-spinner]").length).toBe(0);
+    expect(container.querySelector(WIP_SELECTOR)).not.toBeNull();
   });
 
   it("Test 16: bubble insertion order — pendings render AFTER confirmed messages", async () => {
@@ -2053,7 +2059,7 @@ describe("PrettyView — relay-source optimistic bubbles (Phase 93 Slice 5)", ()
     });
     // Slice 6: no local pending in relay mode.
     expect(countPendingBubbles(container)).toBe(0);
-    expect(container.querySelector("[data-pv-bubble-spinner]")).toBeNull();
+    expect(container.querySelector(WIP_SELECTOR)).toBeNull();
 
     // Advance past 20000ms — no local timer to fire.
     await act(async () => {
@@ -2063,7 +2069,7 @@ describe("PrettyView — relay-source optimistic bubbles (Phase 93 Slice 5)", ()
     // Still no local failed bubble (nothing local to flip; adapter owns
     // this state internally per use-relay-adapter.ts's timeout FIFO).
     expect(container.querySelector("[data-pv-bubble-failed]")).toBeNull();
-    expect(container.querySelector("[data-pv-bubble-spinner]")).toBeNull();
+    expect(container.querySelector(WIP_SELECTOR)).toBeNull();
   });
 
   it("Test 4 (Slice 6 post-close fix — adapter-owned failure behavior): sendMessage resolving false does NOT surface at composed level because relay optimistic is adapter-owned", async () => {
@@ -2088,7 +2094,7 @@ describe("PrettyView — relay-source optimistic bubbles (Phase 93 Slice 5)", ()
     // Slice 6: no local pending. Adapter owns the failure surface.
     expect(countPendingBubbles(container)).toBe(0);
     expect(container.querySelector("[data-pv-bubble-failed]")).toBeNull();
-    expect(container.querySelector("[data-pv-bubble-spinner]")).toBeNull();
+    expect(container.querySelector(WIP_SELECTOR)).toBeNull();
   });
 
   it("Test 5 (Pitfall 4 mqid preservation end-to-end): ComposeBox-generated mqid threads byte-for-byte through PrettyView.handleComposeSend into adapter.sendMessage", async () => {
@@ -2191,4 +2197,106 @@ describe("PrettyView — relay-source optimistic bubbles (Phase 93 Slice 5)", ()
   // harness case collapses to local `messages` state anyway
   // (PrettyView.tsx L668), so the harness-case tests are unaffected by
   // the adapter mock's messages field.
+});
+
+describe("PrettyView — optimistic WipBubble (spinner retired)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    wsStubs.length = 0;
+    resetWorkingStore();
+    useSessionIdentityMock.mockReturnValue({ identity: null, identityHue: null });
+    vi.stubGlobal("ResizeObserver", vi.fn(function () {
+      return { observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn() };
+    }));
+    vi.useRealTimers();
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    resetWorkingStore();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  function mount() {
+    return render(
+      <PrettyView hostId={1} tmuxSession="s1" isVisible={true} onSend={() => true} />,
+    );
+  }
+
+  // Direct-signal working predicate: activityMtime > stoppedMtime → working.
+  function publishWorking(working: boolean) {
+    const state: SessionState = {
+      hostId: "1",
+      tmuxSession: "s1",
+      sessionId: "sess-1",
+      pid: 1234,
+      status: working ? "busy" : "idle",
+      backgroundTasks: [],
+      updatedAt: Date.now(),
+      activityMtime: 2000,
+      stoppedMtime: working ? 1000 : 3000,
+    };
+    act(() => {
+      publishFleetStatusSessionState("1", state);
+    });
+  }
+
+  async function ready(container: HTMLElement) {
+    flipToStreaming(getCurrentWs());
+    await waitFor(() =>
+      expect(container.querySelector('textarea[placeholder="Write a message…"]')).not.toBeNull(),
+    );
+  }
+
+  it("no WipBubble before any send", async () => {
+    const { container } = mount();
+    await ready(container);
+    expect(container.querySelector(WIP_SELECTOR)).toBeNull();
+  });
+
+  it("hands off to the backend working signal: WIP persists through handoff, then follows the backend", async () => {
+    const { container } = mount();
+    await ready(container);
+    typeAndEnter(container, "hi");
+    await waitFor(() => expect(container.querySelector(WIP_SELECTOR)).not.toBeNull());
+
+    publishWorking(true);
+    expect(container.querySelector(WIP_SELECTOR)).not.toBeNull();
+
+    // Optimistic slot was released at handoff — backend idle now hides it.
+    publishWorking(false);
+    await waitFor(() => expect(container.querySelector(WIP_SELECTOR)).toBeNull());
+  });
+
+  it("releases on an assistant reply when the backend never reported working", async () => {
+    const { container } = mount();
+    await ready(container);
+    typeAndEnter(container, "quick one");
+    await waitFor(() => expect(container.querySelector(WIP_SELECTOR)).not.toBeNull());
+
+    // The user echo alone does NOT release it — the agent hasn't answered.
+    sendWsFrame(getCurrentWs(), {
+      type: "message", role: "user", content: "quick one", eventId: "ev-u1", ts: Date.now(),
+    });
+    await waitFor(() => expect(countPendingBubbles(container)).toBe(0));
+    expect(container.querySelector(WIP_SELECTOR)).not.toBeNull();
+
+    sendWsFrame(getCurrentWs(), {
+      type: "message", role: "assistant", content: "done", eventId: "ev-a1", ts: Date.now(),
+    });
+    await waitFor(() => expect(container.querySelector(WIP_SELECTOR)).toBeNull());
+  });
+
+  it("/id commands do not arm the optimistic WipBubble", async () => {
+    const { container } = mount();
+    await ready(container);
+    typeAndEnter(container, "/id reset");
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(countPendingBubbles(container)).toBe(0);
+    expect(container.querySelector(WIP_SELECTOR)).toBeNull();
+  });
 });

@@ -731,8 +731,8 @@ export function useRelayAdapter(
         eventId: p.mqid,
         ts: p.sentAt,
         // Phase 97 UAT follow-up 4 (2026-09-10): mark the optimistic
-        // bubble as pending so ChatMessage renders the sending spinner
-        // (state === "sending") or failed styling (state === "failed").
+        // bubble as pending so ChatMessage renders failed styling
+        // (state === "failed"); "sending" renders as a plain bubble.
         // The threaded prop is consumed at PrettyView's ChatMessage
         // render site.
         pendingState: p.state === "failed" ? "failed" : "sending",

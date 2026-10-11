@@ -1,4 +1,3 @@
-import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AttachmentChipStrip } from "@/features/pretty-view/AttachmentChipStrip";
 
@@ -29,8 +28,6 @@ import { AttachmentChipStrip } from "@/features/pretty-view/AttachmentChipStrip"
 //   - `rounded-[var(--radius-pv-bubble)]`, `px-[12px] py-[7px]`, backdrop-blur.
 //   - Phase 50 D-06 failed-bubble treatment: whole-bubble red via inline
 //     `background`/`borderColor` + `data-pv-bubble-failed="true"` attribute.
-//   - Phase 50 D-01 sending spinner: twin-arc `Loader2` at the trailing edge
-//     with `data-pv-bubble-spinner`, `aria-hidden`, `animate-spin opacity-70`.
 //   - Phase 80 D-15 attachments-with-caption branch: caption text above an
 //     `AttachmentChipStrip` in `readOnly` mode.
 //
@@ -58,17 +55,13 @@ export interface OutboundBubbleProps {
   ts?: number;
   /**
    * Optimistic-send lifecycle state (D-13 + Phase 50 D-01/D-06/D-19).
-   *   - "sending": renders a small trailing-edge twin-arc spinner inside the
-   *     bubble to indicate the send is in flight.
+   *   - "sending": renders identically to a settled bubble (truly
+   *     optimistic — no in-bubble in-flight affordance).
    *   - "failed": whole-bubble saturated-red treatment via inline
    *     `background` + `borderColor`, plus `data-pv-bubble-failed="true"`
    *     attribute (Phase 76 D-06 — a failed bubble is a rare, truly-failed
    *     event and deserves loud visual weight).
-   *   - null / undefined: no spinner, no failed marker (settled or non-
-   *     optimistic bubble).
-   *
-   * Failed supersedes sending (Test 6 semantic — mutually exclusive at
-   * declaration site to guard against a same-tick sending→failed transition).
+   *   - null / undefined: no failed marker (settled or non-optimistic bubble).
    */
   pendingState?: "sending" | "failed" | null;
   /**
@@ -90,9 +83,7 @@ export function OutboundBubble({
   pendingState = null,
   attachments,
 }: OutboundBubbleProps) {
-  // Phase 50 Plan 03 Task 1: pending-state gate (failed supersedes sending —
-  // mutually exclusive at declaration site per Test 6 in ChatMessage.tsx).
-  const showSendingSpinner = pendingState === "sending";
+  // Pending-state gate: only 'failed' changes the render.
   const showFailedBubble = pendingState === "failed";
 
   // Phase 76 Plan 02 D-06 semantic upgrade (user 2026-09-06 verbatim:
@@ -175,17 +166,6 @@ export function OutboundBubble({
           // React text child, never interpreted as HTML. `whitespace-pre-wrap`
           // preserves newlines the user typed.
           <div className="whitespace-pre-wrap">{content}</div>
-        )}
-        {showSendingSpinner && (
-          // Phase 50 D-01/D-06: small trailing-edge Loader2 spinner. Sits
-          // INSIDE the bubble root at the trailing edge so it visually reads
-          // as "attached to the message". Mutually exclusive with failed
-          // (gated at declaration above).
-          <Loader2
-            aria-hidden
-            data-pv-bubble-spinner
-            className="ml-1 inline-block h-3 w-3 animate-spin opacity-70"
-          />
         )}
       </div>
     </div>

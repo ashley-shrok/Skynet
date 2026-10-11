@@ -395,6 +395,9 @@ describe("Phase 137 Plan 05 — handleWidgetSubmit dispatcher (Behaviors 5-8)", 
 
     // Still zero — the gate suppressed the pending-bubble seed.
     expect(countPendingBubbles(container)).toBe(0);
+    // ...but the optimistic WipBubble shows immediately: the agent is about
+    // to work on the submit even though no bubble represents it.
+    expect(container.querySelector('[aria-label="Claude is working"]')).not.toBeNull();
   });
 
   it("Behavior 8: widget-submit blacklist has NO attachment carve-out — gate fires unconditionally", async () => {
@@ -552,5 +555,7 @@ describe("Phase 137 Plan 05 — WS-not-open path (Behavior 10)", () => {
     // The important assertion: NO pending bubble regardless of WS state, because the
     // isWidgetSubmit gate fires before any pendingSend record is created.
     expect(countPendingBubbles(container)).toBe(0);
+    // A send that never left releases (never shows) the optimistic WipBubble.
+    expect(container.querySelector('[aria-label="Claude is working"]')).toBeNull();
   });
 });

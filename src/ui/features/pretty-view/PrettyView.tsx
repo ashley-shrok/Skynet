@@ -1695,6 +1695,43 @@ export function PrettyView({
   useEffect(() => {
     pendingSendsRef.current = pendingSends;
   }, [pendingSends]);
+
+  // Optimistic WIP: every harness send (compose, attachment batch, widget
+  // submit) shows the WipBubble immediately instead of waiting for the
+  // backend working signal, which lags by seconds normally and by the whole
+  // wake on a dormant pane. Released on the first of: backend isWorking
+  // observed (handoff to the real indicator), an assistant message arriving
+  // (fast replies the working poll never saw), the send failing, the same
+  // client timeout the pending bubble uses, or session teardown. A single
+  // flag — a newer send re-arms the timer to its own timeout.
+  const [optimisticWip, setOptimisticWip] = useState(false);
+  const optimisticWipRef = useRef(false);
+  const optimisticWipTimerRef = useRef<number | null>(null);
+  const clearOptimisticWip = useCallback((reason: string) => {
+    if (optimisticWipTimerRef.current !== null) {
+      window.clearTimeout(optimisticWipTimerRef.current);
+      optimisticWipTimerRef.current = null;
+    }
+    if (!optimisticWipRef.current) return;
+    optimisticWipRef.current = false;
+    setOptimisticWip(false);
+    console.info(`[pv-optim-wip] clear reason=${reason}`);
+  }, []);
+  const armOptimisticWip = useCallback(
+    (mqid: string, timeoutMs: number) => {
+      if (optimisticWipTimerRef.current !== null) {
+        window.clearTimeout(optimisticWipTimerRef.current);
+      }
+      optimisticWipTimerRef.current = window.setTimeout(() => {
+        optimisticWipTimerRef.current = null;
+        clearOptimisticWip(`timeout mqid=${mqid}`);
+      }, timeoutMs);
+      optimisticWipRef.current = true;
+      setOptimisticWip(true);
+      console.info(`[pv-optim-wip] arm mqid=${mqid} timeoutMs=${timeoutMs}`);
+    },
+    [clearOptimisticWip],
+  );
   // Phase 50 D-03 failure-path repopulate signal. Passed to ComposeBox
   // as `overrideText`; ComposeBox's useEffect populates the textarea AND
   // fires `onOverrideTextConsumed` synchronously so we can reset this
@@ -1748,7 +1785,8 @@ export function PrettyView({
         p.mqid === mqid ? { ...p, state: "failed", timer: null } : p,
       );
     });
-  }, []);
+    clearOptimisticWip(`send-failed mqid=${mqid} cause=${reason}`);
+  }, [clearOptimisticWip]);
 
   // handleOptimisticSend: called by ComposeBox's onOptimisticSend prop
   // synchronously with (and often BEFORE) the WS write. When
@@ -1796,8 +1834,27 @@ export function PrettyView({
       // with attachments (synthetic backend signal, not a user compose action),
       // so the attachments carve-out does not apply to it — unconditionally
       // short-circuit when isWidgetSubmit matches.
+      // Phase 62 Wave 1 — read dormantRef.current at arm time (D-62-03,
+      // symmetric to backend's dormantLastEmitted read at __applyInputMessageForTests
+      // entry). If dormant, use the widened 220000ms timeout so a healthy
+      // ~90s invisible wake + backend give-up window does not fire the
+      // client-side pre-emptive red-bubble. Reason label distinguishes the
+      // two paths so post-ship diagnostics can grep them apart (D-62-04).
+      const armedDormant = dormantRef.current === true;
+      const timeoutMs = armedDormant
+        ? PENDING_SEND_TIMEOUT_MS_DORMANT
+        : PENDING_SEND_TIMEOUT_MS_NORMAL;
+      const isAttachmentSend = !!(attachments && attachments.length > 0);
+      // Optimistic WIP covers widget submits too (no bubble, but the agent
+      // is about to work), and skips /id commands (recycle overlay owns
+      // that feedback). WS-not-open sends release it instead of arming.
+      if (immediateFailure) {
+        clearOptimisticWip(`immediate-failure mqid=${mqid}`);
+      } else if (!isIdCommand(payload) || isAttachmentSend) {
+        armOptimisticWip(mqid, timeoutMs);
+      }
       if (isWidgetSubmit(payload)) { return; }
-      if (isIdCommand(payload) && !(attachments && attachments.length > 0)) { return; }
+      if (isIdCommand(payload) && !isAttachmentSend) { return; }
       const normalized = normalizeNewlinesForBubble(payload);
       if (immediateFailure) {
         // D-20: WS was not open on the ComposeBox side — this callback
@@ -1839,16 +1896,6 @@ export function PrettyView({
         // already holds the failed payload.
         return;
       }
-      // Phase 62 Wave 1 — read dormantRef.current at arm time (D-62-03,
-      // symmetric to backend's dormantLastEmitted read at __applyInputMessageForTests
-      // entry). If dormant, use the widened 220000ms timeout so a healthy
-      // ~90s invisible wake + backend give-up window does not fire the
-      // client-side pre-emptive red-bubble. Reason label distinguishes the
-      // two paths so post-ship diagnostics can grep them apart (D-62-04).
-      const armedDormant = dormantRef.current === true;
-      const timeoutMs = armedDormant
-        ? PENDING_SEND_TIMEOUT_MS_DORMANT
-        : PENDING_SEND_TIMEOUT_MS_NORMAL;
       const timeoutReason = armedDormant
         ? "client_timeout_220s_dormant"
         : "client_timeout_90s_normal";
@@ -1874,7 +1921,7 @@ export function PrettyView({
         },
       ]);
     },
-    [normalizeNewlinesForBubble, flipToFailed],
+    [normalizeNewlinesForBubble, flipToFailed, armOptimisticWip, clearOptimisticWip],
   );
 
   // handleOverrideTextConsumed: ComposeBox's useEffect fires this the same
@@ -1898,24 +1945,14 @@ export function PrettyView({
       console.info(`[diag-dormant-send] cleanup mqid=${p.mqid} matched_by=${reason} elapsedMs=${Date.now() - p.sentAt} replaced=false state=${p.state}`);
     }
     setPendingSends([]);
+    clearOptimisticWip(`pending-cleanup ${reason}`);
     setComposeOverrideText(null);
-  }, []);
+  }, [clearOptimisticWip]);
   useEffect(() => {
     return () => {
       clearAllPendingSends("ws-close-unmount");
     };
   }, [clearAllPendingSends]);
-  // Latest sending-pending derivation (Task 3b, D-04): the newest pending
-  // that is still in 'sending' state — used to gate the spinner render
-  // (only the latest 'sending' bubble shows a spinner; older 'sending'
-  // pendings look plain — iMessage-style latest-only). 'failed' pendings
-  // are never gated by this — every failed bubble stays red so the user
-  // can see all retry candidates.
-  const latestSendingPending: PendingSend | undefined = (() => {
-    const sendingOnly = pendingSends.filter((p) => p.state === "sending");
-    return sendingOnly.length > 0 ? sendingOnly[sendingOnly.length - 1] : undefined;
-  })();
-
   // WIP indicator: composite isWorking from session-working-store.
   // Patch #260806-ixl: both the PTY-side ttyBusy signal (Terminal.tsx) and
   // the backgrounded-work signal (PrettyView WS frames) now converge in the
@@ -1924,6 +1961,30 @@ export function PrettyView({
   // single colon, not the double-colon paneKey used for auto-scroll.
   const sessionWorkingKey = `${hostId}:${tmuxSession ?? ""}`;
   const isWorking = useSessionIsWorking(sessionWorkingKey);
+  // Optimistic WIP handoff: once the backend reports working, the real
+  // indicator takes over (no flicker — both feed the same WipBubble mount).
+  useEffect(() => {
+    if (isWorking && optimisticWip) clearOptimisticWip("backend-working");
+  }, [isWorking, optimisticWip, clearOptimisticWip]);
+  // Optimistic WIP release on reply: covers turns fast enough that the
+  // working poll never observed them.
+  // Compares tail identity rather than length: the working-set cap drops
+  // oldest entries, so length can stay flat while a reply is appended.
+  const optimisticWipTailRef = useRef<StreamEvent | undefined>(messages[messages.length - 1]);
+  useEffect(() => {
+    const tail = messages[messages.length - 1];
+    const prevTail = optimisticWipTailRef.current;
+    optimisticWipTailRef.current = tail;
+    if (!optimisticWipRef.current || tail === prevTail) return;
+    const prevIdx = prevTail === undefined ? -1 : messages.lastIndexOf(prevTail);
+    for (let i = prevIdx + 1; i < messages.length; i += 1) {
+      const entry = messages[i];
+      if (entry && entry.type === "message" && entry.role === "assistant") {
+        clearOptimisticWip("assistant-message");
+        return;
+      }
+    }
+  }, [messages, clearOptimisticWip]);
   // Phase 53 Plan 03 — backend-authoritative recycling signal, sourced from
   // the working-store's Axis E (Plan 53-02). Replaces the retired client-side
   // recycling bridge (deleted in Task 2) which required this PrettyView to be
@@ -4530,27 +4591,21 @@ export function PrettyView({
                   // path leaves pendingState undefined on confirmed
                   // MessageEvents; harness pending sends still render via
                   // the separate pendingSends.map below. Threaded here so
-                  // relay-source optimistic bubbles show the spinner
-                  // consistently with the harness pending pattern.
+                  // relay-source failed bubbles render red consistently
+                  // with the harness pending pattern.
                   pendingState={m.pendingState ?? null}
                 />
               )}
             </div>
           ))}
           {/* Phase 50 Plan 03 Task 3b (D-04/D-19): interleave optimistic
-              bubbles AFTER confirmed messages (chronological). Only the
-              newest 'sending' pending renders with the spinner
-              (iMessage-style latest-only); 'failed' bubbles render red
-              regardless of position so the user sees every retry candidate.
+              bubbles AFTER confirmed messages (chronological). 'sending'
+              pendings render as plain bubbles (the optimistic WipBubble
+              carries in-flight feedback); 'failed' bubbles render red so the
+              user sees every retry candidate.
               Same wrapper attributes as the confirmed messages so the
               auto-scroll/scroll-anchor hooks see them uniformly. */}
           {pendingSends.map((p) => {
-            const computedPendingState: "sending" | "failed" | null =
-              p.state === "failed"
-                ? "failed"
-                : p === latestSendingPending
-                  ? "sending"
-                  : null;
             return (
               <div
                 key={`pending-${p.mqid}`}
@@ -4561,7 +4616,7 @@ export function PrettyView({
                 <ChatMessage
                   role="user"
                   content={p.content}
-                  pendingState={computedPendingState}
+                  pendingState={p.state}
                   attachments={p.attachments}
                   hostName={hostName}
                 />
@@ -4578,7 +4633,7 @@ export function PrettyView({
               pre-Phase-43 rendering (WipBubble → WaitingBubble → AsideBubble
               → jump-to-bottom pill; former overlay and bubble siblings
               were retired — Phase 56 Plan 03 and Phase 95 Part B). */}
-          {isWorking && <WipBubble />}
+          {(isWorking || optimisticWip) && <WipBubble />}
           {/* Phase 34 Plan 06: WaitingBubble — harness permission/dialog waiting state.
               Mounts when the fleet-status channel reports status='waiting' for this
               session's (hostId, tmuxSession) key. Sibling of WipBubble in the

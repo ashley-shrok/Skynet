@@ -40,16 +40,11 @@ describe("OutboundBubble", () => {
     expect(outer!.className).not.toContain("justify-start");
   });
 
-  it("Test 3: pendingState='sending' renders the twin-arc Loader2 spinner", () => {
+  it("Test 3: pendingState='sending' renders identically to a settled bubble (no spinner)", () => {
     render(<OutboundBubble {...makeProps({ pendingState: "sending" })} />);
-    const spinner = document.querySelector("[data-pv-bubble-spinner]");
-    expect(spinner).not.toBeNull();
-    // aria-hidden discipline (spinner is decorative)
-    expect(spinner!.getAttribute("aria-hidden")).not.toBeNull();
-    // animate-spin class present — Loader2 is an SVG so its .className is
-    // an SVGAnimatedString; read via getAttribute for a plain string.
-    const classAttr = spinner!.getAttribute("class") ?? "";
-    expect(classAttr).toContain("animate-spin");
+    expect(document.querySelector("[data-pv-bubble-spinner]")).toBeNull();
+    expect(document.querySelector(".animate-spin")).toBeNull();
+    expect(document.querySelector("[data-pv-bubble-failed='true']")).toBeNull();
   });
 
   it("Test 4: pendingState='failed' sets data-pv-bubble-failed='true' + red inline background", () => {
@@ -63,8 +58,6 @@ describe("OutboundBubble", () => {
     const style = (bubble as HTMLElement).getAttribute("style") ?? "";
     expect(style).toMatch(/background:\s*rgba?\(143,\s*36,\s*36/);
     expect(style).toMatch(/border-color:\s*rgba?\(217,\s*38,\s*38/);
-    // No spinner in failed state (Test 6 semantic: failed supersedes sending).
-    expect(document.querySelector("[data-pv-bubble-spinner]")).toBeNull();
   });
 
   it("Test 5: pendingState=null renders no spinner and no failed marker", () => {

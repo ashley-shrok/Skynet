@@ -120,8 +120,9 @@ export function ChatMessage({
   onWidgetSubmit?: (widgetId: string, value: string) => void;
   // Phase 50 D-01/D-03/D-06/D-19: optimistic-send bubble state. Only
   // meaningful for user bubbles (assistant bubbles ignore it — pending
-  // state is a send-path concept). 'sending' renders a small trailing-edge
-  // Loader2 spinner; 'failed' applies a muted-red border/tint via
+  // state is a send-path concept). 'sending' renders identically to a
+  // settled bubble (truly optimistic — the WipBubble carries the in-flight
+  // feedback); 'failed' applies the whole-bubble red treatment via
   // data-pv-bubble-failed. null | undefined = no rendering change
   // (back-compat with every existing mount site).
   pendingState?: "sending" | "failed" | null;
@@ -305,8 +306,8 @@ export function ChatMessage({
     ),
   }), [eventId, onOpenEditor, eligibleUrls, onWidgetSubmit]);
   // Phase 50 Plan 03 Task 1 (D-01/D-03/D-06/D-19): user-only pending-state
-  // gate. Assistant bubbles ignore the prop; failed supersedes sending
-  // (mutually exclusive per Test 6).
+  // gate. Assistant bubbles ignore the prop; only 'failed' changes the
+  // render ('sending' is visually identical to settled).
   //
   // Phase 76 Plan 02 — D-06 semantic upgrade (user 2026-09-06 verbatim:
   // "hopefully after we do this work a failed bubble will be a truly failed
@@ -321,7 +322,6 @@ export function ChatMessage({
   // while `backgroundColor` alone would lose to the gradient in the cascade.
   // Inline-style specificity beats any className utility, so the saturated-red
   // `background` replaces the base blue-gray gradient entirely.
-  const showSendingSpinner = isUser && pendingState === "sending";
   const showFailedBubble = isUser && pendingState === "failed";
   const bubbleInlineStyle: React.CSSProperties = showFailedBubble
     ? {
@@ -543,20 +543,6 @@ export function ChatMessage({
           >
             {processedContent}
           </ReactMarkdown>
-        )}
-        {showSendingSpinner && (
-          // Phase 50 D-01/D-06: small trailing-edge Loader2 spinner. Sits
-          // INSIDE the bubble root at the trailing edge (after content) so
-          // it visually reads as "attached to the message". Mutually
-          // exclusive with the failed state (Test 6) — gate at declaration
-          // (showFailedBubble ? no spinner : maybe spinner) ensures no
-          // failed bubble ever renders the spinner even for a same-tick
-          // 'sending'→'failed' transition.
-          <Loader2
-            aria-hidden
-            data-pv-bubble-spinner
-            className="ml-1 inline-block h-3 w-3 animate-spin opacity-70"
-          />
         )}
         {!isUser && !feedbackEnabled && (
           // Phase 124 Plan 01 (D-02/D-03): in-bubble speak button — ONLY
