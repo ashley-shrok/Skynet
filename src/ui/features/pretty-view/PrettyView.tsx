@@ -1700,6 +1700,11 @@ export function PrettyView({
   };
   const [pendingSends, setPendingSends] = useState<PendingSend[]>([]);
   const pendingSendsRef = useRef<PendingSend[]>([]);
+  // eventId → the React key of the optimistic bubble it settled (FIFO head
+  // match), so the confirmed bubble keeps that key and React reuses the DOM
+  // node. Entries only matter for the swap itself; cleared with the pending
+  // queue.
+  const settledBubbleKeyRef = useRef<Map<string, string>>(new Map());
   useEffect(() => {
     pendingSendsRef.current = pendingSends;
   }, [pendingSends]);
@@ -1986,6 +1991,7 @@ export function PrettyView({
       console.info(`[diag-dormant-send] cleanup mqid=${p.mqid} matched_by=${reason} elapsedMs=${Date.now() - p.sentAt} replaced=false state=${p.state}`);
     }
     setPendingSends([]);
+    settledBubbleKeyRef.current.clear();
     clearOptimisticWip(`pending-cleanup ${reason}`);
     setComposeOverrideText(null);
   }, [clearOptimisticWip]);
@@ -2956,6 +2962,9 @@ export function PrettyView({
               const match = list[oldestSendingIdx]!;
               console.info(`[diag-dormant-send] cleanup mqid=${match.mqid} matched_by=fifo-head-match elapsedMs=${Date.now() - match.sentAt} replaced=true incoming_eventId=${parsed.eventId} incoming_line=${parsed.line ?? "?"} pendingCountBefore=${list.length} preview="${incomingPreview}"`);
               if (match.timer !== null) window.clearTimeout(match.timer);
+              if (typeof parsed.eventId === "string") {
+                settledBubbleKeyRef.current.set(parsed.eventId, `pending-${match.mqid}`);
+              }
               setPendingSends((prev) => prev.filter((p) => p.mqid !== match.mqid));
             } else {
               console.info(`[diag-dormant-send] incoming-user-frame mqid=n/a matched_by=none pendingCountBefore=${list.length} incoming_eventId=${parsed.eventId} incoming_line=${parsed.line ?? "?"} action=newBubble reason=no-sending-pending preview="${incomingPreview}"`);
@@ -4545,10 +4554,15 @@ export function PrettyView({
               remain immediately below the .map output, in-flow
               inside the same outer scroll container — same structural
               layout invariant established by Phase 27 Plan 27-02 Step B. */}
-          {effectiveMessages.map((m) => (
+          {/* Confirmed and optimistic bubbles render as ONE keyed array so a
+              settled send reuses its optimistic bubble's DOM node (key looked
+              up in settledBubbleKeyRef) instead of unmount+mount — the
+              remount repainted the backdrop-blur bubble for a frame, which
+              read as a blink once the spinner no longer marked the swap. */}
+          {[...effectiveMessages.map((m) => (
             // Phase 45 Bug #2 (user UAT verbatim): 9px inter-bubble padding restored — technically padding but functionally margin per user's clarification 2026-08-18.
             <div
-              key={m.eventId}
+              key={settledBubbleKeyRef.current.get(m.eventId) ?? m.eventId}
               data-pv-bubble
               data-event-id={m.eventId}
               style={{ paddingBottom: 9 }}
@@ -4627,15 +4641,14 @@ export function PrettyView({
                 />
               )}
             </div>
-          ))}
-          {/* Phase 50 Plan 03 Task 3b (D-04/D-19): interleave optimistic
-              bubbles AFTER confirmed messages (chronological). 'sending'
-              pendings render as plain bubbles (the optimistic WipBubble
-              carries in-flight feedback); 'failed' bubbles render red so the
-              user sees every retry candidate.
-              Same wrapper attributes as the confirmed messages so the
-              auto-scroll/scroll-anchor hooks see them uniformly. */}
-          {pendingSends.map((p) => {
+          )),
+          // Phase 50 Plan 03 Task 3b (D-04/D-19): optimistic bubbles AFTER
+          // confirmed messages (chronological). 'sending' pendings render as
+          // plain bubbles (the optimistic WipBubble carries in-flight
+          // feedback); 'failed' bubbles render red so the user sees every
+          // retry candidate. Same wrapper attributes as the confirmed messages
+          // so the auto-scroll/scroll-anchor hooks see them uniformly.
+          ...pendingSends.map((p) => {
             return (
               <div
                 key={`pending-${p.mqid}`}
@@ -4652,7 +4665,7 @@ export function PrettyView({
                 />
               </div>
             );
-          })}
+          })]}
           {/* Phase 43 (plan 43-07a): accessory siblings kept immediately below
               the message-list .map output — in-flow inside the outer scroll
               container per the same layout invariant Phase 27 Plan 27-02 Step B

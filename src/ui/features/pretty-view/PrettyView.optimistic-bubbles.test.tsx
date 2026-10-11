@@ -2349,6 +2349,25 @@ describe("PrettyView — optimistic WipBubble (spinner retired)", () => {
     expect(container.querySelector(WIP_SELECTOR)).toBeNull();
   });
 
+  it("a settled send reuses the optimistic bubble's DOM node (no remount blink)", async () => {
+    const { container } = mount();
+    await ready(container);
+    typeAndEnter(container, "keep me");
+    await waitFor(() => expect(countPendingBubbles(container)).toBe(1));
+    const pendingWrapper = container.querySelector('[data-event-id^="pending-"]')!;
+    const pendingBubble = pendingWrapper.querySelector(".pv-bubble")!;
+    expect(pendingBubble).not.toBeNull();
+
+    sendWsFrame(getCurrentWs(), {
+      type: "message", role: "user", content: "keep me", eventId: "ev-keep", ts: Date.now(),
+    });
+    await waitFor(() => expect(countPendingBubbles(container)).toBe(0));
+    const settledWrapper = container.querySelector('[data-event-id="ev-keep"]');
+    expect(settledWrapper).toBe(pendingWrapper);
+    expect(settledWrapper!.querySelector(".pv-bubble")).toBe(pendingBubble);
+    expect(settledWrapper!.textContent).toContain("keep me");
+  });
+
   it("/id commands do not arm the optimistic WipBubble", async () => {
     const { container } = mount();
     await ready(container);
