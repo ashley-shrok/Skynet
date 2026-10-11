@@ -2630,7 +2630,7 @@ export async function __applyInputMessageForTests(deps: {
         try {
           await exec(
             sshConn,
-            `tmux send-keys -l -t ${shellQuote(currentTmuxSession)} ${shellQuote(body)}`,
+            `tmux send-keys -l -t ${shellQuote(currentTmuxSession)} -- ${shellQuote(body)}`,
           );
         } catch (bodyErr) {
           bodyExecFailed = true;
@@ -2653,7 +2653,7 @@ export async function __applyInputMessageForTests(deps: {
     } else {
       await exec(
         sshConn,
-        `tmux send-keys -l -t ${shellQuote(currentTmuxSession)} ${shellQuote(data)}`,
+        `tmux send-keys -l -t ${shellQuote(currentTmuxSession)} -- ${shellQuote(data)}`,
       );
     }
 

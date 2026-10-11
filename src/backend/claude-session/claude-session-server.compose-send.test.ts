@@ -283,6 +283,36 @@ describe("__applyInputMessageForTests", () => {
     expect(cmd).not.toMatch(/\sEnter\s*$/);
   });
 
+  it("input: body starting with '-' is passed after `--` so tmux doesn't parse it as a flag (non-split)", async () => {
+    const exec = vi.fn().mockResolvedValue("");
+    await __applyInputMessageForTests({
+      sshConn: fakeConn,
+      currentTmuxSession: "legit-session",
+      currentHostId: 1,
+      execCommand: exec,
+      data: "- a list item",
+    });
+    const cmd = exec.mock.calls[0][1] as string;
+    expect(cmd).toContain(" -- '- a list item'");
+  });
+
+  it("input: body starting with '-' is passed after `--` so tmux doesn't parse it as a flag (split-send)", async () => {
+    vi.useFakeTimers();
+    const exec = vi.fn().mockResolvedValue("");
+    const promise = __applyInputMessageForTests({
+      sshConn: fakeConn,
+      currentTmuxSession: "legit-session",
+      currentHostId: 1,
+      execCommand: exec,
+      data: "-- **Badge** diff line\r",
+      messageQueueItemId: "pv-test-mqid-dash",
+    });
+    await vi.advanceTimersByTimeAsync(1000);
+    await promise;
+    const cmd1 = exec.mock.calls[0][1] as string;
+    expect(cmd1).toContain(" -- '-- **Badge** diff line'");
+  });
+
   it("input: SPLIT-SEND case under fake timers → 1000ms boundary enforced", async () => {
     // Gate: at t=999ms still ONE call; at t=1000ms exactly TWO calls.
     // Mirrors claude-session-server.aside.test.ts:376-403 (200ms gate for injectBtw),

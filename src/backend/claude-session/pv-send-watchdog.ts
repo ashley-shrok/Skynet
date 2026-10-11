@@ -356,7 +356,7 @@ export function armPvSendWatchdog(args: ArmPvSendWatchdogArgs): void {
 
     void (async () => {
       const clearCmd = `tmux send-keys -t ${shellQuote(tmuxTarget)} C-u`;
-      const bodyCmd = `tmux send-keys -l -t ${shellQuote(tmuxTarget)} ${shellQuote(body)}`;
+      const bodyCmd = `tmux send-keys -l -t ${shellQuote(tmuxTarget)} -- ${shellQuote(body)}`;
       const enterCmd = `tmux send-keys -t ${shellQuote(tmuxTarget)} Enter`;
 
       // Each step wrapped in its own try/catch — one failing must NOT abort

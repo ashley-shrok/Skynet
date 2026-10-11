@@ -925,7 +925,7 @@ describe("Phase 56: send-while-dormant path (invisible wake trigger)", () => {
     expect(markerCommand.mock.calls.length).toBeGreaterThanOrEqual(2);
 
     // Split-send body + Enter fired after sentinel drop.
-    const bodyIdx = execCalls.findIndex((c) => c.includes("tmux send-keys -l -t 'test-agent' 'hello'"));
+    const bodyIdx = execCalls.findIndex((c) => c.includes("tmux send-keys -l -t 'test-agent' -- 'hello'"));
     const enterIdx = execCalls.findIndex((c) => c.includes("tmux send-keys -t 'test-agent' Enter"));
     expect(bodyIdx).toBeGreaterThanOrEqual(0);
     expect(enterIdx).toBeGreaterThanOrEqual(0);
@@ -974,7 +974,7 @@ describe("Phase 56: send-while-dormant path (invisible wake trigger)", () => {
     expect(execCalls.some((c) => c.includes("rm -f ~/fleet/identities/'test-agent'/.dormant"))).toBe(true);
 
     // Send-keys still fired (body + Enter both present).
-    expect(execCalls.some((c) => c.includes("tmux send-keys -l -t 'test-agent' 'hello'"))).toBe(true);
+    expect(execCalls.some((c) => c.includes("tmux send-keys -l -t 'test-agent' -- 'hello'"))).toBe(true);
     expect(execCalls.some((c) => c.includes("tmux send-keys -t 'test-agent' Enter"))).toBe(true);
 
     // Assert sshLogger.info called with the fallback operation.
@@ -1046,8 +1046,8 @@ describe("Phase 56: send-while-dormant path (invisible wake trigger)", () => {
     expect(sentinelDropCount).toBeGreaterThanOrEqual(2);
 
     // Ordering: first-body appears BEFORE second-body in the recorded call list.
-    const firstBodyIdx = execCalls.findIndex((c) => c.includes("tmux send-keys -l -t 'test-agent' 'first'"));
-    const secondBodyIdx = execCalls.findIndex((c) => c.includes("tmux send-keys -l -t 'test-agent' 'second'"));
+    const firstBodyIdx = execCalls.findIndex((c) => c.includes("tmux send-keys -l -t 'test-agent' -- 'first'"));
+    const secondBodyIdx = execCalls.findIndex((c) => c.includes("tmux send-keys -l -t 'test-agent' -- 'second'"));
     expect(firstBodyIdx).toBeGreaterThanOrEqual(0);
     expect(secondBodyIdx).toBeGreaterThanOrEqual(0);
     expect(firstBodyIdx).toBeLessThan(secondBodyIdx);
@@ -1096,7 +1096,7 @@ describe("Phase 56: send-while-dormant path (invisible wake trigger)", () => {
 
     // Normal split-send still fired (body + Enter both present) — byte-
     // identical to today's behavior for awake panes.
-    expect(execCalls.some((c) => c.includes("tmux send-keys -l -t 'test-agent' 'hello'"))).toBe(true);
+    expect(execCalls.some((c) => c.includes("tmux send-keys -l -t 'test-agent' -- 'hello'"))).toBe(true);
     expect(execCalls.some((c) => c.includes("tmux send-keys -t 'test-agent' Enter"))).toBe(true);
   });
 
@@ -1178,8 +1178,8 @@ describe("Phase 56: send-while-dormant path (invisible wake trigger)", () => {
 
     // Extract the split-send ordering. Body writes have `-l` flag + the data
     // string; Enter writes have no `-l` and end with `Enter`.
-    const bodyFirst = execCalls.findIndex((c) => c.includes("tmux send-keys -l -t 'test-agent' 'first'"));
-    const bodySecond = execCalls.findIndex((c) => c.includes("tmux send-keys -l -t 'test-agent' 'second'"));
+    const bodyFirst = execCalls.findIndex((c) => c.includes("tmux send-keys -l -t 'test-agent' -- 'first'"));
+    const bodySecond = execCalls.findIndex((c) => c.includes("tmux send-keys -l -t 'test-agent' -- 'second'"));
     expect(bodyFirst).toBeGreaterThanOrEqual(0);
     expect(bodySecond).toBeGreaterThanOrEqual(0);
 

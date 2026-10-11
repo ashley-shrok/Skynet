@@ -209,6 +209,22 @@ describe("pv-send-watchdog (Phase 50 Plan 02 Task 1)", () => {
     expect(wsSend).not.toHaveBeenCalled();
   });
 
+  it("T-4b full-resend passes a body starting with '-' after `--` (tmux would parse it as a flag)", async () => {
+    const exec = makeExec();
+    const wsSend = makeWsSend();
+    armPvSendWatchdog({
+      sessionId: SESSION_ID,
+      mqid: "m1",
+      body: "-- diff line",
+      execCommand: exec,
+      tmuxTarget: TMUX_TARGET,
+      wsSend,
+    });
+    await vi.advanceTimersByTimeAsync(5500);
+    const call3 = exec.mock.calls[2][0] as string;
+    expect(call3).toBe(`tmux send-keys -l -t '${TMUX_TARGET}' -- '-- diff line'`);
+  });
+
   it("T-5 paste_send_failed at T+20000ms silence after retry+full-resend", async () => {
     const exec = makeExec();
     const wsSend = makeWsSend();
