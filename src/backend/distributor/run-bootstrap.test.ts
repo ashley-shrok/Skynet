@@ -288,6 +288,7 @@ describe("runBootstrapForHost", () => {
     expect(settingsCmd).toContain(`.DISABLE_AUTOUPDATER = "1"`);
     expect(settingsCmd).toContain(`.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = "1"`);
     expect(settingsCmd).toContain(`.skipDangerousModePermissionPrompt = true`);
+    expect(settingsCmd).toContain(`.crossSessionInbound = "refuse"`);
     // task-field-check UserPromptSubmit hook — the merge must add an entry
     // whose command references task-field-check when absent.
     expect(settingsCmd).toContain(`.UserPromptSubmit`);
@@ -305,6 +306,7 @@ describe("runBootstrapForHost", () => {
     // Without this, a partial-state settings.json would keep getting rewritten
     // every sweep, OR a missing key would go undetected.
     expect(settingsCmd).toContain(`.skipDangerousModePermissionPrompt == true`);
+    expect(settingsCmd).toContain(`.crossSessionInbound == "refuse"`);
     expect(settingsCmd).toContain(`.askUserQuestionTimeout == "never"`);
     expect(settingsCmd).toContain(`.permissions.deny // []) | contains(["AskUserQuestion"])`);
     expect(settingsCmd).toContain(`.env.DISABLE_AUTOUPDATER == "1"`);

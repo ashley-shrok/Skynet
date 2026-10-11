@@ -28,6 +28,10 @@
  *        - env.DISABLE_AUTOUPDATER: "1" (prevents silent mid-session CLI upgrade)
  *        - env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1" (fleet-wide feature enable)
  *        - skipDangerousModePermissionPrompt: true
+ *        - crossSessionInbound: "refuse" (no managed host accepts Claude
+ *          Code cross-session peer messages — the Matrix relay is the only
+ *          agent-to-agent channel; a stray local SendMessage would otherwise
+ *          land in a user's chat as if it were their input)
  *        - hooks.UserPromptSubmit contains a "task-field-check" entry (nudges
  *          agents whose identity file's `task:` field is still "Untitled
  *          conversation" — see substrate/scripts/task-field-check.sh)
@@ -262,7 +266,7 @@ function logRolesKeyMigration(
  * shell. Local jq invocation must NOT expand it either (pass the expression
  * as an argv arg, not through a shell).
  *
- * Currently sets eleven keys total: five simple flags/env vars, plus six
+ * Currently sets twelve keys total: six simple flags/env vars, plus six
  * hook entries under .hooks —
  *   - task-field-check on UserPromptSubmit (identity `task:` placeholder nudge).
  *   - allow-all-tools on PreToolUse (fleet-wide auto-allow — no matcher,
@@ -283,6 +287,7 @@ export const SETTINGS_MERGE_JQ =
   `  | .askUserQuestionTimeout = "never"` +
   `  | .env = ((.env // {}) | .DISABLE_AUTOUPDATER = "1" | .CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = "1")` +
   `  | .skipDangerousModePermissionPrompt = true` +
+  `  | .crossSessionInbound = "refuse"` +
   `  | .hooks = ((.hooks // {})` +
   `      | .UserPromptSubmit = ((.UserPromptSubmit // []) | if any(.[]?.hooks[]?.command // ""; test("task-field-check")) then . else . + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/task-field-check"}]}] end)` +
   `      | .UserPromptSubmit = ((.UserPromptSubmit // []) | if any(.[]?.hooks[]?.command // ""; test("self-edit-baseline-sync")) then . else . + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/self-edit-baseline-sync"}]}] end)` +
@@ -296,6 +301,7 @@ export const SETTINGS_MERGE_JQ =
 export const SETTINGS_CHECK_JQ =
   `(.skipDangerousModePermissionPrompt == true)` +
   `  and (.askUserQuestionTimeout == "never")` +
+  `  and (.crossSessionInbound == "refuse")` +
   `  and ((.permissions.deny // []) | contains(["AskUserQuestion"]))` +
   `  and (.env.DISABLE_AUTOUPDATER == "1")` +
   `  and (.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS == "1")` +
@@ -698,6 +704,7 @@ export async function runBootstrapForHost(
   //           - env.DISABLE_AUTOUPDATER: "1"
   //           - env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1"
   //           - skipDangerousModePermissionPrompt: true
+  //           - crossSessionInbound: "refuse"
   //           - hooks.UserPromptSubmit contains an entry that runs
   //             $HOME/.local/bin/task-field-check (nudges the agent when its
   //             identity file's `task:` frontmatter is still "Untitled
