@@ -820,11 +820,11 @@ crown, then gear.
   user has access to on this box. Clicking one drills in; a **"new
   role"** button inside the modal creates a fresh role (name, description,
   host, color, avatar).
-  *Agent-side:* a role is a folder at `~/fleet/roles/<slug>/` containing
-  a `<slug>.md` role file (frontmatter: `title`, `colorHue`, optional
-  `avatar`; body starts with `# <slug>` and a `## Role` section holding
-  the description). Slug rules mirror project. Editing an existing role
-  file follows § Editing the role file (propose + wait for greenlight).
+  *Agent-side:* a role is a folder at `~/fleet/roles/<slug>/` holding a
+  `<slug>.md` role file and its avatar. Create one with a role request
+  (§ Creating a role) — never by writing the folder yourself, which
+  leaves it without an avatar or color. Editing an existing role file
+  follows § Editing the role file (propose + wait for greenlight).
   Creating a new role is **user-gated**; on greenlight, offer to
   immediately spawn a fresh agent of that new role as a follow-up (mirrors
   what the button chains to).
@@ -1270,6 +1270,56 @@ correctable field. Do NOT try to hand-birth the identity yourself.
 Naming the identity, registering the Matrix account, creating the
 identity folder, writing credentials, launching the tmux + claude +
 `/id` load. You are a thin trigger.
+
+---
+
+## Creating a role
+
+The agent-side counterpart to the **new role** button in the roles modal
+(drama masks). Same file-drop mechanism as § Spawning another agent, same
+folder, told apart by `"kind": "role"`. The backend creates the role
+folder the way the button does: role file from your description, a
+random color, and a generated avatar.
+
+⚠️ **USER-INITIATED ONLY** — same rule as spawning.
+
+### Schema
+
+All fields below; anything else is rejected as malformed.
+
+- `kind` (**required**) — the literal string `"role"`.
+- `name` (**required**) — the role's display name, as the user would type
+  it in the dialog (e.g. `"Garden Keeper"`). The backend derives the slug
+  (`garden-keeper`); if that slug is taken (live or archived), it adds
+  `-2`, `-3`, … — the response tells you the real one.
+- `description` (**required**, ≤4 KB) — becomes the role file's
+  `## Role` section. The first agent to hold the role is prompted to
+  flesh the rest out.
+- `requested_at` (**required**) — ISO-Z timestamp.
+- `requested_by` (optional) — your own identity name. Logged only.
+
+### Drop it
+
+Same atomic single-line write as spawning:
+
+    UUID=$(uuidgen); TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    export NAME='<display name>'
+    export DESC='<what the role is for>'
+    python3 -c "import json, os; print(json.dumps({'kind': 'role', 'name': os.environ['NAME'], 'description': os.environ['DESC'], 'requested_at': os.environ['TS']}, separators=(',', ':')))" \
+      > ~/fleet/spawn-requests/$UUID.json.tmp
+    mv ~/fleet/spawn-requests/$UUID.json.tmp ~/fleet/spawn-requests/$UUID.json
+
+### Response
+
+- `<uuid>.success.json` — `{name, created_at}`; `name` is the role slug.
+  Read it, note the slug, delete the file.
+- `<uuid>.failure.json` — `{reason, message?}`. `reason` is one of
+  `malformed`, `avatar_failed` (nothing was created — safe to retry
+  once), `role_create_failed`.
+
+Avatar generation takes a while; allow ~3 minutes before treating it as
+lost. On failure, surface to the user. Do NOT hand-create the folder as a
+fallback.
 
 ---
 

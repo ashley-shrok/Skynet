@@ -34,28 +34,17 @@
  *      learned preference above).
  *   3. Parse `data` JSON → {name, description, hostId, cosmetics?}. Malformed
  *      JSON → 400.
- *   4. Validate name/description/hostId (existing Phase 22 gates, unchanged).
- *   5. Validate cosmetics per-field: title non-empty string ≤128 chars;
- *      colorHue integer 0-359; voice matches [A-Z][A-Za-z]+\.wav.
- *   6. If req.file present, derive avatarFilename = `<name>.<ext>` where ext
- *      comes from MIME_TO_AVATAR_EXT[req.file.mimetype]. Set
- *      cosmetics.avatar = avatarFilename.
- *   7. resolveHostById + connectOneShot + collision probe (Phase 22, unchanged).
- *   8. Resolve remote $HOME.
- *   9. Build stub markdown — WITH frontmatter block when cosmetics has any
- *      keys (yaml.dump), WITHOUT frontmatter when empty (regression guard).
- *   10. writeMarkdownFileAtomic(conn, targetMd, stubMarkdown).
- *   11. If req.file present, inline SFTP writeFile(avatarSiblingPath, bytes)
- *       — see step 7 note below.
- *   12. Response 201 { name, description, cosmetics }.
- *   13. Finally: conn.end() (try/catch swallow — best-effort).
- *
- * Inlined role-folder avatar write per Plan 86-02 (wave-1 file-ownership
- * constraint keeps identity-artifact-reader.ts out of this plan). Follow-up
- * refactor may extract writeAvatarSiblingFileForRole(conn, roleName, ext,
- * bytes) if a third caller emerges — per the same 'extract later if a third
- * caller emerges' precedent CONTEXT.md applies to the avatar generator (see
- * D-CTX-86-surface-3).
+ *   4. Validate name/description (role-input-validation.ts) + hostId.
+ *   5. Validate cosmetics per-field: colorHue integer 0-359; voice is a
+ *      recognized voice ID.
+ *   6. If req.file present, normalize it and map its mimetype to an ext.
+ *   7. resolveHostById + connectOneShot under the host semaphore.
+ *   8. Auto-tag the creator on multi-user hosts (`users:`).
+ *   9. createRoleOnHost (roles-create-core.ts, shared with the role-request
+ *      file drop): collision-safe mkdir with auto-suffix, stub role file,
+ *      avatar sibling `<slug>.<ext>`.
+ *   10. Response 201 { name, description, cosmetics }.
+ *   11. Finally: conn.end() (try/catch swallow — best-effort).
  *
  * Security posture (STRIDE threat register in Plan 86-02):
  *   T-86-02-01: shell injection via avatarFilename — MITIGATE via
@@ -90,24 +79,18 @@
 import type { AuthenticatedRequest } from "../../../types/index.js";
 import express from "express";
 import multer from "multer";
-import yaml from "js-yaml";
 import type { Request, Response } from "express";
-import type { SFTPWrapper } from "ssh2";
 import { AuthManager } from "../../utils/auth-manager.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
-import { execCommand } from "../../ssh/tmux-helper.js";
-import {
-  writeMarkdownFileAtomic,
-  MIME_TO_AVATAR_EXT,
-  stringifyColorHueForYaml,
-} from "../../claude-session/identity-artifact-reader.js";
-import { ROLE_NAME_PATTERN } from "./identity-birth-orchestrator.js";
+import { MIME_TO_AVATAR_EXT } from "../../claude-session/identity-artifact-reader.js";
 // Pretty-names shape (2026-09-30): backend derives the role slug from the
-// typed displayName via the shared helper. Spells out digits so slugs are
-// pure [a-z-]+ and letter-first, which makes the formerly separate
-// ROLE_NAME_RE strict-segment gate here redundant (dropped below).
-import { derivePrettyNameSlug } from "../../utils/pretty-name-slug.js";
+// typed displayName via the shared helper (role-input-validation.ts).
+import {
+  validateRoleDisplayName,
+  validateRoleDescription,
+} from "../../utils/role-input-validation.js";
+import { createRoleOnHost } from "./roles-create-core.js";
 import { sshLogger } from "../../utils/logger.js";
 // Phase 103 D-10: multipart-origin-guard — CORS-simple content types don't preflight
 import { multipartOriginGuard } from "../../utils/multipart-origin-guard.js";
@@ -132,26 +115,6 @@ const authenticateJWT = authManager.createAuthMiddleware();
 
 /** SSH connect timeout — matches other one-shot SSH endpoints. */
 const SSH_CONNECT_TIMEOUT_MS = 5000;
-
-/** SSH exec race timeout — bounded so a hung remote can't stall the route. */
-const SSH_EXEC_TIMEOUT_MS = 5000;
-
-/** Description length cap (bytes). 4KB matches Phase 22's threat model
- *  (T-22-04-04 DoS via unbounded payload) and the nginx client_max_body_size
- *  32k belt (which also covers JSON envelope + name + hostId). */
-const MAX_DESCRIPTION_BYTES = 4096;
-
-/** Maximum role-name length matching frontend UI expectations. */
-const MAX_NAME_LENGTH = 64;
-
-/** Maximum cosmetic title length. Mirrors identities.ts's implicit display
- *  cap discipline — we don't want unbounded strings landing in frontmatter.
- *  128 chars is generous for a subtitle line (D-CTX-86-surface-1). */
-const MAX_TITLE_LENGTH = 128;
-
-/** Voice validation: mirrors identities.ts's Polly-whitelist swap from Phase
- *  98 Plan 07. Accepts only the 7 Polly generative en-US voice IDs; the
- *  Elena.wav-style Chatterbox names are gone. Isolated call-site below. */
 
 /** Multer upload config — mirrors identities.ts L36-49 shape (10 MB cap here,
  *  same mimetype whitelist, same in-memory storage). Kept in sync with the
@@ -178,41 +141,6 @@ const upload = multer({
     else cb(new Error("Avatar must be PNG, JPEG, or WebP"));
   },
 });
-
-/**
- * REVISION 2026-08-04 (user at 22-02 checkpoint, applies HERE per same-
- * pattern extension). Seed comment embedded below the description so the
- * first agent to hold this role knows to flesh out the file on wake.
- *
- * Style constraints (verbatim from user — enforced by test 6 assertions):
- *   - Do NOT say "Skynet" (agents don't know what that is)
- *   - Do NOT reference §2 / §3 / "id skill" / SKILL.md (fragile skill refs)
- *   - Plain-terms instructions to the wake-up agent
- *   - Ends with "remove this comment" so the agent knows to clear it
- */
-const ROLE_STUB_SEED_COMMENT =
-  "<!-- This role file was auto-generated with only a basic description. On first wake of an agent holding this role, please flesh out the role with standing directives, learned preferences, and a 10,000-foot view of the domain the role covers, then remove this comment. -->";
-
-/**
- * Race an exec against a timeout so a hung remote can't stall the route.
- * Matches roles-list-for-host.execWithTimeout / identity-artifact-reader.
- * execWithTimeout shape.
- */
-function execWithTimeout(
-  conn: Awaited<ReturnType<typeof connectOneShot>>,
-  command: string,
-  timeoutMs: number = SSH_EXEC_TIMEOUT_MS,
-): Promise<string> {
-  return Promise.race([
-    execCommand(conn, command),
-    new Promise<string>((_, reject) =>
-      setTimeout(
-        () => reject(new Error(`SSH exec timeout after ${timeoutMs}ms`)),
-        timeoutMs,
-      ),
-    ),
-  ]);
-}
 
 /**
  * Shape of the parsed `data` JSON multipart field.
@@ -252,46 +180,6 @@ function parseMultipartRolePayload(req: Request): MultipartRolePayload | null {
     return parsed as MultipartRolePayload;
   } catch {
     return null;
-  }
-}
-
-/**
- * Inline SFTP writeFile — Plan 86-02 Task 1 step 7. Mirrors the private
- * sftpReadFile helper pattern at identity-artifact-reader.ts:2473-2490:
- * promise-wraps conn.sftp → sftp.writeFile(path, bytes) → sftp.end() in
- * finally. Kept inline (not exported from identity-artifact-reader) per
- * wave-1 file-ownership constraint between Plan 86-01 (owns identity-
- * artifact-reader.ts) and this plan.
- *
- * Follow-up refactor may extract writeAvatarSiblingFileForRole(conn,
- * roleName, ext, bytes) if a third caller emerges — per the same "extract
- * later if a third caller emerges" precedent CONTEXT.md applies to the
- * avatar generator (see D-CTX-86-surface-3).
- */
-async function sftpWriteFileInline(
-  conn: Awaited<ReturnType<typeof connectOneShot>>,
-  remotePath: string,
-  bytes: Buffer,
-): Promise<void> {
-  const sftp: SFTPWrapper = await new Promise<SFTPWrapper>((resolve, reject) => {
-    conn.sftp((err: Error | undefined, s: SFTPWrapper) => {
-      if (err) return reject(err);
-      resolve(s);
-    });
-  });
-  try {
-    await new Promise<void>((resolve, reject) => {
-      sftp.writeFile(remotePath, bytes, (writeErr) => {
-        if (writeErr) return reject(writeErr);
-        resolve();
-      });
-    });
-  } finally {
-    try {
-      sftp.end();
-    } catch {
-      /* best-effort — SFTP cleanup mustn't mask the underlying write result */
-    }
   }
 }
 
@@ -347,40 +235,16 @@ router.post(
     //    derives the slug via the shared helper. derivePrettyNameSlug
     //    rejects empty / too-long / unslugifiable input in one place.
     // -----------------------------------------------------------------------
-    if (typeof rawDisplayName !== "string") {
-      res.status(400).json({ error: "displayName is required" });
+    const nameCheck = validateRoleDisplayName(rawDisplayName);
+    if (nameCheck.ok === false) {
+      res.status(400).json({ error: nameCheck.error });
       return;
     }
-    const derivation = derivePrettyNameSlug(rawDisplayName);
-    if (derivation.ok !== true) {
-      const errorMsg =
-        derivation.reason === "empty"
-          ? "displayName is required"
-          : derivation.reason === "too_long"
-            ? "displayName must be 80 characters or fewer"
-            : "displayName must contain at least one letter";
-      res.status(400).json({ error: errorMsg });
-      return;
-    }
-    const baseSlug = derivation.slug;
-    // Legacy length cap on the derived slug (kept at 64 for folder sanity).
-    // The 80-char input cap means the output rarely exceeds 64, but digit
-    // spell-out can occasionally grow strings — defense in depth.
-    if (baseSlug.length > MAX_NAME_LENGTH) {
-      res.status(400).json({
-        error: `displayName derived slug exceeds ${MAX_NAME_LENGTH} chars; shorten the name`,
-      });
-      return;
-    }
-    const displayName = rawDisplayName.trim();
-    if (typeof rawDescription !== "string" || rawDescription.length === 0) {
-      res.status(400).json({ error: "description is required" });
-      return;
-    }
-    if (Buffer.byteLength(rawDescription, "utf-8") > MAX_DESCRIPTION_BYTES) {
-      res.status(400).json({
-        error: `description must be ≤${MAX_DESCRIPTION_BYTES} bytes`,
-      });
+    const baseSlug = nameCheck.slug;
+    const displayName = nameCheck.displayName;
+    const descriptionCheck = validateRoleDescription(rawDescription);
+    if (descriptionCheck.ok === false) {
+      res.status(400).json({ error: descriptionCheck.error });
       return;
     }
     if (
@@ -392,7 +256,7 @@ router.post(
       return;
     }
 
-    const description = rawDescription;
+    const description = descriptionCheck.description;
     const hostId = rawHostId;
 
     // -----------------------------------------------------------------------
@@ -492,174 +356,25 @@ router.post(
       }
 
       // ---------------------------------------------------------------------
-      // 7. Atomic collision-safe provision with pretty-names auto-suffix.
-      //
-      //    Pre-fix (Phase 129 MEDIUM-1 fix — port of Phase 117 createProject
-      //    pattern at identity-artifact-reader.ts:830-870): plain (non-`-p`)
-      //    mkdir on the target dir is atomic at the syscall level and fails
-      //    with "File exists" if the directory already exists. Race-loser
-      //    hits the EEXIST branch without touching the winner's file.
-      //
-      //    Pretty-names shape (2026-09-30): on EEXIST we no longer 409 — we
-      //    retry with the next collision suffix (baseSlug-2, baseSlug-3, ...).
-      //    Users don't think about slug collisions; the system picks the next
-      //    free slug and proceeds. Loop is race-safe because each iteration
-      //    is a fresh atomic mkdir on a distinct path; sanity cap at 100.
-      //
-      //    `baseSlug` + the suffix are both produced by the pretty-names
-      //    derivation (letters + dashes + a digit suffix), so interpolation
-      //    into the double-quoted path is shell-safe.
-      // ---------------------------------------------------------------------
-      const MAX_COLLISION_ATTEMPTS = 100;
-      let name = baseSlug;
-      let attempt = 0;
-      let mkdirDone = false;
-      try {
-        await execWithTimeout(conn, `mkdir -p "$HOME/fleet/roles"`);
-      } catch (err) {
-        sshLogger.warn("roles-create: parent roles-dir mkdir failed", {
-          operation: "roles_create_atomic_mkdir",
-          hostId,
-          baseSlug,
-          error: err instanceof Error ? err.message : String(err),
-        });
-        res.status(502).json({ error: "SSH exec failed" });
-        return;
-      }
-      // Shell-side classifier emits one of three sentinels on stdout so we
-      // don't have to parse locale-dependent stderr text ("File exists" is
-      // English-only; a BusyBox or non-English mkdir would misclassify).
-      // The classifier is: try the mkdir; on failure, check whether the
-      // target dir exists post-hoc — if yes, treat as collision; if no,
-      // treat as real failure. Tiny TOCTOU window is benign for shape
-      // purposes (we just need to distinguish "retry with suffix" from
-      // "502 real failure").
-      while (!mkdirDone) {
-        let classification: string;
-        try {
-          classification = (
-            await execWithTimeout(
-              conn,
-              // An archived role holding this name also counts as a
-              // collision: reusing it would later block archiving the new
-              // role (the supervisor refuses rather than nest) and make
-              // un-archiving the old one a name clash.
-              `if [ -e "$HOME/fleet/roles-archive/${name}" ]; then echo __MKDIR_COLLIDE__; else mkdir "$HOME/fleet/roles/${name}" 2>/dev/null && echo __MKDIR_OK__ || { if [ -d "$HOME/fleet/roles/${name}" ]; then echo __MKDIR_COLLIDE__; else echo __MKDIR_FAIL__; fi; }; fi`,
-            )
-          ).trim();
-        } catch (err) {
-          sshLogger.warn("roles-create: atomic mkdir exec failed", {
-            operation: "roles_create_atomic_mkdir",
-            hostId,
-            name,
-            error: err instanceof Error ? err.message : String(err),
-          });
-          res.status(502).json({ error: "SSH exec failed" });
-          return;
-        }
-        if (classification === "__MKDIR_OK__") {
-          mkdirDone = true;
-          continue;
-        }
-        if (classification === "__MKDIR_COLLIDE__") {
-          attempt += 1;
-          if (attempt >= MAX_COLLISION_ATTEMPTS) {
-            sshLogger.error(
-              "roles-create: collision auto-suffix cap exhausted",
-              new Error("cap exhausted"),
-              {
-                operation: "roles_create_atomic_mkdir",
-                hostId,
-                baseSlug,
-                attempts: attempt,
-              },
-            );
-            res
-              .status(500)
-              .json({ error: "failed to create role" });
-            return;
-          }
-          name = `${baseSlug}-${attempt + 1}`;
-          continue;
-        }
-        // __MKDIR_FAIL__ or any other unexpected output → real failure.
-        sshLogger.warn("roles-create: atomic mkdir reported failure", {
-          operation: "roles_create_atomic_mkdir",
-          hostId,
-          name,
-          classification,
-        });
-        res.status(502).json({ error: "SSH exec failed" });
-        return;
-      }
-
-      // Avatar filename now that the final slug is known (depends on name).
-      let avatarFilename: string | null = null;
-      if (avatarExt) {
-        avatarFilename = `${name}.${avatarExt}`;
-        cosmetics.avatar = avatarFilename;
-      }
-
-      // ---------------------------------------------------------------------
-      // 8. Resolve remote $HOME so we can pass an absolute path to SFTP
-      //    (writeMarkdownFileAtomic + sftpWriteFileInline both work over
-      //    SFTP which does NOT tilde-expand — target paths must be absolute).
-      // ---------------------------------------------------------------------
-      let remoteHome: string;
-      try {
-        remoteHome = (await execWithTimeout(conn, "echo $HOME")).trim();
-        if (!remoteHome) {
-          throw new Error("could not resolve remote $HOME");
-        }
-      } catch (err) {
-        sshLogger.warn("roles-create: $HOME resolution failed", {
-          operation: "roles_create_home",
-          hostId,
-          error: err instanceof Error ? err.message : "Unknown",
-        });
-        res.status(502).json({ error: "SSH exec failed" });
-        return;
-      }
-
-      // ---------------------------------------------------------------------
-      // Phase 129 Plan 06 D-4: auto-tag creator on multi-user hosts.
+      // 7. Phase 129 Plan 06 D-4: auto-tag creator on multi-user hosts.
       //
       // On multi-user hosts (>1 distinct Skynet user with access), write the
       // creator's Skynet username to the new role file's `users:` frontmatter
       // list. Single-user hosts stay silent — the file is byte-identical to
-      // a pre-129 role file per shape §"What would make it wrong" bullet 1
-      // ("A user on a single-user host sees any evidence of this feature").
+      // a pre-129 role file per shape §"What would make it wrong" bullet 1.
       //
-      // Ordering invariants (Pitfall 5 + D-5 lock):
-      //   - This branch runs AFTER the collision probe above (L472-496) —
-      //     an existing role file 409s before this branch is reached, so
-      //     auto-tag never rewrites live values in a shared-role file that
-      //     was already hand-widened by a cohabitant.
-      //   - This branch runs BEFORE the hasCosmetics check + yaml.dump below,
-      //     so the dump picks up the mutated cosmetics dict naturally without
-      //     touching the dump call itself (canonical options preserved).
-      //   - Auto-tag lives INLINE in the initial-write path only — never
-      //     extracted into a "add username to existing frontmatter" helper
-      //     that could accidentally be called on a live file (Pitfall 5).
-      //
-      // Fail-open on username-lookup failure (PATTERNS.md write-side
-      // exception): if getUsernameForUserId returns null on a multi-user
-      // host, we skip auto-tag and log loudly. A wrong-user auto-tag would
-      // be a shape §"would make it wrong" violation bullet 3 ("auto-tagged
-      // with the wrong user's name"), so we prefer to leave the file
-      // untagged and surface the failure in logs.
-      //
-      // Case preservation (Pitfall 7): getUsernameForUserId returns the
-      // case-preserved username as stored in the DB — we do NOT normalize.
+      // Fail-open on username-lookup failure: a wrong-user auto-tag would be
+      // a shape violation, so we leave the file untagged and log loudly.
+      // Case preservation (Pitfall 7): the username is used as stored.
       // ---------------------------------------------------------------------
-      const isMultiUser = await isHostMultiUser(hostId);
-      if (isMultiUser) {
+      let users: string[] | undefined;
+      if (await isHostMultiUser(hostId)) {
         const creatorUsername = await getUsernameForUserId(userId);
         if (creatorUsername) {
-          (cosmetics as Record<string, unknown>).users = [creatorUsername];
+          users = [creatorUsername];
           sshLogger.info("roles-create: auto-tagged creator on multi-user host", {
             operation: "roles_create_auto_tagged",
-            role: name,
+            role: baseSlug,
             hostId,
             creatorUsername,
           });
@@ -676,81 +391,39 @@ router.post(
       }
 
       // ---------------------------------------------------------------------
-      // 9. Build stub markdown.
-      //     WITH cosmetics → prepend `---\n<yaml.dump>---\n\n` frontmatter,
-      //     then the standard `# <name>\n\n## Role\n\n<description>\n\n
-      //     <SEED>\n` body.
-      //     WITHOUT cosmetics → emit the existing frontmatter-less body
-      //     verbatim (regression guard for Plan 86-02 Test 1 — the empty-
-      //     cosmetics path MUST be byte-identical to Phase 22's output).
+      // 8. Provision folder + stub role file + avatar (roles-create-core.ts,
+      //    shared with the role-request file drop).
       // ---------------------------------------------------------------------
-      const hasCosmetics = Object.keys(cosmetics).length > 0;
-      const bodyLines =
-        `# ${name}\n\n## Role\n\n${description}\n\n${ROLE_STUB_SEED_COMMENT}\n`;
-      const stubMarkdown = hasCosmetics
-        ? `---\n${yaml.dump(
-            stringifyColorHueForYaml(cosmetics as Record<string, unknown>),
-            {
-              sortKeys: false,
-              lineWidth: -1,
-              noRefs: true,
-              forceQuotes: false,
-            },
-          )}---\n\n${bodyLines}`
-        : bodyLines;
-
-      const targetPath = `${remoteHome}/fleet/roles/${name}/${name}.md`;
-
-      try {
-        await writeMarkdownFileAtomic(conn, targetPath, stubMarkdown);
-      } catch (err) {
-        sshLogger.error(
-          "roles-create: SFTP write failed",
-          err instanceof Error ? err : new Error(String(err)),
-          {
-            operation: "roles_create_sftp_write",
-            hostId,
-            name,
-            targetPath,
-          },
-        );
-        res.status(502).json({ error: "SSH exec failed" });
+      const result = await createRoleOnHost(
+        conn,
+        {
+          baseSlug,
+          displayName,
+          description,
+          colorHue: cosmetics.colorHue,
+          voice: cosmetics.voice,
+          users,
+          avatar:
+            req.file && avatarExt
+              ? { ext: avatarExt, bytes: req.file.buffer }
+              : undefined,
+        },
+        { hostId, source: "dialog" },
+      );
+      if (result.ok === false) {
+        if (result.error === "collision_cap_exhausted") {
+          res.status(500).json({ error: "failed to create role" });
+        } else {
+          res.status(502).json({ error: "SSH exec failed" });
+        }
         return;
       }
 
       // ---------------------------------------------------------------------
-      // 10. Inline SFTP avatar write (Plan 86-02 Task 1 step 7).
-      //     Only fires when req.file was uploaded. Target path is derived
-      //     from server-controlled name + ext, so no shell-injection surface
-      //     (T-86-02-01). Write failure → 502 with roles_create_sftp_avatar_write
-      //     operation tag.
+      // 9. Response 201 { name, description, cosmetics }. Cosmetics echoes
+      //    the persisted frontmatter.
       // ---------------------------------------------------------------------
-      if (req.file && avatarFilename) {
-        const avatarTargetPath =
-          `${remoteHome}/fleet/roles/${name}/${avatarFilename}`;
-        try {
-          await sftpWriteFileInline(conn, avatarTargetPath, req.file.buffer);
-        } catch (err) {
-          sshLogger.error(
-            "roles-create: SFTP avatar write failed",
-            err instanceof Error ? err : new Error(String(err)),
-            {
-              operation: "roles_create_sftp_avatar_write",
-              hostId,
-              name,
-              targetPath: avatarTargetPath,
-            },
-          );
-          res.status(502).json({ error: "SSH exec failed" });
-          return;
-        }
-      }
-
-      // ---------------------------------------------------------------------
-      // 11. Response 201 { name, description, cosmetics }. Cosmetics echoes
-      //     the persisted frontmatter (empty {} when none supplied).
-      // ---------------------------------------------------------------------
-      res.status(201).json({ name, description, cosmetics });
+      res.status(201).json({ name: result.name, description, cosmetics: result.cosmetics });
       }); // end getHostSemaphore(hostId).run(...)
     } finally {
       if (conn) {

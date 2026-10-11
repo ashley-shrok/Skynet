@@ -212,23 +212,30 @@ function paletteHueLine(hue: number | null): string {
 // Same division of labor as paletteHueLine above.
 // ---------------------------------------------------------------------------
 
-const THREE_PROMPT_INSTRUCTION =
-  `Produce ${BATCH_SIZE} DISTINCT image-generation prompts — not variations on ` +
-  `one description. Each should be a different plausible take on this role, so ` +
-  `a viewer picking between them is choosing between genuinely different ` +
-  `characters rather than three renders of the same one. Every prompt must ` +
-  `independently satisfy every requirement above, including the palette. ` +
-  `Return JSON of the form {"prompts": ["...", "...", "..."]} and nothing else.`;
+function distinctPromptsInstruction(count: number): string {
+  if (count === 1) {
+    return `Produce 1 image-generation prompt. Return JSON of the form ` +
+      `{"prompts": ["..."]} and nothing else.`;
+  }
+  return (
+    `Produce ${count} DISTINCT image-generation prompts — not variations on ` +
+    `one description. Each should be a different plausible take on this role, so ` +
+    `a viewer picking between them is choosing between genuinely different ` +
+    `characters rather than ${count} renders of the same one. Every prompt must ` +
+    `independently satisfy every requirement above, including the palette. ` +
+    `Return JSON of the form {"prompts": ["...", "...", "..."]} and nothing else.`
+  );
+}
 
 /**
- * Parse the drafter's reply into exactly BATCH_SIZE prompts.
+ * Parse the drafter's reply into exactly `count` prompts (BATCH_SIZE by default).
  *
  * Falls back to repeating a single prompt when the reply isn't the JSON shape we
  * asked for. That keeps a model that ignores the format instruction (or an older
  * operator spec that fights it) producing avatars at pre-change quality instead
  * of failing the request outright. Short arrays are cycled, long ones truncated.
  */
-export function parseDraftedPrompts(raw: string): string[] {
+export function parseDraftedPrompts(raw: string, count: number = BATCH_SIZE): string[] {
   const trimmed = raw.trim();
   let prompts: string[] = [];
   try {
@@ -250,9 +257,170 @@ export function parseDraftedPrompts(raw: string): string[] {
   }
   if (prompts.length === 0) prompts = [trimmed];
   return Array.from(
-    { length: BATCH_SIZE },
+    { length: count },
     (_, i) => prompts[i % prompts.length],
   );
+}
+
+// ---------------------------------------------------------------------------
+// generateAvatarImages — the draft → render → gamma pipeline, shared by the
+// POST /batch route (3 candidates for the user to pick from) and the role-
+// request worker (1 image, taken as-is).
+// ---------------------------------------------------------------------------
+
+export interface AvatarSeed {
+  name: string;
+  title: string;
+  brief: string;
+  /** Palette hue in [0, 360), or null to let the drafter pick freely. */
+  colorHue: number | null;
+}
+
+export type GenerateAvatarImagesResult =
+  | { ok: true; images: Array<{ bytes: Buffer; mime: string }> }
+  | { ok: false; status: 502 | 503; error: string };
+
+const GENERATION_FAILED: GenerateAvatarImagesResult = {
+  ok: false,
+  status: 502,
+  error: "avatar generation failed",
+};
+
+export async function generateAvatarImages(
+  seed: AvatarSeed,
+  count: number = BATCH_SIZE,
+): Promise<GenerateAvatarImagesResult> {
+  const { name, title, brief } = seed;
+  const paletteHue = seed.colorHue;
+  // Read API key at request time — 503 if missing (no boot crash)
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    return { ok: false, status: 503, error: "OpenAI not configured" };
+  }
+
+  // Phase 74 Plan 03: read branding-config for the aesthetic director spec
+  // and gamma value. Fresh per-request read preserves the Phase 70 hot-swap
+  // property. Request-time defense-in-depth per 74-RESEARCH.md § Pitfall 2:
+  // even though Plan 02's boot gate catches missing spec at startup, an
+  // operator runtime edit that introduces a shape violation silently reverts
+  // to bundled defaults (empty spec). Guard here mirrors the OPENAI_API_KEY
+  // 503 pattern above so the route either has a real spec or short-circuits
+  // before ever calling OpenAI. NO fallback to a hardcoded constant — that
+  // would defeat the whole point of moving the aesthetic into the config
+  // (74-CONTEXT.md § "What would make it wrong" §5).
+  const branding = await loadBrandingConfig();
+  const directorSpec = (branding.avatarDirectorSpec ?? "").trim();
+  if (directorSpec.length === 0) {
+    return { ok: false, status: 503, error: "avatar generation misconfigured" };
+  }
+  const gammaValue = branding.avatarGammaDefault;
+
+  // ------------------------------------------------------------------
+  // Step 1: LLM archetype draft (called ONCE per request)
+  // ------------------------------------------------------------------
+  let draftedPrompts: string[];
+  try {
+    const archController = new AbortController();
+    const archTimeout = setTimeout(() => archController.abort(), ARCHETYPE_TIMEOUT_MS);
+
+    const archRes = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [
+          { role: "system", content: directorSpec },
+          {
+            role: "user",
+            content: `Name: ${name}\nTitle: ${title}\nBrief: ${brief}${paletteHueLine(paletteHue)}\n\n${distinctPromptsInstruction(count)}`,
+          },
+        ],
+      }),
+      signal: archController.signal,
+    });
+
+    clearTimeout(archTimeout);
+
+    if (!archRes.ok) {
+      return GENERATION_FAILED;
+    }
+
+    const archData = (await archRes.json()) as {
+      choices: Array<{ message: { content: string } }>;
+    };
+    draftedPrompts = parseDraftedPrompts(
+      archData.choices[0].message.content,
+      count,
+    );
+  } catch {
+    return GENERATION_FAILED;
+  }
+
+  // ------------------------------------------------------------------
+  // Step 2: one parallel gpt-image-1 call per drafted prompt
+  // ------------------------------------------------------------------
+  let b64Results: string[];
+  try {
+    const imageGenResults = await Promise.all(
+      draftedPrompts.map(async (draftedPrompt) => {
+        const imgController = new AbortController();
+        const imgTimeout = setTimeout(() => imgController.abort(), IMAGE_GEN_TIMEOUT_MS);
+
+        const imgRes = await fetch("https://api.openai.com/v1/images/generations", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model: "gpt-image-1",
+            prompt: draftedPrompt,
+            n: 1,
+            size: "1024x1024",
+            quality: "high",
+          }),
+          signal: imgController.signal,
+        });
+
+        clearTimeout(imgTimeout);
+
+        if (!imgRes.ok) {
+          throw new Error(`image-gen non-2xx: ${imgRes.status}`);
+        }
+
+        const imgData = (await imgRes.json()) as { data: Array<{ b64_json: string }> };
+        return imgData.data[0].b64_json;
+      }),
+    );
+    b64Results = imageGenResults;
+  } catch {
+    return GENERATION_FAILED;
+  }
+
+  // ------------------------------------------------------------------
+  // Step 3: Apply operator-configured gamma to each image via sharp.
+  // Phase 74 Plan 03: gamma value threaded from branding config's
+  // avatarGammaDefault, not hardcoded 0.7. The shipped bundled default
+  // still carries 0.7 for backwards compatibility with the pre-Phase-74
+  // aesthetic; operators can override per-branding.
+  // ------------------------------------------------------------------
+  let gammaCorrected: Array<{ bytes: Buffer; mime: string }>;
+  try {
+    gammaCorrected = await Promise.all(
+      b64Results.map(async (b64) => {
+        const pngBuffer = Buffer.from(b64, "base64");
+        const corrected = await applyGamma(pngBuffer, gammaValue);
+        return normalizeAvatar(corrected, "image/png");
+      }),
+    );
+  } catch {
+    return GENERATION_FAILED;
+  }
+
+  return { ok: true, images: gammaCorrected };
 }
 
 // ---------------------------------------------------------------------------
@@ -296,144 +464,17 @@ router.post(
       paletteHue = colorHue;
     }
 
-    // Read API key at request time — 503 if missing (no boot crash)
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      res.status(503).json({ error: "OpenAI not configured" });
+    const generated = await generateAvatarImages({
+      name,
+      title,
+      brief,
+      colorHue: paletteHue,
+    });
+    if (generated.ok === false) {
+      res.status(generated.status).json({ error: generated.error });
       return;
     }
-
-    // Phase 74 Plan 03: read branding-config for the aesthetic director spec
-    // and gamma value. Fresh per-request read preserves the Phase 70 hot-swap
-    // property. Request-time defense-in-depth per 74-RESEARCH.md § Pitfall 2:
-    // even though Plan 02's boot gate catches missing spec at startup, an
-    // operator runtime edit that introduces a shape violation silently reverts
-    // to bundled defaults (empty spec). Guard here mirrors the OPENAI_API_KEY
-    // 503 pattern above so the route either has a real spec or short-circuits
-    // before ever calling OpenAI. NO fallback to a hardcoded constant — that
-    // would defeat the whole point of moving the aesthetic into the config
-    // (74-CONTEXT.md § "What would make it wrong" §5).
-    const branding = await loadBrandingConfig();
-    const directorSpec = (branding.avatarDirectorSpec ?? "").trim();
-    if (directorSpec.length === 0) {
-      res.status(503).json({ error: "avatar generation misconfigured" });
-      return;
-    }
-    const gammaValue = branding.avatarGammaDefault;
-
-    // ------------------------------------------------------------------
-    // Step 1: LLM archetype draft (called ONCE per request)
-    // ------------------------------------------------------------------
-    let draftedPrompts: string[];
-    try {
-      const archController = new AbortController();
-      const archTimeout = setTimeout(() => archController.abort(), ARCHETYPE_TIMEOUT_MS);
-
-      const archRes = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-          messages: [
-            { role: "system", content: directorSpec },
-            {
-              role: "user",
-              content: `Name: ${name}\nTitle: ${title}\nBrief: ${brief}${paletteHueLine(paletteHue)}\n\n${THREE_PROMPT_INSTRUCTION}`,
-            },
-          ],
-        }),
-        signal: archController.signal,
-      });
-
-      clearTimeout(archTimeout);
-
-      if (!archRes.ok) {
-        res.status(502).json({ error: "avatar generation failed" });
-        return;
-      }
-
-      const archData = (await archRes.json()) as {
-        choices: Array<{ message: { content: string } }>;
-      };
-      draftedPrompts = parseDraftedPrompts(
-        archData.choices[0].message.content,
-      );
-    } catch (err) {
-      const isAbort =
-        err instanceof Error && err.name === "AbortError";
-      if (isAbort) {
-        res.status(502).json({ error: "avatar generation failed" });
-      } else {
-        res.status(502).json({ error: "avatar generation failed" });
-      }
-      return;
-    }
-
-    // ------------------------------------------------------------------
-    // Step 2: 3 parallel gpt-image-1 calls with the drafted prompt
-    // ------------------------------------------------------------------
-    let b64Results: string[];
-    try {
-      const imageGenResults = await Promise.all(
-        draftedPrompts.map(async (draftedPrompt) => {
-          const imgController = new AbortController();
-          const imgTimeout = setTimeout(() => imgController.abort(), IMAGE_GEN_TIMEOUT_MS);
-
-          const imgRes = await fetch("https://api.openai.com/v1/images/generations", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${apiKey}`,
-            },
-            body: JSON.stringify({
-              model: "gpt-image-1",
-              prompt: draftedPrompt,
-              n: 1,
-              size: "1024x1024",
-              quality: "high",
-            }),
-            signal: imgController.signal,
-          });
-
-          clearTimeout(imgTimeout);
-
-          if (!imgRes.ok) {
-            throw new Error(`image-gen non-2xx: ${imgRes.status}`);
-          }
-
-          const imgData = (await imgRes.json()) as { data: Array<{ b64_json: string }> };
-          return imgData.data[0].b64_json;
-        }),
-      );
-      b64Results = imageGenResults;
-    } catch {
-      res.status(502).json({ error: "avatar generation failed" });
-      return;
-    }
-
-    // ------------------------------------------------------------------
-    // Step 3: Apply operator-configured gamma to each image via sharp.
-    // Phase 74 Plan 03: gamma value threaded from branding config's
-    // avatarGammaDefault, not hardcoded 0.7. The shipped bundled default
-    // still carries 0.7 for backwards compatibility with the pre-Phase-74
-    // aesthetic; operators can override per-branding.
-    // ------------------------------------------------------------------
-    let gammaCorrected: Array<{ bytes: Buffer; mime: string }>;
-    try {
-      gammaCorrected = await Promise.all(
-        b64Results.map(async (b64) => {
-          const pngBuffer = Buffer.from(b64, "base64");
-          const corrected = await applyGamma(pngBuffer, gammaValue);
-          return normalizeAvatar(corrected, "image/png");
-        }),
-      );
-    } catch {
-      res.status(502).json({ error: "avatar generation failed" });
-      return;
-    }
+    const gammaCorrected = generated.images;
 
     // ------------------------------------------------------------------
     // Step 4: Store in candidate cache, generate IDs

@@ -10,14 +10,18 @@
  * ssh-poll-orchestrator.ts inflates the fleet-status test module graph and
  * broke Phase 52/53 tests during the id-skill-revamp campaign squash-merge.
  *
- * Keep this file dependency-free (only ROLE_NAME_PATTERN + the local
- * TASK_MAX_LENGTH constant). Any change to the validation logic here should
+ * Keep this file dependency-free (only ROLE_NAME_PATTERN, the pretty-name
+ * helper, role-input-validation, and local constants). Any change to the validation logic here should
  * ALSO update tests in worker.test.ts that exercise it via the re-export.
  */
 
 import { ROLE_NAME_PATTERN } from "../utils/role-name-pattern.js";
 import { derivePrettyNameSlug } from "../utils/pretty-name-slug.js";
-import type { SpawnRequestBody } from "./types.js";
+import {
+  validateRoleDisplayName,
+  validateRoleDescription,
+} from "../utils/role-input-validation.js";
+import type { SpawnRequestBody, RoleRequestBody } from "./types.js";
 
 /**
  * Maximum length for the `task` field (chars). 500 is the cap user picked
@@ -176,6 +180,103 @@ export function parseRequestBody(
       users: users as string[] | undefined,
       name: name as string | undefined,
       project: project as string | undefined,
+      requested_by: requested_by as string | undefined,
+    },
+  };
+}
+
+const ROLE_REQUEST_FIELDS = new Set(["kind", "name", "description", "requested_at", "requested_by"]);
+
+/**
+ * True when the raw body is a JSON object carrying `kind: "role"`. Unparseable
+ * bodies return false and fall through to parseRequestBody's malformed path.
+ */
+export function isRoleRequestBody(rawBody: string): boolean {
+  try {
+    const parsed = JSON.parse(rawBody) as unknown;
+    return (
+      parsed !== null &&
+      typeof parsed === "object" &&
+      !Array.isArray(parsed) &&
+      (parsed as Record<string, unknown>)["kind"] === "role"
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Parse and validate a role-request body (`kind: "role"`). Same name and
+ * description gates as POST /roles. Unknown fields are rejected so a request
+ * written in the identity shape (roles/prompt/task) fails loudly.
+ */
+export function parseRoleRequestBody(
+  rawBody: string,
+): { ok: true; body: RoleRequestBody } | { ok: false; reason: "malformed"; message: string } {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawBody);
+  } catch (err) {
+    return {
+      ok: false,
+      reason: "malformed",
+      message: `invalid JSON: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { ok: false, reason: "malformed", message: "body is not a JSON object" };
+  }
+  const obj = parsed as Record<string, unknown>;
+
+  if (obj["kind"] !== "role") {
+    return { ok: false, reason: "malformed", message: 'kind must be "role"' };
+  }
+  const unknown = Object.keys(obj).filter((k) => !ROLE_REQUEST_FIELDS.has(k));
+  if (unknown.length > 0) {
+    return {
+      ok: false,
+      reason: "malformed",
+      message: `unknown field(s) for a role request: ${unknown.join(", ")} (allowed: ${[...ROLE_REQUEST_FIELDS].join(", ")})`,
+    };
+  }
+
+  const nameCheck = validateRoleDisplayName(obj["name"]);
+  if (nameCheck.ok === false) {
+    // The validator speaks in POST /roles terms ("displayName"); the drop
+    // field is `name`.
+    return { ok: false, reason: "malformed", message: nameCheck.error.replace(/^displayName/, "name") };
+  }
+  const descriptionCheck = validateRoleDescription(obj["description"]);
+  if (descriptionCheck.ok === false) {
+    return { ok: false, reason: "malformed", message: descriptionCheck.error };
+  }
+
+  const requested_at = obj["requested_at"];
+  if (typeof requested_at !== "string") {
+    return { ok: false, reason: "malformed", message: "missing required field: requested_at" };
+  }
+
+  const requested_by = obj["requested_by"];
+  if (requested_by !== undefined) {
+    if (typeof requested_by !== "string" || requested_by.length === 0) {
+      return { ok: false, reason: "malformed", message: "requested_by must be a non-empty string if present" };
+    }
+    if (requested_by.length > REQUESTED_BY_MAX_LENGTH) {
+      return {
+        ok: false,
+        reason: "malformed",
+        message: `requested_by exceeds ${REQUESTED_BY_MAX_LENGTH} character limit (got ${requested_by.length})`,
+      };
+    }
+  }
+
+  return {
+    ok: true,
+    body: {
+      kind: "role",
+      name: obj["name"] as string,
+      description: descriptionCheck.description,
+      requested_at,
       requested_by: requested_by as string | undefined,
     },
   };

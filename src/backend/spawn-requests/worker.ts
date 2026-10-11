@@ -246,9 +246,12 @@ export function buildProductionDeps(): WorkerDeps {
  * Wraps the entire operation in try/catch — per D-15 no-retry, a failed
  * response-file write does NOT re-throw (coord timeout handles it).
  */
-async function writeResponseFile(
+/** The slice of WorkerDeps the response-file writers need (shared with role-worker.ts). */
+export type ResponseFileDeps = Pick<WorkerDeps, "connectOneShot" | "writeMarkdownFileAtomic">;
+
+export async function writeResponseFile(
   item: PendingBirth,
-  deps: WorkerDeps,
+  deps: ResponseFileDeps,
   kind: "success" | "failure",
   body: string,
 ): Promise<void> {
@@ -316,9 +319,9 @@ async function writeResponseFile(
   }
 }
 
-async function writeFailureFile(
+export async function writeFailureFile(
   item: PendingBirth,
-  deps: WorkerDeps,
+  deps: ResponseFileDeps,
   payload: FailureResponse,
 ): Promise<void> {
   systemLogger.warn("spawn-request worker: writing failure", {

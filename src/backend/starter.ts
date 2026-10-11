@@ -34,6 +34,7 @@ import {
 } from "./fleet-status/orchestrator-holder.js";
 import { enqueue as enqueueSpawnRequest, setProcessBirth as setSpawnRequestProcessBirth } from "./spawn-requests/queue.js";
 import { processBirth as processSpawnRequestBirth, buildProductionDeps as buildSpawnRequestWorkerDeps } from "./spawn-requests/worker.js";
+import { processRoleRequest, buildProductionRoleWorkerDeps } from "./spawn-requests/role-worker.js";
 
 /**
  * Local-host channel adapter — child_process.spawn behind the SshChannel
@@ -1292,7 +1293,13 @@ if (process.env.VITEST !== "true") {
       // + D-20 no changes to identity-birth-orchestrator.ts — the worker is a
       // new caller of the existing birthIdentity export.)
       const spawnRequestWorkerDeps = buildSpawnRequestWorkerDeps();
-      setSpawnRequestProcessBirth((item) => processSpawnRequestBirth(item, spawnRequestWorkerDeps));
+      // Role requests (`kind: "role"`) share the drop folder and queue.
+      const roleRequestWorkerDeps = buildProductionRoleWorkerDeps();
+      setSpawnRequestProcessBirth((item) =>
+        item.roleRequest
+          ? processRoleRequest(item, roleRequestWorkerDeps)
+          : processSpawnRequestBirth(item, spawnRequestWorkerDeps),
+      );
 
       // ---------------------------------------------------------------------
       // Multi-tenant fleet-status orchestrator (2026-09-23) — per-user watcher

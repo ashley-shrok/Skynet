@@ -35,6 +35,20 @@ export interface SpawnRequestBody {
 }
 
 /**
+ * Role-request body — a file in the same `~/fleet/spawn-requests/` drop
+ * folder, told apart by `kind: "role"`. Creates a role folder the way the
+ * new-role dialog does, with a generated avatar and a random color. Unknown
+ * fields are rejected as malformed.
+ */
+export interface RoleRequestBody {
+  kind: "role";
+  name: string;          // typed pretty name; the backend derives the slug
+  description: string;   // becomes the role file's `## Role` section
+  requested_at: string;  // ISO-Z timestamp for debug tracing
+  requested_by?: string; // log-only tag naming who dropped the request
+}
+
+/**
  * An in-flight pending birth item held in the in-memory queue (D-06, D-08).
  * Carries the parsed request contents plus sweep-provided metadata needed to
  * route the birth.
@@ -92,6 +106,13 @@ export interface PendingBirth {
    * When absent: normal birth path.
    */
   malformedReason?: string;
+
+  /**
+   * Present when the claimed file was a role request (`kind: "role"`). The
+   * queue routes these to processRoleRequest instead of an identity birth;
+   * the identity fields above are left at their empty defaults.
+   */
+  roleRequest?: RoleRequestBody;
 }
 
 /**
@@ -115,6 +136,14 @@ export interface SuccessResponse {
 }
 
 /**
+ * Role-request success body, written to ~/fleet/spawn-requests/<uuid>.success.json.
+ */
+export interface RoleSuccessResponse {
+  name: string;       // role slug (folder name under ~/fleet/roles/)
+  created_at: string; // ISO-Z audit timestamp
+}
+
+/**
  * Failure reason enum (D-10).
  *
  * `peer_host_unreachable` — birth step 1/2/8 hit an SSH-level failure
@@ -133,6 +162,10 @@ export interface SuccessResponse {
  * the real problem was SSH to the peer. Split at the point where the
  * information is already available: `ended.failedStep`.
  *
+ * `avatar_failed` / `role_create_failed` — role requests only. The avatar is
+ * generated BEFORE anything is written, so `avatar_failed` means no role
+ * folder exists and the request can simply be retried.
+ *
  * `birth_timeout` — the worker's per-attempt wall-clock timeout fired. Can
  * strike AFTER the peer-side birth has actually started or even completed, so
  * the accompanying `message` carries a "may have been born as X — verify
@@ -146,7 +179,10 @@ export type FailureReason =
   | "matrix_homeserver_unreachable"
   | "pool_exhausted"
   | "matrix_creds_missing"
-  | "birth_timeout";
+  | "birth_timeout"
+  // Role requests:
+  | "avatar_failed"        // avatar generation failed; nothing was created
+  | "role_create_failed";  // provisioning the role folder failed
 
 /**
  * Failure response file body (D-10).

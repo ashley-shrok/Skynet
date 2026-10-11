@@ -89,7 +89,11 @@ import type { PendingBirth } from "../spawn-requests/types.js";
 // avoids pulling worker.ts's heavy transitive graph (birthIdentity, matrix
 // admin, Skynet DB init, pool-loader) into the fleet-status test module
 // surface. See parse-request-body.ts header for the full rationale.
-import { parseRequestBody } from "../spawn-requests/parse-request-body.js";
+import {
+  parseRequestBody,
+  isRoleRequestBody,
+  parseRoleRequestBody,
+} from "../spawn-requests/parse-request-body.js";
 
 // ---------------------------------------------------------------------------
 // Peer-keyed sweep-result cache
@@ -1546,6 +1550,44 @@ export function parseSpawnRequestBatch(
     const body = line.slice(tab + 1).trim();
     const uuid = filename.replace(/\.json$/, "");
     if (!UUID_RE.test(uuid)) continue;
+
+    // Role requests share the drop folder; `kind: "role"` routes them to the
+    // role worker (processRoleRequest) instead of an identity birth.
+    if (isRoleRequestBody(body)) {
+      const roleParsed = parseRoleRequestBody(body);
+      if (roleParsed.ok === false) {
+        systemLogger.warn("spawn-request-scan: role request malformed — enqueueing malformed failure", {
+          operation: "spawn_request_scan_malformed",
+          fleetHostId: hostId,
+          uuid,
+          kind: "role",
+          reason: roleParsed.message,
+        });
+        results.push({
+          hostId,
+          hostIdNum,
+          uuid,
+          roles: [], prompt: "",
+          task: null,
+          requested_at: "",
+          hostConnDetails,
+          malformedReason: roleParsed.message,
+        });
+        continue;
+      }
+      results.push({
+        hostId,
+        hostIdNum,
+        uuid,
+        roles: [], prompt: "",  // identity fields unused — roleRequest drives behavior
+        task: null,
+        requested_at: roleParsed.body.requested_at,
+        requested_by: roleParsed.body.requested_by,
+        hostConnDetails,
+        roleRequest: roleParsed.body,
+      });
+      continue;
+    }
 
     // Full request-body validation via the worker's parseRequestBody helper.
     // On failure, enqueue a PendingBirth with malformedReason so the worker
