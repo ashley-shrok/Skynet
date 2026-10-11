@@ -62,6 +62,7 @@ import {
   extractRoleFromMarkdown,
   extractRolesFromMarkdown,
   extractCosmeticsFromFrontmatter,
+  repairFrontmatterTaskLine,
   resolveRoleForIdentity,
   resolveRolesForIdentity,
   flowRolesInYamlDump,
@@ -204,19 +205,16 @@ describe("extractCosmeticsFromFrontmatter (malformed-YAML logging — regression
 
   // Post-tolerant-parse contract (2026-09-24 atlantis-zoho leak fix): fields
   // that parsed cleanly BEFORE the offending line survive into cosmetics.
-  // Here `displayName` on line 2 is unaffected by the broken `task:` on
-  // line 3 — cosmetics still carry {displayName:"Odin"}. WARN fires so ops
-  // sees the broken file. The dropped `task:` field is expected — the
-  // narrower rejects the nested-mapping shape the tolerant parser recovers
-  // for the broken line, and any consumer inspecting `"task" in cosmetics`
-  // gets the "not present" answer, matching the shape-file's
-  // absent-⇒-omit invariant.
+  // Here `displayName` on line 2 is unaffected by the broken `voice:` on
+  // line 3 (an unclosed flow sequence — not repairable the way an unquoted
+  // `task:` is). WARN fires so ops sees the broken file; the mis-shaped
+  // field is dropped by its narrower.
   it("test 5c: recovers cosmetics that parsed cleanly around a later YAML error (tolerant parse)", () => {
     const md =
-      "---\nroles: box-maintainer\ndisplayName: Odin\ntask: bad Evidence: extra colon inside plain scalar\n---\n\n# body";
+      "---\nroles: box-maintainer\ndisplayName: Odin\nvoice: [unclosed\n---\n\n# body";
     const cos = extractCosmeticsFromFrontmatter(md);
     expect(cos.displayName).toBe("Odin");
-    expect("task" in cos).toBe(false);
+    expect("voice" in cos).toBe(false);
     expect(vi.mocked(systemLogger.warn)).toHaveBeenCalledTimes(1);
     const call = vi.mocked(systemLogger.warn).mock.calls[0];
     expect(call[0]).toMatch(/tolerant recovery/i);
@@ -255,12 +253,31 @@ describe("extractCosmeticsFromFrontmatter (malformed-YAML logging — regression
     expect(extractRoleFromMarkdown(md)).toBe("some-role");
     const cos = extractCosmeticsFromFrontmatter(md);
     expect(cos.displayName).toBe("Alpha");
-    // The broken task: swallows the sibling users: list into its nested
-    // mapping recovery, so top-level users is undefined. Documented here as
-    // an accepted limitation — the caller closes the leak via the role-side
-    // gate (readRoleCosmeticsMemoized(role).users), not via the identity-
-    // side users list, once role is extractable.
-    expect("users" in cos).toBe(false);
+    // repairFrontmatterTaskLine quotes the unquoted task, so the sibling
+    // users: list is no longer swallowed into a nested mapping.
+    expect(cos.task).toBe("category: subcategory: another colon (cid: refs)");
+    expect(cos.users).toEqual(["alice"]);
+  });
+
+  it("test 5l: an unquoted task containing ': ' is recovered verbatim, and keys after it survive", () => {
+    vi.mocked(systemLogger.warn).mockClear();
+    const md =
+      "---\nroles: some-role\ndisplayName: Beta\ntask: Widget 2 — new job platform in Atlas: setup plan\nusers:\n  - alice\nproject: widget-two\n---\n\n# body";
+    const cos = extractCosmeticsFromFrontmatter(md);
+    expect(cos.task).toBe("Widget 2 — new job platform in Atlas: setup plan");
+    expect(cos.users).toEqual(["alice"]);
+    expect(cos.project).toBe("widget-two");
+    expect(vi.mocked(systemLogger.warn)).not.toHaveBeenCalled();
+  });
+
+  it("test 5m: repairFrontmatterTaskLine leaves valid, quoted and unrepairable frontmatter unchanged", () => {
+    const ok = "roles: a\ntask: plain text";
+    expect(repairFrontmatterTaskLine(ok)).toBe(ok);
+    const quoted = 'roles: a\ntask: "x: y"';
+    expect(repairFrontmatterTaskLine(quoted)).toBe(quoted);
+    const unrepairable = "roles: a\ntask: x: y\nvoice: [unclosed";
+    expect(repairFrontmatterTaskLine(unrepairable)).toBe(unrepairable);
+    expect(repairFrontmatterTaskLine("task: a: b\r\nroles: x")).toBe('task: "a: b"\r\nroles: x');
   });
 
   // Positive coverage for the users-side gate: when the users: list appears

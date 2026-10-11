@@ -900,6 +900,22 @@ def _read_text_file(path):
     return data.decode("utf-8", errors="replace")
 
 
+def _unquote_task_value(val):
+    """Strip one pair of matching YAML quotes from a `task:` value.
+
+    Agents are told to quote `task:` (an unquoted `: ` breaks YAML for every
+    other reader), so `task: "a: b"` must render as `a: b`, not with the
+    quotes. Double-quoted: undo the `\\"` and `\\\\` escapes a writer would
+    emit. Single-quoted: undo YAML's `''` escape. Unquoted values pass through.
+    """
+    if len(val) >= 2 and val[0] == val[-1] and val[0] in "\"'":
+        inner = val[1:-1]
+        if val[0] == '"':
+            return re.sub(r'\\(["\\])', r"\1", inner)
+        return inner.replace("''", "'")
+    return val
+
+
 def _read_frontmatter_cosmetics(path, allowed_keys):
     """Return (cosmetics_dict_or_None, role_or_None) from a markdown file's YAML frontmatter.
 
@@ -992,7 +1008,7 @@ def _read_frontmatter_cosmetics(path, allowed_keys):
         if "task" in allowed_keys:
             m_task = re.match(r"^task:\s*(.+)$", line.rstrip("\n"))
             if m_task:
-                val = m_task.group(1).rstrip()
+                val = _unquote_task_value(m_task.group(1).rstrip())
                 if val:
                     cosmetics["task"] = val
                 continue

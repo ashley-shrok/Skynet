@@ -853,6 +853,29 @@ title: Archivist
   assert_identity_field "$out" "multirole" "roles" '["archivist", "painter"]'
 }
 
+# Case 21b: quoted task values render without their quotes (agents quote
+# `task:` so `: ` doesn't break YAML for the app's own parser).
+test_case_21b_task_quoted() {
+  make_identity "quinn" "---
+roles: archivist
+task: \"Pantheon: setup plan\"
+---
+"
+  make_identity "sid" "---
+roles: archivist
+task: 'it''s: fine'
+---
+"
+  make_role "archivist" "---
+title: Archivist
+---
+"
+  local out
+  out=$(run_sweep)
+  assert_identity_field "$out" "quinn" "identity_cosmetics.task" '"Pantheon: setup plan"'
+  assert_identity_field "$out" "sid" "identity_cosmetics.task" '"it'"'"'s: fine"'
+}
+
 run_test test_case_01_full_inheritance
 run_test test_case_02_read_once_per_role
 run_test test_case_03_no_frontmatter
@@ -876,6 +899,7 @@ run_test test_case_19_users_empty_flow
 run_test test_case_19a_users_block_with_inline_comment
 run_test test_case_20_avatar_version
 run_test test_case_21_roles_key_drives_role
+run_test test_case_21b_task_quoted
 run_test test_global_stderr_stdout_separation
 
 printf '\n===============================\n'

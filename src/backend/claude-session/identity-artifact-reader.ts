@@ -693,7 +693,7 @@ export async function readSessionProjectField(
   // Tolerant parse — see extractRoleFromMarkdown docblock for rationale.
   // A broken `task:` should not zero out the `project:` field on the same
   // identity; if project parsed cleanly it's still readable.
-  const doc = yamlParseDocument(match[1]);
+  const doc = yamlParseDocument(repairFrontmatterTaskLine(match[1]));
   if (doc.errors.length > 0) {
     systemLogger.warn(
       "Identity frontmatter YAML had parse errors — using tolerant recovery",
@@ -765,7 +765,7 @@ export async function writeSessionProjectField(
   // Full yaml.load — preserves ALL keys (NOT extractCosmeticsFromFrontmatter).
   let parsed: Record<string, unknown>;
   try {
-    const loaded = yaml.load(frontmatterRaw) as Record<string, unknown> | null;
+    const loaded = yaml.load(repairFrontmatterTaskLine(frontmatterRaw)) as Record<string, unknown> | null;
     parsed = loaded ?? {};
   } catch (err) {
     throw new Error(
@@ -2609,6 +2609,36 @@ export const AVATAR_MIME_FROM_EXT: Record<AvatarExt, string> = {
 };
 
 /**
+ * Repair the most common hand-written frontmatter break: an unquoted `task:`
+ * value containing `: ` (e.g. `task: Pantheon: setup plan`), which YAML reads
+ * as a nested mapping — dropping the task AND swallowing every key after it
+ * (`project:`, `users:`). `task` is free-form prose, so when the block fails
+ * to parse, re-emit each plain top-level `task:` value double-quoted and keep
+ * the result only if it then parses cleanly. Returns the input unchanged when
+ * it already parses, or when quoting doesn't fix it. Same line-oriented
+ * reading fleet-status-sweep.py applies to `task`.
+ */
+export function repairFrontmatterTaskLine(frontmatterRaw: string): string {
+  if (yamlParseDocument(frontmatterRaw).errors.length === 0) return frontmatterRaw;
+  let changed = false;
+  const repaired = frontmatterRaw
+    .split("\n")
+    .map((line) => {
+      const m = /^task:[ \t]*(.*?)[ \t]*(\r?)$/.exec(line);
+      // Empty, already-quoted, block-scalar or flow values are left alone.
+      if (!m || m[1] === "" || /^["'|>[{]/.test(m[1])) return line;
+      changed = true;
+      return `task: ${JSON.stringify(m[1])}${m[2]}`;
+    })
+    .join("\n");
+  if (!changed || yamlParseDocument(repaired).errors.length > 0) return frontmatterRaw;
+  systemLogger.info("Identity frontmatter repaired: quoted unquoted task value", {
+    operation: "frontmatter_task_line_repaired",
+  });
+  return repaired;
+}
+
+/**
  * Extract cosmetics scalars from an identity markdown file's YAML frontmatter.
  *
  * Uses the same regex as extractRoleFromMarkdown (top-of-file `---...---`
@@ -2673,7 +2703,7 @@ export function extractCosmeticsFromFrontmatter(markdown: string): {
   // checks) still drop anything that came out mis-shaped, so a nested-map
   // corruption of the value (like when a bad `task:` swallows subsequent
   // list items) is silently rejected rather than surfaced as a garbage cos.
-  const doc = yamlParseDocument(match[1]);
+  const doc = yamlParseDocument(repairFrontmatterTaskLine(match[1]));
   if (doc.errors.length > 0) {
     systemLogger.warn(
       "Identity/role frontmatter YAML had parse errors — using tolerant recovery",

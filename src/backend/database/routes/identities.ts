@@ -36,6 +36,7 @@ import {
   writeAvatarSiblingFile,
   readAvatarSiblingFile,
   extractCosmeticsFromFrontmatter,
+  repairFrontmatterTaskLine,
   isLocalHostId,
   getLocalIdentitiesRoot,
   extractRoleFromMarkdown,
@@ -733,7 +734,7 @@ router.put(
       let bodyAfterFm = existing;
       if (fmMatch) {
         try {
-          const parsed = yaml.load(fmMatch[1]) as
+          const parsed = yaml.load(repairFrontmatterTaskLine(fmMatch[1])) as
             | Record<string, unknown>
             | null;
           if (parsed && typeof parsed === "object") {

@@ -269,6 +269,8 @@ vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
   // response echoes the true disk state (crucial for the coordinator flag).
   // Mirror the get-disk.test.ts mock: parse frontmatter and hoist only the
   // whitelist of cosmetic fields.
+  // Identity pass-through: these fixtures carry well-formed frontmatter.
+  repairFrontmatterTaskLine: (frontmatterRaw: string) => frontmatterRaw,
   extractCosmeticsFromFrontmatter: (markdown: string) => {
     const match = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---/);
     if (!match) return {};

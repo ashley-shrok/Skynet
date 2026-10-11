@@ -49,7 +49,7 @@ FILE="$HOME/fleet/identities/$FLEET_IDENTITY/$FLEET_IDENTITY.md"
 # grep -q on the exact frontmatter line. A user or agent who has replaced the
 # placeholder with any other value — even an empty string — falls through and
 # the hook stays silent forever for that identity's session.
-grep -q '^task: Untitled conversation$' "$FILE" || exit 0
+grep -qE '^task: ["'\'']?Untitled conversation["'\'']?$' "$FILE" || exit 0
 
 # jq is present on every fleet-managed host (asserted by run-bootstrap.ts).
 # If it isn't, emit a plain-text fallback so we don't just silently do nothing.

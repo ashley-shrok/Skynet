@@ -153,6 +153,8 @@ of the open conversation view AND the sidebar row title for this conversation
 — so keeping it current is how the user sees at a glance what you are on. If
 it holds a description that the session then makes stale — the user moves you
 onto genuinely different work — update it. Silent, no permission needed.
+Always write the value double-quoted — `task: "Pantheon: setup plan"` — since
+an unquoted `: ` inside it breaks the frontmatter as YAML.
 
 For as many roles as you have listed in your `roles:` frontmatter field:
 
