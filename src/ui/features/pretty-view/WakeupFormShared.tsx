@@ -482,7 +482,7 @@ export function RestrictToDaysChips({
   days: Weekday[] | undefined;
   onChange: (next: Weekday[] | undefined) => void;
   slug: string;
-}): JSX.Element {
+}) {
   return (
     <div className="flex flex-col gap-1">
       <span
@@ -544,7 +544,7 @@ export function YearlyDateFields({
   idPrefix: string;
   inputClassName: string;
   labelClassName: string;
-}): JSX.Element {
+}) {
   const parsed = parseYearlyDate(date) ?? { month: 1, day: 1 };
   return (
     <>
