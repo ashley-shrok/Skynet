@@ -7,13 +7,13 @@
  *   2. Pencil click enters edit-mode; daily schedule hydrates into a time
  *      input at value `09:00`.
  *   3. Type dropdown change → interval → interval fields render; tz hint
- *      is NOT present on interval.
+ *      is present on interval too.
  *   4. Type dropdown change → one_shot + past datetime → "fires this
  *      immediately" hint appears.
  *   5. Timezone hint on daily/weekly/one_shot renders (matches either the
  *      jsdom-resolved zone or the fallback America/New_York).
- *   6. Save with type=interval → onUpdate schedule has NO timezone field;
- *      Save with type=daily → onUpdate schedule includes timezone field.
+ *   6. Save with type=interval or type=daily → onUpdate schedule includes
+ *      the timezone field.
  *   7. Cancel reverts drafts and hides the form; re-open re-hydrates from
  *      wakeup.schedule.
  *
@@ -169,7 +169,7 @@ describe("WakeupsTab — form-based wakeup editor (quick 260731-2pa)", () => {
     expect(nameInput.value).toBe("daily-box-check");
   });
 
-  it("3: change type dropdown to interval → interval fields render; NO tz hint", () => {
+  it("3: change type dropdown to interval → interval fields render; tz hint shown", () => {
     renderTab();
 
     // Expand card, then enter edit mode.
@@ -184,8 +184,8 @@ describe("WakeupsTab — form-based wakeup editor (quick 260731-2pa)", () => {
     expect(screen.getByLabelText(/Every/i)).toBeTruthy();
     expect(screen.getByLabelText(/Unit/i)).toBeTruthy();
 
-    // Timezone hint MUST NOT be present on interval.
-    expect(screen.queryByText(/Timezone \(auto-detected from browser\):/i)).toBeNull();
+    // Interval honors the timezone (window / days / start), so the hint shows.
+    expect(screen.getByText(/Timezone \(auto-detected from browser\):/i)).toBeTruthy();
   });
 
   it("4: type=one_shot with a past datetime → 'fires this immediately' hint appears", () => {
@@ -235,8 +235,8 @@ describe("WakeupsTab — form-based wakeup editor (quick 260731-2pa)", () => {
     expect(screen.getByText(/Timezone \(auto-detected from browser\):/i)).toBeTruthy();
   });
 
-  it("6: Save writes {name, enabled, schedule, instruction}; interval schedule OMITS timezone; daily schedule INCLUDES it", async () => {
-    // --- Case A: interval save — schedule has NO timezone ---
+  it("6: Save writes {name, enabled, schedule, instruction}; interval and daily schedules INCLUDE timezone", async () => {
+    // --- Case A: interval save — schedule has a timezone ---
     const { onUpdate: onUpdateInterval } = renderTab();
 
     expandCard();
@@ -260,8 +260,7 @@ describe("WakeupsTab — form-based wakeup editor (quick 260731-2pa)", () => {
       instruction: "Check the box.",
       schedule: { type: "interval", every: "30m" },
     });
-    // Assert timezone is NOT present on interval schedule.
-    expect((updatesArgA.schedule as Record<string, unknown>).timezone).toBeUndefined();
+    expect(typeof (updatesArgA.schedule as Record<string, unknown>).timezone).toBe("string");
 
     // Tear down first render before setting up the next.
     cleanup();
@@ -703,5 +702,40 @@ describe("WakeupsTab — form-based wakeup editor (quick 260731-2pa)", () => {
     expect(screen.getByText(/No scheduled wake-ups\./i)).toBeTruthy();
     // Add-wakeup pill remains reachable so the user can add the FIRST wakeup.
     expect(screen.getByTestId("wakeup-add-button")).toBeTruthy();
+  });
+});
+
+describe("WakeupsTab — schedule format v2", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("editing a v2 spec without touching the schedule saves every field back", async () => {
+    const schedule = {
+      type: "weekly",
+      day: "fri",
+      at: ["09:00", "13:00"],
+      every: 2,
+      start: "2026-10-16T00:00:00",
+      days: ["mon", "fri"],
+      count: 6,
+      timezone: "America/New_York",
+    };
+    const { onUpdate } = renderTab({ schedule });
+    enterEditMode();
+    expect((screen.getByTestId("wakeup-daily-box-check-every") as HTMLInputElement).value).toBe("2");
+    expect((screen.getByTestId("wakeup-weekly-at-daily-box-check-2") as HTMLInputElement).value).toBe("13:00");
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/i }));
+    await waitFor(() => expect(onUpdate).toHaveBeenCalledTimes(1));
+    expect(onUpdate.mock.calls[0][1].schedule).toEqual({ ...schedule, timezone: expect.any(String) });
+  });
+
+  it("monthly appears in the type dropdown and renders its day fields", () => {
+    renderTab();
+    enterEditMode();
+    fireEvent.change(screen.getByLabelText(/Schedule type/i), { target: { value: "monthly" } });
+    expect(screen.getByLabelText("Day of month")).toBeTruthy();
+    expect(screen.getByLabelText("Ends")).toBeTruthy();
+    expect(screen.getByTestId("wakeup-json-preview").textContent).toMatch(/"type": "monthly"/);
   });
 });

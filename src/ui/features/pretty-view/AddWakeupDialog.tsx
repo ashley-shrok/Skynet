@@ -7,10 +7,11 @@
 //
 // The 6 CONTEXT.md-locked form fields:
 //   1. Name (required, becomes slug via server-side kebab-case normalization)
-//   2. Schedule type (Interval / Daily / Weekly / One-shot)
-//   3. Schedule params (per-type: every+unit / at / day+at / datetime-local)
-//   4. Timezone (optional IANA text input — hidden for Interval, visible for
-//      Daily/Weekly/One-shot; blank falls back to auto-detected browser tz)
+//   2. Schedule type (Interval / Daily / Weekly / Monthly / Yearly / One-shot)
+//   3. Schedule params (per-type fields, then the shared repeat options:
+//      every-N, start, interval window, ends)
+//   4. Timezone (optional IANA text input; blank falls back to the
+//      auto-detected browser tz)
 //   5. Instruction (required, multiline)
 //   6. Enabled (default: true)
 //
@@ -31,9 +32,11 @@ import {
   type Weekday,
   buildSchedule,
   detectBrowserTimezone,
-  hydrateFormSchedule,
-  pad2,
+  MonthlyDayFields,
   RestrictToDaysChips,
+  ScheduleRepeatFields,
+  switchScheduleKind,
+  TimesField,
   validateForm,
   YearlyDateFields,
 } from "./WakeupFormShared";
@@ -51,15 +54,11 @@ function normalizeSlug(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
-// Build a one-hour-from-now default for one_shot's datetime-local input.
-function defaultOneShotAt(): string {
-  const d = new Date(Date.now() + 3600e3);
-  d.setMinutes(0, 0, 0);
-  return (
-    d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate()) +
-    "T" + pad2(d.getHours()) + ":" + pad2(d.getMinutes())
-  );
-}
+const LABEL_CLASS = "text-[10px] uppercase tracking-wide text-white/90 font-semibold";
+const INPUT_CLASS = cn(
+  "bg-black/30 text-[#e8e4d8] border border-white/10",
+  "focus:outline-none focus:border-white/25 rounded px-2 py-1.5 text-xs",
+);
 
 export type AddWakeupDialogProps = {
   open: boolean;
@@ -189,12 +188,7 @@ export function AddWakeupDialog({
               id="add-wakeup-type"
               value={formSchedule.type}
               onChange={(e) => {
-                const next = e.target.value as FormSchedule["type"];
-                if (next === "interval") setFormSchedule({ type: "interval", n: 30, u: "m" });
-                else if (next === "daily") setFormSchedule({ type: "daily", at: "09:00" });
-                else if (next === "weekly") setFormSchedule({ type: "weekly", day: "mon", at: "09:00" });
-                else if (next === "yearly") setFormSchedule(hydrateFormSchedule({ type: "yearly" }));
-                else if (next === "one_shot") setFormSchedule({ type: "one_shot", at: defaultOneShotAt() });
+                setFormSchedule(switchScheduleKind(formSchedule, e.target.value as FormSchedule["type"]));
               }}
               className={cn(
                 "bg-black/30 text-[#e8e4d8] border border-white/10",
@@ -204,6 +198,7 @@ export function AddWakeupDialog({
               <option value="interval">interval — every N s/m/h/d</option>
               <option value="daily">daily — at a time each day</option>
               <option value="weekly">weekly — on a day + time</option>
+              <option value="monthly">monthly — on a day of the month</option>
               <option value="yearly">yearly — on a date + time each year</option>
               <option value="one_shot">one_shot — fires once at a datetime</option>
             </select>
@@ -270,24 +265,14 @@ export function AddWakeupDialog({
 
           {formSchedule.type === "daily" && (
             <>
-              <div className="flex flex-col gap-1">
-                <label
-                  htmlFor="add-wakeup-daily-at"
-                  className="text-[10px] uppercase tracking-wide text-white/90 font-semibold"
-                >
-                  Time (local)
-                </label>
-                <input
-                  id="add-wakeup-daily-at"
-                  type="time"
-                  value={formSchedule.at}
-                  onChange={(e) => setFormSchedule({ ...formSchedule, at: e.target.value })}
-                  className={cn(
-                    "bg-black/30 text-[#e8e4d8] border border-white/10",
-                    "focus:outline-none focus:border-white/25 rounded px-2 py-1.5 text-xs",
-                  )}
-                />
-              </div>
+              <TimesField
+                at={formSchedule.at}
+                onChange={(at) => setFormSchedule({ ...formSchedule, at })}
+                label="Time (local)"
+                idPrefix="add-wakeup-daily-at"
+                inputClassName={INPUT_CLASS}
+                labelClassName={LABEL_CLASS}
+              />
               <RestrictToDaysChips
                 hue={hue}
                 days={formSchedule.days}
@@ -325,24 +310,14 @@ export function AddWakeupDialog({
                     <option value="sun">Sunday</option>
                   </select>
                 </div>
-                <div className="flex flex-col gap-1 flex-1 min-w-[110px]">
-                  <label
-                    htmlFor="add-wakeup-weekly-at"
-                    className="text-[10px] uppercase tracking-wide text-white/90 font-semibold"
-                  >
-                    Time (local)
-                  </label>
-                  <input
-                    id="add-wakeup-weekly-at"
-                    type="time"
-                    value={formSchedule.at}
-                    onChange={(e) => setFormSchedule({ ...formSchedule, at: e.target.value })}
-                    className={cn(
-                      "bg-black/30 text-[#e8e4d8] border border-white/10",
-                      "focus:outline-none focus:border-white/25 rounded px-2 py-1.5 text-xs",
-                    )}
-                  />
-                </div>
+                <TimesField
+                  at={formSchedule.at}
+                  onChange={(at) => setFormSchedule({ ...formSchedule, at })}
+                  label="Time (local)"
+                  idPrefix="add-wakeup-weekly-at"
+                  inputClassName={INPUT_CLASS}
+                  labelClassName={LABEL_CLASS}
+                />
               </div>
               <RestrictToDaysChips
                 hue={hue}
@@ -365,25 +340,45 @@ export function AddWakeupDialog({
                   "focus:outline-none focus:border-white/25 rounded px-2 py-1.5 text-xs",
                 )}
               />
-              <div className="flex flex-col gap-1 flex-1 min-w-[110px]">
-                <label
-                  htmlFor="add-wakeup-yearly-at"
-                  className="text-[10px] uppercase tracking-wide text-white/90 font-semibold"
-                >
-                  Time (local)
-                </label>
-                <input
-                  id="add-wakeup-yearly-at"
-                  type="time"
-                  value={formSchedule.at}
-                  onChange={(e) => setFormSchedule({ ...formSchedule, at: e.target.value })}
-                  className={cn(
-                    "bg-black/30 text-[#e8e4d8] border border-white/10",
-                    "focus:outline-none focus:border-white/25 rounded px-2 py-1.5 text-xs",
-                  )}
-                />
-              </div>
+              <TimesField
+                at={formSchedule.at}
+                onChange={(at) => setFormSchedule({ ...formSchedule, at })}
+                label="Time (local)"
+                idPrefix="add-wakeup-yearly-at"
+                inputClassName={INPUT_CLASS}
+                labelClassName={LABEL_CLASS}
+              />
             </div>
+          )}
+
+          {formSchedule.type === "monthly" && (
+            <>
+              <MonthlyDayFields
+                value={formSchedule}
+                onChange={setFormSchedule}
+                idPrefix="add-wakeup-monthly"
+                inputClassName={INPUT_CLASS}
+                labelClassName={LABEL_CLASS}
+              />
+              <TimesField
+                at={formSchedule.at}
+                onChange={(at) => setFormSchedule({ ...formSchedule, at })}
+                label="Time (local)"
+                idPrefix="add-wakeup-monthly-at"
+                inputClassName={INPUT_CLASS}
+                labelClassName={LABEL_CLASS}
+              />
+            </>
+          )}
+
+          {formSchedule.type !== "one_shot" && (
+            <ScheduleRepeatFields
+              fs={formSchedule}
+              onChange={setFormSchedule}
+              idPrefix="add-wakeup"
+              inputClassName={INPUT_CLASS}
+              labelClassName={LABEL_CLASS}
+            />
           )}
 
           {formSchedule.type === "one_shot" && (
@@ -407,29 +402,27 @@ export function AddWakeupDialog({
             </div>
           )}
 
-          {/* Field 4: Timezone (optional, hidden for interval) */}
-          {formSchedule.type !== "interval" && (
-            <div className="flex flex-col gap-1">
-              <label
-                htmlFor="add-wakeup-tz"
-                className="text-[10px] uppercase tracking-wide text-white/90 font-semibold"
-              >
-                Timezone (optional)
-              </label>
-              <input
-                id="add-wakeup-tz"
-                data-testid="add-wakeup-tz-input"
-                type="text"
-                value={tzDraft}
-                onChange={(e) => setTzDraft(e.target.value)}
-                placeholder={`${detectedTz} (leave blank to use)`}
-                className={cn(
-                  "bg-black/30 text-[#e8e4d8] border border-white/10",
-                  "focus:outline-none focus:border-white/25 rounded px-2 py-1.5 text-xs",
-                )}
-              />
-            </div>
-          )}
+          {/* Field 4: Timezone (optional) */}
+          <div className="flex flex-col gap-1">
+            <label
+              htmlFor="add-wakeup-tz"
+              className="text-[10px] uppercase tracking-wide text-white/90 font-semibold"
+            >
+              Timezone (optional)
+            </label>
+            <input
+              id="add-wakeup-tz"
+              data-testid="add-wakeup-tz-input"
+              type="text"
+              value={tzDraft}
+              onChange={(e) => setTzDraft(e.target.value)}
+              placeholder={`${detectedTz} (leave blank to use)`}
+              className={cn(
+                "bg-black/30 text-[#e8e4d8] border border-white/10",
+                "focus:outline-none focus:border-white/25 rounded px-2 py-1.5 text-xs",
+              )}
+            />
+          </div>
 
           {/* Field 5: Instruction — Phase 112 Plan 03: MarkdownEditor swap.
               The wrapper <div className="min-h-[160px]"> accommodates the ~40px

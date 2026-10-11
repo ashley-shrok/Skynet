@@ -12,14 +12,16 @@
 //   4) Host (single-select chip-picker) — disabled on edit-mode per D-21
 //      (cross-host management is delete-and-recreate). Auto-selects the
 //      single available host per Phase 84 CreateProjectModal pattern.
-//   5) Schedule (segmented control) — Daily / Weekly / Interval / One-shot
-//      per D-22, backed by WakeupFormShared.FormSchedule discriminated
-//      union + hydrateFormSchedule / buildSchedule / validateForm helpers.
+//   5) Schedule (segmented control) — Daily / Weekly / Monthly / Yearly /
+//      Interval / One-shot, backed by WakeupFormShared.FormSchedule
+//      discriminated union + hydrateFormSchedule / buildSchedule /
+//      validateForm helpers and its shared field groups (times, monthly
+//      day, every-N / start / window / ends).
 //      Weekly is a single-day segmented control (RESEARCH Assumption A4).
 //      The optional day-of-week gate component from WakeupFormShared is
 //      deliberately NOT rendered in v1 — hand-editors can still set
-//      `schedule.days` on disk and it is preserved on save via the
-//      raw-spec passthrough below.
+//      `schedule.days` on disk; hydrateFormSchedule carries it (and any
+//      other field the form doesn't show) through to the save.
 //
 // Footer: Cancel (left) + Save (right, primary blue) per D-19. Save
 // disabled while inflight OR when validateForm returns a message.
@@ -27,11 +29,11 @@
 // Error banner: inline at top of form body, role="alert", API message
 // verbatim per D-25. Dismissible + auto-clears on successful save.
 //
-// Round-trip preservation: preserve nested `schedule.timezone` +
-// `schedule.days` on edit-save. The modal only mutates fields it actually
-// shows; hand-editor-only fields (timezone that
-// wasn't picked in the UI, weekday-restrict `days` gate) survive round-trip
-// untouched. Matches the shape's "two paths in, one truth out" spirit —
+// Round-trip preservation: preserve nested `schedule.timezone` (and, via
+// hydrateFormSchedule, `schedule.days` and other unshown fields) on
+// edit-save. The modal only mutates fields it actually shows; hand-editor-only
+// fields (timezone that wasn't picked in the UI, weekday-restrict `days`
+// gate) survive round-trip untouched. Matches the shape's "two paths in, one truth out" spirit —
 // agents editing on disk and the UI editing through the modal are peers.
 // (Amended 2026-09-24 during /close per user call: "agents are the only
 // ones who are going to be editing scheduled agents on disk, so whatever
@@ -55,6 +57,10 @@ import {
   buildSchedule,
   detectBrowserTimezone,
   hydrateFormSchedule,
+  MonthlyDayFields,
+  ScheduleRepeatFields,
+  switchScheduleKind,
+  TimesField,
   validateForm,
   WEEKDAY_VALUES,
   type Weekday,
@@ -138,6 +144,13 @@ const SCHEDULE_KIND_INACTIVE = {
   color: "var(--color-pv-fg-muted)",
 } as const;
 
+const SCHEDULE_LABEL_CLASS = "text-[11px] text-[color:var(--color-pv-fg-muted)]";
+const SCHEDULE_INPUT_CLASS = cn(
+  "px-2 py-1 rounded-md text-sm text-[#e8e4d8]",
+  "bg-black/20 border border-white/10 outline-none",
+  "focus:border-[hsla(220,65%,55%,0.5)]",
+);
+
 // ---------------------------------------------------------------------------
 // Weekday label helper
 // ---------------------------------------------------------------------------
@@ -210,7 +223,7 @@ export function ScheduledAgentsModalForm({
   );
 
   // Round-trip preservation slot (Option C): keep the raw initialSpec so
-  // `schedule.timezone` + `schedule.days` survive an edit-save round-trip.
+  // `schedule.timezone` survives an edit-save round-trip.
   const initialSpecRef = useRef<ScheduledAgentListItem | null>(initialSpec);
 
   // Available roles for the currently-selected host (chip-picker source).
@@ -297,22 +310,19 @@ export function ScheduledAgentsModalForm({
 
     try {
       // Round-trip preservation: merge form fields with the raw initialSpec's
-      // `schedule.timezone` + `schedule.days`. The modal only
-      // mutates fields it actually shows; hand-editor-only fields survive
-      // round-trip untouched. (Amended 2026-09-24 during /close — see the
-      // file header for rationale.)
+      // `schedule.timezone`. The modal only mutates fields it actually
+      // shows; hand-editor-only fields survive round-trip untouched (the
+      // rest ride along in formSchedule via hydrateFormSchedule).
+      // (Amended 2026-09-24 during /close — see the file header for rationale.)
       const tz = detectBrowserTimezone();
       const scheduleObj: Record<string, unknown> = buildSchedule(
         formSchedule,
         tz,
       );
 
-      // Preserve the raw spec's timezone + days-restrict when the schedule
-      // kind supports them. buildSchedule already emits `timezone` from the
-      // detected browser zone, but this preserves the ORIGINAL zone when
-      // the user hand-picked one on disk. `days` is the hand-editor-only
-      // weekday-restrict gate — the modal never surfaces it, but any array
-      // the disk carries survives round-trip untouched.
+      // Preserve the raw spec's timezone. buildSchedule already emits
+      // `timezone` from the detected browser zone, but this preserves the
+      // ORIGINAL zone when the user hand-picked one on disk.
       if (
         mode === "edit" &&
         initialSpecRef.current !== null &&
@@ -323,15 +333,8 @@ export function ScheduledAgentsModalForm({
           string,
           unknown
         >;
-        if (
-          typeof rawSched.timezone === "string" &&
-          rawSched.timezone.length > 0 &&
-          formSchedule.type !== "interval"
-        ) {
+        if (typeof rawSched.timezone === "string" && rawSched.timezone.length > 0) {
           scheduleObj.timezone = rawSched.timezone;
-        }
-        if (Array.isArray(rawSched.days) && rawSched.days.length > 0) {
-          scheduleObj.days = rawSched.days;
         }
       }
 
@@ -682,7 +685,7 @@ export function ScheduledAgentsModalForm({
 
           {/* Segmented control — kind picker */}
           <div
-            className="flex flex-row gap-1 rounded-md p-1"
+            className="flex flex-row flex-wrap gap-1 rounded-md p-1"
             data-testid="scheduled-agents-modal-form-schedule-kind"
             style={{
               background: "rgba(0, 0, 0, 0.20)",
@@ -693,6 +696,7 @@ export function ScheduledAgentsModalForm({
               [
                 { key: "daily", label: "Daily" },
                 { key: "weekly", label: "Weekly" },
+                { key: "monthly", label: "Monthly" },
                 { key: "yearly", label: "Yearly" },
                 { key: "interval", label: "Interval" },
                 { key: "one_shot", label: "One-shot" },
@@ -703,39 +707,8 @@ export function ScheduledAgentsModalForm({
                 <button
                   key={key}
                   type="button"
-                  onClick={() => {
-                    // Switch kind — seed with a sensible default per kind.
-                    if (key === "daily") {
-                      setFormSchedule({ type: "daily", at: "09:00" });
-                    } else if (key === "weekly") {
-                      setFormSchedule({
-                        type: "weekly",
-                        day: "mon",
-                        at: "09:00",
-                      });
-                    } else if (key === "yearly") {
-                      setFormSchedule(hydrateFormSchedule({ type: "yearly" }));
-                    } else if (key === "interval") {
-                      setFormSchedule({ type: "interval", n: 30, u: "m" });
-                    } else {
-                      const d = new Date(Date.now() + 3600e3);
-                      d.setMinutes(0, 0, 0);
-                      const pad = (n: number) =>
-                        String(n).padStart(2, "0");
-                      const local =
-                        d.getFullYear() +
-                        "-" +
-                        pad(d.getMonth() + 1) +
-                        "-" +
-                        pad(d.getDate()) +
-                        "T" +
-                        pad(d.getHours()) +
-                        ":" +
-                        pad(d.getMinutes());
-                      setFormSchedule({ type: "one_shot", at: local });
-                    }
-                  }}
-                  className="flex-1 px-2 py-1 rounded text-[11px] font-medium cursor-pointer transition-colors duration-150"
+                  onClick={() => setFormSchedule(switchScheduleKind(formSchedule, key))}
+                  className="flex-1 min-w-[56px] px-2 py-1 rounded text-[11px] font-medium cursor-pointer transition-colors duration-150"
                   style={active ? SCHEDULE_KIND_ACTIVE : SCHEDULE_KIND_INACTIVE}
                   data-testid={`scheduled-agents-modal-form-schedule-kind-${key}`}
                 >
@@ -747,24 +720,14 @@ export function ScheduledAgentsModalForm({
 
           {/* Contextual detail fields per kind */}
           {formSchedule.type === "daily" && (
-            <div className="flex flex-row items-center gap-2">
-              <label className="text-[11px] text-[color:var(--color-pv-fg-muted)]">
-                At
-              </label>
-              <input
-                type="time"
-                value={formSchedule.at}
-                onChange={(e) =>
-                  setFormSchedule({ type: "daily", at: e.target.value })
-                }
-                data-testid="scheduled-agents-modal-form-schedule-daily-at"
-                className={cn(
-                  "px-2 py-1 rounded-md text-sm text-[#e8e4d8]",
-                  "bg-black/20 border border-white/10 outline-none",
-                  "focus:border-[hsla(220,65%,55%,0.5)]",
-                )}
-              />
-            </div>
+            <TimesField
+              at={formSchedule.at}
+              onChange={(at) => setFormSchedule({ ...formSchedule, at })}
+              label="At"
+              idPrefix="scheduled-agents-modal-form-schedule-daily-at"
+              inputClassName={SCHEDULE_INPUT_CLASS}
+              labelClassName={SCHEDULE_LABEL_CLASS}
+            />
           )}
 
           {formSchedule.type === "weekly" && (
@@ -783,13 +746,7 @@ export function ScheduledAgentsModalForm({
                     <button
                       key={d}
                       type="button"
-                      onClick={() =>
-                        setFormSchedule({
-                          type: "weekly",
-                          day: d,
-                          at: formSchedule.at,
-                        })
-                      }
+                      onClick={() => setFormSchedule({ ...formSchedule, day: d })}
                       className="flex-1 px-1 py-1 rounded text-[10px] font-medium uppercase tracking-wide cursor-pointer transition-colors duration-150"
                       style={active ? SCHEDULE_KIND_ACTIVE : SCHEDULE_KIND_INACTIVE}
                       data-testid={`scheduled-agents-modal-form-schedule-weekly-day-${d}`}
@@ -799,28 +756,34 @@ export function ScheduledAgentsModalForm({
                   );
                 })}
               </div>
-              <div className="flex flex-row items-center gap-2">
-                <label className="text-[11px] text-[color:var(--color-pv-fg-muted)]">
-                  At
-                </label>
-                <input
-                  type="time"
-                  value={formSchedule.at}
-                  onChange={(e) =>
-                    setFormSchedule({
-                      type: "weekly",
-                      day: formSchedule.day,
-                      at: e.target.value,
-                    })
-                  }
-                  data-testid="scheduled-agents-modal-form-schedule-weekly-at"
-                  className={cn(
-                    "px-2 py-1 rounded-md text-sm text-[#e8e4d8]",
-                    "bg-black/20 border border-white/10 outline-none",
-                    "focus:border-[hsla(220,65%,55%,0.5)]",
-                  )}
-                />
-              </div>
+              <TimesField
+                at={formSchedule.at}
+                onChange={(at) => setFormSchedule({ ...formSchedule, at })}
+                label="At"
+                idPrefix="scheduled-agents-modal-form-schedule-weekly-at"
+                inputClassName={SCHEDULE_INPUT_CLASS}
+                labelClassName={SCHEDULE_LABEL_CLASS}
+              />
+            </div>
+          )}
+
+          {formSchedule.type === "monthly" && (
+            <div className="flex flex-col gap-2">
+              <MonthlyDayFields
+                value={formSchedule}
+                onChange={setFormSchedule}
+                idPrefix="scheduled-agents-modal-form-schedule-monthly"
+                inputClassName={SCHEDULE_INPUT_CLASS}
+                labelClassName={SCHEDULE_LABEL_CLASS}
+              />
+              <TimesField
+                at={formSchedule.at}
+                onChange={(at) => setFormSchedule({ ...formSchedule, at })}
+                label="At"
+                idPrefix="scheduled-agents-modal-form-schedule-monthly-at"
+                inputClassName={SCHEDULE_INPUT_CLASS}
+                labelClassName={SCHEDULE_LABEL_CLASS}
+              />
             </div>
           )}
 
@@ -828,48 +791,24 @@ export function ScheduledAgentsModalForm({
             <div className="flex flex-row items-end gap-2 flex-wrap">
               <YearlyDateFields
                 date={formSchedule.date}
-                onChange={(date) =>
-                  setFormSchedule({ type: "yearly", date, at: formSchedule.at })
-                }
+                onChange={(date) => setFormSchedule({ ...formSchedule, date })}
                 idPrefix="scheduled-agents-modal-form-schedule-yearly"
-                labelClassName="text-[11px] text-[color:var(--color-pv-fg-muted)]"
-                inputClassName={cn(
-                  "px-2 py-1 rounded-md text-sm text-[#e8e4d8]",
-                  "bg-black/20 border border-white/10 outline-none",
-                  "focus:border-[hsla(220,65%,55%,0.5)]",
-                )}
+                labelClassName={SCHEDULE_LABEL_CLASS}
+                inputClassName={SCHEDULE_INPUT_CLASS}
               />
-              <div className="flex flex-col gap-1">
-                <label
-                  htmlFor="scheduled-agents-modal-form-schedule-yearly-at"
-                  className="text-[11px] text-[color:var(--color-pv-fg-muted)]"
-                >
-                  At
-                </label>
-                <input
-                  id="scheduled-agents-modal-form-schedule-yearly-at"
-                  type="time"
-                  value={formSchedule.at}
-                  onChange={(e) =>
-                    setFormSchedule({
-                      type: "yearly",
-                      date: formSchedule.date,
-                      at: e.target.value,
-                    })
-                  }
-                  data-testid="scheduled-agents-modal-form-schedule-yearly-at"
-                  className={cn(
-                    "px-2 py-1 rounded-md text-sm text-[#e8e4d8]",
-                    "bg-black/20 border border-white/10 outline-none",
-                    "focus:border-[hsla(220,65%,55%,0.5)]",
-                  )}
-                />
-              </div>
+              <TimesField
+                at={formSchedule.at}
+                onChange={(at) => setFormSchedule({ ...formSchedule, at })}
+                label="At"
+                idPrefix="scheduled-agents-modal-form-schedule-yearly-at"
+                inputClassName={SCHEDULE_INPUT_CLASS}
+                labelClassName={SCHEDULE_LABEL_CLASS}
+              />
             </div>
           )}
 
           {formSchedule.type === "interval" && (
-            <div className="flex flex-row items-center gap-2">
+            <div className="flex flex-row flex-wrap items-center gap-2">
               <label className="text-[11px] text-[color:var(--color-pv-fg-muted)]">
                 Every
               </label>
@@ -880,9 +819,8 @@ export function ScheduledAgentsModalForm({
                 onChange={(e) => {
                   const parsed = parseInt(e.target.value, 10);
                   setFormSchedule({
-                    type: "interval",
+                    ...formSchedule,
                     n: Number.isFinite(parsed) && parsed > 0 ? parsed : 1,
-                    u: formSchedule.u,
                   });
                 }}
                 data-testid="scheduled-agents-modal-form-schedule-interval-n"
@@ -896,8 +834,7 @@ export function ScheduledAgentsModalForm({
                 value={formSchedule.u}
                 onChange={(e) =>
                   setFormSchedule({
-                    type: "interval",
-                    n: formSchedule.n,
+                    ...formSchedule,
                     u: e.target.value as IntervalUnit,
                   })
                 }
@@ -932,6 +869,16 @@ export function ScheduledAgentsModalForm({
                 )}
               />
             </div>
+          )}
+
+          {formSchedule.type !== "one_shot" && (
+            <ScheduleRepeatFields
+              fs={formSchedule}
+              onChange={setFormSchedule}
+              idPrefix="scheduled-agents-modal-form-schedule"
+              inputClassName={SCHEDULE_INPUT_CLASS}
+              labelClassName={SCHEDULE_LABEL_CLASS}
+            />
           )}
 
           {scheduleValidationMsg !== null && (

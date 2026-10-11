@@ -240,15 +240,15 @@ describe("AddWakeupDialog — Phase 72 Plan 02 Task 1", () => {
     expect(save.disabled).toBe(false);
   });
 
-  it("I: Timezone input is HIDDEN when schedule type is Interval; VISIBLE when Daily / Weekly / One-shot", () => {
+  it("I: Timezone input is VISIBLE for every schedule type (interval included)", () => {
     renderDialog();
     // Default is daily → tz input visible.
     expect(screen.queryByTestId("add-wakeup-tz-input")).toBeTruthy();
 
     const typeSelect = screen.getByLabelText(/Schedule type/i) as HTMLSelectElement;
-    // Switch to interval → tz input HIDDEN.
+    // Switch to interval → tz input visible (interval honors timezone).
     fireEvent.change(typeSelect, { target: { value: "interval" } });
-    expect(screen.queryByTestId("add-wakeup-tz-input")).toBeNull();
+    expect(screen.queryByTestId("add-wakeup-tz-input")).toBeTruthy();
 
     // Switch to weekly → tz visible.
     fireEvent.change(typeSelect, { target: { value: "weekly" } });
@@ -357,5 +357,57 @@ describe("AddWakeupDialog — Phase 72 Plan 02 Task 1", () => {
       node = node.parentElement;
     }
     expect(found).toBe(true);
+  });
+
+  it("M: monthly — last Friday, two times, every 3 months, ends after 4 runs", async () => {
+    const { onSubmit } = renderDialog();
+    fireEvent.change(screen.getByLabelText(/Name/i), { target: { value: "quarterly" } });
+    fireEvent.change(await screen.findByTestId("mdxeditor"), { target: { value: "review" } });
+    fireEvent.change(screen.getByLabelText(/Schedule type/i), { target: { value: "monthly" } });
+    fireEvent.click(screen.getByLabelText("Weekday of month"));
+    fireEvent.change(screen.getByLabelText("Which"), { target: { value: "last" } });
+    fireEvent.change(screen.getByLabelText("Weekday"), { target: { value: "fri" } });
+    fireEvent.change(screen.getByLabelText(/Time \(local\)/i), { target: { value: "16:00" } });
+    fireEvent.click(screen.getByTestId("add-wakeup-monthly-at-add"));
+    fireEvent.change(screen.getByTestId("add-wakeup-every"), { target: { value: "3" } });
+    fireEvent.change(screen.getByTestId("add-wakeup-start"), { target: { value: "2027-01-01T00:00" } });
+    fireEvent.change(screen.getByLabelText("Ends"), { target: { value: "count" } });
+    fireEvent.change(screen.getByLabelText("Number of runs"), { target: { value: "4" } });
+    fireEvent.change(screen.getByTestId("add-wakeup-tz-input"), { target: { value: "UTC" } });
+    fireEvent.click(screen.getByTestId("add-wakeup-save"));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    const spec = onSubmit.mock.calls[0][0] as { schedule: Record<string, unknown> };
+    expect(spec.schedule).toEqual({
+      type: "monthly",
+      nth: "last",
+      weekday: "fri",
+      at: ["16:00", "17:00"],
+      every: 3,
+      timezone: "UTC",
+      start: expect.stringMatching(/^2027-01-01T00:00:00[+-]\d\d:\d\d$/),
+      count: 4,
+    });
+  });
+
+  it("N: interval — only between 09:00 and 17:00 on weekdays, with timezone", async () => {
+    const { onSubmit } = renderDialog();
+    fireEvent.change(screen.getByLabelText(/Name/i), { target: { value: "poll" } });
+    fireEvent.change(await screen.findByTestId("mdxeditor"), { target: { value: "poll" } });
+    fireEvent.change(screen.getByLabelText(/Schedule type/i), { target: { value: "interval" } });
+    fireEvent.click(screen.getByLabelText("Only between"));
+    for (const d of ["Mon", "Tue", "Wed", "Thu", "Fri"]) {
+      fireEvent.click(screen.getByRole("button", { name: `Toggle ${d}` }));
+    }
+    fireEvent.change(screen.getByTestId("add-wakeup-tz-input"), { target: { value: "America/New_York" } });
+    fireEvent.click(screen.getByTestId("add-wakeup-save"));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    const spec = onSubmit.mock.calls[0][0] as { schedule: Record<string, unknown> };
+    expect(spec.schedule).toEqual({
+      type: "interval",
+      every: "30m",
+      window: { from: "09:00", to: "17:00" },
+      days: ["mon", "tue", "wed", "thu", "fri"],
+      timezone: "America/New_York",
+    });
   });
 });

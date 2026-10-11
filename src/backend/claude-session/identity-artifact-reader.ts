@@ -52,6 +52,7 @@ import yaml from "js-yaml";
 import { parseDocument as yamlParseDocument } from "yaml";
 import { sshLogger, systemLogger } from "../utils/logger.js";
 import { execCommand } from "../ssh/tmux-helper.js";
+import { scheduleError } from "./schedule-next-fire.js";
 // Phase 85 Plan 85-01 Task 1: role-name gate for readRoleFileByName +
 // readAvatarSiblingFileByRole. Same pattern roles-create.ts imports at L87
 // (`/^[a-z0-9-]+$/` — kebab-case-lowercase, defense-in-depth against SSH
@@ -119,16 +120,63 @@ function daysGateLabel(days: WeekdayCode[]): string {
 
 /**
  * Humanize a wakeup schedule object into a human-readable string.
- * Handles interval / daily / weekly / yearly / one_shot schedule types; falls back to "custom schedule".
+ * Handles interval / daily / weekly / monthly / yearly / one_shot schedule types; falls back to "custom schedule".
  * Exported so claude-session-server.ts can re-export it (patch #92: moved here to
  * avoid a circular dependency — artifact reader must not import from server.ts).
  *
  * Phase 65: extended to render optional `s.days` day-of-week gate per D-01..D-07.
+ * Repeating kinds also render multiple `at` times, every-N weeks/months, the
+ * interval window, and `start` / `until` / `count` as " · " suffixes.
  */
 export function humanizeWakeupSchedule(schedule: unknown): string {
   if (typeof schedule !== "object" || schedule === null) return "custom schedule";
   const s = schedule as Record<string, unknown>;
   const type = s.type;
+
+  const WEEKDAY_NAMES: Record<WeekdayCode, string> = {
+    mon: "Monday", tue: "Tuesday", wed: "Wednesday", thu: "Thursday",
+    fri: "Friday", sat: "Saturday", sun: "Sunday",
+  };
+  // "09:00" | ["09:00", "17:00"] → "09:00" | "09:00 and 17:00" ("" if absent).
+  const timesText = (at: unknown): string => {
+    const list = typeof at === "string" ? [at] : Array.isArray(at) ? at.filter((t): t is string => typeof t === "string") : [];
+    if (list.length <= 1) return list[0] ?? "";
+    return `${list.slice(0, -1).join(", ")} and ${list[list.length - 1]}`;
+  };
+  const atSuffix = (at: unknown): string => {
+    const t = timesText(at);
+    return t ? ` at ${t} (box-local)` : " (box-local)";
+  };
+  // Wall-clock as written: "2030-01-01T00:00:00" → "2030-01-01", else with HH:MM.
+  const dateText = (iso: string): string => {
+    const m = /^(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}:\d{2}))?/.exec(iso.trim());
+    if (!m) return iso;
+    return m[2] && m[2] !== "00:00" ? `${m[1]} ${m[2]}` : m[1];
+  };
+  const everyN = (raw: unknown): number =>
+    typeof raw === "number" && Number.isInteger(raw) && raw > 1 ? raw : 1;
+  const cadence = (n: number, unit: "week" | "month"): string =>
+    n === 2 ? `Every other ${unit}` : `Every ${n} ${unit}s`;
+  const ordinal = (n: number): string => {
+    const rem100 = n % 100;
+    if (rem100 >= 11 && rem100 <= 13) return `${n}th`;
+    return `${n}${["th", "st", "nd", "rd"][n % 10] ?? "th"}`;
+  };
+  const suffixes = (): string => {
+    let out = "";
+    if (typeof s.start === "string" && s.start.trim() !== "") out += ` · from ${dateText(s.start)}`;
+    if (typeof s.until === "string" && s.until.trim() !== "") out += ` · until ${dateText(s.until)}`;
+    if (typeof s.count === "number" && Number.isInteger(s.count) && s.count >= 1) {
+      out += ` · ${s.count} ${s.count === 1 ? "run" : "runs"}`;
+    }
+    return out;
+  };
+  // Monthly / yearly have no gate-substituted phrasing; the gate is a suffix.
+  const gateSuffix = (): string => {
+    const gate = normalizeDaysGate(s.days);
+    return gate !== null ? ` · ${daysGateLabel(gate)} only` : "";
+  };
+
   if (type === "interval") {
     const every = s.every;
     let base: string;
@@ -142,51 +190,74 @@ export function humanizeWakeupSchedule(schedule: unknown): string {
     } else {
       return "custom schedule";
     }
+    const w = s.window as Record<string, unknown> | null | undefined;
+    if (typeof w === "object" && w !== null && typeof w.from === "string" && typeof w.to === "string") {
+      base += ` between ${w.from}–${w.to}`;
+    }
     // Apply days gate: replace "Every " prefix with "<label> every " (D-05)
     const gate = normalizeDaysGate(s.days);
     if (gate !== null) {
-      return `${daysGateLabel(gate)} every ${base.slice("Every ".length)}`;
+      return `${daysGateLabel(gate)} every ${base.slice("Every ".length)}${suffixes()}`;
     }
-    return base;
+    return base + suffixes();
   }
   if (type === "daily") {
-    const at = typeof s.at === "string" ? s.at : "";
+    const at = timesText(s.at);
     const gate = normalizeDaysGate(s.days);
     if (gate !== null) {
       // Replace the "Daily" verb with the gate label (D-05)
-      return at ? `${daysGateLabel(gate)} at ${at} (box-local)` : `${daysGateLabel(gate)} (box-local)`;
+      return (at ? `${daysGateLabel(gate)} at ${at} (box-local)` : `${daysGateLabel(gate)} (box-local)`) + suffixes();
     }
-    return at ? `Daily at ${at} (box-local)` : "Daily (box-local)";
+    return (at ? `Daily at ${at} (box-local)` : "Daily (box-local)") + suffixes();
   }
   if (type === "weekly") {
-    const at = typeof s.at === "string" ? s.at : "";
+    const at = timesText(s.at);
     const dayRaw = typeof s.day === "string" ? s.day : "";
     const day = dayRaw.length > 0
       ? dayRaw.charAt(0).toUpperCase() + dayRaw.slice(1).toLowerCase()
       : "?";
-    const baseWeekly = at ? `Weekly on ${day} at ${at} (box-local)` : `Weekly on ${day} (box-local)`;
+    const n = everyN(s.every);
+    const lead = n > 1 ? `${cadence(n, "week")} on` : "Weekly on";
+    const baseWeekly = at ? `${lead} ${day} at ${at} (box-local)` : `${lead} ${day} (box-local)`;
     const gate = normalizeDaysGate(s.days);
     if (gate !== null) {
       // Determine if the weekly slot day is inside the gate (D-01)
       const dayLower = dayRaw.toLowerCase();
       const dayInGate = isWeekdayCode(dayLower) && gate.includes(dayLower);
       if (dayInGate) {
+        // Every-N weeks keeps its cadence phrasing; the gate adds nothing to it.
+        if (n > 1) return baseWeekly + suffixes();
         // Render as days-gate-substituted daily-style form; drop redundant "on <Day>" (D-01)
-        return at ? `${daysGateLabel(gate)} at ${at} (box-local)` : `${daysGateLabel(gate)} (box-local)`;
+        return (at ? `${daysGateLabel(gate)} at ${at} (box-local)` : `${daysGateLabel(gate)} (box-local)`) + suffixes();
       }
       // Malformed NEVER-FIRES case: surface visibly (D-01 defensive branch)
       return `${baseWeekly} — NEVER FIRES (weekly day excluded from days gate)`;
     }
-    return baseWeekly;
+    return baseWeekly + suffixes();
+  }
+  if (type === "monthly") {
+    // "Monthly on the 1st" / "on the last day" / "on the first Monday".
+    let when = "?";
+    const wd = typeof s.weekday === "string" ? s.weekday.toLowerCase() : "";
+    if ((s.nth === "last" || (typeof s.nth === "number" && s.nth >= 1 && s.nth <= 4)) && isWeekdayCode(wd)) {
+      const nth = s.nth === "last" ? "last" : ["first", "second", "third", "fourth"][(s.nth as number) - 1];
+      when = `the ${nth} ${WEEKDAY_NAMES[wd]}`;
+    } else if (s.day === "last") {
+      when = "the last day";
+    } else if (typeof s.day === "number" && Number.isInteger(s.day) && s.day >= 1 && s.day <= 31) {
+      when = `the ${ordinal(s.day)}`;
+    }
+    const n = everyN(s.every);
+    const lead = n > 1 ? cadence(n, "month") : "Monthly";
+    return `${lead} on ${when}${atSuffix(s.at)}${gateSuffix()}${suffixes()}`;
   }
   if (type === "yearly") {
     // `date` is MM-DD; render as "Yearly on Aug 3 at 09:00 (box-local)".
-    const at = typeof s.at === "string" ? s.at : "";
     const m = typeof s.date === "string" ? /^(\d{2})-(\d{2})$/.exec(s.date.trim()) : null;
     const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     const month = m ? MONTHS[Number(m[1]) - 1] : undefined;
     const when = m && month ? `${month} ${Number(m[2])}` : "?";
-    return at ? `Yearly on ${when} at ${at} (box-local)` : `Yearly on ${when} (box-local)`;
+    return `Yearly on ${when}${atSuffix(s.at)}${gateSuffix()}${suffixes()}`;
   }
   if (type === "one_shot") {
     // Phase 128 code-review fix #2: one_shot was falling through to "custom
@@ -1652,10 +1723,9 @@ export type WakeupUpdate = {
  * unlike WakeupUpdate (which is a partial-patch for an existing file),
  * WakeupSpec is the full JSON body of a new file.
  *
- * `schedule` stays `Record<string, unknown>` (not a discriminated union) so
- * Skynet doesn't need a co-deploy every time Nelly adds a new schedule type
- * to the scheduler side — the scheduler owns the schema. The writer only
- * enforces "schedule is an object with a non-empty string `type`".
+ * `schedule` is validated by `scheduleError` — the conformance-tested TS port
+ * of wakeup-scheduler.py's own validator (the scheduler ships from this repo),
+ * so a saved wake-up is one the scheduler will actually fire.
  */
 export type WakeupSpec = {
   name: string;
@@ -1673,19 +1743,8 @@ export async function writeIdentityWakeupUpdate(
   wakeupSlug: string,
   updates: WakeupUpdate,
 ): Promise<void> {
-  // Basic schema guard — refuse a schedule payload that isn't an object with a
-  // recognized `type`. We deliberately don't lock down further (the scheduler
-  // owns the schema; a new schedule type Nelly adds shouldn't require an
-  // atomic co-deploy of Skynet).
-  if (updates.schedule !== undefined) {
-    if (typeof updates.schedule !== "object" || updates.schedule === null) {
-      throw new Error("schedule must be an object");
-    }
-    const t = (updates.schedule as Record<string, unknown>).type;
-    if (typeof t !== "string" || t.length === 0) {
-      throw new Error("schedule.type must be a non-empty string");
-    }
-  }
+  // Refuse a schedule the scheduler would refuse to fire.
+  if (updates.schedule !== undefined) assertFireableSchedule(updates.schedule);
   if (updates.enabled !== undefined && typeof updates.enabled !== "boolean") {
     throw new Error("enabled must be a boolean");
   }
@@ -1777,12 +1836,23 @@ function validateWakeupSpec(spec: WakeupSpec): void {
   if (typeof spec.instruction !== "string") {
     throw new Error("instruction must be a string");
   }
-  if (typeof spec.schedule !== "object" || spec.schedule === null) {
+  assertFireableSchedule(spec.schedule);
+}
+
+/** Throw unless `schedule` is one wakeup-scheduler.py will fire. */
+function assertFireableSchedule(schedule: unknown): void {
+  if (typeof schedule !== "object" || schedule === null) {
     throw new Error("schedule must be an object");
   }
-  const t = (spec.schedule as Record<string, unknown>).type;
+  const t = (schedule as Record<string, unknown>).type;
   if (typeof t !== "string" || t.length === 0) {
     throw new Error("schedule.type must be a non-empty string");
+  }
+  const err = scheduleError(schedule);
+  if (err !== null) throw new Error(`schedule: ${err}`);
+  const at = (schedule as Record<string, unknown>).at;
+  if (t === "one_shot" && (typeof at !== "string" || at.length === 0)) {
+    throw new Error("schedule.at is required for one_shot schedules");
   }
 }
 

@@ -137,6 +137,28 @@ describe("writeIdentityWakeupCreate — LOCAL branch (conn=null)", () => {
       }),
     ).rejects.toThrow(/schedule\.type/);
   });
+
+  it("refuses a schedule the scheduler would refuse to fire, and writes nothing", async () => {
+    await expect(
+      writeIdentityWakeupCreate(null, KEY, {
+        name: "every-other-week",
+        enabled: true,
+        schedule: { type: "weekly", day: "fri", at: "09:00", every: 2 }, // every > 1 needs start
+        instruction: "test",
+      }),
+    ).rejects.toThrow(/needs a `start`/);
+    await expect(fs.access(path.join(identitiesRoot, KEY, "wakeups", "every-other-week.json"))).rejects.toThrow();
+  });
+
+  it("accepts the new kinds", async () => {
+    const result = await writeIdentityWakeupCreate(null, KEY, {
+      name: "last-friday",
+      enabled: true,
+      schedule: { type: "monthly", nth: "last", weekday: "fri", at: ["09:00", "16:00"], until: "2028-01-01" },
+      instruction: "test",
+    });
+    expect(result.wakeups.some((w) => w.slug === "last-friday")).toBe(true);
+  });
 });
 
 // ──────────────────────────────────────────────────────────────────────

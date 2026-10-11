@@ -24,11 +24,20 @@ import {
   buildSchedule,
   detectBrowserTimezone,
   hydrateFormSchedule,
-  pad2,
+  MonthlyDayFields,
   RestrictToDaysChips,
+  ScheduleRepeatFields,
+  switchScheduleKind,
+  TimesField,
   validateForm,
   YearlyDateFields,
 } from "./WakeupFormShared";
+
+const FIELD_LABEL_CLASS = "text-[10px] uppercase tracking-wide text-[var(--color-pv-fg-dim)] font-semibold";
+const FIELD_INPUT_CLASS = cn(
+  "bg-black/30 text-[#e8e4d8] border border-white/10",
+  "focus:outline-none focus:border-white/25 rounded px-2 py-1.5 text-xs",
+);
 
 // Patch #17g: tab renderer for the identity's wakeups/*.json files.
 // Patch #154: adds inline editing — an enabled toggle + a schedule JSON editor.
@@ -48,9 +57,8 @@ import {
 //     path; the header chip is the primary one-click toggle).
 //   - Live JSON preview on the right on ≥620px viewports.
 //   - Timezone silently detected via Intl.DateTimeFormat().resolvedOptions().timeZone
-//     with fallback America/New_York. Shown as a muted hint on daily / weekly /
-//     one_shot; OMITTED from the emitted schedule on interval (the scheduler
-//     no-ops timezone on interval per tina.md § Scheduled wake-ups).
+//     with fallback America/New_York. Shown as a muted hint and written on
+//     every kind (interval honors it for its window / days / start).
 //   - Preserves patch #154's always-visible enabled chip + one-click
 //     `toggleEnabled` — the header chip in edit-mode is untouched.
 //   - Backend write path was extended in the previous commit (Task 1) to
@@ -577,19 +585,7 @@ function WakeupRow({
                   id={`wakeup-type-${wakeup.slug}`}
                   value={formSchedule.type}
                   onChange={(e) => {
-                    const next = e.target.value as FormSchedule["type"];
-                    if (next === "interval") setFormSchedule({ type: "interval", n: 30, u: "m" });
-                    else if (next === "daily") setFormSchedule({ type: "daily", at: "09:00" });
-                    else if (next === "weekly") setFormSchedule({ type: "weekly", day: "mon", at: "09:00" });
-                    else if (next === "yearly") setFormSchedule(hydrateFormSchedule({ type: "yearly" }));
-                    else if (next === "one_shot") {
-                      const d = new Date(Date.now() + 3600e3);
-                      d.setMinutes(0, 0, 0);
-                      const local =
-                        d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate()) +
-                        "T" + pad2(d.getHours()) + ":" + pad2(d.getMinutes());
-                      setFormSchedule({ type: "one_shot", at: local });
-                    }
+                    setFormSchedule(switchScheduleKind(formSchedule, e.target.value as FormSchedule["type"]));
                   }}
                   className={cn(
                     "bg-black/30 text-[#e8e4d8] border border-white/10",
@@ -599,6 +595,7 @@ function WakeupRow({
                   <option value="interval">interval — every N s/m/h/d</option>
                   <option value="daily">daily — at a time each day</option>
                   <option value="weekly">weekly — on a day + time</option>
+                  <option value="monthly">monthly — on a day of the month</option>
                   <option value="yearly">yearly — on a date + time each year</option>
                   <option value="one_shot">one_shot — fires once at a datetime</option>
                 </select>
@@ -654,29 +651,28 @@ function WakeupRow({
                       <option value="mo">months</option>
                     </select>
                   </div>
+                  <div className="basis-full text-xs text-[var(--color-pv-fg-dim)] font-mono">
+                    Timezone (auto-detected from browser): <b>{detectedTz}</b>
+                  </div>
+                  <RestrictToDaysChips
+                    hue={hue}
+                    days={formSchedule.days}
+                    onChange={(next) => setFormSchedule({ ...formSchedule, days: next })}
+                    slug={wakeup.slug}
+                  />
                 </div>
               )}
 
               {formSchedule.type === "daily" && (
                 <>
-                  <div className="flex flex-col gap-1">
-                    <label
-                      htmlFor={`wakeup-daily-at-${wakeup.slug}`}
-                      className="text-[10px] uppercase tracking-wide text-[var(--color-pv-fg-dim)] font-semibold"
-                    >
-                      Time (local)
-                    </label>
-                    <input
-                      id={`wakeup-daily-at-${wakeup.slug}`}
-                      type="time"
-                      value={formSchedule.at}
-                      onChange={(e) => setFormSchedule({ ...formSchedule, at: e.target.value })}
-                      className={cn(
-                        "bg-black/30 text-[#e8e4d8] border border-white/10",
-                        "focus:outline-none focus:border-white/25 rounded px-2 py-1.5 text-xs",
-                      )}
-                    />
-                  </div>
+                  <TimesField
+                    at={formSchedule.at}
+                    onChange={(at) => setFormSchedule({ ...formSchedule, at })}
+                    label="Time (local)"
+                    idPrefix={`wakeup-daily-at-${wakeup.slug}`}
+                    inputClassName={FIELD_INPUT_CLASS}
+                    labelClassName={FIELD_LABEL_CLASS}
+                  />
                   <div className="text-xs text-[var(--color-pv-fg-dim)] font-mono">
                     Timezone (auto-detected from browser): <b>{detectedTz}</b>
                   </div>
@@ -717,24 +713,14 @@ function WakeupRow({
                         <option value="sun">Sunday</option>
                       </select>
                     </div>
-                    <div className="flex flex-col gap-1 flex-1 min-w-[110px]">
-                      <label
-                        htmlFor={`wakeup-weekly-at-${wakeup.slug}`}
-                        className="text-[10px] uppercase tracking-wide text-[var(--color-pv-fg-dim)] font-semibold"
-                      >
-                        Time (local)
-                      </label>
-                      <input
-                        id={`wakeup-weekly-at-${wakeup.slug}`}
-                        type="time"
-                        value={formSchedule.at}
-                        onChange={(e) => setFormSchedule({ ...formSchedule, at: e.target.value })}
-                        className={cn(
-                          "bg-black/30 text-[#e8e4d8] border border-white/10",
-                          "focus:outline-none focus:border-white/25 rounded px-2 py-1.5 text-xs",
-                        )}
-                      />
-                    </div>
+                    <TimesField
+                      at={formSchedule.at}
+                      onChange={(at) => setFormSchedule({ ...formSchedule, at })}
+                      label="Time (local)"
+                      idPrefix={`wakeup-weekly-at-${wakeup.slug}`}
+                      inputClassName={FIELD_INPUT_CLASS}
+                      labelClassName={FIELD_LABEL_CLASS}
+                    />
                   </div>
                   <div className="text-xs text-[var(--color-pv-fg-dim)] font-mono">
                     Timezone (auto-detected from browser): <b>{detectedTz}</b>
@@ -761,29 +747,52 @@ function WakeupRow({
                         "focus:outline-none focus:border-white/25 rounded px-2 py-1.5 text-xs",
                       )}
                     />
-                    <div className="flex flex-col gap-1 flex-1 min-w-[110px]">
-                      <label
-                        htmlFor={`wakeup-yearly-at-${wakeup.slug}`}
-                        className="text-[10px] uppercase tracking-wide text-[var(--color-pv-fg-dim)] font-semibold"
-                      >
-                        Time (local)
-                      </label>
-                      <input
-                        id={`wakeup-yearly-at-${wakeup.slug}`}
-                        type="time"
-                        value={formSchedule.at}
-                        onChange={(e) => setFormSchedule({ ...formSchedule, at: e.target.value })}
-                        className={cn(
-                          "bg-black/30 text-[#e8e4d8] border border-white/10",
-                          "focus:outline-none focus:border-white/25 rounded px-2 py-1.5 text-xs",
-                        )}
-                      />
-                    </div>
+                    <TimesField
+                      at={formSchedule.at}
+                      onChange={(at) => setFormSchedule({ ...formSchedule, at })}
+                      label="Time (local)"
+                      idPrefix={`wakeup-yearly-at-${wakeup.slug}`}
+                      inputClassName={FIELD_INPUT_CLASS}
+                      labelClassName={FIELD_LABEL_CLASS}
+                    />
                   </div>
                   <div className="text-xs text-[var(--color-pv-fg-dim)] font-mono">
                     Timezone (auto-detected from browser): <b>{detectedTz}</b>
                   </div>
                 </>
+              )}
+
+              {formSchedule.type === "monthly" && (
+                <>
+                  <MonthlyDayFields
+                    value={formSchedule}
+                    onChange={setFormSchedule}
+                    idPrefix={`wakeup-monthly-${wakeup.slug}`}
+                    inputClassName={FIELD_INPUT_CLASS}
+                    labelClassName={FIELD_LABEL_CLASS}
+                  />
+                  <TimesField
+                    at={formSchedule.at}
+                    onChange={(at) => setFormSchedule({ ...formSchedule, at })}
+                    label="Time (local)"
+                    idPrefix={`wakeup-monthly-at-${wakeup.slug}`}
+                    inputClassName={FIELD_INPUT_CLASS}
+                    labelClassName={FIELD_LABEL_CLASS}
+                  />
+                  <div className="text-xs text-[var(--color-pv-fg-dim)] font-mono">
+                    Timezone (auto-detected from browser): <b>{detectedTz}</b>
+                  </div>
+                </>
+              )}
+
+              {formSchedule.type !== "one_shot" && (
+                <ScheduleRepeatFields
+                  fs={formSchedule}
+                  onChange={setFormSchedule}
+                  idPrefix={`wakeup-${wakeup.slug}`}
+                  inputClassName={FIELD_INPUT_CLASS}
+                  labelClassName={FIELD_LABEL_CLASS}
+                />
               )}
 
               {formSchedule.type === "one_shot" && (

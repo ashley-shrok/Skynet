@@ -29,21 +29,25 @@ Schedule specs live at `~/fleet/identities/<name>/wakeups/<slug>.json`:
 
     {"name": "standup-check", "enabled": true,
      "schedule": {"type": "interval", "every": "2h"},        # or:
-     #           {"type": "daily",    "at": "09:00"}         # local time
-     #           {"type": "weekly",   "day": "mon", "at": "09:00"}
-     #           {"type": "yearly",   "date": "08-03", "at": "09:00"}   # MM-DD, every year
-     #           {"type": "one_shot", "at": "2026-08-15T09:00:00-04:00"}   # fires once, spec self-deletes after
-     # interval `every` units: s / m / h / d, or `mo` = calendar months ("11mo"; a
-     #   31st-of-month anchor clamps to the month's last day). Malformed `Nmo` = LOUD
-     #   one-shot alert, spec DOES NOT FIRE.
-     # yearly: `date` is MM-DD; 02-29 is rejected (would skip 3 of 4 years). Malformed
-     #   `date` = LOUD one-shot alert, spec DOES NOT FIRE.
-     # optional on interval/daily/weekly: "days": ["mon","tue","wed","thu","fri"]  (box-local; weekdays-only)
-     # optional on daily/weekly/yearly/one_shot: "timezone": "America/New_York"  (IANA name)
-     #   pins `at` to that zone year-round (DST-safe); absent = box-local.
-     #   Malformed tz name = LOUD one-shot alert + spec DOES NOT FIRE.
-     #   Timezone on interval-type = one-shot note (no-op; interval fires by elapsed seconds).
-     #   Timezone on one_shot whose `at` already has an offset/Z = one-shot note (no-op).
+     #  {"type": "daily",   "at": "09:00"}                     # or "at": ["09:00", "17:00"]
+     #  {"type": "weekly",  "day": "fri", "at": "09:00"}       # + "every": 2 (weeks; needs "start")
+     #  {"type": "monthly", "day": 1, "at": "09:00"}           # day 1..31 (clamps) or "last"
+     #  {"type": "monthly", "nth": "last", "weekday": "fri", "at": "16:00"}   # nth 1..4 or "last"
+     #                                                         # + "every": 3 (months; needs "start")
+     #  {"type": "yearly",  "date": "08-03", "at": "09:00"}    # MM-DD; 02-29 rejected
+     #  {"type": "one_shot", "at": "2026-08-15T09:00:00-04:00"}   # fires once, spec self-deletes after
+     # interval `every`: <n>s|m|h|d, <n>mo (calendar months; a 31st clamps), bare number = minutes.
+     # interval "window": {"from": "09:00", "to": "17:00"}  — only fire with the local time in
+     #   [from, to], both inclusive; from > to wraps midnight.
+     # Common optional fields on every repeating kind (not one_shot):
+     #   "timezone": IANA name — wall-clock math in that zone; absent = box-local.
+     #   "days": ["mon", ...]  — weekday gate.
+     #   "start": ISO datetime — nothing fires before it; for interval it fixes the grid
+     #            (start, start+every, ...) instead of counting from each fire.
+     #   "until": ISO datetime — nothing fires after it.
+     #   "count": N            — stop after N fires (tracked in .state/<key>.runs).
+     # Full contract + DST rules: the "Schedule engine" section below. A malformed
+     # schedule = LOUD one-shot alert, spec DOES NOT FIRE.
      # one_shot semantics:
      #   `at` is a full ISO datetime. Accepts `Z`, offset (`±HH:MM`), or naive (+ optional `timezone`).
      #   Fires once when now >= at. If `at` is already in the past when the spec is first
@@ -118,19 +122,19 @@ import argparse
 import calendar
 import glob
 import json
+import math
 import os
 import re
 import sys
 import time
 import uuid as _uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 POLL = int(os.environ.get("WAKEUP_POLL_SEC", "30"))
 # Harness truncates monitor-event stdout at ~450 chars. Leave headroom for the
 # header + short-form margin; instructions above this go to file-pointer form.
 LONG_INSTRUCTION_CHARS = int(os.environ.get("WAKEUP_LONG_CHARS", "300"))
-_DOW = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
 
 
 def _emit_wake(key, utc, instruction, state_dir):
@@ -181,48 +185,6 @@ def _zone(spec):
         return None, "unknown IANA timezone %r (%s)" % (tz, e.__class__.__name__)
 
 
-def _dur_secs(s):
-    s = str(s).strip().lower()
-    unit = s[-1]
-    mult = {"s": 1, "m": 60, "h": 3600, "d": 86400}.get(unit)
-    if mult is None:
-        return int(s) * 60          # bare number = minutes
-    return int(s[:-1]) * mult
-
-
-def _months_err(every):
-    """For an interval `every` in calendar months ("Nmo"), return err_msg or None.
-    Non-month units return None (they keep their historical parsing)."""
-    s = str(every).strip().lower()
-    if not s.endswith("mo"):
-        return None
-    if not re.fullmatch(r"[1-9]\d*", s[:-2]):
-        return "interval: `every` %r must be a positive whole number of months, e.g. 11mo" % (every,)
-    return None
-
-
-def _add_months(dt, n):
-    """Calendar-month add, clamping the day to the target month's length."""
-    y, m0 = divmod(dt.month - 1 + n, 12)
-    y += dt.year
-    last_day = calendar.monthrange(y, m0 + 1)[1]
-    return dt.replace(year=y, month=m0 + 1, day=min(dt.day, last_day))
-
-
-def _interval_next(ref_ts, every):
-    """Epoch of the next interval fire after `ref_ts`. `Nmo` = N calendar months
-    (box-local wall clock); every other unit is elapsed seconds via _dur_secs."""
-    s = str(every).strip().lower()
-    if s.endswith("mo"):
-        return _add_months(datetime.fromtimestamp(ref_ts), int(s[:-2])).timestamp()
-    return ref_ts + _dur_secs(s)
-
-
-def _slot_at(ref, hhmm):
-    h, m = (int(x) for x in hhmm.split(":"))
-    return ref.replace(hour=h, minute=m, second=0, microsecond=0)
-
-
 def _parse_at_ts(at_str, zi):
     """Parse a one_shot `at` string into an epoch. Returns (ts, has_offset, err_msg).
     `at_str` may be Z-suffixed, offset-bearing, or naive (naive → localize to `zi` if
@@ -243,63 +205,556 @@ def _parse_at_ts(at_str, zi):
     return dt.timestamp(), has_offset, None
 
 
-def _yearly_err(sch):
-    """Validate a yearly schedule's `date` (MM-DD) + `at` (HH:MM). Returns err_msg or None."""
-    d = sch.get("date")
-    if not isinstance(d, str) or not re.fullmatch(r"\d{2}-\d{2}", d.strip()):
-        return "yearly: `date` must be MM-DD, got %r" % (d,)
-    month, day = (int(x) for x in d.strip().split("-"))
-    if (month, day) == (2, 29):
-        return "yearly: `date` 02-29 is not supported (pick 02-28 or 03-01)"
+# ---------------------------------------------------------------------------
+# Schedule engine — the ONE implementation of "when does this spec fire next"
+# for every repeating kind (interval / daily / weekly / monthly / yearly).
+#
+# Consumers:
+#   - this scheduler's main loop (via `decide`)
+#   - agent-supervisor.sh's dormant-wake peek, which loads THIS FILE (the
+#     installed ~/.local/bin/wakeup-scheduler) and calls `next_fire`
+#   - src/backend/claude-session/schedule-next-fire.ts, a TypeScript port for
+#     the app's "Next run" display, held byte-for-byte to this file by the
+#     conformance fixture generated by substrate/scripts/tests/
+#     schedule_conformance_gen.py
+#
+# Model: a schedule is a set of "slots" (epoch instants). `next_fire(sch, after)`
+# returns the first slot strictly after `after`, honoring `start`, `until`,
+# `days` and `window`. `decide` turns that into the scheduler's state machine:
+# first sight anchors without firing; afterwards the spec fires when the first
+# slot after its reference (last fire, else anchor) has arrived. A missed slot
+# therefore fires ONCE on the next poll, never a backlog.
+#
+# Wall-clock arithmetic is done in the spec's `timezone`, else the box's zone.
+# One rule maps a local date+time to an instant: the FIRST instant at which the
+# local clock reads that time or later. So a time skipped by spring-forward
+# (02:30 on a US change day) fires the moment the clock jumps (03:00), and a
+# time repeated by fall-back fires once, at its first occurrence.
+# ---------------------------------------------------------------------------
+
+_DOW_NAMES = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+REPEATING_TYPES = ("interval", "daily", "weekly", "monthly", "yearly")
+# [0-9], not \d: Python's \d also matches non-ASCII digits, and these patterns
+# must accept exactly what the TypeScript port's do.
+_HHMM_RE = re.compile(r"([0-9]{1,2}):([0-9]{2})")
+_EVERY_RE = re.compile(r"([0-9]+)(mo|s|m|h|d)?")
+_ISO_RE = re.compile(
+    r"([0-9]{4})-([0-9]{2})-([0-9]{2})"
+    r"(?:[T ]([0-9]{2}):([0-9]{2})(?::([0-9]{2})(?:\.[0-9]+)?)?)?"
+    r"(Z|[+-][0-9]{2}:[0-9]{2})?")
+_MMDD_RE = re.compile(r"([0-9]{2})-([0-9]{2})")
+_UNIT_SECS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+# Bounds on forward searches. A schedule that can't produce a slot within
+# these (a days gate that excludes every qualifying date, an interval grid that
+# never lands inside its window) reports "never fires again" instead of
+# searching forever — and it's re-asked every poll, so the caps stay small.
+# Per kind, the cap counts QUALIFYING dates (weekday/parity already applied):
+#   daily 10    — any non-empty days gate matches within 7
+#   weekly 4    — the gate either contains `day` or never will
+#   monthly 400 — a given day-of-month/nth-weekday hits every weekday well
+#                 inside 400 qualifying months
+#   yearly 400  — the full 400-year Gregorian weekday cycle
+_MAX_CANDIDATE_DATES = {"daily": 10, "weekly": 4, "monthly": 400, "yearly": 400}
+_MAX_GRID_STEPS = 4000
+
+
+def local_zone():
+    """The box's IANA zone: $TZ, else /etc/localtime's target, else the
+    current fixed UTC offset (last resort — loses DST, logged by no one)."""
+    names = []
+    tz_env = os.environ.get("TZ")
+    if tz_env:
+        names.append(tz_env.lstrip(":"))
     try:
-        datetime(2001, month, day)
-    except ValueError:
-        return "yearly: `date` %r is not a real calendar day" % d
-    at = sch.get("at")
-    if not isinstance(at, str) or not re.fullmatch(r"\d{1,2}:\d{2}", at.strip()):
-        return "yearly: `at` must be HH:MM, got %r" % (at,)
+        target = os.path.realpath("/etc/localtime")
+        if "zoneinfo/" in target:
+            names.append(target.split("zoneinfo/", 1)[1])
+    except OSError:
+        pass
+    for name in names:
+        try:
+            return ZoneInfo(name)
+        except (ZoneInfoNotFoundError, ValueError):
+            continue
+    return datetime.now().astimezone().tzinfo
+
+
+def _zone_of(sch, box_zone):
+    tz = sch.get("timezone")
+    if tz:
+        return ZoneInfo(str(tz))
+    return box_zone if box_zone is not None else local_zone()
+
+
+def _wall_ts(naive, zi):
+    """First instant at which the local clock in `zi` reads `naive` or later."""
+    t0 = naive.replace(tzinfo=zi, fold=0).timestamp()
+    t1 = naive.replace(tzinfo=zi, fold=1).timestamp()
+    if t1 >= t0:
+        return t0          # normal, or ambiguous (fold=0 is the first occurrence)
+    # Gap: `naive` doesn't exist. The clock jumps past it somewhere in [t1, t0];
+    # bisect (whole seconds — every tz transition is on a whole second) for the
+    # first instant whose local reading is >= naive.
+    lo, hi = math.floor(t1), math.ceil(t0)
+    while lo < hi:
+        mid = (lo + hi) // 2
+        if datetime.fromtimestamp(mid, tz=zi).replace(tzinfo=None) >= naive:
+            hi = mid
+        else:
+            lo = mid + 1
+    return float(lo)
+
+
+def _from_wall(d, h, mi, zi):
+    """Instant of wall-clock date `d` at h:mi in zone `zi` (see _wall_ts)."""
+    return _wall_ts(datetime(d.year, d.month, d.day, h, mi), zi)
+
+
+def _to_wall(ts, zi):
+    return datetime.fromtimestamp(ts, tz=zi)
+
+
+def _naive_wall(ts, zi):
+    return datetime.fromtimestamp(ts, tz=zi).replace(tzinfo=None)
+
+
+def _parse_hhmm(v):
+    if not isinstance(v, str):
+        return None
+    m = _HHMM_RE.fullmatch(v.strip())
+    if not m:
+        return None
+    h, mi = int(m.group(1)), int(m.group(2))
+    if h > 23 or mi > 59:
+        return None
+    return (h, mi)
+
+
+def _parse_times(at):
+    """`at` as "HH:MM" or a list of 1-24 distinct "HH:MM" → sorted [(h, m)], or None."""
+    vals = at if isinstance(at, list) else [at]
+    if not vals or len(vals) > 24:
+        return None
+    out = []
+    for v in vals:
+        t = _parse_hhmm(v)
+        if t is None:
+            return None
+        out.append(t)
+    if len(set(out)) != len(out):
+        return None
+    return sorted(out)
+
+
+def _as_int(v):
+    """A JSON whole number → int (15 and 15.0 alike, as JavaScript sees them),
+    else None. Booleans are not numbers here."""
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, int):
+        return v
+    if isinstance(v, float) and v.is_integer():
+        return int(v)
     return None
 
 
-def _yearly_slot(now, sch):
-    """Most recent yearly slot at or before `now` (an aware-or-naive datetime in the
-    schedule's zone). Caller has already validated with _yearly_err."""
-    month, day = (int(x) for x in sch["date"].strip().split("-"))
-    slot = _slot_at(now.replace(month=month, day=day), sch["at"])
-    if slot > now:
-        slot = slot.replace(year=slot.year - 1)
-    return slot
+def _parse_every(every):
+    """interval `every` → ("s", seconds) | ("mo", months) | None."""
+    if isinstance(every, (int, float)) and not isinstance(every, bool):
+        n = _as_int(every)
+        return ("s", n * 60) if n is not None and n > 0 else None
+    if not isinstance(every, str):
+        return None
+    m = _EVERY_RE.fullmatch(every.strip().lower())
+    if not m or int(m.group(1)) <= 0:
+        return None
+    n, unit = int(m.group(1)), m.group(2) or "m"
+    if unit == "mo":
+        return ("mo", n)
+    return ("s", n * _UNIT_SECS[unit])
 
 
-def _due(spec, last_fired, now_ts, zi=None):
-    """Return True if this entry should fire now. last_fired is an epoch or None;
-    caller guarantees last_fired is not None here (first-sight is anchored earlier).
-    zi = optional ZoneInfo; when set, wall-clock reasoning (`at`, `days`, weekday) uses
-    that zone instead of box-local. Interval-type ignores zi (fires by elapsed seconds)."""
-    sch = spec.get("schedule", {})
-    now = datetime.fromtimestamp(now_ts, tz=zi) if zi else datetime.fromtimestamp(now_ts)
-    # Optional day-of-week gate (box-local). e.g. "days": ["mon","tue","wed","thu","fri"]
-    # for weekdays-only. Missing = every day. Applies to any schedule type.
-    days = sch.get("days")
-    if days:
-        today3 = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"][now.weekday()]
-        if today3 not in [str(d).lower()[:3] for d in days]:
+def _parse_iso(v, zi):
+    """ISO datetime (date-only, naive, Z or ±HH:MM) → epoch, or None. Naive
+    values are wall-clock in `zi`."""
+    if not isinstance(v, str):
+        return None
+    m = _ISO_RE.fullmatch(v.strip())
+    if not m:
+        return None
+    y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    h = int(m.group(4) or 0)
+    mi = int(m.group(5) or 0)
+    sec = int(m.group(6) or 0)
+    off = m.group(7)
+    if h > 23 or mi > 59 or sec > 59:
+        return None
+    try:
+        if off is None:
+            return _wall_ts(datetime(y, mo, d, h, mi, sec), zi)
+        if off == "Z":
+            tzinfo = timezone.utc
+        else:
+            sign = 1 if off[0] == "+" else -1
+            oh, om = int(off[1:3]), int(off[4:6])
+            if oh > 23 or om > 59:
+                return None
+            tzinfo = timezone(sign * timedelta(hours=oh, minutes=om))
+        return datetime(y, mo, d, h, mi, sec, tzinfo=tzinfo).timestamp()
+    except ValueError:
+        return None
+
+
+def _parse_days(days):
+    """`days` gate → frozenset of weekday ints (mon=0), None for no gate, or
+    False when malformed. Entries match on their first three letters."""
+    if days is None or days == []:
+        return None
+    if not isinstance(days, list):
+        return False
+    out = set()
+    for d in days:
+        if not isinstance(d, str) or d.strip().lower()[:3] not in _DOW_NAMES:
             return False
+        out.add(_DOW_NAMES.index(d.strip().lower()[:3]))
+    return frozenset(out)
+
+
+def _parse_weekday(v):
+    if not isinstance(v, str) or v.strip().lower()[:3] not in _DOW_NAMES:
+        return None
+    return _DOW_NAMES.index(v.strip().lower()[:3])
+
+
+def _parse_window(w):
+    """{"from","to"} → (from_sec, to_sec) seconds-of-day, or None if malformed."""
+    if not isinstance(w, dict):
+        return None
+    a, b = _parse_hhmm(w.get("from")), _parse_hhmm(w.get("to"))
+    if a is None or b is None or a == b:
+        return None
+    return (a[0] * 3600 + a[1] * 60, b[0] * 3600 + b[1] * 60)
+
+
+def _parse_positive_int(v):
+    n = _as_int(v)
+    return n if n is not None and n >= 1 else None
+
+
+def _parse_month_day(v):
+    """monthly `day` → 1..31 or "last", else None."""
+    if v == "last":
+        return "last"
+    n = _as_int(v)
+    return n if n is not None and 1 <= n <= 31 else None
+
+
+def _parse_nth(v):
+    if v == "last":
+        return "last"
+    n = _as_int(v)
+    return n if n is not None and 1 <= n <= 4 else None
+
+
+def _parse_yearly_date(v):
+    m = _MMDD_RE.fullmatch(v.strip()) if isinstance(v, str) else None
+    if not m:
+        return None
+    mo, d = int(m.group(1)), int(m.group(2))
+    if (mo, d) == (2, 29):
+        return None
+    try:
+        datetime(2001, mo, d)
+    except ValueError:
+        return None
+    return (mo, d)
+
+
+def schedule_error(sch):
+    """Validate a repeating schedule. Returns a human-readable error, or None
+    when valid. one_shot is validated separately by its own path (`at` parse)."""
+    if not isinstance(sch, dict):
+        return "`schedule` must be an object"
     t = sch.get("type")
+    if t == "one_shot":
+        for k in ("start", "until", "count", "window", "every"):
+            if sch.get(k) is not None:
+                return "one_shot: `%s` is not supported" % k
+        return None
+    if t not in REPEATING_TYPES:
+        return "unknown schedule type %r" % (t,)
+    tz = sch.get("timezone")
+    zi = None
+    if tz is not None:
+        try:
+            zi = ZoneInfo(str(tz))
+        except (ZoneInfoNotFoundError, ValueError):
+            return "unknown IANA timezone %r" % (tz,)
+    zi = zi or timezone.utc   # parse-check only; real zone resolved at use
+    if _parse_days(sch.get("days")) is False:
+        return "`days` must be a list of weekdays (mon..sun)"
+    start = until = None
+    if sch.get("start") is not None:
+        start = _parse_iso(sch["start"], zi)
+        if start is None:
+            return "`start` %r is not an ISO date/datetime" % (sch["start"],)
+    if sch.get("until") is not None:
+        until = _parse_iso(sch["until"], zi)
+        if until is None:
+            return "`until` %r is not an ISO date/datetime" % (sch["until"],)
+    if start is not None and until is not None and until < start:
+        return "`until` is before `start`"
+    if sch.get("count") is not None and _parse_positive_int(sch["count"]) is None:
+        return "`count` must be a whole number ≥ 1"
+    if t != "interval" and sch.get("window") is not None:
+        return "`window` only applies to interval schedules"
+    if t != "monthly" and (sch.get("nth") is not None or sch.get("weekday") is not None):
+        return "`nth`/`weekday` only apply to monthly schedules"
+
     if t == "interval":
-        return now_ts >= _interval_next(last_fired, sch["every"])
+        if _parse_every(sch.get("every")) is None:
+            return "interval: `every` %r must be like 30s, 15m, 2h, 1d or 11mo" % (sch.get("every"),)
+        if sch.get("window") is not None and _parse_window(sch["window"]) is None:
+            return "interval: `window` must be {\"from\": \"HH:MM\", \"to\": \"HH:MM\"} with from ≠ to"
+        return None
+
+    if _parse_times(sch.get("at")) is None:
+        return "%s: `at` must be \"HH:MM\" or a list of up to 24 distinct \"HH:MM\"" % t
+    if t in ("daily", "yearly") and sch.get("every") is not None:
+        return "%s: `every` is not supported" % t
     if t == "daily":
-        slot = _slot_at(now, sch["at"]).timestamp()
-        return now_ts >= slot and last_fired < slot
-    if t == "weekly":
-        target = _DOW[str(sch["day"]).lower()[:3]]
-        back = (now.weekday() - target) % 7          # days since most-recent target weekday
-        slot = (_slot_at(now, sch["at"]) - timedelta(days=back)).timestamp()
-        return now_ts >= slot and last_fired < slot
+        return None
     if t == "yearly":
-        slot = _yearly_slot(now, sch).timestamp()
-        return now_ts >= slot and last_fired < slot
-    return False
+        if _parse_yearly_date(sch.get("date")) is None:
+            return "yearly: `date` must be a real MM-DD (02-29 is not supported), got %r" % (sch.get("date"),)
+        return None
+    if t in ("weekly", "monthly"):
+        every = sch.get("every")
+        if every is not None:
+            if _parse_positive_int(every) is None:
+                return "%s: `every` must be a whole number ≥ 1" % t
+            if _parse_positive_int(every) > 1 and start is None:
+                return "%s: `every` > 1 needs a `start` to count from" % t
+    if t == "weekly":
+        if _parse_weekday(sch.get("day")) is None:
+            return "weekly: `day` must be mon..sun, got %r" % (sch.get("day"),)
+        return None
+    # monthly
+    has_day = sch.get("day") is not None
+    has_nth = sch.get("nth") is not None or sch.get("weekday") is not None
+    if has_day == has_nth:
+        return "monthly: give either `day` or `nth` + `weekday`"
+    if has_day:
+        if _parse_month_day(sch["day"]) is None:
+            return "monthly: `day` must be 1..31 or \"last\", got %r" % (sch["day"],)
+        return None
+    if _parse_nth(sch.get("nth")) is None:
+        return "monthly: `nth` must be 1..4 or \"last\", got %r" % (sch.get("nth"),)
+    if _parse_weekday(sch.get("weekday")) is None:
+        return "monthly: `weekday` must be mon..sun, got %r" % (sch.get("weekday"),)
+    return None
+
+
+def _add_months(dt, n):
+    """Calendar-month add on a NAIVE wall datetime, clamping the day to the
+    target month's length."""
+    y, m0 = divmod(dt.month - 1 + n, 12)
+    y += dt.year
+    last_day = calendar.monthrange(y, m0 + 1)[1]
+    return dt.replace(year=y, month=m0 + 1, day=min(dt.day, last_day))
+
+
+def _monthly_date(y, mo, sch):
+    """The qualifying date of a monthly schedule in month (y, mo)."""
+    mdays = calendar.monthrange(y, mo)[1]
+    day = _parse_month_day(sch.get("day")) if sch.get("day") is not None else None
+    if day is not None:
+        return date(y, mo, mdays if day == "last" else min(day, mdays))
+    wd = _parse_weekday(sch["weekday"])
+    nth = _parse_nth(sch["nth"])
+    if nth == "last":
+        return date(y, mo, mdays - (calendar.weekday(y, mo, mdays) - wd) % 7)
+    first = 1 + (wd - calendar.weekday(y, mo, 1)) % 7
+    return date(y, mo, first + 7 * (nth - 1))
+
+
+def _candidate_dates(sch, d0, start_date):
+    """Qualifying dates of a wall-clock schedule, ascending, from date d0."""
+    t = sch["type"]
+    if t == "daily":
+        d = d0
+        while True:
+            yield d
+            d += timedelta(days=1)
+    elif t == "weekly":
+        wd = _parse_weekday(sch["day"])
+        n = _parse_positive_int(sch.get("every")) or 1
+        d = d0 + timedelta(days=(wd - d0.weekday()) % 7)
+        week0 = start_date - timedelta(days=start_date.weekday()) if start_date else None
+        while True:
+            if n == 1 or ((d - week0).days // 7) % n == 0:
+                yield d
+            d += timedelta(days=7)
+    elif t == "monthly":
+        n = _parse_positive_int(sch.get("every")) or 1
+        y, mo = d0.year, d0.month
+        while True:
+            if n == 1 or ((y * 12 + mo) - (start_date.year * 12 + start_date.month)) % n == 0:
+                yield _monthly_date(y, mo, sch)
+            y, mo = (y + 1, 1) if mo == 12 else (y, mo + 1)
+    else:  # yearly
+        mo, dd = _parse_yearly_date(sch["date"])
+        y = d0.year
+        while True:
+            yield date(y, mo, dd)
+            y += 1
+
+
+def _next_wall(sch, after, zi, start, until, days):
+    times = _parse_times(sch["at"])
+    floor_ts = after if start is None else max(after, start - 1)
+    # One day early: a slot's local date can sit a day before its UTC date.
+    d0 = _to_wall(floor_ts, zi).date() - timedelta(days=1)
+    start_date = _to_wall(start, zi).date() if start is not None else None
+    cap = _MAX_CANDIDATE_DATES[sch["type"]]
+    seen = 0
+    for d in _candidate_dates(sch, d0, start_date):
+        if d < d0:
+            continue
+        seen += 1
+        if seen > cap:
+            return None
+        if days is not None and d.weekday() not in days:
+            continue
+        best = None
+        for h, mi in times:
+            ts = _from_wall(d, h, mi, zi)
+            if ts <= after or (start is not None and ts < start):
+                continue
+            if best is None or ts < best:
+                best = ts
+        if best is None:
+            continue
+        if until is not None and best > until:
+            return None
+        return best
+    return None
+
+
+def _in_window(sod, window):
+    if window is None:
+        return True
+    a, b = window
+    return a <= sod <= b if a < b else (sod >= a or sod <= b)
+
+
+def _allowed(ts, zi, days, window):
+    w = _to_wall(ts, zi)
+    if days is not None and w.weekday() not in days:
+        return False
+    return _in_window(w.hour * 3600 + w.minute * 60 + w.second + w.microsecond / 1e6, window)
+
+
+def _next_opening(ts, zi, days, window):
+    """Smallest instant ≥ ts that passes the days gate and window, or None."""
+    if _allowed(ts, zi, days, window):
+        return ts
+    d0 = _to_wall(ts, zi).date()
+    if window is None:
+        segments = [(0, None)]
+    elif window[0] < window[1]:
+        segments = [(window[0], window[1])]
+    else:
+        segments = [(0, window[1]), (window[0], None)]
+    for i in range(9):
+        d = d0 + timedelta(days=i)
+        if days is not None and d.weekday() not in days:
+            continue
+        for a, b in segments:
+            seg_start = _from_wall(d, a // 3600, a % 3600 // 60, zi)
+            cand = max(ts, seg_start)
+            if b is not None and cand > _from_wall(d, b // 3600, b % 3600 // 60, zi):
+                continue
+            if _allowed(cand, zi, days, window):
+                return cand
+    return None
+
+
+def _next_interval(sch, after, zi, start, until, days, window):
+    kind, n = _parse_every(sch["every"])
+    if start is None:
+        # Relative: each fire counts from the previous one (or the anchor).
+        if kind == "s":
+            cand = after + n
+        else:
+            cand = _wall_ts(_add_months(_naive_wall(after, zi), n), zi)
+        res = _next_opening(cand, zi, days, window)
+        if res is None or (until is not None and res > until):
+            return None
+        return res
+
+    # Grid: slots at start, start+every, start+2*every, ...
+    if kind == "s":
+        def slot(k):
+            return start + k * n
+
+        def index_at_or_after(x):
+            return 0 if x <= start else math.ceil((x - start) / n)
+    else:
+        wall_start = _naive_wall(start, zi)
+
+        def slot(k):
+            return _wall_ts(_add_months(wall_start, k * n), zi)
+
+        def index_at_or_after(x):
+            if x <= start:
+                return 0
+            w = _to_wall(x, zi)
+            k = max(0, ((w.year - wall_start.year) * 12 + w.month - wall_start.month) // n - 1)
+            while slot(k) < x:
+                k += 1
+            return k
+
+    k = index_at_or_after(after)
+    if slot(k) <= after:
+        k += 1
+    for _ in range(_MAX_GRID_STEPS):
+        s = slot(k)
+        if until is not None and s > until:
+            return None
+        if _allowed(s, zi, days, window):
+            return s
+        opening = _next_opening(s, zi, days, window)
+        if opening is None:
+            return None
+        k = max(k + 1, index_at_or_after(opening))
+    return None
+
+
+def next_fire(sch, after, box_zone=None):
+    """First slot strictly after epoch `after`, or None if the schedule never
+    fires again. Ignores `count` (the caller tracks runs). Precondition:
+    schedule_error(sch) is None and sch["type"] is a repeating type."""
+    zi = _zone_of(sch, box_zone)
+    start = _parse_iso(sch["start"], zi) if sch.get("start") is not None else None
+    until = _parse_iso(sch["until"], zi) if sch.get("until") is not None else None
+    days = _parse_days(sch.get("days"))
+    if sch["type"] == "interval":
+        window = _parse_window(sch["window"]) if sch.get("window") is not None else None
+        return _next_interval(sch, after, zi, start, until, days, window)
+    return _next_wall(sch, after, zi, start, until, days)
+
+
+def decide(sch, last, anchored, runs, now, box_zone=None):
+    """Scheduler state machine for a valid repeating schedule.
+    Returns "anchor" (first sight: record now, don't fire), "fire", or None."""
+    if last is None and anchored is None:
+        return "anchor"
+    count = _parse_positive_int(sch.get("count"))
+    if count is not None and runs >= count:
+        return None
+    nf = next_fire(sch, last if last is not None else anchored, box_zone)
+    return "fire" if nf is not None and nf <= now else None
 
 
 def _load_specs(wdir):
@@ -338,7 +793,20 @@ def _load_specs_scheduled_agents(scheduled_agents_root):
         if not spec.get("enabled", True):
             continue
         slug = os.path.basename(os.path.dirname(p))
-        spec["_key"] = spec.get("name") or slug
+        # State is keyed by the slug (folder name) — what the app reads back for
+        # Last/Next, and unique where display names may not be. Older builds keyed
+        # it by `name`; carry such sentinels over once so nothing re-anchors.
+        name = spec.get("name")
+        if isinstance(name, str) and name and name != slug and "/" not in name:
+            state_dir = os.path.join(scheduled_agents_root, ".state")
+            for ext in (".last", ".anchored", ".runs", ".fired"):
+                old, new = os.path.join(state_dir, name + ext), os.path.join(state_dir, slug + ext)
+                if os.path.exists(old) and not os.path.exists(new):
+                    try:
+                        os.rename(old, new)
+                    except OSError:
+                        pass
+        spec["_key"] = slug
         spec["_slug"] = slug
         spec["_path"] = p          # nested path — used for one_shot stale-sentinel check and self-delete
         if spec.get("prompt") and spec.get("schedule"):
@@ -526,6 +994,18 @@ def main():
     def set_anchored(key, ts):
         open(anchored_path(key), "w").write(str(ts))
 
+    # `.runs` counts real fires; only consulted for schedules with `count`.
+    def get_runs(key):
+        try:
+            return int(open(os.path.join(state_dir, key + ".runs")).read().strip())
+        except Exception:
+            return 0
+
+    def set_runs(key, n):
+        open(os.path.join(state_dir, key + ".runs"), "w").write(str(n))
+
+    box_zone = local_zone()
+
     warned = set()          # (key, kind) — one-shot LOUD alert per issue per session
 
     # Orphan-monitor guard (added 2026-09-05 after Noelle ate a Nelly dispatch;
@@ -593,14 +1073,14 @@ def main():
                     warned.add((key, "tz_bad"))
                 continue
             sch_type = spec.get("schedule", {}).get("type")
-            if zi and sch_type == "interval":
-                # timezone on interval is a no-op (interval fires by elapsed seconds); note once.
-                if (key, "tz_on_interval") not in warned:
-                    print("⚠️ [wakeup-scheduler: %s] `timezone` has no effect on interval-type "
-                          "schedules (they fire by elapsed seconds); firing normally"
-                          % key, flush=True)
-                    warned.add((key, "tz_on_interval"))
-                zi = None
+            sch_err = schedule_error(spec["schedule"])
+            if sch_err:
+                # Malformed schedule: DO NOT FIRE. LOUD one-shot alert so the user notices.
+                if (key, "schedule_bad") not in warned:
+                    print("⚠️ [wakeup-scheduler: %s] %s — spec DOES NOT FIRE until fixed"
+                          % (key, sch_err), flush=True)
+                    warned.add((key, "schedule_bad"))
+                continue
             if sch_type == "one_shot":
                 # One-shot doesn't use the .last dance; a .fired sentinel governs it.
                 # Sentinel exists = already fired; skip. (Also written BEFORE unlink so a
@@ -665,7 +1145,7 @@ def main():
                                     s = json.load(open(p))
                                 except Exception:
                                     continue
-                                if (s.get("name") or os.path.basename(os.path.dirname(p))) == key:
+                                if os.path.basename(os.path.dirname(p)) == key:
                                     try:
                                         os.unlink(p)
                                         try: os.rmdir(os.path.dirname(p))
@@ -698,38 +1178,27 @@ def main():
                             print("⚠️ [wakeup-scheduler: %s] fired, but spec auto-delete failed: %s "
                                   "— .state/%s.fired sentinel prevents re-fire" % (key, e, key), flush=True)
                 continue
-            if sch_type == "interval":
-                mo_err = _months_err(spec["schedule"].get("every"))
-                if mo_err:
-                    if (key, "months_bad") not in warned:
-                        print("⚠️ [wakeup-scheduler: %s] %s — spec DOES NOT FIRE until fixed"
-                              % (key, mo_err), flush=True)
-                        warned.add((key, "months_bad"))
-                    continue
-            if sch_type == "yearly":
-                y_err = _yearly_err(spec["schedule"])
-                if y_err:
-                    if (key, "yearly_bad") not in warned:
-                        print("⚠️ [wakeup-scheduler: %s] %s — spec DOES NOT FIRE until fixed"
-                              % (key, y_err), flush=True)
-                        warned.add((key, "yearly_bad"))
-                    continue
             last = get_last(key)
             anchored = get_anchored(key)
-            if last is None and anchored is None:  # first sight -> anchor, don't fire
-                set_anchored(key, now_ts)
+            try:
+                action = decide(spec["schedule"], last, anchored, get_runs(key), now_ts, box_zone)
+            except Exception as e:
+                # Engine bug or a spec shape validation missed: never take the loop down.
+                if (key, "engine_error") not in warned:
+                    print("⚠️ [wakeup-scheduler: %s] schedule engine error %s: %s — spec skipped"
+                          % (key, type(e).__name__, e), flush=True)
+                    warned.add((key, "engine_error"))
                 continue
-            # Due-check reference: real last-fire if we have one, else the
-            # first-sight anchor. Interval math (`now >= reference + every`)
-            # is unchanged — only the sentinel source moves.
-            reference = last if last is not None else anchored
-            if _due(spec, reference, now_ts, zi):
+            if action == "anchor":  # first sight -> anchor, don't fire
+                set_anchored(key, now_ts)
+            elif action == "fire":
                 utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
                 if is_scheduled_agents_mode:
                     _drop_spawn_request(spec, state_dir)
                 else:
                     _emit_wake(key, utc, spec["instruction"], state_dir)
                 set_last(key, now_ts)
+                set_runs(key, get_runs(key) + 1)
         time.sleep(POLL)
 
 

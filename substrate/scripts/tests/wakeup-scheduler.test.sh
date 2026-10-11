@@ -8,8 +8,10 @@
 #   T-G3 — per-identity mode unchanged — regression guard for D-07
 #   T-G4 — orphan-check disabled in scheduled-agents mode; active in per-identity mode
 #   T-G5 — one-shot spec self-deletes in scheduled-agents mode + sentinel written
-#   T-G9 — yearly schedule due math + date validation
-#   T-G10 — interval in calendar months (Nmo)
+#   T-G9 — malformed schedules refused loudly, never anchored
+#   T-G10 — `count` stops firing in the real process
+#   T-G11 — schedule engine suite (test_schedule_engine.py)
+#   T-G12 — scheduled-agents state keyed by slug, name-keyed state migrated
 #
 # Exits 0 on all-pass; exits 1 on any failure with a diagnostic naming the
 # failing test.
@@ -605,45 +607,10 @@ print('OK' if 'users' not in d else 'FAIL: users key present when spec has no us
 # ============================================================
 # MAIN
 # ============================================================
-# SA-G9: yearly schedule type — _due slot math + _yearly_err validation
-test_SA_G9_yearly_due_and_validation() {
-  local unit_result
-  unit_result=$(python3 -c "
-import importlib.util
-from datetime import datetime, timezone
-spec = importlib.util.spec_from_file_location('ws', '$PY_SCRIPT')
-m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
-utc = timezone.utc
-def ts(*a): return datetime(*a, tzinfo=utc).timestamp()
-sp = {'schedule': {'type': 'yearly', 'date': '08-03', 'at': '09:00'}}
-errors = []
-def chk(label, got, want):
-    if got != want: errors.append('%s: got %r wanted %r' % (label, got, want))
-# Not yet reached this year; last fire was last year's slot -> not due.
-chk('before-slot', m._due(sp, ts(2026,8,3,9,0), ts(2027,8,3,8,59), utc), False)
-# Slot reached, last fire was last year's -> due.
-chk('at-slot', m._due(sp, ts(2026,8,3,9,0), ts(2027,8,3,9,0), utc), True)
-# Already fired this year's slot -> not due again later in the year.
-chk('after-fired', m._due(sp, ts(2027,8,3,9,0,30), ts(2027,12,31,23,0), utc), False)
-# Box was down at the slot; first poll after -> one catch-up fire.
-chk('catch-up', m._due(sp, ts(2026,8,3,9,0), ts(2027,9,1,0,0), utc), True)
-# Anchored early in the year (never fired) -> due once slot arrives.
-chk('anchored', m._due(sp, ts(2027,1,10,0,0), ts(2027,8,3,9,1), utc), True)
-# Leap-day 'now' must not crash the slot math.
-chk('leap-now', m._due(sp, ts(2027,8,3,9,0,30), ts(2028,2,29,12,0), utc), False)
-chk('ok', m._yearly_err(sp['schedule']), None)
-for bad in ({'date': '02-29', 'at': '09:00'}, {'date': '13-01', 'at': '09:00'},
-            {'date': '04-31', 'at': '09:00'}, {'date': '8-3', 'at': '09:00'},
-            {'at': '09:00'}, {'date': '08-03'}):
-    if m._yearly_err(bad) is None: errors.append('accepted bad %r' % bad)
-print('FAIL: ' + '; '.join(errors) if errors else 'OK')
-" 2>&1)
-  if [ "$unit_result" != "OK" ]; then
-    fail "SA-G9 unit: $unit_result"
-    return
-  fi
-
-  # End-to-end — malformed yearly spec emits a LOUD alert and does not anchor.
+# SA-G9: malformed schedules are refused LOUDLY and never anchor. The engine's
+# own logic is covered exhaustively by test_schedule_engine.py; this checks the
+# real process wiring.
+test_SA_G9_malformed_schedules_refused() {
   local ident_dir home_dir out_log
   ident_dir=$(make_tmpdir)
   home_dir=$(make_tmpdir)
@@ -654,61 +621,84 @@ print('FAIL: ' + '; '.join(errors) if errors else 'OK')
  "schedule": {"type": "yearly", "date": "02-29", "at": "09:00"},
  "instruction": "never"}
 JSON
-  HOME="$home_dir" timeout 3 python3 "$PY_SCRIPT" "$ident_dir" >"$out_log" 2>/dev/null || true
-  if ! grep -q "bad-yearly.*02-29 is not supported.*DOES NOT FIRE" "$out_log"; then
-    fail "SA-G9: expected loud 02-29 alert, got: $(cat "$out_log")"
-  fi
-  assert_file_absent "$ident_dir/wakeups/.state/bad-yearly.anchored" "SA-G9 bad spec must not anchor"
-}
-
-# ============================================================
-# SA-G10: interval in calendar months ("Nmo") — _interval_next math + validation
-test_SA_G10_interval_months() {
-  local unit_result
-  unit_result=$(python3 -c "
-import importlib.util
-from datetime import datetime
-spec = importlib.util.spec_from_file_location('ws', '$PY_SCRIPT')
-m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
-def ts(*a): return datetime(*a).timestamp()   # box-local, same as the scheduler
-errors = []
-def chk(label, got, want):
-    if got != want: errors.append('%s: got %r wanted %r' % (label, got, want))
-chk('11mo', m._interval_next(ts(2026,9,3,9,0), '11mo'), ts(2027,8,3,9,0))
-chk('year-wrap', m._interval_next(ts(2026,11,15), '3mo'), ts(2027,2,15))
-chk('clamp-31st', m._interval_next(ts(2027,1,31,12,0), '1mo'), ts(2027,2,28,12,0))
-chk('leap-clamp', m._interval_next(ts(2027,1,31), '13mo'), ts(2028,2,29))
-chk('minutes-unchanged', m._interval_next(1000.0, '30m'), 1000.0 + 1800)
-sp = {'schedule': {'type': 'interval', 'every': '11mo'}}
-chk('due-before', m._due(sp, ts(2026,9,3,9,0), ts(2027,8,3,8,59)), False)
-chk('due-at', m._due(sp, ts(2026,9,3,9,0), ts(2027,8,3,9,0)), True)
-chk('ok', m._months_err('11mo'), None)
-chk('not-months', m._months_err('30m'), None)
-for bad in ('0mo', 'xmo', 'mo', '1.5mo', '-2mo'):
-    if m._months_err(bad) is None: errors.append('accepted bad %r' % bad)
-print('FAIL: ' + '; '.join(errors) if errors else 'OK')
-" 2>&1)
-  if [ "$unit_result" != "OK" ]; then
-    fail "SA-G10 unit: $unit_result"
-    return
-  fi
-
-  # End-to-end — malformed months spec emits a LOUD alert and does not anchor.
-  local ident_dir home_dir out_log
-  ident_dir=$(make_tmpdir)
-  home_dir=$(make_tmpdir)
-  out_log=$(make_tmpdir)/out.log
-  mkdir -p "$ident_dir/wakeups"
   cat > "$ident_dir/wakeups/bad-months.json" <<'JSON'
 {"name": "bad-months", "enabled": true,
  "schedule": {"type": "interval", "every": "0mo"},
  "instruction": "never"}
 JSON
+  cat > "$ident_dir/wakeups/bad-monthly.json" <<'JSON'
+{"name": "bad-monthly", "enabled": true,
+ "schedule": {"type": "monthly", "day": 1, "at": "09:00", "every": 3},
+ "instruction": "never"}
+JSON
   HOME="$home_dir" timeout 3 python3 "$PY_SCRIPT" "$ident_dir" >"$out_log" 2>/dev/null || true
-  if ! grep -q "bad-months.*positive whole number of months.*DOES NOT FIRE" "$out_log"; then
-    fail "SA-G10: expected loud months alert, got: $(cat "$out_log")"
+  grep -q "bad-yearly.*02-29 is not supported.*DOES NOT FIRE" "$out_log" \
+    || fail "SA-G9: expected loud 02-29 alert, got: $(cat "$out_log")"
+  grep -q "bad-months.*every.*DOES NOT FIRE" "$out_log" \
+    || fail "SA-G9: expected loud months alert, got: $(cat "$out_log")"
+  grep -q "bad-monthly.*needs a .start.*DOES NOT FIRE" "$out_log" \
+    || fail "SA-G9: expected loud every-needs-start alert, got: $(cat "$out_log")"
+  local k
+  for k in bad-yearly bad-months bad-monthly; do
+    assert_file_absent "$ident_dir/wakeups/.state/$k.anchored" "SA-G9 $k must not anchor"
+  done
+}
+
+# ============================================================
+# SA-G10: `count` stops a schedule in the real process. Interval 1s with a 1s
+# poll: first poll anchors, then exactly `count` fires, then silence.
+test_SA_G10_count_stops_firing() {
+  local ident_dir home_dir out_log
+  ident_dir=$(make_tmpdir)
+  home_dir=$(make_tmpdir)
+  out_log=$(make_tmpdir)/out.log
+  mkdir -p "$ident_dir/wakeups"
+  cat > "$ident_dir/wakeups/twice.json" <<'JSON'
+{"name": "twice", "enabled": true,
+ "schedule": {"type": "interval", "every": "1s", "count": 2},
+ "instruction": "tick"}
+JSON
+  HOME="$home_dir" WAKEUP_POLL_SEC=1 timeout 7 python3 "$PY_SCRIPT" "$ident_dir" >"$out_log" 2>/dev/null || true
+  local fires
+  fires=$(grep -c "⏰ \[scheduled: twice" "$out_log")
+  [ "$fires" -eq 2 ] || fail "SA-G10: expected exactly 2 fires, got $fires: $(cat "$out_log")"
+  local runs
+  runs=$(cat "$ident_dir/wakeups/.state/twice.runs" 2>/dev/null)
+  [ "$runs" = "2" ] || fail "SA-G10: expected .runs=2, got '$runs'"
+}
+
+# ============================================================
+# SA-G11: the engine's full test suite (validation table, hand-checked cases,
+# differential vs brute-force oracle, poll-loop simulation).
+test_SA_G11_engine_suite() {
+  local out
+  if ! out=$(cd "$SCRIPT_DIR" && python3 -m unittest test_schedule_engine 2>&1); then
+    fail "SA-G11: engine suite failed: $(printf '%s' "$out" | tail -30)"
   fi
-  assert_file_absent "$ident_dir/wakeups/.state/bad-months.anchored" "SA-G10 bad spec must not anchor"
+}
+
+# ============================================================
+# SA-G12: scheduled-agents state is keyed by slug (what the app reads back),
+# and sentinels an older build wrote under the display `name` carry over once.
+test_SA_G12_scheduled_agents_state_keyed_by_slug() {
+  local root home_dir
+  root=$(make_tmpdir)
+  home_dir=$(make_tmpdir)
+  mkdir -p "$root/morning-triage" "$root/.state"
+  cat > "$root/morning-triage/scheduled-agent.json" <<'JSON'
+{"name": "Morning Triage", "enabled": true,
+ "schedule": {"type": "daily", "at": "09:00"},
+ "prompt": "triage", "roles": ["coordinator"]}
+JSON
+  # Fired a moment ago, so no slot is due and the content must survive untouched.
+  local stamp
+  stamp="$(date +%s).5"
+  printf '%s' "$stamp" > "$root/.state/Morning Triage.last"
+  HOME="$home_dir" timeout 3 python3 "$PY_SCRIPT" "$root" --mode scheduled-agents >/dev/null 2>&1 || true
+  assert_file_exists "$root/.state/morning-triage.last" "SA-G12: name-keyed .last should move to the slug key"
+  assert_file_absent "$root/.state/Morning Triage.last" "SA-G12: old name-keyed .last should be gone"
+  assert_file_absent "$root/.state/morning-triage.anchored" "SA-G12: a migrated .last means no re-anchor"
+  [ "$(cat "$root/.state/morning-triage.last")" = "$stamp" ] || fail "SA-G12: .last content changed"
 }
 
 # ============================================================
@@ -724,8 +714,10 @@ run_test test_SA_G5_one_shot_scheduled_agents_mode
 run_test test_SA_G6_prettify_name_de_slugs_task_prefix
 run_test test_SA_G7_users_propagation
 run_test test_SA_G8_users_absent_absent_in_body
-run_test test_SA_G9_yearly_due_and_validation
-run_test test_SA_G10_interval_months
+run_test test_SA_G9_malformed_schedules_refused
+run_test test_SA_G10_count_stops_firing
+run_test test_SA_G11_engine_suite
+run_test test_SA_G12_scheduled_agents_state_keyed_by_slug
 
 printf '\n===============================\n'
 printf 'PASS: %s  FAIL: %s\n' "$PASS" "$FAIL"

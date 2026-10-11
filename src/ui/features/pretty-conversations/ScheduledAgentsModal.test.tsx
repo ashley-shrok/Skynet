@@ -981,3 +981,79 @@ describe("ScheduledAgentsModal: Run now", () => {
     ).toBeNull();
   });
 });
+
+describe("ScheduledAgentsModal: schedule format v2", () => {
+  async function openEdit(schedule: Record<string, unknown>): Promise<void> {
+    listScheduledAgentsMock.mockResolvedValueOnce([makeRow({ schedule })]);
+    listScheduledAgentsMock.mockResolvedValue([]);
+    updateScheduledAgentMock.mockResolvedValueOnce({ slug: "morning-triage", host: 1, spec: {} });
+    listRolesForHostMock.mockResolvedValue([{ name: "assistant", description: "" }]);
+    render(<ScheduledAgentsModal open={true} onOpenChange={vi.fn()} hostTree={ONE_HOST_TREE} />);
+    fireEvent.click(await screen.findByTestId("scheduled-agents-modal-row-morning-triage"));
+    await screen.findByTestId("scheduled-agents-modal-form-prompt");
+  }
+
+  async function savedSchedule(): Promise<Record<string, unknown>> {
+    fireEvent.click(screen.getByTestId("scheduled-agents-modal-form-save"));
+    await waitFor(() => expect(updateScheduledAgentMock).toHaveBeenCalledTimes(1));
+    return updateScheduledAgentMock.mock.calls[0][2].schedule as Record<string, unknown>;
+  }
+
+  it("T-19: editing a v2 spec without touching the schedule saves it unchanged", async () => {
+    const schedule = {
+      type: "monthly",
+      nth: "last",
+      weekday: "fri",
+      at: ["09:00", "16:00"],
+      every: 3,
+      start: "2027-01-01T00:00:00",
+      until: "2030-01-01T00:00:00",
+      timezone: "Europe/London",
+      days: ["mon", "fri"],
+    };
+    await openEdit(schedule);
+    expect(screen.getByTestId("scheduled-agents-modal-form-schedule-kind-monthly")).toBeInTheDocument();
+    expect((screen.getByTestId("scheduled-agents-modal-form-schedule-monthly-nth") as HTMLSelectElement).value).toBe("last");
+    expect(await savedSchedule()).toEqual(schedule);
+  });
+
+  it("T-19b: interval keeps its hand-set timezone and gains a window from the form", async () => {
+    await openEdit({ type: "interval", every: "30m", timezone: "Europe/London" });
+    fireEvent.click(screen.getByTestId("scheduled-agents-modal-form-schedule-window-toggle"));
+    expect(await savedSchedule()).toEqual({
+      type: "interval",
+      every: "30m",
+      window: { from: "09:00", to: "17:00" },
+      timezone: "Europe/London",
+    });
+  });
+
+  it("T-19c: daily → add a second time + end after 5 runs", async () => {
+    await openEdit({ type: "daily", at: "09:00", timezone: "Europe/London" });
+    fireEvent.click(screen.getByTestId("scheduled-agents-modal-form-schedule-daily-at-add"));
+    fireEvent.change(screen.getByTestId("scheduled-agents-modal-form-schedule-daily-at-2"), {
+      target: { value: "17:00" },
+    });
+    fireEvent.change(screen.getByTestId("scheduled-agents-modal-form-schedule-ends"), { target: { value: "count" } });
+    fireEvent.change(screen.getByTestId("scheduled-agents-modal-form-schedule-count"), { target: { value: "5" } });
+    expect(await savedSchedule()).toEqual({
+      type: "daily",
+      at: ["09:00", "17:00"],
+      timezone: "Europe/London",
+      count: 5,
+    });
+  });
+
+  it("T-19d: switching to Monthly every 2 months writes a start", async () => {
+    await openEdit({ type: "daily", at: "09:00", timezone: "Europe/London" });
+    fireEvent.click(screen.getByTestId("scheduled-agents-modal-form-schedule-kind-monthly"));
+    fireEvent.change(screen.getByTestId("scheduled-agents-modal-form-schedule-monthly-dom"), {
+      target: { value: "last" },
+    });
+    fireEvent.change(screen.getByTestId("scheduled-agents-modal-form-schedule-every"), { target: { value: "2" } });
+    expect(screen.getByTestId("scheduled-agents-modal-form-schedule-start")).toBeInTheDocument();
+    const saved = await savedSchedule();
+    expect(saved).toMatchObject({ type: "monthly", day: "last", at: "09:00", every: 2, timezone: "Europe/London" });
+    expect(Number.isNaN(new Date(saved.start as string).getTime())).toBe(false);
+  });
+});

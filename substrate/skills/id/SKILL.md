@@ -809,7 +809,9 @@ crown, then gear.
 - **🕐 Clock — scheduled tasks.** Opens the modal that lists all
   existing scheduled tasks (edit or delete inline) plus a **"new
   scheduled task"** button that asks for name, prompt, one or more roles,
-  and the schedule (daily / weekly / yearly / interval / one-shot).
+  and the schedule (daily / weekly / monthly / yearly / interval /
+  one-shot — with multiple times per day, every-N weeks/months, an
+  interval time window and start, and an end date or run count).
   *Agent-side:* see § Scheduled tasks. **User-gated.**
 
 - **🎭 Drama masks — roles.** Opens a modal listing every role the
@@ -1331,12 +1333,28 @@ One JSON file per wake-up at
   "schedule": { "type": "interval", "every": "2h" },   // OR one of:
   //           { "type": "daily",    "at": "09:00" }                                (box-local time)
   //           { "type": "weekly",   "day": "mon", "at": "09:00" }
+  //           { "type": "monthly",  "day": 1, "at": "09:00" }                      (day 1–31 or "last")
+  //           { "type": "monthly",  "nth": "last", "weekday": "fri", "at": "16:00" } (nth 1–4 or "last")
   //           { "type": "yearly",   "date": "08-03", "at": "09:00" }               (MM-DD every year; 02-29 rejected)
   //           { "type": "one_shot", "at": "2026-08-15T09:00:00-04:00" }            (fires once, spec self-deletes)
-  //   optional on daily/weekly/yearly/one_shot: "timezone": "America/New_York"  (IANA name)
-  //     pins `at` to that zone year-round (DST-safe); absent = box-local.
-  //     Malformed tz name = LOUD one-shot alert + spec DOES NOT FIRE.
-  //     Timezone on interval-type = one-shot note (no-op; interval fires by elapsed seconds).
+  //   daily/weekly/monthly/yearly: "at" may be a list of 1–24 distinct times — ["09:00", "17:00"].
+  //   weekly/monthly: "every": N  (every N weeks/months, default 1); N > 1 REQUIRES "start",
+  //     and the cadence counts from start's week (Monday-based) / month.
+  //   monthly "day" past the month's end fires on its last day (31 → Apr 30).
+  //   interval: "window": {"from": "09:00", "to": "17:00"} fires only inside that time of day
+  //     (both ends inclusive; from > to wraps midnight). "start" puts fires on a fixed grid
+  //     (start, start+every, …) instead of counting from the previous fire.
+  //   optional on every repeating kind (not one_shot):
+  //     "days": ["mon", …]   weekday gate — a slot fires only on listed weekdays
+  //     "start": ISO datetime   nothing fires before it
+  //     "until": ISO datetime   nothing fires after it
+  //     "count": N              stop after N fires
+  //     (ISO = Z, ±HH:MM offset, or naive = in `timezone` / box-local)
+  //   optional on all kinds: "timezone": "America/New_York"  (IANA name)
+  //     pins wall-clock times (at / window / days / naive start+until) to that zone (DST-safe);
+  //     absent = box-local. Malformed tz name = LOUD one-shot alert + spec DOES NOT FIRE.
+  //     DST: a time skipped by spring-forward fires the moment the clock jumps (02:30 → 03:00);
+  //     a time repeated by fall-back fires once, at its first occurrence.
   //     Timezone on one_shot whose `at` already has an offset/Z = one-shot note (no-op; the offset governs).
   "instruction": "Check the work Kanban for cards assigned to you and triage them."
 }
@@ -1399,7 +1417,9 @@ The user creates and manages scheduled tasks via the **clock icon** in
 the sidebar footer, beside the gear. The modal lists all
 existing scheduled tasks (edit or delete inline) and has a "new
 scheduled task" button which asks for name, prompt, one or more roles,
-and the schedule (daily / weekly / yearly / interval / one-shot). Each row shows
+and the schedule (daily / weekly / monthly / yearly / interval / one-shot, plus
+multiple times, every-N weeks/months, interval window/start, and ends after a
+date or N runs). Each row shows
 the humanized schedule and, beneath it, inline **Last / Next** run times
 (e.g. `Every 2h · Last: 3h ago · Next: in 27m`) so the user can tell at
 a glance when the agent last fired and when it will fire again — hover
@@ -1423,7 +1443,8 @@ names predate the "scheduled tasks" name in the app — same thing):
 }
 ```
 
-Schedule kinds (interval / daily / weekly / yearly / one_shot) and firing semantics
+Schedule kinds (interval / daily / weekly / monthly / yearly / one_shot, with the
+same options) and firing semantics
 (first-sight anchor, one catch-up on a missed slot, one-shot self-delete)
 mirror the wake-ups section above — same underlying scheduler. The
 difference is what happens on fire.

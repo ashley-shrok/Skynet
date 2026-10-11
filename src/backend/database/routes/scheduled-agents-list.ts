@@ -117,8 +117,8 @@ export type ScheduledAgentListItem = {
   /**
    * Computed next-fire epoch (seconds). Derived at list-assembly time from
    * `schedule` + `lastFiredAt` by `computeNextFireAt` — the TS port of the
-   * Python scheduler's `_due()` logic. Null for malformed schedules, past
-   * one_shots, or when a days-filter prunes every candidate within 14 days.
+   * Python scheduler's engine. Null for malformed schedules, past one_shots,
+   * used-up `count`s, and schedules that never fire again.
    */
   nextFireAt: number | null;
   /**
@@ -206,7 +206,8 @@ function specToRow(
  * Semantics (2026-10-05 sentinel split):
  *   - `lastFiredAt` → strictly from `.last` — null when the spec has never
  *     actually fired. UI omits the "Last" chip in that case.
- *   - `nextFireAt` reference → `.last ?? .anchored`. This matches the
+ *   - `nextFireAt` reference → `.last ?? .anchored`, and `.runs` for
+ *     schedules with a `count`. This matches the
  *     Python scheduler's own due-check precedence so the modal's "Next"
  *     stays accurate for brand-new (anchored, never fired) specs.
  */
@@ -214,6 +215,7 @@ function attachFireTimestamps(
   rows: ScheduledAgentListItem[],
   lastBySlug: Map<string, number>,
   anchoredBySlug: Map<string, number>,
+  runsBySlug: Map<string, number>,
   nowSecs: number,
 ): void {
   for (const row of rows) {
@@ -222,7 +224,8 @@ function attachFireTimestamps(
     row.lastFiredAt = typeof last === "number" && Number.isFinite(last) ? last : null;
     const reference = row.lastFiredAt ??
       (typeof anchored === "number" && Number.isFinite(anchored) ? anchored : null);
-    row.nextFireAt = computeNextFireAt(row.schedule, reference, nowSecs);
+    // `.runs` counts real fires; a schedule whose `count` is used up has no Next.
+    row.nextFireAt = computeNextFireAt(row.schedule, reference, nowSecs, runsBySlug.get(row.slug) ?? 0);
   }
 }
 
@@ -364,6 +367,7 @@ async function readScheduledAgentsLocal(
   // usefully). Both sentinels are read in one readdir pass.
   const lastBySlug = new Map<string, number>();
   const anchoredBySlug = new Map<string, number>();
+  const runsBySlug = new Map<string, number>();
   const stateDir = path.join(scheduledAgentsDir, ".state");
   try {
     const stateEntries = await fs.readdir(stateDir);
@@ -377,6 +381,9 @@ async function readScheduledAgentsLocal(
         } else if (fname.endsWith(".anchored")) {
           slug = fname.slice(0, -".anchored".length);
           target = anchoredBySlug;
+        } else if (fname.endsWith(".runs")) {
+          slug = fname.slice(0, -".runs".length);
+          target = runsBySlug;
         } else {
           return;
         }
@@ -400,7 +407,7 @@ async function readScheduledAgentsLocal(
       });
     }
   }
-  attachFireTimestamps(out, lastBySlug, anchoredBySlug, Math.floor(Date.now() / 1000));
+  attachFireTimestamps(out, lastBySlug, anchoredBySlug, runsBySlug, Math.floor(Date.now() / 1000));
   return out;
 }
 
@@ -435,7 +442,9 @@ async function readScheduledAgentsRemote(
     'echo "===LASTS==="; ' +
     'for f in .state/*.last; do slug="$(basename "$f" .last)"; echo "${slug}=$(cat "$f" 2>/dev/null)"; done; ' +
     'echo "===ANCHORS==="; ' +
-    'for f in .state/*.anchored; do slug="$(basename "$f" .anchored)"; echo "${slug}=$(cat "$f" 2>/dev/null)"; done';
+    'for f in .state/*.anchored; do slug="$(basename "$f" .anchored)"; echo "${slug}=$(cat "$f" 2>/dev/null)"; done; ' +
+    'echo "===RUNS==="; ' +
+    'for f in .state/*.runs; do slug="$(basename "$f" .runs)"; echo "${slug}=$(cat "$f" 2>/dev/null)"; done';
   let stdout: string;
   try {
     stdout = await execWithTimeout(conn, cmd);
@@ -456,6 +465,7 @@ async function readScheduledAgentsRemote(
   // and anchoredBySlug stays empty.
   const lastsIdx = stdout.indexOf("===LASTS===");
   const anchorsIdx = stdout.indexOf("===ANCHORS===");
+  const runsIdx = stdout.indexOf("===RUNS===");
   const slugsSection = lastsIdx >= 0 ? stdout.slice(0, lastsIdx) : stdout;
   const lastsSection =
     lastsIdx >= 0
@@ -465,8 +475,9 @@ async function readScheduledAgentsRemote(
         )
       : "";
   const anchorsSection = anchorsIdx >= 0
-    ? stdout.slice(anchorsIdx + "===ANCHORS===".length)
+    ? stdout.slice(anchorsIdx + "===ANCHORS===".length, runsIdx >= 0 ? runsIdx : undefined)
     : "";
+  const runsSection = runsIdx >= 0 ? stdout.slice(runsIdx + "===RUNS===".length) : "";
 
   const parseKvSection = (section: string): Map<string, number> => {
     const out = new Map<string, number>();
@@ -486,6 +497,7 @@ async function readScheduledAgentsRemote(
 
   const lastBySlug = parseKvSection(lastsSection);
   const anchoredBySlug = parseKvSection(anchorsSection);
+  const runsBySlug = parseKvSection(runsSection);
 
   const chunks = slugsSection.split("===SLUG:");
   const out: ScheduledAgentListItem[] = [];
@@ -522,7 +534,7 @@ async function readScheduledAgentsRemote(
     }
   }
   await attachColorHuesForHost(conn, out, hostId, hostName);
-  attachFireTimestamps(out, lastBySlug, anchoredBySlug, Math.floor(Date.now() / 1000));
+  attachFireTimestamps(out, lastBySlug, anchoredBySlug, runsBySlug, Math.floor(Date.now() / 1000));
   return out;
 }
 

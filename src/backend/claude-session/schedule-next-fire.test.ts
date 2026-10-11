@@ -141,20 +141,9 @@ describe("computeNextFireAt — days filter", () => {
     expect(dow).toBeLessThanOrEqual(5);
   });
 
-  it("returns null when gate matches nothing within 14 days", () => {
-    // Gate with an invalid day string that normalizes to an empty set
-    // behaves as "no gate" — but a well-formed gate that never matches
-    // is a pathological case. Simulate by using an empty-after-filter
-    // gate: pass empty-looking strings; normalizeDays will emit an empty
-    // set which we treat as "no gate" (fires every day), so this test
-    // just confirms the empty-gate branch doesn't crash.
+  it("returns null for a days gate with an unknown weekday (the scheduler refuses the spec)", () => {
     const now = 1_700_000_000;
-    const next = computeNextFireAt(
-      { type: "interval", every: "1h", days: ["xxx"] },
-      now,
-      now,
-    );
-    expect(next).toBe(now + 3600); // gate is empty-after-filter → inactive
+    expect(computeNextFireAt({ type: "interval", every: "1h", days: ["xxx"] }, now, now)).toBeNull();
   });
 });
 

@@ -1138,26 +1138,35 @@ describe("buildRunNowSpawnRequest (helper)", () => {
   });
 });
 
-describe("validateScheduledAgentSpec — yearly", () => {
+describe("validateScheduledAgentSpec — schedule kinds (delegates to the engine's scheduleError)", () => {
   const base = { name: "token-renewal", prompt: "renew it" };
   const withSchedule = (schedule: Record<string, unknown>) => ({ ...base, schedule });
 
-  it("accepts MM-DD + at", () => {
-    expect(validateScheduledAgentSpec(withSchedule({ type: "yearly", date: "08-03", at: "09:00" }))).toBeNull();
+  it("accepts every kind and option", () => {
+    for (const schedule of [
+      { type: "yearly", date: "08-03", at: "09:00" },
+      { type: "interval", every: "11mo", start: "2026-09-03T09:00:00-04:00" },
+      { type: "interval", every: "30m", window: { from: "09:00", to: "17:00" }, days: ["mon", "fri"] },
+      { type: "daily", at: ["09:00", "17:00"], until: "2027-01-01T00:00:00Z", count: 5 },
+      { type: "weekly", day: "fri", at: "09:00", every: 2, start: "2026-10-16T00:00:00" },
+      { type: "monthly", day: "last", at: "17:00" },
+      { type: "monthly", nth: "last", weekday: "fri", at: "16:00", every: 3, start: "2027-01-01" },
+    ]) {
+      expect(validateScheduledAgentSpec(withSchedule(schedule)), JSON.stringify(schedule)).toBeNull();
+    }
   });
 
-  it("rejects 02-29", () => {
+  it("rejects what the scheduler would refuse, naming the field", () => {
     expect(validateScheduledAgentSpec(withSchedule({ type: "yearly", date: "02-29", at: "09:00" }))).toMatch(/02-29/);
+    expect(validateScheduledAgentSpec(withSchedule({ type: "yearly", date: "04-31", at: "09:00" }))).toMatch(/date/);
+    expect(validateScheduledAgentSpec(withSchedule({ type: "yearly", date: "08-03" }))).toMatch(/`at`/);
+    expect(validateScheduledAgentSpec(withSchedule({ type: "monthly", day: 1, at: "09:00", every: 3 }))).toMatch(/start/);
+    expect(validateScheduledAgentSpec(withSchedule({ type: "monthly", at: "09:00" }))).toMatch(/either/);
+    expect(validateScheduledAgentSpec(withSchedule({ type: "daily", at: "09:00", window: { from: "09:00", to: "17:00" } }))).toMatch(/window/);
+    expect(validateScheduledAgentSpec(withSchedule({ type: "hourly" }))).toMatch(/unknown schedule type/);
   });
 
-  it("rejects missing, malformed, or impossible dates", () => {
-    expect(validateScheduledAgentSpec(withSchedule({ type: "yearly", at: "09:00" }))).toMatch(/date is required/);
-    expect(validateScheduledAgentSpec(withSchedule({ type: "yearly", date: "8-3", at: "09:00" }))).toMatch(/date is required/);
-    expect(validateScheduledAgentSpec(withSchedule({ type: "yearly", date: "04-31", at: "09:00" }))).toMatch(/not a real calendar day/);
-    expect(validateScheduledAgentSpec(withSchedule({ type: "yearly", date: "13-01", at: "09:00" }))).toMatch(/not a real calendar day/);
-  });
-
-  it("requires at", () => {
-    expect(validateScheduledAgentSpec(withSchedule({ type: "yearly", date: "08-03" }))).toMatch(/at is required/);
+  it("still requires `at` on one_shot", () => {
+    expect(validateScheduledAgentSpec(withSchedule({ type: "one_shot" }))).toMatch(/at is required/);
   });
 });

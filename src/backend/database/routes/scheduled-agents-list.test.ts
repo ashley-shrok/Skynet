@@ -561,6 +561,31 @@ describe("GET /scheduled-agents (fleet-wide LIST)", () => {
     expect(Math.abs((body.items[0].nextFireAt as number) - expected)).toBeLessThan(60);
   });
 
+  it("Test 5c: LOCAL branch — a used-up `count` (from .runs) has no nextFireAt", async () => {
+    simpleDbSelectMock.mockResolvedValue([hostSkynet]);
+    isLocalHostIdMock.mockImplementation((hostId: number | undefined) => hostId === 1);
+    const lastEpoch = Math.floor(Date.now() / 1000) - 3 * 3600;
+    const spec = (count: number) =>
+      JSON.stringify({ name: "Thrice", enabled: true, prompt: "p", schedule: { type: "interval", every: "2h", count }, roles: ["r1"] });
+    let count = 3;
+    fsReaddirMock.mockImplementation(async (p: string) => {
+      if (p.endsWith("/.state")) return ["thrice.last", "thrice.runs"];
+      return ["thrice"];
+    });
+    fsReadFileMock.mockImplementation(async (p: string) => {
+      if (p.includes(".state/thrice.last")) return `${lastEpoch}\n`;
+      if (p.includes(".state/thrice.runs")) return "3\n";
+      if (p.endsWith("scheduled-agent.json")) return spec(count);
+      throw new Error("unexpected read: " + p);
+    });
+    const done = await httpRequest(server, { method: "GET", path: "/scheduled-agents" });
+    expect((done.body as { items: Array<Record<string, unknown>> }).items[0].nextFireAt).toBeNull();
+
+    count = 4; // one run left → Next is last fire + 2h (already due)
+    const more = await httpRequest(server, { method: "GET", path: "/scheduled-agents" });
+    expect((more.body as { items: Array<Record<string, unknown>> }).items[0].nextFireAt).toBe(lastEpoch + 7200);
+  });
+
   it("Test 6: REMOTE branch — delimiter one-liner cmd shape", async () => {
     simpleDbSelectMock.mockResolvedValue([hostA]);
     execCommandMock.mockResolvedValue(

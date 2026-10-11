@@ -269,6 +269,8 @@ CLAUDE_LAUNCH_FLAGS="${CLAUDE_MODEL:+--model $CLAUDE_MODEL }--dangerously-skip-p
 # state — self-healing in both directions (binary appears → next launch picks it up; binary
 # removed → next launch drops it).
 DESKTOP_MCP_BIN="$HOME/.local/bin/desktop-mcp"
+# The wake-up scheduler; snapshot_schedule_peek loads its schedule engine.
+WAKEUP_SCHEDULER_BIN="${AGENT_SUPERVISOR_WAKEUP_SCHEDULER:-$HOME/.local/bin/wakeup-scheduler}"
 DESKTOP_MCP_CONFIG="$HOME/.claude/desktop-mcp.json"
 ensure_desktop_mcp_config() {
   [ -x "$DESKTOP_MCP_BIN" ] || return 1
@@ -3123,9 +3125,10 @@ inbox_has_files() {
 # fires within FALSE_KILL_MINUTES. Empty string = not due. Per-identity errors go to stderr and
 # get logged as a metric each.
 #
-# Handles all five schedule types (interval, daily, weekly, yearly, one_shot) — same semantics as the
-# retired per-identity schedule_peek. Any exception in a single identity's block is caught and
-# recorded as an error metric for that identity; other identities in the batch are unaffected.
+# Every schedule kind is evaluated by the scheduler's own engine (loaded from
+# $WAKEUP_SCHEDULER_BIN), so the peek can't drift from what actually fires. Any
+# exception in a single identity's block is caught and recorded as an error
+# metric for that identity; other identities in the batch are unaffected.
 #
 # NOTE: wakeup-scheduler.py writes time.time() (a FLOAT) into .state/<slug>.last. Use float() to
 # parse (bug: 2026-08-07 pilot, int() on '1786106092.3482552' silently swallowed all wakes).
@@ -3144,90 +3147,25 @@ snapshot_schedule_peek() {
   [ "$input" = "[]" ] && return 0
   local py_out py_err
   py_err=$(mktemp)
-  py_out=$(python3 - "$FALSE_KILL_MINUTES" "$input" <<'PY' 2>"$py_err"
-import calendar, json, os, sys, time, glob
-from datetime import datetime, timedelta
-try:
-    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-except ImportError:
-    ZoneInfo = None
-    ZoneInfoNotFoundError = Exception
+  py_out=$(python3 - "$FALSE_KILL_MINUTES" "$input" "$WAKEUP_SCHEDULER_BIN" <<'PY' 2>"$py_err"
+import importlib.util, json, os, sys, time, glob
+from importlib.machinery import SourceFileLoader
 
 window_min = int(sys.argv[1])
 now = time.time()
 soon = now + window_min * 60
 
-_DOW = {"mon":0,"tue":1,"wed":2,"thu":3,"fri":4,"sat":5,"sun":6}
+# The schedule engine lives in the scheduler itself. Load the installed copy so
+# this peek and the scheduler can never disagree about when a spec fires.
+_loader = SourceFileLoader("wakeup_scheduler_engine", sys.argv[3])
+_mod_spec = importlib.util.spec_from_loader(_loader.name, _loader)
+eng = importlib.util.module_from_spec(_mod_spec)
+_loader.exec_module(eng)
+BOX_ZONE = eng.local_zone()
 
-def _zone(spec):
-    tz = spec.get('schedule', {}).get('timezone')
-    if not tz or ZoneInfo is None:
-        return None, None
-    try:
-        return ZoneInfo(str(tz)), None
-    except (ZoneInfoNotFoundError, ValueError) as e:
-        return None, f"tz-bad: {e}"
-
-def _dur_secs(s):
-    s = str(s).strip().lower()
-    unit = s[-1]
-    mult = {"s":1,"m":60,"h":3600,"d":86400}.get(unit)
-    if mult is None: return int(s) * 60
-    return int(s[:-1]) * mult
-
-def _interval_next(ref_ts, every):
-    # Mirrors wakeup-scheduler.py: `Nmo` = N calendar months (day clamped), else seconds.
-    s = str(every).strip().lower()
-    if s.endswith('mo'):
-        n = int(s[:-2])
-        dt = datetime.fromtimestamp(ref_ts)
-        y, m0 = divmod(dt.month - 1 + n, 12)
-        y += dt.year
-        last_day = calendar.monthrange(y, m0 + 1)[1]
-        return dt.replace(year=y, month=m0 + 1, day=min(dt.day, last_day)).timestamp()
-    return ref_ts + _dur_secs(s)
-
-def _days_ok(days, dt):
-    if not days: return True
-    day3 = ["mon","tue","wed","thu","fri","sat","sun"][dt.weekday()]
-    return day3 in [str(d).lower()[:3] for d in days]
-
-def _slot_at(ref, hhmm):
-    h, m = (int(x) for x in hhmm.split(":"))
-    return ref.replace(hour=h, minute=m, second=0, microsecond=0)
-
-def _parse_at_ts(at_str, zi):
-    if not isinstance(at_str, str) or not at_str: return None, "at-empty"
-    s = at_str.strip()
-    norm = s[:-1] + "+00:00" if s.endswith("Z") else s
-    try: dt = datetime.fromisoformat(norm)
-    except ValueError as e: return None, f"at-parse: {e}"
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=zi) if zi else dt.astimezone()
-    return dt.timestamp(), None
-
-def _next_slot_wall(sch, now_dt, days, span_days):
-    at = sch['at']
-    target = _DOW[str(sch['day']).lower()[:3]] if 'day' in sch else None
-    for off in range(span_days):
-        cand = now_dt + timedelta(days=off)
-        if target is not None and cand.weekday() != target: continue
-        cand = _slot_at(cand, at)
-        if not _days_ok(days, cand): continue
-        if cand.timestamp() > now: return cand.timestamp()
-    return None
-
-# Reference point for the next slot: `.last` (real fire) if present, else `.anchored`
-# (first-sight, never fired) — same fallback as wakeup-scheduler.py. Reading `.last` alone
-# meant a never-fired recurring spec could never wake a dormant identity (2026-10-10 miss:
-# sulfur's daily 09:30 slept through its first slot).
-def _read_last(state_dir, spec_path):
-    base = os.path.join(state_dir, os.path.basename(spec_path)[:-len('.json')])
-    for p in (base + '.last', base + '.anchored'):
-        if not os.path.exists(p): continue
-        try: return float(open(p).read().strip())
-        except Exception: continue
-    return None
+def _read_num(path, cast=float):
+    try: return cast(open(path).read().strip())
+    except Exception: return None
 
 def _peek_one(wakedir):
     """Returns (detail_or_empty_string, list_of_errors)."""
@@ -3237,62 +3175,30 @@ def _peek_one(wakedir):
         try:
             with open(spec_path) as f: spec = json.load(f)
             if not spec.get('enabled', True): continue
-            sch = spec.get('schedule', {})
+            sch = spec.get('schedule')
+            # Same load gate as wakeup-scheduler.py _load_specs.
+            if not sch or not spec.get('instruction'): continue
+            if eng.schedule_error(sch): continue          # the scheduler won't fire it either
+            # Same state key as the scheduler: `name`, else the file's basename.
+            key = spec.get('name') or os.path.basename(spec_path)[:-len('.json')]
+            base = os.path.join(state_dir, key)
             t = sch.get('type')
-            if t not in ('interval','daily','weekly','yearly','one_shot'): continue
-            zi, tz_err = _zone(spec)
-            if tz_err: continue
-            if t == 'interval': zi = None
-            now_dt = datetime.fromtimestamp(now, tz=zi) if zi else datetime.fromtimestamp(now)
-            days = sch.get('days')
-            next_fire = None
-            if t == 'interval':
-                last = _read_last(state_dir, spec_path)
-                if last is None or last == 0: continue
-                next_fire = _interval_next(last, sch.get('every','30m'))
-                if days and not _days_ok(days, datetime.fromtimestamp(next_fire)):
+            if t == 'one_shot':
+                if os.path.exists(base + '.fired') and os.path.getmtime(spec_path) <= os.path.getmtime(base + '.fired'):
                     continue
-            elif t == 'daily':
-                last = _read_last(state_dir, spec_path)
-                if last is None or last == 0: continue
-                slot_today = _slot_at(now_dt, sch['at']).timestamp()
-                if _days_ok(days, now_dt) and last < slot_today:
-                    next_fire = slot_today
-                else:
-                    next_fire = _next_slot_wall(sch, now_dt, days, 8)
-            elif t == 'weekly':
-                last = _read_last(state_dir, spec_path)
-                if last is None or last == 0: continue
-                target = _DOW[str(sch['day']).lower()[:3]]
-                back = (now_dt.weekday() - target) % 7
-                this_slot = (_slot_at(now_dt, sch['at']) - timedelta(days=back)).timestamp()
-                this_slot_dt = datetime.fromtimestamp(this_slot, tz=zi) if zi else datetime.fromtimestamp(this_slot)
-                if _days_ok(days, this_slot_dt) and last < this_slot:
-                    next_fire = this_slot
-                else:
-                    next_fire = _next_slot_wall(sch, now_dt, days, 15)
-            elif t == 'yearly':
-                last = _read_last(state_dir, spec_path)
-                if last is None or last == 0: continue
-                month, day = (int(x) for x in str(sch['date']).strip().split('-'))
-                if (month, day) == (2, 29): continue
-                this_slot_dt = _slot_at(now_dt.replace(month=month, day=day), sch['at'])
-                if this_slot_dt > now_dt:
-                    this_slot_dt = this_slot_dt.replace(year=this_slot_dt.year - 1)
-                this_slot = this_slot_dt.timestamp()
-                if last < this_slot:
-                    next_fire = this_slot
-                else:
-                    next_fire = this_slot_dt.replace(year=this_slot_dt.year + 1).timestamp()
-            elif t == 'one_shot':
-                fired_path = os.path.join(state_dir, os.path.basename(spec_path).replace('.json','.fired'))
-                if os.path.exists(fired_path): continue
-                at_ts, at_err = _parse_at_ts(sch.get('at'), zi)
+                zi, tz_err = eng._zone(spec)
+                if tz_err: continue
+                next_fire, _, at_err = eng._parse_at_ts(sch.get('at'), zi)
                 if at_err: continue
-                if days:
-                    at_dt = datetime.fromtimestamp(at_ts, tz=zi) if zi else datetime.fromtimestamp(at_ts)
-                    if not _days_ok(days, at_dt): continue
-                next_fire = at_ts
+            else:
+                # Reference: `.last` (real fire) if present, else `.anchored` (first sight)
+                # — the same fallback as the scheduler. Never-seen specs can't be due.
+                ref = _read_num(base + '.last')
+                if ref is None: ref = _read_num(base + '.anchored')
+                if ref is None: continue
+                count = sch.get('count')
+                if count is not None and (_read_num(base + '.runs', int) or 0) >= count: continue
+                next_fire = eng.next_fire(sch, ref, BOX_ZONE)
             if next_fire is not None and next_fire <= soon:
                 return (f"spec={os.path.basename(spec_path)} type={t} next_fire={int(next_fire)} overdue_s={int(now-next_fire)}", errors)
         except Exception as e:

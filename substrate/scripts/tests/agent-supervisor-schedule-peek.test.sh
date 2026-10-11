@@ -18,6 +18,11 @@
 #   T-09  — yearly, .last after this year's slot → not due
 #   T-10  — interval in months, .last a month+ ago → due
 #   T-11  — interval in months, .last a day ago → not due
+#   T-12  — monthly day-of-month, anchored-only, today's slot overdue → due
+#   T-13  — count exhausted (.runs == count) → not due even though overdue
+#   T-14  — state keyed by spec `name` (not file basename), like the scheduler
+#   T-15  — malformed schedule → not due (the scheduler refuses to fire it)
+#   T-16  — spec without `instruction` → not due (the scheduler never loads it)
 #
 # Exits 0 on all-pass; 1 on any failure.
 #
@@ -31,6 +36,8 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 SUPERVISOR="${SUPERVISOR:-$REPO_ROOT/substrate/scripts/agent-supervisor.sh}"
+# The peek loads the schedule engine from the scheduler — point it at this tree's copy.
+export AGENT_SUPERVISOR_WAKEUP_SCHEDULER="$REPO_ROOT/substrate/scripts/wakeup-scheduler.py"
 
 if [ ! -f "$SUPERVISOR" ]; then
   printf 'FATAL: supervisor not found at %s\n' "$SUPERVISOR" >&2
@@ -175,6 +182,39 @@ t11() {
   expect_not_due
 }
 
+t12() {
+  local dom
+  dom=$((10#$(date -d "@$((NOW - 600))" +%d)))
+  write_spec "{\"name\":\"w\",\"schedule\":{\"type\":\"monthly\",\"day\":$dom,\"at\":\"$SLOT_PAST\"},\"instruction\":\"x\"}"
+  write_state anchored "$((NOW - 40 * 86400))"
+  expect_due
+}
+
+t13() {
+  write_spec "{\"name\":\"w\",\"schedule\":{\"type\":\"daily\",\"at\":\"$SLOT_PAST\",\"count\":2},\"instruction\":\"x\"}"
+  write_state last "$((NOW - 86400))"
+  write_state runs 2
+  expect_not_due
+}
+
+t14() {
+  write_spec "{\"name\":\"renamed\",\"schedule\":{\"type\":\"daily\",\"at\":\"$SLOT_PAST\"},\"instruction\":\"x\"}"
+  printf '%s' "$((NOW - 86400))" > "$SCRATCH/alice/wakeups/.state/renamed.anchored"
+  expect_due
+}
+
+t15() {
+  write_spec "{\"name\":\"w\",\"schedule\":{\"type\":\"daily\",\"at\":\"25:00\"},\"instruction\":\"x\"}"
+  write_state anchored "$((NOW - 86400))"
+  expect_not_due
+}
+
+t16() {
+  write_spec "{\"name\":\"w\",\"schedule\":{\"type\":\"daily\",\"at\":\"$SLOT_PAST\"}}"
+  write_state anchored "$((NOW - 86400))"
+  expect_not_due
+}
+
 run_case "T-01 daily anchored-only overdue → due" t01
 run_case "T-02 daily fired after slot → not due" t02
 run_case "T-03 interval anchored-only overdue → due" t03
@@ -186,6 +226,11 @@ run_case "T-08 yearly anchored-only overdue → due" t08
 run_case "T-09 yearly fired after slot → not due" t09
 run_case "T-10 interval months elapsed → due" t10
 run_case "T-11 interval months not elapsed → not due" t11
+run_case "T-12 monthly anchored-only overdue → due" t12
+run_case "T-13 count exhausted → not due" t13
+run_case "T-14 state keyed by spec name" t14
+run_case "T-15 malformed schedule → not due" t15
+run_case "T-16 no instruction → not due" t16
 
 printf '\n===============================\n'
 printf 'PASS: %d  FAIL: %d\n' "$PASS" "$FAIL"
