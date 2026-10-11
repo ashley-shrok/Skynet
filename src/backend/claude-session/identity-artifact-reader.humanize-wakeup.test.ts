@@ -235,3 +235,10 @@ describe("humanizeWakeupSchedule — yearly", () => {
     );
   });
 });
+
+describe("humanizeWakeupSchedule — interval in months", () => {
+  it("spells out months", () => {
+    expect(humanizeWakeupSchedule({ type: "interval", every: "11mo" })).toBe("Every 11 months");
+    expect(humanizeWakeupSchedule({ type: "interval", every: "1mo" })).toBe("Every 1 month");
+  });
+});

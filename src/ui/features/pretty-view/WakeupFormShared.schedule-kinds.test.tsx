@@ -72,3 +72,12 @@ describe("YearlyDateFields", () => {
     expect(onChange).toHaveBeenCalledWith("08-15");
   });
 });
+
+describe("interval in months — form helpers", () => {
+  it("round-trips Nmo through hydrate + build", () => {
+    const fs = hydrateFormSchedule({ type: "interval", every: "11mo" });
+    expect(fs).toEqual({ type: "interval", n: 11, u: "mo" });
+    expect(buildSchedule(fs, "UTC")).toEqual({ type: "interval", every: "11mo" });
+    expect(validateForm(fs)).toBeNull();
+  });
+});

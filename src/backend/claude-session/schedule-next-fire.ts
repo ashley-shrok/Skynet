@@ -126,6 +126,17 @@ export function computeNextFireAt(
   };
 
   if (type === "interval") {
+    // `Nmo` = N calendar months (matches Python _interval_next): add months in
+    // container-local wall clock, clamping the day to the target month.
+    const months = typeof sch.every === "string" ? /^([1-9]\d*)mo$/.exec(sch.every.trim().toLowerCase()) : null;
+    if (months) {
+      const ref = new Date((referenceSecs ?? nowSecs) * 1000);
+      const n = Number(months[1]);
+      const target = new Date(ref.getFullYear(), ref.getMonth() + n, 1, ref.getHours(), ref.getMinutes(), ref.getSeconds());
+      const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+      target.setDate(Math.min(ref.getDate(), lastDay));
+      return applyDaysFilter(Math.floor(target.getTime() / 1000));
+    }
     const every = parseDurationSecs(sch.every);
     if (every === null) return null;
     // When never fired: approximate next-fire as `now + every` so the UI

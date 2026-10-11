@@ -16,6 +16,8 @@
 #   T-07  — .last wins over .anchored when both present
 #   T-08  — yearly, only .anchored, this year's slot overdue → due
 #   T-09  — yearly, .last after this year's slot → not due
+#   T-10  — interval in months, .last a month+ ago → due
+#   T-11  — interval in months, .last a day ago → not due
 #
 # Exits 0 on all-pass; 1 on any failure.
 #
@@ -161,6 +163,18 @@ t09() {
   expect_not_due
 }
 
+t10() {
+  write_spec '{"name":"w","schedule":{"type":"interval","every":"1mo"},"instruction":"x"}'
+  write_state last "$((NOW - 32 * 86400))"
+  expect_due
+}
+
+t11() {
+  write_spec '{"name":"w","schedule":{"type":"interval","every":"1mo"},"instruction":"x"}'
+  write_state last "$((NOW - 86400))"
+  expect_not_due
+}
+
 run_case "T-01 daily anchored-only overdue → due" t01
 run_case "T-02 daily fired after slot → not due" t02
 run_case "T-03 interval anchored-only overdue → due" t03
@@ -170,6 +184,8 @@ run_case "T-06 no state at all → not due" t06
 run_case "T-07 .last wins over .anchored" t07
 run_case "T-08 yearly anchored-only overdue → due" t08
 run_case "T-09 yearly fired after slot → not due" t09
+run_case "T-10 interval months elapsed → due" t10
+run_case "T-11 interval months not elapsed → not due" t11
 
 printf '\n===============================\n'
 printf 'PASS: %d  FAIL: %d\n' "$PASS" "$FAIL"

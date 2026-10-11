@@ -132,7 +132,10 @@ export function humanizeWakeupSchedule(schedule: unknown): string {
   if (type === "interval") {
     const every = s.every;
     let base: string;
-    if (typeof every === "string" && every.length > 0) {
+    const months = typeof every === "string" ? /^(\d+)mo$/.exec(every) : null;
+    if (months) {
+      base = `Every ${months[1]} ${months[1] === "1" ? "month" : "months"}`;
+    } else if (typeof every === "string" && every.length > 0) {
       base = `Every ${every}`;
     } else if (typeof every === "number") {
       base = `Every ${every}m`;

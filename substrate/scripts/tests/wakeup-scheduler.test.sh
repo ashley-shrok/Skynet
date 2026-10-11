@@ -9,6 +9,7 @@
 #   T-G4 — orphan-check disabled in scheduled-agents mode; active in per-identity mode
 #   T-G5 — one-shot spec self-deletes in scheduled-agents mode + sentinel written
 #   T-G9 — yearly schedule due math + date validation
+#   T-G10 — interval in calendar months (Nmo)
 #
 # Exits 0 on all-pass; exits 1 on any failure with a diagnostic naming the
 # failing test.
@@ -661,6 +662,56 @@ JSON
 }
 
 # ============================================================
+# SA-G10: interval in calendar months ("Nmo") — _interval_next math + validation
+test_SA_G10_interval_months() {
+  local unit_result
+  unit_result=$(python3 -c "
+import importlib.util
+from datetime import datetime
+spec = importlib.util.spec_from_file_location('ws', '$PY_SCRIPT')
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+def ts(*a): return datetime(*a).timestamp()   # box-local, same as the scheduler
+errors = []
+def chk(label, got, want):
+    if got != want: errors.append('%s: got %r wanted %r' % (label, got, want))
+chk('11mo', m._interval_next(ts(2026,9,3,9,0), '11mo'), ts(2027,8,3,9,0))
+chk('year-wrap', m._interval_next(ts(2026,11,15), '3mo'), ts(2027,2,15))
+chk('clamp-31st', m._interval_next(ts(2027,1,31,12,0), '1mo'), ts(2027,2,28,12,0))
+chk('leap-clamp', m._interval_next(ts(2027,1,31), '13mo'), ts(2028,2,29))
+chk('minutes-unchanged', m._interval_next(1000.0, '30m'), 1000.0 + 1800)
+sp = {'schedule': {'type': 'interval', 'every': '11mo'}}
+chk('due-before', m._due(sp, ts(2026,9,3,9,0), ts(2027,8,3,8,59)), False)
+chk('due-at', m._due(sp, ts(2026,9,3,9,0), ts(2027,8,3,9,0)), True)
+chk('ok', m._months_err('11mo'), None)
+chk('not-months', m._months_err('30m'), None)
+for bad in ('0mo', 'xmo', 'mo', '1.5mo', '-2mo'):
+    if m._months_err(bad) is None: errors.append('accepted bad %r' % bad)
+print('FAIL: ' + '; '.join(errors) if errors else 'OK')
+" 2>&1)
+  if [ "$unit_result" != "OK" ]; then
+    fail "SA-G10 unit: $unit_result"
+    return
+  fi
+
+  # End-to-end — malformed months spec emits a LOUD alert and does not anchor.
+  local ident_dir home_dir out_log
+  ident_dir=$(make_tmpdir)
+  home_dir=$(make_tmpdir)
+  out_log=$(make_tmpdir)/out.log
+  mkdir -p "$ident_dir/wakeups"
+  cat > "$ident_dir/wakeups/bad-months.json" <<'JSON'
+{"name": "bad-months", "enabled": true,
+ "schedule": {"type": "interval", "every": "0mo"},
+ "instruction": "never"}
+JSON
+  HOME="$home_dir" timeout 3 python3 "$PY_SCRIPT" "$ident_dir" >"$out_log" 2>/dev/null || true
+  if ! grep -q "bad-months.*positive whole number of months.*DOES NOT FIRE" "$out_log"; then
+    fail "SA-G10: expected loud months alert, got: $(cat "$out_log")"
+  fi
+  assert_file_absent "$ident_dir/wakeups/.state/bad-months.anchored" "SA-G10 bad spec must not anchor"
+}
+
+# ============================================================
 printf '=== wakeup-scheduler.py scheduled-agents-mode test driver ===\n'
 printf 'script: %s\n' "$PY_SCRIPT"
 printf '\n'
@@ -674,6 +725,7 @@ run_test test_SA_G6_prettify_name_de_slugs_task_prefix
 run_test test_SA_G7_users_propagation
 run_test test_SA_G8_users_absent_absent_in_body
 run_test test_SA_G9_yearly_due_and_validation
+run_test test_SA_G10_interval_months
 
 printf '\n===============================\n'
 printf 'PASS: %s  FAIL: %s\n' "$PASS" "$FAIL"

@@ -27,6 +27,7 @@ import { Switch } from "@/components/switch";
 import type { WakeupSpecWire } from "@/api/claude-session-api";
 import {
   type FormSchedule,
+  type IntervalUnit,
   type Weekday,
   buildSchedule,
   detectBrowserTimezone,
@@ -244,7 +245,7 @@ export function AddWakeupDialog({
                   id="add-wakeup-every-u"
                   value={formSchedule.u}
                   onChange={(e) =>
-                    setFormSchedule({ ...formSchedule, u: e.target.value as "s" | "m" | "h" | "d" })
+                    setFormSchedule({ ...formSchedule, u: e.target.value as IntervalUnit })
                   }
                   className={cn(
                     "bg-black/30 text-[#e8e4d8] border border-white/10",
@@ -255,6 +256,7 @@ export function AddWakeupDialog({
                   <option value="m">minutes</option>
                   <option value="h">hours</option>
                   <option value="d">days</option>
+                  <option value="mo">months</option>
                 </select>
               </div>
               <RestrictToDaysChips

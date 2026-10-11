@@ -19,6 +19,7 @@ import { AddWakeupDialog } from "./AddWakeupDialog";
 // (add-wakeup sub-modal) can consume them. Non-behavior-change refactor.
 import {
   type FormSchedule,
+  type IntervalUnit,
   type Weekday,
   buildSchedule,
   detectBrowserTimezone,
@@ -639,7 +640,7 @@ function WakeupRow({
                       id={`wakeup-every-u-${wakeup.slug}`}
                       value={formSchedule.u}
                       onChange={(e) =>
-                        setFormSchedule({ ...formSchedule, u: e.target.value as "s" | "m" | "h" | "d" })
+                        setFormSchedule({ ...formSchedule, u: e.target.value as IntervalUnit })
                       }
                       className={cn(
                         "bg-black/30 text-[#e8e4d8] border border-white/10",
@@ -650,6 +651,7 @@ function WakeupRow({
                       <option value="m">minutes</option>
                       <option value="h">hours</option>
                       <option value="d">days</option>
+                      <option value="mo">months</option>
                     </select>
                   </div>
                 </div>

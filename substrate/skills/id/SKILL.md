@@ -1342,8 +1342,9 @@ One JSON file per wake-up at
 }
 ```
 
-- `every` accepts `s`/`m`/`h`/`d` units (`"30m"`, `"2h"`, `"1d"`); a bare
-  number = minutes.
+- `every` accepts `s`/`m`/`h`/`d` units (`"30m"`, `"2h"`, `"1d"`), or `mo`
+  for calendar months (`"11mo"`; a 31st clamps to the month's last day); a
+  bare number = minutes.
 
 - **`one_shot`**: `at` is a full ISO datetime — offset-bearing
   (`"2026-08-15T09:00:00-04:00"`), Z-suffixed

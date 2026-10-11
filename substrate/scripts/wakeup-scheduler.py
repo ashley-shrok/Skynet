@@ -33,6 +33,9 @@ Schedule specs live at `~/fleet/identities/<name>/wakeups/<slug>.json`:
      #           {"type": "weekly",   "day": "mon", "at": "09:00"}
      #           {"type": "yearly",   "date": "08-03", "at": "09:00"}   # MM-DD, every year
      #           {"type": "one_shot", "at": "2026-08-15T09:00:00-04:00"}   # fires once, spec self-deletes after
+     # interval `every` units: s / m / h / d, or `mo` = calendar months ("11mo"; a
+     #   31st-of-month anchor clamps to the month's last day). Malformed `Nmo` = LOUD
+     #   one-shot alert, spec DOES NOT FIRE.
      # yearly: `date` is MM-DD; 02-29 is rejected (would skip 3 of 4 years). Malformed
      #   `date` = LOUD one-shot alert, spec DOES NOT FIRE.
      # optional on interval/daily/weekly: "days": ["mon","tue","wed","thu","fri"]  (box-local; weekdays-only)
@@ -112,6 +115,7 @@ Env:    WAKEUP_POLL_SEC (default 30) — loop granularity.
 """
 
 import argparse
+import calendar
 import glob
 import json
 import os
@@ -186,6 +190,34 @@ def _dur_secs(s):
     return int(s[:-1]) * mult
 
 
+def _months_err(every):
+    """For an interval `every` in calendar months ("Nmo"), return err_msg or None.
+    Non-month units return None (they keep their historical parsing)."""
+    s = str(every).strip().lower()
+    if not s.endswith("mo"):
+        return None
+    if not re.fullmatch(r"[1-9]\d*", s[:-2]):
+        return "interval: `every` %r must be a positive whole number of months, e.g. 11mo" % (every,)
+    return None
+
+
+def _add_months(dt, n):
+    """Calendar-month add, clamping the day to the target month's length."""
+    y, m0 = divmod(dt.month - 1 + n, 12)
+    y += dt.year
+    last_day = calendar.monthrange(y, m0 + 1)[1]
+    return dt.replace(year=y, month=m0 + 1, day=min(dt.day, last_day))
+
+
+def _interval_next(ref_ts, every):
+    """Epoch of the next interval fire after `ref_ts`. `Nmo` = N calendar months
+    (box-local wall clock); every other unit is elapsed seconds via _dur_secs."""
+    s = str(every).strip().lower()
+    if s.endswith("mo"):
+        return _add_months(datetime.fromtimestamp(ref_ts), int(s[:-2])).timestamp()
+    return ref_ts + _dur_secs(s)
+
+
 def _slot_at(ref, hhmm):
     h, m = (int(x) for x in hhmm.split(":"))
     return ref.replace(hour=h, minute=m, second=0, microsecond=0)
@@ -255,7 +287,7 @@ def _due(spec, last_fired, now_ts, zi=None):
             return False
     t = sch.get("type")
     if t == "interval":
-        return now_ts >= last_fired + _dur_secs(sch["every"])
+        return now_ts >= _interval_next(last_fired, sch["every"])
     if t == "daily":
         slot = _slot_at(now, sch["at"]).timestamp()
         return now_ts >= slot and last_fired < slot
@@ -666,6 +698,14 @@ def main():
                             print("⚠️ [wakeup-scheduler: %s] fired, but spec auto-delete failed: %s "
                                   "— .state/%s.fired sentinel prevents re-fire" % (key, e, key), flush=True)
                 continue
+            if sch_type == "interval":
+                mo_err = _months_err(spec["schedule"].get("every"))
+                if mo_err:
+                    if (key, "months_bad") not in warned:
+                        print("⚠️ [wakeup-scheduler: %s] %s — spec DOES NOT FIRE until fixed"
+                              % (key, mo_err), flush=True)
+                        warned.add((key, "months_bad"))
+                    continue
             if sch_type == "yearly":
                 y_err = _yearly_err(spec["schedule"])
                 if y_err:

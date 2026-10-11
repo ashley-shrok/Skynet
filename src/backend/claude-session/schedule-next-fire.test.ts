@@ -201,3 +201,24 @@ describe("computeNextFireAt — yearly", () => {
     expect(computeNextFireAt({ type: "yearly", date: "08-03" }, null, now)).toBeNull();
   });
 });
+
+describe("computeNextFireAt — interval in months", () => {
+  const at = (y: number, mo: number, d: number, h = 0, mi = 0) =>
+    Math.floor(new Date(y, mo - 1, d, h, mi).getTime() / 1000);
+
+  it("adds calendar months to the reference", () => {
+    expect(computeNextFireAt({ type: "interval", every: "11mo" }, at(2026, 9, 3, 9, 0), at(2026, 10, 1))).toBe(
+      at(2027, 8, 3, 9, 0),
+    );
+  });
+
+  it("clamps the day to the target month", () => {
+    expect(computeNextFireAt({ type: "interval", every: "1mo" }, at(2027, 1, 31, 12, 0), at(2027, 2, 1))).toBe(
+      at(2027, 2, 28, 12, 0),
+    );
+  });
+
+  it("returns null for a zero or malformed month count", () => {
+    expect(computeNextFireAt({ type: "interval", every: "0mo" }, null, at(2027, 1, 1))).toBeNull();
+  });
+});

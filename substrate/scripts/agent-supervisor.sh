@@ -3145,7 +3145,7 @@ snapshot_schedule_peek() {
   local py_out py_err
   py_err=$(mktemp)
   py_out=$(python3 - "$FALSE_KILL_MINUTES" "$input" <<'PY' 2>"$py_err"
-import json, os, sys, time, glob
+import calendar, json, os, sys, time, glob
 from datetime import datetime, timedelta
 try:
     from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -3174,6 +3174,18 @@ def _dur_secs(s):
     mult = {"s":1,"m":60,"h":3600,"d":86400}.get(unit)
     if mult is None: return int(s) * 60
     return int(s[:-1]) * mult
+
+def _interval_next(ref_ts, every):
+    # Mirrors wakeup-scheduler.py: `Nmo` = N calendar months (day clamped), else seconds.
+    s = str(every).strip().lower()
+    if s.endswith('mo'):
+        n = int(s[:-2])
+        dt = datetime.fromtimestamp(ref_ts)
+        y, m0 = divmod(dt.month - 1 + n, 12)
+        y += dt.year
+        last_day = calendar.monthrange(y, m0 + 1)[1]
+        return dt.replace(year=y, month=m0 + 1, day=min(dt.day, last_day)).timestamp()
+    return ref_ts + _dur_secs(s)
 
 def _days_ok(days, dt):
     if not days: return True
@@ -3237,7 +3249,7 @@ def _peek_one(wakedir):
             if t == 'interval':
                 last = _read_last(state_dir, spec_path)
                 if last is None or last == 0: continue
-                next_fire = last + _dur_secs(sch.get('every','30m'))
+                next_fire = _interval_next(last, sch.get('every','30m'))
                 if days and not _days_ok(days, datetime.fromtimestamp(next_fire)):
                     continue
             elif t == 'daily':

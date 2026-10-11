@@ -51,6 +51,7 @@ import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   type FormSchedule,
+  type IntervalUnit,
   buildSchedule,
   detectBrowserTimezone,
   hydrateFormSchedule,
@@ -897,7 +898,7 @@ export function ScheduledAgentsModalForm({
                   setFormSchedule({
                     type: "interval",
                     n: formSchedule.n,
-                    u: e.target.value as "s" | "m" | "h" | "d",
+                    u: e.target.value as IntervalUnit,
                   })
                 }
                 data-testid="scheduled-agents-modal-form-schedule-interval-u"
@@ -907,6 +908,7 @@ export function ScheduledAgentsModalForm({
                 <option value="m">minutes</option>
                 <option value="h">hours</option>
                 <option value="d">days</option>
+                <option value="mo">months</option>
               </select>
             </div>
           )}

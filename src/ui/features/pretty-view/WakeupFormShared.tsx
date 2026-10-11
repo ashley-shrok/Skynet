@@ -18,8 +18,11 @@ import { cn } from "@/lib/utils";
 // this shape when entering edit-mode; `buildSchedule` is the inverse.
 // Phase 65-02: `days?: Weekday[]` added to interval/daily/weekly variants
 // for the optional day-of-week gate. one_shot is unchanged.
+// "mo" = calendar months (scheduler adds months, clamping the day).
+export type IntervalUnit = IntervalUnit | "mo";
+
 export type FormSchedule =
-  | { type: "interval"; n: number; u: "s" | "m" | "h" | "d"; days?: Weekday[] }
+  | { type: "interval"; n: number; u: IntervalUnit; days?: Weekday[] }
   | { type: "daily"; at: string; days?: Weekday[] }
   | { type: "weekly"; day: "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun"; at: string; days?: Weekday[] }
   | { type: "yearly"; date: string /* MM-DD */; at: string }
@@ -124,12 +127,12 @@ export function hydrateFormSchedule(sched: unknown): FormSchedule {
   const t = s.type;
   if (t === "interval") {
     const every = typeof s.every === "string" ? s.every : "";
-    const m = /^(\d+)([smhd])$/.exec(every);
+    const m = /^(\d+)(mo|[smhd])$/.exec(every);
     const days = normalizeDays(s.days);
     if (m) {
       return days !== undefined
-        ? { type: "interval", n: Number(m[1]), u: m[2] as "s" | "m" | "h" | "d", days }
-        : { type: "interval", n: Number(m[1]), u: m[2] as "s" | "m" | "h" | "d" };
+        ? { type: "interval", n: Number(m[1]), u: m[2] as IntervalUnit, days }
+        : { type: "interval", n: Number(m[1]), u: m[2] as IntervalUnit };
     }
     return days !== undefined
       ? { type: "interval", n: 30, u: "m", days }
@@ -205,8 +208,8 @@ export function buildSchedule(fs: FormSchedule, tz: string): Record<string, unkn
 // Return the first validation error or null. Runs before Save writes.
 export function validateForm(fs: FormSchedule): string | null {
   if (fs.type === "interval") {
-    if (!/^\d+[smhd]$/.test(`${fs.n}${fs.u}`)) {
-      return "interval `every` must be like 30m, 2h, 5s, 1d";
+    if (!/^\d+(mo|[smhd])$/.test(`${fs.n}${fs.u}`)) {
+      return "interval `every` must be like 30m, 2h, 5s, 1d, 11mo";
     }
     if (!(fs.n > 0)) return "interval `every` must be positive";
     return null;
