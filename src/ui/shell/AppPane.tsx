@@ -2,7 +2,10 @@ import type { DragEvent as ReactDragEvent, ReactElement } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, RotateCw } from "lucide-react";
 
-import { buildAppMenuItems } from "@/features/pretty-conversations/app-menu-items";
+import {
+  buildAppMenuItems,
+  openAppInNewWindow,
+} from "@/features/pretty-conversations/app-menu-items";
 import {
   RowKebabMenu,
   useRowKebabContextMenu,
@@ -10,7 +13,6 @@ import {
 } from "@/features/pretty-conversations/RowKebabMenu";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { systemLogger } from "@/lib/frontend-logger";
-import { encodeWorkspaceSpec, specForTab } from "@/lib/tab-url";
 import { useAppTiles } from "@/state/app-tiles-store";
 import {
   EMPTY_FRAME_HISTORY,
@@ -115,7 +117,7 @@ import { subscribeDragSessionEnd } from "./drag-preview-session";
 //
 // Bar menu (2026-10-11): a ⋮ kebab at the bar's right end, and right-click on
 // the bar, open the same RowKebabMenu an IdentityBadge has. Items: Move to new
-// window (desktop) → Open in new tab → Rename… → Close (desktop) → Archive.
+// window (desktop) → Open standalone → Rename… → Close (desktop) → Archive.
 // The app actions come from buildAppMenuItems, shared with the sidebar tile,
 // so both surfaces stay identical. Right-click inside the app itself is the
 // app's own (separate document) and never reaches the bar.
@@ -254,30 +256,24 @@ export function AppPane({
     const items: RowKebabMenuItem[] = [];
     // Desktop-only — mobile has no multi-window story.
     if (!isMobile) {
-      const spec = specForTab({ type: "app", app: { hostId, slug } });
-      if (spec !== null) {
-        items.push({
-          label: "Move to new window",
-          testId: "app-pane-menu-move-new-window",
-          onClick: () => {
-            const w = window.open(
-              "#" + encodeWorkspaceSpec({ tabs: [spec], activeIndex: 0, only: true }),
-              "_blank",
-            );
-            systemLogger.info("[app-bar-menu] move to new window", {
-              operation: "app_bar_menu_move_window",
-              tabId,
-              hostId,
-              slug,
-              opened: w !== null,
-            });
-            // Popup blocked → keep the pane rather than lose it.
-            if (w !== null) onCloseTab?.(tabId);
-          },
-        });
-      }
+      items.push({
+        label: "Move to new window",
+        testId: "app-pane-menu-move-new-window",
+        onClick: () => {
+          const w = openAppInNewWindow(hostId, slug);
+          systemLogger.info("[app-bar-menu] move to new window", {
+            operation: "app_bar_menu_move_window",
+            tabId,
+            hostId,
+            slug,
+            opened: w !== null,
+          });
+          // Popup blocked → keep the pane rather than lose it.
+          if (w !== null) onCloseTab?.(tabId);
+        },
+      });
     }
-    items.push(app.openInNewTab, app.rename);
+    items.push(app.openStandalone, app.rename);
     // Desktop-only: on a phone the pane IS the screen.
     if (!isMobile && onCloseTab) {
       items.push({

@@ -20,10 +20,11 @@
 //     - Test G: isHealthy:false but healthMessage null → NO
 //               .pv-app-unhealthy-message (graceful null handling).
 //
-//   D-12 (context menu — right-click → "Open in new tab"):
-//     - Test H: fireEvent.contextMenu → PrettyConversationContextMenu opens
-//               with exactly one item labelled "Open in new tab".
-//     - Test I: clicking that item → window.open("/apps/${hostId}/${slug}",
+//   Kebab menu:
+//     - Test H: kebab → Open in new window, Open standalone, Rename…, Archive.
+//     - Test H2: mobile variant drops Open in new window.
+//     - Test H3: Open in new window → window.open("#<workspace spec>", "_blank").
+//     - Test I: Open standalone → window.open("/apps/${hostId}/${slug}",
 //               "_blank", "noopener,noreferrer"). The noopener,noreferrer
 //               triplet is the RESEARCH.md §Security defence-in-depth win.
 //
@@ -33,10 +34,8 @@
 //   D-09 (no per-app hue emission):
 //     - Test K: tile root does NOT emit an inline --pv-hue style property.
 //
-// The context-menu button "Open in new tab" uses a deferred setTimeout(onClose,
-// 120ms) after the item's onClick (see PrettyConversationContextMenu.tsx
-// FLASH_DISMISS_MS comment). Since the assertion is about window.open being
-// called synchronously with onClick, no timer advance is needed.
+// Menu items call window.open synchronously in onClick, so no timer advance
+// is needed.
 
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
 import { render, fireEvent, screen, cleanup } from "@testing-library/react";
@@ -217,8 +216,8 @@ describe("AppTile — D-10 title-only + D-11 unhealthy two-line", () => {
   });
 });
 
-describe("AppTile — D-12 context menu + Open in new tab", () => {
-  it("H: kebab opens the menu with 'Open in new tab', 'Rename…', 'Archive' in that order (destructive last)", async () => {
+describe("AppTile — kebab menu: Open in new window + Open standalone", () => {
+  it("H: kebab opens the menu with 'Open in new window', 'Open standalone', 'Rename…', 'Archive' in that order (destructive last)", async () => {
     render(<AppTile app={makeApp()} />);
     const tile = screen.getByRole("button", { name: /App tile: Scratch/ });
 
@@ -232,18 +231,44 @@ describe("AppTile — D-12 context menu + Open in new tab", () => {
     // "Archive" stays LAST and danger-styled (mirrors identity/role archive
     // menu placement); app-rename shape slots "Rename…" in before it.
     const items = menu.querySelectorAll('[role="menuitem"]');
-    expect(items.length).toBe(3);
-    expect(items[0].textContent).toBe("Open in new tab");
-    expect(items[1].textContent).toBe("Rename…");
-    expect(items[2].textContent).toBe("Archive");
+    expect(items.length).toBe(4);
+    expect(items[0].textContent).toBe("Open in new window");
+    expect(items[1].textContent).toBe("Open standalone");
+    expect(items[2].textContent).toBe("Rename…");
+    expect(items[3].textContent).toBe("Archive");
   });
 
-  it("I: clicking 'Open in new tab' calls window.open with (url, '_blank', 'noopener,noreferrer')", async () => {
+  it("H2: mobile variant drops 'Open in new window' (no multi-window on a phone)", async () => {
+    render(<AppTile app={makeApp()} variant="mobile" />);
+    const tile = screen.getByRole("button", { name: /App tile: Scratch/ });
+    await openTileKebab(tile);
+    const labels = Array.from(
+      screen.getByRole("menu").querySelectorAll('[role="menuitem"]'),
+    ).map((el) => el.textContent);
+    expect(labels).toEqual(["Open standalone", "Rename…", "Archive"]);
+  });
+
+  it("H3: clicking 'Open in new window' opens a Skynet window holding just this app, and does not open it in a pane here", async () => {
+    const onOpenApp = vi.fn();
+    render(<AppTile app={makeApp({ hostId: "1", slug: "scratch" })} onOpenApp={onOpenApp} />);
+    const tile = screen.getByRole("button", { name: /App tile: Scratch/ });
+
+    await openTileKebab(tile);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Open in new window" }));
+
+    expect(openSpy).toHaveBeenCalledTimes(1);
+    const [url, target] = openSpy.mock.calls[0] as [string, string];
+    expect(url.startsWith("#")).toBe(true);
+    expect(target).toBe("_blank");
+    expect(onOpenApp).not.toHaveBeenCalled();
+  });
+
+  it("I: clicking 'Open standalone' calls window.open with (url, '_blank', 'noopener,noreferrer')", async () => {
     render(<AppTile app={makeApp({ hostId: "1", slug: "scratch" })} />);
     const tile = screen.getByRole("button", { name: /App tile: Scratch/ });
 
     await openTileKebab(tile);
-    const item = screen.getByRole("menuitem", { name: "Open in new tab" });
+    const item = screen.getByRole("menuitem", { name: "Open standalone" });
     fireEvent.click(item);
 
     expect(openSpy).toHaveBeenCalledTimes(1);

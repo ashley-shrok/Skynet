@@ -64,14 +64,14 @@ afterEach(() => {
 });
 
 describe("AppPane bar menu", () => {
-  it("desktop: kebab lists Move to new window, Open in new tab, Rename…, Close, Archive", async () => {
+  it("desktop: kebab lists Move to new window, Open standalone, Rename…, Close, Archive", async () => {
     const { container } = render(
       <AppPane hostId={1} slug="todo" tabId="t1" isVisible onCloseTab={vi.fn()} />,
     );
     const menu = await openKebab(container);
     expect(itemLabels(menu)).toEqual([
       "Move to new window",
-      "Open in new tab",
+      "Open standalone",
       "Rename…",
       "Close",
       "Archive",
@@ -84,7 +84,7 @@ describe("AppPane bar menu", () => {
       <AppPane hostId={1} slug="todo" tabId="t1" isVisible onCloseTab={vi.fn()} />,
     );
     const menu = await openKebab(container);
-    expect(itemLabels(menu)).toEqual(["Open in new tab", "Rename…", "Archive"]);
+    expect(itemLabels(menu)).toEqual(["Open standalone", "Rename…", "Archive"]);
   });
 
   it("Close closes this pane", async () => {
@@ -119,10 +119,10 @@ describe("AppPane bar menu", () => {
     expect(onCloseTab).not.toHaveBeenCalled();
   });
 
-  it("Open in new tab opens the app's own URL with the tabnabbing guard", async () => {
+  it("Open standalone opens the app's own URL with the tabnabbing guard", async () => {
     const open = vi.spyOn(window, "open").mockReturnValue(null);
     const { container } = render(<AppPane hostId={1} slug="todo" tabId="t1" isVisible />);
-    clickItem(await openKebab(container), "Open in new tab");
+    clickItem(await openKebab(container), "Open standalone");
     expect(open).toHaveBeenCalledWith("/apps/1/todo", "_blank", "noopener,noreferrer");
   });
 
@@ -162,7 +162,7 @@ describe("AppPane bar menu", () => {
     fireEvent.contextMenu(getByTestId("app-pane-bar"), { clientX: 50, clientY: 10 });
     expect(itemLabels(screen.getByRole("menu"))).toEqual([
       "Move to new window",
-      "Open in new tab",
+      "Open standalone",
       "Rename…",
       "Close",
       "Archive",

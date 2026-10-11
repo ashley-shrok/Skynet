@@ -1,4 +1,5 @@
 import { archiveApp } from "../../api/apps-archive-api";
+import { encodeWorkspaceSpec, specForTab } from "../../lib/tab-url";
 import { renameApp, validateAppTitle } from "../../api/apps-rename-api";
 import {
   publishAppGone,
@@ -11,11 +12,12 @@ import type { RowKebabMenuItem } from "./RowKebabMenu";
 
 // ─── App menu items — shared by the sidebar AppTile and the AppPane bar ─────
 //
-// The per-app actions (Open in new tab, Rename…, Archive) live here so the
-// sidebar tile's kebab and an open app pane's bar kebab offer the same
-// actions with the same copy and side effects. Each surface adds its own
-// placement-specific items (the bar adds Move to new window + Close) around
-// these.
+// The per-app actions (Open in new window, Open standalone, Rename…, Archive)
+// live here so the sidebar tile's kebab and an open app pane's bar kebab
+// offer the same actions with the same copy and side effects. Each surface
+// adds its own placement-specific items around these — the bar swaps Open in
+// new window for Move to new window (opens, then closes that pane) and adds
+// Close. Same open/move split as conversation rows vs. badges.
 //
 // `hostId` is the wire string (AppState.hostId); the API clients take a
 // number, cast at the boundary.
@@ -26,8 +28,23 @@ export interface AppMenuTarget {
   title: string;
 }
 
+/** Opens the app as the only pane of a new Skynet window. null = popup
+ *  blocked (or no spec), so callers never tear down a pane on failure. */
+export function openAppInNewWindow(hostId: number, slug: string): Window | null {
+  const spec = specForTab({ type: "app", app: { hostId, slug } });
+  if (spec === null) return null;
+  return window.open(
+    "#" + encodeWorkspaceSpec({ tabs: [spec], activeIndex: 0, only: true }),
+    "_blank",
+  );
+}
+
 export interface AppMenuItems {
-  openInNewTab: RowKebabMenuItem;
+  /** Desktop-only — callers gate on isMobile (no multi-window on a phone).
+   *  Leaves any panes already showing the app alone: an app can back
+   *  several panes at once. */
+  openInNewWindow: RowKebabMenuItem;
+  openStandalone: RowKebabMenuItem;
   rename: RowKebabMenuItem;
   archive: RowKebabMenuItem;
 }
@@ -45,9 +62,17 @@ export function buildAppMenuItems(
   const openUrl = `/apps/${encodeURIComponent(app.hostId)}/${encodeURIComponent(app.slug)}`;
 
   return {
-    openInNewTab: {
-      label: "Open in new tab",
-      testId: "app-menu-item-open-new-tab",
+    openInNewWindow: {
+      label: "Open in new window",
+      testId: "app-menu-item-open-new-window",
+      onClick: () => {
+        openAppInNewWindow(Number(app.hostId), app.slug);
+      },
+    },
+    // The app on its own in a browser tab — no Skynet around it.
+    openStandalone: {
+      label: "Open standalone",
+      testId: "app-menu-item-open-standalone",
       onClick: () => {
         // Tabnabbing guard: no window.opener, no Referer.
         window.open(openUrl, "_blank", "noopener,noreferrer");

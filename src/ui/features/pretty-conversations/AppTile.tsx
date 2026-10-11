@@ -8,8 +8,8 @@ import {
 import type { AppState } from "../../api/fleet-status-types";
 import { buildAppMenuItems } from "./app-menu-items";
 // shape-sidebar-header-affordances: app tile context menu + long-press
-// machinery retired; the actions (Open in new tab, Rename, Archive) now live in
-// a RowKebabMenu rendered inside the tile. Hover-reveal on desktop +
+// machinery retired; the actions (Open in new window, Open standalone, Rename,
+// Archive) now live in a RowKebabMenu rendered inside the tile. Hover-reveal on desktop +
 // always-visible on mobile via a CSS-only group-hover + viewport-width gate
 // at the kebab's wrapper div.
 import { RowKebabMenu, useRowKebabContextMenu, type RowKebabMenuItem } from "./RowKebabMenu";
@@ -45,13 +45,14 @@ import { RowKebabMenu, useRowKebabContextMenu, type RowKebabMenuItem } from "./R
 //     SplitView's `hasSkynetDragPayload` gate + onDrop dispatch pick up the
 //     new MIME and route to `onDropAppTileInTree` on AppShell.
 //   - RIGHT-CLICK (D-12, desktop): fires onContextMenu → opens
-//     PrettyConversationContextMenu with one item: "Open in new tab".
+//     the same kebab menu (useRowKebabContextMenu).
 //   - LONG-PRESS (D-12, mobile / coarse-pointer): 500ms touchstart timer;
 //     10px movement cancels; timer fire triggers the same context menu at
 //     the touch coords. navigator.vibrate?.(10) is feature-checked because
 //     iOS Safari does not implement the API (Pitfall 4). Handlers mirror
 //     PrettyConversationRow.tsx:442-451 + :595-603 exactly.
-//   - KEBAB actions (Open in new tab, Rename…, Archive): built by
+//   - KEBAB actions (Open in new window [desktop], Open standalone, Rename…,
+//     Archive): built by
 //     buildAppMenuItems (app-menu-items.ts), shared with the AppPane bar.
 //
 // Visual shape (D-10 + D-11):
@@ -125,6 +126,8 @@ export interface AppTileProps {
 
 export function AppTile({ app, onOpenApp, onArchive, variant = "desktop" }: AppTileProps): React.ReactElement {
   const variantClass = variant === "mobile" ? "pv-app-tile--mobile" : "pv-app-tile--desktop";
+  // Same mobile signal conversation rows use (PrettyConversationRow).
+  const isMobile = variant === "mobile";
   // State: image-load failure (Pitfall 3 avoidance — state flip beats CSS
   // :where(img[error]) which has patchy browser support).
   const [imgFailed, setImgFailed] = useState(false);
@@ -197,7 +200,11 @@ export function AppTile({ app, onOpenApp, onArchive, variant = "desktop" }: AppT
   // the tile keeps its own test ids.
   const menu = buildAppMenuItems(app, onArchive);
   const kebabItems: RowKebabMenuItem[] = [
-    { ...menu.openInNewTab, testId: "pv-app-tile-kebab-item-open-new-tab" },
+    // Desktop-only — a phone has no multi-window story.
+    ...(isMobile
+      ? []
+      : [{ ...menu.openInNewWindow, testId: "pv-app-tile-kebab-item-open-new-window" }]),
+    { ...menu.openStandalone, testId: "pv-app-tile-kebab-item-open-standalone" },
     { ...menu.rename, testId: "pv-app-tile-kebab-item-rename" },
     { ...menu.archive, testId: "pv-app-tile-kebab-item-archive" },
   ];

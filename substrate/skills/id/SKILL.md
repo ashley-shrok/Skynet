@@ -671,7 +671,11 @@ not something agents drive.
 - **Apps section (top).** Apps the user has built with you or a peer
   agent live here. Click opens the app inside the client. Each app tile
   carries a **kebab menu** with:
-  - **Open in new tab** — standalone webpage.
+  - **Open in new window** — the app alone in a new Skynet window
+    (desktop only; panes already showing it stay put).
+  - **Open standalone** — the app by itself in a browser tab, no Skynet
+    around it.
+  - **Rename…** — change the app's displayed name.
   - **Archive** — removes the app from the sidebar.
   *Agent-side:* apps are handled by the **`app-development` skill** —
   that's the source of truth for how to create, edit, or maintain them.
@@ -784,7 +788,8 @@ not something agents drive.
   Center: the app's icon and name. Right: a **three-dots (⋮) button** —
   always visible, phone included — opening the app's menu; right-clicking
   the bar opens the same menu. Same look as a conversation badge's menu:
-  **Move to new window** (desktop only), **Open in new tab**, **Rename…**,
+  **Move to new window** (desktop only — opens it in a new Skynet window
+  and closes this pane), **Open standalone**, **Rename…**,
   **Close** (desktop only), **Archive** (the same double-confirm as the
   sidebar app tile's; closes every open pane of that app). The **whole bar is the drag handle**, same as a
   conversation's badge: drag it to the drop lane's Close to close the app,
