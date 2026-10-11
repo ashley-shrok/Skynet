@@ -141,7 +141,7 @@ teardown_role_scratch() {
 }
 
 # fixture_identity: create an identity folder <scratch>/<name>/ with a <name>.md carrying the
-# requested role in its frontmatter (default role: test, matching the sibling harness).
+# requested role in its frontmatter (default roles: test, matching the sibling harness).
 # Usage: fixture_identity <scratch> <name> [--role <role_name>] [--pinned] [--no-dormancy] [--coordinator]
 fixture_identity() {
   local scratch="$1" name="$2"
@@ -160,9 +160,9 @@ fixture_identity() {
   local iddir="$scratch/$name"
   mkdir -p "$iddir"
   if $coordinator; then
-    printf -- '---\nrole: %s\ncoordinator: true\n---\nbody\n' "$role" > "$iddir/$name.md"
+    printf -- '---\nroles: %s\ncoordinator: true\n---\nbody\n' "$role" > "$iddir/$name.md"
   else
-    printf -- '---\nrole: %s\n---\nbody\n' "$role" > "$iddir/$name.md"
+    printf -- '---\nroles: %s\n---\nbody\n' "$role" > "$iddir/$name.md"
   fi
   $pinned     && touch "$iddir/.pinned"
   $nodormancy && touch "$iddir/.no-dormancy"
@@ -470,6 +470,10 @@ test_role_cascade_empty_immediate_folder_move() {
   # exist to prove the enumeration walk is happening + not accidentally matching.)
   fixture_identity "$scratch" bystander1 --role "other-role"
   fixture_identity "$scratch" bystander2 --role "unrelated"
+  # A legacy identity naming the role under the retired singular `role:` key
+  # is NOT a holder — only `roles:` is read.
+  mkdir -p "$scratch/legacy"
+  printf -- '---\nrole: %s\n---\nbody\n' "$role" > "$scratch/legacy/legacy.md"
 
   local out
   out=$( _source_supervisor_with_roles "$scratch"
@@ -484,6 +488,7 @@ test_role_cascade_empty_immediate_folder_move() {
   # Bystanders untouched.
   assert_file "$scratch/bystander1" "empty cascade: bystander1 must be untouched"
   assert_file "$scratch/bystander2" "empty cascade: bystander2 must be untouched"
+  assert_file "$scratch/legacy" "empty cascade: legacy singular role: identity must be untouched"
 
   # Log traces (D-12 degenerate empty cascade).
   assert_grep "cascade: 0 identities hold this role" "$out" "empty cascade: enumeration log line for count=0"
@@ -620,13 +625,13 @@ test_scanner_noop_when_no_sentinel() {
 # IDENTITY_HAS_ROLE HELPER (Pitfall 2 substring-safety + quoted-variant + body-line)
 # ============================================================
 
-# Test G — substring safety: "role: foo" must NOT match against "foo-bar" (nor vice versa).
+# Test G — substring safety: "roles: foo" must NOT match against "foo-bar" (nor vice versa).
 test_identity_has_role_substring_safety() {
   local scratch; scratch=$(setup_role_scratch)
   local f_foo="$scratch/f_foo.md"
   local f_foo_bar="$scratch/f_foo_bar.md"
-  printf -- '---\nrole: foo\n---\nbody\n' > "$f_foo"
-  printf -- '---\nrole: foo-bar\n---\nbody\n' > "$f_foo_bar"
+  printf -- '---\nroles: foo\n---\nbody\n' > "$f_foo"
+  printf -- '---\nroles: foo-bar\n---\nbody\n' > "$f_foo_bar"
 
   local rc
   # positive cases
@@ -639,56 +644,86 @@ test_identity_has_role_substring_safety() {
   # negative cases (Pitfall 2 lock)
   rc=0; ( _source_supervisor_with_roles "$scratch"; identity_has_role "$f_foo_bar" "foo" ) && rc=0 || rc=$?
   if [ "$rc" -eq 0 ]; then
-    fail "substring-safety: 'role: foo-bar' MUST NOT match want=foo (Pitfall 2)"
+    fail "substring-safety: 'roles: foo-bar' MUST NOT match want=foo (Pitfall 2)"
   fi
 
   rc=0; ( _source_supervisor_with_roles "$scratch"; identity_has_role "$f_foo" "foo-bar" ) && rc=0 || rc=$?
   if [ "$rc" -eq 0 ]; then
-    fail "substring-safety: 'role: foo' MUST NOT match want=foo-bar (Pitfall 2)"
+    fail "substring-safety: 'roles: foo' MUST NOT match want=foo-bar (Pitfall 2)"
   fi
 
   teardown_role_scratch "$scratch"
 }
 
-# Test H — quoted variant: matches quoted forms AND emits a WARN fleet-drift signal.
-test_identity_has_role_quoted_variant_warns() {
+# Test H — quoted variants match via the list parser, with no fleet-drift WARN
+# (the scalar awk fast-path and its quoted-variant grep were removed).
+test_identity_has_role_quoted_variant_matches() {
   local scratch; scratch=$(setup_role_scratch)
   local f_dq="$scratch/f_dq.md"
   local f_sq="$scratch/f_sq.md"
-  printf -- '---\nrole: "quoted-role"\n---\nbody\n' > "$f_dq"
-  printf -- "---\nrole: 'quoted-role'\n---\nbody\n"  > "$f_sq"
+  printf -- '---\nroles: "quoted-role"\n---\nbody\n' > "$f_dq"
+  printf -- "---\nroles: 'quoted-role'\n---\nbody\n"  > "$f_sq"
 
   local rc out
-  # Double-quoted variant matches + emits WARN.
   rc=0
   out=$( _source_supervisor_with_roles "$scratch"; identity_has_role "$f_dq" "quoted-role" 2>&1 ) || rc=$?
   assert_eq "0" "$rc" "quoted-dq: identity_has_role double-quoted variant matches → 0"
-  assert_grep "WARN" "$out"                     "quoted-dq: WARN log line fires"
-  assert_grep "quoted role frontmatter" "$out"  "quoted-dq: WARN carries fleet-drift signal message"
+  assert_nogrep "quoted role frontmatter" "$out" "quoted-dq: no fleet-drift WARN any more"
 
-  # Single-quoted variant matches + emits WARN.
   rc=0
   out=$( _source_supervisor_with_roles "$scratch"; identity_has_role "$f_sq" "quoted-role" 2>&1 ) || rc=$?
   assert_eq "0" "$rc" "quoted-sq: identity_has_role single-quoted variant matches → 0"
-  assert_grep "WARN" "$out"                     "quoted-sq: WARN log line fires"
+  assert_nogrep "quoted role frontmatter" "$out" "quoted-sq: no fleet-drift WARN any more"
 
   teardown_role_scratch "$scratch"
 }
 
-# Test I — body-line ignored: "role: foo" in the body (after the second `---`) must NOT match.
+# Test H2 — multi-role lists (flow + block) match each member exactly.
+test_identity_has_role_list_membership() {
+  local scratch; scratch=$(setup_role_scratch)
+  local f_flow="$scratch/f_flow.md" f_block="$scratch/f_block.md"
+  printf -- '---\nroles: [foo-bar, baz]\n---\nbody\n' > "$f_flow"
+  printf -- '---\nroles:\n  - foo-bar\n  - baz\n---\nbody\n' > "$f_block"
+  local rc f
+  for f in "$f_flow" "$f_block"; do
+    rc=0; ( _source_supervisor_with_roles "$scratch"; identity_has_role "$f" "baz" ) || rc=$?
+    assert_eq "0" "$rc" "list-membership: $(basename "$f") holds baz"
+    rc=0; ( _source_supervisor_with_roles "$scratch"; identity_has_role "$f" "foo" ) && rc=0 || rc=$?
+    if [ "$rc" -eq 0 ]; then
+      fail "list-membership: $(basename "$f") 'foo-bar' MUST NOT match want=foo (Pitfall 2)"
+    fi
+  done
+  teardown_role_scratch "$scratch"
+}
+
+# Test H3 — the singular `role:` key is no longer recognized: an identity
+# carrying only `role: foo` does NOT hold foo, and the cascade leaves it alone.
+test_identity_has_role_singular_key_ignored() {
+  local scratch; scratch=$(setup_role_scratch)
+  local f_legacy="$scratch/f_legacy.md"
+  printf -- '---\nrole: foo\n---\nbody\n' > "$f_legacy"
+  local rc
+  rc=0; ( _source_supervisor_with_roles "$scratch"; identity_has_role "$f_legacy" "foo" ) && rc=0 || rc=$?
+  if [ "$rc" -eq 0 ]; then
+    fail "singular-key: legacy 'role: foo' MUST NOT match want=foo (only roles: is read)"
+  fi
+  teardown_role_scratch "$scratch"
+}
+
+# Test I — body-line ignored: "roles: foo" in the body (after the second `---`) must NOT match.
 test_identity_has_role_body_line_ignored() {
   local scratch; scratch=$(setup_role_scratch)
   local f_body="$scratch/f_body.md"
-  printf -- '---\nrole: actual-role\n---\nrole: foo\n' > "$f_body"
+  printf -- '---\nroles: actual-role\n---\nroles: foo\n' > "$f_body"
 
   local rc
-  # Body-line "role: foo" MUST NOT match — awk stops at the second `---` fence.
+  # Body-line "roles: foo" MUST NOT match — the parser stops at the second `---` fence.
   rc=0; ( _source_supervisor_with_roles "$scratch"; identity_has_role "$f_body" "foo" ) && rc=0 || rc=$?
   if [ "$rc" -eq 0 ]; then
-    fail "body-line: body-prose 'role: foo' MUST NOT match (Pitfall 6 frontmatter-only discipline)"
+    fail "body-line: body-prose 'roles: foo' MUST NOT match (Pitfall 6 frontmatter-only discipline)"
   fi
 
-  # Sanity: frontmatter role: actual-role DOES match.
+  # Sanity: frontmatter roles: actual-role DOES match.
   rc=0; ( _source_supervisor_with_roles "$scratch"; identity_has_role "$f_body" "actual-role" ) || rc=$?
   assert_eq "0" "$rc" "body-line sanity: frontmatter role match works normally"
 
@@ -710,7 +745,9 @@ run_test test_scanner_noop_when_no_sentinel
 
 # ─── identity_has_role helper (Pitfall 2 substring-safety + quoted-variant handling) ───
 run_test test_identity_has_role_substring_safety
-run_test test_identity_has_role_quoted_variant_warns
+run_test test_identity_has_role_quoted_variant_matches
+run_test test_identity_has_role_list_membership
+run_test test_identity_has_role_singular_key_ignored
 run_test test_identity_has_role_body_line_ignored
 
 printf '\n===============================\n'

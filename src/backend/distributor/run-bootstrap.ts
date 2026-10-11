@@ -91,6 +91,21 @@
  *      A statusLine that is NOT the wrapper is never touched. Idempotent —
  *      after the first sweep it's a jq read + rm -f on absent paths.
  *
+ *   7. identity roles-key migration (`role:` → `roles:`):
+ *      In every ~/fleet/identities/<name>/<name>.md and
+ *      ~/fleet/identities-archive/<name>/<name>.md, rename the frontmatter
+ *      KEY `role:` to `roles:` (value untouched byte-for-byte; first
+ *      frontmatter block only; body never touched; CRLF preserved; atomic
+ *      write preserving mode). The role-file-watch baseline
+ *      <name>/role-file-watch/last-snapshot.identity gets the identical
+ *      transform first, so running watchers see no diff and don't wake their
+ *      agents. A block that already has `roles:` is left alone (and warned
+ *      about if it also has `role:`). One `python3 -` exec per host
+ *      (ROLES_KEY_MIGRATION_CMD in roles-key-migration.ts — the local surface
+ *      runs a TS port of the same rules). Idempotent — steady state is a
+ *      listdir + a small read per identity, and nothing is logged unless a
+ *      file was migrated or a conflict exists.
+ *
  * NEVER-THROW CONTRACT:
  *   runBootstrapForHost NEVER rejects. All risky calls are wrapped in
  *   try/catch; failures are logged and the function resolves. The caller
@@ -103,6 +118,11 @@
  */
 import type { SshChannel } from "../fleet-status/ssh-poll-orchestrator.js";
 import { systemLogger } from "../utils/logger.js";
+import {
+  ROLES_KEY_MIGRATION_CMD,
+  parseRolesKeyMigrationOutput,
+  type RolesKeyMigrationCounts,
+} from "./roles-key-migration.js";
 
 /**
  * Result shape returned by runBootstrapForHost. Used in tests to assert
@@ -139,6 +159,10 @@ export interface BootstrapResult {
   /** Whether the usage-reporter retirement step succeeded. Step 6 is
    *  idempotent and always runs; a false value implies hadError. */
   usageReporterRetireOk: boolean;
+  /** Whether the identity `role:` → `roles:` key migration (Step 7) ran to
+   *  completion. Conflicts (both keys present) do NOT make this false;
+   *  per-file read/write failures do (and imply hadError). */
+  rolesKeyMigrationOk: boolean;
   /** Whether interactive-messages-gc.timer was already enabled before Step 1b.
    *  True = cheap probe only; false = enable-and-start ran (or was skipped due
    *  to an earlier Step 1 channel failure that prevented daemon-reload). */
@@ -194,6 +218,31 @@ function logBootstrapFailed(
       hostName: host.name,
       step,
       errorMessage,
+    },
+  );
+}
+
+/**
+ * Step 7 activity log — emitted only when a file or baseline was migrated or
+ * a both-keys conflict exists (steady state logs nothing). Conflicts → warn.
+ */
+function logRolesKeyMigration(
+  host: { id: string; name: string },
+  counts: RolesKeyMigrationCounts,
+): void {
+  const { filesMigrated, baselinesMigrated, conflicts, conflictPaths } = counts;
+  if (filesMigrated + baselinesMigrated + conflicts === 0) return;
+  systemLogger[conflicts > 0 ? "warn" : "info"](
+    `Fleet-substrate bootstrap: identity roles-key migration on ${host.name}` +
+      ` (${filesMigrated} file(s), ${baselinesMigrated} baseline(s), ${conflicts} conflict(s))`,
+    {
+      operation: "fleet_substrate_roles_key_migration",
+      fleetHostId: host.id,
+      hostName: host.name,
+      filesMigrated,
+      baselinesMigrated,
+      conflicts,
+      ...(conflicts > 0 ? { conflictPaths } : {}),
     },
   );
 }
@@ -1029,6 +1078,56 @@ export async function runBootstrapForHost(
     );
   }
 
+  // -------------------------------------------------------------------------
+  // Step 7: identity roles-key migration (`role:` → `roles:`). One python3
+  //         exec; the script and its rules live in roles-key-migration.ts.
+  //         Logs counts only when something was migrated or a conflict exists.
+  // -------------------------------------------------------------------------
+  let rolesKeyMigrationOk = false;
+  try {
+    const raw = await channel.exec(ROLES_KEY_MIGRATION_CMD);
+    const counts = raw === null ? null : parseRolesKeyMigrationOutput(raw);
+    if (raw === null) {
+      hadError = true;
+      logBootstrapFailed(host, "roles-key-migration", "channel returned null");
+    } else if (counts === null) {
+      hadError = true;
+      logBootstrapFailed(
+        host,
+        "roles-key-migration",
+        raw.trimEnd().slice(0, 500) || "roles-key migration failed",
+      );
+    } else {
+      logRolesKeyMigration(host, counts);
+      if (counts.errorCount > 0) {
+        hadError = true;
+        logBootstrapFailed(
+          host,
+          "roles-key-migration",
+          `${counts.errorCount} file(s) failed: ` +
+            counts.errors.map((e) => `${e.path}: ${e.error}`).join("; ").slice(0, 500),
+        );
+      } else if (counts.deferred > 0) {
+        // Not ok: run-sweep counts this as a failed item, so the host is
+        // re-swept on the retry tick instead of being marked done.
+        logBootstrapFailed(
+          host,
+          "roles-key-migration",
+          `${counts.deferred} file(s) changed mid-migration — will retry`,
+        );
+      } else {
+        rolesKeyMigrationOk = true;
+      }
+    }
+  } catch (err) {
+    hadError = true;
+    logBootstrapFailed(
+      host,
+      "roles-key-migration",
+      err instanceof Error ? err.message : "unknown throw",
+    );
+  }
+
   const result: BootstrapResult = {
     alreadyEnabled,
     bootstrapRan,
@@ -1039,6 +1138,7 @@ export async function runBootstrapForHost(
     hostNameOk,
     hostIdOk,
     usageReporterRetireOk,
+    rolesKeyMigrationOk,
     gcTimerAlreadyEnabled,
     gcTimerBootstrapped,
     scheduledAgentsSchedulerAlreadyEnabled,

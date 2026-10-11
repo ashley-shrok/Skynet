@@ -105,7 +105,7 @@ test.describe("frontmatter round-trip preservation (D-05 / D-14)", () => {
     // Fence + key survival — the load-bearing D-05 assertions. The fence
     // MUST reopen at the very top of the serialised output, and each key
     // MUST reappear byte-verbatim inside the block.
-    expect(serialized).toMatch(/^---\nrole: box-maintainer\n/);
+    expect(serialized).toMatch(/^---\nroles: box-maintainer\n/);
     expect(serialized).toContain("displayName: Cedar\n");
     expect(serialized).toContain("task:");
     // The fence closes cleanly before the body — a subsequent `---\n\n`
@@ -133,7 +133,7 @@ test.describe("frontmatter round-trip preservation (D-05 / D-14)", () => {
     await fmButton.click();
 
     // Radix Dialog surfaces role="dialog". Existing keys populate form
-    // inputs — the identity sample carries role: box-maintainer.
+    // inputs — the identity sample carries roles: box-maintainer.
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible({ timeout: 5_000 });
 

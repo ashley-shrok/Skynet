@@ -46,7 +46,7 @@ import yaml from "js-yaml";
 // user because the gate can't SEE the users list even though it's still on
 // disk. Eemeli's `yaml` package parses tolerantly: recoverable errors leave
 // unaffected fields intact on the returned Document, and the caller can
-// still read `users:` / `role:` / etc. through `.toJS()`. WRITE paths keep
+// still read `users:` / `roles:` / etc. through `.toJS()`. WRITE paths keep
 // js-yaml (yaml.dump) because writers correctly refuse to touch a broken
 // file — different failure semantics from readers.
 import { parseDocument as yamlParseDocument } from "yaml";
@@ -373,12 +373,13 @@ export function getLocalAppsRoot(): string {
 // ---------------------------------------------------------------------------
 //
 // The fleet-side role/identity paradigm stores role assignment as YAML
-// frontmatter (`role: <name>`) at the top of ~/fleet/identities/<key>/<key>.md.
+// frontmatter (`roles: [<name>, ...]`) at the top of ~/fleet/identities/<key>/<key>.md.
 // Role-scoped artifacts (bounties, role-file) live at
 // ~/fleet/roles/<role>/... — so any backend op that needs a role artifact
-// must first read the identity file, parse the frontmatter, and extract role.
+// must first read the identity file, parse the frontmatter, and extract roles.
 //
-// This helper pair (extractRoleFromMarkdown + resolveRoleForIdentity) is the
+// These helpers (extractRolesFromMarkdown + resolveRolesForIdentity, and their
+// single-role views extractRoleFromMarkdown / resolveRoleForIdentity) are the
 // SINGLE source of truth for that two-step. Per D-CONTEXT §"No no-role
 // fallback branches" (LOCKED with user 2026-08-04), resolveRoleForIdentity
 // THROWS when role is missing or fails the shell-safety gate — never returns
@@ -386,114 +387,165 @@ export function getLocalAppsRoot(): string {
 // field via the existing claude-session-server.ts error-envelope pattern.
 
 /**
- * Extract the role name from an identity markdown file's YAML frontmatter block.
+ * Extract the single role name from an identity markdown file's `roles:`
+ * frontmatter.
  *
- * Returns the role string when present + non-empty + string-typed. Returns null
- * on any of: missing `---...---` frontmatter delimiters, missing `role:` key,
- * empty-string value, non-string value, or js-yaml parse error.
+ * Returns the role string when the identity names exactly ONE valid role.
+ * Returns null when there is no frontmatter, no `roles:` key, no valid role,
+ * or SEVERAL roles — a multi-role identity inherits no single role's look.
+ * Use extractRolesFromMarkdown for the full list; this is a thin view over it
+ * so there is exactly one frontmatter reader.
  *
  * The caller decides whether null is fatal — resolveRoleForIdentity below
- * treats it as fatal (throws) per D-CONTEXT no-fallback rule. Direct callers
- * (Wave 2 plans that need role-if-present logic) can null-check without
- * catching an exception.
- *
- * Regex bounds the frontmatter to the block between the top-of-file `---`
- * and the next `---` — parser sees a well-formed YAML snippet, not the whole
- * markdown body (which could contain hostile YAML-shaped lines elsewhere).
- * `\r?\n` handles both LF and CRLF line endings (rare but valid on identity
- * files touched by Windows editors).
+ * treats it as fatal (throws) per D-CONTEXT no-fallback rule.
  */
 export function extractRoleFromMarkdown(markdown: string): string | null {
-  const match = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-  if (!match) return null;
-  // Tolerant parse: parseDocument does NOT throw on recoverable YAML errors —
-  // it collects them on `doc.errors` and still exposes whatever nodes parsed
-  // cleanly via doc.toJS(). Critical for the identity-visibility gate: a
-  // malformed prose field (bad `task:` with unquoted `: ` — the recurring
-  // Pitfall 3 case) used to collapse the whole frontmatter to null and force
-  // role=null, which in turn caused the role-side visibility gate to fall
-  // open (Phase 135 D-3 fallback conflating "absent" with "unparseable"),
-  // silently leaking every affected identity to every user. With the tolerant
-  // parser, `role:` on line 1 survives a broken `task:` on line 3, so the
-  // role-side gate still closes correctly.
-  const doc = yamlParseDocument(match[1]);
-  if (doc.errors.length > 0) {
-    systemLogger.warn(
-      "Identity/role frontmatter YAML had parse errors — using tolerant recovery",
-      {
-        operation: "frontmatter_yaml_parse_failed",
-        site: "extractRoleFromMarkdown",
-        errorCount: doc.errors.length,
-        firstError: doc.errors[0]?.message?.split("\n")[0],
-        snippet: match[1].slice(0, 200),
-      },
-    );
+  const roles = extractRolesFromMarkdown(markdown);
+  return roles.length === 1 ? roles[0] : null;
+}
+
+/** Slug gate every role name must pass — same as ROLES_SLUG_RE in
+ *  substrate/scripts/tests/fixtures/roles_frontmatter_reference.py. */
+const ROLES_SLUG_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+
+/**
+ * Every role named in an identity file's `roles:` frontmatter, in file order.
+ *
+ * A line-for-line port of the canonical reference parser
+ * (substrate/scripts/tests/fixtures/roles_frontmatter_reference.py) — not a
+ * YAML parse, so it agrees with the substrate scripts on every input,
+ * including odd ones (duplicate keys, an unterminated `[a`). Checked against
+ * roles-frontmatter-cases.json in identity-artifact-reader.two-step.test.ts.
+ * Change the reference first, then re-port; never edit this copy alone.
+ *
+ * Accepted under `roles:`: scalar, quoted scalar, flow list, bare comma list,
+ * block list (indented or not), trailing comments, CRLF, leading BOM. Only
+ * the first frontmatter block and the first `roles:` line count. The
+ * singular `role:` key is NOT read. Returns [] when nothing valid.
+ */
+export function extractRolesFromMarkdown(markdown: string): string[] {
+  const lines = markdown.replace(/^\uFEFF+/, "").replace(/\r\n/g, "\n").split("\n");
+  if (lines.length === 0 || lines[0].trim() !== "---") return [];
+  let end = -1;
+  for (let i = 1; i < lines.length; i++) {
+    if (lines[i].trim() === "---") {
+      end = i;
+      break;
+    }
   }
-  const parsed = doc.toJS() as Record<string, unknown> | null;
-  if (parsed === null || typeof parsed !== "object") return null;
-  // Scalar only: a multi-role identity (`role:` holding a list) yields null
-  // here on purpose — it inherits no single role's look. Use
-  // extractRolesFromMarkdown for the full list.
-  const role = parsed.role;
-  return typeof role === "string" && role.length > 0 ? role : null;
+  if (end === -1) return [];
+
+  const clean = (v: string): string =>
+    v.replace(/\s+#.*$/, "").trim().replace(/^["']+|["']+$/g, "").trim();
+
+  let raw: string[] = [];
+  for (let i = 1; i < end; i++) {
+    const m = /^roles:(.*)$/.exec(lines[i]);
+    if (!m) continue;
+    let inline = m[1].replace(/(^|\s)#.*$/, "").trim();
+    if (inline) {
+      if (inline.startsWith("[") && inline.endsWith("]")) inline = inline.slice(1, -1);
+      raw = inline.split(",").map(clean);
+    } else {
+      for (let j = i + 1; j < end; j++) {
+        const t = lines[j].trim();
+        if (!t || t.startsWith("#")) continue;
+        const m2 = /^-\s*(.*)$/.exec(t);
+        if (!m2) break;
+        raw.push(clean(m2[1]));
+      }
+    }
+    break;
+  }
+
+  const out: string[] = [];
+  for (const r of raw) {
+    if (r && ROLES_SLUG_RE.test(r) && !out.includes(r)) out.push(r);
+  }
+  return out;
 }
 
 /**
- * Every role named in an identity file's `role:` frontmatter, in file order:
- * a scalar yields one entry, a flow (`role: [a, b]`) or block list yields all
- * of them. Non-string / empty entries are dropped, duplicates collapsed.
- * Returns [] when there is no frontmatter or no `role:` key.
+ * Rewrite a js-yaml-dumped top-level `roles:` block sequence into the canonical
+ * flow form (`roles: [a, b]`) that every identity writer emits. Used by the
+ * load→mutate→dump round-trip writers (PUT /identities/:key,
+ * writeSessionProjectField) so an edit doesn't silently reshape the line.
+ * Only rewrites when every item is a plain slug (ROLES_SLUG_RE, unquoted);
+ * anything else is left as the (still valid, still readable) block list.
  */
-export function extractRolesFromMarkdown(markdown: string): string[] {
-  const match = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-  if (!match) return [];
-  const parsed = yamlParseDocument(match[1]).toJS() as Record<string, unknown> | null;
-  if (parsed === null || typeof parsed !== "object") return [];
-  const raw = parsed.role;
-  const list = Array.isArray(raw) ? raw : [raw];
-  return Array.from(
-    new Set(list.filter((r): r is string => typeof r === "string" && r.length > 0)),
+export function flowRolesInYamlDump(yamlBody: string): string {
+  return yamlBody.replace(
+    /^roles:\n((?: {2}- [a-z0-9][a-z0-9_-]{0,63}\n)+)/m,
+    (_m, items: string) =>
+      `roles: [${items
+        .trim()
+        .split("\n")
+        .map((l) => l.trim().slice(2))
+        .join(", ")}]\n`,
   );
 }
 
 /**
- * Resolve the role name for a given identity by reading the identity file and
- * extracting `role:` from its YAML frontmatter.
+ * Resolve EVERY role name for a given identity by reading the identity file
+ * and extracting `roles:` from its YAML frontmatter (extractRolesFromMarkdown).
  *
- * THROWS Error (never returns null) when:
+ * THROWS Error (never returns []) when:
  *   - identity file body has no frontmatter block, OR
- *   - frontmatter has no `role:` key, OR
- *   - role: value fails the IDENTITY_KEY_RE = /^[a-z0-9_-]{1,64}$/ gate.
+ *   - frontmatter has no `roles:` key / no valid role name, OR
+ *   - any role fails the IDENTITY_KEY_RE = /^[a-z0-9_-]{1,64}$/ gate.
  *
- * The second gate is defense-in-depth: role is shell-interpolated into
- * SSH exec commands by callers (readIdentityBounties and other role-scoped readers,
- * and future role-scoped writers), so re-validating role with the same
- * regex that guards identityKey shell-safety is required. See threat model
+ * The IDENTITY_KEY_RE gate is defense-in-depth: roles are shell-interpolated
+ * into SSH exec commands by callers, so re-validating with the same regex that
+ * guards identityKey shell-safety is required. See threat model
  * T-22-01-01 / T-22-01-02.
  *
- * Per D-CONTEXT (LOCKED 2026-08-04): "No no-role fallback branches anywhere.
- * user confirmed no fleet identity lacks `role:` frontmatter post-migration.
- * Any plan that adds 'graceful (no role)' fallback branches or empty-state
- * handling is a plan-checker BLOCK (dead code)." A throw here is correct
- * behavior for a data-integrity violation, not a bug.
+ * Per D-CONTEXT (LOCKED 2026-08-04): "No no-role fallback branches anywhere."
+ * A throw here is correct behavior for a data-integrity violation, not a bug.
+ */
+export async function resolveRolesForIdentity(
+  conn: SSHClientType | null,
+  identityKey: string,
+): Promise<string[]> {
+  const { markdown } = await readIdentityFile(conn, identityKey);
+  const roles = extractRolesFromMarkdown(markdown);
+  if (roles.length === 0) {
+    throw new Error(
+      `identity ${identityKey} has no roles: frontmatter in identity file`,
+    );
+  }
+  for (const role of roles) {
+    if (!IDENTITY_KEY_RE.test(role)) {
+      throw new Error(
+        `identity ${identityKey}: role ${role} fails IDENTITY_KEY_RE gate`,
+      );
+    }
+  }
+  return roles;
+}
+
+/**
+ * Resolve the SINGLE role name for a given identity (see
+ * resolveRolesForIdentity for the full list and the throw contract).
+ *
+ * Used by the identity-scoped role-file accessors (readRoleFile /
+ * writeRoleFile), which address "the identity's role file" and so have no
+ * meaningful answer for a multi-role identity. THROWS (in addition to
+ * resolveRolesForIdentity's cases) when the identity names several roles —
+ * callers that must work for multi-role identities use
+ * resolveRolesForIdentity instead.
  */
 export async function resolveRoleForIdentity(
   conn: SSHClientType | null,
   identityKey: string,
 ): Promise<string> {
-  const { markdown } = await readIdentityFile(conn, identityKey);
-  const role = extractRoleFromMarkdown(markdown);
-  if (role === null) {
+  const roles = await resolveRolesForIdentity(conn, identityKey);
+  if (roles.length > 1) {
     throw new Error(
-      `identity ${identityKey} has no role: frontmatter in identity file`,
+      `identity ${identityKey} has multiple roles (${roles.join(", ")}); ` +
+        `open the role file by role name instead`,
     );
   }
-  if (!IDENTITY_KEY_RE.test(role)) {
-    throw new Error(
-      `identity ${identityKey}: role ${role} fails IDENTITY_KEY_RE gate`,
-    );
-  }
-  return role;
+  return roles[0];
 }
 
 // ---------------------------------------------------------------------------
@@ -591,7 +643,7 @@ export async function readSessionProjectField(
  * Load-bearing (Pitfall 5): the round-trip is a FULL yaml.load / yaml.dump
  * pair — NOT extractCosmeticsFromFrontmatter. Every unknown frontmatter key
  * survives untouched. If the identity file has a `custom: foo` field, it
- * survives; if it has `role: worker`, it survives; if a future migration
+ * survives; if it has `roles: [worker]`, it survives; if a future migration
  * adds a new key, it survives without a code change here.
  *
  * yaml.dump options (matches identity-birth-orchestrator.ts:575 verbatim):
@@ -647,12 +699,14 @@ export async function writeSessionProjectField(
     parsed.project = projectSlug;
   }
 
-  const yamlBody = yaml.dump(parsed, {
-    sortKeys: false,
-    lineWidth: -1,
-    noRefs: true,
-    forceQuotes: false,
-  });
+  const yamlBody = flowRolesInYamlDump(
+    yaml.dump(parsed, {
+      sortKeys: false,
+      lineWidth: -1,
+      noRefs: true,
+      forceQuotes: false,
+    }),
+  );
 
   const newContents = `---\n${yamlBody}---\n${bodyAfter}`;
   const targetPath = `$HOME/fleet/identities/${identityKey}/${identityKey}.md`;
@@ -1272,8 +1326,8 @@ export async function listIdentityKeysOnHost(
  * the same role → path substitution (matches the pattern established by
  * readIdentityBounties in Plan 22-01).
  *
- * Throws (via resolveRoleForIdentity) when the identity file lacks role:
- * frontmatter — no fallback per D-CONTEXT § "No no-role fallback branches"
+ * Throws (via resolveRoleForIdentity) when the identity file lacks roles:
+ * frontmatter or names several roles — no fallback per D-CONTEXT § "No no-role fallback branches"
  * (LOCKED with user 2026-08-04). Returns {markdown: ""} when the role file
  * itself is missing on disk (LOCAL ENOENT / REMOTE empty stdout via `|| true`)
  * but the identity did have valid role frontmatter — this is normal for a
@@ -1340,7 +1394,7 @@ export async function readRoleFile(
  *           || true` via execWithTimeout, empty stdout → {markdown: ""}.
  *
  * ROLE_NAME_PATTERN gate (T-85-01-01): defense-in-depth for the SSH
- * interpolation. roleName arrives here via the identity's role: frontmatter,
+ * interpolation. roleName arrives here via the identity's roles: frontmatter,
  * which is separately validated by IDENTITY_KEY_RE inside
  * resolveRoleForIdentity — but this reader is also called from paths where
  * roleName arrived via the API layer or the frontend, so re-validate at the
@@ -3093,7 +3147,8 @@ export async function writeIdentityHandoff(
  *   1. IDENTITY_KEY_RE.test(identityKey) — rejects before any I/O.
  *   2. Byte cap (IDMEDIT_MAX_MARKDOWN_BYTES = 2MB) — rejects before any I/O.
  *   3. resolveRoleForIdentity(conn, identityKey) — throws when identity file
- *      lacks role: frontmatter (no fallback per D-CONTEXT).
+ *      lacks roles: frontmatter or names several roles (no fallback per
+ *      D-CONTEXT).
  *
  * REMOTE branch uses writeMarkdownFileAtomic (SFTP tmp+rename via
  * posix-rename@openssh.com) — the SAME helper that carries the EEXIST fix

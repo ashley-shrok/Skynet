@@ -40,6 +40,7 @@ import {
   getLocalIdentitiesRoot,
   extractRoleFromMarkdown,
   extractRolesFromMarkdown,
+  flowRolesInYamlDump,
   MIME_TO_AVATAR_EXT,
   IDENTITY_KEY_RE,
   // Phase 85 Plan 85-01 Task 2: role-cosmetic merge (per-host memo in GET /
@@ -740,7 +741,7 @@ router.put(
           }
         } catch (yamlErr) {
           // Malformed frontmatter YAML — do NOT silently reset to {} because
-          // that would drop the mandatory `role:` pointer (and anything else
+          // that would drop the mandatory `roles:` pointer (and anything else
           // the identity carried) on the next write, permanently bricking the
           // identity for every downstream artifact reader. Fail loud instead;
           // the operator must repair the frontmatter on disk before Skynet
@@ -829,12 +830,16 @@ router.put(
       }
 
       // ---- Emit new file body ----
-      const yamlBody = yaml.dump(stringifyColorHueForYaml(overlaid), {
-        sortKeys: false,
-        lineWidth: -1,
-        noRefs: true,
-        forceQuotes: false,
-      });
+      // `roles:` round-trips as a list; flowRolesInYamlDump restores the
+      // canonical flow form (`roles: [a, b]`) yaml.dump would block-ify.
+      const yamlBody = flowRolesInYamlDump(
+        yaml.dump(stringifyColorHueForYaml(overlaid), {
+          sortKeys: false,
+          lineWidth: -1,
+          noRefs: true,
+          forceQuotes: false,
+        }),
+      );
       const newBody = `---\n${yamlBody}---\n${bodyAfterFm}`;
 
       // ---- Write markdown ----

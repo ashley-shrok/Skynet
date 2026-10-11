@@ -221,10 +221,11 @@ vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
     svg: "image/svg+xml",
   },
   IDENTITY_KEY_RE: /^[a-z0-9_-]{1,64}$/,
+  flowRolesInYamlDump: (yamlBody: string) => yamlBody,
   extractRolesFromMarkdown: (md: string): string[] => {
-    const list = md.match(/^role:\s*\[([^\]]*)\]\s*$/m);
+    const list = md.match(/^roles:\s*\[([^\]]*)\]\s*$/m);
     if (list) return list[1].split(",").map((r) => r.trim()).filter(Boolean);
-    const m = md.match(/^role:\s*([a-z0-9-]+)\s*$/m);
+    const m = md.match(/^roles:\s*([a-z0-9-]+)\s*$/m);
     return m ? [m[1]] : [];
   },
   extractRoleFromMarkdown: (markdown: string): string | null => {
@@ -233,8 +234,11 @@ vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
     try {
       const parsed = yaml.load(match[1]) as Record<string, unknown> | null;
       if (parsed === null || typeof parsed !== "object") return null;
-      const role = parsed.role;
-      return typeof role === "string" && role.length > 0 ? role : null;
+      // Mirrors the real reader: `roles:` only; exactly one role → it.
+      const raw = parsed.roles;
+      const list = Array.isArray(raw) ? raw : typeof raw === "string" ? raw.split(",") : [];
+      const names = list.map((r) => String(r).trim()).filter(Boolean);
+      return names.length === 1 ? names[0] : null;
     } catch {
       return null;
     }
@@ -498,12 +502,12 @@ describe("GET /identities — disk-fanout enumeration (Phase 68 Plan 68-02)", ()
     readIdentityFileMock.mockImplementation((_conn: unknown, key: string) => {
       if (key === "tina") {
         return Promise.resolve({
-          markdown: "---\nrole: box-maintainer\ndisplayName: Tina\ntitle: The Coder\ncolorHue: 220\n---\n",
+          markdown: "---\nroles: box-maintainer\ndisplayName: Tina\ntitle: The Coder\ncolorHue: 220\n---\n",
         });
       }
       if (key === "poppy") {
         return Promise.resolve({
-          markdown: "---\nrole: box-maintainer\ndisplayName: Poppy\ntitle: The Warden\n---\n",
+          markdown: "---\nroles: box-maintainer\ndisplayName: Poppy\ntitle: The Warden\n---\n",
         });
       }
       return Promise.resolve({ markdown: "" });
@@ -554,7 +558,7 @@ describe("GET /identities — disk-fanout enumeration (Phase 68 Plan 68-02)", ()
 
     readIdentityFileMock.mockImplementation((_conn: unknown, key: string) => {
       return Promise.resolve({
-        markdown: `---\nrole: box-maintainer\ndisplayName: ${key.charAt(0).toUpperCase() + key.slice(1)}\n---\n`,
+        markdown: `---\nroles: box-maintainer\ndisplayName: ${key.charAt(0).toUpperCase() + key.slice(1)}\n---\n`,
       });
     });
 
@@ -591,7 +595,7 @@ describe("GET /identities — disk-fanout enumeration (Phase 68 Plan 68-02)", ()
     });
 
     readIdentityFileMock.mockResolvedValue({
-      markdown: "---\nrole: box-maintainer\ndisplayName: Tina\n---\n",
+      markdown: "---\nroles: box-maintainer\ndisplayName: Tina\n---\n",
     });
 
     // tina→1 (LOCAL, works), nelly→2 (REMOTE, fails)
@@ -629,12 +633,12 @@ describe("GET /identities — disk-fanout enumeration (Phase 68 Plan 68-02)", ()
         if (conn === null) {
           // host 1's tina
           return Promise.resolve({
-            markdown: "---\nrole: box-maintainer\ndisplayName: Tina-Host1\n---\n",
+            markdown: "---\nroles: box-maintainer\ndisplayName: Tina-Host1\n---\n",
           });
         }
         // host 2's tina
         return Promise.resolve({
-          markdown: "---\nrole: box-maintainer\ndisplayName: Tina-Host2\n---\n",
+          markdown: "---\nroles: box-maintainer\ndisplayName: Tina-Host2\n---\n",
         });
       }
       return Promise.resolve({ markdown: "" });
@@ -709,7 +713,7 @@ describe("GET /identities — disk-fanout enumeration (Phase 68 Plan 68-02)", ()
     listIdentityKeysOnHostMock.mockResolvedValue(["tina"]);
     readIdentityFileMock.mockResolvedValue({
       markdown:
-        "---\nrole: box-maintainer\ndisplayName: Tina\ntask: wire the pool-pick endpoint\n---\n",
+        "---\nroles: box-maintainer\ndisplayName: Tina\ntask: wire the pool-pick endpoint\n---\n",
     });
 
     const hostsJson = encodeURIComponent(JSON.stringify({ tina: 1 }));
@@ -725,7 +729,7 @@ describe("GET /identities — disk-fanout enumeration (Phase 68 Plan 68-02)", ()
     listIdentityKeysOnHostMock.mockResolvedValue(["tina"]);
     readIdentityFileMock.mockResolvedValue({
       markdown:
-        "---\nrole: box-maintainer\ndisplayName: Tina\n---\n",
+        "---\nroles: box-maintainer\ndisplayName: Tina\n---\n",
     });
 
     const hostsJson = encodeURIComponent(JSON.stringify({ tina: 1 }));
@@ -742,7 +746,7 @@ describe("GET /identities — disk-fanout enumeration (Phase 68 Plan 68-02)", ()
   it("Only-a: only=1 returns just the named identity and reads no other identity file", async () => {
     isLocalHostIdMock.mockImplementation((n: number) => n === 1);
     listIdentityKeysOnHostMock.mockResolvedValue(["tina", "poppy", "moxie"]);
-    readIdentityFileMock.mockResolvedValue({ markdown: "---\nrole: box-maintainer\n---\n" });
+    readIdentityFileMock.mockResolvedValue({ markdown: "---\nroles: box-maintainer\n---\n" });
 
     const hostsJson = encodeURIComponent(JSON.stringify({ poppy: 1 }));
     const res = await httpGet(server, `/identities?identityHosts=${hostsJson}&only=1`);
@@ -757,7 +761,7 @@ describe("GET /identities — disk-fanout enumeration (Phase 68 Plan 68-02)", ()
   it("Only-b: without only=1 the same map still enumerates the whole host (default unchanged)", async () => {
     isLocalHostIdMock.mockImplementation((n: number) => n === 1);
     listIdentityKeysOnHostMock.mockResolvedValue(["tina", "poppy", "moxie"]);
-    readIdentityFileMock.mockResolvedValue({ markdown: "---\nrole: box-maintainer\n---\n" });
+    readIdentityFileMock.mockResolvedValue({ markdown: "---\nroles: box-maintainer\n---\n" });
 
     const hostsJson = encodeURIComponent(JSON.stringify({ poppy: 1 }));
     const res = await httpGet(server, `/identities?identityHosts=${hostsJson}`);
@@ -1060,7 +1064,7 @@ describe("GET /identities — Phase 85 role-cosmetic merge + per-host role-read 
     listIdentityKeysOnHostMock.mockResolvedValue(["tina"]);
     readIdentityFileMock.mockResolvedValue({
       markdown:
-        "---\nrole: box-maintainer\ndisplayName: Tina\ntitle: id-title\n---\n",
+        "---\nroles: box-maintainer\ndisplayName: Tina\ntitle: id-title\n---\n",
     });
     readRoleFileByNameMock.mockResolvedValue({
       markdown:
@@ -1089,7 +1093,7 @@ describe("GET /identities — Phase 85 role-cosmetic merge + per-host role-read 
     // Both identities point to the same role.
     readIdentityFileMock.mockImplementation((_conn: unknown, key: string) => {
       return Promise.resolve({
-        markdown: `---\nrole: box-maintainer\ndisplayName: ${key}\n---\n`,
+        markdown: `---\nroles: box-maintainer\ndisplayName: ${key}\n---\n`,
       });
     });
     readRoleFileByNameMock.mockResolvedValue({
@@ -1119,7 +1123,7 @@ describe("GET /identities — Phase 85 role-cosmetic merge + per-host role-read 
     listIdentityKeysOnHostMock.mockResolvedValue(["tina"]);
     readIdentityFileMock.mockResolvedValue({
       markdown:
-        "---\nrole: box-maintainer\ndisplayName: Tina\ntitle: id-title\n---\n",
+        "---\nroles: box-maintainer\ndisplayName: Tina\ntitle: id-title\n---\n",
     });
     // Role read fails — identity should still surface with its own cosmetics.
     readRoleFileByNameMock.mockRejectedValue(new Error("SSH exec failed"));
@@ -1165,7 +1169,7 @@ describe("GET /identities/:key/avatar — Phase 85 role-folder fallback", () => 
     readAvatarSiblingFileMock.mockResolvedValue(null);
     // Identity markdown carries role name
     readIdentityFileMock.mockResolvedValue({
-      markdown: "---\nrole: box-maintainer\ndisplayName: Tina\n---\n",
+      markdown: "---\nroles: box-maintainer\ndisplayName: Tina\n---\n",
     });
     // Role file carries avatar frontmatter
     readRoleFileByNameMock.mockResolvedValue({
@@ -1197,7 +1201,7 @@ describe("GET /identities/:key/avatar — Phase 85 role-folder fallback", () => 
     isLocalHostIdMock.mockReturnValue(false);
     readAvatarSiblingFileMock.mockResolvedValue(null);
     readIdentityFileMock.mockResolvedValue({
-      markdown: "---\nrole: box-maintainer\ndisplayName: Tina\n---\n",
+      markdown: "---\nroles: box-maintainer\ndisplayName: Tina\n---\n",
     });
     // Role has no avatar frontmatter
     readRoleFileByNameMock.mockResolvedValue({
@@ -1217,7 +1221,7 @@ describe("GET /identities/:key/avatar — Phase 85 role-folder fallback", () => 
     isLocalHostIdMock.mockReturnValue(false);
     readAvatarSiblingFileMock.mockResolvedValue(null);
     readIdentityFileMock.mockResolvedValue({
-      markdown: "---\nrole: [box-maintainer, sky-uat]\ndisplayName: Tina\n---\n",
+      markdown: "---\nroles: [box-maintainer, sky-uat]\ndisplayName: Tina\n---\n",
     });
     readRoleFileByNameMock.mockImplementation(async (_conn: unknown, role: string) => ({
       markdown: `---\ntitle: ${role}\navatar: "${role}.png"\n---\n`,
@@ -1259,7 +1263,7 @@ describe("GET /identities/:key/avatar — Phase 85 role-folder fallback", () => 
     isLocalHostIdMock.mockReturnValue(false);
     readAvatarSiblingFileMock.mockResolvedValue(null);
     readIdentityFileMock.mockResolvedValue({
-      markdown: "---\nrole: [box-maintainer, sky-uat]\n---\n",
+      markdown: "---\nroles: [box-maintainer, sky-uat]\n---\n",
     });
     readRoleFileByNameMock.mockResolvedValue({ markdown: "---\ntitle: no-avatar\n---\n" });
 
@@ -1335,7 +1339,7 @@ function mockIdentityWithUsers(
   roleUsers?: string[],
 ): void {
   listIdentityKeysOnHostMock.mockResolvedValue([identityKey]);
-  const idFm: string[] = [`role: ${roleName}`, `displayName: ${identityKey}`];
+  const idFm: string[] = [`roles: ${roleName}`, `displayName: ${identityKey}`];
   if (identityUsers !== undefined) {
     idFm.push(`users: [${identityUsers.join(", ")}]`);
   }
@@ -1565,7 +1569,7 @@ describe("Phase 129: per-user visibility gate", () => {
       if (key === "muffin") {
         return Promise.resolve({
           markdown:
-            "---\nrole: box-maintainer\ndisplayName: Muffin\nusers: [user]\n---\n",
+            "---\nroles: box-maintainer\ndisplayName: Muffin\nusers: [user]\n---\n",
         });
       }
       // "broken" read throws — pre-129 contract drops it via the L445

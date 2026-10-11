@@ -176,8 +176,9 @@ vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
     svg: "image/svg+xml",
   },
   IDENTITY_KEY_RE: /^[a-z0-9_-]{1,64}$/,
+  flowRolesInYamlDump: (yamlBody: string) => yamlBody,
   extractRolesFromMarkdown: (md: string): string[] => {
-    const m = md.match(/^role:\s*([a-z0-9-]+)\s*$/m);
+    const m = md.match(/^roles:\s*([a-z0-9-]+)\s*$/m);
     return m ? [m[1]] : [];
   },
   extractRoleFromMarkdown: (markdown: string): string | null => {
@@ -186,8 +187,11 @@ vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
     try {
       const parsed = yaml.load(match[1]) as Record<string, unknown> | null;
       if (parsed === null || typeof parsed !== "object") return null;
-      const role = parsed.role;
-      return typeof role === "string" && role.length > 0 ? role : null;
+      // Mirrors the real reader: `roles:` only; exactly one role → it.
+      const raw = parsed.roles;
+      const list = Array.isArray(raw) ? raw : typeof raw === "string" ? raw.split(",") : [];
+      const names = list.map((r) => String(r).trim()).filter(Boolean);
+      return names.length === 1 ? names[0] : null;
     } catch {
       return null;
     }
@@ -369,7 +373,7 @@ describe("GET /identities — Phase 92 disk-fanout .pinned probe", () => {
     isLocalHostIdMock.mockImplementation((n: number) => n === 1);
     listIdentityKeysOnHostMock.mockResolvedValue(["tina"]);
     readIdentityFileMock.mockResolvedValue({
-      markdown: "---\nrole: box-maintainer\ndisplayName: Tina\n---\n",
+      markdown: "---\nroles: box-maintainer\ndisplayName: Tina\n---\n",
     });
     identityFileExistsMock.mockResolvedValue(false);
 
@@ -386,7 +390,7 @@ describe("GET /identities — Phase 92 disk-fanout .pinned probe", () => {
     isLocalHostIdMock.mockImplementation((n: number) => n === 1);
     listIdentityKeysOnHostMock.mockResolvedValue(["tina"]);
     readIdentityFileMock.mockResolvedValue({
-      markdown: "---\nrole: box-maintainer\ndisplayName: Tina\n---\n",
+      markdown: "---\nroles: box-maintainer\ndisplayName: Tina\n---\n",
     });
     identityFileExistsMock.mockResolvedValue(true);
 
@@ -403,7 +407,7 @@ describe("GET /identities — Phase 92 disk-fanout .pinned probe", () => {
     isLocalHostIdMock.mockImplementation((n: number) => n === 1);
     listIdentityKeysOnHostMock.mockResolvedValue(["tina"]);
     readIdentityFileMock.mockResolvedValue({
-      markdown: "---\nrole: box-maintainer\ndisplayName: Tina\n---\n",
+      markdown: "---\nroles: box-maintainer\ndisplayName: Tina\n---\n",
     });
     // Simulate a stat failure — the primitive itself is fail-closed on REMOTE,
     // but on LOCAL an unlucky throw could bubble. The fanout MUST swallow.
@@ -433,7 +437,7 @@ describe("GET /identities — Phase 92 disk-fanout .pinned probe", () => {
       return new Promise((resolve) => {
         readIdentityResolvers.push(() =>
           resolve({
-            markdown: "---\nrole: box-maintainer\ndisplayName: X\n---\n",
+            markdown: "---\nroles: box-maintainer\ndisplayName: X\n---\n",
           }),
         );
       });
@@ -466,7 +470,7 @@ describe("GET /identities — Phase 92 disk-fanout .pinned probe", () => {
     isLocalHostIdMock.mockImplementation((n: number) => n === 1);
     listIdentityKeysOnHostMock.mockResolvedValue(["tina", "poppy", "moxie"]);
     readIdentityFileMock.mockResolvedValue({
-      markdown: "---\nrole: box-maintainer\ndisplayName: X\n---\n",
+      markdown: "---\nroles: box-maintainer\ndisplayName: X\n---\n",
     });
     identityFileExistsMock.mockResolvedValue(false);
 
@@ -492,7 +496,7 @@ describe("GET /identities — Phase 92 disk-fanout .pinned probe", () => {
     const folderNames = ["tina", "user-01", "role_underscore"];
     listIdentityKeysOnHostMock.mockResolvedValue(folderNames);
     readIdentityFileMock.mockResolvedValue({
-      markdown: "---\nrole: box-maintainer\ndisplayName: X\n---\n",
+      markdown: "---\nroles: box-maintainer\ndisplayName: X\n---\n",
     });
     identityFileExistsMock.mockResolvedValue(false);
 

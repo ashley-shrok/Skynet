@@ -229,6 +229,11 @@ export function ConversationSearchModal({
         window.alert(
           `Couldn't un-archive ${result.identityKey} — a live conversation with the same key already exists.`,
         );
+      } else if (err instanceof UnarchiveError && err.reason === "no_roles") {
+        // eslint-disable-next-line no-alert
+        window.alert(
+          `Couldn't un-archive ${result.identityKey} — its identity file lists no roles. Ask an agent to add a roles: line to it first.`,
+        );
       } else if (err instanceof UnarchiveError && err.reason === "archive_not_found") {
         // eslint-disable-next-line no-alert
         window.alert(

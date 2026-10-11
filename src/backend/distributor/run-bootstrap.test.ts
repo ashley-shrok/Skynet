@@ -72,6 +72,11 @@ import {
   RETIRED_SUBSTRATE_DIRS,
 } from "./run-bootstrap.js";
 import { systemLogger } from "../utils/logger.js";
+import { ROLES_KEY_MIGRATION_SENTINEL } from "./roles-key-migration.js";
+
+/** Step 7 output when there's nothing to migrate. */
+const ROLES_NOOP_OUTPUT =
+  `ROLES_KEY_MIGRATION_RESULT {"filesMigrated": 0, "baselinesMigrated": 0, "conflicts": 0, "conflictPaths": [], "errorCount": 0, "errors": []}\n${ROLES_KEY_MIGRATION_SENTINEL}`;
 
 // Suppress logger output in tests
 vi.mock("../utils/logger.js", () => ({
@@ -118,6 +123,9 @@ function makeChannel(
     // check). Same shape as gc-timer above — EXIT:0 keeps unrelated tests
     // green; tests specifically exercising Step 1c override this key.
     "scheduled-agents-scheduler.service": "enabled\nEXIT:0",
+    // Default happy-path for Step 7 (roles-key migration): nothing to do.
+    // Tests specifically exercising Step 7 override this key.
+    [ROLES_KEY_MIGRATION_SENTINEL]: ROLES_NOOP_OUTPUT,
     ...handlers,
   };
   const exec = vi.fn(async (cmd: string) => {
@@ -1558,6 +1566,7 @@ describe("runBootstrapForHost", () => {
         if (cmd.includes("is-enabled scheduled-agents-scheduler.service")) return "enabled\nEXIT:0";
         // Step 6 usage-reporter retire: check sentinel first since cmd also has SETTINGS=.
         if (cmd.includes("__USAGE_REPORTER_RETIRED__")) return "__USAGE_REPORTER_RETIRED__";
+        if (cmd.includes(ROLES_KEY_MIGRATION_SENTINEL)) return ROLES_NOOP_OUTPUT;
         if (cmd.includes("SETTINGS=")) return "__SETTINGS_OK__";
         if (cmd.includes("gsd-context-monitor")) return "__CLEANUP_OK__";
         if (cmd.includes("host/parent")) return "__HOST_PARENT_OK__";
@@ -1602,6 +1611,7 @@ describe("runBootstrapForHost", () => {
         if (cmd.includes("enable --now interactive-messages-gc.timer")) return null;
         if (cmd.includes("is-enabled interactive-messages-gc.timer")) return "disabled\nEXIT:1";
         if (cmd.includes("__USAGE_REPORTER_RETIRED__")) return "__USAGE_REPORTER_RETIRED__";
+        if (cmd.includes(ROLES_KEY_MIGRATION_SENTINEL)) return ROLES_NOOP_OUTPUT;
         if (cmd.includes("SETTINGS=")) return "__SETTINGS_OK__";
         if (cmd.includes("gsd-context-monitor")) return "__CLEANUP_OK__";
         if (cmd.includes("host/parent")) return "__HOST_PARENT_OK__";
@@ -1625,6 +1635,7 @@ describe("runBootstrapForHost", () => {
           return "Failed to start interactive-messages-gc.timer\n";
         if (cmd.includes("is-enabled interactive-messages-gc.timer")) return "disabled\nEXIT:1";
         if (cmd.includes("__USAGE_REPORTER_RETIRED__")) return "__USAGE_REPORTER_RETIRED__";
+        if (cmd.includes(ROLES_KEY_MIGRATION_SENTINEL)) return ROLES_NOOP_OUTPUT;
         if (cmd.includes("SETTINGS=")) return "__SETTINGS_OK__";
         if (cmd.includes("gsd-context-monitor")) return "__CLEANUP_OK__";
         if (cmd.includes("host/parent")) return "__HOST_PARENT_OK__";
@@ -1701,6 +1712,7 @@ describe("runBootstrapForHost", () => {
         if (cmd.includes("is-enabled scheduled-agents-scheduler.service"))
           return "disabled\nEXIT:1";
         if (cmd.includes("__USAGE_REPORTER_RETIRED__")) return "__USAGE_REPORTER_RETIRED__";
+        if (cmd.includes(ROLES_KEY_MIGRATION_SENTINEL)) return ROLES_NOOP_OUTPUT;
         if (cmd.includes("SETTINGS=")) return "__SETTINGS_OK__";
         if (cmd.includes("gsd-context-monitor")) return "__CLEANUP_OK__";
         if (cmd.includes("host/parent")) return "__HOST_PARENT_OK__";
@@ -1751,6 +1763,7 @@ describe("runBootstrapForHost", () => {
         if (cmd.includes("is-enabled scheduled-agents-scheduler.service"))
           return "disabled\nEXIT:1";
         if (cmd.includes("__USAGE_REPORTER_RETIRED__")) return "__USAGE_REPORTER_RETIRED__";
+        if (cmd.includes(ROLES_KEY_MIGRATION_SENTINEL)) return ROLES_NOOP_OUTPUT;
         if (cmd.includes("SETTINGS=")) return "__SETTINGS_OK__";
         if (cmd.includes("gsd-context-monitor")) return "__CLEANUP_OK__";
         if (cmd.includes("host/parent")) return "__HOST_PARENT_OK__";
@@ -1777,6 +1790,7 @@ describe("runBootstrapForHost", () => {
         if (cmd.includes("is-enabled scheduled-agents-scheduler.service"))
           return "disabled\nEXIT:1";
         if (cmd.includes("__USAGE_REPORTER_RETIRED__")) return "__USAGE_REPORTER_RETIRED__";
+        if (cmd.includes(ROLES_KEY_MIGRATION_SENTINEL)) return ROLES_NOOP_OUTPUT;
         if (cmd.includes("SETTINGS=")) return "__SETTINGS_OK__";
         if (cmd.includes("gsd-context-monitor")) return "__CLEANUP_OK__";
         if (cmd.includes("host/parent")) return "__HOST_PARENT_OK__";
@@ -1791,5 +1805,211 @@ describe("runBootstrapForHost", () => {
       expect(result.scheduledAgentsSchedulerBootstrapped).toBe(false);
       expect(result.hadError).toBe(true);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Step 7: identity roles-key migration (`role:` → `roles:`).
+//   (rk-1) Happy path: one python3 exec, rolesKeyMigrationOk=true, no
+//          activity log when nothing changed; result log carries the field.
+//   (rk-2) Counts > 0 → fleet_substrate_roles_key_migration info log.
+//   (rk-3) Conflicts → warn log with conflictPaths, NOT hadError.
+//   (rk-4) Per-file errors reported by the script → hadError, Ok=false.
+//   (rk-5) Channel null / missing sentinel / throw → hadError, never rejects.
+//   (rk-6) The exact command runBootstrapForHost sends, executed under a real
+//          `sh` against a temp $HOME (the full case table lives in
+//          roles-key-migration.test.ts, against both implementations).
+// ---------------------------------------------------------------------------
+describe("step 7: identity roles-key migration", () => {
+  const out = (counts: Record<string, unknown>) =>
+    `ROLES_KEY_MIGRATION_RESULT ${JSON.stringify({
+      filesMigrated: 0,
+      baselinesMigrated: 0,
+      conflicts: 0,
+      conflictPaths: [],
+      errorCount: 0,
+      errors: [],
+      ...counts,
+    })}\n${ROLES_KEY_MIGRATION_SENTINEL}`;
+
+  const baseHandlers = {
+    "is-enabled": "enabled\nEXIT:0",
+    "daemon-reload": "__RELOAD_OK__",
+    SETTINGS: "__SETTINGS_OK__",
+    "gsd-context-monitor": "__CLEANUP_OK__",
+    "host/name": "__HOST_NAME_OK__",
+  };
+
+  const migrationLogs = (level: "info" | "warn") =>
+    vi
+      .mocked(systemLogger[level])
+      .mock.calls.filter(
+        ([, ctx]) =>
+          (ctx as Record<string, unknown> | undefined)?.operation ===
+          "fleet_substrate_roles_key_migration",
+      );
+
+  it("(rk-1) nothing to do → one python3 exec, Ok=true, no activity log, result log has field", async () => {
+    const { channel, exec } = makeChannel(baseHandlers);
+    const result = await runBootstrapForHost(channel, HOST);
+
+    expect(result.rolesKeyMigrationOk).toBe(true);
+    expect(result.hadError).toBe(false);
+    const cmds = captureCommands(exec).filter((c) => c.includes(ROLES_KEY_MIGRATION_SENTINEL));
+    expect(cmds).toHaveLength(1);
+    expect(cmds[0].startsWith("python3 - <<'")).toBe(true);
+    expect(migrationLogs("info")).toHaveLength(0);
+    expect(migrationLogs("warn")).toHaveLength(0);
+
+    const resultLog = vi
+      .mocked(systemLogger.info)
+      .mock.calls.find(
+        ([msg, ctx]) =>
+          typeof msg === "string" &&
+          msg.startsWith("Fleet-substrate bootstrap completed") &&
+          (ctx as Record<string, unknown>).operation === "fleet_substrate_bootstrap_result",
+      );
+    expect((resultLog?.[1] as Record<string, unknown>).rolesKeyMigrationOk).toBe(true);
+  });
+
+  it("(rk-2) migrated files → info log with counts", async () => {
+    const { channel } = makeChannel({
+      ...baseHandlers,
+      [ROLES_KEY_MIGRATION_SENTINEL]: out({ filesMigrated: 3, baselinesMigrated: 2 }),
+    });
+    const result = await runBootstrapForHost(channel, HOST);
+
+    expect(result.rolesKeyMigrationOk).toBe(true);
+    expect(result.hadError).toBe(false);
+    const logs = migrationLogs("info");
+    expect(logs).toHaveLength(1);
+    expect(logs[0][1]).toMatchObject({
+      fleetHostId: HOST.id,
+      hostName: HOST.name,
+      filesMigrated: 3,
+      baselinesMigrated: 2,
+      conflicts: 0,
+    });
+    expect(logs[0][1]).not.toHaveProperty("conflictPaths");
+  });
+
+  it("(rk-3) conflicts → warn log with paths, not an error", async () => {
+    const { channel } = makeChannel({
+      ...baseHandlers,
+      [ROLES_KEY_MIGRATION_SENTINEL]: out({ conflicts: 1, conflictPaths: ["/h/x/x.md"] }),
+    });
+    const result = await runBootstrapForHost(channel, HOST);
+
+    expect(result.rolesKeyMigrationOk).toBe(true);
+    expect(result.hadError).toBe(false);
+    const logs = migrationLogs("warn");
+    expect(logs).toHaveLength(1);
+    expect(logs[0][1]).toMatchObject({ conflicts: 1, conflictPaths: ["/h/x/x.md"] });
+  });
+
+  it("(rk-4) per-file errors → hadError, Ok=false, step failure logged", async () => {
+    const { channel } = makeChannel({
+      ...baseHandlers,
+      [ROLES_KEY_MIGRATION_SENTINEL]: out({
+        filesMigrated: 1,
+        errorCount: 1,
+        errors: [{ path: "/h/y/y.md", error: "Permission denied" }],
+      }),
+    });
+    const result = await runBootstrapForHost(channel, HOST);
+
+    expect(result.rolesKeyMigrationOk).toBe(false);
+    expect(result.hadError).toBe(true);
+    expect(migrationLogs("info")).toHaveLength(1); // the 1 success is still reported
+    const failed = vi
+      .mocked(systemLogger.warn)
+      .mock.calls.find(
+        ([, ctx]) =>
+          (ctx as Record<string, unknown>).operation === "fleet_substrate_bootstrap_failed" &&
+          (ctx as Record<string, unknown>).step === "roles-key-migration",
+      );
+    expect(String((failed?.[1] as Record<string, unknown>).errorMessage)).toContain(
+      "/h/y/y.md: Permission denied",
+    );
+  });
+
+  it("(rk-5) channel null / missing sentinel / throw → hadError, still resolves", async () => {
+    for (const response of [null, "bash: python3: command not found"]) {
+      vi.clearAllMocks();
+      const { channel } = makeChannel({
+        ...baseHandlers,
+        [ROLES_KEY_MIGRATION_SENTINEL]: response,
+      });
+      const result = await runBootstrapForHost(channel, HOST);
+      expect(result.rolesKeyMigrationOk).toBe(false);
+      expect(result.hadError).toBe(true);
+      expect(result.settingsPatchOk).toBe(true); // other steps unaffected
+    }
+
+    const { channel: base } = makeChannel(baseHandlers);
+    const throwing: SshChannel = {
+      exec: vi.fn(async (cmd: string) => {
+        if (cmd.includes(ROLES_KEY_MIGRATION_SENTINEL)) throw new Error("boom");
+        return base.exec(cmd);
+      }),
+    };
+    const result = await runBootstrapForHost(throwing, HOST);
+    expect(result.rolesKeyMigrationOk).toBe(false);
+    expect(result.hadError).toBe(true);
+  });
+
+  it("(rk-6) the sent command, executed under a real sh against a temp $HOME", async () => {
+    const { channel, exec } = makeChannel(baseHandlers);
+    await runBootstrapForHost(channel, HOST);
+    const cmd = captureCommands(exec).find((c) => c.includes(ROLES_KEY_MIGRATION_SENTINEL));
+    expect(cmd).toBeDefined();
+    if (!cmd) return;
+
+    const fsp = await import("node:fs/promises");
+    const nodePath = await import("node:path");
+    const nodeOs = await import("node:os");
+    const { execFileSync } = await import("node:child_process");
+
+    const home = await fsp.mkdtemp(nodePath.join(nodeOs.tmpdir(), "roles-key-bootstrap-"));
+    try {
+      const dir = nodePath.join(home, "fleet", "identities", "ada");
+      await fsp.mkdir(nodePath.join(dir, "role-file-watch"), { recursive: true });
+      const original = "---\r\nname: ada\r\nrole:\r\n  - a\r\n---\r\nrole: body\r\n";
+      await fsp.writeFile(nodePath.join(dir, "ada.md"), original);
+      await fsp.writeFile(nodePath.join(dir, "role-file-watch", "last-snapshot.identity"), original);
+
+      const run = () =>
+        execFileSync("sh", ["-c", cmd], {
+          env: { PATH: process.env.PATH, HOME: home },
+          encoding: "utf-8",
+        });
+
+      // Feed the real output back through the step's parser path.
+      const first = run();
+      const ch1: SshChannel = {
+        exec: vi.fn(async (c: string) =>
+          c.includes(ROLES_KEY_MIGRATION_SENTINEL) ? first : channel.exec(c),
+        ),
+      };
+      vi.clearAllMocks();
+      const r1 = await runBootstrapForHost(ch1, HOST);
+      expect(r1.rolesKeyMigrationOk).toBe(true);
+      expect(migrationLogs("info")[0]?.[1]).toMatchObject({
+        filesMigrated: 1,
+        baselinesMigrated: 1,
+        conflicts: 0,
+      });
+
+      const want = "---\r\nname: ada\r\nroles:\r\n  - a\r\n---\r\nrole: body\r\n";
+      expect(await fsp.readFile(nodePath.join(dir, "ada.md"), "utf-8")).toBe(want);
+      expect(
+        await fsp.readFile(nodePath.join(dir, "role-file-watch", "last-snapshot.identity"), "utf-8"),
+      ).toBe(want);
+
+      // Idempotent second run.
+      expect(run()).toContain('"filesMigrated": 0, "baselinesMigrated": 0');
+    } finally {
+      await fsp.rm(home, { recursive: true, force: true });
+    }
   });
 });

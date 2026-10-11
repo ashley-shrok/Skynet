@@ -228,7 +228,7 @@ describe("getLocalProjectsRoot", () => {
 describe("readSessionProjectField", () => {
   it("Test 3: LOCAL happy — returns 'alpha' when frontmatter has project: alpha", async () => {
     fsReadFileMock.mockResolvedValueOnce(
-      `---\nrole: worker\nproject: alpha\ndisplayName: 'W'\n---\nbody`,
+      `---\nroles: worker\nproject: alpha\ndisplayName: 'W'\n---\nbody`,
     );
     const result = await readSessionProjectField(null, "moxie");
     expect(result).toBe("alpha");
@@ -236,7 +236,7 @@ describe("readSessionProjectField", () => {
 
   it("Test 4: LOCAL missing key — returns null when frontmatter has no project key", async () => {
     fsReadFileMock.mockResolvedValueOnce(
-      `---\nrole: worker\ndisplayName: 'W'\n---\nbody`,
+      `---\nroles: worker\ndisplayName: 'W'\n---\nbody`,
     );
     const result = await readSessionProjectField(null, "moxie");
     expect(result).toBeNull();
@@ -257,7 +257,7 @@ describe("readSessionProjectField", () => {
 
   it("Test 6b: LOCAL bogus YAML — returns null (graceful, does not throw)", async () => {
     fsReadFileMock.mockResolvedValueOnce(
-      `---\nrole: worker\ntask: value with: unquoted-colon\n---\nbody`,
+      `---\nroles: worker\ntask: value with: unquoted-colon\n---\nbody`,
     );
     const result = await readSessionProjectField(null, "moxie");
     // js-yaml may or may not accept this shape — either way, project is absent.
@@ -268,7 +268,7 @@ describe("readSessionProjectField", () => {
 describe("writeSessionProjectField — LOCAL branch", () => {
   it("Test 7: set — inserts project: alpha; role/displayName/task preserved in order; body byte-identical", async () => {
     const original =
-      "---\nrole: worker\ndisplayName: 'W'\ntask: 'foo'\n---\nsome body text\n";
+      "---\nroles: worker\ndisplayName: 'W'\ntask: 'foo'\n---\nsome body text\n";
     fsReadFileMock.mockResolvedValueOnce(original);
 
     await writeSessionProjectField(null, "moxie", "alpha");
@@ -282,7 +282,7 @@ describe("writeSessionProjectField — LOCAL branch", () => {
     // yaml.dump default emits scalars unquoted when safe (forceQuotes:false):
     // 'W' loads as string W and re-emits as bare W. Assert on the KEY: VALUE
     // shape, not the quote style.
-    expect(writtenStr).toContain("role: worker");
+    expect(writtenStr).toContain("roles: worker");
     expect(writtenStr).toMatch(/displayName: '?W'?/);
     expect(writtenStr).toMatch(/task: '?foo'?/);
     expect(writtenStr).toContain("project: alpha");
@@ -292,7 +292,7 @@ describe("writeSessionProjectField — LOCAL branch", () => {
 
   it("Test 8: update — existing project: alpha becomes project: beta; alpha string gone from frontmatter", async () => {
     const original =
-      "---\nrole: worker\nproject: alpha\ndisplayName: 'W'\n---\nbody\n";
+      "---\nroles: worker\nproject: alpha\ndisplayName: 'W'\n---\nbody\n";
     fsReadFileMock.mockResolvedValueOnce(original);
 
     await writeSessionProjectField(null, "moxie", "beta");
@@ -311,7 +311,7 @@ describe("writeSessionProjectField — LOCAL branch", () => {
 
   it("Test 9: clear — slug=null DELETES the project key entirely; other fields preserved", async () => {
     const original =
-      "---\nrole: worker\nproject: alpha\ndisplayName: 'W'\ntask: 'foo'\n---\nbody\n";
+      "---\nroles: worker\nproject: alpha\ndisplayName: 'W'\ntask: 'foo'\n---\nbody\n";
     fsReadFileMock.mockResolvedValueOnce(original);
 
     await writeSessionProjectField(null, "moxie", null);
@@ -329,7 +329,7 @@ describe("writeSessionProjectField — LOCAL branch", () => {
     expect(frontmatter).not.toContain("project: null");
     expect(frontmatter).not.toContain("project: ''");
     // Other fields preserved.
-    expect(frontmatter).toContain("role: worker");
+    expect(frontmatter).toContain("roles: worker");
     expect(frontmatter).toMatch(/displayName: '?W'?/);
     expect(frontmatter).toContain("task: foo");
   });
@@ -357,7 +357,7 @@ describe("writeSessionProjectField — LOCAL branch", () => {
     // is (mis)implemented via the narrowing extractor, this key disappears
     // on round-trip. The full yaml.load path preserves it.
     const original =
-      "---\nrole: worker\ndisplayName: 'W'\ncustom: foo\n---\nbody\n";
+      "---\nroles: worker\ndisplayName: 'W'\ncustom: foo\n---\nbody\n";
     fsReadFileMock.mockResolvedValueOnce(original);
 
     await writeSessionProjectField(null, "moxie", "alpha");
@@ -374,12 +374,24 @@ describe("writeSessionProjectField — LOCAL branch", () => {
     // Plus the new project key.
     expect(frontmatter).toContain("project: alpha");
     // And the existing keys.
-    expect(frontmatter).toContain("role: worker");
+    expect(frontmatter).toContain("roles: worker");
     expect(frontmatter).toMatch(/displayName: '?W'?/);
   });
 
+  it("Test 12a: roles: flow list survives the round-trip in flow form", async () => {
+    fsReadFileMock.mockResolvedValueOnce(
+      "---\nroles: [worker, sky-uat]\ndisplayName: 'W'\n---\nbody\n",
+    );
+
+    await writeSessionProjectField(null, "moxie", "alpha");
+
+    const writtenStr = (fsWriteFileMock.mock.calls[0][1] as Buffer).toString("utf-8");
+    expect(writtenStr).toMatch(/^---\nroles: \[worker, sky-uat\]\n/);
+    expect(writtenStr).toContain("project: alpha");
+  });
+
   it("Test 12b: writes atomically via writeMarkdownFileAtomic — tmp file then rename to target", async () => {
-    const original = "---\nrole: worker\n---\nbody\n";
+    const original = "---\nroles: worker\n---\nbody\n";
     fsReadFileMock.mockResolvedValueOnce(original);
 
     await writeSessionProjectField(null, "moxie", "alpha");
@@ -405,7 +417,7 @@ describe("writeSessionProjectField — REMOTE branch", () => {
     // — realpath is on sftp, not exec). No further exec calls needed.
     execCommandMock.mockImplementation((_conn: unknown, cmd: string) => {
       if (cmd.startsWith("cat ")) {
-        return Promise.resolve("---\nrole: worker\n---\nbody\n");
+        return Promise.resolve("---\nroles: worker\n---\nbody\n");
       }
       return Promise.resolve("");
     });
@@ -436,7 +448,7 @@ describe("writeSessionProjectField — REMOTE branch", () => {
     const writeBuf = writeCall!.args[1] as Buffer;
     const writeStr = writeBuf.toString("utf-8");
     expect(writeStr).toContain("project: alpha");
-    expect(writeStr).toContain("role: worker");
+    expect(writeStr).toContain("roles: worker");
   });
 });
 
@@ -513,7 +525,7 @@ describe("listProjects — LOCAL branch", () => {
         return Promise.reject(err);
       }
       if (typeof p === "string" && p.includes("/beta/project.md")) {
-        return Promise.resolve("---\nrole: something-else\n---\n");
+        return Promise.resolve("---\nroles: something-else\n---\n");
       }
       return Promise.reject(new Error("unexpected path: " + p));
     });

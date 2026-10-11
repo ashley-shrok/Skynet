@@ -509,40 +509,18 @@ is_coordinator() {
 }
 
 # ---- Phase 133 D-07: identity_has_role <identity_file_path> <role_name> ----
-# Returns 0 IFF the identity file has `role: <role_name>` on its own line
-# BETWEEN the first two `---` frontmatter delimiters. Handles unquoted (fleet
-# convention — verified across the fleet 2026-09-24), plus double- and single-
-# quoted YAML variants; logs a WARN via the bash caller when a quoted variant is
-# encountered so fleet-drift surfaces (per Assumption A2).
-#
-# Mirrors is_coordinator's awk-between-fences shape — same delimiter-sensitivity
-# discipline (Pitfall 6 lock from Phase 94). The match is EXACT ("role: foo"
-# does NOT match "role: foo-bar", nor vice-versa — Pitfall 2 substring-safety).
-# The WARN emission is a post-hoc grep after the match (simpler + more robust
-# than awk-stderr routing per the plan Task 1 Part B recommendation).
+# Returns 0 IFF <role_name> is one of the roles listed under the identity
+# file's `roles:` frontmatter key, as parsed by _extract_frontmatter_roles (the
+# canonical parser — see substrate/scripts/tests/fixtures/
+# roles_frontmatter_reference.py). The singular `role:` key is NOT read.
+# Membership is EXACT list-element equality, so "foo" does NOT match
+# "foo-bar" nor vice-versa (Pitfall 2 substring-safety).
 identity_has_role() {
   local identity_file="$1" want_role="$2"
   [ -f "$identity_file" ] || return 1
-  # Awk match (unquoted OR quoted — fleet convention is unquoted but tolerate both).
-  if ! awk -v w="$want_role" '
-    /^---$/{f++}
-    f==1 && ($0 == "role: " w || $0 == "role: \"" w "\"" || $0 == "role: '\''" w "'\''") { found=1; exit }
-    END { exit !found }
-  ' "$identity_file"; then
-    # Multi-role identities list their roles (`role: [a, b]` or a block
-    # sequence) — the scalar awk above can't see those, so fall back to the
-    # list-aware parser and test exact membership.
-    _extract_frontmatter_roles "$identity_file" 2>/dev/null \
-      | python3 -c 'import sys, json; sys.exit(0 if sys.argv[1] in json.load(sys.stdin) else 1)' "$want_role" \
-      2>/dev/null || return 1
-    return 0
-  fi
-  # Fleet-drift signal: warn on quoted variants after a match confirmed.
-  # (Only fires when a match was found + the shape is quoted — cheap post-hoc grep.)
-  if grep -qE "^role: [\"'].*[\"']$" "$identity_file" 2>/dev/null; then
-    log "WARN: '$identity_file' has quoted role frontmatter — fleet convention is unquoted (fleet-drift signal)"
-  fi
-  return 0
+  _extract_frontmatter_roles "$identity_file" 2>/dev/null \
+    | python3 -c 'import sys, json; sys.exit(0 if sys.argv[1] in json.load(sys.stdin) else 1)' "$want_role" \
+    2>/dev/null
 }
 
 # ---- archive scan (Phase 94) — freshness signal reader ----
@@ -1254,7 +1232,7 @@ scan_archive_requested_sentinels() {
 # `.archive-requested` sentinel:
 #
 #   1. FRESH ENUMERATION (D-07): walk $IDENTITIES_DIR/*/ and collect every
-#      identity whose frontmatter carries `role: <role_name>` via
+#      identity whose `roles:` frontmatter lists <role_name> via
 #      identity_has_role(). No snapshot; the disk walk IS the state.
 #
 #   2. FAIL-SOFT CASCADE (D-08): invoke retire_identity(name) on each
@@ -1437,84 +1415,86 @@ scan_app_archive_requested_sentinels() {
 # ---- extract frontmatter roles from an identity file ----
 # _extract_frontmatter_roles <identity_file_path>
 # Prints a JSON array of role names on stdout (never with a trailing newline).
-# Handles the three YAML shapes the id-skill permits for the `role:` field:
-#   - scalar:      role: box-maintainer
-#   - flow list:   role: [box-maintainer, sky-uat]
-#   - block list:  role:\n  - box-maintainer\n  - sky-uat
-# Returns 0 on parse success (even if no role field found — prints []); 1 on
-# a malformed file (no ---...--- fences, or a role: value shape we can't parse).
-# Zero external YAML dependency — hand-parses the three permitted shapes via
-# a small embedded Python (stdlib only). PyYAML is NOT a substrate-baseline
-# dependency and must not be introduced by this shape.
+# Reads ONLY the `roles:` key (the singular `role:` is not read). The embedded
+# Python is a verbatim copy of the canonical parser in
+# substrate/scripts/tests/fixtures/roles_frontmatter_reference.py — keep in sync;
+# tests/roles-frontmatter-conformance.test.sh runs every case against it. It
+# accepts scalar, quoted, flow, bare-comma and block (indented or not) forms,
+# trailing comments, CRLF; drops names failing ^[a-z0-9][a-z0-9_-]{0,63}$ and
+# dedupes keeping order.
+# Returns 0 on parse success (even if no roles field found — prints []); 1 when
+# the file is missing/unreadable or has no ---...--- frontmatter block (still
+# prints []), so the unarchive pre-flight can refuse a malformed file.
+# Zero external YAML dependency — stdlib-only embedded Python. PyYAML is NOT a
+# substrate-baseline dependency and must not be introduced.
 _extract_frontmatter_roles() {
   local path="$1"
   [ -f "$path" ] || { printf '%s' '[]'; return 1; }
   python3 - "$path" <<'PYEOF'
 import sys, re, json
 
-with open(sys.argv[1]) as f:
-    lines = f.read().split('\n')
+ROLES_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 
-# Find the frontmatter block bounded by --- ... ---.
-if not lines or lines[0].strip() != '---':
-    print('[]', end=''); sys.exit(1)
-fm_end = None
-for i in range(1, len(lines)):
-    if lines[i].strip() == '---':
-        fm_end = i
-        break
-if fm_end is None:
-    print('[]', end=''); sys.exit(1)
-fm = lines[1:fm_end]
 
-# Find the "role:" line.
-role_idx = None
-for i, line in enumerate(fm):
-    if re.match(r'^role\s*:', line):
-        role_idx = i
-        break
-if role_idx is None:
-    # No role field — legal, just empty.
-    print('[]', end=''); sys.exit(0)
-
-value = re.sub(r'^role\s*:\s*', '', fm[role_idx])
-
-def strip_quotes(v):
-    v = v.strip()
-    # Require length >= 2 before stripping — otherwise a single-char value
-    # like `"` or `'` (malformed but parseable) would strip to '' and
-    # vacuously pass the roles-all-live gate downstream.
-    if len(v) < 2:
-        return v
-    if (v.startswith('"') and v.endswith('"')) or (v.startswith("'") and v.endswith("'")):
-        v = v[1:-1]
-    return v
-
-roles = []
-if value.strip() == '':
-    # Block list — subsequent indented "  - name" lines.
-    for line in fm[role_idx+1:]:
-        m = re.match(r'^\s+-\s+(.+?)\s*$', line)
-        if not m:
-            if line.strip() == '':
-                continue
+def parse_roles_frontmatter(text):
+    lines = text.lstrip("\ufeff").replace("\r\n", "\n").split("\n")
+    if not lines or lines[0].strip() != "---":
+        return []
+    end = None
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            end = i
             break
-        roles.append(strip_quotes(m.group(1)))
-elif value.strip().startswith('['):
-    # Flow list — [a, b, c] (assume single-line).
-    inner = value.strip()
-    if not inner.endswith(']'):
-        print('[]', end=''); sys.exit(1)
-    inner = inner[1:-1]
-    for part in inner.split(','):
-        v = strip_quotes(part)
-        if v:
-            roles.append(v)
-else:
-    # Scalar.
-    roles.append(strip_quotes(value))
+    if end is None:
+        return []
 
-print(json.dumps(roles), end='')
+    def clean(s):
+        s = re.sub(r"\s+#.*$", "", s).strip()
+        return s.strip("\"'").strip()
+
+    raw = []
+    for i in range(1, end):
+        m = re.match(r"^roles:(.*)$", lines[i])
+        if not m:
+            continue
+        inline = re.sub(r"(^|\s)#.*$", "", m.group(1)).strip()
+        if inline:
+            if inline.startswith("[") and inline.endswith("]"):
+                inline = inline[1:-1]
+            raw = [clean(p) for p in inline.split(",")]
+        else:
+            for j in range(i + 1, end):
+                s = lines[j].strip()
+                if not s or s.startswith("#"):
+                    continue
+                m2 = re.match(r"^-\s*(.*)$", s)
+                if not m2:
+                    break
+                raw.append(clean(m2.group(1)))
+        break
+
+    out = []
+    for r in raw:
+        if r and ROLES_SLUG_RE.match(r) and r not in out:
+            out.append(r)
+    return out
+
+
+def has_frontmatter(text):
+    lines = text.lstrip("\ufeff").replace("\r\n", "\n").split("\n")
+    if not lines or lines[0].strip() != "---":
+        return False
+    return any(ln.strip() == "---" for ln in lines[1:])
+
+
+try:
+    with open(sys.argv[1], encoding="utf-8-sig", errors="replace") as f:
+        text = f.read()
+except OSError:
+    print('[]', end=''); sys.exit(1)
+
+print(json.dumps(parse_roles_frontmatter(text)), end='')
+sys.exit(0 if has_frontmatter(text) else 1)
 PYEOF
 }
 
@@ -1710,6 +1690,11 @@ scan_identity_unarchive_requested_sentinels() {
     local roles_json
     if ! roles_json=$(_extract_frontmatter_roles "$ident_file"); then
       log "ERROR: '$name' un-archive REFUSED: could not parse role frontmatter in $ident_file. Sentinel deleted."
+      rm -f "$d/.unarchive-requested"
+      continue
+    fi
+    if [ "$(printf '%s' "$roles_json" | jq -r 'length' 2>/dev/null)" = "0" ]; then
+      log "ERROR: '$name' un-archive REFUSED: no roles in the \`roles:\` frontmatter of $ident_file (a restored identity with no roles has no watcher and is visible to every user). Fix the file, then re-issue. Sentinel deleted."
       rm -f "$d/.unarchive-requested"
       continue
     fi

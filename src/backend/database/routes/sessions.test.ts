@@ -369,10 +369,10 @@ describe("GET /sessions/list — role resolution", () => {
         return Promise.resolve("poppy|1000\npatricia|2000");
       }
       if (cmd.includes("identities/poppy/poppy.md")) {
-        return Promise.resolve("---\nrole: box-maintainer\n---\n# Poppy\n");
+        return Promise.resolve("---\nroles: box-maintainer\n---\n# Poppy\n");
       }
       if (cmd.includes("identities/patricia/patricia.md")) {
-        return Promise.resolve("---\nrole: chef\n---\n# Patricia\n");
+        return Promise.resolve("---\nroles: chef\n---\n# Patricia\n");
       }
       return Promise.resolve("");
     });
@@ -424,7 +424,7 @@ describe("GET /sessions/list — role resolution", () => {
         return Promise.resolve("poppy|1000\nephemeral-work|2000");
       }
       if (cmd.includes("identities/poppy/poppy.md")) {
-        return Promise.resolve("---\nrole: box-maintainer\n---\n# Poppy\n");
+        return Promise.resolve("---\nroles: box-maintainer\n---\n# Poppy\n");
       }
       if (cmd.includes("identities/ephemeral-work/ephemeral-work.md")) {
         // Return empty — no frontmatter (simulates missing identity file OR no role: key)
@@ -475,7 +475,7 @@ describe("GET /sessions/list — role resolution", () => {
         return new Promise(() => undefined);
       }
       if (cmd.includes("identities/patricia/patricia.md")) {
-        return Promise.resolve("---\nrole: chef\n---\n# Patricia\n");
+        return Promise.resolve("---\nroles: chef\n---\n# Patricia\n");
       }
       return Promise.resolve("");
     });
@@ -564,10 +564,10 @@ describe("GET /sessions/list — lastMessageAt derivation", () => {
         return Promise.resolve("tanya|1000\ntiffany|2000");
       }
       if (cmd.includes("identities/tanya/tanya.md")) {
-        return Promise.resolve("---\nrole: box-maintainer\n---\n# Tanya\n");
+        return Promise.resolve("---\nroles: box-maintainer\n---\n# Tanya\n");
       }
       if (cmd.includes("identities/tiffany/tiffany.md")) {
-        return Promise.resolve("---\nrole: chef\n---\n# Tiffany\n");
+        return Promise.resolve("---\nroles: chef\n---\n# Tiffany\n");
       }
       if (cmd.includes(TANYA_JSONL)) {
         // user 2026-08-23 lock: tanya's tail has only an assistant message —
@@ -630,7 +630,7 @@ describe("GET /sessions/list — lastMessageAt derivation", () => {
         return Promise.resolve("tanya|1000\ntiffany|2000");
       }
       if (cmd.includes("identities/")) {
-        return Promise.resolve("---\nrole: chef\n---\n# X\n");
+        return Promise.resolve("---\nroles: chef\n---\n# X\n");
       }
       if (cmd.includes(TANYA_JSONL)) {
         // user 2026-08-23 lock: assistant-only tail → null (excluded).
@@ -684,7 +684,7 @@ describe("GET /sessions/list — lastMessageAt derivation", () => {
         return Promise.resolve("tanya|1000\ntiffany|2000");
       }
       if (cmd.includes("identities/")) {
-        return Promise.resolve("---\nrole: chef\n---\n# X\n");
+        return Promise.resolve("---\nroles: chef\n---\n# X\n");
       }
       if (cmd.includes(TIFFANY_JSONL)) {
         // user 2026-08-23 lock: tiffany's tail has only an assistant message
@@ -740,7 +740,7 @@ describe("GET /sessions/list — lastMessageAt derivation", () => {
         return Promise.resolve("tanya|1000");
       }
       if (cmd.includes("identities/")) {
-        return Promise.resolve("---\nrole: chef\n---\n# X\n");
+        return Promise.resolve("---\nroles: chef\n---\n# X\n");
       }
       if (cmd.includes(TANYA_JSONL)) {
         // ONLY tool_use lines — parseSessionLine returns kind:"skip" for each,
@@ -783,7 +783,7 @@ describe("GET /sessions/list — lastMessageAt derivation", () => {
         return Promise.resolve("tanya|1000");
       }
       if (cmd.includes("identities/")) {
-        return Promise.resolve("---\nrole: chef\n---\n# X\n");
+        return Promise.resolve("---\nroles: chef\n---\n# X\n");
       }
       if (cmd.includes(TANYA_JSONL)) {
         // user_ts=1000, tool_use_ts=1500, assistant_ts=2000, bg_task_ts=2500.
@@ -838,7 +838,7 @@ describe("GET /sessions/list — lastMessageAt derivation", () => {
         return Promise.resolve("tanya|1000\ntiffany|2000");
       }
       if (cmd.includes("identities/")) {
-        return Promise.resolve("---\nrole: chef\n---\n# X\n");
+        return Promise.resolve("---\nroles: chef\n---\n# X\n");
       }
       return Promise.resolve("");
     });
@@ -1236,7 +1236,7 @@ describe("GET /sessions/list — lastMessageAt from send-log store (Phase 85 Pla
         return Promise.resolve("ivy|1000\nlulabelle|2000\nstacy|3000");
       }
       if (cmd.includes("identities/")) {
-        return Promise.resolve("---\nrole: chef\n---\n# X\n");
+        return Promise.resolve("---\nroles: chef\n---\n# X\n");
       }
       return Promise.resolve("");
     });
@@ -1280,7 +1280,7 @@ describe("GET /sessions/list — lastMessageAt from send-log store (Phase 85 Pla
         return Promise.resolve("ivy|1000\nlulabelle|2000");
       }
       if (cmd.includes("identities/")) {
-        return Promise.resolve("---\nrole: chef\n---\n# X\n");
+        return Promise.resolve("---\nroles: chef\n---\n# X\n");
       }
       return Promise.resolve("");
     });
@@ -1321,7 +1321,7 @@ describe("GET /sessions/list — lastMessageAt from send-log store (Phase 85 Pla
         return Promise.resolve("tanya|1000");
       }
       if (cmd.includes("identities/")) {
-        return Promise.resolve("---\nrole: chef\n---\n# X\n");
+        return Promise.resolve("---\nroles: chef\n---\n# X\n");
       }
       return Promise.resolve("");
     });
@@ -1372,7 +1372,7 @@ describe("GET /sessions/list — lastMessageAt from send-log store (Phase 85 Pla
         return Promise.resolve("tanya|1000");
       }
       if (cmd.includes("identities/")) {
-        return Promise.resolve("---\nrole: chef\n---\n# X\n");
+        return Promise.resolve("---\nroles: chef\n---\n# X\n");
       }
       return Promise.resolve("");
     });
@@ -1422,7 +1422,7 @@ describe("GET /sessions/list — lastMessageAt from send-log store (Phase 85 Pla
         return Promise.resolve("ivy|1000\nlulabelle|2000\nstacy|3000");
       }
       if (cmd.includes("identities/")) {
-        return Promise.resolve("---\nrole: chef\n---\n# X\n");
+        return Promise.resolve("---\nroles: chef\n---\n# X\n");
       }
       return Promise.resolve("");
     });
@@ -1663,7 +1663,7 @@ describe("GET /sessions/list — Phase 89 Plan 04 merge (D-15)", () => {
         return Promise.resolve("poppy|1000");
       }
       if (cmd.includes("identities/poppy/poppy.md")) {
-        return Promise.resolve("---\nrole: box-maintainer\n---\n# Poppy\n");
+        return Promise.resolve("---\nroles: box-maintainer\n---\n# Poppy\n");
       }
       return Promise.resolve("");
     });
@@ -1756,7 +1756,7 @@ describe("Phase 129: per-user visibility gate on GET /sessions/list", () => {
     role: string,
     identityUsers?: string[],
   ): string {
-    const lines: string[] = [`role: ${role}`];
+    const lines: string[] = [`roles: ${role}`];
     if (identityUsers !== undefined) {
       lines.push(`users: [${identityUsers.join(", ")}]`);
     }

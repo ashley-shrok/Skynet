@@ -18,6 +18,7 @@ import { authApi, handleApiError } from "@/main-axios";
 //                       alert (D-17).
 //   name_collision    — a live-tree identity with the same key already exists.
 //   archive_not_found — the archived folder for this key doesn't exist.
+//   no_roles          — the archived identity file has no readable `roles:`.
 //
 // Non-409 errors flow through handleApiError (main-axios.ts) so callers see
 // the same ApiError / message shape the rest of the codebase produces.
@@ -32,6 +33,7 @@ export type UnarchiveFailureReason =
   | "missing_roles"
   | "name_collision"
   | "archive_not_found"
+  | "no_roles"
   | "unknown";
 
 export class UnarchiveError extends Error {
@@ -81,6 +83,13 @@ function parseUnarchive409OrRethrow(error: unknown): never {
       throw new UnarchiveError(
         "Un-archive blocked: archive folder not found.",
         "archive_not_found",
+        undefined,
+      );
+    }
+    if (reason === "no_roles") {
+      throw new UnarchiveError(
+        "Un-archive blocked: the archived identity file lists no roles.",
+        "no_roles",
         undefined,
       );
     }

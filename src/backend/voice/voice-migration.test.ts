@@ -226,7 +226,7 @@ describe("ensureVoiceValuesMigrated — end-to-end behavior across both roots", 
     mkdir(FAKE_ROLE_ROOT);
     writeSeedFile(
       `${FAKE_ID_ROOT}/user/user.md`,
-      "---\nname: user\nvoice: Elena.wav\nrole: friend\n---\nBody text.\n",
+      "---\nname: user\nvoice: Elena.wav\nroles: friend\n---\nBody text.\n",
     );
 
     await ensureVoiceValuesMigrated();
@@ -235,7 +235,7 @@ describe("ensureVoiceValuesMigrated — end-to-end behavior across both roots", 
     expect(after).toBeDefined();
     expect(after!).not.toMatch(/^voice:/m);
     expect(after!).toMatch(/name: user/);
-    expect(after!).toMatch(/role: friend/);
+    expect(after!).toMatch(/roles: friend/);
   });
 
   it("Case 2: file with `voice: Joanna` (Polly ID) is left untouched", async () => {
@@ -263,7 +263,7 @@ describe("ensureVoiceValuesMigrated — end-to-end behavior across both roots", 
   it("Case 4: file with no `voice:` line is left untouched", async () => {
     mkdir(FAKE_ID_ROOT);
     mkdir(FAKE_ROLE_ROOT);
-    const orig = "---\nname: dave\nrole: friend\n---\nDave body.\n";
+    const orig = "---\nname: dave\nroles: friend\n---\nDave body.\n";
     writeSeedFile(`${FAKE_ID_ROOT}/dave/dave.md`, orig);
 
     await ensureVoiceValuesMigrated();

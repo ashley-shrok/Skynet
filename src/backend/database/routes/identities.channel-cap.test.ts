@@ -122,7 +122,7 @@ async function channel<T>(value: T): Promise<T> {
   }
 }
 
-const IDENTITY_MD = "---\nrole: box-maintainer\n---\n# body\n";
+const IDENTITY_MD = "---\nroles: box-maintainer\n---\n# body\n";
 
 vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
   stringifyColorHueForYaml: (obj: Record<string, unknown>) => (typeof obj.colorHue === "number" ? { ...obj, colorHue: String(obj.colorHue) } : obj),
@@ -138,12 +138,13 @@ vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
   MIME_TO_AVATAR_EXT: { "image/webp": "webp", "image/png": "png", "image/jpeg": "jpg" },
   AVATAR_MIME_FROM_EXT: { webp: "image/webp", png: "image/png", jpg: "image/jpeg" },
   IDENTITY_KEY_RE: /^[a-z0-9_-]{1,64}$/,
+  flowRolesInYamlDump: (yamlBody: string) => yamlBody,
   extractRolesFromMarkdown: (md: string): string[] => {
-    const m = md.match(/^role:\s*([a-z0-9-]+)\s*$/m);
+    const m = md.match(/^roles:\s*([a-z0-9-]+)\s*$/m);
     return m ? [m[1]] : [];
   },
   extractRoleFromMarkdown: (md: string) =>
-    md.includes("role: box-maintainer") ? "box-maintainer" : null,
+    md.includes("roles: box-maintainer") ? "box-maintainer" : null,
   extractCosmeticsFromFrontmatter: () => ({}),
 }));
 

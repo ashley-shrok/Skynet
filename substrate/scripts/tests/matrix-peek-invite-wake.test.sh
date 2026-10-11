@@ -100,7 +100,7 @@ fixture_identity_with_relay() {
   local scratch="$1" name="$2" mxid="$3"
   local iddir="$scratch/$name"
   mkdir -p "$iddir/relay-state"
-  printf -- '---\nrole: test\n---\nbody\n' > "$iddir/$name.md"
+  printf -- '---\nroles: test\n---\nbody\n' > "$iddir/$name.md"
   jq -n --arg base "http://127.0.0.1:STUB_PORT/_matrix/client/v3" \
         --arg user_id "$mxid" \
         --arg password "pw" \

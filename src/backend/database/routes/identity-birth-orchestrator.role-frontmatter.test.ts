@@ -54,7 +54,7 @@ function extractFrontmatter(body: string): Record<string, unknown> {
 // buildIdentityFileBody — frontmatter shape
 // ---------------------------------------------------------------------------
 
-it("full cosmetics present → frontmatter emits role/displayName/title/colorHue/voice in canonical order (no avatar in reshape)", () => {
+it("full cosmetics present → frontmatter emits roles/displayName/title/colorHue/voice in canonical order (no avatar in reshape)", () => {
   const body = buildIdentityFileBody(
     makeOpts({
       name: "testkey",
@@ -70,9 +70,9 @@ it("full cosmetics present → frontmatter emits role/displayName/title/colorHue
   const parsed = extractFrontmatter(body);
   const keys = Object.keys(parsed);
 
-  // Canonical ordering — role must be first (post-Phase-A byte-shape parity)
-  expect(keys).toEqual(["role", "displayName", "title", "colorHue", "voice"]);
-  expect(parsed.role).toBe("box-maintainer");
+  // Canonical ordering — roles must be first (post-Phase-A byte-shape parity)
+  expect(keys).toEqual(["roles", "displayName", "title", "colorHue", "voice"]);
+  expect(parsed.roles).toEqual(["box-maintainer"]);
   expect(parsed.displayName).toBe("Testkey");
   expect(parsed.title).toBe("Test Identity");
   // colorHue standardizes on MDXEditor's quoted-string form
@@ -98,7 +98,7 @@ it("absent-⇒-omit — empty title + null colorHue + null voice → those keys 
   );
 
   const parsed = extractFrontmatter(body);
-  expect(Object.keys(parsed)).toEqual(["role", "displayName"]);
+  expect(Object.keys(parsed)).toEqual(["roles", "displayName"]);
   expect("title" in parsed).toBe(false);
   expect("colorHue" in parsed).toBe(false);
   expect("voice" in parsed).toBe(false);
@@ -372,13 +372,15 @@ describe("ROLE_NAME_PATTERN", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Multi-role — extraRoles turns `role:` into a flow list, primary first
+// roles: is always a flow list, primary first
 // ---------------------------------------------------------------------------
 
 describe("buildIdentityFileBody — multi-role", () => {
-  it("no extraRoles → scalar role line (single-role byte shape unchanged)", () => {
+  it("no extraRoles → one-item flow list as the first frontmatter line", () => {
     const body = buildIdentityFileBody(makeOpts({ extraRoles: [] }), "Testkey", "");
-    expect(body).toMatch(/^---\nrole: box-maintainer\n/);
+    expect(body).toMatch(/^---\nroles: \[box-maintainer\]\n/);
+    expect(extractFrontmatter(body).roles).toEqual(["box-maintainer"]);
+    expect(body).not.toMatch(/^role:/m);
   });
 
   it("extraRoles → flow list, primary first, duplicates collapsed", () => {
@@ -387,8 +389,8 @@ describe("buildIdentityFileBody — multi-role", () => {
       "Testkey",
       "",
     );
-    expect(body).toMatch(/^---\nrole: \[box-maintainer, sky-uat\]\n/);
-    expect(extractFrontmatter(body).role).toEqual(["box-maintainer", "sky-uat"]);
+    expect(body).toMatch(/^---\nroles: \[box-maintainer, sky-uat\]\n/);
+    expect(extractFrontmatter(body).roles).toEqual(["box-maintainer", "sky-uat"]);
     expect(extractFrontmatter(body).displayName).toBe("Testkey");
   });
 });
@@ -401,7 +403,7 @@ it("project set → `project:` key emitted after task; absent → omitted", () =
       "",
     ),
   );
-  expect(Object.keys(withProject)).toEqual(["role", "displayName", "task", "project"]);
+  expect(Object.keys(withProject)).toEqual(["roles", "displayName", "task", "project"]);
   expect(withProject.project).toBe("skynet-v3");
 
   const without = extractFrontmatter(buildIdentityFileBody(makeOpts(), "Testkey", ""));

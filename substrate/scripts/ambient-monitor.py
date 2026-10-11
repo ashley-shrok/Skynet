@@ -234,55 +234,93 @@ for _, _sd, _ in RELAY_ACCOUNTS:
 
 
 # ---------------------------------------------------------- coord detection
-_ROLE_NAME_OK = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+# Canonical `roles:` frontmatter parser — a verbatim copy of
+# substrate/scripts/tests/fixtures/roles_frontmatter_reference.py; keep in sync
+# (tests/roles-frontmatter-conformance.test.sh runs every case against it).
+# The singular `role:` key is NOT read.
+_ROLES_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+
+
+def _parse_roles_frontmatter(text):
+    lines = text.lstrip("\ufeff").replace("\r\n", "\n").split("\n")
+    if not lines or lines[0].strip() != "---":
+        return []
+    end = None
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            end = i
+            break
+    if end is None:
+        return []
+
+    def clean(s):
+        s = re.sub(r"\s+#.*$", "", s).strip()
+        return s.strip("\"'").strip()
+
+    raw = []
+    for i in range(1, end):
+        m = re.match(r"^roles:(.*)$", lines[i])
+        if not m:
+            continue
+        inline = re.sub(r"(^|\s)#.*$", "", m.group(1)).strip()
+        if inline:
+            if inline.startswith("[") and inline.endswith("]"):
+                inline = inline[1:-1]
+            raw = [clean(p) for p in inline.split(",")]
+        else:
+            for j in range(i + 1, end):
+                s = lines[j].strip()
+                if not s or s.startswith("#"):
+                    continue
+                m2 = re.match(r"^-\s*(.*)$", s)
+                if not m2:
+                    break
+                raw.append(clean(m2.group(1)))
+        break
+
+    out = []
+    for r in raw:
+        if r and _ROLES_SLUG_RE.match(r) and r not in out:
+            out.append(r)
+    return out
 
 
 def _read_frontmatter(identity_file):
-    """Return (role, is_coordinator) parsed from the identity file's YAML frontmatter.
+    """Return (roles, is_coordinator) parsed from the identity file's YAML frontmatter.
     Frontmatter is the block between the FIRST two `---` fence lines. Missing file /
-    missing frontmatter / missing role → (None, False), and the caller decides how
+    missing frontmatter / no roles → ([], False), and the caller decides how
     loudly to complain (role-file-watch logs its own setup failures to stderr into
     the ambient-monitor log; the launcher stays quiet and lets pieces surface their
     own diagnostics).
 
-    The role value is stripped of surrounding YAML quotes and whitespace, then
-    validated against a strict identifier pattern (kebab-case, lowercase alphanumeric
-    with hyphens/underscores). A quoted role like `role: "box-maintainer"` yields
-    `box-maintainer`; a malformed role like `role: ../../tmp` returns (None, ...)
-    so the caller falls through to the unresolved-role branch rather than doing a
-    path-traversal makedirs. Encoding is `utf-8-sig` so a UTF-8 BOM (Windows
-    notepad-style) doesn't silently mask the first fence line.
+    `roles` comes from `_parse_roles_frontmatter` (copy of the reference parser):
+    every role listed under `roles:`, invalid slugs dropped, deduped in order. The
+    singular `role:` key is NOT read. The roles are only logged. Encoding is `utf-8-sig`
+    so a UTF-8 BOM (Windows notepad-style) doesn't silently mask the first fence
+    line.
     """
     try:
         with open(identity_file, encoding="utf-8-sig") as f:
-            lines = f.readlines()
-    except OSError:
-        return None, False
+            text = f.read()
+    except (OSError, UnicodeDecodeError):
+        return [], False
+    roles = _parse_roles_frontmatter(text)
+    lines = text.splitlines()
     fences = [i for i, ln in enumerate(lines) if ln.strip() == "---"]
     if len(fences) < 2:
-        return None, False
-    role = None
+        return roles, False
     is_coord = False
     for line in lines[fences[0] + 1: fences[1]]:
-        stripped = line.lstrip()
-        if stripped.startswith("#"):
-            continue
-        m_role = re.match(r"^role:\s*(.+?)\s*(#.*)?$", line.rstrip("\n"))
-        if m_role and role is None:
-            raw = m_role.group(1).strip().strip('"').strip("'").strip()
-            if _ROLE_NAME_OK.match(raw):
-                role = raw
-            continue
         # Strict coordinator detection: top-level YAML key (col 0), unquoted bare
         # `true`, optionally followed by a trailing YAML comment. Matches the id
         # skill body's coordinator-mode strict-detection rule verbatim.
-        if re.match(r"^coordinator:\s*true\s*(#.*)?$", line.rstrip("\n")):
+        if re.match(r"^coordinator:\s*true\s*(#.*)?$", line):
             is_coord = True
-    return role, is_coord
+    return roles, is_coord
 
 
 IDENTITY_FILE = IDENTITY_DIR / ("%s.md" % IDENTITY_NAME)
-ROLE_NAME, IS_COORDINATOR = _read_frontmatter(IDENTITY_FILE)
+ROLE_NAMES, IS_COORDINATOR = _read_frontmatter(IDENTITY_FILE)
 
 # --------------------------------------------------------------- child specs
 # Build the child list based on identity type. The launcher owns exactly ONE bit
@@ -894,9 +932,9 @@ if not RELAY_ACCOUNTS:
 else:
     emit_diag("discovered %d relay account(s): %s"
               % (len(RELAY_ACCOUNTS), ", ".join(a[2] for a in RELAY_ACCOUNTS)))
-emit_diag("starting %d child(ren) for identity %s (role=%s, coordinator=%s, harness_pid=%s, "
+emit_diag("starting %d child(ren) for identity %s (roles=%s, coordinator=%s, harness_pid=%s, "
           "delivery=%s)"
-          % (len(CHILDREN), IDENTITY_NAME, ROLE_NAME, IS_COORDINATOR, HARNESS_PID,
+          % (len(CHILDREN), IDENTITY_NAME, ",".join(ROLE_NAMES) or "none", IS_COORDINATOR, HARNESS_PID,
              ("inject->tmux:%s" % INJECT_SESSION) if INJECT_MODE else "stdout"))
 
 # In inject mode a missing harness PID is fatal, not a degraded mode: without it the

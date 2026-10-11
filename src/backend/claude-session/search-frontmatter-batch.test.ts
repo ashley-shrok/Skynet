@@ -28,8 +28,8 @@ const write = (rel: string, body: string) => {
 
 beforeAll(() => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), "fm-batch-"));
-  write("identities/muffin/muffin.md", "---\nrole: baker\ntask: Live task\n---\n\n# body mentions --- nothing\n");
-  write("identities-archive/scone/scone.md", "---\nrole: baker\ntask: Archived task\n---\nbody\n");
+  write("identities/muffin/muffin.md", "---\nroles: baker\ntask: Live task\n---\n\n# body mentions --- nothing\n");
+  write("identities-archive/scone/scone.md", "---\nroles: baker\ntask: Archived task\n---\nbody\n");
   write("roles/baker/baker.md", "---\ncolorHue: '324'\n---\n# baker\n");
   write("roles-archive/oldrole/oldrole.md", "---\ncolorHue: 98\n---\n");
   execCommandMock.mockImplementation(async (_conn: unknown, cmd: string) =>
@@ -49,8 +49,8 @@ describe("readIdentityFrontmattersBatch", () => {
     expect(execCommandMock).toHaveBeenCalledTimes(1);
     // execCommand trims stdout, so the final record may lose its newline —
     // irrelevant to the frontmatter parsers; compare trimmed.
-    expect(out.get("muffin")?.trimEnd()).toBe("---\nrole: baker\ntask: Live task\n---");
-    expect(out.get("scone")?.trimEnd()).toBe("---\nrole: baker\ntask: Archived task\n---");
+    expect(out.get("muffin")?.trimEnd()).toBe("---\nroles: baker\ntask: Live task\n---");
+    expect(out.get("scone")?.trimEnd()).toBe("---\nroles: baker\ntask: Archived task\n---");
     expect(out.get("ghost")).toBe("");
     expect(out.has("../etc")).toBe(false);
   });

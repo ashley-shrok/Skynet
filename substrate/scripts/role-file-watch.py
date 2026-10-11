@@ -24,6 +24,14 @@ and stale memory of the command outweighed re-reading the updated runbook. Every
 fresh /id load STILL reads role + identity + id skill + enumerates runbooks;
 this is purely additive.
 
+Role coverage: the identity file's frontmatter `roles:` key (one or more role
+slugs, any YAML shape — see parse_roles_frontmatter; the singular `role:` key is
+NOT read) names the roles whose `~/fleet/roles/<role>/<role>.md` files and
+runbooks are watched. Editing `roles:` mid-session re-execs the watcher so the
+targets follow: an added role emits a pointer to read its role file, a removed
+role emits a notice and its baselines are dropped. An empty/invalid `roles:`
+edit does not re-exec — the old set stays watched and stderr says why.
+
 Project coverage: when the identity file's frontmatter has `project: <slug>`, the
 watch includes `~/fleet/projects/<slug>/project.md` (event tag `project-file`).
 Moving into, between, or out of a project re-execs the watcher so the target
@@ -185,97 +193,97 @@ def _reexec_self(reason="new version installed"):
     os.execv(sys.executable, [sys.executable, _SELF_PATH] + sys.argv[1:])
 
 
-# Role slug validation — mirrors ~fleet convention: lowercase kebab, must start
-# with a letter, ≤64 chars. Applied per-item after parsing so a malformed entry
-# in an otherwise valid list gets dropped rather than tainting the whole watch.
-_ROLE_SLUG_RE = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
+# --- `roles:` frontmatter parser -------------------------------------------
+# COPY of tests/fixtures/roles_frontmatter_reference.py (parse_roles_frontmatter).
+# It MUST stay identical in behavior to the reference — `roles:` only (the
+# singular `role:` key is NOT read), every shape in
+# tests/fixtures/roles-frontmatter-cases.json, slug regex below. Checked by
+# tests/roles-frontmatter-conformance.test.sh. Change the reference first, then
+# re-copy; never edit this copy alone.
+ROLES_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+
+
+def parse_roles_frontmatter(text):
+    lines = text.lstrip("\ufeff").replace("\r\n", "\n").split("\n")
+    if not lines or lines[0].strip() != "---":
+        return []
+    end = None
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            end = i
+            break
+    if end is None:
+        return []
+
+    def clean(s):
+        s = re.sub(r"\s+#.*$", "", s).strip()
+        return s.strip("\"'").strip()
+
+    raw = []
+    for i in range(1, end):
+        m = re.match(r"^roles:(.*)$", lines[i])
+        if not m:
+            continue
+        inline = re.sub(r"(^|\s)#.*$", "", m.group(1)).strip()
+        if inline:
+            if inline.startswith("[") and inline.endswith("]"):
+                inline = inline[1:-1]
+            raw = [clean(p) for p in inline.split(",")]
+        else:
+            for j in range(i + 1, end):
+                s = lines[j].strip()
+                if not s or s.startswith("#"):
+                    continue
+                m2 = re.match(r"^-\s*(.*)$", s)
+                if not m2:
+                    break
+                raw.append(clean(m2.group(1)))
+        break
+
+    out = []
+    for r in raw:
+        if r and ROLES_SLUG_RE.match(r) and r not in out:
+            out.append(r)
+    return out
+# --- end of reference copy --------------------------------------------------
 
 
 def _parse_roles_from_frontmatter(identity_file_path):
-    """Parse the `role:` (or `roles:`) key from YAML frontmatter into a list.
+    """Read the identity file and return (roles, None) or (None, err_msg).
 
-    Agents edit these files freely and don't always stick to one YAML shape,
-    so this parser is deliberately tolerant. Accepts (all yield the same list):
-
-      role: box-maintainer                     → ["box-maintainer"]
-      role: "box-maintainer"                   → ["box-maintainer"]
-      role: [foo, bar]                         → ["foo", "bar"]
-      role: ["foo", "bar"]                     → ["foo", "bar"]
-      role:                                    → ["foo", "bar"]
-        - foo
-        - bar
-      role: foo, bar                           → ["foo", "bar"]   (bare comma-separated)
-      roles: <any of the above>                → same              (plural alias)
-
-    Each parsed name is slug-validated (`_ROLE_SLUG_RE`); invalid entries are
-    dropped silently. Returns (list_of_slugs, None) on success, (None, err_msg)
-    when no valid slug survives. The list preserves source order and de-duplicates.
-
-    Frontmatter is the block between the FIRST two `---` lines.
-    """
+    The role list comes solely from parse_roles_frontmatter (the reference
+    copy above). The extra inspection below only shapes the diagnostic when
+    the list is empty — it never changes which roles are returned."""
     try:
-        with open(identity_file_path) as f:
-            lines = f.readlines()
+        with open(identity_file_path, encoding="utf-8", errors="replace") as f:
+            text = f.read()
     except FileNotFoundError:
         return None, "identity file not found: %s" % identity_file_path
     except OSError as e:
         return None, "could not read identity file %s: %s" % (identity_file_path, e)
 
-    # Find the two '---' fence lines.
-    fence_indices = [i for i, ln in enumerate(lines) if ln.strip() == "---"]
-    if len(fence_indices) < 2:
+    roles = parse_roles_frontmatter(text)
+    if roles:
+        return roles, None
+
+    lines = text.lstrip("\ufeff").replace("\r\n", "\n").split("\n")
+    end = None
+    if lines and lines[0].strip() == "---":
+        for i in range(1, len(lines)):
+            if lines[i].strip() == "---":
+                end = i
+                break
+    if end is None:
         return None, "no YAML frontmatter block found in %s" % identity_file_path
-    start, end = fence_indices[0] + 1, fence_indices[1]
-
-    # Locate the role: (or roles:) line and capture its inline value.
-    key_line_idx = None
-    inline_value = ""
-    for i in range(start, end):
-        m = re.match(r"^(role|roles):\s*(.*?)\s*(#.*)?$", lines[i].rstrip("\n"))
-        if m:
-            key_line_idx = i
-            inline_value = m.group(2) or ""
-            break
-    if key_line_idx is None:
-        return None, "no `role:` or `roles:` key found in frontmatter of %s" % identity_file_path
-
-    raw_names = []
-    if inline_value:
-        v = inline_value.strip()
-        # Strip surrounding brackets if flow-sequence shape.
-        if v.startswith("[") and v.endswith("]"):
-            v = v[1:-1].strip()
-        # Split on commas; each part may be quoted.
-        parts = v.split(",") if "," in v else [v]
-        for part in parts:
-            item = part.strip().strip('"').strip("'").strip()
-            if item:
-                raw_names.append(item)
-    else:
-        # Block sequence: subsequent lines starting with `- <value>` inside frontmatter.
-        for j in range(key_line_idx + 1, end):
-            stripped = lines[j].rstrip("\n").lstrip()
-            if not stripped or stripped.startswith("#"):
-                continue
-            m2 = re.match(r"^-\s+(.+?)\s*(#.*)?$", stripped)
-            if not m2:
-                break  # end of block sequence
-            item = m2.group(1).strip().strip('"').strip("'").strip()
-            if item:
-                raw_names.append(item)
-
-    valid = []
-    seen = set()
-    for name in raw_names:
-        if _ROLE_SLUG_RE.match(name) and name not in seen:
-            valid.append(name)
-            seen.add(name)
-
-    if not valid:
-        return None, "no valid role slug found in frontmatter of %s (raw: %r)" % (
-            identity_file_path, raw_names,
+    fm = lines[1:end]
+    if not any(re.match(r"^roles:", ln) for ln in fm):
+        return None, (
+            "no `roles:` key found in frontmatter of %s (the singular `role:` "
+            "key is no longer read — use `roles:`)" % identity_file_path
         )
-    return valid, None
+    return None, "no valid role slug under `roles:` in frontmatter of %s" % (
+        identity_file_path,
+    )
 
 
 # Project slug — mirrors the app's project-slug rule (/^[a-z0-9-]{1,64}$/).
@@ -323,32 +331,133 @@ def _project_baseline_path(baseline_dir, slug):
     return os.path.join(baseline_dir, "last-snapshot.project.%s" % slug)
 
 
-def _restart_if_project_changed(identity_file_path, watched_project, baseline_dir):
-    """Re-exec when the identity's effective project differs from the one this
-    process is watching — moved into, between, or out of a project, or the
-    watched project file vanished (archived). The targets list and the
-    inotifywait argv are fixed per process, so a restart is how the watch
-    follows the move; the new process cold-snapshots the new project file.
+def _role_file_path(role):
+    return os.path.expanduser("~/fleet/roles/%s/%s.md" % (role, role))
 
-    On a join, emit a pointer to the new project file: the agent read no
-    project file at /id load (or read a different one), and the identity-file
-    diff alone only shows the `project:` line changing. The old project's
-    baseline is removed so a later re-join starts clean instead of diffing
-    against a stale snapshot."""
-    new_slug, new_path = _resolve_project(identity_file_path)
-    if new_slug == watched_project:
+
+def _remove_role_baselines(baseline_dir, role):
+    """Drop every baseline this process kept for `role` — the role file's
+    (`last-snapshot.role.<role>`) and its runbooks'
+    (`last-snapshot.runbook.<role>.<slug>`), plus any self-edit markers on
+    them — so a later re-add cold-starts clean instead of diffing against a
+    stale snapshot."""
+    role_prefix = "last-snapshot.role.%s" % role
+    runbook_prefix = "last-snapshot.runbook.%s." % role
+    try:
+        names = os.listdir(baseline_dir)
+    except OSError:
         return
-    if watched_project is not None:
-        try:
-            os.remove(_project_baseline_path(baseline_dir, watched_project))
-        except OSError:
-            pass
-    if new_slug is not None:
-        print(
-            "📝 [project-file: %s] you're now in project %s — Read %s"
-            % (new_slug, new_slug, new_path),
-            flush=True,
-        )
+    for n in names:
+        if (
+            n == role_prefix
+            or n == role_prefix + ".self-edit-hash"
+            or n.startswith(runbook_prefix)
+        ):
+            try:
+                os.remove(os.path.join(baseline_dir, n))
+            except OSError:
+                pass
+
+
+# Last roles-parse diagnostic logged by _restart_if_scope_changed, so a broken
+# `roles:` line is reported once per distinct problem rather than on every
+# event while it stays broken.
+_last_roles_err = None
+
+
+def _roles_changed(identity_file_path, watched_roles):
+    """(added, removed) role lists when the identity's `roles:` set differs
+    from the one this process watches, else None.
+
+    An empty/invalid `roles:` (or one naming no role with a file on disk)
+    returns None after logging to stderr: the new process would exit at
+    startup, so re-execing would trade a working watch for a dead one. We keep
+    watching the old set until the line is fixed. Order-only changes are not a
+    change — the same files are watched either way."""
+    global _last_roles_err
+    new_roles, err = _parse_roles_from_frontmatter(identity_file_path)
+    if err is None and not any(os.path.exists(_role_file_path(r)) for r in new_roles):
+        err = "no role file on disk for any role in %r" % (new_roles,)
+    if err is not None:
+        if err != _last_roles_err:
+            print(
+                "⚠️ [role-file-watch] identity roles unusable (%s) — still watching %r"
+                % (err, list(watched_roles)),
+                file=sys.stderr,
+                flush=True,
+            )
+            _last_roles_err = err
+        return None
+    _last_roles_err = None
+    added = [r for r in new_roles if r not in watched_roles]
+    removed = [r for r in watched_roles if r not in new_roles]
+    if not added and not removed:
+        return None
+    return added, removed
+
+
+def _restart_if_scope_changed(identity_file_path, watched_project, watched_roles, baseline_dir):
+    """Re-exec when the identity's scope — its `project:` or its `roles:` set —
+    differs from what this process is watching. The targets list and the
+    inotifywait argv are fixed per process, so a restart is how the watch
+    follows; the new process cold-snapshots any newly watched file.
+
+    Project: moved into, between, or out of a project, or the watched project
+    file vanished (archived). On a join, emit a pointer to the new project
+    file: the agent read no project file at /id load (or read a different
+    one), and the identity-file diff alone only shows the `project:` line
+    changing. The old project's baseline is removed so a later re-join starts
+    clean instead of diffing against a stale snapshot.
+
+    Roles: same idea per role. Each newly added role gets a pointer to its
+    role file (and runbooks folder, if any) since the agent never read it;
+    each removed role gets a one-line notice and its baselines are dropped.
+    An unusable new `roles:` value never re-execs (see _roles_changed)."""
+    reasons = []
+
+    new_slug, new_path = _resolve_project(identity_file_path)
+    if new_slug != watched_project:
+        if watched_project is not None:
+            try:
+                os.remove(_project_baseline_path(baseline_dir, watched_project))
+            except OSError:
+                pass
+        if new_slug is not None:
+            print(
+                "📝 [project-file: %s] you're now in project %s — Read %s"
+                % (new_slug, new_slug, new_path),
+                flush=True,
+            )
+        reasons.append("project changed (%s → %s)" % (watched_project, new_slug))
+
+    roles_delta = _roles_changed(identity_file_path, watched_roles)
+    if roles_delta is not None:
+        added, removed = roles_delta
+        for role in added:
+            rf = _role_file_path(role)
+            if os.path.exists(rf):
+                line = "📝 [role-file: %s] you now hold role %s — Read %s" % (role, role, rf)
+                rd = os.path.expanduser("~/fleet/roles/%s/runbooks" % role)
+                if os.path.isdir(rd):
+                    line += " (runbooks: %s)" % rd
+            else:
+                line = (
+                    "📝 [role-file: %s] you now hold role %s — but its role file %s "
+                    "does not exist" % (role, role, rf)
+                )
+            print(line, flush=True)
+        for role in removed:
+            _remove_role_baselines(baseline_dir, role)
+            print(
+                "📝 [role-file: %s] you no longer hold role %s" % (role, role),
+                flush=True,
+            )
+        reasons.append("roles changed (+%s −%s)" % (
+            ",".join(added) or "none", ",".join(removed) or "none",
+        ))
+
+    if not reasons:
+        return
     global _inotify_proc
     proc = _inotify_proc
     if proc is not None:
@@ -358,7 +467,7 @@ def _restart_if_project_changed(identity_file_path, watched_project, baseline_di
         except Exception:
             pass
         _inotify_proc = None
-    _reexec_self("project changed (%s → %s)" % (watched_project, new_slug))
+    _reexec_self("; ".join(reasons))
 
 
 def _single_instance(state_dir, ident_dir):
@@ -670,7 +779,7 @@ def _diff_and_emit_all(targets, baseline_dir, spill_dir):
     """Run _diff_and_emit for every target. Returns True if ANY target is gone.
 
     A vanished project file is not fatal — the project was archived or the
-    identity left it; _restart_if_project_changed handles that."""
+    identity left it; _restart_if_scope_changed handles that."""
     for kind, label, target_path, baseline_path in targets:
         if kind == "project-file" and not os.path.exists(target_path):
             continue
@@ -914,13 +1023,17 @@ def main():
         # mid-turn, so waking it with a diagnostic it can't act on is noise.
         print("⚠️ [role-file-watch] %s" % err, file=sys.stderr, flush=True)
         sys.exit(1)
+    # The role set this process watches. An identity-file edit that changes it
+    # re-execs us (see _restart_if_scope_changed) — the targets list and the
+    # inotifywait argv are fixed per process.
+    watched_roles = list(roles)
 
     # --- Resolve role file paths — one per role. Missing role files are logged
     # to stderr and skipped rather than fatal, so a typo in a multi-role list
     # doesn't kill the whole watcher (the other role's file still gets watched).
     role_files = []  # list of (role, role_file_path)
     for role in roles:
-        role_file_path = os.path.expanduser("~/fleet/roles/%s/%s.md" % (role, role))
+        role_file_path = _role_file_path(role)
         if os.path.exists(role_file_path):
             role_files.append((role, role_file_path))
         else:
@@ -989,7 +1102,7 @@ def main():
     # identity's `project:` frontmatter, if it has one and the file exists.
     # Watched like a role file; a move into / between / out of projects (an
     # identity-file edit) restarts the process so the target follows — see
-    # _restart_if_project_changed.
+    # _restart_if_scope_changed.
     watched_project, project_path = _resolve_project(identity_file_path)
     if watched_project is not None:
         targets.append((
@@ -1305,8 +1418,8 @@ def main():
                     if "Watches established" in err_line:
                         if _diff_and_emit_all(targets, baseline_dir, spill_dir):
                             sys.exit(1)
-                        _restart_if_project_changed(
-                            identity_file_path, watched_project, baseline_dir,
+                        _restart_if_scope_changed(
+                            identity_file_path, watched_project, watched_roles, baseline_dir,
                         )
                         break
                 for event_line in _inotify_proc.stdout:
@@ -1370,8 +1483,8 @@ def main():
                                 # pre-fix DELETE_SELF behavior). _diff_and_emit
                                 # returns True when the file is unreadable.
                                 sys.exit(1)
-                            _restart_if_project_changed(
-                                identity_file_path, watched_project, baseline_dir,
+                            _restart_if_scope_changed(
+                                identity_file_path, watched_project, watched_roles, baseline_dir,
                             )
                             # Respawn to re-arm on new inode.
                             try:
@@ -1382,8 +1495,8 @@ def main():
                             break
                         if _diff_and_emit_all(targets, baseline_dir, spill_dir):
                             sys.exit(1)
-                        _restart_if_project_changed(
-                            identity_file_path, watched_project, baseline_dir,
+                        _restart_if_scope_changed(
+                            identity_file_path, watched_project, watched_roles, baseline_dir,
                         )
                         continue
 
@@ -1427,8 +1540,8 @@ def main():
                 if any(not os.path.exists(t[2]) for t in targets):
                     if _diff_and_emit_all(targets, baseline_dir, spill_dir):
                         sys.exit(1)
-                    _restart_if_project_changed(
-                        identity_file_path, watched_project, baseline_dir,
+                    _restart_if_scope_changed(
+                        identity_file_path, watched_project, watched_roles, baseline_dir,
                     )
 
                 if _inotify_proc is not None:
@@ -1470,7 +1583,9 @@ def main():
 
     else:
         # Fallback: mtime polling loop over both targets.
-        _restart_if_project_changed(identity_file_path, watched_project, baseline_dir)
+        _restart_if_scope_changed(
+            identity_file_path, watched_project, watched_roles, baseline_dir,
+        )
         try:
             last_mtimes = {t[2]: os.path.getmtime(t[2]) for t in targets}
         except OSError as e:
@@ -1515,8 +1630,8 @@ def main():
             if changed:
                 if _diff_and_emit_all(targets, baseline_dir, spill_dir):
                     sys.exit(1)
-                _restart_if_project_changed(
-                    identity_file_path, watched_project, baseline_dir,
+                _restart_if_scope_changed(
+                    identity_file_path, watched_project, watched_roles, baseline_dir,
                 )
 
 

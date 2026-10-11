@@ -203,9 +203,9 @@ fixture_identity() {
   mkdir -p "$iddir"
   if ! $no_md; then
     if $coordinator; then
-      printf -- '---\nrole: test\ncoordinator: true\n---\nbody\n' > "$iddir/$name.md"
+      printf -- '---\nroles: test\ncoordinator: true\n---\nbody\n' > "$iddir/$name.md"
     else
-      printf -- '---\nrole: test\n---\nbody\n' > "$iddir/$name.md"
+      printf -- '---\nroles: test\n---\nbody\n' > "$iddir/$name.md"
     fi
   fi
   $pinned     && touch "$iddir/.pinned"
@@ -429,7 +429,7 @@ test_pitfall7_exception_comment_present() {
 
 test_coordinator_positive() {
   local f; f=$(mktemp)
-  printf -- '---\nrole: test\ncoordinator: true\n---\nbody\n' > "$f"
+  printf -- '---\nroles: test\ncoordinator: true\n---\nbody\n' > "$f"
   local rc=0
   ( _source_supervisor /tmp; is_coordinator "$f" ) || rc=$?
   assert_eq "0" "$rc" "is_coordinator positive: valid frontmatter must return 0"
@@ -438,7 +438,7 @@ test_coordinator_positive() {
 
 test_coordinator_negative_commented() {
   local f; f=$(mktemp)
-  printf -- '---\nrole: test\n# coordinator: true\n---\nbody\n' > "$f"
+  printf -- '---\nroles: test\n# coordinator: true\n---\nbody\n' > "$f"
   local rc=0
   ( _source_supervisor /tmp; is_coordinator "$f" ) && rc=0 || rc=$?
   if [ "$rc" -eq 0 ]; then
@@ -449,7 +449,7 @@ test_coordinator_negative_commented() {
 
 test_coordinator_negative_body() {
   local f; f=$(mktemp)
-  printf -- '---\nrole: test\n---\ncoordinator: true\n' > "$f"
+  printf -- '---\nroles: test\n---\ncoordinator: true\n' > "$f"
   local rc=0
   ( _source_supervisor /tmp; is_coordinator "$f" ) && rc=0 || rc=$?
   if [ "$rc" -eq 0 ]; then
@@ -460,7 +460,7 @@ test_coordinator_negative_body() {
 
 test_coordinator_negative_quoted() {
   local f; f=$(mktemp)
-  printf -- '---\nrole: test\ntitle: "coordinator: true"\n---\n' > "$f"
+  printf -- '---\nroles: test\ntitle: "coordinator: true"\n---\n' > "$f"
   local rc=0
   ( _source_supervisor /tmp; is_coordinator "$f" ) && rc=0 || rc=$?
   if [ "$rc" -eq 0 ]; then
@@ -471,7 +471,7 @@ test_coordinator_negative_quoted() {
 
 test_coordinator_negative_no_frontmatter() {
   local f; f=$(mktemp)
-  printf -- 'role: test\ncoordinator: true\n' > "$f"
+  printf -- 'roles: test\ncoordinator: true\n' > "$f"
   local rc=0
   ( _source_supervisor /tmp; is_coordinator "$f" ) && rc=0 || rc=$?
   if [ "$rc" -eq 0 ]; then

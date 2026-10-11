@@ -197,7 +197,7 @@ describe("resolveAgentDisplayName", () => {
     // Identity file has a role; the wrapper should read the role file too and
     // pass roleCosmetics into resolveIdentityAppearance.
     vi.mocked(readIdentityFile).mockResolvedValue({
-      markdown: "---\nrole: agent-role\n---\nbody",
+      markdown: "---\nroles: agent-role\n---\nbody",
     });
     vi.mocked(extractRoleFromMarkdown).mockReturnValue("agent-role");
     vi.mocked(readRoleFileByName).mockResolvedValue({

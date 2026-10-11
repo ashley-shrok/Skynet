@@ -383,8 +383,8 @@ beforeEach(() => {
     return Promise.resolve();
   });
 
-  // Default: python3 returns empty roles [] (happy path — no roles to check)
-  mockPython3Returns("[]");
+  // Default: python3 returns one live role (happy path — fs.access resolves)
+  mockPython3Returns('["researcher"]');
 
   // Default: execCommand for REMOTE tests returns "yes"
   (execCommand as Mock).mockResolvedValue("yes\n");
@@ -614,6 +614,19 @@ describe("POST /identities/:key/unarchive", () => {
     });
     expect(res.status).toBe(409);
     expect(res.body).toEqual({ reason: "missing_roles", missingRoles: ["deleted-role"] });
+    expect(writeIdentityArchiveFile).not.toHaveBeenCalled();
+  });
+
+  it("Test 5d: archived identity with no readable roles → 409 no_roles, nothing restored", async () => {
+    mockPython3Returns("[]");
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/wren/unarchive",
+      body: { hostId: 42 },
+    });
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ reason: "no_roles" });
+    expect(createOrUpdateUser).not.toHaveBeenCalled();
     expect(writeIdentityArchiveFile).not.toHaveBeenCalled();
   });
 
@@ -920,8 +933,9 @@ describe("POST /identities/:key/unarchive", () => {
     (execCommand as Mock).mockImplementation((_conn, cmd: string) => {
       if (cmd.includes("identities-archive/wren")) return Promise.resolve("yes\n");
       if (cmd.includes("identities/wren")) return Promise.resolve("no\n");
-      // Role parse: python3 against the frontmatter — role parser helper
-      // falls back to empty roles list on any error, which is sufficient here.
+      // Role parse (python3 over SSH) → one role; its live folder exists.
+      if (cmd.includes("python3")) return Promise.resolve('["researcher"]');
+      if (cmd.includes("fleet/roles/")) return Promise.resolve("yes\n");
       return Promise.resolve("");
     });
 

@@ -153,7 +153,7 @@ describe("readAvatarSiblingFile — LOCAL branch (fs)", () => {
 
   it("Test C: LOCAL, frontmatter names tina.webp AND file exists → returns webp result (frontmatter authoritative)", async () => {
     const webpBytes = Buffer.from([0x52, 0x49, 0x46, 0x46]);
-    const markdown = "---\nrole: box-maintainer\navatar: tina.webp\n---\n\n# tina\n";
+    const markdown = "---\nroles: box-maintainer\navatar: tina.webp\n---\n\n# tina\n";
     fsReadFileMock.mockImplementation((filePath: string, opts?: unknown) => {
       if (filePath.endsWith("tina.md") && opts === "utf-8") return Promise.resolve(markdown);
       if (filePath.endsWith("tina.webp")) return Promise.resolve(webpBytes);
@@ -216,7 +216,7 @@ describe("readAvatarSiblingFile — REMOTE branch (SSH)", () => {
 describe("extractCosmeticsFromFrontmatter", () => {
   it("Test F: all 5 keys present → returns all 5", async () => {
     const md =
-      "---\nrole: box-maintainer\ndisplayName: Tina\ntitle: The Coder\ncolorHue: 220\nvoice: Elena.wav\navatar: tina.png\n---\n\n# tina\n";
+      "---\nroles: box-maintainer\ndisplayName: Tina\ntitle: The Coder\ncolorHue: 220\nvoice: Elena.wav\navatar: tina.png\n---\n\n# tina\n";
     const cos = extractCosmeticsFromFrontmatter(md);
     expect(cos.displayName).toBe("Tina");
     expect(cos.title).toBe("The Coder");
@@ -232,14 +232,14 @@ describe("extractCosmeticsFromFrontmatter", () => {
   });
 
   it("Test H: colorHue out of range (400) → colorHue omitted from result", async () => {
-    const md = "---\nrole: x\ndisplayName: Tina\ncolorHue: 400\n---\n\n# body\n";
+    const md = "---\nroles: x\ndisplayName: Tina\ncolorHue: 400\n---\n\n# body\n";
     const cos = extractCosmeticsFromFrontmatter(md);
     expect(cos.displayName).toBe("Tina");
     expect("colorHue" in cos).toBe(false);
   });
 
   it("Test I: explicit YAML null (title: null) → title omitted", async () => {
-    const md = "---\nrole: x\ndisplayName: Tina\ntitle: null\n---\n\n# body\n";
+    const md = "---\nroles: x\ndisplayName: Tina\ntitle: null\n---\n\n# body\n";
     const cos = extractCosmeticsFromFrontmatter(md);
     expect(cos.displayName).toBe("Tina");
     expect("title" in cos).toBe(false);
@@ -259,7 +259,7 @@ describe("extractCosmeticsFromFrontmatter", () => {
 describe("extractCosmeticsFromFrontmatter — coordinator field (Phase 67 Plan 67-01)", () => {
   it("COORD-1: frontmatter with coordinator: true + other cosmetics → coordinator: true alongside narrowed fields", async () => {
     const md =
-      "---\nrole: box-maintainer\ndisplayName: Nelly\ntitle: The Fleet Warden\ncolorHue: 15\nvoice: Sabrina.wav\navatar: nelly.png\ncoordinator: true\n---\n\n# body\n";
+      "---\nroles: box-maintainer\ndisplayName: Nelly\ntitle: The Fleet Warden\ncolorHue: 15\nvoice: Sabrina.wav\navatar: nelly.png\ncoordinator: true\n---\n\n# body\n";
     const result = extractCosmeticsFromFrontmatter(md);
     expect(result.displayName).toBe("Nelly");
     expect(result.title).toBe("The Fleet Warden");
@@ -271,7 +271,7 @@ describe("extractCosmeticsFromFrontmatter — coordinator field (Phase 67 Plan 6
 
   it("COORD-2: frontmatter with coordinator: false → coordinator: false present (NOT dropped)", async () => {
     const md =
-      "---\nrole: box-maintainer\ndisplayName: Tina\ncoordinator: false\n---\n\n# body\n";
+      "---\nroles: box-maintainer\ndisplayName: Tina\ncoordinator: false\n---\n\n# body\n";
     const result = extractCosmeticsFromFrontmatter(md);
     expect(result.displayName).toBe("Tina");
     expect("coordinator" in result).toBe(true);
@@ -280,7 +280,7 @@ describe("extractCosmeticsFromFrontmatter — coordinator field (Phase 67 Plan 6
 
   it("COORD-3: frontmatter with NO coordinator key → coordinator absent from result", async () => {
     const md =
-      "---\nrole: box-maintainer\ndisplayName: Tina\ntitle: The Coder\n---\n\n# body\n";
+      "---\nroles: box-maintainer\ndisplayName: Tina\ntitle: The Coder\n---\n\n# body\n";
     const result = extractCosmeticsFromFrontmatter(md);
     expect(result.displayName).toBe("Tina");
     expect("coordinator" in result).toBe(false);
@@ -288,7 +288,7 @@ describe("extractCosmeticsFromFrontmatter — coordinator field (Phase 67 Plan 6
 
   it("COORD-4: frontmatter with coordinator: 'yes' (non-boolean string) → coordinator DROPPED", async () => {
     const md =
-      "---\nrole: box-maintainer\ndisplayName: Tina\ncoordinator: \"yes\"\n---\n\n# body\n";
+      "---\nroles: box-maintainer\ndisplayName: Tina\ncoordinator: \"yes\"\n---\n\n# body\n";
     const result = extractCosmeticsFromFrontmatter(md);
     expect(result.displayName).toBe("Tina");
     expect("coordinator" in result).toBe(false);
@@ -296,7 +296,7 @@ describe("extractCosmeticsFromFrontmatter — coordinator field (Phase 67 Plan 6
 
   it("COORD-5: frontmatter with coordinator: 1 (number) → coordinator DROPPED", async () => {
     const md =
-      "---\nrole: box-maintainer\ndisplayName: Tina\ncoordinator: 1\n---\n\n# body\n";
+      "---\nroles: box-maintainer\ndisplayName: Tina\ncoordinator: 1\n---\n\n# body\n";
     const result = extractCosmeticsFromFrontmatter(md);
     expect(result.displayName).toBe("Tina");
     expect("coordinator" in result).toBe(false);
@@ -336,7 +336,7 @@ describe("extractCosmeticsFromFrontmatter — coordinator field (Phase 67 Plan 6
 describe("extractCosmeticsFromFrontmatter — task field (Phase 80 Plan 80-03)", () => {
   it("TASK-1: frontmatter with task: 'build the pool-pick endpoint' → task returned verbatim", async () => {
     const md =
-      "---\nrole: box-maintainer\ndisplayName: Tina\ntask: build the pool-pick endpoint\n---\n\n# body\n";
+      "---\nroles: box-maintainer\ndisplayName: Tina\ntask: build the pool-pick endpoint\n---\n\n# body\n";
     const result = extractCosmeticsFromFrontmatter(md);
     expect(result.displayName).toBe("Tina");
     expect(result.task).toBe("build the pool-pick endpoint");
@@ -344,7 +344,7 @@ describe("extractCosmeticsFromFrontmatter — task field (Phase 80 Plan 80-03)",
 
   it("TASK-2: frontmatter with task: '' (empty string) → task DROPPED (absent-⇒-omit)", async () => {
     const md =
-      "---\nrole: box-maintainer\ndisplayName: Tina\ntask: \"\"\n---\n\n# body\n";
+      "---\nroles: box-maintainer\ndisplayName: Tina\ntask: \"\"\n---\n\n# body\n";
     const result = extractCosmeticsFromFrontmatter(md);
     expect(result.displayName).toBe("Tina");
     expect("task" in result).toBe(false);
@@ -352,7 +352,7 @@ describe("extractCosmeticsFromFrontmatter — task field (Phase 80 Plan 80-03)",
 
   it("TASK-3: frontmatter with task: 42 (non-string number) → task DROPPED", async () => {
     const md =
-      "---\nrole: box-maintainer\ndisplayName: Tina\ntask: 42\n---\n\n# body\n";
+      "---\nroles: box-maintainer\ndisplayName: Tina\ntask: 42\n---\n\n# body\n";
     const result = extractCosmeticsFromFrontmatter(md);
     expect(result.displayName).toBe("Tina");
     expect("task" in result).toBe(false);
@@ -360,7 +360,7 @@ describe("extractCosmeticsFromFrontmatter — task field (Phase 80 Plan 80-03)",
 
   it("TASK-4: frontmatter with NO task key → task absent from result", async () => {
     const md =
-      "---\nrole: box-maintainer\ndisplayName: Tina\ntitle: The Coder\n---\n\n# body\n";
+      "---\nroles: box-maintainer\ndisplayName: Tina\ntitle: The Coder\n---\n\n# body\n";
     const result = extractCosmeticsFromFrontmatter(md);
     expect(result.displayName).toBe("Tina");
     expect("task" in result).toBe(false);

@@ -85,9 +85,9 @@ sync() { sync_project_members >> "$LOGF" 2>&1; }
 ident() {  # ident <name> [project-slug]
   mkdir -p "$IDENTITIES_DIR/$1"
   if [ -n "${2:-}" ]; then
-    printf -- '---\nrole: r\nproject: %s\ntask: t\n---\n\nbody\n' "$2" > "$IDENTITIES_DIR/$1/$1.md"
+    printf -- '---\nroles: r\nproject: %s\ntask: t\n---\n\nbody\n' "$2" > "$IDENTITIES_DIR/$1/$1.md"
   else
-    printf -- '---\nrole: r\ntask: t\n---\n\nbody\n' > "$IDENTITIES_DIR/$1/$1.md"
+    printf -- '---\nroles: r\ntask: t\n---\n\nbody\n' > "$IDENTITIES_DIR/$1/$1.md"
   fi
 }
 project() {  # project <slug> [raw-file-content]

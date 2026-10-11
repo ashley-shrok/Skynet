@@ -354,6 +354,10 @@ import {
   bootstrapFleetSubstrateLocally,
 } from "./local-fleet-install.js";
 import type { SshChannel } from "../fleet-status/ssh-poll-orchestrator.js";
+import { ROLES_KEY_MIGRATION_SENTINEL } from "./roles-key-migration.js";
+
+const ROLES_NOOP_OUTPUT =
+  `ROLES_KEY_MIGRATION_RESULT {"filesMigrated": 0, "baselinesMigrated": 0, "conflicts": 0, "conflictPaths": [], "errorCount": 0, "errors": [], "deferred": 0}\n${ROLES_KEY_MIGRATION_SENTINEL}`;
 
 // ---------------------------------------------------------------------------
 // Stub DB helpers — mirrors list-substrate-hosts.test.ts
@@ -469,6 +473,8 @@ function makeSuccessChannel(): SshChannel {
       if (cmd.includes("__CLEANUP_OK__")) {
         return "__CLEANUP_OK__";
       }
+      // run-bootstrap Step 7: identity roles-key migration (nothing to do)
+      if (cmd.includes(ROLES_KEY_MIGRATION_SENTINEL)) return ROLES_NOOP_OUTPUT;
       // ssh-push readInstalledBytes:
       // Returns "__READ_ENOENT__" so bytes===null (file absent, first-install path).
       // readOk:true -> NOT transient -> retryOnTransport exits immediately (no setTimeout).
@@ -1364,6 +1370,7 @@ describe("Phase 75 — server-substrate integration", () => {
           if (cmd.includes("__BOOTSTRAP_OK__")) return "__BOOTSTRAP_OK__";
           if (cmd.includes("__SETTINGS_OK__")) return "__SETTINGS_OK__";
           if (cmd.includes("__CLEANUP_OK__")) return "__CLEANUP_OK__";
+          if (cmd.includes(ROLES_KEY_MIGRATION_SENTINEL)) return ROLES_NOOP_OUTPUT;
           if (cmd.includes("__READ_OK__") || cmd.includes("__READ_ENOENT__")) {
             return "__READ_ENOENT__";
           }

@@ -15,7 +15,7 @@
 #          case: marker present but current content ≠ recorded hash)
 #   T-S7 — watcher without marker → fires event (today's behavior preserved
 #          when the sync hook never ran)
-#   T-S8 — hostile role: value in identity frontmatter does NOT execute inside
+#   T-S8 — hostile roles: value in identity frontmatter does NOT execute inside
 #          the sync hook's bash body (shell-injection defense)
 #   T-S9 — sync-script id-skill drift → atomic baseline overwrite + hash marker
 #          (the id skill is a fourth watched surface added 2026-09-29)
@@ -135,7 +135,7 @@ seed_fixture() {
   BASELINE_ROLE="$STATE_DIR/last-snapshot.role"
   BASELINE_IDENT="$STATE_DIR/last-snapshot.identity"
   printf '# %s role\n\nline 1\n' "$role" > "$ROLE_MD"
-  printf -- '---\nrole: %s\n---\n\n# %s\n' "$role" "$name" > "$IDENT_MD"
+  printf -- '---\nroles: %s\n---\n\n# %s\n' "$role" "$name" > "$IDENT_MD"
   cp "$ROLE_MD" "$BASELINE_ROLE"
   cp "$IDENT_MD" "$BASELINE_IDENT"
 }
@@ -207,7 +207,7 @@ test_T_S1_sync_drift() {
 
   # Divert the identity real file (simulates agent edit that hasn't yet
   # reached the baseline).
-  printf -- '---\nrole: s1role\ntask: something new\n---\n\n# s1name\n' > "$IDENT_MD"
+  printf -- '---\nroles: s1role\ntask: something new\n---\n\n# s1name\n' > "$IDENT_MD"
 
   # Sanity: baseline and real now differ.
   if cmp -s "$IDENT_MD" "$BASELINE_IDENT"; then
@@ -317,7 +317,7 @@ test_T_S5_watcher_matching_marker_silent() {
   # Simulate an agent self-edit: change the file AND drop a matching marker
   # that would have been written by the sync hook.
   local new_content='---
-role: s5role
+roles: s5role
 task: quiet
 ---
 
@@ -372,7 +372,7 @@ test_T_S6_watcher_mismatched_marker_fires() {
 
   # Now write different content (would be a peer edit that landed after
   # the sync hook, before the watcher's settle finished).
-  printf -- '---\nrole: s6role\ntask: peer wrote this\n---\n\n# s6name\n' > "$IDENT_MD"
+  printf -- '---\nroles: s6role\ntask: peer wrote this\n---\n\n# s6name\n' > "$IDENT_MD"
 
   if ! wait_for_stdout_match '📝 \[identity-file: s6name\]' "$OUT_LOG"; then
     fail "T-S6: watcher did NOT emit event despite mismatched marker; out=$(cat "$OUT_LOG") err=$(cat "$ERR_LOG")"
@@ -399,7 +399,7 @@ test_T_S7_watcher_no_marker_fires() {
   fi
   sleep 0.3
 
-  printf -- '---\nrole: s7role\ntask: no-marker edit\n---\n\n# s7name\n' > "$IDENT_MD"
+  printf -- '---\nroles: s7role\ntask: no-marker edit\n---\n\n# s7name\n' > "$IDENT_MD"
 
   if ! wait_for_stdout_match '📝 \[identity-file: s7name\]' "$OUT_LOG"; then
     fail "T-S7: watcher did NOT emit event on marker-less change; out=$(cat "$OUT_LOG") err=$(cat "$ERR_LOG")"
@@ -408,9 +408,9 @@ test_T_S7_watcher_no_marker_fires() {
 }
 
 # ============================================================
-# T-S8: hostile role: value in identity frontmatter must NOT execute inside
+# T-S8: hostile roles: value in identity frontmatter must NOT execute inside
 # the sync hook's bash body. The identity file is agent-writable, so its
-# `role:` field is untrusted input. Regression guard for the shell-injection
+# `roles:` field is untrusted input. Regression guard for the shell-injection
 # fix (export-inherit instead of `'"$X"'` splicing).
 # ============================================================
 test_T_S8_role_injection_defense() {
@@ -419,11 +419,11 @@ test_T_S8_role_injection_defense() {
   mkdir -p "$home_dir/fleet/roles/normal" \
            "$home_dir/fleet/identities/victim/role-file-watch"
 
-  # Hostile role: no whitespace so the awk truncator doesn't help, contains a
+  # Hostile roles: no whitespace so the awk truncator doesn't help, contains a
   # single-quote break-out + touch-a-marker payload.
   cat > "$home_dir/fleet/identities/victim/victim.md" <<EOF
 ---
-role: normal';touch $home_dir/PWNED;echo x
+roles: normal';touch $home_dir/PWNED;echo x
 displayName: Victim
 ---
 # body
@@ -437,7 +437,7 @@ EOF
   HOME="$home_dir" FLEET_IDENTITY="victim" bash "$SYNC_SCRIPT" </dev/null
 
   if [ -f "$home_dir/PWNED" ]; then
-    fail "T-S8: hostile role: value executed inside the sync hook body"
+    fail "T-S8: hostile roles: value executed inside the sync hook body"
     return
   fi
 }
@@ -456,7 +456,7 @@ test_T_S9_sync_id_skill() {
 
   # Identity file (role frontmatter present so the sync script's ROLE parse
   # succeeds; irrelevant to this test but exercises the full path).
-  printf -- '---\nrole: s9role\n---\n\n# s9name\n' > "$ident_dir/s9name.md"
+  printf -- '---\nroles: s9role\n---\n\n# s9name\n' > "$ident_dir/s9name.md"
 
   local skill="$skill_dir/SKILL.md"
   local baseline="$state_dir/last-snapshot.id-skill"
@@ -620,7 +620,7 @@ test_T_S12_claim_edit_then_release() {
     return
   fi
 
-  printf -- '---\nrole: s12role\ntask: edited\n---\n\n# s12name\n' > "$IDENT_MD"
+  printf -- '---\nroles: s12role\ntask: edited\n---\n\n# s12name\n' > "$IDENT_MD"
   hook_payload PostToolUse toolu_12 Edit "{\"file_path\":\"$IDENT_MD\"}" \
     | HOME="$HOME_DIR" FLEET_IDENTITY="s12name" bash "$SYNC_SCRIPT"
   if [ -f "$claim" ]; then
@@ -701,7 +701,7 @@ test_T_S14_watcher_holds_claimed_self_edit() {
   local cmd='{"command":"sed -i s/x/y/ s14name.md && sleep 2"}'
   hook_payload PreToolUse toolu_14 Bash "$cmd" \
     | HOME="$HOME_DIR" FLEET_IDENTITY="s14name" bash "$SYNC_SCRIPT"
-  printf -- '---\nrole: s14role\ntask: long call\n---\n\n# s14name\n' > "$IDENT_MD"
+  printf -- '---\nroles: s14role\ntask: long call\n---\n\n# s14name\n' > "$IDENT_MD"
 
   # The "rest of the Bash call" — far past the 50ms test settle window.
   sleep 1.5
@@ -739,7 +739,7 @@ test_T_S15_stale_claim_ignored() {
   : > "$STATE_DIR/claims/last-snapshot.identity.toolu_15"
   touch -d '20 minutes ago' "$STATE_DIR/claims/last-snapshot.identity.toolu_15"
 
-  printf -- '---\nrole: s15role\ntask: peer after interrupt\n---\n\n# s15name\n' > "$IDENT_MD"
+  printf -- '---\nroles: s15role\ntask: peer after interrupt\n---\n\n# s15name\n' > "$IDENT_MD"
   if ! wait_for_stdout_match '📝 \[identity-file: s15name\]' "$OUT_LOG"; then
     fail "T-S15: watcher did not emit despite only a stale claim; out=$(cat "$OUT_LOG") err=$(cat "$ERR_LOG")"
     return
@@ -765,7 +765,7 @@ test_T_S16_peer_edit_during_hold_emits() {
   local cmd='{"command":"sed -i s/x/y/ s16name.md && npm run build"}'
   hook_payload PreToolUse toolu_16 Bash "$cmd" \
     | HOME="$HOME_DIR" FLEET_IDENTITY="s16name" bash "$SYNC_SCRIPT"
-  printf -- '---\nrole: s16role\ntask: agent edit\n---\n\n# s16name\n' > "$IDENT_MD"
+  printf -- '---\nroles: s16role\ntask: agent edit\n---\n\n# s16name\n' > "$IDENT_MD"
   sleep 0.5
   printf '# s16role role\n\nline 1\npeer line\n' > "$ROLE_MD"
   sleep 0.5
@@ -832,7 +832,7 @@ test_T_S18_self_reload_in_place() {
   fi
   sleep 0.5
 
-  printf -- '---\nrole: s18role\ntask: after reload\n---\n\n# s18name\n' > "$IDENT_MD"
+  printf -- '---\nroles: s18role\ntask: after reload\n---\n\n# s18name\n' > "$IDENT_MD"
   if ! wait_for_stdout_match '📝 \[identity-file: s18name\]' "$OUT_LOG"; then
     fail "T-S18: reloaded watcher did not emit; out=$(cat "$OUT_LOG") err=$(cat "$ERR_LOG")"
     return
@@ -868,7 +868,7 @@ test_T_S19_broken_version_not_loaded() {
     return
   fi
 
-  printf -- '---\nrole: s19role\ntask: still watching\n---\n\n# s19name\n' > "$IDENT_MD"
+  printf -- '---\nroles: s19role\ntask: still watching\n---\n\n# s19name\n' > "$IDENT_MD"
   if ! wait_for_stdout_match '📝 \[identity-file: s19name\]' "$OUT_LOG"; then
     fail "T-S19: watcher stopped emitting after a broken install; out=$(cat "$OUT_LOG") err=$(cat "$ERR_LOG")"
     return

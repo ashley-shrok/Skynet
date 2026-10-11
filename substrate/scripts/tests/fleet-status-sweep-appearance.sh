@@ -232,13 +232,13 @@ print(sum(1 for l in lines if json.loads(l).get('line_kind') == 'identity'))
 # ============================================================
 
 # Case 1: Full inheritance case.
-# Identity with role: + displayName: + task: and NO title/colorHue;
+# Identity with roles: + displayName: + task: and NO title/colorHue;
 # role with title: + colorHue:. Assert identity_cosmetics has displayName and
 # task but NOT title/colorHue; role_cosmetics has title and colorHue.
 # Mirrors the live t1000 shape (pixel inherits from box-maintainer).
 test_case_01_full_inheritance() {
   make_identity "archie" "---
-role: archivist
+roles: archivist
 displayName: Archie
 task: catalog things: every day
 ---
@@ -276,7 +276,7 @@ colorHue: 120
   make_role "sharedrole" "$role_md"
   for name in alpha beta gamma; do
     make_identity "$name" "---
-role: sharedrole
+roles: sharedrole
 ---
 body
 "
@@ -337,10 +337,10 @@ test_case_04_missing_identity_file() {
 }
 
 # Case 5: Path-traversal role.
-# Identity with role: ../../tmp. Assert role is null and role_cosmetics is null.
+# Identity with roles: ../../tmp. Assert role is null and role_cosmetics is null.
 test_case_05_path_traversal_role() {
   make_identity "traversal" "---
-role: ../../tmp
+roles: ../../tmp
 displayName: Traversal
 ---
 body
@@ -374,7 +374,7 @@ test_case_06_sentinels() {
 # Role with colorHue: 400. Assert colorHue is absent from role_cosmetics.
 test_case_07_colorhue_out_of_range() {
   make_identity "badhue" "---
-role: badrole
+roles: badrole
 ---
 body
 "
@@ -397,7 +397,7 @@ body
 # survive the sweep. Also covers double-quoted for defense-in-depth.
 test_case_07b_colorhue_quoted() {
   make_identity "quotehue" "---
-role: quoterole
+roles: quoterole
 ---
 body
 "
@@ -412,7 +412,7 @@ body
   assert_identity_field "$out" "quotehue" "role_cosmetics.colorHue" '240'
 
   make_identity "dquotehue" "---
-role: dquoterole
+roles: dquoterole
 ---
 body
 "
@@ -467,7 +467,7 @@ open('$FIXTURE/fleet/identities/bigfm/bigfm.md', 'w').write(content)
 # Assert every non-empty stdout line parses as JSON and carries schema_version == 1.
 test_case_10_stdout_purity() {
   make_identity "purity" "---
-role: purerole
+roles: purerole
 displayName: Purity
 ---
 body
@@ -508,7 +508,7 @@ else:
 # "trip-planning". Phase 117 M6 follow-up.
 test_case_11_project_happy_path() {
   make_identity "wanderer" "---
-role: traveler
+roles: traveler
 project: trip-planning
 ---
 body
@@ -528,7 +528,7 @@ title: Traveler
 # key (absent, not null). Guards the "no publisher no field" contract.
 test_case_12_project_absent() {
   make_identity "homebody" "---
-role: traveler
+roles: traveler
 ---
 body
 "
@@ -547,19 +547,19 @@ title: Traveler
 # identity into a nonexistent section).
 test_case_13_project_malformed_slug_dropped() {
   make_identity "bad1" "---
-role: traveler
+roles: traveler
 project: Trip Planning
 ---
 body
 "
   make_identity "bad2" "---
-role: traveler
+roles: traveler
 project: trip_planning
 ---
 body
 "
   make_identity "bad3" "---
-role: traveler
+roles: traveler
 project: ../etc/passwd
 ---
 body
@@ -581,7 +581,7 @@ title: Traveler
 # it must never surface in role_cosmetics.
 test_case_14_project_not_inherited_from_role() {
   make_identity "riderr" "---
-role: rolewithproject
+roles: rolewithproject
 ---
 body
 "
@@ -605,13 +605,13 @@ project: shouldnotappear
 # tolerance). Strip surrounding matched quotes before PROJECT_SLUG_RE.
 test_case_15_project_quoted() {
   make_identity "quoted" "---
-role: traveler
+roles: traveler
 project: \"trip-planning\"
 ---
 body
 "
   make_identity "squoted" "---
-role: traveler
+roles: traveler
 project: 'trip-planning'
 ---
 body
@@ -631,7 +631,7 @@ title: Traveler
 # MDXEditor's string-only frontmatterPlugin ends up round-tripping to.
 test_case_16_users_flow_style() {
   make_identity "flowid" "---
-role: flowrole
+roles: flowrole
 users: [alice, bob]
 ---
 body
@@ -652,7 +652,7 @@ users: [charlie]
 # dash-item, never overshoots into a following key line).
 test_case_17_users_block_style() {
   make_identity "blockid" "---
-role: blockrole
+roles: blockrole
 users:
   - carol
   - \"dave\"
@@ -679,7 +679,7 @@ users:
 # fallback). Distinguishes "missing" from "present but empty".
 test_case_18_users_absent() {
   make_identity "nousers" "---
-role: norole
+roles: norole
 title: No Users Here
 ---
 body
@@ -700,7 +700,7 @@ title: No Users Role
 # dash-items (falls open would leak the identity to every user).
 test_case_19a_users_block_with_inline_comment() {
   make_identity "commentid" "---
-role: commentrole
+roles: commentrole
 users:
   # operator team
   - alice
@@ -728,7 +728,7 @@ users:
 # Case 19: empty flow list → key omitted (empty falls open per D-3).
 test_case_19_users_empty_flow() {
   make_identity "emptyusers" "---
-role: emptyrole
+roles: emptyrole
 users: []
 ---
 body
@@ -794,7 +794,7 @@ for l in sys.stdin.read().splitlines():
 
 test_case_20_avatar_version() {
   make_identity "vera" "---
-role: painter
+roles: painter
 ---
 "
   make_role "painter" "---
@@ -820,13 +820,37 @@ avatar: painter.webp
   # Repointing the identity's own avatar: frontmatter (no file change) must
   # change the version too — the route picks the sibling by that value.
   make_identity "vera" "---
-role: painter
+roles: painter
 avatar: vera.png
 ---
 "
   local v5
   v5=$(avatar_version_of "$(run_sweep)" vera)
   [ "$v5" != "$v4" ] || fail "avatar_version unchanged after identity avatar: frontmatter change"
+}
+
+# Case 21: `roles:` drives the single `role` field. Singular `role:` is no
+# longer read; one listed role → role set; several → role null, roles listed.
+test_case_21_roles_key_drives_role() {
+  make_identity "legacyrole" "---
+role: archivist
+---
+"
+  make_identity "multirole" "---
+roles: [archivist, painter]
+---
+"
+  make_role "archivist" "---
+title: Archivist
+---
+"
+  local out
+  out=$(run_sweep)
+  assert_identity_field "$out" "legacyrole" "role" 'null'
+  assert_identity_field "$out" "legacyrole" "roles" '[]'
+  assert_identity_field "$out" "multirole" "role" 'null'
+  assert_identity_field "$out" "multirole" "role_cosmetics" 'null'
+  assert_identity_field "$out" "multirole" "roles" '["archivist", "painter"]'
 }
 
 run_test test_case_01_full_inheritance
@@ -851,6 +875,7 @@ run_test test_case_18_users_absent
 run_test test_case_19_users_empty_flow
 run_test test_case_19a_users_block_with_inline_comment
 run_test test_case_20_avatar_version
+run_test test_case_21_roles_key_drives_role
 run_test test_global_stderr_stdout_separation
 
 printf '\n===============================\n'

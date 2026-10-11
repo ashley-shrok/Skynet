@@ -124,7 +124,11 @@ export async function runSweepForHost(
   //       so systemd sees updated unit-file bytes pushed earlier this sweep.
   // runBootstrapForHost is fire-and-forget per its never-throw contract;
   // any failure is logged there — we do not propagate errors upward.
-  await runBootstrapForHost(channel, host);
+  const bootstrap = await runBootstrapForHost(channel, host);
+  // The identity roles-key migration is the one bootstrap step whose failure
+  // must hold the host open for a retry: the new readers ignore an
+  // unmigrated `role:` key, leaving that identity with no roles.
+  if (bootstrap?.rolesKeyMigrationOk === false) itemsFailed++;
 
   for (const entry of catalog) {
     itemsChecked++;

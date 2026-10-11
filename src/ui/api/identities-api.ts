@@ -622,7 +622,7 @@ export interface BirthRequest {
    *  The first of the agent's roles when `roles` is also sent. */
   role: string;
   /** Multi-role: additional roles beyond `role`, in pick order. Omit for a
-   *  single-role agent. The identity file records `role: [role, ...roles]`. */
+   *  single-role agent. The identity file records `roles: [role, ...roles]`. */
   roles?: string[];
   /** Phase 80: optional task string ("what will this agent work on?").
    *  Frontend soft-caps ~200 chars; backend hard-caps 500 chars. */

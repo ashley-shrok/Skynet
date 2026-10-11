@@ -938,7 +938,7 @@ describe("Phase 129: search-surface visibility gate", () => {
     const { identityUsers, roleName, roleUsers } = opts;
     const identityLines: string[] = ["---"];
     if (typeof roleName === "string" && roleName.length > 0) {
-      identityLines.push(`role: ${roleName}`);
+      identityLines.push(`roles: ${roleName}`);
     }
     if (Array.isArray(identityUsers) && identityUsers.length > 0) {
       identityLines.push(
@@ -1276,11 +1276,11 @@ describe("Phase 129: search-surface visibility gate", () => {
     mockSearchWithIdentityUsers("scone", { roleName: "baker" });
     identityFrontmatterMap.set(
       "muffin",
-      "---\nrole: baker\ndisplayName: Muffin\ntask: Proof the dough\n---\n",
+      "---\nroles: baker\ndisplayName: Muffin\ntask: Proof the dough\n---\n",
     );
     identityFrontmatterMap.set(
       "scone",
-      "---\nrole: baker\ndisplayName: Scone\ntask: Old bake\n---\n",
+      "---\nroles: baker\ndisplayName: Scone\ntask: Old bake\n---\n",
     );
     roleFrontmatterMap.set(
       "baker",

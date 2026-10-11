@@ -31,6 +31,7 @@ vi.mock("./run-bootstrap.js", () => ({
     bootstrapRan: false,
     daemonReloadRan: true,
     settingsPatchOk: true,
+    rolesKeyMigrationOk: true,
     hadError: false,
   })),
 }));
@@ -182,6 +183,32 @@ describe("runSweepForHost", () => {
     );
     expect(writeCalls).toHaveLength(0);
     expect(restartCalls).toHaveLength(0);
+  });
+
+  it("incomplete roles-key migration counts as a failed item so the host is retried", async () => {
+    const { runBootstrapForHost } = await import("./run-bootstrap.js");
+    (runBootstrapForHost as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      alreadyEnabled: true,
+      bootstrapRan: false,
+      daemonReloadRan: true,
+      settingsPatchOk: true,
+      rolesKeyMigrationOk: false,
+      hadError: true,
+    });
+    const bundledBytes = Buffer.from("matching-bundle-content");
+    const { channel } = makeChannelSequenced((cmd) => {
+      if (cmd.includes("base64 -w0")) return b64Ok(bundledBytes);
+      throw new Error(`unexpected exec: ${cmd}`);
+    });
+    const deps: SweepDeps = {
+      readBundledBytes: vi.fn(async () => ({ bytes: bundledBytes, mode: 0o644 })),
+      resolvedRuntimeBytes: new Map([["instance-policy", bundledBytes]]),
+    };
+
+    const result = await runSweepForHost(channel, HOST, FLEET_SUBSTRATE_CATALOG, deps);
+
+    expect(result.itemsFailed).toBe(1);
+    expect(result.itemsChanged).toBe(0);
   });
 
   it("Test 2: agent-supervisor binary mismatch only — 1 push + 1 restart, logItemChanged with restartHookFired", async () => {

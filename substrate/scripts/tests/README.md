@@ -11,6 +11,7 @@ file-system state, and log output.
 | Driver | What it covers |
 |--------|---------------|
 | `agent-supervisor-archive-scan.sh` | Phase 94 archive-scan mechanism: coordinator guard, freshness-read, retire action (3-step), retire-stuck counter, MODE-agnostic scan, 24h cadence gate, static-analysis grep gates |
+| `roles-frontmatter-conformance.test.sh` | Every copy of the identity `roles:` frontmatter parser (substrate scripts + the one embedded in `identity-unarchive.ts`) against `fixtures/roles-frontmatter-cases.json`, matched to `fixtures/roles_frontmatter_reference.py` |
 
 ---
 

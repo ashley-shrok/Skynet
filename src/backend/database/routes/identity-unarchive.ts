@@ -46,7 +46,7 @@
  *       2. name-collision: `~/fleet/identities/<key>/` must NOT exist (would
  *          shadow the returning folder).
  *       3. all-roles-live: every role listed in the archived identity's
- *          `role:` frontmatter must have a live folder (`~/fleet/roles/<name>/`).
+ *          `roles:` frontmatter must have a live folder (`~/fleet/roles/<name>/`).
  *          If any are still archived, refuse with missingRoles listing them.
  *   - D-03: Failure response shape — structured 409 `{ reason, missingRoles? }`
  *     for preconditions; 5xx with generic `error` text for Matrix / disk failures.
@@ -137,87 +137,83 @@ const authenticateJWT = authManager.createAuthMiddleware();
 const SSH_CONNECT_TIMEOUT_MS = 3000;
 
 /**
- * The Python inline from shape 1's _extract_frontmatter_roles (agent-supervisor.sh
- * lines 1279-1349). Parses the `role:` frontmatter from an identity.md file and
- * prints a JSON array of role names to stdout. Handles all three YAML shapes:
- *   - Scalar:     role: box-maintainer
- *   - Flow-list:  role: [box-maintainer, sky-uat]
- *   - Block-list: role:\n  - box-maintainer\n  - sky-uat
+ * Embedded Python that prints, as a JSON array on stdout, every role named in
+ * the `roles:` frontmatter of the identity file given as argv[1].
  *
- * D-02 explicit: "SAME Python inline shape 1's supervisor scanner uses".
- * This is the verbatim inline from agent-supervisor.sh (stdlib only, no PyYAML).
+ * The parsing function is a VERBATIM COPY of parse_roles_frontmatter from the
+ * canonical reference, substrate/scripts/tests/fixtures/roles_frontmatter_reference.py
+ * (stdlib only, no PyYAML) — keep it byte-identical to that file. The
+ * conformance test (substrate/scripts/tests/roles-frontmatter-conformance.test.sh)
+ * extracts this constant from this TS file and runs it against
+ * roles-frontmatter-cases.json, so it must stay a plain array-of-lines string
+ * constant. Accepts scalar / quoted / flow / bare-comma / block-list shapes,
+ * trailing comments, CRLF; the singular `role:` key is NOT read.
+ *
+ * Contract: `python3 -c EXTRACT_ROLES_PYTHON <path>` → stdout `["a", "b"]`
+ * (no trailing newline), `[]` when nothing valid. Used LOCALLY via execFile and
+ * REMOTELY over SSH (see parseRolesFrom{Local,Remote}IdentityMd below).
+ *
+ * Regular (non-template) strings avoid backtick collision with TS template
+ * literals.
  */
-// The Python inline from shape 1's _extract_frontmatter_roles (agent-supervisor.sh
-// lines 1279-1349). Using a regular (non-template) string to avoid backtick
-// collision with TS template-literal parsing.
 const EXTRACT_ROLES_PYTHON = [
   "import sys, re, json",
   "",
-  "with open(sys.argv[1]) as f:",
-  "    lines = f.read().split('\\n')",
+  "# Copy of parse_roles_frontmatter from",
+  "# substrate/scripts/tests/fixtures/roles_frontmatter_reference.py \u2014 keep in sync.",
+  "ROLES_SLUG_RE = re.compile(r\"^[a-z0-9][a-z0-9_-]{0,63}$\")",
   "",
-  "# Find the frontmatter block bounded by --- ... ---.",
-  "if not lines or lines[0].strip() != '---':",
-  "    print('[]', end=''); sys.exit(1)",
-  "fm_end = None",
-  "for i in range(1, len(lines)):",
-  "    if lines[i].strip() == '---':",
-  "        fm_end = i",
-  "        break",
-  "if fm_end is None:",
-  "    print('[]', end=''); sys.exit(1)",
-  "fm = lines[1:fm_end]",
   "",
-  "# Find the \"role:\" line.",
-  "role_idx = None",
-  "for i, line in enumerate(fm):",
-  "    if re.match(r'^role\\s*:', line):",
-  "        role_idx = i",
-  "        break",
-  "if role_idx is None:",
-  "    # No role field -- legal, just empty.",
-  "    print('[]', end=''); sys.exit(0)",
-  "",
-  "value = re.sub(r'^role\\s*:\\s*', '', fm[role_idx])",
-  "",
-  "def strip_quotes(v):",
-  "    v = v.strip()",
-  "    # Require length >= 2 before stripping.",
-  "    if len(v) < 2:",
-  "        return v",
-  "    if (v.startswith('\"') and v.endswith('\"')) or (v.startswith(\"'\") and v.endswith(\"'\")):",
-  "        v = v[1:-1]",
-  "    return v",
-  "",
-  "roles = []",
-  "if value.strip() == '':",
-  "    # Block list -- subsequent indented \"  - name\" lines.",
-  "    for line in fm[role_idx+1:]:",
-  "        m = re.match(r'^\\s+-\\s+(.+?)\\s*$', line)",
-  "        if not m:",
-  "            if line.strip() == '':",
-  "                continue",
+  "def parse_roles_frontmatter(text):",
+  "    lines = text.lstrip(\"\\ufeff\").replace(\"\\r\\n\", \"\\n\").split(\"\\n\")",
+  "    if not lines or lines[0].strip() != \"---\":",
+  "        return []",
+  "    end = None",
+  "    for i in range(1, len(lines)):",
+  "        if lines[i].strip() == \"---\":",
+  "            end = i",
   "            break",
-  "        roles.append(strip_quotes(m.group(1)))",
-  "elif value.strip().startswith('['):",
-  "    # Flow list -- [a, b, c] (assume single-line).",
-  "    inner = value.strip()",
-  "    if not inner.endswith(']'):",
-  "        print('[]', end=''); sys.exit(1)",
-  "    inner = inner[1:-1]",
-  "    for part in inner.split(','):",
-  "        v = strip_quotes(part)",
-  "        if v:",
-  "            roles.append(v)",
-  "else:",
-  "    # Scalar.",
-  "    roles.append(strip_quotes(value))",
+  "    if end is None:",
+  "        return []",
   "",
-  "print(json.dumps(roles), end='')",
+  "    def clean(s):",
+  "        s = re.sub(r\"\\s+#.*$\", \"\", s).strip()",
+  "        return s.strip(\"\\\"'\").strip()",
+  "",
+  "    raw = []",
+  "    for i in range(1, end):",
+  "        m = re.match(r\"^roles:(.*)$\", lines[i])",
+  "        if not m:",
+  "            continue",
+  "        inline = re.sub(r\"(^|\\s)#.*$\", \"\", m.group(1)).strip()",
+  "        if inline:",
+  "            if inline.startswith(\"[\") and inline.endswith(\"]\"):",
+  "                inline = inline[1:-1]",
+  "            raw = [clean(p) for p in inline.split(\",\")]",
+  "        else:",
+  "            for j in range(i + 1, end):",
+  "                s = lines[j].strip()",
+  "                if not s or s.startswith(\"#\"):",
+  "                    continue",
+  "                m2 = re.match(r\"^-\\s*(.*)$\", s)",
+  "                if not m2:",
+  "                    break",
+  "                raw.append(clean(m2.group(1)))",
+  "        break",
+  "",
+  "    out = []",
+  "    for r in raw:",
+  "        if r and ROLES_SLUG_RE.match(r) and r not in out:",
+  "            out.append(r)",
+  "    return out",
+  "",
+  "",
+  "with open(sys.argv[1], encoding=\"utf-8\", errors=\"replace\", newline=\"\") as f:",
+  "    print(json.dumps(parse_roles_frontmatter(f.read())), end=\"\")",
 ].join("\n");
 
 /**
- * Parse the `role:` frontmatter from a LOCAL identity.md file using the Python
+ * Parse the `roles:` frontmatter from a LOCAL identity.md file using the Python
  * inline (D-02). Returns a list of role names. Returns [] on file-not-found or
  * any parse failure (the precondition is vacuously satisfied with an empty list).
  */
@@ -241,7 +237,7 @@ async function parseRolesFromLocalIdentityMd(
 }
 
 /**
- * Parse the `role:` frontmatter from a REMOTE identity.md file using the Python
+ * Parse the `roles:` frontmatter from a REMOTE identity.md file using the Python
  * inline over SSH (D-02). Returns a list of role names. Returns [] on any error.
  */
 async function parseRolesFromRemoteIdentityMd(
@@ -422,7 +418,7 @@ router.post(
       }
 
       // 5c. all-roles-live precondition (D-02 §3, identity-only):
-      // Parse the archived identity's role: frontmatter and check every listed
+      // Parse the archived identity's roles: frontmatter and check every listed
       // role has a live folder. Refuse with missingRoles listing if any are
       // still archived.
       let roles: string[];
@@ -440,7 +436,14 @@ router.post(
         roles = await parseRolesFromRemoteIdentityMd(conn, key);
       }
 
-      if (roles.length > 0) {
+      if (roles.length === 0) {
+        // A restored identity with no roles gets no role-file watcher and
+        // falls open in the visibility gate (visible to every user). Refuse
+        // rather than restore it half-formed.
+        return res.status(409).json({ reason: "no_roles" });
+      }
+
+      {
         // Check each role — collect ones that are NOT live. Must match the
         // supervisor's un-archive gate exactly (it requires `~/fleet/roles/<role>/`
         // to exist): a role that is archived OR absent from the host would

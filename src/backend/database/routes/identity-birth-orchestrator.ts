@@ -227,8 +227,8 @@ export interface BirthOptions {
   role: string;
   /**
    * Additional roles the identity also takes on, beyond `role`. Absent /
-   * empty → single-role identity, frontmatter stays the scalar `role: <role>`.
-   * Non-empty → frontmatter becomes the flow list `role: [<role>, ...extras]`
+   * empty → single-role identity, frontmatter is `roles: [<role>]`.
+   * Non-empty → frontmatter is the flow list `roles: [<role>, ...extras]`
    * (`role` first). Each entry is gated with ROLE_NAME_PATTERN and must
    * exist as a role folder on the target host, same as `role`.
    */
@@ -555,7 +555,7 @@ const TMUX_SAFE_NAME_RE = /^[a-z][a-z0-9_-]*$/;
 // indistinguishable from a Nelly-migrated (Phase A) one:
 //
 //   ---
-//   role: <role>
+//   roles: [<role>, ...]
 //   displayName: <Capitalize(name)>
 //   title: <title>          (omitted if empty or null)
 //   colorHue: <colorHue>    (omitted if null)
@@ -571,7 +571,7 @@ const TMUX_SAFE_NAME_RE = /^[a-z][a-z0-9_-]*$/;
 // value is null OR empty-string are NEVER emitted as YAML null / empty —
 // they are literally not present as keys in the emitted frontmatter.
 //
-// role-first ordering matters (post-Phase-A byte-shape parity per
+// roles-first ordering matters (post-Phase-A byte-shape parity per
 // CONTEXT.md), so yaml.dump is called with sortKeys:false; the pairs array
 // is built in canonical order.
 //
@@ -601,8 +601,8 @@ export function buildIdentityFileBody(
   // colorHue key, so widening here is byte-shape neutral for pre-129 fields.
   const pairs: Array<[string, string | number | string[]]> = [];
 
-  // role is ALWAYS present (validated upstream)
-  pairs.push(["role", opts.role]);
+  // roles: is NOT pushed here — it is written as the first frontmatter line
+  // after the dump (see below). role is ALWAYS present (validated upstream).
   // displayName is ALWAYS present (derived from opts.name)
   pairs.push(["displayName", displayName]);
 
@@ -675,16 +675,12 @@ export function buildIdentityFileBody(
     },
   );
 
-  // Multi-role: rewrite the leading scalar `role:` line as a flow list,
-  // `role` first. Done post-dump (rather than pushing an array pair) because
-  // yaml.dump would emit a block sequence, and the flow form is the shape the
-  // id skill documents. Role names are ROLE_NAME_PATTERN-gated kebab-case, so
-  // they need no quoting.
-  const roles = identityRoles(opts);
-  const roleLinedBody =
-    roles.length > 1
-      ? yamlBody.replace(/^role: .*\n/, `role: [${roles.join(", ")}]\n`)
-      : yamlBody;
+  // `roles:` is always the first frontmatter line, always in flow form —
+  // `roles: [a]` for a single role, `roles: [a, b]` for several, `role` first.
+  // Written by hand (not via yaml.dump, which would emit a block sequence)
+  // because the flow form is the shape the id skill documents. Role names are
+  // ROLE_NAME_PATTERN-gated kebab-case, so they need no quoting.
+  const roleLinedBody = `roles: [${identityRoles(opts).join(", ")}]\n${yamlBody}`;
 
   let body = `---\n${roleLinedBody}---\n\n# ${opts.name}\n`;
   // Phase 127 follow-up: emit `## Do this first` section when bodyContent

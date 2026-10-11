@@ -244,8 +244,9 @@ vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
     "image/svg+xml": "svg",
   },
   IDENTITY_KEY_RE: /^[a-z0-9_-]{1,64}$/,
+  flowRolesInYamlDump: (yamlBody: string) => yamlBody,
   extractRolesFromMarkdown: (md: string): string[] => {
-    const m = md.match(/^role:\s*([a-z0-9-]+)\s*$/m);
+    const m = md.match(/^roles:\s*([a-z0-9-]+)\s*$/m);
     return m ? [m[1]] : [];
   },
   extractRoleFromMarkdown: (markdown: string): string | null => {
@@ -254,8 +255,11 @@ vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
     try {
       const parsed = yaml.load(match[1]) as Record<string, unknown> | null;
       if (parsed === null || typeof parsed !== "object") return null;
-      const role = parsed.role;
-      return typeof role === "string" && role.length > 0 ? role : null;
+      // Mirrors the real reader: `roles:` only; exactly one role → it.
+      const raw = parsed.roles;
+      const list = Array.isArray(raw) ? raw : typeof raw === "string" ? raw.split(",") : [];
+      const names = list.map((r) => String(r).trim()).filter(Boolean);
+      return names.length === 1 ? names[0] : null;
     } catch {
       return null;
     }
@@ -443,7 +447,7 @@ beforeEach(() => {
   // Default mock behaviors — each test overrides as needed.
   readIdentityFileMock.mockResolvedValue({
     markdown:
-      "---\nrole: box-maintainer\ndisplayName: Old\ntitle: Old T\ncolorHue: 90\n---\n\n# testkey\n",
+      "---\nroles: box-maintainer\ndisplayName: Old\ntitle: Old T\ncolorHue: 90\n---\n\n# testkey\n",
   });
   writeIdentityFileMock.mockResolvedValue(undefined);
   writeAvatarSiblingFileMock.mockResolvedValue(undefined);
@@ -504,7 +508,7 @@ describe("PUT /identities/:identityKey — Phase 68-02 rekey (no row bump, no fo
     expect(key).toBe("testkey");
 
     const fm = loadWrittenFrontmatter(writtenBody as string);
-    expect(fm.role).toBe("box-maintainer"); // preserved verbatim
+    expect(fm.roles).toBe("box-maintainer"); // preserved verbatim
     expect(fm.displayName).toBe("Newname");
     expect(fm.title).toBe("New Title");
     // colorHue on-disk shape is now the quoted-string form '180' (MDXEditor
@@ -525,7 +529,7 @@ describe("PUT /identities/:identityKey — Phase 68-02 rekey (no row bump, no fo
   it("Test 2: absent-in-payload fields leave existing frontmatter values alone", async () => {
     readIdentityFileMock.mockResolvedValue({
       markdown:
-        "---\nrole: box-maintainer\ndisplayName: Keep\ntitle: KeepTitle\ncolorHue: 100\nvoice: Keep.wav\n---\n\n# testkey\n",
+        "---\nroles: box-maintainer\ndisplayName: Keep\ntitle: KeepTitle\ncolorHue: 100\nvoice: Keep.wav\n---\n\n# testkey\n",
     });
 
     const body = buildMultipartBody({
@@ -548,7 +552,7 @@ describe("PUT /identities/:identityKey — Phase 68-02 rekey (no row bump, no fo
     // the string form.
     expect(fm.colorHue).toBe("100");
     expect(fm.voice).toBe("Keep.wav");
-    expect(fm.role).toBe("box-maintainer");
+    expect(fm.roles).toBe("box-maintainer");
   });
 
   // -------------------------------------------------------------------------
@@ -557,7 +561,7 @@ describe("PUT /identities/:identityKey — Phase 68-02 rekey (no row bump, no fo
   it("Test 3: explicit-null-in-payload REMOVES that key from frontmatter", async () => {
     readIdentityFileMock.mockResolvedValue({
       markdown:
-        "---\nrole: box-maintainer\ndisplayName: Keep\ntitle: Doomed\ncolorHue: 42\nvoice: Keep.wav\n---\n\n# testkey\n",
+        "---\nroles: box-maintainer\ndisplayName: Keep\ntitle: Doomed\ncolorHue: 42\nvoice: Keep.wav\n---\n\n# testkey\n",
     });
 
     const body = buildMultipartBody({
@@ -575,7 +579,7 @@ describe("PUT /identities/:identityKey — Phase 68-02 rekey (no row bump, no fo
     expect("title" in fm).toBe(false);
     expect("colorHue" in fm).toBe(false);
     // others preserved
-    expect(fm.role).toBe("box-maintainer");
+    expect(fm.roles).toBe("box-maintainer");
     expect(fm.displayName).toBe("Keep");
     expect(fm.voice).toBe("Keep.wav");
   });
@@ -586,7 +590,7 @@ describe("PUT /identities/:identityKey — Phase 68-02 rekey (no row bump, no fo
   it("Test 4: avatar write with same extension calls writeAvatarSiblingFile; no rm exec fires", async () => {
     readIdentityFileMock.mockResolvedValue({
       markdown:
-        "---\nrole: box-maintainer\ndisplayName: Keep\navatar: testkey.png\n---\n\n# testkey\n",
+        "---\nroles: box-maintainer\ndisplayName: Keep\navatar: testkey.png\n---\n\n# testkey\n",
     });
 
     const body = buildMultipartBody({
@@ -627,7 +631,7 @@ describe("PUT /identities/:identityKey — Phase 68-02 rekey (no row bump, no fo
   it("Test 5: avatar write with new extension deletes old sibling via rm -f and updates frontmatter", async () => {
     readIdentityFileMock.mockResolvedValue({
       markdown:
-        "---\nrole: box-maintainer\ndisplayName: Keep\navatar: testkey.png\n---\n\n# testkey\n",
+        "---\nroles: box-maintainer\ndisplayName: Keep\navatar: testkey.png\n---\n\n# testkey\n",
     });
 
     const body = buildMultipartBody({
@@ -800,7 +804,7 @@ describe("PUT /identities/:identityKey — Phase 68-02 rekey (no row bump, no fo
     // surface it in the response.
     readIdentityFileMock.mockResolvedValue({
       markdown:
-        "---\nrole: box-maintainer\ndisplayName: Coord\ntitle: Coordinator\ncolorHue: 216\ncoordinator: true\n---\n\n# testkey\n",
+        "---\nroles: box-maintainer\ndisplayName: Coord\ntitle: Coordinator\ncolorHue: 216\ncoordinator: true\n---\n\n# testkey\n",
     });
 
     const body = buildMultipartBody({
@@ -835,7 +839,7 @@ describe("PUT /identities/:identityKey — Phase 68-02 rekey (no row bump, no fo
     isLocalHostIdMock.mockReturnValue(true);
     readIdentityFileMock.mockResolvedValue({
       markdown:
-        "---\nrole: box-maintainer\ndisplayName: Keep\navatar: testkey.webp\n---\n\n# testkey\n",
+        "---\nroles: box-maintainer\ndisplayName: Keep\navatar: testkey.webp\n---\n\n# testkey\n",
     });
 
     const body = buildMultipartBody({
@@ -878,7 +882,7 @@ describe("PUT /identities/:identityKey — Phase 68-02 rekey (no row bump, no fo
     // isLocalHostIdMock defaults to false (REMOTE) — no override needed
     readIdentityFileMock.mockResolvedValue({
       markdown:
-        "---\nrole: box-maintainer\ndisplayName: Keep\navatar: testkey.png\n---\n\n# testkey\n",
+        "---\nroles: box-maintainer\ndisplayName: Keep\navatar: testkey.png\n---\n\n# testkey\n",
     });
 
     const body = buildMultipartBody({
@@ -919,7 +923,7 @@ describe("PUT /identities/:identityKey — Phase 68-02 rekey (no row bump, no fo
     // Seed markdown WITHOUT any avatar: key in frontmatter
     readIdentityFileMock.mockResolvedValue({
       markdown:
-        "---\nrole: box-maintainer\ndisplayName: Keep\ntitle: Some Title\n---\n\n# testkey\n",
+        "---\nroles: box-maintainer\ndisplayName: Keep\ntitle: Some Title\n---\n\n# testkey\n",
     });
 
     const body = buildMultipartBody({
@@ -956,7 +960,7 @@ describe("PUT /identities/:identityKey — Phase 68-02 rekey (no row bump, no fo
     // Seed with an avatar: value that does NOT start with the identityKey prefix
     readIdentityFileMock.mockResolvedValue({
       markdown:
-        "---\nrole: box-maintainer\ndisplayName: Keep\navatar: some-other-role.png\n---\n\n# testkey\n",
+        "---\nroles: box-maintainer\ndisplayName: Keep\navatar: some-other-role.png\n---\n\n# testkey\n",
     });
 
     const body = buildMultipartBody({

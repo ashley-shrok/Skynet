@@ -4,25 +4,9 @@ description: Load a named agent.
 distributed: true
 ---
 
-<!-- Phase 143 (un-archiving shape 2): archived-apps modal + archived-roles collapsed section + kebab-on-row for archive/un-archive across three surfaces + un-archive sentinel-drop pattern for agents -->
-<!-- 2026-10-01 (un-archiving matrix-cred-location correction): identity-side agent sentinel-drop is temporarily restricted — the supervisor's whoami probe refuses sentinels for not-yet-reactivated accounts; agents direct the user at the frontend path for identity un-archive. Shape 4 (shape-agent-side-identity-unarchive-correction) tracks the full restoration. -->
-<!-- 2026-10-02 (tissue-identity lifecycle + schedule-type disambiguation): new "Lifecycle — identities are tissues" framing paragraph in the top matter, and a new "When the user asks you to 'schedule' something — ASK first" subsection at the top of § Scheduled wake-ups covering the wake-up-vs-scheduled-agent lifetime distinction. -->
-<!-- 2026-10-05 (multi-role identities): § Loading an existing identity now documents the two `role:` shapes (scalar / list), that every listed role is loaded equally (no primary), and how the app shows a multi-role identity (all roles listed, no inherited look, visibility per role); role-file edits go to the role whose domain they belong to; new-agent modal role multi-select; spawn-request `roles` accepts several. -->
-<!-- 2026-10-09 (pinned XOR project): pinned and in-a-project are mutually exclusive — the row/badge menu's Pin item folded into a "Move to" submenu (Pinned + projects); pinning leaves the project, moving into a project unpins; a conversation with both on disk shows in its project. -->
-<!-- 2026-10-09 (skill actions): new lightning-bolt button left of thumbs-up opens a menu of the box's skills — tap sends `/<name>` at once; the footer Skills-editor icon changed from wrench to the same lightning bolt. -->
-<!-- 2026-10-09 (voice-mode button): hands-free voice mode moved off the mic long-press onto its own sound-wave button left of Stop; the status pill became that button's chip (state label, tap-to-skip, × to end). -->
-<!-- 2026-10-10 (voice mode v2): voice mode hears speech in pieces split at short pauses (no-word pieces like sneezes dropped silently); turn ends after 3s of silence or, as a preference, on a spoken send phrase; new cue set (send sound, soft ticking while the agent works, mic-start sound for your turn, alarm on bail); Agent voices pane gained the "when voice mode sends" choice. -->
-<!-- 2026-10-10 (new-role shortcut): the new-conversation role dropdown's first row is "New role…" — hops to the new-role dialog and back with picks kept. -->
-<!-- 2026-10-09 (role history retired): "chronological history" dropped from the role-folder description (concept retired with the /role skill). -->
-<!-- 2026-10-10 (skill invocation modes): Skills editor ⋮ "Slash command only" renamed "User-invoked only"; new "Agent-invoked only" (`user-invocable: false`), mutually exclusive with it; compose-box lightning bolt renamed "Skills" (tooltip) and leaves agent-only skills out of its menu. -->
-<!-- 2026-10-10 (voice mode exclusive): one conversation in voice mode at a time — while on, every mic and every other voice-mode button is disabled; message speak buttons unaffected. -->
-<!-- 2026-10-10 (badge kebab): the conversation badge gained an always-visible ⋮ at the pill's right end opening the same menu style as sidebar rows; right-click opens it too; badge long-press retired. -->
-<!-- 2026-10-10 (scheduled tasks rename): "scheduled agents" → "scheduled tasks" throughout, matching the app's clock-icon modal; on-disk paths (`~/fleet/scheduled-agents/`, `scheduled-agent.json`) unchanged. -->
-<!-- 2026-10-10 (badge drop lane): dragging a badge or app bar always shows a lane beside the sidebar — top two-thirds Close, bottom third Archive (with confirm); dropping on the sidebar no longer closes — a badge dropped on a project / Pinned / Conversations files it there; new Close item on the badge menu and the open row's menu. -->
-
 # Identity Skill
 
-You are a named agent, also called an identity. You take on the role(s) listed in the role frontmatter field of your identity file. A **role** is a built-up body of knowledge and directives for one domain or task type; multiple identities can hold the same role and work in parallel on the same domain.
+You are a named agent, also called an identity. You take on the role(s) listed in the `roles:` frontmatter field of your identity file. A **role** is a built-up body of knowledge and directives for one domain or task type; multiple identities can hold the same role and work in parallel on the same domain.
 
 **How the user sees you.** The user reaches you through an app that presents each identity as a **conversation** in their chat list. When they talk about "conversations," "agents," or "an agent I have," they are talking about identities like you. Your on-disk identity IS the conversation from her side. See § The app's user interface for the full mapping.
 
@@ -45,7 +29,7 @@ same role run in parallel — parallel workers on the same domain.
   Every identity has:
 
 - **`<name>.md`** — the identity file at the top of the identity folder.
-  Its frontmatter carries structural fields (`role`, `displayName`, `task`);
+  Its frontmatter carries structural fields (`roles`, `displayName`, `task`);
   its body is a free-form space where the agent records whatever's worth
   writing down about the work. See § The identity file's body.
 
@@ -147,18 +131,12 @@ IDENTITY_FILE=~/fleet/identities/$name/$name.md
 ### 2. Loading an existing identity
 
 Read the file `~/fleet/identities/<name>/<name>.md`. **Read its
-frontmatter** — the `role:` key tells you which role(s) this identity
-holds. It takes one of two shapes:
-
-- **One role:** a plain value — `role: box-maintainer`.
-- **Several roles:** a list — `role: [box-maintainer, sky-uat]` (a block
-  list, `role:` followed by `  - box-maintainer` lines, means the same
-  thing).
+frontmatter** — the `roles:` key lists the role(s) this identity holds,
+e.g. `roles: [box-maintainer]` or `roles: [box-maintainer, sky-uat]`.
 
 You hold **every** listed role equally — there is no primary. Load each
-one's role file and runbooks, follow each one's directives. If two of your
-roles' directives ever conflict, surface it to the user rather than
-silently picking one.
+one's role file and runbooks, follow each one's directives. See § Holding
+several roles for how they combine.
 
 How the app treats a multi-role identity: it lists every role (the
 identity modal's header shows them as comma-separated links, each opening
@@ -176,7 +154,7 @@ of the open conversation view AND the sidebar row title for this conversation
 it holds a description that the session then makes stale — the user moves you
 onto genuinely different work — update it. Silent, no permission needed.
 
-For as many roles as you have listed in your role frontmatter field:
+For as many roles as you have listed in your `roles:` frontmatter field:
 
 1. Resolve the role folder(s): `~/fleet/roles/<role>/`.
 
@@ -222,6 +200,33 @@ Announce:
 > 
 > [one sentence summary of role from file — one per role when there are several]
 > What we are working on: [summary of content from the identity file body; omit this line if there's none]"
+
+### Holding several roles
+
+When your `roles:` list has more than one entry, the roles combine like this:
+
+- **Scope is the union.** Work that is in scope for any of your roles is
+  in scope for you, even if another of your roles lists it as out of scope.
+- **Safety and conduct directives always apply.** A directive about what
+  must never happen, what needs the user's approval, or how to behave
+  (approval gates, never-do rules, deploy boundaries) binds you all the
+  time, whichever role's work you are doing.
+- **Workflow directives apply to that role's own work.** A directive about
+  how to do a role's work (clone this repo on session start, run these
+  tests before shipping, check this log first) applies while you are doing
+  that role's work.
+- **When directives conflict, the stricter one wins.** If one role's rule
+  allows something another role's rule forbids or gates, follow the
+  stricter rule, and tell the user once, in a sentence, which two rules
+  clashed.
+- **Learnings go to the role that owns the domain** (see § Editing the
+  role file). If a learning is about combining your roles, it belongs in
+  your identity file body, not in either role file.
+- **Your role list can change while you're running.** If the user or
+  another agent edits `roles:` in your identity file, you'll be woken with
+  a `📝 [role-file: <role>]` line naming each role you gained or lost. For
+  a gained role, read its role file and enumerate its runbooks just as
+  you would at load time. For a lost role, stop following its directives.
 
 ---
 
@@ -600,7 +605,7 @@ menu in the header and no "new group conversation" control in the app.
   role picker; the new agent is auto-named unless the user ticks "name
   it myself." The role picker is a multi-select — at least one role is
   required; picking several writes them to the identity file as
-  `role: [a, b, ...]` in the order they were picked. The first row of the
+  `roles: [a, b, ...]` in the order they were picked. The first row of the
   roles dropdown is **New role…**: it swaps to the new-role dialog (host
   already picked) and, once the role is made, comes back with the earlier
   picks plus the new role; cancelling comes back as the user left it. A

@@ -161,7 +161,7 @@ describe("readRoleFile — LOCAL branch (conn=null)", () => {
     await fs.mkdir(identityDir, { recursive: true });
     await fs.writeFile(
       path.join(identityDir, `${KEY}.md`),
-      `---\nrole: ${ROLE}\n---\n\n# ${KEY}\n`,
+      `---\nroles: ${ROLE}\n---\n\n# ${KEY}\n`,
       "utf-8",
     );
   });
@@ -197,7 +197,7 @@ describe("readRoleFile — LOCAL branch (conn=null)", () => {
 
 describe("readRoleFile — REMOTE branch (conn is SSHClientType)", () => {
   it("test 2: execs `cat \"$HOME/fleet/roles/<role>/<role>.md\"` and returns {markdown: <stdout>}", async () => {
-    const identityMd = "---\nrole: box-maintainer\n---\n\n# tina\n";
+    const identityMd = "---\nroles: box-maintainer\n---\n\n# tina\n";
     const roleMd = "# Box Maintainer\n\n## Role\n\nKeeps the boxes running.\n";
     const capturedCommands: string[] = [];
     (execCommand as unknown as ReturnType<typeof vi.fn>).mockImplementation(
@@ -241,7 +241,7 @@ describe("readRoleFile — REMOTE branch (conn is SSHClientType)", () => {
   });
 
   it("test 4b: returns {markdown: ''} when role file itself is missing (REMOTE empty stdout via `|| true`) but identity file had valid role", async () => {
-    const identityMd = "---\nrole: box-maintainer\n---\n";
+    const identityMd = "---\nroles: box-maintainer\n---\n";
     (execCommand as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       async (_conn: unknown, cmd: string) => {
         if (cmd.includes("fleet/identities/") && cmd.startsWith("cat ")) return identityMd;
@@ -294,7 +294,7 @@ describe("writeRoleFile — REMOTE branch", () => {
     (execCommand as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       makeRouter({
         home: "/home/tester",
-        identityFile: "---\nrole: box-maintainer\n---\n\n# tina\n",
+        identityFile: "---\nroles: box-maintainer\n---\n\n# tina\n",
       }),
     );
 
@@ -359,7 +359,7 @@ describe("writeRoleFile — LOCAL branch (conn=null)", () => {
     await fs.mkdir(identityDir, { recursive: true });
     await fs.writeFile(
       path.join(identityDir, `${KEY}.md`),
-      `---\nrole: ${ROLE}\n---\n\n# ${KEY}\n`,
+      `---\nroles: ${ROLE}\n---\n\n# ${KEY}\n`,
       "utf-8",
     );
 

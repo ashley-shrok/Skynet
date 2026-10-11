@@ -59,9 +59,12 @@
  *
  * The SSH bootstrap (run-bootstrap.ts) has 5 steps: (1-3) systemd enable +
  * settings.json patch + gsd-context-monitor cleanup, (4) host-parent write,
- * (5) host-name write, (5b) host-id write. This module implements the
+ * (5) host-name write, (5b) host-id write, (6) usage-reporter retirement,
+ * (7) identity roles-key migration. This module implements the
  * minimum viable set for the local box:
  *   - Steps 4 + 5 + 5b (host-parent, host-name, host-id) — always implemented.
+ *   - Step 7 (roles-key migration) — always runs, via migrateRolesKeyUnder
+ *     (TS port of the SSH path's python script; the container has no python3).
  *   - Steps 1-3 (systemd + settings patch + cleanup) — only when
  *     `XDG_RUNTIME_DIR` is present in the container process env (evidence of
  *     a running systemd-user session). Absent → skip-with-warn using
@@ -108,6 +111,7 @@ import {
   RETIRED_SUBSTRATE_DIRS,
   USAGE_REPORTER_RETIRED_DIR,
 } from "./run-bootstrap.js";
+import { migrateRolesKeyUnder } from "./roles-key-migration.js";
 
 /**
  * Read the WRAPPED= original statusLine command out of a usage-reporter.conf
@@ -1247,6 +1251,7 @@ export async function bootstrapFleetSubstrateLocally(
   let hostNameOk = false;
   let hostIdOk = false;
   let usageReporterRetireOk = false;
+  let rolesKeyMigrationOk = false;
   let hadError = false;
 
   const claudeDir = path.join(getLocalHomeRoot(), ".claude");
@@ -1468,6 +1473,68 @@ export async function bootstrapFleetSubstrateLocally(
     hadError = true;
   }
 
+  // ---- Step 7: identity roles-key migration (`role:` → `roles:`) ----
+  // Parallel with SSH surface (run-bootstrap.ts Step 7); rules in
+  // roles-key-migration.ts. Logs only when something changed / conflicts.
+  try {
+    const counts = await migrateRolesKeyUnder(getLocalHomeRoot());
+    const { filesMigrated, baselinesMigrated, conflicts, conflictPaths } = counts;
+    if (filesMigrated + baselinesMigrated + conflicts > 0) {
+      systemLogger[conflicts > 0 ? "warn" : "info"](
+        `local-fleet-bootstrap: identity roles-key migration for ${host.name}` +
+          ` (${filesMigrated} file(s), ${baselinesMigrated} baseline(s), ${conflicts} conflict(s))`,
+        {
+          operation: "local_fleet_roles_key_migration",
+          fleetHostId: host.id,
+          hostName: host.name,
+          filesMigrated,
+          baselinesMigrated,
+          conflicts,
+          ...(conflicts > 0 ? { conflictPaths } : {}),
+        },
+      );
+    }
+    if (counts.errorCount > 0) {
+      hadError = true;
+      systemLogger.warn(
+        `local-fleet-bootstrap: identity roles-key migration had ${counts.errorCount} failure(s) for ${host.name}`,
+        {
+          operation: "local_fleet_roles_key_migration_error",
+          fleetHostId: host.id,
+          hostName: host.name,
+          errorCount: counts.errorCount,
+          errors: counts.errors,
+        },
+      );
+    } else if (counts.deferred > 0) {
+      // Not ok: the orchestrator counts this as a failed item, so the host
+      // is re-swept on the retry tick instead of being marked done.
+      systemLogger.warn(
+        `local-fleet-bootstrap: ${counts.deferred} identity file(s) changed mid roles-key migration for ${host.name} — will retry`,
+        {
+          operation: "local_fleet_roles_key_migration_deferred",
+          fleetHostId: host.id,
+          hostName: host.name,
+          deferred: counts.deferred,
+        },
+      );
+    } else {
+      rolesKeyMigrationOk = true;
+    }
+  } catch (err) {
+    systemLogger.warn(
+      `local-fleet-bootstrap: identity roles-key migration threw for ${host.name}`,
+      {
+        operation: "local_fleet_roles_key_migration_error",
+        site: "outer_catch",
+        fleetHostId: host.id,
+        hostName: host.name,
+        error: err instanceof Error ? err.message : String(err),
+      },
+    );
+    hadError = true;
+  }
+
   const result: BootstrapResult = {
     alreadyEnabled,
     bootstrapRan,
@@ -1478,6 +1545,7 @@ export async function bootstrapFleetSubstrateLocally(
     hostNameOk,
     hostIdOk,
     usageReporterRetireOk,
+    rolesKeyMigrationOk,
     hadError,
     // Local branch doesn't run the interactive-messages-gc.timer OR
     // scheduled-agents-scheduler.service enable step yet (pre-existing gap

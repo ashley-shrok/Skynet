@@ -302,7 +302,7 @@ export function createServerSubstrateOrchestrator(
       try {
         // Bootstrap first (mirrors run-sweep.ts:127 — bootstrap runs BEFORE
         // the catalog loop).
-        await bootstrapFleetSubstrateLocally({
+        const bootstrap = await bootstrapFleetSubstrateLocally({
           id: host.id,
           name: host.name,
           machineId: host.machineId,
@@ -316,6 +316,11 @@ export function createServerSubstrateOrchestrator(
             now: deps.now,
           },
         );
+        // Same rule as run-sweep.ts: an incomplete roles-key migration holds
+        // the host open for a retry.
+        if (bootstrap?.rolesKeyMigrationOk === false) {
+          result = { ...result, itemsFailed: result.itemsFailed + 1 };
+        }
       } catch (err) {
         // Belt-and-suspenders — the local helpers are already never-throw.
         // Any escape here is a code bug, not a runtime failure; log it and

@@ -113,7 +113,7 @@ seed_fixture() {
   ROLE_MD="$HOME_DIR/fleet/roles/$role/$role.md"
   IDENT_MD="$IDENT_DIR/$name.md"
   printf '# %s role\n\nline 1\n' "$role" > "$ROLE_MD"
-  printf -- '---\nrole: %s\n---\n\n# %s\n' "$role" "$name" > "$IDENT_MD"
+  printf -- '---\nroles: %s\n---\n\n# %s\n' "$role" "$name" > "$IDENT_MD"
 }
 
 # atomic_write: mimic backend's fs.writeFile(<path>.tmp) + fs.rename(<path>.tmp, <path>)
@@ -210,7 +210,7 @@ test_T_A1_identity_atomic_rename() {
   # First atomic rename overwrite — pre-fix, this would silently kill the
   # inotify watch on the OLD inode and no event would ever fire.
   atomic_write "$IDENT_MD" "---
-role: $role
+roles: $role
 task: freshly assigned
 ---
 
@@ -238,7 +238,7 @@ task: freshly assigned
   before_count=$(grep -c '📝 \[identity-file:' "$OUT_LOG" 2>/dev/null || printf '0')
 
   atomic_write "$IDENT_MD" "---
-role: $role
+roles: $role
 task: second write
 ---
 

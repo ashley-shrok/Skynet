@@ -3,12 +3,12 @@ import { stripFrontmatter } from "./strip-frontmatter.js";
 
 describe("stripFrontmatter", () => {
   it("strips a leading YAML frontmatter block", () => {
-    const input = "---\nrole: box-maintainer\ndisplayName: Rowan\n---\n# Rowan\n\nbody";
+    const input = "---\nroles: box-maintainer\ndisplayName: Rowan\n---\n# Rowan\n\nbody";
     expect(stripFrontmatter(input)).toBe("# Rowan\n\nbody");
   });
 
   it("strips CRLF-terminated frontmatter blocks", () => {
-    const input = "---\r\nrole: box-maintainer\r\n---\r\n# Rowan";
+    const input = "---\r\nroles: box-maintainer\r\n---\r\n# Rowan";
     expect(stripFrontmatter(input)).toBe("# Rowan");
   });
 
@@ -38,7 +38,7 @@ describe("stripFrontmatter", () => {
     // Leading blank line means the block isn't the anchor of the doc,
     // so ReactMarkdown wouldn't render it as `---`-frontmatter garbage
     // anyway. Leaving it alone matches the leading-only regex.
-    const input = "\n---\nrole: x\n---\n# Body";
+    const input = "\n---\nroles: x\n---\n# Body";
     expect(stripFrontmatter(input)).toBe(input);
   });
 });

@@ -6,7 +6,7 @@
  * exists-on-host.test.ts / roles-create.test.ts pattern).
  *
  * Auth middleware is mocked. SSH primitives (connectOneShot, execCommand) +
- * resolveHostById + writeMarkdownFileAtomic + resolveRoleForIdentity +
+ * resolveHostById + writeMarkdownFileAtomic + resolveRolesForIdentity +
  * getCandidateForBirth + consumeCandidateForBirth are mocked. The identities
  * DB is mocked via a lightweight in-memory shim that mirrors the drizzle
  * chain surface (select/from/where/all + insert/values/run).
@@ -18,7 +18,7 @@
  *   4: hostId not owned by user → 404 (resolveHostById returns null)
  *   5: source row not found in Skynet DB → 404
  *   6: source's fleet name-file has no role frontmatter → 500 ("source has no
- *      role frontmatter" — mirrors resolveRoleForIdentity throw). NO fallback.
+ *      role frontmatter" — mirrors resolveRolesForIdentity throw). NO fallback.
  *   7: newName already exists on target host → 409
  *   8: happy path (with avatarCandidateId) — 201, DB insert with locked
  *      colorHue, SSH mkdir/touch, writeMarkdownFileAtomic called with SEED
@@ -30,7 +30,7 @@
  *        - avatarData=candidate.bytes, avatarMime="image/png",
  *          avatarEtag=md5(bytes)
  *        - SSH mkdir + touch for new identity folder + wakeups + handoff.md
- *        - writeMarkdownFileAtomic called with role: <sourceRole> frontmatter
+ *        - writeMarkdownFileAtomic called with roles: [<sourceRoles>] frontmatter
  *          AND the wake-up SEED COMMENT (positive+negative style assertions)
  *        - consumeCandidateForBirth called
  *        - response 201 with publicIdentity(newRow) shape
@@ -97,12 +97,13 @@ vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
   // Source-avatar inheritance (2026-09-02): read source's on-disk avatar when
   // no candidate is supplied so the clone inherits the source's face.
   readAvatarSiblingFile: vi.fn(),
-  resolveRoleForIdentity: vi.fn(),
+  resolveRolesForIdentity: vi.fn(),
   // Phase 68 Plan 03: readIdentityFile + extractCosmeticsFromFrontmatter used
   // for disk re-read in the clone response.
   readIdentityFile: vi.fn(),
   extractCosmeticsFromFrontmatter: vi.fn(),
   extractRoleFromMarkdown: vi.fn(),
+  extractRolesFromMarkdown: vi.fn(),
   IDENTITY_KEY_RE: /^[a-z0-9_-]{1,64}$/,
   MIME_TO_AVATAR_EXT: {
     "image/webp": "webp",
@@ -173,10 +174,11 @@ import {
   writeMarkdownFileAtomic,
   writeAvatarSiblingFile,
   readAvatarSiblingFile,
-  resolveRoleForIdentity,
+  resolveRolesForIdentity,
   readIdentityFile,
   extractCosmeticsFromFrontmatter,
   extractRoleFromMarkdown,
+  extractRolesFromMarkdown,
 } from "../../claude-session/identity-artifact-reader.js";
 import {
   getCandidateForBirth,
@@ -272,7 +274,7 @@ const mockStartHarness = startHarnessOnIdentity as unknown as Mock;
 // Phase 68 Plan 03: default disk-read response for the post-clone re-read
 // (readIdentityFile → extractCosmeticsFromFrontmatter for response cosmetics).
 const DEFAULT_CLONE_MARKDOWN =
-  "---\nrole: box-maintainer\ndisplayName: Tina-2\ntitle: Cloned Op\n---\n\n# tina-2\n";
+  "---\nroles: [box-maintainer]\ndisplayName: Tina-2\ntitle: Cloned Op\n---\n\n# tina-2\n";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -303,7 +305,7 @@ beforeEach(() => {
     return "";
   });
 
-  (resolveRoleForIdentity as Mock).mockResolvedValue("box-maintainer");
+  (resolveRolesForIdentity as Mock).mockResolvedValue(["box-maintainer"]);
   (writeMarkdownFileAtomic as Mock).mockResolvedValue(undefined);
   // Default: source has NO on-disk avatar (source-avatar inheritance falls
   // through to the "clone ships without avatar" path). Individual tests
@@ -326,6 +328,7 @@ beforeEach(() => {
     coordinator: undefined,
   });
   (extractRoleFromMarkdown as Mock).mockReturnValue("box-maintainer");
+  (extractRolesFromMarkdown as Mock).mockReturnValue(["box-maintainer"]);
 
   const app = express();
   // Router does its own express.json() mounting per plan
@@ -411,11 +414,11 @@ describe("POST /identities/clone", () => {
     expect(connectOneShot).not.toHaveBeenCalled();
   });
 
-  it("Test 5: Phase 68 — source identity not found on disk (resolveRoleForIdentity throws) → 500", async () => {
-    // Phase 68: source existence is verified by SSH — resolveRoleForIdentity
+  it("Test 5: Phase 68 — source identity not found on disk (resolveRolesForIdentity throws) → 500", async () => {
+    // Phase 68: source existence is verified by SSH — resolveRolesForIdentity
     // throws if the source's .md file is missing. That throw IS the
     // source-existence check. No DB SELECT for the source row.
-    (resolveRoleForIdentity as Mock).mockRejectedValueOnce(
+    (resolveRolesForIdentity as Mock).mockRejectedValueOnce(
       new Error("identity nonexistent: no role frontmatter"),
     );
 
@@ -437,8 +440,8 @@ describe("POST /identities/clone", () => {
     expect(writeMarkdownFileAtomic).not.toHaveBeenCalled();
   });
 
-  it("Test 6: source has no role frontmatter → 500 (resolveRoleForIdentity throws — NO fallback)", async () => {
-    (resolveRoleForIdentity as Mock).mockRejectedValueOnce(
+  it("Test 6: source has no role frontmatter → 500 (resolveRolesForIdentity throws — NO fallback)", async () => {
+    (resolveRolesForIdentity as Mock).mockRejectedValueOnce(
       new Error("identity tina: no role frontmatter"),
     );
 
@@ -493,7 +496,7 @@ describe("POST /identities/clone", () => {
   it("Test 8: Phase 68 — happy path with avatarCandidateId — 201 with Phase 68 publicIdentity shape (disk re-read cosmetics)", async () => {
     // Set up the disk re-read mock for "tina-2" with avatar frontmatter
     (readIdentityFile as Mock).mockResolvedValue({
-      markdown: "---\nrole: box-maintainer\ndisplayName: Tina-2\ntitle: Cloned Op\nvoice: Matthew\navatar: tina-2.png\n---\n\n# tina-2\n",
+      markdown: "---\nroles: [box-maintainer]\ndisplayName: Tina-2\ntitle: Cloned Op\nvoice: Matthew\navatar: tina-2.png\n---\n\n# tina-2\n",
     });
     (extractCosmeticsFromFrontmatter as Mock).mockReturnValue({
       displayName: "Tina-2",
@@ -574,7 +577,7 @@ describe("POST /identities/clone", () => {
     // (a) Positive assertions: role frontmatter present + full cosmetic
     //     frontmatter emitted per Phase 66 /close 2026-09-01 follow-up.
     //     role must come first (id-skill invariant).
-    expect(stubBody).toMatch(/^---\nrole: box-maintainer\n/);
+    expect(stubBody).toMatch(/^---\nroles: \[box-maintainer\]\n/);
     expect(stubBody).toContain("displayName: Tina-2"); // capitalized newName
     expect(stubBody).toContain("title: Cloned Op"); // user-supplied title
     expect(stubBody).toContain("voice: Matthew"); // user-supplied voice
@@ -650,7 +653,7 @@ describe("POST /identities/clone", () => {
     expect(writeMarkdownFileAtomic).toHaveBeenCalledTimes(1);
     const stubBody = (writeMarkdownFileAtomic as Mock).mock.calls[0][2] as string;
     // role + displayName + title + colorHue present
-    expect(stubBody).toMatch(/^---\nrole: box-maintainer\n/);
+    expect(stubBody).toMatch(/^---\nroles: \[box-maintainer\]\n/);
     expect(stubBody).toContain("displayName: Tina-b");
     expect(stubBody).toContain("title: Cloned Op");
     expect(stubBody).toContain("colorHue: '216'");
@@ -659,6 +662,34 @@ describe("POST /identities/clone", () => {
     expect(stubBody).not.toContain("avatar:");
     // writeAvatarSiblingFile NOT called when no candidate provided
     expect(writeAvatarSiblingFile).not.toHaveBeenCalled();
+  });
+
+  it("Test 8d: multi-role source → clone inherits the full roles list as a flow list (no 500)", async () => {
+    (resolveRolesForIdentity as Mock).mockResolvedValue(["box-maintainer", "sky-uat"]);
+    (extractRoleFromMarkdown as Mock).mockReturnValue(null);
+    (extractRolesFromMarkdown as Mock).mockReturnValue(["box-maintainer", "sky-uat"]);
+
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/clone",
+      body: JSON.stringify({
+        sourceIdentityKey: "tina",
+        hostId: 5,
+        newName: "tina-m",
+        title: "Cloned Op",
+        voice: null,
+        avatarCandidateId: null,
+        path: "~",
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    const stubBody = (writeMarkdownFileAtomic as Mock).mock.calls[0][2] as string;
+    expect(stubBody).toMatch(/^---\nroles: \[box-maintainer, sky-uat\]\n/);
+    expect(stubBody).not.toMatch(/^role:/m);
+    const body = res.body as { role: string | null; roles: string[] };
+    expect(body.role).toBeNull();
+    expect(body.roles).toEqual(["box-maintainer", "sky-uat"]);
   });
 
   it("Test 8c: colorHue validation — reject out-of-range or non-integer", async () => {
@@ -1085,7 +1116,7 @@ describe("POST /identities/clone", () => {
     // "fresh task" (never "original task").
     (readIdentityFile as Mock).mockResolvedValue({
       markdown:
-        "---\nrole: box-maintainer\ndisplayName: Tina\ntask: original task\n---\n\n# tina\n",
+        "---\nroles: [box-maintainer]\ndisplayName: Tina\ntask: original task\n---\n\n# tina\n",
     });
     (extractCosmeticsFromFrontmatter as Mock).mockReturnValue({
       displayName: "Tina",

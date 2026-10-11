@@ -4,8 +4,9 @@
 #
 # An identity may list one OR MORE roles in its frontmatter. Agents edit these
 # files freely and don't always stick to one YAML shape, so the parser
-# (`_parse_roles_from_frontmatter`) accepts flow lists, block sequences, plain
-# single values, bare comma-separated forms, and the `roles:` plural alias.
+# (`parse_roles_frontmatter`, a copy of tests/fixtures/roles_frontmatter_reference.py)
+# reads the `roles:` key in any shape: flow lists, block sequences, plain
+# single values, bare comma-separated forms. The singular `role:` key is NOT read.
 # This driver covers the end-to-end watch: with multiple roles in the identity
 # frontmatter, both role files must be watched, edits to either must fire a
 # correctly-tagged event, per-role runbook baselines must not collide across
@@ -13,10 +14,10 @@
 # so a substrate upgrade doesn't lose continuity.
 #
 # Covers:
-#   T-M1 — flow-list frontmatter (`role: [roleA, roleB]`): baselines land
+#   T-M1 — flow-list frontmatter (`roles: [roleA, roleB]`): baselines land
 #          for both roles; edit to roleA fires [role-file: roleA]; edit to
 #          roleB fires [role-file: roleB].
-#   T-M2 — block-sequence frontmatter (`role:\n  - roleA\n  - roleB\n`):
+#   T-M2 — block-sequence frontmatter (`roles:\n  - roleA\n  - roleB\n`):
 #          same behavior — parser normalizes shape.
 #   T-M3 — nonexistent role in list is skipped (stderr warning), the valid
 #          one still gets watched.
@@ -27,6 +28,16 @@
 #          "deploy" runbook) gets per-role baselines
 #          (`last-snapshot.runbook.<role>.<slug>`) and edits to one don't
 #          bleed into the other.
+#   T-M6 — bare comma-separated frontmatter (`roles: a, b`): both watched.
+#   T-M7 — singular `role:` key is rejected: watcher exits non-zero with a
+#          stderr diagnostic naming the missing `roles:` key.
+#   T-M8 — role ADDED mid-session (identity-file edit): pointer line to the
+#          new role file (+ runbooks folder) emitted, watcher re-execs in
+#          place, the new role file is then watched.
+#   T-M9 — role REMOVED mid-session: removal line emitted, its baseline
+#          dropped, its edits go silent, the remaining role still fires.
+#   T-M10 — mid-session edit to an unusable `roles:` (singular `role:`):
+#          no re-exec, stderr diagnostic, the old set is still watched.
 #
 # Exits 0 on all-pass; 1 on any failure with a diagnostic naming the failing
 # test.
@@ -177,7 +188,7 @@ wait_for_stdout_match() {
 # ============================================================
 test_T_M1_flow_list_both_watched() {
   local name="multiname"
-  seed_multi_role_fixture "$name" "role: [rolealpha, rolebeta]" rolealpha rolebeta
+  seed_multi_role_fixture "$name" "roles: [rolealpha, rolebeta]" rolealpha rolebeta
 
   local baseline_a="$IDENT_DIR/role-file-watch/last-snapshot.role.rolealpha"
   local baseline_b="$IDENT_DIR/role-file-watch/last-snapshot.role.rolebeta"
@@ -229,7 +240,7 @@ new beta content
 test_T_M2_block_sequence_both_watched() {
   local name="blockname"
   # NOTE: literal newlines inside the frontmatter block via $'...'
-  local fm=$'role:\n  - roleblockx\n  - roleblocky'
+  local fm=$'roles:\n  - roleblockx\n  - roleblocky'
   seed_multi_role_fixture "$name" "$fm" roleblockx roleblocky
 
   local baseline_x="$IDENT_DIR/role-file-watch/last-snapshot.role.roleblockx"
@@ -262,7 +273,7 @@ new y
 test_T_M3_missing_role_skipped() {
   local name="skipname"
   # ghostrole has NO role file on disk; realrole does.
-  seed_multi_role_fixture "$name" "role: [ghostrole, realrole]" realrole
+  seed_multi_role_fixture "$name" "roles: [ghostrole, realrole]" realrole
   # realrole exists (seed_multi_role_fixture only made THE ONE); ghostrole was
   # listed in frontmatter but never seeded.
 
@@ -299,7 +310,7 @@ test_T_M3_missing_role_skipped() {
 # ============================================================
 test_T_M4_legacy_baseline_migration() {
   local role="migrole" name="migname"
-  seed_multi_role_fixture "$name" "role: $role" "$role"
+  seed_multi_role_fixture "$name" "roles: $role" "$role"
 
   local baseline_dir="$IDENT_DIR/role-file-watch"
   mkdir -p "$baseline_dir"
@@ -337,7 +348,7 @@ test_T_M4_legacy_baseline_migration() {
 # ============================================================
 test_T_M5_runbook_slug_per_role() {
   local name="rbname"
-  seed_multi_role_fixture "$name" "role: [rbrolea, rbroleb]" rbrolea rbroleb
+  seed_multi_role_fixture "$name" "roles: [rbrolea, rbroleb]" rbrolea rbroleb
 
   # Seed a `deploy` runbook in BOTH roles.
   local rba="$HOME_DIR/fleet/roles/rbrolea/runbooks/deploy"
@@ -387,6 +398,180 @@ test_T_M5_runbook_slug_per_role() {
   fi
 }
 
+# ============================================================
+# T-M6: bare comma-separated `roles: a, b` — both watched.
+# ============================================================
+test_T_M6_bare_comma_both_watched() {
+  local name="commaname"
+  seed_multi_role_fixture "$name" "roles: commaa, commab" commaa commab
+  launch_watcher "$HOME_DIR" "$IDENT_DIR"
+  local bdir="$IDENT_DIR/role-file-watch"
+  if ! wait_for_baseline "$bdir/last-snapshot.role.commaa"; then
+    fail "T-M6: commaa baseline never landed (err=$(cat "$ERR_LOG"))"; return
+  fi
+  if ! wait_for_baseline "$bdir/last-snapshot.role.commab"; then
+    fail "T-M6: commab baseline never landed (err=$(cat "$ERR_LOG"))"; return
+  fi
+  wait_for_baseline "$bdir/last-snapshot.identity" || true
+  sleep 1
+  atomic_write "$ROLE_MD_2" "# commab role (updated)
+"
+  if ! wait_for_stdout_match '📝 \[role-file: commab\]' "$OUT_LOG"; then
+    fail "T-M6: no commab event; out=$(cat "$OUT_LOG"); err=$(cat "$ERR_LOG")"; return
+  fi
+}
+
+# ============================================================
+# T-M7: singular `role:` is no longer read — watcher refuses to start.
+# ============================================================
+test_T_M7_singular_role_rejected() {
+  local name="singname"
+  seed_multi_role_fixture "$name" "role: singrole" singrole
+  launch_watcher "$HOME_DIR" "$IDENT_DIR"
+  local elapsed=0
+  while kill -0 "$WATCHER_PID" 2>/dev/null && [ "$elapsed" -lt 50 ]; do
+    sleep 0.1; elapsed=$((elapsed + 1))
+  done
+  if kill -0 "$WATCHER_PID" 2>/dev/null; then
+    fail "T-M7: watcher still running with only a singular role: key"; return
+  fi
+  local rc=0
+  wait "$WATCHER_PID" || rc=$?
+  if [ "$rc" -eq 0 ]; then
+    fail "T-M7: watcher exited 0; expected non-zero"; return
+  fi
+  if ! grep -q 'no `roles:` key found' "$ERR_LOG"; then
+    fail "T-M7: missing stderr diagnostic; err=$(cat "$ERR_LOG")"; return
+  fi
+  if [ -f "$IDENT_DIR/role-file-watch/last-snapshot.role.singrole" ]; then
+    fail "T-M7: singrole baseline written from a singular role: key"; return
+  fi
+}
+
+# write_identity_fm <frontmatter-literal> — atomically rewrite IDENT_MD.
+write_identity_fm() {
+  atomic_write "$IDENT_MD" "$(printf -- '---\n%s\n---\n\n# body\n' "$1")
+"
+}
+
+# ============================================================
+# T-M8: role added mid-session → pointer line, re-exec, new role watched.
+# ============================================================
+test_T_M8_role_added_mid_session() {
+  local name="addname"
+  seed_multi_role_fixture "$name" "roles: addbase" addbase addnew
+  mkdir -p "$HOME_DIR/fleet/roles/addnew/runbooks"
+  local bdir="$IDENT_DIR/role-file-watch"
+  launch_watcher "$HOME_DIR" "$IDENT_DIR"
+  if ! wait_for_baseline "$bdir/last-snapshot.identity"; then
+    fail "T-M8: identity baseline never landed (err=$(cat "$ERR_LOG"))"; return
+  fi
+  sleep 1
+  if [ -f "$bdir/last-snapshot.role.addnew" ]; then
+    fail "T-M8: addnew watched before it was added"; return
+  fi
+  write_identity_fm "roles: [addbase, addnew]"
+  local rf="$HOME_DIR/fleet/roles/addnew/addnew.md"
+  if ! wait_for_stdout_match "📝 \[role-file: addnew\] you now hold role addnew — Read $rf \(runbooks: $HOME_DIR/fleet/roles/addnew/runbooks\)" "$OUT_LOG"; then
+    fail "T-M8: no add pointer; out=$(cat "$OUT_LOG"); err=$(cat "$ERR_LOG")"; return
+  fi
+  if ! wait_for_baseline "$bdir/last-snapshot.role.addnew"; then
+    fail "T-M8: addnew baseline never landed after add (err=$(cat "$ERR_LOG"))"; return
+  fi
+  if ! kill -0 "$WATCHER_PID" 2>/dev/null; then
+    fail "T-M8: watcher died across the re-exec (err=$(cat "$ERR_LOG"))"; return
+  fi
+  if grep -q 'you now hold role addbase' "$OUT_LOG"; then
+    fail "T-M8: pointer emitted for an already-held role"; return
+  fi
+  sleep 1
+  atomic_write "$ROLE_MD_2" "# addnew role (edited after add)
+"
+  if ! wait_for_stdout_match '📝 \[role-file: addnew\] your role file changed — .*edited after add' "$OUT_LOG"; then
+    fail "T-M8: addnew edit not emitted after add; out=$(cat "$OUT_LOG"); err=$(cat "$ERR_LOG")"; return
+  fi
+}
+
+# ============================================================
+# T-M9: role removed mid-session → removal line, baseline dropped,
+# its edits silent, remaining role still fires.
+# ============================================================
+test_T_M9_role_removed_mid_session() {
+  local name="rmname"
+  seed_multi_role_fixture "$name" "roles: [rmkeep, rmdrop]" rmkeep rmdrop
+  local bdir="$IDENT_DIR/role-file-watch"
+  launch_watcher "$HOME_DIR" "$IDENT_DIR"
+  if ! wait_for_baseline "$bdir/last-snapshot.role.rmdrop"; then
+    fail "T-M9: rmdrop baseline never landed (err=$(cat "$ERR_LOG"))"; return
+  fi
+  wait_for_baseline "$bdir/last-snapshot.identity" || true
+  sleep 1
+  write_identity_fm "roles: rmkeep"
+  if ! wait_for_stdout_match '📝 \[role-file: rmdrop\] you no longer hold role rmdrop' "$OUT_LOG"; then
+    fail "T-M9: no removal line; out=$(cat "$OUT_LOG"); err=$(cat "$ERR_LOG")"; return
+  fi
+  local elapsed=0
+  while [ -f "$bdir/last-snapshot.role.rmdrop" ] && [ "$elapsed" -lt 50 ]; do
+    sleep 0.1; elapsed=$((elapsed + 1))
+  done
+  if [ -f "$bdir/last-snapshot.role.rmdrop" ]; then
+    fail "T-M9: rmdrop baseline not removed"; return
+  fi
+  sleep 1.5
+  if ! kill -0 "$WATCHER_PID" 2>/dev/null; then
+    fail "T-M9: watcher died across the re-exec (err=$(cat "$ERR_LOG"))"; return
+  fi
+  atomic_write "$ROLE_MD_2" "# rmdrop (edited after removal)
+"
+  atomic_write "$ROLE_MD_1" "# rmkeep (edited after removal)
+"
+  if ! wait_for_stdout_match '📝 \[role-file: rmkeep\] your role file changed' "$OUT_LOG"; then
+    fail "T-M9: rmkeep edit not emitted; out=$(cat "$OUT_LOG"); err=$(cat "$ERR_LOG")"; return
+  fi
+  sleep 0.5
+  if grep -q 'rmdrop (edited after removal)' "$OUT_LOG"; then
+    fail "T-M9: removed role's edit still emitted; out=$(cat "$OUT_LOG")"; return
+  fi
+}
+
+# ============================================================
+# T-M10: mid-session edit to an unusable roles list → no re-exec,
+# stderr diagnostic, old set still watched.
+# ============================================================
+test_T_M10_invalid_roles_edit_keeps_old_set() {
+  local name="badname"
+  seed_multi_role_fixture "$name" "roles: [badkeep, badother]" badkeep badother
+  local bdir="$IDENT_DIR/role-file-watch"
+  launch_watcher "$HOME_DIR" "$IDENT_DIR"
+  if ! wait_for_baseline "$bdir/last-snapshot.role.badother"; then
+    fail "T-M10: badother baseline never landed (err=$(cat "$ERR_LOG"))"; return
+  fi
+  wait_for_baseline "$bdir/last-snapshot.identity" || true
+  sleep 1
+  write_identity_fm "role: badkeep"
+  local elapsed=0
+  while ! grep -q 'identity roles unusable' "$ERR_LOG" 2>/dev/null && [ "$elapsed" -lt 50 ]; do
+    sleep 0.1; elapsed=$((elapsed + 1))
+  done
+  if ! grep -q 'identity roles unusable' "$ERR_LOG"; then
+    fail "T-M10: no stderr diagnostic; err=$(cat "$ERR_LOG")"; return
+  fi
+  if grep -q 'reloading in place' "$ERR_LOG"; then
+    fail "T-M10: watcher re-execed on an unusable roles list; err=$(cat "$ERR_LOG")"; return
+  fi
+  if grep -q 'no longer hold role' "$OUT_LOG"; then
+    fail "T-M10: removal line emitted for an unusable roles list"; return
+  fi
+  if ! kill -0 "$WATCHER_PID" 2>/dev/null; then
+    fail "T-M10: watcher died (err=$(cat "$ERR_LOG"))"; return
+  fi
+  atomic_write "$ROLE_MD_2" "# badother (still watched)
+"
+  if ! wait_for_stdout_match '📝 \[role-file: badother\] your role file changed — .*still watched' "$OUT_LOG"; then
+    fail "T-M10: old set no longer watched; out=$(cat "$OUT_LOG"); err=$(cat "$ERR_LOG")"; return
+  fi
+}
+
 # ---- run ----
 
 run_test test_T_M1_flow_list_both_watched
@@ -394,6 +579,11 @@ run_test test_T_M2_block_sequence_both_watched
 run_test test_T_M3_missing_role_skipped
 run_test test_T_M4_legacy_baseline_migration
 run_test test_T_M5_runbook_slug_per_role
+run_test test_T_M6_bare_comma_both_watched
+run_test test_T_M7_singular_role_rejected
+run_test test_T_M8_role_added_mid_session
+run_test test_T_M9_role_removed_mid_session
+run_test test_T_M10_invalid_roles_edit_keeps_old_set
 
 # ---- summary ----
 

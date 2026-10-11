@@ -161,10 +161,11 @@ teardown_unarchive_scratch() {
 # Create an archived identity fixture under $IDENTITIES_ARCHIVE_DIR.
 # Usage: fixture_archived_identity <scratch> <name> <role_spec> [--no-dormancy] [--no-relay]
 #   <role_spec> is one of:
-#     scalar:<name>              → `role: <name>`
-#     flow:name1,name2,...       → `role: [name1, name2]`
-#     block:name1,name2,...      → `role:\n  - name1\n  - name2`
-#     none                       → no role: line at all
+#     scalar:<name>              → `roles: <name>`
+#     flow:name1,name2,...       → `roles: [name1, name2]`
+#     block:name1,name2,...      → `roles:\n  - name1\n  - name2`
+#     legacy:<name>              → `role: <name>` (retired singular key; must be ignored)
+#     none                       → no roles: line at all
 #     malformed                  → no frontmatter fences
 fixture_archived_identity() {
   local scratch="$1" name="$2" role_spec="$3"
@@ -188,20 +189,25 @@ fixture_archived_identity() {
     none)
       printf -- '---\ndisplayName: test\n---\nbody\n' > "$ident_file"
       ;;
+    legacy:*)
+      # Retired singular key — must NOT be read by any parser.
+      local r="${role_spec#legacy:}"
+      printf -- '---\nrole: %s\ndisplayName: test\n---\nbody\n' "$r" > "$ident_file"
+      ;;
     scalar:*)
       local r="${role_spec#scalar:}"
-      printf -- '---\nrole: %s\ndisplayName: test\n---\nbody\n' "$r" > "$ident_file"
+      printf -- '---\nroles: %s\ndisplayName: test\n---\nbody\n' "$r" > "$ident_file"
       ;;
     flow:*)
       local list="${role_spec#flow:}"
       # Convert "a,b,c" to "a, b, c" for readable frontmatter.
       local flow; flow=$(printf '%s' "$list" | sed 's/,/, /g')
-      printf -- '---\nrole: [%s]\ndisplayName: test\n---\nbody\n' "$flow" > "$ident_file"
+      printf -- '---\nroles: [%s]\ndisplayName: test\n---\nbody\n' "$flow" > "$ident_file"
       ;;
     block:*)
       local list="${role_spec#block:}"
       {
-        printf -- '---\nrole:\n'
+        printf -- '---\nroles:\n'
         # printf '%s\n' terminates the list with a newline so `read` picks up
         # the last field; using '%s' would drop it.
         printf '%s\n' "$list" | tr ',' '\n' | while IFS= read -r r; do
@@ -366,8 +372,19 @@ test_extract_roles_none() {
   local got rc=0
   got=$( _source_supervisor_unarchive "$scratch"
          _extract_frontmatter_roles "${scratch}-archive/delta/delta.md" ) || rc=$?
-  assert_eq "0" "$rc" "no role: field is legal (returns empty array + rc=0)"
+  assert_eq "0" "$rc" "no roles: field is legal (returns empty array + rc=0)"
   assert_eq '[]' "$got" "no role field should produce empty JSON array"
+  teardown_unarchive_scratch "$scratch"
+}
+
+test_extract_roles_singular_key_ignored() {
+  local scratch; scratch=$(setup_unarchive_scratch)
+  fixture_archived_identity "$scratch" legacy "legacy:box-maintainer"
+  local got rc=0
+  got=$( _source_supervisor_unarchive "$scratch"
+         _extract_frontmatter_roles "${scratch}-archive/legacy/legacy.md" ) || rc=$?
+  assert_eq "0" "$rc" "singular role: key: still a valid frontmatter (rc=0)"
+  assert_eq '[]' "$got" "singular role: key is NOT read (empty JSON array)"
   teardown_unarchive_scratch "$scratch"
 }
 
@@ -488,6 +505,23 @@ test_identity_role_missing_scalar_refuses() {
   teardown_unarchive_scratch "$scratch"
 }
 
+test_identity_no_roles_refuses() {
+  local scratch; scratch=$(setup_unarchive_scratch)
+  # Only the retired singular key — parses to no roles at all.
+  fixture_archived_identity "$scratch" zeta "legacy:researcher"
+  mkdir -p "$scratch/../roles/researcher" 2>/dev/null || true
+
+  local out
+  out=$( _source_supervisor_unarchive "$scratch"
+         scan_identity_unarchive_requested_sentinels 2>&1 ) || true
+
+  assert_nofile "$scratch/zeta"                                "no-roles: no folder moved"
+  assert_file   "${scratch}-archive/zeta"                      "no-roles: archive folder retained"
+  assert_nofile "${scratch}-archive/zeta/.unarchive-requested" "no-roles: sentinel deleted per REFUSE discipline"
+  assert_grep "REFUSED: no roles" "$out" "no-roles: LOUD refuse log"
+  teardown_unarchive_scratch "$scratch"
+}
+
 test_identity_role_missing_multi_names_only_missing() {
   local scratch; scratch=$(setup_unarchive_scratch)
   fixture_live_role "$scratch" box-maintainer
@@ -600,7 +634,7 @@ test_identity_no_sentinel_noop() {
   fixture_live_role "$scratch" box-maintainer
   # Create an archived identity WITHOUT the un-archive sentinel.
   mkdir -p "${scratch}-archive/lambda"
-  printf -- '---\nrole: box-maintainer\n---\nbody\n' > "${scratch}-archive/lambda/lambda.md"
+  printf -- '---\nroles: box-maintainer\n---\nbody\n' > "${scratch}-archive/lambda/lambda.md"
 
   local out
   out=$( _source_supervisor_unarchive "$scratch"
@@ -818,10 +852,10 @@ test_role_no_cascade_to_identities() {
   local scratch; scratch=$(setup_unarchive_scratch)
   fixture_archived_role "$scratch" "restored-role"
   # Pretend two identities were retired during that role's earlier archive.
-  # They're in the identity-archive tree, holding "role: restored-role".
+  # They're in the identity-archive tree, holding "roles: restored-role".
   mkdir -p "${scratch}-archive/orphan-a" "${scratch}-archive/orphan-b"
-  printf -- '---\nrole: restored-role\n---\nbody\n' > "${scratch}-archive/orphan-a/orphan-a.md"
-  printf -- '---\nrole: restored-role\n---\nbody\n' > "${scratch}-archive/orphan-b/orphan-b.md"
+  printf -- '---\nroles: restored-role\n---\nbody\n' > "${scratch}-archive/orphan-a/orphan-a.md"
+  printf -- '---\nroles: restored-role\n---\nbody\n' > "${scratch}-archive/orphan-b/orphan-b.md"
 
   ( _source_supervisor_unarchive "$scratch"
     scan_role_unarchive_requested_sentinels >/dev/null 2>&1 ) || true
@@ -1024,6 +1058,7 @@ run_test test_extract_roles_scalar
 run_test test_extract_roles_flow_list
 run_test test_extract_roles_block_list
 run_test test_extract_roles_none
+run_test test_extract_roles_singular_key_ignored
 run_test test_extract_roles_malformed
 
 run_test test_identity_happy_path_scalar_role
@@ -1031,6 +1066,7 @@ run_test test_identity_happy_path_flow_list_all_live
 run_test test_identity_happy_path_block_list_all_live
 run_test test_identity_no_dormancy_preserved
 run_test test_identity_role_missing_scalar_refuses
+run_test test_identity_no_roles_refuses
 run_test test_identity_role_missing_multi_names_only_missing
 run_test test_identity_name_collision_refuses
 run_test test_identity_whoami_401_refuses_sentinel_retained

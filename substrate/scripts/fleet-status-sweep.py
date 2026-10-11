@@ -907,11 +907,16 @@ def _read_frontmatter_cosmetics(path, allowed_keys):
     strip BOM) and scans line-by-line between the first two `---` fence lines.
     Returns (None, None) on any read error or if no valid frontmatter block is
     found. Returns ({}, None) if frontmatter was found but no cosmetic keys or
-    role line were present — the caller can distinguish "file missing / no
+    single role were present — the caller can distinguish "file missing / no
     frontmatter" from "file read, frontmatter present but empty".
 
-    Security: `role:` is extracted and validated against ROLE_NAME_OK BEFORE
-    it is ever used in an os.path.join. A malformed role like `../../tmp` is
+    The returned role is derived from the `roles:` list (see
+    `_parse_roles_frontmatter`, a copy of
+    tests/fixtures/roles_frontmatter_reference.py): exactly one listed role →
+    that role, otherwise None. The singular `role:` key is NOT read.
+
+    Security: role names are validated against the slug regex BEFORE they are
+    ever used in an os.path.join. A malformed role like `../../tmp` is
     rejected here, never reaching path construction (T-111-01).
 
     Encoding: text mode with `utf-8-sig` so a UTF-8 BOM (Windows-style) does
@@ -933,8 +938,8 @@ def _read_frontmatter_cosmetics(path, allowed_keys):
     so it is not "fixed" by a future reader.
 
     `allowed_keys` governs which cosmetic keys are extracted (e.g. identity
-    files allow `task` and `coordinator`; role files do not). `role:` is always
-    extracted regardless of `allowed_keys`.
+    files allow `task` and `coordinator`; role files do not). The role is always
+    derived regardless of `allowed_keys`.
     """
     try:
         with open(path, encoding="utf-8-sig") as fh:
@@ -951,7 +956,12 @@ def _read_frontmatter_cosmetics(path, allowed_keys):
         return None, None
 
     cosmetics = {}
-    role = None
+    # The single `role` (whose cosmetics an identity inherits) comes from the
+    # `roles:` list: exactly one role → that role; several or none → None
+    # (multi-role identities inherit no look). Slugs are validated by the
+    # parser before any path use. Role files carry no `roles:` key → None.
+    roles = _parse_roles_frontmatter(raw)
+    role = roles[0] if len(roles) == 1 else None
 
     # Line-oriented scanner with a one-way lookahead cursor for multi-line YAML
     # constructs (currently only the block-style `users:` list). All existing
@@ -969,13 +979,8 @@ def _read_frontmatter_cosmetics(path, allowed_keys):
         if line.lstrip().startswith("#"):
             continue
 
-        # --- role: (always extracted; validated before any path use) ---
-        m_role = re.match(r"^role:\s*(.+?)\s*(#.*)?$", line.rstrip("\n"))
-        if m_role and role is None:
-            raw_role = m_role.group(1).strip().strip('"').strip("'").strip()
-            if ROLE_NAME_OK.match(raw_role):
-                role = raw_role
-            continue
+        # `roles:` (and its block items) match none of the branches below and
+        # fall through; the role is derived from the full list above.
 
         # --- coordinator: true (only true is ever emitted; absence = false) ---
         if "coordinator" in allowed_keys:
@@ -1130,50 +1135,72 @@ def _read_frontmatter_cosmetics(path, allowed_keys):
     return cosmetics, role
 
 
+# Canonical `roles:` frontmatter parser — a verbatim copy of
+# substrate/scripts/tests/fixtures/roles_frontmatter_reference.py; keep in sync
+# (tests/roles-frontmatter-conformance.test.sh runs every case against it).
+# The singular `role:` key is NOT read.
+_ROLES_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+
+
+def _parse_roles_frontmatter(text):
+    lines = text.lstrip("\ufeff").replace("\r\n", "\n").split("\n")
+    if not lines or lines[0].strip() != "---":
+        return []
+    end = None
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            end = i
+            break
+    if end is None:
+        return []
+
+    def clean(s):
+        s = re.sub(r"\s+#.*$", "", s).strip()
+        return s.strip("\"'").strip()
+
+    raw = []
+    for i in range(1, end):
+        m = re.match(r"^roles:(.*)$", lines[i])
+        if not m:
+            continue
+        inline = re.sub(r"(^|\s)#.*$", "", m.group(1)).strip()
+        if inline:
+            if inline.startswith("[") and inline.endswith("]"):
+                inline = inline[1:-1]
+            raw = [clean(p) for p in inline.split(",")]
+        else:
+            for j in range(i + 1, end):
+                s = lines[j].strip()
+                if not s or s.startswith("#"):
+                    continue
+                m2 = re.match(r"^-\s*(.*)$", s)
+                if not m2:
+                    break
+                raw.append(clean(m2.group(1)))
+        break
+
+    out = []
+    for r in raw:
+        if r and _ROLES_SLUG_RE.match(r) and r not in out:
+            out.append(r)
+    return out
+
+
 def _read_identity_roles(path):
-    """Return every role named in an identity file's `role:` frontmatter.
+    """Return every role named in an identity file's `roles:` frontmatter.
 
-    Multi-role identities list their roles — flow (`role: [a, b]`) or block
-    (`role:` then `  - a` lines); a plain scalar yields a one-element list.
-    Entries failing ROLE_NAME_OK are dropped (they're later used in
-    os.path.join). Returns [] on any read error or when there's no role.
-
-    `_read_frontmatter_cosmetics` deliberately keeps its scalar-only `role`:
-    role cosmetics are inherited only by single-role identities.
+    Parsing is `_parse_roles_frontmatter` (reference copy, see above): scalar,
+    quoted, flow, bare-comma and block forms; invalid slugs dropped (they're
+    later used in os.path.join); duplicates collapsed keeping order. The
+    singular `role:` key is not read. Returns [] on any read error or when
+    there's no valid role.
     """
     try:
         with open(path, encoding="utf-8-sig") as fh:
             raw = fh.read(FRONTMATTER_HEAD_BYTES)
     except (OSError, UnicodeDecodeError):
         return []
-    lines = raw.split("\n")
-    fences = [i for i, ln in enumerate(lines) if ln.strip() == "---"]
-    if len(fences) < 2:
-        return []
-    body = lines[fences[0] + 1: fences[1]]
-    values = []
-    for idx, line in enumerate(body):
-        m = re.match(r"^role:\s*(.*?)\s*(#.*)?$", line.rstrip("\n"))
-        if not m:
-            continue
-        value = m.group(1)
-        if value == "":
-            for item in body[idx + 1:]:
-                m_item = re.match(r"^\s+-\s*(.+?)\s*(#.*)?$", item)
-                if not m_item:
-                    break
-                values.append(m_item.group(1))
-        elif value.startswith("[") and value.endswith("]"):
-            values.extend(value[1:-1].split(","))
-        else:
-            values.append(value)
-        break
-    roles = []
-    for v in values:
-        v = v.strip().strip('"').strip("'").strip()
-        if ROLE_NAME_OK.match(v) and v not in roles:
-            roles.append(v)
-    return roles
+    return _parse_roles_frontmatter(raw)
 
 
 def _read_role_cosmetics(role, home, role_memo):
@@ -1187,7 +1214,7 @@ def _read_role_cosmetics(role, home, role_memo):
     as for files that read fine.
 
     Builds the role file path as ~/fleet/roles/<role>/<role>.md. `role` has
-    already passed ROLE_NAME_OK validation in _read_frontmatter_cosmetics, so
+    already passed slug validation in _parse_roles_frontmatter, so
     no path traversal is possible.
 
     Logs a single _log line to stderr when the role file cannot be read — a

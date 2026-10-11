@@ -672,11 +672,10 @@ interface PerHostState {
       identityCosmetics: RawCosmetics | null;
       roleCosmetics: RawCosmetics | null;
       /**
-       * The identity's `role:` frontmatter value as emitted by the sweep,
-       * carried alongside cosmetics so consumers can look up role without
-       * a second SSH read. `null` when the identity file has no valid
-       * `role:` frontmatter (matches the sweep's ROLE_NAME_OK-validated
-       * emission — malformed or absent → null).
+       * The identity's single role as emitted by the sweep (its `roles:`
+       * frontmatter when that lists exactly one role), carried alongside
+       * cosmetics so consumers can look up role without a second SSH read.
+       * `null` when the identity holds zero or several roles.
        */
       role: string | null;
       /** Multi-role only: each listed role's cosmetics (index-aligned with

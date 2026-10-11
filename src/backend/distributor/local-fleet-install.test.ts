@@ -1266,3 +1266,142 @@ describe("Structured logging convention (operation: local_fleet_install_* / loca
     writeFileSpy.mockRestore();
   });
 });
+
+// ---------------------------------------------------------------------------
+// BR4 — bootstrap Step 7: identity `role:` → `roles:` key migration.
+// The full rule table runs against this implementation (and the SSH path's
+// python script) in roles-key-migration.test.ts; this block covers the
+// bootstrap wiring: result field, logs, idempotency, hadError on failure.
+// ---------------------------------------------------------------------------
+
+describe("BR4 — bootstrap migrates identity role: → roles:", () => {
+  const idFile = (root: string, name: string) =>
+    path.join(tmpRoot, "fleet", root, name, `${name}.md`);
+  const baseline = (name: string) =>
+    path.join(tmpRoot, "fleet", "identities", name, "role-file-watch", "last-snapshot.identity");
+
+  async function put(p: string, content: string) {
+    await fs.mkdir(path.dirname(p), { recursive: true });
+    await fs.writeFile(p, content);
+  }
+
+  async function migrationLogs(level: "info" | "warn") {
+    const { systemLogger } = await import("../utils/logger.js");
+    return vi
+      .mocked(systemLogger[level])
+      .mock.calls.filter(
+        ([, ctx]) =>
+          (ctx as Record<string, unknown> | undefined)?.operation ===
+          "local_fleet_roles_key_migration",
+      );
+  }
+
+  it("no identities folder → rolesKeyMigrationOk:true, no activity log", async () => {
+    process.env.SKYNET_PUBLIC_URL = "https://skynet.example.com";
+    const { bootstrapFleetSubstrateLocally } = await importFresh();
+    const result = await bootstrapFleetSubstrateLocally(host);
+    expect(result.rolesKeyMigrationOk).toBe(true);
+    expect(result.hadError).toBe(false);
+    expect(await migrationLogs("info")).toHaveLength(0);
+    expect(await migrationLogs("warn")).toHaveLength(0);
+  });
+
+  it("migrates identities, baselines and archive; logs counts; second run is a silent no-op", async () => {
+    process.env.SKYNET_PUBLIC_URL = "https://skynet.example.com";
+    await put(idFile("identities", "ada"), "---\nname: ada\nrole: [a, b]\n---\nrole: body\n");
+    await put(baseline("ada"), "---\nname: ada\nrole: [a, b]\n---\nrole: body\n");
+    await put(idFile("identities", "bob"), "---\r\nrole:\r\n  - a\r\n---\r\n");
+    await put(idFile("identities", "cy"), "---\nroles: x\n---\n");
+    await put(idFile("identities", "dee"), "---\nrole: a\nroles: b\n---\n");
+    await put(idFile("identities", "eve"), "no frontmatter\nrole: x\n");
+    await put(idFile("identities-archive", "old"), "---\nrole: x\n---\n");
+
+    const { bootstrapFleetSubstrateLocally } = await importFresh();
+    const result = await bootstrapFleetSubstrateLocally(host);
+
+    expect(result.rolesKeyMigrationOk).toBe(true);
+    expect(result.hadError).toBe(false);
+    expect(await fs.readFile(idFile("identities", "ada"), "utf-8")).toBe(
+      "---\nname: ada\nroles: [a, b]\n---\nrole: body\n",
+    );
+    expect(await fs.readFile(baseline("ada"), "utf-8")).toBe(
+      "---\nname: ada\nroles: [a, b]\n---\nrole: body\n",
+    );
+    expect(await fs.readFile(idFile("identities", "bob"), "utf-8")).toBe(
+      "---\r\nroles:\r\n  - a\r\n---\r\n",
+    );
+    expect(await fs.readFile(idFile("identities", "cy"), "utf-8")).toBe("---\nroles: x\n---\n");
+    expect(await fs.readFile(idFile("identities", "dee"), "utf-8")).toBe(
+      "---\nrole: a\nroles: b\n---\n",
+    );
+    expect(await fs.readFile(idFile("identities", "eve"), "utf-8")).toBe(
+      "no frontmatter\nrole: x\n",
+    );
+    expect(await fs.readFile(idFile("identities-archive", "old"), "utf-8")).toBe(
+      "---\nroles: x\n---\n",
+    );
+
+    // Conflict present → one warn-level activity log carrying all counts.
+    const warns = await migrationLogs("warn");
+    expect(warns).toHaveLength(1);
+    expect(warns[0][1]).toMatchObject({
+      fleetHostId: host.id,
+      hostName: host.name,
+      filesMigrated: 3,
+      baselinesMigrated: 1,
+      conflicts: 1,
+    });
+    expect(String((warns[0][1] as { conflictPaths: string[] }).conflictPaths[0])).toContain("dee");
+
+    // Second run: nothing migrated; only the standing conflict is re-reported.
+    vi.clearAllMocks();
+    const statBefore = await fs.stat(idFile("identities", "ada"));
+    const again = await bootstrapFleetSubstrateLocally(host);
+    expect(again.rolesKeyMigrationOk).toBe(true);
+    expect(again.hadError).toBe(false);
+    const warns2 = await migrationLogs("warn");
+    expect(warns2).toHaveLength(1);
+    expect(warns2[0][1]).toMatchObject({ filesMigrated: 0, baselinesMigrated: 0, conflicts: 1 });
+    expect((await fs.stat(idFile("identities", "ada"))).mtimeMs).toBe(statBefore.mtimeMs);
+
+    // Resolve the conflict → fully silent.
+    await put(idFile("identities", "dee"), "---\nroles: b\n---\n");
+    vi.clearAllMocks();
+    await bootstrapFleetSubstrateLocally(host);
+    expect(await migrationLogs("warn")).toHaveLength(0);
+    expect(await migrationLogs("info")).toHaveLength(0);
+  });
+
+  it("rename failure → hadError:true, rolesKeyMigrationOk:false, file untouched, no throw", async () => {
+    process.env.SKYNET_PUBLIC_URL = "https://skynet.example.com";
+    await put(idFile("identities", "ada"), "---\nrole: x\n---\n");
+    const realRename = fs.rename;
+    const renameSpy = vi.spyOn(fs, "rename").mockImplementation((from, to) => {
+      if (String(from).endsWith(".roles-tmp")) {
+        const err = new Error("EACCES") as NodeJS.ErrnoException;
+        err.code = "EACCES";
+        return Promise.reject(err);
+      }
+      return realRename(from, to);
+    });
+    try {
+      const { bootstrapFleetSubstrateLocally } = await importFresh();
+      const result = await bootstrapFleetSubstrateLocally(host);
+      expect(result.rolesKeyMigrationOk).toBe(false);
+      expect(result.hadError).toBe(true);
+      expect(await fs.readFile(idFile("identities", "ada"), "utf-8")).toBe("---\nrole: x\n---\n");
+      const dir = path.dirname(idFile("identities", "ada"));
+      expect((await fs.readdir(dir)).filter((f) => f.includes("roles-tmp"))).toEqual([]);
+      const { systemLogger } = await import("../utils/logger.js");
+      const errLog = vi
+        .mocked(systemLogger.warn)
+        .mock.calls.find(
+          ([, ctx]) =>
+            (ctx as Record<string, unknown>).operation === "local_fleet_roles_key_migration_error",
+        );
+      expect(errLog).toBeDefined();
+    } finally {
+      renameSpy.mockRestore();
+    }
+  });
+});

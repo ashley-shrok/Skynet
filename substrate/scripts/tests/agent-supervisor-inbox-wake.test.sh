@@ -92,7 +92,7 @@ fi
 make_identity() {
   local name="$1"
   mkdir -p "$SCRATCH/$name"
-  printf -- '---\nrole: test\n---\nbody\n' > "$SCRATCH/$name/$name.md"
+  printf -- '---\nroles: test\n---\nbody\n' > "$SCRATCH/$name/$name.md"
 }
 
 # ---- run_case: setup scratch, run user function, teardown ----

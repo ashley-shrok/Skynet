@@ -36,9 +36,9 @@ import { MarkdownEditor } from "./MarkdownEditor";
 
 const SAMPLES: Record<string, string> = {
   identity:
-    "---\nrole: box-maintainer\ndisplayName: Cedar\ntask: something\n---\n\n# Hello\n\nbody here\n",
+    "---\nroles: box-maintainer\ndisplayName: Cedar\ntask: something\n---\n\n# Hello\n\nbody here\n",
   malformed:
-    "---\nrole: box-maintainer\ndisplayName: Cedar\ntask: Fix: bug\n---\n\n# Hello\n\nbody here\n",
+    "---\nroles: box-maintainer\ndisplayName: Cedar\ntask: Fix: bug\n---\n\n# Hello\n\nbody here\n",
   default: "---\nkey: value\n---\n\n# Default\n",
 };
 

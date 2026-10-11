@@ -26,7 +26,7 @@
  *     404 — hostId not owned OR source identity not found in Skynet DB
  *     409 — newName collides with existing folder on target host
  *     415 — Content-Type not application/json
- *     500 — source has no role frontmatter (mirrors resolveRoleForIdentity
+ *     500 — source has no roles frontmatter (mirrors resolveRolesForIdentity
  *           throw) OR unexpected error (sanitized)
  *     502 — SSH connect failure
  *
@@ -40,8 +40,10 @@
  *      (400 if expired), else reuse source.avatarData.
  *   5. resolveHostById(hostId, userId) — 404 on cross-user / unknown.
  *   6. SSH connect (5s timeout) — 502 on failure.
- *   7. resolveRoleForIdentity(conn, sourceIdentityKey) — THROWS on missing
- *      frontmatter (500 with "source has no role frontmatter"). NO fallback
+ *   7. resolveRolesForIdentity(conn, sourceIdentityKey) — THROWS on missing
+ *      frontmatter (500 with "source has no role frontmatter"). The clone
+ *      inherits the source's FULL roles list (multi-role sources clone fine).
+ *      NO fallback
  *      branch per Pitfall 8 + D-CONTEXT LOCKED "no such identities exist".
  *   8. Collision probe: `if [ -d "$HOME/fleet/identities/<newName>" ]` —
  *      409 if "exists".
@@ -50,7 +52,7 @@
  *      - `mkdir -p ~/fleet/identities/<newName>/wakeups`
  *      - `touch ~/fleet/identities/<newName>/handoff.md`
  *      - `echo $HOME` for absolute path resolution
- *      - writeMarkdownFileAtomic with `role: <sourceRole>` frontmatter +
+ *      - writeMarkdownFileAtomic with `roles: [<sourceRoles>]` frontmatter +
  *        SEED COMMENT (wake-up agent registers own relay account on first
  *        wake per the seed's plain-English instruction).
  *   10. DB insert (mirrors identity-birth.ts:73-90) with new nanoid id,
@@ -72,7 +74,7 @@
  *   T-22-03-01: Shell injection via newName — MITIGATE via IDENTITY_KEY_RE
  *     gate blocking quotes/backticks/semicolons/spaces.
  *   T-22-03-02: Shell injection via role in frontmatter — MITIGATE via
- *     resolveRoleForIdentity's inner IDENTITY_KEY_RE gate (Plan 22-01).
+ *     resolveRolesForIdentity's inner IDENTITY_KEY_RE gate (Plan 22-01).
  *   T-22-03-03: Cross-user clone via spoofed hostId/sourceIdentityKey —
  *     MITIGATE via resolveHostById(hostId, userId) 404 gate + DB filter
  *     on userId.
@@ -82,7 +84,7 @@
  *   T-22-03-06: Info disclosure via SSH stderr — MITIGATE via sanitized
  *     500 responses (never leak upstream detail in response body).
  *   T-22-03-08: LOCKED-field bypass — MITIGATE by pulling colorHue from
- *     sourceRow (NOT req.body); role from resolveRoleForIdentity (NOT
+ *     sourceRow (NOT req.body); roles from resolveRolesForIdentity (NOT
  *     req.body); host from resolveHostById (NOT req.body override).
  *
  * Mount point: app.use("/identities/clone", identityCloneRoutes) — MUST be
@@ -102,10 +104,11 @@ import {
   writeMarkdownFileAtomic,
   writeAvatarSiblingFile,
   readAvatarSiblingFile,
-  resolveRoleForIdentity,
+  resolveRolesForIdentity,
   readIdentityFile,
   extractCosmeticsFromFrontmatter,
   extractRoleFromMarkdown,
+  extractRolesFromMarkdown,
   MIME_TO_AVATAR_EXT,
   IDENTITY_KEY_RE,
   type AvatarExt,
@@ -237,6 +240,7 @@ function publicIdentity(
     coordinator?: boolean | null;
   } = {},
   role: string | null = null,
+  roles: string[] = role ? [role] : [],
 ) {
   return {
     identityKey,
@@ -249,6 +253,7 @@ function publicIdentity(
     avatarEtag: cosmetics.avatarEtag ?? "",
     coordinator: cosmetics.coordinator ?? false,
     role,
+    roles,
   };
 }
 
@@ -277,7 +282,7 @@ function execWithTimeout(
  * POST /
  * Body: { sourceIdentityKey, hostId, newName, title, voice, avatarCandidateId }
  * Provisions ~/fleet/identities/<newName>/ + wakeups/ + handoff.md +
- * <newName>.md (with role: frontmatter and wake-up seed comment) and inserts
+ * <newName>.md (with roles: frontmatter and wake-up seed comment) and inserts
  * a new Skynet DB row that mirrors the source's colorHue.
  */
 router.post(
@@ -439,7 +444,7 @@ router.post(
 
     // -----------------------------------------------------------------------
     // Phase 68: source existence is verified by SSH — resolveRoleForIdentity
-    // at Step 6 throws if the identity's .md file is missing (no role:
+    // at Step 6 throws if the identity's .md file is missing (no roles:
     // frontmatter). That IS the source-existence check now. No DB SELECT.
     //
     // Phase 68: newName collision is checked exclusively by the SSH-side probe
@@ -500,13 +505,14 @@ router.post(
       }
 
       // ---------------------------------------------------------------------
-      // 6. Resolve source's role via the two-step (throws when identity file
-      //    lacks role: frontmatter — no fallback per Pitfall 8 / D-CONTEXT
-      //    LOCKED "no such identities exist post-migration").
+      // 6. Resolve source's roles via the two-step (throws when identity file
+      //    lacks roles: frontmatter — no fallback per Pitfall 8 / D-CONTEXT
+      //    LOCKED "no such identities exist post-migration"). The clone
+      //    inherits EVERY role of a multi-role source, in source order.
       // ---------------------------------------------------------------------
-      let sourceRole: string;
+      let sourceRoles: string[];
       try {
-        sourceRole = await resolveRoleForIdentity(conn, sourceIdentityKey);
+        sourceRoles = await resolveRolesForIdentity(conn, sourceIdentityKey);
       } catch (err) {
         databaseLogger.error(
           "identity-clone: source has no role frontmatter",
@@ -674,7 +680,7 @@ router.post(
       //     write atomically via SFTP tmp+rename (Pitfall 3 discipline).
       //     Body shape (REVISION 2026-08-04):
       //       ---
-      //       role: <sourceRole>
+      //       roles: [<sourceRoles>]
       //       ---
       //
       //       <SEED COMMENT>
@@ -782,7 +788,9 @@ router.post(
       // birth-orchestrator.ts:L571). stringifyColorHueForYaml only inspects
       // the colorHue key, so widening is byte-shape neutral for pre-129 fields.
       const cloneFrontmatterPairs: Array<[string, string | number | string[]]> = [];
-      cloneFrontmatterPairs.push(["role", sourceRole]);
+      // roles: is NOT pushed here — it is written by hand as the first
+      // frontmatter line (flow form `roles: [a, b]`, mirroring
+      // buildIdentityFileBody) after the dump below.
       cloneFrontmatterPairs.push(["displayName", cloneDisplayName]);
       if (title.length > 0) {
         cloneFrontmatterPairs.push(["title", title]);
@@ -825,7 +833,7 @@ router.post(
         },
       );
       const identityFileMarkdown =
-        `---\n${cloneYamlBody}---\n\n# ${newName}\n\n(cloned from ${sourceIdentityKey})\n`;
+        `---\nroles: [${sourceRoles.join(", ")}]\n${cloneYamlBody}---\n\n# ${newName}\n\n(cloned from ${sourceIdentityKey})\n`;
       const targetPath = `${remoteHome}/fleet/identities/${newName}/${newName}.md`;
       try {
         await writeMarkdownFileAtomic(conn, targetPath, identityFileMarkdown);
@@ -899,7 +907,8 @@ router.post(
         const { markdown: writtenMd } = await readIdentityFile(conn, newName);
         const cosmetics = extractCosmeticsFromFrontmatter(writtenMd);
         const role = extractRoleFromMarkdown(writtenMd);
-        res.status(201).json(publicIdentity(newName, hostId, cosmetics, role));
+        const roles = extractRolesFromMarkdown(writtenMd);
+        res.status(201).json(publicIdentity(newName, hostId, cosmetics, role, roles));
       } catch (reReadErr) {
         // Disk write succeeded (we reached this point), so return safe-defaults.
         // Frontend gets safe-default cosmetics; next GET / fanout picks up the
@@ -910,7 +919,15 @@ router.post(
           newName,
           error: reReadErr instanceof Error ? reReadErr.message : "Unknown",
         });
-        res.status(201).json(publicIdentity(newName, hostId, {}, sourceRole));
+        res.status(201).json(
+          publicIdentity(
+            newName,
+            hostId,
+            {},
+            sourceRoles.length === 1 ? sourceRoles[0] : null,
+            sourceRoles,
+          ),
+        );
       }
       }); // end getHostSemaphore(hostId).run(...)
     } finally {

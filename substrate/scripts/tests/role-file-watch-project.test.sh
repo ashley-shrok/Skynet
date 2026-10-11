@@ -112,7 +112,7 @@ seed_fixture() {
 }
 
 write_identity() {
-  local project_line="$1" fm="role: rolex"
+  local project_line="$1" fm="roles: rolex"
   [ -n "$project_line" ] && fm="$fm
 $project_line"
   printf -- '---\n%s\ntask: t\n---\n\n# %s\n' "$fm" "$NAME" > "$IDENT_MD.tmp"

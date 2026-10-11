@@ -391,7 +391,7 @@ describe("peer-commit script content", () => {
     );
     expect(idFileMatch).not.toBeNull();
     const decoded = Buffer.from(idFileMatch![1], "base64").toString("utf-8");
-    expect(decoded).toContain("role: box-maintainer");
+    expect(decoded).toContain("roles: [box-maintainer]");
     expect(decoded).toContain("displayName: Testkey");
     // # heading at the tail
     expect(decoded).toMatch(/#\s+testkey/i);
