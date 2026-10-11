@@ -1733,6 +1733,55 @@ describe("conversation-store (Plan 07-02): RDP row emission", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Test 31b: an open RDP tab stays in the RDP section
+// ─────────────────────────────────────────────────────────────────────────────
+describe("conversation-store: open RDP tab stays in the RDP section", () => {
+  it("absorbs the open RDP tab into its host's RDP row instead of middle", () => {
+    const hostA = makeHost("1", "hostA", { enableRdp: true });
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateHostsFlat(new Map<number, Host>([[1, hostA]]));
+      updateOpenTabs([makeTab("rdp-tab-1", "rdp", hostA)]);
+    });
+    const snap = __getSnapshotForTest();
+    expect(snap.middle.map((r) => r.id)).not.toContain("rdp-tab-1");
+    expect(snap.rdpGroup!.rows.map((r) => r.id)).toEqual(["rdp-tab-1"]);
+    expect(snap.rdpGroup!.rows[0].rdpHostRow).toBe(true);
+    expect(snap.rdpGroup!.rows[0].rdpTabOpen).toBe(true);
+  });
+
+  it("reverts the RDP row to its host id once the tab closes", () => {
+    const hostA = makeHost("1", "hostA", { enableRdp: true });
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateHostsFlat(new Map<number, Host>([[1, hostA]]));
+      updateOpenTabs([makeTab("rdp-tab-1", "rdp", hostA)]);
+    });
+    act(() => {
+      updateOpenTabs([]);
+    });
+    const row = __getSnapshotForTest().rdpGroup!.rows[0];
+    expect(row.id).toBe("rdp-host::1");
+    expect(row.rdpTabOpen).toBeUndefined();
+  });
+
+  it("keeps extra RDP tabs for the same host in middle so none go missing", () => {
+    const hostA = makeHost("1", "hostA", { enableRdp: true });
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateHostsFlat(new Map<number, Host>([[1, hostA]]));
+      updateOpenTabs([
+        makeTab("rdp-tab-1", "rdp", hostA),
+        makeTab("rdp-tab-2", "rdp", hostA),
+      ]);
+    });
+    const snap = __getSnapshotForTest();
+    expect(snap.rdpGroup!.rows.map((r) => r.id)).toEqual(["rdp-tab-2"]);
+    expect(snap.middle.map((r) => r.id)).toEqual(["rdp-tab-1"]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Test 32: RDP rows appear AFTER all openTabs + fleet HostGroups
 // ─────────────────────────────────────────────────────────────────────────────
 describe("conversation-store (Plan 07-02): RDP row placement at BOTTOM", () => {

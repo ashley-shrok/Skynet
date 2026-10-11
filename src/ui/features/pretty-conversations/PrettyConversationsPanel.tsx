@@ -1443,7 +1443,8 @@ export function PrettyConversationsPanel({
   // Row-click dispatcher — VERBATIM behavior from ConversationsPanel.tsx
   // lines 153-183 MINUS the [F3-diag] diagnostic spew (patch #111e retired
   // in Wave 4). Priority order:
-  //   1. `row.rdpHostRow` → onRdpRowClick (openTab host, "rdp")
+  //   1. `row.rdpHostRow` → onRdpRowClick (openTab host, "rdp"), unless its
+  //      RDP tab is already open (`rdpTabOpen`) → default select below
   //   2. `row.fleetOnly`  → onDetachedRowClick (openTab host, "terminal", …)
   //   3. default          → selectConversation(row.id)
   // All branches fire onConversationSelected so the mobile list→view
@@ -1458,7 +1459,7 @@ export function PrettyConversationsPanel({
     //  affordance, an archived row won't have a context menu at all (D-06),
     //  so the click path doesn't need special handling for it.)
     addToActiveSet(row.id);
-    if (row.rdpHostRow && onRdpRowClick) {
+    if (row.rdpHostRow && !row.rdpTabOpen && onRdpRowClick) {
       onRdpRowClick(row);
       onConversationSelected?.(row.id);
       return;

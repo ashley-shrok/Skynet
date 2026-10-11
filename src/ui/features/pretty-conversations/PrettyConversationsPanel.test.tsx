@@ -193,6 +193,7 @@ type MockRow = {
   targetTmuxSession: string | null;
   fleetOnly?: boolean;
   rdpHostRow?: boolean;
+  rdpTabOpen?: boolean;
 };
 
 type MockGroup = {
@@ -1695,6 +1696,41 @@ describe("PrettyConversationsPanel: row-click routing (RDP)", () => {
     expect(onRdpRowClick.mock.calls[0][0].id).toBe("r1");
     expect(onDetachedRowClick).not.toHaveBeenCalled();
     expect(selectConversationSpy).not.toHaveBeenCalled();
+  });
+
+  it("clicking an RDP row whose tab is already open selects that tab instead of opening another", () => {
+    const rdpHost = makeHost("h2", "WINDOWS-PC", { enableRdp: true });
+    const rdpRow = makeConversationRow({
+      id: "rdp-tab-1",
+      label: "WINDOWS-PC",
+      host: rdpHost,
+      rdpHostRow: true,
+      rdpTabOpen: true,
+      targetTmuxSession: null,
+    });
+    setSnapshot({
+      pinned: [],
+      grouped: [{ hostId: "__rdp__", hostName: "", rows: [rdpRow] }],
+    });
+
+    const onRdpRowClick = vi.fn();
+
+    const { container } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        onRdpRowClick={onRdpRowClick}
+        onDeactivateRow={() => {}}
+      />,
+    );
+
+    const wrapper = container.querySelector(
+      '[data-conversation-id="rdp-tab-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.click(body);
+
+    expect(onRdpRowClick).not.toHaveBeenCalled();
+    expect(selectConversationSpy).toHaveBeenCalledWith("rdp-tab-1");
   });
 });
 

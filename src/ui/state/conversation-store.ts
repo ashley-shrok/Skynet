@@ -103,6 +103,11 @@ export type ConversationRow = {
   // AppShell → openTab(host, "rdp"). Never present on openTabs-derived rows
   // or fleet-only rows.
   rdpHostRow?: boolean;
+  // Set on an `rdpHostRow` when an RDP tab for that host is open. The row then
+  // carries the tab's id (so selection + split-tree glow match it) and a click
+  // focuses that tab instead of opening another. The open tab itself never
+  // emits a row in pinned/middle — it stays in the RDP section.
+  rdpTabOpen?: boolean;
   // Phase 25 (Plan 25-02): identity role resolved from identity file frontmatter
   // at row-construction time. Used as the middle sort key in compareByHostRoleLabel
   // (host outer, role middle, label inner). Deliberately OMITTED (not set to null)
@@ -837,7 +842,21 @@ const compareByRecencyDesc = (
 };
 
 function computeSnapshot(): ConversationList {
-  const conversationTabs = state.openTabs.filter(isConversationTab);
+  // RDP tabs on RDP-enabled hosts are represented by that host's row in the
+  // RDP section (see rdpRows below), not as their own row in pinned/middle.
+  // Later tabs win, so the row tracks the most recently opened RDP tab.
+  const openRdpTabByHostId = new Map<number, Tab>();
+  for (const tab of state.openTabs) {
+    if (tab.type !== "rdp" || !tab.host) continue;
+    const hostId = Number(tab.host.id);
+    if (state.hostsFlat.get(hostId)?.enableRdp !== true) continue;
+    openRdpTabByHostId.set(hostId, tab);
+  }
+  const conversationTabs = state.openTabs.filter(
+    (tab) =>
+      isConversationTab(tab) &&
+      !(tab.host && openRdpTabByHostId.get(Number(tab.host.id)) === tab),
+  );
 
   // Build a (hostId, sessionName) → role Map from fleet sessions FIRST so rowFromTab
   // can prefer fleet-authoritative role (resolved on the identity's home box via same
@@ -1092,6 +1111,21 @@ function computeSnapshot(): ConversationList {
   // them per patch #137 contract, and the tier loops above only iterate
   // conversationTabs + fleetSyntheticRows. rdpRows is a separate synthesized
   // list that never joins those sets.
+  const buildRdpHostRow = (host: Host): ConversationRow => {
+    const rdpRowId = `rdp-host::${host.id}`;
+    const lastMessageAt = resolveLastMessageAt(rdpRowId, host, null);
+    const openTab = openRdpTabByHostId.get(Number(host.id));
+    return {
+      id: openTab ? openTab.id : rdpRowId,
+      type: "rdp",
+      label: host.name,
+      host,
+      targetTmuxSession: null,
+      rdpHostRow: true,
+      ...(openTab ? { rdpTabOpen: true } : {}),
+      ...(lastMessageAt !== null ? { lastMessageAt } : {}),
+    };
+  };
   const rdpRows: ConversationRow[] = [];
   const rdpEmittedHostIds = new Set<number>();
   // Hosts in hostTree order first
@@ -1102,17 +1136,7 @@ function computeSnapshot(): ConversationList {
     if (!host) continue;
     if (host.enableRdp !== true) continue; // strict check per T-07-02-01
     {
-      const rdpRowId = `rdp-host::${host.id}`;
-      const lastMessageAt = resolveLastMessageAt(rdpRowId, host, null);
-      rdpRows.push({
-        id: rdpRowId,
-        type: "rdp",
-        label: host.name,
-        host,
-        targetTmuxSession: null,
-        rdpHostRow: true,
-        ...(lastMessageAt !== null ? { lastMessageAt } : {}),
-      });
+      rdpRows.push(buildRdpHostRow(host));
     }
     rdpEmittedHostIds.add(numericId);
   }
@@ -1121,17 +1145,7 @@ function computeSnapshot(): ConversationList {
   for (const [numericId, host] of state.hostsFlat) {
     if (rdpEmittedHostIds.has(numericId)) continue;
     if (host.enableRdp !== true) continue;
-    const rdpRowId = `rdp-host::${host.id}`;
-    const lastMessageAt = resolveLastMessageAt(rdpRowId, host, null);
-    rdpRows.push({
-      id: rdpRowId,
-      type: "rdp",
-      label: host.name,
-      host,
-      targetTmuxSession: null,
-      rdpHostRow: true,
-      ...(lastMessageAt !== null ? { lastMessageAt } : {}),
-    });
+    rdpRows.push(buildRdpHostRow(host));
   }
   rdpRows.sort(compareByHostRoleLabel);
   // Phase 41 (Plan 01): rdpGroup is `null` iff zero RDP-eligible hosts exist.
