@@ -3210,24 +3210,37 @@ export function AppShell({
   // Phase 11 Plan 03: handleRailClick + editHostInManager RETIRED — the rail
   // is gone, HostsPanel is gone, no consumers remain.
 
-  const onSidebarMouseDown = useCallback(
-    (e: React.MouseEvent) => {
+  // Pointer capture pins every move/up event to the handle until release, so
+  // the drag keeps tracking when the cursor outruns the sidebar edge — even
+  // over iframes (app panes, widget bubbles, file viewers) or handlers that
+  // stop propagation, which a plain window mousemove listener never sees.
+  const onSidebarPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (e.button !== 0) return;
       e.preventDefault();
+      const handle = e.currentTarget;
+      const pointerId = e.pointerId;
+      handle.setPointerCapture(pointerId);
       setSidebarDragging(true);
       const startX = e.clientX;
       const startW = sidebarWidth;
-      function onMove(ev: MouseEvent) {
+      function onMove(ev: PointerEvent) {
         setSidebarWidth(
           Math.max(160, Math.min(480, startW + ev.clientX - startX)),
         );
       }
-      function onUp() {
+      function onEnd() {
         setSidebarDragging(false);
-        window.removeEventListener("mousemove", onMove);
-        window.removeEventListener("mouseup", onUp);
+        handle.removeEventListener("pointermove", onMove);
+        handle.removeEventListener("pointerup", onEnd);
+        handle.removeEventListener("lostpointercapture", onEnd);
+        if (handle.hasPointerCapture(pointerId)) {
+          handle.releasePointerCapture(pointerId);
+        }
       }
-      window.addEventListener("mousemove", onMove);
-      window.addEventListener("mouseup", onUp);
+      handle.addEventListener("pointermove", onMove);
+      handle.addEventListener("pointerup", onEnd);
+      handle.addEventListener("lostpointercapture", onEnd);
     },
     [sidebarWidth],
   );
@@ -3791,7 +3804,7 @@ export function AppShell({
 
             {sidebarOpen && !sidebarEditing && (
               <div
-                onMouseDown={onSidebarMouseDown}
+                onPointerDown={onSidebarPointerDown}
                 className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize z-30 transition-colors ${sidebarDragging ? "bg-[hsla(var(--pv-hue,35),55%,50%,0.6)]" : "hover:bg-[hsla(var(--pv-hue,35),55%,50%,0.4)]"}`}
               />
             )}
