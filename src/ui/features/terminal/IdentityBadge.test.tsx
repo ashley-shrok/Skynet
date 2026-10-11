@@ -673,3 +673,54 @@ describe("IdentityBadge — project breadcrumb", () => {
     ).toBeNull();
   });
 });
+
+describe("IdentityBadge — role line", () => {
+  const useIdentitiesMock = vi.mocked(useIdentities);
+  const renderWith = (overrides: Partial<Identity>) => {
+    const identity = { ...FIXTURE, ...overrides } as Identity;
+    useIdentitiesMock.mockReturnValue({
+      identities: [identity],
+      byKey: new Map([["tina", identity]]),
+      loaded: true,
+      refresh: vi.fn(),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+    render(<IdentityBadge identityKey="tina" />);
+    return screen.queryByTestId("pv-identity-role-line");
+  };
+
+  it("shows the identity's own title when set", () => {
+    expect(renderWith({ title: "Session coordinator", role: "orchestrator" })?.textContent).toBe(
+      "Session coordinator",
+    );
+  });
+
+  it("falls back to the role's displayName when the wire title is empty", () => {
+    expect(
+      renderWith({
+        title: null,
+        role: "box-maintainer",
+        roles: ["box-maintainer"],
+        roleDefaults: { displayName: "Skynet" },
+      })?.textContent,
+    ).toBe("Skynet");
+  });
+
+  it("falls back to the title-cased slug for a role with no displayName", () => {
+    expect(
+      renderWith({ title: null, role: "general-purpose", roles: ["general-purpose"], roleDefaults: {} })
+        ?.textContent,
+    ).toBe("General Purpose");
+  });
+
+  it("lists every role for a multi-role identity", () => {
+    expect(
+      renderWith({ title: null, role: null, roles: ["box-maintainer", "sky-uat"], roleDefaults: null })
+        ?.textContent,
+    ).toBe("Box Maintainer, Sky Uat");
+  });
+
+  it("renders no role line when there is no title and no role", () => {
+    expect(renderWith({ title: null, role: null, roles: [] })).toBeNull();
+  });
+});
