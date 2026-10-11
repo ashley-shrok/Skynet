@@ -323,38 +323,42 @@ export async function generateAvatarImages(
     const archController = new AbortController();
     const archTimeout = setTimeout(() => archController.abort(), ARCHETYPE_TIMEOUT_MS);
 
-    const archRes = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: [
-          { role: "system", content: directorSpec },
-          {
-            role: "user",
-            content: `Name: ${name}\nTitle: ${title}\nBrief: ${brief}${paletteHueLine(paletteHue)}\n\n${distinctPromptsInstruction(count)}`,
-          },
-        ],
-      }),
-      signal: archController.signal,
-    });
+    // The timeout stays armed through the body read (json()) — a stalled
+    // body would otherwise hang with no bound.
+    try {
+      const archRes = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          messages: [
+            { role: "system", content: directorSpec },
+            {
+              role: "user",
+              content: `Name: ${name}\nTitle: ${title}\nBrief: ${brief}${paletteHueLine(paletteHue)}\n\n${distinctPromptsInstruction(count)}`,
+            },
+          ],
+        }),
+        signal: archController.signal,
+      });
 
-    clearTimeout(archTimeout);
+      if (!archRes.ok) {
+        return GENERATION_FAILED;
+      }
 
-    if (!archRes.ok) {
-      return GENERATION_FAILED;
+      const archData = (await archRes.json()) as {
+        choices: Array<{ message: { content: string } }>;
+      };
+      draftedPrompts = parseDraftedPrompts(
+        archData.choices[0].message.content,
+        count,
+      );
+    } finally {
+      clearTimeout(archTimeout);
     }
-
-    const archData = (await archRes.json()) as {
-      choices: Array<{ message: { content: string } }>;
-    };
-    draftedPrompts = parseDraftedPrompts(
-      archData.choices[0].message.content,
-      count,
-    );
   } catch {
     return GENERATION_FAILED;
   }
@@ -385,14 +389,15 @@ export async function generateAvatarImages(
           signal: imgController.signal,
         });
 
-        clearTimeout(imgTimeout);
-
-        if (!imgRes.ok) {
-          throw new Error(`image-gen non-2xx: ${imgRes.status}`);
+        try {
+          if (!imgRes.ok) {
+            throw new Error(`image-gen non-2xx: ${imgRes.status}`);
+          }
+          const imgData = (await imgRes.json()) as { data: Array<{ b64_json: string }> };
+          return imgData.data[0].b64_json;
+        } finally {
+          clearTimeout(imgTimeout);
         }
-
-        const imgData = (await imgRes.json()) as { data: Array<{ b64_json: string }> };
-        return imgData.data[0].b64_json;
       }),
     );
     b64Results = imageGenResults;

@@ -15,6 +15,11 @@
  *
  * Identity births hold a global birth-throttle slot; role creation doesn't
  * (no Matrix account, no tmux session), so this path skips it.
+ *
+ * The queue is serial and shared with identity births, so the whole request
+ * is bounded by ROLE_REQUEST_TIMEOUT_MS. On timeout the worker answers with a
+ * failure and moves on; the abandoned attempt may still finish, but its
+ * response is suppressed so the requester never sees two answers.
  */
 
 import { systemLogger } from "../utils/logger.js";
@@ -39,6 +44,12 @@ import type { PendingBirth, RoleSuccessResponse } from "./types.js";
  */
 export const DEFAULT_ROLE_VOICE = "Danielle";
 
+/**
+ * Wall-clock cap on one role request: avatar draft (30s) + render (60s) +
+ * SSH provisioning, with headroom.
+ */
+export const ROLE_REQUEST_TIMEOUT_MS = 4 * 60 * 1000;
+
 export interface RoleWorkerDeps {
   connectOneShot: typeof connectOneShot;
   writeMarkdownFileAtomic: typeof writeMarkdownFileAtomic;
@@ -50,6 +61,7 @@ export interface RoleWorkerDeps {
   isLocalHostId: (hostId: number) => boolean;
   randomHue: () => number;
   now: () => Date;
+  timeoutMs: number;
 }
 
 export function buildProductionRoleWorkerDeps(): RoleWorkerDeps {
@@ -64,6 +76,7 @@ export function buildProductionRoleWorkerDeps(): RoleWorkerDeps {
     isLocalHostId,
     randomHue: () => Math.floor(Math.random() * 360),
     now: () => new Date(),
+    timeoutMs: ROLE_REQUEST_TIMEOUT_MS,
   };
 }
 
@@ -71,8 +84,60 @@ export const processRoleRequest = async (
   item: PendingBirth,
   deps: RoleWorkerDeps,
 ): Promise<void> => {
-  const request = item.roleRequest;
-  if (!request) return;
+  if (!item.roleRequest) return;
+
+  const state = { timedOut: false };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<"timeout">((resolve) => {
+    timer = setTimeout(() => resolve("timeout"), deps.timeoutMs);
+  });
+  try {
+    const outcome = await Promise.race([
+      doRoleRequest(item, deps, state).then(() => "done" as const),
+      timeout,
+    ]);
+    if (outcome === "timeout") {
+      state.timedOut = true;
+      systemLogger.warn("role-request worker: timed out — abandoning attempt", {
+        operation: "role_request_timeout",
+        uuid: item.uuid,
+        hostId: item.hostIdNum,
+        timeoutMs: deps.timeoutMs,
+      });
+      await writeFailureFile(item, deps, {
+        reason: "role_create_failed",
+        message:
+          "timed out — the role may still have been created; check ~/fleet/roles/ before retrying",
+      });
+    }
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+const doRoleRequest = async (
+  item: PendingBirth,
+  deps: RoleWorkerDeps,
+  state: { timedOut: boolean },
+): Promise<void> => {
+  const request = item.roleRequest!;
+
+  // After a timeout the requester already has its answer; a late finish
+  // only logs.
+  const respond = async (
+    write: () => Promise<void>,
+    outcome: string,
+  ): Promise<void> => {
+    if (state.timedOut) {
+      systemLogger.warn("role-request worker: finished after timeout — response suppressed", {
+        operation: "role_request_late_finish",
+        uuid: item.uuid,
+        outcome,
+      });
+      return;
+    }
+    await write();
+  };
 
   systemLogger.info("role-request worker: processing", {
     operation: "role_request_worker_start",
@@ -85,7 +150,13 @@ export const processRoleRequest = async (
   // The scan already validated the name; re-derive for the slug.
   const nameCheck = validateRoleDisplayName(request.name);
   if (nameCheck.ok === false) {
-    await writeFailureFile(item, deps, { reason: "malformed", message: nameCheck.error });
+    await respond(
+      () => writeFailureFile(item, deps, {
+        reason: "malformed",
+        message: nameCheck.error.replace(/^displayName/, "name"),
+      }),
+      "failure",
+    );
     return;
   }
 
@@ -93,10 +164,10 @@ export const processRoleRequest = async (
   // Null means the host vanished between scan and drain.
   const ownerUserId = await deps.getHostOwnerUserId(item.hostIdNum);
   if (!ownerUserId) {
-    await writeFailureFile(item, deps, {
+    await respond(() => writeFailureFile(item, deps, {
       reason: "role_create_failed",
       message: "host is no longer registered",
-    });
+    }), "failure");
     return;
   }
 
@@ -121,7 +192,7 @@ export const processRoleRequest = async (
         status: generated.status,
         error: generated.error,
       });
-      await writeFailureFile(item, deps, { reason: "avatar_failed", message: generated.error });
+      await respond(() => writeFailureFile(item, deps, { reason: "avatar_failed", message: generated.error }), "failure");
       return;
     }
     const image = generated.images[0];
@@ -137,7 +208,7 @@ export const processRoleRequest = async (
       uuid: item.uuid,
       error: message,
     });
-    await writeFailureFile(item, deps, { reason: "avatar_failed", message });
+    await respond(() => writeFailureFile(item, deps, { reason: "avatar_failed", message }), "failure");
     return;
   }
 
@@ -208,7 +279,7 @@ export const processRoleRequest = async (
   }
 
   if (createdName === null) {
-    await writeFailureFile(item, deps, { reason: "role_create_failed" });
+    await respond(() => writeFailureFile(item, deps, { reason: "role_create_failed" }), "failure");
     return;
   }
 
@@ -222,5 +293,8 @@ export const processRoleRequest = async (
     hostId: item.hostIdNum,
     name: createdName,
   });
-  await writeResponseFile(item, deps, "success", JSON.stringify(success, null, 2));
+  await respond(
+    () => writeResponseFile(item, deps, "success", JSON.stringify(success, null, 2)),
+    "success",
+  );
 };

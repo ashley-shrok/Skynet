@@ -165,6 +165,7 @@ function makeDeps(overrides: Partial<RoleWorkerDeps> = {}): RoleWorkerDeps & {
     isLocalHostId: vi.fn(() => true),
     randomHue: () => 123,
     now: () => new Date("2026-10-11T01:02:03Z"),
+    timeoutMs: 60_000,
     ...overrides,
   };
   return Object.assign(deps, { writes });
@@ -259,5 +260,28 @@ describe("processRoleRequest", () => {
     });
     await processRoleRequest(makeItem(), deps);
     expect(JSON.parse(deps.writes[0].body).name).toBe("garden-keeper-2");
+  });
+
+  it("answers with a failure on timeout and suppresses the late success", async () => {
+    let finishCreate: () => void = () => {};
+    const deps = makeDeps({
+      timeoutMs: 20,
+      createRoleOnHost: vi.fn(
+        () =>
+          new Promise((resolve) => {
+            finishCreate = () => resolve({ ok: true as const, name: "garden-keeper", cosmetics: {} });
+          }),
+      ),
+    });
+    await processRoleRequest(makeItem(), deps);
+    expect(deps.writes).toHaveLength(1);
+    expect(JSON.parse(deps.writes[0].body)).toMatchObject({
+      reason: "role_create_failed",
+      message: expect.stringMatching(/timed out/),
+    });
+
+    finishCreate();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(deps.writes).toHaveLength(1);
   });
 });

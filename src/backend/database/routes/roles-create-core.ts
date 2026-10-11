@@ -170,6 +170,32 @@ async function chownToFleetOwner(paths: string[], logCtx: Record<string, unknown
   }
 }
 
+/**
+ * Remove a role folder this call created, after a later step failed — a
+ * half-made role (no file, or a file naming a missing avatar) would sit in
+ * the roles list and push a retry onto `-2`. Best-effort.
+ */
+async function removeCreatedRoleDir(
+  conn: Conn | null,
+  name: string,
+  logCtx: Record<string, unknown>,
+): Promise<void> {
+  try {
+    if (conn === null) {
+      await fs.rm(path.join(getLocalRolesRoot(), name), { recursive: true, force: true });
+    } else {
+      await execWithTimeout(conn, `rm -rf "$HOME/fleet/roles/${name}"`);
+    }
+  } catch (err) {
+    sshLogger.warn("roles-create: cleanup of half-made role folder failed", {
+      operation: "roles_create_cleanup",
+      ...logCtx,
+      name,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
 export function buildRoleStubMarkdown(
   name: string,
   description: string,
@@ -212,7 +238,11 @@ export async function createRoleOnHost(
       return { ok: false, error: "exec_failed" };
     }
   } else {
-    await fs.mkdir(getLocalRolesRoot(), { recursive: true }).catch(() => {});
+    const rolesRoot = getLocalRolesRoot();
+    if (!(await pathExists(rolesRoot))) {
+      await fs.mkdir(rolesRoot, { recursive: true }).catch(() => {});
+      await chownToFleetOwner([rolesRoot], logCtx);
+    }
   }
 
   let name = baseSlug;
@@ -266,6 +296,7 @@ export async function createRoleOnHost(
         ...logCtx,
         error: err instanceof Error ? err.message : "Unknown",
       });
+      await removeCreatedRoleDir(conn, name, logCtx);
       return { ok: false, error: "exec_failed" };
     }
   }
@@ -293,6 +324,7 @@ export async function createRoleOnHost(
       err instanceof Error ? err : new Error(String(err)),
       { operation: "roles_create_sftp_write", ...logCtx, name, targetPath, branch },
     );
+    await removeCreatedRoleDir(conn, name, logCtx);
     return { ok: false, error: "write_failed" };
   }
 
@@ -320,6 +352,7 @@ export async function createRoleOnHost(
           branch,
         },
       );
+      await removeCreatedRoleDir(conn, name, logCtx);
       return { ok: false, error: "avatar_write_failed" };
     }
   }

@@ -96,4 +96,28 @@ describe("createRoleOnHost (local)", () => {
     const md = await fs.readFile(path.join(rolesDir, "x-role", "x-role.md"), "utf-8");
     expect(frontmatterOf(md).users).toEqual(["Ashley"]);
   });
+
+  it("removes the folder when the avatar write fails", async () => {
+    const realWriteFile = fs.writeFile;
+    const spy = vi.spyOn(fs, "writeFile").mockImplementation(async (p, data, opts) => {
+      if (String(p).endsWith(".webp")) throw new Error("disk full");
+      return realWriteFile(p, data, opts as Parameters<typeof fs.writeFile>[2]);
+    });
+    try {
+      const result = await createRoleOnHost(
+        null,
+        {
+          baseSlug: "garden-keeper",
+          displayName: "Garden Keeper",
+          description: "d",
+          avatar: { ext: "webp", bytes: Buffer.from("img") },
+        },
+        LOG,
+      );
+      expect(result).toEqual({ ok: false, error: "avatar_write_failed" });
+      expect(await fs.readdir(rolesDir)).toEqual([]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });

@@ -1243,7 +1243,7 @@ Write to `<uuid>.json.tmp`, then `mv` to `<uuid>.json`. **Never
 pretty-print** — the watcher reads one line per file and any newline in
 the body corrupts parsing.
 
-    UUID=$(uuidgen); TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    UUID=$(uuidgen); export TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     export TASK='<short task pill, ≤500 chars>'
     export PROMPT='<full instructions the fresh actor receives via /id load>'
     export ROLE='<role slug>'
@@ -1302,7 +1302,7 @@ All fields below; anything else is rejected as malformed.
 
 Same atomic single-line write as spawning:
 
-    UUID=$(uuidgen); TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    UUID=$(uuidgen); export TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     export NAME='<display name>'
     export DESC='<what the role is for>'
     python3 -c "import json, os; print(json.dumps({'kind': 'role', 'name': os.environ['NAME'], 'description': os.environ['DESC'], 'requested_at': os.environ['TS']}, separators=(',', ':')))" \
@@ -1317,9 +1317,11 @@ Same atomic single-line write as spawning:
   `malformed`, `avatar_failed` (nothing was created — safe to retry
   once), `role_create_failed`.
 
-Avatar generation takes a while; allow ~3 minutes before treating it as
-lost. On failure, surface to the user. Do NOT hand-create the folder as a
-fallback.
+Avatar generation takes a while; allow ~5 minutes before treating it as
+lost. On failure, surface to the user. Before any retry after a timeout or
+a `role_create_failed`, check `~/fleet/roles/` — the role may already
+exist, and a retry would make a second one. Do NOT hand-create the folder
+as a fallback.
 
 ---
 
