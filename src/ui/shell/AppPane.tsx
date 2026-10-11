@@ -1,9 +1,16 @@
 import type { DragEvent as ReactDragEvent, ReactElement } from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, RotateCw } from "lucide-react";
 
+import { buildAppMenuItems } from "@/features/pretty-conversations/app-menu-items";
+import {
+  RowKebabMenu,
+  useRowKebabContextMenu,
+  type RowKebabMenuItem,
+} from "@/features/pretty-conversations/RowKebabMenu";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { systemLogger } from "@/lib/frontend-logger";
+import { encodeWorkspaceSpec, specForTab } from "@/lib/tab-url";
 import { useAppTiles } from "@/state/app-tiles-store";
 import {
   EMPTY_FRAME_HISTORY,
@@ -105,6 +112,13 @@ import { subscribeDragSessionEnd } from "./drag-preview-session";
 // The bar shows the app's static title (sidebar tile metadata), never the
 // app's live document.title. The only thing read from the frame is its
 // current address, to keep the page list.
+//
+// Bar menu (2026-10-11): a ⋮ kebab at the bar's right end, and right-click on
+// the bar, open the same RowKebabMenu an IdentityBadge has. Items: Move to new
+// window (desktop) → Open in new tab → Rename… → Close (desktop) → Archive.
+// The app actions come from buildAppMenuItems, shared with the sidebar tile,
+// so both surfaces stay identical. Right-click inside the app itself is the
+// app's own (separate document) and never reaches the bar.
 
 // ─── Chrome auto-rendered-viewer dark-mode injection ──────────────────────
 // When an app route returns Content-Type: application/json or text/plain,
@@ -198,6 +212,10 @@ export interface AppPaneProps {
   label?: string;
   /** Clicking the bar selects this pane (split focus). */
   onSelectPane?: (tabId: string) => void;
+  /** Bar menu's Close / Move to new window tear this pane down. */
+  onCloseTab?: (tabId: string) => void;
+  /** Bar menu's Archive — closes every open pane for this app. */
+  onArchiveApp?: (hostId: number, slug: string, title: string) => void;
 }
 
 export function AppPane({
@@ -208,6 +226,8 @@ export function AppPane({
   isVisible,
   label,
   onSelectPane,
+  onCloseTab,
+  onArchiveApp,
 }: AppPaneProps): ReactElement {
   // isVisible is honoured by the parent Pane one layer up — matches
   // GuacamoleApp integration (parent manages visibility via CSS
@@ -227,6 +247,49 @@ export function AppPane({
     setIconFailed(false);
   }, [iconUrl]);
   const showIcon = tile?.hasIcon === true && !iconFailed;
+
+  // Bar menu (see § Bar menu above).
+  const menuItems = useMemo<RowKebabMenuItem[]>(() => {
+    const app = buildAppMenuItems({ hostId: String(hostId), slug, title }, onArchiveApp);
+    const items: RowKebabMenuItem[] = [];
+    // Desktop-only — mobile has no multi-window story.
+    if (!isMobile) {
+      const spec = specForTab({ type: "app", app: { hostId, slug } });
+      if (spec !== null) {
+        items.push({
+          label: "Move to new window",
+          testId: "app-pane-menu-move-new-window",
+          onClick: () => {
+            const w = window.open(
+              "#" + encodeWorkspaceSpec({ tabs: [spec], activeIndex: 0, only: true }),
+              "_blank",
+            );
+            systemLogger.info("[app-bar-menu] move to new window", {
+              operation: "app_bar_menu_move_window",
+              tabId,
+              hostId,
+              slug,
+              opened: w !== null,
+            });
+            // Popup blocked → keep the pane rather than lose it.
+            if (w !== null) onCloseTab?.(tabId);
+          },
+        });
+      }
+    }
+    items.push(app.openInNewTab, app.rename);
+    // Desktop-only: on a phone the pane IS the screen.
+    if (!isMobile && onCloseTab) {
+      items.push({
+        label: "Close",
+        testId: "app-pane-menu-close",
+        onClick: () => onCloseTab(tabId),
+      });
+    }
+    items.push(app.archive);
+    return items;
+  }, [hostId, slug, title, tabId, isMobile, onCloseTab, onArchiveApp]);
+  const barContextMenu = useRowKebabContextMenu(menuItems);
 
   // Page list for back/forward (see § App bar above).
   const historyRef = useRef<FrameHistory>(EMPTY_FRAME_HISTORY);
@@ -421,6 +484,7 @@ export function AppPane({
         }}
         onDragStart={isDragSource ? onBarDragStart : undefined}
         onClick={() => onSelectPane?.(tabId)}
+        onContextMenu={barContextMenu.onContextMenu}
         className={`relative z-[1] grid flex-none items-center gap-2 px-2 select-none [-webkit-touch-callout:none] ${
           isDragSource ? "cursor-grab active:cursor-grabbing" : ""
         }`}
@@ -499,6 +563,14 @@ export function AppPane({
             {title}
           </span>
         </div>
+        <div className="justify-self-end flex items-center" data-testid="app-pane-kebab-slot">
+          <RowKebabMenu
+            items={menuItems}
+            ariaLabel={`${title} menu`}
+            testId="app-pane-kebab-trigger"
+          />
+        </div>
+        {barContextMenu.menu}
       </div>
       <iframe
         ref={iframeRef}

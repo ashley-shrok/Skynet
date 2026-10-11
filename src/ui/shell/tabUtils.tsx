@@ -363,6 +363,8 @@ type RendererDeps = {
   // shape-app-pane-strip: clicking an app pane's bar selects that pane
   // (split focus). Optional — absent means the bar click is a no-op.
   onSelectPane?: (tabId: string) => void;
+  // App pane bar menu's Archive — closes every open pane for the app.
+  onArchiveApp?: (hostId: number, slug: string, title: string) => void;
 };
 
 type Renderer = (tab: Tab, deps: RendererDeps) => ReactNode;
@@ -444,6 +446,8 @@ const renderAppTab: Renderer = (tab, deps) => {
       isVisible={deps.isVisible}
       label={tab.label}
       onSelectPane={deps.onSelectPane}
+      onCloseTab={deps.onCloseTab}
+      onArchiveApp={deps.onArchiveApp}
     />
   );
 };
@@ -484,6 +488,7 @@ export function renderTabContent(
   // fallbackVoice speak-flow resolution chain in PrettyView.
   userPrefs?: UserPreferences,
   onSelectPane?: (tabId: string) => void,
+  onArchiveApp?: (hostId: number, slug: string, title: string) => void,
 ) {
   return RENDERERS[tab.type](tab, {
     onOpenSingletonTab,
@@ -496,5 +501,6 @@ export function renderTabContent(
     isAdmin,
     userPrefs,
     onSelectPane,
+    onArchiveApp,
   });
 }

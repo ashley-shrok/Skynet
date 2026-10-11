@@ -781,12 +781,19 @@ not something agents drive.
   they act only on the page inside that app, never on Skynet or any other
   pane, and back/forward grey out when there's nowhere to go. Going back
   or forward loads that page fresh (it isn't restored mid-scroll).
-  Center: the app's icon and name. The **whole bar is the drag handle**, same as a
+  Center: the app's icon and name. Right: a **three-dots (⋮) button** —
+  always visible, phone included — opening the app's menu; right-clicking
+  the bar opens the same menu. Same look as a conversation badge's menu:
+  **Move to new window** (desktop only), **Open in new tab**, **Rename…**,
+  **Close** (desktop only), **Archive** (the same double-confirm as the
+  sidebar app tile's; closes every open pane of that app). The **whole bar is the drag handle**, same as a
   conversation's badge: drag it to the drop lane's Close to close the app,
   onto another pane to rearrange, or into another Skynet window. On a phone the
   bar shows but isn't draggable.
-  *Agent-side: none.* Pure client-side navigation; the app never knows
-  it's being navigated from the bar.
+  *Agent-side:* the navigation buttons and window actions: none — the app
+  never knows it's being navigated from the bar. Rename and Archive are the
+  same actions as the sidebar tile's, handled by the `app-development`
+  skill; **user-gated**.
 
 ### Sidebar footer
 

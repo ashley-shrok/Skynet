@@ -4510,6 +4510,7 @@ export function AppShell({
                       // before falling back to the TTS provider's default voice.
                       userPrefs,
                       setFocusedTabId,
+                      onArchiveApp,
                     ),
                     tabNode,
                     tab.id,

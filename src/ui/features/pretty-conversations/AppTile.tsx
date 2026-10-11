@@ -6,15 +6,7 @@ import {
 } from "react";
 
 import type { AppState } from "../../api/fleet-status-types";
-import { archiveApp } from "../../api/apps-archive-api";
-import { renameApp, validateAppTitle } from "../../api/apps-rename-api";
-import {
-  publishAppGone,
-  markPendingAppArchive,
-  clearPendingAppArchive,
-  setPendingAppTitle,
-  clearPendingAppTitle,
-} from "../../state/app-tiles-store";
+import { buildAppMenuItems } from "./app-menu-items";
 // shape-sidebar-header-affordances: app tile context menu + long-press
 // machinery retired; the actions (Open in new tab, Rename, Archive) now live in
 // a RowKebabMenu rendered inside the tile. Hover-reveal on desktop +
@@ -59,12 +51,8 @@ import { RowKebabMenu, useRowKebabContextMenu, type RowKebabMenuItem } from "./R
 //     the touch coords. navigator.vibrate?.(10) is feature-checked because
 //     iOS Safari does not implement the API (Pitfall 4). Handlers mirror
 //     PrettyConversationRow.tsx:442-451 + :595-603 exactly.
-//   - "OPEN IN NEW TAB" action: opens the app's URL in a fresh tab with
-//     the tabnabbing-defence window-features string set (see the callsite
-//     below for the exact args). The URL construction mirrors the backend
-//     GET /apps/:hostId/:slug/icon path shape (RESEARCH.md discretion);
-//     the window-features string is the RESEARCH.md §Security defence-in-
-//     depth win against window.opener abuse and Referer leakage.
+//   - KEBAB actions (Open in new tab, Rename…, Archive): built by
+//     buildAppMenuItems (app-menu-items.ts), shared with the AppPane bar.
 //
 // Visual shape (D-10 + D-11):
 //   - .pv-app-tile: .pv-row glass bubble treatment (padded rectangle,
@@ -191,8 +179,7 @@ export function AppTile({ app, onOpenApp, onArchive, variant = "desktop" }: AppT
   // handlers RETIRED. The kebab is the sole affordance for the two actions.
 
   // URL construction — mirrors the backend GET /apps/:hostId/:slug/icon
-  // path shape (D-06 / RESEARCH.md discretion). The "Open in new tab"
-  // action opens the app's own URL, NOT the /icon subpath.
+  // path shape (D-06 / RESEARCH.md discretion).
   //
   // Code-review MEDIUM-1 (fix pass 2026-09-18): defensive
   // encodeURIComponent on both hostId and slug — today APP_SLUG_RE gates
@@ -201,129 +188,18 @@ export function AppTile({ app, onOpenApp, onArchive, variant = "desktop" }: AppT
   // widens either shape cannot expose an unencoded interpolation from
   // this frontend surface. Cheap defence-in-depth.
   const iconUrl = `/apps/${encodeURIComponent(app.hostId)}/${encodeURIComponent(app.slug)}/icon`;
-  const openUrl = `/apps/${encodeURIComponent(app.hostId)}/${encodeURIComponent(app.slug)}`;
 
   const showFallback = !app.hasIcon || imgFailed;
   const initialLetter =
     app.title.trim().charAt(0).toUpperCase() || "?";
 
+  // Actions shared with the open app pane's bar kebab (app-menu-items.ts);
+  // the tile keeps its own test ids.
+  const menu = buildAppMenuItems(app, onArchive);
   const kebabItems: RowKebabMenuItem[] = [
-    {
-      label: "Open in new tab",
-      onClick: () => {
-        // Defence-in-depth (RESEARCH.md §Security T-119-03-03 + T-119-03-04):
-        // the third arg on this window.open call sets the tabnabbing-guard
-        // window-features string, which prevents the new tab from
-        // accessing window.opener AND suppresses the HTTP Referer header.
-        window.open(openUrl, "_blank", "noopener,noreferrer");
-      },
-      testId: "pv-app-tile-kebab-item-open-new-tab",
-    },
-    // app-rename shape — title only (the slug is the app's identity). Native
-    // window.prompt; an invalid entry re-prompts with the error and the
-    // user's text pre-filled until it validates or they cancel. Sidebar
-    // update: OPTIMISTIC via setPendingAppTitle (the store keeps the new
-    // title over stale fleet-status frames until the sweep re-reads
-    // app.json); rolled back via clearPendingAppTitle on failure.
-    {
-      label: "Rename…",
-      testId: "pv-app-tile-kebab-item-rename",
-      onClick: async () => {
-        const previousTitle = app.title;
-        let message = `Rename "${previousTitle}" to:`;
-        let draft = previousTitle;
-        let title: string;
-        for (;;) {
-          const input = window.prompt(message, draft);
-          if (input === null) return;
-          const v = validateAppTitle(input);
-          if (v.ok) {
-            title = v.title;
-            break;
-          }
-          message = `${v.error}\n\nRename "${previousTitle}" to:`;
-          draft = input;
-        }
-        if (title === previousTitle) return;
-
-        setPendingAppTitle(app.hostId, app.slug, title);
-        try {
-          await renameApp(Number(app.hostId), app.slug, title);
-        } catch (err) {
-          clearPendingAppTitle(app.hostId, app.slug, previousTitle);
-          const errMessage =
-            err instanceof Error ? err.message : String(err);
-          console.warn({
-            operation: "app_rename_failed",
-            hostId: Number(app.hostId),
-            slug: app.slug,
-            errMessage,
-          });
-          window.alert(
-            `Failed to rename app "${previousTitle}": ${errMessage}`,
-          );
-        }
-      },
-    },
-    // app-archive shape — Archive item, danger-styled, placed LAST (mirrors
-    // the identity/role archive menu placement discipline; most destructive
-    // at bottom). Uses two consecutive window.confirm dialogs (double-confirm
-    // ceremony). Sidebar update: OPTIMISTIC via markPendingAppArchive +
-    // publishAppGone — mirrors identity-archive's optimistic-remove.
-    {
-      label: "Archive",
-      danger: true,
-      testId: "pv-app-tile-kebab-item-archive",
-      onClick: async () => {
-        if (!window.confirm(`archive ${app.title}? this can't be undone.`)) return;
-        if (!window.confirm("are you sure? this can't be undone.")) return;
-        // Optimistic sidebar removal — mark pending FIRST so any in-flight
-        // fleet-status app-update / app-snapshot frame is silent-dropped
-        // rather than re-inserting the tile.
-        markPendingAppArchive(app.hostId, app.slug);
-        publishAppGone(app.hostId, app.slug);
-        // Close any open tabs / panes pointing at this app. Parent-owned
-        // because tabs live in AppShell state, not in a store. Fires with
-        // the same (hostId, slug, title) shape as onOpenApp so the parent
-        // can filter its tab list by the tab's `.app.hostId` / `.app.slug`
-        // fields (Phase 120 D-02 tab shape).
-        onArchive?.(Number(app.hostId), app.slug, app.title);
-        // hostId is a string on the wire (AppState mirrors the backend
-        // AppStateSchema); the archiveApp client accepts number. Cast at
-        // the boundary, same as onTileClick's onOpenApp cast above.
-        //
-        // Alert-message content contract: errMessage flows from the
-        // ApiError path (handleApiError in main-axios). The backend
-        // archive endpoint redacts internal errors before responding
-        // (500 body is a generic "failed to drop archive sentinel" — see
-        // apps-archive.ts's try/catch), so the message surfaced here
-        // stays at "network/transport-level failure" granularity. If
-        // handleApiError's contract ever widens to propagate structured
-        // backend details, this alert becomes a leak vector — review.
-        try {
-          await archiveApp(Number(app.hostId), app.slug);
-        } catch (err) {
-          // Rollback: clear the pending flag so the next fleet-status
-          // pulse (still coming — app is alive on the backend) re-inserts
-          // the tile via the normal publishAppUpdate / publishAppSnapshot
-          // path. The closed tab is NOT re-opened — a rare edge case, and
-          // the user still sees the failure alert so they can re-open it
-          // manually if they need to.
-          clearPendingAppArchive(app.hostId, app.slug);
-          const errMessage =
-            err instanceof Error ? err.message : String(err);
-          console.warn({
-            operation: "app_archive_failed",
-            hostId: Number(app.hostId),
-            slug: app.slug,
-            errMessage,
-          });
-          window.alert(
-            `Failed to archive app "${app.title}": ${errMessage}`,
-          );
-        }
-      },
-    },
+    { ...menu.openInNewTab, testId: "pv-app-tile-kebab-item-open-new-tab" },
+    { ...menu.rename, testId: "pv-app-tile-kebab-item-rename" },
+    { ...menu.archive, testId: "pv-app-tile-kebab-item-archive" },
   ];
   // Right-click on the tile opens the same kebab menu at the cursor.
   const kebabContextMenu = useRowKebabContextMenu(kebabItems);
