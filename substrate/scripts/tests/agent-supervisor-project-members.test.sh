@@ -131,7 +131,7 @@ t02() {
 
 t03() {
   ident amy-r alpha; ident bob-r alpha
-  project alpha "$(printf -- '---\ndisplayName: Alpha\nusers: [ashley]\n---\n\nnotes\n')"
+  project alpha "$(printf -- '---\ndisplayName: Alpha\nusers: [user-a]\n---\n\nnotes\n')"
   sync
   # Move members key ahead of users by hand to check position is kept.
   python3 - "$FLEET_PROJECTS_DIR/alpha/project.md" <<'PY'
@@ -143,7 +143,7 @@ PY
   ident bob-r beta
   sync
   local want
-  want=$(printf -- '---\ndisplayName: Alpha\nmembers:%s\n  - amy-r\nusers: [ashley]\n---\n\nnotes' "$NOTE")
+  want=$(printf -- '---\ndisplayName: Alpha\nmembers:%s\n  - amy-r\nusers: [user-a]\n---\n\nnotes' "$NOTE")
   [ "$(pmd alpha)" = "$want" ] || { fail "alpha after move: $(pmd alpha)"; return; }
   grep -q "project 'alpha' members → amy-r" "$LOGF" || { fail "no log line: $(cat "$LOGF")"; return; }
   pass
@@ -193,7 +193,7 @@ t07() {
 
 t08() {
   ident amy-r alpha
-  project alpha "$(printf -- '---\ndisplayName: Alpha Team\nusers:\n  - ashley\n  - zoey\n---\n\nnotes\n')"
+  project alpha "$(printf -- '---\ndisplayName: Alpha Team\nusers:\n  - user-a\n  - user-b\n---\n\nnotes\n')"
   sync
   local got
   got=$(python3 - "$SWEEP" "$FLEET_PROJECTS_DIR/alpha/project.md" <<'PY'
@@ -204,7 +204,7 @@ c, _ = m._read_frontmatter_cosmetics(sys.argv[2], ("displayName", "users"))
 print(json.dumps(c, sort_keys=True))
 PY
 )
-  [ "$got" = '{"displayName": "Alpha Team", "users": ["ashley", "zoey"]}' ] || { fail "sweep read: $got / $(pmd alpha)"; return; }
+  [ "$got" = '{"displayName": "Alpha Team", "users": ["user-a", "user-b"]}' ] || { fail "sweep read: $got / $(pmd alpha)"; return; }
   pass
 }
 
