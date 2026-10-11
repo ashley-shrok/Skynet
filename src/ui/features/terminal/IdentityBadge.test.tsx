@@ -689,16 +689,10 @@ describe("IdentityBadge — role line", () => {
     return screen.queryByTestId("pv-identity-role-line");
   };
 
-  it("shows the identity's own title when set", () => {
-    expect(renderWith({ title: "Session coordinator", role: "orchestrator" })?.textContent).toBe(
-      "Session coordinator",
-    );
-  });
-
-  it("falls back to the role's displayName when the wire title is empty", () => {
+  it("shows the role's displayName, not the identity's own title", () => {
     expect(
       renderWith({
-        title: null,
+        title: "Session coordinator",
         role: "box-maintainer",
         roles: ["box-maintainer"],
         roleDefaults: { displayName: "Skynet" },
@@ -713,11 +707,10 @@ describe("IdentityBadge — role line", () => {
     ).toBe("General Purpose");
   });
 
-  it("lists every role for a multi-role identity", () => {
-    expect(
-      renderWith({ title: null, role: null, roles: ["box-maintainer", "sky-uat"], roleDefaults: null })
-        ?.textContent,
-    ).toBe("Box Maintainer, Sky Uat");
+  it("lists every role for a multi-role identity, with the full list on hover", () => {
+    const line = renderWith({ title: null, role: null, roles: ["box-maintainer", "sky-uat"], roleDefaults: null });
+    expect(line?.textContent).toBe("Box Maintainer, Sky Uat");
+    expect(line?.getAttribute("title")).toBe("Box Maintainer, Sky Uat");
   });
 
   it("renders no role line when there is no title and no role", () => {

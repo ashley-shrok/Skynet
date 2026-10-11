@@ -203,11 +203,10 @@ export function IdentityBadge({
   // on IdentityBadgeProps for backward-compat with existing call sites but is
   // no longer used to build the URL here.
   const avatarSrc = identity.avatarUrl;
-  // Second line: the identity's own `title:` if set, else every role it holds
-  // — the same label the sidebar row and IdentityModal show. The wire `title`
-  // alone is empty for multi-role identities and for roles still carrying the
-  // retired `title:` frontmatter instead of `displayName:`.
-  const roleLine = identity.title || identityRolesLabel(identity);
+  // Second line: every role the identity holds — the same label the sidebar
+  // row and IdentityModal show. The wire `title` is not consulted: it is empty
+  // for multi-role identities and for roles with no `displayName:`.
+  const roleLine = identityRolesLabel(identity);
   const pillMain = (
     <>
       <img
@@ -237,6 +236,7 @@ export function IdentityBadge({
         {roleLine && (
           <span
             data-testid="pv-identity-role-line"
+            title={roleLine}
             className="truncate leading-tight"
             style={{ fontSize: 10.8, color: "#a89a80" }}
           >

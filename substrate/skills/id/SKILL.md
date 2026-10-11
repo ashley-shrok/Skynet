@@ -887,9 +887,8 @@ crown, then gear.
 
 - **Badge (upper-right of the conversation).** Shows the role avatars,
   the agent's name, the role names, and which project the agent is in,
-  if any. When the
-  conversation is pinned, a dark-bubble pin indicator overlays the
-  avatar's top-left corner — same visual as the sidebar row's pin
+  if any. When the conversation is pinned, a dark-bubble pin indicator
+  overlays the avatar's top-left corner — same visual as the sidebar row's pin
   flag, flips in lockstep with it. Click = opens the **identity
   modal** (next item). A **three-dots (⋮) button** at the pill's right
   end — always visible, and the way in on a phone — opens the badge menu;
