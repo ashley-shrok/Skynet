@@ -70,6 +70,12 @@ vi.mock("@/state/identities-store", () => {
   };
 });
 
+// ── Mock: rename-identity ────────────────────────────────────────────────────
+const promptAndRenameIdentityMock = vi.fn();
+vi.mock("./rename-identity", () => ({
+  promptAndRenameIdentity: (...args: unknown[]) => promptAndRenameIdentityMock(...args),
+}));
+
 // ── Mock: use-mobile ─────────────────────────────────────────────────────────
 // Default false so the badge-menu builds real items; per-test override to true
 // exercises the mobile-early-return branch.
@@ -748,7 +754,7 @@ describe("IdentitySessionPane — Phase 41 Plan 02", () => {
     return items.map((it) => it.label);
   }
 
-  it("BADGE-MENU-1: admin + desktop → exactly Move to new window, Switch to terminal view, Move to, Archive (in that order; no Pin)", async () => {
+  it("BADGE-MENU-1: admin + desktop → exactly Move to new window, Switch to terminal view, Rename…, Move to, Archive (in that order; no Pin)", async () => {
     await setMobile(false);
     render(<IdentitySessionPane {...makeProps({ isAdmin: true })} />);
     const labels = itemLabels();
@@ -756,6 +762,7 @@ describe("IdentitySessionPane — Phase 41 Plan 02", () => {
     expect(labels).toEqual([
       "Move to new window",
       "Switch to terminal view",
+      "Rename…",
       "Move to",
       "Archive",
     ]);
@@ -767,7 +774,7 @@ describe("IdentitySessionPane — Phase 41 Plan 02", () => {
     await setMobile(false);
     const onCloseTab = vi.fn();
     const { unmount } = render(<IdentitySessionPane {...makeProps({ onCloseTab })} />);
-    expect(itemLabels()).toEqual(["Move to new window", "Move to", "Close", "Archive"]);
+    expect(itemLabels()).toEqual(["Move to new window", "Rename…", "Move to", "Close", "Archive"]);
     const items = capturedPrettyViewProps?.identityBadgeContextMenuItems as Array<{ label: string; onClick?: () => void }>;
     items.find((it) => it.label === "Close")!.onClick!();
     expect(onCloseTab).toHaveBeenCalledWith("tab-1");
@@ -777,12 +784,24 @@ describe("IdentitySessionPane — Phase 41 Plan 02", () => {
     expect(itemLabels()).not.toContain("Close");
   });
 
+  it("BADGE-MENU-RENAME: Rename… prompts with the identity's displayName when it has no task", async () => {
+    await setMobile(false);
+    render(<IdentitySessionPane {...makeProps()} />);
+    const items = capturedPrettyViewProps?.identityBadgeContextMenuItems as Array<{ label: string; onClick?: () => void }>;
+    items.find((it) => it.label === "Rename…")!.onClick!();
+    expect(promptAndRenameIdentityMock).toHaveBeenCalledWith({
+      hostId: 42,
+      identityKey: "tina",
+      currentTitle: "Tina",
+    });
+  });
+
   it("BADGE-MENU-2: non-admin + desktop → Switch item absent; Move to new window still present", async () => {
     await setMobile(false);
     render(<IdentitySessionPane {...makeProps({ isAdmin: false })} />);
     const labels = itemLabels();
     expect(labels).not.toContain("Pin");
-    expect(labels).toEqual(["Move to new window", "Move to", "Archive"]);
+    expect(labels).toEqual(["Move to new window", "Rename…", "Move to", "Archive"]);
     expect(labels).not.toContain("Switch to terminal view");
     expect(labels).not.toContain("Switch to chat view");
   });
@@ -794,7 +813,7 @@ describe("IdentitySessionPane — Phase 41 Plan 02", () => {
     expect(labels).not.toContain("Pin");
     expect(labels).not.toContain("Move to new window");
     // Order: Switch < Move to < Archive.
-    expect(labels).toEqual(["Switch to terminal view", "Move to", "Archive"]);
+    expect(labels).toEqual(["Switch to terminal view", "Rename…", "Move to", "Archive"]);
   });
 
   it("BADGE-MENU-4: non-admin + mobile → neither Switch nor Move to new window present", async () => {
@@ -802,7 +821,7 @@ describe("IdentitySessionPane — Phase 41 Plan 02", () => {
     render(<IdentitySessionPane {...makeProps({ isAdmin: false })} />);
     const labels = itemLabels();
     expect(labels).not.toContain("Pin");
-    expect(labels).toEqual(["Move to", "Archive"]);
+    expect(labels).toEqual(["Rename…", "Move to", "Archive"]);
     expect(labels).not.toContain("Switch to terminal view");
     expect(labels).not.toContain("Switch to chat view");
     expect(labels).not.toContain("Move to new window");

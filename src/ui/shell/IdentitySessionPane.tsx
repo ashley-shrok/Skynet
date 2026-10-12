@@ -26,6 +26,7 @@ import {
 } from "@/state/conversation-store";
 // Badge-menu Archive item — shared with the badge drop lane's archive zone.
 import { confirmAndArchiveIdentityPane } from "./archive-identity-pane";
+import { promptAndRenameIdentity } from "./rename-identity";
 // Badge-menu Move-to-project (2026-09-27): same wire the row menu uses via
 // PrettyConversationsPanel.handleRowMoveToProject.
 import { setSessionProject } from "@/api/session-project-api";
@@ -141,8 +142,8 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
     // (PrettyConversationRow.tsx items[] builder) so both surfaces offer the
     // same affordances for an identity. Order:
     //   Move to new window (desktop-only) →
-    //     Switch to (terminal/chat) view (admin-only) →
-    //     Move to (Pinned / projects) → Archive
+    //     Switch to (terminal/chat) view (admin-only) → Rename… →
+    //     Move to (Pinned / projects) → Close (desktop-only) → Archive
     // Rendered on both desktop and mobile — mobile trigger is long-press
     // on the badge, desktop trigger is right-click.
     //
@@ -211,6 +212,24 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
         items.push({
           label: isPrettyMode ? "Switch to terminal view" : "Switch to chat view",
           onClick: () => setIsPrettyMode((v) => !v),
+        });
+      }
+
+      // Rename… — same prompt + `task:` write as the row menu's item.
+      if (shadowFleetId !== null && effectiveTmuxSession !== null) {
+        const identityKey = sessionMatchKey(effectiveTmuxSession) ?? effectiveTmuxSession;
+        const resolved =
+          (Number.isFinite(hostIdNum)
+            ? identitiesByHostKey?.get(`${hostIdNum}::${identityKey}`)
+            : undefined) ?? identitiesByKey.get(identityKey);
+        items.push({
+          label: "Rename…",
+          onClick: () =>
+            promptAndRenameIdentity({
+              hostId: hostIdNum,
+              identityKey,
+              currentTitle: resolved?.task || resolved?.displayName || identityKey,
+            }),
         });
       }
 

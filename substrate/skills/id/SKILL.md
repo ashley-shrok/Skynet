@@ -715,6 +715,10 @@ not something agents drive.
   - **Open in new window** — opens that conversation in a separate
     client instance (distinct from apps' "open in new tab").
     *Agent-side: none.*
+  - **Rename…** — asks for a new title and sets it as the conversation's
+    row title and task line. Shown for agent conversations only.
+    *Agent-side:* it writes the identity's `task:` frontmatter — the same
+    field you keep current yourself (§ Loading an existing identity).
   - **Move to** — drill-in submenu listing **Pinned** first, then every
     project, with a checkmark on wherever the row is now (at most one —
     see Pinned section above). It ends with **Unpin** when the row is
@@ -910,7 +914,7 @@ crown, then gear.
   end — always visible, and the way in on a phone — opens the badge menu;
   right-clicking the badge opens the same menu. Same look as the sidebar
   row's menu: **Move to new window** (desktop only), **Switch to terminal
-  / chat view** (admins only), **Move to** (Pinned + projects), **Close**
+  / chat view** (admins only), **Rename…**, **Move to** (Pinned + projects), **Close**
   (desktop only), **Archive**. Drag = see § Drag & drop (drop lane,
   filing into sidebar sections).
 

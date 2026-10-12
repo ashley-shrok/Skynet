@@ -134,6 +134,7 @@ import type { Identity } from "@/api/identities-api";
 import { useTrappedWork } from "@/state/trapped-work-store";
 import { cn } from "@/lib/utils";
 import { armOutboundDrag, mintDragId } from "@/shell/cross-window-drag";
+import { promptAndRenameIdentity } from "@/shell/rename-identity";
 import type { ConversationRow as ConversationRowShape } from "@/state/conversation-store";
 import { specForTab, encodeWorkspaceSpec } from "@/lib/tab-url";
 import { identityRolesLabel, isMultiRole } from "@/lib/identity-roles";
@@ -554,7 +555,7 @@ export function PrettyConversationRow({
     : null;
 
   // Kebab items (shared by the ⋮ trigger and right-click on the row body).
-  // (Open in new window / Move to / Close / Kill / Archive).
+  // (Open in new window / Rename… / Move to / Close / Kill / Archive).
   const kebabItems = ((): RowKebabMenuItem[] => {
     const items: RowKebabMenuItem[] = [];
     // Open in new window — desktop-only, only when the row is URL-
@@ -575,6 +576,21 @@ export function PrettyConversationRow({
           testId: "pv-row-kebab-item-open-new-window",
         });
       }
+    }
+    // Rename… — sets the identity's `task:`, the row's title line. Identity
+    // rows only: relay rooms, RDP hosts and bare tmux sessions have no
+    // identity file to write.
+    if (identity && Number.isFinite(rowHostIdNum) && rowHostIdNum > 0) {
+      items.push({
+        label: "Rename…",
+        onClick: () =>
+          promptAndRenameIdentity({
+            hostId: rowHostIdNum,
+            identityKey: identity.identityKey,
+            currentTitle: identity.task || identity.displayName || identity.identityKey,
+          }),
+        testId: "pv-row-kebab-item-rename",
+      });
     }
     // Move to — drill-in submenu. Pinned and every project are destinations
     // of the same kind: a row is in at most one of them (pinned and in-a-

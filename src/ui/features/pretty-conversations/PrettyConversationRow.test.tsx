@@ -191,6 +191,11 @@ vi.mock("@/state/trapped-work-store", () => ({
   useTrappedWork: () => currentTrappedWork,
 }));
 
+const promptAndRenameIdentityMock = vi.fn();
+vi.mock("@/shell/rename-identity", () => ({
+  promptAndRenameIdentity: (...args: unknown[]) => promptAndRenameIdentityMock(...args),
+}));
+
 // tabIcon is a real dep — no need to mock. tabUtils.tsx does pull in a wide
 // dependency graph via renderTabContent, but for tabIcon-only usage the graph
 // is tree-shaken irrelevant during test runs.
@@ -1872,6 +1877,63 @@ describe("PrettyConversationRow: Phase 115 Plan 115-06 Archive menu item", () =>
     const archiveItem = within(menu).getByRole("menuitem", { name: "Archive" });
     fireEvent.click(archiveItem);
     expect(onArchive).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("PrettyConversationRow: Rename menu item", () => {
+  function renderRow(row: ConversationRowShape) {
+    return render(
+      <PrettyConversationRow
+        row={row}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+      />,
+    );
+  }
+
+  it("R1: identity row → Rename… sits right before Move to and passes the task as the current title", async () => {
+    currentIdentity = { ...makeIdentity(210, "wren"), task: "Fix the sidebar" };
+    const { container } = renderRow(
+      makeRow({ targetTmuxSession: "wren", host: makeHost({ id: "7" }) }),
+    );
+    await openRowKebab(container);
+    const menu = screen.getByRole("menu");
+    const labels = within(menu).getAllByRole("menuitem").map((el) => el.textContent?.trim());
+    const renameIdx = labels.findIndex((l) => l?.startsWith("Rename…"));
+    expect(renameIdx).toBeGreaterThanOrEqual(0);
+    expect(labels[renameIdx + 1]).toMatch(/^Move to/);
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Rename…" }));
+    expect(promptAndRenameIdentityMock).toHaveBeenCalledWith({
+      hostId: 7,
+      identityKey: "wren",
+      currentTitle: "Fix the sidebar",
+    });
+  });
+
+  it("R2: identity with no task → current title falls back to displayName", async () => {
+    currentIdentity = makeIdentity(210, "Wren");
+    const { container } = renderRow(
+      makeRow({ targetTmuxSession: "wren", host: makeHost({ id: "7" }) }),
+    );
+    await openRowKebab(container);
+    fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "Rename…" }));
+    expect(promptAndRenameIdentityMock).toHaveBeenCalledWith(
+      expect.objectContaining({ currentTitle: "Wren" }),
+    );
+  });
+
+  it("R3: row without an identity → no Rename… item", async () => {
+    currentIdentity = null;
+    const { container } = renderRow(
+      makeRow({ targetTmuxSession: "wren", host: makeHost({ id: "7" }) }),
+    );
+    await openRowKebab(container);
+    expect(
+      within(screen.getByRole("menu")).queryByRole("menuitem", { name: "Rename…" }),
+    ).toBeNull();
   });
 });
 
