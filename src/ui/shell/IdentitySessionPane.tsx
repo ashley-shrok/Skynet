@@ -215,22 +215,24 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
         });
       }
 
-      // Rename… — same prompt + `task:` write as the row menu's item.
-      if (shadowFleetId !== null && effectiveTmuxSession !== null) {
+      // Rename… — same prompt + `task:` write and same gate as the row
+      // menu's item: a resolved identity on a real host.
+      if (effectiveTmuxSession !== null && Number.isFinite(hostIdNum) && hostIdNum > 0) {
         const identityKey = sessionMatchKey(effectiveTmuxSession) ?? effectiveTmuxSession;
         const resolved =
-          (Number.isFinite(hostIdNum)
-            ? identitiesByHostKey?.get(`${hostIdNum}::${identityKey}`)
-            : undefined) ?? identitiesByKey.get(identityKey);
-        items.push({
-          label: "Rename…",
-          onClick: () =>
-            promptAndRenameIdentity({
-              hostId: hostIdNum,
-              identityKey,
-              currentTitle: resolved?.task || resolved?.displayName || identityKey,
-            }),
-        });
+          identitiesByHostKey?.get(`${hostIdNum}::${identityKey}`) ??
+          identitiesByKey.get(identityKey);
+        if (resolved) {
+          items.push({
+            label: "Rename…",
+            onClick: () =>
+              promptAndRenameIdentity({
+                hostId: hostIdNum,
+                identityKey: resolved.identityKey,
+                currentTitle: resolved.task || resolved.displayName || resolved.identityKey,
+              }),
+          });
+        }
       }
 
       // Badge-menu Move to (Pinned / projects): mirrors the row menu's

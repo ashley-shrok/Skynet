@@ -7,7 +7,7 @@
 import { updateIdentity } from "@/api/identities-api";
 import { applyIdentityChange } from "@/state/identities-store";
 
-/** Same cap the identity-birth route enforces on `task`. */
+/** Client-side cap, matching the limit identity birth puts on `task`. */
 export const RENAME_MAX_LENGTH = 500;
 
 export function promptAndRenameIdentity(args: {

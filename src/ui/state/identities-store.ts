@@ -442,8 +442,14 @@ export function applyIdentityChange(
               i.hostId === next.hostId,
           )
         : list.findIndex((i) => i.identityKey.toLowerCase() === nextKeyLc);
-    if (idx >= 0) list[idx] = next;
-    else list.push(next);
+    if (idx >= 0) {
+      // An update that carries no pin state (updateIdentity's echo) keeps the
+      // row's current one.
+      list[idx] =
+        next.pinned === undefined && list[idx].pinned !== undefined
+          ? { ...next, pinned: list[idx].pinned }
+          : next;
+    } else list.push(next);
   }
   setIdentities(list);
 }

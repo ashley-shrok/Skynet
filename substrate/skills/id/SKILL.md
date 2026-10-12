@@ -153,6 +153,9 @@ of the open conversation view AND the sidebar row title for this conversation
 — so keeping it current is how the user sees at a glance what you are on. If
 it holds a description that the session then makes stale — the user moves you
 onto genuinely different work — update it. Silent, no permission needed.
+If the user set the title themselves (the **Rename…** menu item, or an edit
+to your identity file), their wording stands: don't reword it, and only
+replace it if they later move you onto genuinely different work.
 Always write the value double-quoted — `task: "Pantheon: setup plan"` — since
 an unquoted `: ` inside it breaks the frontmatter as YAML.
 
@@ -718,7 +721,8 @@ not something agents drive.
   - **Rename…** — asks for a new title and sets it as the conversation's
     row title and task line. Shown for agent conversations only.
     *Agent-side:* it writes the identity's `task:` frontmatter — the same
-    field you keep current yourself (§ Loading an existing identity).
+    field you keep current yourself, but a user-set title stands
+    (§ Loading an existing identity).
   - **Move to** — drill-in submenu listing **Pinned** first, then every
     project, with a checkmark on wherever the row is now (at most one —
     see Pinned section above). It ends with **Unpin** when the row is

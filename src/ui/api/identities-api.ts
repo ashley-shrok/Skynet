@@ -195,7 +195,11 @@ export async function updateIdentity(
       buildUpdateFormData(meta, avatar, hostId),
       { headers: { "Content-Type": "multipart/form-data" } },
     );
-    return response.data as Identity;
+    // The PUT echo always reports `pinned: false` (it never reads the
+    // `.pinned` sentinel), so drop it — applyIdentityChange then keeps the
+    // store's real pin state instead of unpinning the row.
+    const { pinned: _echoPinned, ...updated } = response.data as Identity;
+    return updated;
   } catch (error) {
     handleApiError(error, "update identity");
   }

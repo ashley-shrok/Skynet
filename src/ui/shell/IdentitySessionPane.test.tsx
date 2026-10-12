@@ -796,6 +796,21 @@ describe("IdentitySessionPane — Phase 41 Plan 02", () => {
     });
   });
 
+  it("BADGE-MENU-RENAME-UNRESOLVED: no Rename… while the identity hasn't resolved", async () => {
+    await setMobile(false);
+    const store = await import("@/state/identities-store");
+    vi.mocked(store.useIdentities).mockReturnValue({
+      identities: [],
+      byKey: new Map(),
+      byHostKey: new Map(),
+      loaded: false,
+      refresh: vi.fn(),
+    } as unknown as ReturnType<typeof store.useIdentities>);
+    render(<IdentitySessionPane {...makeProps()} />);
+    expect(itemLabels()).not.toContain("Rename…");
+    vi.mocked(store.useIdentities).mockReset();
+  });
+
   it("BADGE-MENU-2: non-admin + desktop → Switch item absent; Move to new window still present", async () => {
     await setMobile(false);
     render(<IdentitySessionPane {...makeProps({ isAdmin: false })} />);
