@@ -794,7 +794,11 @@ not something agents drive.
   Left: **back**, **forward**, and **reload** (circular-arrow) buttons —
   they act only on the page inside that app, never on Skynet or any other
   pane, and back/forward grey out when there's nowhere to go. Going back
-  or forward loads that page fresh (it isn't restored mid-scroll).
+  or forward loads that page fresh (it isn't restored mid-scroll). On a
+  phone the bar is a little taller and starts with a round **back to
+  conversations** (←) button — the same one that floats at the top left of
+  a conversation — which returns to the conversation list without moving
+  the app off its current page.
   Center: the app's icon and name. Right: a **three-dots (⋮) button** —
   always visible, phone included — opening the app's menu; right-clicking
   the bar opens the same menu. Same look as a conversation badge's menu:

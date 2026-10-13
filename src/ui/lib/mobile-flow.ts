@@ -16,8 +16,9 @@
 //   - navigateToView uses history.pushState with a sentinel state object,
 //     so the browser back gesture pops the entry and lands the user on the
 //     list. navigateToList prefers history.back() when the state sentinel
-//     is present, else strips `mv` via replaceState (the "pasted a deep
-//     mv=1 URL and pressed back" edge case exits the app, per shape).
+//     is present and nothing has been pushed on top of it, else strips `mv`
+//     via replaceState (the "pasted a deep mv=1 URL and pressed back" edge
+//     case exits the app, per shape).
 //   - Viewport-agnostic. This module never reads `useIsTouchDevice()` — the
 //     AppShell caller is responsible for gating mobile-flow reads/writes on
 //     `isTouchDevice`. That keeps mobile-flow trivial to unit-test with
@@ -26,11 +27,18 @@
 
 import { useSyncExternalStore } from "react";
 
+import { systemLogger } from "@/lib/frontend-logger";
+
 export type MobileScreen = "list" | "view";
 
 const MV_KEY = "mv";
 const MV_VALUE = "1";
 const HISTORY_STATE_SENTINEL = "__skynetMobileView";
+// history.length right after navigateToView's push. An app iframe shares the
+// tab's one session history, so its own navigations push entries ON TOP of
+// ours (without touching window.history.state). If the length has grown,
+// history.back() would rewind the app instead of leaving the view.
+const HISTORY_STATE_LENGTH = "__skynetMobileViewHistoryLength";
 
 // Module-scoped listener registry. Mirrors the conversation-store subscribe
 // pattern (Plan 06-01) so useSyncExternalStore + jsdom play together cleanly.
@@ -107,6 +115,11 @@ export function navigateToView(): void {
   // over replaceState so the browser back-stack stays consistent with the
   // user's mental model.
   window.history.pushState({ [HISTORY_STATE_SENTINEL]: true }, "", nextUrl);
+  window.history.replaceState(
+    { [HISTORY_STATE_SENTINEL]: true, [HISTORY_STATE_LENGTH]: window.history.length },
+    "",
+    nextUrl,
+  );
   // pushState does NOT fire hashchange or popstate — manually recompute
   // and notify subscribers so React re-renders in the same tick.
   const next = readScreenFromLocation();
@@ -119,21 +132,36 @@ export function navigateToView(): void {
 export function navigateToList(): void {
   if (typeof window === "undefined") return;
   const state = window.history.state as
-    | { [HISTORY_STATE_SENTINEL]?: boolean }
+    | { [HISTORY_STATE_SENTINEL]?: boolean; [HISTORY_STATE_LENGTH]?: number }
     | null;
-  if (state && state[HISTORY_STATE_SENTINEL]) {
+  const pushedLength = state?.[HISTORY_STATE_LENGTH];
+  const stackedOnTop =
+    typeof pushedLength === "number" && window.history.length > pushedLength;
+  if (state && state[HISTORY_STATE_SENTINEL] && !stackedOnTop) {
     // The current history entry is our own pushState from navigateToView.
     // Prefer history.back() so the browser back-stack stays consistent —
     // popstate will fire and recomputeAndMaybeEmit will pick up the hash
     // change.
+    systemLogger.info("[mobile-flow] back to list via history.back", {
+      operation: "mobile_flow_to_list",
+      path: "history_back",
+      historyLength: window.history.length,
+    });
     window.history.back();
     return;
   }
-  // Fallback: user landed on this URL directly (pasted `#mv=1` link,
-  // Chrome window-restore) with no prior list entry in the back-stack.
-  // Strip `mv=1` via replaceState so browser back doesn't leave the app
-  // unnecessarily. The pasted-URL back-exits-the-app edge case is
-  // acceptable per the shape's "browser back also works" requirement.
+  // Fallback: either the user landed on this URL directly (pasted `#mv=1`
+  // link, Chrome window-restore) with no prior list entry in the back-stack,
+  // or an app iframe has pushed its own entries above ours — history.back()
+  // would only rewind the app a page. Strip `mv=1` via replaceState instead.
+  // The pasted-URL back-exits-the-app edge case is acceptable per the
+  // shape's "browser back also works" requirement.
+  systemLogger.info("[mobile-flow] back to list via replaceState", {
+    operation: "mobile_flow_to_list",
+    path: stackedOnTop ? "replace_frame_entries_on_top" : "replace_no_sentinel",
+    historyLength: window.history.length,
+    pushedLength: pushedLength ?? null,
+  });
   const url = new URL(window.location.href);
   const hashParams = new URLSearchParams(url.hash.slice(1));
   hashParams.delete(MV_KEY);

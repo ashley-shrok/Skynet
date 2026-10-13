@@ -3630,6 +3630,14 @@ export function AppShell({
   // orthogonal (and desktop keeps patch #108 composer-uncovered behavior).
   const anyIdentityModalOpen = useAnyIdentityModalOpen();
   const hideBackButtonForModal = isTouchDevice && anyIdentityModalOpen;
+  // On touch, an open app carries its own back-to-conversations button in its
+  // (taller) app bar — see AppPane — so the floating one would only cover the
+  // app's top-left corner.
+  const selectedTabForBackButton = tabs.find((t) => t.id === selectedConversationId);
+  const hideBackButtonForApp =
+    isTouchDevice &&
+    selectedTabForBackButton !== undefined &&
+    isAppTab(selectedTabForBackButton);
   // Patch #144 Fix (b): `isMobileViewScreen` derivation removed together
   // with the legacy mobile-view header block below. mobileScreen === "view"
   // is now expressed implicitly via `!isMobileListScreen` on the fixed
@@ -3688,7 +3696,7 @@ export function AppShell({
             functionally symmetric with desktop (where opening the sidebar
             surfaces the conversation list). Hidden on mobile-list-screen
             (nothing to navigate to; would be a phantom no-op tap). */}
-        {!isMobileListScreen && !hideBackButtonForModal && (
+        {!isMobileListScreen && !hideBackButtonForModal && !hideBackButtonForApp && (
           <button
             type="button"
             // Stable hook for the app bar's clearance measurement (the

@@ -12,6 +12,8 @@ import {
   type RowKebabMenuItem,
 } from "@/features/pretty-conversations/RowKebabMenu";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useIsTouchDevice } from "@/hooks/use-is-touch-device";
+import { navigateToList } from "@/lib/mobile-flow";
 import { systemLogger } from "@/lib/frontend-logger";
 import { useAppTiles } from "@/state/app-tiles-store";
 import {
@@ -204,6 +206,13 @@ const BAR_HEIGHT = 40;
 // column is centred between two columns of this width so it can never
 // overlap the buttons, however narrow the pane.
 const NAV_GROUP_WIDTH = 82;
+// Touch devices: the bar is taller and holds the back-to-conversations
+// button at its left, in place of the floating one AppShell shows over
+// conversations (which would otherwise sit over the app's top-left corner).
+const TOUCH_BAR_HEIGHT = 52;
+const BACK_TO_LIST_SIZE = 40;
+const BACK_TO_LIST_GAP = 6;
+const TOUCH_LEFT_GROUP_WIDTH = BACK_TO_LIST_SIZE + BACK_TO_LIST_GAP + NAV_GROUP_WIDTH;
 
 export interface AppPaneProps {
   hostId: number;
@@ -238,6 +247,7 @@ export function AppPane({
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
   const isMobile = useIsMobile();
+  const isTouchDevice = useIsTouchDevice();
 
   const tiles = useAppTiles();
   const tile = tiles.find((a) => a.hostId === String(hostId) && a.slug === slug);
@@ -467,6 +477,7 @@ export function AppPane({
   };
 
   const src = `/apps/${encodeURIComponent(hostId)}/${encodeURIComponent(slug)}/pane/`;
+  const sideColumnWidth = isTouchDevice ? TOUCH_LEFT_GROUP_WIDTH : NAV_GROUP_WIDTH;
   const buttonClass =
     "inline-flex items-center justify-center w-[26px] h-[24px] rounded-md text-[color:var(--color-pv-fg-muted)] enabled:hover:text-[color:var(--color-pv-fg)] enabled:hover:bg-[rgba(232,228,216,0.08)] enabled:cursor-pointer disabled:opacity-30 transition-[color,background-color,opacity]";
   return (
@@ -485,8 +496,8 @@ export function AppPane({
           isDragSource ? "cursor-grab active:cursor-grabbing" : ""
         }`}
         style={{
-          height: BAR_HEIGHT,
-          gridTemplateColumns: `${NAV_GROUP_WIDTH}px minmax(0, 1fr) ${NAV_GROUP_WIDTH}px`,
+          height: isTouchDevice ? TOUCH_BAR_HEIGHT : BAR_HEIGHT,
+          gridTemplateColumns: `${sideColumnWidth}px minmax(0, 1fr) ${sideColumnWidth}px`,
           paddingLeft: clearance > 0 ? clearance : undefined,
           background:
             "linear-gradient(160deg, hsla(230, 14%, 24%, 0.85), hsla(230, 14%, 14%, 0.92))",
@@ -494,7 +505,41 @@ export function AppPane({
           boxShadow: "0 4px 12px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,220,170,0.10)",
         }}
       >
-        <div className="flex gap-0.5">
+        <div className="flex items-center gap-0.5">
+          {isTouchDevice && (
+            <button
+              type="button"
+              data-testid="app-pane-back-to-list"
+              aria-label="Back to conversations"
+              title="Back to conversations"
+              draggable={false}
+              onClick={(e) => {
+                // Don't let the bar's own click (select pane) run too.
+                e.stopPropagation();
+                systemLogger.info("[app-bar] back to conversations", {
+                  operation: "app_bar_back_to_list",
+                  tabId,
+                  hostId,
+                  slug,
+                });
+                navigateToList();
+              }}
+              className="flex-none inline-flex items-center justify-center rounded-full text-[#f0ebe0] active:scale-[0.97] transition-transform cursor-pointer"
+              style={{
+                width: BACK_TO_LIST_SIZE,
+                height: BACK_TO_LIST_SIZE,
+                marginRight: BACK_TO_LIST_GAP - 2,
+                // Same hue-glass treatment as AppShell's floating button.
+                background:
+                  "linear-gradient(160deg, hsla(218, 25%, 22%, 0.85), hsla(218, 25%, 14%, 0.9))",
+                border: "1px solid hsla(218, 35%, 55%, 0.35)",
+                boxShadow:
+                  "0 2px 8px rgba(0,0,0,0.5), inset 0 2px 0 rgba(220,225,245,0.3), 0 0 16px hsla(218, 40%, 55%, 0.25)",
+              }}
+            >
+              <ChevronLeft width={22} height={22} aria-hidden="true" />
+            </button>
+          )}
           <button
             type="button"
             data-testid="app-pane-back"

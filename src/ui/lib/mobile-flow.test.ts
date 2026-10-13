@@ -15,7 +15,7 @@
 //     `__resetMobileFlowForTest()` between cases so hash changes from one
 //     test don't leak into the next.
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 
 import {
@@ -253,5 +253,39 @@ describe("mobile-flow: cross-device link portability", () => {
     // (AppShell's mobile branch is gated on useIsTouchDevice()). But the
     // marker must survive a subsequent writeWorkspaceToUrl if the caller
     // passes it through — proven by Test 8 idempotency.
+  });
+});
+
+// ─── App iframes share the tab's session history ────────────────────────────
+
+describe("mobile-flow: app frame entries above the view entry", () => {
+  beforeEach(() => {
+    clearUrl();
+    __resetMobileFlowForTest();
+  });
+
+  it("nothing pushed since navigateToView → back to list uses history.back()", () => {
+    navigateToView();
+    const back = vi.spyOn(window.history, "back").mockImplementation(() => {});
+    navigateToList();
+    expect(back).toHaveBeenCalledTimes(1);
+    back.mockRestore();
+  });
+
+  it("an app frame pushed pages on top → strips mv=1 in place instead of rewinding the app", () => {
+    navigateToView();
+    const pushedLength = window.history.length;
+    // An iframe navigation grows the joint session history without touching
+    // the top-level document's history.state.
+    const len = vi.spyOn(window.history, "length", "get").mockReturnValue(pushedLength + 2);
+    const back = vi.spyOn(window.history, "back").mockImplementation(() => {});
+    const { result } = renderHook(() => useMobileScreen());
+    expect(result.current).toBe("view");
+    act(() => navigateToList());
+    expect(back).not.toHaveBeenCalled();
+    expect(window.location.hash).not.toContain("mv=1");
+    expect(result.current).toBe("list");
+    back.mockRestore();
+    len.mockRestore();
   });
 });

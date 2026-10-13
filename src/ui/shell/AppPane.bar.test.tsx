@@ -17,6 +17,14 @@ const mobileState = { isMobile: false };
 vi.mock("@/hooks/use-mobile", () => ({
   useIsMobile: () => mobileState.isMobile,
 }));
+const touchState = { isTouchDevice: false };
+vi.mock("@/hooks/use-is-touch-device", () => ({
+  useIsTouchDevice: () => touchState.isTouchDevice,
+}));
+const navigateToListSpy = vi.fn();
+vi.mock("@/lib/mobile-flow", () => ({
+  navigateToList: () => navigateToListSpy(),
+}));
 
 import { AppPane, sidebarToggleClearance } from "./AppPane";
 import { publishAppSnapshot } from "@/state/app-tiles-store";
@@ -83,6 +91,8 @@ function makeDataTransfer() {
 
 beforeEach(() => {
   mobileState.isMobile = false;
+  touchState.isTouchDevice = false;
+  navigateToListSpy.mockReset();
   publishAppSnapshot([]);
 });
 afterEach(() => {
@@ -308,5 +318,32 @@ describe("AppPane bar", () => {
     expect(getByTestId("app-pane-bar").getAttribute("draggable")).toBe("false");
     expect(getByTestId("app-pane-back")).toBeTruthy();
     expect(getByTestId("app-pane-reload")).toBeTruthy();
+  });
+
+  it("no back-to-conversations button on desktop; bar stays 40px", () => {
+    const { getByTestId, queryByTestId } = render(
+      <AppPane hostId={1} slug="todo" tabId="t1" isVisible={true} />,
+    );
+    expect(queryByTestId("app-pane-back-to-list")).toBeNull();
+    expect(getByTestId("app-pane-bar").style.height).toBe("40px");
+  });
+
+  it("touch: taller bar leads with back-to-conversations, which leaves the app without selecting the pane", () => {
+    touchState.isTouchDevice = true;
+    const onSelectPane = vi.fn();
+    const { getByTestId } = render(
+      <AppPane hostId={1} slug="todo" tabId="t1" isVisible={true} onSelectPane={onSelectPane} />,
+    );
+    const bar = getByTestId("app-pane-bar");
+    expect(bar.style.height).toBe("52px");
+    const backToList = getByTestId("app-pane-back-to-list");
+    // First control in the bar, ahead of the app's own back button.
+    expect(
+      backToList.compareDocumentPosition(getByTestId("app-pane-back")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    fireEvent.click(backToList);
+    expect(navigateToListSpy).toHaveBeenCalledTimes(1);
+    expect(onSelectPane).not.toHaveBeenCalled();
   });
 });
