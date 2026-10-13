@@ -28,6 +28,7 @@ import {
 import { armOutboundDrag, mintDragId } from "./cross-window-drag";
 import { hasSkynetDragPayload } from "./SplitView";
 import { subscribeDragSessionEnd } from "./drag-preview-session";
+import { keepFrameOutOfSessionHistory } from "./app-frame-no-history";
 
 // ─── AppPane — Phase 120 Plan 06 (D-05, D-19, D-20) ─────────────────────────
 //
@@ -307,11 +308,17 @@ export function AppPane({
       prev.canBack === next.canBack && prev.canForward === next.canForward ? prev : next,
     );
   }, []);
+  // Set when keepFrameOutOfSessionHistory turns an app push into a replace:
+  // the browser reports the landing as "replace", but for the page list it
+  // is still a new page.
+  const pushConvertedRef = useRef(false);
   const observe = useCallback(
     (kind: FrameNavKind) => {
       const url = frameUrl(iframeRef.current);
       if (url === null) return;
-      historyRef.current = observeFrameUrl(historyRef.current, url, kind);
+      const effectiveKind: FrameNavKind = pushConvertedRef.current ? "push" : kind;
+      pushConvertedRef.current = false;
+      historyRef.current = observeFrameUrl(historyRef.current, url, effectiveKind);
       publishNav();
     },
     [publishNav],
@@ -341,9 +348,19 @@ export function AppPane({
     };
   }, []);
 
+  const isTouchDeviceRef = useRef(isTouchDevice);
+  isTouchDeviceRef.current = isTouchDevice;
+  const logCtxRef = useRef({ tabId, hostId, slug });
+  logCtxRef.current = { tabId, hostId, slug };
+
   useEffect(() => {
     const el = iframeRef.current;
     if (el === null) return;
+    // Touch only: keep the app's page changes out of the tab's shared
+    // history so back leaves the app for the conversation list (see
+    // app-frame-no-history.ts). Desktop has no Skynet entry to protect, and
+    // there it would make the browser's back button leave Skynet.
+    let releaseNoHistory: (() => void) | null = null;
     // Each load is a fresh document with its own navigation object; in-
     // document pushState/replaceState fires currententrychange on it.
     // Re-subscribe per load so both kinds of page change reach the list.
@@ -369,11 +386,38 @@ export function AppPane({
       subscribed = navigation;
       subscribed?.addEventListener("currententrychange", onEntryChange);
       observe(toNavKind(navigation?.activation?.navigationType));
+      releaseNoHistory?.();
+      releaseNoHistory = null;
+      if (isTouchDeviceRef.current) {
+        try {
+          const win = frameWindow(el);
+          if (win !== null) {
+            releaseNoHistory = keepFrameOutOfSessionHistory(
+              win,
+              () => {
+                pushConvertedRef.current = true;
+              },
+              logCtxRef.current,
+            );
+          }
+        } catch (err) {
+          // Off-site (cross-origin) frame: nothing to patch.
+          systemLogger.warn(`[app-bar] no-history install skipped: ${(err as Error).message}`, {
+            operation: "app_frame_no_history_skip",
+            ...logCtxRef.current,
+          });
+        }
+      }
     };
     el.addEventListener("load", onLoad);
     return () => {
       el.removeEventListener("load", onLoad);
       subscribed?.removeEventListener("currententrychange", onEntryChange);
+      try {
+        releaseNoHistory?.();
+      } catch {
+        // Frame already gone or navigated off-site.
+      }
     };
   }, [observe]);
 

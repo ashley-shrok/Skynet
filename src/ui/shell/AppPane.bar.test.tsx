@@ -346,4 +346,108 @@ describe("AppPane bar", () => {
     expect(navigateToListSpy).toHaveBeenCalledTimes(1);
     expect(onSelectPane).not.toHaveBeenCalled();
   });
+
+  describe("touch: app pages stay out of the tab's history", () => {
+    // Frame whose navigation object routes events by type, with a real
+    // history-shaped pushState/replaceState pair that moves location.href.
+    function makeTouchFrame(initialHref: string) {
+      const targets = new Map<string, Set<(e: Event) => void>>();
+      const on = (t: string) => {
+        if (!targets.has(t)) targets.set(t, new Set());
+        return targets.get(t)!;
+      };
+      const frame = {
+        location: {
+          href: initialHref,
+          replace: vi.fn((url: string) => {
+            frame.location.href = url;
+          }),
+          reload: vi.fn(),
+        },
+        history: {
+          pushState: vi.fn(),
+          replaceState: vi.fn((_d: unknown, _u: string, url: string) => {
+            frame.location.href = new URL(url, frame.location.href).href;
+            const e = new Event("currententrychange") as Event & { navigationType?: string };
+            e.navigationType = "replace";
+            on("currententrychange").forEach((l) => l(e));
+          }),
+        },
+        document,
+        navigation: {
+          activation: { navigationType: "push" as string },
+          addEventListener: (t: string, cb: (e: Event) => void) => on(t).add(cb),
+          removeEventListener: (t: string, cb: (e: Event) => void) => on(t).delete(cb),
+        },
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        fire(t: string, e: Event) {
+          on(t).forEach((l) => l(e));
+        },
+      };
+      return frame;
+    }
+
+    it("an in-app pushState replaces in place but still counts as a new page for the bar", () => {
+      touchState.isTouchDevice = true;
+      const { container, getByTestId } = render(
+        <AppPane hostId={1} slug="todo" tabId="t1" isVisible={true} />,
+      );
+      const iframe = container.querySelector("iframe")!;
+      const frame = makeTouchFrame("https://x/apps/1/todo/pane/");
+      const pushStateBefore = frame.history.pushState;
+      mountFrame(iframe, frame as never);
+      act(() => {
+        iframe.dispatchEvent(new Event("load"));
+      });
+      act(() => {
+        (frame.history.pushState as unknown as History["pushState"])({}, "", "/apps/1/todo/pane/b");
+      });
+      expect(pushStateBefore).not.toHaveBeenCalled();
+      expect(frame.history.replaceState).toHaveBeenCalledTimes(1);
+      expect(frame.location.href).toBe("https://x/apps/1/todo/pane/b");
+      expect((getByTestId("app-pane-back") as HTMLButtonElement).disabled).toBe(false);
+    });
+
+    it("a pushed page load is re-issued as a replace and recorded as a new page", () => {
+      touchState.isTouchDevice = true;
+      const { container, getByTestId } = render(
+        <AppPane hostId={1} slug="todo" tabId="t1" isVisible={true} />,
+      );
+      const iframe = container.querySelector("iframe")!;
+      const frame = makeTouchFrame("https://x/apps/1/todo/pane/");
+      mountFrame(iframe, frame as never);
+      act(() => {
+        iframe.dispatchEvent(new Event("load"));
+      });
+      const nav = new Event("navigate", { cancelable: true });
+      Object.assign(nav, {
+        navigationType: "push",
+        hashChange: false,
+        destination: { url: "https://x/apps/1/todo/pane/c", sameDocument: false },
+      });
+      frame.fire("navigate", nav);
+      expect(nav.defaultPrevented).toBe(true);
+      expect(frame.location.replace).toHaveBeenCalledWith("https://x/apps/1/todo/pane/c");
+      // The re-issued load lands as a "replace"; the bar still treats it as new.
+      frame.navigation.activation = { navigationType: "replace" };
+      act(() => {
+        iframe.dispatchEvent(new Event("load"));
+      });
+      expect((getByTestId("app-pane-back") as HTMLButtonElement).disabled).toBe(false);
+    });
+
+    it("desktop leaves the app's history alone", () => {
+      const { container } = render(<AppPane hostId={1} slug="todo" tabId="t1" isVisible={true} />);
+      const iframe = container.querySelector("iframe")!;
+      const frame = makeTouchFrame("https://x/apps/1/todo/pane/");
+      const pushState = frame.history.pushState;
+      mountFrame(iframe, frame as never);
+      act(() => {
+        iframe.dispatchEvent(new Event("load"));
+      });
+      expect(frame.history.pushState).toBe(pushState);
+    });
+  });
 });
+

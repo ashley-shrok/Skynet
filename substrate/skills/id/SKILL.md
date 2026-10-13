@@ -798,7 +798,10 @@ not something agents drive.
   phone the bar is a little taller and starts with a round **back to
   conversations** (←) button — the same one that floats at the top left of
   a conversation — which returns to the conversation list without moving
-  the app off its current page.
+  the app off its current page. On a phone, pages inside an app don't
+  build up the browser's history: the phone's back gesture (or browser
+  back) in an app goes to the conversation list, and stepping back a page
+  inside the app is the bar's back button.
   Center: the app's icon and name. Right: a **three-dots (⋮) button** —
   always visible, phone included — opening the app's menu; right-clicking
   the bar opens the same menu. Same look as a conversation badge's menu:

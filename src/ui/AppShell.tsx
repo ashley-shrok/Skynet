@@ -3632,12 +3632,17 @@ export function AppShell({
   const hideBackButtonForModal = isTouchDevice && anyIdentityModalOpen;
   // On touch, an open app carries its own back-to-conversations button in its
   // (taller) app bar — see AppPane — so the floating one would only cover the
-  // app's top-left corner.
-  const selectedTabForBackButton = tabs.find((t) => t.id === selectedConversationId);
+  // app's top-left corner. The pane under the button is the split's top-left
+  // leaf (first child all the way down) or, with no split, the selected tab.
+  let topLeftTabId: string | null = selectedConversationId;
+  if (splitTree !== null) {
+    let node: SplitNode = splitTree;
+    while (node.kind === "split") node = node.children[0];
+    topLeftTabId = node.tabId;
+  }
+  const topLeftTab = tabs.find((t) => t.id === topLeftTabId);
   const hideBackButtonForApp =
-    isTouchDevice &&
-    selectedTabForBackButton !== undefined &&
-    isAppTab(selectedTabForBackButton);
+    isTouchDevice && topLeftTab !== undefined && isAppTab(topLeftTab);
   // Patch #144 Fix (b): `isMobileViewScreen` derivation removed together
   // with the legacy mobile-view header block below. mobileScreen === "view"
   // is now expressed implicitly via `!isMobileListScreen` on the fixed
