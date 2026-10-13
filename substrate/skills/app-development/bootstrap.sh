@@ -10,6 +10,10 @@
 
 set -euo pipefail
 
+# systemctl --user needs the user bus; agent shells don't always export it.
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}"
+
 log() { printf '[bootstrap] %s\n' "$*"; }
 die() { printf '[bootstrap] ERROR: %s\n' "$*" >&2; exit 1; }
 

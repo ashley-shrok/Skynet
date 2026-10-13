@@ -421,6 +421,11 @@ Common commands:
 - **Status:** `systemctl --user status app-<slug>`
 - **Tail logs:** `journalctl --user -u app-<slug> -f`
 
+If `systemctl --user` fails with `Failed to connect to bus`, your shell is
+missing the user-bus env — prefix the command with
+`XDG_RUNTIME_DIR=/run/user/$(id -u) DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus`.
+The skill's scripts set these themselves.
+
 Never `pkill bun` — it kills every app on the box.
 
 ## How the pane mounts your app — one rule to internalize
@@ -483,6 +488,10 @@ already scaffolded and works):
   handlers
 - `src/hooks.server.ts` — rewrites SvelteKit's `/_app/` asset URLs +
   the `Link:` preload header to include the prefix
+- `vite.config.ts` — a `pane-base-preloads` plugin prefixes the `/_app/`
+  preload URLs Vite bakes into the built client JS (hooks.server.ts never
+  sees served JS); without it, client JS fails to load in the pane and
+  SvelteKit shows its 500 page
 - `server.js` — custom Node entry that strips `PANE_BASE` at the HTTP
   layer for the standalone-tab context so adapter-node's static-file
   middleware finds files on disk
