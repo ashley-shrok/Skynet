@@ -11,7 +11,7 @@
  *     transcribing, every pane's voice-mode button is disabled.
  *
  * Module scope (same window only), same pattern as speak-singleton.ts.
- * Panes opened with "Open in new window" are separate documents and are not
+ * Panes opened with "Open in new tab" are separate documents and are not
  * covered.
  */
 import { useSyncExternalStore } from "react";

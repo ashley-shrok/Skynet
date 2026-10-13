@@ -717,7 +717,7 @@ describe("IdentitySessionPane — Phase 41 Plan 02", () => {
       const labels = getMenuItems().map((it) => it.label);
       expect(labels).toContain("Move to");
       // Move-to-new-window still guarded out on mobile.
-      expect(labels).not.toContain("Move to new window");
+      expect(labels).not.toContain("Move to new tab");
     });
   });
 
@@ -727,14 +727,14 @@ describe("IdentitySessionPane — Phase 41 Plan 02", () => {
   // list flowing to PrettyView's `identityBadgeContextMenuItems` prop under
   // each combination of (isAdmin, isMobile):
   //
-  //   BADGE-MENU-1: admin  + desktop → Move to new window,
+  //   BADGE-MENU-1: admin  + desktop → Move to new tab,
   //                                    Switch to terminal view, Move to, Archive
-  //   BADGE-MENU-2: non-admin + desktop → Move to new window, Move to,
+  //   BADGE-MENU-2: non-admin + desktop → Move to new tab, Move to,
   //                                       Archive (NO Switch item)
   //   BADGE-MENU-3: admin  + mobile  → Switch to terminal view, Move to,
-  //                                    Archive (NO Move to new window)
+  //                                    Archive (NO Move to new tab)
   //   BADGE-MENU-4: non-admin + mobile → Move to, Archive (neither Switch
-  //                                      nor Move to new window)
+  //                                      nor Move to new tab)
   //
   // There is no top-level Pin/Unpin item: pinning lives in the "Move to"
   // submenu (pinned and in-a-project are mutually exclusive).
@@ -754,13 +754,13 @@ describe("IdentitySessionPane — Phase 41 Plan 02", () => {
     return items.map((it) => it.label);
   }
 
-  it("BADGE-MENU-1: admin + desktop → exactly Move to new window, Switch to terminal view, Rename…, Move to, Archive (in that order; no Pin)", async () => {
+  it("BADGE-MENU-1: admin + desktop → exactly Move to new tab, Switch to terminal view, Rename…, Move to, Archive (in that order; no Pin)", async () => {
     await setMobile(false);
     render(<IdentitySessionPane {...makeProps({ isAdmin: true })} />);
     const labels = itemLabels();
     // Initial isPrettyMode = true → label reads "Switch to terminal view".
     expect(labels).toEqual([
-      "Move to new window",
+      "Move to new tab",
       "Switch to terminal view",
       "Rename…",
       "Move to",
@@ -774,7 +774,7 @@ describe("IdentitySessionPane — Phase 41 Plan 02", () => {
     await setMobile(false);
     const onCloseTab = vi.fn();
     const { unmount } = render(<IdentitySessionPane {...makeProps({ onCloseTab })} />);
-    expect(itemLabels()).toEqual(["Move to new window", "Rename…", "Move to", "Close", "Archive"]);
+    expect(itemLabels()).toEqual(["Move to new tab", "Rename…", "Move to", "Close", "Archive"]);
     const items = capturedPrettyViewProps?.identityBadgeContextMenuItems as Array<{ label: string; onClick?: () => void }>;
     items.find((it) => it.label === "Close")!.onClick!();
     expect(onCloseTab).toHaveBeenCalledWith("tab-1");
@@ -811,27 +811,27 @@ describe("IdentitySessionPane — Phase 41 Plan 02", () => {
     vi.mocked(store.useIdentities).mockReset();
   });
 
-  it("BADGE-MENU-2: non-admin + desktop → Switch item absent; Move to new window still present", async () => {
+  it("BADGE-MENU-2: non-admin + desktop → Switch item absent; Move to new tab still present", async () => {
     await setMobile(false);
     render(<IdentitySessionPane {...makeProps({ isAdmin: false })} />);
     const labels = itemLabels();
     expect(labels).not.toContain("Pin");
-    expect(labels).toEqual(["Move to new window", "Rename…", "Move to", "Archive"]);
+    expect(labels).toEqual(["Move to new tab", "Rename…", "Move to", "Archive"]);
     expect(labels).not.toContain("Switch to terminal view");
     expect(labels).not.toContain("Switch to chat view");
   });
 
-  it("BADGE-MENU-3: admin + mobile → Move to new window absent; Switch item still present", async () => {
+  it("BADGE-MENU-3: admin + mobile → Move to new tab absent; Switch item still present", async () => {
     await setMobile(true);
     render(<IdentitySessionPane {...makeProps({ isAdmin: true })} />);
     const labels = itemLabels();
     expect(labels).not.toContain("Pin");
-    expect(labels).not.toContain("Move to new window");
+    expect(labels).not.toContain("Move to new tab");
     // Order: Switch < Move to < Archive.
     expect(labels).toEqual(["Switch to terminal view", "Rename…", "Move to", "Archive"]);
   });
 
-  it("BADGE-MENU-4: non-admin + mobile → neither Switch nor Move to new window present", async () => {
+  it("BADGE-MENU-4: non-admin + mobile → neither Switch nor Move to new tab present", async () => {
     await setMobile(true);
     render(<IdentitySessionPane {...makeProps({ isAdmin: false })} />);
     const labels = itemLabels();
@@ -839,7 +839,7 @@ describe("IdentitySessionPane — Phase 41 Plan 02", () => {
     expect(labels).toEqual(["Rename…", "Move to", "Archive"]);
     expect(labels).not.toContain("Switch to terminal view");
     expect(labels).not.toContain("Switch to chat view");
-    expect(labels).not.toContain("Move to new window");
+    expect(labels).not.toContain("Move to new tab");
   });
 
   it("BADGE-MENU-5: isAdmin omitted (undefined) → defaults to non-admin (Switch item absent)", async () => {

@@ -676,7 +676,7 @@ not something agents drive.
 - **Apps section (top).** Apps the user has built with you or a peer
   agent live here. Click opens the app inside the client. Each app tile
   carries a **kebab menu** with:
-  - **Open in new window** — the app alone in a new Skynet window
+  - **Open in new tab** — the app alone in a new Skynet tab
     (desktop only; panes already showing it stay put).
   - **Open standalone** — the app by itself in a browser tab, no Skynet
     around it.
@@ -715,8 +715,8 @@ not something agents drive.
 
 - **Kebab menu on any sidebar row (conversation).** The three-dots menu
   on the row. Contents:
-  - **Open in new window** — opens that conversation in a separate
-    client instance (distinct from apps' "open in new tab").
+  - **Open in new tab** — opens that conversation in a new Skynet tab
+    (a separate client instance; desktop only).
     *Agent-side: none.*
   - **Rename…** — asks for a new title and sets it as the conversation's
     row title and task line. Shown for agent conversations only.
@@ -798,7 +798,7 @@ not something agents drive.
   Center: the app's icon and name. Right: a **three-dots (⋮) button** —
   always visible, phone included — opening the app's menu; right-clicking
   the bar opens the same menu. Same look as a conversation badge's menu:
-  **Move to new window** (desktop only — opens it in a new Skynet window
+  **Move to new tab** (desktop only — opens it in a new Skynet tab
   and closes this pane), **Open standalone**, **Rename…**,
   **Close** (desktop only), **Archive** (the same double-confirm as the
   sidebar app tile's; closes every open pane of that app). The **whole bar is the drag handle**, same as a
@@ -917,7 +917,7 @@ crown, then gear.
   modal** (next item). A **three-dots (⋮) button** at the pill's right
   end — always visible, and the way in on a phone — opens the badge menu;
   right-clicking the badge opens the same menu. Same look as the sidebar
-  row's menu: **Move to new window** (desktop only), **Switch to terminal
+  row's menu: **Move to new tab** (desktop only), **Switch to terminal
   / chat view** (admins only), **Rename…**, **Move to** (Pinned + projects), **Close**
   (desktop only), **Archive**. Drag = see § Drag & drop (drop lane,
   filing into sidebar sections).

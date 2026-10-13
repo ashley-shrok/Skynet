@@ -8,7 +8,7 @@ import {
 import type { AppState } from "../../api/fleet-status-types";
 import { buildAppMenuItems } from "./app-menu-items";
 // shape-sidebar-header-affordances: app tile context menu + long-press
-// machinery retired; the actions (Open in new window, Open standalone, Rename,
+// machinery retired; the actions (Open in new tab, Open standalone, Rename,
 // Archive) now live in a RowKebabMenu rendered inside the tile. Hover-reveal on desktop +
 // always-visible on mobile via a CSS-only group-hover + viewport-width gate
 // at the kebab's wrapper div.
@@ -51,7 +51,7 @@ import { RowKebabMenu, useRowKebabContextMenu, type RowKebabMenuItem } from "./R
 //     the touch coords. navigator.vibrate?.(10) is feature-checked because
 //     iOS Safari does not implement the API (Pitfall 4). Handlers mirror
 //     PrettyConversationRow.tsx:442-451 + :595-603 exactly.
-//   - KEBAB actions (Open in new window [desktop], Open standalone, Rename…,
+//   - KEBAB actions (Open in new tab [desktop], Open standalone, Rename…,
 //     Archive): built by
 //     buildAppMenuItems (app-menu-items.ts), shared with the AppPane bar.
 //

@@ -1298,7 +1298,7 @@ describe("PrettyConversationsPanel: deactivate action (quick-260727-gm3)", () =>
   // (removeFromActiveSet + onDeactivateRow, plus the fleet-id sibling purge
   // from quick-260727-s8g, plus the ordering contract for bounty #5) is
   // still wired — it now fires only from the 5-min idle-deactivate sweep
-  // and as the "Open in new window" side effect on active-set rows.
+  // and as the "Open in new tab" side effect on active-set rows.
 });
 
 // quick-260807-e4s: locks in the id-shape-mismatch fix. Panel-side

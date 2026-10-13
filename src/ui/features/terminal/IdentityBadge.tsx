@@ -65,7 +65,7 @@ export interface IdentityBadgeProps {
     relayRoomTitle?: string | null;
     targetTmuxSession?: string | null;
   };
-  // Badge menu (Move to new window / Switch view / Move to / Archive).
+  // Badge menu (Move to new tab / Switch view / Move to / Archive).
   // Non-empty → a ⋮ kebab renders at the pill's right end and right-click
   // on the pill opens the same menu — the shared RowKebabMenu surface every
   // sidebar kebab uses. Touch long-press is retired, as on sidebar rows: the

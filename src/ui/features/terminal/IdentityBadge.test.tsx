@@ -122,7 +122,7 @@ describe("IdentityBadge — core render", () => {
   // Touch long-press is retired (kebab is the mobile path, as on rows).
   describe("badge kebab menu", () => {
     const items = () => [
-      { label: "Move to new window", onClick: vi.fn() },
+      { label: "Move to new tab", onClick: vi.fn() },
       { label: "Archive", danger: true, onClick: vi.fn() },
     ];
 
@@ -151,7 +151,7 @@ describe("IdentityBadge — core render", () => {
       const its = items();
       render(<IdentityBadge identityKey="tina" onClick={onClick} menuItems={its} />);
       await user.click(screen.getByTestId("identity-badge-kebab-trigger"));
-      await user.click(screen.getByRole("menuitem", { name: "Move to new window" }));
+      await user.click(screen.getByRole("menuitem", { name: "Move to new tab" }));
       expect(its[0].onClick).toHaveBeenCalledTimes(1);
       expect(onClick).not.toHaveBeenCalled();
     });

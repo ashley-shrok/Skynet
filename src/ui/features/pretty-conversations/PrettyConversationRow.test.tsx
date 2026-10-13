@@ -934,7 +934,7 @@ describe("PrettyConversationRow: Phase 41 Plan 01 ambient-recession retirement",
 // non-RDP when onTogglePin is provided).
 // Deactivate was removed from the context menu 2026-08-17 (user); the row
 // itself no longer exposes a user-facing deactivate trigger — the panel's
-// 5-min idle sweep and the "Open in new window" side effect are the only
+// 5-min idle sweep and the "Open in new tab" side effect are the only
 // remaining callers of onDeactivate.
 // The four tests below lock this:
 //   18c — no PinAction / no DeactivateAction in desktop .pv-meta
@@ -1341,22 +1341,20 @@ describe("PrettyConversationRow: Phase 48 Plan 05 main label source + parentheti
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-// UO1-UO6 — Open-in-new-window context-menu item (quick-260804-uo4;
-//           label unified 2026-08-18 — was "Move to new window" when
-//           inActiveSet, "Open in new window" otherwise; now always "Open in
-//           new window". onDeactivate side-effect on success still distinguishes
-//           the two cases.)
+// UO1-UO6 — "Open in new tab" context-menu item. Always the same label;
+//           onDeactivate side-effect on success still distinguishes the
+//           inActiveSet / !inActiveSet cases.
 // ─────────────────────────────────────────────────────────────────────────────
 // Six tests:
-//   UO1 — desktop, inActiveSet, non-RDP → "Open in new window" + window.open
+//   UO1 — desktop, inActiveSet, non-RDP → "Open in new tab" + window.open
 //          + onDeactivate called (window handle non-null)
-//   UO2 — desktop, !inActiveSet, non-RDP → "Open in new window" + window.open
+//   UO2 — desktop, !inActiveSet, non-RDP → "Open in new tab" + window.open
 //          + onDeactivate NOT called
 //   UO3 — desktop, RDP row, inActiveSet → menu opens (gate relaxed) + "Open in
-//          new window" + window.open + onDeactivate called
+//          new tab" + window.open + onDeactivate called
 //   UO4 — desktop, inActiveSet, window.open returns null → onDeactivate NOT
 //          called (popup-blocker safety)
-//   UO5 — mobile long-press → menu opens but "Open in new window" item NOT
+//   UO5 — mobile long-press → menu opens but "Open in new tab" item NOT
 //          present (desktop-only guard)
 //   UO6 — mobile RDP long-press → menu opens (touch gate relaxed); no new-
 //          window item (mobile-only suppression); Pin item present
@@ -1373,7 +1371,7 @@ describe("PrettyConversationRow: Open-in-new-window context-menu item (quick-260
     vi.restoreAllMocks();
   });
 
-  it("UO1: desktop, inActiveSet=true, non-RDP → menu item labeled 'Open in new window'; click calls window.open with workspace URL + calls onDeactivate once", async () => {
+  it("UO1: desktop, inActiveSet=true, non-RDP → menu item labeled 'Open in new tab'; click calls window.open with workspace URL + calls onDeactivate once", async () => {
     // Stub window.open to return a non-null Window handle (popup not blocked).
     window.open = vi.fn(() => ({} as Window));
     const onDeactivate = vi.fn();
@@ -1395,10 +1393,10 @@ describe("PrettyConversationRow: Open-in-new-window context-menu item (quick-260
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
     await openRowKebab(container);
     const menu = screen.getByRole("menu");
-    const item = within(menu).getByRole("menuitem", { name: /open in new window/i });
+    const item = within(menu).getByRole("menuitem", { name: /open in new tab/i });
     expect(item).toBeTruthy();
-    // Regression guard: legacy "Move to new window" label must never appear again.
-    expect(within(menu).queryByRole("menuitem", { name: /move to new window/i })).toBeNull();
+    // Regression guard: legacy "Move to new tab" label must never appear again.
+    expect(within(menu).queryByRole("menuitem", { name: /move to new tab/i })).toBeNull();
     fireEvent.click(item);
 
     // window.open must have been called exactly once.
@@ -1423,7 +1421,7 @@ describe("PrettyConversationRow: Open-in-new-window context-menu item (quick-260
     expect(onDeactivate).toHaveBeenCalledTimes(1);
   });
 
-  it("UO2: desktop, inActiveSet=false, non-RDP → menu item labeled 'Open in new window'; click calls window.open; onDeactivate NOT called", async () => {
+  it("UO2: desktop, inActiveSet=false, non-RDP → menu item labeled 'Open in new tab'; click calls window.open; onDeactivate NOT called", async () => {
     window.open = vi.fn(() => ({} as Window));
     const onDeactivate = vi.fn();
     const { container } = render(
@@ -1444,11 +1442,11 @@ describe("PrettyConversationRow: Open-in-new-window context-menu item (quick-260
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
     await openRowKebab(container);
     const menu = screen.getByRole("menu");
-    // Label is unified "Open in new window" regardless of active-set (2026-08-18).
-    const item = within(menu).getByRole("menuitem", { name: /open in new window/i });
+    // Label is unified "Open in new tab" regardless of active-set (2026-08-18).
+    const item = within(menu).getByRole("menuitem", { name: /open in new tab/i });
     expect(item).toBeTruthy();
-    // Legacy "Move to new window" label must NOT appear.
-    expect(within(menu).queryByRole("menuitem", { name: /move to new window/i })).toBeNull();
+    // Legacy "Move to new tab" label must NOT appear.
+    expect(within(menu).queryByRole("menuitem", { name: /move to new tab/i })).toBeNull();
     fireEvent.click(item);
 
     expect(window.open).toHaveBeenCalledTimes(1);
@@ -1457,7 +1455,7 @@ describe("PrettyConversationRow: Open-in-new-window context-menu item (quick-260
     expect(onDeactivate).not.toHaveBeenCalled();
   });
 
-  it("UO3: desktop, RDP row, inActiveSet=true → menu opens (gate relaxed); 'Open in new window' present; click calls window.open + onDeactivate", async () => {
+  it("UO3: desktop, RDP row, inActiveSet=true → menu opens (gate relaxed); 'Open in new tab' present; click calls window.open + onDeactivate", async () => {
     window.open = vi.fn(() => ({} as Window));
     const onDeactivate = vi.fn();
     const { container } = render(
@@ -1481,7 +1479,7 @@ describe("PrettyConversationRow: Open-in-new-window context-menu item (quick-260
     const menu = screen.getByRole("menu");
     expect(menu).toBeTruthy();
 
-    const item = within(menu).getByRole("menuitem", { name: /open in new window/i });
+    const item = within(menu).getByRole("menuitem", { name: /open in new tab/i });
     expect(item).toBeTruthy();
     fireEvent.click(item);
 
@@ -1525,7 +1523,7 @@ describe("PrettyConversationRow: Open-in-new-window context-menu item (quick-260
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
     await openRowKebab(container);
     const menu = screen.getByRole("menu");
-    const item = within(menu).getByRole("menuitem", { name: /open in new window/i });
+    const item = within(menu).getByRole("menuitem", { name: /open in new tab/i });
     fireEvent.click(item);
 
     // window.open was attempted.
@@ -1557,7 +1555,7 @@ describe("PrettyConversationRow: Open-in-new-window context-menu item (quick-260
     await openRowKebab(container);
     const menu = screen.getByRole("menu");
     const item = within(menu).getByRole("menuitem", {
-      name: /open in new window/i,
+      name: /open in new tab/i,
     });
     fireEvent.click(item);
 
@@ -2876,7 +2874,7 @@ describe("PrettyConversationRow: Move to project menu item (shape-move-to-projec
     expect(onMoveToProject).toHaveBeenCalledWith(null);
   });
 
-  it("'Move to' sits between 'Open in new window' and 'Kill' in menu order (no top-level Pin item)", async () => {
+  it("'Move to' sits between 'Open in new tab' and 'Kill' in menu order (no top-level Pin item)", async () => {
     currentIdentity = null;
     const { container } = render(
       <PrettyConversationRow
@@ -2901,7 +2899,7 @@ describe("PrettyConversationRow: Move to project menu item (shape-move-to-projec
     const menu = screen.getByRole("menu");
     const menuitems = within(menu).getAllByRole("menuitem");
     const labels = menuitems.map((m) => (m.textContent ?? "").trim());
-    const iOpen = labels.findIndex((l) => /open in new window/i.test(l));
+    const iOpen = labels.findIndex((l) => /open in new tab/i.test(l));
     const iMove = labels.findIndex((l) => /^move to$/i.test(l));
     const iKill = labels.findIndex((l) => /^kill$/i.test(l));
     const iArchive = labels.findIndex((l) => /^archive$/i.test(l));
@@ -2912,7 +2910,7 @@ describe("PrettyConversationRow: Move to project menu item (shape-move-to-projec
     expect(iMove).toBeGreaterThan(iOpen);
     expect(iMove).toBeLessThan(iKill);
     expect(iKill).toBeLessThan(iArchive);
-    // Open in new window leads; there is no top-level Pin/Unpin.
+    // Open in new tab leads; there is no top-level Pin/Unpin.
     expect(iOpen).toBe(0);
     expect(labels.some((l) => /^(un)?pin$/i.test(l))).toBe(false);
   });

@@ -214,7 +214,7 @@ export interface AppPaneProps {
   label?: string;
   /** Clicking the bar selects this pane (split focus). */
   onSelectPane?: (tabId: string) => void;
-  /** Bar menu's Close / Move to new window tear this pane down. */
+  /** Bar menu's Close / Move to new tab tear this pane down. */
   onCloseTab?: (tabId: string) => void;
   /** Bar menu's Archive — closes every open pane for this app. */
   onArchiveApp?: (hostId: number, slug: string, title: string) => void;
@@ -257,11 +257,11 @@ export function AppPane({
     // Desktop-only — mobile has no multi-window story.
     if (!isMobile) {
       items.push({
-        label: "Move to new window",
+        label: "Move to new tab",
         testId: "app-pane-menu-move-new-window",
         onClick: () => {
           const w = openAppInNewWindow(hostId, slug);
-          systemLogger.info("[app-bar-menu] move to new window", {
+          systemLogger.info("[app-bar-menu] move to new tab", {
             operation: "app_bar_menu_move_window",
             tabId,
             hostId,

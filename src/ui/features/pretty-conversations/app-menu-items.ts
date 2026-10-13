@@ -12,11 +12,11 @@ import type { RowKebabMenuItem } from "./RowKebabMenu";
 
 // ─── App menu items — shared by the sidebar AppTile and the AppPane bar ─────
 //
-// The per-app actions (Open in new window, Open standalone, Rename…, Archive)
+// The per-app actions (Open in new tab, Open standalone, Rename…, Archive)
 // live here so the sidebar tile's kebab and an open app pane's bar kebab
 // offer the same actions with the same copy and side effects. Each surface
 // adds its own placement-specific items around these — the bar swaps Open in
-// new window for Move to new window (opens, then closes that pane) and adds
+// new tab for Move to new tab (opens, then closes that pane) and adds
 // Close. Same open/move split as conversation rows vs. badges.
 //
 // `hostId` is the wire string (AppState.hostId); the API clients take a
@@ -63,7 +63,7 @@ export function buildAppMenuItems(
 
   return {
     openInNewWindow: {
-      label: "Open in new window",
+      label: "Open in new tab",
       testId: "app-menu-item-open-new-window",
       onClick: () => {
         openAppInNewWindow(Number(app.hostId), app.slug);

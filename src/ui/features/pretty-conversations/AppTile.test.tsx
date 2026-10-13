@@ -21,9 +21,9 @@
 //               .pv-app-unhealthy-message (graceful null handling).
 //
 //   Kebab menu:
-//     - Test H: kebab → Open in new window, Open standalone, Rename…, Archive.
-//     - Test H2: mobile variant drops Open in new window.
-//     - Test H3: Open in new window → window.open("#<workspace spec>", "_blank").
+//     - Test H: kebab → Open in new tab, Open standalone, Rename…, Archive.
+//     - Test H2: mobile variant drops Open in new tab.
+//     - Test H3: Open in new tab → window.open("#<workspace spec>", "_blank").
 //     - Test I: Open standalone → window.open("/apps/${hostId}/${slug}",
 //               "_blank", "noopener,noreferrer"). The noopener,noreferrer
 //               triplet is the RESEARCH.md §Security defence-in-depth win.
@@ -216,8 +216,8 @@ describe("AppTile — D-10 title-only + D-11 unhealthy two-line", () => {
   });
 });
 
-describe("AppTile — kebab menu: Open in new window + Open standalone", () => {
-  it("H: kebab opens the menu with 'Open in new window', 'Open standalone', 'Rename…', 'Archive' in that order (destructive last)", async () => {
+describe("AppTile — kebab menu: Open in new tab + Open standalone", () => {
+  it("H: kebab opens the menu with 'Open in new tab', 'Open standalone', 'Rename…', 'Archive' in that order (destructive last)", async () => {
     render(<AppTile app={makeApp()} />);
     const tile = screen.getByRole("button", { name: /App tile: Scratch/ });
 
@@ -232,13 +232,13 @@ describe("AppTile — kebab menu: Open in new window + Open standalone", () => {
     // menu placement); app-rename shape slots "Rename…" in before it.
     const items = menu.querySelectorAll('[role="menuitem"]');
     expect(items.length).toBe(4);
-    expect(items[0].textContent).toBe("Open in new window");
+    expect(items[0].textContent).toBe("Open in new tab");
     expect(items[1].textContent).toBe("Open standalone");
     expect(items[2].textContent).toBe("Rename…");
     expect(items[3].textContent).toBe("Archive");
   });
 
-  it("H2: mobile variant drops 'Open in new window' (no multi-window on a phone)", async () => {
+  it("H2: mobile variant drops 'Open in new tab' (no multi-window on a phone)", async () => {
     render(<AppTile app={makeApp()} variant="mobile" />);
     const tile = screen.getByRole("button", { name: /App tile: Scratch/ });
     await openTileKebab(tile);
@@ -248,13 +248,13 @@ describe("AppTile — kebab menu: Open in new window + Open standalone", () => {
     expect(labels).toEqual(["Open standalone", "Rename…", "Archive"]);
   });
 
-  it("H3: clicking 'Open in new window' opens a Skynet window holding just this app, and does not open it in a pane here", async () => {
+  it("H3: clicking 'Open in new tab' opens a Skynet window holding just this app, and does not open it in a pane here", async () => {
     const onOpenApp = vi.fn();
     render(<AppTile app={makeApp({ hostId: "1", slug: "scratch" })} onOpenApp={onOpenApp} />);
     const tile = screen.getByRole("button", { name: /App tile: Scratch/ });
 
     await openTileKebab(tile);
-    fireEvent.click(screen.getByRole("menuitem", { name: "Open in new window" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Open in new tab" }));
 
     expect(openSpy).toHaveBeenCalledTimes(1);
     const [url, target] = openSpy.mock.calls[0] as [string, string];

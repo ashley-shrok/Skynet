@@ -521,7 +521,7 @@ export function PrettyConversationRow({
   // single class alone at `.pv-row.spinner-on .pv-avatar::before`. The
   // `.active-set` class is still emitted from `inActiveSet` for the other
   // things active-set legitimately drives (deactivate hover-reveal,
-  // "Open in new window" menu behavior) — it just no longer gates the
+  // "Open in new tab" menu behavior) — it just no longer gates the
   // spinner.
   const showSpinnerOn = isWorking === true || isRecycling;
 
@@ -555,17 +555,17 @@ export function PrettyConversationRow({
     : null;
 
   // Kebab items (shared by the ⋮ trigger and right-click on the row body).
-  // (Open in new window / Rename… / Move to / Close / Kill / Archive).
+  // (Open in new tab / Rename… / Move to / Close / Kill / Archive).
   const kebabItems = ((): RowKebabMenuItem[] => {
     const items: RowKebabMenuItem[] = [];
-    // Open in new window — desktop-only, only when the row is URL-
+    // Open in new tab — desktop-only, only when the row is URL-
     // addressable (specForTab produces a spec). Window.open without
     // "noopener" so we can detect popup-blocker returns null.
     if (!isMobile) {
       const spec = specForTab({ type: row.type, host: row.host, targetTmuxSession: row.targetTmuxSession });
       if (spec !== null) {
         items.push({
-          label: "Open in new window",
+          label: "Open in new tab",
           onClick: () => {
             const payload = encodeWorkspaceSpec({ tabs: [spec], activeIndex: 0, only: true });
             const w = window.open("#" + payload, "_blank");
@@ -889,7 +889,7 @@ export function PrettyConversationRow({
             exists). RowKebabMenu's portal-click-containment prevents item
             onClicks from leaking through to the row body's onClick. The
             items[] builder mirrors the retired PrettyConversationContextMenu
-            items[] (Open in new window / Move to / Kill / Archive) with the
+            items[] (Open in new tab / Move to / Kill / Archive) with the
             same per-item eligibility gates. */}
         <div
           className="absolute top-1/2 -translate-y-1/2 right-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity shrink-0 z-[5]"

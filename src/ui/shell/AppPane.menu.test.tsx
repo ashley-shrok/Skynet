@@ -1,7 +1,7 @@
 /**
  * App bar menu — the ⋮ kebab + right-click on an open app pane's bar, the
  * app-pane counterpart of the IdentityBadge menu. Covers item set + order on
- * desktop and mobile, Close, Move to new window (incl. popup blocked), the
+ * desktop and mobile, Close, Move to new tab (incl. popup blocked), the
  * shared Archive flow closing panes via onArchiveApp, right-click opening the
  * same menu, and a kebab click never selecting the pane.
  */
@@ -64,13 +64,13 @@ afterEach(() => {
 });
 
 describe("AppPane bar menu", () => {
-  it("desktop: kebab lists Move to new window, Open standalone, Rename…, Close, Archive", async () => {
+  it("desktop: kebab lists Move to new tab, Open standalone, Rename…, Close, Archive", async () => {
     const { container } = render(
       <AppPane hostId={1} slug="todo" tabId="t1" isVisible onCloseTab={vi.fn()} />,
     );
     const menu = await openKebab(container);
     expect(itemLabels(menu)).toEqual([
-      "Move to new window",
+      "Move to new tab",
       "Open standalone",
       "Rename…",
       "Close",
@@ -78,7 +78,7 @@ describe("AppPane bar menu", () => {
     ]);
   });
 
-  it("mobile: no Move to new window or Close", async () => {
+  it("mobile: no Move to new tab or Close", async () => {
     mobileState.isMobile = true;
     const { container } = render(
       <AppPane hostId={1} slug="todo" tabId="t1" isVisible onCloseTab={vi.fn()} />,
@@ -96,26 +96,26 @@ describe("AppPane bar menu", () => {
     expect(onCloseTab).toHaveBeenCalledWith("t1");
   });
 
-  it("Move to new window opens an app workspace window and closes this pane", async () => {
+  it("Move to new tab opens an app workspace window and closes this pane", async () => {
     const onCloseTab = vi.fn();
     const open = vi.spyOn(window, "open").mockReturnValue({} as Window);
     const { container } = render(
       <AppPane hostId={1} slug="todo" tabId="t1" isVisible onCloseTab={onCloseTab} />,
     );
-    clickItem(await openKebab(container), "Move to new window");
+    clickItem(await openKebab(container), "Move to new tab");
     expect(open).toHaveBeenCalledTimes(1);
     expect(String(open.mock.calls[0][0]).startsWith("#")).toBe(true);
     expect(open.mock.calls[0][1]).toBe("_blank");
     expect(onCloseTab).toHaveBeenCalledWith("t1");
   });
 
-  it("Move to new window keeps the pane when the popup is blocked", async () => {
+  it("Move to new tab keeps the pane when the popup is blocked", async () => {
     const onCloseTab = vi.fn();
     vi.spyOn(window, "open").mockReturnValue(null);
     const { container } = render(
       <AppPane hostId={1} slug="todo" tabId="t1" isVisible onCloseTab={onCloseTab} />,
     );
-    clickItem(await openKebab(container), "Move to new window");
+    clickItem(await openKebab(container), "Move to new tab");
     expect(onCloseTab).not.toHaveBeenCalled();
   });
 
@@ -161,7 +161,7 @@ describe("AppPane bar menu", () => {
     );
     fireEvent.contextMenu(getByTestId("app-pane-bar"), { clientX: 50, clientY: 10 });
     expect(itemLabels(screen.getByRole("menu"))).toEqual([
-      "Move to new window",
+      "Move to new tab",
       "Open standalone",
       "Rename…",
       "Close",

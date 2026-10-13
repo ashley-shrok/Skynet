@@ -141,7 +141,7 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
     // Identity-badge context-menu items — mirrors the conversation-row menu
     // (PrettyConversationRow.tsx items[] builder) so both surfaces offer the
     // same affordances for an identity. Order:
-    //   Move to new window (desktop-only) →
+    //   Move to new tab (desktop-only) →
     //     Switch to (terminal/chat) view (admin-only) → Rename… →
     //     Move to (Pinned / projects) → Close (desktop-only) → Archive
     // Rendered on both desktop and mobile — mobile trigger is long-press
@@ -182,7 +182,7 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
         });
         if (spec !== null) {
           items.push({
-            label: "Move to new window",
+            label: "Move to new tab",
             onClick: () => {
               const payload = encodeWorkspaceSpec({
                 tabs: [spec],

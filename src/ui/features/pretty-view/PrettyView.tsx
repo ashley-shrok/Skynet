@@ -360,10 +360,10 @@ export interface PrettyViewProps {
   // Menu items for the IdentityBadge. Absent OR empty array = no menu.
   // Present with items = the badge shows a ⋮ kebab and right-click opens
   // the same menu (shared RowKebabMenu surface). Caller owns each item's
-  // onClick semantic (e.g. "Move to new window" builds a workspace spec
+  // onClick semantic (e.g. "Move to new tab" builds a workspace spec
   // + window.open + closes the current tab). Same items list flows to
   // both surfaces (terminal-mode and pretty-mode badges) — the caller
-  // filters items per-surface (e.g. "Move to new window" is desktop-only,
+  // filters items per-surface (e.g. "Move to new tab" is desktop-only,
   // "Switch to (terminal/chat) view" is admin-only).
   identityBadgeContextMenuItems?: RowKebabMenuItem[];
   // Phase 137 Plan 03 (D-16): per-user voice preferences for the speak
