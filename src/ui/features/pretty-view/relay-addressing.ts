@@ -8,6 +8,8 @@ export interface RelayParty {
   /** Identity colorHue, or null for people / unresolved senders. */
   hue: number | null;
   you: boolean;
+  /** Identity avatar URL; absent/empty falls back to the initial letter. */
+  avatarUrl?: string | null;
 }
 
 /**
@@ -45,6 +47,7 @@ export function partyForMxid(mxid: string, byKey: Map<string, Identity>): RelayP
     name: identity ? identity.displayName : friendlyMxidName(mxid),
     hue: colorHue,
     you: false,
+    avatarUrl: identity?.avatarUrl || null,
   };
 }
 

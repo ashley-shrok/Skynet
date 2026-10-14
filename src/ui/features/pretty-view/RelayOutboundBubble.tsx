@@ -48,7 +48,12 @@ export function RelayOutboundBubble({
   // Relay-source view has no pane agent — an outbound there is the viewing
   // user's own send echoed back from the room.
   const sender: RelayParty = selfIdentity
-    ? { name: selfIdentity.displayName, hue: selfIdentity.colorHue, you: false }
+    ? {
+        name: selfIdentity.displayName,
+        hue: selfIdentity.colorHue,
+        you: false,
+        avatarUrl: selfIdentity.avatarUrl || null,
+      }
     : alwaysExpanded
       ? { name: "You", hue: null, you: true }
       : { name: "This agent", hue: null, you: false };

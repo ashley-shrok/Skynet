@@ -25,7 +25,7 @@ describe("relay-addressing", () => {
       byKey,
       null,
     );
-    expect(a).toEqual({ kind: "dm", to: { name: "Tina", hue: 200, you: false } });
+    expect(a).toEqual({ kind: "dm", to: { name: "Tina", hue: 200, you: false, avatarUrl: null } });
   });
 
   it("sender match is case-insensitive on the localpart", () => {

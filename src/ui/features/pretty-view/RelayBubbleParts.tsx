@@ -72,17 +72,42 @@ function initialOf(name: string): string {
   return ch ? ch.toUpperCase() : "?";
 }
 
-function RelayAvatar({ name, hue }: { name: string; hue: number }) {
+function RelayAvatar({
+  name,
+  hue,
+  avatarUrl,
+}: {
+  name: string;
+  hue: number;
+  avatarUrl?: string | null;
+}) {
+  // A broken image falls back to the initial rather than a broken-image glyph.
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  const showImage = !!avatarUrl && failedUrl !== avatarUrl;
   return (
     <span
       aria-hidden="true"
       data-testid="relay-avatar"
-      className="grid place-items-center w-[26px] h-[26px] rounded-full text-[12px] font-semibold text-white flex-shrink-0 shadow-[0_0_0_2px_rgba(0,0,0,0.25)]"
+      className="grid place-items-center w-[26px] h-[26px] rounded-full overflow-hidden text-[12px] font-semibold text-white flex-shrink-0 shadow-[0_0_0_2px_rgba(0,0,0,0.25)]"
       style={{
         background: `linear-gradient(150deg, hsl(${hue},65%,55%), hsl(${hue},60%,38%))`,
       }}
     >
-      {initialOf(name)}
+      {showImage ? (
+        <img
+          src={avatarUrl}
+          alt=""
+          data-testid="relay-avatar-img"
+          className="w-full h-full object-cover"
+          draggable={false}
+          onError={() => {
+            console.warn(`[relay-avatar] image failed; falling back to initial name=${name} url=${avatarUrl}`);
+            setFailedUrl(avatarUrl);
+          }}
+        />
+      ) : (
+        initialOf(name)
+      )}
     </span>
   );
 }
@@ -254,7 +279,7 @@ export function RelayDmCard({
             "hover:bg-white/[0.025] focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[hsla(var(--relay-h),70%,65%,0.7)]",
           )}
         >
-          <RelayAvatar name={sender.name} hue={hue} />
+          <RelayAvatar name={sender.name} hue={hue} avatarUrl={sender.avatarUrl} />
           <span className="min-w-0 block">
             <WhoLine sender={sender} addressing={addressing} />
             {!open && preview && (

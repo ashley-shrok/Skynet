@@ -78,7 +78,12 @@ export function RelayInboundBubble({
     members,
     byKey,
     selfIdentity
-      ? { name: selfIdentity.displayName, hue: selfIdentity.colorHue, you: false }
+      ? {
+          name: selfIdentity.displayName,
+          hue: selfIdentity.colorHue,
+          you: false,
+          avatarUrl: selfIdentity.avatarUrl || null,
+        }
       : null,
   );
 

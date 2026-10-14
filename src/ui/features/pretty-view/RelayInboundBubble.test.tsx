@@ -112,6 +112,23 @@ describe("RelayInboundBubble — harness view (folded DM card)", () => {
     expect(screen.queryByTestId("relay-inbound-body")).toBeNull();
   });
 
+  it("avatar slot shows the sender identity's avatar image", () => {
+    renderHarness();
+    const img = screen.getByTestId("relay-avatar-img");
+    expect(img).toHaveAttribute("src", "/avatar.png");
+  });
+
+  it("avatar slot falls back to the initial when the image fails or the sender is unresolved", () => {
+    renderHarness();
+    fireEvent.error(screen.getByTestId("relay-avatar-img"));
+    expect(screen.queryByTestId("relay-avatar-img")).toBeNull();
+    expect(screen.getByTestId("relay-avatar").textContent).toBe("T");
+
+    renderHarness({ sender: "@stranger:t1000.example" });
+    const avatars = screen.getAllByTestId("relay-avatar");
+    expect(avatars[avatars.length - 1].textContent).toBe("S");
+  });
+
   it("Enter key toggles the card", () => {
     renderHarness();
     const header = screen.getByTestId("relay-inbound-header");
