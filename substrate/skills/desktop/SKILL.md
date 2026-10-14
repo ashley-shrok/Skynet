@@ -71,7 +71,7 @@ agent-desktop down            # stop it (closes every app on it)
 
 Your Bash tool's environment has no `DISPLAY`. To run a one-off X command against your desktop, use `env $(agent-desktop env) <command>`, e.g. `env $(agent-desktop env) xdotool getactivewindow getwindowname`.
 
-Stop the desktop with `agent-desktop down` when you're completely finished with GUI work. It frees memory, and the next desktop tool call starts it again.
+Stop the desktop with `agent-desktop down` when you're completely finished with GUI work. It frees memory, and the next desktop tool call starts it again. Your desktop is also stopped automatically when you go dormant or are archived.
 
 ## Safety
 
