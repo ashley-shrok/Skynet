@@ -36,6 +36,7 @@ import {
   MoreVertical,
   Pencil,
   RefreshCw,
+  Search,
   Trash,
   Upload,
 } from "lucide-react";
@@ -47,11 +48,13 @@ import {
   mkdirWorkspace,
   readWorkspaceFile,
   renameWorkspaceEntry,
+  searchWorkspace,
   uploadWorkspaceFile,
   writeWorkspaceFile,
 } from "@/api/workspace-api";
 import type {
   ListResponse,
+  SearchResponse,
   WorkspaceEntry,
   WorkspaceTarget,
 } from "@/api/workspace-api";
@@ -116,6 +119,35 @@ function sortEntries(
     return 0;
   });
 }
+
+/** Folder depth of a search result below the folder searched from. */
+function depthBelow(entry: WorkspaceEntry, startPath: string[]): number {
+  return entry.path.split("/").length - startPath.length;
+}
+
+/**
+ * Default order for search results: nearest first (fewer folders deep), then
+ * alphabetical. A column-header click switches to the normal sort.
+ */
+function sortNearestFirst(entries: WorkspaceEntry[], startPath: string[]): WorkspaceEntry[] {
+  return [...entries].sort(
+    (a, b) =>
+      depthBelow(a, startPath) - depthBelow(b, startPath) ||
+      a.name.toLowerCase().localeCompare(b.name.toLowerCase()),
+  );
+}
+
+/** The folder a search result sits in, relative to the folder searched from. */
+function resultLocation(entry: WorkspaceEntry, startPath: string[]): string {
+  const parent = entry.path.split("/").slice(startPath.length, -1);
+  return parent.length === 0 ? "in this folder" : `in ${parent.join("/")}`;
+}
+
+/** Pause after the last keystroke before a search is sent. */
+const SEARCH_DEBOUNCE_MS = 350;
+
+/** Longest search the server accepts — the box stops typing here, so it never errors. */
+const SEARCH_MAX_QUERY_CHARS = 200;
 
 // ---------------------------------------------------------------------------
 // Display formatters (consumer-user friendly — no octal, no shell format)
@@ -545,6 +577,24 @@ function WorkspaceListView({
   const [renameError, setRenameError] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
+  // Search: the box's text, the last results shown, whether a newer search
+  // is in flight, and its error. Results stay on screen (dimmed) while a
+  // newer search runs, so the list never blanks between keystrokes.
+  const [query, setQuery] = useState("");
+  const [searchData, setSearchData] = useState<SearchResponse | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  /** Column sort for results; null = nearest first. */
+  const [searchSort, setSearchSort] = useState<{
+    key: "name" | "size" | "mtime";
+    dir: "asc" | "desc";
+  } | null>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const trimmedQuery = query.trim();
+  const searchActive = trimmedQuery.length > 0;
+  /** Results replace the folder listing once the first search answers. */
+  const showingResults = searchActive && searchData !== null;
+
   // D-05: fetch on mount + whenever path, target, hostId, or refreshKey changes
   useEffect(() => {
     let cancelled = false;
@@ -566,8 +616,67 @@ function WorkspaceListView({
     // refreshKey in deps means the refresh button re-runs the effect (D-05)
   }, [targetDepKey(target), hostId, currentPath, refreshKey]);
 
+  // Search: debounced, latest-wins. Each run aborts the one before it (the
+  // server then stops that search on the host), so a slow older answer can
+  // never land over a newer one. refreshKey re-runs it after a rename,
+  // delete or file close.
+  useEffect(() => {
+    if (!searchActive) {
+      setSearchData(null);
+      setSearching(false);
+      setSearchError(null);
+      setSearchSort(null);
+      return;
+    }
+    const ctrl = new AbortController();
+    setSearching(true);
+    const timer = setTimeout(() => {
+      searchWorkspace(target, hostId, currentPath.join("/"), trimmedQuery, ctrl.signal)
+        .then((data) => {
+          if (ctrl.signal.aborted) return;
+          setSearchData(data);
+          setSearchError(null);
+          setSearching(false);
+        })
+        .catch((err) => {
+          if (ctrl.signal.aborted) return;
+          setSearchError(err instanceof Error ? err.message : "search_failed");
+          setSearching(false);
+        });
+    }, SEARCH_DEBOUNCE_MS);
+    return () => {
+      clearTimeout(timer);
+      ctrl.abort();
+    };
+  }, [trimmedQuery, searchActive, targetDepKey(target), hostId, currentPath, refreshKey]);
+
+  /** Empty the search box; the effect above drops the results. */
+  function clearSearch() {
+    setQuery("");
+  }
+
+  /** Go to a folder. Leaving the folder searched from ends the search. */
+  function navigateTo(path: string[]) {
+    clearSearch();
+    onNavigate(path);
+  }
+
+  /** Path of an entry relative to the target root (results carry their own). */
+  function pathOf(entry: WorkspaceEntry): string {
+    if (showingResults) return entry.path;
+    return currentPath.length > 0 ? currentPath.join("/") + "/" + entry.name : entry.name;
+  }
+
   // Sort column toggling (D-14)
   function handleSortClick(col: "name" | "size" | "mtime") {
+    if (showingResults) {
+      setSearchSort((cur) =>
+        cur && cur.key === col
+          ? { key: col, dir: cur.dir === "asc" ? "desc" : "asc" }
+          : { key: col, dir: "asc" },
+      );
+      return;
+    }
     if (sortKey === col) {
       setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     } else {
@@ -639,6 +748,7 @@ function WorkspaceListView({
       const copy = resolveWorkspaceErrorCopy(errorClass);
       setUploadError(copy.heading + ": " + copy.body);
     }
+    clearSearch();
     onRefresh();
   }
 
@@ -668,6 +778,7 @@ function WorkspaceListView({
     }
     // Reset the input so the same file can be uploaded again
     if (fileInputRef.current) fileInputRef.current.value = "";
+    clearSearch();
     onRefresh();
   }
 
@@ -688,6 +799,7 @@ function WorkspaceListView({
       }
       setPendingNew(null);
       setNewName("");
+      clearSearch();
       onRefresh();
     } catch (err) {
       const errorClass = err instanceof Error ? err.message : "generic";
@@ -699,10 +811,7 @@ function WorkspaceListView({
   // Delete (D-07 — single generic confirm)
   async function handleDelete(entry: WorkspaceEntry) {
     if (!window.confirm(`Delete "${entry.name}"?`)) return;
-    const targetPath =
-      currentPath.length > 0
-        ? currentPath.join("/") + "/" + entry.name
-        : entry.name;
+    const targetPath = pathOf(entry);
     try {
       await deleteWorkspaceEntry(target, hostId, targetPath);
       onRefresh();
@@ -720,14 +829,10 @@ function WorkspaceListView({
       setRenamingFor(null);
       return;
     }
-    const fromPath =
-      currentPath.length > 0
-        ? currentPath.join("/") + "/" + entry.name
-        : entry.name;
-    const toPath =
-      currentPath.length > 0
-        ? currentPath.join("/") + "/" + renameValue.trim()
-        : renameValue.trim();
+    // Renaming keeps the item in its own folder (a result's may be deeper).
+    const fromPath = pathOf(entry);
+    const parent = fromPath.includes("/") ? fromPath.slice(0, fromPath.lastIndexOf("/") + 1) : "";
+    const toPath = parent + renameValue.trim();
     setRenameError(null);
     try {
       await renameWorkspaceEntry(target, hostId, fromPath, toPath);
@@ -748,13 +853,9 @@ function WorkspaceListView({
       return;
     }
     if (entry.type === "directory") {
-      onNavigate([...currentPath, entry.name]);
+      navigateTo(pathOf(entry).split("/"));
     } else {
-      const relativePath =
-        currentPath.length > 0
-          ? currentPath.join("/") + "/" + entry.name
-          : entry.name;
-      onOpenFile({ name: entry.name, relativePath, size: entry.size });
+      onOpenFile({ name: entry.name, relativePath: pathOf(entry), size: entry.size });
     }
   }
 
@@ -789,11 +890,12 @@ function WorkspaceListView({
     flexShrink: 0,
   };
 
+  const activeSort = showingResults ? searchSort : { key: sortKey, dir: sortDir };
   const sortableStyle = (col: "name" | "size" | "mtime"): React.CSSProperties => ({
     cursor: "pointer",
     userSelect: "none",
     color:
-      sortKey === col
+      activeSort?.key === col
         ? "hsla(var(--pv-id-hue, 220), 70%, 75%, 1)"
         : "var(--color-pv-fg-dim)",
     display: "inline-flex",
@@ -813,8 +915,8 @@ function WorkspaceListView({
   };
 
   const arrowChar = (col: "name" | "size" | "mtime"): string => {
-    if (sortKey !== col) return "";
-    return sortDir === "asc" ? " ▲" : " ▼";
+    if (!activeSort || activeSort.key !== col) return "";
+    return activeSort.dir === "asc" ? " ▲" : " ▼";
   };
 
   // Sorted entries for rendering. `hiddenNames` filter applies ONLY at the
@@ -822,8 +924,18 @@ function WorkspaceListView({
   // matches the intent: a role-file entry lives at `<slug>.md` in the root of
   // the role folder, and we hide only that name; user files nested under the
   // same name in a subfolder are unaffected.
-  const sortedEntries =
-    listState.status === "ready"
+  //
+  // Search results: same hidden names, matched against the result's path from
+  // the target root so only the root-level file is hidden. Nearest first until
+  // a column header is clicked.
+  const visibleResults = showingResults && searchData
+    ? searchData.results.filter((e) => !(hiddenNames?.includes(e.path) ?? false))
+    : [];
+  const sortedEntries = showingResults
+    ? searchSort
+      ? sortEntries(visibleResults, searchSort.key, searchSort.dir)
+      : sortNearestFirst(visibleResults, currentPath)
+    : listState.status === "ready"
       ? sortEntries(
           currentPath.length === 0 && hiddenNames && hiddenNames.length > 0
             ? listState.data.entries.filter((e) => !hiddenNames.includes(e.name))
@@ -887,7 +999,7 @@ function WorkspaceListView({
               padding: "2px 4px",
             }}
             onClick={() => {
-              if (currentPath.length > 0) onNavigate([]);
+              if (currentPath.length > 0) navigateTo([]);
             }}
           >
             Workspace
@@ -915,7 +1027,7 @@ function WorkspaceListView({
                 }}
                 onClick={() => {
                   if (i < currentPath.length - 1) {
-                    onNavigate(currentPath.slice(0, i + 1));
+                    navigateTo(currentPath.slice(0, i + 1));
                   }
                 }}
               >
@@ -996,6 +1108,71 @@ function WorkspaceListView({
         >
           <RefreshCw size={13} />
         </button>
+      </div>
+
+      {/* Search box — its own full-width row so it fits on a phone. Searches
+          this folder and every folder below it, by name, as you type. */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "6px 10px 0",
+          flexShrink: 0,
+        }}
+      >
+        <div
+          style={{
+            flex: 1,
+            minWidth: 0,
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "4px 8px",
+            background: "var(--color-pv-surface-quiet-alt)",
+            border: "1px solid var(--color-pv-border-quiet)",
+            borderRadius: 6,
+          }}
+          onClick={() => searchInputRef.current?.focus()}
+        >
+          <Search size={13} style={{ color: "var(--color-pv-fg-dim)", flexShrink: 0 }} aria-hidden="true" />
+          <input
+            ref={searchInputRef}
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              // Esc clears the search; the modal stays open while there is
+              // something to clear (data-modal-esc-local).
+              if (e.key === "Escape") {
+                clearSearch();
+                searchInputRef.current?.blur();
+              }
+            }}
+            maxLength={SEARCH_MAX_QUERY_CHARS}
+            data-modal-esc-local={query.length > 0 ? "" : undefined}
+            placeholder="Search this folder and its subfolders"
+            aria-label="Search files and folders"
+            data-testid="workspace-search-input"
+            style={{
+              flex: 1,
+              minWidth: 0,
+              background: "none",
+              border: "none",
+              outline: "none",
+              fontSize: 13,
+              color: "var(--color-pv-fg)",
+            }}
+          />
+        </div>
+        {searchActive && searching && (
+          <span
+            style={{ fontSize: 12, color: "var(--color-pv-fg-muted)", whiteSpace: "nowrap" }}
+            data-testid="workspace-search-searching"
+          >
+            Searching…
+          </span>
+        )}
       </div>
 
       {/* First-encounter intro — what this tab is / what it shows. */}
@@ -1173,8 +1350,59 @@ function WorkspaceListView({
           </div>
         )}
 
+        {/* Search failed — shown in place of results */}
+        {searchActive && searchError && (
+          <div style={{ padding: "8px 10px" }}>
+            <ErrorBanner
+              heading={resolveWorkspaceErrorCopy(searchError).heading}
+              body={resolveWorkspaceErrorCopy(searchError).body}
+            />
+          </div>
+        )}
+
+        {/* A limit cut the search short — say which, never hide it silently */}
+        {showingResults && !searchError && searchData && (searchData.truncated || searchData.timedOut) && (
+          <div
+            style={{
+              margin: "6px 10px",
+              padding: "6px 10px",
+              fontSize: 12,
+              color: "var(--color-pv-fg-muted)",
+              background: "hsla(var(--pv-id-hue, 220), 80%, 60%, 0.06)",
+              border: "1px solid var(--color-pv-border-quiet)",
+              borderRadius: 6,
+            }}
+            data-testid="workspace-search-limit-notice"
+          >
+            {searchData.timedOut
+              ? "Search stopped after 5 seconds — there may be more matches."
+              : "Showing the first 200 matches — type more to narrow it."}
+          </div>
+        )}
+
+        {/* No matches */}
+        {showingResults && !searchError && sortedEntries.length === 0 && (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              padding: 32,
+              gap: 8,
+              color: "var(--color-pv-fg-muted)",
+            }}
+            data-testid="workspace-search-no-matches"
+          >
+            <Search size={28} style={{ opacity: 0.3 }} />
+            <div style={{ fontSize: 13 }}>No matches</div>
+            <div style={{ fontSize: 11, color: "var(--color-pv-fg-dim)" }}>
+              Nothing here or in the folders below has a name like that.
+            </div>
+          </div>
+        )}
+
         {/* Loading state */}
-        {listState.status === "loading" && (
+        {!showingResults && listState.status === "loading" && (
           <div
             style={{
               display: "flex",
@@ -1190,7 +1418,7 @@ function WorkspaceListView({
         )}
 
         {/* Error state */}
-        {listState.status === "error" && (
+        {!showingResults && listState.status === "error" && (
           <div style={{ padding: "8px 10px" }}>
             <ErrorBanner
               heading={resolveWorkspaceErrorCopy(listState.errorClass).heading}
@@ -1200,7 +1428,8 @@ function WorkspaceListView({
         )}
 
         {/* Empty folder */}
-        {listState.status === "ready" &&
+        {!searchActive &&
+          listState.status === "ready" &&
           sortedEntries.length === 0 && (
             <div
               style={{
@@ -1222,20 +1451,23 @@ function WorkspaceListView({
           )}
 
         {/* File/folder rows (D-08 — show everything) */}
-        {listState.status === "ready" &&
+        {/* While a search runs, whatever is on screen (the folder, or the
+            previous results) stays put, dimmed, until the new answer lands. */}
+        {(showingResults || listState.status === "ready") &&
+          !(searchActive && searchError) &&
           sortedEntries.map((entry) => {
-            const isRenaming = renamingFor === entry.name;
-            const menuOpen = openMenuFor === entry.name;
-            const entryPath =
-              currentPath.length > 0
-                ? currentPath.join("/") + "/" + entry.name
-                : entry.name;
+            // Keyed by path: results from different folders can share a name.
+            const entryPath = pathOf(entry);
+            const isRenaming = renamingFor === entryPath;
+            const menuOpen = openMenuFor === entryPath;
 
             return (
               <div
-                key={entry.name}
+                key={entryPath}
+                data-testid="workspace-row"
                 style={{
                   ...rowStyle,
+                  opacity: searchActive && searching ? 0.5 : undefined,
                   background: menuOpen
                     ? "hsla(var(--pv-id-hue, 220), 80%, 60%, 0.06)"
                     : undefined,
@@ -1345,17 +1577,34 @@ function WorkspaceListView({
                     </button>
                   </form>
                 ) : (
-                  <span
-                    style={{
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                      fontSize: 13,
-                      color: "var(--color-pv-fg)",
-                    }}
-                    title={entry.name}
-                  >
-                    {entry.name}
+                  <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+                    <span
+                      style={{
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                        fontSize: 13,
+                        color: "var(--color-pv-fg)",
+                      }}
+                      title={entry.name}
+                    >
+                      {entry.name}
+                    </span>
+                    {showingResults && (
+                      <span
+                        style={{
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                          fontSize: 11,
+                          color: "var(--color-pv-fg-dim)",
+                        }}
+                        title={resultLocation(entry, currentPath)}
+                        data-testid="workspace-result-location"
+                      >
+                        {resultLocation(entry, currentPath)}
+                      </span>
+                    )}
                   </span>
                 )}
 
@@ -1402,7 +1651,7 @@ function WorkspaceListView({
                     }}
                     onClick={(e) => {
                       e.stopPropagation();
-                      setOpenMenuFor(menuOpen ? null : entry.name);
+                      setOpenMenuFor(menuOpen ? null : entryPath);
                     }}
                     onMouseEnter={(e) => {
                       (e.currentTarget as HTMLElement).style.opacity = "1";
@@ -1451,7 +1700,7 @@ function WorkspaceListView({
                         }}
                         onClick={() => {
                           setOpenMenuFor(null);
-                          setRenamingFor(entry.name);
+                          setRenamingFor(entryPath);
                           setRenameValue(entry.name);
                           setRenameError(null);
                         }}
@@ -1550,6 +1799,16 @@ function WorkspaceListView({
               </div>
             );
           })}
+
+        {/* What the search never looks in — always said under results */}
+        {showingResults && !searchError && (
+          <div
+            style={{ padding: "10px 10px 14px", fontSize: 11, color: "var(--color-pv-fg-dim)", textAlign: "center" }}
+            data-testid="workspace-search-skipped-note"
+          >
+            Package and environment folders aren't searched.
+          </div>
+        )}
 
         {/* Drag-drop overlay (D-16, dragCounter pattern) */}
         {dragActive && (

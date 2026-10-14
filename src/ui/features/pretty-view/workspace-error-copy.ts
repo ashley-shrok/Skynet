@@ -154,6 +154,20 @@ export const WORKSPACE_ERROR_COPY: Record<string, WorkspaceErrorCopy> = {
   },
 
   // -------------------------------------------------------------------------
+  // Search errors
+  // -------------------------------------------------------------------------
+
+  "search_unsupported": {
+    heading: "Search isn't available here",
+    body: "This box can't run a folder search. You can still browse folders by hand.",
+  },
+
+  "search_failed": {
+    heading: "Search failed",
+    body: "Something went wrong while searching. Try again in a moment.",
+  },
+
+  // -------------------------------------------------------------------------
   // Catch-all
   // -------------------------------------------------------------------------
 

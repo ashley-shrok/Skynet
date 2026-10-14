@@ -146,6 +146,11 @@ const CANONICAL_BORDER_CLASS = "border border-[hsla(220,25%,55%,0.30)]";
 const CANONICAL_SHADOW_CLASS =
   "shadow-[0_8px_24px_rgba(0,0,0,0.5),0_1px_0_rgba(255,220,190,0.22)_inset,0_0_40px_hsla(220,40%,55%,0.12)]";
 
+/** True when Esc was pressed inside an element that handles Esc itself. */
+function escHandledLocally(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest("[data-modal-esc-local]") !== null;
+}
+
 function Modal({
   hue,
   size = "sm",
@@ -202,9 +207,12 @@ function Modal({
           // across every Modal. Unified 2026-09-29; see file header.
           onPointerDownOutside={(e) => e.preventDefault()}
           onInteractOutside={(e) => e.preventDefault()}
-          onEscapeKeyDown={
-            blockEsc ? (e) => e.preventDefault() : undefined
-          }
+          // A field marked data-modal-esc-local is using Esc itself (e.g. a
+          // search box clearing its query), so the modal stays open. Radix
+          // hears Esc in the capture phase, before the field's own handler.
+          onEscapeKeyDown={(e) => {
+            if (blockEsc || escHandledLocally(e.target)) e.preventDefault();
+          }}
           className={cn(
             // Positioning + shape. Mobile (<640px): fills viewport — every
             // modal is a full-screen takeover, head/foot pinned, body scrolls.

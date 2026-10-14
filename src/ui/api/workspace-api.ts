@@ -122,6 +122,56 @@ export async function listWorkspace(
 }
 
 // ---------------------------------------------------------------------------
+// Search names — POST /workspace/search
+// ---------------------------------------------------------------------------
+
+export type SearchResponse = {
+  /** Matches; each path is relative to the target root, like list entries. */
+  results: WorkspaceEntry[];
+  /** More matched than the server returns; the first ones are shown. */
+  truncated: boolean;
+  /** The server's time limit stopped the search; there may be more. */
+  timedOut: boolean;
+};
+
+/**
+ * Search file and folder names under a folder, subfolders included. Every
+ * whitespace-separated word of `query` must appear in a name (any order,
+ * case ignored). Pass `signal` so a superseded search is cancelled — the
+ * server stops the search on the host when the request goes away.
+ *
+ * @param relativePath - Folder searched from, relative to the target root; "" for root
+ */
+export async function searchWorkspace(
+  target: WorkspaceTarget,
+  hostId: number,
+  relativePath: string,
+  query: string,
+  signal?: AbortSignal,
+): Promise<SearchResponse> {
+  try {
+    const response = await authApi.post(
+      "/workspace/search",
+      { ...targetToWireFields(target), hostId, relativePath, query },
+      { signal },
+    );
+    return response.data as SearchResponse;
+  } catch (error) {
+    if (axios.isCancel(error)) throw error;
+    if (axios.isAxiosError(error)) {
+      const backendClass = error.response?.data?.error;
+      if (typeof backendClass === "string" && backendClass.length > 0) {
+        const rich = new Error(backendClass);
+        rich.name = "WorkspaceError";
+        throw rich;
+      }
+    }
+    handleApiError(error, "search workspace");
+    throw error; // unreachable — handleApiError throws; satisfies TS return type
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Read file — POST /workspace/read-file
 // ---------------------------------------------------------------------------
 

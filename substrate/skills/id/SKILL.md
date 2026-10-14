@@ -987,7 +987,17 @@ crown, then gear.
   - **Files** — full workspace explorer for the identity's `workspace/`
     folder: browse, download, upload, create files and folders, and
     edit files inline in the modal for supported types (text, code,
-    etc.).
+    etc.). A **search box** (magnifier) on its own row under the toolbar
+    finds files and folders by name in the folder being viewed and every
+    folder below it — as the user types, case ignored, every word must
+    appear in the name (any order); names only, not file contents. Results
+    replace the listing, each with the folder it sits in under its name,
+    nearest first, and act like normal rows (open, three-dots menu). A
+    folder result opens that folder and ends the search; Escape or a
+    breadcrumb jump clears it. Package and environment folders
+    (`node_modules`, `.venv`/`venv`) and `.git` are never searched; it
+    stops at 200 results or about 5 seconds and says so when it does. The
+    role and project Files tabs have the same search box.
   - **Git** (only when the workspace holds a git repo) — read-only view
     of each repo: branch, sync state, changed files, history, diffs.
     Nothing in it changes a repo.
