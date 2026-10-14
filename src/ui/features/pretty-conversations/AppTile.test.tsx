@@ -223,13 +223,14 @@ describe("AppTile — D-10 title-only + D-11 unhealthy two-line", () => {
     );
     const tile = screen.getByTestId("pv-app-tile");
     expect(tile.classList.contains("pv-app-tile--unhealthy")).toBe(true);
-    expect(tile.getAttribute("title")).toBe("unit stopped — Ask an agent to check on it.");
+    expect(tile.getAttribute("title")).toBe("unit stopped — ask an agent to check on it.");
+    expect(tile.getAttribute("aria-label")).toBe("App tile: Scratch (not working — unit stopped)");
   });
 
   it("unhealthy tile with no message still gets a tooltip", () => {
     render(<AppTile app={makeApp({ isHealthy: false, healthMessage: null })} />);
     expect(screen.getByTestId("pv-app-tile").getAttribute("title")).toBe(
-      "This app isn't working. Ask an agent to check on it.",
+      "This app isn't working — ask an agent to check on it.",
     );
   });
 

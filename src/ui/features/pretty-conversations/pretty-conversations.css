@@ -1680,13 +1680,17 @@
    the child .pv-app-icon-initial has no rule of its own.
 
    Unhealthy (.pv-app-tile--unhealthy): greyed icon + ⚠ and muted-red name.
-   The health message line is hidden; the tile's title tooltip carries it.
+   With a mouse the health message line is hidden and the tile's title
+   tooltip carries it; touch screens have no tooltip, so they show the line.
    No badge-style dot — that would read as a notification.
+
+   Sizes are em so mobile tiles scale with the mobile html font bump, the
+   same way .pv-row--mobile does (desktop baseline 16px → px values / 16).
    ═══════════════════════════════════════════════════════════════════════════ */
 
 .pv-apps-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(4.5em, 1fr));
   gap: 10px 4px;
   padding: 6px 8px 10px;
 }
@@ -1696,7 +1700,7 @@
 
 .pv-app-tile {
   --pv-hue: 216;
-  --pv-app-icon: 48px;
+  --pv-app-icon: 3em;
   position: relative;
   display: flex;
   flex-direction: column;
@@ -1716,7 +1720,7 @@
   background: hsla(var(--pv-hue), 40%, 40%, 0.14);
 }
 .pv-app-tile.pv-app-tile--mobile {
-  --pv-app-icon: 56px;
+  --pv-app-icon: 3.5em;
 }
 
 .pv-app-icon-slot {
@@ -1766,7 +1770,7 @@
 }
 .pv-app-title {
   color: #fbf5e8;
-  font-size: 11.5px;
+  font-size: 0.72em;
   font-weight: 500;
   line-height: 1.2;
   text-align: center;
@@ -1778,17 +1782,25 @@
   -webkit-box-orient: vertical;
 }
 .pv-app-tile--mobile .pv-app-title {
-  font-size: 12.5px;
+  font-size: 0.78em;
 }
 
-/* Kept in the DOM for assistive tech; the tile's title tooltip shows it. */
 .pv-app-unhealthy-message {
-  position: absolute;
-  width: 1px;
-  height: 1px;
+  color: #f4a09b;
+  font-style: italic;
+  font-size: 0.62em;
+  line-height: 1.2;
+  text-align: center;
   overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+@media (hover: hover) and (pointer: fine) {
+  .pv-app-unhealthy-message {
+    display: none;
+  }
 }
 .pv-app-tile--unhealthy .pv-app-icon-slot {
   filter: grayscale(1) brightness(0.6);
@@ -1801,15 +1813,18 @@
   content: "⚠ ";
 }
 
-/* Desktop: right-click is the menu, so the ⋮ stays hidden unless keyboard
-   focus is inside the tile. Mobile has no right-click — ⋮ always shows. */
-.pv-app-tile--desktop .pv-app-tile-kebab-slot {
-  opacity: 0;
-  pointer-events: none;
-}
-.pv-app-tile--desktop:focus-within .pv-app-tile-kebab-slot {
-  opacity: 1;
-  pointer-events: auto;
+/* With a mouse, right-click is the menu, so the ⋮ stays hidden unless
+   keyboard focus is inside the tile. Touch screens (phones, and tablets
+   wide enough to get the desktop layout) have no right-click — ⋮ shows. */
+@media (hover: hover) and (pointer: fine) {
+  .pv-app-tile .pv-app-tile-kebab-slot {
+    opacity: 0;
+    pointer-events: none;
+  }
+  .pv-app-tile:focus-within .pv-app-tile-kebab-slot {
+    opacity: 1;
+    pointer-events: auto;
+  }
 }
 
 /* ─── Search modal — result-row rules ────────────────────────────────────

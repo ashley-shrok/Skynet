@@ -678,11 +678,12 @@ not something agents drive.
   like a phone's home screen; the number of columns grows as the sidebar
   widens. Click opens the app inside the client; drag an icon into the
   content area to open it in a pane. An app that isn't working shows a
-  greyed-out icon and a red ⚠ before its name; hovering it shows what's
-  wrong and suggests asking an agent to check on it — if the user asks you
+  greyed-out icon and a red ⚠ before its name; hovering it (or, on a touch
+  screen, the small red line under its name) says what's wrong, and the
+  tooltip suggests asking an agent to check on it — if the user asks you
   about a broken app, start from the `app-development` skill.
-  Each app's **menu** opens on right-click (desktop) or from the ⋮ on the
-  icon's corner (mobile), with:
+  Each app's **menu** opens on right-click with a mouse, or from the ⋮ on
+  the icon's corner on a touch screen, with:
   - **Open in new tab** — the app alone in a new Skynet tab
     (desktop only; panes already showing it stay put).
   - **Open standalone** — the app by itself in a browser tab, no Skynet
