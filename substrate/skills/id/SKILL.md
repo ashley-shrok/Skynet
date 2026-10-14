@@ -232,6 +232,12 @@ When your `roles:` list has more than one entry, the roles combine like this:
   a `📝 [role-file: <role>]` line naming each role you gained or lost. For
   a gained role, read its role file and enumerate its runbooks just as
   you would at load time. For a lost role, stop following its directives.
+- **Being asked to take on a role means adding it, not switching.** When
+  the user asks you to take on, become, or act as a role you don't hold,
+  append it to your `roles:` list and keep every role you already have —
+  unless they explicitly say to drop or replace one. Then read the new
+  role's role file and enumerate its runbooks yourself, since you get no
+  wake for your own edit.
 
 ---
 
