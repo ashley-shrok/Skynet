@@ -860,9 +860,14 @@ export function PrettyConversationRow({
                   // name over host.name in the parens; host.name is the
                   // fallback for identities without a role, or for rows with
                   // no identity resolved at all.
+                  // A suffix identical to the title (e.g. RDP rows, whose label
+                  // IS host.name) is dropped rather than shown twice.
                   const rolesLabel = identity ? identityRolesLabel(identity) : "";
                   const suffix = rolesLabel || row.host?.name;
-                  return suffix ? (
+                  const title = identity ? identity.displayName : row.label;
+                  const duplicatesTitle =
+                    suffix?.trim().toLowerCase() === title?.trim().toLowerCase();
+                  return suffix && !duplicatesTitle ? (
                     <span className="pv-hostname-suffix"> ({suffix})</span>
                   ) : null;
                 })()}

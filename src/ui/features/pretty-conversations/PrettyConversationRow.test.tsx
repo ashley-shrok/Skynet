@@ -352,6 +352,45 @@ describe("PrettyConversationRow: tap-to-select on closed row", () => {
 // Test 7 — RDP row (rdpHostRow=true) has `rdp` class + no swipe + no pin
 // ─────────────────────────────────────────────────────────────────────────────
 
+describe("PrettyConversationRow: title-duplicate suffix suppression", () => {
+  it("RDP row whose label equals host.name renders no parenthetical suffix", () => {
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({
+          rdpHostRow: true,
+          targetTmuxSession: null,
+          label: "thenasty-RDP",
+          host: makeHost({ name: "thenasty-RDP" }),
+        })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+      />,
+    );
+    const label = container.querySelector(".pv-label") as HTMLElement;
+    expect(label.textContent).toBe("thenasty-RDP");
+    expect(container.querySelector(".pv-hostname-suffix")).toBeNull();
+  });
+
+  it("row whose label differs from host.name keeps the host suffix", () => {
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ label: "nelly", host: makeHost({ name: "thenasty" }) })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+      />,
+    );
+    expect(
+      container.querySelector(".pv-hostname-suffix")?.textContent,
+    ).toBe(" (thenasty)");
+  });
+});
+
 describe("PrettyConversationRow: RDP-row exclusion (T-Test-34)", () => {
   it("Test 7: mobile RDP row carries `rdp` class + no PinAction (RDP long-press guard covered by TL4)", async () => {
     // quick-260802-pq2: the swipe touch sequence + data-swiped-open assertion
