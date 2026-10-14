@@ -1580,6 +1580,13 @@ export function parseSessionLine(line: string, sessionId?: string): ParsedLine {
       obj.toolUseResult !== undefined && obj.toolUseResult !== null;
     const imageRole: "user" | "assistant" | "tool_result" =
       anyToolUseId || cameFromToolUseResult ? "tool_result" : role;
+    // Tool-result images (Read of a screenshot, browser screenshots, etc.)
+    // are agent-internal; users don't need a bubble for them. Dropped like
+    // every other tool_result. User/assistant images still render.
+    if (imageRole === "tool_result") {
+      sessionParserLogger.info(`[session-parser] classify result=skip why=tool_result_image imageCount=${imageRefs.length} eventId=${eventId}`, { operation: "session_classify" });
+      return { kind: "skip", why: "tool_result_image" };
+    }
     sessionParserLogger.info(`[session-parser] classify result=image role=${imageRole} imageCount=${imageRefs.length} eventId=${eventId}`, { operation: "session_classify" });
     return {
       kind: "image",

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   parseSessionLine,
+  extractImageRefs,
   detectRelayOutbound,
   detectRelayInbound,
   resolveOutboundRoom,
@@ -18,40 +19,37 @@ function line(obj: Record<string, unknown>): string {
 
 describe("parseSessionLine — image support (patch #86)", () => {
   it("Test 1: canonical tool_result path (image inside tool_result.content)", () => {
-    const parsed = parseSessionLine(
-      line({
-        type: "user",
-        uuid: "u-1",
-        timestamp: "2026-07-19T12:00:00.000Z",
-        message: {
-          content: [
-            {
-              type: "tool_result",
-              tool_use_id: "toolu_A",
-              content: [
-                {
-                  type: "image",
-                  source: {
-                    type: "base64",
-                    data: "AAA",
-                    media_type: "image/png",
-                  },
+    const obj = {
+      type: "user",
+      uuid: "u-1",
+      timestamp: "2026-07-19T12:00:00.000Z",
+      message: {
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "toolu_A",
+            content: [
+              {
+                type: "image",
+                source: {
+                  type: "base64",
+                  data: "AAA",
+                  media_type: "image/png",
                 },
-              ],
-            },
-          ],
-        },
-      }),
-    );
-    expect(parsed.kind).toBe("image");
-    if (parsed.kind !== "image") throw new Error("unreachable");
-    expect(parsed.role).toBe("tool_result");
-    expect(parsed.images).toHaveLength(1);
-    expect(parsed.images[0].data).toBe("AAA");
-    expect(parsed.images[0].mediaType).toBe("image/png");
-    expect(parsed.images[0].toolUseId).toBe("toolu_A");
-    expect(parsed.text).toBe("");
-    expect(parsed.eventId).toBe("u-1");
+              },
+            ],
+          },
+        ],
+      },
+    };
+    const parsed = parseSessionLine(line(obj));
+    // Tool-result images are agent-internal: no bubble.
+    expect(parsed).toEqual({ kind: "skip", why: "tool_result_image" });
+    const images = extractImageRefs(obj);
+    expect(images).toHaveLength(1);
+    expect(images[0].data).toBe("AAA");
+    expect(images[0].mediaType).toBe("image/png");
+    expect(images[0].toolUseId).toBe("toolu_A");
   });
 
   it("Test 2: bare image content-block path (role stays user)", () => {
@@ -85,76 +83,76 @@ describe("parseSessionLine — image support (patch #86)", () => {
   });
 
   it("Test 3: CC-local-only path (toolUseResult.file.base64, no canonical block)", () => {
-    const parsed = parseSessionLine(
-      line({
-        type: "user",
-        uuid: "u-3",
-        timestamp: "2026-07-19T12:00:02.000Z",
-        message: {
-          content: [],
+    const obj = {
+      type: "user",
+      uuid: "u-3",
+      timestamp: "2026-07-19T12:00:02.000Z",
+      message: {
+        content: [],
+      },
+      toolUseResult: {
+        type: "image",
+        file: {
+          base64: "CCC",
+          type: "image/png",
+          originalSize: 12345,
         },
-        toolUseResult: {
-          type: "image",
-          file: {
-            base64: "CCC",
-            type: "image/png",
-            originalSize: 12345,
-          },
-        },
-      }),
-    );
-    expect(parsed.kind).toBe("image");
-    if (parsed.kind !== "image") throw new Error("unreachable");
+      },
+    };
+    const parsed = parseSessionLine(line(obj));
+    // Tool-result images are agent-internal: no bubble.
+    expect(parsed).toEqual({ kind: "skip", why: "tool_result_image" });
+    const images = extractImageRefs(obj);
     // CC-local path is by construction a tool_result payload — Claude Code
     // never populates `obj.toolUseResult` for user-typed or bare
     // assistant-generated images. Presence of `obj.toolUseResult` is the
-    // parser's signal to set role="tool_result" even without a toolUseId.
-    expect(parsed.role).toBe("tool_result");
-    expect(parsed.images).toHaveLength(1);
-    expect(parsed.images[0].data).toBe("CCC");
-    expect(parsed.images[0].mediaType).toBe("image/png");
-    expect(parsed.images[0].toolUseId).toBeUndefined();
+    // parser's signal to treat it as a tool_result (skipped) even without
+    // a toolUseId.
+    expect(images).toHaveLength(1);
+    expect(images[0].data).toBe("CCC");
+    expect(images[0].mediaType).toBe("image/png");
+    expect(images[0].toolUseId).toBeUndefined();
   });
 
   it("Test 4: dedup — canonical AND CC-local both present emits ONE ref (canonical wins)", () => {
-    const parsed = parseSessionLine(
-      line({
-        type: "user",
-        uuid: "u-4",
-        timestamp: "2026-07-19T12:00:03.000Z",
-        message: {
-          content: [
-            {
-              type: "tool_result",
-              tool_use_id: "toolu_D",
-              content: [
-                {
-                  type: "image",
-                  source: {
-                    type: "base64",
-                    data: "DDD",
-                    media_type: "image/png",
-                  },
+    const obj = {
+      type: "user",
+      uuid: "u-4",
+      timestamp: "2026-07-19T12:00:03.000Z",
+      message: {
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "toolu_D",
+            content: [
+              {
+                type: "image",
+                source: {
+                  type: "base64",
+                  data: "DDD",
+                  media_type: "image/png",
                 },
-              ],
-            },
-          ],
-        },
-        toolUseResult: {
-          type: "image",
-          file: {
-            base64: "DDD",
-            type: "image/png",
-            originalSize: 54321,
+              },
+            ],
           },
+        ],
+      },
+      toolUseResult: {
+        type: "image",
+        file: {
+          base64: "DDD",
+          type: "image/png",
+          originalSize: 54321,
         },
-      }),
-    );
-    expect(parsed.kind).toBe("image");
-    if (parsed.kind !== "image") throw new Error("unreachable");
-    expect(parsed.images).toHaveLength(1);
-    expect(parsed.images[0].data).toBe("DDD");
-    expect(parsed.images[0].toolUseId).toBe("toolu_D");
+      },
+    };
+    const parsed = parseSessionLine(line(obj));
+    // Tool-result images are agent-internal: no bubble.
+    expect(parsed).toEqual({ kind: "skip", why: "tool_result_image" });
+    const images = extractImageRefs(obj);
+    expect(images).toHaveLength(1);
+    expect(images[0].data).toBe("DDD");
+    expect(images[0].toolUseId).toBe("toolu_D");
   });
 
   it("Test 5: mixed text + image (assistant turn)", () => {
@@ -187,45 +185,44 @@ describe("parseSessionLine — image support (patch #86)", () => {
   });
 
   it("Test 6: multi-image single turn (tool_result with 2 images)", () => {
-    const parsed = parseSessionLine(
-      line({
-        type: "user",
-        uuid: "u-6",
-        timestamp: "2026-07-19T12:00:05.000Z",
-        message: {
-          content: [
-            {
-              type: "tool_result",
-              tool_use_id: "toolu_F",
-              content: [
-                {
-                  type: "image",
-                  source: {
-                    type: "base64",
-                    data: "F1",
-                    media_type: "image/png",
-                  },
+    const obj = {
+      type: "user",
+      uuid: "u-6",
+      timestamp: "2026-07-19T12:00:05.000Z",
+      message: {
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "toolu_F",
+            content: [
+              {
+                type: "image",
+                source: {
+                  type: "base64",
+                  data: "F1",
+                  media_type: "image/png",
                 },
-                {
-                  type: "image",
-                  source: {
-                    type: "base64",
-                    data: "F2",
-                    media_type: "image/png",
-                  },
+              },
+              {
+                type: "image",
+                source: {
+                  type: "base64",
+                  data: "F2",
+                  media_type: "image/png",
                 },
-              ],
-            },
-          ],
-        },
-      }),
-    );
-    expect(parsed.kind).toBe("image");
-    if (parsed.kind !== "image") throw new Error("unreachable");
-    expect(parsed.images).toHaveLength(2);
-    expect(parsed.images[0].data).toBe("F1");
-    expect(parsed.images[1].data).toBe("F2");
-    expect(parsed.role).toBe("tool_result");
+              },
+            ],
+          },
+        ],
+      },
+    };
+    const parsed = parseSessionLine(line(obj));
+    // Tool-result images are agent-internal: no bubble.
+    expect(parsed).toEqual({ kind: "skip", why: "tool_result_image" });
+    const images = extractImageRefs(obj);
+    expect(images).toHaveLength(2);
+    expect(images[0].data).toBe("F1");
+    expect(images[1].data).toBe("F2");
   });
 
   it("Test 7: no-image regression — text-only assistant turn stays kind:message", () => {
