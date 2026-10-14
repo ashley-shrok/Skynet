@@ -1,5 +1,5 @@
 /**
- * The identity modal switches to the large editor size while the Desktop tab
+ * The identity modal switches to the wide viewer size while the Desktop tab
  * is active (so the agent's desktop is big enough to work in) and back to its
  * normal size for every other tab.
  */
@@ -114,7 +114,7 @@ afterAll(() => {
   vi.restoreAllMocks();
 });
 
-// The large "editor" modal size vs the identity modal's normal "xl" size.
+// The wide "viewer" modal size vs the identity modal's normal "xl" size.
 const EDITOR_WIDTH = "sm:max-w-[min(1200px,80vw)]";
 const XL_WIDTH = "sm:max-w-[640px]";
 
@@ -123,7 +123,7 @@ function modalClass(): string {
 }
 
 describe("IdentityModal — grows for the Desktop tab", () => {
-  it("uses the editor size while Desktop is active and the normal size on every other tab", async () => {
+  it("uses the wide viewer size while Desktop is active and the normal size on every other tab", async () => {
     render(
       <IdentityModal
         open={true}
@@ -143,6 +143,8 @@ describe("IdentityModal — grows for the Desktop tab", () => {
     fireEvent.click(screen.getByTestId("identity-modal-nav-desktop"));
     await screen.findByTestId("desktop-tab-stub");
     expect(modalClass()).toContain(EDITOR_WIDTH);
+    // Height follows the desktop's shape — no fixed editor height.
+    expect(modalClass()).not.toContain("sm:h-[85vh]");
 
     for (const tab of ["identity", "identity-wakeups", "workspace"]) {
       fireEvent.click(screen.getByTestId(`identity-modal-nav-${tab}`));

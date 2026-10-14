@@ -77,3 +77,8 @@ None.
 ### Notes
 
 Internal diagnostic log lines (control taken/released, picture rescale) were added; not user-visible, not a feature. Tests accompany each piece.
+
+### Post-close amendments (2026-10-14, from live use)
+
+- Modal height now follows the desktop's shape (editor-wide, height from the picture's aspect, capped at 85% of the screen) instead of a fixed editor height — on a tall, narrow window the fixed height left a dead band under the picture. Requested by the user after the first deploy.
+- Pointer mapping fixed: inside the centred modal, clicks landed offset by the modal's centring shift (the viewer computed pointer position ignoring that shift). Found in live agent-side UAT; covered by the "a click lands anywhere other than where the cursor is shown" failure mode.

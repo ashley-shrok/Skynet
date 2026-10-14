@@ -57,7 +57,8 @@ type ModalSize =
   | "list"
   | "wide-list"
   | "settings"
-  | "editor";
+  | "editor"
+  | "viewer";
 
 // Sizes apply on `sm:` (≥640px viewport) and up. Below the breakpoint every
 // modal fills the viewport regardless of size (mobile takeover — see the
@@ -69,6 +70,11 @@ type ModalSize =
 // so modals scale up on 4K / ultrawide screens instead of staying stuck
 // at a conservative fixed size, but can't become absurdly large.
 const SIZE_CLASSES: Record<ModalSize, string> = {
+  // Viewer — editor-wide, but height follows the content (a fixed-aspect
+  // picture such as an agent's desktop), capped by the universal 85vh max-h.
+  // On a tall, narrow window an editor-height modal would leave a band of
+  // dead space under a width-limited picture.
+  viewer: "sm:max-w-[min(1200px,80vw)]",
   // Content-sized archetypes — confirms + forms don't want to grow.
   sm: "sm:max-w-[340px]",
   md: "sm:max-w-[400px]",

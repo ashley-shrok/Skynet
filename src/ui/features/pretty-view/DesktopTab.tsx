@@ -20,7 +20,8 @@
  * The agent's screen size is the agent's: the display runs with
  * fixedRemoteSize, so neither watching nor control ever resizes it — the
  * picture just scales to fill the body (the identity modal grows to its
- * editor size while this tab is active, so the body has real room).
+ * wide viewer size while this tab is active, its height following the
+ * body's desktop-shaped aspect ratio).
  *
  * The identity modal only shows this tab once useDesktopRunning
  * (use-desktop-running.ts) sees the desktop running.
@@ -61,6 +62,9 @@ import {
 /** How long to wait for a desktop we just started before giving up. */
 const START_TIMEOUT_MS = 90_000;
 const START_POLL_MS = 2_000;
+/** Body aspect before the live geometry is known (agent-desktop's default). */
+const DEFAULT_W = 1280;
+const DEFAULT_H = 800;
 /** Control lease renew interval — well inside the 90s lease. */
 const RENEW_MS = 30_000;
 
@@ -411,13 +415,17 @@ export default function DesktopTab({
       </div>
 
       <div
-        className="flex-1 min-h-0 relative"
+        className="min-h-0 relative"
         style={{
           background: "var(--bg-base, #111)",
-          // The identity modal has a fixed height while this tab is active
-          // (editor size; full screen on a phone), so flex-1 is real room —
-          // the display fills it and scales the desktop to fit. min-height
+          // The identity modal's height follows this body while the tab is
+          // active (viewer size): full width at the desktop's aspect ratio,
+          // shrinking (flex) when the modal hits its 85vh cap — the display
+          // then scales the desktop down to the smaller box. On a phone the
+          // modal is full screen and the body takes what's left. min-height
           // is a floor so the display never paints into a zero-size box.
+          flex: "1 1 auto",
+          aspectRatio: `${geoW || DEFAULT_W} / ${geoH || DEFAULT_H}`,
           minHeight: 240,
         }}
       >
