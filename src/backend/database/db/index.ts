@@ -620,6 +620,19 @@ async function initializeCompleteDatabase(): Promise<void> {
         FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
     );
 
+    -- Telegram notifications: one linked chat per user. chat_id is stored
+    -- plaintext (not FieldCrypto) because the push-trigger loop sends while
+    -- the user's data key may be locked; a chat id is useless without the
+    -- bot token, which is env-only. Drizzle mirror at schema.ts telegramLinks.
+    CREATE TABLE IF NOT EXISTS telegram_links (
+        user_id TEXT PRIMARY KEY,
+        chat_id TEXT NOT NULL,
+        telegram_name TEXT NOT NULL DEFAULT '',
+        title_only INTEGER NOT NULL DEFAULT 0,
+        linked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+    );
+
     -- Phase 89 Plan 01 (D-16) — admin_rooms: Skynet-instance-owned internal
     -- ignore-list. Populated when Skynet creates each registry room (D-10)
     -- with the room ID Skynet knows at creation time. The observation loop

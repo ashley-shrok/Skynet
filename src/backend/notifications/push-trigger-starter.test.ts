@@ -102,6 +102,10 @@ vi.mock("./ntfy-sender.js", () => ({
   sendPushToUser: vi.fn(async () => {}),
 }));
 
+vi.mock("./notify-user.js", () => ({
+  sendNotificationToUser: vi.fn(async () => {}),
+}));
+
 vi.mock("./preview-text.js", () => ({
   derivePreviewText: vi.fn(() => "body"),
 }));

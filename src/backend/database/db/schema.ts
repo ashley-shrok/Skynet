@@ -926,6 +926,21 @@ export const pushSubscriptions = sqliteTable("push_subscriptions", {
     .default(sql`CURRENT_TIMESTAMP`),
 });
 
+// Telegram notifications — one linked chat per user. chat_id plaintext by
+// design (sends happen while the user's data key may be locked). DDL lives
+// in db/index.ts alongside push_subscriptions.
+export const telegramLinks = sqliteTable("telegram_links", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  chatId: text("chat_id").notNull(),
+  telegramName: text("telegram_name").notNull().default(""),
+  titleOnly: integer("title_only").notNull().default(0),
+  linkedAt: text("linked_at")
+    .notNull()
+    .default(sql`CURRENT_TIMESTAMP`),
+});
+
 // Phase 89 Plan 01 (D-16) — admin_rooms: Skynet-instance-owned internal
 // ignore-list of room IDs the observation loop must skip when
 // materializing (registry rooms + any future admin-purposes-only rooms).

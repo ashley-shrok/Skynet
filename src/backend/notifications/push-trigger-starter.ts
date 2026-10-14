@@ -11,7 +11,7 @@
  *      removed in Plan 04 when browser-push was fully replaced by ntfy.)
  *
  *   2. Loop dep wiring includes push-specific concrete deps: fetchLive
- *      (wraps fetchRoomHistory with dir=f), sendPushToUser (from ntfy-sender),
+ *      (wraps fetchRoomHistory with dir=f), sendPushToUser (notify-user fan-out: ntfy + Telegram),
  *      derivePreviewText + resolveAgentDisplayName (from Wave 1). Each dep
  *      slot on PushTriggerLoopDeps gets wired to its production
  *      implementation here — this is the ONE PLACE the loop touches the rest
@@ -62,7 +62,7 @@ import {
   getRoomJoinedMembers,
 } from "../matrix/matrix-admin-client.js";
 import { fetchRoomHistory } from "../relay-room-stream/matrix-message-fetch.js";
-import { sendPushToUser } from "./ntfy-sender.js";
+import { sendNotificationToUser } from "./notify-user.js";
 import { derivePreviewText } from "./preview-text.js";
 import { resolveAgentDisplayName } from "./resolve-agent-display-name.js";
 import { resolveAgentHostId } from "./resolve-agent-host-id.js";
@@ -212,7 +212,8 @@ export async function startPushTriggerLoopOnBoot(): Promise<StartPushTriggerLoop
         }
         return new Set(result.memberMxids);
       },
-      sendPushToUser,
+      // Fans out to every channel the user set up (ntfy + Telegram).
+      sendPushToUser: sendNotificationToUser,
       derivePreviewText,
       resolveAgentDisplayName,
       // Local probe first (cheap fs lstat), then peer boxes over SSH for

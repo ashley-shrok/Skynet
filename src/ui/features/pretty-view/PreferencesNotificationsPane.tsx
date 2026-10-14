@@ -1,6 +1,8 @@
 /**
  * Phase 144 Plan 03 — PreferencesNotificationsPane (ntfy rebuild)
  * Phase 145 — now surfaces FOUR values (server, topic, username, password).
+ * Telegram section (PreferencesTelegramSection) renders above the ntfy one;
+ * ntfy stays until Telegram has proven itself.
  * The ntfy iOS app's per-topic Login dialog does Basic auth; it needs both a
  * username and a password, not a single bearer token.
  *
@@ -25,7 +27,7 @@
  * backend invalidates the old credential).
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
 import {
   getNtfySetup,
   postNtfySetup,
@@ -33,6 +35,16 @@ import {
   postNtfyRegenerate,
   type NtfySetup,
 } from "@/features/notifications/ntfy-setup-api";
+import { PreferencesTelegramSection } from "./PreferencesTelegramSection";
+
+const SECTION_HEADING_STYLE = {
+  fontSize: 11,
+  textTransform: "uppercase" as const,
+  letterSpacing: "0.06em",
+  color: "rgba(200,196,184,0.6)",
+  fontWeight: 600,
+  margin: 0,
+};
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -466,44 +478,47 @@ export function PreferencesNotificationsPane(
 
   // ── Render states ─────────────────────────────────────────────────────────
 
+  let ntfyContent: ReactElement;
   if (loadState.status === "loading") {
-    return (
+    ntfyContent = (
       <div
-        className="flex-1 p-6 text-[13px] text-[#c8c4b8]"
+        className="text-[13px] text-[#c8c4b8]"
         data-testid="preferences-notifications-loading"
       >
         Loading notification settings…
       </div>
     );
-  }
-
-  if (loadState.status === "error") {
-    return (
+  } else if (loadState.status === "error") {
+    ntfyContent = (
       <div
-        className="flex-1 p-6 text-[13px]"
+        className="text-[13px]"
         style={{ color: "#d38f8f" }}
         data-testid="preferences-notifications-error"
       >
         Failed to load notification settings: {loadState.message}
       </div>
     );
+  } else if (loadState.setup.isSetUp) {
+    ntfyContent = (
+      <SetUpView
+        setup={loadState.setup}
+        onTest={handleTest}
+        onRegenerate={handleRegenerate}
+        testStatus={testStatus}
+        isRegenerating={isRegenerating}
+      />
+    );
+  } else {
+    ntfyContent = <NotSetUpView onSetUp={handleSetUp} isSettingUp={isSettingUp} />;
   }
 
-  const { setup } = loadState;
-
   return (
-    <div className="flex-1 p-6 flex flex-col gap-4">
-      {setup.isSetUp ? (
-        <SetUpView
-          setup={setup}
-          onTest={handleTest}
-          onRegenerate={handleRegenerate}
-          testStatus={testStatus}
-          isRegenerating={isRegenerating}
-        />
-      ) : (
-        <NotSetUpView onSetUp={handleSetUp} isSettingUp={isSettingUp} />
-      )}
+    <div className="flex-1 p-6 flex flex-col gap-6">
+      <PreferencesTelegramSection />
+      <section className="flex flex-col gap-3" data-testid="preferences-ntfy-section">
+        <h3 style={SECTION_HEADING_STYLE}>ntfy</h3>
+        {ntfyContent}
+      </section>
     </div>
   );
 }

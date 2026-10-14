@@ -30,6 +30,12 @@ vi.mock("@/features/notifications/ntfy-setup-api", () => ({
   deleteNtfySetup: vi.fn(),
 }));
 
+// Telegram section has its own tests (PreferencesTelegramSection.test.tsx);
+// here it just needs to render without network calls.
+vi.mock("./PreferencesTelegramSection", () => ({
+  PreferencesTelegramSection: () => null,
+}));
+
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";

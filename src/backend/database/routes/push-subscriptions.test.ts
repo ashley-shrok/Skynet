@@ -497,7 +497,8 @@ describe("Phase 144-02 Task 3 — push-subscriptions routes (RT-01..RT-09)", () 
         stack: Array<{ route?: { path: string; stack: Array<{ handle: unknown }> } }>;
       }).stack;
       const routes = stack.filter((layer) => layer.route);
-      expect(routes.length).toBe(5);
+      // 5 ntfy routes + 5 Telegram routes.
+      expect(routes.length).toBe(10);
       for (const layer of routes) {
         const handles = layer.route!.stack.map((l) => l.handle);
         expect(handles).toContain(requireNotificationsAccess);

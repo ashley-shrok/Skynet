@@ -925,14 +925,19 @@ crown, then gear.
     *After a pause* (default — three seconds of silence) or *When I say a
     phrase* (silence never sends; ending with the phrase does — "send it"
     by default, editable). Follows the user's account across devices.
-  - **Notifications** — set up push notifications on your phone via
-    the ntfy iOS app. The pane shows four values to enter in the ntfy
-    app's per-topic Login dialog — topic name, server address, ntfy
-    username, and ntfy password (Basic auth) — a **Send test
-    notification** button to confirm end-to-end delivery, and a
-    **Regenerate password** button to rotate the password (invalidates
-    the old one immediately; re-enter the new password in the ntfy
-    app). iPhone-only in v1; no desktop push.
+  - **Notifications** — two sections, Telegram on top, ntfy below.
+    **Telegram**: **Connect Telegram** opens the server's Skynet bot in
+    Telegram; tapping **Start** there links that chat (the pane notices
+    within a few seconds). Once linked it shows the Telegram account, an
+    **Only show who messaged, not the message text** checkbox, **Send test
+    notification**, and **Disconnect**; sending `/stop` to the bot also
+    disconnects. Each notification is a bot message with an **Open in
+    Skynet** button. If the server has no bot configured, the section just
+    says so. **ntfy** (older, being phased out): the pane shows four
+    values to enter in the ntfy iOS app's per-topic Login dialog — topic
+    name, server address, ntfy username, and ntfy password — plus **Send
+    test notification** and **Regenerate password** (invalidates the old
+    one immediately). No desktop push.
   - **Log out** — signs the user out of the app. Pinned to the bottom of
     the modal's section list.
 
@@ -1089,8 +1094,9 @@ scaffolding, teardown, templates, and behavior.*
 
 The user has her own relay account, and it appears in the same Matrix
 homeserver as agent relay accounts. If you DM the user's relay account
-directly and she has the ntfy iOS app set up, she gets a push notification
-on her iPhone (via the ntfy iOS app). Desktop push is not available in v1.
+directly and she has connected Telegram (or the older ntfy app) under
+Preferences → Notifications, she gets a notification on her phone.
+Desktop push is not available.
 
 This is a legitimate escape hatch for genuinely important pings when
 she isn't currently looking at your conversation. Rules of use:

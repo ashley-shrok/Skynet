@@ -451,6 +451,18 @@ if (process.env.VITEST !== "true") {
         });
       });
 
+    // Telegram notifications — long-polls the bot for /start <code> link
+    // requests and /stop. No-op (logs telegram_disabled) when
+    // TELEGRAM_BOT_TOKEN is unset.
+    void import("./notifications/telegram-poller.js")
+      .then((m) => m.startTelegramPoller())
+      .catch((err) => {
+        systemLogger.warn("startTelegramPoller module load failed", {
+          operation: "telegram_poller_module_load_failed",
+          error: err instanceof Error ? err.message : "unknown",
+        });
+      });
+
     // Phase 74: fail-fast if the branding config lacks a non-empty
     // avatarDirectorSpec. Placed AFTER initializeDatabase() so the DB
     // logger stream is live, and BEFORE AuthManager + the dbServer
