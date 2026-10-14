@@ -64,6 +64,7 @@ Env:    ROLE_WATCH_POLL_SEC (default 2) — fallback polling loop granularity (o
 import datetime
 import hashlib
 import os
+import random
 import re
 import shutil
 import signal
@@ -423,10 +424,9 @@ def _restart_if_scope_changed(identity_file_path, watched_project, watched_roles
             except OSError:
                 pass
         if new_slug is not None:
-            print(
+            _out(
                 "📝 [project-file: %s] you're now in project %s — Read %s"
-                % (new_slug, new_slug, new_path),
-                flush=True,
+                % (new_slug, new_slug, new_path)
             )
         reasons.append("project changed (%s → %s)" % (watched_project, new_slug))
 
@@ -445,13 +445,10 @@ def _restart_if_scope_changed(identity_file_path, watched_project, watched_roles
                     "📝 [role-file: %s] you now hold role %s — but its role file %s "
                     "does not exist" % (role, role, rf)
                 )
-            print(line, flush=True)
+            _out(line)
         for role in removed:
             _remove_role_baselines(baseline_dir, role)
-            print(
-                "📝 [role-file: %s] you no longer hold role %s" % (role, role),
-                flush=True,
-            )
+            _out("📝 [role-file: %s] you no longer hold role %s" % (role, role))
         reasons.append("roles changed (+%s −%s)" % (
             ",".join(added) or "none", ",".join(removed) or "none",
         ))
@@ -549,6 +546,124 @@ def _flatten_diff(diff_stdout):
     return " ⏎ ".join(kept)
 
 
+# ---------------------------------------------------------------------------
+# Fan-out spread. Some watched files are shared: the id skill and user-wide
+# CLAUDE.md by every running identity on the box, a role file / runbook by every
+# running holder of the role, project.md by every running member. One edit (a
+# deploy shipping a new id skill, the supervisor rewriting `members:`) would wake
+# all of them in the same second, each starting an API turn at once. Same idea as
+# the relay receiver's room-size wake jitter: when more than one running identity
+# shares the target, the event line is held for a uniform-random delay in
+#   [0, min(FANOUT_SEC_PER_AGENT × sharers, FANOUT_CAP_SEC))
+# before it goes out. The identity file has one reader and is never held.
+#
+# Held lines sit as files in <state>/pending/ (named by due time) and a daemon
+# thread emits them when due, so the watch loop keeps running meanwhile and a
+# self-reload re-exec (or a dormancy kill + later wake) picks them back up
+# instead of losing them — the baseline has already advanced, so the startup
+# diff would not re-emit them.
+# ---------------------------------------------------------------------------
+FANOUT_SEC_PER_AGENT = float(os.environ.get("ROLE_WATCH_FANOUT_SEC_PER_AGENT", "30"))
+FANOUT_CAP_SEC = float(os.environ.get("ROLE_WATCH_FANOUT_CAP_SEC", "300"))
+_PENDING_RE = re.compile(r"^(\d+)-[0-9a-f]{8}\.line$")
+_pending_dir = None          # set in main(); None = emit immediately (no queue yet)
+_identities_root = None      # parent of this identity's folder; set in main()
+_pending_wake = threading.Event()
+_out_lock = threading.Lock()
+
+
+def _out(line):
+    """Write one event line to stdout. Both the watch loop and the pending-queue
+    thread emit, so writes are serialized to keep lines whole."""
+    with _out_lock:
+        sys.stdout.write(line + "\n")
+        sys.stdout.flush()
+
+
+def _fanout_sharers(kind, label):
+    """Running identities on this box (self included) that would get this same
+    event. Running = has <name>/<name>.md and no .dormant sentinel. Never < 1."""
+    if kind == "identity-file" or _identities_root is None:
+        return 1
+    role = label.split("/", 1)[0] if kind == "runbook" else label
+    n = 0
+    try:
+        names = os.listdir(_identities_root)
+    except OSError:
+        return 1
+    for other in names:
+        d = os.path.join(_identities_root, other)
+        idf = os.path.join(d, other + ".md")
+        if not os.path.isfile(idf) or os.path.exists(os.path.join(d, ".dormant")):
+            continue
+        if kind in ("role-file", "runbook"):
+            roles, _ = _parse_roles_from_frontmatter(idf)
+            if not roles or role not in roles:
+                continue
+        elif kind == "project-file":
+            if _parse_project_from_frontmatter(idf) != label:
+                continue
+        n += 1
+    return max(n, 1)
+
+
+def _emit_line(kind, label, line):
+    """Emit an event line now, or queue it for a spread delay when the target is
+    shared by other running identities (see FANOUT_SEC_PER_AGENT)."""
+    sharers = _fanout_sharers(kind, label)
+    if sharers <= 1 or _pending_dir is None:
+        _out(line)
+        return
+    delay = random.uniform(0, min(sharers * FANOUT_SEC_PER_AGENT, FANOUT_CAP_SEC))
+    due_ms = int((time.time() + delay) * 1000)
+    try:
+        os.makedirs(_pending_dir, exist_ok=True)
+        name = "%d-%s.line" % (due_ms, os.urandom(4).hex())
+        tmp = os.path.join(_pending_dir, "." + name + ".tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(line)
+        os.replace(tmp, os.path.join(_pending_dir, name))
+    except OSError as e:
+        print("[role-file-watch] could not queue %s event (%s) — emitting now" % (kind, e),
+              file=sys.stderr, flush=True)
+        _out(line)
+        return
+    print("[role-file-watch] %s: %s event shared by %d running identities — holding %.0fs"
+          % (kind, label, sharers, delay), file=sys.stderr, flush=True)
+    _pending_wake.set()
+
+
+def _pending_emitter():
+    """Daemon thread: emit queued lines once their due time passes, oldest first."""
+    while True:
+        next_due = None
+        try:
+            names = sorted(os.listdir(_pending_dir))
+        except OSError:
+            names = []
+        now_ms = int(time.time() * 1000)
+        for name in names:
+            m = _PENDING_RE.match(name)
+            if not m:
+                continue
+            due = int(m.group(1))
+            if due > now_ms:
+                next_due = due if next_due is None else min(next_due, due)
+                continue
+            path = os.path.join(_pending_dir, name)
+            try:
+                with open(path, encoding="utf-8") as f:
+                    line = f.read()
+                os.remove(path)
+            except OSError:
+                continue
+            if line:
+                _out(line)
+        wait = 5.0 if next_due is None else max(0.05, min(5.0, (next_due - now_ms) / 1000.0))
+        _pending_wake.wait(wait)
+        _pending_wake.clear()
+
+
 def _change_phrase(kind, label):
     """Return the natural-language "your X changed" phrase for each event kind.
 
@@ -612,7 +727,7 @@ def _emit_event(kind, label, diff_stdout, spill_dir):
     phrase = _change_phrase(kind, label)
     line = "📝 [%s: %s] %s changed — %s" % (kind, label, phrase, flat)
     if len(line.encode("utf-8")) <= INLINE_MAX:
-        print(line, flush=True)
+        _emit_line(kind, label, line)
     else:
         # Spill: create spill_dir lazily, write full diff, emit pointer-only line.
         # Spill filenames include the kind so role + identity spills at the same
@@ -622,10 +737,10 @@ def _emit_event(kind, label, diff_stdout, spill_dir):
         spill_path = os.path.join(spill_dir, "%s.%s.diff" % (ts, kind))
         with open(spill_path, "w") as f:
             f.write(diff_stdout)
-        print(
+        _emit_line(
+            kind, label,
             "📝 [%s: %s] %s changed — READ NOW before continuing — %s"
             % (kind, label, phrase, spill_path),
-            flush=True,
         )
 
 
@@ -868,15 +983,14 @@ def _emit_runbook_added(role, slug, rb_path):
     not useful as a `+`-prefixed diff. Match the recv.sh long-message idiom
     of PATH-before-preview so the agent has an obvious next step.
     """
-    print(
-        "📝 [runbook: %s/%s] added — Read %s" % (role, slug, rb_path),
-        flush=True,
-    )
+    _emit_line("runbook", "%s/%s" % (role, slug),
+               "📝 [runbook: %s/%s] added — Read %s" % (role, slug, rb_path))
 
 
 def _emit_runbook_deleted(role, slug):
     """Runbook-deleted event — no diff possible, one honest line."""
-    print("📝 [runbook: %s/%s] deleted" % (role, slug), flush=True)
+    _emit_line("runbook", "%s/%s" % (role, slug),
+               "📝 [runbook: %s/%s] deleted" % (role, slug))
 
 
 def _slug_from_event(w_path, f_name, runbook_roles):
@@ -1226,6 +1340,14 @@ def main():
             pass
     global _harness_pid
     _harness_pid = harness_pid
+
+    # --- Fan-out pending queue (see FANOUT_SEC_PER_AGENT). Started before the
+    # startup diff so lines held by a previous process (self-reload re-exec,
+    # dormancy) drain, and startup-diff events can be held too.
+    global _pending_dir, _identities_root
+    _identities_root = os.path.dirname(ident_dir)
+    _pending_dir = os.path.join(state_dir, "pending")
+    threading.Thread(target=_pending_emitter, daemon=True).start()
     if harness_pid is None:
         print(
             "role-file-watch: orphan-check disabled (couldn't resolve grandparent)",

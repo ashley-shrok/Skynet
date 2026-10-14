@@ -12,6 +12,7 @@
 #   T-G10 — `count` stops firing in the real process
 #   T-G11 — schedule engine suite (test_schedule_engine.py)
 #   T-G12 — scheduled-agents state keyed by slug, name-keyed state migrated
+#   T-G13 — per-identity fan-out spread suite (test_wakeup_fanout.py)
 #
 # Exits 0 on all-pass; exits 1 on any failure with a diagnostic naming the
 # failing test.
@@ -678,6 +679,16 @@ test_SA_G11_engine_suite() {
 }
 
 # ============================================================
+# SA-G13: fan-out spread — same-minute wake-ups across running identities are
+# offset; a lone agent fires on time.
+test_SA_G13_fanout_suite() {
+  local out
+  if ! out=$(cd "$SCRIPT_DIR" && python3 -m unittest test_wakeup_fanout 2>&1); then
+    fail "SA-G13: fan-out suite failed: $(printf '%s' "$out" | tail -30)"
+  fi
+}
+
+# ============================================================
 # SA-G12: scheduled-agents state is keyed by slug (what the app reads back),
 # and sentinels an older build wrote under the display `name` carry over once.
 test_SA_G12_scheduled_agents_state_keyed_by_slug() {
@@ -718,6 +729,7 @@ run_test test_SA_G9_malformed_schedules_refused
 run_test test_SA_G10_count_stops_firing
 run_test test_SA_G11_engine_suite
 run_test test_SA_G12_scheduled_agents_state_keyed_by_slug
+run_test test_SA_G13_fanout_suite
 
 printf '\n===============================\n'
 printf 'PASS: %s  FAIL: %s\n' "$PASS" "$FAIL"

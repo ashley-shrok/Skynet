@@ -121,6 +121,7 @@ Env:    WAKEUP_POLL_SEC (default 30) — loop granularity.
 import argparse
 import calendar
 import glob
+import hashlib
 import json
 import math
 import os
@@ -773,6 +774,97 @@ def _load_specs(wdir):
     return out
 
 
+# ---- Fan-out spread (per-identity mode only) ------------------------------
+# Wake-ups set for the same clock time (e.g. several agents' daily 09:00) would
+# otherwise all fire in the same poll, and every one of those agents starts an
+# API turn at once. Same idea as the relay receiver's room-size wake jitter: a
+# due slot fires at slot + offset, offset in [0, N) where
+#   N = FANOUT_SEC_PER_AGENT × (running agents on this box with a wake-up slot
+#       in the same minute), capped at FANOUT_CAP_SEC; one agent → no delay.
+# The offset is a hash of (identity, spec, slot), so it needs no state: a
+# restart recomputes the same offset and fires at the same time. The supervisor's
+# schedule peek treats an overdue spec as due, so an identity waiting out its
+# offset is neither swept dormant nor left asleep.
+FANOUT_SEC_PER_AGENT = float(os.environ.get("WAKEUP_FANOUT_SEC_PER_AGENT", "30"))
+FANOUT_CAP_SEC = float(os.environ.get("WAKEUP_FANOUT_CAP_SEC", "300"))
+
+
+def _read_float(path):
+    try:
+        return float(open(path).read().strip())
+    except Exception:
+        return None
+
+
+def current_slot(spec, state_dir, box_zone):
+    """Epoch of the spec's next unfired slot (possibly in the past = due), or
+    None if it never fires again / is invalid / is not yet anchored. Mirrors
+    the main loop's bookkeeping: `.fired` for one_shot, `.last` else
+    `.anchored` + `.runs` for repeating kinds."""
+    sch = spec.get("schedule") or {}
+    key = spec["_key"]
+    zi, tz_err = _zone(spec)
+    if tz_err or schedule_error(sch):
+        return None
+    if sch.get("type") == "one_shot":
+        if os.path.exists(os.path.join(state_dir, key + ".fired")):
+            return None
+        at_ts, _, at_err = _parse_at_ts(sch.get("at"), zi)
+        return None if at_err else at_ts
+    ref = _read_float(os.path.join(state_dir, key + ".last"))
+    if ref is None:
+        ref = _read_float(os.path.join(state_dir, key + ".anchored"))
+    if ref is None:
+        return None
+    count = _parse_positive_int(sch.get("count"))
+    if count is not None:
+        try:
+            runs = int(open(os.path.join(state_dir, key + ".runs")).read().strip())
+        except Exception:
+            runs = 0
+        if runs >= count:
+            return None
+    return next_fire(sch, ref, box_zone)
+
+
+def _identity_live(ident_dir):
+    name = os.path.basename(ident_dir.rstrip("/"))
+    return (os.path.isfile(os.path.join(ident_dir, name + ".md"))
+            and not os.path.exists(os.path.join(ident_dir, ".dormant")))
+
+
+def same_minute_agents(slot, self_dir, box_zone):
+    """Running identities (self included) on this box with any wake-up slot in
+    the same minute as `slot`. Never less than 1."""
+    minute = int(slot // 60)
+    self_dir = os.path.realpath(self_dir)
+    n = 1
+    for d in glob.glob(os.path.join(os.path.dirname(self_dir), "*", "")):
+        d = os.path.realpath(d)
+        if d == self_dir or not _identity_live(d):
+            continue
+        wdir = os.path.join(d, "wakeups")
+        sdir = os.path.join(wdir, ".state")
+        for spec in _load_specs(wdir):
+            try:
+                s = current_slot(spec, sdir, box_zone)
+            except Exception:
+                continue
+            if s is not None and int(s // 60) == minute:
+                n += 1
+                break
+    return n
+
+
+def fanout_offset(ident_name, key, slot, agents):
+    """Deterministic offset in [0, min(agents × per-agent, cap)); 0 for one agent."""
+    if agents <= 1:
+        return 0.0
+    span = min(agents * FANOUT_SEC_PER_AGENT, FANOUT_CAP_SEC)
+    h = hashlib.sha256(("%s|%s|%d" % (ident_name, key, int(slot))).encode()).digest()
+    return span * (int.from_bytes(h[:8], "big") / 2.0 ** 64)
+
+
 def _load_specs_scheduled_agents(scheduled_agents_root):
     """Load scheduled-agent specs from the nested slug-folder layout.
 
@@ -1007,6 +1099,29 @@ def main():
     box_zone = local_zone()
 
     warned = set()          # (key, kind) — one-shot LOUD alert per issue per session
+    ident_name = os.path.basename(folder.rstrip("/"))
+    fanout_cache = {}       # (key, slot) -> fire-at epoch; see fanout_offset
+
+    def held_for_fanout(key, slot, now):
+        """True while a due slot is still inside its fan-out offset."""
+        if is_scheduled_agents_mode or slot is None:
+            return False
+        ck = (key, int(slot))
+        if ck not in fanout_cache:
+            if len(fanout_cache) > 512:
+                fanout_cache.clear()
+            try:
+                agents = same_minute_agents(slot, folder, box_zone)
+            except Exception as e:
+                print("wakeup-scheduler: fan-out count failed for %s (%s) — no delay"
+                      % (key, e), file=sys.stderr, flush=True)
+                agents = 1
+            off = fanout_offset(ident_name, key, slot, agents)
+            fanout_cache[ck] = slot + off
+            if off > 0:
+                print("wakeup-scheduler: %s due — %d agents share this minute, holding %.0fs"
+                      % (key, agents, max(0.0, slot + off - now)), file=sys.stderr, flush=True)
+        return now < fanout_cache[ck]
 
     # Orphan-monitor guard (added 2026-09-05 after Noelle ate a Nelly dispatch;
     # env-override added 2026-09-13 for the ambient-monitor launcher).
@@ -1124,7 +1239,7 @@ def main():
                           "already carries an offset/Z; firing at the offset time"
                           % key, flush=True)
                     warned.add((key, "tz_on_offset"))
-                if now_ts >= at_ts:
+                if now_ts >= at_ts and not held_for_fanout(key, at_ts, now_ts):
                     utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
                     if is_scheduled_agents_mode:
                         _drop_spawn_request(spec, state_dir)
@@ -1192,6 +1307,8 @@ def main():
             if action == "anchor":  # first sight -> anchor, don't fire
                 set_anchored(key, now_ts)
             elif action == "fire":
+                if held_for_fanout(key, next_fire(spec["schedule"], last if last is not None else anchored, box_zone), now_ts):
+                    continue
                 utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
                 if is_scheduled_agents_mode:
                     _drop_spawn_request(spec, state_dir)
