@@ -1,7 +1,7 @@
 # Campaign: a search box in the Files tab that finds things in subfolders too
 
 **Opened:** 2026-10-14
-**Status:** in_progress
+**Status:** closed
 **Workspace:** .planning/campaigns/files-search/
 
 ## Concept
@@ -28,3 +28,7 @@ The Files tab — the same file browser in the agent, role, and project modals �
 ## Lingerers (explicitly approved)
 
 ## Open questions
+
+---
+
+**Closed:** 2026-10-14 — shape-files-search closed (closed-hit); both Other-work items done in fix-files-row-menu. Search shipped live; the row-menu follow-up was pushed, not yet deployed.
