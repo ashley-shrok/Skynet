@@ -115,6 +115,25 @@ describe("FilePane — bar and read-only body", () => {
   });
 });
 
+describe("FilePane — read aloud", () => {
+  it("offers read aloud in the bar for prose files once read", async () => {
+    mockedFetch.mockResolvedValue(ok("Ship the file pane today."));
+    renderPane();
+    await screen.findByTestId("code-editor");
+    const slot = screen.getByTestId("file-pane-kebab-slot");
+    expect(slot.querySelector('[data-testid="file-speak-button"]')).not.toBeNull();
+    // Only one: the body doesn't show a second one.
+    expect(screen.getAllByTestId("file-speak-button")).toHaveLength(1);
+  });
+
+  it("doesn't offer it for files that aren't prose", async () => {
+    mockedFetch.mockResolvedValue(ok("a,b\n1,2\n"));
+    renderPane({ path: "/home/ubuntu/data.csv" });
+    await waitFor(() => expect(mockedFetch).toHaveBeenCalled());
+    expect(screen.queryByTestId("file-speak-button")).toBeNull();
+  });
+});
+
 describe("FilePane — can't show the file", () => {
   it("shows why when the read fails, and Reload reads again", async () => {
     mockedFetch.mockRejectedValueOnce(new Error("not_found")).mockResolvedValueOnce(ok("back again"));

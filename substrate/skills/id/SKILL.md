@@ -873,8 +873,10 @@ not something agents drive.
   The same glassy bar as an app's. Left: **reload** (circular-arrow —
   re-reads the file from its machine, e.g. after you've changed it) and
   **download**. Center: the file type's icon, the file name, and beneath
-  it in faint text the machine and folder. Right: the view switcher for
-  types with more than one view (e.g. Rendered / Source), then the **⋮**
+  it in faint text the machine and folder. Right: a **read aloud** button
+  for prose files (.md / .txt — same as the file modal's), the view
+  switcher for types with more than one view (e.g. Rendered / Source),
+  then the **⋮**
   menu — **Open in modal** (the usual file modal, opened in the
   conversation the file came from so Save attaches the edited copy there;
   when that conversation isn't open in this Skynet tab the modal opens

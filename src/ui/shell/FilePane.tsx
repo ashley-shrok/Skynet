@@ -5,6 +5,7 @@ import { Download, RotateCw } from "lucide-react";
 import type { RowKebabMenuItem } from "@/features/pretty-conversations/RowKebabMenu";
 import EditableFileModal from "@/features/pretty-view/EditableFileModal";
 import { FileView, FileViewModeSwitcher } from "@/features/pretty-view/file-viewers/FileView";
+import { FileSpeakButton } from "@/features/pretty-view/file-viewers/FileSpeakButton";
 import {
   fileViewNeedsContent,
   resolveFileViewer,
@@ -38,7 +39,8 @@ import { PANE_BAR_BUTTON_CLASS, PaneBar } from "./PaneBar";
 // Bar (PaneBar, same family as app and remote-desktop panes):
 //   - Left: Reload (re-reads the file from its machine) and Download.
 //   - Title: the file type's icon, the file name, and "<host> · <folder>".
-//   - Right: the view switcher (types with more than one view), then ⋮.
+//   - Right: read aloud (prose files — .md / .txt — once read), the view
+//     switcher (types with more than one view), then ⋮.
 //   - Menu (also right-click): Open in modal → Copy path → Download →
 //     Move to new tab (desktop) → Close (desktop).
 //
@@ -244,9 +246,24 @@ export function FilePane({
 
   const errorCopy = errorClass !== null ? describeFileUrlError(errorClass, url) : null;
   const subtitle = `${host} · ${folderOfPath(path)}`;
+  // Read aloud, as in the file modal's head. FileSpeakButton renders nothing
+  // for files that aren't prose or have nothing to say.
+  const speakText =
+    errorClass === null && content.status === "ready" && content.data.isText !== false
+      ? content.data.content
+      : null;
   const switcher =
     entry.modes.length > 1 ? (
       <FileViewModeSwitcher filename={filename} mode={viewMode} onModeChange={setViewMode} />
+    ) : null;
+  const rightControls =
+    speakText !== null || switcher !== null ? (
+      <>
+        {speakText !== null ? (
+          <FileSpeakButton filename={filename} text={speakText} className="size-6" />
+        ) : null}
+        {switcher}
+      </>
     ) : null;
 
   return (
@@ -264,7 +281,7 @@ export function FilePane({
         title={filename}
         subtitle={subtitle}
         titleIcon={<TitleIcon width={12} height={12} />}
-        rightControls={switcher}
+        rightControls={rightControls}
         menuItems={menuItems}
         onSelectPane={onSelectPane}
         navButtons={
