@@ -146,6 +146,15 @@ describe("PUT /telegram/bot", () => {
     expect(saveBot).not.toHaveBeenCalled();
   });
 
+  it("turns a same-moment duplicate save into the friendly 409", async () => {
+    callTelegram.mockResolvedValue({ ok: true, result: { id: 123456789, is_bot: true, username: "ash_bot" } });
+    saveBot.mockRejectedValue(new Error("UNIQUE constraint failed: telegram_bots.bot_id"));
+    const res = makeRes();
+    await handlePutTelegramBot("u1", { token: TOKEN }, asRes(res));
+    expect(res._status).toBe(409);
+    expect(restartBotPoller).not.toHaveBeenCalled();
+  });
+
   it("validates, clears any webhook, saves, and starts the poller", async () => {
     callTelegram.mockImplementation(async (_t: string, method: string) =>
       method === "getMe"

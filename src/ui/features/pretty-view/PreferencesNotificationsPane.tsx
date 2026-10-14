@@ -1,6 +1,6 @@
 /**
- * Preferences → Notifications. Notifications go out through the server's
- * Telegram bot; the section handles connecting, testing and disconnecting.
+ * Preferences → Notifications. Each user sets up their own Telegram bot;
+ * the section handles setup, testing and disconnecting.
  */
 
 import type { ReactElement } from "react";

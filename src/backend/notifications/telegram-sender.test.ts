@@ -15,8 +15,10 @@ vi.mock("./telegram-api.js", () => ({
 
 const TOKEN = "111:AAAA";
 let bot: { token: string; chatId: string | null; titleOnly: boolean } | null = null;
+const unlinkChat = vi.fn();
 vi.mock("./telegram-bots.js", () => ({
   getBot: () => bot,
+  unlinkChat: (...a: unknown[]) => unlinkChat(...a),
 }));
 
 let canUse = true;
@@ -45,6 +47,7 @@ _setSleepForTests(async (ms) => {
 const payload = { title: "Mitzi:", body: "a < b & c", agentMxid: "@mitzi:hs", agentHostId: 3 };
 
 beforeEach(() => {
+  unlinkChat.mockReset();
   callTelegram.mockReset();
   warn.mockClear();
   info.mockClear();
@@ -65,6 +68,7 @@ describe("formatting", () => {
 
   it("builds an absolute Open URL, or none without an https public URL", () => {
     expect(buildOpenUrl(payload)).toBe("https://skynet.example.com/?openHarness=%40mitzi%3Ahs&host=3");
+    expect(buildOpenUrl({ ...payload, agentHostId: null })).toBeNull();
     publicUrl = "";
     expect(buildOpenUrl(payload)).toBeNull();
   });
@@ -125,11 +129,12 @@ describe("sendTelegramToUser", () => {
     expect(sleeps).toEqual([4000]);
   });
 
-  it("does not retry a 403 and logs the failure", async () => {
+  it("does not retry a 403, unlinks the chat, and logs the failure", async () => {
     callTelegram.mockResolvedValueOnce({ ok: false, errorCode: 403, description: "Forbidden: bot was blocked by the user" });
     const res = await sendTelegramToUser("u1", payload);
     expect(res).toMatchObject({ ok: false, reason: "send_failed", errorCode: 403 });
     expect(callTelegram).toHaveBeenCalledTimes(1);
+    expect(unlinkChat).toHaveBeenCalledWith("u1");
     expect(warn).toHaveBeenCalledWith(
       "[telegram] notification NOT delivered",
       expect.objectContaining({ operation: "telegram_send_failed", errorCode: 403 }),

@@ -120,15 +120,23 @@ export async function handlePutTelegramBot(
   }
 
   const botId = String(me.result.id);
-  if (findOtherUserWithBot(botId, userId)) {
-    return res.status(409).json({
+  const alreadyUsed = () =>
+    res.status(409).json({
       error: "That bot is already used by another Skynet account. Create a separate bot with /newbot.",
     });
-  }
+  if (findOtherUserWithBot(botId, userId)) return alreadyUsed();
 
   // A bot with a webhook set can't be long-polled; clear any.
   await callTelegram(token, "deleteWebhook", { drop_pending_updates: false });
-  await saveBot(userId, token, botId, me.result.username);
+  try {
+    await saveBot(userId, token, botId, me.result.username);
+  } catch (err) {
+    // Another account saved the same bot between the check above and now.
+    if (err instanceof Error && /UNIQUE constraint failed: telegram_bots\.bot_id/.test(err.message)) {
+      return alreadyUsed();
+    }
+    throw err;
+  }
   restartBotPoller(userId);
   databaseLogger.info("[telegram] bot saved", {
     operation: "telegram_bot_saved",

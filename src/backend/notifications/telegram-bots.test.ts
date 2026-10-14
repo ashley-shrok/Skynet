@@ -31,6 +31,7 @@ import {
   deleteBot,
   findOtherUserWithBot,
   getBot,
+  isBotStillSaved,
   linkChat,
   loadAllBots,
   saveBot,
@@ -107,6 +108,23 @@ describe("bot storage", () => {
     expect(bot).toMatchObject({ botUsername: "ash2_bot", chatId: null, telegramName: "" });
   });
 
+  it("a second account saving the same bot hits the UNIQUE constraint the route maps to 409", async () => {
+    await saveBot("u1", TOKEN_A, "111", "ash_bot");
+    await expect(saveBot("u2", TOKEN_A, "111", "ash_bot")).rejects.toThrow(
+      /UNIQUE constraint failed: telegram_bots\.bot_id/,
+    );
+  });
+
+  it("isBotStillSaved tracks the row and evicts the cache when it's gone", async () => {
+    await saveBot("u1", TOKEN_A, "111", "ash_bot");
+    expect(isBotStillSaved("u1", "111")).toBe(true);
+    expect(isBotStillSaved("u1", "222")).toBe(false);
+    expect(getBot("u1")).not.toBeNull();
+    sqliteDb.exec("DELETE FROM telegram_bots WHERE user_id = 'u1'");
+    expect(isBotStillSaved("u1", "111")).toBe(false);
+    expect(getBot("u1")).toBeNull();
+  });
+
   it("finds another account already using a bot", async () => {
     await saveBot("u1", TOKEN_A, "111", "ash_bot");
     expect(findOtherUserWithBot("111", "u2")).toBe("u1");
@@ -137,10 +155,24 @@ describe("link codes", () => {
     expect(consumeLinkCode(code, "u1", now + LINK_CODE_TTL_MS + 1)).toBe(false);
   });
 
-  it("a newer code invalidates the older one", () => {
+  it("a newer code does not invalidate one the user already opened", () => {
     const first = createLinkCode("u1");
-    const second = createLinkCode("u1");
-    expect(consumeLinkCode(first, "u1")).toBe(false);
-    expect(consumeLinkCode(second, "u1")).toBe(true);
+    createLinkCode("u1");
+    expect(consumeLinkCode(first, "u1")).toBe(true);
+  });
+
+  it("linking retires every outstanding code for that user only", () => {
+    const a = createLinkCode("u1");
+    const b = createLinkCode("u1");
+    const other = createLinkCode("u2");
+    expect(consumeLinkCode(a, "u1")).toBe(true);
+    expect(consumeLinkCode(b, "u1")).toBe(false);
+    expect(consumeLinkCode(other, "u2")).toBe(true);
+  });
+
+  it("keeps at most ten live codes per user, dropping the oldest", () => {
+    const codes = Array.from({ length: 11 }, () => createLinkCode("u1"));
+    expect(consumeLinkCode(codes[0], "u1")).toBe(false);
+    expect(consumeLinkCode(codes[10], "u1")).toBe(true);
   });
 });

@@ -94,6 +94,16 @@ describe("handleUpdate", () => {
     expect(repliesSent()[0]).toMatch(/isn't connected/);
   });
 
+  it("blocking the bot unlinks the linked chat", async () => {
+    bot = { chatId: "555" };
+    await handleUpdate("u1", TOKEN, {
+      update_id: 2,
+      my_chat_member: { chat: { id: 555, type: "private" }, new_chat_member: { status: "kicked" } },
+    });
+    expect(unlinkChat).toHaveBeenCalledWith("u1");
+    expect(callTelegram).not.toHaveBeenCalled();
+  });
+
   it("ignores group chats", async () => {
     await handleUpdate("u1", TOKEN, update("/start abc", { chatType: "group" }));
     expect(consumeLinkCode).not.toHaveBeenCalled();
@@ -119,6 +129,15 @@ describe("pollOnce", () => {
     expect(callTelegram.mock.calls[0]).toEqual(
       expect.arrayContaining([TOKEN, "getUpdates", expect.objectContaining({ offset: 0 })]),
     );
+  });
+
+  it("stops handling updates once the loop is no longer live", async () => {
+    consumeLinkCode.mockReturnValue(true);
+    callTelegram.mockImplementation(async (_t: string, method: string) =>
+      method === "getUpdates" ? { ok: true, result: [update("/start abc", { id: 10 })] } : { ok: true, result: {} },
+    );
+    await pollOnce("u1", TOKEN, { generation: 1, offset: 0 }, () => false);
+    expect(linkChat).not.toHaveBeenCalled();
   });
 
   it("reports failure so the loop backs off", async () => {

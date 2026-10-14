@@ -19,11 +19,16 @@ import { databaseLogger } from "../utils/logger.js";
 import { userCanUseNotifications } from "./notifications-access.js";
 import { buildClickUrl, type PushPayload } from "./notification-payload.js";
 import { callTelegram, getSkynetPublicUrl } from "./telegram-api.js";
-import { getBot } from "./telegram-bots.js";
+import { getBot, unlinkChat } from "./telegram-bots.js";
 
 const MAX_ATTEMPTS = 3;
 const BACKOFF_MS = [1_000, 3_000];
-const MAX_RETRY_AFTER_S = 30;
+/**
+ * Honour Telegram's flood-control wait up to this long. Sends to one user
+ * run in a queue off the push-trigger loop (notify-user.ts), so waiting is
+ * cheap; giving up early would just guarantee another 429.
+ */
+const MAX_RETRY_AFTER_S = 300;
 
 /** Flat (not a union) — the backend tsconfig isn't strict enough to narrow on ok. */
 export interface TelegramSendResult {
@@ -58,11 +63,14 @@ export function buildTelegramText(payload: PushPayload, titleOnly: boolean): str
 }
 
 /**
- * Absolute "Open in Skynet" URL, or null when SKYNET_PUBLIC_URL isn't an
- * https URL (Telegram rejects relative and non-http button URLs, and a bad
- * button would fail the whole send).
+ * Absolute "Open in Skynet" URL, or null when there's nothing to open:
+ * system notifications (agentHostId null, e.g. the test send) have no
+ * conversation, and a SKYNET_PUBLIC_URL that isn't https can't be used
+ * (Telegram rejects relative and non-http button URLs, and a bad button
+ * would fail the whole send).
  */
 export function buildOpenUrl(payload: PushPayload): string | null {
+  if (payload.agentHostId === null) return null;
   const base = getSkynetPublicUrl();
   if (!base.startsWith("https://")) return null;
   return base + buildClickUrl(payload.agentMxid, payload.agentHostId);
@@ -130,6 +138,20 @@ export async function sendTelegramToUser(
     await sleep(waitMs);
   }
 
+  // 403 = the user blocked their bot or deleted the chat. Unlink so the
+  // settings page shows "Open my bot" again instead of "Connected".
+  if (lastCode === 403) {
+    try {
+      await unlinkChat(userId);
+    } catch (err) {
+      databaseLogger.warn("[telegram] unlink after 403 failed", {
+        operation: "telegram_unlink_after_403_failed",
+        userId,
+        error: err instanceof Error ? err.message : "unknown",
+      });
+    }
+  }
+
   databaseLogger.warn("[telegram] notification NOT delivered", {
     operation: "telegram_send_failed",
     userId,
@@ -138,7 +160,7 @@ export async function sendTelegramToUser(
     description: lastDescription,
     hint:
       lastCode === 403
-        ? "user blocked their bot — reconnect from Preferences"
+        ? "user blocked their bot — chat unlinked; they reconnect from Preferences"
         : lastCode === 401
           ? "bot token revoked — user must paste a new one in Preferences"
           : undefined,

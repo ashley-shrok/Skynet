@@ -119,6 +119,21 @@ export function getBot(userId: string): TelegramBot | null {
   return bots.get(userId) ?? null;
 }
 
+/**
+ * Whether `userId` still has `botId` saved. A poll loop asks this every
+ * round: the row disappears when the user is deleted (ON DELETE CASCADE) or
+ * removes/replaces their bot. When it's gone, the cached copy is evicted too
+ * so nothing keeps using the old token.
+ */
+export function isBotStillSaved(userId: string, botId: string): boolean {
+  const row = db.$client
+    .prepare("SELECT 1 AS ok FROM telegram_bots WHERE user_id = ? AND bot_id = ?")
+    .get(userId, botId);
+  if (row) return true;
+  if (bots.get(userId)?.botId === botId) bots.delete(userId);
+  return false;
+}
+
 /** The user (other than `exceptUserId`) already using this bot, if any. */
 export function findOtherUserWithBot(botId: string, exceptUserId: string): string | null {
   const row = db.$client
@@ -208,14 +223,20 @@ function pruneExpiredCodes(now: number): void {
   }
 }
 
+/** Live codes kept per user; the oldest is dropped beyond this. */
+const MAX_CODES_PER_USER = 10;
+
 /**
- * Mint a one-time link code for this user; any earlier pending code for the
- * same user stops working. Telegram's start parameter allows [A-Za-z0-9_-].
+ * Mint a one-time link code for this user. Earlier codes stay valid until
+ * they expire: the settings page refreshes its link every few minutes and
+ * other devices mint their own, and none of that should kill a link the
+ * user already opened. Telegram's start parameter allows [A-Za-z0-9_-].
  */
 export function createLinkCode(userId: string, now = Date.now()): string {
   pruneExpiredCodes(now);
-  for (const [code, entry] of pendingCodes) {
-    if (entry.userId === userId) pendingCodes.delete(code);
+  const mine = [...pendingCodes].filter(([, entry]) => entry.userId === userId);
+  for (const [code] of mine.slice(0, Math.max(0, mine.length - MAX_CODES_PER_USER + 1))) {
+    pendingCodes.delete(code);
   }
   const code = randomBytes(16).toString("hex");
   pendingCodes.set(code, { userId, expiresAt: now + LINK_CODE_TTL_MS });
@@ -223,14 +244,17 @@ export function createLinkCode(userId: string, now = Date.now()): string {
 }
 
 /**
- * Redeem a code that arrived on `userId`'s bot. Single-use; returns false
- * when it's unknown, expired, or minted for a different user.
+ * Redeem a code that arrived on `userId`'s bot. Returns false when it's
+ * unknown, expired, or minted for a different user. Linking succeeds once,
+ * so every outstanding code for the user is retired with it.
  */
 export function consumeLinkCode(code: string, userId: string, now = Date.now()): boolean {
   pruneExpiredCodes(now);
   const entry = pendingCodes.get(code);
   if (!entry || entry.userId !== userId) return false;
-  pendingCodes.delete(code);
+  for (const [other, e] of pendingCodes) {
+    if (e.userId === userId) pendingCodes.delete(other);
+  }
   return true;
 }
 
