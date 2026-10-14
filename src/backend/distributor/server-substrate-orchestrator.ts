@@ -43,7 +43,8 @@ import { runSweepForHost } from "./run-sweep.js";
 import { FLEET_SUBSTRATE_CATALOG } from "./catalog.js";
 import { logSweepHookError, logPersistentFailure } from "./log-tags.js";
 import { bundledReaderFromDisk } from "./bundled-reader.js";
-import { readInstancePolicyBytes } from "../branding/branding-config-loader.js";
+import { readInstanceFileBytes } from "../instance-file/store.js";
+import { systemLogger } from "../utils/logger.js";
 import type { SshChannel } from "../fleet-status/ssh-poll-orchestrator.js";
 import { isLocalHostId } from "../claude-session/identity-artifact-reader.js";
 import {
@@ -129,6 +130,13 @@ export interface ServerSubstrateOrchestrator {
    * host has not been attempted this process lifetime.
    */
   getHostSweepStatus(hostId: string): HostSweepStatus | null;
+
+  /**
+   * Re-resolve runtime-sourced bytes and re-sweep every host now — used after
+   * the instance file is edited, since hosts that already swept clean are
+   * otherwise left alone until the next restart. Never rejects.
+   */
+  resweepAll(reason: string): Promise<void>;
 }
 
 /** Per-host sweep outcome surfaced to the admin Hosts overview. */
@@ -216,10 +224,16 @@ export function createServerSubstrateOrchestrator(
   let currentRuntimeBytes: Map<string, Buffer | null> = new Map();
 
   /**
+   * Bumped by resweepAll. A sweep that started under an older generation ran
+   * with stale runtime bytes, so it never marks its host done — the retry
+   * tick sweeps it again with the fresh bytes.
+   */
+  let runtimeBytesGeneration = 0;
+
+  /**
    * Resolve runtime-sourced catalog bytes for the current tick.
    *
-   * NEVER-THROW: readInstancePolicyBytes has its own never-throws contract
-   * (Plan 01), but the try/catch here is defense-in-depth against future
+   * NEVER-THROW: readInstanceFileBytes has its own never-throws contract, but the try/catch here is defense-in-depth against future
    * changes to the resolver. On any throw, the map value falls back to null
    * — the composer's removal branch (D-16) will run against every root-SSH
    * host, mimicking the "clean unset state" the resolver-null path is
@@ -228,7 +242,7 @@ export function createServerSubstrateOrchestrator(
   async function resolveRuntimeBytesForTick(): Promise<Map<string, Buffer | null>> {
     const map = new Map<string, Buffer | null>();
     try {
-      map.set("instance-policy", await readInstancePolicyBytes());
+      map.set("instance-policy", await readInstanceFileBytes());
     } catch {
       // Defense-in-depth: keep the tick alive even if the resolver breaks.
       map.set("instance-policy", null);
@@ -261,10 +275,11 @@ export function createServerSubstrateOrchestrator(
   function applySweepBookkeeping(
     host: SubstrateHostRecord,
     failed: number,
+    generation: number,
   ): void {
     recordOutcome(host.id, failed === 0 ? null : itemsFailedError(failed));
     if (failed === 0) {
-      sweepedThisInstance.add(host.id);
+      if (generation === runtimeBytesGeneration) sweepedThisInstance.add(host.id);
       consecutiveFailures.delete(host.id);
       persistentAlertFired.delete(host.id);
     } else {
@@ -285,6 +300,7 @@ export function createServerSubstrateOrchestrator(
   }
 
   async function executeSweeForHost(host: SubstrateHostRecord): Promise<void> {
+    const generation = runtimeBytesGeneration;
     // Quick 260918-5lb: LOCAL BYPASS. When the host's numeric id is in
     // IDENTITIES_LOCAL_HOST_IDS, SSH-to-self hangs from inside the container
     // — the whole for-of loop wedges in deps.acquireChannel. Skip SSH
@@ -330,12 +346,12 @@ export function createServerSubstrateOrchestrator(
           hostName: host.name,
           errorMessage: err instanceof Error ? err.message : "unknown",
         });
-        applySweepBookkeeping(host, 1);
+        applySweepBookkeeping(host, 1, generation);
         recordOutcome(host.id, err instanceof Error ? err.message : "unknown error");
         sweepInFlight.delete(host.id);
         return;
       }
-      applySweepBookkeeping(host, result.itemsFailed);
+      applySweepBookkeeping(host, result.itemsFailed, generation);
       sweepInFlight.delete(host.id);
       return;
     }
@@ -402,7 +418,7 @@ export function createServerSubstrateOrchestrator(
       recordOutcome(host.id, failed === 0 ? null : itemsFailedError(failed));
       if (failed === 0) {
         // Clean sweep — mark done for this uptime, reset failure tracking
-        sweepedThisInstance.add(host.id);
+        if (generation === runtimeBytesGeneration) sweepedThisInstance.add(host.id);
         consecutiveFailures.delete(host.id);
         persistentAlertFired.delete(host.id);
       } else {
@@ -554,6 +570,31 @@ export function createServerSubstrateOrchestrator(
       queueMicrotask(async () => {
         await executeSweeForHost(hostRecord);
       });
+    },
+
+    async resweepAll(reason: string): Promise<void> {
+      if (stopped) return;
+      try {
+        runtimeBytesGeneration++;
+        currentRuntimeBytes = await resolveRuntimeBytesForTick();
+        sweepedThisInstance.clear();
+        const hosts = await deps.listSubstrateHosts();
+        systemLogger.info("Fleet-substrate resweep requested", {
+          operation: "fleet_substrate_resweep_all",
+          reason,
+          hostCount: hosts.length,
+          generation: runtimeBytesGeneration,
+        });
+        // In-flight hosts are skipped here; their stale-generation sweep
+        // leaves them unmarked, so the next retry tick picks them up.
+        for (const h of hosts) queueSweepForHost(h);
+      } catch (err) {
+        systemLogger.warn("Fleet-substrate resweep failed", {
+          operation: "fleet_substrate_resweep_all_error",
+          reason,
+          error: err instanceof Error ? err.message : "unknown",
+        });
+      }
     },
 
     /** Observability — mirrors getPollTickCount() from ssh-poll-orchestrator.ts:2297-2299. */

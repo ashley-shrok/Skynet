@@ -9,6 +9,7 @@
  *   - System:  version + update check, database health, log level.
  *   - Hosts:   every machine Skynet knows about — reachability, resources,
  *              agent-host health.
+ *   - Instance file: the CLAUDE.md every host gets at /etc/claude-code/CLAUDE.md.
  *
  * "OIDC in use" is decided once here and threaded down: true when an OIDC
  * provider is configured or any existing user signed up through OIDC.
@@ -16,7 +17,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { LogIn, Server, SlidersHorizontal, Users } from "lucide-react";
+import { Globe, LogIn, Server, SlidersHorizontal, Users } from "lucide-react";
 import {
   Modal,
   ModalBody,
@@ -32,15 +33,17 @@ import { AdminUsersPane } from "./AdminUsersPane";
 import { AdminSignInPane } from "./AdminSignInPane";
 import { AdminSystemPane } from "./AdminSystemPane";
 import { AdminHostsPane } from "./AdminHostsPane";
+import { AdminInstanceFilePane } from "./AdminInstanceFilePane";
 import AdminUserModal from "./AdminUserModal";
 
-type AdminTab = "users" | "signin" | "system" | "hosts";
+type AdminTab = "users" | "signin" | "system" | "hosts" | "instance-file";
 
 const TABS: ReadonlyArray<ModalTabDef<AdminTab>> = [
   { value: "users", label: "Users", Icon: Users },
   { value: "signin", label: "Sign-in", Icon: LogIn },
   { value: "system", label: "System", Icon: SlidersHorizontal },
   { value: "hosts", label: "Hosts", Icon: Server },
+  { value: "instance-file", label: "Instance file", Icon: Globe },
 ];
 
 export interface AdminModalProps {
@@ -91,7 +94,7 @@ export default function AdminModal({
       <Modal
         open={open}
         onOpenChange={onOpenChange}
-        size="settings"
+        size={tab === "instance-file" ? "editor" : "settings"}
         data-testid="admin-modal"
       >
         <ModalHead title="Admin" />
@@ -118,6 +121,7 @@ export default function AdminModal({
             {tab === "signin" && <AdminSignInPane oidcInUse={oidcInUse} />}
             {tab === "system" && <AdminSystemPane />}
             {tab === "hosts" && <AdminHostsPane />}
+            {tab === "instance-file" && <AdminInstanceFilePane />}
           </ModalBody>
         </ModalSidebar>
         <ModalFoot>

@@ -1356,7 +1356,7 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
   },
 
   // --- instance-policy-claude-md (1 row: Phase 114 twinkie — runtime-sourced, system-root-installed) ---
-  // FIRST runtime-sourced row: bytes come from readInstancePolicyBytes() at sweep time
+  // FIRST runtime-sourced row: bytes come from readInstanceFileBytes() (instance-file/store.ts) at sweep time
   // (via deps.resolvedRuntimeBytes.get("instance-policy")), NOT from /app/fleet-substrate/…
   // in the container image. See RuntimeCatalogEntry docstring above.
   //

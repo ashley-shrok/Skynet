@@ -905,6 +905,21 @@ crown, then gear.
   the user-wide `CLAUDE.md`** — skills become standing behavior for
   every session, so they need user sign-off.
 
+- **👑 Crown — Admin** (admins only). Sections: **Users**, **Sign-in**,
+  **System**, **Hosts**, **Instance file**.
+  - **Instance file** — a markdown editor for the one CLAUDE.md that goes
+    into every agent session on every host in the instance. Saving sends
+    it to every host right away; sessions pick it up the next time they
+    start. Emptying it removes it from every host. The modal widens while
+    this section is open.
+    *Agent-side:* it lands on each host at `/etc/claude-code/CLAUDE.md`
+    (Claude Code's managed-policy file) — never hand-edit that copy, the
+    next sweep overwrites it. The source of truth is the app:
+    `GET /instance-file` → `{content, updatedAt}`, `PUT /instance-file`
+    with `{content}` (admin cookie or a `Bearer tmx_…` API key whose owner
+    is an admin). It sits above even the user-wide file, so the same
+    "propose + wait for greenlight" rule applies to agent-side edits.
+
 - **⚙️ Gear icon — Preferences.**
   - **Avatar** — the user's displayed avatar.
   - **About you** — content every one of the user's agents automatically

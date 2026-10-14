@@ -124,13 +124,13 @@ vi.mock("./bundled-reader.js", () => ({
   })),
 }));
 
-// Branding-config-loader — mock readInstancePolicyBytes so T-11 scenarios can
-// switch between "twinkie file present" (Buffer) and "twinkie unset / missing"
+// Instance-file store — mock readInstanceFileBytes so T-11 scenarios can
+// switch between "instance file saved" (Buffer) and "instance file unset"
 // (null) without touching disk. Default null keeps pre-existing tests
 // (I-STARTUP, I-RETRY, I-PERSISTENT, I-ON-ADD) on the D-16 removal branch
 // exactly as they were with the makeSuccessChannel __REMOVE_ALREADY__ handler.
-vi.mock("../branding/branding-config-loader.js", () => ({
-  readInstancePolicyBytes: vi.fn(async () => null),
+vi.mock("../instance-file/store.js", () => ({
+  readInstanceFileBytes: vi.fn(async () => null),
 }));
 
 // Quick 260918-5lb: identity-artifact-reader is the source of isLocalHostId.
@@ -347,7 +347,7 @@ import {
 import { systemLogger, sshLogger } from "../utils/logger.js";
 import { SystemCrypto } from "../utils/system-crypto.js";
 import { FieldCrypto } from "../utils/field-crypto.js";
-import { readInstancePolicyBytes } from "../branding/branding-config-loader.js";
+import { readInstanceFileBytes } from "../instance-file/store.js";
 import { isLocalHostId } from "../claude-session/identity-artifact-reader.js";
 import {
   installFleetSubstrateLocally,
@@ -1069,6 +1069,8 @@ describe("Phase 75 — server-substrate integration", () => {
         stop: vi.fn(),
         sweepOneHost: vi.fn(),
         getSweepTickCount: vi.fn(() => 0),
+        getHostSweepStatus: vi.fn(() => null),
+        resweepAll: vi.fn(async () => {}),
       };
 
       setSubstrateOrchestrator(mockOrch);
@@ -1146,12 +1148,12 @@ describe("Phase 75 — server-substrate integration", () => {
   //
   // The final gate for Phase 114: verify that Plans 01-05 wire together to
   // deliver /etc/claude-code/CLAUDE.md to a root-SSH managed host when the
-  // branding config's instancePolicyFilename is set and the referenced file
-  // exists — and inversely, skip non-root hosts, and issue a rm -f push
-  // when the resolver returns null.
+  // instance file (<DATA_DIR>/instance-file/CLAUDE.md) has been saved — and
+  // inversely, skip non-root hosts, and issue a rm -f push when the resolver
+  // returns null.
   //
   // MOCKED SURFACE:
-  //   - readInstancePolicyBytes → per-scenario override at the top of each it()
+  //   - readInstanceFileBytes → per-scenario override at the top of each it()
   //   - listSubstrateHosts → one host with a per-scenario `username` at
   //     _connDetails.username so the composer's D-13 root-user gate branches
   //   - acquireChannel → makeSuccessChannel() (or a per-scenario variant
@@ -1195,7 +1197,7 @@ describe("Phase 75 — server-substrate integration", () => {
      */
     it("T-11a: happy path — twinkie set + root host → base64 write captured for /etc/claude-code/CLAUDE.md", async () => {
       const twinkieBytes = Buffer.from("# twinkie\n\ntest content");
-      vi.mocked(readInstancePolicyBytes).mockResolvedValue(twinkieBytes);
+      vi.mocked(readInstanceFileBytes).mockResolvedValue(twinkieBytes);
 
       const rows = makeTwinkieRows("root");
       const stubDb = makeDb(rows);
@@ -1221,7 +1223,7 @@ describe("Phase 75 — server-substrate integration", () => {
       await Promise.resolve();
 
       // Resolver called exactly ONCE per tick (Pitfall 6 / D-15).
-      expect(vi.mocked(readInstancePolicyBytes)).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(readInstanceFileBytes)).toHaveBeenCalledTimes(1);
 
       // Collect all commands emitted through the channel.exec mock across
       // whichever channel was returned by acquireChannel this sweep.
@@ -1267,7 +1269,7 @@ describe("Phase 75 — server-substrate integration", () => {
      */
     it("T-11b: non-root host with NOPASSWD sudo → write attempted via `sudo -n`, no skip log", async () => {
       const twinkieBytes = Buffer.from("# twinkie\n\ntest content");
-      vi.mocked(readInstancePolicyBytes).mockResolvedValue(twinkieBytes);
+      vi.mocked(readInstanceFileBytes).mockResolvedValue(twinkieBytes);
 
       const rows = makeTwinkieRows("ubuntu");
       const stubDb = makeDb(rows);
@@ -1333,7 +1335,7 @@ describe("Phase 75 — server-substrate integration", () => {
      * entirely — nothing to clean up because nothing was ever pushed).
      */
     it("T-11c: removal — resolver returns null → rm -f emitted on root-SSH host, NO removal on non-root host, NO base64 write", async () => {
-      vi.mocked(readInstancePolicyBytes).mockResolvedValue(null);
+      vi.mocked(readInstanceFileBytes).mockResolvedValue(null);
 
       // Two hosts: one root-SSH (receives rm -f), one ubuntu-SSH (gated out).
       const rows: MockRow[] = [

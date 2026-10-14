@@ -24,6 +24,7 @@ function makeMockOrch(): ServerSubstrateOrchestrator {
     sweepOneHost: async () => {},
     getSweepTickCount: () => 0,
     getHostSweepStatus: () => null,
+    resweepAll: async () => {},
   };
 }
 

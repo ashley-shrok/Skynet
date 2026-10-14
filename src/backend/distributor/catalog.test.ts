@@ -52,7 +52,7 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // on-wake launcher that spawns the four ambient watchers under one Monitor
     // instead of four (mega-monitor phase).
     // instance-policy-claude-md is a runtime-sourced Phase 114 twinkie row —
-    // bytes come from readInstancePolicyBytes() at sweep time, not from
+    // bytes come from readInstanceFileBytes() at sweep time, not from
     // /app/fleet-substrate/ — AND the first system-root-installed row
     // (writes to /etc/claude-code/CLAUDE.md as root:root 0644, gated on
     // hosts.username === "root" per Plan 05 D-13).

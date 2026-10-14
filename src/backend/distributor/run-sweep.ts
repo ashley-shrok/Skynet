@@ -58,7 +58,7 @@ export interface SweepDeps {
    * `sourceKind: "runtime"` catalog entries. The orchestrator resolves this
    * map ONCE per sweep tick (both startup pass and the 30s retry tick), then
    * fans the same map to every runSweepForHost invocation in that tick — so
-   * `readInstancePolicyBytes()` fires once per tick regardless of host count.
+   * `readInstanceFileBytes()` fires once per tick regardless of host count.
    *
    * The composer looks up bytes via `deps.resolvedRuntimeBytes?.get(entry.resolverKey)`:
    *   - Buffer value → use bytes as the bundled source (mode 0o644 per D-18)

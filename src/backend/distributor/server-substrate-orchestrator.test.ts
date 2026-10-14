@@ -14,6 +14,7 @@
  *   NT1-NT2 — never-throw contract
  *   L1-L3 — lifecycle (stop(), post-stop no-ops)
  *   O1     — observability (getSweepTickCount)
+ *   RA1-RA2 — resweepAll (instance-file save re-sweeps hosts already swept)
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { SshChannel } from "../fleet-status/ssh-poll-orchestrator.js";
@@ -50,18 +51,18 @@ vi.mock("./bundled-reader.js", () => ({
   bundledReaderFromDisk: vi.fn(async () => ({ bytes: Buffer.from(""), mode: 0o644 })),
 }));
 
-// Phase 114 Plan 05 Task 2: mock the branding-config loader's runtime-bytes
-// reader so the orchestrator's per-tick resolver call is observable (call
-// count, per-tick invariant, return-value → Map propagation to runSweepForHost).
-vi.mock("../branding/branding-config-loader.js", () => ({
-  readInstancePolicyBytes: vi.fn(async () => null),
+// Mock the instance-file store's runtime-bytes reader so the orchestrator's
+// per-tick resolver call is observable (call count, per-tick invariant,
+// return-value → Map propagation to runSweepForHost).
+vi.mock("../instance-file/store.js", () => ({
+  readInstanceFileBytes: vi.fn(async () => null),
 }));
 
 import { createServerSubstrateOrchestrator } from "./server-substrate-orchestrator.js";
 import type { SubstrateHostRecord } from "./list-substrate-hosts.js";
 import { runSweepForHost } from "./run-sweep.js";
 import { logSweepHookError, logPersistentFailure } from "./log-tags.js";
-import { readInstancePolicyBytes } from "../branding/branding-config-loader.js";
+import { readInstanceFileBytes } from "../instance-file/store.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -645,7 +646,7 @@ describe("Observability", () => {
 // ---------------------------------------------------------------------------
 
 describe("Phase 114 — runtime bytes resolver (once per tick, fan-to-hosts)", () => {
-  it("P114-Orch-1: readInstancePolicyBytes is called exactly ONCE at start() regardless of host count (Pitfall 6)", async () => {
+  it("P114-Orch-1: readInstanceFileBytes is called exactly ONCE at start() regardless of host count (Pitfall 6)", async () => {
     const hosts = [
       { id: "h1", name: "host-1" },
       { id: "h2", name: "host-2" },
@@ -659,7 +660,7 @@ describe("Phase 114 — runtime bytes resolver (once per tick, fan-to-hosts)", (
       itemsChanged: 0,
       itemsFailed: 0,
     });
-    vi.mocked(readInstancePolicyBytes).mockResolvedValue(Buffer.from("hi from twinkie"));
+    vi.mocked(readInstanceFileBytes).mockResolvedValue(Buffer.from("hi from twinkie"));
 
     const orch = createServerSubstrateOrchestrator(deps);
     await orch.start();
@@ -667,12 +668,12 @@ describe("Phase 114 — runtime bytes resolver (once per tick, fan-to-hosts)", (
     await Promise.resolve();
 
     // Startup pass resolved runtime bytes ONCE, not N times (host count = 3).
-    expect(vi.mocked(readInstancePolicyBytes)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(readInstanceFileBytes)).toHaveBeenCalledTimes(1);
     // But runSweepForHost was called for each host (3 times).
     expect(vi.mocked(runSweepForHost)).toHaveBeenCalledTimes(3);
   });
 
-  it("P114-Orch-2: readInstancePolicyBytes is called ONCE per retry tick (not once per host per tick)", async () => {
+  it("P114-Orch-2: readInstanceFileBytes is called ONCE per retry tick (not once per host per tick)", async () => {
     const hosts = [
       { id: "h1", name: "host-1" },
       { id: "h2", name: "host-2" },
@@ -685,24 +686,24 @@ describe("Phase 114 — runtime bytes resolver (once per tick, fan-to-hosts)", (
       itemsChanged: 0,
       itemsFailed: 1,
     });
-    vi.mocked(readInstancePolicyBytes).mockResolvedValue(null);
+    vi.mocked(readInstanceFileBytes).mockResolvedValue(null);
 
     const orch = createServerSubstrateOrchestrator(deps);
     await orch.start(); // tick 1 (startup)
     await Promise.resolve();
     // 1 call after startup
-    expect(vi.mocked(readInstancePolicyBytes)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(readInstanceFileBytes)).toHaveBeenCalledTimes(1);
 
     await fireTick(); // tick 2 (first retry)
     await Promise.resolve();
     await Promise.resolve();
     // 2 calls after 1 retry (not 3 — retry did NOT fire per-host)
-    expect(vi.mocked(readInstancePolicyBytes)).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(readInstanceFileBytes)).toHaveBeenCalledTimes(2);
 
     await fireTick(); // tick 3 (second retry)
     await Promise.resolve();
     await Promise.resolve();
-    expect(vi.mocked(readInstancePolicyBytes)).toHaveBeenCalledTimes(3);
+    expect(vi.mocked(readInstanceFileBytes)).toHaveBeenCalledTimes(3);
   });
 
   it("P114-Orch-3: resolvedRuntimeBytes Map is passed to every runSweepForHost invocation with the twinkie key populated", async () => {
@@ -710,7 +711,7 @@ describe("Phase 114 — runtime bytes resolver (once per tick, fan-to-hosts)", (
     const { deps } = makeDeps({ hosts });
 
     const twinkieBytes = Buffer.from("# managed policy\n");
-    vi.mocked(readInstancePolicyBytes).mockResolvedValue(twinkieBytes);
+    vi.mocked(readInstanceFileBytes).mockResolvedValue(twinkieBytes);
     vi.mocked(runSweepForHost).mockResolvedValue({
       itemsChecked: 25,
       itemsChanged: 0,
@@ -792,12 +793,12 @@ describe("Phase 114 — runtime bytes resolver (once per tick, fan-to-hosts)", (
     expect(receivedHost.username).toBe("unknown");
   });
 
-  it("P114-Orch-7: readInstancePolicyBytes rejection is swallowed — orchestrator continues with null map value (never-throw)", async () => {
+  it("P114-Orch-7: readInstanceFileBytes rejection is swallowed — orchestrator continues with null map value (never-throw)", async () => {
     const hosts = [{ id: "h1", name: "host-1" }];
     const { deps } = makeDeps({ hosts });
 
     // Resolver throws — orchestrator must NOT propagate. Instead treat as null.
-    vi.mocked(readInstancePolicyBytes).mockRejectedValue(new Error("resolver went boom"));
+    vi.mocked(readInstanceFileBytes).mockRejectedValue(new Error("resolver went boom"));
     vi.mocked(runSweepForHost).mockResolvedValue({
       itemsChecked: 25,
       itemsChanged: 0,
@@ -863,5 +864,123 @@ describe("getHostSweepStatus (admin Hosts overview)", () => {
     await orch.start();
     expect(orch.getHostSweepStatus("h1")!.lastError).toBe("couldn't connect over SSH");
     orch.stop();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resweepAll — instance-file save re-sweeps every host with fresh runtime bytes
+// ---------------------------------------------------------------------------
+
+async function flushMicrotasks(): Promise<void> {
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+}
+
+describe("resweepAll (instance-file saved)", () => {
+  beforeEach(() => {
+    vi.mocked(runSweepForHost).mockReset();
+    vi.mocked(readInstanceFileBytes).mockReset();
+  });
+
+  it("RA1: re-sweeps hosts that already swept clean, with freshly re-resolved runtime bytes", async () => {
+    const hosts = [
+      { id: "h1", name: "host-1" },
+      { id: "h2", name: "host-2" },
+    ];
+    const { deps, fireTick } = makeDeps({ hosts });
+    const oldBytes = Buffer.from("# old instance file\n");
+    const newBytes = Buffer.from("# new instance file\n");
+    vi.mocked(readInstanceFileBytes).mockResolvedValue(oldBytes);
+    vi.mocked(runSweepForHost).mockResolvedValue({
+      itemsChecked: 25,
+      itemsChanged: 0,
+      itemsFailed: 0,
+    });
+
+    const orch = createServerSubstrateOrchestrator(deps);
+    await orch.start();
+    expect(vi.mocked(runSweepForHost)).toHaveBeenCalledTimes(2);
+
+    // Both hosts swept clean → the retry tick leaves them alone.
+    await fireTick();
+    await flushMicrotasks();
+    expect(vi.mocked(runSweepForHost)).toHaveBeenCalledTimes(2);
+
+    vi.mocked(readInstanceFileBytes).mockResolvedValue(newBytes);
+    await orch.resweepAll("instance-file-saved");
+    await flushMicrotasks();
+
+    const calls = vi.mocked(runSweepForHost).mock.calls;
+    expect(calls).toHaveLength(4);
+    expect(calls.slice(2).map((c) => c[1].id).sort()).toEqual(["h1", "h2"]);
+    for (const c of calls.slice(2)) {
+      expect(c[3].resolvedRuntimeBytes?.get("instance-policy")).toEqual(newBytes);
+    }
+
+    // The resweep's clean results mark hosts done again — next tick is a no-op.
+    await fireTick();
+    await flushMicrotasks();
+    expect(vi.mocked(runSweepForHost)).toHaveBeenCalledTimes(4);
+  });
+
+  it("RA2: a sweep in flight when resweepAll runs is NOT marked done — the next retry tick re-sweeps it with the fresh bytes", async () => {
+    const hosts = [{ id: "h1", name: "host-1" }];
+    const { deps, fireTick } = makeDeps({ hosts });
+    const oldBytes = Buffer.from("# old\n");
+    const newBytes = Buffer.from("# new\n");
+    vi.mocked(readInstanceFileBytes).mockResolvedValue(oldBytes);
+
+    // Startup sweep fails so the host stays eligible for the retry tick.
+    vi.mocked(runSweepForHost).mockResolvedValueOnce({
+      itemsChecked: 25,
+      itemsChanged: 0,
+      itemsFailed: 1,
+    });
+    const orch = createServerSubstrateOrchestrator(deps);
+    await orch.start();
+    expect(vi.mocked(runSweepForHost)).toHaveBeenCalledTimes(1);
+
+    // Retry tick starts a sweep (with the old bytes) that we hold open.
+    let release!: () => void;
+    vi.mocked(runSweepForHost).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve({ itemsChecked: 25, itemsChanged: 0, itemsFailed: 0 });
+        }),
+    );
+    await fireTick();
+    await flushMicrotasks();
+    expect(vi.mocked(runSweepForHost)).toHaveBeenCalledTimes(2);
+    expect(
+      vi.mocked(runSweepForHost).mock.calls[1][3].resolvedRuntimeBytes?.get("instance-policy"),
+    ).toEqual(oldBytes);
+
+    // Instance file saved mid-sweep: the in-flight host is skipped, not doubled.
+    vi.mocked(readInstanceFileBytes).mockResolvedValue(newBytes);
+    await orch.resweepAll("instance-file-saved");
+    await flushMicrotasks();
+    expect(vi.mocked(runSweepForHost)).toHaveBeenCalledTimes(2);
+
+    // The stale sweep finishes clean — but it ran with old bytes, so the host
+    // must not be marked done.
+    vi.mocked(runSweepForHost).mockResolvedValue({
+      itemsChecked: 25,
+      itemsChanged: 0,
+      itemsFailed: 0,
+    });
+    release();
+    await flushMicrotasks();
+    expect(orch.getHostSweepStatus("h1")).toMatchObject({ lastError: null, inFlight: false });
+
+    await fireTick();
+    await flushMicrotasks();
+    expect(vi.mocked(runSweepForHost)).toHaveBeenCalledTimes(3);
+    expect(
+      vi.mocked(runSweepForHost).mock.calls[2][3].resolvedRuntimeBytes?.get("instance-policy"),
+    ).toEqual(newBytes);
+
+    // That sweep ran under the current generation → host done; further ticks skip it.
+    await fireTick();
+    await flushMicrotasks();
+    expect(vi.mocked(runSweepForHost)).toHaveBeenCalledTimes(3);
   });
 });
