@@ -214,6 +214,31 @@ describe("AppTile — D-10 title-only + D-11 unhealthy two-line", () => {
     );
     expect(document.querySelector(".pv-app-unhealthy-message")).toBeNull();
   });
+
+  it("unhealthy tile gets the --unhealthy class and a tooltip pointing at an agent", () => {
+    render(
+      <AppTile
+        app={makeApp({ isHealthy: false, healthMessage: "unit stopped" })}
+      />,
+    );
+    const tile = screen.getByTestId("pv-app-tile");
+    expect(tile.classList.contains("pv-app-tile--unhealthy")).toBe(true);
+    expect(tile.getAttribute("title")).toBe("unit stopped — Ask an agent to check on it.");
+  });
+
+  it("unhealthy tile with no message still gets a tooltip", () => {
+    render(<AppTile app={makeApp({ isHealthy: false, healthMessage: null })} />);
+    expect(screen.getByTestId("pv-app-tile").getAttribute("title")).toBe(
+      "This app isn't working. Ask an agent to check on it.",
+    );
+  });
+
+  it("healthy tile has no --unhealthy class and no tooltip", () => {
+    render(<AppTile app={makeApp({ isHealthy: true, healthMessage: null })} />);
+    const tile = screen.getByTestId("pv-app-tile");
+    expect(tile.classList.contains("pv-app-tile--unhealthy")).toBe(false);
+    expect(tile.hasAttribute("title")).toBe(false);
+  });
 });
 
 describe("AppTile — kebab menu: Open in new tab + Open standalone", () => {

@@ -674,8 +674,15 @@ not something agents drive.
 ### Sidebar content (top to bottom)
 
 - **Apps section (top).** Apps the user has built with you or a peer
-  agent live here. Click opens the app inside the client. Each app tile
-  carries a **kebab menu** with:
+  agent live here, shown as a grid of app icons with the name under each,
+  like a phone's home screen; the number of columns grows as the sidebar
+  widens. Click opens the app inside the client; drag an icon into the
+  content area to open it in a pane. An app that isn't working shows a
+  greyed-out icon and a red ⚠ before its name; hovering it shows what's
+  wrong and suggests asking an agent to check on it — if the user asks you
+  about a broken app, start from the `app-development` skill.
+  Each app's **menu** opens on right-click (desktop) or from the ⋮ on the
+  icon's corner (mobile), with:
   - **Open in new tab** — the app alone in a new Skynet tab
     (desktop only; panes already showing it stay put).
   - **Open standalone** — the app by itself in a browser tab, no Skynet

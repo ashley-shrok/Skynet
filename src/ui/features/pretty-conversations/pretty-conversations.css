@@ -1665,116 +1665,67 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   PHASE 117 — .pv-apps-section (sidebar Apps surface, shape 3)
+   Sidebar Apps section — phone-home-screen icon grid (AppTile.tsx)
    ═══════════════════════════════════════════════════════════════════════════
 
-   Selectors below back the AppTile component (src/ui/features/pretty-
-   conversations/AppTile.tsx). They deliberately inherit the .pv-row +
-   .pv-avatar glass treatment already defined above so app tiles read as
-   first-class residents of the sidebar bubble family. Two disciplined
-   deviations:
+   Apps render as a grid of rounded-square icons with the name underneath,
+   deliberately unlike the conversation rows so the two kinds of thing read
+   differently. Columns auto-fill, so a wider sidebar gets more of them.
 
-     - .pv-app-tile INHERITS `cursor: pointer` from .pv-row's default (line
-       345). Phase 119 shipped an override to `cursor: default` while shape
-       4's primary-click affordance was reserved (D-13); Phase 120 D-06
-       reverted the override — left-click now opens the app in a pane.
-     - .pv-app-icon-slot changes ONLY border-radius (10px rounded-square,
-       iOS-app-icon target per D-10 Claude discretion) vs .pv-avatar's 999px
-       round disc. All other tokens (40x40, gradient, border, shadow stack,
-       letter typography) are inherited verbatim by cascading the
-       .pv-app-icon-slot selector alongside .pv-avatar in most rules OR
-       by re-declaring the same tokens locally so the class stands alone
-       when read.
+   Hue: .pv-app-tile sets --pv-hue: 216 itself. Custom properties inherit
+   from ancestors only and the tile is a sibling of .pv-row, so without it
+   the tile would fall back to .dark { --pv-hue: 190 } from ui/index.css.
 
-   Hue discipline (D-09 + code-review HIGH-2 fix pass 2026-09-18): tiles
-   explicitly set --pv-hue: 216 on .pv-app-tile (see rule below). Custom
-   properties inherit from ANCESTORS only — .pv-app-tile is a SIBLING to
-   .pv-row (both live inside the panel scroll), not a descendant, so the
-   .pv-row rule's --pv-hue: 216 does NOT cascade here. Without an explicit
-   declaration, .pv-app-tile would inherit .dark { --pv-hue: 190 } from
-   ui/index.css:196 — the app-wide teal accent, NOT the sidebar row's
-   blue-grey 216 the shape requires. NO per-app override (D-09 still holds
-   at the per-tile-instance level: every tile gets the same 216). NO
-   selected-state override on the app tile (Phase 120 does not track which
-   app is "current" — every left-click creates or replaces a leaf; multi-
-   instance is the default via D-15).
+   Letter typography for the iconless fallback lives on .pv-app-icon-slot;
+   the child .pv-app-icon-initial has no rule of its own.
 
-   Letter typography for the iconless fallback lives on the PARENT
-   .pv-app-icon-slot (mirrors Pitfall 3 from RESEARCH.md — .pv-avatar-initial
-   in the identity row has NO CSS rule of its own; the letter inherits from
-   .pv-avatar). The child .pv-app-icon-initial has NO standalone rule.
-
-   D-11 muted-red healthMessage token: #f4a09b (from the tasting-round
-   selection). Open Question 4 (RESEARCH.md) invites a future semantic-error
-   palette-token pass — no such token exists in the pv- palette today, so
-   the raw hex ships in v1.
+   Unhealthy (.pv-app-tile--unhealthy): greyed icon + ⚠ and muted-red name.
+   The health message line is hidden; the tile's title tooltip carries it.
+   No badge-style dot — that would read as a notification.
    ═══════════════════════════════════════════════════════════════════════════ */
 
+.pv-apps-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  gap: 10px 4px;
+  padding: 6px 8px 10px;
+}
+.pv-apps-grid > .pv-apps-empty {
+  grid-column: 1 / -1;
+}
+
 .pv-app-tile {
-  /* Code-review HIGH-2 (fix pass 2026-09-18): explicit --pv-hue: 216
-     declaration. .pv-app-tile is a SIBLING to .pv-row (both live inside the
-     panel scroll), not a descendant, so it cannot inherit .pv-row's hue.
-     Absent this declaration, the tile falls back to .dark { --pv-hue: 190 }
-     in ui/index.css:196 — the app-wide teal accent, which visibly violates
-     D-09's "same hue as an identity-row fallback" requirement. Every hsla()
-     reference below (background, border, box-shadow, hover) resolves off
-     this one declaration. */
   --pv-hue: 216;
+  --pv-app-icon: 48px;
   position: relative;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
+  justify-content: flex-start;
+  gap: 6px;
+  padding: 6px 2px;
   color: #fbf5e8;
-  /* D-06 (Phase 120): revert Phase 119's cursor: default override. Left-click
-     now opens the app in a pane per D-06 — cursor communicates the interactive
-     affordance. Right-click / long-press context menu still fires; drag source
-     wired via draggable={true} on the tile element. */
   cursor: pointer;
   -webkit-touch-callout: none;
   user-select: none;
   -webkit-user-select: none;
-  border-radius: var(--radius-pv-bubble);
-  overflow: hidden;
-  background: linear-gradient(160deg,
-    hsla(var(--pv-hue), 50%, 38%, 0.55),
-    hsla(var(--pv-hue), 45%, 24%, 0.60));
-  border: 1px solid hsla(var(--pv-hue), 65%, 55%, 0.32);
-  box-shadow:
-    0 8px 24px rgba(0, 0, 0, 0.5),
-    inset 0 1px 0 rgba(255, 220, 170, 0.18),
-    0 0 0 0.5px hsla(var(--pv-hue), 70%, 55%, 0.20),
-    0 0 32px hsla(var(--pv-hue), 70%, 52%, 0.18);
-  backdrop-filter: blur(20px) saturate(1.5);
-  -webkit-backdrop-filter: blur(20px) saturate(1.5);
-  transition:
-    transform 140ms ease,
-    box-shadow 140ms ease,
-    border-color 140ms ease;
+  border-radius: 12px;
+  transition: background 140ms ease;
 }
-
 .pv-app-tile:hover {
-  transform: translateY(-1px);
-  box-shadow:
-    0 12px 28px rgba(0, 0, 0, 0.55),
-    inset 0 1px 0 rgba(255, 220, 170, 0.22),
-    0 0 0 0.5px hsla(var(--pv-hue), 70%, 55%, 0.28),
-    0 0 40px hsla(var(--pv-hue), 70%, 52%, 0.26);
-  border-color: hsla(var(--pv-hue), 65%, 55%, 0.42);
+  background: hsla(var(--pv-hue), 40%, 40%, 0.14);
+}
+.pv-app-tile.pv-app-tile--mobile {
+  --pv-app-icon: 56px;
 }
 
-/* D-10: rounded-square icon slot, 40x40, .pv-avatar treatment except
-   border-radius: 10px (Claude discretion, iOS-app-icon target). Letter
-   typography lives on THIS parent so `<span className="pv-app-icon-initial">L</span>`
-   inherits color / font-size / font-weight / letter-spacing without needing
-   its own rule (Pitfall 3 mitigation — no phantom class). */
 .pv-app-icon-slot {
   position: relative;
   overflow: visible;
   z-index: 1;
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
+  width: var(--pv-app-icon);
+  height: var(--pv-app-icon);
+  border-radius: calc(var(--pv-app-icon) * 0.225);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1783,16 +1734,21 @@
     hsla(var(--pv-hue), 40%, 15%, 0.82));
   border: 1px solid hsla(var(--pv-hue), 65%, 55%, 0.40);
   box-shadow:
-    0 4px 12px rgba(0, 0, 0, 0.6),
-    inset 0 2px 0 rgba(255, 235, 190, 0.35),
-    0 0 24px hsla(var(--pv-hue), 65%, 55%, 0.40);
+    0 4px 12px rgba(0, 0, 0, 0.55),
+    inset 0 2px 0 rgba(255, 235, 190, 0.30);
   color: #fbf5e8;
-  font-size: 15px;
+  font-size: calc(var(--pv-app-icon) * 0.42);
   font-weight: 700;
   letter-spacing: -0.01em;
   flex-shrink: 0;
+  transition: transform 140ms ease;
 }
-
+.pv-app-tile:hover .pv-app-icon-slot {
+  transform: translateY(-2px) scale(1.04);
+}
+.pv-app-tile:active .pv-app-icon-slot {
+  transform: scale(0.94);
+}
 .pv-app-icon-img {
   width: 100%;
   height: 100%;
@@ -1800,115 +1756,60 @@
   border-radius: inherit;
 }
 
-/* D-10 title-only body: vertical flex column. Second line (unhealthy
-   healthMessage) grows only when the D-11 branch fires. */
 .pv-app-body {
-  flex: 1 1 auto;
+  flex: none;
+  width: 100%;
   display: flex;
   flex-direction: column;
+  align-items: center;
   min-width: 0;
-  gap: 2px;
 }
-
 .pv-app-title {
   color: #fbf5e8;
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1.2;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-/* D-11 unhealthy variant: two-line tile, muted-red italic healthMessage
-   below the title. Only rendered when `!isHealthy && healthMessage != null`.
-   Colour #f4a09b is the tasting-round pick; no semantic-error token exists
-   in the pv- palette today (grep of --color-pv-* returned only
-   --color-pv-border-quiet). Open Question 4 (RESEARCH.md) invites a future
-   palette-token pass to swap this raw hex for a named token. */
-.pv-app-unhealthy-message {
-  color: #f4a09b;
-  font-style: italic;
   font-size: 11.5px;
+  font-weight: 500;
   line-height: 1.2;
+  text-align: center;
+  white-space: normal;
   overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   Density variants — mirror the `.pv-row--mobile` / `.pv-row.pv-row--desktop`
-   treatments so app tiles read as first-class residents of the sidebar row
-   family at every density. 2026-09-20: base `.pv-app-tile` (glass
-   bubble) looked "giant" next to compact desktop rows; the desktop variant
-   below strips the glass to match the bare row treatment. Icon-slot stays
-   rounded-SQUARE (10px on mobile, 6px on desktop — iOS-app-icon target
-   preserved at every size) so tiles remain distinguishable from the round
-   identity avatars.
-   ═══════════════════════════════════════════════════════════════════════════ */
-
-.pv-app-tile.pv-app-tile--mobile {
-  min-height: 4.5em;
-  padding: 0.75em 1em;
-  gap: 0.75em;
-}
-
-.pv-app-tile--mobile .pv-app-icon-slot {
-  width: 3em;
-  height: 3em;
-  font-size: 1.125em;
-}
-
 .pv-app-tile--mobile .pv-app-title {
-  font-size: 0.97em;
-}
-
-.pv-app-tile--mobile .pv-app-unhealthy-message {
-  font-size: 0.78em;
-}
-
-/* Bare desktop tile — strip the glass base (mirrors `.pv-row.pv-row--desktop`
-   at line ~790). Two-class selector `.pv-app-tile.pv-app-tile--desktop` (0,2,0)
-   reliably overrides the base `.pv-app-tile` (0,1,0). */
-.pv-app-tile.pv-app-tile--desktop {
-  min-height: 30px;
-  padding: 3px 8px;
-  gap: 10px;
-  background: transparent;
-  border-color: transparent;
-  box-shadow: none;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-  border-radius: 6px;
-}
-
-.pv-app-tile.pv-app-tile--desktop:hover {
-  transform: none;
-  background: hsla(var(--pv-hue), 40%, 40%, 0.14);
-  border-color: transparent;
-  box-shadow: none;
-}
-
-/* Icon slot on desktop — 22px to match the desktop avatar disc, but keep
-   rounded-SQUARE (6px) so it still reads as an app icon vs a round identity
-   badge. Drop the glow (box-shadow: none); keep a thin border for edge
-   definition, same discipline as `.pv-row--desktop .pv-avatar`. */
-.pv-app-tile--desktop .pv-app-icon-slot {
-  width: 22px;
-  height: 22px;
-  font-size: 10px;
-  border-radius: 6px;
-  box-shadow: none;
-  border: 1px solid hsla(var(--pv-hue), 55%, 55%, 0.35);
-}
-
-.pv-app-tile--desktop .pv-app-title {
   font-size: 12.5px;
-  line-height: 1.15;
 }
 
-.pv-app-tile--desktop .pv-app-unhealthy-message {
-  font-size: 11px;
+/* Kept in the DOM for assistive tech; the tile's title tooltip shows it. */
+.pv-app-unhealthy-message {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.pv-app-tile--unhealthy .pv-app-icon-slot {
+  filter: grayscale(1) brightness(0.6);
+  opacity: 0.55;
+}
+.pv-app-tile--unhealthy .pv-app-title {
+  color: #f4a09b;
+}
+.pv-app-tile--unhealthy .pv-app-title::before {
+  content: "⚠ ";
+}
+
+/* Desktop: right-click is the menu, so the ⋮ stays hidden unless keyboard
+   focus is inside the tile. Mobile has no right-click — ⋮ always shows. */
+.pv-app-tile--desktop .pv-app-tile-kebab-slot {
+  opacity: 0;
+  pointer-events: none;
+}
+.pv-app-tile--desktop:focus-within .pv-app-tile-kebab-slot {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 /* ─── Search modal — result-row rules ────────────────────────────────────

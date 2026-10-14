@@ -3018,7 +3018,7 @@ export function PrettyConversationsPanel({
             />
           </div>
           {(appsExpanded || sidebarSearchActive) && (
-            <div id="pv-apps-section-content">
+            <div id="pv-apps-section-content" className="pv-apps-grid">
               {searchedAppTiles.length === 0 ? (
                 <div className="pv-apps-empty px-4 py-2 text-center text-[13px] italic text-[#5c6070]/85">
                   Ask an agent to make an app for you.

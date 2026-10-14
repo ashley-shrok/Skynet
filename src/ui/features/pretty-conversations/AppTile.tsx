@@ -55,24 +55,13 @@ import { RowKebabMenu, useRowKebabContextMenu, type RowKebabMenuItem } from "./R
 //     Archive): built by
 //     buildAppMenuItems (app-menu-items.ts), shared with the AppPane bar.
 //
-// Visual shape (D-10 + D-11):
-//   - .pv-app-tile: .pv-row glass bubble treatment (padded rectangle,
-//     gradient, hover lift, drop shadow) inherited from CSS; the only
-//     overrides vs .pv-row are `cursor: default` (D-13) and the absence of
-//     a `.selected` variant (D-13 — no primary-click affordance to reflect).
-//   - .pv-app-icon-slot: rounded-square (10px border-radius per D-10 Claude
-//     discretion, iOS-app-icon target) at .pv-avatar's 40×40 dimensions
-//     with the same gradient / border / shadow / letter typography.
-//   - Icon slot children (branching on `hasIcon` + `imgFailed` state flip
-//     per RESEARCH.md recommendation): either an <img src={iconUrl}
-//     onError={...}> or a `<span className="pv-app-icon-initial">L</span>`
-//     first-letter monogram (D-08). The letter inherits typography from
-//     the parent .pv-app-icon-slot — the .pv-app-icon-initial class has
-//     NO standalone CSS rule (mirrors the identity-row .pv-avatar-initial
-//     discipline; Pitfall 3 mitigation).
-//   - .pv-app-body: vertical flex column, title above optional
-//     healthMessage. Single-line title (D-10, no `.pv-body` secondary
-//     line). Two-line only when !isHealthy && healthMessage != null (D-11).
+// Visual shape: one cell of the sidebar's phone-style icon grid
+// (.pv-apps-grid in pretty-conversations.css) — rounded-square icon with the
+// name centered underneath. Icon slot is either an <img src={iconUrl}
+// onError={...}> or a first-letter monogram (.pv-app-icon-initial, which has
+// no rule of its own — it inherits from .pv-app-icon-slot). Unhealthy tiles
+// get .pv-app-tile--unhealthy (greyed icon, ⚠ name); the health message stays
+// in the DOM but is visually hidden, surfaced via the tile's title tooltip.
 //
 // Hue discipline (D-09 + code-review HIGH-2 fix pass 2026-09-18):
 //   The tile does NOT emit an INLINE per-tile hue style from React (the
@@ -122,6 +111,14 @@ export interface AppTileProps {
   // conversation rows. Optional + defaults to "desktop" so unit tests and
   // preview surfaces can render without wiring the panel's variant plumbing.
   variant?: "mobile" | "desktop";
+}
+
+const UNHEALTHY_HINT = "Ask an agent to check on it.";
+
+function unhealthyTooltip(healthMessage: string | null): string {
+  return healthMessage != null
+    ? `${healthMessage} — ${UNHEALTHY_HINT}`
+    : `This app isn't working. ${UNHEALTHY_HINT}`;
 }
 
 export function AppTile({ app, onOpenApp, onArchive, variant = "desktop" }: AppTileProps): React.ReactElement {
@@ -213,9 +210,12 @@ export function AppTile({ app, onOpenApp, onArchive, variant = "desktop" }: AppT
 
   return (
     <div
-      className={`group pv-app-tile ${variantClass} relative`}
+      className={`group pv-app-tile ${variantClass} relative${app.isHealthy ? "" : " pv-app-tile--unhealthy"}`}
       role="button"
       aria-label={`App tile: ${app.title}`}
+      // The grid hides the health line visually; hover surfaces it instead,
+      // with the fix the user can act on.
+      title={app.isHealthy ? undefined : unhealthyTooltip(app.healthMessage)}
       draggable={true}
       onDragStart={onTileDragStart}
       onClick={onTileClick}
@@ -243,12 +243,13 @@ export function AppTile({ app, onOpenApp, onArchive, variant = "desktop" }: AppT
         )}
       </div>
       {/* shape-sidebar-header-affordances: tile kebab. Absolute-positioned top-
-          right. Hover-reveal on desktop (opacity-0 → md:group-hover:opacity-100
-          + md:group-focus-within for keyboard a11y); always-visible on mobile
-          (opacity-100 at <md). RowKebabMenu's portal-click-containment stops
-          item onClicks from leaking to the tile's onClick (which opens the app). */}
+          right. Desktop hides it (pv-app-tile-kebab-slot in the grid CSS) —
+          right-click is the menu there; still revealed on keyboard focus.
+          Always visible on mobile, which has no right-click. RowKebabMenu's
+          portal-click-containment stops item onClicks from leaking to the
+          tile's onClick (which opens the app). */}
       <div
-        className="absolute top-1.5 right-1.5 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity shrink-0 z-[5]"
+        className="pv-app-tile-kebab-slot absolute top-0.5 right-0.5 transition-opacity shrink-0 z-[5]"
         data-testid="pv-app-tile-kebab-slot"
       >
         <RowKebabMenu
