@@ -2719,6 +2719,58 @@ describe("PrettyConversationRow: Move to project menu item (shape-move-to-projec
     ]);
   });
 
+  it("onCreateProject provided → 'New project…' follows the projects (before Remove from project) and fires onCreateProject", async () => {
+    currentIdentity = null;
+    const onCreateProject = vi.fn();
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ targetTmuxSession: "claude-abc" })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        onMoveToProject={vi.fn()}
+        onCreateProject={onCreateProject}
+        projects={[{ slug: "foo", displayName: "Foo" }]}
+        currentProjectSlug="foo"
+      />,
+    );
+    await openRowMoveToSubmenu(container);
+    const order = screen
+      .getAllByTestId(/^pv-row-kebab-item-(move-to-|new-project$|remove-from-project$)/)
+      .map((el) => el.getAttribute("data-testid"));
+    expect(order).toEqual([
+      "pv-row-kebab-item-move-to-pinned",
+      "pv-row-kebab-item-move-to-foo",
+      "pv-row-kebab-item-new-project",
+      "pv-row-kebab-item-remove-from-project",
+    ]);
+    const item = screen.getByTestId("pv-row-kebab-item-new-project");
+    expect(item.textContent?.trim()).toBe("New project…");
+    await userEvent.setup().click(item);
+    expect(onCreateProject).toHaveBeenCalledTimes(1);
+  });
+
+  it("onCreateProject without onMoveToProject (host has no projects yet) → 'New project…' still offered", async () => {
+    currentIdentity = null;
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ targetTmuxSession: "claude-abc" })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        onCreateProject={vi.fn()}
+        projects={[]}
+        currentProjectSlug={null}
+      />,
+    );
+    await openRowMoveToSubmenu(container);
+    expect(screen.getByTestId("pv-row-kebab-item-new-project")).toBeTruthy();
+  });
+
   it("Remove from project appears when currentProjectSlug is non-null", async () => {
     currentIdentity = null;
     const { container } = render(

@@ -89,6 +89,7 @@ function renderModal(
     hosts?: Array<{ id: string; name: string; overrides?: Partial<Host> }>;
     /** Escape hatch: pass a fully-formed HostFolder directly. */
     hostTree?: HostFolder | null;
+    lockedHostId?: number;
   } = {},
 ) {
   const onOpenChange = overrides.onOpenChange ?? vi.fn();
@@ -114,6 +115,7 @@ function renderModal(
       onOpenChange={onOpenChange}
       onCreated={onCreated}
       hostTree={hostTree}
+      lockedHostId={overrides.lockedHostId}
     />,
   );
   return { onOpenChange, onCreated, hostTree, ...result };
@@ -306,6 +308,31 @@ describe("CreateProjectModal", () => {
     // Picking a host enables submission.
     fireEvent.click(screen.getByTestId("create-project-host-option-6"));
     expect(submit).not.toBeDisabled();
+  });
+
+  it("Test 14b (locked host): picker hidden even with ≥2 hosts, and createProject uses the locked host id", async () => {
+    createProjectSpy.mockResolvedValueOnce({
+      ok: true as const,
+      slug: "trip-planning",
+    });
+    const { onCreated } = renderModal({
+      open: true,
+      hosts: [
+        { id: "3", name: "thenasty" },
+        { id: "6", name: "Skynet" },
+      ],
+      lockedHostId: 6,
+    });
+    expect(screen.queryByTestId("create-project-host-listbox")).toBeNull();
+    typeName("Trip Planning");
+    fireEvent.click(screen.getByRole("button", { name: /^create$/i }));
+    await waitFor(() => {
+      expect(createProjectSpy).toHaveBeenCalledWith(6, "Trip Planning");
+    });
+    expect(onCreated).toHaveBeenCalledWith({
+      slug: "trip-planning",
+      displayName: "Trip Planning",
+    });
   });
 
   it("Test 14 (multi host: submit uses picked host): createProject called with the SELECTED host id, not the first one", async () => {

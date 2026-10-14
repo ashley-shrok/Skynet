@@ -207,6 +207,7 @@ export function PrettyConversationRow({
   onArchive,
   onKill,
   onMoveToProject,
+  onCreateProject,
   projects = [],
   currentProjectSlug = null,
   isWorking = null,
@@ -265,6 +266,13 @@ export function PrettyConversationRow({
    * from project") out of the "Move to" submenu.
    */
   onMoveToProject?: (slug: string | null) => void;
+  /**
+   * Fired by the "New project…" leaf in the "Move to" submenu. The panel
+   * opens the create-project modal and moves this row into the new project
+   * once it exists. Provided for every non-RDP row — including hosts with
+   * no projects yet, where it is the submenu's only project entry.
+   */
+  onCreateProject?: () => void;
   /**
    * shape-move-to-project-context-menu (2026-09-23): the project list shown
    * inside the "Move to" submenu, in the same order the sidebar
@@ -598,7 +606,8 @@ export function PrettyConversationRow({
     // checkmark on wherever the row is now, followed by the leaf that takes
     // it out ("Unpin" / "Remove from project"). Pinned is offered when the
     // row is pinnable (onTogglePin); projects when the panel provides
-    // onMoveToProject (non-RDP, this host has projects).
+    // onMoveToProject (non-RDP, this host has projects). "New project…"
+    // follows the projects when the panel provides onCreateProject.
     {
       const submenu: RowKebabSubmenuItem[] = [];
       const canPin = onTogglePin !== undefined && !isRdp;
@@ -624,6 +633,13 @@ export function PrettyConversationRow({
             testId: `pv-row-kebab-item-move-to-${p.slug}`,
           });
         }
+      }
+      if (onCreateProject) {
+        submenu.push({
+          label: "New project…",
+          onClick: onCreateProject,
+          testId: "pv-row-kebab-item-new-project",
+        });
       }
       if (pinned && canPin) {
         submenu.push({

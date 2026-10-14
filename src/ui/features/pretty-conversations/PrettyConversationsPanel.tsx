@@ -495,6 +495,9 @@ function PrettyConversationRowLive(props: {
   // submenu's rendering (list order, checkmark, "Remove from project"
   // visibility).
   onMoveToProject?: (slug: string | null) => void;
+  // "New project…" leaf in the same submenu — opens the create-project
+  // modal and moves the row into the new project once it exists.
+  onCreateProject?: () => void;
   projects?: readonly { slug: string; displayName: string }[];
   currentProjectSlug?: string | null;
   // quick-260802-pq2: onSwipeOpenChange / forceClosed removed — the row's
@@ -1893,6 +1896,10 @@ export function PrettyConversationsPanel({
   //     the panel can answer "is this row currently assigned to a project?"
   //     without a second store subscription. O(N) construction, O(1) lookup.
   const [createProjectModalOpen, setCreateProjectModalOpen] = useState(false);
+  // Row whose "Move to → New project…" opened the create modal; it is moved
+  // into the project once the create lands. Null = that modal is closed.
+  const [createProjectForRow, setCreateProjectForRow] =
+    useState<ConversationRowShape | null>(null);
   const [pendingProjectSlug, setPendingProjectSlug] = useState<string | null>(null);
 
   // Phase 117 Plan 117-09 Task 2 (D-14) — per-section context menu state
@@ -2187,6 +2194,30 @@ export function PrettyConversationsPanel({
     },
     [submenuProjectsForRow, handleRowMoveToProject],
   );
+
+  // "Move to → New project…": offered on every non-RDP row that
+  // handleRowMoveToProject can route (a relay room, or a row with a host),
+  // including hosts with no projects yet.
+  const rowCreateProjectCallback = useCallback(
+    (row: ConversationRowShape): (() => void) | undefined => {
+      if (row.rdpHostRow === true) return undefined;
+      const isRelayRoom = typeof row.roomId === "string" && row.roomId.length > 0;
+      if (!isRelayRoom && !row.host) return undefined;
+      return () => setCreateProjectForRow(row);
+    },
+    [],
+  );
+
+  // Identity projects live on the identity's host, so the modal is pinned
+  // there. Relay rooms carry no host — the modal keeps its host picker.
+  const createProjectLockedHostId = useMemo(() => {
+    const row = createProjectForRow;
+    if (row === null || (typeof row.roomId === "string" && row.roomId.length > 0)) {
+      return undefined;
+    }
+    const n = row.host ? parseInt(row.host.id, 10) : NaN;
+    return Number.isFinite(n) && n > 0 ? n : undefined;
+  }, [createProjectForRow]);
 
   // ─── Identity badges dropped on sidebar sections ──────────────────────────
   // An open conversation's badge files the conversation exactly like its
@@ -3101,6 +3132,7 @@ export function PrettyConversationsPanel({
                         : undefined
                     }
                     onMoveToProject={rowMoveToProjectCallback(row)}
+                    onCreateProject={rowCreateProjectCallback(row)}
                     projects={submenuProjectsForRow(row)}
                     currentProjectSlug={rowIdToProjectSlug.get(row.id) ?? null}
                     inActiveSet={activeSet.has(row.id)}
@@ -3203,6 +3235,7 @@ export function PrettyConversationsPanel({
                                 : undefined
                             }
                             onMoveToProject={rowMoveToProjectCallback(row)}
+                            onCreateProject={rowCreateProjectCallback(row)}
                             projects={submenuProjectsForRow(row)}
                             currentProjectSlug={rowIdToProjectSlug.get(row.id) ?? null}
                             inActiveSet={activeSet.has(row.id)}
@@ -3300,6 +3333,7 @@ export function PrettyConversationsPanel({
                         : undefined
                     }
                     onMoveToProject={rowMoveToProjectCallback(row)}
+                    onCreateProject={rowCreateProjectCallback(row)}
                     projects={submenuProjectsForRow(row)}
                     currentProjectSlug={rowIdToProjectSlug.get(row.id) ?? null}
                     inActiveSet={activeSet.has(row.id)}
@@ -3819,6 +3853,24 @@ export function PrettyConversationsPanel({
           // instead), it's cleared alongside the modal close.
         }}
         hostTree={hostTree ?? null}
+      />
+      {/* "Move to → New project…" from a row's menu: create, then move the
+          row into it. Same routing as picking an existing project. */}
+      <CreateProjectModal
+        open={createProjectForRow !== null}
+        onOpenChange={(o) => {
+          if (!o) setCreateProjectForRow(null);
+        }}
+        onCreated={({ slug }) => {
+          const row = createProjectForRow;
+          if (row === null) return;
+          console.info(
+            `[project-menu] created slug=${slug} from Move-to; moving rowId=${row.id}`,
+          );
+          handleRowMoveToProject(row, slug);
+        }}
+        hostTree={hostTree ?? null}
+        lockedHostId={createProjectLockedHostId}
       />
       {/* 117-08 legacy placeholder marker — kept for tests written against
           117-08's state contract that observe the marker rather than the

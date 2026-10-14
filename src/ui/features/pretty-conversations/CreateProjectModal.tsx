@@ -38,6 +38,12 @@ export interface CreateProjectModalProps {
    * renders an empty listbox and submit stays disabled.
    */
   hostTree: HostFolder | null;
+  /**
+   * Pins the project to this host and hides the picker. Set by the "Move to"
+   * menus' "New project…" item: an identity's project must live on the
+   * identity's own host, so there is nothing to choose.
+   */
+  lockedHostId?: number;
 }
 
 // ─── Local host-tree flatten helper ─────────────────────────────────────────
@@ -91,6 +97,7 @@ export function CreateProjectModal({
   onOpenChange,
   onCreated,
   hostTree,
+  lockedHostId,
 }: CreateProjectModalProps) {
   const [displayName, setDisplayName] = useState<string>("");
   const [inFlight, setInFlight] = useState<boolean>(false);
@@ -137,13 +144,18 @@ export function CreateProjectModal({
     }
   }, [open, flatHosts, selectedHost]);
 
+  const isHostLocked = lockedHostId !== undefined;
   const canSubmit =
-    displayName.trim().length > 0 && !inFlight && selectedHost !== null;
+    displayName.trim().length > 0 &&
+    !inFlight &&
+    (isHostLocked || selectedHost !== null);
 
   const onSubmit = useCallback(async () => {
     const raw = displayName.trim();
-    if (raw === "" || selectedHost === null) return;
-    const hostIdNum = parseInt(String(selectedHost.id), 10);
+    if (raw === "") return;
+    if (lockedHostId === undefined && selectedHost === null) return;
+    const hostIdNum =
+      lockedHostId ?? parseInt(String(selectedHost?.id), 10);
     if (!Number.isFinite(hostIdNum) || hostIdNum <= 0) {
       setError("Selected host has an invalid id — pick a different host.");
       return;
@@ -167,9 +179,9 @@ export function CreateProjectModal({
     } finally {
       setInFlight(false);
     }
-  }, [displayName, selectedHost, onCreated, onOpenChange]);
+  }, [displayName, selectedHost, lockedHostId, onCreated, onOpenChange]);
 
-  const isSingleHost = flatHosts.length === 1;
+  const hidePicker = isHostLocked || flatHosts.length === 1;
 
   return (
     <Modal
@@ -178,7 +190,7 @@ export function CreateProjectModal({
       size="md"
       data-testid="create-project-modal"
       className={cn(
-        isSingleHost ? "max-h-[320px]" : "max-h-[560px]",
+        hidePicker ? "max-h-[320px]" : "max-h-[560px]",
         "flex flex-col",
       )}
     >
@@ -222,7 +234,7 @@ export function CreateProjectModal({
          * effect above ensures selectedHost is populated in that case so
          * submission still works without a visible picker.
          */}
-        {!isSingleHost && (
+        {!hidePicker && (
           <div className="flex flex-col gap-2">
             <label
               htmlFor="create-project-host-search"

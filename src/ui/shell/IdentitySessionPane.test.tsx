@@ -37,6 +37,7 @@ import {
   render,
   screen,
   act,
+  fireEvent,
 } from "@testing-library/react";
 import { createRef, forwardRef } from "react";
 import type { TerminalHandle } from "@/features/terminal/Terminal";
@@ -88,6 +89,14 @@ vi.mock("@/hooks/use-mobile", () => ({
 const mockSetSessionProject = vi.fn().mockResolvedValue({ ok: true });
 vi.mock("@/api/session-project-api", () => ({
   setSessionProject: (...args: unknown[]) => mockSetSessionProject(...args),
+}));
+
+// ── Mock: project-list-api ───────────────────────────────────────────────────
+// The badge menu's "New project…" opens CreateProjectModal, which creates
+// through this module.
+const mockCreateProject = vi.fn().mockResolvedValue({ ok: true, slug: "trip-planning" });
+vi.mock("@/api/project-list-api", () => ({
+  createProject: (...args: unknown[]) => mockCreateProject(...args),
 }));
 
 // ── Mock: conversation-store (partial) ───────────────────────────────────────
@@ -504,7 +513,7 @@ describe("IdentitySessionPane — Phase 41 Plan 02", () => {
       return store;
     }
 
-    it("zero projects on this host → 'Move to' still present, carrying only Pinned (no project entries)", () => {
+    it("zero projects on this host → 'Move to' still present, carrying Pinned + New project… (no project entries)", () => {
       mockProjectsList = [
         // Non-matching host — should NOT surface on host 42's badge.
         { slug: "elsewhere", displayName: "Elsewhere", hostId: "99", hostname: "other", archived: false },
@@ -513,7 +522,7 @@ describe("IdentitySessionPane — Phase 41 Plan 02", () => {
       const items = getMenuItems();
       expect(items.find((it) => it.label === "Move to project")).toBeUndefined();
       const submenu = getMoveToSubmenu();
-      expect(submenu.map((s) => s.label)).toEqual(["Pinned"]);
+      expect(submenu.map((s) => s.label)).toEqual(["Pinned", "New project…"]);
       expect(submenu[0].checked).toBe(false);
     });
 
@@ -537,7 +546,7 @@ describe("IdentitySessionPane — Phase 41 Plan 02", () => {
       render(<IdentitySessionPane {...makeProps()} />);
       const labels = getMoveToSubmenu().map((s) => s.label);
       // Pinned first; no trailing leaf when neither pinned nor in a project.
-      expect(labels).toEqual(["Pinned", "Local A", "Local B"]);
+      expect(labels).toEqual(["Pinned", "Local A", "Local B", "New project…"]);
     });
 
     it("checkmarks the currently-assigned project and appends Remove-from-project leaf", () => {
@@ -566,6 +575,29 @@ describe("IdentitySessionPane — Phase 41 Plan 02", () => {
       render(<IdentitySessionPane {...makeProps()} />);
       const submenu = getMoveToSubmenu();
       expect(submenu.map((s) => s.label)).not.toContain("Remove from project");
+    });
+
+    it("New project… opens the create modal locked to this host, then moves the identity into the new project", async () => {
+      mockCreateProject.mockClear();
+      render(<IdentitySessionPane {...makeProps()} />);
+      expect(screen.queryByTestId("create-project-modal")).toBeNull();
+      act(() => {
+        getMoveToSubmenu().find((s) => s.label === "New project…")!.onClick();
+      });
+      const dialog = screen.getByTestId("create-project-modal");
+      expect(screen.queryByTestId("create-project-host-listbox")).toBeNull();
+      fireEvent.change(screen.getByLabelText(/project name/i), {
+        target: { value: "Trip Planning" },
+      });
+      // Suite runs on fake timers — flush the create promise chain directly.
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /^create$/i }));
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(mockSetSessionProject).toHaveBeenCalledWith(42, "tina", "trip-planning");
+      expect(mockCreateProject).toHaveBeenCalledWith(42, "Trip Planning");
+      expect(dialog.isConnected).toBe(false);
     });
 
     it("clicking a non-current project fires setSessionProject(hostId, identityKey, slug)", () => {
@@ -609,7 +641,7 @@ describe("IdentitySessionPane — Phase 41 Plan 02", () => {
       ];
       render(<IdentitySessionPane {...makeProps()} />);
       const submenu = getMoveToSubmenu();
-      expect(submenu.map((s) => s.label)).toEqual(["Pinned", "Local A"]);
+      expect(submenu.map((s) => s.label)).toEqual(["Pinned", "Local A", "New project…"]);
     });
 
     it("pinned (no project): Pinned is checked, trailing leaf is Unpin, and Unpin calls unpinConversation with the fleet id", async () => {
@@ -619,7 +651,7 @@ describe("IdentitySessionPane — Phase 41 Plan 02", () => {
       ];
       render(<IdentitySessionPane {...makeProps()} />);
       const submenu = getMoveToSubmenu();
-      expect(submenu.map((s) => s.label)).toEqual(["Pinned", "Local A", "Unpin"]);
+      expect(submenu.map((s) => s.label)).toEqual(["Pinned", "Local A", "New project…", "Unpin"]);
       expect(submenu[0].checked).toBe(true);
       expect(submenu.map((s) => s.label)).not.toContain("Remove from project");
       // The checked Pinned entry is a no-op.
@@ -682,7 +714,7 @@ describe("IdentitySessionPane — Phase 41 Plan 02", () => {
       render(<IdentitySessionPane {...makeProps()} />);
       const submenu = getMoveToSubmenu();
       expect(submenu[0].checked).toBe(true);
-      expect(submenu.map((s) => s.label)).toEqual(["Pinned", "Local A", "Unpin"]);
+      expect(submenu.map((s) => s.label)).toEqual(["Pinned", "Local A", "New project…", "Unpin"]);
     });
 
     it("stale pin on a project member: project wins — Pinned unchecked, leaf is Remove from project, and Pinned clears the project", async () => {
@@ -693,7 +725,7 @@ describe("IdentitySessionPane — Phase 41 Plan 02", () => {
       mockIdentity = { ...mockIdentity, project: "local-a" };
       render(<IdentitySessionPane {...makeProps()} />);
       const submenu = getMoveToSubmenu();
-      expect(submenu.map((s) => s.label)).toEqual(["Pinned", "Local A", "Remove from project"]);
+      expect(submenu.map((s) => s.label)).toEqual(["Pinned", "Local A", "New project…", "Remove from project"]);
       expect(submenu[0].checked).toBe(false);
       // A stale pin would make pinConversation a no-op, so Pinned clears the
       // project directly instead.

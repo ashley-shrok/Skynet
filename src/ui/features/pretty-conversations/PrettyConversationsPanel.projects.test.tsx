@@ -2524,6 +2524,118 @@ describe("PrettyConversationsPanel: Move-to host filtering", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Move to → New project…
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("PrettyConversationsPanel: Move to → New project…", () => {
+  it("identity row on a host with zero projects: creates the project on the row's host (no host picker) and moves the row into it", async () => {
+    const hostZ = makeHost("9", "hostZ");
+    const identityRow = makeRow({
+      id: "id-row-z",
+      host: hostZ,
+      targetTmuxSession: "sess-z",
+    });
+    setSnapshot({ middle: [identityRow], projectSections: [] });
+    mockProjects = [];
+
+    const HOST_TREE_MULTI: HostFolder = {
+      name: "root",
+      children: [makeHost("1", "hostA"), hostZ],
+    };
+
+    const { container } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={HOST_TREE_MULTI}
+        onCreateSession={() => {}}
+        onDeactivateRow={() => {}}
+      />,
+    );
+
+    const rowWrapper = container.querySelector(
+      '[data-conversation-id="id-row-z"]',
+    ) as HTMLElement;
+    const body = rowWrapper.querySelector('[role="button"]') as HTMLElement;
+    await openRowKebabInBody(body);
+    const menu = screen.getByRole("menu");
+    await userEvent.setup().click(within(menu).getByTestId("pv-row-kebab-item-move-to"));
+    await userEvent.setup().click(screen.getByTestId("pv-row-kebab-item-new-project"));
+
+    const dialog = await screen.findByTestId("create-project-modal");
+    // Host is implied by the row — two hosts exist, but no picker.
+    expect(
+      within(dialog).queryByTestId("create-project-host-listbox"),
+    ).toBeNull();
+    fireEvent.change(within(dialog).getByLabelText(/project name/i), {
+      target: { value: "Trip Planning" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: /^create$/i }));
+
+    await waitFor(() => {
+      expect(setSessionProjectSpy).toHaveBeenCalledWith(9, "sess-z", "trip-planning");
+    });
+    expect(createProjectSpy).toHaveBeenCalledWith(9, "Trip Planning");
+    await waitFor(() => {
+      expect(screen.queryByTestId("create-project-modal")).toBeNull();
+    });
+  });
+
+  it("relay-room row: the modal keeps its host picker, and the room is tagged with the new project", async () => {
+    const relayRow: MockRow = {
+      id: "relay-row",
+      type: "terminal",
+      label: "Room A",
+      host: undefined,
+      targetTmuxSession: null,
+      kind: "relay-room",
+      roomId: "!room-a:matrix.example",
+      roomTitle: "Room A",
+    };
+    setSnapshot({ middle: [relayRow], projectSections: [] });
+    mockProjects = [];
+
+    const HOST_TREE_MULTI: HostFolder = {
+      name: "root",
+      children: [makeHost("1", "hostA"), makeHost("2", "hostB")],
+    };
+
+    const { container } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={HOST_TREE_MULTI}
+        onCreateSession={() => {}}
+        onDeactivateRow={() => {}}
+      />,
+    );
+
+    const rowWrapper = container.querySelector(
+      '[data-conversation-id="relay-row"]',
+    ) as HTMLElement;
+    const body = rowWrapper.querySelector('[role="button"]') as HTMLElement;
+    await openRowKebabInBody(body);
+    const menu = screen.getByRole("menu");
+    await userEvent.setup().click(within(menu).getByTestId("pv-row-kebab-item-move-to"));
+    await userEvent.setup().click(screen.getByTestId("pv-row-kebab-item-new-project"));
+
+    const dialog = await screen.findByTestId("create-project-modal");
+    fireEvent.change(within(dialog).getByLabelText(/project name/i), {
+      target: { value: "Trip Planning" },
+    });
+    fireEvent.click(within(dialog).getByTestId("create-project-host-option-2"));
+    fireEvent.click(within(dialog).getByRole("button", { name: /^create$/i }));
+
+    await waitFor(() => {
+      expect(setRelayRoomProjectSpy).toHaveBeenCalledWith(
+        "!room-a:matrix.example",
+        expect.any(String),
+        "trip-planning",
+      );
+    });
+    expect(createProjectSpy).toHaveBeenCalledWith(2, "Trip Planning");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Pinned XOR project — menu-path unpin timing
 // ─────────────────────────────────────────────────────────────────────────────
 

@@ -725,8 +725,11 @@ not something agents drive.
     (§ Loading an existing identity).
   - **Move to** — drill-in submenu listing **Pinned** first, then every
     project, with a checkmark on wherever the row is now (at most one —
-    see Pinned section above). It ends with **Unpin** when the row is
-    pinned, or **Remove from project** when it's in a project.
+    see Pinned section above), then **New project…**, which opens the
+    new-project dialog (host fixed to the conversation's own host; relay
+    rooms still pick one) and moves the conversation into the project once
+    it's created. It ends with **Unpin** when the row is pinned, or
+    **Remove from project** when it's in a project.
     *Agent-side:* pinned = the `.pinned` sentinel (Pinned section above);
     the identity's project affiliation lives in its own frontmatter
     (`project: <slug>` in `~/fleet/identities/<name>/<name>.md`).
@@ -744,7 +747,8 @@ not something agents drive.
 - **Projects section (below Pinned).** A **Projects** super-header
   with a **➕ plus** on its right; every project sits indented beneath it.
   The super-header shows even when there are no projects, since its plus is
-  the only way to create one.
+  the main way to create one (a conversation's **Move to** → **New
+  project…** is the other).
   - **➕ Plus — new project.** Takes a display name and creates the
     project. Slug is derived from the name (kebab-case, `/^[a-z0-9-]{1,64}$/`).
     Duplicate slug = error.

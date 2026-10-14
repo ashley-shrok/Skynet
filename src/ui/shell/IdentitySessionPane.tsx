@@ -7,6 +7,7 @@ import type { IdentityPaneHandle, TerminalHandle, TerminalHostConfig } from "@/f
 import { PrettyView } from "@/features/pretty-view/PrettyView";
 import { IdentityBadge } from "@/features/terminal/IdentityBadge";
 import { IdentityModal } from "@/features/pretty-view/IdentityModal";
+import { CreateProjectModal } from "@/features/pretty-conversations/CreateProjectModal";
 import { MessageQueueDrawer } from "@/features/terminal/MessageQueueDrawer";
 import { sessionMatchKey, hueFromSessionName } from "@/features/terminal/session-hue";
 import { useIdentities } from "@/state/identities-store";
@@ -117,6 +118,11 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
     const [isPrettyMode, setIsPrettyMode] = useState(true);
     const [isMessageQueueOpen, setIsMessageQueueOpen] = useState(false);
     const [isIdentityModalOpen, setIsIdentityModalOpen] = useState(false);
+    // Badge menu "Move to → New project…": the move to run once the create
+    // modal lands a project. Null = modal closed.
+    const [pendingNewProjectMove, setPendingNewProjectMove] = useState<
+      ((slug: string) => void) | null
+    >(null);
     // --- Hoisted refs ---
     // PrettyView populates these on mount via onRegisterSendInput/onRegisterSendInterrupt.
     // MessageQueueDrawer reads pvSendInputRef.current for sends.
@@ -315,6 +321,12 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
             onClick: () => {
               if (!isCurrent) setProject(p.slug);
             },
+          });
+        }
+        if (Number.isFinite(hostIdNum) && hostIdNum > 0) {
+          submenu.push({
+            label: "New project…",
+            onClick: () => setPendingNewProjectMove(() => (slug: string) => setProject(slug)),
           });
         }
         if (shownPinned) {
@@ -748,6 +760,25 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
                 onOpenRoleModal={() => {}}
               />
             )}
+
+          {/* Badge menu "Move to → New project…" — the project lives on this
+              pane's host, so the modal's host picker is locked to it. */}
+          <CreateProjectModal
+            open={pendingNewProjectMove !== null}
+            onOpenChange={(o) => {
+              if (!o) setPendingNewProjectMove(null);
+            }}
+            onCreated={({ slug }) => {
+              console.info({
+                operation: "badge_menu_new_project_created",
+                hostId: hostIdNum,
+                slug,
+              });
+              pendingNewProjectMove?.(slug);
+            }}
+            hostTree={null}
+            lockedHostId={hostIdNum}
+          />
         </div>
       </CommandHistoryProvider>
     );
