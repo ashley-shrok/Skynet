@@ -150,6 +150,20 @@ test_system_entries_ignored() {
 }
 test_system_entries_ignored
 
+# A --resume writes a synthetic "Continue from where you left off." /
+# "No response requested." pair stamped at reopen time, and failed API calls
+# are recorded as synthetic assistant entries too — none of it is activity.
+synthetic() { printf '{"type":"assistant","timestamp":"%s","message":{"model":"<synthetic>","content":"No response requested."}%s}\n' "$(ago "$1")" "${2:-}"; }
+test_synthetic_entries_ignored() {
+  { entry assistant $((5*3600 + 60)); entry user 5; synthetic 5; entry user 2; entry user 0; } > "$T"
+  run_hook_on "$T"
+  assert_notice resume_synthetic_pair "5 hours 1 minute"
+  { entry assistant $((3*86400 + 60)); entry user 70; synthetic 65 ',"isApiErrorMessage":true'; entry user 0; } > "$T"
+  run_hook_on "$T"
+  assert_notice api_error_entry "3 days"
+}
+test_synthetic_entries_ignored
+
 # Old user/attachment entries alone are not activity — a transcript with no
 # assistant entries stays silent.
 test_no_prior_activity() {
@@ -161,7 +175,7 @@ test_no_prior_activity
 
 # Partially-written trailing line is skipped, not fatal.
 test_truncated_tail() {
-  { entry assistant 7200; printf '{"type":"assistant","timest'; } > "$T"
+  { untimed permission-mode; entry user 7300; entry assistant 7200; printf '{"type":"assistant","timest'; } > "$T"
   run_hook_on "$T"
   assert_notice truncated_tail "2 hours"
 }

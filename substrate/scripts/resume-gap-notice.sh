@@ -15,13 +15,17 @@
 # threshold, or with no prior activity (fresh session, recycled session), it
 # stays silent.
 #
-# "Previous activity" = the newest timestamped assistant entry — the agent's
-# own output. The arriving prompt is a user entry (its hook outputs are
-# attachment entries), so it never counts as its own previous activity; a
-# --resume writes no timestamped entries, so a reopen never looks like
-# activity. System entries are deliberately excluded: some are written DURING
-# the silence (a /loop "scheduled_task_fire" stamped at wake time, an
-# "informational" idle-compaction notice) and would understate the gap.
+# "Previous activity" = the newest timestamped assistant entry the MODEL
+# wrote — the agent's own output. The arriving prompt is a user entry (its
+# hook outputs are attachment entries), so it never counts as its own
+# previous activity. Excluded because they are written DURING the silence and
+# would understate the gap:
+#   - synthetic assistant entries (message.model == "<synthetic>"): a --resume
+#     often writes a "Continue from where you left off." / "No response
+#     requested." pair stamped at reopen time, and failed API calls are
+#     recorded the same way (isApiErrorMessage) — the model never saw those.
+#   - system entries: a /loop "scheduled_task_fire" stamped at wake time, an
+#     "informational" idle-compaction notice.
 #
 # Applies to EVERY session on the box (no FLEET_IDENTITY gate — a gap is a
 # gap). Silent no-op on any unmet precondition; never fails the parent turn.
@@ -43,17 +47,23 @@ TRANSCRIPT="$(printf '%s' "$INPUT" | jq -r '.transcript_path // ""' 2>/dev/null)
 
 # Read from the end: the newest activity is near the tail, and transcripts can
 # be large. jq stops at the first match, so tac is cut short by SIGPIPE.
-# fromjson? skips a partially-written trailing line — but tac glues a final
-# line that lacks its newline onto the line before it, so terminate it first.
+# fromjson? skips a partially-written trailing line — but plain tac glues a
+# final line that lacks its newline onto the line before it. For that case use
+# tac -b (separator attached before each record), which keeps the fragment on
+# its own line while still seeking from the end of the file (piping the file
+# into tac instead would make it buffer the whole transcript). Its one
+# artifact — the file's first two lines come out joined — is harmless: a
+# transcript's opening lines are session metadata and the first prompt, never
+# the newest assistant entry.
 reversed() {
   if [ -n "$(tail -c1 "$TRANSCRIPT" 2>/dev/null)" ]; then
-    { cat "$TRANSCRIPT"; echo; } | tac
+    tac -b "$TRANSCRIPT"
   else
     tac "$TRANSCRIPT"
   fi
 }
 LAST="$(reversed 2>/dev/null \
-  | jq -nRr 'first(inputs | fromjson? | select(type == "object" and .type == "assistant" and (.timestamp | type) == "string") | .timestamp)' 2>/dev/null)"
+  | jq -nRr 'first(inputs | fromjson? | select(type == "object" and .type == "assistant" and .message.model != "<synthetic>" and (.timestamp | type) == "string") | .timestamp)' 2>/dev/null)"
 [ -n "$LAST" ] || exit 0
 
 LAST_EPOCH="$(date -u -d "$LAST" +%s 2>/dev/null)" || exit 0
@@ -74,8 +84,8 @@ else
 fi
 
 FMT='+%a %-d %b %H:%M UTC'
-FROM="$(date -u -d "@$LAST_EPOCH" "$FMT")"
-TO="$(date -u -d "@$NOW_EPOCH" "$FMT")"
+FROM="$(LC_ALL=C date -u -d "@$LAST_EPOCH" "$FMT")"
+TO="$(LC_ALL=C date -u -d "@$NOW_EPOCH" "$FMT")"
 
 jq -n --arg msg "It has been $DUR since your last activity in this conversation (last active $FROM; now $TO)." '{
   hookSpecificOutput: {
