@@ -284,6 +284,13 @@ export interface SweepAppLine {
   description: string;
   port: number | null;
   has_icon: boolean;
+  /**
+   * Short digest of icon.webp's stat (null when there is no icon). Baked into
+   * the icon URL as `?v=` so browsers cache the bytes as immutable — same
+   * scheme as SweepIdentityLine.avatar_version. Optional: older emitters
+   * don't send it.
+   */
+  icon_version?: string | null;
   created_at_ms: number;
   is_healthy: boolean;
   health_message: string | null;
@@ -652,7 +659,8 @@ export const SWEEP_FIELD_PARITY: Record<
   | "C6"
   | "C7"
   | "C8"
-  | "C9",
+  | "C9"
+  | "C10",
   SweepFieldParityEntry
 > = {
   // --- Per-host source-A / source-B enumeration drivers ---
@@ -744,4 +752,6 @@ export const SWEEP_FIELD_PARITY: Record<
   // isAppVisibleToUser gate) reads the list; empty/null falls open per D-3
   // (matches identity + project discipline).
   C9: { field: "users" },
+  // C10: icon_version, the icon-file digest baked into the icon URL as `?v=`.
+  C10: { field: "icon_version" },
 };

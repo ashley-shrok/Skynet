@@ -33,7 +33,7 @@
  * All SSH, all DB, all timers are injected. The module is unit-testable with
  * vi.useFakeTimers() + vi.fn() without any real SSH or database.
  */
-import { recordAvatarVersion } from "./avatar-version-registry.js";
+import { recordAvatarVersion, recordAppIconVersion } from "./avatar-version-registry.js";
 import { systemLogger } from "../utils/logger.js";
 import {
   parseSessionJson,
@@ -1407,6 +1407,8 @@ function adaptAppLineToState(hostId: string, line: SweepAppLine): AppState {
     description: line.description,
     port: line.port,
     hasIcon: line.has_icon,
+    // Older emitters don't send icon_version; normalize to null.
+    iconVersion: line.icon_version ?? null,
     createdAtMs: line.created_at_ms,
     isHealthy: line.is_healthy,
     healthMessage: line.health_message,
@@ -2485,6 +2487,7 @@ export function createSshPollOrchestrator(
     // / empty-output-on-nonempty-box) bypasses it — same discipline the
     // identity + pid compose loops above already benefit from.
     for (const appLine of parsed.appLines) {
+      recordAppIconVersion(Number(host.id), appLine.slug, appLine.icon_version);
       deps.registry.publishAppUpdate(
         host.id,
         adaptAppLineToState(host.id, appLine),

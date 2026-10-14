@@ -381,6 +381,7 @@ function isCachedAppState(x: unknown): x is AppState {
   if (typeof r.description !== "string") return false;
   if (r.port !== null && typeof r.port !== "number") return false;
   if (typeof r.hasIcon !== "boolean") return false;
+  if (r.iconVersion != null && typeof r.iconVersion !== "string") return false;
   if (typeof r.createdAtMs !== "number") return false;
   if (typeof r.isHealthy !== "boolean") return false;
   if (r.healthMessage !== null && typeof r.healthMessage !== "string")
@@ -408,6 +409,7 @@ export function readAppTilesCache(): AppState[] {
           description: item.description,
           port: item.port,
           hasIcon: item.hasIcon,
+          iconVersion: item.iconVersion ?? null,
           createdAtMs: item.createdAtMs,
           isHealthy: item.isHealthy,
           healthMessage: item.healthMessage,
@@ -430,6 +432,7 @@ export function writeAppTilesCache(list: AppState[]): void {
       description: a.description,
       port: a.port,
       hasIcon: a.hasIcon,
+      iconVersion: a.iconVersion ?? null,
       createdAtMs: a.createdAtMs,
       isHealthy: a.isHealthy,
       healthMessage: a.healthMessage,

@@ -694,6 +694,10 @@ export const AppStateSchema = z.object({
   description: z.string(),
   port: z.number().nullable(),
   hasIcon: z.boolean(),
+  // Icon-file digest from the sweep; the client appends it to the icon URL
+  // as `?v=` so the bytes cache as immutable. Optional for older clients'
+  // cached frames; null when the app has no icon or the emitter predates it.
+  iconVersion: z.string().nullable().optional(),
   createdAtMs: z.number(),
   isHealthy: z.boolean(),
   healthMessage: z.string().nullable(),

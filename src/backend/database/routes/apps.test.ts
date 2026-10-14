@@ -119,6 +119,11 @@ function makeFakeConnWithEnd() {
 // ---------------------------------------------------------------------------
 
 import appsRouter from "./apps.js";
+import { _resetAvatarCacheForTest } from "./identity-avatar-cache.js";
+import {
+  _clearAvatarVersionsForTest,
+  recordAppIconVersion,
+} from "../../fleet-status/avatar-version-registry.js";
 
 // ---------------------------------------------------------------------------
 // HTTP helpers
@@ -177,6 +182,9 @@ const ORIGINAL_COOKIE_DOMAIN = process.env.SKYNET_COOKIE_DOMAIN;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // The icon route caches bytes (and 404s) across requests; start each test cold.
+  _resetAvatarCacheForTest();
+  _clearAvatarVersionsForTest();
   mockUserId = "test-user";
   // Sensible default: REMOTE branch; host resolves; connectOneShot works;
   // readAppIconFile returns null (404). Individual tests override as needed.
@@ -328,6 +336,66 @@ describe("GET /apps/:hostId/:slug/icon — 200 + ETag + 304", () => {
     });
     expect(second.status).toBe(304);
     expect(second.rawBody.byteLength).toBe(0);
+  });
+});
+
+// ===========================================================================
+// Versioned icon URLs + byte cache (icon_version from the sweep)
+// ===========================================================================
+
+describe("GET /apps/:hostId/:slug/icon — versioned caching", () => {
+  const FAKE_BYTES = Buffer.from("fake-webp-bytes");
+  it("V1: ?v= matching the sweep's icon version → immutable Cache-Control", async () => {
+    recordAppIconVersion(1, "scratch-test", "abcdef0123456789");
+    readAppIconFileMock.mockResolvedValue({ bytes: FAKE_BYTES, mime: "image/webp" });
+    const res = await httpGet(server, "/apps/1/scratch-test/icon?v=abcdef0123456789");
+    expect(res.status).toBe(200);
+    expect(res.headers["cache-control"]).toBe("private, max-age=31536000, immutable");
+  });
+
+  it("V2: ?v= that doesn't match the sweep's version → served as unversioned", async () => {
+    recordAppIconVersion(1, "scratch-test", "abcdef0123456789");
+    readAppIconFileMock.mockResolvedValue({ bytes: FAKE_BYTES, mime: "image/webp" });
+    const res = await httpGet(server, "/apps/1/scratch-test/icon?v=1111111111111111");
+    expect(res.status).toBe(200);
+    expect(res.headers["cache-control"]).toBe("max-age=0, stale-while-revalidate=86400");
+  });
+
+  it("V3: no ?v= → revalidating Cache-Control (never immutable)", async () => {
+    readAppIconFileMock.mockResolvedValue({ bytes: FAKE_BYTES, mime: "image/webp" });
+    const res = await httpGet(server, "/apps/1/scratch-test/icon");
+    expect(res.headers["cache-control"]).toBe("max-age=0, stale-while-revalidate=86400");
+  });
+
+  it("V4: a repeat versioned request is served from cache without SSH", async () => {
+    recordAppIconVersion(1, "scratch-test", "abcdef0123456789");
+    readAppIconFileMock.mockResolvedValue({ bytes: FAKE_BYTES, mime: "image/webp" });
+    await httpGet(server, "/apps/1/scratch-test/icon?v=abcdef0123456789");
+    const again = await httpGet(server, "/apps/1/scratch-test/icon?v=abcdef0123456789");
+    expect(again.status).toBe(200);
+    expect(again.rawBody.equals(FAKE_BYTES)).toBe(true);
+    expect(connectOneShotMock).toHaveBeenCalledTimes(1);
+    expect(readAppIconFileMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("V5: a cache hit still requires host access", async () => {
+    recordAppIconVersion(1, "scratch-test", "abcdef0123456789");
+    readAppIconFileMock.mockResolvedValue({ bytes: FAKE_BYTES, mime: "image/webp" });
+    await httpGet(server, "/apps/1/scratch-test/icon?v=abcdef0123456789");
+    resolveHostByUniversalIdMock.mockResolvedValueOnce(null);
+    const res = await httpGet(server, "/apps/1/scratch-test/icon?v=abcdef0123456789");
+    expect(res.status).toBe(502);
+  });
+
+  it("V6: a new version misses the cache and reads the new bytes", async () => {
+    const NEW_BYTES = Buffer.from("new-icon-bytes");
+    recordAppIconVersion(1, "scratch-test", "aaaaaaaaaaaaaaaa");
+    readAppIconFileMock.mockResolvedValueOnce({ bytes: FAKE_BYTES, mime: "image/webp" });
+    await httpGet(server, "/apps/1/scratch-test/icon?v=aaaaaaaaaaaaaaaa");
+    recordAppIconVersion(1, "scratch-test", "bbbbbbbbbbbbbbbb");
+    readAppIconFileMock.mockResolvedValueOnce({ bytes: NEW_BYTES, mime: "image/webp" });
+    const res = await httpGet(server, "/apps/1/scratch-test/icon?v=bbbbbbbbbbbbbbbb");
+    expect(res.rawBody.equals(NEW_BYTES)).toBe(true);
   });
 });
 

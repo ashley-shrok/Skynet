@@ -11,6 +11,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useIsTouchDevice } from "@/hooks/use-is-touch-device";
 import { systemLogger } from "@/lib/frontend-logger";
 import { useAppTiles } from "@/state/app-tiles-store";
+import { appIconUrl } from "@/features/pretty-conversations/app-icon-url";
 import {
   EMPTY_FRAME_HISTORY,
   canFrameGoBack,
@@ -223,7 +224,7 @@ export function AppPane({
   const tile = tiles.find((a) => a.hostId === String(hostId) && a.slug === slug);
   const title = (tile?.title ?? label ?? slug).trim() || slug;
   const initial = title.charAt(0).toUpperCase() || "?";
-  const iconUrl = `/apps/${encodeURIComponent(hostId)}/${encodeURIComponent(slug)}/icon`;
+  const iconUrl = appIconUrl(hostId, slug, tile?.iconVersion);
   const [iconFailed, setIconFailed] = useState(false);
   useEffect(() => {
     setIconFailed(false);

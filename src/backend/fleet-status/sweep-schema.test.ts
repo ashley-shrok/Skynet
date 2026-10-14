@@ -304,15 +304,16 @@ describe("SWEEP_FIELD_PARITY — parity map walk", () => {
   //   B0                       — per-host source-B enumeration driver
   //   B1..B10                  — per-identity source-B exec sites
   //   C0                       — per-host source-C enumeration driver (Phase 118)
-  //   C1..C9                   — per-app source-C fields (D-05 + D-03 carve-out + Phase 130 users)
-  // Total: 2 + 12 + 10 + 1 + 9 = 34 keys.
+  //   C1..C10                  — per-app source-C fields (D-05 + D-03 carve-out + Phase 130 users + icon_version)
+  // Total: 2 + 12 + 10 + 1 + 10 = 35 keys.
   // (B6..B8 added by Plan 111-01/111-02: appearance fields on SweepIdentityLine.
   //  Plan 111-02 also added B9 for `.hidden`; Phase 115 Plan 115-02 retired
   //  the `.hidden` code path per D-21 (freeing the B9 slot); Phase 115 Plan
   //  115-05 reused the freed B9 slot for the `archived` axis. Phase 118 Plan
   //  118-02 added C0..C8 for the source-C app enumeration wire fields.
   //  Phase 130 added C9 for the per-user visibility gate list on app.json.
-  //  B10 = avatar_version, the avatar-file digest baked into avatarUrl.)
+  //  B10 = avatar_version, the avatar-file digest baked into avatarUrl.
+  //  C10 = icon_version, the icon-file digest baked into the app icon URL.)
   const EXPECTED_KEYS: readonly string[] = [
     "A0",
     "A1",
@@ -348,6 +349,7 @@ describe("SWEEP_FIELD_PARITY — parity map walk", () => {
     "C7",
     "C8",
     "C9",
+    "C10",
   ];
 
   it("covers every RESEARCH.md source-A / source-B / source-C row", () => {
@@ -402,6 +404,7 @@ describe("SWEEP_FIELD_PARITY — parity map walk", () => {
       "description",
       "port",
       "has_icon",
+      "icon_version",
       "created_at_ms",
       "is_healthy",
       "health_message",
@@ -854,7 +857,7 @@ describe("Phase 118 Plan 118-02: SWEEP_FIELD_PARITY C-row coverage", () => {
     expect(parity.C0.skipped_reason).toMatch(/enumeration/i);
   });
 
-  it("C1..C9 map to real SweepAppLine fields (byte-name parity with Python emit)", () => {
+  it("C1..C10 map to real SweepAppLine fields (byte-name parity with Python emit)", () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const parity = SWEEP_FIELD_PARITY as any;
     const expected: Record<string, string> = {
@@ -868,6 +871,7 @@ describe("Phase 118 Plan 118-02: SWEEP_FIELD_PARITY C-row coverage", () => {
       C8: "health_message",
       // Phase 130: per-user visibility gate list on app.json.
       C9: "users",
+      C10: "icon_version",
     };
     for (const [key, field] of Object.entries(expected)) {
       expect(parity[key], `parity row ${key} missing`).toBeDefined();

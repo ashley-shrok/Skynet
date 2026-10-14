@@ -49,6 +49,20 @@ export function forgetAvatarVersion(hostId: number, identityKey: string): void {
   versions.delete(k);
 }
 
+// App icons use the same scheme (sweep `icon_version` → `?v=` on the icon URL).
+// `app.` can't collide with an identity key (no dots in IDENTITY_KEY_RE).
+export function recordAppIconVersion(
+  hostId: number,
+  slug: string,
+  version: string | null | undefined,
+): void {
+  recordAvatarVersion(hostId, `app.${slug}`, version);
+}
+
+export function getAppIconVersion(hostId: number, slug: string): string | null {
+  return getAvatarVersion(hostId, `app.${slug}`);
+}
+
 export function _clearAvatarVersionsForTest(): void {
   versions.clear();
   blocked.clear();

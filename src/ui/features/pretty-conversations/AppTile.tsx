@@ -1,11 +1,13 @@
 import {
   useCallback,
+  useEffect,
   useState,
   type DragEvent as ReactDragEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
 
 import type { AppState } from "../../api/fleet-status-types";
+import { appIconUrl } from "./app-icon-url";
 import { buildAppMenuItems } from "./app-menu-items";
 // shape-sidebar-header-affordances: app tile context menu + long-press
 // machinery retired; the actions (Open in new tab, Open standalone, Rename,
@@ -182,12 +184,13 @@ export function AppTile({ app, onOpenApp, onArchive, variant = "desktop" }: AppT
   // path shape (D-06 / RESEARCH.md discretion).
   //
   // Code-review MEDIUM-1 (fix pass 2026-09-18): defensive
-  // encodeURIComponent on both hostId and slug — today APP_SLUG_RE gates
-  // the wire (hostId numeric, slug kebab-case), so unencoded interpolation
-  // is safe. But encoding here means a future backend regression that
-  // widens either shape cannot expose an unencoded interpolation from
-  // this frontend surface. Cheap defence-in-depth.
-  const iconUrl = `/apps/${encodeURIComponent(app.hostId)}/${encodeURIComponent(app.slug)}/icon`;
+  // Versioned URL (see appIconUrl) — lets the browser keep the icon across
+  // collapse/expand of the Apps section instead of refetching it.
+  const iconUrl = appIconUrl(app.hostId, app.slug, app.iconVersion);
+  // A new icon version is a new URL; give it a fresh chance to load.
+  useEffect(() => {
+    setImgFailed(false);
+  }, [iconUrl]);
 
   const showFallback = !app.hasIcon || imgFailed;
   const initialLetter =

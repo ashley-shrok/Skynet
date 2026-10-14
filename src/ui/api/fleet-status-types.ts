@@ -141,6 +141,7 @@ export interface AppState {
   description: string;
   port: number | null;
   hasIcon: boolean;
+  iconVersion?: string | null;
   createdAtMs: number;
   isHealthy: boolean;
   healthMessage: string | null;

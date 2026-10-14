@@ -1726,7 +1726,16 @@ def _build_app_line(slug, folder_path, home):
             health_message = "not running — ask an agent to check on it"
 
     # D-06: has_icon is a boolean, not a URL. Shape 4 owns the serving path.
-    has_icon = os.path.exists(os.path.join(folder_path, "icon.webp"))
+    icon_path = os.path.join(folder_path, "icon.webp")
+    has_icon = os.path.exists(icon_path)
+    # Digest of the icon's stat; the backend bakes it into the icon URL as
+    # `?v=` so browsers can cache the bytes as immutable (same scheme as
+    # avatar_version). None when there is no icon.
+    icon_version = (
+        hashlib.sha1(_stat_token(icon_path).encode("utf-8")).hexdigest()[:16]
+        if has_icon
+        else None
+    )
 
     # D-08: createdAt is folder mtime, not a stored field.
     try:
@@ -1753,6 +1762,7 @@ def _build_app_line(slug, folder_path, home):
         "description": description,
         "port": port,
         "has_icon": has_icon,
+        "icon_version": icon_version,
         "created_at_ms": folder_mtime_ms,
         "is_healthy": is_healthy,
         "health_message": health_message,
