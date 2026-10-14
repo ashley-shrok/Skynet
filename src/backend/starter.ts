@@ -445,13 +445,12 @@ if (process.env.VITEST !== "true") {
         });
       });
 
-    // Telegram notifications — long-polls the bot for /start <code> link
-    // requests and /stop. No-op (logs telegram_disabled) when
-    // TELEGRAM_BOT_TOKEN is unset.
+    // Telegram notifications — load every user's bot and long-poll each for
+    // /start <code> link requests and /stop.
     void import("./notifications/telegram-poller.js")
-      .then((m) => m.startTelegramPoller())
+      .then((m) => m.startAllBotPollers())
       .catch((err) => {
-        systemLogger.warn("startTelegramPoller module load failed", {
+        systemLogger.warn("startAllBotPollers failed", {
           operation: "telegram_poller_module_load_failed",
           error: err instanceof Error ? err.message : "unknown",
         });

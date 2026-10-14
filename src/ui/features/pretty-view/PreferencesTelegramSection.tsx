@@ -1,25 +1,26 @@
 /**
- * Telegram section of Preferences → Notifications.
+ * Preferences → Notifications: Telegram setup. Each user sets up their own
+ * bot — nothing server-side to configure.
  *
  * States:
- *   unavailable  → server has no bot configured; short note, no actions
- *   not linked   → "Connect Telegram" link (opens the bot with a one-time
- *                  code; the user taps Start there). While waiting, the
- *                  section polls the backend until the link lands.
+ *   not set up   → steps for creating a bot with @BotFather + a token box
+ *   bot saved    → "Open my bot" (a one-time Start link). While waiting, the
+ *                  section polls the backend until the chat link lands.
  *   linked       → who it's linked to, title-only toggle, test, disconnect
  *
- * The Connect control is a real <a href> fetched ahead of time rather than a
- * window.open after an await — iOS blocks popups opened outside the tap, and
- * a plain link also hands off to the Telegram app cleanly.
+ * The Open-my-bot control is a real <a href> fetched ahead of time rather
+ * than a window.open after an await — iOS blocks popups opened outside the
+ * tap, and a plain link also hands off to the Telegram app cleanly.
  */
 
-import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactElement } from "react";
 import {
   deleteTelegram,
   getTelegramStatus,
   patchTelegram,
   postTelegramLink,
   postTelegramTest,
+  putTelegramBot,
   type TelegramStatus,
 } from "@/features/notifications/telegram-setup-api";
 
@@ -35,6 +36,7 @@ type TestStatus =
   | { kind: "fail"; message: string };
 
 const mutedText = { color: "#c8c4b8" };
+const linkStyle = { color: "#e8e4d8", textDecoration: "underline" };
 
 const buttonStyle = (disabled: boolean, primary = false) => ({
   padding: "8px 14px",
@@ -48,6 +50,86 @@ const buttonStyle = (disabled: boolean, primary = false) => ({
   textDecoration: "none",
   display: "inline-block",
 });
+
+function SetupSteps({ onSaved }: { onSaved: (s: TelegramStatus) => void }): ReactElement {
+  const [token, setToken] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = useCallback(
+    async (e: FormEvent) => {
+      e.preventDefault();
+      setSaving(true);
+      setError(null);
+      try {
+        onSaved(await putTelegramBot(token.trim()));
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : "Couldn't save the token");
+      } finally {
+        setSaving(false);
+      }
+    },
+    [token, onSaved],
+  );
+
+  return (
+    <div className="flex flex-col gap-3" data-testid="preferences-telegram-setup">
+      <p className="text-[13px] leading-[18px]" style={mutedText}>
+        Notifications arrive as messages from your own Telegram bot. Setting
+        one up takes a minute:
+      </p>
+      <ol className="text-[13px] leading-[19px]" style={{ ...mutedText, margin: 0, paddingLeft: 20 }}>
+        <li>
+          In Telegram, open{" "}
+          <a href="https://t.me/BotFather" target="_blank" rel="noopener noreferrer" style={linkStyle}>
+            @BotFather
+          </a>{" "}
+          and send <strong>/newbot</strong>.
+        </li>
+        <li>
+          Give it any name, then a username ending in <strong>bot</strong>.
+        </li>
+        <li>BotFather replies with a token. Copy it and paste it here.</li>
+      </ol>
+      <form onSubmit={(e) => void handleSubmit(e)} className="flex flex-col gap-2">
+        <input
+          type="text"
+          value={token}
+          onChange={(e) => setToken(e.target.value)}
+          placeholder="123456789:AA…"
+          autoComplete="off"
+          spellCheck={false}
+          aria-label="Bot token"
+          data-testid="preferences-telegram-token-input"
+          style={{
+            padding: "8px 10px",
+            borderRadius: 8,
+            border: "1px solid rgba(255,240,215,0.18)",
+            background: "rgba(20,21,32,0.6)",
+            color: "#e8e4d8",
+            fontFamily: "monospace",
+            fontSize: 13,
+          }}
+        />
+        <div>
+          <button
+            type="submit"
+            disabled={saving || token.trim() === ""}
+            data-testid="preferences-telegram-token-save"
+            style={buttonStyle(saving || token.trim() === "", true)}
+          >
+            {saving ? "Checking…" : "Save"}
+          </button>
+        </div>
+        {error && (
+          <span className="text-[12px]" style={{ color: "#d38f8f" }} data-testid="preferences-telegram-token-error">
+            {error}
+          </span>
+        )}
+      </form>
+    </div>
+  );
+}
 
 export function PreferencesTelegramSection(): ReactElement {
   const [status, setStatus] = useState<TelegramStatus | null>(null);
@@ -72,9 +154,9 @@ export function PreferencesTelegramSection(): ReactElement {
     };
   }, []);
 
-  const needsLink = !!status?.available && !status.linked;
+  const needsLink = !!status?.setUp && !status.linked;
 
-  // Keep a fresh one-time link ready while not linked.
+  // Keep a fresh one-time Start link ready while the bot isn't linked yet.
   useEffect(() => {
     if (!needsLink) {
       setLinkUrl(null);
@@ -96,9 +178,9 @@ export function PreferencesTelegramSection(): ReactElement {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [needsLink]);
+  }, [needsLink, status?.botUsername]);
 
-  // After Connect is tapped, poll until the bot reports the link.
+  // After Open my bot is tapped, poll until the bot reports the link.
   useEffect(() => {
     if (!waiting) return;
     const timer = setInterval(() => {
@@ -120,7 +202,7 @@ export function PreferencesTelegramSection(): ReactElement {
     return () => clearInterval(timer);
   }, [waiting]);
 
-  const handleConnectClick = useCallback(() => {
+  const handleOpenBotClick = useCallback(() => {
     pollStartedAt.current = Date.now();
     setWaiting(true);
   }, []);
@@ -148,11 +230,12 @@ export function PreferencesTelegramSection(): ReactElement {
     }
   }, []);
 
-  const handleDisconnect = useCallback(async () => {
-    if (!window.confirm("Stop sending Skynet notifications to Telegram?")) return;
+  const handleRemove = useCallback(async (confirmText: string) => {
+    if (!window.confirm(confirmText)) return;
     setBusy(true);
     try {
       setStatus(await deleteTelegram());
+      setWaiting(false);
       setTestStatus({ kind: "idle" });
     } catch {
       // User can retry.
@@ -165,7 +248,7 @@ export function PreferencesTelegramSection(): ReactElement {
   if (loadError) {
     content = (
       <p className="text-[13px]" style={{ color: "#d38f8f" }} data-testid="preferences-telegram-error">
-        Failed to load Telegram settings: {loadError}
+        Failed to load notification settings: {loadError}
       </p>
     );
   } else if (!status) {
@@ -174,37 +257,42 @@ export function PreferencesTelegramSection(): ReactElement {
         Loading…
       </p>
     );
-  } else if (!status.available) {
-    content = (
-      <p className="text-[13px] leading-[18px]" style={mutedText} data-testid="preferences-telegram-unavailable">
-        Telegram notifications aren&apos;t set up on this server yet — an
-        admin needs to add a Telegram bot.
-      </p>
-    );
+  } else if (!status.setUp) {
+    content = <SetupSteps onSaved={setStatus} />;
   } else if (!status.linked) {
     content = (
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-3" data-testid="preferences-telegram-awaiting-start">
         <p className="text-[13px] leading-[18px]" style={mutedText}>
-          Get notifications as messages from the Skynet bot in Telegram. Tap
-          Connect, then tap <strong>Start</strong> in Telegram.
+          Your bot <strong>@{status.botUsername}</strong> is ready. Tap{" "}
+          <strong>Open my bot</strong>, then tap <strong>Start</strong> in
+          Telegram.
         </p>
-        <div>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           {linkUrl ? (
             <a
               href={linkUrl}
               target="_blank"
               rel="noopener noreferrer"
-              onClick={handleConnectClick}
-              data-testid="preferences-telegram-connect"
+              onClick={handleOpenBotClick}
+              data-testid="preferences-telegram-open-bot"
               style={buttonStyle(false, true)}
             >
-              Connect Telegram
+              Open my bot
             </a>
           ) : (
-            <span style={buttonStyle(true, true)} data-testid="preferences-telegram-connect-pending">
-              Connect Telegram
+            <span style={buttonStyle(true, true)} data-testid="preferences-telegram-open-bot-pending">
+              Open my bot
             </span>
           )}
+          <button
+            type="button"
+            onClick={() => void handleRemove("Remove this bot and start over with a different one?")}
+            disabled={busy}
+            data-testid="preferences-telegram-use-different-bot"
+            style={buttonStyle(busy)}
+          >
+            Use a different bot
+          </button>
         </div>
         {waiting && (
           <span className="text-[12px]" style={mutedText} data-testid="preferences-telegram-waiting">
@@ -218,7 +306,7 @@ export function PreferencesTelegramSection(): ReactElement {
       <div className="flex flex-col gap-3">
         <p className="text-[13px] leading-[18px]" style={mutedText} data-testid="preferences-telegram-linked">
           Connected{status.telegramName ? <> to <strong>{status.telegramName}</strong></> : null}.
-          Notifications arrive from @{status.botUsername}.
+          Notifications arrive from your bot @{status.botUsername}.
         </p>
         <label className="flex items-center gap-2 text-[13px]" style={mutedText}>
           <input
@@ -242,7 +330,11 @@ export function PreferencesTelegramSection(): ReactElement {
           </button>
           <button
             type="button"
-            onClick={() => void handleDisconnect()}
+            onClick={() =>
+              void handleRemove(
+                "Stop Telegram notifications? You'll need to paste a bot token again to turn them back on.",
+              )
+            }
             disabled={busy}
             data-testid="preferences-telegram-disconnect"
             style={buttonStyle(busy)}

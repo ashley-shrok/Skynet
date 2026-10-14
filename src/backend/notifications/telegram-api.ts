@@ -1,27 +1,15 @@
 /**
- * Telegram Bot API client — config getters plus one thin `callTelegram`
- * wrapper used by the sender, the update poller, and the link routes.
+ * Telegram Bot API client — one thin `callTelegram` wrapper used by the
+ * sender, the per-user update pollers, and the setup routes.
  *
- * Config is OPTIONAL: with no
- * TELEGRAM_BOT_TOKEN set, `isTelegramConfigured()` is false, the poller never
- * starts, the preferences pane reports Telegram as unavailable, and sends are
- * silent no-ops. Instances that haven't created a bot still boot normally.
+ * Every user sets up their OWN bot (Preferences → Notifications), so every
+ * call takes the bot token explicitly; there is no instance-wide bot.
  *
- * NEVER log the bot token — it is embedded in every request URL, so request
+ * NEVER log a bot token — it is embedded in every request URL, so request
  * URLs are never logged either.
  */
 
-import { systemLogger } from "../utils/logger.js";
-
 const TELEGRAM_API_BASE = "https://api.telegram.org";
-
-export function getTelegramBotToken(): string {
-  return (process.env.TELEGRAM_BOT_TOKEN ?? "").trim();
-}
-
-export function isTelegramConfigured(): boolean {
-  return getTelegramBotToken() !== "";
-}
 
 /**
  * Public base URL of this Skynet instance (no trailing slash). Used to turn
@@ -57,17 +45,18 @@ interface TelegramWireResponse<T> {
 }
 
 /**
- * Call a Bot API method with a JSON body. Never throws: network failures and
- * timeouts come back as `{ ok: false, errorCode: 0 }`.
+ * Call a Bot API method as the bot identified by `token`, with a JSON body.
+ * Never throws: network failures and timeouts come back as
+ * `{ ok: false, errorCode: 0 }`.
  */
 export async function callTelegram<T>(
+  token: string,
   method: string,
   params: Record<string, unknown>,
   timeoutMs = 10_000,
 ): Promise<TelegramResult<T>> {
-  const token = getTelegramBotToken();
   if (!token) {
-    return { ok: false, errorCode: 0, description: "TELEGRAM_BOT_TOKEN not set" };
+    return { ok: false, errorCode: 0, description: "no bot token" };
   }
   try {
     const response = await fetch(`${TELEGRAM_API_BASE}/bot${token}/${method}`, {
@@ -93,31 +82,4 @@ export async function callTelegram<T>(
       description: err instanceof Error ? err.message : "unknown",
     };
   }
-}
-
-let cachedBotUsername: string | null = null;
-
-/**
- * The bot's @username (without the @), via getMe. Cached after the first
- * success; null when unconfigured or Telegram is unreachable.
- */
-export async function getBotUsername(): Promise<string | null> {
-  if (cachedBotUsername) return cachedBotUsername;
-  if (!isTelegramConfigured()) return null;
-  const res = await callTelegram<{ username?: string }>("getMe", {});
-  if (res.ok && res.result.username) {
-    cachedBotUsername = res.result.username;
-    return cachedBotUsername;
-  }
-  systemLogger.warn("[telegram] getMe failed", {
-    operation: "telegram_get_me_failed",
-    errorCode: res.ok ? 0 : res.errorCode,
-    description: res.ok ? "no username in getMe result" : res.description,
-  });
-  return null;
-}
-
-/** Test-only: forget the cached bot username. */
-export function _resetTelegramApiCacheForTests(): void {
-  cachedBotUsername = null;
 }

@@ -7,17 +7,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const callTelegram = vi.fn();
-let configured = true;
 let publicUrl = "https://skynet.example.com";
 vi.mock("./telegram-api.js", () => ({
   callTelegram: (...args: unknown[]) => callTelegram(...args),
-  isTelegramConfigured: () => configured,
   getSkynetPublicUrl: () => publicUrl,
 }));
 
-let link: { chatId: string; titleOnly: boolean } | null = null;
-vi.mock("./telegram-links.js", () => ({
-  getLink: () => link,
+const TOKEN = "111:AAAA";
+let bot: { token: string; chatId: string | null; titleOnly: boolean } | null = null;
+vi.mock("./telegram-bots.js", () => ({
+  getBot: () => bot,
 }));
 
 let canUse = true;
@@ -30,7 +29,6 @@ const info = vi.fn();
 vi.mock("../utils/logger.js", () => ({
   databaseLogger: { warn: (...a: unknown[]) => warn(...a), info: (...a: unknown[]) => info(...a) },
 }));
-
 
 import {
   _setSleepForTests,
@@ -51,9 +49,8 @@ beforeEach(() => {
   warn.mockClear();
   info.mockClear();
   sleeps.length = 0;
-  configured = true;
   publicUrl = "https://skynet.example.com";
-  link = { chatId: "555", titleOnly: false };
+  bot = { token: TOKEN, chatId: "555", titleOnly: false };
   canUse = true;
 });
 
@@ -74,11 +71,12 @@ describe("formatting", () => {
 });
 
 describe("sendTelegramToUser", () => {
-  it("sends to the linked chat with an Open in Skynet button and logs success", async () => {
+  it("sends through the user's own bot to their chat, with an Open in Skynet button", async () => {
     callTelegram.mockResolvedValueOnce({ ok: true, result: { message_id: 42 } });
     const res = await sendTelegramToUser("u1", payload);
     expect(res).toEqual({ ok: true, messageId: 42, attempts: 1 });
-    const [method, params] = callTelegram.mock.calls[0];
+    const [token, method, params] = callTelegram.mock.calls[0];
+    expect(token).toBe(TOKEN);
     expect(method).toBe("sendMessage");
     expect(params).toMatchObject({ chat_id: "555", parse_mode: "HTML" });
     expect(params.reply_markup.inline_keyboard[0][0]).toEqual({
@@ -95,18 +93,17 @@ describe("sendTelegramToUser", () => {
     publicUrl = "";
     callTelegram.mockResolvedValueOnce({ ok: true, result: { message_id: 1 } });
     await sendTelegramToUser("u1", payload);
-    expect(callTelegram.mock.calls[0][1].reply_markup).toBeUndefined();
+    expect(callTelegram.mock.calls[0][2].reply_markup).toBeUndefined();
   });
 
-  it("does nothing when unconfigured, without access, or not linked", async () => {
-    configured = false;
-    expect(await sendTelegramToUser("u1", payload)).toEqual({ ok: false, reason: "not_configured" });
-    configured = true;
+  it("does nothing without access, without a bot, or before Start", async () => {
     canUse = false;
     expect(await sendTelegramToUser("u1", payload)).toEqual({ ok: false, reason: "no_access" });
     canUse = true;
-    link = null;
+    bot = { token: TOKEN, chatId: null, titleOnly: false };
     expect(await sendTelegramToUser("u1", payload)).toEqual({ ok: false, reason: "not_linked" });
+    bot = null;
+    expect(await sendTelegramToUser("u1", payload)).toEqual({ ok: false, reason: "no_bot" });
     expect(callTelegram).not.toHaveBeenCalled();
   });
 

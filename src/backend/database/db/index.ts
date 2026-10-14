@@ -598,16 +598,22 @@ async function initializeCompleteDatabase(): Promise<void> {
     CREATE UNIQUE INDEX IF NOT EXISTS relay_room_sessions_user_room_uidx
         ON relay_room_sessions(user_id, room_id);
 
-    -- Telegram notifications: one linked chat per user. chat_id is stored
-    -- plaintext (not FieldCrypto) because the push-trigger loop sends while
-    -- the user's data key may be locked; a chat id is useless without the
-    -- bot token, which is env-only. Drizzle mirror at schema.ts telegramLinks.
-    CREATE TABLE IF NOT EXISTS telegram_links (
+    -- Telegram notifications: each user sets up their OWN bot. bot_token is
+    -- FieldCrypto-encrypted with the SYSTEM key (not the user's data key) so
+    -- the push-trigger loop can send while the user is logged out. chat_id
+    -- is NULL until the user taps Start in their bot. bot_id (Telegram's
+    -- numeric bot id) is UNIQUE so two accounts can't share one bot.
+    -- Drizzle mirror at schema.ts telegramBots.
+    CREATE TABLE IF NOT EXISTS telegram_bots (
         user_id TEXT PRIMARY KEY,
-        chat_id TEXT NOT NULL,
+        bot_token TEXT NOT NULL,
+        bot_id TEXT NOT NULL UNIQUE,
+        bot_username TEXT NOT NULL,
+        chat_id TEXT,
         telegram_name TEXT NOT NULL DEFAULT '',
         title_only INTEGER NOT NULL DEFAULT 0,
-        linked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        linked_at TEXT,
         FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
     );
 
@@ -971,18 +977,20 @@ export function runReopenTabsColumnDrop(sqliteDb: Database.Database): void {
 }
 
 /**
- * Drop the retired push_subscriptions table (earlier push-notification
- * setups, replaced by Telegram — links live in telegram_links). Nothing reads
- * its rows anymore. Idempotent: IF EXISTS makes
- * it a no-op on fresh installs and on every boot after the first.
+ * Drop retired notification tables: push_subscriptions (earlier
+ * push-notification setups) and telegram_links (a short-lived shared-bot
+ * Telegram design that never held rows). Telegram setups now live in
+ * telegram_bots. Idempotent: IF EXISTS makes it a no-op on fresh installs
+ * and on every boot after the first.
  *
  * Exported so schema.test.ts can exercise it against in-memory DBs.
  */
-export function runPushSubscriptionsDrop(sqliteDb: Database.Database): void {
+export function runRetiredNotificationTablesDrop(sqliteDb: Database.Database): void {
   try {
     sqliteDb.exec(
       "DROP INDEX IF EXISTS push_subscriptions_user_endpoint_unique;" +
-        "DROP TABLE IF EXISTS push_subscriptions;",
+        "DROP TABLE IF EXISTS push_subscriptions;" +
+        "DROP TABLE IF EXISTS telegram_links;",
     );
   } catch (dropErr) {
     databaseLogger.warn("push_subscriptions drop failed (non-fatal)", {
@@ -1704,9 +1712,9 @@ const migrateSchema = async () => {
     }
   }
 
-  // Drop the retired push_subscriptions table. The forceSave below
+  // Drop retired notification tables (push_subscriptions, telegram_links). The forceSave below
   // persists the drop to the encrypted disk file.
-  runPushSubscriptionsDrop(sqlite);
+  runRetiredNotificationTablesDrop(sqlite);
 
   // Phase 89 Plan 01 — persist the new relay_room_sessions + admin_rooms
   // schema to the encrypted SQLite file. Same reason as the phase-75

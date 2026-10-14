@@ -76,7 +76,7 @@ vi.mock("@/api/service-secrets-api", () => ({
 // Notifications section gating — the modal probes GET /push-subscriptions/telegram
 // on open; any failure (403 when the user lacks notifications access) hides it.
 const { getTelegramStatusMock } = vi.hoisted(() => ({
-  getTelegramStatusMock: vi.fn<() => Promise<{ available: boolean; linked: boolean }>>(),
+  getTelegramStatusMock: vi.fn<() => Promise<{ setUp: boolean; linked: boolean }>>(),
 }));
 vi.mock("@/features/notifications/telegram-setup-api", async (importOriginal) => {
   const actual =
@@ -106,7 +106,7 @@ describe("PreferencesModal", () => {
     getMyPhoneMock.mockResolvedValue(null);
     getMyServiceSecretsMock.mockResolvedValue([]);
     setMyServiceSecretMock.mockResolvedValue(undefined);
-    getTelegramStatusMock.mockResolvedValue({ available: false, linked: false });
+    getTelegramStatusMock.mockResolvedValue({ setUp: false, linked: false });
   });
 
   afterEach(() => {
@@ -136,9 +136,9 @@ describe("PreferencesModal", () => {
     render(<PreferencesModal {...defaultProps} open={true} />);
     const notifBtn = await screen.findByTestId("preferences-nav-notifications");
     await user.click(notifBtn);
-    // Mocked status: no bot on this server → the pane says so.
+    // Mocked status: not set up → the pane shows the BotFather steps.
     expect(
-      await screen.findByTestId("preferences-telegram-unavailable"),
+      await screen.findByTestId("preferences-telegram-setup"),
     ).toBeTruthy();
   });
 
@@ -304,7 +304,7 @@ describe("PreferencesModal mobile drill-in", () => {
     vi.clearAllMocks();
     getMyPhoneMock.mockResolvedValue(null);
     getMyServiceSecretsMock.mockResolvedValue([]);
-    getTelegramStatusMock.mockResolvedValue({ available: false, linked: false });
+    getTelegramStatusMock.mockResolvedValue({ setUp: false, linked: false });
     // Below `sm` — the modal is fullscreen.
     window.matchMedia = vi.fn().mockImplementation((query: string) => ({
       matches: true,

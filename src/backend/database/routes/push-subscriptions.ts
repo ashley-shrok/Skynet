@@ -15,13 +15,16 @@ import type { NextFunction, Request, Response } from "express";
 import { databaseLogger } from "../../utils/logger.js";
 import { AuthManager } from "../../utils/auth-manager.js";
 import { userCanUseNotifications } from "../../notifications/notifications-access.js";
-import { getBotUsername, isTelegramConfigured } from "../../notifications/telegram-api.js";
+import { callTelegram } from "../../notifications/telegram-api.js";
 import {
   createLinkCode,
-  deleteLink,
-  getLink,
+  deleteBot,
+  findOtherUserWithBot,
+  getBot,
+  saveBot,
   setTitleOnly,
-} from "../../notifications/telegram-links.js";
+} from "../../notifications/telegram-bots.js";
+import { restartBotPoller, stopBotPoller } from "../../notifications/telegram-poller.js";
 import { sendTelegramToUser } from "../../notifications/telegram-sender.js";
 
 const router = express.Router();
@@ -46,52 +49,106 @@ export function requireNotificationsAccess(
 }
 
 // ---------------------------------------------------------------------------
-// Telegram notifications
+// Telegram notifications — each user sets up their own bot
 // ---------------------------------------------------------------------------
 //
-//   GET    /telegram       — status: {available, botUsername?, linked, telegramName?, titleOnly?}
-//   POST   /telegram/link  — mint a one-time link code → {url: "https://t.me/<bot>?start=<code>"}
+//   GET    /telegram       — status: {setUp, botUsername?, linked, telegramName?, titleOnly?}
+//   PUT    /telegram/bot   — {token} from @BotFather → validated, stored, poller started → status
+//   POST   /telegram/link  — one-time Start link for the user's bot → {url}
 //   POST   /telegram/test  — send a test notification → {ok} or {ok:false, error}
 //   PATCH  /telegram       — {titleOnly: boolean} → status
-//   DELETE /telegram       — unlink → status
+//   DELETE /telegram       — remove the user's whole Telegram setup → status
 //
-// The link itself is completed by the bot (telegram-poller.ts) when the user
-// taps Start; the pane polls GET /telegram until linked flips true.
+// The chat link itself is completed by the user's bot poller
+// (telegram-poller.ts) when they tap Start; the pane polls GET /telegram
+// until linked flips true.
 
 export interface TelegramStatusResponse {
-  available: boolean;
+  setUp: boolean;
   botUsername?: string;
   linked: boolean;
   telegramName?: string;
   titleOnly?: boolean;
 }
 
-export async function buildTelegramStatus(userId: string): Promise<TelegramStatusResponse> {
-  const botUsername = isTelegramConfigured() ? await getBotUsername() : null;
-  const link = getLink(userId);
+export function buildTelegramStatus(userId: string): TelegramStatusResponse {
+  const bot = getBot(userId);
+  if (!bot) return { setUp: false, linked: false };
   return {
-    available: botUsername !== null,
-    ...(botUsername ? { botUsername } : {}),
-    linked: link !== null,
-    ...(link ? { telegramName: link.telegramName, titleOnly: link.titleOnly } : {}),
+    setUp: true,
+    botUsername: bot.botUsername,
+    linked: bot.chatId !== null,
+    ...(bot.chatId ? { telegramName: bot.telegramName } : {}),
+    titleOnly: bot.titleOnly,
   };
 }
 
+/** BotFather tokens look like `123456789:AAH...` (digits, colon, 30+ url-safe chars). */
+const BOT_TOKEN_SHAPE = /^\d+:[A-Za-z0-9_-]{30,}$/;
+
 export async function handleGetTelegram(userId: string, res: Response): Promise<Response> {
-  return res.status(200).json(await buildTelegramStatus(userId));
+  return res.status(200).json(buildTelegramStatus(userId));
+}
+
+export async function handlePutTelegramBot(
+  userId: string,
+  body: unknown,
+  res: Response,
+): Promise<Response> {
+  const raw = (body as { token?: unknown } | undefined)?.token;
+  const token = typeof raw === "string" ? raw.trim() : "";
+  if (!BOT_TOKEN_SHAPE.test(token)) {
+    return res.status(400).json({
+      error: "That doesn't look like a bot token. Copy the whole token BotFather sent (it looks like 123456789:AA…).",
+    });
+  }
+
+  const me = await callTelegram<{ id: number; is_bot: boolean; username?: string }>(token, "getMe", {});
+  if (!me.ok || !me.result?.is_bot || !me.result.username) {
+    databaseLogger.warn("[telegram] bot token rejected", {
+      operation: "telegram_bot_token_rejected",
+      userId,
+      errorCode: me.errorCode,
+      description: me.description,
+    });
+    return res.status(400).json({
+      error:
+        me.errorCode === 401 || me.errorCode === 404
+          ? "Telegram didn't accept that token. Check you copied all of it, or ask BotFather for it again with /token."
+          : "Couldn't reach Telegram to check the token. Try again in a moment.",
+    });
+  }
+
+  const botId = String(me.result.id);
+  if (findOtherUserWithBot(botId, userId)) {
+    return res.status(409).json({
+      error: "That bot is already used by another Skynet account. Create a separate bot with /newbot.",
+    });
+  }
+
+  // A bot with a webhook set can't be long-polled; clear any.
+  await callTelegram(token, "deleteWebhook", { drop_pending_updates: false });
+  await saveBot(userId, token, botId, me.result.username);
+  restartBotPoller(userId);
+  databaseLogger.info("[telegram] bot saved", {
+    operation: "telegram_bot_saved",
+    userId,
+    botUsername: me.result.username,
+  });
+  return res.status(200).json(buildTelegramStatus(userId));
 }
 
 export async function handlePostTelegramLink(userId: string, res: Response): Promise<Response> {
-  const botUsername = isTelegramConfigured() ? await getBotUsername() : null;
-  if (!botUsername) {
-    return res.status(503).json({ error: "Telegram is not available on this server" });
+  const bot = getBot(userId);
+  if (!bot) {
+    return res.status(409).json({ error: "Set up your bot first" });
   }
   const code = createLinkCode(userId);
   databaseLogger.info("[telegram] link code issued", {
     operation: "telegram_link_code_issued",
     userId,
   });
-  return res.status(200).json({ url: `https://t.me/${botUsername}?start=${code}` });
+  return res.status(200).json({ url: `https://t.me/${bot.botUsername}?start=${code}` });
 }
 
 export async function handlePostTelegramTest(userId: string, res: Response): Promise<Response> {
@@ -105,11 +162,13 @@ export async function handlePostTelegramTest(userId: string, res: Response): Pro
   const error =
     result.reason === "send_failed"
       ? result.errorCode === 403
-        ? "Telegram refused — you may have blocked the bot. Disconnect and connect again."
-        : `Telegram error: ${result.description}`
+        ? "Telegram refused — you may have blocked your bot. Open it and tap Start again."
+        : result.errorCode === 401
+          ? "Your bot's token no longer works. Paste a new one from BotFather."
+          : `Telegram error: ${result.description}`
       : result.reason === "not_linked"
-        ? "Telegram is not connected"
-        : "Telegram is not available on this server";
+        ? "Open your bot and tap Start first"
+        : "Telegram isn't set up yet";
   return res.status(200).json({ ok: false, error });
 }
 
@@ -123,22 +182,32 @@ export async function handlePatchTelegram(
     return res.status(400).json({ error: "titleOnly must be a boolean" });
   }
   if (!(await setTitleOnly(userId, titleOnly))) {
-    return res.status(404).json({ error: "Telegram is not connected" });
+    return res.status(404).json({ error: "Telegram isn't set up" });
   }
-  return res.status(200).json(await buildTelegramStatus(userId));
+  return res.status(200).json(buildTelegramStatus(userId));
 }
 
 export async function handleDeleteTelegram(userId: string, res: Response): Promise<Response> {
-  await deleteLink(userId);
-  databaseLogger.info("[telegram] unlinked from preferences", {
-    operation: "telegram_link_deleted",
+  stopBotPoller(userId);
+  await deleteBot(userId);
+  databaseLogger.info("[telegram] setup removed", {
+    operation: "telegram_bot_deleted",
     userId,
   });
-  return res.status(200).json(await buildTelegramStatus(userId));
+  return res.status(200).json(buildTelegramStatus(userId));
 }
 
 router.get("/telegram", authenticateJWT, requireNotificationsAccess, async (req: Request, res: Response) =>
   handleGetTelegram((req as AuthenticatedRequest).userId, res),
+);
+
+router.put(
+  "/telegram/bot",
+  authenticateJWT,
+  requireNotificationsAccess,
+  express.json({ limit: "8kb" }),
+  async (req: Request, res: Response) =>
+    handlePutTelegramBot((req as AuthenticatedRequest).userId, req.body, res),
 );
 
 router.post("/telegram/link", authenticateJWT, requireNotificationsAccess, async (req: Request, res: Response) =>

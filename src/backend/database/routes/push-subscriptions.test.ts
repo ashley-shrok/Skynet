@@ -1,7 +1,7 @@
 /**
- * push-subscriptions — the notifications access gate and the Telegram
- * handlers (status, link, test, title-only, disconnect). Telegram modules are
- * mocked; handlers are called directly.
+ * push-subscriptions — the notifications access gate and the per-user
+ * Telegram handlers (status, save bot, link, test, title-only, remove).
+ * Telegram modules are mocked; handlers are called directly.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -19,21 +19,31 @@ vi.mock("../../utils/auth-manager.js", () => ({
   AuthManager: { getInstance: () => ({ createAuthMiddleware: () => vi.fn() }) },
 }));
 
-let configured = true;
-let botUsername: string | null = "skynet_test_bot";
+const callTelegram = vi.fn();
 vi.mock("../../notifications/telegram-api.js", () => ({
-  isTelegramConfigured: () => configured,
-  getBotUsername: async () => botUsername,
+  callTelegram: (...a: unknown[]) => callTelegram(...a),
 }));
 
-let link: { telegramName: string; titleOnly: boolean } | null = null;
+type Bot = { botUsername: string; chatId: string | null; telegramName: string; titleOnly: boolean };
+let bot: Bot | null = null;
+const saveBot = vi.fn();
 const setTitleOnly = vi.fn();
-const deleteLink = vi.fn();
-vi.mock("../../notifications/telegram-links.js", () => ({
+const deleteBot = vi.fn();
+let otherUser: string | null = null;
+vi.mock("../../notifications/telegram-bots.js", () => ({
   createLinkCode: () => "code123",
-  getLink: () => link,
+  getBot: () => bot,
+  findOtherUserWithBot: () => otherUser,
+  saveBot: (...a: unknown[]) => saveBot(...a),
   setTitleOnly: (...a: unknown[]) => setTitleOnly(...a),
-  deleteLink: (...a: unknown[]) => deleteLink(...a),
+  deleteBot: (...a: unknown[]) => deleteBot(...a),
+}));
+
+const restartBotPoller = vi.fn();
+const stopBotPoller = vi.fn();
+vi.mock("../../notifications/telegram-poller.js", () => ({
+  restartBotPoller: (...a: unknown[]) => restartBotPoller(...a),
+  stopBotPoller: (...a: unknown[]) => stopBotPoller(...a),
 }));
 
 const sendTelegramToUser = vi.fn();
@@ -47,6 +57,7 @@ import router, {
   handlePatchTelegram,
   handlePostTelegramLink,
   handlePostTelegramTest,
+  handlePutTelegramBot,
   requireNotificationsAccess,
 } from "./push-subscriptions.js";
 
@@ -67,50 +78,102 @@ function makeRes(): MockRes {
 }
 const asRes = (r: MockRes) => r as unknown as Response;
 
+const TOKEN = "123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw";
+const LINKED: Bot = { botUsername: "ash_bot", chatId: "555", telegramName: "@ash", titleOnly: false };
+
 beforeEach(() => {
   accessRows.clear();
-  configured = true;
-  botUsername = "skynet_test_bot";
-  link = null;
+  bot = null;
+  otherUser = null;
+  callTelegram.mockReset();
+  saveBot.mockReset().mockImplementation(async () => {
+    bot = { botUsername: "ash_bot", chatId: null, telegramName: "", titleOnly: false };
+  });
   setTitleOnly.mockReset();
-  deleteLink.mockReset();
+  deleteBot.mockReset().mockImplementation(async () => {
+    bot = null;
+  });
+  restartBotPoller.mockReset();
+  stopBotPoller.mockReset();
   sendTelegramToUser.mockReset();
 });
 
 describe("GET /telegram", () => {
-  it("reports available + not linked", async () => {
+  it("reports not set up", async () => {
     const res = makeRes();
     await handleGetTelegram("u1", asRes(res));
-    expect(res._body).toEqual({ available: true, botUsername: "skynet_test_bot", linked: false });
+    expect(res._body).toEqual({ setUp: false, linked: false });
   });
 
-  it("reports the link when present", async () => {
-    link = { telegramName: "@ash", titleOnly: true };
+  it("reports a bot waiting for Start", async () => {
+    bot = { ...LINKED, chatId: null };
     const res = makeRes();
     await handleGetTelegram("u1", asRes(res));
-    expect(res._body).toMatchObject({ linked: true, telegramName: "@ash", titleOnly: true });
+    expect(res._body).toEqual({ setUp: true, botUsername: "ash_bot", linked: false, titleOnly: false });
   });
 
-  it("reports unavailable when no bot is configured", async () => {
-    configured = false;
+  it("reports a linked chat", async () => {
+    bot = LINKED;
     const res = makeRes();
     await handleGetTelegram("u1", asRes(res));
-    expect(res._body).toEqual({ available: false, linked: false });
+    expect(res._body).toMatchObject({ setUp: true, linked: true, telegramName: "@ash" });
+  });
+});
+
+describe("PUT /telegram/bot", () => {
+  it("rejects something that isn't a token without calling Telegram", async () => {
+    const res = makeRes();
+    await handlePutTelegramBot("u1", { token: "hello" }, asRes(res));
+    expect(res._status).toBe(400);
+    expect(callTelegram).not.toHaveBeenCalled();
+  });
+
+  it("rejects a token Telegram doesn't accept", async () => {
+    callTelegram.mockResolvedValue({ ok: false, errorCode: 401, description: "Unauthorized" });
+    const res = makeRes();
+    await handlePutTelegramBot("u1", { token: TOKEN }, asRes(res));
+    expect(res._status).toBe(400);
+    expect((res._body as { error: string }).error).toMatch(/didn't accept/);
+    expect(saveBot).not.toHaveBeenCalled();
+  });
+
+  it("refuses a bot another account already uses", async () => {
+    callTelegram.mockResolvedValue({ ok: true, result: { id: 123456789, is_bot: true, username: "ash_bot" } });
+    otherUser = "u2";
+    const res = makeRes();
+    await handlePutTelegramBot("u1", { token: TOKEN }, asRes(res));
+    expect(res._status).toBe(409);
+    expect(saveBot).not.toHaveBeenCalled();
+  });
+
+  it("validates, clears any webhook, saves, and starts the poller", async () => {
+    callTelegram.mockImplementation(async (_t: string, method: string) =>
+      method === "getMe"
+        ? { ok: true, result: { id: 123456789, is_bot: true, username: "ash_bot" } }
+        : { ok: true, result: true },
+    );
+    const res = makeRes();
+    await handlePutTelegramBot("u1", { token: `  ${TOKEN}  ` }, asRes(res));
+    expect(callTelegram).toHaveBeenCalledWith(TOKEN, "getMe", {});
+    expect(callTelegram).toHaveBeenCalledWith(TOKEN, "deleteWebhook", { drop_pending_updates: false });
+    expect(saveBot).toHaveBeenCalledWith("u1", TOKEN, "123456789", "ash_bot");
+    expect(restartBotPoller).toHaveBeenCalledWith("u1");
+    expect(res._body).toMatchObject({ setUp: true, botUsername: "ash_bot", linked: false });
   });
 });
 
 describe("POST /telegram/link", () => {
-  it("returns a t.me deep link with the one-time code", async () => {
+  it("returns a Start link for the user's own bot", async () => {
+    bot = { ...LINKED, chatId: null };
     const res = makeRes();
     await handlePostTelegramLink("u1", asRes(res));
-    expect(res._body).toEqual({ url: "https://t.me/skynet_test_bot?start=code123" });
+    expect(res._body).toEqual({ url: "https://t.me/ash_bot?start=code123" });
   });
 
-  it("503s when the bot is unreachable", async () => {
-    botUsername = null;
+  it("409s before a bot is set up", async () => {
     const res = makeRes();
     await handlePostTelegramLink("u1", asRes(res));
-    expect(res._status).toBe(503);
+    expect(res._status).toBe(409);
   });
 });
 
@@ -122,11 +185,11 @@ describe("POST /telegram/test", () => {
     expect(res._body).toEqual({ ok: true });
   });
 
-  it("explains a blocked bot", async () => {
-    sendTelegramToUser.mockResolvedValue({ ok: false, reason: "send_failed", errorCode: 403, description: "Forbidden" });
+  it("explains a revoked token", async () => {
+    sendTelegramToUser.mockResolvedValue({ ok: false, reason: "send_failed", errorCode: 401, description: "Unauthorized" });
     const res = makeRes();
     await handlePostTelegramTest("u1", asRes(res));
-    expect(res._body).toMatchObject({ ok: false, error: expect.stringMatching(/blocked the bot/) });
+    expect(res._body).toMatchObject({ ok: false, error: expect.stringMatching(/token no longer works/) });
   });
 });
 
@@ -137,29 +200,22 @@ describe("PATCH /telegram", () => {
     expect(res._status).toBe(400);
   });
 
-  it("404s when not linked", async () => {
+  it("404s without a bot", async () => {
     setTitleOnly.mockResolvedValue(false);
     const res = makeRes();
     await handlePatchTelegram("u1", { titleOnly: true }, asRes(res));
     expect(res._status).toBe(404);
   });
-
-  it("updates title-only and returns status", async () => {
-    setTitleOnly.mockResolvedValue(true);
-    link = { telegramName: "@ash", titleOnly: true };
-    const res = makeRes();
-    await handlePatchTelegram("u1", { titleOnly: true }, asRes(res));
-    expect(setTitleOnly).toHaveBeenCalledWith("u1", true);
-    expect(res._body).toMatchObject({ linked: true, titleOnly: true });
-  });
 });
 
 describe("DELETE /telegram", () => {
-  it("unlinks and returns status", async () => {
+  it("stops the poller, removes the setup, returns not set up", async () => {
+    bot = LINKED;
     const res = makeRes();
     await handleDeleteTelegram("u1", asRes(res));
-    expect(deleteLink).toHaveBeenCalledWith("u1");
-    expect(res._body).toMatchObject({ linked: false });
+    expect(stopBotPoller).toHaveBeenCalledWith("u1");
+    expect(deleteBot).toHaveBeenCalledWith("u1");
+    expect(res._body).toEqual({ setUp: false, linked: false });
   });
 });
 
@@ -187,7 +243,7 @@ describe("requireNotificationsAccess", () => {
       stack: Array<{ route?: { stack: Array<{ handle: unknown }> } }>;
     }).stack;
     const routes = stack.filter((layer) => layer.route);
-    expect(routes.length).toBe(5);
+    expect(routes.length).toBe(6);
     for (const layer of routes) {
       expect(layer.route!.stack.map((l) => l.handle)).toContain(requireNotificationsAccess);
     }

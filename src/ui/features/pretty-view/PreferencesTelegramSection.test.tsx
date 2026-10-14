@@ -1,10 +1,12 @@
 /**
- * PreferencesTelegramSection — unavailable / connect / linked states, the
- * wait-for-Start poll, title-only toggle, test, and disconnect.
+ * PreferencesTelegramSection — the per-user flow: BotFather steps + token
+ * save, Open my bot + wait-for-Start poll, then linked controls (title-only,
+ * test, disconnect).
  */
 
 vi.mock("@/features/notifications/telegram-setup-api", () => ({
   getTelegramStatus: vi.fn(),
+  putTelegramBot: vi.fn(),
   postTelegramLink: vi.fn(),
   postTelegramTest: vi.fn(),
   patchTelegram: vi.fn(),
@@ -19,19 +21,19 @@ import {
   patchTelegram,
   postTelegramLink,
   postTelegramTest,
+  putTelegramBot,
 } from "@/features/notifications/telegram-setup-api";
 import { PreferencesTelegramSection } from "./PreferencesTelegramSection";
 
-const LINKED = { available: true, botUsername: "sky_bot", linked: true, telegramName: "@ash", titleOnly: false };
-const NOT_LINKED = { available: true, botUsername: "sky_bot", linked: false };
+const NOT_SET_UP = { setUp: false, linked: false };
+const AWAITING_START = { setUp: true, botUsername: "ash_bot", linked: false, titleOnly: false };
+const LINKED = { setUp: true, botUsername: "ash_bot", linked: true, telegramName: "@ash", titleOnly: false };
 
 beforeEach(() => {
-  vi.mocked(getTelegramStatus).mockReset();
-  vi.mocked(postTelegramLink).mockReset();
-  vi.mocked(postTelegramTest).mockReset();
-  vi.mocked(patchTelegram).mockReset();
-  vi.mocked(deleteTelegram).mockReset();
-  vi.mocked(postTelegramLink).mockResolvedValue({ url: "https://t.me/sky_bot?start=abc" });
+  for (const fn of [getTelegramStatus, putTelegramBot, postTelegramLink, postTelegramTest, patchTelegram, deleteTelegram]) {
+    vi.mocked(fn).mockReset();
+  }
+  vi.mocked(postTelegramLink).mockResolvedValue({ url: "https://t.me/ash_bot?start=abc" });
 });
 
 afterEach(() => {
@@ -40,36 +42,62 @@ afterEach(() => {
 });
 
 describe("PreferencesTelegramSection", () => {
-  it("says so when the server has no bot", async () => {
-    vi.mocked(getTelegramStatus).mockResolvedValue({ available: false, linked: false });
+  it("not set up: shows the BotFather steps and saves a pasted token", async () => {
+    vi.mocked(getTelegramStatus).mockResolvedValue(NOT_SET_UP);
+    vi.mocked(putTelegramBot).mockResolvedValue(AWAITING_START);
     render(<PreferencesTelegramSection />);
-    expect(await screen.findByTestId("preferences-telegram-unavailable")).toBeTruthy();
-    expect(postTelegramLink).not.toHaveBeenCalled();
+
+    const setup = await screen.findByTestId("preferences-telegram-setup");
+    expect(setup.textContent).toContain("/newbot");
+    expect(screen.getByText("@BotFather").getAttribute("href")).toBe("https://t.me/BotFather");
+
+    const save = screen.getByTestId("preferences-telegram-token-save") as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    fireEvent.change(screen.getByTestId("preferences-telegram-token-input"), {
+      target: { value: "  123:ABC  " },
+    });
+    fireEvent.click(save);
+
+    await waitFor(() => expect(putTelegramBot).toHaveBeenCalledWith("123:ABC"));
+    expect(await screen.findByTestId("preferences-telegram-awaiting-start")).toBeTruthy();
   });
 
-  it("shows a Connect link carrying the one-time code", async () => {
-    vi.mocked(getTelegramStatus).mockResolvedValue(NOT_LINKED);
+  it("shows why a token was rejected", async () => {
+    vi.mocked(getTelegramStatus).mockResolvedValue(NOT_SET_UP);
+    vi.mocked(putTelegramBot).mockRejectedValue(new Error("Telegram didn't accept that token."));
     render(<PreferencesTelegramSection />);
-    const link = await screen.findByTestId("preferences-telegram-connect");
-    expect(link.getAttribute("href")).toBe("https://t.me/sky_bot?start=abc");
-    expect(link.getAttribute("target")).toBe("_blank");
+    fireEvent.change(await screen.findByTestId("preferences-telegram-token-input"), {
+      target: { value: "123:bad" },
+    });
+    fireEvent.click(screen.getByTestId("preferences-telegram-token-save"));
+    expect((await screen.findByTestId("preferences-telegram-token-error")).textContent).toMatch(/didn't accept/);
   });
 
-  it("after Connect, polls until the link lands", async () => {
-    vi.mocked(getTelegramStatus).mockResolvedValueOnce(NOT_LINKED);
+  it("bot saved: Open my bot carries the one-time code, then polls until linked", async () => {
+    vi.mocked(getTelegramStatus).mockResolvedValueOnce(AWAITING_START);
     render(<PreferencesTelegramSection />);
-    const link = await screen.findByTestId("preferences-telegram-connect");
+    const open = await screen.findByTestId("preferences-telegram-open-bot");
+    expect(open.getAttribute("href")).toBe("https://t.me/ash_bot?start=abc");
+    expect(open.getAttribute("target")).toBe("_blank");
 
     vi.useFakeTimers();
     vi.mocked(getTelegramStatus).mockResolvedValue(LINKED);
-    fireEvent.click(link);
+    fireEvent.click(open);
     expect(screen.getByTestId("preferences-telegram-waiting")).toBeTruthy();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3_000);
     });
     vi.useRealTimers();
     expect(await screen.findByTestId("preferences-telegram-linked")).toBeTruthy();
-    expect(screen.queryByTestId("preferences-telegram-waiting")).toBeNull();
+  });
+
+  it("Use a different bot asks first, then returns to setup", async () => {
+    vi.mocked(getTelegramStatus).mockResolvedValue(AWAITING_START);
+    vi.mocked(deleteTelegram).mockResolvedValue(NOT_SET_UP);
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<PreferencesTelegramSection />);
+    fireEvent.click(await screen.findByTestId("preferences-telegram-use-different-bot"));
+    expect(await screen.findByTestId("preferences-telegram-setup")).toBeTruthy();
   });
 
   it("linked: shows the account, toggles title-only, sends a test", async () => {
@@ -78,7 +106,9 @@ describe("PreferencesTelegramSection", () => {
     vi.mocked(postTelegramTest).mockResolvedValue({ ok: true });
     render(<PreferencesTelegramSection />);
 
-    expect((await screen.findByTestId("preferences-telegram-linked")).textContent).toContain("@ash");
+    const linked = await screen.findByTestId("preferences-telegram-linked");
+    expect(linked.textContent).toContain("@ash");
+    expect(linked.textContent).toContain("@ash_bot");
 
     const toggle = screen.getByTestId("preferences-telegram-title-only") as HTMLInputElement;
     fireEvent.click(toggle);
@@ -97,9 +127,9 @@ describe("PreferencesTelegramSection", () => {
     expect((await screen.findByTestId("preferences-telegram-test-result")).textContent).toMatch(/boom/);
   });
 
-  it("disconnect asks first, then returns to the Connect state", async () => {
+  it("disconnect asks first, then returns to setup", async () => {
     vi.mocked(getTelegramStatus).mockResolvedValue(LINKED);
-    vi.mocked(deleteTelegram).mockResolvedValue(NOT_LINKED);
+    vi.mocked(deleteTelegram).mockResolvedValue(NOT_SET_UP);
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
     render(<PreferencesTelegramSection />);
 
@@ -107,7 +137,7 @@ describe("PreferencesTelegramSection", () => {
     expect(deleteTelegram).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByTestId("preferences-telegram-disconnect"));
-    expect(await screen.findByTestId("preferences-telegram-connect")).toBeTruthy();
+    expect(await screen.findByTestId("preferences-telegram-setup")).toBeTruthy();
     expect(confirmSpy).toHaveBeenCalledTimes(2);
   });
 });

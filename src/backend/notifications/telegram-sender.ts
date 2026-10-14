@@ -1,8 +1,8 @@
 /**
  * Telegram notification sender.
  *
- * Sends a DM notification to the user's linked Telegram chat as a bot
- * message, with an "Open in Skynet" button deep-linking to the conversation.
+ * Sends a DM notification to the user's linked Telegram chat through the
+ * user's own bot, with an "Open in Skynet" button deep-linking to the conversation.
  * The full text travels in the message itself, so delivery doesn't depend on
  * the phone fetching anything from this server afterwards.
  *
@@ -18,8 +18,8 @@
 import { databaseLogger } from "../utils/logger.js";
 import { userCanUseNotifications } from "./notifications-access.js";
 import { buildClickUrl, type PushPayload } from "./notification-payload.js";
-import { callTelegram, getSkynetPublicUrl, isTelegramConfigured } from "./telegram-api.js";
-import { getLink } from "./telegram-links.js";
+import { callTelegram, getSkynetPublicUrl } from "./telegram-api.js";
+import { getBot } from "./telegram-bots.js";
 
 const MAX_ATTEMPTS = 3;
 const BACKOFF_MS = [1_000, 3_000];
@@ -32,7 +32,7 @@ export interface TelegramSendResult {
   messageId?: number;
   attempts?: number;
   /** When !ok. errorCode/description accompany "send_failed". */
-  reason?: "not_configured" | "no_access" | "not_linked" | "send_failed";
+  reason?: "no_bot" | "no_access" | "not_linked" | "send_failed";
   errorCode?: number;
   description?: string;
 }
@@ -76,26 +76,15 @@ export async function sendTelegramToUser(
   userId: string,
   payload: PushPayload,
 ): Promise<TelegramSendResult> {
-  if (!isTelegramConfigured()) return { ok: false, reason: "not_configured" };
   if (!userCanUseNotifications(userId)) return { ok: false, reason: "no_access" };
-
-  let link;
-  try {
-    link = getLink(userId);
-  } catch (err) {
-    databaseLogger.warn("[telegram] link lookup failed", {
-      operation: "telegram_link_lookup_failed",
-      userId,
-      error: err instanceof Error ? err.message : "unknown",
-    });
-    return { ok: false, reason: "send_failed", errorCode: 0, description: "link lookup failed" };
-  }
-  if (!link) return { ok: false, reason: "not_linked" };
+  const bot = getBot(userId);
+  if (!bot) return { ok: false, reason: "no_bot" };
+  if (!bot.chatId) return { ok: false, reason: "not_linked" };
 
   const openUrl = buildOpenUrl(payload);
   const params: Record<string, unknown> = {
-    chat_id: link.chatId,
-    text: buildTelegramText(payload, link.titleOnly),
+    chat_id: bot.chatId,
+    text: buildTelegramText(payload, bot.titleOnly),
     parse_mode: "HTML",
     link_preview_options: { is_disabled: true },
   };
@@ -108,7 +97,7 @@ export async function sendTelegramToUser(
   let lastCode = 0;
   let lastDescription = "";
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    const res = await callTelegram<{ message_id: number }>("sendMessage", params);
+    const res = await callTelegram<{ message_id: number }>(bot.token, "sendMessage", params);
     if (res.ok) {
       databaseLogger.info("[telegram] notification sent", {
         operation: "telegram_send_ok",
@@ -147,8 +136,12 @@ export async function sendTelegramToUser(
     agentMxid: payload.agentMxid,
     errorCode: lastCode,
     description: lastDescription,
-    // 403 = the user blocked the bot or deleted the chat; they need to re-link.
-    hint: lastCode === 403 ? "user blocked the bot — re-link from Preferences" : undefined,
+    hint:
+      lastCode === 403
+        ? "user blocked their bot — reconnect from Preferences"
+        : lastCode === 401
+          ? "bot token revoked — user must paste a new one in Preferences"
+          : undefined,
   });
   return { ok: false, reason: "send_failed", errorCode: lastCode, description: lastDescription };
 }

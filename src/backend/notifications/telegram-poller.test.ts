@@ -1,6 +1,6 @@
 /**
- * telegram-poller — /start <code> linking, /stop, ignored chats, and update
- * offset handling. callTelegram and the link store are mocked.
+ * telegram-poller — per-user /start <code> linking, /stop, ignored chats,
+ * and update offset handling. callTelegram and the bot store are mocked.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -8,25 +8,27 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const callTelegram = vi.fn();
 vi.mock("./telegram-api.js", () => ({
   callTelegram: (...args: unknown[]) => callTelegram(...args),
-  isTelegramConfigured: () => true,
 }));
 
 const consumeLinkCode = vi.fn();
-const saveLink = vi.fn();
-const deleteLink = vi.fn();
-const getUserIdsForChat = vi.fn();
-vi.mock("./telegram-links.js", () => ({
+const linkChat = vi.fn();
+const unlinkChat = vi.fn();
+let bot: { chatId: string | null } | null = null;
+vi.mock("./telegram-bots.js", () => ({
   consumeLinkCode: (...a: unknown[]) => consumeLinkCode(...a),
-  saveLink: (...a: unknown[]) => saveLink(...a),
-  deleteLink: (...a: unknown[]) => deleteLink(...a),
-  getUserIdsForChat: (...a: unknown[]) => getUserIdsForChat(...a),
+  linkChat: (...a: unknown[]) => linkChat(...a),
+  unlinkChat: (...a: unknown[]) => unlinkChat(...a),
+  getBot: () => bot,
+  loadAllBots: async () => [],
 }));
 
 vi.mock("../utils/logger.js", () => ({
   systemLogger: { warn: vi.fn(), info: vi.fn(), error: vi.fn() },
 }));
 
-import { _resetPollerForTests, displayNameOf, handleUpdate, pollOnce } from "./telegram-poller.js";
+import { _resetPollersForTests, displayNameOf, handleUpdate, pollOnce } from "./telegram-poller.js";
+
+const TOKEN = "111:AAAA";
 
 function update(text: string, opts: { id?: number; chatType?: string } = {}) {
   return {
@@ -41,81 +43,87 @@ function update(text: string, opts: { id?: number; chatType?: string } = {}) {
 
 function repliesSent(): string[] {
   return callTelegram.mock.calls
-    .filter(([method]) => method === "sendMessage")
-    .map(([, params]) => (params as { text: string }).text);
+    .filter(([, method]) => method === "sendMessage")
+    .map(([, , params]) => (params as { text: string }).text);
 }
 
 beforeEach(() => {
-  _resetPollerForTests();
+  _resetPollersForTests();
   callTelegram.mockReset();
   callTelegram.mockResolvedValue({ ok: true, result: {} });
   consumeLinkCode.mockReset();
-  saveLink.mockReset();
-  deleteLink.mockReset();
-  getUserIdsForChat.mockReset();
+  linkChat.mockReset();
+  unlinkChat.mockReset();
+  bot = { chatId: null };
 });
 
 describe("handleUpdate", () => {
-  it("links the chat on /start with a valid code", async () => {
-    consumeLinkCode.mockReturnValue("u1");
-    await handleUpdate(update("/start abc123"));
-    expect(consumeLinkCode).toHaveBeenCalledWith("abc123");
-    expect(saveLink).toHaveBeenCalledWith("u1", "555", "@ash");
+  it("links the chat on /start with this user's code, replying through their bot", async () => {
+    consumeLinkCode.mockReturnValue(true);
+    await handleUpdate("u1", TOKEN, update("/start abc123"));
+    expect(consumeLinkCode).toHaveBeenCalledWith("abc123", "u1");
+    expect(linkChat).toHaveBeenCalledWith("u1", "555", "@ash");
+    expect(callTelegram.mock.calls[0][0]).toBe(TOKEN);
     expect(repliesSent()[0]).toMatch(/^Connected/);
   });
 
-  it("refuses an expired code without linking", async () => {
-    consumeLinkCode.mockReturnValue(null);
-    await handleUpdate(update("/start stale"));
-    expect(saveLink).not.toHaveBeenCalled();
+  it("refuses an expired or foreign code without linking", async () => {
+    consumeLinkCode.mockReturnValue(false);
+    await handleUpdate("u1", TOKEN, update("/start stale"));
+    expect(linkChat).not.toHaveBeenCalled();
     expect(repliesSent()[0]).toMatch(/expired/);
   });
 
   it("explains how to connect on a bare /start", async () => {
-    await handleUpdate(update("/start"));
+    await handleUpdate("u1", TOKEN, update("/start"));
     expect(consumeLinkCode).not.toHaveBeenCalled();
-    expect(repliesSent()[0]).toMatch(/Connect Telegram/);
+    expect(repliesSent()[0]).toMatch(/Open my bot/);
   });
 
-  it("/stop unlinks every user on the chat", async () => {
-    getUserIdsForChat.mockReturnValue(["u1", "u2"]);
-    await handleUpdate(update("/stop"));
-    expect(deleteLink).toHaveBeenCalledWith("u1");
-    expect(deleteLink).toHaveBeenCalledWith("u2");
+  it("/stop unlinks when this is the linked chat", async () => {
+    bot = { chatId: "555" };
+    await handleUpdate("u1", TOKEN, update("/stop"));
+    expect(unlinkChat).toHaveBeenCalledWith("u1");
     expect(repliesSent()[0]).toMatch(/^Disconnected/);
   });
 
+  it("/stop from some other chat changes nothing", async () => {
+    bot = { chatId: "999" };
+    await handleUpdate("u1", TOKEN, update("/stop"));
+    expect(unlinkChat).not.toHaveBeenCalled();
+    expect(repliesSent()[0]).toMatch(/isn't connected/);
+  });
+
   it("ignores group chats", async () => {
-    consumeLinkCode.mockReturnValue("u1");
-    await handleUpdate(update("/start abc", { chatType: "group" }));
+    await handleUpdate("u1", TOKEN, update("/start abc", { chatType: "group" }));
     expect(consumeLinkCode).not.toHaveBeenCalled();
     expect(callTelegram).not.toHaveBeenCalled();
   });
 
   it("answers other text with a pointer back to Skynet", async () => {
-    await handleUpdate(update("hello"));
+    await handleUpdate("u1", TOKEN, update("hello"));
     expect(repliesSent()[0]).toMatch(/reply to agents in Skynet/);
   });
 });
 
 describe("pollOnce", () => {
   it("advances the offset past processed updates", async () => {
-    callTelegram.mockImplementation(async (method: string) =>
+    callTelegram.mockImplementation(async (_t: string, method: string) =>
       method === "getUpdates"
         ? { ok: true, result: [update("hi", { id: 10 }), update("hi", { id: 11 })] }
         : { ok: true, result: {} },
     );
-    expect(await pollOnce()).toBe(true);
-    callTelegram.mockResolvedValue({ ok: true, result: [] });
-    await pollOnce();
-    const getUpdatesCalls = callTelegram.mock.calls.filter(([m]) => m === "getUpdates");
-    expect(getUpdatesCalls[0][1]).toMatchObject({ offset: 0 });
-    expect(getUpdatesCalls[1][1]).toMatchObject({ offset: 12 });
+    const state = { generation: 1, offset: 0 };
+    expect(await pollOnce("u1", TOKEN, state)).toBe(true);
+    expect(state.offset).toBe(12);
+    expect(callTelegram.mock.calls[0]).toEqual(
+      expect.arrayContaining([TOKEN, "getUpdates", expect.objectContaining({ offset: 0 })]),
+    );
   });
 
   it("reports failure so the loop backs off", async () => {
     callTelegram.mockResolvedValue({ ok: false, errorCode: 409, description: "Conflict" });
-    expect(await pollOnce()).toBe(false);
+    expect(await pollOnce("u1", TOKEN, { generation: 1, offset: 0 })).toBe(false);
   });
 });
 

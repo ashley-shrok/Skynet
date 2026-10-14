@@ -962,15 +962,18 @@ crown, then gear.
     *After a pause* (default — three seconds of silence) or *When I say a
     phrase* (silence never sends; ending with the phrase does — "send it"
     by default, editable). Follows the user's account across devices.
-  - **Notifications** — phone notifications through Telegram.
-    **Connect Telegram** opens the server's Skynet bot in
-    Telegram; tapping **Start** there links that chat (the pane notices
-    within a few seconds). Once linked it shows the Telegram account, an
-    **Only show who messaged, not the message text** checkbox, **Send test
-    notification**, and **Disconnect**; sending `/stop` to the bot also
-    disconnects. Each notification is a bot message with an **Open in
-    Skynet** button. If the server has no bot configured, the pane says
-    so and an admin needs to add one. No desktop push.
+  - **Notifications** — phone notifications through the user's OWN
+    Telegram bot; each user sets theirs up here, nothing server-side. The
+    pane walks them through it: open @BotFather in Telegram, send
+    `/newbot`, pick a name and a username ending in `bot`, then paste the
+    token BotFather sends and tap **Save** (Skynet checks it with Telegram
+    first). Then **Open my bot** → tap **Start** in Telegram links the chat
+    (the pane notices within a few seconds); **Use a different bot** starts
+    over. Once linked it shows the Telegram account, an **Only show who
+    messaged, not the message text** checkbox, **Send test notification**,
+    and **Disconnect** (removes the whole setup); sending `/stop` to the
+    bot unlinks the chat but keeps the bot. Each notification is a message
+    from their bot with an **Open in Skynet** button. No desktop push.
   - **Log out** — signs the user out of the app. Pinned to the bottom of
     the modal's section list.
 
@@ -1151,7 +1154,7 @@ scaffolding, teardown, templates, and behavior.*
 
 The user has her own relay account, and it appears in the same Matrix
 homeserver as agent relay accounts. If you DM the user's relay account
-directly and she has connected Telegram under
+directly and she has set up Telegram under
 Preferences → Notifications, she gets a notification on her phone.
 Desktop push is not available.
 

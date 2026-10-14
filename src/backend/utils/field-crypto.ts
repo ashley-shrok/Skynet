@@ -48,6 +48,9 @@ class FieldCrypto {
     // because matrix-admin-creds-store.ts calls encryptField/decryptField
     // with fieldName="access_token" / "password" against the DB rows.
     matrix_admin_creds: new Set(["access_token", "password"]),
+    // Per-user Telegram bot tokens, encrypted with the SYSTEM key so the
+    // push-trigger loop can send while the user is logged out.
+    telegram_bots: new Set(["bot_token"]),
   };
 
   static encryptField(

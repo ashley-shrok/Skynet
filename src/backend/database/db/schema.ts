@@ -894,19 +894,23 @@ export const relayRoomSessions = sqliteTable("relay_room_sessions", {
     .default(sql`CURRENT_TIMESTAMP`),
 });
 
-// Telegram notifications — one linked chat per user. chat_id plaintext by
-// design (sends happen while the user's data key may be locked). DDL lives
-// in db/index.ts.
-export const telegramLinks = sqliteTable("telegram_links", {
+// Telegram notifications — each user's own bot. bot_token is encrypted with
+// the system key (sends happen while the user's data key may be locked).
+// DDL lives in db/index.ts.
+export const telegramBots = sqliteTable("telegram_bots", {
   userId: text("user_id")
     .primaryKey()
     .references(() => users.id, { onDelete: "cascade" }),
-  chatId: text("chat_id").notNull(),
+  botToken: text("bot_token").notNull(),
+  botId: text("bot_id").notNull().unique(),
+  botUsername: text("bot_username").notNull(),
+  chatId: text("chat_id"),
   telegramName: text("telegram_name").notNull().default(""),
   titleOnly: integer("title_only").notNull().default(0),
-  linkedAt: text("linked_at")
+  createdAt: text("created_at")
     .notNull()
     .default(sql`CURRENT_TIMESTAMP`),
+  linkedAt: text("linked_at"),
 });
 
 // Phase 89 Plan 01 (D-16) — admin_rooms: Skynet-instance-owned internal

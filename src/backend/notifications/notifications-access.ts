@@ -4,9 +4,9 @@
  * Push notifications are opt-in per user: `users.notifications_enabled`
  * defaults to 0, and admins always pass. Checked at two layers:
  *   - the /push-subscriptions/telegram routes, and
- *   - sendTelegramToUser at send time, so a user who linked Telegram and
+ *   - sendTelegramToUser at send time, so a user who set up Telegram and
  *     later lost the flag (and isn't an admin) stops receiving notifications
- *     even though their telegram_links row still exists.
+ *     even though their telegram_bots row still exists.
  *
  * Read live from the DB on every call (not from the JWT) so revocation takes
  * effect immediately.
