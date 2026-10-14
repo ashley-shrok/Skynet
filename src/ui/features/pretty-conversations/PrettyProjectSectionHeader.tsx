@@ -4,9 +4,9 @@
 // the inline SquarePen new-conversation button + the right-click/long-press
 // context menu are both retired and all four section-scoped actions move into
 // a single kebab menu:
+//   - Open project (opens the project modal)
 //   - New conversation in this project
 //   - Rename project
-//   - Edit project file
 //   - Archive project (danger)
 // Kebab reveal discipline (consumer-side, not in the shared RowKebabMenu
 // primitive): hover-reveal on desktop via group/group-hover + group-focus-within
@@ -114,7 +114,8 @@ export interface PrettyProjectSectionHeaderProps {
    * that don't exercise every action.
    */
   onRenameProject?: (slug: string, currentDisplayName: string) => void;
-  onEditProjectFile?: (slug: string) => void;
+  /** Opens the project modal (Project file + Files tabs). */
+  onOpenProject?: (slug: string) => void;
   onArchiveProject?: (slug: string) => void;
 }
 
@@ -139,7 +140,7 @@ export function PrettyProjectSectionHeader({
   onDropRow,
   resolveBadgeDrop,
   onRenameProject,
-  onEditProjectFile,
+  onOpenProject,
   onArchiveProject,
 }: PrettyProjectSectionHeaderProps) {
   const [isDragOver, setIsDragOver] = useState(false);
@@ -221,9 +222,16 @@ export function PrettyProjectSectionHeader({
   };
 
   // Assemble the kebab items — four actions, each wiring an item onClick to
-  // the per-action callback prop. Order follows the standard pattern (primary
-  // positive action first, destructive last).
+  // the per-action callback prop. Order: open the project first, then the
+  // positive actions, destructive last.
   const kebabItems = [
+    ...(onOpenProject
+      ? [{
+          label: "Open project",
+          onClick: () => onOpenProject(slug),
+          testId: `pv-project-section-kebab-open-${slug}`,
+        }]
+      : []),
     {
       label: "New conversation in this project",
       onClick: () => onNewConversationClick(slug),
@@ -234,13 +242,6 @@ export function PrettyProjectSectionHeader({
           label: "Rename project",
           onClick: () => onRenameProject(slug, displayName),
           testId: `pv-project-section-kebab-rename-${slug}`,
-        }]
-      : []),
-    ...(onEditProjectFile
-      ? [{
-          label: "Edit project file",
-          onClick: () => onEditProjectFile(slug),
-          testId: `pv-project-section-kebab-edit-${slug}`,
         }]
       : []),
     ...(onArchiveProject

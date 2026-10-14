@@ -1144,3 +1144,162 @@ describe("Multer memoryStorage (Pitfall 6)", () => {
     expect(stubSftp.createWriteStream).toHaveBeenCalled();
   });
 });
+
+/* --------------------------------------------------------------------- */
+/*  Project target + reserved root file (project.md / <role>.md)          */
+/* --------------------------------------------------------------------- */
+
+describe("project target and reserved root file", () => {
+  /** "." resolves to the home dir; `links` maps a path to its symlink target. */
+  function stubHome(links: Record<string, string> = {}) {
+    stubSftp.realpath.mockImplementation(
+      (p: string, cb: (err: Error | null, resolved: string) => void) => {
+        queueMicrotask(() => cb(null, p === "." ? "/home/ubuntu" : (links[p] ?? p)));
+      },
+    );
+  }
+
+  function postJson(method: string, path: string, body: Record<string, unknown>) {
+    return httpRequest(server, { method, path, body: JSON.stringify(body) });
+  }
+
+  function upload(fields: Record<string, string>, filename: string) {
+    const boundary = "----ReservedBoundary";
+    const body = buildMultipart(boundary, fields, "file", Buffer.from("x"), filename);
+    return new Promise<{ status: number; body: unknown }>((resolve, reject) => {
+      const { port } = server.address() as AddressInfo;
+      const req = http.request(
+        {
+          hostname: "127.0.0.1",
+          port,
+          method: "POST",
+          path: "/workspace/upload",
+          headers: {
+            "Content-Type": `multipart/form-data; boundary=${boundary}`,
+            "Content-Length": String(body.byteLength),
+          },
+        },
+        (res) => {
+          let data = "";
+          res.on("data", (chunk: Buffer) => (data += chunk.toString()));
+          res.on("end", () => resolve({ status: res.statusCode ?? 0, body: JSON.parse(data) }));
+        },
+      );
+      req.on("error", reject);
+      req.write(body);
+      req.end();
+    });
+  }
+
+  const project = { kind: "project", projectSlug: "launch", hostId: 42 };
+
+  it("lists ~/fleet/projects/<slug> for kind='project'", async () => {
+    stubHome();
+    const res = await postJson("POST", "/workspace/list", { ...project, relativePath: "" });
+    expect(res.status).toBe(200);
+    expect(stubSftp.readdir.mock.calls[0][0]).toBe("/home/ubuntu/fleet/projects/launch");
+  });
+
+  it("rejects a bad project slug and the archive folder before touching the host", async () => {
+    for (const projectSlug of ["../../etc", "archive", "Bad Slug"]) {
+      const res = await postJson("POST", "/workspace/list", { ...project, projectSlug, relativePath: "" });
+      expect(res.status).toBe(400);
+      expect(res.body).toEqual({ error: "invalid_project_slug" });
+    }
+    const missing = await postJson("POST", "/workspace/list", { kind: "project", hostId: 42 });
+    expect(missing.body).toEqual({ error: "invalid_body" });
+    expect(resolveHostById).not.toHaveBeenCalled();
+  });
+
+  it("write-file onto project.md at the root → 409 reserved_file, nothing written", async () => {
+    stubHome();
+    for (const relativePath of ["project.md", "./project.md", "/project.md"]) {
+      const res = await postJson("PUT", "/workspace/write-file", { ...project, relativePath, content: "x" });
+      expect(res.status).toBe(409);
+      expect(res.body).toEqual({ error: "reserved_file" });
+    }
+    expect(stubSftp.createWriteStream).not.toHaveBeenCalled();
+  });
+
+  it("write-file to project.md inside a subfolder is allowed", async () => {
+    stubHome();
+    const res = await postJson("PUT", "/workspace/write-file", { ...project, relativePath: "notes/project.md", content: "x" });
+    expect(res.status).toBe(200);
+  });
+
+  it("write-file through a symlink that points at project.md → 409", async () => {
+    stubHome({ "/home/ubuntu/fleet/projects/launch/alias.md": "/home/ubuntu/fleet/projects/launch/project.md" });
+    const res = await postJson("PUT", "/workspace/write-file", { ...project, relativePath: "alias.md", content: "x" });
+    expect(res.status).toBe(409);
+    expect(stubSftp.createWriteStream).not.toHaveBeenCalled();
+  });
+
+  it("delete of project.md → 409, nothing unlinked", async () => {
+    stubHome();
+    const res = await postJson("DELETE", "/workspace/entry", { ...project, relativePath: "project.md" });
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ error: "reserved_file" });
+    expect(stubSftp.unlink).not.toHaveBeenCalled();
+  });
+
+  it("rename onto or away from project.md → 409, nothing renamed", async () => {
+    stubHome();
+    const onto = await postJson("POST", "/workspace/rename", { ...project, from: "draft.md", to: "project.md" });
+    const away = await postJson("POST", "/workspace/rename", { ...project, from: "project.md", to: "old.md" });
+    expect(onto.status).toBe(409);
+    expect(away.status).toBe(409);
+    expect(stubSftp.rename).not.toHaveBeenCalled();
+    expect(stubSftp.ext_openssh_rename).not.toHaveBeenCalled();
+  });
+
+  it("create-file and mkdir named project.md at the root → 409", async () => {
+    stubHome();
+    const file = await postJson("POST", "/workspace/create-file", { ...project, relativePath: "project.md" });
+    const dir = await postJson("POST", "/workspace/mkdir", { ...project, relativePath: "project.md" });
+    expect(file.body).toEqual({ error: "reserved_file" });
+    expect(dir.body).toEqual({ error: "reserved_file" });
+    expect(stubSftp.mkdir).not.toHaveBeenCalled();
+  });
+
+  it("upload named project.md at the root → 409", async () => {
+    stubHome();
+    const res = await upload({ kind: "project", projectSlug: "launch", hostId: "42", relativePath: "project.md" }, "project.md");
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ error: "reserved_file" });
+    expect(stubSftp.createWriteStream).not.toHaveBeenCalled();
+  });
+
+  it("matches the reserved name case-insensitively (case-insensitive host filesystems)", async () => {
+    stubHome();
+    const res = await postJson("PUT", "/workspace/write-file", { ...project, relativePath: "PROJECT.md", content: "x" });
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ error: "reserved_file" });
+  });
+
+  it("renaming the folder root itself is refused", async () => {
+    stubHome();
+    const res = await postJson("POST", "/workspace/rename", { ...project, from: "", to: "moved" });
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: "path_traversal" });
+    expect(stubSftp.rename).not.toHaveBeenCalled();
+    expect(stubSftp.ext_openssh_rename).not.toHaveBeenCalled();
+  });
+
+  it("the role file is reserved the same way in a role folder", async () => {
+    stubHome();
+    const role = { kind: "role", roleSlug: "box-maintainer", hostId: 42 };
+    const write = await postJson("PUT", "/workspace/write-file", { ...role, relativePath: "box-maintainer.md", content: "x" });
+    const del = await postJson("DELETE", "/workspace/entry", { ...role, relativePath: "box-maintainer.md" });
+    const up = await upload({ kind: "role", roleSlug: "box-maintainer", hostId: "42", relativePath: "box-maintainer.md" }, "box-maintainer.md");
+    expect([write.status, del.status, up.status]).toEqual([409, 409, 409]);
+    // project.md is an ordinary file in a role folder.
+    const other = await postJson("PUT", "/workspace/write-file", { ...role, relativePath: "project.md", content: "x" });
+    expect(other.status).toBe(200);
+  });
+
+  it("identity workspaces reserve nothing", async () => {
+    stubHome();
+    const res = await postJson("PUT", "/workspace/write-file", { identityKey: "echo", hostId: 42, relativePath: "project.md", content: "x" });
+    expect(res.status).toBe(200);
+  });
+});

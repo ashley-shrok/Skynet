@@ -45,7 +45,7 @@ import type { TabState } from "./IdentityFileTab";
 //
 // Close/draft-guard: any dirty tab AND !mid-save fires window.confirm
 // ("Discard unsaved changes?"). savingRef bypasses on save-success closes
-// (same pattern as EditableFileModal / ProjectFileModal).
+// (same pattern as EditableFileModal / ProjectModal).
 //
 // Delete-file affordance stays inside SkillFileTab (Trash2 next to Save
 // slot). Delete-runbook lives in the head actions slot (Trash2 next to

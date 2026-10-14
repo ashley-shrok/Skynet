@@ -158,10 +158,10 @@ import { PrettyProjectSectionHeader, type PrettyProjectDropPayload } from "./Pre
 // "Create project" button; on 200 fires onCreated with the backend-echoed
 // slug (D-25 backend-authoritative slugify per Pitfall 1).
 import { CreateProjectModal } from "./CreateProjectModal";
-// Phase 117 followup — ProjectFileModal, opened from the section-header
-// context menu's "Edit project file" item. Wired below in
-// handleEditProjectFile / mounted alongside the other project modals.
-import { ProjectFileModal } from "./ProjectFileModal";
+// ProjectModal (Project file + Files tabs), opened from the section-header
+// kebab's "Open project" item. Wired below in handleOpenProject / mounted
+// alongside the other project modals.
+import { ProjectModal } from "./ProjectModal";
 // Phase 122 Plan 03 Task 3 — ConversationSearchModal: opened via the
 // header magnifying-glass button below (first child of .pv-header-actions).
 // The modal owns its query + results store (module-scoped search-store) so
@@ -1910,15 +1910,15 @@ export function PrettyConversationsPanel({
   // Phase 117 Plan 117-09 Task 2 (D-14) — per-section context menu state
   // RETIRED by shape-sidebar-header-affordances. Right-click + long-press on
   // the project section header are retired; the four section-scoped actions
-  // (new conversation, rename, edit project file, archive project) now live
+  // (open project, new conversation, rename, archive project) now live
   // in the section header's RowKebabMenu, which calls the per-action handlers
   // directly without an intermediate coord-based menu-open state.
 
-  // Phase 117 followup — ProjectFileModal open state. Populated when the user
-  // clicks "Edit project file" in the section context menu (handleEditProject
-  // File below); reset when the modal dismisses. hostId is resolved from
-  // projectsList at click time so the modal endpoints hit the correct host.
-  const [projectFileModal, setProjectFileModal] = useState<
+  // ProjectModal open state. Populated when the user clicks "Open project"
+  // in the section kebab (handleOpenProject below); reset when the modal
+  // dismisses. hostId is resolved from projectsList at click time so the
+  // modal endpoints hit the correct host.
+  const [projectModal, setProjectModal] = useState<
     | { slug: string; displayName: string; hostId: number }
     | null
   >(null);
@@ -2643,24 +2643,23 @@ export function PrettyConversationsPanel({
 
   // Phase 117 Plan 117-09 Task 2 (D-14) — handleSectionContextMenu RETIRED
   // by shape-sidebar-header-affordances. The project header's RowKebabMenu
-  // calls handleRenameProject / handleEditProjectFile / handleArchiveProject
+  // calls handleOpenProject / handleRenameProject / handleArchiveProject
   // directly; the coord-based projectContextMenu middleman is gone.
 
-  // Phase 117 Plan 117-09 Task 2 (D-14) — "Edit project file" menu item.
-  // Followup wire (Phase 117 tail): resolve the project's host from
-  // projectsList (same lookup pattern as handleArchiveProject above — projects
-  // live under a specific host's ~/fleet/projects/ tree per D-01) and open
-  // the ProjectFileModal. If the slug isn't in projectsList (should never
-  // happen — the menu opens from a rendered section header), log a warning
-  // and no-op rather than silently opening against an ambiguous host.
-  const handleEditProjectFile = useCallback(
+  // "Open project" menu item: resolve the project's host from projectsList
+  // (same lookup pattern as handleArchiveProject above — projects live under a
+  // specific host's ~/fleet/projects/ tree per D-01) and open the
+  // ProjectModal. If the slug isn't in projectsList (should never happen —
+  // the menu opens from a rendered section header), log a warning and no-op
+  // rather than silently opening against an ambiguous host.
+  const handleOpenProject = useCallback(
     (slug: string, hostId?: string) => {
       const proj = findProject(slug, hostId);
       const projHostIdNum = proj ? parseInt(proj.hostId, 10) : NaN;
       if (!proj || !(Number.isFinite(projHostIdNum) && projHostIdNum > 0)) {
         // eslint-disable-next-line no-console
         console.warn({
-          operation: "edit_project_file_no_host",
+          operation: "open_project_no_host",
           slug,
           reason: proj
             ? "project host invalid"
@@ -2668,7 +2667,7 @@ export function PrettyConversationsPanel({
         });
         return;
       }
-      setProjectFileModal({
+      setProjectModal({
         slug,
         displayName: proj.displayName,
         hostId: projHostIdNum,
@@ -3206,7 +3205,7 @@ export function PrettyConversationsPanel({
                     onDropRow={handleProjectDrop}
                     resolveBadgeDrop={resolveBadgeDrop}
                     onRenameProject={(s, name) => handleRenameProject(s, name, section.hostId)}
-                    onEditProjectFile={(s) => handleEditProjectFile(s, section.hostId)}
+                    onOpenProject={(s) => handleOpenProject(s, section.hostId)}
                     onArchiveProject={(s) => { void handleArchiveProject(s, section.hostId); }}
                     rows={
                       section.rows.length === 0 ? (
@@ -3889,26 +3888,25 @@ export function PrettyConversationsPanel({
           hidden
         />
       )}
-      {/* Phase 117 followup — ProjectFileModal wired to the section-header
-          context menu's "Edit project file" item. State carries {slug,
-          displayName, hostId} at open time (resolved from projectsList in
-          handleEditProjectFile). onOpenChange(false) clears the state so a
-          re-open shows the loading skeleton rather than stale content. */}
-      {projectFileModal !== null && (
-        <ProjectFileModal
+      {/* ProjectModal wired to the section-header kebab's "Open project"
+          item. State carries {slug, displayName, hostId} at open time
+          (resolved from projectsList in handleOpenProject). onOpenChange(false)
+          clears the state so a re-open starts fresh. */}
+      {projectModal !== null && (
+        <ProjectModal
           open={true}
           onOpenChange={(o) => {
-            if (!o) setProjectFileModal(null);
+            if (!o) setProjectModal(null);
           }}
-          slug={projectFileModal.slug}
-          displayName={projectFileModal.displayName}
-          hostId={projectFileModal.hostId}
+          slug={projectModal.slug}
+          displayName={projectModal.displayName}
+          hostId={projectModal.hostId}
         />
       )}
       {/* Phase 117 Plan 117-09 Task 2 (D-14) per-section context menu portal
           RETIRED by shape-sidebar-header-affordances. The four section-scoped
           actions now live in the project header's RowKebabMenu, which calls
-          the per-action handlers (handleRenameProject / handleEditProjectFile /
+          the per-action handlers (handleOpenProject / handleRenameProject /
           handleArchiveProject) directly without a portal-mounted context menu
           middleman. */}
     </div>

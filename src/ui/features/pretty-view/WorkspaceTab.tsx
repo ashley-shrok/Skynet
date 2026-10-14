@@ -64,7 +64,9 @@ import type {
  * identity.
  */
 function targetDepKey(t: WorkspaceTarget): string {
-  return t.kind === "identity" ? `identity:${t.identityKey}` : `role:${t.roleSlug}`;
+  if (t.kind === "identity") return `identity:${t.identityKey}`;
+  if (t.kind === "project") return `project:${t.projectSlug}`;
+  return `role:${t.roleSlug}`;
 }
 import { resolveWorkspaceErrorCopy } from "./workspace-error-copy";
 import type { TabState } from "./IdentityFileTab";

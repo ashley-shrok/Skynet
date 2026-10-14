@@ -80,9 +80,9 @@ const GIT_SECTION = { value: "git", label: "Git", Icon: GitBranch } as const;
 /**
  * Names hidden from the Files tab's root listing. The role's own `<slug>.md`
  * has a dedicated editor on the Role File tab, so surfacing it in Files too
- * would be a redundant second edit path — hide it here. Frontend-only filter
- * (backend still returns it if hit directly); this is a UX affordance, not an
- * access control.
+ * would be a redundant second edit path — hide it here. The backend still
+ * lists it, but refuses Files-tab writes, renames and deletes of it
+ * (reserved_file).
  */
 function filesTabHiddenNames(roleName: string): readonly string[] {
   return [`${roleName}.md`];

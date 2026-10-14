@@ -7,8 +7,10 @@
  * Target model: every helper takes a WorkspaceTarget as its first param — either
  *   { kind: "identity", identityKey } → resolves to ~/fleet/identities/<key>/workspace
  *   { kind: "role", roleSlug }        → resolves to ~/fleet/roles/<slug>
+ *   { kind: "project", projectSlug }  → resolves to ~/fleet/projects/<slug>
  * Wire shape stays byte-identical for identity requests (no `kind` field sent);
- * role requests carry { kind: "role", roleSlug } instead of { identityKey }.
+ * role and project requests carry { kind, roleSlug | projectSlug } instead of
+ * { identityKey }.
  *
  * Error-class preservation (mirrors fetchHostFileUrl at editable-file-api.ts:131):
  * Each async helper catches axios errors and, when the response body carries a
@@ -52,11 +54,13 @@ export type ReadFileResponse = {
 /**
  * Discriminated target passed to every workspace helper. `identity` maps to
  * ~/fleet/identities/<identityKey>/workspace; `role` maps to
- * ~/fleet/roles/<roleSlug>. Backend `extractTarget` mirrors this shape.
+ * ~/fleet/roles/<roleSlug>; `project` maps to ~/fleet/projects/<projectSlug>.
+ * Backend `extractTarget` mirrors this shape.
  */
 export type WorkspaceTarget =
   | { kind: "identity"; identityKey: string }
-  | { kind: "role"; roleSlug: string };
+  | { kind: "role"; roleSlug: string }
+  | { kind: "project"; projectSlug: string };
 
 /**
  * Serialize a target into the wire fields the backend expects. Identity
@@ -65,6 +69,7 @@ export type WorkspaceTarget =
  */
 function targetToWireFields(t: WorkspaceTarget): Record<string, string> {
   if (t.kind === "role") return { kind: "role", roleSlug: t.roleSlug };
+  if (t.kind === "project") return { kind: "project", projectSlug: t.projectSlug };
   return { identityKey: t.identityKey };
 }
 
@@ -72,6 +77,9 @@ function targetToWireFields(t: WorkspaceTarget): Record<string, string> {
 function targetToQueryString(t: WorkspaceTarget): string {
   if (t.kind === "role") {
     return `kind=role&roleSlug=${encodeURIComponent(t.roleSlug)}`;
+  }
+  if (t.kind === "project") {
+    return `kind=project&projectSlug=${encodeURIComponent(t.projectSlug)}`;
   }
   return `identityKey=${encodeURIComponent(t.identityKey)}`;
 }

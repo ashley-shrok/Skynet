@@ -11,7 +11,10 @@
 
 import axios from "axios";
 import { authApi, handleApiError } from "@/main-axios";
-import type { WorkspaceTarget } from "@/api/workspace-api";
+import type { WorkspaceTarget as AnyWorkspaceTarget } from "@/api/workspace-api";
+
+/** The git view covers identity workspaces and role folders; projects have no Git tab. */
+export type WorkspaceTarget = Exclude<AnyWorkspaceTarget, { kind: "project" }>;
 
 // ---------------------------------------------------------------------------
 // Wire types (mirror workspace-git-parse.ts)

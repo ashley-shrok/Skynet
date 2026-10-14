@@ -16,14 +16,16 @@
  *
  * Every endpoint enforces the 9-step chain:
  *   1. Body/query validation → 400 invalid_body
- *   2. extractTarget(body) → identity default OR role when kind="role"
- *        → 400 invalid_identity_key / invalid_role_slug on validator fail
+ *   2. extractTarget(body) → identity default, role when kind="role",
+ *        project when kind="project"
+ *        → 400 invalid_identity_key / invalid_role_slug / invalid_project_slug
  *   3. Static traversal check → 400 path_traversal
  *   4. resolveHostById(hostId, userId) → 404 unknown_host
  *   5. permissionManager.canAccessHost(userId, hostId, "read"|"write") → 403 permission_denied
  *   6. withConnection → openSftp → sftpRealpath(".")  (tilde expansion — SFTP is tilde-blind)
  *   7. Build workspaceRoot via buildTargetRoot(homeDir, target) + absolutePath
- *   8. Post-realpath re-check (symlink escape + FORBIDDEN_PATH_RE)
+ *   8. Post-realpath re-check (symlink escape + FORBIDDEN_PATH_RE), and on
+ *      mutating routes the reserved-file check (409 reserved_file)
  *   9. SFTP operation
  *  10. Catch → { error: classifyErrorToClass(err) } — NEVER err.message (T-40-05)
  *
@@ -41,18 +43,19 @@ import { sshLogger } from "../../utils/logger.js";
 import { withConnection, hostPoolKey } from "../../ssh/ssh-connection-pool.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
-import { IDENTITY_KEY_RE } from "../../claude-session/identity-artifact-reader.js";
+import { IDENTITY_KEY_RE, PROJECT_SLUG_RE } from "../../claude-session/identity-artifact-reader.js";
 import { sendSftpFile } from "../../utils/sftp-file-response.js";
 import type { Readable } from "node:stream";
+import { posix } from "node:path";
 import type { Client as SSHClientType } from "ssh2";
 
 /* ------------------------------------------------------------------------ */
-/*  Target: identity workspace OR role folder                               */
+/*  Target: identity workspace, role folder, or project folder              */
 /*                                                                          */
-/*  Every /workspace endpoint accepts either an identityKey (default) or a  */
-/*  roleSlug (kind: "role"). The former resolves to                         */
-/*  ~/fleet/identities/<key>/workspace; the latter resolves to              */
-/*  ~/fleet/roles/<slug>. Everything else — SFTP realpath, symlink-escape   */
+/*  Every /workspace endpoint accepts an identityKey (default), a roleSlug  */
+/*  (kind: "role") or a projectSlug (kind: "project"). They resolve to      */
+/*  ~/fleet/identities/<key>/workspace, ~/fleet/roles/<slug> and            */
+/*  ~/fleet/projects/<slug>. Everything else — SFTP realpath, symlink-escape */
 /*  defense, RBAC, error classification — is identical.                     */
 /* ------------------------------------------------------------------------ */
 
@@ -61,17 +64,21 @@ export const ROLE_SLUG_RE = /^[a-z0-9-]{1,64}$/;
 
 export type TargetSpec =
   | { kind: "identity"; identityKey: string }
-  | { kind: "role"; roleSlug: string };
+  | { kind: "role"; roleSlug: string }
+  | { kind: "project"; projectSlug: string };
 
 type ExtractTargetResult =
   | { ok: true; target: TargetSpec }
-  | { ok: false; error: "invalid_body" | "invalid_identity_key" | "invalid_role_slug" };
+  | {
+      ok: false;
+      error: "invalid_body" | "invalid_identity_key" | "invalid_role_slug" | "invalid_project_slug";
+    };
 
 /**
- * Read either identityKey (kind="identity" or absent) or roleSlug (kind="role")
- * from a request body / query. Called once per endpoint after the base-field
- * shape check. Absent-kind path is byte-identical to the legacy identityKey-only
- * behavior — no existing caller sees a wire change.
+ * Read identityKey (kind="identity" or absent), roleSlug (kind="role") or
+ * projectSlug (kind="project") from a request body / query. Called once per
+ * endpoint after the base-field shape check. Absent-kind path is
+ * byte-identical to the legacy identityKey-only behavior.
  */
 export function extractTarget(body: Record<string, unknown>): ExtractTargetResult {
   const kind = body.kind;
@@ -79,6 +86,14 @@ export function extractTarget(body: Record<string, unknown>): ExtractTargetResul
     if (typeof body.roleSlug !== "string") return { ok: false, error: "invalid_body" };
     if (!ROLE_SLUG_RE.test(body.roleSlug)) return { ok: false, error: "invalid_role_slug" };
     return { ok: true, target: { kind: "role", roleSlug: body.roleSlug } };
+  }
+  if (kind === "project") {
+    if (typeof body.projectSlug !== "string") return { ok: false, error: "invalid_body" };
+    // `archive` is the archived-projects folder, not a project.
+    if (!PROJECT_SLUG_RE.test(body.projectSlug) || body.projectSlug === "archive") {
+      return { ok: false, error: "invalid_project_slug" };
+    }
+    return { ok: true, target: { kind: "project", projectSlug: body.projectSlug } };
   }
   if (kind !== undefined && kind !== "identity") return { ok: false, error: "invalid_body" };
   if (typeof body.identityKey !== "string") return { ok: false, error: "invalid_body" };
@@ -88,7 +103,50 @@ export function extractTarget(body: Record<string, unknown>): ExtractTargetResul
 
 function buildTargetRoot(homeDir: string, target: TargetSpec): string {
   if (target.kind === "role") return `${homeDir}/fleet/roles/${target.roleSlug}`;
+  if (target.kind === "project") return `${homeDir}/fleet/projects/${target.projectSlug}`;
   return `${homeDir}/fleet/identities/${target.identityKey}/workspace`;
+}
+
+/**
+ * The file at the top of a target folder that has its own editor tab and must
+ * never be touched through the Files tab: `<slug>.md` for a role, `project.md`
+ * for a project. Identity workspaces have none.
+ */
+export function reservedRootFileName(target: TargetSpec): string | null {
+  if (target.kind === "role") return `${target.roleSlug}.md`;
+  if (target.kind === "project") return "project.md";
+  return null;
+}
+
+/**
+ * Throws `reserved_file` when any of the given absolute paths is the target's
+ * reserved root file. Callers pass every path the operation would create,
+ * overwrite, move or remove — both the lexical path (parent realpath +
+ * basename) and, where the entry exists, its realpath (null when it doesn't),
+ * so a symlink pointing at the reserved file is caught too.
+ */
+function assertNotReserved(paths: (string | null)[], workspaceRoot: string, target: TargetSpec): void {
+  const name = reservedRootFileName(target);
+  if (!name) return;
+  // Case-insensitive: on a case-insensitive host filesystem PROJECT.md is project.md.
+  const reserved = `${workspaceRoot}/${name}`.toLowerCase();
+  if (paths.some((p) => p !== null && posix.normalize(p).replace(/\/$/, "").toLowerCase() === reserved)) {
+    throw new Error("reserved_file");
+  }
+}
+
+/** Lexical path of `absolutePath` re-rooted onto its parent's realpath. */
+function underResolvedParent(resolvedParent: string, absolutePath: string): string {
+  return `${resolvedParent}/${absolutePath.substring(absolutePath.lastIndexOf("/") + 1)}`;
+}
+
+/** realpath of an entry that may not exist yet; null when it doesn't. */
+async function realpathIfExists(sftp: SftpLike, p: string): Promise<string | null> {
+  try {
+    return await sftpRealpath(sftp, p);
+  } catch {
+    return null;
+  }
 }
 
 /* ------------------------------------------------------------------------ */
@@ -430,6 +488,7 @@ export function classifyErrorToStatus(err: unknown): number {
   if (msg === "too_large") return 413;
   if (msg === "already_exists") return 409;
   if (msg === "not_empty") return 409;
+  if (msg === "reserved_file") return 409;
   // SSH2 ENOTEMPTY — recognise by descriptive message text only. SSH_FX_FAILURE
   // (code 4) is a generic-failure bucket used for many unrelated errors (write
   // failures, quota, transient SFTP issues), so a bare `code === 4` match
@@ -458,7 +517,8 @@ export function classifyErrorToClass(err: unknown): string {
     msg === "permission_denied" ||
     msg === "too_large" ||
     msg === "already_exists" ||
-    msg === "not_empty"
+    msg === "not_empty" ||
+    msg === "reserved_file"
   ) {
     return msg;
   }
@@ -756,6 +816,11 @@ workspaceRoutes.put(
             const resolvedDir = await sftpRealpath(sftp, dirPath);
             assertResolvedUnderRoot(resolvedDir, workspaceRoot);
             if (FORBIDDEN_PATH_RE.test(resolvedDir)) throw new Error("path_forbidden");
+            assertNotReserved(
+              [absolutePath, underResolvedParent(resolvedDir, absolutePath), reservedRootFileName(target) ? await realpathIfExists(sftp, absolutePath) : null],
+              workspaceRoot,
+              target,
+            );
 
             await sftpWriteBuffer(sftp, absolutePath, Buffer.from(content, "utf8"));
           });
@@ -846,6 +911,7 @@ workspaceRoutes.delete(
             if (FORBIDDEN_PATH_RE.test(resolved)) throw new Error("path_forbidden");
             // Guard: can't delete the workspace root itself
             if (resolved === workspaceRoot) throw new Error("path_traversal");
+            assertNotReserved([absolutePath, resolved], workspaceRoot, target);
 
             const stat = await sftpStat(sftp, resolved);
             if (stat.isDirectory()) {
@@ -943,12 +1009,19 @@ workspaceRoutes.post(
             const resolvedFrom = await sftpRealpath(sftp, fromPath);
             assertResolvedUnderRoot(resolvedFrom, workspaceRoot);
             if (FORBIDDEN_PATH_RE.test(resolvedFrom)) throw new Error("path_forbidden");
+            // Guard: can't move the folder root itself (mirrors DELETE's guard)
+            if (resolvedFrom === workspaceRoot) throw new Error("path_traversal");
 
             // Realpath check on 'to' parent (toPath itself may not exist yet)
             const toParent = toPath.substring(0, toPath.lastIndexOf("/"));
             const resolvedToParent = await sftpRealpath(sftp, toParent);
             assertResolvedUnderRoot(resolvedToParent, workspaceRoot);
             if (FORBIDDEN_PATH_RE.test(resolvedToParent)) throw new Error("path_forbidden");
+            assertNotReserved(
+              [fromPath, resolvedFrom, toPath, underResolvedParent(resolvedToParent, toPath), reservedRootFileName(target) ? await realpathIfExists(sftp, toPath) : null],
+              workspaceRoot,
+              target,
+            );
 
             await sftpRename(sftp, resolvedFrom, toPath);
           });
@@ -1037,6 +1110,7 @@ workspaceRoutes.post(
             const resolvedParent = await sftpRealpath(sftp, parentPath);
             assertResolvedUnderRoot(resolvedParent, workspaceRoot);
             if (FORBIDDEN_PATH_RE.test(resolvedParent)) throw new Error("path_forbidden");
+            assertNotReserved([absolutePath, underResolvedParent(resolvedParent, absolutePath)], workspaceRoot, target);
 
             await sftpMkdir(sftp, absolutePath);
           });
@@ -1125,6 +1199,7 @@ workspaceRoutes.post(
             const resolvedParent = await sftpRealpath(sftp, parentPath);
             assertResolvedUnderRoot(resolvedParent, workspaceRoot);
             if (FORBIDDEN_PATH_RE.test(resolvedParent)) throw new Error("path_forbidden");
+            assertNotReserved([absolutePath, underResolvedParent(resolvedParent, absolutePath)], workspaceRoot, target);
 
             await sftpCreateEmpty(sftp, absolutePath);
           });
@@ -1166,6 +1241,7 @@ workspaceRoutes.post(
         hasFile: !!req.file,
         identityKeyType: typeof body.identityKey,
         roleSlugType: typeof body.roleSlug,
+        projectSlugType: typeof body.projectSlug,
         kind: typeof body.kind === "string" ? body.kind : "(absent)",
         relativePathType: typeof relativePath,
         hostIdType: typeof hostId,
@@ -1223,6 +1299,11 @@ workspaceRoutes.post(
             const resolvedParent = await sftpRealpath(sftp, parentPath);
             assertResolvedUnderRoot(resolvedParent, workspaceRoot);
             if (FORBIDDEN_PATH_RE.test(resolvedParent)) throw new Error("path_forbidden");
+            assertNotReserved(
+              [absolutePath, underResolvedParent(resolvedParent, absolutePath), reservedRootFileName(target) ? await realpathIfExists(sftp, absolutePath) : null],
+              workspaceRoot,
+              target,
+            );
 
             await sftpWriteBuffer(sftp, absolutePath, fileBuffer);
           });

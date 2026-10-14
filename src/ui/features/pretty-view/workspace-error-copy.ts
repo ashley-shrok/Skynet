@@ -40,7 +40,8 @@ export type WorkspaceErrorCopy = { heading: string; body: string };
  *   invalid_hostname, invalid_body, generic
  *
  * Workspace-specific additions:
- *   not_a_directory, already_exists, not_empty, invalid_identity_key
+ *   not_a_directory, already_exists, not_empty, reserved_file,
+ *   invalid_identity_key, invalid_project_slug
  */
 export const WORKSPACE_ERROR_COPY: Record<string, WorkspaceErrorCopy> = {
   // -------------------------------------------------------------------------
@@ -105,6 +106,11 @@ export const WORKSPACE_ERROR_COPY: Record<string, WorkspaceErrorCopy> = {
     body: "Remove everything inside the folder first, then delete it.",
   },
 
+  "reserved_file": {
+    heading: "Edited on its own tab",
+    body: "That's this folder's main file. Edit it on the Project file tab (for a project) or the Role file tab (for a role), not from Files.",
+  },
+
   // -------------------------------------------------------------------------
   // Type mismatch errors
   // -------------------------------------------------------------------------
@@ -135,6 +141,11 @@ export const WORKSPACE_ERROR_COPY: Record<string, WorkspaceErrorCopy> = {
   "invalid_identity_key": {
     heading: "Something went wrong",
     body: "Could not identify the agent. Try closing and reopening.",
+  },
+
+  "invalid_project_slug": {
+    heading: "Something went wrong",
+    body: "Could not identify the project. Try closing and reopening.",
   },
 
   "invalid_body": {

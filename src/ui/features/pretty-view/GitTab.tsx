@@ -32,7 +32,7 @@ import {
   RadioTower,
   RefreshCw,
 } from "lucide-react";
-import type { WorkspaceTarget } from "@/api/workspace-api";
+import type { WorkspaceTarget } from "@/api/workspace-git-api";
 import {
   checkGitRemote,
   getGitDiff,

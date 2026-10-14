@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { hasGitRepos } from "@/api/workspace-git-api";
-import type { WorkspaceTarget } from "@/api/workspace-api";
+import type { WorkspaceTarget } from "@/api/workspace-git-api";
 
 /**
  * Whether the workspace holds any git repo — the modals hide the Git tab

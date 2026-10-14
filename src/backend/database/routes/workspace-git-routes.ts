@@ -100,8 +100,11 @@ function shellEscape(s: string): string {
   return "'" + s.replace(/'/g, "'\\''") + "'";
 }
 
+/** Projects have no Git tab — the git view covers identity workspaces and role folders only. */
+type GitTargetSpec = Exclude<TargetSpec, { kind: "project" }>;
+
 /** Workspace root as a shell word, expanded by the remote shell. */
-function targetRootWord(target: TargetSpec): string {
+function targetRootWord(target: GitTargetSpec): string {
   const rel =
     target.kind === "role"
       ? `fleet/roles/${target.roleSlug}`
@@ -114,7 +117,7 @@ function targetRootWord(target: TargetSpec): string {
  * `fail <class>` prints an X record and exits 0 so the class reaches us
  * through stdout rather than an exit code.
  */
-function prelude(target: TargetSpec): string {
+function prelude(target: GitTargetSpec): string {
   return [
     `fail() { printf '\\036X\\037%s' "$1"; exit 0; }`,
     `g() { GIT_OPTIONAL_LOCKS=0 GIT_TERMINAL_PROMPT=0 git -c core.fsmonitor=false -c core.untrackedCache=false -c color.ui=false -c core.quotePath=false "$@"; }`,
@@ -142,13 +145,13 @@ const COMMIT_FORMAT = "%H%x1f%P%x1f%an%x1f%ct%x1f%D%x1f%s";
 const FIND_REPOS =
   "find . -maxdepth 4 \\( -name node_modules -o -name .venv -o -name venv \\) -prune -o -name .git -prune -print 2>/dev/null";
 
-export function buildHasReposScript(target: TargetSpec): string {
+export function buildHasReposScript(target: GitTargetSpec): string {
   // No git needed to answer "are there any repos", but without git there is
   // nothing to show either — prelude's git_missing covers that.
   return [prelude(target), `printf '\\036H\\037%s' "$(${FIND_REPOS} | head -n 1 | wc -l)"`].join("\n");
 }
 
-export function buildReposScript(target: TargetSpec): string {
+export function buildReposScript(target: GitTargetSpec): string {
   return [
     prelude(target),
     `${FIND_REPOS} | head -n ${MAX_REPOS + 1} | {`,
@@ -162,7 +165,7 @@ export function buildReposScript(target: TargetSpec): string {
   ].join("\n");
 }
 
-export function buildRepoScript(target: TargetSpec, repoPath: string): string {
+export function buildRepoScript(target: GitTargetSpec, repoPath: string): string {
   return [
     prelude(target),
     enterRepo(repoPath),
@@ -189,7 +192,7 @@ const PEEK_NS = "refs/skynet-remote-check";
  * Non-interactive by construction: no TTY on the exec channel, so ssh/https
  * cannot prompt, and GIT_TERMINAL_PROMPT=0; `timeout` bounds a hung remote.
  */
-export function buildRemoteCheckScript(target: TargetSpec, repoPath: string): string {
+export function buildRemoteCheckScript(target: GitTargetSpec, repoPath: string): string {
   return [
     prelude(target),
     enterRepo(repoPath),
@@ -212,7 +215,7 @@ export function buildRemoteCheckScript(target: TargetSpec, repoPath: string): st
 export type DiffRequest = { diff: "working" } | { diff: "commit"; sha: string };
 
 export function buildDiffScript(
-  target: TargetSpec,
+  target: GitTargetSpec,
   repoPath: string,
   req: DiffRequest,
 ): string {
@@ -309,7 +312,7 @@ async function handleGitRequest(
     /** Extra body validation; return an error class to reject with 400. */
     validate?: (body: Record<string, unknown>) => string | null;
     maxBytes: number;
-    script: (target: TargetSpec, body: Record<string, unknown>) => string;
+    script: (target: GitTargetSpec, body: Record<string, unknown>) => string;
     respond: (out: { stdout: string; truncated: boolean }, body: Record<string, unknown>) => unknown;
   },
 ): Promise<void> {
@@ -334,6 +337,10 @@ async function handleGitRequest(
   const targetResult = extractTarget(body);
   if (targetResult.ok === false) {
     res.status(400).json({ error: targetResult.error });
+    return;
+  }
+  if (targetResult.target.kind === "project") {
+    res.status(400).json({ error: "invalid_body" });
     return;
   }
   const target = targetResult.target;

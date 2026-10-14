@@ -766,10 +766,13 @@ not something agents drive.
     open frontends pick it up on the next fleet-status sweep, within a few
     seconds. **User-gated.**
   Each project is expandable and collapsible. Drag conversations in and
-  out to move them. Each project header carries a **kebab menu** with:
+  out to move them. Each project header carries a **kebab menu** (also
+  opened by right-clicking the header) with:
+  - **Open project** — opens the **project modal** (§ Conversation view).
   - **New conversation in this project** — auto-assigns the spawned
     agent to this project.
-  - **Edit project file** — opens the project.md editor modal.
+  - **Rename project** — changes the project's display name (the
+    `displayName:` in `project.md`; the slug and folder stay put).
   - **Archive project** — retires the project folder (with its
     cascade-member handling per the archive route).
   *Agent-side:* project membership = the `project:` frontmatter (see
@@ -984,6 +987,23 @@ crown, then gear.
     Everything else in the folder shows up as-is, including
     credential JSONs and plumbing subfolders; the modal is admin-only
     and the exposure surface is the same as SSH access to the box.
+    Uploading, creating, renaming onto, renaming or deleting the role
+    file from the Files tab is refused with a pointer to the Role file tab.
+
+- **Project modal (project header kebab → Open project).** Two tabs;
+  opens on the first:
+  - **Project file** — edit the project's `project.md`. Save sits at the
+    bottom and keeps the modal open; an unsaved draft survives switching
+    tabs, and closing with one asks first.
+  - **Files** — the same explorer as the identity and role Files tabs,
+    over the project folder (`~/fleet/projects/<slug>/`): browse,
+    download, upload, create, edit, rename, delete. `project.md` is
+    hidden from the root listing, and uploading, creating, renaming onto,
+    renaming or deleting it from here is refused with a pointer to the
+    Project file tab. This is how the user drops reference files into a
+    project without asking an agent — so a file can appear in your
+    project folder that no agent put there. Nothing notifies members when
+    the folder changes; look in the folder when the work calls for it.
 
 - **Context meter (above the compose box).** Shows how full the agent's
   context window is — the same "runway left" the agent's own

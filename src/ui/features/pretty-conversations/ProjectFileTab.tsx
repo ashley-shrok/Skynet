@@ -6,7 +6,7 @@
 // means you're editing, so the view/read toggle is gone. The tab now
 // always renders <MarkdownEditor> in the ready branch and hands draft
 // state to the parent via `onDraftContentChange` / `onDraftChange`. The
-// outer <ModalFoot> in ProjectFileModal owns Save + Close.
+// outer <ModalFoot> in ProjectModal owns Save + Close.
 //
 // Byte-shape mirror of RoleFileTab.tsx conventions preserved: same
 // TabState<string> discriminated union, same MarkdownEditor gate on

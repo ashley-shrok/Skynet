@@ -1818,7 +1818,7 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
     consoleWarnSpy.mockRestore();
   });
 
-  it("A9 Test 6 (kebab menu items): project header kebab shows New-conversation + Rename + Edit project file + Archive project", async () => {
+  it("A9 Test 6 (kebab menu items): project header kebab shows Open project + New-conversation + Rename + Archive project", async () => {
     setSnapshot({
       projectSections: [{ slug: "alpha", displayName: "Alpha", rows: [] }],
     });
@@ -1842,8 +1842,36 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
 
     expect(screen.queryByRole("menuitem", { name: "New conversation in this project" })).not.toBeNull();
     expect(screen.queryByRole("menuitem", { name: "Rename project" })).not.toBeNull();
-    expect(screen.queryByRole("menuitem", { name: "Edit project file" })).not.toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Open project" })).not.toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Edit project file" })).toBeNull();
     expect(screen.queryByRole("menuitem", { name: "Archive project" })).not.toBeNull();
+  });
+
+  it("A9 Test 6b (Open project): opens the project modal against the project's own host", async () => {
+    setSnapshot({
+      projectSections: [{ slug: "alpha", displayName: "Alpha", hostId: "3", rows: [] }],
+    });
+    mockProjects = [
+      { slug: "alpha", displayName: "Alpha", hostId: "3", hostname: "hostC", archived: false },
+    ];
+    getProjectFileSpy.mockResolvedValueOnce({ markdown: "# Alpha" });
+
+    const user = userEvent.setup();
+    const { container } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={HOST_TREE}
+        onCreateSession={() => {}}
+        onDeactivateRow={() => {}}
+      />,
+    );
+    await user.click(
+      container.querySelector('[data-testid="pv-project-section-kebab-trigger-alpha"]') as HTMLElement,
+    );
+    await user.click(screen.getByRole("menuitem", { name: "Open project" }));
+
+    expect(await screen.findByTestId("project-modal")).toBeTruthy();
+    await waitFor(() => expect(getProjectFileSpy).toHaveBeenCalledWith(3, "alpha"));
   });
 
   it("A9 Test 7 (Rename flow): prompt with current name → getProjectFile → PUT rewritten markdown", async () => {
