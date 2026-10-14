@@ -103,10 +103,10 @@ export type ConversationRow = {
   // AppShell → openTab(host, "rdp"). Never present on openTabs-derived rows
   // or fleet-only rows.
   rdpHostRow?: boolean;
-  // Set on an `rdpHostRow` when an RDP tab for that host is open. The row then
-  // carries the tab's id (so selection + split-tree glow match it) and a click
-  // focuses that tab instead of opening another. The open tab itself never
-  // emits a row in pinned/middle — it stays in the RDP section.
+  // Set on an `rdpHostRow` that stands for an open RDP tab. The row carries
+  // the tab's id (so selection + split-tree glow match it) and a click
+  // focuses that tab instead of opening another. Open RDP tabs on RDP-enabled
+  // hosts never emit rows in pinned/middle — they stay in the RDP section.
   rdpTabOpen?: boolean;
   // Phase 25 (Plan 25-02): identity role resolved from identity file frontmatter
   // at row-construction time. Used as the middle sort key in compareByHostRoleLabel
@@ -842,20 +842,22 @@ const compareByRecencyDesc = (
 };
 
 function computeSnapshot(): ConversationList {
-  // RDP tabs on RDP-enabled hosts are represented by that host's row in the
-  // RDP section (see rdpRows below), not as their own row in pinned/middle.
-  // Later tabs win, so the row tracks the most recently opened RDP tab.
-  const openRdpTabByHostId = new Map<number, Tab>();
+  // RDP tabs on RDP-enabled hosts live in the RDP section (see rdpRows
+  // below) — never as their own row in pinned/middle, so they can't be
+  // pinned or filed into a project there either.
+  const openRdpTabsByHostId = new Map<number, Tab[]>();
+  const rdpSectionTabs = new Set<Tab>();
   for (const tab of state.openTabs) {
     if (tab.type !== "rdp" || !tab.host) continue;
     const hostId = Number(tab.host.id);
     if (state.hostsFlat.get(hostId)?.enableRdp !== true) continue;
-    openRdpTabByHostId.set(hostId, tab);
+    const list = openRdpTabsByHostId.get(hostId) ?? [];
+    list.push(tab);
+    openRdpTabsByHostId.set(hostId, list);
+    rdpSectionTabs.add(tab);
   }
   const conversationTabs = state.openTabs.filter(
-    (tab) =>
-      isConversationTab(tab) &&
-      !(tab.host && openRdpTabByHostId.get(Number(tab.host.id)) === tab),
+    (tab) => isConversationTab(tab) && !rdpSectionTabs.has(tab),
   );
 
   // Build a (hostId, sessionName) → role Map from fleet sessions FIRST so rowFromTab
@@ -1111,20 +1113,25 @@ function computeSnapshot(): ConversationList {
   // them per patch #137 contract, and the tier loops above only iterate
   // conversationTabs + fleetSyntheticRows. rdpRows is a separate synthesized
   // list that never joins those sets.
-  const buildRdpHostRow = (host: Host): ConversationRow => {
+  // One row per host with no RDP tab open; otherwise one row per open RDP tab
+  // on that host (normally just one — a click on an open row focuses its tab
+  // rather than opening another). An open row carries its tab's id, so
+  // selection + split-tree glow match it.
+  const buildRdpHostRows = (host: Host): ConversationRow[] => {
     const rdpRowId = `rdp-host::${host.id}`;
     const lastMessageAt = resolveLastMessageAt(rdpRowId, host, null);
-    const openTab = openRdpTabByHostId.get(Number(host.id));
-    return {
-      id: openTab ? openTab.id : rdpRowId,
+    const base: ConversationRow = {
+      id: rdpRowId,
       type: "rdp",
       label: host.name,
       host,
       targetTmuxSession: null,
       rdpHostRow: true,
-      ...(openTab ? { rdpTabOpen: true } : {}),
       ...(lastMessageAt !== null ? { lastMessageAt } : {}),
     };
+    const openTabs = openRdpTabsByHostId.get(Number(host.id));
+    if (!openTabs || openTabs.length === 0) return [base];
+    return openTabs.map((tab) => ({ ...base, id: tab.id, rdpTabOpen: true }));
   };
   const rdpRows: ConversationRow[] = [];
   const rdpEmittedHostIds = new Set<number>();
@@ -1136,7 +1143,7 @@ function computeSnapshot(): ConversationList {
     if (!host) continue;
     if (host.enableRdp !== true) continue; // strict check per T-07-02-01
     {
-      rdpRows.push(buildRdpHostRow(host));
+      rdpRows.push(...buildRdpHostRows(host));
     }
     rdpEmittedHostIds.add(numericId);
   }
@@ -1145,7 +1152,7 @@ function computeSnapshot(): ConversationList {
   for (const [numericId, host] of state.hostsFlat) {
     if (rdpEmittedHostIds.has(numericId)) continue;
     if (host.enableRdp !== true) continue;
-    rdpRows.push(buildRdpHostRow(host));
+    rdpRows.push(...buildRdpHostRows(host));
   }
   rdpRows.sort(compareByHostRoleLabel);
   // Phase 41 (Plan 01): rdpGroup is `null` iff zero RDP-eligible hosts exist.

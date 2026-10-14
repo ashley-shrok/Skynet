@@ -12,14 +12,26 @@ import { RefreshCw } from "lucide-react";
 
 interface FullScreenAppWrapperProps {
   hostId?: string;
+  /**
+   * "screen" (default) — a standalone page, 100vh tall. "parent" — fill the
+   * containing pane instead; a 100vh box inside a pane overhangs it, and
+   * anything that sizes itself from the box (a remote display's resolution,
+   * the keyboard toolbar's drag bounds) then reaches past the pane.
+   */
+  fill?: "screen" | "parent";
   children: (hostConfig: SSHHost | null, loading: boolean) => React.ReactNode;
 }
 
 export const FullScreenAppWrapper: React.FC<FullScreenAppWrapperProps> = ({
   hostId,
+  fill = "screen",
   children,
 }) => {
   const { t } = useTranslation();
+  const heightClass = fill === "parent" ? "h-full" : "h-screen";
+  // SidebarProvider's own wrapper is `min-h-svh`; in a pane, override it so
+  // the whole chain sizes to the pane rather than the screen.
+  const providerClass = fill === "parent" ? "h-full min-h-0" : undefined;
   const [hostConfig, setHostConfig] = useState<SSHHost | null>(null);
   const [loading, setLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -82,7 +94,7 @@ export const FullScreenAppWrapper: React.FC<FullScreenAppWrapperProps> = ({
   if (authLoading) {
     return (
       <div
-        className="w-full h-screen overflow-hidden flex flex-col items-center justify-center gap-4"
+        className={`w-full ${heightClass} overflow-hidden flex flex-col items-center justify-center gap-4`}
         style={{ backgroundColor: "var(--bg-base)" }}
       >
         <RefreshCw
@@ -98,11 +110,11 @@ export const FullScreenAppWrapper: React.FC<FullScreenAppWrapperProps> = ({
 
   if (!isAuthenticated) {
     return (
-      <SidebarProvider>
+      <SidebarProvider className={providerClass}>
         <TabProvider>
           <CommandHistoryProvider>
             <div
-              className="w-full h-screen overflow-hidden flex items-center justify-center"
+              className={`w-full ${heightClass} overflow-hidden flex items-center justify-center`}
               style={{ backgroundColor: "var(--bg-base)" }}
             >
               <PrettyLandingCard />
@@ -121,11 +133,11 @@ export const FullScreenAppWrapper: React.FC<FullScreenAppWrapperProps> = ({
   }
 
   return (
-    <SidebarProvider>
+    <SidebarProvider className={providerClass}>
       <TabProvider>
         <CommandHistoryProvider>
           <div
-            className="w-full h-screen overflow-hidden"
+            className={`w-full ${heightClass} overflow-hidden`}
             style={{ backgroundColor: "var(--bg-base)" }}
           >
             {children(hostConfig, loading)}

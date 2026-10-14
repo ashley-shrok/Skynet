@@ -1458,7 +1458,11 @@ export function PrettyConversationsPanel({
     //  per D-21 alongside the Hide affordance. Once 115-06 lands the Archive
     //  affordance, an archived row won't have a context menu at all (D-06),
     //  so the click path doesn't need special handling for it.)
-    addToActiveSet(row.id);
+    // An RDP row that's about to open a tab doesn't enroll its own
+    // `rdp-host::` id: the row takes the new tab's id (enrolled when it's
+    // selected), and a stale host id would light the row up — with a no-op
+    // Close — every time it reverts after the tab closes.
+    if (!(row.rdpHostRow && !row.rdpTabOpen)) addToActiveSet(row.id);
     if (row.rdpHostRow && !row.rdpTabOpen && onRdpRowClick) {
       onRdpRowClick(row);
       onConversationSelected?.(row.id);

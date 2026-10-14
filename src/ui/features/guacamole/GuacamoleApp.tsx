@@ -60,7 +60,8 @@ const GuacamoleApp: React.FC<GuacamoleAppProps> = ({
   const { t } = useTranslation();
 
   return (
-    <FullScreenAppWrapper hostId={hostId}>
+    // Always mounted inside a pane (RemotePane, under its bar) — fill it.
+    <FullScreenAppWrapper hostId={hostId} fill="parent">
       {(hostConfig, loading) => {
         if (loading) {
           return (

@@ -3645,9 +3645,11 @@ export function AppShell({
     isTouchDevice &&
     topLeftTab !== undefined &&
     (isAppTab(topLeftTab) ||
-      topLeftTab.type === "rdp" ||
-      topLeftTab.type === "vnc" ||
-      topLeftTab.type === "telnet");
+      // Remote tabs only render (bar included) when they have a host.
+      (topLeftTab.host !== undefined &&
+        (topLeftTab.type === "rdp" ||
+          topLeftTab.type === "vnc" ||
+          topLeftTab.type === "telnet")));
   // Patch #144 Fix (b): `isMobileViewScreen` derivation removed together
   // with the legacy mobile-view header block below. mobileScreen === "view"
   // is now expressed implicitly via `!isMobileListScreen` on the fixed

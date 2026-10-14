@@ -1696,6 +1696,8 @@ describe("PrettyConversationsPanel: row-click routing (RDP)", () => {
     expect(onRdpRowClick.mock.calls[0][0].id).toBe("r1");
     expect(onDetachedRowClick).not.toHaveBeenCalled();
     expect(selectConversationSpy).not.toHaveBeenCalled();
+    // The row takes the new tab's id; its own host id never goes active.
+    expect(addToActiveSetSpy).not.toHaveBeenCalledWith("r1");
   });
 
   it("clicking an RDP row whose tab is already open selects that tab instead of opening another", () => {

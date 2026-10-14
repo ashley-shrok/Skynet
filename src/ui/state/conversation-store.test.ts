@@ -1765,7 +1765,7 @@ describe("conversation-store: open RDP tab stays in the RDP section", () => {
     expect(row.rdpTabOpen).toBeUndefined();
   });
 
-  it("keeps extra RDP tabs for the same host in middle so none go missing", () => {
+  it("shows a second RDP tab for the same host as a second RDP-section row", () => {
     const hostA = makeHost("1", "hostA", { enableRdp: true });
     act(() => {
       updateHostTree({ name: "root", children: [hostA] });
@@ -1776,8 +1776,22 @@ describe("conversation-store: open RDP tab stays in the RDP section", () => {
       ]);
     });
     const snap = __getSnapshotForTest();
-    expect(snap.rdpGroup!.rows.map((r) => r.id)).toEqual(["rdp-tab-2"]);
-    expect(snap.middle.map((r) => r.id)).toEqual(["rdp-tab-1"]);
+    expect(snap.rdpGroup!.rows.map((r) => r.id).sort()).toEqual(["rdp-tab-1", "rdp-tab-2"]);
+    expect(snap.rdpGroup!.rows.every((r) => r.rdpHostRow && r.rdpTabOpen)).toBe(true);
+    expect(snap.middle).toEqual([]);
+  });
+
+  it("an open RDP tab never surfaces in Pinned, even with a pin on its id", () => {
+    const hostA = makeHost("1", "hostA", { enableRdp: true });
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateHostsFlat(new Map<number, Host>([[1, hostA]]));
+      updateOpenTabs([makeTab("rdp-tab-1", "rdp", hostA)]);
+      pinConversation("rdp-tab-1");
+    });
+    const snap = __getSnapshotForTest();
+    expect(snap.pinned).toEqual([]);
+    expect(snap.rdpGroup!.rows.map((r) => r.id)).toEqual(["rdp-tab-1"]);
   });
 });
 

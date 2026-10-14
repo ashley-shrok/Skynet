@@ -132,16 +132,20 @@ export function RemotePane({
           </button>
         }
       />
+      {/* Absolute inset gives the remote display a definite height (the
+          space under the bar) to fill — its resolution is measured from it. */}
       <div className="relative flex-1 min-h-0 w-full">
-        <Suspense fallback={null}>
-          <GuacamoleApp
-            hostId={hostId}
-            tabId={tabId}
-            protocol={protocol}
-            isVisible={isVisible}
-            onClose={() => onCloseTab?.(tabId)}
-          />
-        </Suspense>
+        <div className="absolute inset-0 overflow-hidden">
+          <Suspense fallback={null}>
+            <GuacamoleApp
+              hostId={hostId}
+              tabId={tabId}
+              protocol={protocol}
+              isVisible={isVisible}
+              onClose={() => onCloseTab?.(tabId)}
+            />
+          </Suspense>
+        </div>
       </div>
     </div>
   );
