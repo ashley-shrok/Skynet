@@ -2,11 +2,10 @@
  * Telegram Bot API client — config getters plus one thin `callTelegram`
  * wrapper used by the sender, the update poller, and the link routes.
  *
- * Config is OPTIONAL (unlike ntfy's fail-fast gate): with no
+ * Config is OPTIONAL: with no
  * TELEGRAM_BOT_TOKEN set, `isTelegramConfigured()` is false, the poller never
  * starts, the preferences pane reports Telegram as unavailable, and sends are
- * silent no-ops. That keeps instances that haven't created a bot (e.g. a peer
- * deploy) booting exactly as before.
+ * silent no-ops. Instances that haven't created a bot still boot normally.
  *
  * NEVER log the bot token — it is embedded in every request URL, so request
  * URLs are never logged either.

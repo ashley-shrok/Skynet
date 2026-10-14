@@ -549,7 +549,7 @@ export function registerUserAdminRoutes(
    *       Sets users.notifications_enabled. Push notifications (Preferences →
    *       Notifications, /push-subscriptions/*, and delivery itself) are off
    *       unless this is set; admins always have access regardless. Revoking
-   *       stops delivery immediately but leaves any existing ntfy setup in
+   *       stops delivery immediately but leaves any existing Telegram link in
    *       place, so re-granting resumes it without re-setup.
    *     tags:
    *       - Users

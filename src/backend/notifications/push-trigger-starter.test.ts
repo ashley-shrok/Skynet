@@ -2,15 +2,14 @@
  * Phase 128 Plan 06 Task 2 — push-trigger-starter unit tests.
  *
  * Boot-time bootstrap tests mirroring observation-loop-starter.test.ts.
- * Covers the behavior cases from 128-06-PLAN.md § Task 2 (updated in
- * Phase 144 Plan 04 to remove the VAPID gate test — ntfy has no VAPID):
+ * Covers the behavior cases from 128-06-PLAN.md § Task 2:
  *   1. Zero users with mxid → {ok:false, reason:"no_users"}, loop NOT started.
  *   2. Happy path (users present) → {ok:true, users:N}, loop.start called.
  *   3. Exception in DB query → {ok:false, reason:"exception"}, warn logged,
  *      no rethrow.
  *
  * Mocking discipline:
- *   - vi.mock the db + push-trigger-loop + ntfy-sender + logger.
+ *   - vi.mock the db + push-trigger-loop + notify-user + logger.
  *   - Spy on createPushTriggerLoop to intercept the .start call.
  *   - Use vi.hoisted for the mock instances so mocks can share references
  *     with per-test assertions.
@@ -96,10 +95,6 @@ vi.mock("../matrix/matrix-admin-client.js", () => ({
 
 vi.mock("../relay-room-stream/matrix-message-fetch.js", () => ({
   fetchRoomHistory: fetchRoomHistoryMock,
-}));
-
-vi.mock("./ntfy-sender.js", () => ({
-  sendPushToUser: vi.fn(async () => {}),
 }));
 
 vi.mock("./notify-user.js", () => ({

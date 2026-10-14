@@ -73,19 +73,19 @@ vi.mock("@/api/service-secrets-api", () => ({
   clearMyServiceSecret: vi.fn().mockResolvedValue(undefined),
 }));
 
-// Notifications section gating — the modal probes GET /ntfy-setup on open;
-// any failure (403 when the user lacks notifications access) hides it.
-const { getNtfySetupMock } = vi.hoisted(() => ({
-  getNtfySetupMock: vi.fn<() => Promise<{ isSetUp: boolean }>>(),
+// Notifications section gating — the modal probes GET /push-subscriptions/telegram
+// on open; any failure (403 when the user lacks notifications access) hides it.
+const { getTelegramStatusMock } = vi.hoisted(() => ({
+  getTelegramStatusMock: vi.fn<() => Promise<{ available: boolean; linked: boolean }>>(),
 }));
-vi.mock("@/features/notifications/ntfy-setup-api", async (importOriginal) => {
+vi.mock("@/features/notifications/telegram-setup-api", async (importOriginal) => {
   const actual =
     await importOriginal<
-      typeof import("@/features/notifications/ntfy-setup-api")
+      typeof import("@/features/notifications/telegram-setup-api")
     >();
   return {
     ...actual,
-    getNtfySetup: () => getNtfySetupMock(),
+    getTelegramStatus: () => getTelegramStatusMock(),
   };
 });
 
@@ -106,7 +106,7 @@ describe("PreferencesModal", () => {
     getMyPhoneMock.mockResolvedValue(null);
     getMyServiceSecretsMock.mockResolvedValue([]);
     setMyServiceSecretMock.mockResolvedValue(undefined);
-    getNtfySetupMock.mockResolvedValue({ isSetUp: false });
+    getTelegramStatusMock.mockResolvedValue({ available: false, linked: false });
   });
 
   afterEach(() => {
@@ -136,18 +136,18 @@ describe("PreferencesModal", () => {
     render(<PreferencesModal {...defaultProps} open={true} />);
     const notifBtn = await screen.findByTestId("preferences-nav-notifications");
     await user.click(notifBtn);
-    // Mocked getNtfySetup resolves {isSetUp:false} → the pane's setup state.
+    // Mocked status: no bot on this server → the pane says so.
     expect(
-      await screen.findByTestId("preferences-notifications-setup-button"),
+      await screen.findByTestId("preferences-telegram-unavailable"),
     ).toBeTruthy();
   });
 
   it("(c) hides the Notifications section when the user lacks notifications access", async () => {
-    getNtfySetupMock.mockRejectedValue(
+    getTelegramStatusMock.mockRejectedValue(
       new Error("Request failed with status code 403"),
     );
     render(<PreferencesModal {...defaultProps} open={true} />);
-    await waitFor(() => expect(getNtfySetupMock).toHaveBeenCalled());
+    await waitFor(() => expect(getTelegramStatusMock).toHaveBeenCalled());
     expect(screen.queryByTestId("preferences-nav-notifications")).toBeNull();
   });
 
@@ -304,7 +304,7 @@ describe("PreferencesModal mobile drill-in", () => {
     vi.clearAllMocks();
     getMyPhoneMock.mockResolvedValue(null);
     getMyServiceSecretsMock.mockResolvedValue([]);
-    getNtfySetupMock.mockResolvedValue({ isSetUp: false });
+    getTelegramStatusMock.mockResolvedValue({ available: false, linked: false });
     // Below `sm` — the modal is fullscreen.
     window.matchMedia = vi.fn().mockImplementation((query: string) => ({
       matches: true,

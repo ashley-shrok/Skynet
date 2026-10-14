@@ -48,15 +48,6 @@ class FieldCrypto {
     // because matrix-admin-creds-store.ts calls encryptField/decryptField
     // with fieldName="access_token" / "password" against the DB rows.
     matrix_admin_creds: new Set(["access_token", "password"]),
-    // Phase 144 Plan 02 + Phase 145 — ntfy_password stores the per-user ntfy
-    // Basic-auth password (plaintext) encrypted at rest via AES-256-GCM
-    // (T-144-06 mitigation). The backend surfaces this value to the user in
-    // the preferences pane for manual entry into the ntfy iOS app's per-topic
-    // Login dialog (which does Basic auth, not Bearer); bcrypt is one-way and
-    // cannot be surfaced, so we store the plaintext encrypted via FieldCrypto
-    // instead. HC-3 note: the publish token (NTFY_PUBLISH_TOKEN) is
-    // env-var-only and is NOT a field in this table.
-    push_subscriptions: new Set(["ntfy_password"]),
   };
 
   static encryptField(

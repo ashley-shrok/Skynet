@@ -10,12 +10,6 @@ import { AutoSSLSetup } from "./utils/auto-ssl-setup.js";
 import { AuthManager } from "./utils/auth-manager.js";
 import { DataCrypto } from "./utils/data-crypto.js";
 import { SystemCrypto } from "./utils/system-crypto.js";
-// Phase 144 Plan 01 — ntfy env fail-fast boot gate. Synchronous throw-at-boot
-// contract: missing/malformed ntfy env vars → structured Error before any HTTP
-// routes mount. Mirrors assertBrandingConfigAtBoot placement at ~L474-481.
-// Phase 128's browser-push boot gate was removed in Plan 04 when the browser-push
-// system was fully deleted.
-import { assertNtfyConfigAtBoot } from "./notifications/ntfy-config.js";
 import {
   systemLogger,
   versionLogger,
@@ -425,7 +419,7 @@ if (process.env.VITEST !== "true") {
       });
 
     // Phase 128 (updated Phase 144) — start the push-trigger loop that
-    // dispatches ntfy notifications on new DM messages. Fire-and-forget
+    // dispatches Telegram notifications on new DM messages. Fire-and-forget
     // mirroring the observation-loop-starter block above (S3 discipline in
     // 128-PATTERNS.md § S3): outer catch on the dynamic import, inner
     // catch on the startPushTriggerLoopOnBoot() promise. Both operation
@@ -471,34 +465,6 @@ if (process.env.VITEST !== "true") {
       "./branding/assert-boot.js"
     );
     await assertBrandingConfigAtBoot();
-
-    // Phase 144 Plan 01 — fail-fast if ntfy env vars are missing or SKYNET_PUBLIC_URL
-    // is not an https:// URL. Same throw contract: synchronous, propagates to
-    // starter's uncaught-exception handler (non-zero exit that container supervisor
-    // watches for). Phase 128's VAPID gate removed in Plan 04.
-    assertNtfyConfigAtBoot();
-
-    // Phase 144 Plan 02 — belt-and-suspenders ntfy admin user bootstrap.
-    // Fire-and-forget (void — not awaited) so a slow ntfy container does NOT
-    // delay backend startup. In the normal case (server.yml provisioned the
-    // admin user at compose up), ensureSkynetPublisherUserExists gets 409 and
-    // swallows it silently. Failure logs warn but does NOT crash the backend.
-    // See ntfy-bootstrap.ts for HC-1 and HC-2 context.
-    void import("./notifications/ntfy-bootstrap.js")
-      .then((m) => {
-        m.ensureSkynetPublisherUserExists().catch((err) => {
-          systemLogger.warn("[ntfy] ensureSkynetPublisherUserExists unhandled rejection", {
-            operation: "ntfy_bootstrap_unhandled_rejection",
-            error: err instanceof Error ? err.message : "unknown",
-          });
-        });
-      })
-      .catch((err) => {
-        systemLogger.warn("[ntfy] ntfy-bootstrap module load failed", {
-          operation: "ntfy_bootstrap_module_load_failed",
-          error: err instanceof Error ? err.message : "unknown",
-        });
-      });
 
     // Phase 121 (feedback-config): boot-time env parse + module-scope cache.
     // DELIBERATELY DIVERGES from the branding assert-boot pattern above:

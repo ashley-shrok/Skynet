@@ -216,74 +216,6 @@ services:
         aliases:
           - matrix
 
-  # Phase 144 — self-hosted ntfy server for durable iOS push notifications.
-  # Caddy routes /ntfy/* to this container (see docker/caddy-config/
-  # Caddyfile.ntfy-additions.snippet for the ship-prep Caddyfile edit).
-  # Internal network only — Caddy reaches it at ntfy:2586; the container
-  # never publishes host ports.
-  #
-  # server.yml bind-mount (./ntfy/server.yml:/etc/ntfy/server.yml:ro)
-  # provisions the admin user + publish token declaratively at startup
-  # — closing the HC-2 bootstrap circularity so Plan 02's HTTP admin API
-  # calls have a credential to authenticate with.
-  #
-  # NTFY_BASE_URL uses the fail-loud :? guard (same pattern as
-  # SKYNET_HOME_MOUNT_SRC at line 129): missing SKYNET_PUBLIC_URL causes an
-  # immediate compose parse error rather than a silent empty base-url that
-  # would corrupt iOS upstream relay poll_request URLs (Pitfall 4).
-  ntfy:
-    image: binwiederhier/ntfy:v2.28.0
-    container_name: ntfy
-    restart: unless-stopped
-    # ntfy does NOT interpolate ${VAR} syntax in its YAML config file. The
-    # committed server.yml is a template with ${NTFY_ADMIN_USER},
-    # ${NTFY_ADMIN_PASS_BCRYPT}, ${NTFY_PUBLISH_TOKEN} placeholders in the
-    # auth-users / auth-tokens lists (which have no env-var equivalent — all
-    # other settings are set via NTFY_* env vars above). sed renders the
-    # template to /tmp/ntfy-server.yml at container boot, then ntfy serves
-    # against the rendered config. $$ in this YAML escapes the $ so compose
-    # doesn't interpolate at config-parse time; the shell inside the container
-    # sees $VAR and resolves against the container's env_file-loaded vars.
-    # entrypoint: [] overrides the image's default entrypoint (ntfy); we need
-    # a shell to run sed first, then exec ntfy ourselves.
-    entrypoint: []
-    command:
-      - /bin/sh
-      - -c
-      - |
-        sed \
-          -e "s|\$${NTFY_ADMIN_USER}|$${NTFY_ADMIN_USER}|g" \
-          -e "s|\$${NTFY_ADMIN_PASS_BCRYPT}|$${NTFY_ADMIN_PASS_BCRYPT}|g" \
-          -e "s|\$${NTFY_PUBLISH_TOKEN}|$${NTFY_PUBLISH_TOKEN}|g" \
-          /etc/ntfy/server.yml > /tmp/ntfy-server.yml && \
-        exec ntfy serve --config /tmp/ntfy-server.yml
-    volumes:
-      # Named volume for cache.db + auth.db persistence across container recreation.
-      - ntfy-data:/var/lib/ntfy
-      # Committed repo config template with ${VAR} placeholders — the sed
-      # command above renders the real values into /tmp/ntfy-server.yml at
-      # startup. This file never has real credentials; the renderer uses
-      # the container's env (loaded via env_file + environment: below).
-      - ./ntfy/server.yml:/etc/ntfy/server.yml:ro
-    env_file:
-      - ${SKYNET_HOST_DIR:-/opt/skynet}/skynet.env
-    environment:
-      # Fail-loud guard: empty NTFY_PUBLIC_URL → compose parse error (not a
-      # silent broken ntfy base-url). NTFY_PUBLIC_URL is a DEDICATED subdomain
-      # for ntfy (e.g. https://push.example.com) — NOT SKYNET_PUBLIC_URL + /ntfy,
-      # because ntfy's own startup validation refuses path-prefix hosting.
-      NTFY_BASE_URL: "${NTFY_PUBLIC_URL:?NTFY_PUBLIC_URL must be set to a dedicated subdomain for ntfy (e.g. https://push.example.com) — ntfy refuses path-prefix hosting}"
-      NTFY_LISTEN_HTTP: ":2586"
-      NTFY_BEHIND_PROXY: "true"
-      NTFY_UPSTREAM_BASE_URL: "https://ntfy.sh"
-      NTFY_CACHE_FILE: "/var/lib/ntfy/cache.db"
-      NTFY_AUTH_FILE: "/var/lib/ntfy/auth.db"
-      NTFY_AUTH_DEFAULT_ACCESS: "deny-all"
-    expose:
-      - "2586"
-    networks:
-      - skynet-net
-
   # Custom Caddy build (adds route53 DNS-01 plugin for wildcard TLS on the
   # deployment's wildcard subdomain). Uses cross-account AssumeRole against
   # a Route 53 hosted zone via the `caddy` AWS profile. Per-deployment
@@ -338,8 +270,6 @@ volumes:
   caddy-config:
     driver: local
   synapse-data:
-    driver: local
-  ntfy-data:
     driver: local
 
 networks:

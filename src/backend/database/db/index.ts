@@ -598,28 +598,6 @@ async function initializeCompleteDatabase(): Promise<void> {
     CREATE UNIQUE INDEX IF NOT EXISTS relay_room_sessions_user_room_uidx
         ON relay_room_sessions(user_id, room_id);
 
-    -- Phase 144 Plan 02 (schema rebuilt for ntfy) + Phase 145 (column
-    -- renamed reading_credential → ntfy_password; now stores plaintext ntfy
-    -- Basic-auth password encrypted at rest via FieldCrypto, not the tk_...
-    -- access token). One row per user (ntfy uses one topic per user).
-    -- UNIQUE(user_id) enforces one-row-per-user. UNIQUE(topic_name) ensures
-    -- globally unique topics (128-bit entropy from randomBytes(16).toString("hex")).
-    -- ntfy_username is stored for DELETE/regenerate routes (MC-4 fix — read
-    -- from DB, not reconstructed).
-    -- HC-3: NO ntfy_publish_config table here — publish token is env-var-only.
-    -- Drop-migration runs via runPushSubscriptionsRebuild (handles browser-push
-    -- shape, Phase-144 shape, and fresh install).
-    -- Drizzle mirror at schema.ts pushSubscriptions.
-    CREATE TABLE IF NOT EXISTS push_subscriptions (
-        id TEXT PRIMARY KEY,
-        user_id TEXT NOT NULL UNIQUE,
-        topic_name TEXT NOT NULL UNIQUE,
-        ntfy_password TEXT NOT NULL,
-        ntfy_username TEXT NOT NULL,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
-    );
-
     -- Telegram notifications: one linked chat per user. chat_id is stored
     -- plaintext (not FieldCrypto) because the push-trigger loop sends while
     -- the user's data key may be locked; a chat id is useless without the
@@ -993,125 +971,24 @@ export function runReopenTabsColumnDrop(sqliteDb: Database.Database): void {
 }
 
 /**
- * Phase 144 Plan 02 — drop the old Phase 128 browser-push push_subscriptions
- * table shape (endpoint/p256dh/auth columns) and rebuild with the ntfy shape.
+ * Drop the retired push_subscriptions table (earlier push-notification
+ * setups, replaced by Telegram — links live in telegram_links). Nothing reads
+ * its rows anymore. Idempotent: IF EXISTS makes
+ * it a no-op on fresh installs and on every boot after the first.
  *
- * Phase 145 — same DROP + CREATE flow, now creates with the renamed column
- * (`ntfy_password` instead of `reading_credential`; stores the ntfy Basic-auth
- * password, not the tk_... token). Rows from the Phase-144 shape are discarded
- * on upgrade — their stored tokens are unusable in the new flow anyway; each
- * user re-provisions via one click in the preferences pane.
- *
- * Drop then create, both steps wrapped
- * in try/catch with databaseLogger.warn on failure (non-fatal: boot continues).
- *
- * Step 1: DROP INDEX IF EXISTS push_subscriptions_user_endpoint_unique
- *   SQLite requires the index to be explicitly dropped before the table when
- *   it was created as a separate CREATE UNIQUE INDEX (not an inline constraint).
- *   For fresh installs where the index never existed, DROP INDEX IF EXISTS is
- *   a silent no-op.
- *
- * Step 2: DROP TABLE IF EXISTS push_subscriptions
- *   Discards whatever shape exists (browser-push, Phase-144 ntfy with
- *   reading_credential, or already-new). Per Phase 145 inline-work decision:
- *   stored tokens from Phase 144 are unusable under the new Basic-auth flow,
- *   so no backfill — users re-provision from the preferences pane.
- *
- * Step 3: CREATE TABLE IF NOT EXISTS push_subscriptions (new ntfy schema)
- *   HC-3 scope guard: NO ntfy_publish_config table is created here — the
- *   publish token lives in NTFY_PUBLISH_TOKEN env var only (RESEARCH.md Q7's
- *   singleton-table suggestion deliberately NOT implemented).
- *
- * Idempotent — if the current-shape table (with `ntfy_password`) is already
- * in place, the function returns early BEFORE the DROP. The original
- * unconditional DROP+CREATE was data-destructive: every boot wiped every
- * user's `push_subscriptions` row (ntfy user + ACL kept, Skynet forgot the
- * password/topic/username), so after each container restart users saw the
- * first-time-setup state and had to re-provision. The current-shape short-
- * circuit at the top of the function preserves rows across restarts.
- *
- * Exported so schema.test.ts can exercise SCH-06 (idempotency), SCH-07
- * (old-schema → new-schema migration path), and SCH-09 (preserves rows on
- * already-new-shape DB) against test-owned in-memory DBs.
+ * Exported so schema.test.ts can exercise it against in-memory DBs.
  */
-export function runPushSubscriptionsRebuild(
-  sqliteDb: Database.Database,
-): void {
-  // Short-circuit when the current-shape table is already in place. The
-  // original "idempotent" DROP+CREATE loses every row on every boot — users
-  // lose their ntfy setup on every container restart. Detection: the
-  // `ntfy_password` column only exists in the Phase-145+ shape (fresh install
-  // or already-migrated). Phase-128 browser-push used `endpoint`/`p256dh`/
-  // `auth`; Phase-144 pre-rename used `reading_credential`. If the current
-  // shape is already correct, skip the whole DROP+CREATE sequence.
-  try {
-    const cols = sqliteDb
-      .prepare("PRAGMA table_info(push_subscriptions)")
-      .all() as { name: string }[];
-    if (cols.some((c) => c.name === "ntfy_password")) {
-      return;
-    }
-  } catch (introspectErr) {
-    databaseLogger.warn(
-      "[phase-144] push_subscriptions introspection failed (non-fatal — proceeding with rebuild)",
-      {
-        operation: "schema_migration_introspect",
-        table: "push_subscriptions",
-        error: introspectErr,
-      },
-    );
-  }
-  // Step 1 — drop the old UNIQUE INDEX first (separate DDL object in Phase 128).
+export function runPushSubscriptionsDrop(sqliteDb: Database.Database): void {
   try {
     sqliteDb.exec(
-      "DROP INDEX IF EXISTS push_subscriptions_user_endpoint_unique;",
+      "DROP INDEX IF EXISTS push_subscriptions_user_endpoint_unique;" +
+        "DROP TABLE IF EXISTS push_subscriptions;",
     );
-  } catch (dropIndexErr) {
-    databaseLogger.warn(
-      "[phase-144] push_subscriptions_user_endpoint_unique index drop failed (non-fatal)",
-      {
-        operation: "schema_migration_drop_index",
-        index: "push_subscriptions_user_endpoint_unique",
-        error: dropIndexErr,
-      },
-    );
-  }
-  // Step 2 — drop the old table (browser-push shape). Existing rows are discarded.
-  try {
-    sqliteDb.exec("DROP TABLE IF EXISTS push_subscriptions;");
   } catch (dropErr) {
-    databaseLogger.warn(
-      "[phase-144] push_subscriptions table drop failed (non-fatal)",
-      {
-        operation: "schema_migration_drop_table",
-        table: "push_subscriptions",
-        error: dropErr,
-      },
-    );
-  }
-  // Step 3 — create new ntfy schema.
-  // HC-3 scope guard: NO ntfy_publish_config table created here.
-  try {
-    sqliteDb.exec(`
-      CREATE TABLE IF NOT EXISTS push_subscriptions (
-        id TEXT PRIMARY KEY,
-        user_id TEXT NOT NULL UNIQUE,
-        topic_name TEXT NOT NULL UNIQUE,
-        ntfy_password TEXT NOT NULL,
-        ntfy_username TEXT NOT NULL,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
-      );
-    `);
-  } catch (createErr) {
-    databaseLogger.warn(
-      "[phase-144] push_subscriptions rebuild CREATE TABLE failed (non-fatal)",
-      {
-        operation: "schema_migration_create_table",
-        table: "push_subscriptions",
-        error: createErr,
-      },
-    );
+    databaseLogger.warn("push_subscriptions drop failed (non-fatal)", {
+      operation: "schema_migration_drop_push_subscriptions",
+      error: dropErr,
+    });
   }
 }
 
@@ -1827,15 +1704,9 @@ const migrateSchema = async () => {
     }
   }
 
-  // Phase 144 Plan 02 — drop the old browser-push push_subscriptions shape
-  // (endpoint/p256dh/auth columns) and rebuild with the ntfy shape.
-  // runPushSubscriptionsRebuild is idempotent: drops old index + old table,
-  // then CREATE TABLE IF NOT EXISTS the new schema.
-  // HC-3 scope guard enforced inside runPushSubscriptionsRebuild — no
-  // ntfy_publish_config table is created. The labeled forceSave below persists
-  // the schema mutation to the encrypted disk file. Mirrors the phase-89 and
-  // phase-128 forceSave blocks immediately following their respective DDL work.
-  runPushSubscriptionsRebuild(sqlite);
+  // Drop the retired push_subscriptions table. The forceSave below
+  // persists the drop to the encrypted disk file.
+  runPushSubscriptionsDrop(sqlite);
 
   // Phase 89 Plan 01 — persist the new relay_room_sessions + admin_rooms
   // schema to the encrypted SQLite file. Same reason as the phase-75
@@ -1863,25 +1734,17 @@ const migrateSchema = async () => {
     );
   }
 
-  // Phase 144 Plan 02 — persist the rebuilt push_subscriptions schema to the
-  // encrypted SQLite file. Same reason as the phase-89 save above: the
-  // DROP + CREATE TABLE above execute against RAM SQLite; without an explicit
-  // forceSave the new schema lives only in memory until an unrelated write
-  // fires the debounced save trigger. A restart before that first unrelated
-  // write would re-run the rebuild on next boot (idempotent, so safe but
-  // unnecessary). Wrapped in try/catch — DatabaseSaveTrigger may not yet be
-  // initialized on the first-ever boot; runPushSubscriptionsRebuild is
-  // idempotent so a save failure retries on the next boot cycle.
+  // Persist the push_subscriptions drop. Same reason as the phase-89 save
+  // above: DDL runs against RAM SQLite. DatabaseSaveTrigger may not be wired
+  // on the first-ever boot; the drop is idempotent, so the next boot retries.
   try {
-    await DatabaseSaveTrigger.forceSave(
-      "phase-144-push-subscriptions-rebuild",
-    );
+    await DatabaseSaveTrigger.forceSave("push-subscriptions-drop");
   } catch (saveError) {
     databaseLogger.warn(
-      "[phase-144] forceSave failed post-rebuild (non-fatal — runPushSubscriptionsRebuild is idempotent, next boot retries)",
+      "forceSave failed after push_subscriptions drop (non-fatal — idempotent, next boot retries)",
       {
         operation: "schema_migration_force_save_post_create",
-        reason: "phase-144-push-subscriptions-rebuild",
+        reason: "push-subscriptions-drop",
         error: saveError,
       },
     );

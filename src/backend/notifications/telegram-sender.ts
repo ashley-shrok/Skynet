@@ -4,21 +4,20 @@
  * Sends a DM notification to the user's linked Telegram chat as a bot
  * message, with an "Open in Skynet" button deep-linking to the conversation.
  * The full text travels in the message itself, so delivery doesn't depend on
- * a later fetch from this server (the failure mode that made ntfy's iOS
- * banners unreliable).
+ * the phone fetching anything from this server afterwards.
  *
  * Reliability discipline:
  *   - Retries transient failures (network/timeout, 429 flood control, 5xx)
  *     up to MAX_ATTEMPTS, honouring Telegram's retry_after.
  *   - Logs EVERY outcome — success included — so a missing notification can
  *     always be traced: `telegram_send_ok` / `telegram_send_failed`.
- *   - Never throws (same contract as ntfy-sender's sendPushToUser): the
- *     push-trigger loop must not be disturbed by a delivery failure.
+ *   - Never throws: the push-trigger loop must not be disturbed by a
+ *     delivery failure.
  */
 
 import { databaseLogger } from "../utils/logger.js";
 import { userCanUseNotifications } from "./notifications-access.js";
-import { buildClickUrl, type PushPayload } from "./ntfy-sender.js";
+import { buildClickUrl, type PushPayload } from "./notification-payload.js";
 import { callTelegram, getSkynetPublicUrl, isTelegramConfigured } from "./telegram-api.js";
 import { getLink } from "./telegram-links.js";
 

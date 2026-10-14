@@ -7,11 +7,10 @@
  * adaptations:
  *
  *   1. No idempotent room-creation prerequisite step — push-trigger has no
- *      Skynet-owned rooms to bootstrap. (Phase 128's VAPID-config gate was
- *      removed in Plan 04 when browser-push was fully replaced by ntfy.)
+ *      Skynet-owned rooms to bootstrap.
  *
  *   2. Loop dep wiring includes push-specific concrete deps: fetchLive
- *      (wraps fetchRoomHistory with dir=f), sendPushToUser (notify-user fan-out: ntfy + Telegram),
+ *      (wraps fetchRoomHistory with dir=f), sendPushToUser (notify-user → Telegram),
  *      derivePreviewText + resolveAgentDisplayName (from Wave 1). Each dep
  *      slot on PushTriggerLoopDeps gets wired to its production
  *      implementation here — this is the ONE PLACE the loop touches the rest
@@ -212,7 +211,7 @@ export async function startPushTriggerLoopOnBoot(): Promise<StartPushTriggerLoop
         }
         return new Set(result.memberMxids);
       },
-      // Fans out to every channel the user set up (ntfy + Telegram).
+      // Telegram (see notify-user.ts).
       sendPushToUser: sendNotificationToUser,
       derivePreviewText,
       resolveAgentDisplayName,

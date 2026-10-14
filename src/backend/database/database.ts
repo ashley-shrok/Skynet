@@ -89,7 +89,7 @@ import conversationSearchRoutes from "./routes/conversation-search.js";
 import sessionProjectWriteRoutes from "./routes/session-project-write.js";
 import identityBirthRoutes from "./routes/identity-birth.js";
 import matrixAdminRoutes from "../matrix/matrix-admin-routes.js";
-// Phase 128 Plan 08 — /push-subscriptions router (rebuilt for ntfy in Plan 02).
+// /push-subscriptions router — Telegram notification setup.
 // Backing route file: ./routes/push-subscriptions.ts.
 import pushSubscriptionsRoutes from "./routes/push-subscriptions.js";
 // Phase 22 (SRIC-03): identity clone endpoint — mounted alongside birth/exists
@@ -2058,7 +2058,7 @@ app.use("/users", userRoutes);
 // (authenticateJWT + requireAdmin middleware). Same endpoint serves the one-shot
 // bootstrap AND future rotation calls (returns rotation:true when overwriting).
 app.use("/matrix-admin", matrixAdminRoutes);
-// Phase 128 Plan 08 — /push-subscriptions router (rebuilt for ntfy in Plan 02).
+// /push-subscriptions — Telegram notification setup.
 app.use("/push-subscriptions", pushSubscriptionsRoutes);
 app.use("/host", hostRoutes);
 app.use("/alerts", alertRoutes);

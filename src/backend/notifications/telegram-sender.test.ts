@@ -31,11 +31,6 @@ vi.mock("../utils/logger.js", () => ({
   databaseLogger: { warn: (...a: unknown[]) => warn(...a), info: (...a: unknown[]) => info(...a) },
 }));
 
-// ntfy-sender pulls in config/db modules; only buildClickUrl is needed here.
-vi.mock("./ntfy-sender.js", () => ({
-  buildClickUrl: (mxid: string, hostId: number | null) =>
-    `/?openHarness=${encodeURIComponent(mxid)}${hostId === null ? "" : `&host=${hostId}`}`,
-}));
 
 import {
   _setSleepForTests,

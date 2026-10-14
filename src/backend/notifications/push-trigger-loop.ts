@@ -2,9 +2,7 @@
  * Phase 128 Plan 06 Task 1 — push-trigger-loop.
  *
  * The per-user always-on live-event pump. This is the LOAD-BEARING trigger
- * for every push notification the phase delivers — without this loop, all
- * the plumbing built in Wave 1 (ntfy-sender, ntfy-config, subscription route)
- * has no way to fire.
+ * for every notification — without this loop, nothing fires.
  *
  * ## Why a new loop (not "bolt onto observation-loop")
  *

@@ -31,7 +31,7 @@
  * user-managed secret; admin-managed (company) keys are never listed here.
  *
  * Notifications — gated server-side (users.notifications_enabled or admin).
- * The nav entry only appears when GET /push-subscriptions/ntfy-setup succeeds
+ * The nav entry only appears when GET /push-subscriptions/telegram succeeds
  * on open; a 403 (or any failure) hides it.
  */
 
@@ -55,7 +55,7 @@ import { PreferencesServicesPane } from "./PreferencesServicesPane";
 import { PreferencesAboutPane } from "./PreferencesAboutPane";
 import { getMyPhone } from "@/api/user-phone-api";
 import { getMyServiceSecrets, type ServiceSecret } from "@/api/service-secrets-api";
-import { getNtfySetup } from "@/features/notifications/ntfy-setup-api";
+import { getTelegramStatus } from "@/features/notifications/telegram-setup-api";
 import { logoutUser } from "@/main-axios";
 import type { UserPreferences } from "@/api/open-tabs-api";
 import type { HostFolder } from "@/types/ui-types";
@@ -186,7 +186,7 @@ export default function PreferencesModal({
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
-    getNtfySetup()
+    getTelegramStatus()
       .then(() => {
         if (!cancelled) setNotificationsAllowed(true);
       })

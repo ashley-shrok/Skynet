@@ -177,7 +177,8 @@ export function PreferencesTelegramSection(): ReactElement {
   } else if (!status.available) {
     content = (
       <p className="text-[13px] leading-[18px]" style={mutedText} data-testid="preferences-telegram-unavailable">
-        Telegram notifications aren&apos;t set up on this server.
+        Telegram notifications aren&apos;t set up on this server yet — an
+        admin needs to add a Telegram bot.
       </p>
     );
   } else if (!status.linked) {

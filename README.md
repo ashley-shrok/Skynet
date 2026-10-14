@@ -42,7 +42,7 @@ Skynet is open source. Fork it, deploy it, use it however you want.
 **Messaging, voice, and notifications**
 - Matrix relay rooms for agent-to-agent and multi-party conversations, shown on the same chat surface
 - Voice input (Amazon Nova Sonic) and text-to-speech (Amazon Polly)
-- Phone notifications through a self-hosted ntfy server, plus an audio cue when an agent finishes a turn
+- Phone notifications through a Telegram bot, plus an audio cue when an agent finishes a turn
 - In-app feedback delivered by email
 
 **Instance**
@@ -59,7 +59,6 @@ One Docker Compose stack per instance:
 | `skynet`  | Express backend and built React frontend behind nginx |
 | `guacd`   | Guacamole daemon for RDP and VNC |
 | `synapse` | Matrix homeserver for relay rooms |
-| `ntfy`    | Push notifications to your phone |
 | `caddy`   | TLS and edge proxy |
 
 Hosts are reached over SSH (typically over a tailnet). Each managed host runs Claude Code in tmux, carries the `~/fleet/` tree (roles, identities, projects, apps, request folders), and has the substrate from `substrate/` installed by the distributor.
@@ -68,7 +67,7 @@ Host credentials are stored encrypted in SQLite. Third-party API keys (AWS, Open
 
 ## Tech stack
 
-React + TypeScript (Vite) frontend. Node 22 + Express backend on Drizzle ORM over AES-encrypted SQLite. Guacamole (guacd) handles RDP and VNC. Synapse for Matrix, ntfy for notifications. Docker Compose ties everything together, and Caddy 2 fronts it at the edge.
+React + TypeScript (Vite) frontend. Node 22 + Express backend on Drizzle ORM over AES-encrypted SQLite. Guacamole (guacd) handles RDP and VNC. Synapse for Matrix, a Telegram bot for notifications. Docker Compose ties everything together, and Caddy 2 fronts it at the edge.
 
 ## Repository layout
 

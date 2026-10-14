@@ -1,15 +1,13 @@
 /**
- * Notification fan-out — every channel the user has set up gets the DM
- * notification. Today that's ntfy (legacy, kept until Telegram is proven)
- * and Telegram.
+ * Notification dispatch for the push-trigger loop — currently Telegram only.
  *
- * Telegram is fired without awaiting: its retries (and Telegram's
- * retry_after) can take tens of seconds, and the push-trigger loop must not
- * stall other users' notifications behind one slow send. sendTelegramToUser
- * logs every outcome itself.
+ * Fired without awaiting: Telegram retries (and its retry_after) can take
+ * tens of seconds, and the push-trigger loop must not stall other users'
+ * notifications behind one slow send. sendTelegramToUser logs every outcome
+ * itself.
  */
 
-import { sendPushToUser, type PushPayload } from "./ntfy-sender.js";
+import type { PushPayload } from "./notification-payload.js";
 import { sendTelegramToUser } from "./telegram-sender.js";
 import { databaseLogger } from "../utils/logger.js";
 
@@ -24,5 +22,4 @@ export async function sendNotificationToUser(
       error: err instanceof Error ? err.message : "unknown",
     });
   });
-  await sendPushToUser(userId, payload);
 }
