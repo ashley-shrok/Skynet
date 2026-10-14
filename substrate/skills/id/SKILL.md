@@ -1014,12 +1014,16 @@ crown, then gear.
   - **Files** — full workspace explorer for the identity's `workspace/`
     folder: browse, download, upload, create files and folders, and
     edit files inline in the modal for supported types (text, code,
-    etc.). A **search box** (magnifier) on its own row under the toolbar
+    etc.). Each file/folder row has a **three-dots menu** — Rename,
+    Download (files only), Delete — also opened by right-clicking the row.
+    A **search box** (magnifier) on its own row under the toolbar
     finds files and folders by name in the folder being viewed and every
     folder below it — as the user types, case ignored, every word must
     appear in the name (any order); names only, not file contents. Results
     replace the listing, each with the folder it sits in under its name,
     nearest first, and act like normal rows (open, three-dots menu). A
+    result's menu adds **Show in folder**, which opens the folder it sits
+    in, ends the search and briefly rings the item there. A
     folder result opens that folder and ends the search; Escape or a
     breadcrumb jump clears it. Package and environment folders
     (`node_modules`, `.venv`/`venv`) and `.git` are never searched; it

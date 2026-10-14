@@ -33,13 +33,15 @@ import {
   FilePlus,
   Folder,
   FolderPlus,
-  MoreVertical,
-  Pencil,
   RefreshCw,
   Search,
-  Trash,
   Upload,
 } from "lucide-react";
+import {
+  RowKebabMenu,
+  useRowKebabContextMenu,
+  type RowKebabMenuItem,
+} from "@/features/pretty-conversations/RowKebabMenu";
 import {
   createWorkspaceFile,
   deleteWorkspaceEntry,
@@ -528,6 +530,33 @@ type ListState =
   | { status: "ready"; data: ListResponse }
   | { status: "error"; errorClass: string };
 
+/**
+ * A file/folder row that opens its menu on right-click — the same items as
+ * its ⋮, like rows everywhere else in the app. Phone long-press stays native.
+ */
+function RowMenuSurface({
+  items,
+  children,
+  ...rest
+}: {
+  items: RowKebabMenuItem[];
+  children: ReactNode;
+  "data-testid"?: string;
+  "data-path"?: string;
+  "data-flash"?: string;
+} & React.HTMLAttributes<HTMLDivElement>) {
+  const ctx = useRowKebabContextMenu(items);
+  return (
+    <div {...rest} onContextMenu={ctx.onContextMenu}>
+      {children}
+      {ctx.menu}
+    </div>
+  );
+}
+
+/** How long "Show in folder" rings the item it landed on. */
+const FLASH_MS = 2000;
+
 // ---------------------------------------------------------------------------
 // WorkspaceListView — list-mode body
 // Toolbar + breadcrumb + sortable columns + drag-drop + host chip + row menu
@@ -571,7 +600,6 @@ function WorkspaceListView({
   const [pendingNew, setPendingNew] = useState<"folder" | "file" | null>(null);
   const [newName, setNewName] = useState("");
   const [newError, setNewError] = useState<string | null>(null);
-  const [openMenuFor, setOpenMenuFor] = useState<string | null>(null);
   const [renamingFor, setRenamingFor] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [renameError, setRenameError] = useState<string | null>(null);
@@ -590,6 +618,9 @@ function WorkspaceListView({
     dir: "asc" | "desc";
   } | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  /** Item "Show in folder" landed on — ringed briefly once its folder loads. */
+  const [flashPath, setFlashPath] = useState<string | null>(null);
+  const listBodyRef = useRef<HTMLDivElement>(null);
   const trimmedQuery = query.trim();
   const searchActive = trimmedQuery.length > 0;
   /** Results replace the folder listing once the first search answers. */
@@ -665,6 +696,64 @@ function WorkspaceListView({
   function pathOf(entry: WorkspaceEntry): string {
     if (showingResults) return entry.path;
     return currentPath.length > 0 ? currentPath.join("/") + "/" + entry.name : entry.name;
+  }
+
+  // "Show in folder": once the folder's listing is on screen, scroll the item
+  // into view, then drop the ring after a moment.
+  useEffect(() => {
+    if (!flashPath || listState.status !== "ready" || showingResults) return;
+    const row = Array.from(
+      listBodyRef.current?.querySelectorAll<HTMLElement>("[data-path]") ?? [],
+    ).find((el) => el.dataset.path === flashPath);
+    row?.scrollIntoView?.({ block: "nearest" });
+    const timer = setTimeout(() => setFlashPath(null), FLASH_MS);
+    return () => clearTimeout(timer);
+  }, [flashPath, listState, showingResults]);
+
+  /** Go to the folder a search result lives in and point it out there. */
+  function showInFolder(entry: WorkspaceEntry) {
+    const segments = entry.path.split("/");
+    setFlashPath(entry.path);
+    navigateTo(segments.slice(0, -1));
+  }
+
+  /** The row menu — shared by the ⋮ button and right-click. */
+  function rowMenuItems(entry: WorkspaceEntry): RowKebabMenuItem[] {
+    const entryPath = pathOf(entry);
+    const items: RowKebabMenuItem[] = [];
+    if (showingResults) {
+      items.push({
+        label: "Show in folder",
+        onClick: () => showInFolder(entry),
+        testId: "workspace-row-show-in-folder",
+      });
+    }
+    items.push({
+      label: "Rename",
+      onClick: () => {
+        setRenamingFor(entryPath);
+        setRenameValue(entry.name);
+        setRenameError(null);
+      },
+      testId: "workspace-row-rename",
+    });
+    if (entry.type !== "directory") {
+      items.push({
+        label: "Download",
+        onClick: () => {
+          window.open(downloadWorkspaceFileUrl(target, hostId, entryPath), "_blank", "noopener,noreferrer");
+        },
+        testId: "workspace-row-download",
+      });
+    }
+    items.push({
+      label: "Delete",
+      danger: true,
+      separatorBefore: true,
+      onClick: () => void handleDelete(entry),
+      testId: "workspace-row-delete",
+    });
+    return items;
   }
 
   // Sort column toggling (D-14)
@@ -848,10 +937,6 @@ function WorkspaceListView({
 
   // Click on a row (D-09, D-13)
   function handleRowClick(entry: WorkspaceEntry) {
-    if (openMenuFor) {
-      setOpenMenuFor(null);
-      return;
-    }
     if (entry.type === "directory") {
       navigateTo(pathOf(entry).split("/"));
     } else {
@@ -956,9 +1041,6 @@ function WorkspaceListView({
         overflow: "hidden",
         background: "var(--color-pv-surface-quiet)",
       }}
-      onClick={() => {
-        if (openMenuFor) setOpenMenuFor(null);
-      }}
     >
       {/* Toolbar: breadcrumb + action buttons */}
       <div
@@ -973,12 +1055,16 @@ function WorkspaceListView({
         }}
       >
         {/* Breadcrumb (D-13) */}
+        {/* Sized to its one-line width: when the path doesn't fit beside the
+            buttons, the buttons wrap below and the path gets the whole line
+            (wrapping within it if it must) instead of squeezing into a narrow
+            column beside them — on a phone or in a narrow modal alike. */}
         <nav
           style={{
             display: "flex",
             alignItems: "center",
             gap: 2,
-            flex: 1,
+            flex: "1 1 max-content",
             minWidth: 0,
             flexWrap: "wrap",
           }}
@@ -1232,6 +1318,7 @@ function WorkspaceListView({
 
       {/* File list body with drag-drop (D-16) */}
       <div
+        ref={listBodyRef}
         style={{
           flex: 1,
           overflow: "auto",
@@ -1459,34 +1546,35 @@ function WorkspaceListView({
             // Keyed by path: results from different folders can share a name.
             const entryPath = pathOf(entry);
             const isRenaming = renamingFor === entryPath;
-            const menuOpen = openMenuFor === entryPath;
+            const flashing = flashPath === entryPath;
 
             return (
-              <div
+              <RowMenuSurface
                 key={entryPath}
+                items={rowMenuItems(entry)}
                 data-testid="workspace-row"
+                data-path={entryPath}
+                data-flash={flashing ? "" : undefined}
                 style={{
                   ...rowStyle,
                   opacity: searchActive && searching ? 0.5 : undefined,
-                  background: menuOpen
-                    ? "hsla(var(--pv-id-hue, 220), 80%, 60%, 0.06)"
+                  // "Show in folder" landed here — ring it for a moment.
+                  boxShadow: flashing
+                    ? "inset 0 0 0 2px hsla(var(--pv-id-hue, 220), 80%, 70%, 0.7)"
                     : undefined,
+                  transition: "box-shadow 0.4s",
                   position: "relative",
                 }}
                 onClick={() => {
-                  if (isRenaming || menuOpen) return;
+                  if (isRenaming) return;
                   handleRowClick(entry);
                 }}
                 onMouseEnter={(e) => {
-                  if (!menuOpen) {
-                    (e.currentTarget as HTMLElement).style.background =
-                      "hsla(var(--pv-id-hue, 220), 80%, 60%, 0.05)";
-                  }
+                  (e.currentTarget as HTMLElement).style.background =
+                    "hsla(var(--pv-id-hue, 220), 80%, 60%, 0.05)";
                 }}
                 onMouseLeave={(e) => {
-                  if (!menuOpen) {
-                    (e.currentTarget as HTMLElement).style.background = "";
-                  }
+                  (e.currentTarget as HTMLElement).style.background = "";
                 }}
               >
                 {/* Icon */}
@@ -1632,171 +1720,16 @@ function WorkspaceListView({
                   {formatMtime(entry.mtimeMs)}
                 </span>
 
-                {/* Overflow menu button */}
-                <div style={{ position: "relative" }} onClick={(e) => e.stopPropagation()}>
-                  <button
-                    type="button"
-                    title="Actions"
-                    style={{
-                      background: "none",
-                      border: "none",
-                      color: "var(--color-pv-fg-muted)",
-                      cursor: "pointer",
-                      padding: "2px 4px",
-                      borderRadius: 4,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      opacity: menuOpen ? 1 : undefined,
-                    }}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setOpenMenuFor(menuOpen ? null : entryPath);
-                    }}
-                    onMouseEnter={(e) => {
-                      (e.currentTarget as HTMLElement).style.opacity = "1";
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!menuOpen) {
-                        (e.currentTarget as HTMLElement).style.opacity = "";
-                      }
-                    }}
-                  >
-                    <MoreVertical size={14} />
-                  </button>
-
-                  {/* Dropdown menu */}
-                  {menuOpen && (
-                    <div
-                      style={{
-                        position: "absolute",
-                        right: 0,
-                        top: "calc(100% + 2px)",
-                        zIndex: 50,
-                        background: "var(--color-pv-base-mid)",
-                        border: "1px solid var(--color-pv-border-quiet-strong)",
-                        borderRadius: 8,
-                        boxShadow:
-                          "0 8px 24px rgba(0,0,0,0.5), 0 1px 0 rgba(255,255,255,0.06) inset",
-                        minWidth: 140,
-                        padding: "4px 0",
-                      }}
-                    >
-                      {/* Rename */}
-                      <button
-                        type="button"
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 8,
-                          width: "100%",
-                          padding: "7px 12px",
-                          background: "none",
-                          border: "none",
-                          color: "var(--color-pv-fg)",
-                          fontSize: 13,
-                          cursor: "pointer",
-                          textAlign: "left",
-                        }}
-                        onClick={() => {
-                          setOpenMenuFor(null);
-                          setRenamingFor(entryPath);
-                          setRenameValue(entry.name);
-                          setRenameError(null);
-                        }}
-                        onMouseEnter={(e) => {
-                          (e.currentTarget as HTMLElement).style.background =
-                            "hsla(var(--pv-id-hue, 220), 80%, 60%, 0.1)";
-                        }}
-                        onMouseLeave={(e) => {
-                          (e.currentTarget as HTMLElement).style.background =
-                            "none";
-                        }}
-                      >
-                        <Pencil size={13} style={{ opacity: 0.7 }} />
-                        Rename
-                      </button>
-
-                      {/* Download (files only) */}
-                      {entry.type !== "directory" && (
-                        <a
-                          href={downloadWorkspaceFileUrl(
-                            target,
-                            hostId,
-                            entryPath
-                          )}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 8,
-                            width: "100%",
-                            padding: "7px 12px",
-                            color: "var(--color-pv-fg)",
-                            fontSize: 13,
-                            cursor: "pointer",
-                            textDecoration: "none",
-                          }}
-                          onClick={() => setOpenMenuFor(null)}
-                          onMouseEnter={(e) => {
-                            (e.currentTarget as HTMLElement).style.background =
-                              "hsla(var(--pv-id-hue, 220), 80%, 60%, 0.1)";
-                          }}
-                          onMouseLeave={(e) => {
-                            (e.currentTarget as HTMLElement).style.background =
-                              "none";
-                          }}
-                        >
-                          <Download size={13} style={{ opacity: 0.7 }} />
-                          Download
-                        </a>
-                      )}
-
-                      <div
-                        style={{
-                          height: 1,
-                          background: "var(--color-pv-border-quiet)",
-                          margin: "4px 0",
-                        }}
-                      />
-
-                      {/* Delete (D-07 — confirm before delete) */}
-                      <button
-                        type="button"
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 8,
-                          width: "100%",
-                          padding: "7px 12px",
-                          background: "none",
-                          border: "none",
-                          color: "hsla(6, 80%, 55%, 0.9)",
-                          fontSize: 13,
-                          cursor: "pointer",
-                          textAlign: "left",
-                        }}
-                        onClick={() => {
-                          setOpenMenuFor(null);
-                          void handleDelete(entry);
-                        }}
-                        onMouseEnter={(e) => {
-                          (e.currentTarget as HTMLElement).style.background =
-                            "hsla(6, 80%, 53%, 0.1)";
-                        }}
-                        onMouseLeave={(e) => {
-                          (e.currentTarget as HTMLElement).style.background =
-                            "none";
-                        }}
-                      >
-                        <Trash size={13} />
-                        Delete
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
+                {/* Row menu — the app's standard ⋮ menu; right-click on the
+                    row opens the same one (RowMenuSurface). */}
+                <span style={{ display: "flex", justifyContent: "center" }}>
+                  <RowKebabMenu
+                    items={rowMenuItems(entry)}
+                    ariaLabel={`Actions for ${entry.name}`}
+                    testId="workspace-row-menu"
+                  />
+                </span>
+              </RowMenuSurface>
             );
           })}
 

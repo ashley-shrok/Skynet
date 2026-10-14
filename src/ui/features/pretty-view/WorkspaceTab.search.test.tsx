@@ -7,6 +7,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { SearchResponse, WorkspaceEntry } from "@/api/workspace-api";
 
 vi.mock("@/api/workspace-api", async (importOriginal) => {
@@ -64,6 +65,20 @@ function box(): HTMLInputElement {
 
 function type(text: string) {
   fireEvent.change(box(), { target: { value: text } });
+}
+
+/** Open a row's menu with its ⋮ button (the app's standard row menu). */
+async function openRowMenu(row: HTMLElement) {
+  await userEvent.setup().click(within(row).getByTestId("workspace-row-menu"));
+}
+
+/** Open a row's menu by right-clicking the row. */
+function rightClick(row: HTMLElement) {
+  fireEvent.contextMenu(row, { clientX: 100, clientY: 100 });
+}
+
+function rowOf(text: string): HTMLElement {
+  return screen.getByText(text).closest("[data-testid=workspace-row]") as HTMLElement;
 }
 
 function rowNames(): string[] {
@@ -299,8 +314,8 @@ describe("WorkspaceTab search", () => {
     await screen.findByText("top.md");
     type("plan");
     const row = (await screen.findByText("plan.md")).closest("[data-testid=workspace-row]") as HTMLElement;
-    fireEvent.click(within(row).getByTitle("Actions"));
-    fireEvent.click(within(row).getByText("Rename"));
+    await openRowMenu(row);
+    fireEvent.click(await screen.findByTestId("workspace-row-rename"));
     const input = within(row).getByDisplayValue("plan.md");
     fireEvent.change(input, { target: { value: "plan-v2.md" } });
     fireEvent.submit(input.closest("form")!);
@@ -324,8 +339,8 @@ describe("WorkspaceTab search", () => {
     type("plan");
     await screen.findByText("in docs");
     const row = screen.getByText("in docs").closest("[data-testid=workspace-row]") as HTMLElement;
-    fireEvent.click(within(row).getByTitle("Actions"));
-    fireEvent.click(within(row).getByText("Delete"));
+    await openRowMenu(row);
+    fireEvent.click(await screen.findByTestId("workspace-row-delete"));
     await waitFor(() =>
       expect(deleteWorkspaceEntry).toHaveBeenCalledWith(
         { kind: "identity", identityKey: "ada" },
@@ -342,9 +357,78 @@ describe("WorkspaceTab search", () => {
     await screen.findByText("top.md");
     type("plan");
     const row = (await screen.findByText("plan.md")).closest("[data-testid=workspace-row]") as HTMLElement;
-    fireEvent.click(within(row).getByTitle("Actions"));
-    const href = within(row).getByText("Download").closest("a")!.getAttribute("href")!;
-    expect(decodeURIComponent(href)).toContain("docs/notes/plan.md");
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    await openRowMenu(row);
+    fireEvent.click(await screen.findByTestId("workspace-row-download"));
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(decodeURIComponent(String(open.mock.calls[0][0]))).toContain("docs/notes/plan.md");
+    open.mockRestore();
+  });
+
+  it("right-clicking a folder row opens the same menu as its ⋮", async () => {
+    renderTab();
+    await screen.findByText("top.md");
+    rightClick(rowOf("top.md"));
+    expect(await screen.findByTestId("workspace-row-rename")).toBeTruthy();
+    expect(screen.getByTestId("workspace-row-download")).toBeTruthy();
+    expect(screen.getByTestId("workspace-row-delete")).toBeTruthy();
+    // Browsing has no "Show in folder" — you're already in it.
+    expect(screen.queryByTestId("workspace-row-show-in-folder")).toBeNull();
+  });
+
+  it("folders get no Download item", async () => {
+    renderTab();
+    await screen.findByText("docs");
+    rightClick(rowOf("docs"));
+    await screen.findByTestId("workspace-row-rename");
+    expect(screen.queryByTestId("workspace-row-download")).toBeNull();
+  });
+
+  it("right-clicking a result opens its menu, with Show in folder", async () => {
+    vi.mocked(searchWorkspace).mockResolvedValue(found([file("docs/inside.md")]));
+    renderTab();
+    await screen.findByText("top.md");
+    type("inside");
+    await screen.findByText("in docs");
+    rightClick(rowOf("inside.md"));
+    expect(await screen.findByTestId("workspace-row-show-in-folder")).toBeTruthy();
+    expect(screen.getByTestId("workspace-row-rename")).toBeTruthy();
+  });
+
+  it("Show in folder goes to the result's folder, ends the search and rings the item", async () => {
+    vi.mocked(searchWorkspace).mockResolvedValue(found([file("docs/inside.md")]));
+    renderTab();
+    await screen.findByText("top.md");
+    type("inside");
+    await screen.findByText("in docs");
+    await openRowMenu(rowOf("inside.md"));
+    fireEvent.click(await screen.findByTestId("workspace-row-show-in-folder"));
+
+    await waitFor(() => expect(vi.mocked(listWorkspace).mock.calls.at(-1)?.[2]).toBe("docs"));
+    expect(box().value).toBe("");
+    await waitFor(() =>
+      expect(document.querySelector('[data-path="docs/inside.md"]')?.hasAttribute("data-flash")).toBe(true),
+    );
+    expect(screen.queryByTestId("workspace-result-location")).toBeNull();
+    // The ring fades after a moment.
+    await waitFor(
+      () => expect(document.querySelector('[data-path="docs/inside.md"]')?.hasAttribute("data-flash")).toBe(false),
+      { timeout: 4000 },
+    );
+  });
+
+  it("Show in folder on a result in the current folder stays put and rings it", async () => {
+    vi.mocked(searchWorkspace).mockResolvedValue(found([file("top.md")]));
+    renderTab();
+    await screen.findByText("top.md");
+    type("top");
+    await screen.findByText("in this folder");
+    await openRowMenu(rowOf("top.md"));
+    fireEvent.click(await screen.findByTestId("workspace-row-show-in-folder"));
+    await waitFor(() => expect(box().value).toBe(""));
+    await waitFor(() =>
+      expect(document.querySelector('[data-path="top.md"]')?.hasAttribute("data-flash")).toBe(true),
+    );
   });
 
   it("creating a folder while searching clears the search so it shows", async () => {

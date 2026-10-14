@@ -22,7 +22,8 @@ The Files tab — the same file browser in the agent, role, and project modals �
 
 ## Other work
 
-- On a phone, a deep folder path squeezes the breadcrumb into a tall narrow column beside the toolbar buttons (existing layout; search makes deep jumps common, so it shows up more) — pending user decision
+- On a phone, a deep folder path squeezes the breadcrumb into a tall narrow column beside the toolbar buttons — done (fix-files-row-menu)
+- Right-click row menu + "Show in folder" on search results (user request after trying search) — done (fix-files-row-menu)
 
 ## Lingerers (explicitly approved)
 
