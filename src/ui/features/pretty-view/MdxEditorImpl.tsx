@@ -44,6 +44,8 @@ interface MdxEditorImplProps {
   content: string;
   onChange: (next: string) => void;
   disabled?: boolean;
+  /** View-only (file pane): no editing toolbar, editor locked. */
+  readOnly?: boolean;
   /** Called whenever MDXEditor's parser can't produce a trustworthy
    *  render — either silently (empty contenteditable despite non-empty
    *  content, detected 200ms post-mount) or loudly (its onError fires
@@ -59,6 +61,7 @@ export function MdxEditorImpl({
   content,
   onChange,
   disabled,
+  readOnly,
   onSilentParseFailure,
 }: MdxEditorImplProps): JSX.Element {
   // MDXEditor reads the `markdown` prop ONCE at mount and is uncontrolled
@@ -100,7 +103,9 @@ export function MdxEditorImpl({
     if (!content) return;
     const timer = setTimeout(() => {
       const editable = rootRef.current?.querySelector<HTMLElement>(
-        '[contenteditable="true"]',
+        // Any contenteditable — a locked (read-only) editor renders
+        // contenteditable="false" but is still a successful parse.
+        "[contenteditable]",
       );
       const text = editable ? (editable.textContent ?? "").trim() : "";
       if (text === "") {
@@ -124,7 +129,7 @@ export function MdxEditorImpl({
         lastKnownRef.current = md;
         onChange(md);
       }}
-      readOnly={disabled}
+      readOnly={disabled || readOnly}
       // Disable the mdast-util-mdx-jsx extension so bare `<thing>` /
       // `<slug>` / `<name>` placeholders in prose (common in SKILL.md,
       // role files, runbooks) stop being interpreted as attempted JSX
@@ -157,19 +162,23 @@ export function MdxEditorImpl({
       className="dark-theme skynet-mdxeditor"
       contentEditableClassName="mdx-prose prose prose-sm prose-invert max-w-none prose-code:before:content-none prose-code:after:content-none"
       plugins={[
-        toolbarPlugin({
-          toolbarContents: () => (
-            <>
-              <UndoRedo />
-              <BoldItalicUnderlineToggles />
-              <BlockTypeSelect />
-              <ListsToggle />
-              <CreateLink />
-              <InsertTable />
-              <InsertFrontmatter />
-            </>
-          ),
-        }),
+        ...(readOnly
+          ? []
+          : [
+              toolbarPlugin({
+                toolbarContents: () => (
+                  <>
+                    <UndoRedo />
+                    <BoldItalicUnderlineToggles />
+                    <BlockTypeSelect />
+                    <ListsToggle />
+                    <CreateLink />
+                    <InsertTable />
+                    <InsertFrontmatter />
+                  </>
+                ),
+              }),
+            ]),
         headingsPlugin(),
         listsPlugin(),
         quotePlugin(),

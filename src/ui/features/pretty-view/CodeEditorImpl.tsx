@@ -41,6 +41,9 @@ interface CodeEditorImplProps {
   content: string;
   onChange: (next: string) => void;
   disabled?: boolean;
+  /** View-only (file pane): locked like `disabled`, but not dimmed — the
+   *  file isn't busy, it just can't be edited here. */
+  readOnly?: boolean;
   placeholder?: string;
 }
 
@@ -49,6 +52,7 @@ export function CodeEditorImpl({
   content,
   onChange,
   disabled,
+  readOnly,
   placeholder,
 }: CodeEditorImplProps): JSX.Element {
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -194,7 +198,7 @@ export function CodeEditorImpl({
         "relative w-full h-full min-h-[400px] rounded-md border border-white/10 " +
         "overflow-hidden " +
         "focus-within:border-[hsla(var(--pv-id-hue,220),80%,60%,0.5)] " +
-        (disabled ? "opacity-60 " : "")
+        (disabled && !readOnly ? "opacity-60 " : "")
       }
     >
       <div ref={hostRef} className="w-full h-full" />

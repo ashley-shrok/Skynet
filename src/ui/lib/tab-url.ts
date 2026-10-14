@@ -15,6 +15,9 @@
 //   rdp:<host>                   RDP via guacamole
 //   vnc:<host>                   VNC via guacamole
 //   telnet:<host>                telnet via guacamole
+//   file:<b64url>                a file pane: base64url of JSON [host, path,
+//                                origin?] (file URL host segment, absolute
+//                                path, the source conversation's spec)
 //
 // active=<N> is the zero-based index (within the emitted `tab=` list) of the
 // tab that should be focused on restore. Omitted if the active tab isn't
@@ -37,6 +40,7 @@
 // AppShell consumes it after tabs are restored, then clears it.
 
 import type { TabType } from "@/types/ui-types";
+import { isValidFileAddress } from "@/features/pretty-view/file-url";
 
 const STORAGE_KEY = "skynet_pending_tab";
 
@@ -66,6 +70,9 @@ export type TabSpec =
       roomId?: never;
       hostId?: never;
       slug?: never;
+      fileHost?: never;
+      path?: never;
+      origin?: never;
     }
   | {
       protocol: "relay";
@@ -74,6 +81,9 @@ export type TabSpec =
       session?: never;
       hostId?: never;
       slug?: never;
+      fileHost?: never;
+      path?: never;
+      origin?: never;
     }
   | {
       // Phase 120 D-16 — app-leaf tuple carried through the URL fragment.
@@ -85,6 +95,23 @@ export type TabSpec =
       host?: never;
       session?: never;
       roomId?: never;
+      fileHost?: never;
+      path?: never;
+      origin?: never;
+    }
+  | {
+      // File leaf: the Skynet file URL's host segment + absolute path, plus
+      // the encoded spec of the conversation it came from when known.
+      // Wire form `file:<base64url of JSON [host, path, origin?]>`.
+      protocol: "file";
+      fileHost: string;
+      path: string;
+      origin?: string;
+      host?: never;
+      session?: never;
+      roomId?: never;
+      hostId?: never;
+      slug?: never;
     };
 
 // Full workspace state carried in the URL: an ordered list of tab specs,
@@ -119,6 +146,7 @@ const PROTOCOLS: TabSpec["protocol"][] = [
   "telnet",
   "relay",
   "app", // Phase 120 D-16 — app-leaf URL-fragment variant
+  "file",
 ];
 
 // App leaf identity shape (MEDIUM-7). Shared with the cross-window app-bar
@@ -126,6 +154,31 @@ const PROTOCOLS: TabSpec["protocol"][] = [
 // from outside input applies the same gate.
 export const APP_HOST_ID_RE = /^[1-9][0-9]{0,9}$/;
 export const APP_SLUG_RE = /^[a-z0-9-]{1,64}$/;
+
+// UTF-8-safe base64url (no padding) for the file variant's payload.
+function base64UrlEncode(text: string): string {
+  const bytes = new TextEncoder().encode(text);
+  let bin = "";
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+// Ceiling on a file payload: comfortably above the worst case the encoder
+// can produce for a valid address (4096-char path + 1024-char origin, every
+// character JSON-escaped to 6 bytes, then base64's 4/3) so any pane that was
+// written always reads back.
+const MAX_FILE_PAYLOAD = 65536;
+
+/** Throws on anything that isn't base64url of valid UTF-8. */
+function base64UrlDecode(text: string): string {
+  if (text.length === 0 || text.length > MAX_FILE_PAYLOAD || !/^[A-Za-z0-9_-]+$/.test(text)) {
+    throw new Error("not base64url");
+  }
+  const b64 = text.replace(/-/g, "+").replace(/_/g, "/");
+  const bin = atob(b64 + "=".repeat((4 - (b64.length % 4)) % 4));
+  const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+  return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+}
 
 export function parseTabParam(raw: string | null): TabSpec | null {
   if (!raw) return null;
@@ -236,6 +289,35 @@ export function parseTabParam(raw: string | null): TabSpec | null {
     if (!APP_SLUG_RE.test(slug)) return null;
     return { protocol: "app", hostId, slug };
   }
+  // File variant — `file:<base64url of JSON [host, path, origin?]>`. The
+  // payload is base64url because the split-tree alphabet is percent-decoded
+  // once on its way into the fragment (encodeWorkspaceSpec re-parses it), so
+  // any %-escape in a path or origin would not survive; base64url has none.
+  // Same fail-safe contract: anything malformed drops the tab.
+  if (protocol === "file") {
+    let parts: unknown;
+    try {
+      parts = JSON.parse(base64UrlDecode(rest));
+    } catch {
+      // eslint-disable-next-line no-console
+      console.info({
+        operation: "parse_tab_param_file_malformed",
+        restLen: rest.length,
+      });
+      return null;
+    }
+    if (!Array.isArray(parts) || parts.length < 2 || parts.length > 3) return null;
+    const [fileHost, path, origin] = parts as unknown[];
+    if (!isValidFileAddress(fileHost, path)) return null;
+    // The origin is itself a tab spec; keep it only when it parses as a
+    // conversation (never another file or an app).
+    const originSpec = typeof origin === "string" && origin.length <= 1024 ? parseTabParam(origin) : null;
+    const keepOrigin =
+      originSpec !== null && originSpec.protocol !== "file" && originSpec.protocol !== "app";
+    return keepOrigin
+      ? { protocol: "file", fileHost, path: path as string, origin: origin as string }
+      : { protocol: "file", fileHost, path: path as string };
+  }
   // Phase 97 code-review Fix 5 (extended via quick-260910-gqi): generic-host
   // mirror of the relay guard above. Covers terminal / rdp / vnc / telnet
   // (every non-tmux, non-relay member of PROTOCOLS). Includes `protocol` in
@@ -273,6 +355,10 @@ export function encodeTabSpec(spec: TabSpec): string {
   // APP_SLUG_RE (encoding is a no-op, included as defence-in-depth).
   if (spec.protocol === "app") {
     return `app:${spec.hostId}:${encodeURIComponent(spec.slug)}`;
+  }
+  if (spec.protocol === "file") {
+    const parts = spec.origin ? [spec.fileHost, spec.path, spec.origin] : [spec.fileHost, spec.path];
+    return `file:${base64UrlEncode(JSON.stringify(parts))}`;
   }
   const parts = [spec.protocol, encodeURIComponent(spec.host)];
   if (spec.protocol === "tmux" && spec.session) {
@@ -327,6 +413,8 @@ export function specForTab(input: {
   // Present ONLY when input.type === "app". Plan 07's AppShell callsite
   // invokes `specForTab({ type: "app", app: tab.app })`.
   app?: { hostId: number; slug: string };
+  // File leaf — mirrors `Tab.file`; present ONLY when input.type === "file".
+  file?: { host: string; path: string; origin?: string | null };
 }): TabSpec | null {
   // Phase 97 Plan 05: relay-room tabs surface via sessionKind + relayRoomId.
   // MUST come before the host-required check — relay tabs have no host.
@@ -346,6 +434,17 @@ export function specForTab(input: {
       hostId: String(input.app.hostId),
       slug: input.app.slug,
     };
+  }
+  if (input.type === "file") {
+    if (!input.file) return null;
+    return input.file.origin
+      ? {
+          protocol: "file",
+          fileHost: input.file.host,
+          path: input.file.path,
+          origin: input.file.origin,
+        }
+      : { protocol: "file", fileHost: input.file.host, path: input.file.path };
   }
   if (!input.host?.name) return null;
   const host = input.host.name;

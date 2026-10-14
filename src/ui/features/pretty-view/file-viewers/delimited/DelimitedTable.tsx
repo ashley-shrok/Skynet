@@ -81,6 +81,7 @@ export default function DelimitedTable({
   content,
   onChange,
   disabled,
+  readOnly = false,
 }: FileModeViewProps): JSX.Element {
   // The text the current records were parsed from or serialized to. A
   // different `content` means the text changed elsewhere → re-parse.
@@ -273,29 +274,34 @@ export default function DelimitedTable({
           First row is headers
         </label>
         <span className="flex-1" />
-        <button type="button" className={TOOL_BTN} onClick={() => apiRef.current?.undoCellEditing()} disabled={disabled} title="Undo cell edit">
-          <Undo2 size={13} aria-hidden /> <span className="sr-only">Undo</span>
-        </button>
-        <button type="button" className={TOOL_BTN} onClick={() => apiRef.current?.redoCellEditing()} disabled={disabled} title="Redo cell edit">
-          <Redo2 size={13} aria-hidden /> <span className="sr-only">Redo</span>
-        </button>
-        <button type="button" className={TOOL_BTN} onClick={addRow} disabled={disabled} title="Add a row below the selected cell">
-          <Plus size={13} aria-hidden /> Row
-        </button>
-        <button type="button" className={TOOL_BTN} onClick={deleteRow} disabled={disabled} title="Delete the selected cell's row">
-          <Trash2 size={13} aria-hidden /> Row
-        </button>
-        <button type="button" className={TOOL_BTN} onClick={addColumn} disabled={disabled} title="Add a column right of the selected cell">
-          <Plus size={13} aria-hidden /> Column
-        </button>
-        <button type="button" className={TOOL_BTN} onClick={deleteColumn} disabled={disabled} title="Delete the selected cell's column">
-          <Trash2 size={13} aria-hidden /> Column
-        </button>
-        {hasHeader ? (
-          <button type="button" className={TOOL_BTN} onClick={renameColumn} disabled={disabled} title="Rename the selected cell's column">
-            <Columns3 size={13} aria-hidden /> Rename
-          </button>
-        ) : null}
+        {/* View-only hosts (file pane) get no editing tools at all. */}
+        {readOnly ? null : (
+          <>
+            <button type="button" className={TOOL_BTN} onClick={() => apiRef.current?.undoCellEditing()} disabled={disabled} title="Undo cell edit">
+              <Undo2 size={13} aria-hidden /> <span className="sr-only">Undo</span>
+            </button>
+            <button type="button" className={TOOL_BTN} onClick={() => apiRef.current?.redoCellEditing()} disabled={disabled} title="Redo cell edit">
+              <Redo2 size={13} aria-hidden /> <span className="sr-only">Redo</span>
+            </button>
+            <button type="button" className={TOOL_BTN} onClick={addRow} disabled={disabled} title="Add a row below the selected cell">
+              <Plus size={13} aria-hidden /> Row
+            </button>
+            <button type="button" className={TOOL_BTN} onClick={deleteRow} disabled={disabled} title="Delete the selected cell's row">
+              <Trash2 size={13} aria-hidden /> Row
+            </button>
+            <button type="button" className={TOOL_BTN} onClick={addColumn} disabled={disabled} title="Add a column right of the selected cell">
+              <Plus size={13} aria-hidden /> Column
+            </button>
+            <button type="button" className={TOOL_BTN} onClick={deleteColumn} disabled={disabled} title="Delete the selected cell's column">
+              <Trash2 size={13} aria-hidden /> Column
+            </button>
+            {hasHeader ? (
+              <button type="button" className={TOOL_BTN} onClick={renameColumn} disabled={disabled} title="Rename the selected cell's column">
+                <Columns3 size={13} aria-hidden /> Rename
+              </button>
+            ) : null}
+          </>
+        )}
       </div>
       <div className="flex-1 min-h-[360px]">
         <AgGridReact<RowRecord>

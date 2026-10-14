@@ -55,6 +55,9 @@ export interface MarkdownEditorProps {
   /** When true, the editor is read-only. Wire from saving state or
    *  view-mode. */
   disabled?: boolean;
+  /** View-only (file pane): locked, but text stays selectable and the
+   *  editor isn't dimmed. Implies the editor never changes the content. */
+  readOnly?: boolean;
   /** Optional placeholder — only visible on the raw <textarea> branch. */
   placeholder?: string;
 }
@@ -73,17 +76,20 @@ interface RawTextareaProps {
   content: string;
   onChange: (next: string) => void;
   disabled?: boolean;
+  readOnly?: boolean;
   placeholder?: string;
 }
 
-function RawTextarea({ content, onChange, disabled, placeholder }: RawTextareaProps): JSX.Element {
+function RawTextarea({ content, onChange, disabled, readOnly, placeholder }: RawTextareaProps): JSX.Element {
+  // readOnly (not disabled) keeps the text selectable in every browser.
   return (
     <textarea
       value={content}
       onChange={(e) => onChange(e.target.value)}
       className={RAW_TEXTAREA_CLASS}
       spellCheck={false}
-      disabled={disabled}
+      disabled={disabled && !readOnly}
+      readOnly={readOnly}
       placeholder={placeholder}
     />
   );
@@ -153,6 +159,7 @@ export function MarkdownEditor({
   content,
   onChange,
   disabled,
+  readOnly,
   placeholder,
 }: MarkdownEditorProps): JSX.Element {
   const isMarkdown = /\.md$/i.test(filename);
@@ -185,6 +192,7 @@ export function MarkdownEditor({
             content={content}
             onChange={onChange}
             disabled={disabled}
+            readOnly={readOnly}
             placeholder={placeholder}
           />
         }
@@ -195,6 +203,7 @@ export function MarkdownEditor({
             content={content}
             onChange={onChange}
             disabled={disabled}
+            readOnly={readOnly}
             placeholder={placeholder}
           />
         </Suspense>
@@ -209,6 +218,7 @@ export function MarkdownEditor({
       content={content}
       onChange={onChange}
       disabled={disabled}
+      readOnly={readOnly}
       placeholder={placeholder}
       loadingFallback={loadingFallback}
     />
@@ -241,6 +251,7 @@ function MarkdownWithSilentFailureFallback({
   content,
   onChange,
   disabled,
+  readOnly,
   placeholder,
   loadingFallback,
 }: MarkdownEditorProps & { loadingFallback: ReactNode }): JSX.Element {
@@ -277,6 +288,7 @@ function MarkdownWithSilentFailureFallback({
           content={content}
           onChange={onChange}
           disabled={disabled}
+          readOnly={readOnly}
           placeholder={placeholder}
         />
       }
@@ -287,6 +299,7 @@ function MarkdownWithSilentFailureFallback({
           content={content}
           onChange={onChange}
           disabled={disabled}
+          readOnly={readOnly}
           placeholder={placeholder}
         />
       </Suspense>
@@ -321,6 +334,7 @@ function MarkdownWithSilentFailureFallback({
           content={content}
           onChange={onChange}
           disabled={disabled}
+          readOnly={readOnly}
           onSilentParseFailure={handleFallback}
         />
       </Suspense>

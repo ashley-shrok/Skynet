@@ -9,7 +9,8 @@ import type { BinaryDraft, FileModeViewProps } from "../registry";
  * the README's licence section). Lazy-loaded by docx-mode.tsx.
  *
  * Opens in Editing; Suggesting records edits as tracked changes; Viewing is
- * read-only. Edits surface as a BinaryDraft (export to .docx), saved by the
+ * read-only. A readOnly host (file pane) opens straight in Viewing with no
+ * mode tabs or toolbar. Edits surface as a BinaryDraft (export to .docx), saved by the
  * host like PDF annotations. SuperDoc's document-open telemetry is off.
  */
 
@@ -24,12 +25,17 @@ const MODES: Array<{ id: DocumentMode; label: string }> = [
 
 type LoadState = { status: "loading" } | { status: "ready" } | { status: "error"; message: string };
 
-export default function DocxEditor({ filename, src, onBinaryDraft }: FileModeViewProps): JSX.Element {
+export default function DocxEditor({
+  filename,
+  src,
+  onBinaryDraft,
+  readOnly = false,
+}: FileModeViewProps): JSX.Element {
   const toolbarRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<HTMLDivElement>(null);
   const docRef = useRef<SuperDoc | null>(null);
   const [state, setState] = useState<LoadState>({ status: "loading" });
-  const [mode, setMode] = useState<DocumentMode>("editing");
+  const [mode, setMode] = useState<DocumentMode>(readOnly ? "viewing" : "editing");
   const reportRef = useRef(onBinaryDraft);
   reportRef.current = onBinaryDraft;
 
@@ -70,7 +76,7 @@ export default function DocxEditor({ filename, src, onBinaryDraft }: FileModeVie
           selector: editorEl,
           toolbar: toolbarEl,
           document: file,
-          documentMode: "editing",
+          documentMode: readOnly ? "viewing" : "editing",
           title: filename,
           telemetry: { enabled: false },
           onReady: () => {
@@ -111,7 +117,7 @@ export default function DocxEditor({ filename, src, onBinaryDraft }: FileModeVie
       }
       if (dirty) reportRef.current?.(null);
     };
-  }, [src, filename]);
+  }, [src, filename, readOnly]);
 
   const switchMode = (next: DocumentMode) => {
     setMode(next);
@@ -121,7 +127,7 @@ export default function DocxEditor({ filename, src, onBinaryDraft }: FileModeVie
   return (
     <div className="flex flex-col h-full min-h-[560px] gap-2" data-testid="docx-editor">
       <div className="flex items-center gap-2 shrink-0">
-        <div className="pv-variant-tabs" role="tablist" aria-label="Document mode">
+        <div className={cn("pv-variant-tabs", readOnly && "hidden")} role="tablist" aria-label="Document mode">
           {MODES.map((m) => (
             <button
               key={m.id}
@@ -150,7 +156,10 @@ export default function DocxEditor({ filename, src, onBinaryDraft }: FileModeVie
           state.status === "error" && "hidden",
         )}
       >
-        <div ref={toolbarRef} className="shrink-0 bg-white border-b border-black/10" />
+        <div
+          ref={toolbarRef}
+          className={cn("shrink-0 bg-white border-b border-black/10", readOnly && "hidden")}
+        />
         <div className="flex-1 min-h-0 overflow-auto">
           <div ref={editorRef} />
         </div>

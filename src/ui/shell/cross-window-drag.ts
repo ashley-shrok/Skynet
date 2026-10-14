@@ -26,6 +26,7 @@
 // 15.4+ and every other modern browser 2016+; tests may shim it).
 
 import { APP_HOST_ID_RE, APP_SLUG_RE } from "@/lib/tab-url";
+import { fileNameOfPath, isValidFileAddress } from "@/features/pretty-view/file-url";
 
 const CHANNEL_NAME = "skynet-drag-accept";
 // 60s — was 5000, but a manual cross-window drag can easily take longer than
@@ -176,4 +177,35 @@ export function appLeafFromDescriptor(
       ? descriptor.label.trim().slice(0, MAX_APP_LABEL)
       : slug;
   return { hostId, slug, label };
+}
+
+/**
+ * File leaf counterpart to appLeafFromDescriptor: a file bar's drag payload
+ * carries `descriptor: { tabType: "file", file: { host, path, origin? },
+ * label }`. Returns the openTab arguments, or null when malformed.
+ */
+export function fileLeafFromDescriptor(
+  descriptor:
+    | {
+        tabType?: string;
+        file?: { host?: unknown; path?: unknown; origin?: unknown } | null;
+        label?: string | null;
+      }
+    | null
+    | undefined,
+): { host: string; path: string; origin: string | null; label: string } | null {
+  if (!descriptor || descriptor.tabType !== "file") return null;
+  const host = descriptor.file?.host;
+  const path = descriptor.file?.path;
+  if (!isValidFileAddress(host, path)) return null;
+  const rawOrigin = descriptor.file?.origin;
+  const origin =
+    typeof rawOrigin === "string" && rawOrigin.length > 0 && rawOrigin.length <= 1024
+      ? rawOrigin
+      : null;
+  const label =
+    typeof descriptor.label === "string" && descriptor.label.trim().length > 0
+      ? descriptor.label.trim().slice(0, MAX_APP_LABEL)
+      : fileNameOfPath(path as string);
+  return { host, path: path as string, origin, label };
 }

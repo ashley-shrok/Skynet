@@ -207,6 +207,41 @@ describe("fetchHostFileUrl — POST /pretty-view/fetch-host-file wrapper (Phase 
     );
   });
 
+  it("decodes the percent-encoded path segments (spaces, unicode, %) before POSTing", async () => {
+    (authApi.post as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      data: { contentBase64: "", sizeBytes: 0, contentType: null, extension: "md", filename: "x", isTextByExt: true },
+    });
+    await fetchHostFileUrl(
+      "https://term.example.com/file/thenasty/home/ubuntu/my%20notes/%C3%BCber%2520.md",
+    );
+    expect(authApi.post).toHaveBeenCalledWith("/pretty-view/fetch-host-file", {
+      hostname: "thenasty",
+      absolutePath: "/home/ubuntu/my notes/über%20.md",
+    });
+  });
+
+  it("passes a segment with a literal, unencoded % through unchanged", async () => {
+    (authApi.post as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      data: { contentBase64: "", sizeBytes: 0, contentType: null, extension: "txt", filename: "x", isTextByExt: true },
+    });
+    await fetchHostFileUrl("https://term.example.com/file/thenasty/tmp/100%done.txt");
+    expect(authApi.post).toHaveBeenCalledWith("/pretty-view/fetch-host-file", {
+      hostname: "thenasty",
+      absolutePath: "/tmp/100%done.txt",
+    });
+  });
+
+  it("accepts a plain-http Skynet origin (local dev)", async () => {
+    (authApi.post as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      data: { contentBase64: "", sizeBytes: 0, contentType: null, extension: "md", filename: "x", isTextByExt: true },
+    });
+    await fetchHostFileUrl("http://localhost:3000/file/Skynet/home/u/a.md");
+    expect(authApi.post).toHaveBeenCalledWith("/pretty-view/fetch-host-file", {
+      hostname: "Skynet",
+      absolutePath: "/home/u/a.md",
+    });
+  });
+
   it("Test 3 (unparseable URL): throws Error(\"invalid file URL\") synchronously without any network call", async () => {
     await expect(fetchHostFileUrl("garbage")).rejects.toThrow(
       "invalid file URL",

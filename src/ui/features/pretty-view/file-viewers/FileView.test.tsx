@@ -429,3 +429,19 @@ describe("FileView — CSV / TSV", () => {
     expect(raw.value).toBe("name,age\nAda,36\n");
   });
 });
+
+describe("FileView — readOnly (file pane)", () => {
+  it("locks the editor and never offers Save, even with onSave wired", () => {
+    render(
+      <FileView
+        state={{ status: "ready", data: { content: "a,b", mtime: 1 } }}
+        onSave={vi.fn()}
+        filename="note.txt"
+        readOnly
+      />,
+    );
+    const editor = screen.getByTestId("code-editor") as HTMLTextAreaElement;
+    expect(editor.disabled).toBe(true);
+    expect(screen.queryByRole("button", { name: /save/i })).toBeNull();
+  });
+});

@@ -158,8 +158,11 @@ export function convertedMode({ target, Inner, saveBack }: ConvertedModeOptions)
 
     // The inner viewer's draft holds the converted format (.docx); hosts
     // must write the original format, so convert back on the way out.
+    // No host draft callback (a view-only host) → none for the inner viewer
+    // either, so it opens read-only too.
+    const hostTakesDrafts = !!onBinaryDraft;
     const wrapDraft = useMemo(() => {
-      if (!saveBack) return undefined;
+      if (!saveBack || !hostTakesDrafts) return undefined;
       return (inner: BinaryDraft | null) => {
         if (!inner) {
           reportRef.current?.(null);
@@ -186,7 +189,7 @@ export function convertedMode({ target, Inner, saveBack }: ConvertedModeOptions)
           },
         });
       };
-    }, [originalExt]);
+    }, [originalExt, hostTakesDrafts]);
 
     if (state.status === "loading") {
       return (

@@ -86,7 +86,13 @@ function readDoc(filename: string, content: string): { doc: SubtitleDoc | null; 
   }
 }
 
-export default function SubtitleEditor({ filename, content, onChange, disabled }: FileModeViewProps): JSX.Element {
+export default function SubtitleEditor({
+  filename,
+  content,
+  onChange,
+  disabled,
+  readOnly = false,
+}: FileModeViewProps): JSX.Element {
   // The text the current doc was parsed from or written to; different
   // `content` means it changed elsewhere (Source tab, reload) → re-parse.
   const [source, setSource] = useState(content);
@@ -293,21 +299,26 @@ export default function SubtitleEditor({ filename, content, onChange, disabled }
           <AlertTriangle size={13} aria-hidden /> {problems.size} {problems.size === 1 ? "problem" : "problems"}
         </button>
         <span className="flex-1" />
-        <button type="button" className={TOOL_BTN} onClick={() => restore("past")} disabled={disabled || !history.past.length} title="Undo">
-          <Undo2 size={13} aria-hidden /> <span className="sr-only">Undo</span>
-        </button>
-        <button type="button" className={TOOL_BTN} onClick={() => restore("future")} disabled={disabled || !history.future.length} title="Redo">
-          <Redo2 size={13} aria-hidden /> <span className="sr-only">Redo</span>
-        </button>
-        <button type="button" className={TOOL_BTN} onClick={addLine} disabled={disabled || !canAddCue(doc)} title="Add a line after the selected one">
-          <Plus size={13} aria-hidden /> Line
-        </button>
-        <button type="button" className={TOOL_BTN} onClick={deleteLines} disabled={disabled || !cues.length} title="Delete the ticked lines (or the selected one)">
-          <Trash2 size={13} aria-hidden /> {selectedCount > 1 ? `${selectedCount} lines` : "Line"}
-        </button>
-        <button type="button" className={cn(TOOL_BTN, shiftOpen && "bg-white/[0.08]")} onClick={() => setShiftOpen((v) => !v)} disabled={disabled || !cues.length} title="Move timings earlier or later">
-          <MoveHorizontal size={13} aria-hidden /> Shift
-        </button>
+        {/* View-only hosts (file pane) get no editing tools — exports stay. */}
+        {readOnly ? null : (
+          <>
+            <button type="button" className={TOOL_BTN} onClick={() => restore("past")} disabled={disabled || !history.past.length} title="Undo">
+              <Undo2 size={13} aria-hidden /> <span className="sr-only">Undo</span>
+            </button>
+            <button type="button" className={TOOL_BTN} onClick={() => restore("future")} disabled={disabled || !history.future.length} title="Redo">
+              <Redo2 size={13} aria-hidden /> <span className="sr-only">Redo</span>
+            </button>
+            <button type="button" className={TOOL_BTN} onClick={addLine} disabled={disabled || !canAddCue(doc)} title="Add a line after the selected one">
+              <Plus size={13} aria-hidden /> Line
+            </button>
+            <button type="button" className={TOOL_BTN} onClick={deleteLines} disabled={disabled || !cues.length} title="Delete the ticked lines (or the selected one)">
+              <Trash2 size={13} aria-hidden /> {selectedCount > 1 ? `${selectedCount} lines` : "Line"}
+            </button>
+            <button type="button" className={cn(TOOL_BTN, shiftOpen && "bg-white/[0.08]")} onClick={() => setShiftOpen((v) => !v)} disabled={disabled || !cues.length} title="Move timings earlier or later">
+              <MoveHorizontal size={13} aria-hidden /> Shift
+            </button>
+          </>
+        )}
         {exportTargets.map((f) => (
           <button key={f} type="button" className={TOOL_BTN} onClick={() => download(`${base}.${f}`, convertSubtitles(doc, f))} disabled={!cues.length} title={`Download a copy as .${f}`}>
             <Download size={13} aria-hidden /> .{f}

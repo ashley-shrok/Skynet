@@ -2,14 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Modal, ModalHead, ModalBody, ModalFoot } from "@/components/modal";
 import { cn } from "@/lib/utils";
 import {
-  fetchTailnetUrl,
-  fetchHostFileUrl,
-} from "@/api/editable-file-api";
-import type { TabState } from "./IdentityFileTab";
-import {
   FileView,
   FileViewModeSwitcher,
-  type FileViewData,
 } from "./file-viewers/FileView";
 import {
   fileViewNeedsContent,
@@ -17,120 +11,8 @@ import {
   resolveMode,
   type BinaryDraft,
 } from "./file-viewers/registry";
-import { base64ToBytes, decodeUtf8, looksLikeText } from "./file-viewers/text-sniff";
 import { FileSpeakButton } from "./file-viewers/FileSpeakButton";
-
-/**
- * Monotonic mtime counter (rev-3 2026-08-14 code-review M4). Previously the
- * modal used `Date.now()` as the mtime sentinel; two sub-millisecond opens
- * would collide, FileView's mtime-keyed draft reseed would
- * decline to re-seed the draft, and the second open's editor would show the
- * first open's draft (or empty). A monotonic counter guarantees a distinct
- * sentinel per modal-open lifecycle regardless of wall-clock resolution.
- */
-let mtimeCounter = 0;
-
-/**
- * Phase 75 D-01 dispatch guard: fresh non-global regex used to decide which
- * fetch helper to call at open-time. MUST be non-global — .test() on a /g
- * regex mutates .lastIndex and returns alternating true/false (RESEARCH
- * Pitfall 6 + docblock warning on SKYNET_FILE_URL_RE_CLIENT).
- */
-const FILE_URL_DISPATCH_RE = /^https:\/\/[^/]+\/file\//;
-
-/**
- * Phase 75 D-01 URL parser for the modal's error-copy layer. Used ONLY to
- * extract the hostname to weave into the "Permission denied on <host>"
- * copy per D-02. Kept module-private; the fetch helper does its own
- * parsing for the network payload.
- */
-const FILE_URL_HOSTNAME_RE =
-  /^https:\/\/[^/]+\/file\/([a-zA-Z0-9._-]+)\//;
-
-/**
- * Phase 75 D-02 error-class → human-readable copy map for the modal's
- * in-body error surface. Keys are the backend error-class strings emitted
- * by `pretty-view-fetch-host-file.ts` from Plan 75-01. Values contain a
- * heading (short) + body (sentence) rendered inside the modal's error
- * panel. NEVER include HTTP status codes or stack traces (T-40-05
- * invariant re-affirmed in the plan's threat model T-75-F2).
- *
- * `permission_denied` is special-cased at the render site because its
- * body copy weaves in the hostname parsed from the URL (safe — the user
- * typed/saw the URL in the message, no info leak).
- *
- * Unmapped classes (including axios error paths that do NOT carry a
- * backend class, so the message becomes the generic ApiError text) fall
- * back to the "generic" entry.
- */
-type ErrorCopy = { heading: string; body: string };
-const FILE_URL_ERROR_COPY: Record<string, ErrorCopy> = {
-  host_unreachable: {
-    heading: "Host unreachable",
-    body: "The box may be offline or the SSH channel is down. Try again in a moment.",
-  },
-  not_found: {
-    heading: "File not found",
-    body: "No such file at that path. Check the URL or ask the agent to re-send.",
-  },
-  too_large: {
-    heading: "File too large",
-    body: "The 2 MB cap keeps the editor responsive. Ask for a smaller slice of the file.",
-  },
-  not_a_file: {
-    heading: "Not a regular file",
-    body: "Directories, sockets, and device files aren't viewable via file URLs.",
-  },
-  path_forbidden: {
-    heading: "Path forbidden",
-    body: "/proc, /sys, and /dev are not accessible via file URLs.",
-  },
-  path_traversal: {
-    heading: "Invalid path",
-    body: ". and .. segments aren't allowed in file URLs.",
-  },
-  path_must_be_absolute: {
-    heading: "Invalid path",
-    body: "The path in a file URL must be absolute (start with /).",
-  },
-  unknown_host: {
-    heading: "Unknown host",
-    body: "That host is not registered on this server, or you don't have access to it.",
-  },
-  ssh_timeout: {
-    heading: "SSH timeout",
-    body: "The host is slow or unreachable. Try again in a moment.",
-  },
-  invalid_hostname: {
-    heading: "Invalid hostname",
-    body: "The hostname in the URL contains unsupported characters.",
-  },
-  invalid_body: {
-    heading: "Invalid request",
-    body: "Something went wrong preparing the request. Refresh and try again.",
-  },
-  generic: {
-    heading: "Can't fetch the file",
-    body: "Something went wrong fetching the file. Try again, or check the URL.",
-  },
-};
-
-function classifyModalError(
-  err: unknown,
-  url: string,
-): { heading: string; body: string } {
-  const message = err instanceof Error ? err.message : "";
-  if (message === "permission_denied") {
-    const hostMatch = url.match(FILE_URL_HOSTNAME_RE);
-    const host = hostMatch ? hostMatch[1] : "the host";
-    return {
-      heading: "Permission denied",
-      body: `The server's SSH user can't read this file on ${host}. Ask the box owner to widen access.`,
-    };
-  }
-  const copy = FILE_URL_ERROR_COPY[message];
-  return copy ?? FILE_URL_ERROR_COPY.generic;
-}
+import { describeFileUrlError, useFileUrlContent } from "./file-url-content";
 
 /**
  * EditableFileModal — file preview + edit modal for chat-shared files.
@@ -155,7 +37,7 @@ function classifyModalError(
  *   - Known-binary types show the "can't preview" notice. No fetch.
  *   - Content modes fetch the bytes; non-text bytes (server sniff, else
  *     client sniff) show the notice instead of decoding garbage.
- *   - Error: rich per-class copy (FILE_URL_ERROR_COPY) with a close button.
+ *   - Error: rich per-class copy (describeFileUrlError) with a close button.
  *
  * Foot: rendered ONLY for editable content (fetched text). Viewers and
  * the binary notice get no foot — the head X is the only close path (user
@@ -186,8 +68,10 @@ export interface EditableFileModalProps {
    * Callback invoked on Save with the edited (filename, content) tuple.
    * Plan 40-04 wires this to `uploads.stageAttachments("primary", [File])`
    * — depositing the edit as a chip in the ComposeBox attachment strip.
+   * Absent when there's no conversation to send to (a file pane whose
+   * source conversation isn't open): the file opens view-only, no Save.
    */
-  onStageEditedFile: (filename: string, content: string | Uint8Array) => void;
+  onStageEditedFile?: (filename: string, content: string | Uint8Array) => void;
 }
 
 export default function EditableFileModal({
@@ -199,9 +83,6 @@ export default function EditableFileModal({
   agentIdentityName: _agentIdentityName,
   onStageEditedFile,
 }: EditableFileModalProps): JSX.Element {
-  const [fetchState, setFetchState] = useState<TabState<FileViewData>>({
-    status: "loading",
-  });
   const [isDirty, setIsDirty] = useState(false);
   // Local draft mirror — FileView exposes it via `onDraftContentChange`
   // so the modal's own foot Save button can hand it back to `handleSave`.
@@ -218,72 +99,26 @@ export default function EditableFileModal({
     [filename, viewMode],
   );
 
-  // Pitfall 6: mtime sentinel MUST be stable across renders. Captured ONCE
-  // at fetch-success, reset only when the modal closes.
-  const initialMtimeRef = useRef<number>(0);
   // Rev-2: bypass the draft-guard confirm on save-success closes.
   const savingRef = useRef<boolean>(false);
 
-  // D-04 fresh-fetch-on-open effect. Skipped when the current view mode
+  // D-04 fresh fetch on every open, skipped when the current view mode
   // doesn't need the content (see usesEditorFetch).
+  const fetchState = useFileUrlContent({ url, enabled: open && usesEditorFetch });
+
+  // Reset on close so re-open starts fresh (D-06 stateless); a new read
+  // starts clean.
   useEffect(() => {
     if (!open) {
-      // Reset state on close so re-open starts fresh (D-06 stateless).
-      setFetchState({ status: "loading" });
       setIsDirty(false);
       setDraft("");
-      initialMtimeRef.current = 0;
       savingRef.current = false;
       setViewMode(null);
       return;
     }
-
-    if (!usesEditorFetch) {
-      return;
-    }
-
-    let cancelled = false;
-    setFetchState({ status: "loading" });
+    if (!usesEditorFetch) return;
     setIsDirty(false);
     savingRef.current = false;
-
-    // Phase 75 D-01: dispatch by URL shape.
-    const isFileUrl = FILE_URL_DISPATCH_RE.test(url);
-    const fetchPromise = isFileUrl
-      ? fetchHostFileUrl(url)
-      : fetchTailnetUrl(url);
-
-    fetchPromise
-      .then((result) => {
-        if (cancelled) return;
-        initialMtimeRef.current = ++mtimeCounter;
-        // Decode base64 -> raw bytes -> UTF-8 (rev-3 2026-08-14 code-review
-        // B2: TextDecoder avoids mojibake on non-ASCII content). Text-ness:
-        // the extension, else the server's byte sniff (only sent when the
-        // extension missed), else the same sniff client-side.
-        const bytes = base64ToBytes(result.contentBase64);
-        const isText =
-          result.isTextByExt || (result.isTextByBytes ?? looksLikeText(bytes));
-        setFetchState({
-          status: "ready",
-          data: {
-            content: isText ? decodeUtf8(bytes) : "",
-            mtime: initialMtimeRef.current,
-            isText,
-            bytes,
-          },
-        });
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        const detail =
-          err instanceof Error ? err.message : "unknown fetch error";
-        setFetchState({ status: "error", error: detail });
-      });
-
-    return () => {
-      cancelled = true;
-    };
   }, [open, url, filename, usesEditorFetch]);
 
   // Draft-guard wrapper on onOpenChange. When closing (open→false) with a
@@ -306,6 +141,7 @@ export default function EditableFileModal({
   // subsequent onOpenChange(false) bypasses the draft-guard confirm.
   const handleSave = useCallback(
     async (content: string | Uint8Array): Promise<void> => {
+      if (!onStageEditedFile) return;
       savingRef.current = true;
       try {
         onStageEditedFile(filename, content);
@@ -343,29 +179,22 @@ export default function EditableFileModal({
     });
   }, [handleSave, draft, binaryDraft]);
 
-  const isFileUrl = FILE_URL_DISPATCH_RE.test(url);
-  const errorHeading =
-    fetchState.status === "error"
-      ? isFileUrl
-        ? classifyModalError(new Error(fetchState.error), url).heading
-        : "Can't fetch the current file."
-      : "";
-  const errorBody =
-    fetchState.status === "error"
-      ? isFileUrl
-        ? classifyModalError(new Error(fetchState.error), url).body
-        : "The agent's temporary server may have shut down (they auto-kill after 30 minutes) or the network is unreachable. Ask the agent to re-share the file if you still want to edit it."
-      : "";
+  const errorCopy =
+    fetchState.status === "error" ? describeFileUrlError(fetchState.error, url) : null;
+  const errorHeading = errorCopy?.heading ?? "";
+  const errorBody = errorCopy?.body ?? "";
 
   // Foot (Close + Save) for editable content: fetched text, or a mode that
   // edits in place from the URL (PDF annotations → binary draft).
   const urlModeEditable =
     !usesEditorFetch && resolveMode(resolveFileViewer(filename), viewMode).editable;
+  const canSave = !!onStageEditedFile;
   const showFoot =
-    urlModeEditable ||
-    (usesEditorFetch &&
-      fetchState.status !== "error" &&
-      !(fetchState.status === "ready" && fetchState.data.isText === false));
+    canSave &&
+    (urlModeEditable ||
+      (usesEditorFetch &&
+        fetchState.status !== "error" &&
+        !(fetchState.status === "ready" && fetchState.data.isText === false)));
 
   const fileView = (
     <FileView
@@ -382,7 +211,16 @@ export default function EditableFileModal({
       hideModeSwitcher={true}
       hideSpeakButton={true}
       onBinaryDraftChange={setBinaryDraft}
+      readOnly={!canSave}
     />
+  );
+  const viewOnlyNote = canSave ? null : (
+    <div
+      className="shrink-0 text-[12px] text-[#a89a80] pb-2"
+      data-testid="editable-file-modal-view-only-note"
+    >
+      View only — open the conversation this file came from to send an edited copy back.
+    </div>
   );
 
   return (
@@ -411,7 +249,10 @@ export default function EditableFileModal({
       />
 
       {!usesEditorFetch ? (
-        <div className="flex-1 min-h-0 flex flex-col">{fileView}</div>
+        <div className="flex-1 min-h-0 flex flex-col">
+          {viewOnlyNote}
+          {fileView}
+        </div>
       ) : fetchState.status === "error" ? (
         <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6 py-8 text-center">
           <div className="text-lg font-semibold text-[#f0ebe0]">
@@ -436,6 +277,7 @@ export default function EditableFileModal({
         </div>
       ) : (
         <ModalBody className="p-0 overflow-y-auto flex flex-col px-6 py-4">
+          {viewOnlyNote}
           {fileView}
         </ModalBody>
       )}

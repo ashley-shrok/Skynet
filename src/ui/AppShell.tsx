@@ -54,7 +54,7 @@ import type {
   ThemeId,
   FontSizeId,
 } from "@/types/ui-types";
-import { isAppTab } from "@/types/ui-types";
+import { isAppTab, isFileTab } from "@/types/ui-types";
 import { applyAccentColor, applyFontSize } from "@/lib/theme";
 import { useTheme } from "@/components/theme-provider";
 import {
@@ -76,6 +76,12 @@ import { PrettyConversationsPanel } from "@/features/pretty-conversations/Pretty
 import { setTtsPlaybackRate } from "@/features/pretty-view/webAudioStreamPlayer";
 import { setFileSpeakVoice } from "@/features/pretty-view/file-viewers/file-speak";
 import { setVoiceModeSettings } from "@/features/pretty-view/voice-mode-settings";
+import {
+  FILE_CHIP_MIME,
+  fileNameOfPath,
+  parseFileChipPayload,
+  type FileChipDragPayload,
+} from "@/features/pretty-view/file-url";
 // Phase 122 Plan 03 Task 3 — ConversationSearchResult type for the new
 // onSearchResultOpenActive prop wired to PrettyConversationsPanel below
 // (mirrors the onDetachedRowClick handler shape at line ~3068).
@@ -137,6 +143,7 @@ import {
 import { getSessionListWithMeta, killTmuxSession } from "@/api/sessions-api";
 import {
   consumePendingWorkspace,
+  encodeTabSpec,
   specForTab,
   writeWorkspaceToUrl,
 } from "@/lib/tab-url";
@@ -159,6 +166,7 @@ import {
   postDragAccept,
   subscribeToDragAccepts,
   appLeafFromDescriptor,
+  fileLeafFromDescriptor,
 } from "@/shell/cross-window-drag";
 import {
   encodeSplitTreeToUrl,
@@ -1415,6 +1423,7 @@ export function AppShell({
         // tab-url.ts:313-320). tab.app is undefined for non-app tabs;
         // specForTab returns null for those and the loop continues.
         app: t.app,
+        file: t.file,
       });
       if (!spec) continue;
       if (t.id === activeTabId) activeIndex = tabSpecs.length;
@@ -1452,6 +1461,7 @@ export function AppShell({
         // the workspace-share flow + Chrome-tab-restore round-trip apps
         // in a split.
         app: t.app,
+        file: t.file,
       });
     });
     writeWorkspaceToUrl(
@@ -1801,6 +1811,21 @@ export function AppShell({
             // violated: idempotency runs per spec in pending.tabs, so
             // two distinct app tabs in the URL (same or different tuple)
             // each get their own openedIds entry via openTab below.
+            // File leaf — always a fresh tab per spec (duplicates of the
+            // same file are allowed, each its own pane).
+            if (spec.protocol === "file") {
+              const newId = openTab(null, "file", undefined, {
+                file: {
+                  host: spec.fileHost,
+                  path: spec.path,
+                  origin: spec.origin ?? null,
+                },
+                label: fileNameOfPath(spec.path),
+                allowCreateTmux: false,
+              });
+              if (newId) openedIds.push(newId);
+              continue; // skip host-required logic below
+            }
             if (spec.protocol === "app") {
               const restoreHostId = Number(spec.hostId);
               const match = restoredTabs.find(
@@ -1944,9 +1969,20 @@ export function AppShell({
           // pending tabs. Rebuild the same host/type filter loop to keep the
           // positional accounting straight even under `continue` skips.
           const specToTabId = new Map<string, string>();
+          // File leaves can repeat (same file in two panes), so a key maps
+          // to a queue of tab ids, each handed out once.
+          const fileSpecToTabIds = new Map<string, string[]>();
+          const claimedFileTabIds = new Set<string>();
           {
             let openedIdx = 0;
             for (const spec of pending.tabs) {
+              if (spec.protocol === "file") {
+                const key = encodeTabSpec(spec);
+                const id = openedIds[openedIdx];
+                if (id) fileSpecToTabIds.set(key, [...(fileSpecToTabIds.get(key) ?? []), id]);
+                openedIdx += 1;
+                continue;
+              }
               // Phase 97 Plan 05 (Finding 7) BLOCKER-1: relay branch MUST
               // come before any spec.host access — TabSpec's discriminated
               // union types host as never on the relay variant, and the
@@ -1994,6 +2030,28 @@ export function AppShell({
             }
           }
           const resolver = (spec: TabSpec): string | null => {
+            if (spec.protocol === "file") {
+              const queued = fileSpecToTabIds.get(encodeTabSpec(spec));
+              while (queued && queued.length > 0) {
+                const id = queued.shift()!;
+                if (!claimedFileTabIds.has(id)) {
+                  claimedFileTabIds.add(id);
+                  return id;
+                }
+              }
+              for (const t of [...restoredTabs, ...tabs]) {
+                if (
+                  isFileTab(t) &&
+                  !claimedFileTabIds.has(t.id) &&
+                  t.file.host === spec.fileHost &&
+                  t.file.path === spec.path
+                ) {
+                  claimedFileTabIds.add(t.id);
+                  return t.id;
+                }
+              }
+              return null;
+            }
             // Phase 97 Plan 05 (Finding 7) BLOCKER-1: relay branch first —
             // matches on roomId identity (both the map key and the fallback
             // walk). The unpatched form threw TypeError on spec.host.toLowerCase()
@@ -2130,6 +2188,8 @@ export function AppShell({
       // pass this through so the created Tab carries `Tab.app` and
       // persistence + URL-fragment round-trips see the tuple.
       app?: { hostId: number; slug: string };
+      // File leaf: present only when type === "file" (see Tab.file).
+      file?: { host: string; path: string; origin?: string | null };
     },
   ): string {
     // Patch #35: append a monotonic counter suffix so multiple openTab
@@ -2140,7 +2200,7 @@ export function AppShell({
     // Phase 90 Plan 07 Task 3: `host?.name ?? "relay-room"` for the id
     // prefix — the id shape stays greppable in logs even for host-less
     // relay-room tabs. `host` is null for relay-room tabs.
-    const hostNameForId = host?.name ?? "relay-room";
+    const hostNameForId = host?.name ?? (type === "file" ? "file" : "relay-room");
     const tabId = `${hostNameForId}-${type}-${Date.now()}-${openTabCounter.current++}`;
     const instanceId =
       restore?.instanceId ??
@@ -2168,6 +2228,7 @@ export function AppShell({
     // Phase 120 D-02 — app tuple; only present when the caller is spawning
     // an app-type tab. Present when type === "app"; absent otherwise.
     const appTuple = options?.app;
+    const fileAddress = options?.file;
 
     // Fallback label when host is null and no custom label supplied — use
     // the room title (if any) so the tab title reads meaningfully; else the
@@ -2202,6 +2263,7 @@ export function AppShell({
             // same (hostId, slug) tuple appends a fresh Tab, resulting in
             // two independent leaves that each connect independently.
             ...(appTuple !== undefined ? { app: appTuple } : {}),
+            ...(fileAddress !== undefined ? { file: fileAddress } : {}),
           },
         ];
       }
@@ -2238,6 +2300,7 @@ export function AppShell({
           ...(sessionKind === "relay-room" ? { relayRoomTitle } : {}),
           // Phase 120 D-02 — see the customLabel branch above.
           ...(appTuple !== undefined ? { app: appTuple } : {}),
+          ...(fileAddress !== undefined ? { file: fileAddress } : {}),
         },
       ];
     });
@@ -2756,6 +2819,7 @@ export function AppShell({
         relayRoomTitle?: string | null;
         targetTmuxSession?: string | null;
         app?: { hostId?: number; slug?: string } | null;
+        file?: { host?: string; path?: string; origin?: string | null } | null;
         label?: string | null;
       } | null;
     }): string | null => {
@@ -2785,6 +2849,17 @@ export function AppShell({
       // App leaf (shape-app-pane-strip): hostless tab keyed by (hostId, slug),
       // same tuple onOpenApp mints. The proxy's own host-access check gates
       // whether this window's user can actually load it.
+      // File leaf: hostless, keyed by the file URL's (host, path). The file
+      // routes' own host-access check gates what this window can show.
+      if (descriptor.tabType === "file") {
+        const leaf = fileLeafFromDescriptor(descriptor);
+        if (leaf === null) return null;
+        return openTab(null, "file", undefined, {
+          file: { host: leaf.host, path: leaf.path, origin: leaf.origin },
+          label: leaf.label,
+          allowCreateTmux: false,
+        });
+      }
       if (descriptor.tabType === "app") {
         const leaf = appLeafFromDescriptor(descriptor);
         if (leaf === null) return null;
@@ -2833,6 +2908,7 @@ export function AppShell({
           relayRoomTitle?: string | null;
           targetTmuxSession?: string | null;
           app?: { hostId?: number; slug?: string } | null;
+          file?: { host?: string; path?: string; origin?: string | null } | null;
           label?: string | null;
         } | null;
       },
@@ -2876,6 +2952,7 @@ export function AppShell({
           relayRoomTitle?: string | null;
           targetTmuxSession?: string | null;
           app?: { hostId?: number; slug?: string } | null;
+          file?: { host?: string; path?: string; origin?: string | null } | null;
           label?: string | null;
         } | null;
       },
@@ -2922,6 +2999,27 @@ export function AppShell({
   useEffect(() => {
     doCloseTabRef.current = doCloseTab;
   });
+
+  // A file pane has no sidebar row to bring it back: once it has left the
+  // layout (replaced by a center drop, or the user moved on from it shown
+  // alone) and isn't the tab on screen, nothing can reach it again. Close it
+  // rather than leave it mounted — and written into the URL, recreated on
+  // every reload.
+  useEffect(() => {
+    if (!tabsReady) return;
+    const inTree = new Set(collectTabIds(splitTree));
+    for (const t of tabs) {
+      if (t.type !== "file") continue;
+      if (inTree.has(t.id) || t.id === activeTabId || t.id === selectedConversationId) continue;
+      systemLogger.info("[file-pane] closing unreachable file pane", {
+        operation: "file_pane_close_unreachable",
+        tabId: t.id,
+        host: t.file?.host,
+        hadSplitTree: splitTree !== null,
+      });
+      doCloseTabRef.current(t.id);
+    }
+  }, [tabsReady, tabs, splitTree, activeTabId, selectedConversationId]);
   // Same ref pattern as doCloseTabRef: the fleet-status effect (~L657)
   // subscribes ONCE at mount, so its `gone`-frame handler can't close
   // over `tabs` state directly. Refreshed every render so the handler
@@ -3218,6 +3316,48 @@ export function AppShell({
       replaceInTree(newTabId, targetTabId);
     },
     [openTab, replaceInTree],
+  );
+
+  // File-chip drops (a chat file chip dragged into split view). A copy
+  // gesture like an app tile: every drop opens a fresh file leaf — the chip
+  // stays in its bubble and the same file may back several panes.
+  const openFileTab = useCallback(
+    (payload: FileChipDragPayload) =>
+      openTab(null, "file", undefined, {
+        file: { host: payload.host, path: payload.path, origin: payload.origin ?? null },
+        label: payload.filename,
+        allowCreateTmux: false,
+      }),
+    [openTab],
+  );
+  const onDropFileChipInTree = useCallback(
+    (payload: FileChipDragPayload, path: SplitPath, edge: DropEdge) => {
+      systemLogger.info("pv-split-drop onDropFileChipInTree", {
+        operation: "pv_split_drop_on_drop_file_chip_in_tree",
+        host: payload.host,
+        filename: payload.filename,
+        hasOrigin: !!payload.origin,
+        edge,
+        path: JSON.stringify(path),
+      });
+      const newTabId = openFileTab(payload);
+      openSessionInTree(newTabId, path, edge);
+      selectConversationDeferred(newTabId);
+    },
+    [openFileTab, openSessionInTree],
+  );
+  const onCenterDropFileChip = useCallback(
+    (payload: FileChipDragPayload, targetTabId: string) => {
+      systemLogger.info("pv-split-drop onCenterDropFileChip", {
+        operation: "pv_split_drop_on_center_drop_file_chip",
+        host: payload.host,
+        filename: payload.filename,
+        targetTabId,
+      });
+      const newTabId = openFileTab(payload);
+      replaceInTree(newTabId, targetTabId);
+    },
+    [openFileTab, replaceInTree],
   );
 
   // ─── Sidebar ─────────────────────────────────────────────────────────────
@@ -3659,6 +3799,7 @@ export function AppShell({
     isTouchDevice &&
     topLeftTab !== undefined &&
     (isAppTab(topLeftTab) ||
+      isFileTab(topLeftTab) ||
       // Remote tabs only render (bar included) when they have a host.
       (topLeftTab.host !== undefined &&
         (topLeftTab.type === "rdp" ||
@@ -3980,7 +4121,8 @@ export function AppShell({
                 const types = e.dataTransfer.types;
                 if (
                   !types.includes("text/plain") &&
-                  !types.includes("application/x-skynet-app-tile")
+                  !types.includes("application/x-skynet-app-tile") &&
+                  !types.includes(FILE_CHIP_MIME)
                 )
                   return;
                 if (types.includes("Files")) return;
@@ -3998,13 +4140,19 @@ export function AppShell({
                 // that cosmetic edge case is accepted.
                 const rect = e.currentTarget.getBoundingClientRect();
                 const activeTab = tabs.find((t) => t.id === activeTabId);
+                // App-tile and file-chip drops also split a relay room
+                // (see their onDrop branches) — preview to match.
+                const splitsRelayRoom =
+                  types.includes("application/x-skynet-app-tile") ||
+                  types.includes(FILE_CHIP_MIME);
                 const activeIsSession =
                   activeTab != null &&
-                  activeTab.type === "terminal" &&
-                  activeTab.targetTmuxSession != null &&
-                  identitiesByKey.has(
-                    activeTab.targetTmuxSession.toLowerCase(),
-                  );
+                  ((splitsRelayRoom && activeTab.sessionKind === "relay-room") ||
+                    (activeTab.type === "terminal" &&
+                      activeTab.targetTmuxSession != null &&
+                      identitiesByKey.has(
+                        activeTab.targetTmuxSession.toLowerCase(),
+                      )));
                 let wouldReplace = !activeIsSession || activeTab == null;
                 if (!wouldReplace && activeTab != null) {
                   const badgeJson = e.dataTransfer.getData(
@@ -4052,7 +4200,8 @@ export function AppShell({
                 const types = e.dataTransfer.types;
                 if (
                   !types.includes("text/plain") &&
-                  !types.includes("application/x-skynet-app-tile")
+                  !types.includes("application/x-skynet-app-tile") &&
+                  !types.includes(FILE_CHIP_MIME)
                 )
                   return;
                 const rect = e.currentTarget.getBoundingClientRect();
@@ -4092,7 +4241,8 @@ export function AppShell({
                 const types = e.dataTransfer.types;
                 if (
                   !types.includes("text/plain") &&
-                  !types.includes("application/x-skynet-app-tile")
+                  !types.includes("application/x-skynet-app-tile") &&
+                  !types.includes(FILE_CHIP_MIME)
                 )
                   return;
                 if (types.includes("Files")) return;
@@ -4205,6 +4355,43 @@ export function AppShell({
                     setFocusedTabId(newTabId);
                     return;
                   }
+                }
+                // File-chip branch — same shape as the app-tile branch
+                // above: no conversation shown → the file fills the area;
+                // a conversation shown (typically the one the chip came
+                // from) → split it with the file at the nearest edge.
+                const fileChip = parseFileChipPayload(
+                  e.dataTransfer.getData(FILE_CHIP_MIME),
+                );
+                if (fileChip !== null) {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const edge = computeNearestEdge(rect, e.clientX, e.clientY);
+                  const activeTab = tabs.find((t) => t.id === activeTabId);
+                  const activeIsSession =
+                    activeTab != null &&
+                    (activeTab.sessionKind === "relay-room" ||
+                      (activeTab.type === "terminal" &&
+                        activeTab.targetTmuxSession != null &&
+                        identitiesByKey.has(
+                          activeTab.targetTmuxSession.toLowerCase(),
+                        )));
+                  const newTabId = openFileTab(fileChip);
+                  systemLogger.info("pv-split-drop outer file-chip dispatch", {
+                    operation: "pv_split_drop_outer_file_chip",
+                    host: fileChip.host,
+                    filename: fileChip.filename,
+                    edge,
+                    activeIsSession,
+                  });
+                  setSplitTree(() => {
+                    const droppedLeaf = { kind: "session" as const, tabId: newTabId };
+                    if (!activeIsSession || activeTab == null) return droppedLeaf;
+                    const activeLeaf = { kind: "session" as const, tabId: activeTab.id };
+                    return insertAtEdge(activeLeaf, [], droppedLeaf, edge);
+                  });
+                  selectConversationDeferred(newTabId);
+                  setFocusedTabId(newTabId);
+                  return;
                 }
                 //
                 // Behavior spec (from shape file, row branch):
@@ -4437,6 +4624,8 @@ export function AppShell({
                     // App-tile center-drop wiring — symmetric to onCenterDropRow
                     // for AppTile drags. See onCenterDropAppTile useCallback def.
                     onCenterDropAppTile={onCenterDropAppTile}
+                    onDropFileChipInTree={onDropFileChipInTree}
+                    onCenterDropFileChip={onCenterDropFileChip}
                     onSwapInTree={swapInTree}
                     onDropBadgeInTree={(payload, path, edge) =>
                       onDropBadgeInTree(

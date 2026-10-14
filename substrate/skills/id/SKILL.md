@@ -444,7 +444,10 @@ filename for direct download. Supported inline media — images, video, and
 other renderable types — auto-display **inline in the message body**,
 with the chip beneath as the downloadable handle. So if you link a
 screenshot, the user sees the screenshot rendered inline, plus the
-download chip.
+download chip. On desktop the user can also **drag the chip** (or an
+inline picture) into the content area to open the file in its own
+**file pane** beside the conversation — see § Drag & drop / split view
+and § File bar. A file pane is view-only; it never changes the file.
 
 **Round-trip semantics — the app is READ-ONLY on your files.** When they
 click the link, the app's editable-file modal fetches the file's current
@@ -792,9 +795,11 @@ not something agents drive.
 - **Drag & drop / split view.** Dragging any sidebar item (conversation
   or app) into the content area opens it (or, if something is already
   open, presents a placement UI so the user can split the view —
-  arbitrary depth). Each open conversation pane has a **badge**, each
-  open app pane its **app bar**, and each remote-desktop pane its
-  **remote-desktop bar** (both below); dragging it to a different spot in
+  arbitrary depth). Dragging a **file chip** out of a chat bubble does the
+  same for that file: it opens in a new **file pane** (each drag opens
+  another, even for a file already open). Each open conversation pane has a **badge**, each
+  open app pane its **app bar**, each remote-desktop pane its
+  **remote-desktop bar**, and each file pane its **file bar** (all below); dragging it to a different spot in
   the split tree rearranges panes. Moving an app pane keeps the app on the
   page it was on; moving a remote-desktop pane keeps it connected.
   While a badge or pane bar is being dragged, a **drop lane** appears along
@@ -802,7 +807,7 @@ not something agents drive.
   edge when the sidebar is collapsed): its top two-thirds is **Close**
   (✕ — closes that pane), its bottom third **Archive** (archives the agent
   after the usual "can't be undone" confirm; shown only for an agent's own
-  conversation, not relay rooms, apps or remote desktops). Dropping a conversation's badge
+  conversation, not relay rooms, apps, remote desktops or files). Dropping a conversation's badge
   on a project, Pinned, or Conversations files it there, exactly like
   dragging its sidebar row, and the pane stays open. Dropping anywhere
   else in the sidebar does nothing.
@@ -861,6 +866,27 @@ not something agents drive.
   moving up to Conversations, and clicking that row returns to the open
   session rather than opening a second one.
   *Agent-side: none.*
+
+- **File bar (top of every open file pane).** A file dragged out of a
+  conversation, shown **view-only** with the same viewers the file modal
+  uses (nothing can be typed, edited or annotated, and there's no Save).
+  The same glassy bar as an app's. Left: **reload** (circular-arrow —
+  re-reads the file from its machine, e.g. after you've changed it) and
+  **download**. Center: the file type's icon, the file name, and beneath
+  it in faint text the machine and folder. Right: the view switcher for
+  types with more than one view (e.g. Rendered / Source), then the **⋮**
+  menu — **Open in modal** (the usual file modal, opened in the
+  conversation the file came from so Save attaches the edited copy there;
+  when that conversation isn't open in this Skynet tab the modal opens
+  view-only), **Copy path**, **Download**, **Move to new tab** and
+  **Close** (both desktop only) — also on right-click. The **whole bar is
+  the drag handle**, same as the app bar. If the file can't be shown
+  (deleted, too large, no access) the pane stays with a notice saying why;
+  reload tries again. File panes come back after a page reload. Desktop
+  only — there's no way to open one on a phone.
+  *Agent-side: none.* The pane never writes your file; if the user
+  mentions a file "open beside" the conversation, it's this pane. When
+  you change a file the user has open, they press reload to see it.
 
 ### Sidebar footer
 

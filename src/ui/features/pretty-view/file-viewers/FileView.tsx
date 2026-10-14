@@ -75,6 +75,11 @@ export interface FileViewProps {
   onBinaryDraftChange?: (draft: BinaryDraft | null) => void;
   /** Used by FileView's own Save button when a binary draft is pending. */
   onSaveBytes?: (bytes: Uint8Array, expectedMtime: number) => Promise<void>;
+  /**
+   * View-only: every mode opens locked (no typing, cell edits or
+   * annotations) and no Save shows. Selecting and copying still work.
+   */
+  readOnly?: boolean;
 }
 
 export function FileViewModeSwitcher({
@@ -193,6 +198,7 @@ export function FileView({
   hideSpeakButton = false,
   onBinaryDraftChange,
   onSaveBytes,
+  readOnly = false,
 }: FileViewProps): JSX.Element {
   const entry = resolveFileViewer(filename);
   const [innerMode, setInnerMode] = useState<string | null>(null);
@@ -280,7 +286,9 @@ export function FileView({
     state.data.isText !== false &&
     (mode.editable || draft !== state.data.content);
   const showSave =
-    !hideSaveButton && ((canEdit && !!onSave) || (!!binaryDraft && !!onSaveBytes));
+    !readOnly &&
+    !hideSaveButton &&
+    ((canEdit && !!onSave) || (!!binaryDraft && !!onSaveBytes));
   // Prose files (.md / .txt) can be read aloud — speaks the draft as shown.
   const showSpeak =
     !hideSpeakButton &&
@@ -336,8 +344,9 @@ export function FileView({
             src={src}
             content=""
             onChange={setDraft}
-            disabled={saving}
-            onBinaryDraft={handleBinaryDraft}
+            disabled={saving || readOnly}
+            readOnly={readOnly}
+            onBinaryDraft={readOnly ? undefined : handleBinaryDraft}
           />
         </div>
         {saveError && <div className="text-sm text-red-400 px-1">{saveError}</div>}
@@ -376,8 +385,9 @@ export function FileView({
           src={src}
           content={mode.needs === "content" ? draft : ""}
           onChange={setDraft}
-          disabled={saving}
-          onBinaryDraft={handleBinaryDraft}
+          disabled={saving || readOnly}
+          readOnly={readOnly}
+          onBinaryDraft={readOnly ? undefined : handleBinaryDraft}
         />
       </div>
       {saveError && <div className="text-sm text-red-400 px-1">{saveError}</div>}

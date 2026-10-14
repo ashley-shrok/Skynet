@@ -15,7 +15,7 @@ import { armOutboundDrag, mintDragId } from "./cross-window-drag";
 
 // ─── PaneBar — the glass bar across the top of a non-conversation pane ─────
 //
-// Shared by AppPane (apps) and RemotePane (RDP/VNC/telnet). The bar is the
+// Shared by AppPane (apps), RemotePane (RDP/VNC/telnet) and FilePane (files). The bar is the
 // pane's handle in the split view, the same job an IdentityBadge does for a
 // conversation:
 //   - The WHOLE bar (minus its buttons) is draggable and writes the same
@@ -80,6 +80,10 @@ export interface PaneBarProps {
   /** 18px glyph left of the title. */
   titleIcon: ReactNode;
   title: string;
+  /** Faint second line under the title (e.g. a file's machine + folder). */
+  subtitle?: string;
+  /** Controls left of the ⋮ (e.g. a view switcher); the column then sizes to fit. */
+  rightControls?: ReactNode;
   menuItems: RowKebabMenuItem[];
   onSelectPane?: (tabId: string) => void;
 }
@@ -93,6 +97,8 @@ export function PaneBar({
   navButtons,
   titleIcon,
   title,
+  subtitle,
+  rightControls,
   menuItems,
   onSelectPane,
 }: PaneBarProps): ReactElement {
@@ -172,7 +178,9 @@ export function PaneBar({
       }`}
       style={{
         height: isTouchDevice ? TOUCH_BAR_HEIGHT : BAR_HEIGHT,
-        gridTemplateColumns: `${sideColumnWidth}px minmax(0, 1fr) ${sideColumnWidth}px`,
+        gridTemplateColumns: rightControls
+          ? `${sideColumnWidth}px minmax(0, 1fr) auto`
+          : `${sideColumnWidth}px minmax(0, 1fr) ${sideColumnWidth}px`,
         paddingLeft: clearance > 0 ? clearance : undefined,
         background:
           "linear-gradient(160deg, hsla(230, 14%, 24%, 0.85), hsla(230, 14%, 14%, 0.92))",
@@ -225,14 +233,36 @@ export function PaneBar({
         >
           {titleIcon}
         </span>
-        <span
-          className="truncate"
-          style={{ color: "var(--color-pv-fg)", fontSize: 13, fontWeight: 500 }}
-        >
-          {title}
-        </span>
+        {subtitle ? (
+          <span className="flex flex-col min-w-0 leading-[1.15]">
+            <span
+              className="truncate"
+              style={{ color: "var(--color-pv-fg)", fontSize: 13, fontWeight: 500 }}
+            >
+              {title}
+            </span>
+            <span
+              className="truncate"
+              data-testid={`${testIdPrefix}-subtitle`}
+              style={{ color: "var(--color-pv-fg-muted)", fontSize: 11, opacity: 0.7 }}
+            >
+              {subtitle}
+            </span>
+          </span>
+        ) : (
+          <span
+            className="truncate"
+            style={{ color: "var(--color-pv-fg)", fontSize: 13, fontWeight: 500 }}
+          >
+            {title}
+          </span>
+        )}
       </div>
-      <div className="justify-self-end flex items-center" data-testid={`${testIdPrefix}-kebab-slot`}>
+      <div
+        className="justify-self-end flex items-center gap-1.5"
+        data-testid={`${testIdPrefix}-kebab-slot`}
+      >
+        {rightControls}
         {/* No items (e.g. a remote pane on a phone) → no ⋮ that opens nothing. */}
         {menuItems.length > 0 && (
           <RowKebabMenu

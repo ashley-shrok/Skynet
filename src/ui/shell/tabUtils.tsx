@@ -3,6 +3,7 @@ import { lazy, Suspense } from "react";
 import type { ReactNode } from "react";
 import {
   AppWindow,
+  FileText,
   LayoutDashboard,
   Monitor,
   Terminal,
@@ -34,7 +35,7 @@ import type {
 // mount site here doesn't materially move the cold-start chunk cost.
 import { PrettyView } from "@/features/pretty-view/PrettyView";
 import type { Tab, TabType, Host } from "@/types/ui-types";
-import { isAppTab } from "@/types/ui-types";
+import { isAppTab, isFileTab } from "@/types/ui-types";
 import type { SSHHost } from "@/types";
 // Phase 137 Plan 03 (D-16): UserPreferences threaded to PrettyView for the
 // fallbackVoice speak-flow resolution chain.
@@ -43,6 +44,7 @@ import { useTabsSafe } from "@/shell/TabContext";
 import { useIdentities } from "@/state/identities-store";
 import { sessionMatchKey } from "@/features/terminal/session-hue";
 import { AppPane } from "./AppPane";
+import { FilePane } from "./FilePane";
 import { RemotePane } from "./RemotePane";
 
 function hostToSSHHost(h: Host): SSHHost {
@@ -98,6 +100,7 @@ export const TAB_ICONS: Record<TabType, React.ElementType> = {
   vnc: Monitor,
   telnet: Terminal,
   app: AppWindow,
+  file: FileText,
 };
 
 export function tabIcon(type: TabType) {
@@ -453,6 +456,22 @@ const renderAppTab: Renderer = (tab, deps) => {
   );
 };
 
+// File leaf: a chat-shared file shown read-only in its own pane.
+const renderFileTab: Renderer = (tab, deps) => {
+  if (!isFileTab(tab)) return null;
+  return (
+    <FilePane
+      host={tab.file.host}
+      path={tab.file.path}
+      origin={tab.file.origin ?? null}
+      tabId={tab.id}
+      isVisible={deps.isVisible}
+      onSelectPane={deps.onSelectPane}
+      onCloseTab={deps.onCloseTab}
+    />
+  );
+};
+
 // Record<TabType, Renderer> — compile-time exhaustive. Three explicit rows
 // for rdp/vnc/telnet all pointing at the same helper (D-04 cleanup replaces
 // the switch-fall-through). The `app` entry is appended (matches the
@@ -464,6 +483,7 @@ export const RENDERERS: Record<TabType, Renderer> = {
   vnc: renderGuacamoleTab,
   telnet: renderGuacamoleTab,
   app: renderAppTab,
+  file: renderFileTab,
 };
 
 export function renderTabContent(

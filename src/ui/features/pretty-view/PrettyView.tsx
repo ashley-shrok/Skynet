@@ -27,6 +27,13 @@ import {
 import { LoadMoreOlderButton } from "./LoadMoreOlderButton";
 import { speakVoiceCandidates } from "./voice-candidates";
 import { ChatMessage } from "./ChatMessage";
+import {
+  FILE_CHIP_MIME,
+  OPEN_FILE_IN_CONVERSATION_EVENT,
+  type OpenFileInConversationDetail,
+} from "./file-url";
+import { encodeTabSpec } from "@/lib/tab-url";
+import { systemLogger } from "@/lib/frontend-logger";
 import EditableFileModal from "./EditableFileModal";
 import { ImageBubble } from "./ImageBubble";
 import { RelayOutboundBubble } from "./RelayOutboundBubble";
@@ -138,6 +145,12 @@ import { postFeedback } from "@/feedback/feedback-api";
 import { FeedbackModal } from "@/feedback/FeedbackModal";
 import { toast } from "sonner";
 import { isMultiRole } from "@/lib/identity-roles";
+
+// An OS file drag (upload) — not a FileChip drag, which split view owns even
+// if a browser ever tags it with Files.
+function isOsFileDrag(dt: DataTransfer): boolean {
+  return dt.types.includes("Files") && !dt.types.includes(FILE_CHIP_MIME);
+}
 
 // Patch #148: mirror Terminal.tsx's proven WebSocket auto-reconnect pattern.
 // When the claude-session bridge WS closes unexpectedly (deploy container
@@ -2381,6 +2394,38 @@ export function PrettyView({
     [pvIdentity?.displayName],
   );
 
+  // Encoded tab spec of this conversation. Rides file-chip drags so a file
+  // pane remembers where its file came from, and is how a file pane's
+  // "Open in modal" finds this conversation: the modal opens here, so Save
+  // attaches the edited copy to this conversation's compose box.
+  const fileDragOrigin = useMemo(() => {
+    if (source.kind === "relay") return encodeTabSpec({ protocol: "relay", roomId: source.roomId });
+    if (!hostName || !source.tmuxSession) return null;
+    return encodeTabSpec({ protocol: "tmux", host: hostName, session: source.tmuxSession });
+  }, [source, hostName]);
+  useEffect(() => {
+    if (!fileDragOrigin) return;
+    const onOpenFromPane = (e: Event) => {
+      const ev = e as CustomEvent<OpenFileInConversationDetail>;
+      if (ev.defaultPrevented || !ev.detail) return;
+      if (ev.detail.origin.toLowerCase() !== fileDragOrigin.toLowerCase()) return;
+      ev.preventDefault();
+      systemLogger.info("[file-pane] open in modal handled by conversation", {
+        operation: "pv_open_file_from_pane",
+        tabId: tabId ?? null,
+        filename: ev.detail.filename,
+      });
+      setEditorOpenState({
+        messageEventId: "",
+        url: ev.detail.url,
+        filename: ev.detail.filename,
+        agentIdentityName: pvIdentity?.displayName ?? null,
+      });
+    };
+    window.addEventListener(OPEN_FILE_IN_CONVERSATION_EVENT, onOpenFromPane);
+    return () => window.removeEventListener(OPEN_FILE_IN_CONVERSATION_EVENT, onOpenFromPane);
+  }, [fileDragOrigin, pvIdentity?.displayName, tabId]);
+
   // Phase 137 D-137 (revised 2026-09-28): WidgetBubble → PrettyView bridge.
   // Synthesizes an invisible WS input frame carrying a <task-notification>
   // envelope. Goes through the SAME send-input funnel the ComposeBox uses so
@@ -4096,7 +4141,7 @@ export function PrettyView({
         // right-side container drop handler. Without this gate, PrettyView
         // showed the file-upload overlay on every conv-row drag AND ate
         // the drop (silent no-op because files.length === 0).
-        if (!e.dataTransfer.types.includes("Files")) return;
+        if (!isOsFileDrag(e.dataTransfer)) return;
         // Phase 05 (UPLOAD-01): show the drop overlay while any drag
         // hovers the pretty-view surface. We use a counter because
         // dragenter/dragleave fire on every child boundary during a
@@ -4109,12 +4154,12 @@ export function PrettyView({
       onDragOver={(e) => {
         // Same patch #510 gate as onDragEnter — non-Files drags pass
         // through so the drop bubbles to the AppShell outer handler.
-        if (!e.dataTransfer.types.includes("Files")) return;
+        if (!isOsFileDrag(e.dataTransfer)) return;
         // dragover MUST preventDefault to enable the subsequent drop.
         e.preventDefault();
       }}
       onDragLeave={(e) => {
-        if (!e.dataTransfer.types.includes("Files")) return;
+        if (!isOsFileDrag(e.dataTransfer)) return;
         e.preventDefault();
         dragCounterRef.current = Math.max(0, dragCounterRef.current - 1);
         if (dragCounterRef.current === 0) setIsDragOver(false);
@@ -4124,7 +4169,7 @@ export function PrettyView({
         // handler (patch #510) or to a SplitView Pane onDrop (Phase 56)
         // depending on where the drop landed in the tree. PrettyView only
         // owns FILE drops.
-        if (!e.dataTransfer.types.includes("Files")) return;
+        if (!isOsFileDrag(e.dataTransfer)) return;
         // Phase 05: stage the dropped items. Prefer DataTransferItemList
         // (has webkitGetAsEntry so folder detection works) when available;
         // fall back to files.
@@ -4622,6 +4667,7 @@ export function PrettyView({
                   eventId={m.eventId}
                   hostName={hostName}
                   onOpenEditor={handleOpenEditor}
+                  fileDragOrigin={fileDragOrigin}
                   // Phase 137 D-137: wire widget-submit handler so WidgetBubble
                   // iframes in confirmed messages can fire invisible wake pings.
                   // Parallel to onOpenEditor — same threading pattern. The pending-
@@ -4670,6 +4716,7 @@ export function PrettyView({
                   pendingState={p.state}
                   attachments={p.attachments}
                   hostName={hostName}
+                  fileDragOrigin={fileDragOrigin}
                 />
               </div>
             );

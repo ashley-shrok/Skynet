@@ -160,7 +160,8 @@ export type TabType =
   | "rdp"
   | "vnc"
   | "telnet"
-  | "app"; // Phase 120 D-01 — app content type
+  | "app" // Phase 120 D-01 — app content type
+  | "file"; // a file shown read-only in its own pane
 
 export type TunnelStatusValue =
   | "CONNECTED"
@@ -244,6 +245,13 @@ export type Tab = {
   // app-type invariant at the type level so downstream code can access
   // `tab.app.hostId` and `tab.app.slug` without further optional-chaining.
   app?: { hostId: number; slug: string };
+
+  // File leaf: the (host, path) pair of the Skynet file URL the pane shows
+  // (`/file/<host>/<path>`; host is the URL's host segment, path absolute).
+  // REQUIRED whenever `type === "file"`; absent otherwise — same optional-
+  // at-the-type-level discipline as `app`. `origin` is the encoded tab spec
+  // of the conversation the file was dragged out of, when known.
+  file?: { host: string; path: string; origin?: string | null };
 };
 
 // Phase 120 D-02 — narrowing predicate. Returns true when the tab is an app
@@ -255,6 +263,13 @@ export function isAppTab(
   tab: Tab,
 ): tab is Tab & { app: { hostId: number; slug: string } } {
   return tab.type === "app" && tab.app !== undefined;
+}
+
+// Narrowing predicate for file leaves (see `Tab.file`).
+export function isFileTab(
+  tab: Tab,
+): tab is Tab & { file: { host: string; path: string; origin?: string | null } } {
+  return tab.type === "file" && tab.file !== undefined;
 }
 
 export type DashboardCardId =

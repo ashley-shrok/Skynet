@@ -96,6 +96,13 @@ export interface FileModeViewProps {
   onChange: (next: string) => void;
   disabled?: boolean;
   /**
+   * The host has nowhere to save (e.g. a file pane): open the file in a
+   * view-only state with no editing affordances. Hosts also withhold
+   * onBinaryDraft, which modes that edit bytes in place already treat as
+   * read-only.
+   */
+  readOnly?: boolean;
+  /**
    * Modes that edit the file's bytes in place (e.g. PDF annotations) report
    * unsaved changes here: a draft while dirty, null once clean / unmounted.
    */

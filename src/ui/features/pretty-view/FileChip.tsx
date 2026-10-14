@@ -1,8 +1,11 @@
-import { useState, type MouseEvent } from "react";
+import { useState, type DragEvent, type MouseEvent } from "react";
 import { Download } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatHumanSize } from "@/api/pretty-view-upload-protocol";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { systemLogger } from "@/lib/frontend-logger";
 import { resolveFileViewer } from "./file-viewers/registry";
+import { FILE_CHIP_MIME, parseSkynetFileUrl, type FileChipDragPayload } from "./file-url";
 
 /**
  * Interactive file chip — one canonical rendering for every file URL the
@@ -24,6 +27,13 @@ import { resolveFileViewer } from "./file-viewers/registry";
  * native player nested inside an <a href> lets iOS Safari treat a tap on the
  * play button as link activation and navigate to the bare media URL (a
  * full-screen player with no way back), so the player must sit outside it.
+ *
+ * Drag source (desktop): dragging the chip — or an image preview, which is
+ * part of the chip's anchor — writes a FILE_CHIP_MIME payload that split
+ * view turns into a file pane. Audio / video players stay undraggable so
+ * scrubbing never starts a drag; their caption strip carries the drag.
+ * Inner images are made non-draggable so the browser never offers the
+ * image itself as a dropped file (which the compose box would upload).
  *
  * The file-viewer registry (file-viewers/registry.ts) decides both the icon
  * and whether a type has an inline preview (`ChipPreview`). Media previews
@@ -66,6 +76,11 @@ export interface FileChipProps {
    * The chip stops the event so the click does not also fire `onOpen`.
    */
   onDownload?: () => void;
+  /**
+   * Encoded tab spec of the conversation this chip sits in. Rides the drag
+   * payload so a file pane knows which conversation the file came from.
+   */
+  dragOrigin?: string | null;
   className?: string;
 }
 
@@ -75,8 +90,10 @@ export function FileChip({
   size,
   onOpen,
   onDownload,
+  dragOrigin,
   className,
 }: FileChipProps): JSX.Element {
+  const isMobile = useIsMobile();
   const entry = resolveFileViewer(filename);
   const Icon = entry.icon;
   const Preview = entry.ChipPreview;
@@ -118,6 +135,35 @@ export function FileChip({
     document.body.removeChild(a);
   };
 
+  // Desktop-only drag source (no split view on a phone). URLs that don't
+  // parse to a (host, path) pair stay plain links.
+  const address = isMobile ? null : parseSkynetFileUrl(url);
+  const handleDragStart = (e: DragEvent<HTMLElement>) => {
+    if (address === null) return;
+    // Drop the browser's own link data (text/plain would read as a stray
+    // text drag) — only the file payload rides along.
+    e.dataTransfer.clearData();
+    const payload: FileChipDragPayload = {
+      host: address.host,
+      path: address.path,
+      filename,
+      origin: dragOrigin ?? null,
+    };
+    e.dataTransfer.setData(FILE_CHIP_MIME, JSON.stringify(payload));
+    e.dataTransfer.effectAllowed = "copy";
+    systemLogger.info("[file-chip-drag] start", {
+      operation: "file_chip_drag_start",
+      host: address.host,
+      filename,
+      hasOrigin: !!dragOrigin,
+    });
+  };
+  const dragProps =
+    address === null
+      ? {}
+      : { draggable: true, onDragStart: handleDragStart, "data-file-chip-draggable": "" };
+  const noImgDrag = "[&_img]:[-webkit-user-drag:none]";
+
   const sizeLabel = typeof size === "number" ? formatHumanSize(size) : null;
 
   // Plain variant — types without an inline preview, or a preview that failed.
@@ -126,6 +172,7 @@ export function FileChip({
       <a
         href={url}
         onClick={handleOpen}
+        {...dragProps}
         className={cn(
           "inline-flex max-w-full items-center gap-2 px-2.5 py-1.5",
           "rounded-lg border text-xs no-underline",
@@ -204,6 +251,7 @@ export function FileChip({
         <a
           href={url}
           onClick={handleOpen}
+          {...dragProps}
           className={cn(captionClassName, "no-underline text-inherit cursor-pointer")}
         >
           {caption}
@@ -216,7 +264,8 @@ export function FileChip({
     <a
       href={url}
       onClick={handleOpen}
-      className={cn(frameClassName, "cursor-pointer")}
+      {...dragProps}
+      className={cn(frameClassName, noImgDrag, "cursor-pointer")}
       title={title}
       data-file-chip-kind={kind}
     >

@@ -18,36 +18,8 @@ import { handleCleanCopy } from "./clean-copy";
 import { useEditableFileEligibility } from "./use-editable-file-eligibility";
 import { FileChip } from "./FileChip";
 import { WidgetBubble } from "./WidgetBubble";
+import { buildSkynetFileUrl, isSkynetFileUrl } from "./file-url";
 
-// Returns true iff `href` is a Skynet-served file URL on THIS same origin.
-// Anchoring to `window.location.origin` closes an assistant-plants-tracking-
-// -pixel attack: an untrusted markdown link like
-// `https://attacker.tld/file/x/tracker.png` would otherwise render as a
-// FileChip whose <img src> fires a cookie-bearing request to attacker.tld,
-// leaking the user's presence. Same-origin URLs go through Skynet's own
-// backend, which already enforces host permissions.
-function isSkynetFileUrl(href: string | undefined): boolean {
-  if (!href) return false;
-  if (typeof window === "undefined") return false;
-  const prefix = `${window.location.origin}/file/`;
-  return href.startsWith(prefix);
-}
-
-/**
- * Build a Skynet file URL from a host name and an absolute landing path.
- * Encodes each path segment defensively so filenames with spaces, unicode,
- * or reserved URL characters (`?` `#` `%` `&`) survive without injecting
- * query / fragment syntax into the URL. The `/` separator is preserved.
- */
-function buildSkynetFileUrl(hostName: string, landingPath: string): string {
-  const encodedHost = encodeURIComponent(hostName);
-  const encodedPath = landingPath
-    .split("/")
-    .filter((seg) => seg.length > 0)
-    .map(encodeURIComponent)
-    .join("/");
-  return `${window.location.origin}/file/${encodedHost}/${encodedPath}`;
-}
 // Presentational chat bubble for one conversational message.
 //
 // Content is rendered as markdown (GFM) via react-markdown so **bold**,
@@ -84,6 +56,7 @@ export function ChatMessage({
   onThumbsUp,
   onThumbsDown,
   onOpenEditor,
+  fileDragOrigin,
   onWidgetSubmit,
   pendingState = null,
   attachments,
@@ -114,6 +87,9 @@ export function ChatMessage({
     url: string;
     filename: string;
   }) => void;
+  // Encoded tab spec of the conversation this bubble sits in; file chips
+  // carry it on their drag so a file pane knows where its file came from.
+  fileDragOrigin?: string | null;
   // Phase 137 D-137: parent's widget-submit dispatcher — WidgetBubble invokes
   // this when the iframe postMessages a widget-submit signal. Optional so
   // tests + historical mount sites without widget-submit plumbing still work.
@@ -262,6 +238,7 @@ export function ChatMessage({
         return (
           <span className="block my-1.5">
             <FileChip
+              dragOrigin={fileDragOrigin}
               url={href}
               filename={displayName}
               onOpen={() =>
@@ -455,6 +432,7 @@ export function ChatMessage({
                 return (
                   <div key={f.landingPath} className="my-1.5">
                     <FileChip
+                      dragOrigin={fileDragOrigin}
                       url={chipUrl}
                       filename={f.filename}
                       size={f.size}

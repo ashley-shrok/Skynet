@@ -6,8 +6,20 @@ import type { FileModeViewProps } from "./registry";
  * MDXEditor, everything else gets the CodeMirror code editor (with syntax
  * highlighting from language-for-filename when the extension is known).
  */
-export function TextView({ filename, content, onChange, disabled }: FileModeViewProps): JSX.Element {
+export function TextView({
+  filename,
+  content,
+  onChange,
+  disabled,
+  readOnly,
+}: FileModeViewProps): JSX.Element {
   return (
-    <MarkdownEditor filename={filename} content={content} onChange={onChange} disabled={disabled} />
+    <MarkdownEditor
+      filename={filename}
+      content={content}
+      onChange={onChange}
+      disabled={disabled}
+      readOnly={readOnly}
+    />
   );
 }

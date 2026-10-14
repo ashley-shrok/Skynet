@@ -91,7 +91,24 @@ export async function fetchTailnetUrl(
  * network call fires.
  */
 const FILE_URL_PARSE_RE =
-  /^https:\/\/[^/]+\/file\/([a-zA-Z0-9._-]+)\/(.*)$/;
+  /^https?:\/\/[^/]+\/file\/([a-zA-Z0-9._-]+)\/(.*)$/;
+
+// The URL's path is percent-encoded per segment (chips built from a landing
+// path encode spaces, unicode, `%`…); the backend wants the real path, as
+// the GET route gets it after Express decodes. A segment that isn't valid
+// percent-encoding (an agent-typed literal `%`) is passed through as is.
+function decodeFileUrlPath(raw: string): string {
+  return raw
+    .split("/")
+    .map((seg) => {
+      try {
+        return decodeURIComponent(seg);
+      } catch {
+        return seg;
+      }
+    })
+    .join("/");
+}
 
 /**
  * POST /pretty-view/fetch-host-file
@@ -136,7 +153,7 @@ export async function fetchHostFileUrl(
     throw new Error("invalid file URL");
   }
   const hostname = match[1];
-  const absolutePath = "/" + match[2]; // D-01: re-add leading slash
+  const absolutePath = "/" + decodeFileUrlPath(match[2]); // D-01: re-add leading slash
 
   try {
     const response = await authApi.post("/pretty-view/fetch-host-file", {
