@@ -292,6 +292,57 @@ compute_desktop_mcp_flag() {
   fi
 }
 
+# ---- desktop teardown: an identity's desktop must not outlive its claude ----
+# agent-desktop@<identity>.service runs independently of the tmux session (Restart=on-failure,
+# nothing ever stops it), so without these it survives both dormancy and archive. A dormant
+# identity's desktop comes back lazily on the next desktop-mcp call or Desktop-tab open.
+AGENT_DESKTOP_BIN="${AGENT_DESKTOP_BIN:-$HOME/.local/bin/agent-desktop}"
+# Must match CONTROL_LEASE_SECONDS in agent-desktop.
+DESKTOP_CONTROL_LEASE_SECONDS=90
+
+# stop_identity_desktop <name> <reason> — best-effort; never fails the caller. Skips identities
+# that never allocated a desktop (no desktop/display file) so the common case costs one stat.
+stop_identity_desktop() {
+  local name="$1" reason="$2"
+  local ddir="$IDENTITIES_DIR/$name/desktop"
+  [ -f "$ddir/display" ] || return 0
+  [ -x "$AGENT_DESKTOP_BIN" ] || return 0
+  if timeout -k 5 30 "$AGENT_DESKTOP_BIN" down --identity "$name" >/dev/null 2>&1; then
+    log "'$name' desktop stopped ($reason)"
+  else
+    log "WARN: '$name' desktop stop failed ($reason)"
+  fi
+  return 0
+}
+
+# desktop_user_has_control <name> — true while a human holds a fresh control lease on the desktop.
+desktop_user_has_control() {
+  local f="$IDENTITIES_DIR/$1/desktop/control-lock" mtime
+  [ -f "$f" ] || return 1
+  mtime="$(stat -c %Y "$f" 2>/dev/null)" || return 1
+  [ $(( $(date +%s) - mtime )) -lt "$DESKTOP_CONTROL_LEASE_SECONDS" ]
+}
+
+# reap_orphan_desktops — stop any running agent-desktop@ unit whose identity folder no longer
+# exists under $IDENTITIES_DIR (archived, or deleted by hand). Backstop for retire's own stop.
+reap_orphan_desktops() {
+  command -v "$SYSTEMCTL_BIN" >/dev/null 2>&1 || return 0
+  local unit id
+  while read -r unit _; do
+    case "$unit" in agent-desktop@*.service) ;; *) continue ;; esac
+    id="$(systemd-escape --unescape --instance -- "$unit" 2>/dev/null)" || continue
+    [ -n "$id" ] || continue
+    [ -d "$IDENTITIES_DIR/$id" ] && continue
+    if [ "${DRY_RUN:-0}" = 1 ]; then log "DRY_RUN would stop orphan desktop $unit"; continue; fi
+    if timeout -k 5 30 "$SYSTEMCTL_BIN" --user stop "$unit" 2>/dev/null; then
+      log "'$id' orphan desktop stopped (identity folder gone): $unit"
+    else
+      log "WARN: '$id' orphan desktop stop failed: $unit"
+    fi
+  done < <(timeout -k 5 10 "$SYSTEMCTL_BIN" --user list-units 'agent-desktop@*' --state=active,activating --no-legend --plain 2>/dev/null)
+  return 0
+}
+
 # ---- memory cap (2026-08-06) — wrap claude launches in a systemd scope with MemoryHigh ----
 # Rationale: claude's baseline is ~500 MB RSS per session (Ink React TUI + Node/V8, architectural).
 # On boxes with zram-primary swap, reclaim under a soft MemoryHigh ceiling is cheap enough (LZO
@@ -1023,6 +1074,10 @@ retire_identity() {
   # present (the 180-day dormancy path never wrote it, so this is a no-op for that trigger path).
   rm -f "$iddir/.archive-requested" 2>/dev/null || true
   log "'$name' retire step 4a: sentinel .archive-requested deleted (if present)"
+
+  # STEP 4a¼: stop the identity's virtual desktop while its folder (state dir, serve.pid) is still
+  # in place. Never blocks retire; reap_orphan_desktops catches a failed stop on a later tick.
+  stop_identity_desktop "$name" "retire"
 
   # =============================================================================================
   # STEP 4a½: Workspace repo cleanup — delete safely-re-clonable repos so they don't inflate the
@@ -3337,6 +3392,12 @@ do_kill_dormant() {
   local reclaimed=$((rss_before - rss_after))
   log "'$name' dormant (kill ok, reclaimed ~${reclaimed}KB total-claude-rss, sentinel dropped)"
   metric event=kill-done identity="$name" session="$sess" rss_kb_after="$rss_after" reclaimed_kb="$reclaimed"
+  # The desktop goes dormant with claude — unless the user is driving it right now.
+  if desktop_user_has_control "$name"; then
+    log "'$name' desktop left running (user holds the control lease)"
+  else
+    stop_identity_desktop "$name" "dormant"
+  fi
 }
 
 # do_wake: remove .dormant, call drive() with --resume. Reuses the existing --resume path verbatim
@@ -3393,6 +3454,7 @@ reconcile() {
   scan_identity_unarchive_requested_sentinels      # un-archive host-side shape: user-initiated identity UN-archive (matrix reactivate + fresh token + .dormant + mv archive→live)
   scan_role_unarchive_requested_sentinels          # un-archive host-side shape: user-initiated role UN-archive (folder mv only, no identity cascade)
   scan_app_unarchive_requested_sentinels           # un-archive host-side shape: user-initiated app UN-archive (folded-in restore-app.sh: port-collision check under create-lock, mv archive→live, systemd reinstall + enable+start)
+  reap_orphan_desktops                             # stop agent-desktop@ units whose identity folder is gone (backstop for retire's own desktop stop)
   resolve_identities
   sync_project_members                             # rewrite each project.md's derived `members:` list from identities' project: frontmatter (writes only on change)
   snapshot_schedule_peek                           # one python subprocess per tick over the fleet; schedule_peek reads from SCHEDULE_PEEK_SNAPSHOT. MUST run AFTER resolve_identities (needs IDENTITIES populated).
