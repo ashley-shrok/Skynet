@@ -224,30 +224,50 @@ export function createServerSubstrateOrchestrator(
   let currentRuntimeBytes: Map<string, Buffer | null> = new Map();
 
   /**
-   * Bumped by resweepAll. A sweep that started under an older generation ran
-   * with stale runtime bytes, so it never marks its host done — the retry
-   * tick sweeps it again with the fresh bytes.
+   * Bumped by resweepAll once fresh bytes are in place. A sweep snapshots
+   * (bytes, generation) together when it starts; one that started under an
+   * older generation ran with stale bytes, so it never marks its host done —
+   * the retry tick sweeps it again with the fresh bytes.
    */
   let runtimeBytesGeneration = 0;
 
   /**
-   * Resolve runtime-sourced catalog bytes for the current tick.
-   *
-   * NEVER-THROW: readInstanceFileBytes has its own never-throws contract, but the try/catch here is defense-in-depth against future
-   * changes to the resolver. On any throw, the map value falls back to null
-   * — the composer's removal branch (D-16) will run against every root-SSH
-   * host, mimicking the "clean unset state" the resolver-null path is
-   * designed for.
+   * Read ordering: each resolve takes a sequence number before its await, and
+   * a result is applied only if no later-started resolve has already landed —
+   * so a retry tick that read before an edit can never overwrite the bytes a
+   * resweepAll read after it.
+   */
+  let resolveSeq = 0;
+  let appliedResolveSeq = 0;
+
+  /**
+   * Resolve runtime-sourced catalog bytes. Never throws: on a read error the
+   * previous value is kept (a transient I/O failure must not read as "unset",
+   * which would remove the file from every host).
    */
   async function resolveRuntimeBytesForTick(): Promise<Map<string, Buffer | null>> {
     const map = new Map<string, Buffer | null>();
     try {
       map.set("instance-policy", await readInstanceFileBytes());
-    } catch {
-      // Defense-in-depth: keep the tick alive even if the resolver breaks.
-      map.set("instance-policy", null);
+    } catch (err) {
+      systemLogger.error("Fleet-substrate: instance file read failed — keeping previous bytes", {
+        operation: "fleet_substrate_runtime_bytes_read_error",
+        error: err instanceof Error ? err.message : "unknown",
+      });
+      if (currentRuntimeBytes.has("instance-policy")) {
+        map.set("instance-policy", currentRuntimeBytes.get("instance-policy") ?? null);
+      }
     }
     return map;
+  }
+
+  /** Resolve and apply, honoring read ordering (see resolveSeq). */
+  async function refreshRuntimeBytes(): Promise<void> {
+    const seq = ++resolveSeq;
+    const map = await resolveRuntimeBytesForTick();
+    if (seq < appliedResolveSeq) return;
+    appliedResolveSeq = seq;
+    currentRuntimeBytes = map;
   }
 
   // -------------------------------------------------------------------------
@@ -301,6 +321,7 @@ export function createServerSubstrateOrchestrator(
 
   async function executeSweeForHost(host: SubstrateHostRecord): Promise<void> {
     const generation = runtimeBytesGeneration;
+    const runtimeBytes = currentRuntimeBytes;
     // Quick 260918-5lb: LOCAL BYPASS. When the host's numeric id is in
     // IDENTITIES_LOCAL_HOST_IDS, SSH-to-self hangs from inside the container
     // — the whole for-of loop wedges in deps.acquireChannel. Skip SSH
@@ -328,7 +349,7 @@ export function createServerSubstrateOrchestrator(
           FLEET_SUBSTRATE_CATALOG,
           {
             readBundledBytes: bundledReaderFromDisk,
-            resolvedRuntimeBytes: currentRuntimeBytes,
+            resolvedRuntimeBytes: runtimeBytes,
             now: deps.now,
           },
         );
@@ -397,7 +418,7 @@ export function createServerSubstrateOrchestrator(
             // resolver map (populated ONCE per tick at start() / retry
             // callback), so runtime rows fan bytes across all hosts
             // without re-reading the twinkie per host.
-            resolvedRuntimeBytes: currentRuntimeBytes,
+            resolvedRuntimeBytes: runtimeBytes,
             now: deps.now,
           },
         );
@@ -484,7 +505,7 @@ export function createServerSubstrateOrchestrator(
       // catalog bytes ONCE for this tick, BEFORE iterating hosts. Every
       // executeSweeForHost invocation in this tick will pick up the same
       // Map via the currentRuntimeBytes closure variable.
-      currentRuntimeBytes = await resolveRuntimeBytesForTick();
+      await refreshRuntimeBytes();
 
       const hosts = await deps.listSubstrateHosts();
       sweepTickCount++;
@@ -507,7 +528,7 @@ export function createServerSubstrateOrchestrator(
         sweepTickCount++;
         // Phase 114 Plan 05: re-resolve for this retry tick. Fresh read
         // per tick — the twinkie file may have been edited between ticks.
-        currentRuntimeBytes = await resolveRuntimeBytesForTick();
+        await refreshRuntimeBytes();
         const retryHosts = await deps.listSubstrateHosts();
         for (const h of retryHosts) {
           if (!sweepedThisInstance.has(h.id)) {
@@ -575,8 +596,11 @@ export function createServerSubstrateOrchestrator(
     async resweepAll(reason: string): Promise<void> {
       if (stopped) return;
       try {
+        // Bump only after the post-edit read has landed (or been superseded
+        // by an even later one), so no sweep can pair the new generation
+        // with pre-edit bytes.
+        await refreshRuntimeBytes();
         runtimeBytesGeneration++;
-        currentRuntimeBytes = await resolveRuntimeBytesForTick();
         sweepedThisInstance.clear();
         const hosts = await deps.listSubstrateHosts();
         systemLogger.info("Fleet-substrate resweep requested", {

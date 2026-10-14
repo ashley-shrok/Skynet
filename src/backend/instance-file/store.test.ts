@@ -86,10 +86,10 @@ describe("instance-file store", () => {
     await expect(writeInstanceFile("x".repeat(MAX_INSTANCE_FILE_BYTES))).resolves.toBeUndefined();
   });
 
-  it("readInstanceFileBytes never throws — a read error logs and returns null", async () => {
+  it("readInstanceFileBytes throws on a read error (not ENOENT) instead of reporting 'unset'", async () => {
     // A directory where the file should be → EISDIR on read.
     await fs.mkdir(instanceFilePath(), { recursive: true });
     await expect(readInstanceFile()).rejects.toBeTruthy();
-    expect(await readInstanceFileBytes()).toBeNull();
+    await expect(readInstanceFileBytes()).rejects.toBeTruthy();
   });
 });

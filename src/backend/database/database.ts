@@ -2190,7 +2190,7 @@ app.use("/skills-editor", skillsEditorRoutes);
 app.use("/instance-wide", express.json({ limit: "64kb" }), instanceWideRoutes);
 // Instance file (/etc/claude-code/CLAUDE.md on every host). Matching nginx
 // location blocks in BOTH docker/nginx.conf AND docker/nginx-https.conf.
-app.use("/instance-file", express.json({ limit: "512kb" }), instanceFileRoutes);
+app.use("/instance-file", instanceFileRoutes);
 // Phase 89 Plan 02: /runbooks-editor router — mounted alongside /skills-editor. Matching nginx location blocks in BOTH docker/nginx.conf AND docker/nginx-https.conf (parity load-bearing per patch #446 arc).
 app.use("/runbooks-editor", runbooksEditorRoutes);
 // File viewers: legacy Office / OpenDocument conversion via the converter sidecar (SKYNET_CONVERTER_URL). Matching nginx location blocks in BOTH docker/nginx.conf AND docker/nginx-https.conf.

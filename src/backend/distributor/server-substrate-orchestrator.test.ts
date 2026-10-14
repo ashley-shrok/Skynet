@@ -793,7 +793,7 @@ describe("Phase 114 — runtime bytes resolver (once per tick, fan-to-hosts)", (
     expect(receivedHost.username).toBe("unknown");
   });
 
-  it("P114-Orch-7: readInstanceFileBytes rejection is swallowed — orchestrator continues with null map value (never-throw)", async () => {
+  it("P114-Orch-7: readInstanceFileBytes rejection is swallowed — orchestrator continues with no instance-policy entry (never-throw)", async () => {
     const hosts = [{ id: "h1", name: "host-1" }];
     const { deps } = makeDeps({ hosts });
 
@@ -811,10 +811,10 @@ describe("Phase 114 — runtime bytes resolver (once per tick, fan-to-hosts)", (
 
     // runSweepForHost was still invoked — the orchestrator didn't blow up.
     expect(vi.mocked(runSweepForHost)).toHaveBeenCalled();
-    // The Map exists but the twinkie value is null (defensive fallback).
+    // No previous bytes to keep at startup → no entry in the map.
     const receivedDeps = vi.mocked(runSweepForHost).mock.calls[0][3];
     expect(receivedDeps.resolvedRuntimeBytes).toBeInstanceOf(Map);
-    expect(receivedDeps.resolvedRuntimeBytes?.get("instance-policy")).toBeNull();
+    expect(receivedDeps.resolvedRuntimeBytes?.has("instance-policy")).toBe(false);
   });
 });
 
@@ -982,5 +982,61 @@ describe("resweepAll (instance-file saved)", () => {
     await fireTick();
     await flushMicrotasks();
     expect(vi.mocked(runSweepForHost)).toHaveBeenCalledTimes(3);
+  });
+  it("RA3: a retry-tick read that started before the save cannot overwrite the bytes resweepAll read after it", async () => {
+    const hosts = [{ id: "h1", name: "host-1" }];
+    const { deps, fireTick } = makeDeps({ hosts });
+    const oldBytes = Buffer.from("# old\n");
+    const newBytes = Buffer.from("# new\n");
+    vi.mocked(readInstanceFileBytes).mockResolvedValue(oldBytes);
+    // Startup sweep fails so the retry tick keeps sweeping h1.
+    vi.mocked(runSweepForHost).mockResolvedValue({ itemsChecked: 25, itemsChanged: 0, itemsFailed: 1 });
+    const orch = createServerSubstrateOrchestrator(deps);
+    await orch.start();
+
+    // Retry tick's read starts (pre-save content) and is held open.
+    let releaseTickRead!: () => void;
+    vi.mocked(readInstanceFileBytes).mockImplementationOnce(
+      () => new Promise((resolve) => (releaseTickRead = () => resolve(oldBytes))),
+    );
+    const tick = fireTick();
+    await flushMicrotasks();
+
+    // Save lands; resweepAll reads the new bytes and finishes first. Sweeps
+    // keep failing so h1 stays eligible and the tick sweeps it again with
+    // whatever bytes are current once its own read completes.
+    vi.mocked(readInstanceFileBytes).mockResolvedValue(newBytes);
+    await orch.resweepAll("instance-file-saved");
+    await flushMicrotasks();
+
+    // The stale tick read now completes — it must be discarded.
+    releaseTickRead();
+    await tick;
+    await flushMicrotasks();
+
+    const calls = vi.mocked(runSweepForHost).mock.calls;
+    expect(calls.length).toBeGreaterThan(2);
+    for (const c of calls.slice(1)) {
+      expect(c[3].resolvedRuntimeBytes?.get("instance-policy")).toEqual(newBytes);
+    }
+    orch.stop();
+  });
+
+  it("RA4: a read error after a good read keeps the previous bytes (never reads as 'unset')", async () => {
+    const hosts = [{ id: "h1", name: "host-1" }];
+    const { deps } = makeDeps({ hosts });
+    const goodBytes = Buffer.from("# good\n");
+    vi.mocked(readInstanceFileBytes).mockResolvedValue(goodBytes);
+    vi.mocked(runSweepForHost).mockResolvedValue({ itemsChecked: 25, itemsChanged: 0, itemsFailed: 0 });
+    const orch = createServerSubstrateOrchestrator(deps);
+    await orch.start();
+
+    vi.mocked(readInstanceFileBytes).mockRejectedValue(new Error("EIO"));
+    await orch.resweepAll("instance-file-saved");
+    await flushMicrotasks();
+
+    const last = vi.mocked(runSweepForHost).mock.calls.at(-1)!;
+    expect(last[3].resolvedRuntimeBytes?.get("instance-policy")).toEqual(goodBytes);
+    orch.stop();
   });
 });

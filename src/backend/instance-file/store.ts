@@ -10,7 +10,7 @@
  */
 import { promises as fs } from "fs";
 import path from "path";
-import { systemLogger } from "../utils/logger.js";
+import crypto from "crypto";
 
 export const MAX_INSTANCE_FILE_BYTES = 256 * 1024;
 
@@ -46,27 +46,18 @@ export async function writeInstanceFile(
     return;
   }
   await fs.mkdir(path.dirname(filePath), { recursive: true });
-  const tmp = `${filePath}.tmp-${process.pid}-${Date.now()}`;
+  const tmp = `${filePath}.tmp-${process.pid}-${crypto.randomUUID()}`;
   await fs.writeFile(tmp, content, "utf-8");
   await fs.rename(tmp, filePath);
 }
 
 /**
  * Bytes for the distributor's "instance-policy" runtime row. Null (= remove
- * from hosts) when unset or blank. Never throws — a read failure logs and
- * returns null.
+ * from hosts) when unset or blank. Throws on read errors other than ENOENT so
+ * the caller can keep its previous bytes instead of treating a failed read as
+ * "unset".
  */
 export async function readInstanceFileBytes(filePath: string = instanceFilePath()): Promise<Buffer | null> {
-  try {
-    const text = await readInstanceFile(filePath);
-    if (text.trim() === "") return null;
-    return Buffer.from(text, "utf-8");
-  } catch (err) {
-    systemLogger.error("instance-file: read failed", {
-      operation: "instance_file_read_error",
-      path: filePath,
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return null;
-  }
+  const text = await readInstanceFile(filePath);
+  return text.trim() === "" ? null : Buffer.from(text, "utf-8");
 }
