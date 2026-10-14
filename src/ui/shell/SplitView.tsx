@@ -141,13 +141,19 @@ function minAlong(node: SplitNode, axis: "width" | "height"): number {
   }
   const runsAlong = (node.direction === "vertical") === (axis === "width");
   const mins = rowMembers(node).map((m) => minAlong(m.node, axis));
-  return runsAlong ? mins.reduce((a, b) => a + b, 0) : Math.max(...mins);
+  if (!runsAlong) return Math.max(...mins);
+  // A row along the axis keeps its members' current shares as it shrinks,
+  // so it hits its floor when its tightest member does.
+  const shares = rowFractions(node);
+  return Math.max(...mins.map((m, i) => m / shares[i]));
 }
 
 /** Resize two neighbouring members of a row. `fractions` are the row's
  *  shares at drag start, `deltaPx` the pointer travel along the row axis,
  *  `lengthPx` the row's length. Only members `k` and `k + 1` change; the
- *  move stops at either member's minimum. Exported for unit coverage. */
+ *  move stops at either member's minimum — or at its drag-start size if it
+ *  was already below the minimum (a small window), so a pane never jumps.
+ *  Exported for unit coverage. */
 export function dragRowFractions(
   fractions: number[],
   k: number,
@@ -157,10 +163,8 @@ export function dragRowFractions(
 ): number[] {
   if (lengthPx <= 0 || k < 0 || k + 1 >= fractions.length) return fractions;
   const pair = fractions[k] + fractions[k + 1];
-  const lo = minsPx[k] / lengthPx;
-  const hi = pair - minsPx[k + 1] / lengthPx;
-  // The two panes can't both fit their minimum — leave them as they are.
-  if (lo > hi) return fractions;
+  const lo = Math.min(minsPx[k] / lengthPx, fractions[k]);
+  const hi = pair - Math.min(minsPx[k + 1] / lengthPx, fractions[k + 1]);
   const nextK = Math.min(hi, Math.max(lo, fractions[k] + deltaPx / lengthPx));
   const out = fractions.slice();
   out[k] = nextK;
@@ -206,6 +210,14 @@ function Divider({
   );
 }
 
+/** Identity of a row's membership: the panes under each member, in order.
+ *  Changes whenever the row is restructured. */
+function memberSignature(row: SplitNode & { kind: "split" }): string {
+  const ids = (n: SplitNode): string =>
+    n.kind === "session" ? n.tabId : `${ids(n.children[0])}+${ids(n.children[1])}`;
+  return rowMembers(row).map((m) => ids(m.node)).join("|");
+}
+
 // RowView — one row (or column): a same-direction chain of splits rendered
 // as its flat list of members with a draggable divider between each pair.
 // Live drag sizes stay local to this component and are committed to the
@@ -215,13 +227,23 @@ function RowView({
   path,
   renderMember,
   onResizeRow,
+  onTerminalResize,
 }: {
   node: SplitNode & { kind: "split" };
   path: SplitPath;
   renderMember: (member: SplitNode, memberPath: SplitPath) => React.ReactNode;
   onResizeRow?: (rowPath: SplitPath, fractions: number[] | null) => void;
+  onTerminalResize?: () => void;
 }) {
   const members = rowMembers(node);
+  // Latest node, read at drag end to make sure the row is still the one the
+  // drag started on before committing.
+  const nodeRef = useRef(node);
+  nodeRef.current = node;
+  // Cleanup for an in-flight drag, run if this row unmounts mid-drag so the
+  // page cursor / selection lock never stick.
+  const endDragRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => endDragRef.current?.(), []);
   const committed = rowFractions(node);
   const [live, setLive] = useState<{ fractions: number[]; divider: number } | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -249,8 +271,16 @@ function RowView({
     // pointer crosses an app or remote-desktop iframe.
     handle.setPointerCapture(pointerId);
     const prevCursor = document.body.style.cursor;
+    const prevSelect = document.body.style.userSelect;
     document.body.style.cursor = sideBySide ? "col-resize" : "row-resize";
+    document.body.style.userSelect = "none";
+    // Backstop for browsers whose pointer capture leaks into iframes: app
+    // and remote-desktop frames ignore the pointer while a resize is live.
+    document.body.setAttribute("data-split-resizing", "");
+    const signature = memberSignature(node);
     let latest = start;
+    let frame = 0;
+    let lastFit = 0;
     setLive({ fractions: start, divider: k });
     systemLogger.info("pv-split-resize start", {
       operation: "pv_split_resize_start",
@@ -262,25 +292,49 @@ function RowView({
     const onMove = (ev: PointerEvent) => {
       const pos = sideBySide ? ev.clientX : ev.clientY;
       latest = dragRowFractions(start, k, pos - startPos, lengthPx, minsPx);
-      setLive({ fractions: latest, divider: k });
+      // One re-render per frame, however fast the pointer events come.
+      if (frame !== 0) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        setLive({ fractions: latest, divider: k });
+        // Terminals refit on a trailing debounce that a steady drag keeps
+        // postponing; nudge them a few times a second so they reflow live.
+        const now = performance.now();
+        if (now - lastFit >= 100) {
+          lastFit = now;
+          onTerminalResize?.();
+        }
+      });
     };
+    let ended = false;
     const onEnd = () => {
+      if (ended) return;
+      ended = true;
+      endDragRef.current = null;
+      if (frame !== 0) cancelAnimationFrame(frame);
       handle.removeEventListener("pointermove", onMove);
       handle.removeEventListener("pointerup", onEnd);
       handle.removeEventListener("lostpointercapture", onEnd);
-      if (handle.hasPointerCapture(pointerId)) handle.releasePointerCapture(pointerId);
+      if (handle.isConnected && handle.hasPointerCapture(pointerId)) {
+        handle.releasePointerCapture(pointerId);
+      }
       document.body.style.cursor = prevCursor;
+      document.body.style.userSelect = prevSelect;
+      document.body.removeAttribute("data-split-resizing");
       setLive(null);
       const moved = latest.some((f, i) => Math.abs(f - start[i]) > 1e-6);
+      const sameRow = memberSignature(nodeRef.current) === signature;
       systemLogger.info("pv-split-resize end", {
         operation: "pv_split_resize_end",
         rowPath: JSON.stringify(path),
         divider: k,
         moved,
+        sameRow,
         fractions: latest.map((f) => f.toFixed(4)).join(","),
       });
-      if (moved) onResizeRow(path, latest);
+      if (moved && sameRow) onResizeRow(path, latest);
     };
+    endDragRef.current = onEnd;
     handle.addEventListener("pointermove", onMove);
     handle.addEventListener("pointerup", onEnd);
     handle.addEventListener("lostpointercapture", onEnd);
@@ -1129,6 +1183,7 @@ function PaneTree({
   onCenterDropBadge,
   onCloseStalePane,
   onResizeRow,
+  onTerminalResize,
 }: {
   node: SplitNode;
   path: SplitPath;
@@ -1174,6 +1229,7 @@ function PaneTree({
   onCenterDropBadge?: (payload: unknown, targetTabId: string) => void;
   onCloseStalePane?: (tabId: string) => void;
   onResizeRow?: (rowPath: SplitPath, fractions: number[] | null) => void;
+  onTerminalResize?: () => void;
 }) {
   if (node.kind === "session") {
     const tab = tabs.find((tt) => tt.id === node.tabId) ?? null;
@@ -1203,6 +1259,7 @@ function PaneTree({
       node={node}
       path={path}
       onResizeRow={onResizeRow}
+      onTerminalResize={onTerminalResize}
       renderMember={(member, memberPath) => (
         <PaneTree
           node={member}
@@ -1222,6 +1279,7 @@ function PaneTree({
           onCenterDropBadge={onCenterDropBadge}
           onCloseStalePane={onCloseStalePane}
           onResizeRow={onResizeRow}
+          onTerminalResize={onTerminalResize}
         />
       )}
     />
@@ -1338,6 +1396,7 @@ export const SplitView = memo(function SplitView({
         onCenterDropBadge={onCenterDropBadge}
         onCloseStalePane={onCloseStalePane}
         onResizeRow={onResizeRow}
+        onTerminalResize={onTerminalResize}
       />
     </div>
   );
