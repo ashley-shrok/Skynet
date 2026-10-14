@@ -800,6 +800,13 @@ not something agents drive.
   on a project, Pinned, or Conversations files it there, exactly like
   dragging its sidebar row, and the pane stays open. Dropping anywhere
   else in the sidebar does nothing.
+  **Pane sizes.** Panes side by side (or stacked) in one row or column
+  share it evenly — three in a row are thirds. Drag the line between two
+  panes to resize just those two (a pane can't be squeezed below a usable
+  minimum); double-click the line to even its row or column back out.
+  Adding, closing or moving a pane evens out only the rows and columns it
+  joined or left. Sizes survive a reload along with the layout. Desktop
+  only — a phone shows one pane.
   *Agent-side: none.* Pure client-side window management; no persistent
   state, no disk artifact.
 

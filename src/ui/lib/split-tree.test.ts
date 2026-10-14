@@ -5,8 +5,8 @@
 //   .planning/phases/56-visual-session-management-foundation-recursive-split-tree-da/56-01-PLAN.md
 //
 // The tree data model is a recursive discriminated union — see split-tree.ts
-// header for the full contract. Constant-ratio 50/50 is baked in (locked
-// decision user 2026-08-28: no draggable pane dividers → no ratio field).
+// header for the full contract. Row sizing (even shares, custom ratios,
+// reset-only-what-changed) is covered in split-tree.sizes.test.ts.
 
 import { describe, it, expect, vi } from "vitest";
 import {

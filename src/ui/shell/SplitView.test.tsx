@@ -10,7 +10,7 @@
 //   Test 2  horizontal split → stacked (flex column), one divider between.
 //   Test 3  vertical split → side-by-side (flex row), one divider between.
 //   Test 4  null tree → empty drop-target, drop invokes callback with [].
-//   Test 5  constant-ratio 50/50 wrapping via flex: 1 1 0 on each subtree.
+//   Test 5  an unsized two-pane row wraps each member in flex: 0.5 1 0.
 //   Test 6  onPaneContentRef callback shape is (tabId, HTMLDivElement | null).
 //
 // Test 7 (Plan 56-02) — Pane drop forwards (payloadTabId, path, 'left') — was
@@ -166,7 +166,7 @@ describe("SplitView — recursive-tree renderer (Phase 56 Plan 02 Task 1)", () =
     expect(onOpenSessionInTree).toHaveBeenCalledWith("xyz", [], "left");
   });
 
-  it("Test 5: split children wrap in equal-ratio flex boxes (constant-ratio 50/50)", () => {
+  it("Test 5: an unsized two-pane row gives each member an equal flex share", () => {
     const tree: SplitNode = split("vertical", leaf("aaa"), leaf("bbb"));
     const { container } = render(
       <SplitView splitTree={tree} tabs={[tabA, tabB]} />,
@@ -181,7 +181,7 @@ describe("SplitView — recursive-tree renderer (Phase 56 Plan 02 Task 1)", () =
         const shrink = el.style.flexShrink || "";
         const basis = el.style.flexBasis || "";
         return (
-          grow === "1" &&
+          grow === "0.5" &&
           shrink === "1" &&
           (basis === "0" || basis === "0px")
         );

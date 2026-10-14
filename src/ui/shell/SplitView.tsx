@@ -4,9 +4,12 @@
 //
 // Adopted (Plan 56-01 + 56-02 + 56-03 LOCKED decisions — user 2026-08-28):
 //   - Recursive `SplitNode` tree drives layout. Leaves render as `Pane`;
-//     internal nodes render as flex containers with a constant-width,
-//     non-draggable `<Divider>` between two children.
-//   - Constant-ratio 50/50 splits (no draggable dividers).
+//     internal nodes render as rows (`RowView`).
+//   - Rows and sizes (2026-10-14, supersedes "constant 50/50, no draggable
+//     dividers"): a same-direction chain of splits renders as ONE row whose
+//     members share space by `rowFractions` (even unless sized). Every
+//     divider between two members drags to resize just those two; double-
+//     click returns the row to even. See split-tree.ts § ROWS AND SIZES.
 //   - Portal-target contract: every leaf's content div carries a tab-id
 //     data attribute and reports its element upstream via
 //     `onPaneContentRef(tabId, el)`. AppShell's DOM-placement effect uses
@@ -25,7 +28,11 @@ import React, { useState, useEffect, useRef, memo, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import type { Tab } from "@/types/ui-types";
 import type { SplitNode, SplitPath, DropEdge, DropZone } from "@/lib/split-tree";
-import { computeEdgeZone } from "@/lib/split-tree";
+import {
+  computeEdgeZone,
+  rowFractions,
+  rowMembers,
+} from "@/lib/split-tree";
 import { useDragPreviewClaim } from "./drag-preview-session";
 // Phase 120 LOW-15 cleanup (2026-09-19): route the app-tile drop-dispatch
 // logs through the fleet's structured frontend logger instead of raw
@@ -121,25 +128,203 @@ export function computeNearestEdge(
   return best;
 }
 
-// Constant-width, non-draggable divider. `direction` matches split-tree.ts's
-// SplitDirection convention: 'horizontal' = 1px-tall line separating stacked
-// children; 'vertical' = 1px-wide line separating side-by-side children.
-function Divider({ direction }: { direction: "horizontal" | "vertical" }) {
-  if (direction === "horizontal") {
-    return (
-      <div
-        className="h-px w-full shrink-0 bg-[color:var(--color-pv-border-quiet-strong)] pointer-events-none"
-        role="separator"
-        aria-orientation="horizontal"
-      />
-    );
+// Smallest a drag may push a pane, in CSS px. A window too small for every
+// pane's minimum still shrinks them all proportionally (flex, no CSS min).
+export const MIN_PANE_WIDTH = 280;
+export const MIN_PANE_HEIGHT = 160;
+
+/** Minimum size of `node` along the row axis (`width` for side-by-side
+ *  rows, `height` for stacked ones). */
+function minAlong(node: SplitNode, axis: "width" | "height"): number {
+  if (node.kind === "session") {
+    return axis === "width" ? MIN_PANE_WIDTH : MIN_PANE_HEIGHT;
   }
+  const runsAlong = (node.direction === "vertical") === (axis === "width");
+  const mins = rowMembers(node).map((m) => minAlong(m.node, axis));
+  return runsAlong ? mins.reduce((a, b) => a + b, 0) : Math.max(...mins);
+}
+
+/** Resize two neighbouring members of a row. `fractions` are the row's
+ *  shares at drag start, `deltaPx` the pointer travel along the row axis,
+ *  `lengthPx` the row's length. Only members `k` and `k + 1` change; the
+ *  move stops at either member's minimum. Exported for unit coverage. */
+export function dragRowFractions(
+  fractions: number[],
+  k: number,
+  deltaPx: number,
+  lengthPx: number,
+  minsPx: number[],
+): number[] {
+  if (lengthPx <= 0 || k < 0 || k + 1 >= fractions.length) return fractions;
+  const pair = fractions[k] + fractions[k + 1];
+  const lo = minsPx[k] / lengthPx;
+  const hi = pair - minsPx[k + 1] / lengthPx;
+  // The two panes can't both fit their minimum — leave them as they are.
+  if (lo > hi) return fractions;
+  const nextK = Math.min(hi, Math.max(lo, fractions[k] + deltaPx / lengthPx));
+  const out = fractions.slice();
+  out[k] = nextK;
+  out[k + 1] = pair - nextK;
+  return out;
+}
+
+// Divider between two members of a row. `direction` matches split-tree.ts's
+// SplitDirection convention: 'horizontal' = 1px-tall line separating stacked
+// members; 'vertical' = 1px-wide line separating side-by-side members. The
+// visible line stays 1px; an invisible 8px strip centred on it takes the
+// pointer. Hover (and an active drag) lights the line in the accent colour.
+function Divider({
+  direction,
+  active,
+  onPointerDown,
+  onDoubleClick,
+}: {
+  direction: "horizontal" | "vertical";
+  active: boolean;
+  onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => void;
+  onDoubleClick: () => void;
+}) {
+  const stacked = direction === "horizontal";
+  const lineColor = active
+    ? "bg-[hsla(var(--pv-hue,35),55%,50%,0.6)]"
+    : "bg-[color:var(--color-pv-border-quiet-strong)] group-hover/divider:bg-[hsla(var(--pv-hue,35),55%,50%,0.6)]";
   return (
     <div
-      className="w-px h-full shrink-0 bg-[color:var(--color-pv-border-quiet-strong)] pointer-events-none"
+      className={`group/divider relative z-20 shrink-0 ${stacked ? "h-px w-full" : "w-px h-full"}`}
       role="separator"
-      aria-orientation="vertical"
-    />
+      aria-orientation={direction}
+      data-split-divider=""
+    >
+      <div className={`absolute inset-0 transition-colors ${lineColor}`} />
+      <div
+        className={`absolute ${stacked ? "left-0 right-0 -top-[4px] h-[9px] cursor-row-resize" : "top-0 bottom-0 -left-[4px] w-[9px] cursor-col-resize"}`}
+        data-split-divider-handle=""
+        onPointerDown={onPointerDown}
+        onDoubleClick={onDoubleClick}
+      />
+    </div>
+  );
+}
+
+// RowView — one row (or column): a same-direction chain of splits rendered
+// as its flat list of members with a draggable divider between each pair.
+// Live drag sizes stay local to this component and are committed to the
+// tree (and so the URL) once, on release.
+function RowView({
+  node,
+  path,
+  renderMember,
+  onResizeRow,
+}: {
+  node: SplitNode & { kind: "split" };
+  path: SplitPath;
+  renderMember: (member: SplitNode, memberPath: SplitPath) => React.ReactNode;
+  onResizeRow?: (rowPath: SplitPath, fractions: number[] | null) => void;
+}) {
+  const members = rowMembers(node);
+  const committed = rowFractions(node);
+  const [live, setLive] = useState<{ fractions: number[]; divider: number } | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const fractions =
+    live !== null && live.fractions.length === members.length
+      ? live.fractions
+      : committed;
+  const sideBySide = node.direction === "vertical";
+
+  const startDrag = (k: number, e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0 || onResizeRow === undefined) return;
+    const container = containerRef.current;
+    if (container === null) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = container.getBoundingClientRect();
+    const axis = sideBySide ? "width" : "height";
+    const lengthPx = (sideBySide ? rect.width : rect.height) - (members.length - 1);
+    const minsPx = members.map((m) => minAlong(m.node, axis));
+    const start = fractions.slice();
+    const startPos = sideBySide ? e.clientX : e.clientY;
+    const handle = e.currentTarget;
+    const pointerId = e.pointerId;
+    // Pointer capture keeps every move/up on the handle even while the
+    // pointer crosses an app or remote-desktop iframe.
+    handle.setPointerCapture(pointerId);
+    const prevCursor = document.body.style.cursor;
+    document.body.style.cursor = sideBySide ? "col-resize" : "row-resize";
+    let latest = start;
+    setLive({ fractions: start, divider: k });
+    systemLogger.info("pv-split-resize start", {
+      operation: "pv_split_resize_start",
+      rowPath: JSON.stringify(path),
+      divider: k,
+      members: members.length,
+      lengthPx: Math.round(lengthPx),
+    });
+    const onMove = (ev: PointerEvent) => {
+      const pos = sideBySide ? ev.clientX : ev.clientY;
+      latest = dragRowFractions(start, k, pos - startPos, lengthPx, minsPx);
+      setLive({ fractions: latest, divider: k });
+    };
+    const onEnd = () => {
+      handle.removeEventListener("pointermove", onMove);
+      handle.removeEventListener("pointerup", onEnd);
+      handle.removeEventListener("lostpointercapture", onEnd);
+      if (handle.hasPointerCapture(pointerId)) handle.releasePointerCapture(pointerId);
+      document.body.style.cursor = prevCursor;
+      setLive(null);
+      const moved = latest.some((f, i) => Math.abs(f - start[i]) > 1e-6);
+      systemLogger.info("pv-split-resize end", {
+        operation: "pv_split_resize_end",
+        rowPath: JSON.stringify(path),
+        divider: k,
+        moved,
+        fractions: latest.map((f) => f.toFixed(4)).join(","),
+      });
+      if (moved) onResizeRow(path, latest);
+    };
+    handle.addEventListener("pointermove", onMove);
+    handle.addEventListener("pointerup", onEnd);
+    handle.addEventListener("lostpointercapture", onEnd);
+  };
+
+  const children: React.ReactNode[] = [];
+  members.forEach((m, i) => {
+    if (i > 0) {
+      const k = i - 1;
+      children.push(
+        <Divider
+          key={`d${k}`}
+          direction={node.direction}
+          active={live !== null && live.divider === k}
+          onPointerDown={(e) => startDrag(k, e)}
+          onDoubleClick={() => {
+            systemLogger.info("pv-split-resize reset", {
+              operation: "pv_split_resize_reset",
+              rowPath: JSON.stringify(path),
+            });
+            onResizeRow?.(path, null);
+          }}
+        />,
+      );
+    }
+    children.push(
+      <div
+        key={`m${i}`}
+        className="min-w-0 min-h-0 overflow-hidden"
+        style={{ flexGrow: fractions[i], flexShrink: 1, flexBasis: 0, minWidth: 0, minHeight: 0 }}
+      >
+        {renderMember(m.node, [...path, ...m.relPath])}
+      </div>,
+    );
+  });
+
+  return (
+    <div
+      ref={containerRef}
+      className="flex w-full h-full min-w-0 min-h-0"
+      style={{ flexDirection: sideBySide ? "row" : "column" }}
+    >
+      {children}
+    </div>
   );
 }
 
@@ -923,10 +1108,9 @@ const Pane = memo(function Pane({
   );
 });
 
-// PaneTree — recursive renderer. Leaf → Pane; split → flex container.
-// direction 'horizontal' → stacked (flexDirection: column); 'vertical' →
-// side-by-side (flexDirection: row). Each child wrapped in flex: 1 1 0 for
-// equal 50/50 halves.
+// PaneTree — recursive renderer. Leaf → Pane; split → RowView, which
+// flattens the same-direction chain into one row (stacked for 'horizontal',
+// side-by-side for 'vertical') sized by its row fractions.
 function PaneTree({
   node,
   path,
@@ -944,6 +1128,7 @@ function PaneTree({
   onDropBadgeInTree,
   onCenterDropBadge,
   onCloseStalePane,
+  onResizeRow,
 }: {
   node: SplitNode;
   path: SplitPath;
@@ -988,6 +1173,7 @@ function PaneTree({
   ) => void;
   onCenterDropBadge?: (payload: unknown, targetTabId: string) => void;
   onCloseStalePane?: (tabId: string) => void;
+  onResizeRow?: (rowPath: SplitPath, fractions: number[] | null) => void;
 }) {
   if (node.kind === "session") {
     const tab = tabs.find((tt) => tt.id === node.tabId) ?? null;
@@ -1012,20 +1198,15 @@ function PaneTree({
       />
     );
   }
-  const flexDirection: "row" | "column" =
-    node.direction === "horizontal" ? "column" : "row";
   return (
-    <div
-      className="flex w-full h-full min-w-0 min-h-0"
-      style={{ flexDirection }}
-    >
-      <div
-        className="min-w-0 min-h-0 overflow-hidden"
-        style={{ flexGrow: 1, flexShrink: 1, flexBasis: 0, minWidth: 0, minHeight: 0 }}
-      >
+    <RowView
+      node={node}
+      path={path}
+      onResizeRow={onResizeRow}
+      renderMember={(member, memberPath) => (
         <PaneTree
-          node={node.children[0]}
-          path={[...path, 0]}
+          node={member}
+          path={memberPath}
           tabs={tabs}
           focusedTabId={focusedTabId}
           onPaneContentRef={onPaneContentRef}
@@ -1040,33 +1221,10 @@ function PaneTree({
           onDropBadgeInTree={onDropBadgeInTree}
           onCenterDropBadge={onCenterDropBadge}
           onCloseStalePane={onCloseStalePane}
+          onResizeRow={onResizeRow}
         />
-      </div>
-      <Divider direction={node.direction} />
-      <div
-        className="min-w-0 min-h-0 overflow-hidden"
-        style={{ flexGrow: 1, flexShrink: 1, flexBasis: 0, minWidth: 0, minHeight: 0 }}
-      >
-        <PaneTree
-          node={node.children[1]}
-          path={[...path, 1]}
-          tabs={tabs}
-          focusedTabId={focusedTabId}
-          onPaneContentRef={onPaneContentRef}
-          onPaneClick={onPaneClick}
-          onOpenSessionInTree={onOpenSessionInTree}
-          onDropRowInTree={onDropRowInTree}
-          onDropAppTileInTree={onDropAppTileInTree}
-          onReplaceInTree={onReplaceInTree}
-          onCenterDropRow={onCenterDropRow}
-          onCenterDropAppTile={onCenterDropAppTile}
-          onSwapInTree={onSwapInTree}
-          onDropBadgeInTree={onDropBadgeInTree}
-          onCenterDropBadge={onCenterDropBadge}
-          onCloseStalePane={onCloseStalePane}
-        />
-      </div>
-    </div>
+      )}
+    />
   );
 }
 
@@ -1090,6 +1248,7 @@ export const SplitView = memo(function SplitView({
   onDropBadgeInTree,
   onCenterDropBadge,
   onCloseStalePane,
+  onResizeRow,
 }: {
   tabs: Tab[];
   splitTree: SplitNode | null;
@@ -1141,6 +1300,10 @@ export const SplitView = memo(function SplitView({
   ) => void;
   onCenterDropBadge?: (payload: unknown, targetTabId: string) => void;
   onCloseStalePane?: (tabId: string) => void;
+  // Divider drag commit (fractions) / double-click reset (null) for the row
+  // rooted at `rowPath`. AppShell wires this to split-tree setRowFractions /
+  // clearRowAt.
+  onResizeRow?: (rowPath: SplitPath, fractions: number[] | null) => void;
 }) {
   useEffect(() => {
     const id = requestAnimationFrame(() => onTerminalResize?.());
@@ -1174,6 +1337,7 @@ export const SplitView = memo(function SplitView({
         onDropBadgeInTree={onDropBadgeInTree}
         onCenterDropBadge={onCenterDropBadge}
         onCloseStalePane={onCloseStalePane}
+        onResizeRow={onResizeRow}
       />
     </div>
   );

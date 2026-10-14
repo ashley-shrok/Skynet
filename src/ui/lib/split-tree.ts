@@ -6,11 +6,19 @@
 // the retired `paneTabIds: (string | null)[]` fixed-grid data model that
 // used to live inside `SplitView.tsx`.
 //
-// LOCKED DECISION — user 2026-08-28: no draggable pane dividers.
-//   Constant-ratio 50/50 is a rendering choice made downstream. The tree
-//   node carries NO ratio / size / weight / percent field. Every cell holds
-//   the same shape of thing (a session), so a window-manager knob would
-//   over-engineer the affordance.
+// ROWS AND SIZES (2026-10-14, supersedes the 2026-08-28 "no draggable
+//   dividers, always 50/50" decision):
+//   A chain of nested splits that share one direction is ONE row (or column)
+//   — three panes side by side are a row of three, however the binary tree
+//   happened to be built up. `rowMembers` flattens a chain into its members.
+//   Every member of a row gets an equal share unless the user has dragged a
+//   divider in it, in which case every split in that chain carries a `ratio`
+//   (share of the split's own space given to children[0]). A row is either
+//   fully sized (every chain split has a ratio) or fully even (none do).
+//   Tree edits reset to even exactly the rows whose membership changed:
+//   `insertAtEdge` resets the row the new pane joins, `removeLeaf` resets the
+//   row the pane left (and any row a collapse merges into). A row whose
+//   membership didn't change keeps its sizes.
 //
 // INVARIANT (enforced by helpers, walked by tests):
 //   Every `{kind: 'split'}` node has EXACTLY two non-null `SplitNode`
@@ -77,6 +85,9 @@ export type SplitNode =
     kind: "split";
     direction: SplitDirection;
     children: [SplitNode, SplitNode];
+    /** Share (0..1, exclusive) of this split's space given to children[0].
+     *  Absent = even by row-member count. See ROWS AND SIZES above. */
+    ratio?: number;
   };
 
 /** Sequence of `0 | 1` indices from root. Empty array = root. Number typing
@@ -168,7 +179,21 @@ export function insertAtEdge(
     );
   }
   const replacement = buildSplitForEdge(targetNode, newLeaf, edge);
-  return replaceAt(root, targetPath, replacement);
+  const next = replaceAt(root, targetPath, replacement);
+  // The new pane joins its parent's row when the new split runs the same
+  // way as the parent; that row's membership changed, so it goes even. A
+  // split the other way is a brand-new (even) row inside the old slot and
+  // leaves the surrounding sizes alone.
+  if (targetPath.length > 0) {
+    const parentPath = targetPath.slice(0, -1);
+    const parent = getNodeAt(next, parentPath);
+    if (parent !== null && parent.kind === "split" &&
+        replacement.kind === "split" &&
+        parent.direction === replacement.direction) {
+      return clearRowAt(next, parentPath);
+    }
+  }
+  return next;
 }
 
 function buildSplitForEdge(
@@ -232,11 +257,7 @@ function replaceAt(
   const newChildren: [SplitNode, SplitNode] = head === 0
     ? [newChild, root.children[1]]
     : [root.children[0], newChild];
-  return {
-    kind: "split",
-    direction: root.direction,
-    children: newChildren,
-  };
+  return { ...root, children: newChildren };
 }
 
 // ─── removeLeaf ────────────────────────────────────────────────────────────
@@ -253,7 +274,31 @@ export function removeLeaf(
   if (root === null) return null;
   const path = findLeaf(root, tabId);
   if (path === null) return root; // reference-identity no-op
-  return removeAt(root, path);
+  if (path.length === 0) return null;
+  const parentPath = path.slice(0, -1);
+  const oldParent = getNodeAt(root, parentPath);
+  let next = removeAt(root, path);
+  if (next === null || oldParent === null || oldParent.kind !== "split") {
+    return next;
+  }
+  // The surviving sibling now sits at `parentPath`. Reset every row whose
+  // membership changed: the row the pane left (the old parent's chain —
+  // either continuing upward through the grandparent, or down through a
+  // same-direction sibling), plus any row the sibling merges into.
+  const survivor = getNodeAt(next, parentPath);
+  const grandPath = parentPath.slice(0, -1);
+  const grand = parentPath.length > 0 ? getNodeAt(next, grandPath) : null;
+  if (grand !== null && grand.kind === "split") {
+    const leftGrandRow = grand.direction === oldParent.direction;
+    const mergedIntoGrandRow = survivor !== null &&
+      survivor.kind === "split" && survivor.direction === grand.direction;
+    if (leftGrandRow || mergedIntoGrandRow) next = clearRowAt(next, grandPath);
+  }
+  if (survivor !== null && survivor.kind === "split" &&
+      survivor.direction === oldParent.direction) {
+    next = clearRowAt(next, parentPath);
+  }
+  return next;
 }
 
 /** Remove the node at `path` and collapse the resulting one-child split
@@ -293,11 +338,7 @@ function removeAt(root: SplitNode, path: SplitPath): SplitNode | null {
   const newChildren: [SplitNode, SplitNode] = head === 0
     ? [newChild, root.children[1]]
     : [root.children[0], newChild];
-  return {
-    kind: "split",
-    direction: root.direction,
-    children: newChildren,
-  };
+  return { ...root, children: newChildren };
 }
 
 // ─── collectTabIds ─────────────────────────────────────────────────────────
@@ -469,31 +510,31 @@ export function replaceLeaf(
 
 // ─── findLargestLeafPath ───────────────────────────────────────────────────
 
-/** Return the path to the leaf occupying the largest rendered area, or null
- *  if the tree is empty. Because splits are locked to constant-ratio 50/50
- *  (see module-level LOCKED DECISION), a leaf's area equals `1 / 2^depth` —
- *  so the leaf with minimum depth is the largest, regardless of the mix of
- *  horizontal/vertical splits along its path. Ties (multiple leaves at the
- *  same minimum depth) resolve to the FIRST encountered in left-to-right DFS
+/** Return the path to the leaf occupying the largest rendered area (as a
+ *  fraction of the whole layout, from `effectiveRatio`), or null if the tree
+ *  is empty. Ties resolve to the FIRST encountered in left-to-right DFS
  *  order — deterministic but the specific pick is arbitrary by design; the
  *  consumer treats the tiebreaker as a don't-care. */
 export function findLargestLeafPath(root: SplitNode | null): SplitPath | null {
   if (root === null) return null;
   if (root.kind === "session") return [];
   let bestPath: SplitPath = [];
-  let bestDepth = Infinity;
-  const walk = (node: SplitNode, path: SplitPath, depth: number): void => {
+  let bestArea = -Infinity;
+  // Areas compare with a small tolerance so float noise in even thirds
+  // (1/3 vs 0.333…) can't break the first-in-DFS tiebreak.
+  const walk = (node: SplitNode, path: SplitPath, area: number): void => {
     if (node.kind === "session") {
-      if (depth < bestDepth) {
-        bestDepth = depth;
+      if (area > bestArea + 1e-9) {
+        bestArea = area;
         bestPath = path;
       }
       return;
     }
-    walk(node.children[0], [...path, 0], depth + 1);
-    walk(node.children[1], [...path, 1], depth + 1);
+    const r = effectiveRatio(node);
+    walk(node.children[0], [...path, 0], area * r);
+    walk(node.children[1], [...path, 1], area * (1 - r));
   };
-  walk(root, [], 0);
+  walk(root, [], 1);
   return bestPath;
 }
 
@@ -552,4 +593,144 @@ export function swapLeaves(
   const step1 = replaceAt(root, pathA, { kind: "session", tabId: tabIdB });
   const step2 = replaceAt(step1, pathB, { kind: "session", tabId: tabIdA });
   return step2;
+}
+
+// ─── Rows and sizes (2026-10-14) ───────────────────────────────────────────
+
+/** One member of a row: a node that sits directly in the row (a leaf, or a
+ *  split running the OTHER way), with its path relative to the row's root. */
+export interface RowMember {
+  node: SplitNode;
+  relPath: SplitPath;
+}
+
+/** Flatten the same-direction chain rooted at `row` into its ordered
+ *  members. A leaf or other-direction split is a member; a same-direction
+ *  split is descended into. */
+export function rowMembers(row: SplitNode & { kind: "split" }): RowMember[] {
+  const out: RowMember[] = [];
+  const walk = (node: SplitNode, rel: SplitPath): void => {
+    if (node.kind === "split" && node.direction === row.direction) {
+      walk(node.children[0], [...rel, 0]);
+      walk(node.children[1], [...rel, 1]);
+      return;
+    }
+    out.push({ node, relPath: rel });
+  };
+  walk(row.children[0], [0]);
+  walk(row.children[1], [1]);
+  return out;
+}
+
+/** Number of row members under `node` when it sits in a row running
+ *  `direction` (a same-direction split contributes all of its members). */
+function memberCount(node: SplitNode, direction: SplitDirection): number {
+  if (node.kind === "split" && node.direction === direction) {
+    return memberCount(node.children[0], direction) +
+      memberCount(node.children[1], direction);
+  }
+  return 1;
+}
+
+/** Share of a split's own space given to children[0]: the stored ratio, or
+ *  the even share by member count when the row hasn't been sized. */
+export function effectiveRatio(node: SplitNode & { kind: "split" }): number {
+  if (typeof node.ratio === "number" && node.ratio > 0 && node.ratio < 1) {
+    return node.ratio;
+  }
+  const a = memberCount(node.children[0], node.direction);
+  const b = memberCount(node.children[1], node.direction);
+  return a / (a + b);
+}
+
+/** Each member's share (summing to 1) of the row rooted at `row`. */
+export function rowFractions(row: SplitNode & { kind: "split" }): number[] {
+  const out: number[] = [];
+  const walk = (node: SplitNode, share: number): void => {
+    if (node.kind === "split" && node.direction === row.direction) {
+      const r = effectiveRatio(node);
+      walk(node.children[0], share * r);
+      walk(node.children[1], share * (1 - r));
+      return;
+    }
+    out.push(share);
+  };
+  walk(row, 1);
+  return out;
+}
+
+/** Walk up from the split at `path` to the root of the row it belongs to. */
+export function rowRootPath(root: SplitNode | null, path: SplitPath): SplitPath {
+  const node = getNodeAt(root, path);
+  if (node === null || node.kind !== "split") return path;
+  let p = path;
+  while (p.length > 0) {
+    const parent = getNodeAt(root, p.slice(0, -1));
+    if (parent === null || parent.kind !== "split" ||
+        parent.direction !== node.direction) break;
+    p = p.slice(0, -1);
+  }
+  return p;
+}
+
+/** Rebuild the chain under `node` (same direction as `direction`) with
+ *  ratios taken from `fractions` (consumed left to right), or stripped
+ *  when `fractions` is null. Returns the new node and the share it covers. */
+function rebuildChain(
+  node: SplitNode,
+  direction: SplitDirection,
+  fractions: number[] | null,
+  cursor: { i: number },
+): { node: SplitNode; share: number } {
+  if (node.kind !== "split" || node.direction !== direction) {
+    const share = fractions === null ? 0 : fractions[cursor.i];
+    cursor.i += 1;
+    return { node, share };
+  }
+  const a = rebuildChain(node.children[0], direction, fractions, cursor);
+  const b = rebuildChain(node.children[1], direction, fractions, cursor);
+  const { ratio: _dropped, ...rest } = node;
+  void _dropped;
+  const children: [SplitNode, SplitNode] = [a.node, b.node];
+  if (fractions === null) {
+    return { node: { ...rest, children }, share: 0 };
+  }
+  const total = a.share + b.share;
+  return {
+    node: { ...rest, children, ratio: total > 0 ? a.share / total : 0.5 },
+    share: total,
+  };
+}
+
+/** Return the row containing the split at `path` back to even sizing.
+ *  Non-split / missing paths return the input unchanged. */
+export function clearRowAt(root: SplitNode, path: SplitPath): SplitNode;
+export function clearRowAt(root: SplitNode | null, path: SplitPath): SplitNode | null;
+export function clearRowAt(root: SplitNode | null, path: SplitPath): SplitNode | null {
+  if (root === null) return null;
+  const rp = rowRootPath(root, path);
+  const row = getNodeAt(root, rp);
+  if (row === null || row.kind !== "split") return root;
+  const rebuilt = rebuildChain(row, row.direction, null, { i: 0 }).node;
+  return replaceAt(root, rp, rebuilt);
+}
+
+/** Set the members' shares of the row rooted at `rowPath`. `fractions` must
+ *  have one positive entry per member (normalized here); anything else
+ *  returns the input unchanged. */
+export function setRowFractions(
+  root: SplitNode | null,
+  rowPath: SplitPath,
+  fractions: number[],
+): SplitNode | null {
+  if (root === null) return null;
+  const row = getNodeAt(root, rowPath);
+  if (row === null || row.kind !== "split") return root;
+  if (rowRootPath(root, rowPath).length !== rowPath.length) return root;
+  if (fractions.length !== rowMembers(row).length) return root;
+  if (!fractions.every((f) => Number.isFinite(f) && f > 0)) return root;
+  const sum = fractions.reduce((x, y) => x + y, 0);
+  const norm = fractions.map((f) => f / sum);
+  const rebuilt = rebuildChain(row, row.direction, norm, { i: 0 }).node;
+  return replaceAt(root, rowPath, rebuilt);
 }

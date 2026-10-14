@@ -26,10 +26,13 @@
 //     <leaf>      ::= decimal integer index into <alphabet>, base 10, no
 //                     leading '+' or '-' or whitespace, in-range against
 //                     the alphabet length
-//     <split>     ::= ('h' | 'v') '(' <tree> ',' <tree> ')'
+//     <split>     ::= ('h' | 'v') [<ratio>] '(' <tree> ',' <tree> ')'
 //                     'h' = horizontal divider (stacked), 'v' = vertical
 //                     divider (side-by-side), matching the SplitDirection
 //                     convention in split-tree.ts.
+//     <ratio>     ::= decimal integer 1..9999 — the split's `ratio` in
+//                     ten-thousandths (share given to the first child).
+//                     Absent = even sizing, so pre-sizing URLs decode as-is.
 //
 // Empty tree: encode(null) returns "" and decode("") returns null. Any
 // parse error, missing param, out-of-bounds index, or depth-cap trip
@@ -118,7 +121,10 @@ function stringifyTree(
     return String(idx ?? -1);
   }
   const ch = node.direction === "horizontal" ? "h" : "v";
-  return `${ch}(${
+  const ratio = node.ratio === undefined
+    ? ""
+    : String(Math.min(9999, Math.max(1, Math.round(node.ratio * 10000))));
+  return `${ch}${ratio}(${
     stringifyTree(node.children[0], tabIdToIndex)
   },${stringifyTree(node.children[1], tabIdToIndex)})`;
 }
@@ -183,6 +189,7 @@ function decodeInner(
     kind: "split";
     direction: "horizontal" | "vertical";
     children: [IntermediateNode, IntermediateNode];
+    ratio?: number;
   };
   type IntermediateNode = IntLeaf | IntSplit;
 
@@ -194,6 +201,21 @@ function decodeInner(
     if (ch === 104 /* 'h' */ || ch === 118 /* 'v' */) {
       const direction = ch === 104 ? "horizontal" : "vertical";
       cursor.pos += 1;
+      // Optional ratio in ten-thousandths, canonical (no leading zero).
+      const ratioStart = cursor.pos;
+      while (cursor.pos < treeRaw.length) {
+        const c = treeRaw.charCodeAt(cursor.pos);
+        if (c < 48 /* '0' */ || c > 57 /* '9' */) break;
+        cursor.pos += 1;
+      }
+      let ratio: number | undefined;
+      if (cursor.pos > ratioStart) {
+        const ratioDigits = treeRaw.slice(ratioStart, cursor.pos);
+        if (ratioDigits.charCodeAt(0) === 48 /* '0' */) return null;
+        const n = Number.parseInt(ratioDigits, 10);
+        if (!(n >= 1 && n <= 9999)) return null;
+        ratio = n / 10000;
+      }
       if (treeRaw.charCodeAt(cursor.pos) !== 40 /* '(' */) return null;
       cursor.pos += 1;
       const a = parseNode(depth + 1);
@@ -204,7 +226,9 @@ function decodeInner(
       if (b === null) return null;
       if (treeRaw.charCodeAt(cursor.pos) !== 41 /* ')' */) return null;
       cursor.pos += 1;
-      return { kind: "split", direction, children: [a, b] };
+      return ratio === undefined
+        ? { kind: "split", direction, children: [a, b] }
+        : { kind: "split", direction, children: [a, b], ratio };
     }
     // Otherwise expect a decimal integer index. Consume [0-9]+ only.
     const startPos = cursor.pos;
@@ -253,11 +277,13 @@ function decodeInner(
       }
       return { kind: "session", tabId };
     }
-    return {
-      kind: "split",
-      direction: node.direction,
-      children: [materialize(node.children[0]), materialize(node.children[1])],
-    };
+    const children: [SplitNode, SplitNode] = [
+      materialize(node.children[0]),
+      materialize(node.children[1]),
+    ];
+    return node.ratio === undefined
+      ? { kind: "split", direction: node.direction, children }
+      : { kind: "split", direction: node.direction, children, ratio: node.ratio };
   }
 
   let materialized: SplitNode | null = materialize(parsed);

@@ -153,7 +153,7 @@ import { resolveOuterDrop } from "@/shell/outer-drop-resolve";
 // array state and their localStorage effects). URL is the single source of
 // truth for the split arrangement.
 import type { SplitNode, SplitPath, DropEdge } from "@/lib/split-tree";
-import { insertAtEdge, removeLeaf, findLeaf, findLargestLeafPath, getNodeAt, collectTabIds, replaceLeaf, swapLeaves } from "@/lib/split-tree";
+import { insertAtEdge, removeLeaf, findLeaf, findLargestLeafPath, getNodeAt, collectTabIds, replaceLeaf, swapLeaves, clearRowAt, setRowFractions } from "@/lib/split-tree";
 import { computeNearestEdge, overlayGeometryForZone } from "@/shell/SplitView";
 import {
   postDragAccept,
@@ -2694,6 +2694,20 @@ export function AppShell({
     [],
   );
 
+  // Divider drag (fractions) or double-click reset (null) on the row rooted
+  // at `rowPath`. Sizes ride in the tree, so the URL-sync effect persists
+  // them alongside the layout.
+  const resizeRowInTree = useCallback(
+    (rowPath: SplitPath, fractions: number[] | null) => {
+      setSplitTree((prev) =>
+        fractions === null
+          ? clearRowAt(prev, rowPath)
+          : setRowFractions(prev, rowPath, fractions),
+      );
+    },
+    [],
+  );
+
   // Rescue affordance for the "Session no longer exists" pane placeholder in
   // SplitView. Fires when the user clicks the placeholder's Close button on a
   // leaf whose tabId is no longer present in tabs[] — cross-window drag left
@@ -4368,6 +4382,7 @@ export function AppShell({
                     onPaneContentRef={onPaneContentRef}
                     onPaneClick={setFocusedTabId}
                     onOpenSessionInTree={openSessionInTree}
+                    onResizeRow={resizeRowInTree}
                     onDropRowInTree={(payload, path, edge) =>
                       onDropRowInTree(
                         payload as {
