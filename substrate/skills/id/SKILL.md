@@ -35,8 +35,9 @@ same role run in parallel — parallel workers on the same domain.
 
 - **`~/fleet/identities/<name>/workspace/`** — the identity's working directory. Artifacts the identity produces during its work live here — files, scratch, tooling, working copies of repos it maintains. If it is relevant to the task being worked on, then it belongs here.
 
-- **Per-identity plumbing**: `~/fleet/identities/<name>/wakeups/` (scheduled wake-up specs), `ctxwatch/` — context-watch runtime state (`.state/`), `role-file-watch/` — role-file-watch runtime state (`.state/`,
+- **Per-identity plumbing**: `~/fleet/identities/<name>/wakeups/` (scheduled wake-up specs), `ctxwatch/` — context-watch runtime state (`.state/`), `file-watch/` — file-watch runtime state (`.state/`,
   `spilled/`, `last-snapshot.role` + `last-snapshot.identity` baselines),
+  `pending-context/` — file-change notices queued for your next turn,
   `~/fleet/identities/<name>/relay.json` + `~/fleet/identities/<name>/relay-state/` (Matrix account creds + sync cursor), plus
   any secondary Matrix accounts as `~/fleet/identities/<name>/<anything>.json` + `~/fleet/identities/<name>/<anything>-state/` in the identity dir or one subdirectory deep — see § Ambient plumbing for the content-based discovery rule. Small, low-content files that support this specific identity.
 
@@ -175,7 +176,7 @@ For as many roles as you have listed in your `roles:` frontmatter field:
      the project needs. Its `members:` frontmatter lists every live
      identity in the project (each is that agent's relay name), and it's
      kept current automatically — don't edit it. When someone joins or
-     leaves, you're woken with the diff.
+     leaves, you get the diff at your next turn.
    
    - Silently enumerate the top-level contents of
      `~/fleet/projects/<slug>/`. Hold the names in context. Each file's
@@ -228,7 +229,7 @@ When your `roles:` list has more than one entry, the roles combine like this:
   role file). If a learning is about combining your roles, it belongs in
   your identity file body, not in either role file.
 - **Your role list can change while you're running.** If the user or
-  another agent edits `roles:` in your identity file, you'll be woken with
+  another agent edits `roles:` in your identity file, your next turn brings
   a `📝 [role-file: <role>]` line naming each role you gained or lost. For
   a gained role, read its role file and enumerate its runbooks just as
   you would at load time. For a lost role, stop following its directives.
@@ -257,10 +258,10 @@ External events are automatically fed to you by the agent-supervisor service for
    a very long time (an Opus 1M-context session reaching 90% is a lot of
    turns); it's a safety valve.
 
-4. **File changes (for your `<role>.md` / `<name>.md` / your project's `project.md` / etc).** Wakes you on edits to your relevant files so mid-session edits become visible to you immediately. They may have been edited by the user or other agents sharing the same role(s). Self-edits are silently suppressed at the source, so you should not see wakes for edits you just made yourself.
+4. **File changes (for your `<role>.md` / `<name>.md` / your project's `project.md` / etc).** Edits to your relevant files do **not** wake you. They are queued and handed to you as extra context (`📝 [<kind>: <label>] …` lines) at your next turn, or after your next tool call if you're mid-turn — so you're never stale while working, and never spend a turn just to note an edit while idle. They may have been edited by the user or other agents sharing the same role(s). Act on whatever bears on your work; no reply is needed. Self-edits are silently suppressed at the source, so you should not see notices for edits you just made yourself.
 
-**What these events look like when they reach you.** Each one arrives as
-pasted input: a `<pasted_content id="…">` block wrapping a
+**What these events look like when they reach you.** Each one except file
+changes (item 4, delivered as hook context) arrives as pasted input: a `<pasted_content id="…">` block wrapping a
 `<task-notification>` whose `<summary>` names the source — e.g. `Ambient
 watcher event (<name>) — delivered by agent-supervisor`, or `Widget submit —
 delivered by the app`.

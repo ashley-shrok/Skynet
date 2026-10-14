@@ -7,7 +7,7 @@ Usage:
                                  --harness-pid <pid>              # inject mode
 
 What this replaces: the four separate on-wake Monitor invocations (relay receiver,
-wake-up scheduler, context-watch, role-file-watch). This launcher spawns the four
+wake-up scheduler, context-watch, file-watch). This launcher spawns the four
 pieces as subprocesses, delivers each wake line to the agent, and forwards
 SIGTERM/SIGINT/SIGHUP to the children on shutdown so each piece — most importantly
 the relay receiver's message-cursor flush — gets its graceful-shutdown behavior.
@@ -45,7 +45,7 @@ Design rules (see shape-mega-monitor.md in the box-maintainer role's bounty fold
     No policy about content, no config surface, no per-message logic.
   - The launcher OWNS one narrow bit of identity-type-based applicability: it
     reads the identity's frontmatter for `coordinator: true` at startup, and
-    that ONE bit drives two spawn-time decisions — skip the role-file-watch
+    that ONE bit drives two spawn-time decisions — skip the file-watch
     piece (coordinators don't hold role or identity file in context), and
     spawn a SECOND wakeup-scheduler pointed at the role folder (so role-general
     schedules fire on the coord). Actors: 4 children. Coordinators: 4 children
@@ -289,7 +289,7 @@ def _read_frontmatter(identity_file):
     """Return (roles, is_coordinator) parsed from the identity file's YAML frontmatter.
     Frontmatter is the block between the FIRST two `---` fence lines. Missing file /
     missing frontmatter / no roles → ([], False), and the caller decides how
-    loudly to complain (role-file-watch logs its own setup failures to stderr into
+    loudly to complain (file-watch logs its own setup failures to stderr into
     the ambient-monitor log; the launcher stays quiet and lets pieces surface their
     own diagnostics).
 
@@ -361,10 +361,10 @@ CHILDREN.append({
     "critical": False,
 })
 
-# Phase 126: per-role wakeup-scheduler spawn removed — scheduled-agents scheduler in agent-supervisor.sh handles role-general schedules at host scope (D-16(a)). role-file-watch runs for BOTH coordinators and actors now.
+# Phase 126: per-role wakeup-scheduler spawn removed — scheduled-agents scheduler in agent-supervisor.sh handles role-general schedules at host scope (D-16(a)). file-watch runs for BOTH coordinators and actors now.
 CHILDREN.append({
-    "name": "role-file-watch",
-    "cmd": ["python3", str(HOME / ".local/bin/role-file-watch"), str(IDENTITY_DIR)],
+    "name": "file-watch",
+    "cmd": ["python3", str(HOME / ".local/bin/file-watch"), str(IDENTITY_DIR)],
     "env_extra": {},
     "critical": False,
 })

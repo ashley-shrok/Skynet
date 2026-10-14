@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
-# Test driver for role-file-watch.py multi-role support.
+# Test driver for file-watch.py multi-role support.
 #
 # An identity may list one OR MORE roles in its frontmatter. Agents edit these
 # files freely and don't always stick to one YAML shape, so the parser
@@ -42,7 +42,7 @@
 # Exits 0 on all-pass; 1 on any failure with a diagnostic naming the failing
 # test.
 #
-# Usage: bash substrate/scripts/tests/role-file-watch-multi-role.test.sh
+# Usage: bash substrate/scripts/tests/file-watch-multi-role.test.sh
 #   Run from the repo root.
 #
 # Requirements: bash, python3, inotifywait.
@@ -52,10 +52,10 @@ set -u
 # ---- path resolution ----
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
-PY_SCRIPT="$REPO_ROOT/substrate/scripts/role-file-watch.py"
+PY_SCRIPT="$REPO_ROOT/substrate/scripts/file-watch.py"
 
 if [ ! -f "$PY_SCRIPT" ]; then
-  printf 'FATAL: role-file-watch.py not found at %s\n' "$PY_SCRIPT" >&2
+  printf 'FATAL: file-watch.py not found at %s\n' "$PY_SCRIPT" >&2
   exit 1
 fi
 if ! command -v python3 >/dev/null 2>&1; then
@@ -152,12 +152,25 @@ atomic_write() {
 launch_watcher() {
   local home_dir="$1" ident_dir="$2"
   OUT_LOG=$(make_tmpdir)/out.log
+  STDOUT_LOG=$(make_tmpdir)/stdout.log
   ERR_LOG=$(make_tmpdir)/err.log
   HOME="$home_dir" AMBIENT_MONITOR_HARNESS_PID="$$" \
     python3 "$PY_SCRIPT" "$ident_dir" \
-    >"$OUT_LOG" 2>"$ERR_LOG" &
+    >"$STDOUT_LOG" 2>"$ERR_LOG" &
   WATCHER_PID=$!
   ALL_PIDS+=("$WATCHER_PID")
+  # Events are queued in <identity>/pending-context/, never printed: collect
+  # them into OUT_LOG in queue order, the way the drain hook delivers them.
+  [ -n "${COLLECTOR_PID:-}" ] && kill "$COLLECTOR_PID" 2>/dev/null
+  ( q="$ident_dir/pending-context"
+    while :; do
+      for f in $(ls "$q" 2>/dev/null | grep '\.line$' | sort); do
+        cat "$q/$f"; echo; rm -f "$q/$f"
+      done
+      sleep 0.05
+    done ) >>"$OUT_LOG" 2>/dev/null &
+  COLLECTOR_PID=$!
+  ALL_PIDS+=("$COLLECTOR_PID")
 }
 
 wait_for_baseline() {
@@ -190,8 +203,8 @@ test_T_M1_flow_list_both_watched() {
   local name="multiname"
   seed_multi_role_fixture "$name" "roles: [rolealpha, rolebeta]" rolealpha rolebeta
 
-  local baseline_a="$IDENT_DIR/role-file-watch/last-snapshot.role.rolealpha"
-  local baseline_b="$IDENT_DIR/role-file-watch/last-snapshot.role.rolebeta"
+  local baseline_a="$IDENT_DIR/file-watch/last-snapshot.role.rolealpha"
+  local baseline_b="$IDENT_DIR/file-watch/last-snapshot.role.rolebeta"
 
   launch_watcher "$HOME_DIR" "$IDENT_DIR"
 
@@ -243,8 +256,8 @@ test_T_M2_block_sequence_both_watched() {
   local fm=$'roles:\n  - roleblockx\n  - roleblocky'
   seed_multi_role_fixture "$name" "$fm" roleblockx roleblocky
 
-  local baseline_x="$IDENT_DIR/role-file-watch/last-snapshot.role.roleblockx"
-  local baseline_y="$IDENT_DIR/role-file-watch/last-snapshot.role.roleblocky"
+  local baseline_x="$IDENT_DIR/file-watch/last-snapshot.role.roleblockx"
+  local baseline_y="$IDENT_DIR/file-watch/last-snapshot.role.roleblocky"
 
   launch_watcher "$HOME_DIR" "$IDENT_DIR"
 
@@ -277,8 +290,8 @@ test_T_M3_missing_role_skipped() {
   # realrole exists (seed_multi_role_fixture only made THE ONE); ghostrole was
   # listed in frontmatter but never seeded.
 
-  local baseline_real="$IDENT_DIR/role-file-watch/last-snapshot.role.realrole"
-  local baseline_ghost="$IDENT_DIR/role-file-watch/last-snapshot.role.ghostrole"
+  local baseline_real="$IDENT_DIR/file-watch/last-snapshot.role.realrole"
+  local baseline_ghost="$IDENT_DIR/file-watch/last-snapshot.role.ghostrole"
 
   launch_watcher "$HOME_DIR" "$IDENT_DIR"
 
@@ -312,7 +325,7 @@ test_T_M4_legacy_baseline_migration() {
   local role="migrole" name="migname"
   seed_multi_role_fixture "$name" "roles: $role" "$role"
 
-  local baseline_dir="$IDENT_DIR/role-file-watch"
+  local baseline_dir="$IDENT_DIR/file-watch"
   mkdir -p "$baseline_dir"
   # Pre-seed legacy baseline with the CURRENT role.md content — so if migration
   # succeeds, cold-start sees baseline == current → no diff event.
@@ -357,8 +370,8 @@ test_T_M5_runbook_slug_per_role() {
   printf 'rbrolea deploy v1\n' > "$rba/runbook.md"
   printf 'rbroleb deploy v1\n' > "$rbb/runbook.md"
 
-  local baseline_a="$IDENT_DIR/role-file-watch/last-snapshot.runbook.rbrolea.deploy"
-  local baseline_b="$IDENT_DIR/role-file-watch/last-snapshot.runbook.rbroleb.deploy"
+  local baseline_a="$IDENT_DIR/file-watch/last-snapshot.runbook.rbrolea.deploy"
+  local baseline_b="$IDENT_DIR/file-watch/last-snapshot.runbook.rbroleb.deploy"
 
   launch_watcher "$HOME_DIR" "$IDENT_DIR"
 
@@ -374,7 +387,7 @@ test_T_M5_runbook_slug_per_role() {
 
   # Old unprefixed baseline should NOT be created (that would prove the
   # old naming scheme is still in use — regression guard).
-  if [ -f "$IDENT_DIR/role-file-watch/last-snapshot.runbook.deploy" ]; then
+  if [ -f "$IDENT_DIR/file-watch/last-snapshot.runbook.deploy" ]; then
     fail "T-M5: unprefixed runbook baseline created — regression"
     return
   fi
@@ -405,7 +418,7 @@ test_T_M6_bare_comma_both_watched() {
   local name="commaname"
   seed_multi_role_fixture "$name" "roles: commaa, commab" commaa commab
   launch_watcher "$HOME_DIR" "$IDENT_DIR"
-  local bdir="$IDENT_DIR/role-file-watch"
+  local bdir="$IDENT_DIR/file-watch"
   if ! wait_for_baseline "$bdir/last-snapshot.role.commaa"; then
     fail "T-M6: commaa baseline never landed (err=$(cat "$ERR_LOG"))"; return
   fi
@@ -443,7 +456,7 @@ test_T_M7_singular_role_rejected() {
   if ! grep -q 'no `roles:` key found' "$ERR_LOG"; then
     fail "T-M7: missing stderr diagnostic; err=$(cat "$ERR_LOG")"; return
   fi
-  if [ -f "$IDENT_DIR/role-file-watch/last-snapshot.role.singrole" ]; then
+  if [ -f "$IDENT_DIR/file-watch/last-snapshot.role.singrole" ]; then
     fail "T-M7: singrole baseline written from a singular role: key"; return
   fi
 }
@@ -461,7 +474,7 @@ test_T_M8_role_added_mid_session() {
   local name="addname"
   seed_multi_role_fixture "$name" "roles: addbase" addbase addnew
   mkdir -p "$HOME_DIR/fleet/roles/addnew/runbooks"
-  local bdir="$IDENT_DIR/role-file-watch"
+  local bdir="$IDENT_DIR/file-watch"
   launch_watcher "$HOME_DIR" "$IDENT_DIR"
   if ! wait_for_baseline "$bdir/last-snapshot.identity"; then
     fail "T-M8: identity baseline never landed (err=$(cat "$ERR_LOG"))"; return
@@ -499,7 +512,7 @@ test_T_M8_role_added_mid_session() {
 test_T_M9_role_removed_mid_session() {
   local name="rmname"
   seed_multi_role_fixture "$name" "roles: [rmkeep, rmdrop]" rmkeep rmdrop
-  local bdir="$IDENT_DIR/role-file-watch"
+  local bdir="$IDENT_DIR/file-watch"
   launch_watcher "$HOME_DIR" "$IDENT_DIR"
   if ! wait_for_baseline "$bdir/last-snapshot.role.rmdrop"; then
     fail "T-M9: rmdrop baseline never landed (err=$(cat "$ERR_LOG"))"; return
@@ -541,7 +554,7 @@ test_T_M9_role_removed_mid_session() {
 test_T_M10_invalid_roles_edit_keeps_old_set() {
   local name="badname"
   seed_multi_role_fixture "$name" "roles: [badkeep, badother]" badkeep badother
-  local bdir="$IDENT_DIR/role-file-watch"
+  local bdir="$IDENT_DIR/file-watch"
   launch_watcher "$HOME_DIR" "$IDENT_DIR"
   if ! wait_for_baseline "$bdir/last-snapshot.role.badother"; then
     fail "T-M10: badother baseline never landed (err=$(cat "$ERR_LOG"))"; return

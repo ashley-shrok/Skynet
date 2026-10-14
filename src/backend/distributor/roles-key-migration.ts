@@ -12,10 +12,10 @@
  * Rules (identical in both):
  *   - Targets: `<name>/<name>.md` directly inside each folder of
  *     ~/fleet/identities and ~/fleet/identities-archive, plus each folder's
- *     role-file-watch baseline `<name>/role-file-watch/last-snapshot.identity`
- *     (the watcher's snapshot of the identity file — migrated in lockstep, and
- *     BEFORE the identity file, so the watcher sees no diff and doesn't wake
- *     the agent).
+ *     file-watch baseline `<name>/file-watch/last-snapshot.identity` and its
+ *     pre-rename `<name>/role-file-watch/` copy (the watcher's snapshot of
+ *     the identity file — migrated in lockstep, and BEFORE the identity file,
+ *     so the watcher sees no diff and doesn't notify the agent).
  *   - Only the FIRST frontmatter block: line 0 is `---` (whitespace-trimmed,
  *     same fence rule as the roles readers), ending at the next `---` line.
  *     No frontmatter / unterminated → file skipped.
@@ -47,7 +47,7 @@ export const ROLES_KEY_MIGRATION_LIST_CAP = 20;
 export interface RolesKeyMigrationCounts {
   /** Identity files (`<name>.md`) whose `role:` key was renamed. */
   filesMigrated: number;
-  /** role-file-watch `last-snapshot.identity` baselines renamed. */
+  /** file-watch `last-snapshot.identity` baselines renamed. */
   baselinesMigrated: number;
   /** Files whose frontmatter has BOTH `role:` and `roles:` (left alone). */
   conflicts: number;
@@ -169,8 +169,9 @@ for root in ROOTS:
         d = os.path.join(root, name)
         if not os.path.isdir(d):
             continue
-        process(os.path.join(d, "role-file-watch", "last-snapshot.identity"),
-                "baselinesMigrated")
+        for watch_dir in ("file-watch", "role-file-watch"):
+            process(os.path.join(d, watch_dir, "last-snapshot.identity"),
+                    "baselinesMigrated")
         process(os.path.join(d, name + ".md"), "filesMigrated")
 
 sys.stdout.write("${ROLES_KEY_MIGRATION_RESULT_PREFIX}" + json.dumps(out) + "\n")
@@ -368,11 +369,13 @@ export async function migrateRolesKeyUnder(
       }
       if (!isDir) continue;
       // Baseline first, identity second — see module docstring.
-      await processFile(
-        path.join(d, "role-file-watch", "last-snapshot.identity"),
-        "baselinesMigrated",
-        out,
-      );
+      for (const watchDir of ["file-watch", "role-file-watch"]) {
+        await processFile(
+          path.join(d, watchDir, "last-snapshot.identity"),
+          "baselinesMigrated",
+          out,
+        );
+      }
       await processFile(path.join(d, `${ent.name}.md`), "filesMigrated", out);
     }
   }

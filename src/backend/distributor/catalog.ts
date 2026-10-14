@@ -61,7 +61,7 @@
  *       favicon.svg row retired 2026-09-28 when the scaffold switched to
  *       a static/icon.webp symlink to the app's own icon.webp)
  *     - 12 rows for helper scripts under scripts/
- *       (role-file-watch is one of the five ambient-monitor children, all five
+ *       (file-watch is one of the five ambient-monitor children, all five
  *       spawned as children of ambient-monitor rather than launched
  *       individually per identity; inbox-watcher is the fifth child, added
  *       by shape-agent-supervisor-inbox for the composebox-via-agent-supervisor
@@ -357,10 +357,10 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     restartHook: null,
   },
   {
-    slug: "role-file-watch",
+    slug: "file-watch",
     sourceKind: "bundled",
-    bundledPath: "/app/fleet-substrate/scripts/role-file-watch.py",
-    installPath: "~/.local/bin/role-file-watch",
+    bundledPath: "/app/fleet-substrate/scripts/file-watch.py",
+    installPath: "~/.local/bin/file-watch",
     restartHook: null,
   },
   // inbox-watcher — fifth ambient-watcher child (shape-agent-supervisor-inbox).
@@ -369,7 +369,7 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
   // the RAW-PASTE-FILE: stdout protocol. Harness-bound like the other four
   // ambient-watcher children — a bytes change here waits for the next natural
   // harness recycle to apply. Accepted trade-off; mirrors context-watch /
-  // role-file-watch distribution shape.
+  // file-watch distribution shape.
   {
     slug: "inbox-watcher",
     sourceKind: "bundled",
@@ -492,11 +492,11 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     restartHook: null,
   },
 
-  // self-edit-baseline-sync: PostToolUse hook that suppresses role-file-watch
+  // self-edit-baseline-sync: PostToolUse hook that suppresses file-watch
   // events on the agent's own edits. After every Write/Edit/MultiEdit/
   // NotebookEdit/Bash tool call, refreshes any drifted baselines under
-  // ~/fleet/identities/$FLEET_IDENTITY/role-file-watch/ and writes a sha256
-  // marker so the watcher's hash-guard (role-file-watch.py:_is_self_edit)
+  // ~/fleet/identities/$FLEET_IDENTITY/file-watch/ and writes a sha256
+  // marker so the watcher's hash-guard (file-watch.py:_is_self_edit)
   // can confirm the agent's own edit and stay silent. Wired via the
   // run-bootstrap.ts settings.json patch. No restart hook — new bytes picked
   // up on next hook fire. Shape rationale:
@@ -506,6 +506,21 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     sourceKind: "bundled",
     bundledPath: "/app/fleet-substrate/scripts/self-edit-baseline-sync.sh",
     installPath: "~/.local/bin/self-edit-baseline-sync",
+    restartHook: null,
+  },
+
+  // pending-context-drain: UserPromptSubmit + PostToolUse + SessionStart hook
+  // that delivers the file-watch notices queued in
+  // ~/fleet/identities/$FLEET_IDENTITY/pending-context/ as additionalContext
+  // at the agent's next turn or tool call — so a file edit never spends a
+  // turn of its own on an idle agent. SessionStart (startup/clear) discards
+  // the queue. Wired via the run-bootstrap.ts settings.json patch. No
+  // restart hook — new bytes picked up on next hook fire.
+  {
+    slug: "pending-context-drain",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/scripts/pending-context-drain.sh",
+    installPath: "~/.local/bin/pending-context-drain",
     restartHook: null,
   },
 
@@ -1347,7 +1362,7 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
 
   // --- ambient-monitor (1 row: the single launcher that spawns the four ambient watchers) ---
   // Replaces what were once four separate Monitor invocations (relay receiver, wake-up scheduler,
-  // context-watch, role-file-watch) with a single launch. The four watchers stay as their own
+  // context-watch, file-watch) with a single launch. The four watchers stay as their own
   // canonical entries above (still distributed, still on-disk at their existing paths);
   // ambient-monitor invokes them via those entry points.
   //

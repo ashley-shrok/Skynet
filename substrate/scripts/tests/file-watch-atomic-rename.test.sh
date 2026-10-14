@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
-# Test driver for role-file-watch.py atomic-rename overwrite handling.
+# Test driver for file-watch.py atomic-rename overwrite handling.
 #
 # Regression coverage for the bug where the backend's identity-file writes
 # (fs.writeFile(<path>.tmp) + fs.rename → <path>) unlink the OLD watched
@@ -21,7 +21,7 @@
 # Exits 0 on all-pass; 1 on any failure with a diagnostic naming the failing
 # test.
 #
-# Usage: bash substrate/scripts/tests/role-file-watch-atomic-rename.test.sh
+# Usage: bash substrate/scripts/tests/file-watch-atomic-rename.test.sh
 #   Run from the repo root.
 #
 # Hermetic contract: each test creates a fresh HOME_DIR via mktemp, seeds
@@ -37,10 +37,10 @@ set -u
 # ---- path resolution ----
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
-PY_SCRIPT="$REPO_ROOT/substrate/scripts/role-file-watch.py"
+PY_SCRIPT="$REPO_ROOT/substrate/scripts/file-watch.py"
 
 if [ ! -f "$PY_SCRIPT" ]; then
-  printf 'FATAL: role-file-watch.py not found at %s\n' "$PY_SCRIPT" >&2
+  printf 'FATAL: file-watch.py not found at %s\n' "$PY_SCRIPT" >&2
   exit 1
 fi
 
@@ -124,18 +124,31 @@ atomic_write() {
   mv "$tmp" "$target"
 }
 
-# launch_watcher: start role-file-watch.py under a hermetic HOME.
+# launch_watcher: start file-watch.py under a hermetic HOME.
 # Sets globals: WATCHER_PID, OUT_LOG, ERR_LOG.
 # Registers the pid so cleanup will kill it if the test aborts.
 launch_watcher() {
   local home_dir="$1" ident_dir="$2"
   OUT_LOG=$(make_tmpdir)/out.log
+  STDOUT_LOG=$(make_tmpdir)/stdout.log
   ERR_LOG=$(make_tmpdir)/err.log
   HOME="$home_dir" AMBIENT_MONITOR_HARNESS_PID="$$" \
     python3 "$PY_SCRIPT" "$ident_dir" \
-    >"$OUT_LOG" 2>"$ERR_LOG" &
+    >"$STDOUT_LOG" 2>"$ERR_LOG" &
   WATCHER_PID=$!
   ALL_PIDS+=("$WATCHER_PID")
+  # Events are queued in <identity>/pending-context/, never printed: collect
+  # them into OUT_LOG in queue order, the way the drain hook delivers them.
+  [ -n "${COLLECTOR_PID:-}" ] && kill "$COLLECTOR_PID" 2>/dev/null
+  ( q="$ident_dir/pending-context"
+    while :; do
+      for f in $(ls "$q" 2>/dev/null | grep '\.line$' | sort); do
+        cat "$q/$f"; echo; rm -f "$q/$f"
+      done
+      sleep 0.05
+    done ) >>"$OUT_LOG" 2>/dev/null &
+  COLLECTOR_PID=$!
+  ALL_PIDS+=("$COLLECTOR_PID")
 }
 
 # All wait helpers poll on 0.1s ticks; timeout is expressed in TICKS (i.e.
@@ -197,7 +210,7 @@ test_T_A1_identity_atomic_rename() {
   local role="testrole" name="testname"
   seed_fixture "$role" "$name"
 
-  local baseline_id="$IDENT_DIR/role-file-watch/last-snapshot.identity"
+  local baseline_id="$IDENT_DIR/file-watch/last-snapshot.identity"
 
   launch_watcher "$HOME_DIR" "$IDENT_DIR"
 
@@ -276,7 +289,7 @@ test_T_A2_role_atomic_rename() {
 
   # Baseline naming is per-role (`last-snapshot.role.<role>`) since multi-role
   # support landed — a single-role identity gets exactly one such file.
-  local baseline_role="$IDENT_DIR/role-file-watch/last-snapshot.role.$role"
+  local baseline_role="$IDENT_DIR/file-watch/last-snapshot.role.$role"
 
   launch_watcher "$HOME_DIR" "$IDENT_DIR"
 
@@ -310,7 +323,7 @@ test_T_A3_genuine_delete_exits_fatal() {
   local role="delrole" name="delname"
   seed_fixture "$role" "$name"
 
-  local baseline_id="$IDENT_DIR/role-file-watch/last-snapshot.identity"
+  local baseline_id="$IDENT_DIR/file-watch/last-snapshot.identity"
 
   launch_watcher "$HOME_DIR" "$IDENT_DIR"
 

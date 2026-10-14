@@ -185,8 +185,8 @@ ensure_agent_teams_env() {
   return 0
 }
 
-# ---- fleet baseline: ensure inotifywait is present for role-file-watch ----
-# role-file-watch shells out to inotifywait; without it, every identity on the box falls back to a
+# ---- fleet baseline: ensure inotifywait is present for file-watch ----
+# file-watch shells out to inotifywait; without it, every identity on the box falls back to a
 # 2s mtime poll (works, but 2s-granular and misses same-second edits). Best-effort + idempotent in
 # the shape of ensure_agent_teams_env: never fails the supervisor, silent no-op once present.
 # Requires non-interactive root — a --user service has no TTY, so a sudo that would prompt is
@@ -198,7 +198,7 @@ ensure_inotifywait() {
   local SUDO=""
   if [ "$(id -u)" != 0 ]; then
     sudo -n true 2>/dev/null || {
-      log "inotifywait missing and no non-interactive root — role-file-watch will use 2s polling"
+      log "inotifywait missing and no non-interactive root — file-watch will use 2s polling"
       return 0
     }
     SUDO="sudo -n"
@@ -209,14 +209,14 @@ ensure_inotifywait() {
   elif command -v dnf >/dev/null 2>&1; then
     $SUDO dnf install -y inotify-tools >/dev/null 2>&1
   else
-    log "inotifywait missing and no known package manager — role-file-watch will use 2s polling"
+    log "inotifywait missing and no known package manager — file-watch will use 2s polling"
     return 0
   fi
 
   if command -v inotifywait >/dev/null 2>&1; then
-    log "installed inotify-tools — role-file-watch now event-driven"
+    log "installed inotify-tools — file-watch now event-driven"
   else
-    log "inotify-tools install did not take — role-file-watch will use 2s polling"
+    log "inotify-tools install did not take — file-watch will use 2s polling"
   fi
   return 0
 }
@@ -462,10 +462,10 @@ slug() { printf '%s' "$1" | tr ' ' '-'; }   # canonical session name: spaces -> 
 # what keeps it correct from every angle — app moves, an agent editing its own frontmatter,
 # spawn-into-project, archive / un-archive — without any of those writers knowing about the
 # field. Archived identities aren't under $IDENTITIES_DIR, so they drop off on their own.
-# Combined with role-file-watch's project-file target, a change wakes every live member.
+# Combined with file-watch's project-file target, a change reaches every live member at its next turn.
 #
 # Writes only when the list changed (steady state touches nothing), atomically (tmp + rename,
-# which role-file-watch handles as DELETE_SELF → re-arm). Only the `members:` key is replaced;
+# which file-watch handles as DELETE_SELF → re-arm). Only the `members:` key is replaced;
 # every other byte of the file is kept. A project.md with no frontmatter is left alone. A
 # rewrite that would push the closing `---` past FLEET_STATUS's 4096-char frontmatter read cap
 # is refused and logged — past the cap the app loses displayName AND the `users:` visibility
@@ -1028,7 +1028,7 @@ retire_identity() {
   # Send /exit to the claude REPL via bracketed paste + Enter, wait, then SIGTERM survivors.
   # After the recycle-style burst, wait an additional GRACE_WAIT seconds so ambient-monitor's
   # _harness_watch fires (once/sec poll → ≤1s to detect), its _do_shutdown SIGTERMs the four
-  # watcher children (relay receiver, wakeup-scheduler, context-watch, role-file-watch), and
+  # watcher children (relay receiver, wakeup-scheduler, context-watch, file-watch), and
   # they exit before STEP 3's tmux kill-session lands. STEP 2 NEVER gates the retire — a stuck
   # harness or a missing tmux session must not block retire; STEP 3 is the backstop.
   local slugname actual
@@ -2978,21 +2978,7 @@ pending_check() {
   # schedule_peek stays: don't kill an identity right before a scheduled wake fires — the
   # in-session wakeup-scheduler Monitor dies with the session and the fire would be missed.
   schedule_peek "$name" && return 1
-  # role-file-watch holds shared-file events for a fan-out delay (up to a few minutes) in
-  # <identity>/role-file-watch/.state/pending/. Sweeping now would strand them until some
-  # other trigger wakes the identity.
-  pending_fanout_lines "$name" && return 1
   return 0
-}
-
-# pending_fanout_lines: 0 iff the identity has role-file-watch events still held for their
-# fan-out delay (files named <due-ms>-<8 hex>.line, or .line.claimed mid-delivery).
-pending_fanout_lines() {
-  local f
-  for f in "$IDENTITIES_DIR/$1/role-file-watch/.state/pending/"*.line "$IDENTITIES_DIR/$1/role-file-watch/.state/pending/"*.line.claimed; do
-    [ -e "$f" ] && return 0
-  done
-  return 1
 }
 
 # matrix_peek: returns 0 if THIS identity has new events since it went dormant on ANY of its

@@ -5,7 +5,7 @@
 # events: PreToolUse (claim), PostToolUse + PostToolUseFailure (sync +
 # release), UserPromptSubmit (clear every claim).
 #
-# Purpose: prevent the role-file-watch ambient watcher from waking the agent
+# Purpose: prevent the file-watch ambient watcher from notifying the agent
 # with the agent's OWN edits. After every Write / Edit / MultiEdit /
 # NotebookEdit / Bash tool call, this hook walks the watcher's state directory,
 # refreshes any baseline whose real file has drifted, and records a fingerprint
@@ -18,12 +18,12 @@
 # Mechanism:
 #   1. Read FLEET_IDENTITY from env (set by agent-supervisor.sh when it spawns
 #      the Claude harness). Absent → nothing to do, exit 0.
-#   2. Walk ~/fleet/identities/$FLEET_IDENTITY/role-file-watch/last-snapshot.*
+#   2. Walk ~/fleet/identities/$FLEET_IDENTITY/file-watch/last-snapshot.*
 #      — the state dir the watcher already keeps one baseline per watched file
 #      in. That directory listing IS the list of watched surfaces; no separate
 #      config needed on this side.
 #   3. For each baseline, derive the corresponding real file from the filename
-#      convention role-file-watch.py uses:
+#      convention file-watch.py uses:
 #          last-snapshot.identity         → ~/fleet/identities/<name>/<name>.md
 #          last-snapshot.id-skill         → ~/.claude/skills/id/SKILL.md
 #          last-snapshot.user-claudemd    → ~/.claude/CLAUDE.md
@@ -66,7 +66,7 @@
 #
 #   Stale claims: UserPromptSubmit clears every claim (no tool call of this
 #   session can be in flight when a prompt lands — covers interrupts), and
-#   the watcher ignores claims older than ROLE_WATCH_CLAIM_MAX_SEC (600s).
+#   the watcher ignores claims older than FILE_WATCH_CLAIM_MAX_SEC (600s).
 #
 #   Known limits (all fail toward noise or a delayed wake, except the first):
 #     * A peer edit to a file the in-flight call itself claimed is
@@ -101,12 +101,15 @@ PAYLOAD=$(cat 2>/dev/null || true)
 IDENT="${FLEET_IDENTITY:-}"
 [ -z "$IDENT" ] && exit 0
 
-STATE_DIR="$HOME/fleet/identities/$IDENT/role-file-watch"
+# file-watch/ is the watcher's state dir; role-file-watch/ is its pre-rename
+# name, still in use by a session whose watcher started before the rename.
+STATE_DIR="$HOME/fleet/identities/$IDENT/file-watch"
+[ -d "$STATE_DIR" ] || STATE_DIR="$HOME/fleet/identities/$IDENT/role-file-watch"
 [ -d "$STATE_DIR" ] || exit 0
 
 IDENTITY_FILE="$HOME/fleet/identities/$IDENT/$IDENT.md"
 CLAIM_DIR="$STATE_DIR/claims"
-CLAIM_MAX_SEC="${ROLE_WATCH_CLAIM_MAX_SEC:-600}"
+CLAIM_MAX_SEC="${FILE_WATCH_CLAIM_MAX_SEC:-600}"
 
 # Pull the payload fields we need. Missing jq or bad JSON → empty fields →
 # sync+release mode with no tool id, i.e. exactly the pre-claims behavior.
@@ -173,7 +176,7 @@ timeout 2 bash -c '
         printf "%s\t%s\t0\n" "$STATE_DIR/last-snapshot.id-skill" "$HOME/.claude/skills/id/SKILL.md"
         printf "%s\t%s\t0\n" "$STATE_DIR/last-snapshot.user-claudemd" "$HOME/.claude/CLAUDE.md"
 
-        # Role baselines — `last-snapshot.role.<role>` (role-file-watch.py
+        # Role baselines — `last-snapshot.role.<role>` (file-watch.py
         # per-role scheme), so multi-role identities are covered. The slug IS
         # the role name. The kebab-case validator also rejects any stray
         # `.self-edit-hash` marker the glob would otherwise swallow.

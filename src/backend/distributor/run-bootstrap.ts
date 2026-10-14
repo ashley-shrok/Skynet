@@ -47,8 +47,13 @@
  *          each contain a "self-edit-baseline-sync" entry matching
  *          Write|Edit|MultiEdit|NotebookEdit|Bash, plus an unmatched one on
  *          hooks.UserPromptSubmit — suppresses
- *          role-file-watch events on the agent's own edits. See
+ *          file-watch events on the agent's own edits. See
  *          substrate/scripts/self-edit-baseline-sync.sh.
+ *        - hooks.UserPromptSubmit, hooks.PostToolUse (no matcher) and
+ *          hooks.SessionStart each contain a "pending-context-drain" entry —
+ *          delivers queued file-watch notices at the agent's next turn or
+ *          tool call instead of waking it. See
+ *          substrate/scripts/pending-context-drain.sh.
  *      Merges the flags in without clobbering any other keys (OAuth token,
  *      other hooks, statusLine, theme, etc.). Creates the file if absent.
  *      Idempotent — a jq predicate short-circuits when all are already
@@ -103,8 +108,9 @@
  *      ~/fleet/identities-archive/<name>/<name>.md, rename the frontmatter
  *      KEY `role:` to `roles:` (value untouched byte-for-byte; first
  *      frontmatter block only; body never touched; CRLF preserved; atomic
- *      write preserving mode). The role-file-watch baseline
- *      <name>/role-file-watch/last-snapshot.identity gets the identical
+ *      write preserving mode). The file-watch baseline
+ *      <name>/file-watch/last-snapshot.identity (or the pre-rename
+ *      <name>/role-file-watch/ copy) gets the identical
  *      transform first, so running watchers see no diff and don't wake their
  *      agents. A block that already has `roles:` is left alone (and warned
  *      about if it also has `role:`). One `python3 -` exec per host
@@ -289,7 +295,7 @@ function logRolesKeyMigration(
  * shell. Local jq invocation must NOT expand it either (pass the expression
  * as an argv arg, not through a shell).
  *
- * Currently sets thirteen keys total: six simple flags/env vars, plus seven
+ * Currently sets sixteen keys total: six simple flags/env vars, plus ten
  * hook entries under .hooks —
  *   - task-field-check on UserPromptSubmit (identity `task:` placeholder nudge).
  *   - resume-gap-notice on UserPromptSubmit (time-since-last-activity note
@@ -300,12 +306,16 @@ function logRolesKeyMigration(
  *     --dangerously-skip-permissions).
  *   - self-edit-baseline-sync on PreToolUse, PostToolUse,
  *     PostToolUseFailure and UserPromptSubmit (self-edit suppression for the
- *     role-file-watch ambient watcher — PreToolUse claims the watched files a
+ *     file-watch ambient watcher — PreToolUse claims the watched files a
  *     call is about to write, the Post* events sync baselines + release the
  *     claims, UserPromptSubmit clears claims orphaned by an interrupt; the
  *     script dispatches on the payload's hook_event_name; the tool-event
  *     matcher covers every tool that can write to disk —
  *     Write|Edit|MultiEdit|NotebookEdit|Bash).
+ *   - pending-context-drain on UserPromptSubmit, PostToolUse (no matcher) and
+ *     SessionStart (hands the agent the file-watch notices queued since its
+ *     last turn or tool call instead of waking it for them; SessionStart
+ *     discards the queue on a fresh session).
  */
 export const SETTINGS_MERGE_JQ =
   `.permissions = ((.permissions // {}) | .deny = (((.deny // []) + ["AskUserQuestion"]) | unique))` +
@@ -321,6 +331,9 @@ export const SETTINGS_MERGE_JQ =
   `      | .PreToolUse = ((.PreToolUse // []) | if any(.[]?.hooks[]?.command // ""; test("self-edit-baseline-sync")) then . else . + [{"matcher":"Write|Edit|MultiEdit|NotebookEdit|Bash","hooks":[{"type":"command","command":"$HOME/.local/bin/self-edit-baseline-sync"}]}] end)` +
   `      | .PostToolUse = ((.PostToolUse // []) | if any(.[]?.hooks[]?.command // ""; test("self-edit-baseline-sync")) then . else . + [{"matcher":"Write|Edit|MultiEdit|NotebookEdit|Bash","hooks":[{"type":"command","command":"$HOME/.local/bin/self-edit-baseline-sync"}]}] end)` +
   `      | .PostToolUseFailure = ((.PostToolUseFailure // []) | if any(.[]?.hooks[]?.command // ""; test("self-edit-baseline-sync")) then . else . + [{"matcher":"Write|Edit|MultiEdit|NotebookEdit|Bash","hooks":[{"type":"command","command":"$HOME/.local/bin/self-edit-baseline-sync"}]}] end)` +
+  `      | .UserPromptSubmit = ((.UserPromptSubmit // []) | if any(.[]?.hooks[]?.command // ""; test("pending-context-drain")) then . else . + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/pending-context-drain"}]}] end)` +
+  `      | .PostToolUse = ((.PostToolUse // []) | if any(.[]?.hooks[]?.command // ""; test("pending-context-drain")) then . else . + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/pending-context-drain"}]}] end)` +
+  `      | .SessionStart = ((.SessionStart // []) | if any(.[]?.hooks[]?.command // ""; test("pending-context-drain")) then . else . + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/pending-context-drain"}]}] end)` +
   `    )`;
 
 /** CHECK jq expression. Returns true iff every required key is set. */
@@ -337,7 +350,10 @@ export const SETTINGS_CHECK_JQ =
   `  and ((.hooks.UserPromptSubmit // []) | any(.[]?.hooks[]?.command // ""; test("self-edit-baseline-sync")))` +
   `  and ((.hooks.PreToolUse // []) | any(.[]?.hooks[]?.command // ""; test("self-edit-baseline-sync")))` +
   `  and ((.hooks.PostToolUse // []) | any(.[]?.hooks[]?.command // ""; test("self-edit-baseline-sync")))` +
-  `  and ((.hooks.PostToolUseFailure // []) | any(.[]?.hooks[]?.command // ""; test("self-edit-baseline-sync")))`;
+  `  and ((.hooks.PostToolUseFailure // []) | any(.[]?.hooks[]?.command // ""; test("self-edit-baseline-sync")))` +
+  `  and ((.hooks.UserPromptSubmit // []) | any(.[]?.hooks[]?.command // ""; test("pending-context-drain")))` +
+  `  and ((.hooks.PostToolUse // []) | any(.[]?.hooks[]?.command // ""; test("pending-context-drain")))` +
+  `  and ((.hooks.SessionStart // []) | any(.[]?.hooks[]?.command // ""; test("pending-context-drain")))`;
 
 /**
  * Number of required keys enforced by SETTINGS_CHECK_JQ, derived from the
@@ -380,9 +396,13 @@ export const GSD_MONITOR_STRIP_JQ =
  *
  *   - .claude/skills/role/SKILL.md — /role skill, retired 2026-10-09 with
  *     the role-history retirement.
+ *   - .local/bin/role-file-watch — renamed to file-watch. A watcher still
+ *     running the old copy keeps its in-memory code (its self-reload skips a
+ *     missing file) until its session next restarts.
  */
 export const RETIRED_SUBSTRATE_FILES = [
   ".claude/skills/role/SKILL.md",
+  ".local/bin/role-file-watch",
 ] as const;
 export const RETIRED_SUBSTRATE_DIRS = [".claude/skills/role"] as const;
 
@@ -751,7 +771,11 @@ export async function runBootstrapForHost(
   //             Write|Edit|MultiEdit|NotebookEdit|Bash (plus an unmatched
   //             hooks.UserPromptSubmit entry) that runs
   //             $HOME/.local/bin/self-edit-baseline-sync (suppresses
-  //             role-file-watch events on the agent's own edits).
+  //             file-watch events on the agent's own edits).
+  //           - hooks.UserPromptSubmit, hooks.PostToolUse (no matcher) and
+  //             hooks.SessionStart each contain an entry that runs
+  //             $HOME/.local/bin/pending-context-drain (delivers queued
+  //             file-watch notices at the next turn / tool call).
   // Exact count lives in SETTINGS_REQUIRED_KEY_COUNT — derived from
   // SETTINGS_CHECK_JQ so log lines never need manual updates when a key
   // is added or removed.

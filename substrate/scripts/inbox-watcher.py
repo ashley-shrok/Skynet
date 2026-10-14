@@ -111,7 +111,7 @@ try:
 except (AttributeError, ValueError):
     pass
 
-# ---------- orphan-monitor guard (mirrors role-file-watch.py pattern).
+# ---------- orphan-monitor guard (mirrors file-watch.py pattern).
 # AMBIENT_MONITOR_HARNESS_PID is set by the launcher; absent means standalone
 # launch (grandparent walk fallback). Absent in both cases means no orphan
 # check — logged, continues.

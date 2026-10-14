@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
-# Test driver for role-file-watch.py project-file coverage.
+# Test driver for file-watch.py project-file coverage.
 #
 # An identity in a project (`project: <slug>` frontmatter) watches
 # ~/fleet/projects/<slug>/project.md like a role file. Moving into, between,
@@ -26,7 +26,7 @@
 #
 # Exits 0 on all-pass; 1 on any failure.
 #
-# Usage: bash substrate/scripts/tests/role-file-watch-project.test.sh
+# Usage: bash substrate/scripts/tests/file-watch-project.test.sh
 #   Run from the repo root.
 #
 # Requirements: bash, python3, inotifywait, jq.
@@ -35,7 +35,7 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
-PY_SCRIPT="$REPO_ROOT/substrate/scripts/role-file-watch.py"
+PY_SCRIPT="$REPO_ROOT/substrate/scripts/file-watch.py"
 SYNC_SCRIPT="$REPO_ROOT/substrate/scripts/self-edit-baseline-sync.sh"
 
 for bin in python3 inotifywait jq; do
@@ -99,7 +99,7 @@ seed_fixture() {
   HOME_DIR=$(make_tmpdir)
   IDENT_DIR="$HOME_DIR/fleet/identities/$NAME"
   IDENT_MD="$IDENT_DIR/$NAME.md"
-  STATE="$IDENT_DIR/role-file-watch"
+  STATE="$IDENT_DIR/file-watch"
   ROLE_MD="$HOME_DIR/fleet/roles/rolex/rolex.md"
   mkdir -p "$IDENT_DIR" "$(dirname "$ROLE_MD")"
   printf '# rolex\n\nline 1\n' > "$ROLE_MD"
@@ -125,11 +125,24 @@ append_line() { printf '%s\n' "$2" >> "$1"; }
 
 launch_watcher() {
   OUT_LOG=$(make_tmpdir)/out.log
+  STDOUT_LOG=$(make_tmpdir)/stdout.log
   ERR_LOG=$(make_tmpdir)/err.log
   HOME="$HOME_DIR" AMBIENT_MONITOR_HARNESS_PID="$$" \
-    python3 "$PY_SCRIPT" "$IDENT_DIR" >"$OUT_LOG" 2>"$ERR_LOG" &
+    python3 "$PY_SCRIPT" "$IDENT_DIR" >"$STDOUT_LOG" 2>"$ERR_LOG" &
   WATCHER_PID=$!
   ALL_PIDS+=("$WATCHER_PID")
+  # Events are queued in <identity>/pending-context/, never printed: collect
+  # them into OUT_LOG in queue order, the way the drain hook delivers them.
+  [ -n "${COLLECTOR_PID:-}" ] && kill "$COLLECTOR_PID" 2>/dev/null
+  ( q="$IDENT_DIR/pending-context"
+    while :; do
+      for f in $(ls "$q" 2>/dev/null | grep '\.line$' | sort); do
+        cat "$q/$f"; echo; rm -f "$q/$f"
+      done
+      sleep 0.05
+    done ) >>"$OUT_LOG" 2>/dev/null &
+  COLLECTOR_PID=$!
+  ALL_PIDS+=("$COLLECTOR_PID")
 }
 
 wait_for() {

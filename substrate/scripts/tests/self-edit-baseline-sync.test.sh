@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # Test driver for self-edit-baseline-sync.sh (PostToolUse hook) AND the
-# role-file-watch.py hash-guard that consumes what the hook writes.
+# file-watch.py hash-guard that consumes what the hook writes.
 #
 # Shape rationale: .planning/shapes/shape-stop-self-edit-events.md
 #
@@ -34,7 +34,7 @@
 #   T-S14 — watcher holds a claimed self-edit past the settle window and stays
 #           silent once the Post* hook syncs + releases (the "edit early in a
 #           long Bash call" leak)
-#   T-S15 — watcher ignores a stale claim (older than ROLE_WATCH_CLAIM_MAX_SEC)
+#   T-S15 — watcher ignores a stale claim (older than FILE_WATCH_CLAIM_MAX_SEC)
 #           and emits — interrupted calls can't mute the watcher
 #   T-S16 — a peer edit to an UNCLAIMED file during a held call still emits
 #           after release (release syncs only the call's own claims)
@@ -58,7 +58,7 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 SYNC_SCRIPT="$REPO_ROOT/substrate/scripts/self-edit-baseline-sync.sh"
-WATCHER="$REPO_ROOT/substrate/scripts/role-file-watch.py"
+WATCHER="$REPO_ROOT/substrate/scripts/file-watch.py"
 
 for f in "$SYNC_SCRIPT" "$WATCHER"; do
   if [ ! -f "$f" ]; then
@@ -120,7 +120,7 @@ run_test() {
 
 # ---- fixture helpers ----
 
-# seed_fixture: build a hermetic HOME with role.md + identity.md + role-file-watch
+# seed_fixture: build a hermetic HOME with role.md + identity.md + file-watch
 # state dir with baselines already snapshotted.
 # Sets globals: HOME_DIR, IDENT_DIR, STATE_DIR, ROLE_MD, IDENT_MD,
 #   BASELINE_ROLE, BASELINE_IDENT.
@@ -128,7 +128,7 @@ seed_fixture() {
   local role="$1" name="$2"
   HOME_DIR=$(make_tmpdir)
   IDENT_DIR="$HOME_DIR/fleet/identities/$name"
-  STATE_DIR="$IDENT_DIR/role-file-watch"
+  STATE_DIR="$IDENT_DIR/file-watch"
   mkdir -p "$HOME_DIR/fleet/roles/$role" "$IDENT_DIR" "$STATE_DIR"
   ROLE_MD="$HOME_DIR/fleet/roles/$role/$role.md"
   IDENT_MD="$IDENT_DIR/$name.md"
@@ -140,20 +140,33 @@ seed_fixture() {
   cp "$IDENT_MD" "$BASELINE_IDENT"
 }
 
-# launch_watcher: start role-file-watch.py under a hermetic HOME with a short
+# launch_watcher: start file-watch.py under a hermetic HOME with a short
 # settle window (50ms). Sets WATCHER_PID, OUT_LOG, ERR_LOG.
 launch_watcher() {
   local home_dir="$1" ident_dir="$2" script="${3:-$WATCHER}"
   OUT_LOG=$(make_tmpdir)/out.log
+  STDOUT_LOG=$(make_tmpdir)/stdout.log
   ERR_LOG=$(make_tmpdir)/err.log
   HOME="$home_dir" \
     AMBIENT_MONITOR_HARNESS_PID="$$" \
-    ROLE_WATCH_SELF_EDIT_SETTLE_MS=50 \
-    ROLE_WATCH_SELF_RELOAD_POLL_SEC="${SELF_RELOAD_POLL:-30}" \
+    FILE_WATCH_SELF_EDIT_SETTLE_MS=50 \
+    FILE_WATCH_SELF_RELOAD_POLL_SEC="${SELF_RELOAD_POLL:-30}" \
     python3 "$script" "$ident_dir" \
-    >"$OUT_LOG" 2>"$ERR_LOG" &
+    >"$STDOUT_LOG" 2>"$ERR_LOG" &
   WATCHER_PID=$!
   ALL_PIDS+=("$WATCHER_PID")
+  # Events are queued in <identity>/pending-context/, never printed: collect
+  # them into OUT_LOG in queue order, the way the drain hook delivers them.
+  [ -n "${COLLECTOR_PID:-}" ] && kill "$COLLECTOR_PID" 2>/dev/null
+  ( q="$ident_dir/pending-context"
+    while :; do
+      for f in $(ls "$q" 2>/dev/null | grep '\.line$' | sort); do
+        cat "$q/$f"; echo; rm -f "$q/$f"
+      done
+      sleep 0.05
+    done ) >>"$OUT_LOG" 2>/dev/null &
+  COLLECTOR_PID=$!
+  ALL_PIDS+=("$COLLECTOR_PID")
 }
 
 wait_for_baseline() {
@@ -417,7 +430,7 @@ test_T_S8_role_injection_defense() {
   local home_dir
   home_dir=$(make_tmpdir)
   mkdir -p "$home_dir/fleet/roles/normal" \
-           "$home_dir/fleet/identities/victim/role-file-watch"
+           "$home_dir/fleet/identities/victim/file-watch"
 
   # Hostile roles: no whitespace so the awk truncator doesn't help, contains a
   # single-quote break-out + touch-a-marker payload.
@@ -429,7 +442,7 @@ displayName: Victim
 # body
 EOF
   # Diverge the identity baseline so the sync path actually runs.
-  echo "old" > "$home_dir/fleet/identities/victim/role-file-watch/last-snapshot.identity"
+  echo "old" > "$home_dir/fleet/identities/victim/file-watch/last-snapshot.identity"
 
   # Ensure the payload target doesn't exist beforehand.
   rm -f "$home_dir/PWNED"
@@ -450,7 +463,7 @@ EOF
 test_T_S9_sync_id_skill() {
   local home_dir="$(make_tmpdir)"
   local ident_dir="$home_dir/fleet/identities/s9name"
-  local state_dir="$ident_dir/role-file-watch"
+  local state_dir="$ident_dir/file-watch"
   local skill_dir="$home_dir/.claude/skills/id"
   mkdir -p "$state_dir" "$skill_dir"
 
@@ -549,7 +562,7 @@ test_T_S10_sync_role_drift() {
 # marker. Regression guard: same bug class as T-S10 but for runbooks. Pre-fix
 # the hook globbed `last-snapshot.runbook.*` and treated the full suffix as the
 # slug, which failed kebab-case validation on the watcher's per-role names of
-# shape `last-snapshot.runbook.<role>.<slug>` (role-file-watch.py:483). Fix:
+# shape `last-snapshot.runbook.<role>.<slug>` (file-watch.py:483). Fix:
 # split the suffix on first `.` into <role>.<slug> and route to
 # `~/fleet/roles/<role>/runbooks/<slug>/runbook.md`.
 # ============================================================
@@ -806,7 +819,7 @@ test_T_S17_prompt_clears_claims() {
 test_T_S18_self_reload_in_place() {
   seed_fixture "s18role" "s18name"
   local script_copy
-  script_copy="$(make_tmpdir)/role-file-watch"
+  script_copy="$(make_tmpdir)/file-watch"
   cp "$WATCHER" "$script_copy"
   SELF_RELOAD_POLL=0.2 launch_watcher "$HOME_DIR" "$IDENT_DIR" "$script_copy"
   # The role baseline is written only by the watcher (seed_fixture pre-seeds
@@ -845,7 +858,7 @@ test_T_S18_self_reload_in_place() {
 test_T_S19_broken_version_not_loaded() {
   seed_fixture "s19role" "s19name"
   local script_copy
-  script_copy="$(make_tmpdir)/role-file-watch"
+  script_copy="$(make_tmpdir)/file-watch"
   cp "$WATCHER" "$script_copy"
   SELF_RELOAD_POLL=0.2 launch_watcher "$HOME_DIR" "$IDENT_DIR" "$script_copy"
   # The role baseline is written only by the watcher (seed_fixture pre-seeds

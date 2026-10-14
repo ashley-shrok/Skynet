@@ -14,7 +14,7 @@ Trailing `# comments` are ignored. Only the first `---` … `---` block is read.
 The singular `role:` key is NOT read. Names failing ROLES_SLUG_RE are dropped;
 duplicates collapse keeping first occurrence. Returns [] when nothing valid.
 
-Copies live in: role-file-watch.py, fleet-status-sweep.py, ambient-monitor.py,
+Copies live in: file-watch.py, fleet-status-sweep.py, ambient-monitor.py,
 agent-supervisor.sh (embedded), and src/backend/database/routes/identity-unarchive.ts
 (embedded). The TS reader in identity-artifact-reader.ts implements the same
 contract. tests/roles-frontmatter-conformance.test.sh checks them all.

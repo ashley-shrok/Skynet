@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""role-file-watch.py — fourth ambient monitor: watch for edits to an identity's role file, identity file, id skill, runbooks, AND project file.
+"""file-watch.py — ambient watcher for edits to an identity's role file, identity file, id skill, runbooks, AND project file.
 
-The sibling of the relay receiver, the wake-up scheduler, and the context-watch.
-The receiver wakes on a MESSAGE, the scheduler on the CLOCK, the context-watch on
-CONTEXT PRESSURE — this fourth monitor wakes on a ROLE-FILE, IDENTITY-FILE, ID-SKILL,
-OR RUNBOOK CHANGE, so mid-session edits become visible to a running identity
-without needing a full recycle.
+Started as a role-file watcher (hence the `role-file` event tag); it now covers
+every file an identity holds in context. Sibling of the relay receiver, the
+wake-up scheduler, and the context-watch — but unlike them it never WAKES the
+agent. Its events are queued in <identity>/pending-context/ and handed over by
+the pending-context-drain hook at the agent's next turn or tool call (see
+Deferred delivery below), so mid-session edits become visible to a running
+identity without a recycle and without spending a turn on an idle one.
 
 Why this exists: closes the mid-session gap where an agent's in-context copy of its
 role file, its own identity file, the id skill, or a role-scope runbook has
@@ -56,15 +58,14 @@ rationale in:
 Vendored into the app's substrate and distributed to every host running agent substrate
 via the substrate distributor. Stdlib + inotifywait subprocess only.
 
-Usage:  python3 role-file-watch.py <identity_dir>
-Env:    ROLE_WATCH_POLL_SEC (default 2) — fallback polling loop granularity (only
+Usage:  python3 file-watch.py <identity_dir>
+Env:    FILE_WATCH_POLL_SEC (default 2) — fallback polling loop granularity (only
         engaged when inotifywait is not on PATH).
 """
 
 import datetime
 import hashlib
 import os
-import random
 import re
 import shutil
 import signal
@@ -74,18 +75,14 @@ import threading
 import time
 import traceback
 
-# spill threshold matches recv.sh:152 — INLINE_MAX=460 keeps the whole event line
-# comfortably under the ~500-char harness cap (recv.sh:137)
+# Inline threshold: a diff whose event line fits under INLINE_MAX bytes is delivered
+# inline; a bigger one spills to a file and the event carries the path instead.
 INLINE_MAX = 460
 
-# ⚠ Every event MUST leave this script as exactly ONE line. ambient-monitor reads child
-# stdout line-by-line and injects each line as a SEPARATE wake, so an N-line payload
-# becomes N wakes, each costing the agent a full turn. A single `task:` field edit
-# produced ~10 wakes in the field (2026-09-14, first VM-born agent on T800) because a
-# unified diff is inherently multi-line and went out through one print(). Byte-capping
-# does not prevent this on its own — a small multi-line diff sits well under INLINE_MAX
-# and still fans out. See _flatten_diff.
-POLL = int(os.environ.get("ROLE_WATCH_POLL_SEC", "2"))
+# Every event is ONE line (see _flatten_diff): the drain hook delivers each queued
+# line as one entry of the agent's additional context, and a flattened diff keeps a
+# burst of edits compact.
+POLL = int(os.environ.get("FILE_WATCH_POLL_SEC", "2"))
 
 # Self-edit suppression — settle window before diffing. When the agent's own
 # tool call touches a watched file, the PostToolUse hook
@@ -95,7 +92,7 @@ POLL = int(os.environ.get("ROLE_WATCH_POLL_SEC", "2"))
 # in _is_self_edit then confirms the current content matches what the hook
 # recorded. Env-override so operators can tune without redeploy.
 # Shape rationale: .planning/shapes/shape-stop-self-edit-events.md.
-SELF_EDIT_SETTLE_MS = int(os.environ.get("ROLE_WATCH_SELF_EDIT_SETTLE_MS", "200"))
+SELF_EDIT_SETTLE_MS = int(os.environ.get("FILE_WATCH_SELF_EDIT_SETTLE_MS", "200"))
 
 # Self-edit claims — the settle window alone only covers tool calls that
 # return within it, because the PostToolUse hook fires when the WHOLE call
@@ -108,7 +105,7 @@ SELF_EDIT_SETTLE_MS = int(os.environ.get("ROLE_WATCH_SELF_EDIT_SETTLE_MS", "200"
 # settle + hash-guard. Claims older than CLAIM_MAX_SEC are ignored — covers a
 # call interrupted before any Post* hook could release it. 600s = the
 # harness's max foreground Bash timeout.
-CLAIM_MAX_SEC = int(os.environ.get("ROLE_WATCH_CLAIM_MAX_SEC", "600"))
+CLAIM_MAX_SEC = int(os.environ.get("FILE_WATCH_CLAIM_MAX_SEC", "600"))
 CLAIM_POLL_SEC = 0.1
 
 # Harness PID for the orphan check inside the claim hold (set in main()). The
@@ -130,7 +127,7 @@ _inotify_proc = None
 # pass diffs every baseline, so a change that landed during the handoff
 # still emits — nothing is lost, at worst a self-edit in flight at the exact
 # moment of reload emits once.
-SELF_RELOAD_POLL_SEC = float(os.environ.get("ROLE_WATCH_SELF_RELOAD_POLL_SEC", "30"))
+SELF_RELOAD_POLL_SEC = float(os.environ.get("FILE_WATCH_SELF_RELOAD_POLL_SEC", "30"))
 _SELF_PATH = os.path.realpath(__file__)
 _reload_pending = threading.Event()
 
@@ -168,7 +165,7 @@ def _self_reload_watch(start_stat):
             # A broken install must not replace a working watcher; keep
             # running the old code and retry when the file changes again.
             print(
-                "⚠️ [role-file-watch] new version at %s does not compile (%s) — "
+                "⚠️ [file-watch] new version at %s does not compile (%s) — "
                 "staying on the running version" % (_SELF_PATH, e),
                 file=sys.stderr,
                 flush=True,
@@ -186,7 +183,7 @@ def _self_reload_watch(start_stat):
 
 def _reexec_self(reason="new version installed"):
     print(
-        "[role-file-watch] %s — reloading in place (pid %d)" % (reason, os.getpid()),
+        "[file-watch] %s — reloading in place (pid %d)" % (reason, os.getpid()),
         file=sys.stderr,
         flush=True,
     )
@@ -382,7 +379,7 @@ def _roles_changed(identity_file_path, watched_roles):
     if err is not None:
         if err != _last_roles_err:
             print(
-                "⚠️ [role-file-watch] identity roles unusable (%s) — still watching %r"
+                "⚠️ [file-watch] identity roles unusable (%s) — still watching %r"
                 % (err, list(watched_roles)),
                 file=sys.stderr,
                 flush=True,
@@ -470,8 +467,8 @@ def _restart_if_scope_changed(identity_file_path, watched_project, watched_roles
 
 
 def _single_instance(state_dir, ident_dir):
-    """Newest-wins guard: kill any prior role-file-watch for THIS identity, claim the pidfile."""
-    pf = os.path.join(state_dir, "role-file-watch.pid")
+    """Newest-wins guard: kill any prior file-watch for THIS identity, claim the pidfile."""
+    pf = os.path.join(state_dir, "file-watch.pid")
     try:
         old = int(open(pf).read().strip())
         if old != os.getpid():
@@ -479,7 +476,7 @@ def _single_instance(state_dir, ident_dir):
                 cmd = open("/proc/%d/cmdline" % old).read()
             except Exception:
                 cmd = os.popen("ps -p %d -o command= 2>/dev/null" % old).read()
-            if "role-file-watch" in cmd and ident_dir in cmd:
+            if "file-watch" in cmd and ident_dir in cmd:
                 os.kill(old, 15)
     except Exception:
         pass
@@ -549,140 +546,51 @@ def _flatten_diff(diff_stdout):
 
 
 # ---------------------------------------------------------------------------
-# Fan-out spread. Some watched files are shared: the id skill and user-wide
-# CLAUDE.md by every running identity on the box, a role file / runbook by every
-# running holder of the role, project.md by every running member. One edit (a
-# deploy shipping a new id skill, the supervisor rewriting `members:`) would wake
-# all of them in the same second, each starting an API turn at once. Same idea as
-# the relay receiver's room-size wake jitter: when more than one running identity
-# shares the target, the event line is held for a uniform-random delay in
-#   [0, min(FANOUT_SEC_PER_AGENT × sharers, FANOUT_CAP_SEC))
-# before it goes out. The identity file has one reader and is never held.
+# Deferred delivery. Nothing this watcher reports needs a turn of its own: an
+# idle agent loses nothing by learning about a role-file edit when it next
+# works, and a role-file edit used to wake EVERY running holder of the role
+# just to say "noted, nothing to do". So events never go to stdout (which
+# ambient-monitor would paste in as a wake). Each one is written as a file to
+# <identity>/pending-context/, and the pending-context-drain hook hands the
+# queue to the agent as additional context on its next UserPromptSubmit or
+# PostToolUse — the next turn it takes, or the next tool call of the turn it
+# is in. No wake, so no fan-out spread is needed either.
 #
-# Held lines sit as files in <state>/pending/ (named by due time) and a daemon
-# thread emits them when due, so the watch loop keeps running meanwhile and a
-# self-reload re-exec picks them back up instead of losing them — the baseline
-# has already advanced, so the startup diff would not re-emit them. The
-# supervisor won't sweep an identity dormant while it has pending lines.
-#
-# Each line is a diff against the previous one for the same target, so lines
-# for one target must arrive in order: a new line is never due before one
-# already held for its tag. Delivery claims a file (rename to .claimed) before
-# writing and deletes it after; a .claimed file left by a process that died
-# mid-delivery is re-queued at startup (at-least-once).
+# Each line is a diff against the previous one for the same target, so order
+# matters: names sort by write time (ns) and the drain delivers in name order.
 # ---------------------------------------------------------------------------
-FANOUT_SEC_PER_AGENT = float(os.environ.get("ROLE_WATCH_FANOUT_SEC_PER_AGENT", "30"))
-FANOUT_CAP_SEC = float(os.environ.get("ROLE_WATCH_FANOUT_CAP_SEC", "300"))
-_PENDING_RE = re.compile(r"^(\d+)-[0-9a-f]{8}\.line$")
-_CLAIMED_SUFFIX = ".claimed"
-_pending_dir = None          # set in main(); None = emit immediately (no queue yet)
-_identities_root = None      # parent of this identity's folder; set in main()
-_pending_wake = threading.Event()
+_queue_dir = None   # set in main(); <identity>/pending-context
 _out_lock = threading.Lock()
 
 
 def _out(line):
-    """Write one event line to stdout. Both the watch loop and the pending-queue
-    thread emit, so writes are serialized to keep lines whole."""
+    """Queue one event line for the agent's next turn (see Deferred delivery).
+    Falls back to stderr — never stdout — if the queue can't be written: a
+    lost notice is better than a wake the design exists to prevent."""
     with _out_lock:
-        sys.stdout.write(line + "\n")
-        sys.stdout.flush()
-
-
-def _fanout_sharers(kind, label):
-    """Running identities on this box (self included) that would get this same
-    event. Running = has <name>/<name>.md and no .dormant sentinel. Never < 1."""
-    if kind == "identity-file" or _identities_root is None:
-        return 1
-    role = label.split("/", 1)[0] if kind == "runbook" else label
-    n = 0
-    try:
-        names = os.listdir(_identities_root)
-    except OSError:
-        return 1
-    for other in names:
-        d = os.path.join(_identities_root, other)
-        idf = os.path.join(d, other + ".md")
-        if not os.path.isfile(idf) or os.path.exists(os.path.join(d, ".dormant")):
-            continue
-        if kind in ("role-file", "runbook"):
-            roles, _ = _parse_roles_from_frontmatter(idf)
-            if not roles or role not in roles:
-                continue
-        elif kind == "project-file":
-            if _parse_project_from_frontmatter(idf) != label:
-                continue
-        n += 1
-    return max(n, 1)
-
-
-def _emit_line(kind, label, line):
-    """Emit an event line now, or queue it for a spread delay when the target is
-    shared by other running identities (see FANOUT_SEC_PER_AGENT)."""
-    sharers = _fanout_sharers(kind, label)
-    if sharers <= 1 or _pending_dir is None:
-        _out(line)
-        return
-    delay = random.uniform(0, min(sharers * FANOUT_SEC_PER_AGENT, FANOUT_CAP_SEC))
-    due_ms = int((time.time() + delay) * 1000)
-    # Keep this target's lines in order: never due before one already held.
-    for held_due, held_line in _held_lines():
-        if _line_tag(held_line) == _line_tag(line) and held_due >= due_ms:
-            due_ms = held_due + 1
-    delay = max(0.0, due_ms / 1000.0 - time.time())
-    try:
-        os.makedirs(_pending_dir, exist_ok=True)
-        name = "%d-%s.line" % (due_ms, os.urandom(4).hex())
-        tmp = os.path.join(_pending_dir, "." + name + ".tmp")
-        with open(tmp, "w", encoding="utf-8") as f:
-            f.write(line)
-        os.replace(tmp, os.path.join(_pending_dir, name))
-    except OSError as e:
-        print("[role-file-watch] could not queue %s event (%s) — emitting now" % (kind, e),
-              file=sys.stderr, flush=True)
-        _out(line)
-        return
-    print("[role-file-watch] %s: %s event shared by %d running identities — holding %.0fs"
-          % (kind, label, sharers, delay), file=sys.stderr, flush=True)
-    _pending_wake.set()
-
-
-def _line_tag(line):
-    """The `📝 [<kind>: <label>]` prefix — one tag per watched target."""
-    end = line.find("]")
-    return line[:end + 1] if end >= 0 else line
-
-
-def _held_lines():
-    """(due_ms, line) for every pending line, oldest first."""
-    out = []
-    try:
-        names = sorted(os.listdir(_pending_dir))
-    except OSError:
-        return out
-    for name in names:
-        m = _PENDING_RE.match(name)
-        if not m:
-            continue
         try:
-            with open(os.path.join(_pending_dir, name), encoding="utf-8") as f:
-                out.append((int(m.group(1)), f.read()))
-        except OSError:
-            pass
-    return out
+            os.makedirs(_queue_dir, exist_ok=True)
+            name = "%d-%s.line" % (time.time_ns(), os.urandom(4).hex())
+            tmp = os.path.join(_queue_dir, "." + name + ".tmp")
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.write(line)
+            os.replace(tmp, os.path.join(_queue_dir, name))
+        except (OSError, TypeError) as e:
+            print("[file-watch] could not queue event (%s) — dropped: %s" % (e, line[:200]),
+                  file=sys.stderr, flush=True)
 
 
 def _drop_pending(tag_prefixes):
-    """Discard held lines whose tag starts with any of `tag_prefixes` — used when
-    the identity stops watching a target (left a role or project)."""
+    """Discard queued lines whose tag starts with any of `tag_prefixes` — used
+    when the identity stops watching a target (left a role or project)."""
     try:
-        names = os.listdir(_pending_dir)
+        names = os.listdir(_queue_dir)
     except (OSError, TypeError):
         return
     for name in names:
-        if not _PENDING_RE.match(name):
+        if not name.endswith(".line"):
             continue
-        path = os.path.join(_pending_dir, name)
+        path = os.path.join(_queue_dir, name)
         try:
             with open(path, encoding="utf-8") as f:
                 line = f.read()
@@ -692,69 +600,35 @@ def _drop_pending(tag_prefixes):
             pass
 
 
-def _requeue_claimed():
-    """Startup: put back lines a previous process claimed but may not have
-    delivered (died between claim and delete)."""
+def _migrate_legacy_state(ident_dir, baseline_dir, queue_dir):
+    """One-time move from the pre-rename layout: <identity>/role-file-watch/
+    becomes <identity>/file-watch/ (baselines kept, so the startup pass sees no
+    spurious diff), and lines the old watcher was holding for its fan-out
+    delay move into the deferred queue instead of being lost."""
+    legacy = os.path.join(ident_dir, "role-file-watch")
+    if not os.path.isdir(legacy) or os.path.exists(baseline_dir):
+        return
     try:
-        names = os.listdir(_pending_dir)
+        os.rename(legacy, baseline_dir)
+    except OSError as e:
+        print("[file-watch] could not migrate %s → %s (%s)" % (legacy, baseline_dir, e),
+              file=sys.stderr, flush=True)
+        return
+    held = os.path.join(baseline_dir, ".state", "pending")
+    try:
+        names = sorted(os.listdir(held))
     except OSError:
         return
+    os.makedirs(queue_dir, exist_ok=True)
     for name in names:
-        if name.endswith(_CLAIMED_SUFFIX) and _PENDING_RE.match(name[:-len(_CLAIMED_SUFFIX)]):
-            try:
-                os.replace(os.path.join(_pending_dir, name),
-                           os.path.join(_pending_dir, name[:-len(_CLAIMED_SUFFIX)]))
-            except OSError:
-                pass
-
-
-def _emit_due_pending():
-    """Emit every due pending line, oldest first. Returns the next due time (ms)
-    still waiting, or None."""
-    next_due = None
-    try:
-        names = sorted(os.listdir(_pending_dir))
-    except OSError:
-        return None
-    now_ms = int(time.time() * 1000)
-    for name in names:
-        m = _PENDING_RE.match(name)
-        if not m:
+        base = name[:-len(".claimed")] if name.endswith(".claimed") else name
+        if not base.endswith(".line"):
             continue
-        due = int(m.group(1))
-        if due > now_ms:
-            next_due = due if next_due is None else min(next_due, due)
-            continue
-        path = os.path.join(_pending_dir, name)
-        claimed = path + _CLAIMED_SUFFIX
         try:
-            os.rename(path, claimed)    # loser of a race with another drainer skips
-            with open(claimed, encoding="utf-8") as f:
-                line = f.read()
-        except OSError:
-            continue
-        if line:
-            _out(line)
-        try:
-            os.remove(claimed)
+            os.replace(os.path.join(held, name), os.path.join(queue_dir, base))
         except OSError:
             pass
-    return next_due
-
-
-def _pending_emitter():
-    """Daemon thread: emit queued lines once their due time passes."""
-    _requeue_claimed()
-    while True:
-        _pending_wake.clear()      # before scanning: a line queued mid-scan re-wakes us
-        try:
-            next_due = _emit_due_pending()
-        except Exception as e:
-            print("[role-file-watch] pending emitter error: %r" % (e,), file=sys.stderr, flush=True)
-            next_due = None
-        now_ms = int(time.time() * 1000)
-        wait = 5.0 if next_due is None else max(0.05, min(5.0, (next_due - now_ms) / 1000.0))
-        _pending_wake.wait(wait)
+    shutil.rmtree(held, ignore_errors=True)
 
 
 def _change_phrase(kind, label):
@@ -820,7 +694,7 @@ def _emit_event(kind, label, diff_stdout, spill_dir):
     phrase = _change_phrase(kind, label)
     line = "📝 [%s: %s] %s changed — %s" % (kind, label, phrase, flat)
     if len(line.encode("utf-8")) <= INLINE_MAX:
-        _emit_line(kind, label, line)
+        _out(line)
     else:
         # Spill: create spill_dir lazily, write full diff, emit pointer-only line.
         # Spill filenames include the kind so role + identity spills at the same
@@ -830,8 +704,7 @@ def _emit_event(kind, label, diff_stdout, spill_dir):
         spill_path = os.path.join(spill_dir, "%s.%s.diff" % (ts, kind))
         with open(spill_path, "w") as f:
             f.write(diff_stdout)
-        _emit_line(
-            kind, label,
+        _out(
             "📝 [%s: %s] %s changed — READ NOW before continuing — %s"
             % (kind, label, phrase, spill_path),
         )
@@ -925,7 +798,7 @@ def _wait_for_claim_release(target_path, baseline_path):
         time.sleep(CLAIM_POLL_SEC)
         claims = _live_claims(baseline_path)
     print(
-        "[role-file-watch] held %s %.1fs for in-flight tool call claim"
+        "[file-watch] held %s %.1fs for in-flight tool call claim"
         % (os.path.basename(baseline_path), time.time() - started),
         file=sys.stderr,
         flush=True,
@@ -953,7 +826,7 @@ def _diff_and_emit(kind, label, target_path, baseline_dir, baseline_path, spill_
     current = _read_bytes(target_path)
     if current is None:
         print(
-            "⚠️ [role-file-watch] %s file disappeared: %s" % (kind, target_path),
+            "⚠️ [file-watch] %s file disappeared: %s" % (kind, target_path),
             file=sys.stderr,
             flush=True,
         )
@@ -1076,14 +949,12 @@ def _emit_runbook_added(role, slug, rb_path):
     not useful as a `+`-prefixed diff. Match the recv.sh long-message idiom
     of PATH-before-preview so the agent has an obvious next step.
     """
-    _emit_line("runbook", "%s/%s" % (role, slug),
-               "📝 [runbook: %s/%s] added — Read %s" % (role, slug, rb_path))
+    _out("📝 [runbook: %s/%s] added — Read %s" % (role, slug, rb_path))
 
 
 def _emit_runbook_deleted(role, slug):
     """Runbook-deleted event — no diff possible, one honest line."""
-    _emit_line("runbook", "%s/%s" % (role, slug),
-               "📝 [runbook: %s/%s] deleted" % (role, slug))
+    _out("📝 [runbook: %s/%s] deleted" % (role, slug))
 
 
 def _slug_from_event(w_path, f_name, runbook_roles):
@@ -1215,7 +1086,7 @@ def _make_signal_handler():
 
 def main():
     if len(sys.argv) < 2:
-        print("usage: python3 role-file-watch.py <identity_dir>", file=sys.stderr)
+        print("usage: python3 file-watch.py <identity_dir>", file=sys.stderr)
         sys.exit(2)
 
     ident_dir = os.path.abspath(os.path.expanduser(sys.argv[1]))
@@ -1228,7 +1099,7 @@ def main():
         # Watcher-health failures log to stderr only — box-maintainer notices via
         # the ambient-monitor log. The agent can't fix its own dead watcher
         # mid-turn, so waking it with a diagnostic it can't act on is noise.
-        print("⚠️ [role-file-watch] %s" % err, file=sys.stderr, flush=True)
+        print("⚠️ [file-watch] %s" % err, file=sys.stderr, flush=True)
         sys.exit(1)
     # The role set this process watches. An identity-file edit that changes it
     # re-execs us (see _restart_if_scope_changed) — the targets list and the
@@ -1245,14 +1116,14 @@ def main():
             role_files.append((role, role_file_path))
         else:
             print(
-                "⚠️ [role-file-watch] role file not found for role '%s' (%s) — skipping"
+                "⚠️ [file-watch] role file not found for role '%s' (%s) — skipping"
                 % (role, role_file_path),
                 file=sys.stderr,
                 flush=True,
             )
     if not role_files:
         print(
-            "⚠️ [role-file-watch] no watchable role files for identity %s (roles=%r)"
+            "⚠️ [file-watch] no watchable role files for identity %s (roles=%r)"
             % (name, roles),
             file=sys.stderr,
             flush=True,
@@ -1266,7 +1137,10 @@ def main():
     # Identity file path already resolved above (identity_file_path).
     # Each target: (kind, label-for-emit, source-file, per-file-baseline).
     # Role baselines are per-role: `last-snapshot.role.<role>`.
-    baseline_dir = os.path.join(ident_dir, "role-file-watch")
+    baseline_dir = os.path.join(ident_dir, "file-watch")
+    global _queue_dir
+    _queue_dir = os.path.join(ident_dir, "pending-context")
+    _migrate_legacy_state(ident_dir, baseline_dir, _queue_dir)
     identity_baseline_path = os.path.join(baseline_dir, "last-snapshot.identity")
     targets = []
     for role, role_file_path in role_files:
@@ -1357,7 +1231,7 @@ def main():
             os.replace(legacy_bare_baseline, legacy_role_baseline)
         except OSError as e:
             print(
-                "⚠️ [role-file-watch] legacy baseline migration (bare→role) failed: %s" % e,
+                "⚠️ [file-watch] legacy baseline migration (bare→role) failed: %s" % e,
                 file=sys.stderr,
                 flush=True,
             )
@@ -1366,7 +1240,7 @@ def main():
             os.replace(legacy_role_baseline, primary_role_baseline)
         except OSError as e:
             print(
-                "⚠️ [role-file-watch] legacy baseline migration (role→role.<primary>) failed: %s"
+                "⚠️ [file-watch] legacy baseline migration (role→role.<primary>) failed: %s"
                 % e,
                 file=sys.stderr,
                 flush=True,
@@ -1390,7 +1264,7 @@ def main():
                 os.replace(src, dst)
             except OSError as e:
                 print(
-                    "⚠️ [role-file-watch] runbook baseline migration failed for %s: %s"
+                    "⚠️ [file-watch] runbook baseline migration failed for %s: %s"
                     % (entry, e),
                     file=sys.stderr,
                     flush=True,
@@ -1434,16 +1308,9 @@ def main():
     global _harness_pid
     _harness_pid = harness_pid
 
-    # --- Fan-out pending queue (see FANOUT_SEC_PER_AGENT). Started before the
-    # startup diff so lines held by a previous process (self-reload re-exec,
-    # dormancy) drain, and startup-diff events can be held too.
-    global _pending_dir, _identities_root
-    _identities_root = os.path.dirname(ident_dir)
-    _pending_dir = os.path.join(state_dir, "pending")
-    threading.Thread(target=_pending_emitter, daemon=True).start()
     if harness_pid is None:
         print(
-            "role-file-watch: orphan-check disabled (couldn't resolve grandparent)",
+            "file-watch: orphan-check disabled (couldn't resolve grandparent)",
             file=sys.stderr,
             flush=True,
         )
@@ -1461,7 +1328,7 @@ def main():
             current = _read_bytes(target_path)
             if current is None:
                 msg = "%s file unreadable at startup: %s" % (kind, target_path)
-                print("⚠️ [role-file-watch] %s" % msg, file=sys.stderr, flush=True)
+                print("⚠️ [file-watch] %s" % msg, file=sys.stderr, flush=True)
                 sys.exit(1)
             _atomic_write_baseline(baseline_dir, baseline_path, current)
             # Emit NOTHING to stdout on cold start (shape file "silent on cold start" invariant)
@@ -1536,8 +1403,8 @@ def main():
     use_inotify = shutil.which("inotifywait") is not None
     if not use_inotify:
         print(
-            "⚠️ [role-file-watch] inotifywait not found — falling back to %ds polling "
-            "(set ROLE_WATCH_POLL_SEC to adjust)" % POLL,
+            "⚠️ [file-watch] inotifywait not found — falling back to %ds polling "
+            "(set FILE_WATCH_POLL_SEC to adjust)" % POLL,
             file=sys.stderr,
             flush=True,
         )
@@ -1642,7 +1509,7 @@ def main():
                     # a recovery event if the previous cycle surfaced a failure.
                     if failure_emitted:
                         print(
-                            "⚠️ [role-file-watch] inotifywait recovered — watching resumed",
+                            "⚠️ [file-watch] inotifywait recovered — watching resumed",
                             file=sys.stderr,
                             flush=True,
                         )
@@ -1778,7 +1645,7 @@ def main():
                         stderr_snippet = stderr_text.strip().replace("\n", " ⏎ ")[:200]
                         if not failure_emitted:
                             print(
-                                "⚠️ [role-file-watch] inotifywait exited %d — "
+                                "⚠️ [file-watch] inotifywait exited %d — "
                                 "watcher deaf until this resolves. stderr: %s"
                                 % (exit_code, stderr_snippet or "(empty)"),
                                 file=sys.stderr,
@@ -1805,7 +1672,7 @@ def main():
             last_mtimes = {t[2]: os.path.getmtime(t[2]) for t in targets}
         except OSError as e:
             print(
-                "⚠️ [role-file-watch] target unreadable in polling loop: %s" % e,
+                "⚠️ [file-watch] target unreadable in polling loop: %s" % e,
                 file=sys.stderr,
                 flush=True,
             )
@@ -1832,7 +1699,7 @@ def main():
                         changed = True
                         continue
                     print(
-                        "⚠️ [role-file-watch] %s file disappeared: %s"
+                        "⚠️ [file-watch] %s file disappeared: %s"
                         % (kind, target_path),
                         file=sys.stderr,
                         flush=True,

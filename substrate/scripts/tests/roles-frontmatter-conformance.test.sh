@@ -13,7 +13,7 @@
 #   fleet-status-sweep fleet-status-sweep.py _read_identity_roles (module import)
 #   ambient-monitor    ambient-monitor.py _read_frontmatter[0] (functions extracted
 #                      via ast — the module spawns children at import time)
-#   role-file-watch    role-file-watch.py _parse_roles_from_frontmatter
+#   file-watch         file-watch.py _parse_roles_from_frontmatter
 #                      (returns (roles, err); err → [])
 #   agent-supervisor   agent-supervisor.sh _extract_frontmatter_roles (sourced
 #                      with AGENT_SUPERVISOR_LIB_ONLY=1; stdout JSON compared)
@@ -158,7 +158,7 @@ def _ambient():
 
 
 def _rfw():
-    mod = load_module("role_file_watch", os.path.join(scripts, "role-file-watch.py"))
+    mod = load_module("file_watch", os.path.join(scripts, "file-watch.py"))
 
     def run(path):
         res = mod._parse_roles_from_frontmatter(path)
@@ -191,11 +191,11 @@ def _unarchive_ts():
 register("reference", _reference)
 register("fleet-status-sweep", _sweep)
 register("ambient-monitor", _ambient)
-register("role-file-watch", _rfw)
+register("file-watch", _rfw)
 register("agent-supervisor", _supervisor)
 register("identity-unarchive", _unarchive_ts)
 
-names = ["reference", "fleet-status-sweep", "ambient-monitor", "role-file-watch",
+names = ["reference", "fleet-status-sweep", "ambient-monitor", "file-watch",
          "agent-supervisor", "identity-unarchive"]
 npass = nfail = 0
 failures = []
