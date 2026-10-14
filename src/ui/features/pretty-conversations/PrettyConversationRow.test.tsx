@@ -200,7 +200,7 @@ vi.mock("@/shell/rename-identity", () => ({
 // dependency graph via renderTabContent, but for tabIcon-only usage the graph
 // is tree-shaken irrelevant during test runs.
 
-import { PrettyConversationRow } from "./PrettyConversationRow";
+import { PrettyConversationRow, rdpDisplayName } from "./PrettyConversationRow";
 
 // ─── Fixture helpers ────────────────────────────────────────────────────────
 
@@ -353,7 +353,7 @@ describe("PrettyConversationRow: tap-to-select on closed row", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationRow: title-duplicate suffix suppression", () => {
-  it("RDP row whose label equals host.name renders no parenthetical suffix", () => {
+  it("RDP row renders the host name minus its -RDP tail, with no parenthetical suffix", () => {
     const { container } = render(
       <PrettyConversationRow
         row={makeRow({
@@ -370,8 +370,16 @@ describe("PrettyConversationRow: title-duplicate suffix suppression", () => {
       />,
     );
     const label = container.querySelector(".pv-label") as HTMLElement;
-    expect(label.textContent).toBe("thenasty-RDP");
+    expect(label.textContent).toBe("thenasty");
     expect(container.querySelector(".pv-hostname-suffix")).toBeNull();
+  });
+
+  it("rdpDisplayName trims only a separated RDP tail", () => {
+    expect(rdpDisplayName("aither-cloud2-prod-RDP")).toBe("aither-cloud2-prod");
+    expect(rdpDisplayName("workstation rdp")).toBe("workstation");
+    expect(rdpDisplayName("workstation (RDP)")).toBe("workstation");
+    expect(rdpDisplayName("xrdp")).toBe("xrdp");
+    expect(rdpDisplayName("RDP")).toBe("RDP");
   });
 
   it("row whose label differs from host.name keeps the host suffix", () => {

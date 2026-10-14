@@ -163,6 +163,16 @@ import {
 // reveal-strip JSX) was fully removed. The mobile row exposes the same
 // context menu desktop right-click uses via a 500ms long-press touch hold.
 
+/**
+ * RDP rows sit under a "Remote desktop" header, so a trailing "-RDP" /
+ * " RDP" / "(RDP)" on the host name is redundant there. Display-only; a bare
+ * trailing "rdp" with no separator (e.g. "xrdp") is left alone.
+ */
+export function rdpDisplayName(name: string): string {
+  const trimmed = name.replace(/(?:[\s_-]+rdp|\s*\(rdp\))\s*$/i, "");
+  return trimmed.length > 0 ? trimmed : name;
+}
+
 // Set the native `title` attribute on hover iff the element's text is truncated
 // (scrollWidth > clientWidth). Wired to `.pv-label` and `.pv-ai-title` spans so
 // long task strings surface a tooltip with the full text, without showing a
@@ -854,14 +864,16 @@ export function PrettyConversationRow({
           ) : (
             <>
               <span className="pv-label" onMouseEnter={setTitleIfOverflowing}>
-                {identity ? identity.displayName : row.label}
+                {identity ? identity.displayName : isRdp ? rdpDisplayName(row.label) : row.label}
                 {(() => {
                   // inline-261001-conv-title-role-suffix: prefer role display
                   // name over host.name in the parens; host.name is the
                   // fallback for identities without a role, or for rows with
                   // no identity resolved at all.
-                  // A suffix identical to the title (e.g. RDP rows, whose label
-                  // IS host.name) is dropped rather than shown twice.
+                  // RDP rows get no suffix (their title IS the host), and a
+                  // suffix identical to the title is dropped rather than
+                  // shown twice.
+                  if (isRdp) return null;
                   const rolesLabel = identity ? identityRolesLabel(identity) : "";
                   const suffix = rolesLabel || row.host?.name;
                   const title = identity ? identity.displayName : row.label;
