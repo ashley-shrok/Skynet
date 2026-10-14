@@ -16,6 +16,10 @@
 #   T-F4 — id skill counts every running identity, whatever its role.
 #   T-F5 — a held line survives a watcher restart and is emitted exactly once
 #          by the next process.
+#   T-F6 — two held edits to one file arrive in edit order.
+#   T-F7 — a line claimed by a process that died mid-delivery is re-queued and
+#          emitted once at startup.
+#   T-F8 — leaving a role drops that role's held lines.
 #
 # Exits 0 on all-pass; 1 on any failure.
 #
@@ -136,6 +140,8 @@ out_count() { grep -cE "$1" "$OUT_LOG" 2>/dev/null; }
 err_has() { [ -f "$ERR_LOG" ] && grep -qE "$1" "$ERR_LOG"; }
 pending_count() { find "$PENDING" -name '*.line' 2>/dev/null | wc -l; }
 has_pending() { [ "$(pending_count)" -gt 0 ]; }
+pending_at_least() { [ "$(pending_count)" -ge "$1" ]; }
+pending_empty() { [ "$(pending_count)" -eq 0 ]; }
 logs() { printf 'out=%s err=%s' "$(cat "$OUT_LOG" 2>/dev/null)" "$(cat "$ERR_LOG" 2>/dev/null)"; }
 wait_armed() { wait_for 50 test -f "$STATE/last-snapshot.identity"; sleep 1; }
 
@@ -151,7 +157,7 @@ test_T_F1_shared_role_held() {
   if ! wait_for 60 out_has '📝 \[role-file: rolex\].*shared edit'; then
     fail "held event never emitted within cap; $(logs)"; return
   fi
-  wait_for 20 test "$(pending_count)" -eq 0 || { fail "pending file left behind"; return; }
+  wait_for 20 pending_empty || { fail "pending file left behind"; return; }
   [ "$(out_count 'shared edit')" -eq 1 ] || fail "emitted more than once; $(logs)"
 }
 
@@ -214,11 +220,55 @@ test_T_F5_pending_survives_restart() {
   [ "$(out_count 'carry me')" -eq 1 ] || fail "held line emitted more than once; $(logs)"
 }
 
+test_T_F6_same_target_in_order() {
+  OUT_LOG=""; seed_fixture
+  add_identity peer rolex
+  launch_watcher 1000 12
+  wait_armed
+  printf 'first edit\n' >> "$ROLE_MD"
+  wait_for 30 has_pending || { fail "first edit not held; $(logs)"; return; }
+  printf 'second edit\n' >> "$ROLE_MD"
+  wait_for 30 pending_at_least 2 || { fail "second edit not held; $(logs)"; return; }
+  if ! wait_for 200 out_has 'second edit'; then fail "second edit never emitted; $(logs)"; return; fi
+  local a b
+  a=$(grep -n 'first edit' "$OUT_LOG" | head -1 | cut -d: -f1)
+  b=$(grep -n 'second edit' "$OUT_LOG" | head -1 | cut -d: -f1)
+  [ -n "$a" ] && [ "$a" -lt "$b" ] || fail "edits out of order (first@${a:-none} second@$b); $(logs)"
+}
+
+test_T_F7_claimed_line_requeued() {
+  OUT_LOG=""; seed_fixture
+  mkdir -p "$PENDING"
+  printf '📝 [role-file: rolex] your role file changed — orphaned claim' \
+    > "$PENDING/1000-abcdef12.line.claimed"
+  launch_watcher
+  if ! wait_for 50 out_has 'orphaned claim'; then fail "claimed line not re-emitted; $(logs)"; return; fi
+  sleep 1
+  [ "$(out_count 'orphaned claim')" -eq 1 ] || fail "claimed line emitted more than once"
+  [ -z "$(ls -A "$PENDING")" ] || fail "pending dir not empty: $(ls -A "$PENDING")"
+}
+
+test_T_F8_role_removal_drops_held() {
+  OUT_LOG=""; seed_fixture
+  add_identity peer rolex
+  launch_watcher 1000 300
+  wait_armed
+  printf 'stale role edit\n' >> "$ROLE_MD"
+  wait_for 30 has_pending || { fail "role edit not held; $(logs)"; return; }
+  printf -- '---\nroles: [roley]\ntask: t\n---\n\n# %s\n' "$NAME" > "$IDENT_MD.tmp"
+  mv "$IDENT_MD.tmp" "$IDENT_MD"
+  if ! wait_for 50 out_has 'you no longer hold role rolex'; then fail "no role-removal line; $(logs)"; return; fi
+  wait_for 30 pending_empty || fail "held rolex line not dropped; $(ls "$PENDING")"
+}
+
 run_test test_T_F1_shared_role_held
 run_test test_T_F2_dormant_peer_not_counted
 run_test test_T_F3_identity_file_never_held
 run_test test_T_F4_id_skill_counts_all_running
 run_test test_T_F5_pending_survives_restart
+run_test test_T_F6_same_target_in_order
+run_test test_T_F7_claimed_line_requeued
+run_test test_T_F8_role_removal_drops_held
 
 printf '\n===============================\n'
 printf 'PASS: %d  FAIL: %d\n' "$PASS" "$FAIL"

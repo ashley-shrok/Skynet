@@ -2893,7 +2893,21 @@ pending_check() {
   # schedule_peek stays: don't kill an identity right before a scheduled wake fires — the
   # in-session wakeup-scheduler Monitor dies with the session and the fire would be missed.
   schedule_peek "$name" && return 1
+  # role-file-watch holds shared-file events for a fan-out delay (up to a few minutes) in
+  # <identity>/role-file-watch/.state/pending/. Sweeping now would strand them until some
+  # other trigger wakes the identity.
+  pending_fanout_lines "$name" && return 1
   return 0
+}
+
+# pending_fanout_lines: 0 iff the identity has role-file-watch events still held for their
+# fan-out delay (files named <due-ms>-<8 hex>.line, or .line.claimed mid-delivery).
+pending_fanout_lines() {
+  local f
+  for f in "$IDENTITIES_DIR/$1/role-file-watch/.state/pending/"*.line "$IDENTITIES_DIR/$1/role-file-watch/.state/pending/"*.line.claimed; do
+    [ -e "$f" ] && return 0
+  done
+  return 1
 }
 
 # matrix_peek: returns 0 if THIS identity has new events since it went dormant on ANY of its

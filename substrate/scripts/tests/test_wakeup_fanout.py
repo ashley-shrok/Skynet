@@ -75,6 +75,11 @@ class FanoutUnit(unittest.TestCase):
         offs = [eng.fanout_offset("id%d" % i, "k", 5, 1000) for i in range(200)]
         self.assertTrue(all(o < eng.FANOUT_CAP_SEC for o in offs))
 
+    def test_offset_stays_under_half_the_period(self):
+        offs = [eng.fanout_offset("id%d" % i, "k", 7, 50, period=60) for i in range(200)]
+        self.assertTrue(all(o < 30 for o in offs))
+        self.assertGreater(max(offs), 20)
+
     def test_same_minute_counts_running_peers_only(self):
         last = 1_800_000_000 - 600            # slot = 1_800_000_000 (minute-aligned)
         me = self.f.identity("me")
@@ -140,6 +145,20 @@ class FanoutProcess(unittest.TestCase):
         self.f.interval_spec(self.f.identity("peer"), "b", last)
         out, err = self.run_scheduler(me, 1, 2, seconds=5)   # span 2s
         self.assertEqual(out.count("⏰ [scheduled: a @"), 1, err)
+
+    def test_short_interval_not_held_past_next_slot(self):
+        # every 10m with 2 agents and a huge span: the period cap keeps the
+        # offset under 5 min, so it never runs past the next slot.
+        last = time.time() - 600 - 1
+        me = self.f.identity("me")
+        self.f.interval_spec(me, "a", last)
+        self.f.interval_spec(self.f.identity("peer"), "b", last)
+        out, err = self.run_scheduler(me, 1e6, 1e6, seconds=3)
+        m = [l for l in err.splitlines() if "holding" in l]
+        self.assertTrue(m, err)
+        held = float(m[0].rsplit("holding ", 1)[1].rstrip("s"))
+        self.assertLess(held, 300)
+        self.assertNotIn("⏰", out)
 
     def test_lone_agent_fires_immediately(self):
         last = time.time() - 600 - 1

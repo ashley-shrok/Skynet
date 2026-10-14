@@ -856,11 +856,16 @@ def same_minute_agents(slot, self_dir, box_zone):
     return n
 
 
-def fanout_offset(ident_name, key, slot, agents):
-    """Deterministic offset in [0, min(agents × per-agent, cap)); 0 for one agent."""
+def fanout_offset(ident_name, key, slot, agents, period=None):
+    """Deterministic offset in [0, min(agents × per-agent, cap, period / 2));
+    0 for one agent. `period` (seconds to the following slot) keeps a held fire
+    ahead of the next slot — a fire records `.last` = fire time, so holding past
+    the next slot would silently skip it."""
     if agents <= 1:
         return 0.0
     span = min(agents * FANOUT_SEC_PER_AGENT, FANOUT_CAP_SEC)
+    if period is not None and period > 0:
+        span = min(span, period / 2.0)
     h = hashlib.sha256(("%s|%s|%d" % (ident_name, key, int(slot))).encode()).digest()
     return span * (int.from_bytes(h[:8], "big") / 2.0 ** 64)
 
@@ -1102,7 +1107,7 @@ def main():
     ident_name = os.path.basename(folder.rstrip("/"))
     fanout_cache = {}       # (key, slot) -> fire-at epoch; see fanout_offset
 
-    def held_for_fanout(key, slot, now):
+    def held_for_fanout(key, slot, now, sch=None):
         """True while a due slot is still inside its fan-out offset."""
         if is_scheduled_agents_mode or slot is None:
             return False
@@ -1116,7 +1121,14 @@ def main():
                 print("wakeup-scheduler: fan-out count failed for %s (%s) — no delay"
                       % (key, e), file=sys.stderr, flush=True)
                 agents = 1
-            off = fanout_offset(ident_name, key, slot, agents)
+            period = None
+            if sch is not None and agents > 1:
+                try:
+                    nxt = next_fire(sch, slot, box_zone)
+                    period = None if nxt is None else nxt - slot
+                except Exception:
+                    period = None
+            off = fanout_offset(ident_name, key, slot, agents, period)
             fanout_cache[ck] = slot + off
             if off > 0:
                 print("wakeup-scheduler: %s due — %d agents share this minute, holding %.0fs"
@@ -1307,7 +1319,8 @@ def main():
             if action == "anchor":  # first sight -> anchor, don't fire
                 set_anchored(key, now_ts)
             elif action == "fire":
-                if held_for_fanout(key, next_fire(spec["schedule"], last if last is not None else anchored, box_zone), now_ts):
+                if held_for_fanout(key, next_fire(spec["schedule"], last if last is not None else anchored, box_zone),
+                                   now_ts, spec["schedule"]):
                     continue
                 utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
                 if is_scheduled_agents_mode:

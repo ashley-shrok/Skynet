@@ -423,6 +423,7 @@ def _restart_if_scope_changed(identity_file_path, watched_project, watched_roles
                 os.remove(_project_baseline_path(baseline_dir, watched_project))
             except OSError:
                 pass
+            _drop_pending(["📝 [project-file: %s]" % watched_project])
         if new_slug is not None:
             _out(
                 "📝 [project-file: %s] you're now in project %s — Read %s"
@@ -448,6 +449,7 @@ def _restart_if_scope_changed(identity_file_path, watched_project, watched_roles
             _out(line)
         for role in removed:
             _remove_role_baselines(baseline_dir, role)
+            _drop_pending(["📝 [role-file: %s]" % role, "📝 [runbook: %s/" % role])
             _out("📝 [role-file: %s] you no longer hold role %s" % (role, role))
         reasons.append("roles changed (+%s −%s)" % (
             ",".join(added) or "none", ",".join(removed) or "none",
@@ -559,13 +561,20 @@ def _flatten_diff(diff_stdout):
 #
 # Held lines sit as files in <state>/pending/ (named by due time) and a daemon
 # thread emits them when due, so the watch loop keeps running meanwhile and a
-# self-reload re-exec (or a dormancy kill + later wake) picks them back up
-# instead of losing them — the baseline has already advanced, so the startup
-# diff would not re-emit them.
+# self-reload re-exec picks them back up instead of losing them — the baseline
+# has already advanced, so the startup diff would not re-emit them. The
+# supervisor won't sweep an identity dormant while it has pending lines.
+#
+# Each line is a diff against the previous one for the same target, so lines
+# for one target must arrive in order: a new line is never due before one
+# already held for its tag. Delivery claims a file (rename to .claimed) before
+# writing and deletes it after; a .claimed file left by a process that died
+# mid-delivery is re-queued at startup (at-least-once).
 # ---------------------------------------------------------------------------
 FANOUT_SEC_PER_AGENT = float(os.environ.get("ROLE_WATCH_FANOUT_SEC_PER_AGENT", "30"))
 FANOUT_CAP_SEC = float(os.environ.get("ROLE_WATCH_FANOUT_CAP_SEC", "300"))
 _PENDING_RE = re.compile(r"^(\d+)-[0-9a-f]{8}\.line$")
+_CLAIMED_SUFFIX = ".claimed"
 _pending_dir = None          # set in main(); None = emit immediately (no queue yet)
 _identities_root = None      # parent of this identity's folder; set in main()
 _pending_wake = threading.Event()
@@ -616,6 +625,11 @@ def _emit_line(kind, label, line):
         return
     delay = random.uniform(0, min(sharers * FANOUT_SEC_PER_AGENT, FANOUT_CAP_SEC))
     due_ms = int((time.time() + delay) * 1000)
+    # Keep this target's lines in order: never due before one already held.
+    for held_due, held_line in _held_lines():
+        if _line_tag(held_line) == _line_tag(line) and held_due >= due_ms:
+            due_ms = held_due + 1
+    delay = max(0.0, due_ms / 1000.0 - time.time())
     try:
         os.makedirs(_pending_dir, exist_ok=True)
         name = "%d-%s.line" % (due_ms, os.urandom(4).hex())
@@ -633,35 +647,114 @@ def _emit_line(kind, label, line):
     _pending_wake.set()
 
 
-def _pending_emitter():
-    """Daemon thread: emit queued lines once their due time passes, oldest first."""
-    while True:
-        next_due = None
+def _line_tag(line):
+    """The `📝 [<kind>: <label>]` prefix — one tag per watched target."""
+    end = line.find("]")
+    return line[:end + 1] if end >= 0 else line
+
+
+def _held_lines():
+    """(due_ms, line) for every pending line, oldest first."""
+    out = []
+    try:
+        names = sorted(os.listdir(_pending_dir))
+    except OSError:
+        return out
+    for name in names:
+        m = _PENDING_RE.match(name)
+        if not m:
+            continue
         try:
-            names = sorted(os.listdir(_pending_dir))
+            with open(os.path.join(_pending_dir, name), encoding="utf-8") as f:
+                out.append((int(m.group(1)), f.read()))
         except OSError:
-            names = []
-        now_ms = int(time.time() * 1000)
-        for name in names:
-            m = _PENDING_RE.match(name)
-            if not m:
-                continue
-            due = int(m.group(1))
-            if due > now_ms:
-                next_due = due if next_due is None else min(next_due, due)
-                continue
-            path = os.path.join(_pending_dir, name)
-            try:
-                with open(path, encoding="utf-8") as f:
-                    line = f.read()
+            pass
+    return out
+
+
+def _drop_pending(tag_prefixes):
+    """Discard held lines whose tag starts with any of `tag_prefixes` — used when
+    the identity stops watching a target (left a role or project)."""
+    try:
+        names = os.listdir(_pending_dir)
+    except (OSError, TypeError):
+        return
+    for name in names:
+        if not _PENDING_RE.match(name):
+            continue
+        path = os.path.join(_pending_dir, name)
+        try:
+            with open(path, encoding="utf-8") as f:
+                line = f.read()
+            if line.startswith(tuple(tag_prefixes)):
                 os.remove(path)
+        except OSError:
+            pass
+
+
+def _requeue_claimed():
+    """Startup: put back lines a previous process claimed but may not have
+    delivered (died between claim and delete)."""
+    try:
+        names = os.listdir(_pending_dir)
+    except OSError:
+        return
+    for name in names:
+        if name.endswith(_CLAIMED_SUFFIX) and _PENDING_RE.match(name[:-len(_CLAIMED_SUFFIX)]):
+            try:
+                os.replace(os.path.join(_pending_dir, name),
+                           os.path.join(_pending_dir, name[:-len(_CLAIMED_SUFFIX)]))
             except OSError:
-                continue
-            if line:
-                _out(line)
+                pass
+
+
+def _emit_due_pending():
+    """Emit every due pending line, oldest first. Returns the next due time (ms)
+    still waiting, or None."""
+    next_due = None
+    try:
+        names = sorted(os.listdir(_pending_dir))
+    except OSError:
+        return None
+    now_ms = int(time.time() * 1000)
+    for name in names:
+        m = _PENDING_RE.match(name)
+        if not m:
+            continue
+        due = int(m.group(1))
+        if due > now_ms:
+            next_due = due if next_due is None else min(next_due, due)
+            continue
+        path = os.path.join(_pending_dir, name)
+        claimed = path + _CLAIMED_SUFFIX
+        try:
+            os.rename(path, claimed)    # loser of a race with another drainer skips
+            with open(claimed, encoding="utf-8") as f:
+                line = f.read()
+        except OSError:
+            continue
+        if line:
+            _out(line)
+        try:
+            os.remove(claimed)
+        except OSError:
+            pass
+    return next_due
+
+
+def _pending_emitter():
+    """Daemon thread: emit queued lines once their due time passes."""
+    _requeue_claimed()
+    while True:
+        _pending_wake.clear()      # before scanning: a line queued mid-scan re-wakes us
+        try:
+            next_due = _emit_due_pending()
+        except Exception as e:
+            print("[role-file-watch] pending emitter error: %r" % (e,), file=sys.stderr, flush=True)
+            next_due = None
+        now_ms = int(time.time() * 1000)
         wait = 5.0 if next_due is None else max(0.05, min(5.0, (next_due - now_ms) / 1000.0))
         _pending_wake.wait(wait)
-        _pending_wake.clear()
 
 
 def _change_phrase(kind, label):
