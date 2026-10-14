@@ -517,7 +517,9 @@ export function IdentityModal({
       open={open}
       onOpenChange={onOpenChange}
       hue={hue}
-      size="xl"
+      // The Desktop tab gets the large editor size so the agent's desktop
+      // is big enough to work in; every other tab keeps the normal size.
+      size={activeTab === "desktop" && desktopRunning ? "editor" : "xl"}
       className={cn("max-h-[90vh] flex flex-col", isMultiRole(identity) && "pv-multi-role")}
       dismissible={!desktopControl}
       data-testid="identity-modal"

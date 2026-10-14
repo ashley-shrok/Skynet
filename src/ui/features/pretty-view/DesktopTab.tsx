@@ -13,8 +13,14 @@
  * Take control: the backend writes the identity's control lease (the agent's
  * desktop tools pause) and issues an interactive token. While held, the tab
  * renews the lease every RENEW_MS; Hand back, hiding the tab, closing the
- * modal, or the stream dropping releases it. If none of that gets through
- * (tab killed), the lease lapses on its own 90s after the last renew.
+ * modal, or the stream dropping releases it (hiding/closing says so with a
+ * toast). If none of that gets through (tab killed), the lease lapses on its
+ * own 90s after the last renew.
+ *
+ * The agent's screen size is the agent's: the display runs with
+ * fixedRemoteSize, so neither watching nor control ever resizes it — the
+ * picture just scales to fill the body (the identity modal grows to its
+ * editor size while this tab is active, so the body has real room).
  *
  * The identity modal only shows this tab once useDesktopRunning
  * (use-desktop-running.ts) sees the desktop running.
@@ -183,24 +189,36 @@ export default function DesktopTab({
   const onControlChangeRef = useRef(onControlChange);
   onControlChangeRef.current = onControlChange;
 
-  /** Drop the lease if we hold it (fire and forget — it lapses on its own anyway). */
-  const releaseIfHeld = useCallback(() => {
-    if (!controlRef.current) return;
-    controlRef.current = false;
-    onControlChangeRef.current?.(false);
-    releaseDesktopControl(identityKey, hostId).catch(() => {});
-  }, [identityKey, hostId]);
+  /**
+   * Drop the lease if we hold it (fire and forget — it lapses on its own
+   * anyway). Returns whether there was one to drop.
+   */
+  const releaseIfHeld = useCallback(
+    (reason: string): boolean => {
+      if (!controlRef.current) return false;
+      controlRef.current = false;
+      onControlChangeRef.current?.(false);
+      console.info("[desktop-tab] control released", {
+        identityKey,
+        hostId,
+        reason,
+      });
+      releaseDesktopControl(identityKey, hostId).catch(() => {});
+      return true;
+    },
+    [identityKey, hostId],
+  );
 
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      releaseIfHeld();
+      releaseIfHeld("unmount");
     };
   }, [releaseIfHeld]);
 
   const connect = useCallback(async () => {
-    releaseIfHeld();
+    releaseIfHeld("reconnect-or-hand-back");
     setView({ status: "connecting" });
     try {
       const conn = await connectDesktop(identityKey, hostId);
@@ -229,7 +247,7 @@ export default function DesktopTab({
   useEffect(() => {
     if (isVisible) void connect();
     else {
-      releaseIfHeld();
+      if (releaseIfHeld("tab-hidden")) toast.info("Handed back to agent");
       setView({ status: "connecting" });
     }
   }, [isVisible, connect, releaseIfHeld]);
@@ -244,6 +262,11 @@ export default function DesktopTab({
       }
       controlRef.current = true;
       onControlChangeRef.current?.(true);
+      console.info("[desktop-tab] control taken", {
+        identityKey,
+        hostId,
+        geometry: conn.geometry,
+      });
       attemptRef.current += 1;
       setView({
         status: "live",
@@ -273,7 +296,7 @@ export default function DesktopTab({
 
   const onStreamLost = useCallback(() => {
     if (!mountedRef.current) return;
-    releaseIfHeld();
+    releaseIfHeld("stream-lost");
     setView({ status: "disconnected" });
   }, [releaseIfHeld]);
 
@@ -391,18 +414,11 @@ export default function DesktopTab({
         className="flex-1 min-h-0 relative"
         style={{
           background: "var(--bg-base, #111)",
-          // Give the body a real intrinsic size so the modal (h-auto under
-          // max-h-[90vh]) grows to accommodate the viewer. Without this the
-          // GuacamoleDisplay below is absolute-inset-0 inside a flex-1 that
-          // has no content → collapses to 0px, the stream connects fine but
-          // paints into a zero-size container. Aspect-ratio comes from the
-          // live geometry so a 1280×800 desktop lands at 1.6:1; min-height
-          // keeps the Notice placeholders readable before connect resolves.
-          ...(live && geoW && geoH
-            ? { aspectRatio: `${geoW} / ${geoH}` }
-            : {}),
+          // The identity modal has a fixed height while this tab is active
+          // (editor size; full screen on a phone), so flex-1 is real room —
+          // the display fills it and scales the desktop to fit. min-height
+          // is a floor so the display never paints into a zero-size box.
           minHeight: 240,
-          maxHeight: "70vh",
         }}
       >
         {view.status === "connecting" && (
@@ -445,6 +461,7 @@ export default function DesktopTab({
           <GuacamoleDisplay
             key={view.attempt}
             viewOnly={!view.control}
+            fixedRemoteSize
             isVisible={isVisible}
             connectionConfig={{
               token: view.token,

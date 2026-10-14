@@ -68,6 +68,14 @@ interface GuacamoleDisplayProps {
    * the token, which enforces the same thing server-side.
    */
   viewOnly?: boolean;
+  /**
+   * Never ask the remote to change its screen size — not on connect, not when
+   * the container resizes. The picture is only scaled to fit the container.
+   * For screens that belong to someone else (an agent's own desktop), where
+   * resizing would re-lay-out their windows and leave the viewer scaled for
+   * the old size.
+   */
+  fixedRemoteSize?: boolean;
 }
 
 const isDev = import.meta.env.DEV;
@@ -83,6 +91,7 @@ export const GuacamoleDisplay = forwardRef<
     onDisconnect,
     onError,
     viewOnly = false,
+    fixedRemoteSize = false,
   },
   ref,
 ) {
@@ -100,6 +109,8 @@ export const GuacamoleDisplay = forwardRef<
   );
   const [isReady, setIsReady] = useState(false);
   const [hasError, setHasError] = useState(false);
+  const fixedRemoteSizeRef = useRef(fixedRemoteSize);
+  fixedRemoteSizeRef.current = fixedRemoteSize;
 
   useImperativeHandle(ref, () => ({
     disconnect: () => {
@@ -265,6 +276,13 @@ export const GuacamoleDisplay = forwardRef<
         const scale = Math.min(cWidth / displayWidth, cHeight / displayHeight);
         scaleRef.current = scale;
         display.scale(scale);
+        if (fixedRemoteSizeRef.current) {
+          console.info("[guacamole] rescale (fixed remote size)", {
+            remote: `${displayWidth}x${displayHeight}`,
+            container: `${cWidth}x${cHeight}`,
+            scale: Number(scale.toFixed(3)),
+          });
+        }
       }
     };
 
@@ -385,7 +403,7 @@ export const GuacamoleDisplay = forwardRef<
           isConnectingRef.current = false;
           setIsReady(true);
           onConnect?.();
-          if (containerRef.current) {
+          if (!fixedRemoteSizeRef.current && containerRef.current) {
             const { width, height } = measureVisibleSize(containerRef.current);
             const w = Math.round(width);
             const h = Math.round(height);
@@ -543,6 +561,11 @@ export const GuacamoleDisplay = forwardRef<
     if (!containerRef.current) return;
 
     const resizeObserver = new ResizeObserver(() => {
+      // Fixed-size remote: only the picture's scale follows the container.
+      if (fixedRemoteSizeRef.current) {
+        rescaleDisplay(false);
+        return;
+      }
       if (resizeTimeoutRef.current) clearTimeout(resizeTimeoutRef.current);
       resizeTimeoutRef.current = setTimeout(() => {
         if (clientRef.current && containerRef.current) {

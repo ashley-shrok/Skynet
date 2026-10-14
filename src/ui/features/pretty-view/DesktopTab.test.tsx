@@ -23,8 +23,12 @@ vi.mock("@/api/workspace-desktop-api", () => ({
 }));
 
 const toastError = vi.fn();
+const toastInfo = vi.fn();
 vi.mock("sonner", () => ({
-  toast: { error: (...a: unknown[]) => toastError(...a) },
+  toast: {
+    error: (...a: unknown[]) => toastError(...a),
+    info: (...a: unknown[]) => toastInfo(...a),
+  },
 }));
 
 // Stand-in for the Guacamole canvas: records its props and exposes the callbacks.
@@ -41,6 +45,7 @@ import DesktopTab from "./DesktopTab";
 function lastDisplay() {
   return displayProps[displayProps.length - 1] as {
     viewOnly: boolean;
+    fixedRemoteSize?: boolean;
     connectionConfig: {
       token: string;
       protocol: string;
@@ -59,7 +64,9 @@ beforeEach(() => {
   renewDesktopControl.mockReset().mockResolvedValue({ ok: true });
   releaseDesktopControl.mockReset().mockResolvedValue({ ok: true });
   toastError.mockReset();
+  toastInfo.mockReset();
   displayProps.length = 0;
+  vi.spyOn(console, "info").mockImplementation(() => {});
 });
 
 describe("DesktopTab", () => {
@@ -74,6 +81,8 @@ describe("DesktopTab", () => {
     expect(connectDesktop).toHaveBeenCalledWith("alice", 7);
     const p = lastDisplay();
     expect(p.viewOnly).toBe(true);
+    // The agent's screen size is never the viewer's to change.
+    expect(p.fixedRemoteSize).toBe(true);
     expect(p.connectionConfig).toEqual({
       token: "tok",
       protocol: "vnc",
@@ -171,6 +180,7 @@ describe("DesktopTab", () => {
         await screen.findByTestId("desktop-in-control");
         expect(takeDesktopControl).toHaveBeenCalledWith("alice", 7);
         expect(lastDisplay().viewOnly).toBe(false);
+        expect(lastDisplay().fixedRemoteSize).toBe(true);
         expect(lastDisplay().connectionConfig.token).toBe("drive");
         expect(onControlChange).toHaveBeenLastCalledWith(true);
 
@@ -214,6 +224,44 @@ describe("DesktopTab", () => {
       await screen.findByTestId("desktop-in-control");
       unmount();
       expect(releaseDesktopControl).toHaveBeenCalledWith("alice", 7);
+    });
+
+    it("says it handed back when the tab is hidden while in control", async () => {
+      connectDesktop.mockResolvedValue(view);
+      takeDesktopControl.mockResolvedValue(drive);
+      const onControlChange = vi.fn();
+      const { rerender } = render(
+        <DesktopTab
+          identityKey="alice"
+          hostId={7}
+          isVisible
+          onControlChange={onControlChange}
+        />,
+      );
+      fireEvent.click(await screen.findByTestId("desktop-take-control"));
+      await screen.findByTestId("desktop-in-control");
+      rerender(
+        <DesktopTab
+          identityKey="alice"
+          hostId={7}
+          isVisible={false}
+          onControlChange={onControlChange}
+        />,
+      );
+      expect(releaseDesktopControl).toHaveBeenCalledWith("alice", 7);
+      expect(onControlChange).toHaveBeenLastCalledWith(false);
+      expect(toastInfo).toHaveBeenCalledWith("Handed back to agent");
+    });
+
+    it("says nothing when the tab is hidden while only watching", async () => {
+      connectDesktop.mockResolvedValue(view);
+      const { rerender } = render(
+        <DesktopTab identityKey="alice" hostId={7} isVisible />,
+      );
+      await screen.findByTestId("guac-display");
+      rerender(<DesktopTab identityKey="alice" hostId={7} isVisible={false} />);
+      expect(releaseDesktopControl).not.toHaveBeenCalled();
+      expect(toastInfo).not.toHaveBeenCalled();
     });
 
     it("releases when the stream drops while in control", async () => {

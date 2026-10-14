@@ -968,14 +968,28 @@ crown, then gear.
   (desktop only), **Archive**. Drag = see § Drag & drop (drop lane,
   filing into sidebar sections).
 
-- **Identity modal (click the badge).** Three tabs:
-  - **Identity file** — view and edit the identity's own `<name>.md`.
+- **Identity modal (click the badge).** Three tabs, plus two that appear
+  only when there's something to show:
+  - **Agent file** — view and edit the identity's own `<name>.md`.
   - **Wake-ups** — view the identity's scheduled wake-ups (§ Scheduled
     wake-ups).
   - **Files** — full workspace explorer for the identity's `workspace/`
     folder: browse, download, upload, create files and folders, and
     edit files inline in the modal for supported types (text, code,
     etc.).
+  - **Git** (only when the workspace holds a git repo) — read-only view
+    of each repo: branch, sync state, changed files, history, diffs.
+    Nothing in it changes a repo.
+  - **Desktop** (only while the agent's virtual desktop is running) — a
+    live view of the agent's own desktop. Picking this tab grows the
+    modal to its large size so the desktop is big enough to work in;
+    other tabs shrink it back. The picture scales to fit and never
+    resizes the agent's screen. It starts **View only**; **Take control**
+    hands the user's mouse and keyboard to the desktop and pauses the
+    agent's own desktop input (Esc then goes to the desktop, not the
+    modal). **Hand back to agent** returns it; leaving the tab or closing
+    the modal hands back too, with a "Handed back to agent" note.
+    *Agent-side:* see the `desktop` skill (§ If the user takes control).
 
 - **Role modal (jump to via the identity modal header, or from the
   drama-masks icon in the footer → click a role).** Three tabs:
