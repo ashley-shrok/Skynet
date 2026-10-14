@@ -17,7 +17,7 @@ The Desktop tab in an agent's identity modal is where Ashley watches, and can ta
 
 ## Shapes
 
-- **[declared] shape-desktop-tab-usable** — expand-to-full-window view + take control that keeps the screen intact and the pointer accurate — in_progress
+- **[declared] shape-desktop-tab-usable** — identity modal grows for the Desktop tab + take control that keeps the screen intact and the pointer accurate — closed
 - **[discovered] shape-desktop-copy-paste** — copy-paste between Ashley's computer and the agent's desktop while in control, both directions (added by Ashley 2026-10-14) — not started
 
 ## Other work

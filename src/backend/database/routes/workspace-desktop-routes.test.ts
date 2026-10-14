@@ -411,6 +411,7 @@ describe("/workspace/desktop with agent-desktop installed", () => {
       expect(tok?.connection.type).toBe("vnc");
       const s = tok!.connection.settings;
       expect(s["read-only"]).toBe(true);
+      expect(s["disable-display-resize"]).toBe(true);
       expect(s.password).toBe(
         fs
           .readFileSync(
@@ -457,6 +458,7 @@ describe("/workspace/desktop with agent-desktop installed", () => {
         take.body.token,
       );
       expect(tok!.connection.settings["read-only"]).toBe(false);
+      expect(tok!.connection.settings["disable-display-resize"]).toBe(true);
       expect(JSON.parse(fs.readFileSync(lock, "utf8")).by).toBe("user-A");
       expect(
         (await post("/status", { identityKey: "alice", hostId: 7 })).body

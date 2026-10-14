@@ -182,6 +182,14 @@ export function IdentityModal({
   const desktopRunning = useDesktopRunning(identity.identityKey, hostId, open);
   // While the user drives the desktop, Esc belongs to it, not to the modal.
   const [desktopControl, setDesktopControl] = useState(false);
+  // Reopening on a remembered Desktop tab would show an empty, large modal
+  // until the desktop status comes back (it resets on close) — reopen on the
+  // agent file instead. Adjusted during render so the first frame is right.
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open && activeTab === "desktop") setActiveTab("identity");
+  }
   const NAV_SECTIONS = [
     { value: "identity", label: "Agent file", Icon: User },
     { value: "identity-wakeups", label: "Wake-ups", Icon: AlarmClock },
@@ -519,7 +527,7 @@ export function IdentityModal({
       hue={hue}
       // The Desktop tab gets the large editor size so the agent's desktop
       // is big enough to work in; every other tab keeps the normal size.
-      size={activeTab === "desktop" && desktopRunning ? "editor" : "xl"}
+      size={activeTab === "desktop" ? "editor" : "xl"}
       className={cn("max-h-[90vh] flex flex-col", isMultiRole(identity) && "pv-multi-role")}
       dismissible={!desktopControl}
       data-testid="identity-modal"

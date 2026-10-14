@@ -408,6 +408,9 @@ async function issueConnection(
       port: tunnel.port,
       // Watching: guacd drops all input server-side.
       "read-only": !interactive,
+      // The agent's screen size is the agent's: guacd never forwards a
+      // viewer's size (handshake or later) to Xvnc, which would accept it.
+      "disable-display-resize": true,
       "color-depth": 24,
     },
   );
