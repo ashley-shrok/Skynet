@@ -38,6 +38,7 @@ const EDITOR_IMPORT_ALLOWLIST: Record<string, string> = {
   "features/pretty-view/PreferencesAboutYouPane.tsx": "operator-whitelisted global Markdown files",
   "features/pretty-view/AddWakeupDialog.tsx": "wake-up prompt Markdown field",
   "features/pretty-conversations/ProjectFileTab.tsx": "fixed project.md",
+  "features/admin/AdminInstanceFilePane.tsx": "fixed instance CLAUDE.md",
 };
 
 function listUiSources(): string[] {

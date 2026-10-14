@@ -49,7 +49,7 @@ When a message reaches a Claude session after the conversation has been silent f
 
 - Implementing identity: echo-box-maintainer-3 (box-maintainer role), in its own Skynet tree.
 - Follow the task-line reminder end to end as the pattern: its script in the substrate scripts folder, its entry in the distributor catalog, and the bootstrap step that registers it in each box's Claude Code settings for the every-incoming-message event.
-- Usual box-maintainer gates apply: scoped tests during development; no push or deploy without Ashley's explicit greenlight.
+- Usual box-maintainer gates apply: scoped tests during development; no push or deploy without the user's explicit greenlight.
 
 ---
 
