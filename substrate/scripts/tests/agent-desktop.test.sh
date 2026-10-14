@@ -188,6 +188,22 @@ test_run_launches_app() {
   if kill -0 "$pid" 2>/dev/null; then pass test_run_detached_alive; kill "$pid"; else fail test_run_detached_alive "pid $pid not running"; fi
 }
 
+# A host's graphical login leaks WAYLAND_DISPLAY into agent sessions; apps
+# started on the desktop must not see it or they draw on the host's screen.
+test_run_strips_wayland() {
+  local envfile="$FIXTURE/run-env.txt" out
+  rm -f "$envfile"
+  out="$(WAYLAND_DISPLAY=wayland-0 XDG_SESSION_TYPE=wayland FLEET_IDENTITY=alice \
+    agent-desktop run -- sh -c "env > '$envfile'")"
+  local i
+  for i in $(seq 1 20); do [ -s "$envfile" ] && break; sleep 0.1; done
+  if grep -q '^WAYLAND_DISPLAY=' "$envfile" 2>/dev/null; then
+    fail test_run_strips_wayland_display "$(grep '^WAYLAND_DISPLAY=' "$envfile")"
+  else pass test_run_strips_wayland_display; fi
+  assert_eq test_run_session_type_x11 XDG_SESSION_TYPE=x11 "$(grep '^XDG_SESSION_TYPE=' "$envfile")"
+  assert_eq test_run_display_set DISPLAY=:700 "$(grep '^DISPLAY=' "$envfile")"
+}
+
 test_mcp_actions_and_control_lock() {
   local lock="$FIXTURE/fleet/identities/alice/desktop/control-lock"
   local call='{"jsonrpc":"2.0","id":%d,"method":"tools/call","params":{"name":"%s","arguments":%s}}'
@@ -269,7 +285,7 @@ test_browser_tools_cold_then_cached() {
 test_browser_call_runs_on_desktop() {
   local lock="$FIXTURE/fleet/identities/alice/desktop/control-lock" out pid
   : > "$FAKE_PW_PIDFILE"
-  out="$(FLEET_IDENTITY=alice "$SESSION" "$MCP" init \
+  out="$(WAYLAND_DISPLAY=wayland-0 XDG_SESSION_TYPE=wayland FLEET_IDENTITY=alice "$SESSION" "$MCP" init \
     'call:browser_navigate:{"url":"https://example.com"}' \
     "touch:$lock" \
     'call:browser_navigate:{"url":"https://example.org"}' \
@@ -279,6 +295,8 @@ test_browser_call_runs_on_desktop() {
   echo1="$(sed -n 2p <<<"$out" | jq -r '.content[0].text')"
   assert_eq test_browser_call_forwarded https://example.com "$(jq -r .arguments.url <<<"$echo1")"
   assert_eq test_browser_child_on_identity_display :700 "$(jq -r .display <<<"$echo1")"
+  assert_eq test_browser_child_no_wayland null "$(jq -r .wayland_display <<<"$echo1")"
+  assert_eq test_browser_child_session_x11 x11 "$(jq -r .session_type <<<"$echo1")"
   assert_eq test_browser_profile_per_identity "$FIXTURE/fleet/identities/alice/desktop/browser-profile" \
     "$(jq -r '.argv as $a | $a[($a | index("--user-data-dir")) + 1]' <<<"$echo1")"
   case "$(sed -n 3p <<<"$out" | jq -r '.content[0].text')" in
@@ -310,6 +328,7 @@ if [ "$HAVE_X" = 1 ]; then
   test_up_allocates_stable_unique_displays
   test_down_then_up_keeps_display
   test_run_launches_app
+  test_run_strips_wayland
   test_mcp_actions_and_control_lock
   test_browser_call_runs_on_desktop
 else

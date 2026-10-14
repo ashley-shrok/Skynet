@@ -216,6 +216,20 @@ USER_HAS_CONTROL = (
 )
 
 
+def x11_env(display):
+    """Environment for anything that must draw on the agent's desktop.
+
+    A session started from a host's graphical login inherits WAYLAND_DISPLAY,
+    and Chromium prefers Wayland when it is set — the browser would open on
+    the host's real screen instead of the agent's Xvnc display.
+    """
+    env = dict(os.environ)
+    env.pop("WAYLAND_DISPLAY", None)
+    env["XDG_SESSION_TYPE"] = "x11"
+    env["DISPLAY"] = display
+    return env
+
+
 class ToolError(Exception):
     pass
 
@@ -250,9 +264,7 @@ class Desktop:
         self.width, self.height = int(geo[0]), int(geo[1])
 
     def _env(self):
-        env = dict(os.environ)
-        env["DISPLAY"] = self.display or ""
-        return env
+        return x11_env(self.display or "")
 
     def _xdotool(self, *args, check=True):
         proc = subprocess.run(
@@ -460,8 +472,7 @@ class BrowserBridge:
             ]
             + (["--executable-path", BROWSER_EXECUTABLE] if BROWSER_EXECUTABLE else [])
         )
-        env = dict(os.environ)
-        env["DISPLAY"] = desktop.display
+        env = x11_env(desktop.display)
         workspace = os.path.join(os.path.expanduser("~"), "fleet", "identities", desktop.identity, "workspace")
         self.child = McpChild(
             argv,

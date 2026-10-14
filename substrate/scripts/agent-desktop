@@ -189,7 +189,22 @@ ensure_deps() {
     SUDO="sudo -n"
   fi
   printf 'agent-desktop: installing desktop packages (one-time)...\n' >&2
-  if command -v apt-get >/dev/null 2>&1; then
+  if [ -e /run/ostree-booted ] && command -v rpm-ostree >/dev/null 2>&1; then
+    # Image-based Fedora (Bazzite, Bluefin, Silverblue): /usr is read-only and
+    # dnf can't install. Layer only what's missing — rpm-ostree refuses a
+    # package the base image already ships — and apply live, no reboot.
+    local pkgs=() m
+    for m in $missing; do
+      case "$m" in
+        Xvnc|vncpasswd) pkgs+=(tigervnc-server) ;;
+        openbox) pkgs+=(openbox) ;;
+        xdotool) pkgs+=(xdotool) ;;
+        import) pkgs+=(ImageMagick) ;;
+      esac
+    done
+    # shellcheck disable=SC2046
+    $SUDO rpm-ostree install --idempotent --apply-live $(printf '%s\n' "${pkgs[@]}" | sort -u) >/dev/null 2>&1
+  elif command -v apt-get >/dev/null 2>&1; then
     DEBIAN_FRONTEND=noninteractive $SUDO apt-get install -y -q --no-install-recommends \
       tigervnc-standalone-server tigervnc-tools openbox xdotool imagemagick x11-xserver-utils >/dev/null 2>&1
   elif command -v dnf >/dev/null 2>&1; then
@@ -395,7 +410,9 @@ cmd_run() {
   disp="$(cmd_up --identity "$identity" --quiet)" || exit 1
   disp="${disp#DISPLAY=}"
   # Detached + own session: the app outlives the agent's Bash tool call.
-  DISPLAY="$disp" setsid nohup "$@" >>"$STATE_DIR/apps.log" 2>&1 < /dev/null &
+  # Drop WAYLAND_DISPLAY: inherited from a host's graphical login, it makes
+  # Wayland-capable apps draw on the host's real screen instead of this one.
+  env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 DISPLAY="$disp" setsid nohup "$@" >>"$STATE_DIR/apps.log" 2>&1 < /dev/null &
   local pid=$!
   disown 2>/dev/null || true
   printf 'started pid %s on DISPLAY=%s\n' "$pid" "$disp"
