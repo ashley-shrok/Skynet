@@ -22,6 +22,8 @@ type FakeClient = {
   onfile: unknown;
 };
 const clients: FakeClient[] = [];
+type FakeMouse = { onmousemove: ((s: unknown) => void) | null };
+const mice: FakeMouse[] = [];
 
 vi.mock("guacamole-common-js", () => {
   class Client {
@@ -58,7 +60,18 @@ vi.mock("guacamole-common-js", () => {
     onkeyup = null;
     reset() {}
   }
-  const Mouse = Object.assign(Noop, { State: class {} });
+  class MouseImpl extends Noop {
+    constructor() {
+      super();
+      mice.push(this as unknown as FakeMouse);
+    }
+  }
+  class State {
+    constructor(...args: unknown[]) {
+      Object.assign(this, { args });
+    }
+  }
+  const Mouse = Object.assign(MouseImpl, { State });
   return {
     default: {
       Client,
@@ -90,6 +103,7 @@ let boxH = 700;
 
 beforeEach(() => {
   clients.length = 0;
+  mice.length = 0;
   resizeCallbacks.length = 0;
   boxW = 1120;
   boxH = 700;
@@ -162,5 +176,22 @@ describe("GuacamoleDisplay — remote screen size", () => {
     act(() => resizeCallbacks.forEach((cb) => cb()));
     await waitFor(() => expect(display.scale).toHaveBeenLastCalledWith(1.25));
     expect(c.sendSize).not.toHaveBeenCalled();
+  });
+
+  it("maps the pointer from where the picture actually is on screen, not from offset positions", async () => {
+    const c = await mount({ fixedRemoteSize: true, viewOnly: false });
+    const display = c.getDisplay();
+    act(() => display.onresize?.());
+    // Picture's on-screen box starts at (200, 100); scale is 0.875.
+    vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockImplementation(
+      () => ({ left: 200, top: 100, right: 1320, bottom: 800, width: 1120, height: 700 }) as DOMRect,
+    );
+    const el = display.getElement();
+    el.dispatchEvent(new MouseEvent("mousemove", { clientX: 550, clientY: 275 }));
+    // Guacamole's own offset-based position is wrong inside a transformed
+    // modal — it must not be what gets sent.
+    act(() => mice[0].onmousemove?.({ x: -999, y: -999, left: false }));
+    const sent = c.sendMouseState.mock.calls.at(-1)?.[0] as { args: unknown[] };
+    expect(sent.args.slice(0, 2)).toEqual([400, 200]);
   });
 });

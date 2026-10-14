@@ -352,11 +352,32 @@ export const GuacamoleDisplay = forwardRef<
 
     if (!viewOnly) {
       const mouse = new Guacamole.Mouse(displayElement);
+      // Guacamole.Mouse positions the pointer by summing offsetLeft/offsetTop
+      // up the offsetParent chain, which ignores CSS transforms — inside a
+      // modal centred with translate(-50%,-50%) every click landed offset by
+      // that translation. Record the real client position (capture phase, so
+      // before Guacamole.Mouse's own handlers) and measure it against the
+      // display's on-screen box instead.
+      const lastClient = { x: NaN, y: NaN };
+      const recordPointer = (e: MouseEvent) => {
+        lastClient.x = e.clientX;
+        lastClient.y = e.clientY;
+      };
+      for (const type of ["mousemove", "mousedown", "mouseup", "wheel"]) {
+        displayElement.addEventListener(type, recordPointer as EventListener, true);
+      }
       const sendMouseState = (state: Guacamole.Mouse.State) => {
         displayElement.focus({ preventScroll: true });
         const scale = scaleRef.current;
-        const adjustedX = Math.round(state.x / scale);
-        const adjustedY = Math.round(state.y / scale);
+        let x = state.x;
+        let y = state.y;
+        if (Number.isFinite(lastClient.x)) {
+          const rect = displayElement.getBoundingClientRect();
+          x = lastClient.x - rect.left;
+          y = lastClient.y - rect.top;
+        }
+        const adjustedX = Math.round(x / scale);
+        const adjustedY = Math.round(y / scale);
 
         const adjustedState = new Guacamole.Mouse.State(
           adjustedX,
