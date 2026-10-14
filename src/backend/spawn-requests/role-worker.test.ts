@@ -161,7 +161,7 @@ function makeDeps(overrides: Partial<RoleWorkerDeps> = {}): RoleWorkerDeps & {
     })),
     getHostOwnerUserId: vi.fn(async () => "owner-id"),
     isHostMultiUser: vi.fn(async () => false),
-    getUsernameForUserId: vi.fn(async () => "Ashley"),
+    getUsernameForUserId: vi.fn(async () => "Alice"),
     isLocalHostId: vi.fn(() => true),
     randomHue: () => 123,
     now: () => new Date("2026-10-11T01:02:03Z"),
@@ -251,7 +251,7 @@ describe("processRoleRequest", () => {
     const deps = makeDeps({ isHostMultiUser: vi.fn(async () => true) });
     await processRoleRequest(makeItem(), deps);
     expect(deps.getUsernameForUserId).toHaveBeenCalledWith("owner-id");
-    expect(vi.mocked(deps.createRoleOnHost).mock.calls[0][1].users).toEqual(["Ashley"]);
+    expect(vi.mocked(deps.createRoleOnHost).mock.calls[0][1].users).toEqual(["Alice"]);
   });
 
   it("returns the auto-suffixed slug when the base name was taken", async () => {

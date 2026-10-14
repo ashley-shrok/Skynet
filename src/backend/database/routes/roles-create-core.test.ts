@@ -90,11 +90,11 @@ describe("createRoleOnHost (local)", () => {
   it("writes users: when given", async () => {
     await createRoleOnHost(
       null,
-      { baseSlug: "x-role", displayName: "X Role", description: "d", users: ["Ashley"] },
+      { baseSlug: "x-role", displayName: "X Role", description: "d", users: ["Alice"] },
       LOG,
     );
     const md = await fs.readFile(path.join(rolesDir, "x-role", "x-role.md"), "utf-8");
-    expect(frontmatterOf(md).users).toEqual(["Ashley"]);
+    expect(frontmatterOf(md).users).toEqual(["Alice"]);
   });
 
   it("removes the folder when the avatar write fails", async () => {

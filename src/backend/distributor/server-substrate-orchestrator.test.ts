@@ -863,6 +863,9 @@ describe("getHostSweepStatus (admin Hosts overview)", () => {
     const orch = createServerSubstrateOrchestrator(deps);
     await orch.start();
     expect(orch.getHostSweepStatus("h1")!.lastError).toBe("couldn't connect over SSH");
+    orch.stop();
+  });
+});
 
 describe("Harness reconciler wiring", () => {
   function makeHarness() {

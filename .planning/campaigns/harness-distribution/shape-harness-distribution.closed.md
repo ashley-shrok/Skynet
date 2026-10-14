@@ -90,10 +90,10 @@ is moved to the pin. Changing the pin and deploying Skynet moves the whole fleet
 
 ## Vehicle notes
 
-Inline, worked directly in this session by callisto-box-maintainer-2 (Ashley is evaluating model
+Inline, worked directly in this session by callisto-box-maintainer-2 (the user is evaluating model
 performance and wants it worked through inline rather than via GSD). Track pieces with harness
 tasks. Scoped tests during development; full suite only as the deploy gate. Code motion only —
-push and deploy each need Ashley's explicit greenlight. No id-skill change is needed (nothing
+push and deploy each need the user's explicit greenlight. No id-skill change is needed (nothing
 user-facing in the app changes). Campaign artifact sits alongside this file.
 
 ---
@@ -102,7 +102,7 @@ user-facing in the app changes). Campaign artifact sits alongside this file.
 
 **Closed:** 2026-10-09
 **Vehicle used:** inline (one commit on feat/tab-title-from-tmux by callisto-box-maintainer-2; nothing pushed or deployed at close time)
-**Overall verdict:** closed-hit (initially closed-partial; all three additions and the retry-alert drift endorsed by Ashley)
+**Overall verdict:** closed-hit (initially closed-partial; all three additions and the retry-alert drift endorsed by the user)
 
 ### Shape features (conformance)
 
@@ -111,7 +111,7 @@ user-facing in the app changes). Campaign artifact sits alongside this file.
 - **The install** — present · Over the sweep's own login (same user, no root), Anthropic's installer for exactly the pin, verified afterwards; runs alongside the sweep, one attempt per host at a time.
 - **t1000 (Skynet's own box)** — present · Cheap check through the shared home, else the box's own service manager runs the same script as a one-off job for the box user.
 - **Cleanup of old versions** — present · After a successful move only; keeps pin + previous; deletes only version-named items.
-- **Retry on failure** — drifted (endorsed) · Backoff 2 min doubling to 1 h; a separate harness-only "keeps failing" alert at three in a row instead of feeding the existing sweep alert — Ashley kept it.
+- **Retry on failure** — drifted (endorsed) · Backoff 2 min doubling to 1 h; a separate harness-only "keeps failing" alert at three in a row instead of feeding the existing sweep alert — the user kept it.
 - **When it runs** — present · After each sweep at startup, on retry ticks, and on host add; converged hosts not rechecked until restart.
 - **Visibility** — present · Logs only: wanted, found, action, reason, pruned.
 - **Philosophy: never ship harness bytes** — present

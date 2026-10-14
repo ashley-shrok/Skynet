@@ -578,12 +578,12 @@ describe("parseSessionLine — relay detection (Phase 17 / RELAYBUB-01, RELAYBUB
 
   it("Test 6: inbound-happy-path — recv.sh event line emits kind:relay_inbound", () => {
     const body = "banana banana banana";
-    const content = `<task-notification>[room !ROOMID:server] [@ashley:server] (event $EVID): ${body}</event></task-notification>`;
+    const content = `<task-notification>[room !ROOMID:server] [@alice:server] (event $EVID): ${body}</event></task-notification>`;
     const parsed = parseSessionLine(taskNotificationTurn(content));
     expect(parsed.kind).toBe("relay_inbound");
     if (parsed.kind !== "relay_inbound") throw new Error("unreachable");
     expect(parsed.room).toBe("!ROOMID:server");
-    expect(parsed.sender).toBe("@ashley:server");
+    expect(parsed.sender).toBe("@alice:server");
     expect(parsed.matrixEventId).toBe("$EVID");
     expect(parsed.body).toBe(body);
     expect(parsed.eventId).toBe("relay-in-1");
@@ -1695,7 +1695,7 @@ describe("parseSessionLine — new-harness <pasted_content> envelopes", () => {
 
   it("pasted-wrapped recv.sh relay line on a human-origin user turn emits relay_inbound", () => {
     const body = "banana banana";
-    const inner = `<task-notification>[room !R:server] [@ashley:server] (event $E): ${body}</event></task-notification>`;
+    const inner = `<task-notification>[room !R:server] [@alice:server] (event $E): ${body}</event></task-notification>`;
     const parsed = parseSessionLine(
       line({
         type: "user",
@@ -1808,7 +1808,7 @@ describe("resolveOutboundRoom", () => {
   });
 
   it("computed or missing assignment passes through unchanged", () => {
-    expect(resolveOutboundRoom("$RID", `RID=$(cat "$R/ashley-room"); ${send("$RID")}`)).toBe("$RID");
+    expect(resolveOutboundRoom("$RID", `RID=$(cat "$R/alice-room"); ${send("$RID")}`)).toBe("$RID");
     expect(resolveOutboundRoom("$RID", send("$RID"))).toBe("$RID");
   });
 
