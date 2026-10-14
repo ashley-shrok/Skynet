@@ -4534,12 +4534,17 @@ export function PrettyView({
               container's geometry is measurable during the landing window.
               Per shape-pv-autoscroll-rewrite.md § Mount landing LOCKED. */}
           <div style={{ visibility: revealed ? "visible" : "hidden" }}>
+          {/* Header clearance: the badge / task pill / mobile back button float
+              over the top of this scroll container (absolute top-4, badge
+              ~66px tall). Always-present spacer so the first bubble starts
+              below them — load-older is absent on a fresh conversation, so it
+              can't be what provides the gap. */}
+          <div data-testid="pv-header-clearance" aria-hidden="true" style={{ height: 80 }} />
           <LoadMoreOlderButton
             hasOlder={hasOlderMessages}
             status={loadOlderState}
             error={loadOlderError}
             onClick={handleLoadOlder}
-            className="mt-10"
           />
           {/* Phase 43 (plan 43-07a): plain-DOM message rendering. Every entry
               in messages[] is a real in-flow child of the outer scroll
