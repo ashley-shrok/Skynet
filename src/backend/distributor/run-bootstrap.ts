@@ -35,6 +35,9 @@
  *        - hooks.UserPromptSubmit contains a "task-field-check" entry (nudges
  *          agents whose identity file's `task:` field is still "Untitled
  *          conversation" — see substrate/scripts/task-field-check.sh)
+ *        - hooks.UserPromptSubmit contains a "resume-gap-notice" entry (tells
+ *          a session how long it has been since its last activity when the
+ *          gap is 30+ minutes — see substrate/scripts/resume-gap-notice.sh)
  *        - hooks.PreToolUse contains an "allow-all-tools" entry with NO
  *          matcher — universal auto-allow that eliminates residual permission
  *          prompts the harness's --dangerously-skip-permissions flag doesn't
@@ -266,9 +269,11 @@ function logRolesKeyMigration(
  * shell. Local jq invocation must NOT expand it either (pass the expression
  * as an argv arg, not through a shell).
  *
- * Currently sets twelve keys total: six simple flags/env vars, plus six
+ * Currently sets thirteen keys total: six simple flags/env vars, plus seven
  * hook entries under .hooks —
  *   - task-field-check on UserPromptSubmit (identity `task:` placeholder nudge).
+ *   - resume-gap-notice on UserPromptSubmit (time-since-last-activity note
+ *     when a session receives a message after a 30+ minute gap).
  *   - allow-all-tools on PreToolUse (fleet-wide auto-allow — no matcher,
  *     fires for every tool; completes "no prompts, ever" by overriding the
  *     harness's residual circuit-breaker that survives
@@ -290,6 +295,7 @@ export const SETTINGS_MERGE_JQ =
   `  | .crossSessionInbound = "refuse"` +
   `  | .hooks = ((.hooks // {})` +
   `      | .UserPromptSubmit = ((.UserPromptSubmit // []) | if any(.[]?.hooks[]?.command // ""; test("task-field-check")) then . else . + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/task-field-check"}]}] end)` +
+  `      | .UserPromptSubmit = ((.UserPromptSubmit // []) | if any(.[]?.hooks[]?.command // ""; test("resume-gap-notice")) then . else . + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/resume-gap-notice"}]}] end)` +
   `      | .UserPromptSubmit = ((.UserPromptSubmit // []) | if any(.[]?.hooks[]?.command // ""; test("self-edit-baseline-sync")) then . else . + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/self-edit-baseline-sync"}]}] end)` +
   `      | .PreToolUse = ((.PreToolUse // []) | if any(.[]?.hooks[]?.command // ""; test("allow-all-tools")) then . else . + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/allow-all-tools"}]}] end)` +
   `      | .PreToolUse = ((.PreToolUse // []) | if any(.[]?.hooks[]?.command // ""; test("self-edit-baseline-sync")) then . else . + [{"matcher":"Write|Edit|MultiEdit|NotebookEdit|Bash","hooks":[{"type":"command","command":"$HOME/.local/bin/self-edit-baseline-sync"}]}] end)` +
@@ -306,6 +312,7 @@ export const SETTINGS_CHECK_JQ =
   `  and (.env.DISABLE_AUTOUPDATER == "1")` +
   `  and (.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS == "1")` +
   `  and ((.hooks.UserPromptSubmit // []) | any(.[]?.hooks[]?.command // ""; test("task-field-check")))` +
+  `  and ((.hooks.UserPromptSubmit // []) | any(.[]?.hooks[]?.command // ""; test("resume-gap-notice")))` +
   `  and ((.hooks.PreToolUse // []) | any(.[]?.hooks[]?.command // ""; test("allow-all-tools")))` +
   `  and ((.hooks.UserPromptSubmit // []) | any(.[]?.hooks[]?.command // ""; test("self-edit-baseline-sync")))` +
   `  and ((.hooks.PreToolUse // []) | any(.[]?.hooks[]?.command // ""; test("self-edit-baseline-sync")))` +
@@ -711,6 +718,10 @@ export async function runBootstrapForHost(
   //             conversation"). Match on the string "task-field-check" in the
   //             command so future path re-organizations don't invalidate the
   //             idempotency check.
+  //           - hooks.UserPromptSubmit contains an entry that runs
+  //             $HOME/.local/bin/resume-gap-notice (tells the session how long
+  //             since its last activity after a 30+ minute gap). Match on the
+  //             string "resume-gap-notice" for the same idempotency reason.
   //           - hooks.PreToolUse contains an entry that runs
   //             $HOME/.local/bin/allow-all-tools with NO matcher (universal
   //             auto-allow for every tool call). Match on the string

@@ -675,6 +675,7 @@ describe("BR2 — bootstrap patches settings.json + runs gsd-context-monitor cle
         (g.hooks ?? []).map((h) => h.command),
     );
     expect(upsCommands).toContain("$HOME/.local/bin/task-field-check");
+    expect(upsCommands).toContain("$HOME/.local/bin/resume-gap-notice");
     // allow-all-tools PreToolUse hook — universal auto-allow. The entry
     // has NO matcher field (fires for every tool call). Verify the
     // command is present AND the entry group has no matcher key.
@@ -771,6 +772,39 @@ describe("BR2 — bootstrap patches settings.json + runs gsd-context-monitor cle
     // Original hook preserved AND task-field-check appended.
     expect(upsCommands).toContain("/some/other/hook.sh");
     expect(upsCommands).toContain("$HOME/.local/bin/task-field-check");
+  });
+
+  it("settings.json missing only the resume-gap-notice hook → merge adds it once, preserving task-field-check, and a re-run is a no-op", async () => {
+    process.env.SKYNET_PUBLIC_URL = "https://skynet.example.com";
+    const claudeDir = path.join(tmpRoot, ".claude");
+    await fs.mkdir(claudeDir, { recursive: true });
+    const seed = {
+      hooks: {
+        UserPromptSubmit: [
+          { hooks: [{ type: "command", command: "$HOME/.local/bin/task-field-check" }] },
+        ],
+      },
+    };
+    await fs.writeFile(
+      path.join(claudeDir, "settings.json"),
+      JSON.stringify(seed, null, 2),
+    );
+
+    const { bootstrapFleetSubstrateLocally } = await importFresh();
+    expect((await bootstrapFleetSubstrateLocally(host)).settingsPatchOk).toBe(true);
+    expect((await bootstrapFleetSubstrateLocally(host)).settingsPatchOk).toBe(true);
+
+    const parsed = JSON.parse(
+      await fs.readFile(path.join(claudeDir, "settings.json"), "utf-8"),
+    );
+    const upsCommands: string[] = parsed.hooks.UserPromptSubmit.flatMap(
+      (g: { hooks?: Array<{ command?: string }> }) =>
+        (g.hooks ?? []).map((h) => h.command),
+    );
+    expect(upsCommands).toContain("$HOME/.local/bin/task-field-check");
+    expect(
+      upsCommands.filter((c) => c === "$HOME/.local/bin/resume-gap-notice"),
+    ).toHaveLength(1);
   });
 
   it("settings.json has 6 keys but missing allow-all-tools hook → merge adds it while preserving other PreToolUse entries", async () => {

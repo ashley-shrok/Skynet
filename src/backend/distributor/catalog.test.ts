@@ -114,7 +114,9 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // 2026-10-09 with the usage meter — 134 → 131.
     // -1 for the role skill, retired 2026-10-09 with the role-history
     // retirement — 131 → 130.
-    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(130);
+    // +1 for resume-gap-notice (UserPromptSubmit hook — tells a session how
+    // long it has been since its last activity) — 130 → 131.
+    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(131);
   });
 
   it("Test 2: every bundled row's bundledPath starts with /app/fleet-substrate/skills/, /app/fleet-substrate/scripts/, or /app/fleet-substrate/user-onboarding/", () => {
@@ -266,8 +268,9 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // agent-desktop + desktop-mcp (per-identity virtual desktop: lifecycle
     // CLI + MCP server for screenshot/click/type tools) +
     // fleet-service (shared agent-services file-drop client) +
-    // stt (speech-to-text agent-services wrapper)
-    expect(scriptRows.length).toBe(18);
+    // stt (speech-to-text agent-services wrapper) +
+    // resume-gap-notice (UserPromptSubmit hook — time-since-last-activity note)
+    expect(scriptRows.length).toBe(19);
     // 4 user-onboarding files: agent-supervisor.service +
     // interactive-messages-gc.service + interactive-messages-gc.timer (Phase 140)
     // + scheduled-agents-scheduler.service (this ship: move
@@ -477,7 +480,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // +2 for stt (skill + helper) — 131 → 133.
     // -3 for the retired usage-reporter trio — 133 → 130.
     // -1 for the retired role skill — 130 → 129.
-    expect(bundled.length).toBe(129);
+    // +1 for resume-gap-notice helper — 129 → 130.
+    expect(bundled.length).toBe(130);
     expect(runtime.length).toBe(1);
 
     // Every bundled row retains bundledPath under /app/fleet-substrate/

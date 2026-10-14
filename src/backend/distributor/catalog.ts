@@ -456,6 +456,21 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     restartHook: null,
   },
 
+  // resume-gap-notice: UserPromptSubmit hook that tells a session how long
+  // it has been since its last activity (last assistant turn in the
+  // transcript) when that gap is 30 minutes or more — so a dormancy wake, a
+  // crash-recovery resume, or an always-on identity idle for days knows how
+  // long it was out. No FLEET_IDENTITY gate: fires in every session on the
+  // box. Wired via the run-bootstrap.ts settings.json patch. No restart
+  // hook — new bytes picked up on next fire.
+  {
+    slug: "resume-gap-notice",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/scripts/resume-gap-notice.sh",
+    installPath: "~/.local/bin/resume-gap-notice",
+    restartHook: null,
+  },
+
   // allow-all-tools: PreToolUse hook that unconditionally emits
   // permissionDecision:"allow" for every tool call. Completes fleet-wide
   // "no prompts, ever": --dangerously-skip-permissions covers most tool
