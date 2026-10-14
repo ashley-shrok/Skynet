@@ -38,8 +38,8 @@ import {
   Upload,
 } from "lucide-react";
 import {
+  RowKebabContextMenuSurface,
   RowKebabMenu,
-  useRowKebabContextMenu,
   type RowKebabMenuItem,
 } from "@/features/pretty-conversations/RowKebabMenu";
 import {
@@ -530,30 +530,6 @@ type ListState =
   | { status: "ready"; data: ListResponse }
   | { status: "error"; errorClass: string };
 
-/**
- * A file/folder row that opens its menu on right-click — the same items as
- * its ⋮, like rows everywhere else in the app. Phone long-press stays native.
- */
-function RowMenuSurface({
-  items,
-  children,
-  ...rest
-}: {
-  items: RowKebabMenuItem[];
-  children: ReactNode;
-  "data-testid"?: string;
-  "data-path"?: string;
-  "data-flash"?: string;
-} & React.HTMLAttributes<HTMLDivElement>) {
-  const ctx = useRowKebabContextMenu(items);
-  return (
-    <div {...rest} onContextMenu={ctx.onContextMenu}>
-      {children}
-      {ctx.menu}
-    </div>
-  );
-}
-
 /** How long "Show in folder" rings the item it landed on. */
 const FLASH_MS = 2000;
 
@@ -625,6 +601,10 @@ function WorkspaceListView({
   const searchActive = trimmedQuery.length > 0;
   /** Results replace the folder listing once the first search answers. */
   const showingResults = searchActive && searchData !== null;
+  /** The listing on screen is for the folder in the breadcrumb (not still the
+   *  previous folder's, mid-navigation). */
+  const listShowsCurrentFolder =
+    listState.status === "ready" && listState.data.path === currentPath.join("/");
 
   // D-05: fetch on mount + whenever path, target, hostId, or refreshKey changes
   useEffect(() => {
@@ -689,6 +669,7 @@ function WorkspaceListView({
   /** Go to a folder. Leaving the folder searched from ends the search. */
   function navigateTo(path: string[]) {
     clearSearch();
+    setFlashPath(null);
     onNavigate(path);
   }
 
@@ -701,20 +682,32 @@ function WorkspaceListView({
   // "Show in folder": once the folder's listing is on screen, scroll the item
   // into view, then drop the ring after a moment.
   useEffect(() => {
-    if (!flashPath || listState.status !== "ready" || showingResults) return;
+    if (!flashPath) return;
+    // The folder failed to load — drop the ring rather than let it fire on
+    // some later listing.
+    if (listState.status === "error") {
+      setFlashPath(null);
+      return;
+    }
+    if (!listShowsCurrentFolder || showingResults) return;
     const row = Array.from(
       listBodyRef.current?.querySelectorAll<HTMLElement>("[data-path]") ?? [],
     ).find((el) => el.dataset.path === flashPath);
     row?.scrollIntoView?.({ block: "nearest" });
     const timer = setTimeout(() => setFlashPath(null), FLASH_MS);
     return () => clearTimeout(timer);
-  }, [flashPath, listState, showingResults]);
+  }, [flashPath, listState, listShowsCurrentFolder, showingResults]);
 
   /** Go to the folder a search result lives in and point it out there. */
   function showInFolder(entry: WorkspaceEntry) {
-    const segments = entry.path.split("/");
+    const folder = entry.path.split("/").slice(0, -1);
+    if (folder.join("/") === currentPath.join("/")) {
+      // Already here — the listing is loaded; just end the search.
+      clearSearch();
+    } else {
+      navigateTo(folder);
+    }
     setFlashPath(entry.path);
-    navigateTo(segments.slice(0, -1));
   }
 
   /** The row menu — shared by the ⋮ button and right-click. */
@@ -1546,12 +1539,13 @@ function WorkspaceListView({
             // Keyed by path: results from different folders can share a name.
             const entryPath = pathOf(entry);
             const isRenaming = renamingFor === entryPath;
-            const flashing = flashPath === entryPath;
+            const flashing = flashPath === entryPath && !showingResults && listShowsCurrentFolder;
+            const menuItems = rowMenuItems(entry);
 
             return (
-              <RowMenuSurface
-                key={entryPath}
-                items={rowMenuItems(entry)}
+              // Right-click the row → the same menu as its ⋮.
+              <RowKebabContextMenuSurface key={entryPath} items={menuItems}>
+              <div
                 data-testid="workspace-row"
                 data-path={entryPath}
                 data-flash={flashing ? "" : undefined}
@@ -1721,15 +1715,16 @@ function WorkspaceListView({
                 </span>
 
                 {/* Row menu — the app's standard ⋮ menu; right-click on the
-                    row opens the same one (RowMenuSurface). */}
+                    row opens the same one. */}
                 <span style={{ display: "flex", justifyContent: "center" }}>
                   <RowKebabMenu
-                    items={rowMenuItems(entry)}
+                    items={menuItems}
                     ariaLabel={`Actions for ${entry.name}`}
                     testId="workspace-row-menu"
                   />
                 </span>
-              </RowMenuSurface>
+              </div>
+              </RowKebabContextMenuSurface>
             );
           })}
 

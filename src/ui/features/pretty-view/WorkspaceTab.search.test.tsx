@@ -376,6 +376,19 @@ describe("WorkspaceTab search", () => {
     expect(screen.queryByTestId("workspace-row-show-in-folder")).toBeNull();
   });
 
+  it("Rename from the ⋮ menu leaves the keyboard in the name box", async () => {
+    renderTab();
+    await screen.findByText("top.md");
+    const user = userEvent.setup();
+    await user.click(within(rowOf("top.md")).getByTestId("workspace-row-menu"));
+    await user.click(await screen.findByTestId("workspace-row-rename"));
+    const input = await screen.findByDisplayValue("top.md");
+    // Let the menu finish closing (it hands focus back on close).
+    await new Promise((r) => setTimeout(r, 100));
+    expect(document.activeElement).toBe(input);
+    expect(screen.queryByTestId("workspace-row-rename")).toBeNull();
+  });
+
   it("folders get no Download item", async () => {
     renderTab();
     await screen.findByText("docs");
@@ -424,11 +437,64 @@ describe("WorkspaceTab search", () => {
     type("top");
     await screen.findByText("in this folder");
     await openRowMenu(rowOf("top.md"));
+    const listCalls = vi.mocked(listWorkspace).mock.calls.length;
     fireEvent.click(await screen.findByTestId("workspace-row-show-in-folder"));
     await waitFor(() => expect(box().value).toBe(""));
     await waitFor(() =>
       expect(document.querySelector('[data-path="top.md"]')?.hasAttribute("data-flash")).toBe(true),
     );
+    // Already in that folder — no reload.
+    expect(vi.mocked(listWorkspace).mock.calls.length).toBe(listCalls);
+  });
+
+  it("never rings a row from the previous folder while the target folder loads", async () => {
+    // A same-named file at the root and in docs/.
+    vi.mocked(listWorkspace).mockImplementation(async (_t, _h, p) =>
+      p === "" ? { path: "", entries: [file("README.md")] } : new Promise(() => {}),
+    );
+    vi.mocked(searchWorkspace).mockResolvedValue(found([file("docs/README.md")]));
+    renderTab();
+    await screen.findByText("README.md");
+    type("readme");
+    await screen.findByText("in docs");
+    await openRowMenu(rowOf("README.md"));
+    // jsdom has no scrollIntoView; record what gets scrolled to.
+    const scrolled: Element[] = [];
+    Element.prototype.scrollIntoView = function (this: Element) {
+      scrolled.push(this);
+    };
+    try {
+      fireEvent.click(await screen.findByTestId("workspace-row-show-in-folder"));
+      await waitFor(() => expect(vi.mocked(listWorkspace).mock.calls.at(-1)?.[2]).toBe("docs"));
+      await new Promise((r) => setTimeout(r, 50));
+      // Nothing from the old folder is scrolled to or ringed.
+      expect(scrolled).toEqual([]);
+      expect(document.querySelector("[data-flash]")).toBeNull();
+    } finally {
+      delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    }
+  });
+
+  it("drops the ring if the target folder fails to load", async () => {
+    let failDocs = true;
+    vi.mocked(listWorkspace).mockImplementation(async (_t, _h, p) => {
+      if (p === "docs" && failDocs) throw new Error("host_unreachable");
+      return { path: p, entries: p === "" ? [dir("docs"), file("top.md")] : [file(`${p}/inside.md`)] };
+    });
+    vi.mocked(searchWorkspace).mockResolvedValue(found([file("docs/inside.md")]));
+    renderTab();
+    await screen.findByText("top.md");
+    type("inside");
+    await screen.findByText("in docs");
+    await openRowMenu(rowOf("inside.md"));
+    fireEvent.click(await screen.findByTestId("workspace-row-show-in-folder"));
+    await screen.findByText("Host unreachable");
+    // The folder loads fine later (Refresh) — no leftover ring.
+    failDocs = false;
+    fireEvent.click(screen.getByTitle("Refresh"));
+    await screen.findByText("inside.md");
+    await new Promise((r) => setTimeout(r, 50));
+    expect(document.querySelector("[data-flash]")).toBeNull();
   });
 
   it("creating a folder while searching clears the search so it shows", async () => {
