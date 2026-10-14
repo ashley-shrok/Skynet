@@ -33,8 +33,11 @@ for line in sys.stdin:
             "tool": msg["params"]["name"],
             "arguments": msg["params"].get("arguments", {}),
             "display": os.environ.get("DISPLAY", ""),
-            "wayland_display": os.environ.get("WAYLAND_DISPLAY"),
-            "session_type": os.environ.get("XDG_SESSION_TYPE"),
+            "env": {
+                k: os.environ.get(k)
+                for k in ("WAYLAND_DISPLAY", "ELECTRON_OZONE_PLATFORM_HINT", "XDG_SESSION_TYPE",
+                          "GDK_BACKEND", "QT_QPA_PLATFORM", "MOZ_ENABLE_WAYLAND", "SDL_VIDEODRIVER")
+            },
             "argv": sys.argv[1:],
         }
         result = {"content": [{"type": "text", "text": json.dumps(info)}], "isError": False}

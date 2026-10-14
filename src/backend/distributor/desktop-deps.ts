@@ -8,18 +8,28 @@
  * has to ask the user for admin rights. The sweep's SSH user is root or a
  * NOPASSWD sudoer, so the bootstrap installs them up front instead.
  *
- * DESKTOP_DEPS_CMD is one `sh` heredoc, sent once per host per sweep:
- *   - Every command present → prints `present`, nothing else happens. This is
- *     the steady state: five `command -v` probes.
- *   - Missing + no root/NOPASSWD sudo → `no-root`.
- *   - Image-based Fedora (/run/ostree-booted) → `rpm-ostree install
- *     --idempotent --apply-live`, requesting only the packages whose commands
- *     are missing (rpm-ostree refuses a package the base image already ships).
- *   - Otherwise apt-get, then dnf. Neither → `unsupported`.
- *   - Re-probes afterwards: `installed`, or `failed` with the still-missing
- *     commands and the tail of the installer's output.
- *   Each installer run is capped by `timeout` so one slow host can't stall the
- *   serial sweep indefinitely.
+ * DESKTOP_DEPS_CMD is one `sh` heredoc, sent once per host per sweep. The
+ * install itself runs DETACHED on the host (setsid nohup, stdin /dev/null):
+ * the sweep is serial across hosts, and an apt/rpm-ostree run can take
+ * minutes — waiting would hold up every other host, and a timeout would kill
+ * dpkg mid-unpack. The outcome is picked up by the next sweep from the state
+ * dir ~/.cache/fleet-desktop-deps/ (install.log + install.pid) of the SSH user.
+ *
+ * Result line `__DESKTOP_DEPS__ <status> [missing commands...]`:
+ *   present      every command found, no install log — steady state.
+ *   installed    every command found and an install log exists: an earlier
+ *                sweep's background install finished. State dir removed.
+ *   running      an earlier sweep's background install is still going.
+ *   started      background install launched for the listed commands. If an
+ *                earlier attempt left them missing, the tail of its log is
+ *                printed before the result line (the retry's `detail`).
+ *   no-root      missing, and no root / passwordless sudo.
+ *   unsupported  missing, and no rpm-ostree / apt-get / dnf.
+ *
+ * Installer choice: rpm-ostree --apply-live on image-based Fedora
+ * (/run/ostree-booted; requests only the packages whose commands are missing,
+ * since rpm-ostree refuses one the base image already ships), else apt-get
+ * (after `apt-get update`, waiting out a held dpkg lock), else dnf.
  *
  * Remote hosts only: on the distributor's own box the container can't install
  * host packages, and agent-desktop's own first-use install covers it.
@@ -27,9 +37,6 @@
 
 /** Prefix of the single result line the remote script prints last. */
 export const DESKTOP_DEPS_SENTINEL = "__DESKTOP_DEPS__";
-
-/** Seconds each installer invocation may run before it is killed. */
-export const DESKTOP_DEPS_INSTALL_TIMEOUT_S = 600;
 
 export const DESKTOP_DEPS_CMD = `sh <<'__DESKTOP_DEPS_EOF__'
 ${String.raw`missing() {
@@ -39,12 +46,18 @@ ${String.raw`missing() {
   done
   printf '%s' "$out"
 }
+D="$HOME/.cache/fleet-desktop-deps"
+LOG="$D/install.log"
+PIDF="$D/install.pid"
 M="$(missing)"
-if [ -z "$M" ]; then echo "__DESKTOP_DEPS__ present"; exit 0; fi
+if [ -f "$PIDF" ] && [ -d "/proc/$(cat "$PIDF")" ]; then echo "__DESKTOP_DEPS__ running$M"; exit 0; fi
+if [ -z "$M" ]; then
+  if [ -f "$LOG" ]; then rm -rf "$D"; echo "__DESKTOP_DEPS__ installed"; else echo "__DESKTOP_DEPS__ present"; fi
+  exit 0
+fi
 if [ "$(id -u)" = 0 ]; then SUDO=""
 elif sudo -n true 2>/dev/null; then SUDO="sudo -n"
 else echo "__DESKTOP_DEPS__ no-root$M"; exit 0; fi
-LOG="$(mktemp 2>/dev/null || echo /tmp/desktop-deps.$$.log)"
 if [ -e /run/ostree-booted ] && command -v rpm-ostree >/dev/null 2>&1; then
   PKGS=""
   for c in $M; do
@@ -56,46 +69,61 @@ if [ -e /run/ostree-booted ] && command -v rpm-ostree >/dev/null 2>&1; then
     esac
     case " $PKGS " in *" $p "*) ;; *) PKGS="$PKGS $p" ;; esac
   done
-  $SUDO timeout ${DESKTOP_DEPS_INSTALL_TIMEOUT_S} rpm-ostree install --idempotent --apply-live $PKGS >"$LOG" 2>&1
+  command -v xsetroot >/dev/null 2>&1 || PKGS="$PKGS xsetroot"
+  INSTALL="rpm-ostree install --idempotent --apply-live$PKGS"
 elif command -v apt-get >/dev/null 2>&1; then
-  $SUDO env DEBIAN_FRONTEND=noninteractive timeout ${DESKTOP_DEPS_INSTALL_TIMEOUT_S} apt-get install -y -q --no-install-recommends \
-    tigervnc-standalone-server tigervnc-tools openbox xdotool imagemagick x11-xserver-utils >"$LOG" 2>&1
+  INSTALL="export DEBIAN_FRONTEND=noninteractive; apt-get update -q; apt-get install -y -q -o DPkg::Lock::Timeout=600 --no-install-recommends tigervnc-standalone-server tigervnc-tools openbox xdotool imagemagick x11-xserver-utils"
 elif command -v dnf >/dev/null 2>&1; then
-  $SUDO timeout ${DESKTOP_DEPS_INSTALL_TIMEOUT_S} dnf install -y -q tigervnc-server openbox xdotool ImageMagick xsetroot >"$LOG" 2>&1
+  INSTALL="dnf install -y -q tigervnc-server openbox xdotool ImageMagick xsetroot"
 else
-  rm -f "$LOG"; echo "__DESKTOP_DEPS__ unsupported$M"; exit 0
+  echo "__DESKTOP_DEPS__ unsupported$M"; exit 0
 fi
-M2="$(missing)"
-if [ -z "$M2" ]; then rm -f "$LOG"; echo "__DESKTOP_DEPS__ installed$M"; exit 0; fi
-tail -n 5 "$LOG" 2>/dev/null; rm -f "$LOG"
-echo "__DESKTOP_DEPS__ failed$M2"`}
+[ -f "$LOG" ] && tail -n 5 "$LOG"
+mkdir -p "$D" || { echo "__DESKTOP_DEPS__ no-state-dir$M"; exit 0; }
+setsid nohup $SUDO sh -c "$INSTALL" </dev/null >"$LOG" 2>&1 &
+echo $! >"$PIDF"
+echo "__DESKTOP_DEPS__ started$M"`}
 __DESKTOP_DEPS_EOF__`;
 
-export type DesktopDepsOutcome =
-  | { status: "present" }
-  | { status: "installed" | "no-root" | "unsupported"; missing: string[] }
-  | { status: "failed"; missing: string[]; detail: string };
+export type DesktopDepsStatus =
+  | "present"
+  | "installed"
+  | "running"
+  | "started"
+  | "no-root"
+  | "unsupported";
+
+export interface DesktopDepsOutcome {
+  status: DesktopDepsStatus;
+  /** Commands still missing (empty for present / installed). */
+  missing: string[];
+  /** For `started`: tail of the previous failed attempt's log, else "". */
+  detail: string;
+}
+
+const STATUSES: ReadonlySet<string> = new Set<DesktopDepsStatus>([
+  "present",
+  "installed",
+  "running",
+  "started",
+  "no-root",
+  "unsupported",
+]);
 
 /**
- * Parse the script's output. The result line is the last line; for `failed`,
- * the installer-output tail printed before it becomes `detail`. Returns null
- * when no result line is present (channel/shell failure).
+ * Parse the script's output. The result line is the last line; anything
+ * before it becomes `detail`. Returns null when no recognised result line is
+ * present (channel/shell failure, or the state dir couldn't be created).
  */
 export function parseDesktopDepsOutput(raw: string): DesktopDepsOutcome | null {
   const lines = raw.trimEnd().split("\n");
   const last = lines[lines.length - 1] ?? "";
   if (!last.startsWith(`${DESKTOP_DEPS_SENTINEL} `)) return null;
   const [status, ...missing] = last.slice(DESKTOP_DEPS_SENTINEL.length + 1).trim().split(/\s+/);
-  switch (status) {
-    case "present":
-      return { status };
-    case "installed":
-    case "no-root":
-    case "unsupported":
-      return { status, missing };
-    case "failed":
-      return { status, missing, detail: lines.slice(0, -1).join("\n").slice(-500) };
-    default:
-      return null;
-  }
+  if (!STATUSES.has(status)) return null;
+  return {
+    status: status as DesktopDepsStatus,
+    missing,
+    detail: lines.slice(0, -1).join("\n").slice(-500),
+  };
 }

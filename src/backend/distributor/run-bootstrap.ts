@@ -114,12 +114,13 @@
  *      file was migrated or a conflict exists.
  *
  *   8. agent-desktop system packages (Xvnc, openbox, xdotool, ImageMagick):
- *      install whatever is missing with the host's package manager
- *      (rpm-ostree --apply-live on image-based Fedora, else apt-get, else
- *      dnf), so agents never have to ask the user for admin rights on first
- *      desktop use. One `sh` exec per host (DESKTOP_DEPS_CMD in
- *      desktop-deps.ts). Steady state is five `command -v` probes; logs only
- *      when something was installed or couldn't be.
+ *      start a background install of whatever is missing with the host's
+ *      package manager (rpm-ostree --apply-live on image-based Fedora, else
+ *      apt-get, else dnf), so agents never have to ask the user for admin
+ *      rights on first desktop use. The install is detached so it never holds
+ *      up the serial sweep; the next sweep reports how it went. One `sh` exec
+ *      per host (DESKTOP_DEPS_CMD in desktop-deps.ts). Steady state is five
+ *      `command -v` probes and logs nothing.
  *
  * NEVER-THROW CONTRACT:
  *   runBootstrapForHost NEVER rejects. All risky calls are wrapped in
@@ -141,7 +142,7 @@ import {
 import {
   DESKTOP_DEPS_CMD,
   parseDesktopDepsOutput,
-  type DesktopDepsOutcome,
+  type DesktopDepsStatus,
 } from "./desktop-deps.js";
 
 /**
@@ -183,11 +184,12 @@ export interface BootstrapResult {
    *  completion. Conflicts (both keys present) do NOT make this false;
    *  per-file read/write failures do (and imply hadError). */
   rolesKeyMigrationOk: boolean;
-  /** Step 8 outcome for the agent-desktop packages: `present` (nothing to
-   *  do), `installed`, `no-root`, `unsupported`, `failed`, or null when the
-   *  step couldn't run / produced no result line. `no-root`, `failed` and
-   *  null imply hadError. */
-  desktopDeps: DesktopDepsOutcome["status"] | null;
+  /** Step 8 outcome for the agent-desktop packages (statuses documented in
+   *  desktop-deps.ts), or null when the step didn't run or produced no
+   *  result line. On the SSH path, null, `no-root` and a `started` retry
+   *  after a failed earlier attempt imply hadError; the local path always
+   *  reports null (step not applicable there) without an error. */
+  desktopDeps: DesktopDepsStatus | null;
   /** Whether interactive-messages-gc.timer was already enabled before Step 1b.
    *  True = cheap probe only; false = enable-and-start ran (or was skipped due
    *  to an earlier Step 1 channel failure that prevented daemon-reload). */
@@ -1166,10 +1168,11 @@ export async function runBootstrapForHost(
 
   // -------------------------------------------------------------------------
   // Step 8: agent-desktop system packages. One sh exec; the script lives in
-  //         desktop-deps.ts. Never fails the sweep — a host without them still
-  //         works, its agents just can't use a desktop.
+  //         desktop-deps.ts and detaches the install itself. Never fails the
+  //         sweep — a host without them still works, its agents just can't
+  //         use a desktop.
   // -------------------------------------------------------------------------
-  let desktopDeps: DesktopDepsOutcome["status"] | null = null;
+  let desktopDeps: DesktopDepsStatus | null = null;
   try {
     const raw = await channel.exec(DESKTOP_DEPS_CMD);
     const outcome = raw === null ? null : parseDesktopDepsOutput(raw);
@@ -1185,16 +1188,23 @@ export async function runBootstrapForHost(
       );
     } else {
       desktopDeps = outcome.status;
-      if (outcome.status === "no-root" || outcome.status === "failed") {
+      if (outcome.status === "no-root") {
         hadError = true;
         logBootstrapFailed(
           host,
           "desktop-deps",
-          outcome.status === "failed"
-            ? `still missing ${outcome.missing.join(" ")} after install: ${outcome.detail}`
-            : `missing ${outcome.missing.join(" ")}; SSH user has no passwordless sudo`,
+          `missing ${outcome.missing.join(" ")}; SSH user has no passwordless sudo`,
         );
-      } else if (outcome.status !== "present") {
+      } else if (outcome.status === "started" && outcome.detail) {
+        hadError = true;
+        logBootstrapFailed(
+          host,
+          "desktop-deps",
+          `earlier install left ${outcome.missing.join(" ")} missing; retrying. ` +
+            `Last output: ${outcome.detail}`,
+        );
+      }
+      if (outcome.status !== "present" && outcome.status !== "no-root") {
         systemLogger.info(
           `Fleet-substrate bootstrap: agent-desktop packages ${outcome.status} on ${host.name}`,
           {

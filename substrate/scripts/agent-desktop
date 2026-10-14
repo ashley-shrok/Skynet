@@ -202,13 +202,14 @@ ensure_deps() {
         import) pkgs+=(ImageMagick) ;;
       esac
     done
+    command -v xsetroot >/dev/null 2>&1 || pkgs+=(xsetroot)
     # shellcheck disable=SC2046
-    $SUDO rpm-ostree install --idempotent --apply-live $(printf '%s\n' "${pkgs[@]}" | sort -u) >/dev/null 2>&1
+    $SUDO rpm-ostree install --idempotent --apply-live $(printf '%s\n' "${pkgs[@]}" | sort -u) >/dev/null 2>&1 </dev/null
   elif command -v apt-get >/dev/null 2>&1; then
     DEBIAN_FRONTEND=noninteractive $SUDO apt-get install -y -q --no-install-recommends \
-      tigervnc-standalone-server tigervnc-tools openbox xdotool imagemagick x11-xserver-utils >/dev/null 2>&1
+      tigervnc-standalone-server tigervnc-tools openbox xdotool imagemagick x11-xserver-utils >/dev/null 2>&1 </dev/null
   elif command -v dnf >/dev/null 2>&1; then
-    $SUDO dnf install -y -q tigervnc-server openbox xdotool ImageMagick xsetroot >/dev/null 2>&1
+    $SUDO dnf install -y -q tigervnc-server openbox xdotool ImageMagick xsetroot >/dev/null 2>&1 </dev/null
   fi
   missing="$(missing_deps)"
   [ -z "$missing" ] || die "missing after install attempt: ${missing//$'\n'/ }"
@@ -410,9 +411,14 @@ cmd_run() {
   disp="$(cmd_up --identity "$identity" --quiet)" || exit 1
   disp="${disp#DISPLAY=}"
   # Detached + own session: the app outlives the agent's Bash tool call.
-  # Drop WAYLAND_DISPLAY: inherited from a host's graphical login, it makes
-  # Wayland-capable apps draw on the host's real screen instead of this one.
-  env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 DISPLAY="$disp" setsid nohup "$@" >>"$STATE_DIR/apps.log" 2>&1 < /dev/null &
+  # X11-only env: a host's graphical login leaks its Wayland setup into agent
+  # sessions, and Wayland-capable apps would draw on the host's real screen.
+  # Unsetting WAYLAND_DISPLAY alone isn't enough — libwayland falls back to
+  # the wayland-0 socket — so each toolkit is pinned to X11. Mirrors x11_env
+  # in desktop-mcp.
+  env -u WAYLAND_DISPLAY -u ELECTRON_OZONE_PLATFORM_HINT \
+    XDG_SESSION_TYPE=x11 GDK_BACKEND=x11 QT_QPA_PLATFORM=xcb MOZ_ENABLE_WAYLAND=0 SDL_VIDEODRIVER=x11 \
+    DISPLAY="$disp" setsid nohup "$@" >>"$STATE_DIR/apps.log" 2>&1 < /dev/null &
   local pid=$!
   disown 2>/dev/null || true
   printf 'started pid %s on DISPLAY=%s\n' "$pid" "$disp"

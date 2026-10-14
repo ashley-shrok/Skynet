@@ -219,14 +219,24 @@ USER_HAS_CONTROL = (
 def x11_env(display):
     """Environment for anything that must draw on the agent's desktop.
 
-    A session started from a host's graphical login inherits WAYLAND_DISPLAY,
-    and Chromium prefers Wayland when it is set — the browser would open on
-    the host's real screen instead of the agent's Xvnc display.
+    A session started from a host's graphical login inherits its Wayland
+    environment, and toolkits that prefer Wayland (Chromium, GTK, Qt, Firefox,
+    Electron, SDL) would open on the host's real screen instead of the agent's
+    Xvnc display. Without WAYLAND_DISPLAY, libwayland still falls back to the
+    wayland-0 socket in XDG_RUNTIME_DIR, so each toolkit is pinned to X11 too.
+    Mirrors X11_ENV in agent-desktop.
     """
     env = dict(os.environ)
-    env.pop("WAYLAND_DISPLAY", None)
-    env["XDG_SESSION_TYPE"] = "x11"
-    env["DISPLAY"] = display
+    for k in ("WAYLAND_DISPLAY", "ELECTRON_OZONE_PLATFORM_HINT"):
+        env.pop(k, None)
+    env.update(
+        XDG_SESSION_TYPE="x11",
+        GDK_BACKEND="x11",
+        QT_QPA_PLATFORM="xcb",
+        MOZ_ENABLE_WAYLAND="0",
+        SDL_VIDEODRIVER="x11",
+        DISPLAY=display,
+    )
     return env
 
 

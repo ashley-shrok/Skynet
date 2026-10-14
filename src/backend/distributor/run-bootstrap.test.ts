@@ -2046,26 +2046,29 @@ describe("step 8: agent-desktop packages", () => {
     ).toBe(false);
   });
 
-  it("(dd-2) installed: info log names the commands that were missing", async () => {
-    const { channel } = makeChannel(
-      { [DESKTOP_DEPS_SENTINEL]: `${DESKTOP_DEPS_SENTINEL} installed Xvnc vncpasswd openbox` },
-      "",
-    );
-    const r = await runBootstrapForHost(channel, HOST);
-    expect(r.desktopDeps).toBe("installed");
-    expect(depsFailures()).toHaveLength(0);
-    const log = vi
-      .mocked(systemLogger.info)
-      .mock.calls.find(
-        (c) => (c[1] as { operation?: string })?.operation === "fleet_substrate_desktop_deps",
-      );
-    expect(log?.[1]).toMatchObject({ status: "installed", missing: ["Xvnc", "vncpasswd", "openbox"] });
+  it("(dd-2) started / installed: info log with status and missing commands, no hadError", async () => {
+    for (const [line, status, missing] of [
+      [`${DESKTOP_DEPS_SENTINEL} started Xvnc vncpasswd openbox`, "started", ["Xvnc", "vncpasswd", "openbox"]],
+      [`${DESKTOP_DEPS_SENTINEL} installed`, "installed", []],
+    ] as const) {
+      vi.clearAllMocks();
+      const { channel } = makeChannel({ [DESKTOP_DEPS_SENTINEL]: line }, "");
+      const r = await runBootstrapForHost(channel, HOST);
+      expect(r.desktopDeps).toBe(status);
+      expect(depsFailures()).toHaveLength(0);
+      const log = vi
+        .mocked(systemLogger.info)
+        .mock.calls.find(
+          (c) => (c[1] as { operation?: string })?.operation === "fleet_substrate_desktop_deps",
+        );
+      expect(log?.[1]).toMatchObject({ status, missing });
+    }
   });
 
-  it("(dd-3) no-root and failed set hadError with an actionable message", async () => {
+  it("(dd-3) no-root, and a retry after a failed attempt, set hadError with an actionable message", async () => {
     for (const [line, want] of [
       [`${DESKTOP_DEPS_SENTINEL} no-root Xvnc`, "no passwordless sudo"],
-      [`E: Unable to locate package\n${DESKTOP_DEPS_SENTINEL} failed openbox`, "Unable to locate package"],
+      [`E: Unable to locate package\n${DESKTOP_DEPS_SENTINEL} started openbox`, "Unable to locate package"],
     ] as const) {
       vi.clearAllMocks();
       const { channel } = makeChannel({ [DESKTOP_DEPS_SENTINEL]: line }, "");

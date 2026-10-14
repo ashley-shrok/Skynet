@@ -2,7 +2,8 @@
  * desktop-deps.test.ts — DESKTOP_DEPS_CMD run under real `sh` with a sealed
  * PATH: fake sudo / apt-get / dnf / rpm-ostree stubs record their argv and
  * "install" by dropping stub commands into the bin dir. The host's real
- * /usr/bin is never on PATH, so its own Xvnc etc. can't leak in.
+ * /usr/bin is never on PATH, so its own Xvnc etc. can't leak in. The script
+ * detaches the install, so tests wait for it before the follow-up sweep.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { execFileSync } from "node:child_process";
@@ -18,7 +19,7 @@ import {
 
 const ALL = ["Xvnc", "vncpasswd", "openbox", "xdotool", "import"];
 // Real tools the script needs, linked into the sealed bin dir.
-const TOOLS = ["sh", "mktemp", "tail", "rm", "env", "timeout", "id", "cat", "true", "chmod"];
+const TOOLS = ["sh", "tail", "rm", "id", "cat", "true", "chmod", "mkdir", "setsid", "nohup", "sleep"];
 
 let root: string;
 let bin: string;
@@ -45,12 +46,22 @@ function run(opts: { ostree?: boolean } = {}): string {
     opts.ostree ? marker : nodePath.join(root, "absent"),
   );
   return execFileSync("/bin/sh", ["-c", cmd], {
-    env: { PATH: bin, HOME: root, TMPDIR: root },
+    env: { PATH: bin, HOME: root },
     encoding: "utf-8",
   });
 }
 
 const lastLine = (out: string) => out.trimEnd().split("\n").pop();
+const stateDir = () => nodePath.join(root, ".cache", "fleet-desktop-deps");
+
+/** Wait for the detached install launched by the previous run to exit. */
+async function settle(): Promise<void> {
+  const pid = (await fsp.readFile(nodePath.join(stateDir(), "install.pid"), "utf-8")).trim();
+  for (let i = 0; i < 100 && existsSync(`/proc/${pid}`); i++) {
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  if (existsSync(`/proc/${pid}`)) throw new Error("background install never exited");
+}
 const recorded = async () => (await fsp.readFile(calls, "utf-8").catch(() => "")).trim();
 
 beforeEach(async () => {
@@ -75,60 +86,96 @@ afterEach(async () => {
 });
 
 describe("DESKTOP_DEPS_CMD", () => {
-  it("everything present → present, no package manager runs", async () => {
+  it("everything present → present, no package manager runs, no state left", async () => {
     await pm("apt-get", []);
     for (const c of ALL) await stub(c, "");
     expect(run()).toBe(`${DESKTOP_DEPS_SENTINEL} present\n`);
     expect(await recorded()).toBe("");
+    expect(existsSync(stateDir())).toBe(false);
   });
 
-  it("apt host → apt-get installs the full set → installed", async () => {
+  it("apt host → started in background, next sweep sees installed and clears state", async () => {
     await pm("apt-get", ALL);
-    expect(lastLine(run())).toBe(`${DESKTOP_DEPS_SENTINEL} installed ${ALL.join(" ")}`);
-    expect(await recorded()).toContain(
-      "apt-get install -y -q --no-install-recommends tigervnc-standalone-server tigervnc-tools openbox",
-    );
+    expect(run()).toBe(`${DESKTOP_DEPS_SENTINEL} started ${ALL.join(" ")}\n`);
+    await settle();
+    expect((await recorded()).split("\n")).toEqual([
+      "apt-get update -q",
+      "apt-get install -y -q -o DPkg::Lock::Timeout=600 --no-install-recommends " +
+        "tigervnc-standalone-server tigervnc-tools openbox xdotool imagemagick x11-xserver-utils",
+    ]);
+    expect(run()).toBe(`${DESKTOP_DEPS_SENTINEL} installed\n`);
+    expect(existsSync(stateDir())).toBe(false);
+    expect(run()).toBe(`${DESKTOP_DEPS_SENTINEL} present\n`);
+  });
+
+  it("installer gets /dev/null on stdin, so it can't eat the rest of the script", async () => {
+    await pm("apt-get", ALL, "cat > /dev/null");
+    expect(lastLine(run())).toMatch(/ started /);
+    await settle();
+    expect(lastLine(run())).toBe(`${DESKTOP_DEPS_SENTINEL} installed`);
+  });
+
+  it("install still running → running, nothing relaunched", async () => {
+    await pm("apt-get", ALL, "sleep 1");
+    expect(lastLine(run())).toMatch(/ started /);
+    expect(lastLine(run())).toBe(`${DESKTOP_DEPS_SENTINEL} running ${ALL.join(" ")}`);
+    await settle();
+    expect((await recorded()).match(/apt-get install/g)).toHaveLength(1);
   });
 
   it("image-based Fedora → rpm-ostree --apply-live, only the missing packages, deduped", async () => {
     await stub("xdotool", "");
     await stub("import", "");
+    await stub("xsetroot", "");
     await pm("rpm-ostree", ["Xvnc", "vncpasswd", "openbox"]);
     await pm("dnf", ALL); // present on Bazzite but can't write /usr — must not be used
     expect(lastLine(run({ ostree: true }))).toBe(
-      `${DESKTOP_DEPS_SENTINEL} installed Xvnc vncpasswd openbox`,
+      `${DESKTOP_DEPS_SENTINEL} started Xvnc vncpasswd openbox`,
     );
+    await settle();
     expect(await recorded()).toBe(
       "rpm-ostree install --idempotent --apply-live tigervnc-server openbox",
     );
   });
 
+  it("image-based Fedora without xsetroot → requests it too", async () => {
+    await pm("rpm-ostree", ALL);
+    run({ ostree: true });
+    await settle();
+    expect(await recorded()).toBe(
+      "rpm-ostree install --idempotent --apply-live tigervnc-server openbox xdotool ImageMagick xsetroot",
+    );
+  });
+
   it("dnf host (not ostree) → dnf", async () => {
     await pm("dnf", ALL);
-    expect(lastLine(run())).toMatch(/ installed /);
+    run();
+    await settle();
     expect(await recorded()).toMatch(/^dnf install -y -q tigervnc-server openbox/);
   });
 
   it("no passwordless sudo → no-root, nothing installed", async () => {
     await stub("sudo", "exit 1");
     await pm("apt-get", ALL);
-    expect(lastLine(run())).toBe(`${DESKTOP_DEPS_SENTINEL} no-root ${ALL.join(" ")}`);
+    expect(run()).toBe(`${DESKTOP_DEPS_SENTINEL} no-root ${ALL.join(" ")}\n`);
     expect(await recorded()).toBe("");
   });
 
   it("no known package manager → unsupported", () => {
-    expect(lastLine(run())).toBe(`${DESKTOP_DEPS_SENTINEL} unsupported ${ALL.join(" ")}`);
+    expect(run()).toBe(`${DESKTOP_DEPS_SENTINEL} unsupported ${ALL.join(" ")}\n`);
   });
 
-  it("install that leaves commands missing → failed, with the installer's output tail", async () => {
+  it("failed install → next sweep retries and carries the previous output tail", async () => {
     await pm("apt-get", ["Xvnc"], "echo 'E: Unable to locate package openbox'");
-    const out = run();
-    const parsed = parseDesktopDepsOutput(out);
+    run();
+    await settle();
+    const parsed = parseDesktopDepsOutput(run());
     expect(parsed).toMatchObject({
-      status: "failed",
+      status: "started",
       missing: ["vncpasswd", "openbox", "xdotool", "import"],
     });
-    expect(parsed && "detail" in parsed && parsed.detail).toContain("Unable to locate package openbox");
+    expect(parsed?.detail).toContain("Unable to locate package openbox");
+    await settle();
   });
 });
 
@@ -136,6 +183,6 @@ describe("parseDesktopDepsOutput", () => {
   it("returns null without a result line or with an unknown status", () => {
     expect(parseDesktopDepsOutput("")).toBeNull();
     expect(parseDesktopDepsOutput("sh: 1: oops")).toBeNull();
-    expect(parseDesktopDepsOutput(`${DESKTOP_DEPS_SENTINEL} weird`)).toBeNull();
+    expect(parseDesktopDepsOutput(`${DESKTOP_DEPS_SENTINEL} no-state-dir Xvnc`)).toBeNull();
   });
 });
