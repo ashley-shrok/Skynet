@@ -88,6 +88,14 @@ resolve_identity() {
   STATE_DIR="${IDENTITIES_DIR}/${identity}/desktop"
 }
 
+# Refuse to (re)create state for an identity whose folder is gone (archived): a
+# late `up` or control-lease renewal would otherwise mkdir a stray
+# identities/<name>/desktop/ that blocks un-archive and hides an orphan desktop.
+require_live_identity() {
+  [ -f "${IDENTITIES_DIR}/${identity}/${identity}.md" ] \
+    || die "identity '$identity' does not exist (archived?)"
+}
+
 ensure_state_dir() {
   mkdir -p "$STATE_DIR" || die "cannot create $STATE_DIR"
   chmod 700 "$STATE_DIR" 2>/dev/null || true
@@ -257,6 +265,7 @@ cmd_up() {
     esac
   done
   resolve_identity
+  require_live_identity
   ensure_state_dir
 
   local n
@@ -346,6 +355,7 @@ cmd_control() {
   resolve_identity
   case "$action" in
     take)
+      require_live_identity
       ensure_state_dir
       jq -cn --arg by "$by" --argjson at "$(date +%s)" '{by:$by, renewedAt:$at}' \
         > "$STATE_DIR/control-lock.tmp" && mv -f "$STATE_DIR/control-lock.tmp" "$STATE_DIR/control-lock"

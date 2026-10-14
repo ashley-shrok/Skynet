@@ -295,10 +295,13 @@ compute_desktop_mcp_flag() {
 # ---- desktop teardown: an identity's desktop must not outlive its claude ----
 # agent-desktop@<identity>.service runs independently of the tmux session (Restart=on-failure,
 # nothing ever stops it), so without these it survives both dormancy and archive. A dormant
-# identity's desktop comes back lazily on the next desktop-mcp call or Desktop-tab open.
+# identity's desktop comes back lazily on the next desktop-mcp call or Desktop-tab start.
 AGENT_DESKTOP_BIN="${AGENT_DESKTOP_BIN:-$HOME/.local/bin/agent-desktop}"
-# Must match CONTROL_LEASE_SECONDS in agent-desktop.
+# Must match CONTROL_LEASE_SECONDS / VNC_PORT_BASE in agent-desktop.
 DESKTOP_CONTROL_LEASE_SECONDS=90
+DESKTOP_VNC_PORT_BASE=15900
+# `ss` binary for the viewer-connected probe; env-overridable for test hermeticity.
+SS_BIN="${AGENT_SS_BIN:-ss}"
 
 # stop_identity_desktop <name> <reason> — best-effort; never fails the caller. Skips identities
 # that never allocated a desktop (no desktop/display file) so the common case costs one stat.
@@ -315,29 +318,56 @@ stop_identity_desktop() {
   return 0
 }
 
-# desktop_user_has_control <name> — true while a human holds a fresh control lease on the desktop.
-desktop_user_has_control() {
-  local f="$IDENTITIES_DIR/$1/desktop/control-lock" mtime
-  [ -f "$f" ] || return 1
-  mtime="$(stat -c %Y "$f" 2>/dev/null)" || return 1
-  [ $(( $(date +%s) - mtime )) -lt "$DESKTOP_CONTROL_LEASE_SECONDS" ]
+# desktop_in_use <name> — true while a human holds a fresh control lease on the desktop, or a VNC
+# client (the Desktop tab's view-only stream, tunnelled to the loopback port) is connected.
+desktop_in_use() {
+  local ddir="$IDENTITIES_DIR/$1/desktop" mtime n
+  if [ -f "$ddir/control-lock" ] && mtime="$(stat -c %Y "$ddir/control-lock" 2>/dev/null)" \
+     && [ $(( $(date +%s) - mtime )) -lt "$DESKTOP_CONTROL_LEASE_SECONDS" ]; then
+    return 0
+  fi
+  n="$(cat "$ddir/display" 2>/dev/null)"
+  case "$n" in ''|*[!0-9]*) return 1 ;; esac
+  [ -n "$(timeout -k 2 5 "$SS_BIN" -Htn state established "( sport = :$((DESKTOP_VNC_PORT_BASE + n)) )" 2>/dev/null)" ]
 }
 
-# reap_orphan_desktops — stop any running agent-desktop@ unit whose identity folder no longer
-# exists under $IDENTITIES_DIR (archived, or deleted by hand). Backstop for retire's own stop.
-reap_orphan_desktops() {
+# desktop_unit_settled <unit> — true once the unit has been up DESKTOP_START_GRACE_SECONDS, so a
+# desktop just started from the Desktop tab isn't reaped before the tab's viewer connects.
+DESKTOP_START_GRACE_SECONDS=120
+desktop_unit_settled() {
+  local since
+  since="$(timeout -k 2 5 "$SYSTEMCTL_BIN" --user show -p ActiveEnterTimestamp --value "$1" 2>/dev/null)"
+  [ -n "$since" ] || return 0
+  since="$(date -d "$since" +%s 2>/dev/null)" || return 0
+  [ $(( $(date +%s) - since )) -ge "$DESKTOP_START_GRACE_SECONDS" ]
+}
+
+# reap_desktops — stop running agent-desktop@ units that nothing should be holding open:
+#   - orphan: the identity no longer exists ($id/$id.md gone — archived or deleted by hand);
+#     backstop for retire's own stop.
+#   - dormant: the identity is .dormant and the desktop isn't in use — covers a desktop kept at
+#     dormancy because the user was on it, and one started from the Desktop tab while dormant.
+# Stops are --no-block so a hung Xvnc can't stall the reconcile tick.
+reap_desktops() {
   command -v "$SYSTEMCTL_BIN" >/dev/null 2>&1 || return 0
-  local unit id
+  local unit id why
   while read -r unit _; do
     case "$unit" in agent-desktop@*.service) ;; *) continue ;; esac
     id="$(systemd-escape --unescape --instance -- "$unit" 2>/dev/null)" || continue
     [ -n "$id" ] || continue
-    [ -d "$IDENTITIES_DIR/$id" ] && continue
-    if [ "${DRY_RUN:-0}" = 1 ]; then log "DRY_RUN would stop orphan desktop $unit"; continue; fi
-    if timeout -k 5 30 "$SYSTEMCTL_BIN" --user stop "$unit" 2>/dev/null; then
-      log "'$id' orphan desktop stopped (identity folder gone): $unit"
+    if [ ! -f "$IDENTITIES_DIR/$id/$id.md" ]; then
+      why="identity gone"
+    elif [ -f "$IDENTITIES_DIR/$id/.dormant" ] && ! desktop_in_use "$id" \
+         && desktop_unit_settled "$unit"; then
+      why="identity dormant"
     else
-      log "WARN: '$id' orphan desktop stop failed: $unit"
+      continue
+    fi
+    if [ "${DRY_RUN:-0}" = 1 ]; then log "DRY_RUN would stop desktop $unit ($why)"; continue; fi
+    if timeout -k 5 10 "$SYSTEMCTL_BIN" --user stop --no-block "$unit" 2>/dev/null; then
+      log "'$id' desktop stopped ($why): $unit"
+    else
+      log "WARN: '$id' desktop stop failed ($why): $unit"
     fi
   done < <(timeout -k 5 10 "$SYSTEMCTL_BIN" --user list-units 'agent-desktop@*' --state=active,activating --no-legend --plain 2>/dev/null)
   return 0
@@ -1076,7 +1106,7 @@ retire_identity() {
   log "'$name' retire step 4a: sentinel .archive-requested deleted (if present)"
 
   # STEP 4a¼: stop the identity's virtual desktop while its folder (state dir, serve.pid) is still
-  # in place. Never blocks retire; reap_orphan_desktops catches a failed stop on a later tick.
+  # in place. Never blocks retire; reap_desktops catches a failed stop on a later tick.
   stop_identity_desktop "$name" "retire"
 
   # =============================================================================================
@@ -3392,9 +3422,10 @@ do_kill_dormant() {
   local reclaimed=$((rss_before - rss_after))
   log "'$name' dormant (kill ok, reclaimed ~${reclaimed}KB total-claude-rss, sentinel dropped)"
   metric event=kill-done identity="$name" session="$sess" rss_kb_after="$rss_after" reclaimed_kb="$reclaimed"
-  # The desktop goes dormant with claude — unless the user is driving it right now.
-  if desktop_user_has_control "$name"; then
-    log "'$name' desktop left running (user holds the control lease)"
+  # The desktop goes dormant with claude — unless the user is on it right now (reap_desktops
+  # stops it on a later tick once they leave).
+  if desktop_in_use "$name"; then
+    log "'$name' desktop left running (user is viewing or controlling it)"
   else
     stop_identity_desktop "$name" "dormant"
   fi
@@ -3454,7 +3485,7 @@ reconcile() {
   scan_identity_unarchive_requested_sentinels      # un-archive host-side shape: user-initiated identity UN-archive (matrix reactivate + fresh token + .dormant + mv archive→live)
   scan_role_unarchive_requested_sentinels          # un-archive host-side shape: user-initiated role UN-archive (folder mv only, no identity cascade)
   scan_app_unarchive_requested_sentinels           # un-archive host-side shape: user-initiated app UN-archive (folded-in restore-app.sh: port-collision check under create-lock, mv archive→live, systemd reinstall + enable+start)
-  reap_orphan_desktops                             # stop agent-desktop@ units whose identity folder is gone (backstop for retire's own desktop stop)
+  reap_desktops                                    # stop agent-desktop@ units of gone identities, and of dormant ones nobody is viewing
   resolve_identities
   sync_project_members                             # rewrite each project.md's derived `members:` list from identities' project: frontmatter (writes only on change)
   snapshot_schedule_peek                           # one python subprocess per tick over the fleet; schedule_peek reads from SCHEDULE_PEEK_SNAPSHOT. MUST run AFTER resolve_identities (needs IDENTITIES populated).

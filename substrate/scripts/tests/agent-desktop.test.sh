@@ -34,6 +34,9 @@ done
 FIXTURE="$(mktemp -d)"
 BIN="$FIXTURE/bin"
 mkdir -p "$BIN" "$FIXTURE/fleet/identities"
+for _id in alice bob carol; do
+  mkdir -p "$FIXTURE/fleet/identities/$_id" && : > "$FIXTURE/fleet/identities/$_id/$_id.md"
+done
 ln -s "$HELPER" "$BIN/agent-desktop"
 
 export HOME="$FIXTURE"
@@ -97,6 +100,16 @@ test_status_json_when_never_started() {
   out="$(FLEET_IDENTITY=never agent-desktop status --json)"
   assert_eq test_status_json_running false "$(jq -r .running <<<"$out")"
   assert_eq test_status_json_display null "$(jq -r .display <<<"$out")"
+}
+
+test_refuses_gone_identity() {
+  local rc=0
+  agent-desktop up --identity ghost --quiet >/dev/null 2>&1 || rc=$?
+  assert_eq test_up_gone_identity_fails 1 "$rc"
+  rc=0
+  agent-desktop control take --identity ghost >/dev/null 2>&1 || rc=$?
+  assert_eq test_control_take_gone_identity_fails 1 "$rc"
+  assert_eq test_gone_identity_no_stray_dir no "$([ -e "$FIXTURE/fleet/identities/ghost" ] && echo yes || echo no)"
 }
 
 test_mcp_protocol() {
@@ -287,6 +300,7 @@ echo "agent-desktop tests (fixture: $FIXTURE)"
 test_invalid_identity_rejected
 test_no_identity_rejected
 test_status_json_when_never_started
+test_refuses_gone_identity
 test_mcp_protocol
 test_mcp_unknown_protocol_falls_back
 test_mcp_without_identity_is_tool_error
