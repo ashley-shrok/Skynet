@@ -151,6 +151,7 @@ describe("SplitView rows", () => {
     const handle = container.querySelector("[data-split-divider-handle]")!;
     stubCapture(handle);
     fireEvent(handle, pointer("pointerdown", { clientX: 500 }));
+    fireEvent(handle, pointer("pointermove", { clientX: 600 }));
     expect(document.body.style.cursor).toBe("col-resize");
     expect(document.body.hasAttribute("data-split-resizing")).toBe(true);
     unmount();
@@ -158,6 +159,27 @@ describe("SplitView rows", () => {
     expect(document.body.style.userSelect).toBe("");
     expect(document.body.hasAttribute("data-split-resizing")).toBe(false);
     expect(onResizeRow).not.toHaveBeenCalled();
+  });
+
+  it("divider strips step aside while a pane is being dragged", () => {
+    const { container, unmount } = render(
+      <SplitView splitTree={rowOf(["a", "b"])} tabs={["a", "b"].map(tab)} />,
+    );
+    expect(container.querySelector("[data-split-divider]")!.className).toContain("pointer-events-none");
+    const drag = (type: string, types: string[]) => {
+      const ev = new Event(type, { bubbles: true });
+      Object.defineProperty(ev, "dataTransfer", { value: { types } });
+      window.dispatchEvent(ev);
+    };
+    drag("dragover", ["text/plain"]);
+    expect(document.body.hasAttribute("data-split-dnd")).toBe(false);
+    drag("dragover", ["application/x-skynet-row"]);
+    expect(document.body.hasAttribute("data-split-dnd")).toBe(true);
+    drag("dragend", []);
+    expect(document.body.hasAttribute("data-split-dnd")).toBe(false);
+    drag("dragover", ["application/x-skynet-badge"]);
+    unmount();
+    expect(document.body.hasAttribute("data-split-dnd")).toBe(false);
   });
 
   it("double-clicking a divider resets its row", () => {

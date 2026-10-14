@@ -33,7 +33,7 @@ import {
   rowFractions,
   rowMembers,
 } from "@/lib/split-tree";
-import { useDragPreviewClaim } from "./drag-preview-session";
+import { subscribeDragSessionEnd, useDragPreviewClaim } from "./drag-preview-session";
 // Phase 120 LOW-15 cleanup (2026-09-19): route the app-tile drop-dispatch
 // logs through the fleet's structured frontend logger instead of raw
 // console.info / console.warn. Every other console.* call in this file is
@@ -177,6 +177,9 @@ export function dragRowFractions(
 // members; 'vertical' = 1px-wide line separating side-by-side members. The
 // visible line stays 1px; an invisible 8px strip centred on it takes the
 // pointer. Hover (and an active drag) lights the line in the accent colour.
+// Only the strip takes the pointer, and not while a pane / row / app tile is
+// being dragged (body[data-split-dnd], see SplitView) — a drop aimed at the
+// line between two panes must land on the pane under it.
 function Divider({
   direction,
   active,
@@ -194,14 +197,14 @@ function Divider({
     : "bg-[color:var(--color-pv-border-quiet-strong)] group-hover/divider:bg-[hsla(var(--pv-hue,35),55%,50%,0.6)]";
   return (
     <div
-      className={`group/divider relative z-20 shrink-0 ${stacked ? "h-px w-full" : "w-px h-full"}`}
+      className={`group/divider pointer-events-none relative z-20 shrink-0 ${stacked ? "h-px w-full" : "w-px h-full"}`}
       role="separator"
       aria-orientation={direction}
       data-split-divider=""
     >
       <div className={`absolute inset-0 transition-colors ${lineColor}`} />
       <div
-        className={`absolute ${stacked ? "left-0 right-0 -top-[4px] h-[9px] cursor-row-resize" : "top-0 bottom-0 -left-[4px] w-[9px] cursor-col-resize"}`}
+        className={`absolute pointer-events-auto touch-none ${stacked ? "left-0 right-0 -top-[4px] h-[9px] cursor-row-resize" : "top-0 bottom-0 -left-[4px] w-[9px] cursor-col-resize"}`}
         data-split-divider-handle=""
         onPointerDown={onPointerDown}
         onDoubleClick={onDoubleClick}
@@ -241,9 +244,10 @@ function RowView({
   const nodeRef = useRef(node);
   nodeRef.current = node;
   // Cleanup for an in-flight drag, run if this row unmounts mid-drag so the
-  // page cursor / selection lock never stick.
-  const endDragRef = useRef<(() => void) | null>(null);
-  useEffect(() => () => endDragRef.current?.(), []);
+  // page cursor / selection lock never stick. It never commits: the row the
+  // drag started on is gone, and its path may now name a different row.
+  const endDragRef = useRef<((commit: boolean) => void) | null>(null);
+  useEffect(() => () => endDragRef.current?.(false), []);
   const committed = rowFractions(node);
   const [live, setLive] = useState<{ fractions: number[]; divider: number } | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -307,7 +311,7 @@ function RowView({
       });
     };
     let ended = false;
-    const onEnd = () => {
+    const finish = (commit: boolean) => {
       if (ended) return;
       ended = true;
       endDragRef.current = null;
@@ -330,11 +334,13 @@ function RowView({
         divider: k,
         moved,
         sameRow,
+        unmounted: !commit,
         fractions: latest.map((f) => f.toFixed(4)).join(","),
       });
-      if (moved && sameRow) onResizeRow(path, latest);
+      if (commit && moved && sameRow) onResizeRow(path, latest);
     };
-    endDragRef.current = onEnd;
+    const onEnd = () => finish(true);
+    endDragRef.current = finish;
     handle.addEventListener("pointermove", onMove);
     handle.addEventListener("pointerup", onEnd);
     handle.addEventListener("lostpointercapture", onEnd);
@@ -1367,6 +1373,30 @@ export const SplitView = memo(function SplitView({
     const id = requestAnimationFrame(() => onTerminalResize?.());
     return () => cancelAnimationFrame(id);
   }, [splitTree, onTerminalResize]);
+
+  // While a pane / row / app tile is being dragged, divider strips step
+  // aside (body[data-split-dnd], index.css) so a drop near the line between
+  // two panes lands on the pane under the pointer. Same arm/disarm pattern
+  // as AppPane's iframe mute: dragover re-arms after a watchdog end and
+  // covers drags started in another Skynet window.
+  useEffect(() => {
+    const arm = (e: DragEvent) => {
+      if (!hasSkynetDragPayload(e.dataTransfer)) return;
+      if (!document.body.hasAttribute("data-split-dnd")) {
+        document.body.setAttribute("data-split-dnd", "");
+      }
+    };
+    const disarm = () => document.body.removeAttribute("data-split-dnd");
+    const unsubscribe = subscribeDragSessionEnd(disarm);
+    window.addEventListener("dragstart", arm);
+    window.addEventListener("dragover", arm);
+    return () => {
+      window.removeEventListener("dragstart", arm);
+      window.removeEventListener("dragover", arm);
+      unsubscribe();
+      disarm();
+    };
+  }, []);
 
   if (splitTree === null) {
     return (

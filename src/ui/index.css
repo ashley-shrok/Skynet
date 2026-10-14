@@ -696,3 +696,9 @@ button[data-hold-active="true"] {
 body[data-split-resizing] iframe {
   pointer-events: none;
 }
+
+/* Divider grab strips step aside during a pane / row / app-tile drag so a
+   drop near the line lands on the pane underneath (SplitView). */
+body[data-split-dnd] [data-split-divider-handle] {
+  pointer-events: none;
+}
