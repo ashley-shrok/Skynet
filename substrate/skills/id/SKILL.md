@@ -744,13 +744,11 @@ not something agents drive.
     Add / change / remove that key to move in / between / out; adding one
     means also removing `.pinned`. UI reflects it within a few seconds.
     **User-gated.**
-  - **Close** — only while that conversation is open (desktop): closes
-    its pane. *Agent-side: none.*
   - **Archive** — retires the identity. See § On `/id archive`.
 
   The same menu CONTENT appears on the identity badge in the open
   conversation view (upper-right) — its own three-dots button, or
-  right-click.
+  right-click — plus **Close** (desktop only), which closes that pane.
 
 - **Projects section (below Pinned).** A **Projects** super-header
   with a **➕ plus** on its right; every project sits indented beneath it.

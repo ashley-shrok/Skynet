@@ -672,16 +672,8 @@ export function PrettyConversationRow({
         });
       }
     }
-    // Close — closes this conversation's open pane; same as the badge
-    // menu's Close and dropping the badge on the close lane. Desktop-only
-    // (on a phone the pane is the whole screen).
-    if (!isMobile && inActiveSet && onDeactivate) {
-      items.push({
-        label: "Close",
-        onClick: onDeactivate,
-        testId: "pv-row-kebab-item-close",
-      });
-    }
+    // No Close here — the sidebar row's menu leaves it out; an open pane
+    // closes from its badge menu or the drop lane.
     // Kill — hard-terminates the underlying tmux session. Gated to
     // rows without an identity backing (identity rows have /id save
     // state and must not be nuked from a context menu).
