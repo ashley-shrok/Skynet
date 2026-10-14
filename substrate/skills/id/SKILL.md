@@ -785,16 +785,17 @@ not something agents drive.
 - **Drag & drop / split view.** Dragging any sidebar item (conversation
   or app) into the content area opens it (or, if something is already
   open, presents a placement UI so the user can split the view —
-  arbitrary depth). Each open conversation pane has a **badge**, and each
-  open app pane has its **app bar** (below); dragging it to a different
-  spot in the split tree rearranges panes. Moving an app pane keeps the app
-  on the page it was on.
-  While a badge or app bar is being dragged, a **drop lane** appears along
+  arbitrary depth). Each open conversation pane has a **badge**, each
+  open app pane its **app bar**, and each remote-desktop pane its
+  **remote-desktop bar** (both below); dragging it to a different spot in
+  the split tree rearranges panes. Moving an app pane keeps the app on the
+  page it was on; moving a remote-desktop pane keeps it connected.
+  While a badge or pane bar is being dragged, a **drop lane** appears along
   the left edge of the content area (beside the sidebar, or at the window
   edge when the sidebar is collapsed): its top two-thirds is **Close**
   (✕ — closes that pane), its bottom third **Archive** (archives the agent
   after the usual "can't be undone" confirm; shown only for an agent's own
-  conversation, not relay rooms or apps). Dropping a conversation's badge
+  conversation, not relay rooms, apps or remote desktops). Dropping a conversation's badge
   on a project, Pinned, or Conversations files it there, exactly like
   dragging its sidebar row, and the pane stays open. Dropping anywhere
   else in the sidebar does nothing.
@@ -828,6 +829,24 @@ not something agents drive.
   never knows it's being navigated from the bar. Rename and Archive are the
   same actions as the sidebar tile's, handled by the `app-development`
   skill; **user-gated**.
+
+- **Remote-desktop bar (top of every open RDP / VNC / telnet session).**
+  The same glassy bar as an app's, across the top of a remote-desktop
+  pane. Left: a single **reconnect** (circular-arrow) button that drops
+  and re-opens the connection to that machine. Center: a monitor icon
+  (terminal icon for telnet) and the machine's name. Right: the **⋮**
+  menu — **Move to new tab** (opens the session in a new Skynet tab and
+  closes this pane) and **Close** — also on right-click; both are desktop
+  only, so on a phone there is no ⋮. On a phone the bar is taller and
+  starts with the round **back to conversations** (←) button, same as an
+  app's. The **whole bar is the drag handle**: drop it on the drop lane's
+  Close, onto another pane to rearrange, or into another Skynet window
+  (that window connects fresh and this pane closes). Not draggable on a
+  phone. While a remote session is open, its machine's row stays in the
+  sidebar's RDP section (highlighted like an open conversation) instead of
+  moving up to Conversations, and clicking that row returns to the open
+  session rather than opening a second one.
+  *Agent-side: none.*
 
 ### Sidebar footer
 

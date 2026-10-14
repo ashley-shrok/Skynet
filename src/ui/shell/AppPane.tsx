@@ -1,4 +1,4 @@
-import type { DragEvent as ReactDragEvent, ReactElement } from "react";
+import type { ReactElement } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, RotateCw } from "lucide-react";
 
@@ -6,14 +6,9 @@ import {
   buildAppMenuItems,
   openAppInNewWindow,
 } from "@/features/pretty-conversations/app-menu-items";
-import {
-  RowKebabMenu,
-  useRowKebabContextMenu,
-  type RowKebabMenuItem,
-} from "@/features/pretty-conversations/RowKebabMenu";
+import type { RowKebabMenuItem } from "@/features/pretty-conversations/RowKebabMenu";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useIsTouchDevice } from "@/hooks/use-is-touch-device";
-import { navigateToList } from "@/lib/mobile-flow";
 import { systemLogger } from "@/lib/frontend-logger";
 import { useAppTiles } from "@/state/app-tiles-store";
 import {
@@ -25,10 +20,13 @@ import {
   type FrameHistory,
   type FrameNavKind,
 } from "./app-frame-history";
-import { armOutboundDrag, mintDragId } from "./cross-window-drag";
 import { hasSkynetDragPayload } from "./SplitView";
 import { subscribeDragSessionEnd } from "./drag-preview-session";
 import { keepFrameOutOfSessionHistory } from "./app-frame-no-history";
+import { PANE_BAR_BUTTON_CLASS, PaneBar } from "./PaneBar";
+
+// Re-exported for existing importers; the bar now lives in PaneBar.
+export { sidebarToggleClearance } from "./PaneBar";
 
 // ─── AppPane — Phase 120 Plan 06 (D-05, D-19, D-20) ─────────────────────────
 //
@@ -97,6 +95,8 @@ import { keepFrameOutOfSessionHistory } from "./app-frame-no-history";
 // the next Skynet dragover re-mutes.
 //
 // ─── App bar (shape-app-pane-strip, 2026-10-09) ────────────────────────────
+// The bar itself is the shared PaneBar (also used by RemotePane); this file
+// supplies the app's back/forward/reload buttons, title glyph and menu.
 // The pane is no longer chrome-free: a glass bar sits above the iframe, always
 // visible. The WHOLE bar (minus its buttons) is the pane's drag handle and
 // writes the same application/x-skynet-badge payload an IdentityBadge does,
@@ -185,36 +185,6 @@ function toNavKind(t: unknown): FrameNavKind {
     : "unknown";
 }
 
-// Skynet's floating sidebar-collapse toggle sits fixed at the content area's
-// top-left. Returns how far the bar's contents must shift right to clear it
-// (0 when the toggle isn't over the bar). The toggle only counts when its
-// vertical middle falls inside the bar — the touch-device back button sits
-// lower, over the app, not the bar. Exported for unit tests.
-export function sidebarToggleClearance(
-  barRect: Pick<DOMRect, "left" | "top" | "bottom">,
-  toggleRect: Pick<DOMRect, "left" | "right" | "top" | "bottom" | "width"> | null,
-): number {
-  if (toggleRect === null || toggleRect.width === 0) return 0;
-  const overlapsX = toggleRect.right > barRect.left && toggleRect.left < barRect.left + 40;
-  const middleY = (toggleRect.top + toggleRect.bottom) / 2;
-  const overlapsY = middleY >= barRect.top && middleY <= barRect.bottom;
-  if (!overlapsX || !overlapsY) return 0;
-  return Math.ceil(toggleRect.right - barRect.left) + 6;
-}
-
-const BAR_HEIGHT = 40;
-// Width of the back/forward/reload group (3 × 26px + 2 × 2px gaps). The title
-// column is centred between two columns of this width so it can never
-// overlap the buttons, however narrow the pane.
-const NAV_GROUP_WIDTH = 82;
-// Touch devices: the bar is taller and holds the back-to-conversations
-// button at its left, in place of the floating one AppShell shows over
-// conversations (which would otherwise sit over the app's top-left corner).
-const TOUCH_BAR_HEIGHT = 52;
-const BACK_TO_LIST_SIZE = 40;
-const BACK_TO_LIST_GAP = 6;
-const TOUCH_LEFT_GROUP_WIDTH = BACK_TO_LIST_SIZE + BACK_TO_LIST_GAP + NAV_GROUP_WIDTH;
-
 export interface AppPaneProps {
   hostId: number;
   slug: string;
@@ -246,7 +216,6 @@ export function AppPane({
   // display:none / hidden style; the iframe stays mounted so state is
   // preserved when the user swaps between leaves).
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const barRef = useRef<HTMLDivElement>(null);
   const isMobile = useIsMobile();
   const isTouchDevice = useIsTouchDevice();
 
@@ -296,7 +265,6 @@ export function AppPane({
     items.push(app.archive);
     return items;
   }, [hostId, slug, title, tabId, isMobile, onCloseTab, onArchiveApp]);
-  const barContextMenu = useRowKebabContextMenu(menuItems);
 
   // Page list for back/forward (see § App bar above).
   const historyRef = useRef<FrameHistory>(EMPTY_FRAME_HISTORY);
@@ -421,35 +389,6 @@ export function AppPane({
     };
   }, [observe]);
 
-  // Shift the bar's contents clear of the floating sidebar toggle. The toggle
-  // slides (a CSS transition on its left edge) when the sidebar opens or
-  // closes, and the pane resizes with it — re-measure on bar resize, window
-  // resize, and the end of any transition.
-  const [clearance, setClearance] = useState(0);
-  useEffect(() => {
-    const bar = barRef.current;
-    if (bar === null) return;
-    const measure = () => {
-      const toggle = document.querySelector<HTMLElement>("[data-sidebar-toggle]");
-      setClearance(
-        sidebarToggleClearance(
-          bar.getBoundingClientRect(),
-          toggle ? toggle.getBoundingClientRect() : null,
-        ),
-      );
-    };
-    measure();
-    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
-    ro?.observe(bar);
-    window.addEventListener("resize", measure);
-    window.addEventListener("transitionend", measure, true);
-    return () => {
-      ro?.disconnect();
-      window.removeEventListener("resize", measure);
-      window.removeEventListener("transitionend", measure, true);
-    };
-  }, []);
-
   const onNavClick = (action: "back" | "forward" | "reload") => {
     const el = iframeRef.current;
     const h = historyRef.current;
@@ -488,175 +427,75 @@ export function AppPane({
     }
   };
 
-  // In a real browser, dragstart fires on the draggable bar even when the
-  // press began on one of its buttons — so remember where the press started.
-  const pressOnButtonRef = useRef(false);
-  const isDragSource = !isMobile;
-  const onBarDragStart = (e: ReactDragEvent<HTMLDivElement>) => {
-    // A press that began on a button never drags the pane.
-    if (pressOnButtonRef.current) {
-      e.preventDefault();
-      return;
-    }
-    const dragId = mintDragId();
-    armOutboundDrag(dragId, tabId);
-    e.dataTransfer.setData("text/plain", tabId);
-    e.dataTransfer.setData(
-      "application/x-skynet-badge",
-      JSON.stringify({
-        tabId,
-        dragId,
-        identityKey: null,
-        hostId,
-        descriptor: { tabType: "app", app: { hostId, slug }, label: title },
-      }),
-    );
-    e.dataTransfer.effectAllowed = "move";
-    systemLogger.info(`[app-bar-drag] tabId=${tabId} dragId=${dragId}`, {
-      operation: "app_bar_drag_start",
-      tabId,
-      hostId,
-      slug,
-    });
-  };
-
   const src = `/apps/${encodeURIComponent(hostId)}/${encodeURIComponent(slug)}/pane/`;
-  const sideColumnWidth = isTouchDevice ? TOUCH_LEFT_GROUP_WIDTH : NAV_GROUP_WIDTH;
-  const buttonClass =
-    "inline-flex items-center justify-center w-[26px] h-[24px] rounded-md text-[color:var(--color-pv-fg-muted)] enabled:hover:text-[color:var(--color-pv-fg)] enabled:hover:bg-[rgba(232,228,216,0.08)] enabled:cursor-pointer disabled:opacity-30 transition-[color,background-color,opacity]";
   return (
     <div className="flex flex-col h-full w-full" data-testid="app-pane">
-      <div
-        ref={barRef}
-        data-testid="app-pane-bar"
-        draggable={isDragSource}
-        onPointerDownCapture={(e) => {
-          pressOnButtonRef.current = (e.target as HTMLElement).closest("button") !== null;
+      <PaneBar
+        tabId={tabId}
+        testIdPrefix="app-pane"
+        logTag="app-bar"
+        logContext={{ hostId, slug }}
+        dragPayload={{
+          identityKey: null,
+          hostId,
+          descriptor: { tabType: "app", app: { hostId, slug }, label: title },
         }}
-        onDragStart={isDragSource ? onBarDragStart : undefined}
-        onClick={() => onSelectPane?.(tabId)}
-        onContextMenu={barContextMenu.onContextMenu}
-        className={`relative z-[1] grid flex-none items-center gap-2 px-2 select-none [-webkit-touch-callout:none] ${
-          isDragSource ? "cursor-grab active:cursor-grabbing" : ""
-        }`}
-        style={{
-          height: isTouchDevice ? TOUCH_BAR_HEIGHT : BAR_HEIGHT,
-          gridTemplateColumns: `${sideColumnWidth}px minmax(0, 1fr) ${sideColumnWidth}px`,
-          paddingLeft: clearance > 0 ? clearance : undefined,
-          background:
-            "linear-gradient(160deg, hsla(230, 14%, 24%, 0.85), hsla(230, 14%, 14%, 0.92))",
-          borderBottom: "1px solid hsla(230, 30%, 70%, 0.2)",
-          boxShadow: "0 4px 12px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,220,170,0.10)",
-        }}
-      >
-        <div className="flex items-center gap-0.5">
-          {isTouchDevice && (
+        title={title}
+        titleIcon={
+          showIcon ? (
+            <img
+              src={iconUrl}
+              alt=""
+              className="w-full h-full object-cover"
+              draggable={false}
+              onError={() => setIconFailed(true)}
+            />
+          ) : (
+            initial
+          )
+        }
+        menuItems={menuItems}
+        onSelectPane={onSelectPane}
+        navButtons={
+          <>
             <button
               type="button"
-              data-testid="app-pane-back-to-list"
-              aria-label="Back to conversations"
-              title="Back to conversations"
+              data-testid="app-pane-back"
+              aria-label="Back"
+              title="Back"
               draggable={false}
-              onClick={(e) => {
-                // Don't let the bar's own click (select pane) run too.
-                e.stopPropagation();
-                systemLogger.info("[app-bar] back to conversations", {
-                  operation: "app_bar_back_to_list",
-                  tabId,
-                  hostId,
-                  slug,
-                });
-                navigateToList();
-              }}
-              className="flex-none inline-flex items-center justify-center rounded-full text-[#f0ebe0] active:scale-[0.97] transition-transform cursor-pointer"
-              style={{
-                width: BACK_TO_LIST_SIZE,
-                height: BACK_TO_LIST_SIZE,
-                marginRight: BACK_TO_LIST_GAP - 2,
-                // Same hue-glass treatment as AppShell's floating button.
-                background:
-                  "linear-gradient(160deg, hsla(218, 25%, 22%, 0.85), hsla(218, 25%, 14%, 0.9))",
-                border: "1px solid hsla(218, 35%, 55%, 0.35)",
-                boxShadow:
-                  "0 2px 8px rgba(0,0,0,0.5), inset 0 2px 0 rgba(220,225,245,0.3), 0 0 16px hsla(218, 40%, 55%, 0.25)",
-              }}
+              disabled={!nav.canBack}
+              onClick={() => onNavClick("back")}
+              className={PANE_BAR_BUTTON_CLASS}
             >
-              <ChevronLeft width={22} height={22} aria-hidden="true" />
+              <ChevronLeft width={16} height={16} aria-hidden="true" />
             </button>
-          )}
-          <button
-            type="button"
-            data-testid="app-pane-back"
-            aria-label="Back"
-            title="Back"
-            draggable={false}
-            disabled={!nav.canBack}
-            onClick={() => onNavClick("back")}
-            className={buttonClass}
-          >
-            <ChevronLeft width={16} height={16} aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            data-testid="app-pane-forward"
-            aria-label="Forward"
-            title="Forward"
-            draggable={false}
-            disabled={!nav.canForward}
-            onClick={() => onNavClick("forward")}
-            className={buttonClass}
-          >
-            <ChevronRight width={16} height={16} aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            data-testid="app-pane-reload"
-            aria-label="Reload"
-            title="Reload"
-            draggable={false}
-            onClick={() => onNavClick("reload")}
-            className={buttonClass}
-          >
-            <RotateCw width={14} height={14} aria-hidden="true" />
-          </button>
-        </div>
-        <div
-          data-testid="app-pane-title"
-          className="justify-self-center max-w-full flex items-center gap-[7px] min-w-0 pointer-events-none"
-        >
-          <span
-            className="flex-none w-[18px] h-[18px] rounded-[5px] overflow-hidden grid place-items-center text-[10px] font-bold"
-            style={{ background: "rgba(220,225,245,0.08)", color: "var(--color-pv-fg)" }}
-            aria-hidden="true"
-          >
-            {showIcon ? (
-              <img
-                src={iconUrl}
-                alt=""
-                className="w-full h-full object-cover"
-                draggable={false}
-                onError={() => setIconFailed(true)}
-              />
-            ) : (
-              initial
-            )}
-          </span>
-          <span
-            className="truncate"
-            style={{ color: "var(--color-pv-fg)", fontSize: 13, fontWeight: 500 }}
-          >
-            {title}
-          </span>
-        </div>
-        <div className="justify-self-end flex items-center" data-testid="app-pane-kebab-slot">
-          <RowKebabMenu
-            items={menuItems}
-            ariaLabel={`${title} menu`}
-            testId="app-pane-kebab-trigger"
-          />
-        </div>
-        {barContextMenu.menu}
-      </div>
+            <button
+              type="button"
+              data-testid="app-pane-forward"
+              aria-label="Forward"
+              title="Forward"
+              draggable={false}
+              disabled={!nav.canForward}
+              onClick={() => onNavClick("forward")}
+              className={PANE_BAR_BUTTON_CLASS}
+            >
+              <ChevronRight width={16} height={16} aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              data-testid="app-pane-reload"
+              aria-label="Reload"
+              title="Reload"
+              draggable={false}
+              onClick={() => onNavClick("reload")}
+              className={PANE_BAR_BUTTON_CLASS}
+            >
+              <RotateCw width={14} height={14} aria-hidden="true" />
+            </button>
+          </>
+        }
+      />
       <iframe
         ref={iframeRef}
         src={src}

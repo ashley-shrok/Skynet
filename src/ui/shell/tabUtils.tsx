@@ -12,14 +12,14 @@ import { CommandHistoryProvider } from "@/features/terminal/command-history/Comm
 // who don't immediately open a terminal / RDP tab no longer pays the
 // terminal-vendor (376 KB), remote-desktop-vendor (70 KB), Terminal (103 KB),
 // and GuacamoleApp (10 KB) uncompressed cost. Each chunk lazy-fetches on
-// first render of its matching case in renderTabContent.
+// first render of its matching case in renderTabContent. (GuacamoleApp's
+// lazy import lives in RemotePane, which wraps it with the pane bar.)
 const TerminalFeature = lazy(() =>
   import("@/features/terminal/Terminal").then((m) => ({ default: m.Terminal })),
 );
 const IdentitySessionPane = lazy(() =>
   import("@/shell/IdentitySessionPane").then((m) => ({ default: m.IdentitySessionPane })),
 );
-const GuacamoleApp = lazy(() => import("@/features/guacamole/GuacamoleApp"));
 import type {
   TerminalHandle,
   TerminalHostConfig,
@@ -43,6 +43,7 @@ import { useTabsSafe } from "@/shell/TabContext";
 import { useIdentities } from "@/state/identities-store";
 import { sessionMatchKey } from "@/features/terminal/session-hue";
 import { AppPane } from "./AppPane";
+import { RemotePane } from "./RemotePane";
 
 function hostToSSHHost(h: Host): SSHHost {
   return {
@@ -418,15 +419,15 @@ const renderGuacamoleTab: Renderer = (tab, deps) => {
   const { host } = tab;
   if (!host) return null;
   return (
-    <Suspense fallback={null}>
-      <GuacamoleApp
-        hostId={host.id}
-        tabId={tab.id}
-        protocol={tab.type as "rdp" | "vnc" | "telnet"}
-        isVisible={deps.isVisible}
-        onClose={() => deps.onCloseTab?.(tab.id)}
-      />
-    </Suspense>
+    <RemotePane
+      hostId={host.id}
+      hostName={host.name}
+      tabId={tab.id}
+      protocol={tab.type as "rdp" | "vnc" | "telnet"}
+      isVisible={deps.isVisible}
+      onSelectPane={deps.onSelectPane}
+      onCloseTab={deps.onCloseTab}
+    />
   );
 };
 
