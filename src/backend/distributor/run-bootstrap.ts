@@ -113,6 +113,14 @@
  *      listdir + a small read per identity, and nothing is logged unless a
  *      file was migrated or a conflict exists.
  *
+ *   8. agent-desktop system packages (Xvnc, openbox, xdotool, ImageMagick):
+ *      install whatever is missing with the host's package manager
+ *      (rpm-ostree --apply-live on image-based Fedora, else apt-get, else
+ *      dnf), so agents never have to ask the user for admin rights on first
+ *      desktop use. One `sh` exec per host (DESKTOP_DEPS_CMD in
+ *      desktop-deps.ts). Steady state is five `command -v` probes; logs only
+ *      when something was installed or couldn't be.
+ *
  * NEVER-THROW CONTRACT:
  *   runBootstrapForHost NEVER rejects. All risky calls are wrapped in
  *   try/catch; failures are logged and the function resolves. The caller
@@ -130,6 +138,11 @@ import {
   parseRolesKeyMigrationOutput,
   type RolesKeyMigrationCounts,
 } from "./roles-key-migration.js";
+import {
+  DESKTOP_DEPS_CMD,
+  parseDesktopDepsOutput,
+  type DesktopDepsOutcome,
+} from "./desktop-deps.js";
 
 /**
  * Result shape returned by runBootstrapForHost. Used in tests to assert
@@ -170,6 +183,11 @@ export interface BootstrapResult {
    *  completion. Conflicts (both keys present) do NOT make this false;
    *  per-file read/write failures do (and imply hadError). */
   rolesKeyMigrationOk: boolean;
+  /** Step 8 outcome for the agent-desktop packages: `present` (nothing to
+   *  do), `installed`, `no-root`, `unsupported`, `failed`, or null when the
+   *  step couldn't run / produced no result line. `no-root`, `failed` and
+   *  null imply hadError. */
+  desktopDeps: DesktopDepsOutcome["status"] | null;
   /** Whether interactive-messages-gc.timer was already enabled before Step 1b.
    *  True = cheap probe only; false = enable-and-start ran (or was skipped due
    *  to an earlier Step 1 channel failure that prevented daemon-reload). */
@@ -1146,6 +1164,58 @@ export async function runBootstrapForHost(
     );
   }
 
+  // -------------------------------------------------------------------------
+  // Step 8: agent-desktop system packages. One sh exec; the script lives in
+  //         desktop-deps.ts. Never fails the sweep — a host without them still
+  //         works, its agents just can't use a desktop.
+  // -------------------------------------------------------------------------
+  let desktopDeps: DesktopDepsOutcome["status"] | null = null;
+  try {
+    const raw = await channel.exec(DESKTOP_DEPS_CMD);
+    const outcome = raw === null ? null : parseDesktopDepsOutput(raw);
+    if (raw === null) {
+      hadError = true;
+      logBootstrapFailed(host, "desktop-deps", "channel returned null");
+    } else if (outcome === null) {
+      hadError = true;
+      logBootstrapFailed(
+        host,
+        "desktop-deps",
+        raw.trimEnd().slice(-500) || "desktop-deps produced no result",
+      );
+    } else {
+      desktopDeps = outcome.status;
+      if (outcome.status === "no-root" || outcome.status === "failed") {
+        hadError = true;
+        logBootstrapFailed(
+          host,
+          "desktop-deps",
+          outcome.status === "failed"
+            ? `still missing ${outcome.missing.join(" ")} after install: ${outcome.detail}`
+            : `missing ${outcome.missing.join(" ")}; SSH user has no passwordless sudo`,
+        );
+      } else if (outcome.status !== "present") {
+        systemLogger.info(
+          `Fleet-substrate bootstrap: agent-desktop packages ${outcome.status} on ${host.name}`,
+          {
+            operation: "fleet_substrate_desktop_deps",
+            fleetHostId: host.id,
+            hostName: host.name,
+            status: outcome.status,
+            missing: outcome.missing,
+          },
+        );
+      }
+    }
+  } catch (err) {
+    hadError = true;
+    logBootstrapFailed(
+      host,
+      "desktop-deps",
+      err instanceof Error ? err.message : "unknown throw",
+    );
+  }
+
   const result: BootstrapResult = {
     alreadyEnabled,
     bootstrapRan,
@@ -1157,6 +1227,7 @@ export async function runBootstrapForHost(
     hostIdOk,
     usageReporterRetireOk,
     rolesKeyMigrationOk,
+    desktopDeps,
     gcTimerAlreadyEnabled,
     gcTimerBootstrapped,
     scheduledAgentsSchedulerAlreadyEnabled,

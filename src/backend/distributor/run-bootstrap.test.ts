@@ -73,6 +73,7 @@ import {
 } from "./run-bootstrap.js";
 import { systemLogger } from "../utils/logger.js";
 import { ROLES_KEY_MIGRATION_SENTINEL } from "./roles-key-migration.js";
+import { DESKTOP_DEPS_SENTINEL } from "./desktop-deps.js";
 
 /** Step 7 output when there's nothing to migrate. */
 const ROLES_NOOP_OUTPUT =
@@ -126,6 +127,8 @@ function makeChannel(
     // Default happy-path for Step 7 (roles-key migration): nothing to do.
     // Tests specifically exercising Step 7 override this key.
     [ROLES_KEY_MIGRATION_SENTINEL]: ROLES_NOOP_OUTPUT,
+    // Default happy-path for Step 8 (desktop packages): already present.
+    [DESKTOP_DEPS_SENTINEL]: `${DESKTOP_DEPS_SENTINEL} present`,
     ...handlers,
   };
   const exec = vi.fn(async (cmd: string) => {
@@ -1572,6 +1575,7 @@ describe("runBootstrapForHost", () => {
         // Step 6 usage-reporter retire: check sentinel first since cmd also has SETTINGS=.
         if (cmd.includes("__USAGE_REPORTER_RETIRED__")) return "__USAGE_REPORTER_RETIRED__";
         if (cmd.includes(ROLES_KEY_MIGRATION_SENTINEL)) return ROLES_NOOP_OUTPUT;
+        if (cmd.includes(DESKTOP_DEPS_SENTINEL)) return `${DESKTOP_DEPS_SENTINEL} present`;
         if (cmd.includes("SETTINGS=")) return "__SETTINGS_OK__";
         if (cmd.includes("gsd-context-monitor")) return "__CLEANUP_OK__";
         if (cmd.includes("host/parent")) return "__HOST_PARENT_OK__";
@@ -1617,6 +1621,7 @@ describe("runBootstrapForHost", () => {
         if (cmd.includes("is-enabled interactive-messages-gc.timer")) return "disabled\nEXIT:1";
         if (cmd.includes("__USAGE_REPORTER_RETIRED__")) return "__USAGE_REPORTER_RETIRED__";
         if (cmd.includes(ROLES_KEY_MIGRATION_SENTINEL)) return ROLES_NOOP_OUTPUT;
+        if (cmd.includes(DESKTOP_DEPS_SENTINEL)) return `${DESKTOP_DEPS_SENTINEL} present`;
         if (cmd.includes("SETTINGS=")) return "__SETTINGS_OK__";
         if (cmd.includes("gsd-context-monitor")) return "__CLEANUP_OK__";
         if (cmd.includes("host/parent")) return "__HOST_PARENT_OK__";
@@ -1641,6 +1646,7 @@ describe("runBootstrapForHost", () => {
         if (cmd.includes("is-enabled interactive-messages-gc.timer")) return "disabled\nEXIT:1";
         if (cmd.includes("__USAGE_REPORTER_RETIRED__")) return "__USAGE_REPORTER_RETIRED__";
         if (cmd.includes(ROLES_KEY_MIGRATION_SENTINEL)) return ROLES_NOOP_OUTPUT;
+        if (cmd.includes(DESKTOP_DEPS_SENTINEL)) return `${DESKTOP_DEPS_SENTINEL} present`;
         if (cmd.includes("SETTINGS=")) return "__SETTINGS_OK__";
         if (cmd.includes("gsd-context-monitor")) return "__CLEANUP_OK__";
         if (cmd.includes("host/parent")) return "__HOST_PARENT_OK__";
@@ -1718,6 +1724,7 @@ describe("runBootstrapForHost", () => {
           return "disabled\nEXIT:1";
         if (cmd.includes("__USAGE_REPORTER_RETIRED__")) return "__USAGE_REPORTER_RETIRED__";
         if (cmd.includes(ROLES_KEY_MIGRATION_SENTINEL)) return ROLES_NOOP_OUTPUT;
+        if (cmd.includes(DESKTOP_DEPS_SENTINEL)) return `${DESKTOP_DEPS_SENTINEL} present`;
         if (cmd.includes("SETTINGS=")) return "__SETTINGS_OK__";
         if (cmd.includes("gsd-context-monitor")) return "__CLEANUP_OK__";
         if (cmd.includes("host/parent")) return "__HOST_PARENT_OK__";
@@ -1769,6 +1776,7 @@ describe("runBootstrapForHost", () => {
           return "disabled\nEXIT:1";
         if (cmd.includes("__USAGE_REPORTER_RETIRED__")) return "__USAGE_REPORTER_RETIRED__";
         if (cmd.includes(ROLES_KEY_MIGRATION_SENTINEL)) return ROLES_NOOP_OUTPUT;
+        if (cmd.includes(DESKTOP_DEPS_SENTINEL)) return `${DESKTOP_DEPS_SENTINEL} present`;
         if (cmd.includes("SETTINGS=")) return "__SETTINGS_OK__";
         if (cmd.includes("gsd-context-monitor")) return "__CLEANUP_OK__";
         if (cmd.includes("host/parent")) return "__HOST_PARENT_OK__";
@@ -1796,6 +1804,7 @@ describe("runBootstrapForHost", () => {
           return "disabled\nEXIT:1";
         if (cmd.includes("__USAGE_REPORTER_RETIRED__")) return "__USAGE_REPORTER_RETIRED__";
         if (cmd.includes(ROLES_KEY_MIGRATION_SENTINEL)) return ROLES_NOOP_OUTPUT;
+        if (cmd.includes(DESKTOP_DEPS_SENTINEL)) return `${DESKTOP_DEPS_SENTINEL} present`;
         if (cmd.includes("SETTINGS=")) return "__SETTINGS_OK__";
         if (cmd.includes("gsd-context-monitor")) return "__CLEANUP_OK__";
         if (cmd.includes("host/parent")) return "__HOST_PARENT_OK__";
@@ -2015,6 +2024,65 @@ describe("step 7: identity roles-key migration", () => {
       expect(run()).toContain('"filesMigrated": 0, "baselinesMigrated": 0');
     } finally {
       await fsp.rm(home, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("step 8: agent-desktop packages", () => {
+  const depsFailures = () =>
+    vi
+      .mocked(systemLogger.warn)
+      .mock.calls.filter((c) => (c[1] as { step?: string })?.step === "desktop-deps");
+
+  it("(dd-1) already present: desktopDeps=present, no hadError, nothing logged", async () => {
+    const { channel } = makeChannel({}, "");
+    const r = await runBootstrapForHost(channel, HOST);
+    expect(r.desktopDeps).toBe("present");
+    expect(depsFailures()).toHaveLength(0);
+    expect(
+      vi.mocked(systemLogger.info).mock.calls.some(
+        (c) => (c[1] as { operation?: string })?.operation === "fleet_substrate_desktop_deps",
+      ),
+    ).toBe(false);
+  });
+
+  it("(dd-2) installed: info log names the commands that were missing", async () => {
+    const { channel } = makeChannel(
+      { [DESKTOP_DEPS_SENTINEL]: `${DESKTOP_DEPS_SENTINEL} installed Xvnc vncpasswd openbox` },
+      "",
+    );
+    const r = await runBootstrapForHost(channel, HOST);
+    expect(r.desktopDeps).toBe("installed");
+    expect(depsFailures()).toHaveLength(0);
+    const log = vi
+      .mocked(systemLogger.info)
+      .mock.calls.find(
+        (c) => (c[1] as { operation?: string })?.operation === "fleet_substrate_desktop_deps",
+      );
+    expect(log?.[1]).toMatchObject({ status: "installed", missing: ["Xvnc", "vncpasswd", "openbox"] });
+  });
+
+  it("(dd-3) no-root and failed set hadError with an actionable message", async () => {
+    for (const [line, want] of [
+      [`${DESKTOP_DEPS_SENTINEL} no-root Xvnc`, "no passwordless sudo"],
+      [`E: Unable to locate package\n${DESKTOP_DEPS_SENTINEL} failed openbox`, "Unable to locate package"],
+    ] as const) {
+      vi.clearAllMocks();
+      const { channel } = makeChannel({ [DESKTOP_DEPS_SENTINEL]: line }, "");
+      const r = await runBootstrapForHost(channel, HOST);
+      expect(r.hadError).toBe(true);
+      expect(depsFailures()[0]?.[1]).toMatchObject({ errorMessage: expect.stringContaining(want) });
+    }
+  });
+
+  it("(dd-4) channel null / no result line: hadError, desktopDeps=null, still resolves", async () => {
+    for (const resp of [null, "sh: 1: syntax error"]) {
+      vi.clearAllMocks();
+      const { channel } = makeChannel({ [DESKTOP_DEPS_SENTINEL]: resp }, "");
+      const r = await runBootstrapForHost(channel, HOST);
+      expect(r.desktopDeps).toBeNull();
+      expect(r.hadError).toBe(true);
+      expect(depsFailures()).toHaveLength(1);
     }
   });
 });

@@ -1546,6 +1546,9 @@ export async function bootstrapFleetSubstrateLocally(
     hostIdOk,
     usageReporterRetireOk,
     rolesKeyMigrationOk,
+    // Step 8 (desktop packages) is SSH-only: the container can't install host
+    // packages, and agent-desktop's own first-use install covers this box.
+    desktopDeps: null,
     hadError,
     // Local branch doesn't run the interactive-messages-gc.timer OR
     // scheduled-agents-scheduler.service enable step yet (pre-existing gap
