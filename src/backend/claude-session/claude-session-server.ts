@@ -6780,11 +6780,24 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // body. Behavior byte-preserved for this steady-state site.
     startDiscoveryRepollTimer(activeTmuxSession);
 
+    // The socket can close (tab closed / reload) while this flow is awaiting
+    // above; cleanup nulls sshConn. Opening a tail on null threw inside this
+    // un-awaited async flow → unhandled rejection → process exit.
+    if (stopped || !sshConn) {
+      sshLogger.info("Active session flow aborted before tail open — connection closed", {
+        operation: "claude_session_active_flow_aborted",
+        stopped,
+        hasSshConn: !!sshConn,
+        tmuxSession: activeTmuxSession,
+        hostId: activeHostId,
+      });
+      return;
+    }
     // Phase 101 D-03: acquire long-lived slot before opening the tail.
     // Released on stop() or onError — both paths are idempotent (D-06-adjacent).
     const tailSlot2 = acquireTailSlot(currentHostId!);
     tailHandle = tailSessionFile(
-      sshConn!,
+      sshConn,
       sessionFile,
       onLine,
       (err) => { tailSlot2.release(); onError(err); },
