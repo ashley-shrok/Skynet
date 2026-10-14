@@ -1790,9 +1790,29 @@ if (process.env.VITEST !== "true") {
         // container lifetime. Cleanup happens on SIGTERM.
       }
 
+      const { getFleetNameCensus } = await import(
+        "./pool/fleet-name-census.js"
+      );
+      const { listIdentityKeysOnHost: listLiveForCensus } = await import(
+        "./claude-session/identity-artifact-reader.js"
+      );
+      const { listArchivedIdentityEntriesOnHost: listArchivedForCensus } =
+        await import("./claude-session/list-archived-identity-keys.js");
+
       const spawnScanOrch = createSpawnScanOrchestrator({
         listSubstrateHosts: () =>
           listSubstrateHostsForScan({ getDb: getDbForSpawnScan }),
+        // Fleet name census rides this always-on per-host visit.
+        census: {
+          census: getFleetNameCensus(),
+          readLocal: async () => {
+            const [live, archived] = await Promise.all([
+              listLiveForCensus(null),
+              listArchivedForCensus(null),
+            ]);
+            return { live, archived };
+          },
+        },
         acquireChannel: spawnScanAcquireChannel,
         releaseChannel: spawnScanReleaseChannel,
         enqueue: enqueueSpawnRequest,

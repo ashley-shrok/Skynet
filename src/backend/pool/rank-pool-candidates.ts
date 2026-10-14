@@ -9,20 +9,24 @@
  *
  * TIERS (produced concatenated in this order, dedup preserves first-seen):
  *
- *   1. Fresh names — pool ∖ active ∖ archived. Random order (Fisher-Yates).
- *      "Never been held on this host" — the safest recycle.
+ *   1. Fresh names — pool ∖ active ∖ liveElsewhere ∖ archived. Random order
+ *      (Fisher-Yates). "Never been held anywhere we know of" — the safest pick.
  *
- *   2. Recycled, oldest-archived first — (pool ∩ archived) ∖ active,
- *      sorted ascending by archive folder mtime (oldest first).
+ *   2. Recycled, oldest-archived first — (pool ∩ archived) ∖ active ∖
+ *      liveElsewhere, sorted ascending by archive mtime (oldest first).
  *      LRU semantics: the name that has been out of circulation the longest
  *      returns first.
  *
- *   3. Fallback — the full pool, shuffled. Runs when tiers 1+2 are empty
+ *   3. Live on another machine — (pool ∩ liveElsewhere) ∖ active, shuffled.
+ *      Legal (identities are per-host) but confusing, so only once 1+2 are
+ *      exhausted. Empty when the caller has no fleet-wide view.
+ *
+ *   4. Fallback — the full pool, shuffled. Runs when tiers 1-3 are empty
  *      (either because every pool name is currently active on this host, or
  *      because both enumerations failed and callers passed empty inputs).
  *      The dedup at concat time means non-active names picked up in tiers 1
  *      or 3-earlier-positions naturally come before any active names —
- *      tier 3 just guarantees the output is never empty when the pool is
+ *      tier 4 just guarantees the output is never empty when the pool is
  *      non-empty, so a caller always gets *something* to try. Birth-time
  *      folder-existence remains the correctness gate downstream.
  *
@@ -43,11 +47,11 @@
  * DEGRADATION SEMANTICS:
  *   - Empty `activeNames` means "we could not determine which names are
  *     currently held" — the ranker will over-include (some tier-1 or
- *     tier-3 candidates may in fact be active). Birth-time gate catches this.
+ *     tier-4 candidates may in fact be active). Birth-time gate catches this.
  *   - Empty `archivedEntries` means "no archives known" — every non-active
  *     name looks fresh. This is exactly the intended behavior when the
  *     archive enumeration fails or the host has no archive directory yet.
- *   - When BOTH are empty, tier-3 dominates and the ranker degrades to the
+ *   - When BOTH are empty, tier-4 dominates and the ranker degrades to the
  *     shuffle-then-first-free behavior of the pre-Phase-128 picker.
  */
 
@@ -67,6 +71,11 @@ export interface RankPoolCandidatesInput {
   /** Lowercase names currently held by an active agent on this host. */
   activeNames: Set<string>;
   /**
+   * Pool bases live on some OTHER machine in the fleet (fleet name census).
+   * Optional — absent/empty means "no fleet-wide view", and tier 3 is empty.
+   */
+  liveElsewhere?: ReadonlySet<string>;
+  /**
    * Archived identity entries — lowercase names + folder mtime. Names not
    * present in the pool are silently ignored (they may have been removed
    * from the curated pool since the agent was archived).
@@ -76,7 +85,7 @@ export interface RankPoolCandidatesInput {
 
 /**
  * Return an ordered list of lowercase pool candidates: tier 1 first, tier 2
- * next, tier 3 last. Callers pick the head of the list (or, in the worker's
+ * next, then tier 3, tier 4 last. Callers pick the head of the list (or, in the worker's
  * bounded-retry loop, iterate through the list skipping locally-excluded
  * collided names).
  *
@@ -86,6 +95,19 @@ export interface RankPoolCandidatesInput {
 export function rankPoolCandidates(
   input: RankPoolCandidatesInput,
 ): string[] {
+  return rankPoolCandidatesWithTiers(input).map((c) => c.name);
+}
+
+export interface RankedCandidate {
+  name: string;
+  /** 1 fresh · 2 oldest-archived · 3 live-elsewhere · 4 fallback. */
+  tier: 1 | 2 | 3 | 4;
+}
+
+/** Same ranking as rankPoolCandidates, with each candidate's tier attached. */
+export function rankPoolCandidatesWithTiers(
+  input: RankPoolCandidatesInput,
+): RankedCandidate[] {
   // Deduplicate the pool case-insensitively, preserve first-seen order.
   const poolSeen = new Set<string>();
   const poolLower: string[] = [];
@@ -98,6 +120,7 @@ export function rankPoolCandidates(
   }
 
   const active = input.activeNames;
+  const elsewhere: ReadonlySet<string> = input.liveElsewhere ?? new Set();
 
   // Index archived entries by name (last one wins if the caller supplied
   // duplicates — should not happen but defense-in-depth).
@@ -108,7 +131,7 @@ export function rankPoolCandidates(
 
   // Tier 1: fresh (in pool, not active, not archived).
   const tier1 = poolLower.filter(
-    (n) => !active.has(n) && !archivedByName.has(n),
+    (n) => !active.has(n) && !elsewhere.has(n) && !archivedByName.has(n),
   );
   fisherYatesShuffle(tier1);
 
@@ -116,7 +139,7 @@ export function rankPoolCandidates(
   // mtime ascending (oldest first). We iterate the pool (not the archived
   // list) so pool-membership is the intersection filter.
   const tier2 = poolLower
-    .filter((n) => archivedByName.has(n) && !active.has(n))
+    .filter((n) => archivedByName.has(n) && !active.has(n) && !elsewhere.has(n))
     .sort((a, b) => {
       const am = archivedByName.get(a) ?? 0;
       const bm = archivedByName.get(b) ?? 0;
@@ -125,24 +148,29 @@ export function rankPoolCandidates(
       return a.localeCompare(b);
     });
 
-  // Tier 3: full pool, shuffled. Overlaps with tier 1 and tier 2 — the dedup
-  // at concat time keeps the earliest-tier position, so non-active names
-  // still surface first. Tier 3 exists to guarantee a non-empty output when
-  // every pool name is currently active on the host (the "never 5xx a
-  // suggestion endpoint over pool exhaustion" contract).
-  const tier3 = [...poolLower];
+  // Tier 3: live on another machine but free here, shuffled.
+  const tier3 = poolLower.filter((n) => elsewhere.has(n) && !active.has(n));
   fisherYatesShuffle(tier3);
 
+  // Tier 4: full pool, shuffled. Overlaps with tiers 1-3 — the dedup at
+  // concat time keeps the earliest-tier position, so non-active names still
+  // surface first. Tier 4 exists to guarantee a non-empty output when every
+  // pool name is currently active on the host (the "never 5xx a suggestion
+  // endpoint over pool exhaustion" contract).
+  const tier4 = [...poolLower];
+  fisherYatesShuffle(tier4);
+
   const seen = new Set<string>();
-  const out: string[] = [];
-  for (const list of [tier1, tier2, tier3]) {
+  const out: RankedCandidate[] = [];
+  const tiers = [tier1, tier2, tier3, tier4] as const;
+  tiers.forEach((list, idx) => {
     for (const n of list) {
       if (!seen.has(n)) {
         seen.add(n);
-        out.push(n);
+        out.push({ name: n, tier: (idx + 1) as RankedCandidate["tier"] });
       }
     }
-  }
+  });
   return out;
 }
 

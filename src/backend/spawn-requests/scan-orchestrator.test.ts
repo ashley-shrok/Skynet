@@ -20,7 +20,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { SshChannel } from "../fleet-status/ssh-poll-orchestrator.js";
 import type { PendingBirth } from "./types.js";
-import type { SpawnScanHostRecord } from "./scan-orchestrator.js";
+import type {
+  SpawnScanHostRecord,
+  SpawnScanCensusDeps,
+} from "./scan-orchestrator.js";
+import {
+  FleetNameCensus,
+  CENSUS_REMOTE_CMD,
+} from "../pool/fleet-name-census.js";
 
 vi.mock("../utils/logger.js", () => ({
   systemLogger: {
@@ -102,6 +109,7 @@ function makeDeps(overrides: {
   acquireChannel?: (host: SpawnScanHostRecord) => Promise<SshChannel | null>;
   scanIntervalMs?: number;
   scanTimeoutMs?: number;
+  census?: SpawnScanCensusDeps;
 } = {}) {
   const hosts =
     overrides.hosts ??
@@ -153,6 +161,7 @@ function makeDeps(overrides: {
     now: vi.fn(() => Date.now()),
     scanIntervalMs: overrides.scanIntervalMs,
     scanTimeoutMs: overrides.scanTimeoutMs,
+    census: overrides.census,
   };
 
   return {
@@ -617,5 +626,119 @@ describe("LOCAL-host bypass", () => {
     expect(vi.mocked(acquireChannel).mock.calls[0][0].id).toBe("7");
     // Both hosts' items enqueued.
     expect(enqueueDep).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// N — fleet name census refresh rides the per-host visit
+// ---------------------------------------------------------------------------
+
+describe("fleet name census refresh", () => {
+  const isLocalHostIdMock = isLocalHostId as unknown as ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    isLocalHostIdMock.mockReturnValue(false);
+  });
+
+  function censusDeps(census = new FleetNameCensus()): SpawnScanCensusDeps {
+    return {
+      census,
+      readLocal: vi.fn(async () => ({
+        live: ["local-box-maintainer"],
+        archived: [{ name: "old-x", mtimeMs: 5 }],
+      })),
+    };
+  }
+
+  it("N1: first tick refreshes each machine over the existing channel", async () => {
+    const census = censusDeps();
+    const channel: SshChannel = {
+      exec: vi.fn(async (cmd: string) =>
+        cmd === CENSUS_REMOTE_CMD
+          ? "L\tada-box-maintainer\nA\tbyron-x\t100\nEND\n"
+          : "",
+      ),
+    };
+    const { deps } = makeDeps({
+      hosts: [{ id: "1", name: "h1", machineId: "m1", _connDetails: {} }],
+      acquireChannel: vi.fn(async () => channel),
+      census,
+    });
+    const orch = createSpawnScanOrchestrator(deps);
+    await orch.start();
+    await flush();
+    expect(channel.exec).toHaveBeenCalledWith(CENSUS_REMOTE_CMD);
+    const snap = census.census.snapshot(99);
+    expect(snap.ready).toBe(true);
+    expect(snap.liveElsewhere.has("ada")).toBe(true);
+    expect(snap.lastArchivedMs.get("byron")).toBe(100_000);
+    orch.stop();
+  });
+
+  it("N2: two host rows for the same machine refresh it once; next tick not due", async () => {
+    const census = censusDeps();
+    const channel: SshChannel = { exec: vi.fn(async () => "END\n") };
+    const { deps, fireTick } = makeDeps({
+      hosts: [
+        { id: "1", name: "h1-userA", machineId: "m1", _connDetails: {} },
+        { id: "2", name: "h1-userB", machineId: "m1", _connDetails: {} },
+      ],
+      acquireChannel: vi.fn(async () => channel),
+      census,
+    });
+    const orch = createSpawnScanOrchestrator(deps);
+    await orch.start();
+    await flush();
+    await fireTick();
+    await flush();
+    const censusCalls = vi
+      .mocked(channel.exec)
+      .mock.calls.filter((c) => c[0] === CENSUS_REMOTE_CMD);
+    expect(censusCalls).toHaveLength(1);
+    orch.stop();
+  });
+
+  it("N3: failed exec keeps the last known picture", async () => {
+    const census = new FleetNameCensus();
+    census.recordMachine("m1", ["ada-x"], []);
+    const channel: SshChannel = { exec: vi.fn(async () => null) };
+    const { deps } = makeDeps({
+      hosts: [{ id: "1", name: "h1", machineId: "m1", _connDetails: {} }],
+      acquireChannel: vi.fn(async () => channel),
+      census: censusDeps(census),
+    });
+    const orch = createSpawnScanOrchestrator(deps);
+    await orch.start();
+    await flush();
+    expect(channel.exec).toHaveBeenCalledWith(CENSUS_REMOTE_CMD);
+    expect(census.snapshot(99).liveElsewhere.has("ada")).toBe(true);
+    orch.stop();
+  });
+
+  it("N4: the local host reads its picture from the bind mount, no SSH", async () => {
+    isLocalHostIdMock.mockImplementation((n: number) => n === 6);
+    const census = censusDeps();
+    const { deps, acquireChannel } = makeDeps({
+      hosts: [{ id: "6", name: "self", machineId: "m-self", _connDetails: {} }],
+      census,
+    });
+    const orch = createSpawnScanOrchestrator(deps);
+    await orch.start();
+    await flush();
+    expect(acquireChannel).not.toHaveBeenCalled();
+    expect(census.readLocal).toHaveBeenCalledTimes(1);
+    expect(census.census.snapshot(6).liveOnTarget.has("local")).toBe(true);
+    orch.stop();
+  });
+
+  it("N5: no census deps → no census exec", async () => {
+    const channel: SshChannel = { exec: vi.fn(async () => "") };
+    const { deps } = makeDeps({ acquireChannel: vi.fn(async () => channel) });
+    const orch = createSpawnScanOrchestrator(deps);
+    await orch.start();
+    await flush();
+    expect(channel.exec).not.toHaveBeenCalledWith(CENSUS_REMOTE_CMD);
+    orch.stop();
   });
 });

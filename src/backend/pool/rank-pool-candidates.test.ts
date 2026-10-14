@@ -12,6 +12,7 @@
 
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
+  rankPoolCandidatesWithTiers,
   deriveBaseFromFolderName,
   rankPoolCandidates,
   type ArchivedEntryInput,
@@ -275,5 +276,51 @@ describe("deriveBaseFromFolderName", () => {
     // Clipper and Toucan can only surface via tier-3 fallback (positions 1-2).
     expect(result[0]).toBe("willow");
     expect(new Set(result.slice(1))).toEqual(new Set(["clipper", "toucan"]));
+  });
+});
+
+describe("rankPoolCandidates — live-elsewhere tier (fleet name census)", () => {
+  it("orders fresh → oldest-archived → live-elsewhere → active-on-target, with tiers", () => {
+    const result = rankPoolCandidatesWithTiers({
+      pool: ["Ada", "Byron", "Cora", "Dora", "Eve"],
+      activeNames: new Set(["eve"]),
+      liveElsewhere: new Set(["dora", "eve"]),
+      archivedEntries: [
+        { name: "byron", mtimeMs: 200 },
+        { name: "cora", mtimeMs: 100 },
+      ],
+    });
+    expect(result).toEqual([
+      { name: "ada", tier: 1 },
+      { name: "cora", tier: 2 },
+      { name: "byron", tier: 2 },
+      { name: "dora", tier: 3 },
+      { name: "eve", tier: 4 },
+    ]);
+  });
+
+  it("a name both archived and live elsewhere lands in tier 3, not tier 2", () => {
+    const result = rankPoolCandidatesWithTiers({
+      pool: ["Ada", "Byron"],
+      activeNames: new Set(),
+      liveElsewhere: new Set(["ada"]),
+      archivedEntries: [{ name: "ada", mtimeMs: 1 }],
+    });
+    expect(result.map((c) => [c.name, c.tier])).toEqual([
+      ["byron", 1],
+      ["ada", 3],
+    ]);
+  });
+
+  it("absent liveElsewhere keeps the pre-census ordering", () => {
+    const result = rankPoolCandidatesWithTiers({
+      pool: ["Ada", "Byron"],
+      activeNames: new Set(["ada"]),
+      archivedEntries: [],
+    });
+    expect(result).toEqual([
+      { name: "byron", tier: 1 },
+      { name: "ada", tier: 4 },
+    ]);
   });
 });

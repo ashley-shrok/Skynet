@@ -49,6 +49,7 @@ import {
 import type { PendingBirth } from "./types.js";
 import type { BirthEvent, BirthDeps } from "../database/routes/identity-birth-orchestrator.js";
 import { __resetForTests as __resetThrottleForTests } from "../identity-birth/global-throttle.js";
+import { FleetNameCensus } from "../pool/fleet-name-census.js";
 
 // ---------------------------------------------------------------------------
 // Throttle env-var save/restore (for Phase 110 throttle tests)
@@ -183,6 +184,9 @@ function buildTestDeps(overrides?: Partial<WorkerDeps>): WorkerDeps {
     // tier-1 candidate.
     listActiveIdentityKeys: vi.fn().mockResolvedValue([]),
     listArchivedIdentityEntries: vi.fn().mockResolvedValue([]),
+    // Fresh census per test — the process-wide one would leak recorded
+    // births across tests.
+    nameCensus: new FleetNameCensus(),
   };
 
   return { ...deps, ...overrides };
@@ -1419,6 +1423,85 @@ describe("spawn-request worker", () => {
   // the mutation so the new values are picked up by the semaphore. Each such
   // test restores the original values in its own afterEach.
   // ─────────────────────────────────────────────────────────────────────────
+
+  describe("fleet name census", () => {
+    function censusWith(
+      setup: (c: FleetNameCensus) => void,
+    ): FleetNameCensus {
+      const c = new FleetNameCensus(() => 1_000_000);
+      c.noteHost("42", "machine-target");
+      c.noteHost("7", "machine-other");
+      setup(c);
+      return c;
+    }
+
+    it("C1: a name live on another machine is skipped while a fresh one remains", async () => {
+      const birth = vi.fn().mockImplementation(async (opts: BirthOptions, emit: (e: BirthEvent) => void) => {
+        emit({ type: "ended", ok: true, identityId: `${opts.name}-coordinator`, sessionName: "x" });
+      });
+      const census = censusWith((c) =>
+        c.recordMachine("machine-other", ["ada-box-maintainer", "byron-coordinator"], []),
+      );
+      const deps = buildTestDeps({
+        getVettedPool: vi.fn().mockReturnValue(["ada", "byron", "cora"]),
+        birthIdentity: birth,
+        nameCensus: census,
+      });
+      await processBirth(makePendingBirth(), deps);
+      expect(birth.mock.calls[0][0].name).toBe("cora");
+    });
+
+    it("C2: a name archived on another machine ranks after fresh, oldest archive first", async () => {
+      const birth = vi.fn().mockImplementation(async (opts: BirthOptions, emit: (e: BirthEvent) => void) => {
+        emit({ type: "ended", ok: true, identityId: opts.name, sessionName: "x" });
+      });
+      const census = censusWith((c) =>
+        c.recordMachine("machine-other", [], [
+          { name: "ada-x", mtimeMs: 500 },
+          { name: "byron-x", mtimeMs: 100 },
+        ]),
+      );
+      const deps = buildTestDeps({
+        getVettedPool: vi.fn().mockReturnValue(["ada", "byron"]),
+        birthIdentity: birth,
+        nameCensus: census,
+      });
+      await processBirth(makePendingBirth(), deps);
+      expect(birth.mock.calls[0][0].name).toBe("byron");
+    });
+
+    it("C3: census live-on-target still blocks when the live target read failed", async () => {
+      const birth = vi.fn().mockImplementation(async (opts: BirthOptions, emit: (e: BirthEvent) => void) => {
+        emit({ type: "ended", ok: true, identityId: opts.name, sessionName: "x" });
+      });
+      const census = censusWith((c) =>
+        c.recordMachine("machine-target", ["ada-coordinator"], []),
+      );
+      const deps = buildTestDeps({
+        getVettedPool: vi.fn().mockReturnValue(["ada", "byron"]),
+        birthIdentity: birth,
+        nameCensus: census,
+        listActiveIdentityKeys: vi.fn().mockRejectedValue(new Error("boom")),
+      });
+      await processBirth(makePendingBirth(), deps);
+      expect(birth.mock.calls[0][0].name).toBe("byron");
+    });
+
+    it("C4: a successful birth is recorded in the census immediately", async () => {
+      const census = new FleetNameCensus();
+      const deps = buildTestDeps({ nameCensus: census });
+      await processBirth(makePendingBirth(), deps);
+      expect(census.snapshot(99).liveElsewhere.has("willow")).toBe(true);
+      expect(census.snapshot(42).liveOnTarget.has("willow")).toBe(true);
+    });
+
+    it("C5: empty census → target-host-only behavior, birth still succeeds", async () => {
+      const deps = buildTestDeps({ nameCensus: new FleetNameCensus() });
+      await processBirth(makePendingBirth(), deps);
+      const writes = (deps.writeMarkdownFileAtomic as ReturnType<typeof vi.fn>).mock.calls;
+      expect(writes.some((c) => String(c[1]).endsWith(".success.json"))).toBe(true);
+    });
+  });
 
   describe("throttle integration (Phase 110)", () => {
     it("Test 110-W-A: two parallel processBirth calls serialize under maxConcurrent=1", async () => {

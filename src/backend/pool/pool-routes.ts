@@ -83,8 +83,12 @@ import {
 } from "../claude-session/list-archived-identity-keys.js";
 import {
   deriveBaseFromFolderName,
-  rankPoolCandidates,
+  rankPoolCandidatesWithTiers,
 } from "./rank-pool-candidates.js";
+import {
+  getFleetNameCensus,
+  mergeCensusIntoRankInput,
+} from "./fleet-name-census.js";
 import { ROLE_NAME_PATTERN } from "../utils/role-name-pattern.js";
 
 const router = express.Router();
@@ -325,8 +329,12 @@ router.post("/pick", express.json(), authenticateJWT, async (req: Request, res: 
     //      1. Fresh (in pool, not active, not archived) — random.
     //      2. Recycled — archived AND in pool AND not active, oldest-mtime
     //         first. LRU semantics; the name gone longest returns first.
-    //      3. Full pool shuffled — used only when tiers 1+2 are empty AND/OR
+    //      3. Live on another machine (fleet name census), free here.
+    //      4. Full pool shuffled — used only when tiers 1-3 are empty AND/OR
     //         everything is active (last-resort; birth-time gate catches it).
+    //
+    //    Fleet-wide inputs come from the in-memory name census — no extra
+    //    host contact. Empty census = target-host-only ranking.
     //
     //    Determinism-in-tier-2 is safe: birth is globally serialized via the
     //    identity-birth throttle (concurrency=1 default), so two racing
@@ -334,12 +342,19 @@ router.post("/pick", express.json(), authenticateJWT, async (req: Request, res: 
     //    same name — the second birth waits for the first to commit and
     //    then hits the folder-exists gate.
     // -----------------------------------------------------------------------
-    const ranked = rankPoolCandidates({
+    const censusSnapshot = getFleetNameCensus().snapshot(hostId);
+    const ranked = rankPoolCandidatesWithTiers({
       pool,
-      activeNames,
-      archivedEntries,
+      ...mergeCensusIntoRankInput({ activeNames, archivedEntries }, censusSnapshot),
     });
-    res.json({ name: ranked[0] });
+    sshLogger.info("pool pick: suggested name", {
+      operation: "pool_pick_suggested",
+      hostId,
+      name: ranked[0].name,
+      tier: ranked[0].tier,
+      censusReady: censusSnapshot.ready,
+    });
+    res.json({ name: ranked[0].name });
   },
 );
 

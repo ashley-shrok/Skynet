@@ -208,6 +208,10 @@ const stubConn = { end: vi.fn() };
 // ---------------------------------------------------------------------------
 
 import router from "./pool-routes.js";
+import {
+  FleetNameCensus,
+  __resetFleetNameCensusForTests,
+} from "./fleet-name-census.js";
 
 let server: http.Server;
 
@@ -227,6 +231,7 @@ beforeEach(() => {
   (connectOneShot as Mock).mockResolvedValue(stubConn);
   (listIdentityKeysOnHost as Mock).mockResolvedValue([]);
   (listArchivedIdentityEntriesOnHost as Mock).mockResolvedValue([]);
+  __resetFleetNameCensusForTests();
 
   const app = express();
   // Mount router at /identities/pool (mirrors database.ts mount).
@@ -700,5 +705,52 @@ describe("POST /identities/pool/pick", () => {
     expect(res.status).toBe(200);
     // Willow is tier-1 fresh, Clipper is tier-2 recycled → Willow wins.
     expect((res.body as { name: string }).name).toBe("willow");
+  });
+});
+
+describe("POST /identities/pool/pick — fleet name census", () => {
+  it("Census 1: a name live on another machine is not suggested while a fresh one remains", async () => {
+    const census = new FleetNameCensus();
+    census.noteHost("7", "m-target");
+    census.noteHost("9", "m-other");
+    census.recordMachine("m-other", ["willow-box-maintainer"], []);
+    __resetFleetNameCensusForTests(census);
+    for (let i = 0; i < 5; i++) {
+      const res = await httpRequest(server, {
+        method: "POST",
+        path: "/identities/pool/pick",
+        body: { hostId: 7 },
+      });
+      expect(res.status).toBe(200);
+      expect((res.body as { name: string }).name).toBe("aster");
+    }
+  });
+
+  it("Census 2: a name archived elsewhere more recently loses to one archived longer ago", async () => {
+    const census = new FleetNameCensus();
+    census.recordMachine("m-other", [], [
+      { name: "willow-x", mtimeMs: 100 },
+      { name: "aster-x", mtimeMs: 900 },
+    ]);
+    __resetFleetNameCensusForTests(census);
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/pool/pick",
+      body: { hostId: 7 },
+    });
+    expect((res.body as { name: string }).name).toBe("willow");
+  });
+
+  it("Census 3: suggestion makes no contact with hosts other than the target", async () => {
+    const census = new FleetNameCensus();
+    census.recordMachine("m-other", ["willow-x"], []);
+    __resetFleetNameCensusForTests(census);
+    await httpRequest(server, {
+      method: "POST",
+      path: "/identities/pool/pick",
+      body: { hostId: 7 },
+    });
+    expect(resolveHostById).toHaveBeenCalledTimes(1);
+    expect(connectOneShot).toHaveBeenCalledTimes(1);
   });
 });

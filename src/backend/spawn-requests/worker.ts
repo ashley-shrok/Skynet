@@ -45,8 +45,13 @@ import { getMatrixAdminCreds } from "../matrix/matrix-admin-creds-store.js";
 import { getVettedPool } from "../pool/pool-loader.js";
 import {
   deriveBaseFromFolderName,
-  rankPoolCandidates,
+  rankPoolCandidatesWithTiers,
 } from "../pool/rank-pool-candidates.js";
+import {
+  getFleetNameCensus,
+  mergeCensusIntoRankInput,
+  type FleetNameCensus,
+} from "../pool/fleet-name-census.js";
 import { getDb } from "../database/db/index.js";
 import { hosts } from "../database/db/schema.js";
 import { eq } from "drizzle-orm";
@@ -195,6 +200,8 @@ export interface WorkerDeps {
   // can override without a real SSH round-trip.
   listActiveIdentityKeys: typeof listIdentityKeysOnHost;
   listArchivedIdentityEntries: typeof listArchivedIdentityEntriesOnHost;
+  /** Fleet name census; absent = the process-wide instance. */
+  nameCensus?: FleetNameCensus;
 }
 
 // ---------------------------------------------------------------------------
@@ -217,6 +224,7 @@ export function buildProductionDeps(): WorkerDeps {
     now: () => new Date(),
     listActiveIdentityKeys: listIdentityKeysOnHost,
     listArchivedIdentityEntries: listArchivedIdentityEntriesOnHost,
+    nameCensus: getFleetNameCensus(),
   };
 }
 
@@ -642,19 +650,24 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
     }
   }
 
+  // Fold in the fleet name census (names live on other machines, newest
+  // archive time anywhere). Empty census = target-host-only ranking.
+  const nameCensus = deps.nameCensus ?? getFleetNameCensus();
+  const censusSnapshot = nameCensus.snapshot(item.hostIdNum);
+  const rankInput = mergeCensusIntoRankInput(
+    { activeNames, archivedEntries },
+    censusSnapshot,
+  );
+
   // Rank the pool once — the ranking does not depend on retry state; the
   // retry loop just walks the ranked list, skipping locally-collided names.
-  const ranked = rankPoolCandidates({
-    pool,
-    activeNames,
-    archivedEntries,
-  });
+  const ranked = rankPoolCandidatesWithTiers({ pool, ...rankInput });
 
   for (let attempt = 0; attempt < MAX_POOL_PICK_ATTEMPTS; attempt++) {
     const pickedName =
       typedNameSlug !== null
         ? freeTypedSlug(typedNameSlug, activeFolderNames)
-        : ranked.find((n) => !excluded.has(n));
+        : ranked.find((c) => !excluded.has(c.name))?.name;
     if (pickedName === undefined) {
       // Every ranked candidate has already collided — pool is effectively
       // exhausted for this birth. Different from "pool.length === 0" earlier
@@ -664,6 +677,17 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
       break;
     }
     lastPickedName = pickedName;
+    if (typedNameSlug === null) {
+      systemLogger.info("spawn-request worker: pool name picked", {
+        operation: "spawn_request_pool_pick",
+        uuid: item.uuid,
+        hostId: item.hostIdNum,
+        name: pickedName,
+        tier: ranked.find((c) => c.name === pickedName)?.tier,
+        censusReady: censusSnapshot.ready,
+        attempt: attempt + 1,
+      });
+    }
     const opts: BirthOptions = {
       userId: currentUserId,
       hostId: item.hostIdNum, // numeric — Pitfall 2: HostRecord.id is string, BirthOptions.hostId is number
@@ -792,6 +816,7 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
     // `oak-box-maintainer`), not the pool base (`oak`): the folder name is
     // what `/id` and DMs resolve against.
     const bornName = (endedEvent.identityId ?? lastPickedName ?? "").toLowerCase();
+    if (bornName) nameCensus.recordBirth(item.hostIdNum, bornName);
     const successPayload: SuccessResponse = {
       name: bornName,
       birthed_at: deps.now().toISOString(),

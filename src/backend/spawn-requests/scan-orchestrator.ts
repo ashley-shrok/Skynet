@@ -57,6 +57,12 @@ import type { HostRecord } from "../fleet-status/host-id-resolver.js";
 import { isLocalHostId } from "../claude-session/identity-artifact-reader.js";
 import { scanLocalFleetFolder } from "../utils/local-fleet-scan.js";
 import type { PendingBirth } from "./types.js";
+import {
+  CENSUS_REMOTE_CMD,
+  parseCensusOutput,
+  type FleetNameCensus,
+} from "../pool/fleet-name-census.js";
+import { IDENTITY_KEY_RE } from "../claude-session/identity-artifact-reader.js";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -70,7 +76,22 @@ import type { PendingBirth } from "./types.js";
 export interface SpawnScanHostRecord {
   id: string;
   name: string;
+  /** Shared across every user's row for the same box (fleet name census key). */
+  machineId?: string;
   _connDetails: Record<string, unknown>;
+}
+
+/**
+ * Fleet name census hook. The scanner refreshes each machine's picture on
+ * its existing per-host visit when the census says it's due.
+ */
+export interface SpawnScanCensusDeps {
+  census: FleetNameCensus;
+  /** LOCAL-host read (bind-mounted dirs) — live folder names + archived entries. */
+  readLocal(): Promise<{
+    live: string[];
+    archived: { name: string; mtimeMs: number }[];
+  }>;
 }
 
 /**
@@ -117,6 +138,9 @@ export interface SpawnScanOrchestratorDeps {
 
   /** Scan interval in ms. Default 10000. */
   scanIntervalMs?: number;
+
+  /** Fleet name census refresh. Absent = scanner does spawn-requests only. */
+  census?: SpawnScanCensusDeps;
 
   /**
    * Per-host scan timeout in ms. Default 30000 (three scan intervals).
@@ -198,25 +222,26 @@ export function createSpawnScanOrchestrator(
         const rawItems = await scanLocalFleetFolder("spawn-requests", {
           preserveClaimed: true,
         });
-        if (rawItems.length === 0) return;
-        // Feed into the same parser the SSH path uses: build the same
-        // tab-separated stdout shape (`<filename>\t<contents>` per line)
-        // so parseSpawnRequestBatch's downstream contract stays 1:1.
-        const stdout = rawItems.map((r) => `${r.filename}\t${r.contents}`).join("\n");
-        // LOCAL branch: no hostConnDetails — writeResponseFile bypasses SSH
-        // via isLocalHostId + writeMarkdownFileAtomic bind-mount path
-        // (quick-260923-9x1). Omitting the third arg lands hostConnDetails
-        // as undefined on every emitted PendingBirth, which is exactly what
-        // writeResponseFile's LOCAL short-circuit needs.
-        const items = parseSpawnRequestBatch(stdout, host.id);
-        for (const item of items) {
-          deps.enqueue(item);
+        if (rawItems.length > 0) {
+          // Feed into the same parser the SSH path uses: build the same
+          // tab-separated stdout shape (`<filename>\t<contents>` per line)
+          // so parseSpawnRequestBatch's downstream contract stays 1:1.
+          const stdout = rawItems.map((r) => `${r.filename}\t${r.contents}`).join("\n");
+          // LOCAL branch: no hostConnDetails — writeResponseFile bypasses SSH
+          // via isLocalHostId + writeMarkdownFileAtomic bind-mount path
+          // (quick-260923-9x1). Omitting the third arg lands hostConnDetails
+          // as undefined on every emitted PendingBirth, which is exactly what
+          // writeResponseFile's LOCAL short-circuit needs.
+          const items = parseSpawnRequestBatch(stdout, host.id);
+          for (const item of items) {
+            deps.enqueue(item);
+          }
+          systemLogger.info("Spawn-scan: local exec complete", {
+            operation: "spawn_scan_local_exec_complete",
+            fleetHostId: host.id,
+            claimed: items.length,
+          });
         }
-        systemLogger.info("Spawn-scan: local exec complete", {
-          operation: "spawn_scan_local_exec_complete",
-          fleetHostId: host.id,
-          claimed: items.length,
-        });
       } catch (err) {
         // scanLocalFleetFolder is already never-throw; belt-and-suspenders.
         systemLogger.warn(
@@ -229,6 +254,7 @@ export function createSpawnScanOrchestrator(
           },
         );
       }
+      await refreshCensus(host, null);
       return;
     }
 
@@ -260,6 +286,7 @@ export function createSpawnScanOrchestrator(
       for (const item of batch) {
         deps.enqueue(item);
       }
+      await refreshCensus(host, channel);
     } catch (err) {
       // scanSpawnRequests + acquireChannel are already non-throwing; this
       // catch is belt-and-suspenders against a future contract drift.
@@ -280,6 +307,64 @@ export function createSpawnScanOrchestrator(
           // best-effort — matches ssh-poll-orchestrator.ts stop() pattern
         }
       }
+    }
+  }
+
+  /**
+   * Refresh this host's machine in the fleet name census, if due. Rides the
+   * channel the spawn scan already holds (null = LOCAL bind-mount read).
+   * Never throws; on failure the machine keeps its last known picture.
+   */
+  async function refreshCensus(
+    host: SpawnScanHostRecord,
+    channel: SshChannel | null,
+  ): Promise<void> {
+    const c = deps.census;
+    if (!c) return;
+    const machineKey = host.machineId ?? host.id;
+    if (!c.census.claimRefresh(machineKey)) return;
+    try {
+      let picture: {
+        live: string[];
+        archived: { name: string; mtimeMs: number }[];
+      } | null;
+      if (channel === null) {
+        picture = await c.readLocal();
+      } else {
+        const stdout = await channel.exec(CENSUS_REMOTE_CMD);
+        picture =
+          stdout === null
+            ? null
+            : parseCensusOutput(stdout, (n) => IDENTITY_KEY_RE.test(n));
+      }
+      if (picture === null) {
+        c.census.recordRefreshFailure(machineKey);
+        systemLogger.warn("Name census: refresh failed — keeping last known picture", {
+          operation: "name_census_refresh_failed",
+          fleetHostId: host.id,
+          hostName: host.name,
+          machineKey,
+        });
+        return;
+      }
+      c.census.recordMachine(machineKey, picture.live, picture.archived);
+      systemLogger.info("Name census: machine refreshed", {
+        operation: "name_census_refreshed",
+        fleetHostId: host.id,
+        hostName: host.name,
+        machineKey,
+        live: picture.live.length,
+        archived: picture.archived.length,
+      });
+    } catch (err) {
+      c.census.recordRefreshFailure(machineKey);
+      systemLogger.warn("Name census: refresh threw — keeping last known picture", {
+        operation: "name_census_refresh_failed",
+        fleetHostId: host.id,
+        hostName: host.name,
+        machineKey,
+        error: err instanceof Error ? err.message : "unknown",
+      });
     }
   }
 
@@ -311,6 +396,13 @@ export function createSpawnScanOrchestrator(
       // substrate hosts yet, or all decrypt-failed and got skipped). Don't
       // log every tick — silence is fine here.
       return;
+    }
+
+    if (deps.census) {
+      for (const host of hosts) {
+        deps.census.census.noteHost(host.id, host.machineId ?? host.id);
+      }
+      deps.census.census.prune();
     }
 
     // Fire per-host scans concurrently, FIRE-AND-FORGET. A slow host's

@@ -117,6 +117,7 @@ const MAX_EXTRA_ROLES = 16;
 // sees it before clicking Create. True race-collisions still fail with the
 // orchestrator's "identity already exists on this host" error.
 import { derivePrettyNameSlug } from "../../utils/pretty-name-slug.js";
+import { getFleetNameCensus } from "../../pool/fleet-name-census.js";
 
 // ---------------------------------------------------------------------------
 // Local exec helper (child_process.exec promisified)
@@ -661,6 +662,11 @@ router.post(
     // Emit helper — frames each event as SSE
     // -----------------------------------------------------------------------
     const emit = (e: BirthEvent): void => {
+      // Count the new name in the fleet name census immediately, so the next
+      // pick anywhere in the fleet sees it before the census refresh does.
+      if (e.type === "ended" && e.ok && e.identityId) {
+        getFleetNameCensus().recordBirth(hostId, e.identityId);
+      }
       res.write(`event: birth\ndata: ${JSON.stringify(e)}\n\n`);
     };
 
