@@ -4,7 +4,7 @@
 
 ## What this is
 
-The Desktop tab in an agent's identity modal shows the agent's own virtual desktop live, and lets Ashley take control of it. Today the picture is too small to be useful, and taking control breaks it: the agent's screen gets shrunk to the size of the little viewing box, so only its upper-left corner is visible and clicks land in the wrong place. This makes the identity modal grow to the large "editor" size whenever the Desktop tab is the active tab (the same way the Preferences modal grows for About you), lets the desktop picture fill that space, and makes sure the agent's screen size is never changed by the viewer — the picture only ever scales to fit.
+The Desktop tab in an agent's identity modal shows the agent's own virtual desktop live, and lets the user take control of it. Today the picture is too small to be useful, and taking control breaks it: the agent's screen gets shrunk to the size of the little viewing box, so only its upper-left corner is visible and clicks land in the wrong place. This makes the identity modal grow to the large "editor" size whenever the Desktop tab is the active tab (the same way the Preferences modal grows for About you), lets the desktop picture fill that space, and makes sure the agent's screen size is never changed by the viewer — the picture only ever scales to fit.
 
 ## Shape
 
@@ -17,7 +17,7 @@ The Desktop tab in an agent's identity modal shows the agent's own virtual deskt
 
 ## Philosophy
 
-The agent's desktop belongs to the agent. The viewer is a window onto it, never a thing that reshapes it — whatever Ashley's window or modal does, the agent's apps stay laid out the way the agent left them. The fix is to give the picture room and scale it, not to resize the remote screen to fit the viewer. Keep the change contained: no new windows, no new modes, no full-screen button — just the existing modal giving the desktop the room it needs, using a pattern Skynet already has.
+The agent's desktop belongs to the agent. The viewer is a window onto it, never a thing that reshapes it — whatever the user's window or modal does, the agent's apps stay laid out the way the agent left them. The fix is to give the picture room and scale it, not to resize the remote screen to fit the viewer. Keep the change contained: no new windows, no new modes, no full-screen button — just the existing modal giving the desktop the room it needs, using a pattern Skynet already has.
 
 ## Prior context
 
@@ -37,7 +37,7 @@ The agent's desktop belongs to the agent. The viewer is a window onto it, never 
 
 - **In:** modal grows for the Desktop tab; picture fills and scales (up or down) to fit; viewer never resizes the agent's screen; live view stable across the size change; "Handed back to agent" notice when leaving the tab mid-control; id-skill update for the identity modal's tabs.
 - **Out:** a full-screen button (maybe later, if the grown modal still feels cramped); showing the tab when the desktop is off / a reachable "Start desktop"; touch control on phones; clipboard / copy-paste (that's shape 2 of this campaign); showing what the agent is doing beyond the picture; visual polish of the toolbar and empty states.
-- **Deferred:** Ashley plans more desktop options and streamlining later — this is the "for right now" step.
+- **Deferred:** the user plans more desktop options and streamlining later — this is the "for right now" step.
 
 ## Handoff notes
 
@@ -68,7 +68,7 @@ Done in the camelot-box-maintainer-3 session on the Skynet repo. Three focused p
 
 ### Additions (in the result, not in the shape)
 
-- The "Handed back to agent" notice also shows when the whole modal is closed while in control, not only on switching tabs — endorsed-as-drift (Ashley, 2026-10-14)
+- The "Handed back to agent" notice also shows when the whole modal is closed while in control, not only on switching tabs — endorsed-as-drift (the user, 2026-10-14)
 
 ### Follow-ups
 
