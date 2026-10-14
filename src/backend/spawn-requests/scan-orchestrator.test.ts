@@ -742,3 +742,55 @@ describe("fleet name census refresh", () => {
     orch.stop();
   });
 });
+
+describe("fleet name census refresh — logins and timeouts", () => {
+  const isLocalHostIdMock = isLocalHostId as unknown as ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    isLocalHostIdMock.mockReturnValue(false);
+  });
+
+  it("N6: two SSH logins on the same box are refreshed as separate fleets", async () => {
+    const census = new FleetNameCensus();
+    const channel: SshChannel = { exec: vi.fn(async () => "END\n") };
+    const { deps } = makeDeps({
+      hosts: [
+        { id: "1", name: "box-ubuntu", machineId: "m1", _connDetails: { username: "ubuntu" } },
+        { id: "2", name: "box-root", machineId: "m1", _connDetails: { username: "root" } },
+      ],
+      acquireChannel: vi.fn(async () => channel),
+      census: { census, readLocal: vi.fn() },
+    });
+    const orch = createSpawnScanOrchestrator(deps);
+    await orch.start();
+    await flush();
+    expect(
+      vi.mocked(channel.exec).mock.calls.filter((c) => c[0] === CENSUS_REMOTE_CMD),
+    ).toHaveLength(2);
+    orch.stop();
+  });
+
+  it("N7: a census read that hangs is cut off and counted as a failed read", async () => {
+    const census = new FleetNameCensus();
+    census.recordMachine("m1", ["ada-x"], []);
+    const channel: SshChannel = {
+      exec: vi.fn((cmd: string) =>
+        cmd === CENSUS_REMOTE_CMD ? new Promise<string | null>(() => {}) : Promise.resolve(""),
+      ),
+    };
+    const h = makeDeps({
+      hosts: [{ id: "1", name: "h1", machineId: "m1", _connDetails: {} }],
+      acquireChannel: vi.fn(async () => channel),
+      census: { census, readLocal: vi.fn() },
+    });
+    const orch = createSpawnScanOrchestrator(h.deps);
+    await orch.start();
+    await flush();
+    h.fireLatestTimeout(); // the census read's own timeout
+    await flush();
+    expect(census.snapshot(99).liveElsewhere.has("ada")).toBe(true);
+    expect(census.claimRefresh("m1")).toBe(false); // retry not yet due
+    orch.stop();
+  });
+});

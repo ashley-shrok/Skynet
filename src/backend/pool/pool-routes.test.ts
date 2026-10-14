@@ -715,15 +715,13 @@ describe("POST /identities/pool/pick — fleet name census", () => {
     census.noteHost("9", "m-other");
     census.recordMachine("m-other", ["willow-box-maintainer"], []);
     __resetFleetNameCensusForTests(census);
-    for (let i = 0; i < 5; i++) {
-      const res = await httpRequest(server, {
-        method: "POST",
-        path: "/identities/pool/pick",
-        body: { hostId: 7 },
-      });
-      expect(res.status).toBe(200);
-      expect((res.body as { name: string }).name).toBe("aster");
-    }
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/pool/pick",
+      body: { hostId: 7 },
+    });
+    expect(res.status).toBe(200);
+    expect((res.body as { name: string }).name).toBe("aster");
   });
 
   it("Census 2: a name archived elsewhere more recently loses to one archived longer ago", async () => {
@@ -752,5 +750,24 @@ describe("POST /identities/pool/pick — fleet name census", () => {
     });
     expect(resolveHostById).toHaveBeenCalledTimes(1);
     expect(connectOneShot).toHaveBeenCalledTimes(1);
+  });
+
+  it("Census 4: a suggestion is held, so a concurrent pick for another host gets a different name", async () => {
+    (resolveHostById as Mock).mockImplementation((hostId: number) =>
+      Promise.resolve(hostId === 7 || hostId === 8 ? stubHost : null),
+    );
+    const first = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/pool/pick",
+      body: { hostId: 7 },
+    });
+    const second = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/pool/pick",
+      body: { hostId: 8 },
+    });
+    expect((second.body as { name: string }).name).not.toBe(
+      (first.body as { name: string }).name,
+    );
   });
 });

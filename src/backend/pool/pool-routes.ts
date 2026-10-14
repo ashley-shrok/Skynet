@@ -324,7 +324,7 @@ router.post("/pick", express.json(), authenticateJWT, async (req: Request, res: 
     // 6. Rank candidates by tier and return the head.
     //
     //    Ranker guarantees a non-empty output when the pool is non-empty
-    //    (tier-3 is the full pool shuffled), so `ranked[0]` is always defined
+    //    (tier-4 is the full pool shuffled), so `ranked[0]` is always defined
     //    at this point. Tier ordering:
     //      1. Fresh (in pool, not active, not archived) — random.
     //      2. Recycled — archived AND in pool AND not active, oldest-mtime
@@ -336,13 +336,14 @@ router.post("/pick", express.json(), authenticateJWT, async (req: Request, res: 
     //    Fleet-wide inputs come from the in-memory name census — no extra
     //    host contact. Empty census = target-host-only ranking.
     //
-    //    Determinism-in-tier-2 is safe: birth is globally serialized via the
-    //    identity-birth throttle (concurrency=1 default), so two racing
-    //    pool-picks cannot materialize as two concurrent births under the
-    //    same name — the second birth waits for the first to commit and
-    //    then hits the folder-exists gate.
+    //    Tier 2 is deterministic and fleet-wide, so concurrent picks on
+    //    different machines would land on the same head. The suggestion is
+    //    reserved in the census below, pushing it down for every other pick
+    //    while the dialog is open. Same-host duplicates are still caught by
+    //    the birth-time folder-exists gate.
     // -----------------------------------------------------------------------
-    const censusSnapshot = getFleetNameCensus().snapshot(hostId);
+    const census = getFleetNameCensus();
+    const censusSnapshot = census.snapshot(hostId);
     const ranked = rankPoolCandidatesWithTiers({
       pool,
       ...mergeCensusIntoRankInput({ activeNames, archivedEntries }, censusSnapshot),
@@ -354,6 +355,7 @@ router.post("/pick", express.json(), authenticateJWT, async (req: Request, res: 
       tier: ranked[0].tier,
       censusReady: censusSnapshot.ready,
     });
+    census.reserve(hostId, ranked[0].name);
     res.json({ name: ranked[0].name });
   },
 );

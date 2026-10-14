@@ -59,6 +59,7 @@ import { scanLocalFleetFolder } from "../utils/local-fleet-scan.js";
 import type { PendingBirth } from "./types.js";
 import {
   CENSUS_REMOTE_CMD,
+  censusMachineKey,
   parseCensusOutput,
   type FleetNameCensus,
 } from "../pool/fleet-name-census.js";
@@ -143,6 +144,12 @@ export interface SpawnScanOrchestratorDeps {
   census?: SpawnScanCensusDeps;
 
   /**
+   * Bound on one census read, so it can't stretch the host visit past the
+   * per-host scan timeout. Default 10000.
+   */
+  censusTimeoutMs?: number;
+
+  /**
    * Per-host scan timeout in ms. Default 30000 (three scan intervals).
    *
    * Bounds a single `scanOneHost` invocation. If `acquireChannel` or
@@ -181,6 +188,14 @@ export function createSpawnScanOrchestrator(
 ): SpawnScanOrchestrator {
   const scanIntervalMs = deps.scanIntervalMs ?? 10000;
   const scanTimeoutMs = deps.scanTimeoutMs ?? 30000;
+  const censusTimeoutMs = deps.censusTimeoutMs ?? 10000;
+
+  function machineKeyOf(host: SpawnScanHostRecord): string {
+    return censusMachineKey(
+      host.machineId ?? host.id,
+      host._connDetails?.username,
+    );
+  }
 
   /**
    * Per-host in-flight guard — quick-260820-tm0 wilma pattern. A slow host
@@ -321,22 +336,27 @@ export function createSpawnScanOrchestrator(
   ): Promise<void> {
     const c = deps.census;
     if (!c) return;
-    const machineKey = host.machineId ?? host.id;
+    const machineKey = machineKeyOf(host);
     if (!c.census.claimRefresh(machineKey)) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       let picture: {
         live: string[];
         archived: { name: string; mtimeMs: number }[];
       } | null;
-      if (channel === null) {
-        picture = await c.readLocal();
-      } else {
+      const read = (async () => {
+        if (channel === null) return c.readLocal();
         const stdout = await channel.exec(CENSUS_REMOTE_CMD);
-        picture =
-          stdout === null
-            ? null
-            : parseCensusOutput(stdout, (n) => IDENTITY_KEY_RE.test(n));
-      }
+        return stdout === null
+          ? null
+          : parseCensusOutput(stdout, (n) => IDENTITY_KEY_RE.test(n));
+      })();
+      picture = await Promise.race([
+        read,
+        new Promise<null>((resolve) => {
+          timer = deps.setTimeout(() => resolve(null), censusTimeoutMs);
+        }),
+      ]);
       if (picture === null) {
         c.census.recordRefreshFailure(machineKey);
         systemLogger.warn("Name census: refresh failed — keeping last known picture", {
@@ -347,7 +367,18 @@ export function createSpawnScanOrchestrator(
         });
         return;
       }
-      c.census.recordMachine(machineKey, picture.live, picture.archived);
+      if (!c.census.recordMachine(machineKey, picture.live, picture.archived)) {
+        systemLogger.warn(
+          "Name census: read shows no live agents where there were some — holding last picture until a second read agrees",
+          {
+            operation: "name_census_empty_read_held",
+            fleetHostId: host.id,
+            hostName: host.name,
+            machineKey,
+          },
+        );
+        return;
+      }
       systemLogger.info("Name census: machine refreshed", {
         operation: "name_census_refreshed",
         fleetHostId: host.id,
@@ -365,6 +396,8 @@ export function createSpawnScanOrchestrator(
         machineKey,
         error: err instanceof Error ? err.message : "unknown",
       });
+    } finally {
+      if (timer !== undefined) deps.clearTimeout(timer);
     }
   }
 
@@ -400,7 +433,7 @@ export function createSpawnScanOrchestrator(
 
     if (deps.census) {
       for (const host of hosts) {
-        deps.census.census.noteHost(host.id, host.machineId ?? host.id);
+        deps.census.census.noteHost(host.id, machineKeyOf(host));
       }
       deps.census.census.prune();
     }

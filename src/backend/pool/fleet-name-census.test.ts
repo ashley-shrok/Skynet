@@ -4,7 +4,9 @@ import {
   REFRESH_INTERVAL_MS,
   RETRY_AFTER_FAILURE_MS,
   RECENT_BIRTH_TTL_MS,
+  RESERVATION_TTL_MS,
   FORGET_AFTER_MS,
+  censusMachineKey,
   parseCensusOutput,
   mergeCensusIntoRankInput,
 } from "./fleet-name-census.js";
@@ -81,21 +83,64 @@ describe("FleetNameCensus", () => {
     expect(c.snapshot(99).liveElsewhere.has("ada")).toBe(true);
   });
 
-  it("records births immediately and expires them after the TTL", () => {
+  it("records births immediately; they count until a refresh started after the birth lands", () => {
     const k = clock();
     const c = new FleetNameCensus(k.now);
     c.noteHost("1", "m-a");
+    expect(c.claimRefresh("m-a")).toBe(true); // read starts BEFORE the birth
+    k.advance(1);
     c.recordBirth(1, "cora-box-maintainer");
     expect(c.snapshot(1).liveOnTarget.has("cora")).toBe(true);
     expect(c.snapshot(2).liveElsewhere.has("cora")).toBe(true);
-    k.advance(RECENT_BIRTH_TTL_MS + 1);
+    c.recordMachine("m-a", [], []); // that early read missed the folder
+    k.advance(RECENT_BIRTH_TTL_MS * 10); // machine unreachable for ages
+    expect(c.snapshot(2).liveElsewhere.has("cora")).toBe(true);
+    k.advance(REFRESH_INTERVAL_MS);
+    expect(c.claimRefresh("m-a")).toBe(true); // read starts AFTER the birth
+    c.recordMachine("m-a", ["cora-box-maintainer"], []);
+    c.noteHost("1", "m-a"); // still in the host list (scanner notes it every tick)
+    c.prune();
+    expect(c.snapshot(2).liveElsewhere.has("cora")).toBe(true); // via picture
+    k.advance(REFRESH_INTERVAL_MS);
+    expect(c.claimRefresh("m-a")).toBe(true);
+    c.recordMachine("m-a", ["dora-x"], []); // cora since archived
     expect(c.snapshot(2).liveElsewhere.has("cora")).toBe(false);
   });
 
-  it("a birth on an unmapped row still counts as on-target for that same row", () => {
-    const c = new FleetNameCensus();
+  it("a birth on an unmapped row counts on-target for that row and expires after the TTL", () => {
+    const k = clock();
+    const c = new FleetNameCensus(k.now);
     c.recordBirth(9, "cora-x");
     expect(c.snapshot(9).liveOnTarget.has("cora")).toBe(true);
+    k.advance(RECENT_BIRTH_TTL_MS + 1);
+    expect(c.snapshot(9).liveOnTarget.has("cora")).toBe(false);
+  });
+
+  it("reservations hold a name briefly, then expire", () => {
+    const k = clock();
+    const c = new FleetNameCensus(k.now);
+    c.noteHost("1", "m-a");
+    c.reserve(1, "oak");
+    expect(c.snapshot(2).liveElsewhere.has("oak")).toBe(true);
+    k.advance(RESERVATION_TTL_MS + 1);
+    expect(c.snapshot(2).liveElsewhere.has("oak")).toBe(false);
+  });
+
+  it("a read showing no live agents over a non-empty picture is held until a second read agrees", () => {
+    const c = new FleetNameCensus();
+    c.recordMachine("m", ["ada-x", "byron-y"], []);
+    expect(c.recordMachine("m", [], [])).toBe(false);
+    expect(c.snapshot(99).liveElsewhere.has("ada")).toBe(true);
+    expect(c.recordMachine("m", [], [])).toBe(true);
+    expect(c.snapshot(99).liveElsewhere.has("ada")).toBe(false);
+  });
+
+  it("a non-empty read in between resets the empty-read hold", () => {
+    const c = new FleetNameCensus();
+    c.recordMachine("m", ["ada-x"], []);
+    expect(c.recordMachine("m", [], [])).toBe(false);
+    expect(c.recordMachine("m", ["ada-x"], [])).toBe(true);
+    expect(c.recordMachine("m", [], [])).toBe(false);
   });
 
   it("forgets a machine only after it's been absent from the host list a long time", () => {
@@ -144,6 +189,10 @@ describe("parseCensusOutput", () => {
     });
   });
 
+  it("returns null when a listing reported an error", () => {
+    expect(parseCensusOutput("L\tada-x\nERR\nEND\n", valid)).toBeNull();
+  });
+
   it("an empty fleet dir is a valid empty picture", () => {
     expect(parseCensusOutput("END\n", valid)).toEqual({ live: [], archived: [] });
   });
@@ -174,5 +223,13 @@ describe("mergeCensusIntoRankInput", () => {
       Object.fromEntries(merged.archivedEntries.map((e) => [e.name, e.mtimeMs])),
     ).toEqual({ byron: 50, cora: 99 });
     expect([...merged.liveElsewhere]).toEqual(["eve"]);
+  });
+});
+
+describe("censusMachineKey", () => {
+  it("separates different SSH logins on the same box", () => {
+    expect(censusMachineKey("12", "ubuntu")).toBe("12|ubuntu");
+    expect(censusMachineKey("12", "root")).not.toBe(censusMachineKey("12", "ubuntu"));
+    expect(censusMachineKey("12", undefined)).toBe("12");
   });
 });

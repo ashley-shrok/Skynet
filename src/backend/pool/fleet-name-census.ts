@@ -11,18 +11,25 @@
  *     once per REFRESH_INTERVAL_MS per machine (sooner retry after a failure).
  *     A machine never refreshed is due immediately, so the first refresh lands
  *     on the scanner's first tick after boot.
- *   - recordBirth(), called by both birth paths on a successful birth, so two
- *     births minutes apart on different machines don't both see a name as
- *     fresh before the next refresh. Recent births expire after
- *     RECENT_BIRTH_TTL_MS — by then a refresh has seen the folder.
+ *   - recordBirth(), called by both birth paths when a birth succeeds (or may
+ *     have succeeded). A recorded birth counts as live until a refresh of its
+ *     machine that STARTED after the birth has landed — so an unreachable
+ *     machine can't let a just-born name look fresh.
+ *   - reserve(), called when a pool name is picked or suggested, so two
+ *     births in flight at once on different machines don't take the same
+ *     head-of-list name. Reservations simply expire after RESERVATION_TTL_MS.
  *
- * MACHINE IDENTITY: keyed by the host row's machineId (shared across every
- * user's row for the same box), so a box registered under several users
- * counts once. Host rows map to machines as the scanner sees them.
+ * MACHINE IDENTITY: a machine is the host row's machineId (shared across
+ * every user's row for the same box) plus the SSH login, since different
+ * logins on one box have different fleet folders. A box registered by several
+ * users under the same login counts once. Host rows map to machines as the
+ * scanner sees them.
  *
  * STALENESS: a machine that stops answering keeps its last known picture. A
- * machine is forgotten only after it has been absent from the substrate host
- * list for FORGET_AFTER_MS (i.e. removed from Skynet, not just unreachable).
+ * read that suddenly shows NO live agents where the last one showed some is
+ * only believed once a second read agrees (a broken mount or home dir looks
+ * exactly like an empty fleet). A machine is forgotten only after it has been
+ * absent from the substrate host list for FORGET_AFTER_MS.
  *
  * In-memory only; empty after a restart until the first refresh lands.
  * Readers treat "no data" as "no fleet-wide preference" — naming then
@@ -33,15 +40,28 @@ import { deriveBaseFromFolderName } from "./rank-pool-candidates.js";
 
 export const REFRESH_INTERVAL_MS = 5 * 60_000;
 export const RETRY_AFTER_FAILURE_MS = 60_000;
+/** Lifetime of a birth whose host row isn't mapped to a machine yet. */
 export const RECENT_BIRTH_TTL_MS = 2 * REFRESH_INTERVAL_MS;
+export const RESERVATION_TTL_MS = 10 * 60_000;
 export const FORGET_AFTER_MS = 60 * 60_000;
+
+/** Census key for one fleet: the box plus the SSH login that reads it. */
+export function censusMachineKey(
+  machineId: string,
+  username: unknown,
+): string {
+  return typeof username === "string" && username.length > 0
+    ? `${machineId}|${username}`
+    : machineId;
+}
 
 interface MachinePicture {
   /** Pool bases with a live identity folder on this machine. */
   live: Set<string>;
   /** Pool base → newest archive-folder mtime on this machine. */
   archived: Map<string, number>;
-  refreshedAt: number;
+  /** When the read that produced this picture started. */
+  readStartedAt: number;
 }
 
 interface MachineState {
@@ -49,11 +69,13 @@ interface MachineState {
   lastAttemptAt: number;
   lastAttemptFailed: boolean;
   lastSeenInHostListAt: number;
+  /** A read showed zero live agents over a non-empty picture; awaiting a second. */
+  pendingEmpty: boolean;
 }
 
-interface RecentBirth {
+interface NameHold {
+  kind: "birth" | "reservation";
   base: string;
-  machineKey: string | null;
   hostRowId: string;
   at: number;
 }
@@ -72,7 +94,7 @@ export interface CensusSnapshot {
 export class FleetNameCensus {
   private machines = new Map<string, MachineState>();
   private hostRowToMachine = new Map<string, string>();
-  private recentBirths: RecentBirth[] = [];
+  private holds: NameHold[] = [];
 
   constructor(private readonly now: () => number = () => Date.now()) {}
 
@@ -100,13 +122,29 @@ export class FleetNameCensus {
     return true;
   }
 
-  /** Replace a machine's picture with a fresh read (full folder names in). */
+  /**
+   * Replace a machine's picture with a fresh read (full folder names in).
+   * Returns false when the read was held back pending confirmation (it shows
+   * no live agents where the last picture had some) — treated like a failed
+   * read: last picture kept, sooner retry.
+   */
   recordMachine(
     machineKey: string,
     liveFolders: readonly string[],
     archivedFolders: readonly { name: string; mtimeMs: number }[],
-  ): void {
+  ): boolean {
     const st = this.ensure(machineKey);
+    if (
+      liveFolders.length === 0 &&
+      st.picture !== null &&
+      st.picture.live.size > 0 &&
+      !st.pendingEmpty
+    ) {
+      st.pendingEmpty = true;
+      st.lastAttemptFailed = true;
+      return false;
+    }
+    st.pendingEmpty = false;
     const live = new Set(liveFolders.map(deriveBaseFromFolderName));
     const archived = new Map<string, number>();
     for (const e of archivedFolders) {
@@ -114,8 +152,13 @@ export class FleetNameCensus {
       const prev = archived.get(base);
       if (prev === undefined || e.mtimeMs > prev) archived.set(base, e.mtimeMs);
     }
-    st.picture = { live, archived, refreshedAt: this.now() };
+    st.picture = {
+      live,
+      archived,
+      readStartedAt: st.lastAttemptAt || this.now(),
+    };
     st.lastAttemptFailed = false;
+    return true;
   }
 
   /** A refresh attempt failed — keep the last known picture, retry sooner. */
@@ -123,15 +166,17 @@ export class FleetNameCensus {
     this.ensure(machineKey).lastAttemptFailed = true;
   }
 
-  /** A birth just succeeded on this host row — count the name as live now. */
+  /**
+   * A birth succeeded (or may have) on this host row — count the name as live
+   * until a refresh of that machine started after now has landed.
+   */
   recordBirth(hostRowId: string | number, identityFolderName: string): void {
-    const row = String(hostRowId);
-    this.recentBirths.push({
-      base: deriveBaseFromFolderName(identityFolderName),
-      machineKey: this.hostRowToMachine.get(row) ?? null,
-      hostRowId: row,
-      at: this.now(),
-    });
+    this.hold("birth", hostRowId, identityFolderName);
+  }
+
+  /** A pool name was just picked/suggested for this host row — hold it briefly. */
+  reserve(hostRowId: string | number, name: string): void {
+    this.hold("reservation", hostRowId, name);
   }
 
   /** Forget machines absent from the substrate host list for a long time. */
@@ -145,9 +190,7 @@ export class FleetNameCensus {
         }
       }
     }
-    this.recentBirths = this.recentBirths.filter(
-      (b) => now - b.at <= RECENT_BIRTH_TTL_MS,
-    );
+    this.holds = this.holds.filter((h) => this.holdActive(h, now));
   }
 
   /** Fleet-wide view relative to the target host row. */
@@ -171,15 +214,39 @@ export class FleetNameCensus {
     }
 
     const now = this.now();
-    for (const b of this.recentBirths) {
-      if (now - b.at > RECENT_BIRTH_TTL_MS) continue;
+    for (const h of this.holds) {
+      if (!this.holdActive(h, now)) continue;
+      const holdMachine = this.hostRowToMachine.get(h.hostRowId) ?? null;
       const onTarget =
-        b.hostRowId === row ||
-        (targetMachine !== null && b.machineKey === targetMachine);
-      (onTarget ? liveOnTarget : liveElsewhere).add(b.base);
+        h.hostRowId === row ||
+        (targetMachine !== null && holdMachine === targetMachine);
+      (onTarget ? liveOnTarget : liveElsewhere).add(h.base);
     }
 
     return { ready, liveOnTarget, liveElsewhere, lastArchivedMs };
+  }
+
+  private hold(
+    kind: NameHold["kind"],
+    hostRowId: string | number,
+    name: string,
+  ): void {
+    this.holds.push({
+      kind,
+      base: deriveBaseFromFolderName(name),
+      hostRowId: String(hostRowId),
+      at: this.now(),
+    });
+  }
+
+  private holdActive(h: NameHold, now: number): boolean {
+    if (h.kind === "reservation") return now - h.at <= RESERVATION_TTL_MS;
+    const key = this.hostRowToMachine.get(h.hostRowId);
+    if (key === undefined) return now - h.at <= RECENT_BIRTH_TTL_MS;
+    const picture = this.machines.get(key)?.picture;
+    // Strictly after: a read that started in the same instant may have
+    // listed the folder before the birth created it.
+    return !(picture && picture.readStartedAt > h.at);
   }
 
   private ensure(machineKey: string): MachineState {
@@ -190,6 +257,7 @@ export class FleetNameCensus {
         lastAttemptAt: 0,
         lastAttemptFailed: false,
         lastSeenInHostListAt: this.now(),
+        pendingEmpty: false,
       };
       this.machines.set(machineKey, st);
     }
@@ -215,20 +283,22 @@ export function __resetFleetNameCensusForTests(
  * One SSH exec that lists both live and archived identity folders. Lines:
  *   L<TAB><folder>
  *   A<TAB><folder><TAB><epoch-seconds-float>
- * terminated by a lone END line so a truncated read is detectable.
+ *   ERR      — a folder exists but couldn't be fully listed
+ * terminated by a lone END line so a truncated read is detectable. A missing
+ * folder is a legitimate empty list (a box that never archived anyone).
  */
 export const CENSUS_REMOTE_CMD =
-  `find "$HOME/fleet/identities" -mindepth 1 -maxdepth 1 -type d -printf 'L\\t%f\\n' 2>/dev/null; ` +
-  `find "$HOME/fleet/identities-archive" -mindepth 1 -maxdepth 1 -type d -printf 'A\\t%f\\t%T@\\n' 2>/dev/null; ` +
+  `d="$HOME/fleet/identities"; if [ -d "$d" ]; then find "$d" -mindepth 1 -maxdepth 1 -type d -printf 'L\\t%f\\n' 2>/dev/null || echo ERR; fi; ` +
+  `d="$HOME/fleet/identities-archive"; if [ -d "$d" ]; then find "$d" -mindepth 1 -maxdepth 1 -type d -printf 'A\\t%f\\t%T@\\n' 2>/dev/null || echo ERR; fi; ` +
   `echo END`;
 
-/** Parse CENSUS_REMOTE_CMD output; null when the END marker is missing. */
+/** Parse CENSUS_REMOTE_CMD output; null when truncated or a listing failed. */
 export function parseCensusOutput(
   stdout: string,
   isValidFolder: (name: string) => boolean,
 ): { live: string[]; archived: { name: string; mtimeMs: number }[] } | null {
   const lines = stdout.split("\n").map((l) => l.trim());
-  if (!lines.includes("END")) return null;
+  if (!lines.includes("END") || lines.includes("ERR")) return null;
   const live: string[] = [];
   const archived: { name: string; mtimeMs: number }[] = [];
   for (const line of lines) {

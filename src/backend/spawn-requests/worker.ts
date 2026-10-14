@@ -664,10 +664,14 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
   const ranked = rankPoolCandidatesWithTiers({ pool, ...rankInput });
 
   for (let attempt = 0; attempt < MAX_POOL_PICK_ATTEMPTS; attempt++) {
+    const pickedCandidate =
+      typedNameSlug !== null
+        ? undefined
+        : ranked.find((c) => !excluded.has(c.name));
     const pickedName =
       typedNameSlug !== null
         ? freeTypedSlug(typedNameSlug, activeFolderNames)
-        : ranked.find((c) => !excluded.has(c.name))?.name;
+        : pickedCandidate?.name;
     if (pickedName === undefined) {
       // Every ranked candidate has already collided — pool is effectively
       // exhausted for this birth. Different from "pool.length === 0" earlier
@@ -678,12 +682,15 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
     }
     lastPickedName = pickedName;
     if (typedNameSlug === null) {
+      // Hold the name fleet-wide while this birth is in flight, so a
+      // concurrent pick on another machine doesn't take the same head.
+      nameCensus.reserve(item.hostIdNum, pickedName);
       systemLogger.info("spawn-request worker: pool name picked", {
         operation: "spawn_request_pool_pick",
         uuid: item.uuid,
         hostId: item.hostIdNum,
         name: pickedName,
-        tier: ranked.find((c) => c.name === pickedName)?.tier,
+        tier: pickedCandidate?.tier,
         censusReady: censusSnapshot.ready,
         attempt: attempt + 1,
       });
@@ -745,6 +752,8 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
           typedNameSlug !== null
             ? pickedName.toLowerCase()
             : `${pickedName.toLowerCase()}-${item.roles[0]}`;
+        // May have been born — over-counting is the safe direction.
+        nameCensus.recordBirth(item.hostIdNum, partialName);
         systemLogger.warn("spawn-request worker: birth attempt exceeded wall-clock timeout", {
           operation: "spawn_request_birth_attempt_timeout",
           uuid: item.uuid,
