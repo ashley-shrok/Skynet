@@ -50,3 +50,45 @@ When a message reaches a Claude session after the conversation has been silent f
 - Implementing identity: echo-box-maintainer-3 (box-maintainer role), in its own Skynet tree.
 - Follow the task-line reminder end to end as the pattern: its script in the substrate scripts folder, its entry in the distributor catalog, and the bootstrap step that registers it in each box's Claude Code settings for the every-incoming-message event.
 - Usual box-maintainer gates apply: scoped tests during development; no push or deploy without Ashley's explicit greenlight.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-10-14
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **What this is** — present · Hidden note on the arriving message with duration and both ends in UTC.
+- **Shape: one per-message check, packaged/shipped/registered like the task-line reminder** — present · Same folder, catalog entry, install location, no restart; bootstrap merge + check register it for every incoming message.
+- **Shape: gap = now minus last recorded activity; reopen doesn't count** — present · Measured from the agent's own newest turn; system notices written during the silence deliberately don't count — conforming reading of "your last activity".
+- **Shape: 30+ min → one note, agreed wording, two largest units, UTC** — present · Smaller unit truncated, zero smaller unit dropped.
+- **Shape: under 30 min or no earlier activity → nothing** — present · Tests cover fresh session and threshold edges.
+- **Shape: every session on the box** — present · No supervised-identity gate; test covers unsupervised session.
+- **Philosophy: bare fact, no id-skill guidance** — present
+- **Philosophy: one uniform rule** — present
+- **Philosophy: lands with the message** — present
+- **Philosophy: flat 30-minute cutoff** — present
+- **Philosophy: never in the way** — present · All failures exit silently; tail-first read.
+- **Scope In** — present
+- **Scope Out / tempting-but-no** — present · None of the excluded things were done.
+- **Handoff: task-line pattern; no push/deploy** — present · Local commit only.
+- **What would make it wrong: noise on short gaps** — present (guarded)
+- **What would make it wrong: measured from the wrong moment** — present (guarded)
+- **What would make it wrong: blocks/slows delivery** — present (guarded)
+- **What would make it wrong: visible bubble** — present (guarded)
+- **What would make it wrong: supervisor-woken only** — present (guarded)
+- **What would make it wrong: editorializes** — present (guarded)
+
+### Additions (in the result, not in the shape)
+
+None.
+
+### Follow-ups
+
+None.
+
+### Notes
+
+Two readings within the shape's latitude, recorded not escalated: "last activity" = the agent's own last turn (system notices written during the silence don't shorten the gap); the duration's smaller unit is truncated rather than rounded.

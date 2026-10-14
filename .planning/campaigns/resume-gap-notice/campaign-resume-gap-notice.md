@@ -17,7 +17,7 @@ An agent picking a conversation back up after a long silence has no idea how muc
 
 ## Shapes
 
-- **[declared] shape-resume-gap-notice** — per-message hook that tells the agent how long since its last activity when over 30 min; distributed to the fleet — in_progress
+- **[declared] shape-resume-gap-notice** — per-message hook that tells the agent how long since its last activity when over 30 min; distributed to the fleet — closed
 
 ## Other work
 
