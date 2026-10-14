@@ -161,14 +161,24 @@ export default function SkillsEditorModal({
     return skills.data.filter((s) => !iwNames.has(s.name));
   }, [skills, iwItems]);
 
+  // The instance-wide fetch can settle after the modal unmounts; don't set
+  // state on an unmounted component.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   const refreshInstanceWide = useCallback(async (): Promise<InstanceWideList> => {
     try {
       const list = await listInstanceWide("skill");
-      setInstanceWide(list);
+      if (mountedRef.current) setInstanceWide(list);
       return list;
     } catch {
       const empty = { isAdmin: false, items: [] };
-      setInstanceWide(empty);
+      if (mountedRef.current) setInstanceWide(empty);
       return empty;
     }
   }, []);
