@@ -1,31 +1,25 @@
 /**
- * Phase 17 Plan 03 — RelayInboundBubble unit tests.
+ * RelayInboundBubble — a relay message the pane's agent received.
  *
- * Tests: RELAYBUB-02 (inbound bubble render matrix):
- *   (1) inline body — no fetch triggered
- *   (2) file-pointer body — fetch called; on 200 body inlined (identity-dir path shape)
- *   (3) fetch 404 — fetch-failed indicator visible
- *   (4) sender resolves to identity → avatar-dot carries colorHue
- *   (5) sender unresolved → neutral grey fallback + raw mxid displayed
- *   (6) detectFilePointer matches recv.sh preview line format with em-dash boundaries
- *
- * Updated 2026-07-28 (UAT Bug 2 fix): file-pointer paths updated to
- * ~/fleet/identities/<id>/relay-state/messages/<eventid>.txt shape.
+ * Harness view: folded DM card ("Tina → Aster [DM]" + one-line preview),
+ * tap to open. Relay-source view: plain chat bubble. Long messages fetch
+ * their full text via /relay-pointer and never show the pointer line.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import type { Identity } from "@/api/identities-api";
 import { detectFilePointer } from "./relay-pointer-detect";
+import type { RelayRoomMember } from "./relay-room-members";
 
-// Mock useIdentities so tests don't hit the real module store.
 vi.mock("@/state/identities-store", () => ({
-  useIdentities: vi.fn(() => ({
-    identities: [],
-    byKey: new Map(),
-    loaded: true,
-    refresh: vi.fn(),
-  })),
+  useIdentities: vi.fn(),
+}));
+
+const membersMock = vi.fn<(room: string | null | undefined, hostId: number | null | undefined) => RelayRoomMember[] | null>(() => null);
+vi.mock("./relay-room-members", () => ({
+  useRelayRoomMembers: (room: string | null | undefined, hostId: number | null | undefined) =>
+    membersMock(room, hostId),
 }));
 
 import { useIdentities } from "@/state/identities-store";
@@ -33,12 +27,7 @@ import { RelayInboundBubble } from "./RelayInboundBubble";
 
 const mockedUseIdentities = vi.mocked(useIdentities);
 
-function makeIdentity(
-  identityKey: string,
-  displayName: string,
-  colorHue: number,
-): Identity {
-  // Phase 68: Identity no longer has id/createdAt/updatedAt.
+function makeIdentity(identityKey: string, displayName: string, colorHue: number): Identity {
   return {
     identityKey,
     displayName,
@@ -55,594 +44,212 @@ function makeIdentity(
   };
 }
 
-beforeEach(() => {
-  vi.restoreAllMocks();
-  // Default: empty identity store
+function seedIdentities(list: Identity[]) {
+  const byKey = new Map(list.map((i) => [i.identityKey.toLowerCase(), i]));
   mockedUseIdentities.mockReturnValue({
-    identities: [],
-    byKey: new Map(),
+    identities: list,
+    byKey,
+    byHostKey: new Map(),
     loaded: true,
     refresh: vi.fn(),
   });
+}
+
+const tina = makeIdentity("tina", "Tina", 200);
+const aster = makeIdentity("aster", "Aster", 32);
+const pixel = makeIdentity("pixel", "Pixel", 280);
+
+const POINTER_PATH =
+  "/home/ubuntu/fleet/identities/molly/relay-state/messages/_j14UxhqP0NpJXLReeXBR0qPGh04JwNXDGneCrEyarWw.txt";
+const POINTER_BODY = `[long message, 641 chars — full text at ${POINTER_PATH} — Read it] «Hi Aster — Vesper here. Heads up about the speak button…»`;
+
+beforeEach(() => {
+  vi.restoreAllMocks();
+  membersMock.mockReset();
+  membersMock.mockReturnValue(null);
+  seedIdentities([tina, aster, pixel]);
 });
 
-describe("RelayInboundBubble", () => {
-  it("Test 1: inline body (no pointer) → renders body text (after expand), no fetch triggered", () => {
-    const fetchSpy = vi.spyOn(global, "fetch");
+function renderHarness(props: Partial<React.ComponentProps<typeof RelayInboundBubble>> = {}) {
+  return render(
+    <RelayInboundBubble
+      room="!abc:t1000.example"
+      sender="@tina:t1000.example"
+      body="Yep, it went out this morning."
+      hostId={42}
+      selfIdentity={aster}
+      {...props}
+    />,
+  );
+}
 
-    render(
-      <RelayInboundBubble
-        room="!roomAlias:server.tld"
-        sender="@tina:matrix.example.com"
-        body="Nelly says the migration is finished."
-        hostId={42}
-      />,
+describe("RelayInboundBubble — harness view (folded DM card)", () => {
+  it("starts folded: who-line + preview, no body", () => {
+    renderHarness();
+    const who = screen.getByTestId("relay-who-line");
+    expect(who.textContent).toContain("Tina");
+    expect(who.textContent).toContain("→");
+    expect(who.textContent).toContain("Aster");
+    expect(who.textContent).toContain("DM");
+    expect(screen.getByTestId("relay-inbound-preview").textContent).toBe(
+      "Yep, it went out this morning.",
     );
-
-    // Bubble starts collapsed — expand it first.
-    fireEvent.click(screen.getByTestId("relay-inbound-header"));
-
-    expect(screen.getByText(/Nelly says the migration is finished/)).toBeTruthy();
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("relay-inbound-body")).toBeNull();
+    expect(screen.getByTestId("relay-inbound-header")).toHaveAttribute("aria-expanded", "false");
   });
 
-  it("Test 2: file-pointer body → fetch called with /relay-pointer?hostId=...&path=... on 200, body inlined (identity-dir path shape)", async () => {
+  it("click opens: body + speak button, preview hidden; second click folds", () => {
+    renderHarness();
+    const header = screen.getByTestId("relay-inbound-header");
+    fireEvent.click(header);
+    expect(header).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByTestId("relay-inbound-body").textContent).toContain(
+      "Yep, it went out this morning.",
+    );
+    expect(screen.queryByTestId("relay-inbound-preview")).toBeNull();
+    expect(screen.getByRole("button", { name: "Speak message" })).toBeTruthy();
+    fireEvent.click(header);
+    expect(screen.queryByTestId("relay-inbound-body")).toBeNull();
+  });
+
+  it("Enter key toggles the card", () => {
+    renderHarness();
+    const header = screen.getByTestId("relay-inbound-header");
+    fireEvent.keyDown(header, { key: "Enter" });
+    expect(screen.getByTestId("relay-inbound-body")).toBeTruthy();
+  });
+
+  it("shows no technical text: no room id, no raw mxid, no transport names, no time", () => {
+    renderHarness({ ts: Date.UTC(2026, 9, 14, 14, 16) });
+    fireEvent.click(screen.getByTestId("relay-inbound-header"));
+    const text = screen.getByTestId("relay-inbound-bubble").textContent ?? "";
+    expect(text).not.toMatch(/!abc|@tina|t1000\.example|recv\.sh|curl|relay send/);
+    expect(text).not.toMatch(/\d{1,2}:\d{2}/);
+    // Exact time is still available on hover.
+    expect(screen.getByTestId("relay-inbound-bubble").getAttribute("title")).toBeTruthy();
+  });
+
+  it("unresolved sender reads as a name, not an address", () => {
+    renderHarness({ sender: "@stacy:skynet.aithercloud.com" });
+    const who = screen.getByTestId("relay-who-line").textContent ?? "";
+    expect(who).toContain("Stacy");
+    expect(who).not.toContain("@stacy");
+    expect(who).not.toContain("aithercloud");
+  });
+
+  it("card is tinted with the sender's hue; unresolved sender falls back to 210", () => {
+    const { unmount } = renderHarness();
+    expect(screen.getByTestId("relay-inbound-bubble").getAttribute("data-bubble-hue")).toBe("200");
+    unmount();
+    renderHarness({ sender: "@stranger:elsewhere.example" });
+    expect(screen.getByTestId("relay-inbound-bubble").getAttribute("data-bubble-hue")).toBe("210");
+  });
+
+  it("members known, two in room → DM to the other member", () => {
+    membersMock.mockReturnValue([
+      { mxid: "@tina:t1000.example", kind: "agent", displayName: null },
+      { mxid: "@pixel:t1000.example", kind: "agent", displayName: null },
+    ]);
+    renderHarness();
+    const who = screen.getByTestId("relay-who-line").textContent ?? "";
+    expect(who).toContain("Pixel");
+    expect(who).toContain("DM");
+  });
+
+  it("members known, three in room → 'group with' and no DM tag", () => {
+    membersMock.mockReturnValue([
+      { mxid: "@tina:t1000.example", kind: "agent", displayName: null },
+      { mxid: "@pixel:t1000.example", kind: "agent", displayName: null },
+      { mxid: "@aster:t1000.example", kind: "agent", displayName: null },
+    ]);
+    renderHarness();
+    const who = screen.getByTestId("relay-who-line").textContent ?? "";
+    expect(who).toContain("group with");
+    expect(who).toContain("Pixel");
+    expect(who).toContain("Aster");
+    expect(who).not.toContain("DM");
+  });
+
+  it("DM explainer toggles on tap without folding/unfolding the card", () => {
+    renderHarness();
+    fireEvent.click(screen.getByTestId("relay-dm-explainer"));
+    expect(screen.getByRole("tooltip").textContent).toMatch(/Agents can DM each other/);
+    expect(screen.queryByTestId("relay-inbound-body")).toBeNull();
+  });
+
+  it("no member lookup in relay-source view", () => {
+    renderHarness({ alwaysExpanded: true });
+    expect(membersMock).toHaveBeenCalledWith(null, 42);
+  });
+});
+
+describe("RelayInboundBubble — long messages", () => {
+  it("folded preview is the quoted text, not the pointer line", () => {
+    renderHarness({ body: POINTER_BODY });
+    const preview = screen.getByTestId("relay-inbound-preview").textContent ?? "";
+    expect(preview).toBe("Hi Aster — Vesper here. Heads up about the speak button");
+    expect(preview).not.toContain("/home/");
+  });
+
+  it("opening fetches the full text via /relay-pointer and shows it", async () => {
     const fetchedBody = "This is the full relay message body from file.";
-    const identityPath = "/home/ubuntu/fleet/identities/molly/relay-state/messages/_j14UxhqP0NpJXLReeXBR0qPGh04JwNXDGneCrEyarWw.txt";
     global.fetch = vi.fn().mockResolvedValueOnce({
       ok: true,
       status: 200,
       text: async () => fetchedBody,
     } as unknown as Response);
 
-    render(
-      <RelayInboundBubble
-        room="!roomAlias:server.tld"
-        sender="@tina:matrix.example.com"
-        body={`body written to ${identityPath}`}
-        hostId={42}
-      />,
-    );
-
-    // Bubble starts collapsed — expand it first so the fetch fires.
+    renderHarness({ body: POINTER_BODY });
     fireEvent.click(screen.getByTestId("relay-inbound-header"));
 
-    // Verify fetch was called with correct URL pattern
-    await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledTimes(1);
-    });
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
     const [url, opts] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
     expect(url).toContain("/relay-pointer?");
     expect(url).toContain("hostId=42");
-    expect(url).toContain(encodeURIComponent(identityPath));
+    expect(url).toContain(encodeURIComponent(POINTER_PATH));
     expect(opts?.credentials).toBe("include");
 
-    // Fetched body is inlined
-    await waitFor(() => {
-      expect(screen.getByText(fetchedBody)).toBeTruthy();
-    });
+    await waitFor(() => expect(screen.getByText(fetchedBody)).toBeTruthy());
+    expect(screen.getByTestId("relay-inbound-body").textContent).not.toContain("/home/");
   });
 
-  it("Test 3: fetch 404 → '📄 fetch failed (404)' visible (after expand)", async () => {
+  it("fetch failure → preview text + plain-language note, no status codes", async () => {
     global.fetch = vi.fn().mockResolvedValueOnce({
       ok: false,
       status: 404,
-      text: async () => "Not found",
+      text: async () => "not found",
     } as unknown as Response);
 
-    render(
-      <RelayInboundBubble
-        room="!roomAlias:server.tld"
-        sender="@tina:matrix.example.com"
-        body="/home/ubuntu/fleet/identities/tina/relay-state/messages/abc-xyz.txt"
-        hostId={7}
-      />,
-    );
-
-    // Bubble starts collapsed — expand it first so the fetch fires.
+    renderHarness({ body: POINTER_BODY });
     fireEvent.click(screen.getByTestId("relay-inbound-header"));
 
-    await waitFor(() => {
-      expect(screen.getByText(/fetch failed \(404\)/i)).toBeTruthy();
-    });
-  });
-
-  it("Test 4: sender resolves to identity → avatar-dot span carries the identity's colorHue in inline style", () => {
-    const tina = makeIdentity("tina", "Tina", 45);
-    mockedUseIdentities.mockReturnValue({
-      identities: [tina],
-      byKey: new Map([["tina", tina]]),
-      loaded: true,
-      refresh: vi.fn(),
-    });
-
-    render(
-      <RelayInboundBubble
-        room="!roomAlias:server.tld"
-        sender="@tina:matrix.example.com"
-        body="Hello from Tina"
-        hostId={1}
-      />,
+    await waitFor(() =>
+      expect(screen.getByText(/Couldn't load the rest of this message/)).toBeTruthy(),
     );
-
-    // Find the avatar-dot span — it should carry the resolved identity's colorHue.
-    // We read data-avatar-color (the raw hsl string) because jsdom normalises
-    // hsl() to rgb() in both .style.color and the style attribute.
-    const avatarDot = document.querySelector("[data-testid='relay-inbound-avatar-dot']");
-    expect(avatarDot).not.toBeNull();
-    const avatarColor = (avatarDot as HTMLElement).getAttribute("data-avatar-color") ?? "";
-    expect(avatarColor).toContain("hsl(45");
+    const body = screen.getByTestId("relay-inbound-body").textContent ?? "";
+    expect(body).toContain("Heads up about the speak button");
+    expect(body).not.toMatch(/404|fetch failed|\/home\//);
   });
 
-  it("Test 5: sender doesn't resolve → avatar-dot uses hsl(210, 8%, 50%) neutral fallback + raw mxid displayed", () => {
-    // byKey is empty — no match
-    mockedUseIdentities.mockReturnValue({
-      identities: [],
-      byKey: new Map(),
-      loaded: true,
-      refresh: vi.fn(),
-    });
-
-    render(
-      <RelayInboundBubble
-        room="!roomAlias:server.tld"
-        sender="@unknown:matrix.example.com"
-        body="A message from nobody"
-        hostId={1}
-      />,
-    );
-
-    // Raw mxid should be visible as displayName fallback
-    expect(screen.getByText(/@unknown:matrix\.example\.com/)).toBeTruthy();
-
-    // Avatar-dot should use neutral grey fallback.
-    // We read data-avatar-color because jsdom normalises hsl() to rgb().
-    const avatarDot = document.querySelector("[data-testid='relay-inbound-avatar-dot']");
-    expect(avatarDot).not.toBeNull();
-    const avatarColor = (avatarDot as HTMLElement).getAttribute("data-avatar-color") ?? "";
-    expect(avatarColor).toBe("hsl(210, 8%, 50%)");
-  });
-
-  it("Test 6b: wrapper uses justify-start (left-aligned — multi-user chat convention, 2026-08-18)", () => {
-    render(
-      <RelayInboundBubble
-        room="!roomAlias:server.tld"
-        sender="@tina:matrix.example.com"
-        body="hello"
-        hostId={1}
-      />,
-    );
-    const wrap = document.querySelector("[data-testid='relay-inbound-wrap']");
-    expect(wrap).not.toBeNull();
-    expect((wrap as HTMLElement).className).toContain("justify-start");
-    expect((wrap as HTMLElement).className).not.toContain("justify-end");
-  });
-
-  it("Test 6c: bubble background/border/shadow tinted with sender's resolved colorHue", () => {
-    const tina = makeIdentity("tina", "Tina", 45);
-    mockedUseIdentities.mockReturnValue({
-      identities: [tina],
-      byKey: new Map([["tina", tina]]),
-      loaded: true,
-      refresh: vi.fn(),
-    });
-
-    render(
-      <RelayInboundBubble
-        room="!roomAlias:server.tld"
-        sender="@tina:matrix.example.com"
-        body="hello from tina"
-        hostId={1}
-      />,
-    );
-
-    const bubble = document.querySelector("[data-testid='relay-inbound-bubble']");
-    expect(bubble).not.toBeNull();
-    // data-bubble-hue carries the raw numeric hue so tests can assert without
-    // relying on jsdom's inline-style parsing (which strips gradients).
-    expect((bubble as HTMLElement).getAttribute("data-bubble-hue")).toBe("45");
-  });
-
-  it("Test 6d: unresolved sender → bubble falls back to hue 210 (user 2026-08-18: don't care about fallback)", () => {
-    render(
-      <RelayInboundBubble
-        room="!roomAlias:server.tld"
-        sender="@unknown:matrix.example.com"
-        body="hello"
-        hostId={1}
-      />,
-    );
-
-    const bubble = document.querySelector("[data-testid='relay-inbound-bubble']");
-    expect(bubble).not.toBeNull();
-    expect((bubble as HTMLElement).getAttribute("data-bubble-hue")).toBe("210");
-  });
-
-  it("Test 6: detectFilePointer matches recv.sh preview line format with em-dash boundaries", () => {
-    // The exact reproducer string from user's UAT (2026-07-28).
-    // recv.sh preview line format: "[long message, N chars — full text at <path> — Read it] «...»"
-    // The path is bounded by " — " (ASCII space + em-dash + ASCII space) on both sides.
-    // JS \s matches the ASCII space adjacent to the em-dash, so the existing \s boundaries work.
-    const reproStr =
-      "[long message, 1960 chars — full text at /home/ubuntu/fleet/identities/molly/relay-state/messages/_j14UxhqP0NpJXLReeXBR0qPGh04JwNXDGneCrEyarWw.txt — Read it] «Huge. Signal received before I invested…»";
-    const result = detectFilePointer(reproStr);
+  it("detectFilePointer matches recv.sh preview line format with em-dash boundaries", () => {
+    const result = detectFilePointer(POINTER_BODY);
     expect(result).not.toBeNull();
-    expect(result?.pointerPath).toBe(
-      "/home/ubuntu/fleet/identities/molly/relay-state/messages/_j14UxhqP0NpJXLReeXBR0qPGh04JwNXDGneCrEyarWw.txt",
-    );
+    expect(result!.pointerPath).toBe(POINTER_PATH);
+  });
+});
+
+describe("RelayInboundBubble — relay-source view (plain chat bubble)", () => {
+  it("renders open with sender name + body + speak button, no DM chrome", () => {
+    renderHarness({ alwaysExpanded: true, body: "Morning! The backup finished." });
+    expect(screen.getByTestId("relay-inbound-header").textContent).toBe("Tina");
+    expect(screen.getByTestId("relay-inbound-body").textContent).toBe("Morning! The backup finished.");
+    expect(screen.getByRole("button", { name: "Speak message" })).toBeTruthy();
+    expect(screen.queryByTestId("relay-who-line")).toBeNull();
+    expect(screen.queryByText("DM")).toBeNull();
   });
 
-  // C1-C4: Collapse-by-default tests (quick 260829-qb9)
-  it("C1: renders collapsed on mount — header visible with displayName only (no room, no footer), body NOT in DOM", () => {
-    render(
-      <RelayInboundBubble
-        room="!roomAlias:server.tld"
-        sender="@tina:matrix.example.com"
-        body="Nelly says hello"
-        hostId={1}
-      />,
-    );
-
-    // Header must be visible
-    const header = screen.getByTestId("relay-inbound-header");
-    expect(header).toBeTruthy();
-    // displayName (mxid fallback) visible in header
-    expect(header.textContent).toContain("@tina:matrix.example.com");
-    // Phase 97 UAT batch #7: room stripped from harness header too.
-    expect(header.textContent).not.toContain("!roomAlias:server.tld");
-    expect(header.textContent).not.toContain(" · ");
-    // Chevron still present as collapsibility affordance.
-    expect(header.textContent).toContain("▶");
-
-    // Body wrapper must NOT be in DOM
-    expect(screen.queryByTestId("relay-inbound-body")).toBeNull();
-    // Phase 97 UAT batch #7: footer removed universally.
-    expect(screen.queryByText(/via recv\.sh/)).toBeNull();
-    // Speak button not present when collapsed.
-    expect(screen.queryByLabelText(/speak message/i)).toBeNull();
-  });
-
-  it("C2: aria-expanded='false' on header button when collapsed", () => {
-    render(
-      <RelayInboundBubble
-        room="!roomAlias:server.tld"
-        sender="@tina:matrix.example.com"
-        body="hello"
-        hostId={1}
-      />,
-    );
-
-    const header = screen.getByTestId("relay-inbound-header");
-    expect(header.getAttribute("aria-expanded")).toBe("false");
-  });
-
-  it("C3: click header → body renders, speak button appears, footer stays absent; aria-expanded='true'", () => {
-    render(
-      <RelayInboundBubble
-        room="!roomAlias:server.tld"
-        sender="@tina:matrix.example.com"
-        body="Nelly says hello"
-        hostId={1}
-      />,
-    );
-
-    const header = screen.getByTestId("relay-inbound-header");
-    fireEvent.click(header);
-
-    expect(screen.getByText(/Nelly says hello/)).toBeTruthy();
-    // Phase 97 UAT batch #7: footer removed universally.
-    expect(screen.queryByText(/via recv\.sh/)).toBeNull();
-    // Speak button appears once expanded (batch #7: gated on !collapsed).
-    expect(screen.getByLabelText(/speak message/i)).toBeInTheDocument();
-    // Chevron flipped to ▼.
-    expect(header.textContent).toContain("▼");
-    expect(header.getAttribute("aria-expanded")).toBe("true");
-  });
-
-  it("C4: second click re-collapses — body + speak button gone; aria-expanded='false'", () => {
-    render(
-      <RelayInboundBubble
-        room="!roomAlias:server.tld"
-        sender="@tina:matrix.example.com"
-        body="Nelly says hello"
-        hostId={1}
-      />,
-    );
-
-    const header = screen.getByTestId("relay-inbound-header");
-    fireEvent.click(header); // expand
-    fireEvent.click(header); // collapse again
-
-    expect(screen.queryByTestId("relay-inbound-body")).toBeNull();
-    // Footer never renders in any state after batch #7.
-    expect(screen.queryByText(/via recv\.sh/)).toBeNull();
-    // Speak button also gone when re-collapsed.
-    expect(screen.queryByLabelText(/speak message/i)).toBeNull();
-    expect(header.getAttribute("aria-expanded")).toBe("false");
-  });
-
-  // quick-260830-e6i Part B: shrink collapsed padding to match ChatMessage pill.
-  // Phase 97 UAT batch #7 (2026-09-10): expanded padding tightened to
-  // `pl-[12px] pr-[42px] py-[7px]` — matches ChatMessage assistant exactly.
-  it("C5: collapsed bubble uses tight padding (12/7); expanded bubble uses ChatMessage-parity pl-[12px] pr-[42px] py-[7px]", () => {
-    render(
-      <RelayInboundBubble
-        room="!roomAlias:server.tld"
-        sender="@tina:matrix.example.com"
-        body="Nelly says hello"
-        hostId={1}
-      />,
-    );
-
-    // Collapsed by default — tight symmetric padding.
-    const bubble = screen.getByTestId("relay-inbound-bubble");
-    expect(bubble).toHaveClass("px-[12px]");
-    expect(bubble).toHaveClass("py-[7px]");
-    expect(bubble).not.toHaveClass("pl-[12px]");
-    expect(bubble).not.toHaveClass("pr-[42px]");
-
-    // Expand — ChatMessage-parity split padding (speak-button gutter).
-    fireEvent.click(screen.getByTestId("relay-inbound-header"));
-    expect(bubble).toHaveClass("pl-[12px]");
-    expect(bubble).toHaveClass("pr-[42px]");
-    expect(bubble).toHaveClass("py-[7px]");
-    expect(bubble).not.toHaveClass("px-[12px]");
-    expect(bubble).not.toHaveClass("px-[18px]");
-    expect(bubble).not.toHaveClass("py-[14px]");
-  });
-
-  // Phase 97 UAT follow-up (2026-09-10) — relay-source view renders bubbles
-  // un-collapsed AND non-collapsible (differ from harness's collapsed-by-
-  // default). Contract: alwaysExpanded=true starts expanded, header is a
-  // plain <div> (not a <button>), no chevron, body is visible from mount.
-  it("alwaysExpanded=true: body visible on mount, header is plain <div> (no button), no chevron", () => {
-    render(
-      <RelayInboundBubble
-        room="!roomAlias:server.tld"
-        sender="@tina:matrix.example.com"
-        body="Nelly says hello"
-        hostId={1}
-        alwaysExpanded={true}
-      />,
-    );
-
-    // Body visible immediately — no expand click needed.
-    expect(screen.getByTestId("relay-inbound-body")).toBeInTheDocument();
-    expect(screen.getByText("Nelly says hello")).toBeInTheDocument();
-
-    // Header is a <div>, not a <button>, so no click affordance.
-    const header = screen.getByTestId("relay-inbound-header");
-    expect(header.tagName).toBe("DIV");
-    expect(header.getAttribute("aria-expanded")).toBeNull();
-
-    // Phase 97 UAT batch #7 (2026-09-10): expanded padding tightened to
-    // `pl-[12px] pr-[42px] py-[7px]` — matches ChatMessage assistant
-    // exactly. Batch #6's roomy 18/14 values superseded.
-    const bubble = screen.getByTestId("relay-inbound-bubble");
-    expect(bubble).toHaveClass("pl-[12px]");
-    expect(bubble).toHaveClass("pr-[42px]");
-    expect(bubble).toHaveClass("py-[7px]");
-    expect(bubble).not.toHaveClass("pl-[18px]");
-    expect(bubble).not.toHaveClass("py-[14px]");
-  });
-
-  it("alwaysExpanded=false (default) preserves the toggle behavior — regression floor", () => {
-    // Explicit default guard: pre-Phase-97-UAT behavior is unchanged when
-    // the new prop is absent (harness's task-notification path).
-    render(
-      <RelayInboundBubble
-        room="!roomAlias:server.tld"
-        sender="@tina:matrix.example.com"
-        body="Nelly says hello"
-        hostId={1}
-      />,
-    );
-    const header = screen.getByTestId("relay-inbound-header");
-    expect(header.tagName).toBe("BUTTON");
-    expect(header.getAttribute("aria-expanded")).toBe("false");
-    expect(screen.queryByTestId("relay-inbound-body")).toBeNull();
-  });
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // Phase 97 UAT batch #6 (2026-09-10) — chat-native strip for relay-source.
-  // Truths 1-4 + Truth 7 (regression floor for harness view).
-  // ─────────────────────────────────────────────────────────────────────────
-
-  it("Truth 1 — alwaysExpanded=true header does NOT contain the room string (room-strip)", () => {
-    const tina = makeIdentity("tina", "Tina", 45);
-    mockedUseIdentities.mockReturnValue({
-      identities: [tina],
-      byKey: new Map([["tina", tina]]),
-      loaded: true,
-      refresh: vi.fn(),
-    });
-
-    render(
-      <RelayInboundBubble
-        room="!R:s"
-        sender="@tina:matrix.example.com"
-        body="hello"
-        hostId={1}
-        alwaysExpanded={true}
-      />,
-    );
-
-    const header = screen.getByTestId("relay-inbound-header");
-    // Sender name IS present.
-    expect(header.textContent).toContain("Tina");
-    // Room string NOT present, and NO " · " separator inside the header.
-    expect(header.textContent).not.toContain("!R:s");
-    expect(header.textContent).not.toContain(" · ");
-  });
-
-  it("Truth 2 — alwaysExpanded=true header uses #e8e4d8 (body-text brightness), NOT the 60%-alpha token", () => {
-    render(
-      <RelayInboundBubble
-        room="!roomAlias:server.tld"
-        sender="@tina:matrix.example.com"
-        body="hello"
-        hostId={1}
-        alwaysExpanded={true}
-      />,
-    );
-
-    const header = screen.getByTestId("relay-inbound-header");
-    expect(header.className).toContain("text-[#e8e4d8]");
-    expect(header.className).not.toContain("text-[rgba(232,_228,_216,_0.6)]");
-  });
-
-  it("Truth 3 — alwaysExpanded=true does NOT render the 'via recv.sh' footer", () => {
-    render(
-      <RelayInboundBubble
-        room="!roomAlias:server.tld"
-        sender="@tina:matrix.example.com"
-        body="hello"
-        hostId={1}
-        alwaysExpanded={true}
-      />,
-    );
-
-    expect(screen.queryByText(/via recv\.sh/)).toBeNull();
-  });
-
-  it("Truth 4 (batch #7) — alwaysExpanded=true bubble padding is pl-[12px] pr-[42px] py-[7px] (ChatMessage-parity)", () => {
-    render(
-      <RelayInboundBubble
-        room="!roomAlias:server.tld"
-        sender="@tina:matrix.example.com"
-        body="hello"
-        hostId={1}
-        alwaysExpanded={true}
-      />,
-    );
-
-    const bubble = screen.getByTestId("relay-inbound-bubble");
-    expect(bubble).toHaveClass("pl-[12px]");
-    expect(bubble).toHaveClass("pr-[42px]");
-    expect(bubble).toHaveClass("py-[7px]");
-    // Must NOT carry the batch-#6 roomy padding or the harness-view
-    // expanded px-[18px] shorthand.
-    expect(bubble).not.toHaveClass("pl-[18px]");
-    expect(bubble).not.toHaveClass("py-[14px]");
-    expect(bubble).not.toHaveClass("px-[18px]");
-    // Must NOT carry the collapsed shorthand either.
-    expect(bubble).not.toHaveClass("px-[12px]");
-  });
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // Phase 97 UAT batch #7 (2026-09-10) — harness-view parity.
-  // Truth 7 rewritten: harness view IS now changing. Header strips room,
-  // brightens to body-text, no footer, speak button appears once expanded.
-  // Collapsibility affordance (chevron + <button> header) remains — that's
-  // the only difference from relay-source view.
-  // ─────────────────────────────────────────────────────────────────────────
-
-  it("Truth 7 (batch #7) — alwaysExpanded=false collapsed: dot + displayName + ▶ header, NO room, NO body, NO footer, NO speak button", () => {
-    const tina = makeIdentity("tina", "Tina", 45);
-    mockedUseIdentities.mockReturnValue({
-      identities: [tina],
-      byKey: new Map([["tina", tina]]),
-      loaded: true,
-      refresh: vi.fn(),
-    });
-
-    render(
-      <RelayInboundBubble
-        room="!roomAlias:server.tld"
-        sender="@tina:matrix.example.com"
-        body="hello"
-        hostId={1}
-      />,
-    );
-
-    const header = screen.getByTestId("relay-inbound-header");
-    // Header is <button> (collapsibility affordance preserved).
-    expect(header.tagName).toBe("BUTTON");
-    // Header shows resolved displayName + right-pointing chevron.
-    expect(header.textContent).toContain("Tina");
-    expect(header.textContent).toContain("▶");
-    // No room string, no " · " separator.
-    expect(header.textContent).not.toContain("!roomAlias:server.tld");
-    expect(header.textContent).not.toContain(" · ");
-    // Avatar-dot present.
-    expect(screen.getByTestId("relay-inbound-avatar-dot")).toBeInTheDocument();
-
-    // No body, no footer, no speak button in initial collapsed state.
-    expect(screen.queryByTestId("relay-inbound-body")).toBeNull();
-    expect(screen.queryByText(/via recv\.sh/)).toBeNull();
-    expect(screen.queryByLabelText(/speak message/i)).toBeNull();
-  });
-
-  it("Truth 7 (batch #7) — alwaysExpanded=false after expand: dot + displayName + ▼ header, body visible, speak button visible, NO footer", () => {
-    const tina = makeIdentity("tina", "Tina", 45);
-    mockedUseIdentities.mockReturnValue({
-      identities: [tina],
-      byKey: new Map([["tina", tina]]),
-      loaded: true,
-      refresh: vi.fn(),
-    });
-
-    render(
-      <RelayInboundBubble
-        room="!roomAlias:server.tld"
-        sender="@tina:matrix.example.com"
-        body="hello harness"
-        hostId={1}
-      />,
-    );
-
-    // Expand.
-    fireEvent.click(screen.getByTestId("relay-inbound-header"));
-
-    const header = screen.getByTestId("relay-inbound-header");
-    // Header still <button>; chevron flipped to ▼.
-    expect(header.tagName).toBe("BUTTON");
-    expect(header.textContent).toContain("Tina");
-    expect(header.textContent).toContain("▼");
-    // Still no room string.
-    expect(header.textContent).not.toContain("!roomAlias:server.tld");
-    expect(header.textContent).not.toContain(" · ");
-
-    // Body visible; footer NEVER renders.
-    expect(screen.getByTestId("relay-inbound-body")).toBeInTheDocument();
-    expect(screen.getByText(/hello harness/)).toBeInTheDocument();
-    expect(screen.queryByText(/via recv\.sh/)).toBeNull();
-
-    // Speak button visible once expanded (batch #7: gate is `!collapsed`).
-    expect(screen.getByLabelText(/speak message/i)).toBeInTheDocument();
-  });
-
-  it("Truth 7 (batch #7) — harness header uses #e8e4d8 (body-text brightness), NOT the 60%-alpha token", () => {
-    render(
-      <RelayInboundBubble
-        room="!roomAlias:server.tld"
-        sender="@tina:matrix.example.com"
-        body="hello"
-        hostId={1}
-      />,
-    );
-
-    const header = screen.getByTestId("relay-inbound-header");
-    expect(header.className).toContain("text-[#e8e4d8]");
-    expect(header.className).not.toContain("text-[rgba(232,_228,_216,_0.6)]");
-  });
-
-  it("Truth 7 (batch #7) — 'via recv.sh' is nowhere in the DOM in any state (harness view)", () => {
-    render(
-      <RelayInboundBubble
-        room="!roomAlias:server.tld"
-        sender="@tina:matrix.example.com"
-        body="hello"
-        hostId={1}
-      />,
-    );
-    // Collapsed.
-    expect(screen.queryByText(/via recv\.sh/)).toBeNull();
-    // Expanded.
-    fireEvent.click(screen.getByTestId("relay-inbound-header"));
-    expect(screen.queryByText(/via recv\.sh/)).toBeNull();
-    // Re-collapsed.
-    fireEvent.click(screen.getByTestId("relay-inbound-header"));
-    expect(screen.queryByText(/via recv\.sh/)).toBeNull();
+  it("header is not a toggle", () => {
+    renderHarness({ alwaysExpanded: true });
+    expect(screen.getByTestId("relay-inbound-header").getAttribute("role")).toBeNull();
   });
 });

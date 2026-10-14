@@ -4582,9 +4582,11 @@ export function PrettyView({
               ) : m.type === "relay_outbound" ? (
                 <RelayOutboundBubble
                   room={m.room}
-                  rawCommand={m.rawCommand}
                   body={m.body}
                   ts={m.ts}
+                  hostId={hostId}
+                  selfIdentity={pvIdentity}
+                  fallbackVoice={userPrefs.fallbackVoice ?? null}
                   // Phase 97 UAT follow-up (2026-09-10): in relay-source view
                   // (source.kind === "relay" — user chatting IN a matrix room),
                   // bubbles render un-collapsed AND non-collapsible. In harness
@@ -4602,6 +4604,7 @@ export function PrettyView({
                   alwaysExpanded={source.kind === "relay"}
                   eventId={m.eventId}
                   fallbackVoice={userPrefs.fallbackVoice ?? null}
+                  selfIdentity={pvIdentity}
                 />
               ) : m.type === "malformed_line" ? (
                 <MalformedBubble bytes={m.bytes} ts={m.ts} />

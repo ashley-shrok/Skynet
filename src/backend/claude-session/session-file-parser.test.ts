@@ -3,6 +3,7 @@ import {
   parseSessionLine,
   detectRelayOutbound,
   detectRelayInbound,
+  resolveOutboundRoom,
 } from "./session-file-parser.js";
 
 // Test scaffolding: each test constructs a synthetic JSONL turn as a JS
@@ -1776,5 +1777,52 @@ describe("parseSessionLine — new-harness <pasted_content> envelopes", () => {
     expect(parsed.kind).toBe("message");
     if (parsed.kind !== "message") throw new Error("unreachable");
     expect(parsed.content).toBe(text);
+  });
+});
+
+describe("resolveOutboundRoom", () => {
+  const send = (room: string) =>
+    `curl -s -X PUT "$BASE/_matrix/client/v3/rooms/${room}/send/m.room.message/$TXN" -d "$B"`;
+
+  it("literal room id passes through", () => {
+    expect(resolveOutboundRoom("!abc:t1000.example", send("!abc:t1000.example"))).toBe("!abc:t1000.example");
+  });
+
+  it("URL-encoded literal is decoded", () => {
+    expect(resolveOutboundRoom("%21abc%3At1000.example", send("%21abc%3At1000.example"))).toBe("!abc:t1000.example");
+  });
+
+  it("$VAR with a quoted literal assignment in the same command resolves", () => {
+    const cmd = `RID='!abc:t1000.example'; TOKEN=$(cat tok); ${send("$RID")}`;
+    expect(resolveOutboundRoom("$RID", cmd)).toBe("!abc:t1000.example");
+  });
+
+  it("${VAR}, export and URL-encoded assignment forms resolve", () => {
+    const cmd = `export ROOM_ENC=%21abc%3At1000.example\n${send("${ROOM_ENC}")}`;
+    expect(resolveOutboundRoom("${ROOM_ENC}", cmd)).toBe("!abc:t1000.example");
+  });
+
+  it("last assignment wins", () => {
+    const cmd = `RID="!old:t1000.example"; RID="!new:t1000.example"; ${send("$RID")}`;
+    expect(resolveOutboundRoom("$RID", cmd)).toBe("!new:t1000.example");
+  });
+
+  it("computed or missing assignment passes through unchanged", () => {
+    expect(resolveOutboundRoom("$RID", `RID=$(cat "$R/ashley-room"); ${send("$RID")}`)).toBe("$RID");
+    expect(resolveOutboundRoom("$RID", send("$RID"))).toBe("$RID");
+  });
+
+  it("a var whose name is a suffix of another var is not confused", () => {
+    const cmd = `MYRID='!wrong:t1000.example'; ${send("$RID")}`;
+    expect(resolveOutboundRoom("$RID", cmd)).toBe("$RID");
+  });
+
+  it("detectRelayOutbound returns the resolved room", () => {
+    const cmd = `RID='!abc:t1000.example'; ${send("$RID")}`;
+    const out = detectRelayOutbound({
+      type: "assistant",
+      message: { content: [{ type: "tool_use", name: "Bash", input: { command: cmd } }] },
+    });
+    expect(out?.room).toBe("!abc:t1000.example");
   });
 });

@@ -246,11 +246,46 @@ export function detectRelayOutbound(
     if (!OUTBOUND_PUT_RE.test(cmd)) continue;
     // Room extraction
     const roomMatch = cmd.match(/rooms\/([^/\s'"]+)\/send\/m\.room\.message/);
-    const room = roomMatch ? roomMatch[1] : null;
+    const room = roomMatch ? resolveOutboundRoom(roomMatch[1], cmd) : null;
     const body = extractOutboundBody(cmd);
     return { room, rawCommand: cmd, body };
   }
   return null;
+}
+
+const MATRIX_ROOM_ID_RE = /^![a-zA-Z0-9._=-]+:[a-zA-Z0-9.-]+$/;
+
+function decodeRoomRef(ref: string): string {
+  try {
+    return decodeURIComponent(ref);
+  } catch {
+    return ref;
+  }
+}
+
+/**
+ * Resolve the room segment of an outbound send URL to a canonical Matrix
+ * room id (`!opaque:server`) so the bubble can look up who the message went
+ * to. Handles the literal form (raw or URL-encoded) and a `$VAR` / `${VAR}`
+ * reference whose literal assignment (`VAR='!x:y'`) sits in the same
+ * command. Anything unresolvable (computed vars, cross-turn refs) passes
+ * through unchanged; the bubble treats a non-room-id value as "unknown".
+ */
+export function resolveOutboundRoom(rawRoom: string, cmd: string): string {
+  const literal = decodeRoomRef(rawRoom);
+  if (MATRIX_ROOM_ID_RE.test(literal)) return literal;
+  const varMatch = rawRoom.match(/^\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?$/);
+  if (!varMatch) return rawRoom;
+  const assignRe = new RegExp(
+    `(?:^|[\\s;&(])${varMatch[1]}=['"]?((?:!|%21)[^'"\\s;&)]+)`,
+    "g",
+  );
+  let resolved: string | null = null;
+  for (const m of cmd.matchAll(assignRe)) {
+    const candidate = decodeRoomRef(m[1]);
+    if (MATRIX_ROOM_ID_RE.test(candidate)) resolved = candidate;
+  }
+  return resolved ?? rawRoom;
 }
 
 // ---------------------------------------------------------------------------

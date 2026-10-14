@@ -53,6 +53,7 @@ import { users } from "../db/schema.js";
 import { AuthManager } from "../../utils/auth-manager.js";
 import { databaseLogger } from "../../utils/logger.js";
 import { getRoomJoinedMembers } from "../../matrix/matrix-admin-client.js";
+import { resolveHostById } from "../../ssh/host-resolver.js";
 import {
   classifyParticipants,
   lookupHumansFromUsersTable,
@@ -231,6 +232,98 @@ router.get(
       humans: humansOther,
       agents: classified.agents,
     });
+  },
+);
+
+/**
+ * GET /relay-room/:roomId/members?hostId=N — who is in a room an agent on
+ * `hostId` sent to or received from. Feeds the pretty-view relay bubbles'
+ * "Aster → Tina" line (harness view), where the viewer is reading an
+ * agent's transcript rather than sitting in the room themselves — so the
+ * gate is host access (same as /relay-pointer), not relay_room_sessions.
+ *
+ * Each member is tagged `you` (the viewer), `human` (another Skynet user,
+ * with their display name) or `agent` (display name resolved client-side
+ * from the identities store). Rooms on other homeservers 404 — the admin
+ * API only sees rooms on this one.
+ */
+router.get(
+  "/:roomId/members",
+  authenticateJWT,
+  async (req: Request, res: Response) => {
+    const userId = (req as AuthenticatedRequest).userId;
+    const rawRoomId = req.params.roomId;
+    const hostId = Number(req.query.hostId);
+
+    if (typeof rawRoomId !== "string" || !MATRIX_ROOM_ID_RE.test(rawRoomId)) {
+      return res.status(400).json({ ok: false, error: "invalid_room_id" });
+    }
+    if (!Number.isInteger(hostId) || hostId <= 0) {
+      return res.status(400).json({ ok: false, error: "invalid_host_id" });
+    }
+    const roomId = rawRoomId;
+
+    const host = await resolveHostById(hostId, userId);
+    if (!host) {
+      databaseLogger.info("relay_room_members access denied", {
+        operation: "relay_room_members_denied",
+        userId,
+        hostId,
+        roomId,
+      });
+      return res.status(404).json({ ok: false, error: "not_found" });
+    }
+
+    const members = await getRoomJoinedMembers(roomId);
+    if (members.ok === false) {
+      if (members.status === 403 || members.status === 404) {
+        databaseLogger.info("relay_room_members downstream not found", {
+          operation: "relay_room_members_downstream_not_found",
+          userId,
+          hostId,
+          roomId,
+          downstreamStatus: members.status,
+        });
+        return res.status(404).json({ ok: false, error: "not_found" });
+      }
+      databaseLogger.warn("relay_room_members downstream proxy failed", {
+        operation: "relay_room_members_downstream_proxy_failed",
+        userId,
+        hostId,
+        roomId,
+        downstreamStatus: members.status,
+        downstreamError: members.error,
+      });
+      return res.status(502).json({ ok: false, error: "proxy" });
+    }
+
+    const classified = await classifyParticipants(members.memberMxids, {
+      lookupHumans: lookupHumansFromUsersTable,
+    });
+    const viewerMxid = await lookupViewingUserMxid(userId);
+
+    const out = [
+      ...classified.humans.map((h) => ({
+        mxid: h.mxid,
+        kind: h.mxid === viewerMxid ? ("you" as const) : ("human" as const),
+        displayName: h.displayName,
+      })),
+      ...classified.agents.map((a) => ({
+        mxid: a.mxid,
+        kind: "agent" as const,
+        displayName: null,
+      })),
+    ];
+
+    databaseLogger.info("relay_room_members ok", {
+      operation: "relay_room_members_ok",
+      userId,
+      hostId,
+      roomId,
+      memberCount: out.length,
+    });
+
+    return res.status(200).json({ members: out });
   },
 );
 

@@ -2022,13 +2022,15 @@ describe("PrettyView — relay-source optimistic bubbles (Phase 93 Slice 5)", ()
       );
       expect(outboundHeaders.length).toBe(1);
     });
-    // The header identifies the correct room (Pitfall 4 downstream visibility:
-    // if the wrong txn_id echoed back, the bubble either wouldn't render OR
-    // would carry a different room; the header exposes room via its text).
+    // The echoed send renders as the viewer's own chat bubble (no pane
+    // agent in relay-source view) carrying the echoed body.
     const outboundHeader = container2.querySelector(
       '[data-testid="relay-outbound-header"]',
     )!;
-    expect(outboundHeader.textContent).toContain("!room:x");
+    expect(outboundHeader.textContent).toBe("You");
+    expect(
+      container2.querySelector('[data-testid="relay-outbound-body"]')!.textContent,
+    ).toContain("hello");
     // Phase 97 UAT follow-up (2026-09-10) — in relay-source PrettyView
     // (this test's mountRelay), bubbles render un-collapsed AND non-
     // collapsible: header is a plain <div>, no aria-expanded (contrast

@@ -119,6 +119,11 @@ vi.mock("../../relay-room-stream/participants-classifier.js", () => ({
   lookupHumansFromUsersTable: vi.fn().mockResolvedValue(new Map()),
 }));
 
+let __hostResolves = true;
+vi.mock("../../ssh/host-resolver.js", () => ({
+  resolveHostById: vi.fn(async () => (__hostResolves ? { id: 7 } : null)),
+}));
+
 // Mock loggers.
 vi.mock("../../utils/logger.js", () => ({
   databaseLogger: {
@@ -393,5 +398,78 @@ describe("GET /relay-room/:roomId/participants (Phase 90 Plan 04 Task 3)", () =>
         operation: "relay_room_participants_ok",
       }),
     );
+  });
+});
+
+describe("GET /relay-room/:roomId/members (relay bubble addressing)", () => {
+  beforeEach(async () => {
+    __authMode = "pass";
+    __hostResolves = true;
+    __viewingUserMxid = VIEWER_MXID;
+    mockGetRoomJoinedMembers.mockReset();
+    mockClassify.mockReset();
+    await startServer();
+  });
+
+  afterEach(async () => {
+    await stopServer();
+  });
+
+  const membersUrl = (hostId: string | number = 7, room = ROOM_ID) =>
+    `${baseUrl}/relay-room/${encodeURIComponent(room)}/members?hostId=${hostId}`;
+
+  it("unauthenticated → 401", async () => {
+    __authMode = "unauth";
+    expect((await fetch(membersUrl())).status).toBe(401);
+  });
+
+  it("bad roomId / hostId → 400", async () => {
+    expect((await fetch(membersUrl(7, "$RID"))).status).toBe(400);
+    expect((await fetch(membersUrl("abc"))).status).toBe(400);
+  });
+
+  it("no access to host → 404, no Matrix lookup", async () => {
+    __hostResolves = false;
+    const res = await fetch(membersUrl());
+    expect(res.status).toBe(404);
+    expect(mockGetRoomJoinedMembers).not.toHaveBeenCalled();
+  });
+
+  it("gated on host access, NOT relay_room_sessions ownership", async () => {
+    __ownershipRow = undefined;
+    mockGetRoomJoinedMembers.mockResolvedValueOnce({ ok: true, memberMxids: [AGENT_MXID], total: 1 });
+    mockClassify.mockResolvedValueOnce({ humans: [], agents: [{ mxid: AGENT_MXID, identityKey: "agent_a" }] });
+    expect((await fetch(membersUrl())).status).toBe(200);
+    __ownershipRow = { id: "session-1" };
+  });
+
+  it("200 tags viewer as you, other humans as human, rest as agent", async () => {
+    mockGetRoomJoinedMembers.mockResolvedValueOnce({
+      ok: true,
+      memberMxids: [VIEWER_MXID, OTHER_HUMAN_MXID, AGENT_MXID],
+      total: 3,
+    });
+    mockClassify.mockResolvedValueOnce({
+      humans: [
+        { mxid: VIEWER_MXID, displayName: "Viewer", userId: "user-1" },
+        { mxid: OTHER_HUMAN_MXID, displayName: "Other", userId: "user-2" },
+      ],
+      agents: [{ mxid: AGENT_MXID, identityKey: "agent_a" }],
+    });
+    const res = await fetch(membersUrl());
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { members: Array<{ mxid: string; kind: string; displayName: string | null }> };
+    expect(body.members).toEqual([
+      { mxid: VIEWER_MXID, kind: "you", displayName: "Viewer" },
+      { mxid: OTHER_HUMAN_MXID, kind: "human", displayName: "Other" },
+      { mxid: AGENT_MXID, kind: "agent", displayName: null },
+    ]);
+  });
+
+  it("downstream 404 → 404; other failure → 502", async () => {
+    mockGetRoomJoinedMembers.mockResolvedValueOnce({ ok: false, status: 404, error: "x" });
+    expect((await fetch(membersUrl())).status).toBe(404);
+    mockGetRoomJoinedMembers.mockResolvedValueOnce({ ok: false, status: 500, error: "x" });
+    expect((await fetch(membersUrl())).status).toBe(502);
   });
 });

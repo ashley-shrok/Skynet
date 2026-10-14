@@ -1,214 +1,161 @@
 /**
- * Phase 17 Plan 03 — RelayOutboundBubble unit tests.
+ * RelayOutboundBubble — a relay message the pane's agent sent.
  *
- * Tests: RELAYBUB-01 (outbound bubble render matrix).
- * Updated 2026-07-28 (UAT Bug 1 fix): extractor deleted, rawCommand is always
- * the bubble body (Option D per user). extractError/showSource state removed.
- * Updated 2026-08-18 (bounty pretty-view-outgoing-relay-render): body prop
- * added. Tests pass body: null to exercise the fallback (always-visible rawCommand)
- * path — preserving today's rendering behavior byte-for-byte in the null branch.
+ * Folded DM card "Aster → Tina [DM]" when the room's members are known,
+ * "Aster sent a DM" when not. The raw send command is never rendered.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
+import type { Identity } from "@/api/identities-api";
+import type { RelayRoomMember } from "./relay-room-members";
+
+vi.mock("@/state/identities-store", () => ({
+  useIdentities: vi.fn(),
+}));
+
+const membersMock = vi.fn<(room: string | null | undefined, hostId: number | null | undefined) => RelayRoomMember[] | null>(() => null);
+vi.mock("./relay-room-members", () => ({
+  useRelayRoomMembers: (room: string | null | undefined, hostId: number | null | undefined) =>
+    membersMock(room, hostId),
+}));
+
+import { useIdentities } from "@/state/identities-store";
 import { RelayOutboundBubble } from "./RelayOutboundBubble";
 
+function makeIdentity(identityKey: string, displayName: string, colorHue: number): Identity {
+  return {
+    identityKey,
+    displayName,
+    title: null,
+    colorHue,
+    voice: null,
+    role: null,
+    avatarMime: "image/png",
+    avatarUrl: "/avatar.png",
+    avatarEtag: "abc",
+    coordinator: false,
+    task: null,
+    project: null,
+  };
+}
+
+const aster = makeIdentity("aster", "Aster", 32);
+const tina = makeIdentity("tina", "Tina", 200);
+
+beforeEach(() => {
+  membersMock.mockReset();
+  membersMock.mockReturnValue(null);
+  vi.mocked(useIdentities).mockReturnValue({
+    identities: [aster, tina],
+    byKey: new Map([
+      ["aster", aster],
+      ["tina", tina],
+    ]),
+    byHostKey: new Map(),
+    loaded: true,
+    refresh: vi.fn(),
+  });
+});
+
+function renderOut(props: Partial<React.ComponentProps<typeof RelayOutboundBubble>> = {}) {
+  return render(
+    <RelayOutboundBubble
+      room="!abc:t1000.example"
+      body="Hey Tina, is the fix deployed yet?"
+      hostId={42}
+      selfIdentity={aster}
+      {...props}
+    />,
+  );
+}
+
 describe("RelayOutboundBubble", () => {
-  it("Test 1: renders room-id header + rawCommand in mono block (body null = fallback)", () => {
-    const cmd = "curl -X PUT https://matrix.org/_matrix/client/r0/rooms/!roomAlias:server.tld/send/m.room.message/txn -d '{\"body\":\"hello\"}'";
-    render(
-      <RelayOutboundBubble
-        room="!roomAlias:server.tld"
-        rawCommand={cmd}
-        body={null}
-      />,
+  it("members unknown → 'Aster sent a DM' with preview, folded", () => {
+    renderOut();
+    const who = screen.getByTestId("relay-who-line").textContent ?? "";
+    expect(who).toContain("Aster");
+    expect(who).toContain("sent a");
+    expect(who).toContain("DM");
+    expect(screen.getByTestId("relay-outbound-preview").textContent).toBe(
+      "Hey Tina, is the fix deployed yet?",
     );
+    expect(screen.queryByTestId("relay-outbound-body")).toBeNull();
+  });
 
-    // Header contains room (always visible even when collapsed)
-    expect(screen.getByText(/relay send.*roomAlias/)).toBeTruthy();
+  it("looks up members for the resolved room on the pane's host", () => {
+    renderOut();
+    expect(membersMock).toHaveBeenCalledWith("!abc:t1000.example", 42);
+  });
 
-    // Wrapper must be flex justify-start (left-aligned per patch #200)
-    const wrapper = document.querySelector(".justify-start");
-    expect(wrapper).not.toBeNull();
+  it("members known → 'Aster → Tina' DM", () => {
+    membersMock.mockReturnValue([
+      { mxid: "@aster:t1000.example", kind: "agent", displayName: null },
+      { mxid: "@tina:t1000.example", kind: "agent", displayName: null },
+    ]);
+    renderOut();
+    const who = screen.getByTestId("relay-who-line").textContent ?? "";
+    expect(who).toMatch(/Aster\s*→\s*Tina/);
+    expect(who).toContain("DM");
+  });
 
-    // Bubble starts collapsed — expand first to see rawCommand
+  it("DM to the viewing user → 'You' + notified marker", () => {
+    membersMock.mockReturnValue([
+      { mxid: "@aster:t1000.example", kind: "agent", displayName: null },
+      { mxid: "@ashley:t1000.example", kind: "you", displayName: "Ashley" },
+    ]);
+    renderOut();
+    const who = screen.getByTestId("relay-who-line").textContent ?? "";
+    expect(who).toMatch(/Aster\s*→\s*You/);
+    expect(who).toContain("notified");
+  });
+
+  it("DM to another person → their display name, no notified marker", () => {
+    membersMock.mockReturnValue([
+      { mxid: "@aster:t1000.example", kind: "agent", displayName: null },
+      { mxid: "@sam:t1000.example", kind: "human", displayName: "Sam" },
+    ]);
+    renderOut();
+    const who = screen.getByTestId("relay-who-line").textContent ?? "";
+    expect(who).toMatch(/Aster\s*→\s*Sam/);
+    expect(who).not.toContain("notified");
+  });
+
+  it("open shows the message and a speak button; no raw command, no transport text", () => {
+    renderOut({ room: "$RID" });
     fireEvent.click(screen.getByTestId("relay-outbound-header"));
-
-    // rawCommand text is visible (fallback path — body null)
-    expect(screen.getByText(cmd)).toBeTruthy();
+    expect(screen.getByTestId("relay-outbound-body").textContent).toContain(
+      "Hey Tina, is the fix deployed yet?",
+    );
+    expect(screen.getByRole("button", { name: "Speak message" })).toBeTruthy();
+    const text = screen.getByTestId("relay-outbound-bubble").textContent ?? "";
+    expect(text).not.toMatch(/\$RID|curl|raw command|relay send|unknown room/);
   });
 
-  it("Test 2: long command with newlines preserves them via whitespace-pre (body null = fallback)", () => {
-    const cmd = "curl \\\n  -X PUT \\\n  https://matrix.org/rooms/!x:s/send/m.room.message/T";
-    render(
-      <RelayOutboundBubble
-        room="!x:s"
-        rawCommand={cmd}
-        body={null}
-      />,
-    );
-
-    // Bubble starts collapsed — expand first to see body content
+  it("unextractable body → plain-language note, no preview, no speak button", () => {
+    renderOut({ body: null });
+    expect(screen.queryByTestId("relay-outbound-preview")).toBeNull();
     fireEvent.click(screen.getByTestId("relay-outbound-header"));
-
-    // The pre/mono container should have whitespace-pre class
-    const preEl = document.querySelector(".whitespace-pre");
-    expect(preEl).not.toBeNull();
-
-    // The command text is rendered — use custom matcher because getByText normalises whitespace
-    // but our pre element preserves the raw string including \n characters.
-    const preWithCmd = screen.getByText((_content, el) => {
-      return el?.tagName === "PRE" && el.textContent === cmd;
-    });
-    expect(preWithCmd).toBeTruthy();
+    expect(screen.getByTestId("relay-outbound-body").textContent).toBe(
+      "Aster sent a message here, but its text couldn't be shown.",
+    );
+    expect(screen.queryByRole("button", { name: "Speak message" })).toBeNull();
   });
 
-  it("Test 3: room null → header shows '→ unknown room'", () => {
-    render(
-      <RelayOutboundBubble
-        room={null}
-        rawCommand="curl -X PUT ..."
-        body={null}
-      />,
-    );
-
-    expect(screen.getByText(/unknown room/i)).toBeTruthy();
+  it("relay-source view with no pane agent → the viewer's own send reads 'You'", () => {
+    renderOut({ alwaysExpanded: true, selfIdentity: null });
+    expect(screen.getByTestId("relay-outbound-header").textContent).toBe("You");
   });
 
-  it("Test 4: very long single-line command has overflow-x-auto class on container (body null = fallback)", () => {
-    const longCmd = "curl " + "x".repeat(500);
-    render(
-      <RelayOutboundBubble
-        room="!r:s"
-        rawCommand={longCmd}
-        body={null}
-      />,
-    );
-
-    // Bubble starts collapsed — expand first to see body content
-    fireEvent.click(screen.getByTestId("relay-outbound-header"));
-
-    // Structural assertion: overflow-x-auto must be present (layout enforcement)
-    const overflowEl = document.querySelector(".overflow-x-auto");
-    expect(overflowEl).not.toBeNull();
+  it("card uses the pane agent's hue", () => {
+    renderOut();
+    expect(screen.getByTestId("relay-outbound-bubble").getAttribute("data-bubble-hue")).toBe("32");
   });
 
-  // C1-C4: Collapse-by-default tests (quick 260829-qb9)
-  it("C1: renders collapsed on mount — header visible, body NOT in DOM, footer NOT in DOM", () => {
-    render(
-      <RelayOutboundBubble
-        room="!roomAlias:server.tld"
-        rawCommand="curl -X PUT ..."
-        body={null}
-      />,
-    );
-
-    // Header must be visible
-    expect(screen.getByTestId("relay-outbound-header")).toBeTruthy();
-    expect(screen.getByText(/relay send.*roomAlias/)).toBeTruthy();
-
-    // Body content (rawCommand) must NOT be in DOM
-    expect(screen.queryByText("curl -X PUT ...")).toBeNull();
-    // Footer must NOT be in DOM
-    expect(screen.queryByText(/via curl/)).toBeNull();
-  });
-
-  it("C2: aria-expanded='false' on outer header button when collapsed", () => {
-    render(
-      <RelayOutboundBubble
-        room="!roomAlias:server.tld"
-        rawCommand="curl -X PUT ..."
-        body={null}
-      />,
-    );
-
-    const header = screen.getByTestId("relay-outbound-header");
-    expect(header.getAttribute("aria-expanded")).toBe("false");
-  });
-
-  it("C3: click header → body renders, footer renders; aria-expanded='true'; inner raw toggle visible and defaults collapsed", () => {
-    render(
-      <RelayOutboundBubble
-        room="!roomAlias:server.tld"
-        rawCommand="curl -X PUT ..."
-        body="Hello from relay"
-      />,
-    );
-
-    fireEvent.click(screen.getByTestId("relay-outbound-header"));
-
-    // Body text visible
-    expect(screen.getByText("Hello from relay")).toBeTruthy();
-    // Footer visible
-    expect(screen.getByText(/via curl/)).toBeTruthy();
-    // aria-expanded is true
-    expect(screen.getByTestId("relay-outbound-header").getAttribute("aria-expanded")).toBe("true");
-    // Inner raw command toggle visible and defaults to collapsed (▸ raw command)
-    expect(screen.getByText(/▸ raw command/)).toBeTruthy();
-    // Raw pre NOT visible yet
-    expect(screen.queryByText("curl -X PUT ...")).toBeNull();
-  });
-
-  it("C4: inner raw toggle independent; outer re-collapse hides body and inner toggle; re-expand resets inner to collapsed", () => {
-    render(
-      <RelayOutboundBubble
-        room="!roomAlias:server.tld"
-        rawCommand="curl -X PUT ..."
-        body="Hello from relay"
-      />,
-    );
-
-    const outerHeader = screen.getByTestId("relay-outbound-header");
-
-    // Expand outer
-    fireEvent.click(outerHeader);
-    // Expand inner raw toggle
-    fireEvent.click(screen.getByText(/▸ raw command/));
-    // Raw pre now visible
-    expect(screen.getByText("curl -X PUT ...")).toBeTruthy();
-
-    // Collapse outer — body AND inner toggle AND raw pre all gone
-    fireEvent.click(outerHeader);
-    expect(screen.queryByText("Hello from relay")).toBeNull();
-    expect(screen.queryByText(/raw command/)).toBeNull();
-    expect(screen.queryByText("curl -X PUT ...")).toBeNull();
-
-    // Re-expand outer — inner state resets (fresh mount of inner button)
-    fireEvent.click(outerHeader);
-    // Body visible
-    expect(screen.getByText("Hello from relay")).toBeTruthy();
-    // Inner toggle defaults to collapsed again (▸ raw command)
-    expect(screen.getByText(/▸ raw command/)).toBeTruthy();
-    // Raw pre NOT visible (inner reset to collapsed)
-    expect(screen.queryByText("curl -X PUT ...")).toBeNull();
-  });
-
-  // quick-260830-e6i Part B: shrink collapsed padding to match ChatMessage pill.
-  it("C5: collapsed bubble uses tight padding (12/7); expanded bubble uses roomy padding (18/14)", () => {
-    render(
-      <RelayOutboundBubble
-        room="!roomAlias:server.tld"
-        rawCommand="curl -X PUT ..."
-        body="Hello from relay"
-      />,
-    );
-
-    const header = screen.getByTestId("relay-outbound-header");
-    // No dedicated bubble testid — navigate up via header.parentElement.
-    const bubble = header.parentElement as HTMLElement;
-    expect(bubble).not.toBeNull();
-
-    // Collapsed by default — tight padding.
-    expect(bubble).toHaveClass("px-[12px]");
-    expect(bubble).toHaveClass("py-[7px]");
-    expect(bubble).not.toHaveClass("px-[18px]");
-    expect(bubble).not.toHaveClass("py-[14px]");
-
-    // Expand — roomy padding.
-    fireEvent.click(header);
-    expect(bubble).toHaveClass("px-[18px]");
-    expect(bubble).toHaveClass("py-[14px]");
-    expect(bubble).not.toHaveClass("px-[12px]");
-    expect(bubble).not.toHaveClass("py-[7px]");
+  it("alwaysExpanded → plain chat bubble, no member lookup", () => {
+    renderOut({ alwaysExpanded: true });
+    expect(screen.getByTestId("relay-outbound-header").textContent).toBe("Aster");
+    expect(screen.getByTestId("relay-outbound-body").textContent).toContain("Hey Tina");
+    expect(membersMock).toHaveBeenCalledWith(null, 42);
   });
 });

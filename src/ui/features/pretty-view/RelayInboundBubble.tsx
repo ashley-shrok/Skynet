@@ -1,80 +1,29 @@
-import React, { useEffect, useRef, useState } from "react";
-import { Volume2, Loader2, Pause, Play } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { useEffect, useState, type MouseEvent } from "react";
 import type { RelayInboundEvent } from "@/api/claude-session-api";
+import type { Identity } from "@/api/identities-api";
 import { useIdentities } from "@/state/identities-store";
 import { resolveMxidToIdentity } from "./relay-mxid-resolve";
 import { detectFilePointer } from "./relay-pointer-detect";
 import { speakVoiceCandidates } from "./voice-candidates";
 import { stampedFetch } from "@/lib/stamped-fetch";
 import { useSpeakPlayback } from "./useSpeakPlayback";
+import { addressingFor, mxidLocalpart, partyForMxid, previewLine } from "./relay-addressing";
+import { useRelayRoomMembers } from "./relay-room-members";
+import { RelayChatBubble, RelayDmCard } from "./RelayBubbleParts";
 
-// Phase 17 Plan 03 — RelayInboundBubble
+// RelayInboundBubble — a relay message this pane's agent received (harness
+// view, folded RelayDmCard: "Tina → Aster [DM]"), or a message from someone
+// else in a relay room the user opened (relay-source view, plain
+// RelayChatBubble).
 //
-// Presentational component for a relay_inbound WS frame: renders a
-// left-aligned bubble tinted with the SENDER's identity colorHue in
-// PrettyView when the backend detects a task-notification user turn that
-// matches the recv.sh line format ([room X] [@sender] (event $Y): BODY —
-// plan 17-01 detection).
+// Long messages arrive as a file-pointer line from recv.sh; the bubble
+// fetches the full text via /relay-pointer when opened and never shows the
+// pointer line itself — only the quoted preview, as a fallback if the fetch
+// fails.
 //
-// Coloring uses the standard pretty-view hue-tinted bubble recipe (same
-// gradient/border/shadow shape as ChatMessage assistant bubbles,
-// ImageBubble, DormancyOverlay) — but driven by the
-// SENDER's resolved colorHue rather than the pane's --pv-id-hue, so each
-// inbound bubble reads as "identity X speaking as themselves" instead of
-// being mistakable for the pane's own agent. Multi-user chat convention:
-// "not you" shows up on the left; the pane's own agent + user take
-// right-alignment elsewhere.
-//
-// RELAYBUB-02: inbound bubble left-aligned (flex justify-start wrapper).
-// RELAYBUB-03: mxid resolved via useIdentities().byKey + resolveMxidToIdentity.
-// RELAYBUB-06: does NOT import IdentityBadge, ChatMessage, ComposeBox (locked).
-//
-// File-pointer support (17-UI-SPEC § Long-inbound file-pointer support):
-//   When detectFilePointer returns non-null, fetch the file via the
-//   /relay-pointer endpoint (plan 17-02, mounted on main backend port 30001).
-//   Success → inline fetched body below pointer-line preview.
-//   Failure → pointer-line + "📄 fetch failed ({status-or-error})".
-//   Never a silent drop.
-//
-// Security notes:
-//   T-17-03-01: body rendered via {body} in JSX (NOT dangerouslySetInnerHTML).
-//   T-17-03-02: POINTER_REGEX is client-side defence-in-depth; authoritative
-//               gate is backend's WHITELIST_REGEX (plan 17-02). encodeURIComponent
-//               prevents path traversal in the query string.
-//   T-17-03-04: fetch fires once on mount (dep array [pointerPath, hostId]).
-//               No retry-on-failure — failed fetch shows indicator until unmount.
-//   T-17-03-05: colorHue coerced via Number() guard in inline style.
-//   T-17-03-06: hostId originates from PrettyView prop (pane tab-context);
-//               authoritative gate is backend's resolveHostById (plan 17-02).
-//
-// Phase 97 UAT batch #6 (2026-09-10) — chat-native strip for relay-source:
-//   When `alwaysExpanded={true}` (PrettyView source.kind === "relay" — user
-//   chatting IN a matrix room via Skynet, not the task-notification harness):
-//     - Header strips the ` · <room>` suffix — the room is already the pane
-//       context, no need to repeat.
-//     - Header brightens from rgba(232,228,216,0.6) → #e8e4d8 (matches body
-//       text color) so the sender name reads as chat-scale prominence.
-//     - Footer "via recv.sh" is dropped — implicit for the whole pane.
-//     - Bubble padding widens right side to `pr-[42px]` reserving space for
-//       the speak button (mirroring ChatMessage assistant's gutter).
-//     - Speak button (Volume2/Loader2/Pause/Play) renders bottom-right.
-//       (Long-press auto-speak retired 2026-10-06 — see useVoiceMode.)
-//     - Speak singleton is shared with ChatMessage via ./speak-singleton.ts,
-//       so tapping speak on either component preempts the other.
-//   The `alwaysExpanded=false` (harness) branch is BYTE-FOR-BYTE UNCHANGED.
-//
-// Phase 97 UAT batch #7 (2026-09-10) — harness-view parity + tighter expanded
-// padding. The chat-native strip (room-strip, name-brightening, no footer)
-// now applies UNIVERSALLY — both relay-source and harness views. Differences
-// between the two:
-//   - Harness view remains COLLAPSIBLE (header is <button> with chevron);
-//     relay-source view stays non-collapsible (header is plain <div>).
-//   - Speak button visibility now gates on `!collapsed`, not `alwaysExpanded`:
-//     harness-view users get the speak button once they tap-to-expand.
-//   - Expanded padding tightened to `pl-[12px] pr-[42px] py-[7px]` in BOTH
-//     views — matches ChatMessage assistant padding exactly.
-//   - Bubble-root long-press pointer handlers REMOVED.
+// Security: body / fetched text render as React text children, never
+// dangerouslySetInnerHTML. /relay-pointer's backend whitelist is the
+// authoritative path gate; encodeURIComponent guards the query string.
 
 type FetchState =
   | { kind: "idle" }
@@ -82,33 +31,29 @@ type FetchState =
   | { kind: "done"; text: string }
   | { kind: "error"; indicator: string };
 
-/** Neutral grey fallback for unresolved mxids per UI-SPEC § Sender colorHue chain. */
-const NEUTRAL_GREY = "hsl(210, 8%, 50%)";
+/** The «…» preview recv.sh quotes inside a file-pointer line. */
+function pointerPreview(pointerLine: string): string {
+  const m = pointerLine.match(/«([\s\S]*?)(?:»|$)/);
+  return m ? m[1].replace(/…$/, "").trim() : "";
+}
 
 export type RelayInboundBubbleProps = Pick<
   RelayInboundEvent,
   "room" | "sender" | "body"
 > & {
-  /** hostId from PrettyViewProps — drilled from the PrettyView render site. */
+  /** hostId from PrettyViewProps — scopes the pointer fetch and member lookup. */
   hostId: number;
   /** The viewing user's fallback voice — last candidate before the provider default. */
   fallbackVoice?: string | null;
-  /** ms-epoch timestamp of the inbound event; when present, rendered as a
-   * hover `title` on the bubble so desktop users can see when the send
-   * happened. Optional at the type level so existing tests that don't care
-   * about the timestamp keep compiling; PrettyView always passes it. */
+  /** ms-epoch timestamp; shown as a hover title. */
   ts?: number;
-  /** Phase 97 UAT follow-up (2026-09-10): in relay-source PrettyView
-   * (`source.kind === "relay"` — chatting IN a matrix room via Skynet),
-   * bubbles render fully un-collapsed AND non-collapsible. In harness
-   * PrettyView (task-notification-triggered relay bubbles), the default
-   * collapsed-with-toggle behavior is preserved. When true, initial
-   * state starts expanded and the header renders as a plain non-clickable
-   * <div> (no toggle chevron). */
+  /** Relay-source view (user chatting IN the room): plain chat bubble,
+   * always open. Harness view: folded card, tap to open. */
   alwaysExpanded?: boolean;
-  /** Phase 97 UAT batch #6 (2026-09-10): matrix event id. Only meaningful
-   * when `alwaysExpanded={true}` (relay-source view). */
+  /** Matrix event id. Accepted for callers; unused since auto-speak retired. */
   eventId?: string;
+  /** The pane's own agent — the receiver of this message in harness view. */
+  selfIdentity?: Identity | null;
 };
 
 export function RelayInboundBubble({
@@ -119,50 +64,35 @@ export function RelayInboundBubble({
   hostId,
   alwaysExpanded = false,
   fallbackVoice = null,
-  // eventId: accepted for callers; unused since auto-speak was retired.
+  selfIdentity = null,
 }: RelayInboundBubbleProps) {
   const { byKey } = useIdentities();
-  const { colorHue, displayName, identity } = resolveMxidToIdentity(sender, byKey);
+  const { identity } = resolveMxidToIdentity(sender, byKey);
+  const senderParty = partyForMxid(sender, byKey);
   const speakVoices = speakVoiceCandidates(identity, fallbackVoice);
-  const [collapsed, setCollapsed] = useState(!alwaysExpanded);
+  const [open, setOpen] = useState(alwaysExpanded);
 
-  // Avatar-dot colour: resolved identity hue or neutral grey fallback.
-  // Number() coercion guards against a stray type change (T-17-03-05).
-  const avatarColor =
-    colorHue !== null ? `hsl(${Number(colorHue)}, 80%, 60%)` : NEUTRAL_GREY;
+  const members = useRelayRoomMembers(alwaysExpanded ? null : room, hostId);
+  const addressing = addressingFor(
+    mxidLocalpart(sender),
+    members,
+    byKey,
+    selfIdentity
+      ? { name: selfIdentity.displayName, hue: selfIdentity.colorHue, you: false }
+      : null,
+  );
 
-  // Bubble hue for V1 assistant-parity recipe. Unresolved sender → hue 210
-  // (user 2026-08-18: "don't really care about the fallback"); the
-  // full-saturation recipe against 210 lands as a cool blue-tinted bubble,
-  // visually distinct from resolved senders' hues without needing a
-  // separate branch.
-  const bubbleHue = colorHue !== null ? Number(colorHue) : 210;
-  const bubbleStyle = {
-    background: `linear-gradient(160deg, hsla(${bubbleHue},50%,38%,0.55), hsla(${bubbleHue},45%,24%,0.6))`,
-    borderColor: `hsla(${bubbleHue},65%,55%,0.32)`,
-    boxShadow: `0 8px 24px rgba(0,0,0,0.5), 0 1px 0 rgba(255,220,170,0.18) inset, 0 0 0 0.5px hsla(${bubbleHue},70%,55%,0.2), 0 0 32px hsla(${bubbleHue},70%,52%,0.18)`,
-  } as const;
-
-  // File-pointer detection.
   const pointer = detectFilePointer(body);
-
   const [fetchState, setFetchState] = useState<FetchState>({ kind: "idle" });
 
   useEffect(() => {
-    if (collapsed) return;
+    if (!open) return;
     if (!pointer) return;
-
-    // T-17-03-04: fires exactly once per mount via dep array.
     setFetchState({ kind: "loading" });
-
-    // Fetch the pointed-to file via the /relay-pointer endpoint.
-    // plan 17-02: endpoint mounted on main backend (NOT /claude-session/relay-pointer).
-    // credentials: "include" — project convention (message-queue-api.ts:80,100).
-    // encodeURIComponent — T-17-03-02 path-traversal defence.
-    // Phase 111 SKEW-04: stamped-fetch lane.
     stampedFetch(`/relay-pointer?hostId=${hostId}&path=${encodeURIComponent(pointer.pointerPath)}`, { credentials: "include" })
       .then((res) => {
         if (!res.ok) {
+          console.warn(`[relay-inbound] pointer fetch failed hostId=${hostId} status=${res.status}`);
           setFetchState({ kind: "error", indicator: `${res.status}` });
           return;
         }
@@ -171,212 +101,61 @@ export function RelayInboundBubble({
         });
       })
       .catch((err: unknown) => {
-        const msg =
-          err instanceof Error ? err.message : "network error";
+        const msg = err instanceof Error ? err.message : "network error";
+        console.warn(`[relay-inbound] pointer fetch error hostId=${hostId} error=${msg}`);
         setFetchState({ kind: "error", indicator: msg });
       });
-  }, [pointer?.pointerPath, hostId, collapsed]);
+  }, [pointer?.pointerPath, hostId, open]);
 
-  // ─── Speak apparatus — shared useSpeakPlayback, gated on !collapsed ───
-  //
-  // Declared unconditionally (Rules of Hooks); the render-side gating on
-  // `!collapsed` wires the button up whenever the bubble is expanded.
-  // Speak text = `body`, NOT containerRef.innerText: the container wraps the
-  // header (dot + displayName) too, so innerText would speak "Tina hello
-  // world". JSDOM lacks innerText, so tests never surfaced this.
+  const shortText = pointer ? pointerPreview(pointer.pointerLine) : body;
+  const fullText = fetchState.kind === "done" ? fetchState.text : shortText;
+
   const { speakState, onSpeakClick } = useSpeakPlayback({
     ownerName: "relay-speak-bubble",
     logPrefix: "relay:",
     voices: speakVoices,
-    getText: () => body,
+    getText: () => fullText,
   });
-  const containerRef = useRef<HTMLDivElement>(null);
+
+  const content = pointer ? (
+    fetchState.kind === "done" ? (
+      fetchState.text
+    ) : fetchState.kind === "error" ? (
+      <>
+        {shortText}
+        <div className="mt-1.5 text-xs italic text-[rgba(232,228,216,0.5)] whitespace-normal">
+          Couldn't load the rest of this message.
+        </div>
+      </>
+    ) : (
+      <span className="text-xs italic text-[rgba(232,228,216,0.5)]">Loading…</span>
+    )
+  ) : (
+    body
+  );
+
+  const speak = { speakState, onClick: (e: MouseEvent) => { void onSpeakClick(e); } };
+
+  if (alwaysExpanded) {
+    return (
+      <RelayChatBubble testIdPrefix="relay-inbound" sender={senderParty} ts={ts} speak={speak}>
+        {content}
+      </RelayChatBubble>
+    );
+  }
 
   return (
-    <div className="flex justify-start" data-testid="relay-inbound-wrap">
-      <div
-        ref={containerRef}
-        title={ts !== undefined ? new Date(ts).toLocaleString() : undefined}
-        data-testid="relay-inbound-bubble"
-        data-bubble-hue={bubbleHue}
-        // position: relative only when the speak button is present
-        // (i.e. `!collapsed`). Both views need it whenever the button
-        // renders. When collapsed, the button is absent and static
-        // positioning is fine.
-        style={!collapsed ? { ...bubbleStyle, position: "relative" } : bubbleStyle}
-        className={cn(
-          // Bubble sizing + shape — mirrors ChatMessage outer div pattern.
-          "max-w-[85%] [overflow-wrap:anywhere] text-sm leading-relaxed",
-          "rounded-[var(--radius-pv-bubble)]",
-          // Padding — Phase 97 UAT batch #7: expanded padding aligned to
-          // ChatMessage assistant `pl-[12px] pr-[42px] py-[7px]` (tighter
-          // than batch #6's roomy 18/14 values). Collapsed padding
-          // unchanged — the pill-scale shorthand from quick-260830-e6i.
-          // Note the padding value now only depends on `collapsed`, not on
-          // `alwaysExpanded`; the speak-button gutter (`pr-[42px]`) is
-          // present in both views when expanded.
-          collapsed
-            ? "px-[12px] py-[7px]"
-            : "pl-[12px] pr-[42px] py-[7px]",
-          // Glass depth treatment (kept from phase 17 — reads distinct from
-          // ChatMessage's shadow-based bubble while colour-matching it).
-          "backdrop-blur-xl saturate-150",
-          "[-webkit-backdrop-filter:blur(20px)_saturate(1.6)]",
-          // border-width only; color comes from inline style (sender hue).
-          "border",
-          // Text colour — warm off-white matching ChatMessage assistant.
-          "text-[#e8e4d8]",
-        )}
-      >
-        {/* Header: avatar-dot + resolved displayName + room (harness) or
-            avatar-dot + displayName only (relay-source, Phase 97 UAT batch #6).
-            In default (harness) mode renders as a toggle button; when
-            alwaysExpanded (relay-source view) renders as a plain non-clickable
-            <div> with no chevron. */}
-        {alwaysExpanded ? (
-          <div
-            data-testid="relay-inbound-header"
-            className={cn(
-              "flex items-center gap-1 text-xs mb-1",
-              // Phase 97 UAT batch #6: brighten header to match body text.
-              // The 60%-alpha treatment reads as "meta" (recv.sh tell); in
-              // relay-source view the header IS the primary "who's talking"
-              // affordance, so it earns full body-text prominence.
-              "text-[#e8e4d8]",
-              "font-[JetBrains_Mono_Variable,ui-monospace,monospace]",
-            )}
-          >
-            <span
-              data-testid="relay-inbound-avatar-dot"
-              data-avatar-color={avatarColor}
-              aria-hidden="true"
-              className="inline-block w-2 h-2 rounded-full flex-shrink-0"
-              style={{ color: avatarColor, backgroundColor: avatarColor }}
-            />
-            {/* Phase 97 UAT batch #6: room stripped — the room IS the pane
-                context in relay-source view; no need to repeat. */}
-            {displayName}
-          </div>
-        ) : (
-          <button
-            type="button"
-            data-testid="relay-inbound-header"
-            aria-expanded={!collapsed}
-            aria-label={collapsed ? "Expand message" : "Collapse message"}
-            onClick={() => setCollapsed((v) => !v)}
-            className={cn(
-              "flex items-center gap-1 text-xs mb-1",
-              // Phase 97 UAT batch #7 (2026-09-10): brighten to
-              // body-text prominence in harness view too — the sender
-              // name is the primary "who's talking" affordance in both
-              // views. Chevron stays as the collapsibility affordance.
-              "text-[#e8e4d8]",
-              "font-[JetBrains_Mono_Variable,ui-monospace,monospace]",
-              "w-full text-left cursor-pointer bg-transparent border-0 p-0",
-            )}
-          >
-            {/* Avatar-dot: coloured circle whose hue follows the resolved identity.
-                data-testid allows tests to find the element; data-avatar-color
-                carries the raw hsl()/colour string so tests can assert on the
-                exact value without jsdom's rgb() normalisation. */}
-            <span
-              data-testid="relay-inbound-avatar-dot"
-              data-avatar-color={avatarColor}
-              aria-hidden="true"
-              className="inline-block w-2 h-2 rounded-full flex-shrink-0"
-              style={{ color: avatarColor, backgroundColor: avatarColor }}
-            />
-            {/* Phase 97 UAT batch #7: room stripped from harness header
-                too — the pane context communicates the room. Chevron
-                remains as the collapsibility affordance. */}
-            {displayName}
-            {" "}<span aria-hidden="true">{collapsed ? "▶" : "▼"}</span>
-          </button>
-        )}
-
-        {/* Body + Footer — conditionally rendered when not collapsed */}
-        {!collapsed && (
-          <div data-testid="relay-inbound-body">
-            {/* Body — Security (T-17-03-01): always rendered as React children, never dangerouslySetInnerHTML */}
-            {pointer ? (
-              <>
-                {/* Pointer-line preview — always shown as small header above fetched body */}
-                <div className="text-[10px] text-[rgba(232,_228,_216,_0.45)] mb-1">
-                  📄 {pointer.pointerLine}
-                </div>
-                {fetchState.kind === "loading" && (
-                  <div className="text-xs text-[rgba(232,_228,_216,_0.5)] italic">
-                    loading…
-                  </div>
-                )}
-                {fetchState.kind === "done" && (
-                  <div className="whitespace-pre-wrap">{fetchState.text}</div>
-                )}
-                {fetchState.kind === "error" && (
-                  <div className="text-xs text-[rgba(220,_180,_100,_0.9)]">
-                    📄 fetch failed ({fetchState.indicator})
-                  </div>
-                )}
-              </>
-            ) : (
-              /* Inline body — Security (T-17-03-01): {body} is React text child */
-              <div className="whitespace-pre-wrap">{body}</div>
-            )}
-
-            {/* Phase 97 UAT batch #7 (2026-09-10): "via recv.sh" footer
-                removed entirely. It never renders in any view/state. */}
-          </div>
-        )}
-
-        {/* Speak button — Phase 97 UAT batch #6 (2026-09-10). Copy-verbatim
-            from ChatMessage's assistant speak button apparatus, wired against
-            the same singleton so cross-component preempt works.
-            Phase 97 UAT batch #7 (2026-09-10): visibility gated on `!collapsed`,
-            not on `alwaysExpanded`. In relay-source view `alwaysExpanded=true`
-            forces `collapsed=false` at mount so the button always shows. In
-            harness view the button hides until the user taps the header
-            chevron to expand. */}
-        {!collapsed && (
-          <button
-            type="button"
-            onClick={(e) => { void onSpeakClick(e); }}
-            aria-label={
-              speakState === "playing"
-                ? "Pause speaking"
-                : speakState === "paused"
-                  ? "Resume speaking"
-                  : "Speak message"
-            }
-            style={{
-              position: "absolute",
-              right: 6,
-              bottom: 6,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              background: "rgba(0,0,0,0.28)",
-              borderWidth: 1,
-              borderStyle: "solid",
-              borderColor: "rgba(255,255,255,0.10)",
-              color: "rgba(255,220,170,0.72)",
-              opacity: 0.62,
-              cursor: "pointer",
-              transition: "opacity 120ms, background 120ms, transform 80ms",
-            }}
-            className={`pv-speak-btn hover:!opacity-100 hover:!bg-[rgba(0,0,0,0.42)] focus-visible:!opacity-100 active:scale-[0.92] [@media(hover:none)]:!opacity-[0.72]`}
-          >
-            {speakState === "loading" ? (
-              <Loader2 size={16} className="animate-spin" />
-            ) : speakState === "playing" ? (
-              <Pause size={16} />
-            ) : speakState === "paused" ? (
-              <Play size={16} />
-            ) : (
-              <Volume2 size={16} />
-            )}
-          </button>
-        )}
-      </div>
-    </div>
+    <RelayDmCard
+      testIdPrefix="relay-inbound"
+      sender={senderParty}
+      addressing={addressing}
+      preview={previewLine(shortText)}
+      ts={ts}
+      open={open}
+      onToggle={() => setOpen((v) => !v)}
+      speak={speak}
+    >
+      {content}
+    </RelayDmCard>
   );
 }

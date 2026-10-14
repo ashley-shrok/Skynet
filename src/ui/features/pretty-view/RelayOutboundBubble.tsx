@@ -1,189 +1,104 @@
-import { useState } from "react";
-import { cn } from "@/lib/utils";
+import { useState, type MouseEvent } from "react";
 import type { RelayOutboundEvent } from "@/api/claude-session-api";
+import type { Identity } from "@/api/identities-api";
+import { useIdentities } from "@/state/identities-store";
+import { speakVoiceCandidates } from "./voice-candidates";
+import { useSpeakPlayback } from "./useSpeakPlayback";
+import { addressingFor, previewLine, type RelayParty } from "./relay-addressing";
+import { useRelayRoomMembers } from "./relay-room-members";
+import { RelayChatBubble, RelayDmCard } from "./RelayBubbleParts";
 
-// Phase 17 Plan 03 — RelayOutboundBubble (patch #200: alignment + color parity with ChatMessage)
+// RelayOutboundBubble — a relay message this pane's agent sent. Harness view
+// renders a folded RelayDmCard ("Aster → Tina [DM]"); the recipient comes
+// from the room's members when the backend could resolve the room id from
+// the send command, otherwise the card reads "Aster sent a DM".
 //
-// Presentational component for a relay_outbound WS frame: renders a
-// left-aligned identity-hue gradient bubble in PrettyView when the backend
-// detects that a Bash tool-use turn is a real Matrix relay send (curl +
-// -X PUT + rooms/.../send/m.room.message/... conjunction — plan 17-01).
+// The raw send command is never shown. When the message text couldn't be
+// extracted from the command, the card says so in plain words.
 //
-// Colors mirror ChatMessage.tsx's assistant styling so relay-outbound reads
-// as "the agent speaking through Matrix" — same identity-hue as its regular
-// pretty-view reply bubbles, keeping the ▸/via-curl header+footer to
-// preserve the "this went through the Matrix relay" semantic.
-//
-// RELAYBUB-01: outbound bubble left-aligned (flex justify-start wrapper) —
-// matches assistant-side of pretty-view chat convention (patch #200).
-// RELAYBUB-06: does NOT import IdentityBadge, ChatMessage, ComposeBox (locked).
-//
-// Update (2026-08-18, bounty pretty-view-outgoing-relay-render):
-// Body extraction reinstated per PATTERNS.md survey (96.4% coverage of real
-// fleet sends across 7 named shell/heredoc/inline-json shapes). When body is
-// non-null, we render it as a pretty text block above a COLLAPSED-by-default
-// expand-to-see-raw toggle wrapping the mono rawCommand block. When body is
-// null (3.6% tail: cross-turn refs, python heredocs), we fall back to the
-// July behavior: rawCommand always-visible mono block, no toggle.
-//
-// Security (T-17-03-01) UNCHANGED: both {body} and {rawCommand} are React
-// text children — never dangerouslySetInnerHTML.
+// Security: body renders as a React text child, never
+// dangerouslySetInnerHTML.
 
-export type RelayOutboundBubbleProps = Pick<
-  RelayOutboundEvent,
-  "room" | "rawCommand" | "body"
-> & {
-  /** ms-epoch timestamp of the outbound event; when present, rendered as a
-   * hover `title` on the bubble so desktop users can see when the send
-   * happened. Optional at the type level so existing tests that don't care
-   * about the timestamp keep compiling; PrettyView always passes it. */
+export type RelayOutboundBubbleProps = Pick<RelayOutboundEvent, "room" | "body"> & {
+  /** ms-epoch timestamp; shown as a hover title. */
   ts?: number;
-  /** Phase 97 UAT follow-up (2026-09-10): in relay-source PrettyView
-   * (chatting IN a matrix room via Skynet), bubbles render fully
-   * un-collapsed AND non-collapsible. Harness (task-notification path)
-   * preserves the default collapsed-with-toggle behavior. When true,
-   * initial state starts expanded and the header renders as a plain
-   * non-clickable <div>. */
+  /** Relay-source view: plain chat bubble, always open. */
   alwaysExpanded?: boolean;
+  /** hostId from PrettyViewProps — scopes the member lookup. */
+  hostId?: number;
+  /** The pane's own agent — the sender. */
+  selfIdentity?: Identity | null;
+  /** The viewing user's fallback voice — last candidate before the provider default. */
+  fallbackVoice?: string | null;
 };
 
 export function RelayOutboundBubble({
   room,
-  rawCommand,
   body,
   ts,
   alwaysExpanded = false,
+  hostId,
+  selfIdentity = null,
+  fallbackVoice = null,
 }: RelayOutboundBubbleProps) {
-  // Outer collapse state — default collapsed. Body + footer hidden until expanded.
-  // Phase 97 UAT follow-up: when alwaysExpanded, starts expanded and never collapses.
-  const [collapsed, setCollapsed] = useState(!alwaysExpanded);
-  // Toggle state for expand-to-see-raw — default collapsed when body is present.
-  // Ignored (raw always shown) in the body === null fallback branch.
-  // Lives INSIDE the body branch, so it naturally resets to false on each outer
-  // expand cycle (the inner button unmounts and remounts with the body).
-  const [rawExpanded, setRawExpanded] = useState(false);
+  const { byKey } = useIdentities();
+  const [open, setOpen] = useState(alwaysExpanded);
+  const members = useRelayRoomMembers(alwaysExpanded ? null : room, hostId);
+
+  // Relay-source view has no pane agent — an outbound there is the viewing
+  // user's own send echoed back from the room.
+  const sender: RelayParty = selfIdentity
+    ? { name: selfIdentity.displayName, hue: selfIdentity.colorHue, you: false }
+    : alwaysExpanded
+      ? { name: "You", hue: null, you: true }
+      : { name: "This agent", hue: null, you: false };
+  const addressing = addressingFor(
+    selfIdentity?.identityKey.toLowerCase() ?? null,
+    members,
+    byKey,
+    null,
+  );
+
+  const { speakState, onSpeakClick } = useSpeakPlayback({
+    ownerName: "relay-speak-bubble",
+    logPrefix: "relay:",
+    voices: speakVoiceCandidates(selfIdentity, fallbackVoice),
+    getText: () => body ?? "",
+  });
+  const speak =
+    body !== null
+      ? { speakState, onClick: (e: MouseEvent) => { void onSpeakClick(e); } }
+      : null;
+
+  const content =
+    body !== null ? (
+      body
+    ) : (
+      <div className="text-xs italic text-[rgba(232,228,216,0.5)] whitespace-normal">
+        {sender.name} sent a message here, but its text couldn't be shown.
+      </div>
+    );
+
+  if (alwaysExpanded) {
+    return (
+      <RelayChatBubble testIdPrefix="relay-outbound" sender={sender} ts={ts} speak={speak}>
+        {content}
+      </RelayChatBubble>
+    );
+  }
 
   return (
-    <div className="flex justify-start">
-      <div
-        title={ts !== undefined ? new Date(ts).toLocaleString() : undefined}
-        className={cn(
-          // Bubble sizing + shape — mirrors ChatMessage outer div pattern.
-          "max-w-[85%] [overflow-wrap:anywhere] text-sm leading-relaxed",
-          "rounded-[var(--radius-pv-bubble)]",
-          // Padding: tight (matches ChatMessage assistant pill) when collapsed;
-          // roomy when expanded so the message body has breathing room.
-          collapsed ? "px-[12px] py-[7px]" : "px-[18px] py-[14px]",
-          // Glass depth treatment (kept from phase 17 — reads distinct from
-          // ChatMessage's shadow-based bubble while colour-matching it).
-          "backdrop-blur-xl saturate-150",
-          "[-webkit-backdrop-filter:blur(20px)_saturate(1.6)]",
-          // Identity-hue gradient background — mirrors ChatMessage assistant
-          // styling so the relay-outbound reads as "this agent speaking",
-          // tinted by whichever pretty-view identity is currently rendered
-          // (--pv-id-hue is set per-pane by useSessionIdentity).
-          "pv-hue-surface",
-          "bg-[linear-gradient(160deg,hsla(var(--pv-id-hue),50%,38%,0.55),hsla(var(--pv-id-hue),45%,24%,0.6))]",
-          // Rim border — identity-hue at ChatMessage assistant strength.
-          "border border-[hsla(var(--pv-id-hue),65%,55%,0.32)]",
-          // Text colour — warm cream matching ChatMessage assistant.
-          "text-[#fbf5e8]",
-        )}
-      >
-        {/* Header: relay send direction + room. In default mode renders as
-            a toggle button; when alwaysExpanded (relay-source view) renders
-            as a plain non-clickable <div> with no chevron. */}
-        {alwaysExpanded ? (
-          <div
-            data-testid="relay-outbound-header"
-            className={cn(
-              "text-xs mb-1",
-              "text-[rgba(220,_225,_245,_0.6)]",
-              "font-[JetBrains_Mono_Variable,ui-monospace,monospace]",
-            )}
-          >
-            ▸ relay send → {room ?? "unknown room"}
-          </div>
-        ) : (
-          <button
-            type="button"
-            data-testid="relay-outbound-header"
-            aria-expanded={!collapsed}
-            aria-label={collapsed ? "Expand message" : "Collapse message"}
-            onClick={() => setCollapsed((v) => { if (v) setRawExpanded(false); return !v; })}
-            className={cn(
-              "text-xs mb-1",
-              "text-[rgba(220,_225,_245,_0.6)]",
-              "font-[JetBrains_Mono_Variable,ui-monospace,monospace]",
-              "w-full text-left cursor-pointer bg-transparent border-0 p-0",
-            )}
-          >
-            ▸ relay send → {room ?? "unknown room"}
-            {" "}<span aria-hidden="true">{collapsed ? "▶" : "▼"}</span>
-          </button>
-        )}
-
-        {/* Body + Footer — conditionally rendered when not collapsed */}
-        {!collapsed && (
-          <>
-            {body !== null ? (
-              <>
-                {/* Pretty body preview — mirrors RelayInboundBubble.tsx:180 inline body render */}
-                {/* Security (T-17-03-01): {body} is a React text child, NEVER dangerouslySetInnerHTML */}
-                <div className="whitespace-pre-wrap">{body}</div>
-
-                {/* Expand-to-see-raw toggle — default collapsed */}
-                <button
-                  type="button"
-                  onClick={() => setRawExpanded((v) => !v)}
-                  className={cn(
-                    "mt-2 text-[10px]",
-                    "text-[rgba(220,_225,_245,_0.5)] hover:text-[rgba(220,_225,_245,_0.8)]",
-                    "font-[JetBrains_Mono_Variable,ui-monospace,monospace]",
-                    "cursor-pointer bg-transparent border-0 p-0",
-                  )}
-                >
-                  {rawExpanded ? "▾ raw command" : "▸ raw command"}
-                </button>
-
-                {rawExpanded && (
-                  <pre
-                    className={cn(
-                      "mt-1 whitespace-pre overflow-x-auto max-h-[24rem] overflow-y-auto",
-                      "font-[JetBrains_Mono_Variable,ui-monospace,monospace]",
-                      "bg-black/40 rounded p-2 text-xs",
-                    )}
-                  >
-                    {rawCommand}
-                  </pre>
-                )}
-              </>
-            ) : (
-              /* Fallback: body extraction returned null — render rawCommand always-visible as today.
-                 Security (T-17-03-01): {rawCommand} is a React text child, NEVER dangerouslySetInnerHTML */
-              <pre
-                className={cn(
-                  "whitespace-pre overflow-x-auto max-h-[24rem] overflow-y-auto",
-                  "font-[JetBrains_Mono_Variable,ui-monospace,monospace]",
-                  "bg-black/40 rounded p-2 text-xs",
-                )}
-              >
-                {rawCommand}
-              </pre>
-            )}
-
-            {/* Footer — "via curl" attribution matching prototype byte-shape */}
-            <div
-              className={cn(
-                "text-[10px] text-right mt-1",
-                "text-[rgba(220,_225,_245,_0.35)]",
-              )}
-            >
-              via curl
-            </div>
-          </>
-        )}
-      </div>
-    </div>
+    <RelayDmCard
+      testIdPrefix="relay-outbound"
+      sender={sender}
+      addressing={addressing}
+      preview={body !== null ? previewLine(body) : ""}
+      ts={ts}
+      open={open}
+      onToggle={() => setOpen((v) => !v)}
+      speak={speak}
+    >
+      {content}
+    </RelayDmCard>
   );
 }
