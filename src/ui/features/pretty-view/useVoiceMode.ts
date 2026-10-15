@@ -236,6 +236,17 @@ interface Piece {
 interface RecorderSlot {
   recorder: MediaRecorder;
   chunks: Blob[];
+  /** Per-session sequence number, for matching log lines. */
+  id: number;
+  startedAt: number;
+}
+
+/** Mic track state for logs: readyState / muted / enabled per audio track. */
+function describeTracks(stream: MediaStream | null): string {
+  if (!stream) return "tracks=none";
+  const t = stream.getAudioTracks();
+  if (t.length === 0) return "tracks=0";
+  return `tracks=${t.map((x) => `${x.readyState}${x.muted ? "/muted" : ""}${x.enabled ? "" : "/disabled"}`).join(",")}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -267,6 +278,7 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
   const queueRef = useRef<string[]>([]);
   const speakingRef = useRef<{ owner: symbol; finish: () => void } | null>(null);
   const acquiringRef = useRef(false); // getUserMedia in flight
+  const nextRecorderIdRef = useRef(1);
 
   // Draft state.
   const piecesRef = useRef<Piece[]>([]);
@@ -356,8 +368,15 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
 
   /** Stop a recorder; resolve its clip (or null when discarding). */
   const stopSlot = useCallback((slot: RecorderSlot | null, keep: boolean): Promise<Blob | null> => {
-    if (!slot || slot.recorder.state === "inactive") return Promise.resolve(null);
-    const { recorder, chunks } = slot;
+    if (!slot) return Promise.resolve(null);
+    const { recorder, chunks, id } = slot;
+    const ageMs = Math.round(performance.now() - slot.startedAt);
+    console.info(
+      `[voice-mode] recorder-stop rid=${id} state=${recorder.state} keep=${keep} ageMs=${ageMs} ` +
+        `chunks=${chunks.length} ${describeTracks(streamRef.current)} ${tagRef.current}`,
+    );
+    if (recorder.state === "inactive") return Promise.resolve(null);
+    const stopAt = performance.now();
     return new Promise((resolve) => {
       let done = false;
       const finish = (blob: Blob | null) => {
@@ -366,12 +385,20 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
         resolve(blob);
       };
       recorder.onstop = () => {
-        finish(keep ? new Blob(chunks, { type: recorder.mimeType || "audio/webm" }) : null);
+        const blob = keep ? new Blob(chunks, { type: recorder.mimeType || "audio/webm" }) : null;
+        console.info(
+          `[voice-mode] recorder-onstop rid=${id} afterMs=${Math.round(performance.now() - stopAt)} ` +
+            `chunks=${chunks.length} bytes=${blob?.size ?? "discarded"} ${tagRef.current}`,
+        );
+        finish(blob);
       };
       // iOS occasionally drops onstop (see useVoiceRecording.stopRecording).
       setTimeout(() => {
         if (!done) {
-          console.warn(`[voice-mode] recorder-onstop-watchdog ${tagRef.current}`);
+          console.warn(
+            `[voice-mode] recorder-onstop-watchdog rid=${id} state=${recorder.state} chunks=${chunks.length} ` +
+              `${describeTracks(streamRef.current)} ctx=${ctxRef.current?.state ?? "none"} ${tagRef.current}`,
+          );
           finish(keep && chunks.length > 0 ? new Blob(chunks, { type: recorder.mimeType || "audio/webm" }) : null);
         }
       }, 8000);
@@ -388,11 +415,28 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
     if (!stream) return false;
     try {
       const recorder = new MediaRecorder(stream);
-      const slot: RecorderSlot = { recorder, chunks: [] };
+      const id = nextRecorderIdRef.current++;
+      const slot: RecorderSlot = { recorder, chunks: [], id, startedAt: performance.now() };
+      const tag = () => `rid=${id} ${tagRef.current}`;
       recorder.ondataavailable = (e: BlobEvent) => {
         if (e.data && e.data.size > 0) slot.chunks.push(e.data);
+        console.info(`[voice-mode] recorder-data bytes=${e.data?.size ?? 0} state=${recorder.state} ${tag()}`);
+      };
+      recorder.onstart = () => console.info(`[voice-mode] recorder-onstart ${tag()}`);
+      recorder.onpause = () => console.warn(`[voice-mode] recorder-onpause ${tag()}`);
+      recorder.onresume = () => console.info(`[voice-mode] recorder-onresume ${tag()}`);
+      recorder.onerror = (event: Event) => {
+        const err = (event as Event & { error?: DOMException }).error;
+        console.error(
+          `[voice-mode] recorder-onerror errName="${err?.name ?? "unknown"}" errMessage="${err?.message ?? ""}" ` +
+            `state=${recorder.state} ${describeTracks(stream)} ${tag()}`,
+        );
       };
       recorder.start();
+      console.info(
+        `[voice-mode] recorder-start state=${recorder.state} mime="${recorder.mimeType}" ` +
+          `${describeTracks(stream)} ctx=${ctxRef.current?.state ?? "none"} ${tag()}`,
+      );
       slotRef.current = slot;
       return true;
     } catch (err) {
@@ -937,7 +981,12 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
       return;
     }
     streamRef.current = stream;
+    console.info(`[voice-mode] stream-attached ${describeTracks(stream)} ${tagRef.current}`);
     for (const track of stream.getAudioTracks()) {
+      // The phone muting the mic (call, Siri, another app taking audio) leaves
+      // the track live but silent — log it; recorders may stall without onstop.
+      track.onmute = () => console.warn(`[voice-mode] mic-track-muted ${tagRef.current}`);
+      track.onunmute = () => console.info(`[voice-mode] mic-track-unmuted ${tagRef.current}`);
       track.onended = () => {
         if (!activeRef.current || streamRef.current !== stream) return;
         // Not fatal: drop the dead stream and re-acquire on the next pump
@@ -990,6 +1039,9 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
     try {
       const ctx = new AudioContext();
       void ctx.resume().catch(() => {});
+      // iOS moves the context to "interrupted" when the audio session is
+      // taken away (call, Siri, media from another app).
+      ctx.onstatechange = () => console.info(`[voice-mode] audio-context-state ${ctx.state} ${tagRef.current}`);
       ctxRef.current = ctx;
       cuesRef.current = createVoiceModeCues(ctx, log);
     } catch {

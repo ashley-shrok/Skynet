@@ -241,7 +241,9 @@ export function useVoiceRecording(
         chunksRef.current = [];
         // Stop all stream tracks and clear refs.
         if (streamRef.current) {
-          streamRef.current.getTracks().forEach((t) => t.stop());
+          const tracks = streamRef.current.getTracks();
+          tracks.forEach((t) => t.stop());
+          console.info(`[voice] stream-released tracks=${tracks.length} states=${tracks.map((t) => t.readyState).join(",")} ${ctxSuffix}`);
           streamRef.current = null;
         }
         recorderRef.current = null;

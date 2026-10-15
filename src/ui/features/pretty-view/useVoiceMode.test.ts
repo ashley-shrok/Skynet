@@ -640,6 +640,22 @@ describe("useVoiceMode", () => {
       expect(result.current.phase).toBe("off");
     });
 
+    it("logs a stalled recorder's state when its stop never completes (iOS)", async () => {
+      const warn = vi.spyOn(console, "warn");
+      const info = vi.spyOn(console, "info");
+      await startVoiceMode(baseArgs());
+      transcribeReturns("first part");
+      await sayPiece();
+      const rec = MockMediaRecorder.instances[MockMediaRecorder.instances.length - 1];
+      rec.stop = vi.fn(() => {}); // neither data nor onstop ever arrive
+      await sayPiece();
+      await flush(9000);
+      const lines = (spy: typeof warn) => spy.mock.calls.map((c) => String(c[0]));
+      expect(lines(info).some((l) => /\[voice-mode\] recorder-start state=recording .*rid=\d+/.test(l))).toBe(true);
+      expect(lines(info).some((l) => /\[voice-mode\] recorder-stop rid=\d+ state=recording keep=true ageMs=\d+ chunks=0/.test(l))).toBe(true);
+      expect(lines(warn).some((l) => /\[voice-mode\] recorder-onstop-watchdog rid=\d+ state=recording chunks=0/.test(l))).toBe(true);
+    });
+
     it("bails when a transcription attempt hangs instead of waiting forever", async () => {
       const send = vi.fn(() => true);
       const { result } = await startVoiceMode(baseArgs({ send }));
