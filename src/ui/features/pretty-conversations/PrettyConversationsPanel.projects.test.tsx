@@ -573,6 +573,7 @@ beforeEach(() => {
   mockProjects = [];
   mockActiveSet = new Set();
   mockFleetSessionsLoaded = true;
+  localStorage.removeItem("pv-projects-section-collapsed");
 });
 
 afterEach(() => {
@@ -717,6 +718,68 @@ describe("PrettyConversationsPanel: 'Projects' super-header new-project button",
     expect(plus.getAttribute("aria-label")).toBe("New project");
     fireEvent.click(plus);
     await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy());
+  });
+});
+
+describe("PrettyConversationsPanel: 'Projects' super-header collapse", () => {
+  function seedAlpha() {
+    const hostA = makeHost("1", "hostA");
+    const rowA = makeRow({ id: "alpha-row", label: "needle-session", host: hostA, targetTmuxSession: "a-sess" });
+    setSnapshot({ projectSections: [{ slug: "alpha", displayName: "Alpha", rows: [rowA] }] });
+    mockProjects = [
+      { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false },
+    ];
+  }
+  function renderPanel() {
+    return render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={HOST_TREE}
+        onCreateSession={() => {}}
+        onDeactivateRow={() => {}}
+      />,
+    );
+  }
+  const sectionSel = '[data-testid="pv-project-section-header-alpha"]';
+  const headerSel = '[data-testid="pv-projects-super-header"]';
+
+  it("Test 2c: expanded by default; clicking the header hides every project and persists", () => {
+    seedAlpha();
+    const { container } = renderPanel();
+    const header = container.querySelector(headerSel) as HTMLElement;
+    expect(header.getAttribute("aria-expanded")).toBe("true");
+    expect(container.querySelector(sectionSel)).not.toBeNull();
+
+    fireEvent.click(header);
+    expect(header.getAttribute("aria-expanded")).toBe("false");
+    expect(container.querySelector(sectionSel)).toBeNull();
+    expect(localStorage.getItem("pv-projects-section-collapsed")).toBe("1");
+
+    fireEvent.keyDown(header, { key: "Enter" });
+    expect(container.querySelector(sectionSel)).not.toBeNull();
+    expect(localStorage.getItem("pv-projects-section-collapsed")).toBeNull();
+  });
+
+  it("Test 2d: the '+' button does not toggle the section", () => {
+    seedAlpha();
+    const { container } = renderPanel();
+    fireEvent.click(container.querySelector('[data-testid="pv-projects-new-project-button"]') as HTMLElement);
+    expect(container.querySelector(sectionSel)).not.toBeNull();
+    expect(localStorage.getItem("pv-projects-section-collapsed")).toBeNull();
+  });
+
+  it("Test 2e: collapsed state hydrates from storage and force-expands during a sidebar search", () => {
+    localStorage.setItem("pv-projects-section-collapsed", "1");
+    seedAlpha();
+    const { container } = renderPanel();
+    expect(container.querySelector(sectionSel)).toBeNull();
+
+    const searchInput = container.querySelector('[data-testid="pv-sidebar-search-input"]') as HTMLInputElement;
+    fireEvent.change(searchInput, { target: { value: "needle" } });
+    expect(container.querySelector(sectionSel)).not.toBeNull();
+
+    fireEvent.change(searchInput, { target: { value: "" } });
+    expect(container.querySelector(sectionSel)).toBeNull();
   });
 });
 

@@ -769,7 +769,10 @@ not something agents drive.
   with a **➕ plus** on its right; every project sits indented beneath it.
   The super-header shows even when there are no projects, since its plus is
   the main way to create one (a conversation's **Move to** → **New
-  project…** is the other).
+  project…** is the other). Clicking the super-header (anywhere but the
+  plus) collapses or expands the whole Projects section; a chevron on the
+  far right shows which. The choice is remembered in that browser, and a
+  sidebar search always shows matching projects even when it's collapsed.
   - **➕ Plus — new project.** Takes a display name and creates the
     project. Slug is derived from the name (kebab-case, `/^[a-z0-9-]{1,64}$/`).
     Duplicate slug = error.

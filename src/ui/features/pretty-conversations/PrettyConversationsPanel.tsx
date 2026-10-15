@@ -127,6 +127,7 @@ import {
 // via the hook landed in 117-07). Consumers pass the collapsed set + toggle
 // callback into each PrettyProjectSectionHeader.
 import { useCollapsedProjectSlugs } from "@/state/use-collapsed-project-slugs";
+import { useProjectsSectionCollapsed } from "@/state/use-projects-section-collapsed";
 // Phase 117 Plan 117-08 (D-22): project drop-handler API surface. Landed by
 // 117-06 as thin authApi wrappers; called fire-and-forget from the panel's
 // handleProjectDrop / handleFlatMiddleDrop.
@@ -766,6 +767,9 @@ export function PrettyConversationsPanel({
   // PrettyProjectSectionHeader's `onToggleCollapse` prop.
   const { collapsed: collapsedProjectSlugs, toggle: toggleProjectCollapse } =
     useCollapsedProjectSlugs();
+  // Whole-zone collapse for the "Projects" super-header (persisted per browser).
+  const { collapsed: projectsSectionCollapsed, toggle: toggleProjectsSection } =
+    useProjectsSectionCollapsed();
   // Viewing user's mxid — required for the relay-room drop branch
   // (setRelayRoomProject signature: roomId, userMxid, slug). Null before the
   // /users/me fetch resolves — drop guards below refuse to fire when null.
@@ -3166,9 +3170,28 @@ export function PrettyConversationsPanel({
                 lane (D-22 gesture #1) via PrettyProjectSectionHeader. */}
             {!(sidebarSearchActive && visibleProjectSections.length === 0) && (
               <div className="pv-panel-group pv-projects-section" data-testid="pv-projects-super-section">
+                {/* Clickable header toggles the whole projects zone, same
+                    shape as the Apps header. Force-expanded during a sidebar
+                    search so matches stay visible; the persisted state
+                    reapplies when the search clears. */}
                 <div
-                  className="flex items-center gap-2.5 pl-1 pr-1 pt-3.5 pb-1.5"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => {
+                    console.info(`[sidebar] projects-section toggle collapsed=${!projectsSectionCollapsed}`);
+                    toggleProjectsSection();
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.target !== e.currentTarget) return;
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      toggleProjectsSection();
+                    }
+                  }}
+                  className="group flex items-center gap-2.5 pl-1 pr-1 pt-3.5 pb-1.5 w-full text-left cursor-pointer"
                   data-testid="pv-projects-super-header"
+                  aria-expanded={!projectsSectionCollapsed || sidebarSearchActive}
+                  aria-controls="pv-projects-section-content"
                 >
                   <span className="pv-section-label">
                     Projects
@@ -3184,7 +3207,8 @@ export function PrettyConversationsPanel({
                       title="New project"
                       data-testid="pv-projects-new-project-button"
                       className="shrink-0 p-0.5 rounded text-[#a89a80] opacity-90 hover:opacity-100 cursor-pointer"
-                      onClick={() => {
+                      onClick={(e) => {
+                        e.stopPropagation();
                         setPendingProjectSlug(null);
                         setCreateProjectModalOpen(true);
                       }}
@@ -3192,8 +3216,13 @@ export function PrettyConversationsPanel({
                       <Plus className="size-3.5" aria-hidden="true" />
                     </button>
                   )}
+                  <ChevronDown
+                    className={`size-3.5 text-[#a89a80] opacity-90 shrink-0 transition-transform ${!projectsSectionCollapsed || sidebarSearchActive ? "rotate-180" : ""}`}
+                    aria-hidden="true"
+                  />
                 </div>
-                <div className="pl-3.5">
+                {(!projectsSectionCollapsed || sidebarSearchActive) && (
+                <div id="pv-projects-section-content" className="pl-3.5">
                   {visibleProjectSections.map((section) => (
                   <PrettyProjectSectionHeader
                     key={`${section.hostId ?? ""}::${section.slug}`}
@@ -3257,6 +3286,7 @@ export function PrettyConversationsPanel({
                   />
                   ))}
                 </div>
+                )}
               </div>
             )}
             {/* Phase 41 Plan 01 (user 2026-08-14): FLAT middle zone.
