@@ -8,3 +8,16 @@ body {
     background-color: #0a0a0a;
     color: #f5f5f5;
 }
+
+/* Tailwind v4 preflight resets buttons to cursor: default; restore the pointer. */
+@layer base {
+    button:not(:disabled),
+    [role="button"]:not(:disabled),
+    select:not(:disabled),
+    summary,
+    label[for],
+    input[type="checkbox"]:not(:disabled),
+    input[type="radio"]:not(:disabled) {
+        cursor: pointer;
+    }
+}
