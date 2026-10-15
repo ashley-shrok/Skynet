@@ -38,8 +38,21 @@ builds against.
 
 ## The sensor schedule kind
 
-`"schedule": {"type": "sensor"}`. Valid; no other fields apply. Never has a next fire
-(next-fire = null / none). Humanized as `Sensor`. The clock never fires it.
+`"schedule": {"type": "sensor"}`. Valid; the only other field is `once` (boolean). Never has
+a next fire (next-fire = null / none). Humanized as `Sensor` (`Sensor · once` when `once` is
+true). The clock never fires it.
+
+### One-time sensors (`"once": true`)
+
+- Delivery hands over only the oldest waiting fire, then retires the trigger: writes
+  `<trigger>/.state/<slug>.fired` (in the trigger's own folder for tasks too), then removes the
+  spec. The sensor-runner stops the sensor once the spec is gone.
+- A one-time wake-up's 📡 line ends with ` (one-time sensor — this wake-up has now retired)`.
+  A scheduled task's newborn gets no note.
+- The leftover folder (later fires included) is swept a day after the `.fired` sentinel,
+  for wake-ups and scheduled tasks alike.
+- A `.fired` sentinel present means already delivered: nothing more is delivered and the spec
+  removal is retried — unless the spec is newer than the sentinel (a fresh trigger).
 
 ## sensor.json
 

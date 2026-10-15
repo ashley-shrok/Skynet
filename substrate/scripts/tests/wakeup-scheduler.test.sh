@@ -873,6 +873,80 @@ PY
   assert_eq "OK" "$res" "SA-G17: huge findings pointed at in the newborn's prompt"
 }
 
+# ============================================================
+# SA-G18: one-time sensor — only the oldest waiting fire is delivered (with the
+# retired note), then the spec goes and a .fired sentinel stays in the trigger's
+# own state; later fires are never delivered; the folder is swept after a day.
+# A disabled one-time sensor keeps its fire waiting. A one-time sensor task
+# births one agent and retires the same way.
+# ============================================================
+test_SA_G18_one_time_sensor() {
+  local ident_dir home_dir out_log w sa_dir
+  ident_dir=$(make_tmpdir); home_dir=$(make_tmpdir); out_log=$(make_tmpdir)/out.log
+  w="$ident_dir/wakeups/agent-done"
+  mkdir -p "$w/fires" "$ident_dir/wakeups/paused/fires"
+  printf '{"name":"agent-done","enabled":true,"schedule":{"type":"sensor","once":true},"instruction":"Tell the user"}\n' > "$w/wakeup.json"
+  printf '{"name":"paused","enabled":false,"schedule":{"type":"sensor","once":true},"instruction":"x"}\n' > "$ident_dir/wakeups/paused/wakeup.json"
+  printf 'the followed agent ended its turn' > "$w/fires/20261015T120000000-00000001.fire"
+  printf 'again' > "$w/fires/20261015T120000500-00000002.fire"
+  printf 'waits' > "$ident_dir/wakeups/paused/fires/20261015T120000000-00000003.fire"
+  HOME="$home_dir" timeout 3 python3 "$PY_SCRIPT" "$ident_dir" >"$out_log" 2>/dev/null || true
+  assert_eq "1" "$(grep -c "📡" "$out_log")" "SA-G18: exactly one heads-up"
+  grep -q "📡 \[sensor: agent-done @ 2026-10-15T12:00:00.000Z\] Tell the user — findings: the followed agent ended its turn (one-time sensor — this wake-up has now retired)$" "$out_log" \
+    || fail "SA-G18: oldest fire delivered with the retired note, got: $(cat "$out_log")"
+  assert_file_absent "$w/wakeup.json" "SA-G18: spec removed after delivery"
+  assert_file_exists "$w/.state/agent-done.fired" "SA-G18: .fired sentinel in the trigger's own state"
+  assert_file_exists "$w/fires/delivered/20261015T120000000-00000001.fire" "SA-G18: delivered findings file kept"
+  assert_file_exists "$w/fires/20261015T120000500-00000002.fire" "SA-G18: later fire left undelivered"
+  assert_file_exists "$ident_dir/wakeups/paused/fires/20261015T120000000-00000003.fire" "SA-G18: disabled one-time sensor keeps its fire"
+  HOME="$home_dir" timeout 2 python3 "$PY_SCRIPT" "$ident_dir" >"$out_log" 2>/dev/null || true
+  grep -q "📡" "$out_log" && fail "SA-G18: a retired sensor never delivers again, got: $(cat "$out_log")"
+  [ -d "$w" ] || fail "SA-G18: retired folder kept within the day"
+  touch -d '2 days ago' "$w/.state/agent-done.fired"
+  HOME="$home_dir" timeout 2 python3 "$PY_SCRIPT" "$ident_dir" >/dev/null 2>&1 || true
+  [ -d "$w" ] && fail "SA-G18: retired folder swept after a day"
+  [ -d "$ident_dir/wakeups/paused" ] || fail "SA-G18: the disabled trigger is untouched by the sweep"
+
+  # A spec that can't be removed must still never deliver a second fire.
+  local w2="$ident_dir/wakeups/stuck"
+  mkdir -p "$w2/fires"
+  printf '{"name":"stuck","enabled":true,"schedule":{"type":"sensor","once":true},"instruction":"i"}\n' > "$w2/wakeup.json"
+  printf 'one' > "$w2/fires/20261015T120000000-00000004.fire"
+  printf 'two' > "$w2/fires/20261015T120001000-00000005.fire"
+  mkdir -p "$w2/.state" && printf 'x' > "$w2/.state/stuck.fired" && touch -d '1 hour ago' "$w2/.state/stuck.fired"
+  touch -d '2 hours ago' "$w2/wakeup.json"
+  HOME="$home_dir" timeout 2 python3 "$PY_SCRIPT" "$ident_dir" >"$out_log" 2>/dev/null || true
+  grep -q "📡" "$out_log" && fail "SA-G18: an already-fired one-time sensor never delivers again"
+  assert_file_absent "$w2/wakeup.json" "SA-G18: an already-fired one-time sensor finishes retiring"
+  # A spec rewritten after the sentinel is a fresh trigger: it delivers.
+  local w3="$ident_dir/wakeups/again"
+  mkdir -p "$w3/fires" "$w3/.state"
+  printf 'old' > "$w3/.state/again.fired" && touch -d '1 hour ago' "$w3/.state/again.fired"
+  printf '{"name":"again","enabled":true,"schedule":{"type":"sensor","once":true},"instruction":"i"}\n' > "$w3/wakeup.json"
+  printf 'fresh' > "$w3/fires/20261015T130000000-00000006.fire"
+  HOME="$home_dir" timeout 2 python3 "$PY_SCRIPT" "$ident_dir" >"$out_log" 2>/dev/null || true
+  grep -q "📡 \[sensor: again .*findings: fresh" "$out_log" || fail "SA-G18: a rewritten spec is a fresh trigger, got: $(cat "$out_log")"
+
+  sa_dir=$(make_tmpdir)
+  mkdir -p "$sa_dir/follow/fires"
+  printf '{"name":"follow","enabled":true,"roles":["r"],"schedule":{"type":"sensor","once":true},"prompt":"p"}\n' > "$sa_dir/follow/scheduled-agent.json"
+  printf 'first' > "$sa_dir/follow/fires/20261015T120000000-00000007.fire"
+  printf 'second' > "$sa_dir/follow/fires/20261015T120001000-00000008.fire"
+  HOME="$home_dir" timeout 3 python3 "$PY_SCRIPT" "$sa_dir" --mode scheduled-agents >/dev/null 2>&1 || true
+  assert_eq "1" "$(count_json_files "$home_dir/fleet/spawn-requests")" "SA-G18: one-time sensor task births one agent"
+  grep -q "first" "$home_dir"/fleet/spawn-requests/*.json || fail "SA-G18: the oldest fire is the one delivered"
+  grep -q "retired" "$home_dir"/fleet/spawn-requests/*.json && fail "SA-G18: no retired note for a newborn"
+  assert_file_absent "$sa_dir/follow/scheduled-agent.json" "SA-G18: task spec removed after delivery"
+  assert_file_exists "$sa_dir/follow/.state/follow.fired" "SA-G18: task sentinel in the task's own folder"
+  assert_file_exists "$sa_dir/follow/fires/delivered/20261015T120000000-00000007.fire" "SA-G18: task's delivered findings kept"
+  HOME="$home_dir" timeout 2 python3 "$PY_SCRIPT" "$sa_dir" --mode scheduled-agents >/dev/null 2>&1 || true
+  assert_eq "1" "$(count_json_files "$home_dir/fleet/spawn-requests")" "SA-G18: retired task births nothing more"
+  touch -d '2 days ago' "$sa_dir/follow/.state/follow.fired"
+  HOME="$home_dir" timeout 2 python3 "$PY_SCRIPT" "$sa_dir" --mode scheduled-agents >/dev/null 2>&1 || true
+  [ -d "$sa_dir/follow" ] && fail "SA-G18: retired task folder swept after a day"
+  [ -d "$sa_dir/.state" ] || fail "SA-G18: the shared .state survives the sweep"
+}
+
 run_test test_SA_G1_scheduled_agents_spec_discovery
 run_test test_SA_G2_scheduled_agents_ignores_flat_specs
 run_test test_SA_G3_per_identity_mode_unchanged
@@ -890,6 +964,7 @@ run_test test_SA_G14_folder_layout_and_one_shot
 run_test test_SA_G15_sensor_wakeup_delivery
 run_test test_SA_G16_sensor_scheduled_agent
 run_test test_SA_G17_sensor_delivery_hardening
+run_test test_SA_G18_one_time_sensor
 
 printf '\n===============================\n'
 printf 'PASS: %s  FAIL: %s\n' "$PASS" "$FAIL"

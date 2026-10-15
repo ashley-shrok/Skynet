@@ -92,11 +92,30 @@ How it arrives:
 - **Scheduled task** — one fresh agent per fire; its first instruction is the
   task's prompt followed by a `## What the sensor found` section.
 
+## One-time sensors
+
+For "tell me once, then go away" (e.g. "let me know when that agent is done"),
+mark the trigger one-time: `"schedule": {"type": "sensor", "once": true}`. The
+sensor itself is written exactly as usual — it doesn't know or care.
+
+After the box delivers the **first** fire, it retires the trigger: the
+wake-up's or task's spec is removed, its sensor is stopped within ~30s, and the
+rest of the folder goes a day later (so a findings file the 📡 line points at
+stays readable). Only the oldest waiting fire is delivered; any others go with
+the trigger. A one-time wake-up's 📡 line ends with
+`(one-time sensor — this wake-up has now retired)` — nothing to delete by hand.
+While switched off, its fire waits like any sensor's.
+
+Never retire a trigger from inside the sensor (deleting its own folder): a fire
+not yet delivered would be lost. There is no built-in expiry — if your sensor
+should give up, fire with that as the findings (e.g. "gave up after 2 days").
+
 ## Making one
 
 1. Get the user's go-ahead for the wake-up or scheduled task (governance above).
-2. Create the trigger with `"schedule": {"type": "sensor"}` — for a wake-up,
-   `wakeups/<slug>/wakeup.json`; its `instruction` says what to do with findings.
+2. Create the trigger with `"schedule": {"type": "sensor"}` (add `"once": true`
+   for a one-time sensor) — for a wake-up, `wakeups/<slug>/wakeup.json`; its
+   `instruction` says what to do with findings.
 3. Write the logic in `<trigger>/sensor/`, plus `sensor.json.pending`.
 4. Test by hand from inside `sensor/`: run the command yourself. `sensor-fire`
    works there too (it finds the trigger by walking up), so you can watch a real

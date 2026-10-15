@@ -1023,7 +1023,9 @@ crown, then gear.
     **Healthy**, **Broken** (red), **Running long**, **Off** (switched
     off), **Not live yet** (sensor not published) or **Unknown** (status
     can't be read — no health record, one more than 5 minutes old, or the
-    machine stopped answering a refresh).
+    machine stopped answering a refresh). A one-time sensor (retires after
+    its first delivered fire) reads `📡 Sensor · once · …`; the mark is
+    shown, not editable.
     Expanding a sensor wake-up shows a read-only sensor section: status,
     how it runs, last ran (`Running since` for an always-on sensor), last
     fired, waiting fires, and the sensor's last error lines when broken. The on/off switch is the only sensor
@@ -1550,6 +1552,7 @@ name is the wake-up's key. Create one by making the folder and writing
   //           { "type": "yearly",   "date": "08-03", "at": "09:00" }               (MM-DD every year; 02-29 rejected)
   //           { "type": "one_shot", "at": "2026-08-15T09:00:00-04:00" }            (fires once, spec self-deletes)
   //           { "type": "sensor" }      (fired by the wake-up's sensor, never the clock — see below)
+  //           { "type": "sensor", "once": true }   (same, retired after its first delivered fire)
   //   daily/weekly/monthly/yearly: "at" may be a list of 1–24 distinct times — ["09:00", "17:00"].
   //   weekly/monthly: "every": N  (every N weeks/months, default 1); N > 1 REQUIRES "start",
   //     and the cadence counts from start's week (Monday-based) / month.
@@ -1595,7 +1598,9 @@ name is the wake-up's key. Create one by making the folder and writing
   `sensor/` subfolder — when something happens, not at a time. The sensor
   hands over what it found; you get one `📡` line per fire, in order, woken
   from dormancy if needed. Building one: the **`sensor-development` skill**.
-  Same governance as any wake-up (below).
+  Same governance as any wake-up (below). With `"once": true` it is a
+  **one-time sensor**: after its first fire is delivered the wake-up retires
+  itself (the 📡 line says so) — don't delete it by hand.
 
 - The scheduler reloads specs every poll, so adding/editing/removing a
   file takes effect within ~30s — no relaunch needed.
@@ -1648,7 +1653,7 @@ fired (first-sight anchored only — see § On-disk shape below) show just
 task has no Next: its line reads `📡 Sensor · <status> · Last fired 3h
 ago` (or `Never fired`), plus `· N waiting` when fires are being held
 while it's off — same statuses as the identity modal's Wake-ups tab
-(§ Conversation view). Opening one shows the same read-only sensor
+(§ Conversation view); a one-time sensor task reads `📡 Sensor · once · …`. Opening one shows the same read-only sensor
 section, including its last error lines when broken. The list re-reads
 itself every ~30s while open; tasks on a machine that isn't answering
 drop out of the list, and if a refresh fails outright the sensors still
@@ -1708,6 +1713,8 @@ sensor in `~/fleet/scheduled-agents/<slug>/sensor/`) births one agent per fire.
 Its task line uses `📡` instead of `⏰`, and its first instruction is the
 `prompt` followed by a `## What the sensor found` section holding the sensor's
 findings verbatim — data to act on per the prompt, not instructions.
+A one-time sensor task (`"once": true`) births one agent for its first
+delivered fire, then retires — it drops out of the list.
 
 ### Governance — user-reserved
 

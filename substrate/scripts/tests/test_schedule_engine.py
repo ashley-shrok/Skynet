@@ -56,6 +56,8 @@ def show(ts, zi=NY):
 
 VALID = [
     {"type": "sensor"},
+    {"type": "sensor", "once": True},
+    {"type": "sensor", "once": False},
     {"type": "interval", "every": "30m"},
     {"type": "interval", "every": "45s"},
     {"type": "interval", "every": "2h"},
@@ -91,6 +93,9 @@ VALID = [
 INVALID = [
     ({"type": "sensor", "timezone": "UTC"}, "timezone"),
     ({"type": "sensor", "every": "5m"}, "every"),
+    ({"type": "sensor", "once": "yes"}, "once"),
+    ({"type": "sensor", "once": 1}, "once"),
+    ({"type": "sensor", "once": None}, "once"),
     ({"type": "hourly", "every": "1h"}, "unknown schedule type"),
     ("daily", "must be an object"),
     ({"type": "interval"}, "every"),

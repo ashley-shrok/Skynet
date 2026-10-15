@@ -274,6 +274,17 @@ export function isSensorSchedule(sched: unknown): boolean {
   return typeof sched === "object" && sched !== null && (sched as { type?: unknown }).type === "sensor";
 }
 
+/** True for a one-time sensor trigger (`{type: "sensor", once: true}`) — it
+ *  retires after its first delivered fire. Shown, never editable. */
+export function isOnceSensorSchedule(sched: unknown): boolean {
+  return isSensorSchedule(sched) && (sched as { once?: unknown }).once === true;
+}
+
+/** The read-only schedule label for a sensor trigger. */
+export function sensorScheduleLabel(sched: unknown): string {
+  return isOnceSensorSchedule(sched) ? "Sensor · once" : "Sensor";
+}
+
 // Hydrate a form-side FormSchedule from a server-provided `wakeup.schedule`
 // object. Defaults gracefully when the input is unrecognized so entering
 // edit-mode never throws.

@@ -58,6 +58,8 @@ import {
   detectBrowserTimezone,
   hydrateFormSchedule,
   isSensorSchedule,
+  isOnceSensorSchedule,
+  sensorScheduleLabel,
   MonthlyDayFields,
   ScheduleRepeatFields,
   switchScheduleKind,
@@ -697,12 +699,13 @@ export function ScheduledAgentsModalForm({
               className="text-sm text-[#e8e4d8]"
               data-testid="scheduled-agents-modal-form-schedule-sensor"
             >
-              Sensor
+              {sensorScheduleLabel(initialSpec?.schedule)}
             </span>
             {initialSpec?.sensor && (
               <SensorDetails
                 sensor={initialSpec.sensor}
                 lastFiredAt={initialSpec.lastFiredAt}
+                once={isOnceSensorSchedule(initialSpec.schedule)}
                 testId="scheduled-agents-modal-form-sensor-details"
               />
             )}

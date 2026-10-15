@@ -45,6 +45,7 @@ import {
   formatRelativePast,
 } from "./scheduled-agents-time-fmt";
 import { SensorSummaryLine } from "@/features/pretty-view/SensorStatusView";
+import { isOnceSensorSchedule } from "@/features/pretty-view/WakeupFormShared";
 
 const FALLBACK_HUE = 190;
 
@@ -147,6 +148,7 @@ export function ScheduledAgentsModalRow({
             <SensorSummaryLine
               sensor={row.sensor}
               lastFiredAt={row.lastFiredAt}
+              once={isOnceSensorSchedule(row.schedule)}
               testId={`scheduled-agents-modal-row-${row.slug}-sensor`}
             />
           </div>

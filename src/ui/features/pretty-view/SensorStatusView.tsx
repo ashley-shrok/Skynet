@@ -80,14 +80,22 @@ function waitingText(n: number): string {
 
 const Dot = () => <span className="mx-1.5 opacity-55">·</span>;
 
+/** "Sensor", or "Sensor · once" for a one-time sensor (retires after its
+ *  first delivered fire). */
+function sensorLabel(once: boolean | undefined): string {
+  return once ? "Sensor · once" : "Sensor";
+}
+
 export function SensorSummaryLine({
   sensor,
   lastFiredAt,
+  once,
   className,
   testId,
 }: {
   sensor: SensorStatus;
   lastFiredAt: number | null | undefined;
+  once?: boolean;
   className?: string;
   testId?: string;
 }): JSX.Element {
@@ -95,7 +103,7 @@ export function SensorSummaryLine({
   return (
     <span className={className} data-testid={testId}>
       <span aria-hidden="true">{SENSOR_MARK} </span>
-      Sensor
+      {sensorLabel(once)}
       <Dot />
       <span
         className={STATE_CLASS[sensor.state]}
@@ -129,10 +137,12 @@ export function lastFiredLabel(lastFiredAt: number | null | undefined): string {
 export function SensorDetails({
   sensor,
   lastFiredAt,
+  once,
   testId,
 }: {
   sensor: SensorStatus;
   lastFiredAt: number | null | undefined;
+  once?: boolean;
   testId?: string;
 }): JSX.Element {
   const now = nowSecs();
@@ -172,7 +182,7 @@ export function SensorDetails({
       data-testid={testId}
     >
       <div className="text-[10px] uppercase tracking-wide text-[var(--color-pv-fg-dim)] font-semibold">
-        {SENSOR_MARK} Sensor
+        {SENSOR_MARK} {sensorLabel(once)}
       </div>
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
         {rows.map(([label, value]) => (

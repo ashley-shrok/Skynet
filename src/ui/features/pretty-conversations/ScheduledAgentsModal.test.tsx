@@ -1053,6 +1053,13 @@ describe("ScheduledAgentsModal: schedule format v2", () => {
     expect(updateScheduledAgentMock.mock.calls[0][2].prompt).toBe("new prompt");
   });
 
+  it("T-19f: a one-time sensor task reads 'Sensor · once' and keeps the mark on save", async () => {
+    await openEdit({ type: "sensor", once: true });
+    expect(screen.getByTestId("scheduled-agents-modal-form-schedule-sensor")).toHaveTextContent("Sensor · once");
+    fireEvent.change(screen.getByTestId("scheduled-agents-modal-form-prompt"), { target: { value: "new prompt" } });
+    expect(await savedSchedule()).toEqual({ type: "sensor", once: true });
+  });
+
   it("T-19d: switching to Monthly every 2 months writes a start", async () => {
     await openEdit({ type: "daily", at: "09:00", timezone: "Europe/London" });
     fireEvent.click(screen.getByTestId("scheduled-agents-modal-form-schedule-kind-monthly"));
@@ -1100,6 +1107,16 @@ describe("ScheduledAgentsModal: sensor status", () => {
     const row = screen.getByTestId("scheduled-agents-modal-row-deliveries");
     expect(row).not.toHaveTextContent("Next:");
     expect(screen.getByTestId("scheduled-agents-modal-row-morning-triage")).toHaveTextContent("Next: in 10m");
+  });
+
+  it("T-20g: a one-time sensor row reads 'Sensor · once'; a repeating one doesn't", async () => {
+    listScheduledAgentsMock.mockResolvedValue([
+      sensorRow("healthy", { schedule: { type: "sensor", once: true }, scheduleHuman: "Sensor · once" }),
+      sensorRow("healthy", { slug: "payday", name: "Payday" }),
+    ]);
+    render(<ScheduledAgentsModal open={true} onOpenChange={vi.fn()} hostTree={ONE_HOST_TREE} />);
+    expect(await screen.findByTestId("scheduled-agents-modal-row-deliveries-sensor")).toHaveTextContent("Sensor · once");
+    expect(screen.getByTestId("scheduled-agents-modal-row-payday-sensor")).not.toHaveTextContent("once");
   });
 
   it("T-20b: switched off with held fires shows Off and the waiting count", async () => {

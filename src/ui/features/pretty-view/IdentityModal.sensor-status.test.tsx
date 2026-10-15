@@ -309,7 +309,8 @@ describe("IdentityModal Wake-ups tab — sensor status (sensors shape 2)", () =>
     act(() => {
       vi.advanceTimersByTime(30_000);
     });
-    await waitFor(() => expect(socketsForRequestType("identity:list-wakeups").length).toBe(2));
+    // Generous wait: under a full parallel run the refresh's socket opens slowly.
+    await waitFor(() => expect(socketsForRequestType("identity:list-wakeups").length).toBe(2), { timeout: 5000 });
     deliver(socketsForRequestType("identity:list-wakeups")[1], wakeupsPayload("broken"));
     await waitFor(() =>
       expect(screen.getByTestId("wakeup-sensor-summary-state").textContent).toBe("Broken"),
@@ -335,7 +336,7 @@ describe("IdentityModal Wake-ups tab — sensor status (sensors shape 2)", () =>
     act(() => {
       vi.advanceTimersByTime(30_000);
     });
-    await waitFor(() => expect(socketsForRequestType("identity:list-wakeups").length).toBe(2));
+    await waitFor(() => expect(socketsForRequestType("identity:list-wakeups").length).toBe(2), { timeout: 5000 });
     deliver(socketsForRequestType("identity:list-wakeups")[1], {
       type: "identity:wakeups",
       wakeups: [],
@@ -362,7 +363,7 @@ describe("IdentityModal Wake-ups tab — sensor status (sensors shape 2)", () =>
     act(() => {
       vi.advanceTimersByTime(30_000);
     });
-    await waitFor(() => expect(socketsForRequestType("identity:list-wakeups").length).toBe(2));
+    await waitFor(() => expect(socketsForRequestType("identity:list-wakeups").length).toBe(2), { timeout: 5000 });
     // Same data, freshly parsed (new schedule objects) — the classic trigger.
     deliver(socketsForRequestType("identity:list-wakeups")[1], wakeupsPayload("healthy"));
     await new Promise((r) => setTimeout(r, 0));

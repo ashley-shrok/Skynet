@@ -316,11 +316,14 @@ export function scheduleError(sch: unknown): string | null {
     }
     return null;
   }
-  // Fired by the trigger's sensor, never by the clock — no other field applies,
-  // so any key besides `type` is an error (first offending key, insertion order).
+  // Fired by the trigger's sensor, never by the clock. `once` (retire after the
+  // first delivered fire) is the only other field; any other key is an error
+  // (first offending key, insertion order).
   if (t === SENSOR_TYPE) {
     for (const k of Object.keys(s)) {
-      if (k !== "type") return `${SENSOR_TYPE}: \`${k}\` is not supported`;
+      if (k === "once") {
+        if (typeof s[k] !== "boolean") return `${SENSOR_TYPE}: \`once\` must be true or false`;
+      } else if (k !== "type") return `${SENSOR_TYPE}: \`${k}\` is not supported`;
     }
     return null;
   }

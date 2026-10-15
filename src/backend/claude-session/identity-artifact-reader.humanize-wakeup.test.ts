@@ -470,4 +470,9 @@ describe("humanizeWakeupSchedule — sensor", () => {
     expect(humanizeWakeupSchedule({ type: "sensor" })).toBe("Sensor");
     expect(humanizeWakeupSchedule({ type: "sensor", at: "09:00", days: ["mon"] })).toBe("Sensor");
   });
+
+  it("renders a one-time sensor as 'Sensor · once'", () => {
+    expect(humanizeWakeupSchedule({ type: "sensor", once: true })).toBe("Sensor · once");
+    expect(humanizeWakeupSchedule({ type: "sensor", once: false })).toBe("Sensor");
+  });
 });

@@ -229,6 +229,15 @@ describe("sensor schedule kind", () => {
     expect(scheduleError({ type: "sensor", count: null })).toBe("sensor: `count` is not supported");
   });
 
+  it("accepts the one-time mark `once` as true or false, nothing else", () => {
+    expect(scheduleError({ type: "sensor", once: true })).toBeNull();
+    expect(scheduleError({ type: "sensor", once: false })).toBeNull();
+    expect(scheduleError({ type: "sensor", once: "yes" })).toBe("sensor: `once` must be true or false");
+    expect(scheduleError({ type: "sensor", once: 1 })).toBe("sensor: `once` must be true or false");
+    expect(scheduleError({ type: "sensor", once: null })).toBe("sensor: `once` must be true or false");
+    expect(scheduleError({ type: "sensor", once: true, every: "5m" })).toBe("sensor: `every` is not supported");
+  });
+
   it("an invalid sensor schedule has no next fire", () => {
     expect(computeNextFireAt({ type: "sensor", every: "1h" }, null, now)).toBeNull();
   });

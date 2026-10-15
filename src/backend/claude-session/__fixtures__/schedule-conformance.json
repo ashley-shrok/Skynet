@@ -22430,6 +22430,20 @@
   },
   {
    "schedule": {
+    "once": true,
+    "type": "sensor"
+   },
+   "valid": true
+  },
+  {
+   "schedule": {
+    "once": false,
+    "type": "sensor"
+   },
+   "valid": true
+  },
+  {
+   "schedule": {
     "every": "30m",
     "type": "interval"
    },
@@ -22703,6 +22717,27 @@
   {
    "schedule": {
     "every": "5m",
+    "type": "sensor"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "once": "yes",
+    "type": "sensor"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "once": 1,
+    "type": "sensor"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "once": null,
     "type": "sensor"
    },
    "valid": false

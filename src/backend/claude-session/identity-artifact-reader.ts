@@ -279,7 +279,7 @@ export function humanizeWakeupSchedule(schedule: unknown): string {
     return at ? `Once at ${at}` : "Once";
   }
   // Fired by the trigger's sensor, never by the clock — nothing else to render.
-  if (type === "sensor") return "Sensor";
+  if (type === "sensor") return s.once === true ? "Sensor · once" : "Sensor";
   return "custom schedule";
 }
 

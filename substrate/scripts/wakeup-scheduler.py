@@ -38,6 +38,7 @@ its spec `wakeup.json` and its own state `.state/` (keyed by the folder name):
      #  {"type": "yearly",  "date": "08-03", "at": "09:00"}    # MM-DD; 02-29 rejected
      #  {"type": "one_shot", "at": "2026-08-15T09:00:00-04:00"}   # fires once, spec self-deletes after
      #  {"type": "sensor"}     # fired by the wake-up's sensor, never the clock (see below)
+     #  {"type": "sensor", "once": true}   # same, retired after its first delivered fire
      # interval `every`: <n>s|m|h|d, <n>mo (calendar months; a 31st clamps), bare number = minutes.
      # interval "window": {"from": "09:00", "to": "17:00"}  — only fire with the local time in
      #   [from, to], both inclusive; from > to wraps midnight.
@@ -82,6 +83,13 @@ scheduler delivers every waiting fire, oldest first, as
     📡 [sensor: <slug> @ <fire time UTC>] <instruction> — findings: <text>
 (findings pointed at as a file when long or multi-line), then moves it into
 `fires/delivered/`. Disabled wake-ups leave their fires waiting.
+
+A one-time sensor ({"type": "sensor", "once": true}) retires after its first
+delivered fire: only the oldest waiting fire is delivered (its wake line ends
+with a note that the wake-up has retired), then the spec is removed — the
+sensor-runner stops its sensor — and the rest of the folder, any later fires
+included, goes a day later. A one-time sensor scheduled task births one agent
+and retires the same way.
 
 The UTC stamp is the wall-clock time it actually FIRED — which tells an on-time
 fire from a missed-slot catch-up fire, since the latter fires at restart time,
@@ -179,8 +187,9 @@ def _emit_wake(key, utc, instruction, state_dir):
 # drops one file per fire into `<trigger>/fires/` (via `sensor-fire`). This
 # scheduler delivers them oldest-first and moves each into `fires/delivered/`.
 # It never reads meaning into a fire: no merging, no de-duplication, no
-# dropping. Emit (or spawn) happens BEFORE the move, so a crash in between
-# delivers a fire twice rather than never.
+# dropping — except that a one-time sensor ({"once": true}) retires after its
+# first delivery, taking any later fires with it. Emit (or spawn) happens
+# BEFORE the move, so a crash in between delivers a fire twice rather than never.
 FIRE_RE = re.compile(r"^(20[0-9]{6})T([0-9]{9})-[0-9a-f]{8}\.fire$")
 DELIVERED_KEEP = 200
 DELIVERED_MAX_AGE_SEC = 30 * 86400
@@ -215,15 +224,20 @@ def _read_findings(fire_path):
         return f.read().decode("utf-8", errors="replace")
 
 
-def _emit_sensor_wake(key, fired_utc, instruction, findings, state_dir, delivered_path):
+RETIRED_NOTE = " (one-time sensor — this wake-up has now retired)"
+
+
+def _emit_sensor_wake(key, fired_utc, instruction, findings, state_dir, delivered_path, once=False):
     """Print the sensor wake line. Inline when it fits on one short line; otherwise
     the findings are pointed at (the delivered fire file) and a long instruction
-    goes through the same `.wake` file as clock wake-ups."""
+    goes through the same `.wake` file as clock wake-ups. A one-time sensor's
+    line ends with a note that the wake-up has retired."""
     head = "📡 [sensor: %s @ %s] " % (key, fired_utc)
+    note = RETIRED_NOTE if once else ""
     plain = not _UNSAFE_INLINE_RE.search(findings)
     if len(instruction) + len(findings) <= LONG_INSTRUCTION_CHARS and plain:
         tail = (" — findings: " + findings) if findings else " — no findings"
-        print(head + instruction + tail, flush=True)
+        print(head + instruction + tail + note, flush=True)
         return
     if len(instruction) <= LONG_INSTRUCTION_CHARS:
         instr = instruction
@@ -239,7 +253,7 @@ def _emit_sensor_wake(key, fired_utc, instruction, findings, state_dir, delivere
         tail = " — no findings"
     else:
         tail = " — findings (%d chars) at %s — Read it" % (len(findings), delivered_path)
-    print(head + instr + tail, flush=True)
+    print(head + instr + tail + note, flush=True)
 
 
 def _mark_delivered(fire_path):
@@ -286,16 +300,17 @@ def prune_delivered(trigger_dir, now):
 FIRED_FOLDER_KEEP_SEC = 86400
 
 
-def sweep_fired_one_shots(wdir, now):
-    """Remove the leftover folder of a fired per-identity one_shot. The fire
-    deletes only its `wakeup.json` (so a long instruction's `.wake` file stays
-    readable while the agent gets to it); the rest goes a day later. Only a
-    folder with no spec AND a `.fired` sentinel is touched — a folder mid-
-    creation (no sentinel yet) is never removed."""
+def sweep_fired_one_shots(wdir, now, spec_name="wakeup.json"):
+    """Remove the leftover folder of a fired per-identity one_shot or a retired
+    one-time sensor trigger (wake-up or scheduled task). Retiring deletes only
+    the spec (so a long instruction's `.wake` file or a delivered findings file
+    stays readable while the agent gets to it); the rest goes a day later. Only
+    a folder with no spec AND a `.fired` sentinel in its own `.state/` is
+    touched — a folder mid-creation (no sentinel yet) is never removed."""
     for d in glob.glob(os.path.join(wdir, "*", "")):
         d = d.rstrip("/")
         slug = os.path.basename(d)
-        if slug.startswith(".") or os.path.exists(os.path.join(d, "wakeup.json")):
+        if slug.startswith(".") or os.path.exists(os.path.join(d, spec_name)):
             continue
         fired = os.path.join(d, ".state", slug + ".fired")
         try:
@@ -630,9 +645,13 @@ def schedule_error(sch):
                 return "one_shot: `%s` is not supported" % k
         return None
     if t == SENSOR_TYPE:
-        # Fired by the trigger's sensor, never by the clock — no other fields apply.
+        # Fired by the trigger's sensor, never by the clock. `once` (retire after
+        # the first delivered fire) is the only other field.
         for k in sch:
-            if k != "type":
+            if k == "once":
+                if not isinstance(sch[k], bool):
+                    return "sensor: `once` must be true or false"
+            elif k != "type":
                 return "sensor: `%s` is not supported" % k
         return None
     if t not in REPEATING_TYPES:
@@ -1315,9 +1334,52 @@ def main():
     started_at = time.time()
     undeliverable = set()   # fire paths that could be neither moved nor removed
 
-    def deliver_sensor_fires(spec, now):
-        """Hand every waiting fire of a sensor trigger over, oldest first."""
+    def retire_once_sensor(spec, fired_path):
+        """Retire a one-time sensor trigger after its fire was delivered: the
+        `.fired` sentinel first (so a failed delete can never deliver a second
+        fire), then the spec. The sensor-runner stops the sensor once the spec
+        is gone; the rest of the folder is swept a day later."""
         key = spec["_key"]
+        try:
+            with open(fired_path, "w") as f:
+                f.write(str(time.time()))
+        except OSError as e:
+            print("wakeup-scheduler: .fired write failed key=%s err=%s" % (key, e),
+                  file=sys.stderr, flush=True)
+        try:
+            os.unlink(spec["_path"])
+        except FileNotFoundError:
+            pass
+        except OSError as e:
+            if (key, "once_retire_failed") not in warned:
+                print("⚠️ [wakeup-scheduler: %s] one-time sensor fired, but removing its spec "
+                      "failed: %s — the .fired sentinel stops any further delivery" % (key, e), flush=True)
+                warned.add((key, "once_retire_failed"))
+            return
+        print("wakeup-scheduler: retired one-time sensor key=%s" % key, file=sys.stderr, flush=True)
+
+    def deliver_sensor_fires(spec, now):
+        """Hand every waiting fire of a sensor trigger over, oldest first. A
+        one-time sensor hands over only the oldest, then retires."""
+        key = spec["_key"]
+        once = spec["schedule"].get("once") is True
+        # A one-time trigger's own sentinel lives in its folder (scheduled tasks
+        # share one `.state/`, but this must go with the folder).
+        fired_path = os.path.join(spec["_dir"], ".state", key + ".fired") if once else None
+        if once and os.path.exists(fired_path):
+            try:
+                stale = os.path.getmtime(spec["_path"]) > os.path.getmtime(fired_path)
+            except OSError:
+                return
+            if not stale:
+                retire_once_sensor(spec, fired_path)     # already delivered; finish retiring
+                return
+            try:
+                os.unlink(fired_path)                    # spec rewritten since: a fresh trigger
+            except OSError:
+                return
+        if once:
+            os.makedirs(os.path.dirname(fired_path), exist_ok=True)
         for fp in pending_fires(spec["_dir"]):
             if fp in undeliverable:
                 continue
@@ -1331,7 +1393,7 @@ def main():
                 _drop_spawn_request(spec, state_dir, sensor_fire=(fired_utc, findings, delivered))
             else:
                 _emit_sensor_wake(key, fired_utc, spec["instruction"], findings,
-                                  spec["_state_dir"], delivered)
+                                  spec["_state_dir"], delivered, once=once)
             if _mark_delivered(fp) is None:
                 undeliverable.add(fp)
                 print("⚠️ [wakeup-scheduler: %s] delivered sensor fire %s but could not move "
@@ -1341,6 +1403,9 @@ def main():
             set_runs(spec, get_runs(spec) + 1)
             print("wakeup-scheduler: delivered sensor fire key=%s fire=%s fired_at=%s bytes=%d"
                   % (key, os.path.basename(fp), fired_utc, len(findings)), file=sys.stderr, flush=True)
+            if once:
+                retire_once_sensor(spec, fired_path)
+                return
         if now - pruned_at.get(spec["_dir"], started_at) > 3600:
             pruned_at[spec["_dir"]] = now
             prune_delivered(spec["_dir"], now)
@@ -1433,8 +1498,8 @@ def main():
                 sys.exit(0)              # harness gone — self-exit before firing anything
         now_ts = time.time()
         specs = _load_specs_scheduled_agents(wdir) if is_scheduled_agents_mode else _load_specs(wdir)
-        if not is_scheduled_agents_mode:
-            sweep_fired_one_shots(wdir, now_ts)
+        sweep_fired_one_shots(wdir, now_ts,
+                              "scheduled-agent.json" if is_scheduled_agents_mode else "wakeup.json")
         for spec in specs:
             key = spec["_key"]
             zi, tz_err = _zone(spec)

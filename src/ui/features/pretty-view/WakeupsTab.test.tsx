@@ -746,6 +746,17 @@ describe("WakeupsTab — schedule format v2", () => {
     expect(onUpdate.mock.calls[0][1].schedule).toEqual({ type: "sensor" });
   });
 
+  it("a one-time sensor wake-up reads 'Sensor · once' and keeps the mark on save", async () => {
+    const schedule = { type: "sensor", once: true };
+    const { onUpdate } = renderTab({ schedule, scheduleHuman: "Sensor · once" });
+    enterEditMode();
+    expect(screen.getByTestId("wakeup-sensor-schedule").textContent).toMatch(/Sensor · once/);
+    fireEvent.change(screen.getByLabelText("Wakeup name"), { target: { value: "renamed" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/i }));
+    await waitFor(() => expect(onUpdate).toHaveBeenCalledTimes(1));
+    expect(onUpdate.mock.calls[0][1].schedule).toEqual({ type: "sensor", once: true });
+  });
+
   it("monthly appears in the type dropdown and renders its day fields", () => {
     renderTab();
     enterEditMode();

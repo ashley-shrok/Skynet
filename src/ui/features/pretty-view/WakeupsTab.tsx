@@ -26,6 +26,8 @@ import {
   detectBrowserTimezone,
   hydrateFormSchedule,
   isSensorSchedule,
+  isOnceSensorSchedule,
+  sensorScheduleLabel,
   MonthlyDayFields,
   RestrictToDaysChips,
   ScheduleRepeatFields,
@@ -448,6 +450,7 @@ function WakeupRow({
                 <SensorSummaryLine
                   sensor={wakeup.sensor}
                   lastFiredAt={wakeup.lastFiredAt}
+                  once={isOnceSensorSchedule(wakeup.schedule)}
                   testId="wakeup-sensor-summary"
                   className="text-xs text-[var(--color-pv-fg-muted)] truncate leading-tight"
                 />
@@ -585,6 +588,7 @@ function WakeupRow({
             <SensorDetails
               sensor={wakeup.sensor}
               lastFiredAt={wakeup.lastFiredAt}
+              once={isOnceSensorSchedule(wakeup.schedule)}
               testId="wakeup-sensor-details"
             />
           )}
@@ -612,7 +616,7 @@ function WakeupRow({
               {isSensor ? (
                 <div className="flex flex-col gap-1" data-testid="wakeup-sensor-schedule">
                   <span className={FIELD_LABEL_CLASS}>Schedule</span>
-                  <span className="text-xs text-[#e8e4d8] font-mono">Sensor</span>
+                  <span className="text-xs text-[#e8e4d8] font-mono">{sensorScheduleLabel(wakeup.schedule)}</span>
                 </div>
               ) : (
               <>
