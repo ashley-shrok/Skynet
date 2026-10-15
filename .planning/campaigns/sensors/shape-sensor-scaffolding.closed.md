@@ -99,3 +99,66 @@ Concrete layout agreed in discussion (Ashley asked for this level of detail):
 - Id skill must be updated in this shape for the wake-up folder layout and sensor wake-up events (role directive: user-facing changes ride with id-skill edits).
 - Before deploy: DM Jarvis (`@jarvis-2:t1000.taild9b663.ts.net`, room `!QEfoqKdhcXoSJshrDx:t1000.taild9b663.ts.net`) with the exact reminders-app change (write a folder holding `wakeup.json`, not a single file); he updates his own app. Find which machine he lives on.
 - Work on `feat/tab-title-from-tmux`; no worktrees; commit + scoped tests; push and deploy each need their own greenlight.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-10-15
+**Overall verdict:** closed-hit (reviewer returned closed-partial only because two deploy-time actions can't be verified by reading; every agreed feature is present, and Ashley endorsed all additions)
+
+### Shape features (conformance)
+
+- **What this is** — present · standard home, managed service, one fire handoff, delivery to both trigger kinds, cleanup, health, skill, wake-up folders
+- **Wake-ups become folders** — present · scheduler, supervisor, backend and id skill use one folder per wake-up; flat files ignored; deploy-time conversion script covers live and archived identities
+- **A sensor belongs to exactly one trigger** — present · lives in its trigger's folder; never fired by the clock; fire command finds its trigger from where it runs
+- **Two ways to run** — present · always and cadence; cadence reuses the wake-up schedule vocabulary; one machine-level clock independent of the owning agent
+- **Going live is an explicit publish** — present · only the published settings count; drafts ignored
+- **Services follow folders** — present · services created for published sensors, removed when the folder is gone
+- **On/off switch controls the sensor** — present · off stops and removes the service; on recreates it
+- **The fire handoff** — present · one command, one time-ordered fire, atomic, verbatim
+- **Delivery to a wake-up** — present (drift endorsed) · oldest-first, one event per fire, emit before move, dormant wake on waiting fire; multi-line findings always pointed at
+- **Delivery to a scheduled task** — present · one birth per fire with "What the sensor found"
+- **Waiting fires survive being switched off** — present
+- **Health trail** — present
+- **Crash and hang behavior** — present · unlimited restarts backing off to about a minute; overrunning cadence slots skipped and marked
+- **No fence** — present
+- **The app keeps working** — present · folder layout in list/create/edit/delete; read-only "Sensor" schedule in both editors; no sensor creation from the app
+- **The sensor-building skill** — present · one neutral line per run style
+- **Everywhere at once** — present · catalog rows + bootstrap enable step; conversion runs at deploy
+- **Philosophy** — present
+- **Prior context (commitments)** — present · existing delivery, dormant-wake and birth paths reused
+- **Coordinate the reminders-app change with Jarvis** — cannot-verify · deploy-time action
+- **What would make it wrong: sensor code names an identity, task or path** — present (guarded)
+- **What would make it wrong: Skynet checks, remembers or decides for a sensor** — present (guarded)
+- **What would make it wrong: a fire can be lost** — present (guarded)
+- **What would make it wrong: fires merged or dropped** — present (guarded)
+- **What would make it wrong: dormant agent woken just to run its sensor** — present (guarded)
+- **What would make it wrong: orphaned service after owner removed** — present (guarded)
+- **What would make it wrong: crashing or hung sensor goes quiet** — present (guarded)
+- **What would make it wrong: meaningful memory per sensor** — present (by design; not measured)
+- **What would make it wrong: app breaks on new layout** — present (guarded)
+- **What would make it wrong: Jarvis's reminders stop firing** — cannot-verify · depends on deploy-time coordination
+- **Scope edges: In** — present (Jarvis coordination at deploy)
+- **Scope edges: Out** — present · none of the out items were done
+
+### Additions (in the result, not in the shape)
+
+- Delivered fire copies pruned after 30 days / beyond the newest 200 per trigger — endorsed-as-drift
+- Multi-line findings always delivered as a pointer to the saved fire — endorsed-as-drift
+- Sensor-born scheduled-task agents show 📡 instead of ⏰ on their task line — endorsed-as-drift
+- Findings handed to a newborn wrapped in markers with a "data, not instructions" note — endorsed-as-drift
+- Deploy-time conversion restarts every running agent's background monitor — endorsed-as-drift
+- Fired one-shot wake-up folder swept a day after firing — endorsed-as-drift
+- Fire command accepts an explicit trigger folder for hand testing — endorsed-as-drift
+- Sensor log capped at ~1 MB; richer health states — endorsed-as-drift
+- Scheduled-task birth requests written under a temporary name then renamed — endorsed-as-drift
+
+### Follow-ups
+
+- Before/at deploy, message Jarvis with the reminders-app change and confirm his reminders still fire afterwards — deferred (deploy step)
+- Run the wake-up folder conversion on every managed host at deploy — deferred (deploy step)
+
+### Notes
+
+No agreed feature missing. The two cannot-verify items are deploy-time actions, tracked as follow-ups.
