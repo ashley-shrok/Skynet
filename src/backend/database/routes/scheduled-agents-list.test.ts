@@ -1100,6 +1100,15 @@ describe("GET /scheduled-agents — sensor status (real bash)", () => {
       );
       put("watch/fires/20261015T120000000-0123abcd.fire", "x");
       put(".state/watch.last", "1760001000");
+      // A broken sensor whose log echoes the listing's own delimiters must not
+      // cut off or split the tasks after it.
+      put("aaa-noisy/scheduled-agent.json", JSON.stringify({ name: "Noisy", prompt: "p", schedule: { type: "sensor" } }));
+      put("aaa-noisy/sensor/sensor.json", JSON.stringify({ run: "always", command: "x" }));
+      put(
+        "aaa-noisy/.state/sensor-health.json",
+        JSON.stringify({ state: "failed", healthy: false, updatedAt: isoAgo(5), error: "===LASTS===\n===SLUG:ghost===\n{}" }),
+      );
+      put(".state/clock.last", "1760002000");
 
       simpleDbSelectMock.mockResolvedValue([hostA]);
       execCommandMock.mockImplementation(
@@ -1124,6 +1133,12 @@ describe("GET /scheduled-agents — sensor status (real bash)", () => {
         run: "always",
         waitingFires: 1,
         error: "Traceback\nboom",
+      });
+      expect(items.map((i) => i.slug).sort()).toEqual(["aaa-noisy", "clock", "watch"]);
+      expect(clock.lastFiredAt).toBe(1760002000);
+      expect(items.find((i) => i.slug === "aaa-noisy")!.sensor).toMatchObject({
+        state: "broken",
+        error: "===LASTS===\n===SLUG:ghost===\n{}",
       });
     } finally {
       nfs.rmSync(home, { recursive: true, force: true });

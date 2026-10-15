@@ -1128,7 +1128,8 @@ describe("ScheduledAgentsModal: sensor status", () => {
     fireEvent.click(screen.getByTestId("scheduled-agents-modal-row-deliveries"));
     const details = await screen.findByTestId("scheduled-agents-modal-form-sensor-details");
     expect(details).toHaveTextContent("Always running");
-    expect(details).toHaveTextContent("Last ran");
+    expect(details).toHaveTextContent("Running since");
+    expect(details).not.toHaveTextContent("Last ran");
     expect(screen.getByTestId("scheduled-agents-modal-form-sensor-details-error")).toHaveTextContent("KeyError: x");
   });
 
@@ -1147,6 +1148,38 @@ describe("ScheduledAgentsModal: sensor status", () => {
         expect(screen.getByTestId("scheduled-agents-modal-row-deliveries-sensor")).toHaveTextContent("Unknown"),
       );
       expect(screen.getByTestId("scheduled-agents-modal-row-deliveries-sensor")).not.toHaveTextContent("Healthy");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("T-20g: a slow background read that started before a toggle can't undo it", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let releaseSlow: (rows: ScheduledAgentListItem[]) => void = () => {};
+      listScheduledAgentsMock.mockResolvedValueOnce([sensorRow("healthy")]);
+      // Timed refresh: slow, carries the pre-toggle (enabled) row.
+      listScheduledAgentsMock.mockImplementationOnce(
+        () => new Promise<ScheduledAgentListItem[]>((res) => (releaseSlow = res)),
+      );
+      // The toggle's own refetch: fresh, disabled.
+      listScheduledAgentsMock.mockResolvedValueOnce([sensorRow("off", { enabled: false })]);
+      toggleScheduledAgentEnabledMock.mockResolvedValue(undefined);
+      render(<ScheduledAgentsModal open={true} onOpenChange={vi.fn()} hostTree={ONE_HOST_TREE} />);
+      await screen.findByTestId("scheduled-agents-modal-row-deliveries-sensor");
+      await act(async () => {
+        vi.advanceTimersByTime(30_000);
+      });
+      await waitFor(() => expect(listScheduledAgentsMock).toHaveBeenCalledTimes(2));
+      fireEvent.click(screen.getByTestId("scheduled-agents-modal-row-deliveries-toggle"));
+      await waitFor(() =>
+        expect(screen.getByTestId("scheduled-agents-modal-row-deliveries-sensor")).toHaveTextContent("Off"),
+      );
+      await act(async () => {
+        releaseSlow([sensorRow("healthy")]);
+      });
+      await new Promise((r) => setTimeout(r, 0));
+      expect(screen.getByTestId("scheduled-agents-modal-row-deliveries-sensor")).toHaveTextContent("Off");
     } finally {
       vi.useRealTimers();
     }

@@ -154,12 +154,22 @@ export function ScheduledAgentsModal({
   }, [open]);
 
   // Refetch after any write (D-03).
+  // Only the most recently started read may land, and only while the modal
+  // is open: a slow background refresh can't undo a write's fresher read,
+  // and a late one can't repopulate a closed modal.
+  const fetchSeq = useRef(0);
+  const openRef = useRef(open);
+  openRef.current = open;
   const refetch = useCallback(async (): Promise<void> => {
+    const seq = ++fetchSeq.current;
+    const current = () => seq === fetchSeq.current && openRef.current;
     try {
       const rows = await listScheduledAgents();
+      if (!current()) return;
       setItems(rows);
       setLoadError(null);
     } catch (err) {
+      if (!current()) return;
       // Rows stay on screen, but no sensor keeps a verdict the app can no
       // longer back up.
       setItems((prev) =>

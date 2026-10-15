@@ -69,3 +69,45 @@ Shape 1 (deployed 2026-10-15) records for every sensor whether it is running, it
 - Surfaces: the wake-ups tab in the identity modal (pretty-view), and the scheduled-tasks list + its edit form (pretty-conversations). Backend reads both over the existing per-host paths; the scheduled-tasks list spans hosts.
 - Role directive: user-facing change rides with the id skill edit (`substrate/skills/id/SKILL.md`) in this shape.
 - Work on `feat/tab-title-from-tmux`; no worktrees; commit + scoped tests; push and deploy each need their own greenlight. Personal-name test bans names in tracked files.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-10-15
+**Overall verdict:** closed-hit (every agreed feature present; the four divergences the reviewer raised were settled by the user — one fixed, three endorsed as drift)
+
+### Shape features (conformance)
+
+- **The name is "Sensor" with the 📡 mark** — present · every sensor-fired wake-up and task starts "📡 Sensor"; clock rows keep their schedule wording
+- **The row, unopened** — present · "📡 Sensor · <status> · Last fired …" in both lists, status in Next's slot, Broken in red, no error detail on the row
+- **States the user can see** — drifted · all six states with agreed labels and colours; a stopped sensor shows Off only when the user switched it off (stopped-while-on reads Unknown — endorsed); a machine that stops answering a refresh now turns on-screen sensors Unknown (fixed after review); an offline machine's tasks drop out of the scheduled-tasks list as before (endorsed)
+- **Never fired** — present · plain "Never fired" on row and in the opened section
+- **Waiting fires** — present · "· N waiting" on the row, a Waiting fires line when opened
+- **The opened view** — present · read-only section: status (+ error lines when broken), how it runs, last ran, last fired, waiting fires
+- **Last fired for every wake-up** — present · clock rows "· Last fired …" / "Never fired"; scheduled-tasks Last chip kept
+- **Staying current** — present · both re-read every 30s while showing; nothing while closed
+- **Control** — present · on/off only; sensor section read-only; no create/edit
+- **Id skill** — present · describes the sensor line, six statuses, waiting count, opened section, last fired, 30s refresh, Unknown rules
+- **Scope edges (out / deferred)** — present · no alerting; alerting filed as deferred; Jarvis's sensors untouched; no log or code view
+- **What would make it wrong: a broken sensor can look healthy, including when unreachable** — present (after fix) · stale or missing records and failed refreshes read Unknown; unreachable machines' tasks are absent rather than shown
+- **What would make it wrong: switched-off or mid-build sensor shows as broken** — present
+- **What would make it wrong: the app checks things on the sensor's behalf** — present · reads only recorded settings, health, fires and last-fired
+- **What would make it wrong: an open list goes stale for minutes** — present
+- **What would make it wrong: the user can create or edit sensors from the app** — present
+- **What would make it wrong: last fired on some wake-up rows and not others** — present
+- **What would make it wrong: the id skill doesn't match the screens** — present
+
+### Additions (in the result, not in the shape)
+
+- A health record not updated for more than 5 minutes reads as Unknown (the sensor manager may be down) — endorsed-as-drift
+- Each status carries a one-line explanation (hover on the row, beside the status when opened); waiting fires note "delivered when switched on" — endorsed-as-drift
+
+### Follow-ups
+
+- On-screen sensors kept their last status when a refresh failed or dropped the row — fixed in-shape after review (they now turn Unknown)
+- Tasks from an offline machine drop out of the scheduled-tasks list rather than showing Unknown — accepted-as-drift (pre-existing list behaviour)
+
+### Notes
+
+Reviewer found no missing features and no out-of-scope work. The offline-machine case was the only real gap; the on-screen half was fixed, the dropped-rows half kept as the list's existing behaviour.

@@ -178,6 +178,9 @@ export function IdentityModal({
   // Tab data — same shape + WS-based fetches as the pre-unification impl.
   const [identityFileState, setIdentityFileState] = useState<TabState<string>>({ status: "loading" });
   const [identityWakeupsState, setIdentityWakeupsState] = useState<TabState<Wakeup[]>>({ status: "loading" });
+  // Bumped by every wake-up write so an older background refresh can't
+  // overwrite the list that write returned (sensors shape 2 refresh).
+  const wakeupsWriteGen = useRef(0);
 
   // Git tab only when the workspace actually holds a repo.
   const gitTarget = { kind: "identity" as const, identityKey: identity.identityKey };
@@ -314,6 +317,7 @@ export function IdentityModal({
     if (!open || activeTab !== "identity-wakeups" || !identity.identityKey) return;
     const identityKey = identity.identityKey;
     let cancelled = false;
+    let inFlight = false;
     const markSensorsUnreachable = () =>
       setIdentityWakeupsState((prev) =>
         prev.status !== "ready"
@@ -326,12 +330,20 @@ export function IdentityModal({
             },
       );
     const handle = setInterval(() => {
+      // One refresh at a time, and a refresh that started before a write
+      // (save / toggle / create / delete) never overwrites that write's list.
+      if (inFlight) return;
+      inFlight = true;
+      const genAtStart = wakeupsWriteGen.current;
       sendIdentityMutation<IdentityListWakeupsPayload, IdentityWakeupsEvent>(
         { type: "identity:list-wakeups", identityKey, hostId },
         "identity:wakeups",
       )
+        .finally(() => {
+          inFlight = false;
+        })
         .then((ev) => {
-          if (cancelled) return;
+          if (cancelled || wakeupsWriteGen.current !== genAtStart) return;
           if (ev.error) {
             markSensorsUnreachable();
             return;
@@ -341,7 +353,7 @@ export function IdentityModal({
           );
         })
         .catch(() => {
-          if (!cancelled) markSensorsUnreachable();
+          if (!cancelled && wakeupsWriteGen.current === genAtStart) markSensorsUnreachable();
         });
     }, WAKEUPS_REFRESH_MS);
     return () => {
@@ -431,6 +443,7 @@ export function IdentityModal({
     },
   ): Promise<void> {
     if (!identity.identityKey) throw new Error("no identity key");
+    wakeupsWriteGen.current += 1;
     const payload: IdentityUpdateWakeupPayload = {
       type: "identity:update-wakeup",
       identityKey: identity.identityKey,
@@ -448,6 +461,7 @@ export function IdentityModal({
 
   async function createIdentityWakeup(spec: WakeupSpecWire): Promise<void> {
     if (!identity.identityKey) throw new Error("no identity key");
+    wakeupsWriteGen.current += 1;
     const payload: IdentityCreateWakeupPayload = {
       type: "identity:create-wakeup",
       identityKey: identity.identityKey,
@@ -464,6 +478,7 @@ export function IdentityModal({
 
   async function deleteIdentityWakeup(wakeupSlug: string): Promise<void> {
     if (!identity.identityKey) throw new Error("no identity key");
+    wakeupsWriteGen.current += 1;
     const payload: IdentityDeleteWakeupPayload = {
       type: "identity:delete-wakeup",
       identityKey: identity.identityKey,

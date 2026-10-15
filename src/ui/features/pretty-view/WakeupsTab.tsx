@@ -285,13 +285,19 @@ function WakeupRow({
   }
 
   // Reset all drafts when the underlying wakeup identity changes (post-save
-  // refresh, or a different card rendered into the same slot).
+  // refresh, or a different card rendered into the same slot). The schedule
+  // is compared by value — the open tab re-reads the list every 30s and each
+  // read parses a fresh object — and drafts are never reset mid-edit, so a
+  // background refresh can't wipe what the user is typing.
+  const scheduleKey = JSON.stringify(wakeup.schedule ?? null);
   useEffect(() => {
+    if (editingSchedule) return;
     setNameDraft(wakeup.name);
     setEnabledDraft(wakeup.enabled);
     setInstructionDraft(wakeup.instruction);
     setFormSchedule(hydrateFormSchedule(wakeup.schedule));
-  }, [wakeup.slug, wakeup.schedule, wakeup.name, wakeup.instruction, wakeup.enabled]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- schedule compared via scheduleKey
+  }, [wakeup.slug, scheduleKey, wakeup.name, wakeup.instruction, wakeup.enabled, editingSchedule]);
 
   async function toggleEnabled() {
     setError(null);

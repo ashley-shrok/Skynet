@@ -8,6 +8,7 @@ import path from "path";
 import fs from "fs/promises";
 import {
   deriveSensorStatus,
+  triggerEnabledLikeScheduler,
   HEALTH_STALE_SECS,
   parseSensorProbe,
   readSensorProbeLocal,
@@ -77,10 +78,29 @@ describe("deriveSensorStatus", () => {
     expect(deriveSensorStatus(probe({ healthRaw: health("stopped") }), true, NOW, humanize).state).toBe("unknown");
   });
 
-  it("published settings that aren't JSON → broken", () => {
-    const s = deriveSensorStatus(probe({ settingsRaw: "{oops" }), true, NOW, humanize);
+  it("published settings that can't be parsed follow the runner's verdict", () => {
+    // Mid-write or unreadable: no verdict of our own.
+    expect(deriveSensorStatus(probe({ settingsRaw: "{oops", healthRaw: null }), true, NOW, humanize).state).toBe(
+      "unknown",
+    );
+    // The runner gives up on it and records "invalid" → broken.
+    const s = deriveSensorStatus(
+      probe({ settingsRaw: "", healthRaw: health("invalid", { error: "sensor.json: bad JSON" }) }),
+      true,
+      NOW,
+      humanize,
+    );
     expect(s.state).toBe("broken");
-    expect(s.error).toMatch(/not valid JSON/);
+    expect(s.error).toBe("sensor.json: bad JSON");
+  });
+
+  it("staleness is judged by the sensor's own machine clock when the probe carries it", () => {
+    // Record 10s old by the remote clock, though the backend's clock is 1h ahead.
+    const p = probe({ healthRaw: health("running"), observedAt: NOW });
+    expect(deriveSensorStatus(p, true, NOW + 3600, humanize).state).toBe("healthy");
+    // A record stamped well into the remote machine's future isn't trusted.
+    const future = probe({ healthRaw: health("running", { updatedAt: iso(NOW + 600) }), observedAt: NOW });
+    expect(deriveSensorStatus(future, true, NOW, humanize).state).toBe("unknown");
   });
 
   it("carries run style, humanized cadence, last ran and waiting fires", () => {
@@ -98,6 +118,23 @@ describe("deriveSensorStatus", () => {
 
   it("waiting fires are reported while off too", () => {
     expect(deriveSensorStatus(probe({ waitingFires: 3 }), false, NOW, humanize).waitingFires).toBe(3);
+  });
+});
+
+describe("triggerEnabledLikeScheduler (Python truthiness, missing = on)", () => {
+  it.each([
+    [{}, true],
+    [{ enabled: true }, true],
+    [{ enabled: false }, false],
+    [{ enabled: null }, false],
+    [{ enabled: 0 }, false],
+    [{ enabled: "" }, false],
+    [{ enabled: "false" }, true],
+    [{ enabled: [] }, false],
+    [{ enabled: {} }, false],
+    [{ enabled: 1 }, true],
+  ])("%j → %s", (spec, want) => {
+    expect(triggerEnabledLikeScheduler(spec as Record<string, unknown>)).toBe(want);
   });
 });
 
@@ -130,7 +167,8 @@ describe("sensor probe — bash and fs readers agree", () => {
     const dir = path.join(root, "draft");
     await fs.mkdir(path.join(dir, "sensor"), { recursive: true });
     await fs.writeFile(path.join(dir, "sensor", "sensor.json.pending"), ALWAYS);
-    const remote = parseSensorProbe(await bashProbe(dir));
+    const { observedAt, ...remote } = parseSensorProbe(await bashProbe(dir))!;
+    expect(typeof observedAt).toBe("number");
     expect(remote).toEqual({ settingsRaw: null, healthRaw: null, waitingFires: 0 });
     expect(await readSensorProbeLocal(dir)).toEqual(remote);
   });
@@ -145,10 +183,45 @@ describe("sensor probe — bash and fs readers agree", () => {
     await fs.writeFile(path.join(dir, "fires", "20261015T120000000-0123abcd.fire"), "x");
     await fs.writeFile(path.join(dir, "fires", "20261015T120001000-0123abce.fire"), "y");
     await fs.writeFile(path.join(dir, "fires", "20261015T120002000-0123abcf.fire.tmp"), "z");
+    await fs.writeFile(path.join(dir, "fires", "2026-odd-name.fire"), "not a fire");
     await fs.writeFile(path.join(dir, "fires", "delivered", "20261015T110000000-0123abcd.fire"), "old");
 
-    const remote = parseSensorProbe(await bashProbe(dir));
+    const { observedAt, ...remote } = parseSensorProbe(await bashProbe(dir))!;
+    expect(Math.abs(observedAt! - Math.floor(Date.now() / 1000))).toBeLessThan(60);
     expect(remote).toEqual({ settingsRaw: CADENCE, healthRaw: health("failed", { error: "a\nb" }), waitingFires: 2 });
     expect(await readSensorProbeLocal(dir)).toEqual(remote);
+  });
+
+  it("log text that looks like the listing's delimiters travels intact", async () => {
+    const dir = path.join(root, "noisy");
+    await fs.mkdir(path.join(dir, "sensor"), { recursive: true });
+    await fs.mkdir(path.join(dir, ".state"), { recursive: true });
+    await fs.writeFile(path.join(dir, "sensor", "sensor.json"), ALWAYS);
+    const nasty = health("failed", {
+      error: "===SLUG:evil===\n===LASTS===\n===FILE:x===\n===SKYNET-SENSOR:P=1;S=;H=;F=9;T=1===\n$(rm -rf /)",
+    });
+    await fs.writeFile(path.join(dir, ".state", "sensor-health.json"), nasty);
+    const out = await bashProbe(dir);
+    expect(out).not.toContain("===SLUG:");
+    expect(out).not.toContain("===LASTS===");
+    expect(out.trim().split("\n")).toHaveLength(1);
+    const { observedAt: _o, ...remote } = parseSensorProbe(out)!;
+    expect(remote.healthRaw).toBe(nasty);
+    expect(remote.waitingFires).toBe(0);
+  });
+
+  it("a present-but-unreadable sensor.json reads as published-unparseable both ways", async () => {
+    const dir = path.join(root, "locked");
+    await fs.mkdir(path.join(dir, "sensor"), { recursive: true });
+    await fs.writeFile(path.join(dir, "sensor", "sensor.json"), ALWAYS);
+    await fs.chmod(path.join(dir, "sensor", "sensor.json"), 0o000);
+    try {
+      if (process.getuid?.() === 0) return; // root reads anything
+      const { observedAt: _o, ...remote } = parseSensorProbe(await bashProbe(dir))!;
+      expect(remote.settingsRaw).toBe("");
+      expect(await readSensorProbeLocal(dir)).toEqual(remote);
+    } finally {
+      await fs.chmod(path.join(dir, "sensor", "sensor.json"), 0o644);
+    }
   });
 });

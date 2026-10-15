@@ -59,6 +59,7 @@ import {
   parseSensorProbe,
   readSensorProbeLocal,
   sensorProbeShell,
+  triggerEnabledLikeScheduler,
   type SensorProbe,
   type SensorStatus,
 } from "./sensor-status.js";
@@ -1590,7 +1591,9 @@ function wakeupFromSpec(
   nowSecs: number = Math.floor(Date.now() / 1000),
 ): Wakeup {
   const name = typeof parsed.name === "string" ? parsed.name : slug;
-  const enabled = typeof parsed.enabled === "boolean" ? parsed.enabled : false;
+  // Read exactly as the wake-up scheduler and sensor-runner read it, so the
+  // app never shows "off" for a wake-up (or sensor) that is actually running.
+  const enabled = triggerEnabledLikeScheduler(parsed);
   const instruction = typeof parsed.instruction === "string" ? parsed.instruction : "";
   const scheduleHuman = humanizeWakeupSchedule(parsed.schedule);
   const sensor = isSensorWakeupSchedule(parsed.schedule)

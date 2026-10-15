@@ -1025,8 +1025,8 @@ crown, then gear.
     can't be read — no health record, one more than 5 minutes old, or the
     machine stopped answering a refresh).
     Expanding a sensor wake-up shows a read-only sensor section: status,
-    how it runs, last ran, last fired, waiting fires, and the sensor's
-    last error lines when broken. The on/off switch is the only sensor
+    how it runs, last ran (`Running since` for an always-on sensor), last
+    fired, waiting fires, and the sensor's last error lines when broken. The on/off switch is the only sensor
     control in the app — sensors are built by agents (`sensor-development`
     skill). The tab re-reads itself every ~30s while it's showing.
   - **Files** — full workspace explorer for the identity's `workspace/`

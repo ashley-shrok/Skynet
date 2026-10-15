@@ -347,4 +347,25 @@ describe("IdentityModal Wake-ups tab — sensor status (sensors shape 2)", () =>
     // Clock rows are untouched.
     expect(screen.getAllByTestId("wakeup-last-fired")).toHaveLength(2);
   });
+
+  it("a background refresh never wipes an edit in progress", async () => {
+    renderModal();
+    await new Promise((r) => setTimeout(r, 0));
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    clickNav("identity-wakeups");
+    deliver(findSocketForRequestType("identity:list-wakeups")!, wakeupsPayload("healthy"));
+    fireEvent.click(await screen.findByRole("button", { name: /morning/i }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Edit schedule" })[0]);
+    const nameInput = (await screen.findByLabelText("Wakeup name")) as HTMLInputElement;
+    fireEvent.change(nameInput, { target: { value: "morning — edited" } });
+
+    act(() => {
+      vi.advanceTimersByTime(30_000);
+    });
+    await waitFor(() => expect(socketsForRequestType("identity:list-wakeups").length).toBe(2));
+    // Same data, freshly parsed (new schedule objects) — the classic trigger.
+    deliver(socketsForRequestType("identity:list-wakeups")[1], wakeupsPayload("healthy"));
+    await new Promise((r) => setTimeout(r, 0));
+    expect((screen.getByLabelText("Wakeup name") as HTMLInputElement).value).toBe("morning — edited");
+  });
 });

@@ -148,7 +148,9 @@ export function SensorDetails({
     ],
     ["How it runs", runText(sensor)],
     [
-      "Last ran",
+      // An always-running sensor's last run start is when its current
+      // process started — "Last ran 3 days ago" would misread as idle.
+      sensor.run === "always" ? "Running since" : "Last ran",
       typeof sensor.lastRanAt === "number"
         ? `${formatRelativePast(sensor.lastRanAt, now)} (${formatAbsolute(sensor.lastRanAt, now)})`
         : "Never",

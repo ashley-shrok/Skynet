@@ -60,6 +60,7 @@ import {
   readSensorProbeLocal,
   sensorProbeShell,
   SENSOR_PROBE_MARK,
+  triggerEnabledLikeScheduler,
   type SensorProbe,
   type SensorStatus,
 } from "../../claude-session/sensor-status.js";
@@ -196,7 +197,8 @@ function specToRow(
     host: hostName,
     hostId,
     name: typeof spec.name === "string" ? spec.name : slug,
-    enabled: typeof spec.enabled === "boolean" ? spec.enabled : true,
+    // Read exactly as the scheduler reads it (missing = on, truthiness).
+    enabled: triggerEnabledLikeScheduler(spec),
     schedule: spec.schedule ?? null,
     scheduleHuman: humanizeWakeupSchedule(spec.schedule),
     prompt: typeof spec.prompt === "string" ? spec.prompt : "",
