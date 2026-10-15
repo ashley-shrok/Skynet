@@ -59,6 +59,7 @@ import type { Identity } from "@/api/identities-api";
 import { cn } from "@/lib/utils";
 import { IdentityFileTab, type TabState } from "./IdentityFileTab";
 import { WakeupsTab } from "./WakeupsTab";
+import { sensorStatusUnreachable } from "@/api/sensor-status-types";
 import WorkspaceTab from "./WorkspaceTab";
 import GitTab from "./GitTab";
 import { useHasGitRepos } from "./use-has-git-repos";
@@ -307,24 +308,40 @@ export function IdentityModal({
   // Sensors shape 2: while the Wake-ups tab is showing, quietly re-read the
   // list every 30s so sensor status and last-fired stay current. Nothing is
   // re-read while the tab (or the modal) isn't showing. A failed refresh
-  // keeps the last good list rather than flipping the tab to an error.
+  // keeps the last list on screen rather than flipping the tab to an error,
+  // but its sensors turn Unknown — a stale Healthy must never linger.
   useEffect(() => {
     if (!open || activeTab !== "identity-wakeups" || !identity.identityKey) return;
     const identityKey = identity.identityKey;
     let cancelled = false;
+    const markSensorsUnreachable = () =>
+      setIdentityWakeupsState((prev) =>
+        prev.status !== "ready"
+          ? prev
+          : {
+              status: "ready",
+              data: prev.data.map((w) =>
+                w.sensor ? { ...w, sensor: sensorStatusUnreachable(w.sensor) } : w,
+              ),
+            },
+      );
     const handle = setInterval(() => {
       sendIdentityMutation<IdentityListWakeupsPayload, IdentityWakeupsEvent>(
         { type: "identity:list-wakeups", identityKey, hostId },
         "identity:wakeups",
       )
         .then((ev) => {
-          if (cancelled || ev.error) return;
+          if (cancelled) return;
+          if (ev.error) {
+            markSensorsUnreachable();
+            return;
+          }
           setIdentityWakeupsState((prev) =>
             prev.status === "loading" ? prev : { status: "ready", data: ev.wakeups },
           );
         })
         .catch(() => {
-          /* keep the last good list */
+          if (!cancelled) markSensorsUnreachable();
         });
     }, WAKEUPS_REFRESH_MS);
     return () => {

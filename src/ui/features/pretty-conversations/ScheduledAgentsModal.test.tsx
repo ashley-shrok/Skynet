@@ -1132,6 +1132,26 @@ describe("ScheduledAgentsModal: sensor status", () => {
     expect(screen.getByTestId("scheduled-agents-modal-form-sensor-details-error")).toHaveTextContent("KeyError: x");
   });
 
+  it("T-20f: a refresh that fails outright turns on-screen sensors Unknown (no stale Healthy)", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      listScheduledAgentsMock.mockResolvedValueOnce([sensorRow("healthy")]);
+      listScheduledAgentsMock.mockRejectedValue(new Error("network down"));
+      render(<ScheduledAgentsModal open={true} onOpenChange={vi.fn()} hostTree={ONE_HOST_TREE} />);
+      const line = await screen.findByTestId("scheduled-agents-modal-row-deliveries-sensor");
+      expect(line).toHaveTextContent("Healthy");
+      await act(async () => {
+        vi.advanceTimersByTime(30_000);
+      });
+      await waitFor(() =>
+        expect(screen.getByTestId("scheduled-agents-modal-row-deliveries-sensor")).toHaveTextContent("Unknown"),
+      );
+      expect(screen.getByTestId("scheduled-agents-modal-row-deliveries-sensor")).not.toHaveTextContent("Healthy");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("T-20e: the opened task's sensor section follows the 30s refresh, and survives a refresh that drops the row", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
@@ -1149,12 +1169,17 @@ describe("ScheduledAgentsModal: sensor status", () => {
       await waitFor(() =>
         expect(screen.getByTestId("scheduled-agents-modal-form-sensor-details")).toHaveTextContent("Broken"),
       );
-      // Next refresh returns nothing (host didn't answer) — the form keeps the last copy.
+      // Next refresh returns nothing (host didn't answer) — the form keeps the
+      // last copy, but its sensor can no longer be vouched for: Unknown.
       await act(async () => {
         vi.advanceTimersByTime(30_000);
       });
       await waitFor(() => expect(listScheduledAgentsMock).toHaveBeenCalledTimes(3));
-      expect(screen.getByTestId("scheduled-agents-modal-form-sensor-details")).toHaveTextContent("Broken");
+      await waitFor(() =>
+        expect(screen.getByTestId("scheduled-agents-modal-form-sensor-details")).toHaveTextContent("Unknown"),
+      );
+      expect(screen.getByTestId("scheduled-agents-modal-form-sensor-details")).not.toHaveTextContent("Broken");
+      expect(screen.queryByTestId("scheduled-agents-modal-form-sensor-details-error")).toBeNull();
       expect(screen.getByTestId("scheduled-agents-modal-form-schedule-sensor")).toBeInTheDocument();
     } finally {
       vi.useRealTimers();

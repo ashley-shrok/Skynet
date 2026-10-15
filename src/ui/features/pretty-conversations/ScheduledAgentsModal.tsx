@@ -54,6 +54,7 @@ import {
   toggleScheduledAgentEnabled,
   type ScheduledAgentListItem,
 } from "@/api/scheduled-agents-api";
+import { sensorStatusUnreachable } from "@/api/sensor-status-types";
 import { ScheduledAgentsModalRow, prettifyScheduledAgentName } from "./ScheduledAgentsModalRow";
 import { ScheduledAgentsModalForm } from "./ScheduledAgentsModalForm";
 
@@ -159,6 +160,13 @@ export function ScheduledAgentsModal({
       setItems(rows);
       setLoadError(null);
     } catch (err) {
+      // Rows stay on screen, but no sensor keeps a verdict the app can no
+      // longer back up.
+      setItems((prev) =>
+        prev === null
+          ? prev
+          : prev.map((r) => (r.sensor ? { ...r, sensor: sensorStatusUnreachable(r.sensor) } : r)),
+      );
       setLoadError(
         err instanceof Error ? err.message : "Couldn't refresh scheduled tasks",
       );
@@ -187,8 +195,9 @@ export function ScheduledAgentsModal({
   }, [open, refetch]);
 
   // The row being edited, read live from `items` so a background refresh
-  // updates its sensor status. If a refresh briefly drops it (its host
-  // didn't answer), keep showing the last copy rather than blanking the form.
+  // updates its sensor status. If a refresh drops it (its host didn't
+  // answer), keep showing the last copy rather than blanking the form — but
+  // with its sensor status Unknown, never a stale verdict.
   const lastEditingRow = useRef<ScheduledAgentListItem | null>(null);
   const liveEditingRow =
     editing !== null
@@ -199,13 +208,17 @@ export function ScheduledAgentsModal({
   } else if (liveEditingRow !== null) {
     lastEditingRow.current = liveEditingRow;
   }
-  const editingRow =
-    liveEditingRow ??
-    (editing !== null &&
+  const staleEditingRow =
+    editing !== null &&
     lastEditingRow.current?.hostId === editing.hostId &&
     lastEditingRow.current?.slug === editing.slug
       ? lastEditingRow.current
-      : null);
+      : null;
+  const editingRow =
+    liveEditingRow ??
+    (staleEditingRow?.sensor
+      ? { ...staleEditingRow, sensor: sensorStatusUnreachable(staleEditingRow.sensor) }
+      : staleEditingRow);
 
   const flatHosts = useMemo(
     () =>

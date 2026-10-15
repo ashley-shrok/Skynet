@@ -1022,7 +1022,8 @@ crown, then gear.
     …` plus `· N waiting` when fires are being held. Status is one of
     **Healthy**, **Broken** (red), **Running long**, **Off** (switched
     off), **Not live yet** (sensor not published) or **Unknown** (status
-    can't be read — no health record, or one more than 5 minutes old).
+    can't be read — no health record, one more than 5 minutes old, or the
+    machine stopped answering a refresh).
     Expanding a sensor wake-up shows a read-only sensor section: status,
     how it runs, last ran, last fired, waiting fires, and the sensor's
     last error lines when broken. The on/off switch is the only sensor
@@ -1649,7 +1650,9 @@ ago` (or `Never fired`), plus `· N waiting` when fires are being held
 while it's off — same statuses as the identity modal's Wake-ups tab
 (§ Conversation view). Opening one shows the same read-only sensor
 section, including its last error lines when broken. The list re-reads
-itself every ~30s while open. If the user
+itself every ~30s while open; tasks on a machine that isn't answering
+drop out of the list, and if a refresh fails outright the sensors still
+on screen turn Unknown. If the user
 asks "how do I make a scheduled task?" — point her at the clock icon.
 
 ### On-disk shape

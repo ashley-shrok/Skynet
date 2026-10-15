@@ -323,4 +323,28 @@ describe("IdentityModal Wake-ups tab — sensor status (sensors shape 2)", () =>
     await new Promise((r) => setTimeout(r, 0));
     expect(socketsForRequestType("identity:list-wakeups").length).toBe(2);
   });
+
+  it("a refresh the machine doesn't answer turns sensors Unknown, keeping the rows", async () => {
+    renderModal();
+    await new Promise((r) => setTimeout(r, 0));
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    clickNav("identity-wakeups");
+    deliver(findSocketForRequestType("identity:list-wakeups")!, wakeupsPayload("healthy"));
+    expect((await screen.findByTestId("wakeup-sensor-summary-state")).textContent).toBe("Healthy");
+
+    act(() => {
+      vi.advanceTimersByTime(30_000);
+    });
+    await waitFor(() => expect(socketsForRequestType("identity:list-wakeups").length).toBe(2));
+    deliver(socketsForRequestType("identity:list-wakeups")[1], {
+      type: "identity:wakeups",
+      wakeups: [],
+      error: "host unreachable",
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("wakeup-sensor-summary-state").textContent).toBe("Unknown"),
+    );
+    // Clock rows are untouched.
+    expect(screen.getAllByTestId("wakeup-last-fired")).toHaveLength(2);
+  });
 });

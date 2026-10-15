@@ -23,3 +23,9 @@ export type SensorStatus = {
   /** Last error lines when broken. */
   error: string | null;
 };
+
+/** The status to show when a refresh couldn't reach the sensor's machine:
+ *  keep what's known about how it runs, but never keep a stale verdict. */
+export function sensorStatusUnreachable(sensor: SensorStatus): SensorStatus {
+  return { ...sensor, state: "unknown", error: null };
+}
