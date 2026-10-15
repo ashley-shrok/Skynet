@@ -53,7 +53,16 @@ import {
   readRoleFileByName,
   extractCosmeticsFromFrontmatter,
 } from "../../claude-session/identity-artifact-reader.js";
-import { computeNextFireAt } from "../../claude-session/schedule-next-fire.js";
+import { computeNextFireAt, SENSOR_TYPE } from "../../claude-session/schedule-next-fire.js";
+import {
+  deriveSensorStatus,
+  parseSensorProbe,
+  readSensorProbeLocal,
+  sensorProbeShell,
+  SENSOR_PROBE_MARK,
+  type SensorProbe,
+  type SensorStatus,
+} from "../../claude-session/sensor-status.js";
 import type { Client as SSHClientType } from "ssh2";
 // Per-user READ-side gate. Pure function; consumes the users list parsed from
 // scheduled-agent.json and returns visible/hidden per caller. Kept file-parallel
@@ -121,6 +130,12 @@ export type ScheduledAgentListItem = {
    * used-up `count`s, and schedules that never fire again.
    */
   nextFireAt: number | null;
+  /**
+   * Sensors shape 2: status of the task's sensor, for sensor-triggered tasks
+   * only (null for clock schedules). Read from the task folder's sensor/,
+   * fires/ and .state/sensor-health.json — see sensor-status.ts.
+   */
+  sensor: SensorStatus | null;
   /**
    * Per-user visibility gate list. Mirrors the `users` field on projects +
    * apps + identity/role frontmatter. GATE-ONLY — this field MUST be
@@ -195,8 +210,28 @@ function specToRow(
     // computeNextFireAt derives nextFireAt from schedule + lastFiredAt.
     lastFiredAt: null,
     nextFireAt: null,
+    sensor: null,
     users,
   };
+}
+
+function isSensorTaskSchedule(schedule: unknown): boolean {
+  return (
+    typeof schedule === "object" &&
+    schedule !== null &&
+    (schedule as { type?: unknown }).type === SENSOR_TYPE
+  );
+}
+
+/** Attach `sensor` to a sensor-triggered row from its probe (null probe =
+ *  no sensor folder yet → "not live"). Clock rows keep `sensor: null`. */
+function attachSensorStatus(
+  row: ScheduledAgentListItem,
+  probe: SensorProbe | null,
+  nowSecs: number,
+): void {
+  if (!isSensorTaskSchedule(row.schedule)) return;
+  row.sensor = deriveSensorStatus(probe, row.enabled, nowSecs, humanizeWakeupSchedule);
 }
 
 /**
@@ -347,7 +382,12 @@ async function readScheduledAgentsLocal(
     }
     try {
       const parsed = JSON.parse(raw) as Record<string, unknown>;
-      out.push(specToRow(parsed, slug, hostName, hostId));
+      const row = specToRow(parsed, slug, hostName, hostId);
+      if (isSensorTaskSchedule(row.schedule)) {
+        const probe = await readSensorProbeLocal(path.join(scheduledAgentsDir, slug));
+        attachSensorStatus(row, probe, Math.floor(Date.now() / 1000));
+      }
+      out.push(row);
     } catch (err) {
       sshLogger.warn("scheduled-agents-list: local parse error", {
         operation: "scheduled_agents_list_local_parse_error",
@@ -438,7 +478,10 @@ async function readScheduledAgentsRemote(
   const cmd =
     `cd "$HOME/fleet/scheduled-agents" 2>/dev/null && ` +
     'shopt -s nullglob; ' +
-    'for d in */; do slug="${d%/}"; echo "===SLUG:${slug}==="; cat "$d/scheduled-agent.json" 2>/dev/null; done; ' +
+    'for d in */; do slug="${d%/}"; echo "===SLUG:${slug}==="; cat "$d/scheduled-agent.json" 2>/dev/null; echo; ' +
+    // Sensors shape 2: the task's sensor probe rides the same round-trip.
+    sensorProbeShell('"$slug"') +
+    'done; ' +
     'echo "===LASTS==="; ' +
     'for f in .state/*.last; do slug="$(basename "$f" .last)"; echo "${slug}=$(cat "$f" 2>/dev/null)"; done; ' +
     'echo "===ANCHORS==="; ' +
@@ -506,7 +549,9 @@ async function readScheduledAgentsRemote(
     const sepIdx = chunk.indexOf("===");
     if (sepIdx === -1) continue;
     const slug = chunk.slice(0, sepIdx).trim();
-    const jsonContent = chunk.slice(sepIdx + 3).trim();
+    const rest = chunk.slice(sepIdx + 3);
+    const probeIdx = rest.indexOf(SENSOR_PROBE_MARK);
+    const jsonContent = (probeIdx === -1 ? rest : rest.slice(0, probeIdx)).trim();
     if (!slug || !jsonContent) continue;
     // Code-review fix #6: defense-in-depth against a hand-edited garbage
     // slug on the remote host. See LOCAL branch comment above.
@@ -521,7 +566,13 @@ async function readScheduledAgentsRemote(
     }
     try {
       const parsed = JSON.parse(jsonContent) as Record<string, unknown>;
-      out.push(specToRow(parsed, slug, hostName, hostId));
+      const row = specToRow(parsed, slug, hostName, hostId);
+      attachSensorStatus(
+        row,
+        probeIdx === -1 ? null : parseSensorProbe(rest.slice(probeIdx)),
+        Math.floor(Date.now() / 1000),
+      );
+      out.push(row);
     } catch (err) {
       sshLogger.warn("scheduled-agents-list: remote parse error", {
         operation: "scheduled_agents_list_remote_parse_error",

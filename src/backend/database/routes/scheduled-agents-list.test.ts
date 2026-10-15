@@ -1069,3 +1069,76 @@ describe("GET /scheduled-agents — per-user users-tagging gate", () => {
     expect(body.items[0]).not.toHaveProperty("users");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Sensors shape 2 — the real REMOTE command, run through bash against a
+// fixture, attaches sensor status to sensor tasks only. (fs/promises is
+// mocked in this file, so the fixture is built with node:fs sync calls.)
+// ---------------------------------------------------------------------------
+
+describe("GET /scheduled-agents — sensor status (real bash)", () => {
+  it("sensor tasks carry status; clock tasks carry none", async () => {
+    const nfs = await import("node:fs");
+    const nos = await import("node:os");
+    const npath = await import("node:path");
+    const { execFile } = await import("node:child_process");
+    const home = nfs.mkdtempSync(npath.join(nos.tmpdir(), "sa-sensor-"));
+    const root = npath.join(home, "fleet", "scheduled-agents");
+    const put = (rel: string, body: string) => {
+      const p = npath.join(root, rel);
+      nfs.mkdirSync(npath.dirname(p), { recursive: true });
+      nfs.writeFileSync(p, body);
+    };
+    const isoAgo = (s: number) => new Date(Date.now() - s * 1000).toISOString().replace(/\.\d{3}Z$/, "Z");
+    try {
+      put("clock/scheduled-agent.json", JSON.stringify({ name: "Clock", prompt: "p", schedule: { type: "daily", at: "09:00" } }));
+      put("watch/scheduled-agent.json", JSON.stringify({ name: "Watch", prompt: "p", schedule: { type: "sensor" } }));
+      put("watch/sensor/sensor.json", JSON.stringify({ run: "always", command: "x" }));
+      put(
+        "watch/.state/sensor-health.json",
+        JSON.stringify({ state: "failed", healthy: false, lastRunAt: isoAgo(30), updatedAt: isoAgo(5), error: "Traceback\nboom" }),
+      );
+      put("watch/fires/20261015T120000000-0123abcd.fire", "x");
+      put(".state/watch.last", "1760001000");
+
+      simpleDbSelectMock.mockResolvedValue([hostA]);
+      execCommandMock.mockImplementation(
+        (_c: unknown, cmd: string) =>
+          new Promise<string>((resolve, reject) =>
+            execFile("bash", ["-c", cmd], { env: { ...process.env, HOME: home } }, (err, out) =>
+              err ? reject(err) : resolve(out),
+            ),
+          ),
+      );
+
+      const res = await httpRequest(server, { method: "GET", path: "/scheduled-agents" });
+      expect(res.status).toBe(200);
+      const items = (res.body as { items: Array<Record<string, unknown>> }).items;
+      const clock = items.find((i) => i.slug === "clock")!;
+      const watch = items.find((i) => i.slug === "watch")!;
+      expect(clock.sensor).toBeNull();
+      expect(clock.name).toBe("Clock");
+      expect(watch.lastFiredAt).toBe(1760001000);
+      expect(watch.sensor).toMatchObject({
+        state: "broken",
+        run: "always",
+        waitingFires: 1,
+        error: "Traceback\nboom",
+      });
+    } finally {
+      nfs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("a sensor task with no sensor folder yet reads as not live", async () => {
+    simpleDbSelectMock.mockResolvedValue([hostA]);
+    execCommandMock.mockResolvedValue(
+      makeRemoteStdout([
+        { slug: "planned", body: JSON.stringify({ name: "Planned", prompt: "p", schedule: { type: "sensor" } }) },
+      ]),
+    );
+    const res = await httpRequest(server, { method: "GET", path: "/scheduled-agents" });
+    const item = (res.body as { items: Array<Record<string, unknown>> }).items[0];
+    expect(item.sensor).toMatchObject({ state: "not_live", waitingFires: 0 });
+  });
+});

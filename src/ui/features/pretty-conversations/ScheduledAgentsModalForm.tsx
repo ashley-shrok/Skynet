@@ -67,6 +67,7 @@ import {
   type Weekday,
   YearlyDateFields,
 } from "@/features/pretty-view/WakeupFormShared";
+import { SensorDetails } from "@/features/pretty-view/SensorStatusView";
 import {
   createScheduledAgent,
   updateScheduledAgent,
@@ -691,12 +692,21 @@ export function ScheduledAgentsModalForm({
           </label>
 
           {isSensor ? (
+            <>
             <span
               className="text-sm text-[#e8e4d8]"
               data-testid="scheduled-agents-modal-form-schedule-sensor"
             >
               Sensor
             </span>
+            {initialSpec?.sensor && (
+              <SensorDetails
+                sensor={initialSpec.sensor}
+                lastFiredAt={initialSpec.lastFiredAt}
+                testId="scheduled-agents-modal-form-sensor-details"
+              />
+            )}
+            </>
           ) : (
           <>
           {/* Segmented control — kind picker */}

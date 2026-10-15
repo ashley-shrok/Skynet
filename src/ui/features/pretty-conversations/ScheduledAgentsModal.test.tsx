@@ -352,7 +352,7 @@ describe("ScheduledAgentsModal: form-view entry points", () => {
     expect(prompt.value).toBe("host B prompt");
   });
 
-  it("T-07c: while the list is open, a passed Next slot triggers one refetch (Last/Next chips stay live)", async () => {
+  it("T-07c: while the list is open, it re-reads every 30s (Last/Next chips stay live)", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       const nowSecs = Math.floor(Date.now() / 1000);
@@ -1064,5 +1064,100 @@ describe("ScheduledAgentsModal: schedule format v2", () => {
     const saved = await savedSchedule();
     expect(saved).toMatchObject({ type: "monthly", day: "last", at: "09:00", every: 2, timezone: "Europe/London" });
     expect(Number.isNaN(new Date(saved.start as string).getTime())).toBe(false);
+  });
+});
+
+// ─── Sensors shape 2 ─────────────────────────────────────────────────────────
+
+describe("ScheduledAgentsModal: sensor status", () => {
+  const NOW = Math.floor(Date.now() / 1000);
+  const sensorRow = (state: "healthy" | "broken" | "off" | "unknown", extra: Partial<ScheduledAgentListItem> = {}) =>
+    makeRow({
+      slug: "deliveries",
+      name: "Deliveries",
+      schedule: { type: "sensor" },
+      scheduleHuman: "Sensor",
+      lastFiredAt: NOW - 3 * 3600,
+      nextFireAt: null,
+      sensor: {
+        state,
+        run: "always",
+        cadenceHuman: null,
+        lastRanAt: NOW - 30,
+        waitingFires: state === "off" ? 2 : 0,
+        error: state === "broken" ? "Traceback\nKeyError: x" : null,
+      },
+      ...extra,
+    });
+
+  it("T-20: a sensor row reads 'Sensor · <status> · Last fired …' with no Next; clock rows unchanged", async () => {
+    listScheduledAgentsMock.mockResolvedValue([sensorRow("healthy"), makeRow({ lastFiredAt: NOW - 60, nextFireAt: NOW + 630 })]);
+    render(<ScheduledAgentsModal open={true} onOpenChange={vi.fn()} hostTree={ONE_HOST_TREE} />);
+    const line = await screen.findByTestId("scheduled-agents-modal-row-deliveries-sensor");
+    expect(line).toHaveTextContent("Sensor");
+    expect(line).toHaveTextContent("Healthy");
+    expect(line).toHaveTextContent("Last fired 3h ago");
+    const row = screen.getByTestId("scheduled-agents-modal-row-deliveries");
+    expect(row).not.toHaveTextContent("Next:");
+    expect(screen.getByTestId("scheduled-agents-modal-row-morning-triage")).toHaveTextContent("Next: in 10m");
+  });
+
+  it("T-20b: switched off with held fires shows Off and the waiting count", async () => {
+    listScheduledAgentsMock.mockResolvedValue([sensorRow("off", { enabled: false })]);
+    render(<ScheduledAgentsModal open={true} onOpenChange={vi.fn()} hostTree={ONE_HOST_TREE} />);
+    const line = await screen.findByTestId("scheduled-agents-modal-row-deliveries-sensor");
+    expect(line).toHaveTextContent("Off");
+    expect(screen.getByTestId("scheduled-agents-modal-row-deliveries-sensor-waiting")).toHaveTextContent("2 waiting");
+  });
+
+  it("T-20c: never fired reads 'Never fired'; unknown reads Unknown", async () => {
+    listScheduledAgentsMock.mockResolvedValue([sensorRow("unknown", { lastFiredAt: null })]);
+    render(<ScheduledAgentsModal open={true} onOpenChange={vi.fn()} hostTree={ONE_HOST_TREE} />);
+    const line = await screen.findByTestId("scheduled-agents-modal-row-deliveries-sensor");
+    expect(line).toHaveTextContent("Unknown");
+    expect(line).toHaveTextContent("Never fired");
+  });
+
+  it("T-20d: opening a broken sensor task shows the read-only sensor section with the error lines", async () => {
+    listScheduledAgentsMock.mockResolvedValue([sensorRow("broken")]);
+    listRolesForHostMock.mockResolvedValue([{ name: "assistant", description: "" }]);
+    render(<ScheduledAgentsModal open={true} onOpenChange={vi.fn()} hostTree={ONE_HOST_TREE} />);
+    const line = await screen.findByTestId("scheduled-agents-modal-row-deliveries-sensor");
+    expect(line).toHaveTextContent("Broken");
+    expect(line).not.toHaveTextContent("KeyError");
+    fireEvent.click(screen.getByTestId("scheduled-agents-modal-row-deliveries"));
+    const details = await screen.findByTestId("scheduled-agents-modal-form-sensor-details");
+    expect(details).toHaveTextContent("Always running");
+    expect(details).toHaveTextContent("Last ran");
+    expect(screen.getByTestId("scheduled-agents-modal-form-sensor-details-error")).toHaveTextContent("KeyError: x");
+  });
+
+  it("T-20e: the opened task's sensor section follows the 30s refresh, and survives a refresh that drops the row", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      listScheduledAgentsMock.mockResolvedValueOnce([sensorRow("healthy")]);
+      listScheduledAgentsMock.mockResolvedValueOnce([sensorRow("broken")]);
+      listScheduledAgentsMock.mockResolvedValue([]);
+      listRolesForHostMock.mockResolvedValue([{ name: "assistant", description: "" }]);
+      render(<ScheduledAgentsModal open={true} onOpenChange={vi.fn()} hostTree={ONE_HOST_TREE} />);
+      fireEvent.click(await screen.findByTestId("scheduled-agents-modal-row-deliveries"));
+      const details = await screen.findByTestId("scheduled-agents-modal-form-sensor-details");
+      expect(details).toHaveTextContent("Healthy");
+      await act(async () => {
+        vi.advanceTimersByTime(30_000);
+      });
+      await waitFor(() =>
+        expect(screen.getByTestId("scheduled-agents-modal-form-sensor-details")).toHaveTextContent("Broken"),
+      );
+      // Next refresh returns nothing (host didn't answer) — the form keeps the last copy.
+      await act(async () => {
+        vi.advanceTimersByTime(30_000);
+      });
+      await waitFor(() => expect(listScheduledAgentsMock).toHaveBeenCalledTimes(3));
+      expect(screen.getByTestId("scheduled-agents-modal-form-sensor-details")).toHaveTextContent("Broken");
+      expect(screen.getByTestId("scheduled-agents-modal-form-schedule-sensor")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

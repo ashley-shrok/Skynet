@@ -54,6 +54,14 @@ import { parseDocument as yamlParseDocument } from "yaml";
 import { sshLogger, systemLogger } from "../utils/logger.js";
 import { execCommand } from "../ssh/tmux-helper.js";
 import { scheduleError, SENSOR_TYPE } from "./schedule-next-fire.js";
+import {
+  deriveSensorStatus,
+  parseSensorProbe,
+  readSensorProbeLocal,
+  sensorProbeShell,
+  type SensorProbe,
+  type SensorStatus,
+} from "./sensor-status.js";
 // Phase 85 Plan 85-01 Task 1: role-name gate for readRoleFileByName +
 // readAvatarSiblingFileByRole. Same pattern roles-create.ts imports at L87
 // (`/^[a-z0-9-]+$/` — kebab-case-lowercase, defense-in-depth against SSH
@@ -1539,6 +1547,8 @@ export async function readRoleFileByName(
 // raw `schedule` (unknown, so the modal's editor can render + edit it
 // without a wire-side re-humanization round-trip). Existing fields stay
 // so the read shape is a superset.
+// Sensors shape 2: `lastFiredAt` (every wake-up, from .state/<slug>.last) and
+// `sensor` (sensor-triggered wake-ups only; null otherwise).
 type Wakeup = {
   slug: string;
   name: string;
@@ -1546,6 +1556,9 @@ type Wakeup = {
   scheduleHuman: string;
   schedule: unknown;
   instruction: string;
+  /** Epoch seconds of the last real fire; null when it has never fired. */
+  lastFiredAt: number | null;
+  sensor: SensorStatus | null;
 };
 
 /** Slug regex for wakeup folder names — kebab/snake, 1-80 chars. Enforced
@@ -1553,14 +1566,49 @@ type Wakeup = {
  *  into `..` or otherwise escape the identity dir. */
 export const IDENTITY_SLUG_RE = /^[a-z0-9_-]{1,80}$/i;
 
+/** Parse a `.last` sentinel (epoch seconds, possibly fractional). */
+function parseLastSentinel(raw: string | null | undefined): number | null {
+  if (raw === null || raw === undefined) return null;
+  const n = Number(raw.trim());
+  return raw.trim() !== "" && Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
+}
+
+function isSensorWakeupSchedule(schedule: unknown): boolean {
+  return (
+    typeof schedule === "object" &&
+    schedule !== null &&
+    (schedule as { type?: unknown }).type === SENSOR_TYPE
+  );
+}
+
 /** Shape a parsed wakeup.json into the wire row. */
-function wakeupFromSpec(parsed: Record<string, unknown>, slug: string): Wakeup {
+function wakeupFromSpec(
+  parsed: Record<string, unknown>,
+  slug: string,
+  lastFiredAt: number | null = null,
+  probe: SensorProbe | null = null,
+  nowSecs: number = Math.floor(Date.now() / 1000),
+): Wakeup {
   const name = typeof parsed.name === "string" ? parsed.name : slug;
   const enabled = typeof parsed.enabled === "boolean" ? parsed.enabled : false;
   const instruction = typeof parsed.instruction === "string" ? parsed.instruction : "";
   const scheduleHuman = humanizeWakeupSchedule(parsed.schedule);
-  return { slug, name, enabled, scheduleHuman, schedule: parsed.schedule ?? null, instruction };
+  const sensor = isSensorWakeupSchedule(parsed.schedule)
+    ? deriveSensorStatus(probe, enabled, nowSecs, humanizeWakeupSchedule)
+    : null;
+  return {
+    slug,
+    name,
+    enabled,
+    scheduleHuman,
+    schedule: parsed.schedule ?? null,
+    instruction,
+    lastFiredAt,
+    sensor,
+  };
 }
+
+const WAKEUP_LAST_MARK = "===SKYNET-WAKEUP-LAST:";
 
 /** Result shape for wakeups reads. Matches the wire shape "identity:wakeups". */
 export async function readIdentityWakeups(
@@ -1606,7 +1654,15 @@ export async function readIdentityWakeups(
         continue;
       }
       try {
-        wakeups.push(wakeupFromSpec(JSON.parse(raw) as Record<string, unknown>, slug));
+        const parsed = JSON.parse(raw) as Record<string, unknown>;
+        const dir = path.join(wakeupsDir, slug);
+        const lastRaw = await fs
+          .readFile(path.join(dir, ".state", `${slug}.last`), "utf-8")
+          .catch(() => null);
+        const probe = isSensorWakeupSchedule(parsed.schedule)
+          ? await readSensorProbeLocal(dir)
+          : null;
+        wakeups.push(wakeupFromSpec(parsed, slug, parseLastSentinel(lastRaw), probe));
       } catch (err) {
         sshLogger.error(
           "identity-artifact-reader: failed to parse local wakeup JSON",
@@ -1634,7 +1690,11 @@ export async function readIdentityWakeups(
     `cd "$HOME/fleet/identities/${identityKey}/wakeups" 2>/dev/null && { ` +
     'shopt -s nullglob; ' +
     'for d in */; do s="${d%/}"; [ -f "$s/wakeup.json" ] || continue; ' +
-    'echo "===FILE:$s==="; cat "$s/wakeup.json"; done; }';
+    'echo "===FILE:$s==="; cat "$s/wakeup.json"; echo; ' +
+    // Sensors shape 2: last fire + sensor probe ride the same round-trip.
+    `echo "${WAKEUP_LAST_MARK}$(cat "$s/.state/$s.last" 2>/dev/null)==="; ` +
+    sensorProbeShell('"$s"') +
+    'done; }';
   let stdout: string;
   try {
     stdout = await execWithTimeout(conn, cmd);
@@ -1654,10 +1714,22 @@ export async function readIdentityWakeups(
     const separatorIdx = chunk.indexOf("===");
     if (separatorIdx === -1) continue;
     const slug = chunk.slice(0, separatorIdx).trim();
-    const jsonContent = chunk.slice(separatorIdx + 3).trim();
+    const rest = chunk.slice(separatorIdx + 3);
+    const lastIdx = rest.indexOf(WAKEUP_LAST_MARK);
+    const jsonContent = (lastIdx === -1 ? rest : rest.slice(0, lastIdx)).trim();
     if (!slug || !jsonContent) continue;
+    let lastFiredAt: number | null = null;
+    let probe: SensorProbe | null = null;
+    if (lastIdx !== -1) {
+      const after = rest.slice(lastIdx + WAKEUP_LAST_MARK.length);
+      const end = after.indexOf("===");
+      if (end !== -1) lastFiredAt = parseLastSentinel(after.slice(0, end));
+      probe = parseSensorProbe(after);
+    }
     try {
-      wakeups.push(wakeupFromSpec(JSON.parse(jsonContent) as Record<string, unknown>, slug));
+      wakeups.push(
+        wakeupFromSpec(JSON.parse(jsonContent) as Record<string, unknown>, slug, lastFiredAt, probe),
+      );
     } catch (err) {
       sshLogger.error(
         "identity-artifact-reader: failed to parse remote wakeup JSON",

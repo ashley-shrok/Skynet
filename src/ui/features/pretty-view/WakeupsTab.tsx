@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import type { Wakeup, WakeupSpecWire } from "@/api/claude-session-api";
 import type { TabState } from "./IdentityFileTab";
 import { AddWakeupDialog } from "./AddWakeupDialog";
+import { SensorDetails, SensorSummaryLine, lastFiredLabel } from "./SensorStatusView";
 // Phase 72 Plan 02 Task 1: FormSchedule + hydrate/build/validate helpers +
 // RestrictToDaysChips lifted into a shared module so the new AddWakeupDialog
 // (add-wakeup sub-modal) can consume them. Non-behavior-change refactor.
@@ -437,9 +438,22 @@ function WakeupRow({
               <span className="font-semibold text-[15px] text-[#f0ebe0] truncate">
                 {wakeup.name}
               </span>
-              <span className="text-xs text-[var(--color-pv-fg-muted)] font-mono truncate leading-tight">
-                {wakeup.scheduleHuman}
-              </span>
+              {wakeup.sensor ? (
+                <SensorSummaryLine
+                  sensor={wakeup.sensor}
+                  lastFiredAt={wakeup.lastFiredAt}
+                  testId="wakeup-sensor-summary"
+                  className="text-xs text-[var(--color-pv-fg-muted)] truncate leading-tight"
+                />
+              ) : (
+                <span className="text-xs text-[var(--color-pv-fg-muted)] font-mono truncate leading-tight">
+                  {wakeup.scheduleHuman}
+                  <span className="font-sans" data-testid="wakeup-last-fired">
+                    {" · "}
+                    {lastFiredLabel(wakeup.lastFiredAt)}
+                  </span>
+                </span>
+              )}
             </span>
             {/* Phase 72 Plan 02 Task 2: scope pill — always visible per
                 CONTEXT.md "every wakeup visibly declares its scope". Non-
@@ -560,6 +574,14 @@ function WakeupRow({
           repeat it here — just the affordance to enter edit mode. */}
       {!editingSchedule ? (
         expanded && (
+          <>
+          {wakeup.sensor && (
+            <SensorDetails
+              sensor={wakeup.sensor}
+              lastFiredAt={wakeup.lastFiredAt}
+              testId="wakeup-sensor-details"
+            />
+          )}
           <div className="flex items-center justify-end">
             <button
               type="button"
@@ -572,6 +594,7 @@ function WakeupRow({
               <span>Edit schedule</span>
             </button>
           </div>
+          </>
         )
       ) : (
         <div className="flex flex-col gap-3">

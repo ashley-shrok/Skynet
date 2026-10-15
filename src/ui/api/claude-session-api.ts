@@ -21,6 +21,7 @@
 
 import { CLIENT_BUILD_ID } from "@/lib/client-build-id";
 import { lockSkewedSession } from "@/state/skew-lock-store";
+import type { SensorStatus } from "./sensor-status-types";
 
 // 2026-09-30 freeze-diag: registry of live sockets opened via this helper.
 // Increment on construction, decrement on close/error so the count reflects
@@ -693,6 +694,11 @@ export type Wakeup = {
   scheduleHuman: string;
   schedule: unknown;
   instruction: string;
+  /** Epoch seconds of the last real fire; null = never fired. Optional on
+   *  the wire so an older backend's rows still type-check. */
+  lastFiredAt?: number | null;
+  /** Sensor-triggered wake-ups only; null/absent for clock schedules. */
+  sensor?: SensorStatus | null;
 };
 export type IdentityListWakeupsPayload = {
   type: "identity:list-wakeups";

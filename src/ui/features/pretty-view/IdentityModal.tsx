@@ -140,6 +140,9 @@ function TitleLineJumpToRole({
   );
 }
 
+/** How often an open Wake-ups tab re-reads its list (sensors shape 2). */
+const WAKEUPS_REFRESH_MS = 30_000;
+
 export function IdentityModal({
   open,
   onOpenChange,
@@ -300,6 +303,37 @@ export function IdentityModal({
       }
     };
   }, [open, identity.identityKey, hostId]);
+
+  // Sensors shape 2: while the Wake-ups tab is showing, quietly re-read the
+  // list every 30s so sensor status and last-fired stay current. Nothing is
+  // re-read while the tab (or the modal) isn't showing. A failed refresh
+  // keeps the last good list rather than flipping the tab to an error.
+  useEffect(() => {
+    if (!open || activeTab !== "identity-wakeups" || !identity.identityKey) return;
+    const identityKey = identity.identityKey;
+    let cancelled = false;
+    const handle = setInterval(() => {
+      sendIdentityMutation<IdentityListWakeupsPayload, IdentityWakeupsEvent>(
+        { type: "identity:list-wakeups", identityKey, hostId },
+        "identity:wakeups",
+      )
+        .then((ev) => {
+          if (cancelled || ev.error) return;
+          setIdentityWakeupsState((prev) =>
+            prev.status === "loading" ? prev : { status: "ready", data: ev.wakeups },
+          );
+        })
+        .catch(() => {
+          /* keep the last good list */
+        });
+    }, WAKEUPS_REFRESH_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(handle);
+    };
+    // sendIdentityMutation is a stable-in-behaviour local helper.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, activeTab, identity.identityKey, hostId]);
 
   // Reset per-field draft state + close menu on open.
   useEffect(() => {

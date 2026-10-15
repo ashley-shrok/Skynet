@@ -905,6 +905,9 @@ crown, then gear.
   and the schedule (daily / weekly / monthly / yearly / interval /
   one-shot — with multiple times per day, every-N weeks/months, an
   interval time window and start, and an end date or run count).
+  Sensor-fired tasks show their sensor's status instead of a Next time
+  (see § Scheduled tasks — User-side counterpart). The list re-reads
+  itself every ~30s while open.
   *Agent-side:* see § Scheduled tasks. **User-gated.**
 
 - **🎭 Drama masks — roles.** Opens a modal listing every role the
@@ -1013,7 +1016,18 @@ crown, then gear.
   only when there's something to show:
   - **Agent file** — view and edit the identity's own `<name>.md`.
   - **Wake-ups** — view the identity's scheduled wake-ups (§ Scheduled
-    wake-ups).
+    wake-ups). Each row's line under the name shows the schedule and when
+    it last fired (`daily @ 09:00 · Last fired 3h ago`, or `Never fired`).
+    A sensor-fired wake-up's line reads `📡 Sensor · <status> · Last fired
+    …` plus `· N waiting` when fires are being held. Status is one of
+    **Healthy**, **Broken** (red), **Running long**, **Off** (switched
+    off), **Not live yet** (sensor not published) or **Unknown** (status
+    can't be read — no health record, or one more than 5 minutes old).
+    Expanding a sensor wake-up shows a read-only sensor section: status,
+    how it runs, last ran, last fired, waiting fires, and the sensor's
+    last error lines when broken. The on/off switch is the only sensor
+    control in the app — sensors are built by agents (`sensor-development`
+    skill). The tab re-reads itself every ~30s while it's showing.
   - **Files** — full workspace explorer for the identity's `workspace/`
     folder: browse, download, upload, create files and folders, and
     edit files inline in the modal for supported types (text, code,
@@ -1629,7 +1643,13 @@ the humanized schedule and, beneath it, inline **Last / Next** run times
 a glance when the agent last fired and when it will fire again — hover
 either chip for the absolute datetime. Rows that have never actually
 fired (first-sight anchored only — see § On-disk shape below) show just
-`Next`; one_shots past their slot show just `Last`. If the user
+`Next`; one_shots past their slot show just `Last`. A sensor-fired
+task has no Next: its line reads `📡 Sensor · <status> · Last fired 3h
+ago` (or `Never fired`), plus `· N waiting` when fires are being held
+while it's off — same statuses as the identity modal's Wake-ups tab
+(§ Conversation view). Opening one shows the same read-only sensor
+section, including its last error lines when broken. The list re-reads
+itself every ~30s while open. If the user
 asks "how do I make a scheduled task?" — point her at the clock icon.
 
 ### On-disk shape

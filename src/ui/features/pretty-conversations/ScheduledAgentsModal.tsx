@@ -84,6 +84,9 @@ export interface ScheduledAgentsModalProps {
 // collide with a real user-defined role or host name.
 const ALL_SENTINEL = "__ALL__" as const;
 
+/** How often an open scheduled-tasks modal re-reads the list. */
+const LIST_REFRESH_MS = 30_000;
+
 export function ScheduledAgentsModal({
   open,
   onOpenChange,
@@ -162,31 +165,47 @@ export function ScheduledAgentsModal({
     }
   }, []);
 
-  // Keep the Last / Next chips honest while the list is open: re-render
-  // every 30s (the chips compute relative time at render), and refetch once
-  // whenever an enabled task's Next slot has passed since the last tick so
-  // its Last chip catches up. Without this "Next: in 2m" froze until reopen.
+  // Keep the list current while the modal is open (sensors shape 2): every
+  // 30s re-render (the Last / Next chips compute relative time at render)
+  // and re-read the list, so sensor status, last fired and Next never go
+  // more than ~30s stale. Runs in the form view too — an opened sensor
+  // task's status section reads the live row. Nothing runs while closed.
+  // One refresh at a time: a slow host fan-out never stacks requests.
   const [, setChipTick] = useState(0);
-  const itemsRef = useRef(items);
-  itemsRef.current = items;
+  const refreshInFlight = useRef(false);
   useEffect(() => {
-    if (!open || view !== "list") return;
-    let lastCheckSecs = Math.floor(Date.now() / 1000);
+    if (!open) return;
     const handle = setInterval(() => {
-      const nowSecs = Math.floor(Date.now() / 1000);
-      const fired = (itemsRef.current ?? []).some(
-        (i) =>
-          i.enabled &&
-          i.nextFireAt !== null &&
-          i.nextFireAt > lastCheckSecs &&
-          i.nextFireAt <= nowSecs,
-      );
-      lastCheckSecs = nowSecs;
       setChipTick((t) => t + 1);
-      if (fired) void refetch();
-    }, 30_000);
+      if (refreshInFlight.current) return;
+      refreshInFlight.current = true;
+      void refetch().finally(() => {
+        refreshInFlight.current = false;
+      });
+    }, LIST_REFRESH_MS);
     return () => clearInterval(handle);
-  }, [open, view, refetch]);
+  }, [open, refetch]);
+
+  // The row being edited, read live from `items` so a background refresh
+  // updates its sensor status. If a refresh briefly drops it (its host
+  // didn't answer), keep showing the last copy rather than blanking the form.
+  const lastEditingRow = useRef<ScheduledAgentListItem | null>(null);
+  const liveEditingRow =
+    editing !== null
+      ? (items?.find((i) => i.hostId === editing.hostId && i.slug === editing.slug) ?? null)
+      : null;
+  if (editing === null) {
+    lastEditingRow.current = null;
+  } else if (liveEditingRow !== null) {
+    lastEditingRow.current = liveEditingRow;
+  }
+  const editingRow =
+    liveEditingRow ??
+    (editing !== null &&
+    lastEditingRow.current?.hostId === editing.hostId &&
+    lastEditingRow.current?.slug === editing.slug
+      ? lastEditingRow.current
+      : null);
 
   const flatHosts = useMemo(
     () =>
@@ -568,11 +587,7 @@ export function ScheduledAgentsModal({
         <ModalBody className="p-0 flex flex-col min-h-0 overflow-hidden">
           <ScheduledAgentsModalForm
             mode={editing !== null ? "edit" : "create"}
-            initialSpec={
-              editing !== null
-                ? (items?.find((i) => i.hostId === editing.hostId && i.slug === editing.slug) ?? null)
-                : null
-            }
+            initialSpec={editingRow}
             flatHosts={flatHosts}
             onCancel={() => backToList()}
             onSaved={(optimistic) => backToList(optimistic)}

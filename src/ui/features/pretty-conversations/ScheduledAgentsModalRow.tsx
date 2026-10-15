@@ -44,6 +44,7 @@ import {
   formatRelativeFuture,
   formatRelativePast,
 } from "./scheduled-agents-time-fmt";
+import { SensorSummaryLine } from "@/features/pretty-view/SensorStatusView";
 
 const FALLBACK_HUE = 190;
 
@@ -139,8 +140,20 @@ export function ScheduledAgentsModalRow({
 
       <div className="pv-agent-row-body">
         <div className="pv-agent-row-name">{prettifyScheduledAgentName(row.name)}</div>
-        <div className="pv-agent-row-sub">{row.scheduleHuman}</div>
-        {(row.lastFiredAt !== null || row.nextFireAt !== null) && (() => {
+        {row.sensor ? (
+          // Sensors shape 2: a sensor task has no Next — its sensor's status
+          // takes that slot, beside Last fired.
+          <div className="pv-agent-row-sub">
+            <SensorSummaryLine
+              sensor={row.sensor}
+              lastFiredAt={row.lastFiredAt}
+              testId={`scheduled-agents-modal-row-${row.slug}-sensor`}
+            />
+          </div>
+        ) : (
+          <div className="pv-agent-row-sub">{row.scheduleHuman}</div>
+        )}
+        {!row.sensor && (row.lastFiredAt !== null || row.nextFireAt !== null) && (() => {
           const nowSecs = Math.floor(Date.now() / 1000);
           const hasLast = row.lastFiredAt !== null;
           const hasNext = row.nextFireAt !== null;

@@ -24,6 +24,7 @@
 // compute it. Every helper takes the slug back FROM the server response for
 // CREATE, or pre-computed FROM the LIST for UPDATE / DELETE / toggle.
 
+import type { SensorStatus } from "./sensor-status-types";
 import { authApi, handleApiError } from "@/main-axios";
 
 // ---------------------------------------------------------------------------
@@ -63,6 +64,8 @@ export type ScheduledAgentListItem = {
    * the sentinel is absent or the schedule shape is unknown. */
   lastFiredAt: number | null;
   nextFireAt: number | null;
+  /** Sensor-triggered tasks only; null/absent for clock schedules. */
+  sensor?: SensorStatus | null;
 };
 
 /** Mirror of backend `ScheduledAgentSpec` (scheduled-agents-write.ts). The
