@@ -43,7 +43,7 @@ describe("useInjectedTurnRelay", () => {
     vi.restoreAllMocks();
   });
 
-  it("T1: live-ref immediate dispatch — body sync, \\r+mqid at +60ms", () => {
+  it("T1: live-ref immediate dispatch — one event, body+\\r with mqid", () => {
     const { result } = renderHook(() =>
       useInjectedTurnRelay({ getSendFn: () => currentSend }),
     );
@@ -59,17 +59,15 @@ describe("useInjectedTurnRelay", () => {
       result.current.onInjectedTurnReady("hello world", "mqid-abc");
     });
 
-    // Body fires synchronously (1 call).
+    // Body + CR fire synchronously as ONE event carrying the mqid, so the
+    // backend split-send arms the pv-send watchdog with the body.
     expect(mockSend).toHaveBeenCalledTimes(1);
-    expect(mockSend.mock.calls[0]).toEqual(["hello world"]);
+    expect(mockSend.mock.calls[0]).toEqual(["hello world\r", "mqid-abc"]);
 
-    // Advance 60ms — CR half fires.
     act(() => {
-      vi.advanceTimersByTime(60);
+      vi.advanceTimersByTime(100);
     });
-
-    expect(mockSend).toHaveBeenCalledTimes(2);
-    expect(mockSend.mock.calls[1]).toEqual(["\r", "mqid-abc"]);
+    expect(mockSend).toHaveBeenCalledTimes(1);
   });
 
   it("T2: null-ref queue-and-replay — stashes turn, replays on register", async () => {
@@ -111,17 +109,9 @@ describe("useInjectedTurnRelay", () => {
       await Promise.resolve();
     });
 
-    // Body should have fired (1 call).
+    // Replayed as one body+CR event with the mqid.
     expect(mockSend).toHaveBeenCalledTimes(1);
-    expect(mockSend.mock.calls[0]).toEqual(["queued text"]);
-
-    // Advance 60ms — CR half fires.
-    act(() => {
-      vi.advanceTimersByTime(60);
-    });
-
-    expect(mockSend).toHaveBeenCalledTimes(2);
-    expect(mockSend.mock.calls[1]).toEqual(["\r", "mqid-xyz"]);
+    expect(mockSend.mock.calls[0]).toEqual(["queued text\r", "mqid-xyz"]);
   });
 
   it("T3: stale-pending displacement — second turn displaces first, only second replays", async () => {
@@ -172,14 +162,13 @@ describe("useInjectedTurnRelay", () => {
       vi.advanceTimersByTime(60);
     });
 
-    // Exactly 2 calls: second turn body + second turn CR.
-    expect(mockSend).toHaveBeenCalledTimes(2);
-    expect(mockSend.mock.calls[0]).toEqual(["second turn"]);
-    expect(mockSend.mock.calls[1]).toEqual(["\r", "mqid-2"]);
+    // Exactly 1 call: the second turn's body+CR.
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    expect(mockSend.mock.calls[0]).toEqual(["second turn\r", "mqid-2"]);
 
     // "first turn" must NEVER appear in any call.
     const allCallArgs = mockSend.mock.calls.flat();
-    expect(allCallArgs).not.toContain("first turn");
+    expect(allCallArgs.some((a) => String(a).includes("first turn"))).toBe(false);
     expect(allCallArgs).not.toContain("mqid-1");
   });
 
@@ -238,7 +227,7 @@ describe("useInjectedTurnRelay", () => {
     expect(mockSend2).toHaveBeenCalledTimes(0);
   });
 
-  it("T5: log assertions matrix — all [pv-inject] branch coverage including 60ms-window null WARN", async () => {
+  it("T5: log assertions matrix — all [pv-inject] branch coverage including send-failed WARN", async () => {
     currentSend = null;
 
     // --- (a) entry log + (c) queued-for-replay ---
@@ -303,9 +292,6 @@ describe("useInjectedTurnRelay", () => {
     });
     expect(hasImmediate).toBe(true);
 
-    // Advance 60ms — clear CR timer.
-    act(() => { vi.advanceTimersByTime(60); });
-
     // --- (e) ref-unregistered log ---
     (console.info as ReturnType<typeof vi.fn>).mockClear();
     currentSend = null;
@@ -318,24 +304,19 @@ describe("useInjectedTurnRelay", () => {
     });
     expect(hasUnreg).toBe(true);
 
-    // --- (f) 60ms-window null WARN: register, fire turn, unregister BEFORE 60ms fires ---
-    currentSend = mockSend;
-    act(() => { result.current.onRegisterSendInput(mockSend); });
-    act(() => { result.current.onInjectedTurnReady("window-text", "mqid-window"); });
-    // Unregister before 60ms fires.
-    currentSend = null;
-    act(() => { result.current.onUnregisterSendInput(); });
-
+    // --- (f) send-failed WARN: the live send fn reports the WS not open ---
+    const failingSend = vi.fn((_text: string, _mqid?: string) => false);
+    currentSend = failingSend;
+    act(() => { result.current.onRegisterSendInput(failingSend); });
     (console.warn as ReturnType<typeof vi.fn>).mockClear();
-    act(() => { vi.advanceTimersByTime(60); });
+    act(() => { result.current.onInjectedTurnReady("window-text", "mqid-window"); });
 
     const warnCalls = (console.warn as ReturnType<typeof vi.fn>).mock.calls;
-    const has60msWarn = warnCalls.some((args) => {
+    const hasSendFailedWarn = warnCalls.some((args) => {
       const f = args[0];
-      return (typeof f === "string" && f.includes("[pv-inject]")) ||
-        (typeof f === "object" && f !== null && String(f.operation ?? "").startsWith("pv_inject_"));
+      return typeof f === "string" && f.includes("[pv-inject]") && f.includes("send returned false");
     });
-    expect(has60msWarn).toBe(true);
+    expect(hasSendFailedWarn).toBe(true);
   });
 
   it("T6: StrictMode double-invoke guard — second register invoke's microtask skips drain", async () => {
@@ -363,16 +344,8 @@ describe("useInjectedTurnRelay", () => {
       await Promise.resolve();
     });
 
-    // Only ONE body send (not two — second microtask sees pending=null and skips).
+    // Only ONE send (not two — second microtask sees pending=null and skips).
     expect(mockSend).toHaveBeenCalledTimes(1);
-    expect(mockSend.mock.calls[0]).toEqual(["queued text"]);
-
-    // Advance 60ms — only ONE CR fires.
-    act(() => {
-      vi.advanceTimersByTime(60);
-    });
-
-    expect(mockSend).toHaveBeenCalledTimes(2);
-    expect(mockSend.mock.calls[1]).toEqual(["\r", "mqid-sm"]);
+    expect(mockSend.mock.calls[0]).toEqual(["queued text\r", "mqid-sm"]);
   });
 });

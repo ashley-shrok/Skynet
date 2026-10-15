@@ -1010,6 +1010,60 @@ describe("usePrettyViewUploads: batch outcome Promise (quick-260823-8ji)", () =>
     vi.useRealTimers();
   });
 
+  it("Outcome-3b: upload_progress re-arms the timeout — a slow batch that keeps landing bytes does not time out", async () => {
+    vi.useFakeTimers();
+    const { result } = renderHook(() =>
+      usePrettyViewUploads({
+        ws: ws as unknown as WebSocket,
+        onUploadReadyToInject: onReady,
+      }),
+    );
+    const f = makeMockFile("x.bin", 65536);
+    act(() => {
+      result.current.stageAttachments("primary", [f]);
+    });
+    const tempId = result.current.stagedAttachments[0].tempId;
+
+    let ret: { messageQueueItemId: string; outcome: Promise<unknown> } | null =
+      null;
+    await act(async () => {
+      ret = (await result.current.startBatch("cap")) as typeof ret;
+    });
+    let settled = false;
+    void ret!.outcome.then(() => {
+      settled = true;
+    });
+
+    // 20s, progress, 20s, progress, 20s — 60s total, never 30s of silence.
+    for (let i = 1; i <= 2; i++) {
+      act(() => {
+        vi.advanceTimersByTime(20_000);
+      });
+      act(() => {
+        ws.emit({
+          type: "upload_progress",
+          messageQueueItemId: ret!.messageQueueItemId,
+          tempId,
+          bytesReceived: i * 1024,
+          total: 65536,
+        });
+      });
+    }
+    await act(async () => {
+      vi.advanceTimersByTime(20_000);
+      await Promise.resolve();
+    });
+    expect(settled).toBe(false);
+
+    // Then 30s of silence → timeout.
+    act(() => {
+      vi.advanceTimersByTime(10_000);
+    });
+    const outcome = await ret!.outcome;
+    expect(outcome).toEqual({ ok: false, reason: "timeout" });
+    vi.useRealTimers();
+  });
+
   it("Outcome-4: startBatch with ws=null resolves outcome to { ok: false, reason: 'ws_not_open' } AND latches pendingSendWaitingForWs", async () => {
     const { result } = renderHook(() =>
       usePrettyViewUploads({

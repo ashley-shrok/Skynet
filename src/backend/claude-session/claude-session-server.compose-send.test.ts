@@ -1224,6 +1224,29 @@ describe("__applyOnLineNotifyForTests — single-notify order-based (quick-26090
     expect(spy).toHaveBeenCalledWith("sess-A", content);
   });
 
+  it("user image frame (Claude Code inlined pasted image paths): notifyMatched called with its text", () => {
+    const spy = vi.fn();
+    __applyOnLineNotifyForTests({
+      frame: { type: "image", role: "user", text: "[Image #1] see this" },
+      sessionIdFromFile: "sess-A",
+      notifyMatched: spy,
+    });
+
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledWith("sess-A", "[Image #1] see this");
+  });
+
+  it("assistant image frame: notifyMatched NOT called", () => {
+    const spy = vi.fn();
+    __applyOnLineNotifyForTests({
+      frame: { type: "image", role: "assistant", text: "chart" },
+      sessionIdFromFile: "sess-A",
+      notifyMatched: spy,
+    });
+
+    expect(spy).not.toHaveBeenCalled();
+  });
+
   it("Test 2 (plain user turn): notifyMatched called EXACTLY ONCE with (sessionId, content)", () => {
     const spy = vi.fn();
     __applyOnLineNotifyForTests({

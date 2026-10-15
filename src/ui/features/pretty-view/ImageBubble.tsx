@@ -35,6 +35,13 @@ import type { ImageBlock } from "@/api/claude-session-api";
 //   4. NO `!` important overrides. This is a plain <div> wrapper, not a
 //      shadcn UI primitive, so the patch-#81 wrapper defense doesn't
 //      apply.
+// Claude Code prepends `[Image #N]` markers (one per inline image) to a
+// user turn whose pasted text carried image paths. Strip the leading run so
+// the remaining text renders like the turn the user actually sent.
+export function stripImagePasteMarkers(text: string): string {
+  return text.replace(/^(?:\s*\[Image #\d+\])+\s*/, "");
+}
+
 export function ImageBubble({
   role,
   images,
@@ -51,8 +58,9 @@ export function ImageBubble({
   const caption = `${role === "tool_result" ? "tool_result" : role} · ${images.length} image${images.length === 1 ? "" : "s"}`;
   const shortEventId = eventId.slice(0, 8);
   const timeLabel = new Date(ts).toLocaleTimeString();
-  const hasText = text.trim() !== "";
   const isUser = role === "user";
+  const shownText = isUser ? stripImagePasteMarkers(text) : text;
+  const hasText = shownText.trim() !== "";
   return (
     <div className={cn("flex", isUser ? "justify-end" : "justify-start")}>
       <div
@@ -86,9 +94,11 @@ export function ImageBubble({
               ),
         )}
       >
-        <div className="text-xs font-mono opacity-70">{caption}</div>
+        {!isUser && (
+          <div className="text-xs font-mono opacity-70">{caption}</div>
+        )}
         {hasText && (
-          <div className="text-sm break-words whitespace-pre-wrap">{text}</div>
+          <div className="text-sm break-words whitespace-pre-wrap">{shownText}</div>
         )}
         {images.map((img, i) => (
           // quick 260810-ia4 Fix 2: reserve layout before decode; kills the
@@ -109,9 +119,11 @@ export function ImageBubble({
             />
           </div>
         ))}
-        <div className="text-xs font-mono opacity-70">
-          {shortEventId} · {timeLabel}
-        </div>
+        {!isUser && (
+          <div className="text-xs font-mono opacity-70">
+            {shortEventId} · {timeLabel}
+          </div>
+        )}
       </div>
     </div>
   );

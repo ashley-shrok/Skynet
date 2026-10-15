@@ -11,9 +11,11 @@ import { useRef, useCallback } from "react";
  * accessor so the hook never holds a stale ref — it reads the live ref at
  * dispatch time. The pane's pvSendInputRef stays the single source of truth.
  *
- * Split-send shape is byte-identical to the original inline code:
- *   send(text)                              — synchronous body
- *   setTimeout(60ms, send("\r", mqid))      — CR half
+ * Send shape matches a plain compose send: ONE event, `send(text + "\r",
+ * mqid)`. The backend's split-send path then writes the body, presses Enter
+ * via tmux, and arms the pv-send watchdog with the body so a swallowed Enter
+ * is retried. (The former body-then-bare-"\r" pair left the backend with an
+ * empty body, so the watchdog never armed for attachment sends.)
  *
  * StrictMode double-invoke: the drain microtask clears pendingRef.current
  * before executing the send, so the second invoke's microtask sees null and
@@ -28,6 +30,22 @@ export interface UseInjectedTurnRelayResult {
   onInjectedTurnReady: (text: string, messageQueueItemId: string) => void;
   onRegisterSendInput: (fn: (text: string, mqid?: string) => boolean) => void;
   onUnregisterSendInput: () => void;
+}
+
+function dispatchInjectedTurn(
+  send: (text: string, mqid?: string) => boolean,
+  text: string,
+  messageQueueItemId: string,
+): void {
+  // The injected text ends with "\n"; the backend strips only the trailing
+  // "\r", so the body keeps its final newline exactly as before.
+  const ok = send(text + "\r", messageQueueItemId);
+  if (!ok) {
+    console.warn("[pv-inject] send returned false", {
+      mqid: messageQueueItemId,
+      textLen: text.length,
+    });
+  }
 }
 
 export function useInjectedTurnRelay(
@@ -70,22 +88,12 @@ export function useInjectedTurnRelay(
         return;
       }
 
-      // Live ref path — dispatch immediately (byte-identical split-send shape).
+      // Live ref path — dispatch immediately.
       console.info("[pv-inject] dispatching-immediately", {
         mqid: messageQueueItemId,
         textLen: text.length,
       });
-      send(text);
-      setTimeout(() => {
-        const send2 = getSendFn();
-        if (send2) {
-          send2("\r", messageQueueItemId);
-        } else {
-          console.warn("[pv-inject] ref went null in 60ms window", {
-            mqid: messageQueueItemId,
-          });
-        }
-      }, 60);
+      dispatchInjectedTurn(send, text, messageQueueItemId);
     },
     [getSendFn],
   );
@@ -123,18 +131,7 @@ export function useInjectedTurnRelay(
           textLen: drain.text.length,
         });
 
-        // Byte-identical split-send shape as the immediate-dispatch path above.
-        send(drain.text);
-        setTimeout(() => {
-          const send2 = getSendFn();
-          if (send2) {
-            send2("\r", drain.messageQueueItemId);
-          } else {
-            console.warn("[pv-inject] ref went null in drain 60ms window", {
-              mqid: drain.messageQueueItemId,
-            });
-          }
-        }, 60);
+        dispatchInjectedTurn(send, drain.text, drain.messageQueueItemId);
       });
     },
     [getSendFn],

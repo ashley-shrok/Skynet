@@ -224,7 +224,7 @@ describe("formatInjectedUserTurn", () => {
     expect(lines[1]).toBe("");
     expect(lines[2]).toBe("--- attached files ---");
     expect(out).toContain(
-      "1. log.txt (12.1 KB, text/plain) → /home/ash/pretty-view-uploads/2026-07-20/143211-log.txt",
+      "1. log.txt (12.1 KB, text/plain) → `/home/ash/pretty-view-uploads/2026-07-20/143211-log.txt`",
     );
     expect(out).toContain("uploaded 2026-07-20T14:32:11");
     expect(out.endsWith("\n")).toBe(true);
@@ -260,9 +260,9 @@ describe("formatInjectedUserTurn", () => {
     expect(out).toContain("please analyze these\nsecond caption line");
     // Caption line(s) then blank line then delimiter.
     expect(out).toContain("\n\n--- attached files ---\n");
-    expect(out).toMatch(/1\. a\.log \(100 B, text\/plain\) → \/tmp\/a\.log/);
-    expect(out).toMatch(/2\. b\.log \(200 B, text\/plain\) → \/tmp\/b\.log/);
-    expect(out).toMatch(/3\. c\.log \(300 B, text\/plain\) → \/tmp\/c\.log/);
+    expect(out).toMatch(/1\. a\.log \(100 B, text\/plain\) → `\/tmp\/a\.log`/);
+    expect(out).toMatch(/2\. b\.log \(200 B, text\/plain\) → `\/tmp\/b\.log`/);
+    expect(out).toMatch(/3\. c\.log \(300 B, text\/plain\) → `\/tmp\/c\.log`/);
     expect(out.endsWith("\n")).toBe(true);
   });
 
@@ -295,6 +295,44 @@ describe("formatInjectedUserTurn", () => {
 // on the parser correctly returning null for non-injected content so the
 // bubble falls through to the normal markdown render.
 describe("parseInjectedUserTurn edge cases (Plan 05-03)", () => {
+  it("parses a pre-backtick turn with a bare landing path", () => {
+    const parsed = parseInjectedUserTurn(
+      "hi\n\n--- attached files ---\n1. a.png (1.4 MB, image/png) → /tmp/a.png\n   uploaded 2026-10-15T08:27:23\n",
+    );
+    expect(parsed?.files[0]?.landingPath).toBe("/tmp/a.png");
+  });
+
+  it("parses a turn whose landing path Claude Code removed", () => {
+    const parsed = parseInjectedUserTurn(
+      "hi\n\n--- attached files ---\n1. a.png (1.4 MB, image/png) →\n   uploaded 2026-10-15T08:27:23\n",
+    );
+    expect(parsed?.caption).toBe("hi");
+    expect(parsed?.files[0]?.filename).toBe("a.png");
+    expect(parsed?.files[0]?.landingPath).toBe("");
+  });
+
+  it("keeps image landing paths from looking like a pasted image path", () => {
+    const s = formatInjectedUserTurn({
+      caption: "see this",
+      files: [
+        {
+          filename: "IMG_0598.png",
+          size: 6600980,
+          mimetype: "image/png",
+          uploadTimestamp: "2026-10-15T08:28:58",
+          landingPath: "/home/u/pretty-view-uploads/2026-10-15/082858-IMG_0598.png",
+        },
+      ],
+    });
+    // Claude Code's paste handler: split at " /" and newlines; any piece
+    // ending in an image extension is read in as an image.
+    const pieces = s
+      .split(/ (?=\/|[A-Za-z]:\\)/)
+      .flatMap((p) => p.split("\n"))
+      .filter((p) => p.trim());
+    expect(pieces.some((p) => /\.(png|jpe?g|gif|webp)$/i.test(p.trim()))).toBe(false);
+  });
+
   it("Test 2: empty caption round-trips as empty caption", () => {
     const s = formatInjectedUserTurn({
       caption: "",

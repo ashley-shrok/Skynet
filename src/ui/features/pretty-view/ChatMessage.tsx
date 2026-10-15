@@ -419,7 +419,10 @@ export function ChatMessage({
                 {injected.caption}
               </div>
             )}
-            {hostName && eventId && onOpenEditor ? (
+            {hostName &&
+            eventId &&
+            onOpenEditor &&
+            injected.files.every((f) => f.landingPath.length > 0) ? (
               injected.files.map((f) => {
                 // Build the Skynet file URL from the browser origin, the
                 // target hostname, and the file's absolute landing path.
@@ -449,11 +452,11 @@ export function ChatMessage({
               })
             ) : (
               <AttachmentChipStrip
-                attachments={injected.files.map((f) => ({
+                attachments={injected.files.map((f, i) => ({
                   // tempId is unique per-file inside this bubble; landingPath
                   // is guaranteed unique by the backend's collision-suffix loop
                   // (Plan 01 orchestrator) so it doubles as a stable key.
-                  tempId: f.landingPath,
+                  tempId: f.landingPath || `${i}-${f.filename}`,
                   file: { name: f.filename, size: f.size, type: f.mimetype },
                   status: "complete",
                   bytesUploaded: f.size,

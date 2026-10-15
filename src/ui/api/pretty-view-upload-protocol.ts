@@ -235,6 +235,19 @@ export interface InjectedTurnInput {
 }
 
 /**
+ * The landing path is wrapped in backticks so Claude Code's paste handler
+ * leaves it alone. When a long injected turn arrives as a paste, Claude Code
+ * splits the text at every space followed by `/` and at newlines, and any
+ * piece ending in .png/.jpg/.jpeg/.gif/.webp is read in as an image: the
+ * path vanishes from the text, `[Image #N]` is prepended, and the Enter that
+ * follows can be swallowed while the images are read. A backticked path
+ * starts with a backtick and ends with one, so it never matches.
+ */
+export function formatLandingPath(landingPath: string): string {
+  return `\`${landingPath}\``;
+}
+
+/**
  * LOCKED format (do NOT deviate without coordinated Plan 02/03/04
  * migration). Plan 03's sender-side chip render parses this exact
  * layout back out for chip layout, and the agent on the receiving box
@@ -246,7 +259,7 @@ export interface InjectedTurnInput {
  *   {caption, may be empty, may span multiple lines}
  *   {blank}
  *   --- attached files ---
- *   1. {filename} ({human-size}, {mimetype}) → {landingPath}
+ *   1. {filename} ({human-size}, {mimetype}) → `{landingPath}`
  *      uploaded {uploadTimestamp}
  *   2. ...
  *
@@ -260,7 +273,7 @@ export function formatInjectedUserTurn(input: InjectedTurnInput): string {
   lines.push(INJECTED_DELIMITER);
   input.files.forEach((f, idx) => {
     lines.push(
-      `${idx + 1}. ${f.filename} (${formatHumanSize(f.size)}, ${f.mimetype}) → ${f.landingPath}`,
+      `${idx + 1}. ${f.filename} (${formatHumanSize(f.size)}, ${f.mimetype}) → ${formatLandingPath(f.landingPath)}`,
     );
     lines.push(`   uploaded ${f.uploadTimestamp}`);
   });
@@ -339,12 +352,23 @@ export function parseInjectedUserTurn(
 function parseFileHeaderLine(
   line: string,
 ): ParsedInjectedTurn["files"][number] | null {
-  // Format: "N. {filename} ({size-str}, {mimetype}) → {landingPath}"
+  // Format: "N. {filename} ({size-str}, {mimetype}) → `{landingPath}`"
   // filename may contain spaces + parens + non-ascii. We parse right-to-left:
   // split on the last " → ", then on the last " (" before that.
-  const arrowSplit = line.split(" → ");
+  // Older turns carry the path without backticks. Turns that Claude Code
+  // converted to inline images end in a bare "→" (path removed) — those
+  // parse with an empty landingPath so the bubble still renders as chips.
+  const normalized = line.endsWith(" →") ? `${line} ` : line;
+  const arrowSplit = normalized.split(" → ");
   if (arrowSplit.length < 2) return null;
-  const landingPath = arrowSplit.slice(1).join(" → ");
+  let landingPath = arrowSplit.slice(1).join(" → ");
+  if (
+    landingPath.length >= 2 &&
+    landingPath.startsWith("`") &&
+    landingPath.endsWith("`")
+  ) {
+    landingPath = landingPath.slice(1, -1);
+  }
   const left = arrowSplit[0];
 
   // strip leading "N. "

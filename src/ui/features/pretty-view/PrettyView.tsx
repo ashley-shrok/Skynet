@@ -35,7 +35,7 @@ import {
 import { encodeTabSpec } from "@/lib/tab-url";
 import { systemLogger } from "@/lib/frontend-logger";
 import EditableFileModal from "./EditableFileModal";
-import { ImageBubble } from "./ImageBubble";
+import { ImageBubble, stripImagePasteMarkers } from "./ImageBubble";
 import { RelayOutboundBubble } from "./RelayOutboundBubble";
 import { RelayInboundBubble } from "./RelayInboundBubble";
 import { MalformedBubble } from "./MalformedBubble";
@@ -95,7 +95,10 @@ import {
 import { IdentityBadge } from "@/features/terminal/IdentityBadge";
 import type { RowKebabMenuItem } from "@/features/pretty-conversations/RowKebabMenu";
 import { useIsTouchDevice } from "@/hooks/use-is-touch-device";
-import { formatInjectedUserTurn } from "@/api/pretty-view-upload-protocol";
+import {
+  formatInjectedUserTurn,
+  parseInjectedUserTurn,
+} from "@/api/pretty-view-upload-protocol";
 // Phase 137 Plan 03 (D-16): UserPreferences type for the fallbackVoice
 // resolution chain in the speak flow.
 import type { UserPreferences } from "@/api/open-tabs-api";
@@ -2811,6 +2814,29 @@ export function PrettyView({
         // flip above is preserved because backend still emits {type:"dormant"}
         // frames for internal state tracking.
       }
+      // FIFO head-match (quick-260823-fzy): an incoming user-role frame
+      // settles the oldest sending pending — send order is the match signal.
+      const settleOldestPendingSend = (
+        incomingEventId: unknown,
+        incomingLine: unknown,
+        incomingText: string,
+        frameType: "message" | "image",
+      ) => {
+        const list = pendingSendsRef.current;
+        const oldestSendingIdx = list.findIndex((p) => p.state === "sending");
+        const incomingPreview = incomingText.replace(/\s+/g, " ").trim().slice(0, 60);
+        if (oldestSendingIdx !== -1) {
+          const match = list[oldestSendingIdx]!;
+          console.info(`[diag-dormant-send] cleanup mqid=${match.mqid} matched_by=fifo-head-match frame=${frameType} elapsedMs=${Date.now() - match.sentAt} replaced=true incoming_eventId=${incomingEventId} incoming_line=${incomingLine ?? "?"} pendingCountBefore=${list.length} preview="${incomingPreview}"`);
+          if (match.timer !== null) window.clearTimeout(match.timer);
+          if (typeof incomingEventId === "string") {
+            settledBubbleKeyRef.current.set(incomingEventId, `pending-${match.mqid}`);
+          }
+          setPendingSends((prev) => prev.filter((p) => p.mqid !== match.mqid));
+        } else {
+          console.info(`[diag-dormant-send] incoming-user-frame mqid=n/a matched_by=none frame=${frameType} pendingCountBefore=${list.length} incoming_eventId=${incomingEventId} incoming_line=${incomingLine ?? "?"} action=newBubble reason=no-sending-pending preview="${incomingPreview}"`);
+        }
+      };
       switch (parsed.type) {
         case "pane_state": {
           // Phase 30 (PS30-01 + PS30-04): backend-authoritative pane-entry
@@ -3000,20 +3026,12 @@ export function PrettyView({
             noteOptimisticWipDelivered(isEnvelope ? "widget-envelope" : `${parsed.role}-message`);
           }
           if (parsed.role === "user" && !isEnvelope) {
-            const list = pendingSendsRef.current;
-            const oldestSendingIdx = list.findIndex((p) => p.state === "sending");
-            const incomingPreview = (typeof parsed.content === "string" ? parsed.content : "").replace(/\s+/g, " ").trim().slice(0, 60);
-            if (oldestSendingIdx !== -1) {
-              const match = list[oldestSendingIdx]!;
-              console.info(`[diag-dormant-send] cleanup mqid=${match.mqid} matched_by=fifo-head-match elapsedMs=${Date.now() - match.sentAt} replaced=true incoming_eventId=${parsed.eventId} incoming_line=${parsed.line ?? "?"} pendingCountBefore=${list.length} preview="${incomingPreview}"`);
-              if (match.timer !== null) window.clearTimeout(match.timer);
-              if (typeof parsed.eventId === "string") {
-                settledBubbleKeyRef.current.set(parsed.eventId, `pending-${match.mqid}`);
-              }
-              setPendingSends((prev) => prev.filter((p) => p.mqid !== match.mqid));
-            } else {
-              console.info(`[diag-dormant-send] incoming-user-frame mqid=n/a matched_by=none pendingCountBefore=${list.length} incoming_eventId=${parsed.eventId} incoming_line=${parsed.line ?? "?"} action=newBubble reason=no-sending-pending preview="${incomingPreview}"`);
-            }
+            settleOldestPendingSend(
+              parsed.eventId,
+              parsed.line,
+              typeof parsed.content === "string" ? parsed.content : "",
+              "message",
+            );
           }
           // Phase 43 Plan 43-07b — drop-oldest cap enforcement on live-append.
           // Skip widget-envelope wrapper frames — they're wake pings, not
@@ -3042,6 +3060,20 @@ export function PrettyView({
           // Patch #86: image bubbles interleave with text messages in strict
           // wire order — same state channel, same dedup on eventId. The
           // render branch below discriminates on `m.type`.
+          // A user turn can arrive as an image frame when Claude Code turned
+          // image paths in the sent text into inline images. It is still the
+          // echo of the oldest pending send, so it settles that pending
+          // bubble exactly like a user message frame — otherwise the pending
+          // bubble lingers beside the confirmed one (duplicate bubble).
+          if (parsed.role === "user") {
+            noteOptimisticWipDelivered("user-image");
+            settleOldestPendingSend(
+              parsed.eventId,
+              parsed.line,
+              typeof parsed.text === "string" ? parsed.text : "",
+              "image",
+            );
+          }
           // Phase 43 Plan 43-07b — drop-oldest cap enforcement on live-append.
           setMessages((prev) =>
             capOffRef.current
@@ -4621,7 +4653,23 @@ export function PrettyView({
                   normal message frames stay on ChatMessage (locked interior per user 2026-07-23).
                   hostId is drilled into RelayInboundBubble so its file-pointer fetch can identify
                   which pane's remote host to query. */}
-              {m.type === "image" ? (
+              {m.type === "image" &&
+              m.role === "user" &&
+              parseInjectedUserTurn(stripImagePasteMarkers(m.text)) ? (
+                // A Skynet attachment send that Claude Code turned into inline
+                // images: render it as the attachment bubble the user sent
+                // (caption + file chips), not as a raw image bubble.
+                <ChatMessage
+                  role="user"
+                  content={stripImagePasteMarkers(m.text)}
+                  speakVoices={speakVoices}
+                  ts={m.ts}
+                  eventId={m.eventId}
+                  hostName={hostName}
+                  onOpenEditor={handleOpenEditor}
+                  fileDragOrigin={fileDragOrigin}
+                />
+              ) : m.type === "image" ? (
                 <ImageBubble
                   role={m.role}
                   images={m.images}

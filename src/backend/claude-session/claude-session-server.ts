@@ -499,27 +499,33 @@ export function reconstructRawSlashCommand(content: string): string | null {
  *      inject a spy to assert the exact call count and sessionId argument.
  */
 export function __applyOnLineNotifyForTests(deps: {
-  frame: { type?: string; role?: string; content?: unknown };
+  frame: { type?: string; role?: string; content?: unknown; text?: unknown };
   sessionIdFromFile: string | null;
   notifyMatched: (sessionId: string, content: string) => void;
 }): void {
   const { frame, sessionIdFromFile, notifyMatched } = deps;
 
-  // Guard: exactly matches the pre-fix inline block's condition.
+  // A user turn arrives as a message frame, or as an image frame when
+  // Claude Code turned image paths in the sent text into inline images —
+  // both are the echo of a pending send.
+  const content =
+    frame.type === "message"
+      ? frame.content
+      : frame.type === "image"
+        ? frame.text
+        : undefined;
   if (
-    frame.type !== "message" ||
     frame.role !== "user" ||
-    typeof frame.content !== "string" ||
-    frame.content.length === 0 ||
+    typeof content !== "string" ||
+    content.length === 0 ||
     !sessionIdFromFile
   ) {
     return;
   }
 
   // Passing content lets the watchdog classify the arrival (compose vs
-  // widget-envelope) and pop from the matching category FIFO. The type
-  // narrowing above proves frame.content is a non-empty string here.
-  notifyMatched(sessionIdFromFile, frame.content);
+  // widget-envelope) and pop from the matching category FIFO.
+  notifyMatched(sessionIdFromFile, content);
 }
 
 // ─── Phase 51 Plan 01: backgrounded-agents correlator (extracted test seam) ──

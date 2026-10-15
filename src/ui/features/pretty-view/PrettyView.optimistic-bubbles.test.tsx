@@ -329,6 +329,33 @@ describe("PrettyView — optimistic bubbles state machine (Phase 50 Plan 03 Task
     await waitFor(() => expect(countConfirmedBubbles(container)).toBe(1));
   });
 
+  it("Test 3d: user image frame (Claude Code inlined the attachment's image paths) clears oldest sending pending — no duplicate bubble", async () => {
+    const { container } = mount();
+    const ws = getCurrentWs();
+    flipToStreaming(ws);
+    await waitFor(() =>
+      expect(container.querySelector('textarea[placeholder="Write a message…"]')).not.toBeNull(),
+    );
+
+    typeAndEnter(container, "see this");
+    await waitFor(() => expect(countPendingBubbles(container)).toBe(1));
+
+    sendWsFrame(ws, {
+      type: "image",
+      role: "user",
+      images: [{ data: "iVBORw0KGgo=", mediaType: "image/png" }],
+      text: "[Image #1]\n\nsee this\n\n--- attached files ---\n1. a.png (1.4 MB, image/png) →\n   uploaded 2026-10-15T08:27:23\n",
+      eventId: "ev-img",
+      ts: Date.now(),
+    });
+    await waitFor(() => expect(countPendingBubbles(container)).toBe(0));
+    // Rendered as the user's attachment bubble: caption, no raw header/footer.
+    await waitFor(() => expect(container.textContent).toContain("see this"));
+    expect(container.textContent).not.toContain("user · 1 image");
+    expect(container.textContent).not.toContain("[Image #1]");
+    expect(container.textContent).not.toContain("--- attached files ---");
+  });
+
   it("Test 3b (quick-260823-fzy): real slash-command XML wrap clears pending under FIFO-only", async () => {
     const { container } = mount();
     const ws = getCurrentWs();

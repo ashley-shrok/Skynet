@@ -175,17 +175,19 @@ export interface UsePrettyViewUploadsReturn {
 const BACKPRESSURE_HIGH_WATER_BYTES = 4 * 1024 * 1024; // 4 MB — pause above
 const BACKPRESSURE_LOW_WATER_BYTES = 1 * 1024 * 1024; // 1 MB — resume below
 const BACKPRESSURE_POLL_MS = 50;
-const BACKPRESSURE_HARD_TIMEOUT_ITERATIONS = 60; // ~3 s stuck → give up
+// Give up on a file only when the WS send buffer has stopped draining for
+// this long. A slow uplink (phone on cellular, ~100 KB/s) drains the
+// high→low-water gap in tens of seconds; that is progress, not a stall.
+const BACKPRESSURE_STALL_MS = 60_000;
 const FOLDER_REJECTION_MS = 3000;
-// Quick 260823-8ji: per-batch outcome timeout. If no terminal event
-// (upload_ready_to_inject | upload_failed) arrives within this window
-// after upload_start dispatch, the outcome resolves { ok:false,
-// reason:"timeout" } so the compose surface can flag the send as failed
-// and preserve the textarea + attachment chips. 30s is empirically
-// generous — a healthy paste_send round-trip is single-digit seconds;
-// anything beyond 30s is either a WS disruption or a backend hang.
-// Backend has no matching PASTE_SEND_TIMEOUT_MS constant to align with
-// (verified 2026-08-23), so 30_000 is authoritative on the client side.
+// Quick 260823-8ji: per-batch outcome timeout. If the server goes quiet
+// for this long — no upload_progress / upload_complete and no terminal
+// event (upload_ready_to_inject | upload_failed) — the outcome resolves
+// { ok:false, reason:"timeout" } so the compose surface can flag the send
+// as failed and preserve the textarea + attachment chips. Every progress
+// or per-file complete event re-arms the window, so a large batch on a
+// slow uplink keeps going as long as bytes keep landing; only a WS
+// disruption or backend hang trips it.
 const BATCH_OUTCOME_TIMEOUT_MS = 30_000;
 
 // ---------------------------------------------------------------------------
@@ -312,6 +314,17 @@ export function usePrettyViewUploads(
     [clearBatchTimeout, resolveOutcome],
   );
 
+  // Re-arm the outcome timer while the batch is still pending — called on
+  // every server progress signal so the timeout measures silence, not total
+  // upload time.
+  const extendBatchTimeout = useCallback(
+    (batchId: string) => {
+      if (!batchTimeoutHandlesByBatchIdRef.current.has(batchId)) return;
+      armBatchTimeout(batchId);
+    },
+    [armBatchTimeout],
+  );
+
   const wsRef = useRef<WebSocket | null>(deps.ws);
   useEffect(() => {
     wsRef.current = deps.ws;
@@ -400,6 +413,7 @@ export function usePrettyViewUploads(
           // outcome.ok time via clearStagedForTarget. This is good-enough for
           // the data-loss fix; per-target progress-ring wiring is a follow-up
           // bounty candidate: queued-slot-attachment-chips-lack-progress-ring.
+          extendBatchTimeout(ourBatch);
           setAttachments("primary", (prev) =>
             prev.map((a) =>
               a.tempId === event.tempId
@@ -414,6 +428,7 @@ export function usePrettyViewUploads(
           break;
         }
         case "upload_complete": {
+          extendBatchTimeout(ourBatch);
           setAttachments("primary", (prev) =>
             prev.map((a) =>
               a.tempId === event.tempId
@@ -479,7 +494,7 @@ export function usePrettyViewUploads(
         }
       }
     },
-    [setAttachments, resolveOutcome],
+    [setAttachments, resolveOutcome, extendBatchTimeout],
   );
 
   // -------------------------------------------------------------------------
@@ -924,11 +939,25 @@ export function usePrettyViewUploads(
         // Backpressure gate.
         const getAmt = getBufferedAmountRef.current;
         if (getAmt) {
-          let iterations = 0;
+          let lowestSeen = getAmt();
+          let lastDrainAt = Date.now();
           while (getAmt() > BACKPRESSURE_HIGH_WATER_BYTES) {
-            if (iterations++ > BACKPRESSURE_HARD_TIMEOUT_ITERATIONS) {
-              // Give up — mark this file as errored and bail. Server will
+            const amt = getAmt();
+            if (amt < lowestSeen) {
+              lowestSeen = amt;
+              lastDrainAt = Date.now();
+            }
+            if (Date.now() - lastDrainAt > BACKPRESSURE_STALL_MS) {
+              // Give up — the buffer has not drained at all for the stall
+              // window. Mark this file as errored and bail. Server will
               // never see the rest of the chunks.
+              console.warn("[pv-upload-client] backpressure-stall-give-up", {
+                mqid: batchId,
+                tempId: att.tempId,
+                bufferedAmount: amt,
+                offset,
+                stallMs: BACKPRESSURE_STALL_MS,
+              });
               setAttachments(owningTarget, (prev) =>
                 prev.map((a) =>
                   a.tempId === att.tempId
