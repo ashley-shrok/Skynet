@@ -1675,6 +1675,7 @@ describe("runBootstrapForHost", () => {
         if (cmd.includes("daemon-reload")) return "__RELOAD_OK__";
         if (cmd.includes("__USAGE_REPORTER_RETIRED__")) return "__USAGE_REPORTER_RETIRED__";
         if (cmd.includes(ROLES_KEY_MIGRATION_SENTINEL)) return ROLES_NOOP_OUTPUT;
+        if (cmd.includes(DESKTOP_DEPS_SENTINEL)) return `${DESKTOP_DEPS_SENTINEL} present`;
         if (cmd.includes("SETTINGS=")) return "__SETTINGS_OK__";
         if (cmd.includes("gsd-context-monitor")) return "__CLEANUP_OK__";
         if (cmd.includes("host/parent")) return "__HOST_PARENT_OK__";
