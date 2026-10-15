@@ -27,6 +27,14 @@
 #   - system entries: a /loop "scheduled_task_fire" stamped at wake time, an
 #     "informational" idle-compaction notice.
 #
+# One gap is reported once. If a second message is queued while the agent is
+# still on its first reply, Claude Code runs this hook at queue time — before
+# the in-flight assistant entry is written — so the gap still looks open. When
+# a gap notice was already attached after the last assistant entry, and less
+# than GAP_THRESHOLD_SECONDS ago, stay silent. (An older one doesn't count: an
+# agent that got a notice but never replied, then sat idle again, is owed a
+# fresh one.)
+#
 # Applies to EVERY session on the box (no FLEET_IDENTITY gate — a gap is a
 # gap). Silent no-op on any unmet precondition; never fails the parent turn.
 #
@@ -62,12 +70,29 @@ reversed() {
     tac "$TRANSCRIPT"
   fi
 }
-LAST="$(reversed 2>/dev/null \
-  | jq -nRr 'first(inputs | fromjson? | select(type == "object" and .type == "assistant" and .message.model != "<synthetic>" and (.timestamp | type) == "string") | .timestamp)' 2>/dev/null)"
-[ -n "$LAST" ] || exit 0
+# Walk back to the first entry that is either the agent's last activity or a
+# gap notice already attached after it; print "<kind> <timestamp>".
+FOUND="$(reversed 2>/dev/null \
+  | jq -nRr 'first(inputs | fromjson? | select(type == "object" and (.timestamp | type) == "string")
+      | if .type == "assistant" and .message.model != "<synthetic>" then "activity \(.timestamp)"
+        elif .type == "attachment" and .attachment.type == "hook_additional_context"
+             and (.attachment.content | tostring | contains("since your last activity in this conversation")) then "notice \(.timestamp)"
+        else empty end)' 2>/dev/null)"
+[ -n "$FOUND" ] || exit 0
+NOW_EPOCH="$(date -u +%s)"
+
+if [ "${FOUND%% *}" = notice ]; then
+  NOTICE_EPOCH="$(date -u -d "${FOUND#* }" +%s 2>/dev/null)" || exit 0
+  [ $((NOW_EPOCH - NOTICE_EPOCH)) -lt "$GAP_THRESHOLD_SECONDS" ] && exit 0
+  # Stale notice with no reply since: measure from the last activity before it.
+  LAST="$(reversed 2>/dev/null \
+    | jq -nRr 'first(inputs | fromjson? | select(type == "object" and .type == "assistant" and .message.model != "<synthetic>" and (.timestamp | type) == "string") | .timestamp)' 2>/dev/null)"
+  [ -n "$LAST" ] || exit 0
+else
+  LAST="${FOUND#* }"
+fi
 
 LAST_EPOCH="$(date -u -d "$LAST" +%s 2>/dev/null)" || exit 0
-NOW_EPOCH="$(date -u +%s)"
 GAP=$((NOW_EPOCH - LAST_EPOCH))
 [ "$GAP" -ge "$GAP_THRESHOLD_SECONDS" ] || exit 0
 

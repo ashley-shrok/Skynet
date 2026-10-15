@@ -164,6 +164,27 @@ test_synthetic_entries_ignored() {
 }
 test_synthetic_entries_ignored
 
+# A gap is reported once: a second message queued mid-turn (before the
+# in-flight assistant entry is written) sees the first message's notice and
+# stays silent. A stale notice the agent never answered doesn't suppress.
+notice_att() { printf '{"type":"attachment","timestamp":"%s","attachment":{"type":"hook_additional_context","content":["It has been 4 hours 7 minutes since your last activity in this conversation (last active x; now y)."],"hookEvent":"UserPromptSubmit"}}\n' "$(ago "$1")"; }
+test_gap_reported_once() {
+  { entry assistant $((4*3600 + 420)); entry user 6; notice_att 6; } > "$T"
+  run_hook_on "$T"
+  assert_silent queued_second_message
+  { entry assistant $((6*3600)); entry user $((2*3600)); notice_att $((2*3600)); entry user 0; } > "$T"
+  run_hook_on "$T"
+  assert_notice stale_unanswered_notice "6 hours"
+  { entry assistant 90000; entry user 86000; notice_att 86000; entry assistant 85990; entry user 0; } > "$T"
+  run_hook_on "$T"
+  assert_notice notice_then_reply_then_new_gap "23 hours 53 minutes"
+  # Other hooks' additionalContext (e.g. the task-line reminder) never suppresses.
+  { entry assistant 7200; printf '{"type":"attachment","timestamp":"%s","attachment":{"type":"hook_additional_context","content":["Reminder from the id skill"]}}\n' "$(ago 5)"; } > "$T"
+  run_hook_on "$T"
+  assert_notice other_hook_context "2 hours"
+}
+test_gap_reported_once
+
 # Old user/attachment entries alone are not activity — a transcript with no
 # assistant entries stays silent.
 test_no_prior_activity() {
