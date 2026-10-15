@@ -208,7 +208,7 @@ const FIRE_GLOB =
  * hasn't been started).
  */
 export function sensorProbeShell(dirExpr: string): string {
-  const b64 = (file: string) => `$(base64 < ${file} 2>/dev/null | tr -d '\\n')`;
+  const b64 = (file: string) => `$(base64 2>/dev/null < ${file} | tr -d '\\n')`;
   return (
     `if [ -d ${dirExpr}/sensor ] || [ -d ${dirExpr}/fires ]; then ` +
     `_p=0; [ -e ${dirExpr}/sensor/sensor.json ] && _p=1; ` +
