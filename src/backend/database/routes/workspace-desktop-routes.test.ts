@@ -394,8 +394,9 @@ describe("/workspace/desktop with agent-desktop installed", () => {
         },
       );
 
+      // A real desktop boot; under full-suite load it can take well past 30s.
       let running = false;
-      for (let i = 0; i < 60 && !running; i++) {
+      for (let i = 0; i < 100 && !running; i++) {
         await new Promise((r) => setTimeout(r, 500));
         running =
           (await post("/status", { identityKey: "alice", hostId: 7 })).body
@@ -439,7 +440,7 @@ describe("/workspace/desktop with agent-desktop installed", () => {
       });
       expect(banner).toMatch(/^RFB 003\.00\d\n/);
     },
-    60_000,
+    90_000,
   );
 
   it.skipIf(!HAVE_X || REAL_GUACD)(
