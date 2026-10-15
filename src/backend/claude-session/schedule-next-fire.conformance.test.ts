@@ -50,5 +50,6 @@ describe("schedule engine conformance with wakeup-scheduler.py", () => {
       }
     }
     expect(mismatches.slice(0, 10)).toEqual([]);
-  });
+    // ~16s alone; under full-suite CPU contention it overran the 30s default.
+  }, 120_000);
 });
