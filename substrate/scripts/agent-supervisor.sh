@@ -911,10 +911,34 @@ clean_workspace_repos() {
 # with no cross-tick state written by this function or its callers. The former cross-tick
 # failure counters (in $DORMANCY_STATE_DIR) and the sentinel drop after N consecutive failures
 # in the callers are all removed per Phase 133 D-14.
+# wait_ambient_monitor_exit <name> <max-seconds>: block until no ambient-monitor for <name> is
+# running, polling every 0.5s, for at most <max-seconds>. Matches on the launch argv shape
+# (`ambient-monitor <dir> --inject-to`), so a name that prefixes another identity's never
+# matches it, and excludes this shell's own PIDs (pgrep -f would otherwise match itself).
+# Prints a short outcome for the caller's log line. Never fails.
+wait_ambient_monitor_exit() {
+  local name="$1" max="$2" pattern ticks=0 limit
+  pattern="ambient-monitor $IDENTITIES_DIR/$name --inject-to"
+  limit=$(( max * 2 ))
+  while pgrep -f -- "$pattern" 2>/dev/null | grep -vwqE "^($$|$BASHPID)$"; do
+    if [ "$ticks" -ge "$limit" ]; then
+      printf 'still running after %ss cap — proceeding' "$max"
+      return 0
+    fi
+    sleep 0.5
+    ticks=$((ticks + 1))
+  done
+  printf 'exited after ~%s.%ss' "$((ticks / 2))" "$(( (ticks % 2) * 5 ))"
+  return 0
+}
+
 retire_identity() {
   local name="$1"
   local iddir="$IDENTITIES_DIR/$name"
   local archdir="$IDENTITIES_ARCHIVE_DIR/$name"
+
+  # A birth that landed mid-pass launches now, not after every queued retire (see helper).
+  launch_newborns_midtick
 
   # =============================================================================================
   # STEP 1 (Phase 115 D-13): Matrix deactivate — FIRST, using credentials from the LIVE tree.
@@ -1065,10 +1089,13 @@ retire_identity() {
       log "'$name' retire step 2 (graceful exit): no survivors after /exit — pane at shell"
     fi
     # RESEARCH §4: after harness dies, ambient-monitor's _harness_watch fires ≤1s later, then
-    # _do_shutdown SIGTERMs its 4 children with a 10s grace window. Wait long enough that
-    # ambient-monitor completes its own cleanup before STEP 3 tears the tmux session down.
-    log "'$name' retire step 2 (graceful exit) — waiting ${GRACE_WAIT}s for ambient-monitor cleanup"
-    sleep "$GRACE_WAIT"
+    # _do_shutdown SIGTERMs its children with a 10s grace window and exits once they're down.
+    # Wait for that exit — capped at GRACE_WAIT — before STEP 3 tears the tmux session down.
+    # Waiting the full cap unconditionally cost ~11s per identity, serially, and a bulk archive
+    # (22 identities) held up every launch behind it for minutes; children normally exit in <1s.
+    local waited
+    waited="$(wait_ambient_monitor_exit "$name" "$GRACE_WAIT")"
+    log "'$name' retire step 2 (graceful exit) — ambient-monitor cleanup: ${waited}"
   fi
   log "'$name' retire step 2 (graceful exit) done"
 
@@ -3683,6 +3710,23 @@ launch_newborns() {
     launch "$name" fresh "$sess"
     n=$((n+1))
   done
+  return 0
+}
+
+# launch_newborns_midtick: the newborn fast path for births that land DURING a long reconcile
+# pass. retire_identity calls it before each retire, so a bulk archive (dozens of identities,
+# seconds each, serially) can't hold a freshly-born identity's launch until the pass ends.
+# Same launch_newborns as between ticks; afterwards the session/claude snapshots are retaken so
+# the rest of this pass sees the newborn as alive instead of ABSENT and launching it twice.
+# No-op outside the main loop (IDENTITY_LISTING_AT_TICK unset: --once, tests).
+launch_newborns_midtick() {
+  [ -n "$IDENTITY_LISTING_AT_TICK" ] || return 0
+  local fresh; fresh="$(new_identity_since_tick)"
+  [ -n "$fresh" ] || return 0
+  EARLY_WAKE_NAMES="$fresh"
+  launch_newborns
+  snapshot_sessions
+  snapshot_claude_running
   return 0
 }
 
