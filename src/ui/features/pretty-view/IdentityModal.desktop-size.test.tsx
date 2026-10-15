@@ -152,4 +152,19 @@ describe("IdentityModal — grows for the Desktop tab", () => {
       expect(modalClass()).not.toContain(EDITOR_WIDTH);
     }
   });
+
+  it("scrolls its tab row instead of clipping the last tab on a narrow screen", async () => {
+    render(
+      <IdentityModal
+        open={true}
+        onOpenChange={vi.fn()}
+        identity={BASE_IDENTITY}
+        hue={200}
+        hostId={7}
+        onOpenRoleModal={vi.fn()}
+      />,
+    );
+    const row = await screen.findByTestId("identity-modal-nav");
+    expect(row.className).toContain("overflow-x-auto");
+  });
 });

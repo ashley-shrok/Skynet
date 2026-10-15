@@ -53,6 +53,7 @@ import {
   startDesktop,
   takeDesktopControl,
 } from "@/api/workspace-desktop-api";
+import { useModalFullscreen } from "@/components/modal";
 import { GuacamoleDisplay } from "@/features/guacamole/GuacamoleDisplay";
 import {
   resolveWorkspaceErrorCopy,
@@ -187,6 +188,8 @@ export default function DesktopTab({
 }): JSX.Element {
   const [view, setView] = useState<View>({ status: "connecting" });
   const [taking, setTaking] = useState(false);
+  // Phone: the modal is fullscreen and the body just takes what's left.
+  const fullscreen = useModalFullscreen();
   const attemptRef = useRef(0);
   const mountedRef = useRef(true);
   const controlRef = useRef(false);
@@ -422,10 +425,16 @@ export default function DesktopTab({
           // active (viewer size): full width at the desktop's aspect ratio,
           // shrinking (flex) when the modal hits its 85vh cap — the display
           // then scales the desktop down to the smaller box. On a phone the
-          // modal is full screen and the body takes what's left. min-height
-          // is a floor so the display never paints into a zero-size box.
+          // modal is full screen and the body takes what's left, with no
+          // aspect ratio: iOS Safari otherwise derives the width from the
+          // flex-grown height and the picture overflows the screen. Width is
+          // pinned for the same reason. min-height is a floor so the display
+          // never paints into a zero-size box.
           flex: "1 1 auto",
-          aspectRatio: `${geoW || DEFAULT_W} / ${geoH || DEFAULT_H}`,
+          width: "100%",
+          ...(fullscreen
+            ? {}
+            : { aspectRatio: `${geoW || DEFAULT_W} / ${geoH || DEFAULT_H}` }),
           minHeight: 240,
         }}
       >

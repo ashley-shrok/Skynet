@@ -803,6 +803,10 @@ export function IdentityModal({
           onValueChange={setActiveTab}
           rowTestId="identity-modal-nav"
           testIdPrefix="identity-modal-nav"
+          // Five tabs (with Git + Desktop) outrun a phone's width; scroll the
+          // row instead of letting a tap on a clipped tab scroll the whole
+          // modal sideways.
+          scrollable
         />
 
         <TabsContent

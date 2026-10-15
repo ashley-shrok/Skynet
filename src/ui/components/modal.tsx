@@ -813,5 +813,6 @@ export {
   ModalSidebar,
   ModalDrillBack,
   useModalDrillIn,
+  useModalFullscreen,
 };
 export type { ModalProps, ModalSize };

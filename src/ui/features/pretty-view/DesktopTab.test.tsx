@@ -94,6 +94,49 @@ describe("DesktopTab", () => {
     );
   });
 
+  describe("body sizing", () => {
+    function mockViewport(phone: boolean) {
+      vi.spyOn(window, "matchMedia").mockImplementation(
+        (query: string) =>
+          ({
+            matches: phone,
+            media: query,
+            addEventListener: () => {},
+            removeEventListener: () => {},
+          }) as unknown as MediaQueryList,
+      );
+    }
+    function body(): HTMLElement {
+      return screen.getByTestId("desktop-tab").children[1] as HTMLElement;
+    }
+
+    it("takes the desktop's shape on a wide screen", async () => {
+      mockViewport(false);
+      connectDesktop.mockResolvedValue({
+        token: "tok",
+        geometry: "1920x1080",
+        userHasControl: false,
+      });
+      render(<DesktopTab identityKey="alice" hostId={7} isVisible />);
+      await screen.findByTestId("guac-display");
+      expect(body().style.aspectRatio).toBe("1920 / 1080");
+      expect(body().style.width).toBe("100%");
+    });
+
+    it("drops the aspect ratio on a phone so the picture fits the screen width", async () => {
+      mockViewport(true);
+      connectDesktop.mockResolvedValue({
+        token: "tok",
+        geometry: "1280x800",
+        userHasControl: false,
+      });
+      render(<DesktopTab identityKey="alice" hostId={7} isVisible />);
+      await screen.findByTestId("guac-display");
+      expect(body().style.aspectRatio).toBe("");
+      expect(body().style.width).toBe("100%");
+    });
+  });
+
   it("does not connect while hidden", () => {
     render(<DesktopTab identityKey="alice" hostId={7} isVisible={false} />);
     expect(connectDesktop).not.toHaveBeenCalled();
