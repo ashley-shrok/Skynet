@@ -27,6 +27,10 @@
  *        - askUserQuestionTimeout: "never" (belt-and-braces same)
  *        - env.DISABLE_AUTOUPDATER: "1" (prevents silent mid-session CLI upgrade)
  *        - env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1" (fleet-wide feature enable)
+ *        - env.DISABLE_AUTO_COMPACT: "1" (no harness compaction, including the
+ *          server-flagged idle compaction that fires ~54 min into an idle
+ *          session over 200k tokens; context-watch's save + recycle owns the
+ *          context limit instead)
  *        - skipDangerousModePermissionPrompt: true
  *        - crossSessionInbound: "refuse" (no managed host accepts Claude
  *          Code cross-session peer messages — the Matrix relay is the only
@@ -300,7 +304,7 @@ function logRolesKeyMigration(
  * shell. Local jq invocation must NOT expand it either (pass the expression
  * as an argv arg, not through a shell).
  *
- * Currently sets sixteen keys total: six simple flags/env vars, plus ten
+ * Currently sets seventeen keys total: seven simple flags/env vars, plus ten
  * hook entries under .hooks —
  *   - task-field-check on UserPromptSubmit (identity `task:` placeholder nudge).
  *   - resume-gap-notice on UserPromptSubmit (time-since-last-activity note
@@ -325,7 +329,7 @@ function logRolesKeyMigration(
 export const SETTINGS_MERGE_JQ =
   `.permissions = ((.permissions // {}) | .deny = (((.deny // []) + ["AskUserQuestion"]) | unique))` +
   `  | .askUserQuestionTimeout = "never"` +
-  `  | .env = ((.env // {}) | .DISABLE_AUTOUPDATER = "1" | .CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = "1")` +
+  `  | .env = ((.env // {}) | .DISABLE_AUTOUPDATER = "1" | .CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = "1" | .DISABLE_AUTO_COMPACT = "1")` +
   `  | .skipDangerousModePermissionPrompt = true` +
   `  | .crossSessionInbound = "refuse"` +
   `  | .hooks = ((.hooks // {})` +
@@ -349,6 +353,7 @@ export const SETTINGS_CHECK_JQ =
   `  and ((.permissions.deny // []) | contains(["AskUserQuestion"]))` +
   `  and (.env.DISABLE_AUTOUPDATER == "1")` +
   `  and (.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS == "1")` +
+  `  and (.env.DISABLE_AUTO_COMPACT == "1")` +
   `  and ((.hooks.UserPromptSubmit // []) | any(.[]?.hooks[]?.command // ""; test("task-field-check")))` +
   `  and ((.hooks.UserPromptSubmit // []) | any(.[]?.hooks[]?.command // ""; test("resume-gap-notice")))` +
   `  and ((.hooks.PreToolUse // []) | any(.[]?.hooks[]?.command // ""; test("allow-all-tools")))` +
@@ -825,6 +830,7 @@ export async function runBootstrapForHost(
   //           - askUserQuestionTimeout: "never"
   //           - env.DISABLE_AUTOUPDATER: "1"
   //           - env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1"
+  //           - env.DISABLE_AUTO_COMPACT: "1"
   //           - skipDangerousModePermissionPrompt: true
   //           - crossSessionInbound: "refuse"
   //           - hooks.UserPromptSubmit contains an entry that runs

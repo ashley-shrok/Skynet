@@ -292,6 +292,7 @@ describe("runBootstrapForHost", () => {
     expect(settingsCmd).toContain(`.askUserQuestionTimeout = "never"`);
     expect(settingsCmd).toContain(`.DISABLE_AUTOUPDATER = "1"`);
     expect(settingsCmd).toContain(`.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = "1"`);
+    expect(settingsCmd).toContain(`.DISABLE_AUTO_COMPACT = "1"`);
     expect(settingsCmd).toContain(`.skipDangerousModePermissionPrompt = true`);
     expect(settingsCmd).toContain(`.crossSessionInbound = "refuse"`);
     // task-field-check UserPromptSubmit hook — the merge must add an entry
@@ -318,6 +319,7 @@ describe("runBootstrapForHost", () => {
     expect(settingsCmd).toContain(`.permissions.deny // []) | contains(["AskUserQuestion"])`);
     expect(settingsCmd).toContain(`.env.DISABLE_AUTOUPDATER == "1"`);
     expect(settingsCmd).toContain(`.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS == "1"`);
+    expect(settingsCmd).toContain(`.env.DISABLE_AUTO_COMPACT == "1"`);
     // task-field-check idempotency predicate — the CHECK side must recognize
     // an already-present entry so we don't rewrite the file every sweep.
     expect(settingsCmd).toContain(`.hooks.UserPromptSubmit // []`);

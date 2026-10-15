@@ -669,6 +669,7 @@ describe("BR2 — bootstrap patches settings.json + runs gsd-context-monitor cle
     expect(parsed.permissions.deny).toContain("AskUserQuestion");
     expect(parsed.env.DISABLE_AUTOUPDATER).toBe("1");
     expect(parsed.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS).toBe("1");
+    expect(parsed.env.DISABLE_AUTO_COMPACT).toBe("1");
     // Hooks stored as LITERAL $HOME (bash-single-quote parity with SSH path).
     const upsCommands = parsed.hooks.UserPromptSubmit.flatMap(
       (g: { hooks?: Array<{ command?: string }> }) =>
@@ -743,6 +744,7 @@ describe("BR2 — bootstrap patches settings.json + runs gsd-context-monitor cle
       env: {
         DISABLE_AUTOUPDATER: "1",
         CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1",
+        DISABLE_AUTO_COMPACT: "1",
       },
       skipDangerousModePermissionPrompt: true,
       hooks: {
@@ -823,6 +825,7 @@ describe("BR2 — bootstrap patches settings.json + runs gsd-context-monitor cle
       env: {
         DISABLE_AUTOUPDATER: "1",
         CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1",
+        DISABLE_AUTO_COMPACT: "1",
       },
       skipDangerousModePermissionPrompt: true,
       hooks: {
@@ -945,6 +948,7 @@ describe("BR2 — bootstrap patches settings.json + runs gsd-context-monitor cle
       env: {
         DISABLE_AUTOUPDATER: "1",
         CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1",
+        DISABLE_AUTO_COMPACT: "1",
       },
       skipDangerousModePermissionPrompt: true,
       hooks: {
