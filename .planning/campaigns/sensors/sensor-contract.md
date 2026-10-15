@@ -100,8 +100,22 @@ One birth per fire.
 { "run": "always|cadence", "unit": "sensor-….service",
   "state": "running|starting|restarting|idle|failed|overrunning|invalid|stopped",
   "healthy": true, "lastRunAt": "ISO|null", "lastExitAt": "ISO|null", "lastExitCode": 0,
-  "overrunning": false, "error": "last log lines when unhealthy, else null", "updatedAt": "ISO" }
+  "overrunning": false, "error": "last log lines when unhealthy, else null",
+  "unhealthySince": "ISO when it first went unhealthy (carried forward), null when healthy",
+  "updatedAt": "ISO" }
 ```
+
+## Broken-sensor alert
+
+- Due when the health record is fresh (updated ≤5 min ago), `healthy` is false, `unhealthySince` is
+  ≥10 min ago (`WAKEUP_SENSOR_BROKEN_GRACE` seconds), and `<trigger>/.state/<slug>.broken` doesn't
+  already name that `unhealthySince`.
+- Wake-up: `📡 [sensor broken: <slug> @ <unhealthySince>] This wake-up's sensor is broken (<state>) —
+  its last error lines are in <health path> — Read it. …`. The supervisor's wake peek uses the same
+  check, so a dormant identity is woken.
+- Scheduled task: one birth, task line `📡 <Name> — sensor broken`, prompt = look into / fix the
+  sensor or tell the user (the task's own prompt is not carried).
+- `.broken` = `{"since": <unhealthySince>}`, written before telling; removed when healthy again.
 
 Last fired = the trigger's existing `.last` (wake-up: `wakeups/<slug>/.state/<slug>.last`;
 task: `scheduled-agents/.state/<slug>.last`), written at delivery.

@@ -372,13 +372,24 @@ def write_health(s, state, healthy, run=None, overrunning=False, error=None, now
     now = now or time.time()
     start = read_float(s.path("sensor-run.start"))
     end_t, end_rc = last_end(s)
+    if not ensure_state_dir(s):
+        return
+    # When it first went unhealthy, carried forward while it stays so (the
+    # scheduler tells the owner once it has been broken long enough).
+    since = None
+    if not healthy:
+        try:
+            prev = json.load(open(s.path("sensor-health.json")))
+            if prev.get("healthy") is False and isinstance(prev.get("unhealthySince"), str):
+                since = prev["unhealthySince"]
+        except (OSError, ValueError, AttributeError):
+            pass
+        since = since or iso(now)
     h = {
         "run": run, "unit": s.unit, "state": state, "healthy": healthy,
         "lastRunAt": iso(start), "lastExitAt": iso(end_t), "lastExitCode": end_rc,
-        "overrunning": overrunning, "error": error, "updatedAt": iso(now),
+        "overrunning": overrunning, "error": error, "unhealthySince": since, "updatedAt": iso(now),
     }
-    if not ensure_state_dir(s):
-        return
     try:
         write_atomic(s.path("sensor-health.json"), json.dumps(h, indent=2) + "\n")
     except OSError as e:

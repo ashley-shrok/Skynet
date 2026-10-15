@@ -134,8 +134,15 @@ should give up, fire with that as the findings (e.g. "gave up after 2 days").
 
 - **Health** — `.state/sensor-health.json`: `state` (`starting`, `running`,
   `idle`, `restarting`, `failed`, `overrunning`, `invalid`, `stopped`),
-  `healthy`, last run/exit, and the log tail when unhealthy. The full log is
-  `.state/sensor.log`.
+  `healthy`, last run/exit, `unhealthySince`, and the log tail when unhealthy.
+  The full log is `.state/sensor.log`.
+- **Breakage is reported for you** — once a sensor has been unhealthy for ten
+  minutes, its wake-up's identity gets one
+  `📡 [sensor broken: <slug> @ <since>] … — Read it` line pointing at the
+  health record (woken from dormancy if needed); a scheduled task births one
+  agent to look into it. Nothing more until it has been healthy again. So a
+  sensor doesn't need its own failure firing — just exit non-zero (cadence) or
+  crash (always) when it can't do its job.
 - **Crashes** — "always" sensors are restarted forever, backing off to about a
   minute apart; fixing the code is enough for it to come back. A cadence run
   still going when the next one is due skips that slot (`overrunning`).

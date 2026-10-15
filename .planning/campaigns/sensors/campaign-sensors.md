@@ -25,19 +25,18 @@ Ordered; each depends on the previous.
 - **[declared] shape-sensor-scaffolding** — where sensors live on disk, how they run as services, the fire handoff into wake-ups and scheduled tasks (with the sensor's findings), cleanup on identity/scheduled-task archive, and the sensor-building skill that teaches agents to make one (the app-development skill's counterpart). — closed (deployed 2026-10-15, ae645761)
 - **[declared] shape-sensor-app-surfaces** — the sensor trigger type shown wherever wake-ups and scheduled tasks are shown in the app (scheduled-tasks list, the identity modal's wake-ups tab): sensor-triggered marker, last fired, healthy/broken state; plus the matching id-skill update. — closed (deployed 2026-10-15, 78c3a004)
 - **[discovered] shape-one-time-sensors** — a sensor trigger that retires itself once its first fire has been *delivered* (the sensor-fired counterpart of a one-time wake-up): the machine stops its sensor and removes the trigger only after delivery, so the fire is never lost. Requested via Cerulean (orchestrator) for "let me know when <agent> is done"; today the orchestrator deletes the wake-up by hand after the first 📡. User placed it after shape 2, before the Jarvis migration (2026-10-15). — closed (deployed 2026-10-15, 78c3a004; Cerulean told)
-- **[discovered] shape-sensor-breakage-alerts** — someone is told when a sensor breaks, so each sensor no longer has to build its own failure firing (Jarvis had to, for both of his). Promoted from Other work by the user 2026-10-15, after the Jarvis migration. — declared
 - **[declared] shape-migrate-jarvis-sensors** — move Jarvis's delivery-email and payday sensors onto the new system as the proof it works end to end; retire their hand-rolled timers and wake-up writers. — in_progress (user 2026-10-15: not a real shape, just get Jarvis and Mitzi off custom stuff; includes Mitzi's Zoey copy of the deliveries sensor. Jarvis + Mitzi briefed by relay to migrate their own sensors via the sensor-development skill; Solstice retires the old timers + restarts their monitors once their new sensors are healthy)
 
 ## Other work
 
 - **Wake-up folder conversion on the beelink (100.124.193.5) and the laptop (100.102.28.73)** — both unreachable at deploy 2026-10-15 (beelink SSH timeout; laptop offline 11d). When each is back: confirm the distributor installed the new scheduler, then run `.planning/campaigns/sensors/migrate-wakeups-to-folders.py` (dry run, then `--apply`) as the fleet user. — open
 - **Push + deploy shapes 2 and 3 (sensor app surfaces, one-time sensors)** — pushed + deployed 2026-10-15 (`78c3a004`); ambient monitors on t1000 restarted onto the new scheduler; live one-time demo wake-up fired, retired and stopped. Thenasty's running monitors (Jarvis, Mitzi) pick it up on their next restart. — closed
-- **Being told when a sensor breaks** — promoted to shape-sensor-breakage-alerts (user 2026-10-15). — moved
+- **Being told when a sensor breaks** — done as a fix, not a shape (user 2026-10-15): fix-sensor-breakage-alerts.closed.md. Owner told once after 10 min unhealthy; task sensors birth one agent. — fixed locally (committed, not pushed/deployed)
 
 - **Apps waking a particular agent** — the reminders apps (Jarvis's and Zoey's) write one-time wake-ups straight into the agent's folder by name; Skynet has no app-to-agent handoff, so a rename means editing the app. Surfaced to the user 2026-10-15 as not well supported; would be its own piece of work. — open (user's call)
 
 - **One-line findings with a trailing newline shown as a file pointer** (reported by Jarvis) — fix-findings-trailing-newline.closed.md. — fixed locally (committed, not pushed/deployed)
-- **Safe way to test a sensor (dry run)** — running a sensor by hand fires for real (Jarvis's payday test recorded a real payment week). User: discuss the best way after the breakage-alerts shape. — open
+- **Safe way to test a sensor (dry run)** — running a sensor by hand fires for real (Jarvis's payday test recorded a real payment week). User: discuss the best way after the breakage-alerts fix. — open
 
 ## Lingerers (explicitly approved)
 

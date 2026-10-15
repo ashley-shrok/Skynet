@@ -29,6 +29,7 @@
 #   T-20  — flat legacy wakeups/<slug>.json → not due (folders only)
 #   T-21  — one-time sensor that already handed its fire over → not due
 #   T-22  — one-time sensor with a waiting fire → due
+#   T-23  — sensor broken past the grace period, owner not yet told → due; told → not due
 #
 # Exits 0 on all-pass; 1 on any failure.
 #
@@ -257,6 +258,17 @@ t22() {
   expect_due
 }
 
+t23() {
+  write_spec '{"name":"w","schedule":{"type":"sensor"},"instruction":"x"}'
+  local d="$SCRATCH/alice/wakeups/w/.state" since upd
+  since=$(date -u -d '-1 hour' +%Y-%m-%dT%H:%M:%SZ); upd=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  mkdir -p "$d"
+  printf '{"state":"failed","healthy":false,"unhealthySince":"%s","updatedAt":"%s"}' "$since" "$upd" > "$d/sensor-health.json"
+  expect_due
+  printf '{"since":"%s"}' "$since" > "$d/w.broken"
+  expect_not_due
+}
+
 t20() {
   # A flat legacy spec is not a wake-up any more.
   printf '%s\n' "{\"name\":\"flat\",\"schedule\":{\"type\":\"daily\",\"at\":\"$SLOT_PAST\"},\"instruction\":\"x\"}" > "$SCRATCH/alice/wakeups/flat.json"
@@ -286,6 +298,7 @@ run_case "T-18 sensor with only a half-written fire → not due" t18
 run_case "T-19 disabled sensor with a waiting fire → not due" t19
 run_case "T-21 one-time sensor already handed over → not due" t21
 run_case "T-22 one-time sensor with a waiting fire → due" t22
+run_case "T-23 broken sensor not yet told → due; told → not due" t23
 run_case "T-20 flat legacy spec ignored → not due" t20
 
 printf '\n===============================\n'

@@ -970,6 +970,97 @@ test_SA_G18_one_time_sensor() {
   [ -d "$sa_dir/.state" ] || fail "SA-G18: the shared .state survives the sweep"
 }
 
+# ============================================================
+# SA-G19: a broken sensor is told about once — after the grace period, never on
+# a stale health record, again only after it has been healthy; a scheduled task
+# births one agent to look into it.
+# ============================================================
+test_SA_G19_sensor_broken_alert() {
+  local ident_dir home_dir out_log w now old older
+  ident_dir=$(make_tmpdir)
+  home_dir=$(make_tmpdir)
+  out_log=$(make_tmpdir)/out.log
+  w="$ident_dir/wakeups/deliveries"
+  mkdir -p "$w/.state" "$ident_dir/wakeups/stale/.state"
+  cat > "$w/wakeup.json" <<'JSON'
+{"name": "deliveries", "enabled": true, "schedule": {"type": "sensor"}, "instruction": "Judge these"}
+JSON
+  cat > "$ident_dir/wakeups/stale/wakeup.json" <<'JSON'
+{"name": "stale", "enabled": true, "schedule": {"type": "sensor"}, "instruction": "x"}
+JSON
+  now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  old=$(date -u -d '-1 hour' +%Y-%m-%dT%H:%M:%SZ)
+  older=$(date -u -d '-2 hour' +%Y-%m-%dT%H:%M:%SZ)
+  # health <trigger dir> <state> <healthy> <updatedAt> <unhealthySince|null>
+  health() { printf '{"state": "%s", "healthy": %s, "error": "boom", "unhealthySince": %s, "updatedAt": "%s"}' \
+    "$2" "$3" "$5" "$4" > "$1/.state/sensor-health.json"; }
+  run() { HOME="$home_dir" timeout 3 python3 "$PY_SCRIPT" "$ident_dir" >"$out_log" 2>/dev/null || true; }
+
+  health "$w" failed false "$now" "\"$now\""
+  health "$ident_dir/wakeups/stale" failed false "$old" "\"$older\""
+  run
+  grep -q "sensor broken" "$out_log" && fail "SA-G19: told inside the grace period: $(cat "$out_log")"
+
+  health "$w" failed false "$now" "\"$old\""
+  run
+  assert_eq "1" "$(grep -c "📡 \[sensor broken: deliveries @ $old\]" "$out_log")" "SA-G19: told once after the grace period"
+  grep -q "(failed) — its last error lines are in $w/.state/sensor-health.json — Read it" "$out_log" \
+    || fail "SA-G19: line points at the health record, got: $(cat "$out_log")"
+  grep -q "sensor broken: stale" "$out_log" && fail "SA-G19: a stale health record must never alert"
+
+  run
+  grep -q "sensor broken" "$out_log" && fail "SA-G19: told twice for one breakage"
+
+  health "$w" idle true "$now" null
+  run
+  [ -e "$w/.state/deliveries.broken" ] && fail "SA-G19: healthy again must forget the told breakage"
+  health "$w" failed false "$now" "\"$older\""
+  run
+  assert_eq "1" "$(grep -c 'sensor broken: deliveries' "$out_log")" "SA-G19: a new breakage is told again"
+
+  # The supervisor's wake peek sees an untold breakage (wakes a dormant identity), not a told one.
+  local peek
+  peek=$(python3 - "$PY_SCRIPT" "$w" <<'PY'
+import importlib.util, os, sys, time
+from importlib.machinery import SourceFileLoader
+l = SourceFileLoader("eng", sys.argv[1]); m = importlib.util.module_from_spec(importlib.util.spec_from_loader(l.name, l)); l.exec_module(m)
+told = m.sensor_broken_due(sys.argv[2], "deliveries", time.time())
+os.unlink(os.path.join(sys.argv[2], ".state", "deliveries.broken"))
+untold = m.sensor_broken_due(sys.argv[2], "deliveries", time.time())
+print("told=%r untold=%r" % (told, untold is not None))
+PY
+)
+  assert_eq "told=None untold=True" "$peek" "SA-G19: due check for the supervisor peek"
+
+  # scheduled task: one birth, the broken prompt instead of the task's own
+  local sa_dir req_dir res
+  sa_dir=$(make_tmpdir)
+  mkdir -p "$sa_dir/payday/.state"
+  cat > "$sa_dir/payday/scheduled-agent.json" <<'JSON'
+{"name": "payday", "enabled": true, "roles": ["helper"], "schedule": {"type": "sensor"}, "prompt": "DM the user the payday event"}
+JSON
+  health "$sa_dir/payday" invalid false "$now" "\"$old\""
+  HOME="$home_dir" timeout 3 python3 "$PY_SCRIPT" "$sa_dir" --mode scheduled-agents >/dev/null 2>&1 || true
+  HOME="$home_dir" timeout 3 python3 "$PY_SCRIPT" "$sa_dir" --mode scheduled-agents >/dev/null 2>&1 || true
+  req_dir="$home_dir/fleet/spawn-requests"
+  assert_eq "1" "$(count_json_files "$req_dir")" "SA-G19: one birth per breakage"
+  res=$(python3 - "$req_dir" "$sa_dir" <<'PY'
+import glob, json, sys
+r = json.load(open(glob.glob(sys.argv[1] + "/*.json")[0]))
+errs = []
+if r.get("task") != "📡 Payday — sensor broken": errs.append("task=%r" % r.get("task"))
+if r.get("roles") != ["helper"]: errs.append("roles=%r" % r.get("roles"))
+p = r["prompt"]
+for needle in ("sensor of the scheduled task \"payday\"", "invalid since", "do not carry out its prompt",
+               sys.argv[2] + "/payday/.state/sensor-health.json"):
+    if needle not in p: errs.append("missing %r" % needle)
+if "DM the user the payday event" in p: errs.append("task prompt leaked into the broken prompt")
+print("; ".join(errs) or "OK")
+PY
+)
+  assert_eq "OK" "$res" "SA-G19: broken-sensor birth"
+}
+
 run_test test_SA_G1_scheduled_agents_spec_discovery
 run_test test_SA_G2_scheduled_agents_ignores_flat_specs
 run_test test_SA_G3_per_identity_mode_unchanged
@@ -988,6 +1079,7 @@ run_test test_SA_G15_sensor_wakeup_delivery
 run_test test_SA_G16_sensor_scheduled_agent
 run_test test_SA_G17_sensor_delivery_hardening
 run_test test_SA_G18_one_time_sensor
+run_test test_SA_G19_sensor_broken_alert
 
 printf '\n===============================\n'
 printf 'PASS: %s  FAIL: %s\n' "$PASS" "$FAIL"

@@ -3308,6 +3308,9 @@ def _peek_one(wakedir):
                 n = len(eng.pending_fires(folder))
                 if n:
                     return (f"spec={key} type=sensor pending_fires={n} overdue_s=0", errors)
+                # A broken sensor its owner hasn't been told about yet is due too.
+                if hasattr(eng, 'sensor_broken_due') and eng.sensor_broken_due(folder, key, now):
+                    return (f"spec={key} type=sensor broken=1 overdue_s=0", errors)
                 continue
             if t == 'one_shot':
                 if os.path.exists(base + '.fired') and os.path.getmtime(spec_path) <= os.path.getmtime(base + '.fired'):

@@ -91,6 +91,17 @@ sensor-runner stops its sensor — and the rest of the folder, any later fires
 included, goes a day later. A one-time sensor scheduled task births one agent
 and retires the same way.
 
+A broken sensor is told about once. When a sensor's health record (written by
+sensor-runner) says unhealthy since `unhealthySince` and that is at least
+SENSOR_BROKEN_GRACE_SEC ago, the wake-up's identity gets one
+    📡 [sensor broken: <slug> @ <unhealthy since>] … — Read it
+line pointing at the health record (a scheduled task instead births one agent
+to look into it). Nothing more for that breakage: `<trigger>/.state/<slug>.broken`
+records the `unhealthySince` already told about, and goes once the sensor is
+healthy again. A missing or stale health record (sensor-runner down) never
+alerts. The supervisor's wake peek uses the same check, so a dormant identity
+is woken for it.
+
 The UTC stamp is the wall-clock time it actually FIRED — which tells an on-time
 fire from a missed-slot catch-up fire, since the latter fires at restart time,
 not its slot.
@@ -233,6 +244,11 @@ def _read_findings(fire_path):
 
 
 RETIRED_NOTE = " (one-time sensor — this wake-up has now retired)"
+# A sensor must stay unhealthy this long before anyone is told (one failed run
+# that the next run fixes stays quiet). A health record older than
+# SENSOR_HEALTH_STALE_SEC means sensor-runner isn't writing it — never alert on it.
+SENSOR_BROKEN_GRACE_SEC = int(os.environ.get("WAKEUP_SENSOR_BROKEN_GRACE", "600"))
+SENSOR_HEALTH_STALE_SEC = 300
 
 
 def _emit_sensor_wake(key, fired_utc, instruction, findings, state_dir, delivered_path, once=False):
@@ -265,6 +281,65 @@ def _emit_sensor_wake(key, fired_utc, instruction, findings, state_dir, delivere
     else:
         tail = " — findings (%d chars) at %s — Read it" % (len(findings), delivered_path)
     print(head + instr + tail + note, flush=True)
+
+
+def sensor_broken_due(trigger_dir, key, now):
+    """(state, unhealthy_since) when the owner should be told now that this
+    trigger's sensor is broken, else None. Pure read: sensor-runner's health
+    record plus the `.broken` record of what was already told."""
+    st = os.path.join(trigger_dir, ".state")
+    try:
+        h = json.load(open(os.path.join(st, "sensor-health.json")))
+        updated = _iso_z_epoch(h["updatedAt"])
+        since = h.get("unhealthySince")
+        since_ts = _iso_z_epoch(since) if h.get("healthy") is False else None
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return None
+    if since_ts is None or now - updated > SENSOR_HEALTH_STALE_SEC or updated - now > 120:
+        return None
+    if now - since_ts < SENSOR_BROKEN_GRACE_SEC:
+        return None
+    try:
+        if json.load(open(os.path.join(st, key + ".broken"))).get("since") == since:
+            return None                                   # this breakage was already told about
+    except (OSError, ValueError, AttributeError):
+        pass
+    return str(h.get("state") or "unhealthy"), since
+
+
+def _iso_z_epoch(v):
+    return datetime.strptime(v, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp()
+
+
+def write_atomic_json(path, obj):
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(obj, f)
+    os.rename(tmp, path)
+
+
+def _emit_sensor_broken_wake(key, since_utc, state, health_path):
+    """Tell the identity its wake-up's sensor is broken. Error lines can be
+    multi-line, so they are pointed at, never pasted."""
+    print("📡 [sensor broken: %s @ %s] This wake-up's sensor is broken (%s) — its last error "
+          "lines are in %s — Read it. Fix the sensor, or tell the user if you can't. You won't "
+          "be told again until it has been healthy and broken again."
+          % (key, since_utc, state, health_path), flush=True)
+
+
+def _sensor_broken_prompt(slug, name, since_utc, state, trigger_dir, health_path):
+    """First instruction for the agent born when a scheduled task's sensor breaks."""
+    return (
+        "You are the agent that was spawned because the sensor of the scheduled task "
+        "\"" + (name or slug) + "\" (`~/fleet/scheduled-agents/" + slug + "/`) is broken: "
+        "its health has been " + state + " since " + since_utc + ". This is not one of the "
+        "task's normal runs — do not carry out its prompt. Read the sensor's health record "
+        "at `" + health_path + "` (its last error lines) and its log in `"
+        + os.path.join(trigger_dir, ".state") + "`, look at the sensor's logic in `"
+        + os.path.join(trigger_dir, "sensor") + "`, and fix it if you can (the "
+        "sensor-development skill covers sensors). If you can't, tell the user what is "
+        "wrong. Act on this in the same turn."
+    )
 
 
 def _mark_delivered(fire_path):
@@ -1168,7 +1243,7 @@ def _sensor_findings_section(fired_utc, findings, delivered_path=None):
     )
 
 
-def _drop_spawn_request(spec, state_dir, sensor_fire=None):
+def _drop_spawn_request(spec, state_dir, sensor_fire=None, sensor_broken_prompt=None):
     """Drop a create-identity request file for the spawn-requests pipeline (D-11).
 
     Writes ~/fleet/spawn-requests/<uuid>.json with the extended schema fields:
@@ -1186,6 +1261,10 @@ def _drop_spawn_request(spec, state_dir, sensor_fire=None):
     `sensor_fire` = (fired_utc, findings, delivered_path) for a sensor-fired task: the findings
     are appended to the prompt and the task line carries 📡 instead of ⏰.
 
+    `sensor_broken_prompt` replaces the prompt entirely (the task's sensor broke;
+    the newborn looks into that instead of doing the task) and the task line
+    says so.
+
     Returns (req_id, req_path) for caller logging.
     """
     req_id = str(_uuid.uuid4())
@@ -1195,7 +1274,9 @@ def _drop_spawn_request(spec, state_dir, sensor_fire=None):
     prompt = _wrap_prompt_as_preauthorized(spec.get("prompt", ""), spec.get("_slug", "?"), fired_at)
     if sensor_fire is not None:
         prompt += _sensor_findings_section(*sensor_fire)
-    glyph = "📡 " if sensor_fire is not None else "⏰ "
+    if sensor_broken_prompt is not None:
+        prompt = sensor_broken_prompt
+    glyph = "📡 " if (sensor_fire is not None or sensor_broken_prompt is not None) else "⏰ "
     body = {
         "roles": spec.get("roles", []),
         "prompt": prompt,
@@ -1206,7 +1287,9 @@ def _drop_spawn_request(spec, state_dir, sensor_fire=None):
         # Clock prefix (⏰ ) marks the identity as scheduled-agent-spawned in the
         # sidebar row + open-conversation task line, so users can tell at a
         # glance which conversations are clock-fired vs manually spawned.
-        "task": (glyph + _prettify_name(spec["name"])) if spec.get("name") else None,
+        "task": ((glyph + _prettify_name(spec["name"])
+                  + (" — sensor broken" if sensor_broken_prompt is not None else ""))
+                 if spec.get("name") else None),
         "requested_at": fired_at,
     }
     # Spec-provided user tag — carries the spec's `users` field into the
@@ -1453,6 +1536,40 @@ def main():
             pruned_at[spec["_dir"]] = now
             prune_delivered(spec["_dir"], now)
 
+    def check_sensor_broken(spec, now):
+        """Tell the owner once when its sensor has been unhealthy for the grace
+        period (sensor_broken_due); forget the told breakage once it is healthy."""
+        key = spec["_key"]
+        trig_state = os.path.join(spec["_dir"], ".state")
+        health_path = os.path.join(trig_state, "sensor-health.json")
+        broken_path = os.path.join(trig_state, key + ".broken")
+        due = sensor_broken_due(spec["_dir"], key, now)
+        if due is None:
+            if os.path.exists(broken_path):
+                try:
+                    healthy = json.load(open(health_path)).get("healthy") is not False
+                except (OSError, ValueError, AttributeError):
+                    healthy = False
+                if healthy:
+                    try:
+                        os.unlink(broken_path)
+                    except OSError:
+                        pass
+                    print("wakeup-scheduler: sensor healthy again key=%s" % key, file=sys.stderr, flush=True)
+            return
+        state, since = due
+        try:
+            write_atomic_json(broken_path, {"since": since})   # before telling, so a crash never tells twice
+        except OSError:
+            return
+        if is_scheduled_agents_mode:
+            _drop_spawn_request(spec, state_dir, sensor_broken_prompt=_sensor_broken_prompt(
+                key, spec.get("name"), since, state, spec["_dir"], health_path))
+        else:
+            _emit_sensor_broken_wake(key, since, state, health_path)
+        print("wakeup-scheduler: told owner sensor broken key=%s state=%s since=%s"
+              % (key, state, since), file=sys.stderr, flush=True)
+
     box_zone = local_zone()
 
     warned = set()          # (key, kind) — one-shot LOUD alert per issue per session
@@ -1571,6 +1688,12 @@ def main():
                         print("⚠️ [wakeup-scheduler: %s] sensor fire delivery error %s: %s"
                               % (key, type(e).__name__, e), flush=True)
                         warned.add((key, "sensor_deliver_error"))
+                if os.path.isfile(spec["_path"]):    # a one-time sensor that just retired is done
+                    try:
+                        check_sensor_broken(spec, now_ts)
+                    except Exception as e:
+                        print("wakeup-scheduler: sensor-broken check failed key=%s %s: %s"
+                              % (key, type(e).__name__, e), file=sys.stderr, flush=True)
                 continue
             if sch_type == "one_shot":
                 # One-shot doesn't use the .last dance; a .fired sentinel governs it.

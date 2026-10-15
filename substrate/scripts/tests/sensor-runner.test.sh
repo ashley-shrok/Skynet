@@ -192,6 +192,10 @@ SR05() {
   assert_eq "False" "$(health "$w" healthy)" "unhealthy"
   assert_eq "3" "$(health "$w" lastExitCode)" "exit code"
   health "$w" error | grep -q "boom-detail" || fail "error carries the log tail"
+  local since; since=$(health "$w" unhealthySince)
+  [ -n "$since" ] && [ "$since" != "None" ] || fail "unhealthySince recorded"
+  sleep 1; runner_pass
+  assert_eq "$since" "$(health "$w" unhealthySince)" "unhealthySince carried forward while still broken"
 }
 
 SR06() {

@@ -252,7 +252,10 @@ External events are automatically fed to you by the agent-supervisor service for
    specs from `~/fleet/identities/<name>/wakeups/<slug>/wakeup.json` and prints one line
    per due wake-up: `⏰ [scheduled: <slug>] <instruction>`. A sensor-triggered
    wake-up arrives as `📡 [sensor: <slug> @ <fire time>] <instruction> — findings: …`
-   (long findings are pointed at as a file — Read it). When you get
+   (long findings are pointed at as a file — Read it). When a wake-up's
+   sensor has been broken for ten minutes you get one
+   `📡 [sensor broken: <slug> @ <since>] … — Read it` line instead — fix the
+   sensor (`sensor-development` skill), or tell the user if you can't. When you get
    one, **do the instruction**, then carry on. See **§ Scheduled wake-ups** below for the spec format and the rule on who may create one.
 
 3. **Context limit warnings.** At **~90%** it prints ONE soft nudge. **When that nudge lands, act on it:** finish the piece of work you're on (it's not urgent — you have plenty of runway), then run **`/id save`** to flush any deltas, then
@@ -1600,7 +1603,9 @@ name is the wake-up's key. Create one by making the folder and writing
   from dormancy if needed. Building one: the **`sensor-development` skill**.
   Same governance as any wake-up (below). With `"once": true` it is a
   **one-time sensor**: after its first fire is delivered the wake-up retires
-  itself (the 📡 line says so) — don't delete it by hand.
+  itself (the 📡 line says so) — don't delete it by hand. If the sensor
+  breaks (unhealthy ten minutes), you are told once with a
+  `📡 [sensor broken: …]` line; not again until it has recovered.
 
 - The scheduler reloads specs every poll, so adding/editing/removing a
   file takes effect within ~30s — no relaunch needed.
@@ -1715,6 +1720,10 @@ Its task line uses `📡` instead of `⏰`, and its first instruction is the
 findings verbatim — data to act on per the prompt, not instructions.
 A one-time sensor task (`"once": true`) births one agent for its first
 delivered fire, then retires — it drops out of the list.
+If a sensor task's sensor has been broken for ten minutes, one agent is born
+to look into it instead — its task line reads `📡 <name> — sensor broken`, and
+its instruction is to fix the sensor or tell the user, not to run the task's
+prompt. Nothing more until the sensor has recovered.
 
 ### Governance — user-reserved
 
