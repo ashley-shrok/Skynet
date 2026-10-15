@@ -10,10 +10,16 @@
  *      callee can allow it through Do Not Disturb. Answering-machine
  *      detection is on so voicemail comes back as `no_answer`.
  *   2. Poll GET /Calls/:sid until a terminal status or the deadline. On the
- *      deadline the call is canceled/hung up, so it can never ring late.
+ *      deadline the call is hung up, so it can never ring late.
  *   3. On `completed`, fetch the <Record> recording of the callee's reply,
  *      transcribe it with the instance's STT provider (the same one voice
- *      input and the `stt` service use), then delete it from Twilio.
+ *      input and the `stt` service use), then delete it from Twilio —
+ *      always, whether or not transcription worked.
+ *
+ * Time budget (the agent's helper waits 570s from the request):
+ *   queue TTL 2 min (service.ts) + call deadline 5.5 min + recording wait
+ *   20s + transcription ≤ 2 × 30s ≈ 8.9 min. So a call never starts or
+ *   keeps ringing after the agent has been told it timed out.
  *
  * Contract:
  *   - NEVER throws in normal operation. Every failure maps to an
@@ -35,18 +41,22 @@ const TWILIO_API_BASE = "https://api.twilio.com/2010-04-01";
 const REQUEST_TIMEOUT_MS = 30_000;
 
 /**
- * Backend wait for one call — 8 minutes, under the CLI helper's 9-minute
- * wait, which is under the agent's 10-minute Bash-tool cap. Twilio dials
- * within seconds and a scripted call lasts about a minute, so this only
- * trips on something pathological.
+ * Backend wait for one call — 5.5 minutes; see the time budget above. The
+ * longest legitimate call is about 4.7 minutes: 45s ring, 5s machine
+ * detection, ~2.2 min to read a 2000-character message, a 90s reply plus
+ * 5s of silence, and the receipt line.
  */
-export const CALL_DEADLINE_MS = 8 * 60 * 1000;
+export const CALL_DEADLINE_MS = 5.5 * 60 * 1000;
 
 /** Interval between GET /Calls/:sid checks. */
 export const CALL_POLL_INTERVAL_MS = 3_000;
 
 /** How long to wait for the reply recording to show up after the call ends. */
 export const RECORDING_WAIT_MS = 20_000;
+
+/** Per-attempt STT timeout for the reply; two attempts at most. */
+export const TRANSCRIBE_TIMEOUT_MS = 30_000;
+export const TRANSCRIBE_MAX_ATTEMPTS = 2;
 
 /** Ring time before Twilio gives up with `no-answer`. */
 export const RING_TIMEOUT_SEC = 45;
@@ -127,12 +137,11 @@ function errorText(err: unknown): string {
 
 async function defaultTranscribe(audio: Buffer): Promise<string> {
   const provider = resolveSttProvider();
-  return transcribeWithRetries(provider, {
-    audio,
-    mimetype: "audio/mpeg",
-    ext: "mp3",
-    timeoutMs: 60_000,
-  });
+  return transcribeWithRetries(
+    provider,
+    { audio, mimetype: "audio/mpeg", ext: "mp3", timeoutMs: TRANSCRIBE_TIMEOUT_MS },
+    TRANSCRIBE_MAX_ATTEMPTS,
+  );
 }
 
 /**
@@ -273,14 +282,23 @@ export async function placeCallAndAwait(
     callLength !== undefined ? { ...r, call_length_seconds: callLength } : r;
 
   if (!terminal) {
-    // Hang up so a stuck call can't ring or keep talking after we've
-    // told the agent it timed out.
-    const stopStatus =
-      last.status === "in-progress" ? "completed" : "canceled";
+    // Hang up so a stuck call can't ring or keep talking after we've told
+    // the agent it timed out. Status=completed ends the call whatever
+    // state it's in; "canceled" would leave an answered call running, and
+    // our last poll may be stale.
+    let hungUp = false;
     try {
-      await twilio("POST", `${accountUrl}/Calls/${callSid}.json`, {
-        Status: stopStatus,
+      const res = await twilio("POST", `${accountUrl}/Calls/${callSid}.json`, {
+        Status: "completed",
       });
+      hungUp = res.ok;
+      if (!res.ok) {
+        systemLogger.warn("phone adapter: hang-up after deadline refused", {
+          operation: "phone_twilio_deadline_hangup_refused",
+          callSid,
+          status: res.status,
+        });
+      }
     } catch (err) {
       systemLogger.warn("phone adapter: hang-up after deadline threw", {
         operation: "phone_twilio_deadline_hangup_threw",
@@ -292,11 +310,11 @@ export async function placeCallAndAwait(
       operation: "phone_twilio_deadline",
       callSid,
       lastStatus: last.status,
-      stopStatus,
+      hungUp,
     });
     return withLength({
       outcome: "timeout",
-      message: `call did not finish within ${CALL_DEADLINE_MS / 1000}s (last status: ${last.status ?? "unknown"}); the backend hung it up`,
+      message: `call did not finish within ${CALL_DEADLINE_MS / 1000}s (last status: ${last.status ?? "unknown"}); ${hungUp ? "the backend hung it up" : "the backend could not confirm it hung up"}`,
     });
   }
 
@@ -322,10 +340,13 @@ export async function placeCallAndAwait(
     typeof answeredBy === "string" &&
     (answeredBy.startsWith("machine") || answeredBy === "fax");
 
+  // Transcribe even when machine detection said voicemail: detection can
+  // misfire on a human with a long greeting, and her reply must not be
+  // thrown away unheard.
   const recording = await waitForReplyRecording(callSid);
   let reply = "";
-  let transcribeFailed: string | null = null;
-  if (recording?.sid && !machine) {
+  let transcribeFailed = false;
+  if (recording?.sid) {
     try {
       const media = await twilio(
         "GET",
@@ -342,31 +363,34 @@ export async function placeCallAndAwait(
         replyChars: reply.length,
       });
     } catch (err) {
-      transcribeFailed = errorText(err);
-      systemLogger.warn("phone adapter: reply transcription failed (recording kept)", {
+      // The provider error can carry a response body; it goes to the log,
+      // not to the agent.
+      transcribeFailed = true;
+      systemLogger.warn("phone adapter: reply transcription failed", {
         operation: "phone_twilio_reply_transcribe_failed",
         callSid,
         recordingSid: recording.sid,
-        error: transcribeFailed,
+        error: errorText(err),
       });
     }
-  }
-  if (recording?.sid && transcribeFailed === null) {
     await deleteRecording(recording.sid);
   }
 
-  if (machine && reply === "") {
+  if (machine) {
     return withLength({
       outcome: "no_answer",
-      message: `voicemail picked up (answered_by: ${answeredBy})`,
+      message: `voicemail picked up (answered_by: ${answeredBy}); the message was likely left on voicemail`,
+      ...(reply !== ""
+        ? { transcript: `voice: ${call.openingLine}\nuser: ${reply}` }
+        : {}),
     });
   }
-  if (transcribeFailed !== null) {
+  if (transcribeFailed) {
     return withLength({
       outcome: "completed",
       transcript: [
         `voice: ${call.openingLine}`,
-        `user: [reply recorded but could not be transcribed: ${transcribeFailed}]`,
+        "user: [the reply was recorded but could not be transcribed]",
         `voice: ${call.receiptLine}`,
       ].join("\n"),
     });

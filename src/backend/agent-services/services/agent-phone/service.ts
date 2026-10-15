@@ -9,15 +9,21 @@
  *   - The caller may only ring people who registered the host it runs on.
  *   - One call per recipient at a time (serializeBy to_user); different
  *     recipients can be called in parallel.
- *   - Requests older than 8 minutes are dropped as `expired`, so a caller
- *     whose helper (9-minute wait) already gave up never rings anyone.
+ *   - Requests older than 2 minutes are dropped as `expired`, so a call
+ *     queued behind another call to the same person still fits the time
+ *     budget in adapter.ts and never rings after the helper gave up.
  */
 
 import { z } from "zod";
 import { defineService, fail, ok } from "../../engine/types.js";
 import { placeCallAndAwait } from "./adapter.js";
 import { getUserByUsername, userHasRegisteredHost } from "./lookup.js";
-import { buildOpeningLine, buildReceiptLine } from "./call-script.js";
+import {
+  buildCallTwiml,
+  buildOpeningLine,
+  buildReceiptLine,
+  TWIML_MAX_CHARS,
+} from "./call-script.js";
 
 const nonEmpty = (max: number) =>
   z
@@ -56,8 +62,8 @@ export function createAgentPhoneService(deps: AgentPhoneDeps = productionDeps) {
     input: agentPhoneInput,
     // TWILIO_FROM_NUMBER is the instance's one Twilio number (E.164).
     secrets: ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_FROM_NUMBER"],
-    // Under the helper's 9-minute wait; see the header.
-    ttlMs: 8 * 60 * 1000,
+    // Part of the time budget in adapter.ts; see the header.
+    ttlMs: 2 * 60 * 1000,
     concurrency: 10,
     serializeBy: (input) => input.to_user,
 
@@ -97,16 +103,22 @@ export function createAgentPhoneService(deps: AgentPhoneDeps = productionDeps) {
         );
       }
 
+      const openingLine = buildOpeningLine(input.caller_name, input.message);
+      const receiptLine = buildReceiptLine(input.caller_name);
+      const twimlChars = buildCallTwiml(openingLine, receiptLine).length;
+      if (twimlChars > TWIML_MAX_CHARS) {
+        return fail(
+          "malformed",
+          `message is too long for one call (${twimlChars - TWIML_MAX_CHARS} characters over the limit; "&", "<" and ">" count extra); shorten it`,
+        );
+      }
+
       ctx.log.info("placing call", {
         toUser: input.to_user,
         callerName: input.caller_name,
       });
       const call = await deps.placeCallAndAwait(
-        {
-          to: target.phoneE164,
-          openingLine: buildOpeningLine(input.caller_name, input.message),
-          receiptLine: buildReceiptLine(input.caller_name),
-        },
+        { to: target.phoneE164, openingLine, receiptLine },
         {
           accountSid: ctx.secrets.TWILIO_ACCOUNT_SID,
           authToken: ctx.secrets.TWILIO_AUTH_TOKEN,
@@ -128,12 +140,18 @@ export function createAgentPhoneService(deps: AgentPhoneDeps = productionDeps) {
             : {}),
         });
       }
+      const details = {
+        ...(call.call_length_seconds !== undefined
+          ? { call_length_seconds: call.call_length_seconds }
+          : {}),
+        // no_answer from voicemail detection can still carry a recorded
+        // reply — detection misfires on some humans.
+        ...(call.transcript ? { transcript: call.transcript } : {}),
+      };
       return fail(
         call.outcome,
         call.message,
-        call.call_length_seconds !== undefined
-          ? { call_length_seconds: call.call_length_seconds }
-          : undefined,
+        Object.keys(details).length > 0 ? details : undefined,
       );
     },
   });

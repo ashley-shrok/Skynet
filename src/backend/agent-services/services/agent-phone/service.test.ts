@@ -78,7 +78,7 @@ describe("agent-phone service", () => {
       "TWILIO_AUTH_TOKEN",
       "TWILIO_FROM_NUMBER",
     ]);
-    expect(svc.ttlMs).toBe(8 * 60 * 1000);
+    expect(svc.ttlMs).toBe(2 * 60 * 1000);
     expect(svc.serializeBy?.(input)).toBe("alice");
   });
 
@@ -135,6 +135,41 @@ describe("agent-phone service", () => {
       message: "voicemail",
       details: { call_length_seconds: 20 },
     });
+  });
+
+  it("passes a recorded reply through on no_answer", async () => {
+    const d = deps({
+      placeCallAndAwait: vi.fn(async () => ({
+        outcome: "no_answer" as const,
+        message: "voicemail picked up (answered_by: machine_start)",
+        transcript: "voice: hi\nuser: I'm here",
+      })),
+    });
+    expect(await createAgentPhoneService(d).handle(input, ctx)).toEqual({
+      ok: false,
+      code: "no_answer",
+      message: "voicemail picked up (answered_by: machine_start)",
+      details: { transcript: "voice: hi\nuser: I'm here" },
+    });
+  });
+
+  it("rejects a message too long for Twilio's TwiML limit before dialing", async () => {
+    const d = deps();
+    const result = await createAgentPhoneService(d).handle(
+      { ...input, message: "&".repeat(2000) },
+      ctx,
+    );
+    expect(result.ok === false && result.code).toBe("malformed");
+    expect(d.placeCallAndAwait).not.toHaveBeenCalled();
+  });
+
+  it("accepts a 2000-character plain message", async () => {
+    const d = deps();
+    const result = await createAgentPhoneService(d).handle(
+      { ...input, caller_name: "C".repeat(200), message: "it's \"x\" ".repeat(250).slice(0, 2000) },
+      ctx,
+    );
+    expect(result.ok).toBe(true);
   });
 
   it.each([

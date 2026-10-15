@@ -30,10 +30,14 @@ describe("call script", () => {
     expect(twiml.match(/<Say /g)).toHaveLength(2);
   });
 
+  it("leaves quotes alone (text nodes don't need them escaped)", () => {
+    expect(escapeXml(`it's "fine" & <ok>`)).toBe(`it's "fine" &amp; &lt;ok&gt;`);
+  });
+
   it("says the opener, records the reply without a webhook, then says the receipt", () => {
     const twiml = buildCallTwiml("Hi, this is A. M", "R");
     expect(twiml).toMatch(
-      /^<Response><Say voice="[^"]+">Hi, this is A\. M<\/Say><Record [^>]*\/><Say voice="[^"]+">R<\/Say><\/Response>$/,
+      /^<Response><Say voice="[^"]+">Hi, this is A\. M<\/Say><Record [^>]*\/><Say voice="[^"]+">R<\/Say><Hangup\/><\/Response>$/,
     );
     expect(twiml).not.toContain("action=");
     expect(twiml).toContain('playBeep="false"');

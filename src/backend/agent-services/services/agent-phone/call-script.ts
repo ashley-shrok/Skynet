@@ -10,9 +10,12 @@
  * hang up confident her words landed with the right agent. They are NOT
  * optional.
  *
- * <Record> has no `action`: with inline TwiML Twilio then carries on to
- * the next verb, so no webhook is needed. The recording stays on the
- * Twilio account; the adapter fetches, transcribes and deletes it.
+ * <Record> has no `action`. Twilio's docs say it then re-requests the
+ * document URL, but an inline-TwiML call has none, and in practice Twilio
+ * carries on to the next verb (verified on a live call: the receipt line
+ * plays after the reply). So no webhook is needed. The trailing <Hangup/>
+ * makes the end of the call explicit. The recording stays on the Twilio
+ * account; the adapter fetches, transcribes and deletes it.
  */
 
 /** Twilio <Say> voice. Amazon Polly neural voices are built into Twilio. */
@@ -22,7 +25,10 @@ export const CALL_VOICE = "Polly.Joanna-Neural";
 export const REPLY_SILENCE_TIMEOUT_SEC = 5;
 
 /** Longest reply recorded, in seconds. */
-export const REPLY_MAX_LENGTH_SEC = 120;
+export const REPLY_MAX_LENGTH_SEC = 90;
+
+/** Twilio's limit on the POST /Calls `Twiml` parameter. */
+export const TWIML_MAX_CHARS = 4000;
 
 /**
  * Flatten whitespace so a caller-supplied string reads as one spoken line.
@@ -37,15 +43,14 @@ function flatten(raw: string): string {
 /**
  * Escape text for an XML text node. Caller-supplied strings land inside
  * <Say>; unescaped, a message could close the tag and inject verbs
- * (<Dial>, <Redirect>) into the call.
+ * (<Dial>, <Redirect>) into the call. Quotes need no escaping in a text
+ * node, and leaving them keeps the TwiML under TWIML_MAX_CHARS.
  */
 export function escapeXml(text: string): string {
   return text
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
+    .replace(/>/g, "&gt;");
 }
 
 /** "Hi, this is <caller>. <message>" — spoken on pickup. */
@@ -65,6 +70,7 @@ export function buildCallTwiml(openingLine: string, receiptLine: string): string
     `<Say voice="${CALL_VOICE}">${escapeXml(openingLine)}</Say>`,
     `<Record timeout="${REPLY_SILENCE_TIMEOUT_SEC}" maxLength="${REPLY_MAX_LENGTH_SEC}" playBeep="false" trim="trim-silence"/>`,
     `<Say voice="${CALL_VOICE}">${escapeXml(receiptLine)}</Say>`,
+    "<Hangup/>",
     "</Response>",
   ].join("");
 }

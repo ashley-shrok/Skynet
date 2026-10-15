@@ -176,33 +176,52 @@ describe("placeCallAndAwait (Twilio)", () => {
     expect(transcribe).not.toHaveBeenCalled();
   });
 
-  it("is no_answer when voicemail picked up, without transcribing the greeting", async () => {
+  it("is no_answer when voicemail picked up, deleting the recording", async () => {
     const t = fakeTwilio({
       statuses: [{ status: "completed", duration: "20", answered_by: "machine_start" }],
     });
-    const transcribe = vi.fn(async () => "You've reached Alice, leave a message");
-    const result = await placeCallAndAwait(call, creds, deps(t.fetchFn, transcribe));
+    const result = await placeCallAndAwait(
+      call,
+      creds,
+      deps(t.fetchFn, vi.fn(async () => "")),
+    );
     expect(result).toEqual({
       outcome: "no_answer",
       call_length_seconds: 20,
-      message: "voicemail picked up (answered_by: machine_start)",
+      message:
+        "voicemail picked up (answered_by: machine_start); the message was likely left on voicemail",
     });
-    expect(transcribe).not.toHaveBeenCalled();
     expect(t.calls.some((c) => c.method === "DELETE")).toBe(true);
   });
 
-  it("keeps the recording and still reports completed when transcription fails", async () => {
+  it("keeps a recorded reply on no_answer in case voicemail detection misfired", async () => {
+    const t = fakeTwilio({
+      statuses: [{ status: "completed", duration: "25", answered_by: "machine_start" }],
+    });
+    const result = await placeCallAndAwait(
+      call,
+      creds,
+      deps(t.fetchFn, vi.fn(async () => "Yes, I'm up.")),
+    );
+    expect(result.outcome).toBe("no_answer");
+    expect(result.transcript).toBe(
+      "voice: Hi, this is Clipper. CI failed.\nuser: Yes, I'm up.",
+    );
+  });
+
+  it("reports completed without the provider error when transcription fails, and still deletes the recording", async () => {
     const t = fakeTwilio({});
     const result = await placeCallAndAwait(
       call,
       creds,
-      deps(t.fetchFn, vi.fn(async () => Promise.reject(new Error("stt down")))),
+      deps(t.fetchFn, vi.fn(async () => Promise.reject(new Error("stt down: {body}")))),
     );
     expect(result.outcome).toBe("completed");
     expect(result.transcript).toContain(
-      "user: [reply recorded but could not be transcribed: stt down]",
+      "user: [the reply was recorded but could not be transcribed]",
     );
-    expect(t.calls.some((c) => c.method === "DELETE")).toBe(false);
+    expect(result.transcript).not.toContain("stt down");
+    expect(t.calls.some((c) => c.method === "DELETE")).toBe(true);
   });
 
   it.each([
@@ -262,15 +281,21 @@ describe("placeCallAndAwait (Twilio)", () => {
     const hangup = t.calls.find(
       (c) => c.method === "POST" && c.url.endsWith("/Calls/CA1.json"),
     );
-    expect(new URLSearchParams(hangup?.body).get("Status")).toBe("canceled");
+    // completed ends a call in any state; canceled would miss an answered one.
+    expect(new URLSearchParams(hangup?.body).get("Status")).toBe("completed");
+    expect(result.message).toContain("the backend hung it up");
   });
 
-  it("ends an in-progress call with Status=completed on the deadline", async () => {
+  it("says so when the deadline hang-up is refused", async () => {
     const t = fakeTwilio({ statuses: [{ status: "in-progress" }] });
-    await placeCallAndAwait(call, creds, deps(t.fetchFn));
-    const hangup = t.calls.find(
-      (c) => c.method === "POST" && c.url.endsWith("/Calls/CA1.json"),
-    );
-    expect(new URLSearchParams(hangup?.body).get("Status")).toBe("completed");
+    const refusing = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === "POST" && String(url).endsWith("/Calls/CA1.json")) {
+        return new Response("{}", { status: 500 });
+      }
+      return t.fetchFn(url, init);
+    }) as unknown as typeof fetch;
+    const result = await placeCallAndAwait(call, creds, deps(refusing));
+    expect(result.outcome).toBe("timeout");
+    expect(result.message).toContain("could not confirm it hung up");
   });
 });

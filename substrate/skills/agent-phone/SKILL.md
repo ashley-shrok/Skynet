@@ -24,7 +24,7 @@ Three arguments, all required:
 
 - `--to <username>` — the app username of the person to call. The backend looks up their phone number from their user record. You can only call people who have registered the host you're running on in the app; anyone else gets `not_permitted`.
 - `--from "<caller name>"` — a TTS-friendly identifier for you as the caller. Compose it from your identity's `displayName` frontmatter field plus a title-cased version of your role's slug — e.g. `Clipper the Box Maintainer` (identity `clipper`, role `box-maintainer`). This is what the recipient hears on pickup ("Hi, this is Clipper the Box Maintainer. …") and again at the end of the turn ("Your reply has been sent back to Clipper the Box Maintainer. You may hang up.") so she knows which of your agents was calling.
-- `<message>` — the line to deliver. A text-to-speech voice reads it verbatim; write it the way you'd want it spoken (spell out anything awkward to read aloud). Short is fine; a whole paragraph is fine too. There is no strict length cap but a phone call is not a chat log — keep it to what actually needs saying. **Do NOT self-introduce or sign off in `<message>` — the opener and receipt already do that; see the next section.**
+- `<message>` — the line to deliver. A text-to-speech voice reads it verbatim; write it the way you'd want it spoken (spell out anything awkward to read aloud). Short is fine; a whole paragraph is fine too. The cap is 2000 characters (a little less if it's full of `&`, `<` or `>`), but a phone call is not a chat log — keep it to what actually needs saying. **Do NOT self-introduce or sign off in `<message>` — the opener and receipt already do that; see the next section.**
 
 Example:
 
@@ -65,11 +65,11 @@ Write `<message>` as pure content — no `"Hi, this is …"`, no `"— <name>"` 
 1. The helper (via the shared `fleet-service` client) drops a request into `~/fleet/service-requests/<uuid>.json`.
 2. The backend picks it up within ~10 seconds and renames it to `<uuid>.claimed.json`.
 3. The backend places the call. The recipient's phone rings.
-4. On pickup, the voice speaks the opening line and your message, then records the reply. The reply ends when the callee pauses for about 5 seconds (or after 2 minutes), then the voice says the receipt phrase and hangs up.
+4. On pickup, the voice speaks the opening line and your message, then records the reply. The reply ends when the callee pauses for about 5 seconds (or after 90 seconds), then the voice says the receipt phrase and hangs up.
 5. The backend transcribes the reply, deletes the recording, and drops `~/fleet/service-requests/<uuid>.response.json` back onto your host.
 6. The helper prints the transcript to stdout, cleans up its files, and exits.
 
-Most calls come back within a minute or two of being picked up. The worst case is about **9 minutes**: the backend gives up on a call after 8 minutes and hangs it up, so a call can never ring after you've been told it failed.
+Most calls come back within a minute or two of being picked up. The worst case is about **9.5 minutes**. The backend's limits fit inside the helper's wait — a request that waits more than 2 minutes to start is dropped as `expired` without dialing, and a call still going after 5.5 minutes is hung up — so a call does not ring after you've been told it failed.
 
 ## Response shape
 
@@ -88,21 +88,21 @@ Every response file carries exactly one `outcome`. Successful transcripts land u
 
 | outcome            | caller action |
 | ------------------ | --- |
-| completed          | Human answered and spoke. Transcript in stdout has both sides. Read it and act. |
+| completed          | Human answered and spoke. Transcript in stdout has both sides. Read it and act. Rarely the `user:` line reads `[the reply was recorded but could not be transcribed]` — she did reply; ask again by another channel if it matters. |
 | no_response        | Human answered but didn't say anything (or hung up during your message). Transcript has only your opener. Treat as "message was probably heard, no reply." |
-| no_answer          | The phone rang out or voicemail picked up. Try again later, or use a different channel. |
+| no_answer          | The phone rang out, or voicemail picked up — in which case your message was probably left on her voicemail (`message` says which). If the error carries a `transcript`, something was recorded after the message: read it, it may be a real reply that the voicemail detector misjudged. Otherwise try again later, or use a different channel. |
 | busy               | The line was busy. Try again in a bit. |
 | canceled           | Rare — the call was canceled before it connected. Retry. |
 | placement_error    | The provider refused to place the call. Check `message` for the reason (bad phone number, out of credit, rejected credentials). Not agent-retriable — escalate to the operator. |
-| queue_error        | The call was accepted but the carrier couldn't connect it. The phone did not ring. Retry once in a few minutes; if it happens again, escalate. |
-| timeout            | The call didn't finish within 8 minutes and the backend hung it up. Very rare. **The phone may have rung**, so do NOT retry right away — tell the user by another channel or escalate. |
-| expired            | The request sat in the queue past 8 minutes and was dropped without dialing. The fleet may be busy calling that person; retry. |
+| queue_error        | The call was accepted but couldn't be connected (carrier trouble, or a number that can't be reached). The phone did not ring. Retry once in a few minutes; if it happens again, escalate. |
+| timeout            | The call didn't finish within 5.5 minutes and the backend hung it up (or, from the helper, the backend never answered). Very rare. **The phone may have rung**, so do NOT retry right away — tell the user by another channel or escalate. |
+| expired            | The request sat in the queue past 2 minutes and was dropped without dialing (usually because another call to the same person was in progress). The phone did not ring; retry. |
 | not_picked_up      | The backend never picked up the request. The backend may be down or not managing this host. Not agent-retriable — escalate to the operator. |
-| not_configured     | The backend has no phone provider key set. Not agent-retriable — escalate to the operator. |
+| not_configured     | The backend's phone provider isn't set up (the Twilio account settings are missing). Not agent-retriable — escalate to the operator. |
 | queue_full         | Too many calls are queued. Try again later. |
 | unknown            | Defensive fallback — the provider returned a state the backend couldn't classify. Treat as a failure and escalate. |
 | internal           | The backend hit an unexpected error handling the request. Escalate to the operator. |
-| malformed          | The request was rejected. Check `message` for the specific field problem (e.g. message over 2000 characters), fix, and retry. |
+| malformed          | The request was rejected. Check `message` for the specific problem (e.g. message too long), fix, and retry. |
 | unknown_user       | No app user by that username. Check the username you passed to `--to`. |
 | not_permitted      | That user has not registered the host you're running on, so you can't call them. You can only call the people who own your host. Not agent-retriable. |
 | no_phone_on_file   | The user exists but has no phone number set on their record. Not agent-retriable. Having a number on file is what turns the phone feature on for a user: users who have it can change their number themselves in Preferences → Phone. A user with no number doesn't have the feature, so tell them an admin of the app needs to turn it on by setting their number. |
