@@ -2455,21 +2455,33 @@ export function createSshPollOrchestrator(
       if (line.archived === true) continue;
       thisTickLiveTreeIdentities.add(line.identity);
     }
+    const departedThisTick = new Set<string>();
     for (const previousName of hostState.lastTickLiveTreeIdentities) {
       if (!thisTickLiveTreeIdentities.has(previousName)) {
+        departedThisTick.add(previousName);
         deps.registry.publishIdentityGoneByName(host.id, previousName);
       }
     }
     hostState.lastTickLiveTreeIdentities = thisTickLiveTreeIdentities;
 
-    // Drop cosmetics-cache entries for identities that left the live tree in
-    // the same tick. Keeps the cache aligned with `lastTickLiveTreeIdentities`
+    // Drop cosmetics-cache entries for identities no longer on the live tree,
     // so the WS gate closure never reads back stale cosmetics for an identity
-    // whose files are no longer on disk (that would silently keep an
-    // identity visible-in-cache after its `users:` list was tightened).
+    // whose files are gone. Identities that departed THIS tick keep their
+    // entry until the next tick: the identity_gone fan-out above runs the WS
+    // identity gate asynchronously, and on a cache miss the gate falls back to
+    // reading the identity file — which an archive has already moved — and
+    // denies, silently dropping the gone frame for every other open tab.
     for (const cachedName of hostState.identityCosmeticsCache.keys()) {
-      if (!thisTickLiveTreeIdentities.has(cachedName)) {
+      if (
+        !thisTickLiveTreeIdentities.has(cachedName) &&
+        !departedThisTick.has(cachedName)
+      ) {
         hostState.identityCosmeticsCache.delete(cachedName);
+        systemLogger.debug("Fleet-status: evicted departed identity cosmetics", {
+          operation: "fleet_status_identity_cosmetics_evicted",
+          fleetHostId: host.id,
+          identityName: cachedName,
+        });
       }
     }
 

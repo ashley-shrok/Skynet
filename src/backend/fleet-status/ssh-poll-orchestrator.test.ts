@@ -9922,3 +9922,69 @@ describe("Phase 137 Plan 02 — widget line adapter + per-tick reconciliation", 
     expect(goneSlugs).toEqual(["form-xyz", "poll-abc"]);
   });
 }); // end describe Phase 137 Plan 02 widget reconciliation
+
+describe("archived identity — cosmetics cache outlives the identity_gone tick", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    __clearAllSessionFileCacheForTests();
+    (getIdentityLastSend as unknown as ReturnType<typeof vi.fn>).mockReset();
+    (getIdentityLastSend as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+  });
+
+  function identityLine(name: string): Record<string, unknown> {
+    return {
+      identity: name,
+      dormant: false,
+      recycled_at: false,
+      recycle_requested: false,
+      jsonl_path: null,
+      layer1_recycling: null,
+      identity_cosmetics: { displayName: name },
+      role_cosmetics: { users: ["ashley"] },
+      role: "box-maintainer",
+      pinned: false,
+    };
+  }
+
+  it("keeps the departed identity's cosmetics through the tick that publishes identity_gone, evicts on the next", async () => {
+    const channel = new MockSshChannel();
+    channel.setResponse("test -x ~/.local/bin/fleet-status-sweep", "yes\n");
+    const sweepCmd = "~/.local/bin/fleet-status-sweep 2>/dev/null";
+    channel.setResponse(
+      sweepCmd,
+      makeSweepJsonl({ identities: [identityLine("scarlet"), identityLine("keeper")], pids: [] }),
+    );
+    const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: vi.fn((fn: () => void, ms: number) => {
+        setIntervalFns.push({ fn, ms });
+        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
+      }),
+    });
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+    const pollFn = setIntervalFns.find((f) => f.ms === 2000)!;
+    expect(orchestrator.getCachedIdentityCosmetics("host-1", "scarlet")).not.toBeNull();
+
+    // Scarlet is archived: her folder leaves the live tree.
+    channel.setResponse(
+      sweepCmd,
+      makeSweepJsonl({ identities: [identityLine("keeper")], pids: [] }),
+    );
+    await pollFn.fn();
+    expect(deps.registry.publishedGone).toContainEqual({
+      hostId: "host-1",
+      tmuxSession: "scarlet",
+      sessionId: "",
+    });
+    // The async WS identity gate on that gone frame still resolves from cache.
+    expect(orchestrator.getCachedIdentityCosmetics("host-1", "scarlet")).toEqual(
+      expect.objectContaining({ roleCosmetics: { users: ["ashley"] } }),
+    );
+
+    await pollFn.fn();
+    expect(orchestrator.getCachedIdentityCosmetics("host-1", "scarlet")).toBeNull();
+    expect(orchestrator.getCachedIdentityCosmetics("host-1", "keeper")).not.toBeNull();
+  });
+});
