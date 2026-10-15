@@ -42,6 +42,14 @@ vi.mock("@/api/instance-wide-api", async (importOriginal) => {
   return { ...orig, listInstanceWide: vi.fn().mockResolvedValue({ isAdmin: false, items: [] }) };
 });
 
+// Git-tab probe: no repos. Unmocked, it retries against no server and its
+// retry log lands after teardown (vitest "Closing rpc while onUserConsoleLog
+// was pending").
+vi.mock("@/api/workspace-git-api", async (importOriginal) => {
+  const orig = (await importOriginal()) as Record<string, unknown>;
+  return { ...orig, hasGitRepos: vi.fn().mockResolvedValue(false) };
+});
+
 vi.mock("@mdxeditor/editor", () => ({
   MDXEditor: (props: {
     markdown: string;
