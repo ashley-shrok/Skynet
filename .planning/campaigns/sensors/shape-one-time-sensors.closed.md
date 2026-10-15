@@ -52,3 +52,50 @@ Agent-built, user-controlled: the app's only control over a sensor trigger stays
 - Delivery lives in the wake-up scheduler (both the per-identity and scheduled-tasks modes); model the retire step on its existing one-time handling (spec removed after firing; per-identity folder swept a day later). The sensor runner already stops a sensor whose trigger spec is gone.
 - The schedule validator exists in both the scheduler and the app backend — both must accept the mark on sensor schedules and still reject anything else.
 - Tell Cerulean when this lands (stakeholder step).
+
+---
+
+## Close-Out
+
+**Closed:** 2026-10-15
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **The one-time mark lives on the trigger** — present · An optional true/false mark beside the sensor type on the trigger's schedule; the sensor's own settings and code are unchanged.
+- **Retire only after delivery** — present · The fire is handed over first, then marked delivered, then a "has fired" marker is written and the spec removed; a failed removal is retried and the marker blocks a second delivery.
+- **Several fires waiting at once: only the oldest is delivered** — present · Oldest first; delivery stops after one for a one-time trigger; the rest go with the folder.
+- **Switched-off trigger: its fire waits, then is delivered and the trigger retires** — present · Switched-off triggers aren't loaded; once switched back on, the normal path delivers and retires.
+- **The sensor's service stops on its own** — present · The sensor runner only runs sensors whose trigger spec exists; unchanged.
+- **A one-time wake-up's folder lingers a day** — present · The existing day-later sweep covers retired one-time sensor wake-ups.
+- **The 📡 line says so; a scheduled task's newborn gets no note** — present · Retired note on both line forms; none for tasks.
+- **In the app: "Sensor · once" in both surfaces; shown, not editable; edits keep the mark** — present · Wake-ups tab and scheduled-tasks list, row and details; both edit forms send the schedule back unchanged (tested).
+- **Validation accepts the mark wherever sensor schedules are checked** — present · Both validators accept only true/false and still reject anything else; shared conformance cases.
+- **Skills** — present · Sensor-building skill gained a one-time section; id skill describes the label and retirement.
+- **Handoff: contract extended** — present · One-time section added to the on-disk contract.
+- **Handoff: both delivery modes** — present · One path for wake-ups and scheduled tasks; marker in the trigger's own folder.
+- **Out: expiry/give-up timers** — present · None added.
+- **Out: changing the mark from the app** — present · Display only.
+- **Out: creating sensors from the app** — present · Nothing added.
+- **Out: a note to a scheduled task's newborn** — present · None.
+- **Tempting but no: "fire N times" count** — present · Mark is true/false only.
+- **What would make it wrong: A fire is lost** — present · Removal only after hand-over.
+- **What would make it wrong: More than one heads-up** — present · One per trigger; marker blocks later deliveries.
+- **What would make it wrong: The sensor has to do anything different** — present · Retiring is entirely the machine's.
+- **What would make it wrong: A service left running** — present · Spec gone ⇒ runner stops it.
+- **What would make it wrong: An app edit turns it repeating** — present · Schedule passed through untouched.
+- **What would make it wrong: The machine decides on the sensor's behalf** — present · No timeouts or expiry; findings untouched.
+
+### Additions (in the result, not in the shape)
+
+- A retired one-time sensor scheduled task's leftover folder (sensor included) is cleared a day later, like a wake-up's — endorsed-as-drift (user, 2026-10-15: keeps a findings file readable for the newborn, avoids orphaned sensor folders)
+- A one-time trigger re-created under the same name after retiring counts as a fresh trigger — endorsed-as-drift
+- A sensor-status refresh test given a longer wait so it stops timing out under a loaded full run — endorsed-as-drift (test upkeep)
+
+### Follow-ups
+
+None.
+
+### Notes
+
+Telling Cerulean happens after deploy (stakeholder step).
