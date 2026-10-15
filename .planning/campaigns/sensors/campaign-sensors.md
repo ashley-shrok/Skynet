@@ -22,7 +22,7 @@ Wake-ups and scheduled tasks gain a new trigger type alongside daily, weekly, in
 
 Ordered; each depends on the previous.
 
-- **[declared] shape-sensor-scaffolding** — where sensors live on disk, how they run as services, the fire handoff into wake-ups and scheduled tasks (with the sensor's findings), cleanup on identity/scheduled-task archive, and the sensor-building skill that teaches agents to make one (the app-development skill's counterpart). — in_progress
+- **[declared] shape-sensor-scaffolding** — where sensors live on disk, how they run as services, the fire handoff into wake-ups and scheduled tasks (with the sensor's findings), cleanup on identity/scheduled-task archive, and the sensor-building skill that teaches agents to make one (the app-development skill's counterpart). — closed (pushed; deploy pending)
 - **[declared] shape-sensor-app-surfaces** — the sensor trigger type shown wherever wake-ups and scheduled tasks are shown in the app (scheduled-tasks list, the identity modal's wake-ups tab): sensor-triggered marker, last fired, healthy/broken state; plus the matching id-skill update. — declared
 - **[declared] shape-migrate-jarvis-sensors** — move Jarvis's delivery-email and payday sensors onto the new system as the proof it works end to end; retire their hand-rolled timers and wake-up writers. — declared
 
