@@ -38,7 +38,7 @@ Per trigger, under `<trigger>/.state/`:
     sensor-run.start       epoch of the latest run's start
     sensor-run.end         "<epoch> <exit code>" of the latest finished run
     sensor.log             the sensor's stdout+stderr (trimmed past 1 MB)
-    sensor-cadence.{anchored,last,runs}   cadence bookkeeping
+    sensor.cadence-{anchored,last,runs}   cadence bookkeeping (names no wake-up slug can collide with)
     sensor-health.json     health for the app
 
 Usage:  sensor-runner [--once]
@@ -77,6 +77,7 @@ POLL = float(os.environ.get("SENSOR_RUNNER_POLL_SEC", "30"))
 MANAGED_MARK = "# Managed by sensor-runner"
 TRIGGER_MARK = "# sensor-trigger: "
 HEALTHY_RUN_SEC = 30          # an always sensor counts as settled once up this long
+UNREADABLE_PASSES = 3         # passes an unreadable settings/spec file is tolerated before its unit goes
 RECENT_CRASH_SEC = 120        # a non-zero exit this recent keeps it marked broken
 LOG_MAX = 1024 * 1024
 LOG_KEEP = 256 * 1024
@@ -123,6 +124,22 @@ def read_float(path):
         return None
 
 
+def ensure_state_dir(s):
+    """Create `<trigger>/.state/` — never the trigger folder itself — and only
+    while the trigger's spec still exists. False if the trigger is gone (deleted
+    or archived mid-pass): nothing may be written for it then."""
+    if not os.path.isfile(s.spec_path):
+        return False
+    if not os.path.isdir(s.state_dir):
+        try:
+            os.mkdir(s.state_dir)
+        except FileExistsError:
+            pass
+        except OSError:
+            return False
+    return True
+
+
 def write_atomic(path, text):
     tmp = path + ".tmp"
     with open(tmp, "w") as f:
@@ -152,6 +169,7 @@ class Sensor:
         self.state_dir = os.path.join(trigger, ".state")
         self.settings = None
         self.problem = None                 # why it can't run (health "invalid")
+        self.transient = False              # problem may be a half-written file: keep its unit for now
         self.enabled = False
         self.unit = unit_name(kind, label, trigger)
 
@@ -194,6 +212,7 @@ def evaluate(s, eng):
         spec = read_json(s.spec_path)
     except Exception as e:
         s.problem = "trigger spec unreadable: %s" % e
+        s.transient = True
         return False
     sch = spec.get("schedule") if isinstance(spec, dict) else None
     if not isinstance(sch, dict) or sch.get("type") != eng.SENSOR_TYPE:
@@ -204,6 +223,7 @@ def evaluate(s, eng):
         st = read_json(published)
     except Exception as e:
         s.problem = "sensor.json unreadable: %s" % e
+        s.transient = True
         return False
     if not isinstance(st, dict):
         s.problem = "sensor.json must be an object"
@@ -238,9 +258,8 @@ def sensor_path_env():
     parts = [os.path.join(HOME, ".local", "bin"), os.path.join(HOME, ".bun", "bin"),
              os.path.join(HOME, ".npm-global", "bin"), os.path.join(HOME, ".cargo", "bin"),
              "/usr/local/sbin", "/usr/local/bin", "/usr/sbin", "/usr/bin", "/sbin", "/bin"]
-    for p in (os.environ.get("PATH") or "").split(":"):
-        if p and p not in parts:
-            parts.append(p)
+    # Fixed, not inherited: a hand-run `sensor-runner --once` with a different
+    # PATH must not rewrite (and so restart) every unit.
     return ":".join(parts)
 
 
@@ -282,7 +301,7 @@ def render_unit(s):
         "StandardError=append:%s" % logf,
     ]
     if always:
-        lines += ["Restart=always", "RestartSec=2", "RestartSteps=5", "RestartMaxDelaySec=60",
+        lines += ["Restart=always", "RestartSec=5", "RestartSteps=4", "RestartMaxDelaySec=60",
                   "", "[Install]", "WantedBy=default.target"]
     return "\n".join(lines) + "\n"
 
@@ -358,8 +377,9 @@ def write_health(s, state, healthy, run=None, overrunning=False, error=None, now
         "lastRunAt": iso(start), "lastExitAt": iso(end_t), "lastExitCode": end_rc,
         "overrunning": overrunning, "error": error, "updatedAt": iso(now),
     }
+    if not ensure_state_dir(s):
+        return
     try:
-        os.makedirs(s.state_dir, exist_ok=True)
         write_atomic(s.path("sensor-health.json"), json.dumps(h, indent=2) + "\n")
     except OSError as e:
         log("health write failed trigger=%s err=%s" % (s.trigger, e))
@@ -396,10 +416,11 @@ class Runner:
         self.box_zone = eng.local_zone()
         self.overrunning = set()            # triggers whose last due slot found a run still going
         self.warned = set()
+        self.unreadable_passes = {}         # unit -> consecutive passes its files were unreadable
 
     def cadence_tick(self, s, now):
         cad = s.settings["cadence"]
-        p_last, p_anch, p_runs = (s.path("sensor-cadence." + x) for x in ("last", "anchored", "runs"))
+        p_last, p_anch, p_runs = (s.path("sensor.cadence-" + x) for x in ("last", "anchored", "runs"))
         last, anchored = read_float(p_last), read_float(p_anch)
         try:
             runs = int(read_float(p_runs) or 0)
@@ -421,7 +442,8 @@ class Runner:
             return
         self.overrunning.discard(s.trigger)
         rc, _, err = systemctl("start", "--no-block", s.unit)
-        write_atomic(p_runs, str(runs + 1))
+        if rc == 0:
+            write_atomic(p_runs, str(runs + 1))
         log("cadence run started unit=%s trigger=%s rc=%d%s"
             % (s.unit, s.trigger, rc, (" err=" + err.strip()) if rc else ""))
 
@@ -448,15 +470,32 @@ class Runner:
             except Exception as e:
                 s.problem = "could not evaluate: %s: %s" % (type(e).__name__, e)
 
+        # An unreadable spec or sensor.json may just be a file caught mid-write:
+        # keep its unit untouched for a few passes before treating it as invalid.
+        held = set()
+        for s in sensors:
+            if s.transient:
+                n = self.unreadable_passes.get(s.unit, 0) + 1
+                self.unreadable_passes[s.unit] = n
+                if n < UNREADABLE_PASSES:
+                    held.add(s.unit)
+            else:
+                self.unreadable_passes.pop(s.unit, None)
+
         existing = managed_units()
         changed = []
         reload_needed = False
 
         # Remove services whose sensor should no longer run.
         for unit, trigger in existing.items():
-            if unit in wanted:
+            if unit in wanted or unit in held:
                 continue
-            systemctl("disable", "--now", unit)
+            rc, _, err = systemctl("disable", "--now", unit)
+            if rc != 0:
+                # Keep the unit file so the next pass can retry; deleting it now
+                # would orphan a still-running process we could never find again.
+                log("stop failed unit=%s trigger=%s rc=%d err=%s — will retry" % (unit, trigger, rc, err.strip()))
+                continue
             try:
                 os.unlink(os.path.join(UNIT_DIR, unit))
             except OSError:
@@ -467,8 +506,10 @@ class Runner:
 
         # Create or refresh services for every sensor that should run.
         os.makedirs(UNIT_DIR, exist_ok=True)
-        for unit, s in wanted.items():
-            os.makedirs(s.state_dir, exist_ok=True)
+        for unit, s in list(wanted.items()):
+            if not ensure_state_dir(s):
+                del wanted[unit]            # trigger vanished since discovery; next pass removes its unit
+                continue
             launcher = render_launcher(s)
             text = render_unit(s)
             upath = os.path.join(UNIT_DIR, unit)
@@ -506,6 +547,8 @@ class Runner:
                 systemctl("restart", s.unit)
 
         for unit, s in wanted.items():
+            if not os.path.isfile(s.spec_path):
+                continue
             trim_log(s.path("sensor.log"))
             try:
                 if s.settings["run"] == "always":

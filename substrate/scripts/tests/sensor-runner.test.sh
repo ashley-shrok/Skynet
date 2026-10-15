@@ -20,6 +20,9 @@
 #   SR-09 — units the runner doesn't own (no marker) are never touched
 #   SR-10 — scheduled-task sensors are handled the same way
 #   SR-11 — sensor-fire: arguments, stdin, walk-up discovery, refusal outside a trigger
+#   SR-12 — a half-written sensor.json keeps the unit for a few passes, then it goes
+#   SR-13 — a failed stop keeps the unit file and retries next pass
+#   SR-14 — a sensor folder whose trigger spec is gone never gets a .state/ created
 #
 # Usage: bash substrate/scripts/tests/sensor-runner.test.sh   (from the repo root)
 
@@ -81,7 +84,7 @@ case "$cmd" in
     else
       echo active > "$D/$unit"
     fi ;;
-  disable) [ -n "$unit" ] && echo inactive > "$D/$unit" ;;
+  disable) [ -f "$D/fail-disable" ] && exit 1; [ -n "$unit" ] && echo inactive > "$D/$unit" ;;
 esac
 exit 0
 SH
@@ -108,7 +111,7 @@ make_wakeup() {
 unit_file() { ls "$SCRATCH/units"/sensor-w-* 2>/dev/null | head -1; }
 health() { python3 -c "import json,sys;print(json.load(open(sys.argv[1]))[sys.argv[2]])" "$1/.state/sensor-health.json" "$2" 2>/dev/null; }
 # age_anchor <trigger>: pretend the cadence was anchored an hour ago so it's due now.
-age_anchor() { printf '%s' "$(( $(date +%s) - 3600 ))" > "$1/.state/sensor-cadence.anchored"; }
+age_anchor() { printf '%s' "$(( $(date +%s) - 3600 ))" > "$1/.state/sensor.cadence-anchored"; }
 
 ALWAYS='{"run":"always","command":"sleep 1000"}'
 CADENCE_FIRE='{"run":"cadence","cadence":{"type":"interval","every":"5m"},"command":"sensor-fire \"two candidates\""}'
@@ -154,14 +157,14 @@ SR03() {
   grep -q '^Type=oneshot$' "$u" || fail "cadence → oneshot"
   grep -q '^Restart=' "$u" && fail "cadence must not auto-restart"
   grep -q "enable" "$SCRATCH/sysd/calls.log" && fail "cadence units are not enabled"
-  assert_file "$w/.state/sensor-cadence.anchored" "first pass anchors"
+  assert_file "$w/.state/sensor.cadence-anchored" "first pass anchors"
   [ -d "$w/fires" ] && [ -n "$(ls "$w/fires")" ] && fail "first pass must not run it"
   age_anchor "$w"
   runner_pass
   local fires; fires=$(ls "$w/fires" 2>/dev/null | grep -cE '^20[0-9]{6}T[0-9]{9}-[0-9a-f]{8}\.fire$')
   assert_eq "1" "$fires" "the run fired once"
   assert_eq "two candidates" "$(cat "$w"/fires/*.fire 2>/dev/null)" "findings verbatim"
-  assert_eq "1" "$(cat "$w/.state/sensor-cadence.runs")" "run counted"
+  assert_eq "1" "$(cat "$w/.state/sensor.cadence-runs")" "run counted"
   grep -q "=== sensor run exited 0 ===" "$w/.state/sensor.log" || fail "log records the run"
   runner_pass
   assert_eq "idle" "$(health "$w" state)" "idle between runs"
@@ -179,7 +182,7 @@ SR04() {
   grep -q "start --no-block $u" "$SCRATCH/sysd/calls.log" && fail "must not start a second run"
   assert_eq "overrunning" "$(health "$w" state)" "marked overrunning"
   assert_eq "False" "$(health "$w" healthy)" "overrunning is unhealthy"
-  assert_file "$w/.state/sensor-cadence.last" "the slot is used up, not queued"
+  assert_file "$w/.state/sensor.cadence-last" "the slot is used up, not queued"
 }
 
 SR05() {
@@ -263,7 +266,47 @@ SR11() {
   true
 }
 
-for t in SR01 SR02 SR03 SR04 SR05 SR06 SR07 SR08 SR09 SR10 SR11; do run_test "$t"; done
+SR12() {
+  local w u; w=$(make_wakeup deliveries true "$ALWAYS")
+  runner_pass
+  u=$(unit_file)
+  printf '{"run": "alw' > "$w/sensor/sensor.json"        # caught mid-write
+  runner_pass
+  assert_file "$u" "unit kept through an unreadable pass"
+  grep -q "disable --now" "$SCRATCH/sysd/calls.log" && fail "must not stop a sensor over one unreadable read"
+  printf '%s\n' "$ALWAYS" > "$w/sensor/sensor.json"
+  runner_pass
+  assert_file "$u" "still there once readable again"
+  printf 'garbage' > "$w/sensor/sensor.json"
+  # The unreadable count lives in the running process: give one runner several passes.
+  SENSOR_RUNNER_POLL_SEC=0.3 timeout 3 python3 "$RUNNER" 2>>"$SCRATCH/runner.err"
+  assert_no_file "$u" "persistently unreadable → unit removed"
+  assert_eq "invalid" "$(health "$w" state)" "health invalid"
+}
+
+SR13() {
+  local w u; w=$(make_wakeup deliveries true "$ALWAYS")
+  runner_pass
+  u=$(unit_file)
+  sed -i 's/"enabled":true/"enabled":false/' "$w/wakeup.json"
+  touch "$SCRATCH/sysd/fail-disable"
+  runner_pass
+  assert_file "$u" "unit file kept when the stop fails"
+  rm -f "$SCRATCH/sysd/fail-disable"
+  runner_pass
+  assert_no_file "$u" "retried and removed next pass"
+}
+
+SR14() {
+  local w="$SCRATCH/fleet/identities/jarvis/wakeups/ghost"
+  mkdir -p "$w/sensor"
+  printf '%s\n' "$ALWAYS" > "$w/sensor/sensor.json"     # sensor, but no wakeup.json
+  runner_pass
+  [ -e "$w/.state" ] && fail "no state folder for a trigger without a spec"
+  assert_eq "" "$(unit_file)" "no unit"
+}
+
+for t in SR01 SR02 SR03 SR04 SR05 SR06 SR07 SR08 SR09 SR10 SR11 SR12 SR13 SR14; do run_test "$t"; done
 
 printf '\n===============================\nPASS: %d  FAIL: %d\n' "$PASS" "$FAIL"
 if [ "$FAIL" -gt 0 ]; then

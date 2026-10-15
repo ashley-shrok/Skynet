@@ -3292,8 +3292,10 @@ def _peek_one(wakedir):
             with open(spec_path) as f: spec = json.load(f)
             if not spec.get('enabled', True): continue
             sch = spec.get('schedule')
-            # Same load gate as wakeup-scheduler.py _load_specs.
-            if not sch or not spec.get('instruction'): continue
+            # Same load gate as wakeup-scheduler.py _load_specs (a sensor wake-up
+            # loads even with an empty instruction).
+            is_sensor = isinstance(sch, dict) and sch.get('type') == eng.SENSOR_TYPE
+            if not sch or not (spec.get('instruction') or is_sensor): continue
             if eng.schedule_error(sch): continue          # the scheduler won't fire it either
             base = os.path.join(folder, '.state', key)
             t = sch.get('type')

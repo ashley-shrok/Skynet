@@ -12,7 +12,7 @@ builds against.
     wakeup.json               the spec (same fields as before: name, enabled, schedule, instruction)
     .state/                   per-wake-up scheduler state: <slug>.last / .anchored / .runs / .fired / .wake
                               + sensor-health.json, sensor.log, sensor.unit, sensor-run.json,
-                                sensor-cadence.{last,anchored,runs}  (sensor wake-ups only)
+                                sensor.cadence-{last,anchored,runs}  (sensor wake-ups only)
     sensor/                   sensor wake-ups only — the agent's logic + its own memory
       sensor.json             published settings (sensor.json.pending = draft, ignored)
     fires/                    sensor wake-ups only — pending fires

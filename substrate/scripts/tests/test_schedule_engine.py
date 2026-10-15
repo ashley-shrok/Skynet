@@ -89,6 +89,8 @@ VALID = [
 ]
 
 INVALID = [
+    ({"type": "sensor", "timezone": "UTC"}, "timezone"),
+    ({"type": "sensor", "every": "5m"}, "every"),
     ({"type": "hourly", "every": "1h"}, "unknown schedule type"),
     ("daily", "must be an object"),
     ({"type": "interval"}, "every"),

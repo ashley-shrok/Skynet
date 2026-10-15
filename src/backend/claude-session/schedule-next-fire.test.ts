@@ -215,9 +215,22 @@ describe("computeNextFireAt — interval in months", () => {
 describe("sensor schedule kind", () => {
   const now = 1_700_000_000;
 
-  it("is valid with no other fields, and extra fields are ignored", () => {
+  it("is valid with no other fields", () => {
     expect(scheduleError({ type: "sensor" })).toBeNull();
-    expect(scheduleError({ type: "sensor", every: "junk", timezone: "Not/AZone" })).toBeNull();
+  });
+
+  it("rejects any key other than type, naming the first in insertion order", () => {
+    expect(scheduleError({ type: "sensor", every: "junk", timezone: "Not/AZone" })).toBe(
+      "sensor: `every` is not supported",
+    );
+    expect(scheduleError({ timezone: "UTC", type: "sensor" })).toBe("sensor: `timezone` is not supported");
+    expect(scheduleError({ type: "sensor", at: "09:00" })).toBe("sensor: `at` is not supported");
+    // A key is offending even with a null value — it is the key, not the value.
+    expect(scheduleError({ type: "sensor", count: null })).toBe("sensor: `count` is not supported");
+  });
+
+  it("an invalid sensor schedule has no next fire", () => {
+    expect(computeNextFireAt({ type: "sensor", every: "1h" }, null, now)).toBeNull();
   });
 
   it("never has a next fire", () => {

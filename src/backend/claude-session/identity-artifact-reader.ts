@@ -53,7 +53,7 @@ import yaml from "js-yaml";
 import { parseDocument as yamlParseDocument } from "yaml";
 import { sshLogger, systemLogger } from "../utils/logger.js";
 import { execCommand } from "../ssh/tmux-helper.js";
-import { scheduleError } from "./schedule-next-fire.js";
+import { scheduleError, SENSOR_TYPE } from "./schedule-next-fire.js";
 // Phase 85 Plan 85-01 Task 1: role-name gate for readRoleFileByName +
 // readAvatarSiblingFileByRole. Same pattern roles-create.ts imports at L87
 // (`/^[a-z0-9-]+$/` — kebab-case-lowercase, defense-in-depth against SSH
@@ -1626,13 +1626,15 @@ export async function readIdentityWakeups(
   // REMOTE branch — delimiter-based one-liner (one round-trip for all wakeup
   // folders). `*/` never matches dot-folders; folders without wakeup.json are
   // skipped by the `[ -f ]` guard. nullglob keeps an empty dir from looping
-  // once over a literal `*/`.
+  // once over a literal `*/`. The loop is grouped under the `cd … &&` so a
+  // missing wakeups/ dir runs nothing (rather than looping over $HOME); the
+  // failed cd exits non-zero, which the catch below reads as "no wake-ups".
   // Patch #95: direct interpolation (see readIdentityFile for the bug).
   const cmd =
-    `cd "$HOME/fleet/identities/${identityKey}/wakeups" 2>/dev/null && ` +
+    `cd "$HOME/fleet/identities/${identityKey}/wakeups" 2>/dev/null && { ` +
     'shopt -s nullglob; ' +
     'for d in */; do s="${d%/}"; [ -f "$s/wakeup.json" ] || continue; ' +
-    'echo "===FILE:$s==="; cat "$s/wakeup.json"; done';
+    'echo "===FILE:$s==="; cat "$s/wakeup.json"; done; }';
   let stdout: string;
   try {
     stdout = await execWithTimeout(conn, cmd);
@@ -1861,6 +1863,19 @@ function validateWakeupSpec(spec: WakeupSpec): void {
   assertFireableSchedule(spec.schedule);
 }
 
+/** Sensor triggers are created on disk by agents (folder + sensor), never
+ *  from the app — refuse one on CREATE. Updates of an existing sensor item
+ *  pass their schedule through unchanged and are not checked here. */
+export function assertNotSensorCreate(schedule: unknown): void {
+  if (
+    typeof schedule === "object" &&
+    schedule !== null &&
+    (schedule as Record<string, unknown>).type === SENSOR_TYPE
+  ) {
+    throw new Error("schedule: sensor triggers can't be created from the app");
+  }
+}
+
 /** Throw unless `schedule` is one wakeup-scheduler.py will fire. */
 function assertFireableSchedule(schedule: unknown): void {
   if (typeof schedule !== "object" || schedule === null) {
@@ -1890,15 +1905,22 @@ function assertFireableSchedule(schedule: unknown): void {
 /** Create a new ~/fleet/identities/<identityKey>/wakeups/<slug>/wakeup.json
  *  where <slug> is derived from spec.name via kebab-case. The folder is made
  *  first and wakeup.json lands atomically (tmp + rename), so the scheduler
- *  never sees a half-written spec. An existing <slug>/ folder is a name
- *  collision: throws "wakeup with this name already exists". Returns the refreshed {wakeups} list
- *  post-write. */
+ *  never sees a half-written spec. Only a <slug>/ folder that already HAS a
+ *  wakeup.json is a name collision: throws "wakeup with this name already
+ *  exists". A <slug>/ folder WITHOUT one (e.g. a fired one-shot's leftover,
+ *  kept around for a day) is reused: its `.state/<slug>.fired` marker is
+ *  removed so the new spec isn't born already-fired, then wakeup.json is
+ *  written. On a failed write the folder is removed only if this call made
+ *  it. Sensor schedules are refused — sensors are created on disk by agents,
+ *  never from the app (updating an existing one is fine). Returns the
+ *  refreshed {wakeups} list post-write. */
 export async function writeIdentityWakeupCreate(
   conn: SSHClientType | null,
   identityKey: string,
   spec: WakeupSpec,
 ): Promise<{ wakeups: Wakeup[] }> {
   validateWakeupSpec(spec);
+  assertNotSensorCreate(spec.schedule);
   const slug = normalizeSpecSlug(spec.name);
   if (!IDENTITY_SLUG_RE.test(slug)) {
     throw new Error("name normalizes to empty or invalid slug");
@@ -1918,28 +1940,44 @@ export async function writeIdentityWakeupCreate(
     const wakeupsDir = path.join(root, identityKey, "wakeups");
     await fs.mkdir(wakeupsDir, { recursive: true });
     const wakeupDir = path.join(wakeupsDir, slug);
-    try {
-      // Non-recursive: EEXIST is the collision check, race-free.
-      await fs.mkdir(wakeupDir);
-    } catch (err: unknown) {
-      if ((err as NodeJS.ErrnoException).code === "EEXIST") {
-        sshLogger.info("identity-artifact-reader: wakeup create collision", {
-          operation: "identity_wakeup_create_collision",
-          identityKey,
-          slug,
-        });
-        throw new Error("wakeup with this name already exists");
-      }
-      throw err;
-    }
     const filePath = path.join(wakeupDir, "wakeup.json");
-    const tmpPath = filePath + ".tmp";
+    const collision = (): Error => {
+      sshLogger.info("identity-artifact-reader: wakeup create collision", {
+        operation: "identity_wakeup_create_collision",
+        identityKey,
+        slug,
+      });
+      return new Error("wakeup with this name already exists");
+    };
+    let created = false;
+    try {
+      // Non-recursive: EEXIST means the folder is already there.
+      await fs.mkdir(wakeupDir);
+      created = true;
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+      // Only a folder holding a wakeup.json (or a non-folder) is a collision;
+      // a spec-less leftover folder is reused.
+      if (!(await fs.stat(wakeupDir)).isDirectory()) throw collision();
+      if (await pathExists(filePath)) throw collision();
+      await fs.rm(path.join(wakeupDir, ".state", `${slug}.fired`), { force: true });
+    }
+    const tmpPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
     try {
       await fs.writeFile(tmpPath, body, "utf-8");
-      await fs.rename(tmpPath, filePath);
+      // link() won't clobber, so a racing create that landed wakeup.json
+      // between the check above and here still loses cleanly.
+      try {
+        await fs.link(tmpPath, filePath);
+      } catch (err: unknown) {
+        if ((err as NodeJS.ErrnoException).code === "EEXIST") throw collision();
+        throw err;
+      } finally {
+        await fs.rm(tmpPath, { force: true });
+      }
     } catch (err) {
-      // Don't leave an empty folder squatting on the name.
-      await fs.rm(wakeupDir, { recursive: true, force: true });
+      // Don't leave an empty folder we made squatting on the name.
+      if (created) await fs.rm(wakeupDir, { recursive: true, force: true });
       throw err;
     }
     sshLogger.info("identity-artifact-reader: wakeup created (local)", {
@@ -1950,14 +1988,19 @@ export async function writeIdentityWakeupCreate(
     return readIdentityWakeups(conn, identityKey);
   }
 
-  // REMOTE branch — make the folder (an existing one = collision), then the
-  // python3 tmp+rename write lands wakeup.json inside it.
+  // REMOTE branch — make the folder (OK), or reuse a spec-less leftover one
+  // after clearing its fired marker (REUSED); a folder that already holds
+  // wakeup.json, or a non-folder, is a collision (EXISTS). Then the python3
+  // tmp+rename write lands wakeup.json inside it.
   const wakeupDir = `$HOME/fleet/identities/${identityKey}/wakeups/${slug}`;
   const targetPath = `${wakeupDir}/wakeup.json`;
   const preCheckCmd =
     `mkdir -p "$HOME/fleet/identities/${identityKey}/wakeups" && ` +
-    `if [ -e "${wakeupDir}" ]; then echo EXISTS; else mkdir "${wakeupDir}" && echo OK; fi`;
+    `if [ -e "${targetPath}" ] || { [ -e "${wakeupDir}" ] && [ ! -d "${wakeupDir}" ]; }; then echo EXISTS; ` +
+    `elif [ -d "${wakeupDir}" ]; then rm -f "${wakeupDir}/.state/${slug}.fired" && echo REUSED; ` +
+    `else mkdir "${wakeupDir}" && echo OK; fi`;
   const preCheck = (await execWithTimeout(conn, preCheckCmd)).trim();
+  const created = preCheck.endsWith("OK");
   if (preCheck.endsWith("EXISTS")) {
     sshLogger.info("identity-artifact-reader: wakeup create collision", {
       operation: "identity_wakeup_create_collision",
@@ -1980,9 +2023,9 @@ export async function writeIdentityWakeupCreate(
     instruction: spec.instruction,
   }).replace(/'/g, "'\\''");
   const writeCmd =
-    `printf '%s' '${payload}' | python3 -c ${shellEscape(script)} "${targetPath}" ` +
-    // Don't leave an empty folder squatting on the name.
-    `|| { rm -rf "${wakeupDir}"; exit 1; }`;
+    `printf '%s' '${payload}' | python3 -c ${shellEscape(script)} "${targetPath}"` +
+    // Don't leave an empty folder we made squatting on the name.
+    (created ? ` || { rm -rf "${wakeupDir}"; exit 1; }` : "");
   await execWithTimeout(conn, writeCmd);
   sshLogger.info("identity-artifact-reader: wakeup created (remote)", {
     operation: "identity_wakeup_create",

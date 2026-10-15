@@ -83,6 +83,14 @@ def main(argv):
         f.flush()
         os.fsync(f.fileno())
     os.rename(tmp, final)
+    try:
+        dfd = os.open(fdir, os.O_RDONLY)
+        try:
+            os.fsync(dfd)               # make the rename itself durable
+        finally:
+            os.close(dfd)
+    except OSError:
+        pass
     print(final)
     return 0
 

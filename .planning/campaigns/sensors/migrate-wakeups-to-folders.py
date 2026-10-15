@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Deploy-time migration for shape-sensor-scaffolding: flat wake-ups → folders.
 
-Run ON EACH HOST, as the fleet user, AFTER the distributor has installed the new
-wakeup-scheduler / ambient-monitor / agent-supervisor there.
+Run ON EACH HOST, as the fleet user, IMMEDIATELY after the distributor has
+installed the new wakeup-scheduler / ambient-monitor / agent-supervisor there
+(between the two, the new supervisor sees no folder wake-ups, so dormant
+agents would miss scheduled wakes).
 
     python3 migrate-wakeups-to-folders.py            # dry run: print the plan
     python3 migrate-wakeups-to-folders.py --apply    # do it
@@ -41,6 +43,7 @@ def slugify(stem):
 
 def plan_identity(wdir):
     steps, problems = [], []
+    planned = set()
     for p in sorted(glob.glob(os.path.join(wdir, "*.json"))):
         stem = os.path.splitext(os.path.basename(p))[0]
         try:
@@ -50,9 +53,10 @@ def plan_identity(wdir):
             continue
         slug = stem if SLUG_RE.match(stem) else slugify(stem)
         target = os.path.join(wdir, slug)
-        if os.path.exists(target):
+        if os.path.exists(target) or target in planned:
             problems.append("%s: target folder %s already exists — left alone" % (p, target))
             continue
+        planned.add(target)
         old_key = spec.get("name") if isinstance(spec, dict) and spec.get("name") else stem
         moves = []
         for ext in STATE_EXTS:
@@ -65,10 +69,24 @@ def plan_identity(wdir):
 
 def apply_steps(steps):
     for spec_path, target, moves in steps:
-        os.makedirs(os.path.join(target, ".state"))
-        os.rename(spec_path, os.path.join(target, "wakeup.json"))
-        for src, dst in moves:
-            os.rename(src, dst)
+        try:
+            os.makedirs(os.path.join(target, ".state"))
+            os.rename(spec_path, os.path.join(target, "wakeup.json"))
+            for src, dst in moves:
+                os.rename(src, dst)
+        except OSError as e:
+            print("  ! %s: %s — continuing with the rest" % (spec_path, e))
+
+
+def proc_env_cwd(pid):
+    """The process's own environment and working directory, to relaunch it as it was."""
+    raw = open("/proc/%d/environ" % pid, "rb").read().split(b"\0")
+    env = {}
+    for item in raw:
+        if b"=" in item:
+            k, v = item.split(b"=", 1)
+            env[k.decode(errors="replace")] = v.decode(errors="replace")
+    return env, os.readlink("/proc/%d/cwd" % pid)
 
 
 def running_monitors():
@@ -90,6 +108,7 @@ def running_monitors():
 def restart_monitor(pid, argv):
     iddir = next(a for a in argv if a.startswith("/") and "/fleet/identities/" in a)
     name = os.path.basename(iddir.rstrip("/"))
+    env, cwd = proc_env_cwd(pid)
     os.kill(pid, signal.SIGTERM)
     for _ in range(40):
         if not os.path.exists("/proc/%d" % pid):
@@ -100,7 +119,8 @@ def restart_monitor(pid, argv):
         return
     logf = os.path.join(iddir, "ambient-monitor.log")
     with open(logf, "w") as lf:
-        subprocess.Popen(argv, stdout=lf, stderr=lf, stdin=subprocess.DEVNULL, start_new_session=True)
+        subprocess.Popen(argv, stdout=lf, stderr=lf, stdin=subprocess.DEVNULL, start_new_session=True,
+                         env=env, cwd=cwd)
     print("  restarted ambient monitor for %s" % name)
 
 

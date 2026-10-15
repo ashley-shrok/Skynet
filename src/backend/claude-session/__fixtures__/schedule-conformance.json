@@ -22695,6 +22695,20 @@
   },
   {
    "schedule": {
+    "timezone": "UTC",
+    "type": "sensor"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "every": "5m",
+    "type": "sensor"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
     "every": "1h",
     "type": "hourly"
    },
@@ -23721,7 +23735,7 @@
     "start": "2026-02-26T19:50:00",
     "type": "sensor"
    },
-   "valid": true
+   "valid": false
   },
   {
    "schedule": {
@@ -24657,7 +24671,7 @@
      "to": "00:00"
     }
    },
-   "valid": true
+   "valid": false
   },
   {
    "schedule": {
@@ -24666,7 +24680,7 @@
     "timezone": "Europe/London",
     "type": "sensor"
    },
-   "valid": true
+   "valid": false
   },
   {
    "schedule": {
@@ -24722,7 +24736,7 @@
     "timezone": "Australia/Lord_Howe",
     "type": "sensor"
    },
-   "valid": true
+   "valid": false
   },
   {
    "schedule": {
@@ -25146,7 +25160,7 @@
     "type": "sensor",
     "until": "2027-08-26T00:00:00"
    },
-   "valid": true
+   "valid": false
   },
   {
    "schedule": {
@@ -26416,7 +26430,7 @@
     "timezone": "Australia/Sydney",
     "type": "sensor"
    },
-   "valid": true
+   "valid": false
   },
   {
    "schedule": {
@@ -27561,7 +27575,7 @@
      "to": "17:45"
     }
    },
-   "valid": true
+   "valid": false
   },
   {
    "schedule": {
@@ -29974,7 +29988,7 @@
     "start": "2027-03-14T14:20:00",
     "type": "sensor"
    },
-   "valid": true
+   "valid": false
   },
   {
    "schedule": {
@@ -31031,7 +31045,7 @@
     "type": "sensor",
     "window": "2027-01-01T00:00:00+05:30"
    },
-   "valid": true
+   "valid": false
   },
   {
    "schedule": {
@@ -32143,7 +32157,7 @@
     "at": "22:53",
     "type": "sensor"
    },
-   "valid": true
+   "valid": false
   },
   {
    "schedule": {
@@ -33382,7 +33396,7 @@
     "date": "10-31",
     "type": "sensor"
    },
-   "valid": true
+   "valid": false
   },
   {
    "schedule": {
@@ -33504,7 +33518,7 @@
     "timezone": "UTC",
     "type": "sensor"
    },
-   "valid": true
+   "valid": false
   },
   {
    "schedule": {
@@ -33535,7 +33549,7 @@
      "to": "03:00"
     }
    },
-   "valid": true
+   "valid": false
   },
   {
    "schedule": {
@@ -34518,7 +34532,7 @@
     "type": "sensor",
     "until": "2028-08-02T13:55:00"
    },
-   "valid": true
+   "valid": false
   },
   {
    "schedule": {
@@ -34964,7 +34978,7 @@
      "to": "03:00"
     }
    },
-   "valid": true
+   "valid": false
   },
   {
    "schedule": {
@@ -35659,7 +35673,7 @@
     "type": "sensor",
     "until": "2027-09-16T00:00:00"
    },
-   "valid": true
+   "valid": false
   },
   {
    "schedule": {
@@ -35796,7 +35810,7 @@
     "type": "sensor",
     "until": "2028-05-15T00:00:00"
    },
-   "valid": true
+   "valid": false
   },
   {
    "schedule": {
@@ -35833,7 +35847,7 @@
     ],
     "type": "sensor"
    },
-   "valid": true
+   "valid": false
   },
   {
    "schedule": {
@@ -35894,7 +35908,7 @@
     "timezone": "Europe/Berlin",
     "type": "sensor"
    },
-   "valid": true
+   "valid": false
   },
   {
    "schedule": {
@@ -36012,7 +36026,7 @@
     ],
     "type": "sensor"
    },
-   "valid": true
+   "valid": false
   },
   {
    "schedule": {
@@ -37541,7 +37555,7 @@
      "to": "09:52"
     }
    },
-   "valid": true
+   "valid": false
   },
   {
    "schedule": {
@@ -38415,7 +38429,7 @@
     "start": "2027-01-25T21:35:00",
     "type": "sensor"
    },
-   "valid": true
+   "valid": false
   },
   {
    "schedule": {
@@ -38831,7 +38845,7 @@
     "start": "2027-08-09T00:10:00",
     "type": "sensor"
    },
-   "valid": true
+   "valid": false
   },
   {
    "schedule": {
@@ -39029,7 +39043,7 @@
     "timezone": "Pacific/Chatham",
     "type": "sensor"
    },
-   "valid": true
+   "valid": false
   },
   {
    "schedule": {
@@ -40240,7 +40254,7 @@
     ],
     "type": "sensor"
    },
-   "valid": true
+   "valid": false
   },
   {
    "schedule": {
@@ -40943,7 +40957,7 @@
     "type": "sensor",
     "weekday": "tue"
    },
-   "valid": true
+   "valid": false
   },
   {
    "schedule": {
@@ -41266,7 +41280,7 @@
     "type": "sensor",
     "weekday": 2.5
    },
-   "valid": true
+   "valid": false
   },
   {
    "schedule": {
@@ -42066,7 +42080,7 @@
     "timezone": "Pacific/Auckland",
     "type": "sensor"
    },
-   "valid": true
+   "valid": false
   },
   {
    "schedule": {

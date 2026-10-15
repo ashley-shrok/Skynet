@@ -835,6 +835,44 @@ PY
   assert_file_exists "$sa_dir/.state/payday.last" "SA-G16: last fired recorded in the shared state"
 }
 
+# ============================================================
+# SA-G17: review hardening — a fire that waited 40 days is delivered and its
+# delivered copy survives the prune; findings with markup characters are
+# pointed at, never inlined; a sensor wake-up with an empty instruction still
+# delivers; huge findings for a scheduled task are pointed at.
+# ============================================================
+test_SA_G17_sensor_delivery_hardening() {
+  local ident_dir home_dir out_log w sa_dir
+  ident_dir=$(make_tmpdir); home_dir=$(make_tmpdir); out_log=$(make_tmpdir)/out.log
+  w="$ident_dir/wakeups/old"
+  mkdir -p "$w/fires" "$ident_dir/wakeups/blank/fires"
+  printf '{"name":"old","enabled":true,"schedule":{"type":"sensor"},"instruction":"Look"}\n' > "$w/wakeup.json"
+  printf '{"name":"blank","enabled":true,"schedule":{"type":"sensor"},"instruction":""}\n' > "$ident_dir/wakeups/blank/wakeup.json"
+  printf 'a <b>tag</b> here' > "$w/fires/20260901T000000000-00000001.fire"
+  touch -d '40 days ago' "$w/fires/20260901T000000000-00000001.fire"
+  printf 'blank works' > "$ident_dir/wakeups/blank/fires/20261014T000000000-00000002.fire"
+  HOME="$home_dir" timeout 3 python3 "$PY_SCRIPT" "$ident_dir" >"$out_log" 2>/dev/null || true
+  grep -q "📡 \[sensor: old @ 2026-09-01T00:00:00.000Z\] Look — findings (17 chars) at $w/fires/delivered/20260901T000000000-00000001.fire — Read it" "$out_log" \
+    || fail "SA-G17: markup findings must be pointed at, got: $(cat "$out_log")"
+  assert_file_exists "$w/fires/delivered/20260901T000000000-00000001.fire" "SA-G17: a long-waiting fire's delivered copy must survive"
+  grep -q "📡 \[sensor: blank @ .*\]  — findings: blank works" "$out_log" \
+    || fail "SA-G17: empty-instruction sensor wake-up still delivers, got: $(cat "$out_log")"
+  sa_dir=$(make_tmpdir)
+  mkdir -p "$sa_dir/big/fires"
+  printf '{"name":"big","enabled":true,"roles":["r"],"schedule":{"type":"sensor"},"prompt":"p"}\n' > "$sa_dir/big/scheduled-agent.json"
+  python3 -c "print('x' * 9000, end='')" > "$sa_dir/big/fires/20261014T000000000-00000003.fire"
+  HOME="$home_dir" timeout 3 python3 "$PY_SCRIPT" "$sa_dir" --mode scheduled-agents >/dev/null 2>&1 || true
+  local res
+  res=$(python3 - "$home_dir/fleet/spawn-requests" "$sa_dir" <<'PY'
+import glob, json, sys
+p = json.load(open(glob.glob(sys.argv[1] + "/*.json")[0]))["prompt"]
+ok = "xxxxxxxxxx" not in p and "9000 characters" in p and sys.argv[2] + "/big/fires/delivered/20261014T000000000-00000003.fire" in p
+print("OK" if ok else "BAD: " + p[-400:])
+PY
+)
+  assert_eq "OK" "$res" "SA-G17: huge findings pointed at in the newborn's prompt"
+}
+
 run_test test_SA_G1_scheduled_agents_spec_discovery
 run_test test_SA_G2_scheduled_agents_ignores_flat_specs
 run_test test_SA_G3_per_identity_mode_unchanged
@@ -851,6 +889,7 @@ run_test test_SA_G13_fanout_suite
 run_test test_SA_G14_folder_layout_and_one_shot
 run_test test_SA_G15_sensor_wakeup_delivery
 run_test test_SA_G16_sensor_scheduled_agent
+run_test test_SA_G17_sensor_delivery_hardening
 
 printf '\n===============================\n'
 printf 'PASS: %s  FAIL: %s\n' "$PASS" "$FAIL"

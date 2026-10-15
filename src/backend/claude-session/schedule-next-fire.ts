@@ -316,8 +316,14 @@ export function scheduleError(sch: unknown): string | null {
     }
     return null;
   }
-  // Fired by the trigger's sensor, never by the clock — no other fields apply.
-  if (t === SENSOR_TYPE) return null;
+  // Fired by the trigger's sensor, never by the clock — no other field applies,
+  // so any key besides `type` is an error (first offending key, insertion order).
+  if (t === SENSOR_TYPE) {
+    for (const k of Object.keys(s)) {
+      if (k !== "type") return `${SENSOR_TYPE}: \`${k}\` is not supported`;
+    }
+    return null;
+  }
   if (typeof t !== "string" || !REPEATING_TYPES.includes(t)) return `unknown schedule type ${JSON.stringify(t)}`;
   let zone = "UTC";
   if (present(s.timezone)) {

@@ -65,7 +65,7 @@ import { AuthManager } from "../../utils/auth-manager.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
-import { scheduleError } from "../../claude-session/schedule-next-fire.js";
+import { scheduleError, SENSOR_TYPE } from "../../claude-session/schedule-next-fire.js";
 import { sshLogger } from "../../utils/logger.js";
 import { getHostSemaphore, makeSemaphore, type HostSemaphore } from "../../ssh/host-semaphore-registry.js";
 import {
@@ -455,6 +455,12 @@ router.post(
       return;
     }
     const validSpec = spec as ScheduledAgentSpec;
+    // Sensor triggers are created on disk by agents, never from the app. CREATE
+    // only — PATCH of an existing sensor task passes its schedule through.
+    if (validSpec.schedule.type === SENSOR_TYPE) {
+      res.status(400).json({ error: "spec.schedule: sensor triggers can't be created from the app" });
+      return;
+    }
     // Per-user gate list is disk-only — silently drop if a client sent it.
     // Covers both the on-disk write below AND the response echo `spec: validSpec`.
     stripUsersFromSpec(validSpec as unknown as Record<string, unknown>);

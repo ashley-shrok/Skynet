@@ -11,16 +11,19 @@
 //
 // Coverage:
 //   (a) writeIdentityWakeupCreate LOCAL — creates identities/<key>/wakeups/<slug>/wakeup.json
-//   (b) writeIdentityWakeupCreate LOCAL — throws on clobber (existing folder)
+//   (b) writeIdentityWakeupCreate LOCAL — throws on clobber (folder with wakeup.json);
+//       a spec-less leftover folder is reused (fired marker cleared)
 //   (c) writeIdentityWakeupCreate LOCAL — throws when name normalizes to empty slug
 //   (d) writeIdentityWakeupDelete LOCAL — deletes the whole folder, idempotent on missing
 //   (e) writeIdentityWakeupDelete LOCAL — invalid slug throws "invalid wakeup slug"
 //   (f) readIdentityWakeups LOCAL — folder layout only (flat files, dot-dirs, and
 //       folders without wakeup.json are not wake-ups)
 //   (g) writeIdentityWakeupUpdate LOCAL — patches <slug>/wakeup.json
-//   (h) sensor schedule kind — accepted on create/update, humanized "Sensor"
+//   (h) sensor schedule kind — refused on create, kept on update, humanized "Sensor"
+//   (i) REMOTE branch — create + list commands run through a real bash
 
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
+import { execFile } from "child_process";
 import os from "os";
 import path from "path";
 import fs from "fs/promises";
@@ -32,6 +35,7 @@ vi.mock("../ssh/tmux-helper.js", () => ({
   execCommand: vi.fn(),
 }));
 
+import { execCommand } from "../ssh/tmux-helper.js";
 import {
   readIdentityWakeups,
   writeIdentityWakeupCreate,
@@ -166,20 +170,51 @@ describe("writeIdentityWakeupCreate — LOCAL branch (conn=null)", () => {
     expect(result.wakeups.some((w) => w.slug === "last-friday")).toBe(true);
   });
 
-  it("(h) accepts a sensor schedule and humanizes it as Sensor", async () => {
-    const result = await writeIdentityWakeupCreate(null, KEY, {
-      name: "inbox-watch",
-      enabled: true,
-      schedule: { type: "sensor" },
-      instruction: "Triage what the sensor found",
-    });
-    const row = result.wakeups.find((w) => w.slug === "inbox-watch");
-    expect(row?.schedule).toEqual({ type: "sensor" });
-    expect(row?.scheduleHuman).toBe("Sensor");
+  it("(h) refuses to create a sensor wake-up (agents create those on disk), and writes nothing", async () => {
+    await expect(
+      writeIdentityWakeupCreate(null, KEY, {
+        name: "inbox-watch",
+        enabled: true,
+        schedule: { type: "sensor" },
+        instruction: "Triage what the sensor found",
+      }),
+    ).rejects.toThrow(/sensor/);
+    await expect(fs.access(path.join(identitiesRoot, KEY, "wakeups", "inbox-watch"))).rejects.toThrow();
   });
 
-  it("an existing folder without wakeup.json still counts as a collision", async () => {
+  it("reuses an existing folder without wakeup.json, clearing only its fired marker", async () => {
+    // A fired one-shot's leftover: folder kept, spec gone, fired marker + other state remain.
+    const dir = path.join(identitiesRoot, KEY, "wakeups", "weekly-review");
+    await fs.mkdir(path.join(dir, ".state"), { recursive: true });
+    await fs.writeFile(path.join(dir, ".state", "weekly-review.fired"), "", "utf-8");
+    await fs.writeFile(path.join(dir, ".state", "weekly-review.last"), "123", "utf-8");
+    const result = await writeIdentityWakeupCreate(null, KEY, {
+      name: "Weekly Review",
+      enabled: true,
+      schedule: { type: "daily", at: "09:00" },
+      instruction: "new",
+    });
+    expect(JSON.parse(await fs.readFile(path.join(dir, "wakeup.json"), "utf-8")).instruction).toBe("new");
+    await expect(fs.access(path.join(dir, ".state", "weekly-review.fired"))).rejects.toThrow();
+    expect(await fs.readFile(path.join(dir, ".state", "weekly-review.last"), "utf-8")).toBe("123");
+    expect((await fs.readdir(dir)).filter((f) => f.endsWith(".tmp"))).toEqual([]);
+    expect(result.wakeups.map((w) => w.slug)).toEqual(["weekly-review"]);
+  });
+
+  it("reuses a bare existing folder (no .state) too", async () => {
     await fs.mkdir(path.join(identitiesRoot, KEY, "wakeups", "weekly-review"), { recursive: true });
+    const result = await writeIdentityWakeupCreate(null, KEY, {
+      name: "Weekly Review",
+      enabled: true,
+      schedule: { type: "daily", at: "09:00" },
+      instruction: "new",
+    });
+    expect(result.wakeups.map((w) => w.slug)).toEqual(["weekly-review"]);
+  });
+
+  it("a non-folder squatting on the slug is a collision", async () => {
+    await fs.mkdir(path.join(identitiesRoot, KEY, "wakeups"), { recursive: true });
+    await fs.writeFile(path.join(identitiesRoot, KEY, "wakeups", "weekly-review"), "x", "utf-8");
     await expect(
       writeIdentityWakeupCreate(null, KEY, {
         name: "Weekly Review",
@@ -188,6 +223,125 @@ describe("writeIdentityWakeupCreate — LOCAL branch (conn=null)", () => {
         instruction: "new",
       }),
     ).rejects.toThrow(/already exists/);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// (i) REMOTE branch — the SSH commands run through a real bash with HOME
+// pointed at a temp dir, so the shell logic itself is exercised.
+// ──────────────────────────────────────────────────────────────────────
+
+const isRoot = typeof process.getuid === "function" && process.getuid() === 0;
+
+describe("writeIdentityWakeupCreate / readIdentityWakeups — REMOTE branch (real bash)", () => {
+  let home: string;
+  const KEY = "moxie";
+  const conn = {} as unknown as Parameters<typeof writeIdentityWakeupCreate>[0];
+  const dir = () => path.join(home, "fleet", "identities", KEY, "wakeups", "weekly-review");
+  const daily = { name: "Weekly Review", enabled: true, schedule: { type: "daily", at: "09:00" }, instruction: "new" };
+
+  beforeEach(async () => {
+    home = await fs.mkdtemp(path.join(os.tmpdir(), "wakeup-remote-"));
+    await fs.mkdir(path.join(home, "fleet", "identities", KEY), { recursive: true });
+    (execCommand as Mock).mockImplementation(
+      (_c: unknown, cmd: string) =>
+        new Promise<string>((resolve, reject) => {
+          execFile("bash", ["-c", cmd], { cwd: home, env: { ...process.env, HOME: home } }, (err, stdout) =>
+            err ? reject(err) : resolve(stdout),
+          );
+        }),
+    );
+  });
+
+  afterEach(async () => {
+    await fs.chmod(dir(), 0o755).catch(() => {});
+    await fs.rm(home, { recursive: true, force: true });
+  });
+
+  it("creates a fresh folder + wakeup.json", async () => {
+    const result = await writeIdentityWakeupCreate(conn, KEY, daily);
+    expect(JSON.parse(await fs.readFile(path.join(dir(), "wakeup.json"), "utf-8")).instruction).toBe("new");
+    expect(result.wakeups.map((w) => w.slug)).toEqual(["weekly-review"]);
+  });
+
+  it("a folder that has wakeup.json is a collision; nothing is clobbered", async () => {
+    await fs.mkdir(dir(), { recursive: true });
+    await fs.writeFile(path.join(dir(), "wakeup.json"), JSON.stringify({ ...daily, instruction: "existing" }));
+    await expect(writeIdentityWakeupCreate(conn, KEY, daily)).rejects.toThrow(/already exists/);
+    expect(JSON.parse(await fs.readFile(path.join(dir(), "wakeup.json"), "utf-8")).instruction).toBe("existing");
+  });
+
+  it("reuses a spec-less leftover folder, clearing only its fired marker", async () => {
+    await fs.mkdir(path.join(dir(), ".state"), { recursive: true });
+    await fs.writeFile(path.join(dir(), ".state", "weekly-review.fired"), "");
+    await fs.writeFile(path.join(dir(), ".state", "weekly-review.last"), "123");
+    const result = await writeIdentityWakeupCreate(conn, KEY, daily);
+    expect(JSON.parse(await fs.readFile(path.join(dir(), "wakeup.json"), "utf-8")).instruction).toBe("new");
+    await expect(fs.access(path.join(dir(), ".state", "weekly-review.fired"))).rejects.toThrow();
+    expect(await fs.readFile(path.join(dir(), ".state", "weekly-review.last"), "utf-8")).toBe("123");
+    expect(result.wakeups.map((w) => w.slug)).toEqual(["weekly-review"]);
+  });
+
+  it.skipIf(isRoot)("a failed write keeps a reused folder (it wasn't ours to remove)", async () => {
+    await fs.mkdir(dir(), { recursive: true });
+    await fs.chmod(dir(), 0o555); // python can't write wakeup.json.tmp
+    await expect(writeIdentityWakeupCreate(conn, KEY, daily)).rejects.toThrow();
+    await expect(fs.access(dir())).resolves.toBeUndefined();
+  });
+
+  it("refuses a sensor schedule before touching the host", async () => {
+    await expect(writeIdentityWakeupCreate(conn, KEY, { ...daily, schedule: { type: "sensor" } })).rejects.toThrow(
+      /sensor/,
+    );
+    expect(execCommand).not.toHaveBeenCalled();
+  });
+
+  it("list: a missing wakeups/ dir is empty (the loop never runs in $HOME)", async () => {
+    // A decoy that would be listed if the loop ran from $HOME.
+    await fs.mkdir(path.join(home, "decoy"), { recursive: true });
+    await fs.writeFile(path.join(home, "decoy", "wakeup.json"), JSON.stringify(daily));
+    const cmd = await readIdentityWakeups(conn, KEY).then((r) => {
+      expect(r.wakeups).toEqual([]);
+      return (execCommand as Mock).mock.calls[0][1] as string;
+    });
+    expect(cmd).toContain('2>/dev/null && { shopt -s nullglob; for d in */;');
+    expect(cmd.trimEnd().endsWith("done; }")).toBe(true);
+  });
+
+  it("list: an empty wakeups/ dir is empty", async () => {
+    await fs.mkdir(path.join(home, "fleet", "identities", KEY, "wakeups"), { recursive: true });
+    expect((await readIdentityWakeups(conn, KEY)).wakeups).toEqual([]);
+  });
+});
+
+describe("writeIdentityWakeupCreate — LOCAL failed write", () => {
+  let identitiesRoot: string;
+  const KEY = "moxie";
+  const dir = () => path.join(identitiesRoot, KEY, "wakeups", "weekly-review");
+
+  beforeEach(async () => {
+    identitiesRoot = await fs.mkdtemp(path.join(os.tmpdir(), "wakeup-local-fail-"));
+    process.env.IDENTITIES_HOST_DIR = identitiesRoot;
+  });
+
+  afterEach(async () => {
+    delete process.env.IDENTITIES_HOST_DIR;
+    await fs.chmod(dir(), 0o755).catch(() => {});
+    await fs.rm(identitiesRoot, { recursive: true, force: true });
+  });
+
+  it.skipIf(isRoot)("keeps a reused folder when the write fails", async () => {
+    await fs.mkdir(dir(), { recursive: true });
+    await fs.chmod(dir(), 0o555);
+    await expect(
+      writeIdentityWakeupCreate(null, KEY, {
+        name: "Weekly Review",
+        enabled: true,
+        schedule: { type: "daily", at: "09:00" },
+        instruction: "new",
+      }),
+    ).rejects.toThrow();
+    await expect(fs.access(dir())).resolves.toBeUndefined();
   });
 });
 

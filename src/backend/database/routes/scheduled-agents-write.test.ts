@@ -409,6 +409,18 @@ describe("POST /scheduled-agents (CREATE)", () => {
     expect(writeMarkdownFileAtomic).not.toHaveBeenCalled();
   });
 
+  it("Test 7b: sensor schedule → 400 (sensors are created on disk, not from the app)", async () => {
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/scheduled-agents",
+      body: { host: 7, spec: { ...validSpec, schedule: { type: "sensor" } } },
+    });
+    expect(res.status).toBe(400);
+    expect((res.body as { error: string }).error).toMatch(/sensor/);
+    expect(writeMarkdownFileAtomic).not.toHaveBeenCalled();
+    expect(execCommand).not.toHaveBeenCalled();
+  });
+
   it("Test 8: 409 on clobber (existence probe returns EXISTS)", async () => {
     (execCommand as Mock).mockImplementation(async (_c: unknown, cmd: string) => {
       if (cmd.includes("&& echo EXISTS")) return "EXISTS\n";
@@ -526,6 +538,25 @@ describe("PATCH /scheduled-agents/:slug (UPDATE)", () => {
     expect(callArgs[2]).toContain("updated prompt");
     // UPDATE MUST NOT invoke sftp.rename via any code path
     expect(sftpRenameTrap).not.toHaveBeenCalled();
+  });
+
+  it("Test 11b: PATCH of an existing sensor task keeps its schedule unchanged", async () => {
+    const sensorSpec = { ...validSpec, schedule: { type: "sensor" } };
+    (execCommand as Mock).mockImplementation(async (_c: unknown, cmd: string) => {
+      if (cmd.includes("cat ") && cmd.includes("scheduled-agent.json")) {
+        return JSON.stringify(sensorSpec);
+      }
+      return "";
+    });
+    const res = await httpRequest(server, {
+      method: "PATCH",
+      path: "/scheduled-agents/morning-digest",
+      body: { host: 7, spec: { ...sensorSpec, prompt: "updated prompt" } },
+    });
+    expect(res.status).toBe(200);
+    const written = JSON.parse((writeMarkdownFileAtomic as Mock).mock.calls[0][2] as string);
+    expect(written.schedule).toEqual({ type: "sensor" });
+    expect(written.prompt).toBe("updated prompt");
   });
 
   it("Test 17: happy PATCH LOCAL — writeMarkdownFileAtomic(null, ...) (code-review fix #9)", async () => {
@@ -1166,8 +1197,11 @@ describe("validateScheduledAgentSpec — schedule kinds (delegates to the engine
     expect(validateScheduledAgentSpec(withSchedule({ type: "hourly" }))).toMatch(/unknown schedule type/);
   });
 
-  it("accepts a sensor schedule (no other fields apply)", () => {
+  it("accepts a bare sensor schedule, rejects one with any other field", () => {
     expect(validateScheduledAgentSpec(withSchedule({ type: "sensor" }))).toBeNull();
+    expect(validateScheduledAgentSpec(withSchedule({ type: "sensor", at: "09:00" }))).toBe(
+      "spec.schedule: sensor: `at` is not supported",
+    );
   });
 
   it("still requires `at` on one_shot", () => {
