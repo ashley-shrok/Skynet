@@ -9940,7 +9940,7 @@ describe("archived identity — cosmetics cache outlives the identity_gone tick"
       jsonl_path: null,
       layer1_recycling: null,
       identity_cosmetics: { displayName: name },
-      role_cosmetics: { users: ["ashley"] },
+      role_cosmetics: { users: ["alice"] },
       role: "box-maintainer",
       pinned: false,
     };
@@ -9980,7 +9980,7 @@ describe("archived identity — cosmetics cache outlives the identity_gone tick"
     });
     // The async WS identity gate on that gone frame still resolves from cache.
     expect(orchestrator.getCachedIdentityCosmetics("host-1", "scarlet")).toEqual(
-      expect.objectContaining({ roleCosmetics: { users: ["ashley"] } }),
+      expect.objectContaining({ roleCosmetics: { users: ["alice"] } }),
     );
 
     await pollFn.fn();
