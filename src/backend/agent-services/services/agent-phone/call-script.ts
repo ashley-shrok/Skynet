@@ -10,22 +10,27 @@
  * hang up confident her words landed with the right agent. They are NOT
  * optional.
  *
- * <Record> has no `action`. Twilio's docs say it then re-requests the
- * document URL, but an inline-TwiML call has none, and in practice Twilio
- * carries on to the next verb (verified on a live call: the receipt line
- * plays after the reply). So no webhook is needed. The trailing <Hangup/>
- * makes the end of the call explicit. The recording stays on the Twilio
- * account; the adapter fetches, transcribes and deletes it.
+ * The reply window is a <Gather> used only to tell when she has finished:
+ * its speech recognizer ends the turn after a pause in *speech*, so road
+ * or room noise doesn't hold it open the way <Record>'s volume-based
+ * silence detection did, and any keypad press ends it too. Its own result
+ * is discarded — a <Start><Recording> around it captures the reply, which
+ * the adapter fetches, transcribes with the instance STT provider and
+ * deletes. <Gather> has no `action`; with inline TwiML Twilio carries on
+ * to the next verb (verified on live calls), so no webhook is needed.
  */
 
-/** Twilio <Say> voice. Amazon Polly neural voices are built into Twilio. */
-export const CALL_VOICE = "Polly.Joanna-Neural";
+/** Twilio <Say> voice: a Google Chirp3-HD generative voice. */
+export const CALL_VOICE = "Google.en-US-Chirp3-HD-Aoede";
 
-/** Seconds of silence that end the callee's reply. */
-export const REPLY_SILENCE_TIMEOUT_SEC = 5;
+/** Seconds of pause after speech that end the callee's reply. */
+export const REPLY_PAUSE_SEC = 3;
 
-/** Longest reply recorded, in seconds. */
-export const REPLY_MAX_LENGTH_SEC = 90;
+/** Seconds to wait for her to start replying before moving on. */
+export const REPLY_START_TIMEOUT_SEC = 10;
+
+/** <Start><Recording> name, so <Stop> can end it. */
+const REPLY_RECORDING_NAME = "reply";
 
 /** Twilio's limit on the POST /Calls `Twiml` parameter. */
 export const TWIML_MAX_CHARS = 4000;
@@ -68,7 +73,9 @@ export function buildCallTwiml(openingLine: string, receiptLine: string): string
   return [
     "<Response>",
     `<Say voice="${CALL_VOICE}">${escapeXml(openingLine)}</Say>`,
-    `<Record timeout="${REPLY_SILENCE_TIMEOUT_SEC}" maxLength="${REPLY_MAX_LENGTH_SEC}" playBeep="false" trim="trim-silence"/>`,
+    `<Start><Recording name="${REPLY_RECORDING_NAME}" channels="mono" trim="trim-silence"/></Start>`,
+    `<Gather input="speech dtmf" numDigits="1" speechTimeout="${REPLY_PAUSE_SEC}" timeout="${REPLY_START_TIMEOUT_SEC}" speechModel="googlev2_telephony" language="en-US"/>`,
+    `<Stop><Recording name="${REPLY_RECORDING_NAME}"/></Stop>`,
     `<Say voice="${CALL_VOICE}">${escapeXml(receiptLine)}</Say>`,
     "<Hangup/>",
     "</Response>",

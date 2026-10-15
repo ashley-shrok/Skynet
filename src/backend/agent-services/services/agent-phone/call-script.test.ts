@@ -34,12 +34,15 @@ describe("call script", () => {
     expect(escapeXml(`it's "fine" & <ok>`)).toBe(`it's "fine" &amp; &lt;ok&gt;`);
   });
 
-  it("says the opener, records the reply without a webhook, then says the receipt", () => {
+  it("says the opener, records the reply around a speech-ended Gather, then says the receipt", () => {
     const twiml = buildCallTwiml("Hi, this is A. M", "R");
     expect(twiml).toMatch(
-      /^<Response><Say voice="[^"]+">Hi, this is A\. M<\/Say><Record [^>]*\/><Say voice="[^"]+">R<\/Say><Hangup\/><\/Response>$/,
+      /^<Response><Say voice="[^"]+">Hi, this is A\. M<\/Say><Start><Recording name="reply" [^>]*\/><\/Start><Gather [^>]*\/><Stop><Recording name="reply"\/><\/Stop><Say voice="[^"]+">R<\/Say><Hangup\/><\/Response>$/,
     );
+    // No webhook anywhere: Twilio carries on to the next verb.
     expect(twiml).not.toContain("action=");
-    expect(twiml).toContain('playBeep="false"');
+    // Speech ends the reply, and so does any keypad press.
+    expect(twiml).toContain('input="speech dtmf"');
+    expect(twiml).toContain('numDigits="1"');
   });
 });

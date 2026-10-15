@@ -71,7 +71,7 @@ function fakeTwilio(f: FakeTwilio) {
     }
     if (method === "GET" && u === `${ACCOUNT}/Calls/CA1/Recordings.json`) {
       const list = f.recordings ?? [
-        [{ sid: "RE1", status: "completed", source: "RecordVerb" }],
+        [{ sid: "RE1", status: "completed", source: "StartCallRecordingTwiML" }],
       ];
       return json(200, { recordings: list[Math.min(recIdx++, list.length - 1)] });
     }
@@ -115,8 +115,9 @@ describe("placeCallAndAwait (Twilio)", () => {
     expect(form.get("To")).toBe("+15555550100");
     expect(form.get("From")).toBe("+17165550000");
     expect(form.get("MachineDetection")).toBe("Enable");
+    expect(form.get("AsyncAmd")).toBe("true");
     expect(form.get("Twiml")).toContain("Hi, this is Clipper. CI failed.");
-    expect(form.get("Twiml")).toContain("<Record ");
+    expect(form.get("Twiml")).toContain("<Start><Recording ");
   });
 
   it("returns the reply transcript, then deletes the recording", async () => {
@@ -146,8 +147,8 @@ describe("placeCallAndAwait (Twilio)", () => {
     const t = fakeTwilio({
       recordings: [
         [],
-        [{ sid: "RE1", status: "processing", source: "RecordVerb" }],
-        [{ sid: "RE1", status: "completed", source: "RecordVerb" }],
+        [{ sid: "RE1", status: "processing", source: "StartCallRecordingTwiML" }],
+        [{ sid: "RE1", status: "completed", source: "StartCallRecordingTwiML" }],
       ],
     });
     const result = await placeCallAndAwait(call, creds, deps(t.fetchFn));

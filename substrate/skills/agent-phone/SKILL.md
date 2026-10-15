@@ -65,7 +65,7 @@ Write `<message>` as pure content — no `"Hi, this is …"`, no `"— <name>"` 
 1. The helper (via the shared `fleet-service` client) drops a request into `~/fleet/service-requests/<uuid>.json`.
 2. The backend picks it up within ~10 seconds and renames it to `<uuid>.claimed.json`.
 3. The backend places the call. The recipient's phone rings.
-4. On pickup, the voice speaks the opening line and your message, then records the reply. The reply ends when the callee pauses for about 5 seconds (or after 90 seconds), then the voice says the receipt phrase and hangs up.
+4. On pickup, the voice speaks the opening line and your message, then records the reply. The reply ends when the callee stops talking for about 3 seconds, presses any key, or hasn't started talking within 10 seconds (replies are capped at about a minute). Then the voice says the receipt phrase and hangs up. Pressing a key is the reliable way to finish in a noisy place, worth telling a user who mentions being in the car.
 5. The backend transcribes the reply, deletes the recording, and drops `~/fleet/service-requests/<uuid>.response.json` back onto your host.
 6. The helper prints the transcript to stdout, cleans up its files, and exits.
 

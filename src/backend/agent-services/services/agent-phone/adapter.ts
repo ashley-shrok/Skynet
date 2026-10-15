@@ -8,10 +8,13 @@
  *   1. POST /Calls with inline TwiML (call-script.ts) from the instance's
  *      one Twilio number, so every call shows the same caller ID and the
  *      callee can allow it through Do Not Disturb. Answering-machine
- *      detection is on so voicemail comes back as `no_answer`.
+ *      detection runs in the background (AsyncAmd), so the message starts
+ *      the moment she answers; its verdict is read off the Call resource
+ *      afterwards and turns voicemail into `no_answer`. With no callback
+ *      URL Twilio logs a harmless 21262 warning per call.
  *   2. Poll GET /Calls/:sid until a terminal status or the deadline. On the
  *      deadline the call is hung up, so it can never ring late.
- *   3. On `completed`, fetch the <Record> recording of the callee's reply,
+ *   3. On `completed`, fetch the recording of the callee's reply,
  *      transcribe it with the instance's STT provider (the same one voice
  *      input and the `stt` service use), then delete it from Twilio —
  *      always, whether or not transcription worked.
@@ -42,9 +45,10 @@ const REQUEST_TIMEOUT_MS = 30_000;
 
 /**
  * Backend wait for one call — 5.5 minutes; see the time budget above. The
- * longest legitimate call is about 4.7 minutes: 45s ring, 5s machine
- * detection, ~2.2 min to read a 2000-character message, a 90s reply plus
- * 5s of silence, and the receipt line.
+ * longest legitimate call is about 4.3 minutes: 45s ring, ~2.2 min to read
+ * a 2000-character message, up to 10s before she starts replying plus a
+ * 60s reply (Twilio's speech cap) and its 3s closing pause, and the
+ * receipt line.
  */
 export const CALL_DEADLINE_MS = 5.5 * 60 * 1000;
 
@@ -61,7 +65,7 @@ export const TRANSCRIBE_MAX_ATTEMPTS = 2;
 /** Ring time before Twilio gives up with `no-answer`. */
 export const RING_TIMEOUT_SEC = 45;
 
-/** Answering-machine detection gives up (answered_by "unknown") after this. */
+/** Background answering-machine detection gives up (answered_by "unknown") after this. */
 export const MACHINE_DETECTION_TIMEOUT_SEC = 5;
 
 const TERMINAL_STATUSES = new Set([
@@ -195,6 +199,7 @@ export async function placeCallAndAwait(
       Twiml: buildCallTwiml(call.openingLine, call.receiptLine),
       Timeout: String(RING_TIMEOUT_SEC),
       MachineDetection: "Enable",
+      AsyncAmd: "true",
       MachineDetectionTimeout: String(MACHINE_DETECTION_TIMEOUT_SEC),
     });
     let body: TwilioCall & TwilioError = {};
@@ -410,7 +415,7 @@ export async function placeCallAndAwait(
     ].join("\n"),
   });
 
-  /** The <Record> recording once Twilio has finished processing it, or null. */
+  /** The <Start><Recording> reply recording once Twilio has finished processing it, or null. */
   async function waitForReplyRecording(sid: string): Promise<TwilioRecording | null> {
     const until = deps.now() + RECORDING_WAIT_MS;
     let seen: TwilioRecording | null = null;
@@ -421,7 +426,7 @@ export async function placeCallAndAwait(
           const body = (await res.json()) as { recordings?: TwilioRecording[] };
           seen =
             (body.recordings ?? []).find(
-              (r) => r.source === undefined || r.source === "RecordVerb",
+              (r) => r.source === undefined || r.source === "StartCallRecordingTwiML",
             ) ?? null;
           if (seen?.status === "completed") return seen;
           if (seen?.status === "failed" || seen?.status === "absent") return null;
