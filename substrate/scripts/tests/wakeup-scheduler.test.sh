@@ -897,7 +897,9 @@ test_SA_G18_one_time_sensor() {
   assert_file_absent "$w/wakeup.json" "SA-G18: spec removed after delivery"
   assert_file_exists "$w/.state/agent-done.fired" "SA-G18: .fired sentinel in the trigger's own state"
   assert_file_exists "$w/fires/delivered/20261015T120000000-00000001.fire" "SA-G18: delivered findings file kept"
-  assert_file_exists "$w/fires/20261015T120000500-00000002.fire" "SA-G18: later fire left undelivered"
+  assert_file_absent "$w/fires/20261015T120000500-00000002.fire" "SA-G18: later fire dropped at retirement, never delivered"
+  assert_file_absent "$w/fires/delivered/20261015T120000500-00000002.fire" "SA-G18: later fire not filed as delivered"
+  assert_eq "20261015T120000000-00000001.fire" "$(cat "$w/.state/agent-done.fired")" "SA-G18: sentinel names the handed-over fire"
   assert_file_exists "$ident_dir/wakeups/paused/fires/20261015T120000000-00000003.fire" "SA-G18: disabled one-time sensor keeps its fire"
   HOME="$home_dir" timeout 2 python3 "$PY_SCRIPT" "$ident_dir" >"$out_log" 2>/dev/null || true
   grep -q "📡" "$out_log" && fail "SA-G18: a retired sensor never delivers again, got: $(cat "$out_log")"
@@ -918,12 +920,33 @@ test_SA_G18_one_time_sensor() {
   HOME="$home_dir" timeout 2 python3 "$PY_SCRIPT" "$ident_dir" >"$out_log" 2>/dev/null || true
   grep -q "📡" "$out_log" && fail "SA-G18: an already-fired one-time sensor never delivers again"
   assert_file_absent "$w2/wakeup.json" "SA-G18: an already-fired one-time sensor finishes retiring"
-  # A spec rewritten after the sentinel is a fresh trigger: it delivers.
+  # Crash after the hand-over but before the fire was filed: on restart the
+  # handed-over fire (named by the sentinel) is filed into delivered/, never re-sent.
+  local w4="$ident_dir/wakeups/crashed"
+  mkdir -p "$w4/fires" "$w4/.state"
+  printf '{"name":"crashed","enabled":true,"schedule":{"type":"sensor","once":true},"instruction":"i"}\n' > "$w4/wakeup.json"
+  printf 'sent' > "$w4/fires/20261015T120000000-00000009.fire"
+  printf 'later' > "$w4/fires/20261015T120002000-0000000a.fire"
+  touch -d '2 hours ago' "$w4/wakeup.json"
+  printf '20261015T120000000-00000009.fire' > "$w4/.state/crashed.fired" && touch -d '1 hour ago' "$w4/.state/crashed.fired"
+  HOME="$home_dir" timeout 2 python3 "$PY_SCRIPT" "$ident_dir" >"$out_log" 2>/dev/null || true
+  grep -q "📡" "$out_log" && fail "SA-G18: a crash-recovered one-time sensor never re-sends"
+  assert_file_exists "$w4/fires/delivered/20261015T120000000-00000009.fire" "SA-G18: handed-over fire filed after a crash"
+  assert_file_absent "$w4/fires/20261015T120002000-0000000a.fire" "SA-G18: the other waiting fire dropped after a crash"
+  assert_file_absent "$w4/wakeup.json" "SA-G18: crash-recovered trigger retires"
+  # A spec rewritten after the sentinel is a fresh trigger under the same name:
+  # a fire left from the retired trigger (older than the new spec) is dropped,
+  # never delivered; the fresh trigger's own fire is.
   local w3="$ident_dir/wakeups/again"
   mkdir -p "$w3/fires" "$w3/.state"
   printf 'old' > "$w3/.state/again.fired" && touch -d '1 hour ago' "$w3/.state/again.fired"
+  printf 'leftover' > "$w3/fires/20200101T000000000-0000000b.fire"
   printf '{"name":"again","enabled":true,"schedule":{"type":"sensor","once":true},"instruction":"i"}\n' > "$w3/wakeup.json"
-  printf 'fresh' > "$w3/fires/20261015T130000000-00000006.fire"
+  HOME="$home_dir" timeout 2 python3 "$PY_SCRIPT" "$ident_dir" >"$out_log" 2>/dev/null || true
+  grep -q "leftover" "$out_log" && fail "SA-G18: a retired trigger's leftover fire must never reach a fresh one"
+  assert_file_absent "$w3/fires/20200101T000000000-0000000b.fire" "SA-G18: leftover fire dropped"
+  assert_file_exists "$w3/wakeup.json" "SA-G18: the fresh trigger stays live"
+  printf 'fresh' > "$w3/fires/$(date -u -d '+1 minute' +%Y%m%dT%H%M%S)000-00000006.fire"
   HOME="$home_dir" timeout 2 python3 "$PY_SCRIPT" "$ident_dir" >"$out_log" 2>/dev/null || true
   grep -q "📡 \[sensor: again .*findings: fresh" "$out_log" || fail "SA-G18: a rewritten spec is a fresh trigger, got: $(cat "$out_log")"
 

@@ -1876,6 +1876,14 @@ export async function writeIdentityWakeupUpdate(
     // remote branch uses.
     const tmpPath = filePath + ".tmp";
     await fs.writeFile(tmpPath, next, "utf-8");
+    // Never bring back a wake-up that went away while this edit was in flight
+    // (deleted, or a one-time sensor that just retired).
+    try {
+      await fs.access(filePath);
+    } catch {
+      await fs.rm(tmpPath, { force: true });
+      throw new Error("wake-up no longer exists");
+    }
     await fs.rename(tmpPath, filePath);
     return;
   }
@@ -1896,6 +1904,9 @@ export async function writeIdentityWakeupUpdate(
     'for k,v in u.items(): d[k]=v\n' +
     'tmp=p+".tmp"\n' +
     'with open(tmp,"w") as f: json.dump(d,f,indent=2); f.write("\\n")\n' +
+    // Never bring back a wake-up that went away while this edit was in flight.
+    'if not os.path.exists(p):\n' +
+    '    os.unlink(tmp); sys.exit("wake-up no longer exists")\n' +
     'os.rename(tmp,p)\n';
   const payload = JSON.stringify(updates).replace(/'/g, "'\\''");
   const cmd =

@@ -219,6 +219,14 @@ def fire_time_utc(fire_path):
     return "%s-%s-%sT%s:%s:%s.%sZ" % (d[:4], d[4:6], d[6:8], t[:2], t[2:4], t[4:6], t[6:9])
 
 
+def fire_epoch(fire_path):
+    """The epoch the sensor fired, from the fire file's name."""
+    m = FIRE_RE.match(os.path.basename(fire_path))
+    d, t = m.group(1), m.group(2)
+    return datetime(int(d[:4]), int(d[4:6]), int(d[6:8]), int(t[:2]), int(t[2:4]), int(t[4:6]),
+                    int(t[6:9]) * 1000, tzinfo=timezone.utc).timestamp()
+
+
 def _read_findings(fire_path):
     with open(fire_path, "rb") as f:
         return f.read().decode("utf-8", errors="replace")
@@ -1334,18 +1342,33 @@ def main():
     started_at = time.time()
     undeliverable = set()   # fire paths that could be neither moved nor removed
 
+    def mark_once_fired(spec, fired_path, fire_name):
+        """Write a one-time trigger's `.fired` sentinel, naming the fire that was
+        handed over. Written right after the hand-over, before anything else, so
+        a crash from here on can never deliver a second fire. Creates only the
+        trigger's own `.state/`, never the trigger folder (it may be gone)."""
+        sd = os.path.dirname(fired_path)
+        try:
+            if not os.path.isdir(sd):
+                os.mkdir(sd)
+            with open(fired_path, "w") as f:
+                f.write(fire_name)
+        except OSError as e:
+            print("wakeup-scheduler: .fired write failed key=%s err=%s" % (spec["_key"], e),
+                  file=sys.stderr, flush=True)
+
     def retire_once_sensor(spec, fired_path):
-        """Retire a one-time sensor trigger after its fire was delivered: the
-        `.fired` sentinel first (so a failed delete can never deliver a second
-        fire), then the spec. The sensor-runner stops the sensor once the spec
-        is gone; the rest of the folder is swept a day later."""
+        """Finish retiring a one-time sensor trigger whose fire was handed over:
+        file the handed-over fire into `delivered/` if a crash left it waiting,
+        remove the spec (the sensor-runner then stops the sensor, and the old
+        sensor can no longer fire into the folder), and drop any other waiting
+        fires so a trigger re-created under the same name never inherits them.
+        The rest of the folder is swept a day later."""
         key = spec["_key"]
         try:
-            with open(fired_path, "w") as f:
-                f.write(str(time.time()))
-        except OSError as e:
-            print("wakeup-scheduler: .fired write failed key=%s err=%s" % (key, e),
-                  file=sys.stderr, flush=True)
+            handed_over = open(fired_path).read().strip()
+        except OSError:
+            handed_over = ""
         try:
             os.unlink(spec["_path"])
         except FileNotFoundError:
@@ -1356,6 +1379,14 @@ def main():
                       "failed: %s — the .fired sentinel stops any further delivery" % (key, e), flush=True)
                 warned.add((key, "once_retire_failed"))
             return
+        for fp in pending_fires(spec["_dir"]):
+            if os.path.basename(fp) == handed_over:
+                _mark_delivered(fp)
+                continue
+            try:
+                os.unlink(fp)
+            except OSError:
+                pass
         print("wakeup-scheduler: retired one-time sensor key=%s" % key, file=sys.stderr, flush=True)
 
     def deliver_sensor_fires(spec, now):
@@ -1368,18 +1399,25 @@ def main():
         fired_path = os.path.join(spec["_dir"], ".state", key + ".fired") if once else None
         if once and os.path.exists(fired_path):
             try:
-                stale = os.path.getmtime(spec["_path"]) > os.path.getmtime(fired_path)
+                spec_mtime = os.path.getmtime(spec["_path"])
+                fresh = spec_mtime > os.path.getmtime(fired_path)
             except OSError:
                 return
-            if not stale:
-                retire_once_sensor(spec, fired_path)     # already delivered; finish retiring
+            if not fresh:
+                retire_once_sensor(spec, fired_path)     # already handed over; finish retiring
                 return
+            # Spec rewritten since: a fresh trigger under the same name. A fire
+            # older than it came from the retired trigger's sensor — never its.
+            for fp in pending_fires(spec["_dir"]):
+                if fire_epoch(fp) < spec_mtime:
+                    try:
+                        os.unlink(fp)
+                    except OSError:
+                        pass
             try:
-                os.unlink(fired_path)                    # spec rewritten since: a fresh trigger
+                os.unlink(fired_path)
             except OSError:
                 return
-        if once:
-            os.makedirs(os.path.dirname(fired_path), exist_ok=True)
         for fp in pending_fires(spec["_dir"]):
             if fp in undeliverable:
                 continue
@@ -1394,6 +1432,8 @@ def main():
             else:
                 _emit_sensor_wake(key, fired_utc, spec["instruction"], findings,
                                   spec["_state_dir"], delivered, once=once)
+            if once:
+                mark_once_fired(spec, fired_path, os.path.basename(fp))
             if _mark_delivered(fp) is None:
                 undeliverable.add(fp)
                 print("⚠️ [wakeup-scheduler: %s] delivered sensor fire %s but could not move "

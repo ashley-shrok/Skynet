@@ -3300,6 +3300,10 @@ def _peek_one(wakedir):
             base = os.path.join(folder, '.state', key)
             t = sch.get('type')
             if t == eng.SENSOR_TYPE:
+                # A one-time sensor that already handed its fire over delivers nothing more.
+                if sch.get('once') is True and os.path.exists(base + '.fired') \
+                        and os.path.getmtime(spec_path) <= os.path.getmtime(base + '.fired'):
+                    continue
                 # A waiting sensor fire is due now — the scheduler delivers it on its next poll.
                 n = len(eng.pending_fires(folder))
                 if n:

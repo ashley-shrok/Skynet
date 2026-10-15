@@ -27,6 +27,8 @@
 #   T-18  — sensor wake-up with only a half-written fire → not due
 #   T-19  — disabled sensor wake-up with a waiting fire → not due
 #   T-20  — flat legacy wakeups/<slug>.json → not due (folders only)
+#   T-21  — one-time sensor that already handed its fire over → not due
+#   T-22  — one-time sensor with a waiting fire → due
 #
 # Exits 0 on all-pass; 1 on any failure.
 #
@@ -239,6 +241,22 @@ t19() {
   expect_not_due
 }
 
+t21() {
+  # A one-time sensor that already handed its fire over is not due.
+  write_spec '{"name":"w","schedule":{"type":"sensor","once":true},"instruction":"x"}'
+  write_fire 20261014T143012345-a1b2c3d4.fire
+  touch -d '1 minute ago' "$SCRATCH/alice/wakeups/w/wakeup.json"
+  write_state fired 20261014T143000000-00000000.fire
+  expect_not_due
+}
+
+t22() {
+  # A one-time sensor that hasn't fired yet is due with a waiting fire.
+  write_spec '{"name":"w","schedule":{"type":"sensor","once":true},"instruction":"x"}'
+  write_fire 20261014T143012345-a1b2c3d4.fire
+  expect_due
+}
+
 t20() {
   # A flat legacy spec is not a wake-up any more.
   printf '%s\n' "{\"name\":\"flat\",\"schedule\":{\"type\":\"daily\",\"at\":\"$SLOT_PAST\"},\"instruction\":\"x\"}" > "$SCRATCH/alice/wakeups/flat.json"
@@ -266,6 +284,8 @@ run_case "T-16 no instruction → not due" t16
 run_case "T-17 sensor with a waiting fire → due" t17
 run_case "T-18 sensor with only a half-written fire → not due" t18
 run_case "T-19 disabled sensor with a waiting fire → not due" t19
+run_case "T-21 one-time sensor already handed over → not due" t21
+run_case "T-22 one-time sensor with a waiting fire → due" t22
 run_case "T-20 flat legacy spec ignored → not due" t20
 
 printf '\n===============================\n'

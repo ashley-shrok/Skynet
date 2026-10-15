@@ -562,6 +562,7 @@ describe("PATCH /scheduled-agents/:slug (UPDATE)", () => {
   it("Test 17: happy PATCH LOCAL — writeMarkdownFileAtomic(null, ...) (code-review fix #9)", async () => {
     (isLocalHostId as Mock).mockReturnValue(true);
     fsReadFileMock.mockResolvedValue(JSON.stringify(validSpec));
+    fsAccessMock.mockResolvedValue(undefined);
     fsMkdirMock.mockResolvedValue(undefined);
 
     const res = await httpRequest(server, {
@@ -643,6 +644,37 @@ describe("PATCH /scheduled-agents/:slug (UPDATE)", () => {
     });
     expect(res.status).toBe(404);
     expect(writeMarkdownFileAtomic).not.toHaveBeenCalled();
+  });
+});
+
+describe("PATCH never brings back a task that went away mid-edit", () => {
+  it("Test 18d: REMOTE — spec gone between read and write → 404, nothing written", async () => {
+    (execCommand as Mock).mockImplementation(async (_c: unknown, cmd: string) => {
+      if (cmd.includes("cat ") && cmd.includes("scheduled-agent.json")) return JSON.stringify(validSpec);
+      if (cmd.startsWith("test -f ")) return "__SCHEDULED_AGENT_MISSING__\n";
+      return "";
+    });
+    const res = await httpRequest(server, {
+      method: "PATCH",
+      path: "/scheduled-agents/morning-digest",
+      body: { host: 7, spec: { ...validSpec, prompt: "late edit" } },
+    });
+    expect(res.status).toBe(404);
+    expect(writeMarkdownFileAtomic).not.toHaveBeenCalled();
+  });
+
+  it("Test 18e: LOCAL — spec gone between read and write → 404, nothing written", async () => {
+    (isLocalHostId as Mock).mockReturnValue(true);
+    fsReadFileMock.mockResolvedValue(JSON.stringify(validSpec));
+    fsAccessMock.mockRejectedValue(Object.assign(new Error("ENOENT"), { code: "ENOENT" }));
+    const res = await httpRequest(server, {
+      method: "PATCH",
+      path: "/scheduled-agents/morning-digest",
+      body: { host: 1, spec: { ...validSpec, prompt: "late edit" } },
+    });
+    expect(res.status).toBe(404);
+    expect(writeMarkdownFileAtomic).not.toHaveBeenCalled();
+    expect(fsMkdirMock).not.toHaveBeenCalled();
   });
 });
 

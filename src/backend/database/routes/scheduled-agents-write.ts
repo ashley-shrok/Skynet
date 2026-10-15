@@ -721,6 +721,15 @@ router.patch(
             diskParsed,
           );
           const body = JSON.stringify(writePayload, null, 2) + "\n";
+          // Never bring back a task that went away while this edit was in
+          // flight (deleted, or a one-time sensor task that just retired).
+          try {
+            await fs.access(targetPath);
+          } catch {
+            res.status(404).json({ error: "scheduled agent not found" });
+            responded = true;
+            return;
+          }
           try {
             await fs.mkdir(path.dirname(targetPath), { recursive: true });
             await writeMarkdownFileAtomic(null, targetPath, body);
@@ -812,6 +821,26 @@ router.patch(
         const body = JSON.stringify(writePayload, null, 2) + "\n";
 
         const targetPath = `$HOME/fleet/scheduled-agents/${slug}/scheduled-agent.json`;
+        // Never bring back a task that went away while this edit was in
+        // flight (deleted, or a one-time sensor task that just retired).
+        try {
+          const still = await execWithTimeout(conn, `test -f "${targetPath}" || echo "__SCHEDULED_AGENT_MISSING__"`);
+          if (still.includes("__SCHEDULED_AGENT_MISSING__")) {
+            res.status(404).json({ error: "scheduled agent not found" });
+            responded = true;
+            return;
+          }
+        } catch (err) {
+          sshLogger.warn("scheduled-agents-update: pre-write check failed", {
+            operation: "scheduled_agents_update_prewrite_check",
+            hostId,
+            slug,
+            error: err instanceof Error ? err.message : "Unknown",
+          });
+          res.status(502).json({ error: "SSH exec failed" });
+          responded = true;
+          return;
+        }
         try {
           // writeMarkdownFileAtomic is byte-agnostic despite the name —
           // JSON body passes through unchanged (RESEARCH § Anti-patterns).

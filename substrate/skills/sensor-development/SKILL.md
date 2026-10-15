@@ -106,6 +106,10 @@ the trigger. A one-time wake-up's 📡 line ends with
 `(one-time sensor — this wake-up has now retired)` — nothing to delete by hand.
 While switched off, its fire waits like any sensor's.
 
+Test it as a repeating sensor first and add `"once": true` just before
+publishing (see Making one) — otherwise your own test fire is the one
+heads-up and the trigger retires before the sensor ever goes live.
+
 Never retire a trigger from inside the sensor (deleting its own folder): a fire
 not yet delivered would be lost. There is no built-in expiry — if your sensor
 should give up, fire with that as the findings (e.g. "gave up after 2 days").
@@ -113,15 +117,17 @@ should give up, fire with that as the findings (e.g. "gave up after 2 days").
 ## Making one
 
 1. Get the user's go-ahead for the wake-up or scheduled task (governance above).
-2. Create the trigger with `"schedule": {"type": "sensor"}` (add `"once": true`
-   for a one-time sensor) — for a wake-up, `wakeups/<slug>/wakeup.json`; its
-   `instruction` says what to do with findings.
+2. Create the trigger with `"schedule": {"type": "sensor"}` — for a wake-up,
+   `wakeups/<slug>/wakeup.json`; its `instruction` says what to do with findings.
+   For a one-time sensor, leave `"once"` off until step 5.
 3. Write the logic in `<trigger>/sensor/`, plus `sensor.json.pending`.
 4. Test by hand from inside `sensor/`: run the command yourself. `sensor-fire`
    works there too (it finds the trigger by walking up), so you can watch a real
    fire arrive.
-5. Publish: `mv sensor.json.pending sensor.json`. Within ~30s the box creates
-   its service (and for "always", starts it).
+5. For a one-time sensor, add `"once": true` to the schedule now — after
+   testing, so a test fire doesn't retire it. Then publish:
+   `mv sensor.json.pending sensor.json`. Within ~30s the box creates its
+   service (and for "always", starts it).
 6. Check `.state/sensor-health.json` shows it healthy.
 
 ## Running, changing, stopping

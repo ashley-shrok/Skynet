@@ -44,15 +44,20 @@ true). The clock never fires it.
 
 ### One-time sensors (`"once": true`)
 
-- Delivery hands over only the oldest waiting fire, then retires the trigger: writes
-  `<trigger>/.state/<slug>.fired` (in the trigger's own folder for tasks too), then removes the
-  spec. The sensor-runner stops the sensor once the spec is gone.
+- Delivery hands over only the oldest waiting fire, then retires the trigger: right after the
+  hand-over writes `<trigger>/.state/<slug>.fired` (in the trigger's own folder for tasks too;
+  contents = the handed-over fire's file name), files the fire into `delivered/`, removes the
+  spec and drops any other waiting fires. The sensor-runner stops the sensor once the spec is
+  gone; `sensor-fire` refuses a folder with no spec.
 - A one-time wake-up's 📡 line ends with ` (one-time sensor — this wake-up has now retired)`.
   A scheduled task's newborn gets no note.
 - The leftover folder (later fires included) is swept a day after the `.fired` sentinel,
   for wake-ups and scheduled tasks alike.
-- A `.fired` sentinel present means already delivered: nothing more is delivered and the spec
-  removal is retried — unless the spec is newer than the sentinel (a fresh trigger).
+- A `.fired` sentinel present means already delivered: nothing more is delivered and retiring
+  is finished (the named fire filed if still waiting, spec removed, other fires dropped) — unless
+  the spec is newer than the sentinel: a fresh trigger under the same name, whose waiting fires
+  older than its spec (the retired trigger's) are dropped first.
+- App edits never write back a wake-up or task spec that disappeared mid-edit.
 
 ## sensor.json
 

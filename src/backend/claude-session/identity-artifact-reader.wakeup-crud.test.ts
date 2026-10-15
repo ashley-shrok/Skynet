@@ -398,6 +398,33 @@ describe("readIdentityWakeups / writeIdentityWakeupUpdate — LOCAL folder layou
     expect(parsed.schedule).toEqual({ type: "sensor" });
   });
 
+  it("(h2) keeps a one-time sensor's mark on update", async () => {
+    const dir = path.join(identitiesRoot, KEY, "wakeups", "watcher");
+    await fs.writeFile(path.join(dir, "wakeup.json"), spec("watcher", { type: "sensor", once: true }), "utf-8");
+    await writeIdentityWakeupUpdate(null, KEY, "watcher", { name: "renamed", schedule: { type: "sensor", once: true } });
+    const parsed = JSON.parse(await fs.readFile(path.join(dir, "wakeup.json"), "utf-8"));
+    expect(parsed).toMatchObject({ name: "renamed", schedule: { type: "sensor", once: true } });
+  });
+
+  it("(h3) never brings back a wake-up that went away while the edit was in flight", async () => {
+    const dir = path.join(identitiesRoot, KEY, "wakeups", "watcher");
+    const realWriteFile = fs.writeFile.bind(fs);
+    // The spec disappears (e.g. a one-time sensor retiring) after it was read.
+    const spy = vi.spyOn(fs, "writeFile").mockImplementation(async (...args: Parameters<typeof fs.writeFile>) => {
+      await fs.rm(path.join(dir, "wakeup.json"), { force: true });
+      return realWriteFile(...args);
+    });
+    try {
+      await expect(writeIdentityWakeupUpdate(null, KEY, "watcher", { enabled: false })).rejects.toThrow(
+        /no longer exists/,
+      );
+    } finally {
+      spy.mockRestore();
+    }
+    await expect(fs.access(path.join(dir, "wakeup.json"))).rejects.toThrow();
+    await expect(fs.access(path.join(dir, "wakeup.json.tmp"))).rejects.toThrow();
+  });
+
   it("updating an old-layout flat file fails (no backward compatibility)", async () => {
     await expect(writeIdentityWakeupUpdate(null, KEY, "legacy", { enabled: false })).rejects.toThrow();
   });
