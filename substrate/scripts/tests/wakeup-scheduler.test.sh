@@ -767,7 +767,7 @@ JSON
   cat > "$ident_dir/wakeups/paused/wakeup.json" <<'JSON'
 {"name": "paused", "enabled": false, "schedule": {"type": "sensor"}, "instruction": "x"}
 JSON
-  printf 'two candidates' > "$w/fires/20261014T143012345-a1b2c3d4.fire"
+  printf 'two candidates\n' > "$w/fires/20261014T143012345-a1b2c3d4.fire"
   printf 'line one\nline two\n' > "$w/fires/20261014T143012999-00000000.fire"
   : > "$w/fires/20261014T150000000-ffffffff.fire"
   printf 'ignored' > "$w/fires/not-a-fire.fire.tmp"
@@ -777,7 +777,7 @@ JSON
   lines=$(grep -c "📡 \[sensor: deliveries" "$out_log")
   assert_eq "3" "$lines" "SA-G15: one event per fire"
   sed -n 1p "$out_log" | grep -q "📡 \[sensor: deliveries @ 2026-10-14T14:30:12.345Z\] Judge these — findings: two candidates$" \
-    || fail "SA-G15: first (oldest) fire inline with its fire time, got: $(sed -n 1p "$out_log")"
+    || fail "SA-G15: first (oldest) fire inline (trailing newline trimmed) with its fire time, got: $(sed -n 1p "$out_log")"
   sed -n 2p "$out_log" | grep -q "findings (18 chars) at $w/fires/delivered/20261014T143012999-00000000.fire — Read it" \
     || fail "SA-G15: multi-line findings pointed at the delivered file, got: $(sed -n 2p "$out_log")"
   sed -n 3p "$out_log" | grep -q "Judge these — no findings$" \

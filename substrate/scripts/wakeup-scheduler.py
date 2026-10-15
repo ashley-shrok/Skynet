@@ -242,9 +242,12 @@ def _emit_sensor_wake(key, fired_utc, instruction, findings, state_dir, delivere
     line ends with a note that the wake-up has retired."""
     head = "📡 [sensor: %s @ %s] " % (key, fired_utc)
     note = RETIRED_NOTE if once else ""
-    plain = not _UNSAFE_INLINE_RE.search(findings)
-    if len(instruction) + len(findings) <= LONG_INSTRUCTION_CHARS and plain:
-        tail = (" — findings: " + findings) if findings else " — no findings"
+    # One trailing newline (as `echo` leaves) doesn't make a finding multi-line.
+    shown = findings[:-1] if findings.endswith("\n") else findings
+    shown = shown[:-1] if shown.endswith("\r") else shown
+    plain = not _UNSAFE_INLINE_RE.search(shown)
+    if len(instruction) + len(shown) <= LONG_INSTRUCTION_CHARS and plain:
+        tail = (" — findings: " + shown) if shown else " — no findings"
         print(head + instruction + tail + note, flush=True)
         return
     if len(instruction) <= LONG_INSTRUCTION_CHARS:
