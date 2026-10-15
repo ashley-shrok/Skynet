@@ -36,6 +36,10 @@
  *                      correctly transitions IN even without a final
  *                      touchmove)
  *
+ *   Separately, capture-phase `load` / `loadedmetadata` listeners dispatch
+ *   content-changed (NOT user-input) when an image or video inside the
+ *   container finishes loading and grows without any DOM mutation.
+ *
  *   Each fires → schedule a RAF-coalesced measure of distanceFromBottom →
  *   dispatch {kind:"user-input", ...} to the reducer. RAF timing ensures we
  *   measure AFTER the browser has processed the input and updated scrollTop.
@@ -336,6 +340,21 @@ export function useAutoScroll(paneKey: string): UseAutoScrollResult {
     scrollEl.addEventListener("pointerdown", onPointerDown);
     scrollEl.addEventListener("scrollend", onScrollEnd);
 
+    // ── Media-load listeners — content resize with no DOM mutation ─────────
+    // An <img>/<video> already in the DOM grows when its bytes arrive (file
+    // chip previews, image bubbles). Neither observer sees that: the MO sees
+    // no mutation and the RO watches the container, whose own box is fixed.
+    // `load` / `loadedmetadata` don't bubble, so listen in the capture phase.
+    const onMediaLoad = (e: Event): void => {
+      const tag = (e.target as Element | null)?.tagName?.toLowerCase() ?? "?";
+      console.info(
+        `[pv-scroll] media-load event=${e.type} tag=${tag} mode=${stateRef.current.mode} paneKey=${paneKey}`,
+      );
+      dispatch({ kind: "content-changed" });
+    };
+    scrollEl.addEventListener("load", onMediaLoad, true);
+    scrollEl.addEventListener("loadedmetadata", onMediaLoad, true);
+
     // ── MutationObserver — one instance on scroll container children ───────
     // Observes childList+subtree so new messages, WipBubble, WaitingBubble,
     // AsideBubble mounts/unmounts all fire content-changed.
@@ -376,6 +395,8 @@ export function useAutoScroll(paneKey: string): UseAutoScrollResult {
       scrollEl.removeEventListener("keydown", onKeyDown);
       scrollEl.removeEventListener("pointerdown", onPointerDown);
       scrollEl.removeEventListener("scrollend", onScrollEnd);
+      scrollEl.removeEventListener("load", onMediaLoad, true);
+      scrollEl.removeEventListener("loadedmetadata", onMediaLoad, true);
       mo.disconnect();
       mutationObserverRef.current = null;
       ro.disconnect();

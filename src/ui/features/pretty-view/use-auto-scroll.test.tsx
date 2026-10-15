@@ -464,6 +464,67 @@ describe("hide-pin-reveal + at-bottom chase", () => {
   });
 });
 
+describe("media load", () => {
+  it("T16: image finishes loading while at-bottom (no DOM mutation) → chase", () => {
+    const { el, setScrollHeight, getScrollTop } = makeScrollEl({
+      scrollHeight: 500,
+      clientHeight: 400,
+      initialScrollTop: 100,
+    });
+    const img = document.createElement("img");
+    el.appendChild(img);
+
+    act(() => {
+      render(<TestConsumer paneKey="pane-A" el={el} />);
+    });
+    act(() => {
+      ResizeObserverStub.lastInstance!.trigger();
+    });
+    flushRaf();
+
+    // File-chip preview image arrives and grows the content by 300px.
+    setScrollHeight(800);
+    act(() => {
+      img.dispatchEvent(new Event("load")); // non-bubbling, like the real one
+    });
+    flushRaf();
+
+    expect(getScrollTop()).toBe(800);
+    expect(screen.getByTestId("probe").getAttribute("data-mode")).toBe("at-bottom");
+  });
+
+  it("T17: image finishes loading while scrolled up → NO scroll-write", () => {
+    const { el, setScrollTop, setScrollHeight, getScrollTop, fireUserScroll } = makeScrollEl({
+      scrollHeight: 1000,
+      clientHeight: 400,
+      initialScrollTop: 100,
+    });
+    const video = document.createElement("video");
+    el.appendChild(video);
+
+    act(() => {
+      render(<TestConsumer paneKey="pane-A" el={el} />);
+    });
+    act(() => {
+      ResizeObserverStub.lastInstance!.trigger();
+    });
+    flushRaf();
+
+    setScrollTop(100);
+    fireUserScroll();
+    expect(screen.getByTestId("probe").getAttribute("data-mode")).toBe("not-at-bottom");
+
+    setScrollHeight(1300);
+    act(() => {
+      video.dispatchEvent(new Event("loadedmetadata"));
+    });
+    flushRaf();
+
+    expect(getScrollTop()).toBe(100);
+    expect(screen.getByTestId("probe").getAttribute("data-mode")).toBe("not-at-bottom");
+  });
+});
+
 // ===========================================================================
 // T2-T3: Scroll-listener user-input transitions
 // ===========================================================================
@@ -764,6 +825,8 @@ describe("cleanup", () => {
     expect(removedTypes.has("keydown")).toBe(true);
     expect(removedTypes.has("pointerdown")).toBe(true);
     expect(removedTypes.has("scrollend")).toBe(true);
+    expect(removedTypes.has("load")).toBe(true);
+    expect(removedTypes.has("loadedmetadata")).toBe(true);
 
     // Observers disconnected.
     expect(ro!.disconnectSpy).toHaveBeenCalled();
