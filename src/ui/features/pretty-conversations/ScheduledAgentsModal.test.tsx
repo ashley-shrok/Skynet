@@ -1044,6 +1044,15 @@ describe("ScheduledAgentsModal: schedule format v2", () => {
     });
   });
 
+  it("T-19e: a sensor task shows a read-only Sensor schedule and saves it unchanged", async () => {
+    await openEdit({ type: "sensor" });
+    expect(screen.getByTestId("scheduled-agents-modal-form-schedule-sensor")).toHaveTextContent("Sensor");
+    expect(screen.queryByTestId("scheduled-agents-modal-form-schedule-kind")).toBeNull();
+    fireEvent.change(screen.getByTestId("scheduled-agents-modal-form-prompt"), { target: { value: "new prompt" } });
+    expect(await savedSchedule()).toEqual({ type: "sensor" });
+    expect(updateScheduledAgentMock.mock.calls[0][2].prompt).toBe("new prompt");
+  });
+
   it("T-19d: switching to Monthly every 2 months writes a start", async () => {
     await openEdit({ type: "daily", at: "09:00", timezone: "Europe/London" });
     fireEvent.click(screen.getByTestId("scheduled-agents-modal-form-schedule-kind-monthly"));

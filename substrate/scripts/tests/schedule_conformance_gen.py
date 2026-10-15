@@ -48,7 +48,7 @@ def verdicts(r):
                 sch.pop(field, None)
             else:
                 sch[field] = r.choice(JUNK) if field != "type" else r.choice(
-                    ["interval", "daily", "weekly", "monthly", "yearly", "one_shot", "hourly"])
+                    ["interval", "daily", "weekly", "monthly", "yearly", "one_shot", "sensor", "hourly"])
         cases.append({"schedule": sch, "valid": eng.schedule_error(sch) is None})
     return cases
 

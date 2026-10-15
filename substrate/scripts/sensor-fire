@@ -1,0 +1,91 @@
+#!/usr/bin/env python3
+"""sensor-fire — the one way a sensor says "fire now, here's what I found".
+
+Usage:
+  sensor-fire "findings text"          findings from the arguments (joined by spaces)
+  some-command | sensor-fire           findings from stdin (when no arguments are given)
+  sensor-fire                          fire with no findings (stdin is a terminal or empty)
+  sensor-fire --trigger <dir> ...      fire a specific trigger folder (testing by hand)
+
+Which trigger fires is never named by the sensor: it is the wake-up or scheduled
+task folder the sensor lives in. sensor-runner launches every sensor with
+SENSOR_TRIGGER_DIR set; run by hand, the trigger is found by walking up from the
+current directory to the folder holding `wakeup.json` or `scheduled-agent.json`.
+
+Writes exactly one file, `<trigger>/fires/<YYYYMMDDTHHMMSSmmm UTC>-<8 hex>.fire`,
+holding the findings verbatim — first under a temporary name, then renamed in, so
+a half-written fire is never seen. Delivery is the wake-up scheduler's job: a
+wake-up's identity gets a 📡 event (woken from dormancy if needed); a scheduled
+task births one fresh agent per fire. Prints the fire file's path.
+
+Vendored into the app's substrate and distributed to every host. Stdlib only.
+"""
+
+import os
+import secrets
+import sys
+from datetime import datetime, timezone
+
+SPEC_NAMES = ("wakeup.json", "scheduled-agent.json")
+
+
+def die(msg, code=2):
+    print("sensor-fire: " + msg, file=sys.stderr)
+    sys.exit(code)
+
+
+def is_trigger(d):
+    return any(os.path.isfile(os.path.join(d, n)) for n in SPEC_NAMES)
+
+
+def find_trigger(start):
+    d = os.path.abspath(start)
+    while True:
+        if is_trigger(d):
+            return d
+        parent = os.path.dirname(d)
+        if parent == d:
+            return None
+        d = parent
+
+
+def main(argv):
+    trigger = None
+    if argv[:1] == ["--trigger"]:
+        if len(argv) < 2:
+            die("--trigger needs a folder")
+        trigger = os.path.abspath(os.path.expanduser(argv[1]))
+        argv = argv[2:]
+    elif argv[:1] in (["-h"], ["--help"]):
+        print(__doc__.strip())
+        return 0
+    if trigger is None:
+        env = os.environ.get("SENSOR_TRIGGER_DIR")
+        trigger = env if env else find_trigger(os.getcwd())
+    if not trigger or not is_trigger(trigger):
+        die("no trigger found — run from inside a sensor folder, or pass --trigger <wake-up or task folder>")
+
+    if argv:
+        findings = " ".join(argv).encode("utf-8")
+    elif not sys.stdin.isatty():
+        findings = sys.stdin.buffer.read()
+    else:
+        findings = b""
+
+    fdir = os.path.join(trigger, "fires")
+    os.makedirs(fdir, exist_ok=True)
+    now = datetime.now(timezone.utc)
+    name = "%s%03d-%s.fire" % (now.strftime("%Y%m%dT%H%M%S"), now.microsecond // 1000, secrets.token_hex(4))
+    final = os.path.join(fdir, name)
+    tmp = final + ".tmp"
+    with open(tmp, "wb") as f:
+        f.write(findings)
+        f.flush()
+        os.fsync(f.fileno())
+    os.rename(tmp, final)
+    print(final)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

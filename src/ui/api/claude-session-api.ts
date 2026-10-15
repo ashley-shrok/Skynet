@@ -717,7 +717,7 @@ export type IdentityUpdateWakeupPayload = {
   type: "identity:update-wakeup";
   identityKey: string;
   hostId: number;
-  /** filename stem of wakeups/<slug>.json — regex-validated on the server. */
+  /** folder name of wakeups/<slug>/wakeup.json — regex-validated on the server. */
   wakeupSlug: string;
   updates: {
     enabled?: boolean;

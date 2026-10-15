@@ -135,7 +135,7 @@ export function __resetSlugMutexRegistryForTests(): void {
 // Types
 // ---------------------------------------------------------------------------
 
-type ScheduledAgentScheduleType = "interval" | "daily" | "weekly" | "monthly" | "yearly" | "one_shot";
+type ScheduledAgentScheduleType = "interval" | "daily" | "weekly" | "monthly" | "yearly" | "one_shot" | "sensor";
 
 /** Scheduled-agent spec shape — mirrors Phase 127 D-04 + wakeup-scheduler.py's
  *  scheduled-agents-mode acceptance criteria (the substrate scheduler file is

@@ -107,12 +107,12 @@ import { getHostSemaphore } from "../ssh/host-semaphore-registry.js";
  *     // patch #17g/#92: identity artifact fetches (one-shot; no pane needed):
  *     { type: "identity:get-identity-file", identityKey: string, hostId?: number } // patch #17g/#92: fetch <key>.md
  *     { type: "identity:get-role-file", identityKey: string, hostId?: number }     // Phase 22 SRIC-06: fetch ~/fleet/roles/<role>/<role>.md via backend two-step (identity file → role: frontmatter → role artifact)
- *     { type: "identity:list-wakeups", identityKey: string, hostId?: number }      // patch #17g/#92: list wakeups/*.json
+ *     { type: "identity:list-wakeups", identityKey: string, hostId?: number }      // patch #17g/#92: list wakeups/<slug>/wakeup.json folders
  *     { type: "identity:get-handoff", identityKey: string, hostId?: number }       // patch #17g/#92: fetch handoff.md
  *     // patch #154: first WRITE paths on identity artifacts. Same hostId routing.
- *     { type: "identity:update-wakeup", identityKey: string, hostId?: number, wakeupSlug: string, updates: { enabled?: boolean, schedule?: object } } // patch #154: patch wakeups/<slug>.json
- *     { type: "identity:create-wakeup", identityKey: string, hostId?: number, spec: { name, enabled, schedule, instruction } } // Phase 72 Plan 01: identity-scope create — full CRUD on ~/fleet/identities/<key>/wakeups/<slug>.json. Slug derived from spec.name (kebab-case). Throws "wakeup with this name already exists" on clobber.
- *     { type: "identity:delete-wakeup", identityKey: string, hostId?: number, wakeupSlug: string } // Phase 72 Plan 01: identity-scope delete (idempotent).
+ *     { type: "identity:update-wakeup", identityKey: string, hostId?: number, wakeupSlug: string, updates: { enabled?: boolean, schedule?: object } } // patch #154: patch wakeups/<slug>/wakeup.json
+ *     { type: "identity:create-wakeup", identityKey: string, hostId?: number, spec: { name, enabled, schedule, instruction } } // Phase 72 Plan 01: identity-scope create — full CRUD on ~/fleet/identities/<key>/wakeups/<slug>/wakeup.json. Slug derived from spec.name (kebab-case). Throws "wakeup with this name already exists" when the <slug>/ folder exists.
+ *     { type: "identity:delete-wakeup", identityKey: string, hostId?: number, wakeupSlug: string } // Phase 72 Plan 01: identity-scope delete (removes the whole wakeups/<slug>/ folder; idempotent).
  *     // Phase 136 retired identity:update-bounty-priority / update-bounty-status /
  *     // update-bounty-pinned / update-bounty-fields / archive-bounty /
  *     // delete-bounty wire types alongside the bounty concept retirement.
@@ -5263,7 +5263,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
       return;
     }
 
-    // Patch #17g/#92: identity:list-wakeups — enumerate wakeups/*.json and humanize each schedule.
+    // Patch #17g/#92: identity:list-wakeups — enumerate wakeups/<slug>/wakeup.json and humanize each schedule.
     // Patch #92: routes via helper; local branch for local hosts, SSH branch for remote hosts.
     if (msg.type === "identity:list-wakeups") {
       const rawKey = (msg as { type: unknown; identityKey?: unknown }).identityKey;
@@ -5320,7 +5320,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
       return;
     }
 
-    // Patch #154: identity:update-wakeup — patch a single wakeups/<slug>.json
+    // Patch #154: identity:update-wakeup — patch a single wakeups/<slug>/wakeup.json
     // (enabled and/or schedule) and return the fresh list so the modal can
     // atomically re-render. Same local/SSH routing as list-wakeups.
     //

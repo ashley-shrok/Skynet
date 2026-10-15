@@ -1565,6 +1565,10 @@ export async function bootstrapFleetSubstrateLocally(
     gcTimerBootstrapped: false,
     scheduledAgentsSchedulerAlreadyEnabled: false,
     scheduledAgentsSchedulerBootstrapped: false,
+    // sensor-runner.service shares the same gap: manual `systemctl --user
+    // enable --now sensor-runner.service` on t1000 at ship time.
+    sensorRunnerAlreadyEnabled: false,
+    sensorRunnerBootstrapped: false,
   };
 
   systemLogger[hadError ? "warn" : "info"](

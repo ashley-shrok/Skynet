@@ -212,6 +212,11 @@ export interface BootstrapResult {
    *  exclusive with scheduledAgentsSchedulerAlreadyEnabled. False on both
    *  already-enabled AND error paths. */
   scheduledAgentsSchedulerBootstrapped: boolean;
+  /** Whether sensor-runner.service was already enabled before Step 1d. */
+  sensorRunnerAlreadyEnabled: boolean;
+  /** Whether Step 1d ran the enable-now command successfully. Mutually
+   *  exclusive with sensorRunnerAlreadyEnabled. */
+  sensorRunnerBootstrapped: boolean;
   /** True if any sub-step encountered an error. */
   hadError: boolean;
 }
@@ -454,6 +459,8 @@ export async function runBootstrapForHost(
   let gcTimerBootstrapped = false;
   let scheduledAgentsSchedulerAlreadyEnabled = false;
   let scheduledAgentsSchedulerBootstrapped = false;
+  let sensorRunnerAlreadyEnabled = false;
+  let sensorRunnerBootstrapped = false;
   let hadError = false;
 
   // -------------------------------------------------------------------------
@@ -739,6 +746,73 @@ export async function runBootstrapForHost(
     logBootstrapFailed(
       host,
       "scheduled-agents-scheduler-is-enabled-check",
+      err instanceof Error ? err.message : "unknown throw",
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // Step 1d: Idempotently enable + start sensor-runner.service — the box-level
+  // process behind sensors. Same is-enabled-first pattern and fresh-box
+  // convergence as Step 1c (the unit file lands later in the catalog loop on
+  // a brand-new box; the next sweep enables it).
+  //
+  // Runs inside its own try/catch (NEVER-THROW contract).
+  // -------------------------------------------------------------------------
+  try {
+    const sensorCheckRaw = await channel.exec(
+      `XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-enabled sensor-runner.service 2>/dev/null; echo "EXIT:$?"`,
+    );
+    if (sensorCheckRaw === null) {
+      logBootstrapFailed(host, "sensor-runner-is-enabled-check", "channel returned null");
+      hadError = true;
+    } else {
+      const sensorMatch = /EXIT:(\d+)$/.exec(sensorCheckRaw.trimEnd());
+      if (sensorMatch && parseInt(sensorMatch[1], 10) === 0) {
+        sensorRunnerAlreadyEnabled = true;
+        systemLogger.info(
+          `Fleet-substrate bootstrap: sensor-runner.service already enabled on ${host.name}`,
+          {
+            operation: "fleet_substrate_bootstrap_result",
+            fleetHostId: host.id,
+            hostName: host.name,
+            step: "sensor-runner-is-enabled-check",
+            sensorRunnerAlreadyEnabled: true,
+          },
+        );
+      } else {
+        const enableSensorRaw = await channel.exec(
+          `XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user enable --now sensor-runner.service && echo "__SENSOR_OK__"`,
+        );
+        if (enableSensorRaw === null) {
+          logBootstrapFailed(host, "sensor-runner-enable", "channel returned null");
+          hadError = true;
+        } else if (!enableSensorRaw.trimEnd().endsWith("__SENSOR_OK__")) {
+          logBootstrapFailed(
+            host,
+            "sensor-runner-enable",
+            enableSensorRaw.trimEnd().slice(0, 500) || "sensor-runner enable failed",
+          );
+          hadError = true;
+        } else {
+          sensorRunnerBootstrapped = true;
+          systemLogger.info(
+            `Fleet-substrate bootstrap: sensor-runner.service enabled+started on ${host.name}`,
+            {
+              operation: "fleet_substrate_bootstrap_result",
+              fleetHostId: host.id,
+              hostName: host.name,
+              step: "sensor-runner-enable",
+              sensorRunnerBootstrapped: true,
+            },
+          );
+        }
+      }
+    }
+  } catch (err) {
+    hadError = true;
+    logBootstrapFailed(
+      host,
+      "sensor-runner-is-enabled-check",
       err instanceof Error ? err.message : "unknown throw",
     );
   }
@@ -1267,6 +1341,8 @@ export async function runBootstrapForHost(
     gcTimerBootstrapped,
     scheduledAgentsSchedulerAlreadyEnabled,
     scheduledAgentsSchedulerBootstrapped,
+    sensorRunnerAlreadyEnabled,
+    sensorRunnerBootstrapped,
     hadError,
   };
 

@@ -464,3 +464,10 @@ describe("humanizeWakeupSchedule — ends", () => {
     );
   });
 });
+
+describe("humanizeWakeupSchedule — sensor", () => {
+  it("renders a sensor trigger as 'Sensor', ignoring any other fields", () => {
+    expect(humanizeWakeupSchedule({ type: "sensor" })).toBe("Sensor");
+    expect(humanizeWakeupSchedule({ type: "sensor", at: "09:00", days: ["mon"] })).toBe("Sensor");
+  });
+});

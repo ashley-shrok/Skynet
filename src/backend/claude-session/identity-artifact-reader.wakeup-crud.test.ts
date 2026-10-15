@@ -10,11 +10,15 @@
 // primitive already covered by the existing writeIdentityWakeupUpdate tests).
 //
 // Coverage:
-//   (a) writeIdentityWakeupCreate LOCAL — creates identities/<key>/wakeups/<slug>.json
-//   (b) writeIdentityWakeupCreate LOCAL — throws on clobber
+//   (a) writeIdentityWakeupCreate LOCAL — creates identities/<key>/wakeups/<slug>/wakeup.json
+//   (b) writeIdentityWakeupCreate LOCAL — throws on clobber (existing folder)
 //   (c) writeIdentityWakeupCreate LOCAL — throws when name normalizes to empty slug
-//   (d) writeIdentityWakeupDelete LOCAL — deletes file, idempotent on missing
+//   (d) writeIdentityWakeupDelete LOCAL — deletes the whole folder, idempotent on missing
 //   (e) writeIdentityWakeupDelete LOCAL — invalid slug throws "invalid wakeup slug"
+//   (f) readIdentityWakeups LOCAL — folder layout only (flat files, dot-dirs, and
+//       folders without wakeup.json are not wake-ups)
+//   (g) writeIdentityWakeupUpdate LOCAL — patches <slug>/wakeup.json
+//   (h) sensor schedule kind — accepted on create/update, humanized "Sensor"
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import os from "os";
@@ -29,8 +33,10 @@ vi.mock("../ssh/tmux-helper.js", () => ({
 }));
 
 import {
+  readIdentityWakeups,
   writeIdentityWakeupCreate,
   writeIdentityWakeupDelete,
+  writeIdentityWakeupUpdate,
 } from "./identity-artifact-reader.js";
 
 beforeEach(() => {
@@ -61,7 +67,7 @@ describe("writeIdentityWakeupCreate — LOCAL branch (conn=null)", () => {
     await fs.rm(identitiesRoot, { recursive: true, force: true });
   });
 
-  it("(a) creates ~/fleet/identities/<key>/wakeups/<slug>.json with slug derived from name", async () => {
+  it("(a) creates ~/fleet/identities/<key>/wakeups/<slug>/wakeup.json with slug derived from name", async () => {
     const result = await writeIdentityWakeupCreate(null, KEY, {
       name: "Weekly Review",
       enabled: true,
@@ -70,7 +76,7 @@ describe("writeIdentityWakeupCreate — LOCAL branch (conn=null)", () => {
     });
 
     // Slug: "weekly-review"
-    const filePath = path.join(identitiesRoot, KEY, "wakeups", "weekly-review.json");
+    const filePath = path.join(identitiesRoot, KEY, "wakeups", "weekly-review", "wakeup.json");
     const raw = await fs.readFile(filePath, "utf-8");
     const parsed = JSON.parse(raw);
     expect(parsed.name).toBe("Weekly Review");
@@ -86,9 +92,9 @@ describe("writeIdentityWakeupCreate — LOCAL branch (conn=null)", () => {
 
   it("(b) throws when a wakeup with the same normalized name already exists", async () => {
     const wakeupsDir = path.join(identitiesRoot, KEY, "wakeups");
-    await fs.mkdir(wakeupsDir, { recursive: true });
+    await fs.mkdir(path.join(wakeupsDir, "weekly-review"), { recursive: true });
     await fs.writeFile(
-      path.join(wakeupsDir, "weekly-review.json"),
+      path.join(wakeupsDir, "weekly-review", "wakeup.json"),
       JSON.stringify(
         { name: "weekly-review", enabled: true, schedule: { type: "weekly", day: "mon" }, instruction: "existing" },
         null,
@@ -108,7 +114,7 @@ describe("writeIdentityWakeupCreate — LOCAL branch (conn=null)", () => {
 
     // Existing file NOT clobbered
     const raw = await fs.readFile(
-      path.join(wakeupsDir, "weekly-review.json"),
+      path.join(wakeupsDir, "weekly-review", "wakeup.json"),
       "utf-8",
     );
     const parsed = JSON.parse(raw);
@@ -147,7 +153,7 @@ describe("writeIdentityWakeupCreate — LOCAL branch (conn=null)", () => {
         instruction: "test",
       }),
     ).rejects.toThrow(/needs a `start`/);
-    await expect(fs.access(path.join(identitiesRoot, KEY, "wakeups", "every-other-week.json"))).rejects.toThrow();
+    await expect(fs.access(path.join(identitiesRoot, KEY, "wakeups", "every-other-week"))).rejects.toThrow();
   });
 
   it("accepts the new kinds", async () => {
@@ -158,6 +164,88 @@ describe("writeIdentityWakeupCreate — LOCAL branch (conn=null)", () => {
       instruction: "test",
     });
     expect(result.wakeups.some((w) => w.slug === "last-friday")).toBe(true);
+  });
+
+  it("(h) accepts a sensor schedule and humanizes it as Sensor", async () => {
+    const result = await writeIdentityWakeupCreate(null, KEY, {
+      name: "inbox-watch",
+      enabled: true,
+      schedule: { type: "sensor" },
+      instruction: "Triage what the sensor found",
+    });
+    const row = result.wakeups.find((w) => w.slug === "inbox-watch");
+    expect(row?.schedule).toEqual({ type: "sensor" });
+    expect(row?.scheduleHuman).toBe("Sensor");
+  });
+
+  it("an existing folder without wakeup.json still counts as a collision", async () => {
+    await fs.mkdir(path.join(identitiesRoot, KEY, "wakeups", "weekly-review"), { recursive: true });
+    await expect(
+      writeIdentityWakeupCreate(null, KEY, {
+        name: "Weekly Review",
+        enabled: true,
+        schedule: { type: "daily", at: "09:00" },
+        instruction: "new",
+      }),
+    ).rejects.toThrow(/already exists/);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// readIdentityWakeups + writeIdentityWakeupUpdate — LOCAL branch
+// ──────────────────────────────────────────────────────────────────────
+
+describe("readIdentityWakeups / writeIdentityWakeupUpdate — LOCAL folder layout", () => {
+  let identitiesRoot: string;
+  const KEY = "moxie";
+  const spec = (name: string, schedule: Record<string, unknown> = { type: "daily", at: "09:00" }) =>
+    JSON.stringify({ name, enabled: true, schedule, instruction: "do it" }, null, 2) + "\n";
+
+  beforeEach(async () => {
+    identitiesRoot = await fs.mkdtemp(path.join(os.tmpdir(), "wakeup-folders-"));
+    process.env.IDENTITIES_HOST_DIR = identitiesRoot;
+    const wakeupsDir = path.join(identitiesRoot, KEY, "wakeups");
+    await fs.mkdir(path.join(wakeupsDir, "morning"), { recursive: true });
+    await fs.writeFile(path.join(wakeupsDir, "morning", "wakeup.json"), spec("morning"), "utf-8");
+    await fs.mkdir(path.join(wakeupsDir, "watcher", "sensor"), { recursive: true });
+    await fs.writeFile(path.join(wakeupsDir, "watcher", "wakeup.json"), spec("watcher", { type: "sensor" }), "utf-8");
+    // Not wake-ups: an old-layout flat file, the scheduler's .state dir, a
+    // folder with no wakeup.json.
+    await fs.writeFile(path.join(wakeupsDir, "legacy.json"), spec("legacy"), "utf-8");
+    await fs.mkdir(path.join(wakeupsDir, ".state"), { recursive: true });
+    await fs.writeFile(path.join(wakeupsDir, ".state", "wakeup.json"), spec("state"), "utf-8");
+    await fs.mkdir(path.join(wakeupsDir, "half-made"), { recursive: true });
+  });
+
+  afterEach(async () => {
+    delete process.env.IDENTITIES_HOST_DIR;
+    await fs.rm(identitiesRoot, { recursive: true, force: true });
+  });
+
+  it("(f) lists only <slug>/wakeup.json folders, slug = folder name", async () => {
+    const { wakeups } = await readIdentityWakeups(null, KEY);
+    expect(wakeups.map((w) => w.slug)).toEqual(["morning", "watcher"]);
+    expect(wakeups.find((w) => w.slug === "watcher")?.scheduleHuman).toBe("Sensor");
+  });
+
+  it("(g) patches <slug>/wakeup.json in place", async () => {
+    await writeIdentityWakeupUpdate(null, KEY, "morning", { enabled: false, instruction: "later" });
+    const parsed = JSON.parse(
+      await fs.readFile(path.join(identitiesRoot, KEY, "wakeups", "morning", "wakeup.json"), "utf-8"),
+    );
+    expect(parsed).toMatchObject({ name: "morning", enabled: false, instruction: "later" });
+  });
+
+  it("(h) keeps a sensor schedule on update", async () => {
+    await writeIdentityWakeupUpdate(null, KEY, "watcher", { name: "watcher", schedule: { type: "sensor" } });
+    const parsed = JSON.parse(
+      await fs.readFile(path.join(identitiesRoot, KEY, "wakeups", "watcher", "wakeup.json"), "utf-8"),
+    );
+    expect(parsed.schedule).toEqual({ type: "sensor" });
+  });
+
+  it("updating an old-layout flat file fails (no backward compatibility)", async () => {
+    await expect(writeIdentityWakeupUpdate(null, KEY, "legacy", { enabled: false })).rejects.toThrow();
   });
 });
 
@@ -174,10 +262,13 @@ describe("writeIdentityWakeupDelete — LOCAL branch (conn=null)", () => {
     process.env.IDENTITIES_HOST_DIR = identitiesRoot;
 
     // Seed a wakeup we can delete
-    const wakeupsDir = path.join(identitiesRoot, KEY, "wakeups");
-    await fs.mkdir(wakeupsDir, { recursive: true });
+    // Seeded with scheduler state + a sensor to prove the whole folder goes.
+    const wakeupDir = path.join(identitiesRoot, KEY, "wakeups", "doomed");
+    await fs.mkdir(path.join(wakeupDir, ".state"), { recursive: true });
+    await fs.mkdir(path.join(wakeupDir, "sensor"), { recursive: true });
+    await fs.writeFile(path.join(wakeupDir, ".state", "doomed.last"), "1", "utf-8");
     await fs.writeFile(
-      path.join(wakeupsDir, "doomed.json"),
+      path.join(wakeupDir, "wakeup.json"),
       JSON.stringify(
         { name: "doomed", enabled: true, schedule: { type: "daily", at: "09:00" }, instruction: "" },
         null,
@@ -192,8 +283,8 @@ describe("writeIdentityWakeupDelete — LOCAL branch (conn=null)", () => {
     await fs.rm(identitiesRoot, { recursive: true, force: true });
   });
 
-  it("(d) deletes file and is idempotent on missing file (second call succeeds)", async () => {
-    const filePath = path.join(identitiesRoot, KEY, "wakeups", "doomed.json");
+  it("(d) deletes the whole folder and is idempotent on missing (second call succeeds)", async () => {
+    const filePath = path.join(identitiesRoot, KEY, "wakeups", "doomed");
     // Pre-delete: exists
     await expect(fs.access(filePath)).resolves.toBeUndefined();
 

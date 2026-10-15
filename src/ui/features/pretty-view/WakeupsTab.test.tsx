@@ -730,6 +730,22 @@ describe("WakeupsTab — schedule format v2", () => {
     expect(onUpdate.mock.calls[0][1].schedule).toEqual({ ...schedule, timezone: expect.any(String) });
   });
 
+  it("a sensor wake-up shows a read-only Sensor schedule and saves it unchanged", async () => {
+    const { onUpdate } = renderTab({ schedule: { type: "sensor" }, scheduleHuman: "Sensor" });
+    enterEditMode();
+    expect(screen.getByTestId("wakeup-sensor-schedule").textContent).toMatch(/Sensor/);
+    expect(screen.queryByLabelText(/Schedule type/i)).toBeNull();
+    fireEvent.change(screen.getByLabelText("Wakeup name"), { target: { value: "renamed" } });
+    fireEvent.change(screen.getByLabelText(/^Instruction$/i), { target: { value: "new instruction" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/i }));
+    await waitFor(() => expect(onUpdate).toHaveBeenCalledTimes(1));
+    expect(onUpdate.mock.calls[0][1]).toMatchObject({
+      name: "renamed",
+      instruction: "new instruction",
+    });
+    expect(onUpdate.mock.calls[0][1].schedule).toEqual({ type: "sensor" });
+  });
+
   it("monthly appears in the type dropdown and renders its day fields", () => {
     renderTab();
     enterEditMode();

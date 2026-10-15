@@ -24,6 +24,7 @@ import {
   buildSchedule,
   detectBrowserTimezone,
   hydrateFormSchedule,
+  isSensorSchedule,
   MonthlyDayFields,
   RestrictToDaysChips,
   ScheduleRepeatFields,
@@ -39,7 +40,7 @@ const FIELD_INPUT_CLASS = cn(
   "focus:outline-none focus:border-white/25 rounded px-2 py-1.5 text-xs",
 );
 
-// Patch #17g: tab renderer for the identity's wakeups/*.json files.
+// Patch #17g: tab renderer for the identity's wakeups/<slug>/wakeup.json specs.
 // Patch #154: adds inline editing — an enabled toggle + a schedule JSON editor.
 //   Enabled writes are optimistic-agnostic (we wait on the server response
 //   and rely on the fresh wakeups[] the server sends back to reflect state).
@@ -260,6 +261,10 @@ function WakeupRow({
   );
   const [saving, setSaving] = useState<null | "enabled" | "form">(null);
   const [error, setError] = useState<string | null>(null);
+  // Sensor-fired wake-ups ({type: "sensor"}) have no clock schedule to edit;
+  // the form keeps name/instruction/enabled editable and writes the schedule
+  // object back unchanged.
+  const isSensor = isSensorSchedule(wakeup.schedule);
   // Phase 72 Plan 02 Task 2: delete-confirm AlertDialog state.
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -301,7 +306,7 @@ function WakeupRow({
 
   async function saveForm() {
     setError(null);
-    const validationError = validateForm(formSchedule);
+    const validationError = isSensor ? null : validateForm(formSchedule);
     if (validationError) {
       setError(validationError);
       return;
@@ -311,7 +316,7 @@ function WakeupRow({
       await onUpdate(wakeup.slug, {
         name: nameDraft,
         enabled: enabledDraft,
-        schedule: buildSchedule(formSchedule, detectedTz),
+        schedule: isSensor ? wakeup.schedule : buildSchedule(formSchedule, detectedTz),
         instruction: instructionDraft,
       });
       setEditingSchedule(false);
@@ -332,16 +337,16 @@ function WakeupRow({
   }
 
   // Live JSON preview — the exact shape that would be PUT to
-  // wakeups/<slug>.json on Save.
+  // wakeups/<slug>/wakeup.json on Save.
   const livePreview = useMemo(() => {
     const spec = {
       name: nameDraft,
       enabled: enabledDraft,
-      schedule: buildSchedule(formSchedule, detectedTz),
+      schedule: isSensor ? wakeup.schedule : buildSchedule(formSchedule, detectedTz),
       instruction: instructionDraft,
     };
     return JSON.stringify(spec, null, 2);
-  }, [nameDraft, enabledDraft, instructionDraft, formSchedule, detectedTz]);
+  }, [nameDraft, enabledDraft, instructionDraft, formSchedule, detectedTz, isSensor, wakeup.schedule]);
 
   // Past-datetime hint (one_shot only).
   const oneShotPast =
@@ -573,6 +578,15 @@ function WakeupRow({
           <div className="grid gap-3 sm:grid-cols-[1fr_220px]">
             {/* Left column: form fields */}
             <div className="flex flex-col gap-3">
+              {/* A sensor-fired wake-up's schedule is not editable here:
+                  show it as a plain read-only line and keep it on save. */}
+              {isSensor ? (
+                <div className="flex flex-col gap-1" data-testid="wakeup-sensor-schedule">
+                  <span className={FIELD_LABEL_CLASS}>Schedule</span>
+                  <span className="text-xs text-[#e8e4d8] font-mono">Sensor</span>
+                </div>
+              ) : (
+              <>
               {/* Schedule type dropdown */}
               <div className="flex flex-col gap-1">
                 <label
@@ -825,6 +839,8 @@ function WakeupRow({
                     </div>
                   )}
                 </>
+              )}
+              </>
               )}
 
               {/* Instruction textarea */}

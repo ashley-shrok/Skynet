@@ -36,6 +36,7 @@ import path from "path";
 import fs from "fs/promises";
 import { spawnSync } from "child_process";
 import type { Client as SSHClientType } from "ssh2";
+import type { Dirent } from "fs";
 type SFTPWrapper = import("ssh2").SFTPWrapper;
 import yaml from "js-yaml";
 // Tolerant YAML parser for READ paths that feed the visibility gate.
@@ -120,7 +121,7 @@ function daysGateLabel(days: WeekdayCode[]): string {
 
 /**
  * Humanize a wakeup schedule object into a human-readable string.
- * Handles interval / daily / weekly / monthly / yearly / one_shot schedule types; falls back to "custom schedule".
+ * Handles interval / daily / weekly / monthly / yearly / one_shot / sensor schedule types; falls back to "custom schedule".
  * Exported so claude-session-server.ts can re-export it (patch #92: moved here to
  * avoid a circular dependency — artifact reader must not import from server.ts).
  *
@@ -268,6 +269,8 @@ export function humanizeWakeupSchedule(schedule: unknown): string {
     const at = typeof s.at === "string" ? s.at : "";
     return at ? `Once at ${at}` : "Once";
   }
+  // Fired by the trigger's sensor, never by the clock — nothing else to render.
+  if (type === "sensor") return "Sensor";
   return "custom schedule";
 }
 
@@ -1524,10 +1527,15 @@ export async function readRoleFileByName(
 }
 
 // ---------------------------------------------------------------------------
-// 3. readIdentityWakeups — <key>/wakeups/*.json
+// 3. readIdentityWakeups — <key>/wakeups/<slug>/wakeup.json
 // ---------------------------------------------------------------------------
+//
+// Every wake-up is a folder: wakeups/<slug>/wakeup.json is the spec, and the
+// folder name is the slug (see .planning/campaigns/sensors/sensor-contract.md).
+// A folder without wakeup.json is not a wake-up; dot-folders (.state) never
+// are. Flat wakeups/<slug>.json files from the old layout are ignored.
 
-// Patch #154: expose `slug` (filename stem, addressability for updates) and
+// Patch #154: expose `slug` (folder name, addressability for updates) and
 // raw `schedule` (unknown, so the modal's editor can render + edit it
 // without a wire-side re-humanization round-trip). Existing fields stay
 // so the read shape is a superset.
@@ -1540,10 +1548,19 @@ type Wakeup = {
   instruction: string;
 };
 
-/** Slug regex for wakeup filenames — kebab/snake, 1-80 chars. Enforced
+/** Slug regex for wakeup folder names — kebab/snake, 1-80 chars. Enforced
  *  before we ever touch the filesystem so a hostile slug can't traverse
  *  into `..` or otherwise escape the identity dir. */
 export const IDENTITY_SLUG_RE = /^[a-z0-9_-]{1,80}$/i;
+
+/** Shape a parsed wakeup.json into the wire row. */
+function wakeupFromSpec(parsed: Record<string, unknown>, slug: string): Wakeup {
+  const name = typeof parsed.name === "string" ? parsed.name : slug;
+  const enabled = typeof parsed.enabled === "boolean" ? parsed.enabled : false;
+  const instruction = typeof parsed.instruction === "string" ? parsed.instruction : "";
+  const scheduleHuman = humanizeWakeupSchedule(parsed.schedule);
+  return { slug, name, enabled, scheduleHuman, schedule: parsed.schedule ?? null, instruction };
+}
 
 /** Result shape for wakeups reads. Matches the wire shape "identity:wakeups". */
 export async function readIdentityWakeups(
@@ -1551,12 +1568,12 @@ export async function readIdentityWakeups(
   identityKey: string,
 ): Promise<{ wakeups: Wakeup[] }> {
   if (conn === null) {
-    // LOCAL branch (mirrors server.ts lines 1319-1351)
+    // LOCAL branch
     const root = getLocalIdentitiesRoot();
     const wakeupsDir = path.join(root, identityKey, "wakeups");
-    let dirEntries: string[];
+    let dirEntries: Dirent[];
     try {
-      dirEntries = await fs.readdir(wakeupsDir);
+      dirEntries = await fs.readdir(wakeupsDir, { withFileTypes: true });
     } catch (err: unknown) {
       if (
         typeof err === "object" &&
@@ -1567,21 +1584,29 @@ export async function readIdentityWakeups(
       }
       throw err;
     }
-    const jsonFiles = dirEntries.filter((e) => e.endsWith(".json"));
+    const slugs = dirEntries
+      .filter((e) => e.isDirectory() && !e.name.startsWith("."))
+      .map((e) => e.name)
+      .sort();
     const wakeups: Wakeup[] = [];
-    for (const filename of jsonFiles) {
-      const filePath = path.join(wakeupsDir, filename);
+    for (const slug of slugs) {
+      const filePath = path.join(wakeupsDir, slug, "wakeup.json");
+      let raw: string;
       try {
-        const raw = await fs.readFile(filePath, "utf-8");
-        const parsed = JSON.parse(raw) as Record<string, unknown>;
-        const stem = filename.replace(/\.json$/, "");
-        const name = typeof parsed.name === "string" ? parsed.name : stem;
-        const enabled =
-          typeof parsed.enabled === "boolean" ? parsed.enabled : false;
-        const instruction =
-          typeof parsed.instruction === "string" ? parsed.instruction : "";
-        const scheduleHuman = humanizeWakeupSchedule(parsed.schedule);
-        wakeups.push({ slug: stem, name, enabled, scheduleHuman, schedule: parsed.schedule ?? null, instruction });
+        raw = await fs.readFile(filePath, "utf-8");
+      } catch (err: unknown) {
+        // No wakeup.json → not a wake-up (e.g. a folder mid-create).
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
+        sshLogger.warn("identity-artifact-reader: failed to read local wakeup.json", {
+          operation: "identity_wakeups_local_read_error",
+          identityKey,
+          slug,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        continue;
+      }
+      try {
+        wakeups.push(wakeupFromSpec(JSON.parse(raw) as Record<string, unknown>, slug));
       } catch (err) {
         sshLogger.error(
           "identity-artifact-reader: failed to parse local wakeup JSON",
@@ -1589,7 +1614,7 @@ export async function readIdentityWakeups(
           {
             operation: "identity_wakeups_local_parse_error",
             identityKey,
-            filename,
+            slug,
           },
         );
         // Skip poisoned entry — one bad file must not poison the list.
@@ -1598,11 +1623,16 @@ export async function readIdentityWakeups(
     return { wakeups };
   }
 
-  // REMOTE branch — delimiter-based one-liner (one round-trip for all wakeup files)
+  // REMOTE branch — delimiter-based one-liner (one round-trip for all wakeup
+  // folders). `*/` never matches dot-folders; folders without wakeup.json are
+  // skipped by the `[ -f ]` guard. nullglob keeps an empty dir from looping
+  // once over a literal `*/`.
   // Patch #95: direct interpolation (see readIdentityFile for the bug).
   const cmd =
     `cd "$HOME/fleet/identities/${identityKey}/wakeups" 2>/dev/null && ` +
-    'for f in *.json; do echo "===FILE:$f==="; cat "$f"; done';
+    'shopt -s nullglob; ' +
+    'for d in */; do s="${d%/}"; [ -f "$s/wakeup.json" ] || continue; ' +
+    'echo "===FILE:$s==="; cat "$s/wakeup.json"; done';
   let stdout: string;
   try {
     stdout = await execWithTimeout(conn, cmd);
@@ -1618,22 +1648,14 @@ export async function readIdentityWakeups(
   const chunks = stdout.split("===FILE:");
   for (const chunk of chunks) {
     if (!chunk.trim()) continue;
-    // chunk = "<filename>.json===\n<json content>"
+    // chunk = "<slug>===\n<json content>"
     const separatorIdx = chunk.indexOf("===");
     if (separatorIdx === -1) continue;
-    const filename = chunk.slice(0, separatorIdx).trim();
+    const slug = chunk.slice(0, separatorIdx).trim();
     const jsonContent = chunk.slice(separatorIdx + 3).trim();
-    if (!filename.endsWith(".json") || !jsonContent) continue;
+    if (!slug || !jsonContent) continue;
     try {
-      const parsed = JSON.parse(jsonContent) as Record<string, unknown>;
-      const stem = filename.replace(/\.json$/, "");
-      const name = typeof parsed.name === "string" ? parsed.name : stem;
-      const enabled =
-        typeof parsed.enabled === "boolean" ? parsed.enabled : false;
-      const instruction =
-        typeof parsed.instruction === "string" ? parsed.instruction : "";
-      const scheduleHuman = humanizeWakeupSchedule(parsed.schedule);
-      wakeups.push({ slug: stem, name, enabled, scheduleHuman, schedule: parsed.schedule ?? null, instruction });
+      wakeups.push(wakeupFromSpec(JSON.parse(jsonContent) as Record<string, unknown>, slug));
     } catch (err) {
       sshLogger.error(
         "identity-artifact-reader: failed to parse remote wakeup JSON",
@@ -1641,7 +1663,7 @@ export async function readIdentityWakeups(
         {
           operation: "identity_wakeups_remote_parse_error",
           identityKey,
-          filename,
+          slug,
         },
       );
       // Skip poisoned entry.
@@ -1691,7 +1713,7 @@ export async function readIdentityHandoff(
 // ---------------------------------------------------------------------------
 //
 // Patch #154: first write path on identity artifacts. Merges `enabled` and/or
-// `schedule` into ~/fleet/identities/<key>/wakeups/<slug>.json. The wakeup
+// `schedule` into ~/fleet/identities/<key>/wakeups/<slug>/wakeup.json. The wakeup
 // scheduler reloads specs every ~30s (see id skill § Scheduled wake-ups), so
 // the change takes effect within one poll — no scheduler restart.
 //
@@ -1734,7 +1756,7 @@ export type WakeupSpec = {
   instruction: string;
 };
 
-/** Merge `updates` into wakeups/<wakeupSlug>.json. Caller validates slug
+/** Merge `updates` into wakeups/<wakeupSlug>/wakeup.json. Caller validates slug
  *  against IDENTITY_SLUG_RE before invoking. Throws on filesystem/parse errors
  *  or if the spec file doesn't exist. */
 export async function writeIdentityWakeupUpdate(
@@ -1762,7 +1784,7 @@ export async function writeIdentityWakeupUpdate(
 
   if (conn === null) {
     const root = getLocalIdentitiesRoot();
-    const filePath = path.join(root, identityKey, "wakeups", wakeupSlug + ".json");
+    const filePath = path.join(root, identityKey, "wakeups", wakeupSlug, "wakeup.json");
     const raw = await fs.readFile(filePath, "utf-8");
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     if (updates.enabled !== undefined) parsed.enabled = updates.enabled;
@@ -1801,7 +1823,7 @@ export async function writeIdentityWakeupUpdate(
   const payload = JSON.stringify(updates).replace(/'/g, "'\\''");
   const cmd =
     `printf '%s' '${payload}' | python3 -c ${shellEscape(script)} ` +
-    `"$HOME/fleet/identities/${identityKey}/wakeups/${wakeupSlug}.json"`;
+    `"$HOME/fleet/identities/${identityKey}/wakeups/${wakeupSlug}/wakeup.json"`;
   await execWithTimeout(conn, cmd);
 }
 
@@ -1865,9 +1887,11 @@ function assertFireableSchedule(schedule: unknown): void {
 // create path, mirroring writeRoleWakeupCreate but rooted at
 // ~/fleet/identities/<key>/wakeups/ (no two-step).
 
-/** Create a new ~/fleet/identities/<identityKey>/wakeups/<slug>.json where
- *  <slug> is derived from spec.name via kebab-case. Throws "wakeup with this
- *  name already exists" on clobber. Returns the refreshed {wakeups} list
+/** Create a new ~/fleet/identities/<identityKey>/wakeups/<slug>/wakeup.json
+ *  where <slug> is derived from spec.name via kebab-case. The folder is made
+ *  first and wakeup.json lands atomically (tmp + rename), so the scheduler
+ *  never sees a half-written spec. An existing <slug>/ folder is a name
+ *  collision: throws "wakeup with this name already exists". Returns the refreshed {wakeups} list
  *  post-write. */
 export async function writeIdentityWakeupCreate(
   conn: SSHClientType | null,
@@ -1893,32 +1917,53 @@ export async function writeIdentityWakeupCreate(
     const root = getLocalIdentitiesRoot();
     const wakeupsDir = path.join(root, identityKey, "wakeups");
     await fs.mkdir(wakeupsDir, { recursive: true });
-    const filePath = path.join(wakeupsDir, slug + ".json");
+    const wakeupDir = path.join(wakeupsDir, slug);
     try {
-      await fs.access(filePath);
-      throw new Error("wakeup with this name already exists");
+      // Non-recursive: EEXIST is the collision check, race-free.
+      await fs.mkdir(wakeupDir);
     } catch (err: unknown) {
-      const isEnoent =
-        typeof err === "object" &&
-        err !== null &&
-        (err as NodeJS.ErrnoException).code === "ENOENT";
-      if (!isEnoent) {
-        throw err;
+      if ((err as NodeJS.ErrnoException).code === "EEXIST") {
+        sshLogger.info("identity-artifact-reader: wakeup create collision", {
+          operation: "identity_wakeup_create_collision",
+          identityKey,
+          slug,
+        });
+        throw new Error("wakeup with this name already exists");
       }
+      throw err;
     }
+    const filePath = path.join(wakeupDir, "wakeup.json");
     const tmpPath = filePath + ".tmp";
-    await fs.writeFile(tmpPath, body, "utf-8");
-    await fs.rename(tmpPath, filePath);
+    try {
+      await fs.writeFile(tmpPath, body, "utf-8");
+      await fs.rename(tmpPath, filePath);
+    } catch (err) {
+      // Don't leave an empty folder squatting on the name.
+      await fs.rm(wakeupDir, { recursive: true, force: true });
+      throw err;
+    }
+    sshLogger.info("identity-artifact-reader: wakeup created (local)", {
+      operation: "identity_wakeup_create",
+      identityKey,
+      slug,
+    });
     return readIdentityWakeups(conn, identityKey);
   }
 
-  // REMOTE branch — same pattern as writeRoleWakeupCreate, identity path.
-  const targetPath = `$HOME/fleet/identities/${identityKey}/wakeups/${slug}.json`;
+  // REMOTE branch — make the folder (an existing one = collision), then the
+  // python3 tmp+rename write lands wakeup.json inside it.
+  const wakeupDir = `$HOME/fleet/identities/${identityKey}/wakeups/${slug}`;
+  const targetPath = `${wakeupDir}/wakeup.json`;
   const preCheckCmd =
     `mkdir -p "$HOME/fleet/identities/${identityKey}/wakeups" && ` +
-    `[ -e "${targetPath}" ] && echo EXISTS || echo OK`;
+    `if [ -e "${wakeupDir}" ]; then echo EXISTS; else mkdir "${wakeupDir}" && echo OK; fi`;
   const preCheck = (await execWithTimeout(conn, preCheckCmd)).trim();
   if (preCheck.endsWith("EXISTS")) {
+    sshLogger.info("identity-artifact-reader: wakeup create collision", {
+      operation: "identity_wakeup_create_collision",
+      identityKey,
+      slug,
+    });
     throw new Error("wakeup with this name already exists");
   }
   const script =
@@ -1935,8 +1980,15 @@ export async function writeIdentityWakeupCreate(
     instruction: spec.instruction,
   }).replace(/'/g, "'\\''");
   const writeCmd =
-    `printf '%s' '${payload}' | python3 -c ${shellEscape(script)} "${targetPath}"`;
+    `printf '%s' '${payload}' | python3 -c ${shellEscape(script)} "${targetPath}" ` +
+    // Don't leave an empty folder squatting on the name.
+    `|| { rm -rf "${wakeupDir}"; exit 1; }`;
   await execWithTimeout(conn, writeCmd);
+  sshLogger.info("identity-artifact-reader: wakeup created (remote)", {
+    operation: "identity_wakeup_create",
+    identityKey,
+    slug,
+  });
   return readIdentityWakeups(conn, identityKey);
 }
 
@@ -1944,9 +1996,10 @@ export async function writeIdentityWakeupCreate(
 // 6a5. writeIdentityWakeupDelete — delete an identity-scope wakeup
 // ---------------------------------------------------------------------------
 
-/** Delete ~/fleet/identities/<identityKey>/wakeups/<wakeupSlug>.json.
- *  Idempotent (swallows ENOENT / uses `rm -f`). Returns the refreshed
- *  {wakeups} list post-delete. */
+/** Delete the whole ~/fleet/identities/<identityKey>/wakeups/<wakeupSlug>/
+ *  folder (spec, scheduler state, and any sensor + fires with it).
+ *  Idempotent (`force` / `rm -rf`). Returns the refreshed {wakeups} list
+ *  post-delete. */
 export async function writeIdentityWakeupDelete(
   conn: SSHClientType | null,
   identityKey: string,
@@ -1961,25 +2014,23 @@ export async function writeIdentityWakeupDelete(
 
   if (conn === null) {
     const root = getLocalIdentitiesRoot();
-    const filePath = path.join(root, identityKey, "wakeups", wakeupSlug + ".json");
-    try {
-      await fs.unlink(filePath);
-    } catch (err: unknown) {
-      if (
-        typeof err === "object" &&
-        err !== null &&
-        (err as NodeJS.ErrnoException).code === "ENOENT"
-      ) {
-        // Idempotent — file already gone.
-      } else {
-        throw err;
-      }
-    }
+    // The slug regex has no dots or slashes, so this can't escape wakeups/.
+    await fs.rm(path.join(root, identityKey, "wakeups", wakeupSlug), { recursive: true, force: true });
+    sshLogger.info("identity-artifact-reader: wakeup deleted (local)", {
+      operation: "identity_wakeup_delete",
+      identityKey,
+      slug: wakeupSlug,
+    });
     return readIdentityWakeups(conn, identityKey);
   }
 
-  const cmd = `rm -f "$HOME/fleet/identities/${identityKey}/wakeups/${wakeupSlug}.json"`;
+  const cmd = `rm -rf "$HOME/fleet/identities/${identityKey}/wakeups/${wakeupSlug}"`;
   await execWithTimeout(conn, cmd);
+  sshLogger.info("identity-artifact-reader: wakeup deleted (remote)", {
+    operation: "identity_wakeup_delete",
+    identityKey,
+    slug: wakeupSlug,
+  });
   return readIdentityWakeups(conn, identityKey);
 }
 

@@ -43,10 +43,11 @@ class Fleet:
 
     def interval_spec(self, ident_dir, key, last):
         """An every-10m interval spec whose next slot is last + 600."""
-        w = os.path.join(ident_dir, "wakeups")
+        w = os.path.join(ident_dir, "wakeups", key)
+        os.makedirs(os.path.join(w, ".state"), exist_ok=True)
         json.dump({"name": key, "enabled": True, "instruction": "do " + key,
                    "schedule": {"type": "interval", "every": "10m"}},
-                  open(os.path.join(w, key + ".json"), "w"))
+                  open(os.path.join(w, "wakeup.json"), "w"))
         open(os.path.join(w, ".state", key + ".last"), "w").write(str(last))
 
     def cleanup(self):

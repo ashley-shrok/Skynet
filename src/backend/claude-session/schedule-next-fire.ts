@@ -21,6 +21,9 @@ type Ymd = { y: number; m: number; d: number };
 
 const DOW_NAMES = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
 const REPEATING_TYPES = ["interval", "daily", "weekly", "monthly", "yearly"];
+/** A trigger of this type is fired by its sensor, never by the clock: it is
+ *  valid with no other fields and never has a next fire. */
+export const SENSOR_TYPE = "sensor";
 const HHMM_RE = /^([0-9]{1,2}):([0-9]{2})$/;
 const EVERY_RE = /^([0-9]+)(mo|s|m|h|d)?$/;
 const ISO_RE =
@@ -313,6 +316,8 @@ export function scheduleError(sch: unknown): string | null {
     }
     return null;
   }
+  // Fired by the trigger's sensor, never by the clock — no other fields apply.
+  if (t === SENSOR_TYPE) return null;
   if (typeof t !== "string" || !REPEATING_TYPES.includes(t)) return `unknown schedule type ${JSON.stringify(t)}`;
   let zone = "UTC";
   if (present(s.timezone)) {
@@ -536,6 +541,7 @@ function nextInterval(
  *  Ignores `count`. Precondition: scheduleError(sch) === null and the type is
  *  repeating. */
 export function nextFire(sch: Schedule, after: number, boxZone: string = localZone()): number | null {
+  if (sch.type === SENSOR_TYPE) return null;
   const zone = present(sch.timezone) && sch.timezone !== "" ? String(sch.timezone) : boxZone;
   const start = present(sch.start) ? parseIso(sch.start, zone) : null;
   const until = present(sch.until) ? parseIso(sch.until, zone) : null;
@@ -575,6 +581,8 @@ export function computeNextFireAt(
 ): number | null {
   if (scheduleError(schedule) !== null) return null;
   const sch = schedule as Schedule;
+  // A sensor trigger is fired by its sensor, never by the clock: no next fire.
+  if (sch.type === SENSOR_TYPE) return null;
   if (sch.type === "one_shot") {
     if (typeof sch.at !== "string") return null;
     const ms = Date.parse(sch.at.trim());

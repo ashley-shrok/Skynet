@@ -586,6 +586,27 @@ describe("GET /scheduled-agents (fleet-wide LIST)", () => {
     expect((more.body as { items: Array<Record<string, unknown>> }).items[0].nextFireAt).toBe(lastEpoch + 7200);
   });
 
+  it("Test 5d: LOCAL branch — a sensor task has no nextFireAt (but keeps lastFiredAt)", async () => {
+    simpleDbSelectMock.mockResolvedValue([hostSkynet]);
+    isLocalHostIdMock.mockImplementation((hostId: number | undefined) => hostId === 1);
+    const lastEpoch = Math.floor(Date.now() / 1000) - 3600;
+    fsReaddirMock.mockImplementation(async (p: string) => {
+      if (p.endsWith("/.state")) return ["watch.last"];
+      return ["watch"];
+    });
+    fsReadFileMock.mockImplementation(async (p: string) => {
+      if (p.includes(".state/watch.last")) return `${lastEpoch}\n`;
+      if (p.endsWith("scheduled-agent.json")) {
+        return JSON.stringify({ name: "Watch", enabled: true, prompt: "p", schedule: { type: "sensor" }, roles: ["r1"] });
+      }
+      throw new Error("unexpected read: " + p);
+    });
+    const res = await httpRequest(server, { method: "GET", path: "/scheduled-agents" });
+    const item = (res.body as { items: Array<Record<string, unknown>> }).items[0];
+    expect(item.lastFiredAt).toBe(lastEpoch);
+    expect(item.nextFireAt).toBeNull();
+  });
+
   it("Test 6: REMOTE branch — delimiter one-liner cmd shape", async () => {
     simpleDbSelectMock.mockResolvedValue([hostA]);
     execCommandMock.mockResolvedValue(

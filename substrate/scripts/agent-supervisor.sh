@@ -2862,8 +2862,9 @@ launch() {
 # Wake paths (all in-supervisor):
 #   1. matrix_peek — supervisor does its OWN /sync per dormant identity, distinct device from the
 #      identity's receiver (which is dead-with-session). New event → wake.
-#   2. schedule_peek — supervisor reads $IDENTITIES_DIR/<name>/wakeups/*.json, computes
-#      next fire, wakes when due. Identity's own scheduler picks up on resume.
+#   2. schedule_peek — supervisor reads $IDENTITIES_DIR/<name>/wakeups/*/wakeup.json, computes
+#      next fire, wakes when due — or, for a sensor wake-up, when a fire is waiting in its
+#      fires/ folder. Identity's own scheduler picks up on resume.
 #   3. sentinel-delete — external actor (the app, hand) rm's .dormant → sentinel-check below fails
 #      → falls through to existing alive-check → claude is dead → recover path relaunches.
 #      FREE — no code, natural fallout of the sentinel check.
@@ -3123,7 +3124,7 @@ matrix_peek() {
   local rj rs rc stem
   for rj in "$idroot"/*.json "$idroot"/*/*.json; do
     # Content filter: only files with base + user_id + password count as cred files.
-    # Filters out wakeups/*.json (name/schedule/instruction), relay-state/*.json (login/req
+    # Filters out wake-up specs (name/schedule/instruction), relay-state/*.json (login/req
     # bodies), and any unrelated JSON that lands in the identity tree.
     jq -e 'type == "object" and (has("base") and has("user_id") and has("password"))
            and (.base | type == "string" and length > 0)
@@ -3281,20 +3282,27 @@ def _read_num(path, cast=float):
 
 def _peek_one(wakedir):
     """Returns (detail_or_empty_string, list_of_errors)."""
-    state_dir = os.path.join(wakedir, '.state')
     errors = []
-    for spec_path in glob.glob(os.path.join(wakedir, '*.json')):
+    # One folder per wake-up: <wakedir>/<slug>/wakeup.json, state in <slug>/.state/.
+    for spec_path in glob.glob(os.path.join(wakedir, '*', 'wakeup.json')):
         try:
+            folder = os.path.dirname(spec_path)
+            key = os.path.basename(folder)               # same state key as the scheduler
+            if key.startswith('.'): continue
             with open(spec_path) as f: spec = json.load(f)
             if not spec.get('enabled', True): continue
             sch = spec.get('schedule')
             # Same load gate as wakeup-scheduler.py _load_specs.
             if not sch or not spec.get('instruction'): continue
             if eng.schedule_error(sch): continue          # the scheduler won't fire it either
-            # Same state key as the scheduler: `name`, else the file's basename.
-            key = spec.get('name') or os.path.basename(spec_path)[:-len('.json')]
-            base = os.path.join(state_dir, key)
+            base = os.path.join(folder, '.state', key)
             t = sch.get('type')
+            if t == eng.SENSOR_TYPE:
+                # A waiting sensor fire is due now — the scheduler delivers it on its next poll.
+                n = len(eng.pending_fires(folder))
+                if n:
+                    return (f"spec={key} type=sensor pending_fires={n} overdue_s=0", errors)
+                continue
             if t == 'one_shot':
                 if os.path.exists(base + '.fired') and os.path.getmtime(spec_path) <= os.path.getmtime(base + '.fired'):
                     continue
@@ -3312,7 +3320,7 @@ def _peek_one(wakedir):
                 if count is not None and (_read_num(base + '.runs', int) or 0) >= count: continue
                 next_fire = eng.next_fire(sch, ref, BOX_ZONE)
             if next_fire is not None and next_fire <= soon:
-                return (f"spec={os.path.basename(spec_path)} type={t} next_fire={int(next_fire)} overdue_s={int(now-next_fire)}", errors)
+                return (f"spec={key} type={t} next_fire={int(next_fire)} overdue_s={int(now-next_fire)}", errors)
         except Exception as e:
             errors.append(f"spec={spec_path} {type(e).__name__}: {e}")
             continue

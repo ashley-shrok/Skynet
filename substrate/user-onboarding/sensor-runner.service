@@ -1,0 +1,14 @@
+[Unit]
+Description=Sensor runner — runs this box's sensors (wake-ups and scheduled tasks fired by agent-written logic)
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 %h/.local/bin/sensor-runner
+Restart=always
+RestartSec=10
+KillMode=process
+Environment=PATH=%h/.local/bin:%h/.bun/bin:/usr/local/bin:/usr/bin:/bin
+
+[Install]
+WantedBy=default.target

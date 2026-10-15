@@ -271,6 +271,12 @@ function hydrateEvery(raw: unknown): { every?: number } {
 // Hydrate a form-side FormSchedule from a server-provided `wakeup.schedule`
 // object. Defaults gracefully when the input is unrecognized so entering
 // edit-mode never throws.
+/** True for a sensor-fired trigger's schedule (`{type: "sensor"}`). The form
+ *  can't create or edit one; editors show it read-only and save it unchanged. */
+export function isSensorSchedule(sched: unknown): boolean {
+  return typeof sched === "object" && sched !== null && (sched as { type?: unknown }).type === "sensor";
+}
+
 export function hydrateFormSchedule(sched: unknown): FormSchedule {
   if (typeof sched !== "object" || sched === null) {
     return { type: "daily", at: "09:00" };

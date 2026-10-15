@@ -413,9 +413,9 @@ async function readScheduledAgentsLocal(
 
 /**
  * REMOTE branch — one SSH round-trip via the delimiter one-liner adapted from
- * identity-artifact-reader.ts readIdentityWakeups L1486-1533. Nested layout
- * differs from per-identity's flat wakeups/<file>.json: scheduled-agent specs
- * live at scheduled-agents/<slug>/scheduled-agent.json, so the loop iterates
+ * identity-artifact-reader.ts readIdentityWakeups. Same folder-per-spec layout
+ * as per-identity wakeups/<slug>/wakeup.json: scheduled-agent specs live at
+ * scheduled-agents/<slug>/scheduled-agent.json, so the loop iterates
  * directories (`for d in <star-slash>; do`) and cats the nested spec file.
  * Empty dir + missing dir both yield empty stdout (cd 2>/dev/null && ...
  * short-circuits cleanly).

@@ -57,6 +57,7 @@ import {
   buildSchedule,
   detectBrowserTimezone,
   hydrateFormSchedule,
+  isSensorSchedule,
   MonthlyDayFields,
   ScheduleRepeatFields,
   switchScheduleKind,
@@ -226,6 +227,11 @@ export function ScheduledAgentsModalForm({
   // `schedule.timezone` survives an edit-save round-trip.
   const initialSpecRef = useRef<ScheduledAgentListItem | null>(initialSpec);
 
+  // A sensor-fired task ({type: "sensor"}) has no clock schedule to edit:
+  // the form shows it read-only and saves the schedule object unchanged.
+  // Only reachable in edit mode — the app never creates one.
+  const isSensor = mode === "edit" && initialSpec !== null && isSensorSchedule(initialSpec.schedule);
+
   // Available roles for the currently-selected host (chip-picker source).
   const [availableRoles, setAvailableRoles] = useState<RoleSummary[]>([]);
 
@@ -292,7 +298,7 @@ export function ScheduledAgentsModalForm({
       setError("Pick at least one role.");
       return;
     }
-    const scheduleError = validateForm(formSchedule);
+    const scheduleError = isSensor ? null : validateForm(formSchedule);
     if (scheduleError !== null) {
       setError(scheduleError);
       return;
@@ -315,15 +321,15 @@ export function ScheduledAgentsModalForm({
       // rest ride along in formSchedule via hydrateFormSchedule).
       // (Amended 2026-09-24 during /close — see the file header for rationale.)
       const tz = detectBrowserTimezone();
-      const scheduleObj: Record<string, unknown> = buildSchedule(
-        formSchedule,
-        tz,
-      );
+      const scheduleObj: Record<string, unknown> = isSensor
+        ? (initialSpecRef.current!.schedule as Record<string, unknown>)
+        : buildSchedule(formSchedule, tz);
 
       // Preserve the raw spec's timezone. buildSchedule already emits
       // `timezone` from the detected browser zone, but this preserves the
       // ORIGINAL zone when the user hand-picked one on disk.
       if (
+        !isSensor &&
         mode === "edit" &&
         initialSpecRef.current !== null &&
         typeof initialSpecRef.current.schedule === "object" &&
@@ -412,6 +418,7 @@ export function ScheduledAgentsModalForm({
     selectedRoles,
     selectedHost,
     formSchedule,
+    isSensor,
     onSaved,
   ]);
 
@@ -456,7 +463,7 @@ export function ScheduledAgentsModalForm({
   // a single option is noise. Edit mode always shows the locked chip so
   // the user knows which host owns the scheduled agent they're editing.
   const hostFieldHidden = mode === "create" && flatHosts.length === 1;
-  const scheduleValidationMsg = validateForm(formSchedule);
+  const scheduleValidationMsg = isSensor ? null : validateForm(formSchedule);
   const saveDisabled =
     inFlight ||
     scheduleValidationMsg !== null ||
@@ -683,6 +690,15 @@ export function ScheduledAgentsModalForm({
             Schedule
           </label>
 
+          {isSensor ? (
+            <span
+              className="text-sm text-[#e8e4d8]"
+              data-testid="scheduled-agents-modal-form-schedule-sensor"
+            >
+              Sensor
+            </span>
+          ) : (
+          <>
           {/* Segmented control — kind picker */}
           <div
             className="flex flex-row flex-wrap gap-1 rounded-md p-1"
@@ -879,6 +895,8 @@ export function ScheduledAgentsModalForm({
               inputClassName={SCHEDULE_INPUT_CLASS}
               labelClassName={SCHEDULE_LABEL_CLASS}
             />
+          )}
+          </>
           )}
 
           {scheduleValidationMsg !== null && (

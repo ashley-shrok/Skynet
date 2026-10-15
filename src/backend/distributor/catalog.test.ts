@@ -117,7 +117,9 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // +1 for resume-gap-notice (UserPromptSubmit hook — tells a session how
     // long it has been since its last activity) — 130 → 131.
     // +1 pending-context-drain (hook that delivers queued file-watch notices).
-    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(132);
+    // +4 for sensors (sensor-development SKILL.md + sensor-fire +
+    // sensor-runner + sensor-runner.service) — 132 → 136.
+    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(136);
   });
 
   it("Test 2: every bundled row's bundledPath starts with /app/fleet-substrate/skills/, /app/fleet-substrate/scripts/, or /app/fleet-substrate/user-onboarding/", () => {
@@ -173,7 +175,7 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     const withRestart = FLEET_SUBSTRATE_CATALOG.filter(
       (e: CatalogEntry) => e.restartHook !== null,
     );
-    // Five slugs participate. Rationale for each pairing:
+    // Seven slugs participate. Rationale for each pairing:
     //   agent-supervisor + agent-supervisor-service-unit → both changes
     //     bounce the SAME unit (agent-supervisor.service) because the
     //     binary AND its unit-file both belong to that daemon.
@@ -183,6 +185,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     //     accept staleness).
     //   interactive-messages-gc-timer-unit → self-bounce so an already-
     //     started timer picks up new OnCalendar / Persistent semantics.
+    //   sensor-runner + sensor-runner-service-unit → both bounce
+    //     sensor-runner.service (box-level sensor runner).
     const expected: Record<string, string> = {
       "agent-supervisor": "agent-supervisor.service",
       "agent-supervisor-service-unit": "agent-supervisor.service",
@@ -190,6 +194,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
       "scheduled-agents-scheduler-service-unit":
         "scheduled-agents-scheduler.service",
       "interactive-messages-gc-timer-unit": "interactive-messages-gc.timer",
+      "sensor-runner": "sensor-runner.service",
+      "sensor-runner-service-unit": "sensor-runner.service",
     };
     expect(withRestart.length).toBe(Object.keys(expected).length);
     for (const entry of withRestart) {
@@ -246,7 +252,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // +1 for the desktop skill (SKILL.md) — 105 → 106.
     // +1 for the stt skill (SKILL.md) — 106 → 107.
     // -1 for the role skill, retired 2026-10-09 — 107 → 106.
-    expect(skillRows.length).toBe(106);
+    // +1 for the sensor-development skill (SKILL.md) — 106 → 107.
+    expect(skillRows.length).toBe(107);
     // 18 helper scripts: agent-supervisor + wakeup-scheduler + context-watch +
     // file-watch (4th ambient monitor) + fleet-status-sweep (Phase 92
     // batch sweep) + (usage-reporter / usage-report / claude-usage-collector
@@ -271,15 +278,17 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // fleet-service (shared agent-services file-drop client) +
     // stt (speech-to-text agent-services wrapper) +
     // resume-gap-notice (UserPromptSubmit hook — time-since-last-activity note)
-    // +1 pending-context-drain.
-    expect(scriptRows.length).toBe(20);
+    // +1 pending-context-drain +
+    // sensor-fire + sensor-runner (sensors: fire command + box-level runner)
+    expect(scriptRows.length).toBe(22);
     // 4 user-onboarding files: agent-supervisor.service +
     // interactive-messages-gc.service + interactive-messages-gc.timer (Phase 140)
     // + scheduled-agents-scheduler.service (this ship: move
     // scheduled-agents scheduler from in-process agent-supervisor child
     // to a systemd user unit so byte-changes actually take effect)
-    // + agent-desktop@.service (per-identity desktop template unit).
-    expect(userOnboardingRows.length).toBe(5);
+    // + agent-desktop@.service (per-identity desktop template unit)
+    // + sensor-runner.service (box-level sensor runner).
+    expect(userOnboardingRows.length).toBe(6);
 
     // id has 4 entries (SKILL.md + 3 companions)
     const idRows = skillRows.filter((e) =>
@@ -484,7 +493,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // -1 for the retired role skill — 130 → 129.
     // +1 for resume-gap-notice helper — 129 → 130.
     // +1 pending-context-drain.
-    expect(bundled.length).toBe(131);
+    // +4 for sensors (skill + sensor-fire + sensor-runner + unit) — 131 → 135.
+    expect(bundled.length).toBe(135);
     expect(runtime.length).toBe(1);
 
     // Every bundled row retains bundledPath under /app/fleet-substrate/

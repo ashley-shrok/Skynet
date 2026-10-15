@@ -1166,6 +1166,10 @@ describe("validateScheduledAgentSpec — schedule kinds (delegates to the engine
     expect(validateScheduledAgentSpec(withSchedule({ type: "hourly" }))).toMatch(/unknown schedule type/);
   });
 
+  it("accepts a sensor schedule (no other fields apply)", () => {
+    expect(validateScheduledAgentSpec(withSchedule({ type: "sensor" }))).toBeNull();
+  });
+
   it("still requires `at` on one_shot", () => {
     expect(validateScheduledAgentSpec(withSchedule({ type: "one_shot" }))).toMatch(/at is required/);
   });

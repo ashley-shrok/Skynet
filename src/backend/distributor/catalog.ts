@@ -304,6 +304,15 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     installPath: "~/.claude/skills/stt/SKILL.md",
     restartHook: null,
   },
+  // sensor-development: teaches agents to build a sensor (logic that fires a
+  // wake-up or scheduled task). On-demand-loaded skill file — no restart hook.
+  {
+    slug: "sensor-development-skill",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/sensor-development/SKILL.md",
+    installPath: "~/.claude/skills/sensor-development/SKILL.md",
+    restartHook: null,
+  },
   // desktop: tells the agent when + how to use its per-identity virtual
   // desktop (agent-desktop CLI + desktop-mcp tools). On-demand-loaded skill
   // file — no restart hook.
@@ -413,6 +422,25 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     bundledPath: "/app/fleet-substrate/scripts/stt",
     installPath: "~/.local/bin/stt",
     restartHook: null,
+  },
+  // sensor-fire: the one command a sensor runs to fire its trigger (drops a
+  // fire file the wake-up scheduler delivers). On-demand, no restart hook.
+  {
+    slug: "sensor-fire",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/scripts/sensor-fire",
+    installPath: "~/.local/bin/sensor-fire",
+    restartHook: null,
+  },
+  // sensor-runner: the box-level process behind sensors (services follow
+  // sensor folders, cadence clock, health). Owned by sensor-runner.service;
+  // it reloads the wakeup-scheduler schedule engine itself when that changes.
+  {
+    slug: "sensor-runner",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/scripts/sensor-runner",
+    installPath: "~/.local/bin/sensor-runner",
+    restartHook: "sensor-runner.service",
   },
 
   // agent-desktop: per-identity virtual desktop (Xvnc + openbox) — allocates
@@ -551,6 +579,17 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     bundledPath: "/app/fleet-substrate/user-onboarding/scheduled-agents-scheduler.service",
     installPath: "~/.config/systemd/user/scheduled-agents-scheduler.service",
     restartHook: "scheduled-agents-scheduler.service",
+  },
+
+  // sensor-runner.service — systemd user unit that owns sensor-runner.
+  // run-bootstrap.ts enables + starts it on every host (same pattern as
+  // scheduled-agents-scheduler.service). Restart hook targets self.
+  {
+    slug: "sensor-runner-service-unit",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/user-onboarding/sensor-runner.service",
+    installPath: "~/.config/systemd/user/sensor-runner.service",
+    restartHook: "sensor-runner.service",
   },
 
   // interactive-messages-gc.service — oneshot user service, fired by the

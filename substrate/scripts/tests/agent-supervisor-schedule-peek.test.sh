@@ -20,9 +20,13 @@
 #   T-11  — interval in months, .last a day ago → not due
 #   T-12  — monthly day-of-month, anchored-only, today's slot overdue → due
 #   T-13  — count exhausted (.runs == count) → not due even though overdue
-#   T-14  — state keyed by spec `name` (not file basename), like the scheduler
+#   T-14  — state keyed by the wake-up's folder name, like the scheduler
 #   T-15  — malformed schedule → not due (the scheduler refuses to fire it)
 #   T-16  — spec without `instruction` → not due (the scheduler never loads it)
+#   T-17  — sensor wake-up with a waiting fire → due
+#   T-18  — sensor wake-up with only a half-written fire → not due
+#   T-19  — disabled sensor wake-up with a waiting fire → not due
+#   T-20  — flat legacy wakeups/<slug>.json → not due (folders only)
 #
 # Exits 0 on all-pass; 1 on any failure.
 #
@@ -62,7 +66,7 @@ setup_scratch() {
   IDENTITIES_DIR="$SCRATCH"
   METRICS_LOG="$SCRATCH/metrics.jsonl"
   IDENTITIES=(alice)
-  mkdir -p "$SCRATCH/alice/wakeups/.state"
+  mkdir -p "$SCRATCH/alice/wakeups/w/.state"
 }
 
 teardown_scratch() {
@@ -81,8 +85,9 @@ fi
 # Pin the window so the assertions don't depend on the box's conf.
 FALSE_KILL_MINUTES=5
 
-write_spec() { printf '%s\n' "$1" > "$SCRATCH/alice/wakeups/w.json"; }
-write_state() { printf '%s' "$2" > "$SCRATCH/alice/wakeups/.state/w.$1"; }
+write_spec() { printf '%s\n' "$1" > "$SCRATCH/alice/wakeups/w/wakeup.json"; }
+write_state() { printf '%s' "$2" > "$SCRATCH/alice/wakeups/w/.state/w.$1"; }
+write_fire() { mkdir -p "$SCRATCH/alice/wakeups/w/fires"; printf 'found' > "$SCRATCH/alice/wakeups/w/fires/$1"; }
 
 expect_due() {
   snapshot_schedule_peek
@@ -198,8 +203,9 @@ t13() {
 }
 
 t14() {
-  write_spec "{\"name\":\"renamed\",\"schedule\":{\"type\":\"daily\",\"at\":\"$SLOT_PAST\"},\"instruction\":\"x\"}"
-  printf '%s' "$((NOW - 86400))" > "$SCRATCH/alice/wakeups/.state/renamed.anchored"
+  # State is keyed by the folder name, whatever the spec's display `name`.
+  write_spec "{\"name\":\"Renamed\",\"schedule\":{\"type\":\"daily\",\"at\":\"$SLOT_PAST\"},\"instruction\":\"x\"}"
+  write_state anchored "$((NOW - 86400))"
   expect_due
 }
 
@@ -212,6 +218,32 @@ t15() {
 t16() {
   write_spec "{\"name\":\"w\",\"schedule\":{\"type\":\"daily\",\"at\":\"$SLOT_PAST\"}}"
   write_state anchored "$((NOW - 86400))"
+  expect_not_due
+}
+
+t17() {
+  write_spec '{"name":"w","schedule":{"type":"sensor"},"instruction":"x"}'
+  write_fire 20261014T143012345-a1b2c3d4.fire
+  expect_due
+}
+
+t18() {
+  write_spec '{"name":"w","schedule":{"type":"sensor"},"instruction":"x"}'
+  write_fire 20261014T143012345-a1b2c3d4.fire.tmp
+  expect_not_due
+}
+
+t19() {
+  write_spec '{"name":"w","enabled":false,"schedule":{"type":"sensor"},"instruction":"x"}'
+  write_fire 20261014T143012345-a1b2c3d4.fire
+  expect_not_due
+}
+
+t20() {
+  # A flat legacy spec is not a wake-up any more.
+  printf '%s\n' "{\"name\":\"flat\",\"schedule\":{\"type\":\"daily\",\"at\":\"$SLOT_PAST\"},\"instruction\":\"x\"}" > "$SCRATCH/alice/wakeups/flat.json"
+  mkdir -p "$SCRATCH/alice/wakeups/.state"
+  printf '%s' "$((NOW - 86400))" > "$SCRATCH/alice/wakeups/.state/flat.anchored"
   expect_not_due
 }
 
@@ -228,9 +260,13 @@ run_case "T-10 interval months elapsed → due" t10
 run_case "T-11 interval months not elapsed → not due" t11
 run_case "T-12 monthly anchored-only overdue → due" t12
 run_case "T-13 count exhausted → not due" t13
-run_case "T-14 state keyed by spec name" t14
+run_case "T-14 state keyed by folder name" t14
 run_case "T-15 malformed schedule → not due" t15
 run_case "T-16 no instruction → not due" t16
+run_case "T-17 sensor with a waiting fire → due" t17
+run_case "T-18 sensor with only a half-written fire → not due" t18
+run_case "T-19 disabled sensor with a waiting fire → not due" t19
+run_case "T-20 flat legacy spec ignored → not due" t20
 
 printf '\n===============================\n'
 printf 'PASS: %d  FAIL: %d\n' "$PASS" "$FAIL"

@@ -1,0 +1,568 @@
+#!/usr/bin/env python3
+"""sensor-runner — the machine's one process behind sensors.
+
+A sensor is agent-written logic that fires a wake-up or a scheduled task (whose
+schedule is {"type": "sensor"}) when it decides to. It lives inside its trigger's
+folder:
+
+    ~/fleet/identities/<name>/wakeups/<slug>/sensor/        (a wake-up's sensor)
+    ~/fleet/scheduled-agents/<slug>/sensor/                 (a scheduled task's sensor)
+
+and goes live when its settings are published (`sensor.json.pending` renamed to
+`sensor.json`):
+
+    {"run": "always",  "command": "bun run sensor.mjs"}
+    {"run": "cadence", "cadence": {"type": "interval", "every": "5m"}, "command": "python3 check.py"}
+
+Every pass (default every 30s) this process:
+
+  1. Reconciles services with folders. Each published sensor of an enabled
+     sensor-triggered wake-up/task gets a systemd user unit; a managed unit whose
+     sensor is gone (archived identity, deleted task, unpublished), disabled, or
+     no longer valid is stopped and removed. That one rule is the whole lifecycle:
+     archive moves the folder away, delete removes it, un-archive brings it back.
+  2. Keeps "always" sensors running (systemd restarts crashes, backing off to a
+     minute apart, never giving up) and starts "cadence" sensors when their
+     cadence is due — using the wake-up scheduler's own schedule engine. A
+     cadence run still going when the next is due skips that slot and is marked
+     overrunning; two runs never overlap.
+  3. Writes `<trigger>/.state/sensor-health.json` for the app.
+
+It never looks at what a sensor finds, remembers anything for it, or decides
+anything on its behalf. Firing is the sensor's call (`sensor-fire`); delivering
+a fire is the wake-up scheduler's job.
+
+Per trigger, under `<trigger>/.state/`:
+    sensor.unit            the unit name (e.g. for `systemctl --user restart`)
+    sensor-launch.sh       generated launcher — runs the command, records start/exit
+    sensor-run.start       epoch of the latest run's start
+    sensor-run.end         "<epoch> <exit code>" of the latest finished run
+    sensor.log             the sensor's stdout+stderr (trimmed past 1 MB)
+    sensor-cadence.{anchored,last,runs}   cadence bookkeeping
+    sensor-health.json     health for the app
+
+Usage:  sensor-runner [--once]
+Env (tests / overrides):
+    SENSOR_RUNNER_FLEET            fleet root (default ~/fleet)
+    SENSOR_RUNNER_UNIT_DIR         unit folder (default ~/.config/systemd/user)
+    SENSOR_RUNNER_SYSTEMCTL        systemctl command (default "systemctl --user")
+    SENSOR_RUNNER_WAKEUP_SCHEDULER schedule engine (default ~/.local/bin/wakeup-scheduler)
+    SENSOR_RUNNER_POLL_SEC         pass interval (default 30)
+
+Vendored into the app's substrate and distributed to every host; runs as the
+`sensor-runner.service` user unit. Stdlib only.
+"""
+
+import fcntl
+import glob
+import hashlib
+import importlib.util
+import json
+import os
+import re
+import shlex
+import subprocess
+import sys
+import time
+from datetime import datetime, timezone
+from importlib.machinery import SourceFileLoader
+
+HOME = os.path.expanduser("~")
+FLEET = os.environ.get("SENSOR_RUNNER_FLEET") or os.path.join(HOME, "fleet")
+UNIT_DIR = os.environ.get("SENSOR_RUNNER_UNIT_DIR") or os.path.join(HOME, ".config", "systemd", "user")
+SYSTEMCTL = shlex.split(os.environ.get("SENSOR_RUNNER_SYSTEMCTL") or "systemctl --user")
+ENGINE_PATH = os.environ.get("SENSOR_RUNNER_WAKEUP_SCHEDULER") or os.path.join(HOME, ".local", "bin", "wakeup-scheduler")
+POLL = float(os.environ.get("SENSOR_RUNNER_POLL_SEC", "30"))
+
+MANAGED_MARK = "# Managed by sensor-runner"
+TRIGGER_MARK = "# sensor-trigger: "
+HEALTHY_RUN_SEC = 30          # an always sensor counts as settled once up this long
+RECENT_CRASH_SEC = 120        # a non-zero exit this recent keeps it marked broken
+LOG_MAX = 1024 * 1024
+LOG_KEEP = 256 * 1024
+ERROR_LINES = 20
+# Characters a trigger path may not contain — they can't be written safely into a unit file.
+UNSAFE_PATH = re.compile(r'["\\\n\r%$`]')
+
+
+def log(msg):
+    print("sensor-runner: " + msg, file=sys.stderr, flush=True)
+
+
+def iso(ts):
+    if ts is None:
+        return None
+    return datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def load_engine():
+    loader = SourceFileLoader("wakeup_scheduler_engine", ENGINE_PATH)
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    mod = importlib.util.module_from_spec(spec)
+    loader.exec_module(mod)
+    return mod
+
+
+def engine_mtime():
+    try:
+        return os.path.getmtime(ENGINE_PATH)
+    except OSError:
+        return None
+
+
+def read_json(path):
+    with open(path) as f:
+        return json.load(f)
+
+
+def read_float(path):
+    try:
+        with open(path) as f:
+            return float(f.read().strip())
+    except Exception:
+        return None
+
+
+def write_atomic(path, text):
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        f.write(text)
+    os.rename(tmp, path)
+
+
+def systemctl(*args):
+    try:
+        p = subprocess.run(SYSTEMCTL + list(args), capture_output=True, text=True, timeout=60)
+        return p.returncode, p.stdout, p.stderr
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return 1, "", str(e)
+
+
+# ---- Discovery --------------------------------------------------------------
+
+class Sensor:
+    """One trigger folder that holds a `sensor/` folder."""
+
+    def __init__(self, kind, trigger, label, spec_name):
+        self.kind = kind                    # "w" wake-up, "t" scheduled task
+        self.trigger = trigger
+        self.label = label
+        self.spec_path = os.path.join(trigger, spec_name)
+        self.sensor_dir = os.path.join(trigger, "sensor")
+        self.state_dir = os.path.join(trigger, ".state")
+        self.settings = None
+        self.problem = None                 # why it can't run (health "invalid")
+        self.enabled = False
+        self.unit = unit_name(kind, label, trigger)
+
+    def path(self, name):
+        return os.path.join(self.state_dir, name)
+
+
+def unit_name(kind, label, trigger):
+    clean = re.sub(r"[^a-z0-9]+", "-", label.lower()).strip("-")[:60] or "x"
+    digest = hashlib.sha1(trigger.encode()).hexdigest()[:8]
+    return "sensor-%s-%s-%s.service" % (kind, clean, digest)
+
+
+def discover():
+    out = []
+    for ident in sorted(glob.glob(os.path.join(FLEET, "identities", "*", ""))):
+        ident = ident.rstrip("/")
+        name = os.path.basename(ident)
+        if not os.path.isfile(os.path.join(ident, name + ".md")):
+            continue
+        for trig in sorted(glob.glob(os.path.join(ident, "wakeups", "*", "sensor", ""))):
+            trig = os.path.dirname(trig.rstrip("/"))
+            slug = os.path.basename(trig)
+            if not slug.startswith(".") and os.path.isfile(os.path.join(trig, "wakeup.json")):
+                out.append(Sensor("w", trig, name + "-" + slug, "wakeup.json"))
+    for trig in sorted(glob.glob(os.path.join(FLEET, "scheduled-agents", "*", "sensor", ""))):
+        trig = os.path.dirname(trig.rstrip("/"))
+        slug = os.path.basename(trig)
+        if not slug.startswith(".") and os.path.isfile(os.path.join(trig, "scheduled-agent.json")):
+            out.append(Sensor("t", trig, slug, "scheduled-agent.json"))
+    return out
+
+
+def evaluate(s, eng):
+    """Fill in s.enabled / s.settings / s.problem. Returns True if s should run."""
+    published = os.path.join(s.sensor_dir, "sensor.json")
+    if not os.path.isfile(published):
+        return False                        # still a draft — not live, not reported
+    try:
+        spec = read_json(s.spec_path)
+    except Exception as e:
+        s.problem = "trigger spec unreadable: %s" % e
+        return False
+    sch = spec.get("schedule") if isinstance(spec, dict) else None
+    if not isinstance(sch, dict) or sch.get("type") != eng.SENSOR_TYPE:
+        s.problem = 'the trigger\'s schedule is not {"type": "sensor"}, so its sensor does not run'
+        return False
+    s.enabled = bool(spec.get("enabled", True))
+    try:
+        st = read_json(published)
+    except Exception as e:
+        s.problem = "sensor.json unreadable: %s" % e
+        return False
+    if not isinstance(st, dict):
+        s.problem = "sensor.json must be an object"
+        return False
+    cmd = st.get("command")
+    if not isinstance(cmd, str) or not cmd.strip():
+        s.problem = "sensor.json needs a non-empty `command`"
+        return False
+    run = st.get("run")
+    if run not in ("always", "cadence"):
+        s.problem = 'sensor.json `run` must be "always" or "cadence"'
+        return False
+    if run == "cadence":
+        cad = st.get("cadence")
+        if not isinstance(cad, dict) or cad.get("type") not in eng.REPEATING_TYPES:
+            s.problem = "sensor.json `cadence` must be a repeating schedule (interval, daily, weekly, monthly, yearly)"
+            return False
+        err = eng.schedule_error(cad)
+        if err:
+            s.problem = "sensor.json `cadence`: %s" % err
+            return False
+    if UNSAFE_PATH.search(s.trigger):
+        s.problem = "the trigger's path contains characters a service can't use"
+        return False
+    s.settings = st
+    return s.enabled
+
+
+# ---- Unit + launcher rendering --------------------------------------------
+
+def sensor_path_env():
+    parts = [os.path.join(HOME, ".local", "bin"), os.path.join(HOME, ".bun", "bin"),
+             os.path.join(HOME, ".npm-global", "bin"), os.path.join(HOME, ".cargo", "bin"),
+             "/usr/local/sbin", "/usr/local/bin", "/usr/sbin", "/usr/bin", "/sbin", "/bin"]
+    for p in (os.environ.get("PATH") or "").split(":"):
+        if p and p not in parts:
+            parts.append(p)
+    return ":".join(parts)
+
+
+def render_launcher(s):
+    state = shlex.quote(s.state_dir)
+    return (
+        "#!/bin/sh\n"
+        "# Generated by sensor-runner from sensor/sensor.json — do not edit.\n"
+        "state=%s\n"
+        "now=$(date +%%s)\n"
+        "printf '%%s\\n' \"$now\" > \"$state/sensor-run.start\"\n"
+        "printf '=== sensor run started %%s ===\\n' \"$(date -u +%%Y-%%m-%%dT%%H:%%M:%%SZ)\"\n"
+        "(\n%s\n)\n"
+        "rc=$?\n"
+        "printf '%%s %%s\\n' \"$(date +%%s)\" \"$rc\" > \"$state/sensor-run.end\"\n"
+        "printf '=== sensor run exited %%s ===\\n' \"$rc\"\n"
+        "exit \"$rc\"\n"
+    ) % (state, s.settings["command"])
+
+
+def render_unit(s):
+    always = s.settings["run"] == "always"
+    launcher = s.path("sensor-launch.sh")
+    logf = s.path("sensor.log")
+    lines = [
+        MANAGED_MARK + " — regenerated from the sensor folder; do not edit.",
+        TRIGGER_MARK + s.trigger,
+        "[Unit]",
+        "Description=Sensor %s (%s)" % (s.label, "wake-up" if s.kind == "w" else "scheduled task"),
+        "StartLimitIntervalSec=0",
+        "",
+        "[Service]",
+        "Type=%s" % ("simple" if always else "oneshot"),
+        "WorkingDirectory=%s" % s.sensor_dir,
+        'Environment="SENSOR_DIR=%s" "SENSOR_TRIGGER_DIR=%s" "PATH=%s"'
+        % (s.sensor_dir, s.trigger, sensor_path_env().replace("%", "%%")),
+        'ExecStart=/bin/sh "%s"' % launcher,
+        "StandardOutput=append:%s" % logf,
+        "StandardError=append:%s" % logf,
+    ]
+    if always:
+        lines += ["Restart=always", "RestartSec=2", "RestartSteps=5", "RestartMaxDelaySec=60",
+                  "", "[Install]", "WantedBy=default.target"]
+    return "\n".join(lines) + "\n"
+
+
+def managed_units():
+    """{unit name: trigger path} for every unit file this runner owns."""
+    out = {}
+    for p in glob.glob(os.path.join(UNIT_DIR, "sensor-*.service")):
+        try:
+            with open(p) as f:
+                head = [f.readline(), f.readline()]
+        except OSError:
+            continue
+        if head[0].startswith(MANAGED_MARK) and head[1].startswith(TRIGGER_MARK):
+            out[os.path.basename(p)] = head[1][len(TRIGGER_MARK):].rstrip("\n")
+    return out
+
+
+def unit_is_always(text):
+    return "\nType=simple\n" in text
+
+
+# ---- Health -----------------------------------------------------------------
+
+def tail_lines(path, n):
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            f.seek(max(0, size - 16384))
+            data = f.read().decode("utf-8", errors="replace")
+    except OSError:
+        return None
+    lines = data.splitlines()[-n:]
+    return "\n".join(lines) if lines else None
+
+
+def trim_log(path):
+    try:
+        if os.path.getsize(path) <= LOG_MAX:
+            return
+        with open(path, "rb") as f:
+            f.seek(-LOG_KEEP, 2)
+            keep = f.read()
+        # Truncate in place: the service holds the file open in append mode.
+        with open(path, "r+b") as f:
+            f.truncate(0)
+            f.write(b"=== earlier output trimmed by sensor-runner ===\n" + keep)
+    except OSError:
+        pass
+
+
+def last_end(s):
+    try:
+        with open(s.path("sensor-run.end")) as f:
+            t, rc = f.read().split()
+        return float(t), int(rc)
+    except Exception:
+        return None, None
+
+
+def active_state(unit):
+    rc, out, _ = systemctl("show", "-p", "ActiveState", "--value", unit)
+    return out.strip() if rc == 0 else "unknown"
+
+
+def write_health(s, state, healthy, run=None, overrunning=False, error=None, now=None):
+    now = now or time.time()
+    start = read_float(s.path("sensor-run.start"))
+    end_t, end_rc = last_end(s)
+    h = {
+        "run": run, "unit": s.unit, "state": state, "healthy": healthy,
+        "lastRunAt": iso(start), "lastExitAt": iso(end_t), "lastExitCode": end_rc,
+        "overrunning": overrunning, "error": error, "updatedAt": iso(now),
+    }
+    try:
+        os.makedirs(s.state_dir, exist_ok=True)
+        write_atomic(s.path("sensor-health.json"), json.dumps(h, indent=2) + "\n")
+    except OSError as e:
+        log("health write failed trigger=%s err=%s" % (s.trigger, e))
+
+
+def health_of_running(s, overrunning, now):
+    """(state, healthy) for a sensor whose unit exists."""
+    st = active_state(s.unit)
+    start = read_float(s.path("sensor-run.start"))
+    end_t, end_rc = last_end(s)
+    recent_crash = end_rc not in (None, 0) and end_t is not None and now - end_t < RECENT_CRASH_SEC
+    if s.settings["run"] == "always":
+        if st == "active":
+            if recent_crash:
+                return "restarting", False
+            settled = start is not None and (end_t is None or end_t < start) and now - start >= HEALTHY_RUN_SEC
+            return ("running", True) if settled else ("starting", True)
+        if st == "activating":              # waiting out a restart delay after a crash
+            return "restarting", False
+        return "failed", False
+    if st in ("active", "activating"):
+        return ("overrunning", False) if overrunning else ("running", True)
+    if end_rc is None:
+        return "idle", True                 # waiting for its first run
+    return ("idle", True) if end_rc == 0 else ("failed", False)
+
+
+# ---- The pass ---------------------------------------------------------------
+
+class Runner:
+    def __init__(self, eng):
+        self.eng = eng
+        self.engine_mtime = engine_mtime()
+        self.box_zone = eng.local_zone()
+        self.overrunning = set()            # triggers whose last due slot found a run still going
+        self.warned = set()
+
+    def cadence_tick(self, s, now):
+        cad = s.settings["cadence"]
+        p_last, p_anch, p_runs = (s.path("sensor-cadence." + x) for x in ("last", "anchored", "runs"))
+        last, anchored = read_float(p_last), read_float(p_anch)
+        try:
+            runs = int(read_float(p_runs) or 0)
+        except Exception:
+            runs = 0
+        action = self.eng.decide(cad, last, anchored, runs, now, self.box_zone)
+        if action == "anchor":
+            write_atomic(p_anch, str(now))
+            log("cadence anchored unit=%s trigger=%s" % (s.unit, s.trigger))
+            return
+        if action != "fire":
+            if s.trigger in self.overrunning and active_state(s.unit) not in ("active", "activating"):
+                self.overrunning.discard(s.trigger)
+            return
+        write_atomic(p_last, str(now))      # this slot is used either way: run it or skip it
+        if active_state(s.unit) in ("active", "activating"):
+            self.overrunning.add(s.trigger)
+            log("cadence slot skipped — previous run still going unit=%s trigger=%s" % (s.unit, s.trigger))
+            return
+        self.overrunning.discard(s.trigger)
+        rc, _, err = systemctl("start", "--no-block", s.unit)
+        write_atomic(p_runs, str(runs + 1))
+        log("cadence run started unit=%s trigger=%s rc=%d%s"
+            % (s.unit, s.trigger, rc, (" err=" + err.strip()) if rc else ""))
+
+    def refresh_engine(self):
+        """Pick up a freshly distributed schedule engine without a restart."""
+        m = engine_mtime()
+        if m is not None and m != self.engine_mtime:
+            try:
+                self.eng = load_engine()
+                self.engine_mtime = m
+                log("reloaded schedule engine from %s" % ENGINE_PATH)
+            except Exception as e:
+                log("schedule engine reload failed %s: %s — keeping the loaded one" % (type(e).__name__, e))
+
+    def run_pass(self):
+        self.refresh_engine()
+        now = time.time()
+        sensors = discover()
+        wanted = {}
+        for s in sensors:
+            try:
+                if evaluate(s, self.eng):
+                    wanted[s.unit] = s
+            except Exception as e:
+                s.problem = "could not evaluate: %s: %s" % (type(e).__name__, e)
+
+        existing = managed_units()
+        changed = []
+        reload_needed = False
+
+        # Remove services whose sensor should no longer run.
+        for unit, trigger in existing.items():
+            if unit in wanted:
+                continue
+            systemctl("disable", "--now", unit)
+            try:
+                os.unlink(os.path.join(UNIT_DIR, unit))
+            except OSError:
+                pass
+            reload_needed = True
+            self.overrunning.discard(trigger)
+            log("removed unit=%s trigger=%s (sensor gone, unpublished, disabled or invalid)" % (unit, trigger))
+
+        # Create or refresh services for every sensor that should run.
+        os.makedirs(UNIT_DIR, exist_ok=True)
+        for unit, s in wanted.items():
+            os.makedirs(s.state_dir, exist_ok=True)
+            launcher = render_launcher(s)
+            text = render_unit(s)
+            upath = os.path.join(UNIT_DIR, unit)
+            try:
+                old_text = open(upath).read()
+            except OSError:
+                old_text = None
+            try:
+                old_launcher = open(s.path("sensor-launch.sh")).read()
+            except OSError:
+                old_launcher = None
+            if old_launcher != launcher:
+                write_atomic(s.path("sensor-launch.sh"), launcher)
+            if old_text != text:
+                if old_text is not None and unit_is_always(old_text) and not unit_is_always(text):
+                    systemctl("disable", "--now", unit)
+                write_atomic(upath, text)
+                reload_needed = True
+            write_atomic(s.path("sensor.unit"), unit + "\n")
+            if old_text is None:
+                changed.append((s, "created"))
+            elif old_text != text or old_launcher != launcher:
+                changed.append((s, "changed"))
+
+        if reload_needed:
+            rc, _, err = systemctl("daemon-reload")
+            if rc:
+                log("daemon-reload failed rc=%d err=%s" % (rc, err.strip()))
+
+        changed_units = {s.unit for s, _ in changed}
+        for s, what in changed:
+            log("%s unit=%s run=%s trigger=%s" % (what, s.unit, s.settings["run"], s.trigger))
+            if s.settings["run"] == "always":
+                systemctl("enable", s.unit)
+                systemctl("restart", s.unit)
+
+        for unit, s in wanted.items():
+            trim_log(s.path("sensor.log"))
+            try:
+                if s.settings["run"] == "always":
+                    # Self-heal: an always sensor that isn't up (reboot, manual stop) is started.
+                    if unit not in changed_units and active_state(unit) in ("inactive", "failed"):
+                        log("starting stopped always sensor unit=%s trigger=%s" % (unit, s.trigger))
+                        systemctl("start", "--no-block", unit)
+                else:
+                    self.cadence_tick(s, now)
+                state, healthy = health_of_running(s, s.trigger in self.overrunning, now)
+                error = None if healthy else tail_lines(s.path("sensor.log"), ERROR_LINES)
+                write_health(s, state, healthy, run=s.settings["run"],
+                             overrunning=s.trigger in self.overrunning, error=error, now=now)
+            except Exception as e:
+                key = (unit, "tick")
+                if key not in self.warned:
+                    self.warned.add(key)
+                    log("pass error unit=%s %s: %s" % (unit, type(e).__name__, e))
+
+        # Sensors that exist but don't run still get an honest health record.
+        for s in sensors:
+            if s.unit in wanted or not os.path.isfile(os.path.join(s.sensor_dir, "sensor.json")):
+                continue
+            run = s.settings["run"] if s.settings else None
+            if s.problem:
+                write_health(s, "invalid", False, run=run, error=s.problem, now=now)
+            else:
+                write_health(s, "stopped", True, run=run, now=now)
+
+
+def single_instance():
+    lock_path = os.path.join(FLEET, ".sensor-runner.lock")
+    os.makedirs(FLEET, exist_ok=True)
+    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        log("another sensor-runner holds %s — exiting" % lock_path)
+        sys.exit(0)
+    return fd
+
+
+def main(argv):
+    once = "--once" in argv
+    _lock = single_instance()
+    eng = load_engine()
+    runner = Runner(eng)
+    log("started fleet=%s units=%s poll=%ss" % (FLEET, UNIT_DIR, POLL))
+    while True:
+        try:
+            runner.run_pass()
+        except Exception as e:
+            log("pass failed %s: %s" % (type(e).__name__, e))
+        if once:
+            return 0
+        time.sleep(POLL)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

@@ -288,9 +288,9 @@ test_SA_G3_per_identity_mode_unchanged() {
   out_log=$(make_tmpdir)/out.log
   err_log=$(make_tmpdir)/err.log
 
-  # Build per-identity wakeups dir with a flat legacy-format spec
-  mkdir -p "$ident_dir/wakeups"
-  cat > "$ident_dir/wakeups/legacy.json" <<'JSON'
+  # Build per-identity wakeups dir with a folder-layout spec
+  mkdir -p "$ident_dir/wakeups/legacy"
+  cat > "$ident_dir/wakeups/legacy/wakeup.json" <<'JSON'
 {
   "name": "legacy",
   "enabled": true,
@@ -315,9 +315,9 @@ JSON
   # Per-identity mode: first-sight should write .anchored (NOT .last — the
   # sentinel split 2026-10-05 reserves .last for actual fires so the Skynet
   # scheduled-agents modal can show honest "Last run" times).
-  local anchored_file="$ident_dir/wakeups/.state/legacy.anchored"
+  local anchored_file="$ident_dir/wakeups/legacy/.state/legacy.anchored"
   assert_file_exists "$anchored_file" "SA-G3: .anchored sentinel should exist after first-sight"
-  local last_file="$ident_dir/wakeups/.state/legacy.last"
+  local last_file="$ident_dir/wakeups/legacy/.state/legacy.last"
   if [ -f "$last_file" ]; then
     fail "SA-G3: .last must NOT be written on first-sight anchor (reserved for real fires)"
   fi
@@ -617,17 +617,20 @@ test_SA_G9_malformed_schedules_refused() {
   home_dir=$(make_tmpdir)
   out_log=$(make_tmpdir)/out.log
   mkdir -p "$ident_dir/wakeups"
-  cat > "$ident_dir/wakeups/bad-yearly.json" <<'JSON'
+  mkdir -p "$ident_dir/wakeups/bad-yearly"
+  cat > "$ident_dir/wakeups/bad-yearly/wakeup.json" <<'JSON'
 {"name": "bad-yearly", "enabled": true,
  "schedule": {"type": "yearly", "date": "02-29", "at": "09:00"},
  "instruction": "never"}
 JSON
-  cat > "$ident_dir/wakeups/bad-months.json" <<'JSON'
+  mkdir -p "$ident_dir/wakeups/bad-months"
+  cat > "$ident_dir/wakeups/bad-months/wakeup.json" <<'JSON'
 {"name": "bad-months", "enabled": true,
  "schedule": {"type": "interval", "every": "0mo"},
  "instruction": "never"}
 JSON
-  cat > "$ident_dir/wakeups/bad-monthly.json" <<'JSON'
+  mkdir -p "$ident_dir/wakeups/bad-monthly"
+  cat > "$ident_dir/wakeups/bad-monthly/wakeup.json" <<'JSON'
 {"name": "bad-monthly", "enabled": true,
  "schedule": {"type": "monthly", "day": 1, "at": "09:00", "every": 3},
  "instruction": "never"}
@@ -641,7 +644,7 @@ JSON
     || fail "SA-G9: expected loud every-needs-start alert, got: $(cat "$out_log")"
   local k
   for k in bad-yearly bad-months bad-monthly; do
-    assert_file_absent "$ident_dir/wakeups/.state/$k.anchored" "SA-G9 $k must not anchor"
+    assert_file_absent "$ident_dir/wakeups/$k/.state/$k.anchored" "SA-G9 $k must not anchor"
   done
 }
 
@@ -653,8 +656,8 @@ test_SA_G10_count_stops_firing() {
   ident_dir=$(make_tmpdir)
   home_dir=$(make_tmpdir)
   out_log=$(make_tmpdir)/out.log
-  mkdir -p "$ident_dir/wakeups"
-  cat > "$ident_dir/wakeups/twice.json" <<'JSON'
+  mkdir -p "$ident_dir/wakeups/twice"
+  cat > "$ident_dir/wakeups/twice/wakeup.json" <<'JSON'
 {"name": "twice", "enabled": true,
  "schedule": {"type": "interval", "every": "1s", "count": 2},
  "instruction": "tick"}
@@ -664,7 +667,7 @@ JSON
   fires=$(grep -c "⏰ \[scheduled: twice" "$out_log")
   [ "$fires" -eq 2 ] || fail "SA-G10: expected exactly 2 fires, got $fires: $(cat "$out_log")"
   local runs
-  runs=$(cat "$ident_dir/wakeups/.state/twice.runs" 2>/dev/null)
+  runs=$(cat "$ident_dir/wakeups/twice/.state/twice.runs" 2>/dev/null)
   [ "$runs" = "2" ] || fail "SA-G10: expected .runs=2, got '$runs'"
 }
 
@@ -717,6 +720,121 @@ printf '=== wakeup-scheduler.py scheduled-agents-mode test driver ===\n'
 printf 'script: %s\n' "$PY_SCRIPT"
 printf '\n'
 
+# ============================================================
+# SA-G14: per-identity wake-ups are folders — a flat <slug>.json is ignored,
+# and a fired one_shot removes its wakeup.json (folder swept a day later).
+# ============================================================
+test_SA_G14_folder_layout_and_one_shot() {
+  local ident_dir home_dir out_log
+  ident_dir=$(make_tmpdir)
+  home_dir=$(make_tmpdir)
+  out_log=$(make_tmpdir)/out.log
+  mkdir -p "$ident_dir/wakeups/once"
+  cat > "$ident_dir/wakeups/flat.json" <<'JSON'
+{"name": "flat", "enabled": true, "schedule": {"type": "one_shot", "at": "2020-01-01T00:00:00Z"}, "instruction": "flat"}
+JSON
+  cat > "$ident_dir/wakeups/once/wakeup.json" <<'JSON'
+{"name": "Once", "enabled": true, "schedule": {"type": "one_shot", "at": "2020-01-01T00:00:00Z"}, "instruction": "go now"}
+JSON
+  HOME="$home_dir" timeout 3 python3 "$PY_SCRIPT" "$ident_dir" >"$out_log" 2>/dev/null || true
+  grep -q "⏰ \[scheduled: once @ .*\] go now" "$out_log" \
+    || fail "SA-G14: expected one_shot fire keyed by folder name, got: $(cat "$out_log")"
+  grep -q "flat" "$out_log" && fail "SA-G14: flat legacy spec must be ignored, got: $(cat "$out_log")"
+  assert_file_absent "$ident_dir/wakeups/once/wakeup.json" "SA-G14: fired one_shot spec removed"
+  assert_file_exists "$ident_dir/wakeups/once/.state/once.fired" "SA-G14: .fired sentinel in the wake-up's own state"
+  # Age the sentinel past the keep window: the leftover folder is swept.
+  touch -d '2 days ago' "$ident_dir/wakeups/once/.state/once.fired"
+  HOME="$home_dir" timeout 2 python3 "$PY_SCRIPT" "$ident_dir" >/dev/null 2>&1 || true
+  [ -d "$ident_dir/wakeups/once" ] && fail "SA-G14: fired one_shot folder should be swept after a day"
+  [ -d "$ident_dir/wakeups/.state" ] || fail "SA-G14: scheduler's own .state must survive the sweep"
+}
+
+# ============================================================
+# SA-G15: sensor wake-up — every waiting fire delivered oldest-first, inline
+# when short, pointed at when long or multi-line, moved into delivered/, .last
+# written; a disabled sensor wake-up leaves its fires waiting.
+# ============================================================
+test_SA_G15_sensor_wakeup_delivery() {
+  local ident_dir home_dir out_log w
+  ident_dir=$(make_tmpdir)
+  home_dir=$(make_tmpdir)
+  out_log=$(make_tmpdir)/out.log
+  w="$ident_dir/wakeups/deliveries"
+  mkdir -p "$w/fires" "$ident_dir/wakeups/paused/fires"
+  cat > "$w/wakeup.json" <<'JSON'
+{"name": "deliveries", "enabled": true, "schedule": {"type": "sensor"}, "instruction": "Judge these"}
+JSON
+  cat > "$ident_dir/wakeups/paused/wakeup.json" <<'JSON'
+{"name": "paused", "enabled": false, "schedule": {"type": "sensor"}, "instruction": "x"}
+JSON
+  printf 'two candidates' > "$w/fires/20261014T143012345-a1b2c3d4.fire"
+  printf 'line one\nline two\n' > "$w/fires/20261014T143012999-00000000.fire"
+  : > "$w/fires/20261014T150000000-ffffffff.fire"
+  printf 'ignored' > "$w/fires/not-a-fire.fire.tmp"
+  printf 'waits' > "$ident_dir/wakeups/paused/fires/20261014T143012345-a1b2c3d4.fire"
+  HOME="$home_dir" timeout 3 python3 "$PY_SCRIPT" "$ident_dir" >"$out_log" 2>/dev/null || true
+  local lines
+  lines=$(grep -c "📡 \[sensor: deliveries" "$out_log")
+  assert_eq "3" "$lines" "SA-G15: one event per fire"
+  sed -n 1p "$out_log" | grep -q "📡 \[sensor: deliveries @ 2026-10-14T14:30:12.345Z\] Judge these — findings: two candidates$" \
+    || fail "SA-G15: first (oldest) fire inline with its fire time, got: $(sed -n 1p "$out_log")"
+  sed -n 2p "$out_log" | grep -q "findings (18 chars) at $w/fires/delivered/20261014T143012999-00000000.fire — Read it" \
+    || fail "SA-G15: multi-line findings pointed at the delivered file, got: $(sed -n 2p "$out_log")"
+  sed -n 3p "$out_log" | grep -q "Judge these — no findings$" \
+    || fail "SA-G15: empty findings say so, got: $(sed -n 3p "$out_log")"
+  [ -z "$(ls "$w/fires" | grep '\.fire$')" ] || fail "SA-G15: delivered fires must leave fires/: $(ls "$w/fires")"
+  [ "$(ls "$w/fires/delivered" | wc -l)" = "3" ] || fail "SA-G15: three fires in delivered/"
+  assert_file_exists "$w/fires/not-a-fire.fire.tmp" "SA-G15: odd-shaped files untouched"
+  assert_file_exists "$w/.state/deliveries.last" "SA-G15: last fired recorded"
+  assert_eq "3" "$(cat "$w/.state/deliveries.runs" 2>/dev/null)" "SA-G15: runs counted"
+  assert_file_exists "$ident_dir/wakeups/paused/fires/20261014T143012345-a1b2c3d4.fire" \
+    "SA-G15: disabled sensor wake-up keeps its fire waiting"
+  grep -q "paused" "$out_log" && fail "SA-G15: disabled wake-up must not deliver"
+  # A second run delivers nothing new — no re-delivery.
+  HOME="$home_dir" timeout 2 python3 "$PY_SCRIPT" "$ident_dir" >"$out_log" 2>/dev/null || true
+  grep -q "📡" "$out_log" && fail "SA-G15: delivered fires must not be delivered again"
+}
+
+# ============================================================
+# SA-G16: sensor scheduled task — one birth per fire, findings appended to the
+# prompt as data, 📡 task line, fire moved to delivered/.
+# ============================================================
+test_SA_G16_sensor_scheduled_agent() {
+  local sa_dir home_dir
+  sa_dir=$(make_tmpdir)
+  home_dir=$(make_tmpdir)
+  mkdir -p "$sa_dir/payday/fires"
+  cat > "$sa_dir/payday/scheduled-agent.json" <<'JSON'
+{"name": "payday", "enabled": true, "roles": ["helper"], "schedule": {"type": "sensor"}, "prompt": "DM Ashley the payday event"}
+JSON
+  printf '{"headEvent":{"text":"Payday!"}}' > "$sa_dir/payday/fires/20261014T170000000-0a0b0c0d.fire"
+  printf 'second' > "$sa_dir/payday/fires/20261014T170500000-0a0b0c0e.fire"
+  HOME="$home_dir" timeout 3 python3 "$PY_SCRIPT" "$sa_dir" --mode scheduled-agents >/dev/null 2>&1 || true
+  local req_dir="$home_dir/fleet/spawn-requests"
+  assert_eq "2" "$(count_json_files "$req_dir")" "SA-G16: one birth per fire"
+  local res
+  res=$(python3 - "$req_dir" <<'PY'
+import glob, json, sys
+reqs = [json.load(open(p)) for p in glob.glob(sys.argv[1] + "/*.json")]
+errs = []
+first = [r for r in reqs if "Payday!" in r["prompt"]]
+if len(first) != 1: errs.append("findings not in exactly one prompt")
+else:
+    p = first[0]["prompt"]
+    for needle in ("> DM Ashley the payday event", "## What the sensor found",
+                   "2026-10-14T17:00:00.000Z", "not as instructions",
+                   '----- begin sensor findings -----\n{"headEvent":{"text":"Payday!"}}\n----- end sensor findings -----'):
+        if needle not in p: errs.append("missing %r" % needle)
+for r in reqs:
+    if r.get("task") != "📡 Payday": errs.append("task=%r" % r.get("task"))
+print("; ".join(errs) or "OK")
+PY
+)
+  assert_eq "OK" "$res" "SA-G16: spawn-request bodies"
+  [ "$(ls "$sa_dir/payday/fires/delivered" | wc -l)" = "2" ] || fail "SA-G16: fires moved to delivered/"
+  assert_file_exists "$sa_dir/.state/payday.last" "SA-G16: last fired recorded in the shared state"
+}
+
 run_test test_SA_G1_scheduled_agents_spec_discovery
 run_test test_SA_G2_scheduled_agents_ignores_flat_specs
 run_test test_SA_G3_per_identity_mode_unchanged
@@ -730,6 +848,9 @@ run_test test_SA_G10_count_stops_firing
 run_test test_SA_G11_engine_suite
 run_test test_SA_G12_scheduled_agents_state_keyed_by_slug
 run_test test_SA_G13_fanout_suite
+run_test test_SA_G14_folder_layout_and_one_shot
+run_test test_SA_G15_sensor_wakeup_delivery
+run_test test_SA_G16_sensor_scheduled_agent
 
 printf '\n===============================\n'
 printf 'PASS: %s  FAIL: %s\n' "$PASS" "$FAIL"

@@ -55,6 +55,7 @@ def show(ts, zi=NY):
 # ---------------------------------------------------------------------------
 
 VALID = [
+    {"type": "sensor"},
     {"type": "interval", "every": "30m"},
     {"type": "interval", "every": "45s"},
     {"type": "interval", "every": "2h"},

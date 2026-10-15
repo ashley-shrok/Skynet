@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { computeNextFireAt, parseDurationSecs } from "./schedule-next-fire";
+import { computeNextFireAt, nextFire, parseDurationSecs, scheduleError } from "./schedule-next-fire";
 
 describe("parseDurationSecs", () => {
   it("parses unit-suffixed strings", () => {
@@ -209,5 +209,20 @@ describe("computeNextFireAt — interval in months", () => {
 
   it("returns null for a zero or malformed month count", () => {
     expect(computeNextFireAt({ type: "interval", every: "0mo" }, null, at(2027, 1, 1))).toBeNull();
+  });
+});
+
+describe("sensor schedule kind", () => {
+  const now = 1_700_000_000;
+
+  it("is valid with no other fields, and extra fields are ignored", () => {
+    expect(scheduleError({ type: "sensor" })).toBeNull();
+    expect(scheduleError({ type: "sensor", every: "junk", timezone: "Not/AZone" })).toBeNull();
+  });
+
+  it("never has a next fire", () => {
+    expect(computeNextFireAt({ type: "sensor" }, null, now)).toBeNull();
+    expect(computeNextFireAt({ type: "sensor" }, now - 60, now)).toBeNull();
+    expect(nextFire({ type: "sensor" }, now)).toBeNull();
   });
 });

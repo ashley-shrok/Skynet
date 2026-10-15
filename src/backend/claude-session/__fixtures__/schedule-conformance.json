@@ -110,808 +110,642 @@
    }
   },
   {
-   "after": 1806135478.0,
-   "boxZone": "Asia/Tokyo",
+   "after": 1791887627.0,
+   "boxZone": "Asia/Kolkata",
    "expected": [
-    1806140878.0,
-    1806146278.0,
-    1806151678.0,
-    1806157078.0
+    1798803360.0,
+    1830339360.0,
+    1861961760.0,
+    1893497760.0
    ],
    "schedule": {
-    "every": "90m",
-    "timezone": "Europe/London",
-    "type": "interval"
-   }
-  },
-  {
-   "after": 1826610969.746,
-   "boxZone": "America/New_York",
-   "expected": [
-    1830317400.0,
-    1830379500.0,
-    1861939800.0,
-    1862001900.0
-   ],
-   "schedule": {
-    "at": [
-     "00:30",
-     "17:45"
-    ],
+    "at": "17:06",
     "date": "01-01",
+    "timezone": "Asia/Kolkata",
     "type": "yearly"
    }
   },
   {
-   "after": 1830022914.0,
-   "boxZone": "Asia/Tokyo",
+   "after": 1821962944.0,
+   "boxZone": "Pacific/Chatham",
    "expected": [
-    1848794880.0,
-    1880330880.0,
-    1911866880.0,
-    1943402880.0
-   ],
-   "schedule": {
-    "at": "11:08",
-    "date": "08-02",
-    "type": "yearly"
-   }
-  },
-  {
-   "after": 1824188575.0,
-   "boxZone": "Asia/Tokyo",
-   "expected": [
-    null
+    1830332700.0,
+    1861955100.0,
+    1893491100.0,
+    1925027100.0
    ],
    "schedule": {
     "at": "23:30",
-    "days": [
-     "wed",
-     "fri",
-     "sun"
-    ],
-    "nth": 1,
-    "type": "monthly",
-    "until": "2027-10-20T00:00:00",
-    "weekday": "wed"
-   }
-  },
-  {
-   "after": 1806678381.0,
-   "boxZone": "Pacific/Auckland",
-   "expected": [
-    1807016400.0,
-    1807056000.0,
-    1807092300.0,
-    1807098360.0
-   ],
-   "schedule": {
-    "at": [
-     "01:00",
-     "12:00",
-     "22:05",
-     "23:46"
-    ],
-    "day": "wed",
-    "every": 3,
-    "start": "2026-03-25T07:05:00",
-    "type": "weekly",
-    "until": "2027-05-12T07:05:00"
-   }
-  },
-  {
-   "after": 1812132555.0,
-   "boxZone": "Europe/Berlin",
-   "expected": [
-    1812715200.0,
-    1815307200.0,
-    1817985600.0,
-    1823252400.0
-   ],
-   "schedule": {
-    "days": [
-     "mon",
-     "tue",
-     "wed",
-     "thu",
-     "fri",
-     "sat"
-    ],
-    "every": "1mo",
-    "start": "2026-03-12",
-    "timezone": "Pacific/Auckland",
-    "type": "interval"
-   }
-  },
-  {
-   "after": 1819508532.0,
-   "boxZone": "America/New_York",
-   "expected": [
-    1819509300.0,
-    1819510200.0,
-    1819511100.0,
-    1819512000.0
-   ],
-   "schedule": {
-    "every": "15m",
-    "start": "2026-02-04T17:15:00",
-    "timezone": "America/St_Johns",
-    "type": "interval"
-   }
-  },
-  {
-   "after": 1843845074.0,
-   "boxZone": "America/St_Johns",
-   "expected": [
-    1843904400.0,
-    1843994400.0,
-    1844084400.0,
-    1844174400.0
-   ],
-   "schedule": {
-    "every": "25h",
-    "start": "2026-04-24T10:10:00",
-    "type": "interval"
-   }
-  },
-  {
-   "after": 1842708465.0,
-   "boxZone": "Pacific/Auckland",
-   "expected": [
-    1843103040.0,
-    1851051840.0,
-    1859000640.0,
-    1866949440.0
-   ],
-   "schedule": {
-    "at": "05:04",
-    "day": 28,
-    "days": [
-     "mon",
-     "tue",
-     "wed",
-     "thu",
-     "sat",
-     "sun"
-    ],
-    "every": 3,
-    "start": "2027-08-15",
-    "timezone": "UTC",
-    "type": "monthly"
-   }
-  },
-  {
-   "after": 1822570209.0,
-   "boxZone": "Australia/Sydney",
-   "expected": [
-    1834178820.0,
-    1837202820.0,
-    1839623820.0,
-    1842043020.0
-   ],
-   "schedule": {
-    "at": "09:07",
-    "days": [
-     "tue",
-     "wed",
-     "fri",
-     "sat",
-     "sun"
-    ],
-    "nth": 3,
-    "start": "2028-01-22T11:15:00",
-    "timezone": "Australia/Lord_Howe",
-    "type": "monthly",
-    "weekday": "tue"
-   }
-  },
-  {
-   "after": 1821955213.0,
-   "boxZone": "Pacific/Chatham",
-   "expected": [
-    1824923700.0,
-    1856546100.0,
-    1888082100.0,
-    1919618100.0
-   ],
-   "schedule": {
-    "at": "09:00",
-    "date": "10-31",
-    "start": "2027-08-17T02:50:00",
+    "date": "01-01",
+    "start": "2027-06-03T06:20:00",
     "type": "yearly"
    }
   },
   {
-   "after": 1846983042.0,
-   "boxZone": "UTC",
+   "after": 1783032590.0,
+   "boxZone": "Pacific/Chatham",
    "expected": [
-    1847018460.0,
-    1847023860.0,
-    1847029260.0,
-    1847034660.0
-   ],
-   "schedule": {
-    "every": 90,
-    "type": "interval",
-    "window": {
-     "from": "12:41",
-     "to": "00:00"
-    }
-   }
-  },
-  {
-   "after": 1815671674.0,
-   "boxZone": "Asia/Kolkata",
-   "expected": [
-    1815671700.0,
-    1815672600.0,
-    1815673500.0,
-    1815674400.0
-   ],
-   "schedule": {
-    "every": "15m",
-    "start": "2026-05-14",
-    "type": "interval"
-   }
-  },
-  {
-   "after": 1821885899.0,
-   "boxZone": "UTC",
-   "expected": [
-    1822561200.0,
-    1823166000.0,
-    1823770800.0,
-    1824375600.0
+    null
    ],
    "schedule": {
     "days": [
-     "mon",
      "sat"
     ],
-    "every": "7d",
-    "timezone": "Pacific/Auckland",
+    "every": "2d",
+    "start": "2026-11-06",
+    "timezone": "Asia/Tokyo",
     "type": "interval",
     "window": {
-     "from": "12:00",
-     "to": "00:00"
+     "from": "03:30",
+     "to": "23:59"
     }
    }
   },
   {
-   "after": 1794402041.0,
-   "boxZone": "UTC",
+   "after": 1841438686.417,
+   "boxZone": "Asia/Tokyo",
    "expected": [
-    1826244000.0,
-    1831514400.0,
-    1836698400.0,
-    1841968800.0
+    1888130700.0,
+    1888139460.0,
+    1888143720.0,
+    1888153140.0
    ],
    "schedule": {
-    "at": "02:00",
-    "day": 15,
+    "at": [
+     "17:45",
+     "20:11",
+     "21:22",
+     "23:59"
+    ],
+    "date": "10-31",
     "days": [
      "mon",
      "wed",
+     "thu",
      "fri",
      "sat",
      "sun"
     ],
-    "every": 2,
-    "start": "2027-09-21T02:10:00",
-    "type": "monthly"
+    "type": "yearly"
    }
   },
   {
-   "after": 1806726233.0,
-   "boxZone": "Pacific/Auckland",
+   "after": 1846666059.241,
+   "boxZone": "UTC",
+   "expected": [
+    1848930420.0,
+    1848959940.0,
+    1880466420.0,
+    1880495940.0
+   ],
+   "schedule": {
+    "at": [
+     "15:47",
+     "23:59"
+    ],
+    "date": "08-03",
+    "type": "yearly"
+   }
+  },
+  {
+   "after": 1806672289.0,
+   "boxZone": "Pacific/Chatham",
+   "expected": [
+    1806745500.0,
+    1806835500.0,
+    1806921900.0,
+    1807008300.0
+   ],
+   "schedule": {
+    "at": "23:30",
+    "start": "2025-12-26T19:30:00",
+    "type": "daily"
+   }
+  },
+  {
+   "after": 1828451815.0,
+   "boxZone": "UTC",
+   "expected": [
+    1828454515.0,
+    1828457215.0,
+    1828459915.0,
+    1828462615.0
+   ],
+   "schedule": {
+    "every": "45m",
+    "type": "interval"
+   }
+  },
+  {
+   "after": 1809850257.0,
+   "boxZone": "UTC",
+   "expected": [
+    1811604600.0,
+    1811606400.0,
+    1811610000.0,
+    1811641920.0
+   ],
+   "schedule": {
+    "at": [
+     "00:30",
+     "01:00",
+     "02:00",
+     "10:52"
+    ],
+    "days": [
+     "sun"
+    ],
+    "start": "2027-05-23T21:50:00",
+    "timezone": "Asia/Tokyo",
+    "type": "daily"
+   }
+  },
+  {
+   "after": 1806767664.0,
+   "boxZone": "Australia/Lord_Howe",
    "expected": [
     null
    ],
    "schedule": {
     "at": [
-     "02:00",
-     "09:00",
-     "12:06"
-    ],
-    "day": "fri",
-    "days": [
-     "thu",
-     "sat"
-    ],
-    "every": 2,
-    "start": "2026-01-04T20:05:00",
-    "type": "weekly"
-   }
-  },
-  {
-   "after": 1820161185.0,
-   "boxZone": "America/Santiago",
-   "expected": [
-    1866943800.0,
-    1866947400.0,
-    1866972060.0,
-    1930015800.0
-   ],
-   "schedule": {
-    "at": [
-     "00:30",
-     "01:30",
-     "08:21"
+     "00:00",
+     "02:30",
+     "03:30"
     ],
     "date": "02-28",
     "days": [
      "tue",
-     "wed",
-     "fri",
-     "sat",
-     "sun"
+     "wed"
     ],
-    "type": "yearly"
+    "type": "yearly",
+    "until": "2027-03-09T00:00:00"
    }
   },
   {
-   "after": 1822473994.0,
-   "boxZone": "Asia/Tokyo",
+   "after": 1790575619.0,
+   "boxZone": "America/St_Johns",
    "expected": [
-    1843371900.0,
-    1874907900.0,
-    1906443900.0,
-    1937979900.0
+    1790578319.0,
+    1790581019.0,
+    1790583719.0,
+    1790586419.0
    ],
    "schedule": {
-    "at": "17:45",
-    "day": 31,
-    "every": 12,
-    "start": "2026-05-22T04:45:00",
-    "timezone": "Australia/Sydney",
-    "type": "monthly"
-   }
-  },
-  {
-   "after": 1787224359.0,
-   "boxZone": "America/Santiago",
-   "expected": [
-    1787283000.0,
-    1787369400.0,
-    1787455800.0,
-    1787542200.0
-   ],
-   "schedule": {
-    "at": "23:30",
-    "type": "daily"
-   }
-  },
-  {
-   "after": 1842026671.621,
-   "boxZone": "Europe/London",
-   "expected": [
-    1898555400.0,
-    1930091400.0,
-    1993249800.0,
-    2087944200.0
-   ],
-   "schedule": {
-    "at": "00:30",
-    "date": "03-01",
-    "days": [
-     "tue",
-     "fri",
-     "sat",
-     "sun"
-    ],
-    "type": "yearly"
-   }
-  },
-  {
-   "after": 1787321590.0,
-   "boxZone": "Pacific/Auckland",
-   "expected": [
-    1835447400.0,
-    1866983400.0,
-    1898519400.0,
-    1930055400.0
-   ],
-   "schedule": {
-    "at": "03:30",
-    "date": "03-01",
-    "start": "2027-09-20",
-    "type": "yearly"
-   }
-  },
-  {
-   "after": 1806901420.054,
-   "boxZone": "America/Santiago",
-   "expected": [
-    1806902700.0,
-    1806905400.0,
-    1806908100.0,
-    1806910800.0
-   ],
-   "schedule": {
-    "days": [
-     "mon",
-     "wed",
-     "thu",
-     "fri"
-    ],
-    "every": "45m",
-    "start": "2026-06-17T04:25:00",
-    "type": "interval",
-    "until": "2028-08-13T04:25:00"
-   }
-  },
-  {
-   "after": 1825607846.519,
-   "boxZone": "Pacific/Chatham",
-   "expected": [
-    1826776800.0,
-    1827986400.0,
-    1829196000.0,
-    1830405600.0
-   ],
-   "schedule": {
-    "at": "01:00",
-    "day": "sun",
-    "every": 2,
-    "start": "2026-12-18T21:55:00",
-    "timezone": "America/New_York",
-    "type": "weekly"
-   }
-  },
-  {
-   "after": 1822432925.879,
-   "boxZone": "Australia/Lord_Howe",
-   "expected": [
-    1823841900.0,
-    1826261100.0,
-    1829285100.0,
-    1831704300.0
-   ],
-   "schedule": {
-    "at": "17:45",
-    "days": [
-     "mon",
-     "thu",
-     "fri"
-    ],
-    "nth": 3,
-    "start": "2026-12-23T05:15:00",
-    "type": "monthly",
-    "weekday": "mon"
-   }
-  },
-  {
-   "after": 1782200869.0,
-   "boxZone": "UTC",
-   "expected": [
-    1808826120.0,
-    1808852760.0,
-    1808889420.0,
-    1810035720.0
-   ],
-   "schedule": {
-    "at": [
-     "00:27",
-     "07:51",
-     "18:02"
-    ],
-    "day": "wed",
-    "every": 2,
-    "start": "2027-04-18T15:20:00",
+    "every": "45",
     "timezone": "Pacific/Chatham",
-    "type": "weekly"
-   }
-  },
-  {
-   "after": 1791407057.391,
-   "boxZone": "Pacific/Auckland",
-   "expected": [
-    1810648800.0,
-    1810821600.0,
-    1810994400.0,
-    1811167200.0
-   ],
-   "schedule": {
-    "every": "2d",
-    "start": "2027-05-19T02:00:00",
     "type": "interval"
    }
   },
   {
-   "after": 1821975801.477,
-   "boxZone": "Pacific/Chatham",
+   "after": 1842099672.0,
+   "boxZone": "America/St_Johns",
    "expected": [
-    1822026480.0,
-    1822047300.0,
-    1822112880.0,
-    1822133700.0
-   ],
-   "schedule": {
-    "at": [
-     "02:00",
-     "20:13"
-    ],
-    "type": "daily"
-   }
-  },
-  {
-   "after": 1815127463.0,
-   "boxZone": "Australia/Sydney",
-   "expected": [
-    1815402600.0,
-    1816007400.0,
-    1816612200.0,
-    1817217000.0
+    1842273000.0,
+    1842877800.0,
+    1843482600.0,
+    1844087400.0
    ],
    "schedule": {
     "at": "00:30",
-    "day": "tue",
-    "type": "weekly"
+    "day": "fri",
+    "timezone": "Australia/Sydney",
+    "type": "weekly",
+    "until": "2028-08-26T00:00:00"
    }
   },
   {
-   "after": 1829601127.0,
-   "boxZone": "Europe/London",
+   "after": 1806082918.0,
+   "boxZone": "Asia/Kolkata",
    "expected": [
-    1842050400.0,
+    1806085800.0,
+    1806091200.0,
+    1806096600.0,
+    1806102000.0
+   ],
+   "schedule": {
+    "every": 90,
+    "start": "2026-01-28",
+    "timezone": "Europe/Berlin",
+    "type": "interval",
+    "window": {
+     "from": "04:14",
+     "to": "03:00"
+    }
+   }
+  },
+  {
+   "after": 1820022246.0,
+   "boxZone": "America/Santiago",
+   "expected": [
     null
    ],
    "schedule": {
-    "days": [
-     "mon",
-     "sun"
-    ],
-    "every": "3mo",
-    "start": "2027-08-15T22:10:00",
-    "timezone": "America/St_Johns",
+    "every": "2mo",
+    "start": "2026-01-16T20:50:00",
     "type": "interval",
-    "until": "2029-07-24T22:10:00"
+    "window": {
+     "from": "00:30",
+     "to": "01:00"
+    }
    }
   },
   {
-   "after": 1838447169.0,
-   "boxZone": "Australia/Sydney",
+   "after": 1816681660.0,
+   "boxZone": "Europe/London",
    "expected": [
-    1840662000.0,
-    1845932400.0,
-    1848524400.0,
-    1851202800.0
+    null
    ],
    "schedule": {
-    "at": "09:00",
-    "day": 30,
-    "days": [
-     "mon",
-     "wed",
-     "thu",
-     "fri",
-     "sun"
-    ],
-    "start": "2026-06-02T01:15:00",
+    "every": "3mo",
+    "start": "2026-07-12",
+    "type": "interval",
+    "window": {
+     "from": "02:00",
+     "to": "06:28"
+    }
+   }
+  },
+  {
+   "after": 1842754605.935,
+   "boxZone": "Asia/Kolkata",
+   "expected": [
+    1842828900.0,
+    1842834300.0,
+    1842915300.0,
+    1842920700.0
+   ],
+   "schedule": {
+    "every": 90,
+    "start": "2027-12-10T08:25:00",
+    "timezone": "Asia/Tokyo",
+    "type": "interval",
+    "window": {
+     "from": "09:00",
+     "to": "12:44"
+    }
+   }
+  },
+  {
+   "after": 1825440126.794,
+   "boxZone": "America/New_York",
+   "expected": [
+    1825441200.0,
+    1825446600.0,
+    1825452000.0,
+    1825457400.0
+   ],
+   "schedule": {
+    "every": "90m",
+    "start": "2026-08-20",
+    "type": "interval",
+    "window": {
+     "from": "04:27",
+     "to": "01:30"
+    }
+   }
+  },
+  {
+   "after": 1806773593.991,
+   "boxZone": "Europe/London",
+   "expected": [
+    1821001140.0,
+    1852623540.0,
+    1884159540.0,
+    1915695540.0
+   ],
+   "schedule": {
+    "at": "20:09",
+    "day": 15,
+    "every": 12,
+    "start": "2026-09-19",
+    "timezone": "Australia/Lord_Howe",
     "type": "monthly"
    }
   },
   {
-   "after": 1834915932.198,
-   "boxZone": "Asia/Kolkata",
+   "after": 1813510854.0,
+   "boxZone": "America/St_Johns",
    "expected": [
-    1835081520.0,
-    1835167920.0,
-    1835254320.0,
-    1835340720.0
+    1814061600.0,
+    1814666400.0,
+    1815271200.0,
+    1815876000.0
    ],
    "schedule": {
-    "at": "14:22",
-    "days": [
-     "mon",
-     "tue",
-     "wed",
-     "fri",
-     "sat",
-     "sun"
-    ],
-    "type": "daily",
-    "until": "2028-04-08T00:00:00"
+    "at": "02:00",
+    "day": "sun",
+    "start": "2026-12-09T19:20:00",
+    "timezone": "UTC",
+    "type": "weekly"
    }
   },
   {
-   "after": 1849180438.0,
-   "boxZone": "Asia/Tokyo",
+   "after": 1817039383.0,
+   "boxZone": "Pacific/Chatham",
+   "expected": [
+    1822687260.0,
+    1822688100.0,
+    1822740300.0,
+    1822746720.0
+   ],
+   "schedule": {
+    "at": [
+     "02:30",
+     "04:17",
+     "11:46",
+     "12:00"
+    ],
+    "start": "2027-10-05T09:05:00",
+    "type": "daily"
+   }
+  },
+  {
+   "after": 1820104250.0,
+   "boxZone": "America/Santiago",
+   "expected": [
+    1825563600.0,
+    1825570080.0,
+    1825572300.0,
+    1825642740.0
+   ],
+   "schedule": {
+    "at": [
+     "02:00",
+     "03:48",
+     "04:25",
+     "23:59"
+    ],
+    "date": "11-07",
+    "type": "yearly"
+   }
+  },
+  {
+   "after": 1801589171.0,
+   "boxZone": "Asia/Kolkata",
+   "expected": [
+    1803650400.0,
+    1803652200.0,
+    1803657600.0,
+    1803719040.0
+   ],
+   "schedule": {
+    "at": [
+     "01:00",
+     "01:30",
+     "03:00",
+     "20:04"
+    ],
+    "nth": 4,
+    "timezone": "Australia/Sydney",
+    "type": "monthly",
+    "weekday": "sat"
+   }
+  },
+  {
+   "after": 1836231499.113,
+   "boxZone": "America/Santiago",
    "expected": [
     null
    ],
    "schedule": {
     "every": "45",
-    "start": "2027-07-27T18:50:00",
+    "start": "2026-06-08",
     "type": "interval",
-    "until": "2027-09-01T18:50:00"
+    "until": "2027-07-07T00:00:00"
    }
   },
   {
-   "after": 1822618147.0,
-   "boxZone": "America/New_York",
+   "after": 1822593716.0,
+   "boxZone": "Australia/Lord_Howe",
    "expected": [
-    1822915800.0,
-    1822921200.0,
-    1822924800.0,
-    1823520600.0
+    1822646700.0,
+    1822648500.0,
+    1822677300.0,
+    1822733100.0
    ],
    "schedule": {
     "at": [
      "00:30",
-     "02:00",
-     "03:00"
+     "01:00",
+     "09:00"
     ],
+    "timezone": "Pacific/Chatham",
+    "type": "daily"
+   }
+  },
+  {
+   "after": 1804940339.0,
+   "boxZone": "Europe/London",
+   "expected": [
+    1804960320.0,
+    1804963920.0,
+    1804967520.0,
+    1804971120.0
+   ],
+   "schedule": {
+    "every": "1h",
+    "timezone": "America/St_Johns",
+    "type": "interval",
+    "window": {
+     "from": "14:22",
+     "to": "00:30"
+    }
+   }
+  },
+  {
+   "after": 1806838625.0,
+   "boxZone": "Pacific/Chatham",
+   "expected": [
+    1808262900.0,
+    1810682100.0,
+    1813101300.0,
+    1816125300.0
+   ],
+   "schedule": {
+    "at": "12:00",
+    "days": [
+     "wed"
+    ],
+    "nth": 3,
+    "type": "monthly",
+    "until": "2029-03-29T00:00:00",
+    "weekday": "wed"
+   }
+  },
+  {
+   "after": 1787489738.0,
+   "boxZone": "Australia/Sydney",
+   "expected": [
+    1787666400.0,
+    1787839200.0,
+    1788012000.0,
+    1788184800.0
+   ],
+   "schedule": {
+    "every": "2d",
+    "timezone": "Pacific/Auckland",
+    "type": "interval",
+    "window": {
+     "from": "02:00",
+     "to": "00:30"
+    }
+   }
+  },
+  {
+   "after": 1804879285.0,
+   "boxZone": "Europe/Berlin",
+   "expected": [
+    null
+   ],
+   "schedule": {
+    "at": "21:30",
     "day": "fri",
-    "start": "2026-04-01T15:45:00",
-    "timezone": "Australia/Lord_Howe",
+    "days": [
+     "sun"
+    ],
+    "every": 2,
+    "start": "2026-01-18",
+    "timezone": "America/New_York",
     "type": "weekly"
    }
   },
   {
-   "after": 1793000808.0,
-   "boxZone": "UTC",
-   "expected": [
-    1793001600.0,
-    1793005200.0,
-    1793008800.0,
-    1793012400.0
-   ],
-   "schedule": {
-    "days": [
-     "mon",
-     "tue",
-     "wed",
-     "fri",
-     "sat",
-     "sun"
-    ],
-    "every": "1h",
-    "start": "2026-06-22",
-    "type": "interval"
-   }
-  },
-  {
-   "after": 1813425422.424,
-   "boxZone": "Asia/Kolkata",
+   "after": 1849475929.0,
+   "boxZone": "Europe/London",
    "expected": [
     null
    ],
    "schedule": {
     "at": [
      "04:45",
-     "11:52",
-     "23:04",
-     "23:59"
+     "18:35"
     ],
-    "type": "daily",
-    "until": "2027-04-24T00:00:00"
+    "day": "thu",
+    "days": [
+     "wed"
+    ],
+    "every": 3,
+    "start": "2026-08-15T07:05:00",
+    "timezone": "America/St_Johns",
+    "type": "weekly"
    }
   },
   {
-   "after": 1806640335.0,
-   "boxZone": "Pacific/Auckland",
-   "expected": [
-    null
-   ],
-   "schedule": {
-    "every": "7d",
-    "start": "2026-01-11",
-    "type": "interval",
-    "window": {
-     "from": "08:18",
-     "to": "17:45"
-    }
-   }
-  },
-  {
-   "after": 1808645495.0,
+   "after": 1785443590.0,
    "boxZone": "Asia/Tokyo",
    "expected": [
-    1808646395.0,
-    1808647295.0,
-    1808648195.0,
-    1808649095.0
+    1830314700.0,
+    1846043100.0,
+    null
    ],
    "schedule": {
-    "every": 15,
-    "type": "interval",
-    "window": {
-     "from": "02:00",
-     "to": "01:30"
-    }
+    "at": "17:45",
+    "day": 1,
+    "every": 6,
+    "start": "2027-07-10T02:15:00",
+    "timezone": "Pacific/Auckland",
+    "type": "monthly",
+    "until": "2028-11-10T02:15:00"
    }
   },
   {
-   "after": 1838863772.0,
+   "after": 1822520501.0,
+   "boxZone": "Asia/Tokyo",
+   "expected": [
+    1832457360.0,
+    1832502600.0,
+    1864511760.0,
+    1864557000.0
+   ],
+   "schedule": {
+    "at": [
+     "10:56",
+     "23:30"
+    ],
+    "every": 12,
+    "nth": "last",
+    "start": "2028-01-01T20:15:00",
+    "timezone": "Australia/Sydney",
+    "type": "monthly",
+    "weekday": "wed"
+   }
+  },
+  {
+   "after": 1804829848.0,
    "boxZone": "Europe/London",
    "expected": [
-    null
+    1806208500.0,
+    1808886900.0,
+    1811478900.0,
+    1814157300.0
+   ],
+   "schedule": {
+    "every": "1mo",
+    "start": "2026-02-28T06:35:00",
+    "timezone": "Europe/Berlin",
+    "type": "interval"
+   }
+  },
+  {
+   "after": 1799372780.0,
+   "boxZone": "America/St_Johns",
+   "expected": [
+    1799977580.0,
+    1800582380.0,
+    1801187180.0,
+    1801791980.0
    ],
    "schedule": {
     "days": [
-     "tue",
-     "wed",
+     "mon",
      "thu",
      "fri",
      "sat",
      "sun"
     ],
-    "every": "12mo",
-    "timezone": "America/New_York",
+    "every": "7d",
     "type": "interval",
-    "until": "2028-09-03T00:00:00"
+    "window": {
+     "from": "05:29",
+     "to": "00:00"
+    }
    }
   },
   {
-   "after": 1823824556.0,
-   "boxZone": "Pacific/Auckland",
-   "expected": [
-    1824748200.0,
-    1824778800.0,
-    1824820200.0,
-    1827426600.0
-   ],
-   "schedule": {
-    "at": [
-     "03:30",
-     "12:00",
-     "23:30"
-    ],
-    "day": 29,
-    "timezone": "Asia/Tokyo",
-    "type": "monthly"
-   }
-  },
-  {
-   "after": 1818498455.0,
-   "boxZone": "Asia/Tokyo",
-   "expected": [
-    1824930180.0,
-    1856552580.0,
-    1888088580.0,
-    1919624580.0
-   ],
-   "schedule": {
-    "at": "06:03",
-    "date": "10-31",
-    "type": "yearly"
-   }
-  },
-  {
-   "after": 1800464045.0,
-   "boxZone": "Europe/London",
+   "after": 1820177098.0,
+   "boxZone": "America/New_York",
    "expected": [
     null
    ],
    "schedule": {
     "at": [
-     "01:30",
+     "01:47",
      "03:00",
-     "10:14",
-     "15:08"
+     "17:39"
     ],
-    "start": "2026-02-11T02:35:00",
-    "type": "daily",
-    "until": "2026-12-18T02:35:00"
+    "nth": 2,
+    "start": "2026-08-26T18:05:00",
+    "timezone": "America/Santiago",
+    "type": "monthly",
+    "until": "2026-11-11T18:05:00",
+    "weekday": "sun"
    }
   },
   {
-   "after": 1811374991.0,
-   "boxZone": "UTC",
+   "after": 1825004973.0,
+   "boxZone": "Europe/London",
    "expected": [
-    1811460600.0,
-    1811547000.0,
-    1811633400.0,
-    1811719800.0
+    1825290000.0,
+    1827709200.0,
+    1830128400.0,
+    1832547600.0
    ],
    "schedule": {
-    "every": "7h",
-    "type": "interval",
-    "window": {
-     "from": "23:30",
-     "to": "01:00"
-    }
+    "at": "01:00",
+    "day": "thu",
+    "every": 4,
+    "start": "2027-10-10",
+    "type": "weekly"
    }
   },
   {
@@ -22443,10 +22277,157 @@
     "start": "2026-09-29T16:50:00",
     "type": "monthly"
    }
+  },
+  {
+   "after": 1806787335.03,
+   "boxZone": "America/Santiago",
+   "expected": [
+    1806790260.0,
+    1806791400.0,
+    1806849000.0,
+    1806850800.0
+   ],
+   "schedule": {
+    "at": [
+     "01:00",
+     "01:30",
+     "08:41",
+     "09:00"
+    ],
+    "timezone": "Australia/Lord_Howe",
+    "type": "daily"
+   }
+  },
+  {
+   "after": 1836495358.186,
+   "boxZone": "Asia/Kolkata",
+   "expected": [
+    1869545820.0,
+    2058848220.0,
+    2216701020.0,
+    2406003420.0
+   ],
+   "schedule": {
+    "at": "11:47",
+    "day": 30,
+    "days": [
+     "fri"
+    ],
+    "every": 12,
+    "start": "2026-03-29",
+    "type": "monthly"
+   }
+  },
+  {
+   "after": 1824898570.0,
+   "boxZone": "Europe/Berlin",
+   "expected": [
+    1824898800.0,
+    1824899100.0,
+    1824899400.0,
+    1824899700.0
+   ],
+   "schedule": {
+    "every": "5m",
+    "start": "2026-09-25",
+    "type": "interval"
+   }
+  },
+  {
+   "after": 1806698513.009,
+   "boxZone": "America/New_York",
+   "expected": [
+    1830258000.0,
+    1861880400.0,
+    1893416400.0,
+    1924952400.0
+   ],
+   "schedule": {
+    "at": "02:00",
+    "date": "01-01",
+    "timezone": "Pacific/Auckland",
+    "type": "yearly"
+   }
+  },
+  {
+   "after": 1826332561.0,
+   "boxZone": "Australia/Lord_Howe",
+   "expected": [
+    1835351880.0,
+    1866974280.0,
+    1898510280.0,
+    1930046280.0
+   ],
+   "schedule": {
+    "at": "22:58",
+    "date": "02-28",
+    "type": "yearly"
+   }
+  },
+  {
+   "after": 1806724339.609,
+   "boxZone": "Australia/Sydney",
+   "expected": [
+    1806734700.0,
+    1806766200.0,
+    1806791460.0,
+    1806804000.0
+   ],
+   "schedule": {
+    "at": [
+     "02:30",
+     "08:31",
+     "12:00",
+     "17:45"
+    ],
+    "timezone": "Australia/Sydney",
+    "type": "daily"
+   }
+  },
+  {
+   "after": 1825000521.0,
+   "boxZone": "Europe/London",
+   "expected": [
+    1825010760.0,
+    1825030800.0,
+    1825039800.0,
+    1825070160.0
+   ],
+   "schedule": {
+    "at": [
+     "01:00",
+     "03:30",
+     "11:56",
+     "19:26"
+    ],
+    "start": "2026-06-29",
+    "type": "daily"
+   }
+  },
+  {
+   "after": 1821793556.0,
+   "boxZone": "Pacific/Chatham",
+   "expected": [
+    1821879956.0,
+    1821966356.0,
+    1822052756.0,
+    1822139156.0
+   ],
+   "schedule": {
+    "every": "1d",
+    "timezone": "Pacific/Auckland",
+    "type": "interval"
+   }
   }
  ],
  "note": "GENERATED by substrate/scripts/tests/schedule_conformance_gen.py from the Python schedule engine. Do not edit; regenerate.",
  "validation": [
+  {
+   "schedule": {
+    "type": "sensor"
+   },
+   "valid": true
+  },
   {
    "schedule": {
     "every": "30m",
@@ -23277,7 +23258,7 @@
     ],
     "every": "02-29",
     "start": "2027-03-15",
-    "type": "weekly",
+    "type": "one_shot",
     "until": "2029-01-02T00:00:00",
     "window": {
      "from": "01:00",
@@ -23738,9 +23719,9 @@
    "schedule": {
     "at": "01:30",
     "start": "2026-02-26T19:50:00",
-    "type": "monthly"
+    "type": "sensor"
    },
-   "valid": false
+   "valid": true
   },
   {
    "schedule": {
@@ -23767,10 +23748,10 @@
      "sun"
     ],
     "nth": "last",
-    "type": "monthly",
+    "type": "hourly",
     "weekday": "mon"
    },
-   "valid": true
+   "valid": false
   },
   {
    "schedule": {
@@ -24032,7 +24013,7 @@
     "every": "1h",
     "start": "2026-03-21",
     "timezone": "mon",
-    "type": "daily",
+    "type": "monthly",
     "window": {
      "from": "03:30",
      "to": "23:30"
@@ -24645,106 +24626,113 @@
   },
   {
    "schedule": {
+    "day": false,
     "every": "2h",
     "timezone": "UTC",
-    "type": "yearly",
-    "window": false
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": [
-     "02:30",
-     "08:33",
-     "20:35"
-    ],
-    "day": 28,
-    "timezone": "Australia/Sydney",
-    "type": "monthly",
-    "until": 31
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": [
-     "01:14",
-     "23:59"
-    ],
-    "date": "02-28",
-    "days": [],
-    "type": "hourly"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": [
-     "01:30",
-     "02:00",
-     "07:26"
-    ],
-    "date": "10-07",
-    "day": "11mo",
-    "start": "2026-02-23",
-    "timezone": "America/New_York",
     "type": "yearly"
    },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "12:00",
+    "date": "05-17",
+    "days": {
+     "from": "09:00",
+     "to": "09:00"
+    },
+    "timezone": "Australia/Lord_Howe",
+    "type": "yearly"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "days": [],
+    "every": 90,
+    "start": "2026-03-15",
+    "type": "sensor",
+    "window": {
+     "from": "03:12",
+     "to": "00:00"
+    }
+   },
    "valid": true
   },
   {
    "schedule": {
-    "at": "17:45"
+    "at": "01:30",
+    "day": 31,
+    "timezone": "Europe/London",
+    "type": "sensor"
+   },
+   "valid": true
+  },
+  {
+   "schedule": {
+    "every": "15m",
+    "timezone": "America/St_Johns",
+    "type": "interval",
+    "window": {
+     "from": "09:00",
+     "to": "14:17"
+    }
+   },
+   "valid": true
+  },
+  {
+   "schedule": {
+    "date": -1,
+    "every": "1d",
+    "type": "interval"
+   },
+   "valid": true
+  },
+  {
+   "schedule": {
+    "every": "13mo",
+    "start": "2025-12-21T10:55:00",
+    "timezone": "America/Santiago",
+    "type": "interval",
+    "window": 2
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "16:54",
+    "day": "thu",
+    "every": [
+     "09:00",
+     "17:00"
+    ],
+    "start": "2026-09-18",
+    "type": "weekly"
    },
    "valid": false
   },
   {
    "schedule": {
     "at": [
-     "09:00",
-     "23:07",
-     "23:59"
-    ],
-    "day": "wed",
-    "every": 4,
-    "start": "2026-04-05",
-    "type": "monthly"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": [
-     "04:12",
-     "09:00",
-     "23:30"
-    ],
-    "timezone": 2.5,
-    "type": "one_shot"
-   },
-   "valid": true
-  },
-  {
-   "schedule": {
-    "at": [
+     "00:00",
      "01:00",
+     "14:16",
      "17:45"
     ],
-    "date": 15,
-    "day": "sat",
-    "timezone": "Europe/London",
-    "until": "2028-05-16T00:00:00"
+    "timezone": "Australia/Lord_Howe",
+    "type": "sensor"
    },
-   "valid": false
+   "valid": true
   },
   {
    "schedule": {
-    "every": "1mo",
+    "at": [
+     "03:30",
+     "03:57"
+    ],
     "nth": 2.5,
-    "start": "2026-03-29T16:35:00",
-    "timezone": "Europe/London",
-    "type": "interval"
+    "type": "daily",
+    "until": "2027-05-27T00:00:00"
    },
    "valid": false
   },
@@ -24942,11 +24930,11 @@
   },
   {
    "schedule": {
+    "days": "2027-02-30",
     "every": "13mo",
     "start": "2026-12-08T02:20:00",
     "timezone": "America/Santiago",
-    "type": "hourly",
-    "weekday": "2027-02-30"
+    "type": "hourly"
    },
    "valid": false
   },
@@ -25031,7 +25019,7 @@
   {
    "schedule": {
     "at": "02:00",
-    "type": "weekly"
+    "type": "yearly"
    },
    "valid": false
   },
@@ -25108,10 +25096,10 @@
     ],
     "nth": 4,
     "start": "2026-05-27T22:35:00",
-    "type": "monthly",
+    "type": "hourly",
     "weekday": "wed"
    },
-   "valid": true
+   "valid": false
   },
   {
    "schedule": {
@@ -25155,17 +25143,19 @@
     "day": "sun",
     "every": 3,
     "start": "2027-10-28",
-    "type": "hourly",
+    "type": "sensor",
     "until": "2027-08-26T00:00:00"
    },
-   "valid": false
+   "valid": true
   },
   {
    "schedule": {
-    "at": "02:00",
-    "date": "10-31",
-    "timezone": "UTC",
-    "type": "yearly"
+    "at": [
+     "02:00",
+     "02:30"
+    ],
+    "type": "daily",
+    "until": "2027-02-22T00:00:00"
    },
    "valid": true
   },
@@ -25173,35 +25163,33 @@
    "schedule": {
     "day": 2.5,
     "every": "2mo",
-    "type": "yearly",
+    "type": "daily",
     "until": "2028-08-18T00:00:00"
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": "09:05",
+    "at": "02:45",
+    "date": "2027-01-01T00:00:00+05:30",
+    "day": 31,
     "days": [
-     "tue",
-     "thu",
-     "sun"
+     "tue"
     ],
-    "every": 2,
-    "type": "daily",
-    "window": "08-03"
+    "every": 12,
+    "nth": false,
+    "start": "2026-07-04",
+    "timezone": "Pacific/Chatham",
+    "type": "monthly"
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": [
-     "00:30",
-     "01:30",
-     "02:30"
-    ],
-    "nth": 2,
-    "start": "2027-04-10T23:35:00",
-    "weekday": "sun"
+    "at": "23:59",
+    "day": "fri",
+    "every": 4,
+    "start": "2027-04-10T23:35:00"
    },
    "valid": false
   },
@@ -25226,61 +25214,110 @@
   {
    "schedule": {
     "at": [
-     "03:30",
-     "08:52",
-     "14:49",
-     "17:39"
+     "03:00",
+     "17:45"
     ],
-    "every": 12,
-    "nth": 4,
-    "start": "2026-03-31T23:10:00",
+    "start": "11mo",
     "timezone": "Australia/Lord_Howe",
-    "type": "monthly",
-    "until": "2027-11-17T23:10:00",
-    "weekday": "2027-01-01T00:00:00Z"
+    "type": "daily"
    },
    "valid": false
   },
   {
    "schedule": {
-    "every": "7d",
-    "start": "2027-03-04T15:45:00",
-    "type": "yearly",
-    "window": {
-     "from": "00:00",
-     "to": "02:00"
+    "at": "12:00",
+    "days": [
+     "wed",
+     "thu",
+     "fri",
+     "sun"
+    ],
+    "every": [
+     "mon"
+    ],
+    "type": "yearly"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": [
+     "mon",
+     "xyz"
+    ],
+    "day": "fri",
+    "days": [
+     "tue",
+     "wed",
+     "thu",
+     "sat"
+    ],
+    "every": 2,
+    "start": "2027-09-08T11:15:00",
+    "type": "weekly",
+    "until": "2028-10-31T11:15:00",
+    "weekday": {
+     "from": "09:00",
+     "to": "17:00"
     }
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": "01:30",
-    "day": "fri",
-    "days": [
-     "tue",
-     "wed",
-     "thu",
-     "fri",
-     "sat"
+    "at": "00:00",
+    "count": [
+     "mon",
+     "xyz"
     ],
-    "every": 4,
-    "start": "2026-05-09",
-    "type": "monthly"
+    "day": "last",
+    "type": "monthly",
+    "until": "٠٩:٠٠"
    },
    "valid": false
   },
   {
    "schedule": {
+    "day": "2027-01-01T00:00:00Z",
+    "every": "1mo",
+    "start": "2026-06-19",
+    "timezone": "first",
+    "type": "interval",
+    "window": {
+     "from": "09:00",
+     "to": "12:00"
+    }
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "04:27",
+    "start": "2027-01-01T25:00:00",
+    "type": "daily",
+    "weekday": "2027-01-01T00:00:00+05:30"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "17:45",
+    "count": null,
+    "day": "fri",
     "days": [
      "mon",
+     "tue",
      "wed",
-     "thu"
+     "thu",
+     "fri",
+     "sun"
     ],
-    "every": null,
-    "timezone": "08-03",
-    "type": "interval",
-    "until": "2028-09-17T00:00:00"
+    "nth": [
+     "09:00",
+     "17:00"
+    ],
+    "start": "2027-09-26T10:10:00",
+    "type": "weekly"
    },
    "valid": false
   },
@@ -25288,143 +25325,96 @@
    "schedule": {
     "at": [
      "00:30",
-     "03:30",
+     "01:00",
+     "09:26",
+     "23:59"
+    ],
+    "days": "24:00",
+    "timezone": "Asia/Kolkata",
+    "type": "daily",
+    "window": [
+     "09:00",
      "09:00"
-    ],
-    "every": 12,
-    "nth": 2,
-    "timezone": "America/St_Johns",
-    "type": "monthly",
-    "weekday": "fri"
+    ]
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": [
-     "00:00",
-     "01:27",
-     "02:30",
-     "12:00"
-    ],
-    "date": "11-07",
-    "type": "one_shot"
-   },
-   "valid": true
-  },
-  {
-   "schedule": {
-    "count": "09:60",
-    "every": 90,
-    "type": "interval"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "14:31",
+    "at": "00:00",
     "days": [
      "mon",
-     "tue",
-     "wed",
      "thu",
+     "fri"
+    ],
+    "start": "2026-06-06T17:50:00",
+    "type": "daily",
+    "window": "2027-01-01T25:00:00"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": 32,
+    "day": "last",
+    "days": [
+     "sun"
+    ],
+    "start": "2027-04-05T13:35:00",
+    "type": "monthly",
+    "weekday": "america/new_york"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "02:00",
+    "day": "last",
+    "days": [
+     "fri",
      "sat",
      "sun"
     ],
-    "nth": 2,
-    "timezone": "Asia/Kolkata",
+    "every": 12,
+    "nth": "UTC",
+    "start": "2026-10-15T03:35:00",
     "type": "monthly",
-    "until": {
-     "from": "09:00",
-     "to": "09:00"
-    },
-    "weekday": "wed"
+    "until": "2029-01-15T03:35:00"
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": "00:30",
-    "nth": 4,
-    "start": "2027-04-15",
-    "timezone": "Europe/London",
+    "at": "03:30",
+    "day": "tue",
+    "timezone": "Pacific/Chatham",
+    "type": "weekly",
+    "until": [
+     "mon"
+    ]
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "21:34",
+    "count": "first",
+    "days": 2.5,
+    "nth": 3,
     "type": "monthly",
-    "weekday": "wed",
-    "window": 2
+    "weekday": "thu"
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": "02:30",
-    "date": "08-01",
-    "every": "Monday",
-    "nth": 2.0,
-    "timezone": "America/St_Johns",
-    "type": "yearly",
-    "until": "2029-04-04T00:00:00"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "first",
-    "date": "12-31",
+    "count": "last",
     "days": [
      "tue",
-     "thu"
+     "sat"
     ],
-    "type": "daily"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "days": false,
-    "every": "13mo",
-    "timezone": "Pacific/Chatham",
+    "every": "12mo",
     "type": "interval",
-    "until": "2027-01-29T00:00:00"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": [
-     "03:30",
-     "04:38",
-     "23:30",
-     "23:59"
-    ],
-    "date": false,
-    "timezone": "America/Santiago",
-    "type": "yearly"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": [
-     "12:00",
-     "12:57",
-     "14:07"
-    ],
-    "date": "12-31",
-    "days": "Mars/Olympus",
-    "start": "2027-11-27T17:15:00",
-    "timezone": "Europe/London",
-    "type": "yearly"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "01:30",
-    "count": "last",
-    "day": "sun",
-    "every": 2,
-    "start": "2026-08-18T06:50:00",
-    "type": "weekly",
     "window": 15
    },
    "valid": false
@@ -25613,7 +25603,7 @@
    "schedule": {
     "every": 15,
     "timezone": "Asia/Tokyo",
-    "type": "weekly"
+    "type": "one_shot"
    },
    "valid": false
   },
@@ -25818,7 +25808,10 @@
   {
    "schedule": {
     "at": "12:00",
-    "date": "UTC",
+    "day": [
+     "09:00",
+     "17:00"
+    ],
     "type": "one_shot"
    },
    "valid": true
@@ -25827,12 +25820,12 @@
    "schedule": {
     "at": [
      "00:30",
-     "02:00",
      "03:00"
     ],
     "count": "UTC",
-    "date": "08-03",
-    "type": "yearly"
+    "nth": 3,
+    "type": "monthly",
+    "weekday": "thu"
    },
    "valid": false
   },
@@ -25861,7 +25854,7 @@
     "nth": 2,
     "start": "2025-12-06T16:00:00",
     "timezone": "Asia/Tokyo",
-    "type": "monthly",
+    "type": "hourly",
     "weekday": "thu"
    },
    "valid": false
@@ -26092,6 +26085,7 @@
      "sat",
      "sun"
     ],
+    "nth": "mon",
     "start": "2027-08-15T00:35:00",
     "type": "interval"
    },
@@ -26099,41 +26093,35 @@
   },
   {
    "schedule": {
-    "at": "09:60",
-    "every": 2,
-    "nth": "last",
-    "start": "2027-07-01T22:50:00",
-    "type": "monthly",
-    "until": "America/New_York",
-    "weekday": "fri"
+    "every": "45",
+    "start": "2027-05-29T07:00:00",
+    "type": "interval",
+    "window": {
+     "from": "09:00",
+     "to": "03:00"
+    }
+   },
+   "valid": true
+  },
+  {
+   "schedule": {
+    "every": "15m",
+    "start": "2027-05-28T17:55:00",
+    "type": "hourly",
+    "weekday": "09:00"
    },
    "valid": false
   },
   {
    "schedule": {
     "at": [
-     "10:50",
-     "12:00"
+     "03:30",
+     "18:21",
+     "22:08"
     ],
-    "day": "thu",
-    "days": [
-     "mon"
-    ],
-    "every": "2027-01-01T00:00:00Z",
-    "start": "UTC",
-    "timezone": "Asia/Tokyo",
-    "type": "weekly"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "16:24",
-    "day": "sun",
-    "days": [
-     "thu"
-    ],
+    "day": "sat",
     "every": "15",
+    "start": "2028-01-13T17:20:00",
     "type": "weekly"
    },
    "valid": false
@@ -26209,7 +26197,7 @@
     "days": [
      "fri"
     ],
-    "type": "interval"
+    "type": "daily"
    },
    "valid": false
   },
@@ -26290,230 +26278,229 @@
   },
   {
    "schedule": {
-    "days": 2.0,
-    "every": "12mo",
-    "type": "monthly",
-    "window": {
-     "from": "02:12",
-     "to": "23:30"
-    }
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": [
-     "00:30",
-     "03:30",
-     "23:59"
-    ],
-    "every": {
-     "from": "09:00",
-     "to": "09:00"
-    },
-    "type": "daily"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": [
-     "00:00",
-     "00:30",
-     "23:59"
-    ],
-    "days": [
-     "mon",
-     "tue",
-     "wed",
-     "thu",
-     "sat",
-     "sun"
-    ],
-    "every": {
-     "from": "09:00",
-     "to": "17:00"
-    },
-    "nth": "last",
-    "start": "2027-04-24T20:10:00",
+    "start": "2027-06-16",
     "timezone": "Asia/Kolkata",
-    "type": "monthly",
-    "weekday": "tue"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "09:00",
-    "date": "03-14",
-    "days": [
-     "thu"
-    ],
-    "every": "UTC",
-    "type": "yearly"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "days": 2.5,
-    "every": "2mo",
-    "type": "interval",
-    "window": "15"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": [
-     "00:00",
-     "03:30",
-     "17:45",
-     "22:23"
-    ],
-    "nth": "02-29",
-    "timezone": "America/Santiago",
-    "type": "daily",
-    "until": [
-     "mon"
-    ]
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "23:30",
-    "day": "thu",
-    "every": 2,
-    "start": "2026-02-05T06:00:00",
-    "timezone": "Australia/Sydney",
-    "type": "weekly",
-    "until": "0mo"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "00:00",
-    "date": "12-31",
-    "start": "2028-01-28T05:00:00",
-    "timezone": "Pacific/Auckland",
-    "type": "yearly",
-    "window": 1
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "17:45",
-    "days": [
-     "mon",
-     "wed"
-    ],
-    "nth": 3,
-    "type": "monthly",
-    "weekday": "2027-02-30"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "03:00",
-    "days": [
-     "mon",
-     "fri"
-    ],
-    "start": "2026-11-04T13:25:00",
-    "type": "daily",
-    "until": "2027-08-25T13:25:00",
-    "window": "mon"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "days": "2027-01-01T00:00:00+05:30",
-    "every": "7d",
-    "type": "monthly",
-    "until": "2028-05-29T00:00:00"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "count": [
-     "mon",
-     "xyz"
-    ],
-    "every": "5m",
-    "start": "2027-03-25T04:20:00",
-    "timezone": "",
     "type": "interval"
    },
    "valid": false
   },
   {
    "schedule": {
+    "at": "09:00",
+    "day": 1,
+    "weekday": 32
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "03:30",
+    "date": "12-31",
+    "timezone": "Europe/Berlin",
+    "type": "yearly",
+    "window": 2.5
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
     "at": [
-     "09:00",
-     "17:45"
+     "00:30",
+     "03:00",
+     "15:00"
     ],
-    "date": 0,
-    "day": "wed",
-    "days": [
-     "tue",
-     "fri",
-     "sat"
-    ],
-    "every": 2,
-    "start": "2027-04-16T09:55:00",
-    "type": "weekly"
+    "date": "09:60",
+    "start": "2026-03-12T06:55:00",
+    "timezone": "America/St_Johns",
+    "type": "daily",
+    "until": "2028-01-31T06:55:00"
    },
    "valid": true
+  },
+  {
+   "schedule": {
+    "at": [
+     "01:00",
+     "23:30",
+     "23:59"
+    ],
+    "date": "03-14",
+    "timezone": "first",
+    "type": "yearly",
+    "window": "15"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "05:51",
+    "day": 29,
+    "start": {
+     "from": "09:00",
+     "to": "09:00"
+    },
+    "timezone": "Europe/Berlin",
+    "type": "monthly",
+    "weekday": [
+     "09:00",
+     "17:00"
+    ]
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "date": [
+     "09:00",
+     "09:00"
+    ],
+    "every": "13mo",
+    "timezone": "Europe/London",
+    "type": "interval",
+    "window": {
+     "from": "12:00",
+     "to": "01:00"
+    }
+   },
+   "valid": true
+  },
+  {
+   "schedule": {
+    "at": "09:00",
+    "timezone": "America/Santiago",
+    "type": "daily",
+    "weekday": true
+   },
+   "valid": false
   },
   {
    "schedule": {
     "at": [
      "02:30",
-     "12:00",
-     "19:11"
+     "15:33",
+     "17:45",
+     "23:30"
     ],
-    "date": "01-01",
-    "type": "yearly"
+    "day": "thu",
+    "type": "weekly"
    },
    "valid": true
   },
   {
    "schedule": {
-    "date": "24:00",
-    "timezone": "Australia/Sydney",
-    "type": "yearly"
+    "every": 90,
+    "nth": "Funday",
+    "start": "2026-04-16T14:15:00",
+    "type": "interval",
+    "until": "2026-12-01T14:15:00",
+    "window": {
+     "from": "15:02",
+     "to": "00:30"
+    }
    },
    "valid": false
+  },
+  {
+   "schedule": {
+    "at": "09:00",
+    "day": "sun",
+    "days": [
+     "wed",
+     "thu",
+     "fri",
+     "sat",
+     "sun"
+    ],
+    "every": 4,
+    "start": "2026-06-28T10:15:00",
+    "timezone": "Australia/Sydney",
+    "type": "sensor"
+   },
+   "valid": true
   },
   {
    "schedule": {
     "at": [
-     "01:30",
-     "12:00",
-     "23:59"
+     "01:00",
+     "18:37",
+     "22:41",
+     "23:30"
     ],
-    "nth": -1,
-    "timezone": "America/New_York",
-    "type": "daily",
-    "window": "america/new_york"
+    "date": "03-14",
+    "days": [
+     "mon",
+     "tue"
+    ],
+    "timezone": "Asia/Kolkata",
+    "type": "yearly"
+   },
+   "valid": true
+  },
+  {
+   "schedule": {
+    "at": [
+     "03:30",
+     "11:37"
+    ],
+    "date": "02-29",
+    "day": "sun",
+    "every": 15,
+    "timezone": "Australia/Sydney",
+    "type": "weekly"
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": "03:00",
-    "date": 2.0,
-    "day": "sat",
-    "start": "2026-10-20T08:15:00",
-    "type": "weekly"
+    "day": 2.5,
+    "days": "09:60",
+    "every": "2d",
+    "type": "interval",
+    "window": {
+     "from": "09:00",
+     "to": "00:30"
+    }
    },
-   "valid": true
+   "valid": false
+  },
+  {
+   "schedule": {
+    "every": "7d",
+    "start": "2027-06-22T07:25:00",
+    "type": "interval",
+    "window": "2027-02-30"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "23:59",
+    "days": [
+     "tue",
+     "wed"
+    ],
+    "timezone": "Europe/Berlin",
+    "type": "weekly",
+    "until": "2029-03-24T12:55:00"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "13:19",
+    "date": 2.0,
+    "day": "09:00",
+    "days": [
+     "tue",
+     "fri",
+     "sat",
+     "sun"
+    ],
+    "timezone": "Asia/Tokyo",
+    "type": "yearly",
+    "until": "2028-11-16T00:00:00"
+   },
+   "valid": false
   },
   {
    "schedule": {
@@ -26737,16 +26724,15 @@
     ],
     "day": "wed",
     "days": "Mars/Olympus",
-    "type": "interval"
+    "type": "daily"
    },
    "valid": false
   },
   {
    "schedule": {
-    "day": "٠٩:٠٠",
     "every": "90m",
     "start": "2026-10-01",
-    "type": "yearly",
+    "type": "monthly",
     "window": {
      "from": "00:30",
      "to": "12:00"
@@ -26756,35 +26742,40 @@
   },
   {
    "schedule": {
-    "at": "last",
-    "days": [
-     "mon",
-     "tue",
-     "thu",
-     "fri"
-    ],
-    "every": "45",
-    "start": "2027-03-05T21:00:00",
-    "type": "interval"
-   },
-   "valid": true
-  },
-  {
-   "schedule": {
-    "at": "04:46",
-    "type": "daily",
-    "window": "last"
+    "every": "12mo",
+    "type": "one_shot"
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": "05:39",
-    "date": "01-01",
+    "at": [
+     "00:00",
+     "23:30"
+    ],
+    "day": "fri",
+    "days": [
+     "mon",
+     "tue",
+     "thu",
+     "fri",
+     "sat"
+    ],
+    "every": [
+     "09:00",
+     "17:00"
+    ],
+    "start": "2026-04-06",
+    "timezone": 2,
+    "type": "weekly"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "every": "5m",
     "nth": "mon",
-    "start": "2026-03-20T02:55:00",
-    "timezone": "Europe/Berlin",
-    "type": "yearly"
+    "type": "interval"
    },
    "valid": false
   },
@@ -26932,7 +26923,7 @@
    "schedule": {
     "every": "5m",
     "timezone": "America/New_York",
-    "type": "daily",
+    "type": "weekly",
     "until": "2028-09-02T00:00:00",
     "window": {
      "from": "09:00",
@@ -27472,7 +27463,7 @@
      "fri"
     ],
     "start": "Mars/Olympus",
-    "type": "weekly",
+    "type": "yearly",
     "until": "2027-10-18T00:00:00"
    },
    "valid": false
@@ -27563,14 +27554,14 @@
   {
    "schedule": {
     "every": "90m",
-    "type": "monthly",
+    "type": "sensor",
     "until": "2029-03-26T00:00:00",
     "window": {
      "from": "00:00",
      "to": "17:45"
     }
    },
-   "valid": false
+   "valid": true
   },
   {
    "schedule": {
@@ -27647,19 +27638,21 @@
      "17:45"
     ],
     "day": 28,
-    "type": "hourly"
+    "type": "yearly"
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": "01:00",
-    "day": "last",
-    "every": 6,
-    "type": "daily",
-    "until": "2028-10-22T17:40:00"
+    "at": [
+     "04:22",
+     "23:30"
+    ],
+    "nth": "last",
+    "type": "monthly",
+    "weekday": "sun"
    },
-   "valid": false
+   "valid": true
   },
   {
    "schedule": {
@@ -27703,7 +27696,7 @@
     ],
     "nth": "last",
     "start": 32,
-    "type": "daily",
+    "type": "weekly",
     "weekday": "thu"
    },
    "valid": false
@@ -27837,10 +27830,10 @@
     ],
     "date": 2.5,
     "start": "2027-04-27T22:00:00",
-    "type": "interval",
+    "type": "daily",
     "until": "2028-02-09T22:00:00"
    },
-   "valid": false
+   "valid": true
   },
   {
    "schedule": {
@@ -28037,7 +28030,7 @@
     "every": "30m",
     "start": "2025-12-20T01:30:00",
     "timezone": "Asia/Kolkata",
-    "type": "hourly",
+    "type": "one_shot",
     "window": {
      "from": "23:30",
      "to": "01:30"
@@ -28047,41 +28040,46 @@
   },
   {
    "schedule": {
-    "at": "03:30",
-    "every": 3,
-    "nth": "last",
-    "start": "2027-11-12",
-    "timezone": "America/St_Johns",
+    "at": "2027-01-01T00:00:00Z",
+    "day": 31,
+    "start": "2027-04-22T09:40:00",
     "type": "monthly",
-    "weekday": "Mars/Olympus"
+    "until": "2029-02-20T09:40:00"
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": 2.0,
-    "day": "2027-01-01T25:00:00",
-    "timezone": "Europe/London",
-    "type": "weekly"
+    "at": [
+     "00:30",
+     "03:30",
+     "12:00",
+     "23:30"
+    ],
+    "date": "1.5h",
+    "days": [
+     "mon",
+     "tue",
+     "wed",
+     "thu",
+     "fri"
+    ],
+    "type": "yearly",
+    "until": "09:60"
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": "00:30",
-    "day": 28,
-    "type": "monthly",
-    "weekday": "first"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "03:00",
+    "at": [
+     "00:00",
+     "01:30",
+     "03:30"
+    ],
     "count": "0mo",
-    "day": "tue",
+    "day": 15,
     "timezone": "Pacific/Auckland",
-    "type": "weekly"
+    "type": "monthly"
    },
    "valid": false
   },
@@ -28210,7 +28208,7 @@
    "schedule": {
     "at": "01:30",
     "start": "america/new_york",
-    "type": "daily",
+    "type": "monthly",
     "until": "2027-06-18T00:00:00"
    },
    "valid": false
@@ -28327,7 +28325,7 @@
     "day": "fri",
     "start": "2027-12-21T08:35:00",
     "timezone": "Australia/Sydney",
-    "type": "daily"
+    "type": "weekly"
    },
    "valid": true
   },
@@ -28475,7 +28473,7 @@
     "date": "08-03",
     "days": "",
     "timezone": "Europe/Berlin",
-    "type": "daily"
+    "type": "weekly"
    },
    "valid": false
   },
@@ -28598,7 +28596,7 @@
     "at": "15:22",
     "day": 28,
     "timezone": "Funday",
-    "type": "monthly"
+    "type": "hourly"
    },
    "valid": false
   },
@@ -28734,7 +28732,7 @@
    "schedule": {
     "at": "07:33",
     "day": "wed",
-    "type": "daily"
+    "type": "weekly"
    },
    "valid": true
   },
@@ -29200,7 +29198,7 @@
     "at": "03:00",
     "date": "11-07",
     "timezone": "America/Santiago",
-    "type": "monthly"
+    "type": "hourly"
    },
    "valid": false
   },
@@ -29262,31 +29260,25 @@
   {
    "schedule": {
     "at": "01:30",
+    "date": "",
     "day": 28,
     "every": 6,
-    "start": "15",
+    "start": "2026-12-09",
     "timezone": "Pacific/Chatham",
-    "type": "hourly"
+    "type": "yearly"
    },
    "valid": false
   },
   {
    "schedule": {
+    "at": "23:30",
     "day": "1.5h",
-    "days": [
-     "wed",
-     "fri",
-     "sun"
-    ],
-    "every": "30m",
-    "type": "interval",
-    "until": "2029-02-27T00:00:00",
-    "window": {
-     "from": "23:30",
-     "to": "17:55"
-    }
+    "nth": "last",
+    "timezone": "Europe/Berlin",
+    "type": "monthly",
+    "weekday": "sun"
    },
-   "valid": true
+   "valid": false
   },
   {
    "schedule": {
@@ -29335,128 +29327,131 @@
     "every": 3,
     "start": "2027-07-15T16:00:00",
     "timezone": "Pacific/Chatham",
-    "type": "one_shot"
+    "type": "interval"
    },
-   "valid": false
+   "valid": true
   },
   {
    "schedule": {
-    "at": "00:00",
-    "type": "daily",
-    "until": "first"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": [
-     "03:30",
-     "14:06"
-    ],
-    "every": 12,
-    "nth": 2,
-    "start": "America/New_York",
-    "type": "monthly",
-    "weekday": "thu"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "America/New_York",
-    "day": 28,
-    "type": "monthly"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "count": "٠٩:٠٠",
-    "every": "5m",
-    "start": "2027-05-29T17:20:00",
+    "at": {
+     "from": "09:00",
+     "to": "09:00"
+    },
+    "date": 2,
+    "every": "3mo",
     "type": "interval",
     "window": {
-     "from": "01:00",
-     "to": "02:00"
+     "from": "09:00",
+     "to": "00:30"
     }
    },
-   "valid": false
+   "valid": true
   },
   {
    "schedule": {
     "at": [
-     "03:30",
-     "03:47",
-     "08:52",
+     "09:00",
+     "12:34",
+     "14:16",
      "23:59"
     ],
-    "count": "UTC",
+    "date": "08-03",
+    "type": "daily",
+    "until": "2028-02-15T00:00:00"
+   },
+   "valid": true
+  },
+  {
+   "schedule": {
+    "at": "06:31",
     "date": "03-14",
-    "start": "2026-07-31T12:00:00",
-    "timezone": "UTC",
-    "type": "yearly"
+    "days": [
+     "mon",
+     "tue",
+     "wed",
+     "fri",
+     "sat",
+     "sun"
+    ],
+    "start": "0mo",
+    "timezone": "America/Santiago",
+    "type": "yearly",
+    "until": "2027-11-05T00:00:00",
+    "weekday": "UTC"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "02:24",
+    "days": "24:00",
+    "nth": 3,
+    "start": "2026-11-13",
+    "timezone": [
+     "mon",
+     "xyz"
+    ],
+    "type": "monthly",
+    "weekday": "sun"
    },
    "valid": false
   },
   {
    "schedule": {
     "at": [
-     "00:00",
      "02:00",
-     "09:00",
      "17:45"
     ],
-    "date": "02-28",
-    "days": [
-     "mon",
-     "thu",
-     "fri",
-     "sat"
-    ],
-    "timezone": "America/St_Johns",
-    "type": "yearly"
-   },
-   "valid": true
-  },
-  {
-   "schedule": {
-    "at": "03:00",
-    "day": 29,
-    "type": "monthly"
-   },
-   "valid": true
-  },
-  {
-   "schedule": {
-    "at": "02:30",
-    "days": "1.5h",
-    "type": "daily"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "every": 90,
-    "timezone": "Pacific/Chatham",
-    "type": "interval",
-    "until": 15,
-    "weekday": 2.0,
-    "window": {
-     "from": "01:25",
-     "to": "17:45"
+    "start": "2027-05-06",
+    "timezone": "Australia/Sydney",
+    "type": "daily",
+    "until": {
+     "from": "09:00",
+     "to": "17:00"
     }
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": [
-     "01:30",
-     "05:11"
-    ],
+    "every": "2h",
+    "start": "2027-02-25T14:20:00",
+    "timezone": "UTC",
+    "type": "daily",
+    "window": {
+     "from": "02:30",
+     "to": "03:00"
+    }
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "09:00",
+    "day": "9:00",
+    "timezone": "America/Santiago",
+    "type": "monthly"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "01:27",
+    "date": "01-01",
+    "start": "2027-10-26T16:10:00",
+    "type": "yearly",
+    "until": 31
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "01:00",
     "day": "tue",
-    "every": 2,
-    "start": "2026-09-19",
+    "days": [
+     "tue",
+     "fri"
+    ],
     "timezone": "Asia/Tokyo",
     "type": "weekly",
     "until": "America/New_York"
@@ -29505,42 +29500,29 @@
     ],
     "date": "02-28",
     "timezone": "America/St_Johns",
-    "type": "one_shot"
-   },
-   "valid": true
-  },
-  {
-   "schedule": {
-    "at": "01:30",
-    "type": "weekly",
-    "until": "2029-04-20T00:00:00"
+    "type": "interval"
    },
    "valid": false
   },
   {
    "schedule": {
-    "every": "90m",
-    "type": "interval",
-    "until": "2029-06-13T00:00:00"
-   },
-   "valid": true
-  },
-  {
-   "schedule": {
-    "every": "3mo",
-    "start": "2026-09-27T01:25:00",
-    "type": "interval",
-    "until": {
-     "from": "09:00",
-     "to": "17:00"
-    }
+    "at": "08:49",
+    "day": 1,
+    "timezone": "first",
+    "type": "monthly",
+    "until": "2027-07-26T00:00:00"
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": "america/new_york",
-    "day": "fri",
+    "at": [
+     "02:30",
+     "15:40",
+     "21:32",
+     "23:59"
+    ],
+    "date": "03-14",
     "days": [
      "mon",
      "tue",
@@ -29549,21 +29531,40 @@
      "fri",
      "sun"
     ],
-    "every": 4,
-    "start": "2027-04-03",
-    "type": "weekly"
+    "type": "weekly",
+    "until": "2027-04-16T00:00:00"
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": "17:27",
-    "count": "24:00",
-    "day": 31,
-    "every": 12,
-    "start": "2027-05-26",
-    "timezone": "Asia/Kolkata",
-    "type": "monthly",
+    "date": "2027-01-01T25:00:00",
+    "every": "45",
+    "timezone": "Australia/Lord_Howe",
+    "type": "interval"
+   },
+   "valid": true
+  },
+  {
+   "schedule": {
+    "at": "11mo",
+    "date": "10-31",
+    "type": "yearly",
+    "weekday": 2
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "09:00",
+    "date": "01-01",
+    "days": [
+     "fri",
+     "sat",
+     "sun"
+    ],
+    "start": "2027-09-02T13:20:00",
+    "type": "yearly",
     "until": "Monday"
    },
    "valid": false
@@ -29595,37 +29596,32 @@
   },
   {
    "schedule": {
-    "at": "01:00",
+    "at": "Monday",
     "day": "tue",
-    "start": "2026-09-05T10:55:00",
-    "type": "one_shot"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "12:00",
-    "start": "2026-03-11T11:00:00",
-    "timezone": [
-     "09:00",
-     "17:00"
-    ],
-    "type": "daily"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "01:00",
-    "day": "UTC",
-    "days": [
-     "fri",
-     "sat"
-    ],
     "every": 3,
-    "start": "2026-12-15",
+    "start": "2026-09-05T10:55:00",
+    "type": "weekly"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "days": [
+     "sun"
+    ],
+    "every": "15m",
+    "nth": -1,
     "timezone": "UTC",
     "type": "weekly"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "09:00",
+    "day": "UTC",
+    "type": "monthly",
+    "until": "2027-01-07T00:00:00"
    },
    "valid": false
   },
@@ -29688,21 +29684,22 @@
     "every": "3h",
     "start": "2026-06-04T12:10:00",
     "timezone": "0mo",
-    "type": "yearly",
+    "type": "one_shot",
     "until": "2027-06-18T12:10:00"
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": "03:30",
+    "at": [
+     "00:00",
+     "00:30",
+     "09:00",
+     "23:59"
+    ],
     "day": null,
     "days": 15,
-    "every": 6,
-    "nth": 4,
-    "start": "2028-01-14",
-    "type": "monthly",
-    "weekday": "tue"
+    "type": "daily"
    },
    "valid": false
   },
@@ -29783,9 +29780,9 @@
      "thu"
     ],
     "start": "2027-06-04T19:15:00",
-    "type": "daily"
+    "type": "monthly"
    },
-   "valid": true
+   "valid": false
   },
   {
    "schedule": {
@@ -29975,73 +29972,90 @@
     "day": "sun",
     "every": 3,
     "start": "2027-03-14T14:20:00",
-    "type": "one_shot"
+    "type": "sensor"
+   },
+   "valid": true
+  },
+  {
+   "schedule": {
+    "at": "02:00",
+    "days": [
+     "mon",
+     "wed",
+     "fri",
+     "sat"
+    ],
+    "timezone": "Europe/London",
+    "type": "daily"
+   },
+   "valid": true
+  },
+  {
+   "schedule": {
+    "day": [
+     "mon"
+    ],
+    "days": [
+     "sat",
+     "sun"
+    ],
+    "every": "90m",
+    "timezone": "America/New_York",
+    "type": "interval",
+    "weekday": "2027-01-01T00:00:00+05:30"
    },
    "valid": false
   },
   {
    "schedule": {
     "every": 90,
-    "timezone": "America/Santiago",
+    "start": "2026-11-06T23:05:00",
+    "timezone": "Pacific/Auckland",
     "type": "interval",
-    "until": [
-     "mon",
-     "xyz"
+    "weekday": [
+     "09:00",
+     "09:00"
     ]
    },
    "valid": false
   },
   {
    "schedule": {
-    "date": "08-03",
-    "every": "45",
-    "timezone": "UTC",
+    "count": "",
+    "every": "90m",
+    "start": 32,
     "type": "interval",
-    "window": false
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": [
-     "11:58",
-     "12:00"
-    ],
-    "timezone": "11mo",
-    "type": "daily",
-    "until": "24:00"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "17:45",
-    "day": "thu",
-    "start": 2.0,
-    "timezone": "Pacific/Chatham",
-    "type": "weekly",
-    "until": "2028-01-30T00:00:00"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "every": "12mo",
-    "start": {
+    "window": {
      "from": "09:00",
-     "to": "17:00"
-    },
+     "to": "17:45"
+    }
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "days": [
+     "mon",
+     "tue",
+     "thu",
+     "sun"
+    ],
+    "every": [
+     "09:00",
+     "17:00"
+    ],
+    "timezone": "America/Santiago",
     "type": "interval",
-    "window": 2.5
+    "window": 15
    },
    "valid": false
   },
   {
    "schedule": {
     "at": 2.5,
-    "date": "12-31",
     "days": "last",
-    "type": "yearly"
+    "every": 90,
+    "type": "interval"
    },
    "valid": false
   },
@@ -30179,7 +30193,7 @@
      "mon"
     ],
     "timezone": "Europe/Berlin",
-    "type": "interval"
+    "type": "daily"
    },
    "valid": false
   },
@@ -30214,9 +30228,9 @@
   {
    "schedule": {
     "at": "17:45",
+    "every": "24:00",
     "timezone": "America/Santiago",
-    "type": "yearly",
-    "weekday": "24:00"
+    "type": "hourly"
    },
    "valid": false
   },
@@ -30289,9 +30303,9 @@
      "sun"
     ],
     "timezone": "UTC",
-    "type": "yearly"
+    "type": "one_shot"
    },
-   "valid": false
+   "valid": true
   },
   {
    "schedule": {
@@ -30393,210 +30407,115 @@
    "schedule": {
     "every": 15,
     "start": "2027-02-24T03:05:00",
-    "type": "hourly",
+    "type": "interval",
     "window": {
      "from": "12:00",
      "to": "17:45"
     }
    },
-   "valid": false
+   "valid": true
   },
   {
    "schedule": {
     "at": "03:00",
-    "start": "2026-02-06T09:15:00",
-    "timezone": "Pacific/Auckland",
-    "type": "daily"
-   },
-   "valid": true
-  },
-  {
-   "schedule": {
-    "at": "01:30",
-    "count": {
-     "from": "09:00",
-     "to": "17:00"
-    },
-    "timezone": "Europe/Berlin",
-    "type": "daily"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "09:00",
-    "day": 29,
-    "days": [
-     "mon",
-     "tue",
-     "thu",
-     "sun"
-    ],
-    "type": "monthly",
-    "until": []
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "23:30",
-    "type": "daily"
-   },
-   "valid": true
-  },
-  {
-   "schedule": {
-    "every": "1d",
-    "start": "2027-11-30",
-    "type": "hourly",
-    "until": "24:00"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "2027-01-01",
-    "date": "02-28",
-    "start": "2027-10-07",
-    "timezone": "Europe/London",
-    "type": "yearly"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "00:00",
     "day": 1,
-    "days": 2.5,
-    "every": 12,
-    "start": "2026-03-12T23:40:00",
+    "every": 31,
+    "start": "2027-10-22",
+    "timezone": "2027-01-01T00:00:00+05:30",
     "type": "monthly"
    },
    "valid": false
   },
   {
    "schedule": {
-    "days": [
-     "mon",
-     "tue",
-     "wed",
-     "thu",
-     "fri",
-     "sat"
-    ],
-    "timezone": "Pacific/Chatham",
-    "type": "interval",
-    "window": {
-     "from": "09:00",
-     "to": "15:37"
-    }
+    "at": "16:53",
+    "nth": "08-03",
+    "timezone": "Asia/Kolkata",
+    "type": "monthly",
+    "weekday": "sun"
    },
    "valid": false
   },
   {
    "schedule": {
-    "days": [
-     "mon",
-     "fri",
-     "sat"
-    ],
-    "every": "3h",
-    "start": "2026-01-14T08:25:00",
+    "at": "00:00",
+    "date": "12-31",
+    "every": "America/New_York",
+    "timezone": "Pacific/Chatham",
+    "type": "yearly",
+    "until": "2027-07-14T00:00:00"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "00:00",
+    "date": "03-14",
+    "timezone": 15,
+    "type": "monthly"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "every": "Funday",
     "type": "interval"
    },
-   "valid": true
-  },
-  {
-   "schedule": {
-    "days": [
-     "sun"
-    ],
-    "every": "7d",
-    "start": "2027-01-31T22:05:00",
-    "timezone": "٠٩:٠٠",
-    "type": "interval",
-    "until": "2028-07-19T22:05:00",
-    "window": {
-     "from": "01:00",
-     "to": "21:49"
-    }
-   },
    "valid": false
   },
   {
    "schedule": {
-    "type": "daily"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "05:50",
-    "count": [],
+    "at": "09:14",
     "days": [
+     "mon",
      "tue",
-     "wed",
-     "thu",
-     "fri",
-     "sat",
-     "sun"
-    ],
-    "timezone": "America/Santiago",
-    "type": "daily"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "02:00",
-    "day": "america/new_york",
-    "days": [
      "wed",
      "thu",
      "sat"
     ],
-    "every": "2027-01-01T00:00:00Z",
-    "start": "2027-07-09T14:50:00",
-    "type": "daily"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "every": "5m",
-    "start": "2026-01-19T12:20:00",
-    "timezone": "mon",
-    "type": "interval",
-    "window": {
-     "from": "23:30",
-     "to": "03:00"
-    }
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "12:34",
+    "start": "2027-03-16T06:20:00",
     "type": "yearly"
    },
    "valid": false
   },
   {
    "schedule": {
-    "timezone": "Australia/Sydney",
-    "type": "interval"
+    "at": "23:30",
+    "day": "11mo",
+    "every": 4,
+    "start": "2026-06-26",
+    "timezone": "Europe/London",
+    "type": "weekly",
+    "window": "2027-01-01T00:00:00Z"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "every": 15,
+    "timezone": "America/New_York",
+    "type": "monthly",
+    "window": {
+     "from": "03:40",
+     "to": "23:59"
+    }
    },
    "valid": false
   },
   {
    "schedule": {
     "at": [
-     "01:30",
-     "03:26",
-     "03:30",
-     "23:30"
+     "02:00",
+     "23:59"
     ],
-    "nth": "america/new_york",
+    "days": 2,
+    "every": 2,
+    "nth": 1,
+    "start": "2026-12-10T21:50:00",
+    "timezone": {
+     "from": "09:00",
+     "to": "17:00"
+    },
     "type": "monthly",
     "weekday": "sat"
    },
@@ -30605,27 +30524,119 @@
   {
    "schedule": {
     "at": [
-     "02:00",
-     "02:30",
-     "03:00",
-     "16:50"
+     "00:50",
+     "09:00",
+     "16:30"
     ],
-    "timezone": 2.5,
-    "type": "daily"
+    "date": "02-28",
+    "timezone": "last",
+    "type": "yearly",
+    "until": "2028-01-13T00:00:00",
+    "weekday": []
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": "11:50",
+    "at": "12:07",
+    "count": [
+     "mon"
+    ],
+    "date": "01-01",
+    "type": "yearly"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": [
+     "03:30",
+     "09:00",
+     "23:59"
+    ],
+    "day": "thu",
+    "timezone": "Asia/Kolkata",
+    "type": "weekly",
+    "until": "2029-05-27T00:00:00",
+    "window": []
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "days": [
+     "tue",
+     "thu",
+     "fri",
+     "sun"
+    ],
+    "every": 15,
+    "timezone": "UTC",
+    "type": "interval"
+   },
+   "valid": true
+  },
+  {
+   "schedule": {
+    "at": "03:00",
+    "day": "mon",
+    "timezone": "Australia/Lord_Howe",
+    "type": "one_shot"
+   },
+   "valid": true
+  },
+  {
+   "schedule": {
+    "at": "12:00",
     "day": 28,
+    "every": 6,
+    "start": "2027-12-10",
+    "timezone": "Asia/Kolkata",
+    "type": "interval"
+   },
+   "valid": true
+  },
+  {
+   "schedule": {
+    "at": "15:28",
+    "timezone": 15,
+    "type": "daily",
+    "window": "0mo"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "01:00",
+    "days": [
+     "mon"
+    ],
+    "type": "daily",
+    "window": 2
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "00:00",
+    "date": "11-07",
+    "days": [
+     "mon"
+    ],
+    "timezone": "Asia/Tokyo",
+    "type": "yearly"
+   },
+   "valid": true
+  },
+  {
+   "schedule": {
+    "at": "06:32",
     "days": {
      "from": "09:00",
      "to": "17:00"
     },
-    "start": "2027-08-07",
     "timezone": "Asia/Kolkata",
-    "type": "monthly"
+    "type": "daily"
    },
    "valid": false
   },
@@ -30657,7 +30668,7 @@
    "schedule": {
     "every": "2d",
     "timezone": "Europe/Berlin",
-    "type": "daily",
+    "type": "monthly",
     "window": {
      "from": "01:30",
      "to": "12:00"
@@ -31017,19 +31028,23 @@
      "fri",
      "sun"
     ],
-    "nth": "11mo",
-    "type": "hourly"
+    "type": "sensor",
+    "window": "2027-01-01T00:00:00+05:30"
    },
-   "valid": false
+   "valid": true
   },
   {
    "schedule": {
-    "at": "13:57",
-    "day": "last",
-    "every": 0,
-    "type": "monthly"
+    "at": [
+     "00:23",
+     "19:55",
+     "19:57"
+    ],
+    "date": "02-28",
+    "timezone": "Pacific/Auckland",
+    "type": "yearly"
    },
-   "valid": false
+   "valid": true
   },
   {
    "schedule": {
@@ -31312,7 +31327,7 @@
   {
    "schedule": {
     "every": 15,
-    "type": "weekly",
+    "type": "one_shot",
     "until": "Monday",
     "window": {
      "from": "19:08",
@@ -31346,7 +31361,7 @@
     ],
     "date": "11-07",
     "timezone": "Pacific/Chatham",
-    "type": "hourly",
+    "type": "one_shot",
     "until": "Funday"
    },
    "valid": false
@@ -31354,133 +31369,139 @@
   {
    "schedule": {
     "at": [
-     "00:00",
-     "03:30",
-     "09:00",
-     "23:59"
+     "00:38",
+     "11:26",
+     "13:59",
+     "17:04"
     ],
-    "day": 2,
-    "type": "one_shot"
+    "every": "america/new_york",
+    "nth": "last",
+    "timezone": "Pacific/Auckland",
+    "type": "monthly",
+    "weekday": "sat"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "23:30",
+    "days": [
+     "mon",
+     "tue",
+     "wed",
+     "thu",
+     "fri",
+     "sat"
+    ],
+    "nth": 2,
+    "start": "2027-10-14",
+    "type": "monthly",
+    "weekday": 2
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "00:40",
+    "date": "2027-01-01T00:00:00Z",
+    "day": "thu",
+    "every": 3,
+    "start": "2025-12-14T06:00:00",
+    "timezone": "Pacific/Auckland",
+    "type": "weekly",
+    "until": "2027-10-22T06:00:00"
    },
    "valid": true
   },
   {
    "schedule": {
-    "every": 15,
-    "start": "2027-11-18",
-    "timezone": "Europe/London",
-    "type": "monthly",
-    "until": "2029-01-30T00:00:00",
-    "window": {
-     "from": "17:45",
-     "to": "00:17"
-    }
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": [
-     "01:00",
-     "05:10",
-     "13:47",
-     "18:08"
-    ],
-    "day": "mon",
-    "start": "2027-02-21",
-    "timezone": "UTC",
-    "type": "weekly",
-    "until": "Funday"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": null,
-    "nth": "last",
-    "start": "2026-01-15T05:30:00",
-    "timezone": "Europe/Berlin",
-    "type": "monthly",
-    "weekday": "thu"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": 15,
-    "date": "08-03",
-    "start": "2027-10-10T02:45:00",
+    "at": "23:30",
+    "date": "10-20",
+    "start": "2027-02-30",
+    "timezone": "America/New_York",
     "type": "yearly"
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": 2,
-    "days": "09:00",
-    "type": "daily"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "12:00",
-    "every": 3,
-    "nth": "last",
-    "start": "2027-10-10T19:05:00",
-    "type": "monthly",
-    "weekday": "America/New_York"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": [
-     "00:00",
-     "17:45",
-     "23:50"
-    ],
-    "every": "last",
-    "timezone": "Pacific/Chatham",
-    "type": "hourly"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": [
-     "00:56",
-     "13:18",
-     "17:45"
-    ],
+    "at": "05:02",
+    "day": "wed",
     "days": [
-     "mon",
+     "tue",
      "wed",
      "thu",
      "fri",
-     "sun"
+     "sat"
     ],
-    "nth": "2027-01-01",
-    "start": "2027-03-31",
-    "type": "daily"
+    "every": 4,
+    "start": "15",
+    "timezone": "Pacific/Auckland",
+    "type": "weekly"
    },
    "valid": false
   },
   {
    "schedule": {
-    "every": 32,
-    "type": "interval",
+    "every": "45",
+    "type": "one_shot",
+    "weekday": [
+     "mon",
+     "xyz"
+    ],
     "window": {
-     "from": "02:11",
-     "to": "20:47"
+     "from": "00:30",
+     "to": "18:01"
     }
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "23:59",
+    "count": null,
+    "date": "9:00",
+    "day": 28,
+    "start": "2027-07-27",
+    "type": "monthly"
    },
    "valid": true
   },
   {
    "schedule": {
-    "every": "1d",
-    "timezone": "Europe/Berlin",
+    "at": "00:00",
+    "day": "sun",
+    "every": 3,
+    "start": "2027-03-05T02:20:00",
+    "timezone": "2027-02-30",
+    "type": "weekly"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "08:13",
+    "day": 29,
+    "every": 12,
+    "start": "2027-01-28",
+    "timezone": "٠٩:٠٠",
+    "type": "monthly"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "08-03",
+    "count": "0mo",
+    "timezone": "Pacific/Auckland",
+    "type": "daily"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "every": "٠٩:٠٠",
+    "start": "2026-10-09T05:35:00",
     "type": "interval",
     "weekday": "2027-01-01T00:00:00Z"
    },
@@ -31515,7 +31536,7 @@
    "schedule": {
     "at": "03:00",
     "count": "٠٩:٠٠",
-    "type": "daily"
+    "type": "weekly"
    },
    "valid": false
   },
@@ -32073,15 +32094,17 @@
   },
   {
    "schedule": {
-    "at": [
-     "02:30",
-     "03:00",
-     "04:38"
-    ],
     "day": "Monday",
-    "type": "monthly"
+    "days": [
+     "thu",
+     "fri"
+    ],
+    "every": "3mo",
+    "start": "2027-01-09T05:50:00",
+    "timezone": "Australia/Sydney",
+    "type": "interval"
    },
-   "valid": false
+   "valid": true
   },
   {
    "schedule": {
@@ -32118,78 +32141,71 @@
   {
    "schedule": {
     "at": "22:53",
+    "type": "sensor"
+   },
+   "valid": true
+  },
+  {
+   "schedule": {
+    "count": "1.5h",
+    "every": "90m",
+    "start": "2027-06-28",
+    "type": "daily"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "2027-02-30",
+    "every": 15,
+    "start": "2026-12-28T03:50:00",
+    "type": "interval",
+    "until": "2028-02-13T03:50:00"
+   },
+   "valid": true
+  },
+  {
+   "schedule": {
+    "at": "01:30",
+    "date": "٠٩:٠٠",
+    "timezone": "0mo",
     "type": "yearly"
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": [
-     "00:00",
-     "09:00"
-    ],
-    "date": "02-28",
-    "days": [
-     "mon",
-     "tue",
-     "wed",
-     "thu",
-     "fri",
-     "sat"
-    ],
-    "timezone": "America/St_Johns",
-    "type": "yearly",
-    "until": [
-     "09:00",
-     "09:00"
-    ]
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "15:27",
-    "day": "thu",
-    "every": 2,
-    "start": "2026-08-05",
-    "timezone": "Australia/Lord_Howe",
-    "type": "weekly",
-    "until": "Monday"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": 2.0,
     "days": [
      "tue",
      "wed",
      "thu",
      "sun"
     ],
-    "every": "90m",
-    "timezone": "Asia/Tokyo",
-    "type": "interval",
-    "weekday": [],
-    "window": {
-     "from": "19:15",
-     "to": "09:00"
-    }
+    "every": 15,
+    "start": "24:00",
+    "type": "interval"
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": "01:00",
-    "day": "mon",
+    "at": "02:00",
+    "day": "last",
+    "days": [
+     "mon",
+     "tue",
+     "thu",
+     "fri",
+     "sat",
+     "sun"
+    ],
     "every": {
      "from": "09:00",
      "to": "17:00"
     },
-    "start": "2027-01-01T00:00:00+05:30",
-    "timezone": "America/New_York",
-    "type": "weekly",
-    "until": "2027-03-04T05:50:00"
+    "start": "2026-10-05",
+    "type": "monthly",
+    "until": "2028-03-12T00:00:00"
    },
    "valid": false
   },
@@ -32898,7 +32914,7 @@
      "sun"
     ],
     "timezone": "America/Santiago",
-    "type": "monthly"
+    "type": "hourly"
    },
    "valid": false
   },
@@ -32910,9 +32926,9 @@
     ],
     "date": "01-01",
     "timezone": "Pacific/Chatham",
-    "type": "weekly"
+    "type": "one_shot"
    },
-   "valid": false
+   "valid": true
   },
   {
    "schedule": {
@@ -33364,161 +33380,17 @@
    "schedule": {
     "at": "09:55",
     "date": "10-31",
-    "type": "one_shot"
+    "type": "sensor"
    },
    "valid": true
   },
   {
    "schedule": {
-    "at": [
-     "03:00",
-     "17:45",
-     "23:30",
-     "23:59"
-    ],
-    "date": "0mo",
-    "timezone": "Europe/Berlin",
-    "type": "yearly"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "02:30",
-    "date": null,
-    "days": [
-     "09:00",
-     "09:00"
-    ],
-    "timezone": "UTC",
-    "type": "daily"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "every": "1h",
-    "type": "weekly"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "date": "11mo",
-    "every": "11mo",
-    "start": "2026-12-20T18:00:00",
-    "timezone": {
-     "from": "09:00",
-     "to": "09:00"
-    },
-    "type": "interval"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "date": "24:00",
-    "every": "11mo",
-    "timezone": "Pacific/Chatham",
-    "type": "interval"
-   },
-   "valid": true
-  },
-  {
-   "schedule": {
-    "every": "12mo",
-    "start": "2027-06-17",
-    "timezone": true,
-    "type": "interval",
-    "until": "2027-10-25T00:00:00"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "09:28",
-    "date": 32,
-    "day": "tue",
-    "every": 3,
-    "start": "2026-05-22",
-    "type": "weekly"
-   },
-   "valid": true
-  },
-  {
-   "schedule": {
-    "days": [
-     "mon",
-     "wed",
-     "thu",
-     "fri"
-    ],
-    "every": "mon",
-    "start": "2025-12-26T15:10:00",
-    "timezone": "Europe/London",
-    "type": "yearly"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "date": "15",
-    "every": "45",
-    "start": "2026-02-18T09:20:00",
-    "timezone": "Europe/London"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": [
-     "00:00",
-     "01:00",
-     "23:30"
-    ],
-    "date": "09:00",
-    "day": 29,
-    "every": 2,
-    "start": "2026-05-26",
-    "type": "monthly"
-   },
-   "valid": true
-  },
-  {
-   "schedule": {
-    "every": "11mo",
-    "start": [
-     "mon",
-     "xyz"
-    ],
-    "timezone": "Pacific/Chatham",
-    "type": "interval"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": [
-     "01:00",
-     "01:30"
-    ],
-    "date": "12-31",
-    "nth": "2027-01-01T00:00:00+05:30",
-    "type": "yearly"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "days": [
-     "09:00",
-     "17:00"
-    ],
-    "every": "45",
-    "start": "2026-12-23T17:55:00",
+    "every": "02-29",
+    "start": "2027-02-01T10:20:00",
     "type": "interval",
     "window": {
-     "from": "14:24",
+     "from": "07:48",
      "to": "17:45"
     }
    },
@@ -33526,24 +33398,18 @@
   },
   {
    "schedule": {
-    "at": [
-     "02:00",
-     "17:45"
+    "days": [
+     "tue",
+     "wed",
+     "thu",
+     "sun"
     ],
-    "day": "tue",
-    "timezone": "Australia/Lord_Howe",
-    "type": "weekly"
-   },
-   "valid": true
-  },
-  {
-   "schedule": {
-    "every": "mon",
-    "start": "2027-06-07T09:45:00",
-    "timezone": "Australia/Sydney",
-    "type": "interval",
+    "every": "30m",
+    "start": "2026-02-23T03:15:00",
+    "timezone": "America/St_Johns",
+    "type": "yearly",
     "window": {
-     "from": "05:41",
+     "from": "01:00",
      "to": "23:59"
     }
    },
@@ -33551,9 +33417,164 @@
   },
   {
    "schedule": {
-    "every": "11mo",
-    "nth": 2,
+    "at": "20:42",
+    "day": 31,
+    "every": 32,
+    "nth": "2027-01-01T25:00:00",
+    "start": "2027-06-14",
+    "timezone": "Australia/Lord_Howe",
+    "type": "monthly"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "every": "24:00",
+    "start": "2026-11-10T01:10:00",
+    "timezone": "Pacific/Auckland",
+    "type": "interval",
+    "until": "2029-01-02T01:10:00",
+    "window": {
+     "from": "12:39",
+     "to": "00:30"
+    }
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "first",
+    "days": [
+     "tue",
+     "thu",
+     "sun"
+    ],
+    "every": "30m",
+    "start": "2027-08-11T09:30:00",
+    "timezone": "Pacific/Chatham",
     "type": "interval"
+   },
+   "valid": true
+  },
+  {
+   "schedule": {
+    "at": [
+     "00:00",
+     "04:20",
+     "06:40",
+     "11:30"
+    ],
+    "every": 12,
+    "nth": 3,
+    "start": "2026-10-04T02:30:00",
+    "timezone": "Pacific/Chatham",
+    "type": "monthly",
+    "until": "2027-01-01T00:00:00+05:30",
+    "weekday": "sun"
+   },
+   "valid": true
+  },
+  {
+   "schedule": {
+    "count": "",
+    "every": "12mo",
+    "start": "2026-07-10T20:35:00",
+    "timezone": "Pacific/Chatham",
+    "type": "monthly",
+    "until": "2027-01-02T20:35:00"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": [
+     "00:00",
+     "23:30"
+    ],
+    "date": "12-31",
+    "days": [
+     "mon",
+     "wed",
+     "thu",
+     "fri",
+     "sat",
+     "sun"
+    ],
+    "start": "2026-02-02T07:30:00",
+    "timezone": "UTC",
+    "type": "sensor"
+   },
+   "valid": true
+  },
+  {
+   "schedule": {
+    "at": [
+     "01:00",
+     "03:30",
+     "09:00"
+    ],
+    "day": "thu",
+    "start": "America/New_York",
+    "type": "weekly"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "days": [
+     "wed",
+     "fri",
+     "sat",
+     "sun"
+    ],
+    "every": "6mo",
+    "nth": "08-03",
+    "type": "sensor",
+    "window": {
+     "from": "23:59",
+     "to": "03:00"
+    }
+   },
+   "valid": true
+  },
+  {
+   "schedule": {
+    "at": "00:30",
+    "date": "02-28",
+    "days": 15,
+    "type": "yearly"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "every": "1d",
+    "start": "2026-10-06T07:00:00",
+    "timezone": "America/St_Johns",
+    "type": "interval",
+    "weekday": "15"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "12:00",
+    "day": "sun",
+    "every": 4,
+    "nth": "2027-02-30",
+    "start": "2026-05-09T01:30:00",
+    "type": "weekly"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": [
+     "01:00",
+     "09:42"
+    ],
+    "nth": 2,
+    "type": "daily"
    },
    "valid": false
   },
@@ -33773,7 +33794,7 @@
     "every": 4,
     "start": "2027-12-07T02:10:00",
     "timezone": "Australia/Lord_Howe",
-    "type": "one_shot",
+    "type": "hourly",
     "until": [
      "mon"
     ]
@@ -33782,56 +33803,68 @@
   },
   {
    "schedule": {
-    "at": [
-     "02:30",
-     "02:55",
-     "04:02",
-     "06:35"
+    "every": "7d",
+    "start": "2027-06-03T05:40:00",
+    "type": "hourly",
+    "until": "2029-09-21T05:40:00"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "14:36",
+    "days": [
+     "tue"
     ],
-    "date": "05-18",
-    "start": 31,
-    "type": "yearly"
+    "timezone": "America/St_Johns",
+    "type": "interval",
+    "until": "2027-10-20T00:00:00"
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": "03:00",
-    "start": "2027-11-27T00:55:00",
-    "timezone": "Asia/Tokyo",
-    "type": "daily",
-    "until": "24:00"
+    "at": "17:45",
+    "day": {
+     "from": "09:00",
+     "to": "09:00"
+    },
+    "type": "monthly",
+    "until": "2028-04-11T00:00:00"
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": 2.5,
-    "date": "08-03",
-    "timezone": "Pacific/Chatham",
-    "type": "monthly"
+    "at": "12:28",
+    "start": [],
+    "type": "daily"
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": [
-     "06:13",
-     "12:00",
-     "14:43"
-    ],
-    "date": "12-31",
-    "type": "yearly",
-    "weekday": null
+    "at": 32,
+    "day": 2.5,
+    "every": 4,
+    "start": "2028-01-27T22:35:00",
+    "timezone": "Australia/Sydney",
+    "type": "weekly"
    },
-   "valid": true
+   "valid": false
   },
   {
    "schedule": {
     "at": "",
-    "day": 29,
-    "timezone": "America/New_York",
-    "type": "monthly"
+    "date": "11-07",
+    "days": [
+     "mon",
+     "wed",
+     "fri",
+     "sat"
+    ],
+    "type": "yearly",
+    "window": -1
    },
    "valid": false
   },
@@ -34482,10 +34515,10 @@
     ],
     "every": 3,
     "start": "2027-07-28T13:55:00",
-    "type": "monthly",
+    "type": "sensor",
     "until": "2028-08-02T13:55:00"
    },
-   "valid": false
+   "valid": true
   },
   {
    "schedule": {
@@ -34522,98 +34555,105 @@
    "schedule": {
     "at": "23:30",
     "timezone": "Pacific/Auckland",
-    "type": "hourly"
+    "type": "one_shot"
    },
-   "valid": false
+   "valid": true
   },
   {
    "schedule": {
-    "at": [
-     "02:00",
-     "02:30",
-     "12:00",
-     "23:59"
-    ],
-    "day": 30,
-    "every": 3,
-    "start": "2027-01-11",
-    "timezone": "UTC",
-    "type": "daily",
-    "window": null
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": [
-     "00:00",
-     "01:00",
-     "15:56"
-    ],
-    "date": "08-03",
-    "every": "first",
-    "type": "yearly",
-    "until": "2027-09-07T00:00:00"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": [
+    "at": "00:00",
+    "day": 29,
+    "days": [
      "mon",
-     "xyz"
+     "tue",
+     "thu",
+     "fri"
     ],
-    "day": "last",
+    "timezone": "America/Santiago"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "days": "9:00",
+    "every": "1d",
+    "timezone": "2027-02-30",
+    "type": "interval"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "01:00",
+    "day": 1,
+    "days": [
+     "mon",
+     "wed",
+     "sun"
+    ],
+    "start": "2026-08-02T19:50:00",
+    "timezone": [
+     "mon"
+    ],
     "type": "monthly"
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": "02:30",
-    "day": 1,
-    "every": 3,
+    "at": [
+     "03:35",
+     "09:00",
+     "09:38"
+    ],
+    "every": 2,
+    "nth": 1,
     "start": false,
     "type": "monthly",
-    "window": 1
+    "weekday": "wed",
+    "window": null
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": [
-     "03:30",
-     "05:39"
+    "every": 15,
+    "start": "2027-09-20T00:05:00",
+    "timezone": "Europe/London",
+    "type": "interval"
+   },
+   "valid": true
+  },
+  {
+   "schedule": {
+    "date": "1.5h",
+    "days": [
+     "thu",
+     "fri",
+     "sat",
+     "sun"
     ],
-    "date": "11-07",
-    "start": 2.0,
-    "timezone": "9:00",
-    "type": "yearly",
-    "until": "2029-02-12T00:00:00"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "23:59",
-    "date": "12-31",
-    "timezone": "UTC",
-    "type": "yearly",
-    "window": "02-29"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": [
-     "00:37",
-     "01:00",
-     "19:53"
+    "every": 15,
+    "start": [
+     "09:00",
+     "17:00"
     ],
-    "date": "02-28",
-    "start": "2027-02-22T12:55:00",
+    "timezone": "America/Santiago",
+    "type": "interval",
+    "window": {
+     "from": "01:30",
+     "to": "00:30"
+    }
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "01:00",
+    "day": false,
+    "start": "2026-03-05T04:45:00",
     "timezone": "08-03",
-    "type": "yearly"
+    "type": "daily"
    },
    "valid": false
   },
@@ -34649,33 +34689,34 @@
     "every": "12mo",
     "start": "2026-01-05T04:05:00",
     "timezone": 2.0,
-    "type": "hourly"
+    "type": "interval"
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": "america/new_york",
-    "start": 2.5,
-    "timezone": "America/New_York",
-    "type": "daily"
+    "at": "00:00",
+    "date": "03-14",
+    "every": "UTC",
+    "start": "2027-01-13",
+    "type": "yearly"
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": [
-     "00:30",
-     "03:00",
-     "09:00"
-    ],
+    "at": "00:00",
     "count": "",
-    "day": "tue",
-    "every": 3,
-    "start": "2026-05-28T11:35:00",
-    "timezone": "Asia/Kolkata",
-    "type": "weekly",
-    "until": "Mars/Olympus"
+    "date": "10-31",
+    "days": [
+     "tue",
+     "wed",
+     "sat",
+     "sun"
+    ],
+    "nth": "Mars/Olympus",
+    "timezone": "Australia/Lord_Howe",
+    "type": "yearly"
    },
    "valid": false
   },
@@ -34908,32 +34949,32 @@
     "at": "23:59",
     "day": "sun",
     "timezone": "Australia/Sydney",
-    "type": "weekly",
+    "type": "yearly",
     "until": "2027-11-21T00:00:00"
    },
-   "valid": true
+   "valid": false
   },
   {
    "schedule": {
     "every": "25h",
     "start": "2026-06-16T18:30:00",
-    "type": "monthly",
+    "type": "sensor",
     "window": {
      "from": "00:30",
      "to": "03:00"
     }
    },
-   "valid": false
+   "valid": true
   },
   {
    "schedule": {
     "at": "09:00",
     "date": "9:00",
     "day": "fri",
-    "type": "weekly",
+    "type": "yearly",
     "until": "2029-01-03T00:00:00"
    },
-   "valid": true
+   "valid": false
   },
   {
    "schedule": {
@@ -35395,7 +35436,7 @@
     "every": "45",
     "nth": "15",
     "start": "2027-08-26",
-    "type": "interval",
+    "type": "daily",
     "until": "2029-06-09T00:00:00"
    },
    "valid": false
@@ -35545,118 +35586,123 @@
     "every": 3,
     "start": "2026-07-15T16:20:00",
     "timezone": "UTC",
-    "type": "one_shot"
+    "type": "daily"
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": "17:45",
-    "days": {
+    "at": "08:23",
+    "start": "2026-12-04T14:10:00",
+    "type": "daily",
+    "weekday": []
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": {
      "from": "09:00",
      "to": "09:00"
     },
-    "type": "daily",
-    "until": "2027-01-01"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "17:45",
-    "day": 30,
-    "start": "2026-10-21T09:45:00",
-    "timezone": "UTC",
-    "type": "one_shot",
-    "weekday": "2027-01-01T25:00:00"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "07:52",
-    "nth": 1,
-    "timezone": "Asia/Tokyo",
-    "type": "monthly",
-    "weekday": "tue"
-   },
-   "valid": true
-  },
-  {
-   "schedule": {
-    "at": "01:00",
-    "count": -1,
-    "day": 28,
-    "type": "monthly"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": [
-     "03:00",
-     "08:12",
-     "23:30"
-    ],
-    "date": "02-09",
-    "nth": [],
-    "timezone": "America/St_Johns",
-    "type": "hourly"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "01:30",
-    "count": [
+    "date": "01-01",
+    "days": [
      "mon",
-     "xyz"
+     "thu",
+     "fri",
+     "sat",
+     "sun"
     ],
-    "day": "mon",
-    "timezone": "America/St_Johns",
-    "type": "weekly"
+    "start": "",
+    "timezone": "Australia/Sydney",
+    "type": "yearly"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "00:14",
+    "type": "daily",
+    "weekday": 2
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": {
+     "from": "09:00",
+     "to": "17:00"
+    },
+    "timezone": "Asia/Tokyo",
+    "type": "daily",
+    "weekday": "Monday"
    },
    "valid": false
   },
   {
    "schedule": {
     "days": [
-     "thu",
-     "fri",
      "sun"
     ],
-    "every": "2027-01-01T25:00:00",
-    "start": "2026-12-19T19:30:00",
-    "type": "interval"
+    "every": "15m",
+    "start": "2027-06-28T20:40:00",
+    "timezone": "America/New_York",
+    "type": "interval",
+    "window": "2027-02-30"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "12:13",
+    "date": "01-01",
+    "type": "sensor",
+    "until": "2027-09-16T00:00:00"
+   },
+   "valid": true
+  },
+  {
+   "schedule": {
+    "at": "09:00",
+    "date": [
+     "mon",
+     "xyz"
+    ],
+    "days": "02-29",
+    "timezone": "America/St_Johns",
+    "type": "yearly"
    },
    "valid": false
   },
   {
    "schedule": {
     "at": [
-     "04:42",
-     "06:30",
-     "09:16",
-     "09:33"
+     "00:30",
+     "23:59"
     ],
-    "timezone": "Asia/Kolkata",
-    "type": "daily",
-    "weekday": [
-     "09:00",
-     "09:00"
-    ]
+    "day": "sat",
+    "days": false,
+    "every": 31,
+    "timezone": "Australia/Sydney",
+    "type": "weekly"
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": "01:00",
+    "at": [
+     "02:00",
+     "03:00",
+     "19:25"
+    ],
     "date": "09:00",
-    "day": "sat",
-    "every": 4,
+    "day": "tue",
+    "every": 3,
     "nth": "11mo",
-    "start": "2027-08-27",
-    "type": "weekly"
+    "start": "2026-04-09",
+    "timezone": "America/Santiago",
+    "type": "weekly",
+    "until": "2028-03-31T00:00:00"
    },
    "valid": false
   },
@@ -35742,157 +35788,93 @@
    "schedule": {
     "at": "23:59",
     "day": 29,
-    "nth": 0,
+    "days": [
+     "09:00",
+     "09:00"
+    ],
     "timezone": "Pacific/Auckland",
-    "type": "one_shot",
+    "type": "sensor",
     "until": "2028-05-15T00:00:00"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "every": "2mo",
-    "start": "2027-03-26",
-    "timezone": "America/New_York",
-    "type": "interval"
    },
    "valid": true
   },
   {
    "schedule": {
-    "at": "1.5h",
-    "date": "03-01",
-    "days": [
-     "mon",
-     "tue",
-     "wed",
-     "sat",
-     "sun"
-    ],
-    "timezone": [
-     "09:00",
-     "09:00"
-    ],
-    "type": "yearly"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "America/New_York",
-    "days": [
-     "fri"
-    ],
-    "every": 3,
-    "nth": 4,
-    "start": "2027-05-19T04:25:00",
-    "timezone": "Asia/Kolkata",
-    "type": "monthly",
-    "weekday": "sun"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "01:34",
-    "date": "02-28",
-    "nth": "mon",
-    "start": "2027-08-14T03:15:00",
-    "type": "yearly"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
     "at": [
-     "03:30",
-     "09:00",
-     "17:45"
+     "01:04",
+     "02:00"
     ],
-    "nth": 4,
-    "timezone": "Asia/Kolkata",
-    "weekday": "thu"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "15:05",
-    "date": "12-31",
-    "every": null,
-    "type": "yearly",
-    "until": "america/new_york"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "count": "11mo",
-    "every": [
-     "mon",
-     "xyz"
-    ],
-    "type": "interval"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "date": "12-31",
-    "days": null,
-    "timezone": "UTC",
-    "type": "yearly"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "17:45",
-    "days": false,
-    "timezone": "2027-01-01T00:00:00+05:30",
-    "type": "daily"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "12:00",
-    "day": "sun",
-    "days": [
-     "tue"
-    ],
-    "every": 3,
-    "nth": "٠٩:٠٠",
-    "start": "2027-11-04T19:35:00",
+    "count": "Monday",
+    "day": "wed",
+    "every": 2,
+    "start": "2027-10-04",
+    "timezone": "Europe/Berlin",
     "type": "weekly"
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": "20:24",
-    "days": [
-     "tue",
-     "thu",
-     "fri",
-     "sat"
-    ],
-    "nth": "9:00",
-    "start": "2027-08-08T11:20:00",
-    "timezone": "Australia/Sydney",
-    "type": "daily",
-    "until": true
+    "at": "1.5h",
+    "day": "sun",
+    "every": 4,
+    "start": "2026-04-21",
+    "type": "weekly"
    },
    "valid": false
   },
   {
    "schedule": {
-    "every": "30m",
-    "nth": 15,
+    "date": "03-01",
+    "days": [
+     "mon",
+     "sat",
+     "sun"
+    ],
+    "type": "sensor"
+   },
+   "valid": true
+  },
+  {
+   "schedule": {
+    "at": "09:00",
+    "type": "daily",
+    "until": "2029-06-02T00:00:00",
+    "weekday": 2.0
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": [
+     "03:00",
+     "09:00",
+     "17:45"
+    ],
+    "date": "12-31",
+    "days": -1,
+    "timezone": null,
+    "type": "yearly"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "23:30",
+    "timezone": "Asia/Kolkata",
+    "type": "daily"
+   },
+   "valid": true
+  },
+  {
+   "schedule": {
+    "count": "11mo",
+    "every": "12mo",
+    "start": "2026-03-25T15:25:00",
+    "timezone": "Asia/Kolkata",
     "type": "interval",
-    "until": "2028-05-01T00:00:00",
     "window": {
-     "from": "17:45",
+     "from": "03:30",
      "to": "12:00"
     }
    },
@@ -35900,55 +35882,102 @@
   },
   {
    "schedule": {
-    "every": "1d",
-    "timezone": "Australia/Lord_Howe",
-    "type": "interval"
+    "at": [
+     "00:55",
+     "01:00",
+     "15:55"
+    ],
+    "date": "Funday",
+    "day": "mon",
+    "every": 2,
+    "start": "2026-07-21",
+    "timezone": "Europe/Berlin",
+    "type": "sensor"
    },
    "valid": true
   },
   {
    "schedule": {
-    "days": "02-29",
-    "every": "12mo",
-    "nth": "11mo",
-    "start": "2026-10-31T02:00:00",
-    "timezone": "Europe/London",
-    "type": "interval",
-    "until": "2029-01-27T02:00:00"
+    "at": false,
+    "date": "02-28",
+    "timezone": "Pacific/Auckland",
+    "type": "yearly",
+    "weekday": "15"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "count": "2027-01-01",
+    "every": "25h",
+    "type": "interval"
    },
    "valid": false
   },
   {
    "schedule": {
     "at": [
-     "02:30",
-     "12:00",
-     "18:26"
+     "01:00",
+     "17:45"
     ],
-    "date": "03-14",
-    "start": 0,
-    "timezone": "Europe/London",
-    "type": "yearly",
-    "until": "2029-04-30T00:00:00"
+    "date": "11-07",
+    "every": 1,
+    "start": "09:60",
+    "timezone": "America/New_York",
+    "type": "yearly"
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": "01:30",
-    "date": true,
-    "day": "UTC",
-    "days": [
-     "mon",
-     "tue",
-     "thu",
-     "fri",
-     "sun"
-    ],
-    "start": "2026-12-03",
+    "at": "23:30",
+    "day": 32,
+    "start": "2027-06-12T11:45:00",
     "type": "daily"
    },
    "valid": true
+  },
+  {
+   "schedule": {
+    "at": "03:30",
+    "day": "sat",
+    "type": "weekly",
+    "until": 2.5
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "every": "2d",
+    "start": [],
+    "timezone": "09:60",
+    "type": "interval"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": 0,
+    "day": "tue",
+    "days": [
+     "tue",
+     "sat"
+    ],
+    "timezone": "Asia/Tokyo",
+    "type": "weekly"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "06:50",
+    "date": true,
+    "day": "UTC",
+    "start": "2027-07-03T03:35:00",
+    "timezone": "Europe/Berlin",
+    "type": "yearly"
+   },
+   "valid": false
   },
   {
    "schedule": {
@@ -35978,83 +36007,70 @@
   },
   {
    "schedule": {
-    "count": 2.0,
     "days": [
      "thu"
     ],
-    "every": "45m",
-    "type": "hourly"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "11:24",
-    "days": [
-     "fri"
-    ],
-    "type": "daily"
+    "type": "sensor"
    },
    "valid": true
   },
   {
    "schedule": {
     "at": [
-     "03:00",
-     "13:13",
-     "23:30"
+     "01:00",
+     "02:00",
+     "16:46"
     ],
-    "date": "03-01",
-    "days": [
-     "wed"
-    ],
+    "count": 31,
+    "nth": "2027-02-30",
     "timezone": "America/New_York",
-    "type": "yearly"
-   },
-   "valid": true
-  },
-  {
-   "schedule": {
-    "every": "13mo",
-    "timezone": "Pacific/Auckland",
-    "type": "interval",
-    "until": "2027-03-29T00:00:00"
-   },
-   "valid": true
-  },
-  {
-   "schedule": {
-    "date": "0mo",
-    "every": "45m",
-    "type": "interval",
-    "window": {
-     "from": "23:59",
-     "to": "21:23"
-    }
-   },
-   "valid": true
-  },
-  {
-   "schedule": {
-    "at": "23:30",
-    "day": "mon",
-    "days": [
-     "mon",
-     "wed",
-     "fri",
-     "sat"
-    ],
-    "every": 4,
-    "nth": "9:00",
-    "start": "2027-03-22T12:00:00",
-    "timezone": "America/Santiago",
-    "type": "weekly",
-    "until": "2027-01-01"
+    "type": "monthly",
+    "weekday": "sun"
    },
    "valid": false
   },
   {
    "schedule": {
+    "at": "17:45",
+    "date": "01-01",
+    "start": -1,
+    "timezone": "america/new_york",
+    "type": "yearly"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "01:30",
+    "date": "0mo",
+    "days": [
+     "mon",
+     "tue",
+     "wed",
+     "thu"
+    ],
+    "type": "yearly"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "04:10",
+    "count": "0mo",
+    "date": "02-28",
+    "start": "2028-01-25",
+    "timezone": "Asia/Tokyo",
+    "type": "yearly"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": [
+     "14:25",
+     "17:45",
+     "23:59"
+    ],
     "day": 31,
     "days": [
      "mon",
@@ -36063,10 +36079,10 @@
      "sat",
      "sun"
     ],
-    "every": "5m",
+    "every": 12,
     "start": "2026-01-29T05:20:00",
     "timezone": "Asia/Tokyo",
-    "type": "interval"
+    "type": "monthly"
    },
    "valid": true
   },
@@ -36363,17 +36379,17 @@
    "schedule": {
     "at": "04:23",
     "date": "12-31",
-    "type": "weekly"
+    "type": "yearly"
    },
-   "valid": false
+   "valid": true
   },
   {
    "schedule": {
     "at": "14:23",
     "date": "02-28",
-    "type": "interval"
+    "type": "daily"
    },
-   "valid": false
+   "valid": true
   },
   {
    "schedule": {
@@ -36883,116 +36899,123 @@
   },
   {
    "schedule": {
-    "at": "00:30",
-    "date": "12-31",
-    "every": "2027-01-01T00:00:00Z",
-    "type": "yearly",
-    "window": "24:00"
+    "at": "03:00",
+    "nth": [
+     "09:00",
+     "17:00"
+    ],
+    "timezone": "Pacific/Auckland",
+    "type": "daily"
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": "01:00",
-    "day": 15,
+    "at": "02:00",
+    "date": "11mo",
+    "day": 0,
     "days": [
      "mon",
-     "tue",
-     "wed",
-     "sat",
-     "sun"
+     "wed"
     ],
-    "every": 2,
-    "start": "2027-07-24T16:05:00",
-    "timezone": "Pacific/Auckland",
-    "type": "monthly"
-   },
-   "valid": true
-  },
-  {
-   "schedule": {
-    "at": "17:45",
-    "date": "03-14",
-    "timezone": "15",
-    "type": "hourly"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "02:30",
-    "date": 2.0,
-    "days": [
-     "sat"
-    ],
-    "nth": 1,
-    "type": "monthly",
-    "weekday": "mon"
-   },
-   "valid": true
-  },
-  {
-   "schedule": {
-    "count": "mon",
-    "every": "2d",
-    "timezone": "Australia/Lord_Howe",
-    "type": "interval"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "02:30",
-    "nth": 2,
-    "start": "2027-10-27T01:45:00",
-    "type": "monthly",
-    "until": "2030-02-06T01:45:00",
-    "weekday": 2
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "23:59",
-    "days": "1.5h",
     "type": "daily",
-    "weekday": {
-     "from": "09:00",
-     "to": "17:00"
-    }
+    "until": "2027-11-30T00:00:00"
    },
-   "valid": false
+   "valid": true
   },
   {
    "schedule": {
-    "days": [
-     "tue",
-     "wed",
-     "fri"
+    "at": [
+     "03:56",
+     "23:59"
     ],
-    "every": {
+    "date": {
      "from": "09:00",
-     "to": "17:00"
+     "to": "09:00"
     },
-    "timezone": "Pacific/Auckland",
-    "type": "interval",
-    "window": {
-     "from": "02:47",
-     "to": "02:30"
-    }
+    "day": "sat",
+    "every": 3,
+    "start": "2027-07-26",
+    "timezone": "15",
+    "type": "weekly"
    },
    "valid": false
   },
   {
    "schedule": {
     "at": [
+     "00:30",
+     "02:04",
+     "09:00"
+    ],
+    "type": "daily",
+    "until": "2027-01-02T00:00:00",
+    "window": []
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": [
+     "15:35",
+     "17:45"
+    ],
+    "date": "11-18",
+    "start": "2026-07-12T02:05:00",
+    "timezone": "America/St_Johns",
+    "type": "yearly"
+   },
+   "valid": true
+  },
+  {
+   "schedule": {
+    "at": [
      "01:00",
-     "02:30",
-     "03:00"
+     "03:29",
+     "22:42",
+     "23:03"
+    ],
+    "start": "0mo",
+    "timezone": "Pacific/Auckland",
+    "type": "daily",
+    "until": "2027-10-07T00:00:00"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "02:00",
+    "date": "10-31",
+    "days": [
+     "mon",
+     "tue",
+     "wed",
+     "thu",
+     "fri",
+     "sat"
+    ],
+    "start": "2027-03-16T02:20:00",
+    "type": "yearly",
+    "until": "2027-01-01"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": [
+     "03:00",
+     "09:44",
+     "17:45"
     ],
     "date": "first",
+    "day": "sat",
+    "days": [
+     "tue",
+     "thu"
+    ],
     "every": [],
-    "type": "yearly"
+    "start": "2027-01-14T04:35:00",
+    "type": "weekly"
    },
    "valid": false
   },
@@ -37124,20 +37147,18 @@
    "schedule": {
     "every": "2mo",
     "start": "2026-08-16T08:35:00",
-    "type": "yearly"
+    "type": "monthly"
    },
    "valid": false
   },
   {
    "schedule": {
+    "at": "12:00",
+    "day": 15,
     "every": 0,
-    "start": "2026-09-04",
+    "start": "2027-09-16",
     "timezone": "Europe/London",
-    "type": "interval",
-    "window": {
-     "from": "12:00",
-     "to": "01:30"
-    }
+    "type": "monthly"
    },
    "valid": false
   },
@@ -37336,7 +37357,7 @@
     "every": "mon",
     "start": "2027-04-17",
     "timezone": "Pacific/Chatham",
-    "type": "interval"
+    "type": "daily"
    },
    "valid": false
   },
@@ -37514,13 +37535,13 @@
     "every": "1d",
     "start": "2027-10-03T06:30:00",
     "timezone": "Europe/London",
-    "type": "monthly",
+    "type": "sensor",
     "window": {
      "from": "17:45",
      "to": "09:52"
     }
    },
-   "valid": false
+   "valid": true
   },
   {
    "schedule": {
@@ -38327,39 +38348,34 @@
     "every": 2,
     "start": "2026-02-23",
     "timezone": "Pacific/Chatham",
-    "type": "yearly",
+    "type": "weekly",
     "until": "2027-03-24T00:00:00"
    },
-   "valid": false
+   "valid": true
   },
   {
    "schedule": {
-    "every": "3h",
+    "every": "1d",
+    "start": {
+     "from": "09:00",
+     "to": "09:00"
+    },
+    "timezone": "Pacific/Auckland",
     "type": "interval",
-    "window": []
+    "window": -1
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": "",
-    "date": "12-31",
-    "days": [
-     "thu",
-     "sun"
+    "at": [
+     "02:54",
+     "09:00",
+     "16:00",
+     "16:47"
     ],
-    "type": "yearly"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "days": [
-     "mon",
-     "sun"
-    ],
-    "every": "7d",
-    "type": "interval",
+    "date": "01-01",
+    "type": "yearly",
     "weekday": [
      "mon"
     ]
@@ -38397,9 +38413,9 @@
    "schedule": {
     "every": "1mo",
     "start": "2027-01-25T21:35:00",
-    "type": "monthly"
+    "type": "sensor"
    },
-   "valid": false
+   "valid": true
   },
   {
    "schedule": {
@@ -38615,7 +38631,7 @@
      "sat"
     ],
     "start": "2027-08-17T13:00:00",
-    "type": "daily"
+    "type": "weekly"
    },
    "valid": false
   },
@@ -38813,9 +38829,9 @@
     "day": "mon",
     "every": 4,
     "start": "2027-08-09T00:10:00",
-    "type": "monthly"
+    "type": "sensor"
    },
-   "valid": false
+   "valid": true
   },
   {
    "schedule": {
@@ -38844,7 +38860,7 @@
     "timezone": [
      "mon"
     ],
-    "type": "yearly",
+    "type": "daily",
     "until": "2027-07-18T00:00:00",
     "window": {
      "from": "04:13",
@@ -38855,43 +38871,52 @@
   },
   {
    "schedule": {
-    "day": 0,
-    "every": "5m",
-    "start": "Monday",
-    "timezone": "Europe/Berlin",
-    "type": "interval"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "count": "9:00",
-    "days": [
-     "tue",
-     "sun"
+    "at": [
+     "02:00",
+     "17:45"
     ],
-    "every": "7d",
-    "type": "interval"
+    "count": 1,
+    "date": [],
+    "type": "daily"
+   },
+   "valid": true
+  },
+  {
+   "schedule": {
+    "at": [
+     "00:30",
+     "05:21"
+    ],
+    "start": "2026-04-05",
+    "timezone": "Pacific/Auckland",
+    "type": "daily",
+    "until": {
+     "from": "09:00",
+     "to": "17:00"
+    }
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": "23:59",
-    "day": "wed",
-    "every": 2,
-    "start": "Monday",
-    "timezone": "America/St_Johns",
-    "type": "weekly"
+    "at": [
+     "02:00",
+     "23:30"
+    ],
+    "timezone": "Australia/Sydney",
+    "type": "daily",
+    "until": [
+     "mon",
+     "xyz"
+    ]
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": "02:30",
-    "day": "thu",
-    "days": 2.5,
-    "type": "weekly",
+    "every": "25h",
+    "timezone": "America/Santiago",
+    "type": "interval",
     "until": "mon"
    },
    "valid": false
@@ -38996,43 +39021,45 @@
   },
   {
    "schedule": {
+    "count": [
+     "09:00",
+     "09:00"
+    ],
     "every": "2d",
     "timezone": "Pacific/Chatham",
-    "type": "hourly",
-    "window": "Funday"
+    "type": "sensor"
    },
-   "valid": false
+   "valid": true
   },
   {
    "schedule": {
-    "at": "03:30",
-    "date": "2027-01-01T00:00:00+05:30",
-    "every": "٠٩:٠٠",
-    "timezone": "Australia/Lord_Howe",
-    "type": "yearly"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "count": "mon",
-    "every": 90,
-    "timezone": "America/St_Johns",
+    "date": [],
+    "every": "12mo",
     "type": "interval",
-    "until": [
-     "mon"
-    ]
+    "weekday": 2.0
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": [
-     "09:00",
-     "13:16"
+    "every": 90,
+    "type": "hourly"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "count": 2,
+    "days": [
+     "mon",
+     "wed",
+     "thu",
+     "sat",
+     "sun"
     ],
-    "date": "03-14",
-    "type": "yearly"
+    "every": "2d",
+    "start": "2026-09-30T17:30:00",
+    "type": "interval"
    },
    "valid": true
   },
@@ -39387,13 +39414,13 @@
    "schedule": {
     "every": "25h",
     "timezone": "America/Santiago",
-    "type": "interval",
+    "type": "daily",
     "window": {
      "from": "04:29",
      "to": "03:00"
     }
    },
-   "valid": true
+   "valid": false
   },
   {
    "schedule": {
@@ -39435,7 +39462,7 @@
    "schedule": {
     "every": 0,
     "start": "2026-10-17",
-    "type": "daily",
+    "type": "weekly",
     "window": {
      "from": "09:05",
      "to": "02:00"
@@ -39550,56 +39577,57 @@
      "mon"
     ],
     "every": 15,
-    "type": "hourly"
+    "type": "monthly"
    },
    "valid": false
   },
   {
    "schedule": {
-    "every": "7h",
-    "start": "2026-11-07T14:05:00",
-    "type": "interval"
-   },
-   "valid": true
-  },
-  {
-   "schedule": {
-    "date": 15,
     "days": [
-     "tue",
+     "mon",
      "wed",
      "thu",
-     "fri"
+     "fri",
+     "sun"
     ],
-    "every": "2d",
-    "start": "2027-03-23T18:05:00",
-    "timezone": "America/Santiago",
+    "every": "13mo",
+    "start": "2027-08-24",
+    "timezone": "Australia/Lord_Howe",
     "type": "interval",
-    "weekday": "1.5h"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "day": {
-     "from": "09:00",
-     "to": "17:00"
-    },
-    "every": "45",
-    "timezone": 31,
-    "type": "interval"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "00:30",
-    "date": "03-01",
-    "day": 2,
-    "timezone": "America/New_York",
-    "type": "yearly"
+    "window": {
+     "from": "02:30",
+     "to": "21:24"
+    }
    },
    "valid": true
+  },
+  {
+   "schedule": {
+    "every": "7d",
+    "start": "2027-09-27",
+    "timezone": "Asia/Tokyo",
+    "type": "interval",
+    "until": "2027-01-01T00:00:00+05:30",
+    "window": "24:00"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": [
+     "02:00",
+     "09:00",
+     "09:25"
+    ],
+    "day": 2,
+    "every": 2,
+    "nth": 4,
+    "start": "2026-06-14T05:35:00",
+    "timezone": "America/New_York",
+    "type": "monthly",
+    "weekday": "tue"
+   },
+   "valid": false
   },
   {
    "schedule": {
@@ -39700,53 +39728,41 @@
   {
    "schedule": {
     "at": "23:30",
-    "day": "",
-    "type": "hourly"
+    "type": "weekly"
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": "00:00",
-    "date": "11-07",
-    "timezone": "Asia/Kolkata",
-    "type": "yearly"
-   },
-   "valid": true
-  },
-  {
-   "schedule": {
-    "at": "23:59",
-    "nth": "UTC",
-    "timezone": "Australia/Lord_Howe",
-    "type": "daily"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "19:23",
-    "date": "15",
-    "days": [
-     "mon",
-     "tue",
-     "thu",
-     "fri",
-     "sun"
-    ],
-    "type": "monthly"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "days": "08-03",
     "every": "1h",
-    "start": "2027-11-30T16:15:00",
+    "start": "2026-10-11T05:30:00",
+    "timezone": "Europe/Berlin",
     "type": "interval",
+    "until": "2027-04-03T05:30:00",
+    "weekday": [
+     "09:00",
+     "09:00"
+    ],
     "window": {
      "from": "23:30",
-     "to": "01:30"
+     "to": "17:45"
+    }
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "every": "3mo",
+    "start": "2026-02-03T22:30:00",
+    "timezone": {
+     "from": "09:00",
+     "to": "17:00"
+    },
+    "type": "interval",
+    "until": "Funday",
+    "window": {
+     "from": "02:30",
+     "to": "01:00"
     }
    },
    "valid": false
@@ -39754,14 +39770,22 @@
   {
    "schedule": {
     "at": [
-     "00:00",
-     "02:30",
-     "03:30",
+     "01:00",
      "23:30"
     ],
+    "date": "03-01",
+    "timezone": "Europe/London",
+    "type": "yearly"
+   },
+   "valid": true
+  },
+  {
+   "schedule": {
+    "at": "09:60",
     "count": "2027-01-01T00:00:00+05:30",
-    "day": "fri",
-    "timezone": "Australia/Sydney",
+    "day": "mon",
+    "every": 3,
+    "start": "2027-12-09T02:30:00",
     "type": "weekly"
    },
    "valid": false
@@ -39881,131 +39905,119 @@
     "every": "6mo",
     "start": "2027-12-30T06:10:00",
     "timezone": "Europe/Berlin",
-    "type": "yearly",
+    "type": "one_shot",
     "until": "2029-06-21T06:10:00"
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": [
-     "01:35",
-     "03:00",
-     "23:53"
+    "days": [
+     "mon",
+     "fri",
+     "sat",
+     "sun"
     ],
-    "day": 1,
-    "days": {
-     "from": "09:00",
-     "to": "17:00"
-    },
-    "timezone": "Australia/Sydney",
-    "type": "monthly"
+    "every": "7d",
+    "nth": 31
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": "23:59",
-    "date": "11-07",
-    "start": 1,
-    "timezone": "Europe/Berlin",
-    "type": "yearly"
+    "at": "13:53",
+    "type": "daily",
+    "until": 32
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": "02:00",
     "days": [],
-    "type": "daily"
+    "every": "90m",
+    "start": "2026-07-23T13:10:00",
+    "timezone": "Asia/Kolkata",
+    "type": "interval"
    },
    "valid": true
   },
   {
    "schedule": {
-    "at": "12:00",
-    "timezone": "Europe/Berlin",
-    "type": "yearly"
+    "at": [
+     "12:00",
+     "13:24"
+    ],
+    "day": "2027-01-01T25:00:00",
+    "days": [
+     "tue",
+     "wed",
+     "fri"
+    ],
+    "every": 4,
+    "nth": "2027-01-01",
+    "start": "2027-07-01T01:25:00",
+    "timezone": "Asia/Kolkata",
+    "type": "weekly"
    },
    "valid": false
-  },
-  {
-   "schedule": {
-    "at": "02:00",
-    "nth": 2,
-    "timezone": "America/Santiago",
-    "type": "monthly",
-    "weekday": "wed"
-   },
-   "valid": true
   },
   {
    "schedule": {
     "days": [
-     "mon",
      "tue",
-     "fri",
-     "sun"
+     "fri"
     ],
-    "every": "12mo",
-    "start": "2026-04-07",
-    "type": "interval",
-    "weekday": "Funday",
+    "every": "3h",
+    "start": "2027-10-11",
+    "type": "monthly",
     "window": {
-     "from": "17:45",
-     "to": "00:41"
+     "from": "22:49",
+     "to": "02:30"
     }
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": "02:59",
-    "timezone": "UTC",
-    "type": "daily"
-   },
-   "valid": true
-  },
-  {
-   "schedule": {
-    "at": [
-     "01:00",
-     "01:30",
-     "09:00"
-    ],
-    "days": [
-     "tue",
-     "wed",
-     "thu"
-    ],
-    "timezone": "mon",
+    "at": "01:23",
+    "days": "9:00",
+    "start": "2026-11-11T03:50:00",
     "type": "daily"
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": "09:60",
-    "days": [
-     "mon",
-     "tue",
-     "fri"
-    ],
-    "every": "2h",
-    "start": "2027-12-22T15:10:00",
+    "every": "Funday",
+    "start": "2027-06-11T17:00:00",
     "timezone": "Asia/Tokyo",
-    "type": "interval"
+    "type": "interval",
+    "window": {
+     "from": "19:49",
+     "to": "12:00"
+    }
    },
-   "valid": true
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "23:30",
+    "day": "tue",
+    "every": 3,
+    "start": "08-03",
+    "timezone": "America/New_York",
+    "type": "weekly"
+   },
+   "valid": false
   },
   {
    "schedule": {
     "at": "UTC",
-    "every": "1mo",
-    "start": "2027-03-21T13:50:00",
-    "type": "interval"
+    "start": "2027-11-29T18:35:00",
+    "timezone": "UTC",
+    "type": "daily"
    },
-   "valid": true
+   "valid": false
   },
   {
    "schedule": {
@@ -40226,71 +40238,84 @@
      "wed",
      "fri"
     ],
-    "type": "one_shot"
+    "type": "sensor"
    },
    "valid": true
   },
   {
    "schedule": {
-    "at": "00:00",
-    "count": "1.5h",
-    "date": "03-14",
-    "nth": "2027-01-01T00:00:00Z",
-    "type": "yearly"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "09:60",
-    "count": "UTC",
-    "every": 90,
-    "start": "2027-12-30T10:30:00",
-    "timezone": "America/St_Johns",
-    "type": "interval",
-    "window": {
-     "from": "14:06",
-     "to": "08:27"
-    }
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
     "at": [
-     "00:00",
-     "03:00",
-     "23:39"
+     "01:30",
+     "11:57"
     ],
-    "day": 30,
-    "start": "2028-01-01T10:35:00",
-    "timezone": "Europe/Berlin",
-    "type": "monthly",
-    "weekday": {
-     "from": "09:00",
-     "to": "09:00"
-    }
+    "days": 15,
+    "type": "daily",
+    "window": "2027-01-01T25:00:00"
    },
    "valid": false
   },
   {
    "schedule": {
-    "count": "",
-    "every": "30m",
-    "start": "2027-04-22T10:50:00",
-    "timezone": "America/Santiago",
+    "at": "00:30",
+    "days": [
+     "tue",
+     "thu",
+     "sat",
+     "sun"
+    ],
+    "nth": "15",
+    "type": "daily"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "00:30",
+    "nth": 3,
+    "type": "monthly",
+    "weekday": "sat",
+    "window": "2027-01-01"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "date": 2.0,
+    "days": [
+     "mon",
+     "tue",
+     "wed",
+     "thu",
+     "sat",
+     "sun"
+    ],
+    "every": "6mo",
+    "timezone": "Pacific/Chatham",
     "type": "interval"
    },
-   "valid": false
+   "valid": true
   },
   {
    "schedule": {
-    "every": "2h",
+    "days": [
+     "mon",
+     "wed",
+     "thu",
+     "fri",
+     "sat",
+     "sun"
+    ],
+    "every": "13mo",
+    "start": "2027-05-27T00:25:00",
     "timezone": {
      "from": "09:00",
      "to": "17:00"
     },
-    "type": "daily"
+    "type": "interval",
+    "window": {
+     "from": "03:30",
+     "to": "09:00"
+    }
    },
    "valid": false
   },
@@ -40414,7 +40439,7 @@
     "every": 3,
     "start": "2027-11-19T04:20:00",
     "timezone": "America/St_Johns",
-    "type": "weekly"
+    "type": "yearly"
    },
    "valid": false
   },
@@ -40697,245 +40722,149 @@
     ],
     "nth": 1,
     "timezone": "UTC",
-    "type": "hourly",
+    "type": "daily",
     "weekday": "tue"
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": "03:30",
-    "every": "08-03",
-    "type": "daily",
-    "until": "2027-11-14T00:00:00"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "every": 15,
-    "timezone": 0,
-    "type": "interval",
-    "window": {
-     "from": "08:23",
-     "to": "01:00"
-    }
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "12:00",
-    "day": [
-     "mon",
-     "xyz"
-    ],
+    "at": "11:27",
+    "date": 2.5,
     "days": [
-     "tue"
-    ],
-    "start": "last",
-    "timezone": "Pacific/Chatham",
-    "type": "daily"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "01:00",
-    "date": true,
-    "days": [
-     "mon",
      "tue",
+     "fri",
+     "sat",
+     "sun"
+    ],
+    "start": "mon",
+    "type": "yearly"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "23:30",
+    "count": [
+     "mon"
+    ],
+    "day": "mon",
+    "days": [
+     "mon",
      "fri"
     ],
-    "start": "2026-07-24",
     "timezone": "UTC",
-    "type": "yearly",
-    "until": "2027-05-12T00:00:00"
+    "type": "weekly"
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": "first",
-    "every": "11mo",
-    "start": {
-     "from": "09:00",
-     "to": "17:00"
-    },
+    "day": "UTC",
+    "every": "1d",
     "timezone": "Asia/Kolkata",
     "type": "interval"
    },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "02:00",
-    "date": "02-28",
-    "days": [
-     "sun"
-    ],
-    "type": "yearly",
-    "until": "2028-06-29T00:00:00"
-   },
    "valid": true
   },
   {
    "schedule": {
-    "at": 2,
+    "at": "22:42",
     "days": [
-     "wed",
-     "thu",
-     "fri",
-     "sat",
-     "sun"
+     "thu"
     ],
-    "nth": 4,
-    "timezone": "24:00",
-    "type": "monthly",
-    "weekday": "sat"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "16:14",
-    "day": 1,
-    "days": [
-     "mon",
-     "fri",
-     "sat",
-     "sun"
-    ],
-    "type": "monthly"
-   },
-   "valid": true
-  },
-  {
-   "schedule": {
-    "at": "22:55",
-    "days": [
-     "mon",
-     "wed",
-     "thu",
-     "fri",
-     "sun"
-    ],
-    "timezone": [
-     "09:00",
-     "17:00"
-    ],
-    "type": "monthly",
-    "weekday": "wed"
+    "timezone": "Asia/Tokyo"
    },
    "valid": false
   },
   {
    "schedule": {
     "at": [
+     "06:02",
+     "23:29",
+     "23:30"
+    ],
+    "count": "first",
+    "every": 6,
+    "nth": 32,
+    "start": "2026-07-23T11:10:00",
+    "type": "monthly",
+    "weekday": "sun"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": [
+     "00:32",
+     "17:45"
+    ],
+    "date": null,
+    "type": "daily",
+    "until": "2027-12-15T00:00:00"
+   },
+   "valid": true
+  },
+  {
+   "schedule": {
+    "at": "13:58",
+    "date": 15,
+    "timezone": "America/Santiago",
+    "type": "daily"
+   },
+   "valid": true
+  },
+  {
+   "schedule": {
+    "at": [
+     "02:00",
+     "03:30"
+    ],
+    "day": "last",
+    "every": [
+     "mon",
+     "xyz"
+    ],
+    "start": "2027-06-29T03:15:00",
+    "timezone": "UTC",
+    "type": "monthly"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "every": "25h",
+    "timezone": "America/New_York",
+    "type": "interval",
+    "weekday": 31,
+    "window": "Mars/Olympus"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "03:00",
+    "nth": [
      "09:00",
      "09:00"
     ],
-    "every": "1d",
-    "timezone": "America/St_Johns",
-    "type": "interval",
-    "window": {
-     "from": "12:13",
-     "to": "01:00"
-    }
-   },
-   "valid": true
-  },
-  {
-   "schedule": {
-    "at": [
-     "09:00",
-     "23:59"
-    ],
-    "date": "03-01",
-    "days": [
-     "09:00",
-     "17:00"
-    ],
-    "start": "2027-07-17T22:20:00",
-    "timezone": "Australia/Lord_Howe",
-    "type": "monthly"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "07:04",
-    "day": "thu",
-    "days": [
-     "tue",
-     "wed",
-     "thu",
-     "sat"
-    ],
-    "every": 2,
-    "start": "2026-07-06",
-    "type": "weekly",
-    "window": "09:00"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "12:00",
-    "day": "wed",
-    "every": 3,
-    "start": "02-29",
-    "timezone": "Pacific/Chatham",
-    "type": "weekly",
-    "weekday": []
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "02:00",
-    "date": "2027-01-01T25:00:00",
-    "day": "sat",
-    "start": "2027-04-22T03:45:00",
-    "type": "monthly",
-    "until": "2029-01-18T03:45:00"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "15",
-    "days": [
-     "mon",
-     "tue",
-     "wed",
-     "thu",
-     "fri",
-     "sun"
-    ],
-    "start": "2026-10-31",
+    "timezone": "Asia/Kolkata",
     "type": "daily"
    },
    "valid": false
   },
   {
    "schedule": {
-    "days": [
-     "tue",
-     "wed",
-     "thu",
-     "fri",
-     "sat",
-     "sun"
+    "at": [
+     "00:00",
+     "23:58"
     ],
-    "every": "3h",
-    "start": "08-03",
-    "type": "interval",
-    "weekday": {
-     "from": "09:00",
-     "to": "17:00"
-    }
+    "day": "mon",
+    "every": 2,
+    "start": "2026-02-08T17:15:00",
+    "type": "one_shot",
+    "until": "2027-06-13T17:15:00",
+    "window": 2.5
    },
    "valid": false
   },
@@ -40943,64 +40872,43 @@
    "schedule": {
     "at": [
      "02:00",
-     "09:00"
+     "03:30",
+     "09:00",
+     "12:13"
     ],
-    "day": 29,
+    "date": "11-07",
+    "day": 2.5,
+    "days": [
+     "tue"
+    ],
+    "start": "2027-08-27",
+    "timezone": "America/St_Johns",
+    "type": "yearly",
+    "until": "2027-08-09T00:00:00"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "23:59",
+    "day": "tue",
+    "every": 2,
+    "start": "2028-01-21",
+    "type": "weekly",
+    "window": [
+     "mon"
+    ]
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
     "days": [
      "mon",
-     "wed",
-     "thu",
-     "fri",
-     "sat",
-     "sun"
+     "xyz"
     ],
+    "every": "7d",
     "timezone": "Pacific/Chatham",
-    "type": "interval"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "01:30",
-    "count": "09:00",
-    "date": "08-03",
-    "days": [
-     "mon",
-     "tue",
-     "wed",
-     "thu",
-     "sat",
-     "sun"
-    ],
-    "every": "٠٩:٠٠",
-    "start": "2026-12-14T21:00:00",
-    "type": "yearly"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": [
-     "00:30",
-     "03:00",
-     "23:59"
-    ],
-    "date": "12-31",
-    "day": {
-     "from": "09:00",
-     "to": "09:00"
-    },
-    "days": 32,
-    "start": "2026-12-10T15:15:00",
-    "timezone": "America/New_York",
-    "type": "yearly"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "every": "45",
-    "start": 15,
     "type": "interval"
    },
    "valid": false
@@ -41009,100 +40917,200 @@
    "schedule": {
     "at": [
      "03:30",
-     "11:14",
-     "12:19",
-     "22:14"
+     "23:59"
     ],
-    "count": "America/New_York",
-    "days": [
-     "mon",
-     "wed",
-     "thu",
-     "fri",
-     "sat",
-     "sun"
-    ],
-    "timezone": "Asia/Tokyo",
-    "type": "daily",
-    "until": "1.5h"
+    "day": 30,
+    "days": "02-29",
+    "start": "2027-08-25T11:10:00",
+    "timezone": "Australia/Sydney",
+    "type": "monthly"
    },
    "valid": false
   },
   {
    "schedule": {
-    "every": "1d",
-    "type": "daily",
-    "window": {
-     "from": "12:00",
-     "to": "17:45"
-    }
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": [
-     "04:36",
-     "14:51",
-     "21:11"
-    ],
-    "every": null,
-    "start": "2026-12-25",
+    "at": "06:05",
+    "day": "0mo",
     "type": "daily"
    },
    "valid": true
   },
   {
    "schedule": {
-    "at": "03:00",
-    "days": [
-     "mon",
-     "tue",
-     "thu",
-     "sat"
-    ],
-    "every": 6,
-    "nth": 2.5,
-    "start": "2027-12-31T01:05:00",
-    "type": "monthly",
-    "weekday": "sun"
+    "at": "23:30",
+    "nth": 2,
+    "timezone": "America/St_Johns",
+    "type": "sensor",
+    "weekday": "tue"
    },
-   "valid": false
+   "valid": true
   },
   {
    "schedule": {
-    "at": "21:44",
-    "count": "09:00",
-    "day": "fri",
-    "days": [
-     "sun"
+    "at": [
+     "03:30",
+     "17:45",
+     "18:44",
+     "19:16"
     ],
+    "day": "sat",
+    "days": [
+     "wed",
+     "thu",
+     "sat"
+    ],
+    "nth": "02-29",
     "type": "weekly"
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": "22:52",
+    "at": [
+     "mon"
+    ],
     "days": [
      "mon",
-     "tue",
-     "fri"
+     "thu",
+     "sat",
+     "sun"
     ],
-    "nth": 32,
-    "timezone": "America/St_Johns",
-    "type": "monthly",
-    "weekday": "mon"
+    "type": "daily",
+    "weekday": "٠٩:٠٠"
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": "09:00",
+    "days": [
+     "thu",
+     "fri",
+     "sat",
+     "sun"
+    ],
+    "every": "15m",
+    "start": "2026-07-02T03:35:00",
+    "timezone": "2027-01-01",
+    "type": "interval",
+    "window": {
+     "from": "01:30",
+     "to": "03:30"
+    }
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "days": 32,
+    "every": "45",
+    "start": [
+     "09:00",
+     "17:00"
+    ],
+    "timezone": "Australia/Sydney",
+    "type": "interval"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "days": [
+     "fri"
+    ],
+    "every": "13mo",
+    "type": "interval",
+    "window": {
+     "from": "01:30",
+     "to": "23:30"
+    }
+   },
+   "valid": true
+  },
+  {
+   "schedule": {
+    "at": [
+     "02:00",
+     "23:59"
+    ],
     "date": "02-28",
+    "days": [
+     "mon",
+     "tue",
+     "wed",
+     "sat",
+     "sun"
+    ],
+    "start": [
+     "mon"
+    ],
+    "timezone": "Europe/London",
+    "type": "yearly",
+    "until": "11mo"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "days": [
+     "tue",
+     "wed",
+     "thu",
+     "fri",
+     "sat"
+    ],
+    "every": 90,
+    "start": "2026-06-12",
+    "type": "interval",
+    "window": "09:60"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "03:30",
+    "date": "09:00",
+    "every": 6,
+    "nth": 1,
+    "start": "2026-10-10T17:55:00",
+    "type": "monthly",
+    "weekday": "tue"
+   },
+   "valid": true
+  },
+  {
+   "schedule": {
+    "at": "13:06",
+    "date": "04-14",
+    "nth": "UTC",
+    "start": "mon",
+    "timezone": "Australia/Lord_Howe",
+    "type": "yearly"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": [
+     "03:30",
+     "10:36",
+     "18:45"
+    ],
+    "day": "sun",
+    "days": [
+     "mon",
+     "fri"
+    ],
+    "timezone": "America/New_York",
+    "type": "weekly"
+   },
+   "valid": true
+  },
+  {
+   "schedule": {
+    "at": "06:57",
     "days": "Funday",
     "nth": "02-29",
-    "type": "yearly"
+    "type": "daily"
    },
    "valid": false
   },
@@ -41255,10 +41263,10 @@
      "sat"
     ],
     "timezone": "Europe/London",
-    "type": "monthly",
+    "type": "sensor",
     "weekday": 2.5
    },
-   "valid": false
+   "valid": true
   },
   {
    "schedule": {
@@ -41357,7 +41365,7 @@
     "at": "07:05",
     "nth": 4,
     "start": "2027-02-09T05:05:00",
-    "type": "weekly",
+    "type": "one_shot",
     "weekday": "thu"
    },
    "valid": false
@@ -41526,7 +41534,7 @@
      "thu"
     ],
     "start": "2027-03-23T20:20:00",
-    "type": "interval"
+    "type": "daily"
    },
    "valid": false
   },
@@ -41579,7 +41587,7 @@
      "thu"
     ],
     "nth": 4,
-    "type": "weekly",
+    "type": "yearly",
     "weekday": "sun"
    },
    "valid": false
@@ -41818,7 +41826,7 @@
     "day": "sun",
     "days": "9:00",
     "timezone": "Europe/Berlin",
-    "type": "weekly"
+    "type": "yearly"
    },
    "valid": false
   },
@@ -41855,19 +41863,24 @@
    "schedule": {
     "at": "10:03",
     "day": "sun",
-    "type": "hourly"
+    "type": "monthly"
    },
    "valid": false
   },
   {
    "schedule": {
     "at": -1,
-    "day": "sun",
-    "every": 4,
-    "start": "2027-11-18T17:40:00",
-    "type": "weekly"
+    "every": "25h",
+    "start": "2027-12-04",
+    "timezone": "America/St_Johns",
+    "type": "interval",
+    "until": "2028-12-23T00:00:00",
+    "window": {
+     "from": "23:30",
+     "to": "12:00"
+    }
    },
-   "valid": false
+   "valid": true
   },
   {
    "schedule": {
@@ -41926,101 +41939,97 @@
      "sat",
      "sun"
     ],
-    "every": [
-     "mon"
-    ],
+    "every": "2d",
     "start": "2028-01-12T22:45:00",
-    "type": "one_shot",
-    "until": "2029-07-18T22:45:00"
+    "type": "weekly",
+    "until": "2029-07-18T22:45:00",
+    "weekday": "Monday"
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": [
-     "00:00",
-     "01:00",
-     "03:00",
-     "08:46"
+    "days": [
+     "tue",
+     "wed",
+     "thu",
+     "fri",
+     "sat"
     ],
-    "every": 3,
-    "nth": 4,
-    "start": "2027-12-17T16:35:00",
-    "timezone": "Australia/Lord_Howe",
-    "type": "monthly",
-    "weekday": 15
+    "every": "3h",
+    "start": "2027-05-06T17:25:00",
+    "type": "monthly"
    },
    "valid": false
   },
   {
    "schedule": {
-    "every": "5m",
-    "start": "2027-01-11T04:00:00",
-    "timezone": "America/St_Johns",
-    "type": "interval",
-    "window": null
-   },
-   "valid": true
-  },
-  {
-   "schedule": {
-    "at": "02:00",
-    "day": "sat",
-    "type": "weekly"
-   },
-   "valid": true
-  },
-  {
-   "schedule": {
-    "at": [
-     "01:00",
-     "23:30"
-    ],
-    "every": {
-     "from": "09:00",
-     "to": "17:00"
-    },
+    "every": "45m",
     "type": "daily"
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": "18:20",
-    "every": 6,
-    "nth": "last",
-    "start": "2026-07-27T14:50:00",
-    "type": "monthly",
-    "weekday": "9:00"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "01:00",
-    "day": "fri",
-    "days": 15,
-    "type": "weekly",
-    "until": {
-     "from": "09:00",
-     "to": "09:00"
-    }
+    "at": [
+     "01:30",
+     "06:33",
+     "09:00"
+    ],
+    "count": false,
+    "date": "08-03",
+    "start": "2027-07-18T12:00:00",
+    "type": "yearly"
    },
    "valid": false
   },
   {
    "schedule": {
     "at": [
+     "00:30",
      "01:00",
-     "03:00",
-     "04:41"
+     "23:30"
     ],
-    "date": "02-28",
-    "every": null,
-    "start": "2027-02-02",
-    "type": "yearly"
+    "days": "09:00",
+    "start": false,
+    "timezone": "Europe/London",
+    "type": "daily"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "days": 2.0,
+    "every": "2mo",
+    "type": "interval",
+    "window": 32
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "count": 2,
+    "every": "1d",
+    "type": "interval",
+    "window": {
+     "from": "03:30",
+     "to": "06:03"
+    }
    },
    "valid": true
+  },
+  {
+   "schedule": {
+    "days": [
+     "thu",
+     "sun"
+    ],
+    "every": null,
+    "start": "2026-01-22",
+    "timezone": "America/Santiago",
+    "type": "interval"
+   },
+   "valid": false
   },
   {
    "schedule": {
@@ -42055,9 +42064,9 @@
     "every": 3,
     "start": "2025-12-23T07:20:00",
     "timezone": "Pacific/Auckland",
-    "type": "monthly"
+    "type": "sensor"
    },
-   "valid": false
+   "valid": true
   },
   {
    "schedule": {
@@ -42121,13 +42130,13 @@
     "every": 15,
     "start": "2027-07-16T01:45:00",
     "timezone": "UTC",
-    "type": "interval",
+    "type": "daily",
     "window": {
      "from": "07:40",
      "to": "03:30"
     }
    },
-   "valid": true
+   "valid": false
   },
   {
    "schedule": {
@@ -42166,266 +42175,277 @@
   },
   {
    "schedule": {
-    "at": "02:30",
-    "day": "last",
-    "every": 12,
-    "nth": "last",
-    "start": "2027-01-22T09:35:00",
-    "type": "monthly",
-    "until": "2029-06-15T09:35:00",
-    "weekday": "first"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "02:30",
-    "date": "02-28",
-    "days": {
-     "from": "09:00",
-     "to": "17:00"
-    },
-    "nth": [
-     "09:00",
-     "17:00"
-    ],
-    "start": "2027-11-16T19:05:00",
-    "type": "yearly"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
     "at": [
-     "00:00",
-     "02:00",
+     "00:30",
      "03:00",
+     "03:30",
      "23:30"
     ],
-    "date": {
-     "from": "09:00",
-     "to": "09:00"
-    },
-    "day": "mon",
-    "days": [
-     "tue",
-     "sun"
-    ],
-    "start": [
-     "09:00",
-     "09:00"
-    ],
-    "timezone": "Pacific/Auckland",
-    "type": "weekly"
+    "date": "10-31",
+    "day": "last",
+    "type": "yearly",
+    "weekday": [
+     "mon",
+     "xyz"
+    ]
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": "UTC",
+    "at": "00:00",
     "days": [
-     "mon",
-     "tue",
      "wed",
      "thu",
      "fri",
-     "sat"
-    ],
-    "every": "7d",
-    "type": "interval"
-   },
-   "valid": true
-  },
-  {
-   "schedule": {
-    "at": "03:00",
-    "day": "tue",
-    "days": [
-     "mon",
-     "thu",
-     "fri",
-     "sat",
      "sun"
     ],
-    "start": [
-     "mon",
-     "xyz"
-    ],
-    "timezone": "2027-02-30",
-    "type": "weekly"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "05:53",
-    "every": 12,
-    "nth": "08-03",
-    "start": "2027-12-17T18:25:00",
+    "nth": 4,
+    "timezone": "last",
     "type": "monthly",
-    "until": "2029-09-27T18:25:00",
-    "weekday": "tue"
+    "weekday": "sat"
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": "2027-01-01T25:00:00",
-    "every": "45",
-    "timezone": "Asia/Tokyo",
+    "every": [
+     "09:00",
+     "09:00"
+    ],
+    "start": "2026-08-24",
+    "type": "interval"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "15:52",
+    "day": "wed",
+    "days": "15",
+    "every": 3,
+    "start": "2027-07-25T04:00:00",
+    "type": "weekly",
+    "weekday": false
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "07:19",
+    "day": "fri",
+    "every": 3,
+    "start": "2026-04-20T03:15:00",
+    "timezone": "Europe/London",
+    "type": "weekly",
+    "until": "2027-12-07T03:15:00",
+    "window": "America/New_York"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "days": [
+     "mon",
+     "thu"
+    ],
+    "every": "12mo",
+    "timezone": null,
     "type": "interval"
    },
    "valid": true
   },
   {
    "schedule": {
-    "at": [
-     "00:00",
-     "18:30"
-    ],
-    "date": "10-31",
-    "type": "yearly"
-   },
-   "valid": true
-  },
-  {
-   "schedule": {
-    "at": "02:30",
-    "date": "01-01",
-    "day": "2027-01-01T25:00:00",
-    "start": "2027-02-12T01:45:00",
-    "timezone": "Europe/London",
-    "type": "yearly"
-   },
-   "valid": true
-  },
-  {
-   "schedule": {
-    "days": 2.0,
+    "count": "UTC",
     "every": "2h",
-    "start": "2027-10-12T07:45:00",
+    "start": "2026-07-13T05:30:00",
+    "timezone": "Pacific/Auckland",
     "type": "interval",
-    "window": -1
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "every": "1d",
-    "start": "2027-04-02T11:00:00",
-    "timezone": "America/Santiago",
-    "type": "interval",
-    "weekday": "mon",
+    "until": "2028-01-18T05:30:00",
     "window": {
-     "from": "02:30",
-     "to": "06:00"
+     "from": "03:30",
+     "to": "13:26"
     }
    },
    "valid": false
   },
   {
    "schedule": {
-    "at": "01:30",
-    "day": "tue",
-    "start": "2026-05-11T05:30:00",
-    "type": "weekly"
-   },
-   "valid": true
-  },
-  {
-   "schedule": {
     "at": "03:00",
-    "date": "05-28",
-    "day": "2027-02-30",
-    "type": "yearly"
-   },
-   "valid": true
-  },
-  {
-   "schedule": {
+    "date": "02-28",
     "days": [
-     "mon",
+     "tue",
      "wed",
      "thu",
      "fri",
-     "sun"
+     "sat"
     ],
-    "type": "daily",
-    "until": "2028-01-21T00:00:00"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "02:30",
-    "date": "03-01",
-    "day": "america/new_york",
-    "timezone": "Pacific/Chatham",
-    "type": "yearly"
-   },
-   "valid": true
-  },
-  {
-   "schedule": {
-    "at": "23:16",
-    "date": "15",
-    "day": "09:60",
-    "days": [
-     "mon",
-     "tue",
-     "wed",
-     "fri"
-    ],
-    "nth": 3,
-    "timezone": "Europe/London",
-    "type": "monthly",
-    "weekday": "thu"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "16:45",
-    "day": 31,
-    "timezone": "Asia/Kolkata",
-    "type": "weekly"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "01:00",
-    "day": "tue",
-    "every": "15",
-    "type": "weekly"
-   },
-   "valid": false
-  },
-  {
-   "schedule": {
-    "at": "15:56",
-    "days": [
-     "mon",
-     "tue",
-     "wed",
-     "fri"
-    ],
-    "timezone": "Australia/Lord_Howe",
-    "type": "daily",
-    "until": 2.0,
-    "weekday": "2027-01-01"
+    "start": "2027-04-02",
+    "timezone": "Asia/Tokyo",
+    "weekday": {
+     "from": "09:00",
+     "to": "09:00"
+    }
    },
    "valid": false
   },
   {
    "schedule": {
     "at": [
-     "02:16",
-     "02:33",
-     "07:47"
+     "00:00",
+     "02:30",
+     "03:00"
     ],
+    "date": "10-31",
+    "day": false,
     "days": [
      "wed",
+     "thu"
+    ],
+    "every": true,
+    "type": "yearly"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "days": [
+     "mon",
+     "tue",
+     "wed",
+     "fri",
+     "sat",
+     "sun"
+    ],
+    "every": "25h",
+    "start": "2026-05-15T23:05:00",
+    "timezone": "Australia/Lord_Howe",
+    "window": {
+     "from": "10:59",
+     "to": "03:00"
+    }
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "last",
+    "day": 15,
+    "days": [
+     "tue",
+     "wed",
+     "thu",
+     "fri",
+     "sat",
+     "sun"
+    ],
+    "every": 3,
+    "nth": "0mo",
+    "start": "2026-07-09",
+    "timezone": "Europe/London",
+    "type": "monthly"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "every": "7h",
+    "start": "2026-06-14",
+    "timezone": "Australia/Sydney",
+    "type": "interval",
+    "until": 1,
+    "window": "15"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "00:00",
+    "date": "09:60",
+    "days": [
+     "mon"
+    ],
+    "every": 0,
+    "timezone": "Asia/Tokyo",
+    "type": "yearly",
+    "until": "2028-02-26T00:00:00"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "10:38",
+    "date": "08-03",
+    "timezone": "Pacific/Chatham",
+    "type": "yearly",
+    "until": ""
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": [
+     "00:00",
+     "03:00"
+    ],
+    "date": "03-01",
+    "days": "2027-01-01",
+    "timezone": "Asia/Tokyo",
+    "type": "yearly"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "day": 2.5,
+    "every": 90,
+    "timezone": "Australia/Lord_Howe",
+    "type": "interval",
+    "until": "2028-02-29T00:00:00",
+    "weekday": "mon"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "days": [
+     "fri"
+    ],
+    "every": "45",
+    "timezone": "Asia/Tokyo",
+    "type": "interval",
+    "window": [
+     "mon"
+    ]
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": [
+     "01:00",
+     "02:00",
+     "03:00"
+    ],
+    "date": "01-01",
+    "days": [
+     "09:00",
+     "17:00"
+    ],
+    "timezone": "Europe/Berlin",
+    "type": "yearly"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "07:47",
+    "days": [
+     "tue",
+     "wed",
+     "fri",
+     "sat",
      "sun"
     ],
     "timezone": "2027-01-01T25:00:00",
@@ -42666,6 +42686,106 @@
     ],
     "day": "america/new_york",
     "timezone": "Asia/Tokyo",
+    "type": "daily"
+   },
+   "valid": true
+  },
+  {
+   "schedule": {
+    "date": [
+     "09:00",
+     "09:00"
+    ],
+    "timezone": "Europe/London",
+    "type": "interval"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "every": "5m",
+    "start": "2026-03-04",
+    "timezone": "America/New_York",
+    "type": "interval",
+    "window": "09:00"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "count": "9:00",
+    "every": "45m",
+    "nth": {
+     "from": "09:00",
+     "to": "09:00"
+    },
+    "timezone": "America/St_Johns",
+    "type": "interval",
+    "window": {
+     "from": "11:08",
+     "to": "17:45"
+    }
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "09:00",
+    "count": "1.5h",
+    "day": 31,
+    "days": [
+     "mon",
+     "tue",
+     "wed",
+     "fri",
+     "sat"
+    ],
+    "every": 2,
+    "start": "2027-12-04",
+    "timezone": "Europe/London",
+    "type": "monthly"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "13:02",
+    "days": [
+     "thu"
+    ],
+    "type": "weekly",
+    "until": "2027-07-22T00:00:00"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "day": "09:60",
+    "days": [
+     "thu"
+    ],
+    "every": "2d",
+    "nth": "٠٩:٠٠",
+    "start": "2026-03-02T06:50:00",
+    "timezone": "Asia/Tokyo",
+    "type": "interval"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "count": "UTC",
+    "days": 2.0,
+    "every": "25h",
+    "start": "2026-04-24T10:10:00",
+    "type": "interval"
+   },
+   "valid": false
+  },
+  {
+   "schedule": {
+    "at": "08:02",
+    "start": "2027-10-30T06:10:00",
     "type": "daily"
    },
    "valid": true
