@@ -194,6 +194,8 @@ beforeAll(async () => {
   fs.mkdirSync(path.join(home, "fleet/identities/alice/workspace"), {
     recursive: true,
   });
+  // agent-desktop refuses `up` for an identity without its <name>.md.
+  fs.writeFileSync(path.join(home, "fleet/identities/alice/alice.md"), "---\nroles: []\n---\n");
 
   if (!REAL_GUACD) {
     const fake = net.createServer((s) => s.destroy());
