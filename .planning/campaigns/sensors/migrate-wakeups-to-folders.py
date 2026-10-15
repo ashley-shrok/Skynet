@@ -108,7 +108,11 @@ def running_monitors():
 def restart_monitor(pid, argv):
     iddir = next(a for a in argv if a.startswith("/") and "/fleet/identities/" in a)
     name = os.path.basename(iddir.rstrip("/"))
+    if not os.path.isdir(iddir):
+        print("  - %s: identity folder gone (archived) — orphan monitor pid %d left alone" % (name, pid))
+        return
     env, cwd = proc_env_cwd(pid)
+    logf = os.path.join(iddir, "ambient-monitor.log")
     os.kill(pid, signal.SIGTERM)
     for _ in range(40):
         if not os.path.exists("/proc/%d" % pid):
@@ -117,7 +121,6 @@ def restart_monitor(pid, argv):
     else:
         print("  ! %s: monitor pid %d did not exit — not relaunching" % (name, pid))
         return
-    logf = os.path.join(iddir, "ambient-monitor.log")
     with open(logf, "w") as lf:
         subprocess.Popen(argv, stdout=lf, stderr=lf, stdin=subprocess.DEVNULL, start_new_session=True,
                          env=env, cwd=cwd)
