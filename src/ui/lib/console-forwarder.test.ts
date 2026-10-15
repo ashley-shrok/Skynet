@@ -23,6 +23,10 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 // Alternatively, we can use the exported __test_reset() function.
 
 describe("console-forwarder", () => {
+  // Each test inits a fresh module instance, which patches console on top of
+  // the previous one; restore so earlier instances don't keep forwarding.
+  const original = { log: console.log, info: console.info, warn: console.warn, error: console.error };
+
   beforeEach(() => {
     vi.useFakeTimers();
   });
@@ -30,6 +34,7 @@ describe("console-forwarder", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
+    Object.assign(console, original);
   });
 
   it("Test 1: original console.error is still called after init (console-preservation invariant)", async () => {
@@ -142,5 +147,47 @@ describe("console-forwarder", () => {
     const entry = buf[0];
     expect("hostId" in entry).toBe(false);
     expect("sessionKey" in entry).toBe(false);
+  });
+
+  it("Test 6: a batch the server didn't take (network error, 5xx) is retried until delivered", async () => {
+    vi.resetModules();
+    const fwd = await import("./console-forwarder.js");
+    fwd.__test_reset();
+    const bodies: string[][] = [];
+    const responses: Array<() => Promise<Response>> = [
+      () => Promise.reject(new TypeError("Failed to fetch")),
+      () => Promise.resolve(new Response("", { status: 502 })),
+      () => Promise.resolve(new Response("{}", { status: 200 })),
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: RequestInit) => {
+        bodies.push(JSON.parse(String(init.body)).entries.map((e: { msg: string }) => e.msg));
+        return responses.shift()!();
+      }),
+    );
+    fwd.initConsoleForwarder();
+    console.info("during-deploy");
+    await vi.advanceTimersByTimeAsync(500); // first flush: network error
+    console.info("later");
+    await vi.advanceTimersByTimeAsync(2000); // retry: 502
+    await vi.advanceTimersByTimeAsync(2000); // retry: delivered
+    expect(bodies).toEqual([["during-deploy"], ["during-deploy", "later"], ["during-deploy", "later"]]);
+    expect(fwd.__test_getBuffer()).toEqual([]);
+    vi.unstubAllGlobals();
+  });
+
+  it("Test 7: a dead endpoint is given up on after 30 retries in a row", async () => {
+    vi.resetModules();
+    const fwd = await import("./console-forwarder.js");
+    fwd.__test_reset();
+    const fetchMock = vi.fn(async () => new Response("", { status: 503 }));
+    vi.stubGlobal("fetch", fetchMock);
+    fwd.initConsoleForwarder();
+    console.info("doomed");
+    await vi.advanceTimersByTimeAsync(500 + 2000 * 40);
+    expect(fetchMock).toHaveBeenCalledTimes(31);
+    expect(fwd.__test_getBuffer()).toEqual([]);
+    vi.unstubAllGlobals();
   });
 });

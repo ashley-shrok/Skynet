@@ -251,6 +251,31 @@ describe("createSkewLockMiddleware", () => {
     }
   });
 
+  it("Test 3b — console-log reports from a stale tab pass through (exempt path)", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    const s = await startTestServer();
+    try {
+      const res = await httpRequest(s.server, {
+        method: "POST",
+        path: "/debug/console-log",
+        headers: { "x-skynet-client-build": "different-build" },
+      });
+      expect(res.status).toBe(200);
+      expect(s.routeHit()).toBe(1);
+      expect(res.headers["x-skynet-server-build"]).toBe(TEST_BUILD);
+      expect(apiLoggerWarnSpy).not.toHaveBeenCalled();
+      // Only that exact path: a lookalike is still refused.
+      const other = await httpRequest(s.server, {
+        method: "POST",
+        path: "/debug/console-log-x",
+        headers: { "x-skynet-client-build": "different-build" },
+      });
+      expect(other.status).toBe(409);
+    } finally {
+      await s.close();
+    }
+  });
+
   it("Test 4a — query-param match: `?build=<tag>` matching serverBuild passes through", async () => {
     const s = await startTestServer();
     try {

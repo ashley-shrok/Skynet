@@ -6,6 +6,12 @@
  * batching entries to POST /debug/console-log every 500ms or when 20
  * entries accumulate.
  *
+ * A batch the server didn't take (network error or 5xx — e.g. the container
+ * restarting mid-deploy) goes back on the front of the buffer and is retried
+ * every RETRY_INTERVAL_MS, up to MAX_RETRIES in a row; the buffer is capped at
+ * MAX_BUFFERED entries (oldest dropped). Logs from around a deploy are the
+ * ones most worth keeping.
+ *
  * On iOS PWA tab-close (visibilitychange/pagehide), issues a final flush
  * via navigator.sendBeacon so in-flight logs are delivered.
  *
@@ -44,6 +50,11 @@ export type LogContext = {
 
 const buffer: LogEntry[] = [];
 const FLUSH_INTERVAL_MS = 500;
+const RETRY_INTERVAL_MS = 2000;
+/** ~60s of retries: covers a container recreate. */
+const MAX_RETRIES = 30;
+const MAX_BUFFERED = 2000;
+let failedFlushes = 0;
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 let initialized = false;
 let currentContext: LogContext = {};
@@ -99,10 +110,27 @@ function flushFetch(): void {
     credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ entries }),
-  }).catch(() => {
-    // swallow — best-effort, don't re-enqueue on failure or we loop forever
-    // on a broken endpoint
-  });
+  })
+    .then((res) => {
+      if (res.status >= 500) requeue(entries);
+      else failedFlushes = 0;
+    })
+    .catch(() => requeue(entries));
+}
+
+/** Put an undelivered batch back in front of newer entries and retry later.
+ *  Bounded (MAX_RETRIES in a row, MAX_BUFFERED entries) so a dead endpoint
+ *  can't loop forever or grow memory. */
+function requeue(entries: LogEntry[]): void {
+  failedFlushes += 1;
+  if (failedFlushes > MAX_RETRIES) {
+    failedFlushes = 0;
+    return;
+  }
+  buffer.unshift(...entries);
+  if (buffer.length > MAX_BUFFERED) buffer.splice(0, buffer.length - MAX_BUFFERED);
+  if (flushTimer !== null) clearTimeout(flushTimer);
+  flushTimer = setTimeout(flushFetch, RETRY_INTERVAL_MS);
 }
 
 function flushBeacon(): void {
@@ -281,4 +309,5 @@ export function __test_reset(): void {
   }
   initialized = false;
   currentContext = {};
+  failedFlushes = 0;
 }

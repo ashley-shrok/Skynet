@@ -12,6 +12,11 @@
  * workflows from 409'ing themselves the instant the Vite dev build's tag
  * diverges from the running backend's tag.
  *
+ * Exempt: POST /debug/console-log. A stale tab's console logs are exactly
+ * what's needed to diagnose a failure that straddled a deploy; refusing them
+ * keeps nothing safe (the endpoint only appends to a log file) and loses the
+ * evidence.
+ *
  * Placement in the Express chain lives in database.ts between the
  * subdomain-dispatch/serveUrlHandler pair and the bodyParser mounts:
  *   - AFTER serveUrlHandler so Phase 103 *.serve.term.<domain> traffic
@@ -36,6 +41,7 @@ import { getServerBuildId } from "../config/server-build-id.js";
 import { apiLogger } from "../utils/logger.js";
 
 const CLIENT_BUILD_LOG_CAP = 32;
+const SKEW_EXEMPT_PATHS = new Set(["/debug/console-log"]);
 
 export function createSkewLockMiddleware() {
   const serverBuild = getServerBuildId();
@@ -61,7 +67,11 @@ export function createSkewLockMiddleware() {
     const queryVal = typeof queryRaw === "string" ? queryRaw : null;
     const clientBuild = headerVal ?? queryVal;
 
-    if (clientBuild === null || clientBuild === serverBuild) {
+    if (
+      clientBuild === null ||
+      clientBuild === serverBuild ||
+      SKEW_EXEMPT_PATHS.has(req.path)
+    ) {
       // D-06: absence and match both pass through.
       next();
       return;
