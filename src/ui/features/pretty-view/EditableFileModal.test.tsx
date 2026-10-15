@@ -281,8 +281,14 @@ describe("EditableFileModal — Phase 40 Plan 40-03 Task 2", () => {
     )) as HTMLTextAreaElement;
     // Make draft dirty
     fireEvent.change(ta, { target: { value: "hello world" } });
-    // Wait for GlobalFileTab's onDraftChange effect to fire (draft !== content)
-    await new Promise((r) => setTimeout(r, 20));
+    // Wait for GlobalFileTab's onDraftChange effect to mark the modal dirty
+    // (Save enables on isDirty); a fixed sleep flakes under full-suite load.
+    await waitFor(() =>
+      expect(
+        (screen.getByRole("button", { name: /^save$/i }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false),
+    );
     // Trigger a close via the foot Close button (canonical Modal foot; also
     // routes through handleOpenChange the same as the head X).
     fireEvent.click(screen.getByTestId("editable-file-modal-close-foot"));
@@ -302,7 +308,12 @@ describe("EditableFileModal — Phase 40 Plan 40-03 Task 2", () => {
       screen.getByRole("textbox"),
     )) as HTMLTextAreaElement;
     fireEvent.change(ta, { target: { value: "hello world" } });
-    await new Promise((r) => setTimeout(r, 20));
+    await waitFor(() =>
+      expect(
+        (screen.getByRole("button", { name: /^save$/i }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false),
+    );
     fireEvent.click(screen.getByTestId("editable-file-modal-close-foot"));
     expect(window.confirm).toHaveBeenCalledWith("Discard unsaved changes?");
     expect(onOpenChange).toHaveBeenCalledWith(false);
