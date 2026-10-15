@@ -30,7 +30,11 @@ const ctx: ServiceContext = {
   requestId: "0b5c2f9e-1a2b-4c3d-8e9f-001122334455",
   host: { id: "3", idNum: 3 },
   attachments: {},
-  secrets: { BLAND_API_KEY: "k" },
+  secrets: {
+    TWILIO_ACCOUNT_SID: "AC1",
+    TWILIO_AUTH_TOKEN: "tok",
+    TWILIO_FROM_NUMBER: "+17165550000",
+  },
   log: { info: vi.fn(), warn: vi.fn() },
   now: () => 0,
 };
@@ -67,14 +71,18 @@ describe("agent-phone input", () => {
 });
 
 describe("agent-phone service", () => {
-  it("declares the Bland key, TTL and one-call-per-recipient serialization", () => {
+  it("declares the Twilio secrets, TTL and one-call-per-recipient serialization", () => {
     const svc = createAgentPhoneService(deps());
-    expect(svc.secrets).toEqual(["BLAND_API_KEY"]);
+    expect(svc.secrets).toEqual([
+      "TWILIO_ACCOUNT_SID",
+      "TWILIO_AUTH_TOKEN",
+      "TWILIO_FROM_NUMBER",
+    ]);
     expect(svc.ttlMs).toBe(8 * 60 * 1000);
     expect(svc.serializeBy?.(input)).toBe("alice");
   });
 
-  it("places the call with the caller name in the prompt and returns the transcript", async () => {
+  it("places the call with the caller name in the script and returns the transcript", async () => {
     const d = deps();
     const result = await createAgentPhoneService(d).handle(input, ctx);
     expect(result).toEqual({
@@ -86,10 +94,18 @@ describe("agent-phone service", () => {
       },
     });
     expect(d.userHasRegisteredHost).toHaveBeenCalledWith("u-alice", 3);
-    const [phone, task, first] = vi.mocked(d.placeCallAndAwait).mock.calls[0];
-    expect(phone).toBe("+15555550100");
-    expect(task).toContain("Clipper the Box Maintainer");
-    expect(first).toContain("CI failed");
+    const [call, creds] = vi.mocked(d.placeCallAndAwait).mock.calls[0];
+    expect(call).toEqual({
+      to: "+15555550100",
+      openingLine: "Hi, this is Clipper the Box Maintainer. CI failed",
+      receiptLine:
+        "Your reply has been sent back to Clipper the Box Maintainer. You may hang up.",
+    });
+    expect(creds).toEqual({
+      accountSid: "AC1",
+      authToken: "tok",
+      fromNumber: "+17165550000",
+    });
   });
 
   it("treats no_response as delivered", async () => {

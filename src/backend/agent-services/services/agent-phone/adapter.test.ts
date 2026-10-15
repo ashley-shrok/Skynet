@@ -1,416 +1,276 @@
-/**
- * agent-services/services/agent-phone/adapter.test.ts
- *
- * Tests for the Bland adapter. Focus areas:
- *   - classifyBlandDetails mapping table (every enum branch)
- *   - placeCallAndAwait — placement failures, poll loop, deadline, secret redaction
- */
+import { describe, it, expect, vi } from "vitest";
 
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import {
-  classifyBlandDetails,
-  placeCallAndAwait,
-  BLAND_POLL_DEADLINE_MS,
-  BLAND_POLL_INTERVAL_MS,
-  BLAND_INTERRUPTIBILITY,
-} from "./adapter.js";
-
-// Silence the module logger — the adapter warns on every failure branch.
-vi.mock("../../../utils/logger.js", () => ({
-  systemLogger: {
+vi.mock("../../../utils/logger.js", () => {
+  const stub = {
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
     debug: vi.fn(),
-  },
-}));
-
-describe("classifyBlandDetails", () => {
-  it("maps status:busy → busy", () => {
-    expect(classifyBlandDetails({ status: "busy" })).toBe("busy");
-  });
-
-  it("maps status:canceled → canceled", () => {
-    expect(classifyBlandDetails({ status: "canceled" })).toBe("canceled");
-  });
-
-  it("maps pre-connect status:failed (no call_length, no answered_by) → queue_error", () => {
-    // The call never rang — safe to retry, so queue_error is correct.
-    expect(classifyBlandDetails({ status: "failed" })).toBe("queue_error");
-    expect(classifyBlandDetails({ status: "failed", answered_by: null })).toBe(
-      "queue_error",
-    );
-    expect(classifyBlandDetails({ status: "failed", call_length: 0 })).toBe(
-      "queue_error",
-    );
-  });
-
-  it("maps post-connect status:failed (positive call_length OR non-null answered_by) → unknown", () => {
-    // The call rang and connected before failing — retrying would ring
-    // the callee a second time, so surface as `unknown` (defensive
-    // fallback) rather than the retriable-looking `queue_error`.
-    expect(
-      classifyBlandDetails({ status: "failed", call_length: 0.5 }),
-    ).toBe("unknown");
-    expect(
-      classifyBlandDetails({ status: "failed", answered_by: "human" }),
-    ).toBe("unknown");
-    expect(
-      classifyBlandDetails({
-        status: "failed",
-        answered_by: "human",
-        call_length: 0.3,
-      }),
-    ).toBe("unknown");
-  });
-
-  it("maps status:no-answer → no_answer", () => {
-    expect(classifyBlandDetails({ status: "no-answer" })).toBe("no_answer");
-  });
-
-  it("maps status:completed + voicemail pickup → no_answer", () => {
-    expect(
-      classifyBlandDetails({ status: "completed", answered_by: "voicemail" }),
-    ).toBe("no_answer");
-  });
-
-  it("maps status:completed + no-answer pickup → no_answer", () => {
-    expect(
-      classifyBlandDetails({ status: "completed", answered_by: "no-answer" }),
-    ).toBe("no_answer");
-  });
-
-  it("maps status:completed + human + empty transcript → no_response", () => {
-    expect(
-      classifyBlandDetails({
-        status: "completed",
-        answered_by: "human",
-        transcripts: [{ user: "assistant", text: "Hi" }],
-      }),
-    ).toBe("no_response");
-  });
-
-  it("maps status:completed + human + user turn present → completed", () => {
-    expect(
-      classifyBlandDetails({
-        status: "completed",
-        answered_by: "human",
-        transcripts: [
-          { user: "assistant", text: "Hi" },
-          { user: "user", text: "Hello back" },
-        ],
-      }),
-    ).toBe("completed");
-  });
-
-  it("matches the user-role label case-insensitively (defensive against Bland schema drift)", () => {
-    // If Bland ever emits capitalized role labels, we should still count
-    // the user turn — otherwise every completed human-answered call would
-    // silently misclassify to no_response.
-    expect(
-      classifyBlandDetails({
-        status: "completed",
-        answered_by: "human",
-        transcripts: [
-          { user: "Assistant", text: "Hi" },
-          { user: "User", text: "Hello back" },
-        ],
-      }),
-    ).toBe("completed");
-    expect(
-      classifyBlandDetails({
-        status: "completed",
-        answered_by: "human",
-        transcripts: [{ user: "USER", text: "yes" }],
-      }),
-    ).toBe("completed");
-  });
-
-  it("maps queue_status:pre_queue_error → queue_error", () => {
-    expect(classifyBlandDetails({ queue_status: "pre_queue_error" })).toBe(
-      "queue_error",
-    );
-  });
-
-  it("maps queue_status:queue_error → queue_error", () => {
-    expect(classifyBlandDetails({ queue_status: "queue_error" })).toBe(
-      "queue_error",
-    );
-  });
-
-  it("maps status:unknown → unknown", () => {
-    expect(classifyBlandDetails({ status: "unknown" })).toBe("unknown");
-  });
-
-  it("returns null (keep polling) for in-flight statuses", () => {
-    expect(classifyBlandDetails({ status: "queued" })).toBeNull();
-    expect(classifyBlandDetails({ status: "started" })).toBeNull();
-    expect(classifyBlandDetails({})).toBeNull();
-  });
+    success: vi.fn(),
+  };
+  return { systemLogger: stub, databaseLogger: stub };
 });
 
-describe("placeCallAndAwait — placement failures", () => {
-  let originalKey: string | undefined;
+import {
+  CALL_DEADLINE_MS,
+  placeCallAndAwait,
+  type AdapterDeps,
+} from "./adapter.js";
 
-  beforeEach(() => {
-    originalKey = process.env.BLAND_API_KEY;
-    process.env.BLAND_API_KEY = "test-key";
-  });
+const creds = {
+  accountSid: "AC123",
+  authToken: "secret-token",
+  fromNumber: "+17165550000",
+};
+const call = {
+  to: "+15555550100",
+  openingLine: "Hi, this is Clipper. CI failed.",
+  receiptLine: "Your reply has been sent back to Clipper. You may hang up.",
+};
 
-  afterEach(() => {
-    if (originalKey === undefined) delete process.env.BLAND_API_KEY;
-    else process.env.BLAND_API_KEY = originalKey;
-  });
+const ACCOUNT = "https://api.twilio.com/2010-04-01/Accounts/AC123";
 
-  it("returns placement_error immediately when BLAND_API_KEY is missing", async () => {
-    delete process.env.BLAND_API_KEY;
-    const result = await placeCallAndAwait("+15551234567", "task", "first", {
-      now: () => 0,
-      sleep: () => Promise.resolve(),
-      fetchFn: vi.fn() as unknown as typeof fetch,
+interface FakeTwilio {
+  /** Response body for POST /Calls.json, or an HTTP error. */
+  place?: { status: number; body: unknown };
+  /** Successive GET /Calls/:sid bodies; the last one repeats. */
+  statuses?: Array<Record<string, unknown>>;
+  /** Successive GET /Calls/:sid/Recordings bodies; the last one repeats. */
+  recordings?: Array<Array<Record<string, unknown>>>;
+  /** GET /Recordings/:sid.mp3 status. */
+  mediaStatus?: number;
+}
+
+function fakeTwilio(f: FakeTwilio) {
+  let statusIdx = 0;
+  let recIdx = 0;
+  const calls: Array<{ method: string; url: string; body?: string; auth?: string }> = [];
+  const fetchFn = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+    const u = String(url);
+    const method = init?.method ?? "GET";
+    const headers = (init?.headers ?? {}) as Record<string, string>;
+    calls.push({
+      method,
+      url: u,
+      body: typeof init?.body === "string" ? init.body : undefined,
+      auth: headers.Authorization,
     });
-    expect(result.outcome).toBe("placement_error");
-    expect(result.message).toContain("BLAND_API_KEY not configured");
+    const json = (status: number, body: unknown) =>
+      new Response(JSON.stringify(body), { status });
+    if (method === "POST" && u === `${ACCOUNT}/Calls.json`) {
+      const p = f.place ?? { status: 201, body: { sid: "CA1", status: "queued" } };
+      return json(p.status, p.body);
+    }
+    if (method === "GET" && u === `${ACCOUNT}/Calls/CA1.json`) {
+      const list = f.statuses ?? [{ status: "completed", duration: "30" }];
+      const body = list[Math.min(statusIdx++, list.length - 1)];
+      return json(200, body);
+    }
+    if (method === "POST" && u === `${ACCOUNT}/Calls/CA1.json`) {
+      return json(200, { sid: "CA1" });
+    }
+    if (method === "GET" && u === `${ACCOUNT}/Calls/CA1/Recordings.json`) {
+      const list = f.recordings ?? [
+        [{ sid: "RE1", status: "completed", source: "RecordVerb" }],
+      ];
+      return json(200, { recordings: list[Math.min(recIdx++, list.length - 1)] });
+    }
+    if (method === "GET" && u === `${ACCOUNT}/Recordings/RE1.mp3`) {
+      return new Response("MP3", { status: f.mediaStatus ?? 200 });
+    }
+    if (method === "DELETE" && u === `${ACCOUNT}/Recordings/RE1.json`) {
+      return new Response(null, { status: 204 });
+    }
+    return json(404, { message: `unexpected ${method} ${u}` });
+  });
+  return { fetchFn: fetchFn as unknown as typeof fetch, calls };
+}
+
+function deps(
+  fetchFn: typeof fetch,
+  transcribe: AdapterDeps["transcribe"] = vi.fn(async () => "On it."),
+): AdapterDeps & { clock: { t: number } } {
+  const clock = { t: 0 };
+  return {
+    clock,
+    now: () => clock.t,
+    sleep: async (ms) => {
+      clock.t += ms;
+    },
+    fetchFn,
+    transcribe,
+  };
+}
+
+describe("placeCallAndAwait (Twilio)", () => {
+  it("places the call from the instance number with inline TwiML and machine detection", async () => {
+    const t = fakeTwilio({});
+    await placeCallAndAwait(call, creds, deps(t.fetchFn));
+    const place = t.calls[0];
+    expect(place.method).toBe("POST");
+    expect(place.auth).toBe(
+      `Basic ${Buffer.from("AC123:secret-token").toString("base64")}`,
+    );
+    const form = new URLSearchParams(place.body);
+    expect(form.get("To")).toBe("+15555550100");
+    expect(form.get("From")).toBe("+17165550000");
+    expect(form.get("MachineDetection")).toBe("Enable");
+    expect(form.get("Twiml")).toContain("Hi, this is Clipper. CI failed.");
+    expect(form.get("Twiml")).toContain("<Record ");
   });
 
-  it("uses raw Authorization header (no Bearer prefix)", async () => {
-    const fetchFn = vi.fn().mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: async () => ({ call_id: "abc" }),
-    }) as unknown as typeof fetch;
-
-    // Immediately resolve with a terminal state on the very first poll.
-    (fetchFn as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: async () => ({ status: "completed", answered_by: "human", transcripts: [{ user: "assistant", text: "hi msg" }, { user: "user", text: "yes" }], concatenated_transcript: "assistant: hi msg \n user: yes", call_length: 0.5 }),
+  it("returns the reply transcript, then deletes the recording", async () => {
+    const t = fakeTwilio({
+      statuses: [
+        { status: "ringing" },
+        { status: "in-progress", answered_by: "human" },
+        { status: "completed", duration: "31", answered_by: "human" },
+      ],
     });
-
-    const startTime = 0;
-    let clock = startTime;
-    await placeCallAndAwait("+15551234567", "TASK-PROMPT", "FIRST-SENTENCE", {
-      now: () => clock,
-      sleep: async (ms) => {
-        clock += ms;
-      },
-      fetchFn,
+    const transcribe = vi.fn(async () => " Okay, going to bed. ");
+    const result = await placeCallAndAwait(call, creds, deps(t.fetchFn, transcribe));
+    expect(result).toEqual({
+      outcome: "completed",
+      call_length_seconds: 31,
+      transcript: [
+        "voice: Hi, this is Clipper. CI failed.",
+        "user: Okay, going to bed.",
+        "voice: Your reply has been sent back to Clipper. You may hang up.",
+      ].join("\n"),
     });
-
-    // Placement call — inspect headers
-    const placementCall = (fetchFn as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(placementCall[0]).toContain("/v1/calls");
-    const placementInit = placementCall[1] as { headers: Record<string, string>; body: string };
-    expect(placementInit.headers.Authorization).toBe("test-key");
-    expect(placementInit.headers.Authorization).not.toContain("Bearer");
-    // Body carries the task + first_sentence + phone + record:false + interruptibility
-    const body = JSON.parse(placementInit.body);
-    expect(body.task).toBe("TASK-PROMPT");
-    expect(body.first_sentence).toBe("FIRST-SENTENCE");
-    expect(body.phone_number).toBe("+15551234567");
-    expect(body.record).toBe(false);
-    expect(body.interruptibility).toBe(BLAND_INTERRUPTIBILITY);
-    expect(body.interruptibility).toBe(0);
+    expect(vi.mocked(transcribe).mock.calls[0][0].toString()).toBe("MP3");
+    expect(t.calls.some((c) => c.method === "DELETE")).toBe(true);
   });
 
-  it("returns placement_error when the POST returns no call_id", async () => {
-    const fetchFn = vi.fn().mockResolvedValueOnce({
-      ok: false,
-      status: 400,
-      json: async () => ({ error_message: "bad phone number" }),
-    }) as unknown as typeof fetch;
-    const result = await placeCallAndAwait("+bad", "t", "f", {
-      now: () => 0,
-      sleep: () => Promise.resolve(),
-      fetchFn,
+  it("waits for the recording to finish processing", async () => {
+    const t = fakeTwilio({
+      recordings: [
+        [],
+        [{ sid: "RE1", status: "processing", source: "RecordVerb" }],
+        [{ sid: "RE1", status: "completed", source: "RecordVerb" }],
+      ],
     });
-    expect(result.outcome).toBe("placement_error");
-    expect(result.message).toBe("bad phone number");
-  });
-
-  it("returns placement_error when the placement call throws", async () => {
-    const fetchFn = vi.fn().mockRejectedValueOnce(new Error("network down")) as unknown as typeof fetch;
-    const result = await placeCallAndAwait("+15551234567", "t", "f", {
-      now: () => 0,
-      sleep: () => Promise.resolve(),
-      fetchFn,
-    });
-    expect(result.outcome).toBe("placement_error");
-    expect(result.message).toBe("network down");
-  });
-});
-
-describe("placeCallAndAwait — poll loop", () => {
-  beforeEach(() => {
-    process.env.BLAND_API_KEY = "test-key";
-  });
-
-  it("returns completed with transcript when Bland reports success", async () => {
-    const fetchFn = vi.fn()
-      // Placement
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({ call_id: "abc-123" }),
-      })
-      // First poll: still queued
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({ status: "queued" }),
-      })
-      // Second poll: completed with transcript
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({
-          status: "completed",
-          answered_by: "human",
-          transcripts: [
-            { user: "assistant", text: "hello with a message for you: standup at nine" },
-            { user: "user", text: "ok, thanks" },
-          ],
-          concatenated_transcript: "assistant: hello with a message for you: standup at nine \n user: ok, thanks",
-          call_length: 0.35, // minutes
-        }),
-      }) as unknown as typeof fetch;
-
-    let clock = 0;
-    const result = await placeCallAndAwait("+15551234567", "t", "f", {
-      now: () => clock,
-      sleep: async (ms) => {
-        clock += ms;
-      },
-      fetchFn,
-    });
-
+    const result = await placeCallAndAwait(call, creds, deps(t.fetchFn));
     expect(result.outcome).toBe("completed");
-    expect(result.transcript).toContain("user: ok, thanks");
-    // `assistant:` gets relabeled to `voice:` on the way out (item-2 fix
-    // for the caller-agent double-meaning); the raw Bland label MUST NOT
-    // survive into the returned transcript.
-    expect(result.transcript).toContain("voice: hello with a message for you");
-    expect(result.transcript).not.toContain("assistant:");
-    expect(result.call_length_seconds).toBe(21); // Math.round(0.35 * 60)
-    // Second poll = 2 sleep intervals
-    expect(clock).toBe(BLAND_POLL_INTERVAL_MS * 2);
   });
 
-  it("returns timeout when deadline hits before a terminal state", async () => {
-    // Placement OK, but every poll returns queued.
-    const fetchFn = vi.fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({ call_id: "abc-123" }),
-      })
-      .mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: async () => ({ status: "queued", call_length: 5 }), // 5 min
-      }) as unknown as typeof fetch;
-
-    let clock = 0;
-    const result = await placeCallAndAwait("+15551234567", "t", "f", {
-      now: () => clock,
-      sleep: async (ms) => {
-        clock += ms;
-      },
-      fetchFn,
+  it("is no_response when the callee said nothing", async () => {
+    const t = fakeTwilio({});
+    const result = await placeCallAndAwait(
+      call,
+      creds,
+      deps(t.fetchFn, vi.fn(async () => "  ")),
+    );
+    expect(result).toEqual({
+      outcome: "no_response",
+      call_length_seconds: 30,
+      transcript: "voice: Hi, this is Clipper. CI failed.",
     });
+  });
 
+  it("is no_response when no recording ever appears (hung up during the message)", async () => {
+    const t = fakeTwilio({ recordings: [[]] });
+    const transcribe = vi.fn(async () => "x");
+    const result = await placeCallAndAwait(call, creds, deps(t.fetchFn, transcribe));
+    expect(result.outcome).toBe("no_response");
+    expect(transcribe).not.toHaveBeenCalled();
+  });
+
+  it("is no_answer when voicemail picked up, without transcribing the greeting", async () => {
+    const t = fakeTwilio({
+      statuses: [{ status: "completed", duration: "20", answered_by: "machine_start" }],
+    });
+    const transcribe = vi.fn(async () => "You've reached Alice, leave a message");
+    const result = await placeCallAndAwait(call, creds, deps(t.fetchFn, transcribe));
+    expect(result).toEqual({
+      outcome: "no_answer",
+      call_length_seconds: 20,
+      message: "voicemail picked up (answered_by: machine_start)",
+    });
+    expect(transcribe).not.toHaveBeenCalled();
+    expect(t.calls.some((c) => c.method === "DELETE")).toBe(true);
+  });
+
+  it("keeps the recording and still reports completed when transcription fails", async () => {
+    const t = fakeTwilio({});
+    const result = await placeCallAndAwait(
+      call,
+      creds,
+      deps(t.fetchFn, vi.fn(async () => Promise.reject(new Error("stt down")))),
+    );
+    expect(result.outcome).toBe("completed");
+    expect(result.transcript).toContain(
+      "user: [reply recorded but could not be transcribed: stt down]",
+    );
+    expect(t.calls.some((c) => c.method === "DELETE")).toBe(false);
+  });
+
+  it.each([
+    ["busy", "busy"],
+    ["no-answer", "no_answer"],
+    ["canceled", "canceled"],
+    ["failed", "queue_error"],
+  ])("maps Twilio status %s to %s", async (status, outcome) => {
+    const t = fakeTwilio({ statuses: [{ status, duration: "0" }] });
+    const result = await placeCallAndAwait(call, creds, deps(t.fetchFn));
+    expect(result.outcome).toBe(outcome);
+    expect(t.calls.some((c) => c.url.endsWith("/Recordings.json"))).toBe(false);
+  });
+
+  it("reports placement_error with Twilio's message and code", async () => {
+    const t = fakeTwilio({
+      place: {
+        status: 400,
+        body: { code: 21211, message: "The 'To' number is not a valid phone number." },
+      },
+    });
+    const result = await placeCallAndAwait(call, creds, deps(t.fetchFn));
+    expect(result).toEqual({
+      outcome: "placement_error",
+      message: "The 'To' number is not a valid phone number. (Twilio 21211)",
+    });
+    expect(t.calls).toHaveLength(1);
+  });
+
+  it("reports placement_error when the request throws", async () => {
+    const fetchFn = vi.fn(async () => {
+      throw new Error("ECONNRESET");
+    }) as unknown as typeof fetch;
+    const result = await placeCallAndAwait(call, creds, deps(fetchFn));
+    expect(result).toEqual({ outcome: "placement_error", message: "ECONNRESET" });
+  });
+
+  it("keeps polling through poll errors", async () => {
+    const t = fakeTwilio({});
+    let n = 0;
+    const flaky = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      if (String(url).endsWith("/Calls/CA1.json") && (init?.method ?? "GET") === "GET" && n++ < 2) {
+        throw new Error("blip");
+      }
+      return t.fetchFn(url, init);
+    }) as unknown as typeof fetch;
+    const result = await placeCallAndAwait(call, creds, deps(flaky));
+    expect(result.outcome).toBe("completed");
+  });
+
+  it("hangs up and reports timeout when the call never finishes", async () => {
+    const t = fakeTwilio({ statuses: [{ status: "ringing" }] });
+    const d = deps(t.fetchFn);
+    const result = await placeCallAndAwait(call, creds, d);
     expect(result.outcome).toBe("timeout");
-    expect(result.message).toContain(`${BLAND_POLL_DEADLINE_MS / 1000}s`);
-    // Includes call_length from last observed poll
-    expect(result.call_length_seconds).toBe(300);
-    // Deadline actually passed
-    expect(clock).toBeGreaterThanOrEqual(BLAND_POLL_DEADLINE_MS);
+    expect(d.clock.t).toBeGreaterThanOrEqual(CALL_DEADLINE_MS);
+    const hangup = t.calls.find(
+      (c) => c.method === "POST" && c.url.endsWith("/Calls/CA1.json"),
+    );
+    expect(new URLSearchParams(hangup?.body).get("Status")).toBe("canceled");
   });
 
-  it("silently retries on transient poll errors", async () => {
-    const fetchFn = vi.fn()
-      // Placement
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({ call_id: "abc-123" }),
-      })
-      // First poll: 500 (non-2xx) — continue
-      .mockResolvedValueOnce({
-        ok: false,
-        status: 500,
-        json: async () => ({}),
-      })
-      // Second poll: fetch throws — continue
-      .mockRejectedValueOnce(new Error("temporary network glitch"))
-      // Third poll: terminal completed
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({
-          status: "completed",
-          answered_by: "human",
-          transcripts: [
-            { user: "assistant", text: "hi go home now" },
-            { user: "user", text: "bye" },
-          ],
-          concatenated_transcript: "assistant: hi go home now \n user: bye",
-          call_length: 0.1,
-        }),
-      }) as unknown as typeof fetch;
-
-    let clock = 0;
-    const result = await placeCallAndAwait("+15551234567", "t", "f", {
-      now: () => clock,
-      sleep: async (ms) => {
-        clock += ms;
-      },
-      fetchFn,
-    });
-
-    expect(result.outcome).toBe("completed");
-    expect(result.transcript).toContain("bye");
-    // 3 polls = 3 sleep intervals
-    expect(clock).toBe(BLAND_POLL_INTERVAL_MS * 3);
-  });
-
-  it("relabels `Assistant:` case-insensitively so Bland schema-drift doesn't leak the raw role", async () => {
-    // Bland's concatenated_transcript uses lowercase `assistant:` today,
-    // but the /i regex flag guards against a version bump to `Assistant:`
-    // or `ASSISTANT:`. Without /i the raw role label leaks through to the
-    // calling agent — the whole point of the relabel is defeated.
-    const fetchFn = vi.fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({ call_id: "abc-123" }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({
-          status: "completed",
-          answered_by: "human",
-          transcripts: [
-            { user: "Assistant", text: "Hi there" },
-            { user: "User", text: "hello back" },
-          ],
-          concatenated_transcript: "Assistant: Hi there \n User: hello back",
-          call_length: 0.2,
-        }),
-      }) as unknown as typeof fetch;
-
-    let clock = 0;
-    const result = await placeCallAndAwait("+15551234567", "t", "f", {
-      now: () => clock,
-      sleep: async (ms) => { clock += ms; },
-      fetchFn,
-    });
-
-    expect(result.outcome).toBe("completed");
-    // `Assistant:` line-prefix (capitalized) got relabeled to `voice:`.
-    expect(result.transcript).toContain("voice: Hi there");
-    // No raw assistant-role label survives regardless of casing.
-    expect(result.transcript).not.toMatch(/assistant:/i);
+  it("ends an in-progress call with Status=completed on the deadline", async () => {
+    const t = fakeTwilio({ statuses: [{ status: "in-progress" }] });
+    await placeCallAndAwait(call, creds, deps(t.fetchFn));
+    const hangup = t.calls.find(
+      (c) => c.method === "POST" && c.url.endsWith("/Calls/CA1.json"),
+    );
+    expect(new URLSearchParams(hangup?.body).get("Status")).toBe("completed");
   });
 });

@@ -1,110 +1,84 @@
 /**
  * agent-services/services/agent-phone/adapter.ts
  *
- * Bland.ai HTTP adapter for the agent-phone file-drop broker.
- * Wraps raw `fetch` — no third-party SDK, matching agent-services/services/image-gen/adapter.ts.
+ * Twilio Programmable Voice adapter for agent-phone. Raw `fetch`, no SDK,
+ * matching agent-services/services/image-gen/adapter.ts.
+ *
+ * Flow:
+ *   1. POST /Calls with inline TwiML (call-script.ts) from the instance's
+ *      one Twilio number, so every call shows the same caller ID and the
+ *      callee can allow it through Do Not Disturb. Answering-machine
+ *      detection is on so voicemail comes back as `no_answer`.
+ *   2. Poll GET /Calls/:sid until a terminal status or the deadline. On the
+ *      deadline the call is canceled/hung up, so it can never ring late.
+ *   3. On `completed`, fetch the <Record> recording of the callee's reply,
+ *      transcribe it with the instance's STT provider (the same one voice
+ *      input and the `stt` service use), then delete it from Twilio.
  *
  * Contract:
- *   - NEVER throws in normal operation. All failure modes return a
- *     discriminated union via AdapterResult; a truly unexpected throw is
- *     caught and mapped to `outcome: "unknown"` so the worker sees a
- *     response payload rather than a crash.
- *   - Missing `BLAND_API_KEY` returns `outcome: "placement_error"` +
- *     `message: "BLAND_API_KEY not configured"` BEFORE any fetch. Same
- *     "check env first" discipline as image-gen's not_configured.
- *   - Bland auth uses raw key ("Authorization: <key>") — NOT bearer.
- *     George's POC + Bland's docs both confirm this. Do NOT prefix "Bearer".
- *   - AbortController on the placement call (60s timeout).
- *   - Poll deadline is 8 minutes wall-clock (comfortably below the
- *     agent-side Bash tool's 10-min max — see § BLAND_POLL_DEADLINE_MS
- *     for rationale); caller passes `nowMs` + `deadlineMs` so tests can
- *     control the clock.
- *   - Poll cadence: 5s intervals matching George's POC. Fast enough to catch
- *     terminal state within 5s of Bland's state transition, slow enough to
- *     not hammer the API for a call that's most-of-a-minute long.
- *   - NEVER logs BLAND_API_KEY. Message content is redacted from log
- *     objects — only length + a truncated head are logged for debug.
- *
- * Field mapping (locked from docs + George's POC):
- *   - POST /v1/calls → { call_id, status? } | { errors[], status: "error" }
- *   - GET /v1/calls/:id →
- *       status: completed | failed | busy | no-answer | canceled | unknown
- *       call_ended_by: USER | ASSISTANT
- *       answered_by: human | voicemail | unknown | no-answer | null
- *       queue_status: new | queued | allocated | started | complete |
- *                     pre_queue_error | queue_error | call_error | complete_error
- *       concatenated_transcript: string
- *       transcripts: [{ user: "assistant" | "user", text: string, ... }]
- *       call_length: number (minutes, fractional)
+ *   - NEVER throws in normal operation. Every failure maps to an
+ *     AdapterResult outcome; an unexpected throw becomes `unknown`.
+ *   - NEVER logs the auth token or the message text (only a short head).
  */
 
 import { systemLogger } from "../../../utils/logger.js";
+import {
+  resolveSttProvider,
+  transcribeWithRetries,
+} from "../../../voice/stt-provider.js";
+import { buildCallTwiml } from "./call-script.js";
 import type { PhoneCallOutcome } from "./types.js";
 
-/** Placement-call fetch timeout (POST /v1/calls). Short — the API responds fast. */
-const PLACEMENT_TIMEOUT_MS = 60_000;
+const TWILIO_API_BASE = "https://api.twilio.com/2010-04-01";
 
-/** Per-poll fetch timeout (GET /v1/calls/:id). Short — poll responses are small. */
-const POLL_TIMEOUT_MS = 30_000;
-
-/** Bland API base URL. */
-const BLAND_BASE_URL = "https://api.bland.ai";
+/** Per-request fetch timeout for every Twilio API call. */
+const REQUEST_TIMEOUT_MS = 30_000;
 
 /**
- * Backend poll deadline for a single call — 8 minutes.
- *
- * Constraint: the calling agent's Bash tool caps at 10 minutes. The full
- * caller-side wait stack must fit under that:
- *   backend poll deadline (8 min) < CLI helper poll (9 min) < Bash max (10 min)
- *
- * Realistic single-turn calls take 30s–2 min end-to-end; 8 min is 4× the
- * realistic max, and Bland's own `max_duration=10` will end any run-on
- * call before the poll deadline hits anyway. The 8-min ceiling gives the
- * caller a clean `timeout` outcome instead of a raw Bash-tool abort on
- * pathological slow calls.
+ * Backend wait for one call — 8 minutes, under the CLI helper's 9-minute
+ * wait, which is under the agent's 10-minute Bash-tool cap. Twilio dials
+ * within seconds and a scripted call lasts about a minute, so this only
+ * trips on something pathological.
  */
-export const BLAND_POLL_DEADLINE_MS = 8 * 60 * 1000;
+export const CALL_DEADLINE_MS = 8 * 60 * 1000;
 
-/** Poll interval between GET /v1/calls/:id checks. */
-export const BLAND_POLL_INTERVAL_MS = 5_000;
+/** Interval between GET /Calls/:sid checks. */
+export const CALL_POLL_INTERVAL_MS = 3_000;
+
+/** How long to wait for the reply recording to show up after the call ends. */
+export const RECORDING_WAIT_MS = 20_000;
+
+/** Ring time before Twilio gives up with `no-answer`. */
+export const RING_TIMEOUT_SEC = 45;
+
+/** Answering-machine detection gives up (answered_by "unknown") after this. */
+export const MACHINE_DETECTION_TIMEOUT_SEC = 5;
+
+const TERMINAL_STATUSES = new Set([
+  "completed",
+  "busy",
+  "no-answer",
+  "canceled",
+  "failed",
+]);
+
+export interface TwilioCredentials {
+  accountSid: string;
+  authToken: string;
+  /** The instance's Twilio number, E.164. Every call comes from it. */
+  fromNumber: string;
+}
+
+export interface CallRequest {
+  /** Callee, E.164. */
+  to: string;
+  openingLine: string;
+  receiptLine: string;
+}
 
 /**
- * `max_duration` (minutes) passed to Bland at placement time. Bland ends
- * the call itself when this limit hits (with `call_ended_by: ASSISTANT`).
- * Matches George's POC.
- */
-export const BLAND_MAX_DURATION_MIN = 10;
-
-/**
- * `interruptibility` passed to Bland at placement time. Values (per Bland
- * docs):
- *   0 = block interruptions (AI holds the turn through callee speech)
- *   1 = difficult to interrupt
- *   2 = balanced (Bland default)
- *   3 = easy to interrupt
- *
- * We use 0 because single-turn deliver-listen-hang-up semantics REQUIRE
- * the opener + message payload to play atomically. A fresh-agent UAT
- * turned up the failure mode: Bland's default (2) let the callee's "hello?"
- * cut off the opener mid-word ("with a message f-"), and the message
- * payload was never spoken. `interruptibility` only applies while the AI
- * is speaking — it doesn't affect the listen phase — so setting 0 locks
- * the opener + receipt phrase without dulling the AI's response to the
- * callee's actual reply.
- */
-export const BLAND_INTERRUPTIBILITY = 0;
-
-/**
- * Discriminated-union return type for the adapter.
- *
- * On terminal outcomes carrying a transcript (completed, no_response),
- * `transcript` is populated with the concatenated transcript. On other
- * outcomes it's absent.
- *
- * `call_length_seconds` is populated whenever Bland reported a completed
- * call (regardless of whether the human spoke). Absent when the call was
- * never placed (placement_error), never connected (queue_error), or the
- * backend gave up polling before a terminal state (timeout).
+ * On completed / no_response, `transcript` holds `voice:` / `user:` lines.
+ * `call_length_seconds` is set whenever Twilio reported a duration.
  */
 export type AdapterResult = {
   outcome: PhoneCallOutcome;
@@ -113,360 +87,360 @@ export type AdapterResult = {
   call_length_seconds?: number;
 };
 
-/**
- * Shape of the POST /v1/calls response body. Success form has `call_id`
- * + `status: "success"`; error form omits `call_id` and populates
- * `errors[]` (Bland uses `errors` array, not `message`, in some versions —
- * we accept either).
- */
-interface BlandPlacementResponse {
-  call_id?: string;
-  status?: string;
-  message?: string;
-  errors?: unknown;
-  error_message?: string;
-}
-
-/**
- * Subset of the GET /v1/calls/:id response body we consume.
- * Every field is optional in Bland's response schema; we defensively
- * treat any unexpected shape as "not yet terminal, keep polling".
- */
-interface BlandCallDetails {
-  call_id?: string;
-  status?: string;
-  call_ended_by?: string;
-  answered_by?: string | null;
-  queue_status?: string;
-  completed?: boolean;
-  concatenated_transcript?: string;
-  transcripts?: Array<{ user?: string; text?: string }>;
-  call_length?: number;
-  error_message?: string;
-}
-
-/**
- * Redact a message for logging — return length + a short head so debug logs
- * are useful without leaking the full content.
- */
-function redactMessage(msg: string): string {
-  const head = msg.slice(0, 40);
-  return `${head}${msg.length > 40 ? "…" : ""} [${msg.length} chars]`;
-}
-
-/**
- * Injected clock + sleep for testability. Production passes real timers;
- * tests use vi.useFakeTimers() + a controllable sleep to walk the poll loop
- * deterministically.
- */
 export interface AdapterDeps {
   now(): number;
   sleep(ms: number): Promise<void>;
-  /** Optional fetch injection for tests. Defaults to globalThis.fetch. */
+  /** Defaults to globalThis.fetch. */
   fetchFn?: typeof fetch;
+  /** Speech-to-text for the reply recording. Defaults to the instance provider. */
+  transcribe?(audio: Buffer): Promise<string>;
+}
+
+/** Subset of the Twilio Call resource we read. */
+interface TwilioCall {
+  sid?: string;
+  status?: string;
+  duration?: string | null;
+  answered_by?: string | null;
+}
+
+interface TwilioRecording {
+  sid?: string;
+  status?: string;
+  source?: string;
+  duration?: string | null;
+}
+
+/** Twilio's REST error body. */
+interface TwilioError {
+  code?: number;
+  message?: string;
+}
+
+function preview(text: string): string {
+  return `${text.slice(0, 40)}${text.length > 40 ? "…" : ""} [${text.length} chars]`;
+}
+
+function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+async function defaultTranscribe(audio: Buffer): Promise<string> {
+  const provider = resolveSttProvider();
+  return transcribeWithRetries(provider, {
+    audio,
+    mimetype: "audio/mpeg",
+    ext: "mp3",
+    timeoutMs: 60_000,
+  });
 }
 
 /**
- * Place a call and poll for the transcript. Returns a discriminated union —
- * NEVER throws in normal operation.
+ * Place the call and wait for it to finish. Returns a discriminated union;
+ * never throws in normal operation.
  */
 export async function placeCallAndAwait(
-  phoneNumber: string,
-  taskPrompt: string,
-  firstSentence: string,
+  call: CallRequest,
+  creds: TwilioCredentials,
   deps: AdapterDeps,
 ): Promise<AdapterResult> {
-  const apiKey = process.env.BLAND_API_KEY;
-  if (!apiKey) {
-    systemLogger.warn("phone adapter: BLAND_API_KEY not configured", {
-      operation: "phone_bland_not_configured",
-    });
-    return {
-      outcome: "placement_error",
-      message: "BLAND_API_KEY not configured",
-    };
+  const fetchFn = deps.fetchFn ?? fetch;
+  const transcribe = deps.transcribe ?? defaultTranscribe;
+  const accountUrl = `${TWILIO_API_BASE}/Accounts/${encodeURIComponent(creds.accountSid)}`;
+  const authHeader = `Basic ${Buffer.from(`${creds.accountSid}:${creds.authToken}`).toString("base64")}`;
+
+  async function twilio(
+    method: "GET" | "POST" | "DELETE",
+    url: string,
+    form?: Record<string, string>,
+  ): Promise<Response> {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);
+    try {
+      return await fetchFn(url, {
+        method,
+        headers: {
+          Authorization: authHeader,
+          ...(form ? { "Content-Type": "application/x-www-form-urlencoded" } : {}),
+        },
+        ...(form ? { body: new URLSearchParams(form).toString() } : {}),
+        signal: ctrl.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
-  const fetchFn = deps.fetchFn ?? fetch;
-
-  // -----------------------------------------------------------------------
-  // Step 1 — POST /v1/calls to queue the call.
-  // -----------------------------------------------------------------------
-  const placementCtrl = new AbortController();
-  const placementTimer = setTimeout(() => placementCtrl.abort(), PLACEMENT_TIMEOUT_MS);
-  let callId: string | null = null;
+  // -------------------------------------------------------------------
+  // Step 1 — place the call.
+  // -------------------------------------------------------------------
+  let callSid: string;
   try {
-    systemLogger.info("phone adapter: placement call start", {
-      operation: "phone_bland_place_start",
-      messagePreview: redactMessage(firstSentence),
+    systemLogger.info("phone adapter: placement start", {
+      operation: "phone_twilio_place_start",
+      messagePreview: preview(call.openingLine),
     });
-
-    const placeRes = await fetchFn(`${BLAND_BASE_URL}/v1/calls`, {
-      method: "POST",
-      headers: {
-        Authorization: apiKey,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        phone_number: phoneNumber,
-        task: taskPrompt,
-        first_sentence: firstSentence,
-        wait_for_greeting: false,
-        max_duration: BLAND_MAX_DURATION_MIN,
-        interruptibility: BLAND_INTERRUPTIBILITY,
-        record: false,
-      }),
-      signal: placementCtrl.signal,
+    const res = await twilio("POST", `${accountUrl}/Calls.json`, {
+      To: call.to,
+      From: creds.fromNumber,
+      Twiml: buildCallTwiml(call.openingLine, call.receiptLine),
+      Timeout: String(RING_TIMEOUT_SEC),
+      MachineDetection: "Enable",
+      MachineDetectionTimeout: String(MACHINE_DETECTION_TIMEOUT_SEC),
     });
-
-    let placeBody: BlandPlacementResponse = {};
+    let body: TwilioCall & TwilioError = {};
     try {
-      placeBody = (await placeRes.json()) as BlandPlacementResponse;
+      body = (await res.json()) as TwilioCall & TwilioError;
     } catch {
-      // Ignore JSON parse errors — treat as placement failure below.
+      // Treated as a placement failure below.
     }
-
-    if (!placeRes.ok || typeof placeBody.call_id !== "string" || placeBody.call_id.length === 0) {
+    if (!res.ok || typeof body.sid !== "string" || body.sid.length === 0) {
       const errMsg =
-        placeBody.error_message ??
-        placeBody.message ??
-        (Array.isArray(placeBody.errors) && placeBody.errors.length > 0
-          ? JSON.stringify(placeBody.errors[0]).slice(0, 200)
-          : undefined) ??
-        `HTTP ${placeRes.status}`;
+        body.message !== undefined
+          ? `${body.message}${body.code !== undefined ? ` (Twilio ${body.code})` : ""}`
+          : `HTTP ${res.status}`;
       systemLogger.warn("phone adapter: placement failed", {
-        operation: "phone_bland_place_failed",
-        status: placeRes.status,
+        operation: "phone_twilio_place_failed",
+        status: res.status,
+        twilioCode: body.code,
         errMsg,
       });
-      return {
-        outcome: "placement_error",
-        message: errMsg,
-      };
+      return { outcome: "placement_error", message: errMsg };
     }
-
-    callId = placeBody.call_id;
+    callSid = body.sid;
     systemLogger.info("phone adapter: placement ok", {
-      operation: "phone_bland_place_ok",
-      callId,
+      operation: "phone_twilio_place_ok",
+      callSid,
+      status: body.status,
     });
   } catch (err) {
-    if (err instanceof Error && err.name === "AbortError") {
-      systemLogger.warn("phone adapter: placement timeout", {
-        operation: "phone_bland_place_timeout",
-        timeoutMs: PLACEMENT_TIMEOUT_MS,
-      });
-      return { outcome: "placement_error", message: "placement request timed out" };
-    }
+    const timedOut = err instanceof Error && err.name === "AbortError";
     systemLogger.warn("phone adapter: placement threw", {
-      operation: "phone_bland_place_threw",
-      error: err instanceof Error ? err.message : String(err),
+      operation: "phone_twilio_place_threw",
+      timedOut,
+      error: errorText(err),
     });
     return {
       outcome: "placement_error",
-      message: err instanceof Error ? err.message : String(err),
+      message: timedOut ? "placement request timed out" : errorText(err),
     };
-  } finally {
-    clearTimeout(placementTimer);
   }
 
-  // -----------------------------------------------------------------------
-  // Step 2 — poll GET /v1/calls/:id until terminal state or deadline.
-  // -----------------------------------------------------------------------
-  const deadlineAt = deps.now() + BLAND_POLL_DEADLINE_MS;
-  let lastDetails: BlandCallDetails = {};
+  // -------------------------------------------------------------------
+  // Step 2 — poll until terminal or deadline.
+  // -------------------------------------------------------------------
+  const deadlineAt = deps.now() + CALL_DEADLINE_MS;
+  let last: TwilioCall = {};
+  let terminal = false;
   while (deps.now() < deadlineAt) {
-    await deps.sleep(BLAND_POLL_INTERVAL_MS);
-
-    const pollCtrl = new AbortController();
-    const pollTimer = setTimeout(() => pollCtrl.abort(), POLL_TIMEOUT_MS);
+    await deps.sleep(CALL_POLL_INTERVAL_MS);
     try {
-      const pollRes = await fetchFn(`${BLAND_BASE_URL}/v1/calls/${callId}`, {
-        method: "GET",
-        headers: { Authorization: apiKey },
-        signal: pollCtrl.signal,
-      });
-      if (!pollRes.ok) {
+      const res = await twilio("GET", `${accountUrl}/Calls/${callSid}.json`);
+      if (!res.ok) {
         systemLogger.info("phone adapter: poll non-2xx (continuing)", {
-          operation: "phone_bland_poll_non_2xx",
-          status: pollRes.status,
-          callId,
+          operation: "phone_twilio_poll_non_2xx",
+          status: res.status,
+          callSid,
         });
         continue;
       }
-      try {
-        lastDetails = (await pollRes.json()) as BlandCallDetails;
-      } catch {
-        continue;
+      const prevStatus = last.status;
+      last = (await res.json()) as TwilioCall;
+      if (last.status !== prevStatus) {
+        systemLogger.info("phone adapter: call status", {
+          operation: "phone_twilio_status",
+          callSid,
+          status: last.status,
+          answeredBy: last.answered_by,
+        });
       }
     } catch (err) {
-      // AbortError on poll — try again next tick; not fatal.
       systemLogger.info("phone adapter: poll threw (continuing)", {
-        operation: "phone_bland_poll_threw",
-        callId,
-        error: err instanceof Error ? err.message : String(err),
+        operation: "phone_twilio_poll_threw",
+        callSid,
+        error: errorText(err),
       });
       continue;
-    } finally {
-      clearTimeout(pollTimer);
     }
-
-    // -------------------------------------------------------------------
-    // Terminal-state detection. Trust `status` string, NOT the `completed`
-    // boolean (Bland's own quirk — they can disagree). See shape doc's
-    // "Bland-side outcomes" note.
-    // -------------------------------------------------------------------
-    const outcome = classifyBlandDetails(lastDetails);
-    if (outcome !== null) {
-      return buildResultFromDetails(outcome, lastDetails);
+    if (last.status !== undefined && TERMINAL_STATUSES.has(last.status)) {
+      terminal = true;
+      break;
     }
   }
 
-  // Deadline hit before terminal state — timeout outcome.
-  systemLogger.warn("phone adapter: poll deadline hit", {
-    operation: "phone_bland_poll_deadline",
-    callId,
-    lastStatus: lastDetails.status,
-    lastQueueStatus: lastDetails.queue_status,
+  const callLength = parseDuration(last.duration);
+  const withLength = <T extends AdapterResult>(r: T): T =>
+    callLength !== undefined ? { ...r, call_length_seconds: callLength } : r;
+
+  if (!terminal) {
+    // Hang up so a stuck call can't ring or keep talking after we've
+    // told the agent it timed out.
+    const stopStatus =
+      last.status === "in-progress" ? "completed" : "canceled";
+    try {
+      await twilio("POST", `${accountUrl}/Calls/${callSid}.json`, {
+        Status: stopStatus,
+      });
+    } catch (err) {
+      systemLogger.warn("phone adapter: hang-up after deadline threw", {
+        operation: "phone_twilio_deadline_hangup_threw",
+        callSid,
+        error: errorText(err),
+      });
+    }
+    systemLogger.warn("phone adapter: call deadline hit", {
+      operation: "phone_twilio_deadline",
+      callSid,
+      lastStatus: last.status,
+      stopStatus,
+    });
+    return withLength({
+      outcome: "timeout",
+      message: `call did not finish within ${CALL_DEADLINE_MS / 1000}s (last status: ${last.status ?? "unknown"}); the backend hung it up`,
+    });
+  }
+
+  switch (last.status) {
+    case "busy":
+      return withLength({ outcome: "busy" });
+    case "no-answer":
+      return withLength({ outcome: "no_answer", message: "rang out" });
+    case "canceled":
+      return withLength({ outcome: "canceled" });
+    case "failed":
+      return withLength({
+        outcome: "queue_error",
+        message: "Twilio could not connect the call",
+      });
+  }
+
+  // -------------------------------------------------------------------
+  // Step 3 — completed: fetch, transcribe and delete the reply recording.
+  // -------------------------------------------------------------------
+  const answeredBy = last.answered_by ?? null;
+  const machine =
+    typeof answeredBy === "string" &&
+    (answeredBy.startsWith("machine") || answeredBy === "fax");
+
+  const recording = await waitForReplyRecording(callSid);
+  let reply = "";
+  let transcribeFailed: string | null = null;
+  if (recording?.sid && !machine) {
+    try {
+      const media = await twilio(
+        "GET",
+        `${accountUrl}/Recordings/${recording.sid}.mp3`,
+      );
+      if (!media.ok) throw new Error(`recording download HTTP ${media.status}`);
+      const audio = Buffer.from(await media.arrayBuffer());
+      reply = (await transcribe(audio)).trim();
+      systemLogger.info("phone adapter: reply transcribed", {
+        operation: "phone_twilio_reply_transcribed",
+        callSid,
+        recordingSid: recording.sid,
+        audioBytes: audio.length,
+        replyChars: reply.length,
+      });
+    } catch (err) {
+      transcribeFailed = errorText(err);
+      systemLogger.warn("phone adapter: reply transcription failed (recording kept)", {
+        operation: "phone_twilio_reply_transcribe_failed",
+        callSid,
+        recordingSid: recording.sid,
+        error: transcribeFailed,
+      });
+    }
+  }
+  if (recording?.sid && transcribeFailed === null) {
+    await deleteRecording(recording.sid);
+  }
+
+  if (machine && reply === "") {
+    return withLength({
+      outcome: "no_answer",
+      message: `voicemail picked up (answered_by: ${answeredBy})`,
+    });
+  }
+  if (transcribeFailed !== null) {
+    return withLength({
+      outcome: "completed",
+      transcript: [
+        `voice: ${call.openingLine}`,
+        `user: [reply recorded but could not be transcribed: ${transcribeFailed}]`,
+        `voice: ${call.receiptLine}`,
+      ].join("\n"),
+    });
+  }
+  if (reply === "") {
+    return withLength({
+      outcome: "no_response",
+      transcript: `voice: ${call.openingLine}`,
+    });
+  }
+  return withLength({
+    outcome: "completed",
+    transcript: [
+      `voice: ${call.openingLine}`,
+      `user: ${reply}`,
+      `voice: ${call.receiptLine}`,
+    ].join("\n"),
   });
-  return {
-    outcome: "timeout",
-    message: `no terminal state within ${BLAND_POLL_DEADLINE_MS / 1000}s`,
-    ...(typeof lastDetails.call_length === "number"
-      ? { call_length_seconds: Math.round(lastDetails.call_length * 60) }
-      : {}),
-  };
-}
 
-/**
- * Classify a single Bland GET /v1/calls/:id response.
- * Returns a terminal outcome, or null if the call is still in progress.
- *
- * Exported for direct unit-testing of the mapping table.
- */
-export function classifyBlandDetails(d: BlandCallDetails): PhoneCallOutcome | null {
-  const queueStatus = d.queue_status;
-  const status = d.status;
-  const answeredBy = d.answered_by;
-
-  // Queue-level terminal errors — the call never actually made it to a
-  // ringing phone. Distinguishable from placement_error because the initial
-  // POST returned a call_id.
-  if (
-    queueStatus === "pre_queue_error" ||
-    queueStatus === "queue_error" ||
-    queueStatus === "call_error" ||
-    queueStatus === "complete_error"
-  ) {
-    return "queue_error";
+  /** The <Record> recording once Twilio has finished processing it, or null. */
+  async function waitForReplyRecording(sid: string): Promise<TwilioRecording | null> {
+    const until = deps.now() + RECORDING_WAIT_MS;
+    let seen: TwilioRecording | null = null;
+    do {
+      try {
+        const res = await twilio("GET", `${accountUrl}/Calls/${sid}/Recordings.json`);
+        if (res.ok) {
+          const body = (await res.json()) as { recordings?: TwilioRecording[] };
+          seen =
+            (body.recordings ?? []).find(
+              (r) => r.source === undefined || r.source === "RecordVerb",
+            ) ?? null;
+          if (seen?.status === "completed") return seen;
+          if (seen?.status === "failed" || seen?.status === "absent") return null;
+        }
+      } catch (err) {
+        systemLogger.info("phone adapter: recording lookup threw (continuing)", {
+          operation: "phone_twilio_recording_lookup_threw",
+          callSid: sid,
+          error: errorText(err),
+        });
+      }
+      await deps.sleep(CALL_POLL_INTERVAL_MS);
+    } while (deps.now() < until);
+    systemLogger.info("phone adapter: no finished reply recording", {
+      operation: "phone_twilio_no_recording",
+      callSid: sid,
+      lastRecordingStatus: seen?.status,
+    });
+    return null;
   }
 
-  // Call-level status enum from Bland docs:
-  //   completed | failed | busy | no-answer | canceled | unknown | ...
-  if (status === "busy") return "busy";
-  if (status === "canceled") return "canceled";
-  if (status === "no-answer") return "no_answer";
-
-  if (status === "failed") {
-    // Bland's `failed` covers BOTH pre-connect refusals (never rang) and
-    // post-connect failures (rang, connected, then dropped mid-call).
-    // The two are semantically different from the agent's POV:
-    //   * pre-connect failed → queue_error (safe to retry — target's
-    //     phone never rang).
-    //   * post-connect failed → unknown (defensive fallback — target
-    //     already got the call, retrying rings them again).
-    // Distinguish by whether Bland actually reached anyone: a non-null
-    // answered_by OR a positive call_length means the call connected.
-    const connected =
-      (typeof d.call_length === "number" && d.call_length > 0) ||
-      (answeredBy !== null && answeredBy !== undefined);
-    return connected ? "unknown" : "queue_error";
-  }
-
-  if (status === "completed") {
-    // Distinguish "human answered and spoke" from "picked up but said
-    // nothing." `answered_by === "voicemail"` or `"no-answer"` after
-    // status:completed happens when Bland picks up but classifies the
-    // pickup as non-human — treat as no_answer.
-    if (answeredBy === "voicemail" || answeredBy === "no-answer") {
-      return "no_answer";
-    }
-    // For status:completed + answered_by human/unknown/null, decide
-    // completed vs no_response by whether the human contributed any turn
-    // to the transcript.
-    const transcripts = d.transcripts ?? [];
-    // Case-insensitive on the role label so a Bland schema-drift to
-    // "User"/"USER" doesn't silently misclassify every completed call.
-    const userTurns = transcripts.filter(
-      (t) => typeof t.user === "string" && t.user.toLowerCase() === "user",
-    );
-    return userTurns.length > 0 ? "completed" : "no_response";
-  }
-
-  // status "unknown" from Bland is different from our "unknown" fallback —
-  // Bland's "unknown" is a documented terminal state; we surface it as
-  // "unknown" outcome too (defensive fallback for the caller).
-  if (status === "unknown") return "unknown";
-
-  // Non-terminal statuses (queued, allocated, started, etc.) — keep polling.
-  return null;
-}
-
-/**
- * Build the AdapterResult from a Bland details payload + classified
- * outcome. Attaches transcript on completed/no_response, call_length on
- * any outcome where Bland reported one.
- *
- * An earlier version of this function ran a substring-match heuristic
- * ("did the sanitized message appear in the assistant turns?") to detect
- * opener-cutoff and downgrade to a separate `interrupted_before_message`
- * outcome. Removed 2026-09-27 because Bland's ASR routinely transcribes
- * numerals/URLs/times as words ("5pm" → "five p m"), which broke the
- * substring match on genuinely-delivered messages. The primary defence
- * against opener cutoff is `interruptibility: 0` on placement, which
- * blocks callee interruptions while the AI is speaking; the observability
- * heuristic was belt-and-braces and its false-positive rate was worse than
- * the failure mode it was meant to surface.
- */
-function buildResultFromDetails(
-  outcome: PhoneCallOutcome,
-  d: BlandCallDetails,
-): AdapterResult {
-  const result: AdapterResult = { outcome };
-
-  const transcript = d.concatenated_transcript;
-  if (
-    (outcome === "completed" || outcome === "no_response") &&
-    typeof transcript === "string" &&
-    transcript.length > 0
-  ) {
-    // Relabel Bland's `assistant:` line prefix to `voice:` — from the
-    // calling agent's POV "assistant" reads like themselves talking (they
-    // ARE the assistant, from their harness's perspective), when it's
-    // actually the AI phone voice. `user:` on the callee side stays —
-    // that's already unambiguous.
-    //
-    // NB: Bland's concatenated_transcript uses " \n " (space-newline-space)
-    // as its turn separator, so every line after the first starts with
-    // a leading space. The regex captures that leading whitespace and
-    // preserves it (so continuation-line indentation stays), then swaps
-    // `assistant:` → `voice:`. Case-insensitive so a Bland schema-drift
-    // to `Assistant:` doesn't silently skip the relabel.
-    result.transcript = transcript.replace(/^(\s*)assistant:/gim, "$1voice:");
-  }
-
-  if (typeof d.call_length === "number" && Number.isFinite(d.call_length)) {
-    result.call_length_seconds = Math.round(d.call_length * 60);
-  }
-
-  if (outcome === "queue_error") {
-    const msg = d.error_message;
-    if (typeof msg === "string" && msg.length > 0) {
-      result.message = msg;
-    } else if (d.queue_status !== undefined) {
-      result.message = `queue_status: ${d.queue_status}`;
+  async function deleteRecording(recordingSid: string): Promise<void> {
+    try {
+      const res = await twilio("DELETE", `${accountUrl}/Recordings/${recordingSid}.json`);
+      if (!res.ok && res.status !== 404) {
+        systemLogger.warn("phone adapter: recording delete failed", {
+          operation: "phone_twilio_recording_delete_failed",
+          recordingSid,
+          status: res.status,
+        });
+      }
+    } catch (err) {
+      systemLogger.warn("phone adapter: recording delete threw", {
+        operation: "phone_twilio_recording_delete_threw",
+        recordingSid,
+        error: errorText(err),
+      });
     }
   }
+}
 
-  return result;
+function parseDuration(raw: string | null | undefined): number | undefined {
+  if (raw === null || raw === undefined) return undefined;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : undefined;
 }

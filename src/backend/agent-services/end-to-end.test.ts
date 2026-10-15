@@ -2,7 +2,7 @@
  * End to end: the real host-side wrappers (substrate/scripts/image-gen,
  * agent-phone, stt → fleet-service) against the real engine, local-host request
  * I/O and atomic writers, in a temp HOME. Only the third-party calls (OpenAI,
- * Bland, the users table) are faked.
+ * Twilio, the users table) are faked.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { spawn } from "child_process";
@@ -113,7 +113,12 @@ function makeEngine() {
         sleep: async () => {},
       }),
     ],
-    env: { OPENAI_API_KEY: "k", BLAND_API_KEY: "k" },
+    env: {
+      OPENAI_API_KEY: "k",
+      TWILIO_ACCOUNT_SID: "AC1",
+      TWILIO_AUTH_TOKEN: "tok",
+      TWILIO_FROM_NUMBER: "+17165550000",
+    },
     createTokenBucket: () => ({
       acquire: async () => {},
       getState: () => ({}) as never,
@@ -228,9 +233,13 @@ describe("agent services end to end", () => {
     );
     expect(r.code).toBe(0);
     expect(r.stdout).toBe("voice: hello\nuser: got it\n");
-    const [, task] = r.placeCall.mock.calls[0] as unknown as [string, string];
-    // The prompt template folds newlines into spaces; everything else survives.
-    expect(task).toContain('Deploy "prod" failed; $HOME is fine. Call back?');
+    const [call] = r.placeCall.mock.calls[0] as unknown as [
+      { openingLine: string },
+    ];
+    // The call script folds newlines into spaces; everything else survives.
+    expect(call.openingLine).toContain(
+      'Deploy "prod" failed; $HOME is fine. Call back?',
+    );
     expect(JSON.parse(r.stderr.trim())).toMatchObject({
       outcome: "completed",
       call_length_seconds: 9,

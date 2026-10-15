@@ -1,5 +1,5 @@
 /**
- * agent-phone — place a one-turn voice call to a Skynet user (via Bland.ai)
+ * agent-phone — place a one-turn voice call to a Skynet user (via Twilio)
  * and return the transcript.
  *
  * Agent side: substrate/scripts/agent-phone (wrapper over fleet-service)
@@ -17,10 +17,7 @@ import { z } from "zod";
 import { defineService, fail, ok } from "../../engine/types.js";
 import { placeCallAndAwait } from "./adapter.js";
 import { getUserByUsername, userHasRegisteredHost } from "./lookup.js";
-import {
-  buildBlandFirstSentence,
-  buildBlandTaskPrompt,
-} from "./prompt-template.js";
+import { buildOpeningLine, buildReceiptLine } from "./call-script.js";
 
 const nonEmpty = (max: number) =>
   z
@@ -57,7 +54,8 @@ export function createAgentPhoneService(deps: AgentPhoneDeps = productionDeps) {
     description:
       "Ring a user's phone, speak a message, return their reply",
     input: agentPhoneInput,
-    secrets: ["BLAND_API_KEY"],
+    // TWILIO_FROM_NUMBER is the instance's one Twilio number (E.164).
+    secrets: ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_FROM_NUMBER"],
     // Under the helper's 9-minute wait; see the header.
     ttlMs: 8 * 60 * 1000,
     concurrency: 10,
@@ -104,9 +102,16 @@ export function createAgentPhoneService(deps: AgentPhoneDeps = productionDeps) {
         callerName: input.caller_name,
       });
       const call = await deps.placeCallAndAwait(
-        target.phoneE164,
-        buildBlandTaskPrompt(input.caller_name, input.message),
-        buildBlandFirstSentence(input.caller_name, input.message),
+        {
+          to: target.phoneE164,
+          openingLine: buildOpeningLine(input.caller_name, input.message),
+          receiptLine: buildReceiptLine(input.caller_name),
+        },
+        {
+          accountSid: ctx.secrets.TWILIO_ACCOUNT_SID,
+          authToken: ctx.secrets.TWILIO_AUTH_TOKEN,
+          fromNumber: ctx.secrets.TWILIO_FROM_NUMBER,
+        },
         { now: ctx.now, sleep: deps.sleep },
       );
       ctx.log.info("call finished", {
