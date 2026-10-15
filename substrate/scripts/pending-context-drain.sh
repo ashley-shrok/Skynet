@@ -21,7 +21,8 @@
 # mid-way and is picked up again.
 #
 # Silent no-op on any unmet precondition (no FLEET_IDENTITY, no queue, empty
-# queue). Never fails the parent claude turn.
+# queue, no jq, not the harness's main conversation). Never fails the parent
+# claude turn.
 #
 # Canonical copy in the app's source repo at
 # substrate/scripts/pending-context-drain.sh; distributed to every managed host
@@ -40,8 +41,39 @@ shopt -s nullglob
 queued=("$QUEUE"/*.line "$QUEUE"/*.line.claimed)
 [ "${#queued[@]}" -eq 0 ] && exit 0
 
+# The queue belongs to the identity, but FLEET_IDENTITY is inherited by every
+# claude process under the harness. Only the harness's own main conversation
+# may drain it — anything else would take the notices into a context that
+# ignores them (and a nested session's SessionStart would wipe the queue):
+#   - a sub-agent of the harness: same process, but its hook payloads carry
+#     agent_id (the main conversation's never do);
+#   - a nested claude (`claude -p` from Bash, an in-process teammate launch):
+#     the claude process running this hook has another claude above it.
+# jq is required to tell any of this apart, so without it the queue is left
+# alone (run-bootstrap.ts asserts jq on every managed host).
+command -v jq >/dev/null 2>&1 || exit 0
 INPUT="$(cat)"
 EVENT="$(printf '%s' "$INPUT" | jq -r '.hook_event_name // ""' 2>/dev/null)"
+AGENT_ID="$(printf '%s' "$INPUT" | jq -r '.agent_id // ""' 2>/dev/null)"
+[ -z "$EVENT" ] && exit 0
+[ -n "$AGENT_ID" ] && exit 0
+
+# nested_claude: 0 iff the nearest claude ancestor of this hook has a claude
+# ancestor of its own.
+nested_claude() {
+  local pid=$PPID owner="" comm ppid
+  while [ -n "$pid" ] && [ "$pid" -gt 1 ]; do
+    comm=$(cat "/proc/$pid/comm" 2>/dev/null) || return 1
+    if [ "$comm" = "claude" ]; then
+      [ -n "$owner" ] && return 0
+      owner=$pid
+    fi
+    ppid=$(awk '/^PPid:/ {print $2}' "/proc/$pid/status" 2>/dev/null) || return 1
+    pid=$ppid
+  done
+  return 1
+}
+nested_claude && exit 0
 
 if [ "$EVENT" = "SessionStart" ]; then
   SOURCE="$(printf '%s' "$INPUT" | jq -r '.source // ""' 2>/dev/null)"
@@ -61,23 +93,45 @@ for f in "$QUEUE"/*.line.claimed; do
   [ $((now - changed)) -gt "$STALE_SEC" ] && mv -f "$f" "${f%.claimed}" 2>/dev/null
 done
 
-body=""
+# Claim in name (= write) order. Claimed files are deleted only after the
+# output is written, so a drain killed mid-way leaves them for the stale-claim
+# pass above to redeliver.
+claimed=()
+lines=()
 for f in "$QUEUE"/*.line; do
-  claimed="$f.claimed"
-  mv "$f" "$claimed" 2>/dev/null || continue   # another drain took it
-  line="$(cat "$claimed" 2>/dev/null)"
-  rm -f "$claimed"
-  [ -n "$line" ] && body+="$line"$'\n'
+  mv "$f" "$f.claimed" 2>/dev/null || continue   # another drain took it
+  claimed+=("$f.claimed")
+  line="$(cat "$f.claimed" 2>/dev/null)"
+  [ -n "$line" ] && lines+=("$line")
 done
-[ -z "$body" ] && exit 0
+if [ "${#lines[@]}" -eq 0 ]; then
+  rm -f "${claimed[@]}"
+  exit 0
+fi
 
 HEADER="Files you hold in context changed (queued by the supervisor's file-watch instead of waking you; not from the user). Act on whatever bears on your work; no reply needed:"
 
-if [ -z "$EVENT" ] || ! command -v jq >/dev/null 2>&1; then
-  # Plain stdout from an exit-0 hook still reaches the model as context.
-  printf '%s\n%s' "$HEADER" "$body"
-  exit 0
+# Cap what goes inline: an idle-but-running agent can build up a long queue,
+# and the harness cuts long hook output short. Over the cap, the full list
+# goes to a file and the newest lines (the current state) stay inline.
+MAX_CHARS="${PENDING_CONTEXT_MAX_CHARS:-8000}"
+body=$(printf '%s\n' "${lines[@]}")
+if [ "${#body}" -gt "$MAX_CHARS" ]; then
+  overflow="$QUEUE/overflow/$(date -u +%Y-%m-%dT%H-%M-%SZ)-$$.txt"
+  mkdir -p "${overflow%/*}" && printf '%s\n' "$body" > "$overflow"
+  tail_body=""
+  for (( i=${#lines[@]}-1; i>=0; i-- )); do
+    candidate="${lines[$i]}"$'\n'"$tail_body"
+    [ "${#candidate}" -gt "$MAX_CHARS" ] && break
+    tail_body="$candidate"
+  done
+  body="${#lines[@]} notices, too many to show inline — the full list is at $overflow (Read it). The newest:"$'\n'"${tail_body%$'\n'}"
 fi
-jq -n --arg e "$EVENT" --arg c "$HEADER"$'\n'"${body%$'\n'}" \
-  '{hookSpecificOutput: {hookEventName: $e, additionalContext: $c}}'
+
+if jq -n --arg e "$EVENT" --arg c "$HEADER"$'\n'"$body" \
+    '{hookSpecificOutput: {hookEventName: $e, additionalContext: $c}}'; then
+  rm -f "${claimed[@]}"
+else
+  for f in "${claimed[@]}"; do mv -f "$f" "${f%.claimed}" 2>/dev/null; done
+fi
 exit 0

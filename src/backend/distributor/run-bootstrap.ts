@@ -396,13 +396,14 @@ export const GSD_MONITOR_STRIP_JQ =
  *
  *   - .claude/skills/role/SKILL.md — /role skill, retired 2026-10-09 with
  *     the role-history retirement.
- *   - .local/bin/role-file-watch — renamed to file-watch. A watcher still
- *     running the old copy keeps its in-memory code (its self-reload skips a
- *     missing file) until its session next restarts.
+ *
+ * NOT retired yet: .local/bin/role-file-watch (renamed to file-watch). A
+ * watcher started before the rename re-execs itself from that path on every
+ * roles:/project: change and inotify recovery, so removing it would kill
+ * those watchers. Retire it once no session predates the rename.
  */
 export const RETIRED_SUBSTRATE_FILES = [
   ".claude/skills/role/SKILL.md",
-  ".local/bin/role-file-watch",
 ] as const;
 export const RETIRED_SUBSTRATE_DIRS = [".claude/skills/role"] as const;
 

@@ -1593,7 +1593,7 @@ PYEOF
 #
 # Shape rationale (shape-unarchive-wake-up-smoothing.md): the agent coming back
 # from un-archive otherwise has no in-session signal that anything happened;
-# the banner is delivered through the existing identity-file-watch wake channel.
+# the banner reaches it with the identity file, which every fresh /id load reads.
 # Wording stays general — no mention of specific body sections — so the banner
 # makes sense regardless of what shape the agent's notes happen to be in. The
 # banner carries the un-archive timestamp so an agent can judge how long they

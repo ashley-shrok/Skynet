@@ -65,6 +65,13 @@ drain() {
 
 ctx() { jq -r '.hookSpecificOutput.additionalContext'; }
 
+# wait_for <ticks> <command...> — retry every 0.1s.
+wait_for() {
+  local n="$1"; shift
+  while [ "$n" -gt 0 ]; do "$@" && return 0; n=$((n - 1)); sleep 0.1; done
+  return 1
+}
+
 test_no_identity_is_silent() {
   local t=no_identity_is_silent out
   new_home; queue 1-aa "📝 [role-file: r] x"
@@ -154,6 +161,66 @@ test_concurrent_drains_deliver_once() {
   pass $t
 }
 
+test_subagent_does_not_drain() {
+  local t=subagent_does_not_drain out
+  new_home; queue 1-aa "for the main conversation"
+  out=$(printf '{"hook_event_name":"PostToolUse","agent_id":"a123","agent_type":"Explore"}' \
+    | HOME="$H" FLEET_IDENTITY=agent "$HOOK")
+  [ -z "$out" ] || { fail $t "sub-agent got output: $out"; return; }
+  [ -f "$Q/1-aa.line" ] || { fail $t "sub-agent consumed the queue"; return; }
+  pass $t
+}
+
+test_nested_claude_does_not_drain() {
+  local t=nested_claude_does_not_drain fake out ev
+  # A copy of bash named `claude` stands in for the claude processes; `; true`
+  # keeps each bash from exec'ing its last command away.
+  fake="$(mktemp -d -p "$SCRATCH")"; cp "$(command -v bash)" "$fake/claude"
+  for ev in PostToolUse SessionStart; do
+    new_home; queue 1-aa "for the harness"
+    out=$(HOME="$H" FLEET_IDENTITY=agent HOOK="$HOOK" EV="$ev" "$fake/claude" -c \
+      "\"$fake/claude\" -c 'printf \"{\\\"hook_event_name\\\":\\\"\$EV\\\",\\\"source\\\":\\\"startup\\\"}\" | \"\$HOOK\"; true'; true")
+    [ -z "$out" ] || { fail $t "$ev: nested session got output: $out"; return; }
+    [ -f "$Q/1-aa.line" ] || { fail $t "$ev: nested session touched the queue"; return; }
+  done
+  # One level of claude (the harness itself) still drains. setsid -f detaches
+  # it from whatever runs this test — which may itself be a real claude.
+  new_home; queue 1-aa "for the harness"
+  local res="$SCRATCH/harness.out"; rm -f "$res"
+  HOME="$H" FLEET_IDENTITY=agent HOOK="$HOOK" RES="$res" setsid -f "$fake/claude" -c \
+    "printf '{\"hook_event_name\":\"PostToolUse\"}' | \"\$HOOK\" > \"\$RES.tmp\"; mv \"\$RES.tmp\" \"\$RES\"; true"
+  wait_for 50 test -f "$res"
+  out=$(ctx < "$res" 2>/dev/null)
+  printf '%s' "$out" | grep -q '^for the harness$' || { fail $t "harness did not drain: $out"; return; }
+  pass $t
+}
+
+test_no_jq_leaves_queue() {
+  local t=no_jq_leaves_queue out empty
+  new_home; queue 1-aa "keep"
+  empty="$(mktemp -d -p "$SCRATCH")"
+  out=$(printf '{"hook_event_name":"PostToolUse"}' \
+    | HOME="$H" FLEET_IDENTITY=agent PATH="$empty" "$(command -v bash)" "$HOOK")
+  [ -z "$out" ] || { fail $t "got output without jq: $out"; return; }
+  [ -f "$Q/1-aa.line" ] || { fail $t "queue consumed without jq"; return; }
+  pass $t
+}
+
+test_overflow_spills_and_keeps_newest() {
+  local t=overflow_spills_and_keeps_newest i out file
+  new_home
+  for i in $(seq 10 39); do queue "$i-aa" "notice number $i"; done
+  out=$(printf '{"hook_event_name":"UserPromptSubmit"}' \
+    | HOME="$H" FLEET_IDENTITY=agent PENDING_CONTEXT_MAX_CHARS=120 "$HOOK" | ctx)
+  printf '%s' "$out" | grep -q '30 notices, too many to show inline' || { fail $t "no overflow notice: $out"; return; }
+  printf '%s' "$out" | grep -q '^notice number 39$' || { fail $t "newest line missing: $out"; return; }
+  printf '%s' "$out" | grep -q '^notice number 10$' && { fail $t "oldest line inlined: $out"; return; }
+  file=$(printf '%s' "$out" | grep -o "$Q/overflow/[^ ]*\.txt")
+  [ "$(grep -c '^notice number' "$file" 2>/dev/null)" -eq 30 ] || { fail $t "overflow file incomplete: $file"; return; }
+  [ -z "$(ls "$Q" | grep '\.line')" ] || { fail $t "queue not emptied"; return; }
+  pass $t
+}
+
 # ---- producer side: file-watch.py ----
 
 seed_watch_fixture() {
@@ -172,12 +239,6 @@ launch_watch() {
   ALL_PIDS+=("$WATCH_PID")
 }
 
-# wait_for <ticks> <command...> — retry every 0.1s.
-wait_for() {
-  local n="$1"; shift
-  while [ "$n" -gt 0 ]; do "$@" && return 0; n=$((n - 1)); sleep 0.1; done
-  return 1
-}
 queue_has() { cat "$Q"/*.line 2>/dev/null | grep -q "$1"; }
 
 test_watcher_queues_never_prints() {
@@ -202,7 +263,10 @@ test_watcher_migrates_legacy_state() {
   mkdir -p "$legacy/.state/pending"
   cp "$H/fleet/roles/rolex/rolex.md" "$legacy/last-snapshot.role.rolex"
   cp "$IDENT_MD" "$legacy/last-snapshot.identity"
-  printf 'held by old watcher' > "$legacy/.state/pending/123-deadbeef.line"
+  # Due times far in the future: migrated lines must still sort ahead of
+  # anything the new watcher queues.
+  printf 'held first' > "$legacy/.state/pending/9999999999998-deadbeef.line"
+  printf 'held second' > "$legacy/.state/pending/9999999999999-cafebabe.line.claimed"
   launch_watch
   wait_for 100 test -d "$H/fleet/identities/agent/file-watch" \
     || { fail $t "file-watch/ never appeared"; kill "$WATCH_PID" 2>/dev/null; return; }
@@ -211,9 +275,12 @@ test_watcher_migrates_legacy_state() {
   [ ! -e "$legacy" ] || { fail $t "legacy dir still present"; return; }
   [ -f "$H/fleet/identities/agent/file-watch/last-snapshot.role.rolex" ] \
     || { fail $t "baseline not carried over"; return; }
-  [ -f "$Q/123-deadbeef.line" ] || { fail $t "held line not moved to queue: $(ls -A "$Q" 2>&1)"; return; }
-  [ "$(ls "$Q" | grep -c '\.line$')" -eq 1 ] \
-    || { fail $t "spurious events queued: $(cat "$Q"/*.line)"; return; }
+  [ "$(ls "$Q" | grep -c '\.line$')" -eq 2 ] \
+    || { fail $t "want exactly the 2 held lines queued: $(ls -A "$Q" 2>&1)"; return; }
+  # Queue a fresh line the way the new watcher names it; held lines go first.
+  queue "$(date +%s%N)-00000000" "new"
+  [ "$(for f in $(ls "$Q" | sort); do cat "$Q/$f"; echo; done)" = $'held first\nheld second\nnew' ] \
+    || { fail $t "wrong order: $(for f in $(ls "$Q" | sort); do cat "$Q/$f"; echo; done)"; return; }
   pass $t
 }
 
@@ -224,6 +291,10 @@ test_session_start_fresh_discards
 test_session_start_resume_keeps
 test_abandoned_claim_redelivered
 test_concurrent_drains_deliver_once
+test_subagent_does_not_drain
+test_nested_claude_does_not_drain
+test_no_jq_leaves_queue
+test_overflow_spills_and_keeps_newest
 test_watcher_queues_never_prints
 test_watcher_migrates_legacy_state
 

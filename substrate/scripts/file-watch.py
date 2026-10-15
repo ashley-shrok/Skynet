@@ -469,6 +469,14 @@ def _restart_if_scope_changed(identity_file_path, watched_project, watched_roles
 def _single_instance(state_dir, ident_dir):
     """Newest-wins guard: kill any prior file-watch for THIS identity, claim the pidfile."""
     pf = os.path.join(state_dir, "file-watch.pid")
+    _kill_prior(pf, ident_dir)
+    open(pf, "w").write(str(os.getpid()))
+
+
+def _kill_prior(pf, ident_dir):
+    """SIGTERM the watcher named in pidfile `pf` if it is still a watcher of
+    THIS identity. The "file-watch" match also covers pre-rename
+    role-file-watch processes."""
     try:
         old = int(open(pf).read().strip())
         if old != os.getpid():
@@ -480,7 +488,6 @@ def _single_instance(state_dir, ident_dir):
                 os.kill(old, 15)
     except Exception:
         pass
-    open(pf, "w").write(str(os.getpid()))
 
 
 def _read_bytes(path):
@@ -604,10 +611,13 @@ def _migrate_legacy_state(ident_dir, baseline_dir, queue_dir):
     """One-time move from the pre-rename layout: <identity>/role-file-watch/
     becomes <identity>/file-watch/ (baselines kept, so the startup pass sees no
     spurious diff), and lines the old watcher was holding for its fan-out
-    delay move into the deferred queue instead of being lost."""
+    delay move into the deferred queue, in order, instead of being lost."""
     legacy = os.path.join(ident_dir, "role-file-watch")
     if not os.path.isdir(legacy) or os.path.exists(baseline_dir):
         return
+    # A pre-rename watcher still running for this identity would keep writing
+    # under the old path; newest wins, as in _single_instance.
+    _kill_prior(os.path.join(legacy, ".state", "role-file-watch.pid"), ident_dir)
     try:
         os.rename(legacy, baseline_dir)
     except OSError as e:
@@ -619,13 +629,19 @@ def _migrate_legacy_state(ident_dir, baseline_dir, queue_dir):
         names = sorted(os.listdir(held))
     except OSError:
         return
+    # Held names are <due-ms>-<hex>.line, due up to minutes ahead; queue
+    # names are <write-ns>-<hex>.line. Renamed onto ns names just before now,
+    # in their held order, so they sort ahead of anything queued from here on.
+    held_lines = sorted(
+        (n[:-len(".claimed")] if n.endswith(".claimed") else n, n) for n in names
+    )
+    held_lines = [(b, n) for b, n in held_lines if b.endswith(".line")]
     os.makedirs(queue_dir, exist_ok=True)
-    for name in names:
-        base = name[:-len(".claimed")] if name.endswith(".claimed") else name
-        if not base.endswith(".line"):
-            continue
+    first_ns = time.time_ns() - len(held_lines)
+    for i, (_, name) in enumerate(held_lines):
         try:
-            os.replace(os.path.join(held, name), os.path.join(queue_dir, base))
+            os.replace(os.path.join(held, name),
+                       os.path.join(queue_dir, "%d-%s.line" % (first_ns + i, os.urandom(4).hex())))
         except OSError:
             pass
     shutil.rmtree(held, ignore_errors=True)
