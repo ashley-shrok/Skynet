@@ -30,6 +30,7 @@ Ordered; each depends on the previous.
 ## Other work
 
 - **Wake-up folder conversion on the beelink (100.124.193.5) and the laptop (100.102.28.73)** — both unreachable at deploy 2026-10-15 (beelink SSH timeout; laptop offline 11d). When each is back: confirm the distributor installed the new scheduler, then run `.planning/campaigns/sensors/migrate-wakeups-to-folders.py` (dry run, then `--apply`) as the fleet user. — open
+- **Push + deploy shape 2 (sensor app surfaces)** — closed and reviewed 2026-10-15, local commits `d28323ca`..`a4d80de5` (plus shape-1 docs commit `e9f77232`) not pushed, not deployed. The user moved on to the next shape without a push/deploy go-ahead; each still needs its own greenlight. — open
 - **Being told when a sensor breaks** (mark on the clock icon or conversation, phone notification, or a note from the owning agent) — a broader "how Skynet alerts the user" question; sensors would be its first case. — deferred (user call 2026-10-15, shape 2; not built in this campaign)
 
 ## Lingerers (explicitly approved)
