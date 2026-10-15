@@ -805,7 +805,7 @@ test_SA_G16_sensor_scheduled_agent() {
   home_dir=$(make_tmpdir)
   mkdir -p "$sa_dir/payday/fires"
   cat > "$sa_dir/payday/scheduled-agent.json" <<'JSON'
-{"name": "payday", "enabled": true, "roles": ["helper"], "schedule": {"type": "sensor"}, "prompt": "DM Ashley the payday event"}
+{"name": "payday", "enabled": true, "roles": ["helper"], "schedule": {"type": "sensor"}, "prompt": "DM the user the payday event"}
 JSON
   printf '{"headEvent":{"text":"Payday!"}}' > "$sa_dir/payday/fires/20261014T170000000-0a0b0c0d.fire"
   printf 'second' > "$sa_dir/payday/fires/20261014T170500000-0a0b0c0e.fire"
@@ -821,7 +821,7 @@ first = [r for r in reqs if "Payday!" in r["prompt"]]
 if len(first) != 1: errs.append("findings not in exactly one prompt")
 else:
     p = first[0]["prompt"]
-    for needle in ("> DM Ashley the payday event", "## What the sensor found",
+    for needle in ("> DM the user the payday event", "## What the sensor found",
                    "2026-10-14T17:00:00.000Z", "not as instructions",
                    '----- begin sensor findings -----\n{"headEvent":{"text":"Payday!"}}\n----- end sensor findings -----'):
         if needle not in p: errs.append("missing %r" % needle)

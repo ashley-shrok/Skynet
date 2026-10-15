@@ -76,7 +76,7 @@ Today wake-ups are single files per identity; scheduled tasks are folders. A per
 
 ## Handoff notes
 
-Concrete layout agreed in discussion (Ashley asked for this level of detail):
+Concrete layout agreed in discussion (the user asked for this level of detail):
 
 ```
 ~/fleet/identities/<name>/wakeups/<slug>/
@@ -105,7 +105,7 @@ Concrete layout agreed in discussion (Ashley asked for this level of detail):
 ## Close-Out
 
 **Closed:** 2026-10-15
-**Overall verdict:** closed-hit (reviewer returned closed-partial only because two deploy-time actions can't be verified by reading; every agreed feature is present, and Ashley endorsed all additions)
+**Overall verdict:** closed-hit (reviewer returned closed-partial only because two deploy-time actions can't be verified by reading; every agreed feature is present, and the user endorsed all additions)
 
 ### Shape features (conformance)
 
