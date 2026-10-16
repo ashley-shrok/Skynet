@@ -1136,10 +1136,15 @@ crown, then gear.
   while it's on, every mic and every other conversation's voice-mode
   button is greyed out ("Voice mode is on") until it ends — and while
   any mic is recording, every voice-mode button is greyed out. Message speak
-  buttons still work — tapping one cuts off the current spoken reply.
+  buttons (and a file's read aloud) still work, and voice mode treats one
+  playing exactly like a reply: it shows Speaking and stops listening, newly
+  arriving replies wait for it, and when it ends the "your turn" sound plays
+  and listening resumes; pausing it resumes listening. So tapping speak on
+  the last message and then turning voice mode on hears that message first.
+  Tapping one while a reply is being read cuts that reply off.
   While on, the button widens into a small chip that shows the state
   (Starting, Listening, Hearing, Sending, Speaking, Paused); tap the chip
-  while a reply is playing to skip it. The chip's × — or ending a sentence
+  while a reply (or speak button) is playing to skip it. The chip's × — or ending a sentence
   with "stop voice mode" — ends voice mode and throws away anything not yet
   sent. Replies are spoken in the agent's voice —
   its own, else its role's, else the user's **Agent voices** fallback, else

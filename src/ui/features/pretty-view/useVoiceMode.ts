@@ -42,6 +42,10 @@
  *     safety notes in useVoiceRecording.ts) and so the agent never hears itself.
  *     The MediaStream itself stays open for the whole session so the mic never
  *     needs another user gesture.
+ *   - A speak button talking (bubble or file "read aloud", tapped before or
+ *     during voice mode) counts as speaking: listening stops, the chip shows
+ *     Speaking and skips it, replies wait for it, and when it finishes it's
+ *     "your turn". Pausing it hands the turn back (listening resumes).
  *   - Holds a screen wake lock: mobile browsers suspend the page (and kill the
  *     mic) when the screen locks, so "phone in pocket" needs the screen kept on.
  *
@@ -56,10 +60,12 @@ import { playAutoSpeakOff, playAutoSpeakOn } from "../../audio/auto-speak-cue";
 import { createWebAudioStreamPlayer } from "./webAudioStreamPlayer";
 import {
   clearCurrentPlayer,
+  getButtonSpeechState,
   getCurrentOwner,
   getCurrentPlayer,
   setCurrentOwner,
   setCurrentPlayer,
+  subscribeSpeech,
 } from "./speak-singleton";
 import { registerVoiceModeActive } from "./voice-mode-registry";
 import { createVoiceModeCues, type VoiceModeCue, type VoiceModeCues } from "./voice-mode-cues";
@@ -318,6 +324,12 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
     setPhaseState(p);
   }, []);
 
+  /** A speak button (not voice mode itself) is loading or playing. */
+  const buttonSpeaking = () => {
+    const s = getButtonSpeechState();
+    return s === "loading" || s === "playing";
+  };
+
   /** The user is mid-turn: speaking now, or holding an unsent draft. */
   const isComposing = () => pieceSpeechRef.current || piecesRef.current.length > 0;
   const turnHasEnded = () => piecesRef.current.some((p) => p.endsTurn !== undefined);
@@ -343,6 +355,7 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
       (argsRef.current.isWorking || awaitingReplyRef.current !== null) &&
       !argsRef.current.suspended &&
       speakingRef.current === null &&
+      !buttonSpeaking() &&
       queueRef.current.length === 0 &&
       !isComposing() &&
       streamRef.current !== null;
@@ -893,8 +906,9 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
       if (getCurrentOwner() === owner) clearCurrentPlayer();
       if (speakingRef.current?.owner === owner) speakingRef.current = null;
       if (!activeRef.current) return;
-      // Reply finished and the agent is done → "your turn".
-      if (queueRef.current.length === 0 && !argsRef.current.isWorking) playCue("yourTurn");
+      // Reply finished and the agent is done → "your turn" (unless a speak
+      // button just took over — its own end plays it).
+      if (queueRef.current.length === 0 && !argsRef.current.isWorking && !buttonSpeaking()) playCue("yourTurn");
       pumpRef.current();
     };
 
@@ -961,6 +975,14 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
     if (argsRef.current.suspended) {
       if (vadTimerRef.current !== null) stopListening();
       if (phaseRef.current !== "paused") setPhase("paused");
+      updateTickingRef.current();
+      return;
+    }
+    // A speak button is talking: same as reading a reply — not listening, and
+    // queued replies wait for it to finish.
+    if (buttonSpeaking()) {
+      if (vadTimerRef.current !== null) stopListening();
+      if (phaseRef.current !== "speaking") setPhase("speaking");
       updateTickingRef.current();
       return;
     }
@@ -1104,10 +1126,16 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
 
   const skipSpeech = useCallback(() => {
     queueRef.current = [];
+    if (buttonSpeaking()) {
+      log("skip-button-speech");
+      getCurrentPlayer()?.stop();
+      clearCurrentPlayer(); // the button hears this and goes idle; we pump
+    }
     const speaking = speakingRef.current;
     if (speaking && getCurrentOwner() === speaking.owner) getCurrentPlayer()?.stop();
     speaking?.finish();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [log]);
 
   // New assistant messages → speech queue.
   useEffect(() => {
@@ -1128,6 +1156,38 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
     }
     if (added) pumpRef.current();
   }, [args.messages]);
+
+  // A speak button started, paused, resumed or finished → re-evaluate. When it
+  // finishes (not paused, not preempted by a reply) it's the user's turn.
+  useEffect(() => {
+    let was = buttonSpeaking();
+    return subscribeSpeech(() => {
+      const now = buttonSpeaking();
+      if (now === was) return;
+      was = now;
+      if (!activeRef.current) return;
+      const state = getButtonSpeechState();
+      log(`button-speech ${now ? "start" : state === "paused" ? "paused" : "end"}`);
+      // A tapped bubble cut off the reply being read — move on now rather
+      // than waiting for the reply's ownership watchdog.
+      if (now && speakingRef.current) {
+        speakingRef.current.finish();
+        return;
+      }
+      if (
+        !now &&
+        state === null &&
+        speakingRef.current === null &&
+        queueRef.current.length === 0 &&
+        !argsRef.current.isWorking &&
+        !isComposing()
+      ) {
+        playCue("yourTurn");
+      }
+      pumpRef.current();
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Manual mic in use → pause; released → resume.
   useEffect(() => {

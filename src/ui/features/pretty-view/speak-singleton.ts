@@ -16,11 +16,44 @@
  * wrapper / not an event bus) — that is the pattern the existing
  * cross-bubble preempt relies on and every test in
  * ChatMessage.speak.test.tsx pins.
+ *
+ * Speak buttons (useSpeakPlayback) also publish their state here, and
+ * listeners hear every change of owner or button state. Voice mode watches
+ * it so a speak button talking counts as "speaking" (no listening), and a
+ * preempted button watches it to fall back to idle.
  */
 import type { WebAudioStreamPlayer } from "./webAudioStreamPlayer";
 
 let currentPlayer: WebAudioStreamPlayer | null = null;
 let currentOwner: symbol | null = null;
+
+export type ButtonSpeechState = "loading" | "playing" | "paused";
+let buttonSpeech: { owner: symbol; state: ButtonSpeechState } | null = null;
+
+const listeners = new Set<() => void>();
+function emit(): void {
+  for (const l of [...listeners]) l();
+}
+
+/** Hear every change of owner or speak-button state. Returns the unsubscribe. */
+export function subscribeSpeech(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+/** A speak button reports its state while it holds (or is taking) ownership. */
+export function setButtonSpeechState(owner: symbol, state: ButtonSpeechState): void {
+  if (buttonSpeech?.owner === owner && buttonSpeech.state === state) return;
+  buttonSpeech = { owner, state };
+  emit();
+}
+
+/** State of the speak button that currently owns playback; null when none does. */
+export function getButtonSpeechState(): ButtonSpeechState | null {
+  return buttonSpeech !== null && buttonSpeech.owner === currentOwner ? buttonSpeech.state : null;
+}
 
 export function getCurrentPlayer(): WebAudioStreamPlayer | null {
   return currentPlayer;
@@ -35,12 +68,18 @@ export function getCurrentOwner(): symbol | null {
 }
 
 export function setCurrentOwner(o: symbol | null): void {
+  if (currentOwner === o) return;
   currentOwner = o;
+  if (buttonSpeech !== null && buttonSpeech.owner !== o) buttonSpeech = null;
+  emit();
 }
 
 /** Convenience: set both to null in one call (matches the paired-clear
  * pattern used at every ownership-release site in ChatMessage/RelayInboundBubble). */
 export function clearCurrentPlayer(): void {
+  const changed = currentOwner !== null || buttonSpeech !== null;
   currentPlayer = null;
   currentOwner = null;
+  buttonSpeech = null;
+  if (changed) emit();
 }

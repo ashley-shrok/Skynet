@@ -8,6 +8,8 @@ import {
   getCurrentOwner,
   setCurrentOwner,
   clearCurrentPlayer,
+  setButtonSpeechState,
+  subscribeSpeech,
 } from "./speak-singleton";
 
 export type SpeakState = "idle" | "loading" | "playing" | "paused";
@@ -26,6 +28,10 @@ export type SpeakState = "idle" | "loading" | "playing" | "paused";
  * longer than one speak request allows). Pause/resume act on the piece
  * currently playing.
  *
+ * The state is published on the singleton (voice mode treats a talking speak
+ * button as its own "speaking"). Losing ownership to anyone else — another
+ * button, a voice-mode reply, voice mode's skip — puts this button back to idle.
+ *
  * `logFields` adds fields to the speak-start log line (default: pieces=N).
  * `logPrefix` is prepended to the owner in `[tts]` log lines (e.g. "relay:").
  */
@@ -42,7 +48,15 @@ export function useSpeakPlayback(opts: {
   onSpeakClick: (e: React.MouseEvent) => void;
 } {
   const ownerRef = useRef(Symbol(opts.ownerName));
-  const [speakState, setSpeakState] = useState<SpeakState>("idle");
+  const [speakState, setSpeakStateRaw] = useState<SpeakState>("idle");
+  const speakStateRef = useRef<SpeakState>("idle");
+  /** This button has taken ownership of the singleton and not yet lost it. */
+  const ownedRef = useRef(false);
+  const setSpeakState = useCallback((s: SpeakState) => {
+    speakStateRef.current = s;
+    setSpeakStateRaw(s);
+    if (s !== "idle") setButtonSpeechState(ownerRef.current, s);
+  }, []);
   // Paused between pieces: the next piece's playback, held until resume.
   const pausedRef = useRef(false);
   const heldRef = useRef<(() => void) | null>(null);
@@ -50,6 +64,22 @@ export function useSpeakPlayback(opts: {
   const optsRef = useRef(opts);
   optsRef.current = opts;
   const tag = `${opts.logPrefix ?? ""}${ownerRef.current.toString()}`;
+
+  // Ownership moved elsewhere (or was released) → idle.
+  useEffect(() => {
+    const owner = ownerRef.current;
+    return subscribeSpeech(() => {
+      if (!ownedRef.current || getCurrentOwner() === owner) return;
+      ownedRef.current = false;
+      pausedRef.current = false;
+      heldRef.current = null;
+      if (speakStateRef.current !== "idle") {
+        console.info(`[tts] lost-ownership owner=${tag} newOwner=${getCurrentOwner()?.toString() ?? "null"}`);
+        setSpeakState("idle");
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Cleanup: stop player on unmount if this button owns it.
   useEffect(() => {
@@ -129,6 +159,7 @@ export function useSpeakPlayback(opts: {
       // another button sees a non-null currentPlayer and can stop us cleanly.
       setCurrentPlayer(player);
       setCurrentOwner(owner);
+      ownedRef.current = true;
 
       try {
         console.info(
@@ -208,7 +239,7 @@ export function useSpeakPlayback(opts: {
         }
       }
     },
-    [tag],
+    [setSpeakState, tag],
   );
 
   const startSpeak = useCallback(() => {
@@ -242,7 +273,7 @@ export function useSpeakPlayback(opts: {
     heldRef.current = null;
     setSpeakState("loading");
     void playPiece(pieces, 0, voices);
-  }, [playPiece, tag]);
+  }, [playPiece, setSpeakState, tag]);
 
   const onSpeakClick = useCallback(
     (e: React.MouseEvent) => {
@@ -274,7 +305,7 @@ export function useSpeakPlayback(opts: {
 
       startSpeak();
     },
-    [speakState, startSpeak],
+    [setSpeakState, speakState, startSpeak],
   );
 
   return { speakState, onSpeakClick };

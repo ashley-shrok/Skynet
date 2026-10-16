@@ -61,7 +61,15 @@ import {
   type UseVoiceModeArgs,
   type VoiceModeMessage,
 } from "./useVoiceMode";
-import { clearCurrentPlayer } from "./speak-singleton";
+import {
+  clearCurrentPlayer,
+  getCurrentOwner,
+  getCurrentPlayer,
+  setButtonSpeechState,
+  setCurrentOwner,
+  setCurrentPlayer,
+  type ButtonSpeechState,
+} from "./speak-singleton";
 import { setVoiceModeSettings } from "./voice-mode-settings";
 
 // ---------------------------------------------------------------------------
@@ -619,6 +627,129 @@ describe("useVoiceMode", () => {
       expect(players[0].stop).toHaveBeenCalled();
       expect(postSpeakStream).toHaveBeenCalledTimes(1);
       expect(result.current.phase).toBe("listening");
+    });
+  });
+
+  describe("speak buttons (bubble / file read-aloud)", () => {
+    /** Stand-in for useSpeakPlayback: takes the singleton and reports its state. */
+    function fakeButton() {
+      const owner = Symbol("bubble");
+      const stop = vi.fn();
+      const set = (state: ButtonSpeechState) => act(() => setButtonSpeechState(owner, state));
+      return {
+        owner,
+        stop,
+        start() {
+          act(() => {
+            getCurrentPlayer()?.stop();
+            clearCurrentPlayer();
+            setButtonSpeechState(owner, "loading");
+            setCurrentPlayer({ play: vi.fn(), stop, pause: vi.fn(), resume: vi.fn() });
+            setCurrentOwner(owner);
+          });
+        },
+        set,
+        end() {
+          act(() => clearCurrentPlayer());
+        },
+      };
+    }
+
+    it("a bubble tapped before voice mode starts counts as speaking, then it's your turn", async () => {
+      const bubble = fakeButton();
+      bubble.start();
+      bubble.set("playing");
+      const { result } = await startVoiceMode();
+      expect(result.current.phase).toBe("speaking");
+      expect(MockMediaRecorder.instances).toHaveLength(0);
+
+      bubble.end();
+      await flush();
+      expect(result.current.phase).toBe("listening");
+      expect(MockMediaRecorder.instances.some((r) => r.state === "recording")).toBe(true);
+      expect(cuesPlayed).toEqual(["yourTurn"]);
+    });
+
+    it("a bubble tapped while listening stops listening; pausing it hands the turn back", async () => {
+      const { result } = await startVoiceMode();
+      expect(result.current.phase).toBe("listening");
+      const bubble = fakeButton();
+      bubble.start();
+      await flush();
+      expect(result.current.phase).toBe("speaking");
+      expect(MockMediaRecorder.instances.every((r) => r.state === "inactive")).toBe(true);
+
+      bubble.set("paused");
+      await flush();
+      expect(result.current.phase).toBe("listening");
+      expect(cuesPlayed).not.toContain("yourTurn");
+
+      bubble.set("playing");
+      await flush();
+      expect(result.current.phase).toBe("speaking");
+    });
+
+    it("replies wait for the bubble to finish, then play (no 'your turn' in between)", async () => {
+      const bubble = fakeButton();
+      const { result, rerender } = await startVoiceMode();
+      bubble.start();
+      bubble.set("playing");
+      await flush();
+      rerender(baseArgs({ messages: [{ type: "message", role: "assistant", content: "reply", eventId: "a1", ts: Date.now() }] }));
+      await flush();
+      expect(postSpeakStream).not.toHaveBeenCalled();
+      expect(bubble.stop).not.toHaveBeenCalled();
+
+      bubble.end();
+      await flush();
+      expect(postSpeakStream).toHaveBeenCalledWith("reply", ["Ruth"]);
+      expect(result.current.phase).toBe("speaking");
+      expect(cuesPlayed).not.toContain("yourTurn");
+    });
+
+    it("skipSpeech stops the bubble and goes back to listening", async () => {
+      const bubble = fakeButton();
+      const { result } = await startVoiceMode();
+      bubble.start();
+      bubble.set("playing");
+      await flush();
+      act(() => result.current.skipSpeech());
+      await flush();
+      expect(bubble.stop).toHaveBeenCalled();
+      expect(getCurrentOwner()).toBeNull();
+      expect(result.current.phase).toBe("listening");
+    });
+
+    it("tapping a bubble mid-reply cuts the reply without a 'your turn' over the bubble", async () => {
+      const { result, rerender } = await startVoiceMode();
+      rerender(baseArgs({ messages: [{ type: "message", role: "assistant", content: "reply", eventId: "a1", ts: Date.now() }] }));
+      await flush();
+      expect(result.current.phase).toBe("speaking");
+      const bubble = fakeButton();
+      bubble.start();
+      await flush(1000);
+      expect(players[0].stop).toHaveBeenCalled();
+      expect(result.current.phase).toBe("speaking");
+      expect(cuesPlayed).not.toContain("yourTurn");
+
+      bubble.end();
+      await flush();
+      expect(result.current.phase).toBe("listening");
+      expect(cuesPlayed).toEqual(["yourTurn"]);
+    });
+
+    it("no ticking while a bubble plays, even with the agent working", async () => {
+      const bubble = fakeButton();
+      const { rerender } = await startVoiceMode();
+      bubble.start();
+      await flush();
+      rerender(baseArgs({ isWorking: true }));
+      await flush();
+      expect(ticking).toBe(false);
+      bubble.end();
+      await flush();
+      expect(ticking).toBe(true);
+      expect(cuesPlayed).not.toContain("yourTurn");
     });
   });
 

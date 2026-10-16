@@ -19,6 +19,7 @@ import { render, screen, fireEvent, waitFor, act } from "@testing-library/react"
 import { ChatMessage } from "./ChatMessage";
 import { postSpeakStream } from "@/api/voice-api";
 import { createWebAudioStreamPlayer } from "./webAudioStreamPlayer";
+import { clearCurrentPlayer, getButtonSpeechState } from "./speak-singleton";
 
 // ---------------------------------------------------------------------------
 // Mock voice-api (patch #237: use postSpeakStream, not postSpeak)
@@ -246,5 +247,32 @@ describe("ChatMessage speak button (patch #237 streaming)", () => {
     await waitFor(() => {
       expect(mockStop).toHaveBeenCalled();
     });
+  });
+
+  it("Test 8: publishes its state on the singleton and returns to idle when playback is taken away", async () => {
+    const { container } = render(
+      <div>
+        <ChatMessage role="assistant" content="First bubble" />
+        <ChatMessage role="assistant" content="Second bubble" />
+      </div>,
+    );
+    const [firstBtn, secondBtn] = Array.from(container.querySelectorAll("button[aria-label]")) as HTMLElement[];
+    const idleLabel = firstBtn.getAttribute("aria-label");
+
+    fireEvent.click(firstBtn);
+    await waitFor(() => expect(firstBtn.getAttribute("aria-label")).toBe("Pause speaking"));
+    expect(getButtonSpeechState()).toBe("playing");
+    fireEvent.click(firstBtn);
+    await waitFor(() => expect(getButtonSpeechState()).toBe("paused"));
+
+    // Another bubble preempts → the first falls back to idle.
+    fireEvent.click(secondBtn);
+    await waitFor(() => expect(secondBtn.getAttribute("aria-label")).toBe("Pause speaking"));
+    expect(firstBtn.getAttribute("aria-label")).toBe(idleLabel);
+
+    // Ownership released from outside (voice mode's skip) → idle, nothing published.
+    act(() => clearCurrentPlayer());
+    await waitFor(() => expect(secondBtn.getAttribute("aria-label")).toBe(idleLabel));
+    expect(getButtonSpeechState()).toBeNull();
   });
 });
