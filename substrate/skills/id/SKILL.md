@@ -1371,9 +1371,8 @@ think spawning a fresh agent would help, OFFER; don't self-execute.
 ### Mechanism
 
 Drop a single-line JSON file at `~/fleet/spawn-requests/<uuid>.json` on
-your own box. The new identity is birthed on the **same box** as the
-requester (there is no cross-box spawning here). A backend watcher picks
-the file up within ~10 seconds, claims it by renaming `.json` →
+the box the new identity should live on. A backend watcher picks the
+file up within ~10 seconds, claims it by renaming `.json` →
 `.claimed.json`, and runs the identity-birth flow (~3–5 seconds more).
 
 ### Schema
@@ -1414,7 +1413,8 @@ the body corrupts parsing.
 
 ### Response
 
-The backend drops a response file keyed by your uuid:
+The backend drops a response file keyed by your uuid, next to the
+request (on the target host for a cross-box spawn):
 
 - `<uuid>.success.json` — contains `{name, birthed_at}`. Read it, note
   the name, delete the file.
