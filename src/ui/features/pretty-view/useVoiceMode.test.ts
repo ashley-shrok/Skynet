@@ -54,6 +54,7 @@ import {
   stripSendPhrase,
   toSpeakableText,
   PIECE_GAP_MS,
+  RECORDER_TIMESLICE_MS,
   TIMED_END_MS,
   TRANSCRIBE_RETRY_WINDOW_MS,
   AWAIT_REPLY_MAX_MS,
@@ -654,6 +655,32 @@ describe("useVoiceMode", () => {
       expect(lines(info).some((l) => /\[voice-mode\] recorder-start state=recording .*rid=\d+/.test(l))).toBe(true);
       expect(lines(info).some((l) => /\[voice-mode\] recorder-stop rid=\d+ state=recording keep=true ageMs=\d+ chunks=0/.test(l))).toBe(true);
       expect(lines(warn).some((l) => /\[voice-mode\] recorder-onstop-watchdog rid=\d+ state=recording chunks=0/.test(l))).toBe(true);
+    });
+
+    it("records in timeslices so the recorder hands over audio as it goes", async () => {
+      await startVoiceMode(baseArgs());
+      expect(MockMediaRecorder.instances[0].start).toHaveBeenCalledWith(RECORDER_TIMESLICE_MS);
+    });
+
+    it("salvages the sliced audio when a stopped recorder never delivers (iOS)", async () => {
+      const send = vi.fn(() => true);
+      const warn = vi.spyOn(console, "warn");
+      const { result } = await startVoiceMode(baseArgs({ send }));
+      const rec = MockMediaRecorder.instances[MockMediaRecorder.instances.length - 1];
+      // Slices arrived while recording; then stop() drops both data and onstop.
+      rec.ondataavailable?.({ data: new Blob(["slice1"], { type: "audio/mp4" }) });
+      rec.ondataavailable?.({ data: new Blob(["slice2"], { type: "audio/mp4" }) });
+      rec.stop = vi.fn(() => {
+        rec.state = "inactive";
+      });
+      transcribeReturns("check the build");
+      await sayPiece();
+      await flush(9000 + TIMED_END_MS);
+      const lines = warn.mock.calls.map((c) => String(c[0]));
+      expect(lines.some((l) => /\[voice-mode\] recorder-onstop-salvaged rid=\d+ chunks=2 bytes=12 /.test(l))).toBe(true);
+      expect(cuesPlayed).not.toContain("alarm");
+      expect(send).toHaveBeenCalled();
+      expect(result.current.phase).not.toBe("off");
     });
 
     it("bails when a transcription attempt hangs instead of waiting forever", async () => {

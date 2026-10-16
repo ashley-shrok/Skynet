@@ -81,6 +81,13 @@ export const TIMED_END_MS = 3000;
 export const MAX_PIECE_MS = 5 * 60 * 1000;
 /** Rotate the idle recorder so a quiet stretch never builds a huge clip. */
 const IDLE_ROTATE_MS = 30 * 1000;
+/**
+ * Have the recorder hand over audio in slices while it runs, so a recorder
+ * whose final data/onstop never arrive (iOS) still leaves its audio behind.
+ */
+export const RECORDER_TIMESLICE_MS = 1000;
+/** How long a stopped recorder gets to deliver before its slices are used as-is. */
+const RECORDER_STOP_WATCHDOG_MS = 8000;
 /** Keep retrying a failed piece this long before bailing. */
 export const TRANSCRIBE_RETRY_WINDOW_MS = 30 * 1000;
 const TRANSCRIBE_RETRY_FIRST_DELAY_MS = 1000;
@@ -399,9 +406,17 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
             `[voice-mode] recorder-onstop-watchdog rid=${id} state=${recorder.state} chunks=${chunks.length} ` +
               `${describeTracks(streamRef.current)} ctx=${ctxRef.current?.state ?? "none"} ${tagRef.current}`,
           );
-          finish(keep && chunks.length > 0 ? new Blob(chunks, { type: recorder.mimeType || "audio/webm" }) : null);
+          const blob = keep && chunks.length > 0 ? new Blob(chunks, { type: recorder.mimeType || "audio/webm" }) : null;
+          if (blob) {
+            // Only the last slice (≤ RECORDER_TIMESLICE_MS of audio) is missing.
+            console.warn(
+              `[voice-mode] recorder-onstop-salvaged rid=${id} chunks=${chunks.length} bytes=${blob.size} ` +
+                `ageMs=${ageMs} ${tagRef.current}`,
+            );
+          }
+          finish(blob);
         }
-      }, 8000);
+      }, RECORDER_STOP_WATCHDOG_MS);
       try {
         recorder.stop();
       } catch {
@@ -420,7 +435,13 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
       const tag = () => `rid=${id} ${tagRef.current}`;
       recorder.ondataavailable = (e: BlobEvent) => {
         if (e.data && e.data.size > 0) slot.chunks.push(e.data);
-        console.info(`[voice-mode] recorder-data bytes=${e.data?.size ?? 0} state=${recorder.state} ${tag()}`);
+        // Slices arrive every RECORDER_TIMESLICE_MS — log only the first and the final one.
+        if (slot.chunks.length <= 1 || recorder.state !== "recording") {
+          console.info(
+            `[voice-mode] recorder-data bytes=${e.data?.size ?? 0} state=${recorder.state} ` +
+              `chunks=${slot.chunks.length} ${tag()}`,
+          );
+        }
       };
       recorder.onstart = () => console.info(`[voice-mode] recorder-onstart ${tag()}`);
       recorder.onpause = () => console.warn(`[voice-mode] recorder-onpause ${tag()}`);
@@ -432,9 +453,9 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
             `state=${recorder.state} ${describeTracks(stream)} ${tag()}`,
         );
       };
-      recorder.start();
+      recorder.start(RECORDER_TIMESLICE_MS);
       console.info(
-        `[voice-mode] recorder-start state=${recorder.state} mime="${recorder.mimeType}" ` +
+        `[voice-mode] recorder-start state=${recorder.state} mime="${recorder.mimeType}" timesliceMs=${RECORDER_TIMESLICE_MS} ` +
           `${describeTracks(stream)} ctx=${ctxRef.current?.state ?? "none"} ${tag()}`,
       );
       slotRef.current = slot;
