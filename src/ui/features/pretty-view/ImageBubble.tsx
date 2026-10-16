@@ -36,10 +36,12 @@ import type { ImageBlock } from "@/api/claude-session-api";
 //      shadcn UI primitive, so the patch-#81 wrapper defense doesn't
 //      apply.
 // Claude Code prepends `[Image #N]` markers (one per inline image) to a
-// user turn whose pasted text carried image paths. Strip the leading run so
-// the remaining text renders like the turn the user actually sent.
+// user turn whose pasted text carried image paths, then a blank line. Strip
+// the markers and that one separator only — an attachment turn with an
+// empty caption starts with "\n\n--- attached files ---", and its leading
+// newlines are what the injected-turn parser anchors on.
 export function stripImagePasteMarkers(text: string): string {
-  return text.replace(/^(?:\s*\[Image #\d+\])+\s*/, "");
+  return text.replace(/^(?:[ \t]*\[Image #\d+\])+[ \t]*(?:\r?\n){0,2}/, "");
 }
 
 export function ImageBubble({

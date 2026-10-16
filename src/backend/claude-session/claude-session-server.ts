@@ -2911,6 +2911,23 @@ function enforceQueueDedupCap(dedupMap: Map<string, number>): void {
  *          from an earlier enqueue entry). `dedupMap` is the same Map
  *          reference passed in — returned for test ergonomics.
  */
+/**
+ * Key for matching a dequeued user turn that Claude Code turned into inline
+ * images against its earlier enqueue entry. The image turn's text gains
+ * `[Image #N]` markers and loses the image paths, so neither side is
+ * byte-comparable; drop both, collapse whitespace, and hash what is left.
+ */
+function imageTurnDedupKey(content: string): string {
+  const normalized = content
+    .replace(/\[Image #\d+\]/g, " ")
+    .replace(/(?:^|\s)[`'"]?\/\S*\.(?:png|jpe?g|gif|webp)[`'"]?(?=\s|$)/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return (
+    "img:" + createHash("sha256").update(normalized).digest("hex").slice(0, 32)
+  );
+}
+
 export function __applyQueueDedupForTests(deps: {
   parsedFrame: import("./session-file-parser.js").ParsedLine;
   rawObj: Record<string, unknown>;
@@ -2919,8 +2936,21 @@ export function __applyQueueDedupForTests(deps: {
 }): { suppress: boolean; dedupMap: Map<string, number> } {
   const { parsedFrame, rawObj, dedupMap, now } = deps;
 
-  // Only user-role message frames participate. Assistant turns, images,
-  // relay frames, skips, malformed lines all pass through unchanged.
+  // User-role message frames participate, and user-role image frames on the
+  // lookup side: a queued send whose image paths Claude Code inlined comes
+  // back at dequeue as an image frame and must dedup against its enqueue.
+  // Assistant turns, relay frames, skips, malformed lines pass through.
+  if (parsedFrame.kind === "image") {
+    if (parsedFrame.role !== "user" || parsedFrame.text.length === 0) {
+      return { suppress: false, dedupMap };
+    }
+    if (rawObj.type !== "user") return { suppress: false, dedupMap };
+    const imageKey = imageTurnDedupKey(parsedFrame.text);
+    const insertedAt = dedupMap.get(imageKey);
+    if (insertedAt === undefined) return { suppress: false, dedupMap };
+    dedupMap.delete(imageKey);
+    return { suppress: now - insertedAt <= __QUEUE_DEDUP_TTL_MS, dedupMap };
+  }
   if (parsedFrame.kind !== "message") return { suppress: false, dedupMap };
   if (parsedFrame.role !== "user") return { suppress: false, dedupMap };
   if (typeof parsedFrame.content !== "string" || parsedFrame.content.length === 0) {
@@ -2953,6 +2983,12 @@ export function __applyQueueDedupForTests(deps: {
     pruneExpiredQueueDedupEntries(dedupMap, now);
     enforceQueueDedupCap(dedupMap);
     dedupMap.set(contentHash, now);
+    // Only enqueues that carried an image path can come back as an image
+    // frame; keep the second key off ordinary sends.
+    if (/\.(?:png|jpe?g|gif|webp)\b/i.test(parsedFrame.content)) {
+      enforceQueueDedupCap(dedupMap);
+      dedupMap.set(imageTurnDedupKey(parsedFrame.content), now);
+    }
     return { suppress: false, dedupMap };
   }
 
@@ -2986,6 +3022,8 @@ export function __applyQueueDedupForTests(deps: {
     if (insertedAt !== undefined) {
       if (now - insertedAt <= __QUEUE_DEDUP_TTL_MS) {
         dedupMap.delete(contentHash);
+        // The send came back as text, so its image-turn key is spent too.
+        dedupMap.delete(imageTurnDedupKey(parsedFrame.content));
         return { suppress: true, dedupMap };
       }
       // Expired entry — clean up and continue to emit.
@@ -4419,7 +4457,10 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // the existing parallel-scan pattern above.
     if (frame !== null) {
       let suppress = false;
-      if (frame.type === "message" && frame.role === "user") {
+      if (
+        (frame.type === "message" || frame.type === "image") &&
+        frame.role === "user"
+      ) {
         try {
           const rawObj = JSON.parse(line) as Record<string, unknown>;
           const result = __applyQueueDedupForTests({

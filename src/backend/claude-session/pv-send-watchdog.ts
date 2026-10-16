@@ -52,6 +52,20 @@ import { isWidgetSubmitEnvelope } from "./session-file-parser.js";
 
 /** T+2500ms — retry Enter (per D-13; canonical value chosen from the "T+2-3s" range). */
 export const RETRY_ENTER_MS = 2500;
+/**
+ * Keys that clear a stuck body from Claude Code's composer before the
+ * full re-send retypes it. C-u there deletes only back to the start of the
+ * current line, so a multi-line body needs one `BSpace C-u` per newline to
+ * join and clear each earlier line; otherwise the retype lands after the
+ * leftover lines and submits a garbled double. Extra BSpace on an empty
+ * composer is a no-op. Capped so a huge body cannot build a giant command.
+ */
+const MAX_CLEAR_LINES = 400;
+export function composeClearKeys(body: string): string {
+  const newlines = Math.min((body.match(/\r\n|\r|\n/g) ?? []).length, MAX_CLEAR_LINES);
+  return ["C-u", ...Array<string>(newlines).fill("BSpace C-u")].join(" ");
+}
+
 /** T+5500ms from arm — full re-send C-u + body + Enter (per D-14; "T+5-6s"). */
 export const FULL_RESEND_MS = 5500;
 /** T+20000ms from arm — paste_send_failed escalation (per D-15; "T+~20s"). */
@@ -355,7 +369,7 @@ export function armPvSendWatchdog(args: ArmPvSendWatchdogArgs): void {
     logger.info("[diag-dormant-send] watchdog-fire-full-resend", { operation: "diag_dormant_watchdog_full_resend", mqid, sessionId, elapsedMs: Date.now() - entry.armedAt });
 
     void (async () => {
-      const clearCmd = `tmux send-keys -t ${shellQuote(tmuxTarget)} C-u`;
+      const clearCmd = `tmux send-keys -t ${shellQuote(tmuxTarget)} ${composeClearKeys(body)}`;
       const bodyCmd = `tmux send-keys -l -t ${shellQuote(tmuxTarget)} -- ${shellQuote(body)}`;
       const enterCmd = `tmux send-keys -t ${shellQuote(tmuxTarget)} Enter`;
 

@@ -92,6 +92,73 @@ function makeAttachmentQueuedCommand(
   return { parsedFrame, rawObj };
 }
 
+function makeUserImageTurn(
+  text: string,
+  ts: string = "2026-08-20T12:02:00.000Z",
+): {
+  parsedFrame: ReturnType<typeof parseSessionLine>;
+  rawObj: Record<string, unknown>;
+} {
+  const rawObj = {
+    type: "user" as const,
+    uuid: "img-" + text.slice(0, 6),
+    timestamp: ts,
+    message: {
+      role: "user",
+      content: [
+        { type: "text", text },
+        { type: "image", source: { type: "base64", media_type: "image/png", data: "iVBORw0KGgo=" } },
+      ],
+    },
+  };
+  const parsedFrame = parseSessionLine(JSON.stringify(rawObj), "sess-A");
+  return { parsedFrame, rawObj };
+}
+
+describe("__applyQueueDedupForTests — user image frames (Claude Code inlined image paths)", () => {
+  const sent = "look at this /home/u/shot.png please";
+  const inlined = "[Image #1] look at this please";
+
+  it("enqueue with an image path → dequeued image frame is suppressed", () => {
+    const dedupMap = new Map<string, number>();
+    const t0 = 7_000_000_000_000;
+    const enq = makeEnqueue(sent);
+    __applyQueueDedupForTests({ parsedFrame: enq.parsedFrame, rawObj: enq.rawObj, dedupMap, now: t0 });
+
+    const img = makeUserImageTurn(inlined);
+    expect(img.parsedFrame.kind).toBe("image");
+    const r = __applyQueueDedupForTests({ parsedFrame: img.parsedFrame, rawObj: img.rawObj, dedupMap, now: t0 + 60_000 });
+    expect(r.suppress).toBe(true);
+  });
+
+  it("image frame with no prior enqueue → emits", () => {
+    const dedupMap = new Map<string, number>();
+    const img = makeUserImageTurn(inlined);
+    const r = __applyQueueDedupForTests({ parsedFrame: img.parsedFrame, rawObj: img.rawObj, dedupMap, now: 1 });
+    expect(r.suppress).toBe(false);
+  });
+
+  it("enqueue dequeued as text consumes the image key — a later image frame still emits", () => {
+    const dedupMap = new Map<string, number>();
+    const t0 = 8_000_000_000_000;
+    const enq = makeEnqueue(sent);
+    __applyQueueDedupForTests({ parsedFrame: enq.parsedFrame, rawObj: enq.rawObj, dedupMap, now: t0 });
+    const usr = makeUserTurn(sent);
+    expect(__applyQueueDedupForTests({ parsedFrame: usr.parsedFrame, rawObj: usr.rawObj, dedupMap, now: t0 + 1 }).suppress).toBe(true);
+    expect(dedupMap.size).toBe(0);
+
+    const img = makeUserImageTurn(inlined);
+    expect(__applyQueueDedupForTests({ parsedFrame: img.parsedFrame, rawObj: img.rawObj, dedupMap, now: t0 + 2 }).suppress).toBe(false);
+  });
+
+  it("enqueue without an image path adds no image key", () => {
+    const dedupMap = new Map<string, number>();
+    const enq = makeEnqueue("plain words");
+    __applyQueueDedupForTests({ parsedFrame: enq.parsedFrame, rawObj: enq.rawObj, dedupMap, now: 1 });
+    expect(dedupMap.size).toBe(1);
+  });
+});
+
 describe("__applyQueueDedupForTests — per-session queue-enqueue dedup", () => {
   it("Test 1: dedup fires across a 2-minute span (enqueue → dequeue empirical case)", () => {
     const dedupMap = new Map<string, number>();

@@ -47,6 +47,7 @@ import {
   FULL_RESEND_MS_DORMANT,
   GIVE_UP_MS_DORMANT,
   MARKER_FALLBACK_MS_MIRROR,
+  composeClearKeys,
 } from "./pv-send-watchdog.js";
 
 // Silence sshLogger — the module logs at every arm / retry / escalation and
@@ -165,6 +166,14 @@ describe("pv-send-watchdog (Phase 50 Plan 02 Task 1)", () => {
 
     expect(exec).toHaveBeenCalledTimes(1); // still only retry
     expect(wsSend).not.toHaveBeenCalled();
+  });
+
+  it("composeClearKeys: single-line body clears with one C-u; multi-line joins and clears each line", () => {
+    expect(composeClearKeys("hello")).toBe("C-u");
+    expect(composeClearKeys("a\n\n--- attached files ---\n")).toBe(
+      "C-u BSpace C-u BSpace C-u BSpace C-u",
+    );
+    expect(composeClearKeys("x\n".repeat(1000)).split(" ").length).toBe(1 + 400 * 2);
   });
 
   it("T-4 full-resend fires at T+5500ms silence: C-u, then -l body, then Enter", async () => {

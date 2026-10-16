@@ -356,6 +356,27 @@ describe("PrettyView — optimistic bubbles state machine (Phase 50 Plan 03 Task
     expect(container.textContent).not.toContain("--- attached files ---");
   });
 
+  it("Test 3e: user image frame for an attachment with an EMPTY caption renders as the attachment bubble", async () => {
+    const { container } = mount();
+    const ws = getCurrentWs();
+    flipToStreaming(ws);
+    await waitFor(() =>
+      expect(container.querySelector('textarea[placeholder="Write a message…"]')).not.toBeNull(),
+    );
+
+    sendWsFrame(ws, {
+      type: "image",
+      role: "user",
+      images: [{ data: "iVBORw0KGgo=", mediaType: "image/png" }],
+      text: "[Image #1]\n\n\n\n--- attached files ---\n1. a.png (1.4 MB, image/png) →\n   uploaded 2026-10-15T08:27:23\n",
+      eventId: "ev-img-empty",
+      ts: Date.now(),
+    });
+    await waitFor(() => expect(container.textContent).toContain("a.png"));
+    expect(container.textContent).not.toContain("user · 1 image");
+    expect(container.textContent).not.toContain("--- attached files ---");
+  });
+
   it("Test 3b (quick-260823-fzy): real slash-command XML wrap clears pending under FIFO-only", async () => {
     const { container } = mount();
     const ws = getCurrentWs();
