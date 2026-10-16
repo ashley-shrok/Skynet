@@ -155,7 +155,7 @@ import type { TabSpec } from "@/lib/tab-url";
 // is scoped to the Phase 120 additions per the review's LOW-15 finding.
 import { systemLogger } from "@/lib/frontend-logger";
 import { moveNodeInto } from "@/shell/move-node";
-import { resolveOuterDrop } from "@/shell/outer-drop-resolve";
+import { isSplittableActiveTab, resolveOuterDrop } from "@/shell/outer-drop-resolve";
 // Phase 56 Plan 02 — split-tree state (retires the prior mode-enum + slot-
 // array state and their localStorage effects). URL is the single source of
 // truth for the split arrangement.
@@ -4140,19 +4140,12 @@ export function AppShell({
                 // that cosmetic edge case is accepted.
                 const rect = e.currentTarget.getBoundingClientRect();
                 const activeTab = tabs.find((t) => t.id === activeTabId);
-                // App-tile and file-chip drops also split a relay room
-                // (see their onDrop branches) — preview to match.
-                const splitsRelayRoom =
-                  types.includes("application/x-skynet-app-tile") ||
-                  types.includes(FILE_CHIP_MIME);
-                const activeIsSession =
-                  activeTab != null &&
-                  ((splitsRelayRoom && activeTab.sessionKind === "relay-room") ||
-                    (activeTab.type === "terminal" &&
-                      activeTab.targetTmuxSession != null &&
-                      identitiesByKey.has(
-                        activeTab.targetTmuxSession.toLowerCase(),
-                      )));
+                // Same gate as every onDrop branch below, so the preview
+                // matches what the drop does.
+                const activeIsSession = isSplittableActiveTab(
+                  activeTab,
+                  identitiesByKey,
+                );
                 let wouldReplace = !activeIsSession || activeTab == null;
                 if (!wouldReplace && activeTab != null) {
                   const badgeJson = e.dataTransfer.getData(
@@ -4317,14 +4310,10 @@ export function AppShell({
                       e.clientY,
                     );
                     const activeTab = tabs.find((t) => t.id === activeTabId);
-                    const activeIsSession =
-                      activeTab != null &&
-                      (activeTab.sessionKind === "relay-room" ||
-                        (activeTab.type === "terminal" &&
-                          activeTab.targetTmuxSession != null &&
-                          identitiesByKey.has(
-                            activeTab.targetTmuxSession.toLowerCase(),
-                          )));
+                    const activeIsSession = isSplittableActiveTab(
+                      activeTab,
+                      identitiesByKey,
+                    );
                     const newTabId = openTab(null, "app", undefined, {
                       app: { hostId: parsed.hostId, slug: parsed.slug },
                       label: parsed.title,
@@ -4367,14 +4356,10 @@ export function AppShell({
                   const rect = e.currentTarget.getBoundingClientRect();
                   const edge = computeNearestEdge(rect, e.clientX, e.clientY);
                   const activeTab = tabs.find((t) => t.id === activeTabId);
-                  const activeIsSession =
-                    activeTab != null &&
-                    (activeTab.sessionKind === "relay-room" ||
-                      (activeTab.type === "terminal" &&
-                        activeTab.targetTmuxSession != null &&
-                        identitiesByKey.has(
-                          activeTab.targetTmuxSession.toLowerCase(),
-                        )));
+                  const activeIsSession = isSplittableActiveTab(
+                    activeTab,
+                    identitiesByKey,
+                  );
                   const newTabId = openFileTab(fileChip);
                   systemLogger.info("pv-split-drop outer file-chip dispatch", {
                     operation: "pv_split_drop_outer_file_chip",
@@ -4445,14 +4430,10 @@ export function AppShell({
                 // `sessionKind === "relay-room"` (Phase 90 discriminator)
                 // and have no tmux session, so accept the sessionKind
                 // marker directly.
-                const activeIsSession =
-                  activeTab != null &&
-                  (activeTab.sessionKind === "relay-room" ||
-                    (activeTab.type === "terminal" &&
-                      activeTab.targetTmuxSession != null &&
-                      identitiesByKey.has(
-                        activeTab.targetTmuxSession.toLowerCase(),
-                      )));
+                const activeIsSession = isSplittableActiveTab(
+                  activeTab,
+                  identitiesByKey,
+                );
                 // eslint-disable-next-line no-console
                 console.info(
                   `[pv-split-drop] outer edge=${edge} activeTabId=${activeTabId} activeIsSession=${activeIsSession} activeSessionKind=${activeTab?.sessionKind ?? "(none)"} activeTabType=${activeTab?.type ?? "(none)"} activeTargetTmuxSession=${activeTab?.targetTmuxSession ?? "(none)"} clientX=${Math.round(e.clientX)} clientY=${Math.round(e.clientY)}`,

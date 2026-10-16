@@ -61,3 +61,28 @@ export function resolveOuterDrop<BadgePayload extends { dragId?: string | null }
   }
   return { tabId: null, acceptDragId: null, via: null };
 }
+
+export interface SplittableTab {
+  type?: string;
+  sessionKind?: string;
+  targetTmuxSession?: string | null;
+}
+
+/**
+ * Whether the tab shown full-screen (no split open) can be split by an
+ * edge drop. Harness sessions, relay rooms, apps and files all can; anything
+ * else (a bare terminal, nothing shown) is replaced by the dropped pane.
+ */
+export function isSplittableActiveTab(
+  tab: SplittableTab | null | undefined,
+  identityKeys: { has(key: string): boolean },
+): boolean {
+  if (tab == null) return false;
+  if (tab.sessionKind === "relay-room") return true;
+  if (tab.type === "app" || tab.type === "file") return true;
+  return (
+    tab.type === "terminal" &&
+    tab.targetTmuxSession != null &&
+    identityKeys.has(tab.targetTmuxSession.toLowerCase())
+  );
+}

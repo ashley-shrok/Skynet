@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { resolveOuterDrop } from "./outer-drop-resolve";
+import { isSplittableActiveTab, resolveOuterDrop } from "./outer-drop-resolve";
 
 type Badge = { tabId?: string; dragId?: string | null; descriptor?: unknown };
 
@@ -78,5 +78,31 @@ describe("resolveOuterDrop", () => {
       resolvers({ resolveBadge: vi.fn(() => "fresh") }),
     );
     expect(out).toEqual({ tabId: "fresh", acceptDragId: null, via: "badge" });
+  });
+});
+
+describe("isSplittableActiveTab", () => {
+  const identities = new Set(["rally"]);
+
+  it("splits apps and files shown full-screen", () => {
+    expect(isSplittableActiveTab({ type: "app" }, identities)).toBe(true);
+    expect(isSplittableActiveTab({ type: "file" }, identities)).toBe(true);
+  });
+
+  it("splits relay rooms and harness sessions", () => {
+    expect(
+      isSplittableActiveTab({ type: "terminal", sessionKind: "relay-room" }, identities),
+    ).toBe(true);
+    expect(
+      isSplittableActiveTab({ type: "terminal", targetTmuxSession: "Rally" }, identities),
+    ).toBe(true);
+  });
+
+  it("replaces a bare terminal or nothing shown", () => {
+    expect(
+      isSplittableActiveTab({ type: "terminal", targetTmuxSession: "other" }, identities),
+    ).toBe(false);
+    expect(isSplittableActiveTab({ type: "terminal" }, identities)).toBe(false);
+    expect(isSplittableActiveTab(undefined, identities)).toBe(false);
   });
 });
