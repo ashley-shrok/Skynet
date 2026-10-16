@@ -282,6 +282,24 @@ describe("createWebAudioStreamPlayer", () => {
     expect(ctxInstances[0].sources).toHaveLength(0);
   });
 
+  it("Test 3c — stop() while a read is pending (still waiting for audio) fires neither onError nor onEnded", async () => {
+    const onEnded = vi.fn();
+    const onError = vi.fn();
+    const player = createWebAudioStreamPlayer({ onEnded, onError });
+    // Header arrives, then the stream stays open with no audio.
+    const stream = new ReadableStream<Uint8Array>({
+      start(c) { c.enqueue(makeWavChunk(new Uint8Array(0))); },
+    });
+    const playing = player.play(new Response(stream, { status: 200 }));
+    await new Promise((r) => setTimeout(r, 0));
+
+    player.stop();
+    await playing;
+
+    expect(onError).not.toHaveBeenCalled();
+    expect(onEnded).not.toHaveBeenCalled();
+  });
+
   it("Test 4 — stop() stops all sources, closes AudioContext, and is idempotent", async () => {
     const onEnded = vi.fn();
     const pcm = new Uint8Array([0x00, 0x00, 0xff, 0x7f, 0x00, 0x00, 0x00, 0x00]);

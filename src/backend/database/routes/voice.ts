@@ -334,12 +334,11 @@ export async function handleSpeak(req: Request, res: Response): Promise<Response
     const pcmChunks: Buffer[] = [];
     const voice = choice.voice;
     for (let i = 0; i < chunks.length; i++) {
-      const stream = await synthesizeWithRetries(provider, chunks[i], voice, { reqId, chunkIndex: i });
-      const bufs: Buffer[] = [];
-      for await (const chunk of stream) {
-        bufs.push(chunk as Buffer);
-      }
-      const chunkPcm = Buffer.concat(bufs);
+      // Read in flowing mode so the stall watchdog runs (it never arms under
+      // for-await, which reads in paused mode).
+      const chunkPcm = await drainStreamToBuffer(
+        synthesizeWithRetries(provider, chunks[i], voice, { reqId, chunkIndex: i }),
+      );
       pcmChunks.push(guard && i === chunks.length - 1 ? applyTailGuard(chunkPcm, provider, reqId) : chunkPcm);
     }
     const pcmBuf = Buffer.concat(pcmChunks);
@@ -623,6 +622,9 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
         res.once("close", resolve);
       });
 
+    // Chunk 0 stalled after some of its audio was out: end the message there
+    // rather than skip ahead to the next chunk's text.
+    let truncated = false;
     const synth = (i: number) => synthesizeWithRetries(p, chunks[i], voiceId, { reqId, chunkIndex: i });
     // Prefetched chunks are drained whole before any of their audio is sent,
     // so a stalled one can always be retried from scratch.
@@ -631,7 +633,7 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
         try {
           return await drainStreamToBuffer(synth(i));
         } catch (err: unknown) {
-          if (!(err instanceof TtsStallError) || attempt >= STALL_MAX_ATTEMPTS || clientGone) throw err;
+          if (!(err instanceof TtsStallError) || attempt >= STALL_MAX_ATTEMPTS || clientGone || truncated) throw err;
           databaseLogger.warn(
             `[voice-server] speak-stall reqId=${reqId} chunk=${i} provider=${p.id} attempt=${attempt}/${STALL_MAX_ATTEMPTS} streamedBytes=0 action=retry`,
             { operation: "voice_speak_stall", reqId, provider: p.id, attempt, action: "retry" },
@@ -643,9 +645,6 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
 
     // Per-request PCM accounting — populated inside the loop, summarised at end.
     let totalPcmBytes = 0;
-    // Chunk 0 stalled after some of its audio was out: end the message there
-    // rather than skip ahead to the next chunk's text.
-    let truncated = false;
 
     // (d) Fire chunk 0 (direct-stream Readable, for lowest TTFA) AND the
     // chunk 1 prefetch (eagerly-drained Buffer) simultaneously, so chunk 1

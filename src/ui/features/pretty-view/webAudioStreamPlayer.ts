@@ -341,6 +341,9 @@ export function createWebAudioStreamPlayer(
         if (stopped) return;
 
         const { done, value } = await reader.read();
+        // stop() cancels the reader, which resolves a pending read as done —
+        // that is the caller's own action, never an end or an error.
+        if (stopped) return;
         if (done) {
           readerDone = true;
           const ctxTime = audioContext?.currentTime ?? -1;

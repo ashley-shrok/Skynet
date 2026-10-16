@@ -1095,6 +1095,16 @@ describe("TTS_PROVIDER selection", () => {
       expect(res._destroyed).toBe(false);
     });
 
+    it("non-streaming speak (voice sample): a stalled provider fails the request instead of hanging", async () => {
+      fetchMock.mockImplementation(async () => stallingResponse(4));
+      const res = makeRes();
+      await handleSpeak(
+        makeSpeakReq({ text: "Sample." }) as unknown as import("express").Request,
+        res as unknown as import("express").Response,
+      );
+      expect(res._status).toBeGreaterThanOrEqual(500);
+    });
+
     it("a stalled prefetched chunk is retried", async () => {
       process.env.TTS_MODEL = "tts-1";
       const sentence = `${"word ".repeat(700)}end.`;
