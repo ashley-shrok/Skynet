@@ -86,6 +86,17 @@ declare -A SESSIONS_SNAPSHOT=()
 # need real-time state, not a snapshot taken up to a tick ago.
 declare -A CLAUDE_RUNNING_SNAPSHOT=()
 
+# Per-tick snapshot of each session's foreground pane command (e.g. "bash", "dash", "claude"),
+# filled by the same tmux list-panes call as CLAUDE_RUNNING_SNAPSHOT. The dormant branch reads it
+# to spot a dormant session still running a full shell, without a tmux call per identity.
+declare -A PANE_CMD_SNAPSHOT=()
+
+# The shell a dormant identity's tmux session runs. A dormant session only has to exist (the app
+# looks for it, and a wake types the launch command into it), so it runs the smallest shell on the
+# box: an idle dash costs ~0.1 MB of private memory against ~1.9 MB for an interactive bash. Empty
+# when dash isn't installed — dormant sessions then keep whatever shell they have.
+DORMANT_SHELL="$(command -v dash 2>/dev/null || true)"
+
 # Per-tick snapshot of schedule_peek results across all identities, populated by
 # snapshot_schedule_peek() at the top of reconcile() via ONE python subprocess (vs. one fork
 # per identity). Keys are identity names; values are non-empty (a "due" detail string) IFF the
@@ -2275,12 +2286,50 @@ snapshot_claude_running() {
       *claude*|*node*) _tty_has_claude["$ttyf"]=1 ;;
     esac
   done < <(ps -eo tty,comm= 2>/dev/null)
-  local sess tty
-  while IFS=' ' read -r sess tty; do
+  PANE_CMD_SNAPSHOT=()
+  local sess tty pcmd
+  while IFS=' ' read -r sess tty pcmd; do
     [ -n "$sess" ] && [ -n "$tty" ] || continue
+    PANE_CMD_SNAPSHOT["$sess"]="$pcmd"
     tty="${tty#/dev/}"
     [ -n "${_tty_has_claude[$tty]:-}" ] && CLAUDE_RUNNING_SNAPSHOT["$sess"]=1
-  done < <(timeout -k 5 10 tmux list-panes -a -F '#{session_name} #{pane_tty}' 2>/dev/null)
+  done < <(timeout -k 5 10 tmux list-panes -a -F '#{session_name} #{pane_tty} #{pane_current_command}' 2>/dev/null)
+}
+
+# minimize_dormant_pane <name> <session>: swap a dormant session's idle shell for DORMANT_SHELL
+# and drop its scrollback (the dead claude's screen history, held in the tmux server's memory).
+# The session itself stays — only the shell inside it is replaced. Leaves the pane alone unless it
+# is provably idle: its foreground command is a plain shell, that shell has no child processes,
+# and nobody is attached to the session. Safe to call repeatedly; a no-op once the pane already
+# runs DORMANT_SHELL.
+minimize_dormant_pane() {
+  local name="$1" sess="$2"
+  [ -n "$DORMANT_SHELL" ] || return 0
+  local info pcmd ppid attached cwd
+  # "=<session>:" — exact session name, its active pane. (A bare "=<session>" as a pane target
+  # silently matches nothing on tmux 3.4: display-message prints an empty line and exits 0.)
+  info="$(timeout -k 5 10 tmux display-message -p -t "=$sess:" '#{pane_current_command}|#{pane_pid}|#{session_attached}|#{pane_current_path}' 2>/dev/null)" || return 0
+  IFS='|' read -r pcmd ppid attached cwd <<<"$info"
+  [ "$pcmd" = "${DORMANT_SHELL##*/}" ] && return 0
+  case "$pcmd" in
+    bash|sh|zsh) ;;
+    *) return 0 ;;                                   # something other than a bare shell is in front
+  esac
+  [ "${attached:-1}" = 0 ] || return 0               # someone is looking at this terminal
+  [ -n "$ppid" ] || return 0
+  pgrep -P "$ppid" >/dev/null 2>&1 && return 0       # the shell is still running something
+  [ -d "$cwd" ] || cwd="$HOME"
+  if [ "${DRY_RUN:-0}" = 1 ]; then
+    log "DRY_RUN would swap '$name' dormant shell ($pcmd) for $DORMANT_SHELL"
+    return 0
+  fi
+  if timeout -k 5 10 tmux respawn-pane -k -t "=$sess:" -c "$cwd" "$DORMANT_SHELL" 2>/dev/null; then
+    timeout -k 5 10 tmux clear-history -t "=$sess:" 2>/dev/null
+    log "'$name' dormant: swapped idle $pcmd for $DORMANT_SHELL and cleared scrollback (session '$sess')"
+    metric event=dormant-shell-minimized identity="$name" session="$sess" from="$pcmd"
+  else
+    log "WARNING: '$name' dormant: respawn-pane to $DORMANT_SHELL failed (session '$sess') — keeping $pcmd"
+  fi
 }
 
 # wait_for_claude: poll claude_running() up to N seconds with short backoff. Returns 0 the moment
@@ -3569,6 +3618,7 @@ do_kill_dormant() {
   local reclaimed=$((rss_before - rss_after))
   log "'$name' dormant (kill ok, reclaimed ~${reclaimed}KB total-claude-rss, sentinel dropped)"
   metric event=kill-done identity="$name" session="$sess" rss_kb_after="$rss_after" reclaimed_kb="$reclaimed"
+  minimize_dormant_pane "$name" "$sess"
   # The desktop goes dormant with claude — unless the user is on it right now (reap_desktops
   # stops it on a later tick once they leave).
   if desktop_in_use "$name"; then
@@ -3732,9 +3782,13 @@ reconcile() {
           fi
           if [ "${DRY_RUN:-0}" = 1 ]; then
             log "DRY_RUN would create bare-shell tmux '$slugname' for dormant '$name' (cwd=$_wd)"
-          elif timeout -k 5 10 tmux new-session -d -s "$slugname" -c "$_wd" 2>/dev/null; then
+          elif timeout -k 5 10 tmux new-session -d -s "$slugname" -c "$_wd" ${DORMANT_SHELL:+"$DORMANT_SHELL"} 2>/dev/null; then
             log "'$name' dormant: created bare tmux session '$slugname' for app visibility (cwd=$_wd)"
           fi
+        elif [ -n "$DORMANT_SHELL" ] && [ "${PANE_CMD_SNAPSHOT[$actual]:-}" != "${DORMANT_SHELL##*/}" ]; then
+          # A dormant session still on a full shell — left over from before dormant sessions were
+          # minimized, or from a kill whose shell wasn't idle yet. Swap it once it's provably idle.
+          minimize_dormant_pane "$name" "$actual"
         fi
         [ "${VERBOSE:-0}" = 1 ] && log "'$name' dormant, no wake trigger"
         continue
