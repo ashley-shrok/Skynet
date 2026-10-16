@@ -113,7 +113,23 @@ export interface ServerSubstrateOrchestratorDeps {
    * tests that don't exercise it stay unaffected.
    */
   harnessReconciler?: HarnessReconciler<SubstrateHostRecord>;
+
+  /**
+   * How long the serial startup pass waits on one host before moving to the
+   * next (default HOST_SWEEP_DEADLINE_MS). The abandoned sweep keeps running
+   * and keeps its in-flight mark until it settles, so retry ticks never
+   * start a second sweep alongside it.
+   */
+  hostSweepDeadlineMs?: number;
 }
+
+/**
+ * A healthy host sweep takes ~5–20s; 5 minutes means the host is wedged.
+ * Without this, one stalled exec on one host holds the startup pass forever,
+ * so the retry interval is never installed and no host is retried this
+ * uptime.
+ */
+export const HOST_SWEEP_DEADLINE_MS = 5 * 60 * 1000;
 
 /**
  * Public surface of the server-substrate orchestrator returned by the factory.
@@ -210,6 +226,7 @@ export function createServerSubstrateOrchestrator(
   let sweepTickCount = 0;
   let retryTimer: ReturnType<typeof setInterval> | null = null;
   let stopped = false;
+  const hostSweepDeadlineMs = deps.hostSweepDeadlineMs ?? HOST_SWEEP_DEADLINE_MS;
 
   /**
    * Phase 114 Plan 05 (D-15 + Pitfall 6): current-tick runtime bytes.
@@ -485,6 +502,38 @@ export function createServerSubstrateOrchestrator(
   }
 
   /**
+   * Startup-pass wrapper: waits for the host's sweep or the deadline,
+   * whichever comes first. Never rejects (executeSweeForHost never does).
+   */
+  async function sweepWithDeadline(host: SubstrateHostRecord): Promise<void> {
+    const startedAt = deps.now();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<"deadline">((resolve) => {
+      timer = setTimeout(() => resolve("deadline"), hostSweepDeadlineMs);
+    });
+    const sweep = executeSweeForHost(host).then(() => "done" as const);
+    const winner = await Promise.race([sweep, deadline]);
+    clearTimeout(timer);
+    if (winner === "deadline") {
+      recordOutcome(host.id, "sweep timed out");
+      systemLogger.warn("Fleet-substrate: host sweep passed its deadline — moving on to the next host", {
+        operation: "fleet_substrate_sweep_host_deadline",
+        fleetHostId: host.id,
+        hostName: host.name,
+        deadlineMs: hostSweepDeadlineMs,
+      });
+      void sweep.then(() => {
+        systemLogger.info("Fleet-substrate: late host sweep settled", {
+          operation: "fleet_substrate_sweep_host_late_settle",
+          fleetHostId: host.id,
+          hostName: host.name,
+          durationMs: deps.now() - startedAt,
+        });
+      });
+    }
+  }
+
+  /**
    * Gate check + queue the sweep for a host. Fire-and-forget via queueMicrotask.
    * Called from both the startup pass (via sweepOne) and the retry tick.
    * Also the implementation of the public sweepOneHost entrypoint.
@@ -528,8 +577,9 @@ export function createServerSubstrateOrchestrator(
 
         sweepInFlight.add(host.id);
         // Await directly in the startup pass (not fire-and-forget) so start()
-        // resolves only after all startup sweeps complete (S1/S2/S3 requirements)
-        await executeSweeForHost(host);
+        // resolves only after all startup sweeps complete (S1/S2/S3 requirements),
+        // or a host passes its deadline.
+        await sweepWithDeadline(host);
         // Harness reconcile runs alongside, never inside, the serial pass —
         // queue() is fire-and-forget so a slow install can't hold up the
         // next host.

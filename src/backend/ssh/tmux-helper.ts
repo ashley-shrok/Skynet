@@ -15,6 +15,82 @@ export interface TmuxDetectionResult {
 }
 
 /**
+ * Ceiling on a single exec, from asking sshd for the channel to the command
+ * exiting. Sized above the longest legitimate synchronous exec (the harness
+ * installer's 20-minute attempt deadline, harness-reconciler.ts) so it only
+ * ever fires on a wedge: a channel open sshd never answers, or a command
+ * that never exits. Without it such an exec holds its per-host semaphore
+ * slot forever and stalls whatever awaits it (e.g. the distributor's serial
+ * startup pass). Callers that know their command is short pass a tighter
+ * `timeoutMs`.
+ */
+export const DEFAULT_EXEC_TIMEOUT_MS = 30 * 60 * 1000;
+
+export interface ExecOptions {
+  timeoutMs?: number;
+}
+
+/** Rejection for an exec that hit its ceiling. `phase` says where it stuck:
+ *  "open" = sshd never answered the channel open; "run" = the command never
+ *  exited. */
+export class ExecTimeoutError extends Error {
+  constructor(
+    readonly phase: "open" | "run",
+    readonly timeoutMs: number,
+  ) {
+    super(`SSH exec timed out after ${timeoutMs}ms (${phase === "open" ? "channel never opened" : "command never exited"})`);
+    this.name = "ExecTimeoutError";
+  }
+}
+
+/**
+ * Arms the exec ceiling. Returns `settle`, which every resolve/reject path
+ * calls first: it clears the timer and reports whether the caller still owns
+ * the promise (false once the timer has fired). `adopt` hands over the stream
+ * once the channel opens — if the timer already fired, the late stream is
+ * closed straight away so sshd frees the session.
+ */
+function armExecTimeout(
+  timeoutMs: number,
+  onTimeout: (phase: "open" | "run") => void,
+): { settle: () => boolean; adopt: (stream: ClientChannel) => boolean } {
+  let settled = false;
+  let stream: ClientChannel | undefined;
+  const timer = setTimeout(() => {
+    if (settled) return;
+    settled = true;
+    const phase = stream ? "run" : "open";
+    try {
+      stream?.close();
+    } catch {
+      /* channel already gone */
+    }
+    onTimeout(phase);
+  }, timeoutMs);
+  timer.unref?.();
+  return {
+    settle: () => {
+      if (settled) return false;
+      settled = true;
+      clearTimeout(timer);
+      return true;
+    },
+    adopt: (s) => {
+      if (settled) {
+        try {
+          s.close();
+        } catch {
+          /* ignore */
+        }
+        return false;
+      }
+      stream = s;
+      return true;
+    },
+  };
+}
+
+/**
  * Run a command on the remote host via a separate exec channel.
  * Returns stdout as a string. Does not pollute the interactive shell.
  *
@@ -31,7 +107,11 @@ export interface TmuxDetectionResult {
  * restarts the container. See tmux-helper.test.ts for the fire-and-forget
  * regression coverage.
  */
-export function execCommand(conn: Client, command: string): Promise<string> {
+export function execCommand(
+  conn: Client,
+  command: string,
+  opts: ExecOptions = {},
+): Promise<string> {
   const cmdPreview = command.slice(0, 80);
   // 2026-09-25 (tina): lifecycle timing to attribute where slow execs spend
   // time. Under a rapid multi-pane reload, workstation execs hit the 5s
@@ -56,12 +136,22 @@ export function execCommand(conn: Client, command: string): Promise<string> {
     /* ignore */
   }
   sshLogger.info(`[tmux-helper] exec command="${cmdPreview}"`, { operation: "tmux_exec" });
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_EXEC_TIMEOUT_MS;
   const p = new Promise<string>((resolve, reject) => {
     let tExecCb = 0;
     let tFirstData = 0;
+    const guard = armExecTimeout(timeoutMs, (phase) => {
+      const totalMs = Date.now() - tExecStart;
+      sshLogger.warn(
+        `[tmux-helper] exec-timeout command="${cmdPreview}" peer=${peer} phase=${phase} timeoutMs=${timeoutMs} totalMs=${totalMs}`,
+        { operation: "tmux_exec_timeout", peer, phase, timeoutMs, totalMs },
+      );
+      reject(new ExecTimeoutError(phase, timeoutMs));
+    });
     conn.exec(command, (err, stream) => {
       tExecCb = Date.now();
       if (err) {
+        if (!guard.settle()) return;
         sshLogger.error(
           `[tmux-helper] exec-failed command="${cmdPreview}" peer=${peer} openMs=${tExecCb - tExecStart}`,
           err,
@@ -70,6 +160,7 @@ export function execCommand(conn: Client, command: string): Promise<string> {
         reject(err);
         return;
       }
+      if (!guard.adopt(stream)) return;
       let stdout = "";
       let stderr = "";
       stream.on("data", (data: Buffer) => {
@@ -80,6 +171,7 @@ export function execCommand(conn: Client, command: string): Promise<string> {
         stderr += data.toString("utf-8");
       });
       stream.on("error", (err: Error) => {
+        if (!guard.settle()) return;
         const tEnd = Date.now();
         sshLogger.error(
           `[tmux-helper] exec-failed command="${cmdPreview}" peer=${peer} openMs=${tExecCb - tExecStart} totalMs=${tEnd - tExecStart}`,
@@ -89,6 +181,7 @@ export function execCommand(conn: Client, command: string): Promise<string> {
         reject(err);
       });
       stream.on("close", (code: number) => {
+        if (!guard.settle()) return;
         const tClose = Date.now();
         const openMs = tExecCb - tExecStart;
         const ttfbMs = tFirstData > 0 ? tFirstData - tExecCb : -1;
@@ -140,15 +233,28 @@ export function execCommandWithStdin(
   conn: Client,
   command: string,
   stdinBody: Buffer,
+  opts: ExecOptions = {},
 ): Promise<string> {
   sshLogger.info(`[tmux-helper] exec-stdin command="${command.slice(0, 80)}" bodyLen=${stdinBody.length}`, { operation: "tmux_exec_stdin" });
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_EXEC_TIMEOUT_MS;
+  const tExecStart = Date.now();
   const p = new Promise<string>((resolve, reject) => {
+    const guard = armExecTimeout(timeoutMs, (phase) => {
+      const totalMs = Date.now() - tExecStart;
+      sshLogger.warn(
+        `[tmux-helper] exec-stdin-timeout command="${command.slice(0, 80)}" phase=${phase} timeoutMs=${timeoutMs} totalMs=${totalMs}`,
+        { operation: "tmux_exec_stdin_timeout", phase, timeoutMs, totalMs },
+      );
+      reject(new ExecTimeoutError(phase, timeoutMs));
+    });
     conn.exec(command, (err, stream) => {
       if (err) {
+        if (!guard.settle()) return;
         sshLogger.error(`[tmux-helper] exec-stdin-failed command="${command.slice(0, 80)}"`, err, { operation: "tmux_exec_stdin_failed" });
         reject(err);
         return;
       }
+      if (!guard.adopt(stream)) return;
       let stdout = "";
       let stderr = "";
       stream.on("data", (data: Buffer) => {
@@ -158,10 +264,12 @@ export function execCommandWithStdin(
         stderr += data.toString("utf-8");
       });
       stream.on("error", (err: Error) => {
+        if (!guard.settle()) return;
         sshLogger.error(`[tmux-helper] exec-stdin-failed command="${command.slice(0, 80)}"`, err, { operation: "tmux_exec_stdin_failed" });
         reject(err);
       });
       stream.on("close", (code: number) => {
+        if (!guard.settle()) return;
         if (code !== 0 && stdout === "") {
           sshLogger.warn(`[tmux-helper] exec-stdin-nonzero command="${command.slice(0, 80)}" code=${code} stderrLen=${stderr.length}`, { operation: "tmux_exec_stdin_nonzero" });
           reject(

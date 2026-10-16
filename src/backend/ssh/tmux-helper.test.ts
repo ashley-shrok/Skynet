@@ -1,7 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { EventEmitter } from "node:events";
 import type { Client } from "ssh2";
-import { execCommand, execCommandWithStdin } from "./tmux-helper.js";
+import {
+  DEFAULT_EXEC_TIMEOUT_MS,
+  ExecTimeoutError,
+  execCommand,
+  execCommandWithStdin,
+} from "./tmux-helper.js";
 
 // Regression: an execCommand promise that is dropped by the losing side of a
 // Promise.race([exec, timeout]) must NOT trigger process 'unhandledRejection'.
@@ -145,5 +150,77 @@ describe("execCommandWithStdin — unhandled-rejection guard", () => {
     } finally {
       process.off("unhandledRejection", handler);
     }
+  });
+});
+
+describe("exec timeout", () => {
+  class ClosableStream extends FakeStream {
+    closed = 0;
+    close() {
+      this.closed++;
+      queueMicrotask(() => this.emit("close", undefined as unknown as number));
+    }
+    end() {}
+  }
+
+  // `openAfterMs` < 0 = sshd never answers the channel open.
+  function makeStuckClient(openAfterMs: number): { client: Client; streams: ClosableStream[] } {
+    const streams: ClosableStream[] = [];
+    const client = {
+      exec(_cmd: string, cb: (err: Error | null, stream: ClosableStream) => void) {
+        if (openAfterMs < 0) return;
+        setTimeout(() => {
+          const s = new ClosableStream();
+          streams.push(s);
+          cb(null, s);
+        }, openAfterMs);
+      },
+    } as unknown as Client;
+    return { client, streams };
+  }
+
+  it("rejects with phase=open when the channel never opens", async () => {
+    const { client } = makeStuckClient(-1);
+    const err = await execCommand(client, "true", { timeoutMs: 20 }).catch((e) => e);
+    expect(err).toBeInstanceOf(ExecTimeoutError);
+    expect(err.phase).toBe("open");
+  });
+
+  it("rejects with phase=run and closes the channel when the command never exits", async () => {
+    const { client, streams } = makeStuckClient(0);
+    const err = await execCommand(client, "sleep 999", { timeoutMs: 30 }).catch((e) => e);
+    expect(err).toBeInstanceOf(ExecTimeoutError);
+    expect(err.phase).toBe("run");
+    expect(streams[0].closed).toBe(1);
+  });
+
+  it("closes a channel that opens after the timeout already fired", async () => {
+    const { client, streams } = makeStuckClient(40);
+    const err = await execCommand(client, "true", { timeoutMs: 10 }).catch((e) => e);
+    expect(err.phase).toBe("open");
+    await new Promise((r) => setTimeout(r, 60));
+    expect(streams).toHaveLength(1);
+    expect(streams[0].closed).toBe(1);
+  });
+
+  it("does not fire once the command has finished", async () => {
+    const client = makeFakeClient((stream) => {
+      stream.emit("data", Buffer.from("ok\n"));
+      stream.emit("close", 0);
+    });
+    await expect(execCommand(client, "echo ok", { timeoutMs: 30 })).resolves.toBe("ok");
+    await new Promise((r) => setTimeout(r, 50));
+  });
+
+  it("execCommandWithStdin times out the same way", async () => {
+    const { client, streams } = makeStuckClient(0);
+    const err = await execCommandWithStdin(client, "cat", Buffer.from("x"), { timeoutMs: 30 }).catch((e) => e);
+    expect(err).toBeInstanceOf(ExecTimeoutError);
+    expect(err.phase).toBe("run");
+    expect(streams[0].closed).toBe(1);
+  });
+
+  it("defaults to a ceiling above the harness attempt deadline", () => {
+    expect(DEFAULT_EXEC_TIMEOUT_MS).toBeGreaterThan(20 * 60 * 1000);
   });
 });

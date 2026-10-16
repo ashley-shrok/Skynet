@@ -15,6 +15,7 @@
  *   L1-L3 — lifecycle (stop(), post-stop no-ops)
  *   O1     — observability (getSweepTickCount)
  *   RA1-RA2 — resweepAll (instance-file save re-sweeps hosts already swept)
+ *   DL1-DL2 — per-host deadline on the serial startup pass
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { SshChannel } from "../fleet-status/ssh-poll-orchestrator.js";
@@ -58,7 +59,11 @@ vi.mock("../instance-file/store.js", () => ({
   readInstanceFileBytes: vi.fn(async () => null),
 }));
 
-import { createServerSubstrateOrchestrator } from "./server-substrate-orchestrator.js";
+import {
+  createServerSubstrateOrchestrator,
+  HOST_SWEEP_DEADLINE_MS,
+} from "./server-substrate-orchestrator.js";
+import { systemLogger } from "../utils/logger.js";
 import type { SubstrateHostRecord } from "./list-substrate-hosts.js";
 import { runSweepForHost } from "./run-sweep.js";
 import { logSweepHookError, logPersistentFailure } from "./log-tags.js";
@@ -1115,6 +1120,56 @@ describe("resweepAll (instance-file saved)", () => {
 
     const last = vi.mocked(runSweepForHost).mock.calls.at(-1)!;
     expect(last[3].resolvedRuntimeBytes?.get("instance-policy")).toEqual(goodBytes);
+    orch.stop();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Per-host deadline on the serial startup pass
+// ---------------------------------------------------------------------------
+
+describe("Per-host sweep deadline", () => {
+  it("DL1: a host whose sweep never settles doesn't hold up the next host or the retry interval", async () => {
+    const { deps, setIntervalMock } = makeDeps({
+      hosts: [
+        { id: "h1", name: "stuck" },
+        { id: "h2", name: "fine" },
+      ],
+    });
+    vi.mocked(runSweepForHost).mockImplementationOnce(() => new Promise(() => {}));
+    const orch = createServerSubstrateOrchestrator(deps);
+
+    let started = false;
+    const p = orch.start().then(() => {
+      started = true;
+    });
+    await vi.advanceTimersByTimeAsync(HOST_SWEEP_DEADLINE_MS - 1);
+    expect(started).toBe(false);
+    expect(runSweepForHost).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(1);
+    await p;
+    expect(runSweepForHost).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(runSweepForHost).mock.calls[1][1]).toMatchObject({ id: "h2" });
+    expect(setIntervalMock).toHaveBeenCalledTimes(1);
+    expect(systemLogger.warn).toHaveBeenCalledWith(
+      expect.stringContaining("deadline"),
+      expect.objectContaining({ operation: "fleet_substrate_sweep_host_deadline", fleetHostId: "h1" }),
+    );
+    expect(orch.getHostSweepStatus("h1")?.lastError).toBe("sweep timed out");
+    orch.stop();
+  });
+
+  it("DL2: retry ticks don't start a second sweep on a host whose abandoned sweep is still running", async () => {
+    const { deps, fireTick } = makeDeps({ hosts: [{ id: "h1", name: "stuck" }] });
+    vi.mocked(runSweepForHost).mockImplementationOnce(() => new Promise(() => {}));
+    const orch = createServerSubstrateOrchestrator(deps);
+    const p = orch.start();
+    await vi.advanceTimersByTimeAsync(HOST_SWEEP_DEADLINE_MS);
+    await p;
+    await fireTick();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(runSweepForHost).toHaveBeenCalledTimes(1);
     orch.stop();
   });
 });
