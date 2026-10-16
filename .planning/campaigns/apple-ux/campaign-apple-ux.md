@@ -6,25 +6,31 @@
 
 ## Concept
 
-Skynet's modals are busy and inconsistent: settings hide in three-dots menus, pickers are dropdowns you can't browse, and every modal invents its own layout. This campaign takes Apple's interfaces as the reference for *how* things are laid out and behave — a sidebar list to pick from, grouped settings rows that show their current value, small checkmark menus, sheets for creating things, back-and-forth navigation (a navigation stack on phones), red for destructive actions and blue for adding — and applies it modal by modal, starting with the skills modal. It is not an Apple look-alike: the layout, the element types and the colour meanings come from Apple; the surface aesthetic (backgrounds, borders, type, corners) stays Skynet's own and is worked out deliberately. Alongside, admins get finer control over shared skills and roles: instead of "every host or nowhere", they pick the hosts a shared skill or role lives on, kept in sync across just those — or pick a deliberate "every host" that also covers hosts added later. Non-admins never see any of the sharing controls. Once the modals are done, the sidebar and the conversation view get the same pass.
+Redesign Skynet's modals with Apple's interfaces as the reference, starting with the skills modal and going modal by modal; after the modals, the sidebar and the conversation view get the same pass. Apple is the reference for the UX, not for the visual skin — the result should look like Skynet, not like Apple made it. Alongside, admins get finer control over where shared skills and roles live: a chosen set of hosts kept in sync, or a deliberate "every host" that also covers hosts added later. Non-admins never see the sharing controls.
+
+### Standing rule for every design session in this campaign
+
+Ashley, 2026-10-16: *"I want all future sessions during this campaign to be like it was this time, where all I did was reference Apple, and then you took that and did what you thought was right for it. And I would much prefer that rather than trying to derive the principles we think that their interfaces live by, and then having those derivations bias what gets created."*
+
+So: this artifact deliberately does NOT list Apple design principles, and no session should write any into it, into a shape file, or into a prompt. Each design session takes "Apple's interfaces as the reference" and forms its own judgment. Earlier tastings in this folder are past attempts, not a spec.
 
 ## Success criteria
 
-- Every modal in the app uses the same Apple-derived layout patterns and element types, and reads as one family.
-- Colour carries meaning consistently: red only for destructive actions, blue for adding / the primary action.
-- The aesthetic is recognisably Skynet's, not a copy of Apple's surfaces.
-- Modals feel calm: the important settings are visible without digging, and nothing is cluttered with tags or decoration.
-- Every modal works on a phone as a navigation stack (list → detail → deeper), with a clear way back and out.
-- No capability is lost in any redesign, including read-only states (fleet-distributed skills; shared skills/roles for non-admins are view-only all the way into the editor).
-- Admins can share a skill or role to a chosen set of hosts, kept in sync across exactly those, or to "every host" which also reaches hosts added later; picking all current hosts one by one does NOT auto-include future hosts. Non-admins see none of this.
+- Every modal in the app has been redesigned with Apple's interfaces as the reference, and Ashley is happy with each.
+- The modals read as one family.
+- The result looks like Skynet, not an Apple look-alike.
+- Every modal works on a phone as well as on a desktop.
+- No modal loses anything it can do today, including read-only states (fleet-distributed skills; shared skills and roles for non-admins stay view-only all the way into the editor).
+- Admins can share a skill or role to a chosen set of hosts, kept in sync across exactly those, or to "every host", which also reaches hosts added later; ticking all of today's hosts one by one does NOT include future hosts. Non-admins see none of this.
 - The id skill describes every non-admin-visible change as it ships (admin-only features stay out of it).
+- After the modals, the sidebar and the conversation view have had the same pass.
 
 ## Shapes
 
 Starting order: foundation, skills, host targeting, then the remaining modals, then sidebar and conversation view last (Ashley: "save that until we've already gone through the rest").
 
-- **[declared] shape-ux-foundation** — the shared building blocks (sidebar list, grouped rows with values, checkmark menus, sheets, navigation stack, semantic colours) and the Skynet-own aesthetic they wear; tasting the aesthetic against the existing modal shell is the heart of this shape — not started
-- **[declared] shape-skills-modal** — the skills modal rebuilt on the foundation (see tasting-skills-apple.html), keeping fleet-distributed and instance-wide read-only behaviour — not started
+- **[declared] shape-ux-foundation** — the shared groundwork every redesigned modal builds on, and working out how an Apple-referenced design looks wearing Skynet's own aesthetic — not started
+- **[declared] shape-skills-modal** — the skills modal redesigned on the foundation, keeping fleet-distributed and instance-wide read-only behaviour — not started
 - **[declared] shape-host-targeting** — admin-only: shared skills and roles target a chosen set of hosts or a permanent "every host"; sync machinery + the admin controls in both skills and roles modals — not started
 - **[declared] shape-roles-modals** — roles list, role modal, new-role dialog, runbook editor — not started
 - **[declared] shape-identity-modal** — agent modal (agent file, wake-ups + add-wake-up, files, git, desktop tabs) — not started
@@ -45,11 +51,11 @@ Starting order: foundation, skills, host targeting, then the remaining modals, t
 
 ## Open questions
 
-- What does the Skynet-own aesthetic look like wearing Apple's layout? (Ashley isn't sure the current modal background/border plus Apple-shaped components will look good — shape-ux-foundation tastes this.)
+- What does Skynet's own aesthetic look like on an Apple-referenced design? Ashley isn't sure today's modal look plus Apple-like parts will work — shape-ux-foundation finds out.
 - Wording for the permanent "every host" option vs a hand-picked set that happens to include all hosts — shape-host-targeting.
 - Does the shared-roles side already sync the same way as shared skills, or does host targeting need roles brought level first?
 
 ## Prior context
 
-- Tastings: `tasting-skills-cards-rejected.html` (card library — Ashley: "too busy"), `tasting-skills-apple.html` (System Settings-style — Ashley liked the direction, but wants Apple's UX, not its visual skin).
+- Tastings (past attempts, not a spec): `tasting-skills-cards-rejected.html` (Ashley: "too busy"), `tasting-skills-apple.html` (second attempt after "my layout goal is apple interfaces"; Ashley liked where it was going but wants Apple as the UX reference, not the visual skin).
 - Platinum's e982457f + 3e748d80 (2026-10-16): admins see fleet-distributed skills read-only in the skills modal (own group, write routes 403, editor view-only, a save adding the distributed marking is refused). Admin-only, so not in the id skill.
