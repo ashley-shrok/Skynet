@@ -374,6 +374,70 @@ reap_desktops() {
   return 0
 }
 
+# ---- stray-process teardown: nothing an identity started may outlive its archive ----
+# Retire's tmux kill only reaches processes on the pane. Anything the agent backgrounded into its
+# own session (`npm exec vite &`, `setsid`, `nohup`) survives, keeps its working directory inside
+# the archived folder, and can write back to the old live path — recreating a folder with no
+# <name>.md that the app shows as a broken conversation. Processes are matched by working
+# directory, not command line, so a peer merely naming a path in its argv is never touched.
+PROC_DIR="${AGENT_PROC_DIR:-/proc}"
+STRAY_KILL_GRACE=5        # seconds between SIGTERM and SIGKILL
+STRAY_REAP_MIN_AGE=120    # reap_archived_strays spares younger processes (an agent briefly cd'd into an archive to read it)
+
+# procs_with_cwd_under <dir> [min-age-seconds] — PIDs of this user's processes whose working
+# directory is <dir> or inside it (a deleted cwd still counts), excluding this shell. Other
+# users' processes are unreadable and skipped. One find over /proc per call — runs every tick.
+procs_with_cwd_under() {
+  local dir="${1%/}" min_age="${2:-0}" self="$BASHPID" p pid cwd age
+  [ -n "$dir" ] || return 0
+  while IFS=$'\t' read -r p cwd; do
+    pid="${p##*/}"
+    case "$pid" in ''|*[!0-9]*|"$$"|"$self") continue ;; esac
+    cwd="${cwd% (deleted)}"
+    case "$cwd" in "$dir"|"$dir"/*) ;; *) continue ;; esac
+    if [ "$min_age" -gt 0 ]; then
+      age="$(ps -o etimes= -p "$pid" 2>/dev/null | tr -d ' ')"
+      case "$age" in ''|*[!0-9]*) continue ;; esac
+      [ "$age" -ge "$min_age" ] || continue
+    fi
+    printf '%s\n' "$pid"
+  done < <(find "$PROC_DIR" -mindepth 2 -maxdepth 2 -path "$PROC_DIR/[0-9]*/cwd" -printf '%h\t%l\n' 2>/dev/null)
+}
+
+# kill_procs_under <dir> <label> <reason> [min-age-seconds] — SIGTERM every process working
+# inside <dir>, SIGKILL whatever is left after STRAY_KILL_GRACE seconds. Best-effort; never fails.
+kill_procs_under() {
+  local dir="$1" label="$2" reason="$3" min_age="${4:-0}" pids pid alive i what=""
+  pids="$(procs_with_cwd_under "$dir" "$min_age")"
+  [ -n "$pids" ] || return 0
+  for pid in $pids; do
+    what="$what ${pid}[$(ps -o args= -p "$pid" 2>/dev/null | cut -c1-120)]"
+  done
+  if [ "${DRY_RUN:-0}" = 1 ]; then log "DRY_RUN would kill stray process(es) of '$label' ($reason):$what"; return 0; fi
+  log "'$label' killing stray process(es) ($reason):$what"
+  # shellcheck disable=SC2086  # word-split the PID list on purpose
+  kill $pids 2>/dev/null
+  for ((i = 0; i < STRAY_KILL_GRACE * 2; i++)); do
+    alive=""
+    for pid in $pids; do kill -0 "$pid" 2>/dev/null && alive="$alive $pid"; done
+    [ -n "$alive" ] || break
+    sleep 0.5
+  done
+  if [ -n "$alive" ]; then
+    # shellcheck disable=SC2086
+    kill -9 $alive 2>/dev/null
+    log "WARN: '$label' stray process(es) ignored SIGTERM for ${STRAY_KILL_GRACE}s — SIGKILLed:$alive"
+  fi
+  return 0
+}
+
+# reap_archived_strays — backstop for retire's own kill: nothing should be running inside an
+# archived identity's folder (e.g. a retire that ran before this existed, or a straggler).
+reap_archived_strays() {
+  [ -d "$IDENTITIES_ARCHIVE_DIR" ] || return 0
+  kill_procs_under "$IDENTITIES_ARCHIVE_DIR" "identities-archive" "working inside an archived identity" "$STRAY_REAP_MIN_AGE"
+}
+
 # ---- memory cap (2026-08-06) — wrap claude launches in a systemd scope with MemoryHigh ----
 # Rationale: claude's baseline is ~500 MB RSS per session (Ink React TUI + Node/V8, architectural).
 # On boxes with zram-primary swap, reclaim under a soft MemoryHigh ceiling is cheap enough (LZO
@@ -1136,6 +1200,10 @@ retire_identity() {
   # STEP 4a¼: stop the identity's virtual desktop while its folder (state dir, serve.pid) is still
   # in place. Never blocks retire; reap_desktops catches a failed stop on a later tick.
   stop_identity_desktop "$name" "retire"
+
+  # STEP 4a⅓: kill anything the agent left running outside its tmux session (a backgrounded dev
+  # server, a setsid'd watcher) before the folder moves out from under it.
+  kill_procs_under "$iddir" "$name" "retire"
 
   # =============================================================================================
   # STEP 4a½: Workspace repo cleanup — delete safely-re-clonable repos so they don't inflate the
@@ -3567,6 +3635,7 @@ reconcile() {
   scan_role_unarchive_requested_sentinels          # un-archive host-side shape: user-initiated role UN-archive (folder mv only, no identity cascade)
   scan_app_unarchive_requested_sentinels           # un-archive host-side shape: user-initiated app UN-archive (folded-in restore-app.sh: port-collision check under create-lock, mv archive→live, systemd reinstall + enable+start)
   reap_desktops                                    # stop agent-desktop@ units of gone identities, and of dormant ones nobody is viewing
+  reap_archived_strays                             # kill processes still working inside an archived identity's folder
   resolve_identities
   sync_project_members                             # rewrite each project.md's derived `members:` list from identities' project: frontmatter (writes only on change)
   snapshot_schedule_peek                           # one python subprocess per tick over the fleet; schedule_peek reads from SCHEDULE_PEEK_SNAPSHOT. MUST run AFTER resolve_identities (needs IDENTITIES populated).
