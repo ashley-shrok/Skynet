@@ -10,8 +10,17 @@ import { authApi, handleApiError } from "@/main-axios";
 // § Open Question 5). Same posture as Phase 23 duplicating execWithTimeout /
 // shellEscape (fourth intentional instance in the codebase).
 
-/** `userInvocable: false` = frontmatter `user-invocable: false` (agent-only). */
-export type SkillEntry = { name: string; description?: string; userInvocable?: false };
+/**
+ * `userInvocable: false` = frontmatter `user-invocable: false` (agent-only).
+ * `distributed: true` = frontmatter `distributed: true` (fleet-distributor
+ * owned, read-only); only listed with `includeDistributed`, for admins.
+ */
+export type SkillEntry = {
+  name: string;
+  description?: string;
+  userInvocable?: false;
+  distributed?: true;
+};
 
 export type SkillFileEntry = { path: string };
 
@@ -67,10 +76,13 @@ export class SkillFileAlreadyExistsError extends Error {
  * Returns the list of skills on the given host (~/.claude/skills/*).
  * Returns [] when the directory doesn't exist (200, not 404 — per SKILLED-01).
  */
-export async function listSkills(hostId: number): Promise<SkillEntry[]> {
+export async function listSkills(
+  hostId: number,
+  opts: { includeDistributed?: boolean } = {},
+): Promise<SkillEntry[]> {
   try {
     const response = await authApi.get("/skills-editor/skills", {
-      params: { hostId },
+      params: opts.includeDistributed ? { hostId, includeDistributed: 1 } : { hostId },
     });
     return (response.data as { skills: SkillEntry[] }).skills;
   } catch (error) {

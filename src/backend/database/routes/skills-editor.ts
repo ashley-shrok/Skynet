@@ -67,6 +67,7 @@ import express from "express";
 import yaml from "js-yaml";
 import type { Request, Response } from "express";
 import { AuthManager } from "../../utils/auth-manager.js";
+import { callerIsAdmin } from "../../instance-wide/admin.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
@@ -300,7 +301,58 @@ function composeSkillMdSeed(slug: string, description: string): string {
 /** Cap on a returned description — the menu shows one truncated line. */
 const MAX_SKILL_DESCRIPTION_CHARS = 500;
 
-export type ListedSkill = { name: string; description?: string; userInvocable?: false };
+export type ListedSkill = {
+  name: string;
+  description?: string;
+  userInvocable?: false;
+  distributed?: true;
+};
+
+/**
+ * `distributed: true` in a skill's frontmatter = the fleet-substrate
+ * distributor owns it (installed from the Skynet repo, overwritten every
+ * sweep). Line-matched rather than YAML-parsed so a malformed frontmatter
+ * still counts — same test the shell guard (distributedCheckCmd) uses.
+ */
+const DISTRIBUTED_LINE_RE = /^distributed: *true[ \t]*$/m;
+
+/**
+ * Shell test: prints `distributed` when the skill folder's SKILL.md
+ * frontmatter carries `distributed: true`, else `ok`. Shared by every mutating
+ * route so a crafted request can't edit a distributor-owned skill (the
+ * modal shows those read-only to admins; the next sweep would overwrite
+ * any edit anyway).
+ */
+function distributedCheckCmd(escapedSkillRoot: string): string {
+  return (
+    `awk '{sub(/\\r$/, "")} /^---$/{n++; if(n==2) exit} n==1' ${escapedSkillRoot}/SKILL.md 2>/dev/null | ` +
+    `grep -q '^distributed: *true[[:space:]]*$' && echo distributed || echo ok`
+  );
+}
+
+/**
+ * Refuse a mutation on a distributor-owned skill. Returns true (and has
+ * sent a 403) when the skill is distributed; the caller returns.
+ */
+async function refuseIfDistributed(
+  conn: Awaited<ReturnType<typeof connectOneShot>>,
+  remoteHome: string,
+  skill: string,
+  res: Response,
+  operation: string,
+  hostId: number,
+): Promise<boolean> {
+  const skillRoot = `${remoteHome}/${SKILL_ROOT_REL}/${skill}`;
+  const out = (await execWithTimeout(conn, distributedCheckCmd(shellEscape(skillRoot)))).trim();
+  if (out !== "distributed") return false;
+  sshLogger.warn("skills-editor: refused change to a distributed skill", {
+    operation,
+    hostId,
+    skill,
+  });
+  res.status(403).json({ error: "distributed skills are read-only" });
+  return true;
+}
 
 /**
  * Parse the list command's output: records separated by \x1e, each record
@@ -322,6 +374,7 @@ export function parseSkillListOutput(output: string): ListedSkill[] {
     const frontmatter = nl === -1 ? "" : record.slice(nl + 1);
     let description: string | undefined;
     let agentOnly = false;
+    const distributed = DISTRIBUTED_LINE_RE.test(frontmatter.replace(/\r/g, ""));
     try {
       const parsed = yaml.load(frontmatter);
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
@@ -343,6 +396,7 @@ export function parseSkillListOutput(output: string): ListedSkill[] {
     }
     const skill: ListedSkill = description === undefined ? { name } : { name, description };
     if (agentOnly) skill.userInvocable = false;
+    if (distributed) skill.distributed = true;
     skills.push(skill);
   }
   return skills;
@@ -352,6 +406,10 @@ export function parseSkillListOutput(output: string): ListedSkill[] {
  * List skills on the host — `find ~/.claude/skills -mindepth 1 -maxdepth 1
  * -type d -printf '%f\n' | sort`. Returns empty array when the directory
  * is missing (not 404 — mirrors Phase 23 "missing = empty state").
+ *
+ * Distributed skills (`distributed: true`) are left out unless the caller
+ * passes `includeDistributed=1` AND is an admin — then they're listed with
+ * `distributed: true` so the skills window can show them read-only.
  */
 router.get(
   "/skills",
@@ -418,12 +476,8 @@ router.get(
       // -mindepth/-maxdepth 1 restrict to direct-child directories;
       // 2>/dev/null swallows permission / missing errors (empty output → empty skills list).
       // For each skill directory, extract SKILL.md's frontmatter (bytes between
-      // the first two `---` lines) and drop the skill if it carries
-      // `distributed: true` — those are managed by the fleet-substrate
-      // distributor and hand-editing them via the modal would defeat the
-      // "don't hand-patch distributed content" invariant. Frontmatter-only
-      // scoping via awk prevents a `distributed:` line in the body from
-      // producing a false-positive filter.
+      // the first two `---` lines). Frontmatter-only scoping via awk keeps a
+      // `distributed:` line in the body from marking the skill distributed.
       //
       // Each kept skill is emitted as a record: an ASCII record-separator
       // (\036) + the skill name on one line, then its frontmatter lines.
@@ -434,19 +488,22 @@ router.get(
         `while read -r dir; do ` +
         // sub(/\r$/) reads CRLF SKILL.md files too — the editor preserves CRLF.
         `  fm=$(awk '{sub(/\\r$/, "")} /^---$/{n++; if(n==2) exit} n==1' "$dir/SKILL.md" 2>/dev/null); ` +
-        `  printf '%s\\n' "$fm" | grep -q '^distributed: *true[[:space:]]*$' && continue; ` +
         `  printf '\\036%s\\n%s\\n' "$(basename "$dir")" "$fm"; ` +
         `done`;
       const output = await execWithTimeout(conn, listCmd);
       // Instance-wide skills sit in the same folder and are listed here too
       // (the skill-actions menu needs every skill on the box); the skills
       // window moves them into its instance-wide section client-side.
-      const skills = parseSkillListOutput(output);
+      const parsed = parseSkillListOutput(output);
+      const showDistributed =
+        req.query.includeDistributed === "1" && (await callerIsAdmin(userId));
+      const skills = showDistributed ? parsed : parsed.filter((s) => !s.distributed);
 
       sshLogger.info("skills-editor skills: listed", {
         operation: "skills_editor_skills_listed",
         hostId,
         count: skills.length,
+        distributed: skills.filter((s) => s.distributed).length,
         withDescription: skills.filter((s) => s.description !== undefined).length,
         agentOnly: skills.filter((s) => s.userInvocable === false).length,
       });
@@ -855,6 +912,11 @@ router.put(
         return;
       }
 
+      // Distributor-owned skills are read-only — refuse before touching them.
+      if (await refuseIfDistributed(conn, remoteHome, skill, res, "skills_editor_write_distributed", hostId)) {
+        return;
+      }
+
       const paths = buildAbsSkillFilePath(remoteHome, skill, relPath);
       if (!paths) {
         res.status(400).json({ error: "path escape detected" });
@@ -1016,6 +1078,11 @@ router.post(
           remoteHome,
         });
         res.status(502).json({ error: "could not resolve remote HOME" });
+        return;
+      }
+
+      // Distributor-owned skills are read-only — refuse before touching them.
+      if (await refuseIfDistributed(conn, remoteHome, skill, res, "skills_editor_create_distributed", hostId)) {
         return;
       }
 
@@ -1392,6 +1459,11 @@ router.delete(
         return;
       }
 
+      // Distributor-owned skills are read-only — refuse before touching them.
+      if (await refuseIfDistributed(conn, remoteHome, skill, res, "skills_editor_delete_file_distributed", hostId)) {
+        return;
+      }
+
       const paths = buildAbsSkillFilePath(remoteHome, skill, relPath);
       if (!paths) {
         res.status(400).json({ error: "path escape detected" });
@@ -1510,6 +1582,11 @@ router.delete(
           },
         );
         res.status(502).json({ error: "could not resolve remote HOME" });
+        return;
+      }
+
+      // Distributor-owned skills are read-only — refuse before touching them.
+      if (await refuseIfDistributed(conn, remoteHome, skill, res, "skills_editor_delete_skill_distributed", hostId)) {
         return;
       }
 
@@ -1652,6 +1729,46 @@ router.put(
     if (!host) {
       res.status(404).json({ error: "Host not found" });
       return;
+    }
+    // Distributor-owned skills are read-only. The SFTP writer opens its own
+    // connection, so the check gets a short one of its own; fail closed.
+    let checkConn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
+    try {
+      checkConn = await connectOneShot(
+        host as unknown as Parameters<typeof connectOneShot>[0],
+        SSH_CONNECT_TIMEOUT_MS,
+      );
+      const remoteHome = (await execWithTimeout(checkConn, "echo $HOME")).trim();
+      if (!remoteHome || remoteHome.startsWith("~")) {
+        res.status(502).json({ error: "could not resolve remote HOME" });
+        return;
+      }
+      if (
+        await refuseIfDistributed(
+          checkConn,
+          remoteHome,
+          skill,
+          res,
+          "skills_editor_write_binary_distributed",
+          hostId,
+        )
+      ) {
+        return;
+      }
+    } catch (err) {
+      sshLogger.warn("skills-editor write-binary: distributed check failed", {
+        operation: "skills_editor_write_binary_check",
+        hostId,
+        error: err instanceof Error ? err.message : "Unknown",
+      });
+      res.status(502).json({ error: "SSH connect failed" });
+      return;
+    } finally {
+      try {
+        checkConn?.end();
+      } catch {
+        /* best-effort cleanup */
+      }
     }
     const result = await writeRemoteFileUnderRoot({
       host: host as unknown as Parameters<typeof connectOneShot>[0],

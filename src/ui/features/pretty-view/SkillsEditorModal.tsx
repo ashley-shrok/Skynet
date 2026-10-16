@@ -152,7 +152,6 @@ export default function SkillsEditorModal({
   const selectedIwItem = selectedIsInstance
     ? iwItems.find((i) => i.name === selectedSkillName) ?? null
     : null;
-  const readOnly = selectedIsInstance && !isAdmin;
   // The host list includes instance-wide skills (they sit in the same folder
   // on disk); this window shows them only in the instance-wide section.
   const hostSkills = useMemo(() => {
@@ -160,6 +159,16 @@ export default function SkillsEditorModal({
     const iwNames = new Set(iwItems.map((i) => i.name));
     return skills.data.filter((s) => !iwNames.has(s.name));
   }, [skills, iwItems]);
+  // Fleet-distributed skills (admins only — the backend leaves them out for
+  // everyone else) get their own section and are always read-only: the
+  // distributor overwrites them from the Skynet repo on every sweep.
+  const ownSkills = useMemo(() => hostSkills.filter((s) => !s.distributed), [hostSkills]);
+  const distributedSkills = useMemo(() => hostSkills.filter((s) => s.distributed), [hostSkills]);
+  const selectedIsDistributed =
+    !selectedIsInstance &&
+    selectedSkillName != null &&
+    distributedSkills.some((s) => s.name === selectedSkillName);
+  const readOnly = (selectedIsInstance && !isAdmin) || selectedIsDistributed;
 
   // The instance-wide fetch can settle after the modal unmounts; don't set
   // state on an unmounted component.
@@ -234,7 +243,7 @@ export default function SkillsEditorModal({
     setTabData(new Map());
     setDrafts(new Map());
     setDirtySet(new Set());
-    listSkills(selectedHostId)
+    listSkills(selectedHostId, { includeDistributed: true })
       .then((entries) => {
         if (cancelled) return;
         setSkills({ status: "ready", data: entries });
@@ -570,7 +579,7 @@ export default function SkillsEditorModal({
 
     try {
       const result = await createSkill(selectedHostId, slug, description);
-      const entries = await listSkills(selectedHostId);
+      const entries = await listSkills(selectedHostId, { includeDistributed: true });
       setSkills({ status: "ready", data: entries });
       setSelectedSkillName(result.slug);
     } catch (err) {
@@ -630,7 +639,7 @@ export default function SkillsEditorModal({
     try {
       savingRef.current = true; // bypass draft-guard on the state clear
       await deleteSkill(selectedHostId, selectedSkillName);
-      const entries = await listSkills(selectedHostId);
+      const entries = await listSkills(selectedHostId, { includeDistributed: true });
       setSkills({ status: "ready", data: entries });
       setSelectedSkillName(null);
       setFiles({ status: "loading" });
@@ -674,7 +683,7 @@ export default function SkillsEditorModal({
       savingRef.current = true;
       await promote("skill", name, selectedHostId);
       await refreshInstanceWide();
-      const entries = await listSkills(selectedHostId);
+      const entries = await listSkills(selectedHostId, { includeDistributed: true });
       setSkills({ status: "ready", data: entries });
       clearSkillSelection();
       setSelectedSkillName(name);
@@ -703,7 +712,7 @@ export default function SkillsEditorModal({
       await refreshInstanceWide();
       clearSkillSelection();
       if (selectedHostId != null) {
-        setSkills({ status: "ready", data: await listSkills(selectedHostId) });
+        setSkills({ status: "ready", data: await listSkills(selectedHostId, { includeDistributed: true }) });
       }
     } catch (err) {
       window.alert(err instanceof Error ? err.message : "Couldn't remove it");
@@ -849,10 +858,10 @@ export default function SkillsEditorModal({
             </optgroup>
           )}
           {skills.status === "ready" &&
-            (iwItems.length > 0 ? (
-              hostSkills.length > 0 && (
+            (iwItems.length > 0 || distributedSkills.length > 0 ? (
+              ownSkills.length > 0 && (
                 <optgroup label={hostLabel} style={OPTION_STYLE}>
-                  {hostSkills.map((s) => (
+                  {ownSkills.map((s) => (
                     <option key={s.name} value={s.name} style={OPTION_STYLE}>
                       {s.name}
                     </option>
@@ -860,14 +869,35 @@ export default function SkillsEditorModal({
                 </optgroup>
               )
             ) : (
-              hostSkills.map((s) => (
+              ownSkills.map((s) => (
                 <option key={s.name} value={s.name} style={OPTION_STYLE}>
                   {s.name}
                 </option>
               ))
             ))}
+          {skills.status === "ready" && distributedSkills.length > 0 && (
+            <optgroup label="Fleet-distributed — read-only" style={OPTION_STYLE}>
+              {distributedSkills.map((s) => (
+                <option key={`dist:${s.name}`} value={s.name} style={OPTION_STYLE}>
+                  {s.name}
+                </option>
+              ))}
+            </optgroup>
+          )}
         </select>
         {selectedIsInstance && <InstanceWideChip />}
+        {selectedIsDistributed && (
+          <span
+            title="Installed by the fleet distributor from the Skynet repo — change it there"
+            data-testid="skills-editor-modal-distributed-chip"
+            className={cn(
+              "shrink-0 whitespace-nowrap text-[11px] px-2 py-0.5 rounded-full",
+              "text-[#e8e4d8] bg-white/[0.08] border border-white/20",
+            )}
+          >
+            distributed
+          </span>
+        )}
         {selectedIwItem && <InstanceWideSyncStatus item={selectedIwItem} />}
         {selectedSkillName != null && skillMd != null && (modelInvocationDisabled || userInvocationDisabled) && (
           <span
@@ -945,7 +975,7 @@ export default function SkillsEditorModal({
                 : []),
               // Admin status is unknown until the instance-wide list loads;
               // hold the slot (disabled) until then.
-              ...(!selectedIsInstance && (isAdmin || instanceWide == null)
+              ...(!selectedIsInstance && !selectedIsDistributed && (isAdmin || instanceWide == null)
                 ? [
                     {
                       label: "Make instance-wide…",
@@ -982,6 +1012,15 @@ export default function SkillsEditorModal({
                         onClick: () => {},
                       },
                     ]
+                : selectedIsDistributed
+                ? [
+                    {
+                      label: "Managed by the fleet distributor — change it in the Skynet repo",
+                      disabled: true,
+                      testId: "skills-editor-modal-distributed-readonly",
+                      onClick: () => {},
+                    },
+                  ]
                 : [
                     {
                       label: "Delete skill…",

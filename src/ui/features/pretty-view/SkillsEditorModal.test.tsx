@@ -259,7 +259,7 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     await waitFor(() => {
       expect(skillsApi.listSkills).toHaveBeenCalled();
     });
-    expect(skillsApi.listSkills).toHaveBeenCalledWith(1);
+    expect(skillsApi.listSkills).toHaveBeenCalledWith(1, { includeDistributed: true });
   });
 
   it("skill pick triggers enumerateSkillFiles with (hostId, skill)", async () => {

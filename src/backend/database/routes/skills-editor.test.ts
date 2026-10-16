@@ -78,6 +78,10 @@ vi.mock("../../ssh/host-resolver.js", () => ({
   resolveHostById: vi.fn(),
 }));
 
+vi.mock("../../instance-wide/admin.js", () => ({
+  callerIsAdmin: vi.fn(),
+}));
+
 vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
   writeMarkdownFileAtomic: vi.fn(),
 }));
@@ -100,6 +104,7 @@ vi.mock("../../utils/logger.js", () => ({
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
+import { callerIsAdmin } from "../../instance-wide/admin.js";
 import { writeMarkdownFileAtomic } from "../../claude-session/identity-artifact-reader.js";
 
 // ---------------------------------------------------------------------------
@@ -228,6 +233,7 @@ beforeEach(() => {
     async (_conn: unknown, cmd: string) => defaultExecImpl(cmd),
   );
   (writeMarkdownFileAtomic as Mock).mockResolvedValue(undefined);
+  (callerIsAdmin as Mock).mockResolvedValue(false);
 
   const app = express();
   app.use("/skills-editor", router);
@@ -312,7 +318,7 @@ describe("GET /skills-editor/skills", () => {
     expect((res.body as { skills: unknown[] }).skills).toEqual([]);
   });
 
-  it("list command drops SKILL.md files whose frontmatter carries distributed: true", async () => {
+  it("list command slices each SKILL.md's frontmatter (for descriptions + the distributed flag)", async () => {
     let capturedListCmd = "";
     (execCommand as Mock).mockImplementation(
       async (_conn: unknown, cmd: string) => {
@@ -329,16 +335,141 @@ describe("GET /skills-editor/skills", () => {
       path: "/skills-editor/skills?hostId=1",
     });
     expect(res.status).toBe(200);
-    // The shell pipeline slices the frontmatter (bytes between the first
-    // two `---` lines) via awk, then greps for the marker. Frontmatter-only
-    // scoping matters: a body line starting with `distributed:` must NOT
-    // filter its skill out. Assert both tokens so a refactor that drops
-    // either piece breaks the test.
+    // Frontmatter-only scoping matters: a body line starting with
+    // `distributed:` must NOT mark its skill distributed.
     expect(capturedListCmd).toContain("/^---$/{n++; if(n==2) exit} n==1");
-    expect(capturedListCmd).toContain("distributed: *true");
-    // Each kept skill is emitted as a \036-prefixed record carrying its
-    // frontmatter (for the skill-actions menu's descriptions).
+    // Each skill is emitted as a \036-prefixed record carrying its
+    // frontmatter.
     expect(capturedListCmd).toContain("printf '\\036%s");
+  });
+
+  describe("distributed skills", () => {
+    beforeEach(() => {
+      (execCommand as Mock).mockImplementation(
+        async (_conn: unknown, cmd: string) => {
+          if (cmd === "echo $HOME") return "/home/testuser\n";
+          if (cmd.startsWith("find") && cmd.includes("-maxdepth 1"))
+            return (
+              "\x1ebuild\nname: build\n" +
+              "\x1estt\nname: stt\ndescription: Transcribe\ndistributed: true\n"
+            );
+          return "";
+        },
+      );
+    });
+
+    it("are left out by default, even for admins", async () => {
+      (callerIsAdmin as Mock).mockResolvedValue(true);
+      const res = await httpRequest(server, {
+        method: "GET",
+        path: "/skills-editor/skills?hostId=1",
+      });
+      expect(res.status).toBe(200);
+      expect((res.body as { skills: unknown[] }).skills).toEqual([{ name: "build" }]);
+    });
+
+    it("are listed with distributed: true for an admin who asks", async () => {
+      (callerIsAdmin as Mock).mockResolvedValue(true);
+      const res = await httpRequest(server, {
+        method: "GET",
+        path: "/skills-editor/skills?hostId=1&includeDistributed=1",
+      });
+      expect(res.status).toBe(200);
+      expect((res.body as { skills: unknown[] }).skills).toEqual([
+        { name: "build" },
+        { name: "stt", description: "Transcribe", distributed: true },
+      ]);
+    });
+
+    it("stay hidden from a non-admin who asks", async () => {
+      const res = await httpRequest(server, {
+        method: "GET",
+        path: "/skills-editor/skills?hostId=1&includeDistributed=1",
+      });
+      expect(res.status).toBe(200);
+      expect((res.body as { skills: unknown[] }).skills).toEqual([{ name: "build" }]);
+    });
+  });
+});
+
+// ===========================================================================
+// Distributed skills are read-only on every mutating route
+// ===========================================================================
+
+describe("distributed-skill write guard", () => {
+  let commands: string[];
+  beforeEach(() => {
+    commands = [];
+    (execCommand as Mock).mockImplementation(
+      async (_conn: unknown, cmd: string) => {
+        commands.push(cmd);
+        if (cmd.startsWith("awk ") && cmd.includes("distributed: *true")) {
+          return cmd.includes("/skills/stt'") ? "distributed\n" : "ok\n";
+        }
+        return defaultExecImpl(cmd);
+      },
+    );
+  });
+
+  const cases: { name: string; method: string; path: string; body: object }[] = [
+    {
+      name: "PUT /write",
+      method: "PUT",
+      path: "/skills-editor/write",
+      body: { hostId: 1, skill: "stt", path: "SKILL.md", content: "x" },
+    },
+    {
+      name: "POST /create",
+      method: "POST",
+      path: "/skills-editor/create",
+      body: { hostId: 1, skill: "stt", path: "notes.md" },
+    },
+    {
+      name: "DELETE /file",
+      method: "DELETE",
+      path: "/skills-editor/file",
+      body: { hostId: 1, skill: "stt", path: "notes.md" },
+    },
+    {
+      name: "DELETE /skill",
+      method: "DELETE",
+      path: "/skills-editor/skill",
+      body: { hostId: 1, skill: "stt" },
+    },
+  ];
+
+  for (const c of cases) {
+    it(`${c.name} → 403 on a distributed skill, nothing changed`, async () => {
+      const res = await httpRequest(server, {
+        method: c.method,
+        path: c.path,
+        body: JSON.stringify(c.body),
+      });
+      expect(res.status).toBe(403);
+      expect((res.body as { error: string }).error).toBe("distributed skills are read-only");
+      expect(writeMarkdownFileAtomic).not.toHaveBeenCalled();
+      expect(commands.some((cmd) => /^(rm|touch|mkdir) /.test(cmd))).toBe(false);
+    });
+  }
+
+  it("PUT /write still works on a skill that isn't distributed", async () => {
+    const res = await httpRequest(server, {
+      method: "PUT",
+      path: "/skills-editor/write",
+      body: JSON.stringify({ hostId: 1, skill: "build", path: "SKILL.md", content: "x" }),
+    });
+    expect(res.status).toBe(200);
+    expect(writeMarkdownFileAtomic).toHaveBeenCalledTimes(1);
+  });
+
+  it("PUT /write-binary → 403 on a distributed skill", async () => {
+    const res = await httpRequest(server, {
+      method: "PUT",
+      path: "/skills-editor/write-binary?hostId=1&skill=stt&path=a.pdf",
+      headers: { "Content-Type": "application/octet-stream" },
+      body: "%PDF-1.4",
+    });
+    expect(res.status).toBe(403);
   });
 });
 

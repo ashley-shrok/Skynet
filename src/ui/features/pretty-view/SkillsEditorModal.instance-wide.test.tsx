@@ -344,3 +344,49 @@ describe("SkillsEditorModal — instance-wide section", () => {
     expect(screen.queryByTestId("skills-editor-modal-promote-skill")).toBeNull();
   });
 });
+
+describe("SkillsEditorModal — fleet-distributed section", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(iwApi.listInstanceWide).mockResolvedValue({ isAdmin: true, items: [] });
+    vi.mocked(skillsApi.listSkills).mockResolvedValue([
+      { name: "build" },
+      { name: "stt", description: "Transcribe", distributed: true },
+    ]);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("asks for distributed skills and lists them in their own group", async () => {
+    renderModal();
+    const group = await screen.findByRole("group", { name: /fleet-distributed/i });
+    expect(skillsApi.listSkills).toHaveBeenCalledWith(1, { includeDistributed: true });
+    expect(within(group).getAllByRole("option").map((o) => o.textContent)).toEqual(["stt"]);
+    const hostGroup = screen.getByRole("group", { name: "thenasty" });
+    expect(within(hostGroup).getAllByRole("option").map((o) => o.textContent)).toEqual(["build"]);
+  });
+
+  it("a distributed skill is read-only: no add file, no delete, no promote, no invocation toggles", async () => {
+    renderModal();
+    await selectSkill("stt");
+    await waitFor(() => expect(skillsApi.enumerateSkillFiles).toHaveBeenCalledWith(1, "stt"));
+    expect(screen.getByTestId("skills-editor-modal-distributed-chip")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("Loading files…")).toBeNull());
+    expect(screen.queryByTestId("skills-editor-modal-add-file")).toBeNull();
+    await openSkillMenu();
+    expect(screen.getByTestId("skills-editor-modal-distributed-readonly")).toBeInTheDocument();
+    expect(screen.queryByTestId("skills-editor-modal-delete-skill")).toBeNull();
+    expect(screen.queryByTestId("skills-editor-modal-promote-skill")).toBeNull();
+    expect(screen.queryByTestId("skills-editor-modal-disable-model-invocation")).toBeNull();
+  });
+
+  it("the host's own skills stay editable", async () => {
+    renderModal();
+    await selectSkill("build");
+    await waitFor(() => expect(skillsApi.enumerateSkillFiles).toHaveBeenCalledWith(1, "build"));
+    expect(screen.queryByTestId("skills-editor-modal-distributed-chip")).toBeNull();
+    await openSkillMenu();
+    expect(screen.getByTestId("skills-editor-modal-delete-skill")).toBeInTheDocument();
+  });
+});

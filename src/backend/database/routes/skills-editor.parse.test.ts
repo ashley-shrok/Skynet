@@ -26,4 +26,16 @@ describe("parseSkillListOutput", () => {
   it("lists a skill with malformed frontmatter without flags", () => {
     expect(parseSkillListOutput(rec("bad", "description: [unclosed\n"))).toEqual([{ name: "bad" }]);
   });
+
+  it("flags distributed: true in the frontmatter (CRLF too), not other values", () => {
+    const out =
+      rec("stt", "name: stt\ndistributed: true\n") +
+      rec("crlf", "name: crlf\r\ndistributed: true\r\n") +
+      rec("off", "name: off\ndistributed: false\n");
+    expect(parseSkillListOutput(out)).toEqual([
+      { name: "stt", distributed: true },
+      { name: "crlf", distributed: true },
+      { name: "off" },
+    ]);
+  });
 });
