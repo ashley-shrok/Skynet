@@ -12,7 +12,7 @@ describe("call script", () => {
       "Hi, this is Clipper. CI failed.",
     );
     expect(buildReceiptLine("Clipper")).toBe(
-      "Your reply has been sent back to Clipper. You may hang up.",
+      "Your reply has been sent back to Clipper. Thank you.",
     );
   });
 

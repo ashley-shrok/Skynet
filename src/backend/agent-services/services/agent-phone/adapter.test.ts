@@ -25,7 +25,7 @@ const creds = {
 const call = {
   to: "+15555550100",
   openingLine: "Hi, this is Clipper. CI failed.",
-  receiptLine: "Your reply has been sent back to Clipper. You may hang up.",
+  receiptLine: "Your reply has been sent back to Clipper. Thank you.",
 };
 
 const ACCOUNT = "https://api.twilio.com/2010-04-01/Accounts/AC123";
@@ -136,7 +136,7 @@ describe("placeCallAndAwait (Twilio)", () => {
       transcript: [
         "voice: Hi, this is Clipper. CI failed.",
         "user: Okay, going to bed.",
-        "voice: Your reply has been sent back to Clipper. You may hang up.",
+        "voice: Your reply has been sent back to Clipper. Thank you.",
       ].join("\n"),
     });
     expect(vi.mocked(transcribe).mock.calls[0][0].toString()).toBe("MP3");
