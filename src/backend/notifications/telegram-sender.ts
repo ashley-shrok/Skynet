@@ -53,13 +53,16 @@ function escapeHtml(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-/** Message text in Telegram HTML parse mode. Title-only hides the preview body. */
+/**
+ * Message text in Telegram HTML parse mode: a header line — the agent's name
+ * in bold, then its roles in italics — over the preview. Title-only hides the
+ * preview body.
+ */
 export function buildTelegramText(payload: PushPayload, titleOnly: boolean): string {
-  if (titleOnly) {
-    const name = payload.title.replace(/:\s*$/, "");
-    return `<b>${escapeHtml(name)}</b>\nNew message`;
-  }
-  return `<b>${escapeHtml(payload.title)}</b>\n${escapeHtml(payload.body)}`;
+  const header = payload.subtitle
+    ? `<b>${escapeHtml(payload.title)}</b> · <i>${escapeHtml(payload.subtitle)}</i>`
+    : `<b>${escapeHtml(payload.title)}</b>`;
+  return `${header}\n${titleOnly ? "New message" : escapeHtml(payload.body)}`;
 }
 
 /**

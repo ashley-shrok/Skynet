@@ -38,15 +38,13 @@
 import { eq } from "drizzle-orm";
 import { getDb } from "../database/db/index.js";
 import { hosts } from "../database/db/schema.js";
-import { resolveHostById } from "../ssh/host-resolver.js";
-import { connectOneShot } from "../ssh/ssh-one-shot.js";
 import { execCommand } from "../ssh/tmux-helper.js";
-import { getHostSemaphore } from "../ssh/host-semaphore-registry.js";
 import {
   IDENTITY_KEY_RE,
   isLocalHostId,
 } from "../claude-session/identity-artifact-reader.js";
 import { databaseLogger } from "../utils/logger.js";
+import { withRemoteHost } from "./remote-host-exec.js";
 
 const MXID_PATTERN = /^@([^:]+):(.+)$/;
 
@@ -163,10 +161,6 @@ async function probeRemoteHost(
   userId: string,
   localpart: string,
 ): Promise<boolean> {
-  // Null when the host is unknown or the user lacks access to it.
-  const host = await resolveHostById(hostId, userId);
-  if (!host) return false;
-
   // SHELL SAFETY: localpart passed IDENTITY_KEY_RE (/^[a-z0-9_-]{1,64}$/)
   // before reaching here, so raw interpolation inside double quotes is safe.
   // `! -L` mirrors the local resolver's lstat refusal to follow symlinks.
@@ -174,42 +168,20 @@ async function probeRemoteHost(
     `for d in "$HOME/fleet/identities/${localpart}" "$HOME/fleet/identities-archive/${localpart}"; do ` +
     `if [ -d "$d" ] && [ ! -L "$d" ]; then echo found; break; fi; done`;
 
-  return getHostSemaphore(hostId).run(async () => {
-    let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-      conn = await connectOneShot(
-        host as unknown as Parameters<typeof connectOneShot>[0],
-        REMOTE_PROBE_TIMEOUT_MS,
-      );
-      const output = await Promise.race([
-        execCommand(conn, cmd),
-        new Promise<string>((_, reject) => {
-          timer = setTimeout(
-            () => reject(new Error(`remote probe timeout after ${REMOTE_PROBE_TIMEOUT_MS}ms`)),
-            REMOTE_PROBE_TIMEOUT_MS,
-          );
-        }),
-      ]);
-      return output.trim() === "found";
-    } catch (err) {
-      databaseLogger.debug("resolveRemoteAgentHostId — host probe failed", {
-        operation: "resolve_remote_agent_host_id_probe_failed",
-        hostId,
-        error: err instanceof Error ? err.message : "unknown",
-      });
-      return false;
-    } finally {
-      if (timer !== undefined) clearTimeout(timer);
-      if (conn) {
-        try {
-          conn.end();
-        } catch {
-          /* ignore */
-        }
-      }
-    }
-  });
+  try {
+    // Null when the host is unknown or the user lacks access to it.
+    const output = await withRemoteHost(hostId, userId, REMOTE_PROBE_TIMEOUT_MS, (conn) =>
+      execCommand(conn, cmd),
+    );
+    return output !== null && output.trim() === "found";
+  } catch (err) {
+    databaseLogger.debug("resolveRemoteAgentHostId — host probe failed", {
+      operation: "resolve_remote_agent_host_id_probe_failed",
+      hostId,
+      error: err instanceof Error ? err.message : "unknown",
+    });
+    return false;
+  }
 }
 
 /**

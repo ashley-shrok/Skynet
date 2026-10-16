@@ -11,7 +11,7 @@
  *
  *   2. Loop dep wiring includes push-specific concrete deps: fetchLive
  *      (wraps fetchRoomHistory with dir=f), sendPushToUser (notify-user → Telegram),
- *      derivePreviewText + resolveAgentDisplayName (from Wave 1). Each dep
+ *      derivePreviewText + resolveAgentLabel (from Wave 1). Each dep
  *      slot on PushTriggerLoopDeps gets wired to its production
  *      implementation here — this is the ONE PLACE the loop touches the rest
  *      of the codebase's I/O primitives.
@@ -63,7 +63,7 @@ import {
 import { fetchRoomHistory } from "../relay-room-stream/matrix-message-fetch.js";
 import { sendNotificationToUser } from "./notify-user.js";
 import { derivePreviewText } from "./preview-text.js";
-import { resolveAgentDisplayName } from "./resolve-agent-display-name.js";
+import { resolveAgentLabel } from "./resolve-agent-label.js";
 import { resolveAgentHostId } from "./resolve-agent-host-id.js";
 import { resolveRemoteAgentHostId } from "./resolve-remote-agent-host-id.js";
 
@@ -214,7 +214,7 @@ export async function startPushTriggerLoopOnBoot(): Promise<StartPushTriggerLoop
       // Telegram (see notify-user.ts).
       sendPushToUser: sendNotificationToUser,
       derivePreviewText,
-      resolveAgentDisplayName,
+      resolveAgentLabel,
       // Local probe first (cheap fs lstat), then peer boxes over SSH for
       // agents whose identity folder lives on another fleet host.
       resolveAgentHostId: async (mxid: string, userId: string) =>

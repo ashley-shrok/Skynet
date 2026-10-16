@@ -265,6 +265,8 @@ export interface SshPollOrchestrator {
     role: string | null;
     /** Multi-role only: each listed role's cosmetics, for the gate. */
     rolesCosmetics?: Array<RawCosmetics | null>;
+    /** Every listed role, index-aligned with rolesCosmetics. */
+    roles?: string[];
   } | null;
 }
 
@@ -685,6 +687,8 @@ interface PerHostState {
       /** Multi-role only: each listed role's cosmetics (index-aligned with
        *  the sweep's `roles`), so the gate can check every role's `users:`. */
       rolesCosmetics?: Array<RawCosmetics | null>;
+      /** Every role the sweep listed for the identity. */
+      roles?: string[];
     }
   >;
 }
@@ -2431,6 +2435,7 @@ export function createSshPollOrchestrator(
               rolesCosmetics: identityLine.roles_cosmetics as Array<RawCosmetics | null>,
             }
           : {}),
+        ...(Array.isArray(identityLine.roles) ? { roles: identityLine.roles } : {}),
       });
       const fetched = identityLineToPerIdentityFetched(identityLine, hostState);
       const cached = hostState.identityRecycleState.get(identityLine.identity);
@@ -4102,6 +4107,7 @@ export function createSshPollOrchestrator(
       role: string | null;
       /** Multi-role only: each listed role's cosmetics, for the gate. */
       rolesCosmetics?: Array<RawCosmetics | null>;
+      roles?: string[];
     } | null {
       const hostState = perHostState.get(hostIdStr);
       if (hostState === undefined) return null;

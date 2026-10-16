@@ -100,6 +100,7 @@
 
 import { databaseLogger } from "../utils/logger.js";
 import { assertNotOk } from "../matrix/matrix-admin-narrow.js";
+import type { AgentLabel } from "./resolve-agent-label.js";
 import type {
   ClassifyRoomInput,
   ClassifyResult,
@@ -299,6 +300,7 @@ export interface PushTriggerLoopDeps {
     userId: string,
     payload: {
       title: string;
+      subtitle: string | null;
       body: string;
       agentMxid: string;
       agentHostId: number;
@@ -307,10 +309,10 @@ export interface PushTriggerLoopDeps {
   /** Compute the lock-screen preview body (D-07). Pure function. */
   derivePreviewText(event: MatrixMessageEvent): string;
   /**
-   * Resolve the agent's display-name string for the notification title
-   * (D-07). Never-throws — falls back to mxid local-part.
+   * Resolve the agent's name + role names for the notification, from the
+   * box it lives on. Never-throws — falls back to the mxid local-part.
    */
-  resolveAgentDisplayName(mxid: string): Promise<string>;
+  resolveAgentLabel(mxid: string, userId: string, hostId: number): Promise<AgentLabel>;
   /**
    * Resolve a sender mxid to the fleet hostId whose identity folder holds
    * this identity — this box first, then the user's peer boxes (agents on
@@ -628,11 +630,9 @@ export async function runPushTriggerTick(
         // covers peer boxes too; null means no accessible host holds the
         // identity folder. Log at .warn so ops sees the miss.
         try {
-          const [displayName, body, agentHostId] = await Promise.all([
-            deps.resolveAgentDisplayName(event.sender),
-            Promise.resolve(deps.derivePreviewText(event)),
-            departedSenderHostId ?? deps.resolveAgentHostId(event.sender, userId),
-          ]);
+          const body = deps.derivePreviewText(event);
+          const agentHostId =
+            departedSenderHostId ?? (await deps.resolveAgentHostId(event.sender, userId));
           if (agentHostId === null) {
             databaseLogger.warn(
               "[phase-128] push-trigger tick — resolveAgentHostId returned null, push dropped",
@@ -646,8 +646,12 @@ export async function runPushTriggerTick(
             );
             continue;
           }
+          // The label is read from the box the agent lives on, so it
+          // needs agentHostId first.
+          const label = await deps.resolveAgentLabel(event.sender, userId, agentHostId);
           await deps.sendPushToUser(userId, {
-            title: `${displayName}:`,
+            title: label.name,
+            subtitle: label.roles,
             body,
             agentMxid: event.sender,
             agentHostId,

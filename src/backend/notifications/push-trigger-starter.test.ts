@@ -105,8 +105,8 @@ vi.mock("./preview-text.js", () => ({
   derivePreviewText: vi.fn(() => "body"),
 }));
 
-vi.mock("./resolve-agent-display-name.js", () => ({
-  resolveAgentDisplayName: vi.fn(async () => "Agent"),
+vi.mock("./resolve-agent-label.js", () => ({
+  resolveAgentLabel: vi.fn(async () => ({ name: "Agent", roles: null })),
 }));
 
 vi.mock("./resolve-remote-agent-host-id.js", () => ({
@@ -222,7 +222,7 @@ describe("startPushTriggerLoopOnBoot", () => {
     expect(depsArg).not.toHaveProperty("resolveUserId");
     expect(depsArg).toHaveProperty("sendPushToUser");
     expect(depsArg).toHaveProperty("derivePreviewText");
-    expect(depsArg).toHaveProperty("resolveAgentDisplayName");
+    expect(depsArg).toHaveProperty("resolveAgentLabel");
     expect(depsArg).toHaveProperty("now");
     // `now` should be a function returning a number roughly Date.now.
     const t = depsArg.now();

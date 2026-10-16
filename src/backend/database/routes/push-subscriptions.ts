@@ -162,6 +162,7 @@ export async function handlePostTelegramLink(userId: string, res: Response): Pro
 export async function handlePostTelegramTest(userId: string, res: Response): Promise<Response> {
   const result = await sendTelegramToUser(userId, {
     title: "Skynet test notification",
+    subtitle: null,
     body: "Telegram notifications are working.",
     agentMxid: "@system:skynet",
     agentHostId: null,

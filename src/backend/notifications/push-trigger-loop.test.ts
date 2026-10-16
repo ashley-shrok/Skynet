@@ -14,7 +14,7 @@
  *   5. Filter Step 4 rejects classifier decision !== "exclude" (group_room
  *      passes classifier but with wrong decision — must not push).
  *   6. Happy path — all four filters pass → sendPushToUser called with
- *      expected shape (title = `${displayName}:`, body = derived preview,
+ *      expected shape (title = label.name, subtitle = label.roles, body = derived preview,
  *      roomId + agentMxid populated).
  *   7. Per-user isolation — user A's fetchLive throws → user B's tick still
  *      runs, user A's cursor state unchanged.
@@ -117,7 +117,7 @@ function makeDeps(
     getRegistryMembers: vi.fn(async () => new Set<string>([AGENT_MXID])),
     sendPushToUser: vi.fn(async () => {}),
     derivePreviewText: vi.fn(() => "hey"),
-    resolveAgentDisplayName: vi.fn(async () => "Fanny"),
+    resolveAgentLabel: vi.fn(async () => ({ name: "Fanny", roles: "Scout" })),
     resolveAgentHostId: vi.fn(async () => 42),
     now: vi.fn(() => Date.now()),
     ...overrides,
@@ -284,11 +284,14 @@ describe("runPushTriggerTick — filter pipeline", () => {
 
     expect(deps.sendPushToUser).toHaveBeenCalledTimes(1);
     expect(deps.sendPushToUser).toHaveBeenCalledWith(USER_A, {
-      title: "Fanny:",
+      title: "Fanny",
+      subtitle: "Scout",
       body: "hey",
       agentMxid: AGENT_MXID,
       agentHostId: 42,
     });
+    // The label is read from the box the agent lives on.
+    expect(deps.resolveAgentLabel).toHaveBeenCalledWith(AGENT_MXID, USER_A, 42);
     // classifyRoom was CALLED (not re-derived) with expected input shape.
     expect(deps.classifyRoom).toHaveBeenCalledTimes(1);
     const classifyCallArgs = (

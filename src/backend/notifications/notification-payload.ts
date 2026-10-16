@@ -4,13 +4,15 @@
  */
 
 /**
- *   title:        notification title line (agent display name + ":")
+ *   title:        agent display name (bold first line)
+ *   subtitle:     the agent's role display names, or null
  *   body:         preview text (from preview-text.ts)
  *   agentMxid:    sender mxid (for the deep link's openHarness param)
  *   agentHostId:  fleet hostId (for the deep link's host param) — null → host param omitted
  */
 export interface PushPayload {
   title: string;
+  subtitle: string | null;
   body: string;
   agentMxid: string;
   agentHostId: number | null;

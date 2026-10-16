@@ -44,7 +44,13 @@ _setSleepForTests(async (ms) => {
   sleeps.push(ms);
 });
 
-const payload = { title: "Mitzi:", body: "a < b & c", agentMxid: "@mitzi:hs", agentHostId: 3 };
+const payload = {
+  title: "Mitzi",
+  subtitle: "General Assistant",
+  body: "a < b & c",
+  agentMxid: "@mitzi:hs",
+  agentHostId: 3,
+};
 
 beforeEach(() => {
   unlinkChat.mockReset();
@@ -58,12 +64,22 @@ beforeEach(() => {
 });
 
 describe("formatting", () => {
-  it("escapes HTML and bolds the title", () => {
-    expect(buildTelegramText(payload, false)).toBe("<b>Mitzi:</b>\na &lt; b &amp; c");
+  it("escapes HTML, bolds the name and italicizes the roles", () => {
+    expect(buildTelegramText(payload, false)).toBe(
+      "<b>Mitzi</b> · <i>General Assistant</i>\na &lt; b &amp; c",
+    );
   });
 
-  it("title-only drops the body and the trailing colon", () => {
-    expect(buildTelegramText(payload, true)).toBe("<b>Mitzi</b>\nNew message");
+  it("omits the roles when there are none", () => {
+    expect(buildTelegramText({ ...payload, subtitle: null }, false)).toBe(
+      "<b>Mitzi</b>\na &lt; b &amp; c",
+    );
+  });
+
+  it("title-only drops the body", () => {
+    expect(buildTelegramText(payload, true)).toBe(
+      "<b>Mitzi</b> · <i>General Assistant</i>\nNew message",
+    );
   });
 
   it("builds an absolute Open URL, or none without an https public URL", () => {
