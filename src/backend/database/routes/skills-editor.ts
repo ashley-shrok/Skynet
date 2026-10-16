@@ -312,9 +312,19 @@ export type ListedSkill = {
  * `distributed: true` in a skill's frontmatter = the fleet-substrate
  * distributor owns it (installed from the Skynet repo, overwritten every
  * sweep). Line-matched rather than YAML-parsed so a malformed frontmatter
- * still counts — same test the shell guard (distributedCheckCmd) uses.
+ * still counts. Keep in step with DISTRIBUTED_LINE_GREP (the shell guard).
  */
 const DISTRIBUTED_LINE_RE = /^distributed: *true[ \t]*$/m;
+const DISTRIBUTED_LINE_GREP = "^distributed: *true[[:blank:]]*$";
+
+/** True when `text` (a SKILL.md) has `distributed: true` in its frontmatter. */
+function frontmatterIsDistributed(text: string): boolean {
+  const lines = text.replace(/\r/g, "").split("\n");
+  if (lines[0] !== "---") return false;
+  const end = lines.indexOf("---", 1);
+  const fm = (end === -1 ? lines.slice(1) : lines.slice(1, end)).join("\n");
+  return DISTRIBUTED_LINE_RE.test(fm);
+}
 
 /**
  * Shell test: prints `distributed` when the skill folder's SKILL.md
@@ -326,7 +336,7 @@ const DISTRIBUTED_LINE_RE = /^distributed: *true[ \t]*$/m;
 function distributedCheckCmd(escapedSkillRoot: string): string {
   return (
     `awk '{sub(/\\r$/, "")} /^---$/{n++; if(n==2) exit} n==1' ${escapedSkillRoot}/SKILL.md 2>/dev/null | ` +
-    `grep -q '^distributed: *true[[:space:]]*$' && echo distributed || echo ok`
+    `grep -q '${DISTRIBUTED_LINE_GREP}' && echo distributed || echo ok`
   );
 }
 
@@ -864,6 +874,14 @@ router.put(
         });
         return;
       }
+    }
+
+    // Marking a skill distributed would lock it (every change route refuses
+    // distributed skills, and non-admins stop seeing it) — only the
+    // distributor installs those.
+    if (rawPath === "SKILL.md" && frontmatterIsDistributed(rawContent)) {
+      res.status(400).json({ error: "distributed: true is reserved for the fleet distributor" });
+      return;
     }
 
     const hostId = rawHostId;
@@ -1725,6 +1743,10 @@ router.put(
     }
     const skill = q.skill;
     const relPath = q.path;
+    if (relPath === "SKILL.md" && frontmatterIsDistributed(req.body.toString("utf-8"))) {
+      res.status(400).json({ error: "distributed: true is reserved for the fleet distributor" });
+      return;
+    }
     const host = await resolveHostById(hostId, userId);
     if (!host) {
       res.status(404).json({ error: "Host not found" });
@@ -1734,10 +1756,20 @@ router.put(
     // connection, so the check gets a short one of its own; fail closed.
     let checkConn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
     try {
-      checkConn = await connectOneShot(
-        host as unknown as Parameters<typeof connectOneShot>[0],
-        SSH_CONNECT_TIMEOUT_MS,
-      );
+      try {
+        checkConn = await connectOneShot(
+          host as unknown as Parameters<typeof connectOneShot>[0],
+          SSH_CONNECT_TIMEOUT_MS,
+        );
+      } catch (err) {
+        sshLogger.warn("skills-editor write-binary: SSH connect failed", {
+          operation: "skills_editor_write_binary_connect",
+          hostId,
+          error: err instanceof Error ? err.message : "Unknown",
+        });
+        res.status(502).json({ error: "SSH connect failed" });
+        return;
+      }
       const remoteHome = (await execWithTimeout(checkConn, "echo $HOME")).trim();
       if (!remoteHome || remoteHome.startsWith("~")) {
         res.status(502).json({ error: "could not resolve remote HOME" });
@@ -1756,12 +1788,12 @@ router.put(
         return;
       }
     } catch (err) {
-      sshLogger.warn("skills-editor write-binary: distributed check failed", {
+      sshLogger.error("skills-editor write-binary: distributed check failed", {
         operation: "skills_editor_write_binary_check",
         hostId,
         error: err instanceof Error ? err.message : "Unknown",
       });
-      res.status(502).json({ error: "SSH connect failed" });
+      if (!res.headersSent) res.status(500).json({ error: "internal" });
       return;
     } finally {
       try {

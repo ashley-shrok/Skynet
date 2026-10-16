@@ -33,6 +33,7 @@ export default function SkillFileTab({
   mediaUrl,
   downloadUrl,
   onBinaryDraftChange,
+  readOnly = false,
 }: {
   state: TabState<SkillFileTabData>;
   onSave: (content: string, expectedMtime: number) => Promise<void>;
@@ -78,6 +79,8 @@ export default function SkillFileTab({
   downloadUrl?: string;
   /** Unsaved binary edits (PDF annotations); see FileView. */
   onBinaryDraftChange?: (draft: BinaryDraft | null) => void;
+  /** View only: no typing, annotating or saving (see FileView). */
+  readOnly?: boolean;
 }): JSX.Element {
   return (
     <FileView
@@ -86,6 +89,7 @@ export default function SkillFileTab({
       mediaUrl={mediaUrl}
       downloadUrl={downloadUrl}
       onBinaryDraftChange={onBinaryDraftChange}
+      readOnly={readOnly}
       onSave={onSave}
       hideSaveButton={hideSaveButton}
       onDraftChange={onDraftChange}

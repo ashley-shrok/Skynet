@@ -397,9 +397,16 @@ describe("GET /skills-editor/skills", () => {
 // ===========================================================================
 
 describe("distributed-skill write guard", () => {
+  afterEach(() => {
+    delete (stubConn as typeof stubConn & { sftp?: unknown }).sftp;
+  });
   let commands: string[];
+  // The binary writer opens SFTP on the stub connection; a call here = a write attempt.
+  let sftpOpened: Mock;
   beforeEach(() => {
     commands = [];
+    sftpOpened = vi.fn((cb: (e: Error | null) => void) => cb(new Error("no sftp in this test")));
+    (stubConn as typeof stubConn & { sftp?: unknown }).sftp = sftpOpened;
     (execCommand as Mock).mockImplementation(
       async (_conn: unknown, cmd: string) => {
         commands.push(cmd);
@@ -462,7 +469,7 @@ describe("distributed-skill write guard", () => {
     expect(writeMarkdownFileAtomic).toHaveBeenCalledTimes(1);
   });
 
-  it("PUT /write-binary → 403 on a distributed skill", async () => {
+  it("PUT /write-binary → 403 on a distributed skill, nothing written", async () => {
     const res = await httpRequest(server, {
       method: "PUT",
       path: "/skills-editor/write-binary?hostId=1&skill=stt&path=a.pdf",
@@ -470,6 +477,70 @@ describe("distributed-skill write guard", () => {
       body: "%PDF-1.4",
     });
     expect(res.status).toBe(403);
+    expect(sftpOpened).not.toHaveBeenCalled();
+  });
+
+  it("PUT /write-binary goes on to write a skill that isn't distributed", async () => {
+    await httpRequest(server, {
+      method: "PUT",
+      path: "/skills-editor/write-binary?hostId=1&skill=build&path=a.pdf",
+      headers: { "Content-Type": "application/octet-stream" },
+      body: "%PDF-1.4",
+    });
+    expect(sftpOpened).toHaveBeenCalledTimes(1);
+  });
+
+  it("PUT /write-binary → 500 (not a connect error) when the check itself fails", async () => {
+    (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
+      if (cmd.startsWith("awk ")) throw new Error("SSH exec timeout after 5000ms");
+      return defaultExecImpl(cmd);
+    });
+    const res = await httpRequest(server, {
+      method: "PUT",
+      path: "/skills-editor/write-binary?hostId=1&skill=build&path=a.pdf",
+      headers: { "Content-Type": "application/octet-stream" },
+      body: "%PDF-1.4",
+    });
+    expect(res.status).toBe(500);
+    expect(sftpOpened).not.toHaveBeenCalled();
+  });
+
+  it("a save can't mark a skill distributed (it would lock the skill)", async () => {
+    const write = await httpRequest(server, {
+      method: "PUT",
+      path: "/skills-editor/write",
+      body: JSON.stringify({
+        hostId: 1,
+        skill: "build",
+        path: "SKILL.md",
+        content: "---\r\nname: build\r\ndistributed: true\r\n---\r\n# Build\r\n",
+      }),
+    });
+    expect(write.status).toBe(400);
+    expect(writeMarkdownFileAtomic).not.toHaveBeenCalled();
+
+    const binary = await httpRequest(server, {
+      method: "PUT",
+      path: "/skills-editor/write-binary?hostId=1&skill=build&path=SKILL.md",
+      headers: { "Content-Type": "application/octet-stream" },
+      body: "---\nname: build\ndistributed: true\n---\n",
+    });
+    expect(binary.status).toBe(400);
+    expect(sftpOpened).not.toHaveBeenCalled();
+  });
+
+  it("a body line reading distributed: true is just text", async () => {
+    const res = await httpRequest(server, {
+      method: "PUT",
+      path: "/skills-editor/write",
+      body: JSON.stringify({
+        hostId: 1,
+        skill: "build",
+        path: "SKILL.md",
+        content: "---\nname: build\n---\ndistributed: true\n",
+      }),
+    });
+    expect(res.status).toBe(200);
   });
 });
 

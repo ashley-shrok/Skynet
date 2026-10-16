@@ -1137,6 +1137,7 @@ export default function SkillsEditorModal({
                       }
                 }
                 filename={activeTab}
+                readOnly={readOnly}
                 hideSaveButton={true}
                 onDraftContentChange={handleDraftContentChange(activeTab)}
                 onDraftChange={handleDraftDirtyChange(activeTab)}
