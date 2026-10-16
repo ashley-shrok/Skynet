@@ -2490,18 +2490,19 @@ export function PrettyConversationsPanel({
   );
 
   // Phase 117 Plan 117-09 Task 2 (D-28, D-29, D-30 + Fix 3) — archive
-  // project cascade. Sequence per Fix 3 revision:
+  // project cascade. Sequence:
   //   1. Prompt user with the verbatim D-29 warning.
-  //   2. On confirm=true, run ONE Promise.allSettled batch that includes
-  //      BOTH identity-archive calls (archiveIdentity per identity member)
-  //      AND relay-room tag-clear calls (setRelayRoomProject(null) per
-  //      relay-room member). Not two sequential Promise.alls — Fix 3
-  //      requires the members share a single wait boundary so the double-
-  //      wait cost isn't visible on typical projects.
-  //   3. Log partial failures via console.error but do NOT roll back
-  //      (Phase 115 semantics — one-way archive).
-  //   4. After the batch settles, fire archiveProject(hostId, slug) to
-  //      move the directory to ~/fleet/projects/archive/<slug>/.
+  //   2. Fire archiveProject(hostId, slug) FIRST to move the directory to
+  //      ~/fleet/projects/archive/<slug>/. If the host can't be resolved or
+  //      the move fails, alert and stop — nothing is archived.
+  //   3. Run ONE Promise.allSettled batch that includes BOTH identity-
+  //      archive calls (archiveIdentity per identity member, after closing
+  //      its pane and optimistically removing its row) AND relay-room
+  //      tag-clear calls (setRelayRoomProject(null) per relay-room member).
+  //      One shared wait boundary per Fix 3.
+  //   4. Log partial failures via console.error and alert the user. The
+  //      archive itself is one-way (Phase 115 semantics); only a failed
+  //      member's optimistic sidebar removal is rolled back.
   //
   // RDP rows are defense-in-depth guarded (D-08) — the derived selector
   // should never emit them into a project section, but the filter here is
