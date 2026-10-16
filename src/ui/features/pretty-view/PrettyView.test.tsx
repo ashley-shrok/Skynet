@@ -83,6 +83,14 @@ vi.mock("@/api/compose-drafts-api", () => ({
   flushComposeDraftKeepalive: vi.fn(),
 }));
 
+// Skills menu above the compose box: no skills. Unmocked, listSkills retries
+// against no server and its retry log can land after teardown (vitest
+// "Closing rpc while onUserConsoleLog was pending").
+vi.mock("@/api/skills-api", async (importOriginal) => {
+  const orig = (await importOriginal()) as Record<string, unknown>;
+  return { ...orig, listSkills: vi.fn().mockResolvedValue([]) };
+});
+
 // Session-hue registry — provide a benign default so the identity badge
 // mount path is deterministic.
 vi.mock("@/features/terminal/session-hue", () => ({
