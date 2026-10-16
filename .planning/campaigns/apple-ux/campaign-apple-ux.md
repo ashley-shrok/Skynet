@@ -29,7 +29,7 @@ So: this artifact deliberately does NOT list Apple design principles, and no ses
 
 Starting order: foundation, skills, host targeting, then the remaining modals, then sidebar and conversation view last (Ashley: "save that until we've already gone through the rest").
 
-- **[declared] shape-ux-foundation** — the shared groundwork every redesigned modal builds on, and working out how an Apple-referenced design looks wearing Skynet's own aesthetic — not started
+- **[declared] shape-ux-foundation** — the shared groundwork every redesigned modal builds on, and working out how an Apple-referenced design looks wearing Skynet's own aesthetic. Grew (2026-10-16, Ashley agreed): look A + a full shared kit, every modal moved onto it, browser pop-ups replaced, phone sheets — see shape-ux-foundation.md. The per-modal shapes below shrink to layout only; regroup them when this shape closes — in_progress
 - **[declared] shape-skills-modal** — the skills modal redesigned on the foundation, keeping fleet-distributed and instance-wide read-only behaviour — not started
 - **[declared] shape-host-targeting** — admin-only: shared skills and roles target a chosen set of hosts or a permanent "every host"; sync machinery + the admin controls in both skills and roles modals — not started
 - **[declared] shape-roles-modals** — roles list, role modal, new-role dialog, runbook editor — not started
@@ -45,13 +45,13 @@ Starting order: foundation, skills, host targeting, then the remaining modals, t
 
 ## Other work
 
-- The version-mismatch lock modal — trivial; restyle in whichever shape lands the foundation — not started
+- The version-mismatch lock modal — trivial; restyle in whichever shape lands the foundation — folded into shape-ux-foundation
 
 ## Lingerers (explicitly approved)
 
 ## Open questions
 
-- What does Skynet's own aesthetic look like on an Apple-referenced design? Ashley isn't sure today's modal look plus Apple-like parts will work — shape-ux-foundation finds out.
+- ~~What does Skynet's own aesthetic look like on an Apple-referenced design?~~ Answered in shape-ux-foundation: look A (flat near-black, colour only on chosen/primary/focus).
 - Wording for the permanent "every host" option vs a hand-picked set that happens to include all hosts — shape-host-targeting.
 - Does the shared-roles side already sync the same way as shared skills, or does host targeting need roles brought level first?
 
