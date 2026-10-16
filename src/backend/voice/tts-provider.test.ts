@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { Readable } from "node:stream";
+import { Readable } from "node:stream";
 
 vi.mock("./polly-adapter.js", () => ({ synthesizeToPcm: vi.fn() }));
 
@@ -13,9 +13,12 @@ import {
   VOICE_LIST_TTL_MS,
   VOICE_LIST_FAILURE_TTL_MS,
   defaultVoiceFor,
+  watchForStall,
+  ttsStallTimeoutMs,
+  TTS_STALL_TIMEOUT_MS_DEFAULT,
   type TtsProvider,
 } from "./tts-provider.js";
-import { TtsHttpError, TtsNotConfiguredError } from "./tts-errors.js";
+import { TtsHttpError, TtsNotConfiguredError, TtsStallError } from "./tts-errors.js";
 
 function fakeProvider(overrides: Partial<TtsProvider> = {}): TtsProvider {
   return {
@@ -26,7 +29,7 @@ function fakeProvider(overrides: Partial<TtsProvider> = {}): TtsProvider {
     model: () => "m",
     listVoices: vi.fn(async () => [{ id: "a", name: "A" }, { id: "b", name: "B" }]),
     isOwnVoiceId: (id) => /^[a-z]$/.test(id),
-    synthesize: vi.fn(async () => ({}) as Readable),
+    synthesize: vi.fn(async () => Readable.from([])),
     isRetriable: (err) => err instanceof TtsHttpError && err.status === 429,
     isUnavailable: () => false,
     ...overrides,
@@ -119,13 +122,14 @@ describe("synthesizeWithRetries", () => {
   it("retries errors the provider marks retriable, not others", async () => {
     vi.useFakeTimers();
     try {
+      const audio = Readable.from([]);
       const synthesize = vi
         .fn<TtsProvider["synthesize"]>()
         .mockRejectedValueOnce(new TtsHttpError("elevenlabs", 429, "slow"))
-        .mockResolvedValueOnce({} as Readable);
+        .mockResolvedValueOnce(audio);
       const p = synthesizeWithRetries(fakeProvider({ synthesize }), "hi", "a", { reqId: "r", chunkIndex: 0 });
       await vi.runAllTimersAsync();
-      await expect(p).resolves.toEqual({});
+      await expect(p).resolves.toBe(audio);
       expect(synthesize).toHaveBeenCalledTimes(2);
 
       const fatal = vi.fn<TtsProvider["synthesize"]>().mockRejectedValue(new TtsHttpError("elevenlabs", 400, "bad"));
@@ -136,6 +140,60 @@ describe("synthesizeWithRetries", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("watchForStall", () => {
+  // A stream whose bytes are pushed by hand, so tests control the gaps.
+  const manual = () => new Readable({ read() {} });
+
+  it("destroys a flowing stream with TtsStallError once it goes quiet", async () => {
+    const stream = watchForStall(manual(), "openai", 30);
+    const got: Buffer[] = [];
+    const err = new Promise<unknown>((resolve) => stream.on("error", resolve));
+    stream.on("data", (b: Buffer) => got.push(b));
+    stream.push(Buffer.from([1, 2]));
+
+    const e = await err;
+    expect(e).toBeInstanceOf(TtsStallError);
+    expect((e as TtsStallError).provider).toBe("openai");
+    expect(Buffer.concat(got)).toEqual(Buffer.from([1, 2]));
+  });
+
+  it("keeps steady audio alive, and never times out while the consumer has it paused", async () => {
+    const stream = watchForStall(manual(), "openai", 40);
+    const onError = vi.fn();
+    stream.on("error", onError);
+    stream.on("data", () => {});
+    for (let i = 0; i < 4; i++) {
+      stream.push(Buffer.from([i]));
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    stream.pause(); // our own backpressure: a slow listener
+    await new Promise((r) => setTimeout(r, 120));
+    expect(onError).not.toHaveBeenCalled();
+    stream.push(null);
+    stream.resume();
+    await new Promise((r) => stream.on("end", r));
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("does not start the flow itself — bytes pushed before the consumer attaches are kept", async () => {
+    const stream = watchForStall(manual(), "openai", 1000);
+    stream.push(Buffer.from([7, 8, 9]));
+    stream.push(null);
+    await new Promise((r) => setTimeout(r, 10));
+    const got: Buffer[] = [];
+    stream.on("data", (b: Buffer) => got.push(b));
+    await new Promise((r) => stream.on("end", r));
+    expect(Buffer.concat(got)).toEqual(Buffer.from([7, 8, 9]));
+  });
+
+  it("TTS_STALL_TIMEOUT_MS overrides the timeout; junk falls back to the default", () => {
+    expect(ttsStallTimeoutMs({})).toBe(TTS_STALL_TIMEOUT_MS_DEFAULT);
+    expect(ttsStallTimeoutMs({ TTS_STALL_TIMEOUT_MS: "250" })).toBe(250);
+    expect(ttsStallTimeoutMs({ TTS_STALL_TIMEOUT_MS: "nope" })).toBe(TTS_STALL_TIMEOUT_MS_DEFAULT);
+    expect(ttsStallTimeoutMs({ TTS_STALL_TIMEOUT_MS: "0" })).toBe(TTS_STALL_TIMEOUT_MS_DEFAULT);
   });
 });
 

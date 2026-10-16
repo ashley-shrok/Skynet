@@ -268,6 +268,20 @@ describe("createWebAudioStreamPlayer", () => {
     expect(onEnded).toHaveBeenCalledTimes(1);
   });
 
+  it("Test 3b — a stream that ends with no audio fires onError, not onEnded", async () => {
+    const onEnded = vi.fn();
+    const onError = vi.fn();
+    const player = createWebAudioStreamPlayer({ onEnded, onError });
+
+    // RIFF header only — the server ended the stream before any PCM.
+    await player.play(makeMockResponse([makeWavChunk(new Uint8Array(0))]));
+
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(String(onError.mock.calls[0][0])).toMatch(/no audio/);
+    expect(onEnded).not.toHaveBeenCalled();
+    expect(ctxInstances[0].sources).toHaveLength(0);
+  });
+
   it("Test 4 — stop() stops all sources, closes AudioContext, and is idempotent", async () => {
     const onEnded = vi.fn();
     const pcm = new Uint8Array([0x00, 0x00, 0xff, 0x7f, 0x00, 0x00, 0x00, 0x00]);

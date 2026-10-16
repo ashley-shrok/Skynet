@@ -226,8 +226,11 @@ describe("ChatMessage speak state machine (Phase 19 / patch #237)", () => {
     const mockStop = vi.fn();
     const mockPause = vi.fn().mockResolvedValue(undefined);
     const mockResume = vi.fn().mockResolvedValue(undefined);
-    mockedCreatePlayer.mockImplementation(() => ({
-      play: mockPlay,
+    mockedCreatePlayer.mockImplementation((opts: { onCanPlay?: () => void }) => ({
+      play: (response: Response) => {
+        opts.onCanPlay?.(); // audio queued → button flips to playing
+        return mockPlay(response);
+      },
       stop: mockStop,
       pause: mockPause,
       resume: mockResume,
@@ -258,8 +261,11 @@ describe("ChatMessage speak state machine (Phase 19 / patch #237)", () => {
     const mockStop = vi.fn();
     const mockPause = vi.fn().mockResolvedValue(undefined);
     const mockResume = vi.fn().mockResolvedValue(undefined);
-    mockedCreatePlayer.mockImplementation(() => ({
-      play: mockPlay,
+    mockedCreatePlayer.mockImplementation((opts: { onCanPlay?: () => void }) => ({
+      play: (response: Response) => {
+        opts.onCanPlay?.(); // audio queued → button flips to playing
+        return mockPlay(response);
+      },
       stop: mockStop,
       pause: mockPause,
       resume: mockResume,
@@ -297,10 +303,10 @@ describe("ChatMessage speak state machine (Phase 19 / patch #237)", () => {
   it("Test 20 — mocked player onError callback reverts state to idle", async () => {
     // Capture the onError callback passed to the mock player.
     let capturedOnError: ((err: Error) => void) | undefined;
-    mockedCreatePlayer.mockImplementation((opts: { onError?: (err: Error) => void }) => {
+    mockedCreatePlayer.mockImplementation((opts: { onError?: (err: Error) => void; onCanPlay?: () => void }) => {
       capturedOnError = opts.onError;
       return {
-        play: vi.fn().mockResolvedValue(undefined),
+        play: vi.fn(async () => opts.onCanPlay?.()),
         stop: vi.fn(),
         pause: vi.fn().mockResolvedValue(undefined),
         resume: vi.fn().mockResolvedValue(undefined),

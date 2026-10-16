@@ -10,7 +10,7 @@ vi.mock("@/api/voice-api", () => ({
   postSpeakStream: vi.fn(),
 }));
 
-type Opts = { onEnded?: () => void };
+type Opts = { onEnded?: () => void; onCanPlay?: () => void };
 const players: Array<{ opts: Opts; play: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn>; pause: ReturnType<typeof vi.fn>; resume: ReturnType<typeof vi.fn> }> = [];
 
 vi.mock("../webAudioStreamPlayer", () => ({
@@ -29,7 +29,7 @@ beforeEach(() => {
   mockedCreate.mockImplementation((opts: Opts = {}) => {
     const p = {
       opts,
-      play: vi.fn(async () => {}),
+      play: vi.fn(async () => opts.onCanPlay?.()),
       stop: vi.fn(),
       pause: vi.fn(async () => {}),
       resume: vi.fn(async () => {}),

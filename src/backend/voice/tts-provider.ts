@@ -29,7 +29,7 @@
 
 import type { Readable } from "node:stream";
 import { databaseLogger } from "../utils/logger.js";
-import { TtsNotConfiguredError } from "./tts-errors.js";
+import { TtsNotConfiguredError, TtsStallError } from "./tts-errors.js";
 import { pollyTtsProvider } from "./tts-polly.js";
 import { elevenLabsTtsProvider, openAiTtsProvider } from "./tts-http-providers.js";
 
@@ -281,6 +281,9 @@ export async function chooseVoice(provider: TtsProvider, candidates: readonly st
  * is handed back, mid-stream failures surface to the caller unchanged (we
  * can't un-send audio already written to the client). Backoff is linear
  * (500ms × attempt). Shared by POST /voice/speak and /voice/speak-stream.
+ *
+ * The returned stream is watched for stalls (see watchForStall), so a
+ * provider that goes quiet mid-body errors out instead of hanging forever.
  */
 export async function synthesizeWithRetries(
   provider: TtsProvider,
@@ -292,7 +295,7 @@ export async function synthesizeWithRetries(
   let lastErr: unknown;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      return await provider.synthesize(text, voiceId);
+      return watchForStall(await provider.synthesize(text, voiceId), provider.id);
     } catch (err: unknown) {
       lastErr = err;
       if (attempt < maxAttempts && provider.isRetriable(err)) {
@@ -310,4 +313,57 @@ export async function synthesizeWithRetries(
     }
   }
   throw lastErr;
+}
+
+// --- Stall watchdog ------------------------------------------------------------
+
+/** Default quiet period before a flowing provider stream counts as stalled. */
+export const TTS_STALL_TIMEOUT_MS_DEFAULT = 10_000;
+
+/** TTS_STALL_TIMEOUT_MS override, read at call time; invalid → default. */
+export function ttsStallTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
+  const v = Number(env.TTS_STALL_TIMEOUT_MS);
+  return Number.isFinite(v) && v > 0 ? v : TTS_STALL_TIMEOUT_MS_DEFAULT;
+}
+
+/**
+ * Destroy `stream` with a TtsStallError when it delivers no bytes for the
+ * stall timeout while flowing. OpenAI's speech endpoint sometimes sends a few
+ * seconds of audio and then nothing, with the connection left open — without
+ * this the speak request hangs until the listener gives up.
+ *
+ * The clock only runs while the stream is flowing: a stream paused by our own
+ * backpressure (slow listener) can legitimately sit idle for minutes.
+ */
+export function watchForStall(stream: Readable, providerId: string, idleMs: number = ttsStallTimeoutMs()): Readable {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const clear = () => {
+    if (timer) clearTimeout(timer);
+    timer = null;
+  };
+  const arm = () => {
+    clear();
+    timer = setTimeout(() => {
+      timer = null;
+      stream.destroy(new TtsStallError(providerId, idleMs));
+    }, idleMs);
+  };
+  // The data listener is attached only once the consumer has the stream
+  // flowing — attaching one earlier would itself start the flow and drop
+  // bytes before the consumer's own listener exists.
+  let dataHooked = false;
+  stream.on("resume", () => {
+    if (!dataHooked) {
+      dataHooked = true;
+      stream.on("data", () => {
+        if (!stream.isPaused()) arm();
+      });
+    }
+    arm();
+  });
+  stream.on("pause", clear);
+  stream.on("end", clear);
+  stream.on("close", clear);
+  stream.on("error", clear);
+  return stream;
 }

@@ -15,7 +15,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { ChatMessage } from "./ChatMessage";
 import { postSpeakStream } from "@/api/voice-api";
 import { createWebAudioStreamPlayer } from "./webAudioStreamPlayer";
@@ -37,7 +37,7 @@ vi.mock("@/api/voice-api", () => ({
 // Mock WebAudioStreamPlayer (patch #237)
 // ---------------------------------------------------------------------------
 
-const mockPlay = vi.fn(async () => {});
+const mockPlay = vi.fn(async (_response?: Response) => {});
 const mockStop = vi.fn();
 const mockPause = vi.fn(async () => {});
 const mockResume = vi.fn(async () => {});
@@ -60,8 +60,13 @@ beforeEach(() => {
   mockedPostSpeakStream.mockResolvedValue(
     new Response(new ReadableStream({ start(c) { c.close(); } }), { status: 200 }),
   );
-  mockedCreatePlayer.mockImplementation(() => ({
-    play: mockPlay,
+  // Like the real player, play() reports canplay once audio is queued —
+  // that is what flips the button from loading to playing.
+  mockedCreatePlayer.mockImplementation((opts) => ({
+    play: async (response: Response) => {
+      opts?.onCanPlay?.();
+      return mockPlay(response);
+    },
     stop: mockStop,
     pause: mockPause,
     resume: mockResume,
@@ -126,6 +131,30 @@ describe("ChatMessage speak button (patch #237 streaming)", () => {
       const spinner = document.querySelector(".animate-spin");
       expect(spinner).toBeNull();
     });
+  });
+
+  it("Test 4b: a 200 alone keeps the spinner — playing only once the player reports audio queued", async () => {
+    let reportCanPlay!: () => void;
+    mockedCreatePlayer.mockImplementation((opts) => ({
+      play: async (response: Response) => {
+        reportCanPlay = () => opts?.onCanPlay?.();
+        return mockPlay(response);
+      },
+      stop: mockStop,
+      pause: mockPause,
+      resume: mockResume,
+    }));
+
+    render(<ChatMessage role="assistant" content="Stalled provider" />);
+    fireEvent.click(screen.getByLabelText(/speak message/i));
+
+    await waitFor(() => expect(mockPlay).toHaveBeenCalled());
+    expect(document.querySelector(".animate-spin")).not.toBeNull();
+    expect(screen.queryByLabelText(/pause speaking/i)).toBeNull();
+
+    act(() => reportCanPlay());
+    await waitFor(() => expect(screen.getByLabelText(/pause speaking/i)).toBeTruthy());
+    expect(document.querySelector(".animate-spin")).toBeNull();
   });
 
   it("Test 5: same-bubble click cycles playing → paused → playing via pause()/resume() (never stop())", async () => {

@@ -1039,6 +1039,78 @@ describe("TTS_PROVIDER selection", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  describe("provider stream stalls (OpenAI goes quiet mid-body)", () => {
+    // Some bytes, then nothing — the connection stays open.
+    function stallingResponse(bytes: number): Response {
+      return new Response(
+        new ReadableStream({ start(c) { if (bytes > 0) c.enqueue(new Uint8Array(bytes)); } }),
+        { status: 200 },
+      );
+    }
+    const pcmBytesOut = (res: MockRes) => res._writes.slice(1).reduce((n, w) => n + w.length, 0);
+
+    beforeEach(() => {
+      process.env.TTS_PROVIDER = "openai";
+      process.env.OPENAI_API_KEY = "oa-key";
+      process.env.TTS_STALL_TIMEOUT_MS = "40";
+    });
+
+    it("stalls before any audio reached the listener → retried from scratch, then streams", async () => {
+      // Tail guard holds back 10s, so this stall's few bytes never went out.
+      fetchMock
+        .mockResolvedValueOnce(stallingResponse(4800))
+        .mockResolvedValueOnce(pcmResponse(6));
+
+      const res = await speakStream({ text: "Hi." });
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(res._status).toBe(200);
+      expect(pcmBytesOut(res)).toBe(6); // only the retry's audio — the stalled attempt's held bytes are dropped
+      expect(res._streamedEnded).toBe(true);
+      expect(res._destroyed).toBe(false);
+    });
+
+    it("gives up after three stalled attempts and ends the response instead of hanging", async () => {
+      fetchMock.mockImplementation(async () => stallingResponse(0));
+
+      const res = await speakStream({ text: "Hi." });
+
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(pcmBytesOut(res)).toBe(0);
+      expect(res._streamedEnded).toBe(true);
+    });
+
+    it("stalls after audio is out → ends the message there, no retry, no later chunks", async () => {
+      process.env.TTS_MODEL = "tts-1"; // no tail guard: audio streams straight through
+      const sentence = `${"word ".repeat(700)}end.`; // ~3504 chars → one chunk each
+      fetchMock
+        .mockResolvedValueOnce(stallingResponse(10))
+        .mockImplementation(async () => pcmResponse());
+
+      const res = await speakStream({ text: `${sentence} ${sentence}` });
+
+      expect(fetchMock).toHaveBeenCalledTimes(2); // chunk 0 + chunk 1's prefetch; chunk 0 not retried
+      expect(pcmBytesOut(res)).toBe(10); // chunk 1 never written after the cut
+      expect(res._streamedEnded).toBe(true);
+      expect(res._destroyed).toBe(false);
+    });
+
+    it("a stalled prefetched chunk is retried", async () => {
+      process.env.TTS_MODEL = "tts-1";
+      const sentence = `${"word ".repeat(700)}end.`;
+      fetchMock
+        .mockResolvedValueOnce(pcmResponse(4))
+        .mockResolvedValueOnce(stallingResponse(2))
+        .mockResolvedValueOnce(pcmResponse(6));
+
+      const res = await speakStream({ text: `${sentence} ${sentence}` });
+
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(pcmBytesOut(res)).toBe(10);
+      expect(res._streamedEnded).toBe(true);
+    });
+  });
+
   it("elevenlabs: speaks a saved voice from the account list, 24 kHz PCM, default model", async () => {
     process.env.TTS_PROVIDER = "elevenlabs";
     process.env.ELEVENLABS_API_KEY = "el-key";

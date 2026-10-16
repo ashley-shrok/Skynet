@@ -348,6 +348,15 @@ export function createWebAudioStreamPlayer(
           console.info(
             `[tts-player] reader-done sources=${sources.length} endedSoFar=${endedSources} ctxTime=${ctxTime.toFixed(3)} lastScheduledEnd=${lastMeta?.expectedEnd.toFixed(3) ?? "n/a"} totalBytesRead=${totalBytesRead} ctxState=${audioContext?.state ?? "null"}`,
           );
+          // A stream that ends without any audio (provider stalled before
+          // speaking) is a failure, not a natural end — the caller must say
+          // so rather than go quietly idle.
+          if (sources.length === 0 && !onErrorFired) {
+            onErrorFired = true;
+            teardown();
+            opts.onError?.(new Error(`speak stream ended with no audio (totalBytesRead=${totalBytesRead})`));
+            return;
+          }
           maybeFireEnded();
           return;
         }

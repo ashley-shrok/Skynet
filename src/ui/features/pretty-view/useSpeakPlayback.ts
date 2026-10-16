@@ -112,7 +112,14 @@ export function useSpeakPlayback(opts: {
           }
         },
         onPlaying: () => console.info(`[tts] media-playing owner=${tag}`),
-        onCanPlay: () => console.info(`[tts] media-canplay owner=${tag}`),
+        onCanPlay: () => {
+          console.info(`[tts] media-canplay owner=${tag}`);
+          // The first piece stays "loading" until audio is actually queued;
+          // a 200 alone doesn't mean anything will be heard.
+          if (index === 0 && getCurrentOwner() === owner && !pausedRef.current) {
+            setSpeakState("playing");
+          }
+        },
         onPause: () => console.info(`[tts] media-pause owner=${tag}`),
         onStalled: () => console.warn(`[tts] media-stalled owner=${tag}`),
         onSuspend: () => console.warn(`[tts] media-suspend owner=${tag}`),
@@ -181,10 +188,11 @@ export function useSpeakPlayback(opts: {
             });
         };
         // A later piece fetched while the user has paused waits for resume.
+        // Later pieces keep the button as it is ("playing" from the piece
+        // before); the first piece flips to "playing" on canplay above.
         if (pausedRef.current) {
           heldRef.current = start;
         } else {
-          setSpeakState("playing");
           start();
         }
       } catch (err) {

@@ -32,7 +32,7 @@ vi.mock("@/api/voice-api", () => ({
 // ---------------------------------------------------------------------------
 // Mock WebAudioStreamPlayer
 // ---------------------------------------------------------------------------
-const mockPlay = vi.fn(async () => {});
+const mockPlay = vi.fn(async (_response?: Response) => {});
 const mockStop = vi.fn();
 const mockPause = vi.fn(async () => {});
 const mockResume = vi.fn(async () => {});
@@ -93,8 +93,13 @@ beforeEach(() => {
   mockedPostSpeakStream.mockResolvedValue(
     new Response(new ReadableStream({ start(c) { c.close(); } }), { status: 200 }),
   );
-  mockedCreatePlayer.mockImplementation(() => ({
-    play: mockPlay,
+  // Like the real player, play() reports canplay once audio is queued —
+  // that is what flips the button from loading to playing.
+  mockedCreatePlayer.mockImplementation((opts) => ({
+    play: async (response: Response) => {
+      opts?.onCanPlay?.();
+      return mockPlay(response);
+    },
     stop: mockStop,
     pause: mockPause,
     resume: mockResume,

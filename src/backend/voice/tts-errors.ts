@@ -41,3 +41,18 @@ export class TtsNetworkError extends Error {
     super(`${provider} TTS request failed: ${cause instanceof Error ? `${cause.name}: ${cause.message}` : String(cause)}`, { cause });
   }
 }
+
+/**
+ * The provider's audio stream went quiet: no bytes for the stall timeout
+ * while we were reading it. The stream is destroyed with this error so the
+ * caller can retry (nothing sent yet) or end the response (audio already out).
+ */
+export class TtsStallError extends Error {
+  override name = "TtsStallError";
+  constructor(
+    readonly provider: string,
+    readonly idleMs: number,
+  ) {
+    super(`${provider} TTS stream stalled: no audio for ${idleMs}ms`);
+  }
+}

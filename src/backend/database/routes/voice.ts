@@ -24,7 +24,7 @@ import {
   type TtsProvider,
   type VoiceChoice,
 } from "../../voice/tts-provider.js";
-import { TtsNotConfiguredError } from "../../voice/tts-errors.js";
+import { TtsNotConfiguredError, TtsStallError } from "../../voice/tts-errors.js";
 import { resolveSttProvider, transcribeWithRetries, type SttProvider } from "../../voice/stt-provider.js";
 import { SttHttpError, SttNotConfiguredError } from "../../voice/stt-errors.js";
 import { splitIntoSentences, packChunks } from "../../voice/chunk-and-stitch.js";
@@ -520,6 +520,9 @@ async function drainStreamToBuffer(
   return Buffer.concat(bufs);
 }
 
+/** Tries per chunk when the provider's audio stream stalls (see watchForStall). */
+const STALL_MAX_ATTEMPTS = 3;
+
 // --- handleSpeakStream — POST /voice/speak-stream (streaming, chunk-and-stitch) ---
 // Splits long text into chunks no longer than the active provider's
 // per-request limit (packChunks), fires one synth per chunk, and pipes PCM to
@@ -621,10 +624,28 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
       });
 
     const synth = (i: number) => synthesizeWithRetries(p, chunks[i], voiceId, { reqId, chunkIndex: i });
+    // Prefetched chunks are drained whole before any of their audio is sent,
+    // so a stalled one can always be retried from scratch.
+    const prefetch = async (i: number): Promise<Buffer> => {
+      for (let attempt = 1; ; attempt++) {
+        try {
+          return await drainStreamToBuffer(synth(i));
+        } catch (err: unknown) {
+          if (!(err instanceof TtsStallError) || attempt >= STALL_MAX_ATTEMPTS || clientGone) throw err;
+          databaseLogger.warn(
+            `[voice-server] speak-stall reqId=${reqId} chunk=${i} provider=${p.id} attempt=${attempt}/${STALL_MAX_ATTEMPTS} streamedBytes=0 action=retry`,
+            { operation: "voice_speak_stall", reqId, provider: p.id, attempt, action: "retry" },
+          );
+        }
+      }
+    };
     const bytesPerSec = pcmBytesPerSec(p);
 
     // Per-request PCM accounting — populated inside the loop, summarised at end.
     let totalPcmBytes = 0;
+    // Chunk 0 stalled after some of its audio was out: end the message there
+    // rather than skip ahead to the next chunk's text.
+    let truncated = false;
 
     // (d) Fire chunk 0 (direct-stream Readable, for lowest TTFA) AND the
     // chunk 1 prefetch (eagerly-drained Buffer) simultaneously, so chunk 1
@@ -637,7 +658,7 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
     const chunk0Promise: Promise<import("node:stream").Readable> = synth(0);
     let nextPrefetch: Promise<Buffer> | null = null;
     if (chunks.length > 1) {
-      nextPrefetch = drainStreamToBuffer(synth(1));
+      nextPrefetch = prefetch(1);
       nextPrefetch.catch(() => {});
     }
 
@@ -660,7 +681,7 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
         // if the provider throws (AccessDenied, rejected key, out of
         // credits), we need to be able to send a 503 status, which requires
         // headers NOT be flushed yet.
-        const currentStream = await chunk0Promise;
+        let currentStream = await chunk0Promise;
         liveStream = currentStream;
         if (clientGone) {
           currentStream.destroy();
@@ -682,7 +703,7 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
         // provider finishes. Everything older streams through unchanged.
         const holdTail = guard && chunks.length === 1;
         const holdBytes = TAIL_GUARD_HOLD_SEC * bytesPerSec;
-        const held: Buffer[] = [];
+        let held: Buffer[] = [];
         let heldBytes = 0;
         let streamedBytes = 0;
         // Only a cleanly ended stream has the filler at its tail; a provider
@@ -691,35 +712,71 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
         const writeOut = (buf: Buffer) => {
           streamedBytes += buf.length;
           if (!res.write(buf)) {
-            currentStream.pause();
-            res.once("drain", () => currentStream.resume());
+            const paused = currentStream;
+            paused.pause();
+            res.once("drain", () => paused.resume());
           }
         };
 
-        await new Promise<void>((resolve, reject) => {
-          currentStream.on("data", (buf: Buffer) => {
-            if (TTS_BANK_ENABLED) chunkPcmBuffers.push(buf);
-            if (!holdTail) {
-              writeOut(buf);
-              return;
-            }
-            held.push(buf);
-            heldBytes += buf.length;
-            while (held.length > 1 && heldBytes - held[0].length >= holdBytes) {
-              const out = held.shift()!;
-              heldBytes -= out.length;
-              writeOut(out);
-            }
+        // A provider stream that goes quiet (TtsStallError, see watchForStall)
+        // is retried from scratch while none of its audio has reached the
+        // listener yet — the RIFF header alone commits nothing. Once audio is
+        // out, a stall ends the message where it stopped.
+        for (let attempt = 1; ; attempt++) {
+          let stalled = false;
+          const stream = currentStream;
+          await new Promise<void>((resolve, reject) => {
+            stream.on("data", (buf: Buffer) => {
+              if (TTS_BANK_ENABLED) chunkPcmBuffers.push(buf);
+              if (!holdTail) {
+                writeOut(buf);
+                return;
+              }
+              held.push(buf);
+              heldBytes += buf.length;
+              while (held.length > 1 && heldBytes - held[0].length >= holdBytes) {
+                const out = held.shift()!;
+                heldBytes -= out.length;
+                writeOut(out);
+              }
+            });
+            stream.on("end", () => {
+              providerEnded = true;
+              resolve();
+            });
+            // destroy() on client hang-up ends the stream with "close", not "end".
+            stream.on("close", () => resolve());
+            stream.on("error", (err) => {
+              if (clientGone) return resolve();
+              if (err instanceof TtsStallError) {
+                stalled = true;
+                return resolve();
+              }
+              reject(err);
+            });
           });
-          currentStream.on("end", () => {
-            providerEnded = true;
-            resolve();
-          });
-          // destroy() on client hang-up ends the stream with "close", not "end".
-          currentStream.on("close", () => resolve());
-          currentStream.on("error", (err) => (clientGone ? resolve() : reject(err)));
-        });
-        liveStream = null;
+          liveStream = null;
+          if (!stalled || clientGone) break;
+
+          const retry = streamedBytes === 0 && attempt < STALL_MAX_ATTEMPTS;
+          databaseLogger.warn(
+            `[voice-server] speak-stall reqId=${reqId} chunk=0 provider=${p.id} attempt=${attempt}/${STALL_MAX_ATTEMPTS} streamedBytes=${streamedBytes} heldBytes=${heldBytes} action=${retry ? "retry" : "end"}`,
+            { operation: "voice_speak_stall", reqId, provider: p.id, attempt, action: retry ? "retry" : "end" },
+          );
+          if (!retry) {
+            truncated = true;
+            break;
+          }
+          held = [];
+          heldBytes = 0;
+          chunkPcmBuffers.length = 0;
+          currentStream = await synth(0);
+          liveStream = currentStream;
+          if (clientGone) {
+            currentStream.destroy();
+            break;
+          }
+        }
         if (holdTail && !clientGone && heldBytes > 0) {
           // Provider chunks can split a sample; re-align the held tail to the
           // stream's frame grid before analysing it.
@@ -738,7 +795,7 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
         // prefetch (just-awaited) and chunk i+1's prefetch (just-fired) are
         // open with the provider at the swap point.
         const prevPrefetch = nextPrefetch!;
-        nextPrefetch = i + 1 < chunks.length && !clientGone ? drainStreamToBuffer(synth(i + 1)) : null;
+        nextPrefetch = i + 1 < chunks.length && !clientGone ? prefetch(i + 1) : null;
         if (nextPrefetch) nextPrefetch.catch(() => {});
 
         const raw = await prevPrefetch;
@@ -765,6 +822,7 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
         textLen: chunkTextLen,
         sampleRate: p.sampleRate,
       });
+      if (truncated) break;
     }
 
     if (clientGone) {
@@ -778,7 +836,7 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
     const totalAudioSec = totalPcmBytes / bytesPerSec;
     const totalCharsPerSec = totalAudioSec > 0 ? text.length / totalAudioSec : 0;
     databaseLogger.info(
-      `[voice-server] speak-stream-ok reqId=${reqId} provider=${p.id} chunks=${chunks.length} totalTextLen=${text.length} totalPcmBytes=${totalPcmBytes} totalAudioSec=${totalAudioSec.toFixed(3)} charsPerSec=${totalCharsPerSec.toFixed(2)}`,
+      `[voice-server] speak-stream-ok reqId=${reqId} provider=${p.id} chunks=${chunks.length} totalTextLen=${text.length} totalPcmBytes=${totalPcmBytes} totalAudioSec=${totalAudioSec.toFixed(3)} charsPerSec=${totalCharsPerSec.toFixed(2)} truncated=${truncated}`,
       { operation: "voice_speak_stream", reqId, provider: p.id },
     );
 
