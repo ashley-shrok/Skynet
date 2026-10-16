@@ -131,6 +131,7 @@ FALSE_KILL_MINUTES="${FALSE_KILL_MINUTES:-5}"              # wake within this ma
 DORMANCY_STATE_DIR="${DORMANCY_STATE_DIR:-$HOME/.claude/agent-supervisor-state}"
 METRICS_LOG="${METRICS_LOG:-$HOME/.claude/agent-supervisor-metrics.jsonl}"
 MEM_SAMPLES_LOG="${MEM_SAMPLES_LOG:-$HOME/.claude/agent-supervisor-mem-samples.jsonl}"
+METRICS_MAX_BYTES="${METRICS_MAX_BYTES:-52428800}"          # rotate METRICS_LOG / MEM_SAMPLES_LOG past this size (50 MB), keeping one .1
 
 # ---- archive scan (Phase 94) — daily sweep for 180-day dormant identities ----
 # Threshold is uniform per D-08; NOT a conf variable (locked no-knob per shape).
@@ -2890,6 +2891,16 @@ sample_memory() {
   [ -n "$line" ] && printf '%s\n' "$line" >> "$MEM_SAMPLES_LOG"
 }
 
+# rotate_if_big <file> — once <file> passes METRICS_MAX_BYTES, move it to <file>.1 (replacing
+# the previous .1) so the append-only jsonl logs stay bounded at ~2x the cap. Called once per
+# reconcile tick; a writer mid-append lands its line in the .1 file, which is fine.
+rotate_if_big() {
+  local f="$1" size
+  size=$(stat -c %s "$f" 2>/dev/null) || return 0
+  [ "$size" -gt "$METRICS_MAX_BYTES" ] || return 0
+  mv -f "$f" "$f.1" && log "rotated $f ($size bytes) to $f.1"
+}
+
 metric() {
   # metric event=<kind> k=v k=v ...  → append one JSON line to $METRICS_LOG
   local ts kv v k
@@ -3505,6 +3516,8 @@ do_wake() {
 }
 
 reconcile() {
+  rotate_if_big "$METRICS_LOG"                     # keep the append-only jsonl logs bounded
+  rotate_if_big "$MEM_SAMPLES_LOG"
   sample_memory                                    # dashboard sampler — one line per cycle
   snapshot_sessions                                # one tmux ls per tick; match_session reads from the snapshot. MUST run before archive-scan (which calls match_session via retire_identity).
   snapshot_claude_running                          # one ps + one tmux list-panes -a per tick; claude_running_cached reads from CLAUDE_RUNNING_SNAPSHOT.

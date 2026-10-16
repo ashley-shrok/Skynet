@@ -18,10 +18,20 @@
 
 name: skynet
 
+# Cap every container's json-file log (Docker's default is unbounded). Synapse
+# alone logged ~3 GB/day of access lines before this; the cap only applies to
+# containers created after the change, so it lands on the next recreate.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "3"
+
 services:
   skynet:
     image: skynet-patched:local
     container_name: skynet
+    logging: *default-logging
     restart: unless-stopped
     # Share the host's PID namespace so the fleet-status sweep (invoked
     # locally via acquireLocalChannel for the self-poll) can resolve
@@ -165,6 +175,7 @@ services:
       context: ./converter
     image: skynet-converter:local
     container_name: skynet-converter
+    logging: *default-logging
     restart: unless-stopped
     read_only: true
     tmpfs:
@@ -184,6 +195,7 @@ services:
   guacd:
     image: guacamole/guacd:1.6.0
     container_name: guacd
+    logging: *default-logging
     restart: unless-stopped
     networks:
       - skynet-net
@@ -199,6 +211,7 @@ services:
   synapse:
     image: ghcr.io/element-hq/synapse:latest
     container_name: synapse
+    logging: *default-logging
     restart: unless-stopped
     environment:
       - SYNAPSE_SERVER_NAME=${SYNAPSE_SERVER_NAME:-matrix.local}
@@ -228,6 +241,7 @@ services:
       dockerfile: docker/Caddy.Dockerfile
     image: skynet-caddy:local
     container_name: caddy
+    logging: *default-logging
     restart: unless-stopped
     ports:
       - "80:80"

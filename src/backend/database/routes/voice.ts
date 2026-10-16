@@ -29,6 +29,7 @@ import { resolveSttProvider, transcribeWithRetries, type SttProvider } from "../
 import { SttHttpError, SttNotConfiguredError } from "../../voice/stt-errors.js";
 import { splitIntoSentences, packChunks } from "../../voice/chunk-and-stitch.js";
 import { buildRiffHeader } from "../../voice/riff-header-builder.js";
+import { maybePruneRecordings } from "../../voice/recording-retention.js";
 import {
   TAIL_GUARD_FILLER,
   TAIL_GUARD_HOLD_SEC,
@@ -103,7 +104,7 @@ export async function handleTranscribe(req: Request, res: Response): Promise<Res
   const filename = `${timestamp}-${userId ?? "anon"}-${file.size}-${rand}.${ext}`;
   const fullPath = path.join(dir, filename);
   databaseLogger.info(`[voice-server] transcribe-bank-write filename=${filename}`, { operation: "voice_transcribe_bank_write", filename });
-  void fs.promises.mkdir(dir, { recursive: true }).then(() => fs.promises.writeFile(fullPath, file.buffer)).catch((err: unknown) => {
+  void fs.promises.mkdir(dir, { recursive: true }).then(() => fs.promises.writeFile(fullPath, file.buffer)).then(() => maybePruneRecordings(dir)).catch((err: unknown) => {
     const message = err instanceof Error ? err.message : String(err);
     databaseLogger.warn(`[voice-server] transcribe-bank-write-failed filename=${filename} error=${message}`, { operation: "voice_transcribe_bank_write_failed", filename, error: message });
   });
@@ -478,6 +479,7 @@ function writeTtsBankChunk(
     .mkdir(TTS_BANK_DIR, { recursive: true })
     .then(() => fs.promises.writeFile(fullPath, Buffer.concat([header, pcm])))
     .then(() => rotateTtsBank(TTS_BANK_DIR, TTS_BANK_MAX_FILES))
+    .then(() => maybePruneRecordings(TTS_BANK_DIR))
     .catch((err: unknown) => {
       const message = err instanceof Error ? err.message : String(err);
       databaseLogger.warn(
