@@ -7,7 +7,7 @@
  *
  * Tests exercise POST /global-files/read and PUT /global-files/write via a
  * bare Express app + Node's built-in http module (mirrors
- * roles-list-for-host.test.ts / identity-clone.test.ts patterns — no supertest
+ * roles-list-for-host.test.ts patterns — no supertest
  * dependency).
  *
  * READ coverage:
@@ -121,7 +121,7 @@ import { loadGlobalFilesConfig, getFilesForHost } from "./global-files-config-lo
 import { writeMarkdownFileAtomic } from "../../claude-session/identity-artifact-reader.js";
 
 // ---------------------------------------------------------------------------
-// HTTP helper (mirrors roles-list-for-host.test.ts + identity-clone.test.ts)
+// HTTP helper (mirrors roles-list-for-host.test.ts)
 // ---------------------------------------------------------------------------
 
 function httpRequest(

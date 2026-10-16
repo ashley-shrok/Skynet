@@ -3596,24 +3596,14 @@ export function AppShell({
             setUserPrefs((prev) => ({ ...prev, ...delta }))
           }
           onCreateSession={(opts) => {
-            // opts is a three-way discriminated union (see NewSessionDialog.tsx
-            // NewSessionOnCreateOpts). Narrow on the discriminant explicitly —
-            // no bare truthy checks — because "existing" (quick-260806-bz7 clone
-            // auto-route) is also truthy and must not fall into the birth branch.
-            //   identityMode: false      → regular-session shape (sessionName optional)
-            //   identityMode: true       → identity-birth-success shape (sessionName = opts.name)
-            //   identityMode: "existing" → open on already-born identity (clone flow); sessionName = opts.identityName
+            // opts is a discriminated union (see NewSessionDialog.tsx
+            // NewSessionOnCreateOpts):
+            //   identityMode: false → regular-session shape (sessionName optional)
+            //   identityMode: true  → identity-birth-success shape (sessionName = opts.name)
             const host = opts.host;
-            let sessionName: string | undefined;
-            if (opts.identityMode === false) {
-              sessionName = opts.sessionName;
-            } else if (opts.identityMode === true) {
-              // identity name doubles as tmux session name (Nelly mechanism)
-              sessionName = opts.name;
-            } else {
-              // "existing": identityName IS the tmux session name (same Nelly mechanism)
-              sessionName = opts.identityName;
-            }
+            // identity name doubles as tmux session name (Nelly mechanism)
+            const sessionName: string | undefined =
+              opts.identityMode === true ? opts.name : opts.sessionName;
             const newTabId = openTab(host, "terminal", undefined, {
               targetTmuxSession: sessionName ?? null,
               label: sessionName ?? undefined,
@@ -3621,8 +3611,6 @@ export function AppShell({
               // and launched claude at step 3. Frontend attaches to existing session — do NOT
               // create a new one (prevents race where frontend also tries to create and
               // either fails "session already exists" or clobbers by creating a duplicate).
-              // Same reasoning for the clone flow ("existing"): backend created the tmux
-              // session as part of the clone step, so the frontend just attaches.
               allowCreateTmux: opts.identityMode === false,
             });
             selectConversationDeferred(newTabId);

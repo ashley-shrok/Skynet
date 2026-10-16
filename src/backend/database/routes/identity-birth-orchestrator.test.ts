@@ -100,14 +100,8 @@ vi.mock("../../utils/logger.js", () => ({
 
 import {
   birthIdentity,
-  ENTER_TRAIN_COUNT,
-  ENTER_TRAIN_SPACING_MS,
   SETTLE_SECONDS,
-  STEP_2_SLEEP_MS,
-  STEP_3_SLEEP_MS,
   SSH_CONNECT_TIMEOUT_MS,
-  CLAUDE_LAUNCH_CMD_PREFIX,
-  TMUX_NEW_SESSION_FLAGS,
   WAIT_FOR_SUPERVISOR_POLL_MS,
   WAIT_FOR_SUPERVISOR_TIMEOUT_MS,
 } from "./identity-birth-orchestrator.js";
@@ -224,34 +218,11 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("exported constants (Nelly-verbatim)", () => {
-  it("ENTER_TRAIN_COUNT is 7", () => {
-    expect(ENTER_TRAIN_COUNT).toBe(7);
-  });
-  it("ENTER_TRAIN_SPACING_MS is 3000", () => {
-    expect(ENTER_TRAIN_SPACING_MS).toBe(3000);
-  });
   it("SETTLE_SECONDS is 22", () => {
     expect(SETTLE_SECONDS).toBe(22);
   });
-  it("STEP_2_SLEEP_MS is 3000", () => {
-    expect(STEP_2_SLEEP_MS).toBe(3000);
-  });
-  it("STEP_3_SLEEP_MS is 2000", () => {
-    expect(STEP_3_SLEEP_MS).toBe(2000);
-  });
   it("SSH_CONNECT_TIMEOUT_MS is 30000", () => {
     expect(SSH_CONNECT_TIMEOUT_MS).toBe(30000);
-  });
-  it("CLAUDE_LAUNCH_CMD_PREFIX contains both env-vars verbatim", () => {
-    expect(CLAUDE_LAUNCH_CMD_PREFIX).toContain(
-      "CLAUDE_CODE_RESUME_THRESHOLD_MINUTES=99999999",
-    );
-    expect(CLAUDE_LAUNCH_CMD_PREFIX).toContain(
-      "CLAUDE_CODE_RESUME_TOKEN_THRESHOLD=99999999",
-    );
-  });
-  it("TMUX_NEW_SESSION_FLAGS is -x 220 -y 50", () => {
-    expect(TMUX_NEW_SESSION_FLAGS).toBe("-x 220 -y 50");
   });
   it("WAIT_FOR_SUPERVISOR_POLL_MS is 2000", () => {
     expect(WAIT_FOR_SUPERVISOR_POLL_MS).toBe(2000);

@@ -48,7 +48,7 @@
 //      read-site. The PUBLIC callback-payload discriminant `identityMode`
 //      in NewSessionOnCreateOpts + at the two onCreate call sites is
 //      UNCHANGED — it is a wire contract consumed by AppShell.tsx
-//      narrowing on `identityMode: true | false | "existing"`.
+//      narrowing on `identityMode: true | false`.
 //   E. Submit-onclick invariant: regular-session (raw shell) branch is
 //      gated on `isAdmin && shellOnly` (defense-in-depth so a bug in the
 //      render gate cannot leak shell access to non-admin).
@@ -182,7 +182,7 @@ function collectAllHosts(children: (Host | HostFolder)[]): Host[] {
   return out;
 }
 
-// Three-way discriminated union on `identityMode`:
+// Two-way discriminated union on `identityMode`:
 //   - `false`   → regular-session open (user picks a host + optional session name).
 //   - `true`    → identity-birth success (the birth stream finished; the new identity
 //                 has a fresh tmux session on `host` keyed by `name`). Phase 86 Plan
@@ -192,11 +192,6 @@ function collectAllHosts(children: (Host | HostFolder)[]): Host[] {
 //                 role's face. Downstream consumers (AppShell.tsx L2040,
 //                 PrettyConversationsPanel.tsx L1945) never destructured these
 //                 fields, so the narrowing is safe.
-//   - `"existing"` → open a session on an identity that is ALREADY BORN server-side
-//                 (quick-260806-bz7 clone-modal auto-route). The clone flow creates
-//                 the tmux session as part of the backend clone step, so the
-//                 frontend just needs to attach (allowCreateTmux false). No birth
-//                 stream runs, so no birth-only concerns here either.
 export type NewSessionOnCreateOpts =
   | { host: Host; sessionName?: string; path: string; identityMode: false }
   | {
@@ -205,18 +200,6 @@ export type NewSessionOnCreateOpts =
       path: string;
       identityMode: true;
       name: string;
-    }
-  | {
-      host: Host;
-      sessionName: string;
-      path: string;
-      identityMode: "existing";
-      identityName: string;
-      /** Phase 68 Plan 04: this string is the identityKey (was nanoid PK pre-phase).
-       *  Field name retained for backward-compatibility with downstream callers;
-       *  treat as opaque identity handle. Value is now identity.identityKey
-       *  (e.g. "tina") instead of a DB-generated UUID. */
-      identityId: string;
     };
 
 // ─── Phase 106 Plan 106-02 ─────────────────────────────────────────────────
@@ -333,7 +316,7 @@ export function NewSessionDialog({
   // NewSessionOnCreateOpts (see type above) and at the two onCreate call
   // sites (handleBirth success + regular-session submit) is UNCHANGED — it
   // is a wire contract consumed by AppShell.tsx narrowing on
-  // `identityMode: true | false | "existing"` (PATTERNS.md §2e).
+  // `identityMode: true | false` (PATTERNS.md §2e).
   const [shellOnly, setShellOnly] = useState(false);
 
   // Identity birth fields — Phase 86 Plan 86-04 (D-CTX-86-surface-4):

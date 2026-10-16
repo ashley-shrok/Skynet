@@ -6,7 +6,7 @@
  * admin-only), returning {id, username, mxid} for every user EXCEPT the
  * requester (server-side self-exclusion).
  *
- * Scaffold follows identity-clone.test.ts:
+ * Scaffold:
  *   - bare Express + Node http.request (no supertest dep)
  *   - vi.mock() AuthManager, db/index, drizzle-orm, db/schema, utils/logger
  *   - in-memory dbState.users with a `.all()` filter that supports both

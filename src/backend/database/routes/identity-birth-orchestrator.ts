@@ -46,8 +46,7 @@
  *
  * Steps 3/4/5 (harness bootstrap: trust-flag pre-write, claude launch, Enter
  * settle train, `/id <name>` dispatch) were retired from birth per Phase 106
- * (D-01..D-03). The harness-start helper still lives at
- * ./identity-harness-start.js and is still used by identity-clone.ts:632.
+ * (D-01..D-03); the agent-supervisor launches the harness.
  */
 
 import { randomBytes } from "node:crypto";
@@ -81,28 +80,12 @@ import { databaseLogger } from "../../utils/logger.js";
 // Nelly-verbatim constants (audited against agent-supervisor.sh + DM §1)
 // ---------------------------------------------------------------------------
 
-/** Number of blind Enter presses in the settle train (Nelly §1(g)). */
-export const ENTER_TRAIN_COUNT = 7;
-
-/** Milliseconds between each Enter press in the train (Nelly §1(g), 3s per Enter). */
-export const ENTER_TRAIN_SPACING_MS = 3000;
-
 /**
  * SETTLE_SECONDS = 22 (Nelly §1(g), agent-supervisor.sh line 333).
- * Documentation constant: SETTLE_SECONDS × 1000 / ENTER_TRAIN_SPACING_MS ≈ 7 Enters.
- * Not directly used in loop logic (we use ENTER_TRAIN_COUNT), but exported
- * for parity with agent-supervisor.sh and for plan 06 documentation.
+ * Documentation constant, exported for parity with agent-supervisor.sh and
+ * for plan 06 documentation. Not used in birth logic.
  */
 export const SETTLE_SECONDS = 22;
-
-/** Sleep after Step 2's mkdir so a login shell would have time to source its
- * profile (Nelly §1(b)). Retained after Phase 106's tmux retirement because
- * the constant is re-exported for clone's harness sequence, which still opens
- * a tmux session and needs this cadence (see identity-harness-start.ts). */
-export const STEP_2_SLEEP_MS = 3000;
-
-/** Sleep after claude launch before starting the Enter train (Nelly §1(f)). */
-export const STEP_3_SLEEP_MS = 2000;
 
 /**
  * Phase 106 (D-07): poll cadence for the wait-for-supervisor block. 2s matches
@@ -133,20 +116,6 @@ export const WAIT_FOR_SUPERVISOR_TIMEOUT_MS = 300000;
 
 /** SSH connect timeout. */
 export const SSH_CONNECT_TIMEOUT_MS = 30000;
-
-/**
- * Claude CLI launch env-var prefix (Nelly §1(d) verbatim).
- * Dodges resume-summary and resume-threshold prompts that --dangerously-skip-permissions
- * does NOT cover on the RESUME path. Cheap insurance even for fresh launches.
- */
-export const CLAUDE_LAUNCH_CMD_PREFIX =
-  "CLAUDE_CODE_RESUME_THRESHOLD_MINUTES=99999999 CLAUDE_CODE_RESUME_TOKEN_THRESHOLD=99999999";
-
-/** tmux terminal sizing flags for the new-session invocation (Nelly §3
- * terminal-sizing gotcha). Post-Phase-106 the birth orchestrator no longer
- * opens the session itself, but this constant is re-exported for clone's
- * harness (identity-harness-start.ts) and for agent-supervisor parity docs. */
-export const TMUX_NEW_SESSION_FLAGS = "-x 220 -y 50";
 
 /**
  * Role name validator — kebab-case-lowercase per D-CONTEXT §Frontend surfaces

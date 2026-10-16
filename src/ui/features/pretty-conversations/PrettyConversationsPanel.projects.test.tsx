@@ -372,8 +372,8 @@ vi.mock("@/features/pretty-view/RunbookEditorModal", () => ({
 // Phase 117 M-F: NewSessionDialog stub — exposes buttons that fire onCreate
 // with controlled opts so tests can observe the panel's setSessionProject
 // wire without SSE / birth plumbing. Only renders when open=true. The
-// synthetic-fire buttons carry testids that map 1:1 to the three
-// NewSessionOnCreateOpts variants (identityMode false / true / "existing").
+// synthetic-fire buttons carry testids that map 1:1 to the two
+// NewSessionOnCreateOpts variants (identityMode false / true).
 vi.mock("@/sidebar/NewSessionDialog", () => ({
   NewSessionDialog: (props: {
     open: boolean;
@@ -432,21 +432,6 @@ vi.mock("@/sidebar/NewSessionDialog", () => ({
           }
         >
           fire birth
-        </button>
-        <button
-          data-testid="pv-mock-nsd-fire-existing"
-          onClick={() =>
-            props.onCreate({
-              host,
-              identityMode: "existing",
-              identityName: "vecto",
-              identityId: "vecto",
-              sessionName: "vecto",
-              path: "/home/u",
-            })
-          }
-        >
-          fire existing
         </button>
         <button
           data-testid="pv-mock-nsd-fire-plain"
@@ -2173,29 +2158,6 @@ describe("PrettyConversationsPanel: new-conversation-in-project wire (M-F rewire
     // reflects the reset.
     const nsdWrapper = container.querySelector('[data-testid="pv-new-session-dialog-wrapper"]');
     expect(nsdWrapper!.getAttribute("data-pending-project-slug")).toBe("");
-  });
-
-  it("Test 9c: identityMode=\"existing\" (clone) fires setSessionProject with opts.identityName", async () => {
-    setSnapshot({
-      projectSections: [{ slug: "alpha", displayName: "Alpha", rows: [] }],
-    });
-    mockProjects = [
-      { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false },
-    ];
-
-    const { container } = render(
-      <PrettyConversationsPanel
-        variant="desktop"
-        hostTree={HOST_TREE}
-        onCreateSession={() => {}}
-        onDeactivateRow={() => {}}
-      />,
-    );
-    await openProjectKebabAndClickItem(container, "alpha", "New conversation in this project");
-    fireEvent.click(container.querySelector('[data-testid="pv-mock-nsd-fire-existing"]') as HTMLElement);
-
-    expect(setSessionProjectSpy).toHaveBeenCalledTimes(1);
-    expect(setSessionProjectSpy).toHaveBeenCalledWith(1, "vecto", "alpha");
   });
 
   it("Test 9d: identityMode=false (plain tmux session, no identity) does NOT fire setSessionProject", async () => {

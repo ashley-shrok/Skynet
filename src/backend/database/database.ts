@@ -92,9 +92,6 @@ import matrixAdminRoutes from "../matrix/matrix-admin-routes.js";
 // /push-subscriptions router — Telegram notification setup.
 // Backing route file: ./routes/push-subscriptions.ts.
 import pushSubscriptionsRoutes from "./routes/push-subscriptions.js";
-// Phase 22 (SRIC-03): identity clone endpoint — mounted alongside birth/exists
-// with the same match-precedence discipline (specific paths BEFORE /identities).
-import identityCloneRoutes from "./routes/identity-clone.js";
 // Phase 80 Plan 04: pool-name picker router — mounted at /identities/pool
 // alongside the other /identities/xxx sub-routers, BEFORE the generic
 // /identities mount (see mount block comment for landmine detail).
@@ -2078,15 +2075,11 @@ app.use("/identities/avatar", identityAvatarBatchRoutes);
 // at /identities/birth BEFORE the general /identities mount so Express routes
 // the exact path here without falling through to the generic identities handler.
 app.use("/identities/birth", identityBirthRoutes);
-// Phase 22 (SRIC-03): identity clone endpoint — mounted at /identities/clone
-// BEFORE the general /identities mount so the exact path wins. Same mount-
-// order discipline as /identities/birth above.
-app.use("/identities/clone", identityCloneRoutes);
 // Phase 80 Plan 04: pool-name picker — mount BEFORE /identities so
 // /identities/pool/pick resolves here and does not fall through to the
 // generic identitiesRoutes /:identityKey handler (which would 400
 // "identityKey must match [a-z0-9_-]{1,64}" because "pool" fails the
-// pattern). RESEARCH §Landmine 4 — same discipline as avatar/birth/clone.
+// pattern). RESEARCH §Landmine 4 — same discipline as avatar/birth.
 app.use("/identities/pool", identityPoolRoutes);
 // Phase 20 (IDUI-05): target-host-side identity name collision probe — mount
 // BEFORE /identities so /identities/exists-on-host resolves here first.

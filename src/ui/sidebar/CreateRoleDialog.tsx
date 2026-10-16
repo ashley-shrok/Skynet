@@ -19,7 +19,7 @@
 // description pre-filled.
 //
 // Not touched: NewSessionDialog surface, PrettyConversationRow.tsx, existing
-// clone/identity flows. This dialog is a standalone leaf next to
+// identity flows. This dialog is a standalone leaf next to
 // NewSessionDialog in the sidebar layer.
 //
 // ─── Phase 84 (D-CONTEXT items 1-6, 8) ─────────────────────────────────

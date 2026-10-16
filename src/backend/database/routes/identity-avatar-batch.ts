@@ -507,7 +507,7 @@ router.post(
 // ---------------------------------------------------------------------------
 // POST /candidate/manual
 // Manual avatar upload — stores an uploaded image in the existing candidateCache
-// and returns { id } so birth/clone endpoints remain UNCHANGED.
+// and returns { id } so the birth endpoint remains UNCHANGED.
 //
 // Security:
 //   T-QUICK-04: authenticateJWT wired BEFORE multer (body never parsed on 401)

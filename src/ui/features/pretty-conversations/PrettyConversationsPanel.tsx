@@ -3613,8 +3613,8 @@ export function PrettyConversationsPanel({
           onCreate={(opts) => {
             onCreateSession!(opts);
             // Phase 117 M-F: if this dialog was opened via the per-project
-            // SquarePen, apply the pending project slug to the newborn (or
-            // clone-attached) identity via setSessionProject. identityMode:
+            // SquarePen, apply the pending project slug to the newborn
+            // identity via setSessionProject. identityMode:
             // false is a plain tmux session — no identity to tag; skip.
             //
             // Phase 117 M-H (2026-09-19): chain refreshIdentities AFTER the
@@ -3628,11 +3628,7 @@ export function PrettyConversationsPanel({
             const slug = newSessionPendingProjectSlug;
             if (slug !== null) {
               const identityKey =
-                opts.identityMode === true
-                  ? opts.name
-                  : opts.identityMode === "existing"
-                    ? opts.identityName
-                    : null;
+                opts.identityMode === true ? opts.name : null;
               if (identityKey !== null) {
                 const hostIdNum = parseInt(opts.host.id, 10);
                 if (Number.isFinite(hostIdNum) && hostIdNum > 0) {

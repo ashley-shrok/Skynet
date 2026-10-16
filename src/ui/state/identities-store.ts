@@ -92,8 +92,7 @@ function notify() {
 // displayName is display-only (identityKey is the canonical id); normalize
 // to first-letter-capitalized at store-load time so every consumer — sidebar
 // rows, chat headers, badges, modals — reads a consistent shape regardless
-// of whether the row was birthed with a capitalized name or cloned (clone
-// sets displayName=newName which is lowercase per IDENTITY_KEY_RE).
+// of whether the row was birthed with a capitalized or lowercase name.
 function withDisplayCap(i: Identity): Identity {
   if (!i.displayName || i.displayName.length === 0) return i;
   const first = i.displayName.charAt(0);

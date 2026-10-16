@@ -28,15 +28,8 @@ import type { AddressInfo } from "node:net";
 
 vi.mock("./identity-birth-orchestrator.js", () => ({
   birthIdentity: vi.fn(),
-  ENTER_TRAIN_COUNT: 7,
-  ENTER_TRAIN_SPACING_MS: 3000,
   SETTLE_SECONDS: 22,
-  STEP_2_SLEEP_MS: 3000,
-  STEP_3_SLEEP_MS: 2000,
   SSH_CONNECT_TIMEOUT_MS: 30000,
-  CLAUDE_LAUNCH_CMD_PREFIX:
-    "CLAUDE_CODE_RESUME_THRESHOLD_MINUTES=99999999 CLAUDE_CODE_RESUME_TOKEN_THRESHOLD=99999999",
-  TMUX_NEW_SESSION_FLAGS: "-x 220 -y 50",
   // Phase 22 SRIC-02 — kebab-case-lowercase; must match orchestrator export
   ROLE_NAME_PATTERN: /^[a-z0-9-]+$/,
   // Phase 80 review fix (H3) — stricter regex for poolPicked=true role validation
@@ -1539,9 +1532,6 @@ describe("throttle integration", () => {
 //     surfaces cleanly with auto-tag having done its part).
 //   - Info log at successful auto-tag path (Test G — sshLogger.info with
 //     operation:"identity_birth_auto_tagged").
-//
-// v1 scope lock: identity-clone.ts stays UNTOUCHED per RESEARCH § no-leak
-// audit — flagged as follow-up. Assertion below verifies via grep.
 // ---------------------------------------------------------------------------
 
 describe("Phase 129: auto-tag on multi-user hosts", () => {
