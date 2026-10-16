@@ -592,7 +592,7 @@
   user-select: none;
   -webkit-user-select: none;
   border-radius: var(--radius-pv-bubble);
-  overflow: hidden; /* Phase 67: clip coordinator watermark bleed at row edges */
+  overflow: hidden;
   background: linear-gradient(160deg,
     hsla(var(--pv-hue), 50%, 38%, 0.55),
     hsla(var(--pv-hue), 45%, 24%, 0.60));
@@ -797,12 +797,6 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  /* Phase 67 /close 2026-09-01 follow-up (M4): explicit z-index so the
-     text label/subtitle always paints above the `.pv-coordinator-
-     watermark` (z-index: 0) sibling. `.pv-body` needs a stacking context
-     for z-index to take effect on a flex item; `position: relative`
-     satisfies that without altering layout (already an inline flex
-     child of `.pv-row`). */
   position: relative;
   z-index: 1;
 }

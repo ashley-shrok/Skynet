@@ -213,7 +213,7 @@ export function IdentityModal({
   if (open !== prevOpen) {
     setPrevOpen(open);
     if (open && initialTab) setActiveTab(initialTab);
-    else if (open && activeTab === "desktop" && !desktopRunningHint) setActiveTab("identity");
+    else if (open && activeTab === "desktop") setActiveTab("identity");
   }
   const NAV_SECTIONS = [
     { value: "identity", label: "Agent file", Icon: User },

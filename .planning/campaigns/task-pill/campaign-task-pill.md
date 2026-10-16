@@ -18,7 +18,7 @@ Everything in a conversation pane besides the bubbles and the compose box exists
 
 ## Shapes
 
-- **[declared] shape-task-pill** — the task pill with avatar replaces the identity badge; ⋮ + right-click = the usual conversation menu; click = agent window; drag = pane handle; desktop-running and unpushed-work circles beside it — in_progress
+- **[declared] shape-task-pill** — the task pill with avatar replaces the identity badge; ⋮ + right-click = the usual conversation menu; click = agent window; drag = pane handle; desktop-running and unpushed-work circles beside it — closed
 - **[discovered] shape-touch-long-press-menu** — app-wide: anywhere that has a three-dots menu, a long-press on a phone/touch screen opens that same menu, the way right-click does on desktop (sidebar rows, the new task pill, everything) — not started
 - **[discovered] shape-retire-coordinator** — remove the old "coordinator agent" idea from the whole system (agent creation, wake-ups, relay, box scripts), not just its visual mark; the mark itself is removed in shape-task-pill — not started
 

@@ -157,13 +157,15 @@ describe("IdentityModal — opening on a requested tab", () => {
     expect(screen.queryByTestId("identity-modal-nav-git")).toBeNull();
   });
 
-  it("a later plain open (no requested tab) after a desktop jump lands back on the agent file once the desktop stopped", async () => {
+  it("a later plain open (no requested tab) after a desktop jump lands back on the agent file", async () => {
     const { rerender } = render(
       <Harness open={true} initialTab="desktop" desktopRunningHint={true} />,
     );
     await screen.findByTestId("desktop-tab-stub");
     rerender(<Harness open={false} initialTab="desktop" desktopRunningHint={true} />);
-    rerender(<Harness open={true} initialTab={undefined} desktopRunningHint={false} />);
+    // Desktop still running — a plain reopen still lands on the agent file,
+    // as it always has; only the desktop button opens on Desktop.
+    rerender(<Harness open={true} initialTab={undefined} desktopRunningHint={true} />);
     await waitFor(() =>
       expect(
         screen.getByTestId("identity-modal-nav-identity").getAttribute("aria-pressed"),

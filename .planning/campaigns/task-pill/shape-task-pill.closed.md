@@ -68,3 +68,56 @@ The pane shows only what the user needs constantly — what this agent is doing 
 - Implementer: cable-box-maintainer-3, inline, in this session.
 - Role rules apply: scoped tests during work, full suite only at deploy; commit, then stop and report — no push or deploy without Ashley's separate greenlight.
 - The current badge is shared with relay rooms, which keep it; only agent conversations (chat + terminal view) switch to the pill.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-10-16
+**Overall verdict:** closed-hit (reviewer returned closed-partial on two open points; both resolved with Ashley — see below)
+
+### Shape features (conformance)
+
+- **The pill: top-center in chat and terminal views** — present · same pill mounts in both views
+- **The pill: contents (avatar, task, three-dots)** — present · same avatar source as the sidebar row
+- **The pill: no task → agent's name** — present · matches the sidebar row's fallback
+- **The pill: click → agent window** — present · both views
+- **The pill: three-dots + right-click → usual menu, nothing new** — present · same items and menu wiring as the badge/row
+- **The pill: drag = pane handle** — present · identical payload via one shared writer; three-dots blocks drag
+- **The pill: hover tooltip (name, roles, project)** — present
+- **The pill: width and truncation** — present · half-width cap gone; symmetric reserve; only text truncates
+- **The pill: same glass + role color** — present
+- **Round buttons: outside the pill, pill stays centered** — present
+- **Round buttons: short pulse then steady** — present · three-cycle pulse, off under reduced motion
+- **Desktop button: reliable continuous signal → Desktop tab** — present · measured every sweep tick, fails closed, clears with the session
+- **Unpushed-work button → Git tab** — present · same condition as the badge's amber mark
+- **Desktop nearer the pill when both show** — present
+- **Phone behavior** — present · no drag, three-dots always visible, clear of the back button
+- **Removed: badge in agent conversations** — present · badge remains only for relay rooms
+- **Removed: pin mark from the pane** — present
+- **Removed: coordinator watermark everywhere** — present · stale comments also cleaned after review
+- **Unchanged: relay rooms' badge group** — present
+- **Unchanged: the agent window** — drifted → fixed · opening on a requested tab (needed by the buttons) is the only change; an unintended "reopen on remembered Desktop" side effect was reverted
+- **The id skill updated** — present · omission of the admin-only switch-view item is intended (role rule: admin-only features never go in the id skill)
+- **Tests** — present
+- **What would make it wrong: pill vs sidebar row differ** — present (guarded)
+- **What would make it wrong: anything unreachable / drag destination broken** — present (guarded)
+- **What would make it wrong: desktop button wrong, stuck, or slow** — present (guarded)
+- **What would make it wrong: buttons animate continuously** — present (guarded)
+- **What would make it wrong: pill jumps sideways** — present (guarded)
+- **What would make it wrong: task text squeezed by indicators** — present (guarded)
+- **What would make it wrong: chat and terminal views differ** — present (guarded)
+- **What would make it wrong: phone menu unreachable / collides with back button** — present (guarded)
+
+### Additions (in the result, not in the shape)
+
+- The agent window stayed on a remembered Desktop tab on reopen while the desktop ran — unsanctioned → reverted (Ashley, 2026-10-16: "Agreed")
+
+### Follow-ups
+
+- id skill leaves out the admin-only switch-view menu item — accepted-as-drift (intended; role rule)
+- Stale coordinator-watermark comments in row styles / badge — fixed in the same session
+
+### Notes
+
+None of the "tempting but no" items appeared: no merged agent card, no new menu items, no "working now" indicator, no other indicators.

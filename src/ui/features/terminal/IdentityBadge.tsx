@@ -182,7 +182,7 @@ export function IdentityBadge({
     // Pill shape: border-radius 32 + padding 7 16 7 7 makes a capsule
     // where the 50px avatar circle sits concentric to the left curve.
     borderRadius: 32,
-    overflow: "hidden", // Phase 67: clip coordinator watermark bleed at pill edge
+    overflow: "hidden",
     // With a kebab the right padding tightens so the ⋮ sits close to the
     // pill's right curve.
     padding: hasMenu ? "7px 10px 7px 7px" : "7px 16px 7px 7px",
