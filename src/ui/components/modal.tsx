@@ -3,49 +3,46 @@ import { Dialog as DialogPrimitive } from "radix-ui";
 import { ChevronLeft, ChevronRight, XIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { KitScopeContext } from "@/components/kit/scope";
+import "@/components/kit/kit.css";
 
-// Canonical modal container — the pv-styled modal shell every app modal
-// composes from. See .planning/design/shape-modal-look-unification.md for
-// the aesthetic direction and .planning/design/modal-tasting.html for the
-// per-modal visual reference each translation targets.
+// Canonical modal container — the shell every app modal composes from, in
+// the apple-ux campaign's look A: one flat near-black surface, a hairline
+// edge, a plain title, no rules between head / body / foot. Colour appears
+// only where something is chosen, is the main action, or has focus.
+// Shape: .planning/campaigns/apple-ux/shape-ux-foundation.md
+// Visual reference: .planning/campaigns/apple-ux/tasting-ux-foundation.js
 //
-// This is deliberately a sibling to the older Dialog primitive in this
-// same folder — Dialog remains available for edge cases (raw radix access,
-// non-standard chrome), but Modal is the canonical starting point for all
-// new modal work and the target every existing modal is translated to.
+// The parts inside a modal (buttons, fields, rows, chips, states, dialogs)
+// come from the kit in src/ui/components/kit — never hand-rolled.
 //
 // Composition:
-//   <Modal open={open} onOpenChange={setOpen} hue={190} size="sm">
+//   <Modal open={open} onOpenChange={setOpen} size="sm">
 //     <ModalHead title="Delete this file?" subtitle="workspace / notes / groceries.md" />
-//     <ModalBody>
-//       Deleting removes the file. There's no undo from here.
-//     </ModalBody>
+//     <ModalBody>…</ModalBody>
 //     <ModalFoot>
-//       <button className="modal-btn modal-btn-secondary">Cancel</button>
-//       <button className="modal-btn modal-btn-destructive">Delete</button>
+//       <KitButton>Cancel</KitButton>
+//       <KitButton variant="danger">Delete</KitButton>
 //     </ModalFoot>
 //   </Modal>
 //
-// The `hue` prop sets `--pv-id-hue` on the modal container, which cascades
-// to all hue-tinted styles (border, background gradient, header separator,
-// button accents). Default 190 matches the app-wide accent.
+// `hue` sets --pv-id-hue on the modal (and on menus opened from it), which
+// tints the accent — selections, the main button, focus outlines. It never
+// tints the background.
 //
-// Backdrop click never dismisses. The backdrop is decorative-only for every
-// Modal instance — closes are always via the close-X or Esc. This is a
-// unified rule (2026-09-29): no per-modal opt-in, no exception. Passing
-// `dismissible={false}` additionally blocks Esc + close-X, reserved for
-// required-shell modals (e.g. SkewLockModal) where the
-// user must resolve the modal before continuing.
+// Backdrop click never dismisses. Closes are via the close-X, Esc, Cancel —
+// and, for a phone sheet with nothing typed in it, a swipe down. Passing
+// `dismissible={false}` blocks all of those, reserved for required-shell
+// modals (e.g. SkewLockModal).
 //
-// Every modal is blocking. There is NO `blocking={false}` escape hatch
-// anymore (retired 2026-09-30 UAT). The Modal component always renders
-// a full-viewport backdrop that blocks pointer events and activates
-// Radix's focus-trap. The old `blocking={false}` mode was designed for
-// "keep typing while reading a shared file" but each consumer that
-// adopted it turned into a whack-a-mole missing-backdrop bug during
-// UAT. Backdrop is a load-bearing modal affordance, not a per-modal
-// choice. The no-adhoc-modal-blocking-false.test.ts guard fails the
-// ship-gate if any file re-introduces the pattern.
+// Every modal is blocking. There is NO `blocking={false}` escape hatch; the
+// no-adhoc-modal-blocking-false.test.ts guard fails the ship-gate if any file
+// re-introduces it.
+//
+// On a phone (below 640px) big modals fill the screen; small ones (sm / md /
+// lg) are sheets that slide up from the bottom, only as tall as their
+// content, with a grab bar. A swipe down on the sheet's top closes it unless
+// something has been typed in it, in which case it springs back.
 
 // ─── Size scale ──────────────────────────────────────────────────────────
 
@@ -60,44 +57,31 @@ type ModalSize =
   | "editor"
   | "viewer";
 
-// Sizes apply on `sm:` (≥640px viewport) and up. Below the breakpoint every
-// modal fills the viewport regardless of size (mobile takeover — see the
-// container className in the Modal component). `flex flex-col` is applied
-// at the container level so head/foot pin and body scrolls in every modal,
-// not just list/settings/editor.
-//
-// Pixel caps are paired with viewport-proportional minimums via `min()`
-// so modals scale up on 4K / ultrawide screens instead of staying stuck
-// at a conservative fixed size, but can't become absurdly large.
+// Sizes apply on `sm:` (≥640px viewport) and up. Pixel caps are paired with
+// viewport-proportional minimums via `min()` so modals scale up on 4K /
+// ultrawide screens but can't become absurdly large.
 const SIZE_CLASSES: Record<ModalSize, string> = {
-  // Viewer — editor-wide, but height follows the content (a fixed-aspect
-  // picture such as an agent's desktop), capped by the universal 85vh max-h.
-  // On a tall, narrow window an editor-height modal would leave a band of
-  // dead space under a width-limited picture.
+  // Viewer — editor-wide, height follows the content (a fixed-aspect picture
+  // such as an agent's desktop), capped by the universal 85vh max-h.
   viewer: "sm:max-w-[min(1200px,80vw)]",
   // Content-sized archetypes — confirms + forms don't want to grow.
   sm: "sm:max-w-[340px]",
   md: "sm:max-w-[400px]",
   lg: "sm:max-w-[520px]",
   xl: "sm:max-w-[640px]",
-  // Picker / list — fixed-ish width, grows TALLER on bigger screens so more
-  // rows are visible at once (common UAT ask on 4K: "I want to see more of
-  // the scheduled-agents list without scrolling").
+  // Picker / list — fixed-ish width, grows taller on bigger screens.
   list: "sm:max-w-[600px] sm:h-[min(85vh,780px)]",
-  // Wide list — rows that carry readable text (conversation search
-  // passages) and earn the extra width on big screens; full 85vh tall.
+  // Wide list — rows that carry readable text (conversation search passages).
   "wide-list": "sm:max-w-[min(1150px,70vw)] sm:h-[85vh]",
   // Settings — modest horizontal + vertical scaling for 4K.
   settings: "sm:max-w-[min(720px,70vw)] sm:h-[min(85vh,640px)]",
-  // File editor — generous both horizontally and vertically; the editor
-  // wants ALL the room. Explicit sm:h-[85vh] (not just the max-h cap)
-  // forces a definite height on desktop so content with no intrinsic
-  // size (AG Grid's flex-1 min-h-0 wrapper, iframe'd email body, PDF
-  // viewer, font tabs) actually fills the available viewport instead of
-  // collapsing to content height. Mobile is unaffected — max-sm:h-full
-  // on the modal shell always wins.
+  // File editor — generous both ways; a definite height so content with no
+  // intrinsic size (grids, iframes, PDF viewers) fills the viewport.
   editor: "sm:max-w-[min(1200px,80vw)] sm:h-[85vh]",
 };
+
+/** Sizes that become bottom sheets on a phone instead of full-screen. */
+const SHEET_SIZES: ReadonlySet<ModalSize> = new Set(["sm", "md", "lg"]);
 
 // ─── Modal (root) ────────────────────────────────────────────────────────
 
@@ -106,50 +90,36 @@ interface ModalProps
     React.ComponentProps<typeof DialogPrimitive.Root>,
     "modal" | "children"
   > {
-  /** CSS custom-property --pv-id-hue value applied to this modal.
-   *
-   *  When PASSED: the modal is "hued" — background gradient, border, and
-   *  outer glow are all tinted from this hue (assistant-bubble aesthetic).
-   *  Reserved for identity- and role-scoped modals (IdentityModal passes
-   *  the identity's colorHue; RoleModal passes the role's colorHue) —
-   *  color IS the semantic there.
-   *
-   *  When OMITTED: the modal renders in the canonical slate palette
-   *  (hue 220, low saturation) — every non-identity/non-role modal in the
-   *  app shares this one look (2026-09-30 UAT: "we just pick a color and
-   *  stick with it"). --pv-id-hue is still set to 220 internally so
-   *  descendant tinting (borders, tabs, sidebar accents) remains coherent
-   *  through the same var-based formulas. */
+  /** Accent hue for this modal (selections, main button, focus). Identity-
+   *  and role-scoped modals pass the identity's / role's colorHue; every
+   *  other modal leaves it unset and gets the canonical slate (220). */
   hue?: number;
   /** Modal size. See SIZE_CLASSES. */
   size?: ModalSize;
-  /** When false, ESC + close-X do NOT dismiss the modal. Backdrop click
-   *  is ALWAYS blocked regardless of this flag (see file header). Reserved
-   *  for required-shell modals (e.g. SkewLockModal). */
+  /** When false, Esc, close-X and swipe do NOT dismiss. Backdrop click is
+   *  always blocked. Reserved for required-shell modals (SkewLockModal). */
   dismissible?: boolean;
   /** Portal container. Defaults to document.body. */
   container?: HTMLElement | null;
   /** Extra class for the modal content shell. */
   className?: string;
-  /** Passed through to the modal content element — for test targeting and
-   *  legacy test-id continuity across the Dialog → Modal migration. */
+  /** Passed through to the modal content element — for test targeting. */
   "data-testid"?: string;
   children?: React.ReactNode;
 }
 
-// Canonical slate palette — used when no `hue` is passed. Matches the
-// tasting-picked "Slate" option (mt(2) in the tasting snippet).
 const CANONICAL_HUE = 220;
-const CANONICAL_BACKGROUND =
-  "linear-gradient(160deg, hsl(220, 14%, 22%), hsl(220, 18%, 12%))";
-const CANONICAL_BORDER_CLASS = "border border-[hsla(220,25%,55%,0.30)]";
-const CANONICAL_SHADOW_CLASS =
-  "shadow-[0_8px_24px_rgba(0,0,0,0.5),0_1px_0_rgba(255,220,190,0.22)_inset,0_0_40px_hsla(220,40%,55%,0.12)]";
 
 /** True when Esc was pressed inside an element that handles Esc itself. */
 function escHandledLocally(target: EventTarget | null): boolean {
   return target instanceof Element && target.closest("[data-modal-esc-local]") !== null;
 }
+
+/** Elements a sheet drag must never start on. */
+const DRAG_EXCLUDE = "button, a, input, select, textarea, label, [contenteditable], [role='menuitem'], [role='option']";
+/** Where a sheet drag may start: its grab zone, its head, a kit dialog body. */
+const DRAG_HANDLE = "[data-sheet-grab], [data-slot='modal-head'], .k-dialog-body";
+const SWIPE_CLOSE_PX = 90;
 
 function Modal({
   hue,
@@ -162,110 +132,142 @@ function Modal({
   ...props
 }: ModalProps) {
   const blockEsc = !dismissible;
-  const canonical = hue === undefined;
-  const effectiveHue = canonical ? CANONICAL_HUE : hue;
+  const effectiveHue = hue === undefined ? CANONICAL_HUE : hue;
+  const fullscreen = useModalFullscreen();
+  const sheet = fullscreen && SHEET_SIZES.has(size);
+  const scope = React.useMemo(() => ({ hue: effectiveHue }), [effectiveHue]);
+
+  // Swipe-to-close state. `dirty` flips on the first keystroke inside the
+  // sheet — from then on a swipe springs back instead of closing.
+  const contentRef = React.useRef<HTMLDivElement | null>(null);
+  const dirty = React.useRef(false);
+  const drag = React.useRef<{ y0: number; t0: number; dy: number; id: number } | null>(null);
+  const { onOpenChange, open } = props;
+  React.useEffect(() => {
+    if (open) dirty.current = false;
+  }, [open]);
+
+  const setOffset = (px: number, animate: boolean) => {
+    const el = contentRef.current;
+    if (!el) return;
+    el.style.transition = animate ? "transform 0.22s cubic-bezier(.2,.8,.2,1)" : "none";
+    el.style.transform = px ? `translateY(${px}px)` : "";
+  };
+
+  const sheetHandlers: React.HTMLAttributes<HTMLDivElement> = sheet && dismissible
+    ? {
+        onInputCapture: () => {
+          dirty.current = true;
+        },
+        onPointerDown: (e) => {
+          const t = e.target as Element;
+          if (e.button !== 0 || t.closest(DRAG_EXCLUDE) || !t.closest(DRAG_HANDLE)) return;
+          drag.current = { y0: e.clientY, t0: e.timeStamp, dy: 0, id: e.pointerId };
+          (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+        },
+        onPointerMove: (e) => {
+          const d = drag.current;
+          if (!d || d.id !== e.pointerId) return;
+          // Resist upward pulls; follow the finger downward.
+          const raw = e.clientY - d.y0;
+          d.dy = raw > 0 ? raw : raw / 6;
+          setOffset(d.dy, false);
+        },
+        onPointerUp: (e) => {
+          const d = drag.current;
+          if (!d || d.id !== e.pointerId) return;
+          drag.current = null;
+          const velocity = d.dy / Math.max(1, e.timeStamp - d.t0);
+          const wantsClose = d.dy > SWIPE_CLOSE_PX || (d.dy > 30 && velocity > 0.6);
+          if (wantsClose && !dirty.current) {
+            const el = contentRef.current;
+            if (el) {
+              el.style.transition = "transform 0.2s ease-in";
+              el.style.transform = "translateY(100%)";
+            }
+            window.setTimeout(() => onOpenChange?.(false), 180);
+          } else {
+            setOffset(0, true);
+          }
+        },
+        onPointerCancel: () => {
+          drag.current = null;
+          setOffset(0, true);
+        },
+      }
+    : {};
+
   return (
     <DialogPrimitive.Root {...props} modal={true}>
       <DialogPrimitive.Portal container={container}>
         <DialogPrimitive.Overlay
           data-slot="modal-overlay"
           className={cn(
-            // 2026-10-01: solid 60% black dim (bumped from 55% per UAT).
-            // NO backdrop-filter blur — the blur-sm on a full-viewport
-            // overlay was showing up as a GPU spike + "Page unresponsive"
-            // prompts on the user's machine and the dim alone reads fine.
+            // Solid dim. NO backdrop-filter blur — on a full-viewport overlay
+            // it caused GPU spikes + "Page unresponsive" prompts.
             "fixed inset-0 z-50 bg-black/60",
             "data-open:animate-in data-open:fade-in-0",
             "data-closed:animate-out data-closed:fade-out-0",
             "duration-100",
           )}
         />
-        <DialogPrimitive.Content
-          data-slot="modal-content"
-          data-testid={dataTestId}
-          style={
-            {
-              // Both hue custom-properties scoped to the modal subtree.
-              // --pv-id-hue drives the modal's own tinting (border, background,
-              // header separator). --pv-hue is what the shared Button component
-              // uses for its default+destructive variants — setting it here
-              // means action buttons inside the modal inherit the modal's hue
-              // rather than the app-wide amber default. Canonical modals get
-              // the slate hue (220) so descendant tint formulas cohere.
-              "--pv-id-hue": String(effectiveHue),
-              "--pv-hue": String(effectiveHue),
-              // Canonical: fixed slate gradient (low saturation, hardcoded)
-              // so every non-identity/non-role modal shares the exact same
-              // shell. Hued: the identity/role-driven gradient with the
-              // assistant-bubble aesthetic.
-              background: canonical
-                ? CANONICAL_BACKGROUND
-                : "linear-gradient(160deg, hsl(var(--pv-id-hue), 50%, 38%), hsl(var(--pv-id-hue), 45%, 22%))",
-            } as React.CSSProperties
-          }
-          // Backdrop click never dismisses — the backdrop is decorative-only
-          // across every Modal. Unified 2026-09-29; see file header.
-          onPointerDownOutside={(e) => e.preventDefault()}
-          onInteractOutside={(e) => e.preventDefault()}
-          // A field marked data-modal-esc-local is using Esc itself (e.g. a
-          // search box clearing its query), so the modal stays open. Radix
-          // hears Esc in the capture phase, before the field's own handler.
-          onEscapeKeyDown={(e) => {
-            if (blockEsc || escHandledLocally(e.target)) e.preventDefault();
-          }}
-          className={cn(
-            // Positioning + shape. Mobile (<640px): fills viewport — every
-            // modal is a full-screen takeover, head/foot pinned, body scrolls.
-            // Desktop (sm:+): centered floating card with a max-width band
-            // (SIZE_CLASSES) and a universal max-h-[85vh] cap so content
-            // never overflows the browser window (body scrolls when tall).
-            // Flex-col at the container level so head/foot pin and body
-            // takes the middle in EVERY modal, not just list/settings.
-            "fixed inset-0 z-50 flex flex-col",
-            // iOS safe-area insets — pad the modal's internal content away
-            // from the status bar / dynamic island at the top and the home
-            // indicator at the bottom. Non-zero values are supplied by the
-            // browser only when `viewport-fit=cover` is set in the viewport
-            // meta (it is, in index.html). On desktop these resolve to zero.
-            "pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]",
-            "pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]",
-            "sm:inset-auto sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2",
-            "sm:w-full sm:h-auto sm:max-h-[85vh]",
-            // Reset the safe-area padding on desktop so the modal content
-            // sits flush against its border again.
-            "sm:p-0",
-            SIZE_CLASSES[size],
-            // Rounded corners only on desktop — on mobile the modal hits
-            // viewport edges so corners would be invisible anyway.
-            "sm:rounded-[16px] overflow-hidden outline-none",
-            canonical
-              ? CANONICAL_BORDER_CLASS
-              : "border border-[hsla(var(--pv-id-hue),65%,55%,0.35)]",
-            "text-[#fbf5e8]",
-            // Deep drop shadow + inset warm rim + outer glow.
-            canonical
-              ? CANONICAL_SHADOW_CLASS
-              : "shadow-[0_8px_24px_rgba(0,0,0,0.5),0_1px_0_rgba(255,220,190,0.22)_inset,0_0_40px_hsla(var(--pv-id-hue),70%,55%,0.25)]",
-            "data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95",
-            "data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
-            "duration-100",
-            className,
-            // Mobile override — placed AFTER consumer's className so it
-            // beats any per-modal max-h / max-w / fixed height that was
-            // declared without a responsive prefix (e.g. a modal passes
-            // `max-h-[720px]` meaning "cap me on desktop" but without
-            // `sm:` it would also clamp mobile and leave viewport space
-            // showing the app behind). On mobile every modal takes the
-            // whole viewport regardless of what the consumer declared.
-            // Border + shadow (incl. the inset top rim) are dropped too —
-            // at full-bleed they just outline the viewport edge and give
-            // away that it's a blown-up floating card.
-            "max-sm:w-full max-sm:h-full max-sm:max-w-full max-sm:max-h-full max-sm:rounded-none",
-            "max-sm:border-0 max-sm:shadow-none",
-          )}
-        >
-          {children}
-        </DialogPrimitive.Content>
+        <KitScopeContext.Provider value={scope}>
+          <DialogPrimitive.Content
+            ref={contentRef}
+            data-slot="modal-content"
+            data-testid={dataTestId}
+            data-sheet={sheet ? "true" : undefined}
+            style={
+              {
+                // --pv-id-hue drives the kit accent; --pv-hue is what the older
+                // shared Button keys off, so stragglers still match the modal.
+                "--pv-id-hue": String(effectiveHue),
+                "--pv-hue": String(effectiveHue),
+              } as React.CSSProperties
+            }
+            onPointerDownOutside={(e) => e.preventDefault()}
+            onInteractOutside={(e) => e.preventDefault()}
+            // A field marked data-modal-esc-local is using Esc itself (e.g. a
+            // search box clearing its query), so the modal stays open.
+            onEscapeKeyDown={(e) => {
+              if (blockEsc || escHandledLocally(e.target)) e.preventDefault();
+            }}
+            {...sheetHandlers}
+            className={cn(
+              "k-hued fixed inset-0 z-50 flex flex-col outline-none overflow-hidden",
+              "bg-[var(--k-bg)] text-[var(--k-t1)]",
+              // iOS safe-area insets (non-zero only with viewport-fit=cover).
+              "pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]",
+              "pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]",
+              // Desktop: centred floating card, 85vh cap, body scrolls.
+              "sm:inset-auto sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2",
+              "sm:w-full sm:h-auto sm:max-h-[85vh] sm:p-0",
+              SIZE_CLASSES[size],
+              "sm:rounded-[20px] sm:border sm:border-[var(--k-hair)]",
+              "sm:shadow-[0_30px_90px_rgba(0,0,0,0.7)]",
+              sheet
+                ? "data-open:animate-in data-open:slide-in-from-bottom data-closed:animate-out data-closed:slide-out-to-bottom duration-300 ease-out"
+                : "data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 duration-100",
+              className,
+              // Phone overrides — AFTER the consumer's className so they win
+              // over any un-prefixed per-modal max-h / max-w / height.
+              sheet
+                ? "max-sm:top-auto max-sm:bottom-0 max-sm:inset-x-0 max-sm:w-full max-sm:max-w-full max-sm:h-auto max-sm:max-h-[92dvh] max-sm:rounded-t-[20px] max-sm:rounded-b-none max-sm:pt-[14px] max-sm:border-t max-sm:border-[var(--k-hair)] max-sm:shadow-[0_-12px_40px_rgba(0,0,0,0.5)]"
+                : "max-sm:w-full max-sm:h-full max-sm:max-w-full max-sm:max-h-full max-sm:rounded-none max-sm:border-0 max-sm:shadow-none",
+            )}
+          >
+            {sheet ? (
+              <div
+                data-sheet-grab=""
+                aria-hidden="true"
+                className="absolute inset-x-0 top-0 h-[22px] z-10 touch-none"
+              >
+                <span className="k-grabber" />
+              </div>
+            ) : null}
+            {children}
+          </DialogPrimitive.Content>
+        </KitScopeContext.Provider>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>
   );
@@ -274,35 +276,27 @@ function Modal({
 // ─── ModalHead ───────────────────────────────────────────────────────────
 
 interface ModalHeadProps {
-  /** The title line — Inter, semi-bold, primary-cream. Required by ARIA
-   *  (radix Dialog demands a Title for accessibility). */
+  /** The title line. Required by ARIA (radix Dialog demands a Title). */
   title: React.ReactNode;
-  /** Optional subtitle line — Inter, muted-cream. One or two lines of
-   *  guidance. Skip entirely rather than passing an empty string when
-   *  there's nothing to add. */
+  /** Optional subtitle — one or two lines of guidance. Skip rather than
+   *  passing an empty string. */
   subtitle?: React.ReactNode;
-  /** Optional meta line ABOVE the title. Reserved for cases where the
-   *  meta adds disambiguating info (e.g. "SSH · workstation" identifying
-   *  which host). Do NOT use for label-chrome (e.g. "Fleet-wide · full
-   *  text" is redundant with the title). */
+  /** Optional line ABOVE the title for disambiguating context (e.g. which
+   *  host). Not for label-chrome. */
   meta?: React.ReactNode;
-  /** When true, no close button rendered. Pair with `dismissible={false}`
-   *  on the parent Modal for required-shell modals. */
+  /** Leading visual (avatar) beside the title block. */
+  leading?: React.ReactNode;
+  /** When true, no close button. Pair with `dismissible={false}`. */
   hideClose?: boolean;
-  /** Rendered next to the close button (e.g. a delete icon on the
-   *  role skill editor for delete-skill). */
+  /** Rendered before the close button (header actions). */
   actions?: React.ReactNode;
-  /** Passed through to the close button — for test targeting. */
   closeTestId?: string;
-  /** Override for the close button's aria-label. Defaults to "Close". */
   closeAriaLabel?: string;
-  /** id attached to the underlying DialogPrimitive.Title. Consumers can
-   *  reference this id from aria-labelledby on form controls inside the
-   *  modal body to associate them with the heading. */
+  /** id for the underlying Title, for aria-labelledby references. */
   titleId?: string;
   className?: string;
   /** Rendered inside the head text block after title/subtitle — for
-   *  head-embedded controls (like the RolesListModal's host picker). */
+   *  head-embedded controls. */
   children?: React.ReactNode;
 }
 
@@ -310,6 +304,7 @@ function ModalHead({
   title,
   subtitle,
   meta,
+  leading,
   hideClose,
   actions,
   closeTestId,
@@ -324,46 +319,42 @@ function ModalHead({
       className={cn(
         // Mobile: the container's safe-area-inset-top already clears the
         // status bar, so the head's own top padding stays small there.
-        "px-5 pt-1.5 pb-3.5 sm:pt-3.5 flex items-start justify-between gap-3",
-        "border-b border-[hsla(var(--pv-id-hue),60%,55%,0.22)]",
-        "shadow-[0_1px_0_rgba(255,220,190,0.05)]",
-        "flex-shrink-0",
+        "px-6 pt-5 pb-3 flex items-start justify-between gap-3 flex-shrink-0",
+        "max-sm:px-5 max-sm:pt-1.5",
+        "[[data-sheet]_&]:touch-none",
         className,
       )}
     >
-      <div className="flex-1 min-w-0">
+      {leading ? <div className="flex-shrink-0 self-center">{leading}</div> : null}
+      <div className="flex-1 min-w-0 self-center">
         {meta && (
           <p
             data-slot="modal-head-meta"
-            className="m-0 mb-1 text-[10.5px] font-medium tracking-[0.14em] uppercase text-[hsla(var(--pv-id-hue),30%,88%,0.72)]"
+            className="m-0 mb-0.5 text-[12.5px] font-medium text-[var(--k-t3)]"
           >
             {meta}
           </p>
         )}
         <DialogPrimitive.Title
-          // data-slot="dialog-title" matches the shadcn/Dialog convention so
-          // test queries like `[data-slot="dialog-title"]` find Modal titles
-          // the same way they find legacy Dialog titles.
           data-slot="dialog-title"
-          // Only pass `id` when the caller explicitly provided one — passing
-          // undefined here clobbers Radix's auto-generated id, which breaks
-          // the auto-wired aria-labelledby on DialogContent.
+          // Only pass `id` when provided — undefined clobbers Radix's
+          // auto-generated id and breaks aria-labelledby on the content.
           {...(titleId ? { id: titleId } : {})}
-          className="m-0 text-[16px] font-semibold text-[#fbf5e8] tracking-[-0.01em] leading-[1.3]"
+          className="m-0 text-[21px] font-bold text-[var(--k-t1)] tracking-[-0.025em] leading-[1.25] break-words"
         >
           {title}
         </DialogPrimitive.Title>
         {subtitle && (
           <DialogPrimitive.Description
             data-slot="dialog-description"
-            className="m-0 mt-1 text-[12.5px] leading-[1.4] text-[hsla(var(--pv-id-hue),25%,90%,0.72)]"
+            className="m-0 mt-1 text-[13px] leading-[1.45] text-[var(--k-t2)] max-w-[64ch]"
           >
             {subtitle}
           </DialogPrimitive.Description>
         )}
         {children}
       </div>
-      <div className="flex items-center gap-1 flex-shrink-0">
+      <div className="flex items-center gap-1.5 flex-shrink-0">
         {actions}
         {!hideClose && (
           <DialogPrimitive.Close asChild>
@@ -371,14 +362,10 @@ function ModalHead({
               type="button"
               aria-label={closeAriaLabel}
               data-testid={closeTestId}
-              className={cn(
-                "p-1.5 rounded-md bg-transparent border-none cursor-pointer",
-                "text-[hsla(var(--pv-id-hue),25%,92%,0.7)]",
-                "hover:text-[#fbf5e8] hover:bg-black/20",
-                "transition-colors duration-100",
-              )}
+              className="k-icon-btn"
+              data-filled="true"
             >
-              <XIcon size={16} />
+              <XIcon />
             </button>
           </DialogPrimitive.Close>
         )}
@@ -398,15 +385,9 @@ function ModalBody({
     <div
       data-slot="modal-body"
       className={cn(
-        "px-5 py-3.5 text-[13.5px] leading-[1.6]",
-        "text-[hsla(var(--pv-id-hue),22%,92%,0.82)]",
-        // Grow to fill available space between head + foot; scroll when the
-        // content is taller than the container. The universal max-h-[85vh]
-        // on Modal (desktop) + full-viewport on mobile means the body IS
-        // the scrolling region in every tall-content case — making
-        // overflow-y-auto the default here rather than a per-modal opt-in.
-        // Consumers that need a different overflow (e.g. overflow-hidden
-        // for a nested scroll region) can override via className.
+        "px-6 py-3.5 text-[14px] leading-[1.55] text-[var(--k-t1)]",
+        "max-sm:px-5",
+        // The body is the scrolling region between head and foot.
         "flex-1 min-h-0 overflow-y-auto",
         className,
       )}
@@ -428,10 +409,8 @@ function ModalFoot({
     <div
       data-slot="modal-foot"
       className={cn(
-        "px-5 py-3 flex justify-end items-center gap-2",
-        "border-t border-[hsla(var(--pv-id-hue),60%,55%,0.22)]",
-        "shadow-[0_-1px_0_rgba(255,220,190,0.05)]",
-        "flex-shrink-0",
+        "px-6 pt-3.5 pb-[18px] flex justify-end items-center gap-2.5 flex-shrink-0",
+        "max-sm:px-5",
         className,
       )}
       {...props}
@@ -443,20 +422,12 @@ function ModalFoot({
 
 // ─── ModalTabs ───────────────────────────────────────────────────────────
 //
-// Canonical section-tabs row for modals that host multiple panels
-// (IdentityModal, RoleModal, RoleSkillEditorModal). Underline-style per the
-// tasting spec (border-bottom accent when selected, transparent otherwise).
-// Consumers own their tab STATE + PANEL rendering — this component only
-// renders the row and fires onValueChange. It intentionally does NOT pull
-// in Radix Tabs — for the current 2-3 tab cases a naked <div><button>
-// group is simpler and matches what every consumer was already writing
-// inline before this extraction (2026-09-30 UAT).
+// Section tabs for modals with a few fixed panels (IdentityModal, RoleModal,
+// ProjectModal) — rendered as the kit's segmented control, centred under the
+// head. Consumers own tab state + panel rendering.
 //
-// no-adhoc-modal-tabs.test.ts enforces "modals must use this component
-// for their tab row" via a source grep — anyone reinventing tabs inside
-// a `*Modal*.tsx` file with the old bordered-pill signature trips the
-// ship-gate. Meta-goal: agents building new modals-with-tabs pick this
-// up without prompting.
+// no-adhoc-modal-tabs.test.ts enforces "modals must use this component for
+// their tab row" via a source grep.
 
 export interface ModalTabDef<V extends string = string> {
   value: V;
@@ -468,18 +439,14 @@ interface ModalTabsProps<V extends string> {
   tabs: ReadonlyArray<ModalTabDef<V>>;
   value: V;
   onValueChange: (next: V) => void;
-  /** Injected into each tab button's data-testid as
-   *  `<testIdPrefix>-<tab.value>`. */
+  /** Each tab button's data-testid is `<testIdPrefix>-<tab.value>`. */
   testIdPrefix?: string;
-  /** Applied to the row wrapper for a custom data-testid — kept as prop
-   *  rather than derived so consumers can preserve legacy testids across
-   *  the migration. */
+  /** data-testid for the row wrapper. */
   rowTestId?: string;
-  /** Rendered inline after the tabs, styled as a peer of the tab buttons.
-   *  Used for row-scoped actions (RoleSkillEditorModal's `+ Add file`). */
+  /** Rendered after the control (row-scoped actions). */
   trailing?: React.ReactNode;
-  /** When true, the row scrolls horizontally under overflow (file-strip
-   *  case where the tab list is dynamic and can grow past the row width). */
+  /** The control scrolls horizontally under overflow. Always true now —
+   *  kept for call-site compatibility. */
   scrollable?: boolean;
   className?: string;
 }
@@ -491,45 +458,35 @@ function ModalTabs<V extends string>({
   testIdPrefix,
   rowTestId,
   trailing,
-  scrollable,
   className,
 }: ModalTabsProps<V>): JSX.Element {
   return (
     <div
       className={cn(
-        // Underline-style row (tasting L475-495). Flush against section
-        // separator via `-mb-px` overlap on each tab's bottom border.
-        "shrink-0 flex items-stretch gap-1 px-4 pt-1.5",
-        "border-b border-[hsla(var(--pv-id-hue),60%,55%,0.22)]",
-        "bg-black/22",
-        scrollable && "overflow-x-auto",
+        "shrink-0 flex items-center justify-center gap-2 px-6 pt-0.5 pb-3.5 min-w-0",
+        "max-sm:px-4",
         className,
       )}
-      style={scrollable ? { WebkitOverflowScrolling: "touch" } : undefined}
       data-slot="modal-tabs"
       data-testid={rowTestId}
     >
-      {tabs.map(({ value: v, label, Icon }) => {
-        const selected = value === v;
-        return (
-          <button
-            key={v}
-            type="button"
-            onClick={() => onValueChange(v)}
-            aria-pressed={selected}
-            data-testid={testIdPrefix ? `${testIdPrefix}-${v}` : undefined}
-            className={cn(
-              "shrink-0 flex items-center gap-2 px-3.5 py-2 text-[13px] font-medium cursor-pointer",
-              "border-b-2 -mb-px transition-colors duration-150",
-              selected
-                ? "text-[#fbf5e8] border-[hsla(var(--pv-id-hue),75%,65%,0.9)]"
-                : "text-[hsla(var(--pv-id-hue),22%,92%,0.6)] hover:text-[#e8e4d8] border-transparent",
-            )}
-          >
-            {Icon ? <Icon size={15} className="opacity-85" /> : null} {label}
-          </button>
-        );
-      })}
+      <div className="k-seg" role="group" aria-label="Sections">
+        {tabs.map(({ value: v, label, Icon }) => {
+          const selected = value === v;
+          return (
+            <button
+              key={v}
+              type="button"
+              onClick={() => onValueChange(v)}
+              aria-pressed={selected}
+              data-testid={testIdPrefix ? `${testIdPrefix}-${v}` : undefined}
+            >
+              {Icon ? <Icon size={14} /> : null}
+              {label}
+            </button>
+          );
+        })}
+      </div>
       {trailing}
     </div>
   );
@@ -537,13 +494,10 @@ function ModalTabs<V extends string>({
 
 // ─── Mobile drill-in ─────────────────────────────────────────────────────
 //
-// Below the `sm` breakpoint every Modal goes fullscreen (see the max-sm:
-// classes on the content). A 180px side list next to the pane eats half a
-// phone's width there, so side-list modals switch to drill-in: the list
-// fills the modal; picking an item swaps to the pane with a back bar.
-// Desktop (sm+) is untouched. The query mirrors Tailwind's `max-sm:` so the
-// switch lands exactly where the modal goes fullscreen — NOT useIsMobile's
-// 768px, which would drill-in a modal that's still a floating card.
+// Below the `sm` breakpoint big modals go fullscreen. A side list next to
+// the pane eats half a phone's width there, so side-list modals switch to
+// drill-in: the list fills the modal; picking an item swaps to the pane with
+// a back bar. The query mirrors Tailwind's `max-sm:`.
 
 const MODAL_FULLSCREEN_QUERY = "(max-width: 639.98px)";
 
@@ -559,7 +513,7 @@ function getModalFullscreen(): boolean {
   return !!window.matchMedia(MODAL_FULLSCREEN_QUERY).matches;
 }
 
-/** True while modals render fullscreen (viewport below `sm`). */
+/** True while the viewport is phone-width (modals fullscreen or sheets). */
 function useModalFullscreen(): boolean {
   return React.useSyncExternalStore(
     subscribeModalFullscreen,
@@ -570,18 +524,16 @@ function useModalFullscreen(): boolean {
 
 /**
  * Drill-in state for a side-list modal. `drilled` = showing the pane (on
- * mobile). Starts drilled when `startDrilled` (e.g. a one-item list — no
- * point making the user tap through it). Any change of `value` after mount
- * drills in, so a selection made outside the list (a new file from
- * "+ Add file", a refused-then-accepted switch) lands on its pane. Picking
- * the already-selected item calls `drillIn()` directly.
+ * mobile). Starts drilled when `startDrilled` (e.g. a one-item list). Any
+ * change of `value` after mount drills in, so a selection made outside the
+ * list lands on its pane. Picking the already-selected item calls
+ * `drillIn()` directly.
  */
 function useModalDrillIn<V>(
   value: V,
   startDrilled = false,
-  /** Pass the modal's `open` when the caller outlives the modal content
-   *  (e.g. PreferencesModal) — while closed, drill state resets and value
-   *  changes (a reset-to-default on close) don't drill in. */
+  /** Pass the modal's `open` when the caller outlives the modal content —
+   *  while closed, drill state resets and value changes don't drill in. */
   active = true,
 ): {
   fullscreen: boolean;
@@ -630,22 +582,19 @@ function ModalDrillBack({
   return (
     <div
       data-slot="modal-drill-back"
-      className={cn(
-        "shrink-0 flex items-center gap-2 px-3 py-2 min-w-0",
-        "border-b border-[hsla(var(--pv-id-hue),60%,55%,0.22)] bg-black/22",
-      )}
+      className="shrink-0 flex items-center gap-2 px-3 pb-2 min-w-0"
     >
       <button
         type="button"
         onClick={onBack}
         data-testid={testId}
-        className="shrink-0 flex items-center gap-0.5 pr-1.5 py-0.5 text-[15px] cursor-pointer text-[hsla(var(--pv-id-hue),75%,72%,1)]"
+        className="shrink-0 flex items-center gap-0.5 pr-1.5 py-1 text-[15px] cursor-pointer text-[var(--k-acc-text)] rounded-lg focus-visible:outline-2 focus-visible:outline-[var(--k-acc)]"
       >
         <ChevronLeft size={18} aria-hidden="true" />
         {backLabel}
       </button>
       {current != null ? (
-        <span className="min-w-0 truncate text-[15px] font-semibold text-[#e8e4d8]">
+        <span className="min-w-0 truncate text-[15px] font-semibold text-[var(--k-t1)]">
           {current}
         </span>
       ) : null}
@@ -655,43 +604,40 @@ function ModalDrillBack({
 
 // ─── ModalSidebar ────────────────────────────────────────────────────────
 //
-// Canonical vertical file-list + editor layout for modals with an
-// unbounded number of tabs. The horizontal ModalTabs strip works fine
-// for 2-4 fixed section tabs (IdentityModal, RoleModal); it breaks down
-// when the tab count is dynamic and can grow past the modal width
-// (RoleSkillEditorModal / SkillsEditorModal with many files) — files fall
-// off the right edge, need shift+scroll on desktop, and are inaccessible
-// on mobile (2026-09-30 UAT).
+// The side list + pane layout for modals whose list is dynamic (files,
+// records, settings sections) — Skills, Runbook editor, Admin, Preferences.
+// Use <ModalTabs> for 2-4 fixed sections instead.
 //
-// Renders as a two-column flex row that fills the space between
-// <ModalHead> and <ModalFoot>. Left column: fixed-width sidebar with a
-// vertical list of buttons + optional trailing action. Right column:
-// the main editor pane passed as `children`.
-//
-// Rule of thumb: use <ModalTabs> for 2-4 known-ahead-of-time section
-// tabs; use <ModalSidebar> when the list is dynamic (files, records,
-// anything driven by user content).
+// Tabs may carry a `group` heading; consecutive tabs with the same group sit
+// under one heading. `pinned` tabs go to the bottom of the list (e.g. About,
+// Log out).
+
+export interface ModalSidebarTabDef<V extends string = string> extends ModalTabDef<V> {
+  /** Small heading this item sits under. */
+  group?: string;
+  /** Pin to the bottom of the list (below a divider). */
+  pinned?: boolean;
+}
 
 interface ModalSidebarProps<V extends string> {
-  tabs: ReadonlyArray<ModalTabDef<V>>;
+  tabs: ReadonlyArray<ModalSidebarTabDef<V>>;
   value: V;
   onValueChange: (next: V) => void;
-  /** Injected into each button's data-testid as
-   *  `<testIdPrefix>-<tab.value>`. */
+  /** Each button's data-testid is `<testIdPrefix>-<tab.value>`. */
   testIdPrefix?: string;
-  /** Applied to the sidebar column for a custom data-testid — kept as
-   *  a prop rather than derived so consumers can preserve legacy testids
-   *  across the migration. */
+  /** data-testid for the sidebar column. */
   rowTestId?: string;
-  /** Rendered inside the sidebar column, below the list — for
-   *  sidebar-scoped actions (RoleSkillEditor / SkillsEditor "+ Add
-   *  file"). */
+  /** Rendered below the list (e.g. "+ Add file"). */
   trailing?: React.ReactNode;
-  /** The right-column main editor pane content. */
+  /** The right-column pane content. */
   children: React.ReactNode;
   className?: string;
   /** Mobile drill-in back-button text — names the list ("Files"). */
   backLabel?: string;
+  /** Desktop width of the list column. */
+  width?: number;
+  /** Controlled drill-in (when the caller needs it, e.g. to reset on close). */
+  drill?: ReturnType<typeof useModalDrillIn<V>>;
 }
 
 function ModalSidebar<V extends string>({
@@ -704,17 +650,68 @@ function ModalSidebar<V extends string>({
   children,
   className,
   backLabel = "Files",
+  width = 196,
+  drill,
 }: ModalSidebarProps<V>): JSX.Element {
   // Mobile: drill-in (list OR pane, never both). A one-item list starts on
   // its pane. See useModalDrillIn.
-  const { fullscreen, drilled, drillIn, back } = useModalDrillIn(
-    value,
-    tabs.length <= 1,
-  );
+  const own = useModalDrillIn(value, tabs.length <= 1);
+  const { fullscreen, drilled, drillIn, back } = drill ?? own;
   const drillMode = fullscreen;
   const showList = !drillMode || !drilled;
   const showPane = !drillMode || drilled;
   const currentLabel = tabs.find((t) => t.value === value)?.label;
+  const main = tabs.filter((t) => !t.pinned);
+  const pinned = tabs.filter((t) => t.pinned);
+
+  const renderItem = ({ value: v, label, Icon }: ModalSidebarTabDef<V>) => {
+    const selected = value === v;
+    return (
+      <button
+        key={v}
+        type="button"
+        onClick={() => {
+          // A different item drills in via the value-change effect (only if
+          // the consumer accepts the switch); the current item drills in
+          // directly.
+          if (v === value) drillIn();
+          else onValueChange(v);
+        }}
+        aria-pressed={selected}
+        data-testid={testIdPrefix ? `${testIdPrefix}-${v}` : undefined}
+        data-drill={drillMode ? "true" : undefined}
+        className="k-side-item shrink-0"
+      >
+        {Icon ? <Icon size={drillMode ? 17 : 15} /> : null}
+        <span className="truncate">{label}</span>
+        {drillMode ? (
+          <ChevronRight
+            size={16}
+            aria-hidden="true"
+            className="ml-auto shrink-0 opacity-45"
+          />
+        ) : null}
+      </button>
+    );
+  };
+
+  const renderGroups = (list: ReadonlyArray<ModalSidebarTabDef<V>>) => {
+    const out: React.ReactNode[] = [];
+    let lastGroup: string | undefined;
+    for (const t of list) {
+      if (t.group && t.group !== lastGroup) {
+        out.push(
+          <div key={`g-${t.group}`} className="k-side-head">
+            {t.group}
+          </div>,
+        );
+      }
+      lastGroup = t.group;
+      out.push(renderItem(t));
+    }
+    return out;
+  };
+
   return (
     <div
       className={cn(
@@ -725,67 +722,35 @@ function ModalSidebar<V extends string>({
       data-slot="modal-split"
       data-drill={drillMode ? (drilled ? "pane" : "list") : undefined}
     >
-      {/* Sidebar column — fixed width, scrolls vertically. Full width as
-          the drill-in list on mobile. */}
       <aside
         className={cn(
           "flex flex-col min-h-0",
-          drillMode ? "flex-1" : "w-[180px] shrink-0",
-          !drillMode && "border-r border-[hsla(var(--pv-id-hue),60%,55%,0.22)]",
-          "bg-black/22",
+          drillMode ? "flex-1" : "shrink-0",
           !showList && "hidden",
         )}
+        style={drillMode ? undefined : { width }}
         data-slot="modal-sidebar"
         data-testid={rowTestId}
       >
-        <div className="flex-1 min-h-0 overflow-y-auto py-1.5 flex flex-col gap-0.5">
-          {tabs.map(({ value: v, label, Icon }) => {
-            const selected = value === v;
-            return (
-              <button
-                key={v}
-                type="button"
-                onClick={() => {
-                  // A different item drills in via the value-change effect
-                  // (only if the consumer accepts the switch); the current
-                  // item drills in directly.
-                  if (v === value) drillIn();
-                  else onValueChange(v);
-                }}
-                aria-pressed={selected}
-                data-testid={testIdPrefix ? `${testIdPrefix}-${v}` : undefined}
-                className={cn(
-                  "shrink-0 flex items-center gap-2 font-medium cursor-pointer",
-                  "border-l-2 transition-colors duration-150 text-left min-w-0",
-                  drillMode
-                    ? "px-4 py-3 text-[15px] text-[#e8e4d8] hover:bg-white/[0.04] border-transparent"
-                    : selected
-                    ? "px-3 py-1.5 text-[12.5px] text-[#fbf5e8] border-[hsla(var(--pv-id-hue),75%,65%,0.9)] bg-[hsla(var(--pv-id-hue),55%,40%,0.35)]"
-                    : "px-3 py-1.5 text-[12.5px] text-[hsla(var(--pv-id-hue),22%,92%,0.6)] hover:text-[#e8e4d8] hover:bg-white/[0.04] border-transparent",
-                )}
-              >
-                {Icon ? (
-                  <Icon size={drillMode ? 16 : 13} className="opacity-85 shrink-0" />
-                ) : null}
-                <span className="truncate">{label}</span>
-                {drillMode ? (
-                  <ChevronRight
-                    size={16}
-                    aria-hidden="true"
-                    className="ml-auto shrink-0 opacity-45"
-                  />
-                ) : null}
-              </button>
-            );
-          })}
+        <div
+          className={cn(
+            "flex-1 min-h-0 overflow-y-auto flex flex-col gap-0.5",
+            drillMode ? "px-3 py-1" : "px-2 pt-0.5 pb-2",
+          )}
+        >
+          {renderGroups(main)}
+          {pinned.length > 0 ? (
+            <>
+              <div className="flex-1 min-h-3" />
+              <div className="h-px bg-[var(--k-hair)] mx-2 my-1" />
+              {pinned.map(renderItem)}
+            </>
+          ) : null}
         </div>
         {trailing ? (
-          <div className="shrink-0 border-t border-[hsla(var(--pv-id-hue),60%,55%,0.22)] p-1">
-            {trailing}
-          </div>
+          <div className={cn("shrink-0", drillMode ? "px-3 pb-2" : "px-2 pb-2")}>{trailing}</div>
         ) : null}
       </aside>
-      {/* Main pane — fills remaining width (full modal when drilled in). */}
       <div
         className={cn(
           "flex-1 min-w-0 min-h-0 flex flex-col",

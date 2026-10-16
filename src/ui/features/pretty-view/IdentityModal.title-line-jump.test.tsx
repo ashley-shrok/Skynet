@@ -216,7 +216,7 @@ describe("IdentityModal Phase 90 refactor — tab structure", () => {
       expect(document.querySelector('[role="dialog"]')).toBeTruthy();
     });
     const navButtons = Array.from(
-      document.querySelectorAll(".shrink-0.flex.items-stretch button"),
+      document.querySelectorAll('[data-slot="modal-tabs"] button'),
     ).map((b) => b.textContent?.trim() ?? "");
     expect(navButtons).not.toContain("Role file");
     const panels = Array.from(document.querySelectorAll('[role="tabpanel"]'));
@@ -229,7 +229,7 @@ describe("IdentityModal Phase 90 refactor — tab structure", () => {
       expect(document.querySelector('[role="dialog"]')).toBeTruthy();
     });
     const navButtons = Array.from(
-      document.querySelectorAll(".shrink-0.flex.items-stretch button"),
+      document.querySelectorAll('[data-slot="modal-tabs"] button'),
     ).map((b) => b.textContent?.trim() ?? "");
     expect(navButtons).not.toContain("Skills");
     const panels = Array.from(document.querySelectorAll('[role="tabpanel"]'));
@@ -242,7 +242,7 @@ describe("IdentityModal Phase 90 refactor — tab structure", () => {
       expect(document.querySelector('[role="dialog"]')).toBeTruthy();
     });
     const navButtons = Array.from(
-      document.querySelectorAll(".shrink-0.flex.items-stretch button"),
+      document.querySelectorAll('[data-slot="modal-tabs"] button'),
     ).map((b) => b.textContent?.trim() ?? "");
     expect(navButtons).not.toContain("Bounties");
     const panels = Array.from(document.querySelectorAll('[role="tabpanel"]'));

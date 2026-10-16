@@ -194,7 +194,7 @@ describe("RoleModal — Phase 90 Plan 90-04 Task 3", () => {
     // was added to mirror IdentityModal — role folder scope, role file
     // hidden from listing (edited via the dedicated Role file tab).
     const navButtons = document
-      .querySelector(".shrink-0.flex.items-stretch")
+      .querySelector('[data-slot="modal-tabs"]')
       ?.querySelectorAll("button");
     expect(navButtons).toBeDefined();
     expect(navButtons!.length).toBe(3);
@@ -344,7 +344,7 @@ describe("RoleModal — Phase 90 Plan 90-04 Task 3", () => {
 
     // Navigate to Role skills tab.
     const navButtons = document
-      .querySelector(".shrink-0.flex.items-stretch")
+      .querySelector('[data-slot="modal-tabs"]')
       ?.querySelectorAll("button");
     const roleSkillsBtn = Array.from(navButtons ?? []).find((b) =>
       b.textContent?.includes("Skills"),

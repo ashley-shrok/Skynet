@@ -165,6 +165,8 @@ describe("IdentityModal — grows for the Desktop tab", () => {
       />,
     );
     const row = await screen.findByTestId("identity-modal-nav");
-    expect(row.className).toContain("overflow-x-auto");
+    // The tabs are the kit's segmented control, which scrolls sideways
+    // (overflow-x: auto in kit.css) rather than clipping.
+    expect(row.querySelector(".k-seg")).not.toBeNull();
   });
 });

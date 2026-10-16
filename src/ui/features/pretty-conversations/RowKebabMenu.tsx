@@ -1,7 +1,8 @@
 import * as React from "react";
 import { createPortal } from "react-dom";
 import { Slot } from "radix-ui";
-import { MoreVertical, Check } from "lucide-react";
+import { MoreVertical, MoreHorizontal, Check } from "lucide-react";
+import { useKitScope } from "@/components/kit/scope";
 
 // ─── Phase 143 Plan 143-05 (D-12 / D-13 / D-14) — RowKebabMenu ──────────────
 //
@@ -150,9 +151,15 @@ function KebabMenuContent({
   React.ComponentProps<typeof DropdownMenuContent>,
   "sideOffset" | "alignOffset" | "onCloseAutoFocus"
 >): React.JSX.Element {
+  // Inside a modal the menu takes the kit look and the modal's hue (it
+  // portals out of the modal's DOM, so it can't inherit either by CSS).
+  const kit = useKitScope();
+  const contentClass = kit ? cn(CONTENT_CLASS, "k-menu k-hued") : CONTENT_CLASS;
+  const kitStyle = kit ? ({ "--pv-id-hue": String(kit.hue) } as React.CSSProperties) : undefined;
   return (
     <DropdownMenuContent
-      className={CONTENT_CLASS}
+      className={contentClass}
+      style={kitStyle}
       {...contentProps}
       onContextMenu={(e) => {
         // Right-clicking inside an open menu must not re-open it at the new
@@ -178,6 +185,7 @@ function KebabMenuContent({
               <DropdownMenuSubTrigger
                 disabled={item.disabled}
                 data-testid={item.testId}
+                data-danger={item.danger ? "true" : undefined}
                 className={cn(
                   ITEM_CLASS_BASE,
                   item.danger && ITEM_CLASS_DANGER,
@@ -187,7 +195,8 @@ function KebabMenuContent({
               </DropdownMenuSubTrigger>
               <DropdownMenuPortal>
                 <DropdownMenuSubContent
-                  className={CONTENT_CLASS}
+                  className={contentClass}
+                  style={kitStyle}
                   onClick={(e) => {
                     e.stopPropagation();
                   }}
@@ -206,6 +215,7 @@ function KebabMenuContent({
                       }}
                       disabled={sub.disabled}
                       data-testid={sub.testId}
+                      data-danger={sub.danger ? "true" : undefined}
                       className={cn(
                         ITEM_CLASS_BASE,
                         "flex items-center gap-2",
@@ -255,6 +265,7 @@ function KebabMenuContent({
               }}
               disabled={item.disabled}
               data-testid={item.testId}
+              data-danger={item.danger ? "true" : undefined}
               aria-checked={hasCheckSlot ? item.checked : undefined}
               className={cn(
                 ITEM_CLASS_BASE,
@@ -299,6 +310,7 @@ export function RowKebabMenu({
   testId,
   triggerClassName,
 }: RowKebabMenuProps): React.JSX.Element {
+  const kit = useKitScope();
   return (
     // modal={false} — Phase 143's sidebar-row kebab roll-out hit a Radix
     // body-lock leak (document.body.style.pointerEvents="none" stuck on after
@@ -315,7 +327,9 @@ export function RowKebabMenu({
         <button
           type="button"
           className={cn(
-            "inline-flex items-center justify-center size-6 rounded-md bg-white/10 hover:bg-white/20 text-white/80 hover:text-white shrink-0 transition-colors",
+            kit
+              ? "k-icon-btn"
+              : "inline-flex items-center justify-center size-6 rounded-md bg-white/10 hover:bg-white/20 text-white/80 hover:text-white shrink-0 transition-colors",
             triggerClassName,
           )}
           aria-label={ariaLabel ?? "Row menu"}
@@ -327,7 +341,11 @@ export function RowKebabMenu({
             e.stopPropagation();
           }}
         >
-          <MoreVertical className="size-[16px]" aria-hidden="true" />
+          {kit ? (
+            <MoreHorizontal aria-hidden="true" />
+          ) : (
+            <MoreVertical className="size-[16px]" aria-hidden="true" />
+          )}
         </button>
       </DropdownMenuTrigger>
       <KebabMenuContent items={items} />

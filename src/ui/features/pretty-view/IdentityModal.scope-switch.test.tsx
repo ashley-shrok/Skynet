@@ -157,7 +157,7 @@ describe("IdentityModal (Phase 90 D-09): scope switch removed", () => {
     // Nav-bar buttons carry the tab labels — none of the role-scope tabs
     // should be present post-Phase-90-06.
     const navButtons = Array.from(
-      document.querySelectorAll(".shrink-0.flex.items-stretch button"),
+      document.querySelectorAll('[data-slot="modal-tabs"] button'),
     ).map((b) => b.textContent?.trim() ?? "");
     expect(navButtons).not.toContain("Role file");
     expect(navButtons).not.toContain("Skills");
