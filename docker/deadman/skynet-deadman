@@ -1,0 +1,243 @@
+#!/usr/bin/env bash
+# skynet-deadman — deploy dead-man switch for a co-located Skynet stack.
+#
+# Arm it right before a deploy. It snapshots the running stack (image IDs,
+# fully-resolved compose config, Caddy config, sshd drop-ins, a copy of the
+# skynet-data volume) and starts a root systemd timer that lives entirely
+# outside Docker and outside Skynet. If nobody disarms it before the timer
+# runs out, it rolls the stack back to the snapshot.
+#
+# The snapshot does not depend on any identity's repo tree: the resolved
+# compose config inlines every env_file value and uses absolute paths, and
+# the images are pinned by tag, so rollback works even after the tree the
+# deploy ran from has been deleted.
+#
+# Usage (all subcommands need root):
+#   skynet-deadman arm [--minutes N] [--note TEXT]
+#   skynet-deadman disarm
+#   skynet-deadman status
+#   skynet-deadman rollback [--dry-run] [--snapshot DIR]
+#
+# Environment:
+#   DEADMAN_STATE_DIR   default /var/lib/skynet-deadman
+#   DEADMAN_ENV_FILE    default /opt/skynet/.env
+#   DEADMAN_COMPOSE_DIR repo's docker/ dir to resolve config from at arm time
+#                       (default: the directory this script lives in, ../)
+#   DEADMAN_KEEP        snapshots to keep (default 3)
+
+set -euo pipefail
+
+STATE_DIR=${DEADMAN_STATE_DIR:-/var/lib/skynet-deadman}
+ENV_FILE=${DEADMAN_ENV_FILE:-/opt/skynet/.env}
+SELF_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+COMPOSE_DIR=${DEADMAN_COMPOSE_DIR:-$(dirname "$SELF_DIR")}
+KEEP=${DEADMAN_KEEP:-3}
+PROJECT=skynet
+UNIT=skynet-deadman
+CADDY_CONFIG_DIR=/opt/skynet/caddy-config
+SSHD_DROPIN_DIR=/etc/ssh/sshd_config.d
+DATA_VOLUME=skynet_skynet-data
+LOG_FILE=$STATE_DIR/deadman.log
+
+log() {
+  local line
+  line="$(date -u +%Y-%m-%dT%H:%M:%SZ) $*"
+  echo "$line"
+  mkdir -p "$STATE_DIR"
+  echo "$line" >> "$LOG_FILE"
+  logger -t skynet-deadman -- "$*" 2>/dev/null || true
+}
+
+die() { log "ERROR: $*"; exit 1; }
+
+need_root() { [ "$(id -u)" -eq 0 ] || die "must run as root (sudo)"; }
+
+armed() { systemctl is-active --quiet "$UNIT.timer"; }
+
+compose_files() {
+  # Mirrors COMPOSE_FILE in /opt/skynet/.env; the override is load-bearing on
+  # co-located hosts (see runbooks/skynet-ship).
+  local files=(-f "$COMPOSE_DIR/docker-compose.yml")
+  [ -f "$COMPOSE_DIR/docker-compose.host-systemd.override.yml" ] &&
+    files+=(-f "$COMPOSE_DIR/docker-compose.host-systemd.override.yml")
+  printf '%s\n' "${files[@]}"
+}
+
+cmd_arm() {
+  need_root
+  local minutes=20 note=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --minutes) minutes=$2; shift 2 ;;
+      --note) note=$2; shift 2 ;;
+      *) die "arm: unknown arg $1" ;;
+    esac
+  done
+  [[ "$minutes" =~ ^[1-9][0-9]*$ ]] || die "arm: --minutes must be a positive integer"
+  armed && die "already armed — run status, or disarm first"
+
+  local ts snap
+  ts=$(date -u +%Y%m%dT%H%M%SZ)
+  snap="$STATE_DIR/snapshots/$ts"
+  mkdir -p "$snap"
+  chmod 700 "$STATE_DIR" "$snap"
+
+  # 1. Pin every running service's image under a deadman tag so a rebuild
+  #    retagging :local can't orphan (or let prune delete) the good image.
+  local containers
+  containers=$(docker ps --filter "label=com.docker.compose.project=$PROJECT" --format '{{.Names}}')
+  [ -n "$containers" ] || die "no running containers in compose project $PROJECT"
+  : > "$snap/images.tsv"
+  local c svc ref id
+  for c in $containers; do
+    svc=$(docker inspect "$c" --format '{{index .Config.Labels "com.docker.compose.service"}}')
+    ref=$(docker inspect "$c" --format '{{.Config.Image}}')
+    id=$(docker inspect "$c" --format '{{.Image}}')
+    docker tag "$id" "${ref%%:*}:deadman-$ts"
+    printf '%s\t%s\t%s\n' "$svc" "$ref" "$id" >> "$snap/images.tsv"
+  done
+
+  # 2. Fully-resolved compose config: env_file values inlined, absolute paths,
+  #    build sections stripped so rollback never builds.
+  local files
+  mapfile -t files < <(compose_files)
+  (cd "$COMPOSE_DIR" && docker compose -p "$PROJECT" --env-file "$ENV_FILE" "${files[@]}" config --format json) \
+    > "$snap/compose.raw.json" || die "arm: docker compose config failed"
+  python3 - "$snap/compose.raw.json" "$snap/compose.json" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+for s in d.get("services", {}).values():
+    s.pop("build", None)
+    s["pull_policy"] = "never"
+json.dump(d, open(sys.argv[2], "w"), indent=1)
+PY
+  rm -f "$snap/compose.raw.json"
+  chmod 600 "$snap/compose.json"
+  # Every service in the resolved config must have a pinned image.
+  python3 - "$snap/compose.json" "$snap/images.tsv" <<'PY' || die "arm: running services and compose config disagree"
+import json, sys
+svcs = set(json.load(open(sys.argv[1]))["services"])
+pinned = {l.split("\t")[0] for l in open(sys.argv[2]) if l.strip()}
+missing = svcs - pinned
+if missing:
+    print("services in compose config but not running:", sorted(missing), file=sys.stderr)
+    sys.exit(1)
+PY
+
+  # 3. Host-side config a deploy might also touch.
+  [ -d "$CADDY_CONFIG_DIR" ] && cp -a "$CADDY_CONFIG_DIR" "$snap/caddy-config"
+  [ -d "$SSHD_DROPIN_DIR" ] && cp -a "$SSHD_DROPIN_DIR" "$snap/sshd_config.d"
+  cp -a "$ENV_FILE" "$snap/dot-env"
+  [ -f /opt/skynet/skynet.env ] && cp -a /opt/skynet/skynet.env "$snap/skynet.env"
+
+  # 4. Copy of the crown-jewel volume. Not restored automatically — old code
+  #    usually reads a newer DB fine, and auto-restoring would drop writes made
+  #    during the window. Restore by hand only if the rollback can't start.
+  local vol
+  vol=$(docker volume inspect "$DATA_VOLUME" --format '{{.Mountpoint}}' 2>/dev/null || true)
+  [ -n "$vol" ] && cp -a "$vol" "$snap/skynet-data"
+
+  # 5. The timer runs a private copy of this script so the deploy can't
+  #    change or delete what fires.
+  cp "${BASH_SOURCE[0]}" "$snap/skynet-deadman"
+  chmod 700 "$snap/skynet-deadman"
+  printf '%s\n' "$note" > "$snap/note"
+  ln -sfn "$snap" "$STATE_DIR/armed"
+
+  systemd-run --quiet --unit="$UNIT" --on-active="${minutes}m" --timer-property=AccuracySec=1s \
+    --property=Type=oneshot \
+    --setenv=DEADMAN_STATE_DIR="$STATE_DIR" \
+    "$snap/skynet-deadman" rollback --snapshot "$snap" \
+    || die "arm: systemd-run failed"
+
+  prune_snapshots
+  log "ARMED snapshot=$ts minutes=$minutes note=${note:-none}"
+  echo "Rollback fires at $(date -u -d "+${minutes} min" +%H:%M:%SZ) unless disarmed."
+}
+
+cmd_disarm() {
+  need_root
+  if armed; then
+    systemctl stop "$UNIT.timer"
+    log "DISARMED snapshot=$(basename "$(readlink -f "$STATE_DIR/armed")")"
+  else
+    log "disarm: not armed (nothing to do)"
+  fi
+  rm -f "$STATE_DIR/armed"
+}
+
+cmd_status() {
+  if armed; then
+    echo "ARMED — snapshot $(basename "$(readlink -f "$STATE_DIR/armed" 2>/dev/null || echo '?')")"
+    systemctl list-timers "$UNIT.timer" --no-pager | sed -n 1,2p
+  else
+    echo "not armed"
+  fi
+  [ -f "$LOG_FILE" ] && { echo "--- last log lines"; tail -n 5 "$LOG_FILE"; }
+}
+
+cmd_rollback() {
+  need_root
+  local dry=0 snap=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --dry-run) dry=1; shift ;;
+      --snapshot) snap=$2; shift 2 ;;
+      *) die "rollback: unknown arg $1" ;;
+    esac
+  done
+  [ -n "$snap" ] || snap=$(readlink -f "$STATE_DIR/armed" 2>/dev/null || true)
+  [ -n "$snap" ] && [ -f "$snap/compose.json" ] || die "rollback: no snapshot (pass --snapshot DIR)"
+  local ts; ts=$(basename "$snap")
+  log "ROLLBACK START snapshot=$ts dry_run=$dry"
+
+  run() { if [ "$dry" -eq 1 ]; then echo "  would run: $*"; else "$@"; fi; }
+
+  # Images: point each service's tag back at the pinned image.
+  local svc ref id
+  while IFS=$'\t' read -r svc ref id; do
+    [ -n "$svc" ] || continue
+    docker image inspect "$id" > /dev/null 2>&1 || die "rollback: pinned image for $svc ($id) is gone"
+    run docker tag "$id" "$ref"
+  done < "$snap/images.tsv"
+
+  # Host config.
+  if [ -d "$snap/caddy-config" ]; then
+    run rsync -a --delete "$snap/caddy-config/" "$CADDY_CONFIG_DIR/"
+  fi
+  if [ -d "$snap/sshd_config.d" ] && ! diff -rq "$snap/sshd_config.d" "$SSHD_DROPIN_DIR" > /dev/null 2>&1; then
+    run rsync -a --delete "$snap/sshd_config.d/" "$SSHD_DROPIN_DIR/"
+    if [ "$dry" -eq 0 ]; then
+      sshd -t && systemctl reload ssh || log "WARN: sshd config test/reload failed after restore"
+    fi
+  fi
+
+  run docker compose -p "$PROJECT" -f "$snap/compose.json" up -d --force-recreate --remove-orphans --no-build
+
+  if [ "$dry" -eq 0 ]; then
+    rm -f "$STATE_DIR/armed"
+    log "ROLLBACK DONE snapshot=$ts — env files NOT restored (copies in $snap); skynet-data NOT restored (copy in $snap/skynet-data)"
+    touch "$STATE_DIR/ROLLED-BACK-$ts"
+  else
+    log "ROLLBACK DRY-RUN DONE snapshot=$ts"
+  fi
+}
+
+prune_snapshots() {
+  local dir="$STATE_DIR/snapshots" old
+  [ -d "$dir" ] || return 0
+  # Newest first; drop everything after $KEEP, plus its pinned image tags.
+  ls -1 "$dir" | sort -r | tail -n +"$((KEEP + 1))" | while read -r old; do
+    docker images --format '{{.Repository}}:{{.Tag}}' | grep -F ":deadman-$old" | xargs -r docker rmi > /dev/null 2>&1 || true
+    rm -rf "${dir:?}/$old"
+    log "pruned snapshot $old"
+  done
+}
+
+case "${1:-}" in
+  arm) shift; cmd_arm "$@" ;;
+  disarm) shift; cmd_disarm ;;
+  status) shift; cmd_status ;;
+  rollback) shift; cmd_rollback "$@" ;;
+  *) sed -n '2,/^set -euo/p' "${BASH_SOURCE[0]}" | sed '$d; s/^# \{0,1\}//'; exit 2 ;;
+esac
