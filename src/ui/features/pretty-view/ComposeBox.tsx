@@ -42,6 +42,8 @@ import { RecordingControls } from "./RecordingControls";
 // 1. Enter-sends, Shift-Enter-newlines (COMPOSE-02 per D-48).
 //    handleKeyDown only intercepts plain Enter; Shift-Enter falls
 //    through to browser default textarea behavior (newline insertion).
+//    On touch devices Enter never sends — it always inserts a newline,
+//    and the Send button is the only send path.
 //
 // 2. Paste behavior satisfied by browser default — no custom paste
 //    handler attached (COMPOSE-05 per D-58/D-60). The "[pasted N lines]"
@@ -2067,6 +2069,8 @@ export function ComposeBox({
     // typeable but Enter-send is swallowed.
     // Reconnect window: same treatment — Enter can't slip past disabled Send.
     if (recycleActive || reconnectingActive) return;
+    // Touch devices: Enter inserts a newline (browser default); Send button sends.
+    if (isTouchDevice === true) return;
 
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault(); // suppress default newline insertion on plain Enter
@@ -2674,6 +2678,7 @@ export function ComposeBox({
               recycleActive={recycleActive}
               reconnectingActive={reconnectingActive}
               canSend={canSend}
+              isTouchDevice={isTouchDevice}
               queueSlots={queueSlots}
               onSlotsChange={(next) => {
                 setQueueSlots(next);
@@ -2787,6 +2792,7 @@ export function ComposeBox({
           onBlur={handleBlur}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
+          enterKeyHint={isTouchDevice === true ? "enter" : "send"}
           placeholder="Write a message…"
           rows={1}
           // Quick 260802-wxy: dynamic paddingTop grows with the overlaid
@@ -3231,6 +3237,7 @@ interface QueuedRowProps {
   // DELETED — compose (and queued rows) stay enabled on dormant panes;
   // invisible wake fires at the backend.
   canSend?: boolean;
+  isTouchDevice?: boolean;
   queueSlots: Array<{ id: string; text: string }>;
   onSlotsChange: (next: Array<{ id: string; text: string }>) => void;
   scheduleAutosave: (nextBody: string, nextSlots?: Array<{ id: string; text: string }>) => void;
@@ -3263,6 +3270,7 @@ function QueuedRow(props: QueuedRowProps) {
     recycleActive,
     reconnectingActive,
     canSend,
+    isTouchDevice,
     queueSlots,
     onSlotsChange,
     handleQueueSlotSend,
@@ -3527,12 +3535,15 @@ function QueuedRow(props: QueuedRowProps) {
             // insertion). Gated on `slotSendDisabled` — the same predicate
             // that disables the slot Send button — so transcribing / empty
             // text / recycle / reconnecting all no-op via one source of truth.
+            // Touch devices: Enter inserts a newline; the slot Send button sends.
+            if (isTouchDevice === true) return;
             if (e.key !== "Enter" || e.shiftKey) return;
             e.preventDefault();
             if (slotSendDisabled) return;
             handleQueueSlotSend(slot.id);
           }}
           onPaste={handlePasteForSlot}
+          enterKeyHint={isTouchDevice === true ? "enter" : "send"}
           placeholder="Queued message…"
           rows={1}
           data-testid={`queue-slot-textarea-${slot.id}`}
