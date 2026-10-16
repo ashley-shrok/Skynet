@@ -1346,6 +1346,28 @@ def _avatar_version(name, home, own_avatar, role_avatars):
     return hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()[:16]
 
 
+def _desktop_running(name, home):
+    """True while the identity's agent-desktop X server is alive.
+
+    agent-desktop records the identity's display number in
+    ~/fleet/identities/<name>/desktop/display; the X server for display :N
+    writes its pid to /tmp/.XN-lock and removes it on clean exit. Running =
+    that lock names a live process. Pure file reads — cheap enough for every
+    tick. Any read failure reads as not running (fail-closed: the app must
+    never advertise a desktop that isn't there).
+    """
+    try:
+        with open(os.path.join(home, "fleet", "identities", name, "desktop", "display")) as f:
+            n = f.read().strip()
+        if not n.isdigit():
+            return False
+        with open("/tmp/.X%s-lock" % n) as f:
+            pid = f.read().strip()
+        return pid.isdigit() and os.path.isdir("/proc/" + pid)
+    except OSError:
+        return False
+
+
 def _build_identity_line(name, home, sentinels, jsonl_path, jsonl_tail_cache, role_cosmetics_memo):
     """Assemble a SweepIdentityLine dict.
 
@@ -1439,6 +1461,8 @@ def _build_identity_line(name, home, sentinels, jsonl_path, jsonl_tail_cache, ro
         "roles": roles,
         "pinned": sentinels["pinned"],
         "avatar_version": avatar_version,
+        # The pane's desktop button: shown while the agent's desktop runs.
+        "desktop_running": _desktop_running(name, home),
         # Phase 115 Plan 115-05 archived axis retired in the Phase 122 shape
         # follow-up. Field kept in the emit so peers running older sweep
         # schemas still see the expected key (always False now — the archive

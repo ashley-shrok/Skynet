@@ -517,8 +517,26 @@ html.fs-xl {
   }
 }
 
+/* Task-pill side buttons (desktop running / unpushed work): a short glow
+ * pulse when the button appears, then a steady color — never a continuous
+ * animation, since a desktop can stay running for hours. */
+@keyframes pv-side-button-arrive {
+  0%,
+  100% {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4), 0 0 14px hsla(var(--pv-side-hue), 70%, 50%, 0.35);
+  }
+  50% {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4), 0 0 22px 5px hsla(var(--pv-side-hue), 75%, 55%, 0.75);
+  }
+}
+
+.pv-side-button {
+  animation: pv-side-button-arrive 1.2s ease-in-out 3;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .pv-identity-breathe {
+  .pv-identity-breathe,
+  .pv-side-button {
     animation: none !important;
   }
 }

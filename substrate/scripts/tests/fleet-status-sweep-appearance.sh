@@ -370,6 +370,32 @@ test_case_06_sentinels() {
   assert_identity_field "$out" "noflags" "pinned" 'false'
 }
 
+# Case 6b: desktop_running — true only while the display recorded in the
+# identity's desktop/display names an X lock file whose pid is alive.
+# Uses display numbers far above any real one and cleans up its lock files.
+test_case_06b_desktop_running() {
+  local live_n=$(( 60000 + RANDOM % 1000 ))
+  local dead_n=$(( live_n + 1000 ))
+  make_identity "deskon" "---\n---\n"
+  mkdir -p "$FIXTURE/fleet/identities/deskon/desktop"
+  printf '%s\n' "$live_n" > "$FIXTURE/fleet/identities/deskon/desktop/display"
+  printf '%10d\n' "$$" > "/tmp/.X${live_n}-lock"
+
+  make_identity "deskdead" "---\n---\n"
+  mkdir -p "$FIXTURE/fleet/identities/deskdead/desktop"
+  printf '%s\n' "$dead_n" > "$FIXTURE/fleet/identities/deskdead/desktop/display"
+  printf '%10d\n' 999999999 > "/tmp/.X${dead_n}-lock"
+
+  make_identity "desknone" "---\n---\n"
+
+  local out
+  out=$(run_sweep)
+  rm -f "/tmp/.X${live_n}-lock" "/tmp/.X${dead_n}-lock"
+  assert_identity_field "$out" "deskon" "desktop_running" 'true'
+  assert_identity_field "$out" "deskdead" "desktop_running" 'false'
+  assert_identity_field "$out" "desknone" "desktop_running" 'false'
+}
+
 # Case 7: colorHue out of range.
 # Role with colorHue: 400. Assert colorHue is absent from role_cosmetics.
 test_case_07_colorhue_out_of_range() {
@@ -882,6 +908,7 @@ run_test test_case_03_no_frontmatter
 run_test test_case_04_missing_identity_file
 run_test test_case_05_path_traversal_role
 run_test test_case_06_sentinels
+run_test test_case_06b_desktop_running
 run_test test_case_07_colorhue_out_of_range
 run_test test_case_07b_colorhue_quoted
 run_test test_case_08_quoted_and_commented

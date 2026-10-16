@@ -302,10 +302,10 @@ describe("SWEEP_FIELD_PARITY — parity map walk", () => {
   //   A0                       — per-host source-A enumeration driver
   //   A1..A12                  — per-PID source-A exec sites
   //   B0                       — per-host source-B enumeration driver
-  //   B1..B10                  — per-identity source-B exec sites
+  //   B1..B11                  — per-identity source-B exec sites
   //   C0                       — per-host source-C enumeration driver (Phase 118)
   //   C1..C10                  — per-app source-C fields (D-05 + D-03 carve-out + Phase 130 users + icon_version)
-  // Total: 2 + 12 + 10 + 1 + 10 = 35 keys.
+  // Total: 2 + 12 + 11 + 1 + 10 = 36 keys.
   // (B6..B8 added by Plan 111-01/111-02: appearance fields on SweepIdentityLine.
   //  Plan 111-02 also added B9 for `.hidden`; Phase 115 Plan 115-02 retired
   //  the `.hidden` code path per D-21 (freeing the B9 slot); Phase 115 Plan
@@ -313,6 +313,7 @@ describe("SWEEP_FIELD_PARITY — parity map walk", () => {
   //  118-02 added C0..C8 for the source-C app enumeration wire fields.
   //  Phase 130 added C9 for the per-user visibility gate list on app.json.
   //  B10 = avatar_version, the avatar-file digest baked into avatarUrl.
+  //  B11 = desktop_running, the pane's desktop button signal.
   //  C10 = icon_version, the icon-file digest baked into the app icon URL.)
   const EXPECTED_KEYS: readonly string[] = [
     "A0",
@@ -339,6 +340,7 @@ describe("SWEEP_FIELD_PARITY — parity map walk", () => {
     "B8",
     "B9",
     "B10",
+    "B11",
     "C0",
     "C1",
     "C2",
@@ -378,6 +380,8 @@ describe("SWEEP_FIELD_PARITY — parity map walk", () => {
       "archived",
       // B10: avatar-file digest baked into avatarUrl.
       "avatar_version",
+      // B11: the identity's desktop is running.
+      "desktop_running",
     ]);
     const pidFields = new Set<string>([
       "line_kind",

@@ -151,6 +151,9 @@ export function IdentityModal({
   hue,
   hostId,
   onOpenRoleModal,
+  initialTab,
+  desktopRunningHint = false,
+  gitReposHint = false,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -159,8 +162,21 @@ export function IdentityModal({
   hostId: number;
   /** Opens the Role modal for one of the identity's roles (by slug). */
   onOpenRoleModal: (identity: Identity, roleName: string) => void;
+  /** Tab to land on when the modal opens (the task pill's round buttons).
+   *  Absent → the remembered tab, as before. Read at the open transition. */
+  initialTab?: string;
+  /** The live fleet-status desktop signal: when true, the Desktop tab shows
+   *  from the first frame instead of waiting for the modal's own status check. */
+  desktopRunningHint?: boolean;
+  /** True when the caller already knows the workspace holds a repo (the
+   *  unpushed-work button), so the Git tab shows from the first frame. */
+  gitReposHint?: boolean;
 }): JSX.Element {
-  const [activeTab, setActiveTab] = useState<string>("identity");
+  // A modal mounted already-open honors the requested tab too (the open
+  // transition below handles every later open).
+  const [activeTab, setActiveTab] = useState<string>(
+    () => (open && initialTab) || "identity",
+  );
 
   // Per-field inline edit state — task pencil only (displayName pencil
   // retired 2026-09-29; identities not renamable via UI).
@@ -184,9 +200,10 @@ export function IdentityModal({
 
   // Git tab only when the workspace actually holds a repo.
   const gitTarget = { kind: "identity" as const, identityKey: identity.identityKey };
-  const hasGitRepos = useHasGitRepos(gitTarget, hostId, open);
+  const hasGitRepos = useHasGitRepos(gitTarget, hostId, open) || (open && gitReposHint);
   // Desktop tab only once the identity's virtual desktop is up.
-  const desktopRunning = useDesktopRunning(identity.identityKey, hostId, open);
+  const desktopRunningPolled = useDesktopRunning(identity.identityKey, hostId, open);
+  const desktopRunning = desktopRunningPolled || (open && desktopRunningHint);
   // While the user drives the desktop, Esc belongs to it, not to the modal.
   const [desktopControl, setDesktopControl] = useState(false);
   // Reopening on a remembered Desktop tab would show an empty, large modal
@@ -195,7 +212,8 @@ export function IdentityModal({
   const [prevOpen, setPrevOpen] = useState(open);
   if (open !== prevOpen) {
     setPrevOpen(open);
-    if (open && activeTab === "desktop") setActiveTab("identity");
+    if (open && initialTab) setActiveTab(initialTab);
+    else if (open && activeTab === "desktop" && !desktopRunningHint) setActiveTab("identity");
   }
   const NAV_SECTIONS = [
     { value: "identity", label: "Agent file", Icon: User },

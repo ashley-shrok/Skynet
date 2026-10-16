@@ -92,7 +92,8 @@ import {
   sessionMatchKey,
   useSessionIdentity,
 } from "@/features/terminal/session-hue";
-import { IdentityBadge } from "@/features/terminal/IdentityBadge";
+import { TaskPill, type TaskPillJumpTab } from "./TaskPill";
+import { useSessionDesktopRunning } from "@/api/fleet-status-client";
 import type { RowKebabMenuItem } from "@/features/pretty-conversations/RowKebabMenu";
 import { useIsTouchDevice } from "@/hooks/use-is-touch-device";
 import {
@@ -1016,6 +1017,10 @@ export function PrettyView({
   // this to true; the IdentityModal handles close via onOpenChange (Esc,
   // backdrop, X button all route through shadcn Dialog's onOpenChange).
   const [isIdentityModalOpen, setIsIdentityModalOpen] = useState(false);
+  // Tab the task pill's round buttons asked the modal to land on (desktop /
+  // git); undefined for a plain pill click (the modal's remembered tab).
+  const [identityModalTab, setIdentityModalTab] = useState<TaskPillJumpTab | undefined>(undefined);
+  const pvDesktopRunning = useSessionDesktopRunning(hostId, tmuxSession ?? null);
   // Publish modal-open to the app-wide store so AppShell's mobile back
   // button can hide itself while the modal is visible. See
   // identity-modal-open-store.ts for the root-cause writeup (per-tab
@@ -4277,35 +4282,28 @@ export function PrettyView({
         } as React.CSSProperties
       }
     >
-      {/* Phase 4: pretty-view IdentityBadge in the lg treatment.
-          Mounts only when a matching identity is registered for this
-          pane (sessionMatchKey → useIdentities().byKey lookup — same
-          semantic as the terminal-pane mount). z-[101] matches the
-          terminal-pane badge so layering is consistent when flipping
-          between modes with Ctrl+Shift+O.
-          Patch #87: onClick wires the lg badge as a click target that opens
-          the IdentityModal. The md terminal-pane badge (patch #38) is
-          unaffected — this onClick prop is lg-only and ignored by md.
-
-          Phase 93 Slice 2 (D-01/D-08 discipline): the harness case is
-          gated on `source.kind === "harness"` at the outer JSX conditional
-          — the subtree inside is BYTE-IDENTICAL to Slice 1 (Pitfall 1
-          harness regression floor). The relay case renders the sibling
-          MultiBadgeAnchor block below. Both branches anchor at the SAME
-          position class (`absolute top-4 right-5 z-[101]`), so the badge
-          spot is layout-stable across source kinds. */}
+      {/* The task pill — the pane's handle, replacing the identity badge
+          (shape task-pill). Avatar + task; click → agent window; ⋮ /
+          right-click → the conversation menu; drag → pane handle. Round
+          buttons beside it (desktop running, unpushed work) jump straight to
+          that agent-window tab. Harness panes only — relay rooms keep their
+          badge group below. */}
       {source.kind === "harness" && pvIdentityKey && (
-        <IdentityBadge
+        <TaskPill
           identityKey={pvIdentityKey}
           hostId={hostId}
-          onClick={() => setIsIdentityModalOpen(true)}
+          tmuxSession={tmuxSession || null}
           tabId={tabId}
           dragDescriptor={{
             tabType: "terminal",
             sessionKind: "harness",
             targetTmuxSession: tmuxSession || null,
           }}
-          menuItems={identityBadgeContextMenuItems}
+          menuItems={identityBadgeContextMenuItems ?? []}
+          onOpen={(tab) => {
+            setIdentityModalTab(tab);
+            setIsIdentityModalOpen(true);
+          }}
         />
       )}
       {/* Phase 93 Slice 2 (D-01/D-02/D-03/D-18): relay-case multi-badge
@@ -4331,44 +4329,6 @@ export function PrettyView({
           relayRoomTitle={source.kind === "relay" ? source.roomTitle : undefined}
         />
       )}
-      {/* Phase 80 Plan 07: centered task pill in the top bar. Sibling to
-          IdentityBadge (which stays top-right at z-[101]). Renders iff
-          the identity resolves AND carries a truthy `task` string (D-06
-          fallback — absent/empty task → no pill). Glass treatment mirrors
-          IdentityBadge (hsla ratios + hue tint from `pvIdentity.colorHue
-          ?? 35` matching IdentityBadge L101 fallback; smaller padding +
-          shadow so the pill reads as a subordinate sibling to the badge).
-          z-[100] sits BELOW the badge's z-[101] so badge drag/click stays
-          priority (RESEARCH §Stream 7 A5). Text truncates via nowrap +
-          maxWidth 50% rather than wrapping — long tasks read as a single
-          horizontal line clipped with ellipsis. Task is rendered as a
-          plain React child (auto-escaped) — no raw-HTML injection path
-          (T-80-07-01 mitigation: XSS via user-supplied task string). */}
-      {pvIdentityKey && pvIdentity?.task && (
-        <div
-          data-testid="pv-task-pill"
-          className="pv-identity-breathe absolute top-4 left-1/2 -translate-x-1/2 z-[100] select-none"
-          style={{
-            borderRadius: 20,
-            padding: "6px 14px",
-            maxWidth: "50%",
-            background: `linear-gradient(160deg, hsla(${pvIdentity.colorHue ?? 35}, 45%, 25%, 0.72), hsla(${pvIdentity.colorHue ?? 35}, 40%, 15%, 0.82))`,
-            backdropFilter: "blur(24px) saturate(1.4)",
-            WebkitBackdropFilter: "blur(24px) saturate(1.4)",
-            border: `1px solid hsla(${pvIdentity.colorHue ?? 35}, 65%, 55%, 0.4)`,
-            boxShadow: `0 4px 12px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,220,170,0.14), 0 0 24px hsla(${pvIdentity.colorHue ?? 35}, 65%, 55%, 0.24)`,
-            color: "#e8e4d8",
-            fontSize: 13,
-            fontWeight: 500,
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            animation: "pv-identity-breathe 5s ease-in-out infinite",
-          }}
-        >
-          {pvIdentity.task}
-        </div>
-      )}
       {/* Patch #87: identity bounties modal. Portals to document.body via
           shadcn Dialog so it escapes this root's relative/overflow context.
           Mount guarded by pvIdentity non-null (Modal needs displayName,
@@ -4377,6 +4337,9 @@ export function PrettyView({
       {pvIdentity && (
         <IdentityModal
           open={isIdentityModalOpen}
+          initialTab={identityModalTab}
+          desktopRunningHint={pvDesktopRunning}
+          gitReposHint={identityModalTab === "git"}
           onOpenChange={setIsIdentityModalOpen}
           identity={pvIdentity}
           hue={pvHue}

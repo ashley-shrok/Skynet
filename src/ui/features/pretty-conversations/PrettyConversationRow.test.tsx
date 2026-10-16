@@ -2392,8 +2392,8 @@ describe("PrettyConversationRow: Phase 56 row is a drag source", () => {
 // the `.pv-row` FIRST-child watermark span.
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("PrettyConversationRow: Phase 67 coordinator watermark", () => {
-  it("ROW-COORD-1: identity.coordinator === true renders `data-testid=coordinator-watermark` element inside .pv-row", async () => {
+describe("PrettyConversationRow: no coordinator watermark (retired)", () => {
+  it("ROW-COORD-1: identity.coordinator === true no longer draws a watermark", async () => {
     currentIdentity = { ...makeIdentity(200, "nelly"), coordinator: true };
     const { container } = render(
       <PrettyConversationRow
@@ -2405,15 +2405,10 @@ describe("PrettyConversationRow: Phase 67 coordinator watermark", () => {
         onTogglePin={vi.fn()}
       />,
     );
-    const watermark = container.querySelector(
-      '[data-testid="coordinator-watermark"]',
-    );
-    expect(watermark).not.toBeNull();
-    // Positional contract: watermark lives INSIDE the .pv-row body, not
-    // sibling to it.
-    const row = container.querySelector(".pv-row") as HTMLElement | null;
-    expect(row).not.toBeNull();
-    expect(row!.contains(watermark)).toBe(true);
+    expect(
+      container.querySelector('[data-testid="coordinator-watermark"]'),
+    ).toBeNull();
+    expect(container.querySelector(".pv-coordinator-watermark")).toBeNull();
   });
 
   it("ROW-COORD-2: identity.coordinator absent (undefined) → no coordinator-watermark element in DOM", async () => {

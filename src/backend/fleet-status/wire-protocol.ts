@@ -390,6 +390,9 @@ export const IdentityAppearanceSchema = z.object({
   // has no project frontmatter) + optional (backward compat with older
   // publishers that don't emit the field yet).
   project: z.string().nullable().optional(),
+  // True while the identity's desktop is running (the pane's desktop button).
+  // Optional: older publishers don't emit it.
+  desktopRunning: z.boolean().optional(),
 });
 
 export type IdentityAppearance = z.infer<typeof IdentityAppearanceSchema>;

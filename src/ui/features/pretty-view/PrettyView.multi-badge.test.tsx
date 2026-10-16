@@ -83,6 +83,13 @@ vi.mock("@/features/terminal/IdentityBadge", () => ({
     ) : null,
 }));
 
+// TaskPill mock — the harness pane's handle (replaced the harness badge).
+vi.mock("./TaskPill", () => ({
+  TaskPill: (props: { identityKey: string }) => (
+    <div data-testid="mock-task-pill" data-identity-key={props.identityKey} />
+  ),
+}));
+
 vi.mock("@/hooks/use-is-touch-device", () => ({
   useIsTouchDevice: vi.fn(() => false),
 }));
@@ -190,7 +197,7 @@ describe("PrettyView — Phase 93 Slice 2 multi-badge case-branch", () => {
     vi.unstubAllGlobals();
   });
 
-  it("Test 1 (harness regression floor): harness source renders exactly ONE badge at 'absolute top-4 right-5 z-[101]'", () => {
+  it("Test 1 (harness case): harness source renders exactly ONE task pill and no badge", () => {
     sessionMatchKeyMock.mockReturnValue("tina");
 
     const { container } = render(
@@ -204,13 +211,12 @@ describe("PrettyView — Phase 93 Slice 2 multi-badge case-branch", () => {
       />,
     );
 
-    const badges = container.querySelectorAll(
-      '[data-testid="mock-identity-badge"]',
-    );
-    expect(badges).toHaveLength(1);
-    expect(badges[0]?.className).toContain("absolute top-4 right-5 z-[101]");
-    // Preserves the pv-identity-breathe class.
-    expect(badges[0]?.className).toContain("pv-identity-breathe");
+    const pills = container.querySelectorAll('[data-testid="mock-task-pill"]');
+    expect(pills).toHaveLength(1);
+    expect(pills[0]?.getAttribute("data-identity-key")).toBe("tina");
+    expect(
+      container.querySelector('[data-testid="mock-identity-badge"]'),
+    ).toBeNull();
   });
 
   it("Test 2 (harness does NOT mount MultiBadgeAnchor)", () => {
@@ -320,16 +326,18 @@ describe("PrettyView — Phase 93 Slice 2 multi-badge case-branch", () => {
     expect(cells.length).toBe(3);
   });
 
-  it("Test 5 (task-pill unchanged): no regression on the centered task-pill anchor", () => {
-    const src = readFileSync(
-      path.resolve(__dirname, "PrettyView.tsx"),
-      "utf-8",
+  it("Test 5 (relay case): no task pill — relay rooms keep their badge group", () => {
+    adapterMock.mockReturnValue(defaultAdapterState({ isReady: true }));
+    const { container } = render(
+      <PrettyView
+        source={{ kind: "relay", roomId: "!r:example.com", roomTitle: "Room" }}
+        hostId={1}
+        tmuxSession="s1"
+        isVisible={true}
+        onSend={() => true}
+      />,
     );
-    // Task pill anchor class stays at 'absolute top-4 left-1/2
-    // -translate-x-1/2 z-[100]'. Grep-based check that the string is intact.
-    expect(
-      src.includes("absolute top-4 left-1/2 -translate-x-1/2 z-[100]"),
-    ).toBe(true);
+    expect(container.querySelector('[data-testid="mock-task-pill"]')).toBeNull();
   });
 
   it("Test 6 (source-file discipline): source.kind === 'harness' guards the badge mount", () => {

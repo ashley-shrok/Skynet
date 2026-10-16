@@ -4,7 +4,7 @@ import { useIdentities } from "@/state/identities-store";
 import { useProjects, usePinnedIds, fleetRowId } from "@/state/conversation-store";
 import { useIsMobile } from "@/hooks/use-mobile";
 import type { TabType } from "@/types/ui-types";
-import { armOutboundDrag, mintDragId } from "@/shell/cross-window-drag";
+import { writeBadgeDragData } from "@/shell/badge-drag";
 import {
   RowKebabMenu,
   useRowKebabContextMenu,
@@ -15,10 +15,6 @@ import {
 // work store lookup (superseding the Phase 68 "no longer used" note). Existing
 // call sites already thread it (IdentitySessionPane.tsx L291,410,445); no prop
 // signature change needed.
-import {
-  getCoordinatorWatermarkStyle,
-  COORDINATOR_WATERMARK_HUE_FALLBACK,
-} from "@/features/pretty-view/coordinator-watermark";
 // Phase 104 Plan 02: per-identity trapped-work indicator (D-05 same visual
 // across both surfaces — conv-list row + this pretty-view header badge).
 import { useTrappedWork } from "@/state/trapped-work-store";
@@ -305,31 +301,6 @@ export function IdentityBadge({
           />
         </span>
       )}
-      {/* Phase 67 Plan 67-02 Track B: coordinator watermark. Renders iff the
-          badge's resolved identity carries `coordinator: true` on the wire
-          (Phase 67 Plan 67-01 backend contract). Placed at the TOP of the
-          `inner` fragment so both branches (interactive <button> + non-
-          interactive <div>) get it without needing two separate branches.
-          Non-interactive (pointer-events: none) — never fights the pill's
-          click/hover/focus machinery. Sized larger than the
-          conversation-row treatment (opacity 0.14 vs 0.16, width 148 vs 96,
-          bleed -28/-32 vs -18/-22) per shape file tasting-v5 option-C.
-          Phase 67 /close 2026-09-01 follow-up (M2 + M3): SVG + style moved
-          to the shared coordinator-watermark helper; the watermark's null-
-          hue fallback is unified to 216 across all three surfaces (was 35
-          here, mismatching the row's CSS 216 default). Chrome hue (border,
-          glow, bg) still falls back to 35 at L99 above — that's a separate
-          concern with a broader blast radius. */}
-      {identity.coordinator === true && (
-        <span
-          aria-hidden="true"
-          data-testid="coordinator-watermark"
-          style={getCoordinatorWatermarkStyle(
-            identity.colorHue ?? COORDINATOR_WATERMARK_HUE_FALLBACK,
-            "badge",
-          )}
-        />
-      )}
       {/* Phase 104 Plan 02 — trapped-work indicator (D-05 same visual as the
           conv-list row's indicator, D-06 start-absent, D-07 tooltip copy).
           Positioning math: the pill is padding 8px 18px 8px 8px around a 56px
@@ -458,20 +429,12 @@ export function IdentityBadge({
         // pair locally so the accept-subscriber in AppShell can close this
         // window's source tab when the target echoes the dragId back over
         // BroadcastChannel (hard-move semantics per user directive 2026-09-17).
-        const dragId = mintDragId();
-        armOutboundDrag(dragId, id);
-        e.dataTransfer.setData("text/plain", id);
-        e.dataTransfer.setData(
-          "application/x-skynet-badge",
-          JSON.stringify({
-            tabId: id,
-            dragId,
-            identityKey,
-            hostId: hostId ?? null,
-            descriptor: dragDescriptor ?? null,
-          }),
-        );
-        e.dataTransfer.effectAllowed = "move";
+        const dragId = writeBadgeDragData(e.dataTransfer, {
+          tabId: id,
+          identityKey,
+          hostId: hostId ?? null,
+          descriptor: dragDescriptor ?? null,
+        });
         console.info(
           `[badge-drag] tabId=${id} dragId=${dragId} hasIdentity=${identity !== null} hasDescriptor=${dragDescriptor !== undefined}`,
         );

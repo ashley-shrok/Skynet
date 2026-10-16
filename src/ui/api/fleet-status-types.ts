@@ -109,6 +109,8 @@ export interface IdentityAppearance {
   roleDefaults: Record<string, unknown> | null;
   avatarUrl: string;
   pinned: boolean;
+  /** True while the identity's desktop is running (optional — older publishers). */
+  desktopRunning?: boolean;
 }
 
 // ---------------------------------------------------------------------------

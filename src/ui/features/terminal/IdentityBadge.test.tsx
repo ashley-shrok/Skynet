@@ -391,7 +391,7 @@ describe("IdentityBadge — Phase 58 Plan 01: badge as drag source", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 import { useIdentities } from "@/state/identities-store";
 
-describe("IdentityBadge — Phase 67 coordinator watermark", () => {
+describe("IdentityBadge — coordinator watermark retired", () => {
   beforeEach(() => {
     vi.useRealTimers();
     setMobileViewport(false);
@@ -400,7 +400,7 @@ describe("IdentityBadge — Phase 67 coordinator watermark", () => {
     vi.restoreAllMocks();
   });
 
-  it("BADGE-COORD-1: identity.coordinator === true renders data-testid=coordinator-watermark inside the badge root", () => {
+  it("BADGE-COORD-1: identity.coordinator === true no longer draws a watermark (retired)", () => {
     const coordFixture = { ...FIXTURE, coordinator: true };
     vi.mocked(useIdentities).mockReturnValue({
       identities: [coordFixture],
@@ -409,9 +409,7 @@ describe("IdentityBadge — Phase 67 coordinator watermark", () => {
       refresh: vi.fn(),
     });
     render(<IdentityBadge identityKey="tina" onClick={vi.fn()} />);
-    const root = screen.getByTestId("identity-badge-root");
-    const watermark = root.querySelector('[data-testid="coordinator-watermark"]');
-    expect(watermark).not.toBeNull();
+    expect(screen.queryByTestId("coordinator-watermark")).toBeNull();
   });
 
   it("BADGE-COORD-2: identity.coordinator absent → no coordinator-watermark element in DOM", () => {
@@ -434,34 +432,6 @@ describe("IdentityBadge — Phase 67 coordinator watermark", () => {
       screen.queryByTestId("coordinator-watermark"),
     ).toBeNull();
   });
-
-  it("BADGE-COORD-3 (Phase 67 /close 2026-09-01 follow-up, M3): coordinator watermark null-hue fallback is 216 (unified with row + modal)", () => {
-    // Pre-fix, the badge fell back to hue 35 (chrome default) for the
-    // watermark when identity.colorHue was null — mismatching the row's
-    // CSS `--pv-hue: 216` default. Post-fix, the watermark's null-hue
-    // fallback is 216 across all three surfaces (chrome fallback stays at
-    // 35 — see comment at IdentityBadge.tsx `const hue = ...`).
-    // JSDOM canonicalizes inline CSS colors on read (hsl → rgb), so this
-    // test asserts on the rgb() equivalents:
-    //   hsl(216, 85%, 78%) → rgb(151, 189, 247)  (fallback: unified 216)
-    //   hsl(35,  85%, 78%) → rgb(247, 207, 151)  (pre-fix bug: chrome-35)
-    const nullHueCoordFixture = {
-      ...FIXTURE,
-      colorHue: null as number | null,
-      coordinator: true,
-    };
-    vi.mocked(useIdentities).mockReturnValue({
-      identities: [nullHueCoordFixture],
-      byKey: new Map([["tina", nullHueCoordFixture]]),
-      loaded: true,
-      refresh: vi.fn(),
-    });
-    render(<IdentityBadge identityKey="tina" onClick={vi.fn()} />);
-    const watermark = screen.getByTestId("coordinator-watermark");
-    const inlineStyle = watermark.getAttribute("style") ?? "";
-    expect(inlineStyle).toContain("rgb(151, 189, 247)"); // = hsl(216, 85%, 78%)
-    expect(inlineStyle).not.toContain("rgb(247, 207, 151)"); // ≠ hsl(35, 85%, 78%)
-  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -471,8 +441,7 @@ describe("IdentityBadge — Phase 67 coordinator watermark", () => {
 // The BADGE-TRAP-* tests defend the D-05 same-visual invariant across the two
 // identity surfaces + D-06 start-absent + D-07 tooltip copy + Pattern 4 hostId
 // reactivation (Phase 68 made hostId a no-op for avatar-URL construction;
-// Phase 104 reactivates it for the store lookup). Coordinator watermark
-// coexistence is asserted so the two overlays never collide.
+// Phase 104 reactivates it for the store lookup).
 
 describe("IdentityBadge — Phase 104 trapped-work indicator", () => {
   beforeEach(() => {
@@ -531,7 +500,7 @@ describe("IdentityBadge — Phase 104 trapped-work indicator", () => {
     expect(svg!.getAttribute("aria-hidden")).toBe("true");
   });
 
-  it("BADGE-TRAP-4: coordinator=true + hasTrappedWork:true → BOTH coordinator-watermark AND pv-trapped-work-indicator render", () => {
+  it("BADGE-TRAP-4: coordinator=true + hasTrappedWork:true → the trapped-work indicator renders, no watermark", () => {
     const coordFixture = { ...FIXTURE, coordinator: true };
     vi.mocked(useIdentities).mockReturnValue({
       identities: [coordFixture],
@@ -541,7 +510,7 @@ describe("IdentityBadge — Phase 104 trapped-work indicator", () => {
     });
     currentBadgeTrappedWork = { hasTrappedWork: true };
     render(<IdentityBadge identityKey="tina" onClick={vi.fn()} />);
-    expect(screen.getByTestId("coordinator-watermark")).not.toBeNull();
+    expect(screen.queryByTestId("coordinator-watermark")).toBeNull();
     expect(screen.getByTestId("pv-trapped-work-indicator")).not.toBeNull();
   });
 

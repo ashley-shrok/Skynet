@@ -761,8 +761,8 @@ not something agents drive.
     **User-gated.**
   - **Archive** — retires the identity. See § On `/id archive`.
 
-  The same menu CONTENT appears on the identity badge in the open
-  conversation view (upper-right) — its own three-dots button, or
+  The same menu CONTENT appears on the conversation's **task pill** in the
+  open conversation view (top-center) — its own three-dots button, or
   right-click — plus **Close** (desktop only), which closes that pane.
 
 - **Projects section (below Pinned).** A **Projects** super-header
@@ -806,17 +806,17 @@ not something agents drive.
   open, presents a placement UI so the user can split the view —
   arbitrary depth). Dragging a **file chip** out of a chat bubble does the
   same for that file: it opens in a new **file pane** (each drag opens
-  another, even for a file already open). Each open conversation pane has a **badge**, each
+  another, even for a file already open). Each open conversation pane has a **task pill** (relay rooms: a **badge** per participant), each
   open app pane its **app bar**, each remote-desktop pane its
   **remote-desktop bar**, and each file pane its **file bar** (all below); dragging it to a different spot in
   the split tree rearranges panes. Moving an app pane keeps the app on the
   page it was on; moving a remote-desktop pane keeps it connected.
-  While a badge or pane bar is being dragged, a **drop lane** appears along
+  While a task pill, badge or pane bar is being dragged, a **drop lane** appears along
   the left edge of the content area (beside the sidebar, or at the window
   edge when the sidebar is collapsed): its top two-thirds is **Close**
   (✕ — closes that pane), its bottom third **Archive** (archives the agent
   after the usual "can't be undone" confirm; shown only for an agent's own
-  conversation, not relay rooms, apps, remote desktops or files). Dropping a conversation's badge
+  conversation, not relay rooms, apps, remote desktops or files). Dropping a conversation's task pill
   on a project, Pinned, or Conversations files it there, exactly like
   dragging its sidebar row, and the pane stays open. Dropping anywhere
   else in the sidebar does nothing.
@@ -845,12 +845,12 @@ not something agents drive.
   inside the app is the bar's back button.
   Center: the app's icon and name. Right: a **three-dots (⋮) button** —
   always visible, phone included — opening the app's menu; right-clicking
-  the bar opens the same menu. Same look as a conversation badge's menu:
+  the bar opens the same menu. Same look as a conversation's menu:
   **Move to new tab** (desktop only — opens it in a new Skynet tab
   and closes this pane), **Open standalone**, **Rename…**,
   **Close** (desktop only), **Archive** (the same double-confirm as the
   sidebar app tile's; closes every open pane of that app). The **whole bar is the drag handle**, same as a
-  conversation's badge: drag it to the drop lane's Close to close the app,
+  conversation's task pill: drag it to the drop lane's Close to close the app,
   onto another pane to rearrange, or into another Skynet window. On a phone the
   bar shows but isn't draggable.
   *Agent-side:* the navigation buttons and window actions: none — the app
@@ -998,27 +998,34 @@ crown, then gear.
 
 ### Conversation view
 
-- **Task line (top-middle of the open conversation).** The one-line
-  description of what this agent is currently working on. It reflects
-  the `task:` frontmatter of the identity (see § Loading an existing
-  identity). Same string appears as this conversation's row title in the
-  sidebar.
+- **Task pill (top-center of the open conversation).** The conversation's
+  handle, and the only thing at the top of an agent conversation — the same
+  in chat view and terminal view. It looks and behaves like that
+  conversation's sidebar row: the agent's avatar, then the one-line
+  description of what the agent is working on — the identity's `task:`
+  frontmatter (§ Loading an existing identity), or the agent's name when
+  there is none, the same string as the row's title. Click = opens the
+  **identity modal** (below). A **three-dots (⋮) button** at the pill's
+  right end — always visible, and the way in on a phone — opens the
+  conversation menu; right-clicking the pill opens the same menu: **Move to
+  new tab** (desktop only), **Rename…**, **Move to** (Pinned + projects),
+  **Close** (desktop only), **Archive**. Drag = see § Drag & drop (drop
+  lane, filing into sidebar sections); not draggable on a phone. Hovering
+  shows the agent's name, roles and project. (There is no identity badge in
+  an agent conversation any more; relay rooms still show a badge per
+  participant.)
   *Agent-side:* keep `task:` current, silently. Rules already covered.
 
-- **Badge (upper-right of the conversation).** Shows the role avatars,
-  the agent's name, the role names, and which project the agent is in,
-  if any. When the conversation is pinned, a dark-bubble pin indicator
-  overlays the avatar's top-left corner — same visual as the sidebar row's pin
-  flag, flips in lockstep with it. Click = opens the **identity
-  modal** (next item). A **three-dots (⋮) button** at the pill's right
-  end — always visible, and the way in on a phone — opens the badge menu;
-  right-clicking the badge opens the same menu. Same look as the sidebar
-  row's menu: **Move to new tab** (desktop only), **Switch to terminal
-  / chat view** (admins only), **Rename…**, **Move to** (Pinned + projects), **Close**
-  (desktop only), **Archive**. Drag = see § Drag & drop (drop lane,
-  filing into sidebar sections).
+- **Round buttons beside the task pill.** Just to the right of the pill,
+  shown only while their condition is true, each a shortcut into the
+  identity modal: a green **monitor** button while the agent's virtual
+  desktop is running (opens the Desktop tab), and an amber button while the
+  agent has local work not pushed to any remote (opens the Git tab). They
+  pulse briefly when they appear, then hold a steady color.
+  *Agent-side:* starting your desktop (`desktop` skill) makes the green
+  button appear for the user within a few seconds; stopping it removes it.
 
-- **Identity modal (click the badge).** Three tabs, plus two that appear
+- **Identity modal (click the task pill).** Three tabs, plus two that appear
   only when there's something to show:
   - **Agent file** — view and edit the identity's own `<name>.md`.
   - **Wake-ups** — view the identity's scheduled wake-ups (§ Scheduled

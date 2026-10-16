@@ -14,6 +14,7 @@
 
 import { useSyncExternalStore } from "react";
 import { subscribeDragSessionEnd } from "./drag-preview-session";
+import { armOutboundDrag, mintDragId } from "./cross-window-drag";
 
 export const BADGE_MIME = "application/x-skynet-badge";
 
@@ -28,8 +29,49 @@ export interface DraggedBadge {
   relayRoomId: string | null;
 }
 
+/** What a pane handle (identity badge, task pill) carries when dragged. */
+export interface BadgeDragSource {
+  tabId: string;
+  identityKey: string | null;
+  hostId: number | null;
+  descriptor: {
+    tabType: string;
+    sessionKind?: "harness" | "relay-room";
+    relayRoomId?: string;
+    relayRoomTitle?: string | null;
+    targetTmuxSession?: string | null;
+  } | null;
+}
+
+/**
+ * Write the pane-handle drag payload at dragstart — the one wire contract
+ * every drop target reads:
+ *   - text/plain: tabId (split-pane rearrange)
+ *   - BADGE_MIME: {tabId, dragId, identityKey, hostId, descriptor} (drop lane,
+ *     sidebar sections, other Skynet windows)
+ * The dragId is armed so the accepting window can close this window's tab
+ * (cross-window hard move).
+ */
+export function writeBadgeDragData(dt: DataTransfer, src: BadgeDragSource): string {
+  const dragId = mintDragId();
+  armOutboundDrag(dragId, src.tabId);
+  dt.setData("text/plain", src.tabId);
+  dt.setData(
+    BADGE_MIME,
+    JSON.stringify({
+      tabId: src.tabId,
+      dragId,
+      identityKey: src.identityKey,
+      hostId: src.hostId,
+      descriptor: src.descriptor,
+    }),
+  );
+  dt.effectAllowed = "move";
+  return dragId;
+}
+
 export function hasBadgeMime(dt: DataTransfer | null | undefined): boolean {
-  return !!dt && Array.from(dt.types).includes(BADGE_MIME);
+  return !!dt && !!dt.types && Array.from(dt.types).includes(BADGE_MIME);
 }
 
 /** Parses the badge MIME payload IdentityBadge writes at dragstart. */

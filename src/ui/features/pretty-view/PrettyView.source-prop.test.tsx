@@ -94,6 +94,13 @@ vi.mock("@/features/terminal/session-hue", () => ({
     useSessionIdentityMock(name as unknown as never),
 }));
 
+// TaskPill mock — the harness pane's handle (replaced the harness badge).
+vi.mock("./TaskPill", () => ({
+  TaskPill: (props: { identityKey: string }) => (
+    <div data-testid="mock-task-pill" data-identity-key={props.identityKey} />
+  ),
+}));
+
 // IdentityBadge mock: render an identifiable node so tests can assert on
 // presence and count. Preserve the position class from
 // IdentityBadge.tsx:110 (`absolute top-4 right-5 z-[101]`) so Test 1 can
@@ -141,8 +148,8 @@ describe("PrettyView — Phase 92 Slice 1 source-prop foundation", () => {
     vi.unstubAllGlobals();
   });
 
-  it("Test 1 (harness regression floor): renders exactly one badge at position class 'absolute top-4 right-5 z-[101]' with the harness source", () => {
-    // Enable identity so IdentityBadge mounts (per production path,
+  it("Test 1 (harness case): renders exactly one task pill with the harness source", () => {
+    // Enable identity so the task pill mounts (per production path,
     // pvIdentityKey = sessionMatchKey(tmuxSession) → useIdentities lookup).
     sessionMatchKeyMock.mockReturnValue("tina");
 
@@ -157,10 +164,9 @@ describe("PrettyView — Phase 92 Slice 1 source-prop foundation", () => {
       />,
     );
 
-    const badges = container.querySelectorAll("[data-testid=\"mock-identity-badge\"]");
-    expect(badges).toHaveLength(1);
-    // Position class byte-preserved (per IdentityBadge.tsx:110 rootClassName).
-    expect(badges[0]?.className).toContain("absolute top-4 right-5 z-[101]");
+    const pills = container.querySelectorAll("[data-testid=\"mock-task-pill\"]");
+    expect(pills).toHaveLength(1);
+    expect(container.querySelector("[data-testid=\"mock-identity-badge\"]")).toBeNull();
   });
 
   it("Test 2 (redundant legacy props preserved): PrettyViewProps declares hostId: number AND tmuxSession: string alongside source", () => {

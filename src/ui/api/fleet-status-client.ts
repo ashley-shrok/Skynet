@@ -258,6 +258,7 @@ export function createFleetStatusClient(
           // session-waiting-store, session-tmux-store all publish first.
           for (const s of parsed.states) {
             publishSessionContextPct(s.hostId, s.tmuxSession, s.contextPct ?? null);
+            publishSessionDesktopRunning(s.hostId, s.tmuxSession, s.identityAppearance);
           }
           onSnapshot(parsed.states);
           break;
@@ -275,6 +276,11 @@ export function createFleetStatusClient(
             parsed.state.tmuxSession,
             parsed.state.contextPct ?? null,
           );
+          publishSessionDesktopRunning(
+            parsed.state.hostId,
+            parsed.state.tmuxSession,
+            parsed.state.identityAppearance,
+          );
           onUpdate(parsed.state);
           break;
         case "gone":
@@ -288,6 +294,7 @@ export function createFleetStatusClient(
           // Clean up the contextPct entry so a session-not-in-fleet returns
           // null on the hook (D-10 correctness — no stale reading).
           publishSessionContextPctGone(parsed.hostId, parsed.tmuxSession);
+          publishSessionDesktopRunningGone(parsed.hostId, parsed.tmuxSession);
           onGone(parsed.hostId, parsed.tmuxSession, parsed.sessionId, parsed.reason);
           break;
         case "pong":
@@ -763,4 +770,71 @@ export function __setSessionContextPctForTests(
   pct: number | null,
 ): void {
   publishSessionContextPct(hostId, tmuxSession, pct);
+}
+
+// ---------------------------------------------------------------------------
+// Desktop-running store — per (hostId, tmuxSession), fed by the same frames.
+//
+// Backs the conversation pane's desktop button: shown while the agent's
+// desktop is running. The sweep measures it every tick and the publisher
+// carries it on identityAppearance; a frame with no appearance (older host,
+// or a pid line without an identity line) leaves the last value alone, and a
+// `gone` frame clears it.
+// ---------------------------------------------------------------------------
+
+const desktopRunningStore = new Map<string, boolean>();
+const desktopRunningListeners = new Set<() => void>();
+
+function publishSessionDesktopRunning(
+  hostId: string,
+  tmuxSession: string | null,
+  appearance: { desktopRunning?: boolean } | null | undefined,
+): void {
+  if (appearance == null) return;
+  const key = contextPctKey(hostId, tmuxSession);
+  const running = appearance.desktopRunning === true;
+  if (desktopRunningStore.get(key) === running) return;
+  desktopRunningStore.set(key, running);
+  console.info(
+    `[desktop-running] hostId=${hostId} tmuxSession=${tmuxSession ?? ""} running=${running}`,
+  );
+  for (const cb of desktopRunningListeners) cb();
+}
+
+function publishSessionDesktopRunningGone(
+  hostId: string,
+  tmuxSession: string | null,
+): void {
+  const key = contextPctKey(hostId, tmuxSession);
+  if (!desktopRunningStore.delete(key)) return;
+  for (const cb of desktopRunningListeners) cb();
+}
+
+function subscribeDesktopRunning(cb: () => void): () => void {
+  desktopRunningListeners.add(cb);
+  return () => {
+    desktopRunningListeners.delete(cb);
+  };
+}
+
+/** Whether the agent behind (hostId, tmuxSession) has its desktop running. */
+export function useSessionDesktopRunning(
+  hostId: string | number,
+  tmuxSession: string | null | undefined,
+): boolean {
+  const key = contextPctKey(String(hostId), tmuxSession ?? null);
+  const getSnapshot = (): boolean => desktopRunningStore.get(key) === true;
+  return useSyncExternalStore(subscribeDesktopRunning, getSnapshot, getSnapshot);
+}
+
+/** TEST ONLY — set or clear a desktop-running value without a WS. */
+export function __setSessionDesktopRunningForTests(
+  hostId: string | number,
+  tmuxSession: string,
+  running: boolean | null,
+): void {
+  const key = contextPctKey(String(hostId), tmuxSession);
+  if (running === null) desktopRunningStore.delete(key);
+  else desktopRunningStore.set(key, running);
+  for (const cb of desktopRunningListeners) cb();
 }

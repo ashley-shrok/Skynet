@@ -71,6 +71,13 @@ vi.mock("@/features/terminal/session-hue", () => ({
     useSessionIdentityMock(name as unknown as never),
 }));
 
+// TaskPill mock — the harness pane's handle (replaced the harness badge).
+vi.mock("./TaskPill", () => ({
+  TaskPill: (props: { identityKey: string }) => (
+    <div data-testid="mock-task-pill" data-identity-key={props.identityKey} />
+  ),
+}));
+
 vi.mock("@/features/terminal/IdentityBadge", () => ({
   IdentityBadge: (props: { identityKey: string | null }) =>
     props.identityKey ? (
@@ -280,9 +287,9 @@ describe("PrettyView relay source (Phase 93 Slice 3 Task 3)", () => {
     expect(
       container.querySelectorAll('[data-testid="mock-relay-inbound-bubble"]'),
     ).toHaveLength(0);
-    // Harness single-badge renders (Slice 2 case-branch preserved).
+    // Harness task pill renders (Slice 2 case-branch preserved).
     expect(
-      container.querySelector('[data-testid="mock-identity-badge"]'),
+      container.querySelector('[data-testid="mock-task-pill"]'),
     ).not.toBeNull();
   });
 

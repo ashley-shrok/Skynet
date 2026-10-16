@@ -1303,6 +1303,8 @@ function appearanceFingerprintSegment(a: IdentityAppearance | null): string {
     // (agent edit / Identity-file tab save) never published, so the row
     // stayed in its old section until some other field changed.
     a.project ?? "",
+    // Desktop starting/stopping must publish a frame on its own.
+    a.desktopRunning === true ? "1" : a.desktopRunning === false ? "0" : "",
   ].join("|");
 }
 
@@ -1382,6 +1384,8 @@ function appearanceFromIdentityLine(
     // by mistake.
     pinned: identityLine.pinned === true,
     avatarVersion: identityLine.avatar_version ?? null,
+    // Fail-closed like pinned: only a literal true shows the desktop button.
+    desktopRunning: identityLine.desktop_running === true,
   });
   recordAvatarVersion(hostId, identityName, identityLine.avatar_version);
 

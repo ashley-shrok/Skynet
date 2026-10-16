@@ -168,6 +168,9 @@ export interface SweepIdentityLine {
   // size). Baked into avatarUrl as `&v=` so browsers can cache avatar bytes as
   // immutable. null when the appearance read failed; absent on older sweeps.
   avatar_version?: string | null;
+  // True while the identity's agent-desktop X server is alive (the pane's
+  // desktop button). Absent on older sweeps → treated as not running.
+  desktop_running?: boolean;
   // Phase 115 Plan 115-05 archived axis retired in the Phase 122 shape
   // follow-up. Kept as optional so the orchestrator's belt-and-braces
   // `line.archived === true` skip still typechecks during rolling-deploy
@@ -650,6 +653,7 @@ export const SWEEP_FIELD_PARITY: Record<
   | "B8"
   | "B9"
   | "B10"
+  | "B11"
   | "C0"
   | "C1"
   | "C2"
@@ -724,6 +728,7 @@ export const SWEEP_FIELD_PARITY: Record<
   // Phase 122+ sweeps never emit archived: true.
   B9: { field: "archived" },
   B10: { field: "avatar_version" },
+  B11: { field: "desktop_running" },
 
   // --- Per-host source-C enumeration driver (Phase 118 Plan 118-02, D-20) ---
   C0: {

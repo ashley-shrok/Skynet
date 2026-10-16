@@ -5,7 +5,8 @@ import { CommandHistoryProvider } from "@/features/terminal/command-history/Comm
 import { Terminal } from "@/features/terminal/Terminal";
 import type { IdentityPaneHandle, TerminalHandle, TerminalHostConfig } from "@/features/terminal/Terminal";
 import { PrettyView } from "@/features/pretty-view/PrettyView";
-import { IdentityBadge } from "@/features/terminal/IdentityBadge";
+import { TaskPill, type TaskPillJumpTab } from "@/features/pretty-view/TaskPill";
+import { useSessionDesktopRunning } from "@/api/fleet-status-client";
 import { IdentityModal } from "@/features/pretty-view/IdentityModal";
 import { CreateProjectModal } from "@/features/pretty-conversations/CreateProjectModal";
 import { MessageQueueDrawer } from "@/features/terminal/MessageQueueDrawer";
@@ -118,6 +119,7 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
     const [isPrettyMode, setIsPrettyMode] = useState(true);
     const [isMessageQueueOpen, setIsMessageQueueOpen] = useState(false);
     const [isIdentityModalOpen, setIsIdentityModalOpen] = useState(false);
+    const [identityModalTab, setIdentityModalTab] = useState<TaskPillJumpTab | undefined>(undefined);
     // Badge menu "Move to → New project…": the move to run once the create
     // modal lands a project. Null = modal closed.
     const [pendingNewProjectMove, setPendingNewProjectMove] = useState<
@@ -143,6 +145,9 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
     const tabId = tab.id;
     const hostId = host.id;
     const effectiveTmuxSession = tab.targetTmuxSession ?? null;
+    // Live desktop-running signal — lets the agent window show its Desktop
+    // tab at once when opened from the task pill's desktop button.
+    const paneDesktopRunning = useSessionDesktopRunning(parseInt(host.id, 10), effectiveTmuxSession);
 
     // Identity-badge context-menu items — mirrors the conversation-row menu
     // (PrettyConversationRow.tsx items[] builder) so both surfaces offer the
@@ -715,23 +720,15 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
             />
           )}
 
-          {/* IdentityBadge — gated on !isPrettyMode (terminal-mode surface).
-              PrettyView has its OWN internal IdentityBadge (Phase 4 patch).
-              This badge is the terminal-mode replacement for Terminal.tsx L3413-3423.
-              View-mode toggling is now surfaced through the badge's context-
-              menu "Switch to chat view" item (admin-only) — the earlier long-
-              press → togglePrettyMode wiring is retired.
-              Phase 58 Plan 02: threads `tabId` so the badge activates as an
-              HTML5 drag source (Plan 58-01 wire — badge writes dual-MIME
-              payload, Phase 56 Pane onDrop rearranges via openSessionInTree,
-              Phase 58 Plan 02 conv-list onDrop closes via closeTab). `tabId`
-              const at L103 is `tab.id` — reused here for consistency with the
-              PrettyView mount below and existing tabId consumers in this file. */}
+          {/* Task pill — terminal-mode surface (PrettyView mounts its own in
+              chat mode). Same pill, same round buttons, same behavior in both
+              views (shape task-pill), so flipping views never changes what
+              the top of the pane shows or does. */}
           {identityKey && !isPrettyMode && (
-            <IdentityBadge
+            <TaskPill
               identityKey={identityKey}
-              hostId={parseInt(host.id, 10)}
-              onClick={() => setIsIdentityModalOpen(true)}
+              hostId={paneHostIdNum}
+              tmuxSession={effectiveTmuxSession}
               tabId={tabId}
               dragDescriptor={{
                 tabType: "terminal",
@@ -739,6 +736,10 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
                 targetTmuxSession: effectiveTmuxSession,
               }}
               menuItems={identityBadgeContextMenuItems}
+              onOpen={(jumpTab) => {
+                setIdentityModalTab(jumpTab);
+                setIsIdentityModalOpen(true);
+              }}
             />
           )}
 
@@ -751,6 +752,9 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
               <IdentityModal
                 open={isIdentityModalOpen}
                 onOpenChange={setIsIdentityModalOpen}
+                initialTab={identityModalTab}
+                desktopRunningHint={paneDesktopRunning}
+                gitReposHint={identityModalTab === "git"}
                 identity={resolvedIdentity}
                 hue={sessionHue ?? 35}
                 hostId={paneHostIdNum}

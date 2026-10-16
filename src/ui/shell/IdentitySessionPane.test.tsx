@@ -138,6 +138,15 @@ vi.mock("@/features/terminal/command-history/CommandHistoryContext", () => ({
   useCommandHistory: vi.fn(() => ({ history: [], addCommand: vi.fn() })),
 }));
 
+// ── Mock: TaskPill (terminal-mode handle) ────────────────────────────────────
+let capturedTaskPillProps: Record<string, unknown> | null = null;
+vi.mock("@/features/pretty-view/TaskPill", () => ({
+  TaskPill: (props: Record<string, unknown>) => {
+    capturedTaskPillProps = props;
+    return <div data-testid="task-pill">{String(props.identityKey)}</div>;
+  },
+}));
+
 // ── Mock: IdentityBadge ───────────────────────────────────────────────────────
 vi.mock("@/features/terminal/IdentityBadge", () => ({
   IdentityBadge: ({ identityKey }: { identityKey: string | null }) =>
@@ -414,6 +423,27 @@ describe("IdentitySessionPane — Phase 41 Plan 02", () => {
 
     // The inner Terminal mock's fit() should have been called exactly once.
     expect(mockFitFn).toHaveBeenCalledTimes(1);
+  });
+
+  it("P8: terminal view shows the same task pill as chat view — no badge — with the same menu and the pane's drag identity", async () => {
+    capturedTaskPillProps = null;
+    render(<IdentitySessionPane {...makeProps({ isAdmin: true })} />);
+    const items = (capturedPrettyViewProps?.identityBadgeContextMenuItems ??
+      []) as Array<{ label: string; onClick: () => void }>;
+    await act(async () => {
+      items.find((it) => it.label === "Switch to terminal view")!.onClick();
+    });
+    expect(screen.getByTestId("task-pill").textContent).toBe("tina");
+    expect(screen.queryByTestId("identity-badge")).toBeNull();
+    const pillProps = capturedTaskPillProps!;
+    expect(pillProps.hostId).toBe(42);
+    expect(pillProps.tabId).toBe("tab-1");
+    expect((pillProps.menuItems as Array<{ label: string }>).map((i) => i.label)).toContain(
+      "Switch to chat view",
+    );
+    expect(pillProps.dragDescriptor).toMatchObject({ tabType: "terminal", sessionKind: "harness" });
+    // Opening from the pill's desktop button reaches the terminal-mode modal.
+    expect(typeof pillProps.onOpen).toBe("function");
   });
 
   // ── Phase 92 Slice 1 tests ─────────────────────────────────────────────────

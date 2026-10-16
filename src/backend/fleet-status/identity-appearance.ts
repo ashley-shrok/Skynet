@@ -105,6 +105,9 @@ export type ResolvedIdentityAppearance = {
   roleDefaults: RawCosmetics | null;
   avatarUrl: string;
   pinned: boolean;
+  /** True while the identity's desktop is running. Present only on the
+   *  fleet-status pulse (the sweep measures it); absent on REST responses. */
+  desktopRunning?: boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -176,6 +179,8 @@ export function resolveIdentityAppearance(args: {
   /** Every listed role. Omitted → `[role]` (or `[]`), the single-role shape. */
   roles?: string[];
   pinned: boolean;
+  /** Sweep-measured desktop-running flag; omitted → field left off the result. */
+  desktopRunning?: boolean;
   /** Sweep-computed avatar digest. Present → baked into avatarUrl as `&v=`,
    *  which the avatar route serves as immutable. Absent/null → unversioned
    *  URL (revalidated on every paint). */
@@ -284,5 +289,8 @@ export function resolveIdentityAppearance(args: {
     roleDefaults,
     avatarUrl,
     pinned,
+    ...(typeof args.desktopRunning === "boolean"
+      ? { desktopRunning: args.desktopRunning }
+      : {}),
   };
 }
