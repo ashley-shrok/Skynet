@@ -1341,11 +1341,150 @@ function computeSnapshot(): ConversationList {
   };
 }
 
+// ─── Structural sharing ──────────────────────────────────────────────────────
+// notify() fires for every working-store publish anywhere in the fleet (any
+// session's isWorking / dormant / aiTitle / lastMessageAt), which used to hand
+// useConversations() a brand-new list — and fresh row objects — each time, so
+// the whole sidebar re-rendered for an event that changed none of its rows.
+// After recomputing, reuse every row / array / section / group from the
+// previous snapshot that is shallow-equal, and the previous snapshot itself
+// when nothing changed. Consumers then see a stable reference (no re-render)
+// and memoized rows re-render only when their own row object changes.
+// Rows are flat records (primitives + a Host ref), so a shallow compare is a
+// full compare.
+function shallowEqualRow(a: ConversationRow, b: ConversationRow): boolean {
+  if (a === b) return true;
+  const aKeys = Object.keys(a) as (keyof ConversationRow)[];
+  if (aKeys.length !== Object.keys(b).length) return false;
+  for (const k of aKeys) {
+    if (!Object.prototype.hasOwnProperty.call(b, k)) return false;
+    if (a[k] !== b[k]) return false;
+  }
+  return true;
+}
+
+function sameElements<T>(a: readonly T[], b: readonly T[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+function shareWithPrevious(
+  prev: ConversationList,
+  next: ConversationList,
+): ConversationList {
+  const prevById = new Map<string, ConversationRow>();
+  const collect = (rows: readonly ConversationRow[]) => {
+    for (const r of rows) if (!prevById.has(r.id)) prevById.set(r.id, r);
+  };
+  collect(prev.pinned);
+  collect(prev.middle);
+  collect(prev.pinnedUnassigned);
+  for (const sec of prev.projectSections) collect(sec.rows);
+  if (prev.rdpGroup) collect(prev.rdpGroup.rows);
+
+  // The same row object can sit in several fields (pinned + pinnedUnassigned,
+  // rdpGroup === rdp) — memo per object so all fields map to one canonical.
+  const canon = new Map<ConversationRow, ConversationRow>();
+  const canonRow = (r: ConversationRow): ConversationRow => {
+    const hit = canon.get(r);
+    if (hit) return hit;
+    const old = prevById.get(r.id);
+    const out = old !== undefined && shallowEqualRow(old, r) ? old : r;
+    canon.set(r, out);
+    return out;
+  };
+  const shareRows = (
+    prevRows: ConversationRow[],
+    nextRows: ConversationRow[],
+  ): ConversationRow[] => {
+    const mapped = nextRows.map(canonRow);
+    return sameElements(prevRows, mapped) ? prevRows : mapped;
+  };
+
+  const activeSet = shareRows(prev.activeSet, next.activeSet);
+  const pinned = shareRows(prev.pinned, next.pinned);
+  const middle = shareRows(prev.middle, next.middle);
+  const pinnedUnassigned = shareRows(prev.pinnedUnassigned, next.pinnedUnassigned);
+
+  const shareGroup = (
+    prevG: HostGroup | null,
+    nextG: HostGroup | null,
+  ): HostGroup | null => {
+    if (nextG === null) return null;
+    const rows = shareRows(prevG?.rows ?? [], nextG.rows);
+    if (
+      prevG !== null &&
+      prevG.hostId === nextG.hostId &&
+      prevG.hostName === nextG.hostName &&
+      prevG.rows === rows
+    ) {
+      return prevG;
+    }
+    return { ...nextG, rows };
+  };
+  const rdpGroup = shareGroup(prev.rdpGroup, next.rdpGroup);
+  const rdp =
+    next.rdp === next.rdpGroup ? rdpGroup : shareGroup(prev.rdp, next.rdp);
+
+  const sectionKey = (s: { slug: string; hostId?: string }) =>
+    `${s.hostId ?? ""}::${s.slug}`;
+  const prevSections = new Map(
+    prev.projectSections.map((s) => [sectionKey(s), s] as const),
+  );
+  const mappedSections = next.projectSections.map((s) => {
+    const old = prevSections.get(sectionKey(s));
+    const rows = shareRows(old?.rows ?? [], s.rows);
+    if (
+      old !== undefined &&
+      old.slug === s.slug &&
+      old.hostId === s.hostId &&
+      old.displayName === s.displayName &&
+      old.rows === rows
+    ) {
+      return old;
+    }
+    return { ...s, rows };
+  });
+  const projectSections = sameElements(prev.projectSections, mappedSections)
+    ? prev.projectSections
+    : mappedSections;
+
+  if (
+    activeSet === prev.activeSet &&
+    pinned === prev.pinned &&
+    middle === prev.middle &&
+    rdpGroup === prev.rdpGroup &&
+    pinnedUnassigned === prev.pinnedUnassigned &&
+    projectSections === prev.projectSections &&
+    rdp === prev.rdp
+  ) {
+    return prev;
+  }
+  return {
+    activeSet,
+    pinned,
+    middle,
+    rdpGroup,
+    pinnedUnassigned,
+    projectSections,
+    rdp,
+  };
+}
+
+// Last computed snapshot, kept across notify() invalidations (cachedSnapshot
+// is nulled by notify) so the next computation can share structure with it.
+let lastSnapshot: ConversationList | null = null;
+
 function getSnapshot(): ConversationList {
   if (cachedSnapshot !== null && cachedSnapshotVersion === snapshotVersion) {
     return cachedSnapshot;
   }
-  cachedSnapshot = computeSnapshot();
+  const fresh = computeSnapshot();
+  cachedSnapshot =
+    lastSnapshot === null ? fresh : shareWithPrevious(lastSnapshot, fresh);
+  lastSnapshot = cachedSnapshot;
   cachedSnapshotVersion = snapshotVersion;
   return cachedSnapshot;
 }
@@ -2976,6 +3115,10 @@ export function __getFleetOnlyRowsForTest(): ConversationRow[] {
 // can tighten this to only fire on lastMessageAt changes; the current shape
 // is fine because working-store already has a per-key no-op notify guard that
 // suppresses spurious publishes (see publishFleetStatusSessionState).
+// Most of these publishes (isWorking / dormant / aiTitle flips, or any
+// session without a row) leave every row unchanged; getSnapshot's structural
+// sharing (shareWithPrevious) then returns the previous list object, so
+// useConversations() consumers do not re-render for them.
 subscribeSessionWorkingStore(() => {
   notify();
 });

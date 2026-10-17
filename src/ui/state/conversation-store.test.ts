@@ -4311,3 +4311,74 @@ describe("conversation-store: reconcileFleetSessionsFromList", () => {
     expect(ids()).toEqual(["fleet::1::a"]);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Structural sharing: a working-store publish anywhere in the fleet must not
+// hand the sidebar a new list (or new row objects) unless its rows changed.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("conversation-store: snapshot structural sharing across working-store publishes", () => {
+  beforeEach(() => {
+    __resetSessionWorkingForTest();
+  });
+
+  function stateFor(
+    tmuxSession: string,
+    lastMessageAt: number | null,
+    status: SessionState["status"] = "idle",
+  ): SessionState {
+    return {
+      hostId: "1",
+      tmuxSession,
+      sessionId: `sess-1-${tmuxSession}`,
+      pid: 1,
+      status,
+      backgroundTasks: [],
+      updatedAt: Date.now(),
+      lastMessageAt,
+    };
+  }
+
+  it("a publish for a session with no row (status flip) keeps the same snapshot object", () => {
+    const hostA = makeHost("1", "hostA");
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([
+        makeTab("t1", "terminal", hostA, "sess-1", "row-1"),
+        makeTab("t2", "terminal", hostA, "sess-2", "row-2"),
+      ]);
+    });
+    const { result } = renderHook(() => useConversations());
+    const before = result.current;
+    act(() => {
+      publishFleetStatusSessionState("1", stateFor("unrelated", 5, "busy"));
+      publishFleetStatusSessionState("1", stateFor("unrelated", 5, "idle"));
+    });
+    expect(result.current).toBe(before);
+  });
+
+  it("a lastMessageAt change on one row keeps the other row objects identical", () => {
+    const hostA = makeHost("1", "hostA");
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([
+        makeTab("t1", "terminal", hostA, "sess-1", "row-1"),
+        makeTab("t2", "terminal", hostA, "sess-2", "row-2"),
+      ]);
+      publishFleetStatusSessionState("1", stateFor("sess-1", 1000));
+      publishFleetStatusSessionState("1", stateFor("sess-2", 2000));
+    });
+    const before = __getSnapshotForTest();
+    const t1Before = before.middle.find((r) => r.id === "t1");
+    const t2Before = before.middle.find((r) => r.id === "t2");
+    act(() => {
+      publishFleetStatusSessionState("1", stateFor("sess-2", 3000));
+    });
+    const after = __getSnapshotForTest();
+    expect(after.middle).not.toBe(before.middle);
+    expect(after.middle.find((r) => r.id === "t1")).toBe(t1Before);
+    const t2After = after.middle.find((r) => r.id === "t2");
+    expect(t2After).not.toBe(t2Before);
+    expect(t2After?.lastMessageAt).toBe(3000);
+  });
+});

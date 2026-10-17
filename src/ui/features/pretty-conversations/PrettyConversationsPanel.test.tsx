@@ -4058,3 +4058,71 @@ function _readSearchState() {
   if (captured === null) throw new Error("search-store probe did not capture state");
   return captured;
 }
+
+// ─── Re-render isolation: memoized rows + stable row callbacks ───────────────
+// The panel re-renders for many reasons (selection, store notifies for other
+// sessions, identities churn). Each row must re-render only when its own
+// props change. PrettyConversationRowLive calls useSessionAiTitle(sessionKey)
+// once per render, so the spy's per-key call count is the row's render count.
+
+describe("PrettyConversationsPanel: rows re-render only when their own data changes", () => {
+  it("a selection change re-renders the newly selected row but not an unrelated row", () => {
+    const host = makeHost("1", "hostA");
+    const rowA = makeConversationRow({ id: "row-a", label: "a", host, targetTmuxSession: "alpha" });
+    const rowB = makeConversationRow({ id: "row-b", label: "b", host, targetTmuxSession: "bravo" });
+    setSnapshot({ middle: [rowA, rowB], selectedId: null });
+    const onDeactivateRow = () => {};
+    const { rerender } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={onDeactivateRow} />,
+    );
+    const rendersFor = (key: string) =>
+      useSessionAiTitleSpy.mock.calls.filter((c) => c[0] === key).length;
+    expect(rendersFor("1:alpha")).toBeGreaterThan(0);
+    expect(rendersFor("1:bravo")).toBeGreaterThan(0);
+    useSessionAiTitleSpy.mockClear();
+
+    // Same row objects, new selection → panel re-renders.
+    setSnapshot({ middle: [rowA, rowB], selectedId: "row-a" });
+    rerender(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={onDeactivateRow} />,
+    );
+    expect(rendersFor("1:alpha")).toBeGreaterThan(0);
+    expect(rendersFor("1:bravo")).toBe(0);
+  });
+
+  it("a parent re-render with fresh callback props does not re-render any row", () => {
+    const host = makeHost("1", "hostA");
+    const rowA = makeConversationRow({ id: "row-a", label: "a", host, targetTmuxSession: "alpha" });
+    setSnapshot({ middle: [rowA] });
+    const { rerender } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+    useSessionAiTitleSpy.mockClear();
+    rerender(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+    expect(
+      useSessionAiTitleSpy.mock.calls.filter((c) => c[0] === "1:alpha").length,
+    ).toBe(0);
+  });
+
+  it("row clicks still reach the panel's latest handlers through the stable actions", () => {
+    const host = makeHost("1", "hostA");
+    const rowA = makeConversationRow({ id: "row-a", label: "a", host, targetTmuxSession: "alpha" });
+    setSnapshot({ middle: [rowA] });
+    const first = vi.fn();
+    const second = vi.fn();
+    const { rerender, container } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} onConversationSelected={first} />,
+    );
+    rerender(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} onConversationSelected={second} />,
+    );
+    const body = container.querySelector('[data-conversation-id="row-a"] [role="button"]') as HTMLElement | null;
+    expect(body).not.toBeNull();
+    fireEvent.click(body!);
+    expect(selectConversationSpy).toHaveBeenCalledWith("row-a");
+    expect(first).not.toHaveBeenCalled();
+    expect(second).toHaveBeenCalledWith("row-a");
+  });
+});

@@ -34,6 +34,7 @@ import {
   mergeIdentityAppearance,
   readAppearanceCache,
   writeAppearanceCache,
+  flushAppearanceCacheWrite,
 } from "./identities-store.js";
 import * as IdentitiesStore from "./identities-store.js";
 import * as IdentitiesApi from "@/api/identities-api";
@@ -950,6 +951,8 @@ describe("appearance cache (post-Phase-111 cold-paint fix)", () => {
       makeIdentityFull("pixel", 5, { colorHue: 120, title: "Skynet" }),
       makeIdentityFull("tanya", 6, { colorHue: 324 }),
     ]);
+    // The cache write is coalesced off the notify path — flush it.
+    flushAppearanceCacheWrite();
     // Reader parses the writer's output cleanly.
     const roundTrip = readAppearanceCache();
     expect(roundTrip.length).toBe(2);
@@ -1085,4 +1088,64 @@ describe("hydratePinnedIdsFromServer — authoritative sink", () => {
   // (Phase 115 Plan 115-02: prior Sink 4 hidden reprojection test retired
   //  per D-21 alongside the deriveDiskHiddenIds + hydrateHiddenIdsFromServer
   //  source-code deletion.)
+});
+
+// ─── Re-render hygiene: identical refreshes are a no-op ──────────────────────
+// Every notify re-renders every useIdentities() consumer (the whole sidebar);
+// a refresh that returns exactly what the store already holds must not
+// notify, and unchanged identities must keep their object identity so rows
+// memoized on them don't re-render.
+
+describe("identities-store: structural sharing + no-op refresh", () => {
+  it("an identical refresh does not notify and keeps every identity object", async () => {
+    await seedIdentities([
+      makeIdentityFull("pixel", 5, { colorHue: 120, roles: ["dev"] }),
+      makeIdentityFull("tanya", 6, { colorHue: 324 }),
+    ]);
+    const before = __getIdentitiesStoreSnapshotForTest();
+    const listener = vi.fn();
+    const unsub = IdentitiesStore.__subscribeIdentitiesForTest(listener);
+    try {
+      vi.mocked(IdentitiesApi.listIdentities).mockResolvedValue([
+        makeIdentityFull("pixel", 5, { colorHue: 120, roles: ["dev"] }),
+        makeIdentityFull("tanya", 6, { colorHue: 324 }),
+      ]);
+      await refreshIdentities();
+      expect(listener).not.toHaveBeenCalled();
+      const after = __getIdentitiesStoreSnapshotForTest();
+      expect(after.identities).toBe(before.identities);
+      expect(after.byHostKey).toBe(before.byHostKey);
+    } finally {
+      unsub();
+    }
+  });
+
+  it("a refresh changing one identity keeps the other's object identity", async () => {
+    await seedIdentities([
+      makeIdentityFull("pixel", 5, { colorHue: 120 }),
+      makeIdentityFull("tanya", 6, { colorHue: 324 }),
+    ]);
+    const before = __getIdentitiesStoreSnapshotForTest();
+    vi.mocked(IdentitiesApi.listIdentities).mockResolvedValue([
+      makeIdentityFull("pixel", 5, { colorHue: 120 }),
+      makeIdentityFull("tanya", 6, { colorHue: 10 }),
+    ]);
+    await refreshIdentities();
+    const after = __getIdentitiesStoreSnapshotForTest();
+    expect(after.byHostKey.get("5::pixel")).toBe(before.byHostKey.get("5::pixel"));
+    expect(after.byHostKey.get("6::tanya")?.colorHue).toBe(10);
+  });
+
+  it("the appearance cache write is coalesced and flushed on pagehide", async () => {
+    flushAppearanceCacheWrite();
+    localStorage.removeItem(APPEARANCE_CACHE_KEY);
+    await seedIdentities([makeIdentityFull("pixel", 5, { colorHue: 120 })]);
+    mergeIdentityAppearance(5, "pixel", { colorHue: 121 });
+    mergeIdentityAppearance(5, "pixel", { colorHue: 122 });
+    // Not written synchronously on notify...
+    expect(localStorage.getItem(APPEARANCE_CACHE_KEY)).toBeNull();
+    // ...but a pagehide flushes the latest state.
+    window.dispatchEvent(new Event("pagehide"));
+    expect(readAppearanceCache().find((i) => i.identityKey === "pixel")?.colorHue).toBe(122);
+  });
 });

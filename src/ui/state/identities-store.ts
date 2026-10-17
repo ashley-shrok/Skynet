@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { listIdentities, type Identity } from "@/api/identities-api";
 import {
+  getCurrentUser,
   readUserScopedCache,
   writeUserScopedCache,
 } from "@/state/user-scoped-cache";
@@ -82,11 +83,56 @@ let hasSubscribedToFleet = false;
 
 function notify() {
   // Single-authority cache write: every state change that reaches listeners
-  // also updates the localStorage cache so the next cold paint has the
+  // also schedules a localStorage cache write so the next cold paint has the
   // freshest appearance to seed from. Silent on write failure by contract
   // (mirrors writeFleetSessionsCache — losing the cache is not user-visible).
-  writeAppearanceCache(state.identities);
+  // The write is coalesced (see scheduleAppearanceCacheWrite) rather than
+  // done synchronously here: serializing the whole identities array on every
+  // appearance pulse was a measurable main-thread cost on mobile WebKit.
+  scheduleAppearanceCacheWrite();
   for (const l of listeners) l();
+}
+
+// ─── Coalesced appearance-cache persistence ─────────────────────────────────
+// One write per burst of changes, at most APPEARANCE_CACHE_WRITE_DELAY_MS
+// after the first change, always with the latest state. Flushed early on
+// pagehide / visibilitychange→hidden so a tab close or app switch doesn't
+// lose the last burst. The owner captured at schedule time must still be the
+// logged-in user at flush time, so a logout (or user switch) inside the
+// window can never write one user's identities under another's tag.
+const APPEARANCE_CACHE_WRITE_DELAY_MS = 1000;
+let pendingCacheWrite: { timer: ReturnType<typeof setTimeout>; owner: string | null } | null = null;
+
+function scheduleAppearanceCacheWrite(): void {
+  const owner = getCurrentUser();
+  if (pendingCacheWrite !== null) {
+    if (pendingCacheWrite.owner === owner) return;
+    // The logged-in user changed since the write was scheduled — restart the
+    // window under the new owner (the flush-time check below drops it if the
+    // user changes again before it fires).
+    clearTimeout(pendingCacheWrite.timer);
+  }
+  pendingCacheWrite = {
+    timer: setTimeout(flushAppearanceCacheWrite, APPEARANCE_CACHE_WRITE_DELAY_MS),
+    owner,
+  };
+}
+
+/** Write any pending appearance-cache update now. Exported for tests. */
+export function flushAppearanceCacheWrite(): void {
+  const pending = pendingCacheWrite;
+  if (pending === null) return;
+  pendingCacheWrite = null;
+  clearTimeout(pending.timer);
+  if (getCurrentUser() !== pending.owner) return;
+  writeAppearanceCache(state.identities);
+}
+
+if (typeof window !== "undefined" && typeof document !== "undefined") {
+  window.addEventListener("pagehide", flushAppearanceCacheWrite);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") flushAppearanceCacheWrite();
+  });
 }
 
 // displayName is display-only (identityKey is the canonical id); normalize
@@ -142,8 +188,65 @@ function reindex(
   return { identities, byKey, byHostKey };
 }
 
+// Field-wise equality for two identity records. Nested values (roles array,
+// roleDefaults object) are compared by JSON; everything else by ===.
+function identityEqual(a: Identity, b: Identity): boolean {
+  if (a === b) return true;
+  const aKeys = Object.keys(a) as (keyof Identity)[];
+  if (aKeys.length !== Object.keys(b).length) return false;
+  for (const k of aKeys) {
+    if (!Object.prototype.hasOwnProperty.call(b, k)) return false;
+    const av = a[k];
+    const bv = b[k];
+    if (av === bv) continue;
+    if (
+      typeof av === "object" &&
+      av !== null &&
+      typeof bv === "object" &&
+      bv !== null &&
+      JSON.stringify(av) === JSON.stringify(bv)
+    ) {
+      continue;
+    }
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Structural sharing for a full-list replacement: every incoming identity
+ * that is field-equal to the one already in the store (same position, or
+ * same (hostId, identityKey)) is replaced by the existing object, so
+ * consumers that memo on an identity's reference (sidebar rows) don't
+ * re-render. Returns `prev` itself when nothing changed at all.
+ */
+function shareIdentities(prev: Identity[], next: Identity[]): Identity[] {
+  const keyOf = (i: Identity) => `${i.hostId ?? ""}::${i.identityKey.toLowerCase()}`;
+  let byKey: Map<string, Identity> | null = null;
+  let allSame = prev.length === next.length;
+  const out = next.map((n, idx) => {
+    const atIdx = prev[idx];
+    if (atIdx !== undefined && keyOf(atIdx) === keyOf(n) && identityEqual(atIdx, n)) {
+      return atIdx;
+    }
+    allSame = false;
+    if (byKey === null) {
+      byKey = new Map();
+      for (const p of prev) if (!byKey.has(keyOf(p))) byKey.set(keyOf(p), p);
+    }
+    const old = byKey.get(keyOf(n));
+    return old !== undefined && identityEqual(old, n) ? old : n;
+  });
+  return allSame ? prev : out;
+}
+
 function setIdentities(list: Identity[]) {
-  state = { ...reindex(list), loaded: true };
+  const shared = shareIdentities(state.identities, list.map(withDisplayCap));
+  // A refresh that returned exactly what we already hold changes nothing a
+  // consumer can see — skip the notify (and the re-render of every
+  // useIdentities() consumer it would trigger).
+  if (shared === state.identities && state.loaded) return;
+  state = { ...reindex(shared), loaded: true };
   notify();
 }
 
@@ -880,6 +983,13 @@ export function useIdentities(): {
 // inflight promise + refresh-after-fleet-load guard) for identities-store
 // enrichment tests. Not part of the public API; keeps prior test's state from
 // leaking into the next test in the same vitest worker.
+export function __subscribeIdentitiesForTest(cb: () => void): () => void {
+  listeners.add(cb);
+  return () => {
+    listeners.delete(cb);
+  };
+}
+
 export function __resetIdentitiesStoreForTest(): void {
   state = {
     identities: [],

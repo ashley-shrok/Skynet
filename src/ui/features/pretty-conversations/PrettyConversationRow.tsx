@@ -116,7 +116,9 @@
 // the sidebar is retired.
 
 import {
+  memo,
   useCallback,
+  type ComponentProps,
   type CSSProperties,
   type DragEvent,
   type KeyboardEvent,
@@ -206,7 +208,7 @@ function setRowTooltip(
   };
 }
 
-export function PrettyConversationRow({
+function PrettyConversationRowImpl({
   row,
   selected,
   pinned,
@@ -225,6 +227,7 @@ export function PrettyConversationRow({
   inActiveSet = false,
   subtitleMode = "hostname",
   aiTitle = null,
+  identity,
 }: {
   row: ConversationRowShape;
   selected: boolean;
@@ -353,39 +356,21 @@ export function PrettyConversationRow({
   // pass "identityTitle" (patch #184 for pinned, quick-260727-f9v for
   // grouped, patch #195 for active-set — closes the last scope gap).
   subtitleMode?: "hostname" | "identityTitle";
+  // Resolved identity for this row (see resolveRowIdentity). Passed in rather
+  // than read from useIdentities() here so a memoized row re-renders only
+  // when ITS identity object changes, not on every identities-store notify.
+  identity: Identity | null;
 }) {
   // ─── Identity resolution ───────────────────────────────────────────────────
-  // quick-260912-0t4: scope identity lookup by hostId so two identities sharing
-  // a name across different fleet hosts (e.g. willow on workstation vs t1000)
-  // don't collide on `byKey.get("willow")` — each row picks the RIGHT identity
-  // for its pane's host. Relay-room rows (`row.host === undefined`) can't have
-  // an identity anyway, so hostId=NaN → identity=null.
-  //
-  // Backwards-compat fallback: try byHostKey first; when it misses (either
-  // because the row lacks a host, or because a test fixture only seeds byKey,
-  // or because the wire response predates the hostId field), fall back to
-  // bare-name byKey. In production the backend surfaces hostId on every row
-  // (per publicIdentity() + Task 1 dedup removal) so byHostKey hits first;
-  // the fallback exists solely to preserve legacy test fixtures and to
-  // survive the ms-window before the first fleet-populated fetch resolves.
-  const { byHostKey: identitiesByHostKey, byKey: identitiesByKey } = useIdentities();
-  const key = sessionMatchKey(row.targetTmuxSession);
+  // `identity` arrives resolved (resolveRowIdentity below: hostId-scoped
+  // byHostKey first, bare-name byKey fallback).
   const isRdp = row.rdpHostRow === true;
 
   // Host.id is a string in the fork's ui-types; we convert with parseInt
-  // (same shape AppShell uses at openTab hostId derivation). Hoisted above
-  // the identity lookup so the byHostKey composite key can use it; also
-  // consumed by useTrappedWork below.
+  // (same shape AppShell uses at openTab hostId derivation). Consumed by
+  // useTrappedWork and the rename gate below.
   const rowHostIdNum = row.host ? parseInt(row.host.id, 10) : NaN;
 
-  const identity: Identity | null = (() => {
-    if (!key) return null;
-    if (Number.isFinite(rowHostIdNum)) {
-      const scoped = identitiesByHostKey?.get(`${rowHostIdNum}::${key}`);
-      if (scoped) return scoped;
-    }
-    return identitiesByKey?.get(key) ?? null;
-  })();
   const hue: number | null = identity?.colorHue ?? null;
 
   // Phase 104 Plan 02 (D-05, D-06, D-07): per-identity trapped-work snapshot.
@@ -908,5 +893,53 @@ export function PrettyConversationRow({
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * Resolve a row's identity. quick-260912-0t4: scope the lookup by hostId so
+ * two identities sharing a name across fleet hosts don't collide; fall back
+ * to the bare-name map when the scoped lookup misses (row without a host,
+ * legacy fixtures seeding only byKey, or the window before the first
+ * fleet-populated fetch resolves).
+ */
+export function resolveRowIdentity(
+  row: ConversationRowShape,
+  byHostKey: ReadonlyMap<string, Identity> | undefined,
+  byKey: ReadonlyMap<string, Identity> | undefined,
+): Identity | null {
+  const key = sessionMatchKey(row.targetTmuxSession);
+  if (!key) return null;
+  const hostIdNum = row.host ? parseInt(row.host.id, 10) : NaN;
+  if (Number.isFinite(hostIdNum)) {
+    const scoped = byHostKey?.get(`${hostIdNum}::${key}`);
+    if (scoped) return scoped;
+  }
+  return byKey?.get(key) ?? null;
+}
+
+export type PrettyConversationRowProps = Omit<
+  ComponentProps<typeof PrettyConversationRowImpl>,
+  "identity"
+>;
+
+/**
+ * Memoized row for list renderers (the sidebar panel) that resolve the
+ * identity themselves and pass stable callbacks: re-renders only when one of
+ * its own props changes.
+ */
+export const PrettyConversationRowView = memo(PrettyConversationRowImpl);
+
+/**
+ * Standalone row: subscribes to the identities store and resolves its own
+ * identity. Prefer PrettyConversationRowView inside long lists.
+ */
+export function PrettyConversationRow(props: PrettyConversationRowProps) {
+  const { byHostKey, byKey } = useIdentities();
+  return (
+    <PrettyConversationRowImpl
+      {...props}
+      identity={resolveRowIdentity(props.row, byHostKey, byKey)}
+    />
   );
 }

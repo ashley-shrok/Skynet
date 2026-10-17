@@ -51,7 +51,7 @@
 // NO diagnostic spew — Patch #111e F3-diag scoped to the old panel is being
 // retired in Wave 4 and NOT ported forward here.
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 // Phase 41 Plan 01: `Server` icon retired alongside the per-host divider chips.
 // Phase 41 Plan 02: `Search` and `X` icons added for the always-in-DOM search
 // input mounted at the top of the pv-panel-scroll region.
@@ -252,7 +252,8 @@ import { CreateRoleDialog } from "@/sidebar/CreateRoleDialog";
 //  path was retired per D-21 alongside the backend .hidden fanout removal.)
 import type { Host, HostFolder } from "@/types/ui-types";
 
-import { PrettyConversationRow } from "./PrettyConversationRow";
+import { PrettyConversationRowView, resolveRowIdentity } from "./PrettyConversationRow";
+import type { Identity } from "@/api/identities-api";
 // shape-sidebar-search-inline: pure filter helpers for the sidebar-search
 // input row. Extracts the union of every candidate string that could render
 // on either of a row's two lines, matches against a case-insensitive
@@ -446,98 +447,114 @@ function canonicalArchiveIdForRow(row: ConversationRowShape): string | null {
   return fleetRowId(hostIdNum, row.targetTmuxSession);
 }
 
-// Patch #137: micro-wrapper that reads the row's live isWorking state from
-// the session-working-store. Extracted so the store subscription sits at a
-// stable hook-call site (top of an instance component) rather than inside
-// a .map() callback — Rules-of-Hooks compliance. Each row is keyed on row.id
-// at the render sites below, so React's reconciler pairs the same hook
-// order to the same row instance across renders.
+// Row-level actions, each taking the row it acts on. The panel hands every
+// row ONE stable object (identity never changes across renders; each method
+// forwards to the panel's latest handler via a ref), so a memoized row never
+// re-renders just because the panel re-rendered and re-created its handlers.
+type RowActions = {
+  select: (row: ConversationRowShape) => void;
+  setPinned: (row: ConversationRowShape, wantPinned: boolean) => void;
+  deactivate: (row: ConversationRowShape) => void;
+  kill: (row: ConversationRowShape) => void;
+  archive: (row: ConversationRowShape) => void;
+  moveToProject: (row: ConversationRowShape, slug: string | null) => void;
+  createProject: (row: ConversationRowShape) => void;
+};
+
+const EMPTY_SUBMENU_PROJECTS: readonly { slug: string; displayName: string }[] = [];
+const noopTogglePin = () => {};
+
+// Wraps PrettyConversationRowView with the row's live working-store state.
+// Memoized: with the stable `actions` object and primitive / store-shared
+// props, a row re-renders only when its own data (row object, identity,
+// selection, pin/project state) or its own session's working-store state
+// changes — not when some other agent in the fleet changes state.
 //
-// Phase 53 Plan 03: recycling-axis subscription now reads from the working-store
-// (useSessionIsRecycling — backend-authoritative via the fleet-status poller
-// per Plans 53-01 + 53-02). Previously bridged via a client-side recycling
-// store (quick-260730-qbl) which required a mounted PrettyView
-// pane to publish; row-spinner correctness for unmounted rows is the entire
-// reason for the swap. All working-store hooks share the exact same
-// `${hostId}:${tmuxSession ?? ""}` key shape via `sessionWorkingKey()` at
-// line ~162.
-function PrettyConversationRowLive(props: {
+// Callback props are derived here from `actions` + flags, preserving the
+// exact presence/absence semantics the row's menu builder gates on:
+//   - pinMode "toggle" → onTogglePin flips the shown pin state; "noop" → a
+//     no-op handler (RDP rows); "none" → omitted (row can't be pinned).
+//   - archivable → onArchive only for rows canonicalArchiveIdForRow accepts.
+//   - projectActions → onMoveToProject (non-RDP, this host has projects) and
+//     onCreateProject (non-RDP, relay room or row with a host).
+//
+// Patch #137 / Phase 53 Plan 03 / Phase 47 Plan 04: the working-store hooks
+// sit at this stable hook-call site (not inside a .map() callback); all share
+// the `${hostId}:${tmuxSession ?? ""}` key shape via sessionWorkingKey().
+const PrettyConversationRowLive = memo(function PrettyConversationRowLive(props: {
   row: ConversationRowShape;
+  identity: Identity | null;
   selected: boolean;
   pinned: boolean;
   variant: "mobile" | "desktop";
-  onSelect: () => void;
-  onTogglePin?: () => void;
-  // quick-260727-gm3: forwarded verbatim to PrettyConversationRow. Only
-  // wired at render sites where the row can be in the active-set (active-
-  // set group, pinned group, non-RDP grouped block). RDP sentinel omits
-  // it because RDP rows never emit onDeactivate at the row level.
-  onDeactivate?: () => void;
-  // (Phase 115 Plan 115-02: prior onToggleHide + hidden props retired per
-  //  D-21.) Phase 115 Plan 115-06 (D-01): onArchive forwarded to
-  //  PrettyConversationRow for the Archive context-menu item. Wired ONLY at
-  //  render sites for fleet-synthetic identity-backed rows (gated by
-  //  canonicalArchiveIdForRow at the parent panel level) so RDP synthetic
-  //  rows, relay-room rows, and openTab-derived rows without host +
-  //  targetTmuxSession never receive it — the row's items[] builder gates
-  //  on `onArchive !== undefined`, so absence at this seam means absence in
-  //  the menu.
-  onArchive?: () => void;
-  // quick-260810-n3a: forwarded to PrettyConversationRow for the Kill
-  // context-menu item. The row's items[] builder gates on !isRdp && !identity
-  // && row.targetTmuxSession so the item only appears for valid targets.
-  onKill?: () => void;
-  // shape-move-to-project-context-menu (2026-09-23): three props for the
-  // context-menu drill-in that lets a user assign a row's project without
-  // dragging. Forwarded verbatim to PrettyConversationRow via {...rowProps}.
-  // onMoveToProject is UNDEFINED for RDP rows AND for zero-project fleets —
-  // the row's items[] builder gates on its presence to hide the parent item
-  // entirely (hidden-not-grey). projects + currentProjectSlug drive the
-  // submenu's rendering (list order, checkmark, "Remove from project"
-  // visibility).
-  onMoveToProject?: (slug: string | null) => void;
-  // "New project…" leaf in the same submenu — opens the create-project
-  // modal and moves the row into the new project once it exists.
-  onCreateProject?: () => void;
+  actions: RowActions;
+  pinMode: "toggle" | "noop" | "none";
+  archivable: boolean;
+  projectActions: boolean;
   projects?: readonly { slug: string; displayName: string }[];
   currentProjectSlug?: string | null;
-  // quick-260802-pq2: onSwipeOpenChange / forceClosed removed — the row's
-  // swipe machinery was retired; mobile now uses long-press → context menu.
   inActiveSet: boolean;
   sessionKey: string | null;
-  // quick-260727-f9v: pass-through for the row's sublabel render mode.
-  // The non-RDP grouped render site AND the pinned render site (as of
-  // patch #184 / quick-260729-gsv) set this to "identityTitle"; the
-  // active-set and RDP render sites omit the prop → row defaults to
-  // "hostname".
   subtitleMode?: "hostname" | "identityTitle";
 }) {
-  const { sessionKey, inActiveSet, ...rowProps } = props;
+  const {
+    row,
+    actions,
+    pinned,
+    pinMode,
+    archivable,
+    projectActions,
+    projects,
+    sessionKey,
+    inActiveSet,
+  } = props;
   const isWorking = useSessionIsWorking(sessionKey);
-  // Phase 53 Plan 03 — recycling axis from the backend-authoritative
-  // working-store. Keyed identically to the useSessionIsWorking hook above —
-  // all working-store hooks share the same `${hostId}:${tmuxSession ?? ""}`
-  // shape via sessionWorkingKey() at line ~162. Returns strict boolean (never
-  // null) — the `=== true` coercion at the prop site below is now redundant
-  // but simplified to `isRecycling={isRecycling}` for readability.
   const isRecycling = useSessionIsRecycling(sessionKey);
-  // Phase 47 Plan 04 — subscribes to the working-store's aiTitle axis
-  // (Plan 47-03 chokepoint) for the row's (host, tmuxSession) key. Same
-  // key shape as the other three working-store hooks above. Returns
-  // string | null; null for null-key rows (RDP) and for known-key rows
-  // the store hasn't seen an ai-title for yet — PrettyConversationRow's
-  // subtitle-line fallback (Plan 47-05) handles the null case.
   const aiTitle = useSessionAiTitle(sessionKey);
+  const isRdp = row.rdpHostRow === true;
+  const isRelayRoom = typeof row.roomId === "string" && row.roomId.length > 0;
   return (
-    <PrettyConversationRow
-      {...rowProps}
+    <PrettyConversationRowView
+      row={row}
+      identity={props.identity}
+      selected={props.selected}
+      pinned={pinned}
+      variant={props.variant}
+      onSelect={() => actions.select(row)}
+      onTogglePin={
+        pinMode === "toggle"
+          ? () => actions.setPinned(row, !pinned)
+          : pinMode === "noop"
+            ? noopTogglePin
+            : undefined
+      }
+      onDeactivate={() => actions.deactivate(row)}
+      onKill={() => actions.kill(row)}
+      onArchive={
+        archivable && canonicalArchiveIdForRow(row) !== null
+          ? () => actions.archive(row)
+          : undefined
+      }
+      onMoveToProject={
+        projectActions && !isRdp && (projects?.length ?? 0) > 0
+          ? (slug: string | null) => actions.moveToProject(row, slug)
+          : undefined
+      }
+      onCreateProject={
+        projectActions && !isRdp && (isRelayRoom || !!row.host)
+          ? () => actions.createProject(row)
+          : undefined
+      }
+      projects={projects}
+      currentProjectSlug={props.currentProjectSlug}
+      subtitleMode={props.subtitleMode}
       isWorking={isWorking}
       isRecycling={isRecycling}
       inActiveSet={inActiveSet}
       aiTitle={aiTitle}
     />
   );
-}
+});
 
 // Module-scoped scrollTop cache for the conversation-list scroll region.
 // On mobile the panel unmounts when the user opens a conversation (only the
@@ -1252,8 +1269,25 @@ export function PrettyConversationsPanel({
           isDormant: record.dormant === true,
         });
       }
-      rowSessionStatesCacheRef.current = { dirty: false, pinnedRowsRef: pinned, middleRef: middle, result: out };
-      return out;
+      // The working store notifies for every session in the fleet; most of
+      // those publishes don't change any visible row's (isWorking,
+      // isDormant). Keep the previous Map when the entries are identical so
+      // useSyncExternalStore sees the same reference and the panel does not
+      // re-render for them.
+      const prevResult = cache.result;
+      let same = prevResult.size === out.size;
+      if (same) {
+        for (const [k, v] of out) {
+          const p = prevResult.get(k);
+          if (p === undefined || p.isWorking !== v.isWorking || p.isDormant !== v.isDormant) {
+            same = false;
+            break;
+          }
+        }
+      }
+      const result = same ? prevResult : out;
+      rowSessionStatesCacheRef.current = { dirty: false, pinnedRowsRef: pinned, middleRef: middle, result };
+      return result;
     },
     () => new Map<string, { isWorking: boolean; isDormant: boolean }>(),
   );
@@ -1718,13 +1752,10 @@ export function PrettyConversationsPanel({
   // `shownPinned` is what the row displays — a project-section row shows
   // unpinned even if a stale `.pinned` exists (project outranks pin), so its
   // Pinned entry must PIN (and thereby leave the project), never toggle off.
-  const togglePinFor = (
-    row: ConversationRowShape,
-    shownPinned: boolean,
-  ): (() => void) | undefined =>
-    isIdentityRow(row) || isRowPinned(row)
-      ? () => handleSetPinned(row, !shownPinned)
-      : undefined;
+  // The row's onTogglePin (built in PrettyConversationRowLive) then calls
+  // handleSetPinned(row, !shownPinned).
+  const pinModeFor = (row: ConversationRowShape): "toggle" | "none" =>
+    isIdentityRow(row) || isRowPinned(row) ? "toggle" : "none";
 
   // Pinned and in-a-project are mutually exclusive. Pinning a project member
   // takes it out of the project: the backend pin route clears `project:` and
@@ -1882,11 +1913,10 @@ export function PrettyConversationsPanel({
   // the row's swipe machinery was retired; there is no per-row open-state
   // to coordinate. Mobile actions flow through the long-press context menu.
 
-  // Precompute a stable no-op togglePin for RDP rows (belt-and-suspenders —
-  // Wave 1's contract already suppresses swipe/pin intrinsically for RDP,
-  // but hand a no-op arrow anyway so nothing fires if the invariant ever
-  // regresses).
-  const rdpNoopTogglePin = () => {};
+  // RDP rows get a no-op togglePin (pinMode "noop" → module-level
+  // noopTogglePin) — belt-and-suspenders: Wave 1's contract already
+  // suppresses pin intrinsically for RDP, but hand a no-op anyway so nothing
+  // fires if the invariant ever regresses.
 
   // ─── Phase 117 Plan 117-08 — projects DnD + create-project state ─────────────
   //
@@ -2083,23 +2113,52 @@ export function PrettyConversationsPanel({
   // between projectSections update and useProjects snapshot bump) are
   // conservatively hidden from identity rows to avoid a wire call whose
   // routing we can't verify.
+  // Per-host submenu arrays, built once per projects change and reused across
+  // renders so each row's `projects` prop keeps its identity (memoized rows
+  // would otherwise re-render on every panel render). submenuProjects itself
+  // re-derives whenever any project section's rows change, so the cache is
+  // keyed on the (slug, displayName, hostId) content, not the array identity.
+  const submenuProjectsCacheRef = useRef<{
+    sig: string;
+    all: readonly { slug: string; displayName: string }[];
+    byHost: Map<string, readonly { slug: string; displayName: string }[]>;
+  } | null>(null);
+  const submenuProjectsCache = useMemo(() => {
+    const sig = JSON.stringify(
+      submenuProjects.map((p) => [p.slug, p.displayName, p.hostId]),
+    );
+    const prev = submenuProjectsCacheRef.current;
+    if (prev !== null && prev.sig === sig) return prev;
+    const all = submenuProjects.map(({ slug, displayName }) => ({
+      slug,
+      displayName,
+    }));
+    const byHost = new Map<string, { slug: string; displayName: string }[]>();
+    for (const p of submenuProjects) {
+      if (typeof p.hostId !== "string") continue;
+      const list = byHost.get(p.hostId) ?? [];
+      list.push({ slug: p.slug, displayName: p.displayName });
+      byHost.set(p.hostId, list);
+    }
+    const next = { sig, all, byHost };
+    submenuProjectsCacheRef.current = next;
+    return next;
+  }, [submenuProjects]);
+
   const submenuProjectsForRow = useCallback(
     (
       row: ConversationRowShape,
     ): readonly { slug: string; displayName: string }[] => {
+      // Relay-room rows: fleet-wide tags — offer every project.
       if (typeof row.roomId === "string" && row.roomId.length > 0) {
-        return submenuProjects.map(({ slug, displayName }) => ({
-          slug,
-          displayName,
-        }));
+        return submenuProjectsCache.all;
       }
+      // Identity rows: only projects on the row's own host.
       const rowHostId = row.host?.id;
-      if (!rowHostId) return [];
-      return submenuProjects
-        .filter((p) => p.hostId === rowHostId)
-        .map(({ slug, displayName }) => ({ slug, displayName }));
+      if (!rowHostId) return EMPTY_SUBMENU_PROJECTS;
+      return submenuProjectsCache.byHost.get(rowHostId) ?? EMPTY_SUBMENU_PROJECTS;
     },
-    [submenuProjects],
+    [submenuProjectsCache],
   );
 
   // shape-move-to-project-context-menu (2026-09-23): context-menu path for
@@ -2181,39 +2240,54 @@ export function PrettyConversationsPanel({
   );
   handleRowMoveToProjectRef.current = handleRowMoveToProject;
 
-  // Returns the row-scoped onMoveToProject callback, or undefined to hide
-  // projects from the row's "Move to" submenu (RDP row OR zero projects
-  // ON THIS ROW'S HOST — both are hide-not-grey per shape). Called at
-  // each row render site. Zero-projects check uses submenuProjectsForRow
-  // so an identity on a host with no local projects hides the item even
-  // when other hosts have projects.
-  const rowMoveToProjectCallback = useCallback(
-    (row: ConversationRowShape): ((slug: string | null) => void) | undefined => {
-      if (row.rdpHostRow === true) return undefined;
-      if (submenuProjectsForRow(row).length === 0) return undefined;
-      return (slug: string | null) => {
-        // "Remove from project" lands the row in Conversations — any pin it
-        // carries is a stale one the project was outranking, so drop it too
-        // or the row would surface in Pinned instead. (handleSetPinned calls
-        // handleRowMoveToProject directly to clear a project while KEEPING
-        // the pin, so this lives here, not there.)
-        if (slug === null) unpinForProjectMoveRef.current(row);
-        handleRowMoveToProject(row, slug);
-      };
+  // ─── Stable row actions ──────────────────────────────────────────────────
+  // One object for every row, created once; each method forwards to the
+  // latest handler through rowActionsImplRef (refreshed every render), so
+  // handlers always see current state while memoized rows see an unchanged
+  // `actions` prop. Presence/absence of each row callback is decided in
+  // PrettyConversationRowLive from flags (pinMode / archivable /
+  // projectActions + the row's own shape).
+  //
+  // moveToProject: "Move to" submenu pick. Projects are hidden from that
+  // submenu (onMoveToProject omitted) for RDP rows OR zero projects ON THIS
+  // ROW'S HOST — both hide-not-grey per shape; the zero-projects check uses
+  // submenuProjectsForRow so an identity on a host with no local projects
+  // hides the item even when other hosts have projects. "Remove from project"
+  // (slug null) lands the row in Conversations — any pin it carries is a
+  // stale one the project was outranking, so drop it too or the row would
+  // surface in Pinned instead. (handleSetPinned calls handleRowMoveToProject
+  // directly to clear a project while KEEPING the pin, so this lives here,
+  // not there.)
+  //
+  // createProject: "Move to → New project…", offered on every non-RDP row
+  // that handleRowMoveToProject can route (a relay room, or a row with a
+  // host), including hosts with no projects yet.
+  const rowActionsImplRef = useRef<RowActions | null>(null);
+  rowActionsImplRef.current = {
+    select: handleRowSelect,
+    setPinned: handleSetPinned,
+    deactivate: handleRowDeactivate,
+    kill: handleRowKill,
+    archive: (row) => {
+      void handleArchive(row);
     },
-    [submenuProjectsForRow, handleRowMoveToProject],
-  );
-
-  // "Move to → New project…": offered on every non-RDP row that
-  // handleRowMoveToProject can route (a relay room, or a row with a host),
-  // including hosts with no projects yet.
-  const rowCreateProjectCallback = useCallback(
-    (row: ConversationRowShape): (() => void) | undefined => {
-      if (row.rdpHostRow === true) return undefined;
-      const isRelayRoom = typeof row.roomId === "string" && row.roomId.length > 0;
-      if (!isRelayRoom && !row.host) return undefined;
-      return () => setCreateProjectForRow(row);
+    moveToProject: (row, slug) => {
+      if (slug === null) unpinForProjectMoveRef.current(row);
+      handleRowMoveToProject(row, slug);
     },
+    createProject: (row) => setCreateProjectForRow(row),
+  };
+  const rowActions = useMemo<RowActions>(
+    () => ({
+      select: (row) => rowActionsImplRef.current?.select(row),
+      setPinned: (row, want) => rowActionsImplRef.current?.setPinned(row, want),
+      deactivate: (row) => rowActionsImplRef.current?.deactivate(row),
+      kill: (row) => rowActionsImplRef.current?.kill(row),
+      archive: (row) => rowActionsImplRef.current?.archive(row),
+      moveToProject: (row, slug) =>
+        rowActionsImplRef.current?.moveToProject(row, slug),
+      createProject: (row) => rowActionsImplRef.current?.createProject(row),
+    }),
     [],
   );
 
@@ -3133,19 +3207,13 @@ export function PrettyConversationsPanel({
                     key={row.id}
                     row={row}
                     selected={row.id === selectedId || visibleInSplitTree.has(row.id)}
+                    identity={resolveRowIdentity(row, identitiesByHostKey, identitiesByKey)}
                     pinned={true}
                     variant={variant}
-                    onSelect={() => handleRowSelect(row)}
-                    onTogglePin={togglePinFor(row, true)}
-                    onDeactivate={() => handleRowDeactivate(row)}
-                    onKill={() => handleRowKill(row)}
-                    onArchive={
-                      canonicalArchiveIdForRow(row) !== null
-                        ? () => handleArchive(row)
-                        : undefined
-                    }
-                    onMoveToProject={rowMoveToProjectCallback(row)}
-                    onCreateProject={rowCreateProjectCallback(row)}
+                    actions={rowActions}
+                    pinMode={pinModeFor(row)}
+                    archivable={true}
+                    projectActions={true}
                     projects={submenuProjectsForRow(row)}
                     currentProjectSlug={rowIdToProjectSlug.get(row.id) ?? null}
                     inActiveSet={activeSet.has(row.id)}
@@ -3261,19 +3329,13 @@ export function PrettyConversationsPanel({
                             key={row.id}
                             row={row}
                             selected={row.id === selectedId || visibleInSplitTree.has(row.id)}
+                            identity={resolveRowIdentity(row, identitiesByHostKey, identitiesByKey)}
                             pinned={false}
                             variant={variant}
-                            onSelect={() => handleRowSelect(row)}
-                            onTogglePin={togglePinFor(row, false)}
-                            onDeactivate={() => handleRowDeactivate(row)}
-                            onKill={() => handleRowKill(row)}
-                            onArchive={
-                              canonicalArchiveIdForRow(row) !== null
-                                ? () => handleArchive(row)
-                                : undefined
-                            }
-                            onMoveToProject={rowMoveToProjectCallback(row)}
-                            onCreateProject={rowCreateProjectCallback(row)}
+                            actions={rowActions}
+                            pinMode={pinModeFor(row)}
+                            archivable={true}
+                            projectActions={true}
                             projects={submenuProjectsForRow(row)}
                             currentProjectSlug={rowIdToProjectSlug.get(row.id) ?? null}
                             inActiveSet={activeSet.has(row.id)}
@@ -3360,19 +3422,13 @@ export function PrettyConversationsPanel({
                     key={row.id}
                     row={row}
                     selected={row.id === selectedId || visibleInSplitTree.has(row.id)}
+                    identity={resolveRowIdentity(row, identitiesByHostKey, identitiesByKey)}
                     pinned={isRowPinned(row)}
                     variant={variant}
-                    onSelect={() => handleRowSelect(row)}
-                    onTogglePin={togglePinFor(row, isRowPinned(row))}
-                    onDeactivate={() => handleRowDeactivate(row)}
-                    onKill={() => handleRowKill(row)}
-                    onArchive={
-                      canonicalArchiveIdForRow(row) !== null
-                        ? () => handleArchive(row)
-                        : undefined
-                    }
-                    onMoveToProject={rowMoveToProjectCallback(row)}
-                    onCreateProject={rowCreateProjectCallback(row)}
+                    actions={rowActions}
+                    pinMode={pinModeFor(row)}
+                    archivable={true}
+                    projectActions={true}
                     projects={submenuProjectsForRow(row)}
                     currentProjectSlug={rowIdToProjectSlug.get(row.id) ?? null}
                     inActiveSet={activeSet.has(row.id)}
@@ -3416,19 +3472,23 @@ export function PrettyConversationsPanel({
                     key={row.id}
                     row={row}
                     selected={row.id === selectedId || visibleInSplitTree.has(row.id)}
+                    identity={resolveRowIdentity(row, identitiesByHostKey, identitiesByKey)}
                     pinned={false}
                     variant={variant}
-                    onSelect={() => handleRowSelect(row)}
-                    onTogglePin={rdpNoopTogglePin}
-                    onDeactivate={() => handleRowDeactivate(row)}
-                    onKill={() => handleRowKill(row)}
+                    actions={rowActions}
+                    pinMode="noop"
+                    /* projectActions off: RDP rows never get Move-to /
+                       New-project (onMoveToProject / onCreateProject were
+                       never wired at this site). */
+                    projectActions={false}
                     /* RDP rows are excluded from the archive affordance —
                        canonicalArchiveIdForRow short-circuits rdpHostRow=true
-                       to null, so onArchive is intentionally omitted here.
+                       to null, so archivable is intentionally false here.
                        Documented explicitly so a future refactor doesn't
                        accidentally add it and re-open the affordance-
                        narrowing gate 115-02 landed for the Hide slot.
                        (D-01 affordance-narrowing: Archive is identity-only.) */
+                    archivable={false}
                     inActiveSet={activeSet.has(row.id)}
                     sessionKey={sessionWorkingKey(row)}
                   />
