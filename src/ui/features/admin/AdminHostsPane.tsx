@@ -189,7 +189,7 @@ function HostCard({ h, now }: { h: AdminHostOverview; now: number }) {
     <div
       className={
         "k-group px-3.5 py-3 " +
-        (attn ? "ring-1 ring-inset ring-[var(--k-danger-soft)] " : "") +
+        (attn ? "ring-1 ring-inset ring-[rgba(229,85,76,0.45)] " : "") +
         (h.online ? "" : "opacity-60")
       }
       data-testid={`admin-host-${h.key}`}

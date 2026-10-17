@@ -428,9 +428,9 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
       />,
     );
     // 3 roles alphabetical by displayName → Ally, Box Maintainer, Unadorned.
-    // Rows are <div role="button"> so the kebab <button> can live inside.
+    // Each row's avatar + name is a button; the kebab sits beside it.
     const row = await screen.findByRole("button", { name: /Box Maintainer/ }, { timeout: 3000 });
-    expect(row.getAttribute("data-slot")).toBe("kit-list-row");
+    expect(row.closest('[data-slot="kit-list-row"]')).not.toBeNull();
     // The row itself carries no hue background.
     expect(row.getAttribute("style") ?? "").not.toMatch(/hsl/i);
     const disc = row.querySelector(".k-item-av") as HTMLElement;

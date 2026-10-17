@@ -432,7 +432,6 @@ function CommitRow({ commit, onOpen }: { commit: GitCommit; onOpen: () => void }
     <KitListRow
       data-testid="git-commit-row"
       onActivate={onOpen}
-      aria-label={`Show what commit ${commit.sha.slice(0, 7)} changed`}
       title={commit.subject}
       subtitle={
         <>

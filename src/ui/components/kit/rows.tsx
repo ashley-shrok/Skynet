@@ -94,8 +94,15 @@ export function KitSettingsRow({
 
 // ─── List rows ───────────────────────────────────────────────────────────
 
+const InKitList = React.createContext(false);
+
+/** A list of KitListRows — announced as a list ("list, N items"). */
 export function KitList({ className, ...props }: React.ComponentProps<"div">): JSX.Element {
-  return <div data-slot="kit-list" className={cn("k-list", className)} {...props} />;
+  return (
+    <InKitList.Provider value={true}>
+      <div role="list" data-slot="kit-list" className={cn("k-list", className)} {...props} />
+    </InKitList.Provider>
+  );
 }
 
 /** A small heading between groups of list rows. */
@@ -123,7 +130,13 @@ export interface KitListRowProps extends Omit<React.ComponentProps<"div">, "titl
   onActivate?: () => void;
 }
 
-/** One row for roles, tasks, search results, archived things, users. */
+/**
+ * One row for roles, tasks, search results, archived things, users. When
+ * it's clickable, the avatar + text are one real button and the row's own
+ * controls (switch, chips, menu) sit beside it — never inside it — so
+ * screen readers reach each of them. A click anywhere on the row that isn't
+ * one of those controls also activates it.
+ */
 export const KitListRow = React.forwardRef<HTMLDivElement, KitListRowProps>(function KitListRow(
   {
     avatar,
@@ -139,43 +152,22 @@ export const KitListRow = React.forwardRef<HTMLDivElement, KitListRowProps>(func
     dim,
     onActivate,
     className,
+    role: ownRole,
+    "aria-label": ariaLabel,
     onKeyDown,
     ...props
   },
   ref,
 ) {
+  const inList = React.useContext(InKitList);
   const clickable = !!onActivate;
-  return (
-    <div
-      ref={ref}
-      data-slot="kit-list-row"
-      data-clickable={clickable ? "true" : undefined}
-      data-dim={dim ? "true" : undefined}
-      aria-selected={selected || undefined}
-      role={clickable ? "button" : undefined}
-      tabIndex={clickable ? 0 : undefined}
-      className={cn("k-item", className)}
-      onClick={
-        clickable
-          ? (e) => {
-              // Clicks on the row's own controls (menu, switch) don't activate
-              // it, nor do clicks that bubble up from a portaled menu or dialog.
-              const target = e.target as Element;
-              if (!e.currentTarget.contains(target)) return;
-              if (target.closest("button, input, select, textarea, a, label")) return;
-              onActivate?.();
-            }
-          : undefined
-      }
-      onKeyDown={(e) => {
-        if (clickable && e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) {
-          e.preventDefault();
-          onActivate?.();
-        }
-        onKeyDown?.(e);
-      }}
-      {...props}
-    >
+  // A caller that gives the row its own role (e.g. "option" in a listbox)
+  // owns its semantics: the whole row is the focusable, activatable item.
+  // Otherwise the avatar + text are a real button inside the row.
+  const wholeRow = clickable && !!ownRole;
+  const mainButton = clickable && !ownRole;
+  const content = (
+    <>
       {avatar != null || avatarSrc ? (
         <span
           className="k-item-av"
@@ -194,6 +186,54 @@ export const KitListRow = React.forwardRef<HTMLDivElement, KitListRowProps>(func
           </span>
         ) : null}
       </span>
+    </>
+  );
+  return (
+    <div
+      ref={ref}
+      role={ownRole ?? (inList ? "listitem" : undefined)}
+      aria-label={mainButton ? undefined : ariaLabel}
+      tabIndex={wholeRow ? 0 : undefined}
+      onKeyDown={(e) => {
+        if (wholeRow && e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) {
+          e.preventDefault();
+          onActivate?.();
+        }
+        onKeyDown?.(e);
+      }}
+      data-slot="kit-list-row"
+      data-clickable={clickable ? "true" : undefined}
+      data-dim={dim ? "true" : undefined}
+      data-selected={selected ? "true" : undefined}
+      className={cn("k-item", className)}
+      onClick={
+        clickable
+          ? (e) => {
+              // Clicks on the row's own controls (menu, switch) don't activate
+              // it, nor do clicks that bubble up from a portaled menu or
+              // dialog, nor the main button (it activates itself).
+              const target = e.target as Element;
+              if (!e.currentTarget.contains(target)) return;
+              if (target.closest("button, input, select, textarea, a, label")) return;
+              onActivate?.();
+            }
+          : undefined
+      }
+      {...props}
+    >
+      {mainButton ? (
+        <button
+          type="button"
+          className="k-item-main"
+          aria-label={ariaLabel}
+          aria-current={selected ? "true" : undefined}
+          onClick={() => onActivate?.()}
+        >
+          {content}
+        </button>
+      ) : (
+        <span className="k-item-main">{content}</span>
+      )}
       {trailing || menu ? (
         <span className="k-item-trail">
           {trailing}

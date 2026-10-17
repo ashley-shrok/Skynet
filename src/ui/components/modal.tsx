@@ -143,6 +143,8 @@ function Modal({
   const dirty = React.useRef(false);
   const drag = React.useRef<{ y0: number; t0: number; dy: number; id: number } | null>(null);
   const { onOpenChange, open } = props;
+  const openRef = React.useRef(open);
+  openRef.current = open;
   React.useEffect(() => {
     if (open) dirty.current = false;
   }, [open]);
@@ -185,7 +187,14 @@ function Modal({
               el.style.transition = "transform 0.2s ease-in";
               el.style.transform = "translateY(100%)";
             }
-            window.setTimeout(() => onOpenChange?.(false), 180);
+            window.setTimeout(() => {
+              onOpenChange?.(false);
+              // The owner may refuse to close (e.g. while it's busy) — then
+              // bring the sheet back rather than leave it off screen.
+              window.setTimeout(() => {
+                if (openRef.current !== false) setOffset(0, true);
+              }, 60);
+            }, 180);
           } else {
             setOffset(0, true);
           }

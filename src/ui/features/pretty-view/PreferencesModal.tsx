@@ -15,7 +15,7 @@
  *   - Neutral blue-gray hue (220) preserved from pre-unification — settings
  *     aren't identity-scoped, so no dynamic hue.
  *
- * Log out — a pinned side-list item below a divider; asks with a kit
+ * Log out — a plain action button under the side list; asks with a kit
  * confirm. Verified as the only UI logout path in the frontend (2026-09-29
  * grep).
  *
@@ -74,12 +74,10 @@ const NAV_SECTIONS = [
 ] as const;
 
 type SectionValue = (typeof NAV_SECTIONS)[number]["value"] | "about";
-/** Side-list items: the sections, plus Log out (an action, not a pane). */
-type NavValue = SectionValue | "logout";
+type NavValue = SectionValue;
 
 const PINNED_ITEMS: ReadonlyArray<ModalSidebarTabDef<NavValue>> = [
   { value: "about", label: "About", Icon: Info, pinned: true },
-  { value: "logout", label: "Log out", Icon: LogOut, pinned: true },
 ];
 
 async function confirmLogout(): Promise<void> {
@@ -140,10 +138,7 @@ export default function PreferencesModal({
   // Mobile (fullscreen modal): drill-in — nav list OR pane with a back bar.
   // Controlled here so it resets whenever the modal closes.
   const drill = useModalDrillIn<NavValue>(activeSection, false, open);
-  const pickItem = (next: NavValue) => {
-    if (next === "logout") void confirmLogout();
-    else setActiveSection(next);
-  };
+  const pickItem = (next: NavValue) => setActiveSection(next);
 
   // D-05: reset the active tab to "general" whenever the modal closes so
   // reopening always starts on the General pane.
@@ -231,6 +226,19 @@ export default function PreferencesModal({
         backLabel="Preferences"
         width={188}
         drill={drill}
+        // Log out is an action, not a section: a plain button under the list
+        // (no pressed state, no drill-in chevron).
+        trailing={
+          <button
+            type="button"
+            className="k-side-item"
+            data-testid="preferences-nav-logout"
+            onClick={() => void confirmLogout()}
+          >
+            <LogOut size={15} aria-hidden="true" />
+            <span className="truncate">Log out</span>
+          </button>
+        }
       >
         {/* Right pane — renders the active section */}
         <ModalBody

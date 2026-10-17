@@ -1675,6 +1675,8 @@ export function PrettyConversationsPanel({
   const lastUnfocusedAtRef = useRef<Map<string, number>>(new Map());
   const previousSelectedIdRef = useRef<string | null>(null);
   const activeSetRef = useRef(activeSet);
+  const projectSectionsRef = useRef(projectSections);
+  projectSectionsRef.current = projectSections;
   const selectedIdRef = useRef(selectedId);
   const handleRowDeactivateRef = useRef(handleRowDeactivate);
   // Patch #513: idle-sweep exemption for sessions currently rendered in
@@ -1955,7 +1957,7 @@ export function PrettyConversationsPanel({
       destructive: true,
     });
     if (!ok) return;
-    if (activeSet.has(row.id)) {
+    if (activeSetRef.current.has(row.id)) { // latest — the confirm doesn't freeze the page
       handleRowDeactivate(row);
     }
     // Optimistic removal — mark pending FIRST so any in-flight fleet-status
@@ -2870,25 +2872,32 @@ export function PrettyConversationsPanel({
     async (slug: string, hostId?: string) => {
       // 1. The project's section plus every section beneath it, in tree
       //    order (parent first).
-      const section = projectSections.find(
-        (s) => s.slug === slug && (hostId === undefined || s.hostId === undefined || s.hostId === hostId),
-      );
-      const sectionKey = (s: { slug: string; hostId?: string }) => `${s.hostId ?? ""}::${s.slug}`;
-      const subtree: typeof projectSections = [];
-      if (section) {
-        const inSubtree = new Set<string>([sectionKey(section)]);
-        for (const s of projectSections) {
-          if (s === section) {
-            subtree.push(s);
-            continue;
-          }
-          const pk = s.parentKey ?? null;
-          if (pk !== null && inSubtree.has(pk)) {
-            inSubtree.add(sectionKey(s));
-            subtree.push(s);
+      //    Read from the latest snapshot: the kit confirm doesn't freeze the
+      //    page, so this runs again after it to pick up membership changes.
+      const collectSubtree = () => {
+        const sections = projectSectionsRef.current;
+        const root = sections.find(
+          (s) => s.slug === slug && (hostId === undefined || s.hostId === undefined || s.hostId === hostId),
+        );
+        const sectionKey = (s: { slug: string; hostId?: string }) => `${s.hostId ?? ""}::${s.slug}`;
+        const tree: typeof sections = [];
+        if (root) {
+          const inSubtree = new Set<string>([sectionKey(root)]);
+          for (const s of sections) {
+            if (s === root) {
+              tree.push(s);
+              continue;
+            }
+            const pk = s.parentKey ?? null;
+            if (pk !== null && inSubtree.has(pk)) {
+              inSubtree.add(sectionKey(s));
+              tree.push(s);
+            }
           }
         }
-      }
+        return { section: root, subtree: tree };
+      };
+      const { section, subtree } = collectSubtree();
       const subProjects = subtree.slice(1);
       const members = subtree.flatMap((s) => s.rows);
       const isRoomRow = (r: (typeof members)[number]) =>
@@ -2984,9 +2993,11 @@ export function PrettyConversationsPanel({
         destructive: true,
       });
       if (!proceed) return;
-      // 4. Folder moves FIRST, deepest first (host resolved above).
+      // 4. Folder moves FIRST, deepest first (host resolved above), over the
+      //    subtree as it is now.
+      const latestSubtree = collectSubtree().subtree;
       const toMove: Array<{ slug: string; rows: typeof members }> =
-        subtree.length > 0 ? subtree : [{ slug, rows: [] }];
+        latestSubtree.length > 0 ? latestSubtree : [{ slug, rows: [] }];
       const moved: typeof toMove = [];
       let moveError: unknown = null;
       for (const s of [...toMove].reverse()) {
@@ -3183,7 +3194,12 @@ export function PrettyConversationsPanel({
           title: "Rename project",
           defaultValue: currentDisplayName,
           confirmLabel: "Rename",
-          validate: (v) => (v.trim().length > 80 ? "Name must be 80 characters or fewer." : null),
+          validate: (v) =>
+            v.trim().length === 0
+              ? "Enter a name."
+              : v.trim().length > 80
+                ? "Name must be 80 characters or fewer."
+                : null,
         });
         if (raw === null) return; // Cancel
         const next = raw.trim();

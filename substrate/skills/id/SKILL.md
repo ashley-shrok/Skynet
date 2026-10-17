@@ -1125,22 +1125,27 @@ crown, then gear.
   notes. If the user asks what changed recently, this is what they saw.
   *Agent-side: none.*
 
-- **Small modals on a phone are sheets.** Short dialogs — new project,
-  new role, add wake-up, the feedback form, and every confirm / "name it"
-  / notice dialog — slide up from the bottom of a phone, only as tall as
-  their content, with a grab bar on top and the app dimmed above. A swipe
-  down closes one that has nothing typed in it; once something's been
-  typed a swipe springs it back instead, so nothing is lost by a slip. ✕
-  and Cancel always close. Bigger modals (skills, an agent's modal,
-  preferences, search, files) still fill the phone screen.
+- **Small modals on a phone are sheets.** Short dialogs — new
+  conversation, new project, new role, add wake-up, the feedback form,
+  and every confirm / "name it" / notice dialog — slide up from the bottom
+  of a phone, only as tall as their content, with a grab bar on top and the
+  app dimmed above, their buttons stacked full-width with the main one on
+  top. A swipe down closes one that has nothing typed in it; once
+  something's been typed a swipe springs it back instead, so nothing is
+  lost by a slip, and a sheet that's busy (e.g. creating an agent) springs
+  back until it's done. ✕ or Cancel closes as usual. Bigger modals (skills,
+  an agent's modal, preferences, search, files) still fill the phone
+  screen.
 
 - **Confirms are Skynet's own dialogs.** Every "are you sure?", "type a
   name" and "something went wrong" moment — archive, delete, discard
   changes, rename, reset context, log out — is an in-app dialog in the
   app's look, not the browser's grey pop-up: a short question, a line of
   detail, and named buttons (the destructive one red, e.g. **Archive**,
-  **Delete**, **Discard**). A "type a name" dialog shows what's wrong
-  under the field instead of re-asking. Esc or Cancel backs out.
+  **Delete**, **Discard** — and a destructive question starts with Cancel
+  focused, so Enter alone never deletes). A "type a name" dialog shows
+  what's wrong under the field instead of re-asking. Esc or Cancel backs
+  out.
 
 ### Conversation view
 

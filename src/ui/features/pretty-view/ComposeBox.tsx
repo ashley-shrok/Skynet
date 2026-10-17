@@ -2126,6 +2126,11 @@ export function ComposeBox({
   // Router: branch on voice.state so the meter-well reset button does the
   // right thing in either idle or recording state. Wired into the reset
   // button's onClick below.
+  // Live voice state for handlers that await a confirm (the dialog doesn't
+  // freeze the page, so recording can start or stop while it's open).
+  const voiceStateRef = useRef(voice.state);
+  voiceStateRef.current = voice.state;
+
   async function handleResetClick() {
     if (
       !(await kitConfirm({
@@ -2135,7 +2140,7 @@ export function ComposeBox({
       }))
     )
       return;
-    if (voice.state === "recording") {
+    if (voiceStateRef.current === "recording") {
       void handleVoiceResetSend();
     } else {
       handleResetSend();

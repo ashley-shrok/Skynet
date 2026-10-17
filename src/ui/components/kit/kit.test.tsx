@@ -166,7 +166,11 @@ describe("kit rows and choices", () => {
     expect(onActivate).not.toHaveBeenCalled();
     fireEvent.click(screen.getByText("garden-keeper"));
     expect(onActivate).toHaveBeenCalledTimes(1);
-    fireEvent.keyDown(screen.getByRole("button", { name: /garden-keeper/ }), { key: "Enter" });
+    // The avatar + text are a real button (keyboard comes free) and the
+    // row's own controls sit beside it, not inside it.
+    const main = screen.getByRole("button", { name: /garden-keeper/ });
+    expect(main).not.toContainElement(screen.getByText("menu"));
+    fireEvent.click(main);
     expect(onActivate).toHaveBeenCalledTimes(2);
   });
 

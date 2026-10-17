@@ -24,9 +24,11 @@ export function promptAndRenameIdentity(args: {
       defaultValue: currentTitle,
       confirmLabel: "Rename",
       validate: (v) =>
-        v.trim().length > RENAME_MAX_LENGTH
-          ? `Name must be ${RENAME_MAX_LENGTH} characters or fewer.`
-          : null,
+        v.trim().length === 0
+          ? "Enter a name."
+          : v.trim().length > RENAME_MAX_LENGTH
+            ? `Name must be ${RENAME_MAX_LENGTH} characters or fewer.`
+            : null,
     });
     if (raw === null) return; // Cancel
     const next = raw.trim();

@@ -38,6 +38,9 @@ export interface KitFieldProps {
   htmlFor?: string;
   /** Extra content on the label line, right-aligned (e.g. a reset link). */
   labelAction?: React.ReactNode;
+  /** The child is a group of controls (chips, radios), not one form
+   *  control: the label names the group instead of pointing at an input. */
+  group?: boolean;
   className?: string;
   children: React.ReactNode;
   "data-testid"?: string;
@@ -49,6 +52,7 @@ export function KitField({
   error,
   htmlFor,
   labelAction,
+  group,
   className,
   children,
   "data-testid": testId,
@@ -61,10 +65,20 @@ export function KitField({
     <FieldContext.Provider
       value={{ id, describedBy: hasNote ? noteId : undefined, invalid: !!error }}
     >
-      <div className={cn("k-field", className)} data-testid={testId}>
+      <div
+        className={cn("k-field", className)}
+        data-testid={testId}
+        role={group ? "group" : undefined}
+        aria-labelledby={group && label ? `${id}-label` : undefined}
+        aria-describedby={group && hasNote ? noteId : undefined}
+      >
         {label || labelAction ? (
           <div className="flex items-center justify-between gap-2">
-            {label ? (
+            {label && group ? (
+              <span className="k-label" id={`${id}-label`}>
+                {label}
+              </span>
+            ) : label ? (
               <label className="k-label" htmlFor={id}>
                 {label}
               </label>

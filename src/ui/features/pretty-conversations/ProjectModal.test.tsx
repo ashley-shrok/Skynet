@@ -73,7 +73,7 @@ vi.mock("@/api/workspace-api", async (importOriginal) => {
 });
 
 import { ProjectModal } from "./ProjectModal";
-import { __resetKitDialogsForTests } from "@/components/kit";
+import { __resetKitDialogsForTests, autoAnswerKitDialogs } from "@/components/kit";
 import { listWorkspace } from "@/api/workspace-api";
 
 function renderModal(overrides: {
@@ -208,9 +208,13 @@ describe("ProjectModal", () => {
     fireEvent.click(screen.getByTestId("project-modal-save"));
     await waitFor(() => expect(updateProjectFileSpy).toHaveBeenCalledTimes(1));
 
+    // Record any dialog request instead of relying on the (async) render.
+    const dialogs = autoAnswerKitDialogs({ confirm: false });
     fireEvent.click(screen.getByTestId("project-modal-close"));
+    await new Promise((r) => setTimeout(r, 50));
     expect(onOpenChange).not.toHaveBeenCalled();
-    expect(screen.queryByTestId("kit-dialog-confirm")).toBeNull();
+    expect(dialogs.calls).toHaveLength(0);
+    __resetKitDialogsForTests();
 
     finishSave({ markdown: "new body" });
     await waitFor(() => expect(screen.getByTestId("project-modal-save")).toHaveTextContent("Save"));
@@ -219,9 +223,10 @@ describe("ProjectModal", () => {
   it("a clean close doesn't ask", async () => {
     const { onOpenChange } = renderModal();
     await editor();
+    const dialogs = autoAnswerKitDialogs({ confirm: false });
     fireEvent.click(screen.getByTestId("project-modal-close"));
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
-    expect(screen.queryByTestId("kit-dialog-confirm")).toBeNull();
+    expect(dialogs.calls).toHaveLength(0);
   });
 
   it("Files lists the project folder on the project's host and hides project.md at the root", async () => {

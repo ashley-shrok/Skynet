@@ -35,6 +35,8 @@ export interface KitPromptOptions {
   confirmLabel?: string;
   cancelLabel?: string;
   mono?: boolean;
+  /** Red main button — for prompts that gate a can't-undo action. */
+  destructive?: boolean;
   /** Return a message to block submit and show it under the field. */
   validate?: (value: string) => string | null | undefined;
 }
@@ -45,24 +47,27 @@ export interface KitAlertOptions {
   okLabel?: string;
 }
 
-type Request =
+type Request = { key: string | null; promise: Promise<unknown> } & (
   | { kind: "confirm"; id: number; opts: KitConfirmOptions; resolve: (v: boolean) => void }
   | { kind: "prompt"; id: number; opts: KitPromptOptions; resolve: (v: string | null) => void }
-  | { kind: "alert"; id: number; opts: KitAlertOptions; resolve: () => void };
+  | { kind: "alert"; id: number; opts: KitAlertOptions; resolve: () => void }
+);
 
 let queue: Request[] = [];
 let nextId = 1;
 const listeners = new Set<() => void>();
-let mounted = false;
+let hostEl: HTMLElement | null = null;
 
 function emit(): void {
   for (const l of listeners) l();
 }
 
 function ensureHost(): void {
-  if (mounted || typeof document === "undefined") return;
-  mounted = true;
+  if (typeof document === "undefined") return;
+  // Re-mount if something (a test cleanup) detached the host.
+  if (hostEl && document.body.contains(hostEl)) return;
   const el = document.createElement("div");
+  hostEl = el;
   el.setAttribute("data-kit-dialog-host", "");
   document.body.appendChild(el);
   createRoot(el).render(<KitDialogHost />);
@@ -99,19 +104,45 @@ function settle(id: number): void {
   emit();
 }
 
-/** Ask a yes/no question. Resolves true on confirm, false on cancel/dismiss. */
-export function kitConfirm(opts: KitConfirmOptions): Promise<boolean> {
-  return new Promise((resolve) => push({ kind: "confirm", id: nextId++, opts, resolve }));
+/** Identical text-only requests share one dialog: unlike the browser's
+ *  pop-ups these don't freeze the page, so a double-click would otherwise
+ *  queue the same question twice and run the action twice. */
+function dedupeKey(kind: Request["kind"], opts: { title: React.ReactNode; body?: React.ReactNode }): string | null {
+  if (typeof opts.title !== "string") return null;
+  if (opts.body != null && typeof opts.body !== "string") return null;
+  return `${kind}\u0000${opts.title}\u0000${opts.body ?? ""}`;
 }
 
-/** Ask for a line of text. Resolves the trimmed-as-typed value, or null on cancel. */
+function request<T>(
+  kind: Request["kind"],
+  opts: KitConfirmOptions | KitPromptOptions | KitAlertOptions,
+): Promise<T> {
+  const key = autoAnswer ? null : dedupeKey(kind, opts);
+  const existing = key ? queue.find((r) => r.key === key) : undefined;
+  if (existing) {
+    // The first caller gets the real answer; the duplicate is told "no", so
+    // an action guarded by the question can't run twice.
+    return Promise.resolve((kind === "confirm" ? false : kind === "prompt" ? null : undefined) as T);
+  }
+  let resolve!: (v: T) => void;
+  const promise = new Promise<T>((r) => (resolve = r));
+  push({ kind, id: nextId++, opts, resolve, key, promise } as Request);
+  return promise;
+}
+
+/** Ask a yes/no question. Resolves true on confirm, false on cancel/dismiss. */
+export function kitConfirm(opts: KitConfirmOptions): Promise<boolean> {
+  return request<boolean>("confirm", opts);
+}
+
+/** Ask for a line of text. Resolves the value as typed, or null on cancel. */
 export function kitPrompt(opts: KitPromptOptions): Promise<string | null> {
-  return new Promise((resolve) => push({ kind: "prompt", id: nextId++, opts, resolve }));
+  return request<string | null>("prompt", opts);
 }
 
 /** Tell the user something. Resolves when dismissed. */
 export function kitAlert(opts: KitAlertOptions): Promise<void> {
-  return new Promise((resolve) => push({ kind: "alert", id: nextId++, opts, resolve }));
+  return request<void>("alert", opts);
 }
 
 function useQueue(): Request[] {
@@ -165,7 +196,7 @@ function DialogView({ req }: { req: Request }): JSX.Element {
       ? req.opts.okLabel ?? "OK"
       : req.opts.confirmLabel ?? (req.kind === "prompt" ? "OK" : "Confirm");
   const cancelLabel = req.kind === "alert" ? null : req.opts.cancelLabel ?? "Cancel";
-  const destructive = req.kind === "confirm" && req.opts.destructive;
+  const destructive = req.kind !== "alert" && !!req.opts.destructive;
 
   return (
     <Modal
@@ -213,14 +244,19 @@ function DialogView({ req }: { req: Request }): JSX.Element {
         ) : null}
         <div className="k-dialog-acts">
           {cancelLabel ? (
-            <KitButton onClick={() => finish("cancel")} data-testid="kit-dialog-cancel">
+            <KitButton
+              onClick={() => finish("cancel")}
+              // A destructive question starts on Cancel, so Enter can't delete.
+              autoFocus={destructive && req.kind !== "prompt"}
+              data-testid="kit-dialog-cancel"
+            >
               {cancelLabel}
             </KitButton>
           ) : null}
           <KitButton
             type="submit"
             variant={destructive ? "danger" : "primary"}
-            autoFocus={req.kind !== "prompt"}
+            autoFocus={req.kind !== "prompt" && !destructive}
             data-testid="kit-dialog-confirm"
           >
             {okLabel}

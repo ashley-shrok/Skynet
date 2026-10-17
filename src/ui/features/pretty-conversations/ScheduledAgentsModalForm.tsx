@@ -551,6 +551,7 @@ export function ScheduledAgentsModalForm({
 
         {/* Field 3: Roles (D-20 order 3) */}
         <KitField
+          group
           label="Roles"
           data-testid="scheduled-agents-modal-form-roles"
           help={
@@ -597,6 +598,7 @@ export function ScheduledAgentsModalForm({
             one host (auto-select covers it). Amended 2026-09-24 during /close. */}
         {!hostFieldHidden && (
           <KitField
+          group
             label="Host"
             data-testid="scheduled-agents-modal-form-host"
             help={
@@ -632,7 +634,7 @@ export function ScheduledAgentsModalForm({
 
         {/* Field 5: Schedule (D-20 order 5, D-22 kinds) */}
           {isSensor ? (
-            <KitField label="Schedule">
+            <KitField label="Schedule" group>
               <span
                 className="text-[14px] text-[var(--k-t1)]"
                 data-testid="scheduled-agents-modal-form-schedule-sensor"

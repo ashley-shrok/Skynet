@@ -266,6 +266,7 @@ function AccountTab({
       label: "Type the username to confirm",
       placeholder: user.username,
       confirmLabel: "Delete user",
+      destructive: true,
       validate: (v) =>
         v.trim() === user.username ? null : "Username doesn't match.",
     });
