@@ -30,4 +30,4 @@ Everything in a conversation pane besides the bubbles and the compose box exists
 
 - Relay rooms (several participants) keep their current badge group for now — revisit later.
 - Multi-role avatar stays the split-pie avatar for now — being worked on separately.
-- Ashley wants to rework how the agent window itself is presented — separate later work, not this campaign.
+- the user wants to rework how the agent window itself is presented — separate later work, not this campaign.

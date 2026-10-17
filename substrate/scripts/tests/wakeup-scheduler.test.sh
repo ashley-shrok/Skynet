@@ -650,7 +650,9 @@ JSON
 
 # ============================================================
 # SA-G10: `count` stops a schedule in the real process. Interval 1s with a 1s
-# poll: first poll anchors, then exactly `count` fires, then silence.
+# poll: first poll anchors, then exactly `count` fires, then silence. The
+# window is generous: under a loaded full-suite run, interpreter start-up can
+# eat several seconds, and a longer window only lengthens the silence checked.
 test_SA_G10_count_stops_firing() {
   local ident_dir home_dir out_log
   ident_dir=$(make_tmpdir)
@@ -662,7 +664,7 @@ test_SA_G10_count_stops_firing() {
  "schedule": {"type": "interval", "every": "1s", "count": 2},
  "instruction": "tick"}
 JSON
-  HOME="$home_dir" WAKEUP_POLL_SEC=1 timeout 7 python3 "$PY_SCRIPT" "$ident_dir" >"$out_log" 2>/dev/null || true
+  HOME="$home_dir" WAKEUP_POLL_SEC=1 timeout 15 python3 "$PY_SCRIPT" "$ident_dir" >"$out_log" 2>/dev/null || true
   local fires
   fires=$(grep -c "⏰ \[scheduled: twice" "$out_log")
   [ "$fires" -eq 2 ] || fail "SA-G10: expected exactly 2 fires, got $fires: $(cat "$out_log")"

@@ -42,7 +42,7 @@ The pane shows only what the user needs constantly — what this agent is doing 
 - Today: a large badge upper-right (avatar, name, roles, project, pin mark, unpushed-work mark, coordinator watermark; click → agent window; three-dots/right-click → menu; drag → pane handle), plus a separate task pill at top-center that does nothing.
 - The terminal view shows a smaller version of the same badge with the same behavior.
 - The agent window decides whether to show a Desktop tab by asking whether the desktop is running, but only while it is open, and once it sees "running" it never switches back off.
-- Apps have a full-width bar across the top; Ashley considers that bar worse than floating pills and wants conversations to stay floating.
+- Apps have a full-width bar across the top; the user considers that bar worse than floating pills and wants conversations to stay floating.
 - Tasting: a console snippet tried seven layouts (A–G); G is this shape. Snippet: ~/fleet/identities/cable-box-maintainer-3/workspace/tasting/badge-tasting.js.
 
 ## What would make it wrong
@@ -66,7 +66,7 @@ The pane shows only what the user needs constantly — what this agent is doing 
 ## Handoff notes
 
 - Implementer: cable-box-maintainer-3, inline, in this session.
-- Role rules apply: scoped tests during work, full suite only at deploy; commit, then stop and report — no push or deploy without Ashley's separate greenlight.
+- Role rules apply: scoped tests during work, full suite only at deploy; commit, then stop and report — no push or deploy without the user's separate greenlight.
 - The current badge is shared with relay rooms, which keep it; only agent conversations (chat + terminal view) switch to the pill.
 
 ---
@@ -74,7 +74,7 @@ The pane shows only what the user needs constantly — what this agent is doing 
 ## Close-Out
 
 **Closed:** 2026-10-16
-**Overall verdict:** closed-hit (reviewer returned closed-partial on two open points; both resolved with Ashley — see below)
+**Overall verdict:** closed-hit (reviewer returned closed-partial on two open points; both resolved with the user — see below)
 
 ### Shape features (conformance)
 
@@ -111,7 +111,7 @@ The pane shows only what the user needs constantly — what this agent is doing 
 
 ### Additions (in the result, not in the shape)
 
-- The agent window stayed on a remembered Desktop tab on reopen while the desktop ran — unsanctioned → reverted (Ashley, 2026-10-16: "Agreed")
+- The agent window stayed on a remembered Desktop tab on reopen while the desktop ran — unsanctioned → reverted (the user, 2026-10-16: "Agreed")
 
 ### Follow-ups
 
