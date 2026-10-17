@@ -988,4 +988,79 @@ describe("PUT /identities/:identityKey — Phase 68-02 rekey (no row bump, no fo
     expect(rmCalls.length).toBe(0);
   });
 
+  // -------------------------------------------------------------------------
+  // Trailing newline: REMOTE reads arrive trimmed (execCommand trims stdout),
+  // so the rewrite must restore the file's trailing "\n". LOCAL reads are
+  // byte-exact and are written back without normalization.
+  // -------------------------------------------------------------------------
+  it("REMOTE rewrite of a trimmed read restores the trailing newline", async () => {
+    readIdentityFileMock.mockResolvedValue({
+      markdown: "---\nroles: box-maintainer\ndisplayName: Old\n---\n\n# testkey",
+    });
+    const res = await httpPut(
+      server,
+      "/identities/testkey",
+      buildMultipartBody({ data: { hostId: 7, title: "T" } }),
+    );
+    expect(res.status).toBe(200);
+    const written = writeIdentityFileMock.mock.calls[0][2] as string;
+    expect(written.endsWith("# testkey\n")).toBe(true);
+    expect(written.endsWith("\n\n")).toBe(false);
+  });
+
+  it("REMOTE rewrite does not double an existing trailing newline", async () => {
+    const res = await httpPut(
+      server,
+      "/identities/testkey",
+      buildMultipartBody({ data: { hostId: 7, title: "T" } }),
+    );
+    expect(res.status).toBe(200);
+    const written = writeIdentityFileMock.mock.calls[0][2] as string;
+    expect(written.endsWith("# testkey\n")).toBe(true);
+    expect(written.endsWith("\n\n")).toBe(false);
+  });
+
+  it("LOCAL rewrite is byte-exact (no newline appended)", async () => {
+    isLocalHostIdMock.mockReturnValue(true);
+    readIdentityFileMock.mockResolvedValue({
+      markdown: "---\nroles: box-maintainer\ndisplayName: Old\n---\n\n# testkey",
+    });
+    const res = await httpPut(
+      server,
+      "/identities/testkey",
+      buildMultipartBody({ data: { hostId: 1, title: "T" } }),
+    );
+    expect(res.status).toBe(200);
+    const written = writeIdentityFileMock.mock.calls[0][2] as string;
+    expect(written.endsWith("# testkey")).toBe(true);
+  });
+
+  it("REMOTE PUT holds a per-host semaphore slot: 6 concurrent PUTs, cap 2 → ≤2 live conns", async () => {
+    const { __resetHostSemaphoreRegistryForTests, getHostSemaphore } =
+      await import("../../ssh/host-semaphore-registry.js");
+    __resetHostSemaphoreRegistryForTests();
+    getHostSemaphore(7, 2);
+    let live = 0;
+    let peak = 0;
+    connectOneShotMock.mockImplementation(async () => {
+      live++;
+      peak = Math.max(peak, live);
+      return { end: () => { live--; } };
+    });
+    readIdentityFileMock.mockImplementation(async () => {
+      await new Promise((r) => setTimeout(r, 5));
+      return { markdown: "---\nroles: box-maintainer\n---\n\n# testkey\n" };
+    });
+    const results = await Promise.all(
+      Array.from({ length: 6 }, () =>
+        httpPut(server, "/identities/testkey", buildMultipartBody({ data: { hostId: 7, title: "T" } })),
+      ),
+    );
+    expect(results.every((r) => r.status === 200)).toBe(true);
+    expect(peak).toBeLessThanOrEqual(2);
+    expect(peak).toBeGreaterThan(1);
+    expect(live).toBe(0);
+    __resetHostSemaphoreRegistryForTests();
+  });
 });
+
