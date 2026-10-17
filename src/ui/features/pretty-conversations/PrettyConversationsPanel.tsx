@@ -978,6 +978,9 @@ export function PrettyConversationsPanel({
         const hostIdNum = row.host ? parseInt(row.host.id, 10) : NaN;
         const hostId =
           Number.isFinite(hostIdNum) && hostIdNum > 0 ? hostIdNum : null;
+        // The backend no longer routes a hostless probe to the co-located
+        // box (it answers "hostId is required"), so don't send one.
+        if (hostId === null) return;
         // quick-260912-0t4: try hostId-scoped composite first, fall back to
         // bare-name byKey when the composite misses (test-fixture compat +
         // pre-quick-260912-0t4 wire responses that omit hostId on the row).

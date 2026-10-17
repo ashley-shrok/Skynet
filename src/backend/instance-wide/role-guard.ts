@@ -8,8 +8,9 @@
  * host itself is not admin-owned.
  */
 import type { Response } from "express";
-import { getInstanceWide, localMachine, machineForHostRow } from "./production.js";
+import { getInstanceWide, machineForHostRow } from "./production.js";
 import { callerIsAdmin } from "./admin.js";
+import { sshLogger } from "../utils/logger.js";
 
 export const INSTANCE_WIDE_ROLE_REFUSAL =
   "this role is managed instance-wide — only an admin can change it";
@@ -17,16 +18,28 @@ export const INSTANCE_WIDE_ROLE_REFUSAL =
 /**
  * Returns "allow" (not instance-wide, or not a synced host), "admin" (allowed;
  * call afterAdminWrite once the write lands) or "refuse".
+ *
+ * Fails CLOSED: a write that names no host is refused outright. There is no
+ * "no host id means the co-located box" fallback — that would let a hostless
+ * write skip the instance-wide check (or skip the admin sync).
  */
 export async function checkInstanceWideRoleWrite(
   userId: string,
-  /** undefined = a write to the co-located host (no host id given). */
   hostId: number | undefined,
   role: string,
 ): Promise<{ verdict: "allow" | "refuse" } | { verdict: "admin"; machineId: string }> {
+  if (hostId === undefined || !Number.isInteger(hostId) || hostId <= 0) {
+    sshLogger.warn("instance-wide role guard: write refused, no host id", {
+      operation: "instance_wide_guard_missing_host",
+      userId,
+      role,
+      hostIdRaw: String(hostId),
+    });
+    return { verdict: "refuse" };
+  }
   const engine = getInstanceWide();
   if (!engine || !(await engine.isInstanceWide("role", role))) return { verdict: "allow" };
-  const machine = hostId === undefined ? await localMachine() : await machineForHostRow(hostId);
+  const machine = await machineForHostRow(hostId);
   if (!machine) return { verdict: "allow" };
   if (!(await callerIsAdmin(userId))) return { verdict: "refuse" };
   // Marked before the write lands, so a sync that probes mid-write already

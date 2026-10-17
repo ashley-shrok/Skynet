@@ -90,7 +90,7 @@ describe("getRoleFileByName one-shot helper", () => {
   it("R2: rejects with Error(env.error) when role:file-loaded envelope carries `error`", async () => {
     const { getRoleFileByName } = await import("./claude-session-api.js");
 
-    const promise = getRoleFileByName({ roleName: "../evil" });
+    const promise = getRoleFileByName({ roleName: "../evil", hostId: 3 });
     lastSocket!.onopen?.call(
       lastSocket as unknown as WebSocket,
       new Event("open"),

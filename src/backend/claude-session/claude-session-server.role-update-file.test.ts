@@ -40,6 +40,8 @@ vi.mock("./identity-artifact-reader.js", async (importOriginal) => {
   >();
   return {
     ...actual,
+    // Host 6 stands in for the co-located box (IDENTITIES_LOCAL_HOST_IDS).
+    isLocalHostId: vi.fn((id: number | undefined) => id === 6),
     readRoleFileByName: vi.fn(),
     writeRoleFileByName: vi.fn(),
   };
@@ -117,7 +119,7 @@ describe("role:update-file WS handler — happy paths", () => {
         type: "role:update-file",
         roleName: "box-maintainer",
         contents: "---\ntitle: Skynet\n---\n\nbody",
-        // hostId omitted → LOCAL branch (same as identity handler)
+        hostId: 6, // local host → LOCAL branch
       },
       /* userId */ "1",
     );
@@ -264,6 +266,7 @@ describe("role:update-file WS handler — writer throws propagate", () => {
       {
         type: "role:update-file",
         roleName: "box-maintainer",
+        hostId: 6,
         contents: "oversized (simulated by mock throw)",
       },
       /* userId */ "1",
@@ -277,4 +280,27 @@ describe("role:update-file WS handler — writer throws propagate", () => {
     expect(sent[0].markdown).toBe("");
     expect(sent[0].error).toContain("IDMEDIT_MAX_MARKDOWN_BYTES");
   });
+});
+
+describe("role:update-file WS handler — hostId is required (no local fallback)", () => {
+  for (const [label, hostId] of [
+    ["omitted", undefined],
+    ["null", null],
+    ["zero", 0],
+    ["string", "6"],
+    ["fractional", 6.5],
+  ] as const) {
+    it(`rejects ${label} hostId with {error:'hostId is required'}; no writer, no SSH`, async () => {
+      await __handleRoleUpdateFileForTests(
+        wsStub as unknown as import("ws").WebSocket,
+        { type: "role:update-file", roleName: "box-maintainer", contents: "x", ...(hostId === undefined ? {} : { hostId }) },
+        /* userId */ "1",
+      );
+      expect(writeRoleFileByName).not.toHaveBeenCalled();
+      expect(readRoleFileByName).not.toHaveBeenCalled();
+      expect(resolveHostById).not.toHaveBeenCalled();
+      expect(connectOneShot).not.toHaveBeenCalled();
+      expect(sent).toEqual([{ type: "role:file-updated", markdown: "", error: "hostId is required" }]);
+    });
+  }
 });

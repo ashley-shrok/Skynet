@@ -667,15 +667,14 @@ export type IdentityIdentityFileEvent = { type: "identity:identity-file"; markdo
 // the frontend contract stays (identityKey, hostId) — role name never crosses
 // the wire, per D-CONTEXT § "Backend does the two-step" lock.
 //
-// hostId is optional on read for parity with identity-file (LOCAL bind-mount
-// fallback when hostId omitted or in IDENTITIES_LOCAL_HOST_IDS); required on
-// write since a write always targets a specific host.
+// hostId is required on read and write — the backend rejects a hostless
+// request ("hostId is required"); there is no local bind-mount fallback.
 
 export type IdentityGetRoleFilePayload = {
   type: "identity:get-role-file";
   identityKey: string;
-  /** Pane's SSH host id — backend routes reads to the pane's box. Omit for LOCAL bind-mount. */
-  hostId?: number;
+  /** Pane's SSH host id — backend routes reads to the pane's box. Required. */
+  hostId: number;
 };
 export type IdentityRoleFileEvent = { type: "identity:role-file"; markdown: string; error?: string };
 
@@ -846,8 +845,8 @@ export type IdentityRoleFileUpdatedEvent = {
 export type RoleUpdateFilePayload = {
   type: "role:update-file";
   roleName: string;
-  /** Backend SSH host id (LOCAL omitted / undefined routes to bind-mount). */
-  hostId?: number;
+  /** Backend SSH host id. Required — the backend rejects a hostless write. */
+  hostId: number;
   /** UTF-8 markdown payload (full-overwrite of ~/fleet/roles/<roleName>/<roleName>.md). */
   contents: string;
 };
@@ -945,7 +944,8 @@ export type FetchOlderRangeBatchEvent = {
 //   server -> client:
 //     { type: "identity:trapped-work", results: [{identityKey, hostId, hasTrappedWork, error?}, ...] }
 //
-// hostId=null means "read from skynet-ec2 local bind-mount".
+// hostId must be a positive host id; a null hostId gets a per-target
+// {error:"hostId is required"} (no local bind-mount fallback).
 
 export type TrappedWorkTarget = {
   identityKey: string;
@@ -1098,7 +1098,7 @@ export function updateRoleFileByName(
 // Plan 90-10 and use these instead of the earlier identity-keyed reads.
 //
 // Wire type / response type pairs:
-//   role:get-file        {roleName, hostId?}                       -> role:file-loaded     {markdown, error?}
+//   role:get-file        {roleName, hostId}                        -> role:file-loaded     {markdown, error?}
 //   role:list-bounties   {roleName, hostId?, includeArchived?}     -> role:bounties-loaded {bounties, archivedBounties, error?}
 //
 // Phase 134 Plan 134-02: the four role-scope wakeup CRUD wire types
@@ -1108,8 +1108,8 @@ export function updateRoleFileByName(
 export type RoleGetFilePayload = {
   type: "role:get-file";
   roleName: string;
-  /** Backend SSH host id (LOCAL omitted / undefined routes to bind-mount). */
-  hostId?: number;
+  /** Backend SSH host id. Required — the backend rejects a hostless read. */
+  hostId: number;
 };
 export type RoleFileLoadedEvent = {
   type: "role:file-loaded";
@@ -1131,7 +1131,7 @@ export type RoleFileLoadedEvent = {
  */
 export function getRoleFileByName(args: {
   roleName: string;
-  hostId?: number;
+  hostId: number;
 }): Promise<{ markdown: string }> {
   return new Promise((resolve, reject) => {
     let responded = false;

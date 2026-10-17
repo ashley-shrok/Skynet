@@ -29,6 +29,8 @@ vi.mock("./identity-artifact-reader.js", async (importOriginal) => {
   >();
   return {
     ...actual,
+    // Host 6 stands in for the co-located box (IDENTITIES_LOCAL_HOST_IDS).
+    isLocalHostId: vi.fn((id: number | undefined) => id === 6),
     readRoleFileByName: vi.fn(),
   };
 });
@@ -88,7 +90,7 @@ describe("role:get-file WS handler", () => {
 
     await __handleRoleGetFileForTests(
       wsStub as unknown as import("ws").WebSocket,
-      { type: "role:get-file", roleName: "box-maintainer" },
+      { type: "role:get-file", roleName: "box-maintainer", hostId: 6 },
       "1",
     );
 
@@ -164,7 +166,7 @@ describe("role:get-file WS handler", () => {
 
     await __handleRoleGetFileForTests(
       wsStub as unknown as import("ws").WebSocket,
-      { type: "role:get-file", roleName: "box-maintainer" },
+      { type: "role:get-file", roleName: "box-maintainer", hostId: 6 },
       "1",
     );
 
@@ -178,3 +180,17 @@ describe("role:get-file WS handler", () => {
 // Phase 134 Plan 134-02 retired the role:list-wakeups describe block;
 // Phase 136 retired the role:list-bounties describe block. Both wire ops
 // are gone — only role:get-file remains covered above.
+
+describe("role:get-file WS handler — hostId is required (no local fallback)", () => {
+  it("rejects a missing hostId with {error:'hostId is required'}; no reader, no SSH", async () => {
+    await __handleRoleGetFileForTests(
+      wsStub as unknown as import("ws").WebSocket,
+      { type: "role:get-file", roleName: "box-maintainer" },
+      /* userId */ "1",
+    );
+    expect(readRoleFileByName).not.toHaveBeenCalled();
+    expect(resolveHostById).not.toHaveBeenCalled();
+    expect(connectOneShot).not.toHaveBeenCalled();
+    expect(sent).toEqual([{ type: "role:file-loaded", markdown: "", error: "hostId is required" }]);
+  });
+});

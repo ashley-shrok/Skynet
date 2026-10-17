@@ -18,6 +18,8 @@ vi.mock("./identity-artifact-reader.js", async (importOriginal) => {
   return {
     ...actual,
     readIdentityTrappedWork: vi.fn(),
+    // Host 6 stands in for the co-located box (IDENTITIES_LOCAL_HOST_IDS).
+    isLocalHostId: vi.fn((id: number | undefined) => id === 6),
   };
 });
 
@@ -84,7 +86,7 @@ describe("identity:probe-trapped-work handler — batched per-target fan-out", (
   });
 
   // Test 2
-  it("local-only batch (3 targets, hostId=null) does not open any SSH connection", async () => {
+  it("local-only batch (3 targets, local hostId=6) does not open any SSH connection", async () => {
     vi.mocked(readIdentityTrappedWork).mockImplementation(
       async (_conn, identityKey) => ({
         hasTrappedWork: identityKey === "tina",
@@ -96,9 +98,9 @@ describe("identity:probe-trapped-work handler — batched per-target fan-out", (
       {
         type: "identity:probe-trapped-work",
         targets: [
-          { identityKey: "tina", hostId: null },
-          { identityKey: "alpha", hostId: null },
-          { identityKey: "beta", hostId: null },
+          { identityKey: "tina", hostId: 6 },
+          { identityKey: "alpha", hostId: 6 },
+          { identityKey: "beta", hostId: 6 },
         ],
       },
       /* userId */ 1,
@@ -108,9 +110,9 @@ describe("identity:probe-trapped-work handler — batched per-target fan-out", (
     expect(sent).toHaveLength(1);
     expect(sent[0].results).toHaveLength(3);
     const byKey = new Map(sent[0].results.map((r) => [r.identityKey, r]));
-    expect(byKey.get("tina")).toMatchObject({ hostId: null, hasTrappedWork: true });
-    expect(byKey.get("alpha")).toMatchObject({ hostId: null, hasTrappedWork: false });
-    expect(byKey.get("beta")).toMatchObject({ hostId: null, hasTrappedWork: false });
+    expect(byKey.get("tina")).toMatchObject({ hostId: 6, hasTrappedWork: true });
+    expect(byKey.get("alpha")).toMatchObject({ hostId: 6, hasTrappedWork: false });
+    expect(byKey.get("beta")).toMatchObject({ hostId: 6, hasTrappedWork: false });
   });
 
   // Test 3
@@ -170,7 +172,7 @@ describe("identity:probe-trapped-work handler — batched per-target fan-out", (
       {
         type: "identity:probe-trapped-work",
         targets: [
-          { identityKey: "local1", hostId: null },
+          { identityKey: "local1", hostId: 6 },
           { identityKey: "remoteA1", hostId: 42 },
           { identityKey: "remoteA2", hostId: 42 },
           { identityKey: "remoteB1", hostId: 99 },
@@ -226,9 +228,9 @@ describe("identity:probe-trapped-work handler — batched per-target fan-out", (
       {
         type: "identity:probe-trapped-work",
         targets: [
-          { identityKey: "healthy1", hostId: null },
-          { identityKey: "boom", hostId: null },
-          { identityKey: "healthy2", hostId: null },
+          { identityKey: "healthy1", hostId: 6 },
+          { identityKey: "boom", hostId: 6 },
+          { identityKey: "healthy2", hostId: 6 },
         ],
       },
       /* userId */ 1,
@@ -238,11 +240,11 @@ describe("identity:probe-trapped-work handler — batched per-target fan-out", (
     const byKey = new Map(sent[0].results.map((r) => [r.identityKey, r]));
     expect(byKey.get("healthy1")).toMatchObject({
       hasTrappedWork: true,
-      hostId: null,
+      hostId: 6,
     });
     expect(byKey.get("healthy2")).toMatchObject({
       hasTrappedWork: true,
-      hostId: null,
+      hostId: 6,
     });
     const bad = byKey.get("boom");
     expect(bad).toBeDefined();
@@ -264,7 +266,7 @@ describe("identity:probe-trapped-work handler — batched per-target fan-out", (
       wsStub as unknown as import("ws").WebSocket,
       {
         type: "identity:probe-trapped-work",
-        targets: [{ identityKey: "x", hostId: null }],
+        targets: [{ identityKey: "x", hostId: 6 }],
       },
       /* userId */ 1,
     );
@@ -326,8 +328,8 @@ describe("identity:probe-trapped-work handler — batched per-target fan-out", (
       {
         type: "identity:probe-trapped-work",
         targets: [
-          { identityKey: "tina", hostId: null },
-          { identityKey: "tabitha", hostId: null },
+          { identityKey: "tina", hostId: 6 },
+          { identityKey: "tabitha", hostId: 6 },
         ],
       },
       /* userId */ 1,
@@ -335,5 +337,31 @@ describe("identity:probe-trapped-work handler — batched per-target fan-out", (
 
     expect(getHostSemaphore).not.toHaveBeenCalled();
     expect(semRun).not.toHaveBeenCalled();
+  });
+  // Missing/invalid hostId never falls back to the co-located box.
+  it("missing / invalid hostId → per-target {error:'hostId is required'}, no read, no SSH", async () => {
+    vi.mocked(readIdentityTrappedWork).mockResolvedValue({ hasTrappedWork: true });
+
+    await __handleIdentityProbeTrappedWorkForTests(
+      wsStub as unknown as import("ws").WebSocket,
+      {
+        type: "identity:probe-trapped-work",
+        targets: [
+          { identityKey: "nohost" },
+          { identityKey: "nullhost", hostId: null },
+          { identityKey: "zerohost", hostId: 0 },
+          { identityKey: "strhost", hostId: "6" },
+        ],
+      },
+      /* userId */ 1,
+    );
+
+    expect(readIdentityTrappedWork).not.toHaveBeenCalled();
+    expect(connectOneShot).not.toHaveBeenCalled();
+    expect(sent).toHaveLength(1);
+    expect(sent[0].results).toHaveLength(4);
+    for (const r of sent[0].results) {
+      expect(r).toMatchObject({ hostId: null, hasTrappedWork: false, error: "hostId is required" });
+    }
   });
 });

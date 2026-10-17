@@ -39,6 +39,8 @@ vi.mock("./identity-artifact-reader.js", async (importOriginal) => {
   >();
   return {
     ...actual,
+    // Host 6 stands in for the co-located box (IDENTITIES_LOCAL_HOST_IDS).
+    isLocalHostId: vi.fn((id: number | undefined) => id === 6),
     readRoleFile: vi.fn(),
     writeRoleFile: vi.fn(),
   };
@@ -90,18 +92,18 @@ afterEach(() => {
 
 describe("identity:get-role-file WS handler", () => {
   it("test 10: LOCAL branch calls readRoleFile(null, key) and responds with markdown", async () => {
-    // Hint LOCAL branch by omitting hostId — handler treats undefined as LOCAL
+    // hostId 6 is the local host → LOCAL branch
     vi.mocked(readRoleFile).mockResolvedValue({
       markdown: "# Box Maintainer\n\n## Role\n\nKeeps boxes running.\n",
     });
 
     await __handleIdentityGetRoleFileForTests(
       wsStub as unknown as import("ws").WebSocket,
-      { type: "identity:get-role-file", identityKey: "tina" },
+      { type: "identity:get-role-file", identityKey: "tina", hostId: 6 },
       /* userId */ "1",
     );
 
-    // No SSH open when hostId omitted (LOCAL branch)
+    // No SSH open for the local host (LOCAL branch)
     expect(connectOneShot).not.toHaveBeenCalled();
     expect(resolveHostById).not.toHaveBeenCalled();
 
@@ -144,7 +146,7 @@ describe("identity:get-role-file WS handler", () => {
 
     await __handleIdentityGetRoleFileForTests(
       wsStub as unknown as import("ws").WebSocket,
-      { type: "identity:get-role-file", identityKey: "tina" },
+      { type: "identity:get-role-file", identityKey: "tina", hostId: 6 },
       /* userId */ "1",
     );
 
@@ -200,7 +202,7 @@ describe("identity:update-role-file WS handler", () => {
         type: "identity:update-role-file",
         identityKey: "tina",
         contents: "# Updated Role\n",
-        // hostId omitted → LOCAL branch (same as get handler)
+        hostId: 6, // local host → LOCAL branch
       },
       /* userId */ "1",
     );
@@ -232,6 +234,7 @@ describe("identity:update-role-file WS handler", () => {
       {
         type: "identity:update-role-file",
         identityKey: "tina",
+        hostId: 6,
         contents: "oversized (simulated by mock throw)",
       },
       /* userId */ "1",
@@ -256,6 +259,7 @@ describe("identity:update-role-file WS handler", () => {
       {
         type: "identity:update-role-file",
         identityKey: "moxie",
+        hostId: 6,
         contents: "# body",
       },
       /* userId */ "1",
@@ -307,5 +311,42 @@ describe("identity:update-role-file WS handler", () => {
       markdown: "",
       error: "contents must be a string",
     });
+  });
+});
+
+describe("identity role-file WS handlers — hostId is required (no local fallback)", () => {
+  it("identity:get-role-file rejects a missing hostId; no reader, no SSH", async () => {
+    await __handleIdentityGetRoleFileForTests(
+      wsStub as unknown as import("ws").WebSocket,
+      { type: "identity:get-role-file", identityKey: "tina" },
+      /* userId */ "1",
+    );
+    expect(readRoleFile).not.toHaveBeenCalled();
+    expect(resolveHostById).not.toHaveBeenCalled();
+    expect(connectOneShot).not.toHaveBeenCalled();
+    expect(sent).toEqual([{ type: "identity:role-file", markdown: "", error: "hostId is required" }]);
+  });
+
+  it("identity:update-role-file rejects a missing hostId; no writer, no SSH", async () => {
+    await __handleIdentityUpdateRoleFileForTests(
+      wsStub as unknown as import("ws").WebSocket,
+      { type: "identity:update-role-file", identityKey: "tina", contents: "# body" },
+      /* userId */ "1",
+    );
+    expect(writeRoleFile).not.toHaveBeenCalled();
+    expect(readRoleFile).not.toHaveBeenCalled();
+    expect(resolveHostById).not.toHaveBeenCalled();
+    expect(connectOneShot).not.toHaveBeenCalled();
+    expect(sent).toEqual([{ type: "identity:role-file-updated", markdown: "", error: "hostId is required" }]);
+  });
+
+  it("identity:update-role-file rejects a non-positive hostId", async () => {
+    await __handleIdentityUpdateRoleFileForTests(
+      wsStub as unknown as import("ws").WebSocket,
+      { type: "identity:update-role-file", identityKey: "tina", hostId: -1, contents: "# body" },
+      /* userId */ "1",
+    );
+    expect(writeRoleFile).not.toHaveBeenCalled();
+    expect(sent).toEqual([{ type: "identity:role-file-updated", markdown: "", error: "hostId is required" }]);
   });
 });

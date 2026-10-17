@@ -143,8 +143,3 @@ export function reservedNameCheck(
   }
   return (kind, name) => kind === "skill" && skills.has(name);
 }
-
-/** The co-located machine (writes with no host id land there). */
-export async function localMachine(): Promise<ProductionMachine | null> {
-  return (await getMachines()).find((m) => m.local) ?? null;
-}

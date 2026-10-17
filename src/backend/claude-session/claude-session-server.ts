@@ -105,23 +105,23 @@ import { getHostSemaphore } from "../ssh/host-semaphore-registry.js";
  *     { type: "connectToPane", hostId: number, tmuxSession: string }
  *     { type: "identity:probe-trapped-work", targets: Array<{ identityKey: string; hostId: number | null }> } // Phase 104 Plan 01: batched per-identity trapped-work probe (~/fleet/identities/<key>/workspace/ walk) for the trapped-work indicator
  *     // patch #17g/#92: identity artifact fetches (one-shot; no pane needed):
- *     { type: "identity:get-identity-file", identityKey: string, hostId?: number } // patch #17g/#92: fetch <key>.md
- *     { type: "identity:get-role-file", identityKey: string, hostId?: number }     // Phase 22 SRIC-06: fetch ~/fleet/roles/<role>/<role>.md via backend two-step (identity file → role: frontmatter → role artifact)
- *     { type: "identity:list-wakeups", identityKey: string, hostId?: number }      // patch #17g/#92: list wakeups/<slug>/wakeup.json folders
- *     { type: "identity:get-handoff", identityKey: string, hostId?: number }       // patch #17g/#92: fetch handoff.md
+ *     { type: "identity:get-identity-file", identityKey: string, hostId: number } // patch #17g/#92: fetch <key>.md
+ *     { type: "identity:get-role-file", identityKey: string, hostId: number }     // Phase 22 SRIC-06: fetch ~/fleet/roles/<role>/<role>.md via backend two-step (identity file → role: frontmatter → role artifact)
+ *     { type: "identity:list-wakeups", identityKey: string, hostId: number }      // patch #17g/#92: list wakeups/<slug>/wakeup.json folders
+ *     { type: "identity:get-handoff", identityKey: string, hostId: number }       // patch #17g/#92: fetch handoff.md
  *     // patch #154: first WRITE paths on identity artifacts. Same hostId routing.
- *     { type: "identity:update-wakeup", identityKey: string, hostId?: number, wakeupSlug: string, updates: { enabled?: boolean, schedule?: object } } // patch #154: patch wakeups/<slug>/wakeup.json
- *     { type: "identity:create-wakeup", identityKey: string, hostId?: number, spec: { name, enabled, schedule, instruction } } // Phase 72 Plan 01: identity-scope create — full CRUD on ~/fleet/identities/<key>/wakeups/<slug>/wakeup.json. Slug derived from spec.name (kebab-case). Throws "wakeup with this name already exists" when the <slug>/ folder exists.
- *     { type: "identity:delete-wakeup", identityKey: string, hostId?: number, wakeupSlug: string } // Phase 72 Plan 01: identity-scope delete (removes the whole wakeups/<slug>/ folder; idempotent).
+ *     { type: "identity:update-wakeup", identityKey: string, hostId: number, wakeupSlug: string, updates: { enabled?: boolean, schedule?: object } } // patch #154: patch wakeups/<slug>/wakeup.json
+ *     { type: "identity:create-wakeup", identityKey: string, hostId: number, spec: { name, enabled, schedule, instruction } } // Phase 72 Plan 01: identity-scope create — full CRUD on ~/fleet/identities/<key>/wakeups/<slug>/wakeup.json. Slug derived from spec.name (kebab-case). Throws "wakeup with this name already exists" when the <slug>/ folder exists.
+ *     { type: "identity:delete-wakeup", identityKey: string, hostId: number, wakeupSlug: string } // Phase 72 Plan 01: identity-scope delete (removes the whole wakeups/<slug>/ folder; idempotent).
  *     // Phase 136 retired identity:update-bounty-priority / update-bounty-status /
  *     // update-bounty-pinned / update-bounty-fields / archive-bounty /
  *     // delete-bounty wire types alongside the bounty concept retirement.
  *     // Phase 18 / IDMEDIT-06: markdown write surfaces (full-overwrite, tmp+rename atomic):
  *     { type: "identity:update-identity-file", identityKey: string, hostId: number, contents: string } // Phase 18: full-overwrite <key>/<key>.md via SFTP tmp+rename (REMOTE) or fs tmp+rename (LOCAL)
  *     { type: "identity:update-role-file", identityKey: string, hostId: number, contents: string }     // Phase 22 SRIC-06: full-overwrite ~/fleet/roles/<role>/<role>.md via backend two-step
- *     { type: "role:update-file", roleName: string, hostId?: number, contents: string }                 // Phase 90 Plan 90-03: role-name-keyed companion of identity:update-role-file — full-overwrite ~/fleet/roles/<roleName>/<roleName>.md without the identity two-step. Consumed by the RoleModal (Plan 90-04) which has no identity context.
+ *     { type: "role:update-file", roleName: string, hostId: number, contents: string }                 // Phase 90 Plan 90-03: role-name-keyed companion of identity:update-role-file — full-overwrite ~/fleet/roles/<roleName>/<roleName>.md without the identity two-step. Consumed by the RoleModal (Plan 90-04) which has no identity context.
  *     // Phase 90 Plan 90-07: role-name-keyed READ variants (D-08.3). Byte-shape mirrors of identity-keyed handlers MINUS identity two-step. RoleModal has role-name context, not identity. Phase 134 Plan 134-02: role-scope wakeup CRUD variants retired.
- *     { type: "role:get-file", roleName: string, hostId?: number }                                          // Phase 90 Plan 90-07: role-name-keyed companion of identity:get-role-file — read ~/fleet/roles/<roleName>/<roleName>.md directly.
+ *     { type: "role:get-file", roleName: string, hostId: number }                                          // Phase 90 Plan 90-07: role-name-keyed companion of identity:get-role-file — read ~/fleet/roles/<roleName>/<roleName>.md directly.
  *     // Phase 134 Plan 134-02 retired role:list-wakeups / create-wakeup /
  *     // update-wakeup / delete-wakeup. Phase 136 retired role:list-bounties.
  *     { type: "identity:update-handoff", identityKey: string, hostId: number, contents: string }       // Phase 18: full-overwrite <key>/handoff.md
@@ -1160,6 +1160,46 @@ export const __interruptThrottleForTests = interruptThrottleByPane;
 export const __broadcastAsideDismissedForTests = broadcastAsideDismissed;
 
 
+// ─── hostId gate shared by the identity/role file + wakeup WS handlers ────────
+//
+// Every one of these handlers MUST name the host it targets. A missing or
+// invalid hostId used to mean "the co-located box" (bind-mount write); that
+// fallback is gone — it let a hostless request skip per-host routing and the
+// instance-wide role guard. The request is rejected with the handler's own
+// error envelope instead.
+
+const HOST_ID_REQUIRED_ERROR = "hostId is required";
+
+function isValidHostId(raw: unknown): raw is number {
+  return typeof raw === "number" && Number.isInteger(raw) && raw > 0;
+}
+
+function describeRawHostId(raw: unknown): string {
+  if (raw === undefined) return "undefined";
+  try { return JSON.stringify(raw) ?? String(raw); } catch { return String(raw); }
+}
+
+/** Returns the validated hostId, or null after replying `{...envelope, error}`. */
+function requireHostId(
+  ws: WebSocket,
+  rawHostId: unknown,
+  messageType: string,
+  envelope: Record<string, unknown>,
+  userId: string | undefined,
+): number | null {
+  if (isValidHostId(rawHostId)) return rawHostId;
+  sshLogger.warn("ws request rejected: missing or invalid hostId", {
+    operation: "ws_missing_host_id",
+    messageType,
+    hostIdRaw: describeRawHostId(rawHostId),
+    userId,
+  });
+  try {
+    ws.send(JSON.stringify({ ...envelope, error: HOST_ID_REQUIRED_ERROR }));
+  } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=${String(envelope.type)} err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Phase 104 Plan 01: identity:probe-trapped-work handler + test seam
 // ---------------------------------------------------------------------------
@@ -1175,7 +1215,9 @@ export const __broadcastAsideDismissedForTests = broadcastAsideDismissed;
 //   out: { type: "identity:trapped-work", results:  [{identityKey, hostId, hasTrappedWork, error?}, ...] }
 //
 // Same batching semantics as the retired per-host list-counts probe:
-//   - hostId=null OR in IDENTITIES_LOCAL_HOST_IDS → local (bind-mount) branch.
+//   - hostId in IDENTITIES_LOCAL_HOST_IDS → local (bind-mount) branch.
+//   - hostId missing/invalid → per-target {error:"hostId is required"} (no
+//     fallback to the co-located box).
 //   - Otherwise: group by hostId, connectOneShot ONCE per hostId group,
 //     run every identity in the group through that single conn, close in
 //     try/finally.
@@ -1212,13 +1254,16 @@ export async function handleIdentityProbeTrappedWork(
         .map((t) => {
           const key = typeof t.identityKey === "string" ? t.identityKey : "";
           const hostIdRaw = t.hostId;
-          const hostId =
-            typeof hostIdRaw === "number" &&
-            Number.isFinite(hostIdRaw) &&
-            hostIdRaw > 0
-              ? hostIdRaw
-              : null;
-          return { identityKey: key, hostId };
+          if (!isValidHostId(hostIdRaw)) {
+            sshLogger.warn("ws request rejected: missing or invalid hostId", {
+              operation: "ws_missing_host_id",
+              messageType: "identity:probe-trapped-work",
+              hostIdRaw: describeRawHostId(hostIdRaw),
+              userId,
+              identityKey: key,
+            });
+          }
+          return { identityKey: key, hostId: isValidHostId(hostIdRaw) ? hostIdRaw : null };
         })
     : [];
 
@@ -1235,9 +1280,16 @@ export async function handleIdentityProbeTrappedWork(
   // otherwise the numeric hostId. Each group opens one conn (or zero for
   // the local group) and reads all its identities through the same conn.
   const groups = new Map<string | number, TrappedWorkTarget[]>();
+  // Targets without a valid hostId are answered with a per-target error —
+  // never routed to the co-located box.
+  const missingHostResults: TrappedWorkResult[] = [];
   for (const t of targets) {
-    const useLocal = t.hostId === null || isLocalHostId(t.hostId);
-    const groupKey: string | number = useLocal ? "local" : t.hostId!;
+    if (t.hostId === null) {
+      missingHostResults.push({ identityKey: t.identityKey, hostId: null, hasTrappedWork: false, error: HOST_ID_REQUIRED_ERROR });
+      continue;
+    }
+    const useLocal = isLocalHostId(t.hostId);
+    const groupKey: string | number = useLocal ? "local" : t.hostId;
     const bucket = groups.get(groupKey);
     if (bucket) bucket.push(t);
     else groups.set(groupKey, [t]);
@@ -1336,7 +1388,7 @@ export async function handleIdentityProbeTrappedWork(
   }
 
   const groupResults = await Promise.all(groupPromises);
-  const results: TrappedWorkResult[] = groupResults.flat();
+  const results: TrappedWorkResult[] = [...missingHostResults, ...groupResults.flat()];
 
   try {
     ws.send(JSON.stringify({ type: "identity:trapped-work", results }));
@@ -1359,7 +1411,7 @@ export const __handleIdentityProbeTrappedWorkForTests = handleIdentityProbeTrapp
 // without a full WSS bring-up.
 //
 // Wire shape (mirrors identity:get-identity-file exactly):
-//   request:  { type: "identity:get-role-file", identityKey: string, hostId?: number }
+//   request:  { type: "identity:get-role-file", identityKey: string, hostId: number }
 //   response: { type: "identity:role-file", markdown: string, error?: string }
 //
 // Backend does the two-step (identity file → role: frontmatter → role artifact)
@@ -1383,11 +1435,9 @@ export async function handleIdentityGetRoleFile(
   }
   const identityKey = rawKey;
   const rawHostId = m.hostId;
-  const hostIdNum =
-    typeof rawHostId === "number" && Number.isFinite(rawHostId) && rawHostId > 0
-      ? rawHostId
-      : undefined;
-  const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
+  const hostIdNum = requireHostId(ws, rawHostId, "identity:get-role-file", { type: "identity:role-file", markdown: "" }, userId);
+  if (hostIdNum === null) return;
+  const useLocal = isLocalHostId(hostIdNum);
 
   try {
     let markdown: string;
@@ -1398,7 +1448,7 @@ export async function handleIdentityGetRoleFile(
         userId, identityKey, hostId: hostIdNum, useLocal: true, payloadSize: markdown.length,
       });
     } else {
-      const resolved = await resolveHostById(hostIdNum!, userId!);
+      const resolved = await resolveHostById(hostIdNum, userId!);
       if (!resolved) {
         try { ws.send(JSON.stringify({ type: "identity:role-file", markdown: "", error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:role-file err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
         return;
@@ -1435,10 +1485,6 @@ export async function handleIdentityGetRoleFile(
 // server echo is authoritative). writeRoleFile handles the two-step, byte
 // cap, and IDENTITY_KEY_RE guards internally.
 
-/** A missing or local host id means the co-located host; pass undefined for it. */
-function useLocalHostId(hostIdNum: number | undefined): number | undefined {
-  return hostIdNum === undefined || isLocalHostId(hostIdNum) ? undefined : hostIdNum;
-}
 
 export async function handleIdentityUpdateRoleFile(
   ws: WebSocket,
@@ -1459,17 +1505,15 @@ export async function handleIdentityUpdateRoleFile(
   const identityKey = rawKey;
   const contents = rawContents;
   const rawHostId = m.hostId;
-  const hostIdNum =
-    typeof rawHostId === "number" && Number.isFinite(rawHostId) && rawHostId > 0
-      ? rawHostId
-      : undefined;
+  const hostIdNum = requireHostId(ws, rawHostId, "identity:update-role-file", { type: "identity:role-file-updated", markdown: "" }, userId);
+  if (hostIdNum === null) return;
   // Instance-wide roles: resolve the identity's role first and apply the same
   // admin-only rule as role:update-file.
   let instanceWideMachineId: string | null = null;
   if (userId) {
     let resolvedRole: string | null = null;
     try {
-      if (hostIdNum === undefined || isLocalHostId(hostIdNum)) {
+      if (isLocalHostId(hostIdNum)) {
         resolvedRole = await resolveRoleForIdentity(null, identityKey);
       } else {
         const resolvedHost = await resolveHostById(hostIdNum, userId);
@@ -1486,7 +1530,7 @@ export async function handleIdentityUpdateRoleFile(
       resolvedRole = null; // the write below surfaces the real error
     }
     if (resolvedRole) {
-      const check = await checkInstanceWideRoleWrite(userId, useLocalHostId(hostIdNum), resolvedRole);
+      const check = await checkInstanceWideRoleWrite(userId, hostIdNum, resolvedRole);
       if (check.verdict === "refuse") {
         try { ws.send(JSON.stringify({ type: "identity:role-file-updated", markdown: "", error: INSTANCE_WIDE_ROLE_REFUSAL })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:role-file-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
         return;
@@ -1494,7 +1538,7 @@ export async function handleIdentityUpdateRoleFile(
       if (check.verdict === "admin") instanceWideMachineId = check.machineId;
     }
   }
-  const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
+  const useLocal = isLocalHostId(hostIdNum);
   try {
     let markdown: string;
     if (useLocal) {
@@ -1506,7 +1550,7 @@ export async function handleIdentityUpdateRoleFile(
         bytes: Buffer.byteLength(contents, "utf-8"),
       });
     } else {
-      const resolved = await resolveHostById(hostIdNum!, userId!);
+      const resolved = await resolveHostById(hostIdNum, userId!);
       if (!resolved) {
         try { ws.send(JSON.stringify({ type: "identity:role-file-updated", markdown: "", error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:role-file-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
         return;
@@ -1577,22 +1621,20 @@ export async function handleRoleUpdateFile(
   const roleName = rawRoleName;
   const contents = rawContents;
   const rawHostId = m.hostId;
-  const hostIdNum =
-    typeof rawHostId === "number" && Number.isFinite(rawHostId) && rawHostId > 0
-      ? rawHostId
-      : undefined;
+  const hostIdNum = requireHostId(ws, rawHostId, "role:update-file", { type: "role:file-updated", markdown: "" }, userId);
+  if (hostIdNum === null) return;
   // Instance-wide roles: non-admins are refused; an admin's write is followed
   // by a sync that carries it from this host to every machine.
   let instanceWideMachineId: string | null = null;
   if (userId) {
-    const check = await checkInstanceWideRoleWrite(userId, useLocalHostId(hostIdNum), roleName);
+    const check = await checkInstanceWideRoleWrite(userId, hostIdNum, roleName);
     if (check.verdict === "refuse") {
       try { ws.send(JSON.stringify({ type: "role:file-updated", markdown: "", error: INSTANCE_WIDE_ROLE_REFUSAL })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=role:file-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
       return;
     }
     if (check.verdict === "admin") instanceWideMachineId = check.machineId;
   }
-  const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
+  const useLocal = isLocalHostId(hostIdNum);
   try {
     let markdown: string;
     if (useLocal) {
@@ -1604,7 +1646,7 @@ export async function handleRoleUpdateFile(
         bytes: Buffer.byteLength(contents, "utf-8"),
       });
     } else {
-      const resolved = await resolveHostById(hostIdNum!, userId!);
+      const resolved = await resolveHostById(hostIdNum, userId!);
       if (!resolved) {
         try { ws.send(JSON.stringify({ type: "role:file-updated", markdown: "", error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=role:file-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
         return;
@@ -1648,7 +1690,7 @@ export const __handleRoleUpdateFileForTests = handleRoleUpdateFile;
 // (readRoleFileByName).
 //
 // Wire shape:
-//   role:get-file        {roleName, hostId?}                       -> role:file-loaded     {markdown, error?}
+//   role:get-file        {roleName, hostId}                       -> role:file-loaded     {markdown, error?}
 //
 // Phase 134 Plan 134-02 retired the role-scope wakeup CRUD handlers
 // (role:list-wakeups / role:create-wakeup / role:update-wakeup /
@@ -1671,11 +1713,9 @@ export async function handleRoleGetFile(
   }
   const roleName = rawRoleName;
   const rawHostId = m.hostId;
-  const hostIdNum =
-    typeof rawHostId === "number" && Number.isFinite(rawHostId) && rawHostId > 0
-      ? rawHostId
-      : undefined;
-  const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
+  const hostIdNum = requireHostId(ws, rawHostId, "role:get-file", { type: "role:file-loaded", markdown: "" }, userId);
+  if (hostIdNum === null) return;
+  const useLocal = isLocalHostId(hostIdNum);
 
   try {
     let markdown: string;
@@ -1686,7 +1726,7 @@ export async function handleRoleGetFile(
         userId, roleName, hostId: hostIdNum, useLocal: true, payloadSize: markdown.length,
       });
     } else {
-      const resolved = await resolveHostById(hostIdNum!, userId!);
+      const resolved = await resolveHostById(hostIdNum, userId!);
       if (!resolved) {
         try { ws.send(JSON.stringify({ type: "role:file-loaded", markdown: "", error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=role:file-loaded err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
         return;
@@ -1727,8 +1767,8 @@ export const __handleRoleGetFileForTests = handleRoleGetFile;
 // as handleIdentityGetRoleFile above.
 //
 // Wire shapes:
-//   identity:create-wakeup       {identityKey, hostId?, spec: WakeupSpec}            -> identity:wakeup-created       {wakeups, error?}
-//   identity:delete-wakeup       {identityKey, hostId?, wakeupSlug}                  -> identity:wakeup-deleted       {wakeups, error?}
+//   identity:create-wakeup       {identityKey, hostId, spec: WakeupSpec}            -> identity:wakeup-created       {wakeups, error?}
+//   identity:delete-wakeup       {identityKey, hostId, wakeupSlug}                  -> identity:wakeup-deleted       {wakeups, error?}
 //
 // Create accepts a `spec` payload (WakeupSpec: name/enabled/schedule/
 // instruction). The writer does the slug-normalization + clobber-check +
@@ -1798,11 +1838,9 @@ export async function handleIdentityCreateWakeup(
   }
   const identityKey = rawKey;
   const rawHostId = raw.hostId;
-  const hostIdNum =
-    typeof rawHostId === "number" && Number.isFinite(rawHostId) && rawHostId > 0
-      ? rawHostId
-      : undefined;
-  const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
+  const hostIdNum = requireHostId(ws, rawHostId, "identity:create-wakeup", { type: "identity:wakeup-created", wakeups: [] }, userId);
+  if (hostIdNum === null) return;
+  const useLocal = isLocalHostId(hostIdNum);
   try {
     let wakeups: Awaited<ReturnType<typeof readIdentityWakeups>>["wakeups"];
     if (useLocal) {
@@ -1813,7 +1851,7 @@ export async function handleIdentityCreateWakeup(
         name: spec.name,
       });
     } else {
-      const resolved = await resolveHostById(hostIdNum!, userId!);
+      const resolved = await resolveHostById(hostIdNum, userId!);
       if (!resolved) {
         try { ws.send(JSON.stringify({ type: "identity:wakeup-created", wakeups: [], error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:wakeup-created err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
         return;
@@ -1862,11 +1900,9 @@ export async function handleIdentityDeleteWakeup(
   const identityKey = rawKey;
   const wakeupSlug = rawSlug;
   const rawHostId = raw.hostId;
-  const hostIdNum =
-    typeof rawHostId === "number" && Number.isFinite(rawHostId) && rawHostId > 0
-      ? rawHostId
-      : undefined;
-  const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
+  const hostIdNum = requireHostId(ws, rawHostId, "identity:delete-wakeup", { type: "identity:wakeup-deleted", wakeups: [] }, userId);
+  if (hostIdNum === null) return;
+  const useLocal = isLocalHostId(hostIdNum);
   try {
     let wakeups: Awaited<ReturnType<typeof readIdentityWakeups>>["wakeups"];
     if (useLocal) {
@@ -1876,7 +1912,7 @@ export async function handleIdentityDeleteWakeup(
         userId, identityKey, wakeupSlug, hostId: hostIdNum, useLocal: true,
       });
     } else {
-      const resolved = await resolveHostById(hostIdNum!, userId!);
+      const resolved = await resolveHostById(hostIdNum, userId!);
       if (!resolved) {
         try { ws.send(JSON.stringify({ type: "identity:wakeup-deleted", wakeups: [], error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:wakeup-deleted err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
         return;
@@ -5320,11 +5356,9 @@ wss.on("connection", async (ws: WebSocket, req) => {
       }
       const identityKey = rawKey;
       const rawHostId = (msg as { type: unknown; hostId?: unknown }).hostId;
-      const hostIdNum =
-        typeof rawHostId === "number" && Number.isFinite(rawHostId) && rawHostId > 0
-          ? rawHostId
-          : undefined;
-      const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
+      const hostIdNum = requireHostId(ws, rawHostId, "identity:get-identity-file", { type: "identity:identity-file", markdown: "" }, userId);
+      if (hostIdNum === null) return;
+      const useLocal = isLocalHostId(hostIdNum);
 
       try {
         let markdown: string;
@@ -5335,7 +5369,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
             userId, identityKey, hostId: hostIdNum, useLocal: true, payloadSize: markdown.length,
           });
         } else {
-          const resolved = await resolveHostById(hostIdNum!, userId!);
+          const resolved = await resolveHostById(hostIdNum, userId!);
           if (!resolved) {
             try { ws.send(JSON.stringify({ type: "identity:identity-file", markdown: "", error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:identity-file err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
             return;
@@ -5386,11 +5420,9 @@ wss.on("connection", async (ws: WebSocket, req) => {
       }
       const identityKey = rawKey;
       const rawHostId = (msg as { type: unknown; hostId?: unknown }).hostId;
-      const hostIdNum =
-        typeof rawHostId === "number" && Number.isFinite(rawHostId) && rawHostId > 0
-          ? rawHostId
-          : undefined;
-      const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
+      const hostIdNum = requireHostId(ws, rawHostId, "identity:list-wakeups", { type: "identity:wakeups", wakeups: [] }, userId);
+      if (hostIdNum === null) return;
+      const useLocal = isLocalHostId(hostIdNum);
 
       try {
         let wakeups: { name: string; enabled: boolean; scheduleHuman: string; instruction: string }[];
@@ -5401,7 +5433,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
             userId, identityKey, hostId: hostIdNum, useLocal: true, payloadSize: wakeups.length,
           });
         } else {
-          const resolved = await resolveHostById(hostIdNum!, userId!);
+          const resolved = await resolveHostById(hostIdNum, userId!);
           if (!resolved) {
             try { ws.send(JSON.stringify({ type: "identity:wakeups", wakeups: [], error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:wakeups err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
             return;
@@ -5490,11 +5522,9 @@ wss.on("connection", async (ws: WebSocket, req) => {
         return;
       }
       const rawHostId = raw.hostId;
-      const hostIdNum =
-        typeof rawHostId === "number" && Number.isFinite(rawHostId) && rawHostId > 0
-          ? rawHostId
-          : undefined;
-      const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
+      const hostIdNum = requireHostId(ws, rawHostId, "identity:update-wakeup", { type: "identity:wakeup-updated", wakeups: [] }, userId);
+      if (hostIdNum === null) return;
+      const useLocal = isLocalHostId(hostIdNum);
       try {
         let wakeups: Awaited<ReturnType<typeof readIdentityWakeups>>["wakeups"];
         if (useLocal) {
@@ -5506,7 +5536,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
             fields: Object.keys(filtered).join(","),
           });
         } else {
-          const resolved = await resolveHostById(hostIdNum!, userId!);
+          const resolved = await resolveHostById(hostIdNum, userId!);
           if (!resolved) {
             try { ws.send(JSON.stringify({ type: "identity:wakeup-updated", wakeups: [], error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:wakeup-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
             return;
@@ -5572,11 +5602,9 @@ wss.on("connection", async (ws: WebSocket, req) => {
       const identityKey = rawKey;
       const contents = rawContents;
       const rawHostId = raw.hostId;
-      const hostIdNum =
-        typeof rawHostId === "number" && Number.isFinite(rawHostId) && rawHostId > 0
-          ? rawHostId
-          : undefined;
-      const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
+      const hostIdNum = requireHostId(ws, rawHostId, "identity:update-identity-file", { type: "identity:identity-file-updated", markdown: "" }, userId);
+      if (hostIdNum === null) return;
+      const useLocal = isLocalHostId(hostIdNum);
       try {
         let markdown: string;
         if (useLocal) {
@@ -5588,7 +5616,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
             bytes: Buffer.byteLength(contents, "utf-8"),
           });
         } else {
-          const resolved = await resolveHostById(hostIdNum!, userId!);
+          const resolved = await resolveHostById(hostIdNum, userId!);
           if (!resolved) {
             try { ws.send(JSON.stringify({ type: "identity:identity-file-updated", markdown: "", error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:identity-file-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
             return;
@@ -5671,11 +5699,9 @@ wss.on("connection", async (ws: WebSocket, req) => {
       const identityKey = rawKey;
       const contents = rawContents;
       const rawHostId = raw.hostId;
-      const hostIdNum =
-        typeof rawHostId === "number" && Number.isFinite(rawHostId) && rawHostId > 0
-          ? rawHostId
-          : undefined;
-      const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
+      const hostIdNum = requireHostId(ws, rawHostId, "identity:update-handoff", { type: "identity:handoff-updated", markdown: "" }, userId);
+      if (hostIdNum === null) return;
+      const useLocal = isLocalHostId(hostIdNum);
       try {
         let markdown: string;
         if (useLocal) {
@@ -5687,7 +5713,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
             bytes: Buffer.byteLength(contents, "utf-8"),
           });
         } else {
-          const resolved = await resolveHostById(hostIdNum!, userId!);
+          const resolved = await resolveHostById(hostIdNum, userId!);
           if (!resolved) {
             try { ws.send(JSON.stringify({ type: "identity:handoff-updated", markdown: "", error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:handoff-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
             return;
@@ -5731,11 +5757,9 @@ wss.on("connection", async (ws: WebSocket, req) => {
       }
       const identityKey = rawKey;
       const rawHostId = (msg as { type: unknown; hostId?: unknown }).hostId;
-      const hostIdNum =
-        typeof rawHostId === "number" && Number.isFinite(rawHostId) && rawHostId > 0
-          ? rawHostId
-          : undefined;
-      const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
+      const hostIdNum = requireHostId(ws, rawHostId, "identity:get-handoff", { type: "identity:handoff", markdown: "" }, userId);
+      if (hostIdNum === null) return;
+      const useLocal = isLocalHostId(hostIdNum);
 
       try {
         let markdown: string;
@@ -5746,7 +5770,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
             userId, identityKey, hostId: hostIdNum, useLocal: true, payloadSize: markdown.length,
           });
         } else {
-          const resolved = await resolveHostById(hostIdNum!, userId!);
+          const resolved = await resolveHostById(hostIdNum, userId!);
           if (!resolved) {
             try { ws.send(JSON.stringify({ type: "identity:handoff", markdown: "", error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:handoff err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
             return;
