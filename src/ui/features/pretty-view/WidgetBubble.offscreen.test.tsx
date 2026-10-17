@@ -37,16 +37,27 @@ describe("WidgetBubble liveness poll — off-screen pause", () => {
     fireEvent.load(screen.getByTitle("Interactive widget"));
     const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
 
-    await act(async () => { vi.advanceTimersByTime(1000); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
     expect(fetchMock).toHaveBeenCalledTimes(2);
 
     expect(ioCallback).not.toBeNull();
     act(() => ioCallback!([{ isIntersecting: false }]));
     fetchMock.mockClear();
-    await act(async () => { vi.advanceTimersByTime(3000); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
     expect(fetchMock).not.toHaveBeenCalled();
 
     await act(async () => { ioCallback!([{ isIntersecting: true }]); });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("never runs two probes at once (a slow probe doesn't stack up failures)", async () => {
+    const fetchMock = vi.fn(() => new Promise(() => {}));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<WidgetBubble src="/interactive/3/poll-abc/pane/" />);
+    fireEvent.load(screen.getByTitle("Interactive widget"));
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    await act(async () => { ioCallback!([{ isIntersecting: false }]); ioCallback!([{ isIntersecting: true }]); });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

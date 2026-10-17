@@ -121,10 +121,15 @@ export function WidgetBubble({ src, onSubmit }: WidgetBubbleProps) {
     let failCount = 0;
     let cancelled = false;
     let onScreen = true;
+    // One probe in flight at a time: the back-in-view / tab-visible probes
+    // can coincide with an interval tick, and two concurrent failures would
+    // count twice toward POLL_FAIL_THRESHOLD.
+    let inFlight = false;
 
     const probe = async () => {
       if (cancelled) return;
-      if (!onScreen || document.hidden) return;
+      if (!onScreen || document.hidden || inFlight) return;
+      inFlight = true;
       try {
         const res = await fetch(src, { method: "GET", cache: "no-store" });
         if (cancelled) return;
@@ -136,6 +141,8 @@ export function WidgetBubble({ src, onSubmit }: WidgetBubbleProps) {
       } catch {
         if (cancelled) return;
         failCount += 1;
+      } finally {
+        inFlight = false;
       }
       if (!cancelled && failCount >= POLL_FAIL_THRESHOLD) {
         setExpired(true);

@@ -66,8 +66,6 @@ const BACKOFF_SCHEDULE_MS = [2000, 4000, 6000, 8000, 8000] as const;
 // retry indefinitely — cheap when nothing is listening; never unrecoverably deaf.
 const SLOW_RETRY_MS = 30_000;
 
-/** Last logged payload per `hostId/slug`, so unchanged app-updates don't log. */
-const lastLoggedAppJson = new Map<string, string>();
 
 // ---------------------------------------------------------------------------
 // Public interface
@@ -168,6 +166,9 @@ export function createFleetStatusClient(
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let ws: WebSocket | null = null;
   let disposed = false;
+  /** Last logged payload per `hostId/slug` on THIS connection, so unchanged
+   *  app-updates don't log. Reset on app-snapshot, pruned on app-gone. */
+  const lastLoggedAppJson = new Map<string, string>();
 
   function connect(): void {
     if (disposed) return;
@@ -415,6 +416,7 @@ export function createFleetStatusClient(
             hostId: parsed.hostId,
             slug: parsed.slug,
           });
+          lastLoggedAppJson.delete(`${parsed.hostId}/${parsed.slug}`);
           onAppGone?.(parsed.hostId, parsed.slug);
           break;
         default:
