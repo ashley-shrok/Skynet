@@ -68,6 +68,7 @@ import {
   setButtonSpeechState,
   setCurrentOwner,
   setCurrentPlayer,
+  takeOverForButton,
   type ButtonSpeechState,
 } from "./speak-singleton";
 import { setVoiceModeSettings } from "./voice-mode-settings";
@@ -640,9 +641,10 @@ describe("useVoiceMode", () => {
         owner,
         stop,
         start() {
+          // Same order as useSpeakPlayback.startSpeak + playPiece.
           act(() => {
             getCurrentPlayer()?.stop();
-            clearCurrentPlayer();
+            takeOverForButton(owner);
             setButtonSpeechState(owner, "loading");
             setCurrentPlayer({ play: vi.fn(), stop, pause: vi.fn(), resume: vi.fn() });
             setCurrentOwner(owner);
@@ -736,6 +738,30 @@ describe("useVoiceMode", () => {
       await flush();
       expect(result.current.phase).toBe("listening");
       expect(cuesPlayed).toEqual(["yourTurn"]);
+    });
+
+    it("switching bubbles is seamless: no 'your turn', mic stays off, queued reply kept", async () => {
+      const a = fakeButton();
+      const { result, rerender } = await startVoiceMode();
+      a.start();
+      a.set("playing");
+      await flush();
+      rerender(baseArgs({ messages: [{ type: "message", role: "assistant", content: "reply", eventId: "a1", ts: Date.now() }] }));
+      await flush();
+      const recordersBefore = MockMediaRecorder.instances.length;
+
+      const b = fakeButton();
+      b.start();
+      await flush();
+      expect(a.stop).toHaveBeenCalled();
+      expect(result.current.phase).toBe("speaking");
+      expect(cuesPlayed).not.toContain("yourTurn");
+      expect(MockMediaRecorder.instances).toHaveLength(recordersBefore);
+      expect(postSpeakStream).not.toHaveBeenCalled();
+
+      b.end();
+      await flush();
+      expect(postSpeakStream).toHaveBeenCalledWith("reply", ["Ruth"]);
     });
 
     it("no ticking while a bubble plays, even with the agent working", async () => {

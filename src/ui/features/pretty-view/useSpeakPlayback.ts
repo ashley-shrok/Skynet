@@ -10,6 +10,7 @@ import {
   clearCurrentPlayer,
   setButtonSpeechState,
   subscribeSpeech,
+  takeOverForButton,
 } from "./speak-singleton";
 
 export type SpeakState = "idle" | "loading" | "playing" | "paused";
@@ -74,7 +75,9 @@ export function useSpeakPlayback(opts: {
       pausedRef.current = false;
       heldRef.current = null;
       if (speakStateRef.current !== "idle") {
-        console.info(`[tts] lost-ownership owner=${tag} newOwner=${getCurrentOwner()?.toString() ?? "null"}`);
+        // Own release (end, error, unmount) clears to null — only log a takeover.
+        const newOwner = getCurrentOwner();
+        if (newOwner !== null) console.info(`[tts] lost-ownership owner=${tag} newOwner=${newOwner.toString()}`);
         setSpeakState("idle");
       }
     });
@@ -251,7 +254,6 @@ export function useSpeakPlayback(opts: {
         `[tts] stop-current owner=${getCurrentOwner()?.toString() ?? "null"} trigger=new-bubble`,
       );
       preemptTarget.stop();
-      clearCurrentPlayer();
     }
 
     const { getText } = optsRef.current;
@@ -267,10 +269,16 @@ export function useSpeakPlayback(opts: {
     console.info(
       `[tts] speak-start owner=${tag} textLen=${totalLen} ${optsRef.current.logFields?.() ?? `pieces=${pieces.length}`} voices=[${voices.join(",")}] trigger=user-click`,
     );
-    if (pieces.length === 0) return;
+    if (pieces.length === 0) {
+      if (preemptTarget) clearCurrentPlayer();
+      return;
+    }
 
     pausedRef.current = false;
     heldRef.current = null;
+    // Hand over in one step so voice mode never sees a gap between bubbles.
+    takeOverForButton(ownerRef.current);
+    ownedRef.current = true;
     setSpeakState("loading");
     void playPiece(pieces, 0, voices);
   }, [playPiece, setSpeakState, tag]);

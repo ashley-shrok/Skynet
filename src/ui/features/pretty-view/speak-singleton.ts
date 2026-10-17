@@ -50,6 +50,19 @@ export function setButtonSpeechState(owner: symbol, state: ButtonSpeechState): v
   emit();
 }
 
+/**
+ * A speak button takes playback over in ONE step: the previous player (already
+ * stopped by the caller) is dropped and this button owns it, "loading", with a
+ * single notification. Separate clear + set calls would show listeners a
+ * moment of "nothing speaking" between two bubbles.
+ */
+export function takeOverForButton(owner: symbol): void {
+  currentPlayer = null;
+  currentOwner = owner;
+  buttonSpeech = { owner, state: "loading" };
+  emit();
+}
+
 /** State of the speak button that currently owns playback; null when none does. */
 export function getButtonSpeechState(): ButtonSpeechState | null {
   return buttonSpeech !== null && buttonSpeech.owner === currentOwner ? buttonSpeech.state : null;

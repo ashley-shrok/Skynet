@@ -1180,6 +1180,7 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
         speakingRef.current === null &&
         queueRef.current.length === 0 &&
         !argsRef.current.isWorking &&
+        !argsRef.current.suspended &&
         !isComposing()
       ) {
         playCue("yourTurn");
