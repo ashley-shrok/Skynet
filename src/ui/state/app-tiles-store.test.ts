@@ -871,3 +871,61 @@ describe("app-tiles-store: pending-title overrides (app-rename shape)", () => {
     expect(titles()).toEqual(["Alpha", "Other"]);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// No-op frame dedupe — the backend re-sends unchanged app-update frames on a
+// loop; identical frames must not notify (each notify re-rendered every
+// useAppTiles consumer) and must not log.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("app-tiles-store: identical frames are a no-op", () => {
+  it("publishAppUpdate with an unchanged tile does not notify or log; a health flip does", () => {
+    publishAppUpdate(makeApp({ slug: "a", title: "Alpha" }));
+    const listener = vi.fn();
+    const dispose = subscribeAppTilesStore(listener);
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    try {
+      publishAppUpdate(makeApp({ slug: "a", title: "Alpha" }));
+      publishAppUpdate(makeApp({ slug: "a", title: "Alpha", iconVersion: null }));
+      expect(listener).not.toHaveBeenCalled();
+      expect(
+        info.mock.calls.filter(
+          (c) => (c[0] as { operation?: string })?.operation === "app_tiles_store_update",
+        ),
+      ).toHaveLength(0);
+
+      publishAppUpdate(makeApp({ slug: "a", title: "Alpha", isHealthy: false }));
+      expect(listener).toHaveBeenCalledTimes(1);
+    } finally {
+      info.mockRestore();
+      dispose();
+    }
+  });
+
+  it("useAppTiles keeps the same array across an identical update and snapshot", () => {
+    publishAppSnapshot([
+      makeApp({ slug: "a", title: "Alpha" }),
+      makeApp({ slug: "b", title: "Bravo" }),
+    ]);
+    const { result } = renderHook(() => useAppTiles());
+    const before = result.current;
+    act(() => {
+      publishAppUpdate(makeApp({ slug: "a", title: "Alpha" }));
+      publishAppSnapshot([
+        makeApp({ slug: "b", title: "Bravo" }),
+        makeApp({ slug: "a", title: "Alpha" }),
+      ]);
+    });
+    expect(result.current).toBe(before);
+  });
+
+  it("an identical update still honours a pending title override (no flip-back)", () => {
+    publishAppSnapshot([makeApp({ slug: "a", title: "Alpha" })]);
+    setPendingAppTitle("1", "a", "Renamed");
+    const listener = vi.fn();
+    const dispose = subscribeAppTilesStore(listener);
+    publishAppUpdate(makeApp({ slug: "a", title: "Alpha" }));
+    expect(listener).not.toHaveBeenCalled();
+    dispose();
+  });
+});

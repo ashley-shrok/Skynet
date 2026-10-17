@@ -240,9 +240,10 @@ export function subscribeAppTilesStore(cb: () => void): () => void {
  * "snapshot = authoritative full picture" contract that Phase 118's
  * subscription registry emits on subscribe and on every reconnect.
  *
- * Always notifies (even for an empty `apps` array), because the transition
- * from "some tiles" to "no tiles" is a meaningful re-render for the sidebar
- * (empty-expanded state renders the D-04 prompt).
+ * Notifies on any change, including the transition from "some tiles" to
+ * "no tiles" (a meaningful re-render for the sidebar — empty-expanded state
+ * renders the D-04 prompt). A snapshot identical to the current map (same
+ * keys, every tile field-equal) is a no-op.
  */
 export function publishAppSnapshot(apps: AppState[]): void {
   console.info({
@@ -259,15 +260,52 @@ export function publishAppSnapshot(apps: AppState[]): void {
     // supervisor hasn't yet moved the folder. Without this, an app-snapshot
     // arriving mid-window would re-insert the tile the user just archived.
     if (isPendingAppArchive(key)) continue;
-    nextMap.set(key, applyPendingTitle(app));
+    const next = applyPendingTitle(app);
+    const current = state.map.get(key);
+    // Keep the stored object when nothing changed so tile identity is stable.
+    nextMap.set(key, current !== undefined && appStateEqual(current, next) ? current : next);
   }
   // A full snapshot that no longer carries a pending app means the archive
   // completed backend-side — release the mark.
   for (const key of [...pendingAppArchiveKeys.keys()]) {
     if (!presentKeys.has(key)) pendingAppArchiveKeys.delete(key);
   }
+  // Identical snapshot (e.g. a reconnect re-sending the same list): same
+  // keys and every tile reused above → nothing to re-render.
+  if (nextMap.size === state.map.size) {
+    let same = true;
+    for (const [key, tile] of nextMap) {
+      if (state.map.get(key) !== tile) {
+        same = false;
+        break;
+      }
+    }
+    if (same) return;
+  }
   state = { map: nextMap };
   notify();
+}
+
+/**
+ * Field-wise equality over every AppState field (all primitives). Used to
+ * drop no-op frames: the backend re-sends unchanged app-update frames on a
+ * loop (~hundreds per app per hour), and each notify re-rendered every
+ * useAppTiles consumer. A health flip, retitle, icon bump etc. changes at
+ * least one field, so it still notifies.
+ */
+function appStateEqual(a: AppState, b: AppState): boolean {
+  return (
+    a.hostId === b.hostId &&
+    a.slug === b.slug &&
+    a.title === b.title &&
+    a.description === b.description &&
+    a.port === b.port &&
+    a.hasIcon === b.hasIcon &&
+    (a.iconVersion ?? null) === (b.iconVersion ?? null) &&
+    a.createdAtMs === b.createdAtMs &&
+    a.isHealthy === b.isHealthy &&
+    a.healthMessage === b.healthMessage
+  );
 }
 
 /**
@@ -275,18 +313,17 @@ export function publishAppSnapshot(apps: AppState[]): void {
  *
  * Clones the current map, sets the `${hostId}:${slug}` key to the incoming
  * AppState (overwriting any prior value for the same key), replaces state,
- * notifies. Always notifies — the backend does not deduplicate identical
- * updates (see 119-01 fleet-status-client comment on `app-update`), so we
- * cannot no-op-guard based on structural equality without risking a missed
- * health-flip re-render.
+ * notifies. Identical frames (every field equal to the stored tile, after
+ * the pending-title override) are a silent no-op — no log, no notify — so
+ * a health flip still re-renders but the backend's unchanged re-sends cost
+ * nothing.
  */
 export function publishAppUpdate(app: AppState): void {
   const key = `${app.hostId}:${app.slug}`;
-  // Pending-archive filter: silent-drop update frames arriving for an app
-  // the user just archived. The identity is still alive on the backend
-  // until the supervisor's sweep tick moves the folder; any update in
-  // that window would flicker the tile back on screen.
   if (isPendingAppArchive(key)) return;
+  const next = applyPendingTitle(app);
+  const current = state.map.get(key);
+  if (current !== undefined && appStateEqual(current, next)) return;
   console.info({
     operation: "app_tiles_store_update",
     hostId: app.hostId,
@@ -295,7 +332,7 @@ export function publishAppUpdate(app: AppState): void {
   });
 
   const nextMap = new Map(state.map);
-  nextMap.set(key, applyPendingTitle(app));
+  nextMap.set(key, next);
   state = { map: nextMap };
   notify();
 }
