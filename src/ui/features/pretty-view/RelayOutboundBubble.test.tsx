@@ -15,7 +15,7 @@ vi.mock("@/state/identities-store", () => ({
 }));
 
 const membersMock = vi.fn<(room: string | null | undefined, hostId: number | null | undefined) => RelayRoomMember[] | null>(() => null);
-const viewerMxidMock = vi.fn<() => string | null>(() => "@ashley:t1000.example");
+const viewerMxidMock = vi.fn<() => string | null>(() => "@robin:t1000.example");
 vi.mock("@/state/viewing-user-store", () => ({
   useViewingUserMxid: () => viewerMxidMock(),
 }));
@@ -107,7 +107,7 @@ describe("RelayOutboundBubble", () => {
   it("DM to the viewing user → 'You' + notified marker", () => {
     membersMock.mockReturnValue([
       { mxid: "@aster:t1000.example", kind: "agent", displayName: null },
-      { mxid: "@ashley:t1000.example", kind: "you", displayName: "Ashley" },
+      { mxid: "@robin:t1000.example", kind: "you", displayName: "Robin" },
     ]);
     renderOut();
     const who = screen.getByTestId("relay-who-line").textContent ?? "";
@@ -116,14 +116,14 @@ describe("RelayOutboundBubble", () => {
   });
 
   it("relay-mcp send to the viewer's mxid (no room) → 'You' + notified marker", () => {
-    renderOut({ room: null, to: "@ashley:t1000.example" });
+    renderOut({ room: null, to: "@robin:t1000.example" });
     const who = screen.getByTestId("relay-who-line").textContent ?? "";
     expect(who).toMatch(/Aster\s*→\s*You/);
     expect(who).toContain("notified");
   });
 
   it("relay-mcp send to the viewer by bare name → 'You'", () => {
-    renderOut({ room: null, to: "Ashley" });
+    renderOut({ room: null, to: "Robin" });
     expect(screen.getByTestId("relay-who-line").textContent ?? "").toMatch(/Aster\s*→\s*You/);
   });
 
@@ -137,7 +137,7 @@ describe("RelayOutboundBubble", () => {
   it("failed relay-mcp send to the viewer → 'not sent', never 'notified'", () => {
     renderOut({
       room: null,
-      to: "@ashley:t1000.example",
+      to: "@robin:t1000.example",
       result: { type: "relay_send_result", toolUseId: "t1", ok: false, roomId: null, error: "relay error: boom", eventId: "r1", ts: 0 },
     });
     const who = screen.getByTestId("relay-who-line").textContent ?? "";

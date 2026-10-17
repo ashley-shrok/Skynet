@@ -30,7 +30,7 @@ SCRIPT = os.environ.get("RELAY_MCP", os.path.join(HERE, "..", "relay-mcp.py"))
 HS = "test.local"
 ME = f"@alpha-box-maintainer:{HS}"
 BETA = f"@beta-box-maintainer:{HS}"
-ASHLEY = f"@ashley:{HS}"
+ROBIN = f"@robin:{HS}"
 GOOD_TOKEN = "tok-good"
 
 
@@ -49,7 +49,7 @@ def free_port():
 class World:
     def __init__(self):
         self.lock = threading.Lock()
-        self.users = {ME: "alpha", BETA: "beta", ASHLEY: "Ashley", f"@ashley-two:{HS}": "Ashley"}
+        self.users = {ME: "alpha", BETA: "beta", ROBIN: "Robin", f"@robin-two:{HS}": "Robin"}
         self.rooms = {}  # rid -> {"members": {mxid: membership}, "name": str, "events": [..]}
         self.direct = {}  # owner mxid -> m.direct content
         self.create_calls = 0
@@ -314,12 +314,12 @@ def t_send_creates_dm_then_reuses(e):
 
 
 def t_reuses_existing_dm_without_m_direct(e):
-    rid = e.world.add_room({ME: "join", ASHLEY: "join"})
-    e.world.add_room({ME: "join", ASHLEY: "join", BETA: "join"})  # group, not a DM
-    out, err = e.call("send", {"to": ASHLEY, "body": "hi"})
+    rid = e.world.add_room({ME: "join", ROBIN: "join"})
+    e.world.add_room({ME: "join", ROBIN: "join", BETA: "join"})  # group, not a DM
+    out, err = e.call("send", {"to": ROBIN, "body": "hi"})
     assert err is None, err
     assert out["room_id"] == rid and e.world.create_calls == 0
-    assert e.world.direct[ME][ASHLEY] == [rid]
+    assert e.world.direct[ME][ROBIN] == [rid]
 
 
 def t_picks_most_recent_dm(e):
@@ -341,8 +341,8 @@ def t_ignores_dm_peer_has_left(e):
 def t_refuses_unknown_and_ambiguous(e):
     _, err = e.call("send", {"to": f"@ghost:{HS}", "body": "x"})
     assert err and "does not exist" in err, err
-    _, err = e.call("send", {"to": "ashley", "body": "x"})
-    assert err and "several accounts" in err and ASHLEY in err, err
+    _, err = e.call("send", {"to": "robin", "body": "x"})
+    assert err and "several accounts" in err and ROBIN in err, err
     _, err = e.call("send", {"to": "nobody-at-all", "body": "x"})
     assert err and "no account matches" in err, err
     assert e.world.create_calls == 0
@@ -365,11 +365,11 @@ def t_argument_errors(e):
 
 def t_send_to_room_joins_if_needed(e):
     # Invited, not joined: /members is 403 until the join, as on Synapse.
-    rid = e.world.add_room({ME: "invite", BETA: "join", ASHLEY: "join"})
+    rid = e.world.add_room({ME: "invite", BETA: "join", ROBIN: "join"})
     out, err = e.call("send", {"room": rid, "body": "group hello"})
     assert err is None, err
     assert e.world.join_calls == [rid]
-    assert sorted(r["mxid"] for r in out["recipients"]) == sorted([BETA, ASHLEY])
+    assert sorted(r["mxid"] for r in out["recipients"]) == sorted([BETA, ROBIN])
     out, err = e.call("send", {"room": rid, "body": "again"})
     assert err is None and e.world.join_calls == [rid], (err, e.world.join_calls)
 
@@ -411,12 +411,12 @@ def t_health_and_handshake_not_blocked_by_busy_calls(e):
 
 
 def t_m_direct_read_failure_never_overwrites(e):
-    e.world.direct[ME] = {ASHLEY: ["!keep:test.local"]}
+    e.world.direct[ME] = {ROBIN: ["!keep:test.local"]}
     path = f"/user/{ME}/account_data/m.direct"
     e.world.fail[("GET", path)] = (500, "M_UNKNOWN")
     out, err = e.call("send", {"to": BETA, "body": "x"})
     assert err is None, err
-    assert e.world.direct[ME] == {ASHLEY: ["!keep:test.local"]}, e.world.direct
+    assert e.world.direct[ME] == {ROBIN: ["!keep:test.local"]}, e.world.direct
     assert not any("m.direct" in p for p in e.world.puts), e.world.puts
 
 
@@ -536,12 +536,12 @@ def t_find_and_list_and_create(e):
     assert err is None, err
     assert out["results"][0] == {"mxid": BETA, "name": "beta-box-maintainer", "source": "this box"}, out
     assert all(r["mxid"] != BETA for r in out["results"][1:])
-    out, err = e.call("create_room", {"invite": ["beta-box-maintainer", ASHLEY], "name": "topic-1017"})
+    out, err = e.call("create_room", {"invite": ["beta-box-maintainer", ROBIN], "name": "topic-1017"})
     assert err is None, err
-    assert sorted(out["invited"]) == sorted([BETA, ASHLEY])
+    assert sorted(out["invited"]) == sorted([BETA, ROBIN])
     out, err = e.call("list_rooms", {})
     assert err is None, err
-    assert out["rooms"][0]["name"] == "topic-1017" and sorted(out["rooms"][0]["members"]) == sorted([BETA, ASHLEY])
+    assert out["rooms"][0]["name"] == "topic-1017" and sorted(out["rooms"][0]["members"]) == sorted([BETA, ROBIN])
 
 
 def t_batch_request(e):

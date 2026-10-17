@@ -1788,10 +1788,10 @@ describe("parseSessionLine — relay-mcp sends", () => {
   }
 
   it("send with `to` → relay_outbound carrying to + body, no room, no raw command", () => {
-    const parsed = parseSessionLine(mcpTurn("mcp__relay__send", { to: "@ashley:t1000.example", body: "hi — done ✅" }));
+    const parsed = parseSessionLine(mcpTurn("mcp__relay__send", { to: "@robin:t1000.example", body: "hi — done ✅" }));
     expect(parsed.kind).toBe("relay_outbound");
     if (parsed.kind !== "relay_outbound") throw new Error("unreachable");
-    expect(parsed.to).toBe("@ashley:t1000.example");
+    expect(parsed.to).toBe("@robin:t1000.example");
     expect(parsed.room).toBeNull();
     expect(parsed.body).toBe("hi — done ✅");
     expect(parsed.rawCommand).toBe("");
@@ -1828,7 +1828,7 @@ describe("parseSessionLine — relay-mcp sends", () => {
   });
 
   it("other relay tools (find, list_rooms) are not messages", () => {
-    expect(parseSessionLine(mcpTurn("mcp__relay__find", { name: "ashley" })).kind).not.toBe("relay_outbound");
+    expect(parseSessionLine(mcpTurn("mcp__relay__find", { name: "robin" })).kind).not.toBe("relay_outbound");
     expect(parseSessionLine(mcpTurn("mcp__relay__list_rooms", {})).kind).not.toBe("relay_outbound");
   });
 

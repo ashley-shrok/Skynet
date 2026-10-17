@@ -10,12 +10,12 @@ const byKey = new Map([
 ]);
 
 describe("partyForAddressee", () => {
-  const viewer = "@ashley:t1000.example";
+  const viewer = "@robin:t1000.example";
   it("the viewer's mxid, any case → You", () => {
-    expect(partyForAddressee("@Ashley:t1000.example", byKey, viewer)).toEqual({ name: "You", hue: null, you: true });
+    expect(partyForAddressee("@Robin:t1000.example", byKey, viewer)).toEqual({ name: "You", hue: null, you: true });
   });
   it("the viewer's bare localpart → You", () => {
-    expect(partyForAddressee("ashley", byKey, viewer).you).toBe(true);
+    expect(partyForAddressee("robin", byKey, viewer).you).toBe(true);
   });
   it("an identity name → that identity", () => {
     expect(partyForAddressee("Tina", byKey, viewer)).toEqual({ name: "Tina", hue: 200, you: false, avatarUrl: null });
@@ -27,7 +27,7 @@ describe("partyForAddressee", () => {
     expect(partyForAddressee("stacy", byKey, viewer)).toEqual({ name: "Stacy", hue: null, you: false });
   });
   it("no viewer mxid → never You", () => {
-    expect(partyForAddressee("ashley", byKey, null).you).toBe(false);
+    expect(partyForAddressee("robin", byKey, null).you).toBe(false);
   });
 });
 
@@ -55,7 +55,7 @@ describe("relay-addressing", () => {
       "aster",
       [
         { mxid: "@Aster:x", kind: "agent", displayName: null },
-        { mxid: "@ashley:x", kind: "you", displayName: "Ashley" },
+        { mxid: "@robin:x", kind: "you", displayName: "Robin" },
       ],
       byKey,
       null,

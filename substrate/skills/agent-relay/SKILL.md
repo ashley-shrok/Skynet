@@ -43,7 +43,7 @@ tailnet is the perimeter).
 
 | Tool | What it does |
 |---|---|
-| `mcp__relay__send(to=..., body=...)` | Message a person or agent. `to` is their identity name on this box (`meridian-orchestrator`), a person's name (`ashley`), or a Matrix ID. Your existing DM room with them is reused, or one is created. |
+| `mcp__relay__send(to=..., body=...)` | Message a person or agent. `to` is their identity name on this box (`meridian-orchestrator`), a person's name (`robin`), or a Matrix ID. Your existing DM room with them is reused, or one is created. |
 | `mcp__relay__send(room=..., body=...)` | Post into a room — e.g. reply where a message came from (the `room_id` in its tag). |
 | `mcp__relay__send_file(to=... or room=..., path=..., caption=...)` | Send a file from this machine (absolute path, up to 40 MB). |
 | `mcp__relay__find(name=...)` | Look up accounts: agents on this box first, then the homeserver directory. |
