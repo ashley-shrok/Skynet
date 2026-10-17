@@ -53,12 +53,25 @@ import stopUrl from "../../assets/sounds/mic/stop.mp3?url";
 import cancelUrl from "../../assets/sounds/mic/cancel.mp3?url";
 import errorUrl from "../../assets/sounds/mic/error.mp3?url";
 import { stampedFetch } from "@/lib/stamped-fetch";
+import {
+  closeLevelContext,
+  createLevelContext,
+  createMicLevelMonitor,
+  describeMicTrack,
+  micTracks,
+  type MicLevelMonitor,
+  type MicLevelSummary,
+} from "./mic-level-monitor";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
 const TRANSCRIBE_URL = "/voice/transcribe";
+
+const MIC_SILENT_LIVE_MESSAGE = "Mic is picking up silence — check your input device or mute";
+const MIC_SILENT_RESULT_MESSAGE = "Mic was silent — nothing was recorded. Check your input device or mute";
+const NO_SPEECH_MESSAGE = "Couldn't make out any words";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -163,6 +176,16 @@ export function useVoiceRecording(
   // user's iPhone attempt 3 — getUserMedia took 1.1s to resolve.)
   const pendingCommitRef = useRef<boolean>(false);
 
+  // Input-level monitor for the live recording (see mic-level-monitor.ts);
+  // lastLevelRef holds the finished recording's summary for the empty-transcript
+  // message.
+  const levelMonitorRef = useRef<MicLevelMonitor | null>(null);
+  const lastLevelRef = useRef<MicLevelSummary | null>(null);
+  useEffect(() => () => {
+    levelMonitorRef.current?.stop();
+    levelMonitorRef.current = null;
+  }, []);
+
   // Audio feedback instances — lazy-initialized once on first render via ref.
   // Persists across renders so we don't reconstruct Audio objects on every render.
   const startAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -198,7 +221,19 @@ export function useVoiceRecording(
   // Returns the assembled Blob, or null if no recorder is active.
   // ---------------------------------------------------------------------------
 
+  function finishLevelMonitor(): void {
+    const monitor = levelMonitorRef.current;
+    if (!monitor) return;
+    levelMonitorRef.current = null;
+    const summary = monitor.stop();
+    lastLevelRef.current = summary;
+    const line = `[voice] mic-level-summary silent=${summary.silent === null ? "unknown" : summary.silent} peakDb=${summary.peakDb.toFixed(1)} measuredMs=${summary.measuredMs} ctxState=${summary.ctxState} ${ctxSuffix}`;
+    if (summary.silent === true) console.warn(line);
+    else console.info(line);
+  }
+
   function stopRecording(): Promise<Blob | null> {
+    finishLevelMonitor();
     return new Promise((resolve) => {
       const recorder = recorderRef.current;
       if (!recorder) {
@@ -345,6 +380,12 @@ export function useVoiceRecording(
   // "if (cur && !/\s$/.test(cur)) glue = ' '"
   // ---------------------------------------------------------------------------
 
+  function reportEmptyTranscript(): void {
+    const silent = lastLevelRef.current?.silent ?? null;
+    console.warn(`[voice] empty-transcript micSilent=${silent === null ? "unknown" : silent} ${ctxSuffix}`);
+    setErrorMessage(silent === true ? MIC_SILENT_RESULT_MESSAGE : NO_SPEECH_MESSAGE);
+  }
+
   function applyGlue(currentText: string, transcript: string): string {
     const glue = currentText && !/\s$/.test(currentText) ? " " : "";
     return currentText + glue + transcript;
@@ -401,6 +442,9 @@ export function useVoiceRecording(
     // iOS Safari requires getUserMedia to be called synchronously in the tap
     // handler. Any microtask (await) before this line kills the permission prompt.
     const streamPromise = navigator.mediaDevices.getUserMedia({ audio: true });
+    // Level-meter context — created here, still inside the gesture, so iOS
+    // lets it run (see mic-level-monitor.ts).
+    const levelCtx = createLevelContext();
 
     streamPromise
       .then((stream) => {
@@ -411,6 +455,7 @@ export function useVoiceRecording(
         if (pendingCancelRef.current) {
           pendingCancelRef.current = false;
           stream.getTracks().forEach((t) => t.stop());
+          closeLevelContext(levelCtx);
           // Do NOT setState (stays "idle"), do NOT play start sound, do NOT
           // construct MediaRecorder. Nothing to clean up in refs — the pre-.then()
           // path did not touch streamRef / chunksRef / recorderRef.
@@ -419,6 +464,23 @@ export function useVoiceRecording(
 
         streamRef.current = stream;
         chunksRef.current = [];
+
+        console.info(`[voice] mic-track ${describeMicTrack(stream)} ${ctxSuffix}`);
+        for (const track of micTracks(stream)) {
+          track.onmute = () => console.warn(`[voice] mic-track-muted label="${track.label}" ${ctxSuffix}`);
+          track.onunmute = () => console.info(`[voice] mic-track-unmuted label="${track.label}" ${ctxSuffix}`);
+          track.onended = () => console.warn(`[voice] mic-track-ended label="${track.label}" ${ctxSuffix}`);
+        }
+        lastLevelRef.current = null;
+        levelMonitorRef.current = createMicLevelMonitor(levelCtx, stream, (silent) => {
+          if (silent) {
+            console.warn(`[voice] mic-silent-warning shown ${describeMicTrack(stream)} ${ctxSuffix}`);
+            setErrorMessage(MIC_SILENT_LIVE_MESSAGE);
+          } else {
+            console.info(`[voice] mic-silent-warning cleared input-detected ${ctxSuffix}`);
+            setErrorMessage((m) => (m === MIC_SILENT_LIVE_MESSAGE ? null : m));
+          }
+        });
 
         const recorder = new MediaRecorder(stream);
         recorderRef.current = recorder;
@@ -449,6 +511,8 @@ export function useVoiceRecording(
           pendingCancelRef.current = false;
           recorder.stop();
           stream.getTracks().forEach((t) => t.stop());
+          levelMonitorRef.current?.stop();
+          levelMonitorRef.current = null;
           recorderRef.current = null;
           streamRef.current = null;
           chunksRef.current = [];
@@ -495,6 +559,7 @@ export function useVoiceRecording(
         const errName = err instanceof Error ? err.name : "unknown";
         const errMessage = err instanceof Error ? err.message : String(err);
         console.error(`[voice] mic-denied errName="${errName}" errMessage="${errMessage}" ${ctxSuffix}`);
+        closeLevelContext(levelCtx);
         setErrorMessage(`mic denied: ${err.name || "error"}`);
         // State stays "idle".
       });
@@ -625,6 +690,9 @@ export function useVoiceRecording(
 
     if (transcript === "") {
       playSound(errorAudioRef.current);
+      reportEmptyTranscript();
+    } else {
+      setErrorMessage((m) => (m === MIC_SILENT_LIVE_MESSAGE ? null : m));
     }
 
     const glued = applyGlue(currentText, transcript);
@@ -677,6 +745,9 @@ export function useVoiceRecording(
 
     if (transcript === "") {
       playSound(errorAudioRef.current);
+      reportEmptyTranscript();
+    } else {
+      setErrorMessage((m) => (m === MIC_SILENT_LIVE_MESSAGE ? null : m));
     }
 
     const glued = applyGlue(currentText, transcript);

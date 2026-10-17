@@ -70,6 +70,7 @@ import {
 import { registerVoiceModeActive } from "./voice-mode-registry";
 import { createVoiceModeCues, type VoiceModeCue, type VoiceModeCues } from "./voice-mode-cues";
 import { getVoiceModeSettings } from "./voice-mode-settings";
+import { describeMicTrack } from "./mic-level-monitor";
 
 // ---------------------------------------------------------------------------
 // Tuning
@@ -1045,7 +1046,7 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
       return;
     }
     streamRef.current = stream;
-    console.info(`[voice-mode] stream-attached ${describeTracks(stream)} ${tagRef.current}`);
+    console.info(`[voice-mode] stream-attached ${describeMicTrack(stream)} ${tagRef.current}`);
     for (const track of stream.getAudioTracks()) {
       // The phone muting the mic (call, Siri, another app taking audio) leaves
       // the track live but silent — log it; recorders may stall without onstop.

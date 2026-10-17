@@ -1182,3 +1182,78 @@ describe("useVoiceRecording", () => {
     expect(result.current.errorMessage).toBeNull();
   });
 });
+
+describe("useVoiceRecording — silent-mic detection", () => {
+  /** AudioContext stub whose analyser always reads `level` (shared via the class). */
+  class LevelAudioContext {
+    static level = 0;
+    state = "running";
+    resume = () => Promise.resolve();
+    close = () => {
+      this.state = "closed";
+      return Promise.resolve();
+    };
+    createAnalyser() {
+      return { fftSize: 0, getFloatTimeDomainData: (b: Float32Array) => b.fill(LevelAudioContext.level) };
+    }
+    createMediaStreamSource() {
+      return { connect: () => {}, disconnect: () => {} };
+    }
+  }
+
+  function stubEmptyTranscript() {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({ text: "" }) }),
+    );
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("silent mic: live warning after 3s, then 'Mic was silent' on the empty transcript", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    LevelAudioContext.level = 0.0002;
+    vi.stubGlobal("AudioContext", LevelAudioContext);
+    stubEmptyTranscript();
+
+    const { result } = renderHook(() => useVoiceRecording());
+    act(() => { result.current.start({ autoCommit: true }); });
+    await waitFor(() => expect(result.current.state).toBe("recording"));
+
+    await act(async () => { vi.advanceTimersByTime(3500); });
+    expect(result.current.errorMessage).toMatch(/Mic is picking up silence/);
+
+    await act(async () => { await result.current.endSend(""); });
+    expect(result.current.errorMessage).toMatch(/Mic was silent/);
+    expect(getAudioBySrc("error.mp3")?.play).toHaveBeenCalled();
+  });
+
+  it("audible mic + empty transcript: 'Couldn't make out any words', no silence warning", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    LevelAudioContext.level = 0.1;
+    vi.stubGlobal("AudioContext", LevelAudioContext);
+    stubEmptyTranscript();
+
+    const { result } = renderHook(() => useVoiceRecording());
+    act(() => { result.current.start({ autoCommit: true }); });
+    await waitFor(() => expect(result.current.state).toBe("recording"));
+
+    await act(async () => { vi.advanceTimersByTime(3500); });
+    expect(result.current.errorMessage).toBeNull();
+
+    await act(async () => { await result.current.endAppend(""); });
+    expect(result.current.errorMessage).toBe("Couldn't make out any words");
+  });
+
+  it("no AudioContext available: empty transcript still explained, recording unaffected", async () => {
+    stubEmptyTranscript();
+    const { result } = renderHook(() => useVoiceRecording());
+    act(() => { result.current.start({ autoCommit: true }); });
+    await waitFor(() => expect(result.current.state).toBe("recording"));
+    await act(async () => { await result.current.endSend(""); });
+    expect(result.current.state).toBe("idle");
+    expect(result.current.errorMessage).toBe("Couldn't make out any words");
+  });
+});
