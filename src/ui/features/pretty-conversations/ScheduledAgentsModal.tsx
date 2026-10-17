@@ -483,14 +483,14 @@ export function ScheduledAgentsModal({
             placeholder="Search name or prompt…"
             aria-label="Search scheduled tasks"
             data-testid="scheduled-agents-modal-filter-search"
-            wrapperClassName="basis-full md:basis-auto flex-1 md:min-w-[220px]"
+            wrapperClassName="basis-full md:basis-auto md:flex-[2] min-w-0 md:min-w-[160px]"
           />
           <KitSelect
             value={roleFilter}
             onChange={(e) => setRoleFilter(e.target.value)}
             aria-label="Filter by role"
             data-testid="scheduled-agents-modal-filter-role"
-            className="flex-1 md:flex-none md:w-auto"
+            className="flex-1 min-w-0 md:w-auto"
           >
             <option value={ALL_SENTINEL}>All roles</option>
             {availableRoles.map((r) => (
@@ -517,7 +517,7 @@ export function ScheduledAgentsModal({
               }}
               aria-label="Filter by host"
               data-testid="scheduled-agents-modal-filter-host"
-              className="flex-1 md:flex-none md:w-auto"
+              className="flex-1 min-w-0 md:w-auto"
             >
               <option value={ALL_SENTINEL}>All hosts</option>
               {flatHosts.map((h) => {
