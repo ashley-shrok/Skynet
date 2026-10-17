@@ -176,15 +176,28 @@ describe("resolveAgentHostId — IDENTITIES_LOCAL_HOST_IDS empty", () => {
     vi.unstubAllEnvs();
   });
 
-  it("well-formed mxid + empty local host id set → null + warn log", async () => {
-    const result = await resolveAgentHostId("@zulu:t1000.example.net");
-    expect(result).toBeNull();
-    expect(warnSpy).toHaveBeenCalledTimes(1);
-    const [msg, ctx] = warnSpy.mock.calls[0];
-    expect(msg).toMatch(/IDENTITIES_LOCAL_HOST_IDS is empty/);
-    expect((ctx as { operation: string }).operation).toBe(
-      "resolve_agent_host_id_no_local_hosts",
+  it("well-formed mxid + empty local host id set → null, no per-call warn, no disk probe", async () => {
+    const infoSpy = databaseLogger.info as ReturnType<typeof vi.fn>;
+    infoSpy.mockClear();
+    for (let i = 0; i < 3; i++) {
+      expect(await resolveAgentHostId("@zulu:t1000.example.net")).toBeNull();
+    }
+    expect(warnSpy).not.toHaveBeenCalled();
+    expect(infoSpy).not.toHaveBeenCalled();
+    expect(statMock).not.toHaveBeenCalled();
+  });
+
+  it("logs the empty-env state once at module load (info, not warn)", async () => {
+    const infoSpy = databaseLogger.info as ReturnType<typeof vi.fn>;
+    infoSpy.mockClear();
+    vi.resetModules();
+    await import("./resolve-agent-host-id.js");
+    const calls = infoSpy.mock.calls.filter(
+      ([, ctx]) =>
+        (ctx as { operation?: string } | undefined)?.operation ===
+        "resolve_agent_host_id_no_local_hosts",
     );
+    expect(calls).toHaveLength(1);
   });
 });
 

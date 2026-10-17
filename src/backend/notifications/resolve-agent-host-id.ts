@@ -31,6 +31,9 @@
  *      one entry per box; a multi-entry deploy would need a per-hostId
  *      probe, which we can add if that config ever materializes).
  *
+ * Empty env (no co-located host) → always null, without per-call logging;
+ * the remote resolver then covers every host over SSH.
+ *
  * Never throws. All failure modes return null; the caller falls back to the
  * peer-box resolver, and drops the push only if that also returns null.
  */
@@ -75,6 +78,14 @@ if (LOCAL_HOST_IDS.length > 1) {
   );
 }
 
+// Empty env is a supported deploy shape (every host over SSH) — say so once.
+if (LOCAL_HOST_IDS.length === 0) {
+  databaseLogger.info(
+    "resolveAgentHostId — IDENTITIES_LOCAL_HOST_IDS is empty; local push routing disabled, remote resolver covers all hosts",
+    { operation: "resolve_agent_host_id_no_local_hosts" },
+  );
+}
+
 /**
  * Resolve a sender mxid to the local fleet hostId whose identity folder
  * holds this identity. Returns null on any failure mode.
@@ -87,16 +98,9 @@ export async function resolveAgentHostId(mxid: string): Promise<number | null> {
   if (localpart.length === 0) return null;
   if (!IDENTITY_KEY_RE.test(localpart)) return null;
 
-  if (LOCAL_HOST_IDS.length === 0) {
-    databaseLogger.warn(
-      "resolveAgentHostId — IDENTITIES_LOCAL_HOST_IDS is empty; cannot route push",
-      {
-        operation: "resolve_agent_host_id_no_local_hosts",
-        mxid,
-      },
-    );
-    return null;
-  }
+  // No co-located host: every identity lives on an SSH host and the caller's
+  // remote resolver covers it. Logged once at module load, not per push.
+  if (LOCAL_HOST_IDS.length === 0) return null;
 
   const found =
     (await isIdentityDirIn(getLocalIdentitiesRoot(), localpart)) ||
