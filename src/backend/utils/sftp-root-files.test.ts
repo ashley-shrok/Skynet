@@ -178,3 +178,40 @@ describe("writeRemoteFileUnderRoot", () => {
     expect(r).toMatchObject({ ok: false, status: 404 });
   });
 });
+
+describe("per-host semaphore", () => {
+  it("bounds concurrent SSH connections per host id to the semaphore cap", async () => {
+    const { getHostSemaphore, __resetHostSemaphoreRegistryForTests } = await import(
+      "../ssh/host-semaphore-registry.js"
+    );
+    __resetHostSemaphoreRegistryForTests();
+    getHostSemaphore(42, 3);
+    let live = 0;
+    let peak = 0;
+    (connectOneShot as Mock).mockImplementation(async () => {
+      live++;
+      peak = Math.max(peak, live);
+      await new Promise((r) => setTimeout(r, 5));
+      return {
+        ...conn,
+        end: () => {
+          live--;
+        },
+      };
+    });
+    const results = await Promise.all(
+      Array.from({ length: 10 }, (_, i) =>
+        writeRemoteFileUnderRoot({
+          host: { id: 42 } as never,
+          buildPaths: (home) => ({ root: `${home}/skills/demo`, absPath: `${home}/skills/demo/f${i}.txt` }),
+          bytes: Buffer.from("x"),
+        }),
+      ),
+    );
+    expect(results.every((r) => r.ok)).toBe(true);
+    expect(peak).toBeLessThanOrEqual(3);
+    expect(peak).toBeGreaterThan(1);
+    expect(live).toBe(0);
+    __resetHostSemaphoreRegistryForTests();
+  });
+});

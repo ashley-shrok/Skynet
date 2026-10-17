@@ -14,6 +14,8 @@ import type { Request, Response } from "express";
 import type { Readable } from "node:stream";
 import type { Client as SSHClientType } from "ssh2";
 import { connectOneShot } from "../ssh/ssh-one-shot.js";
+import { getHostSemaphore } from "../ssh/host-semaphore-registry.js";
+import { sshLogger } from "./logger.js";
 import { sendSftpFile } from "./sftp-file-response.js";
 
 const SSH_CONNECT_TIMEOUT_MS = 5_000;
@@ -42,6 +44,26 @@ class DownloadError extends Error {
   ) {
     super(message);
   }
+}
+
+/**
+ * Run the whole SSH motion (connect + SFTP channel + conn.end) under the
+ * shared per-host semaphore (verify:ssh-cap). The host row's `id` keys the
+ * slot pool; callers pass the resolveHostById row (typed loosely as the
+ * connectOneShot param, so `id` is read at runtime). A row with no id runs
+ * uncapped — logged so a future caller that drops the id is visible.
+ * Nothing inside acquires the same semaphore again (no nesting).
+ */
+function withHostSlot<T>(host: SendRemoteFileOptions["host"], op: string, fn: () => Promise<T>): Promise<T> {
+  const id = (host as { id?: unknown }).id;
+  if (typeof id !== "number" && typeof id !== "string") {
+    sshLogger.debug("sftp-root-files: host row has no id — SSH motion runs without host slot", {
+      operation: "sftp_root_files_no_host_id",
+      op,
+    });
+    return fn();
+  }
+  return getHostSemaphore(id).run(fn);
 }
 
 function openSftp(conn: SSHClientType): Promise<SftpLike> {
@@ -82,7 +104,11 @@ export interface SendRemoteFileOptions {
  * `{ error }` with 400 / 404 / 413 / 502; after streaming starts the
  * response is torn down. Never throws.
  */
-export async function sendRemoteFileUnderRoot(opts: SendRemoteFileOptions): Promise<{ ok: boolean; error?: string }> {
+export function sendRemoteFileUnderRoot(opts: SendRemoteFileOptions): Promise<{ ok: boolean; error?: string }> {
+  return withHostSlot(opts.host, "send", () => sendRemoteFileUnderRootInner(opts));
+}
+
+async function sendRemoteFileUnderRootInner(opts: SendRemoteFileOptions): Promise<{ ok: boolean; error?: string }> {
   const { req, res } = opts;
   let conn: SSHClientType | null = null;
   const timer = setTimeout(() => {
@@ -152,7 +178,13 @@ export interface WriteRemoteFileOptions {
  * must too (a symlink pointing out is refused). Throws DownloadError-shaped
  * errors carrying an HTTP status.
  */
-export async function writeRemoteFileUnderRoot(
+export function writeRemoteFileUnderRoot(
+  opts: WriteRemoteFileOptions,
+): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+  return withHostSlot(opts.host, "write", () => writeRemoteFileUnderRootInner(opts));
+}
+
+async function writeRemoteFileUnderRootInner(
   opts: WriteRemoteFileOptions,
 ): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
   let conn: SSHClientType | null = null;

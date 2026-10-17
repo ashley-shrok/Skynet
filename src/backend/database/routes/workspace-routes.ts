@@ -42,6 +42,7 @@ import { PermissionManager } from "../../utils/permission-manager.js";
 import { sshLogger } from "../../utils/logger.js";
 import { withConnection, hostPoolKey } from "../../ssh/ssh-connection-pool.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
+import { getHostSemaphore } from "../../ssh/host-semaphore-registry.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { IDENTITY_KEY_RE, PROJECT_SLUG_RE } from "../../claude-session/identity-artifact-reader.js";
 import { sendSftpFile } from "../../utils/sftp-file-response.js";
@@ -594,40 +595,42 @@ workspaceRoutes.post(
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), SFTP_OP_TIMEOUT_MS);
     try {
-      const result = await withConnection(
-        poolKey,
-        () => connectOneShot(host, SSH_CONNECT_TIMEOUT_MS),
-        async (client) => {
-          return await runWithAbort(ctrl.signal, async () => {
-            // Step 6: tilde expansion — sftpRealpath(sftp, ".")
-            const sftp = await openSftp(client);
-            const homeDir = await sftpRealpath(sftp, ".");
-            const workspaceRoot = buildTargetRoot(homeDir, target);
-            const absolutePath = buildAbsolutePath(workspaceRoot, String(relativePath));
+      const result = await getHostSemaphore(Number(hostId)).run(() =>
+        withConnection(
+          poolKey,
+          () => connectOneShot(host, SSH_CONNECT_TIMEOUT_MS),
+          async (client) => {
+            return await runWithAbort(ctrl.signal, async () => {
+              // Step 6: tilde expansion — sftpRealpath(sftp, ".")
+              const sftp = await openSftp(client);
+              const homeDir = await sftpRealpath(sftp, ".");
+              const workspaceRoot = buildTargetRoot(homeDir, target);
+              const absolutePath = buildAbsolutePath(workspaceRoot, String(relativePath));
 
-            // Step 8: Post-realpath re-check (symlink escape defense)
-            const resolved = await sftpRealpath(sftp, absolutePath);
-            assertResolvedUnderRoot(resolved, workspaceRoot);
-            if (FORBIDDEN_PATH_RE.test(resolved)) throw new Error("path_forbidden");
+              // Step 8: Post-realpath re-check (symlink escape defense)
+              const resolved = await sftpRealpath(sftp, absolutePath);
+              assertResolvedUnderRoot(resolved, workspaceRoot);
+              if (FORBIDDEN_PATH_RE.test(resolved)) throw new Error("path_forbidden");
 
-            // Step 9: SFTP operation
-            const raw = await sftpReaddir(sftp, resolved);
-            const entries: WorkspaceEntry[] = raw.map((e) => ({
-              name: e.filename,
-              type: e.attrs.isDirectory()
-                ? "directory"
-                : e.attrs.isSymbolicLink()
-                  ? "symlink"
-                  : "file",
-              size: e.attrs.isDirectory() ? null : e.attrs.size,
-              mtimeMs: e.attrs.mtime * 1000,
-              path: relativePath
-                ? `${relativePath}/${e.filename}`
-                : e.filename,
-            }));
-            return { entries, path: String(relativePath) };
-          });
-        },
+              // Step 9: SFTP operation
+              const raw = await sftpReaddir(sftp, resolved);
+              const entries: WorkspaceEntry[] = raw.map((e) => ({
+                name: e.filename,
+                type: e.attrs.isDirectory()
+                  ? "directory"
+                  : e.attrs.isSymbolicLink()
+                    ? "symlink"
+                    : "file",
+                size: e.attrs.isDirectory() ? null : e.attrs.size,
+                mtimeMs: e.attrs.mtime * 1000,
+                path: relativePath
+                  ? `${relativePath}/${e.filename}`
+                  : e.filename,
+              }));
+              return { entries, path: String(relativePath) };
+            });
+          },
+        ),
       );
       res.json(result);
     } catch (err) {
@@ -697,39 +700,41 @@ workspaceRoutes.post(
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), SFTP_OP_TIMEOUT_MS);
     try {
-      const result = await withConnection(
-        poolKey,
-        () => connectOneShot(host, SSH_CONNECT_TIMEOUT_MS),
-        async (client) => {
-          return await runWithAbort(ctrl.signal, async () => {
-            const sftp = await openSftp(client);
-            const homeDir = await sftpRealpath(sftp, ".");
-            const workspaceRoot = buildTargetRoot(homeDir, target);
-            const absolutePath = buildAbsolutePath(workspaceRoot, relativePath);
+      const result = await getHostSemaphore(Number(hostId)).run(() =>
+        withConnection(
+          poolKey,
+          () => connectOneShot(host, SSH_CONNECT_TIMEOUT_MS),
+          async (client) => {
+            return await runWithAbort(ctrl.signal, async () => {
+              const sftp = await openSftp(client);
+              const homeDir = await sftpRealpath(sftp, ".");
+              const workspaceRoot = buildTargetRoot(homeDir, target);
+              const absolutePath = buildAbsolutePath(workspaceRoot, relativePath);
 
-            const resolved = await sftpRealpath(sftp, absolutePath);
-            assertResolvedUnderRoot(resolved, workspaceRoot);
-            if (FORBIDDEN_PATH_RE.test(resolved)) throw new Error("path_forbidden");
+              const resolved = await sftpRealpath(sftp, absolutePath);
+              assertResolvedUnderRoot(resolved, workspaceRoot);
+              if (FORBIDDEN_PATH_RE.test(resolved)) throw new Error("path_forbidden");
 
-            const stat = await sftpStat(sftp, resolved);
-            if (!stat.isFile()) throw new Error("not_a_file");
-            if (stat.size > MAX_READ_BYTES) throw new Error("too_large");
+              const stat = await sftpStat(sftp, resolved);
+              if (!stat.isFile()) throw new Error("not_a_file");
+              if (stat.size > MAX_READ_BYTES) throw new Error("too_large");
 
-            const data = await sftpReadFile(sftp, resolved);
-            const filename = relativePath.split("/").pop() ?? "";
-            const dotIdx = filename.lastIndexOf(".");
-            const extension =
-              dotIdx === -1 || dotIdx === filename.length - 1
-                ? null
-                : filename.slice(dotIdx + 1).toLowerCase();
-            return {
-              contentBase64: data.toString("base64"),
-              sizeBytes: data.byteLength,
-              filename,
-              extension,
-            };
-          });
-        },
+              const data = await sftpReadFile(sftp, resolved);
+              const filename = relativePath.split("/").pop() ?? "";
+              const dotIdx = filename.lastIndexOf(".");
+              const extension =
+                dotIdx === -1 || dotIdx === filename.length - 1
+                  ? null
+                  : filename.slice(dotIdx + 1).toLowerCase();
+              return {
+                contentBase64: data.toString("base64"),
+                sizeBytes: data.byteLength,
+                filename,
+                extension,
+              };
+            });
+          },
+        ),
       );
       res.json(result);
     } catch (err) {
@@ -801,30 +806,32 @@ workspaceRoutes.put(
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), SFTP_OP_TIMEOUT_MS);
     try {
-      await withConnection(
-        poolKey,
-        () => connectOneShot(host, SSH_CONNECT_TIMEOUT_MS),
-        async (client) => {
-          return await runWithAbort(ctrl.signal, async () => {
-            const sftp = await openSftp(client);
-            const homeDir = await sftpRealpath(sftp, ".");
-            const workspaceRoot = buildTargetRoot(homeDir, target);
-            const absolutePath = buildAbsolutePath(workspaceRoot, relativePath);
+      await getHostSemaphore(Number(hostId)).run(() =>
+        withConnection(
+          poolKey,
+          () => connectOneShot(host, SSH_CONNECT_TIMEOUT_MS),
+          async (client) => {
+            return await runWithAbort(ctrl.signal, async () => {
+              const sftp = await openSftp(client);
+              const homeDir = await sftpRealpath(sftp, ".");
+              const workspaceRoot = buildTargetRoot(homeDir, target);
+              const absolutePath = buildAbsolutePath(workspaceRoot, relativePath);
 
-            // Realpath check on the parent directory (file may not exist yet)
-            const dirPath = absolutePath.substring(0, absolutePath.lastIndexOf("/"));
-            const resolvedDir = await sftpRealpath(sftp, dirPath);
-            assertResolvedUnderRoot(resolvedDir, workspaceRoot);
-            if (FORBIDDEN_PATH_RE.test(resolvedDir)) throw new Error("path_forbidden");
-            assertNotReserved(
-              [absolutePath, underResolvedParent(resolvedDir, absolutePath), reservedRootFileName(target) ? await realpathIfExists(sftp, absolutePath) : null],
-              workspaceRoot,
-              target,
-            );
+              // Realpath check on the parent directory (file may not exist yet)
+              const dirPath = absolutePath.substring(0, absolutePath.lastIndexOf("/"));
+              const resolvedDir = await sftpRealpath(sftp, dirPath);
+              assertResolvedUnderRoot(resolvedDir, workspaceRoot);
+              if (FORBIDDEN_PATH_RE.test(resolvedDir)) throw new Error("path_forbidden");
+              assertNotReserved(
+                [absolutePath, underResolvedParent(resolvedDir, absolutePath), reservedRootFileName(target) ? await realpathIfExists(sftp, absolutePath) : null],
+                workspaceRoot,
+                target,
+              );
 
-            await sftpWriteBuffer(sftp, absolutePath, Buffer.from(content, "utf8"));
-          });
-        },
+              await sftpWriteBuffer(sftp, absolutePath, Buffer.from(content, "utf8"));
+            });
+          },
+        ),
       );
       res.status(200).json({ ok: true });
     } catch (err) {
@@ -896,31 +903,33 @@ workspaceRoutes.delete(
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), SFTP_OP_TIMEOUT_MS);
     try {
-      await withConnection(
-        poolKey,
-        () => connectOneShot(host, SSH_CONNECT_TIMEOUT_MS),
-        async (client) => {
-          return await runWithAbort(ctrl.signal, async () => {
-            const sftp = await openSftp(client);
-            const homeDir = await sftpRealpath(sftp, ".");
-            const workspaceRoot = buildTargetRoot(homeDir, target);
-            const absolutePath = buildAbsolutePath(workspaceRoot, relativePath);
+      await getHostSemaphore(Number(hostId)).run(() =>
+        withConnection(
+          poolKey,
+          () => connectOneShot(host, SSH_CONNECT_TIMEOUT_MS),
+          async (client) => {
+            return await runWithAbort(ctrl.signal, async () => {
+              const sftp = await openSftp(client);
+              const homeDir = await sftpRealpath(sftp, ".");
+              const workspaceRoot = buildTargetRoot(homeDir, target);
+              const absolutePath = buildAbsolutePath(workspaceRoot, relativePath);
 
-            const resolved = await sftpRealpath(sftp, absolutePath);
-            assertResolvedUnderRoot(resolved, workspaceRoot);
-            if (FORBIDDEN_PATH_RE.test(resolved)) throw new Error("path_forbidden");
-            // Guard: can't delete the workspace root itself
-            if (resolved === workspaceRoot) throw new Error("path_traversal");
-            assertNotReserved([absolutePath, resolved], workspaceRoot, target);
+              const resolved = await sftpRealpath(sftp, absolutePath);
+              assertResolvedUnderRoot(resolved, workspaceRoot);
+              if (FORBIDDEN_PATH_RE.test(resolved)) throw new Error("path_forbidden");
+              // Guard: can't delete the workspace root itself
+              if (resolved === workspaceRoot) throw new Error("path_traversal");
+              assertNotReserved([absolutePath, resolved], workspaceRoot, target);
 
-            const stat = await sftpStat(sftp, resolved);
-            if (stat.isDirectory()) {
-              await sftpRmdir(sftp, resolved);
-            } else {
-              await sftpUnlink(sftp, resolved);
-            }
-          });
-        },
+              const stat = await sftpStat(sftp, resolved);
+              if (stat.isDirectory()) {
+                await sftpRmdir(sftp, resolved);
+              } else {
+                await sftpUnlink(sftp, resolved);
+              }
+            });
+          },
+        ),
       );
       res.status(200).json({ ok: true });
     } catch (err) {
@@ -994,38 +1003,40 @@ workspaceRoutes.post(
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), SFTP_OP_TIMEOUT_MS);
     try {
-      await withConnection(
-        poolKey,
-        () => connectOneShot(host, SSH_CONNECT_TIMEOUT_MS),
-        async (client) => {
-          return await runWithAbort(ctrl.signal, async () => {
-            const sftp = await openSftp(client);
-            const homeDir = await sftpRealpath(sftp, ".");
-            const workspaceRoot = buildTargetRoot(homeDir, target);
-            const fromPath = buildAbsolutePath(workspaceRoot, from);
-            const toPath = buildAbsolutePath(workspaceRoot, to);
+      await getHostSemaphore(Number(hostId)).run(() =>
+        withConnection(
+          poolKey,
+          () => connectOneShot(host, SSH_CONNECT_TIMEOUT_MS),
+          async (client) => {
+            return await runWithAbort(ctrl.signal, async () => {
+              const sftp = await openSftp(client);
+              const homeDir = await sftpRealpath(sftp, ".");
+              const workspaceRoot = buildTargetRoot(homeDir, target);
+              const fromPath = buildAbsolutePath(workspaceRoot, from);
+              const toPath = buildAbsolutePath(workspaceRoot, to);
 
-            // Realpath check on 'from' (must exist)
-            const resolvedFrom = await sftpRealpath(sftp, fromPath);
-            assertResolvedUnderRoot(resolvedFrom, workspaceRoot);
-            if (FORBIDDEN_PATH_RE.test(resolvedFrom)) throw new Error("path_forbidden");
-            // Guard: can't move the folder root itself (mirrors DELETE's guard)
-            if (resolvedFrom === workspaceRoot) throw new Error("path_traversal");
+              // Realpath check on 'from' (must exist)
+              const resolvedFrom = await sftpRealpath(sftp, fromPath);
+              assertResolvedUnderRoot(resolvedFrom, workspaceRoot);
+              if (FORBIDDEN_PATH_RE.test(resolvedFrom)) throw new Error("path_forbidden");
+              // Guard: can't move the folder root itself (mirrors DELETE's guard)
+              if (resolvedFrom === workspaceRoot) throw new Error("path_traversal");
 
-            // Realpath check on 'to' parent (toPath itself may not exist yet)
-            const toParent = toPath.substring(0, toPath.lastIndexOf("/"));
-            const resolvedToParent = await sftpRealpath(sftp, toParent);
-            assertResolvedUnderRoot(resolvedToParent, workspaceRoot);
-            if (FORBIDDEN_PATH_RE.test(resolvedToParent)) throw new Error("path_forbidden");
-            assertNotReserved(
-              [fromPath, resolvedFrom, toPath, underResolvedParent(resolvedToParent, toPath), reservedRootFileName(target) ? await realpathIfExists(sftp, toPath) : null],
-              workspaceRoot,
-              target,
-            );
+              // Realpath check on 'to' parent (toPath itself may not exist yet)
+              const toParent = toPath.substring(0, toPath.lastIndexOf("/"));
+              const resolvedToParent = await sftpRealpath(sftp, toParent);
+              assertResolvedUnderRoot(resolvedToParent, workspaceRoot);
+              if (FORBIDDEN_PATH_RE.test(resolvedToParent)) throw new Error("path_forbidden");
+              assertNotReserved(
+                [fromPath, resolvedFrom, toPath, underResolvedParent(resolvedToParent, toPath), reservedRootFileName(target) ? await realpathIfExists(sftp, toPath) : null],
+                workspaceRoot,
+                target,
+              );
 
-            await sftpRename(sftp, resolvedFrom, toPath);
-          });
-        },
+              await sftpRename(sftp, resolvedFrom, toPath);
+            });
+          },
+        ),
       );
       res.status(200).json({ ok: true });
     } catch (err) {
@@ -1095,26 +1106,28 @@ workspaceRoutes.post(
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), SFTP_OP_TIMEOUT_MS);
     try {
-      await withConnection(
-        poolKey,
-        () => connectOneShot(host, SSH_CONNECT_TIMEOUT_MS),
-        async (client) => {
-          return await runWithAbort(ctrl.signal, async () => {
-            const sftp = await openSftp(client);
-            const homeDir = await sftpRealpath(sftp, ".");
-            const workspaceRoot = buildTargetRoot(homeDir, target);
-            const absolutePath = buildAbsolutePath(workspaceRoot, relativePath);
+      await getHostSemaphore(Number(hostId)).run(() =>
+        withConnection(
+          poolKey,
+          () => connectOneShot(host, SSH_CONNECT_TIMEOUT_MS),
+          async (client) => {
+            return await runWithAbort(ctrl.signal, async () => {
+              const sftp = await openSftp(client);
+              const homeDir = await sftpRealpath(sftp, ".");
+              const workspaceRoot = buildTargetRoot(homeDir, target);
+              const absolutePath = buildAbsolutePath(workspaceRoot, relativePath);
 
-            // Realpath check on parent
-            const parentPath = absolutePath.substring(0, absolutePath.lastIndexOf("/"));
-            const resolvedParent = await sftpRealpath(sftp, parentPath);
-            assertResolvedUnderRoot(resolvedParent, workspaceRoot);
-            if (FORBIDDEN_PATH_RE.test(resolvedParent)) throw new Error("path_forbidden");
-            assertNotReserved([absolutePath, underResolvedParent(resolvedParent, absolutePath)], workspaceRoot, target);
+              // Realpath check on parent
+              const parentPath = absolutePath.substring(0, absolutePath.lastIndexOf("/"));
+              const resolvedParent = await sftpRealpath(sftp, parentPath);
+              assertResolvedUnderRoot(resolvedParent, workspaceRoot);
+              if (FORBIDDEN_PATH_RE.test(resolvedParent)) throw new Error("path_forbidden");
+              assertNotReserved([absolutePath, underResolvedParent(resolvedParent, absolutePath)], workspaceRoot, target);
 
-            await sftpMkdir(sftp, absolutePath);
-          });
-        },
+              await sftpMkdir(sftp, absolutePath);
+            });
+          },
+        ),
       );
       res.status(200).json({ ok: true });
     } catch (err) {
@@ -1184,26 +1197,28 @@ workspaceRoutes.post(
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), SFTP_OP_TIMEOUT_MS);
     try {
-      await withConnection(
-        poolKey,
-        () => connectOneShot(host, SSH_CONNECT_TIMEOUT_MS),
-        async (client) => {
-          return await runWithAbort(ctrl.signal, async () => {
-            const sftp = await openSftp(client);
-            const homeDir = await sftpRealpath(sftp, ".");
-            const workspaceRoot = buildTargetRoot(homeDir, target);
-            const absolutePath = buildAbsolutePath(workspaceRoot, relativePath);
+      await getHostSemaphore(Number(hostId)).run(() =>
+        withConnection(
+          poolKey,
+          () => connectOneShot(host, SSH_CONNECT_TIMEOUT_MS),
+          async (client) => {
+            return await runWithAbort(ctrl.signal, async () => {
+              const sftp = await openSftp(client);
+              const homeDir = await sftpRealpath(sftp, ".");
+              const workspaceRoot = buildTargetRoot(homeDir, target);
+              const absolutePath = buildAbsolutePath(workspaceRoot, relativePath);
 
-            // Realpath check on parent dir
-            const parentPath = absolutePath.substring(0, absolutePath.lastIndexOf("/"));
-            const resolvedParent = await sftpRealpath(sftp, parentPath);
-            assertResolvedUnderRoot(resolvedParent, workspaceRoot);
-            if (FORBIDDEN_PATH_RE.test(resolvedParent)) throw new Error("path_forbidden");
-            assertNotReserved([absolutePath, underResolvedParent(resolvedParent, absolutePath)], workspaceRoot, target);
+              // Realpath check on parent dir
+              const parentPath = absolutePath.substring(0, absolutePath.lastIndexOf("/"));
+              const resolvedParent = await sftpRealpath(sftp, parentPath);
+              assertResolvedUnderRoot(resolvedParent, workspaceRoot);
+              if (FORBIDDEN_PATH_RE.test(resolvedParent)) throw new Error("path_forbidden");
+              assertNotReserved([absolutePath, underResolvedParent(resolvedParent, absolutePath)], workspaceRoot, target);
 
-            await sftpCreateEmpty(sftp, absolutePath);
-          });
-        },
+              await sftpCreateEmpty(sftp, absolutePath);
+            });
+          },
+        ),
       );
       res.status(200).json({ ok: true });
     } catch (err) {
@@ -1284,30 +1299,32 @@ workspaceRoutes.post(
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), SFTP_OP_TIMEOUT_MS);
     try {
-      await withConnection(
-        poolKey,
-        () => connectOneShot(host, SSH_CONNECT_TIMEOUT_MS),
-        async (client) => {
-          return await runWithAbort(ctrl.signal, async () => {
-            const sftp = await openSftp(client);
-            const homeDir = await sftpRealpath(sftp, ".");
-            const workspaceRoot = buildTargetRoot(homeDir, target);
-            const absolutePath = buildAbsolutePath(workspaceRoot, relativePath);
+      await getHostSemaphore(Number(hostId)).run(() =>
+        withConnection(
+          poolKey,
+          () => connectOneShot(host, SSH_CONNECT_TIMEOUT_MS),
+          async (client) => {
+            return await runWithAbort(ctrl.signal, async () => {
+              const sftp = await openSftp(client);
+              const homeDir = await sftpRealpath(sftp, ".");
+              const workspaceRoot = buildTargetRoot(homeDir, target);
+              const absolutePath = buildAbsolutePath(workspaceRoot, relativePath);
 
-            // Realpath check on parent dir
-            const parentPath = absolutePath.substring(0, absolutePath.lastIndexOf("/"));
-            const resolvedParent = await sftpRealpath(sftp, parentPath);
-            assertResolvedUnderRoot(resolvedParent, workspaceRoot);
-            if (FORBIDDEN_PATH_RE.test(resolvedParent)) throw new Error("path_forbidden");
-            assertNotReserved(
-              [absolutePath, underResolvedParent(resolvedParent, absolutePath), reservedRootFileName(target) ? await realpathIfExists(sftp, absolutePath) : null],
-              workspaceRoot,
-              target,
-            );
+              // Realpath check on parent dir
+              const parentPath = absolutePath.substring(0, absolutePath.lastIndexOf("/"));
+              const resolvedParent = await sftpRealpath(sftp, parentPath);
+              assertResolvedUnderRoot(resolvedParent, workspaceRoot);
+              if (FORBIDDEN_PATH_RE.test(resolvedParent)) throw new Error("path_forbidden");
+              assertNotReserved(
+                [absolutePath, underResolvedParent(resolvedParent, absolutePath), reservedRootFileName(target) ? await realpathIfExists(sftp, absolutePath) : null],
+                workspaceRoot,
+                target,
+              );
 
-            await sftpWriteBuffer(sftp, absolutePath, fileBuffer);
-          });
-        },
+              await sftpWriteBuffer(sftp, absolutePath, fileBuffer);
+            });
+          },
+        ),
       );
       res.status(200).json({ ok: true });
     } catch (err) {
@@ -1373,40 +1390,42 @@ workspaceRoutes.get(
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), SFTP_OP_TIMEOUT_MS);
     try {
-      await withConnection(
-        poolKey,
-        () => connectOneShot(host, SSH_CONNECT_TIMEOUT_MS),
-        async (client) => {
-          await runWithAbort(ctrl.signal, async () => {
-            const sftp = await openSftp(client);
-            const homeDir = await sftpRealpath(sftp, ".");
-            const workspaceRoot = buildTargetRoot(homeDir, target);
-            const absolutePath = buildAbsolutePath(workspaceRoot, relativePath);
+      await getHostSemaphore(Number(hostId)).run(() =>
+        withConnection(
+          poolKey,
+          () => connectOneShot(host, SSH_CONNECT_TIMEOUT_MS),
+          async (client) => {
+            await runWithAbort(ctrl.signal, async () => {
+              const sftp = await openSftp(client);
+              const homeDir = await sftpRealpath(sftp, ".");
+              const workspaceRoot = buildTargetRoot(homeDir, target);
+              const absolutePath = buildAbsolutePath(workspaceRoot, relativePath);
 
-            const resolved = await sftpRealpath(sftp, absolutePath);
-            assertResolvedUnderRoot(resolved, workspaceRoot);
-            if (FORBIDDEN_PATH_RE.test(resolved)) throw new Error("path_forbidden");
+              const resolved = await sftpRealpath(sftp, absolutePath);
+              assertResolvedUnderRoot(resolved, workspaceRoot);
+              if (FORBIDDEN_PATH_RE.test(resolved)) throw new Error("path_forbidden");
 
-            const stat = await sftpStat(sftp, resolved);
-            if (!stat.isFile()) throw new Error("not_a_file");
-            if (stat.size > MAX_DOWNLOAD_BYTES) throw new Error("too_large");
+              const stat = await sftpStat(sftp, resolved);
+              if (!stat.isFile()) throw new Error("not_a_file");
+              if (stat.size > MAX_DOWNLOAD_BYTES) throw new Error("too_large");
 
-            // Streams with Range support. `inline=1` lets the browser show
-            // media / PDF / text in place (viewers use it as a src); html,
-            // js, svg and unknown binary stay attachments regardless.
-            await sendSftpFile({
-              req,
-              res,
-              sftp,
-              path: resolved,
-              size: stat.size,
-              filename: relativePath.split("/").pop() ?? "file",
-              disposition: inline ? "auto" : "attachment",
-              // The setup timeout must not cut off a long transfer.
-              onStreamStart: () => clearTimeout(timer),
+              // Streams with Range support. `inline=1` lets the browser show
+              // media / PDF / text in place (viewers use it as a src); html,
+              // js, svg and unknown binary stay attachments regardless.
+              await sendSftpFile({
+                req,
+                res,
+                sftp,
+                path: resolved,
+                size: stat.size,
+                filename: relativePath.split("/").pop() ?? "file",
+                disposition: inline ? "auto" : "attachment",
+                // The setup timeout must not cut off a long transfer.
+                onStreamStart: () => clearTimeout(timer),
+              });
             });
-          });
-        },
+          },
+        ),
       );
     } catch (err) {
       if (!res.headersSent) {

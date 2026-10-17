@@ -1303,3 +1303,50 @@ describe("project target and reserved root file", () => {
     expect(res.status).toBe(200);
   });
 });
+
+/* --------------------------------------------------------------------- */
+/*  Per-host semaphore cap (verify:ssh-cap)                              */
+/* --------------------------------------------------------------------- */
+
+describe("per-host SSH semaphore", () => {
+  it("N concurrent /list requests on one host never exceed the semaphore cap", async () => {
+    const { withConnection } = await import("../../ssh/ssh-connection-pool.js");
+    const { getHostSemaphore, __resetHostSemaphoreRegistryForTests } = await import(
+      "../../ssh/host-semaphore-registry.js"
+    );
+    __resetHostSemaphoreRegistryForTests();
+    getHostSemaphore(42, 3);
+    let live = 0;
+    let peak = 0;
+    (withConnection as Mock).mockImplementation(
+      async (
+        _key: string,
+        factory: () => Promise<StubClient>,
+        fn: (client: StubClient) => Promise<unknown>,
+      ) => {
+        live++;
+        peak = Math.max(peak, live);
+        try {
+          const client = await factory();
+          await new Promise((r) => setTimeout(r, 5));
+          return await fn(client);
+        } finally {
+          live--;
+        }
+      },
+    );
+    const results = await Promise.all(
+      Array.from({ length: 10 }, () =>
+        httpRequest(server, {
+          method: "POST",
+          path: "/workspace/list",
+          body: JSON.stringify({ identityKey: "echo", hostId: 42, relativePath: "" }),
+        }),
+      ),
+    );
+    expect(results.every((r) => r.status === 200)).toBe(true);
+    expect(peak).toBeLessThanOrEqual(3);
+    expect(peak).toBeGreaterThan(1);
+    __resetHostSemaphoreRegistryForTests();
+  });
+});
