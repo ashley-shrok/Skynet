@@ -47,6 +47,9 @@ const authenticateJWT = authManager.createAuthMiddleware();
 
 /** SSH connect timeout — matches conversation-search.ts (5s covers healthy handshake). */
 const SSH_CONNECT_TIMEOUT_MS = 5_000;
+/** How long one host may wait for an SSH slot before it is skipped, so a
+ *  host with every slot held costs only its own rows. */
+const FANOUT_ACQUIRE_TIMEOUT_MS = 15_000;
 
 /**
  * GET /identities-archive
@@ -111,7 +114,7 @@ router.get(
                 /* ignore */
               }
             }
-          });
+          }, { acquireTimeoutMs: FANOUT_ACQUIRE_TIMEOUT_MS });
         } catch (e) {
           // Per-host failure is silently swallowed — mirrors conversation-search.ts
           // fan-out discipline (one bad host contributes [] rather than a 500).

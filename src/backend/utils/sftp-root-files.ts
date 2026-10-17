@@ -14,7 +14,7 @@ import type { Request, Response } from "express";
 import type { Readable } from "node:stream";
 import type { Client as SSHClientType } from "ssh2";
 import { connectOneShot } from "../ssh/ssh-one-shot.js";
-import { getHostSemaphore } from "../ssh/host-semaphore-registry.js";
+import { acquireHostSlot, getHostSemaphore } from "../ssh/host-semaphore-registry.js";
 import { sshLogger } from "./logger.js";
 import { sendSftpFile } from "./sftp-file-response.js";
 
@@ -104,11 +104,24 @@ export interface SendRemoteFileOptions {
  * `{ error }` with 400 / 404 / 413 / 502; after streaming starts the
  * response is torn down. Never throws.
  */
-export function sendRemoteFileUnderRoot(opts: SendRemoteFileOptions): Promise<{ ok: boolean; error?: string }> {
-  return withHostSlot(opts.host, "send", () => sendRemoteFileUnderRootInner(opts));
+export async function sendRemoteFileUnderRoot(opts: SendRemoteFileOptions): Promise<{ ok: boolean; error?: string }> {
+  // Holds the host slot only until bytes start streaming (acquireHostSlot).
+  const id = (opts.host as { id?: unknown }).id;
+  if (typeof id !== "number" && typeof id !== "string") {
+    return withHostSlot(opts.host, "send", () => sendRemoteFileUnderRootInner(opts));
+  }
+  const release = await acquireHostSlot(id);
+  try {
+    return await sendRemoteFileUnderRootInner(opts, release);
+  } finally {
+    release();
+  }
 }
 
-async function sendRemoteFileUnderRootInner(opts: SendRemoteFileOptions): Promise<{ ok: boolean; error?: string }> {
+async function sendRemoteFileUnderRootInner(
+  opts: SendRemoteFileOptions,
+  releaseSlot: () => void = () => {},
+): Promise<{ ok: boolean; error?: string }> {
   const { req, res } = opts;
   let conn: SSHClientType | null = null;
   const timer = setTimeout(() => {
@@ -145,7 +158,10 @@ async function sendRemoteFileUnderRootInner(opts: SendRemoteFileOptions): Promis
       size: st.size,
       filename: paths.absPath.split("/").pop() ?? "file",
       disposition: opts.inline ? "auto" : "attachment",
-      onStreamStart: () => clearTimeout(timer),
+      onStreamStart: () => {
+        clearTimeout(timer);
+        releaseSlot();
+      },
     });
     return { ok: true };
   } catch (err) {

@@ -42,7 +42,7 @@ import { PermissionManager } from "../../utils/permission-manager.js";
 import { sshLogger } from "../../utils/logger.js";
 import { withConnection, hostPoolKey } from "../../ssh/ssh-connection-pool.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
-import { getHostSemaphore } from "../../ssh/host-semaphore-registry.js";
+import { acquireHostSlot, getHostSemaphore } from "../../ssh/host-semaphore-registry.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { IDENTITY_KEY_RE, PROJECT_SLUG_RE } from "../../claude-session/identity-artifact-reader.js";
 import { sendSftpFile } from "../../utils/sftp-file-response.js";
@@ -1389,9 +1389,12 @@ workspaceRoutes.get(
     const poolKey = hostPoolKey(host);
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), SFTP_OP_TIMEOUT_MS);
+    // The host slot covers connect + SFTP setup only; it is released once
+    // bytes start streaming so a slow or paused viewer can't pin it.
+    let releaseSlot: () => void = () => {};
     try {
-      await getHostSemaphore(Number(hostId)).run(() =>
-        withConnection(
+      releaseSlot = await acquireHostSlot(Number(hostId));
+      await withConnection(
           poolKey,
           () => connectOneShot(host, SSH_CONNECT_TIMEOUT_MS),
           async (client) => {
@@ -1421,12 +1424,14 @@ workspaceRoutes.get(
                 filename: relativePath.split("/").pop() ?? "file",
                 disposition: inline ? "auto" : "attachment",
                 // The setup timeout must not cut off a long transfer.
-                onStreamStart: () => clearTimeout(timer),
+                onStreamStart: () => {
+                  clearTimeout(timer);
+                  releaseSlot();
+                },
               });
             });
           },
-        ),
-      );
+        );
     } catch (err) {
       if (!res.headersSent) {
         res.status(classifyErrorToStatus(err)).json({ error: classifyErrorToClass(err) });
@@ -1440,6 +1445,7 @@ workspaceRoutes.get(
       });
     } finally {
       clearTimeout(timer);
+      releaseSlot();
     }
   },
 );

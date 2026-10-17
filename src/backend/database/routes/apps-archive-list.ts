@@ -226,7 +226,7 @@ router.get(
                 /* ignore */
               }
             }
-          });
+          }, { acquireTimeoutMs: REMOTE_LIST_TIMEOUT_MS });
         } catch (e) {
           // Per-host failure is silently swallowed — mirrors identities-archive-list.ts
           // fan-out discipline (one bad host contributes [] rather than a 500).

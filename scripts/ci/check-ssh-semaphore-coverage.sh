@@ -92,7 +92,7 @@ PRODUCER_PATTERNS='connectOneShot\(|session\.client\.exec\(|tailSessionFile\('
 # ---------------------------------------------------------------------------
 # Patterns that confirm coverage (any of these means the file is capped)
 # ---------------------------------------------------------------------------
-COVERAGE_PATTERNS='host-semaphore-registry|getHostSemaphore\(|acquireTailSlot\('
+COVERAGE_PATTERNS='host-semaphore-registry|getHostSemaphore\(|acquireTailSlot\(|acquireHostSlot\('
 
 # ---------------------------------------------------------------------------
 # Scan

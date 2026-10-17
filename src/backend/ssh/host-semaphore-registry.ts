@@ -46,8 +46,26 @@ import { sshLogger } from "../utils/logger.js";
 
 /** The interface every SSH producer calls. */
 export type HostSemaphore = {
-  run<T>(fn: () => Promise<T>): Promise<T>;
+  run<T>(fn: () => Promise<T>, opts?: SemaphoreRunOptions): Promise<T>;
 };
+
+export interface SemaphoreRunOptions {
+  /**
+   * Give up if no slot frees within this long: the call rejects with
+   * SemaphoreAcquireTimeoutError and `fn` never runs. Opt-in — callers that
+   * must not fail (e.g. long-lived tail slots) leave it unset. Fan-out
+   * routes set it so a host whose slots are all held costs only its own
+   * rows instead of hanging the whole request.
+   */
+  acquireTimeoutMs?: number;
+}
+
+export class SemaphoreAcquireTimeoutError extends Error {
+  constructor(readonly timeoutMs: number) {
+    super(`no SSH slot freed within ${timeoutMs}ms`);
+    this.name = "SemaphoreAcquireTimeoutError";
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Internal factory (verbatim lift from starter.ts L103-122, bounty b31a5c8e)
@@ -62,15 +80,40 @@ export function makeSemaphore(
   let active = 0;
   const waiters: Array<() => void> = [];
   return {
-    async run<T>(fn: () => Promise<T>): Promise<T> {
+    async run<T>(fn: () => Promise<T>, opts: SemaphoreRunOptions = {}): Promise<T> {
       if (active >= limit) {
-        const queued = new Promise<void>((resolve) => waiters.push(resolve));
+        let wake!: () => void;
+        const queued = new Promise<void>((resolve) => {
+          wake = resolve;
+        });
+        waiters.push(wake);
         try {
           onQueued?.(waiters.length, active);
         } catch {
           /* observer must never break the semaphore */
         }
-        await queued;
+        const timeoutMs = opts.acquireTimeoutMs;
+        if (timeoutMs === undefined) {
+          await queued;
+        } else {
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          const gotSlot = await Promise.race([
+            queued.then(() => true),
+            new Promise<false>((resolve) => {
+              timer = setTimeout(() => resolve(false), timeoutMs);
+            }),
+          ]);
+          clearTimeout(timer);
+          if (!gotSlot) {
+            const i = waiters.indexOf(wake);
+            if (i !== -1) {
+              waiters.splice(i, 1);
+              throw new SemaphoreAcquireTimeoutError(timeoutMs);
+            }
+            // A release already handed us the slot in the same instant —
+            // take it, or the waiters behind us would never be woken.
+          }
+        }
       }
       active++;
       try {
@@ -172,4 +215,36 @@ export function getHostConnectLimiter(
 export function __resetHostSemaphoreRegistryForTests(): void {
   registry.clear();
   connectRegistry.clear();
+}
+
+/**
+ * Take one of `hostId`'s slots and hand back its release, for work that
+ * needs the slot only for part of its life — e.g. a file download holds it
+ * for connect + SFTP setup and gives it back once bytes start streaming, so
+ * a slow or paused viewer can't pin a slot for the whole transfer. Each
+ * download is its own one-shot connection, so the stream itself never
+ * competes for sshd's per-connection sessions.
+ *
+ * The release is idempotent; callers must still call it in a `finally`.
+ * Rejects with SemaphoreAcquireTimeoutError when `acquireTimeoutMs` runs out.
+ */
+export async function acquireHostSlot(
+  hostId: string | number,
+  opts: SemaphoreRunOptions = {},
+): Promise<() => void> {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let acquired!: () => void;
+  const gotSlot = new Promise<void>((resolve) => {
+    acquired = resolve;
+  });
+  const running = getHostSemaphore(hostId).run(() => {
+    acquired();
+    return held;
+  }, opts);
+  running.catch(() => {});
+  await Promise.race([gotSlot, running]);
+  return () => release();
 }

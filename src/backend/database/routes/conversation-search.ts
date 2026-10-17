@@ -960,7 +960,7 @@ router.post(
                 /* ignore */
               }
             }
-          });
+          }, { acquireTimeoutMs: perHostTimeoutMs });
         } catch (e) {
           sshLogger.debug("conversation-search: host skipped", {
             operation: "conversation_search_host_skip",

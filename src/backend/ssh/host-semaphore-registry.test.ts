@@ -19,6 +19,7 @@ import {
   makeSemaphore,
   __resetHostSemaphoreRegistryForTests,
 } from "./host-semaphore-registry.js";
+import { SemaphoreAcquireTimeoutError, acquireHostSlot, getHostSemaphore as getSem } from "./host-semaphore-registry.js";
 import { sshLogger } from "../utils/logger.js";
 
 // ---------------------------------------------------------------------------
@@ -187,5 +188,62 @@ describe("getHostConnectLimiter", () => {
     });
     const out = await Promise.all([sem.run(async () => 1), sem.run(async () => 2)]);
     expect(out).toEqual([1, 2]);
+  });
+});
+
+describe("acquireTimeoutMs", () => {
+  it("rejects a queued caller that gets no slot in time; fn never runs", async () => {
+    const sem = makeSemaphore(1);
+    let release!: () => void;
+    void sem.run(() => new Promise<void>((r) => { release = r; }));
+    const fn = vi.fn(async () => "ran");
+    await expect(sem.run(fn, { acquireTimeoutMs: 20 })).rejects.toBeInstanceOf(
+      SemaphoreAcquireTimeoutError,
+    );
+    expect(fn).not.toHaveBeenCalled();
+    release();
+  });
+
+  it("a timed-out waiter leaves the queue, so the next waiter still gets the slot", async () => {
+    const sem = makeSemaphore(1);
+    let release!: () => void;
+    void sem.run(() => new Promise<void>((r) => { release = r; }));
+    const timedOut = sem.run(async () => "a", { acquireTimeoutMs: 10 });
+    const patient = sem.run(async () => "b");
+    await expect(timedOut).rejects.toBeInstanceOf(SemaphoreAcquireTimeoutError);
+    release();
+    await expect(patient).resolves.toBe("b");
+  });
+
+  it("runs immediately when a slot is free, timeout or not", async () => {
+    const sem = makeSemaphore(1);
+    await expect(sem.run(async () => 1, { acquireTimeoutMs: 1 })).resolves.toBe(1);
+  });
+});
+
+describe("acquireHostSlot", () => {
+  it("holds one slot until released; release is idempotent", async () => {
+    const hostId = "slot-test-host";
+    const releases = await Promise.all(Array.from({ length: 48 }, () => acquireHostSlot(hostId)));
+    let ran = false;
+    const waiting = getSem(hostId).run(async () => {
+      ran = true;
+    });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(ran).toBe(false);
+    releases[0]();
+    releases[0]();
+    await waiting;
+    expect(ran).toBe(true);
+    releases.slice(1).forEach((r) => r());
+  });
+
+  it("rejects on acquireTimeoutMs when the host is full", async () => {
+    const hostId = "slot-test-full";
+    const releases = await Promise.all(Array.from({ length: 48 }, () => acquireHostSlot(hostId)));
+    await expect(acquireHostSlot(hostId, { acquireTimeoutMs: 10 })).rejects.toBeInstanceOf(
+      SemaphoreAcquireTimeoutError,
+    );
+    releases.forEach((r) => r());
   });
 });

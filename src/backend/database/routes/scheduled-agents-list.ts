@@ -685,7 +685,7 @@ router.get(
                 /* ignore */
               }
             }
-          });
+          }, { acquireTimeoutMs: PER_HOST_TIMEOUT_MS });
         } catch (e) {
           sshLogger.debug("scheduled-agents-list: host skipped", {
             operation: "scheduled_agents_list_host_skip",
