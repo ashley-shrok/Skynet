@@ -10,6 +10,10 @@
  *   - heapMB: performance.memory.usedJSHeapSize / 2^20 (Chrome only; NaN elsewhere)
  *   - nodes: document.querySelectorAll("*").length — DOM node count
  *   - modals: per-modal open-count map, bumped by bumpModalOpen() from mount effects
+ *   - motion (only when the user touched/scrolled since the last line): frame
+ *     timing sampled with rAF during interaction — frames, slow (frames that
+ *     took >= 2x the median interval, i.e. at least one dropped frame), worstMs,
+ *     medianMs. This is the on-device jank meter (iPhone PWA choppiness work).
  *
  * The console-forwarder batches these to /opt/skynet/console-forward-logs/
  * so the last ~5s pre-freeze is on disk even when the tab locks solid.
@@ -50,6 +54,59 @@ export function startFreezeDiag(): void {
   if (intervalHandle !== null) return;
   intervalHandle = setInterval(emit, FREEZE_DIAG_INTERVAL_MS);
   startFreezeDiagWorker();
+  startMotionSampler();
+}
+
+// --- Motion frame sampler ------------------------------------------------------
+// rAF runs only while the user is interacting (and MOTION_TAIL_MS after the last
+// touch/scroll/wheel/pointer event, to catch momentum scroll + transitions), so
+// it costs nothing at idle. Intervals are bucketed per heartbeat.
+
+const MOTION_TAIL_MS = 1500;
+let motionUntil = 0;
+let motionRafActive = false;
+let motionLastTs = 0;
+let motionIntervals: number[] = [];
+
+function onMotionEvent(): void {
+  motionUntil = performance.now() + MOTION_TAIL_MS;
+  if (motionRafActive) return;
+  motionRafActive = true;
+  motionLastTs = 0;
+  requestAnimationFrame(motionTick);
+}
+
+function motionTick(ts: number): void {
+  if (motionLastTs) motionIntervals.push(ts - motionLastTs);
+  motionLastTs = ts;
+  if (ts < motionUntil && motionIntervals.length < 5000) {
+    requestAnimationFrame(motionTick);
+  } else {
+    motionRafActive = false;
+  }
+}
+
+function startMotionSampler(): void {
+  if (typeof requestAnimationFrame === "undefined") return;
+  const opts = { capture: true, passive: true } as const;
+  for (const type of ["touchstart", "touchmove", "scroll", "wheel", "pointerdown"]) {
+    document.addEventListener(type, onMotionEvent, opts);
+  }
+}
+
+/** Drain the sampled intervals into a summary (null when there was no motion). */
+function drainMotionStats(): { frames: number; slow: number; worstMs: number; medianMs: number } | null {
+  const d = motionIntervals;
+  motionIntervals = [];
+  if (d.length < 5) return null;
+  const sorted = [...d].sort((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)];
+  return {
+    frames: d.length,
+    slow: d.filter((x) => x >= median * 2).length,
+    worstMs: Math.round(sorted[sorted.length - 1]),
+    medianMs: Math.round(median * 10) / 10,
+  };
 }
 
 // --- Web Worker heartbeat ----------------------------------------------------
@@ -164,7 +221,9 @@ function startFreezeDiagWorker(): void {
               typeof location !== "undefined"
                 ? location.pathname + location.search
                 : "?",
-            nodes: readNodeCount(),
+            // Last heartbeat's count: a fresh querySelectorAll("*") here ran
+            // a full-DOM walk twice a second, during scrolling too.
+            nodes: lastNodeCount,
             heapMB: readHeapMB(),
             modals: { ...modalOpenCounts },
             bodyPE: readBodyPointerEvents(),
@@ -181,7 +240,9 @@ function emit(): void {
   const ws = getOpenClaudeSessionSocketCount();
   const heapMB = readHeapMB();
   const nodes = readNodeCount();
+  lastNodeCount = nodes;
   const modals = { ...modalOpenCounts };
+  const motion = drainMotionStats();
   // bodyPE: document.body.style.pointerEvents snapshot — the direct Radix
   // body-lock-leak detector. Normal value is "" (empty = inherit = auto);
   // a stuck "none" during a user-reported click-dead state is the smoking
@@ -193,7 +254,7 @@ function emit(): void {
   // eslint-disable-next-line no-console
   console.info(
     "[freeze-diag]",
-    JSON.stringify({ ws, heapMB, nodes, modals, bodyPE }),
+    JSON.stringify(motion ? { ws, heapMB, nodes, modals, bodyPE, motion } : { ws, heapMB, nodes, modals, bodyPE }),
   );
 }
 
@@ -216,9 +277,12 @@ function readHeapMB(): number {
   return Math.round(bytes / (1024 * 1024));
 }
 
+let lastNodeCount = -1;
+
 function readNodeCount(): number {
   try {
-    return document.querySelectorAll("*").length;
+    // Live HTMLCollection length — no NodeList allocation like querySelectorAll.
+    return document.getElementsByTagName("*").length;
   } catch {
     return -1;
   }

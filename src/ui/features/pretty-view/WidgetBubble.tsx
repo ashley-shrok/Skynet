@@ -111,14 +111,20 @@ export function WidgetBubble({ src, onSubmit }: WidgetBubbleProps) {
   // the widget's systemd unit is starting). Once the iframe fires load at
   // least once, poll `src` every POLL_INTERVAL_MS; POLL_FAIL_THRESHOLD
   // consecutive non-2xx or network errors flip to the expired state.
+  // Probes are skipped while the widget is off screen (scrolled away, chat
+  // parked behind the phone list) or the page is hidden: every widget in the
+  // history polling twice a second forever was steady main-thread + network
+  // work during scrolling. Coming back into view probes immediately.
   useEffect(() => {
     if (!hasLoaded || expired) return;
 
     let failCount = 0;
     let cancelled = false;
+    let onScreen = true;
 
     const probe = async () => {
       if (cancelled) return;
+      if (!onScreen || document.hidden) return;
       try {
         const res = await fetch(src, { method: "GET", cache: "no-store" });
         if (cancelled) return;
@@ -137,9 +143,26 @@ export function WidgetBubble({ src, onSubmit }: WidgetBubbleProps) {
     };
 
     const interval = setInterval(probe, POLL_INTERVAL_MS);
+    let io: IntersectionObserver | null = null;
+    const wrapper = wrapperRef.current;
+    if (wrapper && typeof IntersectionObserver !== "undefined") {
+      io = new IntersectionObserver((entries) => {
+        const next = entries[entries.length - 1]?.isIntersecting ?? true;
+        const cameBack = next && !onScreen;
+        onScreen = next;
+        if (cameBack) void probe();
+      });
+      io.observe(wrapper);
+    }
+    const onVisibility = () => {
+      if (!document.hidden) void probe();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
     return () => {
       cancelled = true;
       clearInterval(interval);
+      io?.disconnect();
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [hasLoaded, expired, src]);
 
@@ -206,7 +229,11 @@ export function WidgetBubble({ src, onSubmit }: WidgetBubbleProps) {
       const scrollable = scrollHeight - clientHeight;
       const scrollRatio = scrollable > 0 ? scrollTop / scrollable : 0;
       const top = padding + Math.round((trackHeight - height) * scrollRatio);
-      setThumb({ top, height });
+      // Same-value guard: scroll events fire per frame; a fresh object every
+      // time re-rendered the bubble on each one.
+      setThumb((prev) =>
+        prev && prev.top === top && prev.height === height ? prev : { top, height },
+      );
     };
     update();
     wrapper.addEventListener("scroll", update, { passive: true });

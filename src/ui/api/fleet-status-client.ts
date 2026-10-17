@@ -66,6 +66,9 @@ const BACKOFF_SCHEDULE_MS = [2000, 4000, 6000, 8000, 8000] as const;
 // retry indefinitely — cheap when nothing is listening; never unrecoverably deaf.
 const SLOW_RETRY_MS = 30_000;
 
+/** Last logged payload per `hostId/slug`, so unchanged app-updates don't log. */
+const lastLoggedAppJson = new Map<string, string>();
+
 // ---------------------------------------------------------------------------
 // Public interface
 // ---------------------------------------------------------------------------
@@ -373,6 +376,7 @@ export function createFleetStatusClient(
             url,
             appCount: parsed.apps.length,
           });
+          lastLoggedAppJson.clear();
           onAppSnapshot?.(parsed.apps);
           break;
         case "app-update":
@@ -381,13 +385,24 @@ export function createFleetStatusClient(
           // changed) always emit — backend does NOT deduplicate — so
           // consumers can rely on the callback firing whenever the tile's
           // rendered state should update.
-          console.info({
-            operation: "fleet_status_client_app_update",
-            url,
-            hostId: parsed.app.hostId,
-            slug: parsed.app.slug,
-            isHealthy: parsed.app.isHealthy,
-          });
+          // Log only when the app's payload actually changed: the backend
+          // re-sends unchanged app-updates on a loop (~10 apps, every few
+          // seconds), and a log line per no-op frame was ~40% of all
+          // forwarded client logs. The store dedupes the re-render side.
+          {
+            const appKey = `${parsed.app.hostId}/${parsed.app.slug}`;
+            const appJson = JSON.stringify(parsed.app);
+            if (lastLoggedAppJson.get(appKey) !== appJson) {
+              lastLoggedAppJson.set(appKey, appJson);
+              console.info({
+                operation: "fleet_status_client_app_update",
+                url,
+                hostId: parsed.app.hostId,
+                slug: parsed.app.slug,
+                isHealthy: parsed.app.isHealthy,
+              });
+            }
+          }
           onAppUpdate?.(parsed.app);
           break;
         case "app-gone":
