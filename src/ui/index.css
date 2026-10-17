@@ -516,8 +516,10 @@ html.fs-xl {
   inset: 0;
   border-radius: inherit;
   pointer-events: none;
-  background: rgba(255, 245, 225, 0.07);
-  mix-blend-mode: plus-lighter;
+  /* Plain alpha blend (no mix-blend-mode, which can force an offscreen
+     group). A ~4% warm-white wash ≈ the old brightness(1.08) on these
+     dark fills. */
+  background: rgba(255, 245, 225, 0.04);
   opacity: 0;
   will-change: opacity;
   animation: pv-identity-breathe 5s ease-in-out infinite;
