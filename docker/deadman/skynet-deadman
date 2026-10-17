@@ -75,6 +75,9 @@ cmd_arm() {
   done
   [[ "$minutes" =~ ^[1-9][0-9]*$ ]] || die "arm: --minutes must be a positive integer"
   armed && die "already armed — run status, or disarm first"
+  # A previous rollback that failed leaves the transient service loaded in a
+  # failed state, which would make systemd-run refuse the unit name.
+  systemctl reset-failed "$UNIT.service" "$UNIT.timer" > /dev/null 2>&1 || true
 
   local ts snap
   ts=$(date -u +%Y%m%dT%H%M%SZ)
@@ -93,7 +96,12 @@ cmd_arm() {
     svc=$(docker inspect "$c" --format '{{index .Config.Labels "com.docker.compose.service"}}')
     ref=$(docker inspect "$c" --format '{{.Config.Image}}')
     id=$(docker inspect "$c" --format '{{.Image}}')
-    docker tag "$id" "${ref%%:*}:deadman-$ts"
+    # Repo = ref minus its tag; the tag is after the LAST colon, and only if
+    # that colon is past the last slash (registry:5000/repo has no tag).
+    local repo=$ref
+    case "${ref##*/}" in *:*) repo=${ref%:*} ;; esac
+    # Service in the tag: two services can share a repo with different images.
+    docker tag "$id" "$repo:deadman-$ts-$svc"
     printf '%s\t%s\t%s\n' "$svc" "$ref" "$id" >> "$snap/images.tsv"
   done
 
@@ -135,20 +143,34 @@ PY
   #    during the window. Restore by hand only if the rollback can't start.
   local vol
   vol=$(docker volume inspect "$DATA_VOLUME" --format '{{.Mountpoint}}' 2>/dev/null || true)
-  [ -n "$vol" ] && cp -a "$vol" "$snap/skynet-data"
+  # Skynet rewrites the encrypted DB file whole on save; a copy taken mid-write
+  # would be torn, so re-copy until the copy matches the source.
+  if [ -n "$vol" ]; then
+    local try ok=0
+    for try in 1 2 3; do
+      rm -rf "$snap/skynet-data"
+      cp -a "$vol" "$snap/skynet-data"
+      if diff -rq "$vol" "$snap/skynet-data" > /dev/null 2>&1; then ok=1; break; fi
+      sleep 2
+    done
+    [ "$ok" -eq 1 ] || log "WARN: skynet-data copy kept changing during copy — snapshot copy may be inconsistent"
+  fi
 
   # 5. The timer runs a private copy of this script so the deploy can't
   #    change or delete what fires.
   cp "${BASH_SOURCE[0]}" "$snap/skynet-deadman"
   chmod 700 "$snap/skynet-deadman"
   printf '%s\n' "$note" > "$snap/note"
-  ln -sfn "$snap" "$STATE_DIR/armed"
 
+  # RemainAfterElapse=no: once it fires the timer unloads, so status/arm
+  # don't keep reading an elapsed timer as armed.
   systemd-run --quiet --unit="$UNIT" --on-active="${minutes}m" --timer-property=AccuracySec=1s \
+    --timer-property=RemainAfterElapse=no \
     --property=Type=oneshot \
     --setenv=DEADMAN_STATE_DIR="$STATE_DIR" \
     "$snap/skynet-deadman" rollback --snapshot "$snap" \
-    || die "arm: systemd-run failed"
+    || die "arm: systemd-run failed (snapshot kept at $snap, not armed)"
+  ln -sfn "$snap" "$STATE_DIR/armed"
 
   prune_snapshots
   log "ARMED snapshot=$ts minutes=$minutes note=${note:-none}"
@@ -157,6 +179,7 @@ PY
 
 cmd_disarm() {
   need_root
+  systemctl reset-failed "$UNIT.service" > /dev/null 2>&1 || true
   if armed; then
     systemctl stop "$UNIT.timer"
     log "DISARMED snapshot=$(basename "$(readlink -f "$STATE_DIR/armed")")"
@@ -173,7 +196,7 @@ cmd_status() {
   else
     echo "not armed"
   fi
-  [ -f "$LOG_FILE" ] && { echo "--- last log lines"; tail -n 5 "$LOG_FILE"; }
+  if [ -f "$LOG_FILE" ]; then echo "--- last log lines"; tail -n 5 "$LOG_FILE"; fi
 }
 
 cmd_rollback() {
