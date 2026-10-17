@@ -409,8 +409,8 @@ describe("GET /sessions/list — role resolution", () => {
 
     // Both list-sessions AND per-identity cat were called on the SAME conn instance
     expect(execCommand).toHaveBeenCalledWith(fakeConn, expect.stringContaining("tmux list-sessions"));
-    expect(execCommand).toHaveBeenCalledWith(fakeConn, expect.stringContaining("identities/poppy/poppy.md"));
-    expect(execCommand).toHaveBeenCalledWith(fakeConn, expect.stringContaining("identities/patricia/patricia.md"));
+    expect(execCommand).toHaveBeenCalledWith(fakeConn, expect.stringContaining("identities/poppy/poppy.md"), { timeoutMs: 15_000 });
+    expect(execCommand).toHaveBeenCalledWith(fakeConn, expect.stringContaining("identities/patricia/patricia.md"), { timeoutMs: 15_000 });
     // No second connectOneShot call for per-identity reads
     expect(connectOneShot).toHaveBeenCalledTimes(1);
   });

@@ -17,7 +17,7 @@ import {
 } from "../../claude-session/per-identity-file.js";
 import { isLocalHostId } from "../../claude-session/identity-artifact-reader.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
-import { getHostSemaphore } from "../../ssh/host-semaphore-registry.js";
+import { getHostSemaphore, makeSemaphore, type HostSemaphore } from "../../ssh/host-semaphore-registry.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { isRecognizedVoiceId } from "../../voice/tts-provider.js";
 
@@ -132,7 +132,24 @@ export function handleGetPreferences(
  * fanout's channel count uncapped. Local hosts (no SSH) bypass.
  */
 function withSlot<T>(hostId: number, fn: () => Promise<T>): Promise<T> {
-  return isLocalHostId(hostId) ? fn() : getHostSemaphore(hostId).run(fn);
+  if (isLocalHostId(hostId)) return fn();
+  // The host semaphore (48) is shared across connections; sshd's MaxSessions
+  // (OpenSSH default 10) is per connection, and this fanout puts every
+  // channel on one connection. Cap channels per host here first, then take
+  // the shared host slot (outer → inner, so no host slot waits on the cap).
+  return channelCap(hostId).run(() => getHostSemaphore(hostId).run(fn));
+}
+
+/** Max concurrent channels the pin fanout opens on one host's connection. */
+const PIN_FANOUT_CHANNELS_PER_CONN = 8;
+const channelCaps = new Map<number, HostSemaphore>();
+function channelCap(hostId: number): HostSemaphore {
+  let cap = channelCaps.get(hostId);
+  if (!cap) {
+    cap = makeSemaphore(PIN_FANOUT_CHANNELS_PER_CONN);
+    channelCaps.set(hostId, cap);
+  }
+  return cap;
 }
 
 async function openConnForHost(

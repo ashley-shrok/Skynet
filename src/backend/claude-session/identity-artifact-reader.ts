@@ -1358,15 +1358,17 @@ async function execWithTimeout(
   conn: SSHClientType,
   command: string,
 ): Promise<string> {
-  return Promise.race([
-    execCommand(conn, command),
-    new Promise<string>((_, reject) =>
-      setTimeout(
-        () => reject(new Error(`remote exec timeout after ${REMOTE_EXEC_TIMEOUT_MS}ms`)),
-        REMOTE_EXEC_TIMEOUT_MS,
-      ),
-    ),
-  ]);
+  // The ceiling goes INTO execCommand so a timed-out exec closes its channel
+  // (freeing the session) instead of running on after the caller gave up.
+  try {
+    return await execCommand(conn, command, { timeoutMs: REMOTE_EXEC_TIMEOUT_MS });
+  } catch (err) {
+    // By name, not instanceof: many tests mock tmux-helper without the class.
+    if (err instanceof Error && err.name === "ExecTimeoutError") {
+      throw new Error(`remote exec timeout after ${REMOTE_EXEC_TIMEOUT_MS}ms`);
+    }
+    throw err;
+  }
 }
 
 // ---------------------------------------------------------------------------
