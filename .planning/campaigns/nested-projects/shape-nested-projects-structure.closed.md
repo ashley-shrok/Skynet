@@ -145,7 +145,7 @@ the Projects super-header collapsible; pull before starting. Any user-facing cha
 - **Shape: Create a sub-project** — present · "New sub-project" opens the usual dialog locked to the parent's machine; private-first on multi-user machines as today.
 - **Shape: Move a project** — present · "Move to" with Top level plus eligible same-machine projects, indented, excluding own subtree; desktop-only header drag, innermost wins, Projects super-header = top level, own subtree never lights, Pinned/Conversations ignore it.
 - **Shape: Conversation Move to** — present · Indented tree order in both the sidebar row and the open-conversation menus; drops land in the innermost section.
-- **Shape: Archive takes the subtree** — drifted · Archives the visible subtree, its agents, releases rooms, behind a confirm naming the project with counts and "can't be undone". A sub-project hidden from the archiving user is left standing (shows at top level for its own audience) — accepted by Ashley as the right behavior.
+- **Shape: Archive takes the subtree** — drifted · Archives the visible subtree, its agents, releases rooms, behind a confirm naming the project with counts and "can't be undone". A sub-project hidden from the archiving user is left standing (shows at top level for its own audience) — accepted by the user as the right behavior.
 - **Shape: Visibility inherits** — present · Server-side tree check on both paths: shown only if the project and every ancestor pass.
 - **Shape: Guard rails** — present · Server refuses self, descendant, missing and other-machine parents; hidden-vs-gone decided over the unfiltered list; loops render at top level with real children nested; no rewrite, no warning; loops logged.
 - **Shape: Search** — present · Name match shows the project, its subtree and their conversations with ancestors as the path; conversation matches show inside their project and its ancestors.
@@ -167,7 +167,7 @@ None.
 
 ### Follow-ups
 
-- Subtree archive skips sub-projects hidden from the archiving user; they survive at top level for their own audience — accepted-as-drift (Ashley: a hidden sub-project is someone's deliberately private work; archiving it unseen and uncounted would be worse).
+- Subtree archive skips sub-projects hidden from the archiving user; they survive at top level for their own audience — accepted-as-drift (user: a hidden sub-project is someone's deliberately private work; archiving it unseen and uncounted would be worse).
 
 ### Notes
 

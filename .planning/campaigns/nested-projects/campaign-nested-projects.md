@@ -54,7 +54,7 @@ conventions of every ancestor above it.
 
 ## Success criteria
 
-- Ashley can turn SKYNET into a parent with sub-projects and move agents and
+- The user can turn SKYNET into a parent with sub-projects and move agents and
   relay rooms into those sub-projects from the sidebar — on desktop and mobile.
 - Moving projects (nesting, un-nesting, re-parenting) and archiving behave
   predictably: nothing vanishes, nothing ends up in a loop, archiving a parent

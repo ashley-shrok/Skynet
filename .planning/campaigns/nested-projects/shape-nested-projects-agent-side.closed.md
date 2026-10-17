@@ -27,7 +27,7 @@ guidance every agent loads describes all of this.
   agent's own project is caught in a loop, it is treated as top level and the
   agent reads only its own file. Projects hanging off a loop keep the chain up
   to the loop, exactly as the sidebar places them. What an agent believes about
-  its chain always matches what Ashley sees in the sidebar.
+  its chain always matches what the user sees in the sidebar.
 - **Watching while running.** The change watcher covers the agent's own project
   file and every ancestor's.
   - Own project: notices exactly as today, member changes included.
@@ -39,7 +39,7 @@ guidance every agent loads describes all of this.
 - **Chain notices.** Whenever the chain changes — a parent line changes in any
   watched file, or an ancestor's file disappears — the watcher works the chain
   out again and gives one plain notice: the whole new chain top-down
-  ("your project chain is now Ashley's work › SKYNET › Infra"), which project
+  ("your project chain is now Home › SKYNET › Infra"), which project
   files are new and need reading, and which projects the agent is no longer
   under (drop their conventions). The same notice shape covers every kind of
   rearrangement at any level. A parent-line change in the agent's own project
@@ -53,7 +53,7 @@ guidance every agent loads describes all of this.
 
 ## Philosophy
 
-The agent's picture of where it sits must match Ashley's sidebar, always —
+The agent's picture of where it sits must match the user's sidebar, always —
 same chain, same handling of broken links. Inheriting conventions from above is
 the point; inheriting noise from above is not. Notices say what a change
 means, not just that bytes changed. Nothing changes for an agent whose project
@@ -136,7 +136,7 @@ sub-project were a flat project.
 
 ### Additions (in the result, not in the shape)
 
-- The mid-session "you're now in project X" pointer also names the projects X sits inside and lists every chain file to read top-down — endorsed-as-drift (Ashley: "Agreed.")
+- The mid-session "you're now in project X" pointer also names the projects X sits inside and lists every chain file to read top-down — endorsed-as-drift (user: "Agreed.")
 
 ### Follow-ups
 
@@ -160,7 +160,7 @@ The chain notice lists only new ancestors that have a project file, and it doesn
 ### Additions (in the result, not in the shape)
 
 - The mid-session "you're now in project X" pointer names X's chain and the files to read top-down — endorsed-as-drift (earlier close-out)
-- Moving out of a sub-project, into another project or out of projects altogether, names the parent projects left so the agent drops their conventions. The guidance now says so too — endorsed-as-drift (Ashley: "Yes")
+- Moving out of a sub-project, into another project or out of projects altogether, names the parent projects left so the agent drops their conventions. The guidance now says so too — endorsed-as-drift (user: "Yes")
 
 ### Follow-ups
 
