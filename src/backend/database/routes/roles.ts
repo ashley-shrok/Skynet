@@ -62,6 +62,7 @@ import type { Request, Response } from "express";
 import { AuthManager } from "../../utils/auth-manager.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
+import { getHostSemaphore } from "../../ssh/host-semaphore-registry.js";
 import { sshLogger } from "../../utils/logger.js";
 // Phase 103 D-10: multipart-origin-guard — CORS-simple content types don't preflight
 import { multipartOriginGuard } from "../../utils/multipart-origin-guard.js";
@@ -81,7 +82,12 @@ import {
 import { ROLE_NAME_PATTERN } from "../../utils/role-name-pattern.js";
 
 import { normalizeUploadedAvatar } from "../../utils/avatar-normalize.js";
-import { invalidateCachedAvatarsForHost } from "./identity-avatar-cache.js";
+import {
+  getCachedAvatar,
+  invalidateCachedAvatar,
+  invalidateCachedAvatarsForHost,
+  type CachedAvatar,
+} from "./identity-avatar-cache.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -165,125 +171,195 @@ router.get(
         .json({ error: "hostId query required (positive integer)" });
     }
 
-    // 3. LOCAL vs REMOTE branch — `isLocalHostId` signals the local disk
-    //    read path (conn=null); otherwise resolve the host and open SSH.
+    // 3. Host access check runs BEFORE the cache so a cache hit never
+    //    serves a remote host's role avatar to a caller without access.
     //    Phase 90 Plan 90-10 (LOW cleanup 2): differentiate resolveHostById
     //    "no such host / not owned by user" (→ "host not resolvable") from
     //    the SSH-connect-throw path (→ "host unreachable"). Same HTTP code,
     //    distinct bodies so debugging picks the right rabbit hole.
     const local = isLocalHostId(hostIdNum);
-    let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
+    let host: Awaited<ReturnType<typeof resolveHostById>> = null;
     if (!local) {
       try {
-        const host = await resolveHostById(hostIdNum, userId);
-        if (!host) {
-          return res
-            .status(502)
-            .json({ error: "host not resolvable" });
-        }
-        conn = await connectOneShot(
-          host as unknown as Parameters<typeof connectOneShot>[0],
-          SSH_CONNECT_TIMEOUT_MS,
-        );
+        host = await resolveHostById(hostIdNum, userId);
       } catch (err) {
-        sshLogger.warn("roles-avatar: SSH connect failed", {
-          operation: "roles_avatar_connect",
+        sshLogger.warn("roles-avatar: host resolve failed", {
+          operation: "roles_avatar_resolve",
           hostId: hostIdNum,
           roleName,
           error: err instanceof Error ? err.message : "Unknown",
         });
-        return res
-          .status(502)
-          .json({ error: "host unreachable" });
+        return res.status(502).json({ error: "host unreachable" });
+      }
+      if (!host) {
+        return res.status(502).json({ error: "host not resolvable" });
       }
     }
 
+    // 4. Bytes go through the shared identity-avatar cache (same one the
+    //    identity avatars and app icons use) so a cold sidebar paint doesn't
+    //    open one SSH connection per role-avatar <img>. Concurrent misses
+    //    for the same role coalesce into one load; the entry is fresh for
+    //    the cache's unversioned window and dropped by the POST below.
+    //    Key `role.<name>` cannot collide with identity keys (no dot) or
+    //    app icons (`app.<slug>`).
+    let avatar: CachedAvatar | null;
+    let hit = false;
+    const startedAt = Date.now();
     try {
-      // 4. Read the role file frontmatter. Any throw here surfaces as
-      //    "no avatar" (silent-fallback matching identities.ts:846-848).
-      //    A broken role file OR a transient SSH exec failure should not
-      //    surface as 5xx here — the caller renders a neutral placeholder.
-      let markdown: string;
-      try {
-        const readRes = await readRoleFileByName(conn, roleName);
-        markdown = readRes.markdown;
-      } catch {
-        return res.status(404).json({ error: "no avatar" });
-      }
-
-      // 5. Parse cosmetics; absence of `avatar:` field → 404 (never null).
-      const cosmetics = extractCosmeticsFromFrontmatter(markdown);
-      if (!cosmetics.avatar || typeof cosmetics.avatar !== "string") {
-        return res.status(404).json({ error: "no avatar" });
-      }
-
-      // 6. Read the sibling avatar bytes. Throw OR null → 404.
-      let readResult: Awaited<ReturnType<typeof readAvatarSiblingFileByRole>>;
-      try {
-        readResult = await readAvatarSiblingFileByRole(
-          conn,
-          roleName,
-          cosmetics.avatar,
-        );
-      } catch {
-        return res.status(404).json({ error: "no avatar" });
-      }
-
-      if (readResult === null) {
-        return res.status(404).json({ error: "no avatar" });
-      }
-
-      // 7. Stream the bytes with the correct Content-Type. No ETag/caching
-      //    machinery here — role avatars change rarely; keeping this
-      //    endpoint minimal until a caching need emerges.
-      //
-      //    Phase 90 Plan 90-10 (LOW-severity cleanup 2): a stream-side write
-      //    failure surfaces as a distinct 502 body from the resolve-side
-      //    "host unreachable" — the caller (and any future log-aggregation)
-      //    can tell "we got the bytes but couldn't write the response"
-      //    apart from "we couldn't reach the host at all".
-      try {
-        res.setHeader("Content-Type", readResult.mime);
-        res.setHeader("Content-Length", String(readResult.bytes.byteLength));
-        res.setHeader("Cache-Control", "no-store");
-        return res.send(readResult.bytes);
-      } catch (streamErr) {
-        sshLogger.warn("roles-avatar: response stream write failed", {
-          operation: "roles_avatar_stream_error",
+      const result = await getCachedAvatar(
+        hostIdNum,
+        roleAvatarCacheKey(roleName),
+        null,
+        () => loadRoleAvatar(hostIdNum, host, roleName),
+      );
+      avatar = result.avatar;
+      hit = result.hit;
+    } catch (err) {
+      if (err instanceof RoleAvatarConnectError) {
+        sshLogger.warn("roles-avatar: SSH connect failed", {
+          operation: "roles_avatar_connect",
           hostId: hostIdNum,
           roleName,
-          error:
-            streamErr instanceof Error ? streamErr.message : "Unknown",
+          error: err.message,
         });
-        return res.status(502).json({ error: "avatar stream error" });
+        return res.status(502).json({ error: "host unreachable" });
       }
-    } catch (unexpectedErr) {
-      // Any unexpected path here (post-read failure not caught above,
-      // frontmatter-parse throw etc.) → 502 with a body distinct from the
-      // pre-read "host unreachable" upstream path. Phase 90 Plan 90-10:
-      // the review flagged the prior catch-all as misleading. Frontmatter
-      // parse throws are the primary trigger — extractCosmeticsFromFrontmatter
-      // does not throw on malformed YAML today, but tightening the contract
-      // upstream should not silently degrade the error message here.
+      if (err instanceof RoleAvatarReadError) {
+        // Silent-fallback (matches identities.ts): a broken role file OR a
+        // transient SSH exec failure renders a neutral placeholder rather
+        // than a 5xx. Thrown (not returned null) so it is NOT cached.
+        sshLogger.debug("roles-avatar: read failed, serving 404", {
+          operation: "roles_avatar_read_miss",
+          hostId: hostIdNum,
+          roleName,
+          error: err.message,
+        });
+        return res.status(404).json({ error: "no avatar" });
+      }
+      // Any unexpected path (frontmatter-parse throw etc.) → 502 with a
+      // body distinct from the pre-read "host unreachable" path.
       sshLogger.warn("roles-avatar: role file read/parse error", {
         operation: "roles_avatar_read_error",
         hostId: hostIdNum,
         roleName,
-        error:
-          unexpectedErr instanceof Error ? unexpectedErr.message : "Unknown",
+        error: err instanceof Error ? err.message : "Unknown",
       });
       return res.status(502).json({ error: "role file read error" });
-    } finally {
-      if (conn) {
-        try {
-          conn.end();
-        } catch {
-          /* ignore */
-        }
+    }
+    if (!hit) {
+      sshLogger.info("Role avatar cache fill", {
+        operation: "roles_avatar_cache_fill",
+        hostId: hostIdNum,
+        roleName,
+        found: avatar !== null,
+        bytes: avatar?.bytes.byteLength ?? 0,
+        ms: Date.now() - startedAt,
+      });
+    }
+
+    if (avatar === null) {
+      return res.status(404).json({ error: "no avatar" });
+    }
+
+    // 5. Same unversioned Cache-Control + ETag semantics as the identity
+    //    avatar GET: revalidate with the ETag (cheap 304 off the server
+    //    cache), serving the stale copy meanwhile.
+    //
+    //    Phase 90 Plan 90-10 (LOW-severity cleanup 2): a stream-side write
+    //    failure surfaces as a distinct 502 body from the resolve-side
+    //    "host unreachable".
+    const cacheControl = "max-age=0, stale-while-revalidate=86400";
+    try {
+      const ifNoneMatch = req.headers["if-none-match"];
+      if (ifNoneMatch && ifNoneMatch === avatar.etag) {
+        res.setHeader("ETag", avatar.etag);
+        res.setHeader("Cache-Control", cacheControl);
+        return res.status(304).end();
       }
+      res.setHeader("Content-Type", avatar.mime);
+      res.setHeader("Content-Length", String(avatar.bytes.byteLength));
+      res.setHeader("ETag", avatar.etag);
+      res.setHeader("Cache-Control", cacheControl);
+      return res.send(avatar.bytes);
+    } catch (streamErr) {
+      sshLogger.warn("roles-avatar: response stream write failed", {
+        operation: "roles_avatar_stream_error",
+        hostId: hostIdNum,
+        roleName,
+        error:
+          streamErr instanceof Error ? streamErr.message : "Unknown",
+      });
+      return res.status(502).json({ error: "avatar stream error" });
     }
   },
 );
+
+
+/** Role avatars share the identity-avatar byte cache under this key. */
+const roleAvatarCacheKey = (roleName: string): string => `role.${roleName}`;
+
+/** SSH connect failed while filling the role-avatar cache (→ 502). */
+class RoleAvatarConnectError extends Error {}
+/** Role file / sibling read failed (→ 404, never cached). */
+class RoleAvatarReadError extends Error {}
+
+/**
+ * Cache loader for GET /:name/avatar. REMOTE: connect + role-file read +
+ * sibling read + conn.end hold ONE per-host semaphore slot (verify:ssh-cap);
+ * the reads are serial on one connection. LOCAL: bind-mount, no slot.
+ * Returns null when the role names no avatar or the file is absent.
+ */
+async function loadRoleAvatar(
+  hostId: number,
+  host: Awaited<ReturnType<typeof resolveHostById>>,
+  roleName: string,
+): Promise<{ bytes: Buffer; mime: string } | null> {
+  if (!host) return readRoleAvatarOverConn(null, roleName);
+  const remoteHost = host;
+  return getHostSemaphore(hostId).run(async () => {
+    let conn: Awaited<ReturnType<typeof connectOneShot>>;
+    try {
+      conn = await connectOneShot(
+        remoteHost as unknown as Parameters<typeof connectOneShot>[0],
+        SSH_CONNECT_TIMEOUT_MS,
+      );
+    } catch (err) {
+      throw new RoleAvatarConnectError(
+        err instanceof Error ? err.message : "Unknown",
+      );
+    }
+    try {
+      return await readRoleAvatarOverConn(conn, roleName);
+    } finally {
+      try {
+        conn.end();
+      } catch {
+        /* ignore */
+      }
+    }
+  });
+}
+
+async function readRoleAvatarOverConn(
+  conn: Awaited<ReturnType<typeof connectOneShot>> | null,
+  roleName: string,
+): Promise<{ bytes: Buffer; mime: string } | null> {
+  let markdown: string;
+  try {
+    markdown = (await readRoleFileByName(conn, roleName)).markdown;
+  } catch (err) {
+    throw new RoleAvatarReadError(err instanceof Error ? err.message : "Unknown");
+  }
+  // Absence of `avatar:` field → no avatar (never null-deref).
+  const cosmetics = extractCosmeticsFromFrontmatter(markdown);
+  if (!cosmetics.avatar || typeof cosmetics.avatar !== "string") return null;
+  try {
+    return await readAvatarSiblingFileByRole(conn, roleName, cosmetics.avatar);
+  } catch (err) {
+    throw new RoleAvatarReadError(err instanceof Error ? err.message : "Unknown");
+  }
+}
 
 /**
  * Phase 90 Plan 90-08: POST /:name/avatar?hostId=<n>
@@ -315,8 +391,8 @@ router.get(
  *
  * Response 201: `{filename, avatarUrl}` where avatarUrl reuses Plan 90-02's
  * GET path — the frontend can invalidate any existing avatar image cache by
- * appending a cache-buster (?v=<timestamp>) or by relying on Cache-Control:
- * no-store on the GET side (roles.ts L176).
+ * appending a cache-buster (?v=<timestamp>); the GET side revalidates with
+ * an ETag (max-age=0) and its server cache entry is dropped here.
  */
 router.post(
   "/:name/avatar",
@@ -424,126 +500,142 @@ router.post(
 
     // LOCAL vs REMOTE branch — mirrors GET handler L109-134.
     const local = isLocalHostId(hostIdNum);
-    let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
-    if (!local) {
-      try {
-        const host = await resolveHostById(hostIdNum, userId);
-        if (!host) {
+    // REMOTE: connect + bytes write + role-file read/rewrite + conn.end are
+    // serial on one connection and hold ONE per-host semaphore slot
+    // (verify:ssh-cap). LOCAL: no SSH, no slot.
+    const withSlot = local
+      ? <T,>(fn: () => Promise<T>): Promise<T> => fn()
+      : <T,>(fn: () => Promise<T>): Promise<T> =>
+          getHostSemaphore(hostIdNum).run(fn);
+    return withSlot(async () => {
+      let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
+      if (!local) {
+        try {
+          const host = await resolveHostById(hostIdNum, userId);
+          if (!host) {
+            return res.status(502).json({ error: "host unreachable" });
+          }
+          conn = await connectOneShot(
+            host as unknown as Parameters<typeof connectOneShot>[0],
+            SSH_CONNECT_TIMEOUT_MS,
+          );
+        } catch (err) {
+          sshLogger.warn("roles-avatar-write: SSH connect failed", {
+            operation: "roles_avatar_write_connect",
+            hostId: hostIdNum,
+            roleName,
+            error: err instanceof Error ? err.message : "Unknown",
+          });
           return res.status(502).json({ error: "host unreachable" });
         }
-        conn = await connectOneShot(
-          host as unknown as Parameters<typeof connectOneShot>[0],
-          SSH_CONNECT_TIMEOUT_MS,
-        );
+      }
+
+      try {
+        // Step 1: write avatar bytes to the sibling file (bytes-first per
+        // two-step atomicity — matches roles-create.ts:565-587).
+        await writeRoleAvatarByName(conn, roleName, filename, req.file.buffer);
+        invalidateCachedAvatarsForHost(hostIdNum);
+
+        // Step 2: read + splice + write the role markdown's frontmatter to
+        // point `avatar:` at the new filename. Mirrors the identities.ts PUT
+        // handler L520-632 overlay pattern (yaml.load → mutate → yaml.dump).
+        const { markdown: existing } = await readRoleFileByName(conn, roleName);
+        let overlaid: Record<string, unknown> = {};
+        let bodyAfterFm = existing;
+        if (existing && existing.length > 0) {
+          const fmMatch = existing.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+          if (fmMatch) {
+            try {
+              const parsed = yaml.load(fmMatch[1]) as
+                | Record<string, unknown>
+                | null;
+              if (parsed && typeof parsed === "object") {
+                overlaid = { ...parsed };
+              }
+            } catch (yamlErr) {
+              // Malformed frontmatter — refuse to overwrite (matches
+              // identities.ts:543-563 loud-fail; do NOT silently reset the
+              // frontmatter to {} because that would drop other cosmetic keys
+              // and break downstream readers).
+              sshLogger.warn(
+                "roles-avatar-write: existing frontmatter YAML malformed",
+                {
+                  operation: "roles_avatar_write_frontmatter_parse",
+                  userId,
+                  roleName,
+                  error:
+                    yamlErr instanceof Error ? yamlErr.message : "Unknown",
+                },
+              );
+              return res.status(500).json({
+                error:
+                  "existing role frontmatter is malformed — repair on disk before editing",
+              });
+            }
+            bodyAfterFm = existing.slice(fmMatch[0].length);
+            if (bodyAfterFm.startsWith("\n")) {
+              bodyAfterFm = bodyAfterFm.slice(1);
+            } else if (bodyAfterFm.startsWith("\r\n")) {
+              bodyAfterFm = bodyAfterFm.slice(2);
+            }
+          }
+          // No frontmatter block at all — treat body as the file's contents and
+          // seed a fresh frontmatter block below.
+        } else {
+          // Role file missing entirely (LOCAL ENOENT / REMOTE empty stdout).
+          // Rare — but not fatal for the write path: the avatar bytes already
+          // landed, and we synthesize a minimal frontmatter block so future
+          // reads find the avatar key. bodyAfterFm stays "".
+        }
+
+        // Overlay the avatar key to the new filename (overwrites any prior
+        // value, adds it if absent — mirrors identities.ts L619).
+        overlaid.avatar = filename;
+
+        // Emit new markdown body — same yaml.dump options as identities.ts L623-628.
+        const yamlBody = yaml.dump(stringifyColorHueForYaml(overlaid), {
+          sortKeys: false,
+          lineWidth: -1,
+          noRefs: true,
+          forceQuotes: false,
+        });
+        let newBody = `---\n${yamlBody}---\n${bodyAfterFm}`;
+        // REMOTE reads come back trimmed (execCommand trims stdout), dropping
+        // the role file's trailing newline; role markdown always ends with
+        // "\n" on disk, so restore it. LOCAL reads are byte-exact — unchanged.
+        if (!local && !newBody.endsWith("\n")) newBody += "\n";
+
+        // Write the markdown back. writeRoleFileByName runs its own
+        // ROLE_NAME_PATTERN + byte-cap gates (identity-artifact-reader.ts L2685).
+        await writeRoleFileByName(conn, roleName, newBody);
+        // Frontmatter now points at the new file — drop any role-avatar cache
+        // entry filled between the bytes write and this one.
+        invalidateCachedAvatar(hostIdNum, roleAvatarCacheKey(roleName));
+
+        // 201 Created — filename + avatarUrl (relative to /roles mount).
+        return res.status(201).json({
+          filename,
+          avatarUrl: `/roles/${roleName}/avatar?hostId=${hostIdNum}`,
+        });
       } catch (err) {
-        sshLogger.warn("roles-avatar-write: SSH connect failed", {
-          operation: "roles_avatar_write_connect",
+        // Upstream detail suppressed — matches T-22-02-02 pattern.
+        sshLogger.warn("roles-avatar-write: write failed", {
+          operation: "roles_avatar_write_failure",
           hostId: hostIdNum,
           roleName,
           error: err instanceof Error ? err.message : "Unknown",
         });
         return res.status(502).json({ error: "host unreachable" });
-      }
-    }
-
-    try {
-      // Step 1: write avatar bytes to the sibling file (bytes-first per
-      // two-step atomicity — matches roles-create.ts:565-587).
-      await writeRoleAvatarByName(conn, roleName, filename, req.file.buffer);
-      invalidateCachedAvatarsForHost(hostIdNum);
-
-      // Step 2: read + splice + write the role markdown's frontmatter to
-      // point `avatar:` at the new filename. Mirrors the identities.ts PUT
-      // handler L520-632 overlay pattern (yaml.load → mutate → yaml.dump).
-      const { markdown: existing } = await readRoleFileByName(conn, roleName);
-      let overlaid: Record<string, unknown> = {};
-      let bodyAfterFm = existing;
-      if (existing && existing.length > 0) {
-        const fmMatch = existing.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-        if (fmMatch) {
+      } finally {
+        if (conn) {
           try {
-            const parsed = yaml.load(fmMatch[1]) as
-              | Record<string, unknown>
-              | null;
-            if (parsed && typeof parsed === "object") {
-              overlaid = { ...parsed };
-            }
-          } catch (yamlErr) {
-            // Malformed frontmatter — refuse to overwrite (matches
-            // identities.ts:543-563 loud-fail; do NOT silently reset the
-            // frontmatter to {} because that would drop other cosmetic keys
-            // and break downstream readers).
-            sshLogger.warn(
-              "roles-avatar-write: existing frontmatter YAML malformed",
-              {
-                operation: "roles_avatar_write_frontmatter_parse",
-                userId,
-                roleName,
-                error:
-                  yamlErr instanceof Error ? yamlErr.message : "Unknown",
-              },
-            );
-            return res.status(500).json({
-              error:
-                "existing role frontmatter is malformed — repair on disk before editing",
-            });
-          }
-          bodyAfterFm = existing.slice(fmMatch[0].length);
-          if (bodyAfterFm.startsWith("\n")) {
-            bodyAfterFm = bodyAfterFm.slice(1);
-          } else if (bodyAfterFm.startsWith("\r\n")) {
-            bodyAfterFm = bodyAfterFm.slice(2);
+            conn.end();
+          } catch {
+            /* ignore */
           }
         }
-        // No frontmatter block at all — treat body as the file's contents and
-        // seed a fresh frontmatter block below.
-      } else {
-        // Role file missing entirely (LOCAL ENOENT / REMOTE empty stdout).
-        // Rare — but not fatal for the write path: the avatar bytes already
-        // landed, and we synthesize a minimal frontmatter block so future
-        // reads find the avatar key. bodyAfterFm stays "".
       }
-
-      // Overlay the avatar key to the new filename (overwrites any prior
-      // value, adds it if absent — mirrors identities.ts L619).
-      overlaid.avatar = filename;
-
-      // Emit new markdown body — same yaml.dump options as identities.ts L623-628.
-      const yamlBody = yaml.dump(stringifyColorHueForYaml(overlaid), {
-        sortKeys: false,
-        lineWidth: -1,
-        noRefs: true,
-        forceQuotes: false,
-      });
-      const newBody = `---\n${yamlBody}---\n${bodyAfterFm}`;
-
-      // Write the markdown back. writeRoleFileByName runs its own
-      // ROLE_NAME_PATTERN + byte-cap gates (identity-artifact-reader.ts L2685).
-      await writeRoleFileByName(conn, roleName, newBody);
-
-      // 201 Created — filename + avatarUrl (relative to /roles mount).
-      return res.status(201).json({
-        filename,
-        avatarUrl: `/roles/${roleName}/avatar?hostId=${hostIdNum}`,
-      });
-    } catch (err) {
-      // Upstream detail suppressed — matches T-22-02-02 pattern.
-      sshLogger.warn("roles-avatar-write: write failed", {
-        operation: "roles_avatar_write_failure",
-        hostId: hostIdNum,
-        roleName,
-        error: err instanceof Error ? err.message : "Unknown",
-      });
-      return res.status(502).json({ error: "host unreachable" });
-    } finally {
-      if (conn) {
-        try {
-          conn.end();
-        } catch {
-          /* ignore */
-        }
-      }
-    }
+    });
   },
 );
 

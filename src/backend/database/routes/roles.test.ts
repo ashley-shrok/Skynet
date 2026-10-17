@@ -437,3 +437,102 @@ describe("Phase 90 Plan 90-02: GET /roles/:name/avatar", () => {
     expect(recordedAvatarReadCalls).toHaveLength(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Cold-load burst: role avatar GET goes through the shared identity-avatar
+// cache and the per-host SSH semaphore.
+// ---------------------------------------------------------------------------
+
+describe("GET /roles/:name/avatar — server cache + per-host semaphore", () => {
+  it("K: second GET is a cache hit (one SSH connect); ETag + revalidating Cache-Control", async () => {
+    const { connectOneShot } = await import("../../ssh/ssh-one-shot.js");
+    const before = (connectOneShot as unknown as { mock: { calls: unknown[] } }).mock.calls.length;
+    const first = await httpRequest(server, { method: "GET", path: "/roles/box-maintainer/avatar?hostId=3" });
+    const second = await httpRequest(server, { method: "GET", path: "/roles/box-maintainer/avatar?hostId=3" });
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(recordedRoleReadCalls).toHaveLength(1);
+    expect((connectOneShot as unknown as { mock: { calls: unknown[] } }).mock.calls.length - before).toBe(1);
+  });
+
+  it("K2: Cache-Control is no longer no-store; If-None-Match → 304", async () => {
+    const etagAndCc = await new Promise<{ etag: string; cc: string }>((resolve, reject) => {
+      const { port } = server.address() as AddressInfo;
+      http.get({ hostname: "127.0.0.1", port, path: "/roles/box-maintainer/avatar?hostId=3" }, (res) => {
+        res.resume();
+        res.on("end", () => resolve({ etag: String(res.headers.etag), cc: String(res.headers["cache-control"]) }));
+      }).on("error", reject);
+    });
+    expect(etagAndCc.cc).toBe("max-age=0, stale-while-revalidate=86400");
+    const status = await new Promise<number>((resolve, reject) => {
+      const { port } = server.address() as AddressInfo;
+      http.get({
+        hostname: "127.0.0.1", port, path: "/roles/box-maintainer/avatar?hostId=3",
+        headers: { "if-none-match": etagAndCc.etag },
+      }, (res) => { res.resume(); resolve(res.statusCode ?? 0); }).on("error", reject);
+    });
+    expect(status).toBe(304);
+  });
+
+  it("L: concurrent cold misses for the same role coalesce into one load", async () => {
+    mockReadRoleFile = async () => {
+      await new Promise((r) => setTimeout(r, 10));
+      return { markdown: "---\navatar: box-maintainer.webp\n---\n" };
+    };
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () =>
+        httpRequest(server, { method: "GET", path: "/roles/box-maintainer/avatar?hostId=3" }),
+      ),
+    );
+    expect(results.every((r) => r.status === 200)).toBe(true);
+    expect(recordedRoleReadCalls).toHaveLength(1);
+  });
+
+  it("M: transient read failure is NOT cached (next GET retries)", async () => {
+    let fail = true;
+    mockReadRoleFile = async () => {
+      if (fail) throw new Error("ssh exec blew up");
+      return { markdown: "---\navatar: box-maintainer.webp\n---\n" };
+    };
+    const a = await httpRequest(server, { method: "GET", path: "/roles/box-maintainer/avatar?hostId=3" });
+    fail = false;
+    const b = await httpRequest(server, { method: "GET", path: "/roles/box-maintainer/avatar?hostId=3" });
+    expect(a.status).toBe(404);
+    expect(b.status).toBe(200);
+  });
+
+  it("N: 10 concurrent cold role avatars on one host never exceed a 3-slot semaphore cap", async () => {
+    const { __resetHostSemaphoreRegistryForTests, getHostSemaphore } =
+      await import("../../ssh/host-semaphore-registry.js");
+    const { connectOneShot } = await import("../../ssh/ssh-one-shot.js");
+    __resetHostSemaphoreRegistryForTests();
+    getHostSemaphore(3, 3);
+    let live = 0;
+    let peak = 0;
+    const connMock = connectOneShot as unknown as {
+      mockImplementationOnce: (fn: () => Promise<unknown>) => void;
+    };
+    for (let i = 0; i < 10; i++) {
+      connMock.mockImplementationOnce(async () => {
+        live++;
+        peak = Math.max(peak, live);
+        return { end: () => { live--; } };
+      });
+    }
+    mockReadRoleFile = async (_c, roleName) => {
+      await new Promise((r) => setTimeout(r, 5));
+      return { markdown: `---\navatar: ${roleName}.webp\n---\n` };
+    };
+    mockExtractCosmetics = (md) => ({ avatar: /avatar: (\S+)/.exec(md)?.[1] });
+    const results = await Promise.all(
+      Array.from({ length: 10 }, (_, i) =>
+        httpRequest(server, { method: "GET", path: `/roles/role-${i}/avatar?hostId=3` }),
+      ),
+    );
+    expect(results.every((r) => r.status === 200)).toBe(true);
+    expect(peak).toBeLessThanOrEqual(3);
+    expect(peak).toBeGreaterThan(1);
+    expect(live).toBe(0);
+  });
+});
+

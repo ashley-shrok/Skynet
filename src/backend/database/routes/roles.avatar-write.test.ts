@@ -552,4 +552,45 @@ describe("Phase 90 Plan 90-08: POST /roles/:name/avatar", () => {
     expect(rewritten).toContain("title: Box Maintainer");
     expect(rewritten).toContain("colorHue: '200'");
   });
+
+  // -------------------------------------------------------------------------
+  // Test K/L: trailing newline on rewrite. REMOTE reads arrive trimmed
+  // (execCommand trims stdout) — the rewrite must restore the trailing "\n".
+  // LOCAL reads are byte-exact and written back without normalization.
+  // -------------------------------------------------------------------------
+
+  it("K: REMOTE rewrite of a trimmed read ends with a trailing newline", async () => {
+    // What a remote `cat` looks like after execCommand's trim().
+    mockReadRoleFile = async () => ({
+      markdown: "---\ntitle: Box Maintainer\n---\n\nrole body",
+    });
+    const res = await postMultipart(server, "/roles/box-maintainer/avatar?hostId=3", {
+      field: "avatar", name: "x.png", type: "image/png", bytes: PNG_HEADER,
+    });
+    expect(res.status).toBe(201);
+    const rewritten = recordedRoleFileWrites[0].contents;
+    expect(rewritten.endsWith("role body\n")).toBe(true);
+    expect(rewritten.endsWith("\n\n")).toBe(false);
+  });
+
+  it("K2: REMOTE rewrite does not double an existing trailing newline", async () => {
+    const res = await postMultipart(server, "/roles/box-maintainer/avatar?hostId=3", {
+      field: "avatar", name: "x.png", type: "image/png", bytes: PNG_HEADER,
+    });
+    expect(res.status).toBe(201);
+    expect(recordedRoleFileWrites[0].contents.endsWith("role body\n")).toBe(true);
+    expect(recordedRoleFileWrites[0].contents.endsWith("\n\n")).toBe(false);
+  });
+
+  it("L: LOCAL rewrite keeps the body byte-exact (no newline appended)", async () => {
+    mockIsLocal = true;
+    mockReadRoleFile = async () => ({
+      markdown: "---\ntitle: Box Maintainer\n---\n\nrole body",
+    });
+    const res = await postMultipart(server, "/roles/box-maintainer/avatar?hostId=1", {
+      field: "avatar", name: "x.png", type: "image/png", bytes: PNG_HEADER,
+    });
+    expect(res.status).toBe(201);
+    expect(recordedRoleFileWrites[0].contents.endsWith("role body")).toBe(true);
+  });
 });
