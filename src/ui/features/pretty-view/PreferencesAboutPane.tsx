@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ExternalLink } from "lucide-react";
 import { getVersionInfo } from "@/api/system-status-api";
+import { KitSettingsGroup, KitSettingsRow } from "@/components/kit";
 
 /**
  * Preferences → About: version, licence, and where this instance's source
@@ -59,52 +60,58 @@ export function PreferencesAboutPane(): JSX.Element {
   }, []);
 
   return (
-    <div className="flex flex-col gap-5 px-6 py-5 text-[13px] text-[#e8e4d8]" data-testid="preferences-about-pane">
-      <section className="flex flex-col gap-1">
-        <h2 className="text-[15px] font-semibold text-[#fbf5e8]">Skynet</h2>
-        <div className="text-[#a89a80]">{version ? `Version ${version}` : "Version unknown"}</div>
-      </section>
+    <div className="text-[13px] text-[var(--k-t1)]" data-testid="preferences-about-pane">
+      <KitSettingsGroup>
+        <KitSettingsRow
+          label={<span className="font-semibold">Skynet</span>}
+          value={version ? `Version ${version}` : "Version unknown"}
+        />
+      </KitSettingsGroup>
 
-      <section className="flex flex-col gap-2">
-        <h3 className="text-[12px] uppercase tracking-wide text-[#a89a80]">Source code</h3>
-        <a
-          href={sourceUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          data-testid="preferences-about-source-link"
-          className="inline-flex items-center gap-1.5 w-fit text-[hsla(var(--pv-id-hue),80%,75%,1)] hover:underline break-all"
-        >
-          {sourceUrl}
-          <ExternalLink size={13} aria-hidden className="shrink-0" />
-        </a>
-      </section>
+      <KitSettingsGroup title="Source code">
+        <KitSettingsRow
+          label={
+            <a
+              href={sourceUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              data-testid="preferences-about-source-link"
+              className="inline-flex items-center gap-1.5 w-fit text-[var(--k-acc-text)] hover:underline break-all"
+            >
+              {sourceUrl}
+              <ExternalLink size={13} aria-hidden className="shrink-0" />
+            </a>
+          }
+        />
+      </KitSettingsGroup>
 
-      <section className="flex flex-col gap-2 leading-relaxed">
-        <h3 className="text-[12px] uppercase tracking-wide text-[#a89a80]">Licence</h3>
-        <p>
+      <KitSettingsGroup
+        title="Licence"
+        footer={
+          <>
+            In practice: anyone using this instance can get its source code from the link above. If this
+            instance runs a modified Skynet, that link must point to the modified source (for example a
+            public fork); the server setting <code className="text-[12px]">SKYNET_SOURCE_URL</code> controls it.
+          </>
+        }
+      >
+        <div className="px-3.5 py-3 leading-relaxed text-[var(--k-t2)]">
           Skynet is open source under the Apache License 2.0. It includes SuperDoc, the Word document
           editor, which is licensed under the GNU AGPL-3.0, so Skynet as distributed is covered by the
           AGPL-3.0 terms.
-        </p>
-        <p className="text-[#cfc8b8]">
-          In practice: anyone using this instance can get its source code from the link above. If this
-          instance runs a modified Skynet, that link must point to the modified source (for example a
-          public fork); the server setting <code className="text-[12px]">SKYNET_SOURCE_URL</code> controls it.
-        </p>
-      </section>
+        </div>
+      </KitSettingsGroup>
 
-      <section className="flex flex-col gap-2">
-        <h3 className="text-[12px] uppercase tracking-wide text-[#a89a80]">Included components</h3>
-        <ul className="flex flex-col gap-1">
-          {COMPONENTS.map(([name, role, licence]) => (
-            <li key={name} className="flex gap-2">
-              <span className="font-medium">{name}</span>
-              <span className="text-[#a89a80]">{role}</span>
-              <span className="ml-auto text-[#a89a80] font-mono text-[12px]">{licence}</span>
-            </li>
-          ))}
-        </ul>
-      </section>
+      <KitSettingsGroup title="Included components">
+        {COMPONENTS.map(([name, role, licence]) => (
+          <KitSettingsRow
+            key={name}
+            label={name}
+            description={role}
+            value={<span className="font-mono text-[12px]">{licence}</span>}
+          />
+        ))}
+      </KitSettingsGroup>
     </div>
   );
 }

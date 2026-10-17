@@ -19,13 +19,12 @@
  * finds a repo.
  */
 
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
   ArrowDown,
   ArrowUp,
   ChevronLeft,
-  ChevronRight,
   FolderGit2,
   GitBranch,
   GitCommitHorizontal,
@@ -47,6 +46,21 @@ import {
   type GitReposResponse,
   type GitRepoSummary,
 } from "@/api/workspace-git-api";
+import {
+  KitBanner,
+  KitButton,
+  KitChip,
+  KitCrumbs,
+  KitEmpty,
+  KitIconButton,
+  KitList,
+  KitListHead,
+  KitListRow,
+  KitLoading,
+  KitSegmented,
+  KitToolbar,
+  type KitChipTone,
+} from "@/components/kit";
 import { DiffView } from "./file-viewers/diff/DiffView";
 import { resolveWorkspaceErrorCopy, type WorkspaceErrorCopy } from "./workspace-error-copy";
 
@@ -111,9 +125,9 @@ const STATUS_WORD: Record<string, string> = {
 };
 
 /** One-letter badge + description for a changed file. */
-function describeChange(f: GitFileChange): { letter: string; label: string; hue: number } {
-  if (f.kind === "untracked") return { letter: "?", label: "new, not tracked yet", hue: 210 };
-  if (f.kind === "conflicted") return { letter: "!", label: "merge conflict", hue: 6 };
+function describeChange(f: GitFileChange): { letter: string; label: string; tone: KitChipTone } {
+  if (f.kind === "untracked") return { letter: "?", label: "new, not tracked yet", tone: "accent" };
+  if (f.kind === "conflicted") return { letter: "!", label: "merge conflict", tone: "danger" };
   const letter = f.index !== "." ? f.index : f.worktree;
   const where =
     f.index !== "." && f.worktree !== "."
@@ -121,8 +135,8 @@ function describeChange(f: GitFileChange): { letter: string; label: string; hue:
       : f.index !== "."
         ? "staged"
         : "not staged";
-  const hue = letter === "D" ? 6 : letter === "A" ? 140 : 40;
-  return { letter, label: `${STATUS_WORD[letter] ?? "changed"} · ${where}`, hue };
+  const tone: KitChipTone = letter === "D" ? "danger" : letter === "A" ? "ok" : "warn";
+  return { letter, label: `${STATUS_WORD[letter] ?? "changed"} · ${where}`, tone };
 }
 
 function repoLabel(path: string): string {
@@ -133,100 +147,31 @@ function repoLabel(path: string): string {
 // Shared bits
 // ---------------------------------------------------------------------------
 
-const toolbarBtnStyle: CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  gap: 5,
-  padding: "5px 10px",
-  fontSize: 12,
-  fontWeight: 500,
-  color: "var(--color-pv-fg-muted)",
-  background: "var(--color-pv-surface-quiet-alt)",
-  border: "1px solid var(--color-pv-border-quiet)",
-  borderRadius: 6,
-  cursor: "pointer",
-  whiteSpace: "nowrap",
-};
-
-const linkColor = "hsla(var(--pv-id-hue, 220), 70%, 75%, 1)";
-
-const sectionHeadStyle: CSSProperties = {
-  padding: "10px 10px 4px",
-  fontSize: 11,
-  fontWeight: 600,
-  color: "var(--color-pv-fg-dim)",
-  letterSpacing: "0.04em",
-  textTransform: "uppercase",
-};
-
-const rowStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 8,
-  width: "100%",
-  padding: "6px 10px",
-  borderRadius: 6,
-  fontSize: 13,
-  color: "var(--color-pv-fg)",
-  background: "none",
-  border: "none",
-  textAlign: "left",
-};
-
-const monoStyle: CSSProperties = {
-  fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-  fontSize: 12,
+/** Letter colour for a change badge, matching the chip tones. */
+const TONE_TEXT: Record<KitChipTone, string> = {
+  neutral: "text-[var(--k-t2)]",
+  accent: "text-[var(--k-acc-text)]",
+  ok: "text-[var(--k-ok)]",
+  warn: "text-[var(--k-warn)]",
+  danger: "text-[var(--k-danger-text)]",
 };
 
 function ErrorBanner({ errorClass }: { errorClass: string }): JSX.Element {
   const copy = errorCopy(errorClass);
   return (
-    <div
-      role="alert"
-      style={{
-        background: "hsla(6, 80%, 53%, 0.12)",
-        border: "1px solid hsla(6, 80%, 53%, 0.28)",
-        borderRadius: 8,
-        padding: "10px 14px",
-        margin: "8px 10px",
-        color: "var(--color-pv-fg)",
-      }}
-    >
-      <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 2 }}>{copy.heading}</div>
-      <div style={{ fontSize: 12, color: "var(--color-pv-fg-muted)" }}>{copy.body}</div>
-    </div>
+    <KitBanner tone="danger" className="mx-2.5 my-2">
+      <div className="font-semibold">{copy.heading}</div>
+      <div className="text-[12.5px] opacity-85">{copy.body}</div>
+    </KitBanner>
   );
 }
 
-function Notice({ children }: { children: ReactNode }): JSX.Element {
-  return (
-    <div style={{ padding: "16px 10px", fontSize: 13, color: "var(--color-pv-fg-muted)" }}>
-      {children}
-    </div>
-  );
+/** A quiet line of text inside a list (e.g. "No commits yet."). */
+function Note({ children }: { children: ReactNode }): JSX.Element {
+  return <div className="px-2.5 py-3 text-[13px] text-[var(--k-t3)]">{children}</div>;
 }
 
-function Pill({ children, hue, title }: { children: ReactNode; hue?: number; title?: string }): JSX.Element {
-  return (
-    <span
-      title={title}
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 3,
-        padding: "1px 7px",
-        borderRadius: 999,
-        fontSize: 11.5,
-        whiteSpace: "nowrap",
-        color: hue === undefined ? "var(--color-pv-fg-muted)" : `hsla(${hue}, 70%, 75%, 1)`,
-        background: hue === undefined ? "var(--color-pv-surface-quiet-alt)" : `hsla(${hue}, 70%, 55%, 0.14)`,
-        border: `1px solid ${hue === undefined ? "var(--color-pv-border-quiet)" : `hsla(${hue}, 70%, 65%, 0.28)`}`,
-      }}
-    >
-      {children}
-    </span>
-  );
-}
+const Pill = KitChip;
 
 /** Toolbar: optional back button, breadcrumb trail, extra actions, refresh. */
 function Toolbar({
@@ -241,55 +186,18 @@ function Toolbar({
   actions?: ReactNode;
 }): JSX.Element {
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 6,
-        padding: "4px 10px 6px",
-        flexShrink: 0,
-        borderBottom: "1px solid var(--color-pv-border-quiet)",
-      }}
-    >
+    <KitToolbar className="mx-2.5 mt-1 mb-1.5 shrink-0 flex-nowrap" aria-label="Git">
       {onBack && (
-        <button type="button" style={{ ...toolbarBtnStyle, padding: "5px 8px" }} onClick={onBack} title="Back">
-          <ChevronLeft size={13} />
-        </button>
+        <KitIconButton label="Back" size="sm" onClick={onBack}>
+          <ChevronLeft />
+        </KitIconButton>
       )}
-      <nav
-        aria-label="Repo path"
-        style={{ display: "flex", alignItems: "center", gap: 2, flex: 1, minWidth: 0, flexWrap: "wrap" }}
-      >
-        {crumbs.map((c, i) => (
-          <span key={i} style={{ display: "flex", alignItems: "center", minWidth: 0 }}>
-            {i > 0 && <ChevronRight size={13} style={{ color: "var(--color-pv-fg-dim)", margin: "0 1px" }} />}
-            <button
-              type="button"
-              onClick={c.onClick}
-              disabled={!c.onClick}
-              style={{
-                background: "none",
-                border: "none",
-                padding: "2px 4px",
-                fontSize: 13,
-                fontWeight: 600,
-                color: c.onClick ? linkColor : "var(--color-pv-fg)",
-                cursor: c.onClick ? "pointer" : "default",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {c.label}
-            </button>
-          </span>
-        ))}
-      </nav>
+      <KitCrumbs aria-label="Repo path" crumbs={crumbs} className="flex-1" />
       {actions}
-      <button type="button" style={{ ...toolbarBtnStyle, padding: "5px 8px" }} onClick={onRefresh} title="Refresh">
-        <RefreshCw size={13} />
-      </button>
-    </div>
+      <KitIconButton label="Refresh" size="sm" onClick={onRefresh}>
+        <RefreshCw />
+      </KitIconButton>
+    </KitToolbar>
   );
 }
 
@@ -345,7 +253,7 @@ function SyncPills({
 }: Pick<GitRepoSummary, "upstream" | "ahead" | "behind" | "detached"> & {
   remote?: RemoteState;
 }): JSX.Element {
-  if (detached) return <Pill hue={40} title="Not on a branch — checked out at a specific commit">Detached</Pill>;
+  if (detached) return <Pill tone="warn" title="Not on a branch — checked out at a specific commit">Detached</Pill>;
   if (!upstream) return <Pill title="This branch has no remote copy to push to">Local only</Pill>;
   if (remote?.status === "checking") return <Pill>Checking remote…</Pill>;
 
@@ -357,25 +265,25 @@ function SyncPills({
     <>
       {!a && !b && <Pill title={`Matches ${upstream} (${asOf})`}>In sync</Pill>}
       {!!a && (
-        <Pill hue={140} title={`${a} commit(s) not yet pushed to ${upstream} (${asOf})`}>
+        <Pill tone="ok" title={`${a} commit(s) not yet pushed to ${upstream} (${asOf})`}>
           <ArrowUp size={11} />
           {a}
         </Pill>
       )}
       {!!b && (
-        <Pill hue={210} title={`${b} commit(s) on ${upstream} not pulled yet (${asOf})`}>
+        <Pill tone="accent" title={`${b} commit(s) on ${upstream} not pulled yet (${asOf})`}>
           <ArrowDown size={11} />
           {b}
         </Pill>
       )}
       {fresh && (
-        <Pill hue={140} title={`Counts ${asOf}`}>
+        <Pill tone="ok" title={`Counts ${asOf}`}>
           <RadioTower size={11} />
           live
         </Pill>
       )}
       {remote?.status === "error" && (
-        <Pill hue={6} title={errorCopy(remote.errorClass).body}>
+        <Pill tone="danger" title={errorCopy(remote.errorClass).body}>
           <AlertTriangle size={11} />
           {errorCopy(remote.errorClass).heading}
         </Pill>
@@ -396,16 +304,16 @@ function CheckRemoteButton({
   onClick: () => void;
 }): JSX.Element {
   return (
-    <button
-      type="button"
-      style={{ ...toolbarBtnStyle, opacity: disabled || busy ? 0.6 : 1, cursor: disabled || busy ? "default" : "pointer" }}
-      disabled={disabled || busy}
+    <KitButton
+      size="sm"
+      busy={busy}
+      disabled={disabled}
       onClick={onClick}
       title="Ask the remote for up-to-date push/pull counts. Doesn't change the agent's branches or files."
     >
-      <RadioTower size={13} />
+      {busy ? null : <RadioTower size={13} aria-hidden="true" />}
       {busy ? "Checking…" : label}
-    </button>
+    </KitButton>
   );
 }
 
@@ -415,10 +323,10 @@ function CheckRemoteButton({
 
 function ChangeSummary({ repo }: { repo: GitRepoSummary }): JSX.Element {
   const parts: ReactNode[] = [];
-  if (repo.conflicted) parts.push(<Pill key="c" hue={6}>{repo.conflicted} conflicted</Pill>);
-  if (repo.staged) parts.push(<Pill key="s" hue={140}>{repo.staged} staged</Pill>);
-  if (repo.unstaged) parts.push(<Pill key="u" hue={40}>{repo.unstaged} modified</Pill>);
-  if (repo.untracked) parts.push(<Pill key="n" hue={210}>{repo.untracked} new</Pill>);
+  if (repo.conflicted) parts.push(<Pill key="c" tone="danger">{repo.conflicted} conflicted</Pill>);
+  if (repo.staged) parts.push(<Pill key="s" tone="ok">{repo.staged} staged</Pill>);
+  if (repo.unstaged) parts.push(<Pill key="u" tone="warn">{repo.unstaged} modified</Pill>);
+  if (repo.untracked) parts.push(<Pill key="n" tone="accent">{repo.untracked} new</Pill>);
   if (parts.length === 0) parts.push(<Pill key="clean">Clean</Pill>);
   return <>{parts}</>;
 }
@@ -454,65 +362,60 @@ function RepoListView({
           />
         }
       />
-      <div style={{ padding: "6px 10px 8px", fontSize: 12, color: "var(--color-pv-fg-muted)", flexShrink: 0 }}>
-        {introCopy}
-      </div>
-      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "0 4px 8px" }}>
-        {state.status === "loading" && <Notice>Looking for repos…</Notice>}
+      <div className="px-3.5 pt-1.5 pb-2 text-[12.5px] text-[var(--k-t3)] shrink-0">{introCopy}</div>
+      <div className="flex-1 min-h-0 overflow-y-auto px-1 pb-2">
+        {state.status === "loading" && <KitLoading label="Looking for repos…" className="px-2.5" />}
         {state.status === "error" && <ErrorBanner errorClass={state.errorClass} />}
-        {state.status === "ready" && state.data.repos.length === 0 && <Notice>No git repos here yet.</Notice>}
-        {state.status === "ready" &&
-          state.data.repos.map((repo) => (
-            <button
-              key={repo.path}
-              type="button"
-              data-testid="git-repo-row"
-              onClick={() => onOpen(repo.path)}
-              className="hover:bg-white/5"
-              style={{ ...rowStyle, alignItems: "flex-start", cursor: "pointer", padding: "8px 10px" }}
-            >
-              <FolderGit2 size={16} style={{ color: linkColor, flexShrink: 0, marginTop: 2 }} />
-              <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 4 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                  <span style={{ fontWeight: 600 }}>{repoLabel(repo.path)}</span>
-                  {repo.branch && (
-                    <Pill>
-                      <GitBranch size={11} />
-                      {repo.branch}
-                    </Pill>
-                  )}
-                  {repo.error ? (
-                    <Pill hue={6} title="Git couldn't read this repo">
-                      <AlertTriangle size={11} />
-                      Unreadable
-                    </Pill>
-                  ) : (
-                    <>
-                      <SyncPills {...repo} remote={remote[repo.path]} />
-                      <ChangeSummary repo={repo} />
-                    </>
-                  )}
-                </div>
-                <div
-                  style={{
-                    fontSize: 12,
-                    color: "var(--color-pv-fg-muted)",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {repo.lastCommit
-                    ? `${repo.lastCommit.subject} · ${timeAgo(repo.lastCommit.timeMs)}`
-                    : repo.error
-                      ? "Git refused to read this folder."
-                      : "No commits yet"}
-                </div>
-              </div>
-            </button>
-          ))}
+        {state.status === "ready" && state.data.repos.length === 0 && (
+          <KitEmpty icon={<FolderGit2 aria-hidden="true" />} title="No git repos here yet." />
+        )}
+        {state.status === "ready" && state.data.repos.length > 0 && (
+          <KitList>
+            {state.data.repos.map((repo) => (
+              <KitListRow
+                key={repo.path}
+                data-testid="git-repo-row"
+                onActivate={() => onOpen(repo.path)}
+                avatar={<FolderGit2 size={18} aria-hidden="true" />}
+                avatarShape="square"
+                title={repoLabel(repo.path)}
+                wrapSubtitle
+                subtitle={
+                  <span className="flex flex-col gap-1.5 pt-1">
+                    <span className="flex flex-wrap items-center gap-1.5">
+                      {repo.branch && (
+                        <Pill>
+                          <GitBranch size={11} aria-hidden="true" />
+                          {repo.branch}
+                        </Pill>
+                      )}
+                      {repo.error ? (
+                        <Pill tone="danger" title="Git couldn't read this repo">
+                          <AlertTriangle size={11} aria-hidden="true" />
+                          Unreadable
+                        </Pill>
+                      ) : (
+                        <>
+                          <SyncPills {...repo} remote={remote[repo.path]} />
+                          <ChangeSummary repo={repo} />
+                        </>
+                      )}
+                    </span>
+                    <span className="block truncate">
+                      {repo.lastCommit
+                        ? `${repo.lastCommit.subject} · ${timeAgo(repo.lastCommit.timeMs)}`
+                        : repo.error
+                          ? "Git refused to read this folder."
+                          : "No commits yet"}
+                    </span>
+                  </span>
+                }
+              />
+            ))}
+          </KitList>
+        )}
         {state.status === "ready" && state.data.truncated && (
-          <Notice>Showing the first {state.data.repos.length} repos.</Notice>
+          <Note>Showing the first {state.data.repos.length} repos.</Note>
         )}
       </div>
     </>
@@ -526,26 +429,27 @@ function RepoListView({
 function CommitRow({ commit, onOpen }: { commit: GitCommit; onOpen: () => void }): JSX.Element {
   const refs = commit.refs.map((r) => r.replace(/^HEAD -> /, "")).filter((r) => r !== "HEAD");
   return (
-    <button
-      type="button"
+    <KitListRow
       data-testid="git-commit-row"
-      onClick={onOpen}
-      className="hover:bg-white/5"
-      style={{ ...rowStyle, cursor: "pointer" }}
-      title="Show what this commit changed"
-    >
-      <GitCommitHorizontal size={14} style={{ color: "var(--color-pv-fg-dim)", flexShrink: 0 }} />
-      <span style={{ ...monoStyle, color: "var(--color-pv-fg-dim)", flexShrink: 0 }}>{commit.sha.slice(0, 7)}</span>
-      <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-        {commit.subject}
-      </span>
-      {refs.slice(0, 2).map((r) => (
-        <Pill key={r}>{r}</Pill>
-      ))}
-      <span style={{ fontSize: 12, color: "var(--color-pv-fg-muted)", flexShrink: 0 }}>
-        {commit.author} · {timeAgo(commit.timeMs)}
-      </span>
-    </button>
+      onActivate={onOpen}
+      aria-label={`Show what commit ${commit.sha.slice(0, 7)} changed`}
+      title={commit.subject}
+      subtitle={
+        <>
+          <span className="font-mono text-[12px]">{commit.sha.slice(0, 7)}</span>
+          {` · ${commit.author} · ${timeAgo(commit.timeMs)}`}
+        </>
+      }
+      trailing={
+        refs.length > 0 ? (
+          <>
+            {refs.slice(0, 2).map((r) => (
+              <Pill key={r}>{r}</Pill>
+            ))}
+          </>
+        ) : undefined
+      }
+    />
   );
 }
 
@@ -582,8 +486,8 @@ function RepoDetailView({
           />
         }
       />
-      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "0 4px 8px" }}>
-        {state.status === "loading" && <Notice>Loading repo…</Notice>}
+      <div className="flex-1 min-h-0 overflow-y-auto px-1 pb-2">
+        {state.status === "loading" && <KitLoading label="Loading repo…" className="px-2.5" />}
         {state.status === "error" && <ErrorBanner errorClass={state.errorClass} />}
         {state.status === "ready" && <RepoDetailBody detail={state.data} remote={remote} onOpenDiff={onOpenDiff} />}
       </div>
@@ -603,88 +507,89 @@ function RepoDetailBody({
   const { status, commits, stashes, remotes } = detail;
   return (
     <>
-      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", padding: "8px 10px 2px" }}>
+      <div className="flex flex-wrap items-center gap-1.5 px-2.5 pt-2 pb-0.5">
         <Pill>
-          <GitBranch size={11} />
+          <GitBranch size={11} aria-hidden="true" />
           {status.branch ?? (status.oid ? `detached at ${status.oid.slice(0, 7)}` : "no branch")}
         </Pill>
         {status.upstream && <Pill title="Remote branch this one tracks">tracks {status.upstream}</Pill>}
         <SyncPills {...status} remote={remote} />
       </div>
 
-      <div style={{ ...sectionHeadStyle, display: "flex", alignItems: "center", gap: 8 }}>
-        <span style={{ flex: 1 }}>Uncommitted changes ({status.files.length})</span>
+      <KitListHead className="flex items-center gap-2">
+        <span className="flex-1">Uncommitted changes ({status.files.length})</span>
         {status.files.length > 0 && (
-          <button
-            type="button"
-            style={{ ...toolbarBtnStyle, textTransform: "none", letterSpacing: 0 }}
-            onClick={() => onOpenDiff({ diff: "working" }, "Uncommitted changes")}
-          >
+          <KitButton size="sm" variant="plain" onClick={() => onOpenDiff({ diff: "working" }, "Uncommitted changes")}>
             View changes
-          </button>
+          </KitButton>
         )}
-      </div>
-      {status.files.length === 0 && <Notice>Nothing uncommitted — everything is saved in history.</Notice>}
-      {status.files.map((f) => {
-        const c = describeChange(f);
-        return (
-          <div key={`${f.kind}:${f.path}`} data-testid="git-file-row" style={rowStyle} title={c.label}>
-            <span
-              style={{
-                ...monoStyle,
-                width: 18,
-                textAlign: "center",
-                fontWeight: 700,
-                color: `hsla(${c.hue}, 70%, 70%, 1)`,
-                flexShrink: 0,
-              }}
-            >
-              {c.letter}
-            </span>
-            <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {f.origPath ? `${f.origPath} → ${f.path}` : f.path}
-            </span>
-            <span style={{ fontSize: 12, color: "var(--color-pv-fg-muted)", flexShrink: 0 }}>{c.label}</span>
-          </div>
-        );
-      })}
+      </KitListHead>
+      {status.files.length === 0 && <Note>Nothing uncommitted — everything is saved in history.</Note>}
+      {status.files.length > 0 && (
+        <KitList>
+          {status.files.map((f) => {
+            const c = describeChange(f);
+            return (
+              <KitListRow
+                key={`${f.kind}:${f.path}`}
+                data-testid="git-file-row"
+                avatar={<span className={`font-mono text-[13px] ${TONE_TEXT[c.tone]}`}>{c.letter}</span>}
+                avatarShape="square"
+                className="[&>.k-item-av]:size-7 py-1.5"
+                title={f.origPath ? `${f.origPath} → ${f.path}` : f.path}
+                subtitle={c.label}
+              />
+            );
+          })}
+        </KitList>
+      )}
 
-      <div style={sectionHeadStyle}>History{commits.length >= 50 ? " (last 50)" : ""}</div>
-      {commits.length === 0 && <Notice>No commits yet.</Notice>}
-      {commits.map((c) => (
-        <CommitRow
-          key={c.sha}
-          commit={c}
-          onOpen={() => onOpenDiff({ diff: "commit", sha: c.sha }, `${c.sha.slice(0, 7)} ${c.subject}`)}
-        />
-      ))}
+      <KitListHead>History{commits.length >= 50 ? " (last 50)" : ""}</KitListHead>
+      {commits.length === 0 && <Note>No commits yet.</Note>}
+      {commits.length > 0 && (
+        <KitList>
+          {commits.map((c) => (
+            <CommitRow
+              key={c.sha}
+              commit={c}
+              onOpen={() => onOpenDiff({ diff: "commit", sha: c.sha }, `${c.sha.slice(0, 7)} ${c.subject}`)}
+            />
+          ))}
+        </KitList>
+      )}
 
       {stashes.length > 0 && (
         <>
-          <div style={sectionHeadStyle}>Stashed work ({stashes.length})</div>
-          {stashes.map((s) => (
-            <div key={s.ref} style={rowStyle}>
-              <span style={{ ...monoStyle, color: "var(--color-pv-fg-dim)" }}>{s.ref}</span>
-              <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {s.message}
-              </span>
-              <span style={{ fontSize: 12, color: "var(--color-pv-fg-muted)" }}>{timeAgo(s.timeMs)}</span>
-            </div>
-          ))}
+          <KitListHead>Stashed work ({stashes.length})</KitListHead>
+          <KitList>
+            {stashes.map((s) => (
+              <KitListRow
+                key={s.ref}
+                title={s.message}
+                subtitle={
+                  <>
+                    <span className="font-mono text-[12px]">{s.ref}</span>
+                    {` · ${timeAgo(s.timeMs)}`}
+                  </>
+                }
+              />
+            ))}
+          </KitList>
         </>
       )}
 
       {remotes.length > 0 && (
         <>
-          <div style={sectionHeadStyle}>Remotes</div>
-          {remotes.map((r) => (
-            <div key={r.name} style={rowStyle}>
-              <span style={{ fontWeight: 600 }}>{r.name}</span>
-              <span style={{ ...monoStyle, color: "var(--color-pv-fg-muted)", overflow: "hidden", textOverflow: "ellipsis" }}>
-                {r.url}
-              </span>
-            </div>
-          ))}
+          <KitListHead>Remotes</KitListHead>
+          <KitList>
+            {remotes.map((r) => (
+              <KitListRow
+                key={r.name}
+                title={r.name}
+                subtitle={<span className="font-mono text-[12px]">{r.url}</span>}
+              />
+            ))}
+          </KitList>
         </>
       )}
     </>
@@ -722,32 +627,28 @@ function DiffPane({
         onBack={onBack}
         onRefresh={onRefresh}
       />
-      <div style={{ display: "flex", gap: 4, padding: "6px 10px", flexShrink: 0 }}>
-        {(["unified", "split"] as const).map((l) => (
-          <button
-            key={l}
-            type="button"
-            onClick={() => setLayout(l)}
-            aria-pressed={layout === l}
-            style={{
-              ...toolbarBtnStyle,
-              color: layout === l ? "var(--color-pv-fg)" : "var(--color-pv-fg-muted)",
-              background: layout === l ? "hsla(var(--pv-id-hue, 220), 80%, 60%, 0.14)" : toolbarBtnStyle.background,
-            }}
-          >
-            {l === "unified" ? "Unified" : "Side by side"}
-          </button>
-        ))}
+      <div className="px-2.5 pt-1 pb-1.5 shrink-0">
+        <KitSegmented<"unified" | "split">
+          aria-label="Diff layout"
+          value={layout}
+          onValueChange={setLayout}
+          options={[
+            { value: "unified", label: "Unified" },
+            { value: "split", label: "Side by side" },
+          ]}
+        />
       </div>
-      <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "0 10px 8px" }}>
-        {state.status === "loading" && <Notice>Loading changes…</Notice>}
+      <div className="flex-1 min-h-0 overflow-auto px-2.5 pb-2">
+        {state.status === "loading" && <KitLoading label="Loading changes…" />}
         {state.status === "error" && <ErrorBanner errorClass={state.errorClass} />}
         {state.status === "ready" && state.data.truncated && (
-          <Notice>This change is very large, so only the first part is shown.</Notice>
+          <KitBanner tone="info" className="mb-2">
+            This change is very large, so only the first part is shown.
+          </KitBanner>
         )}
         {state.status === "ready" &&
           (state.data.patch.trim() === "" ? (
-            <Notice>No differences to show.</Notice>
+            <KitEmpty title="No differences to show." />
           ) : (
             <DiffView content={state.data.patch} layout={layout} />
           ))}
@@ -823,15 +724,7 @@ export default function GitTab({ target, hostId, introCopy }: GitTabProps): JSX.
   // Each view fetches only while shown; going back refetches (cheap, and the
   // agent may have changed things in the meantime).
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        overflow: "hidden",
-        background: "var(--color-pv-surface-quiet)",
-      }}
-    >
+    <div className="flex h-full flex-col overflow-hidden">
       {view.mode === "list" && (
         <RepoListLoader
           target={target}

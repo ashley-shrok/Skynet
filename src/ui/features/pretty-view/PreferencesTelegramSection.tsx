@@ -23,6 +23,18 @@ import {
   putTelegramBot,
   type TelegramStatus,
 } from "@/features/notifications/telegram-setup-api";
+import {
+  KitBanner,
+  KitButton,
+  KitField,
+  KitInput,
+  KitLoading,
+  KitSettingsGroup,
+  KitSettingsRow,
+  KitSwitch,
+  kitConfirm,
+  type KitConfirmOptions,
+} from "@/components/kit";
 
 const POLL_INTERVAL_MS = 3_000;
 const POLL_WINDOW_MS = 15 * 60_000;
@@ -35,21 +47,8 @@ type TestStatus =
   | { kind: "ok" }
   | { kind: "fail"; message: string };
 
-const mutedText = { color: "#c8c4b8" };
-const linkStyle = { color: "#e8e4d8", textDecoration: "underline" };
-
-const buttonStyle = (disabled: boolean, primary = false) => ({
-  padding: "8px 14px",
-  borderRadius: 8,
-  border: `1px solid rgba(255,240,215,${primary ? 0.18 : 0.12})`,
-  background: primary ? "rgba(20,21,32,0.6)" : "transparent",
-  color: primary ? "#e8e4d8" : "#c8c4b8",
-  fontSize: 13,
-  cursor: disabled ? "not-allowed" : "pointer",
-  opacity: disabled ? 0.6 : 1,
-  textDecoration: "none",
-  display: "inline-block",
-});
+const mutedText = "m-0 text-[13px] leading-[19px] text-[var(--k-t2)]";
+const linkClass = "text-[var(--k-acc-text)] underline";
 
 function SetupSteps({ onSaved }: { onSaved: (s: TelegramStatus) => void }): ReactElement {
   const [token, setToken] = useState("");
@@ -73,59 +72,56 @@ function SetupSteps({ onSaved }: { onSaved: (s: TelegramStatus) => void }): Reac
   );
 
   return (
-    <div className="flex flex-col gap-3" data-testid="preferences-telegram-setup">
-      <p className="text-[13px] leading-[18px]" style={mutedText}>
+    <div className="flex flex-col gap-4" data-testid="preferences-telegram-setup">
+      <p className={mutedText}>
         Notifications arrive as messages from your own Telegram bot. Setting
         one up takes a minute:
       </p>
-      <ol className="text-[13px] leading-[19px]" style={{ ...mutedText, margin: 0, paddingLeft: 20 }}>
+      <ol className={`${mutedText} pl-5 list-decimal flex flex-col gap-1`}>
         <li>
           In Telegram, open{" "}
-          <a href="https://t.me/BotFather" target="_blank" rel="noopener noreferrer" style={linkStyle}>
+          <a href="https://t.me/BotFather" target="_blank" rel="noopener noreferrer" className={linkClass}>
             @BotFather
           </a>{" "}
-          and send <strong>/newbot</strong>.
+          and send <strong className="text-[var(--k-t1)]">/newbot</strong>.
         </li>
         <li>
-          Give it any name, then a username ending in <strong>bot</strong>.
+          Give it any name, then a username ending in{" "}
+          <strong className="text-[var(--k-t1)]">bot</strong>.
         </li>
         <li>BotFather replies with a token. Copy it and paste it here.</li>
       </ol>
-      <form onSubmit={(e) => void handleSubmit(e)} className="flex flex-col gap-2">
-        <input
-          type="text"
-          value={token}
-          onChange={(e) => setToken(e.target.value)}
-          placeholder="123456789:AA…"
-          autoComplete="off"
-          spellCheck={false}
-          aria-label="Bot token"
-          data-testid="preferences-telegram-token-input"
-          style={{
-            padding: "8px 10px",
-            borderRadius: 8,
-            border: "1px solid rgba(255,240,215,0.18)",
-            background: "rgba(20,21,32,0.6)",
-            color: "#e8e4d8",
-            fontFamily: "monospace",
-            fontSize: 13,
-          }}
-        />
-        <div>
-          <button
-            type="submit"
-            disabled={saving || token.trim() === ""}
-            data-testid="preferences-telegram-token-save"
-            style={buttonStyle(saving || token.trim() === "", true)}
-          >
-            {saving ? "Checking…" : "Save"}
-          </button>
-        </div>
-        {error && (
-          <span className="text-[12px]" style={{ color: "#d38f8f" }} data-testid="preferences-telegram-token-error">
-            {error}
-          </span>
-        )}
+      <form onSubmit={(e) => void handleSubmit(e)}>
+        <KitField
+          label="Bot token"
+          error={
+            error ? <span data-testid="preferences-telegram-token-error">{error}</span> : undefined
+          }
+        >
+          <div className="flex gap-2 flex-wrap">
+            <KitInput
+              type="text"
+              mono
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              placeholder="123456789:AA…"
+              autoComplete="off"
+              spellCheck={false}
+              aria-label="Bot token"
+              data-testid="preferences-telegram-token-input"
+              className="flex-[1_1_200px] w-auto"
+            />
+            <KitButton
+              type="submit"
+              variant="primary"
+              disabled={token.trim() === ""}
+              busy={saving}
+              data-testid="preferences-telegram-token-save"
+            >
+              {saving ? "Checking…" : "Save"}
+            </KitButton>
+          </div>
+        </KitField>
       </form>
     </div>
   );
@@ -230,8 +226,8 @@ export function PreferencesTelegramSection(): ReactElement {
     }
   }, []);
 
-  const handleRemove = useCallback(async (confirmText: string) => {
-    if (!window.confirm(confirmText)) return;
+  const handleRemove = useCallback(async (confirm: KitConfirmOptions) => {
+    if (!(await kitConfirm(confirm))) return;
     setBusy(true);
     try {
       setStatus(await deleteTelegram());
@@ -247,55 +243,64 @@ export function PreferencesTelegramSection(): ReactElement {
   let content: ReactElement;
   if (loadError) {
     content = (
-      <p className="text-[13px]" style={{ color: "#d38f8f" }} data-testid="preferences-telegram-error">
+      <KitBanner tone="danger" data-testid="preferences-telegram-error">
         Failed to load notification settings: {loadError}
-      </p>
+      </KitBanner>
     );
   } else if (!status) {
-    content = (
-      <p className="text-[13px]" style={mutedText} data-testid="preferences-telegram-loading">
-        Loading…
-      </p>
-    );
+    content = <KitLoading lines={2} data-testid="preferences-telegram-loading" />;
   } else if (!status.setUp) {
     content = <SetupSteps onSaved={setStatus} />;
   } else if (!status.linked) {
     content = (
       <div className="flex flex-col gap-3" data-testid="preferences-telegram-awaiting-start">
-        <p className="text-[13px] leading-[18px]" style={mutedText}>
-          Your bot <strong>@{status.botUsername}</strong> is ready. Tap{" "}
-          <strong>Open my bot</strong>, then tap <strong>Start</strong> in
-          Telegram.
+        <p className={mutedText}>
+          Your bot <strong className="text-[var(--k-t1)]">@{status.botUsername}</strong> is ready. Tap{" "}
+          <strong className="text-[var(--k-t1)]">Open my bot</strong>, then tap{" "}
+          <strong className="text-[var(--k-t1)]">Start</strong> in Telegram.
         </p>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <div className="flex gap-2.5 flex-wrap">
           {linkUrl ? (
+            // A real link styled as the kit's main button — see the header
+            // note on why this can't be a window.open after an await.
             <a
               href={linkUrl}
               target="_blank"
               rel="noopener noreferrer"
               onClick={handleOpenBotClick}
               data-testid="preferences-telegram-open-bot"
-              style={buttonStyle(false, true)}
+              data-slot="kit-button"
+              data-variant="primary"
+              data-size="md"
+              className="k-btn no-underline"
             >
               Open my bot
             </a>
           ) : (
-            <span style={buttonStyle(true, true)} data-testid="preferences-telegram-open-bot-pending">
+            <KitButton variant="primary" disabled data-testid="preferences-telegram-open-bot-pending">
               Open my bot
-            </span>
+            </KitButton>
           )}
-          <button
-            type="button"
-            onClick={() => void handleRemove("Remove this bot and start over with a different one?")}
+          <KitButton
+            onClick={() =>
+              void handleRemove({
+                title: "Use a different bot?",
+                body: `This removes @${status.botUsername} so you can start over with a different one.`,
+                confirmLabel: "Remove bot",
+                destructive: true,
+              })
+            }
             disabled={busy}
             data-testid="preferences-telegram-use-different-bot"
-            style={buttonStyle(busy)}
           >
             Use a different bot
-          </button>
+          </KitButton>
         </div>
         {waiting && (
-          <span className="text-[12px]" style={mutedText} data-testid="preferences-telegram-waiting">
+          <span
+            className="text-[12.5px] text-[var(--k-t3)]"
+            data-testid="preferences-telegram-waiting"
+          >
             Waiting for you to tap Start in Telegram…
           </span>
         )}
@@ -303,50 +308,67 @@ export function PreferencesTelegramSection(): ReactElement {
     );
   } else {
     content = (
-      <div className="flex flex-col gap-3">
-        <p className="text-[13px] leading-[18px]" style={mutedText} data-testid="preferences-telegram-linked">
-          Connected{status.telegramName ? <> to <strong>{status.telegramName}</strong></> : null}.
-          Notifications arrive from your bot @{status.botUsername}.
-        </p>
-        <label className="flex items-center gap-2 text-[13px]" style={mutedText}>
-          <input
-            type="checkbox"
-            checked={!!status.titleOnly}
-            disabled={busy}
-            onChange={(e) => void handleTitleOnly(e.target.checked)}
-            data-testid="preferences-telegram-title-only"
+      <div className="flex flex-col">
+        <KitSettingsGroup>
+          <KitSettingsRow
+            data-testid="preferences-telegram-linked"
+            label={
+              <>
+                Connected
+                {status.telegramName ? (
+                  <>
+                    {" "}to <strong>{status.telegramName}</strong>
+                  </>
+                ) : null}
+              </>
+            }
+            description={`Notifications arrive from your bot @${status.botUsername}.`}
           />
-          Only show who messaged, not the message text
-        </label>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <button
-            type="button"
+          <KitSettingsRow
+            label="Only show who messaged, not the message text"
+            control={
+              <KitSwitch
+                checked={!!status.titleOnly}
+                disabled={busy}
+                onCheckedChange={(next) => void handleTitleOnly(next)}
+                aria-label="Only show who messaged, not the message text"
+                data-testid="preferences-telegram-title-only"
+              />
+            }
+          />
+        </KitSettingsGroup>
+        <KitSettingsGroup>
+          <KitSettingsRow
+            label={testStatus.kind === "pending" ? "Sending…" : "Send test notification"}
             onClick={() => void handleTest()}
             disabled={testStatus.kind === "pending"}
+            chevron={false}
             data-testid="preferences-telegram-test"
-            style={buttonStyle(testStatus.kind === "pending", true)}
-          >
-            {testStatus.kind === "pending" ? "Sending…" : "Send test notification"}
-          </button>
-          <button
-            type="button"
+          />
+          <KitSettingsRow
+            tone="danger"
+            label="Disconnect"
             onClick={() =>
-              void handleRemove(
-                "Stop Telegram notifications? You'll need to paste a bot token again to turn them back on.",
-              )
+              void handleRemove({
+                title: "Stop Telegram notifications?",
+                body: "You'll need to paste a bot token again to turn them back on.",
+                confirmLabel: "Disconnect",
+                destructive: true,
+              })
             }
             disabled={busy}
+            chevron={false}
             data-testid="preferences-telegram-disconnect"
-            style={buttonStyle(busy)}
-          >
-            Disconnect
-          </button>
-        </div>
+          />
+        </KitSettingsGroup>
         {(testStatus.kind === "ok" || testStatus.kind === "fail") && (
           <span
-            className="text-[12px]"
+            className={
+              "mt-2 mx-1 text-[12.5px] " +
+              (testStatus.kind === "ok" ? "text-[var(--k-ok)]" : "text-[var(--k-danger-text)]")
+            }
             data-testid="preferences-telegram-test-result"
-            style={{ color: testStatus.kind === "ok" ? "#8fd39e" : "#d38f8f" }}
+            role={testStatus.kind === "fail" ? "alert" : "status"}
           >
             {testStatus.kind === "ok" ? "✓ Test sent — check Telegram" : `Test failed: ${testStatus.message}`}
           </span>
@@ -356,19 +378,8 @@ export function PreferencesTelegramSection(): ReactElement {
   }
 
   return (
-    <section className="flex flex-col gap-3" data-testid="preferences-telegram-section">
-      <h3
-        style={{
-          fontSize: 11,
-          textTransform: "uppercase",
-          letterSpacing: "0.06em",
-          color: "rgba(200,196,184,0.6)",
-          fontWeight: 600,
-          margin: 0,
-        }}
-      >
-        Telegram
-      </h3>
+    <section className="flex flex-col" data-testid="preferences-telegram-section">
+      <h3 className="k-group-title">Telegram</h3>
       {content}
     </section>
   );

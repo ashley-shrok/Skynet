@@ -53,6 +53,14 @@ vi.mock("@/api/apps-unarchive-api", () => ({
 
 // Component AFTER the mocks
 import { ArchivedAppsModal } from "./ArchivedAppsModal";
+import { autoAnswerKitDialogs, __resetKitDialogsForTests } from "@/components/kit";
+
+/** Kit notices shown so far, each as "<title> — <body>" (lower-cased body). */
+function noticeTexts(d: ReturnType<typeof autoAnswerKitDialogs>): string[] {
+  return d.calls
+    .filter((c) => c.kind === "alert")
+    .map((c) => `${String(c.opts.title)}${c.opts.body ? ` — ${String(c.opts.body)}` : ""}`);
+}
 // Import the mocked UnarchiveError so tests can instantiate it.
 import { UnarchiveError } from "@/api/apps-unarchive-api";
 import { renderHook } from "@testing-library/react";
@@ -88,16 +96,16 @@ function makeEntry(overrides: Partial<{ hostId: number; slug: string; title?: st
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 describe("Phase 143 Plan 143-06 Task 1 — ArchivedAppsModal", () => {
-  let alertSpy: ReturnType<typeof vi.spyOn>;
+  let alertSpy: ReturnType<typeof autoAnswerKitDialogs>;
 
   beforeEach(() => {
-    alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
+    alertSpy = autoAnswerKitDialogs();
     // Clean up portals from previous tests.
     document.body.innerHTML = "";
   });
 
   afterEach(() => {
-    alertSpy.mockRestore();
+    __resetKitDialogsForTests();
     vi.clearAllMocks();
     cleanup();
   });
@@ -203,7 +211,7 @@ describe("Phase 143 Plan 143-06 Task 1 — ArchivedAppsModal", () => {
     // Row MUST still be present.
     expect(screen.queryByText("notes-app")).not.toBeNull();
     // Alert MUST NOT have been called yet.
-    expect(alertSpy).not.toHaveBeenCalled();
+    expect(noticeTexts(alertSpy)).toHaveLength(0);
 
     // Now resolve the endpoint.
     await act(async () => {
@@ -219,10 +227,8 @@ describe("Phase 143 Plan 143-06 Task 1 — ArchivedAppsModal", () => {
     });
 
     // Alert MUST have been called with the success copy.
-    expect(alertSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Un-archiving notes-app"),
-    );
-    expect(alertSpy.mock.calls[0]?.[0]).toContain(
+    expect(noticeTexts(alertSpy)[0]).toContain("Un-archiving notes-app");
+    expect(noticeTexts(alertSpy)[0]?.toLowerCase()).toContain(
       "it may take a moment to reflect elsewhere in the app",
     );
   });
@@ -256,15 +262,15 @@ describe("Phase 143 Plan 143-06 Task 1 — ArchivedAppsModal", () => {
 
     // Wait for the promise to settle.
     await waitFor(() => {
-      expect(alertSpy).toHaveBeenCalled();
+      expect(noticeTexts(alertSpy).length).toBeGreaterThan(0);
     });
 
     // Row MUST still be present (never removed on failure).
     expect(screen.queryByText("notes-app")).not.toBeNull();
 
     // Alert copy must match D-17 generic fallback.
-    expect(alertSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Couldn't un-archive notes-app — try again in a moment."),
+    expect(noticeTexts(alertSpy)[0]?.toLowerCase()).toContain(
+      "couldn't un-archive notes-app — try again in a moment.",
     );
   });
 
@@ -302,12 +308,12 @@ describe("Phase 143 Plan 143-06 Task 1 — ArchivedAppsModal", () => {
     await user.click(unarchiveItem);
 
     await waitFor(() => {
-      expect(alertSpy).toHaveBeenCalled();
+      expect(noticeTexts(alertSpy).length).toBeGreaterThan(0);
     });
 
     // Alert copy must mention "same slug" or "collision" or "live" — distinct
     // from the generic fallback copy.
-    const alertArg = alertSpy.mock.calls[0]?.[0] as string;
+    const alertArg = (noticeTexts(alertSpy)[0] ?? "").toLowerCase();
     // The distinct wording per the plan: "a live app with the same slug already exists"
     expect(alertArg).toContain("notes-app");
     // Must NOT be the generic fallback copy (which says "try again in a moment").
@@ -331,7 +337,7 @@ describe("Phase 143 Plan 143-06 Task 1 — ArchivedAppsModal", () => {
     await screen.findByText("notes-app");
     await user.click(screen.getByTestId("archived-apps-row-kebab-1-notes-app"));
     await user.click(await screen.findByText("Un-archive"));
-    await waitFor(() => expect(alertSpy).toHaveBeenCalled());
+    await waitFor(() => expect(noticeTexts(alertSpy).length).toBeGreaterThan(0));
 
     // Reconciler restored it; the next sweep's app-update must land.
     publishAppUpdate({
@@ -377,7 +383,7 @@ describe("Phase 143 Plan 143-06 Task 1 — ArchivedAppsModal", () => {
 
     // Wait for success alert to be called (confirms the full success path ran).
     await waitFor(() => {
-      expect(alertSpy).toHaveBeenCalled();
+      expect(noticeTexts(alertSpy).length).toBeGreaterThan(0);
     });
 
     // D-19: onOpenChange must NEVER have been called with false.

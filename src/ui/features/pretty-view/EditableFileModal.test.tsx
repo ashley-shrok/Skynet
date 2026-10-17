@@ -31,7 +31,11 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act, configure } from "@testing-library/react";
+
+// The editor lazy-loads; under heavy box load the default 1s async wait
+// lets Save stay disabled past the deadline and these tests flake.
+configure({ asyncUtilTimeout: 10_000 });
 
 // ── Hoisted module mocks ─────────────────────────────────────────────────────
 
@@ -80,6 +84,7 @@ vi.mock("@mdxeditor/editor", () => ({
 
 // ── Late imports (after mocks are registered) ────────────────────────────────
 
+import { __resetKitDialogsForTests, autoAnswerKitDialogs } from "@/components/kit";
 import EditableFileModal from "./EditableFileModal";
 import {
   fetchTailnetUrl,
@@ -114,8 +119,6 @@ const failFetch = (msg = "boom") =>
   );
 
 describe("EditableFileModal — Phase 40 Plan 40-03 Task 2", () => {
-  let confirmSpy: ReturnType<typeof vi.spyOn>;
-
   beforeEach(() => {
     vi.clearAllMocks();
     DEFAULT_PROPS.onOpenChange = vi.fn();
@@ -123,7 +126,7 @@ describe("EditableFileModal — Phase 40 Plan 40-03 Task 2", () => {
   });
 
   afterEach(() => {
-    confirmSpy?.mockRestore?.();
+    __resetKitDialogsForTests();
   });
 
   it("test 1: fetch fires exactly once on open with the expected URL", async () => {
@@ -273,7 +276,7 @@ describe("EditableFileModal — Phase 40 Plan 40-03 Task 2", () => {
 
   it("test 11: draft-guard — dirty + cancel confirm → modal stays open (onOpenChange NOT called with false)", async () => {
     successFetch();
-    confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const dialogs = autoAnswerKitDialogs({ confirm: false });
     const onOpenChange = vi.fn();
     render(<EditableFileModal {...DEFAULT_PROPS} onOpenChange={onOpenChange} />);
     const ta = (await waitFor(() =>
@@ -292,8 +295,10 @@ describe("EditableFileModal — Phase 40 Plan 40-03 Task 2", () => {
     // Trigger a close via the foot Close button (canonical Modal foot; also
     // routes through handleOpenChange the same as the head X).
     fireEvent.click(screen.getByTestId("editable-file-modal-close-foot"));
-    // Confirm called with the exact copy per UI-SPEC L168
-    expect(window.confirm).toHaveBeenCalledWith("Discard unsaved changes?");
+    // Kit confirm asked with the exact copy per UI-SPEC L168 (answered "cancel").
+    await waitFor(() => expect(dialogs.calls.length).toBe(1));
+    expect(dialogs.calls[0].opts.title).toBe("Discard unsaved changes?");
+    await act(async () => {});
     // Guard suppressed the close — no onOpenChange(false) call
     const closeCalls = onOpenChange.mock.calls.filter((c) => c[0] === false);
     expect(closeCalls.length).toBe(0);
@@ -301,7 +306,7 @@ describe("EditableFileModal — Phase 40 Plan 40-03 Task 2", () => {
 
   it("test 12: draft-guard — dirty + confirm confirm → closes (onOpenChange called with false)", async () => {
     successFetch();
-    confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const dialogs = autoAnswerKitDialogs({ confirm: true });
     const onOpenChange = vi.fn();
     render(<EditableFileModal {...DEFAULT_PROPS} onOpenChange={onOpenChange} />);
     const ta = (await waitFor(() =>
@@ -315,13 +320,14 @@ describe("EditableFileModal — Phase 40 Plan 40-03 Task 2", () => {
       ).toBe(false),
     );
     fireEvent.click(screen.getByTestId("editable-file-modal-close-foot"));
-    expect(window.confirm).toHaveBeenCalledWith("Discard unsaved changes?");
-    expect(onOpenChange).toHaveBeenCalledWith(false);
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(dialogs.calls.length).toBe(1);
+    expect(dialogs.calls[0].opts.title).toBe("Discard unsaved changes?");
   });
 
   it("test 13: draft-guard — save-success close bypasses confirm (savingRef)", async () => {
     successFetch();
-    confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const dialogs = autoAnswerKitDialogs({ confirm: false });
     const onOpenChange = vi.fn();
     const onStageEditedFile = vi.fn();
     render(
@@ -335,20 +341,25 @@ describe("EditableFileModal — Phase 40 Plan 40-03 Task 2", () => {
       screen.getByRole("textbox"),
     )) as HTMLTextAreaElement;
     fireEvent.change(ta, { target: { value: "hello world" } });
-    await new Promise((r) => setTimeout(r, 20));
+    await waitFor(() =>
+      expect(
+        (screen.getByRole("button", { name: /^save$/i }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false),
+    );
     const saveBtn = screen.getByRole("button", { name: /^save$/i });
     await act(async () => {
       fireEvent.click(saveBtn);
     });
     // Save path called onOpenChange(false) directly — confirm NOT invoked
-    expect(window.confirm).not.toHaveBeenCalled();
+    expect(dialogs.calls.length).toBe(0);
     expect(onOpenChange).toHaveBeenCalledWith(false);
     expect(onStageEditedFile).toHaveBeenCalled();
   });
 
   it("test 14: draft-guard — clean close (no edits) does NOT prompt confirm", async () => {
     successFetch();
-    confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const dialogs = autoAnswerKitDialogs({ confirm: true });
     const onOpenChange = vi.fn();
     render(<EditableFileModal {...DEFAULT_PROPS} onOpenChange={onOpenChange} />);
     // Wait for load — do NOT type
@@ -356,8 +367,8 @@ describe("EditableFileModal — Phase 40 Plan 40-03 Task 2", () => {
     // Give the initial onDraftChange(false) time to fire
     await new Promise((r) => setTimeout(r, 20));
     fireEvent.click(screen.getByTestId("editable-file-modal-close-foot"));
-    expect(window.confirm).not.toHaveBeenCalled();
-    expect(onOpenChange).toHaveBeenCalledWith(false);
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(dialogs.calls.length).toBe(0);
   });
 
   // Rev-3 2026-08-14 code-review B2: UTF-8 decode regression guard. The
@@ -423,7 +434,7 @@ describe("EditableFileModal — Phase 40 Plan 40-03 Task 2", () => {
     const boom = new Error("stage failed");
     const onStageEditedFile = vi.fn(() => { throw boom; });
     const onOpenChange = vi.fn();
-    confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const dialogs = autoAnswerKitDialogs({ confirm: false });
     render(
       <EditableFileModal
         {...DEFAULT_PROPS}
@@ -435,7 +446,13 @@ describe("EditableFileModal — Phase 40 Plan 40-03 Task 2", () => {
       screen.getByRole("textbox"),
     )) as HTMLTextAreaElement;
     fireEvent.change(ta, { target: { value: "dirty draft" } });
-    await new Promise((r) => setTimeout(r, 20)); // let onDraftChange(true) fire
+    // let onDraftChange(true) fire (Save enables on isDirty)
+    await waitFor(() =>
+      expect(
+        (screen.getByRole("button", { name: /^save$/i }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false),
+    );
     const saveBtn = screen.getByRole("button", { name: /^save$/i });
     // Save throws — we don't care what surfaces, only that savingRef reset.
     await act(async () => {
@@ -443,9 +460,10 @@ describe("EditableFileModal — Phase 40 Plan 40-03 Task 2", () => {
     });
     // The save handler threw so onOpenChange(false) was never called; the
     // modal is still open. Now close via the foot Close — draft is dirty,
-    // savingRef must be false, so window.confirm must fire.
+    // savingRef must be false, so the discard confirm must open.
     fireEvent.click(screen.getByTestId("editable-file-modal-close-foot"));
-    expect(window.confirm).toHaveBeenCalledWith("Discard unsaved changes?");
+    await waitFor(() => expect(dialogs.calls.length).toBe(1));
+    expect(dialogs.calls[0].opts.title).toBe("Discard unsaved changes?");
   });
 
   // ─── Phase 75 Plan 75-02 Task 2 — file-URL dispatch + per-class error copy ─

@@ -289,10 +289,8 @@ describe("IdentityModal — title-line clickable treatment (D-04)", () => {
     expect(jump.getAttribute("aria-label")).toMatch(/^Open role modal:/);
     // Inline styles from D-04 in rest state
     const style = jump.getAttribute("style") ?? "";
-    // Color at rest is #c4b89a
-    expect(style.replace(/\s+/g, "")).toContain("color:rgb(196,184,154)"); // browsers may serialize hex→rgb; check both
-    // Fallback: raw hex if not normalized
-    // (jsdom typically preserves whatever was written)
+    // apple-ux: colour at rest is the kit's secondary text token.
+    expect(style.replace(/\s+/g, "")).toContain("color:var(--k-t2)");
     // Underline present + dotted at rest
     expect(style).toMatch(/text-decoration/);
     expect(style).toMatch(/dotted/);

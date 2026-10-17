@@ -150,6 +150,7 @@ vi.mock("@mdxeditor/editor", () => ({
 
 // ── Late imports ─────────────────────────────────────────────────────────────
 import { IdentityModal } from "./IdentityModal";
+import { __resetKitDialogsForTests } from "@/components/kit";
 // Phase 90 Plan 90-06 (D-09): __resetModalScopeForTest reference DELETED —
 // the modal-scope store no longer backs identity-modal state.
 
@@ -243,6 +244,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   openedSockets.length = 0;
+  __resetKitDialogsForTests();
 });
 
 afterAll(() => {
@@ -277,7 +279,8 @@ describe("IdentityModal wakeup CRUD — identity scope (Phase 90 Plan 90-06)", (
     fireEvent.change(within(addWakeupDialog).getByLabelText(/Name/i), {
       target: { value: "test-wake" },
     });
-    fireEvent.change(await screen.findByTestId("mdxeditor"), {
+    // The editor is lazy-loaded; its first import can be slow on a busy box.
+    fireEvent.change(await screen.findByTestId("mdxeditor", {}, { timeout: 15000 }), {
       target: { value: "say hi" },
     });
 
@@ -328,11 +331,8 @@ describe("IdentityModal wakeup CRUD — identity scope (Phase 90 Plan 90-06)", (
     });
     fireEvent.click(screen.getByTestId("wakeup-delete-icon"));
 
-    // Click the confirm button in the AlertDialog.
-    await waitFor(() => {
-      expect(screen.getByTestId("wakeup-delete-confirm")).toBeTruthy();
-    });
-    fireEvent.click(screen.getByTestId("wakeup-delete-confirm"));
+    // Click the confirm button in the kit confirm dialog.
+    fireEvent.click(await screen.findByTestId("kit-dialog-confirm"));
 
     await waitFor(() => {
       const sock = findSocketForRequestType("identity:delete-wakeup");

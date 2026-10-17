@@ -136,6 +136,7 @@ vi.mock("@/api/instance-wide-api", async (importOriginal) => {
   };
 });
 
+import { autoAnswerKitDialogs, __resetKitDialogsForTests } from "@/components/kit";
 import { RolesListModal } from "./RolesListModal";
 import * as iwApi from "@/api/instance-wide-api";
 import { UnarchiveError } from "@/api/identity-unarchive-api";
@@ -253,6 +254,7 @@ describe("RolesListModal — instance-wide section", () => {
   });
   afterEach(() => {
     vi.restoreAllMocks();
+    __resetKitDialogsForTests();
   });
 
   it("lists instance-wide roles first under their own heading, with marker and status", async () => {
@@ -268,7 +270,7 @@ describe("RolesListModal — instance-wide section", () => {
 
   it("admin: local role offers Make instance-wide and promotes after confirm", async () => {
     vi.mocked(iwApi.listInstanceWide).mockResolvedValue({ isAdmin: true, items: [SUPPORT_ITEM] });
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+    autoAnswerKitDialogs({ confirm: true });
     renderSingle();
     await openRowMenu("box-maintainer");
     await userEvent.setup().click(screen.getByTestId("roles-list-promote-box-maintainer"));
@@ -277,14 +279,14 @@ describe("RolesListModal — instance-wide section", () => {
 
   it("admin: instance-wide role offers Remove from every host (no Archive)", async () => {
     vi.mocked(iwApi.listInstanceWide).mockResolvedValue({ isAdmin: true, items: [SUPPORT_ITEM] });
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const dialogs = autoAnswerKitDialogs({ confirm: true });
     renderSingle();
     await waitFor(() => expect(iwApi.listInstanceWide).toHaveBeenCalled());
     await openRowMenu("support-bot");
     expect(screen.queryByText("Archive")).toBeNull();
     await userEvent.setup().click(screen.getByTestId("roles-list-remove-instance-support-bot"));
     await waitFor(() => expect(iwApi.removeInstanceWide).toHaveBeenCalledWith("role", "support-bot"));
-    expect(confirmSpy.mock.calls[0][0]).toMatch(/4 hosts/);
+    expect(String(dialogs.calls[0].opts.body)).toMatch(/4 hosts/);
   });
 
   it("non-admin: no promote, and instance-wide roles are marked read-only", async () => {

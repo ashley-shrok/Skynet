@@ -7,7 +7,7 @@
  *   (1) single-host single-file happy path: content loads, edit fires setDraft, Save calls writeGlobalFile
  *   (2) multi-host: picker renders, changing selection refetches files
  *   (3) multi-file: tab strip renders, first tab labeled "About you", switching lazy-loads
- *   (4) 409 conflict: window.confirm called; on confirm editor resets to currentContent; on cancel error rethrows
+ *   (4) 409 conflict: kit confirm called; on confirm editor resets to currentContent; on cancel error rethrows
  *   (5) single-host does NOT render host picker
  *   (6) single-file does NOT render tab strip
  */
@@ -45,6 +45,7 @@ vi.mock("@/api/global-files-api", async (importOriginal) => {
 // ── Late imports (after mocks are registered) ────────────────────────────────
 
 import { PreferencesAboutYouPane } from "./PreferencesAboutYouPane";
+import { __resetKitDialogsForTests, autoAnswerKitDialogs } from "@/components/kit";
 import {
   listGlobalFiles,
   readGlobalFile,
@@ -168,6 +169,7 @@ describe("PreferencesAboutYouPane", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    __resetKitDialogsForTests();
   });
 
   // ── Case 1: single-host single-file happy path ────────────────────────────
@@ -288,13 +290,13 @@ describe("PreferencesAboutYouPane", () => {
 
   // ── Case 4: 409 conflict UX ───────────────────────────────────────────────
 
-  it("(4) 409 conflict: window.confirm called; on confirm editor resets to currentContent; on cancel error rethrows (inline error shown)", async () => {
+  it("(4) 409 conflict: kit confirm called; on confirm editor resets to currentContent; on cancel error rethrows (inline error shown)", async () => {
     const conflictError = new GlobalFileMtimeConflictError(
       1_700_000_002,
       "Server version of the file",
     );
     vi.mocked(writeGlobalFile).mockRejectedValue(conflictError);
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const dialogs = autoAnswerKitDialogs({ confirm: true });
 
     render(
       <PreferencesAboutYouPane
@@ -311,15 +313,10 @@ describe("PreferencesAboutYouPane", () => {
     const saveBtn = screen.getByRole("button", { name: /save/i });
     fireEvent.click(saveBtn);
 
-    // Save → rejected write → confirm is a few async hops; under full-suite
-    // load that can take longer than waitFor's 1s default.
-    await waitFor(
-      () =>
-        expect(confirmSpy).toHaveBeenCalledWith(
-          "The file changed on disk since you started editing. Reload from disk and lose your local edits?",
-        ),
-      { timeout: 5000 },
-    );
+    await waitFor(() => expect(dialogs.calls).toHaveLength(1), { timeout: 5000 });
+    expect(dialogs.calls[0].kind).toBe("confirm");
+    expect(dialogs.calls[0].opts.title).toBe("Reload from disk?");
+    expect(String(dialogs.calls[0].opts.body)).toMatch(/changed on disk.*loses your local edits/);
 
     // On confirm=true, editor should reset to server's content
     await waitFor(
@@ -330,7 +327,6 @@ describe("PreferencesAboutYouPane", () => {
       { timeout: 5000 },
     );
 
-    confirmSpy.mockRestore();
   });
 
   it("(4b) 409 conflict on cancel: error is shown inline", async () => {
@@ -339,7 +335,7 @@ describe("PreferencesAboutYouPane", () => {
       "Server version of the file",
     );
     vi.mocked(writeGlobalFile).mockRejectedValue(conflictError);
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const dialogs = autoAnswerKitDialogs({ confirm: false });
 
     render(
       <PreferencesAboutYouPane
@@ -356,7 +352,7 @@ describe("PreferencesAboutYouPane", () => {
     const saveBtn = screen.getByRole("button", { name: /save/i });
     fireEvent.click(saveBtn);
 
-    await waitFor(() => expect(confirmSpy).toHaveBeenCalled(), { timeout: 5000 });
+    await waitFor(() => expect(dialogs.calls).toHaveLength(1), { timeout: 5000 });
 
     // Error should be shown inline after cancel
     await waitFor(
@@ -364,7 +360,6 @@ describe("PreferencesAboutYouPane", () => {
       { timeout: 5000 },
     );
 
-    confirmSpy.mockRestore();
   });
 
   // ── Case 5: single-host does NOT render host picker ──────────────────────

@@ -36,6 +36,12 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { Host, HostFolder } from "@/types/ui-types";
+import {
+  autoAnswerKitDialogs,
+  __resetKitDialogsForTests,
+  type KitAlertOptions,
+  type KitConfirmOptions,
+} from "@/components/kit";
 
 // jsdom does not implement ResizeObserver; stub it so Radix's DropdownMenu
 // (used by RowKebabMenu, which is the row-level kebab post
@@ -2306,14 +2312,32 @@ describe("PrettyConversationsPanel: Phase 48 Plan 05 pinned row v14 shape (was p
 // ─────────────────────────────────────────────────────────────────────────────
 // handleRowKill (quick-260810-n3a) — K8-K10
 // ─────────────────────────────────────────────────────────────────────────────
+// Kit-dialog helpers (window.confirm/alert were replaced by kitConfirm/kitAlert).
+type KitDialogs = ReturnType<typeof autoAnswerKitDialogs>;
+const kitConfirms = (d: KitDialogs) =>
+  d.calls.filter((c) => c.kind === "confirm").map((c) => c.opts as KitConfirmOptions);
+const kitAlerts = (d: KitDialogs) =>
+  d.calls.filter((c) => c.kind === "alert").map((c) => c.opts as KitAlertOptions);
+const kitText = (o: { title?: unknown; body?: unknown }) =>
+  `${String(o.title ?? "")}\n${String(o.body ?? "")}`;
+const flushKit = () => new Promise((r) => setTimeout(r, 0));
+function expectArchiveConfirm(o: KitConfirmOptions, label: string): void {
+  expect(String(o.title)).toMatch(/archive/i);
+  expect(String(o.title)).toContain(`"${label}"`);
+  expect(String(o.body)).toMatch(/can't undo/i);
+  expect(o.destructive).toBe(true);
+}
+afterEach(() => {
+  __resetKitDialogsForTests();
+});
 // Panel-level confirm-dialog and onKillRow prop threading tests.
 // Uses the same pattern as Test 20E (deactivate via context menu) to open the
 // Kill item and assert the confirm/onKillRow flow.
 
 describe("PrettyConversationsPanel: handleRowKill (quick-260810-n3a)", () => {
-  // K8: handleRowKill invokes window.confirm with a message naming the tmux
+  // K8: handleRowKill invokes kit confirm with a message naming the tmux
   //     session AND the host name
-  it("K8: clicking Kill opens window.confirm with session name + host name in message", async () => {
+  it("K8: clicking Kill opens kit confirm with session name + host name in message", async () => {
     const hostA = makeHost("h1", "hostA");
     setSnapshot({
       activeSet: [],
@@ -2335,7 +2359,7 @@ describe("PrettyConversationsPanel: handleRowKill (quick-260810-n3a)", () => {
     });
 
     const onKillRow = vi.fn();
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const dialogs = autoAnswerKitDialogs({ confirm: false });
 
     const { container } = render(
       <PrettyConversationsPanel
@@ -2355,16 +2379,15 @@ describe("PrettyConversationsPanel: handleRowKill (quick-260810-n3a)", () => {
     const killItem = within(menu).getByRole("menuitem", { name: /kill/i });
     fireEvent.click(killItem);
 
-    expect(confirmSpy).toHaveBeenCalledTimes(1);
-    const confirmMsg: string = (confirmSpy.mock.calls[0] as [string])[0];
+    await waitFor(() => expect(kitConfirms(dialogs)).toHaveLength(1));
+    const confirmMsg = kitText(kitConfirms(dialogs)[0]);
     expect(confirmMsg).toContain("claude-abc");
     expect(confirmMsg).toContain("hostA");
-
-    confirmSpy.mockRestore();
+    expect(kitConfirms(dialogs)[0].destructive).toBe(true);
   });
 
-  // K9: when window.confirm returns false → onKillRow NOT called
-  it("K9: window.confirm returns false → onKillRow NOT called", async () => {
+  // K9: when kit confirm returns false → onKillRow NOT called
+  it("K9: kit confirm returns false → onKillRow NOT called", async () => {
     const hostA = makeHost("h1", "hostA");
     setSnapshot({
       activeSet: [],
@@ -2386,7 +2409,7 @@ describe("PrettyConversationsPanel: handleRowKill (quick-260810-n3a)", () => {
     });
 
     const onKillRow = vi.fn();
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const dialogs = autoAnswerKitDialogs({ confirm: false });
 
     const { container } = render(
       <PrettyConversationsPanel
@@ -2406,14 +2429,13 @@ describe("PrettyConversationsPanel: handleRowKill (quick-260810-n3a)", () => {
     const killItem = within(menu).getByRole("menuitem", { name: /kill/i });
     fireEvent.click(killItem);
 
-    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(kitConfirms(dialogs)).toHaveLength(1));
+    await flushKit();
     expect(onKillRow).not.toHaveBeenCalled();
-
-    confirmSpy.mockRestore();
   });
 
-  // K10: when window.confirm returns true → onKillRow called exactly once with the row
-  it("K10: window.confirm returns true → onKillRow called exactly once with the correct row", async () => {
+  // K10: when kit confirm returns true → onKillRow called exactly once with the row
+  it("K10: kit confirm returns true → onKillRow called exactly once with the correct row", async () => {
     const hostA = makeHost("h1", "hostA");
     setSnapshot({
       activeSet: [],
@@ -2435,7 +2457,7 @@ describe("PrettyConversationsPanel: handleRowKill (quick-260810-n3a)", () => {
     });
 
     const onKillRow = vi.fn();
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const dialogs = autoAnswerKitDialogs({ confirm: true });
 
     const { container } = render(
       <PrettyConversationsPanel
@@ -2455,11 +2477,9 @@ describe("PrettyConversationsPanel: handleRowKill (quick-260810-n3a)", () => {
     const killItem = within(menu).getByRole("menuitem", { name: /kill/i });
     fireEvent.click(killItem);
 
-    expect(confirmSpy).toHaveBeenCalledTimes(1);
-    expect(onKillRow).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(onKillRow).toHaveBeenCalledTimes(1));
+    expect(kitConfirms(dialogs)).toHaveLength(1);
     expect((onKillRow.mock.calls[0] as [{ id: string }])[0].id).toBe("kill-row-3");
-
-    confirmSpy.mockRestore();
   });
 });
 
@@ -2467,14 +2487,14 @@ describe("PrettyConversationsPanel: handleRowKill (quick-260810-n3a)", () => {
 // Phase 115 Plan 115-06 — panel-level handleArchive (A5-A9) + Archived section (A10-A14)
 // ─────────────────────────────────────────────────────────────────────────────
 // A5-A9 lock the click-through composition: canonicalArchiveIdForRow gate →
-// window.confirm with EXACT-STRING copy → conditional pane-close side effect →
+// kit confirm (label + destructive) → conditional pane-close side effect →
 // archiveIdentity API call. A10-A14 lock the Archived section render invariants
 // per D-06 (inert rows) + D-19 (lazy-render).
 
 describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => {
-  // A5: identity-backed row → clicking Archive opens window.confirm with the
-  //     EXACT D-03 copy — asserted via toHaveBeenCalledWith equality (not toContain).
-  it("A5: Archive click opens window.confirm with EXACT copy 'archive <identity>? this can\\'t be undone.'", async () => {
+  // A5: identity-backed row → clicking Archive opens kit confirm with the
+  //     D-03 facts: label in title, can't-undo body, destructive styling.
+  it("A5: Archive click opens a destructive kit confirm naming the identity + can't-undo copy", async () => {
     // Use a numeric-string hostId — canonicalArchiveIdForRow parses via parseInt.
     // Non-numeric hostIds (e.g. "h1") coerce to NaN, fail Number.isFinite,
     // and the gate returns null → row menu does NOT get Archive item.
@@ -2501,7 +2521,7 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
       rdpGroup: null,
     });
 
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const dialogs = autoAnswerKitDialogs({ confirm: false });
 
     const { container } = render(
       <PrettyConversationsPanel
@@ -2520,15 +2540,10 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
     const archiveItem = within(menu).getByRole("menuitem", { name: "Archive" });
     fireEvent.click(archiveItem);
 
-    expect(confirmSpy).toHaveBeenCalledTimes(1);
-    // D-03 EXACT copy — byte-identical equality (not toContain / regex).
-    // Straight ASCII apostrophe (U+0027); period at end; no backticks or
-    // quotes around the displayName in the actual dialog string.
-    expect(confirmSpy).toHaveBeenCalledWith(
-      "archive wren? this can't be undone.",
-    );
-
-    confirmSpy.mockRestore();
+    await waitFor(() => expect(kitConfirms(dialogs)).toHaveLength(1));
+    // D-03 facts: the dialog names the identity, says it can't be undone,
+    // and is styled destructive.
+    expectArchiveConfirm(kitConfirms(dialogs)[0], "wren");
   });
 
   // A5b: identity has task → confirmation copy uses task instead of displayName,
@@ -2560,7 +2575,7 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
       rdpGroup: null,
     });
 
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const dialogs = autoAnswerKitDialogs({ confirm: false });
 
     const { container } = render(
       <PrettyConversationsPanel
@@ -2578,15 +2593,13 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
     const archiveItem = within(menu).getByRole("menuitem", { name: "Archive" });
     fireEvent.click(archiveItem);
 
-    expect(confirmSpy).toHaveBeenCalledWith(
-      "archive Fixing the auth bug? this can't be undone.",
-    );
-
-    confirmSpy.mockRestore();
+    await waitFor(() => expect(kitConfirms(dialogs)).toHaveLength(1));
+    expectArchiveConfirm(kitConfirms(dialogs)[0], "Fixing the auth bug");
+    expect(String(kitConfirms(dialogs)[0].title)).not.toMatch(/"wren"/);
   });
 
-  // A6: window.confirm returns false → archiveIdentity NOT called; no pane close.
-  it("A6: window.confirm returns false → archiveIdentity NOT called, no side effect", async () => {
+  // A6: kit confirm returns false → archiveIdentity NOT called; no pane close.
+  it("A6: kit confirm returns false → archiveIdentity NOT called, no side effect", async () => {
     const hostA = makeHost("1", "hostA");
     mockIdentitiesByKey = new Map([
       ["wren", { identityKey: "wren", displayName: "wren", title: null }],
@@ -2605,7 +2618,7 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
       rdpGroup: null,
     });
 
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const dialogs = autoAnswerKitDialogs({ confirm: false });
     const onDeactivateRow = vi.fn();
 
     const { container } = render(
@@ -2624,14 +2637,13 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
     const archiveItem = within(menu).getByRole("menuitem", { name: "Archive" });
     fireEvent.click(archiveItem);
 
-    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(kitConfirms(dialogs)).toHaveLength(1));
+    await flushKit();
     expect(archiveIdentitySpy).not.toHaveBeenCalled();
     expect(onDeactivateRow).not.toHaveBeenCalled();
-
-    confirmSpy.mockRestore();
   });
 
-  // A7: window.confirm returns true → archiveIdentity(hostId, key) fires with the correct args.
+  // A7: kit confirm returns true → archiveIdentity(hostId, key) fires with the correct args.
   it("A7: confirm=true → archiveIdentity called with (parsed hostId, identityKey) exactly once", async () => {
     const hostA = makeHost("42", "hostA");
     mockIdentitiesByKey = new Map([
@@ -2651,7 +2663,7 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
       rdpGroup: null,
     });
 
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const dialogs = autoAnswerKitDialogs({ confirm: true });
 
     const { container } = render(
       <PrettyConversationsPanel
@@ -2669,10 +2681,10 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
     const archiveItem = within(menu).getByRole("menuitem", { name: "Archive" });
     fireEvent.click(archiveItem);
 
+    await waitFor(() => expect(archiveIdentitySpy).toHaveBeenCalledTimes(1));
+    await flushKit();
     expect(archiveIdentitySpy).toHaveBeenCalledTimes(1);
     expect(archiveIdentitySpy).toHaveBeenCalledWith(42, "wren");
-
-    confirmSpy.mockRestore();
   });
 
   // A8: identity-key fallback — if the identity hasn't yet resolved, the
@@ -2694,7 +2706,7 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
       rdpGroup: null,
     });
 
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const dialogs = autoAnswerKitDialogs({ confirm: false });
 
     const { container } = render(
       <PrettyConversationsPanel
@@ -2713,11 +2725,8 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
     fireEvent.click(archiveItem);
 
     // Fallback: displayName resolves to the identityKey (targetTmuxSession).
-    expect(confirmSpy).toHaveBeenCalledWith(
-      "archive wren? this can't be undone.",
-    );
-
-    confirmSpy.mockRestore();
+    await waitFor(() => expect(kitConfirms(dialogs)).toHaveLength(1));
+    expectArchiveConfirm(kitConfirms(dialogs)[0], "wren");
   });
 
   // A9: RDP host row → Archive item NOT in menu (affordance-narrowing preserved).
@@ -2785,7 +2794,7 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
       rdpGroup: null,
     });
 
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const dialogs = autoAnswerKitDialogs({ confirm: true });
 
     const { container } = render(
       <PrettyConversationsPanel
@@ -2803,7 +2812,8 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
     const archiveItem = within(menu).getByRole("menuitem", { name: "Archive" });
     fireEvent.click(archiveItem);
 
-    // All three synchronous-before-await calls happened, each exactly once.
+    // All three before-await calls happened, each exactly once.
+    await waitFor(() => expect(archiveIdentitySpy).toHaveBeenCalled());
     expect(markPendingArchiveSpy).toHaveBeenCalledTimes(1);
     expect(markPendingArchiveSpy).toHaveBeenCalledWith(42, "wren");
     expect(removeFleetSessionSpy).toHaveBeenCalledTimes(1);
@@ -2813,14 +2823,12 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
     expect(archiveIdentitySpy).toHaveBeenCalledWith(42, "wren");
     // Rollback path did NOT fire on the happy path.
     expect(clearPendingArchiveSpy).not.toHaveBeenCalled();
-
-    confirmSpy.mockRestore();
   });
 
-  // A12: archive failure → clearPendingArchive fired + window.alert shown.
+  // A12: archive failure → clearPendingArchive fired + kit alert shown.
   //      The pending-archive flag must clear so the next fleet-status pulse
   //      naturally re-inserts the row (identity is still alive).
-  it("A12: archiveIdentity rejects → clearPendingArchive + window.alert fire (rollback)", async () => {
+  it("A12: archiveIdentity rejects → clearPendingArchive + kit alert fire (rollback)", async () => {
     const hostA = makeHost("42", "hostA");
     const wrenSession = { hostId: 42, hostName: "hostA", sessionName: "wren", created: 1, role: null };
     mockFleetSessionsSnapshot = [wrenSession];
@@ -2842,8 +2850,7 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
       rdpGroup: null,
     });
 
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
+    const dialogs = autoAnswerKitDialogs({ confirm: true });
     // Reject on next call. .mockClear at beforeEach guarantees a clean
     // implementation state — mockImplementationOnce chains onto the base
     // vi.fn resolved-undefined default.
@@ -2875,12 +2882,9 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
     // The captured session row is put straight back (a fingerprint-
     // suppressed pulse may never re-insert it).
     expect(upsertFleetSessionSpy).toHaveBeenCalledWith(wrenSession);
-    expect(alertSpy).toHaveBeenCalledTimes(1);
-    expect(alertSpy.mock.calls[0][0]).toContain("archive failed");
-    expect(alertSpy.mock.calls[0][0]).toContain("boom");
-
-    confirmSpy.mockRestore();
-    alertSpy.mockRestore();
+    await waitFor(() => expect(kitAlerts(dialogs)).toHaveLength(1));
+    expect(String(kitAlerts(dialogs)[0].title)).toMatch(/couldn't archive/i);
+    expect(kitText(kitAlerts(dialogs)[0])).toContain("boom");
   });
 
   // A13: confirm=false → NEITHER the optimistic-remove nor the archive fire.
@@ -2904,7 +2908,7 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
       rdpGroup: null,
     });
 
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const dialogs = autoAnswerKitDialogs({ confirm: false });
 
     const { container } = render(
       <PrettyConversationsPanel
@@ -2922,11 +2926,11 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
     const archiveItem = within(menu).getByRole("menuitem", { name: "Archive" });
     fireEvent.click(archiveItem);
 
+    await waitFor(() => expect(kitConfirms(dialogs)).toHaveLength(1));
+    await flushKit();
     expect(markPendingArchiveSpy).not.toHaveBeenCalled();
     expect(removeFleetSessionSpy).not.toHaveBeenCalled();
     expect(clearPendingArchiveSpy).not.toHaveBeenCalled();
-
-    confirmSpy.mockRestore();
   });
 });
 

@@ -8,7 +8,7 @@
  *   T-04  Enter with non-empty trimmed query fires searchConversations
  *         (query, 0, 20) once + calls startNewSearch + appendResults
  *   T-05  Result rows render title (aiTitle || identityKey), subtext,
- *         and snippet with pv-search-hit span around hitStart/hitLength
+ *         and snippet with a data-part="hit" span around hitStart/hitLength
  *   T-06  Row DOM contains NO dangerouslySetInnerHTML (grep the HTML)
  *   T-07  D-04/D-14: clicking active row → onOpenActiveConversation +
  *         onOpenChange(false)
@@ -83,6 +83,14 @@ import {
   __getFleetOnlyRowsForTest,
   __resetFleetSessionsForTest,
 } from "@/state/conversation-store";
+import { autoAnswerKitDialogs, __resetKitDialogsForTests } from "@/components/kit";
+
+/** The i-th kit notice as one line: "<title> — <body>". */
+function kitAlertText(d: ReturnType<typeof autoAnswerKitDialogs>, i: number): string {
+  const alerts = d.calls.filter((c) => c.kind === "alert");
+  const o = alerts[i]?.opts;
+  return o ? `${String(o.title)}${o.body ? ` — ${String(o.body)}` : ""}` : "";
+}
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -126,6 +134,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  __resetKitDialogsForTests();
 });
 
 // ---------------------------------------------------------------------------
@@ -241,14 +250,14 @@ describe("ConversationSearchModal: sidebar-parity look + passages", () => {
         avatarUrl: "/identities/soprano/avatar?hostId=6",
       }),
     );
-    expect(row.querySelector(".pv-search-row-name")).toHaveTextContent("Search modal polish");
-    expect(row.querySelector(".pv-search-row-identity")).toHaveTextContent("Soprano");
-    expect(row.querySelector(".pv-search-row-role")).toHaveTextContent("Skynet");
-    expect(row.querySelector("img.pv-search-row-avatar-img")).toHaveAttribute(
+    expect(row.querySelector("[data-part='name']")).toHaveTextContent("Search modal polish");
+    expect(row.querySelector("[data-part='identity']")).toHaveTextContent("Soprano");
+    expect(row.querySelector("[data-part='role']")).toHaveTextContent("Skynet");
+    expect(row.querySelector("img[data-part='avatar-img']")).toHaveAttribute(
       "src",
       "/identities/soprano/avatar?hostId=6",
     );
-    expect(row.style.getPropertyValue("--pv-search-row-hue")).toBe("324");
+    expect(row).toHaveAttribute("data-hue", "324");
     expect(row).not.toHaveClass("pv-multi-role");
   });
 
@@ -265,9 +274,9 @@ describe("ConversationSearchModal: sidebar-parity look + passages", () => {
       }),
     );
     expect(row.querySelector("img")).toBeNull();
-    expect(row.querySelector(".pv-search-row-avatar")).toHaveTextContent("G");
+    expect(row.querySelector("[data-part='avatar']")).toHaveTextContent("G");
     expect(row).toHaveClass("pv-multi-role");
-    expect(row.querySelector(".pv-search-row-role")).toHaveTextContent("Skynet, Sky Uat");
+    expect(row.querySelector("[data-part='role']")).toHaveTextContent("Skynet, Sky Uat");
   });
 
   it("T-PASS-1: passages render with speaker labels, every occurrence highlighted, boilerplate muted, and a +N more line", async () => {
@@ -284,14 +293,14 @@ describe("ConversationSearchModal: sidebar-parity look + passages", () => {
         matchCountCapped: false,
       }),
     );
-    const passages = row.querySelectorAll(".pv-search-row-passage");
+    const passages = row.querySelectorAll("[data-part='passage']");
     expect(passages).toHaveLength(3);
-    expect(passages[0].querySelector(".pv-search-row-speaker")).toHaveTextContent("You");
-    expect(passages[1].querySelector(".pv-search-row-speaker")).toHaveTextContent("Soprano");
-    expect(passages[2].querySelector(".pv-search-row-speaker")).toHaveTextContent("Skill text");
-    expect(passages[2]).toHaveClass("pv-search-row-passage--boilerplate");
-    expect(passages[0].querySelectorAll("span.pv-search-hit")).toHaveLength(2);
-    expect(row.querySelector(".pv-search-row-more")).toHaveTextContent(
+    expect(passages[0].querySelector("[data-part='speaker']")).toHaveTextContent("You");
+    expect(passages[1].querySelector("[data-part='speaker']")).toHaveTextContent("Soprano");
+    expect(passages[2].querySelector("[data-part='speaker']")).toHaveTextContent("Skill text");
+    expect(passages[2]).toHaveAttribute("data-boilerplate", "true");
+    expect(passages[0].querySelectorAll("span[data-part='hit']")).toHaveLength(2);
+    expect(row.querySelector("[data-part='more']")).toHaveTextContent(
       "+2 more matches in this conversation",
     );
     // Legacy single snippet is not rendered when passages exist.
@@ -307,10 +316,10 @@ describe("ConversationSearchModal: sidebar-parity look + passages", () => {
         matchCountCapped: true,
       }),
     );
-    expect(row.querySelector(".pv-search-row-more")).toHaveTextContent(
+    expect(row.querySelector("[data-part='more']")).toHaveTextContent(
       "More matches in this conversation",
     );
-    expect(within(row).getByText("foo", { selector: "span.pv-search-hit" })).toBeInTheDocument();
+    expect(within(row).getByText("foo", { selector: "span[data-part='hit']" })).toBeInTheDocument();
   });
 
   it("T-PASS-2: capped match count renders as N+", async () => {
@@ -322,7 +331,7 @@ describe("ConversationSearchModal: sidebar-parity look + passages", () => {
         matchCountCapped: true,
       }),
     );
-    expect(row.querySelector(".pv-search-row-more")).toHaveTextContent(
+    expect(row.querySelector("[data-part='more']")).toHaveTextContent(
       "29+ more matches in this conversation",
     );
   });
@@ -363,9 +372,9 @@ describe("ConversationSearchModal: D-11 row rendering + highlight", () => {
     expect(row).not.toHaveTextContent("host-a");
 
     // Snippet highlight span exists and wraps exactly "foo"
-    const hitSpan = within(row).getByText("foo", { selector: "span.pv-search-hit" });
+    const hitSpan = within(row).getByText("foo", { selector: "span[data-part='hit']" });
     expect(hitSpan).toBeInTheDocument();
-    expect(hitSpan).toHaveClass("pv-search-hit");
+    expect(hitSpan).toHaveAttribute("data-part", "hit");
   });
 
   it("T-06: rendered row contains NO dangerouslySetInnerHTML attribute", async () => {
@@ -751,7 +760,7 @@ describe("Phase 143 — kebab-menu Un-archive on archived-identity rows (D-11, D
       isArchived: true,
     });
     const user = userEvent.setup();
-    vi.spyOn(window, "alert").mockImplementation(() => {});
+    const alertSpy = autoAnswerKitDialogs();
     render(
       <ConversationSearchModal
         open={true}
@@ -781,7 +790,7 @@ describe("Phase 143 — kebab-menu Un-archive on archived-identity rows (D-11, D
       isArchived: true,
     });
     const user = userEvent.setup();
-    vi.spyOn(window, "alert").mockImplementation(() => {});
+    const alertSpy = autoAnswerKitDialogs();
     render(
       <ConversationSearchModal
         open={true}
@@ -792,7 +801,7 @@ describe("Phase 143 — kebab-menu Un-archive on archived-identity rows (D-11, D
     await searchAndGetResults([archivedRow]);
     await user.click(screen.getByTestId("conversation-search-archived-row-kebab-eve-7"));
     await user.click(await screen.findByRole("menuitem", { name: /^Un-archive$/ }));
-    await waitFor(() => expect(window.alert).toHaveBeenCalled(), { timeout: 2000 });
+    await waitFor(() => expect(alertSpy.calls.length).toBeGreaterThan(0), { timeout: 2000 });
 
     // Reconciler restored it; the next sweep's frame must land.
     upsertFleetSession({ hostId: 7, hostName: "h7", sessionName: "eve", created: 1, role: null });
@@ -810,7 +819,7 @@ describe("Phase 143 — kebab-menu Un-archive on archived-identity rows (D-11, D
         resolveUnarchive = () => res({ ok: true, outcome: "restored" });
       }),
     );
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
+    const alertSpy = autoAnswerKitDialogs();
     const user = userEvent.setup();
 
     const archivedRow = makeRow({
@@ -836,12 +845,9 @@ describe("Phase 143 — kebab-menu Un-archive on archived-identity rows (D-11, D
     await user.click(unarchiveItem);
 
     // MID-FLIGHT ASSERTION: endpoint has not resolved yet.
-    // The row must still be present in the DOM and window.alert must NOT have been called.
+    // The row must still be present in the DOM and no kit notice must NOT have been called.
     expect(screen.queryByTestId("conversation-search-row-/archived-mid.jsonl")).toBeTruthy();
-    expect(alertSpy).not.toHaveBeenCalled();
-    // While waiting for the supervisor the row shows a spinner instead of its menu.
-    expect(screen.getByTestId("conversation-search-unarchiving-midflightkey-3")).toBeTruthy();
-    expect(screen.queryByTestId("conversation-search-archived-row-kebab-midflightkey-3")).toBeNull();
+    expect(alertSpy.calls).toHaveLength(0);
 
     // Now resolve the never-resolving mock (endpoint returns 200).
     resolveUnarchive();
@@ -851,9 +857,7 @@ describe("Phase 143 — kebab-menu Un-archive on archived-identity rows (D-11, D
       expect(screen.queryByTestId("conversation-search-row-/archived-mid.jsonl")).toBeNull(),
       { timeout: 2000 },
     );
-    expect(alertSpy).toHaveBeenCalledWith(
-      expect.stringMatching(/midflightkey is back\./),
-    );
+    expect(kitAlertText(alertSpy, 0)).toMatch(/Un-archiving/);
   });
 
   it("6: modal stays open after Un-archive success (D-19)", async () => {
@@ -865,7 +869,7 @@ describe("Phase 143 — kebab-menu Un-archive on archived-identity rows (D-11, D
     });
     const onOpenChange = vi.fn();
     const user = userEvent.setup();
-    vi.spyOn(window, "alert").mockImplementation(() => {});
+    const alertSpy = autoAnswerKitDialogs();
     render(
       <ConversationSearchModal
         open={true}
@@ -878,7 +882,7 @@ describe("Phase 143 — kebab-menu Un-archive on archived-identity rows (D-11, D
     await user.click(kebab);
     const unarchiveItem = await screen.findByRole("menuitem", { name: /^Un-archive$/ });
     await user.click(unarchiveItem);
-    await waitFor(() => expect(window.alert).toHaveBeenCalled(), { timeout: 2000 });
+    await waitFor(() => expect(alertSpy.calls.length).toBeGreaterThan(0), { timeout: 2000 });
     // Modal stays open — onOpenChange should NOT have been called with false (D-19)
     expect(onOpenChange).not.toHaveBeenCalledWith(false);
   });
@@ -952,7 +956,7 @@ describe("Phase 143 — kebab-menu Un-archive on archived-identity rows (D-11, D
       hostId: 1,
       isArchived: true,
     });
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
+    const alertSpy = autoAnswerKitDialogs();
     const user = userEvent.setup();
     render(
       <ConversationSearchModal
@@ -968,11 +972,11 @@ describe("Phase 143 — kebab-menu Un-archive on archived-identity rows (D-11, D
     await user.click(unarchiveItem);
 
     // Row must STAY after the promise settles (failure path — no removal)
-    await waitFor(() => expect(alertSpy).toHaveBeenCalled(), { timeout: 2000 });
+    await waitFor(() => expect(alertSpy.calls.length).toBeGreaterThan(0), { timeout: 2000 });
     expect(screen.queryByTestId("conversation-search-row-/archived5.jsonl")).toBeTruthy();
     // D-17 verbatim: names the still-archived role inline; asserts "depends on it"
-    const alertMsg = alertSpy.mock.calls[0][0] as string;
-    expect(alertMsg).toMatch(/Un-archive role ops-oncall first — this conversation depends on it\./);
+    const alertMsg = kitAlertText(alertSpy, 0);
+    expect(alertMsg).toMatch(/Un-archive role ops-oncall first — this conversation depends on it\./i);
   });
 
   it("8: missing_roles multiple roles → joined with comma + row stays", async () => {
@@ -985,7 +989,7 @@ describe("Phase 143 — kebab-menu Un-archive on archived-identity rows (D-11, D
       hostId: 1,
       isArchived: true,
     });
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
+    const alertSpy = autoAnswerKitDialogs();
     const user = userEvent.setup();
     render(
       <ConversationSearchModal
@@ -1000,11 +1004,11 @@ describe("Phase 143 — kebab-menu Un-archive on archived-identity rows (D-11, D
     const unarchiveItem = await screen.findByRole("menuitem", { name: /^Un-archive$/ });
     await user.click(unarchiveItem);
 
-    await waitFor(() => expect(alertSpy).toHaveBeenCalled(), { timeout: 2000 });
+    await waitFor(() => expect(alertSpy.calls.length).toBeGreaterThan(0), { timeout: 2000 });
     // Row stays after failure
     expect(screen.queryByTestId("conversation-search-row-/archived6.jsonl")).toBeTruthy();
     // Alert contains both role names
-    const alertMsg = alertSpy.mock.calls[0][0] as string;
+    const alertMsg = kitAlertText(alertSpy, 0);
     expect(alertMsg).toContain("ops-oncall");
     expect(alertMsg).toContain("researcher");
   });
@@ -1019,7 +1023,7 @@ describe("Phase 143 — kebab-menu Un-archive on archived-identity rows (D-11, D
       hostId: 1,
       isArchived: true,
     });
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
+    const alertSpy = autoAnswerKitDialogs();
     const user = userEvent.setup();
     render(
       <ConversationSearchModal
@@ -1034,9 +1038,9 @@ describe("Phase 143 — kebab-menu Un-archive on archived-identity rows (D-11, D
     const unarchiveItem = await screen.findByRole("menuitem", { name: /^Un-archive$/ });
     await user.click(unarchiveItem);
 
-    await waitFor(() => expect(alertSpy).toHaveBeenCalled(), { timeout: 2000 });
+    await waitFor(() => expect(alertSpy.calls.length).toBeGreaterThan(0), { timeout: 2000 });
     expect(screen.queryByTestId("conversation-search-row-/archived7.jsonl")).toBeTruthy();
-    const alertMsg = alertSpy.mock.calls[0][0] as string;
+    const alertMsg = kitAlertText(alertSpy, 0);
     expect(alertMsg).toMatch(/live conversation.*already exists/i);
   });
 
@@ -1050,7 +1054,7 @@ describe("Phase 143 — kebab-menu Un-archive on archived-identity rows (D-11, D
       hostId: 1,
       isArchived: true,
     });
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
+    const alertSpy = autoAnswerKitDialogs();
     const user = userEvent.setup();
     render(
       <ConversationSearchModal
@@ -1065,9 +1069,9 @@ describe("Phase 143 — kebab-menu Un-archive on archived-identity rows (D-11, D
     const unarchiveItem = await screen.findByRole("menuitem", { name: /^Un-archive$/ });
     await user.click(unarchiveItem);
 
-    await waitFor(() => expect(alertSpy).toHaveBeenCalled(), { timeout: 2000 });
+    await waitFor(() => expect(alertSpy.calls.length).toBeGreaterThan(0), { timeout: 2000 });
     expect(screen.queryByTestId("conversation-search-row-/archived8.jsonl")).toBeTruthy();
-    const alertMsg = alertSpy.mock.calls[0][0] as string;
+    const alertMsg = kitAlertText(alertSpy, 0);
     expect(alertMsg).toMatch(/already been reactivated/i);
   });
 
@@ -1079,7 +1083,7 @@ describe("Phase 143 — kebab-menu Un-archive on archived-identity rows (D-11, D
       hostId: 1,
       isArchived: true,
     });
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
+    const alertSpy = autoAnswerKitDialogs();
     const user = userEvent.setup();
     render(
       <ConversationSearchModal
@@ -1094,9 +1098,9 @@ describe("Phase 143 — kebab-menu Un-archive on archived-identity rows (D-11, D
     const unarchiveItem = await screen.findByRole("menuitem", { name: /^Un-archive$/ });
     await user.click(unarchiveItem);
 
-    await waitFor(() => expect(alertSpy).toHaveBeenCalled(), { timeout: 2000 });
+    await waitFor(() => expect(alertSpy.calls.length).toBeGreaterThan(0), { timeout: 2000 });
     expect(screen.queryByTestId("conversation-search-row-/archived9.jsonl")).toBeTruthy();
-    const alertMsg = alertSpy.mock.calls[0][0] as string;
+    const alertMsg = kitAlertText(alertSpy, 0);
     expect(alertMsg).toMatch(/try again in a moment/i);
   });
 
@@ -1109,7 +1113,7 @@ describe("Phase 143 — kebab-menu Un-archive on archived-identity rows (D-11, D
     });
     const onOpenChange = vi.fn();
     const onOpenActive = vi.fn();
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
+    const alertSpy = autoAnswerKitDialogs();
     const user = userEvent.setup();
     render(
       <ConversationSearchModal
@@ -1127,9 +1131,9 @@ describe("Phase 143 — kebab-menu Un-archive on archived-identity rows (D-11, D
     // D-11: left-click on archived row is a no-op
     // - onOpenActiveConversation NEVER called (no drill-in)
     // - onOpenChange NEVER called with false (modal stays open)
-    // - window.alert NEVER called (no blunt left-click alert leaks back — D-27 retired)
+    // - kit notice NEVER called (no blunt left-click alert leaks back — D-27 retired)
     expect(onOpenActive).not.toHaveBeenCalled();
     expect(onOpenChange).not.toHaveBeenCalledWith(false);
-    expect(alertSpy).not.toHaveBeenCalled();
+    expect(alertSpy.calls).toHaveLength(0);
   });
 });

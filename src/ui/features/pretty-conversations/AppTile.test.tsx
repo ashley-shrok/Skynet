@@ -101,6 +101,13 @@ import {
   clearPendingAppTitle,
 } from "../../state/app-tiles-store";
 import type { AppState } from "../../api/fleet-status-types";
+import {
+  autoAnswerKitDialogs,
+  __resetKitDialogsForTests,
+  type KitAlertOptions,
+  type KitConfirmOptions,
+  type KitPromptOptions,
+} from "@/components/kit";
 
 // Builder for AppState fixtures — most tests need slight variations of the
 // same base shape.
@@ -520,23 +527,26 @@ describe("AppTile — D-09 no per-app hue emission", () => {
 });
 
 // ─── app-archive shape: Archive menu item + double-confirm + failure alert ───
-// Locks the archive-gesture UX:
+// Locks the archive-gesture UX (kit dialogs, driven via autoAnswerKitDialogs):
 //   - Both confirms accepted → archiveApp called with (Number(hostId), slug)
 //   - First confirm cancelled → no archiveApp call, no second confirm
 //   - First confirm accepted, second cancelled → no archiveApp call
-//   - archiveApp rejects → window.alert is called with a message that
-//     includes the app title AND the underlying error message
+//   - archiveApp rejects → a kit alert names the app title AND carries the
+//     underlying error message
 //   - No optimistic hide: the tile is NOT removed from the DOM by the click.
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** Let the async menu handler run to completion (kit dialogs resolve on a microtask). */
+const flush = () => new Promise((r) => setTimeout(r, 0));
+
+function kitText(o: { title?: unknown; body?: unknown }): string {
+  return `${String(o.title ?? "")}\n${String(o.body ?? "")}`;
+}
+
 describe("AppTile — app-archive shape: Archive menu item", () => {
-  let confirmSpy: ReturnType<typeof vi.spyOn>;
-  let alertSpy: ReturnType<typeof vi.spyOn>;
   let warnSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
-    confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
-    alertSpy = vi.spyOn(window, "alert").mockImplementation(() => undefined);
     warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     // Reset the archiveApp mock per test.
     (archiveApp as unknown as Mock).mockReset();
@@ -548,78 +558,83 @@ describe("AppTile — app-archive shape: Archive menu item", () => {
   });
 
   afterEach(() => {
-    confirmSpy.mockRestore();
-    alertSpy.mockRestore();
+    __resetKitDialogsForTests();
     warnSpy.mockRestore();
   });
 
+  const confirms = (d: ReturnType<typeof autoAnswerKitDialogs>) =>
+    d.calls.filter((c) => c.kind === "confirm").map((c) => c.opts as KitConfirmOptions);
+  const alerts = (d: ReturnType<typeof autoAnswerKitDialogs>) =>
+    d.calls.filter((c) => c.kind === "alert").map((c) => c.opts as KitAlertOptions);
+
   it("M: both confirms accepted → archiveApp called with (Number(hostId), slug)", async () => {
-    confirmSpy.mockReturnValue(true);
+    const dialogs = autoAnswerKitDialogs({ confirm: true });
     render(<AppTile app={makeApp({ hostId: "7", slug: "scratch", title: "Scratch" })} />);
     const tile = screen.getByRole("button", { name: /App tile: Scratch/ });
     await openTileKebab(tile);
     fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
 
-    // Two confirms fired, with the expected copy in each.
-    expect(confirmSpy).toHaveBeenCalledTimes(2);
-    expect(confirmSpy).toHaveBeenNthCalledWith(
-      1,
-      "archive Scratch? this can't be undone.",
-    );
-    expect(confirmSpy).toHaveBeenNthCalledWith(
-      2,
-      "are you sure? this can't be undone.",
-    );
+    await vi.waitFor(() => expect(archiveApp).toHaveBeenCalledTimes(1));
+    // Two confirms fired, both destructive; the first names the app, the
+    // second is the "are you sure" re-check; both say it can't be undone.
+    const c = confirms(dialogs);
+    expect(c).toHaveLength(2);
+    expect(kitText(c[0])).toContain("Scratch");
+    expect(kitText(c[0])).toMatch(/can't undo/i);
+    expect(c[0].destructive).toBe(true);
+    expect(String(c[1].title)).toMatch(/are you sure/i);
+    expect(kitText(c[1])).toMatch(/can't undo/i);
+    expect(c[1].destructive).toBe(true);
 
-    expect(archiveApp).toHaveBeenCalledTimes(1);
     expect(archiveApp).toHaveBeenCalledWith(7, "scratch");
     // No failure alert on happy path
-    expect(alertSpy).not.toHaveBeenCalled();
+    await flush();
+    expect(alerts(dialogs)).toHaveLength(0);
   });
 
   it("N: first confirm cancelled → no archiveApp call, no second confirm", async () => {
-    confirmSpy.mockReturnValueOnce(false);
+    const dialogs = autoAnswerKitDialogs({ confirm: false });
     render(<AppTile app={makeApp()} />);
     const tile = screen.getByRole("button", { name: /App tile: Scratch/ });
     await openTileKebab(tile);
     fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
 
-    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(confirms(dialogs)).toHaveLength(1));
+    await flush();
+    expect(confirms(dialogs)).toHaveLength(1);
     expect(archiveApp).not.toHaveBeenCalled();
-    expect(alertSpy).not.toHaveBeenCalled();
+    expect(alerts(dialogs)).toHaveLength(0);
   });
 
   it("O: first confirm accepted, second cancelled → no archiveApp call", async () => {
-    confirmSpy.mockReturnValueOnce(true).mockReturnValueOnce(false);
+    let n = 0;
+    const dialogs = autoAnswerKitDialogs({ confirm: () => ++n === 1 });
     render(<AppTile app={makeApp()} />);
     const tile = screen.getByRole("button", { name: /App tile: Scratch/ });
     await openTileKebab(tile);
     fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
 
-    expect(confirmSpy).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() => expect(confirms(dialogs)).toHaveLength(2));
+    await flush();
     expect(archiveApp).not.toHaveBeenCalled();
-    expect(alertSpy).not.toHaveBeenCalled();
+    expect(alerts(dialogs)).toHaveLength(0);
   });
 
-  it("P: archiveApp rejects → window.alert called with title + error message; console.warn structured", async () => {
+  it("P: archiveApp rejects → kit alert carries title + error message; console.warn structured", async () => {
     const errorMessage = "Request failed with status code 500";
     (archiveApp as unknown as Mock).mockRejectedValueOnce(
       new Error(errorMessage),
     );
-    confirmSpy.mockReturnValue(true);
+    const dialogs = autoAnswerKitDialogs({ confirm: true });
     render(<AppTile app={makeApp({ hostId: "7", slug: "scratch", title: "Scratch" })} />);
     const tile = screen.getByRole("button", { name: /App tile: Scratch/ });
     await openTileKebab(tile);
     fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
 
-    // Wait a microtask for the .catch to run.
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(alertSpy).toHaveBeenCalledTimes(1);
-    const alertMsg = alertSpy.mock.calls[0][0] as string;
-    expect(alertMsg).toContain("Scratch");
-    expect(alertMsg).toContain(errorMessage);
+    await vi.waitFor(() => expect(alerts(dialogs)).toHaveLength(1));
+    const alertText = kitText(alerts(dialogs)[0]);
+    expect(alertText).toContain("Scratch");
+    expect(alertText).toContain(errorMessage);
 
     expect(warnSpy).toHaveBeenCalled();
     const warnPayload = warnSpy.mock.calls[0][0] as {
@@ -635,16 +650,18 @@ describe("AppTile — app-archive shape: Archive menu item", () => {
   });
 
   it("Q: optimistic sidebar removal — markPendingAppArchive + publishAppGone fire on confirm=true, in that order, BEFORE archiveApp resolves", async () => {
-    confirmSpy.mockReturnValue(true);
+    autoAnswerKitDialogs({ confirm: true });
+    // archiveApp never resolves — the optimistic mutators must not wait on it.
+    (archiveApp as unknown as Mock).mockReturnValue(new Promise(() => {}));
     render(<AppTile app={makeApp({ hostId: "7", slug: "scratch", title: "Scratch" })} />);
     const tile = screen.getByRole("button", { name: /App tile: Scratch/ });
     await openTileKebab(tile);
     fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
 
     // Both mutators fired with the wire-shaped hostId (string) and slug.
+    await vi.waitFor(() => expect(publishAppGone).toHaveBeenCalledTimes(1));
     expect(markPendingAppArchive).toHaveBeenCalledTimes(1);
     expect(markPendingAppArchive).toHaveBeenCalledWith("7", "scratch");
-    expect(publishAppGone).toHaveBeenCalledTimes(1);
     expect(publishAppGone).toHaveBeenCalledWith("7", "scratch");
     // Rollback path did NOT fire on the happy path.
     expect(clearPendingAppArchive).not.toHaveBeenCalled();
@@ -659,7 +676,7 @@ describe("AppTile — app-archive shape: Archive menu item", () => {
   });
 
   it("R: onArchive callback fires with (Number(hostId), slug, title) after optimistic remove", async () => {
-    confirmSpy.mockReturnValue(true);
+    autoAnswerKitDialogs({ confirm: true });
     const onArchive = vi.fn();
     render(
       <AppTile
@@ -671,7 +688,7 @@ describe("AppTile — app-archive shape: Archive menu item", () => {
     await openTileKebab(tile);
     fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
 
-    expect(onArchive).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(onArchive).toHaveBeenCalledTimes(1));
     expect(onArchive).toHaveBeenCalledWith(7, "scratch", "Scratch");
     // Ordering: publishAppGone (sidebar drop) BEFORE onArchive (tab close).
     // The user sees the tile go, then any open pane close — no scenario
@@ -684,28 +701,24 @@ describe("AppTile — app-archive shape: Archive menu item", () => {
   it("S: archiveApp rejects → clearPendingAppArchive fires (rollback) alongside the alert", async () => {
     const errorMessage = "boom";
     (archiveApp as unknown as Mock).mockRejectedValueOnce(new Error(errorMessage));
-    confirmSpy.mockReturnValue(true);
+    const dialogs = autoAnswerKitDialogs({ confirm: true });
     render(<AppTile app={makeApp({ hostId: "7", slug: "scratch", title: "Scratch" })} />);
     const tile = screen.getByRole("button", { name: /App tile: Scratch/ });
     await openTileKebab(tile);
     fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
 
-    // Optimistic-remove fired synchronously.
-    expect(markPendingAppArchive).toHaveBeenCalledWith("7", "scratch");
+    // Optimistic-remove fired.
+    await vi.waitFor(() => expect(markPendingAppArchive).toHaveBeenCalledWith("7", "scratch"));
     expect(publishAppGone).toHaveBeenCalledWith("7", "scratch");
 
     // Wait for the awaited archiveApp to reject and the catch to run.
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(clearPendingAppArchive).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(clearPendingAppArchive).toHaveBeenCalledTimes(1));
     expect(clearPendingAppArchive).toHaveBeenCalledWith("7", "scratch");
-    expect(alertSpy).toHaveBeenCalledTimes(1);
+    expect(alerts(dialogs)).toHaveLength(1);
   });
 
   it("T: onArchive is optional — missing prop does not throw the click handler", async () => {
-    confirmSpy.mockReturnValue(true);
+    autoAnswerKitDialogs({ confirm: true });
     render(<AppTile app={makeApp()} />);
     const tile = screen.getByRole("button", { name: /App tile: Scratch/ });
     await openTileKebab(tile);
@@ -714,19 +727,15 @@ describe("AppTile — app-archive shape: Archive menu item", () => {
     }).not.toThrow();
     // Store optimistic-remove still fires; only the tab-close callback is
     // silently skipped.
+    await vi.waitFor(() => expect(publishAppGone).toHaveBeenCalledTimes(1));
     expect(markPendingAppArchive).toHaveBeenCalledTimes(1);
-    expect(publishAppGone).toHaveBeenCalledTimes(1);
   });
 });
 
 describe("AppTile — app-rename shape: Rename menu item", () => {
-  let promptSpy: ReturnType<typeof vi.spyOn>;
-  let alertSpy: ReturnType<typeof vi.spyOn>;
   let warnSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
-    promptSpy = vi.spyOn(window, "prompt").mockReturnValue(null);
-    alertSpy = vi.spyOn(window, "alert").mockImplementation(() => undefined);
     warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     (renameApp as unknown as Mock).mockReset();
     (renameApp as unknown as Mock).mockResolvedValue({ ok: true, title: "x" });
@@ -735,35 +744,42 @@ describe("AppTile — app-rename shape: Rename menu item", () => {
   });
 
   afterEach(() => {
-    promptSpy.mockRestore();
-    alertSpy.mockRestore();
+    __resetKitDialogsForTests();
     warnSpy.mockRestore();
   });
+
+  const prompts = (d: ReturnType<typeof autoAnswerKitDialogs>) =>
+    d.calls.filter((c) => c.kind === "prompt").map((c) => c.opts as KitPromptOptions);
+  const alerts = (d: ReturnType<typeof autoAnswerKitDialogs>) =>
+    d.calls.filter((c) => c.kind === "alert").map((c) => c.opts as KitAlertOptions);
 
   async function clickRename(app: AppState = makeApp({ hostId: "7", slug: "scratch", title: "Scratch" })) {
     render(<AppTile app={app} />);
     const tile = screen.getByRole("button", { name: new RegExp(`App tile: ${app.title}`) });
     await openTileKebab(tile);
     fireEvent.click(screen.getByRole("menuitem", { name: "Rename…" }));
-    await Promise.resolve();
-    await Promise.resolve();
+    await flush();
   }
 
   it("prompts pre-filled with the current title", async () => {
+    const dialogs = autoAnswerKitDialogs({ prompt: null });
     await clickRename();
-    expect(promptSpy).toHaveBeenCalledTimes(1);
-    expect(promptSpy).toHaveBeenCalledWith('Rename "Scratch" to:', "Scratch");
+    const p = prompts(dialogs);
+    expect(p).toHaveLength(1);
+    expect(String(p[0].title)).toContain("Scratch");
+    expect(String(p[0].title)).toMatch(/rename/i);
+    expect(p[0].defaultValue).toBe("Scratch");
   });
 
   it("cancel → no optimistic update, no request", async () => {
-    promptSpy.mockReturnValueOnce(null);
+    autoAnswerKitDialogs({ prompt: null });
     await clickRename();
     expect(setPendingAppTitle).not.toHaveBeenCalled();
     expect(renameApp).not.toHaveBeenCalled();
   });
 
   it("unchanged title (after trim) → no-op", async () => {
-    promptSpy.mockReturnValueOnce("  Scratch  ");
+    autoAnswerKitDialogs({ prompt: "  Scratch  " });
     await clickRename();
     expect(setPendingAppTitle).not.toHaveBeenCalled();
     expect(renameApp).not.toHaveBeenCalled();
@@ -776,52 +792,56 @@ describe("AppTile — app-rename shape: Rename menu item", () => {
       order.push("rename");
       return Promise.resolve({ ok: true, title: "Sketchpad" });
     });
-    promptSpy.mockReturnValueOnce("  Sketchpad ");
+    const dialogs = autoAnswerKitDialogs({ prompt: "  Sketchpad " });
     await clickRename();
 
+    await vi.waitFor(() => expect(renameApp).toHaveBeenCalledWith(7, "scratch", "Sketchpad"));
     expect(setPendingAppTitle).toHaveBeenCalledWith("7", "scratch", "Sketchpad");
-    expect(renameApp).toHaveBeenCalledWith(7, "scratch", "Sketchpad");
     expect(order).toEqual(["set", "rename"]);
+    await flush();
     expect(clearPendingAppTitle).not.toHaveBeenCalled();
-    expect(alertSpy).not.toHaveBeenCalled();
+    expect(alerts(dialogs)).toHaveLength(0);
   });
 
-  it("invalid entry re-prompts with the error and the user's text, until valid", async () => {
-    promptSpy
-      .mockReturnValueOnce("   ")
-      .mockReturnValueOnce("a\nb")
-      .mockReturnValueOnce("x".repeat(81))
-      .mockReturnValueOnce("Good Name");
+  it("invalid entry is blocked in the field with the error; a valid one goes through", async () => {
+    const dialogs = autoAnswerKitDialogs({ prompt: "Good Name" });
     await clickRename();
 
-    expect(promptSpy).toHaveBeenCalledTimes(4);
-    expect(promptSpy.mock.calls[1][0]).toMatch(/can't be empty/);
-    expect(promptSpy.mock.calls[1][1]).toBe("   ");
-    expect(promptSpy.mock.calls[2][0]).toMatch(/line breaks/);
-    expect(promptSpy.mock.calls[3][0]).toMatch(/at most 80/);
-    expect(promptSpy.mock.calls[3][1]).toBe("x".repeat(81));
-    expect(renameApp).toHaveBeenCalledTimes(1);
+    const p = prompts(dialogs);
+    expect(p).toHaveLength(1);
+    const validate = p[0].validate!;
+    expect(validate).toBeTypeOf("function");
+    expect(validate("   ")).toMatch(/can't be empty/);
+    expect(validate("a\nb")).toMatch(/line breaks/);
+    expect(validate("x".repeat(81))).toMatch(/at most 80/);
+    expect(validate("Good Name")).toBeFalsy();
+    await vi.waitFor(() => expect(renameApp).toHaveBeenCalledTimes(1));
     expect(renameApp).toHaveBeenCalledWith(7, "scratch", "Good Name");
   });
 
   it("invalid entry then cancel → nothing sent", async () => {
-    promptSpy.mockReturnValueOnce("").mockReturnValueOnce(null);
+    // Mirror the real dialog: validate blocks submit of "", so the user cancels.
+    const dialogs = autoAnswerKitDialogs({
+      prompt: (o) => (o.validate?.("") ? null : ""),
+    });
     await clickRename();
-    expect(promptSpy).toHaveBeenCalledTimes(2);
+    expect(prompts(dialogs)).toHaveLength(1);
+    expect(prompts(dialogs)[0].validate?.("")).toBeTruthy();
     expect(setPendingAppTitle).not.toHaveBeenCalled();
     expect(renameApp).not.toHaveBeenCalled();
   });
 
   it("renameApp rejects → rollback to previous title + alert + structured warn", async () => {
     (renameApp as unknown as Mock).mockRejectedValueOnce(new Error("rename app: boom"));
-    promptSpy.mockReturnValueOnce("Sketchpad");
+    const dialogs = autoAnswerKitDialogs({ prompt: "Sketchpad" });
     await clickRename();
 
+    await vi.waitFor(() => expect(alerts(dialogs)).toHaveLength(1));
     expect(setPendingAppTitle).toHaveBeenCalledWith("7", "scratch", "Sketchpad");
     expect(clearPendingAppTitle).toHaveBeenCalledWith("7", "scratch", "Scratch");
-    expect(alertSpy).toHaveBeenCalledTimes(1);
-    expect(alertSpy.mock.calls[0][0]).toContain("Scratch");
-    expect(alertSpy.mock.calls[0][0]).toContain("boom");
+    const alertText = kitText(alerts(dialogs)[0]);
+    expect(alertText).toContain("Scratch");
+    expect(alertText).toContain("boom");
     expect(warnSpy.mock.calls[0][0]).toMatchObject({
       operation: "app_rename_failed",
       hostId: 7,

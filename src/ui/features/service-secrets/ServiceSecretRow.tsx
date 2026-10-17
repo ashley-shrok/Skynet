@@ -9,14 +9,14 @@
 
 import { useState } from "react";
 import type { ServiceSecret } from "@/api/service-secrets-api";
+import { adminErrorMessage, formatAdminDate } from "@/features/admin/admin-ui";
 import {
-  AdminBadge,
-  AdminButton,
-  AdminError,
-  adminErrorMessage,
-  adminInputClass,
-  formatAdminDate,
-} from "@/features/admin/admin-ui";
+  KitBanner,
+  KitButton,
+  KitChip,
+  KitInput,
+  kitConfirm,
+} from "@/components/kit";
 
 export interface ServiceSecretRowProps {
   secret: ServiceSecret;
@@ -62,12 +62,13 @@ export function ServiceSecretRow({
   };
 
   const clear = async () => {
-    if (
-      !window.confirm(
-        `Remove ${secret.label}? Agents will no longer be able to use it.`,
-      )
-    )
-      return;
+    const ok = await kitConfirm({
+      title: `Remove ${secret.label}?`,
+      body: "Agents will no longer be able to use it.",
+      confirmLabel: "Remove",
+      destructive: true,
+    });
+    if (!ok) return;
     setBusy("removing");
     setError(null);
     setSaved(false);
@@ -80,44 +81,45 @@ export function ServiceSecretRow({
     }
   };
 
+  // A block that sits inside a kit settings group (Preferences → Services,
+  // Admin → user → Service secrets); hairline between consecutive rows.
   return (
     <div
-      className="flex flex-col gap-1.5 py-2.5 border-b border-white/[0.06] last:border-b-0"
+      className="flex flex-col gap-1.5 py-2.5 border-b border-[var(--k-hair)] last:border-b-0"
       data-testid={id}
     >
       <div className="flex items-center gap-2 flex-wrap">
-        <label htmlFor={`${id}-input`} className="text-[13px] text-[#e8e4d8]">
+        <label htmlFor={`${id}-input`} className="text-[14px] text-[var(--k-t1)]">
           {secret.label}
         </label>
         {showManagedBy && (
-          <AdminBadge
-            tone={secret.managedBy === "admin" ? "accent" : undefined}
-          >
+          <KitChip tone={secret.managedBy === "admin" ? "accent" : "neutral"}>
             {secret.managedBy === "admin" ? "Admin-managed" : "User can change"}
-          </AdminBadge>
+          </KitChip>
         )}
         <span
-          className="text-[12px] text-[#a89a80]"
+          className="text-[12.5px] text-[var(--k-t3)]"
           data-testid={`${id}-status`}
         >
           {status}
         </span>
       </div>
       {secret.description && (
-        <span className="text-[12px] leading-[1.4] text-[#a89a80]">
+        <span className="text-[12.5px] leading-[1.4] text-[var(--k-t3)]">
           {secret.description}
         </span>
       )}
       <form
-        className="flex gap-2 flex-wrap"
+        className="flex gap-2 flex-wrap items-center"
         onSubmit={(e) => {
           e.preventDefault();
           void save();
         }}
       >
-        <input
+        <KitInput
           id={`${id}-input`}
           data-testid={`${id}-input`}
+          size="sm"
           type="password"
           autoComplete="off"
           spellCheck={false}
@@ -131,29 +133,40 @@ export function ServiceSecretRow({
             setError(null);
             setSaved(false);
           }}
-          className={`${adminInputClass} flex-1 min-w-[200px]`}
+          className="flex-1 min-w-[200px] w-auto"
         />
-        <AdminButton
+        <KitButton
           type="submit"
+          size="sm"
+          variant="primary"
           data-testid={`${id}-save`}
-          disabled={busy !== null || !draft.trim()}
+          disabled={!draft.trim() || busy === "removing"}
+          busy={busy === "saving"}
         >
           {busy === "saving" ? "Saving…" : secret.isSet ? "Replace" : "Save"}
-        </AdminButton>
+        </KitButton>
         {secret.isSet && (
-          <AdminButton
-            tone="danger"
+          <KitButton
+            size="sm"
+            variant="danger-quiet"
             data-testid={`${id}-remove`}
-            disabled={busy !== null}
+            disabled={busy === "saving"}
+            busy={busy === "removing"}
             onClick={() => void clear()}
           >
             {busy === "removing" ? "Removing…" : "Remove"}
-          </AdminButton>
+          </KitButton>
         )}
       </form>
-      {error && <AdminError testId={`${id}-error`}>{error}</AdminError>}
+      {error && (
+        <KitBanner tone="danger" data-testid={`${id}-error`}>
+          {error}
+        </KitBanner>
+      )}
       {saved && !error && (
-        <span className="text-[12px] text-[#8fd39e]">✓ Saved</span>
+        <span className="text-[12.5px] text-[var(--k-ok)]" role="status">
+          ✓ Saved
+        </span>
       )}
     </div>
   );

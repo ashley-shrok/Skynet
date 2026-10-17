@@ -88,6 +88,13 @@ async function openRowKebabInBody(body: HTMLElement): Promise<HTMLElement> {
 }
 
 import type { Host, HostFolder } from "@/types/ui-types";
+import {
+  autoAnswerKitDialogs,
+  __resetKitDialogsForTests,
+  type KitAlertOptions,
+  type KitConfirmOptions,
+  type KitPromptOptions,
+} from "@/components/kit";
 
 // ─── Global mocks ─────────────────────────────────────────────────────────────
 
@@ -1526,12 +1533,23 @@ describe("PrettyConversationsPanel: unpin-drop on flat middle", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", () => {
-  // A9 — window.confirm spy is re-installed each test because the file-level
-  // afterEach restores all mocks. Store the current spy in a let so tests
-  // access the live instance.
-  let confirmSpy: ReturnType<typeof vi.spyOn>;
+  // A9 — kit dialogs (kitConfirm / kitPrompt / kitAlert) are auto-answered
+  // per test; tests set confirmAnswer / promptAnswer before clicking.
+  let dialogs: ReturnType<typeof autoAnswerKitDialogs>;
+  let confirmAnswer = false;
+  let promptAnswer: string | null = null;
+  const kitCalls = (kind: "confirm" | "prompt" | "alert") =>
+    dialogs.calls.filter((c) => c.kind === kind).map((c) => c.opts);
   beforeEach(() => {
-    confirmSpy = vi.spyOn(window, "confirm");
+    confirmAnswer = false;
+    promptAnswer = null;
+    dialogs = autoAnswerKitDialogs({
+      confirm: () => confirmAnswer,
+      prompt: () => promptAnswer,
+    });
+  });
+  afterEach(() => {
+    __resetKitDialogsForTests();
   });
 
   it("A9 Test 1 (confirm copy): kebab 'Archive project' names the project, counts its agents, says it can't be undone", async () => {
@@ -1543,7 +1561,7 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
     mockProjects = [
       { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false },
     ];
-    confirmSpy.mockReturnValue(false);
+    confirmAnswer = false;
 
     const { container, getByText } = render(
       <PrettyConversationsPanel
@@ -1555,10 +1573,13 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
     );
     await openProjectKebabAndClickItem(container, "alpha", "Archive project");
 
-    expect(confirmSpy).toHaveBeenCalledTimes(1);
-    expect(confirmSpy).toHaveBeenCalledWith(
-      'Archive "Alpha"?\n\nThis also archives the 1 agent in it.\n\nThis can\'t be undone. Move conversations out first to keep them.',
+    await waitFor(() => expect(kitCalls("confirm")).toHaveLength(1));
+    const opts = kitCalls("confirm")[0] as KitConfirmOptions;
+    expect(opts.title).toBe('Archive "Alpha"?');
+    expect(opts.body).toBe(
+      "This also archives the 1 agent in it.\n\nThis can't be undone. Move conversations out first to keep them.",
     );
+    expect(opts.destructive).toBe(true);
   });
 
   it("A9 Test 2 (cascade: archiveProject first, then N archiveIdentity): 3 identity members → 3 archiveIdentity + 1 archiveProject", async () => {
@@ -1574,7 +1595,7 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
     mockProjects = [
       { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false },
     ];
-    confirmSpy.mockReturnValue(true);
+    confirmAnswer = true;
 
     const { container, getByText } = render(
       <PrettyConversationsPanel
@@ -1611,7 +1632,7 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
       { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false },
     ];
     mockActiveSet = new Set(["r1"]);
-    confirmSpy.mockReturnValue(true);
+    confirmAnswer = true;
     const onDeactivateRow = vi.fn();
 
     const { container } = render(
@@ -1641,9 +1662,8 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
     mockProjects = [
       { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false },
     ];
-    confirmSpy.mockReturnValue(true);
+    confirmAnswer = true;
     archiveProjectSpy.mockRejectedValueOnce(new Error("archive destination already exists"));
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     const { container } = render(
@@ -1660,8 +1680,8 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
 
     const { archiveIdentity } = await import("@/api/identity-archive-api");
     expect(archiveIdentity).not.toHaveBeenCalled();
-    expect(alertSpy).toHaveBeenCalledWith(expect.stringMatching(/Nothing was archived/));
-    alertSpy.mockRestore();
+    await waitFor(() => expect(kitCalls("alert")).toHaveLength(1));
+    expect(String((kitCalls("alert")[0] as KitAlertOptions).body)).toMatch(/Nothing was archived/);
     errorSpy.mockRestore();
   });
 
@@ -1677,7 +1697,7 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
     mockProjects = [
       { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false },
     ];
-    confirmSpy.mockReturnValue(true);
+    confirmAnswer = true;
 
     const { archiveIdentity } = await import("@/api/identity-archive-api");
     // First call throws; second succeeds.
@@ -1730,7 +1750,7 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
     mockProjects = [
       { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false },
     ];
-    confirmSpy.mockReturnValue(true);
+    confirmAnswer = true;
 
     const { archiveIdentity } = await import("@/api/identity-archive-api");
 
@@ -1776,7 +1796,7 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
       { slug: "ops", displayName: "Ops", hostId: "1", hostname: "hostA", archived: false },
       { slug: "ops", displayName: "Ops", hostId: "2", hostname: "hostB", archived: false },
     ];
-    confirmSpy.mockReturnValue(true);
+    confirmAnswer = true;
     const { container } = render(
       <PrettyConversationsPanel
         variant="desktop"
@@ -1809,7 +1829,7 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
     mockProjects = [
       { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false },
     ];
-    confirmSpy.mockReturnValue(false);
+    confirmAnswer = false;
 
     const { container, getByText } = render(
       <PrettyConversationsPanel
@@ -1820,6 +1840,8 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
       />,
     );
     await openProjectKebabAndClickItem(container, "alpha", "Archive project");
+    await waitFor(() => expect(kitCalls("confirm")).toHaveLength(1));
+    await new Promise((r) => setTimeout(r, 0));
 
     const { archiveIdentity } = await import("@/api/identity-archive-api");
     expect(archiveIdentity).not.toHaveBeenCalled();
@@ -1834,7 +1856,7 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
     mockProjects = [
       { slug: "empty", displayName: "Empty", hostId: "1", hostname: "hostA", archived: false },
     ];
-    confirmSpy.mockReturnValue(true);
+    confirmAnswer = true;
 
     const { container, getByText } = render(
       <PrettyConversationsPanel
@@ -1871,7 +1893,7 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
     // where a project was archived on another client but the WS event
     // has not landed yet.
     mockProjects = [];
-    confirmSpy.mockReturnValue(true);
+    confirmAnswer = true;
 
     const consoleWarnSpy = vi
       .spyOn(console, "warn")
@@ -1970,7 +1992,7 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
     getProjectFileSpy.mockResolvedValueOnce({
       markdown: "---\ndisplayName: Alpha\n---\n\n# body\n",
     });
-    const promptSpy = vi.spyOn(window, "prompt").mockReturnValue("Bravo");
+    promptAnswer = "Bravo";
 
     const { container, getByText } = render(
       <PrettyConversationsPanel
@@ -1983,7 +2005,13 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
     await openProjectKebabAndClickItem(container, "alpha", "Rename project");
 
     // prompt is seeded with the current displayName so the user can edit it.
-    expect(promptSpy).toHaveBeenCalledWith("Rename project", "Alpha");
+    await waitFor(() => expect(kitCalls("prompt")).toHaveLength(1));
+    const promptOpts = kitCalls("prompt")[0] as KitPromptOptions;
+    expect(promptOpts.title).toBe("Rename project");
+    expect(promptOpts.defaultValue).toBe("Alpha");
+    // Over-length names are blocked in the field (formerly a window.alert).
+    expect(promptOpts.validate?.("x".repeat(81))).toBe("Name must be 80 characters or fewer.");
+    expect(promptOpts.validate?.("x".repeat(80))).toBeFalsy();
 
     // Await microtasks so the async handler's fetch + PUT complete.
     await new Promise((r) => setTimeout(r, 0));
@@ -1995,8 +2023,6 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
     expect(hostId).toBe(1);
     expect(slug).toBe("alpha");
     expect(contents).toBe("---\ndisplayName: Bravo\n---\n\n# body\n");
-
-    promptSpy.mockRestore();
   });
 
   it("A9 Test 8 (Rename cancel): prompt returns null → no PUT", async () => {
@@ -2006,7 +2032,7 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
     mockProjects = [
       { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false },
     ];
-    const promptSpy = vi.spyOn(window, "prompt").mockReturnValue(null);
+    promptAnswer = null;
 
     const { container, getByText } = render(
       <PrettyConversationsPanel
@@ -2018,12 +2044,11 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
     );
     await openProjectKebabAndClickItem(container, "alpha", "Rename project");
 
+    await waitFor(() => expect(kitCalls("prompt")).toHaveLength(1));
     await new Promise((r) => setTimeout(r, 0));
 
     expect(getProjectFileSpy).not.toHaveBeenCalled();
     expect(updateProjectFileSpy).not.toHaveBeenCalled();
-
-    promptSpy.mockRestore();
   });
 
   it("A9 Test 9 (Rename empty / whitespace-only): no PUT", async () => {
@@ -2033,7 +2058,7 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
     mockProjects = [
       { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false },
     ];
-    const promptSpy = vi.spyOn(window, "prompt").mockReturnValue("   ");
+    promptAnswer = "   ";
 
     const { container, getByText } = render(
       <PrettyConversationsPanel
@@ -2045,11 +2070,10 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
     );
     await openProjectKebabAndClickItem(container, "alpha", "Rename project");
 
+    await waitFor(() => expect(kitCalls("prompt")).toHaveLength(1));
     await new Promise((r) => setTimeout(r, 0));
 
     expect(updateProjectFileSpy).not.toHaveBeenCalled();
-
-    promptSpy.mockRestore();
   });
 });
 

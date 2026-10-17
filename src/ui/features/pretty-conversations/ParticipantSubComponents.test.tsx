@@ -173,25 +173,20 @@ describe("ParticipantSearchInput (Phase 91 Plan 04)", () => {
     expect(input).toHaveAttribute("placeholder", "Search participants");
   });
 
-  // Test 10: CSS class reuse — verified via source grep (acceptance criteria);
-  // here we verify the DOM elements carry the expected class names at runtime.
-  it("Test 10: DOM elements carry pv-search-container, pv-search-input, pv-search-clear class names", () => {
+  // Test 10: built on the kit's search box (apple-ux) — the shared look and
+  // the testids survive.
+  it("Test 10: renders as the kit search box with its input and clear testids", () => {
     const { rerender } = render(
       <ParticipantSearchInput value="" onChange={vi.fn()} />,
     );
 
-    // pv-search-container on outer div
-    const container = document.querySelector(".pv-search-container");
-    expect(container).not.toBeNull();
+    const container = screen.getByTestId("participant-search-container");
+    expect(container.querySelector("[data-slot='kit-search']")).not.toBeNull();
 
-    // pv-search-input on the input
-    const inputEl = document.querySelector(".pv-search-input");
-    expect(inputEl).not.toBeNull();
-    expect(inputEl?.tagName.toLowerCase()).toBe("input");
+    const inputEl = screen.getByTestId("participant-search-input");
+    expect(inputEl.tagName.toLowerCase()).toBe("input");
 
-    // pv-search-clear on the clear button (need non-empty value)
     rerender(<ParticipantSearchInput value="x" onChange={vi.fn()} />);
-    const clearEl = document.querySelector(".pv-search-clear");
-    expect(clearEl).not.toBeNull();
+    expect(screen.getByTestId("participant-search-clear")).toBeInTheDocument();
   });
 });

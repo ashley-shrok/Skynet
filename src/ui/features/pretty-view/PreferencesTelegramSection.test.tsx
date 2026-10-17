@@ -24,6 +24,7 @@ import {
   putTelegramBot,
 } from "@/features/notifications/telegram-setup-api";
 import { PreferencesTelegramSection } from "./PreferencesTelegramSection";
+import { __resetKitDialogsForTests, autoAnswerKitDialogs } from "@/components/kit";
 
 const NOT_SET_UP = { setUp: false, linked: false };
 const AWAITING_START = { setUp: true, botUsername: "ash_bot", linked: false, titleOnly: false };
@@ -39,6 +40,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
+  __resetKitDialogsForTests();
 });
 
 describe("PreferencesTelegramSection", () => {
@@ -94,9 +96,10 @@ describe("PreferencesTelegramSection", () => {
   it("Use a different bot asks first, then returns to setup", async () => {
     vi.mocked(getTelegramStatus).mockResolvedValue(AWAITING_START);
     vi.mocked(deleteTelegram).mockResolvedValue(NOT_SET_UP);
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const dialogs = autoAnswerKitDialogs({ confirm: true });
     render(<PreferencesTelegramSection />);
     fireEvent.click(await screen.findByTestId("preferences-telegram-use-different-bot"));
+    await waitFor(() => expect(dialogs.calls).toHaveLength(1));
     expect(await screen.findByTestId("preferences-telegram-setup")).toBeTruthy();
   });
 
@@ -130,14 +133,16 @@ describe("PreferencesTelegramSection", () => {
   it("disconnect asks first, then returns to setup", async () => {
     vi.mocked(getTelegramStatus).mockResolvedValue(LINKED);
     vi.mocked(deleteTelegram).mockResolvedValue(NOT_SET_UP);
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
+    const answers = [false, true];
+    const dialogs = autoAnswerKitDialogs({ confirm: () => answers.shift() ?? false });
     render(<PreferencesTelegramSection />);
 
     fireEvent.click(await screen.findByTestId("preferences-telegram-disconnect"));
+    await waitFor(() => expect(dialogs.calls).toHaveLength(1));
     expect(deleteTelegram).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByTestId("preferences-telegram-disconnect"));
     expect(await screen.findByTestId("preferences-telegram-setup")).toBeTruthy();
-    expect(confirmSpy).toHaveBeenCalledTimes(2);
+    expect(dialogs.calls).toHaveLength(2);
   });
 });

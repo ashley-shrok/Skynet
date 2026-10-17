@@ -29,6 +29,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
+import { autoAnswerKitDialogs, __resetKitDialogsForTests } from "@/components/kit";
 
 vi.mock("@/api/compose-drafts-api", () => ({
   getComposeDraft: vi.fn().mockResolvedValue({ body: "", queueSlots: [] }),
@@ -80,13 +81,14 @@ describe("useComposeSend — universal send-log hook (Phase 85 Plan 06)", () => 
     vi.clearAllMocks();
     // Patch #129 hygiene: localStorage draft mirror leaks between tests.
     localStorage.clear();
-    // Reset button now shows window.confirm() first (patched to prevent
+    // Reset button now shows a kit confirm (kitConfirm) first (patched to prevent
     // accidental resets). Auto-accept in tests that click it — the confirm
     // gate itself is covered by ComposeBox.reset-confirm.test.tsx.
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+    autoAnswerKitDialogs({ confirm: true });
   });
 
   afterEach(() => {
+    __resetKitDialogsForTests();
     vi.restoreAllMocks();
   });
 
@@ -112,7 +114,7 @@ describe("useComposeSend — universal send-log hook (Phase 85 Plan 06)", () => 
     expect(seedSessionLastMessageAt).toHaveBeenCalledWith(42, "ivy", stampTs);
   });
 
-  it("Test 2: reset button click fires exactly one stamp + one advance", () => {
+  it("Test 2: reset button click fires exactly one stamp + one advance", async () => {
     render(<ComposeBox {...baseProps()} />);
 
     // Reset button is aria-label="Reset context window".
@@ -124,6 +126,9 @@ describe("useComposeSend — universal send-log hook (Phase 85 Plan 06)", () => 
       fireEvent.click(resetBtn);
     });
 
+    // The kit confirm resolves asynchronously before the reset dispatches.
+    await waitFor(() => expect(stampIdentitySendLog).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 0));
     expect(stampIdentitySendLog).toHaveBeenCalledTimes(1);
     expect(stampIdentitySendLog).toHaveBeenCalledWith("ivy", expect.any(Number));
 

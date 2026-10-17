@@ -24,6 +24,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
+import { autoAnswerKitDialogs, __resetKitDialogsForTests } from "@/components/kit";
 import type { ComposeBoxProps } from "./ComposeBox";
 
 // Mock the compose-drafts API BEFORE importing ComposeBox so the module's
@@ -154,13 +155,14 @@ beforeEach(() => {
     }),
   );
 
-  // Reset button now shows window.confirm() first (patched to prevent
+  // Reset button now shows a kit confirm (kitConfirm) first (patched to prevent
   // accidental resets). Auto-accept in tests that click it — the confirm
   // gate itself is covered by ComposeBox.reset-confirm.test.tsx.
-  vi.spyOn(window, "confirm").mockReturnValue(true);
+  autoAnswerKitDialogs({ confirm: true });
 });
 
 afterEach(() => {
+  __resetKitDialogsForTests();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });

@@ -16,6 +16,10 @@
 //     pencil are all retired.
 //   - Section-tabs at top: 3 tabs (Identity file / Wake-ups / Files),
 //     underline-style per tasting. Canonical <ModalFoot> with Close.
+//   - apple-ux (shape-ux-foundation): the head is the shared <ModalHead> —
+//     avatar in `leading`, role links + task line as its children, the
+//     voice button + popover in `actions`, the shell's close X. All
+//     controls are kit parts.
 //
 // Save flow:
 //   - Task pencil → text input → Enter/blur → updateIdentity with meta.task.
@@ -29,8 +33,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type React from "react";
-import { AlarmClock, AppWindow, ChevronDown, Folder, GitBranch, Mic, Monitor, Pencil, User, X } from "lucide-react";
-import { Modal, ModalFoot, ModalTabs } from "@/components/modal";
+import { AlarmClock, AppWindow, ChevronDown, Folder, GitBranch, Mic, Monitor, Pencil, User } from "lucide-react";
+import { Modal, ModalFoot, ModalHead, ModalTabs } from "@/components/modal";
+import { KitButton, KitIconButton, KitInput } from "@/components/kit";
 import { Tabs, TabsContent } from "@/components/tabs";
 import { updateIdentity } from "@/api/identities-api";
 import { applyIdentityChange, refreshIdentities } from "@/state/identities-store";
@@ -95,10 +100,11 @@ function TitleLineJumpToRole({
   /** Trailing "›". Off for all but the last link of a multi-role list. */
   chevron?: boolean;
 }): React.ReactElement {
-  const REST_COLOR = "#c4b89a";
-  const REST_DECO_COLOR = "rgba(196, 184, 154, 0.35)";
-  const HOVER_COLOR = "#f0ebe0";
-  const HOVER_DECO_COLOR = "rgba(240, 235, 224, 0.6)";
+  // Kit text tokens (apple-ux look A): secondary at rest, primary on hover.
+  const REST_COLOR = "var(--k-t2)";
+  const REST_DECO_COLOR = "var(--k-t3)";
+  const HOVER_COLOR = "var(--k-t1)";
+  const HOVER_DECO_COLOR = "var(--k-t2)";
   const [hovered, setHovered] = useState(false);
   const handleActivate = useCallback(
     (e: React.MouseEvent | React.KeyboardEvent) => {
@@ -634,13 +640,6 @@ export function IdentityModal({
     ),
   }));
 
-  const avatarStyle: React.CSSProperties = {
-    width: 44,
-    height: 44,
-    borderRadius: "50%",
-    boxShadow: `0 4px 12px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,220,190,0.25), 0 0 20px ${tint(65, 55, 0.35)}`,
-  };
-
   return (
     <Modal
       open={open}
@@ -650,135 +649,32 @@ export function IdentityModal({
       // desktop's shape) so the agent's desktop is big enough to work in;
       // every other tab keeps the normal size.
       size={shownTab === "desktop" ? "viewer" : "xl"}
-      className={cn(
-        "max-h-[90vh] flex flex-col",
-        isMultiRole(identity) && "pv-multi-role",
-        neutralLook && "pv-neutral",
-      )}
+      className={cn(isMultiRole(identity) && "pv-multi-role", neutralLook && "pv-neutral")}
       dismissible={!desktopControl}
       data-testid="identity-modal"
     >
-      {/* Head — avatar + display name (no pencil) + role slug + inline-
-          editable task + voice chip pinned top-right + close X. Custom
-          head shape (not <ModalHead>) because it holds inline-edit UI
-          and chip-triggered popovers. */}
-      <div
-        className="px-5 py-4 flex flex-row items-start gap-3 flex-shrink-0"
-        style={{
-          borderBottom: `1px solid ${tint(50, 50, 0.22)}`,
-        }}
-      >
-        <AvatarImage
-          // avatarUrl already carries the sweep's avatar version (`&v=`).
-          src={identity.avatarUrl}
-          name={identity.displayName}
-          className="shrink-0 object-cover"
-          style={avatarStyle}
-          initialClassName="shrink-0 inline-flex items-center justify-center font-semibold"
-          initialStyle={{ ...avatarStyle, fontSize: 18, color: "#f0ebe0", background: tint(45, 35, 0.9) }}
-        />
-        <div className="flex flex-col flex-1 min-w-0 gap-1">
-          {/* Line 1: display name — plain text, never clickable. The
-              jump-to-role treatment lives on line 2 (the role line). */}
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="font-semibold text-[16px] text-[#f0ebe0] truncate leading-tight">
-              {identity.displayName}
-            </span>
-          </div>
-          {/* Role line — clickable, prettified (uses role frontmatter
-              title if present, else the raw slug). This is what opens
-              RoleModal. */}
-          {roleLinks.length > 0 && (
-            <div className="min-w-0" data-testid="identity-modal-role-links">
-              {roleLinks.map(({ roleName, label }, i) => (
-                <span key={roleName}>
-                  {i > 0 && (
-                    <span className="text-[12px] text-[#c4b89a]">, </span>
-                  )}
-                  <TitleLineJumpToRole
-                    identity={identity}
-                    text={label}
-                    className="text-[12px] font-medium tracking-[0.04em]"
-                    jumpTargetLabel={label}
-                    chevron={i === roleLinks.length - 1}
-                    onJump={() => {
-                      onOpenChange(false);
-                      onOpenRoleModal(identity, roleName);
-                    }}
-                  />
-                </span>
-              ))}
-            </div>
-          )}
-          {/* Task line + inline pencil. Edit mode uses a full-width input
-              (still flex-1 for a comfortable typing target). Read mode
-              wraps text + pencil in an inline-flex block so the pencil
-              sits adjacent to the actual task text instead of floating
-              at the far right of the row when the task is short. */}
-          <div className="flex items-center min-w-0 mt-0.5">
-            {editingTask ? (
-              <input
-                type="text"
-                value={taskDraft}
-                onChange={(e) => setTaskDraft(e.target.value)}
-                onBlur={() => {
-                  void saveTask();
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    void saveTask();
-                  } else if (e.key === "Escape") {
-                    e.preventDefault();
-                    setEditingTask(false);
-                    setTaskDraft(identity.task ?? "");
-                  }
-                }}
-                autoFocus
-                disabled={savingField === "task"}
-                placeholder="What is this agent working on?"
-                data-testid="identity-modal-task-input"
-                className={cn(
-                  "flex-1 min-w-0 px-2 py-1 rounded-md text-[12.5px]",
-                  "bg-black/25 border border-[hsla(var(--pv-id-hue),65%,55%,0.5)] text-[#e8e4d8]",
-                  "placeholder:text-[hsla(var(--pv-id-hue),22%,88%,0.35)]",
-                  "outline-none",
-                  "disabled:opacity-60",
-                )}
-              />
-            ) : (
-              <div className="inline-flex items-center gap-1.5 min-w-0 max-w-full">
-                <span
-                  className="text-[12.5px] leading-snug text-[hsla(var(--pv-id-hue),22%,92%,0.72)] truncate min-w-0"
-                  data-testid="identity-modal-task-value"
-                >
-                  {identity.task || (
-                    <span className="italic opacity-60">No task set</span>
-                  )}
-                </span>
-                <button
-                  type="button"
-                  aria-label="Edit task"
-                  title="Edit task"
-                  onClick={() => {
-                    setTaskDraft(identity.task ?? "");
-                    setEditingTask(true);
-                  }}
-                  data-testid="identity-modal-task-pencil"
-                  className="shrink-0 cursor-pointer text-[hsla(var(--pv-id-hue),22%,88%,0.55)] hover:text-[#f0ebe0] transition-colors"
-                >
-                  <Pencil size={12} />
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-        {/* Voice chip + close X — pinned to the top of the header. */}
-        <div className="flex items-start gap-1 shrink-0">
+      {/* Head — the shared ModalHead: avatar (leading), display name
+          (title), role links + inline-editable task line (children), voice
+          button + popover (actions), close X (the shell's). */}
+      <ModalHead
+        title={identity.displayName}
+        closeTestId="identity-modal-close"
+        leading={
+          <AvatarImage
+            // avatarUrl already carries the sweep's avatar version (`&v=`).
+            src={identity.avatarUrl}
+            name={identity.displayName}
+            className="size-11 rounded-full object-cover shrink-0"
+            initialClassName="size-11 rounded-full shrink-0 inline-flex items-center justify-center font-semibold text-[18px] text-[var(--k-t1)]"
+            initialStyle={{ background: tint(45, 35, 0.9) }}
+          />
+        }
+        actions={
           <div className="relative" ref={voicePickerRef}>
-            <button
-              type="button"
+            <KitButton
+              size="sm"
               aria-label="Voice — click to pick"
+              aria-expanded={voicePickerOpen}
               title={
                 identity.voice
                   ? `Voice: ${voiceChipLabel} — click to change`
@@ -786,39 +682,28 @@ export function IdentityModal({
               }
               onClick={() => setVoicePickerOpen((v) => !v)}
               data-testid="identity-modal-voice-chip"
-              className={cn(
-                "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[12px] font-medium cursor-pointer",
-                "border transition-colors",
-                voicePickerOpen
-                  ? "bg-[hsla(var(--pv-id-hue),55%,45%,0.7)] border-[hsla(var(--pv-id-hue),65%,60%,0.55)] text-[#fbf5e8]"
-                  : "bg-[hsla(var(--pv-id-hue),55%,40%,0.55)] border-[hsla(var(--pv-id-hue),65%,55%,0.45)] text-[#fbf5e8] hover:bg-[hsla(var(--pv-id-hue),55%,45%,0.65)]",
-              )}
+              className="max-w-[180px]"
             >
-              <Mic size={12} className="opacity-85" />
+              <Mic />
               {identity.voice ? (
-                <span>{voiceChipLabel}</span>
+                <span className="truncate">{voiceChipLabel}</span>
               ) : (
-                <span className="italic opacity-75">default</span>
+                <span className="italic text-[var(--k-t2)]">default</span>
               )}
-              <ChevronDown size={12} className="opacity-70" />
-            </button>
+              <ChevronDown className="text-[var(--k-t3)]" />
+            </KitButton>
             {voicePickerOpen && (
               <div
                 role="dialog"
                 aria-label="Voice picker"
                 data-testid="identity-modal-voice-popover"
                 className={cn(
-                  "absolute right-0 top-[calc(100%+6px)] z-20 min-w-[260px] p-3 rounded-lg flex flex-col gap-1.5",
-                  "border border-[hsla(var(--pv-id-hue),60%,55%,0.32)]",
+                  "absolute right-0 top-[calc(100%+6px)] z-20 w-[300px] max-w-[calc(100vw-40px)] p-3 flex flex-col gap-2",
+                  "rounded-[14px] bg-[var(--k-menu)] border border-[var(--k-hair2)]",
+                  "shadow-[0_12px_40px_rgba(0,0,0,0.55)]",
                 )}
-                style={{
-                  background: `linear-gradient(160deg, ${tint(40, 22, 0.98)}, ${tint(40, 15, 0.98)})`,
-                  boxShadow: "0 10px 32px rgba(0, 0, 0, 0.55)",
-                }}
               >
-                <div className="text-[10.5px] font-medium tracking-[0.14em] uppercase text-[hsla(var(--pv-id-hue),30%,88%,0.72)]">
-                  Voice
-                </div>
+                <span className="k-label">Voice</span>
                 <VoicePicker
                   value={voiceDraft}
                   onChange={(v) => {
@@ -829,22 +714,88 @@ export function IdentityModal({
               </div>
             )}
           </div>
-          <button
-            type="button"
-            aria-label="Close"
-            title="Close"
-            onClick={() => onOpenChange(false)}
-            data-testid="identity-modal-close"
-            className={cn(
-              "size-9 rounded-full flex items-center justify-center cursor-pointer",
-              "text-[hsla(var(--pv-id-hue),22%,88%,0.65)] hover:text-[#f0ebe0]",
-              "hover:bg-white/10 transition-colors",
-            )}
-          >
-            <X size={16} />
-          </button>
+        }
+      >
+        {/* Role line — clickable, prettified (uses role frontmatter
+            title if present, else the raw slug). This is what opens
+            RoleModal. */}
+        {roleLinks.length > 0 && (
+          <div className="min-w-0 mt-0.5" data-testid="identity-modal-role-links">
+            {roleLinks.map(({ roleName, label }, i) => (
+              <span key={roleName}>
+                {i > 0 && (
+                  <span className="text-[12.5px] text-[var(--k-t3)]">, </span>
+                )}
+                <TitleLineJumpToRole
+                  identity={identity}
+                  text={label}
+                  className="text-[12.5px] font-medium"
+                  jumpTargetLabel={label}
+                  chevron={i === roleLinks.length - 1}
+                  onJump={() => {
+                    onOpenChange(false);
+                    onOpenRoleModal(identity, roleName);
+                  }}
+                />
+              </span>
+            ))}
+          </div>
+        )}
+        {/* Task line + inline pencil. Edit mode swaps in a kit field;
+            read mode keeps the pencil adjacent to the task text. */}
+        <div className="flex items-center min-w-0 mt-1">
+          {editingTask ? (
+            <KitInput
+              size="sm"
+              type="text"
+              value={taskDraft}
+              onChange={(e) => setTaskDraft(e.target.value)}
+              onBlur={() => {
+                void saveTask();
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void saveTask();
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  setEditingTask(false);
+                  setTaskDraft(identity.task ?? "");
+                }
+              }}
+              // Esc cancels the edit, not the modal.
+              data-modal-esc-local=""
+              autoFocus
+              disabled={savingField === "task"}
+              placeholder="What is this agent working on?"
+              aria-label="Task"
+              data-testid="identity-modal-task-input"
+            />
+          ) : (
+            <div className="inline-flex items-center gap-1 min-w-0 max-w-full">
+              <span
+                className="text-[13px] leading-snug text-[var(--k-t2)] truncate min-w-0"
+                data-testid="identity-modal-task-value"
+              >
+                {identity.task || (
+                  <span className="italic text-[var(--k-t3)]">No task set</span>
+                )}
+              </span>
+              <KitIconButton
+                size="sm"
+                label="Edit task"
+                onClick={() => {
+                  setTaskDraft(identity.task ?? "");
+                  setEditingTask(true);
+                }}
+                data-testid="identity-modal-task-pencil"
+              >
+                <Pencil />
+              </KitIconButton>
+            </div>
+          )}
         </div>
-      </div>
+      </ModalHead>
 
       {/* Section tabs — MOVED to TOP per tasting. */}
       <Tabs
@@ -940,19 +891,12 @@ export function IdentityModal({
 
       {/* Canonical foot — chrome consistency across editor-lg modals. */}
       <ModalFoot>
-        <button
-          type="button"
+        <KitButton
           onClick={() => onOpenChange(false)}
           data-testid="identity-modal-close-foot"
-          className={cn(
-            "px-3 py-1.5 rounded-md text-[12.5px] cursor-pointer",
-            "bg-black/20 border border-white/10",
-            "hover:bg-black/30",
-            "text-[#e8e4d8]",
-          )}
         >
           Close
-        </button>
+        </KitButton>
       </ModalFoot>
     </Modal>
   );

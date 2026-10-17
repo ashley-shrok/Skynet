@@ -11,7 +11,8 @@ import {
   type AdminHostOverview,
   type AdminHostsResponse,
 } from "@/api/admin-hosts-api";
-import { AdminError, AdminMuted, adminErrorMessage } from "./admin-ui";
+import { KitBanner, KitChip, KitEmpty, KitLoading } from "@/components/kit";
+import { adminErrorMessage } from "./admin-ui";
 
 const POLL_MS = 15_000;
 const WARN = 0.75;
@@ -21,16 +22,23 @@ const CRIT = 0.9;
 const CPU_WARN = 1.0;
 const CPU_CRIT = 1.5;
 
-const C = {
-  text: "#e8e4d8",
-  muted: "#a89a80",
-  ok: "#8fc79a",
-  warn: "#e0b46a",
-  bad: "#d38f8f",
+// Kit tokens only. Text classes for status words, fill classes for meters.
+const TEXT = {
+  text: "text-[var(--k-t1)]",
+  muted: "text-[var(--k-t3)]",
+  ok: "text-[var(--k-ok)]",
+  warn: "text-[var(--k-warn)]",
+  bad: "text-[var(--k-danger-text)]",
+};
+const FILL = {
+  ok: "bg-[var(--k-ok)]",
+  warn: "bg-[var(--k-warn)]",
+  bad: "bg-[var(--k-danger)]",
 };
 
-const level = (f: number, warn = WARN, crit = CRIT) =>
-  f >= crit ? C.bad : f >= warn ? C.warn : C.ok;
+type Level = "ok" | "warn" | "bad";
+const level = (f: number, warn = WARN, crit = CRIT): Level =>
+  f >= crit ? "bad" : f >= warn ? "warn" : "ok";
 
 function ago(ts: number, now: number): string {
   const s = Math.max(0, Math.round((now - ts) / 1000));
@@ -92,6 +100,7 @@ export function needsAttention(h: AdminHostOverview): boolean {
   return !!h.fleet && !h.fleet.supervisorRunning;
 }
 
+/** A labelled usage bar. Kit candidate: KitMeter. */
 function Meter({
   label,
   frac,
@@ -107,23 +116,21 @@ function Meter({
   warn?: number;
   crit?: number;
 }) {
-  const color = level(frac, warn, crit);
+  const lv = level(frac, warn, crit);
   // CPU can exceed 1.0; the bar fills at the critical mark.
   const fill = frac / Math.max(1, crit);
   return (
-    <div className="flex items-center gap-2.5 text-[12px]" data-testid={testId}>
-      <span className="w-[52px] shrink-0" style={{ color: C.muted }}>
-        {label}
-      </span>
-      <div className="flex-1 h-1.5 rounded-full bg-white/[0.08] overflow-hidden">
+    <div className="flex items-center gap-2.5 text-[12.5px]" data-testid={testId}>
+      <span className={`w-[52px] shrink-0 ${TEXT.muted}`}>{label}</span>
+      <div className="flex-1 h-1.5 rounded-full bg-[var(--k-s3)] overflow-hidden">
         <div
-          className="h-full rounded-full"
-          style={{ width: `${Math.min(100, Math.round(fill * 100))}%`, background: color }}
+          className={`h-full rounded-full ${FILL[lv]}`}
+          // Width is data, not styling.
+          style={{ width: `${Math.min(100, Math.round(fill * 100))}%` }}
         />
       </div>
       <span
-        className="w-[130px] shrink-0 text-right tabular-nums"
-        style={{ color: frac >= warn ? color : C.text }}
+        className={`w-[130px] shrink-0 text-right tabular-nums ${frac >= warn ? TEXT[lv] : TEXT.text}`}
       >
         {detail}
       </span>
@@ -133,7 +140,7 @@ function Meter({
 
 function Check({ ok, children }: { ok: boolean; children: React.ReactNode }) {
   return (
-    <span style={{ color: ok ? C.ok : C.bad }}>
+    <span className={ok ? TEXT.ok : TEXT.bad}>
       {ok ? "✓" : "✕"} {children}
     </span>
   );
@@ -156,15 +163,15 @@ function noteText(h: AdminHostOverview): string | null {
 
 function SubstrateStatus({ h, now }: { h: AdminHostOverview; now: number }) {
   const s = h.substrate;
-  if (!s) return <span style={{ color: C.muted }}>substrate not synced yet</span>;
-  if (s.inFlight) return <span style={{ color: C.muted }}>substrate syncing…</span>;
+  if (!s) return <span className={TEXT.muted}>substrate not synced yet</span>;
+  if (s.inFlight) return <span className={TEXT.muted}>substrate syncing…</span>;
   if (substrateFailing(h)) {
     return <Check ok={false}>substrate sync failed {ago(s.lastFailureAt!, now)}</Check>;
   }
   if (s.lastSuccessAt !== null) {
     return <Check ok>substrate synced {ago(s.lastSuccessAt, now)}</Check>;
   }
-  return <span style={{ color: C.muted }}>substrate not synced yet</span>;
+  return <span className={TEXT.muted}>substrate not synced yet</span>;
 }
 
 function HostCard({ h, now }: { h: AdminHostOverview; now: number }) {
@@ -180,31 +187,20 @@ function HostCard({ h, now }: { h: AdminHostOverview; now: number }) {
 
   return (
     <div
-      className="px-3.5 py-3 rounded-lg bg-black/20 border"
-      style={{
-        borderColor: attn ? "rgba(211,143,143,0.3)" : "rgba(255,255,255,0.08)",
-        opacity: h.online ? 1 : 0.6,
-      }}
+      className={
+        "k-group px-3.5 py-3 " +
+        (attn ? "ring-1 ring-inset ring-[var(--k-danger-soft)] " : "") +
+        (h.online ? "" : "opacity-60")
+      }
       data-testid={`admin-host-${h.key}`}
       data-attention={attn ? "true" : "false"}
     >
       <div className="flex items-center gap-2 min-w-0">
+        <span className="k-status" data-status={h.online ? "ok" : "bad"} aria-hidden="true" />
+        <span className={`text-[14px] font-semibold truncate ${TEXT.text}`}>{h.name}</span>
+        <KitChip className="shrink-0">{h.agentHost ? "agent host" : "remote target"}</KitChip>
         <span
-          className="w-2 h-2 rounded-full shrink-0"
-          style={{ background: h.online ? C.ok : C.bad }}
-        />
-        <span className="text-[13.5px] font-semibold truncate" style={{ color: C.text }}>
-          {h.name}
-        </span>
-        <span
-          className="text-[10.5px] px-1.5 py-px rounded border border-white/[0.12] shrink-0"
-          style={{ color: C.muted }}
-        >
-          {h.agentHost ? "agent host" : "remote target"}
-        </span>
-        <span
-          className="ml-auto text-[11.5px] shrink-0 text-right"
-          style={{ color: h.online ? C.muted : C.bad }}
+          className={`ml-auto text-[12px] shrink-0 text-right ${h.online ? TEXT.muted : TEXT.bad}`}
           data-testid={`admin-host-${h.key}-status`}
         >
           {h.online
@@ -216,9 +212,7 @@ function HostCard({ h, now }: { h: AdminHostOverview; now: number }) {
       </div>
 
       {meta.length > 0 && (
-        <div className="mt-0.5 ml-4 text-[11.5px]" style={{ color: C.muted }}>
-          {meta.join(" · ")}
-        </div>
+        <div className={`mt-0.5 ml-4 text-[12px] ${TEXT.muted}`}>{meta.join(" · ")}</div>
       )}
 
       {r && (
@@ -252,19 +246,17 @@ function HostCard({ h, now }: { h: AdminHostOverview; now: number }) {
         </div>
       )}
 
-      {note && (
-        <div className="mt-2 text-[12px]" style={{ color: C.muted }}>
-          {note}
-        </div>
-      )}
+      {note && <div className={`mt-2 text-[12.5px] ${TEXT.muted}`}>{note}</div>}
 
       {h.agentHost && h.online && (
         <>
-          <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-2.5 pt-2 border-t border-white/[0.06] text-[12px]" style={{ color: C.text }}>
+          <div
+            className={`flex flex-wrap gap-x-4 gap-y-1.5 mt-2.5 pt-2 border-t border-[var(--k-hair)] text-[12.5px] ${TEXT.text}`}
+          >
             {h.fleet && (
               <span>
                 {h.fleet.agents} agents ·{" "}
-                <span style={{ color: C.ok }}>{h.fleet.running} running</span> ·{" "}
+                <span className={TEXT.ok}>{h.fleet.running} running</span> ·{" "}
                 {h.fleet.apps} app{h.fleet.apps === 1 ? "" : "s"}
               </span>
             )}
@@ -276,9 +268,7 @@ function HostCard({ h, now }: { h: AdminHostOverview; now: number }) {
             )}
           </div>
           {substrateFailing(h) && h.substrate?.lastError && (
-            <div className="mt-1 text-[11.5px] font-mono" style={{ color: C.bad }}>
-              {h.substrate.lastError}
-            </div>
+            <div className={`mt-1 text-[12px] font-mono ${TEXT.bad}`}>{h.substrate.lastError}</div>
           )}
         </>
       )}
@@ -328,32 +318,34 @@ export function AdminHostsPane() {
   const attention = hosts.filter(needsAttention).length;
 
   return (
-    <div className="flex flex-col gap-3 px-6 py-5" data-testid="admin-hosts-pane">
+    <div className="flex flex-col gap-3 px-6 py-5 max-sm:px-5" data-testid="admin-hosts-pane">
       <div className="flex items-baseline gap-3 flex-wrap">
-        <h3 className="text-[12px] uppercase tracking-wide m-0" style={{ color: C.muted }}>
-          Hosts
-        </h3>
+        <h3 className="k-group-title m-0">Hosts</h3>
         {data && (
-          <span className="text-[12.5px]" style={{ color: C.text }} data-testid="admin-hosts-summary">
+          <span className={`text-[13px] ${TEXT.text}`} data-testid="admin-hosts-summary">
             {hosts.length} host{hosts.length === 1 ? "" : "s"} ·{" "}
-            <span style={{ color: C.ok }}>{online} online</span>
+            <span className={TEXT.ok}>{online} online</span>
             {attention > 0 && (
               <>
-                {" "}· <span style={{ color: C.bad }}>{attention} need attention</span>
+                {" "}· <span className={TEXT.bad}>{attention} need attention</span>
               </>
             )}
           </span>
         )}
         {data && (
-          <span className="ml-auto text-[11px]" style={{ color: C.muted }}>
+          <span className={`ml-auto text-[12px] ${TEXT.muted}`}>
             updated {ago(data.generatedAt, now)}
           </span>
         )}
       </div>
 
-      {error && <AdminError testId="admin-hosts-error">{error}</AdminError>}
-      {!data && !error && <AdminMuted>Checking hosts…</AdminMuted>}
-      {data && hosts.length === 0 && <AdminMuted>No hosts yet.</AdminMuted>}
+      {error && (
+        <KitBanner tone="danger" data-testid="admin-hosts-error">
+          {error}
+        </KitBanner>
+      )}
+      {!data && !error && <KitLoading label="Checking hosts…" />}
+      {data && hosts.length === 0 && <KitEmpty title="No hosts yet." />}
 
       {hosts.map((h) => (
         <HostCard key={h.key} h={h} now={now} />

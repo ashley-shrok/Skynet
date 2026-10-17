@@ -702,14 +702,12 @@ things the sidebar doesn't hold: archived conversations, message content
 across every conversation.
 
 In the full search modal, archived conversations (matching the query but
-whose identity has been archived) render as rows with an always-visible
-three-dots menu on the right. Clicking the menu's **Un-archive** item
-starts the un-archive; the row shows a spinner ("un-archiving…") until it
-finishes — usually within a minute — and then a native alert says the
-conversation is back (the row leaves the search view) or why it was refused
-(for example, a role that itself is still archived, which the alert names).
-If nothing has happened after two minutes the alert says it's still working,
-and it carries on in the background. Left-clicking an
+whose identity has been archived) render as rows with a three-dots menu on
+the right (shown on hover, always shown on a touch screen). Clicking the menu's **Un-archive** item
+requests the reconciler restore that identity's folder; the row is
+optimistically removed from the search view. If un-archive is refused (for
+example, the identity holds a role that itself is still archived), a notice
+names the role you need to un-archive first. Left-clicking an
 archived row itself does nothing — the identity's conversation surface
 doesn't exist while archived.
 
@@ -1042,8 +1040,8 @@ crown, then gear.
   immediately spawn a fresh agent of that new role as a follow-up (mirrors
   what the button chains to).
 
-  Every row in this modal carries an always-visible three-dots menu on the
-  right. Clicking it opens a small menu — **Archive** for a live role,
+  Every row in this modal carries a three-dots menu on the right (shown on
+  hover, always shown on a touch screen). Clicking it opens a small menu — **Archive** for a live role,
   **Un-archive** for an archived role. This is the visible action path; the
   older right-click gesture on this modal is retired.
 
@@ -1105,7 +1103,7 @@ crown, then gear.
     first). Then **Open my bot** → tap **Start** in Telegram links the chat
     (the pane notices within a few seconds); **Use a different bot** starts
     over. Once linked it shows the Telegram account, an **Only show who
-    messaged, not the message text** checkbox, **Send test notification**,
+    messaged, not the message text** switch, **Send test notification**,
     and **Disconnect** (removes the whole setup); sending `/stop` to the
     bot unlinks the chat but keeps the bot. Each notification is a message
     from their bot with an **Open in Skynet** button. No desktop push.
@@ -1126,6 +1124,23 @@ crown, then gear.
   nothing user-facing show nothing, and there is no place to reread old
   notes. If the user asks what changed recently, this is what they saw.
   *Agent-side: none.*
+
+- **Small modals on a phone are sheets.** Short dialogs — new project,
+  new role, add wake-up, the feedback form, and every confirm / "name it"
+  / notice dialog — slide up from the bottom of a phone, only as tall as
+  their content, with a grab bar on top and the app dimmed above. A swipe
+  down closes one that has nothing typed in it; once something's been
+  typed a swipe springs it back instead, so nothing is lost by a slip. ✕
+  and Cancel always close. Bigger modals (skills, an agent's modal,
+  preferences, search, files) still fill the phone screen.
+
+- **Confirms are Skynet's own dialogs.** Every "are you sure?", "type a
+  name" and "something went wrong" moment — archive, delete, discard
+  changes, rename, reset context, log out — is an in-app dialog in the
+  app's look, not the browser's grey pop-up: a short question, a line of
+  detail, and named buttons (the destructive one red, e.g. **Archive**,
+  **Delete**, **Discard**). A "type a name" dialog shows what's wrong
+  under the field instead of re-asking. Esc or Cancel backs out.
 
 ### Conversation view
 
@@ -1207,7 +1222,7 @@ crown, then gear.
     edit files inline in the modal for supported types (text, code,
     etc.). Each file/folder row has a **three-dots menu** — Rename,
     Download (files only), Delete — also opened by right-clicking the row.
-    A **search box** (magnifier) on its own row under the toolbar
+    A **search box** (magnifier, with a ✕ to clear) on its own row under the toolbar
     finds files and folders by name in the folder being viewed and every
     folder below it — as the user types, case ignored, every word must
     appear in the name (any order); names only, not file contents. Results

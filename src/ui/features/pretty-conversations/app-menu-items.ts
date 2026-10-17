@@ -15,6 +15,7 @@ import {
   clearPendingAppTitle,
 } from "../../state/app-tiles-store";
 import type { RowKebabMenuItem } from "./RowKebabMenu";
+import { kitAlert, kitConfirm, kitPrompt } from "@/components/kit";
 
 // ─── App menu items — shared by the sidebar AppTile and the AppPane bar ─────
 //
@@ -112,9 +113,9 @@ export function buildAppMenuItems(
         window.open(openUrl, "_blank", "noopener,noreferrer");
       },
     },
-    // app-rename shape — title only (the slug is the app's identity). Native
-    // window.prompt; an invalid entry re-prompts with the error and the
-    // user's text pre-filled until it validates or they cancel. Sidebar
+    // app-rename shape — title only (the slug is the app's identity). Kit
+    // prompt; an invalid entry shows its error under the field and keeps the
+    // user's text until it validates or they cancel. Sidebar
     // update: OPTIMISTIC via setPendingAppTitle (the store keeps the new
     // title over stale fleet-status frames until the sweep re-reads
     // app.json); rolled back via clearPendingAppTitle on failure.
@@ -123,20 +124,19 @@ export function buildAppMenuItems(
       testId: "app-menu-item-rename",
       onClick: async () => {
         const previousTitle = app.title;
-        let message = `Rename "${previousTitle}" to:`;
-        let draft = previousTitle;
-        let title: string;
-        for (;;) {
-          const input = window.prompt(message, draft);
-          if (input === null) return;
-          const v = validateAppTitle(input);
-          if (v.ok) {
-            title = v.title;
-            break;
-          }
-          message = `${v.error}\n\nRename "${previousTitle}" to:`;
-          draft = input;
-        }
+        const input = await kitPrompt({
+          title: `Rename "${previousTitle}"`,
+          defaultValue: previousTitle,
+          confirmLabel: "Rename",
+          validate: (raw) => {
+            const v = validateAppTitle(raw);
+            return v.ok ? null : v.error;
+          },
+        });
+        if (input === null) return;
+        const v = validateAppTitle(input);
+        if (!v.ok) return;
+        const title = v.title;
         if (title === previousTitle) return;
 
         setPendingAppTitle(app.hostId, app.slug, title);
@@ -151,7 +151,7 @@ export function buildAppMenuItems(
             slug: app.slug,
             errMessage,
           });
-          window.alert(`Failed to rename app "${previousTitle}": ${errMessage}`);
+          void kitAlert({ title: `Couldn't rename "${previousTitle}"`, body: errMessage });
         }
       },
     },
@@ -164,8 +164,24 @@ export function buildAppMenuItems(
       danger: true,
       testId: "app-menu-item-archive",
       onClick: async () => {
-        if (!window.confirm(`archive ${app.title}? this can't be undone.`)) return;
-        if (!window.confirm("are you sure? this can't be undone.")) return;
+        if (
+          !(await kitConfirm({
+            title: `Archive "${app.title}"?`,
+            body: "It leaves the sidebar and stops being served. You can't undo this here.",
+            confirmLabel: "Archive",
+            destructive: true,
+          }))
+        )
+          return;
+        if (
+          !(await kitConfirm({
+            title: "Are you sure?",
+            body: `"${app.title}" will be archived. You can't undo this here.`,
+            confirmLabel: "Archive",
+            destructive: true,
+          }))
+        )
+          return;
         // Mark pending FIRST so any in-flight fleet-status app-update /
         // app-snapshot frame is silent-dropped rather than re-inserting it.
         markPendingAppArchive(app.hostId, app.slug);
@@ -187,7 +203,7 @@ export function buildAppMenuItems(
             slug: app.slug,
             errMessage,
           });
-          window.alert(`Failed to archive app "${app.title}": ${errMessage}`);
+          void kitAlert({ title: `Couldn't archive "${app.title}"`, body: errMessage });
         }
       },
     },

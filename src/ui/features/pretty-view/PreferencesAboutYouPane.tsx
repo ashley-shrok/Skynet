@@ -11,7 +11,7 @@
  *   D-24: MarkdownEditor wrapper used (not raw textarea, not direct mdxeditor mount).
  *   D-25: Explicit Save button; disabled when draft unchanged or save in flight.
  *   D-26: mtime-optimistic-concurrency save flow preserved verbatim from
- *         GlobalFilesModal — 409 conflict triggers window.confirm + reload.
+ *         GlobalFilesModal — 409 conflict triggers a kit confirm + reload.
  *   D-27: Host picker only when flatHosts.length > 1.
  *   D-28: Tab strip only when files.data.length > 1; first tab labeled
  *         "About you" when its path matches IMPLICIT_ABOUT_YOU_PATH.
@@ -23,7 +23,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { FileText } from "lucide-react";
-import { cn } from "@/lib/utils";
 import type { Host, HostFolder } from "@/types/ui-types";
 import {
   listGlobalFiles,
@@ -35,18 +34,21 @@ import {
 import type { TabState } from "./IdentityFileTab";
 import type { FileViewData } from "./file-viewers/FileView";
 import { MarkdownEditor } from "./MarkdownEditor";
+import {
+  KitBanner,
+  KitButton,
+  KitEmpty,
+  KitLoading,
+  KitSegmented,
+  KitSelect,
+  kitConfirm,
+} from "@/components/kit";
 
 // IMPLICIT_ABOUT_YOU_PATH: the path that the backend always includes per host
 // (from backend global-files-config-loader.ts L59-217 IMPLICIT_GLOBAL_FILE
 // constant). The first tab whose path matches this receives the "About you"
 // label override per D-28.
 const IMPLICIT_ABOUT_YOU_PATH = "~/.claude/CLAUDE.md";
-
-// Chrome/Linux desktop <option> popup inherits browser defaults, not the
-// parent <select>'s Tailwind classes — reads near-black-on-black. Explicit
-// inline bg + fg on every <option> forces readable contrast in the dropdown
-// popup. Verbatim from GlobalFilesModal.tsx L33 (OPTION_STYLE constant).
-const OPTION_STYLE = { backgroundColor: "#1a1a1a", color: "#e8e4d8" } as const;
 
 // NOTE: duplicated from GlobalFilesModal.tsx (pending shared HostPickerList
 // extraction — RESEARCH F1). Third instance intentional — keeps plan diff scoped.
@@ -220,9 +222,13 @@ export function PreferencesAboutYouPane({
       );
     } catch (err) {
       if (err instanceof GlobalFileMtimeConflictError) {
-        const shouldReload = window.confirm(
-          "The file changed on disk since you started editing. Reload from disk and lose your local edits?",
-        );
+        const shouldReload = await kitConfirm({
+          title: "Reload from disk?",
+          body: "The file changed on disk since you started editing. Reloading loses your local edits.",
+          confirmLabel: "Reload",
+          cancelLabel: "Keep my edits",
+          destructive: true,
+        });
         if (shouldReload) {
           setTabData((prev) =>
             new Map(prev).set(activeTab, {
@@ -266,108 +272,84 @@ export function PreferencesAboutYouPane({
   const showTabStrip = filesReady && files.data.length > 1;
 
   return (
-    <div className="flex flex-col h-full gap-3 p-6">
+    <div className="flex flex-col h-full gap-3">
       {/* Header row: blurb + (optional) host picker */}
-      <div className="flex items-start justify-between gap-4 shrink-0">
-        <p className="text-[13px] text-[#a89a80] leading-snug max-w-[400px]">
+      <div className="flex items-start justify-between gap-4 shrink-0 flex-wrap">
+        <p className="m-0 text-[13px] text-[var(--k-t2)] leading-snug max-w-[400px]">
           Tell your agents anything you want them to know about you — how you work, your preferences, anything.
         </p>
 
         {/* Host picker: only when flatHosts.length > 1 (D-27) */}
         {showHostPicker && (
           <div data-testid="preferences-about-you-host-picker" className="shrink-0">
-            <select
+            <KitSelect
+              size="sm"
+              aria-label="Host"
               value={selectedHostId ?? ""}
               onChange={(e) =>
                 setSelectedHostId(e.target.value ? Number(e.target.value) : null)
               }
-              className="px-3 py-1.5 rounded-md bg-black/20 border border-white/10 text-[#e8e4d8] text-sm outline-none cursor-pointer"
             >
-              <option value="" style={OPTION_STYLE}>Pick a host…</option>
+              <option value="">Pick a host…</option>
               {flatHosts.map((h) => (
-                <option key={h.id} value={h.id} style={OPTION_STYLE}>
+                <option key={h.id} value={h.id}>
                   {h.name}
                 </option>
               ))}
-            </select>
+            </KitSelect>
           </div>
         )}
       </div>
 
       {/* Tab strip: only when files.data.length > 1 (D-28) */}
       {showTabStrip && (
-        <div className="flex gap-1 shrink-0 border-b border-white/10 pb-1">
-          {(files as { status: "ready"; data: GlobalFileEntry[] }).data.map((file, index) => {
-            const selected = activeTab === file.path;
-            const label = getTabLabel(file, index === 0);
-            return (
-              <button
-                key={file.path}
-                type="button"
-                data-testid={`preferences-about-you-tab-${file.path}`}
-                onClick={() => setActiveTab(file.path)}
-                className={cn(
-                  "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] cursor-pointer transition-colors min-w-0",
-                  selected
-                    ? "text-[#f0ebe0] font-semibold bg-[hsla(220,80%,60%,0.18)]"
-                    : "text-[#a89a80] hover:text-[#e8e4d8]",
-                )}
-                style={
-                  selected
-                    ? { boxShadow: "inset 0 0 0 1px hsla(220, 80%, 70%, 0.28)" }
-                    : undefined
-                }
-              >
-                <FileText size={14} />
-                <span className="truncate">{label}</span>
-              </button>
-            );
-          })}
-        </div>
+        <KitSegmented
+          className="shrink-0 self-start max-w-full overflow-x-auto"
+          aria-label="Files"
+          value={activeTab ?? ""}
+          onValueChange={(next) => setActiveTab(next)}
+          options={(files as { status: "ready"; data: GlobalFileEntry[] }).data.map((file, index) => ({
+            value: file.path,
+            label: <span className="truncate">{getTabLabel(file, index === 0)}</span>,
+            Icon: FileText,
+            testId: `preferences-about-you-tab-${file.path}`,
+          }))}
+        />
       )}
 
       {/* Body: no host / loading / error / content */}
       {selectedHostId == null ? (
-        <div className="flex-1 flex items-center justify-center text-[#a89a80] text-sm">
-          Pick a host to load its configured files.
-        </div>
+        <KitEmpty className="flex-1" title="Pick a host to load its configured files." />
       ) : files.status === "loading" ? (
-        <div className="flex-1 flex items-center justify-center text-[#a89a80] text-sm">
-          Loading…
-        </div>
+        <KitLoading className="flex-1" />
       ) : files.status === "error" ? (
-        <div className="flex-1 flex items-center justify-center text-red-400 text-sm text-center">
-          {files.error}
-        </div>
+        <KitBanner tone="danger">{files.error}</KitBanner>
       ) : files.data.length === 0 ? (
-        <div className="flex-1 flex flex-col items-center justify-center text-[#a89a80] gap-2 text-sm text-center">
-          <div>No global files configured for this host.</div>
-          <div className="text-xs opacity-70">
-            Edit{" "}
-            <code className="px-1 rounded bg-black/30">/app/data/global-files.json</code>{" "}
-            on the server to add entries.
-          </div>
-        </div>
+        <KitEmpty
+          className="flex-1"
+          title="No global files configured for this host."
+          body={
+            <>
+              Edit <code>/app/data/global-files.json</code> on the server to add entries.
+            </>
+          }
+        />
       ) : activeTabState?.status === "loading" || !activeTabState ? (
-        <div className="flex-1 flex items-center justify-center text-[#a89a80] text-sm">
-          Loading…
-        </div>
+        <KitLoading className="flex-1" />
       ) : activeTabState.status === "error" ? (
-        <div className="flex-1 flex items-center justify-center text-red-400 text-sm text-center">
-          {activeTabState.error}
-        </div>
+        <KitBanner tone="danger">{activeTabState.error}</KitBanner>
       ) : (
         // Ready: editor + save button (Pitfall 4 — flex-col h-full min-h-0)
-        <div className="flex flex-col h-full gap-2">
+        <div className="flex flex-col flex-1 min-h-0 gap-2">
           <div className="flex justify-end gap-2 shrink-0">
-            <button
-              type="button"
+            <KitButton
+              variant="primary"
               onClick={() => { void handleSave(); }}
-              disabled={saving || draft === activeTabState.data.content}
-              className="px-4 py-2 rounded-md bg-[hsla(220,80%,60%,0.2)] hover:bg-[hsla(220,80%,60%,0.3)] text-[#e8e4d8] disabled:opacity-40 disabled:cursor-not-allowed text-sm cursor-pointer"
+              disabled={draft === activeTabState.data.content}
+              busy={saving}
             >
               {saving ? "Saving…" : "Save"}
-            </button>
+            </KitButton>
           </div>
           <div className="flex-1 min-h-0">
             <MarkdownEditor
@@ -381,12 +363,9 @@ export function PreferencesAboutYouPane({
             />
           </div>
           {saveError && (
-            <div
-              data-testid="preferences-about-you-save-error"
-              className="text-sm text-red-400"
-            >
+            <p className="m-0 k-err" role="alert" data-testid="preferences-about-you-save-error">
               {saveError}
-            </div>
+            </p>
           )}
         </div>
       )}

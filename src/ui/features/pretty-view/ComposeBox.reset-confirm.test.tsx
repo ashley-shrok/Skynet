@@ -1,7 +1,7 @@
 /**
  * ComposeBox — reset button confirm-gate.
  *
- * The reset button now calls window.confirm() before dispatching. Guards
+ * The reset button now asks via kitConfirm() before dispatching. Guards
  * against accidental context-window resets from stray clicks/taps.
  *
  * Uses stampIdentitySendLog as the dispatch proxy (fires only when the
@@ -10,7 +10,12 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
+import {
+  autoAnswerKitDialogs,
+  __resetKitDialogsForTests,
+  type KitConfirmOptions,
+} from "@/components/kit";
 
 vi.mock("@/api/compose-drafts-api", () => ({
   getComposeDraft: vi.fn().mockResolvedValue({ body: "", queueSlots: [] }),
@@ -50,11 +55,12 @@ describe("ComposeBox — reset button confirm gate", () => {
   });
 
   afterEach(() => {
+    __resetKitDialogsForTests();
     vi.restoreAllMocks();
   });
 
-  it("dismissed confirm: click is a no-op (no dispatch, no side-effects)", () => {
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+  it("dismissed confirm: click is a no-op (no dispatch, no side-effects)", async () => {
+    const dialogs = autoAnswerKitDialogs({ confirm: false });
     render(<ComposeBox {...baseProps()} />);
 
     const resetBtn = screen.getByRole("button", {
@@ -65,14 +71,19 @@ describe("ComposeBox — reset button confirm gate", () => {
       fireEvent.click(resetBtn);
     });
 
-    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(dialogs.calls).toHaveLength(1));
+    expect(dialogs.calls[0].kind).toBe("confirm");
+    expect(String((dialogs.calls[0].opts as KitConfirmOptions).title)).toMatch(
+      /reset the agent's context window/i,
+    );
+    await new Promise((r) => setTimeout(r, 0));
     // Dispatch proxy: stampIdentitySendLog fires only when reset actually
     // goes through. Cancelled confirm → zero calls.
     expect(stampIdentitySendLog).not.toHaveBeenCalled();
   });
 
-  it("accepted confirm: click dispatches as before", () => {
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+  it("accepted confirm: click dispatches as before", async () => {
+    const dialogs = autoAnswerKitDialogs({ confirm: true });
     render(<ComposeBox {...baseProps()} />);
 
     const resetBtn = screen.getByRole("button", {
@@ -83,7 +94,7 @@ describe("ComposeBox — reset button confirm gate", () => {
       fireEvent.click(resetBtn);
     });
 
-    expect(confirmSpy).toHaveBeenCalledTimes(1);
-    expect(stampIdentitySendLog).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(stampIdentitySendLog).toHaveBeenCalledTimes(1));
+    expect(dialogs.calls.filter((c) => c.kind === "confirm")).toHaveLength(1);
   });
 });

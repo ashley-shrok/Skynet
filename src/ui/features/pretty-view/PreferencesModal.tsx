@@ -8,15 +8,16 @@
  *     panes are compact and look wrong at editor dimensions.
  *   - Head: canonical <ModalHead title="Preferences" /> — replaces the
  *     bare glass-close-button-only header of the pre-unification impl.
- *   - Body: two-column flex (~180px left nav + right pane). ModalBody
- *     overrides its default padding to p-0 so the nav's own darker
- *     sub-surface + right pane can span edge-to-edge.
+ *   - Body: the shared <ModalSidebar> side list (drill-in on a phone) with
+ *     the active pane in a <ModalBody>. About and Log out are pinned to the
+ *     bottom of the list.
  *   - Foot: canonical <ModalFoot> with a single Close button.
  *   - Neutral blue-gray hue (220) preserved from pre-unification — settings
  *     aren't identity-scoped, so no dynamic hue.
  *
- * Log out button — pinned to the bottom of the left nav below a divider;
- * verified as the only UI logout path in the frontend (2026-09-29 grep).
+ * Log out — a pinned side-list item below a divider; asks with a kit
+ * confirm. Verified as the only UI logout path in the frontend (2026-09-29
+ * grep).
  *
  * D-05 invariant preserved: useEffect resets activeSection to "general"
  * whenever open transitions true → false.
@@ -36,16 +37,17 @@
  */
 
 import { useEffect, useState } from "react";
-import { User, Volume2, Bell, Sparkles, Phone, KeyRound, LogOut, Info, ChevronRight } from "lucide-react";
+import { User, Volume2, Bell, Sparkles, Phone, KeyRound, LogOut, Info } from "lucide-react";
 import {
   Modal,
   ModalHead,
   ModalBody,
   ModalFoot,
-  ModalDrillBack,
+  ModalSidebar,
   useModalDrillIn,
+  type ModalSidebarTabDef,
 } from "@/components/modal";
-import { cn } from "@/lib/utils";
+import { KitButton, kitConfirm } from "@/components/kit";
 import { PreferencesGeneralPane } from "./PreferencesGeneralPane";
 import { PreferencesVoicePane } from "./PreferencesVoicePane";
 import { PreferencesNotificationsPane } from "./PreferencesNotificationsPane";
@@ -72,6 +74,27 @@ const NAV_SECTIONS = [
 ] as const;
 
 type SectionValue = (typeof NAV_SECTIONS)[number]["value"] | "about";
+/** Side-list items: the sections, plus Log out (an action, not a pane). */
+type NavValue = SectionValue | "logout";
+
+const PINNED_ITEMS: ReadonlyArray<ModalSidebarTabDef<NavValue>> = [
+  { value: "about", label: "About", Icon: Info, pinned: true },
+  { value: "logout", label: "Log out", Icon: LogOut, pinned: true },
+];
+
+async function confirmLogout(): Promise<void> {
+  const ok = await kitConfirm({
+    title: "Log out?",
+    body: "You'll need to sign in again to get back to your agents.",
+    confirmLabel: "Log out",
+  });
+  if (!ok) return;
+  void logoutUser()
+    .catch(() => {})
+    .finally(() => {
+      window.dispatchEvent(new Event("skynet:logout"));
+    });
+}
 
 // ─── Props ───────────────────────────────────────────────────────────────────
 
@@ -101,17 +124,6 @@ export interface PreferencesModalProps {
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-// Mobile drill-in list rows: bigger tap targets, no selected highlight (the
-// list is a menu, not a "you are here" marker), chevron on the right.
-const DRILL_ITEM_CLASS =
-  "py-3 text-[15px] text-[#e8e4d8] hover:bg-white/5";
-
-function DrillChevron(): JSX.Element {
-  return (
-    <ChevronRight size={16} aria-hidden="true" className="ml-auto shrink-0 opacity-45" />
-  );
-}
-
 export default function PreferencesModal({
   open,
   onOpenChange,
@@ -126,14 +138,10 @@ export default function PreferencesModal({
 }: PreferencesModalProps): JSX.Element {
   const [activeSection, setActiveSection] = useState<SectionValue>("general");
   // Mobile (fullscreen modal): drill-in — nav list OR pane with a back bar.
-  const {
-    fullscreen,
-    drilled,
-    drillIn,
-    back: drillBack,
-  } = useModalDrillIn(activeSection, false, open);
-  const pickSection = (next: SectionValue) => {
-    if (next === activeSection) drillIn();
+  // Controlled here so it resets whenever the modal closes.
+  const drill = useModalDrillIn<NavValue>(activeSection, false, open);
+  const pickItem = (next: NavValue) => {
+    if (next === "logout") void confirmLogout();
     else setActiveSection(next);
   };
 
@@ -210,135 +218,24 @@ export default function PreferencesModal({
       open={open}
       onOpenChange={onOpenChange}
       size={activeSection === "about-you" ? "editor" : "settings"}
-      className="flex flex-col"
       data-testid="preferences-modal"
     >
       <ModalHead title="Preferences" />
 
-      {/* Two-column body: 180px left nav + right pane. Override the
-          canonical ModalBody's default px-5 py-3.5 padding so the nav's
-          darker sub-surface + right pane span edge-to-edge. */}
-      <ModalBody
-        className={cn(
-          "p-0 flex overflow-hidden",
-          fullscreen ? "flex-col" : "flex-row",
-        )}
+      <ModalSidebar<NavValue>
+        tabs={[...visibleSections, ...PINNED_ITEMS]}
+        value={activeSection}
+        onValueChange={pickItem}
+        testIdPrefix="preferences-nav"
+        rowTestId="preferences-modal-nav"
+        backLabel="Preferences"
+        width={188}
+        drill={drill}
       >
-        {/* Left nav — full-width drill-in list on mobile. */}
-        <nav
-          data-testid="preferences-modal-nav"
-          className={cn(
-            "flex flex-col py-3 gap-1",
-            fullscreen ? "flex-1 min-h-0 overflow-y-auto" : "shrink-0",
-            fullscreen && drilled && "hidden",
-          )}
-          style={{
-            width: fullscreen ? undefined : 180,
-            background: "rgba(0, 0, 0, 0.28)",
-            borderRight: fullscreen
-              ? undefined
-              : "1px solid hsla(var(--pv-id-hue), 60%, 55%, 0.22)",
-          }}
-        >
-          {visibleSections.map(({ value, label, Icon }) => {
-            const isActive = activeSection === value;
-            return (
-              <button
-                key={value}
-                type="button"
-                data-testid={`preferences-nav-${value}`}
-                aria-current={isActive ? "page" : undefined}
-                onClick={() => pickSection(value)}
-                className={cn(
-                  "flex items-center gap-2.5 px-4 py-2 mx-2 rounded-lg text-[13px] cursor-pointer transition-[background-color,color] duration-150 text-left",
-                  fullscreen
-                    ? DRILL_ITEM_CLASS
-                    : isActive
-                    ? "bg-[hsla(var(--pv-id-hue),65%,55%,0.24)] text-[#fbf5e8] font-medium"
-                    : "text-[hsla(var(--pv-id-hue),22%,88%,0.7)] hover:text-[#d8d4c8] hover:bg-white/5",
-                )}
-              >
-                <Icon size={16} className="shrink-0" />
-                <span>{label}</span>
-                {fullscreen ? <DrillChevron /> : null}
-              </button>
-            );
-          })}
-
-          {/* About — anchored at the bottom with Log out, just above its
-              divider: version, licence and the instance's source link. */}
-          <button
-            type="button"
-            data-testid="preferences-nav-about"
-            aria-current={activeSection === "about" ? "page" : undefined}
-            onClick={() => pickSection("about")}
-            className={cn(
-              "mt-auto flex items-center gap-2.5 px-4 py-2 mx-2 mb-2 rounded-lg text-[13px] cursor-pointer transition-[background-color,color] duration-150 text-left",
-              fullscreen
-                ? DRILL_ITEM_CLASS
-                : activeSection === "about"
-                ? "bg-[hsla(var(--pv-id-hue),65%,55%,0.24)] text-[#fbf5e8] font-medium"
-                : "text-[hsla(var(--pv-id-hue),22%,88%,0.7)] hover:text-[#d8d4c8] hover:bg-white/5",
-            )}
-          >
-            <Info size={16} className="shrink-0" />
-            <span>About</span>
-            {fullscreen ? <DrillChevron /> : null}
-          </button>
-
-          {/* Log out — pinned to the bottom of the nav below a divider,
-              reachable from every tab. Confirmed only UI logout path in
-              the frontend (2026-09-29 grep). */}
-          <div
-            className="pt-2 mx-2"
-            style={{
-              borderTop:
-                "1px solid hsla(var(--pv-id-hue), 60%, 55%, 0.22)",
-            }}
-          >
-            <button
-              type="button"
-              data-testid="preferences-nav-logout"
-              aria-label="Log out"
-              onClick={() => {
-                if (!window.confirm("Log out?")) return;
-                void logoutUser()
-                  .catch(() => {})
-                  .finally(() => {
-                    window.dispatchEvent(new Event("skynet:logout"));
-                  });
-              }}
-              className={cn(
-                "flex items-center gap-2.5 px-4 py-2 mt-2 rounded-lg text-[13px] cursor-pointer transition-[background-color,color] duration-150 text-left w-full",
-                "text-[hsla(var(--pv-id-hue),22%,88%,0.6)] hover:text-[#f0ebe0] hover:bg-white/5",
-              )}
-            >
-              <LogOut size={16} className="shrink-0" />
-              <span>Log out</span>
-            </button>
-          </div>
-        </nav>
-
-        {fullscreen && drilled ? (
-          <ModalDrillBack
-            backLabel="Preferences"
-            current={
-              activeSection === "about"
-                ? "About"
-                : visibleSections.find((sec) => sec.value === activeSection)?.label
-            }
-            onBack={drillBack}
-            testId="preferences-nav-back"
-          />
-        ) : null}
-
         {/* Right pane — renders the active section */}
-        <main
+        <ModalBody
           data-testid="preferences-modal-pane"
-          className={cn(
-            "flex-1 min-w-0 min-h-0 overflow-auto",
-            fullscreen && !drilled && "hidden",
-          )}
+          className={activeSection === "about-you" ? "flex flex-col" : undefined}
         >
           {activeSection === "general" && (
             <PreferencesGeneralPane
@@ -381,23 +278,16 @@ export default function PreferencesModal({
               }}
             />
           )}
-        </main>
-      </ModalBody>
+        </ModalBody>
+      </ModalSidebar>
 
       <ModalFoot>
-        <button
-          type="button"
+        <KitButton
           onClick={() => onOpenChange(false)}
           data-testid="preferences-close-foot"
-          className={cn(
-            "px-3 py-1.5 rounded-md text-[12.5px] cursor-pointer",
-            "bg-black/20 border border-white/10",
-            "hover:bg-black/30",
-            "text-[#e8e4d8]",
-          )}
         >
           Close
-        </button>
+        </KitButton>
       </ModalFoot>
     </Modal>
   );

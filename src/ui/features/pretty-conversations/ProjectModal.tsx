@@ -24,7 +24,7 @@ import { useCallback, useEffect, useState } from "react";
 import { FileText, Folder } from "lucide-react";
 import { Modal, ModalHead, ModalFoot, ModalTabs } from "@/components/modal";
 import { Tabs, TabsContent } from "@/components/tabs";
-import { cn } from "@/lib/utils";
+import { KitBanner, KitButton, kitConfirm } from "@/components/kit";
 import { getProjectFile, updateProjectFile } from "@/api/project-list-api";
 import type { TabState } from "@/features/pretty-view/IdentityFileTab";
 import WorkspaceTab from "@/features/pretty-view/WorkspaceTab";
@@ -112,11 +112,16 @@ export function ProjectModal({
   // would otherwise drop the draft with nowhere to show the error); a dirty
   // draft asks before it's discarded.
   const handleOpenChange = useCallback(
-    (nextOpen: boolean) => {
+    async (nextOpen: boolean) => {
       if (!nextOpen && saving) return;
       if (!nextOpen && isDirty) {
-        // eslint-disable-next-line no-alert
-        const confirmed = window.confirm("Discard unsaved changes to the project file?");
+        const confirmed = await kitConfirm({
+          title: "Discard unsaved changes?",
+          body: "Your edits to the project file haven't been saved.",
+          confirmLabel: "Discard",
+          cancelLabel: "Keep editing",
+          destructive: true,
+        });
         if (!confirmed) return;
       }
       onOpenChange(nextOpen);
@@ -153,9 +158,10 @@ export function ProjectModal({
   return (
     <Modal
       open={open}
-      onOpenChange={handleOpenChange}
+      onOpenChange={(next) => {
+        void handleOpenChange(next);
+      }}
       size="xl"
-      className="max-h-[90vh] flex flex-col"
       data-testid="project-modal"
     >
       <ModalHead
@@ -193,13 +199,9 @@ export function ProjectModal({
             disabled={saving}
           />
           {saveError !== null && (
-            <div
-              role="alert"
-              data-testid="project-modal-save-error"
-              className="mt-3 px-3 py-2 rounded-md text-[12px] text-[hsla(4,60%,88%,1)] bg-[hsla(4,60%,40%,0.16)] border border-[hsla(4,60%,55%,0.32)]"
-            >
+            <KitBanner tone="danger" className="mt-3" data-testid="project-modal-save-error">
               Save failed: {saveError}
-            </div>
+            </KitBanner>
           )}
         </TabsContent>
 
@@ -218,40 +220,27 @@ export function ProjectModal({
       </Tabs>
 
       <ModalFoot>
-        <button
-          type="button"
-          onClick={() => handleOpenChange(false)}
+        <KitButton
+          onClick={() => {
+            void handleOpenChange(false);
+          }}
           disabled={saving}
           data-testid="project-modal-close-foot"
-          className={cn(
-            "px-3 py-1.5 rounded-md text-[12.5px] cursor-pointer",
-            "bg-black/20 border border-white/10",
-            "hover:bg-black/30",
-            "text-[#e8e4d8]",
-            "disabled:opacity-50 disabled:cursor-not-allowed",
-          )}
         >
           Close
-        </button>
+        </KitButton>
         {onProjectTab && (
-          <button
-            type="button"
+          <KitButton
+            variant="primary"
             onClick={() => {
               void handleSave();
             }}
             disabled={!canSave}
+            busy={saving}
             data-testid="project-modal-save"
-            className={cn(
-              "px-4 py-1.5 rounded-md text-[12.5px] font-medium cursor-pointer",
-              "bg-[hsla(var(--pv-id-hue),65%,45%,0.75)]",
-              "hover:bg-[hsla(var(--pv-id-hue),65%,55%,0.85)]",
-              "border border-[hsla(var(--pv-id-hue),65%,55%,0.7)]",
-              "text-[#f4f1e8]",
-              "disabled:opacity-50 disabled:cursor-not-allowed",
-            )}
           >
             {saving ? "Saving…" : "Save"}
-          </button>
+          </KitButton>
         )}
       </ModalFoot>
     </Modal>

@@ -3,6 +3,7 @@ import { Volume2, Check } from "lucide-react";
 import { postSpeak, SAMPLE_PHRASE } from "@/api/voice-api";
 import { useVoiceCatalog, voiceLabel } from "./useVoiceCatalog";
 import { notifySpeakFailed } from "../speak-errors";
+import { KitButton, KitIconButton, KitSelect } from "@/components/kit";
 
 export { SAMPLE_PHRASE };
 
@@ -12,9 +13,6 @@ export { SAMPLE_PHRASE };
 // saved voices survive provider switches untouched.
 export const UNAVAILABLE_NOTE = "Not available on the current voice service";
 export const LIST_ERROR_NOTE = "Couldn't load the voice list";
-
-const OPTION_STYLE = { background: "#1a1c26", color: "#f0ebe0" } as const;
-const UNAVAILABLE_OPTION_STYLE = { background: "#1a1c26", color: "rgba(240,235,224,0.42)" } as const;
 
 export function VoicePicker({
   value,
@@ -99,99 +97,63 @@ export function VoicePicker({
   const selectDisabled = disabled || !ready;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-      <select
-        id={id ?? "voice-picker"}
-        aria-label={ariaLabel}
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        disabled={selectDisabled}
-        style={{
-          flex: 1,
-          background: "rgba(255,255,255,0.06)",
-          border: "1px solid rgba(220,225,245,0.15)",
-          borderRadius: 6,
-          padding: "6px 10px",
-          color: "#f0ebe0",
-          fontSize: "0.875rem",
-          outline: "none",
-        }}
-      >
-        <option value="" style={OPTION_STYLE}>(default)</option>
-        {valueUnavailable && (
-          <option value={value} disabled style={UNAVAILABLE_OPTION_STYLE} data-testid="voice-picker-unavailable-option">
-            {voiceLabel(catalogState, value)}
-          </option>
-        )}
-        {!ready && value !== "" && (
-          // Loading or list failed: still show what's saved (by name, never a raw code).
-          <option value={value} style={OPTION_STYLE}>
-            {voiceLabel(catalogState, value)}
-          </option>
-        )}
-        {voices.map((v) => (
-          <option key={v.id} value={v.id} title={v.description} style={OPTION_STYLE}>
-            {v.description ? `${v.name} — ${v.description}` : v.name}
-          </option>
-        ))}
-      </select>
-      <button
-        type="button"
-        aria-label="Sample voice"
-        onClick={() => { void onSampleClick(); }}
-        disabled={disabled || draftUnavailable}
-        style={{
-          width: 32,
-          height: 32,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          borderRadius: 6,
-          background: "rgba(0,0,0,0.28)",
-          border: "1px solid rgba(255,255,255,0.10)",
-          color: "rgba(255,220,170,0.72)",
-          opacity: 0.62,
-          cursor: "pointer",
-        }}
-        className="hover:!opacity-100 hover:!bg-[rgba(0,0,0,0.42)] focus-visible:!opacity-100 active:scale-[0.92] [@media(hover:none)]:!opacity-[0.72]"
-      >
-        <Volume2 size={16} />
-      </button>
-      {dirty && (
-        <button
-          type="button"
-          aria-label="Apply voice"
-          data-testid="voice-picker-apply"
-          onClick={() => onChange(draft)}
-          disabled={disabled}
-          style={{
-            width: 32,
-            height: 32,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            borderRadius: 6,
-            background: "rgba(90,160,110,0.32)",
-            border: "1px solid rgba(140,210,160,0.42)",
-            color: "rgba(220,255,220,0.92)",
-            cursor: "pointer",
-          }}
-          className="hover:!bg-[rgba(90,160,110,0.52)] focus-visible:!bg-[rgba(90,160,110,0.52)] active:scale-[0.92]"
+    <div className="flex flex-col gap-1 min-w-0">
+      <div className="flex items-center gap-2 min-w-0">
+        <KitSelect
+          id={id ?? "voice-picker"}
+          aria-label={ariaLabel}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          disabled={selectDisabled}
+          className="flex-1 min-w-0"
         >
-          <Check size={16} />
-        </button>
-      )}
-    </div>
+          <option value="">(default)</option>
+          {valueUnavailable && (
+            <option value={value} disabled data-testid="voice-picker-unavailable-option">
+              {voiceLabel(catalogState, value)}
+            </option>
+          )}
+          {!ready && value !== "" && (
+            // Loading or list failed: still show what's saved (by name, never a raw code).
+            <option value={value}>{voiceLabel(catalogState, value)}</option>
+          )}
+          {voices.map((v) => (
+            <option key={v.id} value={v.id} title={v.description}>
+              {v.description ? `${v.name} — ${v.description}` : v.name}
+            </option>
+          ))}
+        </KitSelect>
+        <KitIconButton
+          label="Sample voice"
+          filled
+          onClick={() => { void onSampleClick(); }}
+          disabled={disabled || draftUnavailable}
+        >
+          <Volume2 />
+        </KitIconButton>
+        {dirty && (
+          <KitButton
+            variant="primary"
+            size="sm"
+            aria-label="Apply voice"
+            title="Apply voice"
+            data-testid="voice-picker-apply"
+            onClick={() => onChange(draft)}
+            disabled={disabled}
+          >
+            <Check />
+          </KitButton>
+        )}
+      </div>
       {draftUnavailable && (
-        <div data-testid="voice-picker-unavailable-note" style={{ fontSize: "0.75rem", color: "rgba(240,235,224,0.55)" }}>
+        <span data-testid="voice-picker-unavailable-note" className="k-help">
           {UNAVAILABLE_NOTE}
-        </div>
+        </span>
       )}
       {listFailed && (
-        <div data-testid="voice-picker-list-error" style={{ fontSize: "0.75rem", color: "rgba(248,150,150,0.85)" }}>
+        <span data-testid="voice-picker-list-error" className="k-err">
           {LIST_ERROR_NOTE}
-        </div>
+        </span>
       )}
     </div>
   );

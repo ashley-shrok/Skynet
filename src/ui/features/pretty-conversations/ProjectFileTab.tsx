@@ -13,7 +13,7 @@
 // filename=project.md (D-06 pretty MDXEditor branch).
 
 import { useEffect, useState } from "react";
-import { Skeleton } from "@/components/skeleton";
+import { KitBanner, KitLoading } from "@/components/kit";
 import type { TabState } from "@/features/pretty-view/IdentityFileTab";
 import { MarkdownEditor } from "@/features/pretty-view/MarkdownEditor";
 
@@ -65,19 +65,15 @@ export function ProjectFileTab({
 
   if (state.status === "loading") {
     return (
-      <div className="flex flex-col gap-3">
-        <Skeleton className="h-32 w-full rounded-[var(--radius-pv-bubble)]" />
-        <Skeleton className="h-32 w-full rounded-[var(--radius-pv-bubble)]" />
-        <Skeleton className="h-32 w-full rounded-[var(--radius-pv-bubble)]" />
-      </div>
+      <KitLoading lines={5} />
     );
   }
 
   if (state.status === "error") {
     return (
-      <div className="text-sm text-[color:var(--color-pv-code-fg)]">
+      <KitBanner tone="danger">
         Couldn&apos;t load project file: {state.error}
-      </div>
+      </KitBanner>
     );
   }
 

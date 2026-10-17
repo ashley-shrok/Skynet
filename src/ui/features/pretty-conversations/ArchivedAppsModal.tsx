@@ -8,13 +8,13 @@ import { useEffect, useState } from "react";
 //
 // D-09: Rounded-square (8px border-radius) avatars, NOT circles. No host label
 //       per row — fleet-wide list.
-// D-16: On un-archive 200: remove the row THEN fire a native alert with copy
-//       "Un-archiving [slug] — it may take a moment to reflect elsewhere in the
-//       app." Row is NOT removed until the endpoint returns 200 (Risk Summary
+// D-16: On un-archive 200: remove the row THEN fire a kit notice (kitAlert):
+//       "Un-archiving [slug]" / "It may take a moment to reflect elsewhere in
+//       the app." Row is NOT removed until the endpoint returns 200 (Risk Summary
 //       invariant: "the row must not be removed until the endpoint returns 200").
-// D-17: On failure: row STAYS (never removed on failure). Native alert with
+// D-17: On failure: row STAYS (never removed on failure). Kit notice with
 //       distinct wording for name_collision; generic fallback for everything
-//       else. NOT sonner — native alert() per product decision.
+//       else. NOT sonner — a blocking notice per product decision.
 // D-18: Empty state — muted line "No archived apps." — always visible when
 //       zero archived apps exist so the archived surface is discoverable.
 // D-19: Modal stays open after un-archive. handleUnarchive never auto-closes
@@ -25,6 +25,14 @@ import { useEffect, useState } from "react";
 // Risk-Summary "archived-list is authoritative on next fetch" recovery path).
 
 import { Modal, ModalHead, ModalBody } from "@/components/modal";
+import {
+  KitBanner,
+  KitEmpty,
+  KitList,
+  KitListRow,
+  KitLoading,
+  kitAlert,
+} from "@/components/kit";
 import {
   listArchivedApps,
   type ArchivedAppListEntry,
@@ -101,31 +109,27 @@ export function ArchivedAppsModal({
           : prev,
       );
 
-      // D-16 success alert (after state update).
-      window.alert(
-        `Un-archiving ${label} — it may take a moment to reflect elsewhere in the app.`,
-      );
+      // D-16 success notice (after state update).
+      await kitAlert({
+        title: `Un-archiving ${label}`,
+        body: "It may take a moment to reflect elsewhere in the app.",
+      });
     } catch (err: unknown) {
       // STEP 3: failure — do NOT touch state. Row stays present by construction.
-      let copy: string;
+      const body =
+        err instanceof UnarchiveError && err.reason === "name_collision"
+          ? // D-17 name_collision: distinct wording so the user knows what's blocking.
+            "A live app with the same slug already exists."
+          : // D-17 generic fallback.
+            "Try again in a moment.";
 
-      if (err instanceof UnarchiveError && err.reason === "name_collision") {
-        // D-17 name_collision: distinct wording so the user knows what's blocking.
-        copy = `Couldn't un-archive ${label} — a live app with the same slug already exists.`;
-      } else {
-        // D-17 generic fallback.
-        copy = `Couldn't un-archive ${label} — try again in a moment.`;
-      }
-
-      window.alert(copy);
+      await kitAlert({ title: `Couldn't un-archive ${label}`, body });
     }
   }
 
   return (
     // No hue prop — ArchivedApps is non-identity/non-role, so it renders in
-    // the canonical slate palette (hue 220, low saturation) per the
-    // modal.tsx convention. Row + avatar styles below reference
-    // `var(--pv-id-hue)` so they inherit the slate hue the modal sets.
+    // the canonical slate accent per the modal.tsx convention.
     <Modal
       open={open}
       onOpenChange={onOpenChange}
@@ -133,28 +137,17 @@ export function ArchivedAppsModal({
       data-testid="archived-apps-modal"
     >
       <ModalHead title="Archived apps" />
-      <ModalBody className="p-0 overflow-y-auto flex flex-col">
+      <ModalBody className="flex flex-col">
         {state.status === "loading" ? (
-          // D-18: loading state (mirror RolesListModal.tsx:330-332)
-          <div className="flex-1 flex items-center justify-center text-[hsla(var(--pv-id-hue),22%,88%,0.65)] text-sm">
-            Loading…
-          </div>
+          <KitLoading label="Loading…" />
         ) : state.status === "error" ? (
-          // Error state (mirror RolesListModal.tsx:333-336)
-          <div className="flex-1 flex items-center justify-center text-red-400 text-sm px-6 text-center">
-            {state.error}
-          </div>
+          <KitBanner tone="danger">{state.error}</KitBanner>
         ) : state.data.length === 0 ? (
           // D-18: empty state — always visible so the archived surface is discoverable.
-          <div className="flex-1 flex items-center justify-center text-[hsla(var(--pv-id-hue),22%,88%,0.6)] text-sm">
-            No archived apps.
-          </div>
+          <KitEmpty title="No archived apps." />
         ) : (
-          // D-09: row list with rounded-square avatars.
-          <div
-            className="flex-1 min-h-0 overflow-y-auto px-6 py-4"
-            style={{ display: "flex", flexDirection: "column", gap: 8 }}
-          >
+          // D-09: row list with rounded-square avatars, no host label.
+          <KitList>
             {state.data.map((entry) => {
               const label = entry.title ?? entry.slug;
               const kebabItems: RowKebabMenuItem[] = [
@@ -170,101 +163,26 @@ export function ArchivedAppsModal({
                   key={`${entry.hostId}:${entry.slug}`}
                   items={kebabItems}
                 >
-                  <div
-                    // Slate-tinted row — low saturation + hue from the Modal's
-                    // canonical --pv-id-hue (220). Matches the ScheduledAgents /
-                    // Preferences / other non-identity-non-role modal rows.
-                    style={{
-                      borderRadius: 14,
-                      background: `linear-gradient(160deg, hsla(var(--pv-id-hue), 22%, 32%, 0.55), hsla(var(--pv-id-hue), 24%, 20%, 0.60))`,
-                      border: `1px solid hsla(var(--pv-id-hue), 25%, 55%, 0.32)`,
-                      boxShadow: [
-                        "0 8px 24px rgba(0, 0, 0, 0.5)",
-                        "inset 0 1px 0 rgba(220, 225, 245, 0.14)",
-                        `0 0 32px hsla(var(--pv-id-hue), 30%, 55%, 0.14)`,
-                      ].join(", "),
-                      padding: "10px 12px",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 12,
-                      color: "#e8ecf0",
-                    }}
-                  >
-                    {/* D-09: Rounded-SQUARE 40px avatar (NOT circle — D-09 verbatim).
-                      border-radius: 8px matches .pv-app-icon-slot iOS-app-icon target
-                      per AppTile.tsx D-10 (10px Claude discretion; 8 used here per
-                      plan spec "border-radius: 8"). */}
-                    <div
-                      style={{
-                        width: 40,
-                        height: 40,
-                        borderRadius: 8,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        background: `linear-gradient(160deg, hsla(var(--pv-id-hue), 22%, 22%, 0.72), hsla(var(--pv-id-hue), 24%, 14%, 0.82))`,
-                        border: `1px solid hsla(var(--pv-id-hue), 25%, 55%, 0.40)`,
-                        boxShadow: [
-                          "0 4px 12px rgba(0, 0, 0, 0.6)",
-                          "inset 0 2px 0 rgba(220, 225, 245, 0.22)",
-                          `0 0 24px hsla(var(--pv-id-hue), 30%, 55%, 0.26)`,
-                        ].join(", "),
-                        overflow: "hidden",
-                        flexShrink: 0,
-                      }}
-                    >
-                      {entry.iconUrl ? (
-                        <img
-                          src={entry.iconUrl}
-                          alt=""
-                          style={{
-                            width: "100%",
-                            height: "100%",
-                            objectFit: "cover",
-                            borderRadius: 8,
-                          }}
-                        />
-                      ) : (
-                        // Fallback: first char of the display label (title when
-                        // available, slug otherwise) in bold uppercase.
-                        <span
-                          style={{
-                            fontSize: 15,
-                            fontWeight: 700,
-                            color: "#e8ecf0",
-                          }}
-                        >
-                          {label.charAt(0).toUpperCase()}
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Middle: entry label — NO host label (D-09 verbatim). */}
-                    <span
-                      style={{
-                        flex: 1,
-                        minWidth: 0,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                        fontWeight: 600,
-                        fontSize: 14,
-                      }}
-                    >
-                      {label}
-                    </span>
-
-                    {/* Right: always-visible kebab menu — single Un-archive item (D-12/D-13). */}
-                    <RowKebabMenu
-                      items={kebabItems}
-                      ariaLabel={`Row menu for ${entry.slug}`}
-                      testId={`archived-apps-row-kebab-${entry.hostId}-${entry.slug}`}
-                    />
-                  </div>
+                  <KitListRow
+                    avatarShape="square"
+                    avatarSrc={entry.iconUrl || undefined}
+                    // Fallback: first char of the display label (title when
+                    // available, slug otherwise).
+                    avatar={label.charAt(0).toUpperCase()}
+                    title={label}
+                    menu={
+                      // Single Un-archive item (D-12/D-13).
+                      <RowKebabMenu
+                        items={kebabItems}
+                        ariaLabel={`Row menu for ${entry.slug}`}
+                        testId={`archived-apps-row-kebab-${entry.hostId}-${entry.slug}`}
+                      />
+                    }
+                  />
                 </RowKebabContextMenuSurface>
               );
             })}
-          </div>
+          </KitList>
         )}
       </ModalBody>
     </Modal>

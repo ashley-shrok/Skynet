@@ -1,8 +1,7 @@
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Skeleton } from "@/components/skeleton";
-import { Button } from "@/components/button";
+import { KitBanner, KitButton, KitEmpty, KitLoading, kitConfirm } from "@/components/kit";
 import { stripFrontmatter } from "@/lib/strip-frontmatter";
 import { MarkdownEditor } from "./MarkdownEditor";
 
@@ -60,12 +59,19 @@ export function IdentityFileTab({
     }
   }
 
-  function handleCancel() {
+  async function handleCancel() {
     const confirmedMarkdown = state.status === "ready" ? state.data : "";
     if (draft === confirmedMarkdown) {
       setEditing(false);
     } else {
-      if (window.confirm("Discard unsaved changes?")) {
+      const discard = await kitConfirm({
+        title: "Discard your changes?",
+        body: "Your edits to the agent file haven't been saved.",
+        confirmLabel: "Discard",
+        cancelLabel: "Keep editing",
+        destructive: true,
+      });
+      if (discard) {
         setEditing(false);
         setDraft(confirmedMarkdown);
       }
@@ -74,27 +80,19 @@ export function IdentityFileTab({
 
   if (state.status === "loading") {
     return (
-      <div className="flex flex-col gap-3">
-        <Skeleton className="h-32 w-full rounded-[var(--radius-pv-bubble)]" />
-        <Skeleton className="h-32 w-full rounded-[var(--radius-pv-bubble)]" />
-        <Skeleton className="h-32 w-full rounded-[var(--radius-pv-bubble)]" />
-      </div>
+      <KitLoading lines={5} />
     );
   }
 
   if (state.status === "error") {
     return (
-      <div className="text-sm text-[color:var(--color-pv-code-fg)]">
-        Couldn&apos;t load agent file: {state.error}
-      </div>
+      <KitBanner tone="danger">Couldn&apos;t load agent file: {state.error}</KitBanner>
     );
   }
 
   if (!state.data) {
     return (
-      <div className="text-sm text-[var(--color-pv-fg-muted)]">
-        No agent file found for this agent.
-      </div>
+      <KitEmpty title="No agent file found for this agent." />
     );
   }
 
@@ -104,10 +102,8 @@ export function IdentityFileTab({
       {state.status === "ready" && onSave && (
         <div className="flex justify-end gap-2 shrink-0">
           {!editing && (
-            <Button
-              variant="outline"
+            <KitButton
               size="sm"
-              className="cursor-pointer"
               onClick={() => {
                 setDraft(state.data);
                 setSaveError(null);
@@ -115,28 +111,26 @@ export function IdentityFileTab({
               }}
             >
               Edit
-            </Button>
+            </KitButton>
           )}
           {editing && (
             <>
-              <Button
-                variant="default"
+              <KitButton
                 size="sm"
-                className="cursor-pointer"
-                disabled={saving || draft === state.data}
+                disabled={saving}
+                onClick={() => { void handleCancel(); }}
+              >
+                Cancel
+              </KitButton>
+              <KitButton
+                variant="primary"
+                size="sm"
+                busy={saving}
+                disabled={draft === state.data}
                 onClick={() => { void handleSave(); }}
               >
                 {saving ? "Saving…" : "Save"}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="cursor-pointer"
-                disabled={saving}
-                onClick={handleCancel}
-              >
-                Cancel
-              </Button>
+              </KitButton>
             </>
           )}
         </div>
@@ -154,9 +148,9 @@ export function IdentityFileTab({
             disabled={saving}
           />
           {saveError && (
-            <div className="text-sm text-[color:var(--color-pv-code-fg)] mt-2">
+            <KitBanner tone="danger" className="mt-2">
               Save failed: {saveError}
-            </div>
+            </KitBanner>
           )}
         </div>
       ) : (

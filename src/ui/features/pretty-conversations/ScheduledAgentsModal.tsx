@@ -24,7 +24,7 @@
 //   D-10: filter bar = search + role + host (host hidden when single-host).
 //   D-11: row click enters edit mode; toggle + kebab stopPropagation.
 //   D-12: pessimistic toggle — writer confirmed via API ack before flipping.
-//   D-15: loading = 3 Skeleton bars.
+//   D-15: loading = the kit's loading state (KitLoading).
 //   D-16: empty state = centered dim helper text (fleet-wide zero vs
 //         filter-narrows-to-zero copy).
 //   D-17: filter state resets on close.
@@ -41,11 +41,19 @@
 //   - Role prefix on row title (avatar hue + role chip already carry it).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Plus, Search, X } from "lucide-react";
+import { Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Modal, ModalHead, ModalBody } from "@/components/modal";
-import { cn } from "@/lib/utils";
-import { Skeleton } from "@/components/skeleton";
+import {
+  KitBanner,
+  KitButton,
+  KitEmpty,
+  KitList,
+  KitLoading,
+  KitSearch,
+  KitSelect,
+  kitConfirm,
+} from "@/components/kit";
 import type { Host, HostFolder } from "@/types/ui-types";
 import {
   deleteScheduledAgent,
@@ -356,8 +364,12 @@ export function ScheduledAgentsModal({
   async function handleDeleteFromKebab(
     row: ScheduledAgentListItem,
   ): Promise<void> {
-    // eslint-disable-next-line no-alert
-    const ok = window.confirm(`Delete scheduled task "${row.name}"?`);
+    const ok = await kitConfirm({
+      title: `Delete "${prettifyScheduledAgentName(row.name)}"?`,
+      body: "This scheduled task stops running and is removed. This can't be undone.",
+      confirmLabel: "Delete",
+      destructive: true,
+    });
     if (!ok) return;
     setWriteError(null);
     try {
@@ -445,79 +457,50 @@ export function ScheduledAgentsModal({
         }
         actions={
           view === "list" ? (
-            <button
-              type="button"
+            <KitButton
+              variant="primary"
+              size="sm"
               aria-label="New scheduled task"
               title="New scheduled task"
               data-testid="scheduled-agents-modal-add-button"
               onClick={enterCreateMode}
-              className={cn(
-                "flex items-center gap-1 px-2.5 py-1 rounded-md text-[12px] cursor-pointer",
-                "bg-[hsla(var(--pv-id-hue),65%,55%,0.30)]",
-                "hover:bg-[hsla(var(--pv-id-hue),65%,55%,0.42)]",
-                "border border-[hsla(var(--pv-id-hue),75%,70%,0.45)]",
-                "text-[#fbf5e8]",
-              )}
             >
-              <Plus size={12} /> New
-            </button>
+              <Plus /> New
+            </KitButton>
           ) : undefined
         }
       />
 
       {view === "list" && (
         <div
-          className={cn(
-            // Below md the selects (sized to their longest option) would squeeze
-            // the search to nothing — wrap so search gets its own full row.
-            "px-4 py-2.5 flex flex-row flex-wrap md:flex-nowrap items-center gap-2 flex-shrink-0",
-            "bg-black/25",
-            "border-b border-[hsla(var(--pv-id-hue),60%,55%,0.18)]",
-          )}
+          // Below md the selects (sized to their longest option) would squeeze
+          // the search to nothing — wrap so search gets its own full row.
+          className="px-6 max-sm:px-5 pb-2 flex flex-row flex-wrap md:flex-nowrap items-center gap-2 flex-shrink-0"
         >
-          <div
-            className={cn(
-              "basis-full md:basis-auto flex-1 min-w-0 flex items-center gap-2 px-2 py-1 rounded-md",
-              "bg-black/20 border border-[hsla(var(--pv-id-hue),65%,55%,0.22)]",
-            )}
-          >
-            <Search
-              size={14}
-              className="shrink-0 text-[hsla(var(--pv-id-hue),22%,88%,0.6)]"
-            />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search name or prompt..."
-              data-testid="scheduled-agents-modal-filter-search"
-              className={cn(
-                "flex-1 min-w-0 bg-transparent text-[12.5px] outline-none",
-                "text-[#fbf5e8]",
-                "placeholder:text-[hsla(var(--pv-id-hue),22%,88%,0.45)]",
-              )}
-            />
-          </div>
-          <select
+          <KitSearch
+            value={search}
+            onValueChange={setSearch}
+            placeholder="Search name or prompt…"
+            aria-label="Search scheduled tasks"
+            data-testid="scheduled-agents-modal-filter-search"
+            wrapperClassName="basis-full md:basis-auto flex-1"
+          />
+          <KitSelect
             value={roleFilter}
             onChange={(e) => setRoleFilter(e.target.value)}
+            aria-label="Filter by role"
             data-testid="scheduled-agents-modal-filter-role"
-            className={cn(
-              "flex-1 md:flex-none min-w-0 text-[12px] px-2 py-1 rounded-md outline-none cursor-pointer",
-              "bg-black/20 border border-[hsla(var(--pv-id-hue),65%,55%,0.22)]",
-              "text-[#fbf5e8]",
-            )}
+            className="flex-1 md:flex-none md:w-auto"
           >
-            <option value={ALL_SENTINEL} style={OPTION_STYLE}>
-              All roles
-            </option>
+            <option value={ALL_SENTINEL}>All roles</option>
             {availableRoles.map((r) => (
-              <option key={r} value={r} style={OPTION_STYLE}>
+              <option key={r} value={r}>
                 {r}
               </option>
             ))}
-          </select>
+          </KitSelect>
           {!hideHostFilter && (
-            <select
+            <KitSelect
               value={
                 hostFilter === ALL_SENTINEL ? ALL_SENTINEL : String(hostFilter)
               }
@@ -532,94 +515,81 @@ export function ScheduledAgentsModal({
                   }
                 }
               }}
+              aria-label="Filter by host"
               data-testid="scheduled-agents-modal-filter-host"
-              className={cn(
-                "flex-1 md:flex-none min-w-0 text-[12px] px-2 py-1 rounded-md outline-none cursor-pointer",
-                "bg-black/20 border border-[hsla(var(--pv-id-hue),65%,55%,0.22)]",
-                "text-[#fbf5e8]",
-              )}
+              className="flex-1 md:flex-none md:w-auto"
             >
-              <option value={ALL_SENTINEL} style={OPTION_STYLE}>
-                All hosts
-              </option>
+              <option value={ALL_SENTINEL}>All hosts</option>
               {flatHosts.map((h) => {
                 const idNum = parseInt(String(h.id), 10);
                 if (!Number.isFinite(idNum)) return null;
                 return (
-                  <option key={h.id} value={String(idNum)} style={OPTION_STYLE}>
+                  <option key={h.id} value={String(idNum)}>
                     {h.name}
                   </option>
                 );
               })}
-            </select>
+            </KitSelect>
           )}
         </div>
       )}
 
       {view === "list" ? (
         <ModalBody
-          className="p-0 overflow-y-auto flex flex-col gap-1.5 px-3 py-2.5"
+          className="flex flex-col gap-2 px-4 max-sm:px-3"
           data-testid="scheduled-agents-modal-list"
         >
           {bannerError !== null && (
-            <div
-              role="alert"
+            <KitBanner
+              tone="danger"
               data-testid={
                 loadError !== null
                   ? "scheduled-agents-modal-load-error"
                   : "scheduled-agents-modal-write-error"
               }
-              className="pv-agent-list-error"
+              onDismiss={() => {
+                setWriteError(null);
+                setLoadError(null);
+              }}
             >
-              <span style={{ flex: 1 }}>{bannerError}</span>
-              <button
-                type="button"
-                aria-label="Dismiss"
-                onClick={() => {
-                  setWriteError(null);
-                  setLoadError(null);
-                }}
-                className="pv-agent-list-error-dismiss"
-              >
-                <X size={12} />
-              </button>
-            </div>
+              {bannerError}
+            </KitBanner>
           )}
 
           {items === null ? (
-            <div className="flex flex-col gap-3">
-              <Skeleton className="h-24 w-full rounded-[var(--radius-pv-bubble)]" />
-              <Skeleton className="h-24 w-full rounded-[var(--radius-pv-bubble)]" />
-              <Skeleton className="h-24 w-full rounded-[var(--radius-pv-bubble)]" />
-            </div>
+            <KitLoading lines={3} className="px-2" />
           ) : visibleItems.length === 0 ? (
-            <div
-              className="flex items-center justify-center h-full min-h-[120px] px-6 py-8 text-center text-[12.5px] text-[hsla(var(--pv-id-hue),22%,88%,0.6)]"
+            <KitEmpty
+              className="flex-1"
               data-testid="scheduled-agents-modal-empty-state"
-            >
-              {totalItems.length === 0
-                ? "No scheduled tasks. Click + to create one."
-                : "No scheduled tasks match this filter."}
-            </div>
+              title={
+                totalItems.length === 0
+                  ? "No scheduled tasks"
+                  : "No scheduled tasks match this filter"
+              }
+              body={totalItems.length === 0 ? "Choose New to create one." : undefined}
+            />
           ) : (
-            visibleItems.map((row) => (
-              <ScheduledAgentsModalRow
-                key={`${row.hostId}::${row.slug}`}
-                row={row}
-                onRowClick={handleRowClick}
-                onToggleClick={(r) => {
-                  void handleToggleClick(r);
-                }}
-                onEditFromKebab={handleEditFromKebab}
-                onDeleteFromKebab={(r) => {
-                  void handleDeleteFromKebab(r);
-                }}
-                onRunNowFromKebab={(r) => {
-                  void handleRunNowFromKebab(r);
-                }}
-                runNowPending={runNowPending.has(`${row.hostId}:${row.slug}`)}
-              />
-            ))
+            <KitList>
+              {visibleItems.map((row) => (
+                <ScheduledAgentsModalRow
+                  key={`${row.hostId}::${row.slug}`}
+                  row={row}
+                  onRowClick={handleRowClick}
+                  onToggleClick={(r) => {
+                    void handleToggleClick(r);
+                  }}
+                  onEditFromKebab={handleEditFromKebab}
+                  onDeleteFromKebab={(r) => {
+                    void handleDeleteFromKebab(r);
+                  }}
+                  onRunNowFromKebab={(r) => {
+                    void handleRunNowFromKebab(r);
+                  }}
+                  runNowPending={runNowPending.has(`${row.hostId}:${row.slug}`)}
+                />
+              ))}
+            </KitList>
           )}
         </ModalBody>
       ) : (
@@ -637,4 +607,3 @@ export function ScheduledAgentsModal({
   );
 }
 
-const OPTION_STYLE = { backgroundColor: "#1a1a1a", color: "#e8e4d8" } as const;

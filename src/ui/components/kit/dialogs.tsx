@@ -68,7 +68,27 @@ function ensureHost(): void {
   createRoot(el).render(<KitDialogHost />);
 }
 
+/** Test-only auto-answer: when set, dialogs resolve immediately without
+ *  rendering, and each request is recorded. See autoAnswerKitDialogs. */
+interface AutoAnswer {
+  confirm?: boolean | ((o: KitConfirmOptions) => boolean);
+  prompt?: string | null | ((o: KitPromptOptions) => string | null);
+  calls: Array<{ kind: Request["kind"]; opts: KitConfirmOptions | KitPromptOptions | KitAlertOptions }>;
+}
+let autoAnswer: AutoAnswer | null = null;
+
 function push(req: Request): void {
+  if (autoAnswer) {
+    autoAnswer.calls.push({ kind: req.kind, opts: req.opts });
+    if (req.kind === "confirm") {
+      const a = autoAnswer.confirm ?? true;
+      req.resolve(typeof a === "function" ? a(req.opts) : a);
+    } else if (req.kind === "prompt") {
+      const a = autoAnswer.prompt ?? null;
+      req.resolve(typeof a === "function" ? a(req.opts) : a);
+    } else req.resolve();
+    return;
+  }
   ensureHost();
   queue = [...queue, req];
   emit();
@@ -211,8 +231,21 @@ function DialogView({ req }: { req: Request }): JSX.Element {
   );
 }
 
-/** Test-only: drop any open dialogs (resolving them as cancelled). */
+/**
+ * Test-only: answer every kit dialog immediately (no rendering) and record
+ * the requests — the replacement for `vi.spyOn(window, "confirm")`.
+ *   const dialogs = autoAnswerKitDialogs({ confirm: true });
+ *   …; expect(dialogs.calls[0].opts.title).toMatch(/Archive/);
+ * Cleared by __resetKitDialogsForTests().
+ */
+export function autoAnswerKitDialogs(answers: Omit<AutoAnswer, "calls"> = {}): AutoAnswer {
+  autoAnswer = { ...answers, calls: [] };
+  return autoAnswer;
+}
+
+/** Test-only: drop any open dialogs (resolving them as cancelled) and any auto-answer. */
 export function __resetKitDialogsForTests(): void {
+  autoAnswer = null;
   for (const r of queue) {
     if (r.kind === "confirm") r.resolve(false);
     else if (r.kind === "prompt") r.resolve(null);

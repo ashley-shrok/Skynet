@@ -393,7 +393,7 @@ describe("FileView — diff / patch", () => {
       />,
     );
     expect(screen.getByTestId("diff-view")).toBeTruthy();
-    expect(screen.getByTestId("file-view-mode-unified").getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByTestId("file-view-mode-unified").getAttribute("aria-pressed")).toBe("true");
     // Read-only rendered mode, clean draft → no Save yet.
     expect(screen.queryByRole("button", { name: /^save$/i })).toBeNull();
 
@@ -420,7 +420,7 @@ describe("FileView — CSV / TSV", () => {
         onSave={vi.fn()}
       />,
     );
-    expect(screen.getByTestId("file-view-mode-table").getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByTestId("file-view-mode-table").getAttribute("aria-pressed")).toBe("true");
     expect(await screen.findByTestId("delimited-table", {}, { timeout: 5000 })).toBeTruthy();
     expect(screen.getByText(/1 row × 2 columns/)).toBeTruthy();
 

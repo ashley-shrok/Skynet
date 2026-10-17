@@ -165,8 +165,8 @@ describe("EditableFileModal — media viewer branches", () => {
     const sourceTab = screen.getByTestId(
       "file-view-mode-source",
     );
-    expect(renderedTab.getAttribute("aria-selected")).toBe("true");
-    expect(sourceTab.getAttribute("aria-selected")).toBe("false");
+    expect(renderedTab.getAttribute("aria-pressed")).toBe("true");
+    expect(sourceTab.getAttribute("aria-pressed")).toBe("false");
   });
 
   it("SVG toggle flips to code mode and fires the fetch", async () => {
@@ -197,12 +197,12 @@ describe("EditableFileModal — media viewer branches", () => {
     expect(
       screen
         .getByTestId("file-view-mode-source")
-        .getAttribute("aria-selected"),
+        .getAttribute("aria-pressed"),
     ).toBe("true");
     expect(
       screen
         .getByTestId("file-view-mode-rendered")
-        .getAttribute("aria-selected"),
+        .getAttribute("aria-pressed"),
     ).toBe("false");
   });
 });

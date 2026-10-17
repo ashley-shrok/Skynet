@@ -246,6 +246,7 @@ import {
   type HarnessOpenTarget,
 } from "@/features/notifications/open-harness-deep-link";
 import { OPEN_APP_EVENT, type OpenAppDetail } from "./features/apps/app-link";
+import { kitAlert } from "@/components/kit";
 // Phase 11 Plan 03 (user "no settings" lock): SettingsRow import RETIRED
 // alongside AppRail — the entire settings-surface tree dies here.
 
@@ -3915,7 +3916,7 @@ export function AppShell({
           onKillRow={async (row) => {
             // quick-260810-n3a: Kill the underlying tmux session on the host,
             // then close the tab. The panel's handleRowKill already ran
-            // window.confirm — this callback fires only on confirm=true.
+            // confirm — this callback fires only on confirm=true.
             // Defense-in-depth guard: row-side gate already prevents rows
             // without host or targetTmuxSession from surfacing Kill.
             if (!row.host || !row.targetTmuxSession) {
@@ -3933,9 +3934,10 @@ export function AppShell({
               closeTab(row.id);
               removeFleetSession(parseInt(row.host.id, 10), row.targetTmuxSession);
             } catch (err) {
-              window.alert(
-                err instanceof Error ? err.message : "Failed to kill session",
-              );
+              void kitAlert({
+                title: "Couldn't end the session",
+                body: err instanceof Error ? err.message : "Failed to kill session",
+              });
             }
           }}
         />

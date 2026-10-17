@@ -16,7 +16,21 @@
 // repeating kinds share days / start / until / count. Keys the form doesn't
 // model are carried in `extra` so an edit never drops them.
 
+import { Plus, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  KitButton,
+  KitCheckbox,
+  KitIconButton,
+  KitInput,
+  KitOption,
+  KitPickChip,
+  KitPickRow,
+  KitRadio,
+  KitSegmented,
+  KitSelect,
+  type KitSegmentOption,
+} from "@/components/kit";
 
 // Quick 260731-2pa: discriminated union of parsed per-type form state.
 // `hydrateFormSchedule` (below) converts a raw `wakeup.schedule` object into
@@ -485,70 +499,111 @@ export function validateForm(fs: FormSchedule): string | null {
 }
 
 
+// ---------------------------------------------------------------------------
+// Form UI. Every control below is a kit part (apple-ux shape-ux-foundation):
+// kit fields, dropdowns, checkboxes, radios, pick-chips and the segmented
+// control. `inputClassName` / `labelClassName` are optional extras appended
+// to the kit classes — callers normally pass nothing.
+// ---------------------------------------------------------------------------
+
+export const SCHEDULE_KIND_OPTIONS: ReadonlyArray<KitSegmentOption<FormSchedule["type"]>> = [
+  { value: "interval", label: "Interval" },
+  { value: "daily", label: "Daily" },
+  { value: "weekly", label: "Weekly" },
+  { value: "monthly", label: "Monthly" },
+  { value: "yearly", label: "Yearly" },
+  { value: "one_shot", label: "Once" },
+];
+
+/** What each kind means — shown under the schedule-kind control. */
+const SCHEDULE_KIND_HINT: Record<FormSchedule["type"], string> = {
+  interval: "Every N seconds, minutes, hours, days or months.",
+  daily: "At one or more times each day.",
+  weekly: "On a day of the week, at one or more times.",
+  monthly: "On a day of the month, at one or more times.",
+  yearly: "On a date each year.",
+  one_shot: "Fires once, at a date and time.",
+};
+
+/** Schedule-kind choice — the kit segmented control. Used by both the
+ *  add-wake-up dialog and the wake-ups tab's inline editor. The group is
+ *  labelled "Schedule type"; each segment gets `<testIdPrefix>-<kind>`. */
+export function ScheduleKindField({
+  value,
+  onChange,
+  testIdPrefix,
+}: {
+  value: FormSchedule["type"];
+  onChange: (next: FormSchedule["type"]) => void;
+  testIdPrefix: string;
+}) {
+  return (
+    <div className="k-field">
+      <span className="k-label" aria-hidden="true">
+        Schedule type
+      </span>
+      <KitSegmented
+        aria-label="Schedule type"
+        options={SCHEDULE_KIND_OPTIONS}
+        value={value}
+        onValueChange={onChange}
+        testIdPrefix={testIdPrefix}
+        data-testid={testIdPrefix}
+      />
+      <span className="k-help">{SCHEDULE_KIND_HINT[value]}</span>
+    </div>
+  );
+}
+
 // Phase 65-02: day-of-week chip row (D-06). Mounted under the interval, daily
 // and weekly variants in the wake-up forms — never on one_shot (nonsensical).
 // Container aria-label and chip button aria-label are CONTRACT — tests 9, 10, 11
 // all query on these exact strings. Do NOT change them without updating the tests.
 export function RestrictToDaysChips({
-  hue,
   days,
   onChange,
   slug,
 }: {
-  hue: number;
+  /** Unused since the kit move (chips take the modal's accent). */
+  hue?: number;
   days: Weekday[] | undefined;
   onChange: (next: Weekday[] | undefined) => void;
   slug: string;
 }) {
   return (
-    <div className="flex flex-col gap-1">
-      <span
-        id={`wakeup-days-label-${slug}`}
-        className="text-[10px] uppercase tracking-wide text-[var(--color-pv-fg-dim)] font-semibold"
-      >
+    <div className="k-field basis-full">
+      <span id={`wakeup-days-label-${slug}`} className="k-label">
         Restrict to days
       </span>
-      <div role="group" aria-label="Restrict to days of week" className="flex flex-wrap gap-1.5">
+      <KitPickRow aria-label="Restrict to days of week" className="gap-1.5">
         {WEEKDAY_VALUES.map((d) => {
           const selected = (days ?? []).includes(d);
           return (
-            <button
+            <KitPickChip
               key={d}
-              type="button"
+              round
               aria-label={`Toggle ${cap(d)}`}
-              aria-pressed={selected}
-              onClick={() => {
+              title={WEEKDAY_NAMES[d]}
+              pressed={selected}
+              onPressedChange={(on) => {
                 const nextSet = new Set(days ?? []);
-                if (selected) {
-                  nextSet.delete(d);
-                } else {
-                  nextSet.add(d);
-                }
+                if (on) nextSet.add(d);
+                else nextSet.delete(d);
                 const nextArr = WEEKDAY_VALUES.filter((w) => nextSet.has(w));
                 onChange(nextArr.length === 0 ? undefined : nextArr);
               }}
-              className={cn(
-                "cursor-pointer px-2 py-0.5 rounded-full text-[11px] font-medium uppercase tracking-wide border transition-opacity",
-                !selected && "bg-slate-500/10 text-slate-400 border-slate-500/25",
-              )}
-              style={selected ? {
-                background: `hsla(${hue}, 60%, 50%, 0.35)`,
-                borderColor: `hsla(${hue}, 60%, 50%, 0.55)`,
-                color: "#f0ebe0",
-              } : undefined}
             >
-              {cap(d)}
-            </button>
+              {cap(d).slice(0, 2)}
+            </KitPickChip>
           );
         })}
-      </div>
+      </KitPickRow>
     </div>
   );
 }
 
 // Month select + day-of-month input for the yearly schedule kind. Shared by
-// the wake-up dialogs and the scheduled-tasks form; each passes its own
-// input styling so the picker matches the surrounding fields.
+// the wake-up dialogs and the scheduled-tasks form.
 export function YearlyDateFields({
   date,
   onChange,
@@ -559,17 +614,17 @@ export function YearlyDateFields({
   date: string;
   onChange: (next: string) => void;
   idPrefix: string;
-  inputClassName: string;
-  labelClassName: string;
+  inputClassName?: string;
+  labelClassName?: string;
 }) {
   const parsed = parseYearlyDate(date) ?? { month: 1, day: 1 };
   return (
     <>
-      <div className="flex flex-col gap-1 flex-1 min-w-[110px]">
-        <label htmlFor={`${idPrefix}-month`} className={labelClassName}>
+      <div className="k-field flex-1 min-w-[130px]">
+        <label htmlFor={`${idPrefix}-month`} className={cn("k-label", labelClassName)}>
           Month
         </label>
-        <select
+        <KitSelect
           id={`${idPrefix}-month`}
           data-testid={`${idPrefix}-month`}
           value={parsed.month}
@@ -581,13 +636,13 @@ export function YearlyDateFields({
               {label}
             </option>
           ))}
-        </select>
+        </KitSelect>
       </div>
-      <div className="flex flex-col gap-1 w-[70px]">
-        <label htmlFor={`${idPrefix}-day`} className={labelClassName}>
+      <div className="k-field w-[84px]">
+        <label htmlFor={`${idPrefix}-day`} className={cn("k-label", labelClassName)}>
           Day
         </label>
-        <input
+        <KitInput
           id={`${idPrefix}-day`}
           data-testid={`${idPrefix}-day`}
           type="number"
@@ -607,22 +662,17 @@ export function YearlyDateFields({
 
 // ---------------------------------------------------------------------------
 // Shared schedule field groups. Like YearlyDateFields, each takes an
-// idPrefix plus the host form's input/label classes so it blends into the
-// wake-up dialogs and the scheduled-tasks form alike.
+// idPrefix (plus optional extra classes) so it serves the wake-up dialogs
+// and the scheduled-tasks form alike.
 // ---------------------------------------------------------------------------
 
 type FieldStyle = {
   idPrefix: string;
-  inputClassName: string;
-  labelClassName: string;
-  /** Small secondary buttons (add/remove time). */
+  inputClassName?: string;
+  labelClassName?: string;
+  /** Extra classes for the small add-time button. */
   buttonClassName?: string;
 };
-
-const DEFAULT_BUTTON_CLASS =
-  "cursor-pointer px-2 py-1 rounded text-[11px] border border-white/10 bg-white/5 text-[#e8e4d8] hover:bg-white/10 transition-colors";
-const CHECKBOX_CLASS = "w-3.5 h-3.5 accent-sky-500 cursor-pointer";
-const HINT_CLASS = "text-[11px] text-[color:var(--color-pv-fg-dim)]";
 
 type MonthlyFormSchedule = Extract<FormSchedule, { type: "monthly" }>;
 
@@ -654,7 +704,7 @@ export function TimesField({
   idPrefix,
   inputClassName,
   labelClassName,
-  buttonClassName = DEFAULT_BUTTON_CLASS,
+  buttonClassName,
 }: FieldStyle & {
   at: Times;
   onChange: (next: Times) => void;
@@ -662,51 +712,54 @@ export function TimesField({
 }) {
   const list = timesList(at);
   return (
-    <div className="flex flex-col gap-1 min-w-0">
-      <label htmlFor={idPrefix} className={labelClassName}>
+    <div className="k-field">
+      <label htmlFor={idPrefix} className={cn("k-label", labelClassName)}>
         {label}
       </label>
       <div className="flex flex-wrap items-center gap-1.5">
         {list.map((t, i) => {
           const id = i === 0 ? idPrefix : `${idPrefix}-${i + 1}`;
           return (
-            <div key={i} className="flex items-center gap-1">
-              <input
-                id={id}
-                data-testid={id}
-                type="time"
-                aria-label={i === 0 ? undefined : `Time ${i + 1}`}
-                value={t}
-                onChange={(e) => {
-                  const next = [...list];
-                  next[i] = e.target.value;
-                  onChange(timesValue(next));
-                }}
-                className={inputClassName}
-              />
+            <div key={i} className="flex items-center gap-0.5">
+              <div className="w-[124px]">
+                <KitInput
+                  id={id}
+                  data-testid={id}
+                  type="time"
+                  aria-label={i === 0 ? undefined : `Time ${i + 1}`}
+                  value={t}
+                  onChange={(e) => {
+                    const next = [...list];
+                    next[i] = e.target.value;
+                    onChange(timesValue(next));
+                  }}
+                  className={inputClassName}
+                />
+              </div>
               {list.length > 1 && (
-                <button
-                  type="button"
-                  aria-label={`Remove time ${i + 1}`}
+                <KitIconButton
+                  size="sm"
+                  label={`Remove time ${i + 1}`}
                   data-testid={`${idPrefix}-remove-${i + 1}`}
                   onClick={() => onChange(timesValue(list.filter((_, j) => j !== i)))}
-                  className={buttonClassName}
                 >
-                  ×
-                </button>
+                  <X />
+                </KitIconButton>
               )}
             </div>
           );
         })}
         {list.length < MAX_TIMES && (
-          <button
-            type="button"
+          <KitButton
+            variant="plain"
+            size="sm"
             data-testid={`${idPrefix}-add`}
             onClick={() => onChange([...list, suggestNextTime(list)])}
             className={buttonClassName}
           >
-            + Add time
-          </button>
+            <Plus />
+            Add time
+          </KitButton>
         )}
       </div>
     </div>
@@ -727,19 +780,21 @@ function DateTimeInput({
   value: string | undefined;
   onChange: (next: string | undefined) => void;
   emptyValue: string | undefined;
-  className: string;
+  className?: string;
   ariaLabel?: string;
 }) {
   return (
-    <input
-      id={id}
-      data-testid={id}
-      type="datetime-local"
-      aria-label={ariaLabel}
-      value={isoToLocalInput(value)}
-      onChange={(e) => onChange(e.target.value ? toIsoWithOffset(e.target.value) : emptyValue)}
-      className={cn("min-w-0 max-w-full", className)}
-    />
+    <div className="w-[230px] max-w-full">
+      <KitInput
+        id={id}
+        data-testid={id}
+        type="datetime-local"
+        aria-label={ariaLabel}
+        value={isoToLocalInput(value)}
+        onChange={(e) => onChange(e.target.value ? toIsoWithOffset(e.target.value) : emptyValue)}
+        className={className}
+      />
+    </div>
   );
 }
 
@@ -760,24 +815,26 @@ export function EveryNField({
   const id = `${idPrefix}-every`;
   const value = every ?? 1;
   return (
-    <div className="flex flex-col gap-1">
-      <label htmlFor={id} className={labelClassName}>
+    <div className="k-field">
+      <label htmlFor={id} className={cn("k-label", labelClassName)}>
         Repeat every
       </label>
-      <div className="flex items-center gap-1.5">
-        <input
-          id={id}
-          data-testid={id}
-          type="number"
-          min={1}
-          value={Number.isNaN(value) ? "" : value}
-          onChange={(e) => {
-            const n = parseInt(e.target.value, 10);
-            onChange(n === 1 ? undefined : n);
-          }}
-          className={cn("w-20", inputClassName)}
-        />
-        <span className={HINT_CLASS}>{value === 1 ? unit.slice(0, -1) : unit}</span>
+      <div className="flex items-center gap-2">
+        <div className="w-20">
+          <KitInput
+            id={id}
+            data-testid={id}
+            type="number"
+            min={1}
+            value={Number.isNaN(value) ? "" : value}
+            onChange={(e) => {
+              const n = parseInt(e.target.value, 10);
+              onChange(n === 1 ? undefined : n);
+            }}
+            className={inputClassName}
+          />
+        </div>
+        <span className="k-help">{value === 1 ? unit.slice(0, -1) : unit}</span>
       </div>
     </div>
   );
@@ -805,17 +862,18 @@ export function StartField({
   if (toggleable) {
     const on = start !== undefined;
     return (
-      <div className="flex flex-col gap-1">
-        <label className={cn("flex items-center gap-1.5 cursor-pointer", labelClassName)}>
-          <input
-            type="checkbox"
-            data-testid={`${id}-toggle`}
-            checked={on}
-            onChange={(e) => onChange(e.target.checked ? toIsoWithOffset(defaultOneShotAt()) : undefined)}
-            className={CHECKBOX_CLASS}
-          />
-          {label}
-        </label>
+      <div className="k-field">
+        <KitOption
+          className={labelClassName}
+          label={label}
+          control={
+            <KitCheckbox
+              data-testid={`${id}-toggle`}
+              checked={on}
+              onCheckedChange={(next) => onChange(next ? toIsoWithOffset(defaultOneShotAt()) : undefined)}
+            />
+          }
+        />
         {on && (
           <DateTimeInput
             id={id}
@@ -826,17 +884,17 @@ export function StartField({
             className={inputClassName}
           />
         )}
-        {on && hint && <span className={HINT_CLASS}>{hint}</span>}
+        {on && hint && <span className="k-help">{hint}</span>}
       </div>
     );
   }
   return (
-    <div className="flex flex-col gap-1 min-w-0">
-      <label htmlFor={id} className={labelClassName}>
+    <div className="k-field">
+      <label htmlFor={id} className={cn("k-label", labelClassName)}>
         {label}
       </label>
       <DateTimeInput id={id} value={start} onChange={onChange} emptyValue={undefined} className={inputClassName} />
-      {hint && <span className={HINT_CLASS}>{hint}</span>}
+      {hint && <span className="k-help">{hint}</span>}
     </div>
   );
 }
@@ -854,39 +912,44 @@ export function IntervalWindowFields({
 }) {
   const on = value !== undefined;
   return (
-    <div className="flex flex-col gap-1">
-      <label className={cn("flex items-center gap-1.5 cursor-pointer", labelClassName)}>
-        <input
-          type="checkbox"
-          data-testid={`${idPrefix}-window-toggle`}
-          checked={on}
-          onChange={(e) => onChange(e.target.checked ? { from: "09:00", to: "17:00" } : undefined)}
-          className={CHECKBOX_CLASS}
-        />
-        Only between
-      </label>
+    <div className="k-field">
+      <KitOption
+        className={labelClassName}
+        label="Only between"
+        control={
+          <KitCheckbox
+            data-testid={`${idPrefix}-window-toggle`}
+            checked={on}
+            onCheckedChange={(next) => onChange(next ? { from: "09:00", to: "17:00" } : undefined)}
+          />
+        }
+      />
       {on && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <input
-            id={`${idPrefix}-window-from`}
-            data-testid={`${idPrefix}-window-from`}
-            type="time"
-            aria-label="From"
-            value={value.from}
-            onChange={(e) => onChange({ ...value, from: e.target.value })}
-            className={inputClassName}
-          />
-          <span className={HINT_CLASS}>and</span>
-          <input
-            id={`${idPrefix}-window-to`}
-            data-testid={`${idPrefix}-window-to`}
-            type="time"
-            aria-label="To"
-            value={value.to}
-            onChange={(e) => onChange({ ...value, to: e.target.value })}
-            className={inputClassName}
-          />
-          {value.from > value.to && <span className={HINT_CLASS}>(overnight)</span>}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="w-[124px]">
+            <KitInput
+              id={`${idPrefix}-window-from`}
+              data-testid={`${idPrefix}-window-from`}
+              type="time"
+              aria-label="From"
+              value={value.from}
+              onChange={(e) => onChange({ ...value, from: e.target.value })}
+              className={inputClassName}
+            />
+          </div>
+          <span className="k-help">and</span>
+          <div className="w-[124px]">
+            <KitInput
+              id={`${idPrefix}-window-to`}
+              data-testid={`${idPrefix}-window-to`}
+              type="time"
+              aria-label="To"
+              value={value.to}
+              onChange={(e) => onChange({ ...value, to: e.target.value })}
+              className={inputClassName}
+            />
+          </div>
+          {value.from > value.to && <span className="k-help">(overnight)</span>}
         </div>
       )}
     </div>
@@ -907,40 +970,39 @@ export function MonthlyDayFields({
 }) {
   const byWeekday = value.nth !== undefined;
   const cleared = { ...value, day: undefined, nth: undefined, weekday: undefined };
-  const radioLabel = "flex items-center gap-1.5 cursor-pointer text-xs text-[#e8e4d8]";
   return (
-    <div className="flex flex-col gap-2">
-      <div role="radiogroup" aria-label="Repeat by" className="flex flex-wrap gap-x-4 gap-y-1">
-        <label className={radioLabel}>
-          <input
-            type="radio"
-            name={`${idPrefix}-mode`}
-            data-testid={`${idPrefix}-mode-day`}
-            checked={!byWeekday}
-            onChange={() => onChange({ ...cleared, day: 1 })}
-            className={CHECKBOX_CLASS}
-          />
-          Day of month
-        </label>
-        <label className={radioLabel}>
-          <input
-            type="radio"
-            name={`${idPrefix}-mode`}
-            data-testid={`${idPrefix}-mode-weekday`}
-            checked={byWeekday}
-            onChange={() => onChange({ ...cleared, nth: 1, weekday: "mon" })}
-            className={CHECKBOX_CLASS}
-          />
-          Weekday of month
-        </label>
+    <div className="flex flex-col gap-3">
+      <div role="radiogroup" aria-label="Repeat by" className="flex flex-wrap gap-x-5 gap-y-2">
+        <KitOption
+          label="Day of month"
+          control={
+            <KitRadio
+              name={`${idPrefix}-mode`}
+              data-testid={`${idPrefix}-mode-day`}
+              checked={!byWeekday}
+              onChange={() => onChange({ ...cleared, day: 1 })}
+            />
+          }
+        />
+        <KitOption
+          label="Weekday of month"
+          control={
+            <KitRadio
+              name={`${idPrefix}-mode`}
+              data-testid={`${idPrefix}-mode-weekday`}
+              checked={byWeekday}
+              onChange={() => onChange({ ...cleared, nth: 1, weekday: "mon" })}
+            />
+          }
+        />
       </div>
       {byWeekday ? (
         <div className="flex flex-wrap items-end gap-2">
-          <div className="flex flex-col gap-1 flex-1 min-w-[100px]">
-            <label htmlFor={`${idPrefix}-nth`} className={labelClassName}>
+          <div className="k-field flex-1 min-w-[110px]">
+            <label htmlFor={`${idPrefix}-nth`} className={cn("k-label", labelClassName)}>
               Which
             </label>
-            <select
+            <KitSelect
               id={`${idPrefix}-nth`}
               data-testid={`${idPrefix}-nth`}
               value={String(value.nth)}
@@ -954,13 +1016,13 @@ export function MonthlyDayFields({
                   {NTH_LABELS[String(n)]}
                 </option>
               ))}
-            </select>
+            </KitSelect>
           </div>
-          <div className="flex flex-col gap-1 flex-1 min-w-[110px]">
-            <label htmlFor={`${idPrefix}-weekday`} className={labelClassName}>
+          <div className="k-field flex-1 min-w-[130px]">
+            <label htmlFor={`${idPrefix}-weekday`} className={cn("k-label", labelClassName)}>
               Weekday
             </label>
-            <select
+            <KitSelect
               id={`${idPrefix}-weekday`}
               data-testid={`${idPrefix}-weekday`}
               value={value.weekday ?? "mon"}
@@ -972,15 +1034,15 @@ export function MonthlyDayFields({
                   {WEEKDAY_NAMES[d]}
                 </option>
               ))}
-            </select>
+            </KitSelect>
           </div>
         </div>
       ) : (
-        <div className="flex flex-col gap-1 min-w-[100px]">
-          <label htmlFor={`${idPrefix}-dom`} className={labelClassName}>
+        <div className="k-field w-[160px] max-w-full">
+          <label htmlFor={`${idPrefix}-dom`} className={cn("k-label", labelClassName)}>
             Day
           </label>
-          <select
+          <KitSelect
             id={`${idPrefix}-dom`}
             data-testid={`${idPrefix}-dom`}
             value={String(value.day ?? 1)}
@@ -995,9 +1057,9 @@ export function MonthlyDayFields({
               </option>
             ))}
             <option value="last">Last day</option>
-          </select>
+          </KitSelect>
           {typeof value.day === "number" && value.day > 28 && (
-            <span className={HINT_CLASS}>Shorter months fire on their last day.</span>
+            <span className="k-help">Shorter months fire on their last day.</span>
           )}
         </div>
       )}
@@ -1030,29 +1092,31 @@ export function EndsFields({
   const mode = until !== undefined && count !== undefined ? "both" : until !== undefined ? "until" : count !== undefined ? "count" : "never";
   const id = `${idPrefix}-ends`;
   return (
-    <div className="flex flex-col gap-1">
-      <label htmlFor={id} className={labelClassName}>
+    <div className="k-field">
+      <label htmlFor={id} className={cn("k-label", labelClassName)}>
         Ends
       </label>
-      <div className="flex flex-wrap items-center gap-1.5">
-        <select
-          id={id}
-          data-testid={id}
-          value={mode}
-          onChange={(e) => {
-            const m = e.target.value;
-            if (m === "until") onChange({ until: until ?? defaultUntil() });
-            else if (m === "count") onChange({ count: count ?? 10 });
-            else if (m === "both") onChange({ until: until ?? defaultUntil(), count: count ?? 10 });
-            else onChange({});
-          }}
-          className={inputClassName}
-        >
-          <option value="never">Never</option>
-          <option value="until">On a date</option>
-          <option value="count">After N runs</option>
-          {mode === "both" && <option value="both">Date or N runs, whichever first</option>}
-        </select>
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="w-[200px] max-w-full">
+          <KitSelect
+            id={id}
+            data-testid={id}
+            value={mode}
+            onChange={(e) => {
+              const m = e.target.value;
+              if (m === "until") onChange({ until: until ?? defaultUntil() });
+              else if (m === "count") onChange({ count: count ?? 10 });
+              else if (m === "both") onChange({ until: until ?? defaultUntil(), count: count ?? 10 });
+              else onChange({});
+            }}
+            className={inputClassName}
+          >
+            <option value="never">Never</option>
+            <option value="until">On a date</option>
+            <option value="count">After N runs</option>
+            {mode === "both" && <option value="both">Date or N runs, whichever first</option>}
+          </KitSelect>
+        </div>
         {until !== undefined && (
           <DateTimeInput
             id={`${idPrefix}-until`}
@@ -1064,18 +1128,20 @@ export function EndsFields({
           />
         )}
         {count !== undefined && (
-          <div className="flex items-center gap-1.5">
-            <input
-              id={`${idPrefix}-count`}
-              data-testid={`${idPrefix}-count`}
-              type="number"
-              min={1}
-              aria-label="Number of runs"
-              value={Number.isNaN(count) ? "" : count}
-              onChange={(e) => onChange({ until, count: parseInt(e.target.value, 10) })}
-              className={cn("w-20", inputClassName)}
-            />
-            <span className={HINT_CLASS}>{count === 1 ? "run" : "runs"}</span>
+          <div className="flex items-center gap-2">
+            <div className="w-20">
+              <KitInput
+                id={`${idPrefix}-count`}
+                data-testid={`${idPrefix}-count`}
+                type="number"
+                min={1}
+                aria-label="Number of runs"
+                value={Number.isNaN(count) ? "" : count}
+                onChange={(e) => onChange({ until, count: parseInt(e.target.value, 10) })}
+                className={inputClassName}
+              />
+            </div>
+            <span className="k-help">{count === 1 ? "run" : "runs"}</span>
           </div>
         )}
       </div>
@@ -1099,9 +1165,9 @@ export function ScheduleRepeatFields({
   const setStart = (start: string | undefined) =>
     onChange({ ...fs, start });
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-4">
       {(fs.type === "weekly" || fs.type === "monthly") && (
-        <div className="flex flex-wrap items-start gap-3">
+        <div className="flex flex-wrap items-start gap-4">
           <EveryNField
             {...style}
             every={fs.every}

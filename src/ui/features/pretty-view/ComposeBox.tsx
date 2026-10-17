@@ -128,6 +128,7 @@ const tapDedup = createLogDedup({ N: 5, W: 3000 });
 // unreachable; the fallback exists so a race between logout and the save
 // debounce cannot write an un-ownerable key.
 import { getCurrentUser } from "@/state/user-scoped-cache";
+import { kitConfirm } from "@/components/kit";
 
 function composeDraftLsKey(
   hostId: number,
@@ -2125,8 +2126,15 @@ export function ComposeBox({
   // Router: branch on voice.state so the meter-well reset button does the
   // right thing in either idle or recording state. Wired into the reset
   // button's onClick below.
-  function handleResetClick() {
-    if (!window.confirm("Reset the agent's context window?")) return;
+  async function handleResetClick() {
+    if (
+      !(await kitConfirm({
+        title: "Reset the agent's context window?",
+        body: "It saves where it's up to, then restarts fresh.",
+        confirmLabel: "Reset",
+      }))
+    )
+      return;
     if (voice.state === "recording") {
       void handleVoiceResetSend();
     } else {

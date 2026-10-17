@@ -11,6 +11,7 @@ import {
   removeFleetSession,
 } from "@/state/conversation-store";
 import { archiveIdentity } from "@/api/identity-archive-api";
+import { kitAlert, kitConfirm } from "@/components/kit";
 
 export function confirmAndArchiveIdentityPane(args: {
   hostId: number;
@@ -19,8 +20,23 @@ export function confirmAndArchiveIdentityPane(args: {
   label: string;
   closePane: () => void;
 }): void {
+  void confirmThenArchive(args);
+}
+
+async function confirmThenArchive(args: {
+  hostId: number;
+  identityKey: string;
+  label: string;
+  closePane: () => void;
+}): Promise<void> {
   const { hostId, identityKey, label, closePane } = args;
-  if (!window.confirm(`archive ${label}? this can't be undone.`)) return;
+  const ok = await kitConfirm({
+    title: `Archive "${label}"?`,
+    body: "The agent is retired and its conversation leaves the sidebar. You can't undo this here.",
+    confirmLabel: "Archive",
+    destructive: true,
+  });
+  if (!ok) return;
   // Close the visible pane BEFORE the API call (mirrors the panel's
   // handleArchive).
   closePane();
@@ -41,7 +57,10 @@ export function confirmAndArchiveIdentityPane(args: {
         identityKey,
         errMessage: err instanceof Error ? err.message : String(err),
       });
-      window.alert(`archive failed: ${err instanceof Error ? err.message : String(err)}`);
+      void kitAlert({
+        title: "Couldn't archive",
+        body: err instanceof Error ? err.message : String(err),
+      });
     }
   })();
 }

@@ -73,6 +73,7 @@ vi.mock("@/api/workspace-api", async (importOriginal) => {
 });
 
 import { ProjectModal } from "./ProjectModal";
+import { __resetKitDialogsForTests } from "@/components/kit";
 import { listWorkspace } from "@/api/workspace-api";
 
 function renderModal(overrides: {
@@ -116,6 +117,7 @@ describe("ProjectModal", () => {
   });
   afterEach(() => {
     cleanup();
+    __resetKitDialogsForTests();
     vi.restoreAllMocks();
   });
 
@@ -181,17 +183,17 @@ describe("ProjectModal", () => {
 
   it("closing with a dirty draft asks first; declining keeps it open", async () => {
     getProjectFileSpy.mockResolvedValueOnce({ markdown: "old body" });
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
     const { onOpenChange } = renderModal();
 
     await editTo("old body", "changed");
     fireEvent.click(screen.getByTestId("project-modal-close-foot"));
-    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    fireEvent.click(await screen.findByTestId("kit-dialog-cancel"));
+    await waitFor(() => expect(screen.queryByTestId("kit-dialog-cancel")).toBeNull());
     expect(onOpenChange).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByTestId("project-modal-close-foot"));
-    expect(confirmSpy).toHaveBeenCalledTimes(2);
-    expect(onOpenChange).toHaveBeenCalledWith(false);
+    fireEvent.click(await screen.findByTestId("kit-dialog-confirm"));
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
   });
 
   it("can't be closed while a save is in flight", async () => {
@@ -200,7 +202,6 @@ describe("ProjectModal", () => {
     updateProjectFileSpy.mockImplementationOnce(
       () => new Promise((resolve) => { finishSave = resolve; }),
     );
-    const confirmSpy = vi.spyOn(window, "confirm");
     const { onOpenChange } = renderModal();
 
     await editTo("old body", "new body");
@@ -209,19 +210,18 @@ describe("ProjectModal", () => {
 
     fireEvent.click(screen.getByTestId("project-modal-close"));
     expect(onOpenChange).not.toHaveBeenCalled();
-    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("kit-dialog-confirm")).toBeNull();
 
     finishSave({ markdown: "new body" });
     await waitFor(() => expect(screen.getByTestId("project-modal-save")).toHaveTextContent("Save"));
   });
 
   it("a clean close doesn't ask", async () => {
-    const confirmSpy = vi.spyOn(window, "confirm");
     const { onOpenChange } = renderModal();
     await editor();
     fireEvent.click(screen.getByTestId("project-modal-close"));
-    expect(confirmSpy).not.toHaveBeenCalled();
-    expect(onOpenChange).toHaveBeenCalledWith(false);
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(screen.queryByTestId("kit-dialog-confirm")).toBeNull();
   });
 
   it("Files lists the project folder on the project's host and hides project.md at the root", async () => {

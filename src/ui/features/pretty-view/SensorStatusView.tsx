@@ -20,6 +20,7 @@ import {
   formatRelativePast,
 } from "@/features/pretty-conversations/scheduled-agents-time-fmt";
 import { cn } from "@/lib/utils";
+import { KitChip, type KitChipTone } from "@/components/kit";
 
 export const SENSOR_MARK = "📡";
 
@@ -33,16 +34,25 @@ const STATE_LABEL: Record<SensorState, string> = {
   unknown: "Unknown",
 };
 
-/** Text colour per state. Off / not live are deliberately calm (inherit the
- *  muted line colour); unknown is grey; broken is red. */
+/** Kit chip tone per state. Off / not live are deliberately calm. */
+const STATE_TONE: Record<SensorState, KitChipTone> = {
+  healthy: "ok",
+  broken: "danger",
+  running_long: "warn",
+  off: "neutral",
+  not_live: "neutral",
+  unknown: "neutral",
+};
+
+/** Text colour per state (inline text inside the details panel). */
 const STATE_CLASS: Record<SensorState, string> = {
-  healthy: "text-emerald-300",
-  broken: "text-rose-400 font-semibold",
-  running_long: "text-amber-300",
+  healthy: "text-[#6fd3a5]",
+  broken: "text-[var(--k-danger-text)] font-semibold",
+  running_long: "text-[#e8bf72]",
   off: "",
   tripped: "text-amber-400 font-semibold",
   not_live: "",
-  unknown: "text-slate-400",
+  unknown: "text-[var(--k-t3)]",
 };
 
 const STATE_HINT: Record<SensorState, string> = {
@@ -58,6 +68,31 @@ const STATE_HINT: Record<SensorState, string> = {
 
 export function sensorStateLabel(state: SensorState): string {
   return STATE_LABEL[state] ?? "Unknown";
+}
+
+export function sensorStateHint(state: SensorState): string {
+  return STATE_HINT[state] ?? STATE_HINT.unknown;
+}
+
+/** The sensor's state as a kit status chip (with its hover hint). */
+export function SensorStateChip({
+  state,
+  testId,
+}: {
+  state: SensorState;
+  testId?: string;
+}) {
+  return (
+    <KitChip
+      tone={STATE_TONE[state] ?? "neutral"}
+      dot={state === "healthy" || state === "broken" || state === "running_long"}
+      title={sensorStateHint(state)}
+      data-testid={testId}
+      data-state={state}
+    >
+      {sensorStateLabel(state)}
+    </KitChip>
+  );
 }
 
 function nowSecs(): number {
@@ -155,7 +190,7 @@ export function SensorDetails({
       "Status",
       <span className={STATE_CLASS[sensor.state]} data-state={sensor.state}>
         {sensorStateLabel(sensor.state)}
-        <span className="ml-2 text-[11px] font-normal text-[var(--color-pv-fg-muted)]">
+        <span className="ml-2 text-[11.5px] font-normal text-[var(--k-t3)]">
           {STATE_HINT[sensor.state]}
         </span>
       </span>,
@@ -186,25 +221,25 @@ export function SensorDetails({
 
   return (
     <div
-      className="flex flex-col gap-1.5 rounded-md border border-white/10 bg-black/20 px-3 py-2"
+      className="flex flex-col gap-2 rounded-[14px] bg-[var(--k-s1)] px-3.5 py-3"
       data-testid={testId}
     >
-      <div className="text-[10px] uppercase tracking-wide text-[var(--color-pv-fg-dim)] font-semibold">
+      <div className="text-[13px] font-semibold text-[var(--k-t2)]">
         {SENSOR_MARK} {sensorLabel(once)}
       </div>
-      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-[13px]">
         {rows.map(([label, value]) => (
           <div key={label} className="contents">
-            <dt className="text-[var(--color-pv-fg-muted)]">{label}</dt>
-            <dd className="text-[#e8e4d8] min-w-0">{value}</dd>
+            <dt className="text-[var(--k-t3)]">{label}</dt>
+            <dd className="text-[var(--k-t1)] min-w-0">{value}</dd>
           </div>
         ))}
       </dl>
       {sensor.state === "broken" && sensor.error && (
         <pre
           className={cn(
-            "mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded",
-            "bg-black/40 px-2 py-1.5 text-[11px] leading-snug text-rose-200 font-mono",
+            "mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-[10px]",
+            "bg-[var(--k-danger-soft)] px-2.5 py-2 text-[12px] leading-snug text-[#ffb1ab] font-mono",
           )}
           data-testid={testId ? `${testId}-error` : undefined}
         >

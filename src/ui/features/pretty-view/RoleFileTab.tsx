@@ -1,8 +1,7 @@
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Skeleton } from "@/components/skeleton";
-import { Button } from "@/components/button";
+import { KitBanner, KitButton, KitEmpty, KitLoading, kitConfirm } from "@/components/kit";
 import { stripFrontmatter } from "@/lib/strip-frontmatter";
 import type { TabState } from "./IdentityFileTab";
 import { MarkdownEditor } from "./MarkdownEditor";
@@ -53,12 +52,19 @@ export function RoleFileTab({
     }
   }
 
-  function handleCancel() {
+  async function handleCancel() {
     const confirmedMarkdown = state.status === "ready" ? state.data : "";
     if (draft === confirmedMarkdown) {
       setEditing(false);
     } else {
-      if (window.confirm("Discard unsaved changes?")) {
+      if (
+        await kitConfirm({
+          title: "Discard unsaved changes?",
+          body: "Your edits to the role file haven't been saved.",
+          confirmLabel: "Discard",
+          destructive: true,
+        })
+      ) {
         setEditing(false);
         setDraft(confirmedMarkdown);
       }
@@ -66,29 +72,15 @@ export function RoleFileTab({
   }
 
   if (state.status === "loading") {
-    return (
-      <div className="flex flex-col gap-3">
-        <Skeleton className="h-32 w-full rounded-[var(--radius-pv-bubble)]" />
-        <Skeleton className="h-32 w-full rounded-[var(--radius-pv-bubble)]" />
-        <Skeleton className="h-32 w-full rounded-[var(--radius-pv-bubble)]" />
-      </div>
-    );
+    return <KitLoading lines={5} />;
   }
 
   if (state.status === "error") {
-    return (
-      <div className="text-sm text-[color:var(--color-pv-code-fg)]">
-        Couldn&apos;t load role file: {state.error}
-      </div>
-    );
+    return <KitBanner tone="danger">Couldn&apos;t load role file: {state.error}</KitBanner>;
   }
 
   if (!state.data) {
-    return (
-      <div className="text-sm text-[var(--color-pv-fg-muted)]">
-        No role file found for this agent.
-      </div>
-    );
+    return <KitEmpty title="No role file found for this agent." />;
   }
 
   return (
@@ -97,10 +89,8 @@ export function RoleFileTab({
       {state.status === "ready" && onSave && (
         <div className="flex justify-end gap-2 shrink-0">
           {!editing && (
-            <Button
-              variant="outline"
+            <KitButton
               size="sm"
-              className="cursor-pointer"
               onClick={() => {
                 setDraft(state.data);
                 setSaveError(null);
@@ -108,28 +98,26 @@ export function RoleFileTab({
               }}
             >
               Edit
-            </Button>
+            </KitButton>
           )}
           {editing && (
             <>
-              <Button
-                variant="default"
+              <KitButton
                 size="sm"
-                className="cursor-pointer"
-                disabled={saving || draft === state.data}
+                disabled={saving}
+                onClick={() => { void handleCancel(); }}
+              >
+                Cancel
+              </KitButton>
+              <KitButton
+                variant="primary"
+                size="sm"
+                busy={saving}
+                disabled={draft === state.data}
                 onClick={() => { void handleSave(); }}
               >
                 {saving ? "Saving…" : "Save"}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="cursor-pointer"
-                disabled={saving}
-                onClick={handleCancel}
-              >
-                Cancel
-              </Button>
+              </KitButton>
             </>
           )}
         </div>
@@ -147,9 +135,9 @@ export function RoleFileTab({
             disabled={saving}
           />
           {saveError && (
-            <div className="text-sm text-[color:var(--color-pv-code-fg)] mt-2">
+            <KitBanner tone="danger" className="mt-2">
               Save failed: {saveError}
-            </div>
+            </KitBanner>
           )}
         </div>
       ) : (

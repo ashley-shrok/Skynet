@@ -22,18 +22,27 @@
 
 import { useState } from "react";
 import { Modal, ModalHead, ModalBody, ModalFoot } from "@/components/modal";
-import { cn } from "@/lib/utils";
-import { Button } from "@/components/button";
-import { Switch } from "@/components/switch";
+import {
+  KitBanner,
+  KitButton,
+  KitField,
+  KitInput,
+  KitOption,
+  KitSelect,
+  KitSwitch,
+} from "@/components/kit";
 import type { WakeupSpecWire } from "@/api/claude-session-api";
 import {
   type FormSchedule,
   type IntervalUnit,
   type Weekday,
+  WEEKDAY_NAMES,
+  WEEKDAY_VALUES,
   buildSchedule,
   detectBrowserTimezone,
   MonthlyDayFields,
   RestrictToDaysChips,
+  ScheduleKindField,
   ScheduleRepeatFields,
   switchScheduleKind,
   TimesField,
@@ -53,12 +62,6 @@ import { MarkdownEditor } from "./MarkdownEditor";
 function normalizeSlug(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
-
-const LABEL_CLASS = "text-[10px] uppercase tracking-wide text-white/90 font-semibold";
-const INPUT_CLASS = cn(
-  "bg-black/30 text-[#e8e4d8] border border-white/10",
-  "focus:outline-none focus:border-white/25 rounded px-2 py-1.5 text-xs",
-);
 
 export type AddWakeupDialogProps = {
   open: boolean;
@@ -146,7 +149,6 @@ export function AddWakeupDialog({
       onOpenChange={onOpenChange}
       hue={hue}
       size="lg"
-      className="max-h-[90vh] flex flex-col"
       data-testid="add-wakeup-dialog"
     >
       <ModalHead
@@ -154,68 +156,29 @@ export function AddWakeupDialog({
           scope === "role" ? "Add role-scope wakeup" : "Add wakeup"
         }
       />
-      <ModalBody className="overflow-y-auto flex flex-col gap-3">
+      <ModalBody className="flex flex-col gap-4">
           {/* Field 1: Name */}
-          <div className="flex flex-col gap-1">
-            <label
-              htmlFor="add-wakeup-name"
-              className="text-[10px] uppercase tracking-wide text-white/90 font-semibold"
-            >
-              Name
-            </label>
-            <input
-              id="add-wakeup-name"
+          <KitField label="Name" htmlFor="add-wakeup-name">
+            <KitInput
               type="text"
               value={nameDraft}
               onChange={(e) => setNameDraft(e.target.value)}
               placeholder="e.g. Check for email reply"
-              className={cn(
-                "bg-black/30 text-[#e8e4d8] border border-white/10",
-                "focus:outline-none focus:border-white/25 rounded px-2 py-1.5 text-xs",
-              )}
             />
-          </div>
+          </KitField>
 
-          {/* Field 2: Schedule type */}
-          <div className="flex flex-col gap-1">
-            <label
-              htmlFor="add-wakeup-type"
-              className="text-[10px] uppercase tracking-wide text-white/90 font-semibold"
-            >
-              Schedule type
-            </label>
-            <select
-              id="add-wakeup-type"
-              value={formSchedule.type}
-              onChange={(e) => {
-                setFormSchedule(switchScheduleKind(formSchedule, e.target.value as FormSchedule["type"]));
-              }}
-              className={cn(
-                "bg-black/30 text-[#e8e4d8] border border-white/10",
-                "focus:outline-none focus:border-white/25 rounded px-2 py-1.5 text-xs",
-              )}
-            >
-              <option value="interval">interval — every N s/m/h/d</option>
-              <option value="daily">daily — at a time each day</option>
-              <option value="weekly">weekly — on a day + time</option>
-              <option value="monthly">monthly — on a day of the month</option>
-              <option value="yearly">yearly — on a date + time each year</option>
-              <option value="one_shot">one_shot — fires once at a datetime</option>
-            </select>
-          </div>
+          {/* Field 2: Schedule type — the kit segmented control. */}
+          <ScheduleKindField
+            value={formSchedule.type}
+            onChange={(kind) => setFormSchedule(switchScheduleKind(formSchedule, kind))}
+            testIdPrefix="add-wakeup-type"
+          />
 
           {/* Field 3: Schedule params (per-type) */}
           {formSchedule.type === "interval" && (
-            <div className="flex items-end gap-2 flex-wrap">
-              <div className="flex flex-col gap-1 flex-1 min-w-[110px]">
-                <label
-                  htmlFor="add-wakeup-every-n"
-                  className="text-[10px] uppercase tracking-wide text-white/90 font-semibold"
-                >
-                  Every
-                </label>
-                <input
-                  id="add-wakeup-every-n"
+            <div className="flex items-end gap-3 flex-wrap">
+              <KitField label="Every" htmlFor="add-wakeup-every-n" className="flex-1 min-w-[110px]">
+                <KitInput
                   type="number"
                   min={1}
                   value={formSchedule.n}
@@ -223,39 +186,23 @@ export function AddWakeupDialog({
                     const v = Number(e.target.value);
                     setFormSchedule({ ...formSchedule, n: Number.isFinite(v) ? v : 1 });
                   }}
-                  className={cn(
-                    "bg-black/30 text-[#e8e4d8] border border-white/10",
-                    "focus:outline-none focus:border-white/25 rounded px-2 py-1.5 text-xs",
-                  )}
                 />
-              </div>
-              <div className="flex flex-col gap-1 flex-1 min-w-[110px]">
-                <label
-                  htmlFor="add-wakeup-every-u"
-                  className="text-[10px] uppercase tracking-wide text-white/90 font-semibold"
-                >
-                  Unit
-                </label>
-                <select
-                  id="add-wakeup-every-u"
+              </KitField>
+              <KitField label="Unit" htmlFor="add-wakeup-every-u" className="flex-1 min-w-[110px]">
+                <KitSelect
                   value={formSchedule.u}
                   onChange={(e) =>
                     setFormSchedule({ ...formSchedule, u: e.target.value as IntervalUnit })
                   }
-                  className={cn(
-                    "bg-black/30 text-[#e8e4d8] border border-white/10",
-                    "focus:outline-none focus:border-white/25 rounded px-2 py-1.5 text-xs",
-                  )}
                 >
                   <option value="s">seconds</option>
                   <option value="m">minutes</option>
                   <option value="h">hours</option>
                   <option value="d">days</option>
                   <option value="mo">months</option>
-                </select>
-              </div>
+                </KitSelect>
+              </KitField>
               <RestrictToDaysChips
-                hue={hue}
                 days={formSchedule.days}
                 onChange={(next) => setFormSchedule({ ...formSchedule, days: next })}
                 slug="add"
@@ -270,11 +217,8 @@ export function AddWakeupDialog({
                 onChange={(at) => setFormSchedule({ ...formSchedule, at })}
                 label="Time (local)"
                 idPrefix="add-wakeup-daily-at"
-                inputClassName={INPUT_CLASS}
-                labelClassName={LABEL_CLASS}
               />
               <RestrictToDaysChips
-                hue={hue}
                 days={formSchedule.days}
                 onChange={(next) => setFormSchedule({ ...formSchedule, days: next as Weekday[] | undefined })}
                 slug="add"
@@ -284,43 +228,27 @@ export function AddWakeupDialog({
 
           {formSchedule.type === "weekly" && (
             <>
-              <div className="flex items-end gap-2 flex-wrap">
-                <div className="flex flex-col gap-1 flex-1 min-w-[110px]">
-                  <label
-                    htmlFor="add-wakeup-weekly-day"
-                    className="text-[10px] uppercase tracking-wide text-white/90 font-semibold"
-                  >
-                    Day
-                  </label>
-                  <select
-                    id="add-wakeup-weekly-day"
+              <div className="flex items-start gap-3 flex-wrap">
+                <KitField label="Day" htmlFor="add-wakeup-weekly-day" className="w-[160px] max-w-full">
+                  <KitSelect
                     value={formSchedule.day}
                     onChange={(e) => setFormSchedule({ ...formSchedule, day: e.target.value as Weekday })}
-                    className={cn(
-                      "bg-black/30 text-[#e8e4d8] border border-white/10",
-                      "focus:outline-none focus:border-white/25 rounded px-2 py-1.5 text-xs",
-                    )}
                   >
-                    <option value="mon">Monday</option>
-                    <option value="tue">Tuesday</option>
-                    <option value="wed">Wednesday</option>
-                    <option value="thu">Thursday</option>
-                    <option value="fri">Friday</option>
-                    <option value="sat">Saturday</option>
-                    <option value="sun">Sunday</option>
-                  </select>
-                </div>
+                    {WEEKDAY_VALUES.map((d) => (
+                      <option key={d} value={d}>
+                        {WEEKDAY_NAMES[d]}
+                      </option>
+                    ))}
+                  </KitSelect>
+                </KitField>
                 <TimesField
                   at={formSchedule.at}
                   onChange={(at) => setFormSchedule({ ...formSchedule, at })}
                   label="Time (local)"
                   idPrefix="add-wakeup-weekly-at"
-                  inputClassName={INPUT_CLASS}
-                  labelClassName={LABEL_CLASS}
                 />
               </div>
               <RestrictToDaysChips
-                hue={hue}
                 days={formSchedule.days}
                 onChange={(next) => setFormSchedule({ ...formSchedule, days: next as Weekday[] | undefined })}
                 slug="add"
@@ -329,24 +257,17 @@ export function AddWakeupDialog({
           )}
 
           {formSchedule.type === "yearly" && (
-            <div className="flex items-end gap-2 flex-wrap">
+            <div className="flex items-start gap-3 flex-wrap">
               <YearlyDateFields
                 date={formSchedule.date}
                 onChange={(date) => setFormSchedule({ ...formSchedule, date })}
                 idPrefix="add-wakeup-yearly"
-                labelClassName="text-[10px] uppercase tracking-wide text-white/90 font-semibold"
-                inputClassName={cn(
-                  "bg-black/30 text-[#e8e4d8] border border-white/10",
-                  "focus:outline-none focus:border-white/25 rounded px-2 py-1.5 text-xs",
-                )}
               />
               <TimesField
                 at={formSchedule.at}
                 onChange={(at) => setFormSchedule({ ...formSchedule, at })}
                 label="Time (local)"
                 idPrefix="add-wakeup-yearly-at"
-                inputClassName={INPUT_CLASS}
-                labelClassName={LABEL_CLASS}
               />
             </div>
           )}
@@ -357,16 +278,12 @@ export function AddWakeupDialog({
                 value={formSchedule}
                 onChange={setFormSchedule}
                 idPrefix="add-wakeup-monthly"
-                inputClassName={INPUT_CLASS}
-                labelClassName={LABEL_CLASS}
               />
               <TimesField
                 at={formSchedule.at}
                 onChange={(at) => setFormSchedule({ ...formSchedule, at })}
                 label="Time (local)"
                 idPrefix="add-wakeup-monthly-at"
-                inputClassName={INPUT_CLASS}
-                labelClassName={LABEL_CLASS}
               />
             </>
           )}
@@ -376,53 +293,29 @@ export function AddWakeupDialog({
               fs={formSchedule}
               onChange={setFormSchedule}
               idPrefix="add-wakeup"
-              inputClassName={INPUT_CLASS}
-              labelClassName={LABEL_CLASS}
             />
           )}
 
           {formSchedule.type === "one_shot" && (
-            <div className="flex flex-col gap-1">
-              <label
-                htmlFor="add-wakeup-oneshot-at"
-                className="text-[10px] uppercase tracking-wide text-white/90 font-semibold"
-              >
-                Fires at (local)
-              </label>
-              <input
-                id="add-wakeup-oneshot-at"
+            <KitField label="Fires at (local)" htmlFor="add-wakeup-oneshot-at" className="w-[240px] max-w-full">
+              <KitInput
                 type="datetime-local"
                 value={formSchedule.at}
                 onChange={(e) => setFormSchedule({ ...formSchedule, at: e.target.value })}
-                className={cn(
-                  "bg-black/30 text-[#e8e4d8] border border-white/10",
-                  "focus:outline-none focus:border-white/25 rounded px-2 py-1.5 text-xs",
-                )}
               />
-            </div>
+            </KitField>
           )}
 
           {/* Field 4: Timezone (optional) */}
-          <div className="flex flex-col gap-1">
-            <label
-              htmlFor="add-wakeup-tz"
-              className="text-[10px] uppercase tracking-wide text-white/90 font-semibold"
-            >
-              Timezone (optional)
-            </label>
-            <input
-              id="add-wakeup-tz"
+          <KitField label="Timezone (optional)" htmlFor="add-wakeup-tz">
+            <KitInput
               data-testid="add-wakeup-tz-input"
               type="text"
               value={tzDraft}
               onChange={(e) => setTzDraft(e.target.value)}
               placeholder={`${detectedTz} (leave blank to use)`}
-              className={cn(
-                "bg-black/30 text-[#e8e4d8] border border-white/10",
-                "focus:outline-none focus:border-white/25 rounded px-2 py-1.5 text-xs",
-              )}
             />
-          </div>
+          </KitField>
 
           {/* Field 5: Instruction — Phase 112 Plan 03: MarkdownEditor swap.
               The wrapper <div className="min-h-[160px]"> accommodates the ~40px
@@ -430,11 +323,8 @@ export function AddWakeupDialog({
               old min-h-[60px] would leave ~20px for the editing area (unusable);
               160px gives room for toolbar + a comfortable ~3-row edit surface
               matching the spatial feel of the pre-swap textarea. */}
-          <div className="flex flex-col gap-1">
-            <label
-              htmlFor="add-wakeup-instruction"
-              className="text-[10px] uppercase tracking-wide text-white/90 font-semibold"
-            >
+          <div className="k-field">
+            <label htmlFor="add-wakeup-instruction" className="k-label">
               Instruction
             </label>
             <div className="min-h-[160px]">
@@ -448,58 +338,45 @@ export function AddWakeupDialog({
           </div>
 
           {/* Field 6: Enabled */}
-          <div className="flex items-center gap-2">
-            <Switch
-              id="add-wakeup-enabled"
-              checked={enabledDraft}
-              onCheckedChange={setEnabledDraft}
-            />
-            <label htmlFor="add-wakeup-enabled" className="text-xs text-[var(--color-pv-fg)]">
-              Enabled
-            </label>
-          </div>
+          <KitOption
+            label="Enabled"
+            control={
+              <KitSwitch
+                id="add-wakeup-enabled"
+                checked={enabledDraft}
+                onCheckedChange={setEnabledDraft}
+              />
+            }
+          />
 
           {validationError && nameDraft.trim() !== "" && (
-            <span className="text-[10px] text-rose-300 font-mono">
-              {validationError}
-            </span>
+            <span className="k-err">{validationError}</span>
           )}
 
           {error && (
-            <div className="text-xs text-rose-300 whitespace-pre-wrap">
-              {error}
-            </div>
+            <KitBanner tone="danger">
+              <span className="whitespace-pre-wrap">{error}</span>
+            </KitBanner>
           )}
       </ModalBody>
 
       <ModalFoot>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
+        <KitButton
           data-testid="add-wakeup-cancel"
           onClick={handleCancel}
           disabled={saving}
-          className="cursor-pointer h-7"
         >
           Cancel
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
+        </KitButton>
+        <KitButton
+          variant="primary"
           data-testid="add-wakeup-save"
           onClick={handleSave}
           disabled={saveDisabled}
-          className="cursor-pointer h-7"
-          style={{
-            background: `hsla(${hue}, 55%, 40%, 0.55)`,
-            borderColor: `hsla(${hue}, 60%, 55%, 0.55)`,
-            color: "#f0ebe0",
-          }}
+          busy={saving}
         >
           {saving ? "Saving…" : "Save"}
-        </Button>
+        </KitButton>
       </ModalFoot>
     </Modal>
   );

@@ -20,6 +20,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { AdminUser } from "@/api/user-management-api";
+import {
+  autoAnswerKitDialogs,
+  __resetKitDialogsForTests,
+} from "@/components/kit";
 import AdminModal from "./AdminModal";
 
 const m = vi.hoisted(() => ({
@@ -146,6 +150,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  __resetKitDialogsForTests();
 });
 
 describe("AdminModal — Users tab", () => {
@@ -221,11 +226,12 @@ describe("AdminUserModal", () => {
   });
 
   it("promotes a user after confirmation and reloads the list", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const dialogs = autoAnswerKitDialogs({ confirm: true });
     renderModal();
     await openUser("zoey");
     await userEvent.click(screen.getByTestId("admin-user-admin-switch"));
     await waitFor(() => expect(m.makeUserAdmin).toHaveBeenCalledWith("u2"));
+    expect(dialogs.calls[0].opts.title).toMatch(/Make zoey an admin/);
     await waitFor(() => expect(m.getUserList).toHaveBeenCalledTimes(2));
   });
 
@@ -256,7 +262,8 @@ describe("AdminUserModal", () => {
   });
 
   it("requires the typed username before deleting", async () => {
-    const prompt = vi.spyOn(window, "prompt").mockReturnValue("zoe");
+    let typed = "zoe";
+    const dialogs = autoAnswerKitDialogs({ prompt: () => typed });
     renderModal();
     await openUser("zoey");
     await userEvent.click(screen.getByTestId("admin-user-delete"));
@@ -265,7 +272,14 @@ describe("AdminUserModal", () => {
       "didn't match",
     );
 
-    prompt.mockReturnValue("zoey");
+    // The dialog itself refuses a mismatched name before it resolves.
+    const opts = dialogs.calls[0].opts as {
+      validate?: (v: string) => string | null | undefined;
+    };
+    expect(opts.validate?.("zoe")).toBeTruthy();
+    expect(opts.validate?.("zoey")).toBeFalsy();
+
+    typed = "zoey";
     await userEvent.click(screen.getByTestId("admin-user-delete"));
     await waitFor(() => expect(m.deleteUser).toHaveBeenCalledWith("zoey"));
     await waitFor(() =>

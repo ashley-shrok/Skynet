@@ -2,7 +2,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FileText, Plus } from "lucide-react";
 import { RowKebabMenu } from "@/features/pretty-conversations/RowKebabMenu";
 import { Modal, ModalHead, ModalBody, ModalFoot, ModalSidebar } from "@/components/modal";
-import { cn } from "@/lib/utils";
+import {
+  KitBanner,
+  KitButton,
+  KitChip,
+  KitEmpty,
+  KitLoading,
+  KitSelect,
+  kitAlert,
+  kitConfirm,
+  kitPrompt,
+} from "@/components/kit";
 import type { Host, HostFolder } from "@/types/ui-types";
 import {
   listSkills,
@@ -14,8 +24,6 @@ import {
   createSkill,
   deleteSkillFile,
   deleteSkill,
-  renameSkill,
-  RenamedButEditsNotSavedError,
   SkillFileMtimeConflictError,
   SkillFileAlreadyExistsError,
   SkillAlreadyExistsError,
@@ -29,7 +37,6 @@ import { fileViewNeverNeedsContent, type BinaryDraft } from "./file-viewers/regi
 import type { TabState } from "./IdentityFileTab";
 import { bumpModalOpen } from "@/lib/freeze-diag";
 import {
-  frontmatterName,
   isModelInvocationDisabled,
   isUserInvocationDisabled,
   setModelInvocationDisabled,
@@ -75,10 +82,9 @@ import { InstanceWideChip, InstanceWideSyncStatus } from "./InstanceWideStatus";
 //
 // SkillFileTab passes `hideSaveButton={true}` — outer foot owns save.
 // Delete-file affordance stays inside SkillFileTab (Trash next to the
-// hidden Save slot). Rename and delete-skill live in the picker row's ⋮ skill menu;
-// a SKILL.md save whose `name:` no longer matches the folder offers the rename.
+// hidden Save slot). Delete-skill lives in the picker row's ⋮ skill menu.
 //
-// Close/draft-guard: any dirty tab AND !savingRef → window.confirm.
+// Close/draft-guard: any dirty tab AND !savingRef → kitConfirm.
 // savingRef bypasses on save-success and delete-skill closes.
 //
 // "User-invoked only" / "Agent-invoked only" (⋮ skill menu items, + a "user
@@ -93,12 +99,10 @@ import { InstanceWideChip, InstanceWideSyncStatus } from "./InstanceWideStatus";
 //
 // All D-XX behaviors preserved: host auto-select, skill list refetch on
 // host change, file list refetch on skill change, per-tab lazy load,
-// mtime-409 conflict-reload, native window.confirm/prompt for
+// mtime-409 conflict-reload, kit confirm/prompt dialogs for
 // create/delete flows, Phase 113 New-skill / New-file split.
 
 const SKILL_MD = "SKILL.md";
-
-const OPTION_STYLE = { backgroundColor: "#1a1a1a", color: "#e8e4d8" } as const;
 
 function isFolder(item: Host | HostFolder): item is HostFolder {
   return "children" in item;
@@ -430,9 +434,12 @@ export default function SkillsEditorModal({
         });
       } catch (err) {
         if (err instanceof SkillFileMtimeConflictError) {
-          const shouldReload = window.confirm(
-            "The file changed on disk since you started editing. Reload from disk and lose your local edits?",
-          );
+          const shouldReload = await kitConfirm({
+            title: "This file changed on disk",
+            body: "It changed since you started editing. Reload it from disk? Your local edits will be lost.",
+            confirmLabel: "Reload",
+            destructive: true,
+          });
           if (shouldReload) {
             setTabData((prev) => {
               const prevEntry = prev.get(path);
@@ -457,6 +464,42 @@ export default function SkillsEditorModal({
     [apiHostId, selectedSkillName],
   );
 
+  // Foot Save — dispatches to active tab's save with tracked draft.
+  const handleFootSave = useCallback(async () => {
+    if (saving) return;
+    if (!activeTab) return;
+    const tab = tabData.get(activeTab);
+    if (tab?.status !== "ready") return;
+    const binary = binaryDrafts.get(activeTab);
+    if (binary) {
+      if (apiHostId == null || selectedSkillName == null) return;
+      setSaving(true);
+      savingRef.current = true;
+      try {
+        const bytes = await binary.getBytes();
+        await writeSkillFileBinary(apiHostId!, selectedSkillName!, activeTab, bytes);
+        binary.markSaved(bytes);
+      } catch (err) {
+        void kitAlert({ title: "Save failed", body: err instanceof Error ? err.message : undefined });
+        savingRef.current = false;
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
+    const draft = drafts.get(activeTab) ?? tab.data.content;
+    if (draft === tab.data.content) return;
+    setSaving(true);
+    savingRef.current = true;
+    try {
+      await handleSave(activeTab, draft, tab.data.mtime);
+    } catch (err) {
+      void kitAlert({ title: "Save failed", body: err instanceof Error ? err.message : undefined });
+      savingRef.current = false;
+    } finally {
+      setSaving(false);
+    }
+  }, [saving, activeTab, tabData, drafts, handleSave, binaryDrafts, apiHostId, selectedSkillName]);
 
   const skillMdState = tabData.get(SKILL_MD);
   const skillMd = skillMdState?.status === "ready" ? skillMdState.data : null;
@@ -481,7 +524,7 @@ export default function SkillsEditorModal({
         // remembered list now so the next open doesn't show a stale entry.
         if (selectedHostId != null) void refreshSkillActions(selectedHostId, "invocation-toggle");
       } catch (err) {
-        window.alert(err instanceof Error ? `Save failed: ${err.message}` : "Save failed");
+        void kitAlert({ title: "Save failed", body: err instanceof Error ? err.message : undefined });
       } finally {
         setTogglingInvocation(false);
       }
@@ -491,7 +534,14 @@ export default function SkillsEditorModal({
 
   const handleAddFile = useCallback(async (): Promise<void> => {
     if (apiHostId == null || selectedSkillName == null) return;
-    const raw = window.prompt("New file name (relative to skill root):", "");
+    const raw = await kitPrompt({
+      title: "New file",
+      label: "File name",
+      body: "Relative to the skill's folder, e.g. scripts/run.sh",
+      placeholder: "notes.md",
+      confirmLabel: "Create",
+      mono: true,
+    });
     if (raw == null) return;
     const relPath = raw.trim();
     if (relPath.length === 0) return;
@@ -507,43 +557,40 @@ export default function SkillsEditorModal({
           : err instanceof Error
           ? `Couldn't create "${relPath}": ${err.message}`
           : `Couldn't create "${relPath}".`;
-      window.alert(msg);
+      void kitAlert({ title: "Couldn't create the file", body: msg });
     }
   }, [apiHostId, selectedSkillName]);
 
-  // New-skill handler — chained window.prompt (name → description); slugify
-  // client-side; empty slug reprompts name; empty description reprompts
-  // description only (name retained via closure). See prior comment history
-  // for D-01..D-05 rationale.
+  // New-skill handler — chained kitPrompt (name → description); slugify
+  // client-side; an empty slug or empty description is refused in place by
+  // the dialog's validate (name retained across the description step). See
+  // prior comment history for D-01..D-05 rationale.
   const handleNewSkill = useCallback(async (): Promise<void> => {
     if (selectedHostId == null) return;
 
-    let displayName: string | null = null;
-    let slug: string | null = null;
-    while (slug === null) {
-      const rawName = window.prompt("New skill name:", "");
-      if (rawName == null) return;
-      const trimmedRaw = rawName.trim();
-      const candidate = slugifyRoleName(trimmedRaw);
-      if (candidate.length === 0) {
-        window.alert("Please pick a name with at least one letter or number.");
-        continue;
-      }
-      displayName = trimmedRaw;
-      slug = candidate;
-    }
+    const rawName = await kitPrompt({
+      title: "New skill",
+      label: "Name",
+      placeholder: "My skill",
+      confirmLabel: "Next",
+      validate: (v) =>
+        slugifyRoleName(v.trim()).length === 0
+          ? "Pick a name with at least one letter or number."
+          : null,
+    });
+    if (rawName == null) return;
+    const displayName = rawName.trim();
+    const slug = slugifyRoleName(displayName);
 
-    let description: string | null = null;
-    while (description === null) {
-      const rawDesc = window.prompt(`Description for "${displayName}":`, "");
-      if (rawDesc == null) return;
-      const trimmed = rawDesc.trim();
-      if (trimmed.length === 0) {
-        window.alert("A description is required.");
-        continue;
-      }
-      description = trimmed;
-    }
+    const rawDesc = await kitPrompt({
+      title: `Describe "${displayName}"`,
+      body: "Agents read this to decide when to use the skill.",
+      label: "Description",
+      confirmLabel: "Create skill",
+      validate: (v) => (v.trim().length === 0 ? "A description is required." : null),
+    });
+    if (rawDesc == null) return;
+    const description = rawDesc.trim();
 
     try {
       const result = await createSkill(selectedHostId, slug, description);
@@ -557,14 +604,22 @@ export default function SkillsEditorModal({
           : err instanceof Error
           ? `Couldn't create "${displayName}": ${err.message}`
           : `Couldn't create "${displayName}".`;
-      window.alert(msg);
+      void kitAlert({ title: "Couldn't create the skill", body: msg });
     }
   }, [selectedHostId]);
 
   const handleDeleteFile = useCallback(
     async (doomedPath: string): Promise<void> => {
       if (apiHostId == null || selectedSkillName == null) return;
-      if (!window.confirm(`Delete "${selectedSkillName}/${doomedPath}"? This can't be undone.`)) return;
+      if (
+        !(await kitConfirm({
+          title: `Delete "${doomedPath}"?`,
+          body: `This removes ${selectedSkillName}/${doomedPath}. This can't be undone.`,
+          confirmLabel: "Delete",
+          destructive: true,
+        }))
+      )
+        return;
       try {
         await deleteSkillFile(apiHostId, selectedSkillName, doomedPath);
         const entries = await enumerateSkillFiles(apiHostId, selectedSkillName);
@@ -589,8 +644,7 @@ export default function SkillsEditorModal({
           return next;
         });
       } catch (err) {
-        const msg = err instanceof Error ? `Couldn't delete: ${err.message}` : "Couldn't delete";
-        window.alert(msg);
+        void kitAlert({ title: "Couldn't delete the file", body: err instanceof Error ? err.message : undefined });
       }
     },
     [apiHostId, selectedSkillName, activeTab],
@@ -599,9 +653,12 @@ export default function SkillsEditorModal({
   const handleDeleteSkill = useCallback(async (): Promise<void> => {
     if (selectedHostId == null || selectedSkillName == null || selectedIsInstance) return;
     if (
-      !window.confirm(
-        `Delete skill "${selectedSkillName}"? This removes the skill folder and every file inside it. This can't be undone.`,
-      )
+      !(await kitConfirm({
+        title: `Delete skill "${selectedSkillName}"?`,
+        body: "This removes the skill folder and every file inside it. This can't be undone.",
+        confirmLabel: "Delete skill",
+        destructive: true,
+      }))
     )
       return;
     try {
@@ -618,150 +675,9 @@ export default function SkillsEditorModal({
       savingRef.current = false;
     } catch (err) {
       savingRef.current = false;
-      const msg = err instanceof Error ? `Couldn't delete: ${err.message}` : "Couldn't delete";
-      window.alert(msg);
+      void kitAlert({ title: "Couldn't delete the skill", body: err instanceof Error ? err.message : undefined });
     }
   }, [selectedHostId, selectedSkillName, selectedIsInstance]);
-
-  // Rename = move the skill's folder (the backend also rewrites SKILL.md's
-  // `name:`). With `draft`, that SKILL.md draft rides along in the same
-  // request — checked against the mtime it was loaded at before anything
-  // moves — the path for a SKILL.md whose `name:` was edited.
-  const performRename = useCallback(
-    async (newName: string, draft: { content: string; expectedMtime: number } | null): Promise<void> => {
-      if (selectedHostId == null || selectedSkillName == null || selectedIsInstance) return;
-      const hostId = selectedHostId;
-      const oldName = selectedSkillName;
-      console.info(
-        `[skills-editor] rename hostId=${hostId} from=${oldName} to=${newName} withDraft=${draft != null}`,
-      );
-      let renamed = false;
-      try {
-        await renameSkill(hostId, oldName, newName, draft ?? undefined);
-        renamed = true;
-      } catch (err) {
-        renamed = err instanceof RenamedButEditsNotSavedError;
-        console.info(`[skills-editor] rename-error hostId=${hostId} from=${oldName} to=${newName} renamed=${renamed}`);
-        window.alert(
-          err instanceof SkillAlreadyExistsError
-            ? `A skill named "${newName}" already exists on this host.`
-            : err instanceof SkillFileMtimeConflictError
-            ? "SKILL.md changed on disk since you opened it, so nothing was renamed. Copy your edits somewhere, reload the skill, and try again."
-            : renamed
-            ? `Renamed to "${newName}", but your SKILL.md edits couldn't be saved.`
-            : `Couldn't rename "${oldName}": ${err instanceof Error ? err.message : "unknown error"}`,
-        );
-      }
-      if (!renamed) return;
-      try {
-        setSkills({ status: "ready", data: await listSkills(hostId, { includeDistributed: true }) });
-      } catch {
-        // The picker keeps its old list; the selection below still opens the renamed skill.
-      }
-      setSelectedSkillName(newName);
-      void refreshSkillActions(hostId, "rename");
-    },
-    [selectedHostId, selectedSkillName, selectedIsInstance],
-  );
-
-  const handleRenameSkill = useCallback(async (): Promise<void> => {
-    if (selectedSkillName == null) return;
-    if (dirtySet.size > 0 || binaryDrafts.size > 0) {
-      window.alert("Save or discard your edits before renaming the skill.");
-      return;
-    }
-    const raw = window.prompt(`Rename "${selectedSkillName}" to:`, selectedSkillName);
-    if (raw == null) return;
-    const slug = slugifyRoleName(raw.trim());
-    if (slug.length === 0) {
-      window.alert("Please pick a name with at least one letter or number.");
-      return;
-    }
-    if (slug === selectedSkillName) return;
-    await performRename(slug, null);
-  }, [selectedSkillName, dirtySet, binaryDrafts, performRename]);
-
-  // A SKILL.md whose `name:` was changed away from the folder is never saved
-  // as is — the backend refuses it. Offer the real rename instead. A name
-  // that already disagreed on disk (older skills) and wasn't touched saves
-  // normally. Returns true when it handled the save (renamed, or refused
-  // with an explanation).
-  const handleSkillMdNameChange = useCallback(
-    async (content: string, loaded: SkillFileTabData): Promise<boolean> => {
-      if (selectedSkillName == null) return false;
-      const name = frontmatterName(content);
-      if (name === null || name === selectedSkillName) return false;
-      if (name === frontmatterName(loaded.content)) return false;
-      const slug = slugifyRoleName(name);
-      if (slug !== name) {
-        window.alert(
-          `"${name}" can't be a skill name — use lowercase letters, numbers and hyphens${slug ? ` (e.g. "${slug}")` : ""}.`,
-        );
-        return true;
-      }
-      if (selectedIsInstance) {
-        window.alert(
-          `The name in SKILL.md has to stay "${selectedSkillName}" — instance-wide skills can't be renamed.`,
-        );
-        return true;
-      }
-      if ([...dirtySet].some((p) => p !== SKILL_MD) || binaryDrafts.size > 0) {
-        window.alert("Save or discard your other files' edits first — renaming the skill reloads them.");
-        return true;
-      }
-      if (
-        !window.confirm(
-          `SKILL.md now names this skill "${name}", but its folder is "${selectedSkillName}". Rename the skill to "${name}"?\n\nCancel keeps your edits unsaved.`,
-        )
-      )
-        return true;
-      await performRename(name, { content, expectedMtime: loaded.mtime });
-      return true;
-    },
-    [selectedSkillName, selectedIsInstance, dirtySet, binaryDrafts, performRename],
-  );
-
-  // Foot Save — dispatches to active tab's save with tracked draft.
-  const handleFootSave = useCallback(async () => {
-    if (saving) return;
-    if (!activeTab) return;
-    const tab = tabData.get(activeTab);
-    if (tab?.status !== "ready") return;
-    const binary = binaryDrafts.get(activeTab);
-    if (binary) {
-      if (apiHostId == null || selectedSkillName == null) return;
-      setSaving(true);
-      savingRef.current = true;
-      try {
-        const bytes = await binary.getBytes();
-        await writeSkillFileBinary(apiHostId!, selectedSkillName!, activeTab, bytes);
-        binary.markSaved(bytes);
-      } catch (err) {
-        window.alert(err instanceof Error ? `Save failed: ${err.message}` : "Save failed");
-        savingRef.current = false;
-      } finally {
-        setSaving(false);
-      }
-      return;
-    }
-    const draft = drafts.get(activeTab) ?? tab.data.content;
-    if (draft === tab.data.content) return;
-    setSaving(true);
-    savingRef.current = true;
-    try {
-      if (activeTab === SKILL_MD && (await handleSkillMdNameChange(draft, tab.data))) {
-        // Nothing (or a rename) was saved — don't leave the close guard off.
-        savingRef.current = false;
-        return;
-      }
-      await handleSave(activeTab, draft, tab.data.mtime);
-    } catch (err) {
-      window.alert(err instanceof Error ? `Save failed: ${err.message}` : "Save failed");
-      savingRef.current = false;
-    } finally {
-      setSaving(false);
-    }
-  }, [saving, activeTab, tabData, drafts, handleSave, binaryDrafts, apiHostId, selectedSkillName, handleSkillMdNameChange]);
 
   const clearSkillSelection = useCallback(() => {
     setSelectedSkillName(null);
@@ -782,12 +698,21 @@ export default function SkillsEditorModal({
     try {
       const preview = await previewPromote("skill", name, selectedHostId);
       if (preview.tooLarge) {
-        window.alert(
-          `"${name}" is too big to make instance-wide (${preview.files} files). Clean up its folder first.`,
-        );
+        void kitAlert({
+          title: `"${name}" is too big to make instance-wide`,
+          body: `It has ${preview.files} files. Clean up its folder first.`,
+        });
         return;
       }
-      if (!window.confirm(promoteConfirmText("skill", name, preview))) return;
+      if (
+        !(await kitConfirm({
+          title: `Make "${name}" instance-wide?`,
+          // The text opens with the same question — the title carries it.
+          body: promoteConfirmText("skill", name, preview).replace(/^[^\n]*\n\n?/, ""),
+          confirmLabel: "Make instance-wide",
+        }))
+      )
+        return;
       savingRef.current = true;
       await promote("skill", name, selectedHostId);
       await refreshInstanceWide();
@@ -797,7 +722,7 @@ export default function SkillsEditorModal({
       setSelectedSkillName(name);
       setSelectedIsInstance(true);
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : "Couldn't make it instance-wide");
+      void kitAlert({ title: "Couldn't make it instance-wide", body: err instanceof Error ? err.message : undefined });
     } finally {
       savingRef.current = false;
     }
@@ -809,9 +734,12 @@ export default function SkillsEditorModal({
     const name = selectedSkillName;
     const count = selectedIwItem?.hostCount ?? 0;
     if (
-      !window.confirm(
-        `Remove the instance-wide skill "${name}"? Its folder will be deleted from ${count} host${count === 1 ? "" : "s"}. This can't be undone.`,
-      )
+      !(await kitConfirm({
+        title: `Remove the instance-wide skill "${name}"?`,
+        body: `Its folder will be deleted from ${count} host${count === 1 ? "" : "s"}. This can't be undone.`,
+        confirmLabel: "Remove",
+        destructive: true,
+      }))
     )
       return;
     try {
@@ -823,7 +751,7 @@ export default function SkillsEditorModal({
         setSkills({ status: "ready", data: await listSkills(selectedHostId, { includeDistributed: true }) });
       }
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : "Couldn't remove it");
+      void kitAlert({ title: "Couldn't remove it", body: err instanceof Error ? err.message : undefined });
     } finally {
       savingRef.current = false;
     }
@@ -831,10 +759,14 @@ export default function SkillsEditorModal({
 
   // Close/draft-guard.
   const handleOpenChange = useCallback(
-    (nextOpen: boolean) => {
+    async (nextOpen: boolean) => {
       if (!nextOpen && dirtySet.size > 0 && !savingRef.current) {
-        // eslint-disable-next-line no-alert
-        const confirmed = window.confirm("Discard unsaved changes?");
+        const confirmed = await kitConfirm({
+          title: "Discard unsaved changes?",
+          body: "Your edits to this skill haven't been saved.",
+          confirmLabel: "Discard",
+          destructive: true,
+        });
         if (!confirmed) return;
       }
       onOpenChange(nextOpen);
@@ -860,7 +792,9 @@ export default function SkillsEditorModal({
   return (
     <Modal
       open={open}
-      onOpenChange={handleOpenChange}
+      onOpenChange={(o) => {
+        void handleOpenChange(o);
+      }}
       size="editor"
       // `container` prop still accepted for test injection (see .test.tsx —
       // 20 sites pass document.body explicitly). Default undefined portals
@@ -873,8 +807,9 @@ export default function SkillsEditorModal({
         subtitle="Skills are instructions available to all of your agents that you can invoke on-demand. After you create one, you can ask an agent to invoke it, or invoke it yourself using a slash command like /name-of-skill"
         closeTestId="skills-editor-modal-close"
         actions={
-          <button
-            type="button"
+          <KitButton
+            variant="primary"
+            size="sm"
             onClick={() => {
               void handleNewSkill();
             }}
@@ -882,57 +817,39 @@ export default function SkillsEditorModal({
             aria-label="+ New skill"
             title="New skill"
             data-testid="skills-editor-modal-new-skill"
-            className={cn(
-              "flex items-center gap-1 px-2.5 py-1 rounded-md text-[12px] cursor-pointer",
-              "bg-[hsla(var(--pv-id-hue),65%,55%,0.30)]",
-              "hover:bg-[hsla(var(--pv-id-hue),65%,55%,0.42)]",
-              "border border-[hsla(var(--pv-id-hue),75%,70%,0.45)]",
-              "text-[#fbf5e8]",
-              "disabled:opacity-40 disabled:cursor-not-allowed",
-            )}
           >
-            <Plus size={12} /> New
-          </button>
+            <Plus /> New
+          </KitButton>
         }
       />
 
       {/* Picker row — sits directly under the head. Host select (multi-host
           only) and skill select share the width; when a skill is picked, a
           "user only" / "agent only" chip (if set) and a ⋮ menu holding
-          "User-invoked only", "Agent-invoked only", "Rename…" + "Delete skill…". Never wraps, so the selects stay legible
+          "User-invoked only", "Agent-invoked only" + "Delete skill…". Never wraps, so the selects stay legible
           on phones. */}
-      <div
-        className={cn(
-          "px-4 py-2.5 flex flex-row items-center gap-2 flex-shrink-0",
-          "bg-black/25",
-          "border-b border-[hsla(var(--pv-id-hue),60%,55%,0.18)]",
-        )}
-      >
+      <div className="px-6 max-sm:px-5 pb-3 flex flex-row items-center gap-2 flex-shrink-0">
         {showHostSelect && (
-          <select
+          <KitSelect
             aria-label="Host"
             value={selectedHostId ?? ""}
             onChange={(e) =>
               setSelectedHostId(e.target.value ? Number(e.target.value) : null)
             }
             data-testid="skills-editor-modal-host-select"
-            className={cn(
-              "flex-1 min-w-0 text-[12px] px-2 py-1 rounded-md outline-none cursor-pointer",
-              "bg-black/20 border border-[hsla(var(--pv-id-hue),65%,55%,0.22)]",
-              "text-[#fbf5e8]",
-            )}
+            className="flex-1 min-w-0"
           >
-            <option value="" style={OPTION_STYLE}>
+            <option value="">
               Pick a host…
             </option>
             {flatHosts.map((h) => (
-              <option key={h.id} value={h.id} style={OPTION_STYLE}>
+              <option key={h.id} value={h.id}>
                 {h.name}
               </option>
             ))}
-          </select>
+          </KitSelect>
         )}
-        <select
+        <KitSelect
           aria-label="Skill"
           value={selectedSkillName ?? ""}
           onChange={(e) => {
@@ -942,14 +859,9 @@ export default function SkillsEditorModal({
           }}
           disabled={skillPickerDisabled}
           data-testid="skills-editor-modal-skill-select"
-          className={cn(
-            "flex-1 min-w-0 text-[12px] px-2 py-1 rounded-md outline-none cursor-pointer",
-            "bg-black/20 border border-[hsla(var(--pv-id-hue),65%,55%,0.22)]",
-            "text-[#fbf5e8]",
-            "disabled:opacity-60 disabled:cursor-not-allowed",
-          )}
+          className="flex-1 min-w-0"
         >
-          <option value="" style={OPTION_STYLE}>
+          <option value="">
             {selectedHostId != null && skills.status === "loading"
               ? "Loading skills…"
               : selectedHostId != null && skills.status === "error"
@@ -957,9 +869,9 @@ export default function SkillsEditorModal({
               : "Pick a skill…"}
           </option>
           {iwItems.length > 0 && (
-            <optgroup label="Instance-wide — every host" style={OPTION_STYLE}>
+            <optgroup label="Instance-wide — every host">
               {iwItems.map((i) => (
-                <option key={`iw:${i.name}`} value={i.name} style={OPTION_STYLE}>
+                <option key={`iw:${i.name}`} value={i.name}>
                   {i.name}
                 </option>
               ))}
@@ -968,9 +880,9 @@ export default function SkillsEditorModal({
           {skills.status === "ready" &&
             (iwItems.length > 0 || distributedSkills.length > 0 ? (
               ownSkills.length > 0 && (
-                <optgroup label={hostLabel} style={OPTION_STYLE}>
+                <optgroup label={hostLabel}>
                   {ownSkills.map((s) => (
-                    <option key={s.name} value={s.name} style={OPTION_STYLE}>
+                    <option key={s.name} value={s.name}>
                       {s.name}
                     </option>
                   ))}
@@ -978,37 +890,35 @@ export default function SkillsEditorModal({
               )
             ) : (
               ownSkills.map((s) => (
-                <option key={s.name} value={s.name} style={OPTION_STYLE}>
+                <option key={s.name} value={s.name}>
                   {s.name}
                 </option>
               ))
             ))}
           {skills.status === "ready" && distributedSkills.length > 0 && (
-            <optgroup label="Fleet-distributed — read-only" style={OPTION_STYLE}>
+            <optgroup label="Fleet-distributed — read-only">
               {distributedSkills.map((s) => (
-                <option key={`dist:${s.name}`} value={s.name} style={OPTION_STYLE}>
+                <option key={`dist:${s.name}`} value={s.name}>
                   {s.name}
                 </option>
               ))}
             </optgroup>
           )}
-        </select>
+        </KitSelect>
         {selectedIsInstance && <InstanceWideChip />}
         {selectedIsDistributed && (
-          <span
+          <KitChip
             title="Installed by the fleet distributor from the Skynet repo — change it there"
             data-testid="skills-editor-modal-distributed-chip"
-            className={cn(
-              "shrink-0 whitespace-nowrap text-[11px] px-2 py-0.5 rounded-full",
-              "text-[#e8e4d8] bg-white/[0.08] border border-white/20",
-            )}
+            className="shrink-0 whitespace-nowrap"
           >
             distributed
-          </span>
+          </KitChip>
         )}
         {selectedIwItem && <InstanceWideSyncStatus item={selectedIwItem} />}
         {selectedSkillName != null && skillMd != null && (modelInvocationDisabled || userInvocationDisabled) && (
-          <span
+          <KitChip
+            tone="accent"
             title={
               modelInvocationDisabled && userInvocationDisabled
                 ? "Both modes are set, so nobody can invoke this skill — turn one off"
@@ -1023,24 +933,19 @@ export default function SkillsEditorModal({
                   ? "skills-editor-modal-user-only-chip"
                   : "skills-editor-modal-agent-only-chip"
             }
-            className={cn(
-              "shrink-0 whitespace-nowrap text-[11px] px-2 py-0.5 rounded-full",
-              "text-[hsla(var(--pv-id-hue),75%,80%,1)] bg-[hsla(var(--pv-id-hue),55%,40%,0.35)]",
-              "border border-[hsla(var(--pv-id-hue),70%,60%,0.4)]",
-            )}
+            className="shrink-0 whitespace-nowrap"
           >
             {modelInvocationDisabled && userInvocationDisabled
               ? "no one"
               : modelInvocationDisabled
                 ? "user only"
                 : "agent only"}
-          </span>
+          </KitChip>
         )}
         {selectedSkillName != null && (
           <RowKebabMenu
             ariaLabel="Skill options"
             testId="skills-editor-modal-skill-menu"
-            triggerClassName="size-7"
             items={[
               // Items render from the start (disabled while their data
               // loads) so nothing pops in above "Delete skill…" and shifts it
@@ -1131,18 +1036,9 @@ export default function SkillsEditorModal({
                   ]
                 : [
                     {
-                      label: "Rename…",
-                      hint: dirtySet.size > 0 ? "Save or discard your edits first" : undefined,
-                      disabled: dirtySet.size > 0,
-                      separatorBefore: true,
-                      testId: "skills-editor-modal-rename-skill",
-                      onClick: () => {
-                        void handleRenameSkill();
-                      },
-                    },
-                    {
                       label: "Delete skill…",
                       danger: true,
+                      separatorBefore: true,
                       testId: "skills-editor-modal-delete-skill",
                       onClick: () => {
                         void handleDeleteSkill();
@@ -1158,43 +1054,42 @@ export default function SkillsEditorModal({
           skill is picked + files loaded, we drop into <ModalSidebar>
           (vertical file list + editor pane). */}
       {!selectedIsInstance && selectedHostId == null ? (
-        <ModalBody className="flex items-center justify-center text-[hsla(var(--pv-id-hue),22%,88%,0.65)] text-sm">
-          Pick a host to load its skills.
+        <ModalBody className="flex items-center justify-center">
+          <KitEmpty title="Pick a host to load its skills." />
         </ModalBody>
       ) : !selectedIsInstance && skills.status === "loading" ? (
-        <ModalBody className="flex items-center justify-center text-[hsla(var(--pv-id-hue),22%,88%,0.65)] text-sm">
-          Loading skills…
+        <ModalBody>
+          <KitLoading label="Loading skills…" />
         </ModalBody>
       ) : !selectedIsInstance && skills.status === "error" ? (
-        <ModalBody className="flex items-center justify-center text-red-400 text-sm px-6 text-center">
-          Couldn&apos;t load skills: {skills.error}
+        <ModalBody>
+          <KitBanner tone="danger">Couldn&apos;t load skills: {skills.error}</KitBanner>
         </ModalBody>
       ) : !selectedIsInstance &&
         skills.status === "ready" &&
         hostSkills.length === 0 &&
         iwItems.length === 0 ? (
-        <ModalBody className="flex flex-col items-center justify-center text-[hsla(var(--pv-id-hue),22%,88%,0.65)] gap-2 text-sm text-center px-6">
-          <div>No skills on this host.</div>
-          <div className="text-xs opacity-70">Nothing to edit here yet.</div>
+        <ModalBody className="flex items-center justify-center">
+          <KitEmpty title="No skills on this host." body="Nothing to edit here yet." />
         </ModalBody>
       ) : selectedSkillName == null ? (
-        <ModalBody className="flex items-center justify-center text-[hsla(var(--pv-id-hue),22%,88%,0.65)] text-sm">
-          Pick a skill.
+        <ModalBody className="flex items-center justify-center">
+          <KitEmpty title="Pick a skill." />
         </ModalBody>
       ) : files.status === "loading" ? (
-        <ModalBody className="flex items-center justify-center text-[hsla(var(--pv-id-hue),22%,88%,0.65)] text-sm">
-          Loading files…
+        <ModalBody>
+          <KitLoading label="Loading files…" />
         </ModalBody>
       ) : files.status === "error" ? (
-        <ModalBody className="flex items-center justify-center text-red-400 text-sm px-6 text-center">
-          Couldn&apos;t load files: {files.error}
+        <ModalBody>
+          <KitBanner tone="danger">Couldn&apos;t load files: {files.error}</KitBanner>
         </ModalBody>
       ) : files.data.length === 0 ? (
-        <ModalBody className="flex flex-col items-center justify-center text-[hsla(var(--pv-id-hue),22%,88%,0.65)] gap-2 text-sm text-center px-6">
-          <div>This skill has no files.</div>
-          <div className="text-xs opacity-70">
-            Use &quot;+ Add file&quot; in the sidebar to create one.
-          </div>
+        <ModalBody className="flex items-center justify-center">
+          <KitEmpty
+            title="This skill has no files."
+            body={<>Use &quot;+ Add file&quot; in the sidebar to create one.</>}
+          />
         </ModalBody>
       ) : (
         <ModalSidebar
@@ -1205,34 +1100,38 @@ export default function SkillsEditorModal({
           }))}
           value={activeTab ?? ""}
           onValueChange={(v) => {
-            if (
-              activeTab != null &&
-              v !== activeTab &&
-              binaryDrafts.has(activeTab) &&
-              !window.confirm("Discard unsaved changes to this PDF?")
-            ) {
-              return;
-            }
-            setActiveTab(v);
+            void (async () => {
+              if (
+                activeTab != null &&
+                v !== activeTab &&
+                binaryDrafts.has(activeTab) &&
+                !(await kitConfirm({
+                  title: "Discard unsaved changes to this PDF?",
+                  body: "Your annotations haven't been saved.",
+                  confirmLabel: "Discard",
+                  destructive: true,
+                }))
+              ) {
+                return;
+              }
+              setActiveTab(v);
+            })();
           }}
           rowTestId="skills-editor-modal-file-strip"
           testIdPrefix="skills-editor-modal-tab"
           trailing={
             readOnly ? undefined : (
-            <button
-              type="button"
+            <KitButton
+              variant="plain"
+              size="sm"
+              full
               onClick={() => {
                 void handleAddFile();
               }}
               data-testid="skills-editor-modal-add-file"
-              className={cn(
-                "w-full flex items-center gap-1 px-2 py-1.5 rounded text-[12px] cursor-pointer",
-                "text-[hsla(var(--pv-id-hue),30%,90%,0.75)] hover:text-[#fbf5e8]",
-                "hover:bg-white/[0.05] transition-colors duration-150",
-              )}
             >
-              <Plus size={12} /> Add file
-            </button>
+              <Plus /> Add file
+            </KitButton>
             )
           }
         >
@@ -1243,16 +1142,9 @@ export default function SkillsEditorModal({
             {activeTab != null && (
               <SkillFileTab
                 state={tabData.get(activeTab) ?? { status: "loading" }}
-                onSave={async (content, expectedMtime) => {
-                  const loaded = tabData.get(activeTab);
-                  if (
-                    activeTab === SKILL_MD &&
-                    loaded?.status === "ready" &&
-                    (await handleSkillMdNameChange(content, loaded.data))
-                  )
-                    return;
-                  await handleSave(activeTab, content, expectedMtime);
-                }}
+                onSave={(content, expectedMtime) =>
+                  handleSave(activeTab, content, expectedMtime)
+                }
                 onRequestDelete={
                   readOnly
                     ? undefined
@@ -1283,39 +1175,26 @@ export default function SkillsEditorModal({
       )}
 
       <ModalFoot>
-        <button
-          type="button"
-          onClick={() => handleOpenChange(false)}
+        <KitButton
+          onClick={() => {
+            void handleOpenChange(false);
+          }}
           disabled={saving}
           data-testid="skills-editor-modal-close-foot"
-          className={cn(
-            "px-3 py-1.5 rounded-md text-[12.5px] cursor-pointer",
-            "bg-black/20 border border-white/10",
-            "hover:bg-black/30",
-            "text-[#e8e4d8]",
-            "disabled:opacity-50 disabled:cursor-not-allowed",
-          )}
         >
           Close
-        </button>
-        <button
-          type="button"
+        </KitButton>
+        <KitButton
+          variant="primary"
           onClick={() => {
             void handleFootSave();
           }}
           disabled={!canFootSave}
+          busy={saving}
           data-testid="skills-editor-modal-save"
-          className={cn(
-            "px-4 py-1.5 rounded-md text-[12.5px] font-medium cursor-pointer",
-            "bg-[hsla(var(--pv-id-hue),65%,45%,0.75)]",
-            "hover:bg-[hsla(var(--pv-id-hue),65%,55%,0.85)]",
-            "border border-[hsla(var(--pv-id-hue),65%,55%,0.7)]",
-            "text-[#f4f1e8]",
-            "disabled:opacity-50 disabled:cursor-not-allowed",
-          )}
         >
           {saving ? "Saving…" : "Save"}
-        </button>
+        </KitButton>
       </ModalFoot>
     </Modal>
   );

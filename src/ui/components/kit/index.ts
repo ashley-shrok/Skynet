@@ -9,6 +9,6 @@ export * from "./choices";
 export * from "./rows";
 export * from "./states";
 export * from "./host-picker";
-export { kitConfirm, kitPrompt, kitAlert, __resetKitDialogsForTests } from "./dialogs";
+export { kitConfirm, kitPrompt, kitAlert, autoAnswerKitDialogs, __resetKitDialogsForTests } from "./dialogs";
 export type { KitConfirmOptions, KitPromptOptions, KitAlertOptions } from "./dialogs";
 export { useKitScope } from "./scope";

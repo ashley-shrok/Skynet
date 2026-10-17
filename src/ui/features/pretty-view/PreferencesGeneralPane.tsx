@@ -14,6 +14,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { uploadUserAvatar, removeUserAvatar } from "@/api/user-preferences-api";
+import { KitBanner, KitButton, KitSettingsGroup, KitSettingsRow } from "@/components/kit";
 
 export interface PreferencesGeneralPaneProps {
   userId: string;
@@ -111,83 +112,72 @@ export function PreferencesGeneralPane({
   const initial = trimmedName ? [...trimmedName][0]?.toUpperCase() ?? "?" : "?";
 
   return (
-    <div className="flex flex-col gap-4 p-6" data-testid="preferences-general-pane">
-      {/* Section label — matches Voice pane's short-blurb pattern (D-06).
-       *  Without it the pane is just a floating circle + two buttons.
-       */}
-      <p className="text-[13px] text-[#c8c4b8]">Your avatar.</p>
-
-      <div className="flex items-start gap-5">
-        {/* Avatar preview circle */}
-        <div
-          className="shrink-0 size-[72px] rounded-full overflow-hidden flex items-center justify-center text-[28px] font-semibold select-none"
-          style={{
-            background: "rgba(255,255,255,0.08)",
-            border: "1px solid rgba(220,225,245,0.15)",
-            color: "#e8e4d8",
-          }}
-          data-testid="preferences-general-avatar-circle"
-        >
-          {circleSrc ? (
-            <img
-              src={circleSrc}
-              alt="Your avatar"
-              className="size-full object-cover"
-              data-testid="preferences-general-avatar-img"
-            />
-          ) : (
-            <span aria-hidden="true" data-testid="preferences-general-initials">
-              {initial}
+    <div data-testid="preferences-general-pane">
+      <KitSettingsGroup title="Your avatar">
+        <KitSettingsRow
+          label={
+            <span className="flex items-center gap-4">
+              {/* Avatar preview circle */}
+              <span
+                className="shrink-0 size-[72px] rounded-full overflow-hidden flex items-center justify-center text-[28px] font-semibold select-none bg-[var(--k-s3)] text-[var(--k-t1)]"
+                data-testid="preferences-general-avatar-circle"
+              >
+                {circleSrc ? (
+                  <img
+                    src={circleSrc}
+                    alt="Your avatar"
+                    className="size-full object-cover"
+                    data-testid="preferences-general-avatar-img"
+                  />
+                ) : (
+                  <span aria-hidden="true" data-testid="preferences-general-initials">
+                    {initial}
+                  </span>
+                )}
+              </span>
             </span>
-          )}
-        </div>
+          }
+          control={
+            <span className="flex flex-wrap justify-end gap-2">
+              <KitButton
+                size="sm"
+                data-testid="preferences-general-choose-btn"
+                disabled={status !== "idle"}
+                busy={status === "uploading"}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                Choose image…
+              </KitButton>
+              <KitButton
+                size="sm"
+                variant="plain"
+                data-testid="preferences-general-remove-btn"
+                disabled={(!avatarPath && !previewUrl) || status !== "idle"}
+                onClick={() => void onRemove()}
+              >
+                {status === "removing" ? "Removing…" : "Remove"}
+              </KitButton>
+            </span>
+          }
+          className="py-3"
+        />
+      </KitSettingsGroup>
 
-        {/* Buttons column */}
-        <div className="flex flex-col gap-2 mt-1">
-          <button
-            type="button"
-            data-testid="preferences-general-choose-btn"
-            disabled={status !== "idle"}
-            onClick={() => fileInputRef.current?.click()}
-            className="px-4 py-2 rounded-md text-sm cursor-pointer text-[#e8e4d8] disabled:opacity-40 disabled:cursor-not-allowed"
-            style={{
-              background: "rgba(255,255,255,0.08)",
-              border: "1px solid rgba(220,225,245,0.15)",
-            }}
-          >
-            Choose image…
-          </button>
-          <button
-            type="button"
-            data-testid="preferences-general-remove-btn"
-            disabled={(!avatarPath && !previewUrl) || status !== "idle"}
-            onClick={() => void onRemove()}
-            className="px-4 py-2 rounded-md text-sm cursor-pointer text-[#e8e4d8] disabled:opacity-40 disabled:cursor-not-allowed"
-            style={{
-              background: "rgba(255,255,255,0.04)",
-              border: "1px solid rgba(220,225,245,0.10)",
-            }}
-          >
-            {status === "removing" ? "Removing…" : "Remove"}
-          </button>
-
-          {/* Hidden file input — D-13: accept image/* only; no client-side size check */}
-          <input
-            type="file"
-            accept="image/*"
-            ref={fileInputRef}
-            onChange={(e) => void onFileChosen(e)}
-            className="hidden"
-            data-testid="preferences-general-file-input"
-          />
-        </div>
-      </div>
+      {/* Hidden file input — D-13: accept image/* only; no client-side size check */}
+      <input
+        type="file"
+        accept="image/*"
+        ref={fileInputRef}
+        onChange={(e) => void onFileChosen(e)}
+        className="hidden"
+        data-testid="preferences-general-file-input"
+      />
 
       {/* Inline error only — D-13 */}
       {error !== null && (
-        <div className="text-sm text-red-400" data-testid="preferences-general-error">
+        <KitBanner tone="danger" className="mt-3" data-testid="preferences-general-error">
           {error}
-        </div>
+        </KitBanner>
       )}
     </div>
   );

@@ -320,6 +320,7 @@ import { useBrandingConfig } from "@/branding/branding-store";
 import { useFeedbackEnabled } from "@/feedback/feedback-store";
 import { getBasePath } from "@/lib/base-path";
 import { roleDisplayName } from "@/lib/role-display-name";
+import { kitAlert, kitConfirm, kitPrompt } from "@/components/kit";
 
 // Phase 122 Plan 04 (D-17 removal): the SEARCH_HIDDEN_SENTINEL_KEY constant
 // and its one-shot cold-load scroll-hide useEffect at ~L950 were retired
@@ -1782,13 +1783,16 @@ export function PrettyConversationsPanel({
   // naming the tmux session + host before forwarding to onKillRow. The dialog
   // is the user-facing mitigation (T-n3a-06) — user reads session name + host
   // before clicking OK. Only fires onKillRow when confirm=true.
-  const handleRowKill = (row: ConversationRowShape) => {
+  const handleRowKill = async (row: ConversationRowShape) => {
     const tmuxSession = row.targetTmuxSession;
     const hostName = row.host?.name ?? row.host?.ip ?? "the host";
     if (!tmuxSession) return; // defense-in-depth; row-side gate should have prevented
-    const ok = window.confirm(
-      `Kill tmux session "${tmuxSession}" on ${hostName}? This cannot be undone.`,
-    );
+    const ok = await kitConfirm({
+      title: `Kill tmux session "${tmuxSession}"?`,
+      body: `It ends on ${hostName}. This cannot be undone.`,
+      confirmLabel: "Kill session",
+      destructive: true,
+    });
     if (!ok) return;
     onKillRow?.(row);
   };
@@ -1890,7 +1894,7 @@ export function PrettyConversationsPanel({
   //      rows, relay-room rows, and rows without host + targetTmuxSession
   //      are excluded — the row-side menu builder never even shows the item
   //      for those cases, but the guard is defense-in-depth).
-  //   2. window.confirm with copy `archive <label>? this can't be undone.`,
+  //   2. kit confirm "Archive \"<label>\"?" (destructive),
   //      where <label> mirrors the sidebar row's label preference: task if
   //      present, else displayName, else identityKey fallback (when the
   //      identity hasn't yet resolved on the frontend).
@@ -1908,7 +1912,7 @@ export function PrettyConversationsPanel({
   //      the supervisor's onGone frame arrives (harmless — the identity is
   //      gone), and gets naturally GC'd on page reload. On failure we roll
   //      back: clearPendingArchive so the next fleet-status pulse re-inserts
-  //      the row, then window.alert so the user knows the archive did not
+  //      the row, then a kit notice so the user knows the archive did not
   //      land.
   //
   // D-05 lock: no un-archive branch. One-way gesture.
@@ -1944,7 +1948,13 @@ export function PrettyConversationsPanel({
     // Mirror the sidebar row's label preference (PrettyConversationRow.tsx):
     // task if present, else displayName, else identityKey.
     const label = resolved?.task || resolved?.displayName || identityKey;
-    if (!window.confirm(`archive ${label}? this can't be undone.`)) return;
+    const ok = await kitConfirm({
+      title: `Archive "${label}"?`,
+      body: "The agent is retired and its conversation leaves the sidebar. You can't undo this here.",
+      confirmLabel: "Archive",
+      destructive: true,
+    });
+    if (!ok) return;
     if (activeSet.has(row.id)) {
       handleRowDeactivate(row);
     }
@@ -1963,9 +1973,10 @@ export function PrettyConversationsPanel({
         identityKey,
         errMessage: err instanceof Error ? err.message : String(err),
       });
-      window.alert(
-        `archive failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      void kitAlert({
+        title: "Couldn't archive",
+        body: err instanceof Error ? err.message : String(err),
+      });
     }
   };
 
@@ -2476,7 +2487,7 @@ export function PrettyConversationsPanel({
         if (now.find((p) => p.slug === slug)?.parent === newParent) {
           mergeProjectsForHost(hostId, hostRows);
         }
-        window.alert(`Couldn't move this project: ${msg}`);
+        void kitAlert({ title: "Couldn't move this project", body: msg });
       });
     },
     [isInSubtree],
@@ -2899,7 +2910,10 @@ export function PrettyConversationsPanel({
             ? "project host invalid"
             : "project not found in projectsList",
         });
-        window.alert("Couldn't archive this project — its host couldn't be determined. Nothing was archived.");
+        void kitAlert({
+          title: "Couldn't archive this project",
+          body: "Its host couldn't be determined. Nothing was archived.",
+        });
         return;
       }
       // The sidebar only knows the sub-projects this user can see; archiving
@@ -2918,7 +2932,10 @@ export function PrettyConversationsPanel({
             hostId: projHostIdNum,
             errMessage: err instanceof Error ? err.message : "unknown",
           });
-          window.alert(`Couldn't check "${name}" before archiving it. Nothing was archived.`);
+          void kitAlert({
+            title: `Couldn't check "${name}"`,
+            body: "Couldn't check it before archiving. Nothing was archived.",
+          });
           return;
         }
         if (hiddenSubProjects > 0) {
@@ -2928,14 +2945,15 @@ export function PrettyConversationsPanel({
             hostId: projHostIdNum,
             hiddenSubProjects,
           });
-          window.alert(
-            `Can't archive "${name}": ${plural(hiddenSubProjects, "sub-project")} inside it ${hiddenSubProjects === 1 ? "is" : "are"} hidden from you. Nothing was archived.`,
-          );
+          void kitAlert({
+            title: `Can't archive "${name}"`,
+            body: `${plural(hiddenSubProjects, "sub-project")} inside it ${hiddenSubProjects === 1 ? "is" : "are"} hidden from you. Nothing was archived.`,
+          });
           return;
         }
       }
       // 3. Confirm with counts.
-      const lines = [`Archive "${name}"?`];
+      const lines: string[] = [];
       if (subProjects.length > 0) {
         lines.push(
           agentCount > 0
@@ -2959,7 +2977,12 @@ export function PrettyConversationsPanel({
         agentCount,
         roomCount,
       });
-      const proceed = window.confirm(lines.join("\n\n"));
+      const proceed = await kitConfirm({
+        title: `Archive "${name}"?`,
+        body: lines.join("\n\n"),
+        confirmLabel: "Archive",
+        destructive: true,
+      });
       if (!proceed) return;
       // 4. Folder moves FIRST, deepest first (host resolved above).
       const toMove: Array<{ slug: string; rows: typeof members }> =
@@ -2985,10 +3008,13 @@ export function PrettyConversationsPanel({
       }
       if (moveError !== null) {
         const msg = moveError instanceof Error ? moveError.message : String(moveError);
-        window.alert(
+        void kitAlert(
           moved.length === 0
-            ? `Couldn't archive this project: ${msg}. Nothing was archived.`
-            : `Couldn't finish archiving this project: ${msg}. ${plural(moved.length, "project")} beneath it ${moved.length === 1 ? "was" : "were"} archived; the rest are still in the sidebar.`,
+            ? { title: "Couldn't archive this project", body: `${msg}. Nothing was archived.` }
+            : {
+                title: "Couldn't finish archiving this project",
+                body: `${msg}. ${plural(moved.length, "project")} beneath it ${moved.length === 1 ? "was" : "were"} archived; the rest are still in the sidebar.`,
+              },
         );
         if (moved.length === 0) return;
       }
@@ -3081,9 +3107,10 @@ export function PrettyConversationsPanel({
               : "",
           ),
         });
-        window.alert(
-          `The project was archived, but ${failures.length} of its ${ops.length} conversation${ops.length === 1 ? "" : "s"} couldn't be archived. They're back in the sidebar, outside any project.`,
-        );
+        void kitAlert({
+          title: "Some conversations weren't archived",
+          body: `The project was archived, but ${failures.length} of its ${ops.length} conversation${ops.length === 1 ? "" : "s"} couldn't be archived. They're back in the sidebar, outside any project.`,
+        });
       }
     },
     [projectSections, findProject, viewingUserMxid],
@@ -3124,7 +3151,7 @@ export function PrettyConversationsPanel({
     [findProject],
   );
 
-  // Rename via context menu: native window.prompt + frontmatter swap. Keeps the
+  // Rename via context menu: kit prompt + frontmatter swap. Keeps the
   // change tiny — no dedicated backend endpoint — by round-tripping through the
   // existing GET/PUT /projects/:slug/file pair. The PUT handler publishes
   // publishProjectListChanged, which fans out to every connected client and
@@ -3151,17 +3178,17 @@ export function PrettyConversationsPanel({
         return;
       }
 
-      const raw = window.prompt("Rename project", currentDisplayName);
-      if (raw === null) return; // Cancel
-      const next = raw.trim();
-      if (next.length === 0) return;
-      if (next.length > 80) {
-        window.alert("Name must be 80 characters or fewer.");
-        return;
-      }
-      if (next === currentDisplayName) return; // No-op
-
       void (async () => {
+        const raw = await kitPrompt({
+          title: "Rename project",
+          defaultValue: currentDisplayName,
+          confirmLabel: "Rename",
+          validate: (v) => (v.trim().length > 80 ? "Name must be 80 characters or fewer." : null),
+        });
+        if (raw === null) return; // Cancel
+        const next = raw.trim();
+        if (next.length === 0 || next.length > 80) return; // validate blocks > 80
+        if (next === currentDisplayName) return; // No-op
         try {
           const { markdown } = await getProjectFile(projHostIdNum, slug);
           const rewritten = rewriteDisplayNameInFrontmatter(markdown, next);
@@ -3174,9 +3201,10 @@ export function PrettyConversationsPanel({
             hostId: projHostIdNum,
             errMessage: err instanceof Error ? err.message : "unknown",
           });
-          window.alert(
-            `Rename failed: ${err instanceof Error ? err.message : "unknown error"}`,
-          );
+          void kitAlert({
+            title: "Couldn't rename the project",
+            body: err instanceof Error ? err.message : "unknown error",
+          });
         }
       })();
     },

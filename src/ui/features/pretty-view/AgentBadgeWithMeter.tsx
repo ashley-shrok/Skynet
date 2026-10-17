@@ -66,6 +66,7 @@ import {
 import { useSessionContextPct } from "@/api/fleet-status-client";
 import { IdentityBadge } from "@/features/terminal/IdentityBadge";
 import { cn } from "@/lib/utils";
+import { kitConfirm } from "@/components/kit";
 
 // ─── Constants (VERBATIM shrink from ComposeBox.tsx L136-2337) ───────────────
 
@@ -143,7 +144,14 @@ export function AgentBadgeWithMeter({
   // through post Wave 0 rewire. Test 8 regression gate.
   const handleReset = useCallback(async () => {
     if (resetInFlight) return;
-    if (!window.confirm("Reset the agent's context window?")) return;
+    if (
+      !(await kitConfirm({
+        title: "Reset the agent's context window?",
+        body: "It saves where it's up to, then restarts fresh.",
+        confirmLabel: "Reset",
+      }))
+    )
+      return;
     setResetInFlight(true);
     try {
       await authApi.post(

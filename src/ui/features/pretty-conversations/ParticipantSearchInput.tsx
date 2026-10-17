@@ -3,8 +3,8 @@
 // Type-to-filter search input with clear-button affordance.
 // Verbatim adaptation of PrettyConversationsPanel.tsx:1698-1729 search block.
 //
-// CSS class reuse: .pv-search-container / .pv-search-input / .pv-search-icon /
-// .pv-search-clear — defined in pretty-conversations.css. NO new CSS defined here.
+// apple-ux: built on the kit's KitSearch (clear button + Esc-to-clear come
+// with it).
 //
 // Changes from the panel analog:
 //   - data-testid values use 'participant-search-*' prefix
@@ -13,7 +13,7 @@
 //   - onChange calls props.onChange with e.target.value (controlled — no local state)
 //   - Clear onClick calls onChange('') — no local state
 
-import { Search, X } from "lucide-react";
+import { KitSearch } from "@/components/kit";
 
 export function ParticipantSearchInput({
   value,
@@ -25,36 +25,15 @@ export function ParticipantSearchInput({
   placeholder?: string;
 }) {
   return (
-    <div
-      className="pv-search-container"
-      data-testid="participant-search-container"
-    >
-      <Search
-        className="pv-search-icon"
-        aria-hidden="true"
-        width={16}
-        height={16}
-      />
-      <input
-        type="search"
+    <div data-testid="participant-search-container">
+      <KitSearch
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onValueChange={onChange}
         placeholder={placeholder}
-        className="pv-search-input"
         data-testid="participant-search-input"
+        clearTestId="participant-search-clear"
         aria-label="Search participants"
       />
-      {value.length > 0 && (
-        <button
-          type="button"
-          onClick={() => onChange("")}
-          className="pv-search-clear"
-          data-testid="participant-search-clear"
-          aria-label="Clear search"
-        >
-          <X width={14} height={14} aria-hidden="true" />
-        </button>
-      )}
     </div>
   );
 }

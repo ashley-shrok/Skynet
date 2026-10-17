@@ -19,9 +19,14 @@
 // doesn't trash the user's typed name; ESC and the header close-X still work.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Search, Loader2 } from "lucide-react";
-import { Button } from "@/components/button";
-import { cn } from "@/lib/utils";
+import {
+  KitBanner,
+  KitButton,
+  KitField,
+  KitHostPicker,
+  KitInput,
+  type KitHostOption,
+} from "@/components/kit";
 import { Modal, ModalHead, ModalBody, ModalFoot } from "@/components/modal";
 import { createProject } from "@/api/project-list-api";
 import { submitOnEnter } from "@/lib/submit-on-enter";
@@ -111,7 +116,6 @@ export function CreateProjectModal({
   const [inFlight, setInFlight] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedHost, setSelectedHost] = useState<Host | null>(null);
-  const [search, setSearch] = useState<string>("");
 
   // Flat host list. Flatten via DFS, filter out RDP-only hosts (project
   // directories live over SSH; RDP-only hosts have no writable
@@ -124,14 +128,17 @@ export function CreateProjectModal({
     [hostTree],
   );
 
-  const filteredHosts = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return flatHosts;
-    return flatHosts.filter((h) => {
-      const hay = `${h.name} ${h.username ?? ""} ${h.ip ?? ""}`.toLowerCase();
-      return hay.includes(q);
-    });
-  }, [flatHosts, search]);
+  const hostOptions = useMemo<KitHostOption[]>(
+    () =>
+      flatHosts.map((h) => ({
+        id: String(h.id),
+        name: h.name,
+        detail: h.username || undefined,
+        status: h.online ? "ok" : "off",
+        searchText: `${h.username ?? ""} ${h.ip ?? ""}`,
+      })),
+    [flatHosts],
+  );
 
   // Reset all local state whenever the modal closes.
   useEffect(() => {
@@ -140,7 +147,6 @@ export function CreateProjectModal({
       setInFlight(false);
       setError(null);
       setSelectedHost(null);
-      setSearch("");
     }
   }, [open]);
 
@@ -199,10 +205,6 @@ export function CreateProjectModal({
       onOpenChange={onOpenChange}
       size="md"
       data-testid="create-project-modal"
-      className={cn(
-        hidePicker ? "max-h-[320px]" : "max-h-[560px]",
-        "flex flex-col",
-      )}
     >
       <ModalHead
         title={parent ? "New sub-project" : "New project"}
@@ -213,16 +215,9 @@ export function CreateProjectModal({
         }
         closeTestId="create-project-close"
       />
-      <ModalBody className="overflow-y-auto flex flex-col gap-3">
-        <div className="flex flex-col gap-1">
-          <label
-            htmlFor="create-project-name-input"
-            className="text-[10.5px] font-medium tracking-[0.1em] uppercase text-[hsla(var(--pv-id-hue),30%,90%,0.65)]"
-          >
-            Project name
-          </label>
-          <input
-            id="create-project-name-input"
+      <ModalBody className="flex flex-col gap-4">
+        <KitField label="Project name" htmlFor="create-project-name-input">
+          <KitInput
             type="text"
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
@@ -232,17 +227,8 @@ export function CreateProjectModal({
             disabled={inFlight}
             maxLength={80}
             aria-required="true"
-            className={cn(
-              "w-full px-3 py-2 rounded-lg text-sm text-[#fbf5e8]",
-              "bg-black/20 border border-[hsla(var(--pv-id-hue),65%,55%,0.22)]",
-              "outline-none",
-              "focus:border-[hsla(var(--pv-id-hue),70%,60%,0.5)] focus:bg-black/30",
-              "placeholder:text-[hsla(var(--pv-id-hue),22%,88%,0.55)]",
-              "transition-colors duration-150",
-              "disabled:opacity-60 disabled:cursor-not-allowed",
-            )}
           />
-        </div>
+        </KitField>
         {/*
          * Host picker — hidden when the user has exactly one pickable host
          * (Phase 84 D-CONTEXT item 8 pattern). The auto-select-if-single
@@ -250,108 +236,41 @@ export function CreateProjectModal({
          * submission still works without a visible picker.
          */}
         {!hidePicker && (
-          <div className="flex flex-col gap-2">
-            <label
-              htmlFor="create-project-host-search"
-              className="text-[10.5px] font-medium tracking-[0.1em] uppercase text-[hsla(var(--pv-id-hue),30%,90%,0.65)]"
-            >
-              Host
-            </label>
-
-            {/* Host search input */}
-            <div className="flex items-center gap-2 px-2.5 h-8 bg-black/20 border border-[hsla(var(--pv-id-hue),65%,55%,0.22)] rounded-md">
-              <Search className="size-3 text-[hsla(var(--pv-id-hue),22%,88%,0.55)] shrink-0" />
-              <input
-                id="create-project-host-search"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search hosts"
-                aria-label="Search hosts"
-                disabled={inFlight}
-                className="flex-1 text-xs bg-transparent outline-none placeholder:text-[hsla(var(--pv-id-hue),22%,88%,0.55)] text-[#fbf5e8] min-w-0 disabled:opacity-50"
-              />
-            </div>
-
-            {/* Host listbox */}
-            <div
-              className="flex flex-col max-h-56 overflow-y-auto border border-[hsla(var(--pv-id-hue),65%,55%,0.18)] rounded-md"
-              role="listbox"
-              aria-label="Hosts"
-              data-testid="create-project-host-listbox"
-            >
-              {filteredHosts.length === 0 ? (
-                <div className="px-3 py-4 text-xs text-[hsla(var(--pv-id-hue),22%,88%,0.55)] text-center">
-                  No hosts match your search.
-                </div>
-              ) : (
-                filteredHosts.map((h) => {
-                  const selected = selectedHost?.id === h.id;
-                  return (
-                    <button
-                      key={h.id}
-                      type="button"
-                      role="option"
-                      aria-selected={selected}
-                      disabled={inFlight}
-                      onClick={() => !inFlight && setSelectedHost(h)}
-                      data-testid={`create-project-host-option-${h.id}`}
-                      className={cn(
-                        "flex items-center gap-2 px-3 py-2 text-xs text-left transition-colors",
-                        "border-b border-[hsla(var(--pv-id-hue),65%,55%,0.10)] last:border-b-0",
-                        "disabled:opacity-50",
-                        selected
-                          ? "bg-[hsla(var(--pv-id-hue),55%,45%,0.35)] text-[#fbf5e8]"
-                          : "hover:bg-white/5 text-[hsla(var(--pv-id-hue),22%,92%,0.85)]",
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          "size-1.5 rounded-full shrink-0",
-                          h.online
-                            ? "bg-green-500"
-                            : "bg-[hsla(var(--pv-id-hue),22%,88%,0.45)]",
-                        )}
-                      />
-                      <span className="flex-1 truncate">{h.name}</span>
-                      {h.username && (
-                        <span className="text-[10px] text-[hsla(var(--pv-id-hue),22%,88%,0.55)] shrink-0">
-                          {h.username}
-                        </span>
-                      )}
-                    </button>
-                  );
-                })
-              )}
-            </div>
-          </div>
+          <KitField label="Host" htmlFor="create-project-host-search">
+            <KitHostPicker
+              hosts={hostOptions}
+              selectedId={selectedHost ? String(selectedHost.id) : null}
+              onSelect={(id) => {
+                if (inFlight) return;
+                const h = flatHosts.find((x) => String(x.id) === id);
+                if (h) setSelectedHost(h);
+              }}
+              disabled={inFlight}
+              searchable
+              searchId="create-project-host-search"
+              testIdPrefix="create-project-host"
+            />
+          </KitField>
         )}
 
         {error !== null && (
-          <div
-            role="alert"
-            className="text-xs text-red-400"
-            data-testid="create-project-error"
-          >
+          <KitBanner tone="danger" data-testid="create-project-error">
             {error}
-          </div>
+          </KitBanner>
         )}
       </ModalBody>
       <ModalFoot>
-        <Button
-          type="button"
-          variant="default"
+        <KitButton
+          variant="primary"
           onClick={() => {
             void onSubmit();
           }}
           disabled={!canSubmit}
+          busy={inFlight}
           data-testid="create-project-submit"
         >
-          {inFlight ? (
-            <Loader2 className="size-4 animate-spin" aria-label="Creating project" />
-          ) : (
-            "Create"
-          )}
-        </Button>
+          Create
+        </KitButton>
       </ModalFoot>
     </Modal>
   );

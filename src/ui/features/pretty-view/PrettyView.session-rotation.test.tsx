@@ -31,6 +31,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, act, waitFor, screen, fireEvent } from "@testing-library/react";
+import { autoAnswerKitDialogs, __resetKitDialogsForTests } from "@/components/kit";
 import {
   publishFleetStatusSessionState,
   __resetForTest as resetWorkingStore,
@@ -401,10 +402,10 @@ describe("PrettyView — quick 260905-d79 optimistic session-recycling overlay",
     "offsetHeight",
   );
 
-  // Auto-accept the reset-button confirm() prompt in the reset-click tests
+  // Auto-accept the reset-button kit confirm in the reset-click tests
   // below. Confirm gate itself is covered by ComposeBox.reset-confirm.test.tsx.
   beforeEach(() => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+    autoAnswerKitDialogs({ confirm: true });
   });
 
   beforeEach(() => {
@@ -448,6 +449,7 @@ describe("PrettyView — quick 260905-d79 optimistic session-recycling overlay",
   });
 
   afterEach(() => {
+    __resetKitDialogsForTests();
     HTMLElement.prototype.getBoundingClientRect =
       originalGetBoundingClientRect;
     if (originalOffsetHeightDescriptor) {

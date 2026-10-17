@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Modal, ModalHead, ModalBody, ModalFoot } from "@/components/modal";
-import { cn } from "@/lib/utils";
+import { KitButton, KitEmpty, kitConfirm } from "@/components/kit";
 import {
   FileView,
   FileViewModeSwitcher,
@@ -124,12 +124,26 @@ export default function EditableFileModal({
   // Draft-guard wrapper on onOpenChange. When closing (open→false) with a
   // dirty draft AND not mid-save, fire the confirm dialog. Passing through
   // unchanged on: opening, closing-clean, or closing-during-save.
+  // One discard question at a time — a second close request while it is
+  // open (Esc, head X) is ignored rather than stacking another dialog.
+  const confirmingRef = useRef(false);
   const handleOpenChange = useCallback(
-    (nextOpen: boolean) => {
+    async (nextOpen: boolean) => {
       if (!nextOpen && isDirty && !savingRef.current) {
-        // eslint-disable-next-line no-alert
-        const confirmed = window.confirm("Discard unsaved changes?");
-        if (!confirmed) return;
+        if (confirmingRef.current) return;
+        confirmingRef.current = true;
+        try {
+          const confirmed = await kitConfirm({
+            title: "Discard unsaved changes?",
+            body: "Your edits to this file haven't been saved.",
+            confirmLabel: "Discard",
+            cancelLabel: "Keep editing",
+            destructive: true,
+          });
+          if (!confirmed) return;
+        } finally {
+          confirmingRef.current = false;
+        }
       }
       onOpenChange(nextOpen);
     },
@@ -216,7 +230,7 @@ export default function EditableFileModal({
   );
   const viewOnlyNote = canSave ? null : (
     <div
-      className="shrink-0 text-[12px] text-[#a89a80] pb-2"
+      className="shrink-0 text-[12px] text-[var(--k-t3)] pb-2"
       data-testid="editable-file-modal-view-only-note"
     >
       View only — open the conversation this file came from to send an edited copy back.
@@ -226,7 +240,7 @@ export default function EditableFileModal({
   return (
     <Modal
       open={open}
-      onOpenChange={handleOpenChange}
+      onOpenChange={(o) => void handleOpenChange(o)}
       size="editor"
       data-testid="editable-file-modal"
     >
@@ -254,26 +268,19 @@ export default function EditableFileModal({
           {fileView}
         </div>
       ) : fetchState.status === "error" ? (
-        <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6 py-8 text-center">
-          <div className="text-lg font-semibold text-[#f0ebe0]">
-            {errorHeading}
-          </div>
-          <div className="text-sm text-[hsla(var(--pv-id-hue),22%,88%,0.7)] max-w-md">
-            {errorBody}
-          </div>
-          <button
-            type="button"
-            onClick={() => onOpenChange(false)}
-            data-testid="editable-file-modal-error-close"
-            className={cn(
-              "mt-2 px-4 py-2 rounded-md text-sm cursor-pointer",
-              "bg-black/20 border border-white/10",
-              "hover:bg-black/30",
-              "text-[#e8e4d8]",
-            )}
-          >
-            Close
-          </button>
+        <div className="flex-1 flex flex-col items-center justify-center px-6 py-8">
+          <KitEmpty
+            title={errorHeading}
+            body={<span className="block max-w-md">{errorBody}</span>}
+            action={
+              <KitButton
+                onClick={() => onOpenChange(false)}
+                data-testid="editable-file-modal-error-close"
+              >
+                Close
+              </KitButton>
+            }
+          />
         </div>
       ) : (
         <ModalBody className="p-0 overflow-y-auto flex flex-col px-6 py-4">
@@ -284,35 +291,20 @@ export default function EditableFileModal({
 
       {showFoot && (
         <ModalFoot>
-          <button
-            type="button"
-            onClick={() => handleOpenChange(false)}
+          <KitButton
+            onClick={() => void handleOpenChange(false)}
             data-testid="editable-file-modal-close-foot"
-            className={cn(
-              "px-3 py-1.5 rounded-md text-[12.5px] cursor-pointer",
-              "bg-black/20 border border-white/10",
-              "hover:bg-black/30",
-              "text-[#e8e4d8]",
-            )}
           >
             Close
-          </button>
-          <button
-            type="button"
+          </KitButton>
+          <KitButton
+            variant="primary"
             onClick={onFootSave}
             disabled={!isDirty || (!binaryDraft && fetchState.status !== "ready")}
             data-testid="editable-file-modal-save"
-            className={cn(
-              "px-4 py-1.5 rounded-md text-[12.5px] font-medium cursor-pointer",
-              "bg-[hsla(var(--pv-id-hue),65%,45%,0.75)]",
-              "hover:bg-[hsla(var(--pv-id-hue),65%,55%,0.85)]",
-              "border border-[hsla(var(--pv-id-hue),65%,55%,0.7)]",
-              "text-[#f4f1e8]",
-              "disabled:opacity-50 disabled:cursor-not-allowed",
-            )}
           >
             Save
-          </button>
+          </KitButton>
         </ModalFoot>
       )}
     </Modal>

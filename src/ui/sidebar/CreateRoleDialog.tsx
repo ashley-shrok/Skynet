@@ -52,17 +52,23 @@
 // does NOT have a birth stream (unlike NewSessionDialog's identity flow), so we
 // must ship the File directly in the widened createRole() multipart call.
 //
-// Zero new npm deps. Reuses the fork's Dialog wrapper (@/components/dialog),
-// Button (@/components/button), Input (@/components/input), lucide-react icons
-// (Search + Loader2), and the ColorPicker component from pretty-view/pickers.
+// apple-ux (shape-ux-foundation): every control comes from the kit
+// (@/components/kit) — KitField + KitInput/KitTextarea for the text fields,
+// KitButton for actions, KitHostPicker for the host list, kit tokens for the
+// avatar candidate grid — plus the ColorPicker from pretty-view/pickers.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Search, Loader2 } from "lucide-react";
 
 import { Modal, ModalHead, ModalBody, ModalFoot } from "@/components/modal";
-import { Button } from "@/components/button";
-import { Input } from "@/components/input";
+import {
+  KitBanner,
+  KitButton,
+  KitField,
+  KitHostPicker,
+  KitInput,
+  KitTextarea,
+} from "@/components/kit";
 import type { Host, HostFolder } from "@/types/ui-types";
 import {
   createRole,
@@ -185,7 +191,6 @@ export function CreateRoleDialog({
   const [name, setName] = useState<string>("");
   const [description, setDescription] = useState<string>("");
   const [selectedHost, setSelectedHost] = useState<Host | null>(null);
-  const [search, setSearch] = useState<string>("");
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -215,6 +220,7 @@ export function CreateRoleDialog({
   // rather than state because the File itself never re-renders anything and
   // we want to avoid stale-closure inside handleSubmit.
   const manualFileRef = useRef<File | null>(null);
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
 
   // ─── Derived: flat host list + filtered ──────────────────────────────────
   // Matches NewSessionDialog L294-317 — flatten via DFS, filter out RDP-only
@@ -228,14 +234,17 @@ export function CreateRoleDialog({
     [hostTree],
   );
 
-  const filteredHosts = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return flatHosts;
-    return flatHosts.filter((h) => {
-      const hay = `${h.name} ${h.username ?? ""} ${h.ip ?? ""}`.toLowerCase();
-      return hay.includes(q);
-    });
-  }, [flatHosts, search]);
+  const hostOptions = useMemo(
+    () =>
+      flatHosts.map((h) => ({
+        id: String(h.id),
+        name: h.name,
+        detail: h.username || undefined,
+        status: h.online ? ("ok" as const) : ("off" as const),
+        searchText: `${h.username ?? ""} ${h.ip ?? ""}`,
+      })),
+    [flatHosts],
+  );
 
   // ─── Effect: seed on open / reset on close ─────────────────────────────
   // Phase 86 code-review fix (M3): SPLIT what used to be one effect keyed on
@@ -256,7 +265,6 @@ export function CreateRoleDialog({
       setName("");
       setDescription("");
       setSelectedHost(null);
-      setSearch("");
       setSubmitting(false);
       setSubmitError(null);
       // Phase 86: reset cosmetic + avatar state on close so re-open is fresh.
@@ -496,9 +504,6 @@ export function CreateRoleDialog({
   const startTitle = t("nav.createRoleTitle", {
     defaultValue: "New role",
   });
-  const searchPlaceholder = t("nav.createRoleSearchHosts", {
-    defaultValue: "Search hosts",
-  });
   const nameLabel = t("nav.createRoleNameLabel", {
     defaultValue: "Name",
   });
@@ -531,174 +536,113 @@ export function CreateRoleDialog({
         if (!next) onClose();
       }}
       size="md"
-      className="max-h-[90vh] flex flex-col"
     >
-      <div
-        style={{ "--color-pv-code-fg": "#92eafc" } as React.CSSProperties}
-        className="flex flex-col flex-1 min-h-0 overflow-hidden"
-      >
+      {/*
+       * Phase 88 (paired-blurb revision — see
+       * .planning/phases/88-create-agent-modal-ux-pass-…/88-CONTEXT.md
+       * §Verbatim copy): the role side says agents ADOPT expertise, the
+       * agent side says each agent ADOPTS a role. The canonical ModalHead
+       * carries the title (and a subtitle via DialogPrimitive.Description
+       * when one is set). Do NOT drop the text.
+       */}
+      <ModalHead title={startTitle} />
+
+      <ModalBody className="flex flex-col gap-4">
+        {/* Name field */}
+        <KitField label={nameLabel} error={nameShowError ? nameErrorText : undefined}>
+          <KitInput
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder={namePlaceholder}
+            disabled={submitting}
+          />
+        </KitField>
+
+        {/* Description field — multi-line per RESEARCH Open Q 4 */}
+        <KitField label={descriptionLabel}>
+          <KitTextarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder={descriptionPlaceholder}
+            disabled={submitting}
+            rows={4}
+          />
+        </KitField>
+
         {/*
-         * Phase 88 (paired-blurb revision — see
-         * .planning/phases/88-create-agent-modal-ux-pass-…/88-CONTEXT.md
-         * §Verbatim copy): revises the Phase 84 one-sentence blurb into a
-         * two-sentence form paired against the sibling create-agent blurb
-         * shipped in the same commit surface. The paired vocabulary anchor
-         * is the shared verb ADOPT; the role side says agents ADOPT
-         * expertise, the agent side says each agent ADOPTS a role. user
-         * greenlit the byte-exact text; see 88-CONTEXT.md for the LOCKED
-         * strings.
-         *
-         * Translated to canonical Modal 2026-09-29: subtitle carries the
-         * paired-blurb text via ModalHead's DialogPrimitive.Description
-         * (which still emits aria-describedby a11y wiring per the Phase-84
-         * origin invariant, just via the new canonical instead of shadcn's
-         * DialogDescription wrapper). Do NOT drop the text.
+         * Phase 86 (D-CTX-86-surface-3): cosmetic authoring controls between
+         * Description and Host picker (Color → Avatar), mirroring the
+         * new-agent dialog's order.
          */}
-        <ModalHead title={startTitle} />
 
-        <ModalBody className="overflow-y-auto flex flex-col gap-3">
-          {/* Name field */}
-          <label className="flex flex-col gap-1">
-            <span className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--color-pv-fg-muted)]">
-              {nameLabel}
-            </span>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder={namePlaceholder}
-              disabled={submitting}
-              aria-invalid={nameShowError || undefined}
-              aria-describedby={nameShowError ? "create-role-name-error" : undefined}
-              className="text-xs"
-            />
-            {nameShowError && (
-              <span
-                id="create-role-name-error"
-                role="alert"
-                className="text-[10px] text-red-500"
-              >
-                {nameErrorText}
-              </span>
-            )}
-          </label>
+        {/* Color picker (Phase 86) — reused from pretty-view/pickers */}
+        <KitField label="Color" htmlFor="create-role-color">
+          <ColorPicker
+            value={colorHue}
+            onChange={(v) => !formDisabled && setColorHue(v)}
+            id="create-role-color"
+            disabled={formDisabled}
+          />
+        </KitField>
 
-          {/* Description field — multi-line textarea per RESEARCH Open Q 4 */}
-          <label className="flex flex-col gap-1">
-            <span className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--color-pv-fg-muted)]">
-              {descriptionLabel}
-            </span>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder={descriptionPlaceholder}
-              disabled={submitting}
-              rows={4}
-              className="text-xs bg-[color:var(--color-pv-surface-quiet)] border border-[color:var(--color-pv-border-quiet-strong)] rounded-sm px-2 py-1 outline-none placeholder:text-[color:var(--color-pv-fg-dim)] text-[color:var(--color-pv-fg)] disabled:opacity-50 resize-y"
-            />
-          </label>
-
-          {/*
-           * Phase 86 (D-CTX-86-surface-3): cosmetic authoring controls inserted
-           * between Description and Host picker. Order mirrors NewSessionDialog
-           * L1186-1366 (Title → Voice → Color → Avatar) so the two dialogs feel
-           * consistent to a wearer who's used to authoring identity cosmetics.
-           */}
-
-          {/* Color picker (Phase 86) — reused from pretty-view/pickers */}
-          <div className="flex flex-col gap-1.5">
-            <label
-              htmlFor="create-role-color"
-              className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--color-pv-fg-muted)]"
-            >
-              Color
-            </label>
-            <ColorPicker
-              value={colorHue}
-              onChange={(v) => !formDisabled && setColorHue(v)}
-              id="create-role-color"
-              disabled={formDisabled}
-            />
-          </div>
-
-          {/* Avatar section (Phase 86) — mirrors NewSessionDialog L1257-1366 */}
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--color-pv-fg-muted)]">
-                Avatar
-              </span>
-              <button
-                type="button"
+        {/* Avatar section (Phase 86) — Generate/Regenerate + Upload…, then
+            the candidate grid (or the uploaded preview). */}
+        <div className="k-field">
+          <div className="flex items-center justify-between gap-2">
+            <span className="k-label">Avatar</span>
+            <div className="flex items-center gap-2">
+              <KitButton
+                size="sm"
                 disabled={!canGenerate}
+                busy={genLoading}
                 onClick={() => { void handleGenerate(); }}
-                className="text-xs px-2 py-1 rounded border border-[color:var(--color-pv-border-quiet)] bg-[color:var(--color-pv-surface-quiet)] text-[color:var(--color-pv-fg)] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[color:var(--color-pv-surface)] transition-colors"
                 aria-label={hasGeneratedOnce ? "Regenerate" : "Generate"}
               >
-                {genLoading ? (
-                  <span className="inline-flex items-center gap-1.5">
-                    <Loader2 className="size-3 animate-spin" />
-                    Generating…
-                  </span>
-                ) : (hasGeneratedOnce ? "Regenerate" : "Generate")}
-              </button>
-
-              {/* Upload… button — label+sr-only input pattern (IdentityModal:1083-1106) */}
-              <label className="flex">
-                <input
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp"
-                  className="sr-only"
-                  disabled={formDisabled || uploadLoading}
-                  onChange={(e) => { void handleManualUpload(e); }}
-                />
-                <button
-                  type="button"
-                  disabled={formDisabled || uploadLoading}
-                  aria-label="Upload avatar"
-                  onClick={(e) => {
-                    const input = (e.currentTarget.parentElement as HTMLLabelElement)?.querySelector("input[type='file']") as HTMLInputElement | null;
-                    input?.click();
-                  }}
-                  className="text-xs px-2 py-1 rounded border border-[color:var(--color-pv-border-quiet)] bg-[color:var(--color-pv-surface-quiet)] text-[color:var(--color-pv-fg)] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[color:var(--color-pv-surface)] transition-colors"
-                >
-                  {uploadLoading ? (
-                    <span className="inline-flex items-center gap-1.5">
-                      <Loader2 className="size-3 animate-spin" />
-                      Uploading…
-                    </span>
-                  ) : "Upload…"}
-                </button>
-              </label>
+                {genLoading ? "Generating…" : hasGeneratedOnce ? "Regenerate" : "Generate"}
+              </KitButton>
+              <input
+                ref={uploadInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                className="sr-only"
+                tabIndex={-1}
+                aria-hidden="true"
+                disabled={formDisabled || uploadLoading}
+                onChange={(e) => { void handleManualUpload(e); }}
+              />
+              <KitButton
+                size="sm"
+                disabled={formDisabled}
+                busy={uploadLoading}
+                aria-label="Upload avatar"
+                onClick={() => uploadInputRef.current?.click()}
+              >
+                {uploadLoading ? "Uploading…" : "Upload…"}
+              </KitButton>
             </div>
+          </div>
 
-            {/* Inline generation error */}
-            {genError && (
-              <span className="text-xs text-[color:var(--color-pv-code-fg)]">
-                {genError}
-              </span>
-            )}
+          {/* Inline generation / upload errors */}
+          {genError && <span className="k-err">{genError}</span>}
+          {uploadError && <span className="k-err">{uploadError}</span>}
 
-            {/* Inline upload error */}
-            {uploadError && (
-              <span className="text-xs text-[color:var(--color-pv-code-fg)]">
-                {uploadError}
-              </span>
-            )}
-
-            {/* Candidate row — horizontal flex of 3 buttons */}
-            {candidates.length > 0 && (
-              <div className="flex gap-2 justify-center">
-                {candidates.map((c) => (
+          {/* Candidate grid — three pickable tiles on kit tokens */}
+          {candidates.length > 0 && (
+            <div className="grid grid-cols-3 gap-2 mt-1">
+              {candidates.map((c) => {
+                const picked = pickedCandidateId === c.id;
+                return (
                   <button
                     key={c.id}
                     type="button"
                     data-candidate-id={c.id}
-                    aria-selected={pickedCandidateId === c.id}
+                    aria-selected={picked}
                     disabled={formDisabled}
                     onClick={() => !formDisabled && setPickedCandidateId(c.id)}
-                    className={`flex-1 rounded overflow-hidden border-2 transition-all disabled:opacity-50 ${
-                      pickedCandidateId === c.id
-                        ? "border-[color:var(--color-pv-code-fg)] ring-1 ring-[color:var(--color-pv-code-fg)]"
-                        : "border-transparent hover:border-[color:var(--color-pv-border-quiet)]"
+                    className={`rounded-xl overflow-hidden bg-[var(--k-s2)] outline-offset-2 transition-[outline-color,opacity] disabled:opacity-50 cursor-pointer focus-visible:outline-2 focus-visible:outline-[var(--k-acc)] ${
+                      picked
+                        ? "outline-2 outline-[var(--k-acc)]"
+                        : "outline-2 outline-transparent hover:outline-[var(--k-hair2)]"
                     }`}
                   >
                     <img
@@ -707,125 +651,73 @@ export function CreateRoleDialog({
                       className="w-full aspect-square object-cover"
                     />
                   </button>
-                ))}
-              </div>
-            )}
-
-            {/* Manual upload preview — shown when no generated candidates */}
-            {candidates.length === 0 && manualPreviewUrl && (
-              <div className="flex justify-center">
-                <button
-                  type="button"
-                  aria-selected={true}
-                  data-manual-avatar="true"
-                  disabled={formDisabled}
-                  className="flex-1 rounded overflow-hidden border-2 border-[color:var(--color-pv-code-fg)] ring-1 ring-[color:var(--color-pv-code-fg)] transition-all disabled:opacity-50 max-w-[80px]"
-                >
-                  <img
-                    src={manualPreviewUrl}
-                    alt="Manual avatar preview"
-                    className="w-full aspect-square object-cover"
-                  />
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/*
-           * Phase 84 (D-CONTEXT item 8): hide the host search input + host listbox
-           * entirely when the user has exactly one pickable host. The existing
-           * open-effect above (unchanged by this phase) still auto-selects
-           * that sole host into `selectedHost`, so submission still works. When
-           * the user has zero or ≥2 hosts, both the search box and the listbox
-           * render as before. Rationale: Aither Health users (target segment)
-           * provision one dedicated VM per user and hit this case constantly;
-           * user hits it herself. Matched by Plan 84-02 for NewSessionDialog.
-           */}
-          {flatHosts.length !== 1 && (
-            <>
-              {/* Host search + picker (same shape as NewSessionDialog L638-696) */}
-              <div className="flex items-center gap-2 px-2.5 h-7 bg-[color:var(--color-pv-surface-quiet)] border border-[color:var(--color-pv-border-quiet-strong)] rounded-sm">
-                <Search className="size-3 text-[color:var(--color-pv-fg-dim)] shrink-0" />
-                <input
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder={searchPlaceholder}
-                  aria-label={searchPlaceholder}
-                  disabled={submitting}
-                  className="flex-1 text-xs bg-transparent outline-none placeholder:text-[color:var(--color-pv-fg-dim)] text-[color:var(--color-pv-fg)] min-w-0 disabled:opacity-50"
-                />
-              </div>
-
-              <div
-                className="flex flex-col max-h-56 overflow-y-auto border border-[color:var(--color-pv-border-quiet)] rounded-sm"
-                role="listbox"
-                aria-label={t("nav.createRoleHostList", { defaultValue: "Hosts" })}
-              >
-                {filteredHosts.length === 0 ? (
-                  <div className="px-3 py-4 text-xs text-[color:var(--color-pv-fg-dim)] text-center">
-                    {emptyHostsLabel}
-                  </div>
-                ) : (
-                  filteredHosts.map((h) => {
-                    const selected = selectedHost?.id === h.id;
-                    return (
-                      <button
-                        key={h.id}
-                        type="button"
-                        role="option"
-                        aria-selected={selected}
-                        disabled={submitting}
-                        onClick={() => !submitting && setSelectedHost(h)}
-                        className={`flex items-center gap-2 px-3 py-2 text-xs text-left transition-colors border-b border-[color:var(--color-pv-border-quiet)] last:border-b-0 disabled:opacity-50 ${
-                          selected
-                            ? "bg-[hsla(var(--pv-hue,190),45%,28%,0.42)] text-[color:var(--color-pv-fg)]"
-                            : "hover:bg-[hsla(var(--pv-hue,190),40%,25%,0.18)] text-[color:var(--color-pv-fg)]"
-                        }`}
-                      >
-                        <span
-                          className={`size-1.5 rounded-full shrink-0 ${
-                            h.online ? "bg-green-500" : "bg-[color:var(--color-pv-fg-dim)]"
-                          }`}
-                        />
-                        <span className="flex-1 truncate">{h.name}</span>
-                        {h.username && (
-                          <span className="text-[10px] text-[color:var(--color-pv-fg-dim)] shrink-0">
-                            {h.username}
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })
-                )}
-              </div>
-            </>
-          )}
-
-          {/* Inline submit error (409 collision OR generic) */}
-          {submitError && (
-            <div
-              role="alert"
-              className="text-xs text-red-500 border border-red-500/40 rounded-sm px-3 py-2 bg-red-500/5"
-            >
-              {submitError}
+                );
+              })}
             </div>
           )}
-        </ModalBody>
 
-        <ModalFoot>
-          <Button
-            onClick={handleSubmit}
-            disabled={!canOpen}
-            className="text-xs"
+          {/* Manual upload preview — shown when no generated candidates */}
+          {candidates.length === 0 && manualPreviewUrl && (
+            <div className="flex justify-center mt-1">
+              <button
+                type="button"
+                aria-selected={true}
+                data-manual-avatar="true"
+                disabled={formDisabled}
+                className="w-20 rounded-xl overflow-hidden outline-2 outline-offset-2 outline-[var(--k-acc)] disabled:opacity-50"
+              >
+                <img
+                  src={manualPreviewUrl}
+                  alt="Manual avatar preview"
+                  className="w-full aspect-square object-cover"
+                />
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/*
+         * Phase 84 (D-CONTEXT item 8): hide the host picker entirely when the
+         * user has exactly one pickable host — the open-effect above still
+         * auto-selects that sole host into `selectedHost`, so submission
+         * still works. With zero or ≥2 hosts, the kit host picker renders
+         * (search + rows with a status dot).
+         */}
+        {flatHosts.length !== 1 && (
+          <KitField
+            label={t("nav.createRoleHostLabel", { defaultValue: "Host" })}
+            htmlFor="create-role-host-search"
           >
-            {submitting ? (
-              <Loader2 className="size-4 animate-spin" aria-label="Creating role" />
-            ) : (
-              openLabel
-            )}
-          </Button>
-        </ModalFoot>
-      </div>
+            <KitHostPicker
+              hosts={hostOptions}
+              selectedId={selectedHost ? String(selectedHost.id) : null}
+              onSelect={(id) => {
+                if (submitting) return;
+                const h = flatHosts.find((x) => String(x.id) === id);
+                if (h) setSelectedHost(h);
+              }}
+              disabled={submitting}
+              searchable
+              searchId="create-role-host-search"
+              emptyText={flatHosts.length === 0 ? emptyHostsLabel : undefined}
+            />
+          </KitField>
+        )}
+
+        {/* Inline submit error (409 collision OR generic) */}
+        {submitError && <KitBanner tone="danger">{submitError}</KitBanner>}
+      </ModalBody>
+
+      <ModalFoot>
+        <KitButton
+          variant="primary"
+          onClick={() => { void handleSubmit(); }}
+          disabled={!canOpen}
+          busy={submitting}
+        >
+          {submitting ? "Creating role…" : openLabel}
+        </KitButton>
+      </ModalFoot>
     </Modal>
   );
 }

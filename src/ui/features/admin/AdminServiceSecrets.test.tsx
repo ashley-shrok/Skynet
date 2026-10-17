@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
@@ -9,6 +9,10 @@ const api = vi.hoisted(() => ({
 }));
 vi.mock("@/api/service-secrets-api", () => api);
 
+import {
+  autoAnswerKitDialogs,
+  __resetKitDialogsForTests,
+} from "@/components/kit";
 import { AdminServiceSecrets } from "./AdminServiceSecrets";
 
 const zoho = {
@@ -27,6 +31,11 @@ describe("AdminServiceSecrets", () => {
     vi.clearAllMocks();
     api.setUserServiceSecret.mockResolvedValue(undefined);
     api.clearUserServiceSecret.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    __resetKitDialogsForTests();
   });
 
   it("renders nothing when no service declares per-user secrets", async () => {
@@ -64,13 +73,18 @@ describe("AdminServiceSecrets", () => {
 
   it("removes after confirming", async () => {
     api.getUserServiceSecrets.mockResolvedValue([zoho]);
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+    // ServiceSecretRow is moving from window.confirm to kitConfirm; answer
+    // yes to whichever one it asks.
+    const dialogs = autoAnswerKitDialogs({ confirm: true });
     const user = userEvent.setup();
     render(<AdminServiceSecrets userId="u1" />);
     await user.click(
       await screen.findByTestId("service-secret-zoho-ZOHO_TOKEN-remove"),
     );
-    expect(api.clearUserServiceSecret).toHaveBeenCalledWith("u1", zoho);
+    expect(dialogs.calls[0].opts.title).toBe("Remove Zoho API token?");
+    await waitFor(() =>
+      expect(api.clearUserServiceSecret).toHaveBeenCalledWith("u1", zoho),
+    );
   });
 
   it("shows the server's error when saving fails", async () => {

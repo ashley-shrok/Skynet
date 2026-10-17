@@ -3,22 +3,20 @@
  * scheduled-agents list. Modal-unification 2026-09-29 anatomy per
  * .planning/design/modal-tasting.html § scheduled-agents.
  *
- * Layout:
- *   avatar-sm (32px hue-tinted, first letter of first-role uppercased)
- *   body-column
- *     - Line 1: row.name (schedule name alone, NO role prefix)
- *     - Line 2: row.scheduleHuman (muted)
- *     - Line 3: row.prompt (2-line clamp)
- *     - Line 4: role chips (magenta) + project chip (green — the full
- *       "Parent › Child" path; amber "missing" when the project is gone;
- *       neutral slug when the host's projects couldn't be read)
- *   top-right actions bar (aligned with the name baseline):
- *     - toggle pill (row.enabled, pessimistic — parent flips on server ack)
- *     - RowKebabMenu → Edit + Delete popover
+ * Layout (apple-ux kit, 2026-10-16): one KitListRow.
+ *   avatar — hue-tinted disc, first letter of first-role uppercased
+ *   title — row.name (schedule name alone, NO role prefix)
+ *   subtitle (wraps)
+ *     - row.scheduleHuman, or the sensor line (status as a KitChip)
+ *     - Last / Next run times
+ *     - row.prompt (2-line clamp)
+ *     - role chips (KitChip)
+ *   trailing — KitSwitch (row.enabled, pessimistic — parent flips on ack)
+ *   menu — RowKebabMenu → Run now + Edit + Delete
  *
  * Row hue: `row.colorHue ?? 190` — from the backend's role-file cascade.
  *
- * Disabled state: `row.enabled === false` applies opacity 0.55 to the row.
+ * Disabled state: `row.enabled === false` renders the row dimmed.
  *
  * D-XX preserved verbatim:
  *   D-09: host-chip removal — dropped per tasting; host context lives in
@@ -40,19 +38,19 @@
  */
 
 import type { ScheduledAgentListItem } from "@/api/scheduled-agents-api";
+import { KitChip, KitListRow, KitSwitch } from "@/components/kit";
 import { RowKebabMenu, useRowKebabContextMenu, type RowKebabMenuItem } from "./RowKebabMenu";
 import {
   formatAbsolute,
   formatRelativeFuture,
   formatRelativePast,
 } from "./scheduled-agents-time-fmt";
-import { Folder } from "lucide-react";
-import { SensorSummaryLine } from "@/features/pretty-view/SensorStatusView";
-import { formatProjectPath } from "./scheduled-agents-projects";
+import { SENSOR_MARK, SensorStateChip } from "@/features/pretty-view/SensorStatusView";
 import { isOnceSensorSchedule } from "@/features/pretty-view/WakeupFormShared";
 
 const FALLBACK_HUE = 190;
 
+/** Sensor state → kit chip tone. Off / not live stay calm (neutral). */
 /** Render-only de-slug. Hyphens/underscores → spaces, capitalize first char.
  *  Kept in sync with `_prettify_name` in substrate/scripts/wakeup-scheduler.py
  *  (the ⏰ task-prefix on scheduled-agent-spawned identities). */
@@ -83,6 +81,41 @@ export interface ScheduledAgentsModalRowProps {
   runNowPending?: boolean;
 }
 
+const Dot = () => <span className="mx-1.5 opacity-55">·</span>;
+
+/** "📡 Sensor · <status chip> · Last fired … · N waiting" — the row line for
+ *  a sensor-triggered task (sensors shape 2: no Next). */
+function SensorLine({
+  row,
+  testId,
+}: {
+  row: ScheduledAgentListItem & { sensor: NonNullable<ScheduledAgentListItem["sensor"]> };
+  testId: string;
+}) {
+  const nowSecs = Math.floor(Date.now() / 1000);
+  const { sensor, lastFiredAt } = row;
+  return (
+    <span className="flex flex-wrap items-center" data-testid={testId}>
+      <span aria-hidden="true">{SENSOR_MARK}&nbsp;</span>
+      {isOnceSensorSchedule(row.schedule) ? "Sensor · once" : "Sensor"}
+      <Dot />
+            <SensorStateChip state={sensor.state} testId={`${testId}-state`} />
+      <Dot />
+      <span title={typeof lastFiredAt === "number" ? formatAbsolute(lastFiredAt, nowSecs) : undefined}>
+        {typeof lastFiredAt === "number"
+          ? `Last fired ${formatRelativePast(lastFiredAt, nowSecs)}`
+          : "Never fired"}
+      </span>
+      {sensor.waitingFires > 0 && (
+        <>
+          <Dot />
+          <span data-testid={`${testId}-waiting`}>{`${sensor.waitingFires} waiting`}</span>
+        </>
+      )}
+    </span>
+  );
+}
+
 export function ScheduledAgentsModalRow({
   row,
   onRowClick,
@@ -96,7 +129,6 @@ export function ScheduledAgentsModalRow({
     (row.schedule as { type?: unknown } | null)?.type === "one_shot";
   const hue = row.colorHue ?? FALLBACK_HUE;
   const letter = avatarLetterFor(row);
-  const rowClass = row.enabled ? "pv-agent-row" : "pv-agent-row disabled";
   const kebabItems: RowKebabMenuItem[] = [
     ...(isOneShot
       ? []
@@ -123,134 +155,79 @@ export function ScheduledAgentsModalRow({
   // Right-click the row → same kebab menu at the cursor.
   const kebabContextMenu = useRowKebabContextMenu(kebabItems);
 
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      data-testid={`scheduled-agents-modal-row-${row.slug}`}
-      onClick={() => onRowClick(row)}
-      onContextMenu={kebabContextMenu.onContextMenu}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onRowClick(row);
-        }
-      }}
-      className={rowClass}
-      style={{ ["--pv-agent-row-hue" as string]: String(hue) }}
-    >
-      <div className="pv-agent-row-avatar" aria-hidden="true">
-        {letter}
-      </div>
+  const nowSecs = Math.floor(Date.now() / 1000);
+  const hasLast = row.lastFiredAt !== null;
+  const hasNext = row.nextFireAt !== null;
 
-      <div className="pv-agent-row-body">
-        <div className="pv-agent-row-name">{prettifyScheduledAgentName(row.name)}</div>
+  const subtitle = (
+    <>
+      <span className="block">
         {row.sensor ? (
-          // Sensors shape 2: a sensor task has no Next — its sensor's status
-          // takes that slot, beside Last fired.
-          <div className="pv-agent-row-sub">
-            <SensorSummaryLine
-              sensor={row.sensor}
-              lastFiredAt={row.lastFiredAt}
-              once={isOnceSensorSchedule(row.schedule)}
-              testId={`scheduled-agents-modal-row-${row.slug}-sensor`}
-            />
-          </div>
+          <SensorLine
+            row={row as ScheduledAgentListItem & { sensor: NonNullable<ScheduledAgentListItem["sensor"]> }}
+            testId={`scheduled-agents-modal-row-${row.slug}-sensor`}
+          />
         ) : (
-          <div className="pv-agent-row-sub">{row.scheduleHuman}</div>
+          row.scheduleHuman
         )}
-        {!row.sensor && (row.lastFiredAt !== null || row.nextFireAt !== null) && (() => {
-          const nowSecs = Math.floor(Date.now() / 1000);
-          const hasLast = row.lastFiredAt !== null;
-          const hasNext = row.nextFireAt !== null;
-          return (
-            <div className="pv-agent-row-runs">
-              {hasLast && (
-                <span title={formatAbsolute(row.lastFiredAt!, nowSecs)}>
-                  Last: {formatRelativePast(row.lastFiredAt!, nowSecs)}
-                </span>
-              )}
-              {hasLast && hasNext && <span className="pv-agent-row-runs-dot">·</span>}
-              {hasNext && (
-                <span title={formatAbsolute(row.nextFireAt!, nowSecs)}>
-                  Next: {formatRelativeFuture(row.nextFireAt!, nowSecs)}
-                </span>
-              )}
-            </div>
-          );
-        })()}
-        <div className="pv-agent-row-prompt">{row.prompt}</div>
-        {(row.roles.length > 0 || row.project) && (
-          <div className="pv-agent-row-chips">
-            {row.roles.map((r) => (
-              <span key={`role-${r}`} className="pv-agent-row-chip role">
-                {r}
-              </span>
-            ))}
-            {row.project && (
-              <span
-                className={
-                  row.projectMissing
-                    ? "pv-agent-row-chip project missing"
-                    : row.projectPath
-                      ? "pv-agent-row-chip project"
-                      : "pv-agent-row-chip project unknown"
-                }
-                data-testid={`scheduled-agents-modal-row-${row.slug}-project`}
-                title={
-                  row.projectMissing
-                    ? "This project no longer exists — new conversations go to Conversations"
-                    : row.projectPath
-                      ? "New conversations are filed in this project"
-                      : "Couldn't read this machine's projects right now"
-                }
-              >
-                <Folder size={10} aria-hidden="true" />
-                {row.projectMissing
-                  ? `Project missing: ${row.project}`
-                  : row.projectPath
-                    ? formatProjectPath(row.projectPath)
-                    : row.project}
-              </span>
-            )}
-          </div>
-        )}
-      </div>
+      </span>
+      {!row.sensor && (hasLast || hasNext) && (
+        <span className="block">
+          {hasLast && (
+            <span title={formatAbsolute(row.lastFiredAt!, nowSecs)}>
+              Last: {formatRelativePast(row.lastFiredAt!, nowSecs)}
+            </span>
+          )}
+          {hasLast && hasNext && <Dot />}
+          {hasNext && (
+            <span title={formatAbsolute(row.nextFireAt!, nowSecs)}>
+              Next: {formatRelativeFuture(row.nextFireAt!, nowSecs)}
+            </span>
+          )}
+        </span>
+      )}
+      <span className="block mt-0.5 text-[var(--k-t2)] line-clamp-2 break-words">{row.prompt}</span>
+      {row.roles.length > 0 && (
+        <span className="flex flex-wrap gap-1.5 mt-1.5">
+          {row.roles.map((r) => (
+            <KitChip key={`role-${r}`}>{r}</KitChip>
+          ))}
+        </span>
+      )}
+    </>
+  );
 
-      <div className="pv-agent-row-actions" style={{ position: "relative" }}>
-        <button
-          type="button"
-          aria-label={
-            row.enabled
-              ? "Disable scheduled task"
-              : "Enable scheduled task"
-          }
-          title={
-            row.enabled ? "Enabled — click to disable" : "Disabled — click to enable"
-          }
-          data-testid={`scheduled-agents-modal-row-${row.slug}-toggle`}
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggleClick(row);
-          }}
-          className={
-            row.enabled
-              ? "pv-agent-row-toggle on"
-              : "pv-agent-row-toggle"
-          }
-        />
-        {/* D-29: shared RowKebabMenu — Run now + Edit + Delete items. The component
-            owns its own open state (Radix) and stop-propagation discipline
-            (D-14 revised 2026-10-01), so no `kebabOpen`/`onKebabClick`
-            threading is needed from the parent anymore. testId overridden
-            to preserve the existing scheduled-agents namespacing. */}
+  return (
+    <KitListRow
+      data-testid={`scheduled-agents-modal-row-${row.slug}`}
+      onActivate={() => onRowClick(row)}
+      onContextMenu={kebabContextMenu.onContextMenu}
+      avatar={letter}
+      avatarColor={`hsl(${hue}, 42%, 40%)`}
+      title={prettifyScheduledAgentName(row.name)}
+      subtitle={subtitle}
+      wrapSubtitle
+      dim={!row.enabled}
+      className="items-start"
+      trailing={
+        <>
+          <KitSwitch
+            checked={row.enabled}
+            onCheckedChange={() => onToggleClick(row)}
+            aria-label={row.enabled ? "Disable scheduled task" : "Enable scheduled task"}
+            title={row.enabled ? "Enabled — click to disable" : "Disabled — click to enable"}
+            data-testid={`scheduled-agents-modal-row-${row.slug}-toggle`}
+          />
+          {kebabContextMenu.menu}
+        </>
+      }
+      menu={
         <RowKebabMenu
           items={kebabItems}
           ariaLabel="More actions"
           testId={`scheduled-agents-modal-row-${row.slug}-kebab`}
         />
-        {kebabContextMenu.menu}
-      </div>
-    </div>
+      }
+    />
   );
 }

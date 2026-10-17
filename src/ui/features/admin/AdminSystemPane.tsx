@@ -10,13 +10,14 @@ import { getAdminDbHealth, getVersionInfo } from "@/api/system-status-api";
 import { getLogLevel, updateLogLevel } from "@/api/settings-api";
 import { getTtsProviders, type TtsProviderStatus } from "@/api/voice-api";
 import {
-  AdminButton,
-  AdminError,
-  AdminRow,
-  AdminSection,
-  adminErrorMessage,
-  adminInputClass,
-} from "./admin-ui";
+  KitBanner,
+  KitButton,
+  KitChip,
+  KitSelect,
+  KitSettingsGroup,
+  KitSettingsRow,
+} from "@/components/kit";
+import { adminErrorMessage } from "./admin-ui";
 
 const LOG_LEVELS = ["debug", "info", "warn", "error"] as const;
 
@@ -114,12 +115,12 @@ export function AdminSystemPane() {
 
   return (
     <div
-      className="flex flex-col gap-6 px-6 py-5"
+      className="flex flex-col gap-[22px] px-6 py-5 max-sm:px-5"
       data-testid="admin-system-pane"
     >
-      <AdminSection title="Version">
-        <div className="flex flex-col">
-          <AdminRow
+      <div className="flex flex-col gap-2">
+        <KitSettingsGroup title="Version">
+          <KitSettingsRow
             label={
               version?.localVersion
                 ? `Skynet ${version.localVersion}`
@@ -140,7 +141,7 @@ export function AdminSystemPane() {
                             href={version.releaseUrl}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-[hsla(var(--pv-id-hue),80%,75%,1)] hover:underline"
+                            className="inline-flex items-center gap-1 text-[var(--k-acc-text)] hover:underline"
                           >
                             Release notes
                             <ExternalLink size={12} aria-hidden />
@@ -152,80 +153,83 @@ export function AdminSystemPane() {
               </span>
             }
             control={
-              <AdminButton
+              <KitButton
+                size="sm"
                 data-testid="admin-system-check-updates"
-                disabled={checking}
+                busy={checking}
                 onClick={() => void loadVersion(true)}
               >
                 {checking ? "Checking…" : "Check for updates"}
-              </AdminButton>
+              </KitButton>
             }
           />
-          <AdminRow
+          <KitSettingsRow
             label="Database"
             control={
-              <span
+              <KitChip
+                dot
                 data-testid="admin-system-db-status"
-                className="text-[12.5px]"
-                style={{
-                  color:
-                    dbStatus === "ok"
-                      ? "#8fd39e"
-                      : dbStatus === "error"
-                        ? "#d38f8f"
-                        : "#a89a80",
-                }}
+                tone={
+                  dbStatus === "ok"
+                    ? "ok"
+                    : dbStatus === "error"
+                      ? "danger"
+                      : "neutral"
+                }
               >
                 {dbStatus === "ok"
                   ? "Healthy"
                   : dbStatus === "error"
                     ? "Not reachable"
                     : "Checking…"}
-              </span>
+              </KitChip>
             }
           />
-        </div>
+        </KitSettingsGroup>
         {versionError && (
-          <AdminError testId="admin-system-version-error">
+          <KitBanner tone="danger" data-testid="admin-system-version-error">
             {versionError}
-          </AdminError>
+          </KitBanner>
         )}
-      </AdminSection>
+      </div>
 
-      <AdminSection title="Logging">
-        <AdminRow
-          label="Log level"
-          description="How much detail the backend writes to its logs. Takes effect immediately."
-          control={
-            <select
-              data-testid="admin-system-log-level"
-              aria-label="Log level"
-              value={logLevel ?? ""}
-              disabled={logLevel === null || logBusy}
-              onChange={(e) => void changeLogLevel(e.target.value)}
-              className={`${adminInputClass} font-sans cursor-pointer`}
-            >
-              {logLevel === null && <option value="">Loading…</option>}
-              {LOG_LEVELS.map((l) => (
-                <option key={l} value={l}>
-                  {l}
-                </option>
-              ))}
-            </select>
-          }
-        />
+      <div className="flex flex-col gap-2">
+        <KitSettingsGroup title="Logging">
+          <KitSettingsRow
+            label="Log level"
+            description="How much detail the backend writes to its logs. Takes effect immediately."
+            control={
+              <KitSelect
+                data-testid="admin-system-log-level"
+                aria-label="Log level"
+                value={logLevel ?? ""}
+                disabled={logLevel === null || logBusy}
+                onChange={(e) => void changeLogLevel(e.target.value)}
+              >
+                {logLevel === null && <option value="">Loading…</option>}
+                {LOG_LEVELS.map((l) => (
+                  <option key={l} value={l}>
+                    {l}
+                  </option>
+                ))}
+              </KitSelect>
+            }
+          />
+        </KitSettingsGroup>
         {logError && (
-          <AdminError testId="admin-system-log-error">{logError}</AdminError>
+          <KitBanner tone="danger" data-testid="admin-system-log-error">
+            {logError}
+          </KitBanner>
         )}
-      </AdminSection>
+      </div>
 
-      <AdminSection
-        title="Voice"
-        testId="admin-system-voice"
-        description="The services that read replies aloud. Set in the server configuration; when the main service fails or freezes, the backup reads the rest of the reply."
-      >
-        <div className="flex flex-col">
-          <AdminRow
+      <div className="flex flex-col gap-2">
+        <KitSettingsGroup
+          title="Voice"
+          data-testid="admin-system-voice"
+          footer="The services that read replies aloud. Set in the server configuration; when the main service fails or freezes, the backup reads the rest of the reply."
+        >
+          <KitSettingsRow
             label="Main service"
             description={tts?.primary.error}
             control={
@@ -236,7 +240,7 @@ export function AdminSystemPane() {
               />
             }
           />
-          <AdminRow
+          <KitSettingsRow
             label="Backup service"
             description={tts?.backup.error}
             control={
@@ -247,11 +251,13 @@ export function AdminSystemPane() {
               />
             }
           />
-        </div>
+        </KitSettingsGroup>
         {ttsError && (
-          <AdminError testId="admin-system-tts-error">{ttsError}</AdminError>
+          <KitBanner tone="danger" data-testid="admin-system-tts-error">
+            {ttsError}
+          </KitBanner>
         )}
-      </AdminSection>
+      </div>
     </div>
   );
 }
@@ -273,8 +279,8 @@ function TtsServiceName({
   return (
     <span
       data-testid={testId}
-      className="text-[12.5px]"
-      style={{ color: status?.error ? "#d38f8f" : "#e8e4d8" }}
+      className="k-row-value"
+      style={status?.error ? { color: "var(--k-danger-text)" } : undefined}
     >
       {text}
     </span>

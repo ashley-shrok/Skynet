@@ -22,6 +22,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { autoAnswerKitDialogs, __resetKitDialogsForTests } from "@/components/kit";
 import type { Identity } from "@/api/identities-api";
 
 // Mock the Wave 0 hooks BEFORE importing the component under test.
@@ -111,13 +112,14 @@ beforeEach(() => {
   mockedUseSessionIsWorking.mockReturnValue(false);
   mockedUseSessionIsRecycling.mockReturnValue(false);
   mockedUseSessionContextPct.mockReturnValue(null);
-  // Reset button now shows window.confirm() first (patched to prevent
+  // Reset button now shows a kit confirm (kitConfirm) first (patched to prevent
   // accidental resets). Auto-accept in tests that click it — the confirm
   // gate itself is covered by the dedicated reset-confirm.test.tsx specs.
-  vi.spyOn(window, "confirm").mockReturnValue(true);
+  autoAnswerKitDialogs({ confirm: true });
 });
 
 afterEach(() => {
+  __resetKitDialogsForTests();
   vi.restoreAllMocks();
 });
 
@@ -205,14 +207,17 @@ describe("AgentBadgeWithMeter (Phase 93 Slice 2 Task 1 — byte-preserving port)
     expect(body).toEqual({ body: "" });
   });
 
-  it("Test 8a: confirm dismissed → no dispatch (accidental-reset guard)", () => {
+  it("Test 8a: confirm dismissed → no dispatch (accidental-reset guard)", async () => {
     // Override the default beforeEach stub with false.
-    vi.spyOn(window, "confirm").mockReturnValue(false);
+    const dialogs = autoAnswerKitDialogs({ confirm: false });
     render(<AgentBadgeWithMeter {...DEFAULT_PROPS} />);
     const resetBtn = screen.getByRole("button", {
       name: /reset context window/i,
     });
     fireEvent.click(resetBtn);
+    await waitFor(() => expect(dialogs.calls).toHaveLength(1));
+    expect(dialogs.calls[0].kind).toBe("confirm");
+    await new Promise((r) => setTimeout(r, 0));
     // No authApi.post call — the confirm gate short-circuited.
     expect(mockedPost).not.toHaveBeenCalled();
   });

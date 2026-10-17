@@ -5,7 +5,7 @@
  * hides the nav entry otherwise, and the backend refuses PUT/DELETE for users
  * without one. An admin grants the feature by setting the first number.
  *
- * Removing is allowed but one-way: a window.confirm warns that an admin has
+ * Removing is allowed but one-way: a kit confirm warns that an admin has
  * to re-enable the feature before the user can set a number again.
  */
 
@@ -16,21 +16,20 @@ import {
   normalizePhoneInput,
   updateMyPhone,
 } from "@/api/user-phone-api";
+import {
+  KitButton,
+  KitField,
+  KitInput,
+  KitSettingsGroup,
+  KitSettingsRow,
+  kitConfirm,
+} from "@/components/kit";
 
 export interface PreferencesPhonePaneProps {
   phoneE164: string;
   /** Called with the saved number, or null after the number is removed. */
   onPhoneChanged: (phoneE164: string | null) => void;
 }
-
-const buttonStyle = {
-  padding: "8px 14px",
-  borderRadius: 8,
-  border: "1px solid rgba(255,240,215,0.18)",
-  background: "rgba(20,21,32,0.6)",
-  color: "#e8e4d8",
-  fontSize: 13,
-} as const;
 
 export function PreferencesPhonePane({
   phoneE164,
@@ -68,9 +67,12 @@ export function PreferencesPhonePane({
   };
 
   const handleRemove = async () => {
-    const confirmed = window.confirm(
-      "Remove your phone number? Agents will no longer be able to call you, and an admin will need to re-enable this feature before you can add a number again.",
-    );
+    const confirmed = await kitConfirm({
+      title: "Remove your phone number?",
+      body: "Agents will no longer be able to call you, and an admin will need to re-enable this feature before you can add a number again.",
+      confirmLabel: "Remove",
+      destructive: true,
+    });
     if (!confirmed) return;
     setError(null);
     setSaved(false);
@@ -85,115 +87,71 @@ export function PreferencesPhonePane({
   };
 
   return (
-    <div className="flex-1 p-6 flex flex-col gap-4" data-testid="preferences-phone-pane">
-      <p className="text-[13px] leading-[18px]" style={{ color: "#c8c4b8" }}>
+    <div className="flex flex-col gap-5" data-testid="preferences-phone-pane">
+      <p className="m-0 text-[13px] leading-[18px] text-[var(--k-t2)]">
         Agents can phone you at this number when they need you.
       </p>
 
       <form
-        className="flex flex-col gap-2"
         onSubmit={(e) => {
           e.preventDefault();
           void handleSave();
         }}
       >
-        <label
+        <KitField
+          label="Phone number"
           htmlFor="preferences-phone-input"
-          style={{
-            fontSize: 11,
-            textTransform: "uppercase",
-            letterSpacing: "0.06em",
-            color: "rgba(200,196,184,0.6)",
-            fontWeight: 600,
-          }}
+          help={
+            saved && !error ? (
+              <span data-testid="preferences-phone-saved" className="text-[var(--k-ok)]">
+                ✓ Number saved
+              </span>
+            ) : (
+              "Include the country code (+1 for US/Canada)."
+            )
+          }
+          error={error ? <span data-testid="preferences-phone-error">{error}</span> : undefined}
         >
-          Phone number
-        </label>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <input
-            id="preferences-phone-input"
-            data-testid="preferences-phone-input"
-            type="tel"
-            inputMode="tel"
-            autoComplete="tel"
-            value={draft}
-            disabled={busy}
-            onChange={(e) => {
-              setDraft(e.target.value);
-              setError(null);
-              setSaved(false);
-            }}
-            placeholder="+17165550100"
-            style={{
-              flex: "1 1 180px",
-              padding: "8px 10px",
-              borderRadius: 8,
-              border: `1px solid ${error ? "rgba(211,143,143,0.6)" : "rgba(255,240,215,0.18)"}`,
-              background: "rgba(0,0,0,0.25)",
-              color: "#e8e4d8",
-              fontFamily: "monospace",
-              fontSize: 13,
-            }}
-          />
-          <button
-            type="submit"
-            data-testid="preferences-phone-save"
-            disabled={busy || !isDirty}
-            style={{
-              ...buttonStyle,
-              cursor: busy || !isDirty ? "not-allowed" : "pointer",
-              opacity: busy || !isDirty ? 0.6 : 1,
-            }}
-          >
-            {status === "saving" ? "Saving…" : "Save"}
-          </button>
-        </div>
-        <span style={{ fontSize: 12, color: "rgba(200,196,184,0.6)" }}>
-          Include the country code (+1 for US/Canada).
-        </span>
-        {error && (
-          <span
-            data-testid="preferences-phone-error"
-            role="alert"
-            style={{ fontSize: 12, color: "#d38f8f" }}
-          >
-            {error}
-          </span>
-        )}
-        {saved && !error && (
-          <span
-            data-testid="preferences-phone-saved"
-            style={{ fontSize: 12, color: "#8fd39e" }}
-          >
-            ✓ Number saved
-          </span>
-        )}
+          <div className="flex gap-2 flex-wrap">
+            <KitInput
+              data-testid="preferences-phone-input"
+              type="tel"
+              inputMode="tel"
+              autoComplete="tel"
+              mono
+              value={draft}
+              disabled={busy}
+              onChange={(e) => {
+                setDraft(e.target.value);
+                setError(null);
+                setSaved(false);
+              }}
+              placeholder="+17165550100"
+              className="flex-[1_1_180px] w-auto"
+            />
+            <KitButton
+              type="submit"
+              variant="primary"
+              data-testid="preferences-phone-save"
+              disabled={busy || !isDirty}
+              busy={status === "saving"}
+            >
+              {status === "saving" ? "Saving…" : "Save"}
+            </KitButton>
+          </div>
+        </KitField>
       </form>
 
-      <div
-        style={{
-          marginTop: 8,
-          paddingTop: 14,
-          borderTop: "1px solid rgba(255,240,215,0.08)",
-        }}
-      >
-        <button
-          type="button"
-          data-testid="preferences-phone-remove"
+      <KitSettingsGroup>
+        <KitSettingsRow
+          tone="danger"
+          label={status === "removing" ? "Removing…" : "Remove phone number"}
           onClick={() => void handleRemove()}
           disabled={busy}
-          style={{
-            ...buttonStyle,
-            border: "1px solid rgba(211,143,143,0.35)",
-            background: "transparent",
-            color: "#d38f8f",
-            cursor: busy ? "not-allowed" : "pointer",
-            opacity: busy ? 0.6 : 1,
-          }}
-        >
-          {status === "removing" ? "Removing…" : "Remove phone number"}
-        </button>
-      </div>
+          chevron={false}
+          data-testid="preferences-phone-remove"
+        />
+      </KitSettingsGroup>
     </div>
   );
 }

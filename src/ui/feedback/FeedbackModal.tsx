@@ -36,9 +36,8 @@
 //     fires onDismissWithoutSubmit which the parent turns into a real POST.
 
 import { useEffect, useState } from "react";
-import { cn } from "@/lib/utils";
-import { Button } from "@/components/button";
 import { Modal, ModalHead, ModalBody, ModalFoot } from "@/components/modal";
+import { KitButton, KitTextarea } from "@/components/kit";
 
 // ─── Public types ────────────────────────────────────────────────────────────
 
@@ -146,7 +145,7 @@ export function FeedbackModal({
         }
       />
       <ModalBody>
-        <textarea
+        <KitTextarea
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           placeholder={placeholder}
@@ -154,41 +153,28 @@ export function FeedbackModal({
           aria-label={
             variant === "general" ? "Feedback message" : "What went wrong"
           }
-          className={cn(
-            "w-full bg-black/30 text-[#fbf5e8]",
-            "border border-[hsla(var(--pv-id-hue),65%,55%,0.22)]",
-            "focus:outline-none focus:border-[hsla(var(--pv-id-hue),70%,60%,0.45)]",
-            "focus:ring-2 focus:ring-[hsla(var(--pv-id-hue),70%,55%,0.12)]",
-            "rounded-lg px-3 py-2 text-sm leading-relaxed",
-            "min-h-[120px] resize-y",
-            "placeholder:text-[hsla(var(--pv-id-hue),22%,88%,0.55)]",
-          )}
+          className="min-h-[120px] resize-y"
         />
       </ModalBody>
       <ModalFoot>
         {variant === "general" && (
-          <Button
-            type="button"
-            variant="outline"
+          <KitButton
             data-testid="feedback-cancel"
             onClick={() => onOpenChange(false)}
-            className="cursor-pointer h-8"
           >
             Cancel
-          </Button>
+          </KitButton>
         )}
-        <Button
-          type="button"
-          variant="default"
+        <KitButton
+          variant="primary"
           data-testid="feedback-send"
-          disabled={isSubmitting}
+          busy={isSubmitting}
           onClick={() => {
             void handleSend();
           }}
-          className="cursor-pointer h-8"
         >
           Send
-        </Button>
+        </KitButton>
       </ModalFoot>
     </Modal>
   );

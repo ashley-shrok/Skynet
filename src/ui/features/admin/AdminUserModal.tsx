@@ -26,7 +26,21 @@ import {
   ModalSidebar,
   type ModalTabDef,
 } from "@/components/modal";
-import { Switch } from "@/components/switch";
+import {
+  KitBanner,
+  KitButton,
+  KitChip,
+  KitEmpty,
+  KitInput,
+  KitList,
+  KitListRow,
+  KitLoading,
+  KitSettingsGroup,
+  KitSettingsRow,
+  KitSwitch,
+  kitConfirm,
+  kitPrompt,
+} from "@/components/kit";
 import {
   deleteUser,
   getSessions,
@@ -42,15 +56,8 @@ import { getSSHHosts } from "@/api/ssh-host-management-api";
 import { AdminServiceSecrets } from "./AdminServiceSecrets";
 import type { SSHHostWithStatus } from "@/main-axios";
 import {
-  AdminBadge,
-  AdminButton,
-  AdminError,
-  AdminMuted,
-  AdminRow,
-  AdminSection,
   UserAvatar,
   adminErrorMessage,
-  adminInputClass,
   formatAdminDate,
 } from "./admin-ui";
 
@@ -99,24 +106,25 @@ export default function AdminUserModal({
     >
       <ModalHead
         meta="User"
-        title={
+        leading={
           user ? (
-            <span className="flex items-center gap-2">
-              <UserAvatar
-                userId={user.id}
-                username={user.username}
-                avatarPath={user.avatarPath}
-                size={24}
-              />
-              <span className="truncate">{user.username}</span>
-              {user.isAdmin && <AdminBadge tone="accent">Admin</AdminBadge>}
-              {oidcInUse && user.isOidc && <AdminBadge>OIDC</AdminBadge>}
-            </span>
-          ) : (
-            "User"
-          )
+            <UserAvatar
+              userId={user.id}
+              username={user.username}
+              avatarPath={user.avatarPath}
+              size={40}
+            />
+          ) : undefined
         }
-      />
+        title={user ? <span className="truncate">{user.username}</span> : "User"}
+      >
+        {user && (user.isAdmin || (oidcInUse && user.isOidc)) && (
+          <div className="flex items-center gap-1.5 mt-1.5">
+            {user.isAdmin && <KitChip tone="accent">Admin</KitChip>}
+            {oidcInUse && user.isOidc && <KitChip>OIDC</KitChip>}
+          </div>
+        )}
+      </ModalHead>
       {/* Side list on desktop, drill-in on mobile — same shape as the
           Admin modal behind it. */}
       <ModalSidebar<UserTab>
@@ -143,7 +151,7 @@ export default function AdminUserModal({
         </ModalBody>
       </ModalSidebar>
       <ModalFoot>
-        <AdminButton onClick={() => onOpenChange(false)}>Close</AdminButton>
+        <KitButton onClick={() => onOpenChange(false)}>Close</KitButton>
       </ModalFoot>
     </Modal>
   );
@@ -198,10 +206,21 @@ function AccountTab({
   };
 
   const toggleAdmin = async (next: boolean) => {
-    const prompt = next
-      ? `Make ${user.username} an admin? They will be able to manage every user and instance setting.`
-      : `Remove admin access from ${user.username}?`;
-    if (!window.confirm(prompt)) return;
+    const ok = await kitConfirm(
+      next
+        ? {
+            title: `Make ${user.username} an admin?`,
+            body: "They will be able to manage every user and instance setting.",
+            confirmLabel: "Make admin",
+          }
+        : {
+            title: `Remove admin access from ${user.username}?`,
+            body: "They will lose access to the admin panel and its settings.",
+            confirmLabel: "Remove admin",
+            destructive: true,
+          },
+    );
+    if (!ok) return;
     setAdminBusy(true);
     setAdminError(null);
     try {
@@ -241,9 +260,15 @@ function AccountTab({
       : null;
 
   const handleDelete = async () => {
-    const typed = window.prompt(
-      `Delete ${user.username}? This removes their account and all of their data, and can't be undone.\n\nType the username to confirm:`,
-    );
+    const typed = await kitPrompt({
+      title: `Delete ${user.username}?`,
+      body: "This removes their account and all of their data, and can't be undone.",
+      label: "Type the username to confirm",
+      placeholder: user.username,
+      confirmLabel: "Delete user",
+      validate: (v) =>
+        v.trim() === user.username ? null : "Username doesn't match.",
+    });
     if (typed === null) return;
     if (typed.trim() !== user.username) {
       setDeleteError("Username didn't match. Nothing was deleted.");
@@ -262,12 +287,12 @@ function AccountTab({
 
   return (
     <div
-      className="flex flex-col gap-6 px-6 py-5"
+      className="flex flex-col gap-[22px] px-6 py-5 max-sm:px-5"
       data-testid="admin-user-account"
     >
-      <AdminSection title="Access">
-        <div className="flex flex-col">
-          <AdminRow
+      <div className="flex flex-col gap-2">
+        <KitSettingsGroup title="Access">
+          <KitSettingsRow
             label="Admin"
             description={
               isSelf
@@ -275,7 +300,7 @@ function AccountTab({
                 : "Admins can manage users and instance settings."
             }
             control={
-              <Switch
+              <KitSwitch
                 data-testid="admin-user-admin-switch"
                 checked={user.isAdmin}
                 disabled={adminBusy || isSelf}
@@ -284,7 +309,7 @@ function AccountTab({
               />
             }
           />
-          <AdminRow
+          <KitSettingsRow
             label="Push notifications"
             description={
               user.isAdmin
@@ -292,7 +317,7 @@ function AccountTab({
                 : "Gives this user the Notifications section in Preferences. Turning it off stops their pushes right away."
             }
             control={
-              <Switch
+              <KitSwitch
                 data-testid="admin-user-notifications-switch"
                 checked={user.isAdmin || user.notificationsEnabled}
                 disabled={notifBusy || user.isAdmin}
@@ -301,122 +326,128 @@ function AccountTab({
               />
             }
           />
-          <AdminRow
+          <KitSettingsRow
             label="Two-factor authentication"
-            control={
-              <span className="text-[12.5px] text-[#cfc8b8]">
-                {user.totpEnabled ? "On" : "Off"}
-              </span>
-            }
+            value={user.totpEnabled ? "On" : "Off"}
           />
-        </div>
+        </KitSettingsGroup>
         {adminError && (
-          <AdminError testId="admin-user-admin-error">{adminError}</AdminError>
+          <KitBanner tone="danger" data-testid="admin-user-admin-error">
+            {adminError}
+          </KitBanner>
         )}
         {notifError && (
-          <AdminError testId="admin-user-notifications-error">
+          <KitBanner tone="danger" data-testid="admin-user-notifications-error">
             {notifError}
-          </AdminError>
+          </KitBanner>
         )}
-      </AdminSection>
+      </div>
 
-      <AdminSection
-        title="Phone"
-        description="The number agents call this user on. Setting it also turns on the phone feature for them."
-      >
-        <form
-          className="flex gap-2 flex-wrap"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (phoneDirty && phoneTrimmed) void savePhone();
-          }}
+      <div className="flex flex-col gap-2">
+        <KitSettingsGroup
+          title="Phone"
+          footer="E.164 format with the country code, e.g. +1 for US/Canada. The user can remove it themselves from Preferences."
         >
-          <input
-            type="tel"
-            inputMode="tel"
-            data-testid="admin-user-phone-input"
-            aria-label="Phone number"
-            value={phoneDraft}
-            disabled={phoneBusy}
-            placeholder="+17165550100"
-            onChange={(e) => {
-              setPhoneDraft(e.target.value);
-              setPhoneError(null);
-              setPhoneSaved(false);
-            }}
-            className={`${adminInputClass} flex-1 min-w-[180px]`}
-          />
-          <AdminButton
-            type="submit"
-            data-testid="admin-user-phone-save"
-            disabled={phoneBusy || !phoneDirty || !phoneTrimmed}
+          <KitSettingsRow
+            stacked
+            label="Phone number"
+            description="The number agents call this user on. Setting it also turns on the phone feature for them."
           >
-            {phoneBusy ? "Saving…" : "Save"}
-          </AdminButton>
-        </form>
-        <span className="text-[12px] text-[#a89a80]">
-          E.164 format with the country code, e.g. +1 for US/Canada. The user
-          can remove it themselves from Preferences.
-        </span>
+            <form
+              className="flex gap-2 flex-wrap"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (phoneDirty && phoneTrimmed) void savePhone();
+              }}
+            >
+              <KitInput
+                type="tel"
+                inputMode="tel"
+                mono
+                data-testid="admin-user-phone-input"
+                aria-label="Phone number"
+                value={phoneDraft}
+                disabled={phoneBusy}
+                placeholder="+17165550100"
+                invalid={!!phoneError}
+                onChange={(e) => {
+                  setPhoneDraft(e.target.value);
+                  setPhoneError(null);
+                  setPhoneSaved(false);
+                }}
+                className="flex-1 min-w-[180px] w-auto"
+              />
+              <KitButton
+                type="submit"
+                variant="primary"
+                data-testid="admin-user-phone-save"
+                busy={phoneBusy}
+                disabled={!phoneDirty || !phoneTrimmed}
+              >
+                {phoneBusy ? "Saving…" : "Save"}
+              </KitButton>
+            </form>
+          </KitSettingsRow>
+        </KitSettingsGroup>
         {phoneError && (
-          <AdminError testId="admin-user-phone-error">{phoneError}</AdminError>
+          <KitBanner tone="danger" data-testid="admin-user-phone-error">
+            {phoneError}
+          </KitBanner>
         )}
         {phoneSaved && !phoneError && (
-          <span className="text-[12px] text-[#8fd39e]">✓ Number saved</span>
+          <KitBanner tone="ok">Number saved</KitBanner>
         )}
-      </AdminSection>
+      </div>
 
       <AdminServiceSecrets userId={user.id} />
 
-      <AdminSection title="Identity">
-        <div className="flex flex-col">
-          <AdminRow
-            label="Matrix ID"
-            description="Read-only here; it's minted when the user is created."
-            control={
-              <span
-                className="text-[12.5px] font-mono text-[#cfc8b8] break-all"
-                data-testid="admin-user-mxid"
-              >
-                {user.mxid ?? "—"}
-              </span>
-            }
-          />
-          <AdminRow
-            label="User ID"
-            control={
-              <span className="text-[12px] font-mono text-[#a89a80] break-all">
-                {user.id}
-              </span>
-            }
-          />
-        </div>
-      </AdminSection>
-
-      <AdminSection title="Danger zone">
-        <AdminRow
-          label="Delete user"
-          description={
-            deleteBlockedReason ??
-            "Removes the account and everything it owns. This can't be undone."
-          }
-          control={
-            <AdminButton
-              tone="danger"
-              data-testid="admin-user-delete"
-              disabled={deleteBusy || deleteBlockedReason !== null}
-              onClick={() => void handleDelete()}
+      <KitSettingsGroup title="Identity">
+        <KitSettingsRow
+          label="Matrix ID"
+          description="Read-only here; it's minted when the user is created."
+          value={
+            <span
+              className="font-mono break-all"
+              data-testid="admin-user-mxid"
             >
-              {deleteBusy ? "Deleting…" : "Delete user"}
-            </AdminButton>
+              {user.mxid ?? "—"}
+            </span>
           }
         />
+        <KitSettingsRow
+          label="User ID"
+          value={<span className="font-mono text-[12px] break-all">{user.id}</span>}
+        />
+      </KitSettingsGroup>
+
+      <div className="flex flex-col gap-2">
+        <KitSettingsGroup title="Danger zone">
+          <KitSettingsRow
+            label="Delete user"
+            description={
+              deleteBlockedReason ??
+              "Removes the account and everything it owns. This can't be undone."
+            }
+            control={
+              <KitButton
+                variant="danger-quiet"
+                size="sm"
+                data-testid="admin-user-delete"
+                busy={deleteBusy}
+                disabled={deleteBlockedReason !== null}
+                onClick={() => void handleDelete()}
+              >
+                {deleteBusy ? "Deleting…" : "Delete user"}
+              </KitButton>
+            }
+          />
+        </KitSettingsGroup>
         {deleteError && (
-          <AdminError testId="admin-user-delete-error">
+          <KitBanner tone="danger" data-testid="admin-user-delete-error">
             {deleteError}
-          </AdminError>
+          </KitBanner>
         )}
-      </AdminSection>
+      </div>
     </div>
   );
 }
@@ -456,10 +487,22 @@ function SessionsTab({ user, isSelf }: { user: AdminUser; isSelf: boolean }) {
   }, [load]);
 
   const revokeOne = async (s: SessionRow) => {
-    const prompt = s.isCurrentSession
-      ? "This is the session you're using right now. Revoking it will log you out. Continue?"
-      : "Revoke this session? That device will be logged out.";
-    if (!window.confirm(prompt)) return;
+    const ok = await kitConfirm(
+      s.isCurrentSession
+        ? {
+            title: "Revoke your current session?",
+            body: "This is the session you're using right now. Revoking it will log you out.",
+            confirmLabel: "Revoke and log out",
+            destructive: true,
+          }
+        : {
+            title: "Revoke this session?",
+            body: "That device will be logged out.",
+            confirmLabel: "Revoke",
+            destructive: true,
+          },
+    );
+    if (!ok) return;
     setBusyId(s.id);
     try {
       await revokeSession(s.id);
@@ -472,10 +515,22 @@ function SessionsTab({ user, isSelf }: { user: AdminUser; isSelf: boolean }) {
   };
 
   const revokeAll = async () => {
-    const prompt = isSelf
-      ? "Log out every other device you're signed in on? This session stays signed in."
-      : `Log ${user.username} out of every device?`;
-    if (!window.confirm(prompt)) return;
+    const ok = await kitConfirm(
+      isSelf
+        ? {
+            title: "Log out your other devices?",
+            body: "Every other device you're signed in on will be logged out. This session stays signed in.",
+            confirmLabel: "Log out other devices",
+            destructive: true,
+          }
+        : {
+            title: `Log ${user.username} out everywhere?`,
+            body: "Every device they're signed in on will be logged out.",
+            confirmLabel: "Log out everywhere",
+            destructive: true,
+          },
+    );
+    if (!ok) return;
     setBusyId("__all__");
     try {
       await revokeAllUserSessions(user.id, isSelf);
@@ -493,64 +548,70 @@ function SessionsTab({ user, isSelf }: { user: AdminUser; isSelf: boolean }) {
 
   return (
     <div
-      className="flex flex-col gap-3 px-6 py-5"
+      className="flex flex-col gap-3 px-6 py-5 max-sm:px-5"
       data-testid="admin-user-sessions"
     >
       <div className="flex items-center gap-3">
-        <AdminMuted>
+        <p className="m-0 text-[13px] text-[var(--k-t2)]">
           {sessions === null
             ? "Loading sessions…"
             : sessions.length === 0
               ? "No active sessions."
               : `${sessions.length} active ${sessions.length === 1 ? "session" : "sessions"}`}
-        </AdminMuted>
-        <AdminButton
-          tone="danger"
+        </p>
+        <KitButton
+          variant="danger-quiet"
+          size="sm"
           className="ml-auto"
           data-testid="admin-user-sessions-revoke-all"
+          busy={busyId === "__all__"}
           disabled={busyId !== null || revocable.length === 0}
           onClick={() => void revokeAll()}
         >
           {isSelf ? "Log out other devices" : "Log out everywhere"}
-        </AdminButton>
+        </KitButton>
       </div>
       {error && (
-        <AdminError testId="admin-user-sessions-error">{error}</AdminError>
+        <KitBanner tone="danger" data-testid="admin-user-sessions-error">
+          {error}
+        </KitBanner>
       )}
-      <ul className="flex flex-col gap-1.5">
+      {sessions === null && !error && <KitLoading lines={2} />}
+      <KitList>
         {(sessions ?? []).map((s) => (
-          <li
+          <KitListRow
             key={s.id}
             data-testid={`admin-session-${s.id}`}
-            className="flex items-center gap-3 px-3 py-2 rounded-lg bg-black/15"
-          >
-            <div className="flex-1 min-w-0 flex flex-col gap-0.5">
-              <span className="flex items-center gap-1.5 min-w-0">
-                <span className="truncate text-[13px] text-[#e8e4d8]">
-                  {s.deviceInfo || s.deviceType}
-                </span>
-                {s.deviceType && <AdminBadge>{s.deviceType}</AdminBadge>}
-                {s.isCurrentSession && (
-                  <AdminBadge tone="accent">This session</AdminBadge>
-                )}
-              </span>
-              <span className="text-[11.5px] text-[#a89a80]">
+            title={s.deviceInfo || s.deviceType}
+            wrapSubtitle
+            subtitle={
+              <>
                 Last active {formatAdminDate(s.lastActiveAt)} · signed in{" "}
                 {formatAdminDate(s.createdAt)} · expires{" "}
                 {formatAdminDate(s.expiresAt)}
-              </span>
-            </div>
-            <AdminButton
-              tone="danger"
-              data-testid={`admin-session-revoke-${s.id}`}
-              disabled={busyId !== null}
-              onClick={() => void revokeOne(s)}
-            >
-              {busyId === s.id ? "Revoking…" : "Revoke"}
-            </AdminButton>
-          </li>
+              </>
+            }
+            trailing={
+              <>
+                {s.deviceType && <KitChip>{s.deviceType}</KitChip>}
+                {s.isCurrentSession && (
+                  <KitChip tone="accent">This session</KitChip>
+                )}
+                <KitButton
+                  variant="danger-quiet"
+                  size="sm"
+                  data-testid={`admin-session-revoke-${s.id}`}
+                  busy={busyId === s.id}
+                  disabled={busyId !== null}
+                  onClick={() => void revokeOne(s)}
+                >
+                  {busyId === s.id ? "Revoking…" : "Revoke"}
+                </KitButton>
+              </>
+            }
+          />
         ))}
-      </ul>
+      </KitList>
     </div>
   );
 }
@@ -585,56 +646,60 @@ function HostsTab({ user }: { user: AdminUser }) {
 
   return (
     <div
-      className="flex flex-col gap-3 px-6 py-5"
+      className="flex flex-col gap-3 px-6 py-5 max-sm:px-5"
       data-testid="admin-user-hosts"
     >
       {error ? (
-        <AdminError testId="admin-user-hosts-error">{error}</AdminError>
+        <KitBanner tone="danger" data-testid="admin-user-hosts-error">
+          {error}
+        </KitBanner>
+      ) : hosts === null ? (
+        <KitLoading label="Loading hosts…" />
+      ) : hosts.length === 0 ? (
+        <KitEmpty title={`${user.username} doesn't own any hosts.`} />
       ) : (
-        <AdminMuted>
-          {hosts === null
-            ? "Loading hosts…"
-            : hosts.length === 0
-              ? `${user.username} doesn't own any hosts.`
-              : `${hosts.length} ${hosts.length === 1 ? "host" : "hosts"}`}
-        </AdminMuted>
+        <p className="m-0 text-[13px] text-[var(--k-t2)]">
+          {hosts.length} {hosts.length === 1 ? "host" : "hosts"}
+        </p>
       )}
-      <ul className="flex flex-col gap-1.5">
+      <KitList>
         {(hosts ?? []).map((h) => (
-          <li
+          <KitListRow
             key={h.id}
             data-testid={`admin-host-${h.id}`}
-            className="flex items-center gap-3 px-3 py-2 rounded-lg bg-black/15"
-          >
-            <span
-              aria-label={h.status}
-              title={h.status}
-              className="size-2 rounded-full shrink-0"
-              style={{
-                background:
-                  h.status === "online"
-                    ? "#8fd39e"
-                    : h.status === "offline"
-                      ? "#d38f8f"
-                      : "rgba(200,196,184,0.4)",
-              }}
-            />
-            <div className="flex-1 min-w-0 flex flex-col">
-              <span className="truncate text-[13px] text-[#e8e4d8]">
+            title={
+              <>
+                <span
+                  role="img"
+                  aria-label={h.status}
+                  title={h.status}
+                  className="k-status inline-block align-middle mr-2"
+                  data-status={
+                    h.status === "online"
+                      ? "ok"
+                      : h.status === "offline"
+                        ? "bad"
+                        : undefined
+                  }
+                />
                 {h.name || h.ip}
-              </span>
-              <span className="truncate text-[11.5px] font-mono text-[#a89a80]">
+              </>
+            }
+            subtitle={
+              <span className="font-mono">
                 {h.username ? `${h.username}@` : ""}
                 {h.ip}
                 {h.port ? `:${h.port}` : ""}
               </span>
-            </div>
-            {h.connectionType && h.connectionType !== "ssh" && (
-              <AdminBadge>{h.connectionType}</AdminBadge>
-            )}
-          </li>
+            }
+            trailing={
+              h.connectionType && h.connectionType !== "ssh" ? (
+                <KitChip>{h.connectionType}</KitChip>
+              ) : undefined
+            }
+          />
         ))}
-      </ul>
+      </KitList>
     </div>
   );
 }

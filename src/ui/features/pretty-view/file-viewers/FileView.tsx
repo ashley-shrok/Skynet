@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Download, FileQuestion } from "lucide-react";
-import { Skeleton } from "@/components/skeleton";
-import { cn } from "@/lib/utils";
+import {
+  KitBanner,
+  KitButton,
+  KitEmpty,
+  KitLoading,
+  KitSegmented,
+} from "@/components/kit";
 import type { TabState } from "../IdentityFileTab";
 import {
   mimeFor,
@@ -95,21 +100,13 @@ export function FileViewModeSwitcher({
   if (entry.modes.length < 2) return null;
   const current = resolveMode(entry, mode);
   return (
-    <div className="pv-variant-tabs" role="tablist" aria-label="View mode">
-      {entry.modes.map((m) => (
-        <button
-          key={m.id}
-          type="button"
-          role="tab"
-          aria-selected={current.id === m.id}
-          onClick={() => onModeChange(m.id)}
-          data-testid={`file-view-mode-${m.id}`}
-          className={cn("pv-variant-tab", current.id === m.id && "on")}
-        >
-          {m.label}
-        </button>
-      ))}
-    </div>
+    <KitSegmented
+      aria-label="View mode"
+      value={current.id}
+      onValueChange={onModeChange}
+      testIdPrefix="file-view-mode"
+      options={entry.modes.map((m) => ({ value: m.id, label: m.label }))}
+    />
   );
 }
 
@@ -126,28 +123,31 @@ export function FileUnavailableNotice({
 }): JSX.Element {
   return (
     <div
-      className="flex flex-col items-center justify-center gap-2 h-full min-h-[400px] p-6 text-center"
+      className="flex flex-col items-center justify-center h-full min-h-[400px]"
       data-testid="file-view-unavailable"
     >
-      <FileQuestion size={28} className="text-[#a89a80]" aria-hidden />
-      <div className="text-sm font-semibold text-[#e8e4d8]">{heading}</div>
-      <div className="text-sm text-[#a89a80]">{body}</div>
-      {downloadUrl ? (
-        <a
-          href={downloadUrl}
-          download={filename}
-          target="_blank"
-          rel="noopener noreferrer"
-          className={cn(
-            "mt-2 inline-flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-semibold no-underline",
-            "bg-[hsla(var(--pv-id-hue,220),80%,60%,0.18)] border border-[hsla(var(--pv-id-hue,220),80%,70%,0.28)]",
-            "text-[#e8e4d8] hover:bg-[hsla(var(--pv-id-hue,220),80%,60%,0.28)]",
-          )}
-        >
-          <Download size={14} aria-hidden />
-          Download
-        </a>
-      ) : null}
+      <KitEmpty
+        icon={<FileQuestion aria-hidden="true" />}
+        title={heading}
+        body={body}
+        action={
+          downloadUrl ? (
+            // A link that looks like the kit's main button (downloads need <a>).
+            <a
+              href={downloadUrl}
+              download={filename}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="k-btn no-underline"
+              data-variant="primary"
+              data-size="md"
+            >
+              <Download size={14} aria-hidden />
+              Download
+            </a>
+          ) : undefined
+        }
+      />
     </div>
   );
 }
@@ -306,17 +306,14 @@ export function FileView({
           </div>
         ) : null}
         {showSave ? (
-          <button
-            type="button"
+          <KitButton
+            variant="primary"
             onClick={() => { void handleSave(); }}
-            disabled={
-              saving ||
-              (!binaryDraft && (state.status !== "ready" || draft === state.data.content))
-            }
-            className="px-4 py-2 rounded-md bg-[hsla(var(--pv-id-hue,220),80%,60%,0.2)] hover:bg-[hsla(var(--pv-id-hue,220),80%,60%,0.3)] text-[#e8e4d8] disabled:opacity-40 disabled:cursor-not-allowed text-sm cursor-pointer"
+            busy={saving}
+            disabled={!binaryDraft && (state.status !== "ready" || draft === state.data.content)}
           >
             {saving ? "Saving…" : "Save"}
-          </button>
+          </KitButton>
         ) : null}
       </div>
     ) : null;
@@ -349,26 +346,20 @@ export function FileView({
             onBinaryDraft={readOnly ? undefined : handleBinaryDraft}
           />
         </div>
-        {saveError && <div className="text-sm text-red-400 px-1">{saveError}</div>}
+        {saveError && <KitBanner tone="danger">{saveError}</KitBanner>}
       </div>
     );
   }
 
   if (state.status === "loading") {
     return (
-      <div className="flex flex-col gap-3">
-        <Skeleton className="h-32 w-full rounded-[var(--radius-pv-bubble)]" />
-        <Skeleton className="h-32 w-full rounded-[var(--radius-pv-bubble)]" />
-        <Skeleton className="h-32 w-full rounded-[var(--radius-pv-bubble)]" />
-      </div>
+      <KitLoading lines={5} />
     );
   }
 
   if (state.status === "error") {
     return (
-      <div className="text-sm text-[color:var(--color-pv-code-fg)]">
-        Couldn&apos;t load file: {state.error}
-      </div>
+      <KitBanner tone="danger">Couldn&apos;t load file: {state.error}</KitBanner>
     );
   }
 
@@ -390,7 +381,7 @@ export function FileView({
           onBinaryDraft={readOnly ? undefined : handleBinaryDraft}
         />
       </div>
-      {saveError && <div className="text-sm text-red-400 px-1">{saveError}</div>}
+      {saveError && <KitBanner tone="danger">{saveError}</KitBanner>}
     </div>
   );
 }

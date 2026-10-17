@@ -1,20 +1,32 @@
 import { useEffect, useMemo, useState } from "react";
-import { Check, ChevronDown, Pencil, Plus, Trash2, X } from "lucide-react";
-import { Skeleton } from "@/components/skeleton";
-import { Button } from "@/components/button";
+import { ChevronDown, Pencil, Plus, Trash2 } from "lucide-react";
 import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/alert-dialog";
+  KitBanner,
+  KitButton,
+  KitCheckbox,
+  KitChip,
+  KitEmpty,
+  KitField,
+  KitIconButton,
+  KitInput,
+  KitListRow,
+  KitLoading,
+  KitOption,
+  KitSelect,
+  KitSwitch,
+  KitTextarea,
+  kitConfirm,
+} from "@/components/kit";
 import { cn } from "@/lib/utils";
 import type { Wakeup, WakeupSpecWire } from "@/api/claude-session-api";
+import type { SensorStatus } from "@/api/sensor-status-types";
+import {
+  formatAbsolute,
+  formatRelativePast,
+} from "@/features/pretty-conversations/scheduled-agents-time-fmt";
 import type { TabState } from "./IdentityFileTab";
 import { AddWakeupDialog } from "./AddWakeupDialog";
-import { SensorDetails, SensorSummaryLine, lastFiredLabel } from "./SensorStatusView";
+import { SENSOR_MARK, SensorDetails, SensorStateChip, lastFiredLabel } from "./SensorStatusView";
 // Phase 72 Plan 02 Task 1: FormSchedule + hydrate/build/validate helpers +
 // RestrictToDaysChips lifted into a shared module so the new AddWakeupDialog
 // (add-wakeup sub-modal) can consume them. Non-behavior-change refactor.
@@ -22,6 +34,8 @@ import {
   type FormSchedule,
   type IntervalUnit,
   type Weekday,
+  WEEKDAY_NAMES,
+  WEEKDAY_VALUES,
   buildSchedule,
   detectBrowserTimezone,
   hydrateFormSchedule,
@@ -30,18 +44,13 @@ import {
   sensorScheduleLabel,
   MonthlyDayFields,
   RestrictToDaysChips,
+  ScheduleKindField,
   ScheduleRepeatFields,
   switchScheduleKind,
   TimesField,
   validateForm,
   YearlyDateFields,
 } from "./WakeupFormShared";
-
-const FIELD_LABEL_CLASS = "text-[10px] uppercase tracking-wide text-[var(--color-pv-fg-dim)] font-semibold";
-const FIELD_INPUT_CLASS = cn(
-  "bg-black/30 text-[#e8e4d8] border border-white/10",
-  "focus:outline-none focus:border-white/25 rounded px-2 py-1.5 text-xs",
-);
 
 // Patch #17g: tab renderer for the identity's wakeups/<slug>/wakeup.json specs.
 // Patch #154: adds inline editing — an enabled toggle + a schedule JSON editor.
@@ -56,9 +65,9 @@ const FIELD_INPUT_CLASS = cn(
 // that the patch #154 "raw textarea because schema evolves" hedge is no
 // longer justified. The user-signed-off prototype lives at
 // ~/.claude/identities/tina/bounties/identity-modal-wakeup-form-editor/prototype.html.
-//   - Form fields (edit-mode): name (text), schedule.type dropdown +
+//   - Form fields (edit-mode): name (text), schedule kind (kit segmented) +
 //     per-type fields, instruction (textarea), enabled (checkbox — secondary
-//     path; the header chip is the primary one-click toggle).
+//     path; the row switch is the primary one-click toggle).
 //   - Live JSON preview on the right on ≥620px viewports.
 //   - Timezone silently detected via Intl.DateTimeFormat().resolvedOptions().timeZone
 //     with fallback America/New_York. Shown as a muted hint and written on
@@ -68,7 +77,10 @@ const FIELD_INPUT_CLASS = cn(
 //   - Backend write path was extended in the previous commit (Task 1) to
 //     accept name + instruction alongside enabled + schedule.
 //
-// Card treatment mirrors BountyCard's glass token family.
+// apple-ux: every part below comes from the kit — list rows for the
+// wake-ups, chips for scope and sensor status, a switch for on/off, kit
+// fields and the segmented schedule-kind control in the editor, and the
+// kit confirm for delete.
 
 type OnUpdate = (
   slug: string,
@@ -77,48 +89,53 @@ type OnUpdate = (
   updates: { enabled?: boolean; schedule?: unknown; name?: string; instruction?: string },
 ) => Promise<void>;
 
-// Phase 72 Plan 02 Task 2: Add-wakeup pill — hue-tinted rounded-full button.
-// Phase 72 Plan 04 Task 1: visual polish to match sketch variant D's
-// coordinator column "Add role wakeup" button — `hsla(hue, 60%, 45%, 0.25)`
-// background + `hsla(hue, 60%, 55%, 0.4)` border. Hover brightens background
-// to `hsla(hue, 65%, 50%, 0.35)` (managed via a small local hover state so
-// the hue-tinted values can be interpolated; tailwind's hover: doesn't
-// compose over inline styles). Rendered at the top of both the data branch
-// AND the non-coordinator-identity empty-state branch so the first-wakeup
-// flow is always reachable. The coordinator + scope='identity' empty
-// branch omits the pill entirely (see below).
-function AddWakeupPill({
-  hue,
-  onClick,
-}: {
-  hue: number;
-  onClick: () => void;
-}): JSX.Element {
-  const [hovered, setHovered] = useState(false);
+// Phase 72 Plan 02 Task 2: Add-wakeup button, rendered at the top of both the
+// data branch AND the non-coordinator-identity empty-state branch so the
+// first-wakeup flow is always reachable. The coordinator + scope='identity'
+// empty branch omits it entirely (see below).
+function AddWakeupButton({ onClick }: { onClick: () => void }) {
   return (
-    <button
-      type="button"
+    <KitButton
+      size="sm"
       data-testid="wakeup-add-button"
       onClick={onClick}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      onFocus={() => setHovered(true)}
-      onBlur={() => setHovered(false)}
-      className={cn(
-        "self-start cursor-pointer inline-flex items-center gap-1.5",
-        "rounded-full px-3.5 py-1.5 text-[11px] font-semibold",
-        "text-[#f0ebe0] border transition-colors",
-      )}
-      style={{
-        background: hovered
-          ? `hsla(${hue}, 65%, 50%, 0.35)`
-          : `hsla(${hue}, 60%, 45%, 0.25)`,
-        borderColor: `hsla(${hue}, 60%, 55%, 0.4)`,
-      }}
+      className="self-start"
     >
-      <Plus className="h-3.5 w-3.5" />
+      <Plus />
       Add wakeup
-    </button>
+    </KitButton>
+  );
+}
+
+/** The unopened row's sensor line: "📡 Sensor [Healthy] · Last fired 3h ago · 2 waiting". */
+function WakeupSensorSummary({
+  sensor,
+  lastFiredAt,
+  once,
+  testId,
+}: {
+  sensor: SensorStatus;
+  lastFiredAt: number | null | undefined;
+  once: boolean;
+  testId: string;
+}) {
+  const now = Math.floor(Date.now() / 1000);
+  return (
+    <span className="inline-flex items-center gap-1.5 min-w-0 flex-wrap" data-testid={testId}>
+      <span>
+        <span aria-hidden="true">{SENSOR_MARK} </span>
+        {once ? "Sensor · once" : "Sensor"}
+      </span>
+            <SensorStateChip state={sensor.state} testId={`${testId}-state`} />
+      <span title={typeof lastFiredAt === "number" ? formatAbsolute(lastFiredAt, now) : undefined}>
+        {typeof lastFiredAt === "number"
+          ? `Last fired ${formatRelativePast(lastFiredAt, now)}`
+          : "Never fired"}
+      </span>
+      {sensor.waitingFires > 0 && (
+        <span data-testid={`${testId}-waiting`}>· {sensor.waitingFires} waiting</span>
+      )}
+    </span>
   );
 }
 
@@ -138,7 +155,7 @@ export function WakeupsTab({
   // whether the identity is a coordinator (via identity.coordinator on the
   // Identity type, Phase 67 addition). The empty-state branch below fires
   // a coordinator-Identity-scope caption when this is true AND scope is
-  // identity — hiding the Add-wakeup pill so coord can't accidentally
+  // identity — hiding the Add-wakeup button so coord can't accidentally
   // create identity-scope wakeups (coord meaningful wakeups are all role-
   // scope; the caption tells them to switch to Role view).
   isCoordinator: boolean;
@@ -149,111 +166,89 @@ export function WakeupsTab({
   const [addDialogOpen, setAddDialogOpen] = useState(false);
 
   if (state.status === "loading") {
-    return (
-      <div className="flex flex-col gap-3">
-        <Skeleton className="h-24 w-full rounded-[var(--radius-pv-bubble)]" />
-        <Skeleton className="h-24 w-full rounded-[var(--radius-pv-bubble)]" />
-        <Skeleton className="h-24 w-full rounded-[var(--radius-pv-bubble)]" />
-      </div>
-    );
+    return <KitLoading lines={3} />;
   }
 
   if (state.status === "error") {
-    return (
-      <div className="text-sm text-[color:var(--color-pv-code-fg)]">
-        Couldn&apos;t load wakeups: {state.error}
-      </div>
-    );
+    return <KitBanner tone="danger">Couldn&apos;t load wakeups: {state.error}</KitBanner>;
   }
+
+  const addDialog = (
+    <AddWakeupDialog
+      open={addDialogOpen}
+      onOpenChange={setAddDialogOpen}
+      hue={hue}
+      scope={scope}
+      onSubmit={onCreate}
+    />
+  );
 
   if (state.data.length === 0) {
     // Phase 72 Plan 04 Task 1: three-branch empty state.
     //
     // Branch 1: coordinator + Identity scope → caption ONLY, no Add-wakeup
-    // pill. Coordinators create wakeups from Role scope; the pill would
+    // button. Coordinators create wakeups from Role scope; the button would
     // let them create a wakeup that never fires (identity-scope wakeups on
     // a coordinator identity are semantically undefined per the shape).
     if (isCoordinator && scope === "identity") {
       return (
-        <div
-          className="text-sm text-[var(--color-pv-fg-muted)]"
+        <KitEmpty
           data-testid="wakeups-coordinator-empty-identity"
-        >
-          Coordinators use role-scope wakeups only. Switch to Role view to manage.
-        </div>
+          title="Coordinators use role-scope wakeups only."
+          body="Switch to Role view to manage."
+        />
       );
     }
 
     // Branch 2 + Branch 3: any non-(coord+identity) empty case → caption
-    // AND the Add-wakeup pill so the first-wakeup flow is reachable.
-    //   Branch 2 = coordinator + Role scope (empty role-wakeup list)
-    //   Branch 3 = actor      + Identity scope (empty identity-wakeup list)
-    //              actor      + Role scope     (empty role-wakeup list)
+    // AND the Add-wakeup button so the first-wakeup flow is reachable.
     return (
       <div className="flex flex-col gap-3">
-        <AddWakeupPill hue={hue} onClick={() => setAddDialogOpen(true)} />
-        <div className="flex flex-col gap-2 text-sm text-[var(--color-pv-fg-muted)]">
-          <div>No scheduled wake-ups.</div>
-          <div className="text-xs opacity-70">
-            Wake-ups are instructions that are automatically sent to this agent
-            at a future date/time. Ask the agent to create one or use the button
-            above.
-          </div>
-        </div>
-        <AddWakeupDialog
-          open={addDialogOpen}
-          onOpenChange={setAddDialogOpen}
-          hue={hue}
-          scope={scope}
-          onSubmit={onCreate}
+        <KitEmpty
+          title="No scheduled wake-ups."
+          body="Wake-ups are instructions that are automatically sent to this agent at a future date/time. Ask the agent to create one or use the button below."
+          action={<AddWakeupButton onClick={() => setAddDialogOpen(true)} />}
         />
+        {addDialog}
       </div>
     );
   }
 
   return (
     <div className="flex flex-col gap-3">
-      <AddWakeupPill hue={hue} onClick={() => setAddDialogOpen(true)} />
-      {state.data.map((wakeup) => (
-        <WakeupRow
-          key={wakeup.slug}
-          wakeup={wakeup}
-          hue={hue}
-          scope={scope}
-          onUpdate={onUpdate}
-          onDelete={onDelete}
-        />
-      ))}
-      <AddWakeupDialog
-        open={addDialogOpen}
-        onOpenChange={setAddDialogOpen}
-        hue={hue}
-        scope={scope}
-        onSubmit={onCreate}
-      />
+      <AddWakeupButton onClick={() => setAddDialogOpen(true)} />
+      <div className="flex flex-col gap-1">
+        {state.data.map((wakeup) => (
+          <WakeupRow
+            key={wakeup.slug}
+            wakeup={wakeup}
+            scope={scope}
+            onUpdate={onUpdate}
+            onDelete={onDelete}
+          />
+        ))}
+      </div>
+      {addDialog}
     </div>
   );
 }
 
 function WakeupRow({
   wakeup,
-  hue,
   scope,
   onUpdate,
   onDelete,
 }: {
   wakeup: Wakeup;
-  hue: number;
   scope: "role" | "identity";
   onUpdate: OnUpdate;
   onDelete: (slug: string) => Promise<void>;
 }) {
   const detectedTz = useMemo(detectBrowserTimezone, []);
 
-  // Quick 260808-<slug>: card collapsed by default to make the list scannable —
-  // mirrors BountyCard's disclosure pattern. Header row (name + enabled chip +
-  // schedule human + chevron) is a <button> that toggles this; instruction
-  // prose + edit pencil + form editor are hidden until expanded.
+  // Quick 260808-<slug>: row collapsed by default to make the list scannable.
+  // The row itself toggles this; instruction prose + edit button + form
+  // editor are hidden until expanded.
   const [expanded, setExpanded] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState(false);
   const [nameDraft, setNameDraft] = useState(wakeup.name);
@@ -268,17 +263,21 @@ function WakeupRow({
   // the form keeps name/instruction/enabled editable and writes the schedule
   // object back unchanged.
   const isSensor = isSensorSchedule(wakeup.schedule);
-  // Phase 72 Plan 02 Task 2: delete-confirm AlertDialog state.
-  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   async function handleDelete(): Promise<void> {
+    const ok = await kitConfirm({
+      title: "Delete this wake-up?",
+      body: `“${wakeup.name}” (${wakeup.slug}) will stop firing. This can't be undone.`,
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (!ok) return;
     setDeleteError(null);
     setDeleting(true);
     try {
       await onDelete(wakeup.slug);
-      setDeleteConfirmOpen(false);
     } catch (e) {
       setDeleteError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -364,302 +363,177 @@ function WakeupRow({
     !Number.isNaN(new Date(formSchedule.at).getTime()) &&
     new Date(formSchedule.at).getTime() < Date.now();
 
+  const tzNote = (
+    <div className="k-help basis-full">
+      Timezone (auto-detected from browser): <b>{detectedTz}</b>
+    </div>
+  );
+  const daysChips = formSchedule.type !== "one_shot" && formSchedule.type !== "monthly" && formSchedule.type !== "yearly" && (
+    <RestrictToDaysChips
+      days={formSchedule.days}
+      onChange={(next) => setFormSchedule({ ...formSchedule, days: next })}
+      slug={wakeup.slug}
+    />
+  );
+
+  // Header controls shared by the collapsed row and the editor: scope chip
+  // (every wakeup visibly declares its scope), on/off switch, delete.
+  const scopeChip = (
+    <KitChip data-testid="wakeup-scope-pill">{scope}</KitChip>
+  );
+  const enabledSwitch = (
+    <KitSwitch
+      checked={wakeup.enabled}
+      onCheckedChange={() => {
+        void toggleEnabled();
+      }}
+      disabled={saving === "enabled"}
+      aria-label={wakeup.enabled ? "Disable this wakeup" : "Enable this wakeup"}
+      title={wakeup.enabled ? "Disable" : "Enable"}
+    />
+  );
+  const deleteButton = (
+    <KitIconButton
+      size="sm"
+      tone="danger"
+      label="Delete this wakeup"
+      data-testid="wakeup-delete-icon"
+      disabled={deleting}
+      onClick={() => {
+        void handleDelete();
+      }}
+    >
+      <Trash2 />
+    </KitIconButton>
+  );
+
   return (
     <div
       className={cn(
-        "rounded-[var(--radius-pv-bubble)] px-4 py-3 flex flex-col gap-2",
-        "backdrop-blur-lg saturate-[1.3] [-webkit-backdrop-filter:blur(16px)_saturate(1.3)]",
+        "flex flex-col",
+        (expanded || editingSchedule) && "k-group",
       )}
-      style={{
-        background: `linear-gradient(160deg, hsla(${hue}, 40%, 22%, 0.5), hsla(${hue}, 35%, 14%, 0.55))`,
-        border: `1px solid hsla(${hue}, 60%, 50%, 0.24)`,
-        boxShadow: "0 4px 16px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,220,170,0.10)",
-      }}
     >
-      {/* Row 1: disclosure header. Whole row toggles expanded; enabled chip
-          uses stopPropagation so toggling on/off doesn't fold the card.
-          When editing the schedule the row is NOT a disclosure toggle
-          (the form is inline below and the name is an input, both of which
-          need clicks to reach without collapsing). */}
       {editingSchedule ? (
-        <div className="flex items-center gap-2 flex-wrap">
-          <input
-            type="text"
-            value={nameDraft}
-            onChange={(e) => setNameDraft(e.target.value)}
-            aria-label="Wakeup name"
-            className={cn(
-              "flex-1 min-w-0 font-semibold text-[15px] text-[#f0ebe0]",
-              "bg-black/30 border border-white/10 rounded px-2 py-1",
-              "focus:outline-none focus:border-white/25",
-            )}
-          />
-          {/* Phase 72 Plan 02 Task 2: scope pill — always visible per
-              CONTEXT.md "every wakeup visibly declares its scope". */}
-          <span
-            data-testid="wakeup-scope-pill"
-            className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide border text-[#f0ebe0]"
-            style={{
-              background: `hsla(${hue}, 45%, 25%, 0.55)`,
-              borderColor: `hsla(${hue}, 65%, 55%, 0.32)`,
-            }}
-          >
-            {scope}
-          </span>
-          <button
-            type="button"
-            onClick={toggleEnabled}
-            disabled={saving === "enabled"}
-            aria-label={wakeup.enabled ? "Disable this wakeup" : "Enable this wakeup"}
-            title={wakeup.enabled ? "Disable" : "Enable"}
-            className={cn(
-              "cursor-pointer px-2 py-0.5 rounded-full text-[11px] font-medium uppercase tracking-wide border transition-opacity",
-              saving === "enabled" && "opacity-50 cursor-wait",
-              wakeup.enabled
-                ? "bg-emerald-500/25 text-emerald-200 border-emerald-500/40 hover:bg-emerald-500/35"
-                : "bg-slate-500/25 text-slate-300 border-slate-500/40 hover:bg-slate-500/35",
-            )}
-          >
-            {wakeup.enabled ? "on" : "off"}
-          </button>
-          {/* Phase 72 Plan 02 Task 2: trash icon — opens AlertDialog confirm. */}
-          <button
-            type="button"
-            data-testid="wakeup-delete-icon"
-            onClick={() => setDeleteConfirmOpen(true)}
-            aria-label="Delete this wakeup"
-            title="Delete"
-            className="cursor-pointer p-1 rounded text-[#a89a80] hover:text-rose-300 transition-colors"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
+        <div className="flex items-center gap-2 flex-wrap px-3 pt-3">
+          <div className="flex-1 min-w-[160px]">
+            <KitInput
+              type="text"
+              value={nameDraft}
+              onChange={(e) => setNameDraft(e.target.value)}
+              aria-label="Wakeup name"
+            />
+          </div>
+          {scopeChip}
+          {enabledSwitch}
+          {deleteButton}
         </div>
       ) : (
-        <div className="relative">
-          <button
-            type="button"
-            onClick={() => setExpanded((v) => !v)}
-            aria-expanded={expanded}
-            className="flex items-center gap-2 flex-wrap w-full text-left cursor-pointer pr-2"
-          >
-            <span className="flex flex-col min-w-0 flex-1 text-left">
-              <span className="font-semibold text-[15px] text-[#f0ebe0] truncate">
-                {wakeup.name}
-              </span>
-              {wakeup.sensor ? (
-                <SensorSummaryLine
-                  sensor={wakeup.sensor}
-                  lastFiredAt={wakeup.lastFiredAt}
-                  once={isOnceSensorSchedule(wakeup.schedule)}
-                  testId="wakeup-sensor-summary"
-                  className="text-xs text-[var(--color-pv-fg-muted)] truncate leading-tight"
-                />
-              ) : (
-                <span className="text-xs text-[var(--color-pv-fg-muted)] font-mono truncate leading-tight">
-                  {wakeup.scheduleHuman}
-                  <span className="font-sans" data-testid="wakeup-last-fired">
-                    {" · "}
-                    {lastFiredLabel(wakeup.lastFiredAt)}
-                  </span>
+        <KitListRow
+          aria-expanded={expanded}
+          onActivate={() => setExpanded((v) => !v)}
+          title={wakeup.name}
+          subtitle={
+            wakeup.sensor ? (
+              <WakeupSensorSummary
+                sensor={wakeup.sensor}
+                lastFiredAt={wakeup.lastFiredAt}
+                once={isOnceSensorSchedule(wakeup.schedule)}
+                testId="wakeup-sensor-summary"
+              />
+            ) : (
+              <span>
+                <span className="font-mono">{wakeup.scheduleHuman}</span>
+                <span data-testid="wakeup-last-fired">
+                  {" · "}
+                  {lastFiredLabel(wakeup.lastFiredAt)}
                 </span>
-              )}
-            </span>
-            {/* Phase 72 Plan 02 Task 2: scope pill — always visible per
-                CONTEXT.md "every wakeup visibly declares its scope". Non-
-                interactive <span>, safe to nest inside the disclosure button. */}
-            <span
-              data-testid="wakeup-scope-pill"
-              className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide border text-[#f0ebe0]"
-              style={{
-                background: `hsla(${hue}, 45%, 25%, 0.55)`,
-                borderColor: `hsla(${hue}, 65%, 55%, 0.32)`,
-              }}
-            >
-              {scope}
-            </span>
-            <span
-              onClick={(e) => {
-                e.stopPropagation();
-                void toggleEnabled();
-              }}
-              role="button"
-              tabIndex={0}
-              aria-label={wakeup.enabled ? "Disable this wakeup" : "Enable this wakeup"}
-              title={wakeup.enabled ? "Disable" : "Enable"}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  void toggleEnabled();
-                }
-              }}
-              className={cn(
-                "shrink-0 cursor-pointer px-2 py-0.5 rounded-full text-[11px] font-medium uppercase tracking-wide border transition-opacity inline-flex items-center",
-                saving === "enabled" && "opacity-50 cursor-wait",
-                wakeup.enabled
-                  ? "bg-emerald-500/25 text-emerald-200 border-emerald-500/40 hover:bg-emerald-500/35"
-                  : "bg-slate-500/25 text-slate-300 border-slate-500/40 hover:bg-slate-500/35",
-              )}
-            >
-              {wakeup.enabled ? "on" : "off"}
-            </span>
-            {/* Phase 72 Plan 02 Task 2: trash icon — nested via <span role="button">
-                because the outer disclosure button forbids a real <button>
-                child (invalid HTML — buttons can't nest). Same pattern as
-                the enable toggle above. */}
-            <span
-              data-testid="wakeup-delete-icon"
-              onClick={(e) => {
-                e.stopPropagation();
-                setDeleteConfirmOpen(true);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setDeleteConfirmOpen(true);
-                }
-              }}
-              role="button"
-              tabIndex={0}
-              aria-label="Delete this wakeup"
-              title="Delete"
-              className="shrink-0 cursor-pointer p-1 rounded text-[#a89a80] hover:text-rose-300 transition-colors inline-flex items-center"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </span>
-            <ChevronDown
-              className={cn(
-                "h-4 w-4 shrink-0 text-[#a89a80] transition-transform duration-150",
-                expanded && "rotate-180",
-              )}
-            />
-          </button>
+              </span>
+            )
+          }
+          trailing={
+            <>
+              {scopeChip}
+              {enabledSwitch}
+              {deleteButton}
+              <ChevronDown
+                aria-hidden="true"
+                className={cn(
+                  "size-4 shrink-0 text-[var(--k-t3)] transition-transform duration-150",
+                  expanded && "rotate-180",
+                )}
+              />
+            </>
+          }
+        />
+      )}
+
+      {deleteError && (
+        <div className="px-3 pb-2">
+          <KitBanner tone="danger" onDismiss={() => setDeleteError(null)}>
+            <span className="whitespace-pre-wrap">Couldn&apos;t delete: {deleteError}</span>
+          </KitBanner>
         </div>
       )}
 
-      {/* Phase 72 Plan 02 Task 2: delete-confirm AlertDialog. Mounted outside
-          the header button hierarchy so the portal-rendered content is not
-          affected by any parent-button click boundaries. */}
-      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete wakeup?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Delete &apos;{wakeup.slug}&apos;? This cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          {deleteError && (
-            <div className="text-xs text-rose-300 whitespace-pre-wrap">
-              {deleteError}
-            </div>
-          )}
-          <AlertDialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={deleting}
-              onClick={() => setDeleteConfirmOpen(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              size="sm"
-              data-testid="wakeup-delete-confirm"
-              disabled={deleting}
-              onClick={handleDelete}
-            >
-              {deleting ? "Deleting…" : "Delete"}
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* Row 2: edit-schedule pencil (view-mode, only when expanded) OR form
-          editor. Schedule human already lives in the header row, so we don't
-          repeat it here — just the affordance to enter edit mode. */}
+      {/* Expanded view: sensor details + instruction + Edit schedule, OR the
+          form editor. */}
       {!editingSchedule ? (
         expanded && (
-          <>
-          {wakeup.sensor && (
-            <SensorDetails
-              sensor={wakeup.sensor}
-              lastFiredAt={wakeup.lastFiredAt}
-              once={isOnceSensorSchedule(wakeup.schedule)}
-              testId="wakeup-sensor-details"
-            />
-          )}
-          <div className="flex items-center justify-end">
-            <button
-              type="button"
-              onClick={() => setEditingSchedule(true)}
-              aria-label="Edit schedule"
-              title="Edit schedule"
-              className="cursor-pointer text-[#a89a80] hover:text-[#f0ebe0] p-1 rounded transition-colors flex items-center gap-1 text-xs"
-            >
-              <Pencil className="size-3.5" />
-              <span>Edit schedule</span>
-            </button>
+          <div className="flex flex-col gap-3 px-3 pb-3">
+            {wakeup.sensor && (
+              <SensorDetails
+                sensor={wakeup.sensor}
+                lastFiredAt={wakeup.lastFiredAt}
+                once={isOnceSensorSchedule(wakeup.schedule)}
+                testId="wakeup-sensor-details"
+              />
+            )}
+            {/* Instruction prose — the tallest content, which is why the row
+                folds by default. */}
+            {wakeup.instruction && (
+              <div className="whitespace-pre-wrap text-[13.5px] leading-relaxed text-[var(--k-t1)]">
+                {wakeup.instruction}
+              </div>
+            )}
+            <div className="flex items-center justify-end">
+              <KitButton
+                variant="plain"
+                size="sm"
+                onClick={() => setEditingSchedule(true)}
+                title="Edit schedule"
+              >
+                <Pencil />
+                Edit schedule
+              </KitButton>
+            </div>
           </div>
-          </>
         )
       ) : (
-        <div className="flex flex-col gap-3">
-          <div className="grid gap-3 sm:grid-cols-[1fr_220px]">
+        <div className="flex flex-col gap-4 p-3">
+          <div className="grid gap-4 sm:grid-cols-[1fr_220px]">
             {/* Left column: form fields */}
-            <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-4 min-w-0">
               {/* A sensor-fired wake-up's schedule is not editable here:
                   show it as a plain read-only line and keep it on save. */}
               {isSensor ? (
-                <div className="flex flex-col gap-1" data-testid="wakeup-sensor-schedule">
-                  <span className={FIELD_LABEL_CLASS}>Schedule</span>
-                  <span className="text-xs text-[#e8e4d8] font-mono">{sensorScheduleLabel(wakeup.schedule)}</span>
+                <div className="k-field" data-testid="wakeup-sensor-schedule">
+                  <span className="k-label">Schedule</span>
+                  <span className="text-[13px] text-[var(--k-t1)] font-mono">{sensorScheduleLabel(wakeup.schedule)}</span>
                 </div>
               ) : (
               <>
-              {/* Schedule type dropdown */}
-              <div className="flex flex-col gap-1">
-                <label
-                  htmlFor={`wakeup-type-${wakeup.slug}`}
-                  className="text-[10px] uppercase tracking-wide text-[var(--color-pv-fg-dim)] font-semibold"
-                >
-                  Schedule type
-                </label>
-                <select
-                  id={`wakeup-type-${wakeup.slug}`}
-                  value={formSchedule.type}
-                  onChange={(e) => {
-                    setFormSchedule(switchScheduleKind(formSchedule, e.target.value as FormSchedule["type"]));
-                  }}
-                  className={cn(
-                    "bg-black/30 text-[#e8e4d8] border border-white/10",
-                    "focus:outline-none focus:border-white/25 rounded px-2 py-1.5 text-xs",
-                  )}
-                >
-                  <option value="interval">interval — every N s/m/h/d</option>
-                  <option value="daily">daily — at a time each day</option>
-                  <option value="weekly">weekly — on a day + time</option>
-                  <option value="monthly">monthly — on a day of the month</option>
-                  <option value="yearly">yearly — on a date + time each year</option>
-                  <option value="one_shot">one_shot — fires once at a datetime</option>
-                </select>
-              </div>
+              <ScheduleKindField
+                value={formSchedule.type}
+                onChange={(kind) => setFormSchedule(switchScheduleKind(formSchedule, kind))}
+                testIdPrefix={`wakeup-type-${wakeup.slug}`}
+              />
 
               {/* Per-type fields */}
               {formSchedule.type === "interval" && (
-                <div className="flex items-end gap-2 flex-wrap">
-                  <div className="flex flex-col gap-1 flex-1 min-w-[110px]">
-                    <label
-                      htmlFor={`wakeup-every-n-${wakeup.slug}`}
-                      className="text-[10px] uppercase tracking-wide text-[var(--color-pv-fg-dim)] font-semibold"
-                    >
-                      Every
-                    </label>
-                    <input
-                      id={`wakeup-every-n-${wakeup.slug}`}
+                <div className="flex items-end gap-3 flex-wrap">
+                  <KitField label="Every" htmlFor={`wakeup-every-n-${wakeup.slug}`} className="flex-1 min-w-[110px]">
+                    <KitInput
                       type="number"
                       min={1}
                       value={formSchedule.n}
@@ -667,46 +541,24 @@ function WakeupRow({
                         const v = Number(e.target.value);
                         setFormSchedule({ ...formSchedule, n: Number.isFinite(v) ? v : 1 });
                       }}
-                      className={cn(
-                        "bg-black/30 text-[#e8e4d8] border border-white/10",
-                        "focus:outline-none focus:border-white/25 rounded px-2 py-1.5 text-xs",
-                      )}
                     />
-                  </div>
-                  <div className="flex flex-col gap-1 flex-1 min-w-[110px]">
-                    <label
-                      htmlFor={`wakeup-every-u-${wakeup.slug}`}
-                      className="text-[10px] uppercase tracking-wide text-[var(--color-pv-fg-dim)] font-semibold"
-                    >
-                      Unit
-                    </label>
-                    <select
-                      id={`wakeup-every-u-${wakeup.slug}`}
+                  </KitField>
+                  <KitField label="Unit" htmlFor={`wakeup-every-u-${wakeup.slug}`} className="flex-1 min-w-[110px]">
+                    <KitSelect
                       value={formSchedule.u}
                       onChange={(e) =>
                         setFormSchedule({ ...formSchedule, u: e.target.value as IntervalUnit })
                       }
-                      className={cn(
-                        "bg-black/30 text-[#e8e4d8] border border-white/10",
-                        "focus:outline-none focus:border-white/25 rounded px-2 py-1.5 text-xs",
-                      )}
                     >
                       <option value="s">seconds</option>
                       <option value="m">minutes</option>
                       <option value="h">hours</option>
                       <option value="d">days</option>
                       <option value="mo">months</option>
-                    </select>
-                  </div>
-                  <div className="basis-full text-xs text-[var(--color-pv-fg-dim)] font-mono">
-                    Timezone (auto-detected from browser): <b>{detectedTz}</b>
-                  </div>
-                  <RestrictToDaysChips
-                    hue={hue}
-                    days={formSchedule.days}
-                    onChange={(next) => setFormSchedule({ ...formSchedule, days: next })}
-                    slug={wakeup.slug}
-                  />
+                    </KitSelect>
+                  </KitField>
+                  {tzNote}
+                  {daysChips}
                 </div>
               )}
 
@@ -717,95 +569,55 @@ function WakeupRow({
                     onChange={(at) => setFormSchedule({ ...formSchedule, at })}
                     label="Time (local)"
                     idPrefix={`wakeup-daily-at-${wakeup.slug}`}
-                    inputClassName={FIELD_INPUT_CLASS}
-                    labelClassName={FIELD_LABEL_CLASS}
                   />
-                  <div className="text-xs text-[var(--color-pv-fg-dim)] font-mono">
-                    Timezone (auto-detected from browser): <b>{detectedTz}</b>
-                  </div>
-                  <RestrictToDaysChips
-                    hue={hue}
-                    days={formSchedule.days}
-                    onChange={(next) => setFormSchedule({ ...formSchedule, days: next })}
-                    slug={wakeup.slug}
-                  />
+                  {tzNote}
+                  {daysChips}
                 </>
               )}
 
               {formSchedule.type === "weekly" && (
                 <>
-                  <div className="flex items-end gap-2 flex-wrap">
-                    <div className="flex flex-col gap-1 flex-1 min-w-[110px]">
-                      <label
-                        htmlFor={`wakeup-weekly-day-${wakeup.slug}`}
-                        className="text-[10px] uppercase tracking-wide text-[var(--color-pv-fg-dim)] font-semibold"
-                      >
-                        Day
-                      </label>
-                      <select
-                        id={`wakeup-weekly-day-${wakeup.slug}`}
+                  <div className="flex items-start gap-3 flex-wrap">
+                    <KitField label="Day" htmlFor={`wakeup-weekly-day-${wakeup.slug}`} className="w-[160px] max-w-full">
+                      <KitSelect
                         value={formSchedule.day}
                         onChange={(e) => setFormSchedule({ ...formSchedule, day: e.target.value as Weekday })}
-                        className={cn(
-                          "bg-black/30 text-[#e8e4d8] border border-white/10",
-                          "focus:outline-none focus:border-white/25 rounded px-2 py-1.5 text-xs",
-                        )}
                       >
-                        <option value="mon">Monday</option>
-                        <option value="tue">Tuesday</option>
-                        <option value="wed">Wednesday</option>
-                        <option value="thu">Thursday</option>
-                        <option value="fri">Friday</option>
-                        <option value="sat">Saturday</option>
-                        <option value="sun">Sunday</option>
-                      </select>
-                    </div>
+                        {WEEKDAY_VALUES.map((d) => (
+                          <option key={d} value={d}>
+                            {WEEKDAY_NAMES[d]}
+                          </option>
+                        ))}
+                      </KitSelect>
+                    </KitField>
                     <TimesField
                       at={formSchedule.at}
                       onChange={(at) => setFormSchedule({ ...formSchedule, at })}
                       label="Time (local)"
                       idPrefix={`wakeup-weekly-at-${wakeup.slug}`}
-                      inputClassName={FIELD_INPUT_CLASS}
-                      labelClassName={FIELD_LABEL_CLASS}
                     />
                   </div>
-                  <div className="text-xs text-[var(--color-pv-fg-dim)] font-mono">
-                    Timezone (auto-detected from browser): <b>{detectedTz}</b>
-                  </div>
-                  <RestrictToDaysChips
-                    hue={hue}
-                    days={formSchedule.days}
-                    onChange={(next) => setFormSchedule({ ...formSchedule, days: next })}
-                    slug={wakeup.slug}
-                  />
+                  {tzNote}
+                  {daysChips}
                 </>
               )}
 
               {formSchedule.type === "yearly" && (
                 <>
-                  <div className="flex items-end gap-2 flex-wrap">
+                  <div className="flex items-start gap-3 flex-wrap">
                     <YearlyDateFields
                       date={formSchedule.date}
                       onChange={(date) => setFormSchedule({ ...formSchedule, date })}
                       idPrefix={`wakeup-yearly-${wakeup.slug}`}
-                      labelClassName="text-[10px] uppercase tracking-wide text-[var(--color-pv-fg-dim)] font-semibold"
-                      inputClassName={cn(
-                        "bg-black/30 text-[#e8e4d8] border border-white/10",
-                        "focus:outline-none focus:border-white/25 rounded px-2 py-1.5 text-xs",
-                      )}
                     />
                     <TimesField
                       at={formSchedule.at}
                       onChange={(at) => setFormSchedule({ ...formSchedule, at })}
                       label="Time (local)"
                       idPrefix={`wakeup-yearly-at-${wakeup.slug}`}
-                      inputClassName={FIELD_INPUT_CLASS}
-                      labelClassName={FIELD_LABEL_CLASS}
                     />
                   </div>
-                  <div className="text-xs text-[var(--color-pv-fg-dim)] font-mono">
-                    Timezone (auto-detected from browser): <b>{detectedTz}</b>
-                  </div>
+                  {tzNote}
                 </>
               )}
 
@@ -815,20 +627,14 @@ function WakeupRow({
                     value={formSchedule}
                     onChange={setFormSchedule}
                     idPrefix={`wakeup-monthly-${wakeup.slug}`}
-                    inputClassName={FIELD_INPUT_CLASS}
-                    labelClassName={FIELD_LABEL_CLASS}
                   />
                   <TimesField
                     at={formSchedule.at}
                     onChange={(at) => setFormSchedule({ ...formSchedule, at })}
                     label="Time (local)"
                     idPrefix={`wakeup-monthly-at-${wakeup.slug}`}
-                    inputClassName={FIELD_INPUT_CLASS}
-                    labelClassName={FIELD_LABEL_CLASS}
                   />
-                  <div className="text-xs text-[var(--color-pv-fg-dim)] font-mono">
-                    Timezone (auto-detected from browser): <b>{detectedTz}</b>
-                  </div>
+                  {tzNote}
                 </>
               )}
 
@@ -837,93 +643,63 @@ function WakeupRow({
                   fs={formSchedule}
                   onChange={setFormSchedule}
                   idPrefix={`wakeup-${wakeup.slug}`}
-                  inputClassName={FIELD_INPUT_CLASS}
-                  labelClassName={FIELD_LABEL_CLASS}
                 />
               )}
 
               {formSchedule.type === "one_shot" && (
                 <>
-                  <div className="flex flex-col gap-1">
-                    <label
-                      htmlFor={`wakeup-oneshot-at-${wakeup.slug}`}
-                      className="text-[10px] uppercase tracking-wide text-[var(--color-pv-fg-dim)] font-semibold"
-                    >
-                      Fires at (local)
-                    </label>
-                    <input
-                      id={`wakeup-oneshot-at-${wakeup.slug}`}
+                  <KitField
+                    label="Fires at (local)"
+                    htmlFor={`wakeup-oneshot-at-${wakeup.slug}`}
+                    className="w-[240px] max-w-full"
+                  >
+                    <KitInput
                       type="datetime-local"
                       value={formSchedule.at}
                       onChange={(e) => setFormSchedule({ ...formSchedule, at: e.target.value })}
-                      className={cn(
-                        "bg-black/30 text-[#e8e4d8] border border-white/10",
-                        "focus:outline-none focus:border-white/25 rounded px-2 py-1.5 text-xs",
-                      )}
                     />
-                  </div>
-                  <div className="text-xs text-[var(--color-pv-fg-dim)] font-mono">
-                    Timezone (auto-detected from browser): <b>{detectedTz}</b>
-                  </div>
+                  </KitField>
+                  {tzNote}
                   {oneShotPast && (
-                    <div className="text-xs text-rose-300">
-                      ⚠ that datetime is in the past — the scheduler will fire this{" "}
+                    <KitBanner tone="warn">
+                      That datetime is in the past — the scheduler will fire this{" "}
                       <b>immediately</b> on first sight.
-                    </div>
+                    </KitBanner>
                   )}
                 </>
               )}
               </>
               )}
 
-              {/* Instruction textarea */}
-              <div className="flex flex-col gap-1">
-                <label
-                  htmlFor={`wakeup-instruction-${wakeup.slug}`}
-                  className="text-[10px] uppercase tracking-wide text-[var(--color-pv-fg-dim)] font-semibold"
-                >
-                  Instruction
-                </label>
-                <textarea
-                  id={`wakeup-instruction-${wakeup.slug}`}
+              {/* Instruction */}
+              <KitField label="Instruction" htmlFor={`wakeup-instruction-${wakeup.slug}`}>
+                <KitTextarea
                   value={instructionDraft}
                   onChange={(e) => setInstructionDraft(e.target.value)}
                   rows={3}
-                  className={cn(
-                    "bg-black/30 text-[#e8e4d8] border border-white/10",
-                    "focus:outline-none focus:border-white/25 rounded px-2 py-1.5 text-xs",
-                    "resize-y min-h-[60px]",
-                  )}
                 />
-              </div>
+              </KitField>
 
-              {/* Enabled checkbox (secondary path — header chip is primary) */}
-              <div className="flex items-center gap-2">
-                <input
-                  id={`wakeup-enabled-${wakeup.slug}`}
-                  type="checkbox"
-                  checked={enabledDraft}
-                  onChange={(e) => setEnabledDraft(e.target.checked)}
-                  className="w-3.5 h-3.5 accent-emerald-500"
-                />
-                <label
-                  htmlFor={`wakeup-enabled-${wakeup.slug}`}
-                  className="text-xs text-[var(--color-pv-fg)]"
-                >
-                  Enabled
-                </label>
-              </div>
+              {/* Enabled (secondary path — the row's switch is primary) */}
+              <KitOption
+                label="Enabled"
+                control={
+                  <KitCheckbox
+                    id={`wakeup-enabled-${wakeup.slug}`}
+                    checked={enabledDraft}
+                    onCheckedChange={setEnabledDraft}
+                  />
+                }
+              />
             </div>
 
             {/* Right column: live JSON preview (≥620px) */}
-            <div className="flex flex-col gap-1 min-w-0">
-              <label className="text-[10px] uppercase tracking-wide text-[var(--color-pv-fg-dim)] font-semibold">
-                Live JSON preview
-              </label>
+            <div className="k-field min-w-0">
+              <span className="k-label">Live JSON preview</span>
               <pre
                 className={cn(
-                  "bg-black/40 text-[#d8d4c8] border border-white/10 rounded",
-                  "px-3 py-2 text-[11px] font-mono whitespace-pre overflow-auto min-h-[160px]",
+                  "m-0 rounded-[10px] bg-[var(--k-s2)] text-[var(--k-t2)]",
+                  "px-3 py-2 text-[11.5px] font-mono whitespace-pre overflow-auto min-h-[160px]",
                 )}
                 data-testid="wakeup-json-preview"
               >
@@ -934,44 +710,29 @@ function WakeupRow({
 
           {/* Actions */}
           <div className="flex items-center gap-2 flex-wrap">
-            <Button
+            <KitButton
               size="sm"
-              variant="outline"
-              onClick={saveForm}
-              disabled={saving === "form"}
-              className="cursor-pointer h-7 gap-1"
+              variant="primary"
+              onClick={() => {
+                void saveForm();
+              }}
+              busy={saving === "form"}
             >
-              <Check className="size-3.5" />
               {saving === "form" ? "Saving…" : "Save"}
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={cancelEdit}
-              disabled={saving === "form"}
-              className="cursor-pointer h-7 gap-1"
-            >
-              <X className="size-3.5" />
+            </KitButton>
+            <KitButton size="sm" onClick={cancelEdit} disabled={saving === "form"}>
               Cancel
-            </Button>
-            <span className="text-[10px] text-[var(--color-pv-fg-dim)] font-mono">
-              Scheduler reloads every ~30s
-            </span>
+            </KitButton>
+            <span className="k-help">Scheduler reloads every ~30s</span>
           </div>
         </div>
       )}
 
       {error && (
-        <div className="text-xs text-rose-300 whitespace-pre-wrap">{error}</div>
-      )}
-
-      {/* Row 3: instruction prose (view mode only; edit mode has textarea
-          above). Only shown when the card is expanded — the point of the
-          collapse is that the instruction is the tallest content in the
-          card and hiding it is what makes the list scannable. */}
-      {!editingSchedule && expanded && wakeup.instruction && (
-        <div className="whitespace-pre-wrap text-sm text-[#e8e4d8]/90 leading-relaxed">
-          {wakeup.instruction}
+        <div className="px-3 pb-3">
+          <KitBanner tone="danger">
+            <span className="whitespace-pre-wrap">{error}</span>
+          </KitBanner>
         </div>
       )}
     </div>

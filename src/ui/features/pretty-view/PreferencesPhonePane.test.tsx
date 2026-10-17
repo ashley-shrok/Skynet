@@ -6,6 +6,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { PreferencesPhonePane } from "./PreferencesPhonePane";
+import { __resetKitDialogsForTests, autoAnswerKitDialogs } from "@/components/kit";
 
 const { updateMyPhoneMock, clearMyPhoneMock } = vi.hoisted(() => ({
   updateMyPhoneMock: vi.fn<(phone: string) => Promise<string>>(),
@@ -37,6 +38,7 @@ describe("PreferencesPhonePane", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    __resetKitDialogsForTests();
   });
 
   it("Save is disabled until the number changes", async () => {
@@ -86,17 +88,18 @@ describe("PreferencesPhonePane", () => {
   });
 
   it("remove asks for confirmation mentioning admin re-enable; cancel does nothing", async () => {
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const dialogs = autoAnswerKitDialogs({ confirm: false });
     const user = userEvent.setup();
     const { onPhoneChanged } = renderPane();
     await user.click(screen.getByTestId("preferences-phone-remove"));
-    expect(confirmSpy).toHaveBeenCalledWith(expect.stringMatching(/admin/i));
+    expect(dialogs.calls).toHaveLength(1);
+    expect(String((dialogs.calls[0].opts as { body?: unknown }).body)).toMatch(/admin/i);
     expect(clearMyPhoneMock).not.toHaveBeenCalled();
     expect(onPhoneChanged).not.toHaveBeenCalled();
   });
 
   it("confirmed remove clears the number and reports null", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+    autoAnswerKitDialogs({ confirm: true });
     const user = userEvent.setup();
     const { onPhoneChanged } = renderPane();
     await user.click(screen.getByTestId("preferences-phone-remove"));

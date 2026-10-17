@@ -16,6 +16,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, act, waitFor, fireEvent, screen } from "@testing-library/react";
+import { autoAnswerKitDialogs, __resetKitDialogsForTests } from "@/components/kit";
 import { getComposeDraft } from "@/api/compose-drafts-api";
 
 type WsStub = {
@@ -164,13 +165,14 @@ describe("ComposeBox — send funnel (Phase 68 Plan 01)", () => {
     });
     vi.useRealTimers();
     localStorage.clear();
-    // Reset button now shows window.confirm() first (patched to prevent
+    // Reset button now shows a kit confirm (kitConfirm) first (patched to prevent
     // accidental resets). Auto-accept in tests that click it — the confirm
     // gate itself is covered by ComposeBox.reset-confirm.test.tsx.
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+    autoAnswerKitDialogs({ confirm: true });
   });
 
   afterEach(() => {
+    __resetKitDialogsForTests();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     vi.useRealTimers();

@@ -18,6 +18,15 @@ import type { UserPreferences } from "@/api/open-tabs-api";
 import { saveUserPreferences } from "@/api/open-tabs-api";
 import { VoicePicker } from "./pickers/VoicePicker";
 import {
+  KitButton,
+  KitInput,
+  KitOption,
+  KitRadio,
+  KitSettingsGroup,
+  KitSettingsRow,
+  KitSlider,
+} from "@/components/kit";
+import {
   TTS_PLAYBACK_RATE_DEFAULT,
   TTS_PLAYBACK_RATE_MIN,
   TTS_PLAYBACK_RATE_MAX,
@@ -210,142 +219,159 @@ export function PreferencesVoicePane({
   );
 
   return (
-    <div className="flex-1 p-6 flex flex-col gap-4 text-[13px] text-[#c8c4b8]" data-testid="preferences-voice-pane">
+    <div className="text-[13px]" data-testid="preferences-voice-pane">
       {/* D-06: one-line blurb — verbatim wording from CONTEXT.md § Specifics */}
-      <p className="text-[13px] text-[#c8c4b8]">
-        The voice your agents use to speak.
-      </p>
+      <KitSettingsGroup
+        title="Voice"
+        footer={
+          error !== null ? (
+            // D-13: inline error display (per-CONTEXT.md error pattern)
+            <span className="k-err" role="alert" data-testid="preferences-voice-error">
+              {error}
+            </span>
+          ) : undefined
+        }
+      >
+        <KitSettingsRow
+          stacked
+          label="The voice your agents use to speak."
+          control={
+            <VoicePicker
+              id="preferences-voice-select"
+              value={fallbackVoice}
+              onChange={(next) => {
+                void handleVoiceChange(next);
+              }}
+              disabled={saving}
+              ariaLabel="The voice your agents use to speak"
+            />
+          }
+        />
+      </KitSettingsGroup>
 
-      <VoicePicker
-        id="preferences-voice-select"
-        value={fallbackVoice}
-        onChange={(next) => {
-          void handleVoiceChange(next);
-        }}
-        disabled={saving}
-        ariaLabel="The voice your agents use to speak"
-      />
-
-      {/* D-13: inline error display (per-CONTEXT.md error pattern) */}
-      {error !== null && (
-        <div
-          className="text-sm text-red-400"
-          data-testid="preferences-voice-error"
-        >
-          {error}
-        </div>
-      )}
-
-      <div className="flex flex-col gap-2 mt-2">
-        <div className="flex items-center justify-between">
-          <label htmlFor="preferences-voice-speed">How fast your agents speak.</label>
-          <div className="flex items-center gap-3">
-            <span
-              className="tabular-nums text-[#e8e4d8]"
-              data-testid="preferences-voice-speed-value"
-            >
+      <KitSettingsGroup
+        title="Speed"
+        footer={
+          speedError !== null ? (
+            <span className="k-err" role="alert" data-testid="preferences-voice-speed-error">
+              {speedError}
+            </span>
+          ) : (
+            "Pitch rises with speed."
+          )
+        }
+      >
+        <KitSettingsRow
+          label={<label htmlFor="preferences-voice-speed">How fast your agents speak.</label>}
+          value={
+            <span className="tabular-nums" data-testid="preferences-voice-speed-value">
               {formatRate(speed)}
             </span>
-            <button
-              type="button"
-              className="text-[12px] underline text-[#8a8678] disabled:opacity-40 disabled:no-underline"
+          }
+          control={
+            <KitButton
+              size="sm"
+              variant="plain"
               onClick={() => handleSpeedChange(TTS_PLAYBACK_RATE_DEFAULT)}
               disabled={speed === TTS_PLAYBACK_RATE_DEFAULT}
               data-testid="preferences-voice-speed-reset"
             >
               Reset
-            </button>
-          </div>
-        </div>
-        <input
-          id="preferences-voice-speed"
-          type="range"
-          min={TTS_PLAYBACK_RATE_MIN}
-          max={TTS_PLAYBACK_RATE_MAX}
-          step={TTS_PLAYBACK_RATE_STEP}
-          value={speed}
-          onChange={(e) => handleSpeedChange(Number(e.target.value))}
-          aria-valuetext={formatRate(speed)}
-          className="w-full accent-[var(--accent-brand)]"
-          data-testid="preferences-voice-speed"
+            </KitButton>
+          }
         />
-        <div className="flex justify-between text-[11px] text-[#8a8678]">
-          <span>{formatRate(TTS_PLAYBACK_RATE_MIN)}</span>
-          <span>{formatRate(TTS_PLAYBACK_RATE_MAX)}</span>
-        </div>
-        {speedError !== null && (
-          <div
-            className="text-sm text-red-400"
-            data-testid="preferences-voice-speed-error"
-          >
-            {speedError}
-          </div>
-        )}
-      </div>
+        <KitSettingsRow
+          label={
+            <span className="flex items-center gap-3 text-[12px] text-[var(--k-t3)] tabular-nums">
+              <span>{formatRate(TTS_PLAYBACK_RATE_MIN)}</span>
+              <KitSlider
+                id="preferences-voice-speed"
+                min={TTS_PLAYBACK_RATE_MIN}
+                max={TTS_PLAYBACK_RATE_MAX}
+                step={TTS_PLAYBACK_RATE_STEP}
+                value={speed}
+                onValueChange={handleSpeedChange}
+                aria-valuetext={formatRate(speed)}
+                className="flex-1 min-w-0"
+                data-testid="preferences-voice-speed"
+              />
+              <span>{formatRate(TTS_PLAYBACK_RATE_MAX)}</span>
+            </span>
+          }
+        />
+      </KitSettingsGroup>
 
-      <fieldset className="flex flex-col gap-2 mt-2" data-testid="preferences-voice-mode-turn">
-        <legend className="mb-2">When voice mode sends what you said.</legend>
-        <label className="flex items-start gap-2 cursor-pointer">
-          <input
-            type="radio"
-            name="preferences-voice-mode-turn"
-            value="timed"
-            checked={endOfTurn === "timed"}
-            onChange={() => void handleEndOfTurnChange("timed")}
-            className="mt-[3px] accent-[var(--accent-brand)]"
-            data-testid="preferences-voice-mode-turn-timed"
-          />
-          <span>
-            After a pause
-            <span className="block text-[11px] text-[#8a8678]">
-              Three seconds of silence sends it.
-            </span>
-          </span>
-        </label>
-        <label className="flex items-start gap-2 cursor-pointer">
-          <input
-            type="radio"
-            name="preferences-voice-mode-turn"
-            value="phrase"
-            checked={endOfTurn === "phrase"}
-            onChange={() => void handleEndOfTurnChange("phrase")}
-            className="mt-[3px] accent-[var(--accent-brand)]"
-            data-testid="preferences-voice-mode-turn-phrase"
-          />
-          <span>
-            When I say a phrase
-            <span className="block text-[11px] text-[#8a8678]">
-              Pause as long as you like; end with the phrase to send.
-            </span>
-          </span>
-        </label>
-        {endOfTurn === "phrase" && (
-          <div className="flex items-center gap-2 ml-6">
-            <label htmlFor="preferences-voice-mode-phrase" className="text-[12px] text-[#8a8678]">
-              Phrase
-            </label>
-            <input
-              id="preferences-voice-mode-phrase"
-              type="text"
-              value={phrase}
-              maxLength={VOICE_MODE_SEND_PHRASE_MAX_LEN}
-              onChange={(e) => setPhrase(e.target.value)}
-              onBlur={() => void commitPhrase()}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  (e.target as HTMLInputElement).blur();
+      <fieldset
+        className="k-group-wrap m-0 p-0 border-0 min-w-0"
+        data-testid="preferences-voice-mode-turn"
+      >
+        <legend className="k-group-title p-0">When voice mode sends what you said.</legend>
+        <div className="k-group">
+          <KitSettingsRow
+            label={
+              <KitOption
+                control={
+                  <KitRadio
+                    name="preferences-voice-mode-turn"
+                    value="timed"
+                    checked={endOfTurn === "timed"}
+                    onChange={() => void handleEndOfTurnChange("timed")}
+                    data-testid="preferences-voice-mode-turn-timed"
+                  />
                 }
-              }}
-              className="flex-1 rounded border border-[#3a3832] bg-transparent px-2 py-1 text-[13px] text-[#e8e4d8]"
-              data-testid="preferences-voice-mode-phrase"
+                label="After a pause"
+                description="Three seconds of silence sends it."
+              />
+            }
+          />
+          <KitSettingsRow
+            label={
+              <KitOption
+                control={
+                  <KitRadio
+                    name="preferences-voice-mode-turn"
+                    value="phrase"
+                    checked={endOfTurn === "phrase"}
+                    onChange={() => void handleEndOfTurnChange("phrase")}
+                    data-testid="preferences-voice-mode-turn-phrase"
+                  />
+                }
+                label="When I say a phrase"
+                description="Pause as long as you like; end with the phrase to send."
+              />
+            }
+          />
+          {endOfTurn === "phrase" && (
+            <KitSettingsRow
+              label={<label htmlFor="preferences-voice-mode-phrase">Phrase</label>}
+              control={
+                <KitInput
+                  id="preferences-voice-mode-phrase"
+                  type="text"
+                  size="sm"
+                  value={phrase}
+                  maxLength={VOICE_MODE_SEND_PHRASE_MAX_LEN}
+                  onChange={(e) => setPhrase(e.target.value)}
+                  onBlur={() => void commitPhrase()}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      (e.target as HTMLInputElement).blur();
+                    }
+                  }}
+                  className="max-w-[60%]"
+                  data-testid="preferences-voice-mode-phrase"
+                />
+              }
             />
-          </div>
-        )}
+          )}
+        </div>
         {turnError !== null && (
-          <div className="text-sm text-red-400" data-testid="preferences-voice-mode-turn-error">
-            {turnError}
-          </div>
+          <p className="k-group-foot">
+            <span className="k-err" role="alert" data-testid="preferences-voice-mode-turn-error">
+              {turnError}
+            </span>
+          </p>
         )}
       </fieldset>
     </div>

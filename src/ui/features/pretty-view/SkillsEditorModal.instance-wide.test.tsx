@@ -112,6 +112,7 @@ vi.mock("@/api/instance-wide-api", async (importOriginal) => {
 import SkillsEditorModal from "./SkillsEditorModal";
 import * as skillsApi from "@/api/skills-api";
 import * as iwApi from "@/api/instance-wide-api";
+import { autoAnswerKitDialogs, __resetKitDialogsForTests } from "@/components/kit";
 
 // ── Shared fixture ────────────────────────────────────────────────────────────
 
@@ -256,6 +257,7 @@ describe("SkillsEditorModal — instance-wide section", () => {
   });
   afterEach(() => {
     vi.restoreAllMocks();
+    __resetKitDialogsForTests();
   });
 
   it("lists instance-wide skills in their own group and edits the master copy (hostId 0)", async () => {
@@ -300,28 +302,29 @@ describe("SkillsEditorModal — instance-wide section", () => {
 
   it("admin: Make instance-wide previews, warns, and promotes", async () => {
     vi.mocked(iwApi.listInstanceWide).mockResolvedValue({ isAdmin: true, items: [] });
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const dialogs = autoAnswerKitDialogs({ confirm: true });
     renderModal();
     await selectSkill("build");
     await openSkillMenu();
     await userEvent.setup().click(screen.getByTestId("skills-editor-modal-promote-skill"));
     await waitFor(() => expect(iwApi.promote).toHaveBeenCalledWith("skill", "build", 1));
     expect(iwApi.previewPromote).toHaveBeenCalledWith("skill", "build", 1);
-    const text = confirmSpy.mock.calls[0][0] as string;
+    const opts = dialogs.calls[0].opts;
+    const text = `${String(opts.title)}\n${String(opts.body)}`;
     expect(text).toMatch(/every host/);
     expect(text).toMatch(/beta/);
   });
 
   it("admin: Remove from every host confirms with the host count", async () => {
     vi.mocked(iwApi.listInstanceWide).mockResolvedValue({ isAdmin: true, items: [IW_ITEM] });
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const dialogs = autoAnswerKitDialogs({ confirm: true });
     renderModal();
     await selectSkill("shared-skill");
     await openSkillMenu();
     expect(screen.queryByTestId("skills-editor-modal-delete-skill")).toBeNull();
     await userEvent.setup().click(screen.getByTestId("skills-editor-modal-remove-instance-skill"));
     await waitFor(() => expect(iwApi.removeInstanceWide).toHaveBeenCalledWith("skill", "shared-skill"));
-    expect(confirmSpy.mock.calls[0][0]).toMatch(/3 hosts/);
+    expect(String(dialogs.calls[0].opts.body)).toMatch(/3 hosts/);
   });
 
   it("non-admin: instance-wide skill is read-only", async () => {
@@ -356,6 +359,7 @@ describe("SkillsEditorModal — fleet-distributed section", () => {
   });
   afterEach(() => {
     vi.restoreAllMocks();
+    __resetKitDialogsForTests();
   });
 
   it("asks for distributed skills and lists them in their own group", async () => {

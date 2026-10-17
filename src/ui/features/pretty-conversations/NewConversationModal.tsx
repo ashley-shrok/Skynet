@@ -23,9 +23,7 @@
 //     not raw event or error serialization.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Loader2 } from "lucide-react";
-import { Button } from "@/components/button";
-import { cn } from "@/lib/utils";
+import { KitBanner, KitButton, KitField, KitInput } from "@/components/kit";
 import { Modal, ModalHead, ModalBody, ModalFoot } from "@/components/modal";
 import type { CreateRelayRoomResponse } from "./participant-types";
 import type { PickedParticipant } from "./participant-types";
@@ -63,7 +61,7 @@ function gateHint(
     case "single-agent-only":
       return "A single-agent conversation already exists in your list";
     case "submitting":
-      // Submit state is carried by the in-button Loader2 spinner.
+      // Submit state is carried by the busy Create button.
       return null;
   }
 }
@@ -267,39 +265,20 @@ export function NewConversationModal({
   const hint = gateHint(form.gate);
 
   return (
-    <Modal
-      open={open}
-      onOpenChange={onOpenChange}
-      size="xl"
-      className="max-h-[720px] flex flex-col"
-    >
+    <Modal open={open} onOpenChange={onOpenChange} size="xl">
       <ModalHead title="New group conversation" />
-      <ModalBody className="overflow-y-auto flex flex-col gap-3">
+      <ModalBody className="flex flex-col gap-4">
         {/* 1. Room name field — mandatory (Test 3 gate transition) */}
-        <div className="flex flex-col gap-1">
-          <label
-            htmlFor="new-conversation-room-name"
-            className="text-[10.5px] font-medium tracking-[0.1em] uppercase text-[hsla(var(--pv-id-hue),30%,90%,0.65)]"
-          >
-            Room name
-          </label>
-          <input
-            id="new-conversation-room-name"
+        <KitField label="Room name" htmlFor="new-conversation-room-name">
+          <KitInput
             type="text"
             value={form.roomName}
             onChange={(e) => form.setRoomName(e.target.value)}
             placeholder="e.g. Design review"
             aria-required="true"
             autoFocus
-            className={cn(
-              "w-full px-3 py-2 rounded-lg text-sm text-[#fbf5e8]",
-              "bg-black/20 border border-[hsla(var(--pv-id-hue),65%,55%,0.22)] outline-none",
-              "focus:border-[hsla(var(--pv-id-hue),70%,60%,0.5)] focus:bg-black/30",
-              "placeholder:text-[hsla(var(--pv-id-hue),22%,88%,0.55)]",
-              "transition-colors duration-150",
-            )}
           />
-        </div>
+        </KitField>
 
         {/* 2. Chips strip — selected participants */}
         <ParticipantChipStrip picked={form.picked} onRemove={form.remove} />
@@ -311,7 +290,7 @@ export function NewConversationModal({
         />
 
         {/* 4. Participant list — sectioned (Humans / Agents) */}
-        <div className="flex-1 min-h-0 overflow-y-auto">
+        <div className="flex-1 min-h-0">
           <ParticipantList
             humans={form.availableHumans}
             agents={form.availableAgents}
@@ -325,28 +304,22 @@ export function NewConversationModal({
       </ModalBody>
       <ModalFoot>
         <div className="flex flex-col gap-2 w-full">
-          <Button
-            type="button"
+          {form.error && <KitBanner tone="danger">{form.error}</KitBanner>}
+          <KitButton
+            variant="primary"
+            full
             disabled={!form.gate.ok}
+            busy={form.submitting}
+            aria-label={form.submitting ? "Creating conversation" : undefined}
             onClick={() => {
               void handleSubmit();
             }}
-            className="w-full"
           >
-            {form.submitting ? (
-              <Loader2 className="size-4 animate-spin" aria-label="Creating conversation" />
-            ) : (
-              "Create"
-            )}
-          </Button>
+            Create
+          </KitButton>
           {hint && (
-            <p className="text-xs text-center text-[hsla(var(--pv-id-hue),22%,88%,0.65)]">
+            <p className="m-0 text-[12.5px] text-center text-[var(--k-t3)]">
               {hint}
-            </p>
-          )}
-          {form.error && (
-            <p role="alert" className="text-xs text-center text-red-400">
-              {form.error}
             </p>
           )}
         </div>

@@ -440,8 +440,10 @@ describe("Phase 90 role-management flow — RoleModal close", () => {
       const dialogs = Array.from(document.querySelectorAll('[role="dialog"]'));
       // No dialog re-mounts RolesListModal's "+ New role" button after close.
       // (We already had that button visible pre-swap; it should not come back.)
-      const hasNewRoleBtn = dialogs.some((d) =>
-        d.textContent?.includes("+ New role"),
+      // (The kit reskin renders an icon + "New role"; the button's accessible
+      // name stays "+ New role".)
+      const hasNewRoleBtn = dialogs.some(
+        (d) => d.querySelector('button[aria-label="+ New role"]') !== null,
       );
       // The strong invariant: if RolesListModal reopened, "+ New role" would
       // be visible. After the D-03 no-reopen path it must NOT be.
@@ -514,11 +516,12 @@ describe("Phase 90 role-management flow — CreateRoleDialog swap", () => {
     });
     // Wait for the header button "+ New role" to be rendered.
     await waitFor(() => {
-      expect(screen.getAllByText(/\+ New role/i).length).toBeGreaterThan(0);
+      expect(screen.getAllByRole("button", { name: /\+ New role/i }).length).toBeGreaterThan(0);
     });
 
-    // Click the "+ New role" button.
-    const newRoleBtn = screen.getAllByText(/\+ New role/i)[0];
+    // Click the "+ New role" button (kit reskin: icon + "New role", accessible
+    // name "+ New role").
+    const newRoleBtn = screen.getAllByRole("button", { name: /\+ New role/i })[0];
     fireEvent.click(newRoleBtn);
 
     // RolesListModal closes; its "Roles" title disappears.

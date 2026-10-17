@@ -99,6 +99,7 @@ vi.mock("@mdxeditor/editor", () => ({
 
 // ── Late imports (after mocks are registered) ────────────────────────────────
 import SkillsEditorModal from "./SkillsEditorModal";
+import { autoAnswerKitDialogs, __resetKitDialogsForTests } from "@/components/kit";
 import * as skillsApi from "@/api/skills-api";
 
 // ── Shared fixture ────────────────────────────────────────────────────────────
@@ -218,6 +219,7 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    __resetKitDialogsForTests();
   });
 
   it("renders the READY textarea after an asynchronous readSkillFile resolves (regression: lazy-load useEffect must not cancel its own in-flight read via tabData-in-deps re-run)", async () => {
@@ -328,7 +330,7 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
         { path: "tests/basic.py" },
         { path: "new.md" },
       ]);
-    const promptSpy = vi.spyOn(window, "prompt").mockReturnValue("new.md");
+    const dialogs = autoAnswerKitDialogs({ prompt: "new.md" });
 
     render(
       <SkillsEditorModal
@@ -358,8 +360,7 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     await waitFor(() => {
       expect((skillsApi.enumerateSkillFiles as ReturnType<typeof vi.fn>).mock.calls.length).toBe(2);
     });
-
-    promptSpy.mockRestore();
+    expect(dialogs.calls[0].kind).toBe("prompt");
   });
 
   // ── Phase 113 D-28: + New skill behavior tests (Task 2 / plan 113-04) ────────
@@ -374,10 +375,8 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
   //       retained across the re-prompt (D-04).
 
   it("+ New skill: chained prompt (name → description) calls createSkill and auto-selects", async () => {
-    const promptSpy = vi
-      .spyOn(window, "prompt")
-      .mockReturnValueOnce("My Cool Skill") // name prompt
-      .mockReturnValueOnce("A cool skill."); // description prompt
+    const answers = ["My Cool Skill" /* name */, "A cool skill." /* description */];
+    autoAnswerKitDialogs({ prompt: () => answers.shift() ?? null });
 
     // createSkill returns the slugified form of the raw name.
     (skillsApi.createSkill as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
@@ -426,8 +425,6 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
       }) as HTMLSelectElement;
       expect(skillCombo.value).toBe("my-cool-skill");
     });
-
-    promptSpy.mockRestore();
   });
 
   it("+ New skill button is disabled when defaultHostId is null (host not auto-picked)", async () => {
@@ -459,9 +456,7 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
   });
 
   it("+ New skill: cancel on name prompt → no createSkill call, no state change", async () => {
-    const promptSpy = vi
-      .spyOn(window, "prompt")
-      .mockReturnValueOnce(null); // cancel on the name prompt
+    const dialogs = autoAnswerKitDialogs({ prompt: null }); // cancel on the name prompt
 
     render(
       <SkillsEditorModal
@@ -480,17 +475,13 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
 
     // Only one prompt fires (the name); description prompt never fires;
     // createSkill is never called.
-    await waitFor(() => expect(promptSpy.mock.calls.length).toBe(1));
+    await waitFor(() => expect(dialogs.calls.length).toBe(1));
     expect(skillsApi.createSkill).not.toHaveBeenCalled();
-
-    promptSpy.mockRestore();
   });
 
   it("+ New skill: cancel on description prompt → no createSkill call", async () => {
-    const promptSpy = vi
-      .spyOn(window, "prompt")
-      .mockReturnValueOnce("My Skill") // name — accept
-      .mockReturnValueOnce(null); // description — cancel
+    const answers: Array<string | null> = ["My Skill" /* name — accept */, null /* description — cancel */];
+    const dialogs = autoAnswerKitDialogs({ prompt: () => answers.shift() ?? null });
 
     render(
       <SkillsEditorModal
@@ -508,20 +499,14 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     fireEvent.click(screen.getByRole("button", { name: /\+ new skill/i }));
 
     // Exactly two prompts fire (name + description); createSkill never called.
-    await waitFor(() => expect(promptSpy.mock.calls.length).toBe(2));
+    await waitFor(() => expect(dialogs.calls.length).toBe(2));
     expect(skillsApi.createSkill).not.toHaveBeenCalled();
-
-    promptSpy.mockRestore();
   });
 
-  it("+ New skill: empty description re-prompts description ONLY; name is retained", async () => {
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
-    const promptSpy = vi
-      .spyOn(window, "prompt")
-      .mockReturnValueOnce("My Skill") // name — accept (slugifies to "my-skill")
-      .mockReturnValueOnce("   ") // description — empty after trim → re-prompt
-      .mockReturnValueOnce("Fine desc"); // description retry — accept
-
+  it("+ New skill: empty description is refused in place; name is retained", async () => {
+    // Drives the real kit dialog: the description step refuses a blank value
+    // with an inline error (validate) instead of the old alert + re-prompt,
+    // and the name typed in step one is kept.
     render(
       <SkillsEditorModal
         open={true}
@@ -537,30 +522,50 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: /\+ new skill/i }));
 
+    // Step 1 — name (slugifies to "my-skill").
+    const nameInput = await screen.findByTestId("kit-prompt-input");
+    fireEvent.change(nameInput, { target: { value: "My Skill" } });
+    fireEvent.click(screen.getByTestId("kit-dialog-confirm"));
+
+    // Step 2 — description. A blank value is refused with an inline error and
+    // the dialog stays open.
+    await waitFor(() => expect(screen.getByText(/Describe "My Skill"/)).toBeInTheDocument());
+    const descInput = screen.getByTestId("kit-prompt-input");
+    fireEvent.change(descInput, { target: { value: "   " } });
+    fireEvent.click(screen.getByTestId("kit-dialog-confirm"));
+    await waitFor(() =>
+      expect(screen.getByText(/description is required/i)).toBeInTheDocument(),
+    );
+    expect(skillsApi.createSkill).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByTestId("kit-prompt-input"), { target: { value: "Fine desc" } });
+    fireEvent.click(screen.getByTestId("kit-dialog-confirm"));
+
     // createSkill is called with the slugified name + the retried description.
-    // The name is NOT re-prompted despite the description re-prompt (D-04:
-    // the outer-loop closure retains the name across the inner-loop re-prompt).
     await waitFor(() => {
       expect(skillsApi.createSkill).toHaveBeenCalledWith(1, "my-skill", "Fine desc");
     });
+  });
 
-    // Name prompt fired exactly ONCE; description prompt fired exactly TWICE.
-    const nameCalls = promptSpy.mock.calls.filter((c) =>
-      /skill name/i.test(c[0] as string),
+  it("+ New skill: a name with no letters or numbers is refused in place", async () => {
+    const dialogs = autoAnswerKitDialogs({ prompt: null });
+    render(
+      <SkillsEditorModal
+        open={true}
+        onOpenChange={vi.fn()}
+        hostTree={HOST_TREE}
+        defaultHostId={1}
+        container={document.body}
+      />,
     );
-    const descCalls = promptSpy.mock.calls.filter((c) =>
-      /Description/.test(c[0] as string),
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /\+ new skill/i })).toBeTruthy(),
     );
-    expect(nameCalls).toHaveLength(1);
-    expect(descCalls).toHaveLength(2);
-
-    // window.alert fired at least once with a "description is required"-ish message.
-    expect(alertSpy).toHaveBeenCalledWith(
-      expect.stringMatching(/description is required/i),
-    );
-
-    promptSpy.mockRestore();
-    alertSpy.mockRestore();
+    fireEvent.click(screen.getByRole("button", { name: /\+ new skill/i }));
+    await waitFor(() => expect(dialogs.calls.length).toBe(1));
+    const validate = (dialogs.calls[0].opts as { validate?: (v: string) => string | null | undefined }).validate!;
+    expect(validate("!!!")).toMatch(/at least one letter or number/i);
+    expect(validate("My Skill")).toBeFalsy();
   });
 
   // ── Phase 113 D-28: + New file / single-host / SKILL.md no-delete tests ────
@@ -605,7 +610,7 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
   });
 
   it("+ Add file pill click does NOT change activeTab (existing file tab stays selected)", async () => {
-    const promptSpy = vi.spyOn(window, "prompt").mockReturnValue("new-file.md");
+    autoAnswerKitDialogs({ prompt: "new-file.md" });
 
     render(
       <SkillsEditorModal
@@ -631,8 +636,6 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     await waitFor(() => expect(skillsApi.createSkillFile).toHaveBeenCalled());
     // The Add-file pill itself is never the selected tab (no aria-pressed=true).
     expect(addFileBtn.getAttribute("aria-pressed")).not.toBe("true");
-
-    promptSpy.mockRestore();
   });
 
   it("single-host: host picker <select> is hidden entirely", async () => {
@@ -751,9 +754,8 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
   });
 
   it("delete-file fires deleteSkillFile after native confirm accepts", async () => {
-    // Retired DeleteConfirmDialog (2026-09-29) in favor of native window.confirm.
-    // Auto-accept the confirm so the delete flow proceeds.
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    // Auto-accept the kit confirm so the delete flow proceeds.
+    const dialogs = autoAnswerKitDialogs({ confirm: true });
 
     render(
       <SkillsEditorModal
@@ -780,20 +782,18 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
       expect(screen.queryByTitle(/delete this file/i)).toBeTruthy(),
     );
 
-    // Click the delete-file Trash2 trigger — the native confirm auto-accepts
-    // via the spy, so the delete API fires immediately.
+    // Click the delete-file Trash2 trigger — the kit confirm auto-accepts
+    // via autoAnswerKitDialogs, so the delete API fires immediately.
     fireEvent.click(screen.getByTitle(/delete this file/i));
 
     await waitFor(() => {
       expect(skillsApi.deleteSkillFile).toHaveBeenCalledWith(1, "build", "tests/basic.py");
     });
-    expect(confirmSpy).toHaveBeenCalled();
-    confirmSpy.mockRestore();
+    expect(dialogs.calls[0].kind).toBe("confirm");
   });
 
   it("delete-skill fires deleteSkill after native confirm accepts", async () => {
-    // Retired DeleteConfirmDialog (2026-09-29) in favor of native window.confirm.
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const dialogs = autoAnswerKitDialogs({ confirm: true });
 
     render(
       <SkillsEditorModal
@@ -816,8 +816,7 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     await waitFor(() => {
       expect(skillsApi.deleteSkill).toHaveBeenCalledWith(1, "build");
     });
-    expect(confirmSpy).toHaveBeenCalled();
-    confirmSpy.mockRestore();
+    expect(dialogs.calls[0].kind).toBe("confirm");
   });
 
   it("Rename… moves the skill and reselects it under the new name", async () => {

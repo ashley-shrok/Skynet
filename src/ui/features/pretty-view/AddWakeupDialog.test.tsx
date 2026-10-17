@@ -24,7 +24,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, cleanup, within } from "@testing-library/react";
 
 // Stub MDXEditor with a controlled textarea so getByTestId("mdxeditor") + fireEvent.change
 // keep working after Plan 03's swap routes the instruction field through the .md branch
@@ -91,6 +91,24 @@ function renderDialog(overrides: {
   return { onSubmit, onOpenChange };
 }
 
+
+// apple-ux: the schedule kind is the kit segmented control (a group labelled
+// "Schedule type" whose pressed segment is the current kind).
+function scheduleKindGroup(): HTMLElement {
+  return screen.getByRole("group", { name: /Schedule type/i });
+}
+function scheduleKind(): string | undefined {
+  const pressed = within(scheduleKindGroup())
+    .getAllByRole("button")
+    .find((b) => b.getAttribute("aria-pressed") === "true");
+  return pressed?.getAttribute("data-testid")?.split("-").pop();
+}
+function pickKind(kind: string): void {
+  const btn = scheduleKindGroup().querySelector(`[data-testid$="-${kind}"]`);
+  if (!btn) throw new Error(`no schedule kind segment for ${kind}`);
+  fireEvent.click(btn);
+}
+
 describe("AddWakeupDialog — Phase 72 Plan 02 Task 1", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -130,20 +148,18 @@ describe("AddWakeupDialog — Phase 72 Plan 02 Task 1", () => {
   it("B: switching schedule type re-renders per-type param fields (interval → daily → weekly → one_shot)", () => {
     renderDialog();
 
-    const typeSelect = screen.getByLabelText(/Schedule type/i) as HTMLSelectElement;
-
     // Default is daily → time input rendered.
-    expect(typeSelect.value).toBe("daily");
+    expect(scheduleKind()).toBe("daily");
     expect(screen.getByLabelText(/Time \(local\)/i)).toBeTruthy();
 
     // Switch to interval → Every + Unit render; no time input.
-    fireEvent.change(typeSelect, { target: { value: "interval" } });
+    pickKind("interval");
     expect(screen.getByLabelText(/Every/i)).toBeTruthy();
     expect(screen.getByLabelText(/Unit/i)).toBeTruthy();
     expect(screen.queryByLabelText(/Time \(local\)/i)).toBeNull();
 
     // Switch to weekly → Day + Time render.
-    fireEvent.change(typeSelect, { target: { value: "weekly" } });
+    pickKind("weekly");
     // Weekly day <select> anchored by its label "Day" (exact match, not
     // /Day/i which also matches the "Sunday", "Monday", etc. option labels
     // as accessible-name candidates for those <option> elements).
@@ -151,7 +167,7 @@ describe("AddWakeupDialog — Phase 72 Plan 02 Task 1", () => {
     expect(screen.getByLabelText(/Time \(local\)/i)).toBeTruthy();
 
     // Switch to one_shot → Fires at renders.
-    fireEvent.change(typeSelect, { target: { value: "one_shot" } });
+    pickKind("one_shot");
     expect(screen.getByLabelText(/Fires at \(local\)/i)).toBeTruthy();
   });
 
@@ -244,18 +260,16 @@ describe("AddWakeupDialog — Phase 72 Plan 02 Task 1", () => {
     renderDialog();
     // Default is daily → tz input visible.
     expect(screen.queryByTestId("add-wakeup-tz-input")).toBeTruthy();
-
-    const typeSelect = screen.getByLabelText(/Schedule type/i) as HTMLSelectElement;
     // Switch to interval → tz input visible (interval honors timezone).
-    fireEvent.change(typeSelect, { target: { value: "interval" } });
+    pickKind("interval");
     expect(screen.queryByTestId("add-wakeup-tz-input")).toBeTruthy();
 
     // Switch to weekly → tz visible.
-    fireEvent.change(typeSelect, { target: { value: "weekly" } });
+    pickKind("weekly");
     expect(screen.queryByTestId("add-wakeup-tz-input")).toBeTruthy();
 
     // Switch to one_shot → tz visible.
-    fireEvent.change(typeSelect, { target: { value: "one_shot" } });
+    pickKind("one_shot");
     expect(screen.queryByTestId("add-wakeup-tz-input")).toBeTruthy();
   });
 
@@ -363,7 +377,7 @@ describe("AddWakeupDialog — Phase 72 Plan 02 Task 1", () => {
     const { onSubmit } = renderDialog();
     fireEvent.change(screen.getByLabelText(/Name/i), { target: { value: "quarterly" } });
     fireEvent.change(await screen.findByTestId("mdxeditor"), { target: { value: "review" } });
-    fireEvent.change(screen.getByLabelText(/Schedule type/i), { target: { value: "monthly" } });
+    pickKind("monthly");
     fireEvent.click(screen.getByLabelText("Weekday of month"));
     fireEvent.change(screen.getByLabelText("Which"), { target: { value: "last" } });
     fireEvent.change(screen.getByLabelText("Weekday"), { target: { value: "fri" } });
@@ -393,7 +407,7 @@ describe("AddWakeupDialog — Phase 72 Plan 02 Task 1", () => {
     const { onSubmit } = renderDialog();
     fireEvent.change(screen.getByLabelText(/Name/i), { target: { value: "poll" } });
     fireEvent.change(await screen.findByTestId("mdxeditor"), { target: { value: "poll" } });
-    fireEvent.change(screen.getByLabelText(/Schedule type/i), { target: { value: "interval" } });
+    pickKind("interval");
     fireEvent.click(screen.getByLabelText("Only between"));
     for (const d of ["Mon", "Tue", "Wed", "Thu", "Fri"]) {
       fireEvent.click(screen.getByRole("button", { name: `Toggle ${d}` }));

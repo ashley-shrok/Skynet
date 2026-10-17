@@ -18,7 +18,8 @@ import {
   ServiceSecretRow,
   groupByService,
 } from "@/features/service-secrets/ServiceSecretRow";
-import { AdminError, AdminSection, adminErrorMessage } from "./admin-ui";
+import { KitBanner, KitSettingsGroup } from "@/components/kit";
+import { adminErrorMessage } from "./admin-ui";
 
 export function AdminServiceSecrets({
   userId,
@@ -43,22 +44,31 @@ export function AdminServiceSecrets({
 
   if (error) {
     return (
-      <AdminSection title="Agent service keys">
-        <AdminError testId="admin-service-secrets-error">{error}</AdminError>
-      </AdminSection>
+      <KitSettingsGroup title="Agent service keys">
+        <KitBanner tone="danger" data-testid="admin-service-secrets-error">
+          {error}
+        </KitBanner>
+      </KitSettingsGroup>
     );
   }
   if (!secrets || secrets.length === 0) return null;
 
   return (
-    <AdminSection
+    <KitSettingsGroup
       title="Agent service keys"
-      description="Keys this user's agents use when calling these services. Admin-managed keys are hidden from the user entirely; user-managed ones they can also change in Preferences. Saved keys can't be viewed, only replaced or removed."
-      testId="admin-service-secrets"
+      footer="Keys this user's agents use when calling these services. Admin-managed keys are hidden from the user entirely; user-managed ones they can also change in Preferences. Saved keys can't be viewed, only replaced or removed."
+      data-testid="admin-service-secrets"
     >
-      {groupByService(secrets).map((group) => (
-        <div key={group.service} className="flex flex-col">
-          <span className="text-[12px] text-[#cfc8b8] font-mono">
+      {groupByService(secrets).map((group, i) => (
+        <div
+          key={group.service}
+          className={
+            i > 0
+              ? "flex flex-col px-3.5 pt-2.5 border-t border-[var(--k-hair)]"
+              : "flex flex-col px-3.5 pt-2.5"
+          }
+        >
+          <span className="text-[12.5px] font-mono text-[var(--k-t2)]">
             {group.service}
           </span>
           {group.secrets.map((s) => (
@@ -78,6 +88,6 @@ export function AdminServiceSecrets({
           ))}
         </div>
       ))}
-    </AdminSection>
+    </KitSettingsGroup>
   );
 }

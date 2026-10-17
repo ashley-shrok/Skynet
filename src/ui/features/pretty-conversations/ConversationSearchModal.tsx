@@ -3,7 +3,7 @@
  *
  * Phase 143 Plan 143-08: retires the archived-row blunt-alert (D-11),
  * wires Un-archive kebab (D-12/D-13/D-14) with endpoint-first sequence,
- * native-alert success/failure with distinct missing_roles copy (D-16/D-17),
+ * kit notice (kitAlert) success/failure with distinct missing_roles copy (D-16/D-17),
  * modal stays open after un-archive (D-19).
  * See .planning/campaigns/un-archiving/shape-unarchive-frontend-backend.md
  *
@@ -42,21 +42,27 @@
  * dropped, preventing "typed foo, then bar, then foo's results overwrite
  * bar's results" and React duplicate-key warnings from load-more races.
  *
- * Chrome (2026-09-29 modal-unification pass): composes from the canonical
- * <Modal> + <ModalHead> + <ModalBody> + conditional <ModalFoot>. Visible
- * title in the head; the search input lives in a distinct filter-bar row
- * BELOW the head (matches tasting anatomy — see modal-tasting.html
- * L2466-2515). Load more is inline at the end of the results list; the
- * foot is rendered ONLY when there's an error to surface. Backdrop click
+ * Chrome (apple-ux kit pass): canonical <Modal> + <ModalHead> + <ModalBody>
+ * + conditional <ModalFoot>. The kit search box sits in its own row BELOW
+ * the head; results are KitListRows; Load more is a plain kit button at the
+ * end of the list; the foot is rendered ONLY when there's an error to
+ * surface (as a KitBanner). Backdrop click
  * never dismisses (unified rule at the Modal layer — no per-modal opt-in).
  * Size "wide-list" (2026-10-10): grows wide + full 85vh on big screens so
  * the multi-passage rows have room to read.
  */
 
 import { useEffect, useState } from "react";
-import { Search, Loader2, X } from "lucide-react";
 import { Modal, ModalHead, ModalBody, ModalFoot } from "@/components/modal";
-import { cn } from "@/lib/utils";
+import {
+  KitBanner,
+  KitButton,
+  KitEmpty,
+  KitList,
+  KitLoading,
+  KitSearch,
+  kitAlert,
+} from "@/components/kit";
 import {
   searchConversations,
   type ConversationSearchResult,
@@ -238,43 +244,36 @@ export function ConversationSearchModal({
       // Step 2: restored — now remove the row from the store.
       removeResultByIdentity(result.hostId, result.identityKey);
 
-      // Step 3: fire success alert (D-16).
-      // eslint-disable-next-line no-alert
-      window.alert(`${result.identityKey} is back.`);
+      // Step 3: fire success notice (D-16).
+      await kitAlert({
+        title: `Un-archiving ${result.identityKey}`,
+        body: "It may take a moment to reflect elsewhere in the app.",
+      });
     } catch (err) {
       // Failure path: row was NEVER removed (no restore branch needed —
-      // by construction the row is still present). Fire failure alert (D-17).
-      console.info({
-        operation: "conversation_search_unarchive_failed",
-        identityKey: result.identityKey,
-        hostId: result.hostId,
-        reason: err instanceof UnarchiveError ? err.reason : "error",
-      });
+      // by construction the row is still present). Fire failure notice (D-17).
       if (err instanceof UnarchiveError && err.reason === "missing_roles") {
-        // D-17 verbatim: names the still-archived role(s) inline.
-        // eslint-disable-next-line no-alert
-        window.alert(
-          `Un-archive role ${err.missingRoles?.join(", ") ?? "(unknown)"} first — this conversation depends on it.`,
-        );
-      } else if (err instanceof UnarchiveError && err.reason === "refused") {
-        // eslint-disable-next-line no-alert
-        window.alert(`Couldn't un-archive ${result.identityKey}: ${err.message}`);
+        // D-17: names the still-archived role(s) inline.
+        await kitAlert({
+          title: `Un-archive role ${err.missingRoles?.join(", ") ?? "(unknown)"} first`,
+          body: "This conversation depends on it.",
+        });
       } else if (err instanceof UnarchiveError && err.reason === "name_collision") {
-        // eslint-disable-next-line no-alert
-        window.alert(
-          `Couldn't un-archive ${result.identityKey} — a live conversation with the same key already exists.`,
-        );
+        await kitAlert({
+          title: `Couldn't un-archive ${result.identityKey}`,
+          body: "A live conversation with the same key already exists.",
+        });
       } else if (err instanceof UnarchiveError && err.reason === "archive_not_found") {
-        // eslint-disable-next-line no-alert
-        window.alert(
-          `Couldn't un-archive ${result.identityKey} — the archive may have already been reactivated. Try again in a moment.`,
-        );
+        await kitAlert({
+          title: `Couldn't un-archive ${result.identityKey}`,
+          body: "The archive may have already been reactivated. Try again in a moment.",
+        });
       } else {
         // Generic fallback for non-UnarchiveError or unknown reason (D-17).
-        // eslint-disable-next-line no-alert
-        window.alert(
-          `Couldn't un-archive ${result.identityKey} — try again in a moment.`,
-        );
+        await kitAlert({
+          title: `Couldn't un-archive ${result.identityKey}`,
+          body: "Try again in a moment.",
+        });
       }
     } finally {
       setUnarchiving((prev) => {
@@ -310,135 +309,93 @@ export function ConversationSearchModal({
     >
       <ModalHead title="Search conversations" />
 
-      {/* Filter bar — search input + optional clear button. Sits directly
-          below the head; tasting `.filter-bar` recipe (dark tint, hue-tinted
-          bottom border, flex-shrink-0). autoFocus so the input takes focus
-          on open. */}
+      {/* Search row — the kit search box, directly below the head.
+          autoFocus so the input takes focus on open. Enter fires the
+          search (D-01); the clear button / Esc reset the stored search. */}
       <div
-        className={cn(
-          "px-4 py-2.5 flex flex-row items-center gap-2 flex-shrink-0",
-          "bg-black/25",
-          "border-b border-[hsla(var(--pv-id-hue),60%,55%,0.18)]",
-        )}
+        className="px-6 pb-2 flex-shrink-0 max-sm:px-5"
+        onClickCapture={(e) => {
+          if ((e.target as Element).closest("[data-testid='conversation-search-clear-button']")) {
+            handleClear();
+          }
+        }}
       >
-        <Search size={16} className="shrink-0 text-[hsla(var(--pv-id-hue),22%,88%,0.6)]" />
-        <input
+        <KitSearch
           value={localValue}
-          onChange={(e) => setLocalValue(e.target.value)}
+          onValueChange={setLocalValue}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               e.preventDefault();
               void handleEnter();
+            } else if (e.key === "Escape" && e.defaultPrevented) {
+              // KitSearch already emptied the field; reset the stored search too.
+              handleClear();
             }
           }}
           placeholder="Search conversations..."
+          aria-label="Search conversations"
           data-testid="conversation-search-input"
+          clearTestId="conversation-search-clear-button"
           /* eslint-disable-next-line jsx-a11y/no-autofocus */
           autoFocus
-          className={cn(
-            "flex-1 min-w-0 px-2 py-1 rounded-md text-[12.5px] outline-none",
-            "bg-black/20 border border-[hsla(var(--pv-id-hue),65%,55%,0.22)]",
-            "text-[#fbf5e8]",
-            "focus:border-[hsla(var(--pv-id-hue),70%,60%,0.5)]",
-            "placeholder:text-[hsla(var(--pv-id-hue),22%,88%,0.45)]",
-            "transition-colors duration-150",
-          )}
         />
-        {localValue.length > 0 && (
-          <button
-            type="button"
-            aria-label="Clear search"
-            title="Clear"
-            onClick={handleClear}
-            data-testid="conversation-search-clear-button"
-            className={cn(
-              "shrink-0 cursor-pointer size-7 rounded-md flex items-center justify-center",
-              "text-[hsla(var(--pv-id-hue),22%,88%,0.7)]",
-              "hover:text-[#fbf5e8] hover:bg-black/25",
-              "transition-colors duration-150",
-            )}
-          >
-            <X size={14} />
-          </button>
-        )}
       </div>
 
       {/* Body — results list / empty / searching / no-results, and the
-          inline Load more anchor at the end of the list (tasting places
-          Load more inside the list body, not in a distinct foot). */}
-      <ModalBody
-        className="p-0 overflow-y-auto flex flex-col gap-1.5 px-3 py-2.5"
-        data-testid="conversation-search-body"
-      >
+          inline Load more at the end of the list. */}
+      <ModalBody className="flex flex-col pt-1" data-testid="conversation-search-body">
         {showSearching && (
-          <div
-            className="flex items-center gap-2 px-2 py-4 text-[12.5px] text-[hsla(var(--pv-id-hue),22%,88%,0.7)]"
+          <KitLoading
+            label="Searching..."
+            lines={3}
             data-testid="conversation-search-searching"
-          >
-            <Loader2 className="size-4 animate-spin" />
-            Searching...
-          </div>
+          />
         )}
         {showEmptyState && !showSearching && (
-          <div
-            className="px-2 py-4 text-[12.5px] text-[hsla(var(--pv-id-hue),22%,88%,0.6)]"
+          <KitEmpty
+            title="Type a query and press Enter"
             data-testid="conversation-search-empty-state"
-          >
-            Type a query and press Enter
-          </div>
+          />
         )}
         {showNoResults && (
-          <div
-            className="px-2 py-4 text-[12.5px] text-[hsla(var(--pv-id-hue),22%,88%,0.6)]"
+          <KitEmpty
+            title={<>No results for &quot;{state.query}&quot;</>}
             data-testid="conversation-search-no-results"
-          >
-            No results for &quot;{state.query}&quot;
-          </div>
-        )}
-        {state.results.map((r) => (
-          <ConversationSearchRow
-            key={r.transcriptPath}
-            result={r}
-            query={state.query}
-            onClick={() => handleRowClick(r)}
-            onUnarchive={r.isArchived ? handleUnarchive : undefined}
-            unarchiving={r.isArchived && unarchiving.has(unarchivingKey(r))}
           />
-        ))}
+        )}
+        {state.results.length > 0 && (
+          <KitList>
+            {state.results.map((r) => (
+              <ConversationSearchRow
+                key={r.transcriptPath}
+                result={r}
+                query={state.query}
+                onClick={() => handleRowClick(r)}
+                onUnarchive={r.isArchived ? handleUnarchive : undefined}
+              />
+            ))}
+          </KitList>
+        )}
         {state.hasMore && (
           <div className="flex justify-center pt-2 pb-1">
-            <button
-              type="button"
+            <KitButton
+              variant="plain"
               onClick={() => void handleLoadMore()}
               disabled={state.isFetching}
               data-testid="conversation-search-load-more"
-              className={cn(
-                "px-3 py-1.5 rounded-md text-[12px]",
-                "bg-[hsla(var(--pv-id-hue),65%,55%,0.20)]",
-                "hover:bg-[hsla(var(--pv-id-hue),65%,55%,0.32)]",
-                "border border-[hsla(var(--pv-id-hue),65%,55%,0.30)]",
-                "text-[#fbf5e8]",
-                "disabled:opacity-50 disabled:cursor-not-allowed",
-                "transition-colors duration-150",
-              )}
             >
               {state.isFetching ? "Loading..." : "Load more"}
-            </button>
+            </KitButton>
           </div>
         )}
       </ModalBody>
 
-      {/* Foot — rendered ONLY when there's an error to surface. Tasting
-          shows no ambient foot for this modal. */}
+      {/* Foot — rendered ONLY when there's an error to surface. */}
       {state.error && (
-        <ModalFoot className="justify-center">
-          <div
-            role="alert"
-            className="text-[11px] text-red-400"
-            data-testid="conversation-search-error"
-          >
+        <ModalFoot>
+          <KitBanner tone="danger" className="w-full" data-testid="conversation-search-error">
             {state.error}
-          </div>
+          </KitBanner>
         </ModalFoot>
       )}
     </Modal>

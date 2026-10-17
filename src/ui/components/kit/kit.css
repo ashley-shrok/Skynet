@@ -515,8 +515,9 @@ button.k-row:focus-visible { outline: 2px solid var(--k-acc); outline-offset: -2
   min-width: 0;
   flex-wrap: wrap;
 }
-.k-toolbar .k-btn { height: 30px; padding: 0 10px; font-size: 13px; background: transparent; color: var(--k-t2); font-weight: 550; }
-.k-toolbar .k-btn:hover { background: var(--k-s2); color: var(--k-t1); filter: none; }
+.k-toolbar .k-btn { height: 30px; padding: 0 10px; font-size: 13px; font-weight: 550; }
+.k-toolbar .k-btn:not([data-variant="primary"]):not([data-variant="danger"]) { background: transparent; color: var(--k-t2); }
+.k-toolbar .k-btn:not([data-variant="primary"]):not([data-variant="danger"]):hover { background: var(--k-s2); color: var(--k-t1); filter: none; }
 .k-toolbar .k-btn[aria-pressed="true"] { background: var(--k-s3); color: var(--k-t1); }
 .k-toolbar-grow { flex: 1; min-width: 0; }
 .k-crumbs { display: flex; align-items: center; gap: 4px; font-size: 13.5px; color: var(--k-t3); padding: 0 6px; min-width: 0; overflow: hidden; }

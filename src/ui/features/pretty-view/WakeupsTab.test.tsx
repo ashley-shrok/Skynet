@@ -68,6 +68,11 @@ vi.mock("@mdxeditor/editor", () => ({
 }));
 
 import { WakeupsTab } from "./WakeupsTab";
+import { __resetKitDialogsForTests } from "@/components/kit";
+
+afterEach(() => {
+  __resetKitDialogsForTests();
+});
 
 // ── Shared fixtures ────────────────────────────────────────────────────────────
 const BASE_WAKEUP: Wakeup = {
@@ -116,6 +121,24 @@ function enterEditMode(): void {
   fireEvent.click(screen.getByRole("button", { name: /Edit schedule/i }));
 }
 
+
+// apple-ux: the schedule kind is the kit segmented control (a group labelled
+// "Schedule type" whose pressed segment is the current kind).
+function scheduleKindGroup(): HTMLElement {
+  return screen.getByRole("group", { name: /Schedule type/i });
+}
+function scheduleKind(): string | undefined {
+  const pressed = within(scheduleKindGroup())
+    .getAllByRole("button")
+    .find((b) => b.getAttribute("aria-pressed") === "true");
+  return pressed?.getAttribute("data-testid")?.split("-").pop();
+}
+function pickKind(kind: string): void {
+  const btn = scheduleKindGroup().querySelector(`[data-testid$="-${kind}"]`);
+  if (!btn) throw new Error(`no schedule kind segment for ${kind}`);
+  fireEvent.click(btn);
+}
+
 describe("WakeupsTab — form-based wakeup editor (quick 260731-2pa)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -157,8 +180,7 @@ describe("WakeupsTab — form-based wakeup editor (quick 260731-2pa)", () => {
     fireEvent.click(screen.getByRole("button", { name: /Edit schedule/i }));
 
     // Schedule-type select shows "daily".
-    const typeSelect = screen.getByLabelText(/Schedule type/i) as HTMLSelectElement;
-    expect(typeSelect.value).toBe("daily");
+    expect(scheduleKind()).toBe("daily");
 
     // Time input has hydrated value 09:00.
     const timeInput = screen.getByLabelText(/Time \(local\)/i) as HTMLInputElement;
@@ -177,8 +199,7 @@ describe("WakeupsTab — form-based wakeup editor (quick 260731-2pa)", () => {
     fireEvent.click(screen.getByRole("button", { name: /Edit schedule/i }));
 
     // Change type to interval.
-    const typeSelect = screen.getByLabelText(/Schedule type/i) as HTMLSelectElement;
-    fireEvent.change(typeSelect, { target: { value: "interval" } });
+    pickKind("interval");
 
     // Interval fields present.
     expect(screen.getByLabelText(/Every/i)).toBeTruthy();
@@ -196,8 +217,7 @@ describe("WakeupsTab — form-based wakeup editor (quick 260731-2pa)", () => {
     fireEvent.click(screen.getByRole("button", { name: /Edit schedule/i }));
 
     // Change type to one_shot.
-    const typeSelect = screen.getByLabelText(/Schedule type/i) as HTMLSelectElement;
-    fireEvent.change(typeSelect, { target: { value: "one_shot" } });
+    pickKind("one_shot");
 
     // The one_shot datetime-local input is present.
     const atInput = screen.getByLabelText(/Fires at \(local\)/i) as HTMLInputElement;
@@ -226,12 +246,11 @@ describe("WakeupsTab — form-based wakeup editor (quick 260731-2pa)", () => {
     expect(screen.getByText(/Timezone \(auto-detected from browser\):/i)).toBeTruthy();
 
     // Switch to weekly — hint should still be present.
-    const typeSelect = screen.getByLabelText(/Schedule type/i) as HTMLSelectElement;
-    fireEvent.change(typeSelect, { target: { value: "weekly" } });
+    pickKind("weekly");
     expect(screen.getByText(/Timezone \(auto-detected from browser\):/i)).toBeTruthy();
 
     // Switch to one_shot — hint should still be present.
-    fireEvent.change(typeSelect, { target: { value: "one_shot" } });
+    pickKind("one_shot");
     expect(screen.getByText(/Timezone \(auto-detected from browser\):/i)).toBeTruthy();
   });
 
@@ -243,7 +262,7 @@ describe("WakeupsTab — form-based wakeup editor (quick 260731-2pa)", () => {
     fireEvent.click(screen.getByRole("button", { name: /Edit schedule/i }));
 
     // Change type to interval. Defaults are n=30, u='m' per the type-swap handler.
-    fireEvent.change(screen.getByLabelText(/Schedule type/i), { target: { value: "interval" } });
+    pickKind("interval");
 
     // Click Save.
     fireEvent.click(screen.getByRole("button", { name: /^Save$/i }));
@@ -299,7 +318,7 @@ describe("WakeupsTab — form-based wakeup editor (quick 260731-2pa)", () => {
     expect(nameInput.value).toBe("renamed-in-flight");
 
     // Also change the type dropdown.
-    fireEvent.change(screen.getByLabelText(/Schedule type/i), { target: { value: "weekly" } });
+    pickKind("weekly");
 
     // Click Cancel.
     fireEvent.click(screen.getByRole("button", { name: /Cancel/i }));
@@ -312,8 +331,7 @@ describe("WakeupsTab — form-based wakeup editor (quick 260731-2pa)", () => {
     // Re-open — form re-hydrates from wakeup.schedule (type=daily, at=09:00,
     // name reverted).
     fireEvent.click(screen.getByRole("button", { name: /Edit schedule/i }));
-    const typeSelectAfter = screen.getByLabelText(/Schedule type/i) as HTMLSelectElement;
-    expect(typeSelectAfter.value).toBe("daily");
+    expect(scheduleKind()).toBe("daily");
     const nameInputAfter = screen.getByLabelText(/Wakeup name/i) as HTMLInputElement;
     expect(nameInputAfter.value).toBe("daily-box-check");
     const timeInputAfter = screen.getByLabelText(/Time \(local\)/i) as HTMLInputElement;
@@ -563,7 +581,7 @@ describe("WakeupsTab — form-based wakeup editor (quick 260731-2pa)", () => {
     expect(trashIcons.length).toBe(2);
   });
 
-  it("17: clicking trash icon opens AlertDialog confirm; slug appears in description", () => {
+  it("17: clicking trash icon opens the kit confirm; slug appears in its body", async () => {
     render(
       <WakeupsTab
         state={{ status: "ready", data: [BASE_WAKEUP] }}
@@ -577,12 +595,11 @@ describe("WakeupsTab — form-based wakeup editor (quick 260731-2pa)", () => {
 
     fireEvent.click(screen.getByTestId("wakeup-delete-icon"));
 
-    // AlertDialog confirm present; slug appears in body. Query by description
-    // role so we're not matching the wakeup-name span in the header row too.
-    expect(screen.getByText(/Delete wakeup\?/i)).toBeTruthy();
-    const description = screen.getByRole("alertdialog").querySelector('[data-slot="alert-dialog-description"]');
-    expect(description).toBeTruthy();
-    expect(description!.textContent).toContain("daily-box-check");
+    // Kit confirm present (destructive "Delete"); slug appears in its body.
+    const dialog = await screen.findByTestId("kit-confirm-dialog");
+    expect(within(dialog).getByText(/Delete this wake-up\?/i)).toBeTruthy();
+    expect(dialog.textContent).toContain("daily-box-check");
+    expect(within(dialog).getByTestId("kit-dialog-confirm").textContent).toBe("Delete");
   });
 
   it("18: clicking Delete-confirm calls onDelete with the row's slug", async () => {
@@ -599,13 +616,13 @@ describe("WakeupsTab — form-based wakeup editor (quick 260731-2pa)", () => {
     );
 
     fireEvent.click(screen.getByTestId("wakeup-delete-icon"));
-    fireEvent.click(screen.getByTestId("wakeup-delete-confirm"));
+    fireEvent.click(await screen.findByTestId("kit-dialog-confirm"));
 
     await waitFor(() => expect(onDelete).toHaveBeenCalledTimes(1));
     expect(onDelete).toHaveBeenCalledWith("daily-box-check");
   });
 
-  it("19: clicking Cancel in the AlertDialog does NOT call onDelete", () => {
+  it("19: clicking Cancel in the kit confirm does NOT call onDelete", async () => {
     const onDelete = vi.fn().mockResolvedValue(undefined);
     render(
       <WakeupsTab
@@ -619,14 +636,13 @@ describe("WakeupsTab — form-based wakeup editor (quick 260731-2pa)", () => {
     );
 
     fireEvent.click(screen.getByTestId("wakeup-delete-icon"));
-    // AlertDialog Cancel button is rendered by AlertDialogCancel — accessible role="button" name /Cancel/i.
-    // Some Radix versions render two dialogs (portal); scope to a container.
-    fireEvent.click(screen.getByRole("button", { name: /^Cancel$/i }));
+    fireEvent.click(await screen.findByTestId("kit-dialog-cancel"));
 
+    await waitFor(() => expect(screen.queryByTestId("kit-confirm-dialog")).toBeNull());
     expect(onDelete).not.toHaveBeenCalled();
   });
 
-  it("20: onDelete rejection surfaces error text in the AlertDialog and does not close it", async () => {
+  it("20: onDelete rejection surfaces the error text on the row", async () => {
     const onDelete = vi.fn().mockRejectedValue(new Error("nope"));
     render(
       <WakeupsTab
@@ -640,12 +656,13 @@ describe("WakeupsTab — form-based wakeup editor (quick 260731-2pa)", () => {
     );
 
     fireEvent.click(screen.getByTestId("wakeup-delete-icon"));
-    fireEvent.click(screen.getByTestId("wakeup-delete-confirm"));
+    fireEvent.click(await screen.findByTestId("kit-dialog-confirm"));
 
     await waitFor(() => expect(onDelete).toHaveBeenCalledTimes(1));
-    // Error text surfaces inline; dialog still shows the title.
-    await waitFor(() => expect(screen.getByText(/nope/)).toBeTruthy());
-    expect(screen.getByText(/Delete wakeup\?/i)).toBeTruthy();
+    // Error text surfaces inline on the row (the confirm has closed); the
+    // wake-up is still listed.
+    await waitFor(() => expect(screen.getByText(/Couldn.t delete: nope/)).toBeTruthy());
+    expect(screen.getByText("daily-box-check")).toBeTruthy();
   });
 
   it("21: scope='role' — every wakeup row's scope pill reads 'role'", () => {
@@ -760,7 +777,7 @@ describe("WakeupsTab — schedule format v2", () => {
   it("monthly appears in the type dropdown and renders its day fields", () => {
     renderTab();
     enterEditMode();
-    fireEvent.change(screen.getByLabelText(/Schedule type/i), { target: { value: "monthly" } });
+    pickKind("monthly");
     expect(screen.getByLabelText("Day of month")).toBeTruthy();
     expect(screen.getByLabelText("Ends")).toBeTruthy();
     expect(screen.getByTestId("wakeup-json-preview").textContent).toMatch(/"type": "monthly"/);

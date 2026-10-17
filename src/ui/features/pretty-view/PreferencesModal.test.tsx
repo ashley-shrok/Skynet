@@ -14,6 +14,7 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import PreferencesModal from "./PreferencesModal";
 import type { UserPreferences } from "@/api/open-tabs-api";
+import { __resetKitDialogsForTests, autoAnswerKitDialogs } from "@/components/kit";
 
 // VoicePicker (used by PreferencesVoicePane) imports postSpeak from voice-api.
 // Mock the API so tests don't make real network calls.
@@ -89,6 +90,11 @@ vi.mock("@/features/notifications/telegram-setup-api", async (importOriginal) =>
   };
 });
 
+vi.mock("@/main-axios", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/main-axios")>();
+  return { ...actual, logoutUser: vi.fn().mockResolvedValue(undefined) };
+});
+
 const defaultProps = {
   open: true,
   onOpenChange: vi.fn(),
@@ -111,6 +117,7 @@ describe("PreferencesModal", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    __resetKitDialogsForTests();
   });
 
   it("(a) renders modal when open=true", () => {
@@ -270,7 +277,7 @@ describe("PreferencesModal", () => {
 
   it("(h) removing the number hides the Phone section and returns to General", async () => {
     getMyPhoneMock.mockResolvedValue("+17165550100");
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+    autoAnswerKitDialogs({ confirm: true });
     const user = userEvent.setup();
     render(<PreferencesModal {...defaultProps} open={true} />);
     await user.click(await screen.findByTestId("preferences-nav-phone"));
@@ -295,6 +302,28 @@ describe("PreferencesModal", () => {
       "https://example.com/acme/skynet-fork",
     );
     expect(screen.getByText(/AGPL-3\.0 terms/)).toBeTruthy();
+  });
+
+  it("(l) Log out asks first; cancel stays logged in, confirm logs out", async () => {
+    const onLogout = vi.fn();
+    window.addEventListener("skynet:logout", onLogout);
+    try {
+      const answers = [false, true];
+      const dialogs = autoAnswerKitDialogs({ confirm: () => answers.shift() ?? false });
+      const user = userEvent.setup();
+      render(<PreferencesModal {...defaultProps} open={true} />);
+      await user.click(screen.getByTestId("preferences-nav-logout"));
+      await waitFor(() => expect(dialogs.calls).toHaveLength(1));
+      expect(dialogs.calls[0].opts.title).toBe("Log out?");
+      expect(onLogout).not.toHaveBeenCalled();
+      // Log out is an action, not a pane — General stays selected.
+      expect(screen.getByTestId("preferences-general-pane")).toBeTruthy();
+
+      await user.click(screen.getByTestId("preferences-nav-logout"));
+      await waitFor(() => expect(onLogout).toHaveBeenCalledTimes(1));
+    } finally {
+      window.removeEventListener("skynet:logout", onLogout);
+    }
   });
 });
 
@@ -323,8 +352,9 @@ describe("PreferencesModal mobile drill-in", () => {
 
   const navHidden = () =>
     screen.getByTestId("preferences-modal-nav").classList.contains("hidden");
+  // ModalSidebar hides the pane column that wraps the pane body.
   const paneHidden = () =>
-    screen.getByTestId("preferences-modal-pane").classList.contains("hidden");
+    screen.getByTestId("preferences-modal-pane").closest(".hidden") !== null;
 
   it("opens on the section list; a section drills in; back returns to the list", async () => {
     const user = userEvent.setup();

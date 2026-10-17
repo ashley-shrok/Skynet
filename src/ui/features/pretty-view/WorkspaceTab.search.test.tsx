@@ -29,6 +29,7 @@ vi.mock("@/api/workspace-api", async (importOriginal) => {
 });
 
 import WorkspaceTab from "./WorkspaceTab";
+import { __resetKitDialogsForTests, autoAnswerKitDialogs } from "@/components/kit";
 import {
   deleteWorkspaceEntry,
   listWorkspace,
@@ -92,7 +93,10 @@ beforeEach(() => {
     entries: p === "" ? [dir("docs"), file("top.md")] : [file(`${p}/inside.md`)],
   }));
 });
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  __resetKitDialogsForTests();
+});
 
 describe("WorkspaceTab search", () => {
   it("starts empty and unfocused", async () => {
@@ -332,7 +336,7 @@ describe("WorkspaceTab search", () => {
   });
 
   it("deletes a result by its full path, then re-runs the search", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const dialogs = autoAnswerKitDialogs({ confirm: true });
     vi.mocked(searchWorkspace).mockResolvedValue(found([file("docs/plan.md"), file("plan.md")]));
     renderTab();
     await screen.findByText("top.md");
@@ -348,6 +352,8 @@ describe("WorkspaceTab search", () => {
         "docs/plan.md",
       ),
     );
+    expect(dialogs.calls).toHaveLength(1);
+    expect(dialogs.calls[0].opts.title).toBe('Delete "plan.md"?');
     await waitFor(() => expect(searchWorkspace).toHaveBeenCalledTimes(2));
   });
 

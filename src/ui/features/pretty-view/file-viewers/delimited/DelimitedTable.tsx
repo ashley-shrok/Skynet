@@ -16,6 +16,7 @@ import {
   type ValueSetterParams,
 } from "ag-grid-community";
 import { Columns3, Plus, Redo2, Rows3, Trash2, Undo2 } from "lucide-react";
+import { kitPrompt } from "@/components/kit";
 import { cn } from "@/lib/utils";
 import type { FileModeViewProps } from "../registry";
 import { DARK_GRID_THEME } from "../data/grid-theme";
@@ -237,11 +238,16 @@ export default function DelimitedTable({
     );
   };
 
-  const renameColumn = () => {
+  const renameColumn = async () => {
     const f = focused();
     if (!f || f.col < 0 || !headerRecord) return;
     const current = headerRecord.cells[f.col] ?? "";
-    const name = window.prompt("Column name", current);
+    const name = await kitPrompt({
+      title: "Rename column",
+      label: "Column name",
+      defaultValue: current,
+      confirmLabel: "Rename",
+    });
     if (name === null || name === current) return;
     commit(
       records.map((r, i) => {
@@ -296,7 +302,7 @@ export default function DelimitedTable({
               <Trash2 size={13} aria-hidden /> Column
             </button>
             {hasHeader ? (
-              <button type="button" className={TOOL_BTN} onClick={renameColumn} disabled={disabled} title="Rename the selected cell's column">
+              <button type="button" className={TOOL_BTN} onClick={() => void renameColumn()} disabled={disabled} title="Rename the selected cell's column">
                 <Columns3 size={13} aria-hidden /> Rename
               </button>
             ) : null}

@@ -13,13 +13,10 @@
  * prop threaded through). Same viewport-level modal as GlobalFilesModal +
  * SkillsEditorModal.
  *
- * D-05 (LOCKED): each row is rendered in `.pv-row` conversation-row treatment
- * — hue-tinted linear-gradient background keyed on the role's `colorHue`
- * (fallback hue 190 per D-05 edge-case), hue-tinted border, layered
- * hue-glow box-shadow, backdrop-filter blur, `border-radius:
- * var(--radius-pv-bubble)` (14px), 8px vertical gap between rows. Row
- * content: 40px round `.pv-avatar`-style disc with the role's avatar image,
- * display name (falls back to title-cased slug), right-side chevron.
+ * D-05 (revised apple-ux look A): each row is the kit's KitListRow — the
+ * role's avatar (or its initial) on a disc tinted by the role's `colorHue`
+ * (fallback hue 190), the display name (falls back to title-cased slug), and
+ * the kebab menu. The colour tints only the avatar, never the row.
  * Alphabetical sort by displayName.
  *
  * D-10 (revised 2026-09-11): '+ New role' button lives in the modal header
@@ -38,9 +35,20 @@
 
 import { identityRoles } from "@/lib/identity-roles";
 import { useEffect, useMemo, useState } from "react";
-import { ChevronRight, ChevronDown, Archive as ArchivedBoxIcon } from "lucide-react";
+import { ChevronDown, Archive as ArchivedBoxIcon, Plus } from "lucide-react";
 import { Modal, ModalHead, ModalBody } from "@/components/modal";
-import { cn } from "@/lib/utils";
+import {
+  KitBanner,
+  KitButton,
+  KitEmpty,
+  KitList,
+  KitListHead,
+  KitListRow,
+  KitLoading,
+  KitSelect,
+  kitAlert,
+  kitConfirm,
+} from "@/components/kit";
 import type { Host, HostFolder } from "@/types/ui-types";
 import {
   listRolesForHost,
@@ -69,10 +77,6 @@ import {
   type InstanceWideList,
 } from "@/api/instance-wide-api";
 import { InstanceWideChip, InstanceWideSyncStatus } from "./InstanceWideStatus";
-
-// Chrome/Linux desktop <option> popup — same OPTION_STYLE that
-// GlobalFilesModal.tsx L33 pins for popup contrast.
-const OPTION_STYLE = { backgroundColor: "#1a1a1a", color: "#e8e4d8" } as const;
 
 // D-05 fallback hue: 190 is the app-wide accent — used when a role's
 // frontmatter lacks `colorHue` (edge case only per Phase 86 invariant).
@@ -105,6 +109,11 @@ function hueFor(role: RoleSummary): number {
   return typeof role.colorHue === "number" ? role.colorHue : FALLBACK_HUE;
 }
 
+// Look A: the role's colour tints only its avatar disc, never the row.
+export function roleAvatarColor(hue: number): string {
+  return `hsl(${hue}, 42%, 34%)`;
+}
+
 // ─── ArchivedRoleRow ──────────────────────────────────────────────────────────
 // Phase 143 Plan 143-07 (D-10 / D-12 / D-13) — sub-component for each
 // archived-role row in the collapsed section. Uses FALLBACK_HUE=190 since the
@@ -118,7 +127,6 @@ interface ArchivedRoleRowProps {
 }
 
 function ArchivedRoleRow({ entry, onUnarchive }: ArchivedRoleRowProps): JSX.Element {
-  const hue = FALLBACK_HUE;
   // Title-case the slug as a display label (no displayName in the minimal schema).
   const label = roleDisplayName(entry.name, undefined);
   const kebabItems: RowKebabMenuItem[] = [
@@ -127,82 +135,24 @@ function ArchivedRoleRow({ entry, onUnarchive }: ArchivedRoleRowProps): JSX.Elem
   // Right-click the row → same kebab menu at the cursor.
   const kebabContextMenu = useRowKebabContextMenu(kebabItems);
   return (
-    <div
-      onContextMenu={kebabContextMenu.onContextMenu}
-      style={{
-        borderRadius: 14,
-        background: `linear-gradient(160deg, hsla(${hue}, 30%, 28%, 0.45), hsla(${hue}, 25%, 16%, 0.50))`,
-        border: `1px solid hsla(${hue}, 40%, 40%, 0.25)`,
-        boxShadow: [
-          "0 8px 24px rgba(0, 0, 0, 0.5)",
-          "inset 0 1px 0 rgba(255, 220, 170, 0.10)",
-          `0 0 0 0.5px hsla(${hue}, 50%, 45%, 0.15)`,
-          `0 0 32px hsla(${hue}, 50%, 42%, 0.12)`,
-        ].join(", "),
-        backdropFilter: "blur(20px) saturate(1.5)",
-        WebkitBackdropFilter: "blur(20px) saturate(1.5)",
-        padding: "10px 12px",
-        display: "flex",
-        alignItems: "center",
-        gap: 12,
-        color: "hsla(0, 0%, 90%, 0.65)",
-        opacity: 0.85,
-      }}
-    >
-      {/* 40px round avatar disc — fallback placeholder letter */}
-      <div
-        style={{
-          width: 40,
-          height: 40,
-          borderRadius: 999,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          background: `linear-gradient(160deg, hsla(${hue}, 25%, 18%, 0.72), hsla(${hue}, 20%, 10%, 0.82))`,
-          border: `1px solid hsla(${hue}, 40%, 40%, 0.30)`,
-          boxShadow: [
-            "0 4px 12px rgba(0, 0, 0, 0.6)",
-            "inset 0 2px 0 rgba(255, 235, 190, 0.15)",
-            `0 0 24px hsla(${hue}, 45%, 40%, 0.25)`,
-          ].join(", "),
-          overflow: "hidden",
-          flexShrink: 0,
-        }}
-      >
-        <span
-          style={{
-            fontSize: 15,
-            fontWeight: 700,
-            color: "hsla(0, 0%, 88%, 0.60)",
-          }}
-        >
-          {label.charAt(0).toUpperCase()}
-        </span>
-      </div>
-
-      {/* Display name */}
-      <span
-        style={{
-          flex: 1,
-          minWidth: 0,
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-          fontWeight: 600,
-          fontSize: 14,
-        }}
-      >
-        {label}
-      </span>
-
-      {/* Kebab — single "Un-archive" item; no ChevronRight (not drill-in) */}
-      <RowKebabMenu
-        items={kebabItems}
-        ariaLabel={`Row menu for ${entry.name}`}
-        testId={`roles-list-archived-row-kebab-${entry.name}`}
+    <>
+      <KitListRow
+        onContextMenu={kebabContextMenu.onContextMenu}
+        dim
+        avatar={label.charAt(0).toUpperCase()}
+        avatarColor={roleAvatarColor(FALLBACK_HUE)}
+        title={label}
+        // Kebab — single "Un-archive" item; the row itself is not clickable.
+        menu={
+          <RowKebabMenu
+            items={kebabItems}
+            ariaLabel={`Row menu for ${entry.name}`}
+            testId={`roles-list-archived-row-kebab-${entry.name}`}
+          />
+        }
       />
       {kebabContextMenu.menu}
-    </div>
+    </>
   );
 }
 
@@ -286,32 +236,44 @@ export function RolesListModal({
     try {
       const preview = await previewPromote("role", roleName, selectedHostId);
       if (preview.tooLarge) {
-        window.alert(
-          `"${roleName}" is too big to make instance-wide (${preview.files} files). Clean up its folder first.`,
-        );
+        void kitAlert({
+          title: `"${roleName}" is too big to make instance-wide`,
+          body: `It has ${preview.files} files. Clean up its folder first.`,
+        });
         return;
       }
-      if (!window.confirm(promoteConfirmText("role", roleName, preview))) return;
+      if (
+        !(await kitConfirm({
+          title: `Make "${roleName}" instance-wide?`,
+          // The text opens with the same question — the title carries it.
+          body: promoteConfirmText("role", roleName, preview).replace(/^[^\n]*\n\n?/, ""),
+          confirmLabel: "Make instance-wide",
+        }))
+      )
+        return;
       await promote("role", roleName, selectedHostId);
       setReloadKey((k) => k + 1);
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : "Couldn't make it instance-wide");
+      void kitAlert({ title: "Couldn't make it instance-wide", body: err instanceof Error ? err.message : undefined });
     }
   };
 
   const handleRemoveInstanceRole = async (roleName: string, label: string): Promise<void> => {
     const count = instanceWide?.items.find((i) => i.name === roleName)?.hostCount ?? 0;
     if (
-      !window.confirm(
-        `Remove the instance-wide role ${label}? Its folder will be deleted from ${count} host${count === 1 ? "" : "s"}, along with anything agents saved in it there. This can't be undone.`,
-      )
+      !(await kitConfirm({
+        title: `Remove the instance-wide role ${label}?`,
+        body: `Its folder will be deleted from ${count} host${count === 1 ? "" : "s"}, along with anything agents saved in it there. This can't be undone.`,
+        confirmLabel: "Remove",
+        destructive: true,
+      }))
     )
       return;
     try {
       await removeInstanceWide("role", roleName);
       setReloadKey((k) => k + 1);
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : "Couldn't remove it");
+      void kitAlert({ title: "Couldn't remove it", body: err instanceof Error ? err.message : undefined });
     }
   };
 
@@ -324,10 +286,10 @@ export function RolesListModal({
   // Rationale: modal stays OPEN after archive (browse-and-act semantics — the
   // operator may want to archive multiple roles in sequence). Deliberate
   // divergence from identity-archive which closes the pane.
-  const handleArchiveClick = (
+  const handleArchiveClick = async (
     roleName: string,
     roleDisplayLabel: string,
-  ): void => {
+  ): Promise<void> => {
     if (selectedHostId == null) return;
     const hostId = selectedHostId;
     // D-04: filter useIdentities() by role + host. Uses `task || displayName`
@@ -337,15 +299,30 @@ export function RolesListModal({
       (i) => identityRoles(i).includes(roleName) && i.hostId === hostId,
     );
     // D-03 first confirm: blast-radius disclosure. Complete list, no truncation.
-    const dialog1 =
+    const blastRadius =
       affected.length === 0
-        ? `archive role ${roleDisplayLabel}? no agents hold it.`
-        : `archive role ${roleDisplayLabel}? this will also archive ${affected.length} ${affected.length === 1 ? "agent" : "agents"} holding it:\n` +
+        ? "No agents hold it."
+        : `This will also archive ${affected.length} ${affected.length === 1 ? "agent" : "agents"} holding it:\n` +
           affected.map((i) => `• ${i.task || i.displayName}`).join("\n");
-    if (!window.confirm(dialog1)) return;
-    // D-03 second confirm: sanity tap. Byte-identical to identity-archive's
-    // sanity-tap copy at IdentitySessionPane.tsx:227.
-    if (!window.confirm("are you sure? this can't be undone.")) return;
+    if (
+      !(await kitConfirm({
+        title: `Archive role ${roleDisplayLabel}?`,
+        body: blastRadius,
+        confirmLabel: "Archive",
+        destructive: true,
+      }))
+    )
+      return;
+    // D-03 second confirm: sanity tap (mirrors identity-archive's sanity tap).
+    if (
+      !(await kitConfirm({
+        title: "Are you sure?",
+        body: "This can't be undone.",
+        confirmLabel: "Archive",
+        destructive: true,
+      }))
+    )
+      return;
     // Optimistic removal: drop the row from the local list immediately so the
     // operator sees the archive take effect. If the API call fails, the alert
     // below tells them, and the next modal open / host switch fetches fresh
@@ -365,9 +342,10 @@ export function RolesListModal({
         roleName,
         errMessage,
       });
-      window.alert(
-        `Failed to archive role "${roleDisplayLabel}": ${errMessage}\n\nThe role may still be present. Close and reopen the roles list to see current state.`,
-      );
+      void kitAlert({
+        title: `Couldn't archive role "${roleDisplayLabel}"`,
+        body: `${errMessage}\n\nThe role may still be present. Close and reopen the roles list to see current state.`,
+      });
     });
   };
 
@@ -472,24 +450,33 @@ export function RolesListModal({
             ? { status: "ready", data: prev.data.filter((e) => e.name !== entry.name) }
             : prev,
         );
-        window.alert(
-          `Un-archiving role ${entry.name} — it may take a moment to reflect elsewhere in the app.`,
-        );
+        void kitAlert({
+          title: `Un-archiving role ${entry.name}`,
+          body: "It may take a moment to reflect elsewhere in the app.",
+        });
         // D-19: section stays expanded after un-archive — do NOT setArchivedExpanded(false).
       })
       .catch((err: unknown) => {
         // On failure: row stays (never touched state). Fire D-17 alert.
         if (err instanceof UnarchiveError && err.reason === "name_collision") {
-          window.alert(
-            `Couldn't un-archive role ${entry.name} — a live role with that name already exists.`,
-          );
+          void kitAlert({
+            title: `Couldn't un-archive role ${entry.name}`,
+            body: "A live role with that name already exists.",
+          });
         } else {
-          window.alert(
-            `Couldn't un-archive role ${entry.name} — try again in a moment.`,
-          );
+          void kitAlert({
+            title: `Couldn't un-archive role ${entry.name}`,
+            body: "Try again in a moment.",
+          });
         }
       });
   };
+
+  const newRoleButton = () => (
+    <KitButton variant="primary" size="sm" onClick={onNewRole} aria-label="+ New role">
+      <Plus /> New role
+    </KitButton>
+  );
 
   return (
     <Modal
@@ -503,94 +490,53 @@ export function RolesListModal({
       <ModalHead
         title="Roles"
         subtitle="Roles are the expertise your agents adopt. Every agent using a role inherits its goals, rules, and knowledge."
-        actions={
-          <button
-            type="button"
-            onClick={onNewRole}
-            className={cn(
-              "px-3 py-1.5 rounded-md text-sm cursor-pointer",
-              "bg-[hsla(var(--pv-id-hue),65%,55%,0.30)]",
-              "hover:bg-[hsla(var(--pv-id-hue),65%,55%,0.42)]",
-              "border border-[hsla(var(--pv-id-hue),75%,70%,0.45)]",
-              "text-[#fbf5e8]",
-            )}
-          >
-            + New role
-          </button>
-        }
+        actions={newRoleButton()}
       />
 
       {/* Host picker — hidden when flatHosts.length === 1 (Phase 84 D-02). */}
       {!hidePicker && (
-        <div
-          className={cn(
-            "px-5 py-2.5 flex-shrink-0",
-            "border-b border-[hsla(var(--pv-id-hue),60%,55%,0.18)]",
-            "bg-black/25",
-          )}
-        >
-          <select
+        <div className="px-6 max-sm:px-5 pb-3 flex-shrink-0">
+          <KitSelect
             aria-label="Host"
             value={selectedHostId ?? ""}
             onChange={(e) =>
               setSelectedHostId(e.target.value ? Number(e.target.value) : null)
             }
-            className={cn(
-              "w-full px-3 py-1.5 rounded-md text-sm cursor-pointer outline-none",
-              "bg-black/20 border border-[hsla(var(--pv-id-hue),65%,55%,0.22)]",
-              "text-[#fbf5e8]",
-              "focus:border-[hsla(var(--pv-id-hue),70%,60%,0.5)]",
-            )}
+            className="w-full"
           >
-            <option value="" style={OPTION_STYLE}>
-              Pick a host…
-            </option>
+            <option value="">Pick a host…</option>
             {flatHosts.map((h) => (
-              <option key={h.id} value={h.id} style={OPTION_STYLE}>
+              <option key={h.id} value={h.id}>
                 {h.name}
               </option>
             ))}
-          </select>
+          </KitSelect>
         </div>
       )}
 
       {/* Body — layered branches: no-host / loading / error / empty / list. */}
-      <ModalBody className="p-0 overflow-y-auto flex flex-col">
+      <ModalBody className="flex flex-col">
       {selectedHostId == null ? (
-            <div className="flex-1 flex items-center justify-center text-[hsla(var(--pv-id-hue),22%,88%,0.65)] text-sm">
-              Pick a host to see its roles.
-            </div>
+            <KitEmpty className="flex-1 justify-center" title="Pick a host to see its roles." />
           ) : rolesState.status === "loading" ? (
-            <div className="flex-1 flex items-center justify-center text-[hsla(var(--pv-id-hue),22%,88%,0.65)] text-sm">
-              Loading…
-            </div>
+            <KitLoading label="Loading…" />
           ) : rolesState.status === "error" ? (
-            <div className="flex-1 flex items-center justify-center text-red-400 text-sm px-6 text-center">
-              {rolesState.error}
-            </div>
+            <KitBanner tone="danger">{rolesState.error}</KitBanner>
           ) : rolesState.data.length === 0 ? (
             // D-05 empty state — surface the '+ New role' affordance
             // prominently. The header button is always available; a
             // secondary in-body button gives the empty-state its own
             // affordance so the user isn't hunting.
-            <div className="flex-1 flex flex-col items-center justify-center text-[hsla(var(--pv-id-hue),22%,88%,0.65)] gap-3 text-sm text-center px-6">
-              <div>No roles yet.</div>
-              <button
-                type="button"
-                onClick={onNewRole}
-                className="px-3 py-1.5 rounded-md bg-[hsla(var(--pv-id-hue),65%,55%,0.30)] hover:bg-[hsla(var(--pv-id-hue),65%,55%,0.42)] border border-[hsla(var(--pv-id-hue),75%,70%,0.45)] text-[#fbf5e8] text-sm cursor-pointer"
-              >
-                + New role
-              </button>
-            </div>
+            <KitEmpty
+              className="flex-1 justify-center"
+              title="No roles yet."
+              action={newRoleButton()}
+            />
           ) : (
-            // D-05: alphabetical list of `.pv-row`-treatment rows.
-            // D-12/D-13/D-14: each row carries an always-visible kebab menu with Archive.
+            // D-05: alphabetical list of kit list rows.
+            // D-12/D-13/D-14: each row carries a kebab menu with Archive.
             // D-15: right-click Archive retired on this surface (phase-143).
-            <div
-              className="flex-1 min-h-0 overflow-y-auto px-6 py-4"
-              style={{ display: "flex", flexDirection: "column", gap: 8 }}
-            >
+            <KitList>
               {[
                 ...rolesState.data.filter((r) => r.instanceWide),
                 ...rolesState.data.filter((r) => !r.instanceWide),
@@ -607,20 +553,14 @@ export function RolesListModal({
                     ? flatHosts.find((h) => Number(h.id) === selectedHostId)?.name ?? "This host"
                     : null;
                 const label = displayNameFor(role);
-                // D-14: row handlers — row click opens RoleModal; kebab click
-                // stops propagation (handled inside RowKebabMenu per D-14).
+                // D-14: row click opens RoleModal; clicks on the kebab (or
+                // any control inside the row) don't activate the row.
                 const handleRowSelect = (): void => {
                   onSelectRole({
                     roleName: role.name,
                     roleCosmetics: role,
                     hostId: selectedHostId,
                   });
-                };
-                const handleRowKeyDown = (e: React.KeyboardEvent): void => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    handleRowSelect();
-                  }
                 };
                 const kebabItems: RowKebabMenuItem[] = role.instanceWide
                   ? isAdmin
@@ -658,153 +598,62 @@ export function RolesListModal({
                         label: "Archive",
                         danger: true,
                         separatorBefore: isAdmin,
-                        onClick: () => handleArchiveClick(role.name, label),
+                        onClick: () => {
+                          void handleArchiveClick(role.name, label);
+                        },
                       },
                     ];
                 return (
                   <div key={role.name} style={{ display: "contents" }}>
                   {sectionHeading && (
-                    <div
-                      data-testid="roles-list-section-heading"
-                      className="text-[12px] font-semibold uppercase tracking-wide text-[hsla(var(--pv-id-hue),22%,88%,0.55)] pt-1"
-                    >
+                    <KitListHead data-testid="roles-list-section-heading">
                       {sectionHeading}
-                    </div>
+                    </KitListHead>
                   )}
-                  {/* D-12/D-13/D-14: row is a <div role="button"> so the kebab
-                      <button> can live as a sibling inside it without violating
-                      the HTML rule against nested <button> elements.
-                      D-15: the old right-click Archive handler stays retired;
-                      right-click now opens the SAME kebab menu at the cursor. */}
+                  {/* D-15: right-click opens the SAME kebab menu at the cursor.
+                      The kebab's ariaLabel uses the slug (role.name), not the
+                      display label, to avoid aria-label collisions with the
+                      row itself (which carries the display name). */}
                   <RowKebabContextMenuSurface items={kebabItems}>
-                    <div
-                      role="button"
-                      tabIndex={0}
+                    <KitListRow
                       aria-label={label}
-                      onClick={handleRowSelect}
-                      onKeyDown={handleRowKeyDown}
-                      // D-05 verbatim: `.pv-row` treatment inline (class-based
-                      // hue is not viable, so we inline the hsla stops keyed
-                      // on the role's hue). Values mirror
-                      // pretty-conversations.css L482-517.
-                      style={{
-                        borderRadius: 14,
-                        background: `linear-gradient(160deg, hsla(${hue}, 50%, 38%, 0.55), hsla(${hue}, 45%, 24%, 0.60))`,
-                        border: `1px solid hsla(${hue}, 65%, 55%, 0.32)`,
-                        boxShadow: [
-                          "0 8px 24px rgba(0, 0, 0, 0.5)",
-                          "inset 0 1px 0 rgba(255, 220, 170, 0.18)",
-                          `0 0 0 0.5px hsla(${hue}, 70%, 55%, 0.20)`,
-                          `0 0 32px hsla(${hue}, 70%, 52%, 0.18)`,
-                        ].join(", "),
-                        backdropFilter: "blur(20px) saturate(1.5)",
-                        WebkitBackdropFilter: "blur(20px) saturate(1.5)",
-                        padding: "10px 12px",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 12,
-                        cursor: "pointer",
-                        color: "#fbf5e8",
-                        textAlign: "left",
-                      }}
-                    >
-                      {/* 40px round `.pv-avatar`-style disc — hue gradient
-                          background with the role's avatar image inside. */}
-                      <div
-                        style={{
-                          width: 40,
-                          height: 40,
-                          borderRadius: 999,
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          background: `linear-gradient(160deg, hsla(${hue}, 45%, 25%, 0.72), hsla(${hue}, 40%, 15%, 0.82))`,
-                          border: `1px solid hsla(${hue}, 65%, 55%, 0.40)`,
-                          boxShadow: [
-                            "0 4px 12px rgba(0, 0, 0, 0.6)",
-                            "inset 0 2px 0 rgba(255, 235, 190, 0.35)",
-                            `0 0 24px hsla(${hue}, 65%, 55%, 0.40)`,
-                          ].join(", "),
-                          overflow: "hidden",
-                          flexShrink: 0,
-                        }}
-                      >
-                        {role.avatar ? (
-                          <img
-                            src={roleAvatarUrl(selectedHostId, role.name)}
-                            alt=""
-                            style={{
-                              width: "100%",
-                              height: "100%",
-                              objectFit: "cover",
-                              borderRadius: 999,
-                            }}
-                          />
-                        ) : (
-                          // Fallback: neutral placeholder — a single letter of
-                          // the display name (D-05 "neutral placeholder avatar").
-                          <span
-                            style={{
-                              fontSize: 15,
-                              fontWeight: 700,
-                              color: "#fbf5e8",
-                            }}
-                          >
-                            {label.charAt(0).toUpperCase()}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Display name */}
-                      <span
-                        style={{
-                          flex: 1,
-                          minWidth: 0,
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                          fontWeight: 600,
-                          fontSize: 14,
-                        }}
-                      >
-                        {label}
-                      </span>
-                      {role.instanceWide && <InstanceWideChip />}
-                      {iwItem && (
-                        <span onClick={(e) => e.stopPropagation()}>
-                          <InstanceWideSyncStatus item={iwItem} />
-                        </span>
-                      )}
-
-                      {/* D-12/D-13: always-visible kebab with single Archive item.
-                          Placed BEFORE ChevronRight so the kebab is the rightmost
-                          interactive element (ChevronRight removed — the whole row
-                          is the click target). ariaLabel uses slug (role.name) not
-                          display label to avoid aria-label collisions with the row
-                          itself (both carry the display name). */}
-                      <RowKebabMenu
-                        items={kebabItems}
-                        ariaLabel={`Row menu for ${role.name}`}
-                        testId={`roles-list-row-kebab-${role.name}`}
-                      />
-
-                      {/* Right-side chevron (low opacity — decorative, not
-                          actionable — the whole row is the click target). */}
-                      <ChevronRight
-                        size={18}
-                        style={{ opacity: 0.55, flexShrink: 0 }}
-                      />
-                    </div>
+                      onActivate={handleRowSelect}
+                      avatarColor={roleAvatarColor(hue)}
+                      avatarSrc={role.avatar ? roleAvatarUrl(selectedHostId, role.name) : null}
+                      // Fallback: neutral placeholder — a single letter of
+                      // the display name (D-05 "neutral placeholder avatar").
+                      avatar={label.charAt(0).toUpperCase()}
+                      title={label}
+                      trailing={
+                        role.instanceWide || iwItem ? (
+                          <>
+                            {role.instanceWide && <InstanceWideChip />}
+                            {iwItem && (
+                              <span onClick={(e) => e.stopPropagation()}>
+                                <InstanceWideSyncStatus item={iwItem} />
+                              </span>
+                            )}
+                          </>
+                        ) : undefined
+                      }
+                      menu={
+                        <RowKebabMenu
+                          items={kebabItems}
+                          ariaLabel={`Row menu for ${role.name}`}
+                          testId={`roles-list-row-kebab-${role.name}`}
+                        />
+                      }
+                    />
                   </RowKebabContextMenuSurface>
                   </div>
                 );
               })}
-            </div>
+            </KitList>
           )}
       </ModalBody>
 
       {/* phase-143 D-10 / D-18 / D-19 — archived-roles collapsed section */}
-      <div className="border-t border-[hsla(var(--pv-id-hue),40%,45%,0.15)] flex-shrink-0">
+      <div className="border-t border-[var(--k-hair)] flex-shrink-0">
         {/* Section header — always visible regardless of archived count (D-18). */}
         <div
           role="button"
@@ -816,16 +665,16 @@ export function RolesListModal({
               handleExpandArchived();
             }
           }}
-          className="flex items-center gap-2.5 px-6 py-2.5 w-full text-left cursor-pointer"
+          className="flex items-center gap-2.5 px-6 max-sm:px-5 py-3 w-full text-left cursor-pointer text-[var(--k-t2)] hover:text-[var(--k-t1)]"
           data-testid="roles-list-archived-section-header"
           aria-expanded={archivedExpanded}
           aria-controls="roles-list-archived-content"
         >
-          <ArchivedBoxIcon className="size-3.5 text-[hsla(var(--pv-id-hue),22%,88%,0.6)] shrink-0" aria-hidden="true" />
-          <span className="text-[13px] font-semibold text-[hsla(var(--pv-id-hue),22%,88%,0.6)] shrink-0">Archived roles</span>
-          <span aria-hidden="true" className="flex-1 h-px bg-[linear-gradient(90deg,transparent_0%,rgba(168,154,128,0.20)_30%,rgba(168,154,128,0.20)_70%,transparent_100%)]" />
+          <ArchivedBoxIcon className="size-3.5 shrink-0" aria-hidden="true" />
+          <span className="text-[13px] font-semibold shrink-0">Archived roles</span>
+          <span aria-hidden="true" className="flex-1" />
           <ChevronDown
-            className={`size-3.5 text-[hsla(var(--pv-id-hue),22%,88%,0.6)] shrink-0 transition-transform ${archivedExpanded ? "rotate-180" : ""}`}
+            className={`size-3.5 shrink-0 transition-transform ${archivedExpanded ? "rotate-180" : ""}`}
             aria-hidden="true"
           />
         </div>
@@ -834,33 +683,26 @@ export function RolesListModal({
         {archivedExpanded && (
           <div
             id="roles-list-archived-content"
-            className="max-h-[40vh] overflow-y-auto px-6 pb-4"
-            style={{ display: "flex", flexDirection: "column", gap: 8 }}
+            className="max-h-[40vh] overflow-y-auto px-6 max-sm:px-5 pb-4"
           >
-            {archivedRolesState.status === "loading" && (
-              <div className="flex items-center justify-center text-[hsla(var(--pv-id-hue),22%,88%,0.55)] text-sm py-4">
-                Loading…
-              </div>
-            )}
+            {archivedRolesState.status === "loading" && <KitLoading lines={2} label="Loading…" />}
             {archivedRolesState.status === "error" && (
-              <div className="flex items-center justify-center text-red-400 text-sm py-4 text-center">
-                {archivedRolesState.error}
-              </div>
+              <KitBanner tone="danger">{archivedRolesState.error}</KitBanner>
             )}
             {archivedRolesState.status === "ready" && archivedRolesState.data.length === 0 && (
-              <div className="flex items-center justify-center text-[hsla(var(--pv-id-hue),22%,88%,0.50)] text-sm py-4">
-                {"No archived roles."}
-              </div>
+              <KitEmpty title="No archived roles." />
             )}
-            {archivedRolesState.status === "ready" && archivedRolesState.data.length > 0 &&
-              archivedRolesState.data.map((entry) => (
-                <ArchivedRoleRow
-                  key={entry.name}
-                  entry={entry}
-                  onUnarchive={handleUnarchiveRole}
-                />
-              ))
-            }
+            {archivedRolesState.status === "ready" && archivedRolesState.data.length > 0 && (
+              <KitList>
+                {archivedRolesState.data.map((entry) => (
+                  <ArchivedRoleRow
+                    key={entry.name}
+                    entry={entry}
+                    onUnarchive={handleUnarchiveRole}
+                  />
+                ))}
+              </KitList>
+            )}
           </div>
         )}
       </div>

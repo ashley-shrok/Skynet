@@ -11,7 +11,7 @@
 //     the "attention needed" signal.
 //   - Head: canonical <ModalHead title="..." hideClose /> — non-dismissible
 //     shells drop the close X.
-//   - Foot: canonical <ModalFoot> with centered Reload button (or fatal-
+//   - Foot: canonical <ModalFoot> with a centered kit primary Reload button (or fatal-
 //     mode: no button, contact-support message).
 //   - Portal via Radix defaults to document.body — the modal sits OUTSIDE
 //     #root so the `inert` attribute we set on #root (to freeze pointer +
@@ -33,6 +33,7 @@
 import { useSyncExternalStore, useEffect } from "react";
 
 import { Modal, ModalHead, ModalBody, ModalFoot } from "@/components/modal";
+import { KitButton } from "@/components/kit";
 import {
   getSkewLockedSnapshot,
   subscribeSkewLock,
@@ -97,25 +98,19 @@ export function SkewLockModal() {
         title={fatal ? "Something is wrong" : "Updates have been made"}
         hideClose
       />
-      <ModalBody>
+      <ModalBody className="text-[var(--k-t2)]">
         {fatal ? "Please contact support." : "Reload to continue."}
       </ModalBody>
       {!fatal && (
         <ModalFoot className="justify-center">
-          <button
-            type="button"
+          <KitButton
+            variant="primary"
             onClick={handleReload}
             data-testid="skew-lock-reload"
-            className={
-              "px-5 py-2 rounded-md text-[13px] font-medium cursor-pointer " +
-              "bg-[hsla(var(--pv-id-hue),65%,55%,0.8)] text-[#fbf5e8] " +
-              "border border-[hsla(var(--pv-id-hue),75%,65%,0.55)] " +
-              "hover:bg-[hsla(var(--pv-id-hue),65%,55%,0.95)] transition-colors " +
-              "min-w-[140px]"
-            }
+            className="min-w-[140px]"
           >
             Reload
-          </button>
+          </KitButton>
         </ModalFoot>
       )}
     </Modal>

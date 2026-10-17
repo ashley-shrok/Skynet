@@ -12,7 +12,15 @@
  */
 
 import { useEffect, useState } from "react";
-import { Switch } from "@/components/switch";
+import {
+  KitBanner,
+  KitButton,
+  KitInput,
+  KitSettingsGroup,
+  KitSettingsRow,
+  KitSwitch,
+  kitConfirm,
+} from "@/components/kit";
 import {
   getOidcAutoProvision,
   getPasswordResetAllowed,
@@ -23,15 +31,7 @@ import {
 } from "@/api/user-management-api";
 import { getSessionTimeout, updateSessionTimeout } from "@/api/settings-api";
 import { getPasswordLoginAllowed, getRegistrationAllowed } from "@/main-axios";
-import {
-  AdminButton,
-  AdminError,
-  AdminMuted,
-  AdminRow,
-  AdminSection,
-  adminErrorMessage,
-  adminInputClass,
-} from "./admin-ui";
+import { adminErrorMessage } from "./admin-ui";
 
 type ToggleKey =
   | "registration"
@@ -110,9 +110,12 @@ export function AdminSignInPane({ oidcInUse }: { oidcInUse: boolean }) {
     if (
       key === "passwordLogin" &&
       !next &&
-      !window.confirm(
-        "Turn off password login? Everyone, including admins, will have to sign in through OIDC.",
-      )
+      !(await kitConfirm({
+        title: "Turn off password login?",
+        body: "Everyone, including admins, will have to sign in through OIDC.",
+        confirmLabel: "Turn off",
+        destructive: true,
+      }))
     ) {
       return;
     }
@@ -129,7 +132,7 @@ export function AdminSignInPane({ oidcInUse }: { oidcInUse: boolean }) {
   };
 
   const toggle = (key: ToggleKey, label: string) => (
-    <Switch
+    <KitSwitch
       data-testid={`admin-signin-${key}`}
       aria-label={label}
       checked={toggles[key] ?? false}
@@ -164,94 +167,109 @@ export function AdminSignInPane({ oidcInUse }: { oidcInUse: boolean }) {
 
   return (
     <div
-      className="flex flex-col gap-6 px-6 py-5"
+      className="flex flex-col gap-[22px] px-6 py-5 max-sm:px-5"
       data-testid="admin-signin-pane"
     >
-      <AdminSection title="Accounts">
-        <div className="flex flex-col">
-          <AdminRow
+      <div className="flex flex-col gap-2">
+        <KitSettingsGroup title="Accounts">
+          <KitSettingsRow
             label="Allow registration"
             description="Anyone who can reach the login page can create an account."
             control={toggle("registration", "Allow registration")}
           />
-          <AdminRow
+          <KitSettingsRow
             label="Allow password reset"
             description="Users can reset a forgotten password from the login page."
             control={toggle("passwordReset", "Allow password reset")}
           />
           {oidcInUse && (
             <>
-              <AdminRow
+              <KitSettingsRow
                 label="Allow password login"
                 description="When off, users can only sign in through OIDC."
                 control={toggle("passwordLogin", "Allow password login")}
               />
-              <AdminRow
+              <KitSettingsRow
                 label="Auto-create OIDC users"
                 description="Create an account the first time someone signs in through OIDC."
                 control={toggle("oidcAutoProvision", "Auto-create OIDC users")}
               />
             </>
           )}
-        </div>
-        {error && <AdminError testId="admin-signin-error">{error}</AdminError>}
-      </AdminSection>
-
-      <AdminSection
-        title="Session timeout"
-        description="How long a login stays valid before the user has to sign in again. Applies to new logins."
-      >
-        {timeout === null && !timeoutError ? (
-          <AdminMuted>Loading…</AdminMuted>
-        ) : (
-          <form
-            className="flex items-center gap-2 flex-wrap"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (timeoutValid && timeoutDirty) void saveTimeout();
-            }}
-          >
-            <input
-              type="number"
-              min={MIN_TIMEOUT_HOURS}
-              max={MAX_TIMEOUT_HOURS}
-              step={1}
-              data-testid="admin-signin-timeout-input"
-              aria-label="Session timeout in hours"
-              value={timeoutDraft}
-              disabled={timeoutBusy || timeout === null}
-              onChange={(e) => {
-                setTimeoutDraft(e.target.value);
-                setTimeoutSaved(false);
-                setTimeoutError(null);
-              }}
-              className={`${adminInputClass} w-24`}
-            />
-            <span className="text-[12.5px] text-[#a89a80]">hours</span>
-            <AdminButton
-              type="submit"
-              data-testid="admin-signin-timeout-save"
-              disabled={timeoutBusy || !timeoutValid || !timeoutDirty}
-            >
-              {timeoutBusy ? "Saving…" : "Save"}
-            </AdminButton>
-          </form>
+        </KitSettingsGroup>
+        {error && (
+          <KitBanner tone="danger" data-testid="admin-signin-error">
+            {error}
+          </KitBanner>
         )}
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <KitSettingsGroup
+          title="Session timeout"
+          footer="How long a login stays valid before the user has to sign in again. Applies to new logins."
+        >
+          {timeout === null && !timeoutError ? (
+            <KitSettingsRow label="Session timeout" value="Loading…" />
+          ) : (
+            <KitSettingsRow
+              label="Hours"
+              control={
+                <form
+                  className="flex items-center gap-2"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (timeoutValid && timeoutDirty) void saveTimeout();
+                  }}
+                >
+                  <KitInput
+                    type="number"
+                    size="sm"
+                    min={MIN_TIMEOUT_HOURS}
+                    max={MAX_TIMEOUT_HOURS}
+                    step={1}
+                    data-testid="admin-signin-timeout-input"
+                    aria-label="Session timeout in hours"
+                    value={timeoutDraft}
+                    disabled={timeoutBusy || timeout === null}
+                    invalid={!timeoutValid && timeoutDraft !== ""}
+                    onChange={(e) => {
+                      setTimeoutDraft(e.target.value);
+                      setTimeoutSaved(false);
+                      setTimeoutError(null);
+                    }}
+                    className="w-24"
+                  />
+                  <KitButton
+                    type="submit"
+                    size="sm"
+                    variant="primary"
+                    data-testid="admin-signin-timeout-save"
+                    busy={timeoutBusy}
+                    disabled={!timeoutValid || !timeoutDirty}
+                  >
+                    {timeoutBusy ? "Saving…" : "Save"}
+                  </KitButton>
+                </form>
+              }
+            />
+          )}
+        </KitSettingsGroup>
         {!timeoutValid && timeoutDraft !== "" && (
-          <AdminError>
+          <KitBanner tone="danger">
             Enter a whole number of hours between {MIN_TIMEOUT_HOURS} and{" "}
             {MAX_TIMEOUT_HOURS}.
-          </AdminError>
+          </KitBanner>
         )}
         {timeoutError && (
-          <AdminError testId="admin-signin-timeout-error">
+          <KitBanner tone="danger" data-testid="admin-signin-timeout-error">
             {timeoutError}
-          </AdminError>
+          </KitBanner>
         )}
         {timeoutSaved && !timeoutError && (
-          <span className="text-[12px] text-[#8fd39e]">✓ Saved</span>
+          <KitBanner tone="ok">Saved</KitBanner>
         )}
-      </AdminSection>
+      </div>
     </div>
   );
 }

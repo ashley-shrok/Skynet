@@ -1,3 +1,11 @@
+import { KitSlider } from "@/components/kit";
+
+// Hue picker: the kit slider over a rainbow track, a swatch of the picked
+// colour, and the degree readout. The track gradient is the one inline
+// style the kit can't supply — it *is* the control's content.
+const HUE_TRACK =
+  "linear-gradient(to right, hsl(0,70%,50%), hsl(60,70%,50%), hsl(120,70%,50%), hsl(180,70%,50%), hsl(240,70%,50%), hsl(300,70%,50%), hsl(360,70%,50%))";
+
 export function ColorPicker({
   value,
   onChange,
@@ -10,38 +18,26 @@ export function ColorPicker({
   id?: string;
 }) {
   return (
-    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-      <input
+    <div className="flex items-center gap-2.5 min-w-0">
+      <KitSlider
         id={id ?? "color-picker"}
-        type="range"
         min={0}
         max={360}
         step={1}
         value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
+        onValueChange={onChange}
         disabled={disabled}
-        className="pv-hue-slider"
-        style={{
-          flex: 1,
-          height: 10,
-          borderRadius: 5,
-          appearance: "none",
-          WebkitAppearance: "none",
-          background: "linear-gradient(to right, hsl(0,70%,50%), hsl(60,70%,50%), hsl(120,70%,50%), hsl(180,70%,50%), hsl(240,70%,50%), hsl(300,70%,50%), hsl(360,70%,50%))",
-          outline: "none",
-        }}
+        aria-label={id ? undefined : "Hue"}
+        className="flex-1 min-w-0 !h-2.5"
+        style={{ background: HUE_TRACK }}
       />
-      <div
+      <span
         data-testid="color-swatch"
-        style={{
-          width: 24, height: 24, borderRadius: "50%",
-          background: `hsl(${value}, 65%, 55%)`,
-          border: "1px solid rgba(255,255,255,0.15)",
-          boxShadow: "inset 0 1px 0 rgba(255,255,255,0.2)",
-          flexShrink: 0,
-        }}
+        aria-hidden="true"
+        className="size-6 shrink-0 rounded-full border border-[var(--k-hair2)]"
+        style={{ background: `hsl(${value}, 65%, 55%)` }}
       />
-      <span className="text-xs text-[var(--color-pv-fg-muted)]" style={{ minWidth: 32, textAlign: "right" }}>
+      <span className="text-[12px] text-[var(--k-t2)] min-w-8 text-right tabular-nums">
         {value}°
       </span>
     </div>

@@ -12,7 +12,7 @@
  *   T-08  '+' button → form view, create mode, fields empty
  *   T-09  Pessimistic toggle — success + failure with banner
  *   T-10  Kebab → Edit → same as row click
- *   T-11  Kebab → Delete → window.confirm + DELETE + refetch
+ *   T-11  Kebab → Delete → kit confirm + DELETE + refetch
  *   T-12  Save success → refetch + return to list view
  *   T-13  Save 409 → inline banner with server message, form stays open
  *   T-14  Cancel → back to list view (with refetch — Recommendation #7)
@@ -36,6 +36,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
 import type { HostFolder } from "@/types/ui-types";
+import { autoAnswerKitDialogs, __resetKitDialogsForTests } from "@/components/kit";
 import type { ScheduledAgentListItem } from "@/api/scheduled-agents-api";
 
 // ─── Module-level mocks (BEFORE component import) ────────────────────────────
@@ -162,6 +163,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  __resetKitDialogsForTests();
 });
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
@@ -475,9 +477,9 @@ describe("ScheduledAgentsModal: pessimistic toggle (D-12)", () => {
     let toggle = await screen.findByTestId(
       "scheduled-agents-modal-row-morning-triage-toggle",
     );
-    // Modal-unification 2026-09-29: toggle is a visual pill (no text). On/off
-    // state signals via `.on` class on the button.
-    expect(toggle.classList.contains("on")).toBe(true);
+    // apple-ux kit: the toggle is a KitSwitch (checkbox role=switch); on/off
+    // reads from its checked state.
+    expect((toggle as HTMLInputElement).checked).toBe(true);
     fireEvent.click(toggle);
     await waitFor(() => {
       expect(toggleScheduledAgentEnabledMock).toHaveBeenCalledWith(
@@ -491,7 +493,7 @@ describe("ScheduledAgentsModal: pessimistic toggle (D-12)", () => {
       toggle = screen.getByTestId(
         "scheduled-agents-modal-row-morning-triage-toggle",
       );
-      expect(toggle.classList.contains("on")).toBe(false);
+      expect((toggle as HTMLInputElement).checked).toBe(false);
     });
 
     // Failure path: cleanup + re-render.
@@ -511,7 +513,7 @@ describe("ScheduledAgentsModal: pessimistic toggle (D-12)", () => {
     toggle = await screen.findByTestId(
       "scheduled-agents-modal-row-morning-triage-toggle",
     );
-    expect(toggle.classList.contains("on")).toBe(true);
+    expect((toggle as HTMLInputElement).checked).toBe(true);
     fireEvent.click(toggle);
     // Banner appears with API message verbatim — unified write-error slot
     // replaces the pre-unification per-op banners (toggle/delete/load).
@@ -519,7 +521,7 @@ describe("ScheduledAgentsModal: pessimistic toggle (D-12)", () => {
     expect(banner.textContent).toMatch(/Boom/);
     // Row toggle STILL on — no local flip on failure
     toggle = screen.getByTestId("scheduled-agents-modal-row-morning-triage-toggle");
-    expect(toggle.classList.contains("on")).toBe(true);
+    expect((toggle as HTMLInputElement).checked).toBe(true);
   });
 });
 
@@ -554,11 +556,9 @@ describe("ScheduledAgentsModal: kebab menu (D-13, D-14)", () => {
     expect(nameInput).toBeDisabled();
   });
 
-  it("T-11: Kebab → Delete → window.confirm + DELETE + refetch", async () => {
+  it("T-11: Kebab → Delete → kit confirm + DELETE + refetch", async () => {
     const user = userEvent.setup();
-    const confirmSpy = vi
-      .spyOn(window, "confirm")
-      .mockReturnValue(true);
+    const dialogs = autoAnswerKitDialogs({ confirm: true });
     listScheduledAgentsMock.mockResolvedValueOnce([makeRow()]);
     deleteScheduledAgentMock.mockResolvedValueOnce(undefined);
     listScheduledAgentsMock.mockResolvedValueOnce([]);
@@ -579,10 +579,9 @@ describe("ScheduledAgentsModal: kebab menu (D-13, D-14)", () => {
     );
     await user.click(deleteItem);
 
-    expect(confirmSpy).toHaveBeenCalledTimes(1);
-    expect(confirmSpy).toHaveBeenCalledWith(
-      'Delete scheduled task "Morning triage"?',
-    );
+    expect(dialogs.calls).toHaveLength(1);
+    expect(dialogs.calls[0].kind).toBe("confirm");
+    expect(dialogs.calls[0].opts.title).toBe('Delete "Morning triage"?');
     await waitFor(() => {
       expect(deleteScheduledAgentMock).toHaveBeenCalledWith("morning-triage", 1);
     });
@@ -593,7 +592,6 @@ describe("ScheduledAgentsModal: kebab menu (D-13, D-14)", () => {
       ).toBeNull();
     });
 
-    confirmSpy.mockRestore();
   });
 });
 
@@ -1251,8 +1249,13 @@ describe("ScheduledAgentsModal: schedule format v2", () => {
 // ─── Sensors shape 2 ─────────────────────────────────────────────────────────
 
 describe("ScheduledAgentsModal: sensor status", () => {
-  const NOW = Math.floor(Date.now() / 1000);
-  const sensorRow = (state: "healthy" | "broken" | "off" | "tripped" | "unknown", extra: Partial<ScheduledAgentListItem> = {}) =>
+  // Per test, not per file: under load the file can run past the 30s the
+  // relative-time assertions ("in 10m") tolerate.
+  let NOW = Math.floor(Date.now() / 1000);
+  beforeEach(() => {
+    NOW = Math.floor(Date.now() / 1000);
+  });
+  const sensorRow = (state: "healthy" | "broken" | "off" | "unknown", extra: Partial<ScheduledAgentListItem> = {}) =>
     makeRow({
       slug: "deliveries",
       name: "Deliveries",
@@ -1265,8 +1268,7 @@ describe("ScheduledAgentsModal: sensor status", () => {
         run: "always",
         cadenceHuman: null,
         lastRanAt: NOW - 30,
-        trippedReason: state === "tripped" ? "fired more than its limit of 10 times in an hour" : null,
-        trippedAt: state === "tripped" ? NOW - 2 * 3600 : null,
+        waitingFires: state === "off" ? 2 : 0,
         error: state === "broken" ? "Traceback\nKeyError: x" : null,
       },
       ...extra,
@@ -1294,22 +1296,12 @@ describe("ScheduledAgentsModal: sensor status", () => {
     expect(screen.getByTestId("scheduled-agents-modal-row-payday-sensor")).not.toHaveTextContent("once");
   });
 
-  it("T-20b: switched off shows Off, with no waiting count", async () => {
+  it("T-20b: switched off with held fires shows Off and the waiting count", async () => {
     listScheduledAgentsMock.mockResolvedValue([sensorRow("off", { enabled: false })]);
     render(<ScheduledAgentsModal open={true} onOpenChange={vi.fn()} hostTree={ONE_HOST_TREE} />);
     const line = await screen.findByTestId("scheduled-agents-modal-row-deliveries-sensor");
     expect(line).toHaveTextContent("Off");
-    expect(line).not.toHaveTextContent("waiting");
-    expect(screen.queryByTestId("scheduled-agents-modal-row-deliveries-sensor-tripped")).toBeNull();
-  });
-
-  it("T-20h: a tripped sensor shows Tripped and why", async () => {
-    listScheduledAgentsMock.mockResolvedValue([sensorRow("tripped", { enabled: false })]);
-    render(<ScheduledAgentsModal open={true} onOpenChange={vi.fn()} hostTree={ONE_HOST_TREE} />);
-    const line = await screen.findByTestId("scheduled-agents-modal-row-deliveries-sensor");
-    expect(screen.getByTestId("scheduled-agents-modal-row-deliveries-sensor-state")).toHaveTextContent("Tripped");
-    expect(screen.getByTestId("scheduled-agents-modal-row-deliveries-sensor-state")).toHaveAttribute("data-state", "tripped");
-    expect(line).toHaveTextContent("Fired more than its limit of 10 times in an hour");
+    expect(screen.getByTestId("scheduled-agents-modal-row-deliveries-sensor-waiting")).toHaveTextContent("2 waiting");
   });
 
   it("T-20c: never fired reads 'Never fired'; unknown reads Unknown", async () => {

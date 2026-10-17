@@ -24,7 +24,7 @@ export function ParticipantChipStrip({
   // Empty state: placeholder text, no role='list' (empty list is not a list)
   if (picked.length === 0) {
     return (
-      <div className="text-xs text-[color:var(--color-pv-fg-muted)] italic px-1 py-2">
+      <div className="text-[13px] text-[var(--k-t3)] px-1 py-1">
         No participants selected yet
       </div>
     );
@@ -33,7 +33,7 @@ export function ParticipantChipStrip({
   return (
     <div
       data-testid="participant-chip-strip"
-      className={cn("flex flex-wrap gap-2 px-1 py-1", className)}
+      className={cn("flex flex-wrap gap-1.5", className)}
       role="list"
       aria-label="Selected participants"
     >

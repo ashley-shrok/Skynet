@@ -124,7 +124,8 @@ vi.mock("@/state/identities-store", async (importOriginal) => {
 });
 
 // ── Late imports (after mocks are registered) ────────────────────────────────
-import { RolesListModal } from "./RolesListModal";
+import { RolesListModal, roleAvatarColor } from "./RolesListModal";
+import { autoAnswerKitDialogs, __resetKitDialogsForTests } from "@/components/kit";
 import { UnarchiveError } from "@/api/identity-unarchive-api";
 
 // ── Shared fixtures ──────────────────────────────────────────────────────────
@@ -218,6 +219,7 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    __resetKitDialogsForTests();
   });
 
   // ─── Task 1 — shell, host-picker, fetch ────────────────────────────────────
@@ -405,7 +407,16 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
 
   // ─── Task 2 — rows, click routing, + New role, empty state ─────────────────
 
-  it("I: full-cosmetics row — inline style contains the hue-tinted tokens keyed on colorHue", async () => {
+  // Look A: the role's colour tints only the avatar disc (never the row).
+  // jsdom normalizes hsl() to rgb(), so compare against what it makes of the
+  // same colour string.
+  function normalizedBg(color: string): string {
+    const probe = document.createElement("span");
+    probe.style.background = color;
+    return probe.style.background;
+  }
+
+  it("I: full-cosmetics row — avatar disc is tinted by colorHue, row is not", async () => {
     render(
       <RolesListModal
         open={true}
@@ -416,24 +427,16 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
         onNewRole={vi.fn()}
       />,
     );
-    // 3 roles alphabetical by displayName → Ally, Box Maintainer, Unadorned
-    // Phase 143 Plan 143-07: rows are now <div role="button"> (not <button>)
-    // so the kebab <button> can live as a sibling without violating HTML
-    // rules against nested <button> elements.
-    const row = await screen.findByRole("button", { name: /Box Maintainer/ });
-    // Inline .pv-row treatment keyed on the box-maintainer hue (320).
-    // Note: jsdom normalizes `hsla()` in background/border to `rgba()` but
-    // retains raw `hsla()` in `box-shadow`. Assert on the box-shadow slot
-    // (hue-glow ring stop) — that carries the hue verbatim.
-    const style = row.getAttribute("style") ?? "";
-    expect(style).toMatch(/hsla\(320,\s*70%,\s*55%,\s*0\.20?\)/i);
-    expect(style).toMatch(/hsla\(320,\s*70%,\s*52%,\s*0\.18?\)/i);
-    // Also assert the row's border-radius token (14px = .pv-row's
-    // --radius-pv-bubble) survives the round-trip.
-    expect(style).toMatch(/border-radius:\s*14px/i);
-    // The 40px round avatar is present (an <img> pointing at the role avatar URL).
-    // Note: `<img alt="">` has no implicit role (WAI-ARIA "presentation" default
-    // for empty alt), so we query the element directly via tagName.
+    // 3 roles alphabetical by displayName → Ally, Box Maintainer, Unadorned.
+    // Rows are <div role="button"> so the kebab <button> can live inside.
+    const row = await screen.findByRole("button", { name: /Box Maintainer/ }, { timeout: 3000 });
+    expect(row.getAttribute("data-slot")).toBe("kit-list-row");
+    // The row itself carries no hue background.
+    expect(row.getAttribute("style") ?? "").not.toMatch(/hsl/i);
+    const disc = row.querySelector(".k-item-av") as HTMLElement;
+    expect(disc).not.toBeNull();
+    expect(disc.style.background).toBe(normalizedBg(roleAvatarColor(320)));
+    // The avatar is present (an <img> pointing at the role avatar URL).
     const avatar = row.querySelector("img");
     expect(avatar).not.toBeNull();
     expect(avatar?.getAttribute("src")).toContain(
@@ -441,7 +444,7 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
     );
   });
 
-  it("J: no-cosmetics fallback — row uses hue 190 fallback + row still interactive", async () => {
+  it("J: no-cosmetics fallback — avatar uses hue 190 fallback + row still interactive", async () => {
     render(
       <RolesListModal
         open={true}
@@ -453,14 +456,9 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
       />,
     );
     // The `unadorned` role has no colorHue → hue 190 fallback per D-05.
-    // Phase 143 Plan 143-07: row is now <div role="button"> (not <button>),
-    // so .disabled does not apply. Assert via aria-disabled absence instead.
-    const row = await screen.findByRole("button", { name: /Unadorned/ });
-    const style = row.getAttribute("style") ?? "";
-    // Fallback hue 190 leaks through the box-shadow hsla slot (jsdom
-    // preserves box-shadow hsla verbatim while normalizing background hsla
-    // to rgba — see Test I for the same substring assertion strategy).
-    expect(style).toMatch(/hsla\(190,\s*70%,\s*55%,\s*0\.20?\)/i);
+    const row = await screen.findByRole("button", { name: /Unadorned/ }, { timeout: 3000 });
+    const disc = row.querySelector(".k-item-av") as HTMLElement;
+    expect(disc.style.background).toBe(normalizedBg(roleAvatarColor(190)));
     // Row must be interactive — no aria-disabled attribute set.
     expect(row.getAttribute("aria-disabled")).toBeNull();
   });
@@ -620,13 +618,13 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
       archiveRoleMock.mockReset();
       archiveRoleMock.mockResolvedValue({ ok: true });
       useIdentitiesReturn.identities = [];
-      vi.spyOn(window, "confirm").mockReturnValue(true);
-      vi.spyOn(window, "alert").mockImplementation(() => {});
+      autoAnswerKitDialogs({ confirm: true });
       listRolesForHost.mockImplementation(async () => SOLO_ROLE_FIXTURE);
     });
 
     afterEach(() => {
       vi.restoreAllMocks();
+      __resetKitDialogsForTests();
     });
 
     it("1: renders always-visible kebab trigger on each live-role row", async () => {
@@ -667,7 +665,8 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
       expect(archiveItem).toBeTruthy();
     });
 
-    it("3: clicking Archive item opens the double-confirm dialog (window.confirm called twice)", async () => {
+    it("3: clicking Archive item opens the double-confirm dialog (kit confirm asked twice)", async () => {
+      const dialogs = autoAnswerKitDialogs({ confirm: true });
       const user = userEvent.setup();
       render(
         <RolesListModal
@@ -684,11 +683,13 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
       await user.click(kebab);
       const archiveItem = await screen.findByRole("menuitem", { name: /^Archive$/ });
       await user.click(archiveItem);
-      expect(window.confirm).toHaveBeenCalledTimes(2);
+      await waitFor(() => expect(dialogs.calls.filter((c) => c.kind === "confirm")).toHaveLength(2));
+      expect(dialogs.calls[0].opts.title).toMatch(/Archive role Role A/);
+      expect(String(dialogs.calls[0].opts.body)).toMatch(/no agents hold it/i);
     });
 
     it("4: cancel on first confirm short-circuits — no API call", async () => {
-      vi.spyOn(window, "confirm").mockReturnValueOnce(false);
+      const dialogs = autoAnswerKitDialogs({ confirm: false });
       const user = userEvent.setup();
       render(
         <RolesListModal
@@ -705,7 +706,7 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
       await user.click(kebab);
       const archiveItem = await screen.findByRole("menuitem", { name: /^Archive$/ });
       await user.click(archiveItem);
-      expect(window.confirm).toHaveBeenCalledTimes(1);
+      await waitFor(() => expect(dialogs.calls).toHaveLength(1));
       expect(archiveRoleMock).not.toHaveBeenCalled();
     });
 
@@ -726,7 +727,7 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
       await user.click(kebab);
       const archiveItem = await screen.findByRole("menuitem", { name: /^Archive$/ });
       await user.click(archiveItem);
-      expect(archiveRoleMock).toHaveBeenCalledTimes(1);
+      await waitFor(() => expect(archiveRoleMock).toHaveBeenCalledTimes(1));
       expect(archiveRoleMock).toHaveBeenCalledWith(2, "role-a");
     });
 
@@ -815,7 +816,7 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
       unarchiveRoleMock.mockReset();
       listArchivedRolesMock.mockResolvedValue(ARCHIVED_ROLE_FIXTURE);
       unarchiveRoleMock.mockResolvedValue({ ok: true });
-      vi.spyOn(window, "alert").mockImplementation(() => {});
+      autoAnswerKitDialogs();
       listRolesForHost.mockImplementation(async () => [
         {
           name: "box-maintainer",
@@ -829,6 +830,7 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
 
     afterEach(() => {
       vi.restoreAllMocks();
+      __resetKitDialogsForTests();
     });
 
     function renderModal(props?: { onOpenChange?: (open: boolean) => void; defaultHostId?: number }): void {
@@ -898,7 +900,7 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
           resolveUnarchive = () => res({ ok: true });
         }),
       );
-      const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
+      const dialogs = autoAnswerKitDialogs();
       const user = userEvent.setup();
 
       renderModal();
@@ -919,9 +921,9 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
       await user.click(unarchiveItem);
 
       // MID-FLIGHT ASSERTION: the endpoint has not resolved yet.
-      // The row must still be present in the DOM and window.alert must NOT have been called.
+      // The row must still be present in the DOM and no notice shown yet.
       expect(screen.queryByText("Old Maintainer")).toBeTruthy();
-      expect(alertSpy).not.toHaveBeenCalled();
+      expect(dialogs.calls).toHaveLength(0);
 
       // Now resolve the never-resolving mock (endpoint returns 200).
       resolveUnarchive();
@@ -931,15 +933,15 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
         expect(screen.queryByText("Old Maintainer")).toBeNull(),
         { timeout: 2000 },
       );
-      expect(alertSpy).toHaveBeenCalledWith(
-        expect.stringMatching(/Un-archiving role/),
-      );
+      expect(dialogs.calls[0].kind).toBe("alert");
+      expect(String(dialogs.calls[0].opts.title)).toMatch(/Un-archiving role/);
     });
 
     it("6: Un-archive failure with name_collision → row stays + distinct alert copy", async () => {
       unarchiveRoleMock.mockRejectedValueOnce(
         new UnarchiveError("collision", "name_collision"),
       );
+      const dialogs = autoAnswerKitDialogs();
       const user = userEvent.setup();
 
       renderModal();
@@ -958,16 +960,17 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
 
       // Row must STAY after the promise settles (failure path — no removal)
       await waitFor(() =>
-        expect(window.alert).toHaveBeenCalled(),
+        expect(dialogs.calls.some((c) => c.kind === "alert")).toBe(true),
         { timeout: 2000 },
       );
       expect(screen.queryByText("Old Maintainer")).toBeTruthy();
-      const alertMsg = (window.alert as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+      const alertMsg = `${String(dialogs.calls[0].opts.title)} ${String(dialogs.calls[0].opts.body)}`;
       expect(alertMsg).toMatch(/live role.*already exists/i);
     });
 
     it("7: Un-archive generic failure → row stays + generic alert copy", async () => {
       unarchiveRoleMock.mockRejectedValueOnce(new Error("network"));
+      const dialogs = autoAnswerKitDialogs();
       const user = userEvent.setup();
 
       renderModal();
@@ -985,11 +988,11 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
       await user.click(unarchiveItem);
 
       await waitFor(() =>
-        expect(window.alert).toHaveBeenCalled(),
+        expect(dialogs.calls.some((c) => c.kind === "alert")).toBe(true),
         { timeout: 2000 },
       );
       expect(screen.queryByText("Old Maintainer")).toBeTruthy();
-      const alertMsg = (window.alert as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+      const alertMsg = `${String(dialogs.calls[0].opts.title)} ${String(dialogs.calls[0].opts.body)}`;
       expect(alertMsg).toMatch(/try again in a moment/i);
     });
 

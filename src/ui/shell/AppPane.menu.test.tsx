@@ -37,6 +37,7 @@ import { requestAppPromotion } from "@/api/apps-promote-api";
 import { publishAppSnapshot, __resetForTest as resetAppTiles } from "@/state/app-tiles-store";
 import { _resetPromoteRequestsForTesting } from "@/state/app-promote-requests";
 import type { AppState } from "@/api/fleet-status-types";
+import { autoAnswerKitDialogs, __resetKitDialogsForTests } from "@/components/kit";
 
 async function openKebab(container: HTMLElement): Promise<HTMLElement> {
   const trigger = container.querySelector(
@@ -66,6 +67,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  __resetKitDialogsForTests();
   cleanup();
   vi.restoreAllMocks();
   vi.mocked(archiveApp).mockClear();
@@ -135,7 +137,7 @@ describe("AppPane bar menu", () => {
   });
 
   it("Archive (both confirms accepted) closes the app's panes and archives it", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const dialogs = autoAnswerKitDialogs({ confirm: true });
     const onArchiveApp = vi.fn();
     const { container } = render(
       <AppPane
@@ -150,15 +152,18 @@ describe("AppPane bar menu", () => {
     clickItem(await openKebab(container), "Archive");
     await vi.waitFor(() => expect(archiveApp).toHaveBeenCalledWith(1, "todo"));
     expect(onArchiveApp).toHaveBeenCalledWith(1, "todo", "Todo");
+    expect(dialogs.calls.filter((c) => c.kind === "confirm")).toHaveLength(2);
   });
 
   it("Archive declined does nothing", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(false);
+    const dialogs = autoAnswerKitDialogs({ confirm: false });
     const onArchiveApp = vi.fn();
     const { container } = render(
       <AppPane hostId={1} slug="todo" tabId="t1" isVisible onArchiveApp={onArchiveApp} />,
     );
     clickItem(await openKebab(container), "Archive");
+    await vi.waitFor(() => expect(dialogs.calls).toHaveLength(1));
+    await new Promise((r) => setTimeout(r, 0));
     expect(onArchiveApp).not.toHaveBeenCalled();
     expect(archiveApp).not.toHaveBeenCalled();
   });

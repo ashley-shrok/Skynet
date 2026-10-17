@@ -16,6 +16,8 @@ export interface KitHostOption {
   status?: "ok" | "warn" | "off";
   /** Unpickable (shown dimmed). */
   disabled?: boolean;
+  /** Extra text the search also matches (user name, address…). */
+  searchText?: string;
 }
 
 export interface KitHostPickerProps {
@@ -48,7 +50,9 @@ export function KitHostPicker({
   const [query, setQuery] = React.useState("");
   const showSearch = searchable ?? hosts.length > 4;
   const q = query.trim().toLowerCase();
-  const visible = q ? hosts.filter((h) => h.name.toLowerCase().includes(q)) : hosts;
+  const visible = q
+    ? hosts.filter((h) => `${h.name} ${h.searchText ?? ""}`.toLowerCase().includes(q))
+    : hosts;
   const tid = (s: string) => (testIdPrefix ? `${testIdPrefix}-${s}` : undefined);
   return (
     <div className={cn("flex flex-col gap-2 min-w-0", className)} data-slot="kit-host-picker">

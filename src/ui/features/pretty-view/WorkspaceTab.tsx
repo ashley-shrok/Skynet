@@ -27,7 +27,6 @@ import {
   type ReactNode,
 } from "react";
 import {
-  ChevronRight,
   Download,
   File,
   FilePlus,
@@ -37,6 +36,20 @@ import {
   Search,
   Upload,
 } from "lucide-react";
+import {
+  KitBanner,
+  KitButton,
+  KitCrumbs,
+  KitEmpty,
+  KitIconButton,
+  KitInput,
+  KitLoading,
+  KitSearch,
+  KitToolbar,
+  KitToolbarSpacer,
+  kitAlert,
+  kitConfirm,
+} from "@/components/kit";
 import {
   RowKebabContextMenuSurface,
   RowKebabMenu,
@@ -202,23 +215,10 @@ function ErrorBanner({
   body: string;
 }): JSX.Element {
   return (
-    <div
-      style={{
-        background: "hsla(6, 80%, 53%, 0.12)",
-        border: "1px solid hsla(6, 80%, 53%, 0.28)",
-        borderRadius: 8,
-        padding: "10px 14px",
-        margin: "8px 0",
-        color: "var(--color-pv-fg)",
-      }}
-    >
-      <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 2 }}>
-        {heading}
-      </div>
-      <div style={{ fontSize: 12, color: "var(--color-pv-fg-muted)" }}>
-        {body}
-      </div>
-    </div>
+    <KitBanner tone="danger" className="my-2">
+      <div className="font-semibold">{heading}</div>
+      <div className="text-[12.5px] opacity-85">{body}</div>
+    </KitBanner>
   );
 }
 
@@ -371,11 +371,28 @@ function WorkspaceFileViewer({
     [targetDepKey(target), hostId, file.relativePath, file.name]
   );
 
-  // Close guard: confirm before discarding unsaved edits.
-  const guardedClose = useCallback(() => {
-    if (dirty && !window.confirm("Discard unsaved changes?")) return;
+  // Close guard: confirm before discarding unsaved edits. One question at a
+  // time — another close request while it's open is ignored.
+  const confirmingRef = useRef(false);
+  const guardedClose = useCallback(async () => {
+    if (dirty) {
+      if (confirmingRef.current) return;
+      confirmingRef.current = true;
+      try {
+        const ok = await kitConfirm({
+          title: "Discard unsaved changes?",
+          body: `Your edits to ${file.name} haven't been saved.`,
+          confirmLabel: "Discard",
+          cancelLabel: "Keep editing",
+          destructive: true,
+        });
+        if (!ok) return;
+      } finally {
+        confirmingRef.current = false;
+      }
+    }
     onClose();
-  }, [dirty, onClose]);
+  }, [dirty, onClose, file.name]);
 
   const canSave =
     (!skipFetch &&
@@ -406,50 +423,30 @@ function WorkspaceFileViewer({
         mode={viewMode}
         onModeChange={setViewMode}
       />
+      {/* A link styled as the kit's ordinary small button (downloads need <a>). */}
       <a
         href={downloadUrl}
         target="_blank"
         rel="noopener noreferrer"
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 4,
-          background: "none",
-          border: "1px solid var(--color-pv-border-quiet)",
-          color: "var(--color-pv-fg-muted)",
-          cursor: "pointer",
-          fontSize: 12,
-          padding: "4px 10px",
-          borderRadius: 6,
-          textDecoration: "none",
-        }}
+        className="k-btn no-underline"
+        data-variant="secondary"
+        data-size="sm"
       >
-        <Download size={13} />
+        <Download aria-hidden="true" />
         Download
       </a>
       {canSave && (
-        <button
-          type="button"
+        <KitButton
+          variant="primary"
+          size="sm"
           onClick={() => {
             void (binaryDraft ? handleSaveBytes(binaryDraft) : handleSave(draft));
           }}
-          disabled={saving || !dirty}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 4,
-            background: "hsla(var(--pv-id-hue, 220), 80%, 60%, 0.2)",
-            border: "1px solid hsla(var(--pv-id-hue, 220), 80%, 70%, 0.28)",
-            color: "var(--color-pv-fg)",
-            cursor: "pointer",
-            fontSize: 12,
-            padding: "4px 12px",
-            borderRadius: 6,
-            fontWeight: 600,
-          }}
+          busy={saving}
+          disabled={!dirty}
         >
           {saving ? "Saving…" : "Save"}
-        </button>
+        </KitButton>
       )}
     </>
   );
@@ -458,9 +455,7 @@ function WorkspaceFileViewer({
   if (fileState.status === "error") {
     const copy = resolveWorkspaceErrorCopy(errorClass ?? fileState.error);
     body = (
-      <div style={{ padding: 16 }}>
-        <ErrorBanner heading={copy.heading} body={copy.body} />
-      </div>
+      <ErrorBanner heading={copy.heading} body={copy.body} />
     );
   } else if (isTooLarge) {
     body = (
@@ -495,7 +490,7 @@ function WorkspaceFileViewer({
     <Modal
       open
       onOpenChange={(next) => {
-        if (!next) guardedClose();
+        if (!next) void guardedClose();
       }}
       hue={hue}
       size="editor"
@@ -505,16 +500,9 @@ function WorkspaceFileViewer({
       <ModalBody className="p-0 flex flex-col px-6 py-4">
         {body}
         {saveError && (
-          <div
-            style={{
-              padding: "4px 8px",
-              fontSize: 12,
-              color: "hsla(6, 80%, 55%, 0.9)",
-              flexShrink: 0,
-            }}
-          >
+          <KitBanner tone="danger" className="mt-2 shrink-0">
             {saveError}
-          </div>
+          </KitBanner>
         )}
       </ModalBody>
     </Modal>
@@ -892,7 +880,16 @@ function WorkspaceListView({
 
   // Delete (D-07 — single generic confirm)
   async function handleDelete(entry: WorkspaceEntry) {
-    if (!window.confirm(`Delete "${entry.name}"?`)) return;
+    const ok = await kitConfirm({
+      title: `Delete "${entry.name}"?`,
+      body:
+        entry.type === "directory"
+          ? "The folder and everything in it will be deleted. This can't be undone."
+          : "This can't be undone.",
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (!ok) return;
     const targetPath = pathOf(entry);
     try {
       await deleteWorkspaceEntry(target, hostId, targetPath);
@@ -900,7 +897,7 @@ function WorkspaceListView({
     } catch (err) {
       const errorClass = err instanceof Error ? err.message : "generic";
       const copy = resolveWorkspaceErrorCopy(errorClass);
-      alert(copy.heading + "\n\n" + copy.body);
+      await kitAlert({ title: copy.heading, body: copy.body });
     }
   }
 
@@ -939,63 +936,30 @@ function WorkspaceListView({
 
   // ── Styles ────────────────────────────────────────────────────────────────
 
-  const toolbarBtnStyle: React.CSSProperties = {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 5,
-    padding: "5px 10px",
-    fontSize: 12,
-    fontWeight: 500,
-    color: "var(--color-pv-fg-muted)",
-    background: "var(--color-pv-surface-quiet-alt)",
-    border: "1px solid var(--color-pv-border-quiet)",
-    borderRadius: 6,
-    cursor: "pointer",
-    whiteSpace: "nowrap",
-  };
-
-  const colHeaderStyle: React.CSSProperties = {
-    display: "grid",
-    gridTemplateColumns: "28px 1fr 80px 100px 32px",
-    alignItems: "center",
-    padding: "4px 10px",
-    borderBottom: "1px solid var(--color-pv-border-quiet)",
-    fontSize: 11,
-    fontWeight: 600,
-    color: "var(--color-pv-fg-dim)",
-    letterSpacing: "0.04em",
-    textTransform: "uppercase",
-    flexShrink: 0,
-  };
+  // Name / Size / Modified columns, shared by the header and every row.
+  const gridCols = "grid grid-cols-[28px_minmax(0,1fr)_80px_100px_32px] items-center";
 
   const activeSort = showingResults ? searchSort : { key: sortKey, dir: sortDir };
-  const sortableStyle = (col: "name" | "size" | "mtime"): React.CSSProperties => ({
-    cursor: "pointer",
-    userSelect: "none",
-    color:
-      activeSort?.key === col
-        ? "hsla(var(--pv-id-hue, 220), 70%, 75%, 1)"
-        : "var(--color-pv-fg-dim)",
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 3,
-  });
-
-  const rowStyle: React.CSSProperties = {
-    display: "grid",
-    gridTemplateColumns: "28px 1fr 80px 100px 32px",
-    alignItems: "center",
-    padding: "5px 10px",
-    borderRadius: 6,
-    cursor: "pointer",
-    fontSize: 13,
-    color: "var(--color-pv-fg)",
-  };
+  const sortableClass = (col: "name" | "size" | "mtime"): string =>
+    `inline-flex items-center gap-[3px] cursor-pointer select-none hover:text-[var(--k-t1)] ${
+      activeSort?.key === col ? "text-[var(--k-acc-text)]" : "text-[var(--k-t3)]"
+    }`;
 
   const arrowChar = (col: "name" | "size" | "mtime"): string => {
     if (!activeSort || activeSort.key !== col) return "";
     return activeSort.dir === "asc" ? " ▲" : " ▼";
   };
+
+  const crumbs = [
+    {
+      label: "Workspace",
+      onClick: currentPath.length > 0 ? () => navigateTo([]) : undefined,
+    },
+    ...currentPath.map((seg, i) => ({
+      label: seg,
+      onClick: i < currentPath.length - 1 ? () => navigateTo(currentPath.slice(0, i + 1)) : undefined,
+    })),
+  ];
 
   // Sorted entries for rendering. `hiddenNames` filter applies ONLY at the
   // repo root (currentPath.length === 0) — nested folders never see it. This
@@ -1026,122 +990,44 @@ function WorkspaceListView({
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        overflow: "hidden",
-        background: "var(--color-pv-surface-quiet)",
-      }}
-    >
+    <div className="flex h-full flex-col overflow-hidden">
       {/* Toolbar: breadcrumb + action buttons */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-          padding: "4px 10px 6px",
-          flexShrink: 0,
-          flexWrap: "wrap",
-          borderBottom: "1px solid var(--color-pv-border-quiet)",
-        }}
-      >
-        {/* Breadcrumb (D-13) */}
-        {/* Sized to its one-line width: when the path doesn't fit beside the
-            buttons, the buttons wrap below and the path gets the whole line
-            (wrapping within it if it must) instead of squeezing into a narrow
+      <KitToolbar className="mx-2.5 mt-1 shrink-0" aria-label="Files">
+        {/* Breadcrumb (D-13). Sized to its one-line width: when the path
+            doesn't fit beside the buttons, the buttons wrap below and the
+            path gets the whole line instead of squeezing into a narrow
             column beside them — on a phone or in a narrow modal alike. */}
-        <nav
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 2,
-            flex: "1 1 max-content",
-            minWidth: 0,
-            flexWrap: "wrap",
-          }}
+        <KitCrumbs
           aria-label="Folder path"
-        >
-          <button
-            type="button"
-            style={{
-              background: "none",
-              border: "none",
-              color:
-                currentPath.length === 0
-                  ? "var(--color-pv-fg)"
-                  : "hsla(var(--pv-id-hue, 220), 70%, 75%, 1)",
-              cursor: currentPath.length > 0 ? "pointer" : "default",
-              fontSize: 13,
-              fontWeight: 600,
-              padding: "2px 4px",
-            }}
-            onClick={() => {
-              if (currentPath.length > 0) navigateTo([]);
-            }}
-          >
-            Workspace
-          </button>
-          {currentPath.map((seg, i) => (
-            <span key={i} style={{ display: "flex", alignItems: "center" }}>
-              <ChevronRight
-                size={13}
-                style={{ color: "var(--color-pv-fg-dim)", margin: "0 1px" }}
-              />
-              <button
-                type="button"
-                style={{
-                  background: "none",
-                  border: "none",
-                  color:
-                    i === currentPath.length - 1
-                      ? "var(--color-pv-fg)"
-                      : "hsla(var(--pv-id-hue, 220), 70%, 75%, 1)",
-                  cursor:
-                    i === currentPath.length - 1 ? "default" : "pointer",
-                  fontSize: 13,
-                  fontWeight: 600,
-                  padding: "2px 4px",
-                }}
-                onClick={() => {
-                  if (i < currentPath.length - 1) {
-                    navigateTo(currentPath.slice(0, i + 1));
-                  }
-                }}
-              >
-                {seg}
-              </button>
-            </span>
-          ))}
-        </nav>
+          crumbs={crumbs}
+          className="flex-[1_1_max-content] flex-wrap"
+        />
+        <KitToolbarSpacer />
 
         {/* Hidden file input for upload */}
         <input
           ref={fileInputRef}
           type="file"
           multiple
-          style={{ display: "none" }}
+          className="hidden"
           onChange={(e) => {
             void handleFilePickerChange(e);
           }}
         />
 
         {/* Upload button (D-16) */}
-        <button
-          type="button"
-          style={toolbarBtnStyle}
+        <KitButton
+          size="sm"
           onClick={() => fileInputRef.current?.click()}
           title="Upload files to this folder"
         >
-          <Upload size={13} />
+          <Upload aria-hidden="true" />
           Upload
-        </button>
+        </KitButton>
 
         {/* New folder (D-17) */}
-        <button
-          type="button"
-          style={toolbarBtnStyle}
+        <KitButton
+          size="sm"
           onClick={() => {
             setPendingNew("folder");
             setNewName("");
@@ -1149,21 +1035,13 @@ function WorkspaceListView({
           }}
           title="Create a new folder here"
         >
-          <FolderPlus size={13} />
+          <FolderPlus aria-hidden="true" />
           New folder
-        </button>
+        </KitButton>
 
         {/* New file (D-17) */}
-        <button
-          type="button"
-          style={{
-            ...toolbarBtnStyle,
-            background:
-              "hsla(var(--pv-id-hue, 220), 80%, 60%, 0.14)",
-            borderColor:
-              "hsla(var(--pv-id-hue, 220), 80%, 70%, 0.28)",
-            color: "var(--color-pv-fg)",
-          }}
+        <KitButton
+          size="sm"
           onClick={() => {
             setPendingNew("file");
             setNewName("");
@@ -1171,82 +1049,40 @@ function WorkspaceListView({
           }}
           title="Create a new file here"
         >
-          <FilePlus size={13} />
+          <FilePlus aria-hidden="true" />
           New file
-        </button>
+        </KitButton>
 
         {/* Refresh (D-05) */}
-        <button
-          type="button"
-          style={{
-            ...toolbarBtnStyle,
-            padding: "5px 8px",
-          }}
-          onClick={onRefresh}
-          title="Refresh"
-        >
-          <RefreshCw size={13} />
-        </button>
-      </div>
+        <KitIconButton label="Refresh" size="sm" onClick={onRefresh}>
+          <RefreshCw />
+        </KitIconButton>
+      </KitToolbar>
 
       {/* Search box — its own full-width row so it fits on a phone. Searches
           this folder and every folder below it, by name, as you type. */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          padding: "6px 10px 0",
-          flexShrink: 0,
-        }}
-      >
-        <div
-          style={{
-            flex: 1,
-            minWidth: 0,
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            padding: "4px 8px",
-            background: "var(--color-pv-surface-quiet-alt)",
-            border: "1px solid var(--color-pv-border-quiet)",
-            borderRadius: 6,
+      <div className="flex items-center gap-2 px-2.5 pt-2 shrink-0">
+        <KitSearch
+          ref={searchInputRef}
+          value={query}
+          onValueChange={setQuery}
+          wrapperClassName="flex-1 min-w-0"
+          onKeyDown={(e) => {
+            // Esc clears the search (KitSearch does that, and keeps the
+            // modal open while there's text); also let go of the box.
+            if (e.key === "Escape") {
+              clearSearch();
+              searchInputRef.current?.blur();
+            }
           }}
-          onClick={() => searchInputRef.current?.focus()}
-        >
-          <Search size={13} style={{ color: "var(--color-pv-fg-dim)", flexShrink: 0 }} aria-hidden="true" />
-          <input
-            ref={searchInputRef}
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              // Esc clears the search; the modal stays open while there is
-              // something to clear (data-modal-esc-local).
-              if (e.key === "Escape") {
-                clearSearch();
-                searchInputRef.current?.blur();
-              }
-            }}
-            maxLength={SEARCH_MAX_QUERY_CHARS}
-            data-modal-esc-local={query.length > 0 ? "" : undefined}
-            placeholder="Search this folder and its subfolders"
-            aria-label="Search files and folders"
-            data-testid="workspace-search-input"
-            style={{
-              flex: 1,
-              minWidth: 0,
-              background: "none",
-              border: "none",
-              outline: "none",
-              fontSize: 13,
-              color: "var(--color-pv-fg)",
-            }}
-          />
-        </div>
+          maxLength={SEARCH_MAX_QUERY_CHARS}
+          placeholder="Search this folder and its subfolders"
+          aria-label="Search files and folders"
+          data-testid="workspace-search-input"
+        />
         {searchActive && searching && (
           <span
-            style={{ fontSize: 12, color: "var(--color-pv-fg-muted)", whiteSpace: "nowrap" }}
+            className="text-[12.5px] text-[var(--k-t3)] whitespace-nowrap"
             data-testid="workspace-search-searching"
           >
             Searching…
@@ -1255,21 +1091,14 @@ function WorkspaceListView({
       </div>
 
       {/* First-encounter intro — what this tab is / what it shows. */}
-      <div
-        style={{
-          padding: "6px 10px 8px",
-          fontSize: 12,
-          color: "var(--color-pv-fg-muted)",
-          flexShrink: 0,
-        }}
-      >
+      <div className="px-3.5 pt-2 pb-2 text-[12.5px] text-[var(--k-t3)] shrink-0">
         {introCopy ??
           "This agent's file workspace. Anything you drop in, they can read; anything they save, you can grab from here."}
       </div>
 
       {/* Upload error banner */}
       {uploadError && (
-        <div style={{ padding: "0 10px" }}>
+        <div className="px-2.5">
           <ErrorBanner
             heading="Upload failed"
             body={uploadError}
@@ -1278,30 +1107,23 @@ function WorkspaceListView({
       )}
 
       {/* Column headers */}
-      <div style={colHeaderStyle}>
+      <div
+        className={`${gridCols} px-2.5 py-1 mx-1 shrink-0 text-[11px] font-semibold uppercase tracking-[0.04em] text-[var(--k-t3)]`}
+      >
         <span />
         <span>
-          <span
-            style={sortableStyle("name")}
-            onClick={() => handleSortClick("name")}
-          >
+          <span className={sortableClass("name")} onClick={() => handleSortClick("name")}>
             Name{arrowChar("name")}
           </span>
         </span>
         <span
-          style={{
-            ...sortableStyle("size"),
-            justifyContent: "flex-end",
-          }}
+          className={`${sortableClass("size")} justify-end`}
           onClick={() => handleSortClick("size")}
         >
           Size{arrowChar("size")}
         </span>
         <span
-          style={{
-            ...sortableStyle("mtime"),
-            paddingLeft: 12,
-          }}
+          className={`${sortableClass("mtime")} pl-3`}
           onClick={() => handleSortClick("mtime")}
         >
           Modified{arrowChar("mtime")}
@@ -1312,11 +1134,7 @@ function WorkspaceListView({
       {/* File list body with drag-drop (D-16) */}
       <div
         ref={listBodyRef}
-        style={{
-          flex: 1,
-          overflow: "auto",
-          position: "relative",
-        }}
+        className="flex-1 overflow-auto relative px-1 pb-2"
         onDragEnter={onDragEnter}
         onDragLeave={onDragLeave}
         onDragOver={onDragOver}
@@ -1330,109 +1148,62 @@ function WorkspaceListView({
             onSubmit={(e) => {
               void handleNewSubmit(e);
             }}
-            style={{
-              display: "grid",
-              gridTemplateColumns: "28px 1fr auto auto",
-              alignItems: "center",
-              padding: "4px 10px",
-              gap: 6,
-              background:
-                "hsla(var(--pv-id-hue, 220), 80%, 60%, 0.06)",
-              borderBottom: "1px solid var(--color-pv-border-quiet)",
-            }}
+            className="grid grid-cols-[28px_minmax(0,1fr)_auto_auto] items-center gap-1.5 px-2.5 py-1.5 mb-1 rounded-[12px] bg-[var(--k-s1)]"
           >
-            <span style={{ display: "flex", justifyContent: "center" }}>
+            <span className="flex justify-center">
               {pendingNew === "folder" ? (
-                <Folder
-                  size={16}
-                  style={{
-                    color: "hsla(var(--pv-id-hue, 220), 70%, 75%, 0.8)",
-                  }}
-                />
+                <Folder size={16} className="text-[var(--k-acc-text)]" aria-hidden="true" />
               ) : (
-                <File
-                  size={16}
-                  style={{ color: "var(--color-pv-fg-muted)" }}
-                />
+                <File size={16} className="text-[var(--k-t3)]" aria-hidden="true" />
               )}
             </span>
-            <input
+            <KitInput
               autoFocus
+              size="sm"
               type="text"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               placeholder={
                 pendingNew === "folder" ? "New folder name" : "New file name"
               }
+              aria-label={pendingNew === "folder" ? "New folder name" : "New file name"}
               onKeyDown={(e) => {
                 if (e.key === "Escape") {
                   setPendingNew(null);
                   setNewError(null);
                 }
               }}
-              style={{
-                background: "var(--color-pv-surface-quiet-alt)",
-                border: "1px solid var(--color-pv-border-quiet-strong)",
-                borderRadius: 6,
-                padding: "4px 8px",
-                fontSize: 13,
-                color: "var(--color-pv-fg)",
-                outline: "none",
-              }}
             />
-            <button
-              type="submit"
-              style={{
-                padding: "4px 10px",
-                fontSize: 12,
-                borderRadius: 6,
-                background:
-                  "hsla(var(--pv-id-hue, 220), 80%, 60%, 0.2)",
-                border:
-                  "1px solid hsla(var(--pv-id-hue, 220), 80%, 70%, 0.28)",
-                color: "var(--color-pv-fg)",
-                cursor: "pointer",
-                fontWeight: 600,
-              }}
-            >
+            <KitButton type="submit" variant="primary" size="sm">
               Create
-            </button>
-            <button
-              type="button"
+            </KitButton>
+            <KitButton
+              size="sm"
               onClick={() => {
                 setPendingNew(null);
                 setNewError(null);
               }}
-              style={{
-                padding: "4px 10px",
-                fontSize: 12,
-                borderRadius: 6,
-                background: "none",
-                border: "1px solid var(--color-pv-border-quiet)",
-                color: "var(--color-pv-fg-muted)",
-                cursor: "pointer",
-              }}
             >
               Cancel
-            </button>
+            </KitButton>
           </form>
         )}
         {newError && (
-          <div style={{ padding: "0 10px" }}>
+          <div className="px-1.5">
             <ErrorBanner heading="Could not create" body={newError} />
           </div>
         )}
 
         {/* Rename error banner */}
         {renameError && (
-          <div style={{ padding: "0 10px" }}>
+          <div className="px-1.5">
             <ErrorBanner heading="Could not rename" body={renameError} />
           </div>
         )}
 
         {/* Search failed — shown in place of results */}
         {searchActive && searchError && (
-          <div style={{ padding: "8px 10px" }}>
+          <div className="px-1.5">
             <ErrorBanner
               heading={resolveWorkspaceErrorCopy(searchError).heading}
               body={resolveWorkspaceErrorCopy(searchError).body}
@@ -1442,64 +1213,31 @@ function WorkspaceListView({
 
         {/* A limit cut the search short — say which, never hide it silently */}
         {showingResults && !searchError && searchData && (searchData.truncated || searchData.timedOut) && (
-          <div
-            style={{
-              margin: "6px 10px",
-              padding: "6px 10px",
-              fontSize: 12,
-              color: "var(--color-pv-fg-muted)",
-              background: "hsla(var(--pv-id-hue, 220), 80%, 60%, 0.06)",
-              border: "1px solid var(--color-pv-border-quiet)",
-              borderRadius: 6,
-            }}
-            data-testid="workspace-search-limit-notice"
-          >
+          <KitBanner tone="info" className="mx-1.5 my-1.5" data-testid="workspace-search-limit-notice">
             {searchData.timedOut
               ? "Search stopped after 5 seconds — there may be more matches."
               : "Showing the first 200 matches — type more to narrow it."}
-          </div>
+          </KitBanner>
         )}
 
         {/* No matches */}
         {showingResults && !searchError && sortedEntries.length === 0 && (
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              padding: 32,
-              gap: 8,
-              color: "var(--color-pv-fg-muted)",
-            }}
+          <KitEmpty
             data-testid="workspace-search-no-matches"
-          >
-            <Search size={28} style={{ opacity: 0.3 }} />
-            <div style={{ fontSize: 13 }}>No matches</div>
-            <div style={{ fontSize: 11, color: "var(--color-pv-fg-dim)" }}>
-              Nothing here or in the folders below has a name like that.
-            </div>
-          </div>
+            icon={<Search aria-hidden="true" />}
+            title="No matches"
+            body="Nothing here or in the folders below has a name like that."
+          />
         )}
 
         {/* Loading state */}
         {!showingResults && listState.status === "loading" && (
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: 32,
-              color: "var(--color-pv-fg-muted)",
-              fontSize: 13,
-            }}
-          >
-            Loading…
-          </div>
+          <KitLoading className="px-2.5" />
         )}
 
         {/* Error state */}
         {!showingResults && listState.status === "error" && (
-          <div style={{ padding: "8px 10px" }}>
+          <div className="px-1.5">
             <ErrorBanner
               heading={resolveWorkspaceErrorCopy(listState.errorClass).heading}
               body={resolveWorkspaceErrorCopy(listState.errorClass).body}
@@ -1511,23 +1249,11 @@ function WorkspaceListView({
         {!searchActive &&
           listState.status === "ready" &&
           sortedEntries.length === 0 && (
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                justifyContent: "center",
-                padding: 32,
-                gap: 8,
-                color: "var(--color-pv-fg-muted)",
-              }}
-            >
-              <Folder size={32} style={{ opacity: 0.3 }} />
-              <div style={{ fontSize: 13 }}>Empty folder</div>
-              <div style={{ fontSize: 11, color: "var(--color-pv-fg-dim)" }}>
-                Drop files here or use the toolbar.
-              </div>
-            </div>
+            <KitEmpty
+              icon={<Folder aria-hidden="true" />}
+              title="Empty folder"
+              body="Drop files here or use the toolbar."
+            />
           )}
 
         {/* File/folder rows (D-08 — show everything) */}
@@ -1549,44 +1275,20 @@ function WorkspaceListView({
                 data-testid="workspace-row"
                 data-path={entryPath}
                 data-flash={flashing ? "" : undefined}
-                style={{
-                  ...rowStyle,
-                  opacity: searchActive && searching ? 0.5 : undefined,
-                  // "Show in folder" landed here — ring it for a moment.
-                  boxShadow: flashing
-                    ? "inset 0 0 0 2px hsla(var(--pv-id-hue, 220), 80%, 70%, 0.7)"
-                    : undefined,
-                  transition: "box-shadow 0.4s",
-                  position: "relative",
-                }}
+                className={`${gridCols} relative px-2.5 py-[7px] rounded-[10px] cursor-pointer text-[13px] text-[var(--k-t1)] hover:bg-[var(--k-s1)] transition-shadow duration-[400ms] data-[flash]:shadow-[inset_0_0_0_2px_var(--k-acc)]`}
+                // Dimmed while a newer search runs.
+                style={searchActive && searching ? { opacity: 0.5 } : undefined}
                 onClick={() => {
                   if (isRenaming) return;
                   handleRowClick(entry);
                 }}
-                onMouseEnter={(e) => {
-                  (e.currentTarget as HTMLElement).style.background =
-                    "hsla(var(--pv-id-hue, 220), 80%, 60%, 0.05)";
-                }}
-                onMouseLeave={(e) => {
-                  (e.currentTarget as HTMLElement).style.background = "";
-                }}
               >
                 {/* Icon */}
-                <span
-                  style={{ display: "flex", justifyContent: "center", alignItems: "center" }}
-                >
+                <span className="flex items-center justify-center">
                   {entry.type === "directory" ? (
-                    <Folder
-                      size={16}
-                      style={{
-                        color: "hsla(var(--pv-id-hue, 220), 70%, 75%, 0.8)",
-                      }}
-                    />
+                    <Folder size={16} className="text-[var(--k-acc-text)]" aria-hidden="true" />
                   ) : (
-                    <File
-                      size={16}
-                      style={{ color: "var(--color-pv-fg-muted)" }}
-                    />
+                    <File size={16} className="text-[var(--k-t3)]" aria-hidden="true" />
                   )}
                 </span>
 
@@ -1597,90 +1299,44 @@ function WorkspaceListView({
                       void handleRenameSubmit(e, entry);
                     }}
                     onClick={(e) => e.stopPropagation()}
-                    style={{ display: "flex", gap: 4, alignItems: "center" }}
+                    className="flex items-center gap-1 min-w-0"
                   >
-                    <input
+                    <KitInput
                       autoFocus
+                      size="sm"
                       type="text"
                       value={renameValue}
                       onChange={(e) => setRenameValue(e.target.value)}
+                      aria-label={`New name for ${entry.name}`}
                       onKeyDown={(e) => {
                         if (e.key === "Escape") {
                           setRenamingFor(null);
                           setRenameError(null);
                         }
                       }}
-                      style={{
-                        background: "var(--color-pv-surface-quiet-alt)",
-                        border:
-                          "1px solid var(--color-pv-border-quiet-strong)",
-                        borderRadius: 6,
-                        padding: "2px 6px",
-                        fontSize: 13,
-                        color: "var(--color-pv-fg)",
-                        outline: "none",
-                        flex: 1,
-                        minWidth: 0,
-                      }}
+                      className="flex-1 min-w-0"
                     />
-                    <button
-                      type="submit"
-                      style={{
-                        padding: "2px 8px",
-                        fontSize: 11,
-                        borderRadius: 5,
-                        background:
-                          "hsla(var(--pv-id-hue, 220), 80%, 60%, 0.2)",
-                        border:
-                          "1px solid hsla(var(--pv-id-hue, 220), 80%, 70%, 0.28)",
-                        color: "var(--color-pv-fg)",
-                        cursor: "pointer",
-                      }}
-                    >
+                    <KitButton type="submit" variant="primary" size="sm">
                       OK
-                    </button>
-                    <button
-                      type="button"
+                    </KitButton>
+                    <KitButton
+                      size="sm"
                       onClick={() => {
                         setRenamingFor(null);
                         setRenameError(null);
                       }}
-                      style={{
-                        padding: "2px 8px",
-                        fontSize: 11,
-                        borderRadius: 5,
-                        background: "none",
-                        border: "1px solid var(--color-pv-border-quiet)",
-                        color: "var(--color-pv-fg-muted)",
-                        cursor: "pointer",
-                      }}
                     >
                       Cancel
-                    </button>
+                    </KitButton>
                   </form>
                 ) : (
-                  <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
-                    <span
-                      style={{
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                        fontSize: 13,
-                        color: "var(--color-pv-fg)",
-                      }}
-                      title={entry.name}
-                    >
+                  <span className="flex flex-col min-w-0">
+                    <span className="truncate" title={entry.name}>
                       {entry.name}
                     </span>
                     {showingResults && (
                       <span
-                        style={{
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                          fontSize: 11,
-                          color: "var(--color-pv-fg-dim)",
-                        }}
+                        className="truncate text-[11.5px] text-[var(--k-t3)]"
                         title={resultLocation(entry, currentPath)}
                         data-testid="workspace-result-location"
                       >
@@ -1691,32 +1347,20 @@ function WorkspaceListView({
                 )}
 
                 {/* Size */}
-                <span
-                  style={{
-                    fontSize: 12,
-                    color: "var(--color-pv-fg-muted)",
-                    textAlign: "right",
-                  }}
-                >
+                <span className="text-[12px] text-[var(--k-t3)] text-right">
                   {entry.type !== "directory"
                     ? formatBytes(entry.size)
                     : "—"}
                 </span>
 
                 {/* Modified */}
-                <span
-                  style={{
-                    fontSize: 12,
-                    color: "var(--color-pv-fg-muted)",
-                    paddingLeft: 12,
-                  }}
-                >
+                <span className="text-[12px] text-[var(--k-t3)] pl-3">
                   {formatMtime(entry.mtimeMs)}
                 </span>
 
                 {/* Row menu — the app's standard ⋮ menu; right-click on the
                     row opens the same one. */}
-                <span style={{ display: "flex", justifyContent: "center" }}>
+                <span className="flex justify-center">
                   <RowKebabMenu
                     items={menuItems}
                     ariaLabel={`Actions for ${entry.name}`}
@@ -1731,7 +1375,7 @@ function WorkspaceListView({
         {/* What the search never looks in — always said under results */}
         {showingResults && !searchError && (
           <div
-            style={{ padding: "10px 10px 14px", fontSize: 11, color: "var(--color-pv-fg-dim)", textAlign: "center" }}
+            className="px-2.5 pt-2.5 pb-3.5 text-[11.5px] text-[var(--k-t3)] text-center"
             data-testid="workspace-search-skipped-note"
           >
             Package and environment folders aren't searched.
@@ -1740,42 +1384,10 @@ function WorkspaceListView({
 
         {/* Drag-drop overlay (D-16, dragCounter pattern) */}
         {dragActive && (
-          <div
-            style={{
-              position: "absolute",
-              inset: 0,
-              zIndex: 20,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              border: `2px dashed hsla(var(--pv-id-hue, 220), 80%, 70%, 0.6)`,
-              borderRadius: 10,
-              background: "hsla(var(--pv-id-hue, 220), 80%, 60%, 0.07)",
-              pointerEvents: "none",
-            }}
-          >
-            <div
-              style={{
-                background: "var(--color-pv-surface-quiet)",
-                border: `1px solid hsla(var(--pv-id-hue, 220), 80%, 70%, 0.4)`,
-                borderRadius: 10,
-                padding: "16px 28px",
-                textAlign: "center",
-                color: "var(--color-pv-fg)",
-                fontSize: 14,
-                fontWeight: 600,
-                boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
-              }}
-            >
+          <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none rounded-[12px] border-2 border-dashed border-[var(--k-acc)] bg-[var(--k-acc-soft)]">
+            <div className="rounded-[12px] bg-[var(--k-menu)] px-7 py-4 text-center text-[14px] font-semibold text-[var(--k-t1)] shadow-[0_4px_16px_rgba(0,0,0,0.4)]">
               Drop to upload
-              <div
-                style={{
-                  fontSize: 11,
-                  color: "var(--color-pv-fg-muted)",
-                  marginTop: 4,
-                  fontWeight: 400,
-                }}
-              >
+              <div className="mt-1 text-[11.5px] font-normal text-[var(--k-t3)]">
                 workspace
                 {currentPath.length > 0
                   ? "/" + currentPath.join("/") + "/"

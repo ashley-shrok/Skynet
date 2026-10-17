@@ -9,15 +9,16 @@
  * `onUnarchive` is provided — non-archived rows are unaffected.
  * See .planning/campaigns/un-archiving/shape-unarchive-frontend-backend.md
  *
- * Anatomy (2026-10-10 search-row look — sidebar parity + passages):
- *   Head: avatar disc (avatarUrl → initial-letter fallback, hue =
- *   result.colorHue, gold sheen for multi-role via .pv-multi-role) + two
- *   lines — (1) task ?? displayName ?? identityKey, right-aligned relative
- *   time; (2) "Name · Role[, Role]" + archived pill.
+ * Anatomy (apple-ux: the kit's KitListRow, passages in its subtitle):
+ *   Avatar (avatarUrl → initial-letter fallback, hue = result.colorHue,
+ *   gold sheen for multi-role via .pv-multi-role's --pv-mr-sheen) + title
+ *   (task ?? displayName ?? identityKey); trailing = relative time +
+ *   archived chip + three-dot menu; subtitle = "Name · Role[, Role]" then
+ *   the passages.
  *   Body: up to 3 passages, each labelled with its speaker ("You", the
  *   agent's name, "Skill text", "Command", "Event"); boilerplate passages
  *   (skill / command) paint muted. Every case-insensitive occurrence of the
- *   query is wrapped in <span className="pv-search-hit"> — React text
+ *   query is wrapped in a <span data-part="hit"> — React text
  *   children only, never raw HTML (T-122-FE-01). "+N more matches" when the
  *   backend saw more than it sent.
  *
@@ -31,10 +32,13 @@
  * Archived pill retained — real behavior signal (parent routes archived
  * clicks to kebab-menu Un-archive path per D-11/D-12/D-13/D-14).
  *
- * The row is a semantic <button> so keyboard focus + Enter/Space activate
- * it naturally. Parent (ConversationSearchModal) provides the onClick.
+ * The row is focusable (role=button via KitListRow) so keyboard focus +
+ * Enter/Space activate it. Parent (ConversationSearchModal) provides the
+ * onClick. Parts carry data-part hooks (name, identity, role, avatar,
+ * passage, speaker, hit, more) for tests.
  */
 
+import type { CSSProperties } from "react";
 import type {
   ConversationSearchPassage,
   ConversationSearchResult,
@@ -43,7 +47,7 @@ import { roleDisplayName } from "@/lib/role-display-name";
 import { NEUTRAL_HUE } from "@/lib/identity-roles";
 import { AvatarImage } from "@/components/avatar-image";
 import { cn } from "@/lib/utils";
-import { Loader2 } from "lucide-react";
+import { KitChip, KitListRow } from "@/components/kit";
 import {
   RowKebabMenu,
   useRowKebabContextMenu,
@@ -92,8 +96,11 @@ function formatRelativeTime(mtimeMs: number, nowMs: number): string {
   });
 }
 
+const HIT_CLASS =
+  "rounded-[3px] px-0.5 font-semibold text-[var(--k-t1)] bg-[var(--k-acc-soft)]";
+
 /** Split `text` into React children with every case-insensitive
- *  occurrence of `query` wrapped in a .pv-search-hit span. */
+ *  occurrence of `query` wrapped in a highlight span. */
 function highlightAll(text: string, query: string): Array<string | JSX.Element> {
   const q = query.trim();
   if (q.length === 0) return [text];
@@ -108,7 +115,7 @@ function highlightAll(text: string, query: string): Array<string | JSX.Element> 
     if (m[0].length === 0) break;
     if (j > i) out.push(text.slice(i, j));
     out.push(
-      <span key={j} className="pv-search-hit">
+      <span key={j} data-part="hit" className={HIT_CLASS}>
         {m[0]}
       </span>,
     );
@@ -156,42 +163,48 @@ export function ConversationSearchRow({
     .join(", ");
   const isMultiRole = roles.length > 1;
 
+  const SNIPPET_CLASS =
+    "block text-[12.5px] leading-[1.5] text-[var(--k-t2)] [overflow-wrap:anywhere] line-clamp-3";
+
   const passages = result.passages ?? [];
   let body: JSX.Element;
   if (passages.length > 0) {
     const more = (result.matchCount ?? passages.length) - passages.length;
     body = (
-      <div className="pv-search-row-passages">
+      <span className="flex flex-col gap-1.5 mt-1.5" data-part="passages">
         {passages.map((p, i) => (
-          <div
+          <span
             key={i}
-            className={cn(
-              "pv-search-row-passage",
-              p.boilerplate && "pv-search-row-passage--boilerplate",
-            )}
+            data-part="passage"
+            data-boilerplate={p.boilerplate ? "true" : undefined}
             data-speaker={p.speaker}
+            className={cn(
+              "flex flex-col gap-0.5 pl-2 border-l-2 border-[var(--k-hair2)]",
+              p.boilerplate && "opacity-55 border-dashed",
+            )}
           >
-            <span className="pv-search-row-speaker">
+            <span
+              data-part="speaker"
+              className="text-[11.5px] font-semibold text-[var(--k-t3)]"
+            >
               {speakerLabel(p.speaker, name)}
             </span>
-            <div className="pv-search-row-snippet">
-              {highlightAll(p.text, query)}
-            </div>
-          </div>
+            <span className={SNIPPET_CLASS}>{highlightAll(p.text, query)}</span>
+          </span>
         ))}
         {/* matchCountCapped = the scan stopped before the end of the
             transcript, so there may be more even when `more` is 0 (the
             capped lines were tool output, not text). */}
         {(more > 0 || result.matchCountCapped) && (
-          <div className="pv-search-row-more">
+          <span data-part="more" className="block pl-2.5 text-[12px] text-[var(--k-t3)]">
             {result.matchCountCapped
               ? more > 0
                 ? `${more}+ more matches in this conversation`
                 : "More matches in this conversation"
               : `+${more} more ${more === 1 ? "match" : "matches"} in this conversation`}
-          </div>
+          </span>
         )}
-      </div>
+      </span>
     );
   } else if (result.hitStart >= 0 && result.hitLength > 0) {
     const before = result.snippet.slice(0, result.hitStart);
@@ -201,14 +214,14 @@ export function ConversationSearchRow({
     );
     const after = result.snippet.slice(result.hitStart + result.hitLength);
     body = (
-      <div className="pv-search-row-snippet">
+      <span className={cn(SNIPPET_CLASS, "mt-1.5")}>
         {before}
-        <span className="pv-search-hit">{hit}</span>
+        <span data-part="hit" className={HIT_CLASS}>{hit}</span>
         {after}
-      </div>
+      </span>
     );
   } else {
-    body = <div className="pv-search-row-snippet">{result.snippet}</div>;
+    body = <span className={cn(SNIPPET_CLASS, "mt-1.5")}>{result.snippet}</span>;
   }
 
   // Phase 143 D-11 / D-12 / D-13 / D-14: render the kebab only on archived
@@ -228,66 +241,59 @@ export function ConversationSearchRow({
   const kebabContextMenu = useRowKebabContextMenu(kebabItems);
 
   return (
-    <button
-      type="button"
-      onClick={onClick}
+    <KitListRow
+      onActivate={onClick}
       onContextMenu={kebabContextMenu.onContextMenu}
       data-testid={`conversation-search-row-${result.transcriptPath}`}
       data-archived={result.isArchived ? "true" : "false"}
-      className={cn(
-        "pv-search-row",
-        isMultiRole && "pv-multi-role",
-        neutralLook && "pv-neutral",
-      )}
-      style={{ ["--pv-search-row-hue" as string]: String(hue) }}
-    >
-      <div className="pv-search-row-header">
-        <span className="pv-search-row-avatar" aria-hidden="true">
-          <AvatarImage
-            src={result.avatarUrl}
-            name={name}
-            className="pv-search-row-avatar-img"
-          />
+      data-hue={hue}
+      dim={result.isArchived}
+      className={cn("!items-start", isMultiRole && "pv-multi-role", neutralLook && "pv-neutral")}
+      style={isMultiRole ? ({ "--pv-mr-h": String(hue) } as CSSProperties) : undefined}
+      avatarColor={
+        isMultiRole
+          ? `var(--pv-mr-sheen), hsl(${hue}, 42%, 40%)`
+          : `hsl(${hue}, 42%, 40%)`
+      }
+      avatar={
+        <span data-part="avatar" className="contents">
+          <AvatarImage src={result.avatarUrl} name={name} />
         </span>
-        <span className="pv-search-row-lines">
-          <span className="pv-search-row-line1">
-            <span className="pv-search-row-name">{title}</span>
-            <span className="pv-search-row-when">{when}</span>
-          </span>
-          <span className="pv-search-row-line2">
-            <span className="pv-search-row-identity">{name}</span>
+      }
+      title={<span data-part="name">{title}</span>}
+      wrapSubtitle
+      subtitle={
+        <>
+          <span className="flex items-center gap-1.5 min-w-0 overflow-hidden whitespace-nowrap">
+            <span data-part="identity" className="truncate">{name}</span>
             {rolesLabel && (
               <>
-                <span className="pv-search-row-sep" aria-hidden="true">
-                  ·
+                <span aria-hidden="true">·</span>
+                <span data-part="role" className="truncate font-semibold text-[var(--k-t2)]">
+                  {rolesLabel}
                 </span>
-                <span className="pv-search-row-role">{rolesLabel}</span>
               </>
             )}
-            {result.isArchived && (
-              <span className="pv-search-archived-pill">
-                {unarchiving ? "un-archiving…" : "archived"}
-              </span>
-            )}
           </span>
-        </span>
-        {unarchiving && (
-          <Loader2
-            className="size-4 animate-spin shrink-0"
-            aria-label="Un-archiving"
-            data-testid={`conversation-search-unarchiving-${result.identityKey}-${result.hostId}`}
-          />
-        )}
-        {showKebab && (
+          {body}
+        </>
+      }
+      trailing={
+        <>
+          <span className="text-[12px] text-[var(--k-t3)] whitespace-nowrap">{when}</span>
+          {result.isArchived && <KitChip>archived</KitChip>}
+          {kebabContextMenu.menu}
+        </>
+      }
+      menu={
+        showKebab ? (
           <RowKebabMenu
             testId={`conversation-search-archived-row-kebab-${result.identityKey}-${result.hostId}`}
             ariaLabel={`Row menu for ${result.identityKey}`}
             items={kebabItems}
           />
-        )}
-        {kebabContextMenu.menu}
-      </div>
-      {body}
-    </button>
+        ) : undefined
+      }
+    />
   );
 }

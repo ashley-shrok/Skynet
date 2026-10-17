@@ -28,7 +28,8 @@ import {
 } from "@/components/modal";
 import { getUserList, type AdminUser } from "@/api/user-management-api";
 import { getOIDCConfig } from "@/main-axios";
-import { AdminButton, adminErrorMessage } from "./admin-ui";
+import { KitButton } from "@/components/kit";
+import { adminErrorMessage } from "./admin-ui";
 import { AdminUsersPane } from "./AdminUsersPane";
 import { AdminSignInPane } from "./AdminSignInPane";
 import { AdminSystemPane } from "./AdminSystemPane";
@@ -125,12 +126,12 @@ export default function AdminModal({
           </ModalBody>
         </ModalSidebar>
         <ModalFoot>
-          <AdminButton
+          <KitButton
             data-testid="admin-close-foot"
             onClick={() => onOpenChange(false)}
           >
             Close
-          </AdminButton>
+          </KitButton>
         </ModalFoot>
       </Modal>
 

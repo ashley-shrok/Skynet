@@ -1,4 +1,5 @@
 import { Trash2 } from "lucide-react";
+import { KitIconButton } from "@/components/kit";
 import type { TabState } from "./IdentityFileTab";
 import { FileView } from "./file-viewers/FileView";
 import type { BinaryDraft } from "./file-viewers/registry";
@@ -96,14 +97,14 @@ export default function SkillFileTab({
       onDraftContentChange={onDraftContentChange}
       toolbarStart={
         state.status === "ready" && filename !== "SKILL.md" && onRequestDelete ? (
-          <button
-            type="button"
-            title="Delete this file"
+          <KitIconButton
+            label="Delete this file"
+            size="sm"
+            tone="danger"
             onClick={() => onRequestDelete?.()}
-            className="size-6 rounded-md hover:bg-white/[0.06] flex items-center justify-center text-[#a89a80] hover:text-[#f87171] cursor-pointer"
           >
-            <Trash2 size={16} />
-          </button>
+            <Trash2 />
+          </KitIconButton>
         ) : undefined
       }
     />

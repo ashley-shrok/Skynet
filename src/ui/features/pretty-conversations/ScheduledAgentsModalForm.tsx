@@ -31,7 +31,7 @@
 //      `schedule.days` on disk; hydrateFormSchedule carries it (and any
 //      other field the form doesn't show) through to the save.
 //
-// Footer: Cancel (left) + Save (right, primary blue) per D-19. Save
+// Footer: ModalFoot with Cancel + Save (kit buttons) per D-19. Save
 // disabled while inflight OR when validateForm returns a message.
 //
 // Error banner: inline at top of form body, role="alert", API message
@@ -57,9 +57,22 @@
 //   - T-129-09 (host swap on edit): Host chip-picker disabled on edit-mode.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { cn } from "@/lib/utils";
+import { ModalFoot } from "@/components/modal";
+import {
+  KitBanner,
+  KitButton,
+  KitCheckbox,
+  KitChip,
+  KitField,
+  KitInput,
+  KitOption,
+  KitPickChip,
+  KitPickRow,
+  KitSegmented,
+  KitSelect,
+  KitTextarea,
+} from "@/components/kit";
 import {
   type FormSchedule,
   type IntervalUnit,
@@ -70,6 +83,7 @@ import {
   isOnceSensorSchedule,
   sensorScheduleLabel,
   MonthlyDayFields,
+  ScheduleKindField,
   ScheduleRepeatFields,
   switchScheduleKind,
   TimesField,
@@ -81,13 +95,10 @@ import {
 import { SensorDetails } from "@/features/pretty-view/SensorStatusView";
 import {
   createScheduledAgent,
-  listScheduledAgentProjects,
   updateScheduledAgent,
-  type ScheduledAgentProjectOption,
   type ScheduledAgentSpecWire,
   type ScheduledAgentListItem,
 } from "@/api/scheduled-agents-api";
-import { orderProjectsAsTree, projectPathFromOptions } from "./scheduled-agents-projects";
 import { listRolesForHost, type RoleSummary } from "@/api/identities-api";
 import { roleDisplayName } from "@/lib/role-display-name";
 import type { Host } from "@/types/ui-types";
@@ -120,53 +131,6 @@ function interpretError(err: unknown, rawName: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Chip-picker chrome tokens (magenta = selected, dim = addable). Mirrors
-// the row's role-chip tokens from ScheduledAgentsModalRow.tsx.
-// ---------------------------------------------------------------------------
-
-const ROLE_CHIP_SELECTED = {
-  background: "hsla(285, 55%, 55%, 0.28)",
-  border: "1px solid hsla(285, 55%, 60%, 0.55)",
-  color: "hsla(285, 60%, 88%, 1)",
-} as const;
-
-const ROLE_CHIP_ADDABLE = {
-  background: "rgba(255, 255, 255, 0.04)",
-  border: "1px solid rgba(220, 225, 245, 0.14)",
-  color: "var(--color-pv-fg-muted)",
-} as const;
-
-const HOST_CHIP_SELECTED = {
-  background: "hsla(220, 65%, 55%, 0.32)",
-  border: "1px solid hsla(220, 65%, 60%, 0.55)",
-  color: "#f4f1e8",
-} as const;
-
-const HOST_CHIP_ADDABLE = {
-  background: "rgba(255, 255, 255, 0.04)",
-  border: "1px solid rgba(220, 225, 245, 0.14)",
-  color: "var(--color-pv-fg-muted)",
-} as const;
-
-const SCHEDULE_KIND_ACTIVE = {
-  background: "hsla(220, 65%, 55%, 0.35)",
-  border: "1px solid hsla(220, 65%, 60%, 0.55)",
-  color: "#f4f1e8",
-} as const;
-
-const SCHEDULE_KIND_INACTIVE = {
-  background: "rgba(255, 255, 255, 0.04)",
-  border: "1px solid rgba(220, 225, 245, 0.14)",
-  color: "var(--color-pv-fg-muted)",
-} as const;
-
-const SCHEDULE_LABEL_CLASS = "text-[11px] text-[color:var(--color-pv-fg-muted)]";
-const SCHEDULE_INPUT_CLASS = cn(
-  "px-2 py-1 rounded-md text-sm text-[#e8e4d8]",
-  "bg-black/20 border border-white/10 outline-none",
-  "focus:border-[hsla(220,65%,55%,0.5)]",
-);
-
 const PICK_ROLES_HINT = "Pick roles, or No roles.";
 
 // ---------------------------------------------------------------------------
@@ -272,14 +236,6 @@ export function ScheduledAgentsModalForm({
   // Available roles for the currently-selected host (chip-picker source).
   const [availableRoles, setAvailableRoles] = useState<RoleSummary[]>([]);
 
-  // Project the task's conversations are filed in (null = No project), and
-  // the selected host's projects — null until loaded (or if the read failed),
-  // so a saved project isn't called missing before we know.
-  const [selectedProject, setSelectedProject] = useState<string | null>(
-    initialSpec?.project ?? null,
-  );
-  const [availableProjects, setAvailableProjects] = useState<ScheduledAgentProjectOption[] | null>(null);
-
   // Inline error banner (D-25).
   const [error, setError] = useState<string | null>(null);
 
@@ -317,31 +273,6 @@ export function ScheduledAgentsModalForm({
     return () => {
       alive = false;
     };
-  }, [selectedHost]);
-
-  // ─── Fetch projects for the selected host ─────────────────────────────
-  useEffect(() => {
-    setAvailableProjects(null);
-    if (selectedHost === null) return;
-    const hostIdNum = parseInt(String(selectedHost.id), 10);
-    if (!Number.isFinite(hostIdNum)) return;
-    let alive = true;
-    listScheduledAgentProjects(hostIdNum)
-      .then((rows) => {
-        if (alive) setAvailableProjects(rows);
-      })
-      .catch(() => {
-        /* stays null — the picker still offers No project + the saved pick */
-      });
-    return () => {
-      alive = false;
-    };
-  }, [selectedHost]);
-
-  // Picking a different host clears the project — projects belong to one host.
-  const pickHost = useCallback((h: Host): void => {
-    if (selectedHost?.id !== h.id) setSelectedProject(null);
-    setSelectedHost(h);
   }, [selectedHost]);
 
   // ─── Save handler (in-flight ref guard per NewConversationModal:193-199) ──
@@ -426,17 +357,6 @@ export function ScheduledAgentsModalForm({
         roles: noRoles ? [] : selectedRoles,
         enabled: enabledPassthrough,
         archive_if_nothing_to_report: archiveIfNothingToReport,
-        ...(selectedProject !== null ? { project: selectedProject } : {}),
-      };
-      const projectPath =
-        selectedProject !== null && availableProjects !== null
-          ? projectPathFromOptions(selectedProject, availableProjects)
-          : null;
-      const projectFields = {
-        project: selectedProject,
-        projectPath,
-        projectMissing:
-          selectedProject !== null && availableProjects !== null && projectPath === null,
       };
 
       if (mode === "create") {
@@ -454,7 +374,6 @@ export function ScheduledAgentsModalForm({
           prompt: trimmedPrompt,
           roles: noRoles ? [] : selectedRoles,
           archive_if_nothing_to_report: archiveIfNothingToReport,
-          ...projectFields,
             colorHue: null,
           // Fire timestamps unknown on just-created rows — the authoritative
           // refetch replaces them once the server reads .state/<slug>.last
@@ -481,9 +400,6 @@ export function ScheduledAgentsModalForm({
           prompt: trimmedPrompt,
           roles: noRoles ? [] : selectedRoles,
           archive_if_nothing_to_report: archiveIfNothingToReport,
-          ...(availableProjects === null && selectedProject === prev.project
-            ? { project: prev.project, projectPath: prev.projectPath, projectMissing: prev.projectMissing }
-            : projectFields),
             colorHue: prev.colorHue,
           // Preserve the server-known fire timestamps during optimistic
           // edit — the refetch will overlay with a recomputed nextFireAt
@@ -508,8 +424,6 @@ export function ScheduledAgentsModalForm({
     noRoles,
     rolesPicked,
     selectedHost,
-    selectedProject,
-    availableProjects,
     formSchedule,
     isSensor,
     onSaved,
@@ -525,10 +439,6 @@ export function ScheduledAgentsModalForm({
         ? current.filter((r) => r !== roleName)
         : [...current, roleName],
     );
-  }, []);
-
-  const removeRole = useCallback((roleName: string): void => {
-    setSelectedRoles((current) => current.filter((r) => r !== roleName));
   }, []);
 
   // "No roles" clears any picked roles; clicking it again unpicks it.
@@ -558,18 +468,6 @@ export function ScheduledAgentsModalForm({
     return map;
   }, [availableRoles]);
 
-  // ─── Project picker options ───────────────────────────────────────────
-  const projectOptions = useMemo(
-    () => (availableProjects === null ? [] : orderProjectsAsTree(availableProjects)),
-    [availableProjects],
-  );
-  // The saved pick isn't in the host's list — either still loading / unreadable
-  // (shown plain) or gone (shown missing). Either way it stays selectable so an
-  // unrelated save keeps it.
-  const savedProjectUnlisted =
-    selectedProject !== null && !projectOptions.some((o) => o.slug === selectedProject);
-  const projectMissing = savedProjectUnlisted && availableProjects !== null;
-
   // ─── Render ───────────────────────────────────────────────────────────
   const nameDisabled = mode === "edit";
   const hostDisabled = mode === "edit";
@@ -587,47 +485,38 @@ export function ScheduledAgentsModalForm({
     selectedHost === null ||
     !rolesPicked;
 
+  // Role chips: selected roles first (including any the host no longer
+  // lists), then the addable ones. Tap toggles.
+  const roleChips: Array<{ name: string; selected: boolean }> = [
+    ...selectedRoles.map((r) => ({ name: r, selected: true })),
+    ...addableRoles.map((r) => ({ name: r, selected: false })),
+  ];
+
   return (
     <div
       className="flex flex-col flex-1 min-h-0"
       data-testid="scheduled-agents-modal-form"
     >
       {/* ─── Body (scrollable form column) ─────────────────────────── */}
-      <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3 flex flex-col gap-4">
+      <div className="flex-1 min-h-0 overflow-y-auto px-6 max-sm:px-5 py-3 flex flex-col gap-5">
         {/* Inline error banner (D-25) */}
         {error !== null && (
-          <div
-            role="alert"
+          <KitBanner
+            tone="danger"
             data-testid="scheduled-agents-modal-form-error"
-            className="px-3 py-2 text-xs rounded-md flex flex-row items-start gap-2"
-            style={{
-              background: "hsla(0, 60%, 40%, 0.14)",
-              border: "1px solid hsla(0, 60%, 55%, 0.30)",
-              color: "hsla(0, 60%, 82%, 1)",
-            }}
+            onDismiss={() => setError(null)}
           >
-            <span className="flex-1">{error}</span>
-            <button
-              type="button"
-              aria-label="Dismiss error"
-              onClick={() => setError(null)}
-              className="shrink-0 opacity-70 hover:opacity-100 cursor-pointer"
-            >
-              <X size={12} />
-            </button>
-          </div>
+            {error}
+          </KitBanner>
         )}
 
         {/* Field 1: Name (D-20 order 1) */}
-        <div className="flex flex-col gap-1">
-          <label
-            htmlFor="scheduled-agents-modal-form-name-input"
-            className="text-xs font-medium text-[color:var(--color-pv-fg-muted)]"
-          >
-            Name
-          </label>
-          <input
-            id="scheduled-agents-modal-form-name-input"
+        <KitField
+          label="Name"
+          htmlFor="scheduled-agents-modal-form-name-input"
+          help={nameDisabled ? "To rename, delete this scheduled task and create a new one." : undefined}
+        >
+          <KitInput
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -635,515 +524,300 @@ export function ScheduledAgentsModalForm({
             disabled={nameDisabled}
             maxLength={120}
             data-testid="scheduled-agents-modal-form-name"
-            className={cn(
-              "w-full px-3 py-2 rounded-lg text-sm text-[#e8e4d8]",
-              "bg-black/20 border border-white/10 outline-none",
-              "focus:border-[hsla(220,65%,55%,0.5)] focus:bg-black/30",
-              "placeholder:text-[color:var(--color-pv-fg-dim)]",
-              "transition-colors duration-150",
-              "disabled:opacity-60 disabled:cursor-not-allowed",
-            )}
           />
-          {nameDisabled && (
-            <p className="text-[11px] text-[color:var(--color-pv-fg-dim)]">
-              To rename, delete this scheduled task and create a new one.
-            </p>
-          )}
-        </div>
+        </KitField>
 
         {/* Field 2: Instructions (D-20 order 2) */}
-        <div className="flex flex-col gap-1">
-          <label
-            htmlFor="scheduled-agents-modal-form-prompt-input"
-            className="text-xs font-medium text-[color:var(--color-pv-fg-muted)]"
-          >
-            Instructions
-          </label>
-          <textarea
-            id="scheduled-agents-modal-form-prompt-input"
+        <KitField label="Instructions" htmlFor="scheduled-agents-modal-form-prompt-input">
+          <KitTextarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             placeholder="What should the agent handling this task do?"
             rows={4}
             data-testid="scheduled-agents-modal-form-prompt"
-            className={cn(
-              "w-full px-3 py-2 rounded-lg text-sm text-[#e8e4d8] resize-y",
-              "bg-black/20 border border-white/10 outline-none min-h-[96px]",
-              "focus:border-[hsla(220,65%,55%,0.5)] focus:bg-black/30",
-              "placeholder:text-[color:var(--color-pv-fg-dim)]",
-              "transition-colors duration-150",
-            )}
           />
-          <label className="flex items-center gap-1.5 cursor-pointer mt-1 text-xs font-medium text-[color:var(--color-pv-fg-muted)]">
-            <input
-              type="checkbox"
+        </KitField>
+        <KitOption
+          label="Archive if nothing to report"
+          description="If the run goes smoothly, the agent archives itself so it doesn't stay in your sidebar."
+          control={
+            <KitCheckbox
               checked={archiveIfNothingToReport}
-              onChange={(e) => setArchiveIfNothingToReport(e.target.checked)}
+              onCheckedChange={setArchiveIfNothingToReport}
               data-testid="scheduled-agents-modal-form-archive-if-nothing-to-report"
-              className="w-3.5 h-3.5 accent-sky-500 cursor-pointer"
             />
-            Archive if nothing to report
-          </label>
-          <span className="text-[11px] text-[color:var(--color-pv-fg-dim)]">
-            If the run goes smoothly, the agent archives itself so it doesn&apos;t stay in your sidebar.
-          </span>
-        </div>
+          }
+        />
 
         {/* Field 3: Roles (D-20 order 3) */}
-        <div
-          className="flex flex-col gap-2"
+        <KitField
+          label="Roles"
           data-testid="scheduled-agents-modal-form-roles"
+          help={
+            selectedHost === null ? (
+              "Pick a host first."
+            ) : !rolesPicked ? (
+              <span data-testid="scheduled-agents-modal-form-roles-hint">
+                {PICK_ROLES_HINT}
+              </span>
+            ) : undefined
+          }
         >
-          <label className="text-xs font-medium text-[color:var(--color-pv-fg-muted)]">
-            Roles
-          </label>
-          {selectedHost === null ? (
-            <p className="text-[11px] text-[color:var(--color-pv-fg-dim)]">
-              Pick a host first.
-            </p>
-          ) : (
-            <>
+          {selectedHost !== null && (
+            <KitPickRow aria-label="Roles">
               {/* "No roles" leads the picker — a deliberate choice, exclusive
-                  with the roles below. */}
-              <div className="flex flex-row flex-wrap gap-1.5">
-                <button
-                  type="button"
-                  onClick={toggleNoRoles}
-                  role="checkbox"
-                  aria-checked={noRoles}
-                  className="inline-flex items-center gap-1 rounded-full px-2 py-[2px] text-[11px] font-medium leading-[16px] cursor-pointer"
-                  style={noRoles ? ROLE_CHIP_SELECTED : ROLE_CHIP_ADDABLE}
-                  data-testid="scheduled-agents-modal-form-no-roles"
+                  with the roles after it. */}
+              <KitPickChip
+                pressed={noRoles}
+                onPressedChange={toggleNoRoles}
+                data-testid="scheduled-agents-modal-form-no-roles"
+              >
+                {noRolesLabel}
+              </KitPickChip>
+              {roleChips.map(({ name: r, selected }) => (
+                <KitPickChip
+                  key={r}
+                  pressed={selected}
+                  onPressedChange={() => toggleRole(r)}
+                  data-testid={
+                    selected
+                      ? `scheduled-agents-modal-form-role-selected-${r}`
+                      : `scheduled-agents-modal-form-role-addable-${r}`
+                  }
                 >
-                  <span>{noRolesLabel}</span>
-                  {noRoles && <X size={10} />}
-                </button>
-              </div>
-              {/* Selected chips */}
-              {selectedRoles.length > 0 && (
-                <div className="flex flex-row flex-wrap gap-1.5">
-                  {selectedRoles.map((r) => (
-                    <button
-                      key={`selected-${r}`}
-                      type="button"
-                      onClick={() => removeRole(r)}
-                      className="inline-flex items-center gap-1 rounded-full px-2 py-[2px] text-[11px] font-medium leading-[16px] cursor-pointer"
-                      style={ROLE_CHIP_SELECTED}
-                      data-testid={`scheduled-agents-modal-form-role-selected-${r}`}
-                    >
-                      <span>{roleDisplayByName.get(r) ?? roleDisplayName(r)}</span>
-                      <X size={10} />
-                    </button>
-                  ))}
-                </div>
-              )}
-              {/* Available (addable) chips */}
-              {addableRoles.length > 0 && (
-                <div className="flex flex-row flex-wrap gap-1.5">
-                  {addableRoles.map((r) => (
-                    <button
-                      key={`addable-${r}`}
-                      type="button"
-                      onClick={() => toggleRole(r)}
-                      className="inline-flex items-center rounded-full px-2 py-[2px] text-[11px] font-medium leading-[16px] cursor-pointer"
-                      style={ROLE_CHIP_ADDABLE}
-                      data-testid={`scheduled-agents-modal-form-role-addable-${r}`}
-                    >
-                      {roleDisplayByName.get(r) ?? roleDisplayName(r)}
-                    </button>
-                  ))}
-                </div>
-              )}
-              {!rolesPicked && (
-                <p
-                  className="text-[11px] text-[color:var(--color-pv-fg-dim)]"
-                  data-testid="scheduled-agents-modal-form-roles-hint"
-                >
-                  {PICK_ROLES_HINT}
-                </p>
-              )}
-            </>
+                  {roleDisplayByName.get(r) ?? roleDisplayName(r)}
+                </KitPickChip>
+              ))}
+            </KitPickRow>
           )}
-        </div>
+        </KitField>
 
         {/* Field 4: Host (D-20 order 4).
             Hidden entirely in create mode when the user has access to only
             one host (auto-select covers it). Amended 2026-09-24 during /close. */}
         {!hostFieldHidden && (
-        <div
-          className="flex flex-col gap-2"
-          data-testid="scheduled-agents-modal-form-host"
-        >
-          <label className="text-xs font-medium text-[color:var(--color-pv-fg-muted)]">
-            Host
-          </label>
-          {hostDisabled ? (
-            <>
-              <div className="flex flex-row flex-wrap gap-1.5">
-                <span
-                  className="inline-flex items-center rounded-full px-3 py-1 text-[12px] font-medium"
-                  style={{
-                    ...HOST_CHIP_SELECTED,
-                    opacity: 0.75,
-                  }}
-                  data-testid="scheduled-agents-modal-form-host-locked"
-                >
+          <KitField
+            label="Host"
+            data-testid="scheduled-agents-modal-form-host"
+            help={
+              hostDisabled
+                ? "Host cannot be changed on an existing scheduled task. Delete and recreate on the target host if needed."
+                : agentHosts.length === 0
+                  ? "No hosts available."
+                  : undefined
+            }
+          >
+            {hostDisabled ? (
+              <div>
+                <KitChip tone="accent" data-testid="scheduled-agents-modal-form-host-locked">
                   {selectedHost?.name ?? initialSpec?.host ?? "unknown"}
-                </span>
+                </KitChip>
               </div>
-              <p className="text-[11px] text-[color:var(--color-pv-fg-dim)]">
-                Host cannot be changed on an existing scheduled task. Delete and
-                recreate on the target host if needed.
-              </p>
-            </>
-          ) : (
-            <div className="flex flex-row flex-wrap gap-1.5">
-              {agentHosts.length === 0 && (
-                <p className="text-[11px] text-[color:var(--color-pv-fg-dim)]">
-                  No hosts available.
-                </p>
-              )}
-              {agentHosts.map((h) => {
-                const active = selectedHost?.id === h.id;
-                return (
-                  <button
+            ) : agentHosts.length > 0 ? (
+              <KitPickRow aria-label="Host">
+                {agentHosts.map((h) => (
+                  <KitPickChip
                     key={h.id}
-                    type="button"
-                    onClick={() => pickHost(h)}
-                    className="inline-flex items-center rounded-full px-3 py-1 text-[12px] font-medium leading-[16px] cursor-pointer"
-                    style={active ? HOST_CHIP_SELECTED : HOST_CHIP_ADDABLE}
+                    pressed={selectedHost?.id === h.id}
+                    onPressedChange={() => setSelectedHost(h)}
                     data-testid={`scheduled-agents-modal-form-host-option-${h.id}`}
                   >
                     {h.name}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
+                  </KitPickChip>
+                ))}
+              </KitPickRow>
+            ) : null}
+          </KitField>
         )}
 
-        {/* Field 4b: Project — where each conversation this task starts is filed. */}
-        <div
-          className="flex flex-col gap-1"
-          data-testid="scheduled-agents-modal-form-project"
-        >
-          <label
-            htmlFor="scheduled-agents-modal-form-project-select"
-            className="text-xs font-medium text-[color:var(--color-pv-fg-muted)]"
-          >
-            Project
-          </label>
-          {selectedHost === null ? (
-            <p className="text-[11px] text-[color:var(--color-pv-fg-dim)]">
-              Pick a host first.
-            </p>
-          ) : (
-            <>
-              <select
-                id="scheduled-agents-modal-form-project-select"
-                data-testid="scheduled-agents-modal-form-project-select"
-                value={selectedProject ?? ""}
-                onChange={(e) => setSelectedProject(e.target.value === "" ? null : e.target.value)}
-                className={cn(SCHEDULE_INPUT_CLASS, "w-full")}
-              >
-                <option value="">No project</option>
-                {projectOptions.map((o) => (
-                  <option key={o.slug} value={o.slug}>
-                    {"\u00a0\u00a0\u00a0\u00a0".repeat(o.depth) + o.displayName}
-                  </option>
-                ))}
-                {savedProjectUnlisted && selectedProject !== null && (
-                  <option value={selectedProject}>
-                    {projectMissing ? `${selectedProject} (missing)` : selectedProject}
-                  </option>
-                )}
-              </select>
-              {projectMissing ? (
-                <p
-                  className="text-[11px] text-[hsla(35,85%,70%,1)]"
-                  data-testid="scheduled-agents-modal-form-project-missing"
-                >
-                  This project no longer exists. Conversations go to Conversations until it&apos;s back or you pick another.
-                </p>
-              ) : (
-                <p className="text-[11px] text-[color:var(--color-pv-fg-dim)]">
-                  Each conversation this task starts is filed here.
-                </p>
-              )}
-            </>
-          )}
-        </div>
-
         {/* Field 5: Schedule (D-20 order 5, D-22 kinds) */}
-        <div className="flex flex-col gap-2">
-          <label className="text-xs font-medium text-[color:var(--color-pv-fg-muted)]">
-            Schedule
-          </label>
-
           {isSensor ? (
-            <>
-            <span
-              className="text-sm text-[#e8e4d8]"
-              data-testid="scheduled-agents-modal-form-schedule-sensor"
-            >
-              {sensorScheduleLabel(initialSpec?.schedule)}
-            </span>
-            {initialSpec?.sensor && (
-              <SensorDetails
-                sensor={initialSpec.sensor}
-                lastFiredAt={initialSpec.lastFiredAt}
-                once={isOnceSensorSchedule(initialSpec.schedule)}
-                testId="scheduled-agents-modal-form-sensor-details"
-              />
-            )}
-            </>
+            <KitField label="Schedule">
+              <span
+                className="text-[14px] text-[var(--k-t1)]"
+                data-testid="scheduled-agents-modal-form-schedule-sensor"
+              >
+                {sensorScheduleLabel(initialSpec?.schedule)}
+              </span>
+              {initialSpec?.sensor && (
+                <SensorDetails
+                  sensor={initialSpec.sensor}
+                  lastFiredAt={initialSpec.lastFiredAt}
+                  once={isOnceSensorSchedule(initialSpec.schedule)}
+                  testId="scheduled-agents-modal-form-sensor-details"
+                />
+              )}
+            </KitField>
           ) : (
-          <>
-          {/* Segmented control — kind picker */}
-          <div
-            className="flex flex-row flex-wrap gap-1 rounded-md p-1"
-            data-testid="scheduled-agents-modal-form-schedule-kind"
-            style={{
-              background: "rgba(0, 0, 0, 0.20)",
-              border: "1px solid rgba(220, 225, 245, 0.10)",
-            }}
-          >
-            {(
-              [
-                { key: "daily", label: "Daily" },
-                { key: "weekly", label: "Weekly" },
-                { key: "monthly", label: "Monthly" },
-                { key: "yearly", label: "Yearly" },
-                { key: "interval", label: "Interval" },
-                { key: "one_shot", label: "One-shot" },
-              ] as const
-            ).map(({ key, label }) => {
-              const active = formSchedule.type === key;
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => setFormSchedule(switchScheduleKind(formSchedule, key))}
-                  className="flex-1 min-w-[56px] px-2 py-1 rounded text-[11px] font-medium cursor-pointer transition-colors duration-150"
-                  style={active ? SCHEDULE_KIND_ACTIVE : SCHEDULE_KIND_INACTIVE}
-                  data-testid={`scheduled-agents-modal-form-schedule-kind-${key}`}
-                >
-                  {label}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Contextual detail fields per kind */}
-          {formSchedule.type === "daily" && (
-            <TimesField
-              at={formSchedule.at}
-              onChange={(at) => setFormSchedule({ ...formSchedule, at })}
-              label="At"
-              idPrefix="scheduled-agents-modal-form-schedule-daily-at"
-              inputClassName={SCHEDULE_INPUT_CLASS}
-              labelClassName={SCHEDULE_LABEL_CLASS}
-            />
-          )}
-
-          {formSchedule.type === "weekly" && (
-            <div className="flex flex-col gap-2">
-              <div
-                className="flex flex-row gap-1 rounded-md p-1"
-                data-testid="scheduled-agents-modal-form-schedule-weekly-day"
-                style={{
-                  background: "rgba(0, 0, 0, 0.20)",
-                  border: "1px solid rgba(220, 225, 245, 0.10)",
-                }}
-              >
-                {WEEKDAY_VALUES.map((d) => {
-                  const active = formSchedule.day === d;
-                  return (
-                    <button
-                      key={d}
-                      type="button"
-                      onClick={() => setFormSchedule({ ...formSchedule, day: d })}
-                      className="flex-1 px-1 py-1 rounded text-[10px] font-medium uppercase tracking-wide cursor-pointer transition-colors duration-150"
-                      style={active ? SCHEDULE_KIND_ACTIVE : SCHEDULE_KIND_INACTIVE}
-                      data-testid={`scheduled-agents-modal-form-schedule-weekly-day-${d}`}
-                    >
-                      {WEEKDAY_LABELS[d]}
-                    </button>
-                  );
-                })}
-              </div>
-              <TimesField
-                at={formSchedule.at}
-                onChange={(at) => setFormSchedule({ ...formSchedule, at })}
-                label="At"
-                idPrefix="scheduled-agents-modal-form-schedule-weekly-at"
-                inputClassName={SCHEDULE_INPUT_CLASS}
-                labelClassName={SCHEDULE_LABEL_CLASS}
+            <div className="flex flex-col gap-3">
+              <ScheduleKindField
+                value={formSchedule.type}
+                onChange={(key) => setFormSchedule(switchScheduleKind(formSchedule, key))}
+                testIdPrefix="scheduled-agents-modal-form-schedule-kind"
               />
+
+              {/* Contextual detail fields per kind */}
+              {formSchedule.type === "daily" && (
+                <TimesField
+                  at={formSchedule.at}
+                  onChange={(at) => setFormSchedule({ ...formSchedule, at })}
+                  label="At"
+                  idPrefix="scheduled-agents-modal-form-schedule-daily-at"
+                />
+              )}
+
+              {formSchedule.type === "weekly" && (
+                <div className="flex flex-col gap-3">
+                  <KitSegmented
+                    full
+                    aria-label="Day of the week"
+                    options={WEEKDAY_VALUES.map((d) => ({ value: d, label: WEEKDAY_LABELS[d] }))}
+                    value={formSchedule.day}
+                    onValueChange={(d) => setFormSchedule({ ...formSchedule, day: d })}
+                    data-testid="scheduled-agents-modal-form-schedule-weekly-day"
+                    testIdPrefix="scheduled-agents-modal-form-schedule-weekly-day"
+                  />
+                  <TimesField
+                    at={formSchedule.at}
+                    onChange={(at) => setFormSchedule({ ...formSchedule, at })}
+                    label="At"
+                    idPrefix="scheduled-agents-modal-form-schedule-weekly-at"
+                  />
+                </div>
+              )}
+
+              {formSchedule.type === "monthly" && (
+                <div className="flex flex-col gap-3">
+                  <MonthlyDayFields
+                    value={formSchedule}
+                    onChange={setFormSchedule}
+                    idPrefix="scheduled-agents-modal-form-schedule-monthly"
+                  />
+                  <TimesField
+                    at={formSchedule.at}
+                    onChange={(at) => setFormSchedule({ ...formSchedule, at })}
+                    label="At"
+                    idPrefix="scheduled-agents-modal-form-schedule-monthly-at"
+                  />
+                </div>
+              )}
+
+              {formSchedule.type === "yearly" && (
+                <div className="flex flex-row items-end gap-2 flex-wrap">
+                  <YearlyDateFields
+                    date={formSchedule.date}
+                    onChange={(date) => setFormSchedule({ ...formSchedule, date })}
+                    idPrefix="scheduled-agents-modal-form-schedule-yearly"
+                  />
+                  <TimesField
+                    at={formSchedule.at}
+                    onChange={(at) => setFormSchedule({ ...formSchedule, at })}
+                    label="At"
+                    idPrefix="scheduled-agents-modal-form-schedule-yearly-at"
+                  />
+                </div>
+              )}
+
+              {formSchedule.type === "interval" && (
+                <div className="flex flex-row flex-wrap items-center gap-2">
+                  <label
+                    htmlFor="scheduled-agents-modal-form-schedule-interval-n"
+                    className="k-label"
+                  >
+                    Every
+                  </label>
+                  <KitInput
+                    id="scheduled-agents-modal-form-schedule-interval-n"
+                    type="number"
+                    min={1}
+                    value={formSchedule.n}
+                    onChange={(e) => {
+                      const parsed = parseInt(e.target.value, 10);
+                      setFormSchedule({
+                        ...formSchedule,
+                        n: Number.isFinite(parsed) && parsed > 0 ? parsed : 1,
+                      });
+                    }}
+                    data-testid="scheduled-agents-modal-form-schedule-interval-n"
+                    className="w-20"
+                  />
+                  <KitSelect
+                    id="scheduled-agents-modal-form-schedule-interval-u"
+                    aria-label="Unit"
+                    value={formSchedule.u}
+                    onChange={(e) =>
+                      setFormSchedule({
+                        ...formSchedule,
+                        u: e.target.value as IntervalUnit,
+                      })
+                    }
+                    data-testid="scheduled-agents-modal-form-schedule-interval-u"
+                    className="w-auto"
+                  >
+                    <option value="s">seconds</option>
+                    <option value="m">minutes</option>
+                    <option value="h">hours</option>
+                    <option value="d">days</option>
+                    <option value="mo">months</option>
+                  </KitSelect>
+                </div>
+              )}
+
+              {formSchedule.type === "one_shot" && (
+                <div className="flex flex-row items-center gap-2">
+                  <label
+                    htmlFor="scheduled-agents-modal-form-schedule-oneshot-at"
+                    className="k-label"
+                  >
+                    At
+                  </label>
+                  <KitInput
+                    id="scheduled-agents-modal-form-schedule-oneshot-at"
+                    type="datetime-local"
+                    value={formSchedule.at}
+                    onChange={(e) =>
+                      setFormSchedule({ type: "one_shot", at: e.target.value })
+                    }
+                    data-testid="scheduled-agents-modal-form-schedule-oneshot-at"
+                    className="w-auto"
+                  />
+                </div>
+              )}
+
+              {formSchedule.type !== "one_shot" && (
+                <ScheduleRepeatFields
+                  fs={formSchedule}
+                  onChange={setFormSchedule}
+                  idPrefix="scheduled-agents-modal-form-schedule"
+                />
+              )}
+
+              {scheduleValidationMsg !== null && (
+                <span className="k-err">
+                  {scheduleValidationMsg}
+                </span>
+              )}
             </div>
           )}
-
-          {formSchedule.type === "monthly" && (
-            <div className="flex flex-col gap-2">
-              <MonthlyDayFields
-                value={formSchedule}
-                onChange={setFormSchedule}
-                idPrefix="scheduled-agents-modal-form-schedule-monthly"
-                inputClassName={SCHEDULE_INPUT_CLASS}
-                labelClassName={SCHEDULE_LABEL_CLASS}
-              />
-              <TimesField
-                at={formSchedule.at}
-                onChange={(at) => setFormSchedule({ ...formSchedule, at })}
-                label="At"
-                idPrefix="scheduled-agents-modal-form-schedule-monthly-at"
-                inputClassName={SCHEDULE_INPUT_CLASS}
-                labelClassName={SCHEDULE_LABEL_CLASS}
-              />
-            </div>
-          )}
-
-          {formSchedule.type === "yearly" && (
-            <div className="flex flex-row items-end gap-2 flex-wrap">
-              <YearlyDateFields
-                date={formSchedule.date}
-                onChange={(date) => setFormSchedule({ ...formSchedule, date })}
-                idPrefix="scheduled-agents-modal-form-schedule-yearly"
-                labelClassName={SCHEDULE_LABEL_CLASS}
-                inputClassName={SCHEDULE_INPUT_CLASS}
-              />
-              <TimesField
-                at={formSchedule.at}
-                onChange={(at) => setFormSchedule({ ...formSchedule, at })}
-                label="At"
-                idPrefix="scheduled-agents-modal-form-schedule-yearly-at"
-                inputClassName={SCHEDULE_INPUT_CLASS}
-                labelClassName={SCHEDULE_LABEL_CLASS}
-              />
-            </div>
-          )}
-
-          {formSchedule.type === "interval" && (
-            <div className="flex flex-row flex-wrap items-center gap-2">
-              <label className="text-[11px] text-[color:var(--color-pv-fg-muted)]">
-                Every
-              </label>
-              <input
-                type="number"
-                min={1}
-                value={formSchedule.n}
-                onChange={(e) => {
-                  const parsed = parseInt(e.target.value, 10);
-                  setFormSchedule({
-                    ...formSchedule,
-                    n: Number.isFinite(parsed) && parsed > 0 ? parsed : 1,
-                  });
-                }}
-                data-testid="scheduled-agents-modal-form-schedule-interval-n"
-                className={cn(
-                  "w-20 px-2 py-1 rounded-md text-sm text-[#e8e4d8]",
-                  "bg-black/20 border border-white/10 outline-none",
-                  "focus:border-[hsla(220,65%,55%,0.5)]",
-                )}
-              />
-              <select
-                value={formSchedule.u}
-                onChange={(e) =>
-                  setFormSchedule({
-                    ...formSchedule,
-                    u: e.target.value as IntervalUnit,
-                  })
-                }
-                data-testid="scheduled-agents-modal-form-schedule-interval-u"
-                className="px-2 py-1 rounded-md text-sm text-[#e8e4d8] bg-black/20 border border-white/10 outline-none cursor-pointer"
-              >
-                <option value="s">seconds</option>
-                <option value="m">minutes</option>
-                <option value="h">hours</option>
-                <option value="d">days</option>
-                <option value="mo">months</option>
-              </select>
-            </div>
-          )}
-
-          {formSchedule.type === "one_shot" && (
-            <div className="flex flex-row items-center gap-2">
-              <label className="text-[11px] text-[color:var(--color-pv-fg-muted)]">
-                At
-              </label>
-              <input
-                type="datetime-local"
-                value={formSchedule.at}
-                onChange={(e) =>
-                  setFormSchedule({ type: "one_shot", at: e.target.value })
-                }
-                data-testid="scheduled-agents-modal-form-schedule-oneshot-at"
-                className={cn(
-                  "px-2 py-1 rounded-md text-sm text-[#e8e4d8]",
-                  "bg-black/20 border border-white/10 outline-none",
-                  "focus:border-[hsla(220,65%,55%,0.5)]",
-                )}
-              />
-            </div>
-          )}
-
-          {formSchedule.type !== "one_shot" && (
-            <ScheduleRepeatFields
-              fs={formSchedule}
-              onChange={setFormSchedule}
-              idPrefix="scheduled-agents-modal-form-schedule"
-              inputClassName={SCHEDULE_INPUT_CLASS}
-              labelClassName={SCHEDULE_LABEL_CLASS}
-            />
-          )}
-          </>
-          )}
-
-          {scheduleValidationMsg !== null && (
-            <p className="text-[11px] text-red-400">{scheduleValidationMsg}</p>
-          )}
-        </div>
       </div>
 
-      {/* ─── Footer (Cancel left, Save right) — D-19 ─────────────────── */}
-      <div
-        className="px-4 py-3 shrink-0 flex flex-row items-center justify-between"
-        style={{ borderTop: "1px solid rgba(220, 225, 245, 0.10)" }}
-      >
-        <button
-          type="button"
-          onClick={onCancel}
-          data-testid="scheduled-agents-modal-form-cancel"
-          className="px-3 py-1.5 rounded-md text-xs cursor-pointer transition-colors duration-150"
-          style={{
-            background: "rgba(255, 255, 255, 0.04)",
-            border: "1px solid rgba(220, 225, 245, 0.10)",
-            color: "#e8e4d8",
-          }}
-        >
+      {/* ─── Footer — D-19 ─────────────────────────────────────────── */}
+      <ModalFoot>
+        <KitButton onClick={onCancel} data-testid="scheduled-agents-modal-form-cancel">
           Cancel
-        </button>
-        <button
-          type="button"
+        </KitButton>
+        <KitButton
+          variant="primary"
           onClick={() => {
             void onSave();
           }}
           disabled={saveDisabled}
+          busy={inFlight}
           data-testid="scheduled-agents-modal-form-save"
-          className={cn(
-            "px-4 py-1.5 rounded-md text-xs font-medium cursor-pointer transition-colors duration-150",
-            "disabled:opacity-50 disabled:cursor-not-allowed",
-          )}
-          style={{
-            background: "hsla(220, 65%, 45%, 0.75)",
-            border: "1px solid hsla(220, 65%, 55%, 0.7)",
-            color: "#f4f1e8",
-          }}
         >
           {inFlight ? "Saving…" : "Save"}
-        </button>
-      </div>
+        </KitButton>
+      </ModalFoot>
     </div>
   );
 }
