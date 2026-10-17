@@ -28,7 +28,7 @@ export interface KitHostPickerProps {
   /** Prefix for data-testids: `<p>-search`, `<p>-listbox`, `<p>-option-<id>`. */
   testIdPrefix?: string;
   searchId?: string;
-  /** Hide the search box (few hosts). Defaults to hiding at ≤ 4 hosts. */
+  /** Show the search box. Default true. */
   searchable?: boolean;
   maxHeight?: number;
   emptyText?: React.ReactNode;
@@ -48,7 +48,7 @@ export function KitHostPicker({
   className,
 }: KitHostPickerProps): JSX.Element {
   const [query, setQuery] = React.useState("");
-  const showSearch = searchable ?? hosts.length > 4;
+  const showSearch = searchable ?? true;
   const q = query.trim().toLowerCase();
   const visible = q
     ? hosts.filter((h) => `${h.name} ${h.searchText ?? ""}`.toLowerCase().includes(q))

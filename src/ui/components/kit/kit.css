@@ -605,6 +605,13 @@
 
   /* ── Phone sheets (see Modal: small sizes slide up from the bottom) ──── */
 
+  /* Every phone sheet's bottom buttons stack full-width, main action on top. */
+  @media (max-width: 639.98px) {
+    [data-sheet] [data-slot="modal-foot"] { flex-direction: column-reverse; align-items: stretch; }
+    [data-sheet] [data-slot="modal-foot"] > .k-btn { width: 100%; height: 44px; font-size: 15px; }
+    [data-sheet] [data-slot="modal-foot"] > :not(.k-btn) { align-self: stretch; }
+  }
+
   @keyframes k-sheet-in { from { transform: translateY(100%); } to { transform: translateY(0); } }
   @keyframes k-sheet-out { from { transform: translateY(var(--k-sheet-drag, 0px)); } to { transform: translateY(100%); } }
   .k-grabber {
