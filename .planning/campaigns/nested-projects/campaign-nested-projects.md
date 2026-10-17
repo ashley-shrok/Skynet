@@ -85,11 +85,18 @@ behave as today until shape 2 lands), then agent side.
 ## Other work
 
 - Two people re-parenting two projects into each other at the same instant
-  can still produce a loop (the move route checks then writes, no lock). The
-  sidebar shows looped projects safely at top level and "Move to" undoes it.
-  Recommendation: record as a known edge, no locking. Raised to Ashley
-  2026-10-17; she moved on to shape 2 without answering — CONFIRM at campaign
-  close (lingerer vs. fix).
+  could produce a loop (the move route checked then wrote, no lock) — done
+  2026-10-17: fixed in the pre-deploy light review with a per-host write lock
+  around create / move / archive / file save.
+- Pre-deploy light review of both shapes (2026-10-17) — done: moves never
+  widen a project's audience, archive refuses hidden sub-projects, create
+  won't adopt stranded sub-projects, raw file saves get the move guard
+  rails, one reading of the parent line everywhere, supervisor won't undo a
+  concurrent edit. Noted, not changed: agents of a project hidden from a
+  user show in that user's Conversations list (pre-existing for any
+  restricted project); the watcher's chain re-check reads the chain files
+  every few seconds; a chain change made while a watcher was down is told
+  again after the agent already re-read its chain at load.
 
 ## Lingerers (explicitly approved)
 
