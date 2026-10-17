@@ -76,7 +76,8 @@ conventions of every ancestor above it.
 - **[declared] shape-nested-projects-agent-side** — agents reading their
   ancestor chain at load, the file watcher covering ancestors and following
   chain changes, ancestor member-churn suppression, and the id skill's
-  description of what agents see — not started (next)
+  description of what agents see — closed (2026-10-17;
+  shape-nested-projects-agent-side.closed.md)
 
 Ordering: structure first (useful on its own; agents in sub-projects simply
 behave as today until shape 2 lands), then agent side.

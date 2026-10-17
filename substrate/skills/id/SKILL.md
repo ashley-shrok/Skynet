@@ -187,6 +187,21 @@ For as many roles as you have listed in your `roles:` frontmatter field:
      directory that doesn't exist on disk, OR points to an archived
      project at `~/fleet/projects/archive/<slug>/`, this step is a
      graceful no-op — continue without it.
+   
+   - **If your project is a sub-project, read its whole chain.** A
+     `parent: <parent-slug>` line in a `project.md` frontmatter names the
+     project it sits inside (§ Sidebar content → Sub-projects). Follow
+     those lines upward from your project, then read the chain **top-down**:
+     the top ancestor's `project.md` first, your own last, enumerating each
+     ancestor's folder the same way as your own. A bare `null`, `true`,
+     `false` or number as the value names no parent. Stop climbing at a
+     parent with no real folder under `~/fleet/projects/` (gone, archived,
+     or a symlink), or when the climb comes back to a project already
+     reached (a loop — the chain ends at that project; if your own project
+     is on the loop, it is top level). This is exactly where the sidebar puts your project.
+     You inherit the conventions of every project above you; **when they
+     disagree, the nearer project wins** — your own over its parent, a
+     parent over a grandparent.
 
 4. Read the deeper reference file(s) the role names in its 10k-view
    section, ON DEMAND (not now — those load when you actually work on that
@@ -264,6 +279,7 @@ External events are automatically fed to you by the agent-supervisor service for
    turns); it's a safety valve.
 
 4. **File changes (for your `<role>.md` / `<name>.md` / your project's `project.md` / etc).** Edits to your relevant files do **not** wake you. They are queued and handed to you as extra context (`📝 [<kind>: <label>] …` lines) at your next turn, or after your next tool call if you're mid-turn — so you're never stale while working, and never spend a turn just to note an edit while idle. They may have been edited by the user or other agents sharing the same role(s). Act on whatever bears on your work; no reply is needed. Self-edits are silently suppressed at the source, so you should not see notices for edits you just made yourself.
+   In a sub-project, every project file above yours is watched too: `📝 [parent-project: <slug>] your parent project <name>'s file changed — …` (or `ancestor project` further up) carries content changes only — member joins and leaves in ancestor projects are never reported (your own project's still are). When the chain itself changes — a `parent:` line changes anywhere in it, or an ancestor goes away — you get one `📝 [project-chain: <your-slug>] …` line giving the new chain top-down, the newly-above project files to **Read now**, and the projects you are **no longer inside** (stop following their conventions). Chain notices arrive even when you made the change yourself. Being moved into a sub-project names every file in its chain to read top-down; being moved out of one names the projects you are no longer inside.
 
 **What these events look like when they reach you.** Each one except file
 changes (item 4, delivered as hook context) arrives as pasted input: a `<pasted_content id="…">` block wrapping a

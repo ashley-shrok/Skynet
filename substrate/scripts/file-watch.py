@@ -38,6 +38,10 @@ Project coverage: when the identity file's frontmatter has `project: <slug>`, th
 watch includes `~/fleet/projects/<slug>/project.md` (event tag `project-file`).
 Moving into, between, or out of a project re-execs the watcher so the target
 follows; joining mid-session emits a pointer to read the new project file.
+Nested projects: every ancestor's project.md is watched too (event tag
+`parent-project`), with its member-list churn never reported. A parent-line
+change anywhere in the chain, or an ancestor's folder going away, re-resolves
+the chain and emits one `project-chain` notice instead of a raw diff.
 
 Runbook coverage extends to the sentinel file only — `~/fleet/roles/<role>/runbooks/<slug>/runbook.md`
 per the id skill's runbook convention. Companion files in the same subfolder
@@ -329,6 +333,280 @@ def _project_baseline_path(baseline_dir, slug):
     return os.path.join(baseline_dir, "last-snapshot.project.%s" % slug)
 
 
+# ---------------------------------------------------------------------------
+# Nested projects — the project chain.
+#
+# A project may name a parent project with a `parent:` line in its
+# project.md; folders stay flat under ~/fleet/projects/. An identity's chain is
+# its own project plus every ancestor, top first. The rules mirror the sidebar
+# exactly (fleet-status-sweep.py reads the parent line; the app resolves the
+# tree), so what an agent is told about its chain always matches what the user
+# sees:
+#   - a project is any non-symlink folder under ~/fleet/projects/ whose name
+#     is a valid slug other than `archive` (project.md optional);
+#   - a parent that isn't such a folder ends the chain (top level);
+#   - a project caught in a parent loop is top level, so the chain stops at
+#     the first loop member reached; when the identity's own project is in the
+#     loop its chain is just itself.
+# Ancestor project files are watched like the own one, but their member-list
+# churn is never reported, and a parent-line change anywhere in the chain is
+# told as one chain notice instead of a raw diff.
+# ---------------------------------------------------------------------------
+
+# Matches the sweep's PROJECT_FRONTMATTER_HEAD_BYTES — a parent line past this
+# is invisible to the sidebar, so it must be invisible here too.
+_PROJECT_HEAD_CHARS = 65536
+# Unquoted YAML 1.2 core scalars that are not strings — such a parent value
+# names no parent (parity with the sweep).
+_YAML_NON_STRING_LITERALS = {"null", "~", "true", "false"}
+_CHAIN_STATE_NAME = "last-chain"
+
+
+def _project_dir(slug):
+    return os.path.expanduser("~/fleet/projects/%s" % slug)
+
+
+def _project_md_path(slug):
+    return os.path.join(_project_dir(slug), "project.md")
+
+
+def _project_exists(slug):
+    """True iff `slug` is a live project the sidebar would list."""
+    if slug is None or slug == "archive" or not _PROJECT_SLUG_RE.match(slug):
+        return False
+    d = _project_dir(slug)
+    return os.path.isdir(d) and not os.path.islink(d)
+
+
+def _project_frontmatter_lines(slug):
+    """Frontmatter body lines of a project's project.md (sweep parity: first
+    _PROJECT_HEAD_CHARS chars, utf-8-sig, first two `---` lines), or []."""
+    try:
+        with open(_project_md_path(slug), encoding="utf-8-sig") as f:
+            raw = f.read(_PROJECT_HEAD_CHARS)
+    except (OSError, UnicodeDecodeError):
+        return []
+    lines = raw.split("\n")
+    fences = [i for i, ln in enumerate(lines) if ln.strip() == "---"]
+    if len(fences) < 2:
+        return []
+    return lines[fences[0] + 1: fences[1]]
+
+
+def _read_project_parent(slug):
+    """The parent slug named in a project's project.md, or None. Same reading
+    as the sweep: a column-0 `parent:` line (the last valid one wins),
+    quotes stripped, slug-validated, unquoted null/bool/number values and the
+    project's own slug read as no parent."""
+    parent = None
+    for line in _project_frontmatter_lines(slug):
+        if line.lstrip().startswith("#"):
+            continue
+        m = re.match(r"^parent:\s*(.+?)\s*(#.*)?$", line.rstrip("\n"))
+        if not m:
+            continue
+        value = m.group(1).strip()
+        quoted = len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'"
+        raw = value.strip('"').strip("'").strip()
+        is_scalar = not quoted and (
+            raw.lower() in _YAML_NON_STRING_LITERALS
+            or re.fullmatch(r"[0-9]+|0x[0-9a-f]+|0o[0-7]+", raw) is not None
+        )
+        if _PROJECT_SLUG_RE.match(raw) and not is_scalar:
+            parent = raw
+    return None if parent == slug else parent
+
+
+def _read_project_display_name(slug):
+    """A project's displayName (quotes stripped), falling back to its slug —
+    the last non-empty `displayName:` line wins, as in the sweep."""
+    name = slug
+    for line in _project_frontmatter_lines(slug):
+        m = re.match(r"^displayName:\s*(.+?)\s*(#.*)?$", line.rstrip("\n"))
+        if m:
+            val = m.group(1).strip().strip('"').strip("'").strip()
+            if val:
+                name = val
+    return name
+
+
+def _resolve_chain(own_slug):
+    """The identity's project chain, top ancestor first and own project last;
+    [] when it has no live project. See the nested-projects block above for
+    the rules."""
+    if not _project_exists(own_slug):
+        return []
+    path = [own_slug]
+    cur = _read_project_parent(own_slug)
+    while _project_exists(cur):
+        if cur in path:
+            # Loop: path[i:] are its members and render at top level, so the
+            # chain ends at the first one reached (just the own project when
+            # it is itself on the loop).
+            path = path[: path.index(cur) + 1]
+            break
+        path.append(cur)
+        cur = _read_project_parent(cur)
+    path.reverse()
+    return path
+
+
+def _chain_text(chain):
+    return " › ".join(_read_project_display_name(s) for s in chain)
+
+
+# Display names of the chain last told to the agent, so a project it has left
+# (perhaps archived since) is still named the way the sidebar showed it.
+_told_names = {}
+
+
+def _read_chain_state(baseline_dir):
+    """The chain last told to the agent (top first), or None. Each line of the
+    state file is `<slug>\t<display name>`; names land in _told_names."""
+    try:
+        with open(os.path.join(baseline_dir, _CHAIN_STATE_NAME), encoding="utf-8") as f:
+            rows = [ln.split("\t", 1) for ln in f.read().splitlines() if ln]
+    except (OSError, UnicodeDecodeError):
+        return None
+    chain = []
+    for row in rows:
+        if not _PROJECT_SLUG_RE.match(row[0]):
+            return None
+        chain.append(row[0])
+        if len(row) == 2 and row[1].strip():
+            _told_names[row[0]] = row[1].strip()
+    return chain
+
+
+def _write_chain_state(baseline_dir, chain):
+    tmp = os.path.join(baseline_dir, "." + _CHAIN_STATE_NAME + ".tmp")
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            for slug in chain:
+                name = _read_project_display_name(slug).replace("\t", " ").replace("\n", " ")
+                f.write("%s\t%s\n" % (slug, name))
+        os.replace(tmp, os.path.join(baseline_dir, _CHAIN_STATE_NAME))
+    except OSError:
+        pass
+
+
+def _left_name(slug):
+    """Name for a project the agent is no longer inside: the one it was told
+    (the project may be archived by now), else whatever is on disk."""
+    return _told_names.get(slug) or _read_project_display_name(slug)
+
+
+def _chain_files(chain):
+    """Ancestors in `chain` whose project.md exists — the watched ancestor files."""
+    return tuple(s for s in chain[:-1] if os.path.isfile(_project_md_path(s)))
+
+
+def _scope_signature(identity_file_path):
+    """Everything the watch targets depend on for the project chain: own
+    project, resolved chain, and which ancestors have a file to watch."""
+    own, _ = _resolve_project(identity_file_path)
+    chain = _resolve_chain(own) if own else []
+    return (own, tuple(chain), _chain_files(chain))
+
+
+def _emit_chain_notice(old_chain, new_chain):
+    """One plain notice for a rearranged chain (same own project, different
+    ancestors): the whole new chain, the project files that are new above the
+    agent, and the projects it is no longer under."""
+    own = new_chain[-1]
+    added = [s for s in new_chain[:-1] if s not in old_chain]
+    removed = [s for s in old_chain[:-1] if s not in new_chain]
+    if len(new_chain) == 1:
+        line = "📝 [project-chain: %s] your project %s is now top level (no parent project)" % (
+            own, _read_project_display_name(own),
+        )
+    else:
+        line = "📝 [project-chain: %s] your project chain is now %s" % (own, _chain_text(new_chain))
+    reads = []
+    for s in added:
+        pmd = _project_md_path(s)
+        if os.path.isfile(pmd):
+            reads.append("%s %s" % (_read_project_display_name(s), pmd))
+    if reads:
+        line += " — new above you, Read top-down: " + "; ".join(reads)
+    if removed:
+        line += " — no longer inside %s: drop their conventions" % ", ".join(
+            _left_name(r) for r in removed
+        )
+    _out(line)
+
+
+def _prune_project_baselines(baseline_dir, chain):
+    """Drop project baselines (and queued notices) for projects no longer in
+    the chain, so a later return cold-starts clean."""
+    try:
+        names = os.listdir(baseline_dir)
+    except OSError:
+        return
+    prefix = "last-snapshot.project."
+    gone = set()
+    for n in names:
+        if not n.startswith(prefix):
+            continue
+        slug = n[len(prefix):]
+        if slug.endswith(".self-edit-hash"):
+            slug = slug[: -len(".self-edit-hash")]
+        if slug in chain:
+            continue
+        gone.add(slug)
+        try:
+            os.remove(os.path.join(baseline_dir, n))
+        except OSError:
+            pass
+    if gone:
+        _drop_pending(
+            ["📝 [project-file: %s]" % s for s in gone]
+            + ["📝 [parent-project: %s]" % s for s in gone]
+        )
+
+
+def _strip_frontmatter_keys(data, keys):
+    """`data` (bytes) with the named top-level frontmatter keys removed. Used
+    to judge a project-file change on what the agent should hear: never the
+    parent line (chain notices cover it), and for ancestors never the member
+    list. `parent` is a single line (as the app writes it); `members` is
+    removed the way the agent-supervisor removes it when rewriting — the
+    header, then for a block list every indented `-` item and any blank or
+    comment line inside it."""
+    text = data.decode("utf-8", errors="replace")
+    lines = text.split("\n")
+    fences = [i for i, ln in enumerate(lines) if ln.strip() == "---"]
+    if len(fences) < 2:
+        return data
+    fm = lines[fences[0] + 1: fences[1]]
+    kept, i = [], 0
+    while i < len(fm):
+        ln = fm[i]
+        if "parent" in keys and re.match(r"^parent\s*:", ln):
+            i += 1
+            continue
+        if "members" in keys and re.match(r"^members:(\s|$)", ln):
+            i += 1
+            if not re.match(r"^members:\s*\[", ln):
+                while i < len(fm) and (
+                    re.match(r"^\s+-", fm[i]) or not fm[i].strip()
+                    or fm[i].lstrip().startswith("#")
+                ):
+                    i += 1
+            continue
+        kept.append(ln)
+        i += 1
+    out = lines[: fences[0] + 1] + kept + lines[fences[1]:]
+    return "\n".join(out).encode("utf-8")
+
+
+# Keys never reported for each project-file kind (see _strip_frontmatter_keys).
+_PROJECT_HIDDEN_KEYS = {
+    "project-file": ("parent",),
+    "parent-project": ("parent", "members"),
+}
+
+
 def _role_file_path(role):
     return os.path.expanduser("~/fleet/roles/%s/%s.md" % (role, role))
 
@@ -405,7 +683,13 @@ def _restart_if_scope_changed(identity_file_path, watched_project, watched_roles
     file: the agent read no project file at /id load (or read a different
     one), and the identity-file diff alone only shows the `project:` line
     changing. The old project's baseline is removed so a later re-join starts
-    clean instead of diffing against a stale snapshot.
+    clean instead of diffing against a stale snapshot. When the new project
+    sits inside others, the pointer names every file in the chain, top-down.
+
+    Project chain: same project, but its ancestors changed — a parent line
+    moved anywhere up the chain, or an ancestor's folder went away. The new
+    process tells the agent (see the chain-state check in main()), so the
+    notice holds even when the agent made the change itself.
 
     Roles: same idea per role. Each newly added role gets a pointer to its
     role file (and runbooks folder, if any) since the agent never read it;
@@ -421,12 +705,34 @@ def _restart_if_scope_changed(identity_file_path, watched_project, watched_roles
             except OSError:
                 pass
             _drop_pending(["📝 [project-file: %s]" % watched_project])
+        chain = _resolve_chain(new_slug) if new_slug is not None else []
+        left = [s for s in _watched_chain[:-1] if s not in chain]
+        left_text = (
+            " — no longer inside %s: drop their conventions"
+            % ", ".join(_left_name(s) for s in left)
+        ) if left else ""
         if new_slug is not None:
-            _out(
-                "📝 [project-file: %s] you're now in project %s — Read %s"
-                % (new_slug, new_slug, new_path)
-            )
+            above = list(_chain_files(chain))
+            if above:
+                _out(
+                    "📝 [project-file: %s] you're now in project %s, inside %s — Read top-down: %s%s"
+                    % (new_slug, new_slug, _chain_text(chain[:-1]),
+                       ", ".join([_project_md_path(s) for s in above] + [new_path]), left_text)
+                )
+            else:
+                _out(
+                    "📝 [project-file: %s] you're now in project %s — Read %s%s"
+                    % (new_slug, new_slug, new_path, left_text)
+                )
+        elif left:
+            _out("📝 [project-chain: %s] you left project %s%s" % (
+                watched_project, _left_name(watched_project), left_text,
+            ))
         reasons.append("project changed (%s → %s)" % (watched_project, new_slug))
+    elif new_slug is not None and _scope_signature(identity_file_path) != _watched_signature:
+        reasons.append("project chain changed (%s → %s)" % (
+            " › ".join(_watched_chain), " › ".join(_resolve_chain(new_slug)),
+        ))
 
     roles_delta = _roles_changed(identity_file_path, watched_roles)
     if roles_delta is not None:
@@ -567,6 +873,41 @@ def _flatten_diff(diff_stdout):
 # matters: names sort by write time (ns) and the drain delivers in name order.
 # ---------------------------------------------------------------------------
 _queue_dir = None   # set in main(); <identity>/pending-context
+# Ancestor slug → levels above the own project (1 = parent); set in main().
+_ancestor_levels = {}
+# The project chain this process watches, top first (see _resolve_chain),
+# and the full scope signature it was built from (see _scope_signature).
+_watched_chain = []
+_watched_signature = None
+
+# Chain re-check. The chain depends on more than the files this process
+# watches — a missing parent can be created, an archived one restored, a bare
+# ancestor folder can gain its project.md, a loop can be broken from a project
+# just off the chain, an ancestor's file can be deleted. Rather than watch the
+# whole projects tree (every identity's watcher, recursively, over every
+# project and the archive), a daemon thread re-resolves the scope signature
+# every CHAIN_POLL_SEC; on a difference it ends inotifywait so the main loop
+# runs the scope check, exactly as the self-reload thread does for code.
+CHAIN_POLL_SEC = float(os.environ.get("FILE_WATCH_CHAIN_POLL_SEC", "3"))
+_scope_recheck = threading.Event()
+
+
+def _chain_poll_watch(identity_file_path):
+    while True:
+        time.sleep(CHAIN_POLL_SEC)
+        try:
+            changed = _scope_signature(identity_file_path) != _watched_signature
+        except Exception:
+            continue
+        if not changed or _scope_recheck.is_set():
+            continue
+        _scope_recheck.set()
+        proc = _inotify_proc
+        if proc is not None:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
 _out_lock = threading.Lock()
 
 
@@ -668,6 +1009,11 @@ def _change_phrase(kind, label):
         return "your user-wide CLAUDE.md"
     if kind == "project-file":
         return "your project file"
+    if kind == "parent-project":
+        return "your %s project %s's file" % (
+            "parent" if _ancestor_levels.get(label, 1) == 1 else "ancestor",
+            _read_project_display_name(label),
+        )
     if kind == "runbook":
         slug = label.split("/", 1)[-1]
         return "your %s runbook" % slug
@@ -717,7 +1063,11 @@ def _emit_event(kind, label, diff_stdout, spill_dir):
         # timestamp don't collide.
         os.makedirs(spill_dir, exist_ok=True)
         ts = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H-%M-%SZ")
-        spill_path = os.path.join(spill_dir, "%s.%s.diff" % (ts, kind))
+        # Kind + label + ns: several ancestors share the parent-project kind,
+        # and two large edits in one second must not share a spill file.
+        spill_path = os.path.join(
+            spill_dir, "%s.%s.%s.%d.diff" % (ts, kind, label.replace("/", "-"), time.time_ns()),
+        )
         with open(spill_path, "w") as f:
             f.write(diff_stdout)
         _out(
@@ -821,7 +1171,7 @@ def _wait_for_claim_release(target_path, baseline_path):
     )
 
 
-def _diff_and_emit(kind, label, target_path, baseline_dir, baseline_path, spill_dir, hold=True):
+def _diff_and_emit(kind, label, target_path, baseline_dir, baseline_path, spill_dir, hold=True, settle=True):
     """Compare current target file against its baseline; if different, emit event
     and update baseline. Returns True if target file is gone (caller should exit).
 
@@ -836,7 +1186,7 @@ def _diff_and_emit(kind, label, target_path, baseline_dir, baseline_path, spill_
     and blocking there would delay arming inotifywait."""
     if hold:
         _wait_for_claim_release(target_path, baseline_path)
-    if SELF_EDIT_SETTLE_MS > 0:
+    if settle and SELF_EDIT_SETTLE_MS > 0:
         time.sleep(SELF_EDIT_SETTLE_MS / 1000.0)
 
     current = _read_bytes(target_path)
@@ -846,7 +1196,8 @@ def _diff_and_emit(kind, label, target_path, baseline_dir, baseline_path, spill_
             file=sys.stderr,
             flush=True,
         )
-        return True  # signal caller to exit
+        # A project file is optional — its loss is a scope change, not fatal.
+        return kind not in _PROJECT_HIDDEN_KEYS
 
     baseline = _read_bytes(baseline_path)
 
@@ -865,22 +1216,58 @@ def _diff_and_emit(kind, label, target_path, baseline_dir, baseline_path, spill_
             # Agent's own edit — refresh baseline silently, no wake.
             _atomic_write_baseline(baseline_dir, baseline_path, current)
             return False
-        diff_stdout = _run_diff(baseline_path, target_path)
+        hidden = _PROJECT_HIDDEN_KEYS.get(kind)
+        if hidden is None:
+            diff_stdout = _run_diff(baseline_path, target_path)
+        else:
+            # Project files: judge only what the agent should hear. A change
+            # confined to hidden keys (the parent line → a chain notice; an
+            # ancestor's member list → nothing) refreshes silently.
+            old_view = _strip_frontmatter_keys(baseline, hidden)
+            new_view = _strip_frontmatter_keys(current, hidden)
+            if old_view == new_view:
+                _atomic_write_baseline(baseline_dir, baseline_path, current)
+                return False
+            diff_stdout = _run_view_diff(baseline_dir, old_view, new_view)
         _emit_event(kind, label, diff_stdout, spill_dir)
         _atomic_write_baseline(baseline_dir, baseline_path, current)
 
     return False
 
 
+def _run_view_diff(baseline_dir, old_view, new_view):
+    """Unified diff of two in-memory file views (see _run_diff)."""
+    old_tmp = os.path.join(baseline_dir, ".view.baseline.tmp")
+    new_tmp = os.path.join(baseline_dir, ".view.current.tmp")
+    try:
+        with open(old_tmp, "wb") as f:
+            f.write(old_view)
+        with open(new_tmp, "wb") as f:
+            f.write(new_view)
+        return _run_diff(old_tmp, new_tmp)
+    finally:
+        for t in (old_tmp, new_tmp):
+            try:
+                os.remove(t)
+            except OSError:
+                pass
+
+
 def _diff_and_emit_all(targets, baseline_dir, spill_dir):
     """Run _diff_and_emit for every target. Returns True if ANY target is gone.
 
     A vanished project file is not fatal — the project was archived or the
-    identity left it; _restart_if_scope_changed handles that."""
+    identity left it; _restart_if_scope_changed handles that. The self-edit
+    settle window is waited once for the batch, not once per target, so a
+    long project chain doesn't slow every notice down."""
+    if SELF_EDIT_SETTLE_MS > 0:
+        time.sleep(SELF_EDIT_SETTLE_MS / 1000.0)
     for kind, label, target_path, baseline_path in targets:
-        if kind == "project-file" and not os.path.exists(target_path):
+        if kind in _PROJECT_HIDDEN_KEYS and not os.path.exists(target_path):
             continue
-        gone = _diff_and_emit(kind, label, target_path, baseline_dir, baseline_path, spill_dir)
+        gone = _diff_and_emit(
+            kind, label, target_path, baseline_dir, baseline_path, spill_dir, settle=False,
+        )
         if gone:
             return True
     return False
@@ -1201,11 +1588,25 @@ def main():
     # identity-file edit) restarts the process so the target follows — see
     # _restart_if_scope_changed.
     watched_project, project_path = _resolve_project(identity_file_path)
+    global _watched_chain, _watched_signature
+    _watched_chain = _resolve_chain(watched_project) if watched_project else []
+    _watched_signature = (watched_project, tuple(_watched_chain), _chain_files(_watched_chain))
     if watched_project is not None:
         targets.append((
             "project-file", watched_project, project_path,
             _project_baseline_path(baseline_dir, watched_project),
         ))
+    # Ancestor project files — watched for content changes (member churn and
+    # parent lines excluded; see _PROJECT_HIDDEN_KEYS). Chain changes the
+    # watched files can't show are caught by the chain re-check thread.
+    ancestors = _watched_chain[:-1]
+    for levels, slug in enumerate(reversed(ancestors), start=1):
+        _ancestor_levels[slug] = levels
+        pmd = _project_md_path(slug)
+        if os.path.isfile(pmd):
+            targets.append((
+                "parent-project", slug, pmd, _project_baseline_path(baseline_dir, slug),
+            ))
 
     # --- Runbooks trees — role-scope; one dir per role. Empty or nonexistent
     # is fine (skipped). `runbook_roles` is the ordered list of (role, dir) that
@@ -1331,6 +1732,23 @@ def main():
             flush=True,
         )
 
+    # --- Project chain bookkeeping. Baselines for projects that left the chain
+    # are dropped first, so a project that later rejoins cold-starts instead
+    # of diffing against a stale snapshot. Then, if the chain this identity
+    # was last told about has the same own project but different ancestors,
+    # say so — whoever made the change, the agent included (a self-edit of a
+    # parent line refreshes the baseline silently, but the chain still moved).
+    _prune_project_baselines(baseline_dir, _watched_chain)
+    prior_chain = _read_chain_state(baseline_dir)
+    if (
+        prior_chain
+        and _watched_chain
+        and prior_chain[-1] == _watched_chain[-1]
+        and prior_chain != _watched_chain
+    ):
+        _emit_chain_notice(prior_chain, _watched_chain)
+    _write_chain_state(baseline_dir, _watched_chain)
+
     # --- Cold-start rule: for each target, if no baseline, snapshot silently.
     # Otherwise diff at startup and emit if the file changed while we were down.
     # Cold start remains silent per shape invariant. This runs per-target
@@ -1338,13 +1756,15 @@ def main():
     # the right thing: the role gets a startup diff, the identity gets a silent cold
     # snapshot.
     for kind, label, target_path, baseline_path in targets:
-        if kind == "project-file" and not os.path.exists(target_path):
+        if kind in _PROJECT_HIDDEN_KEYS and not os.path.exists(target_path):
             continue  # vanished since resolve — the post-arm check restarts us
         if not os.path.exists(baseline_path):
             current = _read_bytes(target_path)
             if current is None:
                 msg = "%s file unreadable at startup: %s" % (kind, target_path)
                 print("⚠️ [file-watch] %s" % msg, file=sys.stderr, flush=True)
+                if kind in _PROJECT_HIDDEN_KEYS:
+                    continue
                 sys.exit(1)
             _atomic_write_baseline(baseline_dir, baseline_path, current)
             # Emit NOTHING to stdout on cold start (shape file "silent on cold start" invariant)
@@ -1431,6 +1851,10 @@ def main():
         threading.Thread(
             target=_self_reload_watch, args=(_SELF_START_STAT,), daemon=True,
         ).start()
+    if CHAIN_POLL_SEC > 0:
+        threading.Thread(
+            target=_chain_poll_watch, args=(identity_file_path,), daemon=True,
+        ).start()
 
     if use_inotify:
         # inotifywait-based watch loop with `--format` output so we can route
@@ -1503,7 +1927,7 @@ def main():
                 )
                 # The reload thread may have fired while no inotifywait was
                 # running to terminate — end this one so the loop reaches EOF.
-                if _reload_pending.is_set():
+                if _reload_pending.is_set() or _scope_recheck.is_set():
                     _inotify_proc.terminate()
                 # Close the arming gap: a change landing between our last
                 # diff (the startup pass, or the MOVE_SELF/DELETE_SELF diff
@@ -1626,6 +2050,22 @@ def main():
                             pass
                     _reexec_self()
 
+                # The chain re-check thread ended inotifywait: run the scope
+                # check (re-execs on a real change); a change that reverted
+                # in between just re-arms, without the failure path below.
+                if _scope_recheck.is_set():
+                    _scope_recheck.clear()
+                    _restart_if_scope_changed(
+                        identity_file_path, watched_project, watched_roles, baseline_dir,
+                    )
+                    if _inotify_proc is not None:
+                        try:
+                            _inotify_proc.wait(timeout=5)
+                        except Exception:
+                            pass
+                    _inotify_proc = None
+                    continue
+
                 # for-loop exited: either _inotify_proc is None (controlled
                 # respawn via MOVE_SELF/DELETE_SELF above) or inotifywait died
                 # on its own (EOF on stdout). In the death case, capture exit
@@ -1685,7 +2125,14 @@ def main():
             identity_file_path, watched_project, watched_roles, baseline_dir,
         )
         try:
-            last_mtimes = {t[2]: os.path.getmtime(t[2]) for t in targets}
+            last_mtimes = {
+                t[2]: (
+                    os.path.getmtime(t[2])
+                    if t[0] not in _PROJECT_HIDDEN_KEYS or os.path.exists(t[2])
+                    else None
+                )
+                for t in targets
+            }
         except OSError as e:
             print(
                 "⚠️ [file-watch] target unreadable in polling loop: %s" % e,
@@ -1706,12 +2153,13 @@ def main():
                 _reexec_self()
 
             time.sleep(POLL)
-            changed = False
+            changed = _scope_recheck.is_set()
+            _scope_recheck.clear()
             for kind, label, target_path, baseline_path in targets:
                 try:
                     cur_mtime = os.path.getmtime(target_path)
                 except OSError:
-                    if kind == "project-file":
+                    if kind in _PROJECT_HIDDEN_KEYS:
                         changed = True
                         continue
                     print(

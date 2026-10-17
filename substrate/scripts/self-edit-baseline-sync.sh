@@ -208,8 +208,8 @@ timeout 2 bash -c '
             printf "%s\t%s\t0\n" "$baseline" "$HOME/fleet/roles/$role_part/runbooks/$slug/runbook.md"
         done
 
-        # Project baseline — `last-snapshot.project.<slug>` (at most one: the
-        # identity'"'"'s current project). project.md is not a distinctive
+        # Project baselines — `last-snapshot.project.<slug>` (the identity'"'"'s
+        # project and each project above it). project.md is not a distinctive
         # basename; Bash claims match on `<slug>/project.md` and longer forms.
         for baseline in "$STATE_DIR"/last-snapshot.project.*; do
             bname=$(basename "$baseline")
