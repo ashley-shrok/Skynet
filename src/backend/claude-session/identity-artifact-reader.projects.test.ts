@@ -29,6 +29,8 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { execFile } from "child_process";
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import type { Client as SSHClientType } from "ssh2";
 type SFTPWrapper = import("ssh2").SFTPWrapper;
 import path from "path";
@@ -79,6 +81,8 @@ import {
   readSessionProjectField,
   writeSessionProjectField,
   listProjects,
+  LIST_PROJECTS_REMOTE_CMD,
+  parseListProjectsBatchOutput,
   readProjectFile,
   writeProjectFile,
   createProject,
@@ -549,50 +553,124 @@ describe("listProjects — LOCAL branch", () => {
   });
 });
 
-describe("listProjects — REMOTE branch", () => {
-  it("Test L4: happy — find command contains ! -name archive; two entries sorted", async () => {
+const b64 = (t: string) => Buffer.from(t, "utf-8").toString("base64");
+const rec = (slug: string, md: string | null) => `===PROJECT:${slug}===\n${md === null ? "" : b64(md)}\n`;
+
+describe("listProjects — REMOTE branch (one batched exec)", () => {
+  it("Test L4: happy — ONE exec (find ! -name archive + inline project.md); entries sorted; displayName parsed", async () => {
     const { conn } = buildMockConn();
-    let findCmdSeen = "";
-    execCommandMock.mockImplementation((_conn: unknown, cmd: string) => {
-      if (cmd.startsWith("find ")) {
-        findCmdSeen = cmd;
-        // Return in NON-sorted order to prove sort happens client-side.
-        return Promise.resolve("beta\nalpha\n");
-      }
-      if (cmd.startsWith("cat ") && cmd.includes("/alpha/project.md")) {
-        return Promise.resolve("---\ndisplayName: 'Alpha One'\n---\n");
-      }
-      if (cmd.startsWith("cat ") && cmd.includes("/beta/project.md")) {
-        return Promise.resolve("---\ndisplayName: 'Beta'\n---\n");
-      }
-      return Promise.resolve("");
-    });
+    execCommandMock.mockResolvedValue(
+      // NON-sorted order to prove sort happens client-side.
+      rec("beta", "---\ndisplayName: 'Beta'\n---\n") +
+        rec("alpha", "---\ndisplayName: 'Alpha One'\nusers: [alice]\n---\nbody\n"),
+    );
 
     const result = await listProjects(conn);
 
-    expect(findCmdSeen).toContain("! -name archive");
-    expect(findCmdSeen).toContain("$HOME/fleet/projects");
+    expect(execCommandMock).toHaveBeenCalledTimes(1);
+    const cmd = execCommandMock.mock.calls[0][1] as string;
+    expect(cmd).toBe(LIST_PROJECTS_REMOTE_CMD);
+    expect(cmd).toContain("! -name archive");
+    expect(cmd).toContain("$HOME/fleet/projects");
     expect(result).toEqual([
-      { slug: "alpha", displayName: "Alpha One", users: null },
+      { slug: "alpha", displayName: "Alpha One", users: ["alice"] },
       { slug: "beta", displayName: "Beta", users: null },
     ]);
   });
 
-  it("Test L5: only-slug-valid entries — BADENTRY! filtered out via PROJECT_SLUG_RE gate", async () => {
+  it("Test L5: only-slug-valid entries — BADENTRY! filtered out via PROJECT_SLUG_RE gate; missing project.md → slug fallback", async () => {
     const { conn } = buildMockConn();
-    execCommandMock.mockImplementation((_conn: unknown, cmd: string) => {
-      if (cmd.startsWith("find ")) {
-        return Promise.resolve("alpha\nBADENTRY!\nbeta\n");
-      }
-      if (cmd.startsWith("cat ")) {
-        return Promise.resolve(""); // no project.md → displayName falls back to slug
-      }
-      return Promise.resolve("");
-    });
+    execCommandMock.mockResolvedValue(rec("alpha", null) + rec("BADENTRY!", "---\ndisplayName: X\n---\n") + rec("beta", null));
 
     const result = await listProjects(conn);
-    expect(result.map((r) => r.slug)).toEqual(["alpha", "beta"]);
-    expect(result.some((r) => r.slug === "BADENTRY!")).toBe(false);
+    expect(execCommandMock).toHaveBeenCalledTimes(1);
+    expect(result).toEqual([
+      { slug: "alpha", displayName: "alpha", users: null },
+      { slug: "beta", displayName: "beta", users: null },
+    ]);
+  });
+
+  it("Test L5b: empty output (no projects dir) → []", async () => {
+    const { conn } = buildMockConn();
+    execCommandMock.mockResolvedValue("");
+    expect(await listProjects(conn)).toEqual([]);
+  });
+
+  it("Test L5c: exec failure propagates (same as the old find failure)", async () => {
+    const { conn } = buildMockConn();
+    execCommandMock.mockRejectedValue(new Error("boom"));
+    await expect(listProjects(conn)).rejects.toThrow("boom");
+  });
+});
+
+describe("parseListProjectsBatchOutput — edge cases", () => {
+  it("content that looks like a header can't break framing (it's base64'd)", () => {
+    const tricky = "---\ndisplayName: Tricky\n---\n===PROJECT:evil===\nnot a header\n";
+    const m = parseListProjectsBatchOutput(rec("alpha", tricky) + rec("beta", "b"));
+    expect([...m.keys()]).toEqual(["alpha", "beta"]);
+    expect(m.get("alpha")).toBe(tricky);
+    expect(m.get("beta")).toBe("b");
+  });
+
+  it("header with no payload line (truncated output) and header-followed-by-header → empty contents", () => {
+    const m = parseListProjectsBatchOutput("===PROJECT:alpha===\n===PROJECT:beta===\n" + b64("x") + "\n===PROJECT:gamma===");
+    expect(m.get("alpha")).toBe("");
+    expect(m.get("beta")).toBe("x");
+    expect(m.get("gamma")).toBe("");
+  });
+
+  it("CRLF line endings, UTF-8 content, duplicate slug (first wins), junk lines ignored", () => {
+    const out =
+      "junk before\r\n" +
+      `===PROJECT:alpha===\r\n${b64("café ☕")}\r\n` +
+      `===PROJECT:alpha===\n${b64("second")}\n` +
+      "stray line\n";
+    const m = parseListProjectsBatchOutput(out);
+    expect([...m.entries()]).toEqual([["alpha", "café ☕"]]);
+  });
+
+  it("invalid slugs (uppercase, newline-split fragments, '===' inside) are dropped and don't steal the next payload", () => {
+    const out =
+      `===PROJECT:Bad===\n${b64("bad")}\n` +
+      `===PROJECT:foo======\n${b64("forged")}\n` +
+      rec("ok", "good");
+    const m = parseListProjectsBatchOutput(out);
+    expect([...m.entries()]).toEqual([["ok", "good"]]);
+  });
+});
+
+describe("LIST_PROJECTS_REMOTE_CMD — real shell", () => {
+  it("emits one record per non-archive, non-symlink project dir with base64'd project.md", async () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), "list-projects-sh-"));
+    try {
+      const root = path.join(home, "fleet", "projects");
+      for (const d of ["alpha", "beta", "archive", "no-md"]) mkdirSync(path.join(root, d), { recursive: true });
+      writeFileSync(path.join(root, "alpha", "project.md"), "---\ndisplayName: Alpha ☕\n---\n===PROJECT:beta===\n");
+      writeFileSync(path.join(root, "beta", "project.md"), "");
+      writeFileSync(path.join(root, "archive", "project.md"), "---\ndisplayName: Archived\n---\n");
+      writeFileSync(path.join(root, "stray-file"), "x");
+      symlinkSync(path.join(root, "alpha"), path.join(root, "linked"));
+      const stdout = await new Promise<string>((resolve, reject) =>
+        execFile("bash", ["-c", LIST_PROJECTS_REMOTE_CMD], { env: { ...process.env, HOME: home } }, (err, out) =>
+          err ? reject(err) : resolve(out),
+        ),
+      );
+      const m = parseListProjectsBatchOutput(stdout);
+      expect([...m.keys()].sort()).toEqual(["alpha", "beta", "no-md"]);
+      expect(m.get("alpha")).toBe("---\ndisplayName: Alpha ☕\n---\n===PROJECT:beta===\n");
+      expect(m.get("beta")).toBe("");
+      expect(m.get("no-md")).toBe("");
+
+      // Missing projects dir → empty output, exit 0.
+      const empty = await new Promise<string>((resolve, reject) =>
+        execFile("bash", ["-c", LIST_PROJECTS_REMOTE_CMD], { env: { ...process.env, HOME: path.join(home, "nope") } }, (err, out) =>
+          err ? reject(err) : resolve(out),
+        ),
+      );
+      expect(empty).toBe("");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });
 

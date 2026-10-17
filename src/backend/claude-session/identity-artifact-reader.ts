@@ -851,10 +851,11 @@ function shellEscape(s: string): string {
  * LOCAL branch: fs.readdir with withFileTypes:true, filter to dirs matching
  * PROJECT_SLUG_RE and name !== "archive". ENOENT on the root → [] (graceful).
  *
- * REMOTE branch: `find "$HOME/fleet/projects" -mindepth 1 -maxdepth 1 -type d
- * ! -name archive -printf '%f\\n' 2>/dev/null || true` — the `|| true` handles
- * "projects dir missing" as empty stdout, matching listIdentityKeysOnHost's
- * error tolerance.
+ * REMOTE branch: ONE exec (LIST_PROJECTS_REMOTE_CMD) — the same `find
+ * "$HOME/fleet/projects" -mindepth 1 -maxdepth 1 -type d ! -name archive`
+ * enumeration, with each project.md base64'd inline; parsed by
+ * parseListProjectsBatchOutput. A missing projects dir is empty output → [],
+ * matching listIdentityKeysOnHost's error tolerance.
  */
 export async function listProjects(
   conn: SSHClientType | null,
@@ -888,75 +889,145 @@ export async function listProjects(
       .map((e) => e.name)
       .sort();
   } else {
-    const cmd =
-      `find "$HOME/fleet/projects" -mindepth 1 -maxdepth 1 -type d ! -name archive -printf '%f\\n' 2>/dev/null || true`;
-    const stdout = await execWithTimeout(conn, cmd);
-    slugs = stdout
-      .split("\n")
-      .map((line) => line.trim())
-      .filter((n) => n.length > 0 && PROJECT_SLUG_RE.test(n))
-      .sort();
+    // REMOTE — ONE round-trip for the listing AND every project.md (was
+    // 1 find + N sequential cats). See LIST_PROJECTS_REMOTE_CMD /
+    // parseListProjectsBatchOutput for the wire format.
+    const stdout = await execWithTimeout(conn, LIST_PROJECTS_REMOTE_CMD);
+    const batch = parseListProjectsBatchOutput(stdout);
+    return [...batch.keys()]
+      .sort()
+      .map((slug) => projectMetaFromMarkdown(slug, batch.get(slug) ?? ""));
   }
 
-  // For each slug, best-effort read of project.md to extract displayName and
-  // the `users:` visibility list. Any failure falls back to (slug, null users)
-  // — a bare project dir is still a project, and a missing users list falls
-  // open per the Phase 135 D-3 fallback (matches identity-appearance discipline).
+  // LOCAL: for each slug, best-effort read of project.md. Any failure falls
+  // back to (slug, null users) — see projectMetaFromMarkdown.
   const out: Array<{
     slug: string;
     displayName: string;
     users: string[] | null;
   }> = [];
   for (const slug of slugs) {
-    let displayName = slug;
-    let users: string[] | null = null;
+    let markdown = "";
     try {
-      const { markdown } = await readProjectFile(conn, slug);
-      if (markdown.length > 0) {
-        const fmMatch = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-        if (fmMatch) {
-          // Tolerant parse — see extractRoleFromMarkdown docblock. Critical
-          // for the project-visibility gate: same "malformed prose field
-          // shouldn't zero out users:" concern as identities. A broken task
-          // (or any other prose field) on project.md must not silently make
-          // the project visible to every user by collapsing users to
-          // undefined.
-          const doc = yamlParseDocument(fmMatch[1]);
-          if (doc.errors.length > 0) {
-            systemLogger.warn(
-              "Project frontmatter YAML had parse errors — using tolerant recovery",
-              {
-                operation: "frontmatter_yaml_parse_failed",
-                site: "listProjects",
-                slug,
-                errorCount: doc.errors.length,
-                firstError: doc.errors[0]?.message?.split("\n")[0],
-                snippet: fmMatch[1].slice(0, 200),
-              },
-            );
-          }
-          const parsed = doc.toJS() as Record<string, unknown> | null;
-          if (parsed !== null && typeof parsed === "object") {
-            const dn = (parsed as Record<string, unknown>).displayName;
-            if (typeof dn === "string" && dn.length > 0) {
-              displayName = dn;
-            }
-            const rawUsers = (parsed as Record<string, unknown>).users;
-            if (
-              Array.isArray(rawUsers) &&
-              rawUsers.every((u) => typeof u === "string")
-            ) {
-              users = rawUsers as string[];
-            }
-          }
-        }
-      }
+      ({ markdown } = await readProjectFile(conn, slug));
     } catch {
       // read failure → keep slug + null users fallback
     }
-    out.push({ slug, displayName, users });
+    out.push(projectMetaFromMarkdown(slug, markdown));
   }
   return out;
+}
+
+/** Header line that opens each project's record in LIST_PROJECTS_REMOTE_CMD
+ *  output: `===PROJECT:<slug>===`, followed by ONE line holding project.md
+ *  base64-encoded (empty when the file is missing/unreadable). Base64 keeps
+ *  arbitrary file content (including text that looks like a header) from
+ *  breaking the framing. */
+const LIST_PROJECTS_HEADER_RE = /^===PROJECT:(.*)===$/;
+
+/**
+ * Remote listProjects in one exec. Enumeration is the same `find` as before
+ * (non-symlink dirs, `archive/` excluded); each name is followed by its
+ * base64'd project.md. `tr -d '\n'` instead of `base64 -w0` for
+ * portability. Missing projects dir → empty output (`|| true` / trailing
+ * `true`).
+ */
+export const LIST_PROJECTS_REMOTE_CMD =
+  `find "$HOME/fleet/projects" -mindepth 1 -maxdepth 1 -type d ! -name archive -printf '%f\\n' 2>/dev/null | ` +
+  `while IFS= read -r s; do printf '===PROJECT:%s===\\n' "$s"; ` +
+  `f="$HOME/fleet/projects/$s/project.md"; ` +
+  `[ -f "$f" ] && base64 < "$f" 2>/dev/null | tr -d '\\n'; ` +
+  `printf '\\n'; done; true`;
+
+/**
+ * Parse LIST_PROJECTS_REMOTE_CMD output into slug → project.md contents.
+ * Only headers whose slug passes PROJECT_SLUG_RE are kept (names with
+ * newlines / odd characters can't forge a valid header for another
+ * project: a forged line either fails the regex or isn't followed by its
+ * payload line). A header with no payload line (truncated output), an empty
+ * payload, or undecodable base64 yields "" → displayName falls back to the
+ * slug. First occurrence wins on a duplicate slug.
+ */
+export function parseListProjectsBatchOutput(stdout: string): Map<string, string> {
+  const out = new Map<string, string>();
+  const lines = stdout.split("\n").map((l) => l.replace(/\r$/, ""));
+  for (let i = 0; i < lines.length; i++) {
+    const m = LIST_PROJECTS_HEADER_RE.exec(lines[i]);
+    if (!m) continue;
+    const slug = m[1];
+    const next = lines[i + 1];
+    const hasPayload = next !== undefined && !LIST_PROJECTS_HEADER_RE.test(next);
+    if (hasPayload) i++;
+    if (!PROJECT_SLUG_RE.test(slug) || out.has(slug)) continue;
+    let markdown = "";
+    if (hasPayload && next.trim().length > 0) {
+      try {
+        markdown = Buffer.from(next.trim(), "base64").toString("utf-8");
+      } catch {
+        markdown = "";
+      }
+    }
+    out.set(slug, markdown);
+  }
+  return out;
+}
+
+/**
+ * Extract {displayName, users} from a project.md. Best-effort: a bare
+ * project dir is still a project, so empty/unparseable markdown yields
+ * (slug, null users) — a missing users list falls open per the Phase 135 D-3
+ * fallback (matches identity-appearance discipline).
+ */
+function projectMetaFromMarkdown(
+  slug: string,
+  markdown: string,
+): { slug: string; displayName: string; users: string[] | null } {
+  let displayName = slug;
+  let users: string[] | null = null;
+  try {
+    if (markdown.length > 0) {
+      const fmMatch = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+      if (fmMatch) {
+        // Tolerant parse — see extractRoleFromMarkdown docblock. Critical
+        // for the project-visibility gate: same "malformed prose field
+        // shouldn't zero out users:" concern as identities. A broken task
+        // (or any other prose field) on project.md must not silently make
+        // the project visible to every user by collapsing users to
+        // undefined.
+        const doc = yamlParseDocument(fmMatch[1]);
+        if (doc.errors.length > 0) {
+          systemLogger.warn(
+            "Project frontmatter YAML had parse errors — using tolerant recovery",
+            {
+              operation: "frontmatter_yaml_parse_failed",
+              site: "listProjects",
+              slug,
+              errorCount: doc.errors.length,
+              firstError: doc.errors[0]?.message?.split("\n")[0],
+              snippet: fmMatch[1].slice(0, 200),
+            },
+          );
+        }
+        const parsed = doc.toJS() as Record<string, unknown> | null;
+        if (parsed !== null && typeof parsed === "object") {
+          const dn = (parsed as Record<string, unknown>).displayName;
+          if (typeof dn === "string" && dn.length > 0) {
+            displayName = dn;
+          }
+          const rawUsers = (parsed as Record<string, unknown>).users;
+          if (
+            Array.isArray(rawUsers) &&
+            rawUsers.every((u) => typeof u === "string")
+          ) {
+            users = rawUsers as string[];
+          }
+        }
+      }
+    }
+  } catch {
+    // parse failure → keep slug + null users fallback
+  }
+  return { slug, displayName, users };
 }
 
 /**
@@ -1833,15 +1904,25 @@ export type WakeupSpec = {
   instruction: string;
 };
 
-/** Merge `updates` into wakeups/<wakeupSlug>/wakeup.json. Caller validates slug
- *  against IDENTITY_SLUG_RE before invoking. Throws on filesystem/parse errors
- *  or if the spec file doesn't exist. */
+/** Merge `updates` into wakeups/<wakeupSlug>/wakeup.json. Validates
+ *  identityKey (IDENTITY_KEY_RE) and wakeupSlug (IDENTITY_SLUG_RE) on both
+ *  branches before any I/O. Throws on filesystem/parse errors or if the spec
+ *  file doesn't exist. */
 export async function writeIdentityWakeupUpdate(
   conn: SSHClientType | null,
   identityKey: string,
   wakeupSlug: string,
   updates: WakeupUpdate,
 ): Promise<void> {
+  // Path-component guards, identical for BOTH branches (the remote branch
+  // used to be the only one checking the slug): both values become path
+  // segments, and remotely are interpolated into a shell command.
+  if (!IDENTITY_KEY_RE.test(identityKey)) {
+    throw new Error("invalid identityKey");
+  }
+  if (!IDENTITY_SLUG_RE.test(wakeupSlug)) {
+    throw new Error("invalid wakeup slug");
+  }
   // Refuse a schedule the scheduler would refuse to fire.
   if (updates.schedule !== undefined) assertFireableSchedule(updates.schedule);
   if (updates.enabled !== undefined && typeof updates.enabled !== "boolean") {
@@ -1890,20 +1971,20 @@ export async function writeIdentityWakeupUpdate(
 
   // REMOTE branch: python3 reads the file, applies updates from stdin, writes
   // via tmp+rename. `updates` is JSON-encoded and piped in — no shell escaping
-  // concerns for the payload itself.
-  // We validate slug shape here as a second belt on top of the caller's check;
-  // the slug is interpolated into a shell path so this matters.
-  if (!IDENTITY_SLUG_RE.test(wakeupSlug)) {
-    throw new Error("invalid wakeup slug");
-  }
+  // concerns for the payload itself. (Slug + identityKey validated above.)
+  // Output matches the local branch byte-for-byte for ordinary specs:
+  // indent=2 with ": " / "," separators like JSON.stringify(_, null, 2), and
+  // ensure_ascii=False so non-ASCII stays raw UTF-8 instead of \uXXXX
+  // escapes. All I/O is explicit UTF-8 so a non-UTF-8 remote locale can't
+  // break the read or the raw write.
   const script =
     'import json,os,sys\n' +
     'p=sys.argv[1]\n' +
-    'u=json.loads(sys.stdin.read())\n' +
-    'with open(p,"r") as f: d=json.load(f)\n' +
+    'u=json.loads(sys.stdin.buffer.read().decode("utf-8"))\n' +
+    'with open(p,"r",encoding="utf-8") as f: d=json.load(f)\n' +
     'for k,v in u.items(): d[k]=v\n' +
     'tmp=p+".tmp"\n' +
-    'with open(tmp,"w") as f: json.dump(d,f,indent=2); f.write("\\n")\n' +
+    'with open(tmp,"w",encoding="utf-8") as f: json.dump(d,f,indent=2,ensure_ascii=False); f.write("\\n")\n' +
     // Never bring back a wake-up that went away while this edit was in flight.
     'if not os.path.exists(p):\n' +
     '    os.unlink(tmp); sys.exit("wake-up no longer exists")\n' +

@@ -23,7 +23,7 @@
 //   (i) REMOTE branch — create + list commands run through a real bash
 
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
-import { execFile } from "child_process";
+import { execFile, execFileSync } from "child_process";
 import os from "os";
 import path from "path";
 import fs from "fs/promises";
@@ -490,4 +490,93 @@ describe("writeIdentityWakeupDelete — LOCAL branch (conn=null)", () => {
       /invalid identityKey/,
     );
   });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// writeIdentityWakeupUpdate — identical validation on both branches, and
+// remote (python3) output byte-identical to local (JSON.stringify)
+// ──────────────────────────────────────────────────────────────────────
+
+function hasPython3(): boolean {
+  try {
+    execFileSync("python3", ["-c", "pass"]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+describe("writeIdentityWakeupUpdate — validation + local/remote parity", () => {
+  let home: string;
+  const KEY = "moxie";
+  const fakeConn = {} as unknown as Parameters<typeof writeIdentityWakeupUpdate>[0];
+  const initial =
+    JSON.stringify(
+      { name: "café", enabled: true, schedule: { type: "daily", at: "09:00" }, instruction: "do it", tags: [] },
+      null,
+      2,
+    ) + "\n";
+
+  beforeEach(async () => {
+    home = await fs.mkdtemp(path.join(os.tmpdir(), "wakeup-parity-"));
+    const idRoot = path.join(home, "fleet", "identities");
+    process.env.IDENTITIES_HOST_DIR = idRoot;
+    for (const slug of ["local-one", "remote-one"]) {
+      await fs.mkdir(path.join(idRoot, KEY, "wakeups", slug), { recursive: true });
+      await fs.writeFile(path.join(idRoot, KEY, "wakeups", slug, "wakeup.json"), initial, "utf-8");
+    }
+    // REMOTE stand-in: run the real command through bash with HOME=<tmp>.
+    (execCommand as Mock).mockImplementation(
+      (_conn: unknown, cmd: string) =>
+        new Promise<string>((resolve, reject) => {
+          execFile("bash", ["-c", cmd], { env: { ...process.env, HOME: home, LANG: "C", LC_ALL: "C" } }, (err, stdout, stderr) => {
+            if (err) reject(new Error(stderr || err.message));
+            else resolve(stdout.trim());
+          });
+        }),
+    );
+  });
+
+  afterEach(async () => {
+    delete process.env.IDENTITIES_HOST_DIR;
+    await fs.rm(home, { recursive: true, force: true });
+  });
+
+  for (const [label, conn] of [
+    ["LOCAL", null],
+    ["REMOTE", fakeConn],
+  ] as const) {
+    it(`${label}: rejects an invalid wakeup slug before any I/O`, async () => {
+      for (const bad of ["../escape", "a/b", "has space", "", "x".repeat(81), "semi;colon"]) {
+        await expect(writeIdentityWakeupUpdate(conn, KEY, bad, { enabled: false })).rejects.toThrow(
+          "invalid wakeup slug",
+        );
+      }
+      expect(execCommand).not.toHaveBeenCalled();
+    });
+
+    it(`${label}: rejects an invalid identityKey before any I/O`, async () => {
+      for (const bad of ["../x", "Upper", "a b", ""]) {
+        await expect(writeIdentityWakeupUpdate(conn, bad, "local-one", { enabled: false })).rejects.toThrow(
+          "invalid identityKey",
+        );
+      }
+      expect(execCommand).not.toHaveBeenCalled();
+    });
+  }
+
+  it.runIf(hasPython3())(
+    "REMOTE python3 writes the same bytes as LOCAL (raw UTF-8, not \\uXXXX), even under a C locale",
+    async () => {
+      const updates = { name: "naïve ☕ 'quoted'", instruction: "über", enabled: false };
+      await writeIdentityWakeupUpdate(null, KEY, "local-one", updates);
+      await writeIdentityWakeupUpdate(fakeConn, KEY, "remote-one", updates);
+      const dir = path.join(home, "fleet", "identities", KEY, "wakeups");
+      const local = await fs.readFile(path.join(dir, "local-one", "wakeup.json"), "utf-8");
+      const remote = await fs.readFile(path.join(dir, "remote-one", "wakeup.json"), "utf-8");
+      expect(remote).toBe(local);
+      expect(remote).toContain("naïve ☕ 'quoted'");
+      expect(remote).not.toContain("\\u");
+    },
+  );
 });
