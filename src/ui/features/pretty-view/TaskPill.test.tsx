@@ -335,6 +335,11 @@ describe("TaskPill", () => {
       act(() => __setSessionDesktopRunningForTests(1, "willow", true));
       expect(anchor.getAttribute("style")).toBe(before);
       expect(before).toContain("max-width: calc(100% - ");
+      // Centered by auto margins across the full pane width — a left:50%
+      // anchor would silently cap the pill at half the pane.
+      expect(anchor.className).toContain("inset-x-0");
+      expect(anchor.className).toContain("mx-auto");
+      expect(anchor.className).not.toContain("left-1/2");
     });
   });
 });

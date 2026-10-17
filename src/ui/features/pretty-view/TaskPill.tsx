@@ -114,7 +114,9 @@ export function TaskPill({
   return (
     <div
       data-testid="pv-task-pill-anchor"
-      className="absolute top-4 left-1/2 -translate-x-1/2 z-[101] flex"
+      // inset-x-0 + mx-auto + w-fit centers it while letting it grow up to
+      // maxWidth (a left:50% anchor would cap it at half the pane).
+      className="absolute top-4 inset-x-0 mx-auto w-fit z-[101] flex"
       style={{ maxWidth: `calc(100% - ${SIDE_RESERVE_PX * 2}px)` }}
     >
       <div

@@ -222,6 +222,10 @@ export function IdentityModal({
     ...(hasGitRepos ? [{ value: "git", label: "Git", Icon: GitBranch }] : []),
     ...(desktopRunning ? [{ value: "desktop", label: "Desktop", Icon: Monitor }] : []),
   ] as const;
+  // The tab actually shown: a requested or remembered tab that isn't
+  // available right now (e.g. the desktop stopped as the button was pressed)
+  // falls back to the agent file instead of leaving an empty body.
+  const shownTab = NAV_SECTIONS.some((t) => t.value === activeTab) ? activeTab : "identity";
 
   // Initial fetch of identity file + wake-ups on modal open. Preserved
   // verbatim from pre-unification (two parallel WS one-shot requests).
@@ -612,7 +616,7 @@ export function IdentityModal({
       // The Desktop tab gets the wide viewer size (height follows the
       // desktop's shape) so the agent's desktop is big enough to work in;
       // every other tab keeps the normal size.
-      size={activeTab === "desktop" ? "viewer" : "xl"}
+      size={shownTab === "desktop" ? "viewer" : "xl"}
       className={cn("max-h-[90vh] flex flex-col", isMultiRole(identity) && "pv-multi-role")}
       dismissible={!desktopControl}
       data-testid="identity-modal"
@@ -811,13 +815,13 @@ export function IdentityModal({
 
       {/* Section tabs — MOVED to TOP per tasting. */}
       <Tabs
-        value={activeTab}
+        value={shownTab}
         onValueChange={setActiveTab}
         className="flex-1 min-h-0 flex flex-col"
       >
         <ModalTabs
           tabs={NAV_SECTIONS}
-          value={activeTab}
+          value={shownTab}
           onValueChange={setActiveTab}
           rowTestId="identity-modal-nav"
           testIdPrefix="identity-modal-nav"
@@ -877,7 +881,7 @@ export function IdentityModal({
             <DesktopTab
               identityKey={identity.identityKey}
               hostId={hostId}
-              isVisible={open && activeTab === "desktop"}
+              isVisible={open && shownTab === "desktop"}
               onControlChange={setDesktopControl}
             />
           </TabsContent>

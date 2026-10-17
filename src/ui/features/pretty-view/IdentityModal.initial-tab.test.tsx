@@ -150,6 +150,17 @@ describe("IdentityModal — opening on a requested tab", () => {
     expect(screen.getByTestId("identity-modal-nav-git")).toBeTruthy();
   });
 
+  it("requested Desktop tab that isn't available (desktop stopped as the button was pressed) → agent file, normal size, never an empty body", async () => {
+    render(<Harness open={true} initialTab="desktop" desktopRunningHint={false} />);
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("identity-modal-nav-identity").getAttribute("aria-pressed"),
+      ).toBe("true"),
+    );
+    expect(screen.queryByTestId("desktop-tab-stub")).toBeNull();
+    expect(screen.getByTestId("identity-modal").className).not.toContain("sm:max-w-[min(1200px,80vw)]");
+  });
+
   it("no hints → no Desktop / Git tabs (the modal's own checks decide)", async () => {
     render(<Harness open={true} />);
     await waitFor(() => expect(screen.getByTestId("identity-modal")).toBeTruthy());

@@ -1733,3 +1733,77 @@ describe("fleet-status-client: app-frame dispatch (Phase 117 Plan 117-01)", () =
   });
 });
 
+
+// ---------------------------------------------------------------------------
+// Desktop-running store — backs the task pill's desktop button. It must
+// follow the stream and never stay "on" past what the stream supports.
+// ---------------------------------------------------------------------------
+
+describe("useSessionDesktopRunning — follows the fleet-status stream", () => {
+  const appearance = (desktopRunning?: boolean) => ({
+    displayName: "Tina",
+    title: null,
+    colorHue: null,
+    voice: null,
+    task: null,
+    coordinator: false,
+    role: null,
+    roleDefaults: null,
+    avatarUrl: "/identities/tina/avatar?hostId=42",
+    pinned: false,
+    ...(desktopRunning === undefined ? {} : { desktopRunning }),
+  });
+  const state = (desktopRunning?: boolean, withAppearance = true) => ({
+    hostId: "42",
+    tmuxSession: "tina",
+    sessionId: "sid",
+    pid: 1,
+    status: "idle",
+    backgroundTasks: [],
+    updatedAt: 0,
+    ...(withAppearance ? { identityAppearance: appearance(desktopRunning) } : {}),
+  });
+
+  it("snapshot/update set it, an appearance-less frame keeps it, a later snapshot without the session clears it, gone and disconnect clear it", async () => {
+    vi.useRealTimers();
+    const { renderHook, act } = await import("@testing-library/react");
+    const mod = await import("./fleet-status-client.js");
+    const { result } = renderHook(() => mod.useSessionDesktopRunning(42, "tina"));
+    expect(result.current).toBe(false);
+
+    mod.createFleetStatusClient({
+      url: "ws://localhost/fleet-status/ws",
+      onSnapshot: vi.fn(),
+      onUpdate: vi.fn(),
+      onGone: vi.fn(),
+    });
+    const ws = latestWs();
+    ws.onopen?.();
+    const send = (frame: object) =>
+      act(() => {
+        ws.onmessage?.({ data: JSON.stringify({ schemaVersion: FRAME_SCHEMA_VERSION, ...frame }) });
+      });
+
+    send({ type: "snapshot", states: [state(true)] });
+    expect(result.current).toBe(true);
+    send({ type: "update", state: state(undefined, false) });
+    expect(result.current).toBe(true); // no appearance → last value held
+    send({ type: "update", state: state(false) });
+    expect(result.current).toBe(false);
+    send({ type: "update", state: state(true) });
+    expect(result.current).toBe(true);
+    // Reconnect snapshot that no longer carries the session → cleared.
+    send({ type: "snapshot", states: [] });
+    expect(result.current).toBe(false);
+    send({ type: "update", state: state(true) });
+    send({ type: "gone", hostId: "42", tmuxSession: "tina", sessionId: "sid", reason: "exited" });
+    expect(result.current).toBe(false);
+    send({ type: "update", state: state(true) });
+    expect(result.current).toBe(true);
+    act(() => {
+      ws.onclose?.({ code: 1006, reason: "" });
+    });
+    expect(result.current).toBe(false);
+    __disposeAllClientsForTest();
+  });
+});

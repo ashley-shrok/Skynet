@@ -371,28 +371,42 @@ test_case_06_sentinels() {
 }
 
 # Case 6b: desktop_running — true only while the display recorded in the
-# identity's desktop/display names an X lock file whose pid is alive.
-# Uses display numbers far above any real one and cleans up its lock files.
+# identity's desktop/display names an X lock file whose pid is a live X
+# server (a live process named X*). A dead pid, or a live pid that isn't an X
+# server (pid reuse after a hard kill), reads as not running. Uses display
+# numbers far above any real one and always removes its lock files.
 test_case_06b_desktop_running() {
-  local live_n=$(( 60000 + RANDOM % 1000 ))
-  local dead_n=$(( live_n + 1000 ))
+  local base=$(( 60000 + RANDOM % 1000 ))
+  local live_n=$base dead_n=$(( base + 1000 )) reused_n=$(( base + 2000 ))
+  # A stand-in X server: a copy of `sleep` named X…, so its process name
+  # starts with X.
+  cp "$(command -v sleep)" "$FIXTURE/Xfakeserver"
+  "$FIXTURE/Xfakeserver" 60 &
+  local xpid=$!
+  trap 'kill "$xpid" 2>/dev/null; rm -f "/tmp/.X${live_n}-lock" "/tmp/.X${dead_n}-lock" "/tmp/.X${reused_n}-lock"; trap - RETURN' RETURN
+
   make_identity "deskon" "---\n---\n"
   mkdir -p "$FIXTURE/fleet/identities/deskon/desktop"
   printf '%s\n' "$live_n" > "$FIXTURE/fleet/identities/deskon/desktop/display"
-  printf '%10d\n' "$$" > "/tmp/.X${live_n}-lock"
+  printf '%10d\n' "$xpid" > "/tmp/.X${live_n}-lock"
 
   make_identity "deskdead" "---\n---\n"
   mkdir -p "$FIXTURE/fleet/identities/deskdead/desktop"
   printf '%s\n' "$dead_n" > "$FIXTURE/fleet/identities/deskdead/desktop/display"
   printf '%10d\n' 999999999 > "/tmp/.X${dead_n}-lock"
 
+  make_identity "deskreused" "---\n---\n"
+  mkdir -p "$FIXTURE/fleet/identities/deskreused/desktop"
+  printf '%s\n' "$reused_n" > "$FIXTURE/fleet/identities/deskreused/desktop/display"
+  printf '%10d\n' "$$" > "/tmp/.X${reused_n}-lock"
+
   make_identity "desknone" "---\n---\n"
 
   local out
   out=$(run_sweep)
-  rm -f "/tmp/.X${live_n}-lock" "/tmp/.X${dead_n}-lock"
   assert_identity_field "$out" "deskon" "desktop_running" 'true'
   assert_identity_field "$out" "deskdead" "desktop_running" 'false'
+  assert_identity_field "$out" "deskreused" "desktop_running" 'false'
   assert_identity_field "$out" "desknone" "desktop_running" 'false'
 }
 

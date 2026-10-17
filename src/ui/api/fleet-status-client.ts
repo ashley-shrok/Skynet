@@ -256,6 +256,9 @@ export function createFleetStatusClient(
           // user's onSnapshot callback fires AFTER — matches the existing
           // ordering discipline in AppShell where session-working-store,
           // session-waiting-store, session-tmux-store all publish first.
+          // A snapshot is the full fleet: rebuild the desktop flags from it so
+          // a session missing from it can't keep a stale "running".
+          clearSessionDesktopRunning();
           for (const s of parsed.states) {
             publishSessionContextPct(s.hostId, s.tmuxSession, s.contextPct ?? null);
             publishSessionDesktopRunning(s.hostId, s.tmuxSession, s.identityAppearance);
@@ -420,6 +423,9 @@ export function createFleetStatusClient(
 
     ws.onclose = (evt: CloseEvent) => {
       if (disposed) return;
+      // Disconnected → we no longer know whose desktop runs; hide every
+      // desktop button until the reconnect snapshot says otherwise.
+      clearSessionDesktopRunning();
       // Bounty t800-frontend-websocket-leak-on-container-recreate:
       // detach handler property refs on the just-closed WS BEFORE nulling the
       // module ref + scheduling replacement connect(). Without this, the dead
@@ -807,6 +813,12 @@ function publishSessionDesktopRunningGone(
 ): void {
   const key = contextPctKey(hostId, tmuxSession);
   if (!desktopRunningStore.delete(key)) return;
+  for (const cb of desktopRunningListeners) cb();
+}
+
+function clearSessionDesktopRunning(): void {
+  if (desktopRunningStore.size === 0) return;
+  desktopRunningStore.clear();
   for (const cb of desktopRunningListeners) cb();
 }
 
