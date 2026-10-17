@@ -29,7 +29,7 @@ So: this artifact deliberately does NOT list Apple design principles, and no ses
 
 Starting order: foundation, skills, host targeting, then the remaining modals, then sidebar and conversation view last (Ashley: "save that until we've already gone through the rest").
 
-- **[declared] shape-ux-foundation** — the shared groundwork every redesigned modal builds on, and working out how an Apple-referenced design looks wearing Skynet's own aesthetic. Grew (2026-10-16, Ashley agreed): look A + a full shared kit, every modal moved onto it, browser pop-ups replaced, phone sheets — see shape-ux-foundation.md. The per-modal shapes below shrink to layout only; regroup them when this shape closes — in_progress
+- **[declared] shape-ux-foundation** — look A + the shared kit, every modal moved onto it, in-app dialogs, phone sheets (see shape-ux-foundation.closed.md) — closed 2026-10-17
 - **[declared] shape-skills-modal** — the skills modal redesigned on the foundation, keeping fleet-distributed and instance-wide read-only behaviour — not started
 - **[declared] shape-host-targeting** — admin-only: shared skills and roles target a chosen set of hosts or a permanent "every host"; sync machinery + the admin controls in both skills and roles modals — not started
 - **[declared] shape-roles-modals** — roles list, role modal, new-role dialog, runbook editor — not started
@@ -43,9 +43,21 @@ Starting order: foundation, skills, host targeting, then the remaining modals, t
 - **[declared] shape-sidebar** — the conversation list / sidebar, after all modals — not started
 - **[declared] shape-conversation-view** — the chat view itself, last — not started
 
+### Shipping (Ashley, 2026-10-17)
+
+"No point in deploying when tons of modals using the pieces aren't even done." The foundation stays local (committed, NOT pushed — a push would ride along on any peer's deploy) until enough of the per-modal layout shapes are done to ship together. Keep the local branch rebased on origin each session. Each push still needs Ashley's explicit go-ahead.
+
+### Per-modal shapes after the foundation
+
+The foundation already moved every modal onto the kit, so each remaining modal shape is now about that modal's own layout and arrangement only. They are small; group several per session if they fit.
+
 ## Other work
 
-- The version-mismatch lock modal — trivial; restyle in whichever shape lands the foundation — folded into shape-ux-foundation
+- The version-mismatch lock modal — trivial; restyle in whichever shape lands the foundation — done in shape-ux-foundation
+
+- Remove the dead session finder (command palette) — handed to sparrow-box-maintainer-2 (Ashley, 2026-10-17); copper rebases onto its deletion
+- Kit candidates raised during the foundation (pop-over panel for colour/voice pickers, link-styled button, usage meter, sortable column header) — pick up in the per-modal shapes that need them
+- Unused sidebar-era row styles in the conversation-list stylesheet — clean up in shape-sidebar
 
 ## Lingerers (explicitly approved)
 
