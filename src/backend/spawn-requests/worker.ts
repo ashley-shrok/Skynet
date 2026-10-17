@@ -483,6 +483,10 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
     isLocalHostId,
     execLocal: execLocalFn,
     resolveHostById: async (hId, uid) => deps.resolveHostById(hId, uid),
+    // Unattended path: hand the orchestrator the sweep's system-wrapped
+    // (CSKEK) conn details so its remote connect never needs the owner's
+    // per-user data key (only in memory while they have a live session).
+    hostConnDetails: item.hostConnDetails,
     matrixCreateOrUpdateUser: (mxid, password, displayname) =>
       matrixCreateOrUpdateUser(mxid, password, displayname),
     matrixLoginAsUser: (mxid, validUntilMs) =>
@@ -579,7 +583,18 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
   let enumConn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
   try {
     if (!isLocalHostId(item.hostIdNum)) {
-      const hostForConn = await deps.resolveHostById(item.hostIdNum, currentUserId);
+      // Prefer the sweep's system-wrapped conn details; the per-user
+      // resolver needs the owner's data key in memory (live session only).
+      const credSource = item.hostConnDetails ? "system" : "user";
+      systemLogger.info("spawn-request worker: resolving host for name enumeration", {
+        operation: "spawn_request_enum_host_resolve",
+        uuid: item.uuid,
+        hostId: item.hostIdNum,
+        credSource,
+      });
+      const hostForConn =
+        item.hostConnDetails ??
+        (await deps.resolveHostById(item.hostIdNum, currentUserId));
       if (!hostForConn) {
         // Host row was resolvable at owner-lookup (Step 3c above) but is
         // gone now — deleted between then and here. Do NOT fall through

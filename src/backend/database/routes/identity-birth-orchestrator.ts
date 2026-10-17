@@ -319,6 +319,15 @@ export interface BirthDeps {
   /** Resolves a hostId to host connection details. */
   resolveHostById: (hostId: number, userId: string) => Promise<unknown>;
   /**
+   * System-wrapped (CSKEK-decrypted) connection details for the target host,
+   * from listSubstrateHosts' `_connDetails`. Set by the unattended
+   * spawn-request worker so the remote connect does NOT depend on the owner
+   * user's per-user data key being in memory (it is only restored by a live
+   * browser session). When absent (user-initiated HTTP births) Step 8 falls
+   * back to `resolveHostById(hostId, userId)` with the requesting user's key.
+   */
+  hostConnDetails?: Record<string, unknown>;
+  /**
    * Phase 75 Plan 04 (D-OQ6 lock) — Matrix admin mint primitive from Plan 02.
    * Called by runRelayMintAndWrite at Step 6. Wired in identity-birth.ts to
    * matrix-admin-client.ts's createOrUpdateUser export (PUT /_synapse/admin/v2
@@ -1610,7 +1619,23 @@ export async function birthIdentity(
     // -----------------------------------------------------------------------
     if (!useLocal) {
       try {
-        const host = await deps.resolveHostById(opts.hostId, opts.userId);
+        const credSource = deps.hostConnDetails ? "system" : "user";
+        databaseLogger.info("Identity birth: resolving remote host connection", {
+          operation: "identity_birth_remote_host_resolve",
+          hostId: opts.hostId,
+          credSource,
+        });
+        const host =
+          deps.hostConnDetails ??
+          (await deps.resolveHostById(opts.hostId, opts.userId));
+        if (!host) {
+          databaseLogger.error("Identity birth: remote host not resolvable", undefined, {
+            operation: "identity_birth_remote_host_not_found",
+            hostId: opts.hostId,
+            credSource,
+          });
+          throw new Error("host_not_found");
+        }
         conn = await deps.connectOneShot(host, SSH_CONNECT_TIMEOUT_MS);
       } catch (e) {
         // SSH connect failure surfaces as step:8:failed with the same "Host

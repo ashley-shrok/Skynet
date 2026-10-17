@@ -592,6 +592,63 @@ describe("failure surfaces", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Step 8 remote-connect credential source
+// ---------------------------------------------------------------------------
+
+describe("Step 8 remote connect credential source", () => {
+  it("hostConnDetails (system creds) used when present — no per-user key needed", async () => {
+    const { emit, events } = collectEvents();
+    const sys = { ip: "100.9.9.9", port: 22, username: "sys", authType: "key", key: "k" };
+    // Owner's per-user data key not in memory → per-user resolver returns null.
+    const resolve = vi.fn().mockResolvedValue(null);
+    const deps = makeDeps({ resolveHostById: resolve, hostConnDetails: sys });
+
+    const p = birthIdentity(makeOpts(), emit, deps);
+    await vi.runAllTimersAsync();
+    await p;
+
+    expect(resolve).not.toHaveBeenCalled();
+    expect(mockConnectOneShot).toHaveBeenCalledWith(sys, SSH_CONNECT_TIMEOUT_MS);
+    expect(events.find((e) => e.type === "ended")).toEqual(
+      expect.objectContaining({ ok: true }),
+    );
+    expect(databaseLogger.info).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        operation: "identity_birth_remote_host_resolve",
+        hostId: 7,
+        credSource: "system",
+      }),
+    );
+  });
+
+  it("no hostConnDetails (HTTP route) → resolveHostById with the requesting user", async () => {
+    const { emit } = collectEvents();
+    const deps = makeDeps();
+    const p = birthIdentity(makeOpts(), emit, deps);
+    await vi.runAllTimersAsync();
+    await p;
+    expect(deps.resolveHostById).toHaveBeenCalledWith(7, "user-1");
+    expect(databaseLogger.info).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ credSource: "user" }),
+    );
+  });
+
+  it("per-user resolver returns null and no system creds → Host unreachable, never connects", async () => {
+    const { emit, events } = collectEvents();
+    const deps = makeDeps({ resolveHostById: vi.fn().mockResolvedValue(null) });
+    const p = birthIdentity(makeOpts(), emit, deps);
+    await vi.runAllTimersAsync();
+    await p;
+    expect(mockConnectOneShot).not.toHaveBeenCalled();
+    expect(events.find((e) => e.type === "ended")).toEqual(
+      expect.objectContaining({ ok: false, failedStep: 8, reason: "Host unreachable" }),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Local branch (self-birth)
 // ---------------------------------------------------------------------------
 

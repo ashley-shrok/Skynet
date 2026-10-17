@@ -1052,9 +1052,10 @@ describe("spawn-request worker", () => {
 
       await processBirth(item, deps);
 
-      // resolveHostById called EXACTLY once (birth-path enumeration at
-      // worker.ts:502) — NOT twice as it would have been pre-fix.
-      expect(deps.resolveHostById).toHaveBeenCalledTimes(1);
+      // resolveHostById never called: the enumeration connect also uses
+      // item.hostConnDetails (system creds) now, and the response write
+      // never did.
+      expect(deps.resolveHostById).not.toHaveBeenCalled();
 
       // The response-write connectOneShot got the connDetails bag from
       // item.hostConnDetails directly.
@@ -1330,7 +1331,8 @@ describe("spawn-request worker", () => {
         listArchivedIdentityEntries: listArchived,
         birthIdentity: mockBirthIdentity,
       });
-      const item = makePendingBirth();
+      // No system conn details → the per-user resolver path is exercised.
+      const item = makePendingBirth({ hostConnDetails: undefined });
 
       await processBirth(item, deps);
 
@@ -1342,6 +1344,43 @@ describe("spawn-request worker", () => {
       // one attempt, success.
       expect(mockBirthIdentity).toHaveBeenCalledTimes(1);
       expect(["ada", "byron"]).toContain(namesTried[0]);
+    });
+
+    it("no per-user key: enumeration + birth use item.hostConnDetails (system creds), resolveHostById never consulted", async () => {
+      const birthDepsSeen: BirthDeps[] = [];
+      const mockBirthIdentity = vi.fn().mockImplementation(
+        async (opts: BirthOptions, emit: (e: BirthEvent) => void, bDeps: BirthDeps) => {
+          birthDepsSeen.push(bDeps);
+          emit({ type: "ended", ok: true, identityId: opts.name, sessionName: opts.name });
+        },
+      );
+      const listActive = vi.fn().mockResolvedValue(["willow-coordinator"]);
+      const deps = buildTestDeps({
+        // Owner's data key not in memory → per-user resolver returns null.
+        resolveHostById: vi.fn().mockResolvedValue(null),
+        listActiveIdentityKeys: listActive,
+        birthIdentity: mockBirthIdentity,
+      });
+      const sys = { ip: "10.9.9.9", port: 22, username: "sys", authType: "key", key: "k" };
+      const item = makePendingBirth({ hostConnDetails: sys });
+
+      await processBirth(item, deps);
+
+      expect(deps.resolveHostById).not.toHaveBeenCalled();
+      // Enumeration connect got the system bag, and the enumerator got a real conn.
+      expect((deps.connectOneShot as ReturnType<typeof vi.fn>).mock.calls[0][0]).toBe(sys);
+      expect(listActive.mock.calls[0][0]).not.toBeNull();
+      // The orchestrator's remote connect is handed the same system bag.
+      expect(birthDepsSeen[0].hostConnDetails).toBe(sys);
+      const { systemLogger } = await import("../utils/logger.js");
+      expect(systemLogger.info).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          operation: "spawn_request_enum_host_resolve",
+          hostId: 42,
+          credSource: "system",
+        }),
+      );
     });
 
     it("R6: tier-2 collision retry advances to next-oldest, not a fresh randomization", async () => {
