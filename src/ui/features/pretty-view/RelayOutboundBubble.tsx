@@ -4,14 +4,16 @@ import type { Identity } from "@/api/identities-api";
 import { useIdentities } from "@/state/identities-store";
 import { speakVoiceCandidates } from "./voice-candidates";
 import { useSpeakPlayback } from "./useSpeakPlayback";
-import { addressingFor, previewLine, type RelayParty } from "./relay-addressing";
+import { addressingFor, partyForAddressee, previewLine, type RelayParty } from "./relay-addressing";
+import { useViewingUserMxid } from "@/state/viewing-user-store";
 import { useRelayRoomMembers } from "./relay-room-members";
 import { RelayChatBubble, RelayDmCard } from "./RelayBubbleParts";
 
 // RelayOutboundBubble — a relay message this pane's agent sent. Harness view
-// renders a folded RelayDmCard ("Aster → Tina [DM]"); the recipient comes
-// from the room's members when the backend could resolve the room id from
-// the send command, otherwise the card reads "Aster sent a DM".
+// renders a folded RelayDmCard ("Aster → Tina [DM]"). The recipient comes
+// from the room's members when the send named a room; a relay-mcp send to a
+// person carries `to`, which names them directly ("Aster → You"). Otherwise
+// the card reads "Aster sent a DM".
 //
 // The raw send command is never shown. When the message text couldn't be
 // extracted from the command, the card says so in plain words.
@@ -19,7 +21,7 @@ import { RelayChatBubble, RelayDmCard } from "./RelayBubbleParts";
 // Security: body renders as a React text child, never
 // dangerouslySetInnerHTML.
 
-export type RelayOutboundBubbleProps = Pick<RelayOutboundEvent, "room" | "body"> & {
+export type RelayOutboundBubbleProps = Pick<RelayOutboundEvent, "room" | "body" | "to"> & {
   /** ms-epoch timestamp; shown as a hover title. */
   ts?: number;
   /** Relay-source view: plain chat bubble, always open. */
@@ -35,6 +37,7 @@ export type RelayOutboundBubbleProps = Pick<RelayOutboundEvent, "room" | "body">
 export function RelayOutboundBubble({
   room,
   body,
+  to = null,
   ts,
   alwaysExpanded = false,
   hostId,
@@ -42,6 +45,7 @@ export function RelayOutboundBubble({
   fallbackVoice = null,
 }: RelayOutboundBubbleProps) {
   const { byKey } = useIdentities();
+  const viewerMxid = useViewingUserMxid();
   const [open, setOpen] = useState(alwaysExpanded);
   const members = useRelayRoomMembers(alwaysExpanded ? null : room, hostId);
 
@@ -61,7 +65,7 @@ export function RelayOutboundBubble({
     selfIdentity?.identityKey.toLowerCase() ?? null,
     members,
     byKey,
-    null,
+    to ? partyForAddressee(to, byKey, viewerMxid) : null,
   );
 
   const { speakState, onSpeakClick } = useSpeakPlayback({

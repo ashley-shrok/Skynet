@@ -4664,6 +4664,7 @@ export function PrettyView({
                 <RelayOutboundBubble
                   room={m.room}
                   body={m.body}
+                  to={m.to ?? null}
                   ts={m.ts}
                   hostId={hostId}
                   selfIdentity={pvIdentity}

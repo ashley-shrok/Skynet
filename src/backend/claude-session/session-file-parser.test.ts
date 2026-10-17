@@ -1777,6 +1777,68 @@ describe("parseSessionLine — new-harness <pasted_content> envelopes", () => {
   });
 });
 
+describe("parseSessionLine — relay-mcp sends", () => {
+  function mcpTurn(name: string, input: Record<string, unknown>, extra: unknown[] = []): string {
+    return line({
+      type: "assistant",
+      uuid: "relay-mcp-1",
+      timestamp: "2026-10-17T01:00:00.000Z",
+      message: { content: [...extra, { type: "tool_use", name, id: "toolu_mcp_1", input }] },
+    });
+  }
+
+  it("send with `to` → relay_outbound carrying to + body, no room, no raw command", () => {
+    const parsed = parseSessionLine(mcpTurn("mcp__relay__send", { to: "@ashley:t1000.example", body: "hi — done ✅" }));
+    expect(parsed.kind).toBe("relay_outbound");
+    if (parsed.kind !== "relay_outbound") throw new Error("unreachable");
+    expect(parsed.to).toBe("@ashley:t1000.example");
+    expect(parsed.room).toBeNull();
+    expect(parsed.body).toBe("hi — done ✅");
+    expect(parsed.rawCommand).toBe("");
+    expect(parsed.eventId).toBe("relay-mcp-1");
+  });
+
+  it("send with `room` → relay_outbound with the room, to null", () => {
+    const parsed = parseSessionLine(mcpTurn("mcp__relay__send", { room: "!abc:t1000.example", body: "reply" }));
+    if (parsed.kind !== "relay_outbound") throw new Error(`got ${parsed.kind}`);
+    expect(parsed.room).toBe("!abc:t1000.example");
+    expect(parsed.to).toBeNull();
+  });
+
+  it("a non-room-id `room` is dropped rather than looked up", () => {
+    const parsed = parseSessionLine(mcpTurn("mcp__relay__send", { room: "general", body: "x" }));
+    if (parsed.kind !== "relay_outbound") throw new Error(`got ${parsed.kind}`);
+    expect(parsed.room).toBeNull();
+  });
+
+  it("send_file → body is the file name plus caption", () => {
+    const parsed = parseSessionLine(
+      mcpTurn("mcp__relay__send_file", { to: "beta", path: "/tmp/out/report.pdf", caption: "here it is" }),
+    );
+    if (parsed.kind !== "relay_outbound") throw new Error(`got ${parsed.kind}`);
+    expect(parsed.body).toBe("📎 report.pdf\n\nhere it is");
+    expect(parsed.to).toBe("beta");
+  });
+
+  it("send alongside narration text still classifies as the send", () => {
+    const parsed = parseSessionLine(
+      mcpTurn("mcp__relay__send", { to: "beta", body: "ping" }, [{ type: "text", text: "Messaging beta." }]),
+    );
+    expect(parsed.kind).toBe("relay_outbound");
+  });
+
+  it("other relay tools (find, list_rooms) are not messages", () => {
+    expect(parseSessionLine(mcpTurn("mcp__relay__find", { name: "ashley" })).kind).not.toBe("relay_outbound");
+    expect(parseSessionLine(mcpTurn("mcp__relay__list_rooms", {})).kind).not.toBe("relay_outbound");
+  });
+
+  it("send with an empty body → body null (the bubble says it couldn't be shown)", () => {
+    const parsed = parseSessionLine(mcpTurn("mcp__relay__send", { to: "beta", body: "" }));
+    if (parsed.kind !== "relay_outbound") throw new Error(`got ${parsed.kind}`);
+    expect(parsed.body).toBeNull();
+  });
+});
+
 describe("resolveOutboundRoom", () => {
   const send = (room: string) =>
     `curl -s -X PUT "$BASE/_matrix/client/v3/rooms/${room}/send/m.room.message/$TXN" -d "$B"`;

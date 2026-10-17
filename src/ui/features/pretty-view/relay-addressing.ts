@@ -87,6 +87,38 @@ export function addressingFor(
   return fallback ? { kind: "dm", to: fallback } : { kind: "unknown" };
 }
 
+/**
+ * The party a relay-mcp `send(to=...)` addressed. `to` is what the agent passed
+ * (an mxid, an identity name, or a person's name); relay-mcp resolves it the
+ * same way — identity on this box first, then the account itself — so this
+ * names the same person without a lookup. `viewerMxid` is the viewing user's
+ * mxid: a message to them reads "You".
+ */
+export function partyForAddressee(
+  to: string,
+  byKey: Map<string, Identity>,
+  viewerMxid: string | null,
+): RelayParty {
+  const you: RelayParty = { name: "You", hue: null, you: true };
+  const raw = to.trim();
+  if (raw.startsWith("@")) {
+    if (viewerMxid && raw.toLowerCase() === viewerMxid.toLowerCase()) return you;
+    return partyForMxid(raw, byKey);
+  }
+  const key = raw.toLowerCase();
+  const identity = byKey.get(key);
+  if (identity) {
+    return {
+      name: identity.displayName,
+      hue: identity.colorHue,
+      you: false,
+      avatarUrl: identity.avatarUrl || null,
+    };
+  }
+  if (viewerMxid && key === mxidLocalpart(viewerMxid)) return you;
+  return { name: raw.length > 0 ? raw[0].toUpperCase() + raw.slice(1) : raw, hue: null, you: false };
+}
+
 /** First line of a message, whitespace-collapsed, for the folded preview. */
 export function previewLine(text: string): string {
   return text.replace(/\s+/g, " ").trim();

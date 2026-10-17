@@ -277,6 +277,7 @@ type StreamEvent =
       room: string | null;
       rawCommand: string;
       body: string | null;
+      to: string | null;
       eventId: string;
       ts: number;
       line: number;
@@ -334,6 +335,7 @@ export function reshapeParsedLineToWireFrame(
         room: parsed.room,
         rawCommand: parsed.rawCommand,
         body: parsed.body ?? null,
+        to: parsed.to ?? null,
         eventId: parsed.eventId,
         ts: parsed.ts,
         line,

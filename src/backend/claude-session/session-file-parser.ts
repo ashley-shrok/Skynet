@@ -148,6 +148,9 @@ export type RelayOutboundMessage = {
   room: string | null;
   rawCommand: string;
   body: string | null;
+  /** relay-mcp sends only: who the agent addressed (`to`), verbatim — an
+   *  mxid, an identity name or a person's name. Null for room sends and curl. */
+  to?: string | null;
   eventId: string;
   ts: number;
 };
@@ -224,6 +227,7 @@ export function detectRelayOutbound(
   room: string | null;
   rawCommand: string;
   body: string | null;
+  to?: string | null;
 } | null {
   if (obj.type !== "assistant") return null;
   const msg = obj.message;
@@ -234,6 +238,8 @@ export function detectRelayOutbound(
     if (!block || typeof block !== "object") continue;
     const b = block as Record<string, unknown>;
     if (b.type !== "tool_use") continue;
+    const mcp = detectRelayMcpSend(b);
+    if (mcp) return mcp;
     if (b.name !== "Bash") continue;
     const input = b.input;
     if (!input || typeof input !== "object") continue;
@@ -254,6 +260,39 @@ export function detectRelayOutbound(
 }
 
 const MATRIX_ROOM_ID_RE = /^![a-zA-Z0-9._=-]+:[a-zA-Z0-9.-]+$/;
+
+/**
+ * A relay-mcp send (`mcp__relay__send` / `mcp__relay__send_file`). The tool
+ * input IS the message, so nothing is guessed: `room` when the agent replied
+ * into a room, `to` when it addressed someone (the server resolves that to
+ * the same person the bubble shows). Body for a file is its name, plus the
+ * caption when there is one.
+ */
+function detectRelayMcpSend(b: Record<string, unknown>): {
+  room: string | null;
+  rawCommand: string;
+  body: string | null;
+  to: string | null;
+} | null {
+  if (b.name !== "mcp__relay__send" && b.name !== "mcp__relay__send_file") return null;
+  const input = b.input;
+  if (!input || typeof input !== "object") return null;
+  const inp = input as Record<string, unknown>;
+  const str = (v: unknown): string | null => (typeof v === "string" && v.trim() !== "" ? v.trim() : null);
+  const roomRaw = str(inp.room);
+  const room = roomRaw !== null && MATRIX_ROOM_ID_RE.test(roomRaw) ? roomRaw : null;
+  const to = room === null ? str(inp.to) : null;
+  let body: string | null;
+  if (b.name === "mcp__relay__send") {
+    body = typeof inp.body === "string" && inp.body !== "" ? inp.body : null;
+  } else {
+    const path = str(inp.path);
+    const name = path !== null ? path.split("/").pop() || path : null;
+    const caption = str(inp.caption);
+    body = name !== null ? `📎 ${name}${caption !== null ? `\n\n${caption}` : ""}` : caption;
+  }
+  return { room, rawCommand: "", body, to };
+}
 
 function decodeRoomRef(ref: string): string {
   try {
@@ -1427,12 +1466,13 @@ export function parseSessionLine(line: string, sessionId?: string): ParsedLine {
         const parsedO = Date.parse(rawTsO);
         if (Number.isFinite(parsedO)) tsO = parsedO;
       }
-      sessionParserLogger.info(`[session-parser] classify result=relay_outbound room="${outbound.room}" eventId=${eventIdO}`, { operation: "session_classify" });
+      sessionParserLogger.info(`[session-parser] classify result=relay_outbound room="${outbound.room}" to="${outbound.to ?? ""}" via=${outbound.rawCommand === "" ? "mcp" : "curl"} eventId=${eventIdO}`, { operation: "session_classify" });
       return {
         kind: "relay_outbound",
         room: outbound.room,
         rawCommand: outbound.rawCommand,
         body: outbound.body,
+        to: outbound.to ?? null,
         eventId: eventIdO,
         ts: tsO,
       };

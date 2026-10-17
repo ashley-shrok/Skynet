@@ -333,6 +333,9 @@ export type RelayOutboundEvent = {
    * shape); consumer should render rawCommand as-is (bounty
    * pretty-view-outgoing-relay-render, 2026-08-18). */
   body: string | null;
+  /** relay-mcp sends: who the agent addressed (mxid, identity name or person's
+   * name), verbatim. Null/absent for room sends and curl sends. */
+  to?: string | null;
   eventId: string;
   ts: number;
   /**

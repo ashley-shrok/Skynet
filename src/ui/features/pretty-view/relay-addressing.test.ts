@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { Identity } from "@/api/identities-api";
-import { addressingFor, friendlyMxidName, previewLine } from "./relay-addressing";
+import { addressingFor, friendlyMxidName, partyForAddressee, previewLine } from "./relay-addressing";
 
 const ident = (identityKey: string, displayName: string, colorHue: number) =>
   ({ identityKey, displayName, colorHue }) as Identity;
@@ -8,6 +8,28 @@ const byKey = new Map([
   ["aster", ident("aster", "Aster", 32)],
   ["tina", ident("tina", "Tina", 200)],
 ]);
+
+describe("partyForAddressee", () => {
+  const viewer = "@ashley:t1000.example";
+  it("the viewer's mxid, any case → You", () => {
+    expect(partyForAddressee("@Ashley:t1000.example", byKey, viewer)).toEqual({ name: "You", hue: null, you: true });
+  });
+  it("the viewer's bare localpart → You", () => {
+    expect(partyForAddressee("ashley", byKey, viewer).you).toBe(true);
+  });
+  it("an identity name → that identity", () => {
+    expect(partyForAddressee("Tina", byKey, viewer)).toEqual({ name: "Tina", hue: 200, you: false, avatarUrl: null });
+  });
+  it("an agent's mxid → resolved through identities", () => {
+    expect(partyForAddressee("@aster:t1000.example", byKey, viewer).name).toBe("Aster");
+  });
+  it("someone unknown → their name capitalized, not you", () => {
+    expect(partyForAddressee("stacy", byKey, viewer)).toEqual({ name: "Stacy", hue: null, you: false });
+  });
+  it("no viewer mxid → never You", () => {
+    expect(partyForAddressee("ashley", byKey, null).you).toBe(false);
+  });
+});
 
 describe("relay-addressing", () => {
   it("friendlyMxidName drops the server and capitalizes", () => {

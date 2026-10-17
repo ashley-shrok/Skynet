@@ -15,6 +15,11 @@ vi.mock("@/state/identities-store", () => ({
 }));
 
 const membersMock = vi.fn<(room: string | null | undefined, hostId: number | null | undefined) => RelayRoomMember[] | null>(() => null);
+const viewerMxidMock = vi.fn<() => string | null>(() => "@ashley:t1000.example");
+vi.mock("@/state/viewing-user-store", () => ({
+  useViewingUserMxid: () => viewerMxidMock(),
+}));
+
 vi.mock("./relay-room-members", () => ({
   useRelayRoomMembers: (room: string | null | undefined, hostId: number | null | undefined) =>
     membersMock(room, hostId),
@@ -108,6 +113,34 @@ describe("RelayOutboundBubble", () => {
     const who = screen.getByTestId("relay-who-line").textContent ?? "";
     expect(who).toMatch(/Aster\s*→\s*You/);
     expect(who).toContain("notified");
+  });
+
+  it("relay-mcp send to the viewer's mxid (no room) → 'You' + notified marker", () => {
+    renderOut({ room: null, to: "@ashley:t1000.example" });
+    const who = screen.getByTestId("relay-who-line").textContent ?? "";
+    expect(who).toMatch(/Aster\s*→\s*You/);
+    expect(who).toContain("notified");
+  });
+
+  it("relay-mcp send to the viewer by bare name → 'You'", () => {
+    renderOut({ room: null, to: "Ashley" });
+    expect(screen.getByTestId("relay-who-line").textContent ?? "").toMatch(/Aster\s*→\s*You/);
+  });
+
+  it("relay-mcp send to an agent by identity name → that agent, no notified marker", () => {
+    renderOut({ room: null, to: "tina" });
+    const who = screen.getByTestId("relay-who-line").textContent ?? "";
+    expect(who).toMatch(/Aster\s*→\s*Tina/);
+    expect(who).not.toContain("notified");
+  });
+
+  it("room members win over `to` when both are known", () => {
+    membersMock.mockReturnValue([
+      { mxid: "@aster:t1000.example", kind: "agent", displayName: null },
+      { mxid: "@sam:t1000.example", kind: "human", displayName: "Sam" },
+    ]);
+    renderOut({ to: "tina" });
+    expect(screen.getByTestId("relay-who-line").textContent ?? "").toMatch(/Aster\s*→\s*Sam/);
   });
 
   it("DM to another person → their display name, no notified marker", () => {
