@@ -1,0 +1,14 @@
+[Unit]
+Description=Relay MCP — one relay (Matrix) MCP server shared by every agent session on this box
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 %h/.local/bin/relay-mcp
+Restart=always
+RestartSec=2
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+MemoryMax=64M
+
+[Install]
+WantedBy=default.target

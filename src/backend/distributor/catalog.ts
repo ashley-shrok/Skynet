@@ -467,6 +467,18 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     installPath: "~/.local/bin/desktop-mcp",
     restartHook: null,
   },
+  // relay-mcp: ONE MCP server per host (HTTP on 127.0.0.1:7793) that sends
+  // relay messages for every identity; sessions connect to it instead of each
+  // spawning a copy. agent-supervisor passes ~/.claude/relay-mcp.json on every
+  // launch once the server answers. Owned by relay-mcp.service; the server is
+  // stateless, so the restart is invisible to connected sessions.
+  {
+    slug: "relay-mcp",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/scripts/relay-mcp.py",
+    installPath: "~/.local/bin/relay-mcp",
+    restartHook: "relay-mcp.service",
+  },
 
   // task-field-check: UserPromptSubmit hook that nudges the agent when its
   // identity file's `task:` frontmatter is still "Untitled conversation".
@@ -590,6 +602,17 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     bundledPath: "/app/fleet-substrate/user-onboarding/sensor-runner.service",
     installPath: "~/.config/systemd/user/sensor-runner.service",
     restartHook: "sensor-runner.service",
+  },
+
+  // relay-mcp.service — box-level user unit running relay-mcp. run-bootstrap.ts
+  // enables + starts it on every host (same pattern as sensor-runner.service).
+  // Restart hook targets self.
+  {
+    slug: "relay-mcp-service-unit",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/user-onboarding/relay-mcp.service",
+    installPath: "~/.config/systemd/user/relay-mcp.service",
+    restartHook: "relay-mcp.service",
   },
 
   // interactive-messages-gc.service — oneshot user service, fired by the

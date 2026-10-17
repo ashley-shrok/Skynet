@@ -119,7 +119,9 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // +1 pending-context-drain (hook that delivers queued file-watch notices).
     // +4 for sensors (sensor-development SKILL.md + sensor-fire +
     // sensor-runner + sensor-runner.service) — 132 → 136.
-    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(136);
+    // +2 for relay-mcp (host-wide relay MCP server + relay-mcp.service) —
+    // 136 → 138.
+    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(138);
   });
 
   it("Test 2: every bundled row's bundledPath starts with /app/fleet-substrate/skills/, /app/fleet-substrate/scripts/, or /app/fleet-substrate/user-onboarding/", () => {
@@ -187,6 +189,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     //     started timer picks up new OnCalendar / Persistent semantics.
     //   sensor-runner + sensor-runner-service-unit → both bounce
     //     sensor-runner.service (box-level sensor runner).
+    //   relay-mcp + relay-mcp-service-unit → both bounce relay-mcp.service
+    //     (box-level relay MCP server).
     const expected: Record<string, string> = {
       "agent-supervisor": "agent-supervisor.service",
       "agent-supervisor-service-unit": "agent-supervisor.service",
@@ -196,6 +200,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
       "interactive-messages-gc-timer-unit": "interactive-messages-gc.timer",
       "sensor-runner": "sensor-runner.service",
       "sensor-runner-service-unit": "sensor-runner.service",
+      "relay-mcp": "relay-mcp.service",
+      "relay-mcp-service-unit": "relay-mcp.service",
     };
     expect(withRestart.length).toBe(Object.keys(expected).length);
     for (const entry of withRestart) {
@@ -280,15 +286,17 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // resume-gap-notice (UserPromptSubmit hook — time-since-last-activity note)
     // +1 pending-context-drain +
     // sensor-fire + sensor-runner (sensors: fire command + box-level runner)
-    expect(scriptRows.length).toBe(22);
+    // + relay-mcp (host-wide relay MCP server)
+    expect(scriptRows.length).toBe(23);
     // 4 user-onboarding files: agent-supervisor.service +
     // interactive-messages-gc.service + interactive-messages-gc.timer (Phase 140)
     // + scheduled-agents-scheduler.service (this ship: move
     // scheduled-agents scheduler from in-process agent-supervisor child
     // to a systemd user unit so byte-changes actually take effect)
     // + agent-desktop@.service (per-identity desktop template unit)
-    // + sensor-runner.service (box-level sensor runner).
-    expect(userOnboardingRows.length).toBe(6);
+    // + sensor-runner.service (box-level sensor runner)
+    // + relay-mcp.service (box-level relay MCP server).
+    expect(userOnboardingRows.length).toBe(7);
 
     // id has 4 entries (SKILL.md + 3 companions)
     const idRows = skillRows.filter((e) =>
@@ -494,7 +502,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // +1 for resume-gap-notice helper — 129 → 130.
     // +1 pending-context-drain.
     // +4 for sensors (skill + sensor-fire + sensor-runner + unit) — 131 → 135.
-    expect(bundled.length).toBe(135);
+    // +2 for relay-mcp (server + unit) — 135 → 137.
+    expect(bundled.length).toBe(137);
     expect(runtime.length).toBe(1);
 
     // Every bundled row retains bundledPath under /app/fleet-substrate/

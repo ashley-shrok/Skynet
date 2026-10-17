@@ -126,6 +126,8 @@ function makeChannel(
     "scheduled-agents-scheduler.service": "enabled\nEXIT:0",
     // Default happy-path for Step 1d (sensor-runner is-enabled check).
     "sensor-runner.service": "enabled\nEXIT:0",
+    // Default happy-path for Step 1e (relay-mcp is-enabled check).
+    "relay-mcp.service": "enabled\nEXIT:0",
     // Default happy-path for Step 7 (roles-key migration): nothing to do.
     // Tests specifically exercising Step 7 override this key.
     [ROLES_KEY_MIGRATION_SENTINEL]: ROLES_NOOP_OUTPUT,
@@ -1586,6 +1588,7 @@ describe("runBootstrapForHost", () => {
         if (cmd.includes("host/name")) return "__HOST_NAME_OK__";
         if (cmd.includes("host/id")) return "__HOST_ID_OK__";
         if (cmd.includes("is-enabled sensor-runner.service")) return "enabled\nEXIT:0";
+        if (cmd.includes("is-enabled relay-mcp.service")) return "enabled\nEXIT:0";
         return null;
       });
       const ch: SshChannel = { exec };
@@ -1712,6 +1715,50 @@ describe("runBootstrapForHost", () => {
     });
   });
 
+  describe("step 1e: relay-mcp.service enable", () => {
+    function relayExec(isEnabled: string | null, enableNow: string | null) {
+      return vi.fn(async (cmd: string) => {
+        if (cmd.includes("enable --now relay-mcp.service")) return enableNow;
+        if (cmd.includes("is-enabled relay-mcp.service")) return isEnabled;
+        if (cmd.includes("is-enabled")) return "enabled\nEXIT:0";
+        if (cmd.includes("daemon-reload")) return "__RELOAD_OK__";
+        if (cmd.includes("__USAGE_REPORTER_RETIRED__")) return "__USAGE_REPORTER_RETIRED__";
+        if (cmd.includes(ROLES_KEY_MIGRATION_SENTINEL)) return ROLES_NOOP_OUTPUT;
+        if (cmd.includes(DESKTOP_DEPS_SENTINEL)) return `${DESKTOP_DEPS_SENTINEL} present`;
+        if (cmd.includes("SETTINGS=")) return "__SETTINGS_OK__";
+        if (cmd.includes("gsd-context-monitor")) return "__CLEANUP_OK__";
+        if (cmd.includes("host/parent")) return "__HOST_PARENT_OK__";
+        if (cmd.includes("host/name")) return "__HOST_NAME_OK__";
+        if (cmd.includes("host/id")) return "__HOST_ID_OK__";
+        return null;
+      });
+    }
+
+    it("(relay-1) already enabled → cheap probe only", async () => {
+      const exec = relayExec("enabled\nEXIT:0", "__RELAY_MCP_OK__");
+      const result = await runBootstrapForHost({ exec }, HOST);
+      expect(result.relayMcpAlreadyEnabled).toBe(true);
+      expect(result.relayMcpBootstrapped).toBe(false);
+      expect(result.hadError).toBe(false);
+      expect(captureCommands(exec).some((c) => c.includes("enable --now relay-mcp.service"))).toBe(false);
+    });
+
+    it("(relay-2) not enabled → enable --now relay-mcp.service fired", async () => {
+      const exec = relayExec("disabled\nEXIT:1", "__RELAY_MCP_OK__");
+      const result = await runBootstrapForHost({ exec }, HOST);
+      expect(result.relayMcpAlreadyEnabled).toBe(false);
+      expect(result.relayMcpBootstrapped).toBe(true);
+      expect(result.hadError).toBe(false);
+    });
+
+    it("(relay-3) enable fails → hadError, not bootstrapped", async () => {
+      const exec = relayExec("disabled\nEXIT:1", "Failed to enable unit");
+      const result = await runBootstrapForHost({ exec }, HOST);
+      expect(result.relayMcpBootstrapped).toBe(false);
+      expect(result.hadError).toBe(true);
+    });
+  });
+
   describe("step 1c: scheduled-agents-scheduler.service enable", () => {
     it("(sched-1) BootstrapResult has scheduledAgentsSchedulerAlreadyEnabled and scheduledAgentsSchedulerBootstrapped fields", async () => {
       const { channel } = makeChannel({
@@ -1780,6 +1827,7 @@ describe("runBootstrapForHost", () => {
         if (cmd.includes("host/name")) return "__HOST_NAME_OK__";
         if (cmd.includes("host/id")) return "__HOST_ID_OK__";
         if (cmd.includes("is-enabled sensor-runner.service")) return "enabled\nEXIT:0";
+        if (cmd.includes("is-enabled relay-mcp.service")) return "enabled\nEXIT:0";
         return null;
       });
       const ch: SshChannel = { exec };

@@ -1569,6 +1569,10 @@ export async function bootstrapFleetSubstrateLocally(
     // enable --now sensor-runner.service` on t1000 at ship time.
     sensorRunnerAlreadyEnabled: false,
     sensorRunnerBootstrapped: false,
+    // relay-mcp.service: same gap, but agent-supervisor starts it on demand
+    // before any launch that needs it.
+    relayMcpAlreadyEnabled: false,
+    relayMcpBootstrapped: false,
   };
 
   systemLogger[hadError ? "warn" : "info"](

@@ -221,6 +221,11 @@ export interface BootstrapResult {
   /** Whether Step 1d ran the enable-now command successfully. Mutually
    *  exclusive with sensorRunnerAlreadyEnabled. */
   sensorRunnerBootstrapped: boolean;
+  /** Whether relay-mcp.service was already enabled before Step 1e. */
+  relayMcpAlreadyEnabled: boolean;
+  /** Whether Step 1e ran the enable-now command successfully. Mutually
+   *  exclusive with relayMcpAlreadyEnabled. */
+  relayMcpBootstrapped: boolean;
   /** True if any sub-step encountered an error. */
   hadError: boolean;
 }
@@ -466,6 +471,8 @@ export async function runBootstrapForHost(
   let scheduledAgentsSchedulerBootstrapped = false;
   let sensorRunnerAlreadyEnabled = false;
   let sensorRunnerBootstrapped = false;
+  let relayMcpAlreadyEnabled = false;
+  let relayMcpBootstrapped = false;
   let hadError = false;
 
   // -------------------------------------------------------------------------
@@ -818,6 +825,74 @@ export async function runBootstrapForHost(
     logBootstrapFailed(
       host,
       "sensor-runner-is-enabled-check",
+      err instanceof Error ? err.message : "unknown throw",
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // Step 1e: Idempotently enable + start relay-mcp.service — the box-level
+  // relay MCP server every supervised session connects to. Same
+  // is-enabled-first pattern and fresh-box convergence as Step 1d. (The
+  // supervisor also starts it on demand before a launch, so a box this step
+  // hasn't reached yet still gets relay tools.)
+  //
+  // Runs inside its own try/catch (NEVER-THROW contract).
+  // -------------------------------------------------------------------------
+  try {
+    const relayCheckRaw = await channel.exec(
+      `XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-enabled relay-mcp.service 2>/dev/null; echo "EXIT:$?"`,
+    );
+    if (relayCheckRaw === null) {
+      logBootstrapFailed(host, "relay-mcp-is-enabled-check", "channel returned null");
+      hadError = true;
+    } else {
+      const relayMatch = /EXIT:(\d+)$/.exec(relayCheckRaw.trimEnd());
+      if (relayMatch && parseInt(relayMatch[1], 10) === 0) {
+        relayMcpAlreadyEnabled = true;
+        systemLogger.info(
+          `Fleet-substrate bootstrap: relay-mcp.service already enabled on ${host.name}`,
+          {
+            operation: "fleet_substrate_bootstrap_result",
+            fleetHostId: host.id,
+            hostName: host.name,
+            step: "relay-mcp-is-enabled-check",
+            relayMcpAlreadyEnabled: true,
+          },
+        );
+      } else {
+        const enableRelayRaw = await channel.exec(
+          `XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user enable --now relay-mcp.service && echo "__RELAY_MCP_OK__"`,
+        );
+        if (enableRelayRaw === null) {
+          logBootstrapFailed(host, "relay-mcp-enable", "channel returned null");
+          hadError = true;
+        } else if (!enableRelayRaw.trimEnd().endsWith("__RELAY_MCP_OK__")) {
+          logBootstrapFailed(
+            host,
+            "relay-mcp-enable",
+            enableRelayRaw.trimEnd().slice(0, 500) || "relay-mcp enable failed",
+          );
+          hadError = true;
+        } else {
+          relayMcpBootstrapped = true;
+          systemLogger.info(
+            `Fleet-substrate bootstrap: relay-mcp.service enabled+started on ${host.name}`,
+            {
+              operation: "fleet_substrate_bootstrap_result",
+              fleetHostId: host.id,
+              hostName: host.name,
+              step: "relay-mcp-enable",
+              relayMcpBootstrapped: true,
+            },
+          );
+        }
+      }
+    }
+  } catch (err) {
+    hadError = true;
+    logBootstrapFailed(
+      host,
+      "relay-mcp-is-enabled-check",
       err instanceof Error ? err.message : "unknown throw",
     );
   }
@@ -1349,6 +1424,8 @@ export async function runBootstrapForHost(
     scheduledAgentsSchedulerBootstrapped,
     sensorRunnerAlreadyEnabled,
     sensorRunnerBootstrapped,
+    relayMcpAlreadyEnabled,
+    relayMcpBootstrapped,
     hadError,
   };
 
