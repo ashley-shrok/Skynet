@@ -72,9 +72,8 @@ export function ImageBubble({
           "max-w-[min(85%,640px)]",
           "rounded-[var(--radius-pv-bubble)] px-3 py-3",
           "flex flex-col gap-2",
-          // Glass.
-          "backdrop-blur-xl saturate-150",
-          "[-webkit-backdrop-filter:blur(20px)_saturate(1.6)]",
+          // No backdrop blur: one blurred layer per bubble re-blurs on every
+          // scroll frame (iPhone jank). Same call as ChatMessage bubbles.
           isUser
             ? cn(
                 // User branch — byte-identical to ChatMessage.tsx:422-425 user

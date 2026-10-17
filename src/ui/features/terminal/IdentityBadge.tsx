@@ -186,13 +186,13 @@ export function IdentityBadge({
     // With a kebab the right padding tightens so the ⋮ sits close to the
     // pill's right curve.
     padding: hasMenu ? "7px 10px 7px 7px" : "7px 16px 7px 7px",
-    background: `linear-gradient(160deg, hsla(${hue}, 45%, 25%, 0.72), hsla(${hue}, 40%, 15%, 0.82))`,
-    backdropFilter: "blur(24px) saturate(1.4)",
-    WebkitBackdropFilter: "blur(24px) saturate(1.4)",
+    // No backdrop-filter: the badge floats over the scrolling chat, so a blur
+    // here is re-sampled every scroll frame (iPhone jank). A denser fill keeps
+    // the glass read.
+    background: `linear-gradient(160deg, hsla(${hue}, 45%, 25%, 0.88), hsla(${hue}, 40%, 15%, 0.94))`,
     border: `1px solid hsla(${hue}, 65%, 55%, 0.4)`,
     boxShadow: `0 8px 24px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,220,170,0.18), 0 0 40px hsla(${hue}, 65%, 55%, 0.28)`,
     color: "#e8e4d8",
-    animation: "pv-identity-breathe 5s ease-in-out infinite",
   };
   // Phase 68 Plan 04: avatarUrlWithHost deleted — backend bakes hostId into
   // identity.avatarUrl at emit time. Render directly; the hostId prop is kept

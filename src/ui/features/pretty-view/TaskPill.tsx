@@ -126,17 +126,17 @@ export function TaskPill({
         onContextMenu={contextMenu.onContextMenu}
         draggable={isDragSource}
         onDragStart={onDragStart}
-        className="pv-identity-breathe flex flex-row items-center gap-2 min-w-0 max-w-full cursor-pointer select-none [-webkit-touch-callout:none] transition-[filter] hover:brightness-110"
+        className="pv-identity-breathe relative flex flex-row items-center gap-2 min-w-0 max-w-full cursor-pointer select-none [-webkit-touch-callout:none] transition-[filter] hover:brightness-110"
         style={{
           borderRadius: 22,
           padding: "5px 6px 5px 5px",
-          background: `linear-gradient(160deg, hsla(${hue}, 45%, 25%, 0.72), hsla(${hue}, 40%, 15%, 0.82))`,
-          backdropFilter: "blur(24px) saturate(1.4)",
-          WebkitBackdropFilter: "blur(24px) saturate(1.4)",
+          // No backdrop-filter: the pill floats over the scrolling chat, so a
+          // blur is re-sampled every scroll frame (iPhone jank). Denser fill.
+          // The breathe is the class's ::after overlay (opacity-only).
+          background: `linear-gradient(160deg, hsla(${hue}, 45%, 25%, 0.88), hsla(${hue}, 40%, 15%, 0.94))`,
           border: `1px solid hsla(${hue}, 65%, 55%, 0.4)`,
           boxShadow: `0 4px 12px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,220,170,0.14), 0 0 24px hsla(${hue}, 65%, 55%, 0.24)`,
           color: "#e8e4d8",
-          animation: "pv-identity-breathe 5s ease-in-out infinite",
         }}
       >
         {/* The pill's primary control for keyboard / screen readers; its
@@ -271,8 +271,6 @@ function SideButton({
           color: "#f4fff8",
           background: `linear-gradient(160deg, hsla(${hue}, 50%, 32%, 0.88), hsla(${hue}, 45%, 20%, 0.92))`,
           border: `1px solid hsla(${hue}, 65%, 52%, 0.6)`,
-          backdropFilter: "blur(24px) saturate(1.4)",
-          WebkitBackdropFilter: "blur(24px) saturate(1.4)",
           boxShadow: `0 4px 12px rgba(0,0,0,0.4), 0 0 14px hsla(${hue}, 70%, 50%, 0.35)`,
         } as React.CSSProperties
       }

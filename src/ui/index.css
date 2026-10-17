@@ -503,17 +503,32 @@ html.fs-xl {
   }
 }
 
-/* Phase 4: pretty-view IdentityBadge (size=lg) breathing brightness cycle.
- * ~5s cycle, subtle 1.0 → 1.08 → 1.0. Used ONLY in pretty view's
- * identity treatment; terminal-pane badge (size=md default) does NOT
- * animate. Reduced-motion variant below disables. */
+/* Pretty-view identity badge + task pill breathing cycle (~5s, subtle
+ * ~8% brighten at the peak). Animates the OPACITY of a light overlay rather
+ * than `filter: brightness()` on the pill itself: a filter animation repaints
+ * the pill every frame forever (visible jank on iPhone), an opacity animation
+ * runs on the compositor with no repaint. The host element must be a
+ * containing block (absolute / relative) — no position rule here: unlayered CSS
+ * would beat Tailwind's layered `absolute` utility. Reduced-motion disables. */
+.pv-identity-breathe::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: rgba(255, 245, 225, 0.07);
+  mix-blend-mode: plus-lighter;
+  opacity: 0;
+  will-change: opacity;
+  animation: pv-identity-breathe 5s ease-in-out infinite;
+}
 @keyframes pv-identity-breathe {
   0%,
   100% {
-    filter: brightness(1);
+    opacity: 0;
   }
   50% {
-    filter: brightness(1.08);
+    opacity: 1;
   }
 }
 
@@ -535,7 +550,7 @@ html.fs-xl {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pv-identity-breathe,
+  .pv-identity-breathe::after,
   .pv-side-button {
     animation: none !important;
   }

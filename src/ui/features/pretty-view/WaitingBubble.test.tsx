@@ -6,8 +6,8 @@
  *   Test 2: Has role="status" and aria-label including "waiting" + reason.
  *   Test 3: Outer container has justify-start (assistant-aligned).
  *   Test 4: Bubble div includes Phase 4 Glass className tokens:
- *           rounded-[var(--radius-pv-bubble)], backdrop-blur-xl,
- *           hsla(var(--pv-id-hue) (substring checks).
+ *           rounded-[var(--radius-pv-bubble)], hsla(var(--pv-id-hue)
+ *           (substring checks), and NO backdrop blur (iPhone scroll jank).
  *   Test 5: Renders Hand icon SVG with aria-hidden="true".
  *   Test 6: Renders NO buttons anywhere in the tree (no interactive controls).
  *   Test 7: reason=null or "" → fallback "Waiting on you" + role/aria-label.
@@ -54,13 +54,13 @@ describe("WaitingBubble — assistant-aligned outer container", () => {
 // ─── Test 4 ───────────────────────────────────────────────────────────────────
 
 describe("WaitingBubble — Phase 4 Glass className tokens", () => {
-  it("bubble div includes the Phase 4 Glass tokens: rounded-[var(--radius-pv-bubble)], backdrop-blur-xl, hsla(var(--pv-id-hue)", () => {
+  it("bubble div includes the Phase 4 Glass tokens: rounded-[var(--radius-pv-bubble)], hsla(var(--pv-id-hue), no backdrop blur", () => {
     const { container } = render(<WaitingBubble reason="dialog open" />);
     // The bubble is the inner div (role="status") — grab it by role.
     const bubble = screen.getByRole("status");
     const cls = bubble.className;
     expect(cls).toContain("rounded-[var(--radius-pv-bubble)]");
-    expect(cls).toContain("backdrop-blur-xl");
+    expect(cls).not.toContain("backdrop-blur");
     // gradient uses hsla(var(--pv-id-hue) — check as substring.
     expect(cls).toContain("hsla(var(--pv-id-hue)");
   });

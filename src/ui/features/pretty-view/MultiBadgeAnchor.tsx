@@ -290,11 +290,11 @@ const ROOT_ANCHOR_CLASS =
 // the badge's center (F-5 "meter up and to the left" root cause).
 // Fix: shrink cell to content (drop fixed w/h) + un-absolute the badge
 // inside the cell (arbitrary variants target IdentityBadge's
-// `.pv-identity-breathe` root class, resetting position/top/right/z-index
-// so the badge participates in its parent's flex-col flow).
+// `.pv-identity-breathe` root class, resetting position (relative, so the
+// breathe overlay stays anchored to the badge)/top/right/z-index so the badge participates in its parent's flex-col flow).
 const CELL_BASE_CLASS =
   "relative shrink-0 flex flex-col items-center " +
-  "[&_.pv-identity-breathe]:static [&_.pv-identity-breathe]:top-auto " +
+  "[&_.pv-identity-breathe]:relative [&_.pv-identity-breathe]:top-auto " +
   "[&_.pv-identity-breathe]:right-auto [&_.pv-identity-breathe]:z-auto";
 
 export function MultiBadgeAnchor({

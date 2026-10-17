@@ -4793,9 +4793,10 @@ export function PrettyView({
                 className={cn(
                   "pointer-events-auto rounded-full cursor-pointer",
                   "border border-white/10",
-                  "bg-[linear-gradient(180deg,rgba(70,66,58,0.75),rgba(38,34,28,0.85))]",
+                  // Denser fill instead of backdrop-blur: this button is
+                  // sticky, so a blur re-samples every scroll frame.
+                  "bg-[linear-gradient(180deg,rgba(70,66,58,0.92),rgba(38,34,28,0.95))]",
                   "text-[#e8e4d8]",
-                  "backdrop-blur-md",
                   "shadow-[0_4px_12px_rgba(0,0,0,0.5),_inset_0_1px_0_rgba(255,240,210,0.15)]",
                   "hover:bg-[linear-gradient(180deg,rgba(100,85,55,0.85),rgba(60,50,32,0.9))]",
                   "hover:border-[rgba(255,240,215,0.22)]",

@@ -602,8 +602,9 @@
     inset 0 1px 0 rgba(255, 220, 170, 0.18),
     0 0 0 0.5px hsla(var(--pv-hue), 70%, 55%, 0.20),
     0 0 32px hsla(var(--pv-hue), 70%, 52%, 0.18);
-  backdrop-filter: blur(20px) saturate(1.5);
-  -webkit-backdrop-filter: blur(20px) saturate(1.5);
+  /* No backdrop-filter: one blurred layer per row (100+ on a real list) is
+     re-sampled on every scroll frame and made the phone list choppy. The
+     list background behind the rows is flat, so the blur bought nothing. */
   transition:
     transform 140ms ease,
     box-shadow 140ms ease,

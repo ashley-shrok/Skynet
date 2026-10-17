@@ -257,7 +257,6 @@ export function RelayDmCard({
         }}
         className={cn(
           "w-[min(85%,560px)] rounded-[12px] border text-[#e8e4d8]",
-          "backdrop-blur-xl [-webkit-backdrop-filter:blur(20px)]",
         )}
       >
         <div
@@ -339,7 +338,6 @@ export function RelayChatBubble({ testIdPrefix, sender, ts, children, speak }: R
         className={cn(
           "max-w-[85%] [overflow-wrap:anywhere] text-sm leading-relaxed",
           "rounded-[var(--radius-pv-bubble)] border pl-[12px] pr-[42px] py-[7px]",
-          "backdrop-blur-xl saturate-150 [-webkit-backdrop-filter:blur(20px)_saturate(1.6)]",
           "text-[#e8e4d8]",
         )}
       >
