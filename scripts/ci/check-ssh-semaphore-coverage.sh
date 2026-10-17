@@ -60,23 +60,15 @@ ALLOW_LIST=(
   # agent-reset.ts — one-shot exec for agent reset command.
   "src/backend/database/routes/agent-reset.ts"
 
-  # identities.ts — multiple connectOneShot call sites for identity management.
-  "src/backend/database/routes/identities.ts"
 
   # roles-list-for-host.ts — lists roles via SSH exec.
   "src/backend/database/routes/roles-list-for-host.ts"
 
-  # roles.ts — role CRUD via SSH exec (separate from roles-create.ts which IS wrapped).
-  "src/backend/database/routes/roles.ts"
 
   # runbooks-editor.ts — multiple connectOneShot call sites for runbook execution.
   "src/backend/database/routes/runbooks-editor.ts"
 
-  # identity-exists-on-host.ts — SSH probe to check identity existence.
-  "src/backend/database/routes/identity-exists-on-host.ts"
 
-  # identity-no-dormancy.ts — SSH keep-alive / anti-dormancy check.
-  "src/backend/database/routes/identity-no-dormancy.ts"
 
   # pretty-view-fetch-host-file.ts — SFTP file fetch via withConnection pool.
   "src/backend/database/routes/pretty-view-fetch-host-file.ts"
@@ -84,8 +76,6 @@ ALLOW_LIST=(
   # host.ts — host management route with one connectOneShot call site.
   "src/backend/database/routes/host.ts"
 
-  # identity-birth.ts — complex identity provisioning; connectOneShot injected via deps.
-  "src/backend/database/routes/identity-birth.ts"
 
   # identity-birth-orchestrator.ts — deps-injection pattern; connectOneShot is a param.
   "src/backend/database/routes/identity-birth-orchestrator.ts"
