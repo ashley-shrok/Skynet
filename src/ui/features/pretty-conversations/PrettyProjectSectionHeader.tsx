@@ -65,7 +65,18 @@ import {
   type DraggedBadge,
 } from "@/shell/badge-drag";
 
-import { RowKebabMenu, useRowKebabContextMenu } from "./RowKebabMenu";
+import {
+  RowKebabMenu,
+  useRowKebabContextMenu,
+  type RowKebabSubmenuItem,
+} from "./RowKebabMenu";
+import {
+  endProjectDrag,
+  getDraggedProject,
+  hasProjectMime,
+  startProjectDrag,
+  type DraggedProject,
+} from "./project-drag";
 
 /**
  * Row payload extracted from the DnD dataTransfer's `application/x-skynet-row`
@@ -117,6 +128,34 @@ export interface PrettyProjectSectionHeaderProps {
   /** Opens the project modal (Project file + Files tabs). */
   onOpenProject?: (slug: string) => void;
   onArchiveProject?: (slug: string) => void;
+  /** Nested projects: "New sub-project" kebab item. */
+  onNewSubProject?: (slug: string) => void;
+  /**
+   * Nested projects: the "Move to" kebab submenu — "Top level" plus every
+   * eligible parent, already indented and filtered by the panel. Absent or
+   * empty = no Move to item.
+   */
+  moveToItems?: RowKebabSubmenuItem[];
+  /**
+   * Nested projects: this section's host — carried in the header's drag
+   * payload. Header dragging is enabled only when this, `draggable` and
+   * `classifyProjectDrop` are all present.
+   */
+  hostId?: string;
+  /** Header can be dragged to re-parent the project (desktop only). */
+  draggable?: boolean;
+  /**
+   * Decides what a project drag over this section means:
+   *   - "accept": a legal new parent — light up and take the drop
+   *   - "own-subtree": the dragged project itself or one of its
+   *     descendants — never lights up, and stops the drag from lighting an
+   *     outer (ancestor) section either
+   *   - "reject": not a target here (e.g. another host); outer sections may
+   *     still decide
+   */
+  classifyProjectDrop?: (dragged: DraggedProject) => "accept" | "own-subtree" | "reject";
+  /** Fired when a project is dropped here (already classified "accept"). */
+  onDropProject?: (dragged: DraggedProject) => void;
 }
 
 const ROW_MIME = "application/x-skynet-row";
@@ -142,6 +181,12 @@ export function PrettyProjectSectionHeader({
   onRenameProject,
   onOpenProject,
   onArchiveProject,
+  onNewSubProject,
+  moveToItems,
+  hostId,
+  draggable,
+  classifyProjectDrop,
+  onDropProject,
 }: PrettyProjectSectionHeaderProps) {
   const [isDragOver, setIsDragOver] = useState(false);
 
@@ -161,7 +206,33 @@ export function PrettyProjectSectionHeader({
     hasRowMime(dt) ||
     (hasBadgeMime(dt) && resolveBadgeDrop !== undefined && resolveBadgeDrop(getDraggedBadge()) !== null);
 
+  // Project-header drags (nested projects). Classified per section; the
+  // innermost section under the pointer decides first.
+  const projectDropKind = (dt: DataTransfer | null | undefined) => {
+    if (!hasProjectMime(dt) || classifyProjectDrop === undefined) return null;
+    const dragged = getDraggedProject();
+    if (dragged === null) return null;
+    return classifyProjectDrop(dragged);
+  };
+
   const onDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    const projectKind = projectDropKind(e.dataTransfer);
+    if (projectKind === "own-subtree") {
+      // Swallow so no ancestor section lights up over the dragged subtree,
+      // and take the preview claim (without lighting) so an ancestor lit
+      // a moment ago goes dark.
+      e.stopPropagation();
+      claimPreview();
+      return;
+    }
+    if (projectKind === "accept") {
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = "move";
+      setIsDragOver(true);
+      claimPreview();
+      return;
+    }
     if (!accepts(e.dataTransfer)) return;
     e.preventDefault();
     e.stopPropagation();
@@ -170,7 +241,7 @@ export function PrettyProjectSectionHeader({
   };
 
   const onDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
-    if (!accepts(e.dataTransfer)) return;
+    if (!accepts(e.dataTransfer) && projectDropKind(e.dataTransfer) !== "accept") return;
     // Bounding-rect stateless guard against child-boundary crossings —
     // moving the cursor between the header button and the rows region
     // fires dragleave on the outer div; the cursor is still inside the
@@ -190,6 +261,20 @@ export function PrettyProjectSectionHeader({
     // Clear overlay FIRST regardless of downstream branch (idempotent).
     setIsDragOver(false);
     releasePreview();
+    const projectKind = projectDropKind(e.dataTransfer);
+    if (projectKind !== null) {
+      if (projectKind === "own-subtree") {
+        e.stopPropagation();
+        return;
+      }
+      if (projectKind !== "accept") return;
+      e.preventDefault();
+      e.stopPropagation();
+      const dragged = getDraggedProject();
+      endProjectDrag();
+      if (dragged !== null) onDropProject?.(dragged);
+      return;
+    }
     // Step 1: read the discriminator MIME. A badge drop files as the row
     // it resolves to; no row MIME and no resolvable badge = not ours.
     const raw = e.dataTransfer?.getData(ROW_MIME) ?? "";
@@ -221,8 +306,8 @@ export function PrettyProjectSectionHeader({
     onDropRow(slug, p as PrettyProjectDropPayload);
   };
 
-  // Assemble the kebab items — four actions, each wiring an item onClick to
-  // the per-action callback prop. Order: open the project first, then the
+  // Assemble the kebab items, each wiring an item onClick (or the Move to
+  // submenu) to the per-action callback prop. Order: open the project first, then the
   // positive actions, destructive last.
   const kebabItems = [
     ...(onOpenProject
@@ -237,11 +322,25 @@ export function PrettyProjectSectionHeader({
       onClick: () => onNewConversationClick(slug),
       testId: `pv-project-section-kebab-new-conv-${slug}`,
     },
+    ...(onNewSubProject
+      ? [{
+          label: "New sub-project",
+          onClick: () => onNewSubProject(slug),
+          testId: `pv-project-section-kebab-new-sub-${slug}`,
+        }]
+      : []),
     ...(onRenameProject
       ? [{
           label: "Rename project",
           onClick: () => onRenameProject(slug, displayName),
           testId: `pv-project-section-kebab-rename-${slug}`,
+        }]
+      : []),
+    ...(moveToItems && moveToItems.length > 0
+      ? [{
+          label: "Move to",
+          submenu: moveToItems,
+          testId: `pv-project-section-kebab-move-to-${slug}`,
         }]
       : []),
     ...(onArchiveProject
@@ -255,6 +354,8 @@ export function PrettyProjectSectionHeader({
   ];
   // Right-click on the header row opens the same kebab menu at the cursor.
   const kebabContextMenu = useRowKebabContextMenu(kebabItems);
+  const headerDraggable =
+    draggable === true && hostId !== undefined && classifyProjectDrop !== undefined;
 
   return (
     <div
@@ -293,6 +394,16 @@ export function PrettyProjectSectionHeader({
             onToggleCollapse(slug);
           }
         }}
+        draggable={headerDraggable || undefined}
+        onDragStart={
+          headerDraggable
+            ? (e) => {
+                startProjectDrag(e.dataTransfer, { slug, hostId: hostId! });
+                console.info(`[project-drag] start slug=${slug} hostId=${hostId}`);
+              }
+            : undefined
+        }
+        onDragEnd={headerDraggable ? () => endProjectDrag() : undefined}
         className="group flex items-center gap-2.5 pl-1 pr-1 pt-3.5 pb-1.5 w-full text-left cursor-pointer"
         data-testid={`pv-project-section-header-${slug}`}
         aria-expanded={!collapsed}

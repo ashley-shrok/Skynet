@@ -116,3 +116,78 @@ export function appTileMatches(name: string, rawQuery: string): boolean {
   if (q.length === 0) return true;
   return name.toLowerCase().includes(q);
 }
+
+/** Same case-insensitive substring rule as rows and app tiles. */
+export function projectNameMatches(name: string, rawQuery: string): boolean {
+  return appTileMatches(name, rawQuery);
+}
+
+type SearchableProjectSection<R> = {
+  slug: string;
+  hostId?: string;
+  displayName: string;
+  rows: R[];
+  parentKey?: string | null;
+};
+
+/**
+ * Apply the sidebar search to the project tree (sections in tree order).
+ *
+ *   - A project whose name matches shows itself, every project beneath it,
+ *     and all their conversations (rows unfiltered).
+ *   - Elsewhere rows filter individually through `rowMatches`.
+ *   - A project shows if it is in a name-matched subtree, has a matching
+ *     row, or has a shown descendant — so every shown project's ancestors
+ *     are shown too, as the path down to it.
+ * Returns the shown sections in their original (tree) order. An empty query
+ * returns the input untouched.
+ */
+export function searchProjectSections<
+  R,
+  S extends SearchableProjectSection<R>,
+>(
+  sections: readonly S[],
+  rowMatches: (row: R) => boolean,
+  rawQuery: string,
+): S[] {
+  if (rawQuery.trim().length === 0) return sections.slice();
+  const keyOf = (s: S) => `${s.hostId ?? ""}::${s.slug}`;
+  const byKey = new Map<string, S>();
+  for (const s of sections) byKey.set(keyOf(s), s);
+  const parentOf = (s: S): S | null => {
+    const pk = s.parentKey ?? null;
+    return pk !== null ? (byKey.get(pk) ?? null) : null;
+  };
+
+  // In a name-matched subtree: the project or any ancestor matches. Walks
+  // are bounded by a seen-set (the store already resolves loops away).
+  const inMatchedSubtree = (s: S): boolean => {
+    const seen = new Set<string>();
+    let cur: S | null = s;
+    while (cur !== null && !seen.has(keyOf(cur))) {
+      if (projectNameMatches(cur.displayName, rawQuery)) return true;
+      seen.add(keyOf(cur));
+      cur = parentOf(cur);
+    }
+    return false;
+  };
+
+  const filtered = new Map<string, S>();
+  const shown = new Set<string>();
+  for (const s of sections) {
+    const whole = inMatchedSubtree(s);
+    const rows = whole ? s.rows : s.rows.filter(rowMatches);
+    filtered.set(keyOf(s), { ...s, rows });
+    if (whole || rows.length > 0) {
+      // Show it and its whole ancestor path.
+      let cur: S | null = s;
+      while (cur !== null && !shown.has(keyOf(cur))) {
+        shown.add(keyOf(cur));
+        cur = parentOf(cur);
+      }
+    }
+  }
+  return sections
+    .filter((s) => shown.has(keyOf(s)))
+    .map((s) => filtered.get(keyOf(s))!);
+}

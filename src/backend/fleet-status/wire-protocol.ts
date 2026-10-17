@@ -589,7 +589,7 @@ const FrontendPongFrameSchema = z.object({
 //      replays the cached array to reconnecting clients.
 //
 // Shape: { schemaVersion, type: "project-list-changed", projects: [...] }
-//   - projects: Array of { slug, displayName, hostId, hostname, archived }.
+//   - projects: Array of { slug, displayName, hostId, hostname, archived, parent }.
 //     Each project field is server-derived from the project's frontmatter
 //     (Wave 1's Phase 117 Plan 01 primitives).
 //
@@ -615,6 +615,9 @@ export const FrontendProjectListChangedFrameSchema = z.object({
       hostId: z.string(),
       hostname: z.string(),
       archived: z.boolean(),
+      // Nested projects: parent project slug on the same host, null = top
+      // level. Defaults to null so frames from an older producer still parse.
+      parent: z.string().nullable().default(null),
     }),
   ),
 });
@@ -859,13 +862,15 @@ export function makeProjectListChangedFrame(
      * a caller ever forgets to strip server-side.
      */
     users?: string[] | null;
+    /** Nested projects: parent slug or null. Normalized to null when absent. */
+    parent?: string | null;
   }>,
 ): FrontendOutboundFrameType {
   return {
     schemaVersion: FRAME_SCHEMA_VERSION,
     type: "project-list-changed",
     hostId,
-    projects,
+    projects: projects.map((p) => ({ ...p, parent: p.parent ?? null })),
   };
 }
 

@@ -71,11 +71,12 @@ conventions of every ancestor above it.
 - **[declared] shape-nested-projects-structure** — the parent line, the project
   list the app receives carrying it, sidebar nesting, create sub-project, move
   (menu + drag), archive-the-subtree, visibility inheritance, guard rails, and
-  the id skill's description of the new interface — in_progress (next)
+  the id skill's description of the new interface — closed (2026-10-17;
+  shape-nested-projects-structure.closed.md)
 - **[declared] shape-nested-projects-agent-side** — agents reading their
   ancestor chain at load, the file watcher covering ancestors and following
   chain changes, ancestor member-churn suppression, and the id skill's
-  description of what agents see — not started
+  description of what agents see — not started (next)
 
 Ordering: structure first (useful on its own; agents in sub-projects simply
 behave as today until shape 2 lands), then agent side.
@@ -90,9 +91,10 @@ behave as today until shape 2 lands), then agent side.
 
 ## Open questions
 
-- Relay rooms carry project membership as a room tag rather than a file — does
-  anything about nesting need to change there beyond the sidebar placing them
-  in sub-projects? (Expected: no; confirm in shape 1.)
-- Spawning directly into a sub-project and scheduled tasks that spawn into one —
-  expected to just work since a sub-project is an ordinary project; confirm in
-  shape 1.
+- ~~Relay rooms carry project membership as a room tag~~ — resolved in shape 1:
+  nothing changes; a room tag names a project by its name, and a sub-project
+  is still just a name.
+- ~~Spawning directly into a sub-project and scheduled tasks~~ — resolved in
+  shape 1: spawning into a sub-project works (the birth step only checks the
+  name's format); scheduled tasks can't target a project at all today, so
+  there is nothing to confirm.

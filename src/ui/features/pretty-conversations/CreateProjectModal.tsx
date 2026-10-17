@@ -44,6 +44,12 @@ export interface CreateProjectModalProps {
    * identity's own host, so there is nothing to choose.
    */
   lockedHostId?: number;
+  /**
+   * Creates a sub-project of this project (same host — pair with
+   * `lockedHostId`). The dialog titles itself "New sub-project" and names
+   * the parent. Absent = a top-level project.
+   */
+  parent?: { slug: string; displayName: string };
 }
 
 // ─── Local host-tree flatten helper ─────────────────────────────────────────
@@ -98,6 +104,7 @@ export function CreateProjectModal({
   onCreated,
   hostTree,
   lockedHostId,
+  parent,
 }: CreateProjectModalProps) {
   const [displayName, setDisplayName] = useState<string>("");
   const [inFlight, setInFlight] = useState<boolean>(false);
@@ -163,7 +170,9 @@ export function CreateProjectModal({
     setError(null);
     setInFlight(true);
     try {
-      const result = await createProject(hostIdNum, raw);
+      const result = parent
+        ? await createProject(hostIdNum, raw, parent.slug)
+        : await createProject(hostIdNum, raw);
       onCreated({ slug: result.slug, displayName: raw });
       onOpenChange(false);
     } catch (err) {
@@ -179,7 +188,7 @@ export function CreateProjectModal({
     } finally {
       setInFlight(false);
     }
-  }, [displayName, selectedHost, lockedHostId, onCreated, onOpenChange]);
+  }, [displayName, selectedHost, lockedHostId, parent, onCreated, onOpenChange]);
 
   const hidePicker = isHostLocked || flatHosts.length === 1;
 
@@ -195,8 +204,12 @@ export function CreateProjectModal({
       )}
     >
       <ModalHead
-        title="New project"
-        subtitle="Projects group agents together in the sidebar, and let them share resources related to that project."
+        title={parent ? "New sub-project" : "New project"}
+        subtitle={
+          parent
+            ? `A project inside ${parent.displayName}. It shows nested under it in the sidebar.`
+            : "Projects group agents together in the sidebar, and let them share resources related to that project."
+        }
         closeTestId="create-project-close"
       />
       <ModalBody className="overflow-y-auto flex flex-col gap-3">

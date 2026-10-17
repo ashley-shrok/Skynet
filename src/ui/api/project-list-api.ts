@@ -17,6 +17,8 @@ import { authApi, handleApiError } from "@/main-axios";
 //                                         and surface a specific message)
 //   POST /projects/:slug/archive       body { hostId }
 //                                        → { ok: true }
+//   POST /projects/:slug/parent        body { hostId, parent|null }
+//                                        → { ok: true }
 //
 // Backend-authoritative slug derivation (D-25, Pitfall 1 in RESEARCH):
 // createProject submits the raw displayName; the response body carries the
@@ -37,6 +39,8 @@ export type ProjectSummary = {
   slug: string;
   displayName: string;
   archived: boolean;
+  /** Raw parent slug on the same host, or null/absent for top level. */
+  parent?: string | null;
 };
 
 export async function listProjects(
@@ -54,9 +58,15 @@ export async function listProjects(
 export async function createProject(
   hostId: number,
   displayName: string,
+  parent?: string | null,
 ): Promise<{ ok: true; slug: string }> {
   try {
-    const response = await authApi.post("/projects", { hostId, displayName });
+    const body: { hostId: number; displayName: string; parent?: string } = {
+      hostId,
+      displayName,
+    };
+    if (parent) body.parent = parent;
+    const response = await authApi.post("/projects", body);
     return response.data as { ok: true; slug: string };
   } catch (error) {
     handleApiError(error, "create project");
@@ -73,6 +83,27 @@ export async function archiveProject(
     return response.data as { ok: true };
   } catch (error) {
     handleApiError(error, "archive project");
+  }
+}
+
+/**
+ * Nest a project under another project on the same host, or return it to
+ * top level with `parent: null`.
+ *
+ * POST /projects/:slug/parent  body { hostId, parent }  →  { ok: true }
+ * 400 = parent not found, 409 = parent is the project itself or inside it.
+ */
+export async function setProjectParent(
+  hostId: number,
+  slug: string,
+  parent: string | null,
+): Promise<{ ok: true }> {
+  try {
+    const url = `/projects/${encodeURIComponent(slug)}/parent`;
+    const response = await authApi.post(url, { hostId, parent });
+    return response.data as { ok: true };
+  } catch (error) {
+    handleApiError(error, "move project");
   }
 }
 

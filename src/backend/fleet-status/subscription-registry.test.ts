@@ -665,6 +665,7 @@ describe("subscription-registry", () => {
       hostId: "1",
       hostname: "t1000",
       archived: false,
+      parent: null,
     };
     const projectA2 = {
       slug: "alpha2",
@@ -672,6 +673,7 @@ describe("subscription-registry", () => {
       hostId: "1",
       hostname: "t1000",
       archived: false,
+      parent: null,
     };
     const projectB = {
       slug: "beta",
@@ -679,6 +681,7 @@ describe("subscription-registry", () => {
       hostId: "2",
       hostname: "workstation",
       archived: false,
+      parent: null,
     };
 
     it("Test P117-03-1: publishProjectListChanged fans out on delta — subscribers receive a project-list-changed frame with the scoped hostId + projects array", () => {
@@ -716,6 +719,28 @@ describe("subscription-registry", () => {
         (f) => f.type === "project-list-changed",
       );
       expect(projectFrames).toHaveLength(1);
+    });
+
+    it("nested projects: a parent-only change is a delta — moving a project fans out a new frame carrying parent", () => {
+      const registry = createSubscriptionRegistry();
+      const receivedFrames: FrontendOutboundFrameType[] = [];
+      registry.subscribe((f) => receivedFrames.push(f));
+      receivedFrames.length = 0;
+
+      registry.publishProjectListChanged("1", [projectA, projectA2]);
+      registry.publishProjectListChanged("1", [
+        projectA,
+        { ...projectA2, parent: "alpha" },
+      ]);
+
+      const projectFrames = receivedFrames.filter(
+        (f) => f.type === "project-list-changed",
+      );
+      expect(projectFrames).toHaveLength(2);
+      const moved = projectFrames[1];
+      if (moved.type === "project-list-changed") {
+        expect(moved.projects.map((p) => p.parent)).toEqual([null, "alpha"]);
+      }
     });
 
     it("Test P117-03-3: publishProjectListChanged fires on delta after cached state (same host) — [a] → [a, a2] produces a second frame", () => {

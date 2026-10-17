@@ -1625,6 +1625,7 @@ export function AppShell({
               hostId: h.id,
               hostname: h.name,
               archived: p.archived,
+              parent: p.parent ?? null,
             }));
             return rows;
           } catch {

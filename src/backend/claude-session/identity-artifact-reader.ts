@@ -860,7 +860,12 @@ function shellEscape(s: string): string {
 export async function listProjects(
   conn: SSHClientType | null,
 ): Promise<
-  Array<{ slug: string; displayName: string; users: string[] | null }>
+  Array<{
+    slug: string;
+    displayName: string;
+    users: string[] | null;
+    parent: string | null;
+  }>
 > {
   let slugs: string[];
 
@@ -905,13 +910,14 @@ export async function listProjects(
     slug: string;
     displayName: string;
     users: string[] | null;
+    parent: string | null;
   }> = [];
   for (const slug of slugs) {
     let markdown = "";
     try {
       ({ markdown } = await readProjectFile(conn, slug));
     } catch {
-      // read failure → keep slug + null users fallback
+      // read failure → keep slug + null users/parent fallback
     }
     out.push(projectMetaFromMarkdown(slug, markdown));
   }
@@ -973,17 +979,23 @@ export function parseListProjectsBatchOutput(stdout: string): Map<string, string
 }
 
 /**
- * Extract {displayName, users} from a project.md. Best-effort: a bare
+ * Extract {displayName, users, parent} from a project.md. Best-effort: a bare
  * project dir is still a project, so empty/unparseable markdown yields
- * (slug, null users) — a missing users list falls open per the Phase 135 D-3
- * fallback (matches identity-appearance discipline).
+ * (slug, null users, null parent) — a missing users list falls open per the
+ * Phase 135 D-3 fallback (matches identity-appearance discipline).
  */
 function projectMetaFromMarkdown(
   slug: string,
   markdown: string,
-): { slug: string; displayName: string; users: string[] | null } {
+): {
+  slug: string;
+  displayName: string;
+  users: string[] | null;
+  parent: string | null;
+} {
   let displayName = slug;
   let users: string[] | null = null;
+  let parent: string | null = null;
   try {
     if (markdown.length > 0) {
       const fmMatch = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---/);
@@ -1021,13 +1033,25 @@ function projectMetaFromMarkdown(
           ) {
             users = rawUsers as string[];
           }
+          // Nested projects: `parent:` names another project on this
+          // host. Anything that isn't a valid slug, or names the project
+          // itself, reads as top level. Missing parents / cycles are
+          // resolved downstream (visibility gate + frontend tree).
+          const rawParent = (parsed as Record<string, unknown>).parent;
+          if (
+            typeof rawParent === "string" &&
+            PROJECT_SLUG_RE.test(rawParent) &&
+            rawParent !== slug
+          ) {
+            parent = rawParent;
+          }
         }
       }
     }
   } catch {
-    // parse failure → keep slug + null users fallback
+    // parse failure → keep slug + null users/parent fallback
   }
-  return { slug, displayName, users };
+  return { slug, displayName, users, parent };
 }
 
 /**
@@ -1109,6 +1133,81 @@ export async function writeProjectFile(
 }
 
 /**
+ * Pure line-based rewrite of a project.md's `parent:` frontmatter line.
+ *
+ * Every other byte is preserved — the agent-supervisor maintains a
+ * `members:` block (with a trailing `# auto-maintained...` comment) in the
+ * same frontmatter, so this never re-dumps YAML. Removes every top-level
+ * `parent:` line inside the frontmatter; when `parent` is a string, inserts
+ * `parent: <slug>` immediately after the `displayName:` line, or right after
+ * the opening `---` if there is none. A file with no frontmatter gains one
+ * when setting; clearing leaves it untouched.
+ *
+ * Line endings: the inserted line takes the opening fence's ending (CRLF or
+ * LF); kept lines keep their own.
+ */
+export function applyProjectParentLine(
+  markdown: string,
+  parent: string | null,
+): string {
+  // Opening fence (after an optional BOM), then the frontmatter lines each
+  // with its own terminator, then the closing fence line.
+  const fm = markdown.match(
+    /^(\uFEFF?---\r?\n)((?:[^\n]*\n)*?)(---(?:\r?\n|$))/,
+  );
+  if (!fm) {
+    // An opening fence with no closing one is a broken file, not a file
+    // without frontmatter — prepending a second block would mangle it.
+    if (/^\uFEFF?---\r?\n/.test(markdown)) {
+      throw new Error("project file frontmatter is not closed");
+    }
+    if (parent === null) return markdown;
+    return `---\nparent: ${parent}\n---\n${markdown}`;
+  }
+  const [whole, open, body, close] = fm;
+  const eol = open.endsWith("\r\n") ? "\r\n" : "\n";
+  const lines = body.match(/[^\n]*\n/g) ?? [];
+  const kept = lines.filter((l) => !/^parent\s*:/.test(l));
+  if (parent !== null) {
+    // Insert after the WHOLE displayName value: a hand-written block value
+    // (`displayName: >-` plus indented lines) continues until the next line
+    // that starts at column 0.
+    const dnIdx = kept.findIndex((l) => /^displayName\s*:/.test(l));
+    let at = 0;
+    if (dnIdx !== -1) {
+      at = dnIdx + 1;
+      while (at < kept.length && /^[ \t]/.test(kept[at])) at += 1;
+    }
+    kept.splice(at, 0, `parent: ${parent}${eol}`);
+  }
+  return open + kept.join("") + close + markdown.slice(whole.length);
+}
+
+/**
+ * Set (string) or clear (null) the `parent:` line of an existing project's
+ * project.md via readProjectFile → applyProjectParentLine → writeProjectFile.
+ * Slugs are validated before any I/O. A bare project dir with no project.md
+ * gains one carrying just the parent line; a missing dir surfaces as ENOENT
+ * from writeProjectFile. No write when the file already says the same thing.
+ */
+export async function setProjectParentField(
+  conn: SSHClientType | null,
+  slug: string,
+  parent: string | null,
+): Promise<{ markdown: string }> {
+  if (!PROJECT_SLUG_RE.test(slug)) {
+    throw new Error("invalid project slug");
+  }
+  if (parent !== null && (!PROJECT_SLUG_RE.test(parent) || parent === slug)) {
+    throw new Error("invalid parent project slug");
+  }
+  const { markdown } = await readProjectFile(conn, slug);
+  const next = applyProjectParentLine(markdown, parent);
+  if (next === markdown) return { markdown };
+  return writeProjectFile(conn, slug, next);
+}
+
+/**
  * Create a new project directory at $HOME/fleet/projects/<slug>/ with a bare
  * project.md whose frontmatter carries `displayName: <value>` and empty body
  * (D-25).
@@ -1126,9 +1225,17 @@ export async function createProject(
   slug: string,
   displayName: string,
   users?: string[] | null,
+  parent?: string | null,
 ): Promise<void> {
   if (!PROJECT_SLUG_RE.test(slug)) {
     throw new Error("invalid project slug");
+  }
+  if (
+    parent !== undefined &&
+    parent !== null &&
+    (!PROJECT_SLUG_RE.test(parent) || parent === slug)
+  ) {
+    throw new Error("invalid parent project slug");
   }
   // `archive` is the archived-projects folder (listProjects skips it), so a
   // project with that slug would be invisible and later archives would land
@@ -1156,7 +1263,13 @@ export async function createProject(
   // host access"). The auto-tag write path in project-list.ts POST populates
   // this on multi-user hosts; single-user hosts pass no users and the file
   // stays byte-identical to a pre-130 project.md.
+  //
+  // Nested projects: `parent` (when given) sits right after displayName —
+  // the same position setProjectParentField writes it to.
   const frontmatter: Record<string, unknown> = { displayName };
+  if (typeof parent === "string") {
+    frontmatter.parent = parent;
+  }
   if (Array.isArray(users) && users.length > 0) {
     frontmatter.users = users;
   }

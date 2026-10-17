@@ -293,7 +293,8 @@ function PrettyConversationRowImpl({
    * signal — combined with `onMoveToProject` being provided/absent, the
    * row's items[] gate handles hiding the parent item.
    */
-  projects?: readonly { slug: string; displayName: string }[];
+  // `depth` indents nested projects so the list mirrors the sidebar tree.
+  projects?: readonly { slug: string; displayName: string; depth?: number }[];
   /**
    * shape-move-to-project-context-menu (2026-09-23): the slug of the
    * project this row currently belongs to, or `null` if unassigned. Drives
@@ -622,6 +623,7 @@ function PrettyConversationRowImpl({
           submenu.push({
             label: p.displayName,
             checked: isCurrent,
+            indent: p.depth,
             onClick: () => {
               if (!isCurrent) onMoveToProject(p.slug);
             },

@@ -121,8 +121,17 @@ import {
   patchRoomProjectAssignment,
   markPendingArchive,
   clearPendingArchive,
+  mergeProjectsForHost,
+  getProjectsSnapshot,
   type ConversationRow as ConversationRowShape,
+  type ProjectSection,
 } from "@/state/conversation-store";
+import {
+  endProjectDrag,
+  getDraggedProject,
+  hasProjectMime,
+  type DraggedProject,
+} from "./project-drag";
 // Phase 117 Plan 117-08 (D-40): per-project collapse state (localStorage-backed
 // via the hook landed in 117-07). Consumers pass the collapsed set + toggle
 // callback into each PrettyProjectSectionHeader.
@@ -139,6 +148,7 @@ import { setSessionProject, setRelayRoomProject } from "@/api/session-project-ap
 import {
   archiveProject,
   getProjectFile,
+  setProjectParent,
   updateProjectFile,
 } from "@/api/project-list-api";
 // Phase 117 Plan 117-09 Task 2 (D-14) — reusable right-click / long-press
@@ -192,7 +202,12 @@ import { ArchivedAppsModal } from "./ArchivedAppsModal";
 // consumer site via a group/group-hover wrapper (RowKebabMenu itself is
 // always-visible — the reveal discipline lives at the consumer, not in
 // the primitive).
-import { RowKebabMenu, useRowKebabContextMenu, type RowKebabMenuItem } from "./RowKebabMenu";
+import {
+  RowKebabMenu,
+  useRowKebabContextMenu,
+  type RowKebabMenuItem,
+  type RowKebabSubmenuItem,
+} from "./RowKebabMenu";
 import type { ConversationSearchResult } from "@/api/conversation-search-api";
 import {
   useSessionIsWorking,
@@ -262,6 +277,7 @@ import {
   rowMatchesSearchQuery,
   resolveIdentityForRow,
   appTileMatches,
+  searchProjectSections,
 } from "./sidebar-search-match";
 // shape-sidebar-search-inline: pre-populate the ConversationSearchModal's
 // module-scoped query state AND kick off the initial fetch so the modal
@@ -461,7 +477,7 @@ type RowActions = {
   createProject: (row: ConversationRowShape) => void;
 };
 
-const EMPTY_SUBMENU_PROJECTS: readonly { slug: string; displayName: string }[] = [];
+const EMPTY_SUBMENU_PROJECTS: readonly { slug: string; displayName: string; depth: number }[] = [];
 const noopTogglePin = () => {};
 
 // Wraps PrettyConversationRowView with the row's live working-store state.
@@ -1403,16 +1419,19 @@ export function PrettyConversationsPanel({
     ? displayedMiddle.filter(searchFilterRow)
     : displayedMiddle;
 
-  // Projects: rows filter individually via searchFilterRow. Project
-  // display-name is deliberately NOT a match target (conversations already
-  // sit visually under the project header, so a "type project name → reveal
-  // its rows" shortcut adds no navigational value on top of scrolling to
-  // the section — /close review 2026-09-29).
+  // Projects: a project whose NAME matches reveals itself, its whole
+  // subtree and all their conversations; elsewhere rows filter individually
+  // via searchFilterRow. A shown project's ancestors show as the path down
+  // to it. With nesting, a sub-project several levels down is hard to reach
+  // by scrolling, so the name is a real navigation target again (nested
+  // projects shape, superseding the 2026-09-29 flat-list call). Sections
+  // that end up with nothing to show drop out.
   const searchedProjectSections = sidebarSearchActive
-    ? displayedProjectSections.map((s) => ({
-        ...s,
-        rows: s.rows.filter(searchFilterRow),
-      }))
+    ? searchProjectSections(
+        displayedProjectSections,
+        searchFilterRow,
+        trimmedSidebarSearchQuery,
+      )
     : displayedProjectSections;
 
   // RDP group: hostname + username are match candidates on the row itself
@@ -1436,7 +1455,7 @@ export function PrettyConversationsPanel({
     !sidebarSearchActive ||
     searchedPinned.length > 0 ||
     searchedMiddle.length > 0 ||
-    searchedProjectSections.some((s) => s.rows.length > 0) ||
+    searchedProjectSections.length > 0 ||
     (searchedRdpGroup !== null && searchedRdpGroup.rows.length > 0) ||
     searchedAppTiles.length > 0;
 
@@ -1475,10 +1494,8 @@ export function PrettyConversationsPanel({
 
   const showPencilButton = typeof onCreateSession === "function";
   // Project sections the sidebar actually renders: during an active search,
-  // sections with no matching rows drop out (shape-sidebar-search-inline).
-  const visibleProjectSections = sidebarSearchActive
-    ? searchedProjectSections.filter((s) => s.rows.length > 0)
-    : searchedProjectSections;
+  // searchProjectSections already dropped the ones with nothing to show.
+  const visibleProjectSections = searchedProjectSections;
   const isMobileVariant = variant === "mobile";
 
   // Row-click dispatcher — VERBATIM behavior from ConversationsPanel.tsx
@@ -2082,10 +2099,13 @@ export function PrettyConversationsPanel({
   const submenuProjects = useMemo(() => {
     const hostBySlug = new Map<string, string>();
     for (const p of projectsList) hostBySlug.set(p.slug, p.hostId);
+    // projectSections is in tree order; `depth` indents sub-projects so the
+    // menu mirrors the sidebar tree.
     return projectSections.map((s) => ({
       slug: s.slug,
       displayName: s.displayName,
       hostId: s.hostId ?? hostBySlug.get(s.slug) ?? null,
+      depth: s.depth ?? 0,
     }));
   }, [projectSections, projectsList]);
 
@@ -2120,27 +2140,28 @@ export function PrettyConversationsPanel({
   // renders so each row's `projects` prop keeps its identity (memoized rows
   // would otherwise re-render on every panel render). submenuProjects itself
   // re-derives whenever any project section's rows change, so the cache is
-  // keyed on the (slug, displayName, hostId) content, not the array identity.
+  // keyed on the (slug, displayName, hostId, depth) content, not the array identity.
   const submenuProjectsCacheRef = useRef<{
     sig: string;
-    all: readonly { slug: string; displayName: string }[];
-    byHost: Map<string, readonly { slug: string; displayName: string }[]>;
+    all: readonly { slug: string; displayName: string; depth: number }[];
+    byHost: Map<string, readonly { slug: string; displayName: string; depth: number }[]>;
   } | null>(null);
   const submenuProjectsCache = useMemo(() => {
     const sig = JSON.stringify(
-      submenuProjects.map((p) => [p.slug, p.displayName, p.hostId]),
+      submenuProjects.map((p) => [p.slug, p.displayName, p.hostId, p.depth]),
     );
     const prev = submenuProjectsCacheRef.current;
     if (prev !== null && prev.sig === sig) return prev;
-    const all = submenuProjects.map(({ slug, displayName }) => ({
+    const all = submenuProjects.map(({ slug, displayName, depth }) => ({
       slug,
       displayName,
+      depth,
     }));
-    const byHost = new Map<string, { slug: string; displayName: string }[]>();
+    const byHost = new Map<string, { slug: string; displayName: string; depth: number }[]>();
     for (const p of submenuProjects) {
       if (typeof p.hostId !== "string") continue;
       const list = byHost.get(p.hostId) ?? [];
-      list.push({ slug: p.slug, displayName: p.displayName });
+      list.push({ slug: p.slug, displayName: p.displayName, depth: p.depth });
       byHost.set(p.hostId, list);
     }
     const next = { sig, all, byHost };
@@ -2151,7 +2172,7 @@ export function PrettyConversationsPanel({
   const submenuProjectsForRow = useCallback(
     (
       row: ConversationRowShape,
-    ): readonly { slug: string; displayName: string }[] => {
+    ): readonly { slug: string; displayName: string; depth: number }[] => {
       // Relay-room rows: fleet-wide tags — offer every project.
       if (typeof row.roomId === "string" && row.roomId.length > 0) {
         return submenuProjectsCache.all;
@@ -2304,6 +2325,173 @@ export function PrettyConversationsPanel({
     const n = row.host ? parseInt(row.host.id, 10) : NaN;
     return Number.isFinite(n) && n > 0 ? n : undefined;
   }, [createProjectForRow]);
+
+  // ─── Nested projects: sub-project create, re-parent, drag ────────────────
+  // "New sub-project" opens the create modal pinned to the parent's host.
+  const [createSubProjectFor, setCreateSubProjectFor] = useState<
+    { slug: string; displayName: string; hostId: number } | null
+  >(null);
+  const handleNewSubProject = useCallback(
+    (slug: string, hostId?: string) => {
+      const proj = findProject(slug, hostId);
+      const n = proj ? parseInt(proj.hostId, 10) : NaN;
+      if (!proj || !(Number.isFinite(n) && n > 0)) {
+        console.warn({ operation: "new_sub_project_no_host", slug, hostId });
+        return;
+      }
+      setCreateSubProjectFor({ slug, displayName: proj.displayName, hostId: n });
+    },
+    [findProject],
+  );
+
+  // Resolved parent of every project section (tree from the store), used to
+  // tell a project's own subtree apart from legal new parents.
+  const sectionParentByKey = useMemo(() => {
+    const m = new Map<string, string | null>();
+    for (const s of projectSections) {
+      m.set(`${s.hostId ?? ""}::${s.slug}`, s.parentKey ?? null);
+    }
+    return m;
+  }, [projectSections]);
+  // True when `targetKey` is `rootKey` or anywhere beneath it.
+  const isInSubtree = useCallback(
+    (targetKey: string, rootKey: string) => {
+      const seen = new Set<string>();
+      let cur: string | null = targetKey;
+      while (cur !== null && !seen.has(cur)) {
+        if (cur === rootKey) return true;
+        seen.add(cur);
+        cur = sectionParentByKey.get(cur) ?? null;
+      }
+      return false;
+    },
+    [sectionParentByKey],
+  );
+
+  // Re-parent a project (null = top level). Optimistic: the host's project
+  // list is patched locally, then the write goes out; a failure restores
+  // the previous list and says why. The backend refuses loops and missing
+  // parents too — this side only avoids offering them.
+  const handleMoveProject = useCallback(
+    (slug: string, hostId: string, newParent: string | null) => {
+      const hostRows = getProjectsSnapshot().filter((p) => p.hostId === hostId);
+      const target = hostRows.find((p) => p.slug === slug);
+      const hostIdNum = parseInt(hostId, 10);
+      if (!target || !(Number.isFinite(hostIdNum) && hostIdNum > 0)) {
+        console.warn({ operation: "move_project_no_host", slug, hostId, newParent });
+        return;
+      }
+      if ((target.parent ?? null) === newParent) return;
+      if (newParent !== null && isInSubtree(`${hostId}::${newParent}`, `${hostId}::${slug}`)) {
+        console.warn({ operation: "move_project_refused_own_subtree", slug, hostId, newParent });
+        return;
+      }
+      console.info({
+        operation: "move_project",
+        slug,
+        hostId,
+        from: target.parent ?? null,
+        to: newParent,
+      });
+      mergeProjectsForHost(
+        hostId,
+        hostRows.map((p) => (p.slug === slug ? { ...p, parent: newParent } : p)),
+      );
+      setProjectParent(hostIdNum, slug, newParent).catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error({ operation: "move_project_failed", slug, hostId, newParent, errMessage: msg });
+        // Restore only if nothing newer replaced our optimistic row.
+        const now = getProjectsSnapshot().filter((p) => p.hostId === hostId);
+        if (now.find((p) => p.slug === slug)?.parent === newParent) {
+          mergeProjectsForHost(hostId, hostRows);
+        }
+        window.alert(`Couldn't move this project: ${msg}`);
+      });
+    },
+    [isInSubtree],
+  );
+
+  // What a dragged project header may do over a given section.
+  const classifyProjectDropFor = useCallback(
+    (section: ProjectSection) =>
+      (dragged: DraggedProject): "accept" | "own-subtree" | "reject" => {
+        if (section.hostId !== undefined && section.hostId !== dragged.hostId) return "reject";
+        const targetKey = `${section.hostId ?? ""}::${section.slug}`;
+        if (isInSubtree(targetKey, `${dragged.hostId}::${dragged.slug}`)) return "own-subtree";
+        return "accept";
+      },
+    [isInSubtree],
+  );
+
+  // The project kebab's "Move to": Top level, then every project on the same
+  // host in tree order (indented), minus the project itself and its subtree.
+  // The checkmark and the no-op guard follow the parent the FILE names, not
+  // the drawn tree: a project in a loop (or whose parent is gone) is drawn at
+  // top level but still names a parent, and "Top level" must clear that —
+  // on a phone it's the only way out of a loop.
+  const projectMoveToItems = useCallback(
+    (section: ProjectSection): RowKebabSubmenuItem[] => {
+      const hostId = section.hostId;
+      if (hostId === undefined) return [];
+      const selfKey = `${hostId}::${section.slug}`;
+      const fileParent =
+        projectsList.find((p) => p.hostId === hostId && p.slug === section.slug)?.parent ?? null;
+      const items: RowKebabSubmenuItem[] = [
+        {
+          label: "Top level",
+          checked: fileParent === null,
+          onClick: () => {
+            if (fileParent !== null) handleMoveProject(section.slug, hostId, null);
+          },
+          testId: `pv-project-move-to-top-${section.slug}`,
+        },
+      ];
+      for (const s of projectSections) {
+        if (s.hostId !== hostId) continue;
+        const k = `${hostId}::${s.slug}`;
+        if (isInSubtree(k, selfKey)) continue;
+        const isCurrent = s.slug === fileParent;
+        items.push({
+          label: s.displayName,
+          checked: isCurrent,
+          indent: s.depth ?? 0,
+          onClick: () => {
+            if (!isCurrent) handleMoveProject(section.slug, hostId, s.slug);
+          },
+          testId: `pv-project-move-to-${section.slug}-${s.slug}`,
+        });
+      }
+      return items;
+    },
+    [projectSections, projectsList, isInSubtree, handleMoveProject],
+  );
+
+  // Projects super-header as a drop target: a dragged project lands at top
+  // level.
+  const [projectsHeaderDragOver, setProjectsHeaderDragOver] = useState(false);
+  const onProjectsHeaderDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    if (!hasProjectMime(e.dataTransfer) || getDraggedProject() === null) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "move";
+    setProjectsHeaderDragOver(true);
+  }, []);
+  const onProjectsHeaderDragLeave = useCallback(() => {
+    setProjectsHeaderDragOver(false);
+  }, []);
+  const onProjectsHeaderDrop = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      setProjectsHeaderDragOver(false);
+      if (!hasProjectMime(e.dataTransfer)) return;
+      const dragged = getDraggedProject();
+      endProjectDrag();
+      if (dragged === null) return;
+      e.preventDefault();
+      e.stopPropagation();
+      handleMoveProject(dragged.slug, dragged.hostId, null);
+    },
+    [handleMoveProject],
+  );
 
   // ─── Identity badges dropped on sidebar sections ──────────────────────────
   // An open conversation's badge files the conversation exactly like its
@@ -2571,17 +2759,23 @@ export function PrettyConversationsPanel({
   );
 
   // Phase 117 Plan 117-09 Task 2 (D-28, D-29, D-30 + Fix 3) — archive
-  // project cascade. Sequence:
-  //   1. Prompt user with the verbatim D-29 warning.
-  //   2. Fire archiveProject(hostId, slug) FIRST to move the directory to
-  //      ~/fleet/projects/archive/<slug>/. If the host can't be resolved or
-  //      the move fails, alert and stop — nothing is archived.
-  //   3. Run ONE Promise.allSettled batch that includes BOTH identity-
+  // project cascade, extended to the whole subtree for nested projects.
+  // Sequence:
+  //   1. Collect the project and every sub-project beneath it (resolved tree
+  //      from the store) and all their member rows.
+  //   2. Confirm, naming the project and counting sub-projects, agents and
+  //      relay rooms.
+  //   3. Move each folder to ~/fleet/projects/archive/, deepest first, so a
+  //      failure part-way never leaves a sub-project whose parent survives
+  //      but is half-archived — anything left behind still shows (at top
+  //      level if its parent went). If the host can't be resolved or a move
+  //      fails, alert; members of projects that didn't move are left alone.
+  //   4. Run ONE Promise.allSettled batch that includes BOTH identity-
   //      archive calls (archiveIdentity per identity member, after closing
   //      its pane and optimistically removing its row) AND relay-room
   //      tag-clear calls (setRelayRoomProject(null) per relay-room member).
   //      One shared wait boundary per Fix 3.
-  //   4. Log partial failures via console.error and alert the user. The
+  //   5. Log partial failures via console.error and alert the user. The
   //      archive itself is one-way (Phase 115 semantics); only a failed
   //      member's optimistic sidebar removal is rolled back.
   //
@@ -2590,31 +2784,67 @@ export function PrettyConversationsPanel({
   // a safety net.
   const handleArchiveProject = useCallback(
     async (slug: string, hostId?: string) => {
-      // 1. Collect member rows from the derived selector snapshot.
+      // 1. The project's section plus every section beneath it, in tree
+      //    order (parent first).
       const section = projectSections.find(
         (s) => s.slug === slug && (hostId === undefined || s.hostId === undefined || s.hostId === hostId),
       );
-      const members = section?.rows ?? [];
-      // 2. Verbatim D-29 warning.
-      const proceed = window.confirm(
-        "About to archive this project AND all conversations inside it. Drag conversations out first if you want to keep any active.",
-      );
-      if (!proceed) return;
-      // 3. Partition members into identity + relay-room lanes.
+      const sectionKey = (s: { slug: string; hostId?: string }) => `${s.hostId ?? ""}::${s.slug}`;
+      const subtree: typeof projectSections = [];
+      if (section) {
+        const inSubtree = new Set<string>([sectionKey(section)]);
+        for (const s of projectSections) {
+          if (s === section) {
+            subtree.push(s);
+            continue;
+          }
+          const pk = s.parentKey ?? null;
+          if (pk !== null && inSubtree.has(pk)) {
+            inSubtree.add(sectionKey(s));
+            subtree.push(s);
+          }
+        }
+      }
+      const subProjects = subtree.slice(1);
+      const members = subtree.flatMap((s) => s.rows);
+      const isRoomRow = (r: (typeof members)[number]) =>
+        !!(r as { matrixRoomId?: string | null }).matrixRoomId ||
+        !!(r as { roomId?: string | null }).roomId;
       const nonRdpMembers = members.filter((r) => r.rdpHostRow !== true);
-      const identityMembers = nonRdpMembers.filter(
-        (r) => !(r as { matrixRoomId?: string | null; roomId?: string | null }).matrixRoomId &&
-          !(r as { roomId?: string | null }).roomId,
-      );
-      const relayRoomMembers = nonRdpMembers.filter(
-        (r) => !!(r as { matrixRoomId?: string | null; roomId?: string | null }).matrixRoomId ||
-          !!(r as { roomId?: string | null }).roomId,
-      );
-      // 4. Folder move FIRST. If it fails (host unreachable, destination
-      //    clash), nothing has been archived yet and the user can retry —
-      //    the old members-first order archived every conversation and then
-      //    left the project behind with no error shown. hostId comes from the
-      //    project's own row (D-01; M7: never infer it).
+      const agentCount = nonRdpMembers.filter((r) => !isRoomRow(r)).length;
+      const roomCount = nonRdpMembers.filter(isRoomRow).length;
+      // 2. Confirm with counts.
+      const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+      const name = section?.displayName ?? slug;
+      const lines = [`Archive "${name}"?`];
+      if (subProjects.length > 0) {
+        lines.push(
+          agentCount > 0
+            ? `This also archives its ${plural(subProjects.length, "sub-project")} and the ${plural(agentCount, "agent")} across them.`
+            : `This also archives its ${plural(subProjects.length, "sub-project")}.`,
+        );
+      } else if (agentCount > 0) {
+        lines.push(`This also archives the ${plural(agentCount, "agent")} in it.`);
+      }
+      if (roomCount > 0) {
+        lines.push(
+          `${plural(roomCount, "relay room")} will move back to Conversations.`,
+        );
+      }
+      lines.push("This can't be undone. Move conversations out first to keep them.");
+      console.info({
+        operation: "archive_project_confirm_shown",
+        slug,
+        hostId,
+        subProjectCount: subProjects.length,
+        agentCount,
+        roomCount,
+      });
+      const proceed = window.confirm(lines.join("\n\n"));
+      if (!proceed) return;
+      // 3. Folder moves FIRST, deepest first. hostId comes from the
+      //    project's own row (D-01; M7: never infer it); every sub-project
+      //    lives on the same host by construction.
       const proj = findProject(slug, hostId);
       const projHostIdNum = proj ? parseInt(proj.hostId, 10) : NaN;
       if (!proj || !(Number.isFinite(projHostIdNum) && projHostIdNum > 0)) {
@@ -2628,21 +2858,49 @@ export function PrettyConversationsPanel({
         window.alert("Couldn't archive this project — its host couldn't be determined. Nothing was archived.");
         return;
       }
-      try {
-        await archiveProject(projHostIdNum, slug);
-      } catch (err) {
-        console.error({
-          operation: "archive_project_folder_move_failed",
-          slug,
-          hostId: projHostIdNum,
-          errMessage: err instanceof Error ? err.message : "unknown",
-        });
-        window.alert(
-          `Couldn't archive this project: ${err instanceof Error ? err.message : String(err)}. Nothing was archived.`,
-        );
-        return;
+      const toMove: Array<{ slug: string; rows: typeof members }> =
+        subtree.length > 0 ? subtree : [{ slug, rows: [] }];
+      const moved: typeof toMove = [];
+      let moveError: unknown = null;
+      for (const s of [...toMove].reverse()) {
+        try {
+          await archiveProject(projHostIdNum, s.slug);
+          moved.push(s);
+        } catch (err) {
+          moveError = err;
+          console.error({
+            operation: "archive_project_folder_move_failed",
+            slug: s.slug,
+            rootSlug: slug,
+            hostId: projHostIdNum,
+            movedSoFar: moved.length,
+            errMessage: err instanceof Error ? err.message : "unknown",
+          });
+          break;
+        }
       }
-      // 5. Member ops in one Promise.allSettled batch. Identity members get
+      if (moveError !== null) {
+        const msg = moveError instanceof Error ? moveError.message : String(moveError);
+        window.alert(
+          moved.length === 0
+            ? `Couldn't archive this project: ${msg}. Nothing was archived.`
+            : `Couldn't finish archiving this project: ${msg}. ${plural(moved.length, "project")} beneath it ${moved.length === 1 ? "was" : "were"} archived; the rest are still in the sidebar.`,
+        );
+        if (moved.length === 0) return;
+      }
+      console.info({
+        operation: "archive_project_folders_moved",
+        slug,
+        hostId: projHostIdNum,
+        movedSlugs: moved.map((s) => s.slug),
+      });
+      // Only members of projects that actually moved are archived/released.
+      const movedMembers = moved
+        .flatMap((s) => s.rows)
+        .filter((r) => r.rdpHostRow !== true);
+      const identityMembers = movedMembers.filter((r) => !isRoomRow(r));
+      const relayRoomMembers = movedMembers.filter(isRoomRow);
+      // 4. Member ops in one Promise.allSettled batch. Identity members get
       //    the same optimistic removal as a single-row archive (pending mark
       //    + row drop), so they don't fall into the unassigned list for the
       //    ~15s until the supervisor retires them. Relay-room members get a
@@ -3259,6 +3517,19 @@ export function PrettyConversationsPanel({
                       toggleProjectsSection();
                     }
                   }}
+                  // Nested projects: drop a dragged project header here to
+                  // return it to top level.
+                  onDragOver={onProjectsHeaderDragOver}
+                  onDragLeave={onProjectsHeaderDragLeave}
+                  onDrop={onProjectsHeaderDrop}
+                  style={
+                    projectsHeaderDragOver
+                      ? {
+                          background: "rgba(255, 184, 150, 0.22)",
+                          outline: "2px solid rgba(255, 184, 150, 0.60)",
+                        }
+                      : undefined
+                  }
                   className="group flex items-center gap-2.5 pl-1 pr-1 pt-3.5 pb-1.5 w-full text-left cursor-pointer"
                   data-testid="pv-projects-super-header"
                   aria-expanded={!projectsSectionCollapsed || sidebarSearchActive}
@@ -3294,16 +3565,33 @@ export function PrettyConversationsPanel({
                 </div>
                 {(!projectsSectionCollapsed || sidebarSearchActive) && (
                 <div id="pv-projects-section-content" className="pl-3.5">
-                  {visibleProjectSections.map((section) => (
+                  {(() => {
+                    // Nested projects: render the (already tree-ordered,
+                    // search-filtered) sections as a tree. A section whose
+                    // parent isn't shown renders at the root.
+                    const keyOf = (sec: ProjectSection) => `${sec.hostId ?? ""}::${sec.slug}`;
+                    const shownKeys = new Set(visibleProjectSections.map(keyOf));
+                    const childrenOf = new Map<string | null, ProjectSection[]>();
+                    for (const sec of visibleProjectSections) {
+                      const pk = sec.parentKey ?? null;
+                      const at = pk !== null && shownKeys.has(pk) ? pk : null;
+                      const list = childrenOf.get(at) ?? [];
+                      list.push(sec);
+                      childrenOf.set(at, list);
+                    }
+                    const renderSection = (section: ProjectSection): React.ReactNode => {
+                      const subSections = childrenOf.get(keyOf(section)) ?? [];
+                      return (
                   <PrettyProjectSectionHeader
-                    key={`${section.hostId ?? ""}::${section.slug}`}
+                    key={keyOf(section)}
                     slug={section.slug}
                     displayName={section.displayName}
                     // Force-expand during sidebar search so matches inside a
                     // user-collapsed project are actually visible (mirrors the
                     // Apps section's `appsExpanded || sidebarSearchActive`
                     // pattern). Persisted collapse state is untouched — it
-                    // reapplies when the search clears.
+                    // reapplies when the search clears. Collapsing a parent
+                    // hides its sub-projects with it (they render inside).
                     collapsed={sidebarSearchActive ? false : collapsedProjectSlugs.has(section.slug)}
                     onToggleCollapse={toggleProjectCollapse}
                     onNewConversationClick={(s) => handleNewConversationInProject(s, section.hostId)}
@@ -3312,21 +3600,34 @@ export function PrettyConversationsPanel({
                     onRenameProject={(s, name) => handleRenameProject(s, name, section.hostId)}
                     onOpenProject={(s) => handleOpenProject(s, section.hostId)}
                     onArchiveProject={(s) => { void handleArchiveProject(s, section.hostId); }}
+                    onNewSubProject={(s) => handleNewSubProject(s, section.hostId)}
+                    moveToItems={projectMoveToItems(section)}
+                    hostId={section.hostId}
+                    // Phones have no drag; "Move to" is the way there.
+                    draggable={!isMobileVariant}
+                    classifyProjectDrop={classifyProjectDropFor(section)}
+                    onDropProject={(dragged) => handleMoveProject(dragged.slug, dragged.hostId, section.slug)}
                     rows={
-                      section.rows.length === 0 ? (
-                        // UAT 2026-09-19: empty-state message when a project has
-                        // zero conversations — mirrors the Apps section's D-04
-                        // empty-state pattern (centered italic muted line) so
-                        // the two sections read consistently. The drop lane on
-                        // PrettyProjectSectionHeader is already active on the
-                        // whole section, so drag-and-drop works over this text.
-                        <div
-                          className="pv-project-empty px-4 py-2 text-center text-[13px] italic text-[#5c6070]/85"
-                          data-testid="pretty-conversations-project-empty"
-                        >
-                          Create a new conversation, or drag one here.
-                        </div>
-                      ) : (
+                      <>
+                        {/* Sub-projects sit above the project's own
+                            conversations. */}
+                        {subSections.map(renderSection)}
+                        {section.rows.length === 0 ? (
+                          subSections.length === 0 ? (
+                            // UAT 2026-09-19: empty-state message when a project has
+                            // zero conversations (and, with nesting, no
+                            // sub-projects) — mirrors the Apps section's D-04
+                            // empty-state pattern. The drop lane on
+                            // PrettyProjectSectionHeader is already active on the
+                            // whole section, so drag-and-drop works over this text.
+                            <div
+                              className="pv-project-empty px-4 py-2 text-center text-[13px] italic text-[#5c6070]/85"
+                              data-testid="pretty-conversations-project-empty"
+                            >
+                              Create a new conversation, or drag one here.
+                            </div>
+                          ) : null
+                        ) : (
                         section.rows.map((row) => (
                           <PrettyConversationRowLive
                             key={row.id}
@@ -3346,10 +3647,14 @@ export function PrettyConversationsPanel({
                             subtitleMode="identityTitle"
                           />
                         ))
-                      )
+                        )}
+                      </>
                     }
                   />
-                  ))}
+                      );
+                    };
+                    return (childrenOf.get(null) ?? []).map(renderSection);
+                  })()}
                 </div>
                 )}
               </div>
@@ -3969,6 +4274,26 @@ export function PrettyConversationsPanel({
         }}
         hostTree={hostTree ?? null}
         lockedHostId={createProjectLockedHostId}
+      />
+      {/* Project menu "New sub-project": create inside the parent, on the
+          parent's host. The wire update nests it in the sidebar. */}
+      <CreateProjectModal
+        open={createSubProjectFor !== null}
+        onOpenChange={(o) => {
+          if (!o) setCreateSubProjectFor(null);
+        }}
+        onCreated={({ slug }) => {
+          console.info(
+            `[project-menu] created sub-project slug=${slug} parent=${createSubProjectFor?.slug ?? "(none)"}`,
+          );
+        }}
+        hostTree={hostTree ?? null}
+        lockedHostId={createSubProjectFor?.hostId}
+        parent={
+          createSubProjectFor
+            ? { slug: createSubProjectFor.slug, displayName: createSubProjectFor.displayName }
+            : undefined
+        }
       />
       {/* 117-08 legacy placeholder marker — kept for tests written against
           117-08's state contract that observe the marker rather than the

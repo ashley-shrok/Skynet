@@ -74,8 +74,30 @@ import {
   getSessionLastMessageAt,
   subscribeSessionWorkingStore,
 } from "./session-working-store";
+import {
+  childrenByParent,
+  projectKey,
+  resolveEffectiveParents,
+} from "./project-tree";
 
 // ─── Public derived types ────────────────────────────────────────────────────
+
+export type ProjectSection = {
+  slug: string;
+  // Project slugs are only unique per host — sections are per (host, slug).
+  // Optional on the type for test fixtures that predate it.
+  hostId?: string;
+  displayName: string;
+  rows: ConversationRow[];
+  /**
+   * Resolved parent section key (`${hostId}::${slug}`), or null for top level.
+   * A missing parent or a parent loop resolves to null (project-tree.ts).
+   * Optional on the type for test fixtures that predate nesting.
+   */
+  parentKey?: string | null;
+  /** 0 for top level, +1 per nesting level. */
+  depth?: number;
+};
 
 export type ConversationRow = {
   id: string;
@@ -183,20 +205,13 @@ export type ConversationList = {
    */
   pinnedUnassigned: ConversationRow[];
   /**
-   * Per-project buckets, sorted alphabetical by displayName (D-15). Each
-   * section carries its rows in the order: pinned-in-project first (D-19),
-   * then remaining rows alphabetical by displayName (D-16). Rows whose
-   * project slug points to a nonexistent project fall to `middle` instead
-   * (D-07 graceful degradation). RDP rows never appear here (D-08).
+   * Per-project buckets in tree order: each project followed by its
+   * sub-projects, siblings alphabetical by displayName (D-15). Each section's
+   * rows are alphabetical by displayName (D-16). Rows whose project slug
+   * points to a nonexistent project fall to `middle` instead (D-07 graceful
+   * degradation). RDP rows never appear here (D-08).
    */
-  projectSections: Array<{
-    slug: string;
-    // Project slugs are only unique per host — sections are per (host, slug).
-    // Optional on the type for test fixtures that predate it.
-    hostId?: string;
-    displayName: string;
-    rows: ConversationRow[];
-  }>;
+  projectSections: ProjectSection[];
   /**
    * RDP-eligible synthetic host rows. Same content as `rdpGroup.rows` (a
    * duplicate reference to keep the "one bucket per new-shape field" symmetry
@@ -461,6 +476,12 @@ export type ProjectRow = {
   hostId: string;
   hostname: string;
   archived: boolean;
+  /**
+   * Raw `parent:` slug from project.md — a project on the SAME host — or
+   * null/absent for top level. The snapshot resolves it: a missing parent
+   * or a loop renders at top level (see project-tree.ts).
+   */
+  parent?: string | null;
 };
 
 // Hoisted above state init so readProjectsCache (called at module load
@@ -1187,7 +1208,6 @@ function computeSnapshot(): ConversationList {
   // Projects are host-scoped: the same slug on two hosts is two projects.
   // Sections and buckets key on `${hostId}::${slug}` (the slug alone merged
   // both hosts' members into one section, and archiving it hit both).
-  const projectKey = (hostId: string, slug: string) => `${hostId}::${slug}`;
   const projectsByKey = new Map<string, ProjectRow>();
   const firstProjectKeyBySlug = new Map<string, string>();
   for (const p of state.projects) {
@@ -1285,33 +1305,48 @@ function computeSnapshot(): ConversationList {
   // displayName (D-16) — pinned and in-a-project are mutually exclusive, so
   // a row that is somehow both (a stale `.pinned` an agent left behind)
   // shows as a plain project member: project membership outranks the pin.
-  // Sections sorted alphabetical by displayName (D-15).
-  const projectSections: Array<{
-    slug: string;
-    hostId: string;
-    displayName: string;
-    rows: ConversationRow[];
-  }> = [];
+  //
+  // Nested projects: sections come out in tree order — each project followed
+  // by its sub-projects (recursively), siblings alphabetical by displayName
+  // (D-15). `parentKey` is the RESOLVED parent (a missing parent or a loop
+  // resolves to null = top level, see project-tree.ts) and `depth` is 0 for
+  // top level. Consumers that ignore both still see every project once.
+  const effectiveParents = resolveEffectiveParents(state.projects);
+  const sectionsByKey = new Map<string, ProjectSection>();
   for (const project of state.projects) {
-    const rows = [...(projectRowsByKey.get(projectKey(project.hostId, project.slug)) ?? [])];
+    const k = projectKey(project.hostId, project.slug);
+    const rows = [...(projectRowsByKey.get(k) ?? [])];
     rows.sort((a, b) =>
       rowDisplayName(a).localeCompare(rowDisplayName(b), undefined, {
         sensitivity: "base",
       }),
     );
-    projectSections.push({
+    sectionsByKey.set(k, {
       slug: project.slug,
       hostId: project.hostId,
       displayName: project.displayName,
       rows,
+      parentKey: effectiveParents.get(k) ?? null,
+      depth: 0,
     });
   }
-  // Sort sections alphabetical by displayName (D-15).
-  projectSections.sort((a, b) =>
-    a.displayName.localeCompare(b.displayName, undefined, {
-      sensitivity: "base",
-    }),
-  );
+  const childKeys = childrenByParent(effectiveParents);
+  const byDisplayName = (a: string, b: string) =>
+    sectionsByKey.get(a)!.displayName.localeCompare(
+      sectionsByKey.get(b)!.displayName,
+      undefined,
+      { sensitivity: "base" },
+    );
+  const projectSections: ProjectSection[] = [];
+  const walk = (keys: string[], depth: number) => {
+    for (const k of [...keys].sort(byDisplayName)) {
+      const section = sectionsByKey.get(k)!;
+      section.depth = depth;
+      projectSections.push(section);
+      walk(childKeys.get(k) ?? [], depth + 1);
+    }
+  };
+  walk(childKeys.get(null) ?? [], 0);
 
   // The snapshot carries EVERY row. (Phase 115 Plan 115-02: the earlier
   // Phase 107 Hidden section — including its hiddenIds subscription and
@@ -2172,6 +2207,9 @@ function isProjectRow(x: unknown): x is ProjectRow {
   if (typeof r.hostId !== "string") return false;
   if (typeof r.hostname !== "string") return false;
   if (typeof r.archived !== "boolean") return false;
+  if (r.parent !== undefined && r.parent !== null && typeof r.parent !== "string") {
+    return false;
+  }
   return true;
 }
 
@@ -2210,6 +2248,7 @@ export function readProjectsCache(): CachedProjectsSlice {
             hostId: item.hostId,
             hostname: item.hostname,
             archived: item.archived,
+            parent: item.parent ?? null,
           });
         }
       }
@@ -2242,6 +2281,9 @@ export function writeProjectsCache(slice: CachedProjectsSlice): void {
         hostId: p.hostId,
         hostname: p.hostname,
         archived: p.archived,
+        // Nested projects: without it the sidebar paints flat on reload and
+        // then jumps into the tree when the live list lands.
+        parent: p.parent ?? null,
       })),
       identityProjectAssignments: Array.from(
         slice.identityProjectAssignments.entries(),
@@ -2689,7 +2731,8 @@ export function setProjects(rows: readonly ProjectRow[]): void {
         a.displayName !== b.displayName ||
         a.hostId !== b.hostId ||
         a.hostname !== b.hostname ||
-        a.archived !== b.archived
+        a.archived !== b.archived ||
+        (a.parent ?? null) !== (b.parent ?? null)
       ) {
         equal = false;
         break;
@@ -2750,7 +2793,8 @@ export function mergeProjectsForHost(
         a.displayName !== b.displayName ||
         a.hostId !== b.hostId ||
         a.hostname !== b.hostname ||
-        a.archived !== b.archived
+        a.archived !== b.archived ||
+        (a.parent ?? null) !== (b.parent ?? null)
       ) {
         equal = false;
         break;

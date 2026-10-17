@@ -9,7 +9,11 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { isProjectVisibleToUser } from "./project-visibility-gate.js";
+import {
+  isProjectVisibleToUser,
+  filterVisibleProjectTree,
+  redactHiddenParents,
+} from "./project-visibility-gate.js";
 
 describe("isProjectVisibleToUser — null caller (gate disabled)", () => {
   it("returns true when callerUsername is null regardless of projectUsers shape", () => {
@@ -60,5 +64,93 @@ describe("isProjectVisibleToUser — case sensitivity (Pitfall 7)", () => {
   it("exact case match → true", () => {
     expect(isProjectVisibleToUser(["Alice"], "Alice")).toBe(true);
     expect(isProjectVisibleToUser(["alice"], "alice")).toBe(true);
+  });
+});
+
+describe("filterVisibleProjectTree — nested projects", () => {
+  const p = (slug: string, parent: string | null, users: string[] | null) => ({
+    slug,
+    parent,
+    users,
+  });
+
+  it("null caller → everything visible", () => {
+    const list = [p("a", null, ["zoey"]), p("b", "a", ["zoey"])];
+    expect(filterVisibleProjectTree(list, null)).toEqual(list);
+  });
+
+  it("hidden parent hides child and grandchild even when they'd pass alone", () => {
+    const list = [
+      p("a", null, ["zoey"]),
+      p("b", "a", null),
+      p("c", "b", ["alice"]),
+    ];
+    expect(filterVisibleProjectTree(list, "alice")).toEqual([]);
+  });
+
+  it("a sub-project can narrow, never widen", () => {
+    const list = [p("a", null, null), p("b", "a", ["zoey"]), p("c", "b", null)];
+    expect(filterVisibleProjectTree(list, "alice").map((x) => x.slug)).toEqual([
+      "a",
+    ]);
+  });
+
+  it("missing parent → child judged on its own gate (top level)", () => {
+    const list = [p("b", "gone", null), p("c", "gone", ["zoey"])];
+    expect(filterVisibleProjectTree(list, "alice").map((x) => x.slug)).toEqual([
+      "b",
+    ]);
+  });
+
+  it("cycle terminates; loop members are judged as top level, as the sidebar draws them", () => {
+    const visibleLoop = [p("x", "y", null), p("y", "x", null)];
+    expect(filterVisibleProjectTree(visibleLoop, "alice")).toEqual(visibleLoop);
+
+    // y is hidden but sits on the loop with x: x (drawn at top level) stays
+    // visible, and z hanging off x stays too. Only y itself hides.
+    const hiddenLoop = [p("x", "y", null), p("y", "x", ["zoey"]), p("z", "x", null)];
+    expect(filterVisibleProjectTree(hiddenLoop, "alice").map((n) => n.slug)).toEqual([
+      "x",
+      "z",
+    ]);
+
+    // A hidden project hanging off a loop still hides its own children.
+    const hiddenAbove = [p("x", "y", null), p("y", "x", null), p("h", "x", ["zoey"]), p("k", "h", null)];
+    expect(filterVisibleProjectTree(hiddenAbove, "alice").map((n) => n.slug)).toEqual([
+      "x",
+      "y",
+    ]);
+  });
+
+  it("self-parent and absent parent field are treated as top level", () => {
+    const list = [
+      { slug: "s", parent: "s", users: null },
+      { slug: "t", users: null },
+    ];
+    expect(filterVisibleProjectTree(list, "alice")).toEqual(list);
+  });
+
+  it("preserves input order and element identity", () => {
+    const list = [p("b", null, null), p("a", "b", null)];
+    const out = filterVisibleProjectTree(list, "alice");
+    expect(out[0]).toBe(list[0]);
+    expect(out[1]).toBe(list[1]);
+  });
+});
+
+describe("redactHiddenParents", () => {
+  it("blanks a parent that exists but is hidden; keeps visible and genuinely missing parents", () => {
+    const all = [
+      { slug: "x", parent: "y", users: null },
+      { slug: "y", parent: "x", users: ["zoey"] },
+      { slug: "kid", parent: "x", users: null },
+      { slug: "orphan", parent: "gone", users: null },
+    ];
+    const visible = filterVisibleProjectTree(all, "alice");
+    expect(redactHiddenParents(all, visible).map((p) => [p.slug, p.parent])).toEqual([
+      ["x", null],
+      ["kid", "x"],
+      ["orphan", "gone"],
+    ]);
   });
 });

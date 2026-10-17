@@ -2366,6 +2366,7 @@ export function createSshPollOrchestrator(
           hostname: host.name,
           archived: false,
           users: p.users,
+          parent: p.parent ?? null,
         })),
       );
     }

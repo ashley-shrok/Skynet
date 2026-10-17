@@ -651,7 +651,9 @@ and typing a role name still finds every agent holding that role even when
 the secondary line is currently showing a project grouping.
 
 **Sections with zero matches disappear entirely** — header and rows both.
-Typing a project's display name reveals every conversation in that project.
+Typing a project's display name reveals that project, every sub-project
+beneath it, and all their conversations; any match inside a sub-project also
+shows the projects above it, as the path down to it.
 When EVERY section has zero matches, the sidebar's scroll area shows a
 centered `no matches — search everywhere ↗` message with the everywhere
 link as a large tappable target — always a visible next step, never a
@@ -747,7 +749,8 @@ not something agents drive.
     field you keep current yourself, but a user-set title stands
     (§ Loading an existing identity).
   - **Move to** — drill-in submenu listing **Pinned** first, then every
-    project, with a checkmark on wherever the row is now (at most one —
+    project (sub-projects indented under their parent, as in the sidebar),
+    with a checkmark on wherever the row is now (at most one —
     see Pinned section above), then **New project…**, which opens the
     new-project dialog (host fixed to the conversation's own host; relay
     rooms still pick one) and moves the conversation into the project once
@@ -782,15 +785,45 @@ not something agents drive.
     open frontends pick it up on the next fleet-status sweep, within a few
     seconds. **User-gated.**
   Each project is expandable and collapsible. Drag conversations in and
-  out to move them. Each project header carries a **kebab menu** (also
+  out to move them; a conversation dropped inside a sub-project lands in
+  that sub-project.
+  **Sub-projects.** A project can sit inside another project, to any depth.
+  A sub-project shows as an indented, collapsible section inside its
+  parent, above the parent's own conversations; collapsing a parent hides
+  everything beneath it. A sub-project is an ordinary project in every
+  other way — agents and relay rooms can be in a parent directly or in any
+  sub-project, and each is still in exactly one project. A project can only
+  sit inside a project on the same machine, never inside itself or one of
+  its own sub-projects. If a project's parent is gone (archived, deleted),
+  it shows at top level instead. A sub-project is shown only to users who
+  can see every project above it.
+  *Agent-side:* nesting is one optional frontmatter line in the
+  sub-project's `project.md`: `parent: <parent-slug>`. Folders stay side
+  by side under `~/fleet/projects/` — moving a project in or out is an edit
+  to that line, never a folder move. No line = top level. A project's
+  `members:` list holds only the agents directly in it, not those in its
+  sub-projects.
+  Each project header carries a **kebab menu** (also
   opened by right-clicking the header) with:
   - **Open project** — opens the **project modal** (§ Conversation view).
   - **New conversation in this project** — auto-assigns the spawned
     agent to this project.
+  - **New sub-project** — the new-project dialog, creating the project
+    inside this one (on its machine).
   - **Rename project** — changes the project's display name (the
     `displayName:` in `project.md`; the slug and folder stay put).
-  - **Archive project** — retires the project folder (with its
-    cascade-member handling per the archive route).
+  - **Move to** — drill-in submenu: **Top level**, then every project on
+    the same machine it could move into (indented as in the sidebar; itself
+    and its own sub-projects aren't offered), with a checkmark on its
+    current place. Moving a project takes its sub-projects, agents and
+    rooms with it.
+  - **Archive project** — retires the project together with every
+    sub-project beneath it and every agent in any of them; relay rooms
+    anywhere inside move back to Conversations. The confirm names the
+    project and counts the sub-projects, agents and rooms first.
+  On desktop a project header can also be dragged: drop it on another
+  project to move it inside that one, or on the **Projects** super-header
+  to move it back to top level. On a phone, **Move to** is the way.
   *Agent-side:* project membership = the `project:` frontmatter (see
   above). For spawning a fresh agent already scoped to a project, the
   cleanest path is to include a directive in the prompt of the spawn

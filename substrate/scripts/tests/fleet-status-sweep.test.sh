@@ -339,6 +339,64 @@ body
   assert_identity_field "$out" "delta" "identity_cosmetics.displayName" '"Delta (live)"'
 }
 
+# Case 8: project-list line carries `parent` — bare and quoted slugs survive,
+# self-reference / malformed / absent → null.
+test_case_08_project_parent() {
+  local root="$FIXTURE/fleet/projects"
+  mkdir -p "$root/top" "$root/child" "$root/quoted" "$root/selfie" "$root/bad"
+  printf -- '---\ndisplayName: Top\n---\n' > "$root/top/project.md"
+  printf -- '---\ndisplayName: Child\nparent: top  # nest\n---\n' > "$root/child/project.md"
+  printf -- '---\nparent: "child"\ndisplayName: Quoted\n---\n' > "$root/quoted/project.md"
+  printf -- '---\ndisplayName: Self\nparent: selfie\n---\n' > "$root/selfie/project.md"
+  printf -- '---\ndisplayName: Bad\nparent: ../etc\n---\n' > "$root/bad/project.md"
+
+  local out parents
+  out=$(run_sweep)
+  parents=$(printf '%s' "$out" | python3 -c "
+import json, sys
+for ln in sys.stdin:
+    ln = ln.strip()
+    if not ln:
+        continue
+    rec = json.loads(ln)
+    if rec.get('line_kind') == 'project-list':
+        print(','.join('%s=%s' % (p['slug'], p.get('parent', 'MISSING')) for p in rec['projects']))
+")
+  assert_eq "bad=None,child=top,quoted=child,selfie=None,top=None" "$parents" "project-list parents"
+}
+
+# Case 9: unquoted YAML null/bool/number names no parent (parity with the
+# backend's YAML read); a quoted "null" is a slug; a long members list
+# doesn't push `parent` out of the read.
+test_case_09_project_parent_yaml_scalars_and_long_frontmatter() {
+  local root="$FIXTURE/fleet/projects"
+  mkdir -p "$root/null" "$root/a" "$root/b" "$root/c" "$root/d" "$root/long"
+  printf -- '---\ndisplayName: Null\n---\n' > "$root/null/project.md"
+  printf -- '---\ndisplayName: A\nparent: null\n---\n' > "$root/a/project.md"
+  printf -- '---\ndisplayName: B\nparent: true\n---\n' > "$root/b/project.md"
+  printf -- '---\ndisplayName: C\nparent: 123\n---\n' > "$root/c/project.md"
+  printf -- '---\ndisplayName: D\nparent: "null"\n---\n' > "$root/d/project.md"
+  {
+    printf -- '---\ndisplayName: Long\nmembers:\n'
+    for i in $(seq 1 400); do printf '  - some-fairly-long-member-name-%s\n' "$i"; done
+    printf 'parent: a\n---\n'
+  } > "$root/long/project.md"
+
+  local out parents
+  out=$(run_sweep)
+  parents=$(printf '%s' "$out" | python3 -c "
+import json, sys
+for ln in sys.stdin:
+    ln = ln.strip()
+    if not ln:
+        continue
+    rec = json.loads(ln)
+    if rec.get('line_kind') == 'project-list':
+        print(','.join('%s=%s' % (p['slug'], p.get('parent', 'MISSING')) for p in rec['projects']))
+")
+  assert_eq "a=None,b=None,c=None,d=null,long=a,null=None" "$parents" "project-list parents (yaml scalars, long frontmatter)"
+}
+
 # ============================================================
 # MAIN
 # ============================================================
@@ -354,6 +412,8 @@ run_test test_case_04_missing_archive_tree
 run_test test_case_05_unsafe_archive_name
 run_test test_case_06_bare_archive_dir
 run_test test_case_07_name_collision_both_trees
+run_test test_case_08_project_parent
+run_test test_case_09_project_parent_yaml_scalars_and_long_frontmatter
 
 printf '\n===============================\n'
 printf 'PASS: %s  FAIL: %s\n' "$PASS" "$FAIL"

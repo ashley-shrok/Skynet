@@ -87,6 +87,8 @@ import {
   writeProjectFile,
   createProject,
   archiveProject,
+  applyProjectParentLine,
+  setProjectParentField,
 } from "./identity-artifact-reader.js";
 
 // ---------------------------------------------------------------------------
@@ -505,8 +507,8 @@ describe("listProjects — LOCAL branch", () => {
 
     const result = await listProjects(null);
     expect(result).toEqual([
-      { slug: "alpha", displayName: "Alpha One", users: null },
-      { slug: "beta", displayName: "Beta", users: null },
+      { slug: "alpha", displayName: "Alpha One", users: null, parent: null },
+      { slug: "beta", displayName: "Beta", users: null, parent: null },
     ]);
     // archive MUST NOT appear anywhere.
     expect(result.some((p) => p.slug === "archive")).toBe(false);
@@ -536,8 +538,8 @@ describe("listProjects — LOCAL branch", () => {
 
     const result = await listProjects(null);
     expect(result).toEqual([
-      { slug: "alpha", displayName: "alpha", users: null },
-      { slug: "beta", displayName: "beta", users: null },
+      { slug: "alpha", displayName: "alpha", users: null, parent: null },
+      { slug: "beta", displayName: "beta", users: null, parent: null },
     ]);
   });
 
@@ -573,8 +575,8 @@ describe("listProjects — REMOTE branch (one batched exec)", () => {
     expect(cmd).toContain("! -name archive");
     expect(cmd).toContain("$HOME/fleet/projects");
     expect(result).toEqual([
-      { slug: "alpha", displayName: "Alpha One", users: ["alice"] },
-      { slug: "beta", displayName: "Beta", users: null },
+      { slug: "alpha", displayName: "Alpha One", users: ["alice"], parent: null },
+      { slug: "beta", displayName: "Beta", users: null, parent: null },
     ]);
   });
 
@@ -585,8 +587,8 @@ describe("listProjects — REMOTE branch (one batched exec)", () => {
     const result = await listProjects(conn);
     expect(execCommandMock).toHaveBeenCalledTimes(1);
     expect(result).toEqual([
-      { slug: "alpha", displayName: "alpha", users: null },
-      { slug: "beta", displayName: "beta", users: null },
+      { slug: "alpha", displayName: "alpha", users: null, parent: null },
+      { slug: "beta", displayName: "beta", users: null, parent: null },
     ]);
   });
 
@@ -705,7 +707,7 @@ describe("listProjects — users frontmatter parsing (Phase 130 D-3)", () => {
 
     const result = await listProjects(null);
     expect(result).toEqual([
-      { slug: "alpha", displayName: "Alpha", users: ["Alice", "zoey"] },
+      { slug: "alpha", displayName: "Alpha", users: ["Alice", "zoey"], parent: null },
     ]);
   });
 
@@ -734,7 +736,7 @@ describe("listProjects — users frontmatter parsing (Phase 130 D-3)", () => {
     // parser is intentionally faithful — round-tripping the file's bytes.
     const result = await listProjects(null);
     expect(result).toEqual([
-      { slug: "alpha", displayName: "Alpha", users: [] },
+      { slug: "alpha", displayName: "Alpha", users: [], parent: null },
     ]);
   });
 
@@ -759,7 +761,7 @@ describe("listProjects — users frontmatter parsing (Phase 130 D-3)", () => {
 
     const result = await listProjects(null);
     expect(result).toEqual([
-      { slug: "alpha", displayName: "Alpha", users: null },
+      { slug: "alpha", displayName: "Alpha", users: null, parent: null },
     ]);
   });
 
@@ -783,7 +785,7 @@ describe("listProjects — users frontmatter parsing (Phase 130 D-3)", () => {
 
     const result = await listProjects(null);
     expect(result).toEqual([
-      { slug: "alpha", displayName: "Alpha", users: null },
+      { slug: "alpha", displayName: "Alpha", users: null, parent: null },
     ]);
   });
 });
@@ -1164,5 +1166,192 @@ describe("archiveProject — REMOTE branch", () => {
     const { conn } = buildMockConn();
     execCommandMock.mockImplementation(() => Promise.resolve("EEXIST\n"));
     await expect(archiveProject(conn, "alpha")).rejects.toMatchObject({ code: "EEXIST" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Nested projects — `parent:` read, create, and line-based set/clear
+// ---------------------------------------------------------------------------
+
+describe("listProjects — parent frontmatter (nested projects)", () => {
+  function stubFiles(files: Record<string, string>) {
+    fsReaddirMock.mockImplementation((p: string) => {
+      if (typeof p === "string" && p.endsWith("projects")) {
+        return Promise.resolve(Object.keys(files).map((n) => makeDirent(n, true)));
+      }
+      return Promise.resolve([]);
+    });
+    fsReadFileMock.mockImplementation((p: string) => {
+      for (const [slug, body] of Object.entries(files)) {
+        if (typeof p === "string" && p.includes(`/${slug}/project.md`)) {
+          return Promise.resolve(body);
+        }
+      }
+      const err = new Error("ENOENT") as NodeJS.ErrnoException;
+      err.code = "ENOENT";
+      return Promise.reject(err);
+    });
+  }
+
+  it("valid slug surfaces; self, malformed, non-string, absent → null", async () => {
+    stubFiles({
+      kid: "---\ndisplayName: Kid\nparent: top\n---\n",
+      quoted: "---\ndisplayName: Q\nparent: 'top'\n---\n",
+      selfie: "---\nparent: selfie\n---\n",
+      bad: "---\nparent: Not_A_Slug\n---\n",
+      num: "---\nparent: 42\n---\n",
+      top: "---\ndisplayName: Top\n---\n",
+    });
+    const result = await listProjects(null);
+    expect(Object.fromEntries(result.map((r) => [r.slug, r.parent]))).toEqual({
+      bad: null,
+      kid: "top",
+      num: null,
+      quoted: "top",
+      selfie: null,
+      top: null,
+    });
+  });
+});
+
+describe("createProject — parent (nested projects)", () => {
+  it("writes parent right after displayName", async () => {
+    fsMkdirMock.mockImplementation(() => Promise.resolve());
+    await createProject(null, "kid", "Kid", ["alice"], "top");
+    const written = (fsWriteFileMock.mock.calls[0][1] as Buffer).toString("utf-8");
+    expect(written).toMatch(/^---\ndisplayName: '?Kid'?\nparent: top\nusers:\n {2}- alice\n---\n$/);
+  });
+
+  it("null / omitted parent → no parent line", async () => {
+    fsMkdirMock.mockImplementation(() => Promise.resolve());
+    await createProject(null, "kid", "Kid", null, null);
+    const written = (fsWriteFileMock.mock.calls[0][1] as Buffer).toString("utf-8");
+    expect(written).not.toMatch(/parent:/);
+  });
+
+  it("invalid or self parent → throws before any I/O", async () => {
+    await expect(createProject(null, "kid", "Kid", null, "../x")).rejects.toThrow(
+      /invalid parent/,
+    );
+    await expect(createProject(null, "kid", "Kid", null, "kid")).rejects.toThrow(
+      /invalid parent/,
+    );
+    expect(fsMkdirMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("applyProjectParentLine — line-based, byte-preserving", () => {
+  const supervised =
+    "---\n" +
+    "displayName: 'Trip Planning'\n" +
+    "users: [alice]\n" +
+    "members:  # auto-maintained by agent-supervisor from identities' project: — edits are overwritten\n" +
+    "  - ada\n" +
+    "  - bob\n" +
+    "---\n" +
+    "\n# Body\n\nparent: this line is body prose, not frontmatter\n";
+
+  it("set: inserts after displayName; every other byte preserved", () => {
+    const out = applyProjectParentLine(supervised, "travel");
+    expect(out).toBe(
+      supervised.replace(
+        "displayName: 'Trip Planning'\n",
+        "displayName: 'Trip Planning'\nparent: travel\n",
+      ),
+    );
+  });
+
+  it("clear after set round-trips to the original bytes exactly", () => {
+    const set = applyProjectParentLine(supervised, "travel");
+    expect(applyProjectParentLine(set, null)).toBe(supervised);
+  });
+
+  it("replace: removes every existing top-level parent line, writes one", () => {
+    const md =
+      "---\nparent: old\ndisplayName: X\nnote: keep\nparent: older # dup\n---\nbody\n";
+    expect(applyProjectParentLine(md, "new")).toBe(
+      "---\ndisplayName: X\nparent: new\nnote: keep\n---\nbody\n",
+    );
+  });
+
+  it("no displayName → inserted right after the opening fence", () => {
+    expect(applyProjectParentLine("---\nusers: [a]\n---\nb", "p")).toBe(
+      "---\nparent: p\nusers: [a]\n---\nb",
+    );
+  });
+
+  it("empty frontmatter block", () => {
+    expect(applyProjectParentLine("---\n---\nbody", "p")).toBe(
+      "---\nparent: p\n---\nbody",
+    );
+    expect(applyProjectParentLine("---\nparent: p\n---\nbody", null)).toBe(
+      "---\n---\nbody",
+    );
+  });
+
+  it("no frontmatter: set creates one; clear is a no-op", () => {
+    expect(applyProjectParentLine("just prose\n", "p")).toBe(
+      "---\nparent: p\n---\njust prose\n",
+    );
+    expect(applyProjectParentLine("", "p")).toBe("---\nparent: p\n---\n");
+    expect(applyProjectParentLine("just prose\n", null)).toBe("just prose\n");
+  });
+
+  it("CRLF file: inserted line uses CRLF, other lines untouched", () => {
+    const md = "---\r\ndisplayName: X\r\nmembers: []  # auto\r\n---\r\nbody\r\n";
+    const out = applyProjectParentLine(md, "p");
+    expect(out).toBe(
+      "---\r\ndisplayName: X\r\nparent: p\r\nmembers: []  # auto\r\n---\r\nbody\r\n",
+    );
+    expect(applyProjectParentLine(out, null)).toBe(md);
+  });
+
+  it("indented parent: keys (nested YAML) are not touched", () => {
+    const md = "---\ndisplayName: X\nmeta:\n  parent: deep\n---\n";
+    expect(applyProjectParentLine(md, null)).toBe(md);
+  });
+
+  it("UTF-8 BOM before the fence is kept and the fence still recognized", () => {
+    const md = "\uFEFF---\ndisplayName: X\n---\n";
+    expect(applyProjectParentLine(md, "p")).toBe(
+      "\uFEFF---\ndisplayName: X\nparent: p\n---\n",
+    );
+  });
+  it("multi-line displayName block value: inserted after the whole value", () => {
+    const md = "---\ndisplayName: >-\n  Long\n  Name\nusers: [a]\n---\n";
+    expect(applyProjectParentLine(md, "p")).toBe(
+      "---\ndisplayName: >-\n  Long\n  Name\nparent: p\nusers: [a]\n---\n",
+    );
+  });
+
+  it("opening fence with no closing fence: refuses instead of mangling", () => {
+    expect(() => applyProjectParentLine("---\ndisplayName: X\nbody\n", "p")).toThrow(
+      /not closed/,
+    );
+  });
+});
+
+describe("setProjectParentField", () => {
+  it("LOCAL: read → line edit → atomic write of project.md", async () => {
+    fsReadFileMock.mockResolvedValue("---\ndisplayName: Kid\n---\nbody");
+    fsWriteFileMock.mockImplementation(() => Promise.resolve());
+    fsRenameMock.mockImplementation(() => Promise.resolve());
+    const result = await setProjectParentField(null, "kid", "top");
+    expect(result.markdown).toBe("---\ndisplayName: Kid\nparent: top\n---\nbody");
+    const tmpPath = fsWriteFileMock.mock.calls[0][0] as string;
+    expect(tmpPath.endsWith("/kid/project.md.tmp")).toBe(true);
+  });
+
+  it("no-op when the file already says the same thing (no write)", async () => {
+    fsReadFileMock.mockResolvedValue("---\ndisplayName: Kid\n---\n");
+    await setProjectParentField(null, "kid", null);
+    expect(fsWriteFileMock).not.toHaveBeenCalled();
+  });
+
+  it("invalid slug / parent / self → throws before any I/O", async () => {
+    await expect(setProjectParentField(null, "Kid", "top")).rejects.toThrow();
+    await expect(setProjectParentField(null, "kid", "../x")).rejects.toThrow();
+    await expect(setProjectParentField(null, "kid", "kid")).rejects.toThrow();
+    expect(fsReadFileMock).not.toHaveBeenCalled();
   });
 });

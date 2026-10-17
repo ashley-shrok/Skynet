@@ -931,6 +931,7 @@ describe("wire-protocol Phase 117 Plan 117-03 — project-list-changed frame", (
         hostId: "1",
         hostname: "t1000",
         archived: false,
+        parent: null,
       },
       {
         slug: "beta",
@@ -938,6 +939,7 @@ describe("wire-protocol Phase 117 Plan 117-03 — project-list-changed frame", (
         hostId: "1",
         hostname: "t1000",
         archived: true,
+        parent: "alpha",
       },
     ];
     const frame = makeProjectListChangedFrame("1", projects);
@@ -951,6 +953,33 @@ describe("wire-protocol Phase 117 Plan 117-03 — project-list-changed frame", (
     // Round-trip: builder output MUST parse via FrontendOutboundFrame.
     const parsed = FrontendOutboundFrame.safeParse(frame);
     expect(parsed.success).toBe(true);
+  });
+
+  it("nested projects: absent parent is normalized to null by the builder and defaulted to null by the schema", async () => {
+    const { makeProjectListChangedFrame, FrontendProjectListChangedFrameSchema } =
+      await import("./wire-protocol.js");
+    const legacy = {
+      slug: "alpha",
+      displayName: "Alpha",
+      hostId: "1",
+      hostname: "t1000",
+      archived: false,
+    };
+    const frame = makeProjectListChangedFrame("1", [legacy]);
+    if (frame.type === "project-list-changed") {
+      expect(frame.projects[0]?.parent).toBeNull();
+    }
+    // An older producer omitting parent still parses; parent defaults to null.
+    const parsed = FrontendProjectListChangedFrameSchema.safeParse({
+      schemaVersion: FRAME_SCHEMA_VERSION,
+      type: "project-list-changed",
+      hostId: "1",
+      projects: [legacy],
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.projects[0]?.parent).toBeNull();
+    }
   });
 
   it("Test P117-03-10 (schema requires top-level hostId scope field): parse with hostId missing fails", async () => {

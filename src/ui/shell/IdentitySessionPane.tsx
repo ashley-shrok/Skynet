@@ -26,6 +26,7 @@ import {
   unpinConversation,
   useProjects,
 } from "@/state/conversation-store";
+import { orderProjectsAsTree } from "@/state/project-tree";
 // Badge-menu Archive item — shared with the badge drop lane's archive zone.
 import { confirmAndArchiveIdentityPane } from "./archive-identity-pane";
 import { promptAndRenameIdentity } from "./rename-identity";
@@ -263,10 +264,10 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
       // PrettyConversationsPanel.handleRowMoveToProject fires for identity
       // rows. identityKey resolution mirrors the Archive item below.
       if (shadowFleetId !== null && effectiveTmuxSession !== null) {
-        const hostProjects = projectsList
-          .filter((p) => p.hostId === host.id && !p.archived)
-          .slice()
-          .sort((a, b) => a.displayName.localeCompare(b.displayName));
+        // Tree order with depth, so nested projects indent like the sidebar.
+        const hostProjects = orderProjectsAsTree(
+          projectsList.filter((p) => p.hostId === host.id && !p.archived),
+        );
         const identityKey = sessionMatchKey(effectiveTmuxSession) ?? effectiveTmuxSession;
         const resolved =
           (Number.isFinite(hostIdNum)
@@ -318,11 +319,12 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
             else pinConversation(shadowFleetId);
           },
         });
-        for (const p of hostProjects) {
+        for (const { project: p, depth } of hostProjects) {
           const isCurrent = p.slug === currentProjectSlug;
           submenu.push({
             label: p.displayName,
             checked: isCurrent,
+            indent: depth,
             onClick: () => {
               if (!isCurrent) setProject(p.slug);
             },

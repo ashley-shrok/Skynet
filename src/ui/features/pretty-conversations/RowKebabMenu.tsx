@@ -86,6 +86,9 @@ export interface RowKebabSubmenuItem {
   checked?: boolean;
   /** Optional per-item test id (forwarded to DropdownMenuItem). */
   testId?: string;
+  /** Nesting level for tree-shaped lists (nested projects in Move to);
+   *  each level indents the label. 0 / undefined = flush. */
+  indent?: number;
 }
 
 /**
@@ -192,9 +195,9 @@ function KebabMenuContent({
                     e.stopPropagation();
                   }}
                 >
-                  {item.submenu.map((sub) => (
+                  {item.submenu.map((sub, subIdx) => (
                     <DropdownMenuItem
-                      key={sub.label}
+                      key={sub.testId ?? `${subIdx}:${sub.label}`}
                       onSelect={() => {
                         sub.onClick();
                       }}
@@ -220,6 +223,13 @@ function KebabMenuContent({
                           aria-hidden="true"
                         />
                       )}
+                      {sub.indent ? (
+                        <span
+                          className="inline-block shrink-0"
+                          style={{ width: `${sub.indent * 12}px` }}
+                          aria-hidden="true"
+                        />
+                      ) : null}
                       <span>{sub.label}</span>
                     </DropdownMenuItem>
                   ))}

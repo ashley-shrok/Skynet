@@ -43,7 +43,10 @@ import {
   makeSnapshotFrame,
 } from "./wire-protocol.js";
 // Phase 130: per-project user gate. Pure function; no DB / SSH imports.
-import { isProjectVisibleToUser } from "./project-visibility-gate.js";
+import {
+  filterVisibleProjectTree,
+  redactHiddenParents,
+} from "./project-visibility-gate.js";
 // Phase 130: per-app user gate. Same shape as project gate; separate module
 // so a grep for `isAppVisibleToUser(` audits every app emit site.
 import { isAppVisibleToUser } from "./app-visibility-gate.js";
@@ -485,13 +488,20 @@ export async function filterAppFrame(
     // resolver or null username — see getCallerUsername JSDoc.
     const callerUsername = await getCallerUsername();
 
-    // Per-project user gate. The scoped-hostId visibility check above
-    // already covers the host gate — every entry in this frame carries
-    // the same hostId as the scope, which is already known visible.
+    // Per-project user gate, inherited down the parent tree: a project
+    // shows only if it and every ancestor pass. The frame carries this
+    // host's full list, so the ancestor walk has complete information.
+    // The scoped-hostId visibility check above already covers the host
+    // gate — every entry in this frame carries the same hostId as the
+    // scope, which is already known visible.
     // Strip `users` from every survivor before emit — Phase 129 HIGH-1
     // mirror. The field is gate-only.
-    const projectedProjects = projects
-      .filter((p) => isProjectVisibleToUser(p.users ?? null, callerUsername))
+    // A visible project never names a hidden one on the wire
+    // (redactHiddenParents — the loop edge case).
+    const projectedProjects = redactHiddenParents(
+      projects,
+      filterVisibleProjectTree(projects, callerUsername),
+    )
       .map((p) => {
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
         const { users: _users, ...rest } = p;

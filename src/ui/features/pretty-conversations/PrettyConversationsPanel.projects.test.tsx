@@ -1528,7 +1528,7 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
     confirmSpy = vi.spyOn(window, "confirm");
   });
 
-  it("A9 Test 1 (D-29 verbatim warning): kebab 'Archive project' shows the exact confirmation copy", async () => {
+  it("A9 Test 1 (confirm copy): kebab 'Archive project' names the project, counts its agents, says it can't be undone", async () => {
     const hostA = makeHost("1", "hostA");
     const rowA = makeRow({ id: "in-alpha", host: hostA, targetTmuxSession: "wren" });
     setSnapshot({
@@ -1551,7 +1551,7 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
 
     expect(confirmSpy).toHaveBeenCalledTimes(1);
     expect(confirmSpy).toHaveBeenCalledWith(
-      "About to archive this project AND all conversations inside it. Drag conversations out first if you want to keep any active.",
+      'Archive "Alpha"?\n\nThis also archives the 1 agent in it.\n\nThis can\'t be undone. Move conversations out first to keep them.',
     );
   });
 

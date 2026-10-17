@@ -58,3 +58,76 @@ export function isProjectVisibleToUser(
     projectUsers.includes(callerUsername)
   );
 }
+
+/**
+ * Nested projects: tree-aware visibility. A project is visible iff it passes
+ * its own `users` gate AND every ancestor reachable through `parent` links
+ * within `projects` (one host's full list) passes its gate.
+ *
+ * The walk stops at a parent slug that isn't in the list (missing or
+ * archived parent → the child reads as top level and needs only its own
+ * gate). A hand-edited loop is judged the way the sidebar draws it: every
+ * project ON the loop sits at top level, so only the chain up to where the
+ * walk first re-enters the loop counts — a hidden loop partner never hides
+ * a visible one. A sub-project can narrow its audience, never widen it, and
+ * a hidden parent never "looks missing" here because the input is the
+ * unfiltered list.
+ *
+ * Preserves input order; returns the same element references.
+ * `callerUsername === null` disables the gate (everything visible).
+ */
+export function filterVisibleProjectTree<
+  T extends {
+    slug: string;
+    parent?: string | null;
+    users?: string[] | null;
+  },
+>(projects: T[], callerUsername: string | null): T[] {
+  if (callerUsername === null) return projects.slice();
+
+  const bySlug = new Map<string, T>();
+  for (const p of projects) bySlug.set(p.slug, p);
+
+  return projects.filter((p) => {
+    // Walk up collecting the chain; on a repeat, the chain is cut just after
+    // the first loop member reached (that member is drawn at top level).
+    const chain: T[] = [];
+    const indexOf = new Map<string, number>();
+    let node: T | undefined = p;
+    while (node !== undefined) {
+      const seenAt = indexOf.get(node.slug);
+      if (seenAt !== undefined) {
+        chain.length = seenAt + 1;
+        break;
+      }
+      indexOf.set(node.slug, chain.length);
+      chain.push(node);
+      node =
+        typeof node.parent === "string" ? bySlug.get(node.parent) : undefined;
+    }
+    return chain.every((n) =>
+      isProjectVisibleToUser(n.users ?? null, callerUsername),
+    );
+  });
+}
+
+/**
+ * For the wire: a surviving project whose `parent` names a project that
+ * EXISTS on the host but is hidden from the caller (only possible when a
+ * hidden project sits on a hand-edited loop) gets `parent: null`, so a hidden
+ * project's slug never reaches someone it's hidden from. A parent that is
+ * genuinely missing is kept: the sidebar needs it to offer "Top level" to
+ * clear the stale line. `all` is the unfiltered host list, `visible` the
+ * output of filterVisibleProjectTree over it.
+ */
+export function redactHiddenParents<
+  T extends { slug: string; parent?: string | null },
+>(all: readonly T[], visible: T[]): T[] {
+  const existing = new Set(all.map((p) => p.slug));
+  const shown = new Set(visible.map((p) => p.slug));
+  return visible.map((p) =>
+    typeof p.parent === "string" && existing.has(p.parent) && !shown.has(p.parent)
+      ? { ...p, parent: null }
+      : p,
+  );
+}

@@ -50,6 +50,7 @@ import {
   useProjects,
   setProjects,
   mergeProjectsForHost,
+  getProjectsSnapshot,
   setRoomProjectAssignments,
   patchRoomProjectAssignment,
   setIdentityProjectAssignments,
@@ -470,6 +471,8 @@ describe("conversation-store (117-07): empty project section (D-11)", () => {
       hostId: expect.any(String),
       displayName: "Empty",
       rows: [],
+      parentKey: null,
+      depth: 0,
     });
   });
 
@@ -613,7 +616,7 @@ describe("conversation-store (projects cache): cold-boot seed + write-on-setter"
       setProjects([row]);
     });
     const cached = readProjectsCache();
-    expect(cached.projects).toEqual([row]);
+    expect(cached.projects).toEqual([{ ...row, parent: null }]);
     expect(cached.identityProjectAssignments.size).toBe(0);
     expect(cached.roomProjectAssignments.size).toBe(0);
   });
@@ -633,7 +636,7 @@ describe("conversation-store (projects cache): cold-boot seed + write-on-setter"
       setIdentityProjectAssignments(new Map([["1::morpheus", "alpha"]]));
     });
     const cached = readProjectsCache();
-    expect(cached.projects).toEqual([row]);
+    expect(cached.projects).toEqual([{ ...row, parent: null }]);
     expect(cached.identityProjectAssignments.get("1::morpheus")).toBe("alpha");
   });
 
@@ -799,6 +802,22 @@ describe("conversation-store (projects cache): cold-boot seed + write-on-setter"
     expect(cached.roomProjectAssignments.get("!r:s")).toBe("a");
   });
 
+  it("nested projects: the cache keeps each project's parent (no flat flash on reload)", () => {
+    writeProjectsCache({
+      projects: [
+        { slug: "top", displayName: "Top", hostId: "1", hostname: "t1000", archived: false, parent: null },
+        { slug: "kid", displayName: "Kid", hostId: "1", hostname: "t1000", archived: false, parent: "top" },
+      ],
+      identityProjectAssignments: new Map(),
+      roomProjectAssignments: new Map(),
+    });
+    const cached = readProjectsCache();
+    expect(cached.projects.map((p) => [p.slug, p.parent])).toEqual([
+      ["top", null],
+      ["kid", "top"],
+    ]);
+  });
+
   it("__resetProjectsForTest clears the localStorage cache", () => {
     act(() => {
       setProjects([
@@ -961,10 +980,85 @@ describe("conversation-store: mergeProjectsForHost", () => {
     });
 
     const cached = readProjectsCache();
-    expect(cached.projects).toEqual([hostB1]);
+    expect(cached.projects).toEqual([{ ...hostB1, parent: null }]);
   });
 });
 
 // Silence unused-import lint if `_makeIdentity` becomes unused during draft;
 // keep the reference to avoid a churn diff during subsequent GREEN edits.
 void makeIdentity;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Nested projects: sections come out in tree order with resolved parents.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("conversation-store: nested projects", () => {
+  beforeEach(() => {
+    __resetProjectsForTest();
+  });
+
+  const row = (slug: string, displayName: string, parent: string | null, hostId = "1"): ProjectRow => ({
+    slug,
+    displayName,
+    hostId,
+    hostname: hostId === "1" ? "t1000" : "workstation",
+    archived: false,
+    parent,
+  });
+
+  it("emits each project followed by its sub-projects, siblings alphabetical, with parentKey and depth", () => {
+    act(() => {
+      setProjects([
+        row("ops", "Ops", "skynet"),
+        row("other", "Other", null),
+        row("ui", "UI", "design"),
+        row("skynet", "SKYNET", null),
+        row("design", "Design", "skynet"),
+      ]);
+    });
+    const { result } = renderHook(() => useConversations());
+    expect(
+      result.current.projectSections.map((s) => [s.slug, s.parentKey, s.depth]),
+    ).toEqual([
+      ["other", null, 0],
+      ["skynet", null, 0],
+      ["design", "1::skynet", 1],
+      ["ui", "1::design", 2],
+      ["ops", "1::skynet", 1],
+    ]);
+  });
+
+  it("a missing parent, a parent on another host, or a loop resolves to top level — nothing vanishes", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    act(() => {
+      setProjects([
+        row("orphan", "Orphan", "gone"),
+        row("cross", "Cross", "beta"), // beta lives on host 2
+        row("beta", "Beta", null, "2"),
+        row("loop-a", "Loop A", "loop-b"),
+        row("loop-b", "Loop B", "loop-a"),
+        row("hanger", "Hanger", "loop-a"),
+      ]);
+    });
+    const { result } = renderHook(() => useConversations());
+    const bySlug = new Map(result.current.projectSections.map((s) => [s.slug, s]));
+    expect(bySlug.size).toBe(6);
+    expect(bySlug.get("orphan")!.parentKey).toBeNull();
+    expect(bySlug.get("cross")!.parentKey).toBeNull();
+    expect(bySlug.get("loop-a")!.parentKey).toBeNull();
+    expect(bySlug.get("loop-b")!.parentKey).toBeNull();
+    expect(bySlug.get("hanger")!.parentKey).toBe("1::loop-a");
+    warn.mockRestore();
+  });
+
+  it("a parent change alone counts as a change (re-renders the tree)", () => {
+    act(() => {
+      setProjects([row("a", "A", null), row("b", "B", null)]);
+    });
+    const before = getProjectsSnapshot();
+    act(() => {
+      mergeProjectsForHost("1", [row("a", "A", null), row("b", "B", "a")]);
+    });
+    expect(getProjectsSnapshot()).not.toBe(before);
+    expect(getProjectsSnapshot().find((p) => p.slug === "b")?.parent).toBe("a");
+  });
+});

@@ -708,6 +708,45 @@ describe("app-frame-filter", () => {
     }
   });
 
+  it("nested projects: visibility inherits — hidden parent hides child + grandchild, missing parent does not, loops judged as drawn; parent survives on the wire unless it names a hidden project", async () => {
+    const base = { hostId: "h1", hostname: "one", archived: false };
+    const frame = makeProjectListChangedFrame("h1", [
+      { ...base, slug: "secret", displayName: "S", users: ["zoey"], parent: null },
+      { ...base, slug: "kid", displayName: "K", users: null, parent: "secret" },
+      { ...base, slug: "grandkid", displayName: "G", users: ["alice"], parent: "kid" },
+      { ...base, slug: "open", displayName: "O", users: null, parent: null },
+      { ...base, slug: "sub", displayName: "Sub", users: ["alice"], parent: "open" },
+      { ...base, slug: "orphan", displayName: "Or", users: null, parent: "gone" },
+      { ...base, slug: "loop-a", displayName: "LA", users: null, parent: "loop-b" },
+      { ...base, slug: "loop-b", displayName: "LB", users: null, parent: "loop-a" },
+      { ...base, slug: "hid-loop-a", displayName: "HA", users: null, parent: "hid-loop-b" },
+      { ...base, slug: "hid-loop-b", displayName: "HB", users: ["zoey"], parent: "hid-loop-a" },
+    ]);
+    const ctx: AppFrameFilterCtx = {
+      userId: "U",
+      resolveHostOwnerById: async () => ({ hostIdNum: 1, hostUserId: "U" }),
+      resolveIdentityGate: async () => true,
+      resolveCallerUsername: async () => "alice",
+    };
+    const result = await filterAppFrame(frame, ctx, undefined, async () => true);
+    if (!result || result.type !== "project-list-changed") {
+      throw new Error("expected project-list-changed frame");
+    }
+    expect(result.projects.map((p) => [p.slug, p.parent])).toEqual([
+      ["open", null],
+      ["sub", "open"],
+      ["orphan", "gone"],
+      ["loop-a", "loop-b"],
+      ["loop-b", "loop-a"],
+      // On a loop with a hidden partner: shown (drawn at top level), but the
+      // hidden partner's name is not sent.
+      ["hid-loop-a", null],
+    ]);
+    for (const p of result.projects) {
+      expect(p).not.toHaveProperty("users");
+    }
+  });
+
   it("Test 22b (Phase 130): resolveCallerUsername returns null → project user gate disabled (fail-open)", async () => {
     const frame = makeProjectListChangedFrame("h1", [
       {

@@ -1065,6 +1065,28 @@ describe("parseSweepJsonl — project-list dispatch", () => {
     ).toBeNull();
   });
 
+  it("nested projects: parent may be a string, null, or absent (older sweep)", () => {
+    const r = parseSweepJsonl(
+      line([
+        { slug: "a", display_name: "A", users: null, parent: null },
+        { slug: "b", display_name: "B", users: null, parent: "a" },
+        { slug: "c", display_name: "C", users: null },
+      ]),
+    );
+    expect(r.projectList?.projects.map((p) => p.parent)).toEqual([
+      null,
+      "a",
+      undefined,
+    ]);
+  });
+
+  it("nested projects: a non-string parent makes the line malformed", () => {
+    expect(
+      parseSweepJsonl(line([{ slug: "a", display_name: "A", users: null, parent: 7 }]))
+        .projectList,
+    ).toBeNull();
+  });
+
   it("isSweepLineOfCurrentSchema accepts a project-list line", () => {
     expect(isSweepLineOfCurrentSchema(JSON.parse(line([])))).toBe(true);
   });

@@ -381,6 +381,13 @@ export interface SweepProjectListLine {
     slug: string;
     display_name: string;
     users: string[] | null;
+    /**
+     * Nested projects: the parent project's slug from project.md's
+     * `parent:` frontmatter (slug-validated, never the project's own slug),
+     * or null for top level. Absent on lines from an older sweep — read as
+     * null.
+     */
+    parent?: string | null;
   }>;
 }
 
@@ -590,7 +597,8 @@ function isWellFormedProjectList(
       typeof r.slug === "string" &&
       typeof r.display_name === "string" &&
       (r.users === null ||
-        (Array.isArray(r.users) && r.users.every((u) => typeof u === "string")))
+        (Array.isArray(r.users) && r.users.every((u) => typeof u === "string"))) &&
+      (r.parent === undefined || r.parent === null || typeof r.parent === "string")
     );
   });
 }

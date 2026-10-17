@@ -153,6 +153,13 @@ DISCOVERY_HEAD_BYTES = 4096
 # 4096 chars is treated as having no frontmatter → None → plain row. That
 # fail-closed behaviour is intentional, not a bug (T-111-03).
 FRONTMATTER_HEAD_BYTES = 4096
+# Project files carry an auto-maintained `members:` list, so their frontmatter
+# runs longer than identity/role cosmetics; read further so `users`/`parent`
+# never drop out (and flip the sidebar) when a project grows.
+PROJECT_FRONTMATTER_HEAD_BYTES = 65536
+# Unquoted YAML 1.2 (core schema — what the backend's parser uses) scalars
+# that parse as null / booleans rather than strings.
+YAML_NON_STRING_LITERALS = {"null", "~", "true", "false"}
 
 # ---------------------------------------------------------------------------
 # JSONL tail width — mirrors A12 / B5 exec sites in ssh-poll-orchestrator.ts.
@@ -916,7 +923,7 @@ def _unquote_task_value(val):
     return val
 
 
-def _read_frontmatter_cosmetics(path, allowed_keys):
+def _read_frontmatter_cosmetics(path, allowed_keys, head_bytes=FRONTMATTER_HEAD_BYTES):
     """Return (cosmetics_dict_or_None, role_or_None) from a markdown file's YAML frontmatter.
 
     Reads at most FRONTMATTER_HEAD_BYTES characters (text-mode, utf-8-sig to
@@ -959,7 +966,7 @@ def _read_frontmatter_cosmetics(path, allowed_keys):
     """
     try:
         with open(path, encoding="utf-8-sig") as fh:
-            raw = fh.read(FRONTMATTER_HEAD_BYTES)
+            raw = fh.read(head_bytes)
     except OSError:
         return None, None
     except UnicodeDecodeError:
@@ -1028,6 +1035,28 @@ def _read_frontmatter_cosmetics(path, allowed_keys):
                 raw_proj = m_proj.group(1).strip().strip('"').strip("'").strip()
                 if PROJECT_SLUG_RE.match(raw_proj):
                     cosmetics["project"] = raw_proj
+                continue
+
+        # --- parent: a project.md's parent project slug (nested projects).
+        # Same quote-strip + PROJECT_SLUG_RE discipline as `project` above;
+        # only project files pass "parent" in allowed_keys. A malformed value
+        # is dropped, which reads as top level.
+        if "parent" in allowed_keys:
+            m_parent = re.match(
+                r"^parent:\s*(.+?)\s*(#.*)?$", line.rstrip("\n")
+            )
+            if m_parent:
+                value = m_parent.group(1).strip()
+                quoted = len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'"
+                raw_parent = value.strip('"').strip("'").strip()
+                # Parity with the backend's YAML read: an UNQUOTED null /
+                # boolean / number is not a string, so it names no parent.
+                is_yaml_scalar = not quoted and (
+                    raw_parent.lower() in YAML_NON_STRING_LITERALS
+                    or re.fullmatch(r"[0-9]+|0x[0-9a-f]+|0o[0-7]+", raw_parent) is not None
+                )
+                if PROJECT_SLUG_RE.match(raw_parent) and not is_yaml_scalar:
+                    cosmetics["parent"] = raw_parent
                 continue
 
         # --- colorHue: int, must be in 0..359 (mirrors identity-artifact-reader.ts) ---
@@ -2075,7 +2104,7 @@ def _enumerate_widgets(home):
 #
 # Parity with listProjects in identity-artifact-reader.ts: non-archive dirs
 # matching PROJECT_SLUG_RE, sorted by slug; displayName falls back to the slug;
-# users is a list of strings or null.
+# users is a list of strings or null; parent is a slug or null.
 PROJECT_ENUM_CAP = 500
 
 
@@ -2108,14 +2137,25 @@ def _enumerate_projects(home):
     projects = []
     for slug in sorted(slugs):
         cosmetics, _role = _read_frontmatter_cosmetics(
-            os.path.join(root, slug, "project.md"), ("displayName", "users"),
+            os.path.join(root, slug, "project.md"),
+            ("displayName", "users", "parent"),
+            head_bytes=PROJECT_FRONTMATTER_HEAD_BYTES,
         )
         cosmetics = cosmetics or {}
         display_name = cosmetics.get("displayName") or slug
         users = cosmetics.get("users")
         if not (isinstance(users, list) and all(isinstance(u, str) for u in users)):
             users = None
-        projects.append({"slug": slug, "display_name": display_name, "users": users})
+        # A project naming itself as parent is treated as top level.
+        parent = cosmetics.get("parent")
+        if parent == slug:
+            parent = None
+        projects.append({
+            "slug": slug,
+            "display_name": display_name,
+            "users": users,
+            "parent": parent,
+        })
 
     return {
         "line_kind": "project-list",

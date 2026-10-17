@@ -368,6 +368,10 @@ export interface ProjectListEntry {
   hostId: string;
   hostname: string;
   archived: boolean;
+  // Raw `parent:` slug from the project.md (same host), or null for top
+  // level. Optional so frames from an older backend still type-check; the
+  // sidebar resolves missing parents and loops to top level.
+  parent?: string | null;
 }
 export interface FrontendProjectListChangedFrame {
   schemaVersion: typeof FRAME_SCHEMA_VERSION;

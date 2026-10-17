@@ -8201,7 +8201,7 @@ describe("Phase 92 — batch sweep dispatch", () => {
   // Source E — projects created straight on disk reach open clients via the
   // sweep's project-list line (the /projects HTTP routes aren't the only way
   // a project appears).
-  it("project-list line publishes the host's project list (camelCased, hostname stamped)", async () => {
+  it("project-list line publishes the host's project list (camelCased, hostname stamped, parent carried; absent parent → null)", async () => {
     const channel = new MockSshChannel();
     wireBatchProbe(channel, true);
     channel.setResponse(
@@ -8210,7 +8210,7 @@ describe("Phase 92 — batch sweep dispatch", () => {
         identities: [{ identity: "alpha" }],
         pids: [],
         projectList: [
-          { slug: "new-proj", display_name: "New Proj", users: ["alice"] },
+          { slug: "new-proj", display_name: "New Proj", users: ["alice"], parent: "open" },
           { slug: "open", display_name: "open", users: null },
         ],
       }),
@@ -8225,8 +8225,8 @@ describe("Phase 92 — batch sweep dispatch", () => {
       {
         hostId: "host-1",
         projects: [
-          { slug: "new-proj", displayName: "New Proj", hostId: "host-1", hostname: "testhost", archived: false, users: ["alice"] },
-          { slug: "open", displayName: "open", hostId: "host-1", hostname: "testhost", archived: false, users: null },
+          { slug: "new-proj", displayName: "New Proj", hostId: "host-1", hostname: "testhost", archived: false, users: ["alice"], parent: "open" },
+          { slug: "open", displayName: "open", hostId: "host-1", hostname: "testhost", archived: false, users: null, parent: null },
         ],
       },
     ]);

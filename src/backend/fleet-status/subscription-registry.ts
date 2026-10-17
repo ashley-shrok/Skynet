@@ -67,6 +67,12 @@ export type ProjectListEntry = {
    * Zod pass-through-strip on the client-side parse anyway (defense in depth).
    */
   users?: string[] | null;
+  /**
+   * Nested projects: parent project slug on the same host, or null for top
+   * level. Unlike `users` this IS on the wire. Carried in the JSON.stringify
+   * deep-equal skip, so a move-only change still fans out.
+   */
+  parent?: string | null;
 };
 
 /**
