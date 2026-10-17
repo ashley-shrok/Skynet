@@ -1,0 +1,45 @@
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { render, screen, act } from "@testing-library/react";
+import { HoldFeedbackPill } from "./HoldFeedbackPill";
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+describe("HoldFeedbackPill", () => {
+  it("renders nothing when idle", () => {
+    const { container } = render(<HoldFeedbackPill committed={false} outside={false} outcome={null} />);
+    expect(container.firstChild).toBeNull();
+  });
+
+  it("committed inside: Recording, elapsed timer, send/cancel hint", () => {
+    vi.useFakeTimers();
+    render(<HoldFeedbackPill committed outside={false} outcome={null} />);
+    const pill = screen.getByTestId("hold-feedback-pill");
+    expect(pill.textContent).toContain("Recording");
+    expect(pill.textContent).toContain("0:00");
+    expect(pill.textContent).toContain("release to send · slide off to cancel");
+    act(() => { vi.advanceTimersByTime(3100); });
+    expect(pill.textContent).toContain("0:03");
+  });
+
+  it("committed outside: Release to cancel, no timer", () => {
+    render(<HoldFeedbackPill committed outside outcome={null} />);
+    const pill = screen.getByTestId("hold-feedback-pill");
+    expect(pill.textContent).toContain("Release to cancel");
+    expect(pill.textContent).toContain("slide back to keep");
+    expect(pill.textContent).not.toContain("0:00");
+  });
+
+  it("outcomes: Sending… / Cancelled", () => {
+    const { rerender } = render(<HoldFeedbackPill committed={false} outside={false} outcome="send" />);
+    expect(screen.getByTestId("hold-feedback-pill").textContent).toBe("Sending…");
+    rerender(<HoldFeedbackPill committed={false} outside={false} outcome="cancel" />);
+    expect(screen.getByTestId("hold-feedback-pill").textContent).toBe("Cancelled");
+  });
+
+  it("is right-aligned in the compose box", () => {
+    render(<HoldFeedbackPill committed outside={false} outcome={null} />);
+    expect(screen.getByTestId("hold-feedback-pill").className).toContain("right-4");
+  });
+});

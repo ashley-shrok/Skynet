@@ -1234,4 +1234,39 @@ describe("ComposeBox — 260814-1hz hold-to-record gesture (primary mic button)"
     // typed-send path on either surface).
     expect(onSend).not.toHaveBeenCalled();
   });
+
+  it("Hold feedback: committed hold shows the ring + Recording pill; sliding off flips to Release to cancel; release outside flashes Cancelled; a tap shows none", async () => {
+    render(<ComposeBox {...baseProps()} />);
+    const button = getMicButton();
+    installBoundsShim(button);
+
+    fireEvent.pointerDown(button, { pointerId: 1, clientX: 20, clientY: 20, timeStamp: 0 });
+    // Before the threshold: no ring, no pill.
+    expect(screen.queryByTestId("hold-feedback-pill")).toBeNull();
+    expect(screen.queryByTestId("mic-hold-ring")).toBeNull();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    expect(screen.getByTestId("hold-feedback-pill").textContent).toContain("Recording");
+    expect(screen.getByTestId("mic-hold-ring").className).not.toContain("pv-hold-ring-outside");
+
+    fireEvent.pointerMove(button, { pointerId: 1, clientX: 200, clientY: 200 });
+    expect(screen.getByTestId("hold-feedback-pill").textContent).toContain("Release to cancel");
+    expect(screen.getByTestId("mic-hold-ring").className).toContain("pv-hold-ring-outside");
+
+    await act(async () => {
+      fireEvent.pointerUp(button, { pointerId: 1, clientX: 200, clientY: 200, timeStamp: 400 });
+      await vi.advanceTimersByTimeAsync(50);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId("hold-feedback-pill").textContent).toBe("Cancelled");
+    expect(screen.queryByTestId("mic-hold-ring")).toBeNull();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(screen.queryByTestId("hold-feedback-pill")).toBeNull();
+  });
 });

@@ -24,7 +24,7 @@ import { AttachmentChipStrip, type StagedAttachmentLike } from "./AttachmentChip
 // compose textarea + attachment-chip clear on a genuine success signal.
 import type { BatchOutcome } from "./use-pretty-view-uploads";
 import { useVoiceRecording } from "./useVoiceRecording";
-import { useHoldToRecord } from "./useHoldToRecord";
+import { HOLD_OUTCOME_MS, useHoldToRecord } from "./useHoldToRecord";
 import { useVoiceMode, type VoiceModeMessage, type VoiceModePhase } from "./useVoiceMode";
 import {
   registerManualRecording,
@@ -34,6 +34,7 @@ import {
 import { MicButton } from "./MicButton";
 import { SkillActionsButton } from "./SkillActionsButton";
 import { RecordingControls } from "./RecordingControls";
+import { HoldFeedbackPill, type HoldFeedback } from "./HoldFeedbackPill";
 
 // Compose-and-send box for the pretty view.
 //
@@ -2225,6 +2226,35 @@ export function ComposeBox({
     disabled: showTranscribingSend || voiceModeAnywhere,
   });
 
+  // Slot mics report their hold feedback here so one pill serves the whole
+  // compose box. A slot that is sent unmounts with its row, so the release
+  // outcome is expired here rather than by the slot's hook.
+  const [slotHoldFeedback, setSlotHoldFeedback] = useState<{ slotId: string; feedback: HoldFeedback } | null>(null);
+  const slotOutcomeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleSlotHoldFeedback = useCallback((slotId: string, feedback: HoldFeedback) => {
+    if (feedback.committed) {
+      setSlotHoldFeedback({ slotId, feedback });
+    } else if (feedback.outcome) {
+      setSlotHoldFeedback({ slotId, feedback });
+      if (slotOutcomeTimerRef.current !== null) clearTimeout(slotOutcomeTimerRef.current);
+      slotOutcomeTimerRef.current = setTimeout(() => {
+        slotOutcomeTimerRef.current = null;
+        setSlotHoldFeedback((prev) => (prev?.slotId === slotId && !prev.feedback.committed ? null : prev));
+      }, HOLD_OUTCOME_MS);
+    } else {
+      // Idle report: clear only a live hold from this slot; a showing outcome
+      // runs out on its own timer.
+      setSlotHoldFeedback((prev) => (prev?.slotId === slotId && prev.feedback.committed ? null : prev));
+    }
+  }, []);
+  useEffect(() => () => {
+    if (slotOutcomeTimerRef.current !== null) clearTimeout(slotOutcomeTimerRef.current);
+  }, []);
+  const holdFeedback: HoldFeedback | null =
+    primaryHold.holdCommitted || primaryHold.holdOutcome
+      ? { committed: primaryHold.holdCommitted, outside: primaryHold.holdOutside, outcome: primaryHold.holdOutcome }
+      : (slotHoldFeedback?.feedback ?? null);
+
   // showMicButton — see comment above (L1587). Quick 260814-1hz adds the
   // holdInitiatedRef disjuncts: during a hold-initiated recording,
   // holdInitiatedRef is true, so keep MicButton mounted through the
@@ -2304,6 +2334,7 @@ export function ComposeBox({
         className,
       )}
     >
+      {holdFeedback && <HoldFeedbackPill {...holdFeedback} />}
       {/* Quick 260802-wxy: chip strip relocated INSIDE the primary textarea
           wrapper (see the wrapper block at line ~2009 below). Previously
           rendered as a Row-3 sibling above Row 1; now overlaid absolutely at
@@ -2698,6 +2729,7 @@ export function ComposeBox({
               onRemoveAttachment={onRemoveAttachment}
               flushDirty={flushDirty}
               clearDebounce={clearDebounce}
+              onHoldFeedbackChange={handleSlotHoldFeedback}
             />
           ))}
         </div>
@@ -3122,10 +3154,12 @@ export function ComposeBox({
                   setMicTarget("primary");
                   primaryHold.onPointerDown(e);
                 }}
+                onPointerMove={primaryHold.onPointerMove}
                 onPointerUp={primaryHold.onPointerUp}
                 onPointerCancel={primaryHold.onPointerCancel}
                 onPointerLeave={primaryHold.onPointerLeave}
                 dataHoldActive={primaryHold.holdActive}
+                holdRing={primaryHold.holdCommitted ? (primaryHold.holdOutside ? "outside" : "recording") : undefined}
                 disabled={voice.state !== "idle" || voiceModeAnywhere}
                 title={voiceModeAnywhere ? VOICE_MODE_ON_TITLE : undefined}
                 positionClass="right-11 bottom-0.5"
@@ -3254,6 +3288,8 @@ interface QueuedRowProps {
   onRemoveAttachment?: (tempId: string) => void;
   flushDirty: () => Promise<void> | void;
   clearDebounce: () => void;
+  /** Reports this slot mic's hold feedback so ComposeBox renders the one pill. */
+  onHoldFeedbackChange: (slotId: string, feedback: HoldFeedback) => void;
 }
 
 function QueuedRow(props: QueuedRowProps) {
@@ -3285,6 +3321,7 @@ function QueuedRow(props: QueuedRowProps) {
     onRemoveAttachment,
     flushDirty,
     clearDebounce,
+    onHoldFeedbackChange,
   } = props;
 
   // Quick 260803-05i: per-slot chip strip refs + measurement — same pattern
@@ -3431,6 +3468,14 @@ function QueuedRow(props: QueuedRowProps) {
     // send. voice.state !== "idle" guard inside the hook handles double-arm.
     disabled: showSlotTranscribingSend || voiceModeAnywhere,
   });
+  // The hold-feedback pill renders once, above the whole compose box — report
+  // this slot's hold state up to ComposeBox.
+  const slotHoldCommitted = slotHold.holdCommitted;
+  const slotHoldOutside = slotHold.holdOutside;
+  const slotHoldOutcome = slotHold.holdOutcome;
+  useEffect(() => {
+    onHoldFeedbackChange(slot.id, { committed: slotHoldCommitted, outside: slotHoldOutside, outcome: slotHoldOutcome });
+  }, [onHoldFeedbackChange, slot.id, slotHoldCommitted, slotHoldOutside, slotHoldOutcome]);
   // Quick 260814-1hz: `|| slotHold.holdInitiatedRef.current` disjunct on the
   // isSlotActiveMic gate keeps the slot MicButton mounted through the voice
   // .state transitions of a hold-initiated slot recording (idle → starting
@@ -3687,10 +3732,12 @@ function QueuedRow(props: QueuedRowProps) {
                 // invariant that voice.start() must be reachable synchronously
                 // from the user gesture.
                 onPointerDown={(e) => { setMicTarget(slot.id); slotHold.onPointerDown(e); }}
+                onPointerMove={slotHold.onPointerMove}
                 onPointerUp={slotHold.onPointerUp}
                 onPointerCancel={slotHold.onPointerCancel}
                 onPointerLeave={slotHold.onPointerLeave}
                 dataHoldActive={slotHold.holdActive}
+                holdRing={slotHold.holdCommitted ? (slotHold.holdOutside ? "outside" : "recording") : undefined}
                 disabled={voice.state !== "idle" || voiceModeAnywhere}
                 title={voiceModeAnywhere ? VOICE_MODE_ON_TITLE : "Record voice"}
                 positionClass="right-11 bottom-0.5"

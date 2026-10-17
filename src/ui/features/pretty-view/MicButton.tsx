@@ -40,6 +40,7 @@ export interface MicButtonProps {
    * verbatim.
    */
   onPointerDown?: (e: React.PointerEvent<HTMLButtonElement>) => void;
+  onPointerMove?: (e: React.PointerEvent<HTMLButtonElement>) => void;
   onPointerUp?: (e: React.PointerEvent<HTMLButtonElement>) => void | Promise<void>;
   onPointerCancel?: (e: React.PointerEvent<HTMLButtonElement>) => void;
   onPointerLeave?: (e: React.PointerEvent<HTMLButtonElement>) => void;
@@ -49,6 +50,12 @@ export interface MicButtonProps {
    * so pre-260814-1hz zero-arg callers get byte-identical DOM output.
    */
   dataHoldActive?: boolean;
+  /**
+   * Committed-hold ring around the button: "recording" (red, breathing) while
+   * a release would send, "outside" (grey) once slid off so a release would
+   * cancel. Undefined = no ring.
+   */
+  holdRing?: "recording" | "outside";
 }
 
 export function MicButton({
@@ -57,10 +64,12 @@ export function MicButton({
   title,
   positionClass = "right-1 bottom-0.5",
   onPointerDown,
+  onPointerMove,
   onPointerUp,
   onPointerCancel,
   onPointerLeave,
   dataHoldActive,
+  holdRing,
 }: MicButtonProps) {
   // quick-260814-iwy Bug 1 fix: wrap onPointerDown with e.preventDefault() so
   // the browser's native long-press gesture layer (iOS Safari callout menu,
@@ -82,6 +91,7 @@ export function MicButton({
       type="button"
       onClick={onClick}
       onPointerDown={wrappedPointerDown}
+      onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerCancel}
       onPointerLeave={onPointerLeave}
@@ -113,6 +123,13 @@ export function MicButton({
         "cursor-pointer",
       )}
     >
+      {holdRing && (
+        <span
+          aria-hidden="true"
+          data-testid="mic-hold-ring"
+          className={cn("pv-hold-ring", holdRing === "outside" && "pv-hold-ring-outside")}
+        />
+      )}
       <Mic className="size-6" aria-hidden="true" />
     </button>
   );

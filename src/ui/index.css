@@ -613,6 +613,55 @@ button[data-hold-active="true"] {
   }
 }
 
+/* Committed hold-to-record feedback (MicButton ring + HoldFeedbackPill).
+ * The ring is larger than the button so it stays visible around a finger;
+ * grey once the pointer has slid outside the release-to-send zone. */
+.pv-hold-ring {
+  position: absolute;
+  inset: -22px;
+  border-radius: 9999px;
+  pointer-events: none;
+  border: 2px solid #ff5c5c;
+  background: rgba(255, 92, 92, 0.13);
+  animation:
+    pv-hold-ring-in 0.18s ease-out,
+    pv-hold-ring-breathe 1.2s ease-in-out infinite;
+  transition: border-color 0.15s, background 0.15s;
+}
+.pv-hold-ring-outside {
+  border-color: #888;
+  background: rgba(136, 136, 136, 0.13);
+  animation: none;
+}
+@keyframes pv-hold-ring-in {
+  from {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+}
+@keyframes pv-hold-ring-breathe {
+  50% {
+    box-shadow: 0 0 0 10px rgba(255, 92, 92, 0.13);
+  }
+}
+.pv-hold-pill {
+  animation: pv-hold-pill-in 0.15s ease-out;
+}
+@keyframes pv-hold-pill-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+.pv-hold-dot {
+  animation: pv-hold-dot-blink 1s infinite;
+}
+@keyframes pv-hold-dot-blink {
+  50% {
+    opacity: 0.3;
+  }
+}
+
 /* Hue slider thumb (ColorPicker). The input sets `appearance: none` to get the
  * rainbow gradient track, which also strips the native thumb — without these
  * rules the grab target falls back to whatever the browser draws, which is too

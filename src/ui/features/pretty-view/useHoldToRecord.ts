@@ -157,8 +157,16 @@ export type UseHoldToRecordArgs = {
   keepRecordingOnShortTap?: boolean;
 };
 
+/** How a committed hold ended — shown briefly after release. */
+export type HoldOutcome = "send" | "cancel";
+
+/** How long the release outcome stays visible. */
+export const HOLD_OUTCOME_MS = 900;
+
 export type UseHoldToRecordReturn = {
   onPointerDown: (e: React.PointerEvent<HTMLButtonElement>) => void;
+  /** Tracks whether a committed hold has slid outside the release-to-send zone. */
+  onPointerMove: (e: React.PointerEvent<HTMLButtonElement>) => void;
   onPointerUp: (e: React.PointerEvent<HTMLButtonElement>) => Promise<void>;
   onPointerCancel: (e: React.PointerEvent<HTMLButtonElement>) => void;
   onPointerLeave: (e: React.PointerEvent<HTMLButtonElement>) => void;
@@ -175,6 +183,13 @@ export type UseHoldToRecordReturn = {
    * tint" if desired.
    */
   holdCommitted: boolean;
+  /**
+   * True while a committed hold's pointer is outside the release-to-send zone
+   * (button rect widened by BOUNDS_TOLERANCE_PX) — releasing now cancels.
+   */
+  holdOutside: boolean;
+  /** Outcome of the hold just released, for HOLD_OUTCOME_MS; null otherwise. */
+  holdOutcome: HoldOutcome | null;
   /**
    * Ref that is `true` for the entire lifetime of a hold-initiated recording
    * (set BEFORE voice.start() in pointerdown, cleared in pointerup /
@@ -230,6 +245,10 @@ export function useHoldToRecord(
 
   const [holdActive, setHoldActive] = useState<boolean>(false);
   const [holdCommitted, setHoldCommitted] = useState<boolean>(false);
+  const [holdOutside, setHoldOutside] = useState<boolean>(false);
+  const holdOutsideRef = useRef<boolean>(false);
+  const [holdOutcome, setHoldOutcome] = useState<HoldOutcome | null>(null);
+  const outcomeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ---- Effects ----------------------------------------------------------
 
@@ -241,7 +260,17 @@ export function useHoldToRecord(
         clearTimeout(holdTimerRef.current);
         holdTimerRef.current = null;
       }
+      if (outcomeTimerRef.current !== null) clearTimeout(outcomeTimerRef.current);
     };
+  }, []);
+
+  const showOutcome = useCallback((outcome: HoldOutcome): void => {
+    if (outcomeTimerRef.current !== null) clearTimeout(outcomeTimerRef.current);
+    setHoldOutcome(outcome);
+    outcomeTimerRef.current = setTimeout(() => {
+      outcomeTimerRef.current = null;
+      setHoldOutcome(null);
+    }, HOLD_OUTCOME_MS);
   }, []);
 
   // ---- Handlers ---------------------------------------------------------
@@ -249,6 +278,8 @@ export function useHoldToRecord(
   const resetGestureState = useCallback((): void => {
     setHoldActive(false);
     setHoldCommitted(false);
+    setHoldOutside(false);
+    holdOutsideRef.current = false;
     holdCommittedRef.current = false;
     startedRecordingRef.current = false;
     outOfBoundsRef.current = false;
@@ -291,6 +322,13 @@ export function useHoldToRecord(
       setHoldActive(true);
       setHoldCommitted(false);
       holdCommittedRef.current = false;
+      setHoldOutside(false);
+      holdOutsideRef.current = false;
+      if (outcomeTimerRef.current !== null) {
+        clearTimeout(outcomeTimerRef.current);
+        outcomeTimerRef.current = null;
+      }
+      setHoldOutcome(null);
 
       if (holdTimerRef.current !== null) {
         clearTimeout(holdTimerRef.current);
@@ -304,6 +342,12 @@ export function useHoldToRecord(
         voice.commitStartVisibility();
         setHoldCommitted(true);
         holdCommittedRef.current = true;
+        // Haptic tick where supported (Android); iOS Safari has no vibrate.
+        try {
+          navigator.vibrate?.(15);
+        } catch {
+          // ignore
+        }
       }, effectiveThreshold);
 
       // Pointer capture — recommended in CONTEXT.md § "Claude's Discretion"
@@ -422,6 +466,7 @@ export function useHoldToRecord(
         // is expected to invoke voice.endSend which stops the recorder
         // gracefully; do NOT call voice.cancel here.
         onLongPressSend();
+        showOutcome("send");
         branch = "long-in";
       } else {
         // Long press released outside bounds — cancel. Fire-and-forget is fine
@@ -429,6 +474,7 @@ export function useHoldToRecord(
         // the fast teardown path (no ordering requirement with any callback
         // dispatched after).
         void voice.cancel();
+        showOutcome("cancel");
         branch = "long-out";
       }
 
@@ -447,7 +493,7 @@ export function useHoldToRecord(
 
       resetGestureState();
     },
-    [voice, onShortTap, onLongPressSend, effectiveThreshold, resetGestureState, keepRecordingOnShortTap],
+    [voice, onShortTap, onLongPressSend, effectiveThreshold, resetGestureState, keepRecordingOnShortTap, showOutcome],
   );
 
   const onPointerCancel = useCallback(
@@ -485,6 +531,7 @@ export function useHoldToRecord(
           voice.commitStartVisibility();
         } else {
           void voice.cancel();
+          if (holdCommittedRef.current) showOutcome("cancel");
         }
       }
       // quick-260814-iwy: forensic log for iOS pointercancel diagnosis. Emitted
@@ -500,7 +547,30 @@ export function useHoldToRecord(
       );
       resetGestureState();
     },
-    [voice, resetGestureState, keepRecordingOnShortTap],
+    [voice, resetGestureState, keepRecordingOnShortTap, showOutcome],
+  );
+
+  const onPointerMove = useCallback(
+    (e: React.PointerEvent<HTMLButtonElement>): void => {
+      if (!holdCommittedRef.current) return;
+      let outside = false;
+      try {
+        const rect = e.currentTarget.getBoundingClientRect();
+        const tol = BOUNDS_TOLERANCE_PX;
+        outside =
+          e.clientX < rect.left - tol ||
+          e.clientX > rect.right + tol ||
+          e.clientY < rect.top - tol ||
+          e.clientY > rect.bottom + tol;
+      } catch {
+        outside = false;
+      }
+      if (outside !== holdOutsideRef.current) {
+        holdOutsideRef.current = outside;
+        setHoldOutside(outside);
+      }
+    },
+    [],
   );
 
   const onPointerLeave = useCallback(
@@ -514,11 +584,14 @@ export function useHoldToRecord(
 
   return {
     onPointerDown,
+    onPointerMove,
     onPointerUp,
     onPointerCancel,
     onPointerLeave,
     holdActive,
     holdCommitted,
+    holdOutside,
+    holdOutcome,
     holdInitiatedRef,
   };
 }

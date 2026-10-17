@@ -23,6 +23,7 @@ import { render, fireEvent, screen, act } from "@testing-library/react";
 import {
   useHoldToRecord,
   HOLD_THRESHOLD_MS,
+  HOLD_OUTCOME_MS,
   type UseHoldToRecordArgs,
 } from "./useHoldToRecord";
 import type {
@@ -741,5 +742,99 @@ describe("useHoldToRecord", () => {
     expect((args.voice.commitStartVisibility as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
     // onShortTap NOT called on long-press branch.
     expect((args.onShortTap as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
+  });
+});
+
+describe("useHoldToRecord — hold feedback (holdOutside / holdOutcome)", () => {
+  function FeedbackConsumer({ args }: { args: UseHoldToRecordArgs }): JSX.Element {
+    const h = useHoldToRecord(args);
+    return (
+      <button
+        data-testid="hold-btn"
+        onPointerDown={h.onPointerDown}
+        onPointerMove={h.onPointerMove}
+        onPointerUp={h.onPointerUp}
+        onPointerCancel={h.onPointerCancel}
+        data-hold-committed={h.holdCommitted ? "true" : "false"}
+        data-hold-outside={h.holdOutside ? "true" : "false"}
+        data-hold-outcome={h.holdOutcome ?? "none"}
+      >
+        Mic
+      </button>
+    );
+  }
+
+  async function release(button: HTMLElement, x: number, y: number, timeStamp: number) {
+    await act(async () => {
+      fireEvent.pointerUp(button, { pointerId: 1, clientX: x, clientY: y, timeStamp });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  }
+
+  it("pointermove before the threshold does not mark outside", () => {
+    render(<FeedbackConsumer args={makeArgs()} />);
+    const button = screen.getByTestId("hold-btn");
+    installBoundsShim(button);
+    fireEvent.pointerDown(button, { pointerId: 1, clientX: 20, clientY: 20, timeStamp: 0 });
+    fireEvent.pointerMove(button, { pointerId: 1, clientX: 300, clientY: 300 });
+    expect(button.getAttribute("data-hold-outside")).toBe("false");
+  });
+
+  it("committed hold: slide outside the tolerance → outside; slide back → inside", () => {
+    render(<FeedbackConsumer args={makeArgs()} />);
+    const button = screen.getByTestId("hold-btn");
+    installBoundsShim(button);
+    fireEvent.pointerDown(button, { pointerId: 1, clientX: 20, clientY: 20, timeStamp: 0 });
+    act(() => { vi.advanceTimersByTime(HOLD_THRESHOLD_MS); });
+    expect(button.getAttribute("data-hold-committed")).toBe("true");
+
+    // Within BOUNDS_TOLERANCE_PX (40) of the 0..40 rect — still inside.
+    fireEvent.pointerMove(button, { pointerId: 1, clientX: 70, clientY: 20 });
+    expect(button.getAttribute("data-hold-outside")).toBe("false");
+    fireEvent.pointerMove(button, { pointerId: 1, clientX: 200, clientY: 20 });
+    expect(button.getAttribute("data-hold-outside")).toBe("true");
+    fireEvent.pointerMove(button, { pointerId: 1, clientX: 20, clientY: 20 });
+    expect(button.getAttribute("data-hold-outside")).toBe("false");
+  });
+
+  it("release inside shows outcome=send, which expires after HOLD_OUTCOME_MS", async () => {
+    render(<FeedbackConsumer args={makeArgs()} />);
+    const button = screen.getByTestId("hold-btn");
+    installBoundsShim(button);
+    fireEvent.pointerDown(button, { pointerId: 1, clientX: 20, clientY: 20, timeStamp: 0 });
+    act(() => { vi.advanceTimersByTime(300); });
+    await release(button, 20, 20, 300);
+    expect(button.getAttribute("data-hold-committed")).toBe("false");
+    expect(button.getAttribute("data-hold-outcome")).toBe("send");
+    act(() => { vi.advanceTimersByTime(HOLD_OUTCOME_MS); });
+    expect(button.getAttribute("data-hold-outcome")).toBe("none");
+  });
+
+  it("release outside shows outcome=cancel", async () => {
+    render(<FeedbackConsumer args={makeArgs()} />);
+    const button = screen.getByTestId("hold-btn");
+    installBoundsShim(button);
+    fireEvent.pointerDown(button, { pointerId: 1, clientX: 20, clientY: 20, timeStamp: 0 });
+    act(() => { vi.advanceTimersByTime(300); });
+    await release(button, 300, 300, 300);
+    expect(button.getAttribute("data-hold-outcome")).toBe("cancel");
+    expect(button.getAttribute("data-hold-outside")).toBe("false");
+  });
+
+  it("pointercancel on a committed hold shows outcome=cancel; short tap shows no outcome", async () => {
+    const args = makeArgs({ keepRecordingOnShortTap: true });
+    render(<FeedbackConsumer args={args} />);
+    const button = screen.getByTestId("hold-btn");
+    installBoundsShim(button);
+
+    fireEvent.pointerDown(button, { pointerId: 1, clientX: 20, clientY: 20, timeStamp: 0 });
+    await release(button, 20, 20, 100);
+    expect(button.getAttribute("data-hold-outcome")).toBe("none");
+
+    fireEvent.pointerDown(button, { pointerId: 1, clientX: 20, clientY: 20, timeStamp: 1000 });
+    act(() => { vi.advanceTimersByTime(300); });
+    act(() => { fireEvent.pointerCancel(button, { pointerId: 1 }); });
+    expect(button.getAttribute("data-hold-outcome")).toBe("cancel");
   });
 });
