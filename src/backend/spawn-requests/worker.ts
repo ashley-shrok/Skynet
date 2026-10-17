@@ -19,6 +19,7 @@
 
 import { systemLogger } from "../utils/logger.js";
 import { connectOneShot } from "../ssh/ssh-one-shot.js";
+import { getHostSemaphore } from "../ssh/host-semaphore-registry.js";
 import { execCommand } from "../ssh/tmux-helper.js";
 import {
   isLocalHostId,
@@ -301,21 +302,26 @@ export async function writeResponseFile(
 
     // Open a fresh one-shot SSH connection for the SFTP write (Pitfall 8: correct
     // response path is fleet/spawn-requests/ per D-11).
-    const conn = await deps.connectOneShot(hostDetails as Parameters<typeof connectOneShot>[0], SSH_CONNECT_TIMEOUT_MS);
-    try {
-      // Build response path: $HOME/fleet/spawn-requests/<uuid>.{success,failure}.json
-      // Literal $HOME — SFTP resolves it (same convention as other SFTP writes in this codebase).
-      // Response path per D-11: same folder as request (spawn-requests/).
-      const targetPath = `$HOME/fleet/spawn-requests/${item.uuid}.${kind}.json`;
-      await deps.writeMarkdownFileAtomic(conn, targetPath, body);
-      systemLogger.info("spawn-request worker: response file dropped", {
-        operation: "spawn_request_response_dropped",
-        uuid: item.uuid,
-        kind,
-      });
-    } finally {
-      conn.end();
-    }
+    // Connect + SFTP write + end run under the shared per-host semaphore
+    // (verify:ssh-cap). Callers (here and role-worker.ts) invoke this
+    // OUTSIDE any slot of their own, so there is no nested acquire.
+    await getHostSemaphore(item.hostIdNum).run(async () => {
+      const conn = await deps.connectOneShot(hostDetails as Parameters<typeof connectOneShot>[0], SSH_CONNECT_TIMEOUT_MS);
+      try {
+        // Build response path: $HOME/fleet/spawn-requests/<uuid>.{success,failure}.json
+        // Literal $HOME — SFTP resolves it (same convention as other SFTP writes in this codebase).
+        // Response path per D-11: same folder as request (spawn-requests/).
+        const targetPath = `$HOME/fleet/spawn-requests/${item.uuid}.${kind}.json`;
+        await deps.writeMarkdownFileAtomic(conn, targetPath, body);
+        systemLogger.info("spawn-request worker: response file dropped", {
+          operation: "spawn_request_response_dropped",
+          uuid: item.uuid,
+          kind,
+        });
+      } finally {
+        conn.end();
+      }
+    });
   } catch (err) {
     // Log but do NOT throw — per D-15 no-retry; coord's timeout catches loss.
     systemLogger.warn("spawn-request worker: response file write failed", {
@@ -581,8 +587,17 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
   let activeFolderNames = new Set<string>();
   let archivedEntries: readonly ArchivedIdentityEntry[] = [];
   let enumConn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
+  // REMOTE: the handshake and each of the two parallel exec channels take
+  // their own slot on the shared per-host semaphore (verify:ssh-cap), so the
+  // fan-out is bounded per channel and no slot is held across another
+  // acquire. LOCAL: bind-mount reads, no SSH — bypass.
+  const enumLocal = isLocalHostId(item.hostIdNum);
+  const withSlot = enumLocal
+    ? <T,>(fn: () => Promise<T>): Promise<T> => fn()
+    : <T,>(fn: () => Promise<T>): Promise<T> =>
+        getHostSemaphore(item.hostIdNum).run(fn);
   try {
-    if (!isLocalHostId(item.hostIdNum)) {
+    if (!enumLocal) {
       // Prefer the sweep's system-wrapped conn details; the per-user
       // resolver needs the owner's data key in memory (live session only).
       const credSource = item.hostConnDetails ? "system" : "user";
@@ -604,13 +619,15 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
         // fallback (same as any other total-enumeration-failure).
         throw new Error("host_row_disappeared_during_enum");
       }
-      enumConn = await deps.connectOneShot(
-        hostForConn as unknown as Parameters<typeof connectOneShot>[0],
-        SSH_CONNECT_TIMEOUT_MS,
+      enumConn = await withSlot(() =>
+        deps.connectOneShot(
+          hostForConn as unknown as Parameters<typeof connectOneShot>[0],
+          SSH_CONNECT_TIMEOUT_MS,
+        ),
       );
     }
     const [activeList, archivedList] = await Promise.all([
-      deps.listActiveIdentityKeys(enumConn).catch((err: unknown) => {
+      withSlot(() => deps.listActiveIdentityKeys(enumConn)).catch((err: unknown) => {
         systemLogger.warn(
           "spawn-request worker: active-identity enumeration failed — soft-degrading to empty",
           {
@@ -621,7 +638,7 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
         );
         return [] as string[];
       }),
-      deps.listArchivedIdentityEntries(enumConn).catch((err: unknown) => {
+      withSlot(() => deps.listArchivedIdentityEntries(enumConn)).catch((err: unknown) => {
         systemLogger.warn(
           "spawn-request worker: archived-identity enumeration failed — soft-degrading to empty",
           {

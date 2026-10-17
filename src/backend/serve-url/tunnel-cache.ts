@@ -38,6 +38,7 @@ import net from "node:net";
 import type { Client as SSHClient } from "ssh2";
 import { connectionPool, getClientBornAt, withConnection, hostPoolKey } from "../ssh/ssh-connection-pool.js";
 import { connectOneShot } from "../ssh/ssh-one-shot.js";
+import { getHostSemaphore } from "../ssh/host-semaphore-registry.js";
 import { sshLogger } from "../utils/logger.js";
 import type { ServeTarget } from "./types.js";
 
@@ -48,6 +49,22 @@ import type { ServeTarget } from "./types.js";
 /** SSH connect timeout for factory-on-miss calls (ms). Matches the same
  *  constant name/value used across the rest of the backend. */
 const SSH_CONNECT_TIMEOUT_MS = 5_000;
+
+/**
+ * Pool-miss factory: open a fresh SSH client under the shared per-host
+ * semaphore (verify:ssh-cap).
+ *
+ * Only the CONNECT/HANDSHAKE is slotted, not the tunnel lifetime. A tunnel
+ * lives for the container lifetime (D-16) and its forwardOut channels are
+ * per-browser-socket and short-lived; holding a slot for the tunnel's life
+ * would permanently consume one of the host's slots per (host, port) pair
+ * and starve short exec work. The burst we bound here is N concurrent
+ * cache misses / stale-client swaps all handshaking against one sshd at
+ * once. No other acquire happens inside this run (no nesting → no deadlock).
+ */
+function connectUnderHostSlot(host: ServeTarget["host"]): ReturnType<typeof connectOneShot> {
+  return getHostSemaphore(host.id).run(() => connectOneShot(host, SSH_CONNECT_TIMEOUT_MS));
+}
 
 /* ------------------------------------------------------------------------ */
 /*  Public types                                                            */
@@ -128,7 +145,7 @@ class TunnelCache {
     try {
       const instance = await withConnection<TunnelInstance>(
         sshPoolKey,
-        () => connectOneShot(host, SSH_CONNECT_TIMEOUT_MS),
+        () => connectUnderHostSlot(host),
         async (sshClient) => this.buildLocalServer(sshClient, target, sshPoolKey, cacheKey),
       );
       sshLogger.info("serve-url tunnel: opened", {
@@ -180,7 +197,7 @@ class TunnelCache {
         const stale = current;
         refreshing = withConnection<SSHClient>(
           sshPoolKey,
-          () => connectOneShot(target.host, SSH_CONNECT_TIMEOUT_MS),
+          () => connectUnderHostSlot(target.host),
           async (fresh) => fresh,
         )
           .then((fresh) => {

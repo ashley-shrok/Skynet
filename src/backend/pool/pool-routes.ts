@@ -71,6 +71,7 @@ import type { Request, Response } from "express";
 import { AuthManager } from "../utils/auth-manager.js";
 import { resolveHostById } from "../ssh/host-resolver.js";
 import { connectOneShot } from "../ssh/ssh-one-shot.js";
+import { getHostSemaphore } from "../ssh/host-semaphore-registry.js";
 import { sshLogger } from "../utils/logger.js";
 import { getVettedPool } from "./pool-loader.js";
 import {
@@ -225,15 +226,27 @@ router.post("/pick", express.json(), authenticateJWT, async (req: Request, res: 
       // failing fast beats making the user wait.
       const result = await Promise.race([
         (async () => {
-          if (!isLocalHostId(hostId)) {
-            connPromise = connectOneShot(
-              host as unknown as Parameters<typeof connectOneShot>[0],
-              SSH_CONNECT_TIMEOUT_MS,
+          // REMOTE: every SSH motion (handshake + each of the two exec
+          // channels) takes its own slot on the shared per-host semaphore, so
+          // the parallel enumerators are bounded at the channel level. No
+          // slot is held across another acquire (no nesting → no deadlock).
+          // LOCAL: bind-mount reads, no SSH channel — bypass the semaphore.
+          const local = isLocalHostId(hostId);
+          const withSlot = local
+            ? <T,>(fn: () => Promise<T>): Promise<T> => fn()
+            : <T,>(fn: () => Promise<T>): Promise<T> =>
+                getHostSemaphore(hostId).run(fn);
+          if (!local) {
+            connPromise = withSlot(() =>
+              connectOneShot(
+                host as unknown as Parameters<typeof connectOneShot>[0],
+                SSH_CONNECT_TIMEOUT_MS,
+              ),
             );
             conn = await connPromise;
           }
           const [activeList, archivedList] = await Promise.all([
-            listIdentityKeysOnHost(conn).catch((err: unknown) => {
+            withSlot(() => listIdentityKeysOnHost(conn)).catch((err: unknown) => {
               sshLogger.warn(
                 "pool pick: active-identity enumeration failed — soft-degrading to empty",
                 {
@@ -243,7 +256,7 @@ router.post("/pick", express.json(), authenticateJWT, async (req: Request, res: 
               );
               return [] as string[];
             }),
-            listArchivedIdentityEntriesOnHost(conn).catch((err: unknown) => {
+            withSlot(() => listArchivedIdentityEntriesOnHost(conn)).catch((err: unknown) => {
               sshLogger.warn(
                 "pool pick: archived-identity enumeration failed — soft-degrading to empty",
                 {
