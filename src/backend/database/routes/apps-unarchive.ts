@@ -60,6 +60,7 @@ import { AuthManager } from "../../utils/auth-manager.js";
 import { databaseLogger } from "../../utils/logger.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
+import { getHostSemaphore } from "../../ssh/host-semaphore-registry.js";
 import {
   APP_SLUG_RE,
   isLocalHostId,
@@ -126,92 +127,100 @@ router.post(
 
     // 4. Branch on LOCAL vs REMOTE. LOCAL passes conn=null; REMOTE opens a
     // one-shot SSH connection scoped to the preconditions + write.
-    let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
-    if (!isLocalHostId(hostId)) {
+    // SSH work (connect + execs/writes + conn.end) runs under the per-host
+    // semaphore on the REMOTE branch (verify:ssh-cap). LOCAL touches the
+    // bind-mount only and bypasses it.
+    const doWork = async () => {
+      let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
+      if (!isLocalHostId(hostId)) {
+        try {
+          conn = await connectOneShot(
+            host as unknown as Parameters<typeof connectOneShot>[0],
+            SSH_CONNECT_TIMEOUT_MS,
+          );
+        } catch {
+          // Connect failure → 504 (T-143-04-06).
+          return res.status(504).json({ error: "Host unreachable" });
+        }
+      }
+
       try {
-        conn = await connectOneShot(
-          host as unknown as Parameters<typeof connectOneShot>[0],
-          SSH_CONNECT_TIMEOUT_MS,
-        );
-      } catch {
-        // Connect failure → 504 (T-143-04-06).
-        return res.status(504).json({ error: "Host unreachable" });
-      }
-    }
-
-    try {
-      // 5a. archive-exists precondition (D-02 §1):
-      // Refuse if the archived app folder does not exist.
-      if (conn === null) {
-        // LOCAL branch
-        try {
-          await fs.access(path.join(getLocalArchivedAppsRoot(), slug));
-        } catch {
-          return res.status(409).json({ reason: "archive_not_found" });
+        // 5a. archive-exists precondition (D-02 §1):
+        // Refuse if the archived app folder does not exist.
+        if (conn === null) {
+          // LOCAL branch
+          try {
+            await fs.access(path.join(getLocalArchivedAppsRoot(), slug));
+          } catch {
+            return res.status(409).json({ reason: "archive_not_found" });
+          }
+        } else {
+          // REMOTE branch — APP_SLUG_RE-validated slug, no shell-metachar risk.
+          const out = await execCommand(
+            conn,
+            `test -d "$HOME/fleet/apps-archive/${slug}" && echo yes || echo no`,
+          );
+          if (out.trim() !== "yes") {
+            return res.status(409).json({ reason: "archive_not_found" });
+          }
         }
-      } else {
-        // REMOTE branch — APP_SLUG_RE-validated slug, no shell-metachar risk.
-        const out = await execCommand(
+
+        // 5b. name-collision precondition (D-02 §2):
+        // Refuse if a live-tree app with the same slug already exists.
+        if (conn === null) {
+          // LOCAL branch — access succeeds means live folder exists → collision
+          try {
+            await fs.access(path.join(getLocalAppsRoot(), slug));
+            // fs.access succeeded → live folder exists
+            return res.status(409).json({ reason: "name_collision" });
+          } catch {
+            // ENOENT — no collision, continue
+          }
+        } else {
+          // REMOTE branch
+          const out = await execCommand(
+            conn,
+            `test -d "$HOME/fleet/apps/${slug}" && echo yes || echo no`,
+          );
+          if (out.trim() === "yes") {
+            return res.status(409).json({ reason: "name_collision" });
+          }
+        }
+
+        // 5c. Drop the sentinel via the archive-tree writer (plan 143-01).
+        // Idempotent by construction: existing sentinel overwritten via tmp+rename.
+        await writeAppArchiveFile(slug, ".unarchive-requested", "", {
+          hostId,
           conn,
-          `test -d "$HOME/fleet/apps-archive/${slug}" && echo yes || echo no`,
+        });
+
+        // Audit log per T-143-04-07 (repudiation).
+        databaseLogger.info(
+          `app unarchive requested: userId=${userId}, hostId=${hostId}, slug=${slug}`,
         );
-        if (out.trim() !== "yes") {
-          return res.status(409).json({ reason: "archive_not_found" });
-        }
-      }
 
-      // 5b. name-collision precondition (D-02 §2):
-      // Refuse if a live-tree app with the same slug already exists.
-      if (conn === null) {
-        // LOCAL branch — access succeeds means live folder exists → collision
-        try {
-          await fs.access(path.join(getLocalAppsRoot(), slug));
-          // fs.access succeeded → live folder exists
-          return res.status(409).json({ reason: "name_collision" });
-        } catch {
-          // ENOENT — no collision, continue
-        }
-      } else {
-        // REMOTE branch
-        const out = await execCommand(
-          conn,
-          `test -d "$HOME/fleet/apps/${slug}" && echo yes || echo no`,
+        return res.json({ ok: true });
+      } catch (err) {
+        // Log server-side; return generic message to client (T-143-04-06).
+        databaseLogger.error(
+          `failed to drop .unarchive-requested sentinel for app slug=${slug} hostId=${hostId}: ${err instanceof Error ? err.message : String(err)}`,
         );
-        if (out.trim() === "yes") {
-          return res.status(409).json({ reason: "name_collision" });
+        return res
+          .status(500)
+          .json({ error: "failed to drop unarchive sentinel" });
+      } finally {
+        if (conn) {
+          try {
+            conn.end();
+          } catch {
+            /* ignore */
+          }
         }
       }
-
-      // 5c. Drop the sentinel via the archive-tree writer (plan 143-01).
-      // Idempotent by construction: existing sentinel overwritten via tmp+rename.
-      await writeAppArchiveFile(slug, ".unarchive-requested", "", {
-        hostId,
-        conn,
-      });
-
-      // Audit log per T-143-04-07 (repudiation).
-      databaseLogger.info(
-        `app unarchive requested: userId=${userId}, hostId=${hostId}, slug=${slug}`,
-      );
-
-      return res.json({ ok: true });
-    } catch (err) {
-      // Log server-side; return generic message to client (T-143-04-06).
-      databaseLogger.error(
-        `failed to drop .unarchive-requested sentinel for app slug=${slug} hostId=${hostId}: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      return res
-        .status(500)
-        .json({ error: "failed to drop unarchive sentinel" });
-    } finally {
-      if (conn) {
-        try {
-          conn.end();
-        } catch {
-          /* ignore */
-        }
-      }
-    }
+    };
+    return isLocalHostId(hostId)
+      ? doWork()
+      : getHostSemaphore(hostId).run(doWork);
   },
 );
 

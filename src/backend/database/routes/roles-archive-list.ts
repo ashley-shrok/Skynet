@@ -30,6 +30,7 @@ import { AuthManager } from "../../utils/auth-manager.js";
 import { databaseLogger } from "../../utils/logger.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
+import { getHostSemaphore } from "../../ssh/host-semaphore-registry.js";
 import { isLocalHostId } from "../../claude-session/identity-artifact-reader.js";
 import { listArchivedRolesOnHost } from "../../claude-session/list-archived-roles.js";
 
@@ -84,42 +85,45 @@ router.get(
     }
 
     // 4. REMOTE branch — open SSH one-shot, try/finally guarantees conn.end().
-    let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
-    try {
+    // SSH work runs under the per-host semaphore (verify:ssh-cap).
+    return getHostSemaphore(hostId).run(async () => {
+      let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
       try {
-        conn = await connectOneShot(
-          host as unknown as Parameters<typeof connectOneShot>[0],
-          SSH_CONNECT_TIMEOUT_MS,
+        try {
+          conn = await connectOneShot(
+            host as unknown as Parameters<typeof connectOneShot>[0],
+            SSH_CONNECT_TIMEOUT_MS,
+          );
+        } catch (err) {
+          databaseLogger.debug("roles-archive-list: SSH connect failed", {
+            operation: "roles_archive_list_connect_failed",
+            hostId,
+            error: err instanceof Error ? err.message : "unknown",
+          });
+          return res.status(504).json({ error: "SSH connect failed" });
+        }
+
+        const names = await listArchivedRolesOnHost(
+          conn as unknown as Parameters<typeof listArchivedRolesOnHost>[0],
         );
+        return res.json(names.map((name) => ({ name })));
       } catch (err) {
-        databaseLogger.debug("roles-archive-list: SSH connect failed", {
-          operation: "roles_archive_list_connect_failed",
+        databaseLogger.error("roles-archive-list: unexpected error", {
+          operation: "roles_archive_list_error",
           hostId,
           error: err instanceof Error ? err.message : "unknown",
         });
-        return res.status(504).json({ error: "SSH connect failed" });
-      }
-
-      const names = await listArchivedRolesOnHost(
-        conn as unknown as Parameters<typeof listArchivedRolesOnHost>[0],
-      );
-      return res.json(names.map((name) => ({ name })));
-    } catch (err) {
-      databaseLogger.error("roles-archive-list: unexpected error", {
-        operation: "roles_archive_list_error",
-        hostId,
-        error: err instanceof Error ? err.message : "unknown",
-      });
-      return res.status(500).json({ error: "failed to list archived roles" });
-    } finally {
-      if (conn) {
-        try {
-          conn.end();
-        } catch {
-          /* ignore */
+        return res.status(500).json({ error: "failed to list archived roles" });
+      } finally {
+        if (conn) {
+          try {
+            conn.end();
+          } catch {
+            /* ignore */
+          }
         }
       }
-    }
+    });
   },
 );
 

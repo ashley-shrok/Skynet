@@ -184,6 +184,10 @@ const stubHost = {
 // ---------------------------------------------------------------------------
 
 import router from "./apps-archive.js";
+import {
+  __resetHostSemaphoreRegistryForTests,
+  getHostSemaphore,
+} from "../../ssh/host-semaphore-registry.js";
 
 let server: http.Server;
 
@@ -439,5 +443,63 @@ describe("POST /apps/:hostId/:slug/archive", () => {
     expect(writeAppFile).not.toHaveBeenCalled();
     expect(resolveHostById).not.toHaveBeenCalled();
     expect(connectOneShot).not.toHaveBeenCalled();
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 9: per-host SSH cap — concurrent REMOTE requests never hold more
+  // live connections than the host semaphore allows; LOCAL bypasses it.
+  // -------------------------------------------------------------------------
+
+  it("Test 9: 10 concurrent REMOTE archives on one host → peak live conns <= semaphore cap (3)", async () => {
+    __resetHostSemaphoreRegistryForTests();
+    getHostSemaphore(7, 3); // pre-seed a small cap for host 7
+
+    let live = 0;
+    let peak = 0;
+    (connectOneShot as Mock).mockImplementation(async () => {
+      live++;
+      peak = Math.max(peak, live);
+      return { end: vi.fn(() => { live--; }) };
+    });
+    (writeAppFile as Mock).mockImplementation(
+      () => new Promise((r) => setTimeout(r, 5)),
+    );
+
+    const results = await Promise.all(
+      Array.from({ length: 10 }, (_, i) =>
+        httpRequest(server, { method: "POST", path: `/apps/7/app-${i}/archive` }),
+      ),
+    );
+
+    expect(results.every((r) => r.status === 200)).toBe(true);
+    expect(connectOneShot).toHaveBeenCalledTimes(10);
+    expect(peak).toBeLessThanOrEqual(3);
+    expect(peak).toBeGreaterThan(1);
+    expect(live).toBe(0);
+    __resetHostSemaphoreRegistryForTests();
+  });
+
+  it("Test 10: a REMOTE request waits for a free slot; LOCAL does not", async () => {
+    __resetHostSemaphoreRegistryForTests();
+    let release!: () => void;
+    const held = new Promise<void>((r) => { release = r; });
+    // Occupy host 7's single slot and host 5's single slot.
+    getHostSemaphore(7, 1).run(() => held);
+    getHostSemaphore(5, 1).run(() => held);
+
+    const local = await httpRequest(server, { method: "POST", path: "/apps/5/my-app/archive" });
+    expect(local.status).toBe(200);
+
+    let remoteDone = false;
+    const remote = httpRequest(server, { method: "POST", path: "/apps/7/my-app/archive" }).then((r) => {
+      remoteDone = true;
+      return r;
+    });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(remoteDone).toBe(false);
+    expect(connectOneShot).not.toHaveBeenCalled();
+    release();
+    expect((await remote).status).toBe(200);
+    __resetHostSemaphoreRegistryForTests();
   });
 });

@@ -65,6 +65,7 @@ import { AuthManager } from "../../utils/auth-manager.js";
 import { databaseLogger } from "../../utils/logger.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
+import { getHostSemaphore } from "../../ssh/host-semaphore-registry.js";
 import {
   APP_SLUG_RE,
   isLocalHostId,
@@ -131,45 +132,53 @@ router.post(
 
     // 4. Branch on LOCAL vs REMOTE. LOCAL passes conn=null; REMOTE opens a
     // one-shot SSH connection whose lifetime is scoped to writeAppFile.
-    let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
-    if (!isLocalHostId(hostId)) {
-      try {
-        conn = await connectOneShot(
-          host as unknown as Parameters<typeof connectOneShot>[0],
-          SSH_CONNECT_TIMEOUT_MS,
-        );
-      } catch {
-        return res.status(504).json({ error: "Host unreachable" });
-      }
-    }
-
-    // 5. Drop the sentinel. Primitive re-validates slug + relPath before
-    // touching disk (belt-and-suspenders).
-    try {
-      await writeAppFile(slug, ".archive-requested", "", {
-        hostId,
-        conn,
-      });
-      databaseLogger.info(
-        `app archive requested: userId=${userId}, hostId=${hostId}, slug=${slug}`,
-      );
-      return res.json({ ok: true });
-    } catch (err) {
-      databaseLogger.error(
-        `failed to drop .archive-requested sentinel for app slug=${slug} hostId=${hostId}: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      return res
-        .status(500)
-        .json({ error: "failed to drop archive sentinel" });
-    } finally {
-      if (conn) {
+    // SSH work (connect + execs/writes + conn.end) runs under the per-host
+    // semaphore on the REMOTE branch (verify:ssh-cap). LOCAL touches the
+    // bind-mount only and bypasses it.
+    const doWork = async () => {
+      let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
+      if (!isLocalHostId(hostId)) {
         try {
-          conn.end();
+          conn = await connectOneShot(
+            host as unknown as Parameters<typeof connectOneShot>[0],
+            SSH_CONNECT_TIMEOUT_MS,
+          );
         } catch {
-          /* ignore */
+          return res.status(504).json({ error: "Host unreachable" });
         }
       }
-    }
+
+      // 5. Drop the sentinel. Primitive re-validates slug + relPath before
+      // touching disk (belt-and-suspenders).
+      try {
+        await writeAppFile(slug, ".archive-requested", "", {
+          hostId,
+          conn,
+        });
+        databaseLogger.info(
+          `app archive requested: userId=${userId}, hostId=${hostId}, slug=${slug}`,
+        );
+        return res.json({ ok: true });
+      } catch (err) {
+        databaseLogger.error(
+          `failed to drop .archive-requested sentinel for app slug=${slug} hostId=${hostId}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return res
+          .status(500)
+          .json({ error: "failed to drop archive sentinel" });
+      } finally {
+        if (conn) {
+          try {
+            conn.end();
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+    };
+    return isLocalHostId(hostId)
+      ? doWork()
+      : getHostSemaphore(hostId).run(doWork);
   },
 );
 

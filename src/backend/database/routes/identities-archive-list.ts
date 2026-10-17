@@ -37,6 +37,7 @@ import { AuthManager } from "../../utils/auth-manager.js";
 import { databaseLogger } from "../../utils/logger.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
+import { getHostSemaphore } from "../../ssh/host-semaphore-registry.js";
 import { isLocalHostId } from "../../claude-session/identity-artifact-reader.js";
 import { listArchivedIdentityKeysOnHost } from "../../claude-session/list-archived-identity-keys.js";
 
@@ -91,22 +92,26 @@ router.get(
           // REMOTE branch
           const resolved = await resolveHostById(hostId, userId);
           if (!resolved) return [];
-          const conn = await connectOneShot(
-            resolved as unknown as Parameters<typeof connectOneShot>[0],
-            SSH_CONNECT_TIMEOUT_MS,
-          );
-          try {
-            const keys = await listArchivedIdentityKeysOnHost(
-              conn as unknown as Parameters<typeof listArchivedIdentityKeysOnHost>[0],
+          // connect + list exec + conn.end under the per-host semaphore
+          // (verify:ssh-cap).
+          return await getHostSemaphore(hostId).run(async () => {
+            const conn = await connectOneShot(
+              resolved as unknown as Parameters<typeof connectOneShot>[0],
+              SSH_CONNECT_TIMEOUT_MS,
             );
-            return keys.map((identityKey) => ({ identityKey, hostId }));
-          } finally {
             try {
-              (conn as { end?: () => void }).end?.();
-            } catch {
-              /* ignore */
+              const keys = await listArchivedIdentityKeysOnHost(
+                conn as unknown as Parameters<typeof listArchivedIdentityKeysOnHost>[0],
+              );
+              return keys.map((identityKey) => ({ identityKey, hostId }));
+            } finally {
+              try {
+                (conn as { end?: () => void }).end?.();
+              } catch {
+                /* ignore */
+              }
             }
-          }
+          });
         } catch (e) {
           // Per-host failure is silently swallowed — mirrors conversation-search.ts
           // fan-out discipline (one bad host contributes [] rather than a 500).

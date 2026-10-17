@@ -86,6 +86,7 @@ import {
   readAppIconFile,
 } from "../../claude-session/identity-artifact-reader.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
+import { getHostSemaphore } from "../../ssh/host-semaphore-registry.js";
 import { resolveHostByUniversalId } from "../../ssh/host-resolver.js";
 import { sshLogger } from "../../utils/logger.js";
 import { getRegistry } from "../../fleet-status/registry-holder.js";
@@ -167,20 +168,28 @@ router.get(
       // Shares the identity-avatar byte cache; `app.` can't collide with an
       // identity key (IDENTITY_KEY_RE has no dot).
       const result = await getCachedAvatar(hostIdNum, `app.${slug}`, version, async () => {
-        let conn: import("ssh2").Client | null = null;
-        try {
-          if (host) conn = await connectOneShot(host, 5_000);
-          return await readAppIconFile(conn, slug);
-        } finally {
-          // SSH connection is always released on every exit path.
-          if (conn) {
-            try {
-              conn.end();
-            } catch {
-              /* ignore */
+        // LOCAL: bind-mount read, no SSH.
+        if (!host) return readAppIconFile(null, slug);
+        const remoteHost = host;
+        // REMOTE: connect + SFTP read + conn.end under the per-host
+        // semaphore (verify:ssh-cap). Cache misses only — a hit never
+        // reaches this loader, and concurrent misses coalesce in the cache.
+        return getHostSemaphore(hostIdNum).run(async () => {
+          let conn: import("ssh2").Client | null = null;
+          try {
+            conn = await connectOneShot(remoteHost, 5_000);
+            return await readAppIconFile(conn, slug);
+          } finally {
+            // SSH connection is always released on every exit path.
+            if (conn) {
+              try {
+                conn.end();
+              } catch {
+                /* ignore */
+              }
             }
           }
-        }
+        });
       });
       icon = result.avatar;
     } catch (e) {

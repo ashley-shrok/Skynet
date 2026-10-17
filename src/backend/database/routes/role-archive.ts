@@ -66,6 +66,7 @@ import { AuthManager } from "../../utils/auth-manager.js";
 import { databaseLogger } from "../../utils/logger.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
+import { getHostSemaphore } from "../../ssh/host-semaphore-registry.js";
 import { isLocalHostId } from "../../claude-session/identity-artifact-reader.js";
 import { ROLE_NAME_PATTERN } from "../../utils/role-name-pattern.js";
 import { writeRoleFile } from "../../claude-session/per-role-file.js";
@@ -140,48 +141,56 @@ router.post(
     // 4. Branch on LOCAL vs REMOTE. LOCAL branch passes conn=null; REMOTE
     // branch opens a one-shot SSH connection whose lifetime is scoped to the
     // writeRoleFile call by the try/finally below.
-    let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
-    if (!isLocalHostId(hostId)) {
-      try {
-        conn = await connectOneShot(
-          host as unknown as Parameters<typeof connectOneShot>[0],
-          SSH_CONNECT_TIMEOUT_MS,
-        );
-      } catch {
-        // Connect failure → 504 with generic message (T-133-01-03).
-        return res.status(504).json({ error: "Host unreachable" });
-      }
-    }
-
-    // 5. Drop the sentinel via the per-role-file primitive. The primitive
-    // re-validates name + relPath before touching disk (belt-and-suspenders).
-    try {
-      await writeRoleFile(name, ".archive-requested", "", {
-        hostId,
-        conn,
-      });
-      // Audit log per T-133-01-05 (repudiation): who requested archive on what.
-      databaseLogger.info(
-        `role archive requested: userId=${userId}, hostId=${hostId}, name=${name}`,
-      );
-      return res.json({ ok: true });
-    } catch (err) {
-      // Log server-side; return generic message to the client (T-133-01-03).
-      databaseLogger.error(
-        `failed to drop .archive-requested sentinel for role name=${name} hostId=${hostId}: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      return res
-        .status(500)
-        .json({ error: "failed to drop archive sentinel" });
-    } finally {
-      if (conn) {
+    // SSH work (connect + execs/writes + conn.end) runs under the per-host
+    // semaphore on the REMOTE branch (verify:ssh-cap). LOCAL touches the
+    // bind-mount only and bypasses it.
+    const doWork = async () => {
+      let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
+      if (!isLocalHostId(hostId)) {
         try {
-          conn.end();
+          conn = await connectOneShot(
+            host as unknown as Parameters<typeof connectOneShot>[0],
+            SSH_CONNECT_TIMEOUT_MS,
+          );
         } catch {
-          /* ignore */
+          // Connect failure → 504 with generic message (T-133-01-03).
+          return res.status(504).json({ error: "Host unreachable" });
         }
       }
-    }
+
+      // 5. Drop the sentinel via the per-role-file primitive. The primitive
+      // re-validates name + relPath before touching disk (belt-and-suspenders).
+      try {
+        await writeRoleFile(name, ".archive-requested", "", {
+          hostId,
+          conn,
+        });
+        // Audit log per T-133-01-05 (repudiation): who requested archive on what.
+        databaseLogger.info(
+          `role archive requested: userId=${userId}, hostId=${hostId}, name=${name}`,
+        );
+        return res.json({ ok: true });
+      } catch (err) {
+        // Log server-side; return generic message to the client (T-133-01-03).
+        databaseLogger.error(
+          `failed to drop .archive-requested sentinel for role name=${name} hostId=${hostId}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return res
+          .status(500)
+          .json({ error: "failed to drop archive sentinel" });
+      } finally {
+        if (conn) {
+          try {
+            conn.end();
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+    };
+    return isLocalHostId(hostId)
+      ? doWork()
+      : getHostSemaphore(hostId).run(doWork);
   },
 );
 
