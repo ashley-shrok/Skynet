@@ -83,7 +83,12 @@ behave as today until shape 2 lands), then agent side.
 
 ## Other work
 
-(none yet)
+- Two people re-parenting two projects into each other at the same instant
+  can still produce a loop (the move route checks then writes, no lock). The
+  sidebar shows looped projects safely at top level and "Move to" undoes it.
+  Recommendation: record as a known edge, no locking. Raised to Ashley
+  2026-10-17; she moved on to shape 2 without answering — CONFIRM at campaign
+  close (lingerer vs. fix).
 
 ## Lingerers (explicitly approved)
 
