@@ -199,7 +199,7 @@ export function maybeInstallStopHook(
 // locally; import retained as re-export for downstream test consumers.
 // ---------------------------------------------------------------------------
 export { makeSemaphore } from "./ssh/host-semaphore-registry.js";
-import { getHostSemaphore } from "./ssh/host-semaphore-registry.js";
+import { getHostConnectLimiter, getHostSemaphore } from "./ssh/host-semaphore-registry.js";
 
 // ---------------------------------------------------------------------------
 // Phase 72 Plan 05 — projection helper for the `runs_fleet_substrate` opt-in
@@ -781,7 +781,17 @@ if (process.env.VITEST !== "true") {
             // 5s connect budget — a WS frame gate that stalls longer is
             // already a stale signal; the fail-closed catch in the app-
             // frame-filter shim will drop the frame if the connect times out.
-            conn = await connectOneShot(host, 5_000);
+            //
+            // Handshake goes through the per-host CONNECT limiter (≤8
+            // concurrent): a cold subscribe on a ~30-identity host otherwise
+            // races ~30 handshakes at sshd, MaxStartups drops some, the gate
+            // fails closed and those rows vanish until the sweep fills the
+            // cosmetics cache. The 5s budget starts once the handshake gets
+            // its turn. Still NO CACHE (A3) — each frame does its own read.
+            const hostForConnect = host;
+            conn = await getHostConnectLimiter(hostIdNum).run(() =>
+              connectOneShot(hostForConnect, 5_000),
+            );
           }
           try {
             const { markdown } = await readIdentityFileForGate(

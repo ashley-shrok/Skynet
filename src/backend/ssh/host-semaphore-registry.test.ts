@@ -11,11 +11,15 @@
  *
  * No real SSH involved — tests operate purely on semaphore logic.
  */
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   getHostSemaphore,
+  getHostConnectLimiter,
+  HOST_CONNECT_CONCURRENCY,
+  makeSemaphore,
   __resetHostSemaphoreRegistryForTests,
 } from "./host-semaphore-registry.js";
+import { sshLogger } from "../utils/logger.js";
 
 // ---------------------------------------------------------------------------
 // Deferred helper — inline, not exported, used only in Test D
@@ -125,5 +129,63 @@ describe("host-semaphore-registry", () => {
       secondRan = true;
     });
     expect(secondRan).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Per-host CONNECT (handshake) limiter
+// ---------------------------------------------------------------------------
+
+describe("getHostConnectLimiter", () => {
+  it("defaults to 8 and never lets more than 8 handshakes per host run at once (30-way burst)", async () => {
+    expect(HOST_CONNECT_CONCURRENCY).toBe(8);
+    const limiter = getHostConnectLimiter(6);
+    let active = 0;
+    let peak = 0;
+    const runs = Array.from({ length: 30 }, () =>
+      limiter.run(async () => {
+        active++;
+        peak = Math.max(peak, active);
+        await new Promise((r) => setTimeout(r, 1));
+        active--;
+        return true;
+      }),
+    );
+    const results = await Promise.all(runs);
+    expect(results).toHaveLength(30);
+    expect(peak).toBe(8);
+  });
+
+  it("is shared per host (String key) and separate from the exec semaphore and other hosts", () => {
+    expect(getHostConnectLimiter(6)).toBe(getHostConnectLimiter("6"));
+    expect(getHostConnectLimiter(6)).not.toBe(getHostConnectLimiter(7));
+    expect(getHostConnectLimiter(6)).not.toBe(getHostSemaphore(6));
+  });
+
+  it("logs once per burst when connects start queuing", async () => {
+    const info = vi.spyOn(sshLogger, "info").mockImplementation(() => {});
+    try {
+      const limiter = getHostConnectLimiter("9", 2);
+      const gate = makeDeferred();
+      const runs = Array.from({ length: 5 }, () => limiter.run(() => gate.promise));
+      await Promise.resolve();
+      gate.resolve();
+      await Promise.all(runs);
+      const queued = info.mock.calls.filter(
+        (c) => (c[1] as { operation?: string } | undefined)?.operation === "ssh_host_connect_limit_queued",
+      );
+      expect(queued).toHaveLength(1);
+      expect(queued[0][1]).toMatchObject({ fleetHostId: "9", limit: 2, active: 2 });
+    } finally {
+      info.mockRestore();
+    }
+  });
+
+  it("makeSemaphore onQueued observer throwing does not break the semaphore", async () => {
+    const sem = makeSemaphore(1, () => {
+      throw new Error("observer boom");
+    });
+    const out = await Promise.all([sem.run(async () => 1), sem.run(async () => 2)]);
+    expect(out).toEqual([1, 2]);
   });
 });

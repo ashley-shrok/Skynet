@@ -38,6 +38,8 @@
  *   - No timing / no timeouts. Pure counting semaphore with a FIFO queue.
  */
 
+import { sshLogger } from "../utils/logger.js";
+
 // ---------------------------------------------------------------------------
 // Public type
 // ---------------------------------------------------------------------------
@@ -51,13 +53,24 @@ export type HostSemaphore = {
 // Internal factory (verbatim lift from starter.ts L103-122, bounty b31a5c8e)
 // ---------------------------------------------------------------------------
 
-export function makeSemaphore(limit: number): HostSemaphore {
+export function makeSemaphore(
+  limit: number,
+  /** Optional observer, called when a caller has to queue (after it is
+   *  enqueued). Used for limit-decision logging; must not throw. */
+  onQueued?: (waiting: number, active: number) => void,
+): HostSemaphore {
   let active = 0;
   const waiters: Array<() => void> = [];
   return {
     async run<T>(fn: () => Promise<T>): Promise<T> {
       if (active >= limit) {
-        await new Promise<void>((resolve) => waiters.push(resolve));
+        const queued = new Promise<void>((resolve) => waiters.push(resolve));
+        try {
+          onQueued?.(waiters.length, active);
+        } catch {
+          /* observer must never break the semaphore */
+        }
+        await queued;
       }
       active++;
       try {
@@ -105,6 +118,51 @@ export function getHostSemaphore(
   return sem;
 }
 
+// ---------------------------------------------------------------------------
+// Per-host SSH CONNECT (handshake) limiter
+// ---------------------------------------------------------------------------
+
+/**
+ * Max concurrent SSH handshakes Skynet opens to one host. The exec-slot
+ * semaphore above bounds channels, not connections: a burst of one-shot
+ * connects (e.g. the fleet-status WS identity gate on a cold subscribe — one
+ * connectOneShot per identity, ~30 on t1000) races ~30 unauthenticated
+ * handshakes at sshd at once. OpenSSH's default MaxStartups=10:30:100 starts
+ * randomly dropping beyond 10 pending, so some connects fail. 8 stays under
+ * the default with headroom for other producers.
+ */
+export const HOST_CONNECT_CONCURRENCY = 8;
+
+const connectRegistry = new Map<string, HostSemaphore>();
+
+/**
+ * Returns the shared per-host handshake limiter (String(hostId) key, same
+ * normalization as getHostSemaphore). Wrap ONLY the connect
+ * (`connectOneShot`) in it — not the work done over the connection — so a
+ * slot frees as soon as the handshake settles.
+ */
+export function getHostConnectLimiter(
+  hostId: string | number,
+  limit: number = HOST_CONNECT_CONCURRENCY,
+): HostSemaphore {
+  const key = String(hostId);
+  let sem = connectRegistry.get(key);
+  if (!sem) {
+    sem = makeSemaphore(limit, (waiting, active) => {
+      // Log once per burst (first waiter), not per queued connect.
+      if (waiting !== 1) return;
+      sshLogger.info("SSH connect limiter: per-host handshake cap reached — queuing connects", {
+        operation: "ssh_host_connect_limit_queued",
+        fleetHostId: key,
+        limit,
+        active,
+      });
+    });
+    connectRegistry.set(key, sem);
+  }
+  return sem;
+}
+
 /**
  * __resetHostSemaphoreRegistryForTests — clears the module-scope registry Map.
  *
@@ -113,4 +171,5 @@ export function getHostSemaphore(
  */
 export function __resetHostSemaphoreRegistryForTests(): void {
   registry.clear();
+  connectRegistry.clear();
 }
