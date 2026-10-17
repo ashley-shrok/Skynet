@@ -202,7 +202,8 @@ class Env:
         self.log_path = os.path.join(self.tmp, "relay-mcp.log")
         self.proc = subprocess.Popen(
             [sys.executable, SCRIPT],
-            env={**os.environ, "RELAY_MCP_PORT": str(self.port), "RELAY_MCP_FLEET_DIR": self.fleet},
+            env={**os.environ, "RELAY_MCP_PORT": str(self.port), "RELAY_MCP_FLEET_DIR": self.fleet,
+                 "RELAY_MCP_MAX_HANDLERS": "4", "RELAY_MCP_IDLE_TIMEOUT": "1"},
             stdout=open(self.log_path, "w"), stderr=subprocess.STDOUT,
         )
         for _ in range(100):
@@ -461,6 +462,46 @@ def t_batch_request(e):
         {"jsonrpc": "2.0", "method": "notifications/initialized"},
     ])
     assert code == 200 and res == [{"jsonrpc": "2.0", "id": 1, "result": {}}], res
+
+
+def _ping_ok(e, timeout=5):
+    req = urllib.request.Request(f"http://127.0.0.1:{e.port}/mcp", method="POST",
+                                 data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "ping"}).encode(),
+                                 headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return r.status == 200
+
+
+def t_kept_open_connections_dont_block(e):
+    # More clients than handler slots, each asking for keep-alive and then
+    # holding its socket open: the server must close each after its response.
+    socks = []
+    body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "ping"}).encode()
+    for _ in range(8):
+        s = socket.create_connection(("127.0.0.1", e.port), timeout=5)
+        s.sendall(b"POST /mcp HTTP/1.1\r\nHost: x\r\nConnection: keep-alive\r\nContent-Type: application/json\r\n"
+                  + f"Content-Length: {len(body)}\r\n\r\n".encode() + body)
+        resp = s.recv(65536)
+        assert b"200" in resp.split(b"\r\n")[0] and b"Connection: close" in resp, resp[:200]
+        socks.append(s)
+    try:
+        assert _ping_ok(e, timeout=3)
+    finally:
+        for s in socks:
+            s.close()
+
+
+def t_silent_connections_time_out(e):
+    # More silent connections than handler slots: each is dropped after the
+    # idle timeout (1s here), so a real request still gets through.
+    socks = [socket.create_connection(("127.0.0.1", e.port), timeout=5) for _ in range(6)]
+    try:
+        t0 = time.monotonic()
+        assert _ping_ok(e, timeout=8)
+        assert time.monotonic() - t0 < 6
+    finally:
+        for s in socks:
+            s.close()
 
 
 TESTS = [v for k, v in list(globals().items()) if k.startswith("t_")]

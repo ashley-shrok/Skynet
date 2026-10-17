@@ -567,13 +567,20 @@ def handle_rpc(identity, msg):
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = "relay-mcp"
+    # A connection that sends nothing is dropped after this many seconds, so it
+    # can't hold a handler slot.
+    timeout = float(os.environ.get("RELAY_MCP_IDLE_TIMEOUT", "10"))
 
     def log_message(self, *a):
         pass
 
     def _reply(self, code, payload=None):
         body = b"" if payload is None else json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        # One request per connection: an idle keep-alive connection would pin a
+        # handler slot (and its thread) per connected session.
+        self.close_connection = True
         self.send_response(code)
+        self.send_header("Connection", "close")
         if payload is not None:
             self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
@@ -634,6 +641,24 @@ class Handler(BaseHTTPRequestHandler):
 class Server(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
+    # Cap on requests handled at once; more wait in the listen backlog. Peak
+    # memory scales with concurrent handlers (~12 MB idle, ~27 MB at 30 at once).
+    # Safe only because every connection closes after its response (see _reply).
+    max_handlers = threading.BoundedSemaphore(int(os.environ.get("RELAY_MCP_MAX_HANDLERS", "16")))
+
+    def process_request(self, request, client_address):
+        self.max_handlers.acquire()
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            self.max_handlers.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self.max_handlers.release()
 
 
 def main():
