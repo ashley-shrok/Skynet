@@ -539,7 +539,7 @@ if (process.env.VITEST !== "true") {
         "./ssh/semaphored-exec-channel.js"
       );
       const { connectOneShot } = await import("./ssh/ssh-one-shot.js");
-      const { execCommand, execCommandWithStdin } = await import("./ssh/tmux-helper.js");
+      const { execCommand, execCommandWithStdin, ExecTimeoutError } = await import("./ssh/tmux-helper.js");
       const { getDb } = await import("./database/db/index.js");
       const { hosts: hostsTable } = await import(
         "./database/db/schema.js"
@@ -1064,6 +1064,7 @@ if (process.env.VITEST !== "true") {
             const existing = hostClients.get(host.id);
             if (existing) {
               // Health-check: try a simple command
+              let channel: SshChannel | null = null;
               try {
                 // Bounty b31a5c8e (Phase 101): per-host semaphore now shared via
                 // registry — fleet-status + substrate + route producers running on
@@ -1074,7 +1075,7 @@ if (process.env.VITEST !== "true") {
                 // channel and freeing the slot) — default
                 // FLEET_STATUS_EXEC_TIMEOUT_MS, tighter per-call budgets via
                 // opts. See semaphored-exec-channel.ts.
-                const channel: SshChannel = createSemaphoredExecChannel({
+                channel = createSemaphoredExecChannel({
                   client: existing,
                   hostId: host.id,
                   subsystem: "fleet_status",
@@ -1086,13 +1087,26 @@ if (process.env.VITEST !== "true") {
                 });
                 // Quick health probe — routed through the SAME semaphore so
                 // it cannot bypass the cap on a saturated connection. Bounded
-                // like the orchestrator's presence probe (5s) so a wedged
-                // connection fails over to reconnect instead of holding a slot.
+                // so a wedged probe frees its slot; a timeout keeps the
+                // connection (see catch), any other failure reconnects.
                 await sem.run(async () =>
-                  execCommand(existing, "echo ok", { timeoutMs: 5000 }),
+                  execCommand(existing, "echo ok", { timeoutMs: 15_000 }),
                 );
                 return channel;
-              } catch {
+              } catch (err) {
+                // A probe that is only SLOW (a busy host can take seconds to
+                // open a channel) is not a dead connection: killing it would
+                // fail every in-flight exec on it. Keep it — each exec has its
+                // own timeout, and ssh keepalive reaps a truly dead peer.
+                if (err instanceof ExecTimeoutError && channel !== null) {
+                  systemLogger.warn("Fleet-status: health probe slow — keeping the connection", {
+                    operation: "fleet_status_probe_slow",
+                    fleetHostId: host.id,
+                    phase: err.phase,
+                    timeoutMs: err.timeoutMs,
+                  });
+                  return channel;
+                }
                 // Connection dead — remove and reconnect
                 hostClients.delete(host.id);
                 try {
