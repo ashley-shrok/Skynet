@@ -39,7 +39,12 @@ import { AuthManager } from "../../utils/auth-manager.js";
 import { databaseLogger } from "../../utils/logger.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
-import { isLocalHostId } from "../../claude-session/identity-artifact-reader.js";
+import { getHostSemaphore } from "../../ssh/host-semaphore-registry.js";
+import { execCommand } from "../../ssh/tmux-helper.js";
+import {
+  isLocalHostId,
+  APP_SLUG_RE,
+} from "../../claude-session/identity-artifact-reader.js";
 import { listArchivedAppsOnHost } from "../../claude-session/list-archived-apps.js";
 import { getLocalArchivedAppsRoot } from "../../claude-session/per-app-archive-file.js";
 import { promises as fs } from "node:fs";
@@ -64,6 +69,19 @@ async function readLocalArchivedAppTitle(
   try {
     const manifestPath = path.join(getLocalArchivedAppsRoot(), slug, "app.json");
     const raw = await fs.readFile(manifestPath, "utf8");
+    return titleFromManifestText(raw);
+  } catch {
+    // graceful degrade — frontend falls back to slug
+  }
+  return undefined;
+}
+
+/**
+ * Extract a non-empty string `title` from raw app.json text. Same semantics
+ * as readLocalArchivedAppTitle: anything else → undefined.
+ */
+function titleFromManifestText(raw: string): string | undefined {
+  try {
     const parsed = JSON.parse(raw) as unknown;
     if (
       typeof parsed === "object" &&
@@ -78,6 +96,60 @@ async function readLocalArchivedAppTitle(
     // graceful degrade — frontend falls back to slug
   }
   return undefined;
+}
+
+/** Hard ceiling on the single REMOTE list+titles exec (matches list-archived-apps.ts). */
+const REMOTE_LIST_TIMEOUT_MS = 15_000;
+
+/**
+ * REMOTE: one exec that enumerates archived app folders AND emits each
+ * folder's app.json, so titles cost no extra channels. Output is one record
+ * per line: `<slug>\t<base64(app.json) or empty>`. base64 (newlines stripped)
+ * keeps arbitrary manifest bytes — newlines, tabs, quotes — from breaking
+ * the framing. Folder selection mirrors listArchivedAppsOnHost's
+ * `find -type d` (real directories only, symlinks skipped); manifests are
+ * capped at 1 MiB (an over-cap manifest truncates → parse fails → no title).
+ * Missing archive root → empty output.
+ */
+export const REMOTE_ARCHIVED_APPS_WITH_TITLES_CMD =
+  `cd "$HOME/fleet/apps-archive" 2>/dev/null || exit 0; ` +
+  `for d in */; do d="\${d%/}"; [ -d "$d" ] && [ ! -L "$d" ] || continue; ` +
+  `printf '%s\\t' "$d"; ` +
+  `if [ -f "$d/app.json" ]; then head -c 1048576 "$d/app.json" | base64 | tr -d '\\n'; fi; ` +
+  `printf '\\n'; done`;
+
+/** Parse REMOTE_ARCHIVED_APPS_WITH_TITLES_CMD output. Exported for tests. */
+export function parseRemoteArchivedAppsWithTitles(
+  stdout: string,
+): Array<{ slug: string; title?: string }> {
+  const out: Array<{ slug: string; title?: string }> = [];
+  const seen = new Set<string>();
+  for (const rawLine of stdout.split("\n")) {
+    const line = rawLine.replace(/\r$/, "");
+    if (line.length === 0) continue;
+    const tab = line.indexOf("\t");
+    const slug = (tab === -1 ? line : line.slice(0, tab)).trim();
+    if (!APP_SLUG_RE.test(slug) || seen.has(slug)) continue;
+    seen.add(slug);
+    const b64 = tab === -1 ? "" : line.slice(tab + 1).trim();
+    let title: string | undefined;
+    if (b64.length > 0) {
+      title = titleFromManifestText(Buffer.from(b64, "base64").toString("utf8"));
+    }
+    out.push(title === undefined ? { slug } : { slug, title });
+  }
+  return out.sort((a, b) => (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0));
+}
+
+async function listRemoteArchivedAppsWithTitles(
+  conn: Awaited<ReturnType<typeof connectOneShot>>,
+): Promise<Array<{ slug: string; title?: string }>> {
+  const stdout = await execCommand(
+    conn as unknown as Parameters<typeof execCommand>[0],
+    REMOTE_ARCHIVED_APPS_WITH_TITLES_CMD,
+    { timeoutMs: REMOTE_LIST_TIMEOUT_MS },
+  );
+  return parseRemoteArchivedAppsWithTitles(stdout);
 }
 
 /**
@@ -132,24 +204,29 @@ router.get(
           // REMOTE branch
           const resolved = await resolveHostById(hostId, userId);
           if (!resolved) return [];
-          const conn = await connectOneShot(
-            resolved as unknown as Parameters<typeof connectOneShot>[0],
-            SSH_CONNECT_TIMEOUT_MS,
-          );
-          try {
-            const slugs = await listArchivedAppsOnHost(
-              conn as unknown as Parameters<typeof listArchivedAppsOnHost>[0],
+          // connect + the single list/titles exec + conn.end run under the
+          // per-host semaphore (verify:ssh-cap).
+          return await getHostSemaphore(hostId).run(async () => {
+            const conn = await connectOneShot(
+              resolved as unknown as Parameters<typeof connectOneShot>[0],
+              SSH_CONNECT_TIMEOUT_MS,
             );
-            // Remote titles are not read (would require per-app SSH reads).
-            // Frontend gracefully falls back to slug when title is absent.
-            return slugs.map((slug) => ({ hostId, slug }));
-          } finally {
             try {
-              (conn as { end?: () => void }).end?.();
-            } catch {
-              /* ignore */
+              // Slugs AND titles in one exec (same title semantics as LOCAL).
+              const rows = await listRemoteArchivedAppsWithTitles(conn);
+              return rows.map((r) =>
+                r.title === undefined
+                  ? { hostId, slug: r.slug }
+                  : { hostId, slug: r.slug, title: r.title },
+              );
+            } finally {
+              try {
+                (conn as { end?: () => void }).end?.();
+              } catch {
+                /* ignore */
+              }
             }
-          }
+          });
         } catch (e) {
           // Per-host failure is silently swallowed — mirrors identities-archive-list.ts
           // fan-out discipline (one bad host contributes [] rather than a 500).

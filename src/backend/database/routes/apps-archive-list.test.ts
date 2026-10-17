@@ -4,7 +4,7 @@
  * Tests exercise the route via a bare Express app + Node's built-in http
  * module (mirrors identities-archive-list.test.ts pattern).
  *
- * Test coverage (3 tests):
+ * Test coverage (Tests 1-5 + parser unit tests):
  *   1: Unauthenticated → 401.
  *   2: Happy fleet-wide — host 1 returns ["notes-app"], host 2 returns ["timer"] →
  *      200 with [{hostId:1,slug:"notes-app"},{hostId:2,slug:"timer"}].
@@ -121,6 +121,11 @@ vi.mock("../../claude-session/list-archived-apps.js", () => ({
   listArchivedAppsOnHost: vi.fn(),
 }));
 
+// REMOTE branch lists slugs + app.json titles in ONE execCommand.
+vi.mock("../../ssh/tmux-helper.js", () => ({
+  execCommand: vi.fn(),
+}));
+
 // ---------------------------------------------------------------------------
 // Import mocked modules AFTER vi.mock() declarations
 // ---------------------------------------------------------------------------
@@ -128,6 +133,13 @@ vi.mock("../../claude-session/list-archived-apps.js", () => ({
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { listArchivedAppsOnHost } from "../../claude-session/list-archived-apps.js";
+import { execCommand } from "../../ssh/tmux-helper.js";
+import { isLocalHostId } from "../../claude-session/identity-artifact-reader.js";
+
+/** One remote record line: `<slug>\t<base64(app.json)>` (empty b64 = no manifest). */
+function rec(slug: string, manifest?: string): string {
+  return `${slug}\t${manifest === undefined ? "" : Buffer.from(manifest).toString("base64")}`;
+}
 
 // ---------------------------------------------------------------------------
 // HTTP request helper
@@ -180,7 +192,10 @@ const stubConn = { end: vi.fn(), exec: vi.fn() };
 // Import router under test
 // ---------------------------------------------------------------------------
 
-import router from "./apps-archive-list.js";
+import router, {
+  parseRemoteArchivedAppsWithTitles,
+  REMOTE_ARCHIVED_APPS_WITH_TITLES_CMD,
+} from "./apps-archive-list.js";
 
 let server: http.Server;
 
@@ -198,6 +213,8 @@ beforeEach(() => {
   });
   (connectOneShot as Mock).mockResolvedValue(stubConn);
   (listArchivedAppsOnHost as Mock).mockResolvedValue([]);
+  (execCommand as Mock).mockResolvedValue("");
+  (isLocalHostId as Mock).mockReturnValue(false);
 
   const app = express();
   app.use("/apps-archive", router);
@@ -225,12 +242,13 @@ describe("GET /apps-archive", () => {
   });
 
   it("Test 2: happy fleet-wide — returns sorted {hostId, slug} entries", async () => {
-    // host 1 → ["notes-app"], host 2 → ["timer"]
-    (listArchivedAppsOnHost as Mock).mockImplementation((_conn: unknown) => {
-      const callCount = (listArchivedAppsOnHost as Mock).mock.calls.length;
-      if (callCount === 1) return Promise.resolve(["notes-app"]);
-      return Promise.resolve(["timer"]);
-    });
+    // host 1 → ["notes-app"], host 2 → ["timer"] (no manifests → no titles)
+    (execCommand as Mock).mockImplementation((conn: { host: number }) =>
+      Promise.resolve(conn.host === 1 ? rec("notes-app") : rec("timer")),
+    );
+    (connectOneShot as Mock).mockImplementation((host: { id: number }) =>
+      Promise.resolve({ ...stubConn, host: host.id }),
+    );
 
     const res = await httpRequest(server, {
       method: "GET",
@@ -255,7 +273,7 @@ describe("GET /apps-archive", () => {
         return Promise.resolve(stubConn);
       },
     );
-    (listArchivedAppsOnHost as Mock).mockResolvedValue(["timer"]);
+    (execCommand as Mock).mockResolvedValue(rec("timer"));
 
     const res = await httpRequest(server, {
       method: "GET",
@@ -269,5 +287,71 @@ describe("GET /apps-archive", () => {
     expect(body.some((e) => e.hostId === 2 && e.slug === "timer")).toBe(true);
     // Failing host's entries not present
     expect(body.some((e) => e.hostId === 1)).toBe(false);
+  });
+
+  it("Test 4: REMOTE titles come from app.json in the SAME single exec (one channel per host)", async () => {
+    mockDbSelectResult.length = 0;
+    mockDbSelectResult.push({ id: 2 });
+    (execCommand as Mock).mockResolvedValue(
+      [
+        rec("timer", JSON.stringify({ title: "Kitchen\tTimer\n\"v2\"" })),
+        rec("notes-app", JSON.stringify({ title: "Notes" })),
+        rec("broken", "{not json"),
+        rec("untitled", JSON.stringify({ name: "x" })),
+        rec("empty-title", JSON.stringify({ title: "" })),
+        rec("no-manifest"),
+      ].join("\n"),
+    );
+
+    const res = await httpRequest(server, { method: "GET", path: "/apps-archive" });
+
+    expect(res.status).toBe(200);
+    expect(execCommand).toHaveBeenCalledTimes(1);
+    expect((execCommand as Mock).mock.calls[0][1]).toBe(REMOTE_ARCHIVED_APPS_WITH_TITLES_CMD);
+    expect(listArchivedAppsOnHost).not.toHaveBeenCalled();
+    expect(res.body).toEqual([
+      { hostId: 2, slug: "broken" },
+      { hostId: 2, slug: "empty-title" },
+      { hostId: 2, slug: "no-manifest" },
+      { hostId: 2, slug: "notes-app", title: "Notes" },
+      { hostId: 2, slug: "timer", title: 'Kitchen\tTimer\n"v2"' },
+      { hostId: 2, slug: "untitled" },
+    ]);
+  });
+
+  it("Test 5: REMOTE exec failure → host contributes [] and conn still ended", async () => {
+    mockDbSelectResult.length = 0;
+    mockDbSelectResult.push({ id: 2 });
+    (execCommand as Mock).mockRejectedValue(new Error("channel open failure"));
+    const res = await httpRequest(server, { method: "GET", path: "/apps-archive" });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([]);
+    expect(stubConn.end).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("parseRemoteArchivedAppsWithTitles", () => {
+  it("drops invalid slugs, duplicates, blank lines, CRs; tolerates missing tab", () => {
+    const out = parseRemoteArchivedAppsWithTitles(
+      [
+        "",
+        rec("Bad_Slug", JSON.stringify({ title: "x" })),
+        rec("../evil"),
+        "bare-slug",
+        rec("ok", JSON.stringify({ title: "OK" })) + "\r",
+        rec("ok", JSON.stringify({ title: "dup" })),
+        "garbage\t!!!not-base64!!!",
+        "",
+      ].join("\n"),
+    );
+    expect(out).toEqual([
+      { slug: "bare-slug" },
+      { slug: "garbage" },
+      { slug: "ok", title: "OK" },
+    ]);
+  });
+
+  it("empty stdout (missing archive root) → []", () => {
+    expect(parseRemoteArchivedAppsWithTitles("")).toEqual([]);
   });
 });
