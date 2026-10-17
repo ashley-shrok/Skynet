@@ -39,6 +39,7 @@ import {
   getUsernameForUserId,
 } from "../../utils/host-user-counter.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
+import { getHostSemaphore } from "../../ssh/host-semaphore-registry.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
 // Phase 106 (D-05/D-06): the wait-for-supervisor sensor wired into the
 // birthIdentity orchestrator's `BirthDeps.discoverIdentitySessionFile`.
@@ -171,34 +172,38 @@ async function identityFolderExistsOnHost(
       throw err;
     }
   }
-  let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
-  try {
-    conn = await connectOneShot(
-      host as Parameters<typeof connectOneShot>[0],
-      PROBE_SSH_EXEC_TIMEOUT_MS,
-    );
-    const output = await Promise.race([
-      execCommand(
-        conn,
-        `if [ -d "$HOME/fleet/identities/${name}" ]; then echo exists; else echo missing; fi`,
-      ),
-      new Promise<string>((_, reject) =>
-        setTimeout(
-          () => reject(new Error("probe_ssh_exec_timeout")),
-          PROBE_SSH_EXEC_TIMEOUT_MS,
+  // Connect + probe + end hold one per-host semaphore slot (verify:ssh-cap).
+  // The suffix loop calls this serially, so at most one slot per birth.
+  return getHostSemaphore(hostId).run(async () => {
+    let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
+    try {
+      conn = await connectOneShot(
+        host as Parameters<typeof connectOneShot>[0],
+        PROBE_SSH_EXEC_TIMEOUT_MS,
+      );
+      const output = await Promise.race([
+        execCommand(
+          conn,
+          `if [ -d "$HOME/fleet/identities/${name}" ]; then echo exists; else echo missing; fi`,
         ),
-      ),
-    ]);
-    return output.trim() === "exists";
-  } finally {
-    if (conn) {
-      try {
-        conn.end();
-      } catch {
-        /* best-effort */
+        new Promise<string>((_, reject) =>
+          setTimeout(
+            () => reject(new Error("probe_ssh_exec_timeout")),
+            PROBE_SSH_EXEC_TIMEOUT_MS,
+          ),
+        ),
+      ]);
+      return output.trim() === "exists";
+    } finally {
+      if (conn) {
+        try {
+          conn.end();
+        } catch {
+          /* best-effort */
+        }
       }
     }
-  }
+  });
 }
 
 /** Typed error for suffix cap exhaustion. Code-review Finding #3: on cap

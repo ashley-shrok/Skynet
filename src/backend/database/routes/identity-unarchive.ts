@@ -94,6 +94,7 @@ import { AuthManager } from "../../utils/auth-manager.js";
 import { databaseLogger } from "../../utils/logger.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
+import { getHostSemaphore } from "../../ssh/host-semaphore-registry.js";
 import {
   isLocalHostId,
   IDENTITY_KEY_RE,
@@ -127,6 +128,11 @@ function execFileAsync(
       else resolve({ stdout, stderr });
     });
   });
+}
+
+/** Remote SSH work holds one per-host semaphore slot; local disk work needs none. */
+function withHostSlot<T>(hostId: number, fn: () => Promise<T>): Promise<T> {
+  return isLocalHostId(hostId) ? fn() : getHostSemaphore(hostId).run(fn);
 }
 
 const router = express.Router();
@@ -359,258 +365,262 @@ router.post(
     // 4. Branch on LOCAL vs REMOTE. LOCAL branch passes conn=null; REMOTE
     // branch opens a one-shot SSH connection whose lifetime is scoped to the
     // precondition checks + writeIdentityArchiveFile call by the try/finally.
-    let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
-    if (!isLocalHostId(hostId)) {
-      try {
-        conn = await connectOneShot(
-          host as unknown as Parameters<typeof connectOneShot>[0],
-          SSH_CONNECT_TIMEOUT_MS,
-        );
-      } catch {
-        // Connect failure → 504 with generic message (T-143-04-06).
-        return res.status(504).json({ error: "Host unreachable" });
-      }
-    }
-
-    try {
-      // 5a. archive-exists precondition (D-02 §1):
-      // Refuse if the archived folder does not exist at the expected path.
-      if (conn === null) {
-        // LOCAL branch
+    // Remote: SSH connect + work + end hold ONE per-host semaphore slot
+    // (verify:ssh-cap). Local: no SSH channel, no slot.
+    return withHostSlot(hostId, async () => {
+      let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
+      if (!isLocalHostId(hostId)) {
         try {
-          await fs.access(
-            path.join(getLocalArchivedIdentitiesRoot(), key),
+          conn = await connectOneShot(
+            host as unknown as Parameters<typeof connectOneShot>[0],
+            SSH_CONNECT_TIMEOUT_MS,
           );
         } catch {
-          return res.status(409).json({ reason: "archive_not_found" });
-        }
-      } else {
-        // REMOTE branch — all IDENTITY_KEY_RE-validated values, no shell-metachar risk.
-        const out = await execCommand(
-          conn,
-          `test -d "$HOME/fleet/identities-archive/${key}" && echo yes || echo no`,
-        );
-        if (out.trim() !== "yes") {
-          return res.status(409).json({ reason: "archive_not_found" });
+          // Connect failure → 504 with generic message (T-143-04-06).
+          return res.status(504).json({ error: "Host unreachable" });
         }
       }
 
-      // 5b. name-collision precondition (D-02 §2):
-      // Refuse if a live-tree identity with the same key already exists.
-      if (conn === null) {
-        // LOCAL branch — success (no ENOENT) means live folder exists → collision
-        try {
-          await fs.access(path.join(getLocalIdentitiesRoot(), key));
-          // fs.access succeeded → live folder exists
-          return res.status(409).json({ reason: "name_collision" });
-        } catch {
-          // ENOENT — no collision, continue
-        }
-      } else {
-        // REMOTE branch
-        const out = await execCommand(
-          conn,
-          `test -d "$HOME/fleet/identities/${key}" && echo yes || echo no`,
-        );
-        if (out.trim() === "yes") {
-          return res.status(409).json({ reason: "name_collision" });
-        }
-      }
-
-      // 5c. all-roles-live precondition (D-02 §3, identity-only):
-      // Parse the archived identity's roles: frontmatter and check every listed
-      // role has a live folder. Refuse with missingRoles listing if any are
-      // still archived.
-      let roles: string[];
-      if (conn === null) {
-        // LOCAL branch
-        // `<key>/<key>.md` is the identity file; identity.md is a legacy
-        // fallback (see the remote branch).
-        const archivedDir = path.join(getLocalArchivedIdentitiesRoot(), key);
-        roles = await parseRolesFromLocalIdentityMd(path.join(archivedDir, `${key}.md`));
-        if (roles.length === 0) {
-          roles = await parseRolesFromLocalIdentityMd(path.join(archivedDir, "identity.md"));
-        }
-      } else {
-        // REMOTE branch
-        roles = await parseRolesFromRemoteIdentityMd(conn, key);
-      }
-
-      if (roles.length === 0) {
-        // A restored identity with no roles gets no role-file watcher and
-        // falls open in the visibility gate (visible to every user). Refuse
-        // rather than restore it half-formed.
-        return res.status(409).json({ reason: "no_roles" });
-      }
-
-      {
-        // Check each role — collect ones that are NOT live. Must match the
-        // supervisor's un-archive gate exactly (it requires `~/fleet/roles/<role>/`
-        // to exist): a role that is archived OR absent from the host would
-        // otherwise pass here with a 200 and then be refused silently by the
-        // supervisor. Role names come from frontmatter and are interpolated
-        // into a shell command — anything not slug-shaped counts as missing.
-        const stillArchived: string[] = [];
-        const ROLE_NAME_RE = /^[a-z0-9_-]{1,64}$/;
-
-        for (const roleName of roles) {
-          if (!ROLE_NAME_RE.test(roleName)) {
-            stillArchived.push(roleName);
-            continue;
-          }
-          if (conn === null) {
-            try {
-              await fs.access(path.join(getLocalRolesRoot(), roleName));
-            } catch {
-              stillArchived.push(roleName);
-            }
-          } else {
-            const out = await execCommand(
-              conn,
-              `test -d "$HOME/fleet/roles/${roleName}" && echo yes || echo no`,
-            );
-            if (out.trim() !== "yes") {
-              stillArchived.push(roleName);
-            }
-          }
-        }
-
-        if (stillArchived.length > 0) {
-          return res.status(409).json({
-            reason: "missing_roles",
-            missingRoles: stillArchived.sort(),
-          });
-        }
-      }
-
-      // -----------------------------------------------------------------
-      // 5d/5e/5f (2026-10-01 matrix-cred-location correction):
-      // Matrix reactivate + token mint + relay.json rewrite BEFORE the
-      // sentinel drop. Admin creds live in the DB on T1000 (where this
-      // route always runs); the supervisor on the identity's home host
-      // no longer touches Matrix admin at all. For LOCAL identities the
-      // relay.json rewrite goes via fs; for REMOTE it goes via SSH using
-      // the archive-tree writer's whitelist expansion for relay.json.
-      //
-      // Partial-success / orphan handling: Matrix reactivate is idempotent
-      // (PUT deactivated=false either way), login_as_user is cheap, so a
-      // write-side failure leaves a self-healing orphan: next user retry
-      // flows through all three steps cleanly. No compensating re-deactivate.
-      // -----------------------------------------------------------------
-
-      // 5d. Read the archived relay.json for mxid + password. Preserve the
-      // full JSON object so other fields (base, legacy keys) survive the
-      // rewrite — only access_token + token alias change.
-      let relayParsed: Record<string, unknown>;
-      let mxid: string;
-      let password: string;
       try {
-        const raw = await readIdentityArchiveFile(key, "relay.json", {
+        // 5a. archive-exists precondition (D-02 §1):
+        // Refuse if the archived folder does not exist at the expected path.
+        if (conn === null) {
+          // LOCAL branch
+          try {
+            await fs.access(
+              path.join(getLocalArchivedIdentitiesRoot(), key),
+            );
+          } catch {
+            return res.status(409).json({ reason: "archive_not_found" });
+          }
+        } else {
+          // REMOTE branch — all IDENTITY_KEY_RE-validated values, no shell-metachar risk.
+          const out = await execCommand(
+            conn,
+            `test -d "$HOME/fleet/identities-archive/${key}" && echo yes || echo no`,
+          );
+          if (out.trim() !== "yes") {
+            return res.status(409).json({ reason: "archive_not_found" });
+          }
+        }
+
+        // 5b. name-collision precondition (D-02 §2):
+        // Refuse if a live-tree identity with the same key already exists.
+        if (conn === null) {
+          // LOCAL branch — success (no ENOENT) means live folder exists → collision
+          try {
+            await fs.access(path.join(getLocalIdentitiesRoot(), key));
+            // fs.access succeeded → live folder exists
+            return res.status(409).json({ reason: "name_collision" });
+          } catch {
+            // ENOENT — no collision, continue
+          }
+        } else {
+          // REMOTE branch
+          const out = await execCommand(
+            conn,
+            `test -d "$HOME/fleet/identities/${key}" && echo yes || echo no`,
+          );
+          if (out.trim() === "yes") {
+            return res.status(409).json({ reason: "name_collision" });
+          }
+        }
+
+        // 5c. all-roles-live precondition (D-02 §3, identity-only):
+        // Parse the archived identity's roles: frontmatter and check every listed
+        // role has a live folder. Refuse with missingRoles listing if any are
+        // still archived.
+        let roles: string[];
+        if (conn === null) {
+          // LOCAL branch
+          // `<key>/<key>.md` is the identity file; identity.md is a legacy
+          // fallback (see the remote branch).
+          const archivedDir = path.join(getLocalArchivedIdentitiesRoot(), key);
+          roles = await parseRolesFromLocalIdentityMd(path.join(archivedDir, `${key}.md`));
+          if (roles.length === 0) {
+            roles = await parseRolesFromLocalIdentityMd(path.join(archivedDir, "identity.md"));
+          }
+        } else {
+          // REMOTE branch
+          roles = await parseRolesFromRemoteIdentityMd(conn, key);
+        }
+
+        if (roles.length === 0) {
+          // A restored identity with no roles gets no role-file watcher and
+          // falls open in the visibility gate (visible to every user). Refuse
+          // rather than restore it half-formed.
+          return res.status(409).json({ reason: "no_roles" });
+        }
+
+        {
+          // Check each role — collect ones that are NOT live. Must match the
+          // supervisor's un-archive gate exactly (it requires `~/fleet/roles/<role>/`
+          // to exist): a role that is archived OR absent from the host would
+          // otherwise pass here with a 200 and then be refused silently by the
+          // supervisor. Role names come from frontmatter and are interpolated
+          // into a shell command — anything not slug-shaped counts as missing.
+          const stillArchived: string[] = [];
+          const ROLE_NAME_RE = /^[a-z0-9_-]{1,64}$/;
+
+          for (const roleName of roles) {
+            if (!ROLE_NAME_RE.test(roleName)) {
+              stillArchived.push(roleName);
+              continue;
+            }
+            if (conn === null) {
+              try {
+                await fs.access(path.join(getLocalRolesRoot(), roleName));
+              } catch {
+                stillArchived.push(roleName);
+              }
+            } else {
+              const out = await execCommand(
+                conn,
+                `test -d "$HOME/fleet/roles/${roleName}" && echo yes || echo no`,
+              );
+              if (out.trim() !== "yes") {
+                stillArchived.push(roleName);
+              }
+            }
+          }
+
+          if (stillArchived.length > 0) {
+            return res.status(409).json({
+              reason: "missing_roles",
+              missingRoles: stillArchived.sort(),
+            });
+          }
+        }
+
+        // -----------------------------------------------------------------
+        // 5d/5e/5f (2026-10-01 matrix-cred-location correction):
+        // Matrix reactivate + token mint + relay.json rewrite BEFORE the
+        // sentinel drop. Admin creds live in the DB on T1000 (where this
+        // route always runs); the supervisor on the identity's home host
+        // no longer touches Matrix admin at all. For LOCAL identities the
+        // relay.json rewrite goes via fs; for REMOTE it goes via SSH using
+        // the archive-tree writer's whitelist expansion for relay.json.
+        //
+        // Partial-success / orphan handling: Matrix reactivate is idempotent
+        // (PUT deactivated=false either way), login_as_user is cheap, so a
+        // write-side failure leaves a self-healing orphan: next user retry
+        // flows through all three steps cleanly. No compensating re-deactivate.
+        // -----------------------------------------------------------------
+
+        // 5d. Read the archived relay.json for mxid + password. Preserve the
+        // full JSON object so other fields (base, legacy keys) survive the
+        // rewrite — only access_token + token alias change.
+        let relayParsed: Record<string, unknown>;
+        let mxid: string;
+        let password: string;
+        try {
+          const raw = await readIdentityArchiveFile(key, "relay.json", {
+            hostId,
+            conn,
+          });
+          relayParsed = JSON.parse(raw) as Record<string, unknown>;
+          const uid = relayParsed.user_id;
+          const pw = relayParsed.password;
+          if (typeof uid !== "string" || !uid.startsWith("@")) {
+            throw new Error("relay.json user_id missing or malformed");
+          }
+          if (typeof pw !== "string" || pw.length === 0) {
+            throw new Error("relay.json password missing");
+          }
+          mxid = uid;
+          password = pw;
+        } catch (readErr) {
+          databaseLogger.error(
+            `identity unarchive: relay.json read/parse failed for key=${key} hostId=${hostId}: ${readErr instanceof Error ? readErr.message : String(readErr)}`,
+          );
+          return res
+            .status(500)
+            .json({ error: "relay.json read/parse failed" });
+        }
+
+        // 5e. Matrix reactivate (admin PUT /_synapse/admin/v2/users/{mxid}
+        // with deactivated=false). createOrUpdateUser is the shared primitive;
+        // same call shape identity-birth Step 6 uses.
+        const reactivateResult = await createOrUpdateUser(mxid, password);
+        if (reactivateResult.ok === false) {
+          databaseLogger.error(
+            `identity unarchive: matrix reactivate failed for mxid=${mxid} key=${key} status=${reactivateResult.status} error=${reactivateResult.error}`,
+          );
+          return res
+            .status(502)
+            .json({ error: "matrix reactivate failed" });
+        }
+
+        // 5f. Mint fresh access_token (admin POST /_synapse/admin/v1/users/{mxid}/login).
+        const mintResult = await loginAsUser(mxid);
+        if (mintResult.ok === false) {
+          databaseLogger.error(
+            `identity unarchive: matrix mint failed for mxid=${mxid} key=${key} status=${mintResult.status} error=${mintResult.error}`,
+          );
+          return res
+            .status(502)
+            .json({ error: "matrix mint failed" });
+        }
+
+        // 5f.5. Rewrite relay.json with the fresh token. Preserve all other
+        // keys verbatim (base, legacy fields). Both access_token AND token
+        // alias get the fresh value — recv.sh reads either (belt-and-braces
+        // across historical schema variants per matrix-admin-client.ts:431).
+        const newRelay = {
+          ...relayParsed,
+          access_token: mintResult.accessToken,
+          token: mintResult.accessToken,
+        };
+        try {
+          await writeIdentityArchiveFile(
+            key,
+            "relay.json",
+            JSON.stringify(newRelay, null, 2),
+            { hostId, conn, chmod: 0o600 },
+          );
+        } catch (writeErr) {
+          databaseLogger.error(
+            `identity unarchive: relay.json rewrite failed for key=${key} hostId=${hostId}: ${writeErr instanceof Error ? writeErr.message : String(writeErr)}`,
+          );
+          return res
+            .status(500)
+            .json({ error: "relay.json rewrite failed" });
+        }
+
+        // 5g. Drop the sentinel via the archive-tree writer (plan 143-01).
+        // The writer re-validates key + relPath before touching disk (belt-and-suspenders).
+        // Idempotent by construction: existing sentinel is overwritten via tmp+rename.
+        // The supervisor's whoami probe (2026-10-01 safety) will see the fresh
+        // token minted in step 5f and proceed with folder-mv.
+        await writeIdentityArchiveFile(key, ".unarchive-requested", "", {
           hostId,
           conn,
         });
-        relayParsed = JSON.parse(raw) as Record<string, unknown>;
-        const uid = relayParsed.user_id;
-        const pw = relayParsed.password;
-        if (typeof uid !== "string" || !uid.startsWith("@")) {
-          throw new Error("relay.json user_id missing or malformed");
-        }
-        if (typeof pw !== "string" || pw.length === 0) {
-          throw new Error("relay.json password missing");
-        }
-        mxid = uid;
-        password = pw;
-      } catch (readErr) {
+
+        // Audit log per T-143-04-07 (repudiation): who requested un-archive on what.
+        databaseLogger.info(
+          `identity unarchive requested: userId=${userId}, hostId=${hostId}, key=${key}, mxid=${mxid}`,
+        );
+
+        return res.json({ ok: true });
+      } catch (err) {
+        // Log server-side; return generic message to the client (T-143-04-06).
         databaseLogger.error(
-          `identity unarchive: relay.json read/parse failed for key=${key} hostId=${hostId}: ${readErr instanceof Error ? readErr.message : String(readErr)}`,
+          `failed to drop .unarchive-requested sentinel for key=${key} hostId=${hostId}: ${err instanceof Error ? err.message : String(err)}`,
         );
         return res
           .status(500)
-          .json({ error: "relay.json read/parse failed" });
-      }
-
-      // 5e. Matrix reactivate (admin PUT /_synapse/admin/v2/users/{mxid}
-      // with deactivated=false). createOrUpdateUser is the shared primitive;
-      // same call shape identity-birth Step 6 uses.
-      const reactivateResult = await createOrUpdateUser(mxid, password);
-      if (reactivateResult.ok === false) {
-        databaseLogger.error(
-          `identity unarchive: matrix reactivate failed for mxid=${mxid} key=${key} status=${reactivateResult.status} error=${reactivateResult.error}`,
-        );
-        return res
-          .status(502)
-          .json({ error: "matrix reactivate failed" });
-      }
-
-      // 5f. Mint fresh access_token (admin POST /_synapse/admin/v1/users/{mxid}/login).
-      const mintResult = await loginAsUser(mxid);
-      if (mintResult.ok === false) {
-        databaseLogger.error(
-          `identity unarchive: matrix mint failed for mxid=${mxid} key=${key} status=${mintResult.status} error=${mintResult.error}`,
-        );
-        return res
-          .status(502)
-          .json({ error: "matrix mint failed" });
-      }
-
-      // 5f.5. Rewrite relay.json with the fresh token. Preserve all other
-      // keys verbatim (base, legacy fields). Both access_token AND token
-      // alias get the fresh value — recv.sh reads either (belt-and-braces
-      // across historical schema variants per matrix-admin-client.ts:431).
-      const newRelay = {
-        ...relayParsed,
-        access_token: mintResult.accessToken,
-        token: mintResult.accessToken,
-      };
-      try {
-        await writeIdentityArchiveFile(
-          key,
-          "relay.json",
-          JSON.stringify(newRelay, null, 2),
-          { hostId, conn, chmod: 0o600 },
-        );
-      } catch (writeErr) {
-        databaseLogger.error(
-          `identity unarchive: relay.json rewrite failed for key=${key} hostId=${hostId}: ${writeErr instanceof Error ? writeErr.message : String(writeErr)}`,
-        );
-        return res
-          .status(500)
-          .json({ error: "relay.json rewrite failed" });
-      }
-
-      // 5g. Drop the sentinel via the archive-tree writer (plan 143-01).
-      // The writer re-validates key + relPath before touching disk (belt-and-suspenders).
-      // Idempotent by construction: existing sentinel is overwritten via tmp+rename.
-      // The supervisor's whoami probe (2026-10-01 safety) will see the fresh
-      // token minted in step 5f and proceed with folder-mv.
-      await writeIdentityArchiveFile(key, ".unarchive-requested", "", {
-        hostId,
-        conn,
-      });
-
-      // Audit log per T-143-04-07 (repudiation): who requested un-archive on what.
-      databaseLogger.info(
-        `identity unarchive requested: userId=${userId}, hostId=${hostId}, key=${key}, mxid=${mxid}`,
-      );
-
-      return res.json({ ok: true });
-    } catch (err) {
-      // Log server-side; return generic message to the client (T-143-04-06).
-      databaseLogger.error(
-        `failed to drop .unarchive-requested sentinel for key=${key} hostId=${hostId}: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      return res
-        .status(500)
-        .json({ error: "failed to drop unarchive sentinel" });
-    } finally {
-      if (conn) {
-        try {
-          conn.end();
-        } catch {
-          /* ignore */
+          .json({ error: "failed to drop unarchive sentinel" });
+      } finally {
+        if (conn) {
+          try {
+            conn.end();
+          } catch {
+            /* ignore */
+          }
         }
       }
-    }
+    });
   },
 );
 

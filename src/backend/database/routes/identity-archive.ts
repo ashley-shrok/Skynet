@@ -46,11 +46,17 @@ import { AuthManager } from "../../utils/auth-manager.js";
 import { databaseLogger } from "../../utils/logger.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
+import { getHostSemaphore } from "../../ssh/host-semaphore-registry.js";
 import {
   isLocalHostId,
   IDENTITY_KEY_RE,
 } from "../../claude-session/identity-artifact-reader.js";
 import { writeIdentityFile } from "../../claude-session/per-identity-file.js";
+
+/** Remote SSH work holds one per-host semaphore slot; local disk work needs none. */
+function withHostSlot<T>(hostId: number, fn: () => Promise<T>): Promise<T> {
+  return isLocalHostId(hostId) ? fn() : getHostSemaphore(hostId).run(fn);
+}
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -113,48 +119,52 @@ router.post(
     // 4. Branch on LOCAL vs REMOTE. LOCAL branch passes conn=null; REMOTE
     // branch opens a one-shot SSH connection whose lifetime is scoped to the
     // writeIdentityFile call by the try/finally below.
-    let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
-    if (!isLocalHostId(hostId)) {
-      try {
-        conn = await connectOneShot(
-          host as unknown as Parameters<typeof connectOneShot>[0],
-          SSH_CONNECT_TIMEOUT_MS,
-        );
-      } catch {
-        // Connect failure → 504 with generic message (T-115-03-03).
-        return res.status(504).json({ error: "Host unreachable" });
-      }
-    }
-
-    // 5. Drop the sentinel via the per-identity-file primitive. The primitive
-    // re-validates key + relPath before touching disk (belt-and-suspenders).
-    try {
-      await writeIdentityFile(key, ".archive-requested", "", {
-        hostId,
-        conn,
-      });
-      // Audit log per T-115-03-05 (repudiation): who requested archive on what.
-      databaseLogger.info(
-        `identity archive requested: userId=${userId}, hostId=${hostId}, key=${key}`,
-      );
-      return res.json({ ok: true });
-    } catch (err) {
-      // Log server-side; return generic message to the client (T-115-03-03).
-      databaseLogger.error(
-        `failed to drop .archive-requested sentinel for key=${key} hostId=${hostId}: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      return res
-        .status(500)
-        .json({ error: "failed to drop archive sentinel" });
-    } finally {
-      if (conn) {
+    // Remote: SSH connect + work + end hold ONE per-host semaphore slot
+    // (verify:ssh-cap). Local: no SSH channel, no slot.
+    return withHostSlot(hostId, async () => {
+      let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
+      if (!isLocalHostId(hostId)) {
         try {
-          conn.end();
+          conn = await connectOneShot(
+            host as unknown as Parameters<typeof connectOneShot>[0],
+            SSH_CONNECT_TIMEOUT_MS,
+          );
         } catch {
-          /* ignore */
+          // Connect failure → 504 with generic message (T-115-03-03).
+          return res.status(504).json({ error: "Host unreachable" });
         }
       }
-    }
+
+      // 5. Drop the sentinel via the per-identity-file primitive. The primitive
+      // re-validates key + relPath before touching disk (belt-and-suspenders).
+      try {
+        await writeIdentityFile(key, ".archive-requested", "", {
+          hostId,
+          conn,
+        });
+        // Audit log per T-115-03-05 (repudiation): who requested archive on what.
+        databaseLogger.info(
+          `identity archive requested: userId=${userId}, hostId=${hostId}, key=${key}`,
+        );
+        return res.json({ ok: true });
+      } catch (err) {
+        // Log server-side; return generic message to the client (T-115-03-03).
+        databaseLogger.error(
+          `failed to drop .archive-requested sentinel for key=${key} hostId=${hostId}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return res
+          .status(500)
+          .json({ error: "failed to drop archive sentinel" });
+      } finally {
+        if (conn) {
+          try {
+            conn.end();
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+    });
   },
 );
 
