@@ -77,6 +77,7 @@ import { derivePrettyNameSlug } from "../../utils/pretty-name-slug.js";
 // Phase 130: per-user READ-side gate. Pure function; consumes the users list
 // parsed from project.md frontmatter and returns visible/hidden per caller.
 import { isProjectVisibleToUser } from "../../fleet-status/project-visibility-gate.js";
+import { getHostSemaphore } from "../../ssh/host-semaphore-registry.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -84,6 +85,17 @@ const authenticateJWT = authManager.createAuthMiddleware();
 
 /** SSH connect timeout — matches sibling identity-archive.ts. */
 const SSH_CONNECT_TIMEOUT_MS = 3000;
+
+/**
+ * Run a handler's SSH motion (connectOneShot + every exec/SFTP on that
+ * connection + conn.end) under the shared per-host semaphore. One slot per
+ * request: each handler drives its single connection serially, so a slot
+ * bounds that request's channels. Local hosts touch the bind-mount with no
+ * SSH channel and bypass the semaphore.
+ */
+function withHostSlot<T>(hostId: number, fn: () => Promise<T>): Promise<T> {
+  return isLocalHostId(hostId) ? fn() : getHostSemaphore(hostId).run(fn);
+}
 
 /** displayName length cap — per plan behavior spec (1..80 chars). */
 const DISPLAY_NAME_MAX_LEN = 80;
@@ -193,65 +205,69 @@ router.get(
     }
 
     // 3. LOCAL vs REMOTE branch on isLocalHostId.
-    let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
-    if (!isLocalHostId(hostId)) {
-      try {
-        conn = await connectOneShot(
-          host as unknown as Parameters<typeof connectOneShot>[0],
-          SSH_CONNECT_TIMEOUT_MS,
-        );
-      } catch {
-        res.status(504).json({ error: "Host unreachable" });
-        return;
-      }
-    }
-
-    try {
-      const raw = await listProjects(conn);
-
-      // Phase 130: per-user READ-side gate. Resolve caller's Skynet username
-      // and drop any project the caller isn't gated to see. Fail-OPEN on
-      // username-lookup failure (matches wave-2 identity-gate discipline at
-      // starter.ts L685-697) — a null callerUsername is an infra bug, not
-      // a gate signal; treating it as "hide everything" would empty every
-      // user's projects sidebar on the affected code path.
-      //
-      // The `users` field is STRIPPED from the response body per Phase 129
-      // HIGH-1 mirror: it's gate-only, MUST NOT leak to the client (no
-      // evidence of cohabitants in a network trace).
-      let callerUsername: string | null = null;
-      try {
-        callerUsername = await getUsernameForUserId(userId);
-      } catch (usernameErr) {
-        databaseLogger.warn(
-          `projects-list: caller username lookup threw — gate disabled userId=${userId} hostId=${hostId}: ${usernameErr instanceof Error ? usernameErr.message : String(usernameErr)}`,
-        );
-      }
-
-      const projects = raw
-        .filter((p) => isProjectVisibleToUser(p.users, callerUsername))
-        .map((p) => ({
-          slug: p.slug,
-          displayName: p.displayName,
-          archived: false,
-        }));
-      res.json({ projects });
-      return;
-    } catch (err) {
-      databaseLogger.error(
-        `failed to list projects hostId=${hostId}: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      res.status(500).json({ error: "failed to list projects" });
-      return;
-    } finally {
-      if (conn) {
+    // SSH work (connect + execs + conn.end) runs under the per-host
+    // semaphore (verify:ssh-cap); local hosts bypass it.
+    return withHostSlot(hostId, async () => {
+      let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
+      if (!isLocalHostId(hostId)) {
         try {
-          conn.end();
+          conn = await connectOneShot(
+            host as unknown as Parameters<typeof connectOneShot>[0],
+            SSH_CONNECT_TIMEOUT_MS,
+          );
         } catch {
-          /* ignore */
+          res.status(504).json({ error: "Host unreachable" });
+          return;
         }
       }
-    }
+
+      try {
+        const raw = await listProjects(conn);
+
+        // Phase 130: per-user READ-side gate. Resolve caller's Skynet username
+        // and drop any project the caller isn't gated to see. Fail-OPEN on
+        // username-lookup failure (matches wave-2 identity-gate discipline at
+        // starter.ts L685-697) — a null callerUsername is an infra bug, not
+        // a gate signal; treating it as "hide everything" would empty every
+        // user's projects sidebar on the affected code path.
+        //
+        // The `users` field is STRIPPED from the response body per Phase 129
+        // HIGH-1 mirror: it's gate-only, MUST NOT leak to the client (no
+        // evidence of cohabitants in a network trace).
+        let callerUsername: string | null = null;
+        try {
+          callerUsername = await getUsernameForUserId(userId);
+        } catch (usernameErr) {
+          databaseLogger.warn(
+            `projects-list: caller username lookup threw — gate disabled userId=${userId} hostId=${hostId}: ${usernameErr instanceof Error ? usernameErr.message : String(usernameErr)}`,
+          );
+        }
+
+        const projects = raw
+          .filter((p) => isProjectVisibleToUser(p.users, callerUsername))
+          .map((p) => ({
+            slug: p.slug,
+            displayName: p.displayName,
+            archived: false,
+          }));
+        res.json({ projects });
+        return;
+      } catch (err) {
+        databaseLogger.error(
+          `failed to list projects hostId=${hostId}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        res.status(500).json({ error: "failed to list projects" });
+        return;
+      } finally {
+        if (conn) {
+          try {
+            conn.end();
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+    });
   },
 );
 
@@ -313,155 +329,159 @@ router.post(
     }
 
     // 5. LOCAL/REMOTE branch.
-    let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
-    if (!isLocalHostId(hostId)) {
-      try {
-        conn = await connectOneShot(
-          host as unknown as Parameters<typeof connectOneShot>[0],
-          SSH_CONNECT_TIMEOUT_MS,
-        );
-      } catch {
-        res.status(504).json({ error: "Host unreachable" });
-        return;
-      }
-    }
-
-    // -----------------------------------------------------------------------
-    // Phase 130: auto-tag creator on multi-user hosts.
-    //
-    // On multi-user hosts (>1 distinct Skynet user with access), write the
-    // creator's Skynet username to the new project.md's `users:` frontmatter
-    // list. Single-user hosts stay silent — the file is byte-identical to a
-    // pre-130 project.md.
-    //
-    // Ordering invariants (mirror roles-create.ts L580-604):
-    //   - This branch runs BEFORE createProject so the auto-tag is baked into
-    //     the FIRST write (no separate rewrite pass, no live-file mutation).
-    //   - createProject itself is atomic + collision-safe (Phase 117 M2 fix
-    //     at identity-artifact-reader.ts:830-870): a race-loser sees EEXIST
-    //     and 409s without touching the winner's file. So no auto-tag can
-    //     ever overwrite an existing cohabitant's tag list.
-    //
-    // Fail-open on username-lookup failure (matches roles-create discipline):
-    // if getUsernameForUserId returns null on a multi-user host, we skip
-    // auto-tag and log loudly. A wrong-user auto-tag would be a shape §"would
-    // make it wrong" violation ("auto-tagged with the wrong user's name"), so
-    // we prefer to leave the file untagged and surface the failure in logs.
-    //
-    // Case preservation (Phase 129 Pitfall 7): getUsernameForUserId returns
-    // the case-preserved username as stored in the DB — we do NOT normalize.
-    // -----------------------------------------------------------------------
-    let autoTagUsers: string[] | null = null;
-    try {
-      const isMultiUser = await isHostMultiUser(hostId);
-      if (isMultiUser) {
-        const creatorUsername = await getUsernameForUserId(userId);
-        if (creatorUsername) {
-          autoTagUsers = [creatorUsername];
-          databaseLogger.info(
-            `projects-create: auto-tagged creator on multi-user host userId=${userId} hostId=${hostId} baseSlug=${baseSlug} creatorUsername=${creatorUsername}`,
-          );
-        } else {
-          databaseLogger.warn(
-            `projects-create: username lookup failed — auto-tag skipped userId=${userId} hostId=${hostId} baseSlug=${baseSlug}`,
-          );
-        }
-      }
-    } catch (autoTagErr) {
-      // Multi-user probe failure MUST NOT block the create — fall through
-      // without auto-tag. This matches Phase 129 fail-open discipline for
-      // write-side gate failures (a wrongly-open project is recoverable via
-      // a manual edit; a wrongly-BLOCKED create is not).
-      databaseLogger.warn(
-        `projects-create: isHostMultiUser probe failed — auto-tag skipped userId=${userId} hostId=${hostId} baseSlug=${baseSlug}: ${autoTagErr instanceof Error ? autoTagErr.message : String(autoTagErr)}`,
-      );
-    }
-
-    try {
-      // Pretty-names shape: collision auto-suffix. Try the base slug;
-      // on EEXIST retry with base-2, base-3, ... up to a sanity cap.
-      // Loop is race-safe because createProject's mkdir is atomic — a
-      // race-loser throws EEXIST without touching the winner's file, so
-      // every iteration is a fresh attempt at a distinct slug.
-      const MAX_COLLISION_ATTEMPTS = 100;
-      let slug = baseSlug;
-      let attempt = 0;
-      // eslint-disable-next-line no-constant-condition
-      while (true) {
+    // SSH work (connect + execs + conn.end) runs under the per-host
+    // semaphore (verify:ssh-cap); local hosts bypass it.
+    return withHostSlot(hostId, async () => {
+      let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
+      if (!isLocalHostId(hostId)) {
         try {
-          await createProject(conn, slug, trimmed, autoTagUsers);
-          break;
-        } catch (err) {
-          const code = (err as NodeJS.ErrnoException).code;
-          const msg = err instanceof Error ? err.message : String(err);
-          if (code === "EEXIST" || /exists/i.test(msg)) {
-            attempt += 1;
-            if (attempt >= MAX_COLLISION_ATTEMPTS) {
-              databaseLogger.error(
-                `project create collision cap exhausted hostId=${hostId} baseSlug=${baseSlug} attempts=${attempt}`,
-              );
-              res
-                .status(500)
-                .json({ error: "failed to create project" });
-              return;
-            }
-            slug = `${baseSlug}-${attempt + 1}`;
-            continue;
-          }
-          // Non-collision error is a real 500.
-          databaseLogger.error(
-            `failed to create project hostId=${hostId} slug=${slug}: ${msg}`,
+          conn = await connectOneShot(
+            host as unknown as Parameters<typeof connectOneShot>[0],
+            SSH_CONNECT_TIMEOUT_MS,
           );
-          res.status(500).json({ error: "failed to create project" });
+        } catch {
+          res.status(504).json({ error: "Host unreachable" });
           return;
         }
       }
 
-      // 6. Post-write wire event (D-37) — rebuild the full projects list
-      // for this host and hand it to the singleton registry, scoped to
-      // this hostId (client merges by dropping existing entries for
-      // this hostId and splicing in the incoming rows).
+      // -----------------------------------------------------------------------
+      // Phase 130: auto-tag creator on multi-user hosts.
+      //
+      // On multi-user hosts (>1 distinct Skynet user with access), write the
+      // creator's Skynet username to the new project.md's `users:` frontmatter
+      // list. Single-user hosts stay silent — the file is byte-identical to a
+      // pre-130 project.md.
+      //
+      // Ordering invariants (mirror roles-create.ts L580-604):
+      //   - This branch runs BEFORE createProject so the auto-tag is baked into
+      //     the FIRST write (no separate rewrite pass, no live-file mutation).
+      //   - createProject itself is atomic + collision-safe (Phase 117 M2 fix
+      //     at identity-artifact-reader.ts:830-870): a race-loser sees EEXIST
+      //     and 409s without touching the winner's file. So no auto-tag can
+      //     ever overwrite an existing cohabitant's tag list.
+      //
+      // Fail-open on username-lookup failure (matches roles-create discipline):
+      // if getUsernameForUserId returns null on a multi-user host, we skip
+      // auto-tag and log loudly. A wrong-user auto-tag would be a shape §"would
+      // make it wrong" violation ("auto-tagged with the wrong user's name"), so
+      // we prefer to leave the file untagged and surface the failure in logs.
+      //
+      // Case preservation (Phase 129 Pitfall 7): getUsernameForUserId returns
+      // the case-preserved username as stored in the DB — we do NOT normalize.
+      // -----------------------------------------------------------------------
+      let autoTagUsers: string[] | null = null;
       try {
-        const registry = getSubscriptionRegistry();
-        if (registry) {
-          const current = await listProjects(conn);
-          registry.publishProjectListChanged(
-            String(hostId),
-            enrichForWire(current, hostId, host.name ?? String(hostId)),
-          );
-        } else {
-          // Phase 117 M8 fix (2026-09-18): getSubscriptionRegistry() returns
-          // null when the singleton hasn't been initialized yet (starter.ts
-          // wires it during bootstrap). In tests that's expected; in
-          // production it means a request landed BEFORE the registry was
-          // available — a startup-timing bug, not a silent success. Log
-          // a warning so the failure is visible instead of dropping the
-          // WS fanout silently.
-          databaseLogger.warn(
-            `project-list-changed publish skipped: subscription registry not initialized (hostId=${hostId} slug=${slug} op=create)`,
-          );
+        const isMultiUser = await isHostMultiUser(hostId);
+        if (isMultiUser) {
+          const creatorUsername = await getUsernameForUserId(userId);
+          if (creatorUsername) {
+            autoTagUsers = [creatorUsername];
+            databaseLogger.info(
+              `projects-create: auto-tagged creator on multi-user host userId=${userId} hostId=${hostId} baseSlug=${baseSlug} creatorUsername=${creatorUsername}`,
+            );
+          } else {
+            databaseLogger.warn(
+              `projects-create: username lookup failed — auto-tag skipped userId=${userId} hostId=${hostId} baseSlug=${baseSlug}`,
+            );
+          }
         }
-      } catch (publishErr) {
-        // Publishing failure MUST NOT roll back the create. Log and continue.
+      } catch (autoTagErr) {
+        // Multi-user probe failure MUST NOT block the create — fall through
+        // without auto-tag. This matches Phase 129 fail-open discipline for
+        // write-side gate failures (a wrongly-open project is recoverable via
+        // a manual edit; a wrongly-BLOCKED create is not).
         databaseLogger.warn(
-          `project-list-changed publish failed after create hostId=${hostId} slug=${slug}: ${publishErr instanceof Error ? publishErr.message : String(publishErr)}`,
+          `projects-create: isHostMultiUser probe failed — auto-tag skipped userId=${userId} hostId=${hostId} baseSlug=${baseSlug}: ${autoTagErr instanceof Error ? autoTagErr.message : String(autoTagErr)}`,
         );
       }
 
-      databaseLogger.info(
-        `project created: userId=${userId} hostId=${hostId} slug=${slug} baseSlug=${baseSlug}`,
-      );
-      res.json({ ok: true, slug });
-      return;
-    } finally {
-      if (conn) {
+      try {
+        // Pretty-names shape: collision auto-suffix. Try the base slug;
+        // on EEXIST retry with base-2, base-3, ... up to a sanity cap.
+        // Loop is race-safe because createProject's mkdir is atomic — a
+        // race-loser throws EEXIST without touching the winner's file, so
+        // every iteration is a fresh attempt at a distinct slug.
+        const MAX_COLLISION_ATTEMPTS = 100;
+        let slug = baseSlug;
+        let attempt = 0;
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+          try {
+            await createProject(conn, slug, trimmed, autoTagUsers);
+            break;
+          } catch (err) {
+            const code = (err as NodeJS.ErrnoException).code;
+            const msg = err instanceof Error ? err.message : String(err);
+            if (code === "EEXIST" || /exists/i.test(msg)) {
+              attempt += 1;
+              if (attempt >= MAX_COLLISION_ATTEMPTS) {
+                databaseLogger.error(
+                  `project create collision cap exhausted hostId=${hostId} baseSlug=${baseSlug} attempts=${attempt}`,
+                );
+                res
+                  .status(500)
+                  .json({ error: "failed to create project" });
+                return;
+              }
+              slug = `${baseSlug}-${attempt + 1}`;
+              continue;
+            }
+            // Non-collision error is a real 500.
+            databaseLogger.error(
+              `failed to create project hostId=${hostId} slug=${slug}: ${msg}`,
+            );
+            res.status(500).json({ error: "failed to create project" });
+            return;
+          }
+        }
+
+        // 6. Post-write wire event (D-37) — rebuild the full projects list
+        // for this host and hand it to the singleton registry, scoped to
+        // this hostId (client merges by dropping existing entries for
+        // this hostId and splicing in the incoming rows).
         try {
-          conn.end();
-        } catch {
-          /* ignore */
+          const registry = getSubscriptionRegistry();
+          if (registry) {
+            const current = await listProjects(conn);
+            registry.publishProjectListChanged(
+              String(hostId),
+              enrichForWire(current, hostId, host.name ?? String(hostId)),
+            );
+          } else {
+            // Phase 117 M8 fix (2026-09-18): getSubscriptionRegistry() returns
+            // null when the singleton hasn't been initialized yet (starter.ts
+            // wires it during bootstrap). In tests that's expected; in
+            // production it means a request landed BEFORE the registry was
+            // available — a startup-timing bug, not a silent success. Log
+            // a warning so the failure is visible instead of dropping the
+            // WS fanout silently.
+            databaseLogger.warn(
+              `project-list-changed publish skipped: subscription registry not initialized (hostId=${hostId} slug=${slug} op=create)`,
+            );
+          }
+        } catch (publishErr) {
+          // Publishing failure MUST NOT roll back the create. Log and continue.
+          databaseLogger.warn(
+            `project-list-changed publish failed after create hostId=${hostId} slug=${slug}: ${publishErr instanceof Error ? publishErr.message : String(publishErr)}`,
+          );
+        }
+
+        databaseLogger.info(
+          `project created: userId=${userId} hostId=${hostId} slug=${slug} baseSlug=${baseSlug}`,
+        );
+        res.json({ ok: true, slug });
+        return;
+      } finally {
+        if (conn) {
+          try {
+            conn.end();
+          } catch {
+            /* ignore */
+          }
         }
       }
-    }
+    });
   },
 );
 
@@ -507,71 +527,75 @@ router.post(
     }
 
     // 4. LOCAL/REMOTE branch.
-    let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
-    if (!isLocalHostId(hostId)) {
-      try {
-        conn = await connectOneShot(
-          host as unknown as Parameters<typeof connectOneShot>[0],
-          SSH_CONNECT_TIMEOUT_MS,
-        );
-      } catch {
-        res.status(504).json({ error: "Host unreachable" });
-        return;
-      }
-    }
-
-    try {
-      try {
-        await archiveProject(conn, slug);
-      } catch (err) {
-        databaseLogger.error(
-          `failed to archive project hostId=${hostId} slug=${slug}: ${err instanceof Error ? err.message : String(err)}`,
-        );
-        // Generic-500 shape — no err.message leak (T-117-04-05).
-        res.status(500).json({ error: "failed to archive project" });
-        return;
-      }
-
-      // 5. Post-write wire event (D-37) — rebuild the projects list
-      // (which now excludes the just-archived slug) and publish, scoped
-      // to this hostId. If the archived slug was the LAST project on
-      // this host, current is [] — a legitimate per-host delta.
-      try {
-        const registry = getSubscriptionRegistry();
-        if (registry) {
-          const current = await listProjects(conn);
-          registry.publishProjectListChanged(
-            String(hostId),
-            enrichForWire(current, hostId, host.name ?? String(hostId)),
-          );
-        } else {
-          // Phase 117 M8 fix (2026-09-18): null-registry-at-request-time is
-          // a startup-timing bug in production. Log a warning so the
-          // failure is visible instead of dropping the WS fanout silently.
-          databaseLogger.warn(
-            `project-list-changed publish skipped: subscription registry not initialized (hostId=${hostId} slug=${slug} op=archive)`,
-          );
-        }
-      } catch (publishErr) {
-        databaseLogger.warn(
-          `project-list-changed publish failed after archive hostId=${hostId} slug=${slug}: ${publishErr instanceof Error ? publishErr.message : String(publishErr)}`,
-        );
-      }
-
-      databaseLogger.info(
-        `project archived: userId=${userId} hostId=${hostId} slug=${slug}`,
-      );
-      res.json({ ok: true });
-      return;
-    } finally {
-      if (conn) {
+    // SSH work (connect + execs + conn.end) runs under the per-host
+    // semaphore (verify:ssh-cap); local hosts bypass it.
+    return withHostSlot(hostId, async () => {
+      let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
+      if (!isLocalHostId(hostId)) {
         try {
-          conn.end();
+          conn = await connectOneShot(
+            host as unknown as Parameters<typeof connectOneShot>[0],
+            SSH_CONNECT_TIMEOUT_MS,
+          );
         } catch {
-          /* ignore */
+          res.status(504).json({ error: "Host unreachable" });
+          return;
         }
       }
-    }
+
+      try {
+        try {
+          await archiveProject(conn, slug);
+        } catch (err) {
+          databaseLogger.error(
+            `failed to archive project hostId=${hostId} slug=${slug}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+          // Generic-500 shape — no err.message leak (T-117-04-05).
+          res.status(500).json({ error: "failed to archive project" });
+          return;
+        }
+
+        // 5. Post-write wire event (D-37) — rebuild the projects list
+        // (which now excludes the just-archived slug) and publish, scoped
+        // to this hostId. If the archived slug was the LAST project on
+        // this host, current is [] — a legitimate per-host delta.
+        try {
+          const registry = getSubscriptionRegistry();
+          if (registry) {
+            const current = await listProjects(conn);
+            registry.publishProjectListChanged(
+              String(hostId),
+              enrichForWire(current, hostId, host.name ?? String(hostId)),
+            );
+          } else {
+            // Phase 117 M8 fix (2026-09-18): null-registry-at-request-time is
+            // a startup-timing bug in production. Log a warning so the
+            // failure is visible instead of dropping the WS fanout silently.
+            databaseLogger.warn(
+              `project-list-changed publish skipped: subscription registry not initialized (hostId=${hostId} slug=${slug} op=archive)`,
+            );
+          }
+        } catch (publishErr) {
+          databaseLogger.warn(
+            `project-list-changed publish failed after archive hostId=${hostId} slug=${slug}: ${publishErr instanceof Error ? publishErr.message : String(publishErr)}`,
+          );
+        }
+
+        databaseLogger.info(
+          `project archived: userId=${userId} hostId=${hostId} slug=${slug}`,
+        );
+        res.json({ ok: true });
+        return;
+      } finally {
+        if (conn) {
+          try {
+            conn.end();
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+    });
   },
 );
 
@@ -622,38 +646,42 @@ router.get(
       return;
     }
 
-    let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
-    if (!isLocalHostId(hostId)) {
-      try {
-        conn = await connectOneShot(
-          host as unknown as Parameters<typeof connectOneShot>[0],
-          SSH_CONNECT_TIMEOUT_MS,
-        );
-      } catch {
-        res.status(504).json({ error: "Host unreachable" });
-        return;
-      }
-    }
-
-    try {
-      const { markdown } = await readProjectFile(conn, slug);
-      res.json({ markdown });
-      return;
-    } catch (err) {
-      databaseLogger.error(
-        `failed to read project file hostId=${hostId} slug=${slug}: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      res.status(500).json({ error: "failed to read project file" });
-      return;
-    } finally {
-      if (conn) {
+    // SSH work (connect + execs + conn.end) runs under the per-host
+    // semaphore (verify:ssh-cap); local hosts bypass it.
+    return withHostSlot(hostId, async () => {
+      let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
+      if (!isLocalHostId(hostId)) {
         try {
-          conn.end();
+          conn = await connectOneShot(
+            host as unknown as Parameters<typeof connectOneShot>[0],
+            SSH_CONNECT_TIMEOUT_MS,
+          );
         } catch {
-          /* ignore */
+          res.status(504).json({ error: "Host unreachable" });
+          return;
         }
       }
-    }
+
+      try {
+        const { markdown } = await readProjectFile(conn, slug);
+        res.json({ markdown });
+        return;
+      } catch (err) {
+        databaseLogger.error(
+          `failed to read project file hostId=${hostId} slug=${slug}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        res.status(500).json({ error: "failed to read project file" });
+        return;
+      } finally {
+        if (conn) {
+          try {
+            conn.end();
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+    });
   },
 );
 
@@ -699,67 +727,71 @@ router.put(
       return;
     }
 
-    let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
-    if (!isLocalHostId(hostId)) {
-      try {
-        conn = await connectOneShot(
-          host as unknown as Parameters<typeof connectOneShot>[0],
-          SSH_CONNECT_TIMEOUT_MS,
-        );
-      } catch {
-        res.status(504).json({ error: "Host unreachable" });
-        return;
-      }
-    }
-
-    try {
-      const { markdown } = await writeProjectFile(conn, slug, contents);
-      databaseLogger.info(
-        `project file written: userId=${userId} hostId=${hostId} slug=${slug} bytes=${contents.length}`,
-      );
-
-      // Post-write wire event (D-37 mirror): a project.md edit can change
-      // the displayName in the frontmatter, so the sidebar's project
-      // section headers must re-render across all connected clients. Mirror
-      // the POST create + POST archive publish shape verbatim so the wire
-      // frame looks identical no matter which write path fired it. Publish
-      // failure MUST NOT roll back the file write — log and continue.
-      try {
-        const registry = getSubscriptionRegistry();
-        if (registry) {
-          const current = await listProjects(conn);
-          registry.publishProjectListChanged(
-            String(hostId),
-            enrichForWire(current, hostId, host.name ?? String(hostId)),
-          );
-        } else {
-          databaseLogger.warn(
-            `project-list-changed publish skipped: subscription registry not initialized (hostId=${hostId} slug=${slug} op=write-file)`,
-          );
-        }
-      } catch (publishErr) {
-        databaseLogger.warn(
-          `project-list-changed publish failed after write-file hostId=${hostId} slug=${slug}: ${publishErr instanceof Error ? publishErr.message : String(publishErr)}`,
-        );
-      }
-
-      res.json({ markdown });
-      return;
-    } catch (err) {
-      databaseLogger.error(
-        `failed to write project file hostId=${hostId} slug=${slug}: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      res.status(500).json({ error: "failed to write project file" });
-      return;
-    } finally {
-      if (conn) {
+    // SSH work (connect + execs + conn.end) runs under the per-host
+    // semaphore (verify:ssh-cap); local hosts bypass it.
+    return withHostSlot(hostId, async () => {
+      let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
+      if (!isLocalHostId(hostId)) {
         try {
-          conn.end();
+          conn = await connectOneShot(
+            host as unknown as Parameters<typeof connectOneShot>[0],
+            SSH_CONNECT_TIMEOUT_MS,
+          );
         } catch {
-          /* ignore */
+          res.status(504).json({ error: "Host unreachable" });
+          return;
         }
       }
-    }
+
+      try {
+        const { markdown } = await writeProjectFile(conn, slug, contents);
+        databaseLogger.info(
+          `project file written: userId=${userId} hostId=${hostId} slug=${slug} bytes=${contents.length}`,
+        );
+
+        // Post-write wire event (D-37 mirror): a project.md edit can change
+        // the displayName in the frontmatter, so the sidebar's project
+        // section headers must re-render across all connected clients. Mirror
+        // the POST create + POST archive publish shape verbatim so the wire
+        // frame looks identical no matter which write path fired it. Publish
+        // failure MUST NOT roll back the file write — log and continue.
+        try {
+          const registry = getSubscriptionRegistry();
+          if (registry) {
+            const current = await listProjects(conn);
+            registry.publishProjectListChanged(
+              String(hostId),
+              enrichForWire(current, hostId, host.name ?? String(hostId)),
+            );
+          } else {
+            databaseLogger.warn(
+              `project-list-changed publish skipped: subscription registry not initialized (hostId=${hostId} slug=${slug} op=write-file)`,
+            );
+          }
+        } catch (publishErr) {
+          databaseLogger.warn(
+            `project-list-changed publish failed after write-file hostId=${hostId} slug=${slug}: ${publishErr instanceof Error ? publishErr.message : String(publishErr)}`,
+          );
+        }
+
+        res.json({ markdown });
+        return;
+      } catch (err) {
+        databaseLogger.error(
+          `failed to write project file hostId=${hostId} slug=${slug}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        res.status(500).json({ error: "failed to write project file" });
+        return;
+      } finally {
+        if (conn) {
+          try {
+            conn.end();
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+    });
   },
 );
 

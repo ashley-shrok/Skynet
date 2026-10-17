@@ -131,6 +131,10 @@ import {
 // Phase 117 M8 fix (2026-09-18): import the mocked databaseLogger so
 // null-registry tests can assert the warning is logged.
 import { databaseLogger } from "../../utils/logger.js";
+import {
+  __resetHostSemaphoreRegistryForTests,
+  getHostSemaphore,
+} from "../../ssh/host-semaphore-registry.js";
 // Phase 130: auto-tag path helpers.
 import {
   isHostMultiUser,
@@ -1139,4 +1143,57 @@ describe("cross-cutting", () => {
   // Test 18 retired: slug derivation now lives in src/backend/utils/
   // pretty-name-slug.ts with its own unit tests. The project create route
   // is tested end-to-end via Tests 9, 11, 11b, 11c.
+});
+
+// ===========================================================================
+// Per-host SSH semaphore (verify:ssh-cap)
+// ===========================================================================
+
+describe("GET /projects — per-host semaphore cap", () => {
+  it("10 concurrent remote lists never hold more SSH conns than the cap", async () => {
+    __resetHostSemaphoreRegistryForTests();
+    getHostSemaphore(7, 3); // pre-seed a small cap for host 7
+    let live = 0;
+    let peak = 0;
+    (connectOneShot as Mock).mockImplementation(async () => {
+      live++;
+      peak = Math.max(peak, live);
+      return {
+        exec: vi.fn(),
+        end: () => {
+          live--;
+        },
+      };
+    });
+    (listProjects as Mock).mockImplementation(
+      () => new Promise((r) => setTimeout(() => r([]), 5)),
+    );
+    const results = await Promise.all(
+      Array.from({ length: 10 }, () =>
+        httpRequest(server, { method: "GET", path: "/projects?hostId=7" }),
+      ),
+    );
+    expect(results.every((r) => r.status === 200)).toBe(true);
+    expect(connectOneShot).toHaveBeenCalledTimes(10);
+    expect(peak).toBeLessThanOrEqual(3);
+    expect(peak).toBeGreaterThan(1);
+    expect(live).toBe(0);
+    __resetHostSemaphoreRegistryForTests();
+  });
+
+  it("LOCAL host bypasses the semaphore (no slot held, no SSH)", async () => {
+    __resetHostSemaphoreRegistryForTests();
+    getHostSemaphore(5, 1);
+    (listProjects as Mock).mockImplementation(
+      () => new Promise((r) => setTimeout(() => r([]), 5)),
+    );
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () =>
+        httpRequest(server, { method: "GET", path: "/projects?hostId=5" }),
+      ),
+    );
+    expect(results.every((r) => r.status === 200)).toBe(true);
+    expect(connectOneShot).not.toHaveBeenCalled();
+    __resetHostSemaphoreRegistryForTests();
+  });
 });

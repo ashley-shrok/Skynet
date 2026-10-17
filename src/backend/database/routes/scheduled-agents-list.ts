@@ -44,6 +44,7 @@ import { SimpleDBOps } from "../../utils/simple-db-ops.js";
 import { sshLogger } from "../../utils/logger.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
+import { getHostSemaphore } from "../../ssh/host-semaphore-registry.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
 import {
   humanizeWakeupSchedule,
@@ -660,27 +661,31 @@ router.get(
           }
 
           // REMOTE branch — one SSH round-trip via delimiter one-liner.
-          const conn = await connectOneShot(
-            resolved as unknown as Parameters<typeof connectOneShot>[0],
-            CONNECT_TIMEOUT_MS,
-          );
-          try {
-            return await Promise.race<ScheduledAgentListItem[]>([
-              readScheduledAgentsRemote(conn, hostId, hostName),
-              new Promise<ScheduledAgentListItem[]>((_, reject) =>
-                setTimeout(
-                  () => reject(new Error("per_host_timeout")),
-                  PER_HOST_TIMEOUT_MS,
-                ),
-              ),
-            ]);
-          } finally {
+          // Connect + the single exec + conn.end hold one per-host semaphore
+          // slot (verify:ssh-cap). Nothing below re-acquires it.
+          return await getHostSemaphore(hostId).run(async () => {
+            const conn = await connectOneShot(
+              resolved as unknown as Parameters<typeof connectOneShot>[0],
+              CONNECT_TIMEOUT_MS,
+            );
             try {
-              (conn as { end?: () => void }).end?.();
-            } catch {
-              /* ignore */
+              return await Promise.race<ScheduledAgentListItem[]>([
+                readScheduledAgentsRemote(conn, hostId, hostName),
+                new Promise<ScheduledAgentListItem[]>((_, reject) =>
+                  setTimeout(
+                    () => reject(new Error("per_host_timeout")),
+                    PER_HOST_TIMEOUT_MS,
+                  ),
+                ),
+              ]);
+            } finally {
+              try {
+                (conn as { end?: () => void }).end?.();
+              } catch {
+                /* ignore */
+              }
             }
-          }
+          });
         } catch (e) {
           sshLogger.debug("scheduled-agents-list: host skipped", {
             operation: "scheduled_agents_list_host_skip",

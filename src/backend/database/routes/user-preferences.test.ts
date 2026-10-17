@@ -286,6 +286,10 @@ import {
   handlePutPreferences,
 } from "./user-preferences.js";
 import { DatabaseSaveTrigger } from "../db/index.js";
+import {
+  __resetHostSemaphoreRegistryForTests,
+  getHostSemaphore,
+} from "../../ssh/host-semaphore-registry.js";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -1122,5 +1126,49 @@ describe("voice mode turn-end preferences GET/PUT", () => {
     await handlePutPreferences(USER_ID, { voiceModeSendPhrase: v }, res as unknown as Response);
     expect(res._status).toBe(400);
     expect((res._body as { error?: string }).error).toContain("voiceModeSendPhrase");
+  });
+});
+
+// ===========================================================================
+// Per-host SSH semaphore (verify:ssh-cap): the pin fanout opens many
+// parallel channels on ONE connection per host, so the slot is taken per
+// channel — peak concurrent channels must never exceed the host's cap.
+// ===========================================================================
+
+describe("handlePutPreferences: pin fanout honours the per-host semaphore", () => {
+  it("12 identities on one remote host → peak concurrent channels <= cap", async () => {
+    __resetHostSemaphoreRegistryForTests();
+    getHostSemaphore(1, 3);
+    isLocalHostIdMock.mockReturnValue(false);
+    let live = 0;
+    let peak = 0;
+    const channel = async <T,>(v: T): Promise<T> => {
+      live++;
+      peak = Math.max(peak, live);
+      try {
+        await new Promise((r) => setTimeout(r, 2));
+        return v;
+      } finally {
+        live--;
+      }
+    };
+    identityFileExistsMock.mockImplementation(() => channel(false));
+    writeIdentityFileMock.mockImplementation(() => channel(undefined));
+
+    const keys = Array.from({ length: 12 }, (_, i) => `id${i}`);
+    const identityHosts = Object.fromEntries(keys.map((k) => [k, 1]));
+    const res = makeRes();
+    await handlePutPreferences(
+      USER_ID,
+      { pinnedConversationIds: keys, identityHosts },
+      res as unknown as Response,
+    );
+
+    expect(res._status).toBe(200);
+    expect(writeIdentityFileMock).toHaveBeenCalledTimes(12);
+    expect(peak).toBeLessThanOrEqual(3);
+    expect(peak).toBeGreaterThan(1);
+    expect(live).toBe(0);
+    __resetHostSemaphoreRegistryForTests();
   });
 });

@@ -17,6 +17,7 @@ import {
 } from "../../claude-session/per-identity-file.js";
 import { isLocalHostId } from "../../claude-session/identity-artifact-reader.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
+import { getHostSemaphore } from "../../ssh/host-semaphore-registry.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { isRecognizedVoiceId } from "../../voice/tts-provider.js";
 
@@ -123,6 +124,17 @@ export function handleGetPreferences(
  * Throws on unresolvable hostId or SSH failure — the fanout treats this as a
  * synchronous error per D-06.
  */
+/**
+ * Per-channel slot on the shared per-host semaphore (verify:ssh-cap). The pin
+ * fanout runs many `.pinned` probes / writes / removes in parallel over ONE
+ * connection per host, so the slot MUST wrap each individual channel (the
+ * identities.ts GET fanout pattern) — a per-request slot would leave the
+ * fanout's channel count uncapped. Local hosts (no SSH) bypass.
+ */
+function withSlot<T>(hostId: number, fn: () => Promise<T>): Promise<T> {
+  return isLocalHostId(hostId) ? fn() : getHostSemaphore(hostId).run(fn);
+}
+
 async function openConnForHost(
   hostId: number,
   userId: string,
@@ -134,7 +146,9 @@ async function openConnForHost(
   if (!host) {
     throw new Error(`hostId ${hostId} not resolvable`);
   }
-  const conn = await connectOneShot(host, 5_000);
+  // Handshake under a slot too; released before the fanout acquires its
+  // per-channel slots (never nested).
+  const conn = await withSlot(hostId, () => connectOneShot(host, 5_000));
   return { conn, local: false };
 }
 
@@ -396,10 +410,12 @@ export async function handlePutPreferences(
           identityHostsKeys.map(async (key) => {
             const hostId = identityHosts[key];
             try {
-              const exists = await identityFileExists(key, ".pinned", {
-                hostId,
-                conn: connByHost.get(hostId) ?? null,
-              });
+              const exists = await withSlot(hostId, () =>
+                identityFileExists(key, ".pinned", {
+                  hostId,
+                  conn: connByHost.get(hostId) ?? null,
+                }),
+              );
               return exists;
             } catch {
               return false;
@@ -434,16 +450,20 @@ export async function handlePutPreferences(
         // lowercase-on-disk invariant — parseIdentityHosts already lowercased).
         await Promise.all([
           ...toAdd.map((k) =>
-            writeIdentityFile(k, ".pinned", "", {
-              hostId: identityHosts[k],
-              conn: connByHost.get(identityHosts[k]) ?? null,
-            }),
+            withSlot(identityHosts[k], () =>
+              writeIdentityFile(k, ".pinned", "", {
+                hostId: identityHosts[k],
+                conn: connByHost.get(identityHosts[k]) ?? null,
+              }),
+            ),
           ),
           ...toRemove.map((k) =>
-            removeIdentityFile(k, ".pinned", {
-              hostId: identityHosts[k],
-              conn: connByHost.get(identityHosts[k]) ?? null,
-            }),
+            withSlot(identityHosts[k], () =>
+              removeIdentityFile(k, ".pinned", {
+                hostId: identityHosts[k],
+                conn: connByHost.get(identityHosts[k]) ?? null,
+              }),
+            ),
           ),
         ]);
         didFanoutSentinels = true;
@@ -454,10 +474,12 @@ export async function handlePutPreferences(
           identityHostsKeys.map(async (key) => {
             const hostId = identityHosts[key];
             try {
-              return await identityFileExists(key, ".pinned", {
-                hostId,
-                conn: connByHost.get(hostId) ?? null,
-              });
+              return await withSlot(hostId, () =>
+                identityFileExists(key, ".pinned", {
+                  hostId,
+                  conn: connByHost.get(hostId) ?? null,
+                }),
+              );
             } catch {
               return false;
             }

@@ -90,6 +90,7 @@ import { SimpleDBOps } from "../../utils/simple-db-ops.js";
 import { sshLogger, systemLogger } from "../../utils/logger.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
+import { getHostSemaphore } from "../../ssh/host-semaphore-registry.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
 import {
   __matchesIdentityFirstTurnForTests,
@@ -911,48 +912,55 @@ router.post(
         try {
           const resolved = await resolveHostById(hostId, userId);
           if (!resolved) return [];
-          const conn = await connectOneShot(
-            resolved as unknown as Parameters<typeof connectOneShot>[0],
-            CONNECT_TIMEOUT_MS,
-          );
-          try {
-            const c = conn as unknown as Parameters<
-              typeof discoverIdentitySessionFile
-            >[0];
-            // Every SSH exec for this host — grep, gate frontmatter batch,
-            // passage pass — runs inside ONE per-host timeout, so a host that
-            // stalls at any step costs its own rows, never the whole request.
-            return await Promise.race<ConversationSearchResult[]>([
-              (async () => {
-                const rows = await runOneHost(c, hostId, hostName, query);
-                // Phase 129 Plan 129-04: D-7 deep-gate seam #4 — batched
-                // frontmatter fetch, fail-CLOSED filter. Applied AFTER
-                // runOneHost so live and archived hits share one pass; BEFORE
-                // flatten so hidden hits never enter the aggregated response.
-                // See gateHostRows docblock for the fail-closed rationale.
-                const gatedRows = await gateHostRows(c, hostId, callerUsername, rows);
-                return attachPassages(
-                  c,
-                  hostId,
-                  gatedRows,
-                  query,
-                  Math.min(offset + limit, PASSAGE_MAX_ROWS_PER_HOST),
-                );
-              })(),
-              new Promise<ConversationSearchResult[]>((_, reject) =>
-                setTimeout(
-                  () => reject(new Error("per_host_timeout")),
-                  perHostTimeoutMs,
-                ),
-              ),
-            ]);
-          } finally {
+          // The whole SSH motion (connect + grep / gate batch / passage execs +
+          // conn.end) holds ONE per-host semaphore slot (verify:ssh-cap). One
+          // slot per request is the right granularity: the per-host pipeline
+          // opens at most two channels at once (live + archived key listing) and
+          // is otherwise serial, and nothing below re-acquires this semaphore.
+          return await getHostSemaphore(hostId).run(async () => {
+            const conn = await connectOneShot(
+              resolved as unknown as Parameters<typeof connectOneShot>[0],
+              CONNECT_TIMEOUT_MS,
+            );
             try {
-              (conn as { end?: () => void }).end?.();
-            } catch {
-              /* ignore */
+              const c = conn as unknown as Parameters<
+                typeof discoverIdentitySessionFile
+              >[0];
+              // Every SSH exec for this host — grep, gate frontmatter batch,
+              // passage pass — runs inside ONE per-host timeout, so a host that
+              // stalls at any step costs its own rows, never the whole request.
+              return await Promise.race<ConversationSearchResult[]>([
+                (async () => {
+                  const rows = await runOneHost(c, hostId, hostName, query);
+                  // Phase 129 Plan 129-04: D-7 deep-gate seam #4 — batched
+                  // frontmatter fetch, fail-CLOSED filter. Applied AFTER
+                  // runOneHost so live and archived hits share one pass; BEFORE
+                  // flatten so hidden hits never enter the aggregated response.
+                  // See gateHostRows docblock for the fail-closed rationale.
+                  const gatedRows = await gateHostRows(c, hostId, callerUsername, rows);
+                  return attachPassages(
+                    c,
+                    hostId,
+                    gatedRows,
+                    query,
+                    Math.min(offset + limit, PASSAGE_MAX_ROWS_PER_HOST),
+                  );
+                })(),
+                new Promise<ConversationSearchResult[]>((_, reject) =>
+                  setTimeout(
+                    () => reject(new Error("per_host_timeout")),
+                    perHostTimeoutMs,
+                  ),
+                ),
+              ]);
+            } finally {
+              try {
+                (conn as { end?: () => void }).end?.();
+              } catch {
+                /* ignore */
+              }
             }
-          }
+          });
         } catch (e) {
           sshLogger.debug("conversation-search: host skipped", {
             operation: "conversation_search_host_skip",
