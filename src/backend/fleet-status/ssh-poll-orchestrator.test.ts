@@ -20,7 +20,9 @@ import {
 } from "vitest";
 import {
   createSshPollOrchestrator,
+  FLEET_STATUS_EXEC_TIMEOUT_MS,
   type SshChannel,
+  type SshChannelExecOptions,
   type OrchestratorDeps,
   __scanTailForNewestMessageAtForTests,
   __adaptWidgetLineToStateForTests,
@@ -169,6 +171,8 @@ import { getIdentityLastSend } from "./identity-send-log-store.js";
 class MockSshChannel implements SshChannel {
   private responses = new Map<string, string | null>();
   private callLog: Array<{ command: string; response: string | null }> = [];
+  /** Per-call exec opts, keyed by call order (parallel to callLog). */
+  readonly optsLog: Array<{ command: string; opts: SshChannelExecOptions | undefined }> = [];
 
   /** Register a substring pattern (matched via includes) → response */
   setResponse(pattern: string, response: string | null): void {
@@ -189,7 +193,12 @@ class MockSshChannel implements SshChannel {
     this.callLog = [];
   }
 
-  async exec(command: string): Promise<string | null> {
+  async exec(
+    command: string,
+    _stdinBody?: Buffer,
+    opts?: SshChannelExecOptions,
+  ): Promise<string | null> {
+    this.optsLog.push({ command, opts });
     let response: string | null = null;
     for (const [pattern, resp] of this.responses.entries()) {
       if (command.includes(pattern)) {
@@ -7783,6 +7792,28 @@ describe("Phase 92 — batch sweep dispatch", () => {
       .map((p) => p.state.tmuxSession)
       .sort();
     expect(tmuxSessions).toEqual(["alpha", "beta", "gamma"]);
+  });
+
+  it("passes its race budgets INTO the exec (probe 5s, sweep 8s) so a timed-out exec frees its slot", async () => {
+    const channel = new MockSshChannel();
+    wireBatchProbe(channel, true);
+    channel.setResponse(
+      "~/.local/bin/fleet-status-sweep 2>/dev/null",
+      buildSharedSweepJsonl(),
+    );
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+    });
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+    const optsFor = (cmd: string) =>
+      channel.optsLog.filter((c) => c.command === cmd).map((c) => c.opts);
+    expect(
+      optsFor("test -x ~/.local/bin/fleet-status-sweep 2>/dev/null && echo yes || echo no"),
+    ).toEqual([{ timeoutMs: 5000 }]);
+    expect(optsFor("~/.local/bin/fleet-status-sweep 2>/dev/null")).toEqual([{ timeoutMs: 8000 }]);
+    expect(FLEET_STATUS_EXEC_TIMEOUT_MS).toBe(30_000);
+    orchestrator.stop();
   });
 
   // -------------------------------------------------------------------------

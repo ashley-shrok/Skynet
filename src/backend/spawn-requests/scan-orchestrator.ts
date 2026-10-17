@@ -183,11 +183,19 @@ export interface SpawnScanOrchestrator {
 // Factory
 // ---------------------------------------------------------------------------
 
+/**
+ * Default per-host scan timeout, and the per-exec ceiling the production
+ * spawn-scan channel adapter (starter.ts) passes into execCommand — an exec
+ * never outlives the scan that issued it, so an abandoned exec's semaphore
+ * slot is freed when the scan's guard is.
+ */
+export const SPAWN_SCAN_EXEC_TIMEOUT_MS = 30_000;
+
 export function createSpawnScanOrchestrator(
   deps: SpawnScanOrchestratorDeps,
 ): SpawnScanOrchestrator {
   const scanIntervalMs = deps.scanIntervalMs ?? 10000;
-  const scanTimeoutMs = deps.scanTimeoutMs ?? 30000;
+  const scanTimeoutMs = deps.scanTimeoutMs ?? SPAWN_SCAN_EXEC_TIMEOUT_MS;
   const censusTimeoutMs = deps.censusTimeoutMs ?? 10000;
 
   function machineKeyOf(host: SpawnScanHostRecord): string {
@@ -346,7 +354,9 @@ export function createSpawnScanOrchestrator(
       } | null;
       const read = (async () => {
         if (channel === null) return c.readLocal();
-        const stdout = await channel.exec(CENSUS_REMOTE_CMD);
+        const stdout = await channel.exec(CENSUS_REMOTE_CMD, undefined, {
+          timeoutMs: censusTimeoutMs,
+        });
         return stdout === null
           ? null
           : parseCensusOutput(stdout, (n) => IDENTITY_KEY_RE.test(n));

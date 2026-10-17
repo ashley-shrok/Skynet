@@ -169,7 +169,12 @@ export function createHarnessReconciler<H extends HarnessHost>(
     const channel = await deps.acquireChannel(host);
     if (channel === null) return undefined; // unreachable — not an attempt
     try {
-      return await channel.exec(buildRemoteHarnessCommand(pin));
+      // The substrate channel's default per-exec ceiling (5 min) is shorter
+      // than an install; pass the full attempt budget so the exec isn't cut
+      // off mid-install, while still closing the channel if it wedges.
+      return await channel.exec(buildRemoteHarnessCommand(pin), undefined, {
+        timeoutMs: attemptTimeoutMs,
+      });
     } finally {
       try {
         deps.releaseChannel(host, channel);

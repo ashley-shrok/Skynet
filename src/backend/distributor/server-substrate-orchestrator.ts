@@ -132,6 +132,15 @@ export interface ServerSubstrateOrchestratorDeps {
 export const HOST_SWEEP_DEADLINE_MS = 5 * 60 * 1000;
 
 /**
+ * Per-exec ceiling for the substrate SSH channel adapter (starter.ts), passed
+ * INTO execCommand so a wedged exec closes its channel and frees its
+ * per-host semaphore slot. A single exec can't legitimately take longer than
+ * the whole host sweep's deadline; the one long-running exception (harness
+ * install) passes HARNESS_ATTEMPT_TIMEOUT_MS explicitly.
+ */
+export const SUBSTRATE_EXEC_TIMEOUT_MS = HOST_SWEEP_DEADLINE_MS;
+
+/**
  * Public surface of the server-substrate orchestrator returned by the factory.
  */
 export interface ServerSubstrateOrchestrator {

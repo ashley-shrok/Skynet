@@ -190,8 +190,33 @@ export function __resetSweepResultCacheForTests(): void {
  * writeInstalledBytesWithMode in ../distributor/ssh-push.ts for the
  * load-bearing consumer.
  */
+/**
+ * Per-call exec options. `timeoutMs` is passed INTO the underlying
+ * execCommand so the SSH channel is closed (and its per-host semaphore slot
+ * freed) when it expires — a caller's own Promise.race only abandons the
+ * promise. Adapters fall back to a per-subsystem ceiling when omitted
+ * (FLEET_STATUS_EXEC_TIMEOUT_MS here). Local (child_process) channels may
+ * ignore it.
+ */
+export interface SshChannelExecOptions {
+  timeoutMs?: number;
+}
+
+/**
+ * Default per-exec ceiling for the fleet-status channel adapter. Equal to the
+ * legacy-poll wall-time cap (LEGACY_POLL_TIMEOUT_MS) — the largest budget any
+ * fleet-status caller races an exec against, so no exec can outlive the poll
+ * that issued it. Tighter race sites (probe 5s, sweep 8s, discovery 5s) pass
+ * their own budget through opts.
+ */
+export const FLEET_STATUS_EXEC_TIMEOUT_MS = 30_000;
+
 export interface SshChannel {
-  exec(command: string, stdinBody?: Buffer): Promise<string | null>;
+  exec(
+    command: string,
+    stdinBody?: Buffer,
+    opts?: SshChannelExecOptions,
+  ): Promise<string | null>;
   /**
    * `ip:port` of the underlying SSH peer. Used as the exec-breaker key by
    * fleet-status probe + batch paths — same peer-key format connectOneShot
@@ -1169,7 +1194,7 @@ async function discoverIdentityJsonlPathViaChannel(
   let stdout: string | null;
   try {
     stdout = await Promise.race([
-      channel.exec(script),
+      channel.exec(script, undefined, { timeoutMs: DISCOVERY_EXEC_TIMEOUT_MS }),
       new Promise<string | null>((_, reject) =>
         setTimeout(
           () =>
@@ -1821,7 +1846,7 @@ export function createSshPollOrchestrator(
    * forever. 30s is well above normal legacy runtime and far below the
    * "stuck forever" threshold operators observe (~130s+).
    */
-  const LEGACY_POLL_TIMEOUT_MS = 30000;
+  const LEGACY_POLL_TIMEOUT_MS = FLEET_STATUS_EXEC_TIMEOUT_MS;
 
   /**
    * Presence-probe wall-time cap. The `test -x ~/.local/bin/fleet-status-sweep`
@@ -1920,6 +1945,8 @@ export function createSshPollOrchestrator(
           probeRaw = await Promise.race([
             channel.exec(
               "test -x ~/.local/bin/fleet-status-sweep 2>/dev/null && echo yes || echo no",
+              undefined,
+              { timeoutMs: PROBE_TIMEOUT_MS },
             ),
             new Promise<string | null>((_, reject) =>
               setTimeout(
@@ -2249,7 +2276,9 @@ export function createSshPollOrchestrator(
       // on a stalled managed box.
       try {
         sweepRaw = await Promise.race([
-          channel.exec("~/.local/bin/fleet-status-sweep 2>/dev/null"),
+          channel.exec("~/.local/bin/fleet-status-sweep 2>/dev/null", undefined, {
+            timeoutMs: SWEEP_EXEC_TIMEOUT_MS,
+          }),
           new Promise<string | null>((_, reject) =>
             setTimeout(
               () =>

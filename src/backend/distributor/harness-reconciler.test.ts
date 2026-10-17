@@ -14,6 +14,7 @@ import {
   createHarnessReconciler,
   HARNESS_BACKOFF_BASE_MS,
   HARNESS_BACKOFF_CAP_MS,
+  HARNESS_ATTEMPT_TIMEOUT_MS,
   type HarnessReconcilerDeps,
 } from "./harness-reconciler.js";
 
@@ -213,6 +214,22 @@ describe("harness reconciler", () => {
       reason: "exception",
       detail: "channel torn down",
     });
+  });
+
+  it("passes the full attempt budget INTO the exec (the substrate channel's 5-min default would cut an install short)", async () => {
+    const { deps, exec } = makeDeps([OK_NONE]);
+    const r = createHarnessReconciler(deps);
+    r.queue(hostA);
+    await flush();
+    expect(exec).toHaveBeenCalledTimes(1);
+    expect((exec.mock.calls[0] as unknown[])[2]).toEqual({ timeoutMs: HARNESS_ATTEMPT_TIMEOUT_MS });
+    expect(HARNESS_ATTEMPT_TIMEOUT_MS).toBeGreaterThan(5 * 60 * 1000);
+
+    const custom = makeDeps([OK_NONE]);
+    custom.deps.attemptTimeoutMs = 1234;
+    createHarnessReconciler(custom.deps).queue(hostA);
+    await flush();
+    expect((custom.exec.mock.calls[0] as unknown[])[2]).toEqual({ timeoutMs: 1234 });
   });
 
   it("routes the co-located host through runLocal, never SSH", async () => {

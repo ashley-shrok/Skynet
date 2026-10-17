@@ -47,7 +47,7 @@ async function run(ch: SshChannel, cmd: string, stdin?: Buffer): Promise<string>
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const out = await Promise.race([
-      ch.exec(PRELUDE + cmd, stdin),
+      ch.exec(PRELUDE + cmd, stdin, { timeoutMs: EXEC_TIMEOUT_MS }),
       new Promise<null>((resolve) => {
         timer = setTimeout(() => resolve(null), EXEC_TIMEOUT_MS);
       }),

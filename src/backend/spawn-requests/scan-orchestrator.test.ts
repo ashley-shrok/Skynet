@@ -668,7 +668,9 @@ describe("fleet name census refresh", () => {
     const orch = createSpawnScanOrchestrator(deps);
     await orch.start();
     await flush();
-    expect(channel.exec).toHaveBeenCalledWith(CENSUS_REMOTE_CMD);
+    // Census budget (default 10s) is passed INTO the exec so a wedged census
+    // read frees its semaphore slot.
+    expect(channel.exec).toHaveBeenCalledWith(CENSUS_REMOTE_CMD, undefined, { timeoutMs: 10000 });
     const snap = census.census.snapshot(99);
     expect(snap.ready).toBe(true);
     expect(snap.liveElsewhere.has("ada")).toBe(true);
@@ -711,7 +713,9 @@ describe("fleet name census refresh", () => {
     const orch = createSpawnScanOrchestrator(deps);
     await orch.start();
     await flush();
-    expect(channel.exec).toHaveBeenCalledWith(CENSUS_REMOTE_CMD);
+    // Census budget (default 10s) is passed INTO the exec so a wedged census
+    // read frees its semaphore slot.
+    expect(channel.exec).toHaveBeenCalledWith(CENSUS_REMOTE_CMD, undefined, { timeoutMs: 10000 });
     expect(census.snapshot(99).liveElsewhere.has("ada")).toBe(true);
     orch.stop();
   });
@@ -738,7 +742,7 @@ describe("fleet name census refresh", () => {
     const orch = createSpawnScanOrchestrator(deps);
     await orch.start();
     await flush();
-    expect(channel.exec).not.toHaveBeenCalledWith(CENSUS_REMOTE_CMD);
+    expect(vi.mocked(channel.exec).mock.calls.some((c) => c[0] === CENSUS_REMOTE_CMD)).toBe(false);
     orch.stop();
   });
 });

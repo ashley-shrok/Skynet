@@ -11,7 +11,7 @@ import { getDb } from "../database/db/index.js";
 import { hosts } from "../database/db/schema.js";
 import { eq } from "drizzle-orm";
 import { connectOneShot } from "../ssh/ssh-one-shot.js";
-import { execCommand } from "../ssh/tmux-helper.js";
+import { createSemaphoredExecChannel } from "../ssh/semaphored-exec-channel.js";
 import { getHostSemaphore } from "../ssh/host-semaphore-registry.js";
 import { resolveHostById } from "../ssh/host-resolver.js";
 import { SSH_CONNECT_TIMEOUT_MS } from "../database/routes/identity-birth-orchestrator.js";
@@ -25,6 +25,7 @@ import {
   createResponseWriter,
   localRequestIo,
   sshRequestIo,
+  AGENT_SERVICES_EXEC_TIMEOUT_MS,
   type SshChannel,
 } from "./engine/host-io.js";
 import {
@@ -109,18 +110,16 @@ export function startAgentServices(): void {
         client.on("error", forget);
       }
       // Shared per-host semaphore: bounds exec channels across every SSH
-      // producer talking to this host.
-      const sem = getHostSemaphore(host.id);
-      const c = client;
-      return {
-        exec: async (cmd) => {
-          try {
-            return await sem.run(() => execCommand(c, cmd));
-          } catch {
-            return null;
-          }
-        },
-      };
+      // producer talking to this host. The exec timeout is passed into
+      // execCommand so a wedged exec frees its slot (default 30s = scan
+      // timeout; attachment reads pass a longer budget).
+      return createSemaphoredExecChannel({
+        client,
+        hostId: host.id,
+        subsystem: "agent_services_scan",
+        defaultTimeoutMs: AGENT_SERVICES_EXEC_TIMEOUT_MS,
+        semaphore: getHostSemaphore(host.id),
+      });
     } catch (err) {
       const payload = {
         operation: "agent_services_scan_acquire_failed",

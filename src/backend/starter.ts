@@ -532,8 +532,11 @@ if (process.env.VITEST !== "true") {
       const { resolveHostRecordByName } = await import(
         "./fleet-status/host-id-resolver.js"
       );
-      const { createSshPollOrchestrator } = await import(
+      const { createSshPollOrchestrator, FLEET_STATUS_EXEC_TIMEOUT_MS } = await import(
         "./fleet-status/ssh-poll-orchestrator.js"
+      );
+      const { createSemaphoredExecChannel } = await import(
+        "./ssh/semaphored-exec-channel.js"
       );
       const { connectOneShot } = await import("./ssh/ssh-one-shot.js");
       const { execCommand, execCommandWithStdin } = await import("./ssh/tmux-helper.js");
@@ -1057,23 +1060,27 @@ if (process.env.VITEST !== "true") {
                 // the same host share a single pool. Cap history in
                 // host-semaphore-registry.ts docblock (48 slots as of 2026-09-24).
                 const sem = getHostSemaphore(host.id);
-                const channel: SshChannel = {
+                // Exec timeouts are passed INTO execCommand (closing the
+                // channel and freeing the slot) — default
+                // FLEET_STATUS_EXEC_TIMEOUT_MS, tighter per-call budgets via
+                // opts. See semaphored-exec-channel.ts.
+                const channel: SshChannel = createSemaphoredExecChannel({
+                  client: existing,
+                  hostId: host.id,
+                  subsystem: "fleet_status",
+                  defaultTimeoutMs: FLEET_STATUS_EXEC_TIMEOUT_MS,
                   peer,
-                  exec: async (command: string, stdinBody?: Buffer): Promise<string | null> => {
-                    try {
-                      return await sem.run(async () =>
-                        stdinBody === undefined
-                          ? execCommand(existing, command)
-                          : execCommandWithStdin(existing, command, stdinBody),
-                      );
-                    } catch {
-                      return null;
-                    }
-                  },
-                };
+                  semaphore: sem,
+                  execCommand,
+                  execCommandWithStdin,
+                });
                 // Quick health probe — routed through the SAME semaphore so
-                // it cannot bypass the cap on a saturated connection.
-                await sem.run(async () => execCommand(existing, "echo ok"));
+                // it cannot bypass the cap on a saturated connection. Bounded
+                // like the orchestrator's presence probe (5s) so a wedged
+                // connection fails over to reconnect instead of holding a slot.
+                await sem.run(async () =>
+                  execCommand(existing, "echo ok", { timeoutMs: 5000 }),
+                );
                 return channel;
               } catch {
                 // Connection dead — remove and reconnect
@@ -1106,21 +1113,15 @@ if (process.env.VITEST !== "true") {
             // registry — fleet-status + substrate + route producers running on
             // the same host now share a single 8-slot pool. Wilma-incident
             // MaxSessions=10 citation: cap at 8 leaves 2 channels of headroom.
-            const sem = getHostSemaphore(host.id);
-            const channelAdapter: SshChannel = {
+            const channelAdapter: SshChannel = createSemaphoredExecChannel({
+              client,
+              hostId: host.id,
+              subsystem: "fleet_status",
+              defaultTimeoutMs: FLEET_STATUS_EXEC_TIMEOUT_MS,
               peer,
-              exec: async (command: string, stdinBody?: Buffer): Promise<string | null> => {
-                try {
-                  return await sem.run(async () =>
-                    stdinBody === undefined
-                      ? execCommand(client, command)
-                      : execCommandWithStdin(client, command, stdinBody),
-                  );
-                } catch {
-                  return null;
-                }
-              },
-            };
+              execCommand,
+              execCommandWithStdin,
+            });
 
             // Phase 39 D-05 (GATE2-05): fire-and-forget blind Stop-hook
             // install on FIRST successful new-client acquire per host per
@@ -1433,6 +1434,12 @@ if (process.env.VITEST !== "true") {
       const { execCommand: execCommandSub, execCommandWithStdin: execCommandWithStdinSub } = await import(
         "./ssh/tmux-helper.js"
       );
+      const { createSemaphoredExecChannel: createSemaphoredExecChannelSub } = await import(
+        "./ssh/semaphored-exec-channel.js"
+      );
+      const { SUBSTRATE_EXEC_TIMEOUT_MS } = await import(
+        "./distributor/server-substrate-orchestrator.js"
+      );
       const { getDb: getDbForSubstrate } = await import(
         "./database/db/index.js"
       );
@@ -1480,23 +1487,17 @@ if (process.env.VITEST !== "true") {
           // hostId (Bounty b31a5c8e Phase 101 D-04). getHostSemaphore is
           // idempotent: first call creates the 8-slot pool; subsequent calls
           // return the same instance.
-          const sem = getHostSemaphore(host.id);
-
-          const capturedClient = client;
-          const capturedSem = sem;
-          return {
-            exec: async (cmd: string, stdinBody?: Buffer): Promise<string | null> => {
-              try {
-                return await capturedSem.run(async () =>
-                  stdinBody === undefined
-                    ? execCommandSub(capturedClient, cmd)
-                    : execCommandWithStdinSub(capturedClient, cmd, stdinBody),
-                );
-              } catch {
-                return null;
-              }
-            },
-          };
+          // Per-exec ceiling SUBSTRATE_EXEC_TIMEOUT_MS (5 min) unless the
+          // caller passes its own (harness reconciler: full install budget;
+          // instance-wide host-ops: 60s).
+          return createSemaphoredExecChannelSub({
+            client,
+            hostId: host.id,
+            subsystem: "substrate",
+            defaultTimeoutMs: SUBSTRATE_EXEC_TIMEOUT_MS,
+            execCommand: execCommandSub,
+            execCommandWithStdin: execCommandWithStdinSub,
+          });
         } catch (err) {
           // SECURITY: never include host._connDetails (plaintext creds) or
           // err.stack in the log call — only err.message is safe to surface.
@@ -1672,7 +1673,7 @@ if (process.env.VITEST !== "true") {
     // same session-less enumeration primitive, isolated SSH-client pool.
     // =========================================================================
     {
-      const { createSpawnScanOrchestrator } = await import(
+      const { createSpawnScanOrchestrator, SPAWN_SCAN_EXEC_TIMEOUT_MS } = await import(
         "./spawn-requests/scan-orchestrator.js"
       );
       const { listSubstrateHosts: listSubstrateHostsForScan } = await import(
@@ -1683,6 +1684,9 @@ if (process.env.VITEST !== "true") {
       );
       const { execCommand: execCommandSpawn, execCommandWithStdin: execCommandWithStdinSpawn } = await import(
         "./ssh/tmux-helper.js"
+      );
+      const { createSemaphoredExecChannel: createSemaphoredExecChannelSpawn } = await import(
+        "./ssh/semaphored-exec-channel.js"
       );
       const { getDb: getDbForSpawnScan } = await import(
         "./database/db/index.js"
@@ -1713,22 +1717,16 @@ if (process.env.VITEST !== "true") {
 
           // Shared registry semaphore — same 8-slot pool as fleet-status +
           // substrate on this hostId (bounty b31a5c8e Phase 101 D-04).
-          const sem = getHostSemaphore(host.id);
-          const capturedClient = client;
-          const capturedSem = sem;
-          return {
-            exec: async (cmd: string, stdinBody?: Buffer): Promise<string | null> => {
-              try {
-                return await capturedSem.run(async () =>
-                  stdinBody === undefined
-                    ? execCommandSpawn(capturedClient, cmd)
-                    : execCommandWithStdinSpawn(capturedClient, cmd, stdinBody),
-                );
-              } catch {
-                return null;
-              }
-            },
-          };
+          // Per-exec ceiling = the per-host scan timeout, so an exec never
+          // outlives the scan that issued it (census passes its own 10s).
+          return createSemaphoredExecChannelSpawn({
+            client,
+            hostId: host.id,
+            subsystem: "spawn_scan",
+            defaultTimeoutMs: SPAWN_SCAN_EXEC_TIMEOUT_MS,
+            execCommand: execCommandSpawn,
+            execCommandWithStdin: execCommandWithStdinSpawn,
+          });
         } catch (err) {
           const isBreakerRefusal =
             err instanceof Error && err.name === "CircuitBreakerOpenError";

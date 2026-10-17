@@ -27,10 +27,26 @@ import {
   type ClaimedFile,
 } from "./protocol.js";
 
-/** SSH exec channel, as the boot wiring provides it. Returns null on error. */
+/** SSH exec channel, as the boot wiring provides it. Returns null on error.
+ *  `opts.timeoutMs` is passed into the underlying exec (closing the channel
+ *  and freeing its per-host semaphore slot on expiry); the boot adapter
+ *  defaults it to AGENT_SERVICES_EXEC_TIMEOUT_MS. */
 export interface SshChannel {
-  exec(command: string): Promise<string | null>;
+  exec(
+    command: string,
+    stdinBody?: Buffer,
+    opts?: { timeoutMs?: number },
+  ): Promise<string | null>;
 }
+
+/** Default per-exec ceiling for the agent-services scan channel — equal to
+ *  the scan orchestrator's per-host scan timeout (30s), so a claim exec never
+ *  outlives the scan that issued it. */
+export const AGENT_SERVICES_EXEC_TIMEOUT_MS = 30_000;
+
+/** Attachment reads carry up to maxBytes of base64 (audio for stt, images)
+ *  and run outside the scan guard; give them more room than a claim. */
+export const AGENT_SERVICES_ATTACHMENT_EXEC_TIMEOUT_MS = 2 * 60 * 1000;
 
 type AttachmentRead = Buffer | "missing" | "too_large";
 
@@ -61,7 +77,9 @@ export function sshRequestIo(
       return parseScanOutput(stdout);
     },
     async readAttachment(filename, maxBytes) {
-      const stdout = await channel.exec(attachmentReadCmd(filename, maxBytes));
+      const stdout = await channel.exec(attachmentReadCmd(filename, maxBytes), undefined, {
+        timeoutMs: AGENT_SERVICES_ATTACHMENT_EXEC_TIMEOUT_MS,
+      });
       if (stdout === null) return "missing";
       const bytes = Buffer.from(stdout.trim(), "base64");
       if (bytes.byteLength === 0) return "missing";
